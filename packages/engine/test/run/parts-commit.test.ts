@@ -1,19 +1,22 @@
 // Delivery in parts on real git (DIPO-273, 0021 sections 8, 13 and 14): a fake box whose `tar`
 // streams a real folder, dipo's stream, extraction, comparison, scans, plumbing commit and push
 // to a bare remote in the temp folder. The box ignores dipo's exclude list here, so the Mac's own
-// check is what keeps `node_modules` out.
+// check is what keeps `node_modules` out; the DIPO-290 cases use a box that honours it, as GNU tar
+// does.
 
 import { spawnSync } from "node:child_process";
 import {
+  cpSync,
   existsSync,
   mkdirSync,
+  mkdtempSync,
   readdirSync,
   realpathSync,
   rmSync,
   symlinkSync,
   writeFileSync,
 } from "node:fs";
-import { join } from "node:path";
+import { basename, join, relative } from "node:path";
 
 import { describe, expect, it } from "bun:test";
 
@@ -26,11 +29,17 @@ import {
 
 import {
   BoxParts,
+  type BoxPartsDeps,
+  failedDetail,
+  PART_FAILED,
+  PART_FAILED_TRIES,
   PART_RECORD_FILE,
+  PART_STAGE_PREFIX,
   PART_WAITING,
   type PartPark,
   type PartRun,
 } from "../../src/box/parts";
+import { BOX_RUN_FILE } from "../../src/box/workers";
 import { BoxError, type BoxPort } from "../../src/box/port";
 import { OfficeGit, spawnGitExec } from "../../src/git";
 import { systemSpawn } from "../../src/platform/process";
@@ -61,24 +70,82 @@ interface World {
   readonly claimTip: string;
   readonly calls: string[];
   readonly parks: PartPark[];
+  /** What the base config's `box.files` says now (`BoxPartsDeps.listedFiles`). */
+  listed: string[];
   live: boolean;
 }
 
-/** A box whose exec runs the system `tar` over `work`, whatever exclude list dipo passes. */
-function tarBox(work: string, calls: string[]): Pick<BoxPort, "execLive" | "stop"> {
+/** How the fake box's `tar` treats dipo's exclude list. */
+type TarMode = "all" | "excludes";
+
+/**
+ * What one exec in the fake box does besides packing `/work`: `exit` ends it at once with that
+ * code and no output; `hold` delays its output until it settles.
+ */
+type ExecHook = () => { readonly exit?: number; readonly hold?: Promise<unknown> } | void;
+
+/**
+ * The paths below `work` a GNU `tar -C work -cf - --exclude=... .` packs: a plain exclude drops
+ * every entry of that name at any depth, `./<name>` only the entry at the root.
+ */
+function excluded(work: string, excludes: readonly string[]): (path: string) => boolean {
+  const names = excludes.filter((name) => !name.startsWith("./"));
+  const roots = excludes.filter((name) => name.startsWith("./")).map((name) => name.slice(2));
+  return (path) => {
+    const rel = relative(work, path);
+    if (rel === "") return false;
+    return names.includes(basename(rel)) || roots.includes(rel);
+  };
+}
+
+/** The `--exclude=` values of a part's archive command. */
+function excludesOf(command: readonly string[]): string[] {
+  return command.flatMap((arg) =>
+    arg.startsWith("--exclude=") ? [arg.slice("--exclude=".length)] : [],
+  );
+}
+
+/**
+ * A box whose exec runs the system `tar` over `work`: whatever exclude list dipo passes (`all`),
+ * or honouring it as GNU tar does (`excludes`, from a copy without the excluded entries).
+ */
+function tarBox(
+  work: string,
+  calls: string[],
+  mode: TarMode = "all",
+  onExec: ExecHook = () => {},
+): Pick<BoxPort, "execLive" | "stop"> {
   return {
     execLive: (box, command) => {
       calls.push(`exec ${box} ${command.slice(4).join(" ")}`);
-      const packed = spawnSync("tar", ["-C", work, "-cf", "-", "."], {
+      const hook = onExec() ?? {};
+      if (hook.exit !== undefined) {
+        return {
+          stdin: { write: () => {}, end: () => calls.push("stdin end") },
+          stdout: new ReadableStream({ start: (controller) => controller.close() }),
+          stderr: new ReadableStream({ start: (controller) => controller.close() }),
+          exited: Promise.resolve({ code: hook.exit, signal: null }),
+          kill: (signal: Signal = "SIGTERM") => calls.push(`kill ${signal}`),
+        };
+      }
+      let from = work;
+      if (mode === "excludes") {
+        from = mkdtempSync(join(work, "..", "box-tar-"));
+        const out = excluded(work, excludesOf(command));
+        cpSync(work, from, { recursive: true, verbatimSymlinks: true, filter: (at) => !out(at) });
+      }
+      const packed = spawnSync("tar", ["-C", from, "-cf", "-", "."], {
         env: { PATH: "/usr/bin:/bin", COPYFILE_DISABLE: "1" },
         maxBuffer: 64 * 1024 * 1024,
       });
+      if (from !== work) rmSync(from, { recursive: true, force: true });
       let finish!: (exit: { code: number | null; signal: Signal | null }) => void;
       const exited = new Promise<{ code: number | null; signal: Signal | null }>((resolve) => {
         finish = resolve;
       });
       const stdout = new ReadableStream<Uint8Array>({
-        start(controller) {
+        async start(controller) {
+          await hook.hold;
           controller.enqueue(new Uint8Array(packed.stdout));
           controller.close();
           finish({ code: packed.status, signal: null });
@@ -105,8 +172,20 @@ function write(dir: string, files: Readonly<Record<string, string>>): void {
   }
 }
 
-async function world(repo: TempRepoWithRemote): Promise<World> {
-  write(repo.dir, START);
+interface WorldOptions {
+  /** Files of the start commit beside or instead of `START`. */
+  readonly start?: Readonly<Record<string, string>>;
+  readonly tar?: TarMode;
+  /** Writes the box's record of the listed files (`BoxRunRecord.files`) in the run directory. */
+  readonly recorded?: readonly string[];
+  /** Called on every exec in the box, before it packs `/work` (`ExecHook`). */
+  readonly onExec?: (w: World) => ReturnType<ExecHook>;
+  readonly deps?: Partial<BoxPartsDeps>;
+}
+
+async function world(repo: TempRepoWithRemote, options: WorldOptions = {}): Promise<World> {
+  const start = { ...START, ...options.start };
+  write(repo.dir, start);
   const startSha = await repo.commitAll("start");
   await repo.git("branch", BRANCH, startSha);
   // dipo's claim commit of the task file on the story branch: the box never gets it.
@@ -117,10 +196,21 @@ async function world(repo: TempRepoWithRemote): Promise<World> {
   await repo.git("checkout", "--quiet", "main");
   // The box's code: the start commit as `tar` would find it, plus a file outside git.
   const work = join(repo.root, "box-work");
-  write(work, START);
+  write(work, start);
   writeFileSync(join(work, "listed.json"), "{}\n");
   const runDir = join(repo.root, "run");
   mkdirSync(runDir);
+  if (options.recorded !== undefined) {
+    writeFileSync(
+      join(runDir, BOX_RUN_FILE),
+      JSON.stringify({
+        runId: "run_1",
+        office: OFFICE,
+        box: "dipo-run_1",
+        files: options.recorded,
+      }),
+    );
+  }
   const tmp = join(repo.root, "tmp");
   mkdirSync(tmp);
   const real = realpathSync(repo.dir);
@@ -143,14 +233,25 @@ async function world(repo: TempRepoWithRemote): Promise<World> {
     box: "dipo-run_1",
     runDir,
   };
-  const w = { repo, git, work, runDir, startSha, claimTip, calls, parks, live: true } as World;
+  const w = {
+    repo,
+    git,
+    work,
+    runDir,
+    startSha,
+    claimTip,
+    calls,
+    parks,
+    listed: ["listed.json"],
+    live: true,
+  } as World;
   const parts = new BoxParts({
-    boxes: tarBox(work, calls),
+    boxes: tarBox(work, calls, options.tar, () => options.onExec?.(w)),
     clock: new ManualClock(),
     tmpRoot: realpathSync(tmp),
     run: (runId) => (runId === "run_1" ? run : null),
     git: (office) => (office === OFFICE ? git : undefined),
-    listedFiles: async () => ["listed.json"],
+    listedFiles: async () => w.listed,
     live: () => w.live,
     park: (_runId, park) => {
       parks.push(park);
@@ -160,6 +261,7 @@ async function world(repo: TempRepoWithRemote): Promise<World> {
       calls.push(`read door ${runId}`);
       return Promise.resolve(null);
     },
+    ...options.deps,
   });
   (w as { parts: BoxParts }).parts = parts;
   return w;
@@ -176,8 +278,8 @@ function part(message: string) {
   };
 }
 
-function inParts(fn: (w: World) => Promise<void>): Promise<void> {
-  return withBareRemote(async (repo) => fn(await world(repo)));
+function inParts(fn: (w: World) => Promise<void>, options: WorldOptions = {}): Promise<void> {
+  return withBareRemote(async (repo) => fn(await world(repo, options)));
 }
 
 async function tip(w: World, where: "local" | "remote" = "local"): Promise<string> {
@@ -538,4 +640,205 @@ describe("a run that ends while its part is taken", () => {
       endsAfter(w, 2);
       expect(await w.parts.deliverLast("run_1", "Done")).toEqual({ kind: "stopped" });
     }));
+});
+
+describe("the edges of a part (DIPO-290)", () => {
+  it("leaves out the listed files the box was made with, whatever the base config says later", () =>
+    inParts(
+      async (w) => {
+        // The base config now lists nothing, and then another file: the record decides.
+        w.listed = [];
+        write(w.work, {
+          "listed.json": '{"changed": true}\n',
+          "src/a.ts": "export const a = 2;\n",
+        });
+        await w.parts.onPart(part("Change a with the listed file beside it"));
+        expect(w.parks).toEqual([]);
+        expect(await filesAt(w, await tip(w))).not.toContain("listed.json");
+        w.listed = ["listed.json", "src/b.ts"];
+        write(w.work, { "src/b.ts": "export const b = 1;\n" });
+        await w.parts.onPart(part("Add b"));
+        expect(await filesAt(w, await tip(w))).toContain("src/b.ts");
+      },
+      { recorded: ["listed.json"] },
+    ));
+
+  it("reads the base config's list only for a run whose record does not hold one", () =>
+    inParts(async (w) => {
+      w.listed = [];
+      write(w.work, { "listed.json": '{"changed": true}\n' });
+      await w.parts.onPart(part("No record of the listed files"));
+      expect(await filesAt(w, await tip(w))).toContain("listed.json");
+    }));
+
+  it("delivers a .env.example and a .env.sample, and still parks on a .env", () =>
+    inParts(async (w) => {
+      write(w.work, {
+        ".env.example": "API_URL=https://example.invalid\n",
+        "config/.env.sample": "PORT=\n",
+      });
+      await w.parts.onPart(part("Add the env templates"));
+      expect(w.parks).toEqual([]);
+      const files = await filesAt(w, await tip(w));
+      expect(files).toContain(".env.example");
+      expect(files).toContain("config/.env.sample");
+      write(w.work, { ".env": "API_URL=https://example.invalid\n" });
+      await w.parts.onPart(part("Add the env"));
+      expect(w.parks.map((p) => [p.cause, p.detail.includes("a secret file name")])).toEqual([
+        ["secret", true],
+      ]);
+    }));
+
+  it("delivers a path the part's own .gitignore un-ignores in that same part", () =>
+    inParts(async (w) => {
+      write(w.work, { ".gitignore": "node_modules/\n", "keep.log": "kept\n" });
+      await w.parts.onPart(part("Track the log"));
+      expect(w.parks).toEqual([]);
+      expect(await filesAt(w, await tip(w))).toContain("keep.log");
+    }));
+
+  it("delivers an un-ignored path in the last part too", () =>
+    inParts(async (w) => {
+      write(w.work, { ".gitignore": "node_modules/\n*.log\n!keep.log\n" });
+      write(w.work, { "keep.log": "kept\n", "other.log": "ignored\n" });
+      const outcome = await w.parts.deliverLast("run_1", "Finish with the log");
+      expect(outcome.kind).toBe("committed");
+      const files = await filesAt(w, await tip(w));
+      expect(files).toContain("keep.log");
+      expect(files).not.toContain("other.log");
+    }));
+
+  it("takes the part again without an in-box exclude the part's .gitignore dropped", () =>
+    inParts(
+      async (w) => {
+        write(w.work, {
+          ".gitignore": "*.log\n",
+          "node_modules/pkg/index.js": "module.exports = 1;\n",
+        });
+        await w.parts.onPart(part("Vendor the package"));
+        expect(w.parks).toEqual([]);
+        expect(await filesAt(w, await tip(w))).toContain("node_modules/pkg/index.js");
+        // The first stream left node_modules in the box; the second, by the part's rules, did not.
+        expect(w.calls.filter((call) => call.startsWith("exec"))).toEqual([
+          "exec dipo-run_1 tar --hard-dereference -C /work -cf - --exclude=node_modules .",
+          "exec dipo-run_1 tar --hard-dereference -C /work -cf - .",
+        ]);
+        // The next part streams once, with the delivered rules.
+        write(w.work, { "src/a.ts": "export const a = 2;\n" });
+        await w.parts.onPart(part("Change a"));
+        expect(w.calls.filter((call) => call.startsWith("exec"))).toHaveLength(3);
+      },
+      { tar: "excludes" },
+    ));
+
+  it("delivers the last part with an exclude the part's .gitignore dropped", () =>
+    inParts(
+      async (w) => {
+        write(w.work, {
+          ".gitignore": "/node_modules\n*.log\n",
+          "node_modules/pkg/index.js": "module.exports = 1;\n",
+        });
+        await w.parts.onPart(part("Anchor node_modules"));
+        // Unchanged: still ignored at the root, by the anchored rule now.
+        expect(await filesAt(w, await tip(w))).not.toContain("node_modules/pkg/index.js");
+        write(w.work, { ".gitignore": "*.log\n" });
+        const outcome = await w.parts.deliverLast("run_1", "Vendor at the end");
+        expect(outcome.kind).toBe("committed");
+        expect(await filesAt(w, await tip(w))).toContain("node_modules/pkg/index.js");
+      },
+      { tar: "excludes" },
+    ));
+
+  it("excludes an anchored root name in the box, and delivers the same name deeper", () =>
+    inParts(
+      async (w) => {
+        write(w.work, {
+          "node_modules/left-out/index.js": "ignored\n",
+          "pkg/node_modules/kept/index.js": "not ignored by /node_modules\n",
+          "src/a.ts": "export const a = 2;\n",
+        });
+        await w.parts.onPart(part("Anchored ignore"));
+        expect(w.parks).toEqual([]);
+        expect(w.calls.filter((call) => call.startsWith("exec"))).toEqual([
+          "exec dipo-run_1 tar --hard-dereference -C /work -cf - --exclude=./dist --exclude=./node_modules .",
+        ]);
+        const files = await filesAt(w, await tip(w));
+        expect(files).toContain("pkg/node_modules/kept/index.js");
+        expect(files).not.toContain("node_modules/left-out/index.js");
+      },
+      { start: { ".gitignore": "/node_modules\n/dist/\n*.log\n" }, tar: "excludes" },
+    ));
+
+  it("parks part-refused after the set number of failed tries, not on every door read", () => {
+    let failing = true;
+    // The stream out of the box fails: `tar` ends with exit 2 and prints nothing.
+    return inParts(
+      async (w) => {
+        const tryOnce = () =>
+          w.parts.onPart(part("Cannot come out")).then(
+            () => null,
+            (error: unknown) => error as BoxError,
+          );
+        write(w.work, { "src/a.ts": "export const a = 2;\n" });
+        for (let n = 1; n < PART_FAILED_TRIES; n += 1) {
+          expect((await tryOnce())?.code).toBe(PART_FAILED);
+        }
+        expect(w.parks).toEqual([]);
+        // The last try still rejects, so the part stays queued in the box for a resume.
+        expect((await tryOnce())?.code).toBe(PART_FAILED);
+        expect(w.parks).toEqual([
+          {
+            reason: "scope-violation",
+            cause: "part-refused",
+            detail: failedDetail(PART_FAILED_TRIES),
+          },
+        ]);
+        expect(w.parks[0]?.detail).not.toContain("src/a.ts");
+        expect(await tip(w)).toBe(w.claimTip);
+        // A run that is not live does not count; a delivered part starts the count again.
+        w.live = false;
+        for (let n = 0; n < PART_FAILED_TRIES; n += 1) {
+          expect((await tryOnce())?.code).toBe(PART_WAITING);
+        }
+        w.live = true;
+        for (let n = 1; n < PART_FAILED_TRIES; n += 1) await tryOnce();
+        failing = false;
+        await w.parts.onPart(part("Comes out"));
+        failing = true;
+        for (let n = 1; n < PART_FAILED_TRIES; n += 1) await tryOnce();
+        expect(w.parks).toHaveLength(1);
+      },
+      { onExec: () => (failing ? { exit: 2 } : undefined) },
+    );
+  });
+
+  it("sweeps the stage folders a stopped daemon left, never the one a part uses", () => {
+    let sweep: Promise<number> | null = null;
+    return inParts(
+      async (w) => {
+        const tmp = realpathSync(join(w.repo.root, "tmp"));
+        mkdirSync(join(tmp, `${PART_STAGE_PREFIX}left1`, "files"), { recursive: true });
+        writeFileSync(join(tmp, `${PART_STAGE_PREFIX}left1`, "files", "a.ts"), "box files\n");
+        writeFileSync(join(tmp, `${PART_STAGE_PREFIX}not-a-folder`), "kept\n");
+        mkdirSync(join(tmp, "dipo-other-keep"));
+        write(w.work, { "src/a.ts": "export const a = 2;\n" });
+        await w.parts.onPart(part("Swept meanwhile"));
+        // The sweep ran while the part streamed: the part's own stage stayed, and it committed.
+        expect(await sweep).toBe(1);
+        expect(w.parks).toEqual([]);
+        expect(await w.repo.git("show", `${await tip(w)}:src/a.ts`)).toBe("export const a = 2;\n");
+        expect(readdirSync(tmp).toSorted()).toEqual([
+          `${PART_STAGE_PREFIX}not-a-folder`,
+          "dipo-other-keep",
+        ]);
+      },
+      {
+        // The part's output waits for the sweep, so its stage folder is in use while it runs.
+        onExec: (w) => {
+          sweep ??= w.parts.sweepStages();
+          return { hold: sweep };
+        },
+      },
+    );
+  });
 });

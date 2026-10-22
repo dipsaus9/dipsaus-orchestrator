@@ -10,19 +10,23 @@
 //    links. A failed stream kills only the exec client, so the worker's box is kept; the `tar` in
 //    the box runs under `timeout` where the box has it, as the door's read does. Paths git would
 //    ignore leave out early, inside the box, by an exclude list dipo builds from the delivered
-//    root `.gitignore` (`inBoxExcludes`: plain names such as `node_modules`, unless a `!` rule
-//    could re-include the name or a tracked path carries it). The box's filtering is never trusted: the Mac
-//    checks every path again.
+//    root `.gitignore` (`inBoxExcludes`: plain names such as `node_modules`, and names anchored
+//    to the root such as `/node_modules`, unless a `!` rule could re-include the name or a
+//    tracked path carries it). When the part's own root `.gitignore` no longer ignores a name the
+//    box left out, the part is taken again with the exclude list of its own rules, the last of at
+//    most `EXCLUDE_TAKES` streams with none, so a path the part un-ignores is delivered in that
+//    same part. The box's filtering is never trusted: the Mac checks every path again.
 // 2. On the Mac. The extractor (`extractArchive`) writes only files and folders into a fresh
 //    folder outside any repository and refuses hostile entries; every symlink or hard link is
 //    recorded as data, never written or followed. dipo reads the files there, as data only, and
 //    compares them with the last delivered tree: the story branch's tip, with `backlog/` as the box
 //    got it at the start commit (dipo's own task-file commits never reach the box). Left out are
-//    paths git ignores by the delivered or the part's own `.gitignore` rules (`box/ignore.ts`), the
-//    files outside git the office config copies in (`box.files`), and anything below a submodule,
-//    unless the delivered tree tracks the path. The matching runs in batches with the event loop
-//    free between them, within `IGNORE_WORK_BUDGET`; a part's `.gitignore` over `IGNORE_FILE_MAX`
-//    is refused unread.
+//    paths git ignores by the part's own `.gitignore` rules (`box/ignore.ts`), as git would in the
+//    part's commit, the files outside git the office config copied in when the box was made (the
+//    run's record of `box.files`, `BoxRunRecord.files`, never the base config at part time), and
+//    anything below a submodule, unless the delivered tree tracks the path. The matching runs in
+//    batches with the event loop free between them, within `IGNORE_WORK_BUDGET`; a part's
+//    `.gitignore` over `IGNORE_FILE_MAX` is refused unread.
 // 3. The scans (0021 section 8). A path with a control, bidirectional or invisible character is
 //    refused. A protected-file check (`protectedKind`, folded as APFS folds names, with a
 //    look-alike fold as a second layer: git's own folder, the whole `backlog/` with the story's
@@ -30,7 +34,7 @@
 //    over every added, changed and deleted path, where any link other than an unchanged tracked
 //    symlink also counts as protected. Then the secret scan, outside the git queue: the cleaned
 //    commit subject, every added or changed path's name, and every added or changed file streamed
-//    in chunks (a file over `SCAN_FILE_MAX` refuses the part): secret file names (`isSecretPath`),
+//    in chunks (a file over `SCAN_FILE_MAX` refuses the part): secret file names (`isSecretPartPath`),
 //    content patterns and the values of the listed box files (`listedValues`) that the delivered
 //    version of the file did not already hold. A hit parks the story with a fixed text that names
 //    only the kinds found, never a path or what matched; nothing is committed or pushed, and the
@@ -52,7 +56,12 @@
 //
 // Parts of one run are delivered one at a time. A part that finds the run not live (being parked,
 // stopped, or not followed) is left queued in the box (`onPart` rejects), so it is delivered when
-// the run goes on. A stream or git failure rejects too, and the door hands the part again.
+// the run goes on. A stream or git failure rejects too, and the door hands the part again; after
+// `PART_FAILED_TRIES` failed tries in a row the run parks (`part-refused`), and the part stays
+// queued in the box for a resume.
+//
+// Each part's stage folder is removed when the part is done; the ones a stopped daemon left are
+// removed at daemon start (`BoxParts.sweepStages`).
 //
 // Story done (`finishLast`) holds the same one-at-a-time turn from the last part until the caller
 // has claimed the run's end, so no part or catch-up moves the branch between the last part and In
@@ -67,7 +76,7 @@ import { join } from "node:path";
 import type { Clock, OfficeId } from "@dipsaus-orchestrator/contract";
 
 import {
-  isSecretPath,
+  isSecretPartPath,
   newKeyKinds,
   type SecretKeys,
   secretKeys,
@@ -96,6 +105,7 @@ import {
   MatchBudget,
 } from "./ignore";
 import { BoxError, type BoxPort } from "./port";
+import { readBoxRun } from "./workers";
 
 const GIB = 1024 ** 3;
 /** The caps of one part: 1 GiB of archive, 500,000 entries, 1 GiB unpacked. */
@@ -149,6 +159,17 @@ const LISTED_VALUES_MAX = 5_000;
 const HASH_CHUNK = 1024 * 1024;
 /** How often a part is taken again when the branch moved under it. */
 const MOVED_ATTEMPTS = 3;
+/**
+ * The most streams of one part out of the box: the first with the delivered tree's excludes, then
+ * with the excludes of the part's own `.gitignore` when it no longer ignores one of them, the last
+ * with none.
+ */
+export const EXCLUDE_TAKES = 3;
+/**
+ * How many tries in a row a door part may fail (the stream out of the box or a git step) before the
+ * run parks instead of the door handing the part again on its next read (DIPO-290).
+ */
+export const PART_FAILED_TRIES = 5;
 
 /** The park causes of a part (`run/park.ts` holds the same strings). */
 export const PART_CAUSES = {
@@ -350,23 +371,30 @@ export function comparePart(input: {
 }
 
 /**
- * Pure: the in-box exclude list, `--exclude=<name>` for `tar`: the plain names the delivered root
- * `.gitignore` ignores at any depth, unless a `!` rule could re-include it (an exclude list cannot)
- * or a tracked path has a part of that name (it would go missing from the part). Only an early
- * filter: the Mac checks every path again.
+ * Pure: the in-box exclude list, each `--exclude=<pattern>` for `tar`: the plain names the root
+ * `.gitignore` of `rules` ignores at any depth (`node_modules`), then as `./<name>` the ones it
+ * ignores at the root only (`/node_modules`; DIPO-290), unless a `!` rule could re-include the
+ * name (an exclude list cannot) or a tracked path has a part of that name (it would go missing from
+ * the part). Only an early filter: the Mac checks every path again.
  */
 export function inBoxExcludes(rules: IgnoreRules, view: ReadonlyMap<string, TreeEntry>): string[] {
   const tracked = new Set([...view.keys()].flatMap((path) => path.split("/")));
-  return rules.plainNames.filter((name) => !tracked.has(name) && !rules.reincludes(name));
+  const usable = (name: string) => !tracked.has(name) && !rules.reincludes(name);
+  return [
+    ...rules.plainNames.filter(usable),
+    ...rules.rootNames.filter(usable).map((name) => `./${name}`),
+  ];
 }
 
 /**
  * The command that streams the part out of the box: `tar` of `BOX_WORKDIR` to its stdout, hard
- * links stored as files, the excludes first, under `timeout` where the box has it.
+ * links stored as files, the excludes first, under `timeout` where the box has it. A plain name
+ * excludes that name at any depth; `./<name>` only the entry at the root of `/work`, since the
+ * archive's names start `./` there and nowhere below (GNU tar's unanchored matching).
  */
 export function partArchiveCommand(excludes: readonly string[]): [string, ...string[]] {
   for (const name of excludes) {
-    if (!/^[A-Za-z0-9._-]+$/.test(name)) {
+    if (!/^(?:\.\/)?[A-Za-z0-9._-]+$/.test(name) || /^(?:\.\/)?\.{1,2}$/.test(name)) {
       throw new BoxError("box.refused", `${JSON.stringify(name)} is not a plain name to exclude.`);
     }
   }
@@ -461,7 +489,7 @@ export async function secretHits(input: {
   for (const change of input.changes) {
     if (change.kind === "deleted") continue;
     const named = [...secretKeys(change.path, input.literals).keys()];
-    if (isSecretPath(change.path)) named.push(SECRET_NAME_KIND);
+    if (isSecretPartPath(change.path)) named.push(SECRET_NAME_KIND);
     for (const kind of named) kinds.add(kind);
     if (named.length > 0) paths.add(change.path);
     const keys = await secretKeysOfFile(
@@ -633,6 +661,14 @@ export function refusedDetail(why: PartRefusal, maxBytes: number): string {
     return "The part the worker delivered holds a path git does not take into a commit. dipo committed and pushed nothing.";
   }
   return "The part the worker delivered holds an entry dipo does not take (a path that leaves its folder, a name twice, a link below which a file sits, or an entry other than a file, folder or link). dipo committed and pushed nothing.";
+}
+
+/**
+ * Pure: the fixed park detail of a door part that failed `tries` times in a row (DIPO-290); it
+ * names no path and quotes no error, which may hold the box's paths.
+ */
+export function failedDetail(tries: number): string {
+  return `dipo could not take the part the worker delivered out of the box in ${tries} tries in a row: the stream out of the box or a git step failed each time. dipo committed and pushed nothing, and the part stays queued in the box; the daemon log has the reasons.`;
 }
 
 // ---- reading the part on the Mac -----------------------------------------------------------------
@@ -892,7 +928,11 @@ export interface PartRun {
   /** The commit the box's code was made from (`ClaimRecord.startSha`). */
   readonly startSha: string;
   readonly box: string;
-  /** The run directory, for `PART_RECORD_FILE`; absent: no record is kept. */
+  /**
+   * The run directory, for `PART_RECORD_FILE` and the box's record of the listed files
+   * (`BoxRunRecord.files`); absent: no record is kept, and the listed files are read from
+   * `BoxPartsDeps.listedFiles`.
+   */
   readonly runDir?: string;
 }
 
@@ -996,7 +1036,11 @@ export interface BoxPartsDeps {
   /** The facts of a box run, or null when no loaded office knows it. */
   readonly run: (runId: string) => PartRun | null;
   readonly git: (office: OfficeId) => OfficeGit | undefined;
-  /** The files outside git the office config copies into a box (`box.files`), repo-relative. */
+  /**
+   * The files outside git the office config copies into a box (`box.files`), repo-relative: read
+   * only for a run whose box record does not hold the list made with the box (`BoxRunRecord.files`,
+   * DIPO-290), such as one made before the record kept it.
+   */
   readonly listedFiles?: (git: OfficeGit) => Promise<readonly string[]>;
   /** True while the run goes on: tracked and nothing decided for it yet. */
   readonly live: (runId: string) => boolean;
@@ -1010,6 +1054,8 @@ export interface BoxPartsDeps {
   readonly ignoreWorkBudget?: number;
   /** Overrides `SCAN_FILE_MAX`. */
   readonly scanFileMax?: number;
+  /** Overrides `PART_FAILED_TRIES`. */
+  readonly failedTries?: number;
   readonly warn?: Log;
   readonly info?: Log;
 }
@@ -1018,11 +1064,47 @@ function messageOf(error: unknown): string {
   return error instanceof Error ? error.message : String(error);
 }
 
+/**
+ * Removes the part stage folders (`PART_STAGE_PREFIX`) directly in `tmpRoot`, dipo's temp root,
+ * except those in `keep` (the folders as made, before `realpath`). Only folders: a link or a file
+ * of that name is left alone, and nothing outside `tmpRoot` is touched. Never rejects; resolves to
+ * the number removed.
+ */
+export async function sweepPartStages(
+  tmpRoot: string,
+  keep: ReadonlySet<string> = new Set(),
+): Promise<number> {
+  let names: string[];
+  try {
+    names = await readdir(tmpRoot);
+  } catch {
+    return 0;
+  }
+  let removed = 0;
+  for (const name of names) {
+    if (!name.startsWith(PART_STAGE_PREFIX)) continue;
+    const at = join(tmpRoot, name);
+    if (keep.has(at)) continue;
+    try {
+      if (!(await lstat(at)).isDirectory()) continue;
+      await rm(at, { recursive: true, force: true });
+      removed += 1;
+    } catch {
+      // Left for the next sweep.
+    }
+  }
+  return removed;
+}
+
 /** Takes the parts of box runs out of their boxes, scans and commits them (see the file comment). */
 export class BoxParts {
   readonly #deps: BoxPartsDeps;
   /** The delivery in flight per run: parts of one run go one at a time. */
   readonly #chains = new Map<string, Promise<unknown>>();
+  /** The door parts that failed in a row, per run (`PART_FAILED_TRIES`). */
+  readonly #failed = new Map<string, number>();
+  /** The stage folders in use, which `sweepStages` leaves. */
+  readonly #stages = new Set<string>();
 
   constructor(deps: BoxPartsDeps) {
     this.#deps = deps;
@@ -1031,7 +1113,8 @@ export class BoxParts {
   /**
    * `BoxDoor`'s `onPart`: delivers the changes since the last part with the part's message. A hit
    * or a refused part parks the run; a rejected push parks it `conflict`. Rejects, so the part stays
-   * queued in the box, when the run is not live or the delivery failed.
+   * queued in the box, when the run is not live or the delivery failed; the `PART_FAILED_TRIES`th
+   * failure in a row parks the run first (`failedDetail`), so the door stops handing it again.
    */
   async onPart(part: DoorPart): Promise<void> {
     if (!this.#deps.live(part.runId)) {
@@ -1039,16 +1122,23 @@ export class BoxParts {
     }
     const run = this.#deps.run(part.runId);
     if (run === null) throw new BoxError(PART_WAITING, `run ${part.runId} is not known here.`);
-    const outcome = await this.#serial(part.runId, () => {
-      // Asked again in turn: a part before it may have parked the run.
-      if (!this.#deps.live(part.runId)) {
-        throw new BoxError(
-          PART_WAITING,
-          `run ${part.runId} is not going on; the part stays queued.`,
-        );
-      }
-      return this.#deliver(run, part.message);
-    });
+    let outcome: PartOutcome;
+    try {
+      outcome = await this.#serial(part.runId, () => {
+        // Asked again in turn: a part before it may have parked the run.
+        if (!this.#deps.live(part.runId)) {
+          throw new BoxError(
+            PART_WAITING,
+            `run ${part.runId} is not going on; the part stays queued.`,
+          );
+        }
+        return this.#deliver(run, part.message);
+      });
+    } catch (error) {
+      this.#failedTry(part.runId, error);
+      throw error;
+    }
+    this.#failed.delete(part.runId);
     const park = partPark(outcome);
     if (park !== null) this.#deps.park?.(part.runId, park);
     else if (outcome.kind === "committed" && outcome.push.error !== null) {
@@ -1164,7 +1254,7 @@ export class BoxParts {
     try {
       const git = this.#gitOf(run);
       const view = await git.run((session) => readViewAt(session, run.startSha, run.startSha));
-      const listed = new Set(await (this.#deps.listedFiles?.(git) ?? Promise.resolve([])));
+      const listed = await this.#listed(run, git);
       return await this.#inStage(async (stage): Promise<StartTreeCheck> => {
         const taken = await this.#take(run, view, listed, stage);
         if (taken.kind !== "taken") {
@@ -1190,6 +1280,47 @@ export class BoxParts {
     }
   }
 
+  /**
+   * Counts a failed door part of `runId`; a run that is not live (`PART_WAITING`) is no failure.
+   * The `PART_FAILED_TRIES`th in a row parks the run `part-refused` with a fixed text, since the
+   * error may quote the box's paths; the part stays queued in the box.
+   */
+  #failedTry(runId: string, error: unknown): void {
+    if (error instanceof BoxError && error.code === PART_WAITING) return;
+    const tries = (this.#failed.get(runId) ?? 0) + 1;
+    const most = this.#deps.failedTries ?? PART_FAILED_TRIES;
+    if (tries < most) {
+      this.#failed.set(runId, tries);
+      return;
+    }
+    this.#failed.delete(runId);
+    this.#deps.warn?.("a part failed too often; the run parks", {
+      run: runId,
+      tries,
+      reason: messageOf(error),
+    });
+    this.#deps.park?.(runId, {
+      reason: "scope-violation",
+      cause: PART_CAUSES.refused,
+      detail: failedDetail(tries),
+    });
+  }
+
+  /**
+   * Removes the stage folders of parts (`PART_STAGE_PREFIX`) in dipo's temp root that no part of
+   * this daemon uses: the ones a stopped daemon left. Runs at daemon start; never rejects.
+   */
+  sweepStages(): Promise<number> {
+    return sweepPartStages(this.#deps.tmpRoot, this.#stages);
+  }
+
+  /** The listed box files a part of `run` leaves out: the run's record, else `listedFiles`. */
+  async #listed(run: PartRun, git: OfficeGit): Promise<Set<string>> {
+    const recorded = run.runDir === undefined ? undefined : readBoxRun(run.runDir)?.files;
+    if (recorded !== undefined) return new Set(recorded);
+    return new Set(await (this.#deps.listedFiles?.(git) ?? Promise.resolve([])));
+  }
+
   #gitOf(run: PartRun): OfficeGit {
     const git = this.#deps.git(run.office);
     if (git === undefined) throw new BoxError(PART_FAILED, `office ${run.office} has no git.`);
@@ -1198,11 +1329,13 @@ export class BoxParts {
 
   /** Runs `fn` with a fresh stage folder in dipo's temp root, removed after. */
   async #inStage<T>(fn: (stage: string) => Promise<T>): Promise<T> {
-    const stage = await realpath(await mkdtemp(join(this.#deps.tmpRoot, PART_STAGE_PREFIX)));
+    const made = await mkdtemp(join(this.#deps.tmpRoot, PART_STAGE_PREFIX));
+    this.#stages.add(made);
     try {
-      return await fn(stage);
+      return await fn(await realpath(made));
     } finally {
-      await rm(stage, { recursive: true, force: true });
+      await rm(made, { recursive: true, force: true });
+      this.#stages.delete(made);
     }
   }
 
@@ -1244,6 +1377,73 @@ export class BoxParts {
   }
 
   /**
+   * One stream of the box's `/work` with `excludes`, extracted into a fresh `folder`, and its
+   * regular files read; `refused` when dipo does not take the archive.
+   */
+  async #stream(
+    run: PartRun,
+    view: PartView,
+    excludes: readonly string[],
+    folder: string,
+  ): Promise<
+    | {
+        readonly kind: "taken";
+        readonly files: Map<string, PartFile>;
+        readonly links: readonly ArchiveLink[];
+      }
+    | { readonly kind: "refused"; readonly why: PartRefusal }
+  > {
+    const limits = this.#deps.limits ?? PART_ARCHIVE_LIMITS;
+    const archive = join(folder, "archive");
+    const dest = join(folder, "files");
+    await mkdir(folder, { mode: 0o700 });
+    await mkdir(archive, { mode: 0o700 });
+    await mkdir(dest, { mode: 0o700 });
+    try {
+      await streamFromBox({
+        boxes: this.#deps.boxes,
+        box: run.box,
+        command: partArchiveCommand(excludes),
+        folder: archive,
+        name: "part.tar",
+        maxBytes: limits.maxArchiveBytes,
+        timeoutMs: this.#deps.timeoutMs ?? PART_STREAM_TIMEOUT_MS,
+        clock: this.#deps.clock,
+        code: PART_FAILED,
+        what: "the part archive",
+        // The worker's box: a failed stream ends only the exec client (the module comment).
+        stopOnFailure: false,
+        // GNU tar exits 1 when a file changed while it read it; the Mac checks every entry again.
+        okExits: [0, 1],
+      });
+    } catch (error) {
+      if (error instanceof BoxError && error.details["reason"] === "cap") {
+        return { kind: "refused", why: "cap" };
+      }
+      throw error;
+    }
+    let links: readonly ArchiveLink[];
+    try {
+      ({ links } = await extractArchive(archive, dest, {
+        limits,
+        code: PART_REFUSED,
+        what: "the part archive",
+        links: "record",
+      }));
+    } catch (error) {
+      if (!(error instanceof BoxError) || error.code !== PART_REFUSED) throw error;
+      // The message may quote the box's paths: the log only, never the park detail.
+      this.#deps.warn?.("a part's archive was refused", {
+        run: run.runId,
+        reason: error.message,
+      });
+      return { kind: "refused", why: "archive" };
+    }
+    await rm(archive, { recursive: true, force: true });
+    return { kind: "taken", files: await readPartFiles(dest, view.format), links };
+  }
+
+  /**
    * The box's `/work` taken out into `stage` and compared with the delivered tree `view` (steps 1
    * and 2 of the module comment); `refused` with the outcome when dipo does not take it.
    */
@@ -1263,64 +1463,37 @@ export class BoxParts {
       outcome: { kind: "refused" as const, detail: refusedDetail(why, limits.maxArchiveBytes) },
     });
     const viewRules = new IgnoreRules(view.ignores);
-    const folder = join(stage, "archive");
-    const dest = join(stage, "files");
-    await mkdir(folder, { mode: 0o700 });
-    await mkdir(dest, { mode: 0o700 });
-    try {
-      await streamFromBox({
-        boxes: this.#deps.boxes,
-        box: run.box,
-        command: partArchiveCommand(inBoxExcludes(viewRules, view.entries)),
-        folder,
-        name: "part.tar",
-        maxBytes: limits.maxArchiveBytes,
-        timeoutMs: this.#deps.timeoutMs ?? PART_STREAM_TIMEOUT_MS,
-        clock: this.#deps.clock,
-        code: PART_FAILED,
-        what: "the part archive",
-        // The worker's box: a failed stream ends only the exec client (the module comment).
-        stopOnFailure: false,
-        // GNU tar exits 1 when a file changed while it read it; the Mac checks every entry again.
-        okExits: [0, 1],
-      });
-    } catch (error) {
-      if (error instanceof BoxError && error.details["reason"] === "cap") return refused("cap");
-      throw error;
-    }
+    let excludes = inBoxExcludes(viewRules, view.entries);
+    let files: Map<string, PartFile>;
     let links: readonly ArchiveLink[];
-    try {
-      ({ links } = await extractArchive(folder, dest, {
-        limits,
-        code: PART_REFUSED,
-        what: "the part archive",
-        links: "record",
-      }));
-    } catch (error) {
-      if (!(error instanceof BoxError) || error.code !== PART_REFUSED) throw error;
-      // The message may quote the box's paths: the log only, never the park detail.
-      this.#deps.warn?.("a part's archive was refused", {
-        run: run.runId,
-        reason: error.message,
-      });
-      return refused("archive");
+    let partRules: IgnoreRules;
+    for (let take = 1; ; take += 1) {
+      const streamed = await this.#stream(run, view, excludes, join(stage, `take-${take}`));
+      if (streamed.kind === "refused") return refused(streamed.why);
+      ({ files, links } = streamed);
+      const partIgnores: IgnoreFile[] = [];
+      for (const [path, file] of files) {
+        const dir = ignoreFileDir(path);
+        if (dir === null) continue;
+        // Refused before it is read or split: the worker wrote it.
+        if ((file.size ?? Number.POSITIVE_INFINITY) > IGNORE_FILE_MAX) return refused("ignoreFile");
+        partIgnores.push({ dir, text: await readFile(file.at, "utf8") });
+      }
+      // The part's own rules decide, as git's would in its commit (DIPO-290).
+      partRules = new IgnoreRules(partIgnores);
+      // A name the box left out that the part's own root `.gitignore` no longer ignores: taken
+      // again with the part's own exclude list, so what the part un-ignores is delivered in this
+      // part; the last take excludes nothing.
+      const own = inBoxExcludes(partRules, view.entries);
+      if (excludes.every((name) => own.includes(name))) break;
+      excludes = take + 1 >= EXCLUDE_TAKES ? [] : own;
+      await rm(join(stage, `take-${take}`), { recursive: true, force: true });
     }
-    await rm(folder, { recursive: true, force: true });
-    const files = await readPartFiles(dest, view.format);
-    const partIgnores: IgnoreFile[] = [];
-    for (const [path, file] of files) {
-      const dir = ignoreFileDir(path);
-      if (dir === null) continue;
-      // Refused before it is read or split: the worker wrote it.
-      if ((file.size ?? Number.POSITIVE_INFINITY) > IGNORE_FILE_MAX) return refused("ignoreFile");
-      partIgnores.push({ dir, text: await readFile(file.at, "utf8") });
-    }
-    const partRules = new IgnoreRules(partIgnores);
     const out = await leftOutPaths({
       paths: [...files.keys(), ...links.map((link) => link.path)],
       view: view.entries,
       listed,
-      rules: [viewRules, partRules],
+      rules: [partRules],
       budget: this.#deps.ignoreWorkBudget ?? IGNORE_WORK_BUDGET,
     });
     if (out === "budget") return refused("ignoreWork");
@@ -1339,7 +1512,7 @@ export class BoxParts {
     const git = this.#gitOf(run);
     const limits = this.#deps.limits ?? PART_ARCHIVE_LIMITS;
     const view = await git.run((session) => readView(session, run.branch, run.startSha));
-    const listed = new Set(await (this.#deps.listedFiles?.(git) ?? Promise.resolve([])));
+    const listed = await this.#listed(run, git);
     const refused = (why: PartRefusal): PartOutcome => ({
       kind: "refused",
       detail: refusedDetail(why, limits.maxArchiveBytes),
