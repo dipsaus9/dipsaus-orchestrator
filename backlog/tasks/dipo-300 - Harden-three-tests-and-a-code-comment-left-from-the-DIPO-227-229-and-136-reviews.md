@@ -3,10 +3,10 @@ id: DIPO-300
 title: >-
   Harden three tests and a code comment left from the DIPO-227, 229 and 136
   reviews
-status: In Review
+status: Done
 assignee: []
 created_date: '2026-10-22 11:35'
-updated_date: '2026-10-22 12:36'
+updated_date: '2026-10-22 14:27'
 labels:
   - 'tier:S'
   - cutover
@@ -51,3 +51,9 @@ test_plan:
 - [x] #2 The StoryPlanning dependencies serve() builds in packages/daemon/src/foreground.ts come from an exported function that takes the probe, and a test in packages/daemon/test/unit/ shows that the dependencies it returns carry the given probe
 - [x] #3 The comment on office.refused in packages/contract/src/errors.ts names both causes: an office whose engine instance would not load, and a refused write of an office file such as .dipo/office.local.yaml
 <!-- AC:END -->
+
+## Implementation Notes
+
+<!-- SECTION:NOTES:BEGIN -->
+Built by dipo in a box (retest of DIPO-275); PR #337 opened by hand (story PRs were off until #336). dipo's reviewer approved with an advisory on criterion 1 (the wait condition was already true when the wait started); fixed on the branch before the merge (39b0a8a4: wait for the answer's worker place step, slower unpark mock; shown to fail with the DIPO-229 fix reverted).
+<!-- SECTION:NOTES:END -->
