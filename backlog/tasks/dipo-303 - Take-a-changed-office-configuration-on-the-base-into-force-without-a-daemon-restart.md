@@ -3,10 +3,10 @@ id: DIPO-303
 title: >-
   Take a changed office configuration on the base into force without a daemon
   restart
-status: Ready
+status: In Progress
 assignee: []
 created_date: '2026-10-22 14:25'
-updated_date: '2026-10-22 18:30'
+updated_date: '2026-10-22 18:50'
 labels:
   - 'tier:S'
   - box
