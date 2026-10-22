@@ -70,6 +70,7 @@ import type { ClaimOutcome, ClaimRequest, ClaimSetupFailed } from "../../src/wor
 import { findClaim, insertClaim, releaseClaim, type ClaimRecord } from "../../src/worktree/records";
 import type { SetupOutcome } from "../../src/worktree/setup";
 import type { StartTreeCheck } from "../../src/box/parts";
+import { BoxError } from "../../src/box/port";
 import type { BoxInstallResult } from "../../src/box/verify";
 import type { RunProfile } from "../../src/scan/detect";
 import { addOffice, countRows, openTestState, type TestState } from "../commands/helpers";
@@ -200,6 +201,8 @@ interface World {
   }[];
   /** What the install in the box and the check of its /work give (DIPO-294). */
   boxInstall: BoxInstallResult;
+  /** Thrown by the install in the box instead of a result, when set. */
+  boxInstallThrows: Error | null;
   boxTree: StartTreeCheck;
   /** The office's run profile the launcher reads for the box's install (DIPO-294). */
   profile: RunProfile | null;
@@ -264,6 +267,7 @@ beforeEach(async () => {
     boxFails: false,
     boxInstalls: [] as World["boxInstalls"],
     boxInstall: { ok: true } as BoxInstallResult,
+    boxInstallThrows: null,
     boxTree: { kind: "same" } as StartTreeCheck,
     profile: FROZEN_INSTALL,
     setupFailures: [] as string[],
@@ -365,6 +369,7 @@ beforeEach(async () => {
           env: input.env,
           timeoutMs: input.timeoutMs,
         });
+        if (w.boxInstallThrows !== null) throw w.boxInstallThrows;
         return w.boxInstall;
       },
       changedSinceStart: async (input) => {
@@ -988,6 +993,26 @@ describe("the install in a box run's box before its worker (DIPO-294)", () => {
       "dipo could not check the box's /work against the start commit after the install (dipo could not read the box's /work)",
     );
     expect(world.boxCalls.at(-1)).toMatch(/^discard run_/);
+  });
+
+  it("names a box error preparing the box by a fixed text, and cleans any other error", async () => {
+    story("TASK-1", "Ready");
+    // A box error's message may quote the box or a proxy: only its code is named.
+    world.boxInstallThrows = new BoxError(
+      "box.routeFailed",
+      "the box web route did not start: \u001b[31mquoted\u001b[0m",
+    );
+    let result = resultOf<RunResult>(await run({ stories: ["TASK-1"], box: true }));
+    expect(skipped(result).notice).toBe(
+      "the box could not be prepared: dipo's web route for the box did not start (box.routeFailed)",
+    );
+    expect(world.boxCalls.at(-1)).toMatch(/^discard run_/);
+    world.boxInstallThrows = new Error(`a step \u001b]0;title\u0007failed\n${"x".repeat(400)}`);
+    result = resultOf<RunResult>(await run({ stories: ["TASK-1"], box: true }));
+    const notice = skipped(result).notice;
+    expect(notice.startsWith("the box could not be prepared: a step failed x")).toBe(true);
+    expect(notice).not.toContain("\u001b");
+    expect(notice.length).toBeLessThan(400);
   });
 
   it("runs no install for a profile without one, but still checks /work", async () => {

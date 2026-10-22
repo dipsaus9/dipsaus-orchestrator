@@ -73,6 +73,7 @@ import {
 } from "../workers/types";
 import { BOX_WORKDIR } from "../box/code";
 import { cleanDoorText } from "../box/door";
+import { BoxError } from "../box/port";
 import type { BoxWorkers } from "../box/workers";
 import type { RunProfile } from "../scan/detect";
 import { buildRunEnv } from "../worktree/run-env";
@@ -132,6 +133,32 @@ export function boxTreeChangedText(paths: readonly string[]): string {
   const shown = paths.slice(0, TREE_PATHS_SHOWN).map((path) => cleanDoorText(path).slice(0, 200));
   const more = paths.length > shown.length ? `, and ${paths.length - shown.length} more` : "";
   return `the install left files git does not ignore in the box's /work (${shown.join(", ")}${more}); setup steps may change only ignored files. If install rewrote a lockfile, use a frozen install (for example \`bun install --frozen-lockfile\`); write generated files to ignored paths`;
+}
+
+/** The most characters of an unexpected error's message a box preparation's reason carries. */
+const PREPARE_MESSAGE_MAX = 300;
+
+/** The fixed reasons of the box errors preparing a box can throw, by code. */
+const PREPARE_REASONS: Readonly<Record<string, string>> = {
+  "box.routeFailed": "dipo's web route for the box did not start",
+  "box.gone": "the box was gone",
+  "box.failed": "a call to the box failed",
+};
+
+/**
+ * Why preparing a box failed, for the maintainer's notice (DIPO-294): a fixed text for a box
+ * error, by its code, since its message may quote the box or a proxy; any other error's message
+ * cleaned of control characters and cut.
+ */
+export function boxPrepareFailedText(error: unknown): string {
+  if (error instanceof BoxError) {
+    const fixed = PREPARE_REASONS[error.code] ?? "a box step failed";
+    return `the box could not be prepared: ${fixed} (${cleanDoorText(error.code).slice(0, 60)})`;
+  }
+  const message = cleanDoorText(messageOf(error)).replaceAll(/\s+/g, " ").trim();
+  const cut =
+    message.length > PREPARE_MESSAGE_MAX ? `${message.slice(0, PREPARE_MESSAGE_MAX)}…` : message;
+  return `the box could not be prepared: ${cut}`;
 }
 
 /** The dev port of the root package, else the first the scan found; null when none. */
@@ -585,7 +612,7 @@ export class RunLauncher {
       try {
         ready = await this.#readyBox(facts, claim, setup.slot, boxes);
       } catch (error) {
-        ready = `the box could not be prepared: ${messageOf(error)}`;
+        ready = boxPrepareFailedText(error);
       }
       if (ready !== null) return fail(ready);
     }
