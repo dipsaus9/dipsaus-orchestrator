@@ -7,10 +7,12 @@
 //    daemon stopped between the claim and the worker start) is released as `orphaned`, its branch
 //    kept for the next claim, and the stories are indexed again. One whose run directory holds a
 //    launch file may have a host that started without its row: it only gets a notice.
-// 1b. A live claim whose run has ended and whose story is Done on `_base` (finished through another
-//    branch) is released as `done` and its clean worktree removed; a dirty one is kept with a notice
-//    (`done-on-base.ts`). No branch is touched. The stories are indexed again after a release; a
-//    claim skipped because `_base` moved is retried once after a reindex.
+// 1b. A live claim whose story is Done on `_base` (finished through another branch, DIPO-161): one
+//    with a live worker is flagged and released at its run's next end; a parked or idle one is
+//    released as `done-elsewhere`, its PR closed, a clean worktree removed and a dirty one kept as
+//    leftovers, its branch deleted when it adds nothing to the base, else kept (`done-on-base.ts`).
+//    The stories are indexed again after a release; a claim skipped because `_base` moved is
+//    retried once after a reindex.
 // 2. Git: `git worktree list` and the claimed branches. A running story whose worktree or branch
 //    changed by hand parks `scope-violation` with the evidence; a claimed story that is not running
 //    gets a notice. Prunable worktrees get a notice; `git worktree prune` runs only after the
@@ -37,6 +39,7 @@ import { appendEntries, type NewEntry } from "../changelog/log";
 import type { OfficeHandle } from "../db/office";
 import { findPassingDecision } from "../gate/store/decisions";
 import type { OfficeGit } from "../git/office";
+import type { CodeHost } from "../platform/host";
 import { LAUNCH_FILE } from "../host/protocol";
 import { officeDirectory } from "../office/marker";
 import { openPark } from "../run/park";
@@ -112,6 +115,8 @@ export interface ReconcileDeps {
   readonly releaseClaim?: (claim: ClaimRecord, reason: string) => Promise<void>;
   /** The machine-wide port slot table; the slot of a released Done claim is freed there. */
   readonly slots?: SlotTable;
+  /** Closes dipo's open story PR of a story Done elsewhere (DIPO-161); without it a notice says so. */
+  readonly host?: Pick<CodeHost, "closePr"> | null;
 }
 
 export interface ReconcileInput {
@@ -209,6 +214,9 @@ export async function reconcileOffice(
     });
     findings.push(finding);
   };
+  const found = (finding: ReconcileFinding): void => {
+    findings.push(finding);
+  };
   const runNotice = (finding: ReconcileFinding): { code: string; text: string } => {
     findings.push(finding);
     return { code: finding.code, text: finding.text };
@@ -245,12 +253,12 @@ export async function reconcileOffice(
 
   // 1b. Claims of stories Done on `_base` (DIPO-216), at start and on every rescan. A claim skipped
   // because `_base` moved since the pass is tried once more after one reindex (DIPO-226).
-  const first = await releaseDoneOnBase(deps, pass, record);
+  const first = await releaseDoneOnBase(deps, pass, record, undefined, found);
   if (first.released > 0 || first.baseMoved > 0) pass = await input.reindex();
   if (first.baseMoved > 0) {
     // Only the claims the first pass skipped: the others were already looked at, and a kept one
     // would otherwise get its notice a second time.
-    const retry = await releaseDoneOnBase(deps, pass, record, new Set(first.skippedRuns));
+    const retry = await releaseDoneOnBase(deps, pass, record, new Set(first.skippedRuns), found);
     if (retry.released > 0) pass = await input.reindex();
   }
 
