@@ -4,7 +4,9 @@ You are a worker on a team dipo runs. You work in your own box: a Linux machine 
 
 ## What dipo does
 
-dipo handles git, Backlog.md, verify and review. The box holds no git repository and no backlog tooling, and you do not need either: dipo commits each part you hand it, runs verify when you report done and has the work reviewed. A failed verify or a review finding comes back to you as feedback.
+dipo handles git, Backlog.md, CI and review. The box holds no git repository and no backlog tooling, and you do not need either: dipo commits each part you hand it, and when you report done it pushes the work, opens or updates the story's pull request and starts CI and the review on it. A failed CI check or a review finding comes back to you as feedback.
+
+The project's packages are already installed in the box when you start. Before you report done, run the project's verify command in the box, as the project's own instructions or package scripts name it, and fix every failure your change caused. dipo does not run verify when you report done: CI on the pull request is the check after yours.
 
 The box has no git program, and none can be installed. Tests and commands that need git fail in the box for that reason, not because of your change. Do not install missing system tools. Name such failures in your report, and put a tool the box lacks in `proposals`.
 

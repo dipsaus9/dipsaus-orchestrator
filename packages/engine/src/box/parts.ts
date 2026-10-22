@@ -1,6 +1,6 @@
 // Delivery in parts (0021 section 8, DIPO-273). When the worker in a box hands dipo a part (W1,
-// `BoxDoor`'s `onPart`), and once more when it says the story is done (`deliverLast`, before
-// verify), dipo takes the changes since the last delivered part out of the box, scans them, and
+// `BoxDoor`'s `onPart`), and once more when it says the story is done (`deliverLast`, `finishLast`),
+// dipo takes the changes since the last delivered part out of the box, scans them, and
 // commits them on the story branch with the worker's message, then pushes the branch:
 //
 // 1. Out of the box. One `tar` of the box's `/work` streams out through the box interface's exec
@@ -54,10 +54,10 @@
 // stopped, or not followed) is left queued in the box (`onPart` rejects), so it is delivered when
 // the run goes on. A stream or git failure rejects too, and the door hands the part again.
 //
-// Verify at story done (DIPO-274, `verifyLast`) holds the same one-at-a-time turn from the last
-// part to the end of verify, so no part moves the branch while verify runs; after a green verify
-// the box's `/work` is taken out once more and compared with the delivered tree (`delivered`), so a
-// green verify stands only for the tree the branch holds.
+// Story done (`finishLast`) holds the same one-at-a-time turn from the last part until the caller
+// has claimed the run's end, so no part or catch-up moves the branch between the last part and In
+// Review. dipo runs no verify in the box (0021 amendment of 2026-10-22, DIPO-299): CI on the story
+// PR is the verify of a box run.
 
 import { createHash } from "node:crypto";
 import { appendFileSync, constants } from "node:fs";
@@ -96,7 +96,6 @@ import {
   MatchBudget,
 } from "./ignore";
 import { BoxError, type BoxPort } from "./port";
-import { type BoxCommandRequest, type BoxCommandResult, runBoxCommand } from "./verify";
 
 const GIB = 1024 ** 3;
 /** The caps of one part: 1 GiB of archive, 500,000 entries, 1 GiB unpacked. */
@@ -946,25 +945,18 @@ export type PartOutcome =
   /** The run is not live; nothing was taken. */
   | { readonly kind: "stopped" };
 
-/** Whether the box still holds the delivered tree; `unknown` when dipo could not read it. */
-export type DeliveredCheck = "same" | "changed" | "unknown";
-
-/** What verify gets of the box while the run's parts are held (`BoxParts.verifyLast`). */
-export interface BoxVerifyAccess {
-  /** Runs one command in the box's `/work` (`runBoxCommand`). */
-  run(request: Omit<BoxCommandRequest, "box">): Promise<BoxCommandResult>;
-  /** Compares the box's `/work` with the tree the last part delivered. */
-  delivered(): Promise<DeliveredCheck>;
-  /** The branch tip the last part left: the tree verify checks. */
+/** What the caller gets while the run's parts are held after the last part (`BoxParts.finishLast`). */
+export interface LastPartAccess {
+  /** The branch tip the last part left: the commit In Review is written at. */
   readonly tip: string;
   /** The branch tip now, read again (also after the held turn ended). */
   branchTip(): Promise<string>;
 }
 
-/** The last part, and what `verify` returned when it ran. */
-export interface LastPartVerify<T> {
+/** The last part, and what `finish` returned when it ran. */
+export interface LastPartFinish<T> {
   readonly outcome: PartOutcome;
-  readonly verified: { readonly result: T } | null;
+  readonly finished: { readonly result: T } | null;
 }
 
 /** A park a part asks for. */
@@ -1070,7 +1062,7 @@ export class BoxParts {
 
   /**
    * Story done (W2): the parts still queued in the box go first (`readDoor`), then whatever changed
-   * since becomes a last part with `message`. The caller parks on a hit, before verify.
+   * since becomes a last part with `message`. The caller parks on a hit.
    */
   async deliverLast(runId: string, message: string): Promise<PartOutcome> {
     try {
@@ -1096,18 +1088,18 @@ export class BoxParts {
   }
 
   /**
-   * Story done with verify in the box (DIPO-274, 0021 section 9): as `deliverLast`, then, while
-   * the run's part chain is still held, `verify` with the box's exec and the delivered-tree check.
-   * No part of the run is delivered from the moment the last part is taken until `verify` resolves
-   * (a part the door reads meanwhile waits its turn), so the branch tip stays the delivered one, and
-   * `delivered` tells whether the box's `/work` still holds exactly that tree. `verify` runs only
-   * when the last part asks for no park and the run goes on; `verified` is null otherwise.
+   * Story done (W2, DIPO-299): as `deliverLast`, then, while the run's part chain is still held,
+   * `finish` with the branch tip the last part left. No part of the run is delivered from the
+   * moment the last part is taken until `finish` resolves (a part the door reads meanwhile waits
+   * its turn), so a caller that claims the run's end in `finish` leaves every later part queued in
+   * the box and the branch at that tip. `finish` runs only when the last part asks for no park and
+   * the run goes on; `finished` is null otherwise.
    */
-  async verifyLast<T>(
+  async finishLast<T>(
     runId: string,
     message: string,
-    verify: (box: BoxVerifyAccess) => Promise<T>,
-  ): Promise<LastPartVerify<T>> {
+    finish: (last: LastPartAccess) => Promise<T>,
+  ): Promise<LastPartFinish<T>> {
     try {
       await this.#deps.readDoor?.(runId);
     } catch (error) {
@@ -1116,32 +1108,22 @@ export class BoxParts {
         reason: messageOf(error),
       });
     }
-    const stopped: LastPartVerify<T> = { outcome: { kind: "stopped" }, verified: null };
+    const stopped: LastPartFinish<T> = { outcome: { kind: "stopped" }, finished: null };
     if (!this.#deps.live(runId)) return stopped;
     const run = this.#deps.run(runId);
     if (run === null) throw new BoxError(PART_FAILED, `run ${runId} is not known here.`);
-    return this.#serial(runId, async (): Promise<LastPartVerify<T>> => {
+    return this.#serial(runId, async (): Promise<LastPartFinish<T>> => {
       if (!this.#deps.live(runId)) return stopped;
       const outcome = await this.#deliver(run, message);
-      if (partPark(outcome) !== null || !this.#deps.live(runId)) return { outcome, verified: null };
+      if (partPark(outcome) !== null || !this.#deps.live(runId)) return { outcome, finished: null };
       const git = this.#gitOf(run);
       const tip = await git.run((session) => branchTip(session, run.branch));
-      const result = await verify({
-        run: (request) =>
-          runBoxCommand(
-            {
-              boxes: this.#deps.boxes,
-              clock: this.#deps.clock,
-              ...(this.#deps.warn === undefined ? {} : { warn: this.#deps.warn }),
-            },
-            { ...request, box: run.box },
-          ),
-        delivered: () => this.#delivered(run, tip),
+      const result = await finish({
         tip,
         branchTip: () => git.run((session) => branchTip(session, run.branch)),
       });
-      return { outcome, verified: { result } };
-    }).catch((error: unknown): LastPartVerify<T> => {
+      return { outcome, finished: { result } };
+    }).catch((error: unknown): LastPartFinish<T> => {
       if (error instanceof BoxError && error.code === PART_WAITING) return stopped;
       throw error;
     });
@@ -1205,31 +1187,6 @@ export class BoxParts {
         reason: messageOf(error),
       });
       return { kind: "unknown", reason: "dipo could not read the box's /work" };
-    }
-  }
-
-  /**
-   * Whether the box's `/work` holds exactly the delivered tree at `tip`: the branch still at
-   * `tip`, and the box's files compared with it as a part is, with nothing added, changed or
-   * deleted. `unknown` when dipo could not read them.
-   */
-  async #delivered(run: PartRun, tip: string): Promise<DeliveredCheck> {
-    try {
-      const git = this.#gitOf(run);
-      const view = await git.run((session) => readView(session, run.branch, run.startSha));
-      if (view.tip !== tip) return "changed";
-      const listed = new Set(await (this.#deps.listedFiles?.(git) ?? Promise.resolve([])));
-      return await this.#inStage(async (stage) => {
-        const taken = await this.#take(run, view, listed, stage);
-        if (taken.kind !== "taken") return "changed";
-        return taken.changes.length === 0 && taken.linkHits.length === 0 ? "same" : "changed";
-      });
-    } catch (error) {
-      this.#deps.warn?.("the box's files could not be compared with the delivered tree", {
-        run: run.runId,
-        reason: messageOf(error),
-      });
-      return "unknown";
     }
   }
 

@@ -194,3 +194,18 @@ export function runParked(office: OfficeHandle, runId: RunId): boolean {
     }) !== null
   );
 }
+
+/**
+ * True when the run recorded that no CI ran for the pushed head `head` (a `ci-none` step,
+ * DIPO-299): the host reported no check at all for that head of a box run within the bounded wait,
+ * so nothing waits for CI on it and the review decides.
+ */
+export function noCiRan(office: OfficeHandle, runId: RunId, head: string): boolean {
+  return (
+    office.get(
+      `select 1 as found from run_steps where office_id = $office_id and run_id = $run
+        and kind = 'ci-none' and value = $head limit 1`,
+      { run: runId, head },
+    ) !== null
+  );
+}

@@ -26,6 +26,17 @@
 // for the fix round (`ciItems`); a story run in review holds no session place. The body's status
 // block lists each required check with its state and is rewritten when one changes.
 //
+// CI is the verify of a box run (0021 amendment of 2026-10-22, DIPO-299): dipo runs no verify for
+// it, so the body's status block says CI checks the head, and red CI takes the same loop as above.
+// An office whose story PRs get no CI is not held waiting: when the host reports no check at all
+// for a box run's pushed head (neither a required one nor any other) once `NO_CI_WAIT_MS` has
+// passed since the engine first watched that head, the head is final with no CI. The wait is never
+// shorter, whatever `mergeSlot.checksWaitMinutes` says, so a slow CI's late red check is still
+// read. One `ci-none` run step records it on the run (not a CI attempt), a `ci.none` notice tells
+// the maintainer, the body says no CI ran, and the review decides. A check that shows up for the
+// head later is not read; a new head is watched again. A Mac run keeps its wait for unreported
+// checks: its verify ran on the Mac.
+//
 // An office whose configuration in force sets `storyPr.open: false` (DIPO-210, 0019 amendment of
 // 2026-10-19) gets none of this: `sync` and `retry` return before they read git or the host, so
 // no PR is opened, updated, polled or retried and no `pr.openFailed` is raised. The poll timer
@@ -73,6 +84,7 @@ import type { StoryPrGit } from "./git";
 import {
   findStoryPr,
   insertStoryPr,
+  noCiRan,
   openStoryPrs,
   runParked,
   runsWithoutPr,
@@ -88,7 +100,15 @@ export const STORY_PR_NOTICES = {
   opened: "pr.opened",
   openFailed: "pr.openFailed",
   ciStuck: "ci.stuck",
+  ciNone: "ci.none",
 } as const;
+
+/**
+ * How long a box run's pushed head may show no check at all before it counts as having no CI
+ * (DIPO-299). GitHub lists a workflow's checks as pending when it queues the run, within about a
+ * minute of the push; ten minutes covers a slow queue and still never holds a story for long.
+ */
+export const NO_CI_WAIT_MS = 10 * 60_000;
 
 /** How often a head whose checks are stuck is read (0019 section 7). */
 export const CI_STUCK_POLL_MS = 10 * 60_000;
@@ -117,6 +137,11 @@ export interface StoryPrsDeps {
     readonly writer: ParkWriter;
     readonly implemented: (name: CommandName) => boolean;
   };
+  /**
+   * Whether the run's developer works in a box (DIPO-299): CI is its verify, and its head may be
+   * final with no CI. False for every run without it.
+   */
+  readonly boxRun?: (office: OfficeId, run: StoredRun) => boolean;
 }
 
 /** What the poll knows of the pushed head of one story PR. */
@@ -136,6 +161,8 @@ interface Watch {
   items: readonly CiFeedbackItem[] | null;
   /** The failed park of this head was already warned about. */
   parkWarned: boolean;
+  /** The host reported no check for this box run's head: final with no CI (DIPO-299). */
+  noCi: boolean;
 }
 
 interface Polled {
@@ -261,7 +288,13 @@ export class StoryPrs {
         watch?.head === facts.head ? watch.reports : [],
         this.#config(officeId).mergeSlot.requiredChecks,
       );
-      const body = storyPrBody(facts.story, { head: facts.head, checks });
+      const box = this.#deps.boxRun?.(officeId, run) === true;
+      const body = storyPrBody(facts.story, {
+        head: facts.head,
+        checks,
+        ...(box ? { verify: "ci" as const } : {}),
+        ...(box && noCiRan(office, runId, facts.head) ? { noCi: true } : {}),
+      });
       const hash = storyPrBodyHash(body);
       const stored = findStoryPr(office, runId);
       if (stored === null) {
@@ -465,13 +498,22 @@ export class StoryPrs {
         reports: [],
         items: null,
         parkWarned: false,
+        noCi: false,
       };
       state.watch.set(stored.runId, watch);
     }
     if (watch.final || now < watch.nextAt) return;
+    const box = this.#deps.boxRun?.(officeId, run) === true;
+    // A box run's head recorded without CI (before a daemon restart) waits for nothing.
+    if (box && noCiRan(office, run.runId, stored.headSha)) {
+      watch.final = true;
+      watch.noCi = true;
+      return;
+    }
     // Checks the host reports for another head than the one the engine pushed do not count.
     let reports: RequiredCheck[] = [];
-    if (hostHead === "" || hostHead === stored.headSha) {
+    const onHead = hostHead === "" || hostHead === stored.headSha;
+    if (onHead) {
       try {
         reports = await this.#deps.host.requiredChecks(repo, stored.number);
       } catch (error) {
@@ -484,6 +526,19 @@ export class StoryPrs {
       }
     }
     watch.reports = reports;
+    if (
+      box &&
+      onHead &&
+      reports.length === 0 &&
+      now - watch.since >= NO_CI_WAIT_MS &&
+      (await this.#noChecks(officeId, stored, repo))
+    ) {
+      this.#noCi(officeId, state, stored, run);
+      watch.final = true;
+      watch.noCi = true;
+      await this.#sync(officeId, state, stored.runId);
+      return;
+    }
     const states = JSON.stringify(requiredCheckStates(reports, names));
     if (states !== watch.states) {
       watch.states = states;
@@ -580,6 +635,45 @@ export class StoryPrs {
       });
       return false;
     }
+  }
+
+  /**
+   * True when the host lists no check at all for the PR's head, required or not (DIPO-299). Without
+   * the review host only the empty required list is known; a failed list is logged and counts as
+   * not known, so the next poll asks again.
+   */
+  async #noChecks(officeId: OfficeId, stored: StoryPrRecord, repo: string): Promise<boolean> {
+    const review = this.#deps.review;
+    if (review === undefined) return true;
+    try {
+      return (await review.prChecks(repo, stored.number)).length === 0;
+    } catch (error) {
+      this.#deps.logger?.warn("listing the checks of the story PR failed", {
+        office: officeId,
+        run: stored.runId,
+        reason: messageOf(error),
+      });
+      return false;
+    }
+  }
+
+  /** Records on the run that no CI ran for the box run's pushed head, once, with its notice. */
+  #noCi(officeId: OfficeId, state: Polled, stored: StoryPrRecord, run: StoredRun): void {
+    const office = state.office;
+    const minutes = NO_CI_WAIT_MS / 60_000;
+    this.#write(officeId, state, () => {
+      if (noCiRan(office, run.runId, stored.headSha)) return [];
+      appendRunStep(office, run.runId, "ci-none", stored.headSha, this.#deps.clock.now());
+      return [
+        notice(
+          "info",
+          STORY_PR_NOTICES.ciNone,
+          `No CI checks were reported for the PR of ${stored.key} at ${stored.headSha.slice(0, 8)} within ${minutes} minutes, so no CI ran for it. dipo does not wait for CI on this head: the review decides.`,
+          stored.key,
+          run.runId,
+        ),
+      ];
+    });
   }
 
   /** One item per failed check of the head; the host is asked for every check once. */

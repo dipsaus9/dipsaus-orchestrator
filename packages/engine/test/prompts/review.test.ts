@@ -166,6 +166,47 @@ describe("the reviewer's system file (L1 + L2)", () => {
   });
 });
 
+// DIPO-299: a box run's verify is CI on the PR; dipo runs none of its own.
+const box = (): string => renderSystemFile("review-box", "reviewer");
+
+/** How many lines of `a` differ from the line at the same place in `b`. */
+function differingLines(a: string, b: string): number {
+  const right = b.split("\n");
+  return a.split("\n").filter((line, i) => line !== right[i]).length;
+}
+
+describe("the box run reviewer's system file", () => {
+  it("matches the golden file, byte-identical on every render, with no id, date, path or count", async () => {
+    await expectGolden("system-review-box-reviewer.md", box());
+    expect(box()).toBe(box());
+    expect(box()).not.toMatch(/[0-9]/);
+    expect(box().indexOf("# Reviewer contract")).toBe(0);
+  });
+
+  it("says dipo ran no verify, the developer ran it in its box, and CI runs with the review", () => {
+    const text = box();
+    expect(text).toContain(
+      "The engine ran no verify of its own on this change: the developer ran the project's verify in its own box before it reported done, and CI runs on the same pushed commit at the same time as your review.",
+    );
+    expect(text).toContain(
+      "no tests and no builds: the developer's verify in its box and CI on the pushed commit cover those.",
+    );
+    expect(text).not.toContain("ran verify on the change");
+    expect(text).not.toContain("verify and CI already prove those");
+    // The Mac run's reviewer keeps its wording.
+    const mac = renderSystemFile("review", "reviewer");
+    expect(mac).toContain("checked which paths changed, ran verify on the change");
+    expect(mac).toContain("verify and CI already prove those");
+  });
+
+  it("is the Mac reviewer's contract in every other line", () => {
+    expect(box().split("\n")).toHaveLength(
+      renderSystemFile("review", "reviewer").split("\n").length,
+    );
+    expect(differingLines(box(), renderSystemFile("review", "reviewer"))).toBe(2);
+  });
+});
+
 describe("the review task message (L4)", () => {
   it("matches the golden sample for the fixture story", async () => {
     await expectGolden("task-review.md", assembleReviewTaskMessage(input()).text);

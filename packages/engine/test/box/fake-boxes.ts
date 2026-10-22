@@ -108,9 +108,9 @@ export interface LiveReply {
 }
 
 /** The wrapper names of dipo's own commands in a box: verify's and the part archive's. */
-const WRAPPERS = new Set(["dipo-verify", "dipo-part-out"]);
+const WRAPPERS = new Set(["dipo-command", "dipo-part-out"]);
 
-/** The command one of dipo's wrappers (`boxVerifyCommand`, `partArchiveCommand`) runs, or `command`. */
+/** The command one of dipo's wrappers (`boxCommand`, `partArchiveCommand`) runs, or `command`. */
 export function unwrapped(command: readonly string[]): readonly string[] {
   return command[0] === "/bin/sh" && WRAPPERS.has(command[3] ?? "") ? command.slice(4) : command;
 }

@@ -169,6 +169,29 @@ describe("box worker system file", () => {
     expect(renderSystemFile("implement", "developer")).not.toContain("no git program");
   });
 
+  // DIPO-299: CI is the verify of a box run; the worker runs verify itself before done.
+  it("tells the worker to run verify in its box before done, with the packages installed, and that dipo does not", () => {
+    const text = box();
+    expect(text).toContain(
+      "The project's packages are already installed in the box when you start.",
+    );
+    expect(text).toContain(
+      "Before you report done, run the project's verify command in the box, as the project's own instructions or package scripts name it, and fix every failure your change caused.",
+    );
+    expect(text).toContain(
+      "dipo does not run verify when you report done: CI on the pull request is the check after yours.",
+    );
+    expect(text).toContain(
+      "when you report done it pushes the work, opens or updates the story's pull request and starts CI and the review on it.",
+    );
+    expect(text).toContain("A failed CI check or a review finding comes back to you as feedback.");
+    for (const gone of ["runs verify when you report done", "A failed verify"]) {
+      expect(text).not.toContain(gone);
+    }
+    // The git paragraph of DIPO-293 stays.
+    expect(text).toContain("The box has no git program, and none can be installed.");
+  });
+
   it("drops the write-only-these-paths, no-git and no-cd rules, and the Mac sandbox's rules", () => {
     const text = box();
     expect(text).toContain("It is a forecast, not a fence");
