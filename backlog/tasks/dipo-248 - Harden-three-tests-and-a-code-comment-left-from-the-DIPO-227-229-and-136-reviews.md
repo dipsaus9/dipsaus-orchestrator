@@ -3,10 +3,10 @@ id: DIPO-248
 title: >-
   Harden three tests and a code comment left from the DIPO-227, 229 and 136
   reviews
-status: Refined
+status: Ready
 assignee: []
 created_date: '2026-10-20 18:35'
-updated_date: '2026-10-20 20:46'
+updated_date: '2026-10-22 05:33'
 labels:
   - 'tier:S'
   - cutover
@@ -14,7 +14,6 @@ milestone: m-1
 dependencies:
   - DIPO-183
   - DIPO-228
-  - DIPO-257
 references:
   - packages/engine/test/run/work-run.test.ts
   - packages/daemon/src/foreground.ts

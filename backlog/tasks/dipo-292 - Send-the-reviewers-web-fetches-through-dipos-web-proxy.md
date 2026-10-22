@@ -4,7 +4,7 @@ title: Send the reviewer's web fetches through dipo's web proxy
 status: Refined
 assignee: []
 created_date: '2026-10-21 23:03'
-updated_date: '2026-10-21 23:03'
+updated_date: '2026-10-22 05:33'
 labels:
   - 'tier:M'
   - box
@@ -25,7 +25,7 @@ ordinal: 281000
 <!-- SECTION:DESCRIPTION:BEGIN -->
 Outcome: a reviewer's (and any Mac worker's) WebFetch connects only through dipo's web proxy, so the address rule runs at connect time on the address actually used, closing DNS rebinding and same-host redirects to the Mac or the local network.
 
-Context: DIPO-276 (PR #325) checks the address in the web guard before Claude Code fetches by name itself; its review found rebinding and same-host or www redirects still pass.
+Context: DIPO-276 (PR #325) checks the address in the web guard before Claude Code fetches by name itself; its review found the name check alone does not cover every connect-time address. The reviewer runs on the Mac without a box, so it gets its own listener of the same proxy and address rules, started for the length of the review session (the box web proxy listens only on the box network, which exists only while a box runs).
 
 ```dipo
 branch: "DIPO-292/reviewer-web-proxy"
