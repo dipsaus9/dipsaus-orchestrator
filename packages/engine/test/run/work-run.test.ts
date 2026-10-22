@@ -58,6 +58,8 @@ import {
   WorkRun,
   type WorkRunDeps,
 } from "../../src/run";
+import { runIntents } from "../../src/run/intents";
+import { INTENT_TAGS } from "../../src/run/outcome-types";
 import type { StoredRun } from "../../src/run/records";
 import { SoftwareStream } from "../../src/software-stream";
 import { addStory } from "../../src/stories/keys";
@@ -1032,12 +1034,13 @@ function noticeCodes(): string[] {
     .map((e) => (e.delta as { code?: string }).code ?? "");
 }
 
-/** Lets the pending microtasks run: an answer started before this has reached its serialized step. */
-async function settle(): Promise<void> {
-  for (let tick = 0; tick < 50; tick += 1) await Promise.resolve();
+/** Polls a condition, a millisecond apart, so every pending step can run first (2 s at most). */
+async function waitUntil(condition: () => boolean): Promise<void> {
+  for (let poll = 0; poll < 2_000 && !condition(); poll += 1) await Bun.sleep(1);
+  if (!condition()) throw new Error("the awaited condition was never reached");
 }
 
-/** Holds work.run's claim open until the answer has queued behind it, then lets the pickup go on. */
+/** Holds work.run's claim open until the answer's intent row is stored, then lets the pickup go on. */
 async function pickupWithAnswerInClaim(
   of: Resumption,
   parked: { run: RunId; parkId: number; question: string },
@@ -1048,7 +1051,11 @@ async function pickupWithAnswerInClaim(
   const pickup = run();
   await entered.promise;
   const reply = answer(of, parked);
-  await settle();
+  await waitUntil(() =>
+    runIntents(world.office, parked.run).some((i) =>
+      i.detail.startsWith(`${INTENT_TAGS.parkResume} `),
+    ),
+  );
   opened.resolve();
   return { pickup, reply };
 }

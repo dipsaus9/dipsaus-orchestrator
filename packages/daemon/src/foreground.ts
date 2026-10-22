@@ -108,7 +108,9 @@ import {
   type LogFile,
   type Registry,
   type PidRecord,
+  type ProcessProbe,
   type ServedSocket,
+  type StoryPlanningDeps,
   type StateDatabase,
   type StoredRun,
 } from "@dipsaus-orchestrator/engine";
@@ -137,6 +139,17 @@ export const LOCK_CHECK_MS = 60_000;
 
 export const FOREGROUND_USAGE =
   "dipo daemon --foreground [--log-level error|warn|info|debug|trace]";
+
+/**
+ * The dependencies of `StoryPlanning` (DIPO-227): the process probe is passed in, so a test can
+ * check that the daemon's planning gets the probe it was given.
+ */
+export function storyPlanningDeps(
+  parts: Omit<StoryPlanningDeps, "probe">,
+  probe: ProcessProbe,
+): StoryPlanningDeps {
+  return { ...parts, probe };
+}
 
 /** What the daemon is built with; tests add recovery steps and shorten the drain caps. */
 export interface ForegroundOptions {
@@ -713,14 +726,18 @@ async function serve(run: Run, lock: HeldLock): Promise<number> {
     // `story.hold`, `story.drop` and the on-hold resume of `work.resume` (DIPO-160): lane
     // operations, the story PR closed through the same `gh` host and the claim released with the
     // office git.
-    const planning = new StoryPlanning({
-      lane: (office) => lane.forOffice(office),
-      git: (office) => engineGit.forOffice(office),
-      host,
-      slots,
-      implemented: (name) => registry.command(name) !== undefined,
-      probe: systemProcessProbe(platform),
-    });
+    const planning = new StoryPlanning(
+      storyPlanningDeps(
+        {
+          lane: (office) => lane.forOffice(office),
+          git: (office) => engineGit.forOffice(office),
+          host,
+          slots,
+          implemented: (name) => registry.command(name) !== undefined,
+        },
+        systemProcessProbe(platform),
+      ),
+    );
     // The story index (DIPO-32): indexes each office at load, after the git load step and the
     // lane's replay, and polls its remote every `polling.fetchSeconds`, with the `backlog` this
     // daemon found on its PATH.
