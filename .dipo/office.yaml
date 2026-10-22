@@ -12,8 +12,8 @@ version: 8
 # Only the node versions, not nvm's own checkout. Keep npm tokens in ~/.npmrc: a run is refused
 # when a node version's etc/npmrc under a read path, or a .npmrc at the root of one, holds one.
 
-# dipo opens no story PR on this repository (DIPO-210, 0019 amendment of 2026-10-19). The
-# maintainer side merges its own finish-branch PRs here (main merged in, review fixes on top) until
-# the review loop takes over, so a PR from dipo would be a second PR per story.
+# dipo opens the story PR on this repository again (0019 amendment of 2026-10-22): CI on that PR is
+# the verify of a box run (0021 amendment of 2026-10-22). It was off from 2026-10-19 (DIPO-210)
+# while the maintainer side merged its own finish-branch PRs.
 storyPr:
-  open: false
+  open: true
