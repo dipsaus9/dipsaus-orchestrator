@@ -86,6 +86,7 @@ import {
   StoryClaims,
   StoryIndex,
   StoryPlanning,
+  type StoryPlanningDeps,
   StoryPrs,
   gitParkWriter,
   StoryTeardown,
@@ -108,6 +109,7 @@ import {
   type LogFile,
   type Registry,
   type PidRecord,
+  type ProcessProbe,
   type ServedSocket,
   type StateDatabase,
 } from "@dipsaus-orchestrator/engine";
@@ -424,6 +426,17 @@ async function runWithLog(run: Run): Promise<number> {
   return serve(run, outcome.lock);
 }
 
+/**
+ * The dependencies of `StoryPlanning` (DIPO-227): the office parts come from `serve`, and the
+ * probe is the one the daemon checks worker hosts with, so the planning and the lock agree.
+ */
+export function storyPlanningDeps(
+  parts: Omit<StoryPlanningDeps, "probe">,
+  probe: ProcessProbe,
+): StoryPlanningDeps {
+  return { ...parts, probe };
+}
+
 async function serve(run: Run, lock: HeldLock): Promise<number> {
   const { io, logger, logFile, stateDir, platform, stops, options } = run;
   const clock = io.clock;
@@ -709,14 +722,18 @@ async function serve(run: Run, lock: HeldLock): Promise<number> {
     // `story.hold`, `story.drop` and the on-hold resume of `work.resume` (DIPO-160): lane
     // operations, the story PR closed through the same `gh` host and the claim released with the
     // office git.
-    const planning = new StoryPlanning({
-      lane: (office) => lane.forOffice(office),
-      git: (office) => engineGit.forOffice(office),
-      host,
-      slots,
-      implemented: (name) => registry.command(name) !== undefined,
-      probe: systemProcessProbe(platform),
-    });
+    const planning = new StoryPlanning(
+      storyPlanningDeps(
+        {
+          lane: (office) => lane.forOffice(office),
+          git: (office) => engineGit.forOffice(office),
+          host,
+          slots,
+          implemented: (name) => registry.command(name) !== undefined,
+        },
+        systemProcessProbe(platform),
+      ),
+    );
     // The story index (DIPO-32): indexes each office at load, after the git load step and the
     // lane's replay, and polls its remote every `polling.fetchSeconds`, with the `backlog` this
     // daemon found on its PATH.

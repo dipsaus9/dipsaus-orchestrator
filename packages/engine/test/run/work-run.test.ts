@@ -140,6 +140,8 @@ interface World {
   readonly resumeStarts: string[];
   /** Holds the claim open when set: `entered` is called as it starts, `open` lets it go on (DIPO-208). */
   claimGate: { readonly entered: () => void; readonly open: Promise<void> } | null;
+  /** Resolved when the park resume lifts the park, before it waits for the worker place (DIPO-229). */
+  unparked: PromiseWithResolvers<void>;
   /** Starts a queued resume through the park resume when set (DIPO-229); else the place only records it. */
   queuedStart: ((office: OfficeId, run: StoredRun) => Promise<boolean>) | null;
 }
@@ -196,6 +198,7 @@ beforeEach(async () => {
     places,
     resumeStarts,
     claimGate: null,
+    unparked: Promise.withResolvers<void>(),
     queuedStart: null,
   };
   const read = (ids: readonly string[] | null): BaseRead => ({
@@ -1011,7 +1014,12 @@ function resumption(sessions: { count: number }): Resumption {
         },
       },
       caps: () => ({ budgetTokens: 1_000_000, maxTurns: 100, maxMinutes: 60 }),
-      unpark: { lift: async () => ({ commit: null, pushed: true, pushError: null }) },
+      unpark: {
+        lift: async () => {
+          world.unparked.resolve();
+          return { commit: null, pushed: true, pushError: null };
+        },
+      },
     },
     { places: () => world.places },
   ).resumption;
@@ -1032,11 +1040,6 @@ function noticeCodes(): string[] {
     .map((e) => (e.delta as { code?: string }).code ?? "");
 }
 
-/** Lets the pending microtasks run: an answer started before this has reached its serialized step. */
-async function settle(): Promise<void> {
-  for (let tick = 0; tick < 50; tick += 1) await Promise.resolve();
-}
-
 /** Holds work.run's claim open until the answer has queued behind it, then lets the pickup go on. */
 async function pickupWithAnswerInClaim(
   of: Resumption,
@@ -1048,7 +1051,7 @@ async function pickupWithAnswerInClaim(
   const pickup = run();
   await entered.promise;
   const reply = answer(of, parked);
-  await settle();
+  await world.unparked.promise;
   opened.resolve();
   return { pickup, reply };
 }

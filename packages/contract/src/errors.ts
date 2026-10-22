@@ -47,7 +47,8 @@ export const RETRYABLE_ERROR_CODES = [
 // Specific codes of the software-level commands (0005 section 4). Since minor 1 (DIPO-27):
 // `office.refused` for an office whose engine instance would not load (its `office.json` names
 // another id, or a load step failed; `details` name the step), also on office-level commands and
-// reads, and `office.markerInvalid` for an `office.json` that is not a valid marker.
+// reads, and for a refused write of an office file such as `.dipo/office.local.yaml` (DIPO-136);
+// `office.markerInvalid` for an `office.json` that is not a valid marker.
 export const SOFTWARE_ERROR_CODES = [
   "office.notProject",
   "office.pathMissing",
