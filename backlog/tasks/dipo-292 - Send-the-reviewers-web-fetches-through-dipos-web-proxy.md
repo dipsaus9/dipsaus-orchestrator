@@ -1,10 +1,10 @@
 ---
 id: DIPO-292
 title: Send the reviewer's web fetches through dipo's web proxy
-status: Refined
+status: Done
 assignee: []
 created_date: '2026-10-21 23:03'
-updated_date: '2026-10-22 05:33'
+updated_date: '2026-10-22 17:37'
 labels:
   - 'tier:M'
   - box
@@ -16,6 +16,11 @@ references:
   - packages/engine/src/run/review-launch.ts
   - packages/engine/src/box/web-proxy.ts
   - packages/engine/test/workers/review-tools.test.ts
+  - packages/engine/src/workers/types.ts
+  - packages/engine/src/hooks/web-guard.ts
+  - packages/engine/test/box/web-proxy.test.ts
+  - packages/engine/test/run/review-read-only.test.ts
+  - packages/engine/test/workers/launch-fixtures.ts
 type: bug
 ordinal: 281000
 ---
@@ -35,7 +40,13 @@ unknowns: []
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 The reviewer's session gets HTTPS_PROXY and HTTP_PROXY on dipo's web proxy and NO_PROXY only for the model API, so every fetch tunnels through the proxy
-- [ ] #2 A fetch to a name that resolves, or redirects, to a non-public address is refused by the proxy at connect time, shown by tests
-- [ ] #3 The web guard's name check stays as a first layer
+- [x] #1 The reviewer's session gets HTTPS_PROXY and HTTP_PROXY on dipo's web proxy and NO_PROXY only for the model API, so every fetch tunnels through the proxy
+- [x] #2 A fetch to a name that resolves, or redirects, to a non-public address is refused by the proxy at connect time, shown by tests
+- [x] #3 The web guard's name check stays as a first layer
 <!-- AC:END -->
+
+## Implementation Notes
+
+<!-- SECTION:NOTES:BEGIN -->
+2026-10-22: built outside dipo (box-core fix, maintainer choice of the mix), merged as #343 after review; the review advisory on the box network address is fixed. Production SYSTEM_FETCH_ADDRESSES.boxHostAddress returns null today, so the web guard and the reviewer's listener refuse the box network through the on-link prefix of the Mac's interface; giving both a live box host address source through composeRuns is a possible follow-up. Only a live review can show Claude Code honours HTTPS_PROXY and NO_PROXY for WebFetch.
+<!-- SECTION:NOTES:END -->
