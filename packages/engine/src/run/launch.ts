@@ -21,6 +21,16 @@
 // the code at the claim's start commit (`BoxWorkers.create`). The run directory then records the
 // box, so the worker port plans every developer session of the run inside it. A setup that fails
 // after the box exists, or a released claim, deletes the box again.
+//
+// Right after the box is made, and still before the launch checks and the worker's first session
+// (DIPO-294, 0021 amendment of 2026-10-22), dipo prepares the box with the office's packages
+// (`#readyBox`): the run profile's install runs in the box at the start commit, with the run
+// environment for `/work` and the box's web route through Safe-Chain (`BoxWorkers.install`),
+// within the office's install deadline; then `/work` is compared with the start commit on dipo's
+// own copy (`BoxWorkers.changedSinceStart`), never by running git on the box's files (0021 section
+// 14). A failed or timed-out install, a file git does not ignore beyond the start commit's, or a
+// check that cannot finish fails the setup as the Mac worktree setup fails it: the claim rolls
+// back with the reason in its notice, and the box is deleted.
 
 import { createHash } from "node:crypto";
 import { rmSync, writeFileSync } from "node:fs";
@@ -61,7 +71,11 @@ import {
   type LaunchPlan,
   type WorkerSpec,
 } from "../workers/types";
+import { BOX_WORKDIR } from "../box/code";
+import { cleanDoorText } from "../box/door";
 import type { BoxWorkers } from "../box/workers";
+import type { RunProfile } from "../scan/detect";
+import { buildRunEnv } from "../worktree/run-env";
 import type { ClaimSetupDone, ClaimSetupFailed } from "../worktree/claim";
 import type { ClaimRecord } from "../worktree/records";
 import type { SetupOutcome } from "../worktree/setup";
@@ -103,6 +117,28 @@ export const LAUNCH_NOTICES = {
 
 /** The end kind of a run whose worker host did not start. */
 export const START_FAILED_END = "start-failed";
+
+/** The install deadline in a box when the office's `timeouts.scriptMinutes` names none. */
+export const BOX_INSTALL_MINUTES_DEFAULT = 15;
+
+/** How many paths the reason of a box with files git does not ignore names; the rest are counted. */
+const TREE_PATHS_SHOWN = 5;
+
+/**
+ * Why a launch fails when the install left files git does not ignore in the box's `/work`, as the
+ * Mac worktree setup words it. The paths are names from the box, cleaned.
+ */
+export function boxTreeChangedText(paths: readonly string[]): string {
+  const shown = paths.slice(0, TREE_PATHS_SHOWN).map((path) => cleanDoorText(path).slice(0, 200));
+  const more = paths.length > shown.length ? `, and ${paths.length - shown.length} more` : "";
+  return `the install left files git does not ignore in the box's /work (${shown.join(", ")}${more}); setup steps may change only ignored files. If install rewrote a lockfile, use a frozen install (for example \`bun install --frozen-lockfile\`); write generated files to ignored paths`;
+}
+
+/** The dev port of the root package, else the first the scan found; null when none. */
+function devPortOf(profile: RunProfile | null): number | null {
+  const ports = profile?.devPorts ?? [];
+  return (ports.find((port) => port.dir === ".") ?? ports[0])?.port ?? null;
+}
 
 /** Placeholders in the dry run for what only a real run makes. */
 export const PREVIEW_RUN = "<run-id>";
@@ -194,8 +230,16 @@ export interface RunLauncherDeps {
   readonly warn?: (message: string, fields: Readonly<Record<string, unknown>>) => void;
   /** The checkout the context pack reads; `gitWorkspace` on the office git by default. */
   readonly workspace?: (git: OfficeGit, path: string) => Workspace;
-  /** Makes and deletes a box worker's box (DIPO-271); without it a box run is refused. */
-  readonly boxes?: Pick<BoxWorkers, "create" | "discard">;
+  /**
+   * Makes and deletes a box worker's box (DIPO-271), and prepares it before the worker: the
+   * install and the check of `/work` (DIPO-294); without it a box run is refused.
+   */
+  readonly boxes?: Pick<BoxWorkers, "create" | "discard" | "install" | "changedSinceStart">;
+  /**
+   * The office's current run profile (DIPO-72), whose install a box run's box gets (DIPO-294);
+   * without it a box run is refused.
+   */
+  readonly profile?: (office: OfficeId) => RunProfile | null;
 }
 
 /** A `Workspace` over an engine worktree (the story worktree or `_base`). */
@@ -386,6 +430,63 @@ export class RunLauncher {
     });
   }
 
+  /**
+   * Prepares a box run's box before its worker (DIPO-294; see the file comment): the run profile's
+   * install in the box, then the check of `/work` against the start commit. Returns why the launch
+   * must stop, or null when the box is ready. A profile with no install runs none, as on the Mac.
+   */
+  async #readyBox(
+    facts: RunFacts,
+    claim: ClaimRecord,
+    slot: number | null,
+    boxes: NonNullable<RunLauncherDeps["boxes"]>,
+  ): Promise<string | null> {
+    if (this.#deps.profile === undefined) {
+      return "this daemon cannot read the run profile, so the box gets no install";
+    }
+    const profile = this.#deps.profile(facts.office);
+    if (profile === null) return "the office has no run profile yet; rescan the office";
+    const install = profile.capabilities.install;
+    if (install.status === "conflict") {
+      return "the run profile's install is in conflict; confirm one in the office";
+    }
+    if (install.status === "resolved") {
+      if (install.value.cwd !== ".") {
+        return `install runs in ${install.value.cwd}, but the box runs it only at the root of /work`;
+      }
+      const { config } = facts;
+      const env = buildRunEnv({
+        slot: slot ?? 0,
+        stride: config.worktree.ports.stride,
+        story: claim.story,
+        worktree: BOX_WORKDIR,
+        named: config.worktree.ports.named,
+        devPort: devPortOf(profile),
+        env: config.worktree.env,
+      });
+      const minutes = config.timeouts.scriptMinutes["install"] ?? BOX_INSTALL_MINUTES_DEFAULT;
+      const installed = await boxes.install({
+        runId: facts.runId,
+        commands: install.value.commands,
+        env,
+        timeoutMs: minutes * 60_000,
+      });
+      if (!installed.ok) return installed.reason;
+    }
+    const tree = await boxes.changedSinceStart({
+      runId: facts.runId,
+      office: facts.office,
+      story: claim.story,
+      branch: claim.branch,
+      startSha: claim.startSha,
+    });
+    if (tree.kind === "changed") return boxTreeChangedText(tree.paths);
+    if (tree.kind === "unknown") {
+      return `dipo could not check the box's /work against the start commit after the install (${tree.reason})`;
+    }
+    return null;
+  }
+
   /** The session id of a run's first session (AC #3). */
   static sessionOf(agent: string): string {
     return sessionUuid(agent);
@@ -480,6 +581,13 @@ export class RunLauncher {
       } catch (error) {
         return fail(`the box could not be made: ${messageOf(error)}`);
       }
+      let ready: string | null;
+      try {
+        ready = await this.#readyBox(facts, claim, setup.slot, boxes);
+      } catch (error) {
+        ready = `the box could not be prepared: ${messageOf(error)}`;
+      }
+      if (ready !== null) return fail(ready);
     }
     let prepared;
     try {

@@ -10,6 +10,7 @@ import type { Clock, IdSource, OfficeId } from "@dipsaus-orchestrator/contract";
 import { type InputChangeReader, Nudges } from "../hooks/nudges";
 import { ABSENT, PermissionAsks, type Presence } from "../hooks/permissions";
 import { WebGuard } from "../hooks/web-guard";
+import { currentProfile } from "../scan/store";
 import type { WorkerPort } from "../workers/port";
 import { readBackstop } from "./backstop";
 import { RunControl, type RunControlDeps, type RunSteering } from "./control";
@@ -419,6 +420,11 @@ function buildLauncher(
     ...(control === null ? {} : { control: trackerOf(ports, control) }),
     release: ports.release,
     ...given("boxes", ports.boxes),
+    // A box run's box gets the install of the office's current run profile (DIPO-294).
+    profile: (office: OfficeId) => {
+      const handle = ports.offices.get(office);
+      return handle === undefined ? null : (currentProfile(handle)?.profile ?? null);
+    },
     // The backstop's run-start snapshot (DIPO-49), which only the finisher reads.
     ...(ports.control?.finisher === undefined
       ? {}
