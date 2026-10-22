@@ -17,19 +17,22 @@ import {
   comparePart,
   inBoxExcludes,
   dotenvValue,
-  failedDetail,
   leftOutPaths,
   LISTED_VALUE_KIND,
   listedValues,
   secretLike,
   PART_STAGE_PREFIX,
+  PART_STAGE_ROOT_PREFIX,
   PART_SUBJECT_MAX,
   type PartChange,
   type PartFile,
   partArchiveCommand,
   partCommitMessage,
   partPark,
+  partStageRoot,
+  partStuckText,
   partSubject,
+  partUnstuckText,
   protectedDetail,
   protectedHits,
   protectedKind,
@@ -473,14 +476,16 @@ describe("the in-box exclude list", () => {
       ["src/build/index.ts", { mode: "100644", type: "blob", id: "1" }],
     ]);
     const rules = new IgnoreRules([{ dir: "", text: "node_modules/\nbuild/\n*.log\n.cache\n" }]);
-    expect(inBoxExcludes(rules, view)).toEqual([".cache", "node_modules"]);
+    // `node_modules/` matches folders only: the exclude drops what such a folder holds, never a
+    // regular file of that name.
+    expect(inBoxExcludes(rules, view)).toEqual([".cache", "node_modules/*"]);
   });
 
   it("leaves out a name a `!` rule could re-include, but not for an unrelated `!` rule", () => {
     const rules = new IgnoreRules([
       { dir: "", text: "node_modules/\n.env*\n!.env.example\ndist/\n!dist/\n" },
     ]);
-    expect(inBoxExcludes(rules, new Map())).toEqual(["node_modules"]);
+    expect(inBoxExcludes(rules, new Map())).toEqual(["node_modules/*"]);
   });
 
   it("excludes names anchored to the root as ./<name>, once, unless tracked or re-included", () => {
@@ -496,7 +501,16 @@ describe("the in-box exclude list", () => {
       ["tools/build/index.ts", { mode: "100644", type: "blob", id: "1" }],
     ]);
     expect(rules.rootNames).toEqual(["build", "coverage", "dist", "node_modules"]);
-    expect(inBoxExcludes(rules, view)).toEqual([".cache", "./dist", "./node_modules"]);
+    expect(inBoxExcludes(rules, view)).toEqual([".cache", "./dist/*", "./node_modules"]);
+  });
+
+  it("excludes the whole name when one of its rules matches files too", () => {
+    const rules = new IgnoreRules([{ dir: "", text: "dist/\ndist\n/out/\n/out\n/tmp/\n" }]);
+    expect(rules.foldersOnly("dist", false)).toBe(false);
+    expect(rules.foldersOnly("out", true)).toBe(false);
+    expect(rules.foldersOnly("tmp", true)).toBe(true);
+    expect(rules.foldersOnly("tmp", false)).toBe(false);
+    expect(inBoxExcludes(rules, new Map())).toEqual(["dist", "./out", "./tmp/*"]);
   });
 
   it("streams tar of the work folder with the excludes before the folder, under timeout", () => {
@@ -517,33 +531,72 @@ describe("the in-box exclude list", () => {
     ]);
     expect(() => partArchiveCommand(["a b"])).toThrow("not a plain name");
     expect(partArchiveCommand(["./node_modules"]).at(-2)).toBe("--exclude=./node_modules");
-    for (const bad of ["./a/b", "./..", "./.", "../x", ".//x", "/x"]) {
+    expect(partArchiveCommand(["node_modules/*", "./dist/*"]).slice(-3)).toEqual([
+      "--exclude=node_modules/*",
+      "--exclude=./dist/*",
+      ".",
+    ]);
+    for (const bad of [
+      "./a/b",
+      "./..",
+      "./.",
+      "../x",
+      ".//x",
+      "/x",
+      "*",
+      "./*",
+      "a/**",
+      "a/*/*",
+      "../*",
+      "a/b/*",
+    ]) {
       expect(() => partArchiveCommand([bad])).toThrow("not a plain name");
     }
   });
 });
 
 describe("the part stage sweep", () => {
-  it("removes the stage folders a stopped daemon left, only dipo's, only folders", () =>
+  it("gives each daemon its own folder of stages in the temp root", () => {
+    const a = partStageRoot("/tmp", "/home/a/.dipo");
+    expect(a.startsWith(`/tmp/${PART_STAGE_ROOT_PREFIX}`)).toBe(true);
+    expect(partStageRoot("/tmp", "/home/a/.dipo")).toBe(a);
+    expect(partStageRoot("/tmp", "/scratch/dipo-home")).not.toBe(a);
+  });
+
+  it("removes the stage folders its daemon left, only dipo's, only this user's folders", () =>
     withTempDir(async (dir) => {
-      mkdirSync(join(dir, `${PART_STAGE_PREFIX}a1`, "take-1", "files"), { recursive: true });
-      writeFileSync(join(dir, `${PART_STAGE_PREFIX}a1`, "take-1", "files", "a.ts"), "box\n");
-      mkdirSync(join(dir, `${PART_STAGE_PREFIX}b2`));
-      mkdirSync(join(dir, `${PART_STAGE_PREFIX}in-use`));
-      writeFileSync(join(dir, `${PART_STAGE_PREFIX}file`), "kept\n");
+      const root = join(dir, `${PART_STAGE_ROOT_PREFIX}mine`);
+      const other = join(dir, `${PART_STAGE_ROOT_PREFIX}other`);
+      mkdirSync(join(root, `${PART_STAGE_PREFIX}a1`, "take-1", "files"), { recursive: true });
+      writeFileSync(join(root, `${PART_STAGE_PREFIX}a1`, "take-1", "files", "a.ts"), "box\n");
+      mkdirSync(join(root, `${PART_STAGE_PREFIX}b2`));
+      mkdirSync(join(root, `${PART_STAGE_PREFIX}in-use`));
+      writeFileSync(join(root, `${PART_STAGE_PREFIX}file`), "kept\n");
       mkdirSync(join(dir, "outside"));
-      symlinkSync(join(dir, "outside"), join(dir, `${PART_STAGE_PREFIX}link`));
-      mkdirSync(join(dir, "dipo-box-files-x"));
-      const keep = new Set([join(dir, `${PART_STAGE_PREFIX}in-use`)]);
-      expect(await sweepPartStages(dir, keep)).toBe(2);
-      expect(readdirSync(dir).toSorted()).toEqual([
+      symlinkSync(join(dir, "outside"), join(root, `${PART_STAGE_PREFIX}link`));
+      mkdirSync(join(root, "dipo-box-files-x"));
+      // Another daemon's stage, in its own folder, and one left directly in the temp root.
+      mkdirSync(join(other, `${PART_STAGE_PREFIX}live`), { recursive: true });
+      mkdirSync(join(dir, `${PART_STAGE_PREFIX}loose`));
+      const keep = new Set([join(root, `${PART_STAGE_PREFIX}in-use`)]);
+      const uid = process.getuid?.();
+      // Folders of another user are left.
+      expect(await sweepPartStages(root, keep, (uid ?? 0) + 1)).toBe(0);
+      expect(await sweepPartStages(root, keep, uid)).toBe(2);
+      expect(readdirSync(root).toSorted()).toEqual([
         "dipo-box-files-x",
         `${PART_STAGE_PREFIX}file`,
         `${PART_STAGE_PREFIX}in-use`,
         `${PART_STAGE_PREFIX}link`,
-        "outside",
       ]);
+      expect(readdirSync(other)).toEqual([`${PART_STAGE_PREFIX}live`]);
+      expect(readdirSync(dir)).toContain(`${PART_STAGE_PREFIX}loose`);
       expect(await sweepPartStages(join(dir, "missing"))).toBe(0);
+      // A folder of stages reached through a link is not swept.
+      mkdirSync(join(dir, "target", `${PART_STAGE_PREFIX}c3`), { recursive: true });
+      symlinkSync(join(dir, "target"), join(dir, `${PART_STAGE_ROOT_PREFIX}linked`));
+      expect(await sweepPartStages(join(dir, `${PART_STAGE_ROOT_PREFIX}linked`))).toBe(0);
+      expect(readdirSync(join(dir, "target"))).toEqual([`${PART_STAGE_PREFIX}c3`]);
     }));
 });
 
@@ -582,9 +635,12 @@ describe("blob ids and parks", () => {
 });
 
 describe("a part that fails too often", () => {
-  it("parks with a fixed text that names the tries, no path and no error", () => {
-    expect(failedDetail(5)).toBe(
-      "dipo could not take the part the worker delivered out of the box in 5 tries in a row: the stream out of the box or a git step failed each time. dipo committed and pushed nothing, and the part stays queued in the box; the daemon log has the reasons.",
+  it("tells the maintainer with a fixed text that names the reads, no path and no error", () => {
+    expect(partStuckText(5, 2)).toBe(
+      "dipo could not take the worker's part out of the box on 5 door reads in a row, for 2 minutes or more: the stream out of the box or a git step failed each time. Nothing of it is committed yet; the part stays queued in the box, dipo keeps trying, and the worker goes on. The daemon log has the reasons.",
+    );
+    expect(partUnstuckText(7)).toBe(
+      "dipo took the worker's part out of the box again, after 7 door reads in a row that failed.",
     );
   });
 });

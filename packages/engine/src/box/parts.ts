@@ -56,12 +56,16 @@
 //
 // Parts of one run are delivered one at a time. A part that finds the run not live (being parked,
 // stopped, or not followed) is left queued in the box (`onPart` rejects), so it is delivered when
-// the run goes on. A stream or git failure rejects too, and the door hands the part again; after
-// `PART_FAILED_TRIES` failed tries in a row the run parks (`part-refused`), and the part stays
-// queued in the box for a resume.
+// the run goes on. A stream or git failure rejects too, and the door hands the part again at its
+// usual pace: such a part never parks the story, and the worker goes on (DIPO-290). Failures are
+// counted at most once per door read; once `PART_STUCK_READS` reads in a row failed over at least
+// `PART_STUCK_MIN_MS`, the maintainer gets one warning notice of the run (`PART_NOTICES.stuck`),
+// and a part taken out again ends the streak with an info notice (`PART_NOTICES.unstuck`).
 //
-// Each part's stage folder is removed when the part is done; the ones a stopped daemon left are
-// removed at daemon start (`BoxParts.sweepStages`).
+// Each part's stage folder is made in this daemon's own folder of stages in dipo's temp root
+// (`partStageRoot`, 0700, the user's own) and removed when the part is done; the ones a stopped
+// daemon left there are removed at daemon start (`BoxParts.sweepStages`). Another daemon's stages,
+// in its own folder, are never touched.
 //
 // Story done (`finishLast`) holds the same one-at-a-time turn from the last part until the caller
 // has claimed the run's end, so no part or catch-up moves the branch between the last part and In
@@ -70,7 +74,17 @@
 
 import { createHash } from "node:crypto";
 import { appendFileSync, constants } from "node:fs";
-import { lstat, mkdir, mkdtemp, open, readdir, readFile, realpath, rm } from "node:fs/promises";
+import {
+  chmod,
+  lstat,
+  mkdir,
+  mkdtemp,
+  open,
+  readdir,
+  readFile,
+  realpath,
+  rm,
+} from "node:fs/promises";
 import { join } from "node:path";
 
 import type { Clock, OfficeId } from "@dipsaus-orchestrator/contract";
@@ -166,10 +180,19 @@ const MOVED_ATTEMPTS = 3;
  */
 export const EXCLUDE_TAKES = 3;
 /**
- * How many tries in a row a door part may fail (the stream out of the box or a git step) before the
- * run parks instead of the door handing the part again on its next read (DIPO-290).
+ * How many door reads in a row a part must fail (the stream out of the box or a git step) before
+ * the maintainer is told (DIPO-290); several parts of one read count once.
  */
-export const PART_FAILED_TRIES = 5;
+export const PART_STUCK_READS = 5;
+/** How long a part must keep failing, from its first failure in a row, before the maintainer is told. */
+export const PART_STUCK_MIN_MS = 2 * 60_000;
+/** The prefix of the folder of one daemon's part stages in dipo's temp root (`partStageRoot`). */
+export const PART_STAGE_ROOT_PREFIX = "dipo-box-parts-";
+/** The `engine.notice` codes of a part dipo keeps failing to take out of the box. */
+export const PART_NOTICES = {
+  stuck: "box.partStuck",
+  unstuck: "box.partUnstuck",
+} as const;
 
 /** The park causes of a part (`run/park.ts` holds the same strings). */
 export const PART_CAUSES = {
@@ -375,14 +398,18 @@ export function comparePart(input: {
  * `.gitignore` of `rules` ignores at any depth (`node_modules`), then as `./<name>` the ones it
  * ignores at the root only (`/node_modules`; DIPO-290), unless a `!` rule could re-include the
  * name (an exclude list cannot) or a tracked path has a part of that name (it would go missing from
- * the part). Only an early filter: the Mac checks every path again.
+ * the part). A name ignored only as a folder (`node_modules/`, `/dist/`) excludes only what the
+ * folder holds (`node_modules/*`, `./dist/*`), so a regular file of that name still leaves the
+ * box. Only an early filter: the Mac checks every path again.
  */
 export function inBoxExcludes(rules: IgnoreRules, view: ReadonlyMap<string, TreeEntry>): string[] {
   const tracked = new Set([...view.keys()].flatMap((path) => path.split("/")));
   const usable = (name: string) => !tracked.has(name) && !rules.reincludes(name);
+  const pattern = (name: string, root: boolean) =>
+    `${root ? "./" : ""}${name}${rules.foldersOnly(name, root) ? "/*" : ""}`;
   return [
-    ...rules.plainNames.filter(usable),
-    ...rules.rootNames.filter(usable).map((name) => `./${name}`),
+    ...rules.plainNames.filter(usable).map((name) => pattern(name, false)),
+    ...rules.rootNames.filter(usable).map((name) => pattern(name, true)),
   ];
 }
 
@@ -390,11 +417,13 @@ export function inBoxExcludes(rules: IgnoreRules, view: ReadonlyMap<string, Tree
  * The command that streams the part out of the box: `tar` of `BOX_WORKDIR` to its stdout, hard
  * links stored as files, the excludes first, under `timeout` where the box has it. A plain name
  * excludes that name at any depth; `./<name>` only the entry at the root of `/work`, since the
- * archive's names start `./` there and nowhere below (GNU tar's unanchored matching).
+ * archive's names start `./` there and nowhere below (GNU tar's unanchored matching). Either may
+ * end in `/*`: then only the entries inside a folder of that name, never a file named so.
  */
 export function partArchiveCommand(excludes: readonly string[]): [string, ...string[]] {
   for (const name of excludes) {
-    if (!/^(?:\.\/)?[A-Za-z0-9._-]+$/.test(name) || /^(?:\.\/)?\.{1,2}$/.test(name)) {
+    const found = /^(?:\.\/)?([A-Za-z0-9._-]+)(?:\/\*)?$/.exec(name);
+    if (found === null || found[1] === "." || found[1] === "..") {
       throw new BoxError("box.refused", `${JSON.stringify(name)} is not a plain name to exclude.`);
     }
   }
@@ -664,11 +693,23 @@ export function refusedDetail(why: PartRefusal, maxBytes: number): string {
 }
 
 /**
- * Pure: the fixed park detail of a door part that failed `tries` times in a row (DIPO-290); it
- * names no path and quotes no error, which may hold the box's paths.
+ * Pure: the fixed text of the notice of a part that failed on `reads` door reads in a row over
+ * `minutes` minutes or more (DIPO-290); it names no path and quotes no error, which may hold the
+ * box's paths.
  */
-export function failedDetail(tries: number): string {
-  return `dipo could not take the part the worker delivered out of the box in ${tries} tries in a row: the stream out of the box or a git step failed each time. dipo committed and pushed nothing, and the part stays queued in the box; the daemon log has the reasons.`;
+export function partStuckText(reads: number, minutes: number): string {
+  return `dipo could not take the worker's part out of the box on ${reads} door reads in a row, for ${minutes} minutes or more: the stream out of the box or a git step failed each time. Nothing of it is committed yet; the part stays queued in the box, dipo keeps trying, and the worker goes on. The daemon log has the reasons.`;
+}
+
+/** Pure: the fixed text of the notice that a part came out of the box again after a streak. */
+export function partUnstuckText(reads: number): string {
+  return `dipo took the worker's part out of the box again, after ${reads} door reads in a row that failed.`;
+}
+
+/** The folder of the part stages of the daemon whose state folder is `stateDir`, in `tmpRoot`. */
+export function partStageRoot(tmpRoot: string, stateDir: string): string {
+  const key = createHash("sha256").update(stateDir).digest("hex").slice(0, 16);
+  return join(tmpRoot, `${PART_STAGE_ROOT_PREFIX}${key}`);
 }
 
 // ---- reading the part on the Mac -----------------------------------------------------------------
@@ -1031,8 +1072,15 @@ type Log = (message: string, fields: Readonly<Record<string, unknown>>) => void;
 export interface BoxPartsDeps {
   readonly boxes: Pick<BoxPort, "execLive" | "stop">;
   readonly clock: Clock;
-  /** dipo's temp root; each part's stage folder is made in it. */
+  /** dipo's temp root; this daemon's folder of part stages is in it. */
   readonly tmpRoot: string;
+  /**
+   * This daemon's own folder of part stages (`partStageRoot`), made 0700 in `tmpRoot` when first
+   * used; `${tmpRoot}/${PART_STAGE_ROOT_PREFIX}local` by default.
+   */
+  readonly stageRoot?: string;
+  /** The user the stage folders must belong to; the process's own by default. */
+  readonly uid?: number;
   /** The facts of a box run, or null when no loaded office knows it. */
   readonly run: (runId: string) => PartRun | null;
   readonly git: (office: OfficeId) => OfficeGit | undefined;
@@ -1046,6 +1094,8 @@ export interface BoxPartsDeps {
   readonly live: (runId: string) => boolean;
   /** Parks the run, stopping its worker; false when another decision came first. */
   readonly park?: (runId: string, park: PartPark) => boolean;
+  /** Tells the maintainer (an `engine.notice` of the run). */
+  readonly notice?: (run: PartRun, notice: PartNotice) => void;
   /** Reads the run's door now (`BoxWorkers.readDoor`), so queued parts go first. */
   readonly readDoor?: (runId: string) => Promise<unknown> | null;
   readonly limits?: CacheArchiveLimits;
@@ -1054,39 +1104,61 @@ export interface BoxPartsDeps {
   readonly ignoreWorkBudget?: number;
   /** Overrides `SCAN_FILE_MAX`. */
   readonly scanFileMax?: number;
-  /** Overrides `PART_FAILED_TRIES`. */
-  readonly failedTries?: number;
   readonly warn?: Log;
   readonly info?: Log;
+}
+
+/** A notice of a run's part for the maintainer. */
+export interface PartNotice {
+  readonly level: "info" | "warn";
+  readonly code: string;
+  readonly text: string;
+}
+
+/** The failed door reads in a row of a run's parts. */
+interface FailStreak {
+  reads: number;
+  /** When the first read of the streak failed, on the engine clock. */
+  readonly since: number;
+  /** The door read (`DoorPart.at`) that failed last: another part of it does not count. */
+  lastRead: number;
+  noticed: boolean;
 }
 
 function messageOf(error: unknown): string {
   return error instanceof Error ? error.message : String(error);
 }
 
+/** True when `info` is a folder, not a link, of `uid` (any user when undefined). */
+function ownFolder(info: { isDirectory(): boolean; readonly uid: number }, uid?: number): boolean {
+  return info.isDirectory() && (uid === undefined || info.uid === uid);
+}
+
 /**
- * Removes the part stage folders (`PART_STAGE_PREFIX`) directly in `tmpRoot`, dipo's temp root,
- * except those in `keep` (the folders as made, before `realpath`). Only folders: a link or a file
- * of that name is left alone, and nothing outside `tmpRoot` is touched. Never rejects; resolves to
- * the number removed.
+ * Removes the part stage folders (`PART_STAGE_PREFIX`) in `stageRoot`, one daemon's own folder
+ * of stages (`partStageRoot`), except those in `keep` (the folders as made, before `realpath`).
+ * Only folders of `uid`: a link, a file or another user's folder is left alone, and nothing when
+ * `stageRoot` itself is not a folder of `uid`. Never rejects; resolves to the number removed.
  */
 export async function sweepPartStages(
-  tmpRoot: string,
+  stageRoot: string,
   keep: ReadonlySet<string> = new Set(),
+  uid: number | undefined = process.getuid?.(),
 ): Promise<number> {
   let names: string[];
   try {
-    names = await readdir(tmpRoot);
+    if (!ownFolder(await lstat(stageRoot), uid)) return 0;
+    names = await readdir(stageRoot);
   } catch {
     return 0;
   }
   let removed = 0;
   for (const name of names) {
     if (!name.startsWith(PART_STAGE_PREFIX)) continue;
-    const at = join(tmpRoot, name);
+    const at = join(stageRoot, name);
     if (keep.has(at)) continue;
     try {
-      if (!(await lstat(at)).isDirectory()) continue;
+      if (!ownFolder(await lstat(at), uid)) continue;
       await rm(at, { recursive: true, force: true });
       removed += 1;
     } catch {
@@ -1101,8 +1173,8 @@ export class BoxParts {
   readonly #deps: BoxPartsDeps;
   /** The delivery in flight per run: parts of one run go one at a time. */
   readonly #chains = new Map<string, Promise<unknown>>();
-  /** The door parts that failed in a row, per run (`PART_FAILED_TRIES`). */
-  readonly #failed = new Map<string, number>();
+  /** The door reads that failed in a row, per run (`PART_STUCK_READS`). */
+  readonly #failed = new Map<string, FailStreak>();
   /** The stage folders in use, which `sweepStages` leaves. */
   readonly #stages = new Set<string>();
 
@@ -1113,8 +1185,8 @@ export class BoxParts {
   /**
    * `BoxDoor`'s `onPart`: delivers the changes since the last part with the part's message. A hit
    * or a refused part parks the run; a rejected push parks it `conflict`. Rejects, so the part stays
-   * queued in the box, when the run is not live or the delivery failed; the `PART_FAILED_TRIES`th
-   * failure in a row parks the run first (`failedDetail`), so the door stops handing it again.
+   * queued in the box, when the run is not live or the delivery failed. A failure never parks: it
+   * counts toward the run's notice (`#failedTry`), and the door hands the part again.
    */
   async onPart(part: DoorPart): Promise<void> {
     if (!this.#deps.live(part.runId)) {
@@ -1135,10 +1207,10 @@ export class BoxParts {
         return this.#deliver(run, part.message);
       });
     } catch (error) {
-      this.#failedTry(part.runId, error);
+      this.#failedTry(run, part, error);
       throw error;
     }
-    this.#failed.delete(part.runId);
+    this.#streakEnded(run);
     const park = partPark(outcome);
     if (park !== null) this.#deps.park?.(part.runId, park);
     else if (outcome.kind === "committed" && outcome.push.error !== null) {
@@ -1281,37 +1353,81 @@ export class BoxParts {
   }
 
   /**
-   * Counts a failed door part of `runId`; a run that is not live (`PART_WAITING`) is no failure.
-   * The `PART_FAILED_TRIES`th in a row parks the run `part-refused` with a fixed text, since the
-   * error may quote the box's paths; the part stays queued in the box.
+   * Counts a failed door part of `run`, at most once per door read (`DoorPart.at`); a run that is
+   * not live (`PART_WAITING`) is no failure. Once `PART_STUCK_READS` reads in a row failed over at
+   * least `PART_STUCK_MIN_MS`, the maintainer gets one warning notice for the streak, with a fixed
+   * text since the error may quote the box's paths; the log has the reason. Nothing parks.
    */
-  #failedTry(runId: string, error: unknown): void {
+  #failedTry(run: PartRun, part: DoorPart, error: unknown): void {
     if (error instanceof BoxError && error.code === PART_WAITING) return;
-    const tries = (this.#failed.get(runId) ?? 0) + 1;
-    const most = this.#deps.failedTries ?? PART_FAILED_TRIES;
-    if (tries < most) {
-      this.#failed.set(runId, tries);
-      return;
+    const now = this.#deps.clock.now();
+    let streak = this.#failed.get(run.runId);
+    if (streak === undefined) {
+      streak = { reads: 0, since: now, lastRead: Number.NaN, noticed: false };
+      this.#failed.set(run.runId, streak);
     }
-    this.#failed.delete(runId);
-    this.#deps.warn?.("a part failed too often; the run parks", {
-      run: runId,
-      tries,
+    if (streak.lastRead === part.at) return;
+    streak.reads += 1;
+    streak.lastRead = part.at;
+    const elapsed = now - streak.since;
+    if (streak.noticed || streak.reads < PART_STUCK_READS || elapsed < PART_STUCK_MIN_MS) return;
+    streak.noticed = true;
+    // The door logs every failed try with its reason; this line marks the notice.
+    this.#deps.warn?.("a part keeps failing to come out of the box; the maintainer is told", {
+      run: run.runId,
+      reads: streak.reads,
       reason: messageOf(error),
     });
-    this.#deps.park?.(runId, {
-      reason: "scope-violation",
-      cause: PART_CAUSES.refused,
-      detail: failedDetail(tries),
+    this.#deps.notice?.(run, {
+      level: "warn",
+      code: PART_NOTICES.stuck,
+      text: partStuckText(streak.reads, Math.floor(elapsed / 60_000)),
+    });
+  }
+
+  /** A part of `run` was taken out: its streak of failed reads ends, told when it was noticed. */
+  #streakEnded(run: PartRun): void {
+    const streak = this.#failed.get(run.runId);
+    if (streak === undefined) return;
+    this.#failed.delete(run.runId);
+    if (!streak.noticed) return;
+    this.#deps.notice?.(run, {
+      level: "info",
+      code: PART_NOTICES.unstuck,
+      text: partUnstuckText(streak.reads),
     });
   }
 
   /**
-   * Removes the stage folders of parts (`PART_STAGE_PREFIX`) in dipo's temp root that no part of
-   * this daemon uses: the ones a stopped daemon left. Runs at daemon start; never rejects.
+   * Removes the stage folders of parts (`PART_STAGE_PREFIX`) in this daemon's own folder of stages
+   * that no part of it uses: the ones it left when it stopped. Runs at daemon start; never rejects.
    */
   sweepStages(): Promise<number> {
-    return sweepPartStages(this.#deps.tmpRoot, this.#stages);
+    return sweepPartStages(this.#stageRoot, this.#stages, this.#uid);
+  }
+
+  get #stageRoot(): string {
+    return this.#deps.stageRoot ?? join(this.#deps.tmpRoot, `${PART_STAGE_ROOT_PREFIX}local`);
+  }
+
+  get #uid(): number | undefined {
+    return this.#deps.uid ?? process.getuid?.();
+  }
+
+  /**
+   * This daemon's folder of part stages, made 0700 when missing; refused when it is not a folder
+   * of this user (a link, or one another user made in the shared temp root).
+   */
+  async #ownStageRoot(): Promise<string> {
+    const root = this.#stageRoot;
+    await mkdir(root, { mode: 0o700 }).catch((error: unknown) => {
+      if ((error as { code?: unknown } | null)?.code !== "EEXIST") throw error;
+    });
+    if (!ownFolder(await lstat(root), this.#uid)) {
+      throw new BoxError(PART_FAILED, "the folder of dipo's part stages is not this user's own.");
+    }
+    await chmod(root, 0o700);
+    return root;
   }
 
   /** The listed box files a part of `run` leaves out: the run's record, else `listedFiles`. */
@@ -1327,9 +1443,9 @@ export class BoxParts {
     return git;
   }
 
-  /** Runs `fn` with a fresh stage folder in dipo's temp root, removed after. */
+  /** Runs `fn` with a fresh stage folder in this daemon's folder of stages, removed after. */
   async #inStage<T>(fn: (stage: string) => Promise<T>): Promise<T> {
-    const made = await mkdtemp(join(this.#deps.tmpRoot, PART_STAGE_PREFIX));
+    const made = await mkdtemp(join(await this.#ownStageRoot(), PART_STAGE_PREFIX));
     this.#stages.add(made);
     try {
       return await fn(await realpath(made));

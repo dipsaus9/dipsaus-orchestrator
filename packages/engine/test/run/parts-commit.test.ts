@@ -16,7 +16,7 @@ import {
   symlinkSync,
   writeFileSync,
 } from "node:fs";
-import { basename, join, relative } from "node:path";
+import { basename, dirname, join, relative } from "node:path";
 
 import { describe, expect, it } from "bun:test";
 
@@ -30,14 +30,19 @@ import {
 import {
   BoxParts,
   type BoxPartsDeps,
-  failedDetail,
   PART_FAILED,
-  PART_FAILED_TRIES,
+  PART_NOTICES,
   PART_RECORD_FILE,
   PART_STAGE_PREFIX,
+  PART_STAGE_ROOT_PREFIX,
+  PART_STUCK_MIN_MS,
+  PART_STUCK_READS,
   PART_WAITING,
+  type PartNotice,
   type PartPark,
   type PartRun,
+  partStuckText,
+  partUnstuckText,
 } from "../../src/box/parts";
 import { BOX_RUN_FILE } from "../../src/box/workers";
 import { BoxError, type BoxPort } from "../../src/box/port";
@@ -70,6 +75,9 @@ interface World {
   readonly claimTip: string;
   readonly calls: string[];
   readonly parks: PartPark[];
+  readonly notices: PartNotice[];
+  /** The delivery's clock. */
+  readonly clock: ManualClock;
   /** What the base config's `box.files` says now (`BoxPartsDeps.listedFiles`). */
   listed: string[];
   live: boolean;
@@ -84,17 +92,33 @@ type TarMode = "all" | "excludes";
  */
 type ExecHook = () => { readonly exit?: number; readonly hold?: Promise<unknown> } | void;
 
+/** True for an exclude of what a folder holds (`node_modules/*`). */
+function inside(pattern: string): boolean {
+  return pattern.endsWith("/*");
+}
+
+/** The exclude without its `/*`. */
+function bare(pattern: string): string {
+  return inside(pattern) ? pattern.slice(0, -2) : pattern;
+}
+
 /**
- * The paths below `work` a GNU `tar -C work -cf - --exclude=... .` packs: a plain exclude drops
- * every entry of that name at any depth, `./<name>` only the entry at the root.
+ * The paths below `work` a GNU `tar -C work -cf - --exclude=... .` leaves out: a plain exclude
+ * drops every entry of that name at any depth, `./<name>` only the entry at the root, and either
+ * ending in `/*` only what a folder of that name holds.
  */
 function excluded(work: string, excludes: readonly string[]): (path: string) => boolean {
+  const roots = excludes.filter((name) => name.startsWith("./"));
   const names = excludes.filter((name) => !name.startsWith("./"));
-  const roots = excludes.filter((name) => name.startsWith("./")).map((name) => name.slice(2));
   return (path) => {
     const rel = relative(work, path);
     if (rel === "") return false;
-    return names.includes(basename(rel)) || roots.includes(rel);
+    const parent = dirname(rel);
+    return (
+      names.some((name) =>
+        inside(name) ? parent !== "." && basename(parent) === bare(name) : basename(rel) === name,
+      ) || roots.some((root) => (inside(root) ? parent : rel) === bare(root).slice(2))
+    );
   };
 }
 
@@ -242,12 +266,15 @@ async function world(repo: TempRepoWithRemote, options: WorldOptions = {}): Prom
     claimTip,
     calls,
     parks,
+    notices: [] as PartNotice[],
+    clock: new ManualClock(),
     listed: ["listed.json"],
     live: true,
   } as World;
   const parts = new BoxParts({
     boxes: tarBox(work, calls, options.tar, () => options.onExec?.(w)),
-    clock: new ManualClock(),
+    clock: w.clock,
+    notice: (_run, notice) => w.notices.push(notice),
     tmpRoot: realpathSync(tmp),
     run: (runId) => (runId === "run_1" ? run : null),
     git: (office) => (office === OFFICE ? git : undefined),
@@ -267,14 +294,15 @@ async function world(repo: TempRepoWithRemote, options: WorldOptions = {}): Prom
   return w;
 }
 
-function part(message: string) {
+/** A door part; `at` is the door read that took it. */
+function part(message: string, at = 0) {
   return {
     runId: "run_1",
     box: "dipo-run_1",
     n: 1,
     name: "1700000000-1.part",
     message,
-    at: 0,
+    at,
   };
 }
 
@@ -324,7 +352,7 @@ describe("a part on real git", () => {
       expect(await w.repo.git("show", `${commit}:${TASK_FILE}`)).toContain("In Progress");
       // The stream: tar through the exec with its stdin closed, never a copy out of the box.
       expect(w.calls).toEqual([
-        "exec dipo-run_1 tar --hard-dereference -C /work -cf - --exclude=node_modules .",
+        "exec dipo-run_1 tar --hard-dereference -C /work -cf - --exclude=node_modules/* .",
         "stdin end",
       ]);
       // The main checkout was not written.
@@ -720,7 +748,7 @@ describe("the edges of a part (DIPO-290)", () => {
         expect(await filesAt(w, await tip(w))).toContain("node_modules/pkg/index.js");
         // The first stream left node_modules in the box; the second, by the part's rules, did not.
         expect(w.calls.filter((call) => call.startsWith("exec"))).toEqual([
-          "exec dipo-run_1 tar --hard-dereference -C /work -cf - --exclude=node_modules .",
+          "exec dipo-run_1 tar --hard-dereference -C /work -cf - --exclude=node_modules/* .",
           "exec dipo-run_1 tar --hard-dereference -C /work -cf - .",
         ]);
         // The next part streams once, with the delivered rules.
@@ -756,81 +784,137 @@ describe("the edges of a part (DIPO-290)", () => {
           "node_modules/left-out/index.js": "ignored\n",
           "pkg/node_modules/kept/index.js": "not ignored by /node_modules\n",
           "src/a.ts": "export const a = 2;\n",
+          dist: "a regular file, which /dist/ does not ignore\n",
         });
         await w.parts.onPart(part("Anchored ignore"));
         expect(w.parks).toEqual([]);
         expect(w.calls.filter((call) => call.startsWith("exec"))).toEqual([
-          "exec dipo-run_1 tar --hard-dereference -C /work -cf - --exclude=./dist --exclude=./node_modules .",
+          "exec dipo-run_1 tar --hard-dereference -C /work -cf - --exclude=./dist/* --exclude=./node_modules .",
         ]);
         const files = await filesAt(w, await tip(w));
         expect(files).toContain("pkg/node_modules/kept/index.js");
         expect(files).not.toContain("node_modules/left-out/index.js");
+        // `/dist/` ignores the folder only: a regular file named dist at the root leaves the box.
+        expect(files).toContain("dist");
       },
       { start: { ".gitignore": "/node_modules\n/dist/\n*.log\n" }, tar: "excludes" },
     ));
 
-  it("parks part-refused after the set number of failed tries, not on every door read", () => {
+  it("delivers a regular file named like a folder-only ignore, from inside the box", () =>
+    inParts(
+      async (w) => {
+        write(w.work, {
+          "node_modules/pkg/index.js": "ignored\n",
+          "tools/node_modules": "a regular file, which node_modules/ does not ignore\n",
+        });
+        await w.parts.onPart(part("A file named node_modules"));
+        expect(w.parks).toEqual([]);
+        const files = await filesAt(w, await tip(w));
+        expect(files).toContain("tools/node_modules");
+        expect(files).not.toContain("node_modules/pkg/index.js");
+      },
+      { tar: "excludes" },
+    ));
+
+  it("never parks on a part that cannot come out, and tells the maintainer once per streak", () => {
     let failing = true;
     // The stream out of the box fails: `tar` ends with exit 2 and prints nothing.
     return inParts(
       async (w) => {
-        const tryOnce = () =>
-          w.parts.onPart(part("Cannot come out")).then(
-            () => null,
-            (error: unknown) => error as BoxError,
-          );
+        let read = 0;
+        /** One door read that hands `queued` parts, each rejected and left queued. */
+        const doorRead = async (queued = 1) => {
+          read += 1;
+          const codes: (string | null)[] = [];
+          for (let n = 0; n < queued; n += 1) {
+            codes.push(
+              await w.parts.onPart(part("Cannot come out", read)).then(
+                () => null,
+                (error: unknown) => (error as BoxError).code,
+              ),
+            );
+          }
+          return codes;
+        };
         write(w.work, { "src/a.ts": "export const a = 2;\n" });
-        for (let n = 1; n < PART_FAILED_TRIES; n += 1) {
-          expect((await tryOnce())?.code).toBe(PART_FAILED);
+        // A run that is not live counts nothing, however long.
+        w.live = false;
+        for (let n = 0; n < PART_STUCK_READS + 1; n += 1) {
+          expect(await doorRead()).toEqual([PART_WAITING]);
+          w.clock.advance(60_000);
         }
+        expect(w.notices).toEqual([]);
+        w.live = true;
+        // Three parts queued in one read count as one failed read.
+        expect(await doorRead(3)).toEqual([PART_FAILED, PART_FAILED, PART_FAILED]);
+        for (let n = 1; n < PART_STUCK_READS; n += 1) {
+          w.clock.advance(5_000);
+          await doorRead(3);
+        }
+        // Enough reads, but not for long enough: a hiccup under the minimum time is not told.
+        expect(w.notices).toEqual([]);
+        w.clock.advance(PART_STUCK_MIN_MS);
+        expect(await doorRead()).toEqual([PART_FAILED]);
+        const stuck: PartNotice = {
+          level: "warn",
+          code: PART_NOTICES.stuck,
+          text: partStuckText(PART_STUCK_READS + 1, 2),
+        };
+        expect(w.notices).toEqual([stuck]);
+        expect(stuck.text).not.toContain("src/a.ts");
+        // Once per streak, and never a park: the part stays queued and the worker goes on.
+        w.clock.advance(60_000);
+        await doorRead();
+        expect(w.notices).toEqual([stuck]);
         expect(w.parks).toEqual([]);
-        // The last try still rejects, so the part stays queued in the box for a resume.
-        expect((await tryOnce())?.code).toBe(PART_FAILED);
-        expect(w.parks).toEqual([
+        expect(await tip(w)).toBe(w.claimTip);
+        // The part comes out: the streak ends with an info notice.
+        failing = false;
+        await w.parts.onPart(part("Comes out", (read += 1)));
+        expect(await w.repo.git("show", `${await tip(w)}:src/a.ts`)).toBe("export const a = 2;\n");
+        expect(w.notices).toEqual([
+          stuck,
           {
-            reason: "scope-violation",
-            cause: "part-refused",
-            detail: failedDetail(PART_FAILED_TRIES),
+            level: "info",
+            code: PART_NOTICES.unstuck,
+            text: partUnstuckText(PART_STUCK_READS + 2),
           },
         ]);
-        expect(w.parks[0]?.detail).not.toContain("src/a.ts");
-        expect(await tip(w)).toBe(w.claimTip);
-        // A run that is not live does not count; a delivered part starts the count again.
-        w.live = false;
-        for (let n = 0; n < PART_FAILED_TRIES; n += 1) {
-          expect((await tryOnce())?.code).toBe(PART_WAITING);
-        }
-        w.live = true;
-        for (let n = 1; n < PART_FAILED_TRIES; n += 1) await tryOnce();
-        failing = false;
-        await w.parts.onPart(part("Comes out"));
+        // A new streak of many reads within a minute is not told, nor its end.
         failing = true;
-        for (let n = 1; n < PART_FAILED_TRIES; n += 1) await tryOnce();
-        expect(w.parks).toHaveLength(1);
+        write(w.work, { "src/b.ts": "export const b = 1;\n" });
+        for (let n = 0; n < PART_STUCK_READS * 2; n += 1) {
+          w.clock.advance(5_000);
+          await doorRead();
+        }
+        failing = false;
+        await w.parts.onPart(part("Comes out again", (read += 1)));
+        expect(w.notices).toHaveLength(2);
+        expect(w.parks).toEqual([]);
       },
       { onExec: () => (failing ? { exit: 2 } : undefined) },
     );
   });
 
-  it("sweeps the stage folders a stopped daemon left, never the one a part uses", () => {
+  it("sweeps the stage folders its daemon left, never one a part uses or another daemon's", () => {
     let sweep: Promise<number> | null = null;
     return inParts(
       async (w) => {
         const tmp = realpathSync(join(w.repo.root, "tmp"));
-        mkdirSync(join(tmp, `${PART_STAGE_PREFIX}left1`, "files"), { recursive: true });
-        writeFileSync(join(tmp, `${PART_STAGE_PREFIX}left1`, "files", "a.ts"), "box files\n");
-        writeFileSync(join(tmp, `${PART_STAGE_PREFIX}not-a-folder`), "kept\n");
-        mkdirSync(join(tmp, "dipo-other-keep"));
+        const own = join(tmp, `${PART_STAGE_ROOT_PREFIX}local`);
+        const other = join(tmp, `${PART_STAGE_ROOT_PREFIX}0123456789abcdef`);
+        mkdirSync(join(own, `${PART_STAGE_PREFIX}left1`, "files"), { recursive: true });
+        writeFileSync(join(own, `${PART_STAGE_PREFIX}left1`, "files", "a.ts"), "box files\n");
+        writeFileSync(join(own, `${PART_STAGE_PREFIX}not-a-folder`), "kept\n");
+        mkdirSync(join(other, `${PART_STAGE_PREFIX}live`), { recursive: true });
         write(w.work, { "src/a.ts": "export const a = 2;\n" });
         await w.parts.onPart(part("Swept meanwhile"));
         // The sweep ran while the part streamed: the part's own stage stayed, and it committed.
         expect(await sweep).toBe(1);
         expect(w.parks).toEqual([]);
         expect(await w.repo.git("show", `${await tip(w)}:src/a.ts`)).toBe("export const a = 2;\n");
-        expect(readdirSync(tmp).toSorted()).toEqual([
-          `${PART_STAGE_PREFIX}not-a-folder`,
-          "dipo-other-keep",
-        ]);
+        expect(readdirSync(own)).toEqual([`${PART_STAGE_PREFIX}not-a-folder`]);
+        expect(readdirSync(other)).toEqual([`${PART_STAGE_PREFIX}live`]);
       },
       {
         // The part's output waits for the sweep, so its stage folder is in use while it runs.

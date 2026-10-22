@@ -375,6 +375,25 @@ export class IgnoreRules {
     return [...names].toSorted();
   }
 
+  /**
+   * True when every rule of the root `.gitignore` that ignores `name`, plain (`plainNames`) or
+   * anchored to the root when `root` (`rootNames`), matches folders only (`node_modules/`,
+   * `/dist/`): git then ignores no regular file of that name, so an exclude may drop only the
+   * folder's contents (DIPO-290).
+   */
+  foldersOnly(name: string, root: boolean): boolean {
+    let found = false;
+    for (const file of this.#files) {
+      if (file.dir !== "") continue;
+      for (const pattern of file.patterns) {
+        if (pattern.negated || (root ? pattern.rootName : pattern.plainName) !== name) continue;
+        if (!pattern.dirOnly) return false;
+        found = true;
+      }
+    }
+    return found;
+  }
+
   /** The decision of the rules for `path` itself: true ignored, false re-included, null none. */
   #decide(path: string, isDir: boolean): boolean | null {
     for (const file of this.#files) {
