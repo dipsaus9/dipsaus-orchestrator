@@ -60,12 +60,15 @@
 // usual pace: such a part never parks the story, and the worker goes on (DIPO-290). Failures are
 // counted at most once per door read; once `PART_STUCK_READS` reads in a row failed over at least
 // `PART_STUCK_MIN_MS`, the maintainer gets one warning notice of the run (`PART_NOTICES.stuck`),
-// and a part taken out again ends the streak with an info notice (`PART_NOTICES.unstuck`).
+// and a part taken out again ends the streak with an info notice (`PART_NOTICES.unstuck`). A run
+// that is not live, any part taken out (also the last one, or one in a held turn), or a door that
+// did not read for `PART_STREAK_GAP_MS` (the session ended, the run parked and resumed) ends the
+// streak, so a resumed run starts a fresh one.
 //
-// Each part's stage folder is made in this daemon's own folder of stages in dipo's temp root
-// (`partStageRoot`, 0700, the user's own) and removed when the part is done; the ones a stopped
-// daemon left there are removed at daemon start (`BoxParts.sweepStages`). Another daemon's stages,
-// in its own folder, are never touched.
+// Each part's stage folder is made in this daemon's own folder of stages under its state folder
+// (`partStageRoot`, 0700, refused when it is a link or not the user's) and removed when the part
+// is done; the ones a stopped daemon left there are removed at daemon start
+// (`BoxParts.sweepStages`). No other daemon or user shares that folder.
 //
 // Story done (`finishLast`) holds the same one-at-a-time turn from the last part until the caller
 // has claimed the run's end, so no part or catch-up moves the branch between the last part and In
@@ -186,8 +189,14 @@ export const EXCLUDE_TAKES = 3;
 export const PART_STUCK_READS = 5;
 /** How long a part must keep failing, from its first failure in a row, before the maintainer is told. */
 export const PART_STUCK_MIN_MS = 2 * 60_000;
-/** The prefix of the folder of one daemon's part stages in dipo's temp root (`partStageRoot`). */
-export const PART_STAGE_ROOT_PREFIX = "dipo-box-parts-";
+/**
+ * The longest time between a failed door read and the next one within one streak; a longer one
+ * means the door was not reading (the session ended, the run parked or stopped, a restart), so the
+ * next failure starts a fresh streak.
+ */
+export const PART_STREAK_GAP_MS = 60_000;
+/** The name of the folder of a daemon's part stages in its state folder (`partStageRoot`). */
+export const PART_STAGE_DIR = "box-parts";
 /** The `engine.notice` codes of a part dipo keeps failing to take out of the box. */
 export const PART_NOTICES = {
   stuck: "box.partStuck",
@@ -706,10 +715,12 @@ export function partUnstuckText(reads: number): string {
   return `dipo took the worker's part out of the box again, after ${reads} door reads in a row that failed.`;
 }
 
-/** The folder of the part stages of the daemon whose state folder is `stateDir`, in `tmpRoot`. */
-export function partStageRoot(tmpRoot: string, stateDir: string): string {
-  const key = createHash("sha256").update(stateDir).digest("hex").slice(0, 16);
-  return join(tmpRoot, `${PART_STAGE_ROOT_PREFIX}${key}`);
+/**
+ * The folder of the part stages of the daemon whose state folder is `stateDir`: inside it, so only
+ * this user and this daemon own it, never a name in a shared temp root another user could take.
+ */
+export function partStageRoot(stateDir: string): string {
+  return join(stateDir, PART_STAGE_DIR);
 }
 
 // ---- reading the part on the Mac -----------------------------------------------------------------
@@ -1072,13 +1083,11 @@ type Log = (message: string, fields: Readonly<Record<string, unknown>>) => void;
 export interface BoxPartsDeps {
   readonly boxes: Pick<BoxPort, "execLive" | "stop">;
   readonly clock: Clock;
-  /** dipo's temp root; this daemon's folder of part stages is in it. */
-  readonly tmpRoot: string;
   /**
-   * This daemon's own folder of part stages (`partStageRoot`), made 0700 in `tmpRoot` when first
-   * used; `${tmpRoot}/${PART_STAGE_ROOT_PREFIX}local` by default.
+   * This daemon's own folder of part stages (`partStageRoot`), made 0700 when first used; a part
+   * fails while it is a link or not the user's.
    */
-  readonly stageRoot?: string;
+  readonly stageRoot: string;
   /** The user the stage folders must belong to; the process's own by default. */
   readonly uid?: number;
   /** The facts of a box run, or null when no loaded office knows it. */
@@ -1122,6 +1131,8 @@ interface FailStreak {
   readonly since: number;
   /** The door read (`DoorPart.at`) that failed last: another part of it does not count. */
   lastRead: number;
+  /** When the last failure ended, on the engine clock (`PART_STREAK_GAP_MS`). */
+  lastFailedAt: number;
   noticed: boolean;
 }
 
@@ -1190,6 +1201,7 @@ export class BoxParts {
    */
   async onPart(part: DoorPart): Promise<void> {
     if (!this.#deps.live(part.runId)) {
+      this.#failed.delete(part.runId);
       throw new BoxError(PART_WAITING, `run ${part.runId} is not going on; the part stays queued.`);
     }
     const run = this.#deps.run(part.runId);
@@ -1243,10 +1255,12 @@ export class BoxParts {
       this.#deps.live(runId)
         ? this.#deliver(run, message)
         : Promise.resolve<PartOutcome>({ kind: "stopped" }),
-    ).catch((error: unknown): PartOutcome => {
-      if (error instanceof BoxError && error.code === PART_WAITING) return { kind: "stopped" };
-      throw error;
-    });
+    )
+      .catch((error: unknown): PartOutcome => {
+        if (error instanceof BoxError && error.code === PART_WAITING) return { kind: "stopped" };
+        throw error;
+      })
+      .then((outcome) => this.#settled(run, outcome));
   }
 
   /**
@@ -1271,12 +1285,15 @@ export class BoxParts {
       });
     }
     const stopped: LastPartFinish<T> = { outcome: { kind: "stopped" }, finished: null };
-    if (!this.#deps.live(runId)) return stopped;
+    if (!this.#deps.live(runId)) {
+      this.#failed.delete(runId);
+      return stopped;
+    }
     const run = this.#deps.run(runId);
     if (run === null) throw new BoxError(PART_FAILED, `run ${runId} is not known here.`);
     return this.#serial(runId, async (): Promise<LastPartFinish<T>> => {
       if (!this.#deps.live(runId)) return stopped;
-      const outcome = await this.#deliver(run, message);
+      const outcome = this.#settled(run, await this.#deliver(run, message));
       if (partPark(outcome) !== null || !this.#deps.live(runId)) return { outcome, finished: null };
       const git = this.#gitOf(run);
       const tip = await git.run((session) => branchTip(session, run.branch));
@@ -1286,7 +1303,10 @@ export class BoxParts {
       });
       return { outcome, finished: { result } };
     }).catch((error: unknown): LastPartFinish<T> => {
-      if (error instanceof BoxError && error.code === PART_WAITING) return stopped;
+      if (error instanceof BoxError && error.code === PART_WAITING) {
+        this.#failed.delete(runId);
+        return stopped;
+      }
       throw error;
     });
   }
@@ -1308,10 +1328,12 @@ export class BoxParts {
     if (!this.#deps.live(runId)) return { kind: "stopped" };
     const run = this.#deps.run(runId);
     if (run === null) throw new BoxError(PART_FAILED, `run ${runId} is not known here.`);
-    return this.#deliver(run, message).catch((error: unknown): PartOutcome => {
-      if (error instanceof BoxError && error.code === PART_WAITING) return { kind: "stopped" };
-      throw error;
-    });
+    return this.#deliver(run, message)
+      .catch((error: unknown): PartOutcome => {
+        if (error instanceof BoxError && error.code === PART_WAITING) return { kind: "stopped" };
+        throw error;
+      })
+      .then((outcome) => this.#settled(run, outcome));
   }
 
   /**
@@ -1359,13 +1381,22 @@ export class BoxParts {
    * text since the error may quote the box's paths; the log has the reason. Nothing parks.
    */
   #failedTry(run: PartRun, part: DoorPart, error: unknown): void {
-    if (error instanceof BoxError && error.code === PART_WAITING) return;
+    if (error instanceof BoxError && error.code === PART_WAITING) {
+      // The run parked or stopped: a resume starts a fresh streak.
+      this.#failed.delete(run.runId);
+      return;
+    }
     const now = this.#deps.clock.now();
     let streak = this.#failed.get(run.runId);
+    if (streak !== undefined && part.at - streak.lastFailedAt > PART_STREAK_GAP_MS) {
+      // The door did not read for a while (a session ended, a park and a resume): a fresh streak.
+      streak = undefined;
+    }
     if (streak === undefined) {
-      streak = { reads: 0, since: now, lastRead: Number.NaN, noticed: false };
+      streak = { reads: 0, since: now, lastRead: Number.NaN, lastFailedAt: now, noticed: false };
       this.#failed.set(run.runId, streak);
     }
+    streak.lastFailedAt = now;
     if (streak.lastRead === part.at) return;
     streak.reads += 1;
     streak.lastRead = part.at;
@@ -1383,6 +1414,16 @@ export class BoxParts {
       code: PART_NOTICES.stuck,
       text: partStuckText(streak.reads, Math.floor(elapsed / 60_000)),
     });
+  }
+
+  /**
+   * `outcome` of a part of `run` outside the door (`deliverLast`, `finishLast`, `deliverInTurn`):
+   * a run that is not live forgets its streak, any part taken out ends it (`#streakEnded`).
+   */
+  #settled(run: PartRun, outcome: PartOutcome): PartOutcome {
+    if (outcome.kind === "stopped") this.#failed.delete(run.runId);
+    else this.#streakEnded(run);
+    return outcome;
   }
 
   /** A part of `run` was taken out: its streak of failed reads ends, told when it was noticed. */
@@ -1407,7 +1448,7 @@ export class BoxParts {
   }
 
   get #stageRoot(): string {
-    return this.#deps.stageRoot ?? join(this.#deps.tmpRoot, `${PART_STAGE_ROOT_PREFIX}local`);
+    return this.#deps.stageRoot;
   }
 
   get #uid(): number | undefined {
@@ -1416,13 +1457,12 @@ export class BoxParts {
 
   /**
    * This daemon's folder of part stages, made 0700 when missing; refused when it is not a folder
-   * of this user (a link, or one another user made in the shared temp root).
+   * of this user (a link in its place, or a folder of another user).
    */
   async #ownStageRoot(): Promise<string> {
     const root = this.#stageRoot;
-    await mkdir(root, { mode: 0o700 }).catch((error: unknown) => {
-      if ((error as { code?: unknown } | null)?.code !== "EEXIST") throw error;
-    });
+    // A link in its place is kept, and refused below.
+    await mkdir(root, { recursive: true, mode: 0o700 });
     if (!ownFolder(await lstat(root), this.#uid)) {
       throw new BoxError(PART_FAILED, "the folder of dipo's part stages is not this user's own.");
     }

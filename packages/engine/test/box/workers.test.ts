@@ -884,7 +884,7 @@ async function treeWorld(
   parts = new BoxParts({
     boxes: w.boxes,
     clock: systemClock,
-    tmpRoot: tmp,
+    stageRoot: join(tmp, "box-parts"),
     run: () => null,
     git: () => w.git,
     listedFiles: async () => listedFiles,

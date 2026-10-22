@@ -22,7 +22,7 @@ import {
   listedValues,
   secretLike,
   PART_STAGE_PREFIX,
-  PART_STAGE_ROOT_PREFIX,
+  PART_STAGE_DIR,
   PART_SUBJECT_MAX,
   type PartChange,
   type PartFile,
@@ -556,17 +556,15 @@ describe("the in-box exclude list", () => {
 });
 
 describe("the part stage sweep", () => {
-  it("gives each daemon its own folder of stages in the temp root", () => {
-    const a = partStageRoot("/tmp", "/home/a/.dipo");
-    expect(a.startsWith(`/tmp/${PART_STAGE_ROOT_PREFIX}`)).toBe(true);
-    expect(partStageRoot("/tmp", "/home/a/.dipo")).toBe(a);
-    expect(partStageRoot("/tmp", "/scratch/dipo-home")).not.toBe(a);
+  it("gives each daemon its own folder of stages in its state folder, never the temp root", () => {
+    expect(partStageRoot("/home/a/.dipo")).toBe(`/home/a/.dipo/${PART_STAGE_DIR}`);
+    expect(partStageRoot("/scratch/dipo-home")).not.toBe(partStageRoot("/home/a/.dipo"));
   });
 
   it("removes the stage folders its daemon left, only dipo's, only this user's folders", () =>
     withTempDir(async (dir) => {
-      const root = join(dir, `${PART_STAGE_ROOT_PREFIX}mine`);
-      const other = join(dir, `${PART_STAGE_ROOT_PREFIX}other`);
+      const root = partStageRoot(join(dir, "state"));
+      const other = partStageRoot(join(dir, "other-state"));
       mkdirSync(join(root, `${PART_STAGE_PREFIX}a1`, "take-1", "files"), { recursive: true });
       writeFileSync(join(root, `${PART_STAGE_PREFIX}a1`, "take-1", "files", "a.ts"), "box\n");
       mkdirSync(join(root, `${PART_STAGE_PREFIX}b2`));
@@ -575,7 +573,7 @@ describe("the part stage sweep", () => {
       mkdirSync(join(dir, "outside"));
       symlinkSync(join(dir, "outside"), join(root, `${PART_STAGE_PREFIX}link`));
       mkdirSync(join(root, "dipo-box-files-x"));
-      // Another daemon's stage, in its own folder, and one left directly in the temp root.
+      // Another daemon's stage, in its own folder, and one an older daemon left loose.
       mkdirSync(join(other, `${PART_STAGE_PREFIX}live`), { recursive: true });
       mkdirSync(join(dir, `${PART_STAGE_PREFIX}loose`));
       const keep = new Set([join(root, `${PART_STAGE_PREFIX}in-use`)]);
@@ -594,8 +592,9 @@ describe("the part stage sweep", () => {
       expect(await sweepPartStages(join(dir, "missing"))).toBe(0);
       // A folder of stages reached through a link is not swept.
       mkdirSync(join(dir, "target", `${PART_STAGE_PREFIX}c3`), { recursive: true });
-      symlinkSync(join(dir, "target"), join(dir, `${PART_STAGE_ROOT_PREFIX}linked`));
-      expect(await sweepPartStages(join(dir, `${PART_STAGE_ROOT_PREFIX}linked`))).toBe(0);
+      mkdirSync(join(dir, "linked"));
+      symlinkSync(join(dir, "target"), join(dir, "linked", PART_STAGE_DIR));
+      expect(await sweepPartStages(join(dir, "linked", PART_STAGE_DIR))).toBe(0);
       expect(readdirSync(join(dir, "target"))).toEqual([`${PART_STAGE_PREFIX}c3`]);
     }));
 });

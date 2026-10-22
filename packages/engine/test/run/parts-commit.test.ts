@@ -13,6 +13,7 @@ import {
   readdirSync,
   realpathSync,
   rmSync,
+  statSync,
   symlinkSync,
   writeFileSync,
 } from "node:fs";
@@ -34,13 +35,13 @@ import {
   PART_NOTICES,
   PART_RECORD_FILE,
   PART_STAGE_PREFIX,
-  PART_STAGE_ROOT_PREFIX,
-  PART_STUCK_MIN_MS,
+  PART_STREAK_GAP_MS,
   PART_STUCK_READS,
   PART_WAITING,
   type PartNotice,
   type PartPark,
   type PartRun,
+  partStageRoot,
   partStuckText,
   partUnstuckText,
 } from "../../src/box/parts";
@@ -78,6 +79,10 @@ interface World {
   readonly notices: PartNotice[];
   /** The delivery's clock. */
   readonly clock: ManualClock;
+  /** This daemon's folder of part stages, in its state folder. */
+  readonly stageRoot: string;
+  /** The user the stage folders must belong to (`BoxPartsDeps.uid`). */
+  uid: number;
   /** What the base config's `box.files` says now (`BoxPartsDeps.listedFiles`). */
   listed: string[];
   live: boolean;
@@ -268,6 +273,8 @@ async function world(repo: TempRepoWithRemote, options: WorldOptions = {}): Prom
     parks,
     notices: [] as PartNotice[],
     clock: new ManualClock(),
+    stageRoot: partStageRoot(join(realpathSync(repo.root), "state")),
+    uid: process.getuid?.() ?? 0,
     listed: ["listed.json"],
     live: true,
   } as World;
@@ -275,7 +282,10 @@ async function world(repo: TempRepoWithRemote, options: WorldOptions = {}): Prom
     boxes: tarBox(work, calls, options.tar, () => options.onExec?.(w)),
     clock: w.clock,
     notice: (_run, notice) => w.notices.push(notice),
-    tmpRoot: realpathSync(tmp),
+    stageRoot: w.stageRoot,
+    get uid() {
+      return w.uid;
+    },
     run: (runId) => (runId === "run_1" ? run : null),
     git: (office) => (office === OFFICE ? git : undefined),
     listedFiles: async () => w.listed,
@@ -561,7 +571,7 @@ describe("parts dipo does not take", () => {
       const small = new BoxParts({
         boxes: tarBox(w.work, w.calls),
         clock: new ManualClock(),
-        tmpRoot: realpathSync(join(repo.root, "tmp")),
+        stageRoot: w.stageRoot,
         run: () => ({
           runId: "run_1",
           office: OFFICE,
@@ -821,14 +831,13 @@ describe("the edges of a part (DIPO-290)", () => {
     // The stream out of the box fails: `tar` ends with exit 2 and prints nothing.
     return inParts(
       async (w) => {
-        let read = 0;
-        /** One door read that hands `queued` parts, each rejected and left queued. */
+        /** One door read now that hands `queued` parts, each rejected and left queued. */
         const doorRead = async (queued = 1) => {
-          read += 1;
+          const at = w.clock.now();
           const codes: (string | null)[] = [];
           for (let n = 0; n < queued; n += 1) {
             codes.push(
-              await w.parts.onPart(part("Cannot come out", read)).then(
+              await w.parts.onPart(part("Cannot come out", at)).then(
                 () => null,
                 (error: unknown) => (error as BoxError).code,
               ),
@@ -853,12 +862,18 @@ describe("the edges of a part (DIPO-290)", () => {
         }
         // Enough reads, but not for long enough: a hiccup under the minimum time is not told.
         expect(w.notices).toEqual([]);
-        w.clock.advance(PART_STUCK_MIN_MS);
+        // Reads 30 s apart: told on the first read past the minimum time, 140 s in.
+        for (let n = 0; n < 3; n += 1) {
+          w.clock.advance(30_000);
+          await doorRead();
+        }
+        expect(w.notices).toEqual([]);
+        w.clock.advance(30_000);
         expect(await doorRead()).toEqual([PART_FAILED]);
         const stuck: PartNotice = {
           level: "warn",
           code: PART_NOTICES.stuck,
-          text: partStuckText(PART_STUCK_READS + 1, 2),
+          text: partStuckText(PART_STUCK_READS + 4, 2),
         };
         expect(w.notices).toEqual([stuck]);
         expect(stuck.text).not.toContain("src/a.ts");
@@ -870,14 +885,14 @@ describe("the edges of a part (DIPO-290)", () => {
         expect(await tip(w)).toBe(w.claimTip);
         // The part comes out: the streak ends with an info notice.
         failing = false;
-        await w.parts.onPart(part("Comes out", (read += 1)));
+        await w.parts.onPart(part("Comes out", w.clock.now()));
         expect(await w.repo.git("show", `${await tip(w)}:src/a.ts`)).toBe("export const a = 2;\n");
         expect(w.notices).toEqual([
           stuck,
           {
             level: "info",
             code: PART_NOTICES.unstuck,
-            text: partUnstuckText(PART_STUCK_READS + 2),
+            text: partUnstuckText(PART_STUCK_READS + 5),
           },
         ]);
         // A new streak of many reads within a minute is not told, nor its end.
@@ -888,7 +903,7 @@ describe("the edges of a part (DIPO-290)", () => {
           await doorRead();
         }
         failing = false;
-        await w.parts.onPart(part("Comes out again", (read += 1)));
+        await w.parts.onPart(part("Comes out again", w.clock.now()));
         expect(w.notices).toHaveLength(2);
         expect(w.parks).toEqual([]);
       },
@@ -896,13 +911,104 @@ describe("the edges of a part (DIPO-290)", () => {
     );
   });
 
+  it("starts a fresh streak after the run parked or the door stopped, never telling at once", () => {
+    let failing = true;
+    return inParts(
+      async (w) => {
+        // One door read now; the clock moves a little, as a read takes time.
+        const doorRead = () => {
+          w.clock.advance(1);
+          return w.parts.onPart(part("Cannot come out", w.clock.now())).then(
+            () => null,
+            (error: unknown) => (error as BoxError).code,
+          );
+        };
+        write(w.work, { "src/a.ts": "export const a = 2;\n" });
+        // A streak one read short of the notice, over more than the minimum time.
+        for (let n = 1; n < PART_STUCK_READS; n += 1) {
+          expect(await doorRead()).toBe(PART_FAILED);
+          w.clock.advance(PART_STREAK_GAP_MS - 10_000);
+        }
+        // The run parks: a door read finds it not live, which ends the streak.
+        w.live = false;
+        expect(await doorRead()).toBe(PART_WAITING);
+        // Resumed: the next failure is the first of a fresh streak.
+        w.live = true;
+        expect(await doorRead()).toBe(PART_FAILED);
+        expect(w.notices).toEqual([]);
+        for (let n = 1; n < PART_STUCK_READS; n += 1) {
+          w.clock.advance(PART_STREAK_GAP_MS - 10_000);
+          await doorRead();
+        }
+        expect(w.notices.map((notice) => notice.code)).toEqual([PART_NOTICES.stuck]);
+        // Delivered: the streak ends. A new one, short of the notice, then a door that stopped
+        // reading for longer than the gap (a session ended, a resume): fresh again.
+        failing = false;
+        await w.parts.onPart(part("Comes out", w.clock.now()));
+        failing = true;
+        write(w.work, { "src/b.ts": "export const b = 1;\n" });
+        for (let n = 1; n < PART_STUCK_READS; n += 1) {
+          await doorRead();
+          w.clock.advance(PART_STREAK_GAP_MS - 10_000);
+        }
+        w.clock.advance(PART_STREAK_GAP_MS + 1);
+        await doorRead();
+        expect(w.notices).toHaveLength(2);
+        // The last part taken out ends a streak too.
+        failing = false;
+        expect((await w.parts.deliverLast("run_1", "Done")).kind).toBe("committed");
+        failing = true;
+        write(w.work, { "src/c.ts": "export const c = 1;\n" });
+        for (let n = 1; n < PART_STUCK_READS; n += 1) {
+          w.clock.advance(PART_STREAK_GAP_MS - 10_000);
+          await doorRead();
+        }
+        expect(w.notices).toHaveLength(2);
+        expect(w.parks).toEqual([]);
+      },
+      { onExec: () => (failing ? { exit: 2 } : undefined) },
+    );
+  });
+
+  it("makes its folder of stages 0700, and fails a part while it is a link or another user's", () =>
+    inParts(async (w) => {
+      write(w.work, { "src/a.ts": "export const a = 2;\n" });
+      const tryPart = () =>
+        w.parts.onPart(part("Through the stage folder")).then(
+          () => null,
+          (error: unknown) => (error as BoxError).code,
+        );
+      // A link in its place, even to a folder of this user's: the part fails, nothing parks.
+      const elsewhere = join(w.repo.root, "elsewhere");
+      mkdirSync(elsewhere);
+      mkdirSync(join(w.stageRoot, ".."), { recursive: true });
+      symlinkSync(elsewhere, w.stageRoot);
+      expect(await tryPart()).toBe(PART_FAILED);
+      expect(readdirSync(elsewhere)).toEqual([]);
+      expect(w.parks).toEqual([]);
+      expect(await tip(w)).toBe(w.claimTip);
+      // A folder of another user (as `uid` sees it): the same.
+      rmSync(w.stageRoot);
+      mkdirSync(w.stageRoot, { mode: 0o755 });
+      const mine = w.uid;
+      w.uid = mine + 1;
+      expect(await tryPart()).toBe(PART_FAILED);
+      expect(w.parks).toEqual([]);
+      // Fixed: the part is delivered, and the folder is the user's own, 0700.
+      w.uid = mine;
+      expect(await tryPart()).toBeNull();
+      expect(await w.repo.git("show", `${await tip(w)}:src/a.ts`)).toBe("export const a = 2;\n");
+      expect(statSync(w.stageRoot).mode & 0o777).toBe(0o700);
+      expect(readdirSync(w.stageRoot)).toEqual([]);
+    }));
+
   it("sweeps the stage folders its daemon left, never one a part uses or another daemon's", () => {
     let sweep: Promise<number> | null = null;
     return inParts(
       async (w) => {
-        const tmp = realpathSync(join(w.repo.root, "tmp"));
-        const own = join(tmp, `${PART_STAGE_ROOT_PREFIX}local`);
-        const other = join(tmp, `${PART_STAGE_ROOT_PREFIX}0123456789abcdef`);
+        const own = w.stageRoot;
+        // Another daemon's stages are in its own state folder.
+        const other = partStageRoot(join(w.repo.root, "other-state"));
         mkdirSync(join(own, `${PART_STAGE_PREFIX}left1`, "files"), { recursive: true });
         writeFileSync(join(own, `${PART_STAGE_PREFIX}left1`, "files", "a.ts"), "box files\n");
         writeFileSync(join(own, `${PART_STAGE_PREFIX}not-a-folder`), "kept\n");
