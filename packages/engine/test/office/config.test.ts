@@ -167,6 +167,66 @@ describe("office configuration", () => {
   });
 });
 
+describe("reloadIfChanged (DIPO-303)", () => {
+  it("puts a changed office.yaml in force on the poll, and reads it again only when it changed", async () => {
+    await withTempRepo(
+      async (repo) => {
+        writeOfficeYaml(repo.dir, VALID);
+        const s = await officeSetup(repo.root);
+        const office = resultOf<{ office: OfficeId }>(
+          await send(s, "office.open", { path: repo.dir }),
+        ).office;
+        expect((await s.manager.load(office)).ok).toBe(true);
+        expect(s.manager.config(office)?.scripts).toEqual({ verify: "bun run verify" });
+
+        writeOfficeYaml(repo.dir, VALID_2);
+        await s.manager.reloadIfChanged(office);
+        expect(s.manager.config(office)?.scripts).toEqual({ verify: "bun test" });
+
+        // Nothing changed since the read: no notice, no change of the configuration in force.
+        const before = notices(s, office).length;
+        await s.manager.reloadIfChanged(office);
+        expect(notices(s, office)).toHaveLength(before);
+        expect(s.manager.config(office)?.scripts).toEqual({ verify: "bun test" });
+      },
+      { fixture: BACKLOG_FIXTURE },
+    );
+  });
+
+  it("keeps the configuration in force for a refused change and raises config.invalid once", async () => {
+    await withTempRepo(
+      async (repo) => {
+        writeOfficeYaml(repo.dir, VALID);
+        const s = await officeSetup(repo.root);
+        const office = resultOf<{ office: OfficeId }>(
+          await send(s, "office.open", { path: repo.dir }),
+        ).office;
+        expect((await s.manager.load(office)).ok).toBe(true);
+
+        writeOfficeYaml(repo.dir, INVALID);
+        await s.manager.reloadIfChanged(office);
+        expect(s.manager.config(office)?.scripts).toEqual({ verify: "bun run verify" });
+        expect(s.manager.configBlocksRuns(office).map((error) => error.path)).toEqual([
+          "timeouts.workerStallMinutes",
+        ]);
+        const invalid = notices(s, office).filter(
+          (notice) => (notice as { code?: string }).code === "config.invalid",
+        );
+        expect(invalid).toHaveLength(1);
+        expect((invalid[0] as { level: string }).level).toBe("error");
+
+        await s.manager.reloadIfChanged(office);
+        expect(
+          notices(s, office).filter(
+            (notice) => (notice as { code?: string }).code === "config.invalid",
+          ),
+        ).toHaveLength(1);
+      },
+      { fixture: BACKLOG_FIXTURE },
+    );
+  });
+});
+
 describe("office.reloadConfig and the office's git (DIPO-48)", () => {
   it("passes a new base and worktree root to the office's git on reload", async () => {
     await withTempRepo(

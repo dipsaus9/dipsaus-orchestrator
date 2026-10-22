@@ -94,6 +94,7 @@ function withScannedOffice(files: FixtureTree, fn: (o: Scanned) => Promise<void>
           detections += 1;
           return detect(probe);
         },
+        reloadConfig: (office) => setup?.manager.reloadIfChanged(office) ?? Promise.resolve(),
         onOfficeChanged: (office) => setup?.changed.push(office),
       });
       const s = await officeSetup(repo.root, { features: [engineGit.feature, profiles.feature] });
@@ -281,6 +282,14 @@ describe("office.rescan", () => {
       )?.caused_by;
       expect(causedBy).toBe(reply.requestId);
       expect(currentProfile(office)).toMatchObject({ profileId: 2, previousProfileId: 1 });
+    }));
+
+  it("puts a changed .dipo/office.yaml in force, as the rescan reads it again (DIPO-303)", () =>
+    withScannedOffice(APP, async ({ repo, s, profiles, officeId }) => {
+      applyFixture(repo.dir, { ".dipo/office.yaml": "version: 1\nscripts:\n  verify: bun test\n" });
+      await send(s, "office.rescan", {}, officeId);
+      await profiles.whenIdle(officeId);
+      expect(s.manager.config(officeId)?.scripts).toEqual({ verify: "bun test" });
     }));
 
   it("reports a failed scan as scan.finished with the error and keeps the profile", () =>

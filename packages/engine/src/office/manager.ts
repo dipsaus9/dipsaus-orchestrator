@@ -30,6 +30,7 @@ import {
 import type { CommandOutcome, Registry } from "../commands/registry";
 import {
   loadOfficeConfig,
+  OFFICE_FILE,
   OFFICE_LOCAL_FILE,
   type OfficeConfig,
   updateLocalPrivacy,
@@ -123,6 +124,8 @@ class OfficeInstance {
     readonly localOverrideKeys: readonly string[];
   } | null = null;
   configErrors: readonly ConfigError[] = [];
+  /** The `.dipo/office.yaml` text the configuration in force was read from (DIPO-303). */
+  officeText: string | null = null;
 
   constructor(
     readonly officeId: OfficeId,
@@ -130,6 +133,15 @@ class OfficeInstance {
     readonly path: string,
     readonly commonDir: string,
   ) {}
+}
+
+/** The text of `.dipo/office.yaml` under `dir`, or null when it is missing or unreadable. */
+function readOfficeText(dir: string): string | null {
+  try {
+    return readFileSync(join(dir, OFFICE_FILE), "utf8");
+  } catch {
+    return null;
+  }
 }
 
 const ROW_COLUMNS = "office_id, path, display_name, added_at, forgotten_at";
@@ -309,6 +321,7 @@ export class OfficeManager implements OfficeDirectory {
    * become a `config.warning` notice there. Returns whether anything changed.
    */
   async #readConfig(instance: OfficeInstance): Promise<boolean> {
+    instance.officeText = readOfficeText(instance.path);
     const result = await loadOfficeConfig(instance.path);
     if (result.ok) {
       const changed =
@@ -340,6 +353,31 @@ export class OfficeManager implements OfficeDirectory {
       text: `The office configuration is invalid; new runs are refused until \`dipo office reload-config\` reads a valid one, and ${kept}. ${result.errors.map((error) => error.message).join("; ")}`,
     });
     return changed;
+  }
+
+  /**
+   * Reads the configuration again when `.dipo/office.yaml` differs from the text the configuration
+   * in force was read from (DIPO-303). The poll after a base move and `office.rescan` call it, so a
+   * change that reached the base is in force without a daemon restart. A valid change goes to the
+   * config-reload listeners; an invalid one keeps the configuration in force and raises the
+   * `config.invalid` notice. An office that is not loaded is left alone.
+   */
+  reloadIfChanged(office: OfficeId): Promise<void> {
+    return this.#serialised(async () => {
+      const instance = this.#instances.get(office);
+      if (instance === undefined || readOfficeText(instance.path) === instance.officeText) return;
+      await this.#readConfig(instance);
+      this.#listenConfigReload(instance);
+    });
+  }
+
+  /** Tells every config-reload listener the configuration in force, when it is valid. */
+  #listenConfigReload(instance: OfficeInstance): void {
+    if (instance.config === null || instance.configErrors.length > 0) return;
+    const config = instance.config.config;
+    for (const { listen } of this.#deps.registry().configReloads()) {
+      listen({ officeId: instance.officeId, office: instance.office, config });
+    }
   }
 
   #officeNotice(
@@ -712,12 +750,7 @@ export class OfficeManager implements OfficeDirectory {
     }
     // A load just read the configuration; only an office loaded before reads it again.
     const changed = wasLoaded ? await this.#readConfig(instance) : false;
-    if (wasLoaded && instance.config !== null && instance.configErrors.length === 0) {
-      const config = instance.config.config;
-      for (const { listen } of this.#deps.registry().configReloads()) {
-        listen({ officeId, office: instance.office, config });
-      }
-    }
+    if (wasLoaded) this.#listenConfigReload(instance);
     return {
       result: {
         office: officeId,
