@@ -14,7 +14,7 @@ const RUN = "run_01JZ0000000000000000000009";
 const CLI_MAIN = join(import.meta.dir, "..", "..", "cli", "src", "main.ts");
 if (process.env["DIPO_TEST_CI"] === "1")
   describe("dipo hook process", () => {
-    for (const args of [["Stop"], ["PermissionRequest", "--wait", "300"]]) {
+    for (const args of [["Stop"], ["PostToolUse", "--nudge"]]) {
       it(
         `${args.join(" ")} exits 0 with no output within 2 s when no host answers`,
         () =>

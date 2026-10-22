@@ -856,10 +856,6 @@ async function serve(run: Run, lock: HeldLock): Promise<number> {
         runs.ingest.close();
         runs.reattacher.close();
         runs.stopBoxPasses();
-        // The runs' Safe-Chain proxies stop with the daemon (DIPO-84).
-        void runs.safeChainProxies.stopAll().catch((error: unknown) => {
-          logger.warn("stopping the Safe-Chain proxies failed", { error });
-        });
       },
     };
     // Daemon stop ends every box worker inside its box, and its routes (DIPO-271).

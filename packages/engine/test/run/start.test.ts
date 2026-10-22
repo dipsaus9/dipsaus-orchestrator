@@ -59,14 +59,19 @@ import {
   claudeLaunchContext,
   claudeSessionFacts,
 } from "../../src/workers/claude-cli/adapter";
-import { encode } from "../../src/workers/claude-cli/encode";
+import { encode, userMessageLine } from "../../src/workers/claude-cli/encode";
 import { type ClaudeParseState, initialState } from "../../src/workers/claude-cli/interpret";
 import { REPORT_JSON_SCHEMAS } from "../../src/workers/claude-cli/report-schema";
 import { CLAUDE_LOCAL_SETTINGS } from "../../src/workers/claude-cli/settings-check";
 import { result as claudeResult } from "../../src/workers/claude-cli/result";
 import { AdapterHolds, gateLaunch, type LaunchCheckOutcome } from "../../src/workers/hold";
 import type { RunLaunchPaths, WorkerPort } from "../../src/workers/port";
-import { type LaunchPlan, type ParseState, PlanError } from "../../src/workers/types";
+import {
+  type LaunchPlan,
+  type ParseState,
+  PlanError,
+  type WorkerSpec,
+} from "../../src/workers/types";
 import type { ClaimOutcome, ClaimRequest, ClaimSetupFailed } from "../../src/worktree/claim";
 import { findClaim, insertClaim, releaseClaim, type ClaimRecord } from "../../src/worktree/records";
 import type { SetupOutcome } from "../../src/worktree/setup";
@@ -76,7 +81,6 @@ import { BoxError } from "../../src/box/port";
 import type { BoxCacheUse, BoxWorkerInstall } from "../../src/box/workers";
 import type { RunProfile } from "../../src/scan/detect";
 import { addOffice, countRows, openTestState, type TestState } from "../commands/helpers";
-import { storeResolvedVerify } from "./verify-profile";
 
 const CLAUDE = "/opt/claude/bin/claude";
 const BACKSTOP: BackstopSnapshot = {
@@ -124,6 +128,46 @@ function memoryWorkspace(root: string): Workspace {
       const text = files[path];
       return text === undefined ? undefined : new TextEncoder().encode(text);
     },
+  };
+}
+
+/**
+ * The launch plan these tests start hosts with: the flags and paths of a worker session, so the
+ * tests read model, effort, caps, tools, session, system file, environment and task message. A
+ * worktree path with a rule character is refused as the Claude plan of a reviewer refuses it.
+ */
+function standInPlan(spec: WorkerSpec, paths: RunLaunchPaths): LaunchPlan {
+  const odd = [...spec.workdir].find((char) => "()[]{}*?!\\".includes(char));
+  if (odd !== undefined) {
+    throw new PlanError(
+      `workdir holds a character with a meaning in permission rules: ${spec.workdir}`,
+      {
+        path: spec.workdir,
+        character: odd,
+      },
+    );
+  }
+  return {
+    argv: [
+      CLAUDE,
+      "-p",
+      spec.session.resume ? "--resume" : "--session-id",
+      spec.session.id,
+      "--model",
+      spec.model,
+      "--effort",
+      spec.effort,
+      "--max-turns",
+      String(spec.caps.maxTurns),
+      "--tools",
+      spec.tools.allow.join(","),
+      "--append-system-prompt-file",
+      spec.systemFile,
+    ],
+    env: { PATH: "/usr/bin:/bin", DIPO_RUN: spec.run, DIPO_TMP: paths.shortTmpDir },
+    cwd: spec.workdir,
+    files: [],
+    stdin: [userMessageLine(spec.taskMessage)],
   };
 }
 
@@ -190,8 +234,6 @@ interface World {
   releaseFails: boolean;
   readonly warnings: string[];
   gate: GateResult;
-  /** The verify tools check's refusal (DIPO-173); null passes. */
-  verifyRefusal: string | null;
   /** What the box workers were asked (DIPO-271), and whether making a box fails. */
   readonly boxCalls: string[];
   boxFails: boolean;
@@ -271,7 +313,6 @@ beforeEach(async () => {
     releaseFails: false,
     warnings: [] as string[],
     gate: { mode: "pickup", passed: true, failures: [] } as GateResult,
-    verifyRefusal: null,
     boxCalls: [] as string[],
     boxFails: false,
     withBoxes: false,
@@ -293,18 +334,14 @@ beforeEach(async () => {
     id: "claude-cli",
     reportSchema: REPORT_JSON_SCHEMAS,
     localSettings: CLAUDE_LOCAL_SETTINGS,
-    adapter: (paths, config) =>
-      claudeCliAdapter(ctxOf(paths, config), { spawn: neverSpawn, clock: t.clock }),
-    // The verify tools check (DIPO-173), scripted: it refuses with `w.verifyRefusal` when set.
-    checkVerify: async () => {
-      if (w.verifyRefusal !== null) throw new PlanError(w.verifyRefusal);
-    },
-    prepare: async (spec, paths, config, _checkSession, verify) => {
-      if (verify !== undefined && w.verifyRefusal !== null) throw new PlanError(w.verifyRefusal);
-      const plan = claudeCliAdapter(ctxOf(paths, config), {
-        spawn: neverSpawn,
-        clock: t.clock,
-      }).plan(spec);
+    // The Claude parser with a stand-in plan: the Claude CLI plans no developer on the Mac, and
+    // these tests launch without box workers (DIPO-240).
+    adapter: (paths, config) => ({
+      ...claudeCliAdapter(ctxOf(paths, config), { spawn: neverSpawn, clock: t.clock }),
+      plan: (spec) => standInPlan(spec, paths),
+    }),
+    prepare: async (spec, paths) => {
+      const plan = standInPlan(spec, paths);
       const gate = await gateLaunch("claude-cli", holds, async () => w.checks);
       return gate.ok ? { ok: true, plan } : gate;
     },
@@ -665,22 +702,13 @@ describe("work.run starts the worker of a claimed run", () => {
     expect(world.hosts).toHaveLength(1);
   });
 
-  it("plans the M0 developer tools and only the Bash PreToolUse entry with worker.web false (DIPO-164)", async () => {
+  it("plans the M0 developer tools with worker.web false (DIPO-164)", async () => {
     world.config = { ...OFFICE_DEFAULTS, worker: { ...OFFICE_DEFAULTS.worker, web: false } };
     story("TASK-1", "Ready");
     expect(resultOf<RunResult>(await run()).started).toHaveLength(1);
     const [host] = world.hosts;
     const argv: readonly string[] = host?.plan.argv ?? [];
     expect(argv[argv.indexOf("--tools") + 1]).toBe("Read,Edit,Write,Glob,Grep,Bash");
-    const settings = JSON.parse(
-      host?.plan.files.find((file) => file.name === "claude-settings.json")?.content ?? "{}",
-    ) as {
-      hooks: Record<string, Array<{ matcher?: string }>>;
-      permissions: { allow: string[] };
-    };
-    expect(settings.hooks["PreToolUse"]?.map((entry) => entry.matcher)).toEqual(["Bash"]);
-    expect(Object.keys(settings.hooks)).toContain("PermissionRequest");
-    expect(settings.permissions.allow.filter((rule) => rule.startsWith("Web"))).toEqual([]);
   });
 
   it("stores no prompt text with storePrompts off (DIPO-137)", async () => {
@@ -1206,7 +1234,6 @@ describe("work.preview, the dry run", () => {
     expect(launch?.branch).toBe("TASK-1/add-a-greeting");
     expect(launch?.worktree).toBe(join(world.worktreeRoot, "TASK-1"));
     expect(launch?.argv[0]).toBe(CLAUDE);
-    expect(launch?.argv).toContain("--settings");
     expect(launch).toMatchObject({ model: caps.model, effort: caps.effort });
     expect(launch?.caps).toEqual({
       budgetTokens: caps.budgetTokens,
@@ -1218,13 +1245,8 @@ describe("work.preview, the dry run", () => {
     expect(launch?.envNames).toContain("PATH");
     expect(launch?.envNames).not.toContain("GH_TOKEN");
     expect(JSON.stringify(launch)).not.toContain("/usr/bin:/bin");
-    const settings = launch?.files.find((file) => file.name === "claude-settings.json");
-    expect(JSON.parse(settings?.content ?? "{}").sandbox.enabled).toBe(true);
     // The short temp root (DIPO-118) is a placeholder, as its name hashes the real run id.
     expect(launch?.envNames).toContain("DIPO_TMP");
-    expect(JSON.parse(settings?.content ?? "{}").sandbox.filesystem.allowWrite).toContain(
-      join(world.dir, "tmp", "dipo-t-<hash>"),
-    );
     expect(existsSync(join(world.dir, "tmp"))).toBe(false);
     expect(launch?.systemFile.text).toContain("developer");
     expect(launch?.taskMessage).toContain("TASK-1");
@@ -1277,28 +1299,5 @@ describe("work.preview, the dry run", () => {
     const result = resultOf<PreviewResult>(await preview());
     expect(result.launch).toBeNull();
     expect(result.problem).toContain('"["');
-  });
-
-  it("reports a refused verify tool as the problem, in the text of the launch's planRefused notice (DIPO-173)", async () => {
-    story("TASK-1", "Ready");
-    storeResolvedVerify(world.office, { commands: [["bun", "run", "verify"]], cwd: "." });
-    world.verifyRefusal =
-      "verify runs oxfmt (node_modules/.bin), which needs node (#! line), but node does not resolve on the worker's PATH";
-    const before = snapshot();
-    const result = resultOf<PreviewResult>(await preview());
-    expect(snapshot()).toEqual(before);
-    expect(result.story?.story).toBe("TASK-1");
-    expect(result.launch).toBeNull();
-
-    // The real launch of the same story refuses with the same PlanError: its notice is the problem.
-    const started = resultOf<RunResult>(await run());
-    expect(started.started).toEqual([]);
-    expect(world.hosts).toEqual([]);
-    const notice = entries().find(
-      (e) => e.type === "engine.notice" && e.delta["code"] === LAUNCH_NOTICES.planRefused,
-    );
-    expect(notice).toBeDefined();
-    expect(result.problem).toBe(String(notice?.delta["text"]));
-    expect(result.problem).toContain(world.verifyRefusal);
   });
 });

@@ -64,7 +64,7 @@ import { type PromptPart, type PromptText, promptParts } from "../prompts/parts"
 import type { LaunchedHost } from "../runs/worker-hosts";
 import { runDirectory } from "../runs/worker-hosts";
 import { holdMessage } from "../workers/hold";
-import type { RunLaunchPaths, VerifyCommands, WorkerPort } from "../workers/port";
+import type { RunLaunchPaths, WorkerPort } from "../workers/port";
 import {
   PlanError,
   WEB_TOOLS,
@@ -259,8 +259,6 @@ export interface RunFacts {
   readonly config: OfficeConfig;
   /** Repo-relative path of the story's task file. */
   readonly taskFile: string;
-  /** The office's resolved verify (DIPO-173); the launch refuses a tool that cannot start. */
-  readonly verify?: VerifyCommands;
 }
 
 /** A setup that passed with a launch plan the host may start. */
@@ -549,7 +547,6 @@ export class RunLauncher {
         paths,
         facts.config,
         sessionUuid(`${facts.agent}:launch-check`),
-        facts.verify,
       );
     } catch (error) {
       if (!(error instanceof PlanError))
@@ -704,8 +701,6 @@ export class RunLauncher {
     readonly config: OfficeConfig;
     readonly taskFile: string;
     readonly base: { readonly path: string };
-    /** The office's resolved verify (DIPO-173), checked as the real launch checks it. */
-    readonly verify?: VerifyCommands;
   }): Promise<WorkerLaunchPreview> {
     const git = this.#git(input.office);
     const worktree = join(git.worktreeRoot(), input.story);
@@ -715,6 +710,7 @@ export class RunLauncher {
       ...runPaths,
       shortTmpDir: join(dirname(runPaths.shortTmpDir), `${SHORT_TEMP_PREFIX}<hash>`),
     };
+    const box = this.#deps.boxes !== undefined;
     const dependencies = await this.#deps.dependencies(
       input.office,
       input.view.dependencies.map((dependency) => dependency.id),
@@ -728,6 +724,7 @@ export class RunLauncher {
       workspace,
       baseSha: await workspace.headSha(),
       config: input.config,
+      ...(box ? { box: true } : {}),
     });
     const spec = this.#spec(
       {
@@ -740,11 +737,12 @@ export class RunLauncher {
       prompts.taskMessage,
       PREVIEW_SESSION,
     );
-    const plan = this.#deps.worker.adapter(paths, input.config).plan(spec);
-    // The worktree does not exist yet; the main checkout's node_modules stands for its install.
-    if (input.verify !== undefined) {
-      await this.#deps.worker.checkVerify?.(paths, input.config, input.verify, paths.mainCheckout);
-    }
+    // Every developer runs in its box (DIPO-240): the dry run shows the command it runs there.
+    const previewBox = this.#deps.worker.previewBox;
+    const plan =
+      box && previewBox !== undefined
+        ? previewBox(spec, paths)
+        : this.#deps.worker.adapter(paths, input.config).plan(spec);
     return {
       adapter: this.#deps.worker.id,
       branch: input.branch,

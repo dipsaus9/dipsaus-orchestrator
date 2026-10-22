@@ -1,6 +1,6 @@
 // dipo's Safe-Chain checking proxy (DIPO-84): the gate's rule, the holder report, the proxy's own
-// sandbox policy, the worker's cache and CA variables, the proxy check's verdict, the per-run
-// registry, and the gate on real local sockets (a fake Safe-Chain behind it, no network).
+// sandbox policy, the cache and CA variables, the proxy check's verdict and the gate on real local
+// sockets (a fake Safe-Chain behind it, no network).
 
 import { describe, expect, it } from "bun:test";
 import { connect, createServer, type Server, type Socket } from "node:net";
@@ -30,7 +30,6 @@ import {
   runProxyCheck,
   sweepSafeChainProxies,
 } from "../../src/platform/safe-chain-proxy";
-import { SafeChainProxies, type SafeChainProxyHandle } from "../../src/sandbox/safe-chain-proxies";
 import {
   ecosystemOf,
   gateDecision,
@@ -363,115 +362,6 @@ describe("(unit) the proxy check's retries (DIPO-211)", () => {
       expect(fake.calls.filter((url) => url === passing)).toHaveLength(1);
       expect(clock.pendingTimers).toBe(0);
     }
-  });
-});
-
-function handle(
-  port: number,
-  dir = "/private/tmp/dipo-p/AbCd12",
-): SafeChainProxyHandle & {
-  stops: number;
-  exit(): void;
-} {
-  let exit!: () => void;
-  const exited = new Promise<void>((resolve) => {
-    exit = resolve;
-  });
-  const proxy = {
-    port,
-    dir,
-    exited,
-    stops: 0,
-    exit,
-    stop: async () => {
-      proxy.stops += 1;
-    },
-  };
-  return proxy;
-}
-
-describe("(unit) the runs' proxies", () => {
-  it("starts one proxy per run, replacing an earlier one, and stops it when asked", async () => {
-    const clock = new ManualClock();
-    const made: ReturnType<typeof handle>[] = [];
-    const proxies = new SafeChainProxies({
-      clock,
-      start: async () => {
-        const proxy = handle(50_000 + made.length);
-        made.push(proxy);
-        return { ok: true, proxy };
-      },
-    });
-    const first = await proxies.start("run_1", "/r/ca.pem");
-    expect(first).toMatchObject({ ok: true });
-    expect(proxies.get("run_1")?.port).toBe(50_000);
-    await proxies.start("run_1", "/r/ca.pem");
-    expect(made[0]?.stops).toBe(1);
-    expect(proxies.get("run_1")?.port).toBe(50_001);
-    await proxies.stop("run_1");
-    expect(made[1]?.stops).toBe(1);
-    expect(proxies.get("run_1")).toBeUndefined();
-  });
-
-  it("stops a proxy whose worker host never started, and keeps one whose host did", async () => {
-    const clock = new ManualClock();
-    const made: ReturnType<typeof handle>[] = [];
-    const proxies = new SafeChainProxies({
-      clock,
-      attachMs: 1_000,
-      start: async () => {
-        const proxy = handle(50_000);
-        made.push(proxy);
-        return { ok: true, proxy };
-      },
-    });
-    await proxies.start("run_1", "/r/ca.pem");
-    await proxies.start("run_2", "/r/ca.pem");
-    proxies.awaitHost("run_1");
-    proxies.awaitHost("run_2");
-    proxies.hostStarted("run_2");
-    clock.advance(1_000);
-    await Promise.resolve();
-    expect(made[0]?.stops).toBe(1);
-    expect(proxies.get("run_1")).toBeUndefined();
-    expect(made[1]?.stops).toBe(0);
-    expect(proxies.get("run_2")).toBeDefined();
-  });
-
-  it("forgets a proxy whose gate exited, warns, and stops all at shutdown", async () => {
-    const clock = new ManualClock();
-    const warnings: string[] = [];
-    const made: ReturnType<typeof handle>[] = [];
-    const proxies = new SafeChainProxies({
-      clock,
-      start: async () => {
-        const proxy = handle(50_000 + made.length);
-        made.push(proxy);
-        return { ok: true, proxy };
-      },
-      warn: (message) => warnings.push(message),
-    });
-    await proxies.start("run_1", "/r/ca.pem");
-    await proxies.start("run_2", "/r/ca.pem");
-    made[0]?.exit();
-    await made[0]?.exited;
-    await Promise.resolve();
-    expect(proxies.get("run_1")).toBeUndefined();
-    // Its port and directory go too.
-    expect(made[0]?.stops).toBe(1);
-    expect(warnings).toEqual(["the Safe-Chain proxy of a run stopped; its installs now fail"]);
-    await proxies.stopAll();
-    expect(made[1]?.stops).toBe(1);
-    expect(proxies.get("run_2")).toBeUndefined();
-  });
-
-  it("passes a refusal through and keeps nothing", async () => {
-    const proxies = new SafeChainProxies({
-      clock: new ManualClock(),
-      start: async () => ({ ok: false, reason: "no network" }),
-    });
-    expect(await proxies.start("run_1", "/r/ca.pem")).toEqual({ ok: false, reason: "no network" });
-    expect(proxies.get("run_1")).toBeUndefined();
   });
 });
 

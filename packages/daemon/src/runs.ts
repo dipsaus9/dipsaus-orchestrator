@@ -64,7 +64,6 @@ import {
   type BacklogCli,
   capsOf,
   claudeWorkerPort,
-  detectSafeChain,
   currentProfile,
   gitParkWriter,
   gitUnparkWriter,
@@ -94,10 +93,6 @@ import {
   runLaunchPaths,
   runSandboxedStep,
   runWorkerSpec,
-  SafeChainProxies,
-  startSafeChainProxy,
-  launchedThroughSafeChain,
-  safeChainProxyGoneText,
   sweepSafeChainProxies,
   type IngestAdapter,
   Nudges,
@@ -234,11 +229,6 @@ export interface DaemonRuns {
    * starts when it frees; its feature starts what waited across a restart at load.
    */
   readonly places: Places;
-  /**
-   * The Safe-Chain checking proxies of the runs (DIPO-84): one per run while its worker session
-   * runs, on a machine with Safe-Chain. `stopAll` at shutdown.
-   */
-  readonly safeChainProxies: SafeChainProxies;
   /**
    * The run temp directories (DIPO-102): swept after each worker exit here, and at daemon start
    * by a recovery step after re-attach (`sweep("recovery")`).
@@ -710,8 +700,8 @@ export function daemonRuns(options: DaemonRunsOptions): DaemonRuns {
         }),
     );
   };
-  // Worker installs go through a Safe-Chain checking proxy per run, sandboxed itself (DIPO-84).
-  // Proxy directories a killed daemon left behind go first; a running daemon's stay.
+  // Safe-Chain proxy directories a killed daemon left behind (a box web route's) go first; a
+  // running daemon's stay.
   void sweepSafeChainProxies(options.safeChainRoot).then(
     (removed) => {
       if (removed.length > 0) {
@@ -722,19 +712,6 @@ export function daemonRuns(options: DaemonRunsOptions): DaemonRuns {
     },
     () => {},
   );
-  const safeChainProxies = new SafeChainProxies({
-    clock,
-    start: ({ caFile }) =>
-      startSafeChainProxy(
-        { installRoot: `${home}/.safe-chain`, caFile, home, uid, env },
-        {
-          platform,
-          clock,
-          ...(options.safeChainRoot === undefined ? {} : { root: options.safeChainRoot }),
-        },
-      ),
-    warn: (message, fields) => options.logger.warn(message, fields),
-  });
   const worker = claudeWorkerPort({
     spawn: systemSpawn,
     clock,
@@ -742,15 +719,8 @@ export function daemonRuns(options: DaemonRunsOptions): DaemonRuns {
     home,
     env,
     holds: options.holds,
-    platform,
-    runStep,
-    uid,
-    // The run settings file's hooks run this binary (DIPO-59).
+    // A reviewer's run settings hooks run this binary (DIPO-59).
     dipoCommand: selfCommand(),
-    // Workers run package managers through the official Safe-Chain when it is installed (DIPO-82).
-    detectSafeChain: (input) => detectSafeChain(input),
-    safeChainProxies,
-    warn: (message, fields) => options.logger.warn(message, fields),
     ...(boxWorkers === null ? {} : { boxes: boxWorkers }),
   });
   const tierOf = (office: OfficeId, run: StoredRun) =>
@@ -802,14 +772,7 @@ export function daemonRuns(options: DaemonRunsOptions): DaemonRuns {
     env,
     probe,
   });
-  // A started worker host keeps its run's Safe-Chain proxy until the session ends (DIPO-84).
-  const hosts: typeof started = {
-    start: async (office, launch) => {
-      const host = await started.start(office, launch);
-      safeChainProxies.hostStarted(launch.runId);
-      return host;
-    },
-  };
+  const hosts = started;
   const release = (
     office: OfficeId,
     claim: Parameters<StoryClaims["releaseUnstarted"]>[1],
@@ -892,9 +855,7 @@ export function daemonRuns(options: DaemonRunsOptions): DaemonRuns {
     ingest: {
       pricing: () => options.database()?.pricing ?? null,
       watchdog,
-      onEnded: (_office, run) => {
-        // The session's worker ended: its Safe-Chain proxy stops (DIPO-84).
-        void safeChainProxies.stop(run);
+      onEnded: () => {
         // A run that ended before its worker exited loses its temp directory now (DIPO-102).
         sweepTempDirs();
         void finishEndedBoxes();
@@ -954,11 +915,6 @@ export function daemonRuns(options: DaemonRunsOptions): DaemonRuns {
       probe,
       // A living host of an ended run whose stop did not reach it is stopped again (DIPO-93).
       steering,
-      // A worker launched through a Safe-Chain proxy that ended with the previous daemon (DIPO-84).
-      proxyGone: (_office, run, host) =>
-        launchedThroughSafeChain(host.runDir) && safeChainProxies.get(run.runId) === undefined
-          ? safeChainProxyGoneText(run.story ?? run.runId)
-          : null,
       adapter: (office, run) => {
         const paths = runPaths(office, run);
         const config = options.offices.config(office);
@@ -1012,7 +968,6 @@ export function daemonRuns(options: DaemonRunsOptions): DaemonRuns {
     reattacher,
     planLimits,
     places,
-    safeChainProxies,
     tempDirs,
     boxes: boxWorkers,
     isBoxRun,

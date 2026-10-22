@@ -1,73 +1,31 @@
-// The Claude CLI launch checks (0008 section 2 and its amendments): probe, project settings
-// check, the engine-side credential check under srt and the session self-test, run before every
-// launch and every resume. `prepareLaunch` is the one way to get a
-// launch plan the host may start: it plans, runs the checks through the adapter hold's gate and
-// returns the plan only when they pass; a refusal is `startFailed` with the hold set (DIPO-74
-// rolls back the claim, DIPO-51 resumes through the same function). The npm token check
-// (DIPO-172) runs first and refuses with a `PlanError`, which holds no adapter.
+// The Claude CLI launch checks of a reviewer session on the Mac (0008 section 2 and its
+// amendments, 0019 section 4): the tools check, the probe and the project settings check, run
+// before every review launch. `prepareLaunch` is the one way to get a reviewer's launch plan the
+// host may start: it plans, runs the checks through the adapter hold's gate and returns the plan
+// only when they pass; a refusal is `startFailed` with the hold set.
+//
+// The checks that proved the developer's Bash sandbox on the Mac are gone with that sandbox
+// (DIPO-240, 0021): the session self-test and its approval probe, the engine-side credential check
+// under srt, the Safe-Chain checking proxy of a worker's installs, the npm token check and the
+// verify tools check. A developer runs only in its box, where the box is the boundary and dipo's
+// post-run token check (`box/token-check.ts`) and the box checks of `adapter.ts` hold the adapter.
+// A reviewer runs no command (no Bash, DIPO-276), so no sandbox probe applies to it.
 
 import type { Clock, Spawn } from "@dipsaus-orchestrator/contract";
 
-import {
-  gateLaunch,
-  type AdapterHold,
-  type AdapterHolds,
-  type LaunchCheckFailure,
-  type LaunchCheckOutcome,
-} from "../hold";
-import type { SafeChainProxies } from "../../sandbox/safe-chain-proxies";
-import type { DipoPlatform } from "../../platform/paths";
+import { gateLaunch, type AdapterHold, type AdapterHolds, type LaunchCheckOutcome } from "../hold";
 import type { LaunchPlan, WorkerSpec } from "../types";
-import {
-  CLAUDE_CLI_ADAPTER_ID,
-  kindContext,
-  plan,
-  SETTINGS_FILE,
-  type ClaudeLaunchContext,
-} from "./plan";
-import { checkNpmTokens } from "./npm-token-check";
-import { checkVerifyTools } from "./verify-tools";
-import type { VerifyCommands } from "../port";
+import { CLAUDE_CLI_ADAPTER_ID, kindContext, plan, type ClaudeLaunchContext } from "./plan";
 import { probe } from "./probe";
-import { safeChainCaFile } from "./safe-chain";
 import { checkProjectSettings, type ReadOptionalText } from "./settings-check";
-import { engineCredentialCheck, type RunStep } from "../credential-check";
-import {
-  nodeSelfTestFs,
-  resolveSelfTestTools,
-  runSelfTest,
-  selfTestFailure,
-  workerWritableRoots,
-  type SelfTestFs,
-  type StartHostStandIn,
-} from "./self-test";
 
 export interface ClaudeLaunchCheckDeps {
   readonly spawn: Spawn;
   readonly clock: Clock;
-  /** An engine-made UUID for the self-test session (a new one per check). */
-  readonly selfTestSessionId: string;
   /** `worker.allowProjectSettings` of the office. */
   readonly allowProjectSettings: readonly string[];
   readonly readText?: ReadOptionalText;
-  readonly fs?: SelfTestFs;
-  /** Starts the self-test's stand-in host at the session's host socket (DIPO-231); a test seam. */
-  readonly standIn?: StartHostStandIn;
   readonly probeTimeoutMs?: number;
-  readonly selfTestTimeoutMs?: number;
-  /** Decides whether the Keychain lookup runs (macOS only). */
-  readonly platform: DipoPlatform;
-  /** Runs one engine step inside srt (`runSandboxedStep` with its deps bound). */
-  readonly runStep: RunStep;
-  /** The user id, for the step policy. */
-  readonly uid: number;
-  /**
-   * The daemon's Safe-Chain proxies (DIPO-84). With Safe-Chain detected, a launch starts its run's
-   * proxy here; without it such a launch is refused.
-   */
-  readonly safeChainProxies?: Pick<SafeChainProxies, "start" | "stop" | "awaitHost">;
-  /** Writes the warn line of a session refused for the Bash command it ran (DIPO-230). */
-  readonly warn?: (message: string, fields: Readonly<Record<string, unknown>>) => void;
 }
 
 /**
@@ -76,20 +34,12 @@ export interface ClaudeLaunchCheckDeps {
  */
 export const UNCHECKED_TOOLS: readonly string[] = ["Agent", "Task", "Skill"];
 
-function settingsOf(launch: LaunchPlan): string {
-  const file = launch.files.find((entry) => entry.name === SETTINGS_FILE);
-  if (file === undefined) throw new Error("the launch plan has no run settings file");
-  return file.content;
-}
-
 /**
- * The three checks in order; a later one runs only when the earlier ones pass, because the
- * self-test starts a Claude Code session and is pointless on a refused login or settings. A
- * session without Bash stops after the project settings check.
+ * The checks in order; a later one runs only when the earlier ones pass: the tools, the probe
+ * (version and login), then the project settings of the session's folder.
  */
 export async function claudeLaunchChecks(
   spec: WorkerSpec,
-  ctx: ClaudeLaunchContext,
   launch: LaunchPlan,
   deps: ClaudeLaunchCheckDeps,
 ): Promise<LaunchCheckOutcome> {
@@ -124,56 +74,7 @@ export async function claudeLaunchChecks(
     deps.allowProjectSettings,
     deps.readText,
   );
-  if (settings.length > 0) return { ok: false, failures: settings };
-  // The credential check and the self-test prove what sandboxed Bash commands can reach. A session
-  // without Bash, the reviewer's (0021 section 10, DIPO-276), runs no command, so neither applies.
-  if (!spec.tools.allow.includes("Bash")) return { ok: true };
-
-  // The engine runs the credential commands itself, under srt, with no model (0008 amendment).
-  const fs = deps.fs ?? nodeSelfTestFs;
-  const tools = await resolveSelfTestTools(
-    {
-      daemonPath: ctx.env["PATH"] ?? "",
-      workerPath: ctx.env["PATH"] ?? "",
-      writable: workerWritableRoots(spec.workdir, ctx.tmpDir, ctx.shortTmpDir, ctx.home),
-    },
-    fs,
-  );
-  if (!tools.ok) {
-    return { ok: false, failures: [{ check: "self-test", detail: tools.reason }] };
-  }
-  const credentials = await engineCredentialCheck(deps.runStep, {
-    platform: deps.platform,
-    gh: tools.tools.gh,
-    worktree: spec.workdir,
-    mainCheckout: ctx.mainCheckout,
-    home: ctx.home,
-    uid: deps.uid,
-    env: ctx.env,
-  });
-  if (!credentials.ok) return { ok: false, failures: [credentials.failure] };
-
-  const report = await runSelfTest(
-    { spec, ctx, runSettings: settingsOf(launch), runFiles: launch.files },
-    {
-      spawn: deps.spawn,
-      clock: deps.clock,
-      sessionId: deps.selfTestSessionId,
-      ...(deps.fs === undefined ? {} : { fs: deps.fs }),
-      ...(deps.standIn === undefined ? {} : { standIn: deps.standIn }),
-      ...(deps.selfTestTimeoutMs === undefined ? {} : { timeoutMs: deps.selfTestTimeoutMs }),
-    },
-  );
-  const failure = selfTestFailure(report);
-  const verdict = report.verdict;
-  if (!verdict.ok && verdict.bash === true) {
-    deps.warn?.("the launch self-test session ran another Bash command", {
-      run: spec.run,
-      reason: verdict.reason,
-      commands: report.evidence?.bash.commands ?? [],
-    });
-  }
-  return failure === null ? { ok: true } : { ok: false, failures: [failure] };
+  return settings.length > 0 ? { ok: false, failures: settings } : { ok: true };
 }
 
 export type PreparedLaunch =
@@ -181,64 +82,21 @@ export type PreparedLaunch =
   | { readonly ok: false; readonly outcome: "startFailed"; readonly hold: AdapterHold };
 
 /**
- * Plans a launch or a resume (`spec.session.resume`) and runs the launch checks first. Throws
- * `PlanError` when the spec cannot be planned (DIPO-74 AC #7), and when an npm config file the
- * worker sandbox can read holds an auth key (DIPO-172) or a verify program's interpreter is out
- * of its reach (DIPO-173): that is this office's read paths, so it holds no adapter. A failed check holds the adapter in every office; a pass lifts the hold.
+ * Plans a reviewer's launch and runs the launch checks first. Throws `PlanError` when the spec
+ * cannot be planned, a developer's included (it runs only in its box). A failed check holds the
+ * adapter in every office; a pass lifts the hold.
  */
 export async function prepareLaunch(
   spec: WorkerSpec,
   launchContext: ClaudeLaunchContext,
   holds: AdapterHolds,
   deps: ClaudeLaunchCheckDeps,
-  verify?: VerifyCommands,
 ): Promise<PreparedLaunch> {
-  // A review session has no Safe-Chain proxy and allows no plugin (0019 section 4); its checks
-  // and self-test run with the same context its plan has.
+  // A review session allows no plugin (0019 section 4); its checks run with its plan's context.
   const ctx = kindContext(spec, launchContext);
   const launch = plan(spec, ctx);
-  await checkNpmTokens(ctx);
-  if (verify !== undefined) await checkVerifyTools(ctx, spec.workdir, verify);
-  const safeChain = ctx.safeChain;
-  if (safeChain === undefined) {
-    const gate = await gateLaunch(CLAUDE_CLI_ADAPTER_ID, holds, () =>
-      claudeLaunchChecks(spec, ctx, launch, deps),
-    );
-    return gate.ok ? { ok: true, plan: launch } : gate;
-  }
-  // Safe-Chain (DIPO-84): the run's proxy runs and passes its check before the plan names its
-  // port; without it the run is refused, never started with unchecked or no installs.
-  let routed: LaunchPlan = launch;
-  const proxies = deps.safeChainProxies;
-  const gate = await gateLaunch(CLAUDE_CLI_ADAPTER_ID, holds, async () => {
-    const started =
-      proxies === undefined
-        ? { ok: false as const, reason: "this dipo has no Safe-Chain proxy" }
-        : await proxies.start(spec.run, safeChainCaFile(safeChain.shellDir));
-    if (!started.ok) {
-      return { ok: false, failures: [safeChainProxyFailure(safeChain.root, started.reason)] };
-    }
-    const withRoute: ClaudeLaunchContext = {
-      ...ctx,
-      safeChain: { ...safeChain, route: { port: started.proxy.port, dir: started.proxy.dir } },
-    };
-    routed = plan(spec, withRoute);
-    return claudeLaunchChecks(spec, withRoute, routed, deps);
-  });
-  if (!gate.ok) {
-    await proxies?.stop(spec.run);
-    return gate;
-  }
-  proxies?.awaitHost(spec.run);
-  return { ok: true, plan: routed };
-}
-
-/** The launch check failure of a Safe-Chain proxy that did not start or failed its check. */
-export function safeChainProxyFailure(root: string, reason: string): LaunchCheckFailure {
-  return {
-    check: "safe-chain",
-    key: "proxy",
-    detail: `Safe-Chain is installed at ${root}, but dipo's Safe-Chain proxy for worker installs cannot run: ${reason}. Installs would not be checked, so the run is refused.`,
-    fix: "Check the official Safe-Chain install (~/.safe-chain/bin/safe-chain), the network to registry.npmjs.org, pypi.org and malware-list.aikido.dev, and that the sandbox runs (`dipo self-check`); `dipo run --dry-run` shows the proxy plan in safe-chain/proxy.json. Then start a run again.",
-  };
+  const gate = await gateLaunch(CLAUDE_CLI_ADAPTER_ID, holds, () =>
+    claudeLaunchChecks(spec, launch, deps),
+  );
+  return gate.ok ? { ok: true, plan: launch } : gate;
 }

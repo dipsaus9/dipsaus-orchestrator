@@ -205,7 +205,6 @@ function buildHookListeners(
   const onEnded = ports.ingest.onEnded;
   const hookEvents: OfficeRunListener = {
     onWorkerEvents: (office, run, agent, events) => {
-      permissions.onWorkerEvents(office, run, agent, events);
       nudges.onWorkerEvents(office, run, agent, events);
       webGuard.onWorkerEvents(office, run, agent, events);
     },

@@ -67,7 +67,6 @@ import { BOX_LIFETIME_NOTICES, BoxLifetime, boxRebuiltText, type RunBoxes } from
 import type { RunProfile } from "../scan/detect";
 import { gatherHandoff, type HandoffFacts, type LastVerify } from "../prompts/handoff";
 import { renderSystemFile } from "../prompts/system";
-import { verifyCommands } from "../scan/store";
 import { FEEDBACK_TEMPLATES, renderTemplate } from "../prompts/templates";
 import { withWorkViews } from "../views/work";
 import type { AdapterHold } from "../workers/hold";
@@ -433,8 +432,7 @@ export class RunResumer implements NextSession {
     const ensured = await this.#ensureBox(office, request, run, paths.runDir, git, config);
     if (ensured !== null) return { kind: "failed", reason: ensured };
 
-    // The launch checks run before every launch and resume (0008 section 2), the verify tools
-    // check (DIPO-173) with them, on the office's resolved verify as the first launch reads it.
+    // The launch checks run before every launch and resume (0008 section 2).
     let prepared;
     try {
       prepared = await deps.worker.prepare(
@@ -442,7 +440,6 @@ export class RunResumer implements NextSession {
         paths,
         config,
         sessionUuid(`${agent}:launch-check`),
-        verifyCommands(office) ?? undefined,
       );
     } catch (error) {
       const why =

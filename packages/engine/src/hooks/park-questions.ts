@@ -3,10 +3,10 @@
 // worker's sandbox (so allow once cannot help), the text the maintainer sees, and the first
 // message of the resumed session for allow and deny.
 //
-// Allow once only ever answers the permission hook of the resumed run (`takeAllowOnce`). It never
-// changes the run settings, the sandbox policy or the office config, so it cannot lift a sandbox
-// block: network to a host not in `sandbox.allowedDomains`, or a write outside the worktree. For
-// an action that looks sandbox-bound the question says so and points to the office config, which
+// Allow once only ever resumes the run with a message naming the call (DIPO-240: no hook relays an
+// approval call any more). It never changes the run settings, the sandbox policy or the office
+// config, so it cannot lift a sandbox block: network to a host not in `sandbox.allowedDomains`, or
+// a write outside the worktree. For an action that looks sandbox-bound the question says so and points to the office config, which
 // is reviewed like code. The check is a guide for the maintainer, not a boundary: the sandbox
 // itself stays the boundary either way.
 

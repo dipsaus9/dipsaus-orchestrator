@@ -31,16 +31,13 @@ export {
   closeQuestion,
   findQuestion,
   insertParkQuestion,
-  insertPermissionQuestion,
   openParkQuestions,
   openQuestions,
-  takeAllowOnce,
   type NewParkQuestion,
   openQuestionViews,
   permissionText,
   questionViewOf,
   storyQuestionViews,
-  type NewPermissionQuestion,
   type QuestionClose,
   type StoredQuestion,
 } from "./questions";
@@ -70,9 +67,6 @@ export {
   type NudgesDeps,
   type NudgeSources,
 } from "./nudges";
-export { bashRefusal } from "./bash-check";
-export { GH_REFUSAL, ghHelpCall, ghRefusal } from "./gh-guard";
-export { GUARDED_TEMP_VARIABLES, refusedTempVariable, tempVariableRefusal } from "./temp-guard";
 export {
   FETCH_RESOLVE_TIMEOUT_MS,
   type FetchAddressDeps,

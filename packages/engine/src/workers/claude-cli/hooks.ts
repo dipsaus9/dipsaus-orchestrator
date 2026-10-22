@@ -1,8 +1,13 @@
 // Claude Code hooks for the hook relay (0008 section 5, amendment of 2026-10-12; DIPO-59): which
-// hooks the run settings file registers, how a Claude hook payload maps to the engine's neutral
-// `HookEvent`, and how the engine's neutral `HookReply` becomes Claude's `PermissionRequest`
+// hooks the run settings file of a reviewer session registers, how a Claude hook payload maps to
+// the engine's neutral `HookEvent`, and how the engine's neutral `HookReply` becomes Claude's hook
 // output. Everything Claude-specific about hooks lives here; `engine/src/hooks` sees only the
 // neutral shapes.
+//
+// A developer runs in its box with no hooks at all (0021 section 7, DIPO-240), so no session
+// registers the Bash check (its gh and temp guards) or the `PermissionRequest` relay any more: a
+// call that would need approval is denied under `--permission-prompts none`. The parser still reads
+// a `PermissionRequest` payload, as the committed recordings hold them.
 //
 // Residual risk of the web gate: Claude Code treats a hook past its 5 s timeout as a non-blocking
 // error and runs the call, so a gate process that is very slow to start is not covered.
@@ -16,7 +21,6 @@ export { WEB_TOOLS };
 export const REGISTERED_HOOKS = [
   "SessionStart",
   "PreToolUse",
-  "PermissionRequest",
   "PostToolUse",
   "Notification",
   "SubagentStart",
@@ -29,24 +33,15 @@ export const REGISTERED_HOOKS = [
 ] as const;
 export type RegisteredHook = (typeof REGISTERED_HOOKS)[number];
 
-/** The hook whose call waits for the engine's decision. */
-export const WAITING_HOOK: RegisteredHook = "PermissionRequest";
-
 /**
  * The `PreToolUse` matcher of the web tools (0020 section 11b, DIPO-164): exactly `WEB_TOOLS`, in
  * name order, so `dipo hook PreToolUse --gate` checks every one of them and nothing else.
  */
 export const WEB_HOOK_MATCHER = WEB_TOOLS.toSorted().join("|");
-/**
- * The `PreToolUse` matcher of Bash (0008 amendment of 2026-10-19, DIPO-194): `dipo hook PreToolUse
- * --bash` decides the command in its own process and fails open, except for a gh word when the
- * check cannot run (`bashHookCommand`, DIPO-241).
- */
-export const BASH_HOOK_MATCHER = "Bash";
-/** The hook of the web gate (fails closed, only with web tools) and of the Bash check. */
+/** The hook of the web gate (fails closed, only with web tools). */
 export const GATE_HOOK: RegisteredHook = "PreToolUse";
 
-/** Told to the worker when the gate command itself failed (exit 2 shows stderr to Claude). */
+/** Told to the session when the gate command itself failed (exit 2 shows stderr to Claude). */
 export const GATE_CRASH_REASON = "dipo could not check this web call, so it was refused.";
 
 /**
@@ -58,31 +53,6 @@ export const GATE_CRASH_REASON = "dipo could not check this web call, so it was 
 export const GATE_CRASH_EXIT = ` || { echo ${shellQuote(GATE_CRASH_REASON)} >&2; exit 2; }`;
 
 /**
- * The gh words the Bash check's fallback looks for, as `grep -Ei` reads them: a word whose basename
- * is gh, in any case. The fallback first joins the JSON payload the way the shell joins the command
- * (`GH_PAYLOAD_JOIN`). The daemon's `GH_WORD` (`hook.ts`) matches the same words in the parsed
- * command (DIPO-241).
- */
-export const GH_WORD_PATTERN = "(^|[^A-Za-z0-9_-])gh($|[^A-Za-z0-9_-])";
-
-/**
- * Prints the JSON `$payload` joined the way the shell joins the command, for the gh grep. Backslash
- * pairs are decoded left to right at both levels: a JSON `\\\\` becomes the marker \001 (each JSON
- * escape starts a pair, so this is aligned), two markers become \002 (an escaped backslash in the
- * command), a marker before a `\n` escape is a line continuation and goes, every other `\n`, `\t` or
- * `\r` escape becomes a space, and the markers, quotes and backslashes go. So `g\\h`, `'g'h`, a
- * continuation and a gh call on a later line are seen, and an escaped backslash before a newline
- * keeps the line break. It errs toward a gh word, which only refuses more. It assumes the payload
- * is canonical JSON.stringify output, as Claude Code sends it: a `\uXXXX` escape there is only a
- * control character or a lone surrogate, never a printable letter or a command separator.
- */
-export const GH_PAYLOAD_JOIN = String.raw`a=$(printf "\001"); b=$(printf "\002"); printf "%s" "$payload" | sed -e "s/\\\\\\\\/$a/g" -e "s/$a$a/$b/g" -e "s/$a\\\\n//g" -e "s/\\\\[nrt]/ /g" | tr -d "\001\002\047\042\134"`;
-
-/** Told to the worker when the Bash check cannot run on a command that names gh (DIPO-241). */
-export const BASH_GH_CRASH_REASON =
-  "dipo could not check this command, and it names gh: the engine handles the code host, so the call was refused.";
-
-/**
  * The hooks whose call may get a 0014 section 8 nudge (DIPO-60): `dipo hook <event> --nudge` waits
  * a short while for the engine's answer and still ends within 2 s.
  */
@@ -91,11 +61,7 @@ export const NUDGE_HOOKS = ["PostToolUse", "SessionStart"] as const satisfies Re
 /** The tools whose `PostToolUse` names a written file (0014 section 8, "Edit or Write"). */
 export const WRITE_TOOLS: readonly string[] = ["Edit", "Write", "MultiEdit", "NotebookEdit"];
 
-/** `timeouts.permissionWaitSeconds` when the launch context names none (0008 section 9). */
-export const DEFAULT_PERMISSION_WAIT_SECONDS = 300;
-/** The `PermissionRequest` hook's timeout is this much above the wait (0008 section 5). */
-export const PERMISSION_HOOK_MARGIN_SECONDS = 30;
-/** The timeout of every hook that does not wait; the relay ends within 2 s. */
+/** The timeout of every hook; the relay ends within 2 s. */
 export const HOOK_TIMEOUT_SECONDS = 5;
 
 /** One argument quoted for `sh`: inside single quotes, a quote closes, escapes and reopens. */
@@ -104,24 +70,17 @@ export function shellQuote(arg: string): string {
 }
 
 /**
- * How much longer the relay asks the worker host to hold a `PermissionRequest` call than the
- * engine waits for the maintainer, so the engine's timeout deny (with its reason) always reaches
- * the held call before the host gives up on it. The relay's own grace and the hook timeout lie
- * above both.
- */
-export const HOST_WAIT_MARGIN_SECONDS = 10;
-
-/**
  * An empty Bun config file in the run directory. Run from source, the hooks start Bun with it and
- * with `--no-env-file`, so no `bunfig.toml` (and its `preload`) or `.env` the worker could write
- * ever loads in a hook, which runs outside the sandbox.
+ * with `--no-env-file`, so no `bunfig.toml` (and its `preload`) or `.env` in a folder Claude runs
+ * hooks in ever loads in a hook, which runs outside any sandbox.
  */
 export const HOOK_BUNFIG_FILE = "hook-bunfig.toml";
 
 /**
  * The hook command prefix: `cd <runDir> &&`, then the binary. A compiled binary loads no config
  * from its directory; a runtime plus entry script (run from source) gets an explicit empty config
- * and no env file, so nothing from the worktree, where Claude runs hooks, can change what runs.
+ * and no env file, so nothing from the session's folder, where Claude runs hooks, can change what
+ * runs.
  */
 export function hookCommandLine(command: readonly [string, ...string[]], runDir: string): string {
   return `cd ${shellQuote(runDir)} && ${hookProgram(command, runDir)}`;
@@ -138,33 +97,13 @@ export function hookProgram(command: readonly [string, ...string[]], runDir: str
 }
 
 /**
- * The Bash check's command line (DIPO-194, DIPO-241). The payload is read once and piped to `dipo
- * hook PreToolUse --bash`, whose exit 0 (with or without a deny) and exit 2 stand as they are. When
- * dipo cannot start or crashes (any other status), the shell looks for a gh word in the payload: a
- * gh call exits 2 with the reason on stderr, so it never runs unchecked; every other call exits 0,
- * so the rest of Bash still fails open. A hook that times out is run anyway, the residual risk the
- * header of this file records.
- */
-export function bashHookCommand(command: readonly [string, ...string[]], runDir: string): string {
-  const ghWord = `${GH_PAYLOAD_JOIN} | grep -Eiq ${shellQuote(GH_WORD_PATTERN)}`;
-  return [
-    "payload=$(cat);",
-    `{ cd ${shellQuote(runDir)} && printf '%s' "$payload" | ${hookProgram(command, runDir)} hook PreToolUse --bash; };`,
-    `s=$?; [ "$s" = 0 ] && exit 0; [ "$s" = 2 ] && exit 2;`,
-    `${ghWord} && { echo ${shellQuote(BASH_GH_CRASH_REASON)} >&2; exit 2; }; exit 0`,
-  ].join(" ");
-}
-
-/**
  * The run settings file's `hooks` block: one command hook per registered event, running
- * `<dipo> hook <event>` with the binary's own path from the run directory. `PermissionRequest`
- * asks the host to hold the call `waitSeconds` plus a margin (see `HOST_WAIT_MARGIN_SECONDS`);
- * the `NUDGE_HOOKS` pass `--nudge`. `PreToolUse` is registered for Bash with `--bash` always, and
- * with `web` also for the web tools with `--gate`, first.
+ * `<dipo> hook <event>` with the binary's own path from the run directory; the `NUDGE_HOOKS` pass
+ * `--nudge`. With `web` the web tools' `PreToolUse` is registered with `--gate`; without it no
+ * `PreToolUse` hook is registered.
  */
 export function hookSettings(
   command: readonly [string, ...string[]],
-  waitSeconds: number,
   runDir: string,
   web = false,
 ): Record<string, unknown> {
@@ -172,28 +111,14 @@ export function hookSettings(
   const hooks: Record<string, unknown> = {};
   for (const event of REGISTERED_HOOKS) {
     if (event === GATE_HOOK) {
+      if (!web) continue;
       hooks[event] = [
-        ...(web
-          ? [
-              {
-                matcher: WEB_HOOK_MATCHER,
-                hooks: [
-                  {
-                    type: "command",
-                    command: `${prefix} hook ${event} --gate${GATE_CRASH_EXIT}`,
-                    timeout: HOOK_TIMEOUT_SECONDS,
-                  },
-                ],
-              },
-            ]
-          : []),
-        // A gh word fails closed when dipo cannot run; the rest of Bash fails open (DIPO-241).
         {
-          matcher: BASH_HOOK_MATCHER,
+          matcher: WEB_HOOK_MATCHER,
           hooks: [
             {
               type: "command",
-              command: bashHookCommand(command, runDir),
+              command: `${prefix} hook ${event} --gate${GATE_CRASH_EXIT}`,
               timeout: HOOK_TIMEOUT_SECONDS,
             },
           ],
@@ -201,19 +126,14 @@ export function hookSettings(
       ];
       continue;
     }
-    const waits = event === WAITING_HOOK;
-    const flag = waits
-      ? ` --wait ${waitSeconds + HOST_WAIT_MARGIN_SECONDS}`
-      : (NUDGE_HOOKS as readonly string[]).includes(event)
-        ? " --nudge"
-        : "";
+    const flag = (NUDGE_HOOKS as readonly string[]).includes(event) ? " --nudge" : "";
     hooks[event] = [
       {
         hooks: [
           {
             type: "command",
             command: `${prefix} hook ${event}${flag}`,
-            timeout: waits ? waitSeconds + PERMISSION_HOOK_MARGIN_SECONDS : HOOK_TIMEOUT_SECONDS,
+            timeout: HOOK_TIMEOUT_SECONDS,
           },
         ],
       },

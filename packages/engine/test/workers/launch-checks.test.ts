@@ -1,20 +1,27 @@
 // The launch checks and the adapter hold (DIPO-43 AC #5 to #7, 0008 sections 2 and 7): a refusal
 // is `startFailed`, holds the adapter for every office and emits an `engine.notice`; a later pass
-// lifts it; the checks run before a launch and before a resume. An npm auth key the sandbox can
-// read refuses one run without a hold (DIPO-172).
+// lifts it. Only a reviewer launches on the Mac now (DIPO-240): its checks are the tools, the probe
+// and the project settings, with no self-test session, credential check or Safe-Chain proxy, and a
+// developer session is refused as a plan, since it runs only in its box.
+//
+// DIPO-257's two hold scopes rested on the self-test's could-not-run verdict; with the self-test
+// gone every launch-check failure is one kind again and holds the adapter in every office, as an
+// unsafe verdict did (criterion 6, kept); there is no could-not-run hold left to scope or back off.
 
 import { describe, expect, it } from "bun:test";
 import { mkdirSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 
-import type { Event, Spawn } from "@dipsaus-orchestrator/contract";
-import { type FakeProcess, ManualClock, withTempDir } from "@dipsaus-orchestrator/testkit";
+import type { Event } from "@dipsaus-orchestrator/contract";
+import { ManualClock, withTempDir } from "@dipsaus-orchestrator/testkit";
 
-import { OFFICE_DEFAULTS } from "../../src/config";
 import { SoftwareStream } from "../../src/software-stream/stream";
-import { prepareLaunch } from "../../src/workers/claude-cli/launch-checks";
-import { CLAUDE_CLI_ADAPTER_ID } from "../../src/workers/claude-cli/plan";
-import { selfTestLayout, type StartHostStandIn } from "../../src/workers/claude-cli/self-test";
+import { claudeLaunchChecks, prepareLaunch } from "../../src/workers/claude-cli/launch-checks";
+import {
+  CLAUDE_CLI_ADAPTER_ID,
+  DEVELOPER_ON_MAC_REFUSED,
+  plan,
+} from "../../src/workers/claude-cli/plan";
 import {
   AdapterHolds,
   gateLaunch,
@@ -22,30 +29,7 @@ import {
   RELEASE_NOTICE_CODE,
 } from "../../src/workers/hold";
 import { PlanError } from "../../src/workers/types";
-import {
-  ADMIN_DIR,
-  BLOCKED_RESULTS,
-  CLI_NO_APPROVAL_TEXT,
-  context,
-  fakeStandIn,
-  HOME,
-  MAIN,
-  MemoryFs,
-  reachedStandIn,
-  reviewContext,
-  reviewSpec,
-  RUN_DIR,
-  scriptedClaude,
-  credentialSteps,
-  SELF_TEST_SESSION,
-  selfTestSession,
-  SHORT_TMP_DIR,
-  spec,
-  TMP_DIR,
-  TOOLS,
-  withInitPlugins,
-  WORKDIR,
-} from "./launch-fixtures";
+import { context, reviewContext, reviewSpec, scriptedClaude, spec } from "./launch-fixtures";
 
 function setup() {
   const clock = new ManualClock();
@@ -59,27 +43,18 @@ function setup() {
   return { clock, holds, notices };
 }
 
-const NONCE = SELF_TEST_SESSION.replaceAll("-", "").slice(0, 16);
-const LAYOUT_PATHS = {
-  main: MAIN,
-  workdir: WORKDIR,
-  adminDir: ADMIN_DIR,
-  tmpDir: TMP_DIR,
-  nonce: NONCE,
-  tools: TOOLS,
-  home: HOME,
-};
-const LAYOUT = selfTestLayout(LAYOUT_PATHS);
-
-/** A self-test whose sandboxed command leaves `results` behind. */
-function claudeWith(clock: ManualClock, fs: MemoryFs, results: string) {
-  return scriptedClaude(clock, {
-    session: selfTestSession([LAYOUT.command]),
-    onSession: () => {
-      fs.files.set(LAYOUT.resultsFile, results);
-      fs.files.set(LAYOUT.controlFile, "");
+/** Launch check deps for a review: a scripted claude and no project settings. */
+function reviewDeps(clock: ManualClock, auth?: string) {
+  const fake = scriptedClaude(clock, auth === undefined ? {} : { auth });
+  return {
+    fake,
+    deps: {
+      spawn: fake.spawn,
+      clock,
+      allowProjectSettings: [],
+      readText: async () => undefined,
     },
-  });
+  };
 }
 
 describe("(engine) adapter hold", () => {
@@ -107,169 +82,57 @@ describe("(engine) adapter hold", () => {
   });
 });
 
-describe("(engine) Claude launch checks", () => {
-  it("a failed self-test holds the adapter with the reason and the notice; a later pass lifts it", async () => {
-    const { clock, holds, notices } = setup();
-    const deps = (fs: MemoryFs, results: string) => ({
-      spawn: claudeWith(clock, fs, results).spawn,
-      clock,
-      selfTestSessionId: SELF_TEST_SESSION,
-      standIn: reachedStandIn(),
-      platform: "darwin" as const,
-      runStep: credentialSteps().runStep,
-      uid: 501,
-      allowProjectSettings: [],
-      readText: async () => undefined,
-      fs,
-    });
-
-    const leaked = BLOCKED_RESULTS.replace("refs blocked Operation not permitted", "refs written");
-    const refused = await prepareLaunch(spec(), context(), holds, deps(new MemoryFs(), leaked));
-    expect(refused).toMatchObject({ ok: false, outcome: "startFailed" });
-    const hold = holds.adapterHeld(CLAUDE_CLI_ADAPTER_ID);
-    expect(hold).toMatchObject({ check: "self-test", key: "refs" });
-    expect(hold?.detail).toContain("<main>/.git/refs");
-    const notice = notices.at(-1);
-    expect(notice?.type).toBe("engine.notice");
-    expect(notice?.data).toMatchObject({ level: "error", code: HOLD_NOTICE_CODE });
-    const noticeText = String((notice?.data as { text?: string } | undefined)?.text);
-    expect(noticeText).toContain("<main>/.git/refs");
-    expect(noticeText).toContain("every office");
-
-    // An explicit work.run repeats the checks; they pass, the hold lifts.
-    const passed = await prepareLaunch(
-      spec(),
-      context(),
-      holds,
-      deps(new MemoryFs(), BLOCKED_RESULTS),
+describe("(engine) the reviewer's launch checks (DIPO-145, DIPO-276, DIPO-240)", () => {
+  // The reviewer has no Bash (0021 section 10), so no credential check or sandbox self-test runs
+  // for it: both proved what sandboxed commands can reach, and a reviewer runs none.
+  it("runs the probe and the settings check only, with no session, and returns the review plan", async () => {
+    const { clock, holds } = setup();
+    const { fake, deps } = reviewDeps(clock);
+    const result = await prepareLaunch(reviewSpec(), reviewContext(), holds, deps);
+    if (!result.ok) throw new Error(`refused: ${JSON.stringify(result)}`);
+    expect(result.plan.argv[result.plan.argv.indexOf("--tools") + 1]).toBe(
+      "Read,Glob,Grep,WebSearch,WebFetch",
     );
-    expect(passed.ok).toBe(true);
+    expect(fake.calls.map((call) => call.cmd[1])).toEqual(["--version", "auth"]);
     expect(holds.adapterHeld(CLAUDE_CLI_ADAPTER_ID)).toBeNull();
-    expect(notices.at(-1)?.data).toMatchObject({ level: "info", code: RELEASE_NOTICE_CODE });
+    // No Safe-Chain shell in the reviewer's plan.
+    expect(result.plan.env["CLAUDE_CODE_SHELL"]).toBeUndefined();
   });
 
-  it("refuses a session that ran another Bash command at once, names it and warns (DIPO-230)", async () => {
-    const { clock, holds } = setup();
-    const warnings: { message: string; fields: Readonly<Record<string, unknown>> }[] = [];
-    const fake = scriptedClaude(clock, { session: selfTestSession(["ls -la"]) });
-    const result = await prepareLaunch(spec(), context(), holds, {
-      spawn: fake.spawn,
-      clock,
-      selfTestSessionId: SELF_TEST_SESSION,
-      standIn: reachedStandIn(),
-      platform: "darwin" as const,
-      runStep: credentialSteps().runStep,
-      uid: 501,
-      allowProjectSettings: [],
-      readText: async () => undefined,
-      fs: new MemoryFs(),
-      warn: (message, fields) => warnings.push({ message, fields }),
-    });
+  it("holds on a refused probe in every office, with its reason, and a later pass lifts it", async () => {
+    const { clock, holds, notices } = setup();
+    const refused = reviewDeps(clock, '{"loggedIn":true,"authMethod":"api-key"}');
+    const result = await prepareLaunch(reviewSpec(), reviewContext(), holds, refused.deps);
     expect(result).toMatchObject({ ok: false, outcome: "startFailed" });
-    expect(holds.adapterHeld(CLAUDE_CLI_ADAPTER_ID)).toMatchObject({ check: "self-test" });
-    expect(holds.adapterHeld(CLAUDE_CLI_ADAPTER_ID)?.detail).toContain('"ls -la"');
-    // No retry: the refused launch ran one self-test session.
-    expect(fake.calls.filter((call) => call.cmd.includes("-p"))).toHaveLength(1);
-    expect(warnings).toHaveLength(1);
-    expect(warnings[0]).toMatchObject({
-      message: "the launch self-test session ran another Bash command",
-      fields: { run: "run-0001", commands: ["ls -la", "cd .; ls"] },
-    });
-    expect(String(warnings[0]?.fields["reason"])).toContain('"ls -la"');
-  });
-
-  it("holds the adapter when the CLI denied the approval call before dipo decided, and a later pass lifts it (DIPO-231)", async () => {
-    const { clock, holds, notices } = setup();
-    const run = (session: Parameters<typeof selfTestSession>[1], standIn: StartHostStandIn) => {
-      const fs = new MemoryFs();
-      const fake = scriptedClaude(clock, {
-        session: selfTestSession([LAYOUT.command], session),
-        onSession: () => {
-          fs.files.set(LAYOUT.resultsFile, BLOCKED_RESULTS);
-          fs.files.set(LAYOUT.controlFile, "");
-        },
-      });
-      return prepareLaunch(spec(), context(), holds, {
-        spawn: fake.spawn,
-        clock,
-        selfTestSessionId: SELF_TEST_SESSION,
-        standIn,
-        platform: "darwin" as const,
-        runStep: credentialSteps().runStep,
-        uid: 501,
-        allowProjectSettings: [],
-        readText: async () => undefined,
-        fs,
-      });
-    };
-    // The CLI's own denial: the call never reached the stand-in.
-    const refused = await run(
-      { approvalResult: CLI_NO_APPROVAL_TEXT, cliDenied: true },
-      fakeStandIn({ reached: false }).start,
+    expect(holds.adapterHeld(CLAUDE_CLI_ADAPTER_ID)).toMatchObject({ check: "probe" });
+    expect(holds.adapterHeld(CLAUDE_CLI_ADAPTER_ID)?.detail).toContain("api-key");
+    expect(refused.fake.calls.some((call) => call.cmd.includes("-p"))).toBe(false);
+    // The probe runs on the session's allowlisted environment: no API key reaches it.
+    expect(refused.fake.calls[0]?.env?.["ANTHROPIC_API_KEY"]).toBeUndefined();
+    expect(notices.map((event) => (event.data as { code: string }).code)).toEqual([
+      HOLD_NOTICE_CODE,
+    ]);
+    const passed = await prepareLaunch(
+      reviewSpec(),
+      reviewContext(),
+      holds,
+      reviewDeps(clock).deps,
     );
-    expect(refused).toMatchObject({ ok: false, outcome: "startFailed" });
-    expect(holds.adapterHeld(CLAUDE_CLI_ADAPTER_ID)).toMatchObject({
-      check: "self-test",
-      key: "approval",
-    });
-    expect(holds.adapterHeld(CLAUDE_CLI_ADAPTER_ID)?.detail).toContain("no approval surface");
-    expect(notices.at(-1)?.data).toMatchObject({ code: HOLD_NOTICE_CODE });
-    // A call that never reached dipo is inconclusive and holds it just the same.
-    const silent = await run(undefined, fakeStandIn({ reached: false }).start);
-    expect(silent).toMatchObject({ ok: false, outcome: "startFailed" });
-    expect(holds.adapterHeld(CLAUDE_CLI_ADAPTER_ID)?.detail).toContain("never reached dipo");
-    // A session where dipo's deny arrived passes and lifts the hold.
-    const passed = await run(undefined, reachedStandIn());
     expect(passed.ok).toBe(true);
     expect(holds.adapterHeld(CLAUDE_CLI_ADAPTER_ID)).toBeNull();
-    expect(notices.at(-1)?.data).toMatchObject({ code: RELEASE_NOTICE_CODE });
   });
 
-  it("writes no Bash warn line for a self-test session that passes (DIPO-230)", async () => {
-    const { clock, holds } = setup();
-    const warnings: string[] = [];
-    const fs = new MemoryFs();
-    const fake = claudeWith(clock, fs, BLOCKED_RESULTS);
-    const result = await prepareLaunch(spec(), context(), holds, {
-      spawn: fake.spawn,
-      clock,
-      selfTestSessionId: SELF_TEST_SESSION,
-      standIn: reachedStandIn(),
-      platform: "darwin" as const,
-      runStep: credentialSteps().runStep,
-      uid: 501,
-      allowProjectSettings: [],
-      readText: async () => undefined,
-      fs,
-      warn: (message) => warnings.push(message),
-    });
-    expect(result.ok).toBe(true);
-    expect(warnings).toEqual([]);
-  });
-
-  it('a worktree whose .claude/settings.json holds {"hooks":{}} fails with a notice naming hooks and the file', async () => {
+  it('holds when the session folder\'s .claude/settings.json holds {"hooks":{}}, naming the key and the file', async () => {
     await withTempDir(async (root) => {
-      const workdir = join(root, "shop.worktrees", "DIPO-999");
-      const main = join(root, "shop");
+      const workdir = join(root, "dipo-review-run-0001-agt-0001", "session");
       mkdirSync(join(workdir, ".claude"), { recursive: true });
       const file = join(workdir, ".claude", "settings.json");
       writeFileSync(file, '{"hooks":{}}');
       const { clock, holds, notices } = setup();
-      const fake = scriptedClaude(clock, {});
-      const ctx = context({
-        mainCheckout: main,
-        runDir: join(main, ".git", "dipo", "runs", "run-0001"),
-        tmpDir: join(root, "tmp"),
-        hostSocket: join(root, "host.sock"),
-      });
-      const result = await prepareLaunch(spec({ workdir }), ctx, holds, {
+      const { fake } = reviewDeps(clock);
+      const result = await prepareLaunch(reviewSpec({ workdir }), reviewContext(), holds, {
         spawn: fake.spawn,
         clock,
-        selfTestSessionId: SELF_TEST_SESSION,
-        standIn: reachedStandIn(),
-        platform: "darwin" as const,
-        runStep: credentialSteps().runStep,
-        uid: 501,
         allowProjectSettings: [],
       });
       expect(result).toMatchObject({ ok: false, outcome: "startFailed" });
@@ -282,136 +145,24 @@ describe("(engine) Claude launch checks", () => {
       expect(text).toContain("hooks");
       expect(text).toContain(file);
       expect(text).toContain("worker.allowProjectSettings");
-      // The self-test never started: no `claude -p`.
-      expect(fake.calls.some((call) => call.cmd.includes("-p"))).toBe(false);
     });
-  });
-
-  it("a refused probe holds before the settings and self-test run", async () => {
-    const { clock, holds } = setup();
-    const fake = scriptedClaude(clock, { auth: '{"loggedIn":true,"authMethod":"api-key"}' });
-    const result = await prepareLaunch(spec(), context(), holds, {
-      spawn: fake.spawn,
-      clock,
-      selfTestSessionId: SELF_TEST_SESSION,
-      standIn: reachedStandIn(),
-      platform: "darwin" as const,
-      runStep: credentialSteps().runStep,
-      uid: 501,
-      allowProjectSettings: [],
-      readText: async () => undefined,
-      fs: new MemoryFs(),
-    });
-    expect(result.ok).toBe(false);
-    expect(holds.adapterHeld(CLAUDE_CLI_ADAPTER_ID)).toMatchObject({ check: "probe" });
-    expect(holds.adapterHeld(CLAUDE_CLI_ADAPTER_ID)?.detail).toContain("api-key");
-    // The probe runs on the worker's allowlisted environment: no API key reaches it.
-    expect(fake.calls[0]?.env?.["ANTHROPIC_API_KEY"]).toBeUndefined();
-  });
-
-  it("runs every check before a resume too, and returns the resume plan", async () => {
-    const { clock, holds } = setup();
-    const fs = new MemoryFs();
-    const fake = claudeWith(clock, fs, BLOCKED_RESULTS);
-    const resume = spec({ session: { id: "0e6f3f4c-5b8d-4c1e-9a2b-3c4d5e6f7a8b", resume: true } });
-    const result = await prepareLaunch(resume, context(), holds, {
-      spawn: fake.spawn,
-      clock,
-      selfTestSessionId: SELF_TEST_SESSION,
-      standIn: reachedStandIn(),
-      platform: "darwin" as const,
-      runStep: credentialSteps().runStep,
-      uid: 501,
-      allowProjectSettings: [],
-      readText: async () => undefined,
-      fs,
-    });
-    expect(result.ok && result.plan.argv).toContain("--resume");
-    expect(fake.calls.map((call) => call.cmd[1])).toEqual(["--version", "auth", "-p"]);
-    // The self-test is always a new session, never the run's.
-    expect(fake.calls[2]?.cmd).toContain("--session-id");
-    expect(fake.calls[2]?.cmd).not.toContain("--resume");
   });
 });
 
-/** Launch check deps for a review: a scripted claude and recorded credential steps. */
-function reviewDeps(clock: ManualClock) {
-  const fake = scriptedClaude(clock, {});
-  const steps = credentialSteps();
-  return {
-    fake,
-    steps,
-    deps: {
-      spawn: fake.spawn,
-      clock,
-      selfTestSessionId: SELF_TEST_SESSION,
-      standIn: reachedStandIn(),
-      platform: "darwin" as const,
-      runStep: steps.runStep,
-      uid: 501,
-      allowProjectSettings: [],
-      readText: async () => undefined,
-      fs: new MemoryFs(),
-    },
-  };
-}
-
-describe("(engine) the review kind's launch checks (DIPO-145, DIPO-276)", () => {
-  // The reviewer has no Bash (0021 section 10), so no credential check or sandbox self-test runs
-  // for it: both prove what sandboxed commands can reach, and a reviewer runs none.
-  it("runs the probe and the settings check only, with no self-test session, and returns the review plan", async () => {
+describe("(engine) a developer session is never planned on the Mac (DIPO-240)", () => {
+  it("refuses it as a plan, holding nothing and running no check", async () => {
     const { clock, holds } = setup();
-    const { fake, steps, deps } = reviewDeps(clock);
-    const result = await prepareLaunch(reviewSpec(), reviewContext(), holds, deps);
-    if (!result.ok) throw new Error(`refused: ${JSON.stringify(result)}`);
-    expect(result.plan.argv[result.plan.argv.indexOf("--tools") + 1]).toBe(
-      "Read,Glob,Grep,WebSearch,WebFetch",
-    );
-    expect(fake.calls.map((call) => call.cmd[1])).toEqual(["--version", "auth"]);
-    expect(steps.commands).toEqual([]);
+    const { fake, deps } = reviewDeps(clock);
+    const refused = await prepareLaunch(spec(), context(), holds, deps).catch((e: unknown) => e);
+    expect(refused).toBeInstanceOf(PlanError);
+    expect((refused as PlanError).message).toBe(DEVELOPER_ON_MAC_REFUSED);
     expect(holds.adapterHeld(CLAUDE_CLI_ADAPTER_ID)).toBeNull();
+    expect(fake.calls).toEqual([]);
   });
 
-  it("holds on a refused probe, as for a worker", async () => {
-    const { clock, holds } = setup();
-    const fake = scriptedClaude(clock, { auth: '{"loggedIn":true,"authMethod":"api-key"}' });
-    const { deps } = reviewDeps(clock);
-    const result = await prepareLaunch(reviewSpec(), reviewContext(), holds, {
-      ...deps,
-      spawn: fake.spawn,
-    });
-    expect(result.ok).toBe(false);
-    expect(holds.adapterHeld(CLAUDE_CLI_ADAPTER_ID)).toMatchObject({ check: "probe" });
-    expect(fake.calls.some((call) => call.cmd.includes("-p"))).toBe(false);
-  });
-
-  it("starts no Safe-Chain proxy for a review, even with Safe-Chain installed", async () => {
-    const { clock, holds } = setup();
-    const { deps } = reviewDeps(clock);
-    const started: string[] = [];
-    const safeChain = {
-      root: `${HOME}/.safe-chain`,
-      shell: "/bin/zsh",
-      path: "/opt/detected/bin:/usr/bin:/bin",
-      demoted: [],
-      dropped: [],
-      probe: "bun",
-      shellDir: `${RUN_DIR}/safe-chain`,
-    };
-    const result = await prepareLaunch(reviewSpec(), reviewContext({ safeChain }), holds, {
-      ...deps,
-      safeChainProxies: {
-        start: async (run) => {
-          started.push(run);
-          return { ok: false, reason: "no proxy in this test" };
-        },
-        stop: async () => undefined,
-        awaitHost: () => undefined,
-      },
-    });
-    expect(result.ok).toBe(true);
-    expect(started).toEqual([]);
-    expect(result.ok && result.plan.env["CLAUDE_CODE_SHELL"]).toBeUndefined();
+  it("refuses a review spec without its read-only copy as a plan too", () => {
+    const { readOnlyDir: _copy, ...withoutCopy } = reviewSpec();
+    expect(() => plan(withoutCopy, reviewContext())).toThrow(PlanError);
   });
 });
 
@@ -419,448 +170,16 @@ describe("(engine) roles with unchecked tools", () => {
   it.each(["Agent", "Task", "Skill"])(
     "refuses a role that allows %s before any check runs",
     async (tool) => {
-      const { clock, holds } = setup();
-      const fake = scriptedClaude(clock, {});
-      const result = await prepareLaunch(
-        spec({ tools: { allow: ["Read", "Bash", tool], deny: [] } }),
-        context(),
-        holds,
-        {
-          spawn: fake.spawn,
-          clock,
-          selfTestSessionId: SELF_TEST_SESSION,
-          standIn: reachedStandIn(),
-          platform: "darwin" as const,
-          runStep: credentialSteps().runStep,
-          uid: 501,
-          allowProjectSettings: [],
-          readText: async () => undefined,
-          fs: new MemoryFs(),
-        },
+      const { clock } = setup();
+      const { fake, deps } = reviewDeps(clock);
+      const launch = plan(reviewSpec(), reviewContext());
+      const outcome = await claudeLaunchChecks(
+        reviewSpec({ tools: { allow: ["Read", tool], deny: [] } }),
+        launch,
+        deps,
       );
-      expect(result).toMatchObject({ ok: false, outcome: "startFailed" });
-      expect(holds.adapterHeld(CLAUDE_CLI_ADAPTER_ID)).toMatchObject({ check: "tools", key: tool });
+      expect(outcome).toMatchObject({ ok: false, failures: [{ check: "tools", key: tool }] });
       expect(fake.calls).toEqual([]);
     },
   );
-});
-
-async function runCredentials(
-  code: number | "startFailed" | { readonly wrapperExit: number },
-  platform: "darwin" | "linux" = "darwin",
-) {
-  const { clock, holds } = setup();
-  const steps = credentialSteps(code);
-  const fake = scriptedClaude(clock, {});
-  const result = await prepareLaunch(spec(), context(), holds, {
-    spawn: fake.spawn,
-    clock,
-    selfTestSessionId: SELF_TEST_SESSION,
-    standIn: reachedStandIn(),
-    platform,
-    runStep: steps.runStep,
-    uid: 501,
-    allowProjectSettings: [],
-    readText: async () => undefined,
-    fs: new MemoryFs(),
-  });
-  return { result, holds, steps, fake };
-}
-
-describe("(engine) credential check under srt", () => {
-  it("runs gh auth token and, on macOS, the Keychain lookup with output to /dev/null", async () => {
-    const { steps } = await runCredentials(0, "darwin");
-    expect(steps.commands[0]).toEqual([
-      "/bin/sh",
-      "-c",
-      '"$0" "$@" >/dev/null 2>&1; echo "dipo-credential-exit $?"',
-      TOOLS.gh,
-      "auth",
-      "token",
-    ]);
-    const linux = await runCredentials(1, "linux");
-    expect(linux.steps.commands).toHaveLength(1);
-  });
-
-  it("holds the adapter when a credential command succeeds inside srt, before any session", async () => {
-    const { result, holds, fake } = await runCredentials(0);
-    expect(result).toMatchObject({ ok: false, outcome: "startFailed" });
-    expect(holds.adapterHeld(CLAUDE_CLI_ADAPTER_ID)).toMatchObject({
-      check: "credential-check",
-      key: "gh-token",
-    });
-    expect(fake.calls.some((call) => call.cmd.includes("-p"))).toBe(false);
-  });
-
-  it("holds the adapter when the check cannot run or the program is missing", async () => {
-    for (const code of [
-      "startFailed",
-      127,
-      126,
-      { wrapperExit: 125 },
-      { wrapperExit: 1 },
-      { wrapperExit: 2 },
-    ] as const) {
-      const { result, holds } = await runCredentials(code);
-      expect(result.ok).toBe(false);
-      expect(holds.adapterHeld(CLAUDE_CLI_ADAPTER_ID)?.check).toBe("credential-check");
-    }
-  });
-});
-
-/** A fake of the daemon's Safe-Chain proxies (DIPO-84) that records its calls. */
-function proxies(start: "ok" | "fail") {
-  const calls: string[] = [];
-  return {
-    calls,
-    start: async (runId: string, caFile: string) => {
-      calls.push(`start ${runId} ${caFile}`);
-      if (start === "fail") return { ok: false as const, reason: "the proxy check failed" };
-      const proxy = {
-        port: 50123,
-        dir: "/private/tmp/dipo-p/abc123",
-        exited: new Promise<void>(() => {}),
-        stop: async () => {},
-      };
-      return { ok: true as const, proxy };
-    },
-    stop: async (runId: string) => {
-      calls.push(`stop ${runId}`);
-    },
-    awaitHost: (runId: string) => {
-      calls.push(`awaitHost ${runId}`);
-    },
-  };
-}
-
-/** Launch check deps whose self-test leaves `results`, with the given proxies. */
-function proxyDeps(
-  clock: ManualClock,
-  fs: MemoryFs,
-  results: string,
-  safeChainProxies?: ReturnType<typeof proxies>,
-) {
-  const layout = selfTestLayout({ ...LAYOUT_PATHS, safeChainInstall: true });
-  return {
-    spawn: scriptedClaude(clock, {
-      session: selfTestSession([layout.command]),
-      onSession: () => {
-        fs.files.set(layout.resultsFile, results);
-        fs.files.set(layout.controlFile, "");
-      },
-    }).spawn,
-    clock,
-    selfTestSessionId: SELF_TEST_SESSION,
-    standIn: reachedStandIn(),
-    platform: "darwin" as const,
-    runStep: credentialSteps().runStep,
-    uid: 501,
-    allowProjectSettings: [],
-    readText: async () => undefined,
-    fs,
-    ...(safeChainProxies === undefined ? {} : { safeChainProxies }),
-  };
-}
-
-describe("(engine) Safe-Chain proxy at launch (DIPO-84)", () => {
-  const safeChain = {
-    root: "/home/maintainer/.safe-chain",
-    shell: "/bin/zsh",
-    path: "/usr/bin:/bin",
-    demoted: [],
-    dropped: [],
-    probe: "bun",
-    shellDir: `${RUN_DIR}/safe-chain`,
-  };
-  const INSTALL_OK = `${BLOCKED_RESULTS}safe-chain-install exit 0\nsafe-chain-blocked exit 1\n`;
-
-  it("starts the run's proxy, plans with its port and keeps it for the host", async () => {
-    const { clock, holds } = setup();
-    const fake = proxies("ok");
-    const result = await prepareLaunch(
-      spec(),
-      context({ safeChain }),
-      holds,
-      proxyDeps(clock, new MemoryFs(), INSTALL_OK, fake),
-    );
-    expect(result.ok).toBe(true);
-    if (!result.ok) return;
-    const settings = JSON.parse(
-      result.plan.files.find((f) => f.name === "claude-settings.json")?.content ?? "{}",
-    );
-    expect(settings.sandbox.network).toEqual({
-      allowedDomains: [],
-      strictAllowlist: true,
-      allowLocalBinding: false,
-      httpProxyPort: 50123,
-      allowUnixSockets: [SHORT_TMP_DIR],
-    });
-    // The parent of every proxy directory.
-    expect(settings.sandbox.filesystem.denyRead).toContain("/private/tmp/dipo-p");
-    expect(fake.calls).toEqual([
-      `start run-0001 ${RUN_DIR}/safe-chain/ca.pem`,
-      "awaitHost run-0001",
-    ]);
-  });
-
-  it("refuses the launch with a hold when the proxy cannot run, before any session", async () => {
-    const { clock, holds } = setup();
-    const fake = proxies("fail");
-    const spawned: string[] = [];
-    const base = proxyDeps(clock, new MemoryFs(), INSTALL_OK, fake);
-    const result = await prepareLaunch(spec(), context({ safeChain }), holds, {
-      ...base,
-      spawn: (options) => {
-        spawned.push(options.cmd.join(" "));
-        return base.spawn(options);
-      },
-    });
-    expect(result).toMatchObject({ ok: false, outcome: "startFailed" });
-    const hold = holds.adapterHeld(CLAUDE_CLI_ADAPTER_ID);
-    expect(hold).toMatchObject({ check: "safe-chain", key: "proxy" });
-    expect(hold?.detail).toContain("the proxy check failed");
-    expect(hold?.detail).toContain("the run is refused");
-    expect(spawned).toEqual([]);
-    expect(fake.calls).toEqual([`start run-0001 ${RUN_DIR}/safe-chain/ca.pem`, "stop run-0001"]);
-
-    // A dipo without proxies refuses the same way.
-    const none = await prepareLaunch(
-      spec(),
-      context({ safeChain }),
-      holds,
-      proxyDeps(clock, new MemoryFs(), INSTALL_OK),
-    );
-    expect(none).toMatchObject({ ok: false, outcome: "startFailed" });
-    expect(holds.adapterHeld(CLAUDE_CLI_ADAPTER_ID)?.detail).toContain("no Safe-Chain proxy");
-  });
-
-  it("stops the proxy when a later check refuses the launch", async () => {
-    const { clock, holds } = setup();
-    const fake = proxies("ok");
-    const failedInstall = `${BLOCKED_RESULTS}safe-chain-install exit 1\nsafe-chain-blocked exit 1\n`;
-    const result = await prepareLaunch(
-      spec(),
-      context({ safeChain }),
-      holds,
-      proxyDeps(clock, new MemoryFs(), failedInstall, fake),
-    );
-    expect(result).toMatchObject({ ok: false, outcome: "startFailed" });
-    expect(holds.adapterHeld(CLAUDE_CLI_ADAPTER_ID)).toMatchObject({
-      check: "self-test",
-      key: "safe-chain",
-    });
-    expect(fake.calls.at(-1)).toBe("stop run-0001");
-  });
-});
-
-describe("(engine) plugins in the self-test session (DIPO-108)", () => {
-  const WARP = "warp@claude-code-warp";
-  const BUILTIN = "cc-plugin-telemetry@builtin";
-
-  function run(listed: readonly string[], allowed: readonly string[]) {
-    const { clock, holds, notices } = setup();
-    const fs = new MemoryFs();
-    const sessions: FakeProcess[] = [];
-    const base = scriptedClaude(clock, {
-      session: withInitPlugins(selfTestSession([LAYOUT.command]), listed),
-      onSession: () => {
-        fs.files.set(LAYOUT.resultsFile, BLOCKED_RESULTS);
-        fs.files.set(LAYOUT.controlFile, "");
-      },
-    });
-    const spawn: Spawn = (options) => {
-      const child = base.spawn(options);
-      if (options.cmd.includes("-p")) sessions.push(child as FakeProcess);
-      return child;
-    };
-    const ctx = context({ plugins: { installed: [WARP], allowed } });
-    const launch = prepareLaunch(spec(), ctx, holds, {
-      spawn,
-      clock,
-      selfTestSessionId: SELF_TEST_SESSION,
-      standIn: reachedStandIn(),
-      platform: "darwin",
-      runStep: credentialSteps().runStep,
-      uid: 501,
-      allowProjectSettings: [],
-      readText: async () => undefined,
-      fs,
-    });
-    return { launch, holds, notices, sessions };
-  }
-
-  it("refuses startFailed, stopping the session at system/init before its Bash call", async () => {
-    const { launch, holds, sessions } = run([BUILTIN, WARP], []);
-    const refused = await launch;
-    expect(refused).toMatchObject({ ok: false, outcome: "startFailed" });
-    const hold = holds.adapterHeld(CLAUDE_CLI_ADAPTER_ID);
-    expect(hold).toMatchObject({ check: "self-test", key: "plugins" });
-    expect(hold?.detail).toContain(`plugin ${WARP}, not in worker.plugins`);
-    expect(hold?.failures[0]?.fix).toContain("add it to worker.plugins");
-    // Stopped at its init: SIGTERM, and the replay never reached the Bash tool call.
-    expect(sessions).toHaveLength(1);
-    expect(sessions[0]?.signals).toEqual(["SIGTERM"]);
-  });
-
-  it("passes when the session lists only builtin or allowed plugins", async () => {
-    for (const [listed, allowed] of [
-      [[BUILTIN], []],
-      [[BUILTIN, WARP], [WARP]],
-    ] as const) {
-      const { launch, holds, sessions } = run(listed, allowed);
-      expect((await launch).ok).toBe(true);
-      expect(holds.adapterHeld(CLAUDE_CLI_ADAPTER_ID)).toBeNull();
-      expect(sessions[0]?.signals).toEqual([]);
-    }
-  });
-
-  it("writes the switch-off into the settings file the self-test runs under", async () => {
-    const { launch, sessions } = run([BUILTIN], []);
-    const prepared = await launch;
-    expect(prepared.ok).toBe(true);
-    const settings = prepared.ok
-      ? prepared.plan.files.find((file) => file.name === "claude-settings.json")?.content
-      : undefined;
-    expect(JSON.parse(settings ?? "{}").enabledPlugins).toEqual({ [WARP]: false });
-    expect(sessions).toHaveLength(1);
-  });
-});
-
-// Not a real token; the refusal must never show it.
-const NPM_SECRET = "npm_FAKEfakeFAKEfake0123456789";
-
-/** A directory of node installs for `office` under `root`, one install whose etc/npmrc is `npmrc`. */
-function nodeInstalls(root: string, office: string, npmrc: string): string {
-  const etc = join(root, office, "node", "v22.11.0", "etc");
-  mkdirSync(etc, { recursive: true });
-  writeFileSync(join(etc, "npmrc"), npmrc);
-  return join(root, office, "node");
-}
-
-/** The default sandbox with `dir` added to the toolchain read paths. */
-function sandboxWith(dir: string) {
-  return {
-    ...OFFICE_DEFAULTS.sandbox,
-    toolchainReadPaths: [...OFFICE_DEFAULTS.sandbox.toolchainReadPaths, dir],
-  };
-}
-
-describe("(engine) npm auth keys the worker sandbox can read (DIPO-172)", () => {
-  it("refuses one office's run naming the file without a hold; another office's run still starts", async () => {
-    await withTempDir(async (root) => {
-      const withToken = nodeInstalls(root, "a", `//registry.npmjs.org/:_authToken=${NPM_SECRET}\n`);
-      const clean = nodeInstalls(root, "b", "registry=https://registry.npmjs.org/\n");
-      const { clock, holds, notices } = setup();
-      const deps = (fs: MemoryFs) => {
-        const fake = claudeWith(clock, fs, BLOCKED_RESULTS);
-        return {
-          fake,
-          deps: {
-            spawn: fake.spawn,
-            clock,
-            selfTestSessionId: SELF_TEST_SESSION,
-            standIn: reachedStandIn(),
-            platform: "darwin" as const,
-            runStep: credentialSteps().runStep,
-            uid: 501,
-            allowProjectSettings: [],
-            readText: async () => undefined,
-            fs,
-          },
-        };
-      };
-
-      const a = deps(new MemoryFs());
-      const refused = await prepareLaunch(
-        spec(),
-        context({ sandbox: sandboxWith(withToken) }),
-        holds,
-        a.deps,
-      ).then(
-        () => null,
-        (error: unknown) => error,
-      );
-      expect(refused).toBeInstanceOf(PlanError);
-      const message = (refused as PlanError).message;
-      expect(message).toContain(join(withToken, "v22.11.0", "etc", "npmrc"));
-      expect(message).toContain("_authToken");
-      expect(message).toContain("~/.npmrc");
-      expect(message).not.toContain(NPM_SECRET);
-      // Refused before any check: no probe, no session, no hold and no hold notice.
-      expect(a.fake.calls).toEqual([]);
-      expect(holds.adapterHeld(CLAUDE_CLI_ADAPTER_ID)).toBeNull();
-      expect(notices).toEqual([]);
-
-      const b = deps(new MemoryFs());
-      const started = await prepareLaunch(
-        spec(),
-        context({ sandbox: sandboxWith(clean) }),
-        holds,
-        b.deps,
-      );
-      expect(started.ok).toBe(true);
-      expect(holds.adapterHeld(CLAUDE_CLI_ADAPTER_ID)).toBeNull();
-    });
-  });
-});
-
-describe("(engine) verify tools the worker sandbox cannot start (DIPO-173)", () => {
-  it("refuses one office's run without a hold; another office's run, whose verify resolves, starts", async () => {
-    await withTempDir(async (home) => {
-      const bin = join(home, ".nvm", "versions", "node", "v22.11.0", "bin");
-      mkdirSync(bin, { recursive: true });
-      writeFileSync(join(bin, "node"), "", { mode: 0o755 });
-      const office = (name: string, scripts: Record<string, string>, tool: boolean) => {
-        const root = join(home, name);
-        mkdirSync(join(root, "node_modules", ".bin"), { recursive: true });
-        writeFileSync(join(root, "package.json"), JSON.stringify({ scripts }));
-        if (tool) {
-          writeFileSync(join(root, "node_modules", ".bin", "oxfmt"), "#!/usr/bin/env node\n", {
-            mode: 0o755,
-          });
-        }
-        return root;
-      };
-      const needsNode = office("a", { verify: "oxfmt --check" }, true);
-      const verify = { commands: [["bun", "run", "verify"]], cwd: "." };
-      const ctx = context({ home, env: { PATH: `${bin}:/usr/bin:/bin`, HOME: home } });
-      const { clock, holds, notices } = setup();
-      const fs = new MemoryFs();
-      const fake = claudeWith(clock, fs, BLOCKED_RESULTS);
-      const deps = {
-        spawn: fake.spawn,
-        clock,
-        selfTestSessionId: SELF_TEST_SESSION,
-        standIn: reachedStandIn(),
-        platform: "darwin" as const,
-        runStep: credentialSteps().runStep,
-        uid: 501,
-        allowProjectSettings: [],
-        readText: async () => undefined,
-        fs,
-      };
-
-      const refused = await prepareLaunch(
-        { ...spec(), workdir: needsNode },
-        ctx,
-        holds,
-        deps,
-        verify,
-      ).then(
-        () => null,
-        (error: unknown) => error,
-      );
-      expect(refused).toBeInstanceOf(PlanError);
-      expect((refused as PlanError).message).toContain("sandbox.toolchainReadPaths");
-      expect(fake.calls).toEqual([]);
-      expect(holds.adapterHeld(CLAUDE_CLI_ADAPTER_ID)).toBeNull();
-      expect(notices).toEqual([]);
-
-      // The self-test's layout is that of the fixture worktree, so the second office's checkout
-      // is the fixture one: verify runs no program from node_modules/.bin there.
-      const started = await prepareLaunch(spec(), ctx, holds, deps, verify);
-      expect(started.ok).toBe(true);
-      expect(holds.adapterHeld(CLAUDE_CLI_ADAPTER_ID)).toBeNull();
-    });
-  });
 });

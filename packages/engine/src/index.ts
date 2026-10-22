@@ -396,7 +396,6 @@ export {
   type SafeChainProxyRequest,
   type SafeChainProxyStart,
 } from "./platform/safe-chain-proxy";
-export { SafeChainProxies, type SafeChainProxyStarter } from "./sandbox/safe-chain-proxies";
 export type { SandboxExecOptions } from "./platform/sandbox-exec";
 export {
   KNOWN_WORKER_KINDS,
@@ -440,6 +439,7 @@ export {
   ENV_ALLOWLIST,
   EMPTY_MCP_CONFIG_FILE,
   kindContext as claudeKindContext,
+  DEVELOPER_ON_MAC_REFUSED,
   PLANNED_KINDS,
   plan as planClaudeLaunch,
   REPORT_SCHEMA_FILE,
@@ -508,44 +508,6 @@ export {
   stripLocalSettings,
 } from "./workers/claude-cli/settings-check";
 export {
-  APPROVAL_COMMAND,
-  approvalFacts,
-  bashCalls as selfTestBashCalls,
-  judgeSelfTest,
-  resolveSelfTestTools,
-  workerWritableRoots,
-  PROBE_GROUPS,
-  REVIEW_PROBES,
-  runSelfTest,
-  SELF_TEST_DENY_REASON,
-  SELF_TEST_EFFORT,
-  SELF_TEST_MODEL,
-  SELF_TEST_SYSTEM_PROMPT,
-  selfTestLayout,
-  selfTestSocketPath,
-  startHostStandIn,
-  type ProbeName,
-  type SelfTestApproval,
-  type SelfTestDisk,
-  type SelfTestEvidence,
-  type SelfTestBashCalls,
-  type SelfTestTools,
-  type SelfTestVerdict,
-  type StandInRequest,
-} from "./workers/claude-cli/self-test";
-export {
-  credentialCommands,
-  engineCredentialCheck,
-  GH_KEYCHAIN_SERVICE,
-  judgeCredentialStep,
-  KEYCHAIN_TOOL,
-  CREDENTIAL_MARKER,
-  marked,
-  type CredentialCheckResult,
-  type CredentialProbe,
-  type RunStep,
-} from "./workers/credential-check";
-export {
   claudeLaunchChecks,
   prepareLaunch as prepareClaudeLaunch,
   type ClaudeLaunchCheckDeps,
@@ -559,14 +521,6 @@ export {
   type ClaudeCliAdapterDeps,
   type ClaudeWorkerPortDeps,
 } from "./workers/claude-cli/adapter";
-export {
-  detectSafeChain,
-  launchedThroughSafeChain,
-  SAFE_CHAIN_COMMANDS,
-  safeChainProxyGoneText,
-  type SafeChainInput,
-  type SafeChainLaunch,
-} from "./workers/claude-cli/safe-chain";
 export type { PreparedWorker, RunLaunchPaths, SessionFacts, WorkerPort } from "./workers/port";
 export {
   ScriptedWorker,
