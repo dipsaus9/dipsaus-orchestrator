@@ -142,6 +142,11 @@ function fakeFill(dir: string, install: (cacheDir: string) => InstallResult = wr
         mkdirSync(join(boxFs, command[2]!), { recursive: true });
         return { code: 0, stdout: "", stderr: "" };
       }
+      if (command[0] === "find") {
+        // `find <dir> -type l -delete`, as GNU find runs it in the fill box.
+        deleteLinks(join(boxFs, command[1]!));
+        return { code: 0, stdout: "", stderr: "" };
+      }
       if (command[0] === "tar") {
         // The host's tar packs the box's cache folder, as GNU tar does in the fill box.
         const [, , , from, , archive, folder] = command;
@@ -287,6 +292,7 @@ const FILL_CALLS = [
   `copyIn ${FILL_BOX} ${FILL_BOX_DIR}/project`,
   `copyIn ${FILL_BOX} ${FILL_BOX_DIR}/ca.pem`,
   `exec ${FILL_BOX} bun`,
+  `exec ${FILL_BOX} find`,
   `exec ${FILL_BOX} tar`,
   `exec ${FILL_BOX} stat`,
   `execLive ${FILL_BOX} cat ${FILL_BOX_DIR}/cache.tar`,
@@ -593,6 +599,15 @@ describe("a failed fill", () => {
     }));
 });
 
+/** Deletes every symlink under `folder`, as `find <folder> -type l -delete` does. */
+function deleteLinks(folder: string): void {
+  for (const entry of readdirSync(folder, { withFileTypes: true })) {
+    const path = join(folder, entry.name);
+    if (entry.isSymbolicLink()) rmSync(path);
+    else if (entry.isDirectory()) deleteLinks(path);
+  }
+}
+
 /** An install that also leaves a symlink `link` to `target` in the cache. */
 const withLink = (target: string) => (cacheDir: string) => {
   writePackage(cacheDir);
@@ -602,21 +617,27 @@ const withLink = (target: string) => (cacheDir: string) => {
 
 describe("links in the filled cache", () => {
   for (const [what, target] of [
-    ["a relative symlink that stays in the cache", "package.json"],
+    ["a relative symlink that stays in the cache (Bun's alias links)", "package.json"],
     ["an absolute symlink", "/etc/hosts"],
     ["a relative symlink out of the generation", "../../../../../outside"],
   ] as const) {
-    it(`refuses ${what}: the package cache takes no links`, () =>
+    it(`drops ${what} in the fill box, so the cache it fills holds no link`, () =>
       withTempDir(async (dir) => {
         mkdirSync(join(dir, "outside"));
         const fill = fakeFill(dir, withLink(target));
-        const error = await rejection(ensurePackageCache(request(dir, fill)));
-        expect(error.code).toBe("box.cacheFillFailed");
-        expect(error.message).toContain("takes no links");
-        expect(readdirSync(join(dir, "package-cache"))).toEqual([]);
+        const cache = await ensurePackageCache(request(dir, fill));
+        const kept = join(cache.path, "bun", "is-number@7.0.0@@@1");
+        expect(readdirSync(kept)).toContain("package.json");
+        expect(readdirSync(kept)).not.toContain("link");
         expect(readdirSync(join(dir, "outside"))).toEqual([]);
       }));
   }
+
+  it("prunes the links before the pack", () => {
+    const { prune, pack, cacheDir } = fillInstall("bun", PROXY_URL);
+    expect(prune).toEqual(["find", cacheDir, "-type", "l", "-delete"]);
+    expect(pack[0]).toBe("tar");
+  });
 });
 
 describe("the archive's size", () => {
