@@ -79,7 +79,7 @@ export function unrenderableNotice(office: OfficeId, epoch: string, entry: Store
     data: {
       level: "error",
       code: UNRENDERABLE_NOTICE_CODE,
-      text: `Change-log entry ${entry.seq} (${entry.type}) could not be sent and was skipped; a new office snapshot shows the current state.`,
+      text: `Change-log entry ${entry.seq} (${entry.type}) does not render, so this fact is missing from the stream; reopening the office, or a reconnect after stream.resetRequired, shows the current state.`,
     },
   };
 }
@@ -114,18 +114,20 @@ export class Renderer {
   /**
    * The events a subscriber gets for `entries`. An entry that does not render (one an older binary
    * stored before `appendEntries` checked entries) becomes `unrenderableNotice` at its own cursor
-   * and `onUnrenderable` hears why, so replay always moves past it (DIPO-124).
+   * and `onUnrenderable` hears why, so replay always moves past it (DIPO-124). Any other error
+   * (not a `RenderError`) is thrown, so the stream fails as it did before.
    */
   renderForStream(
     office: OfficeId,
     epoch: string,
     entries: readonly StoredEntry[],
-    onUnrenderable: (error: unknown, entry: StoredEntry) => void,
+    onUnrenderable: (error: RenderError, entry: StoredEntry) => void,
   ): Event[] {
     return entries.map((entry) => {
       try {
         return this.render(office, epoch, entry);
       } catch (error) {
+        if (!(error instanceof RenderError)) throw error;
         onUnrenderable(error, entry);
         return unrenderableNotice(office, epoch, entry);
       }

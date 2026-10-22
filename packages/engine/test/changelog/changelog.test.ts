@@ -350,5 +350,28 @@ describe("the write check (DIPO-124)", () => {
       expect(heard).toHaveLength(1);
       expect(heard[0]?.seq).toBe(bad);
       expect(heard[0]?.error).toBeInstanceOf(RenderError);
+      expect(events[1]?.data).toMatchObject({
+        text: expect.stringContaining("missing from the stream"),
+      });
+    }));
+
+  it("throws an error that is not a RenderError instead of sending a notice", () =>
+    withOffice((t, office) => {
+      office.immediate(() => appendEntries(office, [notice("1")], { at: 1 }));
+      const { epoch } = readLogState(office);
+      const replayed = replay(office, { ...headCursor(office), seq: 0 });
+      if (!replayed.ok) throw new Error(replayed.error.message);
+      const heard: unknown[] = [];
+      const renderer = new Renderer({
+        "engine.notice": () => {
+          throw new Error("the renderer broke");
+        },
+      });
+      expect(() =>
+        renderer.renderForStream(office.officeId, epoch, replayed.entries, (error) =>
+          heard.push(error),
+        ),
+      ).toThrow("the renderer broke");
+      expect(heard).toEqual([]);
     }));
 });

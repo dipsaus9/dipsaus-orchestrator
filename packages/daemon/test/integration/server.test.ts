@@ -10,6 +10,7 @@ import {
   type Event,
   type ReadReply,
 } from "@dipsaus-orchestrator/contract";
+import { Renderer } from "@dipsaus-orchestrator/engine";
 import { makeTempDir, removeTempDir } from "@dipsaus-orchestrator/testkit";
 
 import { SUMMARY_DEBOUNCE_MS } from "../../src/server";
@@ -564,6 +565,27 @@ describe("office streams", () => {
       await reader.waitForEvent(stream, (e) => e.cursor.seq === 4, "live");
       expect(await Promise.race([reader.closed, settle().then(() => "open")])).toBe("open");
     }
+  });
+
+  it("still closes the stream with 1008 on an error that is not a render failure (DIPO-124)", async () => {
+    const renderer = new Renderer({
+      "scan.finished": () => {
+        throw new Error("the renderer broke");
+      },
+    });
+    const h = await start({ renderer });
+    const office = h.addOffice();
+    const writer = await connect(h);
+    await writer.command("fixture.scan", {}, { office });
+    const stream = `office:${office}`;
+    const epoch = h.state.connection.get<{ epoch: string }>(
+      "select epoch from offices where office_id = $office",
+      { office },
+    )?.epoch;
+    const reader = await connect(h);
+    okResult(await reader.subscribe(stream, { stream, epoch, seq: 0 } as Cursor));
+    expect((await reader.closed).code).toBe(1008);
+    expect(reader.events(stream)).toEqual([]);
   });
 
   it("subscribes from the head when no cursor is given", async () => {
