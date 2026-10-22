@@ -43,6 +43,7 @@ import { openPark, PARK_NOTICES, reopenParkedRun } from "./park";
 import { PLACE_NOTICES, type Places, START_KINDS, waitForPlace } from "./places";
 import { capsStartedAt, findRun, type StoredRun } from "./records";
 import { resumeVia } from "./resume-policy";
+import { resumeLine } from "./summary";
 import {
   type HeldRunResumer,
   type HoldResumer,
@@ -296,6 +297,14 @@ export class Resumption {
           branch: run.branch,
           worktree: run.worktree,
           to,
+          // The resume's line in the implementation notes (0020 section 13): an answer grants
+          // nothing; the maintainer's text is its note.
+          line: resumeLine({
+            at: this.#deps.clock.now(),
+            grants: [],
+            answer: `${request.decision === "allow" ? "allow once" : "deny"} of ${question.tool}`,
+            note: request.text,
+          }),
         });
       } catch (error) {
         resolve("failed");
