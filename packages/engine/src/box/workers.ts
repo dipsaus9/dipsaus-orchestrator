@@ -78,6 +78,12 @@ export interface BoxRunRecord {
   readonly runId: string;
   readonly office: string;
   readonly box: string;
+  /**
+   * The files outside git the base branch's box block listed (`box.files`) when the box was made,
+   * repo-relative (DIPO-290): what every part of the run leaves out, whatever the base config says
+   * later. Absent in a record written before it was kept.
+   */
+  readonly files?: readonly string[];
   /** Set once the run ended and its box was deleted. */
   readonly finished?: boolean;
 }
@@ -179,12 +185,17 @@ export function readBoxRun(runDir: string): BoxRunRecord | null {
     return null;
   }
   try {
-    const value = JSON.parse(text) as Partial<BoxRunRecord>;
+    const value = JSON.parse(text) as Partial<Record<keyof BoxRunRecord, unknown>>;
     if (typeof value.runId !== "string" || typeof value.box !== "string") return null;
+    const files =
+      Array.isArray(value.files) && value.files.every((file) => typeof file === "string")
+        ? (value.files as string[])
+        : undefined;
     return {
       runId: value.runId,
       office: typeof value.office === "string" ? value.office : "",
       box: value.box,
+      ...(files === undefined ? {} : { files }),
       ...(value.finished === true ? { finished: true } : {}),
     };
   } catch {
@@ -305,11 +316,13 @@ export class BoxWorkers {
     );
     const network = await this.#networkOf();
     const name = boxName(input.runId);
-    // Recorded before the box exists, so a crash in between leaves a box dipo knows to clean up.
+    // Recorded before the box exists, so a crash in between leaves a box dipo knows to clean up;
+    // with the listed files the box gets, which decide what every part leaves out (DIPO-290).
     writeJson(join(input.runDir, BOX_RUN_FILE), {
       runId: input.runId,
       office: input.office,
       box: name,
+      files: base.description.files.map((file) => file.path),
     } satisfies BoxRunRecord);
     ensurePrivateDir(this.#index);
     writeJson(this.#indexFile(input.runId), { runDir: input.runDir });
@@ -571,7 +584,8 @@ export class BoxWorkers {
   /**
    * What the run's box `/work` holds besides the start commit (DIPO-294), checked after the
    * install and before the worker: compared on dipo's own copy (`BoxWorkersDeps.treeCheck`); not
-   * known without it.
+   * known without it. The run directory goes with it, so the check reads the listed files `create`
+   * recorded (DIPO-290).
    */
   changedSinceStart(input: Omit<PartRun, "box" | "runDir">): Promise<StartTreeCheck> {
     const check = this.#deps.treeCheck;
@@ -581,7 +595,12 @@ export class BoxWorkers {
         reason: "this daemon cannot compare the box's files with the start commit",
       });
     }
-    return check({ ...input, box: boxName(input.runId) });
+    const runDir = this.#runDirOf(input.runId);
+    return check({
+      ...input,
+      box: boxName(input.runId),
+      ...(runDir === undefined ? {} : { runDir }),
+    });
   }
 
   /** Deletes the box of a run whose worker never ran (a failed launch); no token check. */
@@ -624,6 +643,7 @@ export class BoxWorkers {
         runId,
         office: record?.office ?? "",
         box: name,
+        ...(record?.files === undefined ? {} : { files: record.files }),
         finished: true,
       } satisfies BoxRunRecord);
     } catch (error) {
