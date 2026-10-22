@@ -213,6 +213,8 @@ export async function runRetention(options: RetentionOptions): Promise<Retention
   await rows("runs", "ended_at < $cutoff", { cutoff: stateCutoff });
   // Parks resolved before the cutoff; an open park is the history of a story still Parked.
   await rows("parks", "resolved_at < $cutoff", { cutoff: stateCutoff });
+  // Leftovers of a story Done elsewhere stay until `dipo discard` cleared them (DIPO-161).
+  await rows("done_elsewhere", "cleared_at < $cutoff", { cutoff: stateCutoff });
   await rows(
     "config_snapshots",
     `first_seen < $cutoff and not exists (select 1 from runs r where r.office_id = $office_id
