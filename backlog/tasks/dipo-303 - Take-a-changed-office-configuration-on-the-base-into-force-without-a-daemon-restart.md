@@ -3,10 +3,10 @@ id: DIPO-303
 title: >-
   Take a changed office configuration on the base into force without a daemon
   restart
-status: In Progress
+status: In Review
 assignee: []
 created_date: '2026-10-22 14:25'
-updated_date: '2026-10-22 18:50'
+updated_date: '2026-10-22 18:53'
 labels:
   - 'tier:S'
   - box
@@ -44,7 +44,7 @@ test_plan:
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 The poll that re-indexes after a base move also reloads the office configuration when .dipo/office.yaml changed, and dipo office rescan does too
-- [ ] #2 A refused configuration keeps the one in force and raises the existing notice
-- [ ] #3 Tests cover a reload by the poll and by rescan
+- [x] #1 The poll that re-indexes after a base move also reloads the office configuration when .dipo/office.yaml changed, and dipo office rescan does too
+- [x] #2 A refused configuration keeps the one in force and raises the existing notice
+- [x] #3 Tests cover a reload by the poll and by rescan
 <!-- AC:END -->
