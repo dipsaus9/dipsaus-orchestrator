@@ -244,6 +244,43 @@ export function recordReviewCommentUrl(office: OfficeHandle, gate: GateId, url: 
   );
 }
 
+/**
+ * The verdicts of the run still to be posted as a PR comment, oldest first: a reviewed head with
+ * no comment URL. An approval carried to a new head posts nothing (section 3).
+ */
+export function uncommentedVerdicts(office: OfficeHandle, runId: RunId): StoredReviewVerdict[] {
+  return office
+    .all<VerdictRow>(
+      `select ${COLUMNS} from review_verdicts
+        where office_id = $office_id and run_id = $run and comment_url is null
+          and carried_from is null
+        order by decided_at, rowid`,
+      { run: runId },
+    )
+    .map(toRecord);
+}
+
+/** The newest verdict of the run, or null while it has none. */
+export function latestVerdictOfRun(office: OfficeHandle, runId: RunId): StoredReviewVerdict | null {
+  const row = office.get<VerdictRow>(
+    `select ${COLUMNS} from review_verdicts where office_id = $office_id and run_id = $run
+      order by decided_at desc, rowid desc limit 1`,
+    { run: runId },
+  );
+  return row === null ? null : toRecord(row);
+}
+
+/** The effort the reviewer agent ran with, or null when the agent is gone or has none. */
+export function reviewerEffort(office: OfficeHandle, agent: string | null): string | null {
+  if (agent === null) return null;
+  return (
+    office.get<{ effort: string | null }>(
+      "select effort from agents where office_id = $office_id and agent_id = $agent",
+      { agent },
+    )?.effort ?? null
+  );
+}
+
 /** Marks the verdict overridden by the maintainer, with the required note (section 11). */
 export function recordReviewOverride(
   office: OfficeHandle,

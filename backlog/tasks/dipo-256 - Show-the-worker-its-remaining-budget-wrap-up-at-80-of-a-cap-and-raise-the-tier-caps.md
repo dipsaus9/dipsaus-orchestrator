@@ -3,10 +3,10 @@ id: DIPO-256
 title: >-
   Show the worker its remaining budget, wrap up at 80% of a cap, and raise the
   tier caps
-status: Refined
+status: Ready
 assignee: []
 created_date: '2026-10-20 20:20'
-updated_date: '2026-10-22 18:16'
+updated_date: '2026-10-22 20:43'
 labels:
   - 'tier:M'
   - cutover
