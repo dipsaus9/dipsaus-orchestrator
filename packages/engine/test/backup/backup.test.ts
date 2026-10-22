@@ -6,7 +6,7 @@
 import { Database } from "bun:sqlite";
 import { describe, expect, it } from "bun:test";
 import { mkdirSync, readdirSync, statSync, writeFileSync } from "node:fs";
-import { basename, join } from "node:path";
+import { join } from "node:path";
 
 import { withTempDir } from "@dipsaus-orchestrator/testkit";
 
@@ -26,7 +26,10 @@ async function withState(fn: (t: TestState, backups: string) => Promise<void>) {
   return withTempDir(async (dir) => {
     const t = await openTestState(dir);
     try {
-      await fn(t, backupsDirectory(t.state.connection.path));
+      // A new database has no backups directory yet: the migration no longer writes a copy (DIPO-122).
+      const backups = backupsDirectory(t.state.connection.path);
+      mkdirSync(backups, { recursive: true });
+      await fn(t, backups);
     } finally {
       t.state.close();
     }
@@ -71,9 +74,8 @@ describe("daily backup", () => {
         "pre-v7-20251215T120000-2.db",
       ]);
 
-      // Opening the test database migrated it, which wrote the newest pre-migration copy.
-      const migrated = basename(t.state.migration.backup ?? "");
-      expect(migrated).toStartWith("pre-v");
+      // Opening a new test database writes no pre-migration copy (DIPO-122).
+      expect(t.state.migration.backup).toBeNull();
 
       const result = await writeDailyBackup({
         dbPath: t.state.connection.path,
@@ -82,18 +84,14 @@ describe("daily backup", () => {
 
       expect(result.written).toBe(true);
       expect(result.path).toBe(join(backups, "dipo-20260101.db"));
-      expect(result.removed.toSorted()).toEqual([
-        "dipo-20251228.db",
-        "pre-v6-20251201T000000.db",
-        "pre-v7-20251215T120000.db",
-      ]);
+      expect(result.removed.toSorted()).toEqual(["dipo-20251228.db", "pre-v6-20251201T000000.db"]);
       expect(files(backups)).toEqual(
         [
           "dipo-20251229.db",
           "dipo-20251230.db",
           "dipo-20260101.db",
-          migrated,
           "pre-v7-20251215T120000-2.db",
+          "pre-v7-20251215T120000.db",
         ].toSorted(),
       );
       expect(quickCheck(result.path)).toBe("ok");

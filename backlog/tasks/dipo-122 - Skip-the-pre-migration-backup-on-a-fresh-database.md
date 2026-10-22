@@ -1,10 +1,10 @@
 ---
 id: DIPO-122
 title: Skip the pre-migration backup on a fresh database
-status: Ready
+status: In Review
 assignee: []
 created_date: '2026-10-16 11:53'
-updated_date: '2026-10-22 13:41'
+updated_date: '2026-10-22 14:03'
 labels:
   - 'tier:S'
 milestone: m-1
@@ -39,8 +39,8 @@ test_plan:
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 migrate() writes no backup when the database is at version 0 and holds no user tables, and returns backup null
-- [ ] #2 An existing database below head still gets its backup before the first step, and a failed step still names it
-- [ ] #3 Tests cover the fresh database and the upgrade
-- [ ] #4 A dated 0007 note on the fresh-database exception is proposed in the PR for the maintainer's approval
+- [x] #1 migrate() writes no backup when the database is at version 0 and holds no user tables, and returns backup null
+- [x] #2 An existing database below head still gets its backup before the first step, and a failed step still names it
+- [x] #3 Tests cover the fresh database and the upgrade
+- [x] #4 A dated 0007 note on the fresh-database exception is proposed in the PR for the maintainer's approval
 <!-- AC:END -->

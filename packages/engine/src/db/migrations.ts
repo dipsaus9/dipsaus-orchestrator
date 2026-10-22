@@ -93,14 +93,15 @@ export class MigrationChecksumError extends Error {
 export class MigrationFailedError extends Error {
   constructor(
     readonly version: number,
-    readonly backup: string,
+    readonly backup: string | null,
     cause: unknown,
   ) {
     const reason = cause instanceof Error ? cause.message : String(cause);
-    super(
-      `Migration ${version} failed and was rolled back (${reason}). The pre-migration backup is ${backup}.`,
-      { cause },
-    );
+    const copy =
+      backup === null
+        ? "No pre-migration backup was written: the database was new and empty."
+        : `The pre-migration backup is ${backup}.`;
+    super(`Migration ${version} failed and was rolled back (${reason}). ${copy}`, { cause });
     this.name = "MigrationFailedError";
   }
 }
@@ -178,6 +179,18 @@ function backupPath(dbPath: string, version: number, ms: number): string {
   return candidate;
 }
 
+/**
+ * Whether the database holds a table other than SQLite's own. SQLite reserves the literal
+ * `sqlite_` prefix; LIKE would also skip names such as `sqliteXdata` (`_` matches any character).
+ */
+function holdsUserTables(db: SqlRunner): boolean {
+  return (
+    db.get(
+      "select 1 from sqlite_schema where type = 'table' and substr(name, 1, 7) <> 'sqlite_'",
+    ) !== null
+  );
+}
+
 function applyStep(db: SqliteConnection, step: Migration, options: MigrateOptions): void {
   db.immediate(() => {
     if ("sql" in step) db.exec(step.sql);
@@ -204,7 +217,8 @@ function applyStep(db: SqliteConnection, step: Migration, options: MigrateOption
 /**
  * Brings the database to the head of `migrations`. Refuses a database newer than the binary and
  * one whose recorded steps differ from the binary's; writes `backups/pre-v<N>-<time>.db` before
- * applying anything.
+ * applying anything. A new database (version 0, no user tables) has nothing to copy, so it gets no
+ * backup and `backup` is null.
  */
 export async function migrate(
   db: SqliteConnection,
@@ -218,9 +232,12 @@ export async function migrate(
   verifyApplied(migrations, readApplied(db), from);
   if (from === head) return { from, to: head, backup: null };
 
-  const backup = backupPath(db.path, head, options.clock.now());
-  await vacuumInto(db.path, backup);
-  logger.info("wrote pre-migration backup", { backup, from, to: head });
+  const fresh = from === 0 && !holdsUserTables(db);
+  const backup = fresh ? null : backupPath(db.path, head, options.clock.now());
+  if (backup !== null) {
+    await vacuumInto(db.path, backup);
+    logger.info("wrote pre-migration backup", { backup, from, to: head });
+  }
 
   for (const step of migrations.slice(from)) {
     try {

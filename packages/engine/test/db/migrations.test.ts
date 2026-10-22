@@ -1,5 +1,6 @@
 // Migrations runner (DIPO-21, 0007 section 9).
 
+import { Database } from "bun:sqlite";
 import { describe, expect, it } from "bun:test";
 import { existsSync, readdirSync, statSync } from "node:fs";
 import { join } from "node:path";
@@ -83,12 +84,82 @@ describe("migrate", () => {
       }
     }));
 
+  it("writes no backup for a new empty database and returns backup null (DIPO-122)", () =>
+    withTempDir(async (dir) => {
+      const state = await openStateDatabase(options(dir, BASE));
+      state.close();
+      expect(state.migration).toMatchObject({ from: 0, to: BASE.length, backup: null });
+      expect(backups(dir)).toEqual([]);
+    }));
+
+  it("backs up a database at version 0 that already holds user tables (DIPO-122)", () =>
+    withTempDir(async (dir) => {
+      // A legacy file, or one changed outside dipo: tables but no user_version.
+      const legacy = await openSqlite({
+        stateDir: join(dir, "state"),
+        logger: memoryLogger(),
+        readMounts: localMounts,
+      });
+      try {
+        legacy.exec("create table legacy (note text not null) strict");
+        legacy.run("insert into legacy (note) values ($note)", { note: "keep me" });
+      } finally {
+        legacy.close();
+      }
+
+      const clock = new ManualClock();
+      const state = await openStateDatabase(options(dir, BASE, clock));
+      state.close();
+      const name = `pre-v1-${backupStamp(clock.now())}.db`;
+      const expected = join(dir, "state", "backups", name);
+      expect(state.migration).toMatchObject({ from: 0, to: BASE.length, backup: expected });
+      expect(backups(dir)).toEqual([name]);
+
+      // The copy was taken before the first step: the legacy row, none of migration 1's tables.
+      const copy = new Database(expected, { readonly: true });
+      try {
+        expect(copy.query("select note from legacy").all()).toEqual([{ note: "keep me" }]);
+        expect(
+          copy
+            .query(
+              "select name from sqlite_schema where type = 'table' and name in ('offices', 'schema_migrations')",
+            )
+            .all(),
+        ).toEqual([]);
+      } finally {
+        copy.close();
+      }
+    }));
+
+  for (const table of ["sqliteXdata", "SQLiteData"]) {
+    it(`backs up a version 0 database whose only table is ${table}, not an internal name (DIPO-122)`, () =>
+      withTempDir(async (dir) => {
+        const legacy = await openSqlite({
+          stateDir: join(dir, "state"),
+          logger: memoryLogger(),
+          readMounts: localMounts,
+        });
+        try {
+          legacy.exec(`create table "${table}" (note text) strict`);
+        } finally {
+          legacy.close();
+        }
+
+        const clock = new ManualClock();
+        const state = await openStateDatabase(options(dir, BASE, clock));
+        state.close();
+        const name = `pre-v1-${backupStamp(clock.now())}.db`;
+        expect(state.migration.backup).toBe(join(dir, "state", "backups", name));
+        expect(backups(dir)).toEqual([name]);
+      }));
+  }
+
   it("applies steps in order, records each one and backs up first", () =>
     withTempDir(async (dir) => {
       const clock = new ManualClock();
       const first = await openStateDatabase(options(dir, BASE, clock));
       first.close();
-      expect(backups(dir)).toEqual([`pre-v1-${backupStamp(clock.now())}.db`]);
+      expect(backups(dir)).toEqual([]);
 
       clock.advance(60_000);
       const state = await openStateDatabase(options(dir, [...BASE, second, third], clock));
@@ -129,7 +200,7 @@ describe("migrate", () => {
       const again = await openStateDatabase(options(dir, [...BASE, second, third], clock));
       again.close();
       expect(again.migration.backup).toBeNull();
-      expect(backups(dir)).toHaveLength(2);
+      expect(backups(dir)).toHaveLength(1);
     }));
 
   it("rolls back a failing step and leaves user_version unchanged", () =>
@@ -143,7 +214,7 @@ describe("migrate", () => {
       const error = await failure(openStateDatabase(options(dir, [...BASE, broken])));
       expect(error).toBeInstanceOf(MigrationFailedError);
       expect((error as MigrationFailedError).backup).toContain("pre-v2-");
-      expect((error as Error).message).toContain((error as MigrationFailedError).backup);
+      expect((error as Error).message).toContain((error as MigrationFailedError).backup ?? "");
 
       const db = await openSqlite({
         stateDir: join(dir, "state"),
@@ -159,6 +230,20 @@ describe("migrate", () => {
       } finally {
         db.close();
       }
+    }));
+
+  it("names no backup when a step fails on a new empty database (DIPO-122)", () =>
+    withTempDir(async (dir) => {
+      const broken: Migration = {
+        version: 1,
+        name: "broken",
+        sql: "insert into nowhere values (1);",
+      };
+      const error = await failure(openStateDatabase(options(dir, [broken])));
+      expect(error).toBeInstanceOf(MigrationFailedError);
+      expect((error as MigrationFailedError).backup).toBeNull();
+      expect((error as Error).message).toContain("the database was new and empty");
+      expect(backups(dir)).toEqual([]);
     }));
 
   it("refuses a database newer than the binary with 'upgrade dipo'", () =>
@@ -179,7 +264,7 @@ describe("migrate", () => {
       const error = await failure(openStateDatabase(options(dir, [...BASE, edited])));
       expect(error).toBeInstanceOf(MigrationChecksumError);
       expect((error as MigrationChecksumError).version).toBe(2);
-      expect(backups(dir)).toHaveLength(1);
+      expect(backups(dir)).toEqual([]);
     }));
 
   it("rejects steps that are not numbered 1, 2, 3 in order", () =>
