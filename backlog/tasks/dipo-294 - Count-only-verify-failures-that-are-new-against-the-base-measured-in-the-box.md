@@ -1,10 +1,10 @@
 ---
 id: DIPO-294
-title: 'Count only verify failures that are new against the base, measured in the box'
+title: Install the office's packages in the box before the worker starts
 status: To Do
 assignee: []
 created_date: '2026-10-22 08:30'
-updated_date: '2026-10-22 08:32'
+updated_date: '2026-10-22 09:37'
 labels:
   - 'tier:M'
   - box
@@ -12,13 +12,11 @@ labels:
 milestone: m-1
 dependencies: []
 references:
-  - packages/engine/src/box/verify.ts
-  - packages/engine/src/worktree/base-verify.ts
   - packages/engine/src/box/workers.ts
-  - packages/engine/src/run/verify-commit.ts
-  - packages/engine/test/box/verify.test.ts
-  - packages/engine/test/worktree/base-verify.test.ts
-  - docs/decisions/0021-worker-isolation.md
+  - packages/engine/src/box/verify.ts
+  - packages/engine/src/run/launch.ts
+  - packages/engine/test/box/workers.test.ts
+  - packages/engine/test/run/start.test.ts
 priority: high
 type: feature
 ordinal: 283000
@@ -27,22 +25,20 @@ ordinal: 283000
 ## Description
 
 <!-- SECTION:DESCRIPTION:BEGIN -->
-Outcome: a box run's verify passes when every failing test also fails at the story's start commit in the same image, so failures the box itself causes (for example tests that need git) no longer park a story as verify-failing, while any new failure still does.
+Outcome: before the worker starts, its box holds the office's packages installed at the story's start commit, so the worker can run the office's verify and tests at once, without installing first.
 
-Context: in the first box run (DIPO-275 on DIPO-248, run run_01M5H7RZ4HT6ZE49074MCH9EWF, 2026-10-22) verify in the box failed 305 tests that need git, three times, and the story parked as verify-failing although the worker's change caused none of them. The base verify (DIPO-183) runs outside the box, so it says nothing about the box. Maintainer decision of 2026-10-22: git stays out of the box; only failures that are new against the base, measured in the box, count against the story; CI on the PR runs the full suite with git. If the retest shows this is not enough, git goes into the image as well.
+Context: in the first box run (DIPO-275 on DIPO-248) the box started without node_modules and the worker ran bun install itself. Maintainer decision of 2026-10-22 (0021 amendment of that date): dipo prepares the box with the office's packages installed; the worker runs verify itself before done; dipo no longer runs verify in the box; CI on the story PR is the verify, started together with the review; an office without CI relies on the worker's own verify and the review. The story first held an in-box base verify that counted only new failures; the maintainer dropped that part. A stopped first build on branch DIPO-294/box-verify-new-failures (commit 1ad7ae11) holds an install step (BoxWorkers.install, runBoxInstall, the web route before the session) that may be reused; its base verify, verdict, migration and PR-body parts are not wanted.
 
 ```dipo
-branch: "DIPO-294/box-verify-new-failures"
+branch: "DIPO-294/box-install-at-start"
 unknowns: []
 ```
 <!-- SECTION:DESCRIPTION:END -->
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 Before the worker starts, dipo runs the office's verify at the story's start commit in the story's box (same image), and stores its failing tests keyed by base commit, image digest and verify configuration; a stored result for the same key is reused without running verify again
-- [ ] #2 The base_verify section of the box worker's task message comes from that in-box result
-- [ ] #3 A box verify passes when its failing tests are all in the stored base failures, and fails on any new failing test; it also fails when verify fails without a test failure it can name, times out or is killed, and when the in-box base result is not known
-- [ ] #4 A pass with known base failures is recorded as such, and the PR body and the reviewer's task message name the tests that already failed on the base in the box
-- [ ] #5 Tests cover: failures all on base passes; one new failure fails; a lint, format or typecheck failure fails; an unknown base result is strict; a stored base result is reused
-- [ ] #6 docs/decisions/0021-worker-isolation.md gets a dated amendment (maintainer, 2026-10-22, from DIPO-275) with this rule and that git stays out of the box
+- [ ] #1 After the box is created and before the worker's session starts, dipo runs the run profile's install command in the box at the start commit, through the box's web route and Safe-Chain, with the install deadline of the office config
+- [ ] #2 A failed or timed-out install stops the launch with a reason the maintainer sees, and the box is deleted
+- [ ] #3 Tests with the fake box backend cover: install before the session with the web route's environment; a failed install; a timed-out install the box cannot end; and the tree check
+- [ ] #4 After the install, /work holds no file that git does not ignore beyond the start commit's files, checked on dipo's own copy and never by running git on the box's files (section 14), or the launch stops, as the Mac worktree setup does
 <!-- AC:END -->
