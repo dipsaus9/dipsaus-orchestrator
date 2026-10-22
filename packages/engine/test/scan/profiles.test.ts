@@ -7,6 +7,8 @@
 // The slower cases run in CI only, in profiles.ci.test.ts (DIPO-77).
 
 import { describe, expect, it } from "bun:test";
+import { existsSync } from "node:fs";
+import { join } from "node:path";
 
 import type { OfficeId } from "@dipsaus-orchestrator/contract";
 import {
@@ -94,7 +96,8 @@ function withScannedOffice(files: FixtureTree, fn: (o: Scanned) => Promise<void>
           detections += 1;
           return detect(probe);
         },
-        reloadConfig: (office) => setup?.manager.reloadIfChanged(office) ?? Promise.resolve(),
+        reloadConfig: async (office) =>
+          setup?.manager.reloadIfChanged(office, engineGit.forOffice(office)),
         onOfficeChanged: (office) => setup?.changed.push(office),
       });
       const s = await officeSetup(repo.root, { features: [engineGit.feature, profiles.feature] });
@@ -284,11 +287,22 @@ describe("office.rescan", () => {
       expect(currentProfile(office)).toMatchObject({ profileId: 2, previousProfileId: 1 });
     }));
 
-  it("puts a changed .dipo/office.yaml in force, as the rescan reads it again (DIPO-303)", () =>
+  it("puts a .dipo/office.yaml changed on the base in force, not the checkout's (DIPO-303)", () =>
     withScannedOffice(APP, async ({ repo, s, profiles, officeId }) => {
-      applyFixture(repo.dir, { ".dipo/office.yaml": "version: 1\nscripts:\n  verify: bun test\n" });
+      expect(s.manager.config(officeId)?.scripts).toEqual({});
+      // Another clone merges the file to the base; the main checkout never sees it.
+      const clone = join(repo.root, "clone");
+      await repo.run(["git", "clone", "--quiet", repo.remote, clone], repo.root);
+      applyFixture(clone, { ".dipo/office.yaml": "version: 1\nscripts:\n  verify: bun test\n" });
+      await repo.run(["git", "add", "--", ".dipo/office.yaml"], clone);
+      await repo.run(["git", "commit", "--quiet", "-m", "office.yaml"], clone);
+      expect((await repo.run(["git", "push", "--quiet", "origin", "main"], clone)).exitCode).toBe(
+        0,
+      );
+
       await send(s, "office.rescan", {}, officeId);
       await profiles.whenIdle(officeId);
+      expect(existsSync(join(repo.dir, ".dipo", "office.yaml"))).toBe(false);
       expect(s.manager.config(officeId)?.scripts).toEqual({ verify: "bun test" });
     }));
 

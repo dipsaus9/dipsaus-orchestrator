@@ -4,6 +4,8 @@
 // `work.run` (DIPO-48) call `indexStories(office)`. An office command that names a story the office
 // does not know fetches and indexes at once through the registered story refresh (DIPO-104), so a
 // story merged to the base since the last poll resolves. Passes of one office run one at a time.
+// After a poll's fetch the office reads its configuration again when `.dipo/office.yaml` changed on
+// the base (DIPO-303), so the next interval and every later read use the configuration in force.
 //
 // The load step must run after the git load step (`git.version`), which attaches the office's
 // git; the daemon lists this module after `EngineGit.feature`.
@@ -59,6 +61,11 @@ export interface StoryIndexDeps {
   readonly onOfficeChanged?: (office: OfficeId) => void;
   /** Called after each poll whose fetch succeeded (DIPO-35 looks for merged backlog PRs). */
   readonly onPolled?: (office: OfficeId) => void;
+  /**
+   * Reads the office configuration again when `.dipo/office.yaml` changed on the base (DIPO-303),
+   * after each poll whose fetch succeeded and its index pass. A failure is logged, never thrown.
+   */
+  readonly reloadConfig?: (office: OfficeId) => Promise<unknown>;
   readonly logger?: Logger;
 }
 
@@ -313,7 +320,10 @@ export class StoryIndex {
     }, state.fetchSeconds * 1000);
   }
 
-  /** One poll: fetch, then index when `_base` is at a commit no pass has read yet. */
+  /**
+   * One poll: fetch, then index when `_base` is at a commit no pass has read yet, then read the
+   * configuration again when the fetch succeeded (DIPO-303).
+   */
   async #poll(office: OfficeId, state: Indexed): Promise<void> {
     const offices = this.#deps.offices;
     if (offices !== undefined) {
@@ -323,9 +333,23 @@ export class StoryIndex {
       }
       state.fetchSeconds = fetchSecondsOf(offices.config(office));
     }
-    await this.#fetchAndIndex(office, state, "polling the office failed", () =>
-      this.#deps.onPolled?.(office),
-    );
+    let fetched = false;
+    await this.#fetchAndIndex(office, state, "polling the office failed", () => {
+      fetched = true;
+      this.#deps.onPolled?.(office);
+    });
+    const reload = this.#deps.reloadConfig;
+    if (!fetched || reload === undefined) return;
+    try {
+      await reload(office);
+    } catch (error) {
+      this.#deps.logger?.warn("reloading the office configuration failed", {
+        office,
+        reason: error instanceof Error ? error.message : String(error),
+      });
+    }
+    // The next interval follows a reloaded `polling.fetchSeconds`.
+    if (offices !== undefined) state.fetchSeconds = fetchSecondsOf(offices.config(office));
   }
 
   /**

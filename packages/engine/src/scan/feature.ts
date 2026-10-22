@@ -46,7 +46,7 @@ export interface RunProfilesDeps {
   readonly stories?: { indexStories(office: OfficeId): Promise<unknown> };
   /** Reconcile (DIPO-56), which `office.rescan` runs after a successful index pass. */
   readonly reconcile?: (office: OfficeId) => Promise<unknown>;
-  /** Reads `.dipo/office.yaml` again when it changed (DIPO-303), which `office.rescan` does too. */
+  /** Reads the configuration again when `.dipo/office.yaml` changed on the base (DIPO-303). */
   readonly reloadConfig?: (office: OfficeId) => Promise<unknown>;
   /** The file facts of a checkout; git-backed by default. */
   readonly files?: (dir: string) => RepoFiles;

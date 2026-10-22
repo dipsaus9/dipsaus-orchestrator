@@ -753,14 +753,9 @@ async function serve(run: Run, lock: HeldLock): Promise<number> {
             reason: error instanceof Error ? error.message : String(error),
           });
         });
-        // A change of `.dipo/office.yaml` that reached the base is in force from this poll (DIPO-303).
-        void offices.reloadIfChanged(office).catch((error: unknown) => {
-          logger.warn("reloading the office configuration failed", {
-            office,
-            reason: error instanceof Error ? error.message : String(error),
-          });
-        });
       },
+      // A change of `.dipo/office.yaml` that reached the base is in force from this poll (DIPO-303).
+      reloadConfig: (office) => offices.reloadIfChanged(office, engineGit.forOffice(office)),
       logger: logger.child({ component: "stories" }),
     });
     held.storyIndex = storyIndex;
@@ -780,7 +775,7 @@ async function serve(run: Run, lock: HeldLock): Promise<number> {
       git: engineGit,
       stories: storyIndex,
       reconcile: (office) => reconciler.reconcile(office),
-      reloadConfig: (office) => offices.reloadIfChanged(office),
+      reloadConfig: (office) => offices.reloadIfChanged(office, engineGit.forOffice(office)),
       onOfficeChanged: (office) => server?.notifyOffice(office),
       logger: logger.child({ component: "scan" }),
     });
