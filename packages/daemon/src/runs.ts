@@ -667,6 +667,11 @@ export function daemonRuns(options: DaemonRunsOptions): DaemonRuns {
               return paths !== null && boxed.workers.isBoxRun(paths.runDir);
             },
             verifyLast: (runId, message, verify) => boxed.parts.verifyLast(runId, message, verify),
+            // The box's image keys the in-box base result the verdict reads (DIPO-294).
+            boxImage: (office: OfficeId, run: StoredRun) => {
+              const paths = runPaths(office, run);
+              return paths === null ? null : boxed.workers.imageOf(paths.runDir);
+            },
           },
         }),
     warn: (message, fields) => options.logger.warn(message, fields),

@@ -56,6 +56,15 @@
 // commit, else the story parks (`BOX_TIP_MOVED`). Red and green take steps 4 to 6, with nothing
 // staged on green: the parts are the commits.
 //
+// A box verify counts only failures that are new against the base measured in the box (DIPO-294):
+// a command that fails with the test runner's failure code, names its failing tests, reports no
+// error outside a test, and whose every failing test also failed at the start commit in the same
+// box image (the stored in-box result, `boxBaseVerifyFactsOf`) counts as passed, and the next
+// command runs. Its `verify_results` row is a pass with those base failures, which the PR body
+// and the reviewer's task message name. Any new failing test, a failure without a test name (lint,
+// format, typecheck, a crash), a timeout, a kill and an unknown base result count as red, with a
+// `[dipo: ...]` note in the feedback that says why.
+//
 // A green verify in the box is the worker's feedback loop, not the gate: the worker is root in its
 // box and can change any program verify runs. The gate is CI's required checks and the reviewer.
 
@@ -100,7 +109,9 @@ import {
   type LastPartVerify,
   partPark,
 } from "../box/parts";
-import type { BoxCommandEnd, BoxCommandResult } from "../box/verify";
+import { type BoxCommandEnd, type BoxCommandResult, boxVerifyVerdict } from "../box/verify";
+import type { BaseVerifyFacts } from "../prompts/base-verify";
+import { boxBaseVerifyFactsOf } from "../worktree/base-verify";
 import { findClaim, updateClaim } from "../worktree/records";
 import { buildRunEnv } from "../worktree/run-env";
 
@@ -157,6 +168,11 @@ interface VerifyRunner {
   readonly minutes: number;
   /** A box run: whether the box still holds the delivered tree, asked after the commands pass. */
   readonly delivered?: () => Promise<DeliveredCheck>;
+  /**
+   * A box run: the in-box base result of its start commit (DIPO-294). A failed command counts only
+   * by `boxVerifyVerdict` against it.
+   */
+  readonly base?: BaseVerifyFacts;
 }
 
 /** `engine.notice` codes of verify and commit. */
@@ -431,6 +447,11 @@ export interface VerifyCommitDeps {
       message: string,
       verify: (box: BoxVerifyAccess) => Promise<T>,
     ): Promise<LastPartVerify<T>>;
+    /**
+     * The image the run's box was made from (DIPO-294), which keys its in-box base result; null
+     * or absent when unknown, and the verify then counts every failure.
+     */
+    boxImage?(office: OfficeId, run: StoredRun): string | null;
   };
   readonly warn?: (message: string, fields: Readonly<Record<string, unknown>>) => void;
 }
@@ -652,6 +673,13 @@ export class VerifyCommit implements RunFinisher {
           const base = this.#deps.profile(ctx.office);
           const spec = resolvedVerify(base);
           await this.#boxGateChanges(ctx, base);
+          // The in-box base result of the start commit, for the verdict (DIPO-294).
+          const baseFacts = boxBaseVerifyFactsOf(ctx.office, {
+            startSha: run.startSha,
+            image: parts.boxImage?.(ctx.office.officeId, run) ?? null,
+            config,
+            profile: base,
+          });
           ctx.flushOutput();
           ctx.write(() => {
             const marker = markPhase(ctx.office, run.runId, "verify", this.#deps.clock.now());
@@ -659,7 +687,7 @@ export class VerifyCommit implements RunFinisher {
           });
           const awake = this.#deps.work?.beginVerify();
           try {
-            const runner = this.#boxRunner(ctx, config, access, minutes, (end) => {
+            const runner = this.#boxRunner(ctx, config, access, minutes, baseFacts, (end) => {
               ended = end;
             });
             const pass = await this.#verify(
@@ -802,11 +830,13 @@ export class VerifyCommit implements RunFinisher {
     config: OfficeConfig,
     access: BoxVerifyAccess,
     minutes: number,
+    base: BaseVerifyFacts,
     onEnded: (end: BoxCommandEnd) => void,
   ): VerifyRunner {
     let env: Readonly<Record<string, string>> | null = null;
     return {
       minutes,
+      base,
       run: async (command, onOutput): Promise<StepResult> => {
         env ??= this.#runEnv(ctx, config, BOX_WORKDIR);
         let result: BoxCommandResult;
@@ -930,6 +960,8 @@ export class VerifyCommit implements RunFinisher {
       const started = this.#deps.clock.now();
       let exited: (StepResult & { outcome: "exited" }) | null = null;
       let failure: PassResult["failure"] = null;
+      // A box run's failing tests that also failed on the base in the box (DIPO-294).
+      const known: string[] = [];
       for (const command of step.spec.commands) {
         const [program, ...args] = command;
         if (program === undefined) continue;
@@ -943,11 +975,30 @@ export class VerifyCommit implements RunFinisher {
         }
         exited = result;
         if (result.timedOut || result.code !== 0) {
+          const output = `${result.stdout.text}${result.stderr.text}`;
+          let note: string | null = null;
+          if (runner.base !== undefined) {
+            const verdict = boxVerifyVerdict({
+              code: result.code,
+              timedOut: result.timedOut,
+              output,
+              base: runner.base,
+            });
+            if (!verdict.counts) {
+              known.push(...verdict.baseFailures.filter((name) => !known.includes(name)));
+              sink.write(
+                `dipo: ${verdict.baseFailures.length} failing ${verdict.baseFailures.length === 1 ? "test also fails" : "tests also fail"} at the start commit in this box, so verify counts this command as passed.\n`,
+              );
+              continue;
+            }
+            note = verdict.note;
+            if (note !== null) sink.write(`${note}\n`);
+          }
           const why = result.timedOut ? `\n[dipo: timed out after ${runner.minutes} min]` : "";
           failure = {
             command: shown,
             exitCode: result.code ?? -1,
-            output: `${result.stdout.text}${result.stderr.text}${why}`,
+            output: `${output}${why}${note === null ? "" : `\n${note}`}`,
           };
           break;
         }
@@ -976,6 +1027,7 @@ export class VerifyCommit implements RunFinisher {
           durationMs: this.#deps.clock.now() - started,
           outputFrom: range.from,
           outputTo: range.to,
+          ...(passed && known.length > 0 ? { baseFailures: known } : {}),
           at: this.#deps.clock.now(),
         });
         return [progressEntry(ctx)];

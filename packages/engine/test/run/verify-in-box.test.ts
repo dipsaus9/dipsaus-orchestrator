@@ -10,6 +10,9 @@
 // 3. `VerifyCommit` through run control on a migrated state database, with a fake `verifyLast`:
 //    green to In Review, red feedback, the timeout paths, the verify command taken from the base
 //    profile, the delivered-tree mismatch, and the last part's parks before verify.
+// 4. Only failures new against the base measured in the box count (DIPO-294): failures all on the
+//    base pass and are recorded as such, a new one, a nameless one (lint, format, typecheck) and an
+//    unknown base count.
 
 import { spawn, spawnSync } from "node:child_process";
 import { mkdirSync, mkdtempSync, realpathSync, rmSync, writeFileSync } from "node:fs";
@@ -74,6 +77,9 @@ import { addStory } from "../../src/stories/keys";
 import { encode } from "../../src/workers/claude-cli/encode";
 import type { HostOp, WorkerEvent, WorkerReport } from "../../src/workers/types";
 import { insertClaim } from "../../src/worktree/records";
+import type { BaseVerifyFacts } from "../../src/prompts/base-verify";
+import { lastBaseFailures, runSummary } from "../../src/run/verify-records";
+import { boxBaseVerifyConfigHash, storeBaseVerify } from "../../src/worktree/base-verify";
 import { type IngestFixture, ingestFixture, loggedEvents } from "../ingest/helpers";
 
 const TMP = process.env["DIPO_TMP"] || "/tmp";
@@ -679,6 +685,9 @@ const FAIL: BoxCommandResult = {
   output:
     "error: expected 1 to be 2\n      at <anonymous> (/work/test/greet.test.ts:7:15)\n1 fail\n",
 };
+/** The image of the run's box (DIPO-294). */
+const IMAGE = `dipo-box:${"7".repeat(64)}`;
+
 const LAST_PART: PartOutcome = {
   kind: "committed",
   n: 2,
@@ -714,6 +723,9 @@ interface World {
   inReviewTip: string | null;
   queuedPart: boolean;
   moveTip: boolean;
+  /** The image the box record names (DIPO-294); null for none. */
+  image: string | null;
+  readonly config: OfficeConfig;
 }
 
 let w: World;
@@ -815,8 +827,10 @@ beforeEach(async () => {
     inReviewTip: null,
     queuedPart: false,
     moveTip: false,
+    image: IMAGE,
   } as unknown as World;
   const config: OfficeConfig = { ...OFFICE_DEFAULTS, timeouts: { ...OFFICE_DEFAULTS.timeouts } };
+  (world as { config: OfficeConfig }).config = config;
   const finisher = new VerifyCommit({
     clock: f.t.clock,
     story: fakeStoryGit(),
@@ -832,7 +846,7 @@ beforeEach(async () => {
       return profileOf({ verify: "true" });
     },
     host: { home: dir, uid: 501, env: { PATH: "/usr/bin:/bin" } },
-    parts: { isBoxRun: () => w.box, verifyLast: fakeVerifyLast },
+    parts: { isBoxRun: () => w.box, verifyLast: fakeVerifyLast, boxImage: () => w.image },
   });
   const control = new RunControl({
     clock: f.t.clock,
@@ -1194,5 +1208,129 @@ describe("the last part before verify (DIPO-273)", () => {
     await play();
     expect(parks().map((p) => [p.reason, p.cause])).toEqual([["scope-violation", "paths"]]);
     expect(w.calls).toEqual([]);
+  });
+});
+
+// ---- 4. only failures new against the base in the box count (DIPO-294) -------------------------
+
+const NEEDS_GIT = ["git > reads the log", "worktree > adds a worktree"];
+
+/** bun test output with `names` failing, as `bun run verify` prints it in the box. */
+function bunRed(names: readonly string[], extra = ""): BoxCommandResult {
+  return {
+    ...PASS,
+    code: 1,
+    output: [
+      ...names.map((name) => `(fail) ${name} [1.00ms]`),
+      " 40 pass",
+      ` ${names.length} fail`,
+      extra,
+      "Ran 42 tests across 9 files. [2.00s]",
+    ].join("\n"),
+  };
+}
+
+/** Stores the in-box base result of the run's start commit, as the launch does. */
+function storeBoxBase(facts: Extract<BaseVerifyFacts, { kind: "green" | "red" }>): void {
+  w.f.office.immediate(() =>
+    storeBaseVerify(w.f.office, {
+      baseSha: "b".repeat(40),
+      hash: boxBaseVerifyConfigHash(w.config, w.base, IMAGE),
+      runId: "run_earlier",
+      result: facts,
+      at: 1,
+    }),
+  );
+}
+
+describe("verify in the box against the base in the box (DIPO-294)", () => {
+  it("passes when every failing test also fails at the start commit, and records the pass as such", async () => {
+    storeBoxBase({ kind: "red", failing: NEEDS_GIT, tail: null });
+    w.results = [bunRed(NEEDS_GIT)];
+    await play();
+    expect(parks()).toEqual([]);
+    expect(feedback()).toBe("");
+    expect(events("story.state").map((e) => e["to"])).toEqual(["In Review"]);
+    // Not plain green: the row is a pass with its exit code and the base failures.
+    expect(verifyResults(w.f.office, w.f.run)).toMatchObject([
+      { passed: true, exitCode: 1, baseFailures: NEEDS_GIT },
+    ]);
+    expect(lastBaseFailures(w.f.office, w.f.run)).toEqual(NEEDS_GIT);
+    expect(runSummary(w.f.office, w.f.run)?.verify).toMatchObject({
+      passed: true,
+      baseFailures: NEEDS_GIT,
+    });
+    const output = events("work.output")
+      .map((e) => e["text"])
+      .join("");
+    expect(output).toContain(
+      "dipo: 2 failing tests also fail at the start commit in this box, so verify counts this command as passed.",
+    );
+  });
+
+  it("fails on one new failing test, and names it in the feedback", async () => {
+    storeBoxBase({ kind: "red", failing: NEEDS_GIT, tail: null });
+    w.results = [bunRed([...NEEDS_GIT, "greet > says hello"])];
+    await play();
+    expect(events("story.state").map((e) => e["to"])).not.toContain("In Review");
+    expect(feedback()).toContain("this failing test does not fail at the start commit in this box");
+    expect(feedback()).toContain("- greet > says hello");
+    expect(verifyResults(w.f.office, w.f.run)).toMatchObject([
+      { passed: false, baseFailures: null },
+    ]);
+  });
+
+  it("fails on a lint, format or typecheck failure, which names no failing test", async () => {
+    storeBoxBase({ kind: "red", failing: NEEDS_GIT, tail: null });
+    w.results = [
+      {
+        ...PASS,
+        code: 1,
+        output: "src/a.ts(3,7): error TS2322: Type 'string' is not assignable.\n",
+      },
+    ];
+    await play();
+    expect(feedback()).toContain("verify failed without a failing test name dipo can read");
+    expect(verifyResults(w.f.office, w.f.run)[0]).toMatchObject({ passed: false });
+  });
+
+  it("is strict when the base result in the box is not known: no stored result, or no image", async () => {
+    w.results = [bunRed(NEEDS_GIT)];
+    await play();
+    expect(feedback()).toContain("the verify result of the start commit in this box is not known");
+    expect(events("story.state").map((e) => e["to"])).not.toContain("In Review");
+
+    // A stored result for the image does not count for a box whose image is not known.
+    storeBoxBase({ kind: "red", failing: NEEDS_GIT, tail: null });
+    w.image = null;
+    w.sent.length = 0;
+    w.results = [bunRed(NEEDS_GIT)];
+    await play();
+    expect(parks().map((p) => [p.reason, p.cause])).toEqual([["verify-failing", "loops"]]);
+  });
+
+  it("runs the next command after one whose failures are all on the base, and counts its failure", async () => {
+    w.base = profileOf({ verify: "bun test && bun run lint" });
+    const profile = w.base;
+    // The base profile's verify is one command list of two commands.
+    (profile.capabilities as { verify: unknown }).verify = {
+      status: "resolved",
+      value: {
+        commands: [
+          ["bun", "test"],
+          ["bun", "run", "lint"],
+        ],
+        cwd: ".",
+      },
+      source: "script",
+      confidence: "high",
+      evidence: "test",
+    };
+    storeBoxBase({ kind: "red", failing: NEEDS_GIT, tail: null });
+    w.results = [bunRed(NEEDS_GIT), { ...PASS, code: 1, output: "1 lint problem\n" }];
+    await play();
+    expect(w.requests.map((r) => r.command.join(" "))).toEqual(["bun test", "bun run lint"]);
+    expect(feedback()).toContain("1 lint problem");
+    expect(feedback()).toContain("Command: bun run lint");
   });
 });
