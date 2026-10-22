@@ -1,10 +1,10 @@
 ---
 id: DIPO-302
 title: Keep a box run's Mac worktree from blocking a drop
-status: Ready
+status: In Progress
 assignee: []
 created_date: '2026-10-22 14:25'
-updated_date: '2026-10-22 17:40'
+updated_date: '2026-10-22 18:13'
 labels:
   - 'tier:S'
   - box
