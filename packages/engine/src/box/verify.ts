@@ -324,3 +324,115 @@ async function boundedExec(
     if (timer !== undefined) deps.clock.clearTimeout(timer);
   }
 }
+
+// ---- the install before the worker (DIPO-294) ---------------------------------------------------
+//
+// Before the worker's first session, dipo runs the office's install in the box at the start
+// commit, each command list through `runBoxCommand` in `/work` as verify runs (the wrapper, dipo's
+// deadline, the end in the box), with the environment the caller gives: the run environment and
+// the box's web route (`BoxWorkers.install`). The reason of a failure names the command, the exit
+// and the deadline, never the box's output; the cleaned tail of the output is kept apart, for the
+// daemon's log.
+
+/** The most characters of a failed install's output kept for the daemon's log. */
+export const BOX_INSTALL_OUTPUT_TAIL = 2000;
+
+export interface BoxInstallDeps extends BoxCommandDeps {
+  readonly boxes: Pick<BoxPort, "execLive" | "stop" | "list">;
+}
+
+export interface BoxInstallRequest {
+  readonly box: string;
+  /** The install command lists of the run profile, run in order until one fails. */
+  readonly commands: readonly (readonly string[])[];
+  /** The environment set in the box: the run environment and the box's web route. */
+  readonly env: Readonly<Record<string, string>>;
+  /** The office's install deadline, for each command list. */
+  readonly timeoutMs: number;
+}
+
+export type BoxInstallResult =
+  | { readonly ok: true }
+  | {
+      readonly ok: false;
+      /** Why, with no box output in it: the command and its exit, deadline or signal. */
+      readonly reason: string;
+      /** The cleaned tail of the failed command's output, for the daemon's log only. */
+      readonly output: string;
+      /** Set when the command passed the deadline: how it was ended in the box. */
+      readonly ended: BoxCommandEnd | null;
+    };
+
+async function boxRuns(deps: BoxInstallDeps, box: string): Promise<boolean> {
+  try {
+    return (await deps.boxes.list()).some((info) => info.name === box && info.state === "running");
+  } catch {
+    return false;
+  }
+}
+
+function minutesOf(ms: number): string {
+  const minutes = ms / 60_000;
+  return Number.isInteger(minutes) ? String(minutes) : minutes.toFixed(2);
+}
+
+/** Runs the office's install in the box (see the section comment). Never throws. */
+export async function runBoxInstall(
+  deps: BoxInstallDeps,
+  request: BoxInstallRequest,
+): Promise<BoxInstallResult> {
+  for (const command of request.commands) {
+    const [program, ...args] = command;
+    if (program === undefined) continue;
+    const shown = command.join(" ");
+    let result: BoxCommandResult;
+    try {
+      result = await runBoxCommand(deps, {
+        box: request.box,
+        command: [program, ...args],
+        env: request.env,
+        timeoutMs: request.timeoutMs,
+      });
+    } catch (error) {
+      // Only the code: the message may quote the box.
+      const code = (error as { code?: unknown } | null)?.code;
+      return {
+        ok: false,
+        reason: `the install (${shown}) could not start in the box (${typeof code === "string" ? code : "error"})`,
+        output: "",
+        ended: null,
+      };
+    }
+    const output = result.output.slice(-BOX_INSTALL_OUTPUT_TAIL);
+    if (result.timedOut) {
+      const how =
+        result.ended === "failed"
+          ? ", and could be ended neither inside the box nor by stopping it"
+          : result.ended === "stopped"
+            ? ", so dipo stopped the box"
+            : "";
+      return {
+        ok: false,
+        reason: `the install (${shown}) timed out after ${minutesOf(request.timeoutMs)} min in the box${how}`,
+        output,
+        ended: result.ended,
+      };
+    }
+    if (result.code !== 0) {
+      const how =
+        result.code === null
+          ? `was ended by ${result.signal ?? "a signal"}`
+          : `exited ${result.code}`;
+      const stopped = !(await boxRuns(deps, request.box));
+      return {
+        ok: false,
+        reason: stopped
+          ? `the box stopped while the install (${shown}) ran`
+          : `the install (${shown}) ${how} in the box`,
+        output,
+        ended: null,
+      };
+    }
+  }
+  return { ok: true };
+}

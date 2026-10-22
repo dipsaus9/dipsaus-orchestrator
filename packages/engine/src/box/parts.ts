@@ -696,10 +696,12 @@ function inBacklog(path: string): boolean {
  * it holds.
  */
 async function readView(session: GitSession, branch: string, startSha: string): Promise<PartView> {
+  return readViewAt(session, await branchTip(session, branch), startSha);
+}
+
+/** `readView` at the commit `tip` instead of a branch's tip. */
+async function readViewAt(session: GitSession, tip: string, startSha: string): Promise<PartView> {
   const repo = session.repository;
-  const tip = (
-    await session.ok(repo, ["rev-parse", "--verify", `refs/heads/${branch}^{commit}`])
-  ).trim();
   const tipTree = (await session.ok(repo, ["rev-parse", "--verify", `${tip}^{tree}`])).trim();
   const shown = (await session.ok(repo, ["rev-parse", "--show-object-format"])).trim();
   const format = shown === "sha256" ? "sha256" : "sha1";
@@ -894,6 +896,13 @@ export interface PartRun {
   /** The run directory, for `PART_RECORD_FILE`; absent: no record is kept. */
   readonly runDir?: string;
 }
+
+/** What the box's `/work` holds besides the start commit (`BoxParts.changedSinceStart`). */
+export type StartTreeCheck =
+  | { readonly kind: "same" }
+  /** The paths that differ from the start commit, sorted; untrusted names from the box. */
+  | { readonly kind: "changed"; readonly paths: readonly string[] }
+  | { readonly kind: "unknown"; readonly reason: string };
 
 /** What delivering one part did. */
 export type PartOutcome =
@@ -1140,6 +1149,38 @@ export class BoxParts {
       if (error instanceof BoxError && error.code === PART_WAITING) return { kind: "stopped" };
       throw error;
     });
+  }
+
+  /**
+   * What the box's `/work` holds besides the start commit (DIPO-294), after the install and before
+   * the worker's first session: taken out and compared with the tree of `run.startSha` as a part
+   * is, on dipo's own copy, so only paths git ignores and the listed box files may differ. Every
+   * added, changed or deleted path, and every link that differs, counts. `unknown` when dipo could
+   * not take or read the box's files (the archive refused, a stream or git failure). `run` is
+   * given, since the run is not recorded yet at the launch; its branch is not read.
+   */
+  async changedSinceStart(run: PartRun): Promise<StartTreeCheck> {
+    try {
+      const git = this.#gitOf(run);
+      const view = await git.run((session) => readViewAt(session, run.startSha, run.startSha));
+      const listed = new Set(await (this.#deps.listedFiles?.(git) ?? Promise.resolve([])));
+      return await this.#inStage(async (stage): Promise<StartTreeCheck> => {
+        const taken = await this.#take(run, view, listed, stage);
+        if (taken.kind !== "taken") {
+          return { kind: "unknown", reason: "dipo refused the archive of the box's /work" };
+        }
+        const paths = [...taken.changes.map((change) => change.path), ...taken.linkHits];
+        return paths.length === 0
+          ? { kind: "same" }
+          : { kind: "changed", paths: [...new Set(paths)].toSorted() };
+      });
+    } catch (error) {
+      this.#deps.warn?.("the box's files could not be compared with the start commit", {
+        run: run.runId,
+        reason: messageOf(error),
+      });
+      return { kind: "unknown", reason: "dipo could not read the box's /work" };
+    }
   }
 
   /**
