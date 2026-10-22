@@ -521,6 +521,51 @@ describe("office streams", () => {
     expect(errorCode(await client.subscribe(`office:${other}`))).toBe("office.unknown");
   });
 
+  it("sends a stored entry that does not render as an engine.notice and keeps the stream open (DIPO-124)", async () => {
+    const h = await start();
+    const office = h.addOffice();
+    const writer = await connect(h);
+    await writer.command("fixture.scan", {}, { office });
+    // An entry an older binary stored without the write check: it does not render.
+    h.state.connection.immediate(() => {
+      h.state.connection.run(
+        `insert into change_log (office_id, seq, at, type, tier, key, run_id, caused_by, delta, view)
+         values ($office, 2, 1, 'story.state', 'S', null, null, null, '{"story":"DIPO-1"}', null)`,
+        { office },
+      );
+      h.state.connection.run("update offices set next_seq = 3 where office_id = $office", {
+        office,
+      });
+    });
+    await writer.command("fixture.scan", {}, { office });
+    const stream = `office:${office}`;
+    const epoch = h.state.connection.get<{ epoch: string }>(
+      "select epoch from offices where office_id = $office",
+      { office },
+    )?.epoch;
+    const from = { stream, epoch, seq: 0 } as Cursor;
+
+    // Two subscribers from the same cursor (as a reconnect would send) each catch up past it.
+    const readers = [await connect(h), await connect(h)];
+    for (const reader of readers) {
+      okResult(await reader.subscribe(stream, from));
+      await reader.waitForEvent(stream, (e) => e.type === "stream.mark", "catch-up mark");
+      const events = reader.events(stream);
+      expect(events.map((e) => [e.cursor.seq, e.type])).toEqual([
+        [1, "scan.finished"],
+        [2, "engine.notice"],
+        [3, "scan.finished"],
+        [3, "stream.mark"],
+      ]);
+      expect(events[1]?.data).toMatchObject({ level: "error", code: "changelog.unrenderable" });
+    }
+    await writer.command("fixture.scan", {}, { office });
+    for (const reader of readers) {
+      await reader.waitForEvent(stream, (e) => e.cursor.seq === 4, "live");
+      expect(await Promise.race([reader.closed, settle().then(() => "open")])).toBe("open");
+    }
+  });
+
   it("subscribes from the head when no cursor is given", async () => {
     const h = await start();
     const office = h.addOffice();
