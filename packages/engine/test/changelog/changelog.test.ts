@@ -20,7 +20,13 @@ import {
   readLogState,
   tierOf,
 } from "../../src/changelog/log";
-import { Renderer, RenderError } from "../../src/changelog/render";
+import {
+  Renderer,
+  RenderError,
+  renderProblem,
+  UNRENDERABLE_NOTICE_CODE,
+  unrenderableNotice,
+} from "../../src/changelog/render";
 import { replay } from "../../src/changelog/replay";
 import type { OfficeHandle } from "../../src/db/office";
 import {
@@ -59,6 +65,25 @@ const notice = (text: string) => ({
   type: "engine.notice",
   delta: { level: "info", code: "test.notice", text },
 });
+
+/**
+ * Writes an entry the way a binary from before DIPO-124 could: straight into `change_log`, with
+ * no render check, and advances `next_seq` as `appendEntries` does. Returns its seq.
+ */
+function storeAsOlderBinary(office: OfficeHandle, type: string, delta: unknown): number {
+  return office.immediate(() => {
+    const seq = readLogState(office).nextSeq;
+    office.run(
+      `insert into change_log (office_id, seq, at, type, tier, key, run_id, caused_by, delta, view)
+       values ($office_id, $seq, 1, $type, $tier, null, null, null, $delta, null)`,
+      { seq, type, tier: tierOf(type), delta: JSON.stringify(delta) },
+    );
+    office.run("update offices set next_seq = $next where office_id = $office_id", {
+      next: seq + 1,
+    });
+    return seq;
+  });
+}
 
 describe("change log", () => {
   it("adds stories, story_aliases, change_log and requests as STRICT office tables", () =>
@@ -229,11 +254,8 @@ describe("change log", () => {
 
   it("lets a renderer override one type and fails loudly on an entry that does not parse", () =>
     withOffice((t, office) => {
-      office.immediate(() =>
-        appendEntries(office, [notice("x"), { type: "story.state", delta: { story: "DIPO-1" } }], {
-          at: 1,
-        }),
-      );
+      office.immediate(() => appendEntries(office, [notice("x")], { at: 1 }));
+      storeAsOlderBinary(office, "story.state", { story: "DIPO-1" });
       const { epoch } = readLogState(office);
       const replayed = replay(office, { ...headCursor(office), seq: 0 });
       if (!replayed.ok) throw new Error(replayed.error.message);
@@ -245,5 +267,88 @@ describe("change log", () => {
         text: "rewritten",
       });
       expect(() => renderer.render(office.officeId, epoch, broken!)).toThrow(RenderError);
+    }));
+});
+
+describe("the write check (DIPO-124)", () => {
+  it("fails the writing transaction on a malformed engine.notice: no row, no fact, cursor unchanged", () =>
+    withOffice((t, office) => {
+      office.immediate(() => appendEntries(office, [notice("before")], { at: 1 }));
+      const before = headCursor(office);
+      const malformed = { type: "engine.notice", delta: { level: "loud", text: "no code" } };
+      expect(() =>
+        office.immediate(() => {
+          // A fact written earlier in the same transaction rolls back with the entry.
+          office.run("update offices set replay_floor_seq = 1 where office_id = $office_id");
+          appendEntries(office, [notice("fine"), malformed], { at: 2, causedBy: CAUSE });
+        }),
+      ).toThrow("A engine.notice change-log entry would not render");
+      expect(headCursor(office)).toEqual(before);
+      expect(readLogState(office)).toMatchObject({ nextSeq: 2, replayFloorSeq: 0 });
+      expect(countRows(office, "change_log")).toBe(1);
+    }));
+
+  it("checks the stored JSON, so a field only JSON drops is refused", () =>
+    withOffice((t, office) => {
+      const dropped = {
+        type: "engine.notice",
+        delta: { level: "info", code: "test.notice", text: undefined },
+      };
+      expect(() => office.immediate(() => appendEntries(office, [dropped], { at: 1 }))).toThrow(
+        "would not render",
+      );
+      expect(countRows(office, "change_log")).toBe(0);
+    }));
+
+  it("passes a story.state entry with its view and refuses one without it", () =>
+    withOffice((t, office) => {
+      const entry = storyEntry(t);
+      expect(office.immediate(() => appendEntries(office, [entry], { at: 1 }))?.seq).toBe(1);
+      const { view: _view, ...withoutView } = entry;
+      expect(() => office.immediate(() => appendEntries(office, [withoutView], { at: 2 }))).toThrow(
+        "A story.state change-log entry would not render",
+      );
+      expect(renderProblem(entry)).toBeUndefined();
+      expect(renderProblem(withoutView)).toContain("view");
+      expect(headCursor(office).seq).toBe(1);
+    }));
+
+  it("still replays and renders entries stored before the check", () =>
+    withOffice((t, office) => {
+      const seq = storeAsOlderBinary(office, "engine.notice", notice("old").delta);
+      const { epoch } = readLogState(office);
+      const replayed = replay(office, { ...headCursor(office), seq: 0 });
+      if (!replayed.ok) throw new Error(replayed.error.message);
+      const [event] = new Renderer().renderAll(office.officeId, epoch, replayed.entries);
+      expect(event?.cursor.seq).toBe(seq);
+      expect(event?.data).toEqual(notice("old").delta);
+    }));
+
+  it("sends a stored entry that does not render as an engine.notice at its own cursor", () =>
+    withOffice((t, office) => {
+      office.immediate(() => appendEntries(office, [notice("1")], { at: 1 }));
+      const bad = storeAsOlderBinary(office, "story.state", { story: "DIPO-1" });
+      office.immediate(() => appendEntries(office, [notice("3")], { at: 3 }));
+      const { epoch } = readLogState(office);
+      const replayed = replay(office, { ...headCursor(office), seq: 0 });
+      if (!replayed.ok) throw new Error(replayed.error.message);
+      const heard: { error: unknown; seq: number }[] = [];
+      const events = new Renderer().renderForStream(
+        office.officeId,
+        epoch,
+        replayed.entries,
+        (error, entry) => heard.push({ error, seq: entry.seq }),
+      );
+      expect(events.map((e) => [e.cursor.seq, e.type])).toEqual([
+        [1, "engine.notice"],
+        [bad, "engine.notice"],
+        [3, "engine.notice"],
+      ]);
+      for (const event of events) expect(Event.parse(event)).toEqual(event);
+      expect(events[1]?.data).toMatchObject({ level: "error", code: UNRENDERABLE_NOTICE_CODE });
+      expect(events[1]).toEqual(unrenderableNotice(office.officeId, epoch, replayed.entries[1]!));
+      expect(heard).toHaveLength(1);
+      expect(heard[0]?.seq).toBe(bad);
+      expect(heard[0]?.error).toBeInstanceOf(RenderError);
     }));
 });
