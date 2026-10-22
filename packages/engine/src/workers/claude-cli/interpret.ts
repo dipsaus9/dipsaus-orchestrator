@@ -13,9 +13,10 @@
 // The turn in progress (DIPO-296): a worker session is one turn, one result at its end, so turns
 // and output would show 0 for the whole session. `liveUsage` reports what the stream says of the
 // turn so far, for the live view only: the main agent's model turns (one at its first message, one
-// more for each `user` line of tool results it gets, which is how the result's `num_turns` counts
-// in every recording) and the final output of each main-agent message, from the `message_delta`
-// stream event `--include-partial-messages` sends. The turn end replaces both.
+// more for each main-agent `user` line after it, tool results or a message dipo sent mid-turn,
+// which is how the result's `num_turns` counts in the recordings) and the final output of each
+// main-agent message, from the `message_delta` stream event `--include-partial-messages` sends.
+// The turn end replaces both, and the exit sets both to 0.
 
 import type {
   HostLine,
@@ -211,8 +212,8 @@ export interface ClaudeParseState {
   readonly thinkingTokens?: number;
   /**
    * The main agent's model turns of the turn in progress (DIPO-296): one at its first message, one
-   * more per `user` line of tool results. Cleared at the turn end and the exit; absent in states
-   * stored before it existed.
+   * more per main-agent `user` line after it. Cleared at the turn end and the exit; absent in
+   * states stored before it existed.
    */
   readonly liveTurns?: number;
   /** The output of the turn in progress that `message_delta` stream events reported (DIPO-296). */
@@ -462,16 +463,18 @@ function liveStep(before: ClaudeParseState, next: ClaudeParseState): Step {
   return { events: [{ t: "liveUsage", turns, output }], state: next };
 }
 
-/** A `user` line: tool results the main agent got are one more of its model turns. */
+/**
+ * A main-agent `user` line after the turn's first message: tool results, or a message dipo sent
+ * while the turn ran (a steer, an answer), is one more of the main agent's model turns, as the
+ * result's `num_turns` counts it.
+ */
 function userLine(value: unknown, state: ClaudeParseState): Step {
   const parsed = UserLine.safeParse(value);
   if (!parsed.success || (parsed.data.parent_tool_use_id ?? null) !== null) {
     return { events: [], state };
   }
-  const content = parsed.data.message.content;
-  const results = typeof content !== "string" && content.some((b) => b.type === "tool_result");
   // Only a turn the main agent started counts on.
-  if (!results || (state.liveTurns ?? 0) === 0) return { events: [], state };
+  if ((state.liveTurns ?? 0) === 0) return { events: [], state };
   return liveStep(state, { ...state, liveTurns: (state.liveTurns ?? 0) + 1 });
 }
 
@@ -550,8 +553,13 @@ export function interpret(line: HostLine, state: ClaudeParseState): Step {
         thinkingTokens: _thinking,
         ...rest
       } = withoutLive(flushed.state);
+      // A turn that never ended leaves no live numbers behind (DIPO-296).
+      const live = (state.liveTurns ?? 0) > 0 || (state.liveOutput ?? 0) > 0;
       return {
-        events: flushed.events,
+        events: [
+          ...flushed.events,
+          ...(live ? [{ t: "liveUsage" as const, turns: 0, output: 0 }] : []),
+        ],
         state: {
           ...rest,
           pending: "",

@@ -33,7 +33,7 @@ import { connectHost, type HostClient } from "../../src/host/client";
 import { WorkerHost } from "../../src/host/main";
 import { EVENTS_FILE, hostSocketPath, LAUNCH_FILE, type HostLaunch } from "../../src/host/protocol";
 import { type IngestAdapter, Ingestor } from "../../src/ingest/ingestor";
-import { readUsage } from "../../src/ingest/usage";
+import { finalizeRunAgents, readUsage } from "../../src/ingest/usage";
 import { systemClock } from "../../src/platform/clock";
 import { type BranchPark, CAP_TICK_MS, findRun, insertRun, RunControl } from "../../src/run";
 import { addStory } from "../../src/stories/keys";
@@ -619,6 +619,52 @@ describe("the live usage of a session (DIPO-296)", () => {
       // The second turn counts on from the first turn's totals, up to its own result's.
       expect(second.some((step) => step.turns === 5 && step.output === 1_004)).toBe(true);
       expect(second.at(-1)).toEqual({ result: false, turns: 6, output: 1_285 });
+    }));
+
+  it("keeps no live numbers once the run ended while its worker was mid-turn", () =>
+    withTempDir(async (dir) => {
+      const lines = hostLines(withoutSkills(loadRecording(NAME)));
+      const f = await ingestFixture(dir);
+      try {
+        const ingestor = new Ingestor({ office: f.office, clock: f.t.clock, pricing: null });
+        const tracked = target(
+          f,
+          macAdapter,
+          initialState({ plannedModel: "haiku" }) as unknown as ParseState,
+        );
+        ingestor.track(tracked);
+        const usage = () => readUsage(f.office, tracked).run;
+        const ingest = (line: HostLine) => {
+          appendLines(f.eventFile, [line]);
+          ingestor.pass(f.run, f.agent);
+        };
+        let at = 0;
+        while (usage().turns < 3) ingest(lines[at++]!);
+        // The run ends (`endRun`) while the worker is mid-turn: its totals become final.
+        f.office.immediate(() => finalizeRunAgents(f.office, f.run, f.t.clock.now()));
+        expect(usage()).toMatchObject({ turns: 0, outputTokens: 0 });
+        // The worker still sends one more tool result, then it is killed without a result.
+        const toolResult = lines.findIndex(
+          (line, index) => index >= at && line.data.includes('"type":"user"'),
+        );
+        ingest(lines[toolResult]!);
+        expect(usage()).toMatchObject({ turns: 0, outputTokens: 0 });
+        ingest({
+          t: lines[toolResult]!.t + 1,
+          ch: "exit",
+          data: JSON.stringify({ code: null, signal: "SIGKILL" }),
+        });
+        expect(usage()).toMatchObject({ turns: 0, outputTokens: 0 });
+        expect(
+          f.office.all(
+            "select live_turns, live_output from usage_totals where office_id = $office_id and run_id = $run",
+            { run: f.run },
+          ),
+        ).toEqual([{ live_turns: 0, live_output: 0 }]);
+        ingestor.close();
+      } finally {
+        f.t.state.close();
+      }
     }));
 
   it("drops the live numbers of a turn that never ended once the worker exits", () =>

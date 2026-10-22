@@ -115,14 +115,11 @@ export const StreamMessageDelta = z.object({
 });
 
 /**
- * A `user` line (DIPO-296): the results of tool calls, each line one more model turn of the agent
- * whose calls they answer. Only its content's block types are read, never their text.
+ * A `user` line (DIPO-296): tool results or a message sent mid-turn, each one more model turn of
+ * the agent it went to. Only whose line it is gets read, never its content.
  */
 export const UserLine = z.object({
   type: z.literal("user"),
-  message: z.object({
-    content: z.union([z.string(), z.array(z.object({ type: z.string() }).loose())]),
-  }),
   parent_tool_use_id: z.string().nullable().optional(),
 });
 

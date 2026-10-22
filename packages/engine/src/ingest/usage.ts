@@ -209,7 +209,8 @@ function setBudget(office: OfficeHandle, scope: UsageScope): void {
 /**
  * The live numbers of the agent's turn in progress (DIPO-296): `turns` and `output` as the adapter
  * counts them since the last turn end, on the main model's row, every other row of the agent at 0.
- * For the live view only (see the file comment).
+ * For the live view only (see the file comment). Zeros always apply (the exit sends them); other
+ * numbers never reach an agent whose totals are final (its run ended), so none stick after it.
  */
 export function setLiveUsage(
   office: OfficeHandle,
@@ -218,6 +219,16 @@ export function setLiveUsage(
   live: { readonly turns: number; readonly output: number },
   at: number,
 ): void {
+  if (live.turns <= 0 && live.output <= 0) {
+    clearLiveUsage(office, scope.run, scope.agent);
+    return;
+  }
+  const final = office.get(
+    `select 1 as found from usage_totals
+     where office_id = $office_id and run_id = $run and agent_id = $agent and final = 1`,
+    { run: scope.run, agent: scope.agent },
+  );
+  if (final !== null) return;
   ensureRow(office, scope, model, at);
   office.run(
     `update usage_totals
@@ -232,6 +243,16 @@ export function setLiveUsage(
       run: scope.run,
       agent: scope.agent,
     },
+  );
+}
+
+/** Sets the live numbers of every row of the agent to 0, final or not (DIPO-296). */
+function clearLiveUsage(office: OfficeHandle, run: string, agent: string): void {
+  office.run(
+    `update usage_totals set live_turns = 0, live_output = 0
+     where office_id = $office_id and run_id = $run and agent_id = $agent
+       and (live_turns <> 0 or live_output <> 0)`,
+    { run, agent },
   );
 }
 
@@ -370,6 +391,8 @@ export function finalizeAgentUsage(
      where office_id = $office_id and run_id = $run and agent_id = $agent and final = 0`,
     { run, agent },
   );
+  // The live numbers of a turn that never ended go, also on rows final already (DIPO-296).
+  clearLiveUsage(office, run, agent);
   const day = utcDay(at);
   for (const row of rows) {
     // A run counts once per day, role, tier and model, however many agents it had.
@@ -380,9 +403,8 @@ export function finalizeAgentUsage(
       { run: row.run_id, role: row.role, tier: row.tier, model: row.model },
     );
     const newRun = counted === null ? 1 : 0;
-    // The live numbers of a turn that never ended go: the totals are what the agent spent.
     office.run(
-      `update usage_totals set final = 1, live_turns = 0, live_output = 0, updated_at = $at
+      `update usage_totals set final = 1, updated_at = $at
        where office_id = $office_id and run_id = $run and agent_id = $agent and model = $model`,
       { at, run, agent, model: row.model },
     );
@@ -470,6 +492,9 @@ export function readUsage(office: OfficeHandle, scope: UsageScope): Usage {
       { run: scope.run },
     ),
   );
+  // Includes the live output of a turn in progress (DIPO-296): the view shows the spend so far,
+  // while the caps count output only at the turn end (0008 section 4), so a session may show more
+  // of its budget used than the cap check has counted yet.
   const used = run.inputTokens + run.outputTokens + run.cacheCreateTokens;
   const limit = Math.max(0, scope.budgetLimit);
   return {

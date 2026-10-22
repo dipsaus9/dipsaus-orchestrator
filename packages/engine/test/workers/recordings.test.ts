@@ -7,7 +7,7 @@ import { describe, expect, it } from "bun:test";
 import { KNOWN_PARK_REASONS } from "@dipsaus-orchestrator/contract";
 import type { Recording } from "@dipsaus-orchestrator/testkit";
 
-import { budgetTokens, initialState } from "../../src/workers/claude-cli/interpret";
+import { budgetTokens, initialState, interpret } from "../../src/workers/claude-cli/interpret";
 import { ClaudeWorkerEventSchema, schemaFor } from "../../src/workers/claude-cli/schema";
 import type {
   ModelUsageTotals,
@@ -15,6 +15,7 @@ import type {
   WorkerOutcome,
   WorkerResult,
 } from "../../src/workers/types";
+import { hostLines } from "../ingest/helpers";
 import { loadRecording, recordingNames, replay } from "./replay";
 
 type Expectation = readonly [outcome: WorkerOutcome, park: string | null];
@@ -345,4 +346,38 @@ describe("usage arithmetic from the recordings", () => {
     expect(typeof limit).toBe("number");
     expect(budgetTokens(run.result.usage)).toBeGreaterThan(limit as number);
   });
+});
+
+/**
+ * Recordings whose result's `num_turns` the live count does not reach, and why (DIPO-296). Every
+ * other recording's live turns at each result are that result's `num_turns`.
+ */
+const LIVE_TURNS_DIFFER: Readonly<Record<string, string>> = {
+  // An account error comes as one assistant message, which the CLI does not count as a turn.
+  "start-failed-auth": "start failure",
+  "start-failed-billing": "start failure",
+  // Derived: three web calls spliced into a turn whose result was copied from the live recording.
+  "web-calls": "derived stream",
+};
+
+describe("the live turn count from the recordings (DIPO-296)", () => {
+  for (const name of recordingNames()) {
+    it(`${name}: the live turns at each result are its num_turns`, () => {
+      let state = initialState();
+      const atResults: { live: number; numTurns: number }[] = [];
+      for (const line of hostLines(loadRecording(name))) {
+        const live = state.liveTurns ?? 0;
+        const step = interpret(line, state);
+        for (const event of step.events) {
+          if (event.t === "turn") atResults.push({ live, numTurns: event.numTurns });
+        }
+        state = step.state;
+      }
+      // Every process exit leaves no live numbers.
+      expect(state.liveTurns).toBeUndefined();
+      const differ = atResults.filter((turn) => turn.live !== turn.numTurns);
+      if (name in LIVE_TURNS_DIFFER) expect(differ.length).toBeGreaterThan(0);
+      else expect(differ).toEqual([]);
+    });
+  }
 });
