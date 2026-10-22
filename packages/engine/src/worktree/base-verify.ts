@@ -134,83 +134,107 @@ export function storeBaseVerify(
 
 // ---- the base in the box (DIPO-294) -------------------------------------------------------------
 
-/** The format of the in-box key; a change to what the in-box base verify does bumps it. */
-export const BOX_BASE_VERIFY_FORMAT = 1;
+/**
+ * The format of the in-box key; a change to what the in-box base verify does bumps it. 2: the
+ * install runs in the box first, and a red result without a named failing test is not stored.
+ */
+export const BOX_BASE_VERIFY_FORMAT = 2;
 
-/** The configuration an in-box result depends on: the run environment and the verify deadline. */
+/** The configuration an in-box result depends on: the run environment and the deadlines. */
 export type BoxBaseVerifyConfig = Pick<OfficeConfig, "worktree" | "timeouts">;
 
+/** What the box holds besides the start commit: its image and the listed box files. */
+export interface BoxBaseKey {
+  /** `dipo-box:<sha256 of the build file>`. */
+  readonly image: string;
+  /** The paths of the listed box files copied in from the main checkout, sorted. */
+  readonly files: readonly string[];
+}
+
 /**
- * The configuration hash an in-box result is keyed by, beside the start commit: the box image,
- * the verify commands of the run profile, the run environment's settings and the deadline. It
- * never equals a Mac hash (`baseVerifyConfigHash`), so the two results share `base_verifies`
- * without meeting.
+ * The configuration hash an in-box result is keyed by, beside the start commit: the box image
+ * and listed files, the install and verify commands of the run profile, the run environment's
+ * settings and the deadlines. It never equals a Mac hash (`baseVerifyConfigHash`), so the two
+ * results share `base_verifies` without meeting. A later package cache (DIPO-295) changes what
+ * the install does and must change this key too, by its own input or the format.
  */
 export function boxBaseVerifyConfigHash(
   config: BoxBaseVerifyConfig,
   profile: RunProfile | null,
-  image: string,
+  box: BoxBaseKey,
 ): string {
-  const verify = profile?.capabilities.verify;
+  const resolved = (name: "install" | "verify") => {
+    const capability = profile?.capabilities[name];
+    return capability?.status === "resolved" ? capability.value : null;
+  };
   return configHash({
     box: BOX_BASE_VERIFY_FORMAT,
-    image,
+    image: box.image,
+    files: [...box.files].toSorted(),
     worktree: config.worktree,
     timeouts: config.timeouts,
     devPorts: profile?.devPorts ?? [],
-    verify: verify?.status === "resolved" ? verify.value : null,
+    install: resolved("install"),
+    verify: resolved("verify"),
   });
 }
+
+const NO_BOX_RESULT: BaseVerifyFacts = {
+  kind: "unknown",
+  reason: "dipo has no verify result of the start commit in this box",
+};
 
 /** The in-box result of a start commit, or the not-known facts that say there is none. */
 export function boxBaseVerifyFactsOf(
   office: OfficeHandle,
   input: {
     readonly startSha: string | null;
-    readonly image: string | null;
+    readonly box: BoxBaseKey | null;
     readonly config: BoxBaseVerifyConfig;
     readonly profile: RunProfile | null;
   },
 ): BaseVerifyFacts {
-  if (input.startSha === null || input.image === null) {
-    return { kind: "unknown", reason: "dipo has no verify result of the start commit in this box" };
+  if (input.startSha === null || input.box === null) return NO_BOX_RESULT;
+  const hash = boxBaseVerifyConfigHash(input.config, input.profile, input.box);
+  const stored = findBaseVerify(office, input.startSha, hash);
+  // A red result without a named test is never one dipo stores; an older row is not trusted.
+  if (stored === null || (stored.kind === "red" && stored.failing.length === 0)) {
+    return NO_BOX_RESULT;
   }
-  return (
-    findBaseVerify(
-      office,
-      input.startSha,
-      boxBaseVerifyConfigHash(input.config, input.profile, input.image),
-    ) ?? {
-      kind: "unknown",
-      reason: "dipo has no verify result of the start commit in this box",
-    }
-  );
+  return stored;
 }
 
 /**
  * The in-box result of `startSha`: the stored one for the key, else `run` once (verify in the
- * box), stored when it ran to the end. A not-known result is not stored, so the next run tries
- * again. `reused` says no verify ran.
+ * box), stored when it ran to the end and, when red, named its failing tests. A not-known result
+ * and a red one without a named test are not stored (the latter becomes not known), so a broken
+ * box is never cached and the next run tries again. `reused` says no verify ran.
  */
 export async function boxBaseVerifyOf(input: {
   readonly office: OfficeHandle;
   readonly startSha: string;
-  readonly image: string;
+  readonly box: BoxBaseKey;
   readonly config: BoxBaseVerifyConfig;
   readonly profile: RunProfile | null;
   readonly runId: string;
   readonly now: () => number;
   readonly run: () => Promise<BaseVerifyFacts>;
 }): Promise<{ readonly facts: BaseVerifyFacts; readonly reused: boolean }> {
-  const hash = boxBaseVerifyConfigHash(input.config, input.profile, input.image);
-  const stored = findBaseVerify(input.office, input.startSha, hash);
-  if (stored !== null) return { facts: stored, reused: true };
-  const facts = await input.run();
+  const stored = boxBaseVerifyFactsOf(input.office, input);
+  if (stored.kind !== "unknown") return { facts: stored, reused: true };
+  const ran = await input.run();
+  const facts: BaseVerifyFacts =
+    ran.kind === "red" && ran.failing.length === 0
+      ? {
+          kind: "unknown",
+          reason: "verify failed at the start commit in the box without a failing test name",
+        }
+      : ran;
   if (facts.kind !== "unknown") {
     input.office.immediate(() =>
       storeBaseVerify(input.office, {
         baseSha: input.startSha,
-        hash,
+        hash: boxBaseVerifyConfigHash(input.config, input.profile, input.box),
         runId: input.runId,
         result: facts,
         at: input.now(),

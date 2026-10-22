@@ -21,8 +21,10 @@
 // - `finishEnded` finishes the box of every run that has ended (after an exit, at daemon start;
 //   at daemon start also every dipo box the backend lists), and `close` stops every box at daemon
 //   stop, which ends the worker inside it, and a base verify still running in it.
-// - `baseVerify` (the launch, after `create`, before the worker's first session; DIPO-294): the
-//   office's verify at the start commit in the box, for the in-box base result.
+// - The base in the box (the launch, after `create`, before the worker's first session; DIPO-294):
+//   `install` runs the office's install in the box with the box's web route, `baseVerify` the
+//   office's verify, and `changedSinceStart` checks that `/work` holds nothing but the start
+//   commit and ignored files. `baseKeyOf` reads what keys the result: the image and listed files.
 //
 // Two records: the run directory's `BOX_RUN_FILE` says the run is a box worker's, so every later
 // session of the run plans in its box; the index folder in dipo's state folder holds one file per
@@ -37,6 +39,7 @@ import type { OfficeId } from "@dipsaus-orchestrator/contract";
 
 import type { OfficeGit } from "../git/office";
 import type { BaseVerifyFacts } from "../prompts/base-verify";
+import type { BoxBaseKey } from "../worktree/base-verify";
 import { ensurePrivateDir } from "../platform/paths";
 import { type AdapterHolds, holdMessage } from "../workers/hold";
 import { ensureImageWithBuildProxy } from "./build-proxy";
@@ -54,7 +57,8 @@ import {
   runIdOfBox,
 } from "./port";
 import { type BoxTokenCheck, checkBoxAfterRun, tokenCheckFailure } from "./token-check";
-import { runBoxBaseVerify } from "./verify";
+import { type BoxInstallResult, runBoxBaseVerify, runBoxInstall } from "./verify";
+import type { PartRun } from "./parts";
 import { BoxWebRoute, type BoxWebRouteStart, type RunningBoxWebRoute } from "./web-proxy";
 
 /** The run directory's record that the run's developer works in a box. */
@@ -70,6 +74,12 @@ export const BOX_INDEX_DIR = "dipo-box-runs";
 
 type Log = (message: string, fields: Readonly<Record<string, unknown>>) => void;
 
+/** What `/work` holds besides the start commit (`BoxWorkers.changedSinceStart`). */
+export type TreeCheck =
+  | { readonly kind: "same" }
+  | { readonly kind: "changed"; readonly paths: readonly string[] }
+  | { readonly kind: "unknown"; readonly reason: string };
+
 /** The run directory's record. */
 export interface BoxRunRecord {
   readonly runId: string;
@@ -77,6 +87,8 @@ export interface BoxRunRecord {
   readonly box: string;
   /** The image the box was made from (`dipo-box:<sha256 of its build file>`), keying its base verify. */
   readonly image?: string;
+  /** The listed box files copied in from the main checkout, sorted; they key the base verify too. */
+  readonly files?: readonly string[];
   /** Set once the run ended and its box was deleted. */
   readonly finished?: boolean;
 }
@@ -142,6 +154,11 @@ export interface BoxWorkersDeps {
    * installed in every box either way.
    */
   readonly door?: Pick<BoxDoorDeps, "onPart" | "onRefused" | "pollMs">;
+  /**
+   * Compares a box's `/work` with the start commit (`BoxParts.changedSinceStart`, DIPO-294), for
+   * the check after the install and the base verify; without it that check is not known.
+   */
+  readonly treeCheck?: (run: PartRun) => Promise<TreeCheck>;
   readonly warn?: Log;
   readonly info?: Log;
 }
@@ -179,11 +196,19 @@ export function readBoxRun(runDir: string): BoxRunRecord | null {
       office: typeof value.office === "string" ? value.office : "",
       box: value.box,
       ...(typeof value.image === "string" ? { image: value.image } : {}),
+      ...(Array.isArray(value.files) && value.files.every((file) => typeof file === "string")
+        ? { files: value.files }
+        : {}),
       ...(value.finished === true ? { finished: true } : {}),
     };
   } catch {
     return null;
   }
+}
+
+/** What keys a box run's in-box base result besides its start commit, from its record. */
+export function baseKeyOfRecord(record: BoxRunRecord | null): BoxBaseKey | null {
+  return record?.image === undefined ? null : { image: record.image, files: record.files ?? [] };
 }
 
 function writeJson(path: string, value: unknown): void {
@@ -305,6 +330,7 @@ export class BoxWorkers {
       office: input.office,
       box: name,
       image: image.tag,
+      files: base.description.files.map((file) => file.path).toSorted(),
     } satisfies BoxRunRecord);
     ensurePrivateDir(this.#index);
     writeJson(this.#indexFile(input.runId), { runDir: input.runDir });
@@ -411,6 +437,17 @@ export class BoxWorkers {
     await this.#deps.boxes.start(name);
   }
 
+  /** Copies the CA bundle alone into `BOX_DIPO_DIR`, for the install before any session. */
+  async #copyCa(name: string, caFile: string): Promise<void> {
+    const stage = await mkdtemp(join(this.#deps.tmpRoot, BOX_FILES_STAGE_PREFIX));
+    try {
+      await copyFile(caFile, join(stage, "safe-chain-ca.pem"));
+      await this.#deps.boxes.copyIn(name, `${stage}/.`, BOX_DIPO_DIR);
+    } finally {
+      await rm(stage, { recursive: true, force: true });
+    }
+  }
+
   /** Copies the system file and the CA bundle into `BOX_DIPO_DIR` through a stage of dipo's. */
   async #copyDipoFiles(name: string, systemFile: string, caFile: string): Promise<void> {
     const stage = await mkdtemp(join(this.#deps.tmpRoot, BOX_FILES_STAGE_PREFIX));
@@ -510,9 +547,81 @@ export class BoxWorkers {
     return this.#door?.read(runId) ?? null;
   }
 
-  /** The image the run's box was made from, from the run directory's record; null when unknown. */
-  imageOf(runDir: string): string | null {
-    return readBoxRun(runDir)?.image ?? null;
+  /**
+   * What keys the run's in-box base result besides its start commit (DIPO-294): the image its box
+   * was made from and the listed files copied in, from the run directory's record; null when the
+   * record names no image.
+   */
+  baseKeyOf(runDir: string): BoxBaseKey | null {
+    const record = readBoxRun(runDir);
+    return record?.image === undefined ? null : { image: record.image, files: record.files ?? [] };
+  }
+
+  /**
+   * The office's install at the start commit in the run's box (DIPO-294), before the base verify:
+   * the box's web route started as a session gets it (the box runs, so the box network's address
+   * exists on the Mac), the Safe-Chain CA bundle copied in, and each command list run in `/work`
+   * with `env` plus the route's settings (`runBoxInstall`). Throws `box.failed` when an install
+   * past its deadline could be ended neither inside the box nor by stopping it, and a `BoxError`
+   * when the route does not start.
+   */
+  async install(input: {
+    readonly runId: string;
+    readonly commands: readonly (readonly string[])[];
+    readonly env: Readonly<Record<string, string>>;
+    readonly timeoutMs: number;
+  }): Promise<BoxInstallResult> {
+    const box = boxName(input.runId);
+    const web = await this.#web.acquire(box);
+    await this.#copyCa(box, web.caFile);
+    const result = await runBoxInstall(
+      {
+        boxes: this.#deps.boxes,
+        clock: this.#deps.code.clock,
+        ...(this.#deps.warn === undefined ? {} : { warn: this.#deps.warn }),
+      },
+      {
+        box,
+        commands: input.commands,
+        env: {
+          ...input.env,
+          HTTPS_PROXY: web.url,
+          HTTP_PROXY: web.url,
+          NODE_EXTRA_CA_CERTS: BOX_CA_FILE,
+        },
+        timeoutMs: input.timeoutMs,
+      },
+    );
+    if (!result.ok && result.ended === "failed") {
+      throw new BoxError(
+        "box.failed",
+        "the install passed its deadline and could be ended neither inside the box nor by stopping it.",
+      );
+    }
+    this.#deps.info?.("install in the box", { run: input.runId, box, ok: result.ok });
+    return result;
+  }
+
+  /**
+   * What the run's box `/work` holds besides the start commit (DIPO-294), checked after the
+   * install and the base verify and before the worker: only files `.gitignore` covers may differ.
+   * Not known without the tree check (`BoxWorkersDeps.treeCheck`).
+   */
+  changedSinceStart(input: {
+    readonly runId: string;
+    readonly office: OfficeId;
+    readonly story: string;
+    readonly branch: string;
+    readonly startSha: string;
+  }): Promise<TreeCheck> {
+    const check = this.#deps.treeCheck;
+    if (check === undefined) {
+      return Promise.resolve({
+        kind: "unknown",
+        reason: "this daemon cannot compare the box's files",
+      });
+    }
+    return check({ ...input, box: boxName(input.runId) });
   }
 
   /**
@@ -589,6 +698,7 @@ export class BoxWorkers {
         office: record?.office ?? "",
         box: name,
         ...(record?.image === undefined ? {} : { image: record.image }),
+        ...(record?.files === undefined ? {} : { files: record.files }),
         finished: true,
       } satisfies BoxRunRecord);
     } catch (error) {

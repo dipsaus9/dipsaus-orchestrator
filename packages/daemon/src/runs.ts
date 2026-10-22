@@ -451,6 +451,9 @@ function daemonBoxWorkers(
     // The part queue of each box is read while its session runs (DIPO-272), and each part is
     // delivered (DIPO-273).
     door: { onPart: deliverThenCheck((part) => delivery.onPart(part), afterPart) },
+    // After the install and the base verify in a new box, its /work is compared with the start
+    // commit as a part is (DIPO-294).
+    treeCheck: (run) => delivery.changedSinceStart(run),
     scratchRoot: (() => {
       ensurePrivateDir(scratchRoot);
       return scratchRoot;
@@ -667,10 +670,11 @@ export function daemonRuns(options: DaemonRunsOptions): DaemonRuns {
               return paths !== null && boxed.workers.isBoxRun(paths.runDir);
             },
             verifyLast: (runId, message, verify) => boxed.parts.verifyLast(runId, message, verify),
-            // The box's image keys the in-box base result the verdict reads (DIPO-294).
-            boxImage: (office: OfficeId, run: StoredRun) => {
+            // The box's image and listed files key the in-box base result the verdict reads
+            // (DIPO-294).
+            boxKey: (office: OfficeId, run: StoredRun) => {
               const paths = runPaths(office, run);
-              return paths === null ? null : boxed.workers.imageOf(paths.runDir);
+              return paths === null ? null : boxed.workers.baseKeyOf(paths.runDir);
             },
           },
         }),

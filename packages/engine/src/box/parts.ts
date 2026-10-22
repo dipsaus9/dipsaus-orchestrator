@@ -1143,6 +1143,43 @@ export class BoxParts {
   }
 
   /**
+   * What the box's `/work` holds besides the start commit (DIPO-294), before the worker's first
+   * session: after the install and the base verify, only files `.gitignore` covers (and the listed
+   * box files) may differ. The box's files are compared with the branch at `run.startSha` as a
+   * part is. `run` is given, since the run is not recorded yet at the launch.
+   */
+  async changedSinceStart(
+    run: PartRun,
+  ): Promise<
+    | { readonly kind: "same" }
+    | { readonly kind: "changed"; readonly paths: readonly string[] }
+    | { readonly kind: "unknown"; readonly reason: string }
+  > {
+    try {
+      const git = this.#gitOf(run);
+      const view = await git.run((session) => readView(session, run.branch, run.startSha));
+      if (view.tip !== run.startSha) {
+        return { kind: "unknown", reason: "the story branch is not at its start commit" };
+      }
+      const listed = new Set(await (this.#deps.listedFiles?.(git) ?? Promise.resolve([])));
+      return await this.#inStage(async (stage) => {
+        const taken = await this.#take(run, view, listed, stage);
+        if (taken.kind !== "taken") return { kind: "unknown", reason: "the archive was refused" };
+        const paths = [...taken.changes.map((change) => change.path), ...taken.linkHits];
+        return paths.length === 0
+          ? { kind: "same" }
+          : { kind: "changed", paths: [...new Set(paths)].toSorted() };
+      });
+    } catch (error) {
+      this.#deps.warn?.("the box's files could not be compared with the start commit", {
+        run: run.runId,
+        reason: messageOf(error),
+      });
+      return { kind: "unknown", reason: "dipo could not read the box's files" };
+    }
+  }
+
+  /**
    * Whether the box's `/work` holds exactly the delivered tree at `tip`: the branch still at
    * `tip`, and the box's files compared with it as a part is, with nothing added, changed or
    * deleted. `unknown` when dipo could not read them.

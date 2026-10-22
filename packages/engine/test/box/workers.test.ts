@@ -394,10 +394,14 @@ describe("the box of a box run (criteria 4 and 10)", () => {
         runId: RUN,
         office: OFFICE,
         box: BOX,
-        // The image keys the box's base verify (DIPO-294).
+        // The image and the listed files key the box's base verify (DIPO-294).
         image: w.boxes.boxes.get(BOX)?.spec.image as string,
+        files: LISTED.map((file) => file.path).toSorted(),
       });
-      expect(w.workers.imageOf(w.runDir)).toMatch(/^dipo-box:[0-9a-f]{64}$/);
+      expect(w.workers.baseKeyOf(w.runDir)).toEqual({
+        image: expect.stringMatching(/^dipo-box:[0-9a-f]{64}$/),
+        files: LISTED.map((file) => file.path).toSorted(),
+      });
       expect(w.workers.isBoxRun(w.runDir)).toBe(true);
     }));
 
@@ -685,7 +689,95 @@ function verifyIn(w: World) {
   });
 }
 
+/** The install of the run in its box, with a run environment for /work. */
+function installIn(w: World) {
+  return w.workers.install({
+    runId: RUN,
+    commands: [["bun", "install", "--frozen-lockfile"]],
+    env: { DIPO_STORY: "DIPO-1", DIPO_WORKTREE: "/work" },
+    timeoutMs: 15 * 60_000,
+  });
+}
+
 describe("the base verify in the box (DIPO-294)", () => {
+  it("installs with the box's web route as a session gets it, then verifies, in that order", () =>
+    inBoxes(async (repo, tmp) => {
+      const failing = "(fail) git > reads the log [1.00ms]\n 1 fail\n";
+      const w = await world(repo, tmp, {
+        boxes: {
+          live: (_box, command) =>
+            command[0] === "bun" && command[1] === "install"
+              ? { stdout: "120 packages installed\n" }
+              : { stdout: failing, code: 1 },
+        },
+      });
+      await created(w);
+      w.log.length = 0;
+      expect(await installIn(w)).toEqual({ ok: true });
+      expect(await verifyIn(w)).toEqual({
+        kind: "red",
+        failing: ["git > reads the log"],
+        tail: null,
+      });
+      // The web route starts once the box runs, the CA bundle goes in, then install, then verify.
+      expect(w.log).toEqual([
+        "web route started on 192.0.2.10",
+        `copy in ${BOX} /dipo`,
+        `exec live ${BOX} bun install --frozen-lockfile`,
+        `exec live ${BOX} bun run verify`,
+        "list",
+      ]);
+      const [install, verify] = w.boxes.liveExecs;
+      expect(install).toMatchObject({
+        cwd: "/work",
+        env: {
+          DIPO_STORY: "DIPO-1",
+          DIPO_WORKTREE: "/work",
+          HTTPS_PROXY: "http://192.0.2.10:3128",
+          HTTP_PROXY: "http://192.0.2.10:3128",
+          NODE_EXTRA_CA_CERTS: BOX_CA_FILE,
+        },
+      });
+      expect(w.boxes.boxes.get(BOX)?.copies.at(-1)?.listing).toEqual(["safe-chain-ca.pem"]);
+      // Verify gets no web route, as at done.
+      expect(verify?.env).toEqual({ DIPO_STORY: "DIPO-1", DIPO_WORKTREE: "/work" });
+      // The session later uses the same route, started once.
+      await w.workers.session({ runId: RUN, runDir: w.runDir, systemFile: w.systemFile });
+      expect(w.log.filter((line) => line === "web route started on 192.0.2.10")).toHaveLength(1);
+    }));
+
+  it("says why a failed install failed, with no box output in the reason", () =>
+    inBoxes(async (repo, tmp) => {
+      const w = await world(repo, tmp, {
+        boxes: {
+          live: () => ({
+            stdout: "error: lockfile had changes, but lockfile is frozen\n",
+            code: 1,
+          }),
+        },
+      });
+      await created(w);
+      expect(await installIn(w)).toEqual({
+        ok: false,
+        reason: "the install (bun install --frozen-lockfile) exited 1 in the box",
+        ended: null,
+      });
+    }));
+
+  it("cannot check /work without the tree check, and passes the run facts to it", () =>
+    inBoxes(async (repo, tmp) => {
+      const w = await world(repo, tmp);
+      await created(w);
+      const facts = {
+        runId: RUN,
+        office: OFFICE,
+        story: "DIPO-1",
+        branch: "DIPO-1/x",
+        startSha: w.commit,
+      };
+      expect((await w.workers.changedSinceStart(facts)).kind).toBe("unknown");
+    }));
+
   it("runs verify at the start commit in the box create made, before any session or route", () =>
     inBoxes(async (repo, tmp) => {
       const failing = "(fail) git > reads the log [1.00ms]\n 1 fail\n";
@@ -722,13 +814,13 @@ describe("the base verify in the box (DIPO-294)", () => {
       expect(w.boxes.boxes.get(BOX)?.state).toBe("stopped");
     }));
 
-  it("keeps the image in the run's record after the run's end", () =>
+  it("keeps the image and the listed files in the run's record after the run's end", () =>
     inBoxes(async (repo, tmp) => {
       const w = await world(repo, tmp);
       await created(w);
-      const image = w.workers.imageOf(w.runDir);
-      expect(image).toBe(w.boxes.boxes.get(BOX)?.spec.image ?? "no box");
+      const key = w.workers.baseKeyOf(w.runDir);
+      expect(key?.image).toBe(w.boxes.boxes.get(BOX)?.spec.image ?? "no box");
       await w.workers.finish(RUN);
-      expect(readBoxRun(w.runDir)).toMatchObject({ finished: true, image });
+      expect(readBoxRun(w.runDir)).toMatchObject({ finished: true, ...key });
     }));
 });

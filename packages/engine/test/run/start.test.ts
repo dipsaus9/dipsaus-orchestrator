@@ -33,6 +33,8 @@ import type { GateResult } from "../../src/gate/types";
 import { contextPathsOf, nudgeCount } from "../../src/hooks/nudges";
 import type { OfficeGit } from "../../src/git/office";
 import type { IngestTarget } from "../../src/ingest/ingestor";
+import type { BoxInstallResult } from "../../src/box/verify";
+import type { TreeCheck } from "../../src/box/workers";
 import type { BaseVerifyFacts } from "../../src/prompts/base-verify";
 import { promptPartsOf, promptTextsOf } from "../../src/prompts/parts";
 import { renderSystemFile } from "../../src/prompts/system";
@@ -193,6 +195,10 @@ interface World {
   boxBase: BaseVerifyFacts | Error;
   /** The image the box record names; null for none. */
   boxImage: string | null;
+  /** What the install in the box says, or the error it throws. */
+  boxInstall: BoxInstallResult | Error;
+  /** What the check of the box's /work after the install and the base verify says. */
+  boxTree: TreeCheck;
 }
 
 let world: World;
@@ -239,6 +245,8 @@ beforeEach(async () => {
     boxFails: false,
     boxBase: { kind: "green" },
     boxImage: "dipo-box:image-1",
+    boxInstall: { ok: true },
+    boxTree: { kind: "same" },
   } as unknown as World;
 
   const git = {
@@ -330,7 +338,20 @@ beforeEach(async () => {
       discard: async (runId) => {
         w.boxCalls.push(`discard ${runId}`);
       },
-      imageOf: () => w.boxImage,
+      baseKeyOf: () => (w.boxImage === null ? null : { image: w.boxImage, files: [] }),
+      install: async (input) => {
+        w.boxCalls.push(
+          `install ${input.runId}: ${input.commands.map((c) => c.join(" ")).join("; ")} in ${input.env["DIPO_WORKTREE"]} within ${input.timeoutMs} ms`,
+        );
+        if (w.boxInstall instanceof Error) throw w.boxInstall;
+        return w.boxInstall;
+      },
+      changedSinceStart: async (input) => {
+        w.boxCalls.push(
+          `tree check ${input.runId} at ${input.startSha.slice(0, 4)} on ${input.branch}`,
+        );
+        return w.boxTree;
+      },
       baseVerify: async (input) => {
         w.boxCalls.push(
           `base verify ${input.runId}: ${input.commands.map((c) => c.join(" ")).join("; ")} in ${input.env["DIPO_WORKTREE"]} within ${input.timeoutMs} ms`,
@@ -780,6 +801,8 @@ describe("a box worker's run (DIPO-271)", () => {
     const runId = boxed.started[0]?.run as string;
     expect(world.boxCalls).toEqual([
       `create ${runId} at ${"b".repeat(40)} in ${join(world.dir, "repo", ".git", "dipo", "runs", runId)}`,
+      // The check of /work after the base (DIPO-294); this profile has no install or verify.
+      expect.stringMatching(/^tree check /),
     ]);
   });
 
@@ -835,7 +858,7 @@ describe("a box worker's run (DIPO-271)", () => {
     await run({ stories: ["TASK-1"], box: true });
     // The release after a failed host start deletes the box without waiting on it.
     for (let i = 0; i < 10 && world.boxCalls.length < 2; i++) await Promise.resolve();
-    expect(world.boxCalls.map((call) => call.split(" ")[0])).toEqual(["create", "discard"]);
+    expect(world.boxCalls.map((call) => call.split(" ")[0])).toEqual(["create", "tree", "discard"]);
   });
 });
 
@@ -857,9 +880,40 @@ function ended(result: RunResult): void {
   });
 }
 
+/** Stores the current profile's install as resolved to `commands`, beside its verify. */
+function storeResolvedInstall(commands: string[][]): void {
+  world.office.immediate(() =>
+    world.office.run(
+      `insert into run_capabilities (office_id, profile_id, capability, status, commands,
+         working_dir, source, confidence, evidence)
+       values ($office_id, 1, 'install', 'resolved', $commands, '.', 'standard', 'high',
+               'frozen install of the package manager')`,
+      { commands: JSON.stringify(commands) },
+    ),
+  );
+}
+
+/** The `run.boxBaseUnknown` notices written so far. */
+function strictNotices(): string[] {
+  return entries()
+    .filter((e) => e.type === "engine.notice" && e.delta["code"] === LAUNCH_NOTICES.boxBaseUnknown)
+    .map((e) => String(e.delta["text"]));
+}
+
+/** Stores the current profile with a resolved verify and no install. */
+function verifyOnly(): void {
+  storeResolvedVerify(world.office, { commands: [["bun", "run", "verify"]], cwd: "." });
+}
+
+/** Stores the current profile with a resolved verify and a frozen bun install. */
+function withInstall(): void {
+  verifyOnly();
+  storeResolvedInstall([["bun", "install", "--frozen-lockfile"]]);
+}
+
 describe("the base verify in a box run's box (DIPO-294)", () => {
-  it("runs verify at the start commit in the box before the worker starts, and gives its result to the worker", async () => {
-    storeResolvedVerify(world.office, { commands: [["bun", "run", "verify"]], cwd: "." });
+  it("installs, then runs verify at the start commit in the box, checks /work, and only then starts the worker", async () => {
+    withInstall();
     // What setup read on the Mac is not the box worker's.
     world.baseVerify = { kind: "red", failing: ["mac > only on the Mac"], tail: null };
     world.boxBase = { kind: "red", failing: ["git > reads the log"], tail: null };
@@ -870,10 +924,12 @@ describe("the base verify in a box run's box (DIPO-294)", () => {
     story("TASK-1", "Ready");
     const boxed = resultOf<RunResult>(await run({ stories: ["TASK-1"], box: true }));
     const runId = boxed.started[0]?.run as string;
-    // Same command, the run environment for /work and the 20 min verify deadline.
+    // The install's and the verify's commands, the run environment for /work and their deadlines.
     expect(world.boxCalls).toEqual([
       `create ${runId} at ${"b".repeat(40)} in ${join(world.dir, "repo", ".git", "dipo", "runs", runId)}`,
+      `install ${runId}: bun install --frozen-lockfile in /work within ${15 * 60_000} ms`,
       `base verify ${runId}: bun run verify in /work within ${20 * 60_000} ms`,
+      expect.stringMatching(new RegExp(`^tree check ${runId} at bbbb on `)),
     ]);
     expect(startedAfter).toEqual(world.boxCalls);
     const sent = sentOf(0);
@@ -881,10 +937,11 @@ describe("the base verify in a box run's box (DIPO-294)", () => {
     expect(sent).toContain("- git > reads the log");
     expect(sent).not.toContain("mac > only on the Mac");
     expect(countRows(world.office, "base_verifies")).toBe(1);
+    expect(strictNotices()).toEqual([]);
   });
 
-  it("reuses the stored result for the same start commit, image and configuration", async () => {
-    storeResolvedVerify(world.office, { commands: [["bun", "run", "verify"]], cwd: "." });
+  it("reuses the stored result for the same start commit, image and configuration, and still installs", async () => {
+    withInstall();
     world.boxBase = { kind: "red", failing: ["git > reads the log"], tail: null };
     story("TASK-1", "Ready");
     story("TASK-2", "Ready");
@@ -892,6 +949,7 @@ describe("the base verify in a box run's box (DIPO-294)", () => {
     world.boxBase = new Error("verify must not run again");
     ended(resultOf<RunResult>(await run({ stories: ["TASK-2"], box: true })));
     expect(world.boxCalls.filter((call) => call.startsWith("base verify"))).toHaveLength(1);
+    expect(world.boxCalls.filter((call) => call.startsWith("install"))).toHaveLength(2);
     expect(sentOf(1)).toContain("- git > reads the log");
 
     // Another image is another key: verify runs again.
@@ -903,18 +961,59 @@ describe("the base verify in a box run's box (DIPO-294)", () => {
     expect(sentOf(2)).toContain("The start commit passes verify in your box.");
   });
 
-  it("starts the worker with a not-known result when verify cannot run, and stores nothing", async () => {
-    // No resolved verify in the run profile.
+  it("starts strict after a failed install: no verify, no stored row, and a notice naming why", async () => {
+    withInstall();
+    world.boxInstall = {
+      ok: false,
+      reason: "the install (bun install --frozen-lockfile) exited 1 in the box",
+      ended: null,
+    };
+    story("TASK-1", "Ready");
+    expect(resultOf<RunResult>(await run({ stories: ["TASK-1"], box: true })).started).toHaveLength(
+      1,
+    );
+    expect(world.boxCalls.filter((call) => call.startsWith("base verify"))).toEqual([]);
+    expect(countRows(world.office, "base_verifies")).toBe(0);
+    expect(sentOf(0)).toContain(
+      "Not known: the install (bun install --frozen-lockfile) exited 1 in the box.",
+    );
+    expect(sentOf(0)).toContain("Every verify failure counts against the story.");
+    expect(strictNotices()).toEqual([
+      "TASK-1 starts without a verify result of its start commit in its box (the install (bun install --frozen-lockfile) exited 1 in the box), so every verify failure in the box counts against it.",
+    ]);
+  });
+
+  it("stores no red result without a named failing test, and starts strict", async () => {
+    verifyOnly();
+    world.boxBase = { kind: "red", failing: [], tail: "error: Cannot find module 'oxfmt'" };
     story("TASK-1", "Ready");
     await run({ stories: ["TASK-1"], box: true });
-    expect(world.boxCalls.filter((call) => call.startsWith("base verify"))).toEqual([]);
+    expect(countRows(world.office, "base_verifies")).toBe(0);
+    expect(sentOf(0)).toContain("without a failing test name");
+    expect(strictNotices()).toHaveLength(1);
+  });
+
+  it("starts with a not-known result when verify cannot run, and stores nothing", async () => {
+    // No resolved verify or install in the run profile.
+    story("TASK-1", "Ready");
+    await run({ stories: ["TASK-1"], box: true });
+    expect(world.boxCalls.filter((call) => /^(install|base verify)/.test(call))).toEqual([]);
     expect(sentOf(0)).toContain("Not known: the run profile has no resolved verify.");
-    expect(sentOf(0)).toContain("Every verify failure counts against the story.");
     expect(countRows(world.office, "base_verifies")).toBe(0);
   });
 
-  it("fails the launch and deletes the box when the box could not end a verify past its deadline", async () => {
-    storeResolvedVerify(world.office, { commands: [["bun", "run", "verify"]], cwd: "." });
+  it("fails the launch and deletes the box when /work holds files git does not ignore", async () => {
+    verifyOnly();
+    world.boxTree = { kind: "changed", paths: ["bun.lock", "coverage.txt"] };
+    story("TASK-1", "Ready");
+    const result = resultOf<RunResult>(await run({ stories: ["TASK-1"], box: true }));
+    expect(result.skipped.map((s) => s.reason)).toEqual(["pickupCheckFailed"]);
+    expect(world.hosts).toEqual([]);
+    expect(world.boxCalls.at(-1)).toMatch(/^discard run_/);
+  });
+
+  it("fails the launch and deletes the box when the box could not end a step past its deadline", async () => {
+    verifyOnly();
     world.boxBase = new Error(
       "the base verify passed its deadline and could be ended neither inside the box nor by stopping it.",
     );

@@ -23,7 +23,7 @@
 import type { ChildExit, Clock, TimerHandle } from "@dipsaus-orchestrator/contract";
 
 import type { BaseVerifyFacts } from "../prompts/base-verify";
-import { failingTests, outputEnd, plainText } from "../worktree/base-verify";
+import { failingTests, plainText } from "../worktree/base-verify";
 import { BOX_DIPO_DIR, BOX_WORKDIR } from "./code";
 import { cleanDoorText } from "./door";
 import type { BoxPort } from "./port";
@@ -450,11 +450,84 @@ async function stillRunning(deps: BoxBaseVerifyDeps, box: string): Promise<boole
   }
 }
 
+/** Why a base verify that failed without naming a failing test is not known. */
+export const BASE_WITHOUT_NAMES =
+  "verify failed at the start commit in the box without a failing test name dipo can read (for example a missing package, or a lint, format or typecheck failure)";
+
+export interface BoxInstallRequest {
+  readonly box: string;
+  /** The install command lists of the run profile, run in order until one fails. */
+  readonly commands: readonly (readonly string[])[];
+  /** The run environment with the box's web route, as the worker gets it. */
+  readonly env: Readonly<Record<string, string>>;
+  readonly timeoutMs: number;
+}
+
+export type BoxInstallResult =
+  | { readonly ok: true }
+  | { readonly ok: false; readonly reason: string; readonly ended: BoxCommandEnd | null };
+
+/**
+ * Runs the office's install at the start commit in the box (DIPO-294), before the base verify, as
+ * the Mac worktree setup runs it: each command list in `/work`, within `timeoutMs`. Any failure
+ * is a reason with no box output in it: an exit code, a timeout, a signal, a stopped box.
+ */
+export async function runBoxInstall(
+  deps: BoxBaseVerifyDeps,
+  request: BoxInstallRequest,
+): Promise<BoxInstallResult> {
+  for (const command of request.commands) {
+    const [program, ...args] = command;
+    if (program === undefined) continue;
+    const shown = command.join(" ");
+    let result: BoxCommandResult;
+    try {
+      result = await runBoxCommand(deps, {
+        box: request.box,
+        command: [program, ...args],
+        env: request.env,
+        timeoutMs: request.timeoutMs,
+      });
+    } catch (error) {
+      const code = (error as { code?: unknown } | null)?.code;
+      return {
+        ok: false,
+        reason: `the install (${shown}) could not start in the box (${typeof code === "string" ? code : "error"})`,
+        ended: null,
+      };
+    }
+    if (result.timedOut) {
+      const minutes = Math.round(request.timeoutMs / 60_000);
+      return {
+        ok: false,
+        reason: `the install (${shown}) timed out after ${minutes} min in the box`,
+        ended: result.ended,
+      };
+    }
+    if (result.code !== 0) {
+      const how =
+        result.code === null
+          ? `was ended by ${result.signal ?? "a signal"}`
+          : `exited ${result.code}`;
+      const stopped = !(await stillRunning(deps, request.box));
+      return {
+        ok: false,
+        reason: stopped
+          ? "the box stopped while the install ran"
+          : `the install (${shown}) ${how} in the box`,
+        ended: null,
+      };
+    }
+  }
+  return { ok: true };
+}
+
 /**
  * Runs the office's verify at the start commit in the box (`runBoxCommand` per command list, as
  * the verify at done does) and reads its failing tests. A command that could not start, timed
- * out, was ended by a signal, or failed while the box stopped under it (a daemon stop ends every
- * box process) gives a not-known result, which is never stored.
+ * out, was ended by a signal, failed while the box stopped under it (a daemon stop ends every
+ * box process), or failed without naming a failing test gives a not-known result, which is never
+ * stored.
  */
 export async function runBoxBaseVerify(
   deps: BoxBaseVerifyDeps,
@@ -494,10 +567,12 @@ export async function runBoxBaseVerify(
         return { facts: notKnown("the box stopped while verify ran"), ended: null };
       }
       const failing = failingTests(result.output);
-      return {
-        facts: { kind: "red", failing, tail: failing.length > 0 ? null : outputEnd(result.output) },
-        ended: null,
-      };
+      // A failure without a named test (a missing package, a lint or typecheck failure) says
+      // nothing about which tests fail on the base, and a broken box must never be cached.
+      if (failing.length === 0) {
+        return { facts: notKnown(BASE_WITHOUT_NAMES), ended: null };
+      }
+      return { facts: { kind: "red", failing, tail: null }, ended: null };
     }
   }
   return {

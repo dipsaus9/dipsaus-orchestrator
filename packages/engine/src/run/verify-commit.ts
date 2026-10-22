@@ -111,7 +111,7 @@ import {
 } from "../box/parts";
 import { type BoxCommandEnd, type BoxCommandResult, boxVerifyVerdict } from "../box/verify";
 import type { BaseVerifyFacts } from "../prompts/base-verify";
-import { boxBaseVerifyFactsOf } from "../worktree/base-verify";
+import { type BoxBaseKey, boxBaseVerifyFactsOf } from "../worktree/base-verify";
 import { findClaim, updateClaim } from "../worktree/records";
 import { buildRunEnv } from "../worktree/run-env";
 
@@ -448,10 +448,10 @@ export interface VerifyCommitDeps {
       verify: (box: BoxVerifyAccess) => Promise<T>,
     ): Promise<LastPartVerify<T>>;
     /**
-     * The image the run's box was made from (DIPO-294), which keys its in-box base result; null
-     * or absent when unknown, and the verify then counts every failure.
+     * What keys the run's in-box base result besides its start commit (DIPO-294): its box's image
+     * and listed files; null or absent when unknown, and the verify then counts every failure.
      */
-    boxImage?(office: OfficeId, run: StoredRun): string | null;
+    boxKey?(office: OfficeId, run: StoredRun): BoxBaseKey | null;
   };
   readonly warn?: (message: string, fields: Readonly<Record<string, unknown>>) => void;
 }
@@ -676,7 +676,7 @@ export class VerifyCommit implements RunFinisher {
           // The in-box base result of the start commit, for the verdict (DIPO-294).
           const baseFacts = boxBaseVerifyFactsOf(ctx.office, {
             startSha: run.startSha,
-            image: parts.boxImage?.(ctx.office.officeId, run) ?? null,
+            box: parts.boxKey?.(ctx.office.officeId, run) ?? null,
             config,
             profile: base,
           });

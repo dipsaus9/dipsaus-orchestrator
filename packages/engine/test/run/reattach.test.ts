@@ -1835,7 +1835,7 @@ describe("the prompts of a box worker's next session (DIPO-272)", () => {
     w.f.office.immediate(() => {
       storeBaseVerify(w.f.office, {
         baseSha: startSha,
-        hash: boxBaseVerifyConfigHash(OFFICE_DEFAULTS, profile, image),
+        hash: boxBaseVerifyConfigHash(OFFICE_DEFAULTS, profile, { image, files: [] }),
         runId: w.f.run,
         result: { kind: "red", failing: ["git > reads the log"], tail: null },
         at: 1,

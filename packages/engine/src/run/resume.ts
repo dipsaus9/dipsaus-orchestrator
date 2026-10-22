@@ -62,7 +62,7 @@ import {
   recordPromptTexts,
   TASK_PART,
 } from "../prompts/parts";
-import { BOX_RUN_FILE, readBoxRun } from "../box/workers";
+import { BOX_RUN_FILE, baseKeyOfRecord, readBoxRun } from "../box/workers";
 import { gatherHandoff, type HandoffFacts, type LastVerify } from "../prompts/handoff";
 import { renderSystemFile } from "../prompts/system";
 import { verifyCommands } from "../scan/store";
@@ -74,6 +74,7 @@ import { PlanError, type Caps, type ParseState, type WorkerReport } from "../wor
 import {
   baseVerifyConfigHash,
   baseVerifyFactsOf,
+  type BoxBaseKey,
   boxBaseVerifyFactsOf,
   runProfileOf,
 } from "../worktree/base-verify";
@@ -336,7 +337,7 @@ export class RunResumer implements NextSession {
         config,
         facts?.lastReport ?? null,
         // A box run's base result is the one measured in its box (DIPO-294).
-        box ? { image: readBoxRun(paths.runDir)?.image ?? null } : null,
+        box ? { key: baseKeyOfRecord(readBoxRun(paths.runDir)) } : null,
       );
     } catch (error) {
       handoff = { error: messageOf(error) };
@@ -654,8 +655,8 @@ export class RunResumer implements NextSession {
     run: StoredRun,
     config: OfficeConfig,
     lastReport: WorkerReport | null,
-    /** A box worker's run: the box scope section (DIPO-272) and its box's image (DIPO-294). */
-    box: { readonly image: string | null } | null = null,
+    /** A box worker's run: the box scope section (DIPO-272) and what keys its in-box base result (DIPO-294). */
+    box: { readonly key: BoxBaseKey | null } | null = null,
   ): Promise<{ text: string; sources: NudgeSources }> {
     const deps = this.#deps;
     const worktree = run.worktree ?? "";
@@ -685,7 +686,7 @@ export class RunResumer implements NextSession {
             )
           : boxBaseVerifyFactsOf(office, {
               startSha: run.startSha,
-              image: box.image,
+              box: box.key,
               config,
               profile: runProfileOf(office, run.runProfileId),
             }),

@@ -494,6 +494,38 @@ async function verifyInBox(box: BoxVerifyAccess): Promise<BoxCommandResult> {
   return box.run({ command: ["bun", "run", "verify"], env: {}, timeoutMs: 60_000 });
 }
 
+/** The parts world's run at its branch tip, as the launch passes it. */
+async function runAt(w: PartsWorld): Promise<PartRun> {
+  return {
+    runId: "run_1",
+    office: OFFICE,
+    story: "DIPO-1",
+    branch: BRANCH,
+    startSha: await branchTip(w),
+    box: "dipo-run_1",
+  };
+}
+
+describe("/work after the install and the base verify (BoxParts.changedSinceStart, DIPO-294)", () => {
+  it("is the start commit when the install left only ignored files", () =>
+    inParts(async (w) => {
+      write(w.work, { "node_modules/x/index.js": "x\n", "install.log": "ok\n" });
+      expect(await w.parts.changedSinceStart(await runAt(w))).toEqual({ kind: "same" });
+      // Nothing was committed or pushed.
+      expect(w.calls).toEqual(["part out"]);
+    }));
+
+  it("names every file git does not ignore that the install or verify added, changed or deleted", () =>
+    inParts(async (w) => {
+      write(w.work, { "coverage.txt": "1\n", "src/a.ts": "export const a = 9;\n" });
+      rmSync(join(w.work, "README.md"));
+      expect(await w.parts.changedSinceStart(await runAt(w))).toEqual({
+        kind: "changed",
+        paths: ["README.md", "coverage.txt", "src/a.ts"],
+      });
+    }));
+});
+
 describe("the held turn of the parts (BoxParts.verifyLast)", () => {
   it("delivers the last part, verifies with the branch at its commit, and finds the tree delivered", () =>
     inParts(async (w) => {
@@ -846,7 +878,11 @@ beforeEach(async () => {
       return profileOf({ verify: "true" });
     },
     host: { home: dir, uid: 501, env: { PATH: "/usr/bin:/bin" } },
-    parts: { isBoxRun: () => w.box, verifyLast: fakeVerifyLast, boxImage: () => w.image },
+    parts: {
+      isBoxRun: () => w.box,
+      verifyLast: fakeVerifyLast,
+      boxKey: () => (w.image === null ? null : { image: w.image, files: [] }),
+    },
   });
   const control = new RunControl({
     clock: f.t.clock,
@@ -1235,7 +1271,7 @@ function storeBoxBase(facts: Extract<BaseVerifyFacts, { kind: "green" | "red" }>
   w.f.office.immediate(() =>
     storeBaseVerify(w.f.office, {
       baseSha: "b".repeat(40),
-      hash: boxBaseVerifyConfigHash(w.config, w.base, IMAGE),
+      hash: boxBaseVerifyConfigHash(w.config, w.base, { image: IMAGE, files: [] }),
       runId: "run_earlier",
       result: facts,
       at: 1,

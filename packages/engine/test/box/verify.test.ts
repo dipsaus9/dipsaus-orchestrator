@@ -10,6 +10,7 @@ import { ManualClock } from "@dipsaus-orchestrator/testkit";
 import { BOX_WORKDIR } from "../../src/box/code";
 import { boxName } from "../../src/box/port";
 import {
+  BASE_WITHOUT_NAMES,
   BOX_VERDICT_MAX_NAMES,
   boxVerifyVerdict,
   runBoxBaseVerify,
@@ -196,14 +197,10 @@ describe("the base verify in the box", () => {
     expect(result.facts).toEqual({ kind: "red", failing: NEEDS_GIT, tail: null });
   });
 
-  it("keeps the output's end when a red verify names no test", async () => {
+  it("is not known when a red verify names no test, so a broken box is never cached", async () => {
     const boxes = await boxWith(() => ({ stdout: "error: Cannot find module 'oxfmt'\n", code: 1 }));
     const result = await runBoxBaseVerify({ boxes, clock: new ManualClock() }, REQUEST);
-    expect(result.facts).toEqual({
-      kind: "red",
-      failing: [],
-      tail: "error: Cannot find module 'oxfmt'",
-    });
+    expect(result.facts).toEqual({ kind: "unknown", reason: BASE_WITHOUT_NAMES });
   });
 
   it("is not known when the box stopped under it, as a daemon stop does", async () => {
@@ -249,7 +246,7 @@ describe("the base verify in the box", () => {
       { boxes, clock: new ManualClock() },
       { ...REQUEST, commands: [["lint"], ["bun", "test"]] },
     );
-    expect(result.facts).toEqual({ kind: "red", failing: [], tail: "1 problem" });
+    expect(result.facts).toEqual({ kind: "unknown", reason: BASE_WITHOUT_NAMES });
     expect(boxes.liveExecs.map((exec) => exec.command.join(" "))).toEqual(["lint"]);
   });
 });

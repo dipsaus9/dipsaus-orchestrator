@@ -20,9 +20,10 @@
 // in `prepare`, before the prompts and the worker's launch checks: the image, the box and the code
 // at the claim's start commit (`BoxWorkers.create`). The run directory then records the box, so
 // the worker port plans every developer session of the run inside it. Then, before the worker
-// starts, the office's verify runs at the start commit in that box (DIPO-294), unless a result for
-// the same start commit, image and verify configuration is stored; the task message's
-// `base_verify` section is that in-box result. A setup that fails after the box exists, or a
+// starts, the office's install runs in that box with its web route, then the office's verify at
+// the start commit (DIPO-294), unless a result for the same start commit, image, listed files and
+// configuration is stored; `/work` must then hold nothing git does not ignore. The task message's
+// `base_verify` section is that in-box result; a run without one starts strict, with a notice. A setup that fails after the box exists, or a
 // released claim, deletes the box again; a daemon stop stops the box and the verify in it.
 
 import { createHash } from "node:crypto";
@@ -67,6 +68,7 @@ import {
   type WorkerSpec,
 } from "../workers/types";
 import { BOX_WORKDIR } from "../box/code";
+import { cleanDoorText } from "../box/door";
 import type { BoxWorkers } from "../box/workers";
 import type { BaseVerifyFacts } from "../prompts/base-verify";
 import type { RunProfile } from "../scan/detect";
@@ -111,7 +113,57 @@ export const REVIEW_SYSTEM_FILE = "system-review.md";
 export const LAUNCH_NOTICES = {
   planRefused: "run.planRefused",
   startFailed: "run.startFailed",
+  /** A box run starts strict: the verify of its start commit in its box is not known (DIPO-294). */
+  boxBaseUnknown: "run.boxBaseUnknown",
 } as const;
+
+/** The install deadline in the box when the office's `timeouts.scriptMinutes` names none. */
+export const BOX_INSTALL_MINUTES_DEFAULT = 15;
+
+/** Paths a launch refused for files git does not ignore names; the rest are counted. */
+const TREE_PATHS_SHOWN = 5;
+
+/** The notice text of a box run that starts strict (DIPO-294). */
+export function boxBaseUnknownText(story: string, reason: string): string {
+  return `${story} starts without a verify result of its start commit in its box (${reason}), so every verify failure in the box counts against it.`;
+}
+
+/** Why a launch fails when the install or the base verify left files git does not ignore. */
+export function boxTreeChangedText(paths: readonly string[]): string {
+  const shown = paths.slice(0, TREE_PATHS_SHOWN).map((path) => cleanDoorText(path));
+  const more = paths.length > shown.length ? ", and more" : "";
+  return `the install or the base verify left files git does not ignore in the box's /work (${shown.join(", ")}${more}); setup steps may change only ignored files. If the install rewrote a lockfile, use a frozen install (for example \`bun install --frozen-lockfile\`); write generated files to ignored paths`;
+}
+
+/**
+ * The office's install in the run's box (DIPO-294): the run profile's resolved install, as the
+ * Mac worktree setup runs it; none to run is fine, a conflict or another root is not.
+ */
+async function boxInstall(
+  boxes: NonNullable<RunLauncherDeps["boxes"]>,
+  runId: string,
+  profile: RunProfile | null,
+  config: OfficeConfig,
+  env: Readonly<Record<string, string>>,
+): Promise<{ readonly ok: true } | { readonly ok: false; readonly reason: string }> {
+  const install = profile?.capabilities.install;
+  if (install === undefined || (install.status !== "resolved" && install.status !== "conflict")) {
+    return { ok: true };
+  }
+  if (install.status === "conflict") {
+    return { ok: false, reason: "the run profile's install is in conflict" };
+  }
+  if (install.value.cwd !== ".") {
+    return { ok: false, reason: `the install runs in ${install.value.cwd}, not at the root` };
+  }
+  const minutes = config.timeouts.scriptMinutes["install"] ?? BOX_INSTALL_MINUTES_DEFAULT;
+  return boxes.install({
+    runId,
+    commands: install.value.commands,
+    env,
+    timeoutMs: minutes * 60_000,
+  });
+}
 
 /** The end kind of a run whose worker host did not start. */
 export const START_FAILED_END = "start-failed";
@@ -210,7 +262,10 @@ export interface RunLauncherDeps {
    * Makes and deletes a box worker's box (DIPO-271) and runs the base verify in it (DIPO-294);
    * without it a box run is refused.
    */
-  readonly boxes?: Pick<BoxWorkers, "create" | "discard" | "baseVerify" | "imageOf">;
+  readonly boxes?: Pick<
+    BoxWorkers,
+    "create" | "discard" | "install" | "baseVerify" | "baseKeyOf" | "changedSinceStart"
+  >;
   /** The office's state database, where the in-box base result is stored (DIPO-294). */
   readonly office?: (office: OfficeId) => OfficeHandle | undefined;
   /** The clock the in-box base result is stamped with; the system clock by default. */
@@ -412,13 +467,18 @@ export class RunLauncher {
   }
 
   /**
-   * The in-box base result of a box run (DIPO-294): the stored one for its start commit, image
-   * and verify configuration, else the office's verify run once at the start commit in the run's
-   * box, with the run environment for `/work` and the deadline of the verify at done, and stored.
-   * The worker starts only after it. Throws when the box could not end a verify past its
-   * deadline; the launch then fails and deletes the box.
+   * The base of a box run in its box (DIPO-294), before its worker starts:
+   * 1. the office's install at the start commit in the box, with the box's web route as the
+   *    worker gets it, within the install deadline; a failed install makes the result not known;
+   * 2. the stored in-box result for its start commit, image, listed files and configuration, else
+   *    the office's verify run once in the box, with the run environment for `/work` and the
+   *    deadline of the verify at done, and stored when it named its failing tests or passed;
+   * 3. the check that `/work` holds nothing but the start commit and ignored files, as the Mac
+   *    setup checks its worktree: anything else fails the launch, since the worker would inherit it.
+   * Throws when the launch must fail: the box could not end a step past its deadline, or the
+   * check found files git does not ignore. The launch then deletes the box.
    */
-  async #boxBaseVerify(
+  async #boxBase(
     facts: RunFacts,
     claim: ClaimRecord,
     slot: number | null,
@@ -426,50 +486,73 @@ export class RunLauncher {
     boxes: NonNullable<RunLauncherDeps["boxes"]>,
   ): Promise<BaseVerifyFacts> {
     const office = this.#deps.office?.(facts.office);
-    const image = boxes.imageOf(runDir);
-    if (office === undefined || image === null) {
+    const key = boxes.baseKeyOf(runDir);
+    if (office === undefined || key === null) {
       return {
         kind: "unknown",
         reason: "dipo could not run verify at the start commit in the box",
       };
     }
     const profile = currentProfile(office)?.profile ?? null;
-    const verify = profile?.capabilities.verify;
     const config = facts.config;
     const clock = this.#deps.clock ?? systemClock;
-    const { facts: result } = await boxBaseVerifyOf({
-      office,
-      startSha: claim.startSha,
-      image,
-      config,
-      profile,
-      runId: facts.runId,
-      now: () => clock.now(),
-      run: async () => {
-        if (verify?.status !== "resolved") {
-          return { kind: "unknown", reason: "the run profile has no resolved verify" };
-        }
-        if (verify.value.cwd !== ".") {
-          return { kind: "unknown", reason: `verify runs in ${verify.value.cwd}, not at the root` };
-        }
-        const minutes = config.timeouts.scriptMinutes["verify"] ?? BOX_VERIFY_MINUTES_DEFAULT;
-        const env = buildRunEnv({
-          slot: slot ?? 0,
-          stride: config.worktree.ports.stride,
-          story: claim.story,
-          worktree: BOX_WORKDIR,
-          named: config.worktree.ports.named,
-          devPort: devPortOf(profile),
-          env: config.worktree.env,
-        });
-        return boxes.baseVerify({
-          runId: facts.runId,
-          commands: verify.value.commands,
-          env,
-          timeoutMs: minutes * 60_000,
-        });
-      },
+    const env = buildRunEnv({
+      slot: slot ?? 0,
+      stride: config.worktree.ports.stride,
+      story: claim.story,
+      worktree: BOX_WORKDIR,
+      named: config.worktree.ports.named,
+      devPort: devPortOf(profile),
+      env: config.worktree.env,
     });
+    const installed = await boxInstall(boxes, facts.runId, profile, config, env);
+    let result: BaseVerifyFacts;
+    if (!installed.ok) {
+      result = { kind: "unknown", reason: installed.reason };
+    } else {
+      const verify = profile?.capabilities.verify;
+      ({ facts: result } = await boxBaseVerifyOf({
+        office,
+        startSha: claim.startSha,
+        box: key,
+        config,
+        profile,
+        runId: facts.runId,
+        now: () => clock.now(),
+        run: async () => {
+          if (verify?.status !== "resolved") {
+            return { kind: "unknown", reason: "the run profile has no resolved verify" };
+          }
+          if (verify.value.cwd !== ".") {
+            return {
+              kind: "unknown",
+              reason: `verify runs in ${verify.value.cwd}, not at the root`,
+            };
+          }
+          const minutes = config.timeouts.scriptMinutes["verify"] ?? BOX_VERIFY_MINUTES_DEFAULT;
+          return boxes.baseVerify({
+            runId: facts.runId,
+            commands: verify.value.commands,
+            env,
+            timeoutMs: minutes * 60_000,
+          });
+        },
+      }));
+    }
+    const tree = await boxes.changedSinceStart({
+      runId: facts.runId,
+      office: facts.office,
+      story: claim.story,
+      branch: claim.branch,
+      startSha: claim.startSha,
+    });
+    if (tree.kind === "changed") throw new Error(boxTreeChangedText(tree.paths));
+    if (tree.kind === "unknown") {
+      this.#deps.warn?.("the box's files could not be checked after the install", {
+        run: facts.runId,
+        reason: tree.reason,
+      });
+    }
     return result;
   }
 
@@ -531,9 +614,21 @@ export class RunLauncher {
         return fail(`the box could not be made: ${messageOf(error)}`);
       }
       try {
-        baseVerify = await this.#boxBaseVerify(facts, claim, setup.slot, paths.runDir, boxes);
+        baseVerify = await this.#boxBase(facts, claim, setup.slot, paths.runDir, boxes);
       } catch (error) {
-        return fail(`the base verify in the box failed: ${messageOf(error)}`);
+        return fail(`the box is not ready for the worker: ${messageOf(error)}`);
+      }
+      // A box run without an in-box base result runs strict: the maintainer sees why.
+      if (baseVerify.kind === "unknown") {
+        notify({
+          type: "engine.notice",
+          key: claim.key,
+          delta: {
+            level: "warn",
+            code: LAUNCH_NOTICES.boxBaseUnknown,
+            text: boxBaseUnknownText(claim.story, baseVerify.reason),
+          },
+        });
       }
     }
     let spec: WorkerSpec;
