@@ -13,6 +13,7 @@ import {
   type CommandReply,
   type OfficeId,
   RequestId,
+  RoleId,
   StoryId,
   type RunId,
   type WorkRef,
@@ -23,7 +24,10 @@ import { executeCommand } from "../../src/commands/execute";
 import { stateOfficeDirectory } from "../../src/commands/offices";
 import { buildRegistry } from "../../src/commands/registry";
 import { MemoryRequestTable } from "../../src/commands/requests";
+import type { OfficeGit } from "../../src/git/office";
 import { GitError } from "../../src/git/runner";
+import { gatherHandoff, renderHandoff } from "../../src/prompts/handoff";
+import { latestWorkerNotes, WORKER_NOTES_MAX } from "../../src/prompts/notes";
 import { Steering } from "../../src/host/steering";
 import type { ProcessInfo } from "../../src/platform/process";
 import { type IngestAdapter, Ingestor } from "../../src/ingest/ingestor";
@@ -1276,5 +1280,99 @@ describe("a capped done turn the finisher lets continue (DIPO-222)", () => {
     } finally {
       control.close();
     }
+  });
+});
+
+const notesWorktree = () => findRun(w.f.office, w.f.run)?.worktree ?? "";
+const notesTurn = (notes: string | undefined, input = 10): WorkerEvent => ({
+  t: "turn",
+  report: {
+    status: "done",
+    criteria: [{ n: 1, met: true, evidence: "greet.ts" }],
+    summary: "Partly done.",
+    commitSubject: "add a greeting",
+    ...(notes === undefined ? {} : { notes }),
+  },
+  totals: { "claude-haiku-5-5": { input, output: 0, cacheCreate: 0, cacheRead: 0 } },
+  numTurns: 1,
+  terminal: "completed",
+});
+
+describe("worker notes for the handoff (DIPO-154; 0020 section 6)", () => {
+  it("stores the notes of every turn report, replacing that agent's earlier notes, at most 1,500 characters", async () => {
+    track();
+    w.control.onWorkerEvents(w.f.run, [notesTurn("First: the parser is half done.")], "agt-a");
+    w.control.onWorkerEvents(
+      w.f.run,
+      [notesTurn(`Second: wire the usage line.\n${"z".repeat(2_000)}`)],
+      "agt-a",
+    );
+    // A report without notes keeps the earlier ones.
+    w.control.onWorkerEvents(w.f.run, [notesTurn(undefined)], "agt-a");
+    await w.control.idle();
+    const rows = w.f.office.all<{
+      agent_id: string;
+      run_id: string;
+      story_key: string;
+      text: string;
+    }>(
+      `select agent_id, run_id, story_key, text from worker_notes
+        where office_id = $office_id and worktree = $worktree`,
+      { worktree: notesWorktree() },
+    );
+    expect(rows).toHaveLength(1);
+    expect(rows[0]).toMatchObject({ agent_id: "agt-a", run_id: w.f.run, story_key: w.work.key });
+    expect(rows[0]?.text.startsWith("Second: wire the usage line.")).toBe(true);
+    expect(rows[0]?.text.length).toBeLessThanOrEqual(WORKER_NOTES_MAX);
+    // Another agent of the run (the next session) has its own row.
+    w.control.onWorkerEvents(w.f.run, [notesTurn("Third: from the next session.")], "agt-b");
+    expect(latestWorkerNotes(w.f.office, notesWorktree())).toMatchObject({
+      agent: "agt-b",
+      text: "Third: from the next session.",
+    });
+  });
+
+  it("parks a run mid-turn after an earlier turn reported notes, and the handoff carries them", async () => {
+    track({ ...ROOMY, maxMinutes: 30 });
+    w.control.onWorkerEvents(w.f.run, [
+      notesTurn("Next: finish the greeting test; the parser is done."),
+    ]);
+    // The time cap fires in the middle of the next turn, which never reports.
+    w.f.t.clock.advance(31 * CAP_TICK_MS);
+    await w.control.idle();
+    expect(parks().map((p) => p.reason)).toEqual(["budget-exceeded"]);
+    // The park kept the notes.
+    expect(latestWorkerNotes(w.f.office, notesWorktree())?.text).toBe(
+      "Next: finish the greeting test; the parser is done.",
+    );
+    // The next session's handoff block, gathered for the worktree, carries them.
+    const git = {
+      run: async <T>(fn: (session: { ok: () => Promise<string> }) => Promise<T>) =>
+        fn({ ok: async () => "" }),
+    } as unknown as OfficeGit;
+    const facts = await gatherHandoff({
+      git,
+      location: { kind: "worktree", workTree: notesWorktree() } as never,
+      base: "b".repeat(40),
+      office: w.f.office,
+      lastReport: null,
+      lastVerify: null,
+      openFeedback: [],
+    });
+    expect(renderHandoff(facts)).toContain(
+      "Notes from the previous session:\nNext: finish the greeting test; the parser is done.\n</handoff>",
+    );
+  });
+
+  it("stores no notes for a reviewer's session", async () => {
+    w.control.track(w.f.office.officeId, {
+      runId: w.f.run,
+      work: { ...w.work, role: RoleId.parse("reviewer") },
+      caps: ROOMY,
+      startedAt: w.f.t.clock.now(),
+    });
+    w.control.onWorkerEvents(w.f.run, [notesTurn("not a developer's notes")]);
+    await w.control.idle();
+    expect(latestWorkerNotes(w.f.office, notesWorktree())).toBeNull();
   });
 });
