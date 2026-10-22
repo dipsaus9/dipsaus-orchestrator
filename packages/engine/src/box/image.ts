@@ -363,6 +363,57 @@ export function ensureBoxImage(request: BoxImageRequest): Promise<BoxImageResult
   return started;
 }
 
+/** The image builder while builds use it: how many, and whether dipo stops it after the last. */
+interface BuilderLease {
+  users: number;
+  /** True when the builder did not run before the first of these builds. */
+  readonly stopAfter: Promise<boolean>;
+}
+
+/** The builds that use the builder now; one lease for all, so one build never stops another's. */
+let builderLease: BuilderLease | undefined;
+/** The last lease's stop: a new lease reads the builder's state only once that stop is done. */
+let builderStopping: Promise<void> = Promise.resolve();
+
+/**
+ * Runs `use`, the steps of one image build that start and use the builder (`buildNetwork`, the
+ * build proxy, `ensureBoxImage`), and stops the builder again after them when it did not run
+ * before (DIPO-298): the builder keeps two CPUs and 2 GB while it runs. It is stopped whether the
+ * build passed or failed; a builder that already ran is left running. Builds at the same time
+ * share one lease, so the builder is stopped only after the last of them. A failed stop does not
+ * change the build's result: the image is built or its build failed either way.
+ */
+export async function withImageBuilder<T>(
+  boxes: Pick<BoxPort, "builderRunning" | "stopBuilder">,
+  options: BoxCallOptions | undefined,
+  use: () => Promise<T>,
+): Promise<T> {
+  let lease = builderLease;
+  if (lease === undefined) {
+    const stopped = builderStopping;
+    lease = {
+      users: 0,
+      stopAfter: stopped.then(() => boxes.builderRunning(options)).then((running) => !running),
+    };
+    builderLease = lease;
+  }
+  lease.users += 1;
+  try {
+    await lease.stopAfter;
+    return await use();
+  } finally {
+    lease.users -= 1;
+    if (lease.users === 0) {
+      if (builderLease === lease) builderLease = undefined;
+      const stop = lease.stopAfter
+        .then((stopAfter) => (stopAfter ? boxes.stopBuilder(options) : undefined))
+        .catch(() => undefined);
+      builderStopping = stop;
+      await stop;
+    }
+  }
+}
+
 /** The box block on the base branch, or why it cannot be read. */
 export type BaseBoxSection =
   | {

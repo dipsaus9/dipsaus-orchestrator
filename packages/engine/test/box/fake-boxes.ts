@@ -78,6 +78,8 @@ export interface FakeBoxesOptions {
   readonly exportText?: string;
   /** Fails `start` with this error. */
   readonly startFails?: Error;
+  /** The image builder runs before the first build. */
+  readonly builderRunning?: boolean;
 }
 
 export class FakeBoxes implements BoxPort {
@@ -86,6 +88,8 @@ export class FakeBoxes implements BoxPort {
   readonly boxes = new Map<string, FakeBoxState>();
   readonly images: Set<string>;
   readonly builds: BoxImageBuild[] = [];
+  /** Whether the image builder runs: `buildNetwork` starts it, `stopBuilder` stops it. */
+  builder: boolean;
   readonly #options: FakeBoxesOptions;
   readonly #client = new AppleContainerBoxes({
     spawn: () => {
@@ -100,6 +104,7 @@ export class FakeBoxes implements BoxPort {
     this.#options = options;
     this.log = options.log ?? [];
     this.images = new Set(options.images ?? []);
+    this.builder = options.builderRunning ?? false;
   }
 
   #box(name: string): FakeBoxState {
@@ -120,7 +125,18 @@ export class FakeBoxes implements BoxPort {
 
   async buildNetwork(): Promise<BoxBuildNetwork> {
     this.log.push("build network");
+    this.builder = true;
     return { name: "default", hostAddress: BUILD_HOST_ADDRESS };
+  }
+
+  async builderRunning(): Promise<boolean> {
+    this.log.push(`builder status ${this.builder ? "running" : "stopped"}`);
+    return this.builder;
+  }
+
+  async stopBuilder(): Promise<void> {
+    this.log.push("stop builder");
+    this.builder = false;
   }
 
   async create(spec: BoxSpec): Promise<string> {

@@ -1,7 +1,7 @@
 // The office's box image (DIPO-266, 0021 sections 4 and 5, decisions 9 and 12): the description
 // from the box block and the repository, the build file dipo writes, the tag that hashes it, the
-// build through the box backend (reused when the tag exists), and the block read from the base
-// branch only.
+// build through the box backend (reused when the tag exists), the image builder stopped again after
+// a build that started it (DIPO-298), and the block read from the base branch only.
 
 import { existsSync, readdirSync, readFileSync, realpathSync, writeFileSync } from "node:fs";
 import { mkdirSync } from "node:fs";
@@ -12,7 +12,8 @@ import { describe, expect, it } from "bun:test";
 import type { OfficeId } from "@dipsaus-orchestrator/contract";
 import { ManualClock, withTempDir, withTempRepo } from "@dipsaus-orchestrator/testkit";
 
-import { AppleContainerBoxes } from "../../src/box/apple-container";
+import { AppleContainerBoxes, builderIsRunning } from "../../src/box/apple-container";
+import { ensureImageWithBuildProxy } from "../../src/box/build-proxy";
 import {
   BOX_DEFAULTS,
   boxBuildFile,
@@ -24,12 +25,14 @@ import {
   NODE_TARBALL_SHA256,
   readBaseBox,
   readBaseBoxSection,
+  withImageBuilder,
 } from "../../src/box/image";
 import {
   BOX_BUILD_CA_FILE,
   BOX_BUILD_FILE,
   BOX_BUILD_TIMEOUT_MS,
   BOX_CALL_TIMEOUT_MS,
+  type BoxBuildNetwork,
   type BoxImageBuild,
   type BoxPort,
   BoxError,
@@ -37,7 +40,8 @@ import {
 } from "../../src/box/port";
 import { OfficeGit, spawnGitExec } from "../../src/git";
 import { systemSpawn } from "../../src/platform/process";
-import { fakeContainer } from "./fake-container";
+import type { BoxWebRouteStart } from "../../src/box/web-proxy";
+import { boxJson, type CliReply, fakeContainer, networkJson } from "./fake-container";
 
 const CA =
   "-----BEGIN CERTIFICATE-----\nMIIBszCCAVmgAwIBAgIBATAKBggqhkjOPQQDAjA=\n-----END CERTIFICATE-----\n";
@@ -439,6 +443,218 @@ describe("building the image", () => {
     });
     expect(await boxes.hasImage(boxImageTag(IMAGE))).toBe(true);
     expect(fake.args()).toEqual([["image", "inspect", boxImageTag(IMAGE)]]);
+  });
+});
+
+/** `container builder status --format json` of a builder in `state`, as `container list` shows it. */
+function builderJson(state: string): string {
+  return JSON.stringify([boxJson("buildkit", state)]);
+}
+
+/**
+ * The Apple backend over a fake `container` for one whole image build: the image is missing, the
+ * builder's status is `status`, and the build exits with `buildCode`. The builder stop is answered,
+ * so a test sees whether dipo ran it.
+ */
+function builderWorld(status: CliReply, buildCode = 0) {
+  const fake = fakeContainer((args) => {
+    const call = args.join(" ");
+    if (args[0] === "image") return { code: 1, stderr: "image not found" };
+    if (call === "builder status --format json") return status;
+    if (call === "builder start" || call === "builder stop") return {};
+    if (call === "network list --format json") {
+      return { stdout: JSON.stringify([networkJson("default", "nat", "192.0.2.20")]) };
+    }
+    if (args[0] === "build")
+      return buildCode === 0 ? {} : { code: buildCode, stderr: "apt failed" };
+    return undefined;
+  });
+  const boxes = new AppleContainerBoxes({
+    spawn: fake.spawn,
+    clock: new ManualClock(),
+    env: { PATH: "/usr/bin" },
+  });
+  return { fake, boxes };
+}
+
+/** A build route on the builder's network that writes its CA bundle into `dir`. */
+function buildRoute(dir: string) {
+  return async (network: BoxBuildNetwork): Promise<BoxWebRouteStart> => {
+    const caFile = join(dir, "route-ca.pem");
+    writeFileSync(caFile, CA);
+    const url = `http://${network.hostAddress}:3128`;
+    return {
+      ok: true,
+      route: { host: network.hostAddress, port: 3128, url, caFile, stop: async () => {} },
+    };
+  };
+}
+
+/** The builder calls of `fake`, in order. */
+function builderCalls(fake: ReturnType<typeof fakeContainer>): string[] {
+  return fake
+    .args()
+    .filter((args) => args[0] === "builder" || args[0] === "build")
+    .map((args) => (args[0] === "build" ? "build" : args.join(" ")));
+}
+
+/** A promise a test opens by hand. */
+function handGate(): { opened: Promise<void>; release: () => void } {
+  let release!: () => void;
+  const opened = new Promise<void>((resolve) => {
+    release = resolve;
+  });
+  return { opened, release };
+}
+
+describe("the image builder after a build (DIPO-298)", () => {
+  it("stops the builder after a build it started that passed", () =>
+    withTempDir(async (dir) => {
+      const { fake, boxes } = builderWorld({ stdout: builderJson("stopped") });
+      const result = await ensureImageWithBuildProxy(
+        { boxes, startRoute: buildRoute(dir), scratchRoot: dir },
+        IMAGE,
+      );
+      expect(result).toEqual({ tag: boxImageTag(IMAGE), built: true });
+      expect(builderCalls(fake)).toEqual([
+        "builder status --format json",
+        "builder start",
+        "build",
+        "builder stop",
+      ]);
+    }));
+
+  it("stops the builder after a build it started that failed, also when no builder existed", () =>
+    withTempDir(async (dir) => {
+      // A builder that does not exist yet: the status call fails and prints no JSON.
+      const { fake, boxes } = builderWorld({ code: 1, stderr: "builder not found" }, 1);
+      const error = await ensureImageWithBuildProxy(
+        { boxes, startRoute: buildRoute(dir), scratchRoot: dir },
+        IMAGE,
+      ).catch((caught: unknown) => caught);
+      expect(error).toMatchObject({ code: "box.failed" });
+      expect((error as BoxError).message).toContain("apt failed");
+      expect(builderCalls(fake)).toEqual([
+        "builder status --format json",
+        "builder start",
+        "build",
+        "builder stop",
+      ]);
+    }));
+
+  it("leaves a builder that was already running before the build running", () =>
+    withTempDir(async (dir) => {
+      for (const buildCode of [0, 1]) {
+        const { fake, boxes } = builderWorld({ stdout: builderJson("running") }, buildCode);
+        await ensureImageWithBuildProxy(
+          { boxes, startRoute: buildRoute(dir), scratchRoot: dir },
+          IMAGE,
+        ).catch(() => undefined);
+        expect(builderCalls(fake)).toEqual([
+          "builder status --format json",
+          "builder start",
+          "build",
+        ]);
+      }
+    }));
+
+  it("touches no builder when the image already exists", () =>
+    withTempDir(async (dir) => {
+      const fake = fakeContainer((args) => (args[0] === "image" ? { stdout: "[]" } : undefined));
+      const boxes = new AppleContainerBoxes({
+        spawn: fake.spawn,
+        clock: new ManualClock(),
+        env: { PATH: "/usr/bin" },
+      });
+      expect(
+        await ensureImageWithBuildProxy(
+          { boxes, startRoute: buildRoute(dir), scratchRoot: dir },
+          IMAGE,
+        ),
+      ).toEqual({ tag: boxImageTag(IMAGE), built: false });
+      expect(fake.args()).toEqual([["image", "inspect", boxImageTag(IMAGE)]]);
+    }));
+
+  it("stops the builder once, after the last of two builds at the same time", async () => {
+    const log: string[] = [];
+    const builder = {
+      builderRunning: async () => {
+        log.push("status");
+        return false;
+      },
+      stopBuilder: async () => {
+        log.push("stop");
+      },
+    };
+    const firstGate = handGate();
+    const secondGate = handGate();
+    const first = withImageBuilder(builder, undefined, async () => {
+      await firstGate.opened;
+      log.push("first built");
+    });
+    const second = withImageBuilder(builder, undefined, async () => {
+      await secondGate.opened;
+      throw new BoxError("box.failed", "the second build failed");
+    });
+    firstGate.release();
+    await first;
+    expect(log).toEqual(["status", "first built"]);
+    secondGate.release();
+    expect(await second.catch((error: unknown) => error)).toMatchObject({ code: "box.failed" });
+    expect(log).toEqual(["status", "first built", "stop"]);
+
+    // The next build reads the builder's state again, and a failed stop leaves its result alone.
+    const failingStop = {
+      ...builder,
+      stopBuilder: async () => {
+        log.push("stop failed");
+        throw new BoxError("box.failed", "container builder stop failed");
+      },
+    };
+    expect(await withImageBuilder(failingStop, undefined, async () => "built")).toBe("built");
+    expect(log.slice(3)).toEqual(["status", "stop failed"]);
+  });
+
+  it("reads a running builder from the status JSON, and anything else as not running", () => {
+    expect(builderIsRunning([boxJson("buildkit", "running")])).toBe(true);
+    expect(builderIsRunning(boxJson("buildkit", "running"))).toBe(true);
+    expect(builderIsRunning({ id: "buildkit", status: "running" })).toBe(true);
+    for (const value of [
+      [boxJson("buildkit", "stopped")],
+      [],
+      {},
+      null,
+      "builder is not running",
+      { status: { state: "stopping" } },
+    ]) {
+      expect(builderIsRunning(value)).toBe(false);
+    }
+  });
+
+  it("reads a failed or unreadable status call as a builder that is not running", async () => {
+    for (const [reply, running] of [
+      [{ stdout: builderJson("running") }, true],
+      [{ stdout: builderJson("stopped") }, false],
+      [{ stdout: "builder is not running\n" }, false],
+      [{ code: 1, stderr: "not found" }, false],
+    ] as const) {
+      const { fake, boxes } = builderWorld(reply);
+      expect(await boxes.builderRunning()).toBe(running);
+      expect(fake.args()).toEqual([["builder", "status", "--format", "json"]]);
+    }
+  });
+
+  it("fails a builder stop that container refuses, with its message", async () => {
+    const fake = fakeContainer(() => ({ code: 1, stderr: "builder is busy" }));
+    const boxes = new AppleContainerBoxes({
+      spawn: fake.spawn,
+      clock: new ManualClock(),
+      env: { PATH: "/usr/bin" },
+    });
+    const error = await boxes.stopBuilder().catch((caught: unknown) => caught);
+    expect(error).toMatchObject({ code: "box.failed" });
+    expect((error as BoxError).message).toContain("builder is busy");
+    expect(fake.args()).toEqual([["builder", "stop"]]);
   });
 });
 

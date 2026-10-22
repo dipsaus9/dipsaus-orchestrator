@@ -12,6 +12,8 @@ import {
   BUILD_NETWORK_NAME,
   buildArgs,
   builderStartArgs,
+  builderStatusArgs,
+  builderStopArgs,
   copyInArgs,
   copyOutArgs,
   createArgs,
@@ -209,6 +211,20 @@ export function boxMemory(listed: readonly unknown[], name: string): BoxMemory |
 }
 
 /**
+ * True when `container builder status --format json` shows a running builder (DIPO-298): one
+ * record, or a list of them, whose `status` is `running` or holds `state: running`, the shape
+ * `container list` prints. Anything else reads as not running: a builder that is missing may print
+ * no JSON at all.
+ */
+export function builderIsRunning(value: unknown): boolean {
+  const items = Array.isArray(value) ? value : [value];
+  return items.some((entry) => {
+    const status = record(entry)["status"];
+    return (typeof status === "string" ? status : record(status)["state"]) === "running";
+  });
+}
+
+/**
  * True when a failed `container stats` says box `name` is not running. 1.6.0 leaves a stopped box
  * out of its list and exits 0; this covers a version that fails instead. The output must name the
  * box, so a system service that is not running (`apiserver is not running`) still fails the call.
@@ -339,6 +355,23 @@ export class AppleContainerBoxes implements BoxPort {
       );
     }
     return { name: found.name, hostAddress: found.hostAddress };
+  }
+
+  async builderRunning(options: BoxCallOptions = {}): Promise<boolean> {
+    // A builder that is missing or unreadable is not running: dipo then stops it after the build
+    // that started it. A running builder this misreads is stopped too and starts again on the
+    // next build, which costs a start, not a build.
+    const result = await this.#run(builderStatusArgs(), options);
+    if (result.code !== 0) return false;
+    try {
+      return builderIsRunning(JSON.parse(result.stdout) as unknown);
+    } catch {
+      return false;
+    }
+  }
+
+  async stopBuilder(options: BoxCallOptions = {}): Promise<void> {
+    await this.#runOk(builderStopArgs(), options);
   }
 
   async create(spec: BoxSpec, options: BoxCallOptions = {}): Promise<string> {

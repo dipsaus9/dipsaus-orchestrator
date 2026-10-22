@@ -250,6 +250,13 @@ export interface BoxPort {
    * length of one build.
    */
   buildNetwork(options?: BoxCallOptions): Promise<BoxBuildNetwork>;
+  /**
+   * True when the image builder runs now (DIPO-298). Read before a build, so a builder that ran
+   * already is left running after it; a builder that is missing, stopped or unreadable is not.
+   */
+  builderRunning(options?: BoxCallOptions): Promise<boolean>;
+  /** Stops the image builder (DIPO-298), after a build whose `buildNetwork` started it. */
+  stopBuilder(options?: BoxCallOptions): Promise<void>;
   /** True when the image `tag` exists on this machine, so a build can be skipped. */
   hasImage(tag: string, options?: BoxCallOptions): Promise<boolean>;
   /**
