@@ -18,6 +18,7 @@ import {
   DIPO_PART_PATH,
   dipoPartScript,
   DOOR_MAX_PARTS_PER_READ,
+  DOOR_POLL_MS,
   DOOR_QUEUE,
   DOOR_READ_MAX_BYTES,
   DOOR_READ_SECONDS,
@@ -37,7 +38,7 @@ import {
   WORKER_REPORT_MAX_CHARS,
 } from "../../src/workers/claude-cli/report-schema";
 import type { WorkerReport } from "../../src/workers/types";
-import { FakeBoxes } from "./fake-boxes";
+import { BOX_HOST_ADDRESS, FakeBoxes, type LiveReply } from "./fake-boxes";
 
 const encoder = new TextEncoder();
 const ESC = "\u001b";
@@ -680,5 +681,121 @@ describe("the door poller (criterion 1)", () => {
       ]);
       expect(queued(queue)).toEqual(["1700000002-1.part.refused"]);
       again.door.close();
+    }));
+});
+
+/** Lets the door's pending reads and their reschedule run. */
+async function settle(): Promise<void> {
+  for (let i = 0; i < 20; i++) await Bun.sleep(0);
+}
+
+/** Waits until `done` holds, letting the door's reads run. */
+async function until(done: () => boolean): Promise<void> {
+  for (let i = 0; i < 200 && !done(); i++) await Bun.sleep(1);
+  expect(done()).toBe(true);
+}
+
+/** A running fake box `dipo-run_1` whose door reads end as `reply` says, and its door. */
+async function doorOnFakeBox(dir: string, reply: () => LiveReply) {
+  const boxes = new FakeBoxes({ live: () => reply() });
+  await boxes.create({
+    runId: "run_1",
+    image: "dipo-box:x",
+    network: { name: "dipo-boxes", mode: "hostOnly", hostAddress: BOX_HOST_ADDRESS },
+  });
+  await boxes.start("dipo-run_1");
+  const clock = new ManualClock();
+  const state = { live: true };
+  const lines: { message: string; fields: Readonly<Record<string, unknown>> }[] = [];
+  const log = (message: string, fields: Readonly<Record<string, unknown>>) =>
+    lines.push({ message, fields });
+  const door = new BoxDoor({
+    boxes,
+    clock,
+    live: (runId) => runId === "run_1" && state.live,
+    info: log,
+    warn: log,
+  });
+  door.start("run_1", "dipo-run_1", dir);
+  const reads = () => boxes.liveExecs.filter((call) => call.box === "dipo-run_1").length;
+  const unreadable = () =>
+    lines.filter((line) => line.message === "the box door could not be read");
+  return { boxes, clock, state, lines, door, reads, unreadable };
+}
+
+describe("the door at the end of a box run (DIPO-297)", () => {
+  it("starts no read once the run has ended, on the poll or when asked", () =>
+    withTempDir(async (dir) => {
+      const t = await doorOnFakeBox(dir, () => ({ stdout: "end\n" }));
+      t.clock.advance(DOOR_POLL_MS);
+      await until(() => t.reads() === 1);
+      await settle();
+      // The run ends (a decision was made): its box is about to stop.
+      t.state.live = false;
+      for (let i = 0; i < 3; i++) {
+        t.clock.advance(DOOR_POLL_MS);
+        await settle();
+      }
+      expect(t.door.read("run_1")).toBeNull();
+      expect(t.reads()).toBe(1);
+      expect(t.lines).toEqual([]);
+      t.door.close();
+    }));
+
+  it("logs nothing when the run's end and the stop of its box cut a read that ran", () =>
+    withTempDir(async (dir) => {
+      const t = await doorOnFakeBox(dir, () => ({ hang: true }));
+      t.clock.advance(DOOR_POLL_MS);
+      await until(() => t.reads() === 1);
+      t.state.live = false;
+      // The stop ends the read in the box: its exec client exits 137.
+      await t.boxes.stop("dipo-run_1");
+      await settle();
+      t.clock.advance(DOOR_POLL_MS);
+      await settle();
+      expect(t.unreadable()).toEqual([]);
+      expect(t.reads()).toBe(1);
+      t.door.close();
+    }));
+
+  it("logs nothing for a read that fails because the box is stopping or stopped", () =>
+    withTempDir(async (dir) => {
+      const t = await doorOnFakeBox(dir, () => ({ hang: true }));
+      t.clock.advance(DOOR_POLL_MS);
+      await until(() => t.reads() === 1);
+      // The worker exited on its own and its host stops the box; nothing was decided yet.
+      await t.boxes.stop("dipo-run_1");
+      await settle();
+      expect(t.unreadable()).toEqual([]);
+      // The next poll finds the box stopped: the read fails at once, quietly.
+      t.clock.advance(DOOR_POLL_MS);
+      await settle();
+      expect(t.unreadable()).toEqual([]);
+      t.door.close();
+    }));
+
+  it("still logs a read that fails while the box runs, and reads again on the next poll", () =>
+    withTempDir(async (dir) => {
+      let code = 1;
+      const t = await doorOnFakeBox(dir, () => ({ stdout: "end\n", code }));
+      t.clock.advance(DOOR_POLL_MS);
+      await until(() => t.unreadable().length === 1);
+      expect(t.unreadable()[0]?.fields).toEqual({
+        run: "run_1",
+        box: "dipo-run_1",
+        reason: "the door read in the box exited 1.",
+      });
+      code = 0;
+      await settle();
+      t.clock.advance(DOOR_POLL_MS);
+      await until(() => t.reads() === 2);
+      await settle();
+      expect(t.unreadable()).toHaveLength(1);
+      // A read asked for while the box runs still rejects as before.
+      code = 1;
+      await expect(t.door.read("run_1") ?? Promise.resolve(null)).rejects.toThrow(
+        "the door read in the box exited 1.",
+      );
+      t.door.close();
     }));
 });

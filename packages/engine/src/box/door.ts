@@ -38,6 +38,12 @@
 // `BoxDoor` polls the queue of each box that runs a session, records each part and each refusal in
 // the run directory (`DOOR_RECORD_FILE`, on the Mac, never in the box) and hands each part to its
 // `onPart` callback. Delivering and committing the part is DIPO-273, which consumes that callback.
+//
+// A door is read only while its run goes on (DIPO-297): with `live`, no read starts once the run
+// has ended (a decision was made, so its box is about to stop). A scheduled read that fails is
+// logged only while the box still runs: when the door was stopped meanwhile, the run ended, or the
+// backend no longer lists the box as running (stopping or stopped), the failure is the end of the
+// session, not a door fault, and nothing is logged.
 
 import { appendFileSync, readFileSync } from "node:fs";
 import { chmod, mkdtemp, rm, writeFile } from "node:fs/promises";
@@ -557,7 +563,11 @@ export type DoorRecordLine =
     };
 
 export interface BoxDoorDeps {
-  readonly boxes: Pick<BoxPort, "execLive">;
+  /**
+   * The reads; with `list`, a failed scheduled read is logged only while the backend lists the
+   * box as running.
+   */
+  readonly boxes: Pick<BoxPort, "execLive"> & Partial<Pick<BoxPort, "list">>;
   readonly clock: Clock;
   /** How often a box's queue is read; `DOOR_POLL_MS` by default. */
   readonly pollMs?: number;
@@ -570,6 +580,11 @@ export interface BoxDoorDeps {
   readonly onPart?: (part: DoorPart) => Promise<void> | void;
   /** A message the door refused, after it was recorded. */
   readonly onRefused?: (runId: string, refused: DoorRefused) => void;
+  /**
+   * True while the run goes on (tracked, nothing decided for it yet). With it, no read of a run
+   * for which it is false starts: `read` returns null and a scheduled read waits for the next poll.
+   */
+  readonly live?: (runId: string) => boolean;
   readonly warn?: (message: string, fields: Readonly<Record<string, unknown>>) => void;
   readonly info?: (message: string, fields: Readonly<Record<string, unknown>>) => void;
 }
@@ -672,6 +687,8 @@ export class BoxDoor {
   read(runId: string): Promise<DoorRead> | null {
     const door = this.#open.get(runId);
     if (door === undefined) return null;
+    // A read in flight is waited for; a new one starts only while the run goes on.
+    if (door.reading === null && this.#deps.live?.(runId) === false) return null;
     door.reading ??= this.#read(door).finally(() => {
       door.reading = null;
     });
@@ -683,8 +700,10 @@ export class BoxDoor {
     door.timer = this.#deps.clock.setTimeout(() => {
       door.timer = null;
       void (this.read(door.runId) ?? Promise.resolve(null))
-        .catch((error: unknown) => {
-          // A box between two sessions, or stopped, cannot be read: the next read tries again.
+        .catch(async (error: unknown) => {
+          // A read the end of the session cut is no door fault (see the file comment).
+          if (!(await this.#boxRuns(door))) return;
+          // A box between two sessions cannot be read: the next read tries again.
           this.#deps.info?.("the box door could not be read", {
             run: door.runId,
             box: door.box,
@@ -693,6 +712,23 @@ export class BoxDoor {
         })
         .finally(() => this.#schedule(door));
     }, this.#deps.pollMs ?? DOOR_POLL_MS);
+  }
+
+  /**
+   * After a failed read: false when the door was stopped, the run ended, or the backend lists the
+   * box as anything but running. A list that fails says nothing, so the failure counts.
+   */
+  async #boxRuns(door: OpenDoor): Promise<boolean> {
+    if (door.closed || this.#deps.live?.(door.runId) === false) return false;
+    const list = this.#deps.boxes.list;
+    if (list === undefined) return true;
+    let state: string | undefined;
+    try {
+      state = (await list.call(this.#deps.boxes)).find((box) => box.name === door.box)?.state;
+    } catch {
+      return true;
+    }
+    return state === "running" && !door.closed && this.#deps.live?.(door.runId) !== false;
   }
 
   #exec(door: OpenDoor): DoorExec {
