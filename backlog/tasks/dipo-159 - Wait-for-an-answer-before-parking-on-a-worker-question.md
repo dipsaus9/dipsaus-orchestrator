@@ -4,7 +4,7 @@ title: Wait for an answer before parking on a worker question
 status: Refined
 assignee: []
 created_date: '2026-10-17 12:52'
-updated_date: '2026-10-21 23:04'
+updated_date: '2026-10-22 08:32'
 labels:
   - 'tier:M'
   - 'slice:m1a'
@@ -18,6 +18,7 @@ dependencies:
   - DIPO-290
   - DIPO-291
   - DIPO-292
+  - DIPO-294
 references:
   - packages/engine/src/run/
   - packages/engine/src/hooks/

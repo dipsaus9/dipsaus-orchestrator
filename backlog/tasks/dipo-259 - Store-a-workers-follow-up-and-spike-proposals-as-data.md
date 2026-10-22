@@ -4,7 +4,7 @@ title: Store a worker's follow-up and spike proposals as data
 status: Refined
 assignee: []
 created_date: '2026-10-20 20:20'
-updated_date: '2026-10-21 23:04'
+updated_date: '2026-10-22 08:32'
 labels:
   - 'tier:S'
   - cutover
@@ -13,6 +13,8 @@ dependencies:
   - DIPO-256
   - DIPO-289
   - DIPO-291
+  - DIPO-293
+  - DIPO-294
 references:
   - packages/engine/src/workers/types.ts
   - packages/engine/src/workers/claude-cli/report-schema.ts

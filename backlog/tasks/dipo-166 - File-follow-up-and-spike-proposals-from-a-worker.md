@@ -4,7 +4,7 @@ title: File follow-up and spike proposals from a worker
 status: Refined
 assignee: []
 created_date: '2026-10-17 12:52'
-updated_date: '2026-10-21 23:04'
+updated_date: '2026-10-22 08:33'
 labels:
   - 'tier:M'
   - 'slice:m1a'
@@ -18,6 +18,9 @@ dependencies:
   - DIPO-290
   - DIPO-291
   - DIPO-292
+  - DIPO-294
+  - DIPO-295
+  - DIPO-296
 references:
   - packages/contract/src/
   - packages/contract/schema/

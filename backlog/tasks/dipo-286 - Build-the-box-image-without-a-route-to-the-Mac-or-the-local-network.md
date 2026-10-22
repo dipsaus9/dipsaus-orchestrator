@@ -4,7 +4,7 @@ title: Build the box image without a route to the Mac or the local network
 status: To Do
 assignee: []
 created_date: '2026-10-21 15:23'
-updated_date: '2026-10-21 16:30'
+updated_date: '2026-10-22 08:33'
 labels:
   - box
   - cutover
@@ -13,6 +13,8 @@ milestone: m-1
 dependencies:
   - DIPO-275
   - DIPO-283
+  - DIPO-294
+  - DIPO-298
 references:
   - packages/engine/src/box/image.ts
   - docs/decisions/0021-worker-isolation.md
