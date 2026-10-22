@@ -6,18 +6,23 @@
 //   the box network's address is found), dipo's web route started there (the web proxy with
 //   Safe-Chain behind it, so the box web proxy's address rules apply: only public internet
 //   addresses, never the Mac's own addresses, its on-link prefixes or the builder's network), the
-//   image built through it, and the route stopped again, whatever the build's result.
+//   image built through it, and the route stopped again, whatever the build's result;
+// - the builder is stopped again after the build when it did not run before (`withImageBuilder`,
+//   DIPO-298), whatever the build's result; a builder that already ran is left running.
 //
 // The builder runs on Apple `container`'s default network, not the host-only box network (`container
 // build` has no network option), so the proxy listens on that network's host address.
 
 import type { BoxBuildProxy, BoxImageDescription, BoxImageResult } from "./image";
-import { boxImageTag, ensureBoxImage } from "./image";
+import { boxImageTag, ensureBoxImage, withImageBuilder } from "./image";
 import { BoxError, type BoxBuildNetwork, type BoxCallOptions, type BoxPort } from "./port";
 import type { BoxWebRouteStart } from "./web-proxy";
 
 export interface BuildProxyDeps {
-  readonly boxes: Pick<BoxPort, "hasImage" | "buildImage" | "buildNetwork">;
+  readonly boxes: Pick<
+    BoxPort,
+    "hasImage" | "buildImage" | "buildNetwork" | "builderRunning" | "stopBuilder"
+  >;
   /** Starts the web route on `network`'s host address (`startBoxWebRoute` in the daemon). */
   readonly startRoute: (network: BoxBuildNetwork) => Promise<BoxWebRouteStart>;
   /** dipo's private folder for build folders, outside any repository. */
@@ -34,6 +39,14 @@ async function buildThroughProxy(
   tag: string,
 ): Promise<BoxImageResult> {
   if (await deps.boxes.hasImage(tag, deps.options)) return { tag, built: false };
+  return withImageBuilder(deps.boxes, deps.options, () => buildOnBuilder(deps, image));
+}
+
+/** One build on the builder: its network, the route there, the build, the route stopped. */
+async function buildOnBuilder(
+  deps: BuildProxyDeps,
+  image: BoxImageDescription,
+): Promise<BoxImageResult> {
   const network = await deps.boxes.buildNetwork(deps.options);
   const started = await deps.startRoute(network);
   if (!started.ok) {

@@ -77,11 +77,13 @@ describe("the image build's proxy", () => {
       const tag = boxImageTag(IMAGE).slice(0, 16);
       expect(log).toEqual([
         `has image ${tag}`,
+        "builder status stopped",
         "build network",
         `route on default ${BUILD_HOST_ADDRESS}`,
         `has image ${tag}`,
         `build ${tag} through http://${BUILD_HOST_ADDRESS}:3128`,
         "route stopped",
+        "stop builder",
       ]);
     }));
 
@@ -98,7 +100,7 @@ describe("the image build's proxy", () => {
         IMAGE,
       ).catch((error: unknown) => error);
       expect((failed as BoxError).code).toBe("box.failed");
-      expect(log.slice(-2)).toEqual(["build failed", "route stopped"]);
+      expect(log.slice(-3)).toEqual(["build failed", "route stopped", "stop builder"]);
 
       const noRoute: string[] = [];
       const refused = await ensureImageWithBuildProxy(
@@ -112,6 +114,7 @@ describe("the image build's proxy", () => {
       expect((refused as BoxError).code).toBe("box.buildProxyFailed");
       expect((refused as BoxError).message).toContain("Safe-Chain is not installed");
       expect(noRoute.some((line) => line.startsWith("build dipo-box"))).toBe(false);
+      expect(noRoute.at(-1)).toBe("stop builder");
     }));
 
   it("applies the box web proxy's address rules with the builder's network as the refused one", () => {
