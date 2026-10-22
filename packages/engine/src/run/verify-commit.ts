@@ -45,7 +45,9 @@
 // no verify for it (0021 amendment of 2026-10-22, DIPO-299): the worker runs the office's verify in
 // its box before it reports done, and CI on the story PR is the verify. At done, in one held turn
 // of the run's parts (`BoxParts.finishLast`), so no part moves the branch meanwhile: the last part
-// is delivered (a hit, a refused part or a rejected push parks), the gate changes of the branch are
+// is delivered (a hit, a refused part or a rejected push parks; one dipo cannot take out is tried
+// again at the door's pace, `DOOR_POLL_MS`, for up to `PART_STUCK_MIN_MS` before the story parks
+// `interrupted`, DIPO-290), the gate changes of the branch are
 // recorded for the review, and the run's end is claimed while the parts are still held, so a part
 // or catch-up queued meanwhile finds the run not live and stays in the box. Just before In Review
 // the branch must still be at the last part's commit, else the story parks (`BOX_TIP_MOVED`). Then
@@ -90,7 +92,13 @@ import { LOCKFILES, parseManifest } from "../scan/detect/manifest";
 import { deriveStoryView, storyView } from "../views/story";
 import { runProgress } from "../views/work";
 import type { WorkerReport } from "../workers/types";
-import { type LastPartAccess, type LastPartFinish, partPark } from "../box/parts";
+import { DOOR_POLL_MS } from "../box/door";
+import {
+  type LastPartAccess,
+  type LastPartFinish,
+  PART_STUCK_MIN_MS,
+  partPark,
+} from "../box/parts";
 import { findClaim, updateClaim } from "../worktree/records";
 import { buildRunEnv } from "../worktree/run-env";
 
@@ -592,8 +600,10 @@ export class VerifyCommit implements RunFinisher {
    * changed since are delivered as the last part; then the branch's gate changes are recorded and
    * the run's end is claimed while the parts are still held. A hit, a refused part or a rejected
    * push parks. dipo runs no verify: the story moves to review at the last part's commit, and the
-   * push starts the review and CI on it. A failure to take the last part parks `interrupted` with a
-   * fixed text and the error's code: its message may quote the box's output.
+   * push starts the review and CI on it. A failure to take the last part is tried again every
+   * `DOOR_POLL_MS` while the run goes on, for up to `PART_STUCK_MIN_MS` from the first failure
+   * (DIPO-290); then it parks `interrupted` with a fixed text and the error's code: its message may
+   * quote the box's output.
    */
   async #boxDone(ctx: TurnContext, report: WorkerReport): Promise<TurnDecision> {
     const { run } = ctx;
@@ -601,32 +611,47 @@ export class VerifyCommit implements RunFinisher {
     // What `finish` threw is kept apart from a failure to take the last part.
     let thrown: { readonly error: unknown } | null = null;
     let done: LastPartFinish<LastPartAccess | null>;
-    try {
-      done = await parts.finishLast(run.runId, report.commitSubject, async (last) => {
-        try {
-          if (!ctx.live()) return null;
-          await this.#boxGateChanges(ctx, this.#deps.profile(ctx.office));
-          // Claimed while the parts are still held, so a part the door queued meanwhile, or a
-          // catch-up, finds the run not live and stays queued in the box.
-          return ctx.claimEnd() ? last : null;
-        } catch (error) {
-          thrown = { error };
-          return null;
+    const clock = this.#deps.clock;
+    let firstFailure: number | null = null;
+    for (;;) {
+      try {
+        done = await parts.finishLast(run.runId, report.commitSubject, async (last) => {
+          try {
+            if (!ctx.live()) return null;
+            await this.#boxGateChanges(ctx, this.#deps.profile(ctx.office));
+            // Claimed while the parts are still held, so a part the door queued meanwhile, or a
+            // catch-up, finds the run not live and stays queued in the box.
+            return ctx.claimEnd() ? last : null;
+          } catch (error) {
+            thrown = { error };
+            return null;
+          }
+        });
+        break;
+      } catch (error) {
+        firstFailure ??= clock.now();
+        if (clock.now() - firstFailure < PART_STUCK_MIN_MS && ctx.live()) {
+          // Tried again at the door's pace: a short failure never parks the story (DIPO-290).
+          this.#deps.warn?.("the last part could not be delivered; trying again", {
+            run: run.runId,
+            reason: messageOf(error),
+          });
+          await new Promise<void>((resolve) => clock.setTimeout(resolve, DOOR_POLL_MS));
+          continue;
         }
-      });
-    } catch (error) {
-      this.#deps.warn?.("the last part could not be delivered", {
-        run: run.runId,
-        reason: messageOf(error),
-      });
-      const code = (error as { code?: unknown } | null)?.code;
-      return {
-        kind: "park",
-        reason: "interrupted",
-        cause: PARK_CAUSES.build,
-        detail: `dipo could not take the last part out of the box (${typeof code === "string" ? code : "error"}); nothing of it was committed.`,
-        endKind: "interrupted",
-      };
+        this.#deps.warn?.("the last part could not be delivered", {
+          run: run.runId,
+          reason: messageOf(error),
+        });
+        const code = (error as { code?: unknown } | null)?.code;
+        return {
+          kind: "park",
+          reason: "interrupted",
+          cause: PARK_CAUSES.build,
+          detail: `dipo could not take the last part out of the box (${typeof code === "string" ? code : "error"}); nothing of it was committed.`,
+          endKind: "interrupted",
+        };
+      }
     }
     if (thrown !== null) throw (thrown as { readonly error: unknown }).error;
     const park = partPark(done.outcome);
