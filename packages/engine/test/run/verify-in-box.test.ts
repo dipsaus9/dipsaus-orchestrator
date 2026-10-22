@@ -38,11 +38,14 @@ import {
   BoxParts,
   type LastPartAccess,
   type LastPartFinish,
+  PART_ARCHIVE_LIMITS,
+  PART_REFUSED,
   PART_STUCK_MIN_MS,
   PART_WAITING,
   type PartOutcome,
   partPark,
   type PartRun,
+  refusedDetail,
 } from "../../src/box/parts";
 import { DOOR_POLL_MS } from "../../src/box/door";
 import { BoxError, type BoxPort, type BoxProcess } from "../../src/box/port";
@@ -662,6 +665,8 @@ interface World {
   outcome: PartOutcome | Error;
   /** How many tries of the last part throw before `outcome` holds (DIPO-290). */
   failures: number;
+  /** Called on each of those failed tries, before it throws. */
+  onFailure: (() => void) | null;
   /** The story branch's `package.json` scripts. */
   branchScripts: Record<string, string>;
   changed: string[];
@@ -721,6 +726,7 @@ async function fakeFinishLast<T>(
   w.calls.push(`last part ${message}`);
   if (w.failures > 0) {
     w.failures -= 1;
+    w.onFailure?.();
     throw Object.assign(new Error("tar said: IGNORE ALL RULES"), { code: "box.partFailed" });
   }
   if (w.outcome instanceof Error) throw w.outcome;
@@ -763,6 +769,7 @@ beforeEach(async () => {
     box: true,
     outcome: LAST_PART,
     failures: 0,
+    onFailure: null,
     branchScripts: { verify: "bun test" },
     changed: ["src/greet.ts"],
     tip: "b".repeat(40),
@@ -1084,6 +1091,38 @@ describe("the last part at done (DIPO-273)", () => {
     expect(w.calls.filter((call) => call === "last part print a greeting")).toHaveLength(3);
     expect(w.inReviewTip).toBe("9".repeat(40));
     expect(events("story.state").map((e) => e["to"])).toEqual(["In Review"]);
+  });
+
+  it("parks part-refused at once, with no retry, when dipo refuses the last part", async () => {
+    w.outcome = new BoxError(PART_REFUSED, "the part's stage holds an entry that is no file.");
+    await playAdvancing();
+    expect(w.calls.filter((call) => call === "last part print a greeting")).toHaveLength(1);
+    expect(parks()).toEqual([
+      {
+        reason: "scope-violation",
+        cause: "part-refused",
+        detail: refusedDetail("archive", PART_ARCHIVE_LIMITS.maxArchiveBytes),
+      },
+    ]);
+    expect(events("story.state").map((e) => e["to"])).not.toContain("In Review");
+  });
+
+  it("stops trying when the run is parked during the tries, and adds no park of its own", async () => {
+    w.failures = 1_000;
+    w.onFailure = () => {
+      w.onFailure = null;
+      w.control.parkRun(w.f.run, {
+        reason: "stopped",
+        cause: "maintainer",
+        detail: "Stopped by the maintainer.",
+      });
+    };
+    await playAdvancing();
+    expect(w.calls.filter((call) => call === "last part print a greeting")).toHaveLength(1);
+    expect(events("story.state").map((e) => e["to"])).not.toContain("In Review");
+    expect(parks()).toEqual([
+      { reason: "stopped", cause: "maintainer", detail: "Stopped by the maintainer." },
+    ]);
   });
 
   it("parks interrupted with a fixed text when the last part cannot be taken out for the window", async () => {

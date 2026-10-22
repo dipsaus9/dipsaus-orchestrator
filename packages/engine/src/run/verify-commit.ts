@@ -96,9 +96,13 @@ import { DOOR_POLL_MS } from "../box/door";
 import {
   type LastPartAccess,
   type LastPartFinish,
+  PART_ARCHIVE_LIMITS,
+  PART_REFUSED,
   PART_STUCK_MIN_MS,
   partPark,
+  refusedDetail,
 } from "../box/parts";
+import { BoxError } from "../box/port";
 import { findClaim, updateClaim } from "../worktree/records";
 import { buildRunEnv } from "../worktree/run-env";
 
@@ -603,7 +607,8 @@ export class VerifyCommit implements RunFinisher {
    * push starts the review and CI on it. A failure to take the last part is tried again every
    * `DOOR_POLL_MS` while the run goes on, for up to `PART_STUCK_MIN_MS` from the first failure
    * (DIPO-290); then it parks `interrupted` with a fixed text and the error's code: its message may
-   * quote the box's output.
+   * quote the box's output. A part dipo refuses (`PART_REFUSED`) parks `part-refused` at once, and
+   * a run that parked or stopped during the tries keeps that decision.
    */
   async #boxDone(ctx: TurnContext, report: WorkerReport): Promise<TurnDecision> {
     const { run } = ctx;
@@ -629,8 +634,22 @@ export class VerifyCommit implements RunFinisher {
         });
         break;
       } catch (error) {
+        if (error instanceof BoxError && error.code === PART_REFUSED) {
+          // What dipo does not take is the same on every try: refused at once, as a part is.
+          this.#deps.warn?.("the last part was refused", {
+            run: run.runId,
+            reason: messageOf(error),
+          });
+          const refused = partPark({
+            kind: "refused",
+            detail: refusedDetail("archive", PART_ARCHIVE_LIMITS.maxArchiveBytes),
+          }) as NonNullable<ReturnType<typeof partPark>>;
+          return { kind: "park", ...refused, endKind: refused.reason };
+        }
+        // The run parked or stopped meanwhile: that decision stands, and no part park is added.
+        if (!ctx.live()) return { kind: "continue" };
         firstFailure ??= clock.now();
-        if (clock.now() - firstFailure < PART_STUCK_MIN_MS && ctx.live()) {
+        if (clock.now() - firstFailure < PART_STUCK_MIN_MS) {
           // Tried again at the door's pace: a short failure never parks the story (DIPO-290).
           this.#deps.warn?.("the last part could not be delivered; trying again", {
             run: run.runId,

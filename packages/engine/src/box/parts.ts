@@ -1596,7 +1596,15 @@ export class BoxParts {
       return { kind: "refused", why: "archive" };
     }
     await rm(archive, { recursive: true, force: true });
-    return { kind: "taken", files: await readPartFiles(dest, view.format), links };
+    try {
+      return { kind: "taken", files: await readPartFiles(dest, view.format), links };
+    } catch (error) {
+      // An entry that is no file or folder in the stage: refused like a hostile archive.
+      if (error instanceof BoxError && error.code === PART_REFUSED) {
+        return { kind: "refused", why: "archive" };
+      }
+      throw error;
+    }
   }
 
   /**
