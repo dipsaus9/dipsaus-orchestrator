@@ -451,6 +451,9 @@ function daemonBoxWorkers(
     // The part queue of each box is read while its session runs (DIPO-272), and each part is
     // delivered (DIPO-273).
     door: { onPart: deliverThenCheck((part) => delivery.onPart(part), afterPart) },
+    // After the install in a new box, its /work is compared with the start commit on dipo's own
+    // copy, as a part is (DIPO-294).
+    treeCheck: (run) => delivery.changedSinceStart(run),
     scratchRoot: (() => {
       ensurePrivateDir(scratchRoot);
       return scratchRoot;

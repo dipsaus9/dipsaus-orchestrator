@@ -21,6 +21,11 @@
 // - `finishEnded` finishes the box of every run that has ended (after an exit, at daemon start;
 //   at daemon start also every dipo box the backend lists), and `close` stops every box at daemon
 //   stop, which ends the worker inside it.
+// - Before the worker's first session (the launch, after `create`; DIPO-294): `install` runs the
+//   office's install in the box at the start commit with the box's web route and the Safe-Chain CA
+//   bundle, as a session gets them (`runBoxInstall`), and `changedSinceStart` compares `/work`
+//   with the start commit on dipo's own copy (`BoxWorkersDeps.treeCheck`), never by running git
+//   or any tool on the box's files.
 //
 // Two records: the run directory's `BOX_RUN_FILE` says the run is a box worker's, so every later
 // session of the run plans in its box; the index folder in dipo's state folder holds one file per
@@ -50,7 +55,9 @@ import {
   boxName,
   runIdOfBox,
 } from "./port";
+import type { PartRun, StartTreeCheck } from "./parts";
 import { type BoxTokenCheck, checkBoxAfterRun, tokenCheckFailure } from "./token-check";
+import { type BoxInstallResult, runBoxInstall } from "./verify";
 import { BoxWebRoute, type BoxWebRouteStart, type RunningBoxWebRoute } from "./web-proxy";
 
 /** The run directory's record that the run's developer works in a box. */
@@ -136,6 +143,12 @@ export interface BoxWorkersDeps {
    * installed in every box either way.
    */
   readonly door?: Pick<BoxDoorDeps, "onPart" | "onRefused" | "pollMs">;
+  /**
+   * Compares a box's `/work` with the start commit on dipo's own copy
+   * (`BoxParts.changedSinceStart`, DIPO-294), for the check after the install; without it that
+   * check is not known, which stops the launch.
+   */
+  readonly treeCheck?: (run: PartRun) => Promise<StartTreeCheck>;
   readonly warn?: Log;
   readonly info?: Log;
 }
@@ -403,11 +416,14 @@ export class BoxWorkers {
     await this.#deps.boxes.start(name);
   }
 
-  /** Copies the system file and the CA bundle into `BOX_DIPO_DIR` through a stage of dipo's. */
-  async #copyDipoFiles(name: string, systemFile: string, caFile: string): Promise<void> {
+  /**
+   * Copies the CA bundle, and the system file when given, into `BOX_DIPO_DIR` through a stage of
+   * dipo's.
+   */
+  async #copyDipoFiles(name: string, systemFile: string | null, caFile: string): Promise<void> {
     const stage = await mkdtemp(join(this.#deps.tmpRoot, BOX_FILES_STAGE_PREFIX));
     try {
-      await copyFile(systemFile, join(stage, "system.md"));
+      if (systemFile !== null) await copyFile(systemFile, join(stage, "system.md"));
       await copyFile(caFile, join(stage, "safe-chain-ca.pem"));
       await this.#deps.boxes.copyIn(name, `${stage}/.`, BOX_DIPO_DIR);
     } finally {
@@ -500,6 +516,72 @@ export class BoxWorkers {
    */
   readDoor(runId: string): Promise<DoorRead> | null {
     return this.#door?.read(runId) ?? null;
+  }
+
+  /**
+   * The office's install at the start commit in the run's box (DIPO-294), after `create` and
+   * before the worker's first session: dipo's web route acquired for the box (the box runs, so
+   * the box network's address exists on the Mac), the Safe-Chain CA bundle copied in, and each
+   * command list run in `/work` with `env` plus the route's HTTPS_PROXY, HTTP_PROXY and
+   * NODE_EXTRA_CA_CERTS, exactly as a session gets them, within `timeoutMs` (`runBoxInstall`).
+   * The session later uses the same route. A failure is a result, logged with the cleaned tail of
+   * the box's output; a route that does not start throws its `BoxError`.
+   */
+  async install(input: {
+    readonly runId: string;
+    readonly commands: readonly (readonly string[])[];
+    readonly env: Readonly<Record<string, string>>;
+    readonly timeoutMs: number;
+  }): Promise<BoxInstallResult> {
+    const box = boxName(input.runId);
+    const web = await this.#web.acquire(box);
+    await this.#copyDipoFiles(box, null, web.caFile);
+    const result = await runBoxInstall(
+      {
+        boxes: this.#deps.boxes,
+        clock: this.#deps.code.clock,
+        ...(this.#deps.warn === undefined ? {} : { warn: this.#deps.warn }),
+      },
+      {
+        box,
+        commands: input.commands,
+        env: {
+          ...input.env,
+          HTTPS_PROXY: web.url,
+          HTTP_PROXY: web.url,
+          NODE_EXTRA_CA_CERTS: BOX_CA_FILE,
+        },
+        timeoutMs: input.timeoutMs,
+      },
+    );
+    if (result.ok) {
+      this.#deps.info?.("the install in the box passed", { run: input.runId, box });
+    } else {
+      this.#deps.warn?.("the install in the box failed", {
+        run: input.runId,
+        box,
+        reason: result.reason,
+        ended: result.ended,
+        output: result.output,
+      });
+    }
+    return result;
+  }
+
+  /**
+   * What the run's box `/work` holds besides the start commit (DIPO-294), checked after the
+   * install and before the worker: compared on dipo's own copy (`BoxWorkersDeps.treeCheck`); not
+   * known without it.
+   */
+  changedSinceStart(input: Omit<PartRun, "box" | "runDir">): Promise<StartTreeCheck> {
+    const check = this.#deps.treeCheck;
+    if (check === undefined) {
+      return Promise.resolve({
+        kind: "unknown",
+        reason: "this daemon cannot compare the box's files with the start commit",
+      });
+    }
+    return check({ ...input, box: boxName(input.runId) });
   }
 
   /** Deletes the box of a run whose worker never ran (a failed launch); no token check. */

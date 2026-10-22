@@ -69,6 +69,10 @@ import { type LaunchPlan, type ParseState, PlanError } from "../../src/workers/t
 import type { ClaimOutcome, ClaimRequest, ClaimSetupFailed } from "../../src/worktree/claim";
 import { findClaim, insertClaim, releaseClaim, type ClaimRecord } from "../../src/worktree/records";
 import type { SetupOutcome } from "../../src/worktree/setup";
+import type { StartTreeCheck } from "../../src/box/parts";
+import { BoxError } from "../../src/box/port";
+import type { BoxInstallResult } from "../../src/box/verify";
+import type { RunProfile } from "../../src/scan/detect";
 import { addOffice, countRows, openTestState, type TestState } from "../commands/helpers";
 import { storeResolvedVerify } from "./verify-profile";
 
@@ -189,7 +193,35 @@ interface World {
   /** What the box workers were asked (DIPO-271), and whether making a box fails. */
   readonly boxCalls: string[];
   boxFails: boolean;
+  /** Each install in a box (DIPO-294): its commands, environment and deadline. */
+  readonly boxInstalls: {
+    commands: readonly (readonly string[])[];
+    env: Readonly<Record<string, string>>;
+    timeoutMs: number;
+  }[];
+  /** What the install in the box and the check of its /work give (DIPO-294). */
+  boxInstall: BoxInstallResult;
+  /** Thrown by the install in the box instead of a result, when set. */
+  boxInstallThrows: Error | null;
+  boxTree: StartTreeCheck;
+  /** The office's run profile the launcher reads for the box's install (DIPO-294). */
+  profile: RunProfile | null;
+  /** The reason of each failed setup, which `claimStory` puts in its `setup.failed` notice. */
+  readonly setupFailures: string[];
 }
+
+/** A run profile with `install` as its install (DIPO-294); the launcher reads only it and ports. */
+function profileWith(install: RunProfile["capabilities"]["install"]): RunProfile {
+  return { capabilities: { install }, devPorts: [] } as unknown as RunProfile;
+}
+
+const FROZEN_INSTALL = profileWith({
+  status: "resolved",
+  value: { commands: [["bun", "install", "--frozen-lockfile"]], cwd: "." },
+  source: "lockfile",
+  confidence: "high",
+  evidence: "bun.lock",
+} as unknown as RunProfile["capabilities"]["install"]);
 
 let world: World;
 
@@ -233,6 +265,12 @@ beforeEach(async () => {
     verifyRefusal: null,
     boxCalls: [] as string[],
     boxFails: false,
+    boxInstalls: [] as World["boxInstalls"],
+    boxInstall: { ok: true } as BoxInstallResult,
+    boxInstallThrows: null,
+    boxTree: { kind: "same" } as StartTreeCheck,
+    profile: FROZEN_INSTALL,
+    setupFailures: [] as string[],
   } as unknown as World;
 
   const git = {
@@ -324,7 +362,22 @@ beforeEach(async () => {
       discard: async (runId) => {
         w.boxCalls.push(`discard ${runId}`);
       },
+      install: async (input) => {
+        w.boxCalls.push(`install ${input.runId}`);
+        w.boxInstalls.push({
+          commands: input.commands,
+          env: input.env,
+          timeoutMs: input.timeoutMs,
+        });
+        if (w.boxInstallThrows !== null) throw w.boxInstallThrows;
+        return w.boxInstall;
+      },
+      changedSinceStart: async (input) => {
+        w.boxCalls.push(`check ${input.runId} at ${input.startSha}`);
+        return w.boxTree;
+      },
     },
+    profile: () => w.profile,
   });
 
   const read = (ids: readonly string[] | null): BaseRead => ({
@@ -377,6 +430,7 @@ beforeEach(async () => {
         const claim = findClaim(office, request.runId) as ClaimRecord;
         const setup = request.setup === undefined ? null : await request.setup(claim);
         if (setup !== null && !setup.ok) {
+          w.setupFailures.push((setup as ClaimSetupFailed).reason);
           office.immediate(() =>
             office.run(
               `update claims set released_at = $at, release_reason = 'setup-failed'
@@ -763,6 +817,9 @@ describe("a box worker's run (DIPO-271)", () => {
     const runId = boxed.started[0]?.run as string;
     expect(world.boxCalls).toEqual([
       `create ${runId} at ${"b".repeat(40)} in ${join(world.dir, "repo", ".git", "dipo", "runs", runId)}`,
+      // Then the box is prepared before the worker (DIPO-294).
+      `install ${runId}`,
+      `check ${runId} at ${"b".repeat(40)}`,
     ]);
   });
 
@@ -818,7 +875,176 @@ describe("a box worker's run (DIPO-271)", () => {
     await run({ stories: ["TASK-1"], box: true });
     // The release after a failed host start deletes the box without waiting on it.
     for (let i = 0; i < 10 && world.boxCalls.length < 2; i++) await Promise.resolve();
-    expect(world.boxCalls.map((call) => call.split(" ")[0])).toEqual(["create", "discard"]);
+    expect(world.boxCalls.map((call) => call.split(" ")[0])).toEqual([
+      "create",
+      "install",
+      "check",
+      "discard",
+    ]);
+  });
+});
+
+/**
+ * The skipped run's setup failure: the reason `claimStory` puts in the `setup.failed` notice
+ * the maintainer sees.
+ */
+function skipped(result: RunResult): { notice: string } {
+  expect(result.started).toEqual([]);
+  expect(result.skipped.map((s) => s.reason)).toEqual(["pickupCheckFailed"]);
+  return { notice: world.setupFailures.at(-1) ?? "" };
+}
+
+describe("the install in a box run's box before its worker (DIPO-294)", () => {
+  it("runs the profile's install in the box after it is made and before the launch checks and the worker", async () => {
+    story("TASK-1", "Ready");
+    world.config = {
+      ...OFFICE_DEFAULTS,
+      timeouts: {
+        ...OFFICE_DEFAULTS.timeouts,
+        scriptMinutes: { ...OFFICE_DEFAULTS.timeouts.scriptMinutes, install: 7 },
+      },
+    };
+    const boxed = resultOf<RunResult>(await run({ stories: ["TASK-1"], box: true }));
+    expect(boxed.started).toHaveLength(1);
+    expect(world.boxCalls.map((call) => call.split(" ")[0])).toEqual([
+      "create",
+      "install",
+      "check",
+    ]);
+    // The run profile's install, the office's install deadline, and the run environment for the
+    // box's /work (the box adds its web route); nothing of the Mac worktree's path.
+    expect(world.boxInstalls).toEqual([
+      {
+        commands: [["bun", "install", "--frozen-lockfile"]],
+        env: expect.objectContaining({
+          DIPO_SLOT: "3",
+          DIPO_STORY: "TASK-1",
+          DIPO_WORKTREE: "/work",
+        }),
+        timeoutMs: 7 * 60_000,
+      },
+    ]);
+    expect(JSON.stringify(world.boxInstalls)).not.toContain(world.worktreeRoot);
+    expect(world.hosts).toHaveLength(1);
+  });
+
+  it("stops the launch on a failed install with its reason in the notice, and deletes the box", async () => {
+    story("TASK-1", "Ready");
+    world.boxInstall = {
+      ok: false,
+      reason: "the install (bun install --frozen-lockfile) exited 1 in the box",
+      output: "error: lockfile had changes, but lockfile is frozen",
+      ended: null,
+    };
+    const result = resultOf<RunResult>(await run({ stories: ["TASK-1"], box: true }));
+    const skip = skipped(result);
+    expect(skip.notice).toContain(
+      "the install (bun install --frozen-lockfile) exited 1 in the box",
+    );
+    // The box output stays in the daemon's log, out of the notice.
+    expect(skip.notice).not.toContain("lockfile had changes");
+    expect(world.boxCalls.map((call) => call.split(" ")[0])).toEqual([
+      "create",
+      "install",
+      "discard",
+    ]);
+    expect(world.hosts).toEqual([]);
+    expect(world.setupReleases).toEqual([3]);
+  });
+
+  it("stops the launch on a timed-out install the box could not end, and deletes the box", async () => {
+    story("TASK-1", "Ready");
+    world.boxInstall = {
+      ok: false,
+      reason:
+        "the install (bun install --frozen-lockfile) timed out after 15 min in the box, and could be ended neither inside the box nor by stopping it",
+      output: "",
+      ended: "failed",
+    };
+    const result = resultOf<RunResult>(await run({ stories: ["TASK-1"], box: true }));
+    expect(skipped(result).notice).toContain("timed out after 15 min in the box");
+    expect(world.boxCalls.at(-1)).toMatch(/^discard run_/);
+    expect(world.hosts).toEqual([]);
+  });
+
+  it("stops the launch when /work holds files git does not ignore after the install", async () => {
+    story("TASK-1", "Ready");
+    world.boxTree = { kind: "changed", paths: ["bun.lock", "src/generated.ts"] };
+    const result = resultOf<RunResult>(await run({ stories: ["TASK-1"], box: true }));
+    const notice = skipped(result).notice;
+    expect(notice).toContain(
+      "the install left files git does not ignore in the box's /work (bun.lock, src/generated.ts)",
+    );
+    expect(notice).toContain("bun install --frozen-lockfile");
+    expect(world.boxCalls.map((call) => call.split(" ")[0])).toEqual([
+      "create",
+      "install",
+      "check",
+      "discard",
+    ]);
+    expect(world.hosts).toEqual([]);
+  });
+
+  it("stops the launch when dipo cannot check /work, as a check that cannot finish proves nothing", async () => {
+    story("TASK-1", "Ready");
+    world.boxTree = { kind: "unknown", reason: "dipo could not read the box's /work" };
+    const result = resultOf<RunResult>(await run({ stories: ["TASK-1"], box: true }));
+    expect(skipped(result).notice).toContain(
+      "dipo could not check the box's /work against the start commit after the install (dipo could not read the box's /work)",
+    );
+    expect(world.boxCalls.at(-1)).toMatch(/^discard run_/);
+  });
+
+  it("names a box error preparing the box by a fixed text, and cleans any other error", async () => {
+    story("TASK-1", "Ready");
+    // A box error's message may quote the box or a proxy: only its code is named.
+    world.boxInstallThrows = new BoxError(
+      "box.routeFailed",
+      "the box web route did not start: \u001b[31mquoted\u001b[0m",
+    );
+    let result = resultOf<RunResult>(await run({ stories: ["TASK-1"], box: true }));
+    expect(skipped(result).notice).toBe(
+      "the box could not be prepared: dipo's web route for the box did not start (box.routeFailed)",
+    );
+    expect(world.boxCalls.at(-1)).toMatch(/^discard run_/);
+    world.boxInstallThrows = new Error(`a step \u001b]0;title\u0007failed\n${"x".repeat(400)}`);
+    result = resultOf<RunResult>(await run({ stories: ["TASK-1"], box: true }));
+    const notice = skipped(result).notice;
+    expect(notice.startsWith("the box could not be prepared: a step failed x")).toBe(true);
+    expect(notice).not.toContain("\u001b");
+    expect(notice.length).toBeLessThan(400);
+  });
+
+  it("runs no install for a profile without one, but still checks /work", async () => {
+    story("TASK-1", "Ready");
+    world.profile = profileWith({ status: "unresolved" } as RunProfile["capabilities"]["install"]);
+    const boxed = resultOf<RunResult>(await run({ stories: ["TASK-1"], box: true }));
+    expect(boxed.started).toHaveLength(1);
+    expect(world.boxCalls.map((call) => call.split(" ")[0])).toEqual(["create", "check"]);
+  });
+
+  it("stops the launch for an install in conflict or outside the root, as the Mac setup does", async () => {
+    story("TASK-1", "Ready");
+    world.profile = profileWith({
+      status: "conflict",
+      candidates: [],
+    } as unknown as RunProfile["capabilities"]["install"]);
+    let result = resultOf<RunResult>(await run({ stories: ["TASK-1"], box: true }));
+    expect(skipped(result).notice).toContain("the run profile's install is in conflict");
+    world.profile = profileWith({
+      status: "resolved",
+      value: { commands: [["bun", "install"]], cwd: "app" },
+    } as unknown as RunProfile["capabilities"]["install"]);
+    result = resultOf<RunResult>(await run({ stories: ["TASK-1"], box: true }));
+    expect(skipped(result).notice).toContain("install runs in app");
+    expect(world.boxInstalls).toEqual([]);
+    expect(world.boxCalls.filter((call) => call.startsWith("discard"))).toHaveLength(2);
+  });
+
+  it("runs no install for a run started without box", async () => {
+    story("TASK-1", "Ready");
+    resultOf<RunResult>(await run({ stories: ["TASK-1"] }));
+    expect(world.boxInstalls).toEqual([]);
   });
 });
 
