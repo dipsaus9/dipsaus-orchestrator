@@ -24,10 +24,16 @@ export interface NewVerifyResult {
   readonly outputFrom: number;
   readonly outputTo: number;
   readonly at: number;
+  /**
+   * A box verify that passed with failing tests that also fail at the start commit in the same
+   * box image (DIPO-294): those tests. Absent or null for every other result.
+   */
+  readonly baseFailures?: readonly string[] | null;
 }
 
 export interface StoredVerifyResult extends NewVerifyResult {
   readonly resultId: number;
+  readonly baseFailures: readonly string[] | null;
   readonly codeTreeKey: string | null;
 }
 
@@ -44,6 +50,7 @@ interface VerifyRow {
   output_from: number;
   output_to: number;
   code_tree_key: string | null;
+  base_failures: string | null;
   at: number;
 }
 
@@ -61,6 +68,7 @@ function toResult(row: VerifyRow): StoredVerifyResult {
     outputFrom: row.output_from,
     outputTo: row.output_to,
     codeTreeKey: row.code_tree_key,
+    baseFailures: row.base_failures === null ? null : (JSON.parse(row.base_failures) as string[]),
     at: row.at,
   };
 }
@@ -78,9 +86,9 @@ export function insertVerifyResult(
     )?.id ?? 1;
   office.run(
     `insert into verify_results (office_id, run_id, result_id, loop, profile, commands, exit_code,
-       signal, timed_out, passed, duration_ms, output_from, output_to, at)
+       signal, timed_out, passed, duration_ms, output_from, output_to, base_failures, at)
      values ($office_id, $run, $id, $loop, $profile, $commands, $exit, $signal, $timed_out,
-       $passed, $duration, $from, $to, $at)`,
+       $passed, $duration, $from, $to, $base, $at)`,
     {
       run: runId,
       id,
@@ -94,6 +102,7 @@ export function insertVerifyResult(
       duration: result.durationMs,
       from: result.outputFrom,
       to: result.outputTo,
+      base: result.baseFailures == null ? null : JSON.stringify(result.baseFailures),
       at: result.at,
     },
   );
@@ -105,7 +114,7 @@ export function verifyResults(office: OfficeHandle, runId: RunId): StoredVerifyR
   return office
     .all<VerifyRow>(
       `select result_id, loop, profile, commands, exit_code, signal, timed_out, passed,
-         duration_ms, output_from, output_to, code_tree_key, at
+         duration_ms, output_from, output_to, code_tree_key, base_failures, at
        from verify_results where office_id = $office_id and run_id = $run order by result_id`,
       { run: runId },
     )
@@ -188,6 +197,8 @@ export interface RunSummary {
     readonly timedOut: boolean;
     readonly commands: readonly (readonly string[])[];
     readonly loop: number;
+    /** The tests that also failed on the base in the box, for a pass with base failures. */
+    readonly baseFailures?: readonly string[];
   } | null;
   readonly outputTail: string;
   readonly builtAt: number;
@@ -212,6 +223,7 @@ export function storeRunSummary(
           timedOut: last.timedOut,
           commands: last.commands,
           loop: last.loop,
+          ...(last.baseFailures === null ? {} : { baseFailures: last.baseFailures }),
         };
   office.run(
     `insert or ignore into run_summaries (office_id, run_id, report, diffstat, verify, output_tail,
@@ -250,4 +262,13 @@ export function runSummary(office: OfficeHandle, runId: RunId): RunSummary | nul
         outputTail: row.output_tail,
         builtAt: row.built_at,
       };
+}
+
+/**
+ * The failing tests the run's last verify passed with because they also fail at the start commit
+ * in its box (DIPO-294); empty when the last verify was plain green or red.
+ */
+export function lastBaseFailures(office: OfficeHandle, runId: RunId): readonly string[] {
+  const last = verifyResults(office, runId).at(-1);
+  return last?.passed === true ? (last.baseFailures ?? []) : [];
 }

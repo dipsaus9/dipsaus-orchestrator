@@ -2,11 +2,13 @@
 // box has a state and the folder listings copied into it, and the client commands are the real
 // Apple `container` argv, so a plan built on it is what the worker host would run. A killed
 // `container exec` client leaves its process running in the box, as the real one does: only a
-// stop or a delete of the box ends it.
+// stop or a delete of the box ends it. With `live`, a live exec (verify in the box, DIPO-294)
+// follows a script; a stop or a delete of its box ends it.
 
 import { readdirSync, statSync, writeFileSync } from "node:fs";
 import { join, relative } from "node:path";
 
+import type { ChildExit, Signal } from "@dipsaus-orchestrator/contract";
 import { ManualClock } from "@dipsaus-orchestrator/testkit";
 
 import { AppleContainerBoxes } from "../../src/box/apple-container";
@@ -78,6 +80,27 @@ export interface FakeBoxesOptions {
   readonly exportText?: string;
   /** Fails `start` with this error. */
   readonly startFails?: Error;
+  /**
+   * How a live exec in a box ends (DIPO-294: verify in the box), by the command it runs: dipo's
+   * verify wrapper is unwrapped first. Without it a live exec is refused, as the worker host runs
+   * the worker's exec.
+   */
+  readonly live?: (box: string, command: readonly string[]) => LiveReply;
+}
+
+/** What one live exec in a fake box prints and how it ends. */
+export interface LiveReply {
+  readonly stdout?: string;
+  readonly code?: number;
+  /** Never ends on its own; only a kill of the client, a stop or a delete ends it. */
+  readonly hang?: boolean;
+  /** The box stops while the command runs (a daemon stop), which ends it with this code. */
+  readonly stopsBox?: boolean;
+}
+
+/** The command dipo's verify wrapper (`boxVerifyCommand`) runs, or `command` itself. */
+export function unwrapped(command: readonly string[]): readonly string[] {
+  return command[3] === "dipo-verify" ? command.slice(4) : command;
 }
 
 export class FakeBoxes implements BoxPort {
@@ -148,11 +171,21 @@ export class FakeBoxes implements BoxPort {
     const box = this.#box(name);
     box.state = "stopped";
     box.workerRunning = false;
+    this.#endLive(name);
   }
 
   async delete(name: string): Promise<void> {
     this.log.push(`delete ${name}`);
     this.boxes.delete(name);
+    this.#endLive(name);
+  }
+
+  /** Live execs still running, by box: a stop or a delete ends them, as it ends every process. */
+  readonly #live = new Map<string, Set<() => void>>();
+
+  #endLive(name: string): void {
+    for (const end of this.#live.get(name) ?? []) end();
+    this.#live.delete(name);
   }
 
   async copyIn(name: string, from: string, to: string): Promise<void> {
@@ -191,8 +224,60 @@ export class FakeBoxes implements BoxPort {
     return { code: 0, stdout: "", stderr: "" };
   }
 
-  execLive(): BoxProcess {
-    throw new Error("the worker host runs the live exec, not the backend");
+  /** Every live exec, in order: the box and the unwrapped command. */
+  readonly liveExecs: {
+    readonly box: string;
+    readonly command: readonly string[];
+    readonly env?: Readonly<Record<string, string>>;
+    readonly cwd?: string;
+  }[] = [];
+
+  execLive(
+    name: string,
+    command: readonly [string, ...string[]],
+    options?: Omit<BoxExecOptions, "timeoutMs">,
+  ): BoxProcess {
+    const script = this.#options.live;
+    if (script === undefined)
+      throw new Error("the worker host runs the live exec, not the backend");
+    const inner = unwrapped(command);
+    this.log.push(`exec live ${name} ${inner.join(" ")}`);
+    this.liveExecs.push({
+      box: name,
+      command: inner,
+      ...(options?.env === undefined ? {} : { env: options.env }),
+      ...(options?.cwd === undefined ? {} : { cwd: options.cwd }),
+    });
+    const box = this.#box(name);
+    if (box.state !== "running") throw new BoxError("box.failed", `${name} is not running`);
+    const reply = script(name, inner);
+    let out!: ReadableStreamDefaultController<Uint8Array>;
+    const stdout = new ReadableStream<Uint8Array>({ start: (c) => void (out = c) });
+    const stderr = new ReadableStream<Uint8Array>({ start: (c) => c.close() });
+    const { promise: exited, resolve } = Promise.withResolvers<ChildExit>();
+    if (reply.stdout !== undefined) out.enqueue(new TextEncoder().encode(reply.stdout));
+    let open = true;
+    const end = (exit: ChildExit) => {
+      if (!open) return;
+      open = false;
+      out.close();
+      resolve(exit);
+    };
+    if (reply.stopsBox === true) box.state = "stopped";
+    if (reply.hang !== true) end({ code: reply.code ?? 0, signal: null });
+    else {
+      // A stop of the box ends the command, and its exec client with exit 137.
+      const running = this.#live.get(name) ?? new Set<() => void>();
+      running.add(() => end({ code: 137, signal: null }));
+      this.#live.set(name, running);
+    }
+    return {
+      stdin: { write: () => {}, end: () => {} },
+      stdout,
+      stderr,
+      exited,
+      kill: (signal: Signal = "SIGTERM") => end({ code: null, signal }),
+    };
   }
 
   execLiveCommand(

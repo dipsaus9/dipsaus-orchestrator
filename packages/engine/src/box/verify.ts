@@ -22,6 +22,8 @@
 
 import type { ChildExit, Clock, TimerHandle } from "@dipsaus-orchestrator/contract";
 
+import type { BaseVerifyFacts } from "../prompts/base-verify";
+import { failingTests, outputEnd, plainText } from "../worktree/base-verify";
 import { BOX_DIPO_DIR, BOX_WORKDIR } from "./code";
 import { cleanDoorText } from "./door";
 import type { BoxPort } from "./port";
@@ -323,4 +325,183 @@ async function boundedExec(
   } finally {
     if (timer !== undefined) deps.clock.clearTimeout(timer);
   }
+}
+
+// ---- the base in the box and the verdict (DIPO-294) ---------------------------------------------
+//
+// Before the box worker starts, the office's verify runs once at the story's start commit in the
+// story's own box (same image, command and environment as the verify at done), and its failing
+// tests are stored keyed by start commit, image and verify configuration (`boxBaseVerifyOf`). A
+// box verify at done then passes when every failing test it names also failed there
+// (`boxVerifyVerdict`); a failure the box itself causes, such as a test that needs git, does not
+// count against the story, while any new failure still does. CI on the PR runs the full suite.
+
+/** The most new failing test names a verdict note lists; the rest are counted. */
+export const BOX_VERDICT_MAX_NAMES = 20;
+
+/** The exit code of a test runner whose only failures are failing tests. */
+export const TEST_FAILURE_EXIT = 1;
+
+/** What a failed command in the box counts as. */
+export type BoxVerifyVerdict =
+  /** Every failing test also fails on the base in the box: the command counts as passed. */
+  | { readonly counts: false; readonly baseFailures: readonly string[] }
+  /** The failure counts against the story; `note` says why, for the worker's feedback. */
+  | { readonly counts: true; readonly note: string | null };
+
+/** The test runner's own count of errors outside a named test (bun's `N error` summary line). */
+function runnerErrors(output: string): number {
+  let errors = 0;
+  for (const line of plainText(output).split(/\r?\n/)) {
+    const match = /^\s*(\d+)\s+errors?\s*$/.exec(line);
+    if (match !== null) errors = Math.max(errors, Number(match[1]));
+    if (/^#\s*Unhandled error/i.test(line.trim())) errors = Math.max(errors, 1);
+  }
+  return errors;
+}
+
+function namesNote(names: readonly string[]): string {
+  const shown = names.slice(0, BOX_VERDICT_MAX_NAMES).map((name) => `- ${name}`);
+  const rest = names.length - shown.length;
+  if (rest > 0) shown.push(`[dipo: ${rest} more new failing tests are not listed.]`);
+  return shown.join("\n");
+}
+
+/**
+ * Pure: what one failed verify command in the box counts as, against the base result measured in
+ * the box. It passes only when it exited with the test runner's failure code, named at least one
+ * failing test, reported no error outside a test, and every test it names also failed on the base.
+ * Anything else counts: a new failing test, a failure without a test name (a lint, format or
+ * typecheck failure, a crash), a timeout or a kill, and an unknown base.
+ */
+export function boxVerifyVerdict(input: {
+  readonly code: number | null;
+  readonly timedOut: boolean;
+  readonly output: string;
+  readonly base: BaseVerifyFacts;
+}): BoxVerifyVerdict {
+  if (input.timedOut) return { counts: true, note: null };
+  if (input.code === null) {
+    return { counts: true, note: "[dipo: verify was ended by a signal, so the failure counts.]" };
+  }
+  if (input.base.kind === "unknown") {
+    return {
+      counts: true,
+      note: `[dipo: the verify result of the start commit in this box is not known (${input.base.reason}), so every failure counts.]`,
+    };
+  }
+  const failing = failingTests(input.output);
+  if (failing.length === 0) {
+    return {
+      counts: true,
+      note: "[dipo: verify failed without a failing test name dipo can read (for example a lint, format or typecheck failure, or a crash), so the failure counts.]",
+    };
+  }
+  if (input.code !== TEST_FAILURE_EXIT) {
+    return {
+      counts: true,
+      note: `[dipo: verify exited with ${input.code}, not the test runner's ${TEST_FAILURE_EXIT} for failing tests, so the failure counts.]`,
+    };
+  }
+  const errors = runnerErrors(input.output);
+  if (errors > 0) {
+    return {
+      counts: true,
+      note: `[dipo: the test runner reported ${errors} ${errors === 1 ? "error" : "errors"} outside a named test, so the failure counts.]`,
+    };
+  }
+  const known = new Set(input.base.kind === "red" ? input.base.failing : []);
+  const fresh = failing.filter((name) => !known.has(name));
+  if (fresh.length > 0) {
+    return {
+      counts: true,
+      note: `[dipo: ${fresh.length === 1 ? "this failing test does" : "these failing tests do"} not fail at the start commit in this box, so ${fresh.length === 1 ? "it counts" : "they count"}:]\n${namesNote(fresh)}`,
+    };
+  }
+  return { counts: false, baseFailures: failing };
+}
+
+export interface BoxBaseVerifyDeps extends BoxCommandDeps {
+  readonly boxes: Pick<BoxPort, "execLive" | "stop" | "list">;
+}
+
+export interface BoxBaseVerifyRequest {
+  readonly box: string;
+  /** The verify command lists, run in order until one fails. */
+  readonly commands: readonly (readonly string[])[];
+  readonly env: Readonly<Record<string, string>>;
+  readonly timeoutMs: number;
+}
+
+export interface BoxBaseVerifyResult {
+  /** Green, red with the failing tests, or not known (never stored). */
+  readonly facts: BaseVerifyFacts;
+  /** Set when a command passed dipo's deadline: how it was ended in the box. */
+  readonly ended: BoxCommandEnd | null;
+}
+
+const notKnown = (reason: string): BaseVerifyFacts => ({ kind: "unknown", reason });
+
+async function stillRunning(deps: BoxBaseVerifyDeps, box: string): Promise<boolean> {
+  try {
+    return (await deps.boxes.list()).some((info) => info.name === box && info.state === "running");
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * Runs the office's verify at the start commit in the box (`runBoxCommand` per command list, as
+ * the verify at done does) and reads its failing tests. A command that could not start, timed
+ * out, was ended by a signal, or failed while the box stopped under it (a daemon stop ends every
+ * box process) gives a not-known result, which is never stored.
+ */
+export async function runBoxBaseVerify(
+  deps: BoxBaseVerifyDeps,
+  request: BoxBaseVerifyRequest,
+): Promise<BoxBaseVerifyResult> {
+  let ran = false;
+  for (const command of request.commands) {
+    const [program, ...args] = command;
+    if (program === undefined) continue;
+    let result: BoxCommandResult;
+    try {
+      result = await runBoxCommand(deps, {
+        box: request.box,
+        command: [program, ...args],
+        env: request.env,
+        timeoutMs: request.timeoutMs,
+      });
+    } catch (error) {
+      const code = (error as { code?: unknown } | null)?.code;
+      return {
+        facts: notKnown(
+          `verify could not start in the box (${typeof code === "string" ? code : "error"})`,
+        ),
+        ended: null,
+      };
+    }
+    if (result.timedOut) {
+      const minutes = Math.round(request.timeoutMs / 60_000);
+      return { facts: notKnown(`verify timed out after ${minutes} min`), ended: result.ended };
+    }
+    if (result.code === null) {
+      return { facts: notKnown(`verify ended by ${result.signal ?? "a signal"}`), ended: null };
+    }
+    ran = true;
+    if (result.code !== 0) {
+      if (!(await stillRunning(deps, request.box))) {
+        return { facts: notKnown("the box stopped while verify ran"), ended: null };
+      }
+      const failing = failingTests(result.output);
+      return {
+        facts: { kind: "red", failing, tail: failing.length > 0 ? null : outputEnd(result.output) },
+        ended: null,
+      };
+    }
+  }
+  return {
+    facts: ran ? { kind: "green" } : notKnown("the run profile's verify has no command"),
+    ended: null,
+  };
 }

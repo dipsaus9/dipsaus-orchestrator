@@ -5,7 +5,7 @@
 // succeeds; a worktree a test run dirtied is restored.
 
 import { describe, expect, it } from "bun:test";
-import { existsSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 
 import { withBareRemote } from "@dipsaus-orchestrator/testkit";
@@ -14,7 +14,17 @@ import { OFFICE_DEFAULTS } from "../../src/config/schema";
 import type { StepRequest, StepResult } from "../../src/sandbox/step";
 import type { ClaimRecord, SetupDone, SetupOutcome } from "../../src/worktree";
 import type { RunProfile } from "../../src/scan/detect";
-import { baseVerifyConfigHash, failingTests, outputEnd } from "../../src/worktree/base-verify";
+import type { OfficeHandle } from "../../src/db/office";
+import type { BaseVerifyFacts } from "../../src/prompts/base-verify";
+import {
+  baseVerifyConfigHash,
+  boxBaseVerifyConfigHash,
+  boxBaseVerifyFactsOf,
+  boxBaseVerifyOf,
+  failingTests,
+  outputEnd,
+} from "../../src/worktree/base-verify";
+import { addOffice, openTestState } from "../commands/helpers";
 import { BACKLOG_FIXTURE, BRANCH_1, inRemote } from "./helpers";
 import {
   exited,
@@ -340,4 +350,101 @@ describe("the base verify in setup", () => {
       expect(existsSync(join(claim.worktree, ".env"))).toBe(true);
     }, FIXTURE);
   });
+});
+
+/** An office in a migrated test state database under DIPO_TMP, removed afterwards. */
+async function inState(fn: (office: OfficeHandle) => Promise<void>): Promise<void> {
+  const dir = mkdtempSync(join(process.env["DIPO_TMP"] || "/tmp", "box-base-"));
+  const t = await openTestState(dir);
+  try {
+    await fn(addOffice(t));
+  } finally {
+    t.state.close();
+    rmSync(dir, { recursive: true, force: true });
+  }
+}
+
+describe("the base in the box (DIPO-294)", () => {
+  const START = "s".repeat(40);
+  const IMAGE = `dipo-box:${"1".repeat(64)}`;
+  const PROFILE = profileWith([["bun", "run", "verify"]]);
+  const RED: BaseVerifyFacts = { kind: "red", failing: ["git > reads the log"], tail: null };
+
+  function once(office: OfficeHandle, over: { image?: string; startSha?: string } = {}) {
+    let runs = 0;
+    const result = boxBaseVerifyOf({
+      office,
+      startSha: over.startSha ?? START,
+      image: over.image ?? IMAGE,
+      config: OFFICE_DEFAULTS,
+      profile: PROFILE,
+      runId: "run_1",
+      now: () => 1,
+      run: async () => {
+        runs += 1;
+        return RED;
+      },
+    });
+    return result.then((value) => ({ ...value, runs }));
+  }
+
+  it("runs verify once for a key and reuses the stored result without running it again", () =>
+    inState(async (office) => {
+      expect(await once(office)).toEqual({ facts: RED, reused: false, runs: 1 });
+      expect(await once(office)).toEqual({ facts: RED, reused: true, runs: 0 });
+      // The verdict at done and a resumed session read the same stored result.
+      expect(
+        boxBaseVerifyFactsOf(office, {
+          startSha: START,
+          image: IMAGE,
+          config: OFFICE_DEFAULTS,
+          profile: PROFILE,
+        }),
+      ).toEqual(RED);
+    }));
+
+  it("keys the result by start commit, image and verify configuration", () =>
+    inState(async (office) => {
+      await once(office);
+      expect((await once(office, { image: `dipo-box:${"2".repeat(64)}` })).runs).toBe(1);
+      expect((await once(office, { startSha: "t".repeat(40) })).runs).toBe(1);
+      const hash = boxBaseVerifyConfigHash(OFFICE_DEFAULTS, PROFILE, IMAGE);
+      expect(
+        boxBaseVerifyConfigHash(OFFICE_DEFAULTS, profileWith([["bun", "test"]]), IMAGE),
+      ).not.toBe(hash);
+      const longer = {
+        ...OFFICE_DEFAULTS,
+        timeouts: {
+          ...OFFICE_DEFAULTS.timeouts,
+          scriptMinutes: { ...OFFICE_DEFAULTS.timeouts.scriptMinutes, verify: 45 },
+        },
+      };
+      expect(boxBaseVerifyConfigHash(longer, PROFILE, IMAGE)).not.toBe(hash);
+      // Never the Mac result's key, so the two never meet.
+      expect(baseVerifyConfigHash(OFFICE_DEFAULTS, PROFILE)).not.toBe(hash);
+    }));
+
+  it("stores no not-known result, so the next run tries again, and says not known without one", () =>
+    inState(async (office) => {
+      const first = await boxBaseVerifyOf({
+        office,
+        startSha: START,
+        image: IMAGE,
+        config: OFFICE_DEFAULTS,
+        profile: PROFILE,
+        runId: "run_1",
+        now: () => 1,
+        run: async () => ({ kind: "unknown", reason: "the box stopped while verify ran" }),
+      });
+      expect(first.reused).toBe(false);
+      expect((await once(office)).runs).toBe(1);
+      expect(
+        boxBaseVerifyFactsOf(office, {
+          startSha: START,
+          image: null,
+          config: OFFICE_DEFAULTS,
+          profile: PROFILE,
+        }).kind,
+      ).toBe("unknown");
+    }));
 });
