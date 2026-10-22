@@ -1,12 +1,12 @@
 ---
 id: DIPO-281
 title: >-
-  Harden the box network: registry aliases through Safe-Chain, listed Mac ports,
-  no route to the Mac, and an image build without the local network
+  Harden the box network: registry aliases, listed Mac ports, no route to the
+  Mac or the LAN
 status: To Do
 assignee: []
 created_date: '2026-10-21 13:54'
-updated_date: '2026-10-22 18:16'
+updated_date: '2026-10-22 19:26'
 labels:
   - box
   - cutover

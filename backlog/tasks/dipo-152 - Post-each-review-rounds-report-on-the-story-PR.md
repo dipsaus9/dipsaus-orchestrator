@@ -1,12 +1,12 @@
 ---
 id: DIPO-152
 title: >-
-  Keep dipo's story PR complete: open a missed PR, show the worker's done
-  report, keep the status block true and post each review round's report
+  Complete dipo's story PR: missed PRs, the done report, a true status block,
+  round reports
 status: Ready
 assignee: []
 created_date: '2026-10-17 12:52'
-updated_date: '2026-10-22 19:12'
+updated_date: '2026-10-22 19:26'
 labels:
   - 'tier:M'
   - 'slice:m1a'
