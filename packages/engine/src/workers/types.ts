@@ -52,6 +52,11 @@ export interface WorkerSpec {
    * working directory, so no settings, hooks or instruction files load from it.
    */
   readonly readOnlyDir?: string;
+  /**
+   * `review` only, and required there with a web tool: the URL of the web proxy dipo listens on
+   * for this session (DIPO-292). The session's web fetches tunnel through it; the model API does not.
+   */
+  readonly webProxy?: string;
   readonly model: string;
   readonly effort: string;
   readonly caps: Caps;
