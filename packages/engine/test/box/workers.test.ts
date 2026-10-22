@@ -153,6 +153,10 @@ interface WorldOptions {
   readonly committed?: Readonly<Record<string, string>>;
   readonly sticky?: boolean;
   readonly modelFails?: boolean;
+  /** Each model proxy start waits for it, when given (a finish that hangs). */
+  readonly modelGate?: Promise<void>;
+  /** `BoxWorkersDeps.finishWaitMs`. */
+  readonly finishWaitMs?: number;
   /** The box door (DIPO-272); no queue is read without it. */
   readonly door?: BoxWorkersDeps["door"];
   /** The tree check (DIPO-294); none without it. */
@@ -230,6 +234,7 @@ async function world(repo: TempRepo, tmp: string, options: WorldOptions = {}): P
     startBuildRoute: route("build route"),
     startModelProxy: async (network): Promise<RunningModelProxy> => {
       log.push(`model proxy started on ${network.hostAddress}`);
+      if (options.modelGate !== undefined) await options.modelGate;
       if (options.modelFails === true) throw new BoxError("token.missing", "no box login");
       return {
         hostAddress: network.hostAddress,
@@ -258,6 +263,7 @@ async function world(repo: TempRepo, tmp: string, options: WorldOptions = {}): P
     ...(options.packageCache === undefined ? {} : { packageCache: options.packageCache }),
     ...(options.door === undefined ? {} : { door: options.door }),
     ...(options.treeCheck === undefined ? {} : { treeCheck: options.treeCheck }),
+    ...(options.finishWaitMs === undefined ? {} : { finishWaitMs: options.finishWaitMs }),
     warn: (message, fields) => warnings.push({ message, fields }),
   });
   const runDir = join(tmp, "runs", RUN);
@@ -558,6 +564,28 @@ describe("the end of a box run (criterion 9)", () => {
       expect(second).toEqual([]);
       expect(w.log.filter((line) => line === `delete ${BOX}`)).toHaveLength(1);
       expect(w.workers.pending()).toEqual([]);
+    }));
+
+  it("moves on from a finish that hangs, so it cannot hold the passes after it", () =>
+    inBoxes(async (repo, tmp) => {
+      let release!: () => void;
+      const gate = new Promise<void>((resolve) => {
+        release = resolve;
+      });
+      const w = await world(repo, tmp, { modelGate: gate, finishWaitMs: 50 });
+      await created(w);
+      // The token check of the run hangs: the pass gives up waiting and reports nothing.
+      expect(await w.workers.finishEnded((runId) => runId === RUN)).toEqual([]);
+      expect(w.warnings.map((warning) => warning.message)).toContain(
+        "the end of a box run did not finish in time; a later pass waits again",
+      );
+      // The next pass (the daemon-start sweep) is not held either.
+      expect(await w.workers.finishEnded(() => false, { listBoxes: true })).toEqual([]);
+      release();
+      // Once the finish ends, a later pass finds the run done.
+      await w.workers.finish(RUN);
+      expect(w.workers.pending()).toEqual([]);
+      expect(w.boxes.boxes.has(BOX)).toBe(false);
     }));
 
   it("does not report a run whose finish failed as finished; the next pass tries it again", () =>

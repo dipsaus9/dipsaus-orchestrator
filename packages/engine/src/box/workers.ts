@@ -30,7 +30,9 @@
 //   at daemon start also every dipo box the backend lists), and `close` stops every box at daemon
 //   stop, which ends the worker inside it. Its passes run one after another, so two callers at
 //   once (an exit decision and the end of its ingestion) finish and report each run once
-//   (DIPO-307); a run whose finish failed is not reported as finished. At daemon start it also
+//   (DIPO-307); a run whose finish failed is not reported as finished. A pass waits for one run's
+//   finish at most `BOX_FINISH_WAIT_MS`, so a finish that hangs cannot hold the passes after it
+//   (the daemon-start sweep among them); the finish goes on, and a later pass waits for it again. At daemon start it also
 //   deletes the fill boxes (`dipo-fill-*`) a stopped daemon left during a fill, never one this
 //   daemon fills now; the index folder is made before the first fill, so the backend is asked
 //   after a crash in the first box run's fill too.
@@ -97,6 +99,11 @@ export const BOX_CA_FILE = `${BOX_DIPO_DIR}/safe-chain-ca.pem`;
 export const BOX_FILES_STAGE_PREFIX = "dipo-box-files-";
 /** The index folder's name in dipo's state folder: one file per box not yet finished. */
 export const BOX_INDEX_DIR = "dipo-box-runs";
+/**
+ * How long a `finishEnded` pass waits for one run's finish: the token check's export deadline
+ * (`TOKEN_CHECK_EXPORT_TIMEOUT_MS`) plus room for the other box calls, each with its own deadline.
+ */
+export const BOX_FINISH_WAIT_MS = 15 * 60_000;
 
 type Log = (message: string, fields: Readonly<Record<string, unknown>>) => void;
 
@@ -228,6 +235,8 @@ export interface BoxWorkersDeps {
    * check is not known, which stops the launch.
    */
   readonly treeCheck?: (run: PartRun) => Promise<StartTreeCheck>;
+  /** Overrides `BOX_FINISH_WAIT_MS`. */
+  readonly finishWaitMs?: number;
   readonly warn?: Log;
   readonly info?: Log;
 }
@@ -892,10 +901,32 @@ export class BoxWorkers {
     const finished: string[] = [];
     for (const runId of runs) {
       if (ended(runId) !== true) continue;
-      const outcome = await this.finish(runId);
-      if (outcome.kind !== "failed") finished.push(runId);
+      const outcome = await this.#finishWithin(runId);
+      if (outcome !== null && outcome.kind !== "failed") finished.push(runId);
     }
     return finished;
+  }
+
+  /** `finish`, or null once `BOX_FINISH_WAIT_MS` passed; the finish itself goes on then. */
+  async #finishWithin(runId: string): Promise<BoxFinish | null> {
+    const { clock } = this.#deps.code;
+    const waitMs = this.#deps.finishWaitMs ?? BOX_FINISH_WAIT_MS;
+    let timer: ReturnType<typeof clock.setTimeout> | undefined;
+    const late = new Promise<null>((resolve) => {
+      timer = clock.setTimeout(() => resolve(null), waitMs);
+    });
+    try {
+      const outcome = await Promise.race([this.finish(runId), late]);
+      if (outcome === null) {
+        this.#deps.warn?.("the end of a box run did not finish in time; a later pass waits again", {
+          run: runId,
+          waitMs,
+        });
+      }
+      return outcome;
+    } finally {
+      if (timer !== undefined) clock.clearTimeout(timer);
+    }
   }
 
   /** Deletes the listed fill boxes no fill here uses: a stopped daemon left them mid-fill. */
