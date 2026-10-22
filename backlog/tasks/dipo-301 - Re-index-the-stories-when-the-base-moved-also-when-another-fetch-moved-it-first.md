@@ -3,10 +3,10 @@ id: DIPO-301
 title: >-
   Re-index the stories when the base moved, also when another fetch moved it
   first
-status: In Progress
+status: In Review
 assignee: []
 created_date: '2026-10-22 14:25'
-updated_date: '2026-10-22 16:53'
+updated_date: '2026-10-22 16:54'
 labels:
   - 'tier:S'
   - box
@@ -42,6 +42,6 @@ test_plan:
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 The poll re-indexes when the commit it last indexed differs from origin/<base> after its fetch, whatever moved the ref
-- [ ] #2 A test moves origin/<base> before the poll's fetch and shows the next poll indexes the new story
+- [x] #1 The poll re-indexes when the commit it last indexed differs from origin/<base> after its fetch, whatever moved the ref
+- [x] #2 A test moves origin/<base> before the poll's fetch and shows the next poll indexes the new story
 <!-- AC:END -->
