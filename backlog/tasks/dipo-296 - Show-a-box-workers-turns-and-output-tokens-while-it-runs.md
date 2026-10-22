@@ -1,10 +1,10 @@
 ---
 id: DIPO-296
 title: 'Tidy up a box run''s live counter, door reads and box deletion log'
-status: To Do
+status: Done
 assignee: []
 created_date: '2026-10-22 08:30'
-updated_date: '2026-10-22 18:15'
+updated_date: '2026-10-22 19:11'
 labels:
   - 'tier:S'
   - box
@@ -14,12 +14,23 @@ dependencies:
   - DIPO-294
   - DIPO-295
 references:
+  - '--ref'
+  - docs/decisions/0008-worker-adapter.md
   - packages/daemon/src/runs.ts
+  - packages/daemon/test/unit/box-runs.test.ts
   - packages/engine/src/box/door.ts
-  - packages/engine/src/box/workers.ts
+  - packages/engine/src/db/migrations/0042-usage-live.ts
+  - packages/engine/src/db/schema.ts
+  - packages/engine/src/ingest/ingestor.ts
+  - packages/engine/src/ingest/usage.ts
+  - packages/engine/src/workers/claude-cli/box-plan.ts
   - packages/engine/src/workers/claude-cli/interpret.ts
-  - packages/engine/test/box/door.test.ts
+  - packages/engine/src/workers/claude-cli/plan.ts
+  - packages/engine/src/workers/claude-cli/schema.ts
+  - packages/engine/src/workers/types.ts
   - packages/engine/test/box/workers.test.ts
+  - packages/engine/test/db/usage-live.test.ts
+  - tools/recordings/capture.ts
 priority: high
 type: bug
 ordinal: 285000
@@ -44,19 +55,21 @@ unknowns: []
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 The PR names the cause
-- [ ] #2 A recording-based test shows the live usage of a box worker counting turns and output tokens during the session
-- [ ] #3 If the Mac worker has the same gap, it is fixed there too and the test covers both
-- [ ] #4 (from DIPO-297) No door read starts after the run has ended or its box is stopping
-- [ ] #5 (from DIPO-297) A door read that fails while the box runs is still logged and handled as before
-- [ ] #6 (from DIPO-297) A test with a fake box backend covers both
-- [ ] #7 (from DIPO-307) The finish of ended box runs runs once per run, or logs once
-- [ ] #8 (from DIPO-307) A test shows one line per deleted run
-- [ ] #9 Fill boxes (dipo-fill-*) left by a daemon crash during a fill are deleted at daemon start
+- [x] #1 The PR names the cause
+- [x] #2 A recording-based test shows the live usage of a box worker counting turns and output tokens during the session
+- [x] #3 If the Mac worker has the same gap, it is fixed there too and the test covers both
+- [x] #4 (from DIPO-297) No door read starts after the run has ended or its box is stopping
+- [x] #5 (from DIPO-297) A door read that fails while the box runs is still logged and handled as before
+- [x] #6 (from DIPO-297) A test with a fake box backend covers both
+- [x] #7 (from DIPO-307) The finish of ended box runs runs once per run, or logs once
+- [x] #8 (from DIPO-307) A test shows one line per deleted run
+- [x] #9 Fill boxes (dipo-fill-*) left by a daemon crash during a fill are deleted at daemon start
 <!-- AC:END -->
 
 ## Implementation Notes
 
 <!-- SECTION:NOTES:BEGIN -->
 2026-10-22: combined from DIPO-297, DIPO-307 (maintainer, M1 speed-up)
+
+2026-10-22: built outside dipo (box-core fix), reviewed in two rounds, merged with the 0008 amendment for --include-partial-messages (maintainer). Cause of '0 turns / out 0': a developer session is one CLI turn whose usage reached usage_totals only at its result, and assistant lines carry placeholder output; live turns and output now come from the stream. Accepted from review: a narrow race where a door poll pauses the door while a new session starts (a few hundred ms window); no part is lost because done reads the door directly.
 <!-- SECTION:NOTES:END -->
