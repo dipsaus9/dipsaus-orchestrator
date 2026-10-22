@@ -6,7 +6,7 @@ title: >-
 status: Refined
 assignee: []
 created_date: '2026-10-20 18:34'
-updated_date: '2026-10-22 08:33'
+updated_date: '2026-10-22 14:26'
 labels:
   - 'tier:M'
   - cutover
@@ -21,6 +21,8 @@ dependencies:
   - DIPO-255
   - DIPO-294
   - DIPO-295
+  - DIPO-302
+  - DIPO-307
 references:
   - packages/engine/src/worktree/setup.ts
   - packages/engine/src/sandbox/step.ts

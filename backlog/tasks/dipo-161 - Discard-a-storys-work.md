@@ -4,7 +4,7 @@ title: Discard a story's work
 status: Refined
 assignee: []
 created_date: '2026-10-17 12:52'
-updated_date: '2026-10-22 09:34'
+updated_date: '2026-10-22 14:26'
 labels:
   - 'tier:M'
   - 'slice:m1a'
@@ -23,6 +23,10 @@ dependencies:
   - DIPO-294
   - DIPO-295
   - DIPO-299
+  - DIPO-301
+  - DIPO-302
+  - DIPO-305
+  - DIPO-307
 references:
   - packages/contract/src/
   - packages/contract/schema/

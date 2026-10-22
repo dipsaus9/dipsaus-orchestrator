@@ -4,7 +4,7 @@ title: 'Let the maintainer approve, reject or override a waiting merge'
 status: Refined
 assignee: []
 created_date: '2026-10-17 12:52'
-updated_date: '2026-10-22 08:32'
+updated_date: '2026-10-22 14:26'
 labels:
   - 'tier:M'
   - 'slice:m1a'
@@ -20,6 +20,8 @@ dependencies:
   - DIPO-286
   - DIPO-294
   - DIPO-295
+  - DIPO-302
+  - DIPO-307
 references:
   - packages/engine/src/merge-slot/
   - packages/engine/src/gate/

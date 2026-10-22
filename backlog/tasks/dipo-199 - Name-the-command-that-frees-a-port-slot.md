@@ -4,7 +4,7 @@ title: Name the command that frees a port slot
 status: Refined
 assignee: []
 created_date: '2026-10-17 23:25'
-updated_date: '2026-10-17 23:25'
+updated_date: '2026-10-22 14:26'
 labels:
   - 'tier:S'
   - cutover
@@ -12,6 +12,7 @@ milestone: m-1
 dependencies:
   - DIPO-161
   - DIPO-197
+  - DIPO-302
 references:
   - packages/engine/src/run/work-run.ts
   - packages/engine/src/worktree/setup.ts

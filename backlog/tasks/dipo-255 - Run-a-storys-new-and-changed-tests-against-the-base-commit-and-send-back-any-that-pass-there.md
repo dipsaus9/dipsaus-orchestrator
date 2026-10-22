@@ -6,7 +6,7 @@ title: >-
 status: To Do
 assignee: []
 created_date: '2026-10-20 20:20'
-updated_date: '2026-10-22 09:34'
+updated_date: '2026-10-22 14:26'
 labels:
   - 'tier:M'
   - cutover
@@ -20,6 +20,7 @@ dependencies:
   - DIPO-293
   - DIPO-294
   - DIPO-299
+  - DIPO-302
 references:
   - packages/engine/src/run/verify-commit.ts
   - packages/engine/src/worktree/base-verify.ts
