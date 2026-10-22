@@ -19,7 +19,7 @@ import type { BoxSession } from "../../box/workers";
 import type { LaunchPlan, WorkerSpec } from "../types";
 import { PlanError } from "../types";
 import { userMessageLine } from "./encode";
-import { checkSpec, flagValue } from "./plan";
+import { checkSpec, flagValue, INCLUDE_PARTIAL_MESSAGES } from "./plan";
 import { DISABLE_SLASH_COMMANDS } from "./skills";
 
 /** Claude Code in the box image: npm's global prefix there is /usr/local (DIPO-266). */
@@ -43,6 +43,8 @@ export function boxClaudeArgv(spec: WorkerSpec, session: BoxSession): [string, .
     "--output-format",
     "stream-json",
     "--verbose",
+    // As on the Mac: the live view counts the session's output from the stream events (DIPO-296).
+    INCLUDE_PARTIAL_MESSAGES,
     spec.session.resume ? "--resume" : "--session-id",
     spec.session.id,
     "--model",

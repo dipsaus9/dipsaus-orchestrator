@@ -101,6 +101,7 @@ describe("the box worker's plan (criteria 1 and 2)", () => {
       "--output-format",
       "stream-json",
       "--verbose",
+      "--include-partial-messages",
       "--session-id",
       spec().session.id,
       "--model",

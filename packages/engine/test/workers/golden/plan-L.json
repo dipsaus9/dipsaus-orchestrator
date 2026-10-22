@@ -7,6 +7,7 @@
     "--output-format",
     "stream-json",
     "--verbose",
+    "--include-partial-messages",
     "--session-id",
     "0e6f3f4c-5b8d-4c1e-9a2b-3c4d5e6f7a8b",
     "--model",
