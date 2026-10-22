@@ -3,10 +3,10 @@ id: DIPO-300
 title: >-
   Harden three tests and a code comment left from the DIPO-227, 229 and 136
   reviews
-status: In Progress
+status: In Review
 assignee: []
 created_date: '2026-10-22 11:35'
-updated_date: '2026-10-22 12:30'
+updated_date: '2026-10-22 12:36'
 labels:
   - 'tier:S'
   - cutover
@@ -47,7 +47,7 @@ test_plan:
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 The claim-window test of DIPO-229 in packages/engine/test/run/work-run.test.ts waits for a condition that is always reached (the answer's intent row stored, or the unpark mock resolved) instead of a fixed count of microtask ticks, and settle() no longer counts ticks
-- [ ] #2 The StoryPlanning dependencies serve() builds in packages/daemon/src/foreground.ts come from an exported function that takes the probe, and a test in packages/daemon/test/unit/ shows that the dependencies it returns carry the given probe
-- [ ] #3 The comment on office.refused in packages/contract/src/errors.ts names both causes: an office whose engine instance would not load, and a refused write of an office file such as .dipo/office.local.yaml
+- [x] #1 The claim-window test of DIPO-229 in packages/engine/test/run/work-run.test.ts waits for a condition that is always reached (the answer's intent row stored, or the unpark mock resolved) instead of a fixed count of microtask ticks, and settle() no longer counts ticks
+- [x] #2 The StoryPlanning dependencies serve() builds in packages/daemon/src/foreground.ts come from an exported function that takes the probe, and a test in packages/daemon/test/unit/ shows that the dependencies it returns carry the given probe
+- [x] #3 The comment on office.refused in packages/contract/src/errors.ts names both causes: an office whose engine instance would not load, and a refused write of an office file such as .dipo/office.local.yaml
 <!-- AC:END -->
