@@ -3,10 +3,10 @@ id: DIPO-248
 title: >-
   Harden three tests and a code comment left from the DIPO-227, 229 and 136
   reviews
-status: Ready
+status: In Progress
 assignee: []
 created_date: '2026-10-20 18:35'
-updated_date: '2026-10-22 05:33'
+updated_date: '2026-10-22 07:25'
 labels:
   - 'tier:S'
   - cutover
