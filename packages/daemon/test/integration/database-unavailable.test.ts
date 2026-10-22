@@ -10,7 +10,15 @@
 
 import { Database } from "bun:sqlite";
 import { describe, expect, it } from "bun:test";
-import { closeSync, copyFileSync, existsSync, openSync, readFileSync, writeSync } from "node:fs";
+import {
+  closeSync,
+  copyFileSync,
+  existsSync,
+  mkdirSync,
+  openSync,
+  readFileSync,
+  writeSync,
+} from "node:fs";
 import { join, resolve } from "node:path";
 
 import { createLogger, openStateDatabase } from "@dipsaus-orchestrator/engine";
@@ -360,6 +368,7 @@ describe("dipo daemon --foreground with an unavailable state database", () => {
         const live = await headDatabase(dir);
         // A copy of a cleanly closed file is consistent: it stands in for the daily backup.
         const backup = join(dir, "state", "backups", "dipo-20261016.db");
+        mkdirSync(join(dir, "state", "backups"), { recursive: true });
         copyFileSync(live, backup);
 
         // An unclean exit: the daemon is killed while it runs.
