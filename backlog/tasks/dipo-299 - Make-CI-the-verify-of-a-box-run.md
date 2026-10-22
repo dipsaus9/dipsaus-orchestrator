@@ -1,10 +1,10 @@
 ---
 id: DIPO-299
 title: Make CI the verify of a box run
-status: To Do
+status: Done
 assignee: []
 created_date: '2026-10-22 09:34'
-updated_date: '2026-10-22 09:37'
+updated_date: '2026-10-22 11:31'
 labels:
   - 'tier:M'
   - box
@@ -17,6 +17,17 @@ references:
   - packages/engine/src/box/verify.ts
   - packages/engine/src/prompts/contract/implement-box.md
   - packages/engine/test/run/verify-in-box.test.ts
+  - packages/engine/src/box/parts.ts
+  - packages/engine/src/story-pr/prs.ts
+  - packages/engine/src/story-pr/body.ts
+  - packages/engine/src/story-pr/records.ts
+  - packages/engine/src/db/migrations/0041-run-step-ci-none.ts
+  - packages/daemon/src/runs.ts
+  - packages/daemon/src/foreground.ts
+  - packages/engine/test/story-pr/ci.test.ts
+  - packages/engine/src/prompts/contract/review-box.md
+  - packages/engine/src/prompts/templates.ts
+  - packages/engine/src/run/review-launch.ts
 priority: high
 type: feature
 ordinal: 288000
@@ -37,10 +48,16 @@ unknowns: []
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 A box run's done report no longer starts verify in the box: dipo commits and pushes the last part, opens the story PR and starts the review and CI together on that head (0019 section 7)
-- [ ] #2 Red CI on a box run goes back to the same worker as a fix round through the CI loop of 0019 section 8, and the run parks verify-failing with cause ci at that loop's cap
-- [ ] #3 An office whose story PRs get no CI checks is not held waiting for them: the review decides, and the run's record says that no CI ran
-- [ ] #4 implement-box.md tells the worker to run the office's verify in its box before it reports done and to fix what its change broke, and no longer says that dipo runs verify at done
-- [ ] #5 Tests cover: done without a verify in the box; red CI back to the worker; the CI cap; an office without CI; the prompt text
-- [ ] #6 packages/engine/src/box/verify.ts keeps only what box runs still use (the install of DIPO-294 and the box command runner); the done-time verify in the box is removed
+- [x] #1 A box run's done report no longer starts verify in the box: dipo commits and pushes the last part, opens the story PR and starts the review and CI together on that head (0019 section 7)
+- [x] #2 Red CI on a box run goes back to the same worker as a fix round through the CI loop of 0019 section 8, and the run parks verify-failing with cause ci at that loop's cap
+- [x] #3 An office whose story PRs get no CI checks is not held waiting for them: the review decides, and the run's record says that no CI ran
+- [x] #4 implement-box.md tells the worker to run the office's verify in its box before it reports done and to fix what its change broke, and no longer says that dipo runs verify at done
+- [x] #5 Tests cover: done without a verify in the box; red CI back to the worker; the CI cap; an office without CI; the prompt text
+- [x] #6 packages/engine/src/box/verify.ts keeps only what box runs still use (the install of DIPO-294 and the box command runner); the done-time verify in the box is removed
 <!-- AC:END -->
+
+## Implementation Notes
+
+<!-- SECTION:NOTES:BEGIN -->
+Criterion 2: red CI is recorded per head and parks verify-failing with cause ci at mergeSlot.ciAttempts; the fix round that sends the kept CI items to the worker is DIPO-148.
+<!-- SECTION:NOTES:END -->

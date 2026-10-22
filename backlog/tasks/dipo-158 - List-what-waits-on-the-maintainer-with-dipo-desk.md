@@ -4,7 +4,7 @@ title: List what waits on the maintainer with dipo desk
 status: Refined
 assignee: []
 created_date: '2026-10-17 12:52'
-updated_date: '2026-10-17 13:15'
+updated_date: '2026-10-22 11:31'
 labels:
   - 'tier:M'
   - 'slice:m1a'
@@ -53,3 +53,9 @@ test_plan:
 - [ ] #4 dipo desk [--office <id>] [--json] prints a count line, one line per item and an indented line with the command, in plain text; --json prints the read's result; an empty desk prints Nothing waits on you.; the exit code is 0
 - [ ] #5 The contract carries the office.desk read and the DeskItem shape
 <!-- AC:END -->
+
+## Implementation Notes
+
+<!-- SECTION:NOTES:BEGIN -->
+From DIPO-299 (2026-10-22): a box run whose branch tip moved at done now parks interrupted with cause build, not verify-failing with cause refused.
+<!-- SECTION:NOTES:END -->
