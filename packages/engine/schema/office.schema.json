@@ -4,7 +4,7 @@
   "properties": {
     "version": {
       "type": "number",
-      "const": 10
+      "const": 11
     },
     "tiers": {
       "type": "object",
@@ -346,6 +346,45 @@
             "minLength": 1
           },
           "description": "Phrases that name a step only the maintainer or the engine can take, such as writing task notes. A criterion that contains one fails the Ready gate (R27) and moves that step to a manual test plan entry (0012 section 3, DIPO-188)."
+        },
+        "securityPhrases": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "minLength": 1
+          },
+          "description": "Phrases of a title or Outcome that adds or replaces a security barrier, such as a deny rule or a permission check. Such a story needs the criteria parts of story.securityCriteriaPhrases, else it fails the Ready gate (R30, 0012 section 3, DIPO-251)."
+        },
+        "securityCriteriaPhrases": {
+          "type": "object",
+          "properties": {
+            "oldBarrier": {
+              "type": "array",
+              "items": {
+                "type": "string",
+                "minLength": 1
+              },
+              "description": "Phrases of a criterion that lists what the old barrier caught, with a test for each."
+            },
+            "bypassForms": {
+              "type": "array",
+              "items": {
+                "type": "string",
+                "minLength": 1
+              },
+              "description": "Phrases of a criterion that lists the bypass forms to test (wrappers, quoting, indirection, chaining)."
+            },
+            "failClosed": {
+              "type": "array",
+              "items": {
+                "type": "string",
+                "minLength": 1
+              },
+              "description": "Phrases of a criterion that asks for a fail-closed test against the real path."
+            }
+          },
+          "additionalProperties": false,
+          "description": "Per part of R30, the phrases a criterion must contain (word match, as R27). A story whose title or Outcome names a security barrier fails once for each part no criterion matches (0012 section 3, DIPO-251)."
         }
       },
       "additionalProperties": false

@@ -14,6 +14,7 @@ import {
   OfficeConfigV8,
   OfficeConfigV9,
   OfficeConfigV10,
+  OfficeConfigV11,
   OfficeFileV1,
   OfficeFileV2,
   OfficeFileV3,
@@ -24,6 +25,7 @@ import {
   OfficeFileV8,
   OfficeFileV9,
   OfficeFileV10,
+  OfficeFileV11,
   OfficeLocalFileV1,
   OfficeLocalFileV2,
   OfficeLocalFileV3,
@@ -34,6 +36,7 @@ import {
   OfficeLocalFileV8,
   OfficeLocalFileV9,
   OfficeLocalFileV10,
+  OfficeLocalFileV11,
   privacyOptIns,
   RETIRED_KEYS,
   schemaKeyPaths,
@@ -509,7 +512,6 @@ const VERSION_10_KEY_PATHS = VERSION_9_KEY_PATHS.filter(
 
 describe("version 10 key paths", () => {
   it("are the version 9 paths without permissions.presentMinutes", () => {
-    expect(OFFICE_CONFIG_VERSION).toBe(10);
     expect(VERSION_10_KEY_PATHS).toHaveLength(VERSION_9_KEY_PATHS.length - 1);
     expect(schemaKeyPaths(OfficeConfigV10)).toEqual(VERSION_10_KEY_PATHS.toSorted());
     expect(schemaKeyPaths(OfficeFileV10)).toEqual(
@@ -536,73 +538,129 @@ describe("version 10 key paths", () => {
   });
 });
 
+// Version 11 (DIPO-251, from DIPO-260): the R30 phrase lists of the story block.
+const VERSION_11_KEY_PATHS = [
+  ...VERSION_10_KEY_PATHS,
+  "story.securityPhrases",
+  "story.securityCriteriaPhrases.oldBarrier",
+  "story.securityCriteriaPhrases.bypassForms",
+  "story.securityCriteriaPhrases.failClosed",
+];
+
+/** Whether `.dipo/office.yaml` version 11 accepts `body` as given. */
+function officeFileV11(body: object): boolean {
+  return OfficeFileV11.safeParse({ version: 11, ...body }).success;
+}
+
+describe("version 11 key paths", () => {
+  it("are the version 10 paths plus the security phrase lists", () => {
+    expect(OFFICE_CONFIG_VERSION).toBe(11);
+    expect(schemaKeyPaths(OfficeConfigV11)).toEqual(VERSION_11_KEY_PATHS.toSorted());
+    expect(schemaKeyPaths(OfficeFileV11)).toEqual(
+      VERSION_11_KEY_PATHS.filter((path) => !localOnly(path)).toSorted(),
+    );
+    expect(schemaKeyPaths(OfficeLocalFileV11)).toEqual(
+      VERSION_11_KEY_PATHS.filter(localAllowedV4).toSorted(),
+    );
+  });
+
+  it("accept phrase lists, one part alone, and refuse a non-string, an empty entry or another part", () => {
+    expect(officeFileV11({ story: { securityPhrases: ["firewall rule"] } })).toBe(true);
+    expect(
+      officeFileV11({ story: { securityCriteriaPhrases: { failClosed: ["real path"] } } }),
+    ).toBe(true);
+    expect(officeFileV11({ story: { securityPhrases: [3] } })).toBe(false);
+    expect(officeFileV11({ story: { securityPhrases: [""] } })).toBe(false);
+    expect(officeFileV11({ story: { securityCriteriaPhrases: { other: ["x"] } } })).toBe(false);
+  });
+
+  it("keep version 10 without the security phrase lists", () => {
+    expect(OfficeFileV10.safeParse({ version: 10, story: { securityPhrases: [] } }).success).toBe(
+      false,
+    );
+    expect(
+      OfficeFileV10.safeParse({ version: 10, story: { securityCriteriaPhrases: {} } }).success,
+    ).toBe(false);
+  });
+});
+
 describe("migrateOfficeDocument", () => {
-  it("migrates version 1 to 10 as the identity", () => {
+  it("migrates version 1 to 11 as the identity", () => {
     const v1 = { version: 1, worker: { adapter: "claude-cli" }, remote: "up" };
-    expect(migrateOfficeDocument(1, v1)).toEqual({ ...v1, version: 10 });
+    expect(migrateOfficeDocument(1, v1)).toEqual({ ...v1, version: 11 });
     expect(v1.version).toBe(1);
   });
 
-  it("migrates version 2 to 10 as the identity", () => {
+  it("migrates version 2 to 11 as the identity", () => {
     const v2 = { version: 2, worker: { plugins: ["warp@claude-code-warp"] } };
-    expect(migrateOfficeDocument(2, v2)).toEqual({ ...v2, version: 10 });
+    expect(migrateOfficeDocument(2, v2)).toEqual({ ...v2, version: 11 });
   });
 
-  it("migrates version 3 to 10 as the identity", () => {
+  it("migrates version 3 to 11 as the identity", () => {
     const v3 = { version: 3, mergeSlot: { requiredChecks: ["build"] } };
-    expect(migrateOfficeDocument(3, v3)).toEqual({ ...v3, version: 10 });
+    expect(migrateOfficeDocument(3, v3)).toEqual({ ...v3, version: 11 });
   });
 
-  it("migrates version 4 to 10 as the identity", () => {
+  it("migrates version 4 to 11 as the identity", () => {
     const v4 = { version: 4, sandbox: { toolchainReadPaths: ["~/.nvm/versions/node"] } };
-    expect(migrateOfficeDocument(4, v4)).toEqual({ ...v4, version: 10 });
+    expect(migrateOfficeDocument(4, v4)).toEqual({ ...v4, version: 11 });
   });
 
-  it("migrates version 5 to 10 as the identity", () => {
+  it("migrates version 5 to 11 as the identity", () => {
     const v5 = { version: 5, review: { maxRounds: 2 } };
-    expect(migrateOfficeDocument(5, v5)).toEqual({ ...v5, version: 10 });
+    expect(migrateOfficeDocument(5, v5)).toEqual({ ...v5, version: 11 });
   });
 
-  it("migrates version 6 to 10 as the identity", () => {
+  it("migrates version 6 to 11 as the identity", () => {
     const v6 = { version: 6, story: { maintainerStepPhrases: ["task notes"] } };
-    expect(migrateOfficeDocument(6, v6)).toEqual({ ...v6, version: 10 });
+    expect(migrateOfficeDocument(6, v6)).toEqual({ ...v6, version: 11 });
   });
 
-  it("migrates version 7 to 10 as the identity", () => {
+  it("migrates version 7 to 11 as the identity", () => {
     const v7 = { version: 7, storyPr: { open: false } };
-    expect(migrateOfficeDocument(7, v7)).toEqual({ ...v7, version: 10 });
+    expect(migrateOfficeDocument(7, v7)).toEqual({ ...v7, version: 11 });
   });
 
-  it("migrates version 8 to 10 as the identity", () => {
+  it("migrates version 8 to 11 as the identity", () => {
     const v8 = { version: 8, worker: { web: false } };
-    expect(migrateOfficeDocument(8, v8)).toEqual({ ...v8, version: 10 });
+    expect(migrateOfficeDocument(8, v8)).toEqual({ ...v8, version: 11 });
   });
 
-  it("migrates version 9 to 10 as the identity when permissions.presentMinutes is not set", () => {
+  it("migrates version 9 to 11 as the identity when permissions.presentMinutes is not set", () => {
     const v9 = { version: 9, box: { debian: "trixie" }, permissions: { ask: "never" } };
-    expect(migrateOfficeDocument(9, v9)).toEqual({ ...v9, version: 10 });
+    expect(migrateOfficeDocument(9, v9)).toEqual({ ...v9, version: 11 });
   });
 
   it("drops permissions.presentMinutes from version 9 and older, and keeps the input", () => {
     const v9 = { version: 9, permissions: { ask: "never", presentMinutes: 10 }, remote: "up" };
     expect(migrateOfficeDocument(9, v9)).toEqual({
-      version: 10,
+      version: 11,
       permissions: { ask: "never" },
       remote: "up",
     });
     expect(v9.permissions.presentMinutes).toBe(10);
     const v1 = { version: 1, permissions: { presentMinutes: 5 } };
-    expect(migrateOfficeDocument(1, v1)).toEqual({ version: 10, permissions: {} });
+    expect(migrateOfficeDocument(1, v1)).toEqual({ version: 11, permissions: {} });
   });
 
-  it("leaves a version 10 document as it is", () => {
+  it("migrates version 10 to 11 as the identity", () => {
     const v10 = { version: 10, box: { debian: "trixie" } };
-    expect(migrateOfficeDocument(10, v10)).toEqual(v10);
+    expect(migrateOfficeDocument(10, v10)).toEqual({ ...v10, version: 11 });
   });
 
-  it("turns the version 1 defaults into the version 10 defaults but worker.plugins, worker.web, mergeSlot, review, the step phrases, storyPr and box", () => {
+  it("leaves a version 11 document as it is", () => {
+    const v11 = { version: 11, story: { securityPhrases: ["firewall rule"] } };
+    expect(migrateOfficeDocument(11, v11)).toEqual(v11);
+  });
+
+  it("turns the version 1 defaults into the version 11 defaults but worker.plugins, worker.web, mergeSlot, review, the story phrases, storyPr and box", () => {
     const { plugins: _plugins, web: _web, ...worker } = OFFICE_DEFAULTS.worker;
-    const { maintainerStepPhrases: _phrases, ...story } = OFFICE_DEFAULTS.story;
+    const {
+      maintainerStepPhrases: _phrases,
+      securityPhrases: _security,
+      securityCriteriaPhrases: _criteria,
+      ...story
+    } = OFFICE_DEFAULTS.story;
     const {
       mergeSlot: _mergeSlot,
       review: _review,
@@ -610,11 +668,11 @@ describe("migrateOfficeDocument", () => {
       box: _box,
       ...rest
     } = OFFICE_DEFAULTS;
-    // Version 1 needs permissions.presentMinutes, which the migration to version 10 drops.
+    // Version 1 needs permissions.presentMinutes, which the migration to version 11 drops.
     const permissions = { ...OFFICE_DEFAULTS.permissions, presentMinutes: 10 };
     const v1 = OfficeConfigV1.parse({ ...rest, permissions, story, version: 1, worker });
     expect(
-      OfficeConfigV10.parse({
+      OfficeConfigV11.parse({
         ...migrateOfficeDocument(1, v1),
         worker: OFFICE_DEFAULTS.worker,
         mergeSlot: OFFICE_DEFAULTS.mergeSlot,
@@ -628,8 +686,40 @@ describe("migrateOfficeDocument", () => {
 });
 
 describe("defaults", () => {
-  it("are a complete version 10 configuration", () => {
-    expect(OfficeConfigV10.parse(OFFICE_DEFAULTS)).toEqual(OFFICE_DEFAULTS);
+  it("are a complete version 11 configuration", () => {
+    expect(OfficeConfigV11.parse(OFFICE_DEFAULTS)).toEqual(OFFICE_DEFAULTS);
+  });
+
+  it("give R30 the security phrases and a phrase list for each criteria part (DIPO-251)", () => {
+    expect(OFFICE_DEFAULTS.story.securityPhrases).toEqual([
+      "deny rule",
+      "guard",
+      "sandbox setting",
+      "permission check",
+    ]);
+    expect(OFFICE_DEFAULTS.story.securityCriteriaPhrases).toEqual({
+      oldBarrier: [
+        "old barrier",
+        "old rule",
+        "old guard",
+        "old check",
+        "previous rule",
+        "previously caught",
+        "still catches",
+      ],
+      bypassForms: [
+        "bypass",
+        "bypasses",
+        "wrapper",
+        "wrappers",
+        "quoting",
+        "quoted",
+        "indirection",
+        "chaining",
+        "chained",
+      ],
+      failClosed: ["fail-closed", "fails closed", "fail closed", "real path"],
+    });
   });
 
   it("ask permissions when present and set no presentMinutes (DIPO-285)", () => {
