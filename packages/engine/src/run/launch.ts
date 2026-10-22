@@ -146,7 +146,10 @@ export function boxTreeChangedText(paths: readonly string[]): string {
  * in the box downloads its packages through Safe-Chain.
  */
 export function packageCacheSkippedText(story: string, reason: string, fallback: boolean): string {
-  const why = reason.replace(/\.+$/, "");
+  // Trailing dots are cut by a loop, not a regular expression that backtracks on many dots.
+  let end = reason.length;
+  while (end > 0 && reason[end - 1] === ".") end -= 1;
+  const why = reason.slice(0, end);
   return fallback
     ? `${story}'s install from the package cache failed (${why}); dipo ran it again without the cache, through Safe-Chain.`
     : `${story} runs without the package cache: ${why}. The install in the box downloads its packages through Safe-Chain instead.`;
