@@ -767,10 +767,30 @@ describe("the door at the end of a box run (DIPO-297)", () => {
       await t.boxes.stop("dipo-run_1");
       await settle();
       expect(t.unreadable()).toEqual([]);
-      // The next poll finds the box stopped: the read fails at once, quietly.
+      t.door.close();
+    }));
+
+  it("starts no read once the worker's box stopped, before any decision, until the next session", () =>
+    withTempDir(async (dir) => {
+      const t = await doorOnFakeBox(dir, () => ({ stdout: "end\n" }));
       t.clock.advance(DOOR_POLL_MS);
+      await until(() => t.reads() === 1);
       await settle();
-      expect(t.unreadable()).toEqual([]);
+      // The worker exited on its own and its host stopped the box; the run still goes on.
+      await t.boxes.stop("dipo-run_1");
+      for (let i = 0; i < 3; i++) {
+        t.clock.advance(DOOR_POLL_MS);
+        await settle();
+      }
+      expect(t.reads()).toBe(1);
+      expect(t.lines).toEqual([]);
+      // The door paused: it sets no more polls.
+      expect(t.clock.pendingTimers).toBe(0);
+      // The run's next session starts the box and the door again: it reads again.
+      await t.boxes.start("dipo-run_1");
+      t.door.start("run_1", "dipo-run_1", dir);
+      t.clock.advance(DOOR_POLL_MS);
+      await until(() => t.reads() === 2);
       t.door.close();
     }));
 
