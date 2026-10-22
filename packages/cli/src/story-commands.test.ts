@@ -4,7 +4,7 @@
 
 import { describe, expect, it } from "bun:test";
 
-import { type OfficeId, storyDrop } from "@dipsaus-orchestrator/contract";
+import { type OfficeId, storyDrop, workDiscard } from "@dipsaus-orchestrator/contract";
 import { ManualClock } from "@dipsaus-orchestrator/testkit";
 
 import type { DaemonControl, DaemonSession } from "./daemon-commands";
@@ -256,5 +256,89 @@ describe("dipo drop", () => {
   it("needs exactly one story id", async () => {
     expect(await main(["drop"], fake(done).deps)).toBe(2);
     expect(await main(["drop", "DIPO-7", "DIPO-8"], fake(done).deps)).toBe(2);
+  });
+});
+
+describe("dipo discard (DIPO-161)", () => {
+  it("is an irreversible confirm command", () => {
+    expect(workDiscard.confirm).toBe(true);
+    expect(workDiscard.irreversible).toBe(true);
+  });
+
+  it("prints the loss list, then sends work.discard only after the typed id", async () => {
+    const ctx = fake(done, { interactive: true, answers: ["dipo-7"] }, LOST);
+    const printedAtQuestion: string[][] = [];
+    const sentAtQuestion: number[] = [];
+    const ask = ctx.ws.ask;
+    ctx.ws.ask = async (question) => {
+      printedAtQuestion.push([...ctx.out]);
+      sentAtQuestion.push(ctx.sent.length);
+      return ask(question);
+    };
+    expect(await main(["discard", "DIPO-7", "--note", "wrong approach"], ctx.deps)).toBe(0);
+    expect(ctx.reads).toEqual(["story.losses"]);
+    expect(printedAtQuestion[0]).toEqual([
+      "commits not on the base (1):",
+      "  3f9a1c2 feat(DIPO-7): retry",
+      "uncommitted or untracked files (1):",
+      "  scratch.txt",
+    ]);
+    // Nothing was sent before the typed id.
+    expect(sentAtQuestion).toEqual([0]);
+    expect(ctx.ws.questions[0]).toContain("cannot be undone");
+    expect(ctx.ws.questions[0]).toContain("Type DIPO-7");
+    expect(ctx.sent).toEqual([
+      {
+        name: "work.discard",
+        args: { story: "DIPO-7", note: "wrong approach" },
+        office: OFFICE,
+      },
+    ]);
+    expect(ctx.out.at(-1)).toContain("discarded DIPO-7");
+  });
+
+  it("sends nothing on a wrong id, without a terminal, or with --yes in a script", async () => {
+    const wrong = fake(done, { interactive: true, answers: ["y"] });
+    expect(await main(["discard", "DIPO-7", "--note", "x", "--yes"], wrong.deps)).toBe(1);
+    expect(wrong.sent).toEqual([]);
+    expect(wrong.out.at(-1)).toBe("nothing discarded");
+
+    const script = fake(done);
+    expect(await main(["discard", "DIPO-7", "--note", "x", "--yes"], script.deps)).toBe(1);
+    expect(script.sent).toEqual([]);
+    expect(script.reads).toEqual([]);
+    expect(script.err[0]).toContain("typed at a terminal");
+  });
+
+  it("needs a story id and a note", async () => {
+    expect(await main(["discard", "DIPO-7"], fake(done).deps)).toBe(2);
+    expect(await main(["discard", "--note", "x"], fake(done).deps)).toBe(2);
+    expect(await main(["discard", "DIPO-7", "--note"], fake(done).deps)).toBe(2);
+  });
+
+  it("discards nothing when the loss read fails", async () => {
+    const ctx = fake(done, { interactive: true, answers: ["DIPO-7"] }, () => ({
+      ok: false,
+      error: { code: "git.failed", message: "git could not read", retryable: false },
+    }));
+    expect(await main(["discard", "DIPO-7", "--note", "x"], ctx.deps)).toBe(1);
+    expect(ctx.ws.questions).toEqual([]);
+    expect(ctx.sent).toEqual([]);
+  });
+
+  it("prints story.prMerged from the engine and exits 1", async () => {
+    const ctx = fake(
+      () => ({
+        ok: false,
+        error: {
+          code: "story.prMerged",
+          message: "The PR #7 of DIPO-7 merged, so there is nothing to discard.",
+          retryable: false,
+        },
+      }),
+      { interactive: true, answers: ["DIPO-7"] },
+    );
+    expect(await main(["discard", "DIPO-7", "--note", "x"], ctx.deps)).toBe(1);
+    expect(ctx.err[0]).toContain("story.prMerged");
   });
 });
