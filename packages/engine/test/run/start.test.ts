@@ -189,6 +189,10 @@ interface World {
   /** What the box workers were asked (DIPO-271), and whether making a box fails. */
   readonly boxCalls: string[];
   boxFails: boolean;
+  /** What the base verify in the box says (DIPO-294), or the error it throws. */
+  boxBase: BaseVerifyFacts | Error;
+  /** The image the box record names; null for none. */
+  boxImage: string | null;
 }
 
 let world: World;
@@ -233,6 +237,8 @@ beforeEach(async () => {
     verifyRefusal: null,
     boxCalls: [] as string[],
     boxFails: false,
+    boxBase: { kind: "green" },
+    boxImage: "dipo-box:image-1",
   } as unknown as World;
 
   const git = {
@@ -324,7 +330,18 @@ beforeEach(async () => {
       discard: async (runId) => {
         w.boxCalls.push(`discard ${runId}`);
       },
+      imageOf: () => w.boxImage,
+      baseVerify: async (input) => {
+        w.boxCalls.push(
+          `base verify ${input.runId}: ${input.commands.map((c) => c.join(" ")).join("; ")} in ${input.env["DIPO_WORKTREE"]} within ${input.timeoutMs} ms`,
+        );
+        if (w.boxBase instanceof Error) throw w.boxBase;
+        return w.boxBase;
+      },
     },
+    // The in-box base result is stored in the office's database (DIPO-294).
+    office: () => office,
+    clock: t.clock,
   });
 
   const read = (ids: readonly string[] | null): BaseRead => ({
@@ -819,6 +836,93 @@ describe("a box worker's run (DIPO-271)", () => {
     // The release after a failed host start deletes the box without waiting on it.
     for (let i = 0; i < 10 && world.boxCalls.length < 2; i++) await Promise.resolve();
     expect(world.boxCalls.map((call) => call.split(" ")[0])).toEqual(["create", "discard"]);
+  });
+});
+
+/** The first message the `n`th started host sends. */
+function sentOf(n: number): string {
+  return JSON.parse(world.hosts[n]?.plan.stdin[0] ?? "").message.content as string;
+}
+
+/** Ends a started run and its worker, so the worker place is free for the next. */
+function ended(result: RunResult): void {
+  const runId = result.started[0]?.run as RunId;
+  expect(runId).toBeDefined();
+  world.office.immediate(() => {
+    endRun(world.office, runId, world.t.clock.now(), "done");
+    world.office.run(
+      "update agents set ended_at = $at where office_id = $office_id and run_id = $run",
+      { at: world.t.clock.now(), run: runId },
+    );
+  });
+}
+
+describe("the base verify in a box run's box (DIPO-294)", () => {
+  it("runs verify at the start commit in the box before the worker starts, and gives its result to the worker", async () => {
+    storeResolvedVerify(world.office, { commands: [["bun", "run", "verify"]], cwd: "." });
+    // What setup read on the Mac is not the box worker's.
+    world.baseVerify = { kind: "red", failing: ["mac > only on the Mac"], tail: null };
+    world.boxBase = { kind: "red", failing: ["git > reads the log"], tail: null };
+    let startedAfter: string[] = [];
+    world.onHostStart = () => {
+      startedAfter = [...world.boxCalls];
+    };
+    story("TASK-1", "Ready");
+    const boxed = resultOf<RunResult>(await run({ stories: ["TASK-1"], box: true }));
+    const runId = boxed.started[0]?.run as string;
+    // Same command, the run environment for /work and the 20 min verify deadline.
+    expect(world.boxCalls).toEqual([
+      `create ${runId} at ${"b".repeat(40)} in ${join(world.dir, "repo", ".git", "dipo", "runs", runId)}`,
+      `base verify ${runId}: bun run verify in /work within ${20 * 60_000} ms`,
+    ]);
+    expect(startedAfter).toEqual(world.boxCalls);
+    const sent = sentOf(0);
+    expect(sent).toContain("The start commit fails verify in your box.");
+    expect(sent).toContain("- git > reads the log");
+    expect(sent).not.toContain("mac > only on the Mac");
+    expect(countRows(world.office, "base_verifies")).toBe(1);
+  });
+
+  it("reuses the stored result for the same start commit, image and configuration", async () => {
+    storeResolvedVerify(world.office, { commands: [["bun", "run", "verify"]], cwd: "." });
+    world.boxBase = { kind: "red", failing: ["git > reads the log"], tail: null };
+    story("TASK-1", "Ready");
+    story("TASK-2", "Ready");
+    ended(resultOf<RunResult>(await run({ stories: ["TASK-1"], box: true })));
+    world.boxBase = new Error("verify must not run again");
+    ended(resultOf<RunResult>(await run({ stories: ["TASK-2"], box: true })));
+    expect(world.boxCalls.filter((call) => call.startsWith("base verify"))).toHaveLength(1);
+    expect(sentOf(1)).toContain("- git > reads the log");
+
+    // Another image is another key: verify runs again.
+    world.boxImage = "dipo-box:image-2";
+    world.boxBase = { kind: "green" };
+    story("TASK-3", "Ready");
+    ended(resultOf<RunResult>(await run({ stories: ["TASK-3"], box: true })));
+    expect(world.boxCalls.filter((call) => call.startsWith("base verify"))).toHaveLength(2);
+    expect(sentOf(2)).toContain("The start commit passes verify in your box.");
+  });
+
+  it("starts the worker with a not-known result when verify cannot run, and stores nothing", async () => {
+    // No resolved verify in the run profile.
+    story("TASK-1", "Ready");
+    await run({ stories: ["TASK-1"], box: true });
+    expect(world.boxCalls.filter((call) => call.startsWith("base verify"))).toEqual([]);
+    expect(sentOf(0)).toContain("Not known: the run profile has no resolved verify.");
+    expect(sentOf(0)).toContain("Every verify failure counts against the story.");
+    expect(countRows(world.office, "base_verifies")).toBe(0);
+  });
+
+  it("fails the launch and deletes the box when the box could not end a verify past its deadline", async () => {
+    storeResolvedVerify(world.office, { commands: [["bun", "run", "verify"]], cwd: "." });
+    world.boxBase = new Error(
+      "the base verify passed its deadline and could be ended neither inside the box nor by stopping it.",
+    );
+    story("TASK-1", "Ready");
+    const result = resultOf<RunResult>(await run({ stories: ["TASK-1"], box: true }));
+    expect(result.skipped.map((s) => s.reason)).toEqual(["pickupCheckFailed"]);
+    expect(world.hosts).toEqual([]);
+    expect(world.boxCalls.at(-1)).toMatch(/^discard run_/);
   });
 });
 

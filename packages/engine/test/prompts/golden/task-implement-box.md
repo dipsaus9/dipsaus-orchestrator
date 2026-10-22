@@ -33,7 +33,7 @@ Context: the greeting follows the tone guide. Customers asked for it in the last
 </background>
 
 <base_verify>
-Not known: dipo has no verify result for this base commit. Whether the base commit passes verify in your sandbox is not recorded; if a failure looks unrelated to your change, check it before you spend turns on it.
+Not known: dipo has no verify result for this base commit. Whether the start commit passes verify in your box is not recorded; if a failure looks unrelated to your change, check it before you spend turns on it. Every verify failure counts against the story.
 </base_verify>
 
 <story>

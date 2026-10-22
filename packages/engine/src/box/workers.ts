@@ -20,7 +20,9 @@
 //   released. `discard` deletes a box whose worker never ran, without the check.
 // - `finishEnded` finishes the box of every run that has ended (after an exit, at daemon start;
 //   at daemon start also every dipo box the backend lists), and `close` stops every box at daemon
-//   stop, which ends the worker inside it.
+//   stop, which ends the worker inside it, and a base verify still running in it.
+// - `baseVerify` (the launch, after `create`, before the worker's first session; DIPO-294): the
+//   office's verify at the start commit in the box, for the in-box base result.
 //
 // Two records: the run directory's `BOX_RUN_FILE` says the run is a box worker's, so every later
 // session of the run plans in its box; the index folder in dipo's state folder holds one file per
@@ -34,6 +36,7 @@ import { join } from "node:path";
 import type { OfficeId } from "@dipsaus-orchestrator/contract";
 
 import type { OfficeGit } from "../git/office";
+import type { BaseVerifyFacts } from "../prompts/base-verify";
 import { ensurePrivateDir } from "../platform/paths";
 import { type AdapterHolds, holdMessage } from "../workers/hold";
 import { ensureImageWithBuildProxy } from "./build-proxy";
@@ -51,6 +54,7 @@ import {
   runIdOfBox,
 } from "./port";
 import { type BoxTokenCheck, checkBoxAfterRun, tokenCheckFailure } from "./token-check";
+import { runBoxBaseVerify } from "./verify";
 import { BoxWebRoute, type BoxWebRouteStart, type RunningBoxWebRoute } from "./web-proxy";
 
 /** The run directory's record that the run's developer works in a box. */
@@ -71,6 +75,8 @@ export interface BoxRunRecord {
   readonly runId: string;
   readonly office: string;
   readonly box: string;
+  /** The image the box was made from (`dipo-box:<sha256 of its build file>`), keying its base verify. */
+  readonly image?: string;
   /** Set once the run ended and its box was deleted. */
   readonly finished?: boolean;
 }
@@ -172,6 +178,7 @@ export function readBoxRun(runDir: string): BoxRunRecord | null {
       runId: value.runId,
       office: typeof value.office === "string" ? value.office : "",
       box: value.box,
+      ...(typeof value.image === "string" ? { image: value.image } : {}),
       ...(value.finished === true ? { finished: true } : {}),
     };
   } catch {
@@ -297,6 +304,7 @@ export class BoxWorkers {
       runId: input.runId,
       office: input.office,
       box: name,
+      image: image.tag,
     } satisfies BoxRunRecord);
     ensurePrivateDir(this.#index);
     writeJson(this.#indexFile(input.runId), { runDir: input.runDir });
@@ -502,6 +510,44 @@ export class BoxWorkers {
     return this.#door?.read(runId) ?? null;
   }
 
+  /** The image the run's box was made from, from the run directory's record; null when unknown. */
+  imageOf(runDir: string): string | null {
+    return readBoxRun(runDir)?.image ?? null;
+  }
+
+  /**
+   * The office's verify at the start commit in the run's box (DIPO-294), before the worker's
+   * first session: `commands` in `/work` with `env` and nothing of the Mac's, within `timeoutMs`
+   * (`runBoxBaseVerify`). The launch waits for it. A verify past the deadline that neither a kill
+   * in the box nor a box stop could end throws `box.failed`, so the launch fails and deletes the
+   * box instead of starting a worker beside it. A box stopped meanwhile (a daemon stop) ends the
+   * verify with it, and the result is not known.
+   */
+  async baseVerify(input: {
+    readonly runId: string;
+    readonly commands: readonly (readonly string[])[];
+    readonly env: Readonly<Record<string, string>>;
+    readonly timeoutMs: number;
+  }): Promise<BaseVerifyFacts> {
+    const box = boxName(input.runId);
+    const { facts, ended } = await runBoxBaseVerify(
+      {
+        boxes: this.#deps.boxes,
+        clock: this.#deps.code.clock,
+        ...(this.#deps.warn === undefined ? {} : { warn: this.#deps.warn }),
+      },
+      { box, commands: input.commands, env: input.env, timeoutMs: input.timeoutMs },
+    );
+    if (ended === "failed") {
+      throw new BoxError(
+        "box.failed",
+        "the base verify passed its deadline and could be ended neither inside the box nor by stopping it.",
+      );
+    }
+    this.#deps.info?.("base verify in the box", { run: input.runId, box, result: facts.kind });
+    return facts;
+  }
+
   /** Deletes the box of a run whose worker never ran (a failed launch); no token check. */
   async discard(runId: string): Promise<void> {
     const name = boxName(runId);
@@ -542,6 +588,7 @@ export class BoxWorkers {
         runId,
         office: record?.office ?? "",
         box: name,
+        ...(record?.image === undefined ? {} : { image: record.image }),
         finished: true,
       } satisfies BoxRunRecord);
     } catch (error) {

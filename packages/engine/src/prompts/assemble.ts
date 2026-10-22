@@ -323,7 +323,10 @@ export function assembleTaskMessage(input: TaskMessageInput): TaskMessage {
   const feedback = input.feedback ?? [];
   const handoff =
     input.handoff === undefined ? undefined : renderHandoff(input.handoff, budgets.handoff);
-  const baseVerify = renderBaseVerify(input.baseVerify ?? BASE_VERIFY_UNKNOWN);
+  const baseVerify = renderBaseVerify(
+    input.baseVerify ?? BASE_VERIFY_UNKNOWN,
+    input.box === true ? { box: true } : {},
+  );
   const inputCount = inputContentItems(pack).length;
 
   const build = (state: DropState): Section[] => {

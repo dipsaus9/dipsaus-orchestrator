@@ -419,6 +419,9 @@ function buildLauncher(
     ...(control === null ? {} : { control: trackerOf(ports, control) }),
     release: ports.release,
     ...given("boxes", ports.boxes),
+    // The in-box base result of a box run is stored in the office's database (DIPO-294).
+    office: (office: OfficeId) => ports.offices.get(office),
+    clock: ports.clock,
     // The backstop's run-start snapshot (DIPO-49), which only the finisher reads.
     ...(ports.control?.finisher === undefined
       ? {}

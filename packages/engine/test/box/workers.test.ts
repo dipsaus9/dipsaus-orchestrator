@@ -390,7 +390,14 @@ describe("the box of a box run (criteria 4 and 10)", () => {
         "safe-chain-ca.pem",
         "system.md",
       ]);
-      expect(readBoxRun(w.runDir)).toEqual({ runId: RUN, office: OFFICE, box: BOX });
+      expect(readBoxRun(w.runDir)).toEqual({
+        runId: RUN,
+        office: OFFICE,
+        box: BOX,
+        // The image keys the box's base verify (DIPO-294).
+        image: w.boxes.boxes.get(BOX)?.spec.image as string,
+      });
+      expect(w.workers.imageOf(w.runDir)).toMatch(/^dipo-box:[0-9a-f]{64}$/);
       expect(w.workers.isBoxRun(w.runDir)).toBe(true);
     }));
 
@@ -665,5 +672,63 @@ describe("daemon stop (criterion 6)", () => {
       await workers.close();
       expect(log).toEqual([]);
       expect(existsSync(join(tmp, BOX_RUN_FILE))).toBe(false);
+    }));
+});
+
+/** The base verify of the run in its box, with a run environment for /work. */
+function verifyIn(w: World) {
+  return w.workers.baseVerify({
+    runId: RUN,
+    commands: [["bun", "run", "verify"]],
+    env: { DIPO_STORY: "DIPO-1", DIPO_WORKTREE: "/work" },
+    timeoutMs: 20 * 60_000,
+  });
+}
+
+describe("the base verify in the box (DIPO-294)", () => {
+  it("runs verify at the start commit in the box create made, before any session or route", () =>
+    inBoxes(async (repo, tmp) => {
+      const failing = "(fail) git > reads the log [1.00ms]\n 1 fail\n";
+      const w = await world(repo, tmp, { boxes: { live: () => ({ stdout: failing, code: 1 }) } });
+      await created(w);
+      w.log.length = 0;
+      expect(await verifyIn(w)).toEqual({
+        kind: "red",
+        failing: ["git > reads the log"],
+        tail: null,
+      });
+      // Only the verify and the check that the box still ran: no route, no session restart.
+      expect(w.log).toEqual([`exec live ${BOX} bun run verify`, "list"]);
+      expect(w.boxes.liveExecs[0]).toMatchObject({
+        cwd: "/work",
+        env: { DIPO_STORY: "DIPO-1", DIPO_WORKTREE: "/work" },
+      });
+      // The first session still finds the box create made, without a restart.
+      w.log.length = 0;
+      await w.workers.session({ runId: RUN, runDir: w.runDir, systemFile: w.systemFile });
+      expect(w.log.slice(0, 2)).toEqual(["list", "web route started on 192.0.2.10"]);
+    }));
+
+  it("ends with the box at daemon stop, leaving no verify running and no result", () =>
+    inBoxes(async (repo, tmp) => {
+      const w = await world(repo, tmp, { boxes: { live: () => ({ hang: true }) } });
+      await created(w);
+      const pending = verifyIn(w);
+      await w.workers.close();
+      expect(await pending).toEqual({
+        kind: "unknown",
+        reason: "the box stopped while verify ran",
+      });
+      expect(w.boxes.boxes.get(BOX)?.state).toBe("stopped");
+    }));
+
+  it("keeps the image in the run's record after the run's end", () =>
+    inBoxes(async (repo, tmp) => {
+      const w = await world(repo, tmp);
+      await created(w);
+      const image = w.workers.imageOf(w.runDir);
+      expect(image).toBe(w.boxes.boxes.get(BOX)?.spec.image ?? "no box");
+      await w.workers.finish(RUN);
+      expect(readBoxRun(w.runDir)).toMatchObject({ finished: true, image });
     }));
 });

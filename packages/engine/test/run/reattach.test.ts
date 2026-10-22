@@ -85,6 +85,7 @@ import {
 } from "../../src/workers/types";
 import {
   baseVerifyConfigHash,
+  boxBaseVerifyConfigHash,
   runProfileOf,
   storeBaseVerify,
 } from "../../src/worktree/base-verify";
@@ -1817,6 +1818,46 @@ describe("the prompts of a box worker's next session (DIPO-272)", () => {
       "The paths the planner expects this story to change (a forecast, not a fence):",
     );
     expect(text).not.toContain("You may write only these paths");
+  });
+
+  it("gets the base result of its start commit in its box, not the Mac's (DIPO-294)", async () => {
+    firstSession();
+    const run = findRun(w.f.office, w.f.run);
+    const startSha = run?.startSha ?? "";
+    const image = `dipo-box:${"9".repeat(64)}`;
+    const runDir = join(w.dir, "git", "dipo", "runs", w.f.run);
+    mkdirSync(runDir, { recursive: true });
+    writeFileSync(
+      join(runDir, BOX_RUN_FILE),
+      JSON.stringify({ runId: w.f.run, box: "dipo-x", image }),
+    );
+    const profile = runProfileOf(w.f.office, run?.runProfileId ?? null);
+    w.f.office.immediate(() => {
+      storeBaseVerify(w.f.office, {
+        baseSha: startSha,
+        hash: boxBaseVerifyConfigHash(OFFICE_DEFAULTS, profile, image),
+        runId: w.f.run,
+        result: { kind: "red", failing: ["git > reads the log"], tail: null },
+        at: 1,
+      });
+      // The Mac result of the same commit is not the box worker's.
+      storeBaseVerify(w.f.office, {
+        baseSha: findClaim(w.f.office, w.f.run)?.baseSha ?? startSha,
+        hash: baseVerifyConfigHash(OFFICE_DEFAULTS, profile),
+        runId: w.f.run,
+        result: { kind: "red", failing: ["mac > only on the Mac"], tail: null },
+        at: 1,
+      });
+    });
+    await realResumer(
+      hosts,
+      { probe: async () => null, story: async () => storyOf(), handoff, workspace },
+      () => ({ ok: false, reason: "the context is too full" }),
+    ).next(nextRequest());
+    const text = sentText();
+    expect(text).toContain("The start commit fails verify in your box.");
+    expect(text).toContain("- git > reads the log");
+    expect(text).not.toContain("mac > only on the Mac");
   });
 });
 

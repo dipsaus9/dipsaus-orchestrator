@@ -62,7 +62,7 @@ import {
   recordPromptTexts,
   TASK_PART,
 } from "../prompts/parts";
-import { BOX_RUN_FILE } from "../box/workers";
+import { BOX_RUN_FILE, readBoxRun } from "../box/workers";
 import { gatherHandoff, type HandoffFacts, type LastVerify } from "../prompts/handoff";
 import { renderSystemFile } from "../prompts/system";
 import { verifyCommands } from "../scan/store";
@@ -71,7 +71,12 @@ import { withWorkViews } from "../views/work";
 import type { AdapterHold } from "../workers/hold";
 import type { WorkerPort } from "../workers/port";
 import { PlanError, type Caps, type ParseState, type WorkerReport } from "../workers/types";
-import { baseVerifyConfigHash, baseVerifyFactsOf, runProfileOf } from "../worktree/base-verify";
+import {
+  baseVerifyConfigHash,
+  baseVerifyFactsOf,
+  boxBaseVerifyFactsOf,
+  runProfileOf,
+} from "../worktree/base-verify";
 import { findClaim } from "../worktree/records";
 import { hostAlive, workerHostsOf } from "../runs/worker-hosts";
 
@@ -330,7 +335,8 @@ export class RunResumer implements NextSession {
         run,
         config,
         facts?.lastReport ?? null,
-        box,
+        // A box run's base result is the one measured in its box (DIPO-294).
+        box ? { image: readBoxRun(paths.runDir)?.image ?? null } : null,
       );
     } catch (error) {
       handoff = { error: messageOf(error) };
@@ -648,8 +654,8 @@ export class RunResumer implements NextSession {
     run: StoredRun,
     config: OfficeConfig,
     lastReport: WorkerReport | null,
-    /** A box worker's run: the box scope section (DIPO-272). */
-    box = false,
+    /** A box worker's run: the box scope section (DIPO-272) and its box's image (DIPO-294). */
+    box: { readonly image: string | null } | null = null,
   ): Promise<{ text: string; sources: NudgeSources }> {
     const deps = this.#deps;
     const worktree = run.worktree ?? "";
@@ -667,13 +673,22 @@ export class RunResumer implements NextSession {
       baseSha,
       config,
       handoff,
-      ...(box ? { box: true } : {}),
-      // The result stored for this base when the run started (DIPO-183); a new session runs no verify.
-      baseVerify: baseVerifyFactsOf(
-        office,
-        baseSha,
-        baseVerifyConfigHash(config, runProfileOf(office, run.runProfileId)),
-      ),
+      ...(box === null ? {} : { box: true }),
+      // The result stored for this base when the run started (DIPO-183), for a box run the one of
+      // its start commit in its box (DIPO-294); a new session runs no verify.
+      baseVerify:
+        box === null
+          ? baseVerifyFactsOf(
+              office,
+              baseSha,
+              baseVerifyConfigHash(config, runProfileOf(office, run.runProfileId)),
+            )
+          : boxBaseVerifyFactsOf(office, {
+              startSha: run.startSha,
+              image: box.image,
+              config,
+              profile: runProfileOf(office, run.runProfileId),
+            }),
     });
     return { text: prompts.taskMessage, sources: prompts.nudgeSources };
   }

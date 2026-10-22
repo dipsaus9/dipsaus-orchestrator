@@ -112,6 +112,35 @@ describe("base_verify section", () => {
     expect(text).not.toContain("<story>");
   });
 
+  it("tells a box worker the result is its start commit in its box, and which failures count (DIPO-294)", () => {
+    const red = renderBaseVerify(RED, { box: true });
+    expect(red).toContain("The start commit fails verify in your box.");
+    expect(red).toContain("- worktree > setup copies the env file");
+    expect(red).toContain(
+      "When verify fails only on tests in this list, dipo counts it as passed.",
+    );
+    expect(renderBaseVerify({ kind: "green" }, { box: true })).toContain(
+      "The start commit passes verify in your box.",
+    );
+    expect(
+      renderBaseVerify(
+        { kind: "unknown", reason: "the box stopped while verify ran" },
+        { box: true },
+      ),
+    ).toContain("Every verify failure counts against the story.");
+    // A Mac worker's section keeps its sandbox wording.
+    expect(renderBaseVerify(RED)).not.toContain("your box");
+    // The assembled box message carries the box wording.
+    const message = assembleTaskMessage({
+      story: fixtureStory(),
+      pack: fixturePack(),
+      budgets: BUDGETS_M,
+      baseVerify: RED,
+      box: true,
+    });
+    expect(message.text).toContain("The start commit fails verify in your box.");
+  });
+
   it("is listed in L1 under the same tag as the assembled message uses", () => {
     expect(SECTION_ORDER).toContain("base_verify");
     expect(CONTRACT_TEMPLATES.implement).toContain("- `<base_verify>`:");

@@ -50,6 +50,11 @@ function buildFull(): string {
   }).text;
 }
 
+/** The `base_verify` section of a message, tags included. */
+function baseVerifySection(text: string): string {
+  return /<base_verify>\n[^]*?\n<\/base_verify>/.exec(text)?.[0] ?? "";
+}
+
 function names(text: string): SectionName[] {
   return [...text.matchAll(/^<([a-z_]+)>$/gm)]
     .map((match) => match[1] as SectionName)
@@ -74,14 +79,16 @@ describe("task message", () => {
       "<scope>\nThe paths the planner expects this story to change (a forecast, not a fence):\n- src/greet.ts",
     );
     expect(box).not.toContain("You may write only these paths");
-    // Only the scope section differs from the Mac worker's message.
+    // Only the scope section and the base_verify section (DIPO-294) differ from the Mac worker's.
     const mac = assembleTaskMessage(input).text;
     expect(mac).toContain("You may write only these paths:");
     expect(
-      box.replace(
-        "The paths the planner expects this story to change (a forecast, not a fence):",
-        "You may write only these paths:",
-      ),
+      box
+        .replace(
+          "The paths the planner expects this story to change (a forecast, not a fence):",
+          "You may write only these paths:",
+        )
+        .replace(baseVerifySection(box), baseVerifySection(mac)),
     ).toBe(mac);
   });
 
@@ -228,6 +235,7 @@ describe("tags inside slot text", () => {
       "changes",
       "diff",
       "gate_changes",
+      "base_failures",
       "previous_findings",
     ]);
     for (const name of REVIEW_SECTION_ORDER) expect(PROMPT_TAGS).toContain(name);

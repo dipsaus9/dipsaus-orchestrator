@@ -17,10 +17,13 @@
 //    placeholders for the run id and session, and writes nothing.
 //
 // A box worker's run (`RunFacts.box`, `work.run`'s `box`; DIPO-271, 0021) also makes the run's box
-// in `prepare`, after the prompts and before the worker's launch checks: the image, the box and
-// the code at the claim's start commit (`BoxWorkers.create`). The run directory then records the
-// box, so the worker port plans every developer session of the run inside it. A setup that fails
-// after the box exists, or a released claim, deletes the box again.
+// in `prepare`, before the prompts and the worker's launch checks: the image, the box and the code
+// at the claim's start commit (`BoxWorkers.create`). The run directory then records the box, so
+// the worker port plans every developer session of the run inside it. Then, before the worker
+// starts, the office's verify runs at the start commit in that box (DIPO-294), unless a result for
+// the same start commit, image and verify configuration is stored; the task message's
+// `base_verify` section is that in-box result. A setup that fails after the box exists, or a
+// released claim, deletes the box again; a daemon stop stops the box and the verify in it.
 
 import { createHash } from "node:crypto";
 import { rmSync, writeFileSync } from "node:fs";
@@ -28,6 +31,7 @@ import { dirname, join } from "node:path";
 
 import type {
   AgentId,
+  Clock,
   FieldBlock,
   OfficeId,
   Progress,
@@ -48,6 +52,7 @@ import type { OfficeGit } from "../git/office";
 import { hostSocketPath } from "../host/protocol";
 import type { IngestAdapter, IngestTarget } from "../ingest/ingestor";
 import { officeDirectory } from "../office/marker";
+import { systemClock } from "../platform/clock";
 import { ensurePrivateDir } from "../platform/paths";
 import { type PromptPart, type PromptText, promptParts } from "../prompts/parts";
 import type { LaunchedHost } from "../runs/worker-hosts";
@@ -61,7 +66,13 @@ import {
   type LaunchPlan,
   type WorkerSpec,
 } from "../workers/types";
+import { BOX_WORKDIR } from "../box/code";
 import type { BoxWorkers } from "../box/workers";
+import type { BaseVerifyFacts } from "../prompts/base-verify";
+import type { RunProfile } from "../scan/detect";
+import { currentProfile } from "../scan/store";
+import { boxBaseVerifyOf } from "../worktree/base-verify";
+import { buildRunEnv } from "../worktree/run-env";
 import type { ClaimSetupDone, ClaimSetupFailed } from "../worktree/claim";
 import type { ClaimRecord } from "../worktree/records";
 import type { SetupOutcome } from "../worktree/setup";
@@ -72,6 +83,7 @@ import type { BackstopSnapshot } from "./backstop";
 import { markPhase } from "./markers";
 import { type RunPrompts, renderRunPrompts, sessionUuid, SYSTEM_FILE } from "./prompts";
 import { storeBackstopSnapshot } from "./records";
+import { BOX_VERIFY_MINUTES_DEFAULT } from "./verify-commit";
 import {
   prepareRunTempDirs,
   removeShortTempDir,
@@ -194,8 +206,15 @@ export interface RunLauncherDeps {
   readonly warn?: (message: string, fields: Readonly<Record<string, unknown>>) => void;
   /** The checkout the context pack reads; `gitWorkspace` on the office git by default. */
   readonly workspace?: (git: OfficeGit, path: string) => Workspace;
-  /** Makes and deletes a box worker's box (DIPO-271); without it a box run is refused. */
-  readonly boxes?: Pick<BoxWorkers, "create" | "discard">;
+  /**
+   * Makes and deletes a box worker's box (DIPO-271) and runs the base verify in it (DIPO-294);
+   * without it a box run is refused.
+   */
+  readonly boxes?: Pick<BoxWorkers, "create" | "discard" | "baseVerify" | "imageOf">;
+  /** The office's state database, where the in-box base result is stored (DIPO-294). */
+  readonly office?: (office: OfficeId) => OfficeHandle | undefined;
+  /** The clock the in-box base result is stamped with; the system clock by default. */
+  readonly clock?: Clock;
 }
 
 /** A `Workspace` over an engine worktree (the story worktree or `_base`). */
@@ -332,6 +351,12 @@ export function capsOf(caps: TierCaps): Caps {
   return { budgetTokens: caps.budgetTokens, maxTurns: caps.maxTurns, maxMinutes: caps.maxMinutes };
 }
 
+/** The dev port of the root package, else the first the scan found; null when none. */
+function devPortOf(profile: RunProfile | null): number | null {
+  const ports = profile?.devPorts ?? [];
+  return (ports.find((port) => port.dir === ".") ?? ports[0])?.port ?? null;
+}
+
 function messageOf(error: unknown): string {
   return error instanceof Error ? error.message : String(error);
 }
@@ -386,6 +411,68 @@ export class RunLauncher {
     });
   }
 
+  /**
+   * The in-box base result of a box run (DIPO-294): the stored one for its start commit, image
+   * and verify configuration, else the office's verify run once at the start commit in the run's
+   * box, with the run environment for `/work` and the deadline of the verify at done, and stored.
+   * The worker starts only after it. Throws when the box could not end a verify past its
+   * deadline; the launch then fails and deletes the box.
+   */
+  async #boxBaseVerify(
+    facts: RunFacts,
+    claim: ClaimRecord,
+    slot: number | null,
+    runDir: string,
+    boxes: NonNullable<RunLauncherDeps["boxes"]>,
+  ): Promise<BaseVerifyFacts> {
+    const office = this.#deps.office?.(facts.office);
+    const image = boxes.imageOf(runDir);
+    if (office === undefined || image === null) {
+      return {
+        kind: "unknown",
+        reason: "dipo could not run verify at the start commit in the box",
+      };
+    }
+    const profile = currentProfile(office)?.profile ?? null;
+    const verify = profile?.capabilities.verify;
+    const config = facts.config;
+    const clock = this.#deps.clock ?? systemClock;
+    const { facts: result } = await boxBaseVerifyOf({
+      office,
+      startSha: claim.startSha,
+      image,
+      config,
+      profile,
+      runId: facts.runId,
+      now: () => clock.now(),
+      run: async () => {
+        if (verify?.status !== "resolved") {
+          return { kind: "unknown", reason: "the run profile has no resolved verify" };
+        }
+        if (verify.value.cwd !== ".") {
+          return { kind: "unknown", reason: `verify runs in ${verify.value.cwd}, not at the root` };
+        }
+        const minutes = config.timeouts.scriptMinutes["verify"] ?? BOX_VERIFY_MINUTES_DEFAULT;
+        const env = buildRunEnv({
+          slot: slot ?? 0,
+          stride: config.worktree.ports.stride,
+          story: claim.story,
+          worktree: BOX_WORKDIR,
+          named: config.worktree.ports.named,
+          devPort: devPortOf(profile),
+          env: config.worktree.env,
+        });
+        return boxes.baseVerify({
+          runId: facts.runId,
+          commands: verify.value.commands,
+          env,
+          timeoutMs: minutes * 60_000,
+        });
+      },
+    });
+    return result;
+  }
+
   /** The session id of a run's first session (AC #3). */
   static sessionOf(agent: string): string {
     return sessionUuid(agent);
@@ -425,6 +512,30 @@ export class RunLauncher {
     if (facts.box === true && boxes === undefined) {
       return fail("this daemon runs no box workers, so the run cannot start in a box");
     }
+    // What verify said about the base: in the worker's sandbox, read by setup (DIPO-183); for a
+    // box worker, at the start commit in its own box, before its first session (DIPO-294).
+    let baseVerify: BaseVerifyFacts | undefined = setup.baseVerify;
+    if (boxes !== undefined) {
+      try {
+        // The run directory records the box, so it exists first.
+        ensurePrivateDir(paths.runDir);
+        await boxes.create({
+          office: facts.office,
+          runId: facts.runId,
+          runDir: paths.runDir,
+          git,
+          startCommit: claim.startSha,
+        });
+        boxMade = true;
+      } catch (error) {
+        return fail(`the box could not be made: ${messageOf(error)}`);
+      }
+      try {
+        baseVerify = await this.#boxBaseVerify(facts, claim, setup.slot, paths.runDir, boxes);
+      } catch (error) {
+        return fail(`the base verify in the box failed: ${messageOf(error)}`);
+      }
+    }
     let spec: WorkerSpec;
     let systemHash: string;
     let promptSources: PreparedRun["promptSources"];
@@ -443,8 +554,7 @@ export class RunLauncher {
         workspace: this.#workspace(git, claim.worktree),
         baseSha: claim.baseSha,
         config: facts.config,
-        // What verify said about the base in the worker's sandbox, read by setup (DIPO-183).
-        ...(setup.baseVerify === undefined ? {} : { baseVerify: setup.baseVerify }),
+        ...(baseVerify === undefined ? {} : { baseVerify }),
         // A box worker reads the box contract (DIPO-272).
         ...(facts.box === true ? { box: true } : {}),
       });
@@ -466,20 +576,6 @@ export class RunLauncher {
       ];
     } catch (error) {
       return fail(`the prompts could not be rendered: ${messageOf(error)}`);
-    }
-    if (boxes !== undefined) {
-      try {
-        await boxes.create({
-          office: facts.office,
-          runId: facts.runId,
-          runDir: paths.runDir,
-          git,
-          startCommit: claim.startSha,
-        });
-        boxMade = true;
-      } catch (error) {
-        return fail(`the box could not be made: ${messageOf(error)}`);
-      }
     }
     let prepared;
     try {
