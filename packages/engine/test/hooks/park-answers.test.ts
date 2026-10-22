@@ -23,7 +23,7 @@ import { buildRegistry } from "../../src/commands/registry";
 import { MemoryRequestTable } from "../../src/commands/requests";
 import { OFFICE_DEFAULTS, type OfficeConfig } from "../../src/config";
 import type { ParkResumer } from "../../src/hooks/park-answers";
-import { OFFICE_CONFIG_FILE, parkAnswerMessage } from "../../src/hooks/park-questions";
+import { parkAnswerMessage } from "../../src/hooks/park-questions";
 import { PermissionAsks } from "../../src/hooks/permissions";
 import {
   answeredParkQuestion,
@@ -474,26 +474,20 @@ describe("a story parked for another reason (AC #4)", () => {
   });
 });
 
-describe("a sandbox-bound action (AC #3)", () => {
-  it("says so in the park's question, points to office config, and allow once changes no sandbox", async () => {
+describe("the park's question in a box run (DIPO-240)", () => {
+  it("names the call with no sandbox warning, and an allow changes no rule or setting", async () => {
     const question = await replayPark();
-    // `docker ps` reaches a daemon socket, which the worker's sandbox closes.
-    expect(question.text).toContain("Sandbox-bound");
-    expect(question.text).toContain("cannot lift a sandbox block");
-    expect(question.text).toContain(OFFICE_CONFIG_FILE);
-    expect(question.text).toContain("sandbox.allowedDomains");
+    expect(question.text).toBe(`${PERMISSION.tool}(${PERMISSION.action})`);
     const reply = await answer({ question: question.questionId, text: "", decision: "allow" });
     expect(reply).toMatchObject({ ok: true });
-    // The resume carries only the park, the question and the answer: no sandbox or config.
+    // The resume carries only the park, the question and the answer: no rule or config.
     expect(Object.keys(w.resumes[0]?.request ?? {}).toSorted()).toEqual([
       "decision",
       "parkId",
       "question",
       "text",
     ]);
-    expect(parkAnswerMessage(PERMISSION, "allow", "")).toContain(
-      "nothing about the sandbox changed",
-    );
-    expect(w.config.sandbox.allowedDomains).toEqual(OFFICE_DEFAULTS.sandbox.allowedDomains);
+    expect(parkAnswerMessage(PERMISSION, "allow", "")).toContain("it changes no rule or setting");
+    expect(w.config).toBe(OFFICE_DEFAULTS);
   });
 });
