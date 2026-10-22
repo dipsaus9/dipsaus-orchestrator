@@ -66,16 +66,20 @@ export const REVIEW_FOLDER = "/tmp/dipo-review-run-0001-agt-0001";
 export const REVIEW_SESSION = `${REVIEW_FOLDER}/session`;
 /** The reviewer's read-only copy of the pushed commit. */
 export const REVIEW_COPY = `${REVIEW_FOLDER}/dipo-box-code-abc123/code`;
+/** The reviewer's own web proxy listener on loopback (DIPO-292); a stand-in port. */
+export const REVIEW_WEB_PROXY = "http://127.0.0.1:1";
 
 /**
  * A reviewer's spec (0021 section 10, DIPO-276): kind review, an empty working directory, the
- * read-only copy, the read and web tools with the hook relay, the ReviewReport schema.
+ * read-only copy, the read and web tools with the hook relay and its web proxy (DIPO-292), the
+ * ReviewReport schema.
  */
 export function reviewSpec(overrides: Partial<WorkerSpec> = {}): WorkerSpec {
   return spec({
     kind: "review",
     workdir: REVIEW_SESSION,
     readOnlyDir: REVIEW_COPY,
+    webProxy: REVIEW_WEB_PROXY,
     model: "opus",
     effort: "high",
     caps: { budgetTokens: 200_000, maxTurns: 60, maxMinutes: 30 },

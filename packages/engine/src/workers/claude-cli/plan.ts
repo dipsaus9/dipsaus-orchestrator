@@ -4,6 +4,7 @@
 
 import { posix } from "node:path";
 
+import { MODEL_UPSTREAM } from "../../box/model-proxy";
 import type { OfficeConfig } from "../../config";
 import { SRT_DEFAULT_HOME_WRITE_PATHS, SRT_DEFAULT_WRITE_PATHS } from "../../sandbox/policy";
 import { PlanError } from "../types";
@@ -82,6 +83,19 @@ export const PLANNED_KINDS: readonly WorkerKind[] = ["implement", "review"];
  * copy of the pushed commit and may search the web. No shell, no Edit or Write, and so no git or gh.
  */
 export const REVIEW_TOOLS: readonly string[] = ["Read", "Glob", "Grep", "WebSearch", "WebFetch"];
+
+/**
+ * The one host a reviewer reaches without its web proxy (DIPO-292): the model API the session
+ * already uses, the only name in its `NO_PROXY`. Its Claude Code reaches the default model API
+ * (the plan passes no base URL), the host of `MODEL_UPSTREAM`.
+ */
+export const MODEL_API_HOST = new URL(MODEL_UPSTREAM).hostname;
+
+/** The proxy variables HTTP clients read, in either case. */
+const PROXY_VARIABLE = /^(?:https?|no|all|ftp)_proxy$/i;
+
+/** A reviewer's web proxy URL: plain http to a loopback port, nothing else (DIPO-292). */
+const REVIEW_WEB_PROXY_URL = /^http:\/\/(127\.0\.0\.1|\[::1\]):([1-9][0-9]{0,4})$/;
 
 /**
  * The MCP config file of a `review` session, in the run directory: no server. With
@@ -319,6 +333,24 @@ export function checkSpec(spec: WorkerSpec): void {
   if (spec.kind !== "review" && spec.readOnlyDir !== undefined) {
     throw new PlanError("only a review session reads a read-only copy");
   }
+  // A reviewer's web fetches tunnel through dipo's web proxy, which checks the address at connect
+  // time (DIPO-292): a review with a web tool and no proxy is never planned.
+  if (spec.kind === "review" && webTools(spec) && spec.webProxy === undefined) {
+    throw new PlanError(
+      `a review session with ${WEB_TOOLS.join(" or ")} needs dipo's web proxy for its fetches (DIPO-292)`,
+    );
+  }
+  if (spec.webProxy !== undefined) {
+    if (spec.kind !== "review") {
+      throw new PlanError("only a review session gets a web proxy of its own");
+    }
+    const port = REVIEW_WEB_PROXY_URL.exec(spec.webProxy)?.[2];
+    if (port === undefined || Number(port) > 65_535) {
+      throw new PlanError(
+        `the reviewer's web proxy must be a plain http URL of a loopback port: ${spec.webProxy}`,
+      );
+    }
+  }
 }
 
 /** True when the session has a web tool (`worker.web`, 0020 section 11b). */
@@ -364,6 +396,17 @@ function environment(spec: WorkerSpec, ctx: ClaudeLaunchContext, paths: Paths) {
     env.CLAUDE_CODE_SHELL = safeChainShellPath(ctx.safeChain.shellDir, ctx.safeChain);
   } else if (ctx.reviewShell !== undefined) {
     env.PATH = ctx.reviewShell.path;
+  }
+  // A reviewer's fetches, and every redirect they follow, tunnel through its web proxy; only the
+  // model API goes direct (DIPO-292). Any other proxy variable, in either case, is dropped first:
+  // an office tool variable such as `no_proxy` would otherwise send fetches around it.
+  if (spec.webProxy !== undefined) {
+    for (const name of Object.keys(env)) {
+      if (PROXY_VARIABLE.test(name)) delete env[name];
+    }
+    env.HTTPS_PROXY = spec.webProxy;
+    env.HTTP_PROXY = spec.webProxy;
+    env.NO_PROXY = MODEL_API_HOST;
   }
   return env;
 }
