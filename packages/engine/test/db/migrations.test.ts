@@ -1,5 +1,6 @@
 // Migrations runner (DIPO-21, 0007 section 9).
 
+import { Database } from "bun:sqlite";
 import { describe, expect, it } from "bun:test";
 import { existsSync, readdirSync, statSync } from "node:fs";
 import { join } from "node:path";
@@ -89,6 +90,45 @@ describe("migrate", () => {
       state.close();
       expect(state.migration).toMatchObject({ from: 0, to: BASE.length, backup: null });
       expect(backups(dir)).toEqual([]);
+    }));
+
+  it("backs up a database at version 0 that already holds user tables (DIPO-122)", () =>
+    withTempDir(async (dir) => {
+      // A legacy file, or one changed outside dipo: tables but no user_version.
+      const legacy = await openSqlite({
+        stateDir: join(dir, "state"),
+        logger: memoryLogger(),
+        readMounts: localMounts,
+      });
+      try {
+        legacy.exec("create table legacy (note text not null) strict");
+        legacy.run("insert into legacy (note) values ($note)", { note: "keep me" });
+      } finally {
+        legacy.close();
+      }
+
+      const clock = new ManualClock();
+      const state = await openStateDatabase(options(dir, BASE, clock));
+      state.close();
+      const name = `pre-v1-${backupStamp(clock.now())}.db`;
+      const expected = join(dir, "state", "backups", name);
+      expect(state.migration).toMatchObject({ from: 0, to: BASE.length, backup: expected });
+      expect(backups(dir)).toEqual([name]);
+
+      // The copy was taken before the first step: the legacy row, none of migration 1's tables.
+      const copy = new Database(expected, { readonly: true });
+      try {
+        expect(copy.query("select note from legacy").all()).toEqual([{ note: "keep me" }]);
+        expect(
+          copy
+            .query(
+              "select name from sqlite_schema where type = 'table' and name in ('offices', 'schema_migrations')",
+            )
+            .all(),
+        ).toEqual([]);
+      } finally {
+        copy.close();
+      }
     }));
 
   it("applies steps in order, records each one and backs up first", () =>
