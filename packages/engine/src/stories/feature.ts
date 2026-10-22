@@ -382,7 +382,8 @@ export class StoryIndex {
       const outcome = await this.#git(office).fetch();
       if (outcome.ok) fetched?.();
       if (!outcome.ok || outcome.baseWorktree === null) return;
-      if (!outcome.moved && outcome.baseWorktree.sha === state.sha) return;
+      // Compare with the commit last indexed: another fetch may have moved the base before this one.
+      if (outcome.baseWorktree.sha === state.sha) return;
       await this.#pass(office, state);
     } catch (error) {
       this.#deps.logger?.warn(failed, {
