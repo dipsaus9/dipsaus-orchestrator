@@ -33,6 +33,7 @@ import { connectHost, type HostClient } from "../../src/host/client";
 import { WorkerHost } from "../../src/host/main";
 import { EVENTS_FILE, hostSocketPath, LAUNCH_FILE, type HostLaunch } from "../../src/host/protocol";
 import { type IngestAdapter, Ingestor } from "../../src/ingest/ingestor";
+import { finalizeRunAgents, readUsage } from "../../src/ingest/usage";
 import { systemClock } from "../../src/platform/clock";
 import { type BranchPark, CAP_TICK_MS, findRun, insertRun, RunControl } from "../../src/run";
 import { addStory } from "../../src/stories/keys";
@@ -511,5 +512,170 @@ describe("stopping a box worker (criterion 6)", () => {
       open();
       await box.host.done;
       expect(box.spawned.filter((cmd) => cmd[1] === "stop")).toHaveLength(1);
+    }));
+});
+
+/** The Mac worker's adapter: the same parser, with a Mac session's init checks. */
+const macAdapter: IngestAdapter = claudeCliAdapter(context(), {
+  spawn: () => {
+    throw new Error("unused");
+  },
+  clock: new ManualClock(),
+}) as unknown as IngestAdapter;
+
+interface LiveStep {
+  readonly result: boolean;
+  readonly turns: number;
+  readonly output: number;
+}
+
+/**
+ * Ingests `lines` one at a time, as a worker writes them while it runs, and reads the run's usage
+ * as the live view shows it (`readUsage`, the numbers of `usage.updated`) after each.
+ */
+async function liveSteps(
+  dir: string,
+  adapter: IngestAdapter,
+  lines: readonly HostLine[],
+): Promise<LiveStep[]> {
+  const f = await ingestFixture(dir);
+  try {
+    const ingestor = new Ingestor({ office: f.office, clock: f.t.clock, pricing: null });
+    const tracked = target(
+      f,
+      adapter,
+      initialState({ plannedModel: "haiku" }) as unknown as ParseState,
+    );
+    ingestor.track(tracked);
+    const steps: LiveStep[] = [];
+    for (const line of lines) {
+      appendLines(f.eventFile, [line]);
+      ingestor.pass(f.run, f.agent);
+      const usage = readUsage(f.office, tracked).run;
+      const result = line.ch === "stdout" && line.data.includes('"type":"result"');
+      steps.push({ result, turns: usage.turns, output: usage.outputTokens });
+    }
+    expect(loggedEvents(f.office).map((event) => event.type)).not.toContain("story.parked");
+    ingestor.close();
+    return steps;
+  } finally {
+    f.t.state.close();
+  }
+}
+
+/**
+ * The live usage of one session (DIPO-296): during it, turns and output grow before its one
+ * result, the last numbers before it are the result's own (`num_turns` and the output of
+ * `modelUsage`), and they never go down.
+ */
+function expectLiveCounting(steps: readonly LiveStep[], turns: number, output: number): void {
+  const end = steps.findIndex((step) => step.result);
+  expect(end).toBeGreaterThan(0);
+  const during = steps.slice(0, end);
+  expect(during.some((step) => step.turns > 1 && step.turns < turns)).toBe(true);
+  expect(during.some((step) => step.output > 0 && step.output < output)).toBe(true);
+  expect(during.at(-1)).toEqual({ result: false, turns, output });
+  expect(steps[end]).toEqual({ result: true, turns, output });
+  for (let i = 1; i < steps.length; i++) {
+    expect(steps[i]!.turns).toBeGreaterThanOrEqual(steps[i - 1]!.turns);
+    expect(steps[i]!.output).toBeGreaterThanOrEqual(steps[i - 1]!.output);
+  }
+}
+
+describe("the live usage of a session (DIPO-296)", () => {
+  // One session, one result at its end: 10 turns and 2,057 output tokens in its `result`.
+  const NAME = "safety-main-git";
+  const TURNS = 10;
+  const OUTPUT = 2_057;
+
+  it("counts a box worker's turns and output while it runs, through the worker host", () =>
+    withTempDir(async (dir) => {
+      const box = boxHost(dir, boxRecording(NAME));
+      await box.host.done;
+      const steps = await liveSteps(join(dir, "ingest"), boxAdapter, eventLines(box.runDir));
+      expectLiveCounting(steps, TURNS, OUTPUT);
+    }));
+
+  it("counts a Mac worker's turns and output while it runs, from the same parser", () =>
+    withTempDir(async (dir) => {
+      const steps = await liveSteps(dir, macAdapter, hostLines(withoutSkills(loadRecording(NAME))));
+      expectLiveCounting(steps, TURNS, OUTPUT);
+    }));
+
+  it("starts the next turn's live numbers from the turn totals", () =>
+    withTempDir(async (dir) => {
+      // Two turns: 4 turns and 1,004 output, then 2 more and 281 more output.
+      const steps = await liveSteps(
+        dir,
+        macAdapter,
+        hostLines(withoutSkills(loadRecording("success-tools-subagent"))),
+      );
+      const results = steps.filter((step) => step.result);
+      expect(results).toEqual([
+        { result: true, turns: 4, output: 1_004 },
+        { result: true, turns: 6, output: 1_285 },
+      ]);
+      const second = steps.slice(steps.indexOf(results[0]!) + 1, steps.indexOf(results[1]!));
+      // The second turn counts on from the first turn's totals, up to its own result's.
+      expect(second.some((step) => step.turns === 5 && step.output === 1_004)).toBe(true);
+      expect(second.at(-1)).toEqual({ result: false, turns: 6, output: 1_285 });
+    }));
+
+  it("keeps no live numbers once the run ended while its worker was mid-turn", () =>
+    withTempDir(async (dir) => {
+      const lines = hostLines(withoutSkills(loadRecording(NAME)));
+      const f = await ingestFixture(dir);
+      try {
+        const ingestor = new Ingestor({ office: f.office, clock: f.t.clock, pricing: null });
+        const tracked = target(
+          f,
+          macAdapter,
+          initialState({ plannedModel: "haiku" }) as unknown as ParseState,
+        );
+        ingestor.track(tracked);
+        const usage = () => readUsage(f.office, tracked).run;
+        const ingest = (line: HostLine) => {
+          appendLines(f.eventFile, [line]);
+          ingestor.pass(f.run, f.agent);
+        };
+        let at = 0;
+        while (usage().turns < 3) ingest(lines[at++]!);
+        // The run ends (`endRun`) while the worker is mid-turn: its totals become final.
+        f.office.immediate(() => finalizeRunAgents(f.office, f.run, f.t.clock.now()));
+        expect(usage()).toMatchObject({ turns: 0, outputTokens: 0 });
+        // The worker still sends one more tool result, then it is killed without a result.
+        const toolResult = lines.findIndex(
+          (line, index) => index >= at && line.data.includes('"type":"user"'),
+        );
+        ingest(lines[toolResult]!);
+        expect(usage()).toMatchObject({ turns: 0, outputTokens: 0 });
+        ingest({
+          t: lines[toolResult]!.t + 1,
+          ch: "exit",
+          data: JSON.stringify({ code: null, signal: "SIGKILL" }),
+        });
+        expect(usage()).toMatchObject({ turns: 0, outputTokens: 0 });
+        expect(
+          f.office.all(
+            "select live_turns, live_output from usage_totals where office_id = $office_id and run_id = $run",
+            { run: f.run },
+          ),
+        ).toEqual([{ live_turns: 0, live_output: 0 }]);
+        ingestor.close();
+      } finally {
+        f.t.state.close();
+      }
+    }));
+
+  it("drops the live numbers of a turn that never ended once the worker exits", () =>
+    withTempDir(async (dir) => {
+      // Killed in its first turn: no result, so the totals hold no turn and no output.
+      const steps = await liveSteps(
+        dir,
+        macAdapter,
+        hostLines(withoutSkills(loadRecording("terminated"))),
+      );
+      expect(steps.some((step) => step.turns > 0)).toBe(true);
+      expect(steps.at(-1)).toEqual({ result: false, turns: 0, output: 0 });
     }));
 });

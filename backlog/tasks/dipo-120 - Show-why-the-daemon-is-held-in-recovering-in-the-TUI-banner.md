@@ -1,12 +1,12 @@
 ---
 id: DIPO-120
 title: >-
-  Show the daemon's state truthfully: why it is recovering, the real active run
-  count, and the command that frees a port slot
+  Show the daemon's state truthfully: recovering reason, active runs, port slot
+  command
 status: Refined
 assignee: []
 created_date: '2026-10-16 11:52'
-updated_date: '2026-10-22 18:16'
+updated_date: '2026-10-22 19:26'
 labels:
   - 'tier:S'
   - cutover

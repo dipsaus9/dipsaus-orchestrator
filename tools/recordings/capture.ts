@@ -53,6 +53,11 @@ import { stdoutOf, usageChecksum } from "./usage";
 const SETTLE_MS = 3_000;
 const EXTRA_FLAGS = ["--include-partial-messages", "--include-hook-events"] as const;
 
+/** The extra flags the plan does not pass itself (it passes `--include-partial-messages`). */
+function extraFlags(argv: readonly string[]): string[] {
+  return EXTRA_FLAGS.filter((flag) => !argv.includes(flag));
+}
+
 /** The CLI entry the hooks run when capturing from source (`<bun> <main.ts> hook <event>`). */
 const CLI_MAIN = join(import.meta.dir, "..", "..", "packages", "cli", "src", "main.ts");
 
@@ -142,7 +147,7 @@ async function runProcess(
   out: ProcessRun,
 ): Promise<void> {
   const now = () => Math.round(performance.now() - start);
-  const argv = [...launch.argv, ...EXTRA_FLAGS];
+  const argv = [...launch.argv, ...extraFlags(launch.argv)];
   const proc = Bun.spawn(argv, {
     cwd: launch.cwd,
     env: { ...launch.env },
@@ -404,7 +409,7 @@ function initVersion(lines: readonly Envelope[]): string | null {
 }
 
 function normaliseFlags(argv: readonly string[], scrubber: Scrubber): string[] {
-  const flags = [...argv.slice(1), ...EXTRA_FLAGS];
+  const flags = [...argv.slice(1), ...extraFlags(argv)];
   return flags.map((flag, index) => {
     const previous = flags[index - 1];
     if (previous === "--json-schema") {

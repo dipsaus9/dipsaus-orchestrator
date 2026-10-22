@@ -36,6 +36,12 @@ export const REPORT_SCHEMA_FILE = "report-schema.json";
 /** The srt default write paths the run settings close, each with its reason (DIPO-98). */
 export const CLOSED_WRITES_FILE = "sandbox-closed-writes.json";
 
+/**
+ * The flag that adds `stream_event` lines to the stream (DIPO-296): the live view reads each
+ * message's final output count from them.
+ */
+export const INCLUDE_PARTIAL_MESSAGES = "--include-partial-messages";
+
 // srt, the sandbox runtime under Claude Code's Bash sandbox, makes these paths writable for every
 // sandboxed command unless the settings deny them (DIPO-98). A worker writes only its worktree and
 // its run temp directory, so the run settings deny writes to each with `sandbox.filesystem.denyWrite`,
@@ -804,6 +810,9 @@ export function plan(spec: WorkerSpec, launch: ClaudeLaunchContext): LaunchPlan 
     "--output-format",
     "stream-json",
     "--verbose",
+    // The `message_delta` stream events carry each message's real output count, which the live
+    // view counts during a session (DIPO-296); recordings are captured with it (0017 section 2).
+    INCLUDE_PARTIAL_MESSAGES,
     spec.session.resume ? "--resume" : "--session-id",
     spec.session.id,
     "--model",

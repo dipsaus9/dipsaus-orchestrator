@@ -13,7 +13,11 @@ import { describe, expect, it } from "bun:test";
 import type { OfficeId, RunId } from "@dipsaus-orchestrator/contract";
 import {
   AdapterHolds,
+  BOX_INDEX_DIR,
   BoxCollisions,
+  type BoxPort,
+  BoxWorkers,
+  boxName,
   currentPlatform,
   type DoorPart,
   PACKAGE_CACHE_DIR,
@@ -32,6 +36,7 @@ import {
   daemonRuns,
   type DaemonRunsOptions,
   deliverThenCheck,
+  finishEndedBoxRuns,
   reviewHostRuns,
   sweepBoxPartStages,
   sweepBoxTokenChecks,
@@ -130,6 +135,42 @@ describe("the daemon's box workers", () => {
       expect(readdirSync(stages)).toEqual([]);
       await runs.finishEndedBoxes();
       runs.control.close();
+    }));
+
+  it("logs the deletion of an ended box run once when an exit and its ingestion both finish it (DIPO-307)", () =>
+    withTempDir(async (dir) => {
+      const run = "run_01J9ZK5Q8W3V4X6Y7Z00000307";
+      const indexDir = join(dir, "state", BOX_INDEX_DIR);
+      mkdirSync(indexDir, { recursive: true });
+      mkdirSync(join(dir, "run"));
+      writeFileSync(join(indexDir, boxName(run)), JSON.stringify({ runDir: join(dir, "run") }));
+      // The box is gone already, so its finish needs no token check.
+      const boxes = { list: async () => [] } as unknown as BoxPort;
+      const clock = new ManualClock();
+      const workers = new BoxWorkers({
+        boxes,
+        startWebRoute: async () => ({ ok: false, reason: "not used" }),
+        startBuildRoute: async () => ({ ok: false, reason: "not used" }),
+        startModelProxy: async () => {
+          throw new Error("not used");
+        },
+        readBaseBox: async () => ({ ok: false, errors: [] }),
+        code: { spawn: () => ({}) as never, clock },
+        holds: new AdapterHolds({ clock, notify: () => {} }),
+        adapter: "claude-cli",
+        tmpRoot: dir,
+        indexDir,
+        scratchRoot: dir,
+      });
+      const lines: unknown[][] = [];
+      const logger = { info: (...line: unknown[]) => lines.push(line) };
+      const ended = (runId: string) => runId === run;
+      await Promise.all([
+        finishEndedBoxRuns(workers, ended, logger),
+        finishEndedBoxRuns(workers, ended, logger),
+      ]);
+      expect(lines).toEqual([["ended box runs checked and deleted", { finished: [run] }]]);
+      expect(workers.pending()).toEqual([]);
     }));
 
   it("keeps each office's package cache root in dipo's state folder (DIPO-295)", () => {

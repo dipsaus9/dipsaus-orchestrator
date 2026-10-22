@@ -1,12 +1,12 @@
 ---
 id: DIPO-149
 title: >-
-  Check for conflicts before In Review, let the worker resolve them, and refuse
-  leftover conflict markers
+  Check conflicts before In Review, let the worker resolve them, refuse conflict
+  markers
 status: Refined
 assignee: []
 created_date: '2026-10-17 12:52'
-updated_date: '2026-10-22 18:16'
+updated_date: '2026-10-22 19:26'
 labels:
   - 'tier:L'
   - 'slice:m1a'

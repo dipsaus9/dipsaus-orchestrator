@@ -1,12 +1,12 @@
 ---
 id: DIPO-240
 title: >-
-  Run box only: keep a story's box from claim to merge, and remove the Mac
-  sandbox worker path with its setup install, hooks, guards and launch holds
+  Run box only: keep the box from claim to merge, and remove the Mac sandbox
+  worker path
 status: Refined
 assignee: []
 created_date: '2026-10-20 18:34'
-updated_date: '2026-10-22 18:16'
+updated_date: '2026-10-22 19:26'
 labels:
   - 'tier:M'
   - cutover

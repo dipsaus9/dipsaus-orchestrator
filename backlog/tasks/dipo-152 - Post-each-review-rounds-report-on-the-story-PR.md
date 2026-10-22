@@ -1,12 +1,12 @@
 ---
 id: DIPO-152
 title: >-
-  Keep dipo's story PR complete: open a missed PR, show the worker's done
-  report, keep the status block true and post each review round's report
-status: To Do
+  Complete dipo's story PR: missed PRs, the done report, a true status block,
+  round reports
+status: Ready
 assignee: []
 created_date: '2026-10-17 12:52'
-updated_date: '2026-10-22 18:15'
+updated_date: '2026-10-22 19:26'
 labels:
   - 'tier:M'
   - 'slice:m1a'
@@ -63,6 +63,14 @@ test_plan:
       check: "(unit) an unreadable copied env file holds the comment back with pr.commentFailed"
     - kind: "automated"
       check: "(unit) the 60,000 character cap cuts advisory findings first"
+    - kind: "automated"
+      check: "(unit) a run that ended as reviewed while story PRs were off gets its story PR at the next poll, with the stored verdict in the status block"
+    - kind: "automated"
+      check: "(unit) a box worker's done report notes, deviations and proposals are stored with the run, cleaned and capped, and shown in dipo watch at the run end"
+    - kind: "automated"
+      check: "(unit) the story PR body has a section with the done report, built by code and marked as the worker's words"
+    - kind: "automated"
+      check: "(unit) after a review round the body's review line shows the stored verdict and round, and the merge line says the maintainer merges until the merge slot does"
 ```
 <!-- SECTION:DESCRIPTION:END -->
 

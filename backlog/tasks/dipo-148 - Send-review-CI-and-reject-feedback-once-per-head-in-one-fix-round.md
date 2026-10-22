@@ -1,12 +1,10 @@
 ---
 id: DIPO-148
-title: >-
-  Send review and CI feedback once per head, with the reviewer's snapshot caps
-  and no round for a story Done on the base
+title: 'Send review and CI feedback once per head, with the reviewer''s caps'
 status: Refined
 assignee: []
 created_date: '2026-10-17 12:52'
-updated_date: '2026-10-22 18:16'
+updated_date: '2026-10-22 19:26'
 labels:
   - 'tier:M'
   - 'slice:m1a'

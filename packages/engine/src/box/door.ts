@@ -38,6 +38,18 @@
 // `BoxDoor` polls the queue of each box that runs a session, records each part and each refusal in
 // the run directory (`DOOR_RECORD_FILE`, on the Mac, never in the box) and hands each part to its
 // `onPart` callback. Delivering and committing the part is DIPO-273, which consumes that callback.
+//
+// A door is read only while its run goes on and its box runs (DIPO-297):
+//
+// - with `live`, no read starts once the run has ended (a decision was made, so its box is about
+//   to stop);
+// - with the backend's `list`, each poll first asks whether the box runs. The worker host stops
+//   the box as soon as its worker exits, before the run's decision, so a box listed as anything
+//   but running (stopping or stopped) means the session ended: the poll starts no read and the
+//   door pauses until `start` resumes it for the run's next session;
+// - a scheduled read that fails is logged only while the box still runs: when the door was
+//   stopped meanwhile, the run ended, or the backend no longer lists the box as running, the
+//   failure is the end of the session, not a door fault, and nothing is logged.
 
 import { appendFileSync, readFileSync } from "node:fs";
 import { chmod, mkdtemp, rm, writeFile } from "node:fs/promises";
@@ -557,7 +569,11 @@ export type DoorRecordLine =
     };
 
 export interface BoxDoorDeps {
-  readonly boxes: Pick<BoxPort, "execLive">;
+  /**
+   * The reads; with `list`, a failed scheduled read is logged only while the backend lists the
+   * box as running.
+   */
+  readonly boxes: Pick<BoxPort, "execLive"> & Partial<Pick<BoxPort, "list">>;
   readonly clock: Clock;
   /** How often a box's queue is read; `DOOR_POLL_MS` by default. */
   readonly pollMs?: number;
@@ -570,6 +586,11 @@ export interface BoxDoorDeps {
   readonly onPart?: (part: DoorPart) => Promise<void> | void;
   /** A message the door refused, after it was recorded. */
   readonly onRefused?: (runId: string, refused: DoorRefused) => void;
+  /**
+   * True while the run goes on (tracked, nothing decided for it yet). With it, no read of a run
+   * for which it is false starts: `read` returns null and a scheduled read waits for the next poll.
+   */
+  readonly live?: (runId: string) => boolean;
   readonly warn?: (message: string, fields: Readonly<Record<string, unknown>>) => void;
   readonly info?: (message: string, fields: Readonly<Record<string, unknown>>) => void;
 }
@@ -588,6 +609,8 @@ interface OpenDoor {
   timer: TimerHandle | null;
   reading: Promise<DoorRead> | null;
   closed: boolean;
+  /** True once a poll found the box not running: no poll runs until `start` resumes the door. */
+  paused: boolean;
 }
 
 /** The parts of a run's record file, by queue file name, and the highest part number. */
@@ -629,9 +652,19 @@ export class BoxDoor {
     return [...this.#open.keys()];
   }
 
-  /** Starts reading the door of `runId`'s box `box`; a door open already keeps its state. */
+  /**
+   * Starts reading the door of `runId`'s box `box`; a door open already keeps its state, and one
+   * that paused when its box stopped polls again.
+   */
   start(runId: string, box: string, runDir: string): void {
-    if (this.#open.has(runId)) return;
+    const open = this.#open.get(runId);
+    if (open !== undefined) {
+      if (open.paused) {
+        open.paused = false;
+        this.#schedule(open);
+      }
+      return;
+    }
     const { recorded, parts } = readRecord(runDir);
     const door: OpenDoor = {
       runId,
@@ -644,6 +677,7 @@ export class BoxDoor {
       timer: null,
       reading: null,
       closed: false,
+      paused: false,
     };
     this.#open.set(runId, door);
     this.#schedule(door);
@@ -672,6 +706,8 @@ export class BoxDoor {
   read(runId: string): Promise<DoorRead> | null {
     const door = this.#open.get(runId);
     if (door === undefined) return null;
+    // A read in flight is waited for; a new one starts only while the run goes on.
+    if (door.reading === null && this.#deps.live?.(runId) === false) return null;
     door.reading ??= this.#read(door).finally(() => {
       door.reading = null;
     });
@@ -679,20 +715,57 @@ export class BoxDoor {
   }
 
   #schedule(door: OpenDoor): void {
-    if (door.closed) return;
+    if (door.closed || door.paused || door.timer !== null) return;
     door.timer = this.#deps.clock.setTimeout(() => {
       door.timer = null;
-      void (this.read(door.runId) ?? Promise.resolve(null))
-        .catch((error: unknown) => {
-          // A box between two sessions, or stopped, cannot be read: the next read tries again.
-          this.#deps.info?.("the box door could not be read", {
-            run: door.runId,
-            box: door.box,
-            reason: error instanceof Error ? error.message : String(error),
-          });
-        })
-        .finally(() => this.#schedule(door));
+      void this.#poll(door).finally(() => this.#schedule(door));
     }, this.#deps.pollMs ?? DOOR_POLL_MS);
+  }
+
+  /** One scheduled poll: a read only while the run goes on and its box runs (file comment). */
+  async #poll(door: OpenDoor): Promise<void> {
+    if (this.#deps.live?.(door.runId) === false) return;
+    if ((await this.#listedState(door)) === "notRunning") {
+      door.paused = true;
+      return;
+    }
+    if (door.closed) return;
+    try {
+      await this.read(door.runId);
+    } catch (error) {
+      // A read the end of the session cut is no door fault (see the file comment).
+      if (!(await this.#boxRuns(door))) return;
+      this.#deps.info?.("the box door could not be read", {
+        run: door.runId,
+        box: door.box,
+        reason: error instanceof Error ? error.message : String(error),
+      });
+    }
+  }
+
+  /**
+   * Whether the backend lists the door's box as running; `unknown` without `list` or when the
+   * list fails, which lets the read go ahead as before.
+   */
+  async #listedState(door: OpenDoor): Promise<"running" | "notRunning" | "unknown"> {
+    const list = this.#deps.boxes.list;
+    if (list === undefined) return "unknown";
+    try {
+      const listed = (await list.call(this.#deps.boxes)).find((box) => box.name === door.box);
+      return listed?.state === "running" ? "running" : "notRunning";
+    } catch {
+      return "unknown";
+    }
+  }
+
+  /**
+   * After a failed read: false when the door was stopped, the run ended, or the backend lists the
+   * box as anything but running. A list that fails says nothing, so the failure counts.
+   */
+  async #boxRuns(door: OpenDoor): Promise<boolean> {
+    if (door.closed || this.#deps.live?.(door.runId) === false) return false;
+    const state = await this.#listedState(door);
+    return state !== "notRunning" && !door.closed && this.#deps.live?.(door.runId) !== false;
   }
 
   #exec(door: OpenDoor): DoorExec {

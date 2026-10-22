@@ -324,6 +324,22 @@ export function reviewHostRuns(
 }
 
 /**
+ * Checks and deletes the boxes of the runs that ended (`BoxWorkers.finishEnded`) and logs the
+ * runs a pass finished. Each exit decision and the end of its ingestion both call it; the passes
+ * run one after another, so each deleted run is logged once (DIPO-307). Never rejects.
+ */
+export async function finishEndedBoxRuns(
+  workers: Pick<BoxWorkers, "finishEnded">,
+  ended: (runId: string) => boolean | null,
+  logger: Pick<Logger, "info">,
+  options: { readonly listBoxes?: boolean } = {},
+): Promise<string[]> {
+  const finished = await workers.finishEnded(ended, options);
+  if (finished.length > 0) logger.info("ended box runs checked and deleted", { finished });
+  return finished;
+}
+
+/**
  * Removes the export folders a post-run token check left in `tmpRoot` (a crash, a failed
  * removal): they may hold a leaked token (DIPO-269). Runs at daemon start; never rejects.
  */
@@ -491,8 +507,11 @@ function daemonBoxWorkers(
     tmpRoot,
     indexDir: join(options.stateDir, BOX_INDEX_DIR),
     // The part queue of each box is read while its session runs (DIPO-272), and each part is
-    // delivered (DIPO-273).
-    door: { onPart: deliverThenCheck((part) => delivery.onPart(part), afterPart) },
+    // delivered (DIPO-273). No read starts once the run ended (DIPO-297).
+    door: {
+      onPart: deliverThenCheck((part) => delivery.onPart(part), afterPart),
+      live: (runId) => parts.live(runId),
+    },
     // After the install in a new box, its /work is compared with the start commit on dipo's own
     // copy, as a part is (DIPO-294).
     treeCheck: (run) => delivery.changedSinceStart(run),
@@ -624,12 +643,12 @@ export function daemonRuns(options: DaemonRunsOptions): DaemonRuns {
     finishOptions: { readonly listBoxes?: boolean } = {},
   ): Promise<void> => {
     if (boxWorkers === null) return;
-    const finished = await boxWorkers.finishEnded(
+    await finishEndedBoxRuns(
+      boxWorkers,
       (runId) => boxRunEnded(options.offices, runId),
+      options.logger,
       finishOptions,
     );
-    if (finished.length > 0)
-      options.logger.info("ended box runs checked and deleted", { finished });
   };
   const tempDirs = new RunTempDirs({
     tmpRoot: realDir(options.tmpRoot),
