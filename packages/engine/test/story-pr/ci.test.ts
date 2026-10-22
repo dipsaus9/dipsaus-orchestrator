@@ -2,6 +2,8 @@
 // PR poll, a final head is not read again, a stuck head raises one ci.stuck and slows down, a
 // failed job becomes one CI item with its tail, locations and signature, the body's status block
 // lists each check, and the red head that reaches the run's CI cap parks the story with cause ci.
+// For a box run (DIPO-299) CI is the verify: red CI takes the same loop, and a head the host
+// reports no check for at all is final with no CI after the bounded wait.
 
 import { describe, expect, it } from "bun:test";
 import { join } from "node:path";
@@ -20,9 +22,24 @@ import {
   type PrReviewHost,
   type RequiredCheck,
 } from "../../src/platform/host";
-import { endRun, IN_REVIEW_END, insertRun, recordGrant, runSteps } from "../../src/run";
+import {
+  appendRunStep,
+  endRun,
+  IN_REVIEW_END,
+  insertRun,
+  recordGrant,
+  runRoundCounts,
+  runSteps,
+} from "../../src/run";
 import type { BranchPark, ParkBranchRequest, ParkWriter } from "../../src/run/park";
-import { type StoryPrFacts, StoryPrs, STORY_PR_NOTICES, storyPrBody } from "../../src/story-pr";
+import {
+  NO_CI_WAIT_MS,
+  noCiRan,
+  type StoryPrFacts,
+  StoryPrs,
+  STORY_PR_NOTICES,
+  storyPrBody,
+} from "../../src/story-pr";
 import { insertClaim, updateClaim } from "../../src/worktree/records";
 import type { TestState } from "../commands/helpers";
 import { loggedEvents } from "../ingest/helpers";
@@ -148,7 +165,7 @@ interface World {
 
 async function inWorld(
   fn: (w: World) => Promise<void>,
-  setup: { ciCap?: number | null; config?: OfficeConfig } = {},
+  setup: { ciCap?: number | null; config?: OfficeConfig; box?: boolean } = {},
 ): Promise<void> {
   await withOffice(async (t, office) => {
     pass(t, office, [task("DIPO-1", { status: "In Review" })]);
@@ -242,6 +259,7 @@ async function inWorld(
         offices: { get: () => office, config: () => world.config },
         clock: t.clock,
         logger,
+        boxRun: () => setup.box === true,
       });
     const world: World = {
       facts: FACTS,
@@ -550,6 +568,236 @@ describe("the run's CI cap", () => {
       await w.prs.retry(id);
       expect(runSteps(w.office, w.run).filter((s) => s.kind === "ci")).toHaveLength(3);
       expect(parked(w.office)).toEqual([{ reason: "verify-failing", cause: "ci" }]);
+    });
+  });
+});
+
+// ---- CI as the verify of a box run (DIPO-299) ---------------------------------------------------
+
+const ciSteps = (w: World) => runSteps(w.office, w.run).filter((s) => s.kind === "ci");
+const noneSteps = (w: World) => runSteps(w.office, w.run).filter((s) => s.kind === "ci-none");
+
+describe("CI as the verify of a box run", () => {
+  it("says in the body that CI checks the head, as no verify of dipo's ran", async () => {
+    await inWorld(
+      async (w) => {
+        const id = w.office.officeId;
+        await w.prs.sync(id, w.run);
+        w.host.required = [report("ci-ok", "pass"), report("pr-title", "pending")];
+        await w.prs.retry(id);
+        const body = w.host.updates.at(-1)?.body ?? "";
+        expect(body).toContain(
+          "- verify: CI on `aaaaaaaa`; dipo runs no verify of its own for a box run",
+        );
+        expect(body).not.toContain("verify: passed");
+        expect(body).toContain("- merge: dipo merges after review and green required checks");
+      },
+      { box: true },
+    );
+    // A Mac run's body keeps the verify dipo ran.
+    expect(storyPrBody(FACTS.story, { head: HEAD_A })).toContain("- verify: passed at `aaaaaaaa`");
+  });
+
+  it("sends red CI back through the CI loop: items for the fix round, one ci step per head, parked at the cap", async () => {
+    await inWorld(
+      async (w) => {
+        const id = w.office.officeId;
+        await w.prs.sync(id, w.run);
+        redHead(w);
+        await w.prs.retry(id);
+        const got = w.prs.ciItems(id, w.run);
+        expect(got?.head).toBe(HEAD_A);
+        expect(got?.items.map((item) => item.check)).toEqual(["ci-ok", "verify"]);
+        expect(got?.items[1]?.tail).toContain("src/a.ts:3:7: error TS2322: bad");
+        expect(ciSteps(w).map((s) => s.value)).toEqual([HEAD_A]);
+        expect(parked(w.office)).toEqual([]);
+
+        // The worker's fix is a new head; red again reaches the run's CI cap of 2.
+        await pushHead(w, HEAD_B);
+        await w.prs.retry(id);
+        expect(ciSteps(w).map((s) => s.value)).toEqual([HEAD_A, HEAD_B]);
+        expect(parked(w.office)).toEqual([{ reason: "verify-failing", cause: "ci" }]);
+        expect(
+          w.office.get<{ detail: string }>("select detail from parks where office_id = $office_id")
+            ?.detail,
+        ).toContain("required checks were red on 2 pushed heads");
+        expect(noneSteps(w)).toEqual([]);
+      },
+      { box: true },
+    );
+  });
+
+  it("keeps one ci step and the items of a head the reviewer blocked too: one round's feedback", async () => {
+    await inWorld(
+      async (w) => {
+        const id = w.office.officeId;
+        await w.prs.sync(id, w.run);
+        // The review of the same head was blocked (DIPO-219 writes this step).
+        w.office.immediate(() =>
+          appendRunStep(w.office, w.run, "review-failed", "1", w.t.clock.now()),
+        );
+        redHead(w);
+        await w.prs.retry(id);
+        await w.prs.retry(id);
+        expect(ciSteps(w)).toHaveLength(1);
+        expect(runRoundCounts(w.office, w.run)).toMatchObject({
+          ciAttempts: 1,
+          reviewRoundsFailed: 1,
+        });
+        expect(w.prs.ciItems(id, w.run)?.head).toBe(HEAD_A);
+        expect(parked(w.office)).toEqual([]);
+      },
+      { box: true },
+    );
+  });
+
+  it("does not count red checks of an earlier head once done pushed a new one", async () => {
+    await inWorld(
+      async (w) => {
+        const id = w.office.officeId;
+        await w.prs.sync(id, w.run);
+        w.host.required = [report("ci-ok", "pending")];
+        await w.prs.retry(id);
+        // A done report pushes head B while A's CI still runs; the host still shows A, now red.
+        w.facts = { ...FACTS, head: HEAD_B };
+        await w.prs.sync(id, w.run);
+        redHead(w);
+        w.host.head = HEAD_A;
+        await w.prs.retry(id);
+        expect(ciSteps(w)).toEqual([]);
+        expect(w.prs.ciItems(id, w.run)).toBeNull();
+
+        // The host moves to B, whose checks pass: nothing red was ever counted.
+        w.host.head = HEAD_B;
+        w.host.required = [report("ci-ok", "pass"), report("pr-title", "pass")];
+        w.host.all = [];
+        await w.prs.retry(id);
+        expect(ciSteps(w)).toEqual([]);
+        expect(parked(w.office)).toEqual([]);
+        expect(noneSteps(w)).toEqual([]);
+      },
+      { box: true },
+    );
+  });
+});
+
+describe("an office whose story PRs get no CI", () => {
+  it("is not held waiting: after the bounded wait the head is final with no CI, recorded on the run", async () => {
+    await inWorld(
+      async (w) => {
+        const id = w.office.officeId;
+        await w.prs.sync(id, w.run);
+        await w.prs.retry(id);
+        w.t.clock.advance(NO_CI_WAIT_MS - 60_000);
+        await w.prs.retry(id);
+        expect(noneSteps(w)).toEqual([]);
+
+        w.t.clock.advance(60_000);
+        await w.prs.retry(id);
+        expect(noneSteps(w).map((s) => s.value)).toEqual([HEAD_A]);
+        expect(noCiRan(w.office, w.run, HEAD_A)).toBe(true);
+        const told = notices(w.office, STORY_PR_NOTICES.ciNone).map(
+          (event) => (event.data as { text: string }).text,
+        );
+        expect(told).toHaveLength(1);
+        expect(told[0]).toContain("No CI checks were reported for the PR of");
+        expect(told[0]).toContain("the review decides");
+        // Not a CI attempt, no park, and never stuck.
+        expect(runRoundCounts(w.office, w.run).ciAttempts).toBe(0);
+        expect(parked(w.office)).toEqual([]);
+        // The body says so.
+        expect(w.host.updates.at(-1)?.body).toContain(
+          "- required checks: none reported for `aaaaaaaa`, so no CI ran; the review decides",
+        );
+        expect(w.host.updates.at(-1)?.body).toContain(
+          "- merge: dipo merges after review; no CI ran",
+        );
+
+        // Final: no more check reads, no ci.stuck, also past the checks wait.
+        const reads = w.host.count("requiredChecks");
+        w.t.clock.advance(w.config.mergeSlot.checksWaitMinutes * 60_000);
+        await w.prs.retry(id);
+        expect(w.host.count("requiredChecks")).toBe(reads);
+        expect(notices(w.office, STORY_PR_NOTICES.ciStuck)).toHaveLength(0);
+
+        // After a restart the record holds: no second step and no new wait.
+        w.restart();
+        await w.prs.retry(id);
+        expect(noneSteps(w)).toHaveLength(1);
+        expect(w.host.count("requiredChecks")).toBe(reads);
+        expect(notices(w.office, STORY_PR_NOTICES.ciNone)).toHaveLength(1);
+      },
+      { box: true },
+    );
+  });
+
+  it("watches a new head again, with its own wait", async () => {
+    await inWorld(
+      async (w) => {
+        const id = w.office.officeId;
+        await w.prs.sync(id, w.run);
+        await w.prs.retry(id);
+        w.t.clock.advance(NO_CI_WAIT_MS);
+        await w.prs.retry(id);
+        await pushHead(w, HEAD_B);
+        await w.prs.retry(id);
+        expect(noneSteps(w).map((s) => s.value)).toEqual([HEAD_A]);
+        w.t.clock.advance(NO_CI_WAIT_MS);
+        await w.prs.retry(id);
+        expect(noneSteps(w).map((s) => s.value)).toEqual([HEAD_A, HEAD_B]);
+      },
+      { box: true },
+    );
+  });
+
+  it("is not decided while the host lists any check for the head, required or not", async () => {
+    await inWorld(
+      async (w) => {
+        const id = w.office.officeId;
+        await w.prs.sync(id, w.run);
+        // The base requires no check, but the office's CI runs one.
+        w.host.all = [{ ...report("ci-ok", "pending"), link: link(1), workflow: "CI" }];
+        await w.prs.retry(id);
+        w.t.clock.advance(NO_CI_WAIT_MS);
+        await w.prs.retry(id);
+        expect(noneSteps(w)).toEqual([]);
+        expect(w.host.count("prChecks")).toBe(1);
+      },
+      { box: true },
+    );
+  });
+
+  it("is not decided when the full check list cannot be read; the next poll asks again", async () => {
+    await inWorld(
+      async (w) => {
+        const id = w.office.officeId;
+        await w.prs.sync(id, w.run);
+        await w.prs.retry(id);
+        w.t.clock.advance(NO_CI_WAIT_MS);
+        const prChecks = w.host.prChecks.bind(w.host);
+        w.host.prChecks = async () => {
+          throw new Error("gh failed");
+        };
+        await w.prs.retry(id);
+        expect(noneSteps(w)).toEqual([]);
+        w.host.prChecks = prChecks;
+        await w.prs.retry(id);
+        expect(noneSteps(w)).toHaveLength(1);
+      },
+      { box: true },
+    );
+  });
+
+  it("is not decided for a Mac run, whose verify ran on the Mac: it keeps waiting for its checks", async () => {
+    await inWorld(async (w) => {
+      const id = w.office.officeId;
+      await w.prs.sync(id, w.run);
+      await w.prs.retry(id);
+      w.t.clock.advance(w.config.mergeSlot.checksWaitMinutes * 60_000);
+      await w.prs.retry(id);
+      expect(noneSteps(w)).toEqual([]);
+      expect(notices(w.office, STORY_PR_NOTICES.ciStuck)).toHaveLength(1);
+      expect(notices(w.office, STORY_PR_NOTICES.ciNone)).toHaveLength(0);
     });
   });
 });

@@ -110,6 +110,7 @@ import {
   type PidRecord,
   type ServedSocket,
   type StateDatabase,
+  type StoredRun,
 } from "@dipsaus-orchestrator/engine";
 
 import { controlFeature, emitDaemonStates } from "./control";
@@ -639,7 +640,9 @@ async function serve(run: Run, lock: HeldLock): Promise<number> {
     });
     held.teardown = teardown;
     // The story PR (DIPO-144): opened or updated right after each In Review push, and retried
-    // every `polling.prStateSeconds` until it exists, through the same `gh` host.
+    // every `polling.prStateSeconds` until it exists, through the same `gh` host. Whether a run
+    // is a box run comes from the runs made below (DIPO-299: CI is the verify of a box run).
+    let boxRunOf: ((office: OfficeId, stored: StoredRun) => boolean) | null = null;
     const storyPrs = new StoryPrs({
       host,
       git: gitStoryPrOps({ git: (office) => engineGit.forOffice(office), cli: backlogCli }),
@@ -654,6 +657,7 @@ async function serve(run: Run, lock: HeldLock): Promise<number> {
         writer: gitParkWriter({ git: (office) => engineGit.forOffice(office), cli: backlogCli }),
         implemented: (name) => registry.command(name) !== undefined,
       },
+      boxRun: (office, stored) => boxRunOf?.(office, stored) === true,
     });
     held.storyPrs = storyPrs;
     // The backlog PR (DIPO-35): opened or updated after each lane flush through `gh` on this
@@ -839,6 +843,7 @@ async function serve(run: Run, lock: HeldLock): Promise<number> {
     };
     // Daemon stop ends every box worker inside its box, and its routes (DIPO-271).
     held.boxes = runs.boxes;
+    boxRunOf = (office, stored) => runs.isBoxRun(office, stored);
     held.collisions = runs.collisions;
     // `work.run` (DIPO-48): picks and claims one Ready story and records the run, through the
     // story index, the run profile, office init's statuses check, the claims, the Ready gate and

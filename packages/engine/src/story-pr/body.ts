@@ -28,8 +28,15 @@ export interface PrBodyStory {
 }
 
 export interface PrBodyStatus {
-  /** The commit verify passed at. */
+  /** The pushed head: the commit verify passed at, or the one CI checks for a box run. */
   readonly head: string;
+  /**
+   * `passed` (the default) when dipo's verify passed at the head; `ci` for a box run, whose
+   * verify is CI on the PR (0021 amendment of 2026-10-22, DIPO-299).
+   */
+  readonly verify?: "passed" | "ci";
+  /** True when the host reported no CI check for the head: no CI ran, the review decides. */
+  readonly noCi?: boolean;
   /**
    * The required checks of the head with their states (0019 section 3); the body has no checks
    * line when this is left out.
@@ -69,13 +76,26 @@ const checksLine = (checks: readonly RequiredCheckState[]): string =>
   }`;
 
 function statusSection(status: PrBodyStatus): string {
+  const head = `\`${status.head.slice(0, SHORT_SHA)}\``;
+  const verify =
+    status.verify === "ci"
+      ? `- verify: CI on ${head}; dipo runs no verify of its own for a box run`
+      : `- verify: passed at ${head}`;
+  const checks =
+    status.noCi === true
+      ? [`- required checks: none reported for ${head}, so no CI ran; the review decides`]
+      : status.checks === undefined
+        ? []
+        : [checksLine(status.checks)];
   return [
     "## Status",
     "",
-    `- verify: passed at \`${status.head.slice(0, SHORT_SHA)}\``,
+    verify,
     "- review: pending",
-    ...(status.checks === undefined ? [] : [checksLine(status.checks)]),
-    "- merge: dipo merges after review and green required checks",
+    ...checks,
+    status.noCi === true
+      ? "- merge: dipo merges after review; no CI ran"
+      : "- merge: dipo merges after review and green required checks",
   ].join("\n");
 }
 
