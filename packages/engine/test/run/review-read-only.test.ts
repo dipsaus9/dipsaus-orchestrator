@@ -353,7 +353,11 @@ describe("the reviewer's read-only copy of the pushed commit (DIPO-276)", () => 
       w.prepare = () => {
         throw new PlanError("refused");
       };
-      expect(await w.launcher.start(request)).toMatchObject({ kind: "failed" });
+      // The refusal goes back with the outcome, for the review rounds' notice (DIPO-247).
+      expect(await w.launcher.start(request)).toMatchObject({
+        kind: "failed",
+        planRefused: expect.any(PlanError),
+      });
       expect(folders(w)).toEqual([]);
       w.prepare = null;
       w.hostFails = true;

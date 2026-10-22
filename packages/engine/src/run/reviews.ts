@@ -29,7 +29,16 @@
 //   `budget-exceeded` (run control). A plan limit stops the session and never parks: the review
 //   waits for its place again, which the hold pauses until the reset, and a fresh session starts
 //   then. A start failure or a refused launch check holds the adapter with an `engine.notice`; the
-//   story stays In Review and the review waits.
+//   story stays In Review and the review waits. A launch plan that refuses the session (a
+//   `PlanError`) raises the `run.planRefused` notice with `planRefusedText`, as the worker's launch
+//   does, once per run and refusal (DIPO-247).
+// - Done on the base (DIPO-239). The starter reads the story on the office base before it reopens
+//   anything; a story Done there gets no round and no session: the run ends done (`#doneOnBase`)
+//   with one `review.doneOnBase` notice, and the claim is left to reconcile's done-on-base release.
+// - Caps (DIPO-247). The reviewer's turn and minute caps are the run's start snapshot; a run that
+//   has none takes the office's current ones at its first review start (`snapshotReviewCaps`).
+// - After the verdict. Once a reviewer session's exit is decided and its verdict or park ended the
+//   review period, `onReviewed` hears it: the head's fix round decides then (DIPO-148).
 
 import type { Clock, IdSource, OfficeId, RunId, StoryKey } from "@dipsaus-orchestrator/contract";
 
@@ -49,9 +58,17 @@ import {
 } from "../review/store";
 import { evidenceProblems, type ReviewFacts, validateReport } from "../review/validate";
 import { judgeReview } from "../review/verdict";
+import { lifecycleOf } from "../views/story";
 import { withWorkViews } from "../views/work";
 import { holdMessage, type AdapterHold, type LaunchCheckFailure } from "../workers/hold";
-import type { HostOp, ReviewFinding, ReviewReport, SteerOp, TurnProblem } from "../workers/types";
+import type {
+  HostOp,
+  PlanError,
+  ReviewFinding,
+  ReviewReport,
+  SteerOp,
+  TurnProblem,
+} from "../workers/types";
 import { findClaim } from "../worktree/records";
 
 import { REVIEWER_ROLE, runCaps } from "./caps";
@@ -73,9 +90,11 @@ import {
 } from "./outcome-types";
 import { PARK_CAUSES } from "./park";
 import { claimPlace, type PlaceStart, START_KINDS, waitForPlace } from "./places";
-import { appendRunStep, DONE_END, findRun, type StoredRun } from "./records";
+import { LAUNCH_NOTICES, planRefusedText } from "./launch";
+import { endRunMarked } from "./markers";
+import { appendRunStep, DONE_END, findRun, finishRun, type StoredRun } from "./records";
 import type { RunStoryFacts } from "./resume";
-import type { ReviewGit, ReviewSessions } from "./review-launch";
+import { type ReviewGit, type ReviewSessions, snapshotReviewCaps } from "./review-launch";
 import {
   beginReviewRound,
   failedReviewRounds,
@@ -111,6 +130,8 @@ export const REVIEW_NOTICES = {
   startFailed: OUTCOME_NOTICES.startFailed,
   /** The reviewer's read-only copy of a head does not match its tree: the review cannot start. */
   copyMismatch: "review.copyMismatch",
+  /** The story is Done on the office base: no review round starts and the run ends done. */
+  doneOnBase: "review.doneOnBase",
 } as const;
 
 export interface ReviewsDeps {
@@ -136,6 +157,11 @@ export interface ReviewsDeps {
   };
   /** The plan-limit schedule: a review's limit holds new sessions on its scope until the reset. */
   readonly waits?: () => PlanLimitWaits | undefined;
+  /**
+   * Hears a reviewer session's exit once its verdict or park ended the review period, with the
+   * agent that exited: the fix round of the head decides then (DIPO-148), as no reviewer runs.
+   */
+  readonly onReviewed?: (office: OfficeId, runId: RunId, agent: string) => void;
   readonly onChanged?: (office: OfficeId) => void;
   readonly warn?: (message: string, fields: Readonly<Record<string, unknown>>) => void;
 }
@@ -187,6 +213,8 @@ export class Reviews {
   readonly #deciding = new Set<string>();
   /** `<run>:<head>` of each copy mismatch already noticed. */
   readonly #mismatched = new Set<string>();
+  /** `<run>:<message>` of each refused launch plan already noticed. */
+  readonly #refused = new Set<string>();
 
   constructor(deps: ReviewsDeps) {
     this.#deps = deps;
@@ -221,6 +249,11 @@ export class Reviews {
       });
       return false;
     }
+    // A story Done on the office base gets no review round (DIPO-239): the run ends done.
+    if (lifecycleOf("task", facts.view.status) === "Done") {
+      this.#doneOnBase(office, run);
+      return false;
+    }
     // A code tree with a verdict in the claim is never reviewed again (section 6).
     if (reviewVerdictForTree(office, run.runId, tree) !== null) {
       this.#write(office, () => {
@@ -243,6 +276,10 @@ export class Reviews {
             : reopenForRound(office, current, "review", at, start.since);
         if (findRun(office, run.runId)?.endedAt !== null) return { value: null, entries: [] };
         claimPlace(office, run.runId, at);
+        // The reviewer's caps are the run's start snapshot; a run started without them takes the
+        // office's current ones at its first review start and keeps them (0020 section 5).
+        const config = this.#deps.offices.config(officeId);
+        if (config !== undefined) snapshotReviewCaps(office, run.runId, config);
         return { value: beginReviewRound(office, current, start.since, at).round, entries };
       },
     );
@@ -313,8 +350,43 @@ export class Reviews {
           reason: outcome.reason,
         });
         if (outcome.copyMismatch === true) this.#copyMismatch(office, run, head, outcome.reason);
+        if (outcome.planRefused !== undefined) this.#planRefused(office, run, outcome.planRefused);
         return false;
     }
+  }
+
+  /**
+   * A story Done on the office base (DIPO-239): no review round and no session. A run ended at In
+   * Review takes the end kind `done` in one write (`finishRun`, with its final outcome row); a run
+   * still open and waiting for the reviewer place ends through `endReviewPeriod` with end kind
+   * `done`, its wait cleared and its place free. One info notice names the story and the run. The
+   * claim stays live for reconcile's done-on-base release (DIPO-216).
+   */
+  #doneOnBase(office: OfficeHandle, run: StoredRun): void {
+    const story = run.story ?? run.runId;
+    this.#write(office, () => {
+      const current = findRun(office, run.runId);
+      if (current === null || current.endKind === DONE_END) return [];
+      const at = this.#deps.clock.now();
+      if (current.endedAt !== null) {
+        if (!finishRun(office, run.runId)) return [];
+      } else if (!endReviewPeriod(office, run.runId, at, DONE_END)) {
+        // A wait a daemon from before review rounds left has no review phase: it ends all the same.
+        endRunMarked(office, run.runId, at, DONE_END);
+      }
+      return [
+        {
+          type: "engine.notice",
+          ...(run.key === null ? {} : { key: run.key }),
+          run: run.runId,
+          delta: {
+            level: "info",
+            code: REVIEW_NOTICES.doneOnBase,
+            text: `${story} is Done on the office base, so dipo starts no review for run ${run.runId} and ends the run as done. Reconcile releases its claim once the worktree can go.`,
+          },
+        },
+      ];
+    });
   }
 
   /**
@@ -336,6 +408,29 @@ export class Reviews {
           level: "warn",
           code: REVIEW_NOTICES.copyMismatch,
           text: `${story}: the review cannot start: ${why}. The commit may hold paths that differ only in case, which this Mac's file system folds into one. The story stays In Review until its branch changes; check the commit.`,
+        },
+      },
+    ]);
+  }
+
+  /**
+   * A reviewer launch the plan refused (`PlanError`, DIPO-247): the `run.planRefused` notice on the
+   * office with `planRefusedText`, as the worker's launch raises it, once per run and refusal in
+   * this daemon, as the review is tried again at every drain. The story stays In Review.
+   */
+  #planRefused(office: OfficeHandle, run: StoredRun, error: PlanError): void {
+    const seen = `${run.runId}:${error.message}`;
+    if (this.#refused.has(seen)) return;
+    this.#refused.add(seen);
+    this.#write(office, () => [
+      {
+        type: "engine.notice",
+        ...(run.key === null ? {} : { key: run.key }),
+        run: run.runId,
+        delta: {
+          level: "error",
+          code: LAUNCH_NOTICES.planRefused,
+          text: planRefusedText(run.story ?? run.runId, error),
         },
       },
     ]);
@@ -631,6 +726,8 @@ export class Reviews {
     if (run.endedAt !== null) {
       // A verdict, or a park, ended the run already.
       if (intent !== null) this.#resolve(office, view.runId, intent, intent.kind, at);
+      // No reviewer runs any more: the fix round of this head may decide now (DIPO-148).
+      this.#deps.onReviewed?.(view.office, view.runId, agent);
       return;
     }
     if (tag === REVIEW_TAGS.planLimit && intent !== null) {
