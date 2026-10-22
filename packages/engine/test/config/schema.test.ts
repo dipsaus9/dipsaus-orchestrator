@@ -693,9 +693,13 @@ describe("defaults", () => {
   it("give R30 the security phrases and a phrase list for each criteria part (DIPO-251)", () => {
     expect(OFFICE_DEFAULTS.story.securityPhrases).toEqual([
       "deny rule",
+      "deny rules",
       "guard",
+      "guards",
       "sandbox setting",
+      "sandbox settings",
       "permission check",
+      "permission checks",
     ]);
     expect(OFFICE_DEFAULTS.story.securityCriteriaPhrases).toEqual({
       oldBarrier: [

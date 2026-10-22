@@ -1209,9 +1209,13 @@ describe("office configuration version 11", () => {
       expect(result.config.version).toBe(11);
       expect(result.config.story.securityPhrases).toEqual([
         "deny rule",
+        "deny rules",
         "guard",
+        "guards",
         "sandbox setting",
+        "sandbox settings",
         "permission check",
+        "permission checks",
       ]);
       expect(result.config.story.securityCriteriaPhrases).toEqual(
         OFFICE_DEFAULTS.story.securityCriteriaPhrases,

@@ -1064,7 +1064,16 @@ export const OFFICE_DEFAULTS: OfficeConfig = {
     ],
     // 0012 section 3 (R30, DIPO-251): a title or Outcome that names a security barrier, and the
     // criteria parts such a story needs. Design choice of DIPO-251; the office may change them.
-    securityPhrases: ["deny rule", "guard", "sandbox setting", "permission check"],
+    securityPhrases: [
+      "deny rule",
+      "deny rules",
+      "guard",
+      "guards",
+      "sandbox setting",
+      "sandbox settings",
+      "permission check",
+      "permission checks",
+    ],
     securityCriteriaPhrases: {
       oldBarrier: [
         "old barrier",
