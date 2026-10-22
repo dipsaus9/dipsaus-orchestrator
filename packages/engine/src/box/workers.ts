@@ -1,6 +1,7 @@
 // The box of a box worker's run (DIPO-271, 0021 sections 1 to 6): one box per story run, made at
-// the launch, used by every developer session of the run, and checked and deleted at its end.
-// Keeping a box from claim to merge is DIPO-278; until then a run that ended has no box.
+// the launch and used by every developer session of the run. It lives from claim to merge
+// (DIPO-278): stopped, with its files, while the story waits, and deleted when the claim ends.
+// `lifetime.ts` decides when, and rebuilds a box that was lost.
 //
 // - `create` (the launch's setup): the start check, the office image built from the base branch's
 //   box block (`ensureImageWithBuildProxy`: a build proxy only for the length of a build), the
@@ -23,12 +24,16 @@
 //   earlier session's claude (a host killed with SIGKILL, or one that crashed, never ran its stop
 //   command), so it is stopped and started again first; only a box `create` just made is not. It returns how the worker host runs a command in the box and stops it.
 //   With `door`, the box's part queue is read while the session runs (`BoxDoor`, DIPO-272).
-// - `finish` (the run ended): the post-run token check (`checkBoxAfterRun`, which holds the adapter
-//   when the token is found or the check cannot finish), then the box deleted and its routes
-//   released. `discard` deletes a box whose worker never ran, without the check.
-// - `finishEnded` finishes the box of every run that has ended (after an exit, at daemon start;
-//   at daemon start also every dipo box the backend lists), and `close` stops every box at daemon
-//   stop, which ends the worker inside it. Its passes run one after another, so two callers at
+// - `rest` (the story waits, DIPO-278): the post-run token check, then the box stopped with its
+//   files and its routes released; the record says it rests until the next session.
+// - `finish` (the claim ended: merge, drop, discard): the post-run token check, unless the box
+//   rests already (`checkBoxAfterRun`, which holds the adapter when the token is found or the
+//   check cannot finish), then the box deleted and its routes released. `discard` deletes a box
+//   whose worker never ran, without the check.
+// - `finishEnded` finishes the box of every run whose claim ended, and rests every waiting one
+//   (after an exit, on the daemon's minute tick and at daemon start; at daemon start also every
+//   dipo box the backend lists), and `close` stops every box at daemon stop, which ends the
+//   worker inside it. Its passes run one after another, so two callers at
 //   once (an exit decision and the end of its ingestion) finish and report each run once
 //   (DIPO-307); a run whose finish failed is not reported as finished. A pass waits for one run's
 //   finish at most `BOX_FINISH_WAIT_MS`, so a finish that hangs cannot hold the passes after it
@@ -120,7 +125,30 @@ export interface BoxRunRecord {
   readonly files?: readonly string[];
   /** Set once the run ended and its box was deleted. */
   readonly finished?: boolean;
+  /**
+   * Set when the box was stopped while its story waits (DIPO-278), after the post-run token check
+   * of its last session; a new session clears it. A stopped box with it set needs no check before
+   * it is stopped or deleted again.
+   */
+  readonly waiting?: boolean;
 }
+
+/** What `has` found of a run's box (DIPO-278). */
+export type BoxPresence =
+  /** The record says the box lives and the backend lists it. */
+  | "ready"
+  /** The run had a box, but it was deleted or the backend lost it. */
+  | "gone"
+  /** The run never had a box (a run from before every run was a box run). */
+  | "none";
+
+/** What `rest` did with the box of a run that waits (DIPO-278). */
+export type BoxRest =
+  | { readonly kind: "stopped"; readonly check: BoxTokenCheck }
+  /** Already stopped and checked after its last session: nothing to do. */
+  | { readonly kind: "resting" }
+  | { readonly kind: "gone" }
+  | { readonly kind: "failed"; readonly reason: string };
 
 /** One developer session's box: how the worker host runs claude in it and stops it. */
 export interface BoxSession {
@@ -241,9 +269,21 @@ export interface BoxWorkersDeps {
   readonly info?: Log;
 }
 
+/** `finishEnded`'s answer for a run that waits with its claim live: stop its box, keep it. */
+export const BOX_WAITING = "waiting";
+
+/**
+ * What `finishEnded` asks of each run: true when its claim ended and its worker hosts exited (the
+ * box is deleted), `BOX_WAITING` when the run ended with its claim live and its hosts exited (the box
+ * stops), false while it goes on, null when no loaded office knows it (left alone).
+ */
+export type BoxEnded = boolean | typeof BOX_WAITING | null;
+
 /** What `finish` did. */
 export type BoxFinish =
   | { readonly kind: "checked"; readonly check: BoxTokenCheck }
+  /** Deleted with no check: it was stopped and checked after its last session (DIPO-278). */
+  | { readonly kind: "deleted" }
   | { readonly kind: "gone" }
   | { readonly kind: "failed"; readonly reason: string };
 
@@ -279,6 +319,7 @@ export function readBoxRun(runDir: string): BoxRunRecord | null {
       box: value.box,
       ...(files === undefined ? {} : { files }),
       ...(value.finished === true ? { finished: true } : {}),
+      ...(value.waiting === true ? { waiting: true } : {}),
     };
   } catch {
     return null;
@@ -290,6 +331,20 @@ function writeJson(path: string, value: unknown): void {
   renameSync(`${path}.tmp`, path);
 }
 
+/** Rewrites the run directory's record with `waiting` set or cleared; no record, no write. */
+function markWaiting(runDir: string, waiting: boolean): void {
+  const record = readBoxRun(runDir);
+  if (record === null || (record.waiting === true) === waiting) return;
+  writeJson(join(runDir, BOX_RUN_FILE), {
+    runId: record.runId,
+    office: record.office,
+    box: record.box,
+    ...(record.files === undefined ? {} : { files: record.files }),
+    ...(record.finished === true ? { finished: true } : {}),
+    ...(waiting ? { waiting: true } : {}),
+  } satisfies BoxRunRecord);
+}
+
 export class BoxWorkers {
   readonly #deps: BoxWorkersDeps;
   readonly #index: string;
@@ -298,6 +353,8 @@ export class BoxWorkers {
   readonly #model: BoxWebRoute<RunningModelProxy>;
   /** Finishes in flight, by run id. */
   readonly #finishing = new Map<string, Promise<BoxFinish>>();
+  /** Stops of waiting runs in flight, by run id (DIPO-278). */
+  readonly #resting = new Map<string, Promise<BoxRest>>();
   /** Boxes `create` made and started, in which no session ran yet. */
   readonly #fresh = new Set<string>();
   /** The part queues read while a session runs (DIPO-272); null without `door`. */
@@ -335,6 +392,18 @@ export class BoxWorkers {
   /** True when the run of `runDir` runs its developer in a box. */
   isBoxRun(runDir: string): boolean {
     return existsSync(join(runDir, BOX_RUN_FILE));
+  }
+
+  /**
+   * Whether the run of `runDir` still has its box (DIPO-278): `ready` when its record says the box
+   * lives and the backend lists it, `gone` when it was deleted or lost, `none` without a record.
+   */
+  async has(runId: string, runDir: string): Promise<BoxPresence> {
+    const record = readBoxRun(runDir);
+    if (record === null || record.runId !== runId) return "none";
+    if (record.finished === true) return "gone";
+    const listed = await this.#deps.boxes.list();
+    return listed.some((box) => box.name === record.box) ? "ready" : "gone";
   }
 
   /** The boxes using the web route and the model proxy now. */
@@ -451,6 +520,11 @@ export class BoxWorkers {
     readonly runDir: string;
     readonly git: OfficeGit;
     readonly startCommit: string;
+    /**
+     * The tree the code is copied from instead of the start commit (DIPO-278): a lost box is
+     * rebuilt from the delivered parts (`deliveredCode` in `lifetime.ts`).
+     */
+    readonly code?: string;
   }): Promise<BoxMade> {
     const { boxes } = this.#deps;
     const held = this.#deps.holds.adapterHeld(this.#deps.adapter);
@@ -509,7 +583,7 @@ export class BoxWorkers {
       await boxes.start(name);
       const staged = await stageBoxCode(this.#deps.code, {
         git: input.git,
-        commit: input.startCommit,
+        commit: input.code ?? input.startCommit,
         files: base.description.files,
         // The registered office path: the maintainer's checkout, where files outside git live.
         source: input.git.mainWorktree,
@@ -563,12 +637,14 @@ export class BoxWorkers {
     if (record.finished === true) {
       throw new BoxError(
         "box.gone",
-        `the box of run ${input.runId} was deleted when the run ended; a new box for it is DIPO-278's.`,
+        `the box of run ${input.runId} was deleted; the run's next session rebuilds it.`,
       );
     }
     const name = record.box;
     const { boxes } = this.#deps;
     await this.#running(name);
+    // A session runs in it now: the next stop checks it for the token again (DIPO-278).
+    markWaiting(input.runDir, false);
     // The routes only now: the box network's address exists on the Mac once a box on it runs.
     const web = await this.#web.acquire(name);
     const model = await this.#model.acquire(name);
@@ -625,8 +701,10 @@ export class BoxWorkers {
   }
 
   /**
-   * The end of a box run: the post-run token check, then the box deleted and its routes released.
-   * Never rejects; once per run (a second call waits for the first).
+   * The end of a box run's box (its claim ended: merge, drop, discard): the post-run token check
+   * unless the box was stopped and checked after its last session (`BoxRunRecord.waiting`), then
+   * the box deleted and its routes released. Never rejects; once per run (a second call waits for
+   * the first).
    */
   finish(runId: string): Promise<BoxFinish> {
     const pending = this.#finishing.get(runId);
@@ -641,42 +719,92 @@ export class BoxWorkers {
   async #finish(runId: string): Promise<BoxFinish> {
     const name = boxName(runId);
     this.#door?.stop(runId);
+    const runDir = this.#runDirOf(runId);
+    const rested = runDir !== undefined && readBoxRun(runDir)?.waiting === true;
+    const outcome = await this.#checked(runId, name, rested, (box) => this.#deps.boxes.delete(box));
+    await this.#release(name);
+    // A box that could not be deleted stays in the index, for the next pass.
+    if (outcome.kind !== "failed") this.#forget(runId, name);
+    return outcome;
+  }
+
+  /**
+   * Stops the box of a run whose story waits (DIPO-278; 0021 section 6): for a review, an answer,
+   * a resume, CI or the maintainer. The post-run token check runs first, as at the end of a box
+   * run, then the box stops with its files kept and its routes are released; the record says it
+   * rests, so later passes leave it alone until the next session clears that. Never rejects; once
+   * per run at a time, and never while the run's box is being finished.
+   */
+  rest(runId: string): Promise<BoxRest> {
+    const pending = this.#resting.get(runId);
+    if (pending !== undefined) return pending;
+    const started = this.#rest(runId)
+      .catch((error: unknown): BoxRest => ({ kind: "failed", reason: messageOf(error) }))
+      .finally(() => this.#resting.delete(runId));
+    this.#resting.set(runId, started);
+    return started;
+  }
+
+  async #rest(runId: string): Promise<BoxRest> {
+    const name = boxName(runId);
+    const runDir = this.#runDirOf(runId);
+    const record = runDir === undefined ? null : readBoxRun(runDir);
+    if (record?.waiting === true) return { kind: "resting" };
+    this.#door?.stop(runId);
+    const outcome = await this.#checked(runId, name, false, (box) => this.#deps.boxes.stop(box));
+    await this.#release(name);
+    if (outcome.kind === "checked") {
+      if (runDir !== undefined) markWaiting(runDir, true);
+      this.#deps.info?.("box stopped while its story waits", { run: runId, box: name });
+      return { kind: "stopped", check: outcome.check };
+    }
+    if (outcome.kind === "gone") return { kind: "gone" };
+    return { kind: "failed", reason: outcome.kind === "failed" ? outcome.reason : "unknown" };
+  }
+
+  /**
+   * The post-run token check of box `name`, then `then(name)` (delete or stop): `gone` when the
+   * backend has no such box. With `skipCheck` a stopped box gets no check. A box whose check could
+   * not even start holds the adapter, as a failed check does; only the error's code goes into the
+   * hold, never a message that may quote the box.
+   */
+  async #checked(
+    runId: string,
+    name: string,
+    skipCheck: boolean,
+    then: (name: string) => Promise<void>,
+  ): Promise<BoxFinish> {
     const { boxes } = this.#deps;
-    let outcome: BoxFinish;
     let exists = false;
     let checked = false;
     try {
       const listed = (await boxes.list()).find((box) => box.name === name);
-      if (listed === undefined) {
-        outcome = { kind: "gone" };
-      } else {
-        exists = true;
-        // The check reads the environment of the running box, so a stopped box starts first.
-        if (listed.state !== "running") await boxes.start(name);
-        const model = await this.#model.acquire(name);
-        const { result } = await checkBoxAfterRun(
-          {
-            box: boxes,
-            token: model,
-            tmpRoot: this.#deps.tmpRoot,
-            holds: this.#deps.holds,
-            adapter: this.#deps.adapter,
-          },
-          name,
-        );
+      if (listed === undefined) return { kind: "gone" };
+      exists = true;
+      if (skipCheck && listed.state !== "running") {
         checked = true;
-        outcome = { kind: "checked", check: result };
-        await boxes.delete(name);
+        await then(name);
+        return { kind: "deleted" };
       }
+      // The check reads the environment of the running box, so a stopped box starts first.
+      if (listed.state !== "running") await boxes.start(name);
+      const model = await this.#model.acquire(name);
+      const { result } = await checkBoxAfterRun(
+        {
+          box: boxes,
+          token: model,
+          tmpRoot: this.#deps.tmpRoot,
+          holds: this.#deps.holds,
+          adapter: this.#deps.adapter,
+        },
+        name,
+      );
+      checked = true;
+      await then(name);
+      return { kind: "checked", check: result };
     } catch (error) {
-      outcome = { kind: "failed", reason: messageOf(error) };
-      this.#deps.warn?.("the end of a box run failed", {
-        run: runId,
-        box: name,
-        reason: outcome.reason,
-      });
-      // A box whose check could not even start proves nothing: it holds as a failed check does.
-      // Only the error's code goes into the hold, never a message that may quote the box.
+      const reason = messageOf(error);
+      this.#deps.warn?.("the end of a box run failed", { run: runId, box: name, reason });
       if (exists && !checked) {
         const failure = tokenCheckFailure(
           {
@@ -696,11 +824,8 @@ export class BoxWorkers {
           });
         }
       }
+      return { kind: "failed", reason };
     }
-    await this.#release(name);
-    // A box that could not be deleted stays in the index, for the next pass.
-    if (outcome.kind !== "failed") this.#forget(runId, name);
-    return outcome;
   }
 
   /**
@@ -863,15 +988,15 @@ export class BoxWorkers {
   }
 
   /**
-   * Finishes the box of every indexed run that has ended: `ended` says true for a run that ended
-   * with its worker hosts exited, false for one still going, null for a run no loaded office knows
-   * (left alone). With `listBoxes` (daemon start) also every box the backend lists, and the fill
-   * boxes a stopped daemon left are deleted. A pass waits for the one before it, so each run is
+   * Finishes the box of every indexed run whose claim ended (`ended` says true: merge, drop or
+   * discard, its worker hosts exited), and stops the box of every run that waits (`BOX_WAITING`,
+   * DIPO-278); false is a run still going, null a run no loaded office knows (left alone).
+   * With `listBoxes` (daemon start) also every box the backend lists, and the fill boxes a stopped daemon left are deleted. A pass waits for the one before it, so each run is
    * finished and reported by one pass. Never rejects; resolves to the run ids it finished, without
    * those whose finish failed (they stay in the index for the next pass).
    */
   finishEnded(
-    ended: (runId: string) => boolean | null,
+    ended: (runId: string) => BoxEnded,
     options: { readonly listBoxes?: boolean } = {},
   ): Promise<string[]> {
     const pass = this.#pass.then(() => this.#finishEndedPass(ended, options));
@@ -880,7 +1005,7 @@ export class BoxWorkers {
   }
 
   async #finishEndedPass(
-    ended: (runId: string) => boolean | null,
+    ended: (runId: string) => BoxEnded,
     options: { readonly listBoxes?: boolean },
   ): Promise<string[]> {
     const runs = new Set(this.pending());
@@ -900,7 +1025,13 @@ export class BoxWorkers {
     }
     const finished: string[] = [];
     for (const runId of runs) {
-      if (ended(runId) !== true) continue;
+      const state = ended(runId);
+      if (state === BOX_WAITING) {
+        // The story waits: its box stops, files kept, until its next session (DIPO-278).
+        if (!this.#finishing.has(runId)) await this.rest(runId);
+        continue;
+      }
+      if (state !== true) continue;
       const outcome = await this.#finishWithin(runId);
       if (outcome !== null && outcome.kind !== "failed") finished.push(runId);
     }

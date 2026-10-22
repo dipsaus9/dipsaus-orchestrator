@@ -513,7 +513,7 @@ describe("the end of a box run (criterion 9)", () => {
       expect(w.holds.adapterHeld(ADAPTER)).toBeNull();
       expect(readBoxRun(w.runDir)?.finished).toBe(true);
       expect(w.workers.pending()).toEqual([]);
-      // A later session of the run has no box: rebuilding one is DIPO-278's.
+      // A later session of the run has no box: `BoxLifetime.ensure` rebuilds it first (DIPO-278).
       const gone = (await w.workers
         .session({ runId: RUN, runDir: w.runDir, systemFile: w.systemFile })
         .catch((e: unknown) => e)) as BoxError;

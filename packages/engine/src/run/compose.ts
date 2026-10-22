@@ -11,6 +11,7 @@ import { type InputChangeReader, Nudges } from "../hooks/nudges";
 import { ABSENT, PermissionAsks, type Presence } from "../hooks/permissions";
 import { WebGuard } from "../hooks/web-guard";
 import { currentProfile } from "../scan/store";
+import type { RunProfile } from "../scan/detect";
 import type { WorkerPort } from "../workers/port";
 import { readBackstop } from "./backstop";
 import { RunControl, type RunControlDeps, type RunSteering } from "./control";
@@ -81,7 +82,10 @@ export interface RunPorts {
   readonly resumeIngest?: (ingest: OfficeIngest) => RunIngest;
   /** DIPO-39's worktree setup of a claimed story, before its worker starts. */
   readonly setup: RunLauncherDeps["setup"];
-  /** Makes and deletes a box worker's box at the launch (DIPO-271); no box runs without it. */
+  /**
+   * The box workers (DIPO-271, DIPO-278): every developer works in its story's box, made at the
+   * launch and made again before a later session when it was lost. No box runs without them.
+   */
   readonly boxes?: RunLauncherDeps["boxes"];
   /** Re-attach after a restart; needs `control`. */
   readonly reattach?: Omit<
@@ -276,6 +280,8 @@ function buildOutcomes(
     hosts: ports.hosts,
     ingest: ports.resumeIngest?.(ingest) ?? ingest,
     control: trackerOf(ports, control),
+    ...given("boxes", ports.boxes),
+    profile: profileOf(ports),
     ...given("probe", probe),
     ...given("onChanged", ports.onChanged),
   });
@@ -420,17 +426,22 @@ function buildLauncher(
     ...(control === null ? {} : { control: trackerOf(ports, control) }),
     release: ports.release,
     ...given("boxes", ports.boxes),
-    // A box run's box gets the install of the office's current run profile (DIPO-294).
-    profile: (office: OfficeId) => {
-      const handle = ports.offices.get(office);
-      return handle === undefined ? null : (currentProfile(handle)?.profile ?? null);
-    },
+    // A run's box gets the install of the office's current run profile (DIPO-294).
+    profile: profileOf(ports),
     // The backstop's run-start snapshot (DIPO-49), which only the finisher reads.
     ...(ports.control?.finisher === undefined
       ? {}
       : { snapshot: (office: OfficeId, worktree: string) => snapshotOf(ports, office, worktree) }),
     ...given("warn", ports.warn),
   });
+}
+
+/** The office's current run profile, whose install a run's box gets (DIPO-294). */
+function profileOf(ports: RunPorts): (office: OfficeId) => RunProfile | null {
+  return (office) => {
+    const handle = ports.offices.get(office);
+    return handle === undefined ? null : (currentProfile(handle)?.profile ?? null);
+  };
 }
 
 function snapshotOf(ports: RunPorts, office: OfficeId, worktree: string) {

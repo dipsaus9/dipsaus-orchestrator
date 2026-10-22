@@ -70,6 +70,7 @@ import { type LaunchPlan, type ParseState, PlanError } from "../../src/workers/t
 import type { ClaimOutcome, ClaimRequest, ClaimSetupFailed } from "../../src/worktree/claim";
 import { findClaim, insertClaim, releaseClaim, type ClaimRecord } from "../../src/worktree/records";
 import type { SetupOutcome } from "../../src/worktree/setup";
+import type { RunBoxes } from "../../src/box/lifetime";
 import type { StartTreeCheck } from "../../src/box/parts";
 import { BoxError } from "../../src/box/port";
 import type { BoxCacheUse, BoxWorkerInstall } from "../../src/box/workers";
@@ -194,6 +195,11 @@ interface World {
   /** What the box workers were asked (DIPO-271), and whether making a box fails. */
   readonly boxCalls: string[];
   boxFails: boolean;
+  /**
+   * Whether the launcher has box workers: with them every run is a box run (DIPO-240); the tests
+   * of the launch itself leave them out, as a daemon with no box backend has none.
+   */
+  withBoxes: boolean;
   /** Each install in a box (DIPO-294): its commands, environment and deadline. */
   readonly boxInstalls: {
     commands: readonly (readonly string[])[];
@@ -268,6 +274,7 @@ beforeEach(async () => {
     verifyRefusal: null,
     boxCalls: [] as string[],
     boxFails: false,
+    withBoxes: false,
     boxInstalls: [] as World["boxInstalls"],
     boxInstall: { ok: true } as BoxWorkerInstall,
     boxCache: { kind: "off" } as BoxCacheUse,
@@ -356,33 +363,37 @@ beforeEach(async () => {
     },
     workspace: (_git, path) => memoryWorkspace(path),
     warn: (message, fields) => w.warnings.push(`${message}: ${String(fields["reason"])}`),
-    // Box workers (DIPO-271), scripted.
-    boxes: {
-      create: async (input) => {
-        w.boxCalls.push(`create ${input.runId} at ${input.startCommit} in ${input.runDir}`);
-        if (w.boxFails) throw new Error("the image build failed");
-        return { name: `dipo-${input.runId}`, cache: w.boxCache };
-      },
-      discard: async (runId) => {
-        w.boxCalls.push(`discard ${runId}`);
-      },
-      install: async (input) => {
-        w.boxCalls.push(`install ${input.runId}`);
-        w.boxInstalls.push({
-          commands: input.commands,
-          env: input.env,
-          timeoutMs: input.timeoutMs,
-        });
-        if (w.boxInstallThrows !== null) throw w.boxInstallThrows;
-        return w.boxInstall;
-      },
-      changedSinceStart: async (input) => {
-        w.boxCalls.push(`check ${input.runId} at ${input.startSha}`);
-        return w.boxTree;
-      },
+    // Box workers (DIPO-271), scripted, while the test gives them.
+    get boxes(): RunBoxes {
+      return (w.withBoxes ? boxes : undefined) as RunBoxes;
     },
     profile: () => w.profile,
   });
+  const boxes: RunBoxes = {
+    create: async (input) => {
+      w.boxCalls.push(`create ${input.runId} at ${input.startCommit} in ${input.runDir}`);
+      if (w.boxFails) throw new Error("the image build failed");
+      return { name: `dipo-${input.runId}`, cache: w.boxCache };
+    },
+    discard: async (runId) => {
+      w.boxCalls.push(`discard ${runId}`);
+    },
+    install: async (input) => {
+      w.boxCalls.push(`install ${input.runId}`);
+      w.boxInstalls.push({
+        commands: input.commands,
+        env: input.env,
+        timeoutMs: input.timeoutMs,
+      });
+      if (w.boxInstallThrows !== null) throw w.boxInstallThrows;
+      return w.boxInstall;
+    },
+    changedSinceStart: async (input) => {
+      w.boxCalls.push(`check ${input.runId} at ${input.startSha}`);
+      return w.boxTree;
+    },
+    has: async () => "ready" as const,
+  };
 
   const read = (ids: readonly string[] | null): BaseRead => ({
     statuses: new Map(w.tasks.map((x) => [x.id, x.status])),
@@ -809,11 +820,19 @@ describe("work.run starts the worker of a claimed run", () => {
 });
 
 describe("a box worker's run (DIPO-271)", () => {
-  it("makes no box for a run started without box", async () => {
+  beforeEach(() => {
+    world.withBoxes = true;
+  });
+
+  it("makes the box of every run, with or without work.run's box (DIPO-240)", async () => {
     story("TASK-1", "Ready");
     const plain = resultOf<RunResult>(await run({ stories: ["TASK-1"] }));
     expect(plain.started).toHaveLength(1);
-    expect(world.boxCalls).toEqual([]);
+    expect(world.boxCalls.map((call) => call.split(" ")[0])).toEqual([
+      "create",
+      "install",
+      "check",
+    ]);
   });
 
   it("makes the run's box from the claim's start commit before the launch checks", async () => {
@@ -897,6 +916,10 @@ function cacheNotices(): ReturnType<typeof entries> {
 }
 
 describe("the package cache of a box run (DIPO-295)", () => {
+  beforeEach(() => {
+    world.withBoxes = true;
+  });
+
   it("starts the run without a notice when the box got the cache", async () => {
     story("TASK-1", "Ready");
     world.boxCache = { kind: "mounted", path: "/cache/key", manager: "bun", filled: false };
@@ -972,6 +995,10 @@ function skipped(result: RunResult): { notice: string } {
 }
 
 describe("the install in a box run's box before its worker (DIPO-294)", () => {
+  beforeEach(() => {
+    world.withBoxes = true;
+  });
+
   it("runs the profile's install in the box after it is made and before the launch checks and the worker", async () => {
     story("TASK-1", "Ready");
     world.config = {
@@ -1118,10 +1145,10 @@ describe("the install in a box run's box before its worker (DIPO-294)", () => {
     expect(world.boxCalls.filter((call) => call.startsWith("discard"))).toHaveLength(2);
   });
 
-  it("runs no install for a run started without box", async () => {
+  it("runs the install in the box of a run started without box too (DIPO-240)", async () => {
     story("TASK-1", "Ready");
     resultOf<RunResult>(await run({ stories: ["TASK-1"] }));
-    expect(world.boxInstalls).toEqual([]);
+    expect(world.boxInstalls).toHaveLength(1);
   });
 });
 

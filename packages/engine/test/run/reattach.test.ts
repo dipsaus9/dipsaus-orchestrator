@@ -24,6 +24,7 @@ import { join } from "node:path";
 import { type OfficeId, StoryId, type WorkRef } from "@dipsaus-orchestrator/contract";
 import { readRecording } from "@dipsaus-orchestrator/testkit";
 
+import type { RunBoxes } from "../../src/box/lifetime";
 import { BOX_RUN_FILE } from "../../src/box/workers";
 import { renderSystemFile } from "../../src/prompts/system";
 import { parseFieldBlock } from "../../src/backlog/fields/block";
@@ -867,7 +868,7 @@ function realResumer(
   extra: Partial<
     Pick<
       ConstructorParameters<typeof RunResumer>[0],
-      "probe" | "hostExitWaitMs" | "ingest" | "story" | "handoff" | "workspace"
+      "probe" | "hostExitWaitMs" | "ingest" | "story" | "handoff" | "workspace" | "boxes"
     >
   > = {},
   canResume: (ref: SessionRef) => ResumeCheck = () => ({ ok: true }),
@@ -1817,6 +1818,41 @@ describe("the prompts of a box worker's next session (DIPO-272)", () => {
       "The paths the planner expects this story to change (a forecast, not a fence):",
     );
     expect(text).not.toContain("You may write only these paths");
+  });
+
+  it("starts the next session in the run's box when the box is there, and every session is a box session with box workers (DIPO-278)", async () => {
+    firstSession();
+    const asked: string[] = [];
+    const boxes = {
+      has: async (runId: string) => {
+        asked.push(`has ${runId}`);
+        return "ready" as const;
+      },
+    } as unknown as RunBoxes;
+    const outcome = await realResumer(
+      hosts,
+      { probe: async () => null, story: async () => storyOf(), handoff, workspace, boxes },
+      () => ({ ok: false, reason: "the context is too full" }),
+    ).next(nextRequest());
+    expect(outcome).toMatchObject({ kind: "started", resumed: false });
+    expect(asked).toEqual([`has ${w.f.run}`]);
+    // No box record in the run directory, yet the box contract: every developer is a box worker.
+    const system = readFileSync(preparedSpecs.at(-1)?.systemFile ?? "", "utf8");
+    expect(system).toBe(renderSystemFile("implement-box", "developer"));
+  });
+
+  it("starts nothing when a lost box cannot be rebuilt, and says why (DIPO-278)", async () => {
+    firstSession();
+    const boxes = { has: async () => "gone" as const } as unknown as RunBoxes;
+    const outcome = await realResumer(
+      hosts,
+      { probe: async () => null, story: async () => storyOf(), handoff, workspace, boxes },
+      () => ({ ok: false, reason: "the context is too full" }),
+    ).next(nextRequest());
+    expect(outcome.kind).toBe("failed");
+    expect(outcome.kind === "failed" ? outcome.reason : "").toContain(
+      "the run's box could not be made ready: the delivered parts of",
+    );
   });
 });
 

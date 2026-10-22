@@ -33,6 +33,10 @@
 //    `work.assigned` and `work.phase setup` in the same transaction.
 // 8. With a launcher, the worker host starts and `work.phase build` follows; a failed setup or
 //    launch check rolled the claim back in step 6 (a `pickupCheckFailed` skip, the story Ready).
+//
+// Every run's developer works in its story's box (DIPO-240, 0021): the launcher makes the box
+// whenever the daemon has box workers. `args.box` (DIPO-271's opt-in) is accepted and changes
+// nothing, so older clients that still send it keep working.
 
 import { relative } from "node:path";
 
@@ -403,7 +407,6 @@ export class WorkRun {
           config,
           configHash,
           started,
-          box: args.box === true,
         }),
       );
       if (reason !== null) skipped.push({ ...candidate, reason });
@@ -486,8 +489,6 @@ export class WorkRun {
       readonly config: OfficeConfig;
       readonly configHash: string;
       readonly started: Started[];
-      /** `work.run`'s `box`: the developer runs in its own box (DIPO-271). */
-      readonly box: boolean;
     },
   ): Promise<SkipReason | null> {
     const handle = ctx.office;
@@ -517,7 +518,6 @@ export class WorkRun {
       config: c.config,
       taskFile: checked.taskFile,
       ...verifyOf(handle),
-      ...(c.box ? { box: true } : {}),
     };
     let failures: GateFailureFact[] | null = null;
     let outcome: ClaimOutcome;

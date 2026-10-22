@@ -3,10 +3,12 @@
 // daemon resolved on its PATH at start. `claude` and `backlog` are absolute paths, never looked up
 // again; a missing `claude` refuses each launch with a notice instead of stopping the daemon.
 //
-// Box workers (DIPO-271, 0021): with Apple `container` on the daemon's PATH, a run started with
-// `work.run`'s `box` runs its developer in its own box (`BoxWorkers`). The box ends with its run:
-// after each exit decision the boxes of ended runs get the post-run token check and are deleted,
-// and so are those a stopped daemon left (`finishEndedBoxes`, at the recovery step). At start the
+// Box workers (DIPO-271, 0021): with Apple `container` on the daemon's PATH, every run's developer
+// works in its story's box (`BoxWorkers`, DIPO-240); without it no developer starts. A box lives
+// from claim to merge (DIPO-278): after each exit decision, on a minute tick and at the recovery
+// step (`finishEndedBoxes`), the box of a run that waits is checked for the token and stopped, and
+// the box of a run whose claim ended (merge, drop, discard) is checked and deleted, also those a
+// stopped daemon left. At start the
 // token check's leftover export folders and the part stage folders a stopped daemon left are swept.
 // Each box gets its office's package cache (DIPO-295): one root per office under
 // `<state>/PACKAGE_CACHE_DIR` (`boxPackageCache`), filled in a fill box through the daemon's web
@@ -27,6 +29,10 @@ import type {
 } from "@dipsaus-orchestrator/contract";
 import {
   type AdapterHolds,
+  type BoxEnded,
+  boxEndedOf,
+  boxRunState,
+  findClaim,
   AppleContainerBoxes,
   appendEntries,
   BOX_INDEX_DIR,
@@ -254,6 +260,8 @@ export interface DaemonRuns {
    * (`listBoxes`). Never rejects.
    */
   finishEndedBoxes(options?: { readonly listBoxes?: boolean }): Promise<void>;
+  /** Stops the minute tick of the box passes (DIPO-278), at daemon stop. */
+  stopBoxPasses(): void;
   /**
    * Removes the folder of every reviewer session whose host no longer runs (DIPO-276), with its
    * read-only copy of the pushed commit: at daemon start by the recovery step. Never rejects.
@@ -279,8 +287,11 @@ function hostExited(host: ReturnType<typeof workerHostsOf>[number]): boolean {
 }
 
 /**
- * Whether run `runId` ended with every worker host exited (true), still goes (false), or is
- * unknown to every loaded office (null), for `BoxWorkers.finishEnded`.
+ * What the daemon's pass does with run `runId`'s box (DIPO-278, `boxRunState`), as
+ * `BoxWorkers.finishEnded` asks it: true when the run's claim ended (merge, drop, discard) and every
+ * worker host exited (the box is deleted), `BOX_WAITING` when the run ended with its claim live and
+ * its hosts exited (the story waits: the box stops, files kept), false while a session runs or may
+ * start, null when no loaded office knows the run.
  */
 export function boxRunEnded(
   offices: Pick<DaemonRunsOptions["offices"], "loadedOffices" | "get">,
@@ -291,14 +302,25 @@ export function boxRunEnded(
       runId: RunId,
     ) => { readonly endedAt: number | null } | null;
     readonly hosts: (handle: OfficeHandle, runId: string) => ReturnType<typeof workerHostsOf>;
-  } = { run: findRun, hosts: workerHostsOf },
-): boolean | null {
+    readonly claim: (
+      handle: OfficeHandle,
+      runId: RunId,
+    ) => { readonly releasedAt: number | null } | null;
+  } = { run: findRun, hosts: workerHostsOf, claim: findClaim },
+): BoxEnded {
   for (const office of offices.loadedOffices()) {
     const handle = offices.get(office);
     if (handle === undefined) continue;
     const run = read.run(handle, runId as RunId);
     if (run === null) continue;
-    return run.endedAt !== null && read.hosts(handle, runId).every(hostExited);
+    const claim = read.claim(handle, runId as RunId);
+    return boxEndedOf(
+      boxRunState({
+        endedAt: run.endedAt,
+        claimLive: claim === null ? null : claim.releasedAt === null,
+        hostsExited: read.hosts(handle, runId).every(hostExited),
+      }),
+    );
   }
   return null;
 }
@@ -330,7 +352,7 @@ export function reviewHostRuns(
  */
 export async function finishEndedBoxRuns(
   workers: Pick<BoxWorkers, "finishEnded">,
-  ended: (runId: string) => boolean | null,
+  ended: (runId: string) => BoxEnded,
   logger: Pick<Logger, "info">,
   options: { readonly listBoxes?: boolean } = {},
 ): Promise<string[]> {
@@ -603,6 +625,9 @@ export function realDir(dir: string): string {
   }
 }
 
+/** How often the daemon passes over the boxes besides each exit decision (DIPO-278). */
+export const BOX_PASS_TICK_MS = 60_000;
+
 /** The run launcher `work.run` starts workers with. */
 export function daemonRuns(options: DaemonRunsOptions): DaemonRuns {
   const { clock, platform, env, home, uid } = options;
@@ -649,6 +674,23 @@ export function daemonRuns(options: DaemonRunsOptions): DaemonRuns {
       options.logger,
       finishOptions,
     );
+  };
+  // A drop or a merge ends a claim with no worker exit, so a minute tick also runs the pass: the
+  // box of a released claim is deleted within about a minute (DIPO-278).
+  let boxTick: ReturnType<typeof clock.setTimeout> | null = null;
+  let boxTicks = boxWorkers !== null;
+  const armBoxTick = (): void => {
+    if (!boxTicks) return;
+    boxTick = clock.setTimeout(() => {
+      boxTick = null;
+      void finishEndedBoxes().finally(armBoxTick);
+    }, BOX_PASS_TICK_MS);
+  };
+  armBoxTick();
+  const stopBoxPasses = (): void => {
+    boxTicks = false;
+    if (boxTick !== null) clock.clearTimeout(boxTick);
+    boxTick = null;
   };
   const tempDirs = new RunTempDirs({
     tmpRoot: realDir(options.tmpRoot),
@@ -986,6 +1028,7 @@ export function daemonRuns(options: DaemonRunsOptions): DaemonRuns {
     isBoxRun,
     collisions,
     finishEndedBoxes,
+    stopBoxPasses,
     sweepReviewFolders: () =>
       sweepReviewFolders(realDir(options.tmpRoot), (runId, agent) =>
         reviewHostRuns(options.offices, runId, agent),
