@@ -3,10 +3,10 @@ id: DIPO-301
 title: >-
   Re-index the stories when the base moved, also when another fetch moved it
   first
-status: Ready
+status: In Progress
 assignee: []
 created_date: '2026-10-22 14:25'
-updated_date: '2026-10-22 16:30'
+updated_date: '2026-10-22 16:53'
 labels:
   - 'tier:S'
   - box
