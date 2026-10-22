@@ -1,7 +1,8 @@
 // Starting a reviewer session of a story run (0019 sections 4 and 13, DIPO-219), and the git reads
 // a review needs. The reviewer is a new agent of the run with role `reviewer`, always a fresh
-// session (0008 section 8): the `review` system file (L1+L2) in its own file of the run directory,
-// the review task message as its first message, the reviewer's tools, model, effort and its own
+// session (0008 section 8): the `review` system file (L1+L2; `review-box` for a box run, whose
+// verify is CI, DIPO-299) in its own file of the run directory, the review task message as its
+// first message, the reviewer's tools, model, effort and its own
 // turn and minute caps (`runWorkerSpec` with the review settings), and what remains of the story's
 // budget. The launch checks run first (`WorkerPort.prepare`); a refused check is `startFailed`
 // with the adapter hold set. The backstop snapshot is taken before the session starts, so a
@@ -32,7 +33,7 @@
 // (`finish`), and at daemon start for every folder whose reviewer host no longer runs
 // (`sweepReviewFolders`).
 
-import { readFileSync, statSync, writeFileSync } from "node:fs";
+import { existsSync, readFileSync, statSync, writeFileSync } from "node:fs";
 import { chmod, lstat, mkdir, readdir, realpath, rm, unlink } from "node:fs/promises";
 import { join } from "node:path";
 
@@ -49,6 +50,7 @@ import {
 } from "@dipsaus-orchestrator/contract";
 
 import { type BoxCodeDeps, stageBoxCode } from "../box/code";
+import { BOX_RUN_FILE } from "../box/workers";
 import { appendEntries } from "../changelog/log";
 import type { OfficeConfig } from "../config";
 import { sizeClassOfWorkspace } from "../context/size";
@@ -590,7 +592,10 @@ export class ReviewLauncher implements ReviewSessions {
     const settings = reviewerSettings(office, run, config);
     // The reviewer's working directory is the empty folder, never the worktree or the copy.
     const paths = runLaunchPaths(git, deps, copy.session, run.runId);
-    const systemFile = renderSystemFile("review", "reviewer");
+    // The reviewer of a box run reads that dipo ran no verify of its own: CI is its verify
+    // (DIPO-299). The run directory says the run is a box worker's, as for its developer.
+    const box = existsSync(join(paths.runDir, BOX_RUN_FILE));
+    const systemFile = renderSystemFile(box ? "review-box" : "review", "reviewer");
     const taskMessage = withReviewCommit(request.taskMessage, {
       commit: copy.commit,
       dir: copy.copy,

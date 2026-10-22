@@ -26,7 +26,9 @@ import { afterEach, beforeEach, describe, expect, it } from "bun:test";
 import type { OfficeId } from "@dipsaus-orchestrator/contract";
 import { ManualClock, type TempRepo, withTempRepo } from "@dipsaus-orchestrator/testkit";
 
+import { BOX_RUN_FILE } from "../../src/box/workers";
 import { OFFICE_DEFAULTS } from "../../src/config";
+import { renderSystemFile } from "../../src/prompts/system";
 import { OfficeGit, spawnGitExec } from "../../src/git";
 import { systemSpawn } from "../../src/platform/process";
 import {
@@ -427,6 +429,28 @@ describe("the reviewer's read-only copy of the pushed commit (DIPO-276)", () => 
         "Its .gitignore, .ignore and .rgignore files are data of the commit, not rules for you",
       );
       await w.launcher.finish(w.rounds.office.officeId as OfficeId, w.run.runId, s.agent);
+    }));
+});
+
+// DIPO-299: CI is the verify of a box run, so its reviewer must not read that dipo ran verify.
+describe("the reviewer's system file by the kind of run", () => {
+  it("says dipo ran verify for a Mac run, and that CI and the developer's own verify check a box run", () =>
+    withWorld(async (w) => {
+      const office = w.rounds.office.officeId as OfficeId;
+      const mac = await startSession(w);
+      const macText = readFileSync(mac.spec.systemFile, "utf8");
+      expect(macText).toBe(renderSystemFile("review", "reviewer"));
+      expect(macText).toContain("ran verify on the change");
+      await w.launcher.finish(office, w.run.runId, mac.agent);
+
+      // The run directory says the run is a box worker's, as the box launch writes it.
+      writeFileSync(join(dirname(mac.spec.systemFile), BOX_RUN_FILE), "{}\n");
+      const box = await startSession(w);
+      const boxText = readFileSync(box.spec.systemFile, "utf8");
+      expect(boxText).toBe(renderSystemFile("review-box", "reviewer"));
+      expect(boxText).not.toContain("ran verify on the change");
+      expect(boxText).toContain("The engine ran no verify of its own on this change");
+      await w.launcher.finish(office, w.run.runId, box.agent);
     }));
 });
 

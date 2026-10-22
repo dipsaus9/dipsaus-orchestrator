@@ -5,6 +5,7 @@
 
 import implementBoxContract from "./contract/implement-box.md" with { type: "text" };
 import implementContract from "./contract/implement.md" with { type: "text" };
+import reviewBoxContract from "./contract/review-box.md" with { type: "text" };
 import reviewContract from "./contract/review.md" with { type: "text" };
 import ciFeedback from "./feedback/ci.md" with { type: "text" };
 import reportFeedback from "./feedback/report.md" with { type: "text" };
@@ -42,12 +43,15 @@ import testPlan from "./task/test-plan.md" with { type: "text" };
  * L1 worker contracts by run kind: `implement` and `review` (0019 section 4), and `implement-box`
  * for a developer in its own box (0021 section 7, 0014 amendment of 2026-10-21, DIPO-272): the door
  * messages, without the write-only-these-paths, no-git and no-`cd` rules. `implement` stays the Mac
- * worker's until DIPO-280 removes that path.
+ * worker's until DIPO-280 removes that path. `review-box` is the reviewer's of a box run (DIPO-299,
+ * 0021 amendment of 2026-10-22): dipo ran no verify of its own, the developer ran verify in its
+ * box, and CI runs on the same head at the same time as the review.
  */
 export const CONTRACT_TEMPLATES = {
   implement: implementContract,
   "implement-box": implementBoxContract,
   review: reviewContract,
+  "review-box": reviewBoxContract,
 } as const;
 export type ContractKind = keyof typeof CONTRACT_TEMPLATES;
 
