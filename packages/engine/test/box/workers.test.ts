@@ -9,7 +9,10 @@
 // - the end of every box run runs the post-run token check, deletes the box and releases the
 //   routes, also for a run a stopped daemon left behind (criterion 9);
 // - daemon stop stops every running box, which ends the worker inside it (criterion 6), and a
-//   sticky box-token hold refuses a new box (criterion 8).
+//   sticky box-token hold refuses a new box (criterion 8);
+// - before the worker (DIPO-294): the office's install runs in the box with the box's web route as
+//   a session gets it, a failed or timed-out install is a result with its reason, and `/work` is
+//   compared with the start commit on dipo's own copy (`BoxParts.changedSinceStart`).
 
 import {
   existsSync,
@@ -22,6 +25,7 @@ import {
   symlinkSync,
   writeFileSync,
 } from "node:fs";
+import { spawnSync } from "node:child_process";
 import { join } from "node:path";
 
 import { describe, expect, it } from "bun:test";
@@ -59,6 +63,7 @@ import {
   readBoxRun,
 } from "../../src/box/workers";
 import { DIPO_PART_PATH } from "../../src/box/door";
+import { BoxParts } from "../../src/box/parts";
 import { OfficeGit, spawnGitExec } from "../../src/git";
 import { systemClock } from "../../src/platform/clock";
 import { systemSpawn } from "../../src/platform/process";
@@ -125,6 +130,10 @@ interface WorldOptions {
   readonly modelFails?: boolean;
   /** The box door (DIPO-272); no queue is read without it. */
   readonly door?: BoxWorkersDeps["door"];
+  /** The tree check (DIPO-294); none without it. */
+  readonly treeCheck?: BoxWorkersDeps["treeCheck"];
+  /** A `.gitignore` in the start commit. */
+  readonly gitignore?: string;
 }
 
 /**
@@ -136,6 +145,8 @@ async function world(repo: TempRepo, tmp: string, options: WorldOptions = {}): P
   mkdirSync(join(repo.dir, "src"));
   writeFileSync(join(repo.dir, "src", "greet.ts"), "export const greet = () => 'hi';\n");
   writeFileSync(join(repo.dir, "README.md"), "# repo\n");
+  if (options.gitignore !== undefined)
+    writeFileSync(join(repo.dir, ".gitignore"), options.gitignore);
   const commit = await repo.commitAll("start");
   await repo.git("update-ref", "refs/remotes/origin/main", commit);
   const git = officeGit(repo.dir, repo.env);
@@ -218,6 +229,7 @@ async function world(repo: TempRepo, tmp: string, options: WorldOptions = {}): P
     scratchRoot: tmp,
     ...(options.packageCache === undefined ? {} : { packageCache: () => options.packageCache }),
     ...(options.door === undefined ? {} : { door: options.door }),
+    ...(options.treeCheck === undefined ? {} : { treeCheck: options.treeCheck }),
     warn: (message, fields) => warnings.push({ message, fields }),
   });
   const runDir = join(tmp, "runs", RUN);
@@ -665,5 +677,280 @@ describe("daemon stop (criterion 6)", () => {
       await workers.close();
       expect(log).toEqual([]);
       expect(existsSync(join(tmp, BOX_RUN_FILE))).toBe(false);
+    }));
+});
+
+/** The install of the run in its box, with a run environment for /work. */
+function installIn(w: World, timeoutMs = 15 * 60_000) {
+  return w.workers.install({
+    runId: RUN,
+    commands: [["bun", "install", "--frozen-lockfile"]],
+    env: { DIPO_STORY: "DIPO-1", DIPO_WORKTREE: "/work" },
+    timeoutMs,
+  });
+}
+
+const INSTALL = ["bun", "install", "--frozen-lockfile"];
+const isInstall = (command: readonly string[]) => command.join(" ") === INSTALL.join(" ");
+
+describe("the install in the box before the worker (DIPO-294)", () => {
+  it("runs in /work with the run environment and the web route, CA bundle and Safe-Chain a session gets", () =>
+    inBoxes(async (repo, tmp) => {
+      const w = await world(repo, tmp, {
+        boxes: { live: () => ({ stdout: "120 packages installed\n" }) },
+      });
+      await created(w);
+      w.log.length = 0;
+      expect(await installIn(w)).toEqual({ ok: true });
+      // The web route starts once the box runs, the CA bundle goes in, then the install: no
+      // model proxy, no restart of the box.
+      expect(w.log).toEqual([
+        `web route started on ${BOX_HOST_ADDRESS}`,
+        `copy in ${BOX} /dipo`,
+        `exec live ${BOX} bun install --frozen-lockfile`,
+      ]);
+      expect(w.boxes.liveExecs).toEqual([
+        {
+          box: BOX,
+          command: INSTALL,
+          cwd: "/work",
+          env: {
+            DIPO_STORY: "DIPO-1",
+            DIPO_WORKTREE: "/work",
+            HTTPS_PROXY: `http://${BOX_HOST_ADDRESS}:3128`,
+            HTTP_PROXY: `http://${BOX_HOST_ADDRESS}:3128`,
+            NODE_EXTRA_CA_CERTS: BOX_CA_FILE,
+          },
+        },
+      ]);
+      expect(w.boxes.boxes.get(BOX)?.copies.at(-1)?.listing).toEqual(["safe-chain-ca.pem"]);
+      // The session then gets the same route and CA, started once, in the box create made.
+      w.log.length = 0;
+      const session = await w.workers.session({
+        runId: RUN,
+        runDir: w.runDir,
+        systemFile: w.systemFile,
+      });
+      expect(w.log).not.toContain(`stop ${BOX}`);
+      expect(w.log).not.toContain(`web route started on ${BOX_HOST_ADDRESS}`);
+      const env = w.boxes.liveExecs[0]?.env ?? {};
+      for (const name of ["HTTPS_PROXY", "HTTP_PROXY", "NODE_EXTRA_CA_CERTS"]) {
+        expect(env[name]).toBe(session.env[name] as string);
+      }
+      expect(w.workers.routeUsers.web).toEqual([BOX]);
+    }));
+
+  it("says why a failed install failed, keeps the box's output out of the reason, and logs its tail", () =>
+    inBoxes(async (repo, tmp) => {
+      const w = await world(repo, tmp, {
+        boxes: {
+          live: () => ({
+            stdout: "error: lockfile had changes, but lockfile is frozen\n",
+            code: 1,
+          }),
+        },
+      });
+      await created(w);
+      const result = await installIn(w);
+      expect(result).toEqual({
+        ok: false,
+        reason: "the install (bun install --frozen-lockfile) exited 1 in the box",
+        output: "error: lockfile had changes, but lockfile is frozen\n",
+        ended: null,
+      });
+      const warning = w.warnings.find((x) => x.message === "the install in the box failed");
+      expect(warning?.fields["output"]).toContain("lockfile had changes");
+      // Only the first failing command list runs.
+      expect(w.boxes.liveExecs).toHaveLength(1);
+    }));
+
+  it("runs the command lists in order and stops at the first that fails", () =>
+    inBoxes(async (repo, tmp) => {
+      const w = await world(repo, tmp, {
+        boxes: { live: (_box, command) => ({ code: command[0] === "second" ? 2 : 0 }) },
+      });
+      await created(w);
+      const result = await w.workers.install({
+        runId: RUN,
+        commands: [["first"], ["second", "x"], ["third"]],
+        env: {},
+        timeoutMs: 60_000,
+      });
+      expect(result.ok ? "" : result.reason).toBe("the install (second x) exited 2 in the box");
+      expect(w.boxes.liveExecs.map((exec) => exec.command[0])).toEqual(["first", "second"]);
+    }));
+
+  it("times out at the office's deadline, ends the install in the box, and says so", () =>
+    inBoxes(async (repo, tmp) => {
+      const w = await world(repo, tmp, {
+        boxes: { live: (_box, command) => (isInstall(command) ? { hang: true } : { code: 0 }) },
+      });
+      await created(w);
+      const result = await installIn(w, 30);
+      expect(result).toMatchObject({ ok: false, ended: "killed" });
+      expect(result.ok ? "" : result.reason).toMatch(
+        /^the install \(bun install --frozen-lockfile\) timed out after [0-9.]+ min in the box$/,
+      );
+      // dipo's kill in the box ran after its deadline.
+      expect(w.boxes.liveExecs.map((exec) => exec.command[0])).toEqual(["bun", "/bin/sh"]);
+    }));
+
+  it("says when a timed-out install could be ended neither in the box nor by stopping it, and the box is still deleted", () =>
+    inBoxes(async (repo, tmp) => {
+      const w = await world(repo, tmp, {
+        boxes: {
+          // The install hangs, the kill in the box finds it still running, and the box cannot stop.
+          live: (_box, command) => (isInstall(command) ? { hang: true } : { code: 1 }),
+          stopFails: new BoxError("box.failed", "the box would not stop"),
+        },
+      });
+      await created(w);
+      const result = await installIn(w, 30);
+      expect(result).toMatchObject({ ok: false, ended: "failed" });
+      expect(result.ok ? "" : result.reason).toMatch(
+        /^the install \(bun install --frozen-lockfile\) timed out after [0-9.]+ min in the box, and could be ended neither inside the box nor by stopping it$/,
+      );
+      expect(w.log).toContain(`stop ${BOX}`);
+      // The failed launch then deletes the box (`discard`), which ends what still runs in it.
+      await w.workers.discard(RUN);
+      expect(w.boxes.boxes.has(BOX)).toBe(false);
+      expect(w.workers.routeUsers.web).toEqual([]);
+    }));
+
+  it("says when the box stopped under the install", () =>
+    inBoxes(async (repo, tmp) => {
+      let w: World | null = null;
+      w = await world(repo, tmp, {
+        boxes: {
+          live: () => {
+            const box = w?.boxes.boxes.get(BOX);
+            if (box !== undefined) box.state = "stopped";
+            return { code: 137 };
+          },
+        },
+      });
+      await created(w);
+      const result = await installIn(w);
+      expect(result.ok ? "" : result.reason).toBe(
+        "the box stopped while the install (bun install --frozen-lockfile) ran",
+      );
+    }));
+});
+
+/** Packs a host folder as the box's `tar` would: the bytes of a tar archive of it. */
+function tarOf(dir: string): Uint8Array {
+  const packed = spawnSync("tar", ["-C", dir, "-cf", "-", "."], {
+    env: { PATH: "/usr/bin:/bin", COPYFILE_DISABLE: "1" },
+    maxBuffer: 64 * 1024 * 1024,
+  });
+  if (packed.status !== 0) throw new Error(`tar failed: ${String(packed.stderr)}`);
+  return new Uint8Array(packed.stdout);
+}
+
+/**
+ * A world whose fake boxes keep their files, whose `tar` in the box packs the box's `/work`, and
+ * whose tree check is the real `BoxParts.changedSinceStart` on the office's git; `install` is
+ * what the install does to `/work`.
+ */
+async function treeWorld(
+  repo: TempRepo,
+  tmp: string,
+  install: (work: string) => void,
+): Promise<World> {
+  let parts: BoxParts | null = null;
+  let boxes: FakeBoxes | null = null;
+  const w = await world(repo, tmp, {
+    gitignore: "node_modules/\n*.log\n",
+    boxes: {
+      files: join(tmp, "box-files"),
+      live: (box, command) => {
+        const work = (boxes as FakeBoxes).filesOf(box, "/work");
+        if (command[0] === "tar") return { bytes: tarOf(work) };
+        install(work);
+        return { code: 0 };
+      },
+    },
+    treeCheck: (run) => (parts as BoxParts).changedSinceStart(run),
+  });
+  boxes = w.boxes;
+  parts = new BoxParts({
+    boxes: w.boxes,
+    clock: systemClock,
+    tmpRoot: tmp,
+    run: () => null,
+    git: () => w.git,
+    listedFiles: async () => LISTED.map((file) => file.path),
+    live: () => true,
+  });
+  return w;
+}
+
+const TREE_FACTS = { runId: RUN, office: OFFICE, story: "DIPO-1", branch: "DIPO-1/x" };
+
+describe("the check of /work after the install (DIPO-294)", () => {
+  it("finds /work the same when the install wrote only paths git ignores, beside the listed files", () =>
+    inBoxes(async (repo, tmp) => {
+      const w = await treeWorld(repo, tmp, (work) => {
+        mkdirSync(join(work, "node_modules", "left-pad"), { recursive: true });
+        writeFileSync(join(work, "node_modules", "left-pad", "index.js"), "module.exports = 1;\n");
+        writeFileSync(join(work, "install.log"), "done\n");
+      });
+      await created(w);
+      expect(await installIn(w)).toEqual({ ok: true });
+      expect(existsSync(join(w.boxes.filesOf(BOX, "/work"), "config", "local.json"))).toBe(true);
+      expect(await w.workers.changedSinceStart({ ...TREE_FACTS, startSha: w.commit })).toEqual({
+        kind: "same",
+      });
+      // The archive came out of the box through dipo's own `tar`, never a git call on it.
+      expect(w.boxes.liveExecs.map((exec) => exec.command[0])).toEqual(["bun", "tar"]);
+    }));
+
+  it("names every file git does not ignore that the install added, changed or deleted", () =>
+    inBoxes(async (repo, tmp) => {
+      const w = await treeWorld(repo, tmp, (work) => {
+        writeFileSync(join(work, "src", "greet.ts"), "export const greet = () => 'changed';\n");
+        writeFileSync(join(work, "bun.lock"), "{}\n");
+        rmSync(join(work, "README.md"));
+      });
+      await created(w);
+      expect(await installIn(w)).toEqual({ ok: true });
+      expect(await w.workers.changedSinceStart({ ...TREE_FACTS, startSha: w.commit })).toEqual({
+        kind: "changed",
+        paths: ["README.md", "bun.lock", "src/greet.ts"],
+      });
+    }));
+
+  it("compares with the start commit, not with a branch tip", () =>
+    inBoxes(async (repo, tmp) => {
+      const w = await treeWorld(repo, tmp, () => undefined);
+      await created(w);
+      // A later commit on main is not what the box got.
+      writeFileSync(join(repo.dir, "src", "later.ts"), "export const later = 1;\n");
+      await repo.commitAll("later");
+      expect(
+        await w.workers.changedSinceStart({ ...TREE_FACTS, branch: "main", startSha: w.commit }),
+      ).toEqual({ kind: "same" });
+    }));
+
+  it("is not known when the box's files cannot be read, or without the tree check", () =>
+    inBoxes(async (repo, tmp) => {
+      const w = await treeWorld(repo, tmp, () => undefined);
+      await created(w);
+      // A start commit git does not have: dipo cannot read the tree to compare with.
+      const unknown = await w.workers.changedSinceStart({
+        ...TREE_FACTS,
+        startSha: "0".repeat(40),
+      });
+      expect(unknown).toEqual({ kind: "unknown", reason: "dipo could not read the box's /work" });
+    }));
+
+  it("is not known without the tree check", () =>
+    inBoxes(async (repo, tmp) => {
+      const w = await world(repo, tmp);
+      await created(w);
+      expect(await w.workers.changedSinceStart({ ...TREE_FACTS, startSha: w.commit })).toEqual({
+        kind: "unknown",
+        reason: "this daemon cannot compare the box's files with the start commit",
+      });
     }));
 });
