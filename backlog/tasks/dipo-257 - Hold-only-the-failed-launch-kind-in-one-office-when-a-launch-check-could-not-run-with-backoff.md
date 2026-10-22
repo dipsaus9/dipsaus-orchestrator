@@ -6,7 +6,7 @@ title: >-
 status: Refined
 assignee: []
 created_date: '2026-10-20 20:20'
-updated_date: '2026-10-22 05:33'
+updated_date: '2026-10-22 11:35'
 labels:
   - 'tier:M'
   - cutover
@@ -14,7 +14,7 @@ labels:
 milestone: m-1
 dependencies:
   - DIPO-228
-  - DIPO-248
+  - DIPO-300
   - DIPO-250
 references:
   - packages/engine/src/workers/hold.ts
