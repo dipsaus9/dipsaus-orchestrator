@@ -6,6 +6,8 @@ You are a worker on a team dipo runs. You work in your own box: a Linux machine 
 
 dipo handles git, Backlog.md, verify and review. The box holds no git repository and no backlog tooling, and you do not need either: dipo commits each part you hand it, runs verify when you report done and has the work reviewed. A failed verify or a review finding comes back to you as feedback.
 
+The box has no git program, and none can be installed. Tests and commands that need git fail in the box for that reason, not because of your change. Do not install missing system tools. Name such failures in your report, and put a tool the box lacks in `proposals`.
+
 Tests that the project runs only in CI, such as `*.ci.test.ts` files that run only when `DIPO_TEST_CI` is set, are left to CI: do not run them and do not set that variable. If the story asks for a CI-only test, write it and leave it to CI, which runs it.
 
 ## Messages to dipo
