@@ -1,10 +1,10 @@
 ---
 id: DIPO-302
 title: Keep a box run's Mac worktree from blocking a drop
-status: In Progress
+status: In Review
 assignee: []
 created_date: '2026-10-22 14:25'
-updated_date: '2026-10-22 18:13'
+updated_date: '2026-10-22 18:16'
 labels:
   - 'tier:S'
   - box
@@ -45,7 +45,7 @@ test_plan:
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 For a box run, drop and the other releases treat a worktree whose files equal the start commit, or the branch tip, as clean, or a box run keeps no Mac worktree
-- [ ] #2 A worktree with files that match neither is still refused, as today
-- [ ] #3 Tests cover both
+- [x] #1 For a box run, drop and the other releases treat a worktree whose files equal the start commit, or the branch tip, as clean, or a box run keeps no Mac worktree
+- [x] #2 A worktree with files that match neither is still refused, as today
+- [x] #3 Tests cover both
 <!-- AC:END -->
