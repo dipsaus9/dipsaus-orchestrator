@@ -14,6 +14,7 @@ import developerRole from "./roles/developer.md" with { type: "text" };
 import reviewerRole from "./roles/reviewer.md" with { type: "text" };
 import answers from "./task/answers.md" with { type: "text" };
 import background from "./task/background.md" with { type: "text" };
+import baseFailures from "./task/base-failures.md" with { type: "text" };
 import baseVerify from "./task/base-verify.md" with { type: "text" };
 import changes from "./task/changes.md" with { type: "text" };
 import contextItem from "./task/context-item.md" with { type: "text" };
@@ -82,6 +83,8 @@ export const TASK_TEMPLATES = {
   changes,
   diff,
   gateChanges,
+  // The tests a box verify passed with because they also fail on the base in the box (DIPO-294).
+  baseFailures,
   reviewScope,
   reviewTestPlan,
   previousFindings,
@@ -163,6 +166,7 @@ export const PROMPT_TAGS: readonly string[] = [
   "changes",
   "diff",
   "gate_changes",
+  "base_failures",
   "previous_findings",
 ];
 

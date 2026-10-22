@@ -3,6 +3,7 @@
 import { describe, expect, it } from "bun:test";
 
 import {
+  STORY_PR_MAX_BASE_FAILURES,
   STORY_PR_MAX_BODY,
   STORY_PR_MAX_SUBJECT,
   storyPrBody,
@@ -98,6 +99,25 @@ describe("body", () => {
       expect(body).toContain(part);
     }
     expect(body).toContain("## Status");
+  });
+
+  it("names the tests a box verify passed with because they fail on the base in the box, inert (DIPO-294)", () => {
+    expect(storyPrBody(STORY, { head: "a".repeat(40) })).toContain(
+      "- verify: passed at `aaaaaaaa`\n- review: pending",
+    );
+    const many = Array.from({ length: STORY_PR_MAX_BASE_FAILURES + 2 }, (_, i) => `git > ${i}`);
+    const body = storyPrBody(STORY, {
+      head: "a".repeat(40),
+      baseFailures: ["ping @someone <b>x</b> `tick`\nline two", ...many],
+    });
+    expect(body).toContain(
+      `- verify: passed at \`aaaaaaaa\`, with ${many.length + 1} failing tests that also fail at the story's start commit in the same box image, so dipo did not count them against the story; CI runs the full suite:`,
+    );
+    // Each name in a code span on its own line, its backticks replaced: no mention or HTML acts.
+    expect(body).toContain("  - `ping @someone <b>x</b> 'tick' line two`");
+    expect(body).toContain("  - `git > 0`");
+    expect(body).toContain("  - … and 3 more");
+    expect(body.length).toBeLessThanOrEqual(STORY_PR_MAX_BODY);
   });
 
   it("hashes the text, so an unchanged body has an unchanged hash", () => {

@@ -2,7 +2,9 @@
 // this order: the outcome, the acceptance criteria ticked as the task file has them, the test plan,
 // the declared scope, a status block and a footer. The body is capped at `STORY_PR_MAX_BODY`; the
 // story contract (outcome, criteria and test plan) is never cut, the scope list is cut with a
-// marker. The engine writes a body to the host only when its hash changed.
+// marker. The engine writes a body to the host only when its hash changed. A box verify that
+// passed with tests that also fail at the start commit in the same box image names them in the
+// status block (DIPO-294), each as an inert code span.
 
 import { createHash } from "node:crypto";
 
@@ -35,6 +37,34 @@ export interface PrBodyStatus {
    * line when this is left out.
    */
   readonly checks?: readonly RequiredCheckState[];
+  /**
+   * A box verify that passed with failing tests that also fail at the story's start commit in the
+   * same box image (DIPO-294): those tests, named under the verify line.
+   */
+  readonly baseFailures?: readonly string[];
+}
+
+/** Base failure names the body lists; the rest are counted. */
+export const STORY_PR_MAX_BASE_FAILURES = 40;
+/** Characters of one listed test name. */
+export const STORY_PR_MAX_TEST_NAME = 200;
+
+/**
+ * One test name from verify output as inert Markdown: one line, cut, in a code span with its
+ * backticks replaced, so no mention, link or HTML in it does anything on the host.
+ */
+function codeSpan(name: string): string {
+  const line = name.replace(/[\r\n\t]+/g, " ").replaceAll("`", "'");
+  const cut =
+    line.length > STORY_PR_MAX_TEST_NAME ? `${line.slice(0, STORY_PR_MAX_TEST_NAME)}…` : line;
+  return `\`${cut}\``;
+}
+
+function baseFailureLines(names: readonly string[]): string[] {
+  const shown = names.slice(0, STORY_PR_MAX_BASE_FAILURES).map((name) => `  - ${codeSpan(name)}`);
+  const rest = names.length - shown.length;
+  if (rest > 0) shown.push(`  - … and ${rest} more`);
+  return shown;
 }
 
 const SHORT_SHA = 8;
@@ -68,11 +98,17 @@ const checksLine = (checks: readonly RequiredCheckState[]): string =>
       : checks.map((check) => `\`${check.name}\` ${check.state}`).join(", ")
   }`;
 
+function baseNote(names: readonly string[]): string {
+  if (names.length === 0) return "";
+  return `, with ${names.length === 1 ? "1 failing test that also fails" : `${names.length} failing tests that also fail`} at the story's start commit in the same box image, so dipo did not count ${names.length === 1 ? "it" : "them"} against the story; CI runs the full suite:`;
+}
+
 function statusSection(status: PrBodyStatus): string {
   return [
     "## Status",
     "",
-    `- verify: passed at \`${status.head.slice(0, SHORT_SHA)}\``,
+    `- verify: passed at \`${status.head.slice(0, SHORT_SHA)}\`${baseNote(status.baseFailures ?? [])}`,
+    ...baseFailureLines(status.baseFailures ?? []),
     "- review: pending",
     ...(status.checks === undefined ? [] : [checksLine(status.checks)]),
     "- merge: dipo merges after review and green required checks",

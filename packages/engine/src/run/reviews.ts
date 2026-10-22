@@ -85,6 +85,7 @@ import {
   takeVerdict,
 } from "./review-rounds";
 import { endReviewPeriod, reopenForRound } from "./rounds";
+import { lastBaseFailures } from "./verify-records";
 
 /** The tags of the review rounds' intents, at the start of their detail. */
 export const REVIEW_TAGS = {
@@ -281,6 +282,8 @@ export class Reviews {
         changes,
         diff,
         gateChanges: run.gateChanges ?? [],
+        // The tests the box verify passed with because they fail on the base in the box (DIPO-294).
+        baseFailures: lastBaseFailures(office, run.runId),
         // The stored findings are the reviewer's, judged by code, so their kinds are known.
         ...(previous === null
           ? {}

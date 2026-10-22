@@ -65,6 +65,7 @@ import { cutHead } from "../prompts/cut";
 import { runCaps } from "../run/caps";
 import { PARK_CAUSES, type ParkWriter, parkStory } from "../run/park";
 import { appendRunStep, findRun, runRoundCounts, runSteps, type StoredRun } from "../run/records";
+import { lastBaseFailures } from "../run/verify-records";
 import { findStoryByKey } from "../stories/keys";
 import { withWorkViews } from "../views/work";
 
@@ -261,7 +262,13 @@ export class StoryPrs {
         watch?.head === facts.head ? watch.reports : [],
         this.#config(officeId).mergeSlot.requiredChecks,
       );
-      const body = storyPrBody(facts.story, { head: facts.head, checks });
+      // A box verify that passed with tests that also fail on the base in the box names them (DIPO-294).
+      const baseFailures = lastBaseFailures(office, runId);
+      const body = storyPrBody(facts.story, {
+        head: facts.head,
+        checks,
+        ...(baseFailures.length === 0 ? {} : { baseFailures }),
+      });
       const hash = storyPrBodyHash(body);
       const stored = findStoryPr(office, runId);
       if (stored === null) {

@@ -587,6 +587,37 @@ describe("a pending review (0019 sections 6 and 12)", () => {
     expect(second.message).toContain("<previous_findings>");
     expect(second.message).toContain("total subtracts instead of adding.");
   });
+
+  it("names the tests the box verify passed with because they fail on the base in the box (DIPO-294)", async () => {
+    const plain = inReview("DIPO-1", "tree-1");
+    heads.set(plain.run, "tree-1");
+    expect((await reviewStarts(plain)).message).not.toContain("<base_failures>");
+    await turn(x.sessions.at(-1)!, APPROVED);
+    await exits(x.sessions.at(-1)!);
+
+    const s = inReview("DIPO-2", "tree-2");
+    write(() => {
+      insertVerifyResult(w.office, s.run, {
+        loop: 0,
+        profile: "base",
+        commands: [["bun", "run", "verify"]],
+        exitCode: 1,
+        signal: null,
+        timedOut: false,
+        passed: true,
+        durationMs: 1,
+        outputFrom: 0,
+        outputTo: 0,
+        baseFailures: ["git > reads the log"],
+        at: now(),
+      });
+      recordCodeTreeKey(w.office, s.run, 0, "tree-2");
+    });
+    heads.set(s.run, "tree-2");
+    const session = await reviewStarts(s);
+    expect(session.message).toContain("<base_failures>");
+    expect(session.message).toContain("- git > reads the log");
+  });
 });
 
 describe("a code tree key with a verdict (0019 section 6)", () => {

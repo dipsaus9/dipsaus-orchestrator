@@ -31,6 +31,7 @@ The task message holds these sections, in this order, each in its own tag. A sec
 - `<changes>`: every changed path with its added and removed line counts.
 - `<diff>`: the change from the merge base, without the story's own task file. When it is over its size limit, it shows the largest hunks and says how to read the rest.
 - `<gate_changes>`: changes the branch made to the test, lint, typecheck or verify commands. Judge whether each one is needed by the story.
+- `<base_failures>`: tests that failed in the story's box but also fail at the start commit in the same box image, so verify did not count them. CI runs the full suite. Judge whether the change could hide a real failure behind one of them.
 - `<story>`: the story's id, title, type and tier.
 - `<outcome>`: what must be true when the story is done.
 - `<criteria>`: the acceptance criteria, numbered.

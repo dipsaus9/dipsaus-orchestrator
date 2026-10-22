@@ -17,7 +17,7 @@ import {
   type PrState,
 } from "../../src/platform/host";
 import { yieldToEventLoop } from "../../src/platform/clock";
-import { endRun, findRun, IN_REVIEW_END, insertRun } from "../../src/run";
+import { endRun, findRun, IN_REVIEW_END, insertRun, insertVerifyResult } from "../../src/run";
 import {
   findStoryPr,
   type StoryPrFacts,
@@ -230,6 +230,33 @@ const notices = (office: OfficeHandle, code: string) =>
   );
 
 describe("the story PR", () => {
+  it("names the tests the last box verify passed with because they fail on the base in the box (DIPO-294)", async () => {
+    await inWorld(async (w) => {
+      w.office.immediate(() =>
+        insertVerifyResult(w.office, w.run, {
+          loop: 0,
+          profile: "base",
+          commands: [["bun", "run", "verify"]],
+          exitCode: 1,
+          signal: null,
+          timedOut: false,
+          passed: true,
+          durationMs: 1,
+          outputFrom: 0,
+          outputTo: 0,
+          baseFailures: ["git > reads the log"],
+          at: w.t.clock.now(),
+        }),
+      );
+      await w.prs.sync(w.office.officeId, w.run);
+      const created = w.host.creates[0] as NewPr;
+      expect(created.body).toContain(
+        "with 1 failing test that also fails at the story's start commit",
+      );
+      expect(created.body).toContain("  - `git > reads the log`");
+    });
+  });
+
   it("creates a ready PR with a code-built title and records it", async () => {
     await inWorld(async (w) => {
       await w.prs.sync(w.office.officeId, w.run);

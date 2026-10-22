@@ -1,6 +1,7 @@
 // The `review` task message, L4 (0019 section 4, 0014 sections 2 and 4): what a reviewer receives.
 // The changed paths with line counts, the diff from the merge base without the story's own task
-// file (within the 0014 diff budget), the gate script changes the run recorded, the story facts
+// file (within the 0014 diff budget), the gate script changes the run recorded, the tests a box
+// verify passed with because they also fail on the base in the box (DIPO-294), the story facts
 // (story, outcome, criteria, scope, the test plan with its entry numbers, resolved unknowns) and,
 // on a re-review, the previous round's findings. Never the worker's report, notes, handoff,
 // reasoning or transcript (0002): the input has no field for them. Pure and deterministic.
@@ -16,6 +17,7 @@ export const REVIEW_SECTION_ORDER = [
   "changes",
   "diff",
   "gate_changes",
+  "base_failures",
   "story",
   "outcome",
   "criteria",
@@ -48,6 +50,11 @@ export interface ReviewTaskInput {
   readonly diff: string;
   /** The gate changes the run recorded (`runs.gate_changes`, 0013 section 5); empty for none. */
   readonly gateChanges: readonly string[];
+  /**
+   * The failing tests a box verify passed with because they also fail at the start commit in the
+   * same box image (DIPO-294); empty or absent for none.
+   */
+  readonly baseFailures?: readonly string[];
   /** The previous round's findings, on a re-review. */
   readonly previousFindings?: readonly ReviewFinding[];
   /** The `diff` budget of the project's size class, in characters (0014 section 4). */
@@ -163,6 +170,9 @@ function budgetedDiff(
   return { text: `${joinFiles(shown)}${marker(chosen.size)}`, cut: true };
 }
 
+/** Base failure names the `base_failures` section lists; the rest are counted. */
+export const REVIEW_MAX_BASE_FAILURES = 40;
+
 const bullets = (items: readonly string[]): string =>
   items.length === 0 ? "- none" : items.map((item) => `- ${item}`).join("\n");
 
@@ -251,6 +261,21 @@ export function assembleReviewTaskMessage(input: ReviewTaskInput): ReviewTaskMes
     sections.set(
       "gate_changes",
       renderTemplate(TASK_TEMPLATES.gateChanges, { changes: bullets(input.gateChanges) }),
+    );
+  }
+  const baseFailures = input.baseFailures ?? [];
+  if (baseFailures.length > 0) {
+    const shown = baseFailures.slice(0, REVIEW_MAX_BASE_FAILURES);
+    const rest = baseFailures.length - shown.length;
+    sections.set(
+      "base_failures",
+      renderTemplate(TASK_TEMPLATES.baseFailures, {
+        // Test names from the box's output: data, so their prompt tags are neutralised.
+        tests: [
+          bullets(shown),
+          ...(rest > 0 ? [`[dipo: ${formatCount(rest)} more tests are not listed.]`] : []),
+        ].join("\n"),
+      }),
     );
   }
   // The story facts of the contract, without the developer's extra instructions; the scope and
