@@ -856,6 +856,16 @@ describe("a box run without the package cache (DIPO-295)", () => {
       output: "BOX-OUTPUT",
     });
     expect(cacheSkipReason(failed)).toBe("bun exited 1 in the fill box");
+    // A failed pack is not a failed install.
+    expect(
+      cacheSkipReason(
+        new BoxError("box.cacheFillFailed", "could not pack", false, {
+          manager: "bun",
+          code: 2,
+          step: "pack",
+        }),
+      ),
+    ).toBe("the fill box could not pack its bun cache (exit 2)");
     expect(
       cacheSkipReason(
         new BoxError("box.cacheFillFailed", "could not be filled: x", false, {

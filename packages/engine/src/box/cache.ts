@@ -550,6 +550,7 @@ async function fillInBox(
       fillFailed(`the fill box could not pack its ${manager} cache: ${packed.stderr.trim()}`, {
         manager,
         code: packed.code,
+        step: "pack",
       });
     }
     // The size in the box is an early hint only; the stream below is cut at the cap.
@@ -647,7 +648,12 @@ async function fill(
   }
 }
 
-/** Fills in flight, by root and key: a second box start waits for the first fill. */
+/**
+ * Fills in flight, by root and key: a second box start waits for the first fill. They are not
+ * queued by office: two fills of one office with different keys (a lockfile changed between two
+ * box starts) may run at once, which is safe, since each has its own `.fill-*` folder, its own fill
+ * box and its own generation folder, renamed into place only when it succeeded.
+ */
 const filling = new Map<string, Promise<PackageCache>>();
 
 /**
@@ -870,11 +876,14 @@ function shortText(text: string): string {
  */
 export function cacheSkipReason(error: unknown): string {
   if (!(error instanceof BoxError)) return `the fill failed: ${shortText(messageOf(error))}`;
-  const { manager, code, cause } = error.details;
+  const { manager, code, cause, step } = error.details;
   switch (error.code) {
     case "box.cacheUnsupported":
       return `the package cache cannot be filled from this base: ${shortText(error.message)}`;
     case "box.cacheFillFailed":
+      if (step === "pack" && typeof manager === "string" && typeof code === "number") {
+        return `the fill box could not pack its ${shortText(manager)} cache (exit ${code})`;
+      }
       if (typeof manager === "string" && typeof code === "number") {
         return `${shortText(manager)} exited ${code} in the fill box`;
       }
