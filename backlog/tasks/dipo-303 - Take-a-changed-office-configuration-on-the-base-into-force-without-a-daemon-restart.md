@@ -3,10 +3,10 @@ id: DIPO-303
 title: >-
   Take a changed office configuration on the base into force without a daemon
   restart
-status: In Review
+status: Done
 assignee: []
 created_date: '2026-10-22 14:25'
-updated_date: '2026-10-22 18:53'
+updated_date: '2026-10-22 19:15'
 labels:
   - 'tier:S'
   - box
@@ -16,6 +16,11 @@ dependencies: []
 references:
   - packages/engine/src/office/manager.ts
   - packages/engine/test/office/load.test.ts
+  - packages/engine/src/config/load.ts
+  - packages/engine/src/stories/feature.ts
+  - packages/daemon/src/foreground.ts
+  - packages/engine/src/scan/feature.ts
+  - packages/engine/test/scan/profiles.test.ts
 priority: medium
 type: bug
 ordinal: 292000
@@ -48,3 +53,9 @@ test_plan:
 - [x] #2 A refused configuration keeps the one in force and raises the existing notice
 - [x] #3 Tests cover a reload by the poll and by rescan
 <!-- AC:END -->
+
+## Implementation Notes
+
+<!-- SECTION:NOTES:BEGIN -->
+2026-10-22: built by dipo's box run run_01M5JEZ0VHKQKFQ73JYF5E2BPV (PR #350); dipo's reviewer blocked it (the reload read the maintainer's checkout, not the base); a builder fixed that on the branch (d989cf17), and a second review passed. The base text wins once at the first poll after a daemon start; local deviations belong in office.local.yaml. Accepted advisories: the override at that first poll is only logged; the config.invalid text still names dipo office reload-config, which reads the checkout; the poll reads the base file on every fetch, also without a base move.
+<!-- SECTION:NOTES:END -->
