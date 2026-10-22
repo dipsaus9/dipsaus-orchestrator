@@ -1,10 +1,10 @@
-// Story status commits on a story branch (DIPO-112; 0010 section 2a): the claim, In Review, park
-// and unpark each commit only the story's own task file, as `<ID>: status <state>`, and push the
-// branch without force. Both helpers run inside a queue item the caller already holds.
+// Story branch helpers (DIPO-112; 0010 section 2a): the paths of a `git status` and the push of a
+// story branch without force, run inside a queue item the caller already holds. A task file
+// status commit goes through the backlog lane (DIPO-270); the unused one here is gone (DIPO-240).
 
-import { FETCH_CONFIG, type GitLocation } from "./hardened";
+import { FETCH_CONFIG } from "./hardened";
 import type { GitSession } from "./office";
-import { EXTERNAL_STEP_TIMEOUT_MS, GitError, type GitResult, isTimedOut } from "./runner";
+import { EXTERNAL_STEP_TIMEOUT_MS, type GitResult, isTimedOut } from "./runner";
 
 /** What the push of a story branch did. */
 export interface PushResult {
@@ -30,38 +30,6 @@ export function statusPaths(output: string): string[] {
     }
   }
   return paths;
-}
-
-/**
- * Commits the task file `taskFile` (repo-relative) alone as `message`: it is staged and committed
- * with literal pathspecs limited to it, so anything else staged stays staged and out of the
- * commit. Returns the commit, or null when the task file has no change. A failed commit throws
- * `git.failed`.
- */
-export async function commitTaskFile(
-  git: GitSession,
-  location: GitLocation,
-  taskFile: string,
-  message: string,
-): Promise<string | null> {
-  const changed = statusPaths(
-    await git.ok(location, ["status", "--porcelain=v1", "-z", "--untracked-files=all"]),
-  );
-  if (!changed.includes(taskFile)) return null;
-  await git.ok(location, ["--literal-pathspecs", "add", "--", taskFile]);
-  const args = ["commit", "--quiet", "--no-verify", "-m", message];
-  const committed = await git.step(location, ["--literal-pathspecs", ...args, "--", taskFile], {
-    timeoutMs: EXTERNAL_STEP_TIMEOUT_MS,
-  });
-  if (committed.code !== 0) {
-    throw new GitError(
-      "git.failed",
-      `git commit failed: ${committed.stderr.trim() || committed.stdout.trim() || `exit ${committed.code}`}`,
-      false,
-      { args: ["commit"], code: committed.code, stderr: committed.stderr },
-    );
-  }
-  return (await git.ok(location, ["rev-parse", "--verify", "HEAD"])).trim();
 }
 
 /**
