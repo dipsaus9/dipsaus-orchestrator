@@ -41,14 +41,18 @@ export function gateMessage(id: string, rule: GateRule, message: string): string
 }
 
 /**
- * The `<message>` of a `gateMessage` line of `rule`, so views send what failed as data (DIPO-97).
+ * The `<message>` of a `gateMessage` or `gateWarningMessage` line of `rule`, so views send what
+ * failed or warned as data (DIPO-97).
  * The `<ID>` is not checked, since a stored line keeps the id the story had when it was decided.
  * A line of another shape is returned as is.
  */
 export function gateText(rule: string, line: string): string {
-  const marker = ` failed ${rule}: `;
-  const at = line.indexOf(marker);
-  return line.startsWith("ready ") && at >= 0 ? line.slice(at + marker.length) : line;
+  if (!line.startsWith("ready ")) return line;
+  for (const marker of [` failed ${rule}: `, ` warning ${rule}: `]) {
+    const at = line.indexOf(marker);
+    if (at >= 0) return line.slice(at + marker.length);
+  }
+  return line;
 }
 
 function fail(context: GateContext, rule: GateRule, message: string): GateFailure[] {
@@ -548,45 +552,69 @@ function bareNameCovered(name: string, references: readonly string[], files: rea
   );
 }
 
+/** A name of a test plan check that no Reference covers, and whether the base file list was known. */
+interface UncoveredName {
+  readonly name: string;
+  /** True for a bare test file name checked without the base tree's file list. */
+  readonly unknownBase: boolean;
+}
+
 /** The paths and bare test file names of one test plan check that no Reference covers, each once. */
 function uncoveredNames(
   check: string,
   references: readonly string[],
-  files: readonly string[],
-): string[] {
-  const names: string[] = [];
+  files: readonly string[] | undefined,
+): UncoveredName[] {
+  const names: UncoveredName[] = [];
   for (const token of runCores(check)) {
-    if (names.includes(token)) continue;
+    if (names.some((found) => found.name === token)) continue;
     if (token.includes("/")) {
       if (!looksLikePath(token)) continue;
       const path = repoRelativePath(token);
       if (path === undefined) continue;
-      if (!references.some((reference) => pathsCollide(reference, path))) names.push(token);
-    } else if (BARE_TEST_FILE.test(token) && !bareNameCovered(token, references, files)) {
-      names.push(token);
+      if (!references.some((reference) => pathsCollide(reference, path))) {
+        names.push({ name: token, unknownBase: false });
+      }
+    } else if (BARE_TEST_FILE.test(token) && !bareNameCovered(token, references, files ?? [])) {
+      names.push({ name: token, unknownBase: files === undefined });
     }
   }
   return names;
+}
+
+/** `ready <ID> warning <rule>: <message>`: a gate warning, which never fails the story. */
+export function gateWarningMessage(id: string, rule: GateRule, message: string): string {
+  return `ready ${id} warning ${rule}: ${message}`;
+}
+
+function warn(context: GateContext, rule: GateRule, message: string): GateFailure[] {
+  return [{ rule, message: gateWarningMessage(context.story.id, rule, message) }];
 }
 
 /**
  * R29 (DIPO-251): every repo-relative path token (DIPO-218) and every bare `*.test.ts` file name
  * in an automated test plan entry's check is covered by a Reference. A path is covered under the
  * scope prefix rule; a bare name when a Reference is a file of that name or a Reference directory
- * holds one in the base tree. Manual entries are exempt. One failure per entry and name.
+ * holds one in the base tree. Manual entries are exempt. One warning per entry and name.
+ *
+ * R29 warns and never fails (maintainer decision of 2026-10-22): References are the planner's
+ * forecast, not a write fence (0021 section 13), so an uncovered name is reported in the gate's
+ * output and decision record but does not keep the story from Ready or from pickup.
  */
 export const r29: RuleCheck = (context) => {
   const entries = context.fields?.test_plan?.entries ?? [];
   const { references } = context.story;
-  const files = context.input.baseFiles ?? [];
+  const files = context.input.baseFiles;
   return entries.flatMap((entry, i) =>
     entry.kind !== "automated"
       ? []
-      : uncoveredNames(entry.check, references, files).flatMap((name) =>
-          fail(
+      : uncoveredNames(entry.check, references, files).flatMap(({ name, unknownBase }) =>
+          warn(
             context,
             "R29",
-            `test plan entry #${i + 1} names ${name}, which no Reference covers; add it to the References or drop it from the plan`,
+            unknownBase
+              ? `test plan entry #${i + 1} names ${name}; the base file list is unknown, so only a Reference file of that name covers it; add it to the References or drop it from the plan`
+              : `test plan entry #${i + 1} names ${name}, which no Reference covers; add it to the References or drop it from the plan`,
           ),
         ),
   );
@@ -629,7 +657,7 @@ export const r30: RuleCheck = (context) => {
   );
 };
 
-/** R02 to R30, evaluated in both modes, in rule order. */
+/** R02 to R30 but R29, which only warns, evaluated in both modes, in rule order. */
 export const SHARED_RULES: readonly RuleCheck[] = [
   r02,
   r03,
@@ -658,6 +686,8 @@ export const SHARED_RULES: readonly RuleCheck[] = [
   r26,
   r27,
   r28,
-  r29,
   r30,
 ];
+
+/** The rules that only warn (R29), evaluated in both modes after the others, in rule order. */
+export const WARNING_RULES: readonly RuleCheck[] = [r29];

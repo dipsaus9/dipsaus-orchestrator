@@ -3151,6 +3151,21 @@
             },
             "required": ["id"]
           }
+        },
+        "warnings": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "rule": {
+                "type": "string"
+              },
+              "message": {
+                "type": "string"
+              }
+            },
+            "required": ["rule", "message"]
+          }
         }
       },
       "required": ["story", "key", "passed", "failures"]

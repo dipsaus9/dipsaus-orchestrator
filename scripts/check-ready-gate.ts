@@ -50,6 +50,11 @@ export interface ReadyGateReport {
   readonly checked: number;
   /** Each failure as the gate's own `ready <ID> failed <rule>: <message>` line. */
   readonly failures: readonly string[];
+  /**
+   * Each warning (R29) as the gate's `ready <ID> warning <rule>: <message>` line, absent when none.
+   * A warning is printed but never fails the check (DIPO-251).
+   */
+  readonly warnings?: readonly string[];
 }
 
 /**
@@ -73,20 +78,24 @@ export async function checkReadyGate(repo: string, cli: BacklogCli): Promise<Rea
   const files = treeFiles(repo);
   const ready = entries.filter((entry) => entry.group === READY);
   const failures: string[] = [];
+  const warnings: string[] = [];
   for (const entry of ready) {
     const view = views.get(entry.id);
     if (view === undefined) {
       throw new Error(`${entry.id} is Ready but its Backlog view does not parse`);
     }
     const input = gateInputOf(view, others, milestones, config, files);
-    failures.push(...evaluateGate(input, "pickup").failures.map((failure) => failure.message));
+    const result = evaluateGate(input, "pickup");
+    failures.push(...result.failures.map((failure) => failure.message));
+    warnings.push(...(result.warnings ?? []).map((warning) => warning.message));
   }
-  return { checked: ready.length, failures };
+  return { checked: ready.length, failures, ...(warnings.length === 0 ? {} : { warnings }) };
 }
 
 if (import.meta.main) {
   try {
     const report = await checkReadyGate(process.argv[2] ?? process.cwd(), REPO_BACKLOG_CLI);
+    for (const warning of report.warnings ?? []) console.warn(warning);
     if (report.failures.length > 0) {
       for (const failure of report.failures) console.error(failure);
       console.error(

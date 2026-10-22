@@ -121,7 +121,7 @@ export interface GateInput {
 
 export interface GateFailure {
   readonly rule: GateRule;
-  /** `ready <ID> failed <rule>: <0012 message>`. */
+  /** `ready <ID> failed <rule>: <0012 message>`, or `ready <ID> warning <rule>: …` for a warning. */
   readonly message: string;
 }
 
@@ -131,6 +131,11 @@ export interface GateResult {
   readonly passed: boolean;
   /** Every failure, in rule order. */
   readonly failures: readonly GateFailure[];
+  /**
+   * Every warning (R29, DIPO-251), `ready <ID> warning <rule>: <message>`, in rule order; absent
+   * when none. Warnings do not change `passed`.
+   */
+  readonly warnings?: readonly GateFailure[];
   /** The open dependencies of the story, absent when none (DIPO-179); they do not change `passed`. */
   readonly waitingOn?: readonly GateDependency[];
 }

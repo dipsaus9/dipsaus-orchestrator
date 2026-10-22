@@ -3,10 +3,10 @@
 
 import { FieldBlockError, parseFieldBlock } from "../backlog/fields/block";
 import { readLabels } from "../backlog/fields/labels";
-import { type GateContext, r01a, r01b, type RuleCheck, SHARED_RULES } from "./rules";
+import { type GateContext, r01a, r01b, type RuleCheck, SHARED_RULES, WARNING_RULES } from "./rules";
 import { BUILT_IN_ROSTER, type GateInput, type GateMode, type GateResult } from "./types";
 
-/** The rules a mode evaluates: R01a or R01b, then R02 to R30. */
+/** The rules a mode fails on: R01a or R01b, then R02 to R30 but R29, which only warns. */
 export function rulesFor(mode: GateMode): readonly RuleCheck[] {
   return [mode === "ready" ? r01a : r01b, ...SHARED_RULES];
 }
@@ -21,7 +21,10 @@ function readFields(description: string): Pick<GateContext, "fields" | "fieldErr
   }
 }
 
-/** Evaluates every rule of `mode` and returns every failure; passes only with zero failures. */
+/**
+ * Evaluates every rule of `mode` and returns every failure and every warning (R29); passes only
+ * with zero failures, whatever the warnings.
+ */
 export function evaluateGate(input: GateInput, mode: GateMode): GateResult {
   const context: GateContext = {
     input,
@@ -32,11 +35,13 @@ export function evaluateGate(input: GateInput, mode: GateMode): GateResult {
     roster: input.roster ?? BUILT_IN_ROSTER,
   };
   const failures = rulesFor(mode).flatMap((rule) => rule(context));
+  const warnings = WARNING_RULES.flatMap((rule) => rule(context));
   const waiting = input.story.waitingOn ?? [];
   return {
     mode,
     passed: failures.length === 0,
     failures,
+    ...(warnings.length === 0 ? {} : { warnings }),
     ...(waiting.length === 0 ? {} : { waitingOn: waiting }),
   };
 }

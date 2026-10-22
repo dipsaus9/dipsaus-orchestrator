@@ -26,6 +26,7 @@ import {
   rulesFor,
   storeGateDecision,
   treePaths,
+  WARNING_RULES,
 } from "../../src/gate";
 import { gateInputOf } from "../../src/gate/store/read";
 import { BacklogCommandError } from "../../src/backlog/runner";
@@ -106,10 +107,42 @@ describe("gate content hash", () => {
 describe("rule results", () => {
   for (const mode of ["ready", "pickup"] as const) {
     it(`names one rule per check of ${mode} mode`, () => {
-      expect(ruleNamesFor(mode)).toHaveLength(rulesFor(mode).length);
+      // R29 only warns, so it is named but not among the rules that fail (DIPO-251).
+      expect(ruleNamesFor(mode)).toHaveLength(rulesFor(mode).length + WARNING_RULES.length);
       expect(ruleNamesFor(mode)[0]).toBe(mode === "ready" ? "R01a" : "R01b");
     });
   }
+
+  it("stores an R29 warning on a passed R29 result and keeps the decision approved (DIPO-251)", () =>
+    withStory((t, office, story) => {
+      const plan = description(
+        [
+          "```dipo",
+          `branch: "${BRANCH}"`,
+          "unknowns: []",
+          "test_plan:",
+          "  entries:",
+          '    - kind: "automated"',
+          '      check: "(unit) packages/daemon/x.test.ts runs"',
+          "```",
+        ].join("\n"),
+      );
+      const decision = store(t, office, story, "pickup", { description: plan });
+      expect(decision.passed).toBe(true);
+      const r29 = decision.ruleResults.find((result) => result.rule === "R29");
+      expect(r29).toEqual({
+        rule: "R29",
+        passed: true,
+        messages: [],
+        warnings: [
+          "ready DIPO-7 warning R29: test plan entry #1 names packages/daemon/x.test.ts, which no Reference covers; add it to the References or drop it from the plan",
+        ],
+      });
+      expect(gateDecisionsOf(office, story.key)[0]?.ruleResults).toEqual(decision.ruleResults);
+      expect(
+        ruleResults(evaluateGate(input(), "ready")).some((result) => "warnings" in result),
+      ).toBe(false);
+    }));
 
   it("lists every rule with its failures, passed or not", () => {
     const result = evaluateGate(input({ references: [], milestone: "m-9" }), "pickup");
@@ -359,10 +392,10 @@ describe("the base tree's file paths (R29, DIPO-251)", () => {
     );
     const story = { description: plan, references: ["packages/engine/test/workers/"] };
     const r29 = (baseFiles?: readonly string[]) =>
-      evaluateGate(
-        input(story, baseFiles === undefined ? {} : { baseFiles }),
-        "ready",
-      ).failures.map((found) => found.rule);
+      (
+        evaluateGate(input(story, baseFiles === undefined ? {} : { baseFiles }), "ready")
+          .warnings ?? []
+      ).map((found) => found.rule);
     expect(r29(files)).toEqual([]);
     expect(r29()).toEqual(["R29"]);
   });

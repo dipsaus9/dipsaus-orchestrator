@@ -9,6 +9,7 @@ export {
   contractCharacters,
   cycleThrough,
   gateMessage,
+  gateWarningMessage,
   gateText,
   isValidScopePath,
   outcomeLines,
@@ -45,6 +46,7 @@ export {
   r29,
   r30,
   SHARED_RULES,
+  WARNING_RULES,
   TEST_PLAN_TEXT_MIN,
 } from "./rules";
 export type { GateContext, RuleCheck } from "./rules";
