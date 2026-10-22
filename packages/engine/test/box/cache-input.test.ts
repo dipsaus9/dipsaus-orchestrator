@@ -3,6 +3,7 @@
 // workspace stays in the project; for pnpm only the `packages` of the workspace file pass.
 
 import { describe, expect, it } from "bun:test";
+import { join } from "node:path";
 
 import {
   type BaseLockfile,
@@ -58,6 +59,7 @@ const NON_REGISTRY = [
   "link:../outside",
   "~/outside",
   "~",
+  "~ /outside",
 ];
 
 describe("registry specs", () => {
@@ -191,7 +193,7 @@ describe("bun.lock", () => {
   });
 
   it("passes this repository's own bun.lock and manifests (a tilde range, DIPO-275)", async () => {
-    const root = new URL("../../../../", import.meta.url).pathname;
+    const root = `${join(import.meta.dir, "../../../..")}/`;
     const paths = ["package.json"];
     for await (const path of new Bun.Glob("packages/*/package.json").scan(root)) paths.push(path);
     const files = await Promise.all(

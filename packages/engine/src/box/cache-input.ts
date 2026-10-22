@@ -56,11 +56,11 @@ const DEPENDENCY_MAPS = [
 const OVERRIDE_MAPS = ["overrides", "resolutions"] as const;
 
 /**
- * Specs that do not come from a registry. A leading `~` is a home folder path only before a
- * slash or alone; `~1.2.3` is a tilde version range.
+ * Specs that do not come from a registry. A leading `~` is refused as a home folder path when only
+ * spaces stand between it and a slash or the end; `~1.2.3` is a tilde version range.
  */
 const NON_REGISTRY =
-  /^(?:git(?:\+[a-z]+)?:|git@|github:|gitlab:|bitbucket:|gist:|https?:|file:|link:|portal:|patch:|[./\\]|~(?:[/\\]|$))/i;
+  /^(?:git(?:\+[a-z]+)?:|git@|github:|gitlab:|bitbucket:|gist:|https?:|file:|link:|portal:|patch:|[./\\]|~\s*(?:[/\\]|$))/i;
 /** `owner/repo` (GitHub) without a protocol. */
 const SHORTHAND = /^[^@:\s/]+\/\S+$/;
 
