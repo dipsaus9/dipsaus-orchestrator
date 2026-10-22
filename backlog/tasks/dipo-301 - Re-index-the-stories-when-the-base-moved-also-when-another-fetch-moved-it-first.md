@@ -3,10 +3,10 @@ id: DIPO-301
 title: >-
   Re-index the stories when the base moved, also when another fetch moved it
   first
-status: To Do
+status: Ready
 assignee: []
 created_date: '2026-10-22 14:25'
-updated_date: '2026-10-22 14:25'
+updated_date: '2026-10-22 16:30'
 labels:
   - 'tier:S'
   - box
@@ -31,6 +31,12 @@ Context: in the box retest of the verify redesign (DIPO-275: DIPO-300 run run_01
 ```dipo
 branch: "DIPO-301/reindex-after-outside-fetch"
 unknowns: []
+test_plan:
+  entries:
+    - kind: "automated"
+      check: "(unit) origin/<base> moved by a fetch outside dipo before the poll: the next poll compares the last indexed commit with origin/<base> and indexes the new story"
+    - kind: "automated"
+      check: "(unit) a poll where origin/<base> equals the last indexed commit does not re-index"
 ```
 <!-- SECTION:DESCRIPTION:END -->
 

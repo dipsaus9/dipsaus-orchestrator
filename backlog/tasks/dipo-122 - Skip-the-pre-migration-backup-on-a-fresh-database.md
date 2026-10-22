@@ -1,10 +1,10 @@
 ---
 id: DIPO-122
 title: Skip the pre-migration backup on a fresh database
-status: In Review
+status: Done
 assignee: []
 created_date: '2026-10-16 11:53'
-updated_date: '2026-10-22 14:03'
+updated_date: '2026-10-22 16:29'
 labels:
   - 'tier:S'
 milestone: m-1
@@ -13,6 +13,8 @@ references:
   - packages/engine/src/db
   - packages/engine/test/db
   - docs/decisions/0007-state-database.md
+  - packages/daemon/test/integration/database-unavailable.test.ts
+  - packages/engine/test/backup/backup.test.ts
 priority: low
 type: chore
 ordinal: 112000
@@ -44,3 +46,9 @@ test_plan:
 - [x] #3 Tests cover the fresh database and the upgrade
 - [x] #4 A dated 0007 note on the fresh-database exception is proposed in the PR for the maintainer's approval
 <!-- AC:END -->
+
+## Implementation Notes
+
+<!-- SECTION:NOTES:BEGIN -->
+2026-10-22: Done by dipo's box run run_01M5HY626T0A2FGPR3SEK1ERKY, merged as #339 after the review advisories were fixed. The worker also adapted two tests outside the References (database-unavailable.test.ts, backup.test.ts); the scope finding was accepted, as References are a forecast for a box run (0021 decision 1).
+<!-- SECTION:NOTES:END -->
