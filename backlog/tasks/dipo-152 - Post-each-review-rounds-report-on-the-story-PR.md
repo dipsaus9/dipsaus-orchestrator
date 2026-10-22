@@ -3,10 +3,10 @@ id: DIPO-152
 title: >-
   Complete dipo's story PR: missed PRs, the done report, a true status block,
   round reports
-status: Ready
+status: In Progress
 assignee: []
 created_date: '2026-10-17 12:52'
-updated_date: '2026-10-22 19:26'
+updated_date: '2026-10-22 19:48'
 labels:
   - 'tier:M'
   - 'slice:m1a'
