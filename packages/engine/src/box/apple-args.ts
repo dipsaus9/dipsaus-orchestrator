@@ -160,6 +160,16 @@ export function builderStartArgs(): string[] {
   return ["builder", "start"];
 }
 
+/** The image builder's state, as JSON: whether it already ran before a build (DIPO-298). */
+export function builderStatusArgs(): string[] {
+  return ["builder", "status", "--format", "json"];
+}
+
+/** Stops Apple `container`'s image builder after a build that started it (DIPO-298). */
+export function builderStopArgs(): string[] {
+  return ["builder", "stop"];
+}
+
 /** Creates dipo's box network: host-only (`--internal`), labelled. */
 export function networkCreateArgs(): string[] {
   return [
