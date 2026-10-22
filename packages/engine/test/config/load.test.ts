@@ -1021,15 +1021,15 @@ describe("this repository's .dipo/office.yaml", () => {
     "utf8",
   );
 
-  // DIPO-210 AC #4: dipo opens no story PR here while the maintainer side merges its own
-  // finish-branch PRs. Worker web tools are on (the default) since the live web capture of
-  // 2026-10-19 showed the fail-closed gate working against Claude Code (DIPO-164).
-  it("is version 8, switches story PRs off and leaves worker web tools on", () => {
+  // dipo opens the story PR here again (0019 amendment of 2026-10-22): CI on it is the verify of a
+  // box run. Worker web tools are on (the default) since the live web capture of 2026-10-19 showed
+  // the fail-closed gate working against Claude Code (DIPO-164).
+  it("is version 8, opens story PRs and leaves worker web tools on", () => {
     const result = ok(resolveOfficeConfig({ office }));
     expect(office.startsWith("version: 8\n")).toBe(true);
-    expect(result.config.storyPr.open).toBe(false);
+    expect(result.config.storyPr.open).toBe(true);
     expect(result.config.worker.web).toBe(true);
-    expect(office).toContain("finish-branch PRs");
+    expect(office).toContain("the verify of a box run");
   });
 
   it("does not list ~/.nvm/versions/node", () => {
