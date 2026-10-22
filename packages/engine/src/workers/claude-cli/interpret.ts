@@ -9,6 +9,13 @@
 // adds only the change since the last totals it saw (`baseline`). A result whose totals are
 // empty or zero (a crash, an aborted turn) keeps the live numbers instead: the DIPO-41 recording
 // `pause-now` shows the CLI's next totals leave an aborted turn's spend out.
+//
+// The turn in progress (DIPO-296): a worker session is one turn, one result at its end, so turns
+// and output would show 0 for the whole session. `liveUsage` reports what the stream says of the
+// turn so far, for the live view only: the main agent's model turns (one at its first message, one
+// more for each `user` line of tool results it gets, which is how the result's `num_turns` counts
+// in every recording) and the final output of each main-agent message, from the `message_delta`
+// stream event `--include-partial-messages` sends. The turn end replaces both.
 
 import type {
   HostLine,
@@ -40,10 +47,13 @@ import {
   RateLimitMessage,
   ResultMessage,
   SessionStateMessage,
+  StreamMessageDelta,
+  StreamMessageStart,
   TextBlock,
   THINKING_BLOCK_TYPES,
   ThinkingTokensMessage,
   ToolUseBlock,
+  UserLine,
 } from "./schema";
 import type { z } from "zod";
 
@@ -199,6 +209,16 @@ export interface ClaudeParseState {
    * the parser never keeps thinking text. Absent in states stored before it existed.
    */
   readonly thinkingTokens?: number;
+  /**
+   * The main agent's model turns of the turn in progress (DIPO-296): one at its first message, one
+   * more per `user` line of tool results. Cleared at the turn end and the exit; absent in states
+   * stored before it existed.
+   */
+  readonly liveTurns?: number;
+  /** The output of the turn in progress that `message_delta` stream events reported (DIPO-296). */
+  readonly liveOutput?: number;
+  /** The main-agent message the stream sends now, and the output already counted of it. */
+  readonly streaming?: { readonly id: string; readonly counted: number };
 }
 
 export interface InitialStateOptions {
@@ -424,6 +444,60 @@ export function budgetTokens(totals: UsageTotalsByModel): number {
   return sum;
 }
 
+// ---- the turn in progress (DIPO-296) ---------------------------------------------------------
+
+/** The state without the live numbers of a turn in progress: at a turn end and at the exit. */
+function withoutLive(state: ClaudeParseState): ClaudeParseState {
+  const { liveTurns: _turns, liveOutput: _output, streaming: _streaming, ...rest } = state;
+  return rest;
+}
+
+/** `next`, with a `liveUsage` event when its live numbers differ from `before`'s. */
+function liveStep(before: ClaudeParseState, next: ClaudeParseState): Step {
+  const turns = next.liveTurns ?? 0;
+  const output = next.liveOutput ?? 0;
+  if (turns === (before.liveTurns ?? 0) && output === (before.liveOutput ?? 0)) {
+    return { events: [], state: next };
+  }
+  return { events: [{ t: "liveUsage", turns, output }], state: next };
+}
+
+/** A `user` line: tool results the main agent got are one more of its model turns. */
+function userLine(value: unknown, state: ClaudeParseState): Step {
+  const parsed = UserLine.safeParse(value);
+  if (!parsed.success || (parsed.data.parent_tool_use_id ?? null) !== null) {
+    return { events: [], state };
+  }
+  const content = parsed.data.message.content;
+  const results = typeof content !== "string" && content.some((b) => b.type === "tool_result");
+  // Only a turn the main agent started counts on.
+  if (!results || (state.liveTurns ?? 0) === 0) return { events: [], state };
+  return liveStep(state, { ...state, liveTurns: (state.liveTurns ?? 0) + 1 });
+}
+
+/** A `stream_event` line: a main-agent message's start, and its final output count. */
+function streamEvent(value: unknown, state: ClaudeParseState): Step {
+  const start = StreamMessageStart.safeParse(value);
+  if (start.success) {
+    if ((start.data.parent_tool_use_id ?? null) !== null) return { events: [], state };
+    return {
+      events: [],
+      state: { ...state, streaming: { id: start.data.event.message.id, counted: 0 } },
+    };
+  }
+  const end = StreamMessageDelta.safeParse(value);
+  const streaming = state.streaming;
+  if (!end.success || streaming === undefined) return { events: [], state };
+  if ((end.data.parent_tool_use_id ?? null) !== null) return { events: [], state };
+  const output = end.data.event.usage.output_tokens;
+  if (output <= streaming.counted) return { events: [], state };
+  return liveStep(state, {
+    ...state,
+    liveOutput: (state.liveOutput ?? 0) + output - streaming.counted,
+    streaming: { id: streaming.id, counted: output },
+  });
+}
+
 // ---- line handling ---------------------------------------------------------------------------
 
 type Step = { events: WorkerEvent[]; state: ClaudeParseState };
@@ -475,7 +549,7 @@ export function interpret(line: HostLine, state: ClaudeParseState): Step {
         // A thinking block the process never finished is not reported.
         thinkingTokens: _thinking,
         ...rest
-      } = flushed.state;
+      } = withoutLive(flushed.state);
       return {
         events: flushed.events,
         state: {
@@ -637,8 +711,12 @@ export function message(value: unknown, state: ClaudeParseState): Step {
     }
     case "system/thinking_tokens":
       return thinkingTokens(value, state);
+    case "user":
+      return userLine(value, state);
+    case "stream_event":
+      return streamEvent(value, state);
     default:
-      // Known, read for liveness only: stream events, user turns, status, task and hook progress.
+      // Known, read for liveness only: status, task and hook progress.
       return { events: [], state };
   }
 }
@@ -940,6 +1018,12 @@ function assistant(value: unknown, state: ClaudeParseState): Step {
     events.push(...switched.events);
     next = switched.state;
   }
+  // The main agent's first message of a turn is its first model turn (DIPO-296).
+  if (agentId === undefined && (next.liveTurns ?? 0) === 0) {
+    const live = liveStep(next, { ...next, liveTurns: 1 });
+    events.push(...live.events);
+    next = live.state;
+  }
 
   if (msg.error !== undefined) {
     next = { ...next, lastError: msg.error };
@@ -987,7 +1071,8 @@ function result(value: unknown, state: ClaudeParseState): Step {
   if (!parsed.ok) return { events: [], state: parsed.state };
   const msg = parsed.value;
   const events: WorkerEvent[] = [];
-  let next: ClaudeParseState = { ...state, sessionId: msg.session_id };
+  // The turn's numbers replace the live ones of the turn in progress (DIPO-296).
+  let next: ClaudeParseState = { ...withoutLive(state), sessionId: msg.session_id };
 
   // Authoritative denials; the best-effort `system/permission_denied` lines came first.
   for (const denied of msg.permission_denials) {

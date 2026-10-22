@@ -90,6 +90,42 @@ export const ThinkingTokensMessage = z.object({
   estimated_tokens_delta: z.number().nonnegative().optional(),
 });
 
+/**
+ * The `stream_event` lines the live numbers read (DIPO-296), sent with `--include-partial-messages`:
+ * a message's start names its id, and its `message_delta` carries the message's final output count,
+ * which an `assistant` line never has (its output is a placeholder, 0008 section 4). Every other
+ * stream event, and one of another shape, is read for liveness only.
+ */
+export const StreamMessageStart = z.object({
+  type: z.literal("stream_event"),
+  event: z.object({
+    type: z.literal("message_start"),
+    message: z.object({ id: z.string().min(1) }),
+  }),
+  parent_tool_use_id: z.string().nullable().optional(),
+});
+
+export const StreamMessageDelta = z.object({
+  type: z.literal("stream_event"),
+  event: z.object({
+    type: z.literal("message_delta"),
+    usage: z.object({ output_tokens: Count }),
+  }),
+  parent_tool_use_id: z.string().nullable().optional(),
+});
+
+/**
+ * A `user` line (DIPO-296): the results of tool calls, each line one more model turn of the agent
+ * whose calls they answer. Only its content's block types are read, never their text.
+ */
+export const UserLine = z.object({
+  type: z.literal("user"),
+  message: z.object({
+    content: z.union([z.string(), z.array(z.object({ type: z.string() }).loose())]),
+  }),
+  parent_tool_use_id: z.string().nullable().optional(),
+});
+
 export const ModelUsageEntry = z.object({
   inputTokens: Tokens,
   outputTokens: Tokens,
@@ -350,6 +386,7 @@ export const ClaudeWorkerEventSchema = z.union([
     .refine((event) => event.cacheCreate === event.cacheCreate5m + event.cacheCreate1h, {
       message: "cacheCreate is the sum of cacheCreate5m and cacheCreate1h",
     }),
+  z.strictObject({ t: z.literal("liveUsage"), turns: Count, output: Count }),
   z.strictObject({
     t: z.literal("turn"),
     report: WorkerReportSchema.nullable(),

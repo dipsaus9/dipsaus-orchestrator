@@ -300,6 +300,17 @@ export type WorkerEvent =
       readonly cacheRead: number;
     }
   | {
+      /**
+       * The turn in progress as the adapter counts it so far (DIPO-296), since the agent's last
+       * turn end: the main agent's model turns, and the output of the messages whose final count
+       * the stream reported. For the live view only: `turn` replaces both, and the caps and the
+       * budget never count them (0008 section 4).
+       */
+      readonly t: "liveUsage";
+      readonly turns: number;
+      readonly output: number;
+    }
+  | {
       readonly t: "turn";
       /** The worker's report; always null in a `review` session, whose report is `review`. */
       readonly report: WorkerReport | null;

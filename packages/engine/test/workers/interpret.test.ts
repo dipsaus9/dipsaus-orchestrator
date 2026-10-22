@@ -158,6 +158,8 @@ describe("interpret (0008 section 3)", () => {
     expect(events.filter((event) => event.t !== "usage")).toEqual([
       { t: "activity", kind: "text" },
       { t: "output", text: "[redacted len:5]" },
+      // The main agent's first message is its first model turn (DIPO-296).
+      { t: "liveUsage", turns: 1, output: 0 },
       { t: "activity", kind: "tool", tool: "Read", path: "${WORKDIR}/a.ts" },
       { t: "activity", kind: "subagent", tool: "Agent", agentId: "toolu-2" },
       { t: "activity", kind: "text", agentId: "toolu-2" },
@@ -284,6 +286,7 @@ describe("interpret (0008 section 3)", () => {
         cacheCreate1h: 70,
         cacheRead: 50,
       },
+      { t: "liveUsage", turns: 1, output: 0 },
     ]);
   });
 

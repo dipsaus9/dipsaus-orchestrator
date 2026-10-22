@@ -42,6 +42,7 @@ import { runStepCap } from "./migrations/0038-run-step-cap";
 import { reviewVerdicts } from "./migrations/0039-review-verdicts";
 import { baseVerifies } from "./migrations/0040-base-verifies";
 import { runStepCiNone } from "./migrations/0041-run-step-ci-none";
+import { usageLive } from "./migrations/0042-usage-live";
 
 /**
  * Software-wide tables (0007 section 3). Every other table is office-scoped and has `office_id`
@@ -119,4 +120,5 @@ create table offices (
   reviewVerdicts,
   baseVerifies,
   runStepCiNone,
+  usageLive,
 ];

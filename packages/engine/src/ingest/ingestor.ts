@@ -40,6 +40,7 @@ import {
   readUsage,
   recordUsageMessage,
   setElapsed,
+  setLiveUsage,
   type UsageScope,
 } from "./usage";
 
@@ -462,6 +463,11 @@ export class Ingestor {
             case "usage":
               usageChanged = recordUsageMessage(this.#office, target, event, now) || usageChanged;
               this.#hooks.onEventApplied?.(run, agent, event);
+              break;
+            case "liveUsage":
+              // The turn in progress, for the live view only (DIPO-296); the caps never read it.
+              setLiveUsage(this.#office, target, model, event, now);
+              usageChanged = true;
               break;
             case "turn":
               applyTurnTotals(
