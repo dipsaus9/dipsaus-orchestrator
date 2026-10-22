@@ -1298,6 +1298,28 @@ describe("the package cache of a box run (DIPO-295)", () => {
       expect(envs[1]?.["HTTPS_PROXY"]).toBe(`http://${BOX_HOST_ADDRESS}:3128`);
     }));
 
+  it("does not run the install again when the box stopped under the install from the cache", () =>
+    inBoxes(async (repo, tmp) => {
+      let box: FakeBoxes | null = null;
+      const { w } = await cacheWorld(repo, tmp, {
+        storyInstall: () => {
+          // The box stops under the install, as a VM that went away does.
+          const state = box?.boxes.get(BOX);
+          if (state !== undefined) state.state = "stopped";
+          return 1;
+        },
+      });
+      box = w.boxes;
+      await created(w);
+      const result = await installIn(w);
+      expect(result.ok).toBe(false);
+      expect(!result.ok && result.reason).toBe(
+        "the box stopped while the install (bun install --frozen-lockfile) ran",
+      );
+      expect(result.cacheFallback).toBeUndefined();
+      expect(w.boxes.liveExecs.filter((exec) => exec.box === BOX)).toHaveLength(1);
+    }));
+
   it("installs without the cache env and once only when the box got no cache", () =>
     inBoxes(async (repo, tmp) => {
       const { w } = await cacheWorld(repo, tmp, {

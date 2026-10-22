@@ -32,10 +32,10 @@
 // - Before the worker's first session (the launch, after `create`; DIPO-294): `install` runs the
 //   office's install in the box at the start commit with the box's web route and the Safe-Chain CA
 //   bundle, as a session gets them (`runBoxInstall`); with a mounted cache first with
-//   `boxCacheEnv`, and when that install fails (not at its deadline) once more without the cache,
-//   with the reason in the result. `changedSinceStart` compares `/work`
-//   with the start commit on dipo's own copy (`BoxWorkersDeps.treeCheck`), never by running git
-//   or any tool on the box's files.
+//   `boxCacheEnv`, and when that install fails (not at its deadline, nor with the box stopped)
+//   once more without the cache, with the reason in the result. `changedSinceStart` compares
+//   `/work` with the start commit on dipo's own copy (`BoxWorkersDeps.treeCheck`), never by
+//   running git or any tool on the box's files.
 //
 // Two records: the run directory's `BOX_RUN_FILE` says the run is a box worker's, so every later
 // session of the run plans in its box; the index folder in dipo's state folder holds one file per
@@ -674,7 +674,8 @@ export class BoxWorkers {
    * command list run in `/work` with `env` plus the route's HTTPS_PROXY, HTTP_PROXY and
    * NODE_EXTRA_CA_CERTS, exactly as a session gets them, within `timeoutMs` (`runBoxInstall`).
    * With a package cache mounted (DIPO-295), the install first gets `boxCacheEnv`, so it takes the
-   * cached packages; when that install fails, but not at its deadline, it runs once more without
+   * cached packages; when that install fails, but not at its deadline or with the box stopped, it
+   * runs once more without
    * the cache, through the web route only, and `cacheFallback` says why. The session later uses
    * the same route. A failure is a result, logged with the cleaned tail of the box's output; a
    * route that does not start throws its `BoxError`.
@@ -710,7 +711,13 @@ export class BoxWorkers {
       );
     const manager = this.#cached.get(input.runId);
     let result: BoxWorkerInstall = await run(manager === undefined ? {} : boxCacheEnv(manager));
-    if (manager !== undefined && !result.ok && result.ended === null) {
+    // A second try only helps in a box that still runs and was not ended at the deadline.
+    if (
+      manager !== undefined &&
+      !result.ok &&
+      result.ended === null &&
+      result.boxStopped !== true
+    ) {
       this.#deps.warn?.("the install from the package cache failed; running it without the cache", {
         run: input.runId,
         box,
