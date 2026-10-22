@@ -398,7 +398,7 @@ async function world(repo: TempRepoWithRemote): Promise<World> {
   const parts = new BoxParts({
     boxes,
     clock,
-    tmpRoot: realpathSync(tmp),
+    stageRoot: join(realpathSync(tmp), "box-parts"),
     run: (runId) => runs.get(runId) ?? null,
     git: (office) => (office === OFFICE ? git : undefined),
     live: (runId) => !parks.some((p) => p.runId === runId),

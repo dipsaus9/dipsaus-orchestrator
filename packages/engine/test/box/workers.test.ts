@@ -423,7 +423,13 @@ describe("the box of a box run (criteria 4 and 10)", () => {
         "safe-chain-ca.pem",
         "system.md",
       ]);
-      expect(readBoxRun(w.runDir)).toEqual({ runId: RUN, office: OFFICE, box: BOX });
+      // With the listed files the box got, which decide what its parts leave out (DIPO-290).
+      expect(readBoxRun(w.runDir)).toEqual({
+        runId: RUN,
+        office: OFFICE,
+        box: BOX,
+        files: LISTED.map((file) => file.path),
+      });
       expect(w.workers.isBoxRun(w.runDir)).toBe(true);
     }));
 
@@ -871,6 +877,7 @@ async function treeWorld(
   tmp: string,
   install: (work: string) => void,
   limits?: BoxPartsDeps["limits"],
+  listedFiles: readonly string[] = LISTED.map((file) => file.path),
 ): Promise<World> {
   let parts: BoxParts | null = null;
   let boxes: FakeBoxes | null = null;
@@ -891,10 +898,10 @@ async function treeWorld(
   parts = new BoxParts({
     boxes: w.boxes,
     clock: systemClock,
-    tmpRoot: tmp,
+    stageRoot: join(tmp, "box-parts"),
     run: () => null,
     git: () => w.git,
-    listedFiles: async () => LISTED.map((file) => file.path),
+    listedFiles: async () => listedFiles,
     live: () => true,
     ...(limits === undefined ? {} : { limits }),
   });
@@ -919,6 +926,17 @@ describe("the check of /work after the install (DIPO-294)", () => {
       });
       // The archive came out of the box through dipo's own `tar`, never a git call on it.
       expect(w.boxes.liveExecs.map((exec) => exec.command[0])).toEqual(["bun", "tar"]);
+    }));
+
+  it("leaves out the listed files the box was made with, not what the base config lists now", () =>
+    inBoxes(async (repo, tmp) => {
+      // The base config lists nothing by the time of the check: the box's record decides.
+      const w = await treeWorld(repo, tmp, () => undefined, undefined, []);
+      await created(w);
+      expect(existsSync(join(w.boxes.filesOf(BOX, "/work"), "config", "local.json"))).toBe(true);
+      expect(await w.workers.changedSinceStart({ ...TREE_FACTS, startSha: w.commit })).toEqual({
+        kind: "same",
+      });
     }));
 
   it("names every file git does not ignore that the install added, changed or deleted", () =>

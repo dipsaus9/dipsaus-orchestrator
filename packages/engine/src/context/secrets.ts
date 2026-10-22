@@ -45,6 +45,25 @@ export function isSecretPath(path: string): boolean {
   return base !== undefined && SECRET_NAMES.some((pattern) => pattern.test(base));
 }
 
+/** The template files of a `.env`, which a repository commits with placeholder values. */
+const ENV_TEMPLATE = /^\.env\.(example|sample)$/i;
+
+/**
+ * The secret file names of a box part (DIPO-290): `isSecretPath`, except that a `.env.example` or
+ * `.env.sample` file is no secret by its name, so a part may add or change it; its content is still
+ * scanned like any file's, and a secret folder above it (`.ssh/`, `.env.d/`) still makes it one.
+ * `.env` and `.env.<name>` stay secret. The context provider and the workspace keep `isSecretPath`,
+ * which follows the `.env*` read deny of 0008 and so never reads a template either.
+ */
+export function isSecretPartPath(path: string): boolean {
+  const segments = path.split(/[/\\]/).filter((segment) => segment !== "" && segment !== ".");
+  const base = segments.at(-1);
+  if (base === undefined || !ENV_TEMPLATE.test(base)) return isSecretPath(path);
+  return segments
+    .slice(0, -1)
+    .some((segment) => SECRET_DIRS.some((pattern) => pattern.test(segment)));
+}
+
 // Secret content (DIPO-273, 0021 section 8): the patterns a delivered part is scanned for before
 // dipo commits it. Each names a fixed kind, so a hit can be reported without quoting what matched.
 // They are the well-known shapes of keys and tokens: specific enough that ordinary code rarely

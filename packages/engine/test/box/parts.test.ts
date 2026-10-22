@@ -3,7 +3,7 @@
 // The flow on real git with a bare remote is in test/run/parts-commit.test.ts. Every secret-shaped
 // text here is built from pieces, so this file itself holds none a scan would find.
 
-import { mkdirSync, symlinkSync, writeFileSync } from "node:fs";
+import { mkdirSync, readdirSync, symlinkSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 
 import { describe, expect, it } from "bun:test";
@@ -21,24 +21,31 @@ import {
   LISTED_VALUE_KIND,
   listedValues,
   secretLike,
+  PART_STAGE_PREFIX,
+  PART_STAGE_DIR,
   PART_SUBJECT_MAX,
   type PartChange,
   type PartFile,
   partArchiveCommand,
   partCommitMessage,
   partPark,
+  partStageRoot,
+  partStuckText,
   partSubject,
+  partUnstuckText,
   protectedDetail,
   protectedHits,
   protectedKind,
   refusedDetail,
   secretDetail,
   secretHits,
+  sweepPartStages,
   type TreeEntry,
   unsafePath,
 } from "../../src/box/parts";
 import { yieldToEventLoop } from "../../src/platform/clock";
 import {
+  isSecretPartPath,
   isSecretPath,
   newSecretKinds,
   SECRET_SCAN_CHUNK,
@@ -186,6 +193,36 @@ describe("the secret scan", () => {
       expect([path, isSecretPath(path)]).toEqual([path, true]);
     }
     expect(isSecretPath("src/env.ts")).toBe(false);
+  });
+
+  it("takes .env.example and .env.sample as no secret name in a part, .env and .env.<name> still", () => {
+    for (const path of [
+      ".env.example",
+      "config/.env.sample",
+      "app/.ENV.Example",
+      "x/.env.SAMPLE",
+    ]) {
+      expect([path, isSecretPartPath(path)]).toEqual([path, false]);
+    }
+    for (const path of [
+      ".env",
+      ".env.local",
+      "config/.env.production",
+      ".envrc",
+      ".env.example.local",
+      ".env.examples",
+      // A secret folder above a template still makes it one.
+      ".ssh/.env.example",
+      "config/.env.d/.env.sample",
+      ".npmrc",
+      "keys/server.pem",
+    ]) {
+      expect([path, isSecretPartPath(path)]).toEqual([path, true]);
+    }
+    expect(isSecretPartPath("src/env.ts")).toBe(false);
+    // The context provider and the workspace keep 0008's rule: a template is never read there.
+    expect(isSecretPath(".env.example")).toBe(true);
+    expect(isSecretPath("config/.env.sample")).toBe(true);
   });
 
   it("scans added and changed files, asks for the delivered content only on a match", () =>
@@ -439,14 +476,41 @@ describe("the in-box exclude list", () => {
       ["src/build/index.ts", { mode: "100644", type: "blob", id: "1" }],
     ]);
     const rules = new IgnoreRules([{ dir: "", text: "node_modules/\nbuild/\n*.log\n.cache\n" }]);
-    expect(inBoxExcludes(rules, view)).toEqual([".cache", "node_modules"]);
+    // `node_modules/` matches folders only: the exclude drops what such a folder holds, never a
+    // regular file of that name.
+    expect(inBoxExcludes(rules, view)).toEqual([".cache", "node_modules/*"]);
   });
 
   it("leaves out a name a `!` rule could re-include, but not for an unrelated `!` rule", () => {
     const rules = new IgnoreRules([
       { dir: "", text: "node_modules/\n.env*\n!.env.example\ndist/\n!dist/\n" },
     ]);
-    expect(inBoxExcludes(rules, new Map())).toEqual(["node_modules"]);
+    expect(inBoxExcludes(rules, new Map())).toEqual(["node_modules/*"]);
+  });
+
+  it("excludes names anchored to the root as ./<name>, once, unless tracked or re-included", () => {
+    const rules = new IgnoreRules([
+      {
+        dir: "",
+        text: "/node_modules\n/dist/\n/.cache\n.cache\n/build\n/coverage\n!/coverage\n/src/gen\n/*.tmp\n",
+      },
+      // A deeper file's anchored names apply only below its folder.
+      { dir: "pkg", text: "/out\n" },
+    ]);
+    const view = new Map<string, TreeEntry>([
+      ["tools/build/index.ts", { mode: "100644", type: "blob", id: "1" }],
+    ]);
+    expect(rules.rootNames).toEqual(["build", "coverage", "dist", "node_modules"]);
+    expect(inBoxExcludes(rules, view)).toEqual([".cache", "./dist/*", "./node_modules"]);
+  });
+
+  it("excludes the whole name when one of its rules matches files too", () => {
+    const rules = new IgnoreRules([{ dir: "", text: "dist/\ndist\n/out/\n/out\n/tmp/\n" }]);
+    expect(rules.foldersOnly("dist", false)).toBe(false);
+    expect(rules.foldersOnly("out", true)).toBe(false);
+    expect(rules.foldersOnly("tmp", true)).toBe(true);
+    expect(rules.foldersOnly("tmp", false)).toBe(false);
+    expect(inBoxExcludes(rules, new Map())).toEqual(["dist", "./out", "./tmp/*"]);
   });
 
   it("streams tar of the work folder with the excludes before the folder, under timeout", () => {
@@ -466,7 +530,73 @@ describe("the in-box exclude list", () => {
       ".",
     ]);
     expect(() => partArchiveCommand(["a b"])).toThrow("not a plain name");
+    expect(partArchiveCommand(["./node_modules"]).at(-2)).toBe("--exclude=./node_modules");
+    expect(partArchiveCommand(["node_modules/*", "./dist/*"]).slice(-3)).toEqual([
+      "--exclude=node_modules/*",
+      "--exclude=./dist/*",
+      ".",
+    ]);
+    for (const bad of [
+      "./a/b",
+      "./..",
+      "./.",
+      "../x",
+      ".//x",
+      "/x",
+      "*",
+      "./*",
+      "a/**",
+      "a/*/*",
+      "../*",
+      "a/b/*",
+    ]) {
+      expect(() => partArchiveCommand([bad])).toThrow("not a plain name");
+    }
   });
+});
+
+describe("the part stage sweep", () => {
+  it("gives each daemon its own folder of stages in its state folder, never the temp root", () => {
+    expect(partStageRoot("/home/a/.dipo")).toBe(`/home/a/.dipo/${PART_STAGE_DIR}`);
+    expect(partStageRoot("/scratch/dipo-home")).not.toBe(partStageRoot("/home/a/.dipo"));
+  });
+
+  it("removes the stage folders its daemon left, only dipo's, only this user's folders", () =>
+    withTempDir(async (dir) => {
+      const root = partStageRoot(join(dir, "state"));
+      const other = partStageRoot(join(dir, "other-state"));
+      mkdirSync(join(root, `${PART_STAGE_PREFIX}a1`, "take-1", "files"), { recursive: true });
+      writeFileSync(join(root, `${PART_STAGE_PREFIX}a1`, "take-1", "files", "a.ts"), "box\n");
+      mkdirSync(join(root, `${PART_STAGE_PREFIX}b2`));
+      mkdirSync(join(root, `${PART_STAGE_PREFIX}in-use`));
+      writeFileSync(join(root, `${PART_STAGE_PREFIX}file`), "kept\n");
+      mkdirSync(join(dir, "outside"));
+      symlinkSync(join(dir, "outside"), join(root, `${PART_STAGE_PREFIX}link`));
+      mkdirSync(join(root, "dipo-box-files-x"));
+      // Another daemon's stage, in its own folder, and one an older daemon left loose.
+      mkdirSync(join(other, `${PART_STAGE_PREFIX}live`), { recursive: true });
+      mkdirSync(join(dir, `${PART_STAGE_PREFIX}loose`));
+      const keep = new Set([join(root, `${PART_STAGE_PREFIX}in-use`)]);
+      const uid = process.getuid?.();
+      // Folders of another user are left.
+      expect(await sweepPartStages(root, keep, (uid ?? 0) + 1)).toBe(0);
+      expect(await sweepPartStages(root, keep, uid)).toBe(2);
+      expect(readdirSync(root).toSorted()).toEqual([
+        "dipo-box-files-x",
+        `${PART_STAGE_PREFIX}file`,
+        `${PART_STAGE_PREFIX}in-use`,
+        `${PART_STAGE_PREFIX}link`,
+      ]);
+      expect(readdirSync(other)).toEqual([`${PART_STAGE_PREFIX}live`]);
+      expect(readdirSync(dir)).toContain(`${PART_STAGE_PREFIX}loose`);
+      expect(await sweepPartStages(join(dir, "missing"))).toBe(0);
+      // A folder of stages reached through a link is not swept.
+      mkdirSync(join(dir, "target", `${PART_STAGE_PREFIX}c3`), { recursive: true });
+      mkdirSync(join(dir, "linked"));
+      symlinkSync(join(dir, "target"), join(dir, "linked", PART_STAGE_DIR));
+      expect(await sweepPartStages(join(dir, "linked", PART_STAGE_DIR))).toBe(0);
+      expect(readdirSync(join(dir, "target"))).toEqual([`${PART_STAGE_PREFIX}c3`]);
+    }));
 });
 
 describe("blob ids and parks", () => {
@@ -500,6 +630,17 @@ describe("blob ids and parks", () => {
     ).toBeNull();
     expect(partPark({ kind: "empty" })).toBeNull();
     expect(partPark({ kind: "stopped" })).toBeNull();
+  });
+});
+
+describe("a part that fails too often", () => {
+  it("tells the maintainer with a fixed text that names the reads, no path and no error", () => {
+    expect(partStuckText(5, 2)).toBe(
+      "dipo could not take the worker's part out of the box on 5 door reads in a row, for 2 minutes or more: the stream out of the box or a git step failed each time. Nothing of it is committed yet; the part stays queued in the box, dipo keeps trying, and the worker goes on. The daemon log has the reasons.",
+    );
+    expect(partUnstuckText(7)).toBe(
+      "dipo took the worker's part out of the box again, after 7 door reads in a row that failed.",
+    );
   });
 });
 

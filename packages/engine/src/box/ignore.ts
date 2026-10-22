@@ -88,6 +88,8 @@ interface Pattern {
   readonly dirOnly: boolean;
   /** The pattern itself when it is a plain name matched at any depth (`node_modules`), else null. */
   readonly plainName: string | null;
+  /** The name when the pattern is one plain name anchored to its file's folder (`/node_modules`). */
+  readonly rootName: string | null;
 }
 
 interface RuleFile {
@@ -277,9 +279,11 @@ function parseLine(raw: string): Pattern | null {
     }
   }
   if (parts.filter((part) => part === "**").length > MAX_GLOBSTARS) return null;
-  const plainName =
-    !anchored && /^[A-Za-z0-9._-]+$/.test(line) && line !== "." && line !== ".." ? line : null;
-  return { anchored, parts, negated, dirOnly, plainName };
+  const plain = /^[A-Za-z0-9._-]+$/.test(line) && line !== "." && line !== "..";
+  const plainName = !anchored && plain ? line : null;
+  // `/node_modules`: anchored by its leading `/` alone, so one name at the file's own folder.
+  const rootName = anchored && plain ? line : null;
+  return { anchored, parts, negated, dirOnly, plainName, rootName };
 }
 
 function patternMatches(pattern: Pattern, rel: string, budget: MatchBudget): boolean {
@@ -351,6 +355,43 @@ export class IgnoreRules {
       }
     }
     return [...names].toSorted();
+  }
+
+  /**
+   * The plain names the root `.gitignore` ignores at the root only (`/node_modules`, `/dist/`),
+   * sorted, each once, without those `plainNames` holds already (DIPO-290).
+   */
+  get rootNames(): string[] {
+    const plain = new Set(this.plainNames);
+    const names = new Set<string>();
+    for (const file of this.#files) {
+      if (file.dir !== "") continue;
+      for (const pattern of file.patterns) {
+        if (!pattern.negated && pattern.rootName !== null && !plain.has(pattern.rootName)) {
+          names.add(pattern.rootName);
+        }
+      }
+    }
+    return [...names].toSorted();
+  }
+
+  /**
+   * True when every rule of the root `.gitignore` that ignores `name`, plain (`plainNames`) or
+   * anchored to the root when `root` (`rootNames`), matches folders only (`node_modules/`,
+   * `/dist/`): git then ignores no regular file of that name, so an exclude may drop only the
+   * folder's contents (DIPO-290).
+   */
+  foldersOnly(name: string, root: boolean): boolean {
+    let found = false;
+    for (const file of this.#files) {
+      if (file.dir !== "") continue;
+      for (const pattern of file.patterns) {
+        if (pattern.negated || (root ? pattern.rootName : pattern.plainName) !== name) continue;
+        if (!pattern.dirOnly) return false;
+        found = true;
+      }
+    }
+    return found;
   }
 
   /** The decision of the rules for `path` itself: true ignored, false re-included, null none. */
