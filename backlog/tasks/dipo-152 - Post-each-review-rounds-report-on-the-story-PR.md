@@ -3,10 +3,10 @@ id: DIPO-152
 title: >-
   Complete dipo's story PR: missed PRs, the done report, a true status block,
   round reports
-status: In Review
+status: Done
 assignee: []
 created_date: '2026-10-17 12:52'
-updated_date: '2026-10-22 19:59'
+updated_date: '2026-10-22 20:43'
 labels:
   - 'tier:M'
   - 'slice:m1a'
@@ -20,16 +20,30 @@ dependencies:
   - DIPO-147
   - DIPO-296
 references:
-  - packages/engine/src/box/door.ts
+  - '- packages/engine/src/box/door.ts'
+  - packages/cli/src/watch-command.ts
+  - packages/cli/src/watch-done-report.test.ts
+  - packages/contract/schema/reads.schema.json
+  - packages/contract/src/office.ts
   - packages/engine/src/review/
+  - packages/engine/src/review/comment.ts
+  - packages/engine/src/review/index.ts
+  - packages/engine/src/review/store.ts
+  - packages/engine/src/run/done-report.ts
   - packages/engine/src/run/records.ts
+  - packages/engine/src/run/rounds.ts
   - packages/engine/src/story-pr/
   - packages/engine/src/story-pr/body.ts
   - packages/engine/src/story-pr/prs.ts
   - packages/engine/src/story-pr/records.ts
+  - packages/engine/src/views/feature.ts
   - packages/engine/test/story-pr/
+  - packages/engine/test/story-pr/ci.test.ts
   - packages/engine/test/story-pr/prs.test.ts
+  - packages/engine/test/story-pr/review-comments.test.ts
   - packages/engine/test/story-pr/title-body.test.ts
+  - packages/tui/src/past-done-report.test.ts
+  - packages/tui/src/past.ts
 priority: high
 type: feature
 ordinal: 141000
@@ -98,4 +112,6 @@ test_plan:
 
 <!-- SECTION:NOTES:BEGIN -->
 2026-10-22: combined from DIPO-304, DIPO-305, DIPO-306 (maintainer, M1 speed-up)
+
+2026-10-22: Done by dipo's box run run_01M5JJ8S101DEE0PDB6V038SWA (PR #353), approved by dipo's reviewer in round 1. First box run with the package cache filled and mounted; dipo's install in the box took the cache in 3 s (DIPO-275 criterion 4).
 <!-- SECTION:NOTES:END -->
