@@ -8,6 +8,7 @@ import { createHash } from "node:crypto";
 import {
   chmodSync,
   cpSync,
+  linkSync,
   mkdirSync,
   readdirSync,
   readFileSync,
@@ -28,7 +29,10 @@ import { BOX_NETWORK_NAME } from "../../src/box/apple-args";
 import { AppleContainerBoxes } from "../../src/box/apple-container";
 import {
   type BaseLockfile,
+  boxCacheEnv,
   boxCacheInstall,
+  cacheSkipReason,
+  checkCopiedTree,
   createBoxWithPackageCache,
   ensurePackageCache,
   FILL_BOX_DIR,
@@ -36,6 +40,8 @@ import {
   fillInstall,
   lockfileHash,
   managerVersion,
+  officePackageCacheRoot,
+  PACKAGE_CACHE_DIR,
   PACKAGE_CACHE_STAMP,
   type PackageCacheRequest,
   packageCacheKey,
@@ -822,4 +828,78 @@ describe("the lockfile on the base branch", () => {
       expect(read.lockfile?.manager).toBe("pnpm");
       expect(read.files.map((file) => file.path)).toEqual(["package.json", "pnpm-workspace.yaml"]);
     }));
+});
+
+describe("the copied cache holds no links (DIPO-295)", () => {
+  it("refuses a relative symlink inside the cache and a file with a second hard link", () =>
+    withTempDir(async (dir) => {
+      const cache = join(dir, "cache");
+      mkdirSync(join(cache, "bun", "pkg"), { recursive: true });
+      writeFileSync(join(cache, "bun", "pkg", "package.json"), "{}\n");
+      await checkCopiedTree(cache);
+      symlinkSync("package.json", join(cache, "bun", "pkg", "link"));
+      const linked = await rejection(checkCopiedTree(cache));
+      expect(linked.code).toBe("box.cacheFillFailed");
+      expect(linked.message).toContain("the cache takes no links");
+      rmSync(join(cache, "bun", "pkg", "link"));
+      linkSync(join(cache, "bun", "pkg", "package.json"), join(cache, "bun", "pkg", "again.json"));
+      const hard = await rejection(checkCopiedTree(cache));
+      expect(hard.message).toContain("a second hard link");
+    }));
+});
+
+describe("a box run without the package cache (DIPO-295)", () => {
+  it("says why without the fill box's output", () => {
+    const failed = new BoxError("box.cacheFillFailed", "bun could not fill: BOX-OUTPUT", false, {
+      manager: "bun",
+      code: 1,
+      output: "BOX-OUTPUT",
+    });
+    expect(cacheSkipReason(failed)).toBe("bun exited 1 in the fill box");
+    // A failed pack is not a failed install.
+    expect(
+      cacheSkipReason(
+        new BoxError("box.cacheFillFailed", "could not pack", false, {
+          manager: "bun",
+          code: 2,
+          step: "pack",
+        }),
+      ),
+    ).toBe("the fill box could not pack its bun cache (exit 2)");
+    expect(
+      cacheSkipReason(
+        new BoxError("box.cacheFillFailed", "could not be filled: x", false, {
+          cause: "box.timedOut",
+        }),
+      ),
+    ).toBe("the fill passed its deadline");
+    expect(
+      cacheSkipReason(
+        new BoxError("box.cacheFillFailed", "BOX-OUTPUT", false, { cause: "box.failed" }),
+      ),
+    ).toBe("the fill failed (box.failed)");
+    expect(
+      cacheSkipReason(new BoxError("box.cacheUnsupported", "bun.lock has the field\u001b[31m x.")),
+    ).toBe("the package cache cannot be filled from this base: bun.lock has the field x.");
+    expect(cacheSkipReason(new Error("disk\nfull"))).toBe("the fill failed: disk full");
+  });
+
+  it("keeps each office's root in dipo's state folder, and refuses an id that leaves it", () => {
+    expect(officePackageCacheRoot("/state", OFFICE)).toBe(`/state/${PACKAGE_CACHE_DIR}/${OFFICE}`);
+    for (const office of ["..", "a/b", ""]) {
+      expect(() => officePackageCacheRoot("/state", office)).toThrow(BoxError);
+    }
+  });
+
+  it("points the office's own install at the read-only cache for npm and pnpm too", () => {
+    expect(boxCacheEnv("npm")).toMatchObject({
+      npm_config_cache: `${BOX_PACKAGE_CACHE_PATH}/npm`,
+      npm_config_prefer_offline: "true",
+    });
+    expect(boxCacheEnv("pnpm")).toMatchObject({
+      npm_config_store_dir: `${BOX_PACKAGE_CACHE_PATH}/pnpm`,
+      pnpm_config_store_dir: `${BOX_PACKAGE_CACHE_PATH}/pnpm`,
+      pnpm_config_package_import_method: "copy",
+    });
+  });
 });
