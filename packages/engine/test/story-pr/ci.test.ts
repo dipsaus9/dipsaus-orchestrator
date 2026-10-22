@@ -33,6 +33,7 @@ import {
 } from "../../src/run";
 import type { BranchPark, ParkBranchRequest, ParkWriter } from "../../src/run/park";
 import {
+  CI_STUCK_POLL_MS,
   NO_CI_WAIT_MS,
   noCiRan,
   type StoryPrFacts,
@@ -785,6 +786,60 @@ describe("an office whose story PRs get no CI", () => {
         expect(noneSteps(w)).toHaveLength(1);
       },
       { box: true },
+    );
+  });
+
+  it("waits the full NO_CI_WAIT_MS even when the checks wait is shorter, so a late red check is read", async () => {
+    const config: OfficeConfig = {
+      ...OFFICE_DEFAULTS,
+      mergeSlot: { ...OFFICE_DEFAULTS.mergeSlot, checksWaitMinutes: 3 },
+    };
+    await inWorld(
+      async (w) => {
+        const id = w.office.officeId;
+        await w.prs.sync(id, w.run);
+        await w.prs.retry(id);
+        // Past the 3-minute checks wait, but before NO_CI_WAIT_MS: no decision yet.
+        for (let minute = 1; minute < NO_CI_WAIT_MS / 60_000; minute++) {
+          w.t.clock.advance(60_000);
+          await w.prs.retry(id);
+        }
+        expect(noneSteps(w)).toEqual([]);
+        expect(notices(w.office, STORY_PR_NOTICES.ciNone)).toHaveLength(0);
+
+        // A slow CI reports late, and red: it is read and counted, never taken for no CI.
+        redHead(w);
+        w.t.clock.advance(CI_STUCK_POLL_MS);
+        await w.prs.retry(id);
+        expect(ciSteps(w).map((s) => s.value)).toEqual([HEAD_A]);
+        expect(noneSteps(w)).toEqual([]);
+      },
+      { box: true, config },
+    );
+  });
+
+  it("decides no CI only once NO_CI_WAIT_MS passed, also with a shorter checks wait", async () => {
+    const config: OfficeConfig = {
+      ...OFFICE_DEFAULTS,
+      mergeSlot: { ...OFFICE_DEFAULTS.mergeSlot, checksWaitMinutes: 3 },
+    };
+    await inWorld(
+      async (w) => {
+        const id = w.office.officeId;
+        await w.prs.sync(id, w.run);
+        await w.prs.retry(id);
+        w.t.clock.advance(3 * 60_000);
+        await w.prs.retry(id);
+        expect(noneSteps(w)).toEqual([]);
+        w.t.clock.advance(CI_STUCK_POLL_MS);
+        await w.prs.retry(id);
+        expect(noneSteps(w).map((s) => s.value)).toEqual([HEAD_A]);
+        const told = notices(w.office, STORY_PR_NOTICES.ciNone).map(
+          (event) => (event.data as { text: string }).text,
+        );
+        expect(told[0]).toContain(`within ${NO_CI_WAIT_MS / 60_000} minutes`);
+      },
+      { box: true, config },
     );
   });
 

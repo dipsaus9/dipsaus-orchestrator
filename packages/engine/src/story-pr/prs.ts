@@ -29,12 +29,13 @@
 // CI is the verify of a box run (0021 amendment of 2026-10-22, DIPO-299): dipo runs no verify for
 // it, so the body's status block says CI checks the head, and red CI takes the same loop as above.
 // An office whose story PRs get no CI is not held waiting: when the host reports no check at all
-// for a box run's pushed head (neither a required one nor any other) once `NO_CI_WAIT_MS` (or the
-// shorter `mergeSlot.checksWaitMinutes`) has passed since the engine first watched that head, the
-// head is final with no CI. One `ci-none` run step records it on the run (not a CI attempt), a
-// `ci.none` notice tells the maintainer, the body says no CI ran, and the review decides. A check
-// that shows up for the head later is not read; a new head is watched again. A Mac run keeps its
-// wait for unreported checks: its verify ran on the Mac.
+// for a box run's pushed head (neither a required one nor any other) once `NO_CI_WAIT_MS` has
+// passed since the engine first watched that head, the head is final with no CI. The wait is never
+// shorter, whatever `mergeSlot.checksWaitMinutes` says, so a slow CI's late red check is still
+// read. One `ci-none` run step records it on the run (not a CI attempt), a `ci.none` notice tells
+// the maintainer, the body says no CI ran, and the review decides. A check that shows up for the
+// head later is not read; a new head is watched again. A Mac run keeps its wait for unreported
+// checks: its verify ran on the Mac.
 //
 // An office whose configuration in force sets `storyPr.open: false` (DIPO-210, 0019 amendment of
 // 2026-10-19) gets none of this: `sync` and `retry` return before they read git or the host, so
@@ -529,7 +530,7 @@ export class StoryPrs {
       box &&
       onHead &&
       reports.length === 0 &&
-      now - watch.since >= Math.min(NO_CI_WAIT_MS, config.mergeSlot.checksWaitMinutes * 60_000) &&
+      now - watch.since >= NO_CI_WAIT_MS &&
       (await this.#noChecks(officeId, stored, repo))
     ) {
       this.#noCi(officeId, state, stored, run);
@@ -659,10 +660,7 @@ export class StoryPrs {
   /** Records on the run that no CI ran for the box run's pushed head, once, with its notice. */
   #noCi(officeId: OfficeId, state: Polled, stored: StoryPrRecord, run: StoredRun): void {
     const office = state.office;
-    const minutes = Math.min(
-      NO_CI_WAIT_MS / 60_000,
-      this.#config(officeId).mergeSlot.checksWaitMinutes,
-    );
+    const minutes = NO_CI_WAIT_MS / 60_000;
     this.#write(officeId, state, () => {
       if (noCiRan(office, run.runId, stored.headSha)) return [];
       appendRunStep(office, run.runId, "ci-none", stored.headSha, this.#deps.clock.now());
