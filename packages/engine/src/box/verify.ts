@@ -1,22 +1,21 @@
-// One verify command in the worker's box (0021 section 9, DIPO-274): dipo runs the office's verify
-// command in the box's `/work` through the box interface's exec, without AI. No web route is given
-// to verify: the command gets no proxy settings.
+// The commands dipo runs in a box (DIPO-274, DIPO-294): one command of dipo's in the box's
+// `/work` through the box interface's exec, without AI, to its end within dipo's deadline
+// (`runBoxCommand`), and the office's install before the worker starts (`runBoxInstall`), which
+// runs through it. dipo runs no verify in the box at done (0021 amendment of 2026-10-22,
+// DIPO-299): the worker runs the office's verify itself, and CI on the story PR is the verify.
 //
-// A green verify in the box is the worker's feedback loop, not the gate: the worker is root in its
-// box and can change any program verify runs. The gate is CI's required checks and the reviewer.
-//
-// - The command runs under a small wrapper dipo writes (`boxVerifyCommand`): it records its own
-//   pid in `BOX_VERIFY_PID_FILE` and becomes `timeout`, where the box has it. GNU `timeout` makes
-//   itself a process group leader, so that pid names the verify's whole process group. Its own
-//   limit is dipo's deadline plus `BOX_VERIFY_GRACE_SECONDS`: a second layer inside the box.
+// - The command runs under a small wrapper dipo writes (`boxCommand`): it records its own
+//   pid in `BOX_COMMAND_PID_FILE` and becomes `timeout`, where the box has it. GNU `timeout` makes
+//   itself a process group leader, so that pid names the command's whole process group. Its own
+//   limit is dipo's deadline plus `BOX_COMMAND_GRACE_SECONDS`: a second layer inside the box.
 // - dipo's deadline decides. Past it, dipo kills the exec client, and since a killed exec client
 //   leaves its process running in the box (DIPO-265 real-box run of 2026-10-21), it then ends the
 //   command inside the box: `boxKillCommand` kills the process group the pid file names and
 //   waits until the process is gone. When that does not work, dipo stops the box, which ends every
 //   process in it, the worker's session included (`BoxCommandEnd`).
 // - The output is untrusted text from the box: cleaned with the door's `cleanDoorText` line by
-//   line, at most `BOX_VERIFY_OUTPUT_MAX` bytes go to `onOutput`, and the tail kept for the
-//   feedback is cut to the same size.
+//   line, at most `BOX_COMMAND_OUTPUT_MAX` bytes go to `onOutput`, and the tail kept for the
+//   caller is cut to the same size.
 // - The pid file is written in the box, which the worker controls; dipo never reads it on the Mac.
 //   A wrong pid ends at most a process of the worker's own box.
 
@@ -26,32 +25,32 @@ import { BOX_DIPO_DIR, BOX_WORKDIR } from "./code";
 import { cleanDoorText } from "./door";
 import type { BoxPort } from "./port";
 
-/** dipo's folder for verify in a box. */
-export const BOX_VERIFY_DIR = `${BOX_DIPO_DIR}/verify`;
-/** The pid of the running verify command, written by the wrapper in the box. */
-export const BOX_VERIFY_PID_FILE = `${BOX_VERIFY_DIR}/pid`;
+/** dipo's folder for the commands it runs in a box. */
+export const BOX_COMMAND_DIR = `${BOX_DIPO_DIR}/command`;
+/** The pid of the running command, written by the wrapper in the box. */
+export const BOX_COMMAND_PID_FILE = `${BOX_COMMAND_DIR}/pid`;
 /** The most output bytes passed on live, and the most kept as the tail. */
-export const BOX_VERIFY_OUTPUT_MAX = 4 * 1024 * 1024;
+export const BOX_COMMAND_OUTPUT_MAX = 4 * 1024 * 1024;
 /** A line longer than this is passed on without waiting for its end. */
-export const BOX_VERIFY_LINE_MAX = 64 * 1024;
+export const BOX_COMMAND_LINE_MAX = 64 * 1024;
 /** How long after dipo's deadline the box's own `timeout` ends the command. */
-export const BOX_VERIFY_GRACE_SECONDS = 30;
+export const BOX_COMMAND_GRACE_SECONDS = 30;
 /** How long `timeout` in the box waits after its signal before it kills. */
-export const BOX_VERIFY_KILL_AFTER_SECONDS = 10;
+export const BOX_COMMAND_KILL_AFTER_SECONDS = 10;
 /** The deadline of the kill in the box. */
-export const BOX_VERIFY_KILL_TIMEOUT_MS = 30_000;
+export const BOX_COMMAND_KILL_TIMEOUT_MS = 30_000;
 /** How long the kill in the box waits for the process to be gone. */
-export const BOX_VERIFY_KILL_WAIT_SECONDS = 10;
+export const BOX_COMMAND_KILL_WAIT_SECONDS = 10;
 /** How long the output streams may stay open after the exec client was killed. */
-export const BOX_VERIFY_DRAIN_MS = 5_000;
+export const BOX_COMMAND_DRAIN_MS = 5_000;
 
 type Log = (message: string, fields: Readonly<Record<string, unknown>>) => void;
 
 /**
- * The wrapper that runs `command` in the box: its pid recorded in `BOX_VERIFY_PID_FILE`, then
+ * The wrapper that runs `command` in the box: its pid recorded in `BOX_COMMAND_PID_FILE`, then
  * `timeout` (as a process group leader) for `seconds` where the box has it, else the command.
  */
-export function boxVerifyCommand(
+export function boxCommand(
   command: readonly [string, ...string[]],
   seconds: number,
 ): [string, ...string[]] {
@@ -59,17 +58,17 @@ export function boxVerifyCommand(
   return [
     "/bin/sh",
     "-c",
-    `{ mkdir -p '${BOX_VERIFY_DIR}' && rm -f '${BOX_VERIFY_PID_FILE}' && echo "$$" > '${BOX_VERIFY_PID_FILE}'; } 2>/dev/null
-if command -v timeout >/dev/null 2>&1; then exec timeout -k ${BOX_VERIFY_KILL_AFTER_SECONDS} ${limit} "$@"; fi
+    `{ mkdir -p '${BOX_COMMAND_DIR}' && rm -f '${BOX_COMMAND_PID_FILE}' && echo "$$" > '${BOX_COMMAND_PID_FILE}'; } 2>/dev/null
+if command -v timeout >/dev/null 2>&1; then exec timeout -k ${BOX_COMMAND_KILL_AFTER_SECONDS} ${limit} "$@"; fi
 exec "$@"`,
-    "dipo-verify",
+    "dipo-command",
     ...command,
   ];
 }
 
 /**
  * The kill in the box: the process group the pid file names (the process alone when it leads
- * none) gets SIGKILL, then the command waits up to `BOX_VERIFY_KILL_WAIT_SECONDS` for the process
+ * none) gets SIGKILL, then the command waits up to `BOX_COMMAND_KILL_WAIT_SECONDS` for the process
  * to be gone. Exit 0 when it is gone, 1 when it still runs, 3 when there is no usable pid: none, not
  * digits, init, one with a leading zero, or one of no running process (stale or forged). dipo then
  * stops the box.
@@ -78,13 +77,13 @@ export function boxKillCommand(): [string, ...string[]] {
   return [
     "/bin/sh",
     "-c",
-    `pid=$(cat '${BOX_VERIFY_PID_FILE}' 2>/dev/null) || exit 3
+    `pid=$(cat '${BOX_COMMAND_PID_FILE}' 2>/dev/null) || exit 3
 case "$pid" in ''|0*|1|*[!0-9]*) exit 3 ;; esac
 [ -d "/proc/$pid" ] || exit 3
 kill -s KILL -- "-$pid" 2>/dev/null || kill -s KILL "$pid" 2>/dev/null
 i=0
 while [ -e "/proc/$pid/status" ] && ! grep -q '^State:[[:space:]]*[ZX]' "/proc/$pid/status" 2>/dev/null; do
-  if [ "$i" -ge ${BOX_VERIFY_KILL_WAIT_SECONDS} ]; then exit 1; fi
+  if [ "$i" -ge ${BOX_COMMAND_KILL_WAIT_SECONDS} ]; then exit 1; fi
   sleep 1
   i=$((i + 1))
 done
@@ -204,7 +203,7 @@ async function readLines(
       output.add(pending.slice(0, end));
       pending = pending.slice(end);
     }
-    if (pending.length > BOX_VERIFY_LINE_MAX) {
+    if (pending.length > BOX_COMMAND_LINE_MAX) {
       output.add(pending);
       pending = "";
     }
@@ -233,11 +232,11 @@ export async function runBoxCommand(
 ): Promise<BoxCommandResult> {
   const child = deps.boxes.execLive(
     request.box,
-    boxVerifyCommand(request.command, request.timeoutMs / 1000 + BOX_VERIFY_GRACE_SECONDS),
+    boxCommand(request.command, request.timeoutMs / 1000 + BOX_COMMAND_GRACE_SECONDS),
     { cwd: BOX_WORKDIR, env: request.env },
   );
   child.stdin.end();
-  const output = new BoxOutput(request.maxOutputBytes ?? BOX_VERIFY_OUTPUT_MAX, request.onOutput);
+  const output = new BoxOutput(request.maxOutputBytes ?? BOX_COMMAND_OUTPUT_MAX, request.onOutput);
   const cancels: (() => void)[] = [];
   let timedOut = false;
   let drain: TimerHandle | undefined;
@@ -247,7 +246,7 @@ export async function runBoxCommand(
     // The client is gone; streams it left open are closed after a short drain.
     drain = deps.clock.setTimeout(() => {
       for (const cancel of cancels) cancel();
-    }, BOX_VERIFY_DRAIN_MS);
+    }, BOX_COMMAND_DRAIN_MS);
   }, request.timeoutMs);
   let exit: ChildExit;
   try {
@@ -274,14 +273,14 @@ export async function runBoxCommand(
 /** Ends the timed-out command inside the box: its process group killed, else the box stopped. */
 async function endInBox(deps: BoxCommandDeps, box: string): Promise<BoxCommandEnd> {
   try {
-    const code = await boundedExec(deps, box, boxKillCommand(), BOX_VERIFY_KILL_TIMEOUT_MS);
+    const code = await boundedExec(deps, box, boxKillCommand(), BOX_COMMAND_KILL_TIMEOUT_MS);
     if (code === 0) return "killed";
-    deps.warn?.("the timed-out verify could not be killed inside the box; stopping the box", {
+    deps.warn?.("the timed-out command could not be killed inside the box; stopping the box", {
       box,
       code,
     });
   } catch (error) {
-    deps.warn?.("the kill of the timed-out verify failed; stopping the box", {
+    deps.warn?.("the kill of the timed-out command failed; stopping the box", {
       box,
       reason: error instanceof Error ? error.message : String(error),
     });
@@ -290,7 +289,7 @@ async function endInBox(deps: BoxCommandDeps, box: string): Promise<BoxCommandEn
     await deps.boxes.stop(box);
     return "stopped";
   } catch (error) {
-    deps.warn?.("the box of a timed-out verify could not be stopped", {
+    deps.warn?.("the box of a timed-out command could not be stopped", {
       box,
       reason: error instanceof Error ? error.message : String(error),
     });
@@ -328,7 +327,7 @@ async function boundedExec(
 // ---- the install before the worker (DIPO-294) ---------------------------------------------------
 //
 // Before the worker's first session, dipo runs the office's install in the box at the start
-// commit, each command list through `runBoxCommand` in `/work` as verify runs (the wrapper, dipo's
+// commit, each command list through `runBoxCommand` in `/work` (the wrapper, dipo's
 // deadline, the end in the box), with the environment the caller gives: the run environment and
 // the box's web route (`BoxWorkers.install`). The reason of a failure names the command, the exit
 // and the deadline, never the box's output; the cleaned tail of the output is kept apart, for the

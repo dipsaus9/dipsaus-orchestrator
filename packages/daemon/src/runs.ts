@@ -233,6 +233,11 @@ export interface DaemonRuns {
   readonly tempDirs: RunTempDirs;
   /** The box workers (DIPO-271); null without a box backend. `close` at daemon stop. */
   readonly boxes: BoxWorkers | null;
+  /**
+   * Whether a run's developer works in a box (DIPO-271): the story PR's CI watch reads it, since CI
+   * is the verify of a box run (DIPO-299). False without a box backend.
+   */
+  isBoxRun(office: OfficeId, run: StoredRun): boolean;
   /** The collision check of the box runs (DIPO-277); null without a box backend. `stop` at daemon stop. */
   readonly collisions: BoxCollisions | null;
   /**
@@ -648,6 +653,12 @@ export function daemonRuns(options: DaemonRunsOptions): DaemonRuns {
     git: (office) => options.engineGit.forOffice(office),
     cli: options.cli,
   });
+  // Whether a run's developer works in a box: its run directory says so (DIPO-271).
+  // It reads `runPaths` only when asked, after the launcher's wiring below exists.
+  const isBoxRun = (office: OfficeId, run: StoredRun): boolean => {
+    const paths = boxed === null ? null : runPaths(office, run);
+    return paths !== null && boxed !== null && boxed.workers.isBoxRun(paths.runDir);
+  };
   // Verify and commit at In Review and the backstop after every turn (DIPO-49).
   const finisher = new VerifyCommit({
     clock,
@@ -659,17 +670,14 @@ export function daemonRuns(options: DaemonRunsOptions): DaemonRuns {
     host: { home, uid, env },
     ...(options.work === undefined ? {} : { work: options.work }),
     ...(options.storyPr === undefined ? {} : { storyPr: options.storyPr }),
-    // A box run has no backstop or scope check, its last part goes before verify (DIPO-273), and
-    // verify runs in its box while its parts are held (DIPO-274).
+    // A box run has no backstop, scope check or verify of dipo's (DIPO-273, DIPO-299): its last
+    // part is taken at done and its end claimed while its parts are held; CI is its verify.
     ...(boxed === null
       ? {}
       : {
           parts: {
-            isBoxRun: (office: OfficeId, run: StoredRun) => {
-              const paths = runPaths(office, run);
-              return paths !== null && boxed.workers.isBoxRun(paths.runDir);
-            },
-            verifyLast: (runId, message, verify) => boxed.parts.verifyLast(runId, message, verify),
+            isBoxRun,
+            finishLast: (runId, message, finish) => boxed.parts.finishLast(runId, message, finish),
           },
         }),
     warn: (message, fields) => options.logger.warn(message, fields),
@@ -903,6 +911,7 @@ export function daemonRuns(options: DaemonRunsOptions): DaemonRuns {
     safeChainProxies,
     tempDirs,
     boxes: boxWorkers,
+    isBoxRun,
     collisions,
     finishEndedBoxes,
     sweepReviewFolders: () =>
