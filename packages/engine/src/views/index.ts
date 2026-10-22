@@ -36,6 +36,8 @@ export {
   workView,
 } from "./work";
 export type { HealthFacts } from "./work";
+export { openDecisionNotes, openProposals, proposalItems } from "./proposals";
+export type { ProposalItem } from "./proposals";
 export {
   detail,
   OUTPUT_RANGE_MAX_BYTES,
