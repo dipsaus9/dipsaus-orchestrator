@@ -3,10 +3,10 @@ id: DIPO-152
 title: >-
   Complete dipo's story PR: missed PRs, the done report, a true status block,
   round reports
-status: In Progress
+status: In Review
 assignee: []
 created_date: '2026-10-17 12:52'
-updated_date: '2026-10-22 19:48'
+updated_date: '2026-10-22 19:59'
 labels:
   - 'tier:M'
   - 'slice:m1a'
@@ -76,22 +76,22 @@ test_plan:
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 After each review round the engine posts one comment built by code from the stored verdict in the section 3 format (heading with round and verdict, commit, reviewer model and effort, time, criteria, findings with unverified ones marked, summary) holding no prompt text, token counts, cost, session or run ids or worker report
-- [ ] #2 A comment is posted once and never edited or deleted, a later round gets a new comment, an approval carried to a new head posts nothing, and the comment URL is stored on the verdict
-- [ ] #3 A comment over 60,000 characters is cut, advisory findings first, with a marker
-- [ ] #4 After the cap, every value read as a KEY=value line from the env files dipo copied into the worktree (the copy entries of worktree.files) is replaced by [redacted] across the whole comment while the stored verdict keeps the reviewer's text; an unreadable copied env file holds the comment back with a pr.commentFailed notice
-- [ ] #5 A failed post raises pr.commentFailed and is retried by the PR poll, never blocking or delaying the gate, a fix round or a merge
-- [ ] #6 The story PR body's status block shows the review round state, as 0019 section 3 gives it, rewritten with the body after each round
-- [ ] #7 (from DIPO-304) runsWithoutPr also selects runs that ended as reviewed whose story is still In Review with a live claim and no story PR
-- [ ] #8 (from DIPO-304) The PR opened then carries the stored review verdict in its status block
-- [ ] #9 (from DIPO-304) A test switches story PRs on after the review and shows the PR opens on the next poll
-- [ ] #10 (from DIPO-305) The done report's notes, deviations and proposals are stored with the run, cleaned and capped as door messages are
-- [ ] #11 (from DIPO-305) dipo watch and the TUI show them when the run ends
-- [ ] #12 (from DIPO-305) The story PR body gets a section with them, built by code, marked as the worker's words
-- [ ] #13 (from DIPO-305) Tests cover storage, the cap and the PR section
-- [ ] #14 (from DIPO-306) After a review round the PR body's review line shows the stored verdict and round
-- [ ] #15 (from DIPO-306) Until the merge slot merges story PRs, the merge line says the maintainer merges
-- [ ] #16 (from DIPO-306) Tests cover both lines
+- [x] #1 After each review round the engine posts one comment built by code from the stored verdict in the section 3 format (heading with round and verdict, commit, reviewer model and effort, time, criteria, findings with unverified ones marked, summary) holding no prompt text, token counts, cost, session or run ids or worker report
+- [x] #2 A comment is posted once and never edited or deleted, a later round gets a new comment, an approval carried to a new head posts nothing, and the comment URL is stored on the verdict
+- [x] #3 A comment over 60,000 characters is cut, advisory findings first, with a marker
+- [x] #4 After the cap, every value read as a KEY=value line from the env files dipo copied into the worktree (the copy entries of worktree.files) is replaced by [redacted] across the whole comment while the stored verdict keeps the reviewer's text; an unreadable copied env file holds the comment back with a pr.commentFailed notice
+- [x] #5 A failed post raises pr.commentFailed and is retried by the PR poll, never blocking or delaying the gate, a fix round or a merge
+- [x] #6 The story PR body's status block shows the review round state, as 0019 section 3 gives it, rewritten with the body after each round
+- [x] #7 (from DIPO-304) runsWithoutPr also selects runs that ended as reviewed whose story is still In Review with a live claim and no story PR
+- [x] #8 (from DIPO-304) The PR opened then carries the stored review verdict in its status block
+- [x] #9 (from DIPO-304) A test switches story PRs on after the review and shows the PR opens on the next poll
+- [x] #10 (from DIPO-305) The done report's notes, deviations and proposals are stored with the run, cleaned and capped as door messages are
+- [x] #11 (from DIPO-305) dipo watch and the TUI show them when the run ends
+- [x] #12 (from DIPO-305) The story PR body gets a section with them, built by code, marked as the worker's words
+- [x] #13 (from DIPO-305) Tests cover storage, the cap and the PR section
+- [x] #14 (from DIPO-306) After a review round the PR body's review line shows the stored verdict and round
+- [x] #15 (from DIPO-306) Until the merge slot merges story PRs, the merge line says the maintainer merges
+- [x] #16 (from DIPO-306) Tests cover both lines
 <!-- AC:END -->
 
 ## Implementation Notes
