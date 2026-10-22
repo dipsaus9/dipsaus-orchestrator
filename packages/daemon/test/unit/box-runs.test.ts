@@ -1,7 +1,8 @@
 // The daemon's box workers (DIPO-271): at start the daemon sweeps the export folders a post-run
 // token check left behind (criterion 9) and the part stage folders a stopped daemon left (DIPO-290),
-// it finds Apple `container` on its PATH without running
-// it, and a box run counts as ended only once its run ended and every worker host exited. Temp
+// it finds Apple `container` on its PATH without running it, and a box run counts as ended only
+// once its run ended and every worker host exited; the box runs get each office's package cache
+// from a root in dipo's state folder (DIPO-295). Temp
 // folders only; no `container`, no Keychain and no daemon process.
 
 import { mkdirSync, readdirSync, writeFileSync } from "node:fs";
@@ -15,6 +16,7 @@ import {
   BoxCollisions,
   currentPlatform,
   type DoorPart,
+  PACKAGE_CACHE_DIR,
   TOKEN_CHECK_DIR_PREFIX,
   type OfficeHandle,
   PART_STAGE_PREFIX,
@@ -24,6 +26,7 @@ import {
 import { ManualClock, withTempDir } from "@dipsaus-orchestrator/testkit";
 
 import {
+  boxPackageCache,
   boxRunEnded,
   containerOnPath,
   daemonRuns,
@@ -128,6 +131,15 @@ describe("the daemon's box workers", () => {
       await runs.finishEndedBoxes();
       runs.control.close();
     }));
+
+  it("keeps each office's package cache root in dipo's state folder (DIPO-295)", () => {
+    const office = "off_01J9ZK5Q8W3V4X6Y7Z00000295" as OfficeId;
+    const cache = boxPackageCache("/state/dipo");
+    expect(cache.root(office)).toBe(`/state/dipo/${PACKAGE_CACHE_DIR}/${office}`);
+    // The lockfile is read from the base branch and filled by the engine's defaults.
+    expect(cache.readSource).toBeUndefined();
+    expect(cache.ensure).toBeUndefined();
+  });
 
   it("finds container on the PATH by absolute path only, without running it", () => {
     const executable = new Set(["/opt/tools/bin/container"]);

@@ -8,6 +8,9 @@
 // after each exit decision the boxes of ended runs get the post-run token check and are deleted,
 // and so are those a stopped daemon left (`finishEndedBoxes`, at the recovery step). At start the
 // token check's leftover export folders and the part stage folders a stopped daemon left are swept.
+// Each box gets its office's package cache (DIPO-295): one root per office under
+// `<state>/PACKAGE_CACHE_DIR` (`boxPackageCache`), filled in a fill box through the daemon's web
+// route or reused, and mounted read-only; Apple `container` mounts only a cache under that folder.
 
 import { realpathSync, rmSync } from "node:fs";
 import { isAbsolute, join } from "node:path";
@@ -34,11 +37,14 @@ import {
   BoxParts,
   type BoxPartsDeps,
   BoxWorkers,
+  type BoxPackageCacheDeps,
   type DoorPart,
   boxName,
   CLAUDE_CLI_ADAPTER_ID,
   ensurePrivateDir,
   findRun,
+  officePackageCacheRoot,
+  PACKAGE_CACHE_DIR,
   readBaseBox,
   startBoxWebRoute,
   startModelProxy,
@@ -362,6 +368,14 @@ export function deliverThenCheck(
 }
 
 /**
+ * The package cache of the daemon's box runs (DIPO-295): each office's root in dipo's state
+ * folder, `<state>/PACKAGE_CACHE_DIR/<office>`; the lockfile is read from the base branch.
+ */
+export function boxPackageCache(stateDir: string): BoxPackageCacheDeps {
+  return { root: (office) => officePackageCacheRoot(stateDir, office) };
+}
+
+/**
  * The box workers of the daemon (DIPO-271) and the delivery of their parts (DIPO-273), or null
  * without a box backend. `parts` gives the run facts and run control the delivery needs.
  */
@@ -388,6 +402,8 @@ function daemonBoxWorkers(
             cli,
             // The `container` client's own environment; a box never inherits it.
             env: { PATH: env["PATH"] ?? "/usr/bin:/bin", HOME: home },
+            // A box mounts only a package cache under dipo's own folder of caches (DIPO-295).
+            packageCacheRoot: join(options.stateDir, PACKAGE_CACHE_DIR),
           });
   }
   if (boxes === null) return null;
@@ -480,6 +496,8 @@ function daemonBoxWorkers(
     // After the install in a new box, its /work is compared with the start commit on dipo's own
     // copy, as a part is (DIPO-294).
     treeCheck: (run) => delivery.changedSinceStart(run),
+    // Each box gets its office's package cache, filled or reused before it is made (DIPO-295).
+    packageCache: boxPackageCache(options.stateDir),
     scratchRoot: (() => {
       ensurePrivateDir(scratchRoot);
       return scratchRoot;

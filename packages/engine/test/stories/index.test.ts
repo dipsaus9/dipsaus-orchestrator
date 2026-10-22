@@ -141,6 +141,27 @@ describe("story index on the Backlog CLI", () => {
       });
     }));
 
+  it("indexes the new base at the next poll when origin/<base> moved before the poll's fetch", () =>
+    withIndexedOffice(async ({ repo, s, index, officeId, office }) => {
+      // The push moves origin/main before the poll fetches, as a pull or fetch outside dipo does.
+      const file = join(repo.dir, "backlog", "tasks", "task-2 - Rename-the-export-setting.md");
+      writeFileSync(file, readFileSync(file, "utf8").replace(/^status: .*$/m, "status: Ready"));
+      await publish(repo, "TASK-2 Ready");
+      expect(mirrorStatus(office, "TASK-2")).toBe("Refined");
+      s.clock.advance(OFFICE_DEFAULTS.polling.fetchSeconds * 1000);
+      await index.whenIdle(officeId);
+      expect(mirrorStatus(office, "TASK-2")).toBe("Ready");
+    }));
+
+  it("does not index again at a poll when origin/<base> is the commit last indexed", () =>
+    withIndexedOffice(async ({ s, index, officeId }) => {
+      const last = index.lastPass(officeId);
+      expect(last).not.toBeNull();
+      s.clock.advance(OFFICE_DEFAULTS.polling.fetchSeconds * 1000);
+      await index.whenIdle(officeId);
+      expect(index.lastPass(officeId)).toBe(last);
+    }));
+
   it("loads the office with a stories.notIndexed notice when the Backlog CLI fails", () =>
     withIndexedOffice(
       async ({ s, officeId, office }) => {

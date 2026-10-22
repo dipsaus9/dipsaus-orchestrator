@@ -4,7 +4,8 @@
 // `container exec` client leaves its process running in the box, as the real one does: only a
 // stop or a delete of the box ends it. With `live`, a live exec dipo runs itself (the install in
 // the box and the kill after its deadline, the archive of `/work`; DIPO-294) follows a script; a
-// stop or a delete of its box ends one that hangs.
+// stop or a delete of its box ends one that hangs. With `exec`, a short exec follows a script too
+// (the fill box of the package cache, DIPO-295).
 
 import { cpSync, readdirSync, statSync, writeFileSync } from "node:fs";
 import { join, relative } from "node:path";
@@ -79,6 +80,8 @@ export interface FakeBoxesOptions {
   readonly envText?: string;
   /** The bytes the host-made export holds. */
   readonly exportText?: string;
+  /** Fails `create` with this error when the spec mounts a package cache (DIPO-295). */
+  readonly cacheMountFails?: Error;
   /** Fails `start` with this error. */
   readonly startFails?: Error;
   /**
@@ -95,6 +98,15 @@ export interface FakeBoxesOptions {
   readonly live?: (box: string, command: readonly string[]) => LiveReply;
   /** The image builder runs before the first build. */
   readonly builderRunning?: boolean;
+  /**
+   * How a short exec ends, by box and command (DIPO-295); undefined falls back to the default
+   * (exit 0, no output). A thrown error is the call's.
+   */
+  readonly exec?: (
+    box: string,
+    command: readonly string[],
+    options?: BoxExecOptions,
+  ) => BoxExecResult | undefined;
 }
 
 /** What one live exec in a fake box prints and how it ends. */
@@ -175,6 +187,9 @@ export class FakeBoxes implements BoxPort {
   async create(spec: BoxSpec): Promise<string> {
     const name = boxName(spec.runId);
     this.log.push(`create ${name}`);
+    if (spec.packageCache !== undefined && this.#options.cacheMountFails !== undefined) {
+      throw this.#options.cacheMountFails;
+    }
     this.boxes.set(name, {
       name,
       runId: spec.runId,
@@ -250,6 +265,8 @@ export class FakeBoxes implements BoxPort {
     this.log.push(`exec ${name} ${command[0]}`);
     const box = this.#box(name);
     if (box.state !== "running") throw new BoxError("box.failed", `${name} is not running`);
+    const scripted = this.#options.exec?.(name, command, _options);
+    if (scripted !== undefined) return scripted;
     if (command.join(" ") === TOKEN_CHECK_ENV_COMMAND.join(" ")) {
       return {
         code: 0,
@@ -259,6 +276,9 @@ export class FakeBoxes implements BoxPort {
     }
     return { code: 0, stdout: "", stderr: "" };
   }
+
+  /** The boxes of the live execs whose stdin dipo closed, in order. */
+  readonly stdinEnded: string[] = [];
 
   /** Every live exec, in order: the box, the unwrapped command, its environment and folder. */
   readonly liveExecs: {
@@ -309,7 +329,7 @@ export class FakeBoxes implements BoxPort {
       this.#live.set(name, running);
     }
     return {
-      stdin: { write: () => {}, end: () => {} },
+      stdin: { write: () => {}, end: () => void this.stdinEnded.push(name) },
       stdout,
       stderr,
       exited,

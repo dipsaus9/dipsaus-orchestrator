@@ -15,10 +15,14 @@
 //   multicast, a documentation or another reserved range, one of the Mac's own addresses, in one
 //   of its on-link prefixes, or on the box network. The name is resolved within
 //   `FETCH_RESOLVE_TIMEOUT_MS`, so the reply stays inside the relay's limit.
-//   Known gap: Claude Code fetches by name itself after the hook allowed it, so a name whose
-//   answers change between dipo's lookup and Claude Code's (DNS rebinding) is not caught. A redirect
-//   to another host is handed back to the model as a new URL, which comes through this check again;
-//   one on the same host is followed by Claude Code without it.
+//   This name check is the first layer. Claude Code fetches by name itself after the hook allowed
+//   it, so a name whose answers change between dipo's lookup and Claude Code's (DNS rebinding), or a
+//   redirect on the same host, which Claude Code follows without this check, is not caught here.
+//   The reviewer's fetches therefore tunnel through its own listener of dipo's web proxy (DIPO-292,
+//   `startReviewWebProxy`), which applies the same rule at connect time to the address it connects
+//   to, for every connection a redirect opens too. A Mac-sandbox worker's fetches do not: that
+//   path is unused and goes with DIPO-280. A redirect to another host is handed back to the model
+//   as a new URL, which comes through this check again.
 // - otherwise: let it on (a reply with no decision; the adapter encodes a marker the gate prints
 //   as nothing, so Claude's permission rules decide the call).
 //
