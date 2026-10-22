@@ -30,7 +30,10 @@
 // `HTTPS_PROXY` and `HTTP_PROXY` name it, so each web fetch, and each redirect the fetch follows
 // (a new connection), tunnels through it and is checked at connect time on the address used. It
 // has no Safe-Chain behind it: a reviewer installs nothing, so a registry name is a host like any
-// other there, under the address rule. It knows no box network.
+// other there, under the address rule. Its rule refuses the box network as the web guard's does:
+// by the box network's host address the caller names (read for each check, as the guard reads
+// it), when a box network exists. Without one, the Mac's own addresses and on-link prefixes are
+// still refused, so a box network that exists on an interface of the Mac is refused by its prefix.
 //
 // Known gaps:
 // - A registry alias or another name on a registry's CDN reaches the registry directly (DIPO-281).
@@ -521,7 +524,7 @@ export function startBoxWebProxy(
   return startWebProxy(
     {
       listenHost: options.network.hostAddress,
-      boxHostAddress: options.network.hostAddress,
+      boxHostAddress: () => options.network.hostAddress,
       safeChainPort: options.safeChainPort,
       port: options.port ?? 0,
       limits: options.limits ?? {},
@@ -533,12 +536,17 @@ export function startBoxWebProxy(
 export interface ReviewWebProxyOptions {
   /** Caps and idle timeout; each one left out takes its `WEB_PROXY_LIMITS` value. */
   readonly limits?: BoxWebProxyOptions["limits"];
+  /**
+   * The box network's host address when a box network exists, else null; read for each check.
+   * The source the web guard reads (`FetchAddressDeps.boxHostAddress`); none by default.
+   */
+  readonly boxHostAddress?: () => string | null;
 }
 
 /**
  * Starts the web proxy of one reviewer session (DIPO-292, file comment): on the loopback interface
- * only, on a port the system picks, with no Safe-Chain behind it and no box network. The caller
- * stops it when the session ends.
+ * only, on a port the system picks, with no Safe-Chain behind it, refusing the box network named by
+ * `options.boxHostAddress`. The caller stops it when the session ends.
  */
 export function startReviewWebProxy(
   deps: BoxWebProxyDeps,
@@ -547,7 +555,7 @@ export function startReviewWebProxy(
   return startWebProxy(
     {
       listenHost: REVIEW_WEB_PROXY_HOST,
-      boxHostAddress: "",
+      boxHostAddress: options.boxHostAddress ?? (() => null),
       safeChainPort: null,
       port: 0,
       limits: options.limits ?? {},
@@ -559,8 +567,8 @@ export function startReviewWebProxy(
 /** Where one listener of the web proxy listens and what its address rule knows. */
 interface WebProxyListener {
   readonly listenHost: string;
-  /** The box network's host address for the address rule; "" when there is none. */
-  readonly boxHostAddress: string;
+  /** The box network's host address for the address rule, read for each check; null: none. */
+  readonly boxHostAddress: () => string | null;
   /** dipo's Safe-Chain proxy for registry tunnels; null: none, a registry is a host like others. */
   readonly safeChainPort: number | null;
   readonly port: number;
@@ -682,7 +690,7 @@ async function startWebProxy(
         if (stopped || client.destroyed) return;
         const context = {
           interfaces: interfaces(),
-          boxHostAddress: options.boxHostAddress,
+          boxHostAddress: options.boxHostAddress() ?? "",
           ...(deps.publicStandIns === undefined ? {} : { publicStandIns: deps.publicStandIns }),
         };
         const verdicts = addresses.map((address) => checkAddress(address, context));

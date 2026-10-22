@@ -30,6 +30,7 @@ import {
   parseTunnelRequest,
   type BoxWebProxyDeps,
   type BoxWebProxyOptions,
+  type ReviewWebProxyOptions,
   type RunningBoxWebProxy,
   startBoxWebProxy,
   startReviewWebProxy,
@@ -343,7 +344,10 @@ interface Transport {
     deps: BoxWebProxyDeps,
   ): Promise<{ proxy: RunningBoxWebProxy; endpoint: Endpoint }>;
   /** Starts a reviewer session's web proxy (DIPO-292) on this transport. */
-  startReview(deps: BoxWebProxyDeps): Promise<{ proxy: RunningBoxWebProxy; endpoint: Endpoint }>;
+  startReview(
+    deps: BoxWebProxyDeps,
+    options?: ReviewWebProxyOptions,
+  ): Promise<{ proxy: RunningBoxWebProxy; endpoint: Endpoint }>;
 }
 
 function tcpListen(server: Server): Promise<number> {
@@ -421,8 +425,8 @@ const TCP: Transport = {
     const proxy = await startBoxWebProxy(options, deps);
     return { proxy, endpoint: proxy.port };
   },
-  async startReview(deps) {
-    const proxy = await startReviewWebProxy(deps);
+  async startReview(deps, options) {
+    const proxy = await startReviewWebProxy(deps, options);
     return { proxy, endpoint: proxy.port };
   },
 };
@@ -446,12 +450,12 @@ const UNIX: Transport = {
     });
     return { proxy, endpoint: path };
   },
-  async startReview(deps) {
+  async startReview(deps, options) {
     const path = socketPath();
-    const proxy = await startReviewWebProxy({
-      ...deps,
-      listen: (server) => unixListen(server, path),
-    });
+    const proxy = await startReviewWebProxy(
+      { ...deps, listen: (server) => unixListen(server, path) },
+      options,
+    );
     return { proxy, endpoint: path };
   },
 };
@@ -987,28 +991,37 @@ async function reviewHarness(
   transport: Transport,
   dns: Record<string, ReadonlyArray<readonly string[]>>,
   routes: Readonly<Record<string, Route>> = {},
+  box: {
+    readonly hostAddress?: () => string | null;
+    readonly interfaces?: readonly HostInterfaceAddress[];
+    readonly standIns?: readonly string[];
+  } = {},
 ): Promise<ReviewHarness> {
   const events: WebProxyEvent[] = [];
   const connects: string[] = [];
   const lookups: string[] = [];
   const web = await webServer(transport, routes);
-  const { proxy, endpoint } = await transport.startReview({
-    clock: new ManualClock(),
-    publicStandIns: ["203.0.113.0/24"],
-    onEvent: (event) => events.push(event),
-    interfaces: () => REVIEW_INTERFACES,
-    resolve: async (host) => {
-      const seen = lookups.filter((name) => name === host).length;
-      lookups.push(host);
-      const answers = dns[host];
-      if (answers === undefined) throw new Error(`${host} does not resolve`);
-      return answers[Math.min(seen, answers.length - 1)] ?? [];
+  const options = box.hostAddress === undefined ? {} : { boxHostAddress: box.hostAddress };
+  const { proxy, endpoint } = await transport.startReview(
+    {
+      clock: new ManualClock(),
+      publicStandIns: box.standIns ?? ["203.0.113.0/24"],
+      onEvent: (event) => events.push(event),
+      interfaces: () => box.interfaces ?? REVIEW_INTERFACES,
+      resolve: async (host) => {
+        const seen = lookups.filter((name) => name === host).length;
+        lookups.push(host);
+        const answers = dns[host];
+        if (answers === undefined) throw new Error(`${host} does not resolve`);
+        return answers[Math.min(seen, answers.length - 1)] ?? [];
+      },
+      connect: (address, port) => {
+        connects.push(`${address}:${port}`);
+        return dial(web);
+      },
     },
-    connect: (address, port) => {
-      connects.push(`${address}:${port}`);
-      return dial(web);
-    },
-  });
+    options,
+  );
   proxies.push(proxy);
   return { proxy, endpoint, events, connects, lookups };
 }
@@ -1173,6 +1186,74 @@ for (const transport of [TCP, UNIX]) {
         );
         expect(plain.text).toStartWith("HTTP/1.1 405 Method Not Allowed\r\n");
         expect(h.connects).toEqual([]);
+      });
+
+      it("refuses a name that resolves to the box network's host address or its prefix", async () => {
+        // The box network as the web guard knows it, read for each check; 198.51.100.0/24 passes
+        // as public here, so only the box network rule refuses it.
+        let boxHost: string | null = "198.51.100.1";
+        const dns = {
+          "box.example": [["198.51.100.1"]],
+          "boxnet.example": [["198.51.100.77"]],
+          "beside.example": [["198.51.100.130"]],
+        };
+        const routes = { "beside.example/": { status: 200 } };
+        const standIns = ["203.0.113.0/24", "198.51.100.0/24"];
+        // Without an interface of the Mac that names the box network: its /24.
+        const h = await reviewHarness(transport, dns, routes, {
+          hostAddress: () => boxHost,
+          standIns,
+        });
+        for (const host of ["box.example", "boxnet.example", "beside.example"]) {
+          expect(await fetchThrough(h.endpoint, `https://${host}/`)).toEqual([
+            { target: `${host}:443`, tunnel: 403 },
+          ]);
+        }
+        expect(refusals(h.events)).toEqual([
+          "box.example resolves to 198.51.100.1 is on the box network",
+          "boxnet.example resolves to 198.51.100.77 is on the box network",
+          "beside.example resolves to 198.51.100.130 is on the box network",
+        ]);
+        // With the box network's interface on the Mac: its own prefix, here a /25.
+        const withInterface = await reviewHarness(transport, dns, routes, {
+          hostAddress: () => boxHost,
+          standIns,
+          interfaces: [...REVIEW_INTERFACES, { address: "198.51.100.1", cidr: "198.51.100.1/25" }],
+        });
+        expect(await fetchThrough(withInterface.endpoint, "https://boxnet.example/")).toEqual([
+          { target: "boxnet.example:443", tunnel: 403 },
+        ]);
+        expect(refusals(withInterface.events)).toEqual([
+          "boxnet.example resolves to 198.51.100.77 is on the box network",
+        ]);
+        // Outside the box network's /25: public here.
+        expect(await fetchThrough(withInterface.endpoint, "https://beside.example/")).toEqual([
+          { target: "beside.example:443", tunnel: 200, status: 200 },
+        ]);
+        // Once no box network exists, the address is no longer the box network's.
+        boxHost = null;
+        expect(await fetchThrough(h.endpoint, "https://beside.example/")).toEqual([
+          { target: "beside.example:443", tunnel: 200, status: 200 },
+        ]);
+      });
+
+      it("without a known box network still refuses the Mac's own addresses and on-link prefixes", async () => {
+        const h = await reviewHarness(
+          transport,
+          { "mac.example": [["192.0.2.10"]], "lan.example": [["192.0.2.20"]] },
+          {},
+          { hostAddress: () => null },
+        );
+        for (const host of ["mac.example", "lan.example"]) {
+          expect(await fetchThrough(h.endpoint, `https://${host}/`)).toEqual([
+            { target: `${host}:443`, tunnel: 403 },
+          ]);
+        }
+        expect(h.connects).toEqual([]);
+        expect(refusals(h.events)).toEqual([
+          "mac.example resolves to 192.0.2.10 is one of the Mac's own addresses",
+          "lan.example resolves to 192.0.2.20 is in an on-link prefix of the Mac (192.0.2.10/25)",
+        ]);
       });
 
       it("sends a registry name direct under the address rule: no Safe-Chain is behind it", async () => {

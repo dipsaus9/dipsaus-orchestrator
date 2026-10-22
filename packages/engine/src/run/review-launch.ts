@@ -35,7 +35,8 @@
 //
 // The reviewer fetches from the Mac, so each session gets a web proxy listener of its own
 // (DIPO-292, `startReviewWebProxy`): the box web proxy's address rule, on the loopback interface
-// only, on a port the system picks. The session's HTTPS_PROXY and HTTP_PROXY name it and its
+// only, on a port the system picks, refusing the box network by the host address the web guard
+// reads (`boxHostAddress`). The session's HTTPS_PROXY and HTTP_PROXY name it and its
 // NO_PROXY names only the model API (`plan`), so every web fetch, and each redirect it follows,
 // is checked at connect time on the address actually used. The web guard's check of the URL before
 // the fetch stays as the first layer. The listener starts before the launch checks and stops with
@@ -71,6 +72,7 @@ import { gitWorkspace } from "../context/workspace";
 import type { OfficeHandle } from "../db/office";
 import type { GitLocation } from "../git/hardened";
 import type { OfficeGit } from "../git/office";
+import { type FetchAddressDeps, SYSTEM_FETCH_ADDRESSES } from "../hooks/web-guard";
 import { EVENTS_FILE } from "../host/protocol";
 import type { IngestAdapter } from "../ingest/ingestor";
 import { ensurePrivateDir } from "../platform/paths";
@@ -481,6 +483,12 @@ export interface ReviewLauncherDeps {
    * loopback interface by default. The launcher stops it when the session ends.
    */
   readonly webProxy?: () => Promise<ReviewWebProxy>;
+  /**
+   * The box network's host address for the default listener's address rule, when a box network
+   * exists: the source the web guard reads (`FetchAddressDeps.boxHostAddress`), its system one by
+   * default.
+   */
+  readonly boxHostAddress?: FetchAddressDeps["boxHostAddress"];
   /** The backstop snapshot of the worktree before the review; without it no backstop runs. */
   readonly snapshot?: (office: OfficeId, worktree: string) => Promise<BackstopSnapshot>;
   readonly onChanged?: (office: OfficeId) => void;
@@ -590,7 +598,10 @@ export class ReviewLauncher implements ReviewSessions {
     // The session's own web proxy (DIPO-292): no reviewer runs without it.
     let proxy: ReviewWebProxy;
     try {
-      proxy = await (deps.webProxy ?? (() => startReviewWebProxy({ clock: deps.clock })))();
+      const boxHostAddress = deps.boxHostAddress ?? SYSTEM_FETCH_ADDRESSES.boxHostAddress;
+      proxy = await (
+        deps.webProxy ?? (() => startReviewWebProxy({ clock: deps.clock }, { boxHostAddress }))
+      )();
     } catch (error) {
       await removeReviewFolder(copy.root).catch(() => undefined);
       return {
