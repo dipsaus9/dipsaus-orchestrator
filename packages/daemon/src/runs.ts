@@ -112,7 +112,6 @@ import {
   type StateDatabase,
   type StoryClaims,
   type StoryIndex,
-  systemDiskProbe,
   systemHostStarter,
   signalProcess,
   startTierOf,
@@ -928,7 +927,7 @@ export function daemonRuns(options: DaemonRunsOptions): DaemonRuns {
       holds: options.holds,
       ...(options.notify === undefined ? {} : { notify: options.notify }),
     },
-    // DIPO-39's worktree setup of a claimed story, before its worker starts.
+    // DIPO-39's worktree setup of a claimed story (slot, run environment, files), before its box.
     setup: async (office, claim) => {
       const handle = options.offices.get(office);
       const config = options.offices.config(office);
@@ -944,19 +943,10 @@ export function daemonRuns(options: DaemonRunsOptions): DaemonRuns {
           git,
           clock,
           onChanged: options.onChanged,
-          disk: systemDiskProbe,
           slots: options.slots,
-          runStep,
           localSettings: worker.localSettings,
-          warn: (message, fields) => options.logger.warn(message, { office, ...fields }),
-          debug: (message, fields) => options.logger.debug(message, { office, ...fields }),
         },
-        {
-          claim,
-          config,
-          profile: currentProfile(handle)?.profile ?? null,
-          host: { home, uid, env },
-        },
+        { claim, config, profile: currentProfile(handle)?.profile ?? null },
       );
     },
     // Re-attach after a restart (DIPO-57): every active run's newest worker host is followed again.
