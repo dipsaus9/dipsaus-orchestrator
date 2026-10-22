@@ -4,7 +4,7 @@ title: Carry proposed decision-record notes in the worker report as data
 status: Refined
 assignee: []
 created_date: '2026-10-17 20:30'
-updated_date: '2026-10-22 08:32'
+updated_date: '2026-10-22 14:26'
 labels:
   - 'tier:M'
   - cutover
@@ -18,6 +18,7 @@ dependencies:
   - DIPO-292
   - DIPO-293
   - DIPO-294
+  - DIPO-305
 references:
   - packages/engine/src/workers/claude-cli/report-schema.ts
   - packages/engine/src/workers/types.ts

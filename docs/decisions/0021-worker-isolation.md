@@ -397,3 +397,8 @@ Checked against the open stories on 2026-10-21. Each story is re-read before it 
     - the verify in section 1 step 1 and section 8's local verify cap no longer apply;
     - section 7's wait for checks the host has not reported does not hold an office without CI (DIPO-299).
   - Mac runs keep their verify until DIPO-280 removes them.
+- 2026-10-22, DIPO-275 (maintainer): maintainer decision 2. **The box design holds; the hold on runs is lifted for box runs.**
+  - The first box run (DIPO-248) parked verify-failing on the missing git program, which led to the verify redesign of the same day (amendment above).
+  - The retest ran DIPO-300 and DIPO-122 end to end. The image, first built through the build proxy in about four minutes, was reused. dipo installed the packages in the box in 5 to 8 seconds. Each worker ran verify itself and did not try to install git. dipo committed each part from git objects and ran no verify of its own. The reviewer approved with read-only tools and nothing loaded from its copy. dipo opened the story PR itself (DIPO-122), and CI ran the full suite green on both.
+  - The maintainer lifts the hold of 2026-10-21 for box runs: runs start with `--box` only, one at a time. The Mac-sandbox worker path stays unused until DIPO-280 removes it.
+  - Still open from DIPO-275: the package cache fill (DIPO-295) and a live probe of a refused read outside the reviewer's copy. The gaps of the retest are DIPO-301 to DIPO-307.

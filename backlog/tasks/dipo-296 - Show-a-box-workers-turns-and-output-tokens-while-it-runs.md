@@ -4,7 +4,7 @@ title: Show a box worker's turns and output tokens while it runs
 status: To Do
 assignee: []
 created_date: '2026-10-22 08:30'
-updated_date: '2026-10-22 08:33'
+updated_date: '2026-10-22 14:26'
 labels:
   - 'tier:S'
   - box
