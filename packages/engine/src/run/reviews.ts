@@ -74,6 +74,7 @@ import {
 import { PARK_CAUSES } from "./park";
 import { claimPlace, type PlaceStart, START_KINDS, waitForPlace } from "./places";
 import { appendRunStep, DONE_END, findRun, type StoredRun } from "./records";
+import { latestDoneReport } from "./report-data";
 import type { RunStoryFacts } from "./resume";
 import type { ReviewGit, ReviewSessions } from "./review-launch";
 import {
@@ -271,6 +272,8 @@ export class Reviews {
       const { diff, changes } = await this.#deps.git.diff(officeId, run.worktree, base, head);
       const size = await this.#deps.git.sizeClass(officeId, run.worktree);
       const previous = this.#lastVerdict(office, run.runId);
+      // The worker's test-plan statuses and deviations of its last done report (DIPO-254).
+      const done = latestDoneReport(office, run.runId);
       taskMessage = assembleReviewTaskMessage({
         story: promptStoryOf(facts.view, {
           dependencies: facts.dependencies,
@@ -285,6 +288,9 @@ export class Reviews {
         ...(previous === null
           ? {}
           : { previousFindings: previous.findings as readonly ReviewFinding[] }),
+        ...(done === null
+          ? {}
+          : { workerReport: { testPlan: done.testPlan, deviations: done.deviations } }),
         diffBudget: config.prompt.budgets.diff[size],
         contractMax: config.prompt.contractMax,
       }).text;

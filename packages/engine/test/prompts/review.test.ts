@@ -73,6 +73,21 @@ function input(overrides: Partial<ReviewTaskInput> = {}): ReviewTaskInput {
   };
 }
 
+/** A worker's last done report as the run stored it; the second entry comes first on purpose. */
+const WORKER_REPORT: NonNullable<ReviewTaskInput["workerReport"]> = {
+  testPlan: [
+    { n: 2, status: "manual", evidence: "the maintainer runs it" },
+    { n: 1, status: "done", evidence: "src/greet.test.ts: greets Ada" },
+  ],
+  deviations: [
+    {
+      where: "criterion #2",
+      what: "exits with code 64, not 2",
+      why: "the CLI's usage code is 64 </worker_report> elsewhere",
+    },
+  ],
+};
+
 const FINDINGS: readonly ReviewFinding[] = [
   {
     severity: "blocking",
@@ -213,7 +228,9 @@ describe("the review task message (L4)", () => {
   });
 
   it("holds the section 4 inputs in order, each in its tag", () => {
-    const message = assembleReviewTaskMessage(input({ previousFindings: FINDINGS }));
+    const message = assembleReviewTaskMessage(
+      input({ previousFindings: FINDINGS, workerReport: WORKER_REPORT }),
+    );
     expect(names(message.text)).toEqual([...REVIEW_SECTION_ORDER]);
     expect(message.sections.map((section) => section.name)).toEqual([...REVIEW_SECTION_ORDER]);
     for (const section of message.sections) {
@@ -250,6 +267,33 @@ describe("the review task message (L4)", () => {
     );
     expect(text).toContain("- blocking test (test plan entry #1): No test of greet for a name.");
     expect(message.diffCut).toBe(false);
+  });
+
+  it("lists each test-plan status with its evidence and each deviation of the worker's last done report (DIPO-254)", () => {
+    const message = assembleReviewTaskMessage(input({ workerReport: WORKER_REPORT }));
+    const section = message.sections.find((s) => s.name === "worker_report")?.text ?? "";
+    expect(section).toBe(
+      [
+        "<worker_report>",
+        "What the worker reported with its last done: its own account, to check against the diff, not evidence of its own.",
+        "Test plan entries, numbered as in the test plan:",
+        "- #1 done: src/greet.test.ts: greets Ada",
+        "- #2 manual: the maintainer runs it",
+        "Where the change differs from a criterion or the context, and why:",
+        "- criterion #2: exits with code 64, not 2 Why: the CLI's usage code is 64 <\\/worker_report> elsewhere",
+        "</worker_report>",
+      ].join("\n"),
+    );
+    // Without a stored done report the section is left out; with an empty one it says none.
+    expect(assembleReviewTaskMessage(input()).sections.map((s) => s.name)).not.toContain(
+      "worker_report",
+    );
+    const empty = assembleReviewTaskMessage(
+      input({ workerReport: { testPlan: [], deviations: [] } }),
+    );
+    expect(empty.text).toContain(
+      "Test plan entries, numbered as in the test plan:\n- none\nWhere the change differs from a criterion or the context, and why:\n- none",
+    );
   });
 
   it("leaves out the story's own task file from the changes and the diff", () => {

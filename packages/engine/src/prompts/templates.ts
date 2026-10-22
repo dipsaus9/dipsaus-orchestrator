@@ -168,6 +168,7 @@ export const PROMPT_TAGS: readonly string[] = [
   "diff",
   "gate_changes",
   "previous_findings",
+  "worker_report",
 ];
 
 // Whitespace around the slash is allowed, so `</ criteria>` and `< /criteria>` are caught too.
