@@ -63,7 +63,7 @@ import {
   readBoxRun,
 } from "../../src/box/workers";
 import { DIPO_PART_PATH } from "../../src/box/door";
-import { BoxParts } from "../../src/box/parts";
+import { BoxParts, type BoxPartsDeps } from "../../src/box/parts";
 import { OfficeGit, spawnGitExec } from "../../src/git";
 import { systemClock } from "../../src/platform/clock";
 import { systemSpawn } from "../../src/platform/process";
@@ -856,6 +856,7 @@ async function treeWorld(
   repo: TempRepo,
   tmp: string,
   install: (work: string) => void,
+  limits?: BoxPartsDeps["limits"],
 ): Promise<World> {
   let parts: BoxParts | null = null;
   let boxes: FakeBoxes | null = null;
@@ -881,6 +882,7 @@ async function treeWorld(
     git: () => w.git,
     listedFiles: async () => LISTED.map((file) => file.path),
     live: () => true,
+    ...(limits === undefined ? {} : { limits }),
   });
   return w;
 }
@@ -918,6 +920,41 @@ describe("the check of /work after the install (DIPO-294)", () => {
         kind: "changed",
         paths: ["README.md", "bun.lock", "src/greet.ts"],
       });
+    }));
+
+  it("counts a symlink the install wrote outside the ignored paths as a change", () =>
+    inBoxes(async (repo, tmp) => {
+      const w = await treeWorld(repo, tmp, (work) => {
+        symlinkSync("greet.ts", join(work, "src", "alias.ts"));
+        // One in an ignored folder is not a change.
+        mkdirSync(join(work, "node_modules", ".bin"), { recursive: true });
+        symlinkSync("../left-pad/cli.js", join(work, "node_modules", ".bin", "left-pad"));
+      });
+      await created(w);
+      expect(await installIn(w)).toEqual({ ok: true });
+      expect(await w.workers.changedSinceStart({ ...TREE_FACTS, startSha: w.commit })).toEqual({
+        kind: "changed",
+        paths: ["src/alias.ts"],
+      });
+    }));
+
+  it("is not known, with the cap named and no path, when the archive of /work passes its cap", () =>
+    inBoxes(async (repo, tmp) => {
+      const w = await treeWorld(
+        repo,
+        tmp,
+        (work) => writeFileSync(join(work, "vendor.bin"), "x".repeat(64 * 1024)),
+        { maxArchiveBytes: 16 * 1024, maxEntries: 1000, maxTotalBytes: 1024 * 1024 },
+      );
+      await created(w);
+      expect(await installIn(w)).toEqual({ ok: true });
+      const check = await w.workers.changedSinceStart({ ...TREE_FACTS, startSha: w.commit });
+      expect(check).toEqual({
+        kind: "unknown",
+        reason:
+          "the archive of the box's /work passed 16384 bytes; files git should ignore (such as node_modules) may be missing from .gitignore",
+      });
+      expect(JSON.stringify(check)).not.toContain("vendor.bin");
     }));
 
   it("compares with the start commit, not with a branch tip", () =>

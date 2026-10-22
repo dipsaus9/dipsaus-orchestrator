@@ -904,6 +904,25 @@ export type StartTreeCheck =
   | { readonly kind: "changed"; readonly paths: readonly string[] }
   | { readonly kind: "unknown"; readonly reason: string };
 
+/**
+ * Why dipo could not take the box's `/work` to compare it with the start commit, by the kind of
+ * refusal, with no path from the box in it (`BoxParts.changedSinceStart`).
+ */
+export function startTreeRefusal(why: PartRefusal, maxBytes: number): string {
+  switch (why) {
+    case "cap":
+      return `the archive of the box's /work passed ${maxBytes} bytes; files git should ignore (such as node_modules) may be missing from .gitignore`;
+    case "archive":
+      return "the archive of the box's /work holds an entry dipo does not take";
+    case "ignoreFile":
+      return `the box's /work holds a .gitignore larger than ${IGNORE_FILE_MAX} bytes, which dipo does not read`;
+    case "ignoreWork":
+      return "the box's /work has more paths and ignore rules than dipo matches at once";
+    default:
+      return `dipo refused the archive of the box's /work (${why})`;
+  }
+}
+
 /** What delivering one part did. */
 export type PartOutcome =
   | {
@@ -1167,7 +1186,13 @@ export class BoxParts {
       return await this.#inStage(async (stage): Promise<StartTreeCheck> => {
         const taken = await this.#take(run, view, listed, stage);
         if (taken.kind !== "taken") {
-          return { kind: "unknown", reason: "dipo refused the archive of the box's /work" };
+          return {
+            kind: "unknown",
+            reason: startTreeRefusal(
+              taken.why,
+              (this.#deps.limits ?? PART_ARCHIVE_LIMITS).maxArchiveBytes,
+            ),
+          };
         }
         const paths = [...taken.changes.map((change) => change.path), ...taken.linkHits];
         return paths.length === 0
@@ -1272,11 +1297,12 @@ export class BoxParts {
     stage: string,
   ): Promise<
     | { readonly kind: "taken"; readonly changes: PartChange[]; readonly linkHits: string[] }
-    | { readonly kind: "refused"; readonly outcome: PartOutcome }
+    | { readonly kind: "refused"; readonly why: PartRefusal; readonly outcome: PartOutcome }
   > {
     const limits = this.#deps.limits ?? PART_ARCHIVE_LIMITS;
     const refused = (why: PartRefusal) => ({
       kind: "refused" as const,
+      why,
       outcome: { kind: "refused" as const, detail: refusedDetail(why, limits.maxArchiveBytes) },
     });
     const viewRules = new IgnoreRules(view.ignores);
