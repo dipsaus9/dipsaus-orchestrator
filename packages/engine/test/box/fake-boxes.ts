@@ -80,6 +80,8 @@ export interface FakeBoxesOptions {
   readonly envText?: string;
   /** The bytes the host-made export holds. */
   readonly exportText?: string;
+  /** Fails `create` with this error when the spec mounts a package cache (DIPO-295). */
+  readonly cacheMountFails?: Error;
   /** Fails `start` with this error. */
   readonly startFails?: Error;
   /**
@@ -185,6 +187,9 @@ export class FakeBoxes implements BoxPort {
   async create(spec: BoxSpec): Promise<string> {
     const name = boxName(spec.runId);
     this.log.push(`create ${name}`);
+    if (spec.packageCache !== undefined && this.#options.cacheMountFails !== undefined) {
+      throw this.#options.cacheMountFails;
+    }
     this.boxes.set(name, {
       name,
       runId: spec.runId,

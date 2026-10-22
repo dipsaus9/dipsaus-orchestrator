@@ -14,7 +14,8 @@
 //   box. Two runs of one office that need the same fill share it. The box mounts the generation
 //   read-only. A fill that fails or times out, or a lockfile the cache does not support, never
 //   stops the run: the box is made without a cache and `create` returns the reason, which the
-//   launch shows in a notice. The full error goes to the daemon's log only.
+//   launch shows in a notice, also when the backend refuses to make the box with the mount. The
+//   full error goes to the daemon's log only.
 // - `session` (each developer session): the box running again, dipo's web route and model proxy
 //   for the box network (both started only once a box on it runs, because the network's address
 //   exists on the Mac only then), and dipo's files copied to `BOX_DIPO_DIR`: the system file and
@@ -426,7 +427,7 @@ export class BoxWorkers {
     );
     const network = await this.#networkOf();
     const name = boxName(input.runId);
-    const cache = await this.#packageCache(input.office, input.runId, input.git, {
+    let cache = await this.#packageCache(input.office, input.runId, input.git, {
       tag: image.tag,
       toolchain: base.description.image.toolchain,
     });
@@ -439,12 +440,28 @@ export class BoxWorkers {
     ensurePrivateDir(this.#index);
     writeJson(this.#indexFile(input.runId), { runDir: input.runDir });
     try {
-      await boxes.create({
-        runId: input.runId,
-        image: image.tag,
-        network,
-        ...(cache.kind === "mounted" ? { packageCache: cache.path } : {}),
-      });
+      const spec = { runId: input.runId, image: image.tag, network };
+      if (cache.kind === "mounted") {
+        try {
+          await boxes.create({ ...spec, packageCache: cache.path });
+        } catch (error) {
+          // The mount is the only part a box without a cache lacks; the run goes on without it.
+          const code = codeOf(error);
+          this.#deps.warn?.("the box could not be made with the package cache mounted", {
+            run: input.runId,
+            code,
+            message: messageOf(error),
+          });
+          await boxes.delete(name).catch(() => undefined);
+          cache = {
+            kind: "skipped",
+            reason: `the box could not be made with the package cache mounted (${code})`,
+          };
+          await boxes.create(spec);
+        }
+      } else {
+        await boxes.create(spec);
+      }
       await boxes.start(name);
       const staged = await stageBoxCode(this.#deps.code, {
         git: input.git,

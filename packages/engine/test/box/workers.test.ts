@@ -1101,6 +1101,7 @@ async function cacheWorld(
     readonly storyInstall?: (env: Readonly<Record<string, string>>) => number;
     readonly committed?: Readonly<Record<string, string>>;
     readonly cache?: Partial<BoxPackageCacheDeps>;
+    readonly boxes?: Pick<FakeBoxesOptions, "cacheMountFails">;
   } = {},
 ) {
   const scripts = fillScripts(
@@ -1110,7 +1111,7 @@ async function cacheWorld(
   );
   const root = join(tmp, "state", PACKAGE_CACHE_DIR, OFFICE);
   const w = await world(repo, tmp, {
-    boxes: { exec: scripts.exec, live: scripts.live, files: scripts.files },
+    boxes: { ...options.boxes, exec: scripts.exec, live: scripts.live, files: scripts.files },
     image: BUN_IMAGE,
     committed: options.committed ?? BUN_PROJECT,
     packageCache: {
@@ -1238,6 +1239,25 @@ describe("the package cache of a box run (DIPO-295)", () => {
       );
       expect(w.log.filter((line) => line.includes("dipo-fill-"))).toEqual([]);
       expect(w.boxes.boxes.get(BOX)?.spec.packageCache).toBeUndefined();
+    }));
+
+  it("makes the box again without the cache when the backend refuses the mount", () =>
+    inBoxes(async (repo, tmp) => {
+      const { w } = await cacheWorld(repo, tmp, {
+        boxes: { cacheMountFails: new BoxError("box.failed", "the mount source is not valid") },
+      });
+      const made = await created(w);
+      expect(made.cache).toEqual({
+        kind: "skipped",
+        reason: "the box could not be made with the package cache mounted (box.failed)",
+      });
+      expect(w.log.filter((line) => line === `create ${BOX}`)).toHaveLength(2);
+      expect(w.boxes.boxes.get(BOX)?.spec.packageCache).toBeUndefined();
+      expect(w.boxes.boxes.get(BOX)?.state).toBe("running");
+      // The install then runs without the cache's variables.
+      expect(await installIn(w)).toEqual({ ok: true });
+      const env = w.boxes.liveExecs.filter((exec) => exec.box === BOX)[0]?.env ?? {};
+      expect(env["BUN_INSTALL_CACHE_DIR"]).toBeUndefined();
     }));
 
   it("lets the install take the cached packages, offline first, for that install only", () =>
