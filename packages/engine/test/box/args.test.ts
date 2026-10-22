@@ -376,6 +376,18 @@ describe("the Apple container argument builder", () => {
     ).toHaveLength(1);
   });
 
+  it("keeps a package cache path with a space whole in its one --mount element (DIPO-295)", () => {
+    // dipo's state folder on macOS lies under a folder name with a space.
+    const packageCache = "/Users/someone/Library/Application Support/dipo/package-cache/off_1/key";
+    const args = createArgs({ ...VALID, packageCache });
+    expect(mounts(readFlags(args, SHAPES["createArgs"]!))).toEqual([
+      `type=bind,source=${packageCache},target=${BOX_PACKAGE_CACHE_PATH},readonly`,
+    ]);
+    expect(args).toContain(
+      `type=bind,source=${packageCache},target=${BOX_PACKAGE_CACHE_PATH},readonly`,
+    );
+  });
+
   it("refuses inputs that could be read as an option of container", () => {
     for (const image of ["--ssh", "-v", " alpine", "alpine latest", ""]) {
       refused(() => createArgs({ ...VALID, image }));

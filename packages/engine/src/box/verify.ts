@@ -360,6 +360,8 @@ export type BoxInstallResult =
       readonly output: string;
       /** Set when the command passed the deadline: how it was ended in the box. */
       readonly ended: BoxCommandEnd | null;
+      /** True when the box was found stopped after the command failed. */
+      readonly boxStopped?: true;
     };
 
 async function boxRuns(deps: BoxInstallDeps, box: string): Promise<boolean> {
@@ -430,6 +432,7 @@ export async function runBoxInstall(
           : `the install (${shown}) ${how} in the box`,
         output,
         ended: null,
+        ...(stopped ? { boxStopped: true as const } : {}),
       };
     }
   }

@@ -75,8 +75,10 @@ export type {
   BoxState,
 } from "./port";
 export {
+  boxCacheEnv,
   boxCacheInstall,
   CACHE_LOCKFILES,
+  cacheSkipReason,
   checkCopiedTree,
   createBoxWithPackageCache,
   ensurePackageCache,
@@ -86,7 +88,9 @@ export {
   fillInstall,
   lockfileHash,
   managerVersion,
+  officePackageCacheRoot,
   PACKAGE_CACHE_COPY_TIMEOUT_MS,
+  PACKAGE_CACHE_DIR,
   PACKAGE_CACHE_FILL_TIMEOUT_MS,
   PACKAGE_CACHE_FORMAT,
   PACKAGE_CACHE_MAX_MANIFESTS,
@@ -251,7 +255,16 @@ export {
   BoxWorkers,
   readBoxRun,
 } from "./workers";
-export type { BoxFinish, BoxRunRecord, BoxSession, BoxWorkersDeps } from "./workers";
+export type {
+  BoxCacheUse,
+  BoxFinish,
+  BoxMade,
+  BoxPackageCacheDeps,
+  BoxRunRecord,
+  BoxSession,
+  BoxWorkerInstall,
+  BoxWorkersDeps,
+} from "./workers";
 export {
   BoxWebRoute,
   checkAddress,
