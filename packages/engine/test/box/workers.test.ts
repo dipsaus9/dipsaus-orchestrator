@@ -16,7 +16,9 @@
 // - the package cache (DIPO-295): filled in a fill box through the web route, or reused without
 //   one, and mounted read-only; a failed or timed-out fill and an unsupported lockfile make the box
 //   without a cache and say why; two runs share one fill; the install takes the cached packages,
-//   and runs again without them when that fails.
+//   and runs again without them when that fails;
+// - two passes over the ended runs at once finish and report each run once (DIPO-307), and at
+//   daemon start the fill boxes a stopped daemon left are deleted, never one that fills now.
 
 import {
   existsSync,
@@ -42,6 +44,7 @@ import {
   withTempRepo,
 } from "@dipsaus-orchestrator/testkit";
 
+import { dipoBoxes } from "../../src/box/apple-container";
 import { CODE_STAGE_PREFIX, filtersOffConfig } from "../../src/box/code";
 import { BASE_CHECKOUT_CONFIG } from "../../src/git/hardened";
 import type { GitSession } from "../../src/git/office";
@@ -533,6 +536,31 @@ describe("the end of a box run (criterion 9)", () => {
       expect(hold?.detail).toContain("(token.missing)");
       expect(w.boxes.boxes.has(BOX)).toBe(true);
       expect(w.workers.pending()).toEqual([RUN]);
+    }));
+
+  it("finishes and reports each ended run once when two passes run together (DIPO-307)", () =>
+    inBoxes(async (repo, tmp) => {
+      const w = await world(repo, tmp);
+      await created(w);
+      w.log.length = 0;
+      // An exit decision and the end of its ingestion both ask at once.
+      const [first, second] = await Promise.all([
+        w.workers.finishEnded((runId) => runId === RUN),
+        w.workers.finishEnded((runId) => runId === RUN),
+      ]);
+      expect(first).toEqual([RUN]);
+      expect(second).toEqual([]);
+      expect(w.log.filter((line) => line === `delete ${BOX}`)).toHaveLength(1);
+      expect(w.workers.pending()).toEqual([]);
+    }));
+
+  it("does not report a run whose finish failed as finished; the next pass tries it again", () =>
+    inBoxes(async (repo, tmp) => {
+      const w = await world(repo, tmp, { modelFails: true });
+      await created(w);
+      expect(await w.workers.finishEnded((runId) => runId === RUN)).toEqual([]);
+      expect(w.workers.pending()).toEqual([RUN]);
+      expect(w.boxes.boxes.has(BOX)).toBe(true);
     }));
 
   it("starts a stopped box for the check, which reads the running box's environment", () =>
@@ -1152,6 +1180,55 @@ describe("the package cache of a box run (DIPO-295)", () => {
       expect(mounted?.startsWith(`${realpathSync(root)}/`)).toBe(true);
       expect(readdirSync(join(mounted!, "bun"))).toEqual(["is-number@7.0.0@@@1"]);
       expect(w.workers.routeUsers.web).toEqual([]);
+    }));
+
+  it("deletes at daemon start only the fill boxes a stopped daemon left, never one that fills now", () =>
+    inBoxes(async (repo, tmp) => {
+      // A fill of this daemon that is still running when the daemon-start pass lists the boxes.
+      let release!: () => void;
+      const gate = new Promise<void>((resolve) => {
+        release = resolve;
+      });
+      let made!: () => void;
+      const filling = new Promise<void>((resolve) => {
+        made = resolve;
+      });
+      const { w } = await cacheWorld(repo, tmp, {
+        cache: {
+          ensure: async (request) => {
+            const runId = `fill-${request.fillId?.() ?? "x"}`;
+            await request.boxes.create({
+              runId,
+              image: request.image.tag,
+              network: await request.boxes.network(),
+            });
+            made();
+            await gate;
+            await request.boxes.delete(boxName(runId));
+            throw new BoxError("box.cacheFillFailed", "the fill stopped here");
+          },
+        },
+      });
+      // A stopped daemon left a fill box mid-fill, and a run of another office still goes.
+      const network = await w.boxes.network();
+      await w.boxes.create({ runId: "fill-left0", image: "dipo-box:x", network });
+      await w.boxes.create({ runId: RUN_2, image: "dipo-box:x", network });
+      // The first box run of this state folder: its index folder exists before the fill.
+      const making = created(w);
+      await filling;
+      expect(existsSync(w.indexDir)).toBe(true);
+      w.log.length = 0;
+      expect(await w.workers.finishEnded(() => false, { listBoxes: true })).toEqual([]);
+      expect(w.log).toEqual(["list", `delete ${boxName("fill-left0")}`]);
+      expect(w.boxes.boxes.has(FILL)).toBe(true);
+      expect(w.boxes.boxes.has(boxName(RUN_2))).toBe(true);
+      release();
+      expect((await making).cache.kind).toBe("skipped");
+      expect(w.boxes.boxes.has(FILL)).toBe(false);
+      // Only dipo's own boxes are listed: a box named like a fill box without dipo's label is not.
+      expect(
+        dipoBoxes([{ configuration: { id: "dipo-fill-other", labels: {} }, status: {} }]),
+      ).toEqual([]);
     }));
 
   it("reuses the filled cache for the next box without a fill box", () =>

@@ -28,7 +28,12 @@
 //   released. `discard` deletes a box whose worker never ran, without the check.
 // - `finishEnded` finishes the box of every run that has ended (after an exit, at daemon start;
 //   at daemon start also every dipo box the backend lists), and `close` stops every box at daemon
-//   stop, which ends the worker inside it.
+//   stop, which ends the worker inside it. Its passes run one after another, so two callers at
+//   once (an exit decision and the end of its ingestion) finish and report each run once
+//   (DIPO-307); a run whose finish failed is not reported as finished. At daemon start it also
+//   deletes the fill boxes (`dipo-fill-*`) a stopped daemon left during a fill, never one this
+//   daemon fills now; the index folder is made before the first fill, so the backend is asked
+//   after a crash in the first box run's fill too.
 // - Before the worker's first session (the launch, after `create`; DIPO-294): `install` runs the
 //   office's install in the box at the start commit with the box's web route and the Safe-Chain CA
 //   bundle, as a session gets them (`runBoxInstall`); with a mounted cache first with
@@ -42,6 +47,7 @@
 // box not yet finished, so a daemon after a restart finds them, and a daemon that never ran a box
 // never calls the backend for `finishEnded` or `close`. Nothing here names a worker CLI.
 
+import { randomUUID } from "node:crypto";
 import { copyFile, mkdtemp, rm } from "node:fs/promises";
 import { existsSync, readdirSync, readFileSync, renameSync, rmSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
@@ -58,6 +64,7 @@ import {
   type CacheManager,
   cacheSkipReason,
   ensurePackageCache,
+  FILL_BOX_RUN_PREFIX,
   type PackageCache,
   type PackageCacheRequest,
   readBaseLockfile,
@@ -208,7 +215,7 @@ export interface BoxWorkersDeps {
    * hands each part to `onPart` (DIPO-273 delivers it). Without it no queue is read; `dipo-part` is
    * installed in every box either way.
    */
-  readonly door?: Pick<BoxDoorDeps, "onPart" | "onRefused" | "pollMs">;
+  readonly door?: Pick<BoxDoorDeps, "onPart" | "onRefused" | "pollMs" | "live">;
   /**
    * Compares a box's `/work` with the start commit on dipo's own copy
    * (`BoxParts.changedSinceStart`, DIPO-294), for the check after the install; without it that
@@ -277,6 +284,10 @@ export class BoxWorkers {
   readonly #door: BoxDoor | null;
   /** The manager of the cache each box `create` mounted, by run id, for its install. */
   readonly #cached = new Map<string, CacheManager>();
+  /** The fill boxes of the package cache fills in flight here, by name. */
+  readonly #filling = new Set<string>();
+  /** The `finishEnded` pass that runs or ran last; the next waits for it. */
+  #pass: Promise<unknown> = Promise.resolve();
 
   constructor(deps: BoxWorkersDeps) {
     this.#deps = deps;
@@ -358,6 +369,14 @@ export class BoxWorkers {
   ): Promise<BoxCacheUse> {
     const deps = this.#deps.packageCache;
     if (deps === undefined) return { kind: "off" };
+    // The fill box's name is known here, so the sweep at daemon start leaves it alone.
+    let filling: string | null = null;
+    const fillId = (): string => {
+      const id = deps.fillId?.() ?? randomUUID().replaceAll("-", "").slice(0, 16);
+      filling = boxName(`${FILL_BOX_RUN_PREFIX}${id}`);
+      this.#filling.add(filling);
+      return id;
+    };
     try {
       const source = await (deps.readSource ?? readBaseLockfile)(git);
       const cache = await (deps.ensure ?? ensurePackageCache)({
@@ -372,7 +391,7 @@ export class BoxWorkers {
         },
         clock: this.#deps.code.clock,
         ...(deps.timeoutMs === undefined ? {} : { timeoutMs: deps.timeoutMs }),
-        ...(deps.fillId === undefined ? {} : { fillId: deps.fillId }),
+        fillId,
         onEvent: (event) =>
           this.#deps.warn?.("a fill box was not cleaned up", {
             run: runId,
@@ -396,6 +415,8 @@ export class BoxWorkers {
         message: messageOf(error),
       });
       return { kind: "skipped", reason };
+    } finally {
+      if (filling !== null) this.#filling.delete(filling);
     }
   }
 
@@ -427,6 +448,8 @@ export class BoxWorkers {
     );
     const network = await this.#networkOf();
     const name = boxName(input.runId);
+    // Before the fill: a daemon that crashes in the first fill asks the backend at its next start.
+    ensurePrivateDir(this.#index);
     let cache = await this.#packageCache(input.office, input.runId, input.git, {
       tag: image.tag,
       toolchain: base.description.image.toolchain,
@@ -437,7 +460,6 @@ export class BoxWorkers {
       office: input.office,
       box: name,
     } satisfies BoxRunRecord);
-    ensurePrivateDir(this.#index);
     writeJson(this.#indexFile(input.runId), { runDir: input.runDir });
     try {
       const spec = { runId: input.runId, image: image.tag, network };
@@ -814,29 +836,62 @@ export class BoxWorkers {
   /**
    * Finishes the box of every indexed run that has ended: `ended` says true for a run that ended
    * with its worker hosts exited, false for one still going, null for a run no loaded office knows
-   * (left alone). Never rejects; resolves to the run ids it finished.
+   * (left alone). With `listBoxes` (daemon start) also every box the backend lists, and the fill
+   * boxes a stopped daemon left are deleted. A pass waits for the one before it, so each run is
+   * finished and reported by one pass. Never rejects; resolves to the run ids it finished, without
+   * those whose finish failed (they stay in the index for the next pass).
    */
-  async finishEnded(
+  finishEnded(
     ended: (runId: string) => boolean | null,
     options: { readonly listBoxes?: boolean } = {},
+  ): Promise<string[]> {
+    const pass = this.#pass.then(() => this.#finishEndedPass(ended, options));
+    this.#pass = pass.catch(() => undefined);
+    return pass;
+  }
+
+  async #finishEndedPass(
+    ended: (runId: string) => boolean | null,
+    options: { readonly listBoxes?: boolean },
   ): Promise<string[]> {
     const runs = new Set(this.pending());
     // The second layer (daemon start): every dipo box the backend lists, in case the index lost
     // one. Only where boxes ran before, so a daemon that never made a box never calls the backend.
     if (options.listBoxes === true && existsSync(this.#index)) {
+      const fills: string[] = [];
       try {
-        for (const box of await this.#deps.boxes.list()) runs.add(box.runId);
+        for (const box of await this.#deps.boxes.list()) {
+          if (box.runId.startsWith(FILL_BOX_RUN_PREFIX)) fills.push(box.name);
+          else runs.add(box.runId);
+        }
       } catch (error) {
         this.#deps.warn?.("listing the boxes failed", { reason: messageOf(error) });
       }
+      await this.#deleteLeftFills(fills);
     }
     const finished: string[] = [];
     for (const runId of runs) {
       if (ended(runId) !== true) continue;
-      await this.finish(runId);
-      finished.push(runId);
+      const outcome = await this.finish(runId);
+      if (outcome.kind !== "failed") finished.push(runId);
     }
     return finished;
+  }
+
+  /** Deletes the listed fill boxes no fill here uses: a stopped daemon left them mid-fill. */
+  async #deleteLeftFills(fills: readonly string[]): Promise<void> {
+    for (const name of fills) {
+      if (this.#filling.has(name)) continue;
+      try {
+        await this.#deps.boxes.delete(name);
+        this.#deps.info?.("deleted a fill box a stopped daemon left", { box: name });
+      } catch (error) {
+        this.#deps.warn?.("deleting a fill box a stopped daemon left failed", {
+          box: name,
+          reason: messageOf(error),
+        });
+      }
+    }
   }
 
   /**
