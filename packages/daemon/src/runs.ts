@@ -443,9 +443,9 @@ function daemonBoxWorkers(
   const delivery = new BoxParts({
     boxes,
     clock,
-    tmpRoot,
-    // This daemon's own folder of part stages, so a daemon start sweeps only its own (DIPO-290).
-    stageRoot: partStageRoot(tmpRoot, options.stateDir),
+    // This daemon's own folder of part stages, in its state folder, so no other daemon or user
+    // shares it and a daemon start sweeps only its own (DIPO-290).
+    stageRoot: partStageRoot(options.stateDir),
     ...(uid >= 0 ? { uid } : {}),
     ...parts,
     git: (office) => options.engineGit.forOffice(office),
@@ -601,11 +601,7 @@ export function daemonRuns(options: DaemonRunsOptions): DaemonRuns {
   );
   const boxWorkers = boxed?.workers ?? null;
   void sweepBoxTokenChecks(realDir(options.tmpRoot), options.logger).catch(() => {});
-  void sweepBoxPartStages(
-    partStageRoot(realDir(options.tmpRoot), options.stateDir),
-    boxed?.parts ?? null,
-    options.logger,
-  );
+  void sweepBoxPartStages(partStageRoot(options.stateDir), boxed?.parts ?? null, options.logger);
   const finishEndedBoxes = async (
     finishOptions: { readonly listBoxes?: boolean } = {},
   ): Promise<void> => {

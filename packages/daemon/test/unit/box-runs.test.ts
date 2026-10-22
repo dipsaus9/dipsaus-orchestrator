@@ -4,7 +4,7 @@
 // it, and a box run counts as ended only once its run ended and every worker host exited. Temp
 // folders only; no `container`, no Keychain and no daemon process.
 
-import { mkdirSync, readdirSync, realpathSync, writeFileSync } from "node:fs";
+import { mkdirSync, readdirSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 
 import { describe, expect, it } from "bun:test";
@@ -65,9 +65,9 @@ describe("the daemon's box workers", () => {
 
   it("sweeps the part stage folders it left at start, only in its own folder of stages", () =>
     withTempDir(async (dir) => {
-      const own = partStageRoot(dir, join(dir, "state"));
-      // A hand-test daemon with another DIPO_HOME shares the temp root, never its stages.
-      const other = partStageRoot(dir, join(dir, "other-home"));
+      const own = partStageRoot(join(dir, "state"));
+      // A hand-test daemon with another DIPO_HOME has its own folder of stages.
+      const other = partStageRoot(join(dir, "other-home"));
       mkdirSync(join(own, `${PART_STAGE_PREFIX}a1`, "files"), { recursive: true });
       writeFileSync(join(own, `${PART_STAGE_PREFIX}a1`, "files", "a.ts"), "box files\n");
       mkdirSync(join(other, `${PART_STAGE_PREFIX}live`), { recursive: true });
@@ -84,7 +84,7 @@ describe("the daemon's box workers", () => {
   it("sweeps them when the daemon's run services start", () =>
     withTempDir(async (dir) => {
       leftovers(dir);
-      const stages = partStageRoot(realpathSync(dir), join(dir, "state"));
+      const stages = partStageRoot(join(dir, "state"));
       mkdirSync(join(stages, `${PART_STAGE_PREFIX}c3`), { recursive: true });
       const clock = new ManualClock();
       const options = {
