@@ -4,7 +4,7 @@ title: 'Send review, CI and reject feedback once per head in one fix round'
 status: Refined
 assignee: []
 created_date: '2026-10-17 12:52'
-updated_date: '2026-10-22 09:34'
+updated_date: '2026-10-22 11:31'
 labels:
   - 'tier:M'
   - 'slice:m1a'
@@ -84,4 +84,6 @@ test_plan:
 
 <!-- SECTION:NOTES:BEGIN -->
 Reshaped by decision 0021 (worker isolation, DIPO-263, 2026-10-21); rewrite before Ready: fix rounds go to the same builder in its kept box, including CI failures and the maintainer's PR comments until merge (0021 sections 6 and 10).
+
+From DIPO-299 (2026-10-22): CI is the verify of a box run. Send a box run's red CI items (kept by StoryPrs as ciItems) to the same worker as the fix round, and read noCiRan() for the fix-round timing, so a head without CI is not waited on.
 <!-- SECTION:NOTES:END -->

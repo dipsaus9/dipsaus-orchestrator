@@ -4,7 +4,7 @@ title: Merge story PRs through the merge slot
 status: Refined
 assignee: []
 created_date: '2026-10-17 12:52'
-updated_date: '2026-10-22 09:34'
+updated_date: '2026-10-22 11:31'
 labels:
   - 'tier:L'
   - 'slice:m1a'
@@ -74,3 +74,9 @@ test_plan:
 - [ ] #6 A host head that differs from the pushed head keeps the story out of the slot with a pr.headChanged notice naming both heads, and a story PR closed on the host without a merge parks stopped with cause pr-closed and detail PR #n was closed on the host
 - [ ] #7 The merge slot records each clean base merge it makes, so a review approval of the head before that merge carries over to the merged head when only that merge and task-file commits lie between them, recorded as carried to the new head with no new review round (0019 section 6)
 <!-- AC:END -->
+
+## Implementation Notes
+
+<!-- SECTION:NOTES:BEGIN -->
+From DIPO-299 (2026-10-22): the merge gate reads noCiRan() and does not wait on the required checks of a box run's head that got no CI; the review decides there.
+<!-- SECTION:NOTES:END -->
