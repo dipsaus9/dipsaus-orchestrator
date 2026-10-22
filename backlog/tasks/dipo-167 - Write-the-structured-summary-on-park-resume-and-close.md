@@ -4,7 +4,7 @@ title: 'Write the structured summary on park, resume and close'
 status: Refined
 assignee: []
 created_date: '2026-10-17 12:52'
-updated_date: '2026-10-21 20:24'
+updated_date: '2026-10-21 23:04'
 labels:
   - 'tier:S'
   - 'slice:m1a'
@@ -16,6 +16,8 @@ dependencies:
   - DIPO-150
   - DIPO-284
   - DIPO-289
+  - DIPO-290
+  - DIPO-291
 references:
   - packages/engine/src/run/park.ts
   - packages/engine/src/backlog/fields/

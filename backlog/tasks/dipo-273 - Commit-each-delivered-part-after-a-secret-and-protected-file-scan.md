@@ -1,10 +1,10 @@
 ---
 id: DIPO-273
 title: Commit each delivered part after a secret and protected-file scan
-status: In Review
+status: Done
 assignee: []
 created_date: '2026-10-21 13:44'
-updated_date: '2026-10-21 21:31'
+updated_date: '2026-10-21 23:03'
 labels:
   - 'tier:M'
   - cutover

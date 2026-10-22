@@ -4,7 +4,7 @@ title: Keep a story's box from claim to merge and rebuild it from its parts when
 status: Refined
 assignee: []
 created_date: '2026-10-21 13:45'
-updated_date: '2026-10-21 20:24'
+updated_date: '2026-10-21 23:04'
 labels:
   - 'tier:M'
   - cutover
@@ -17,6 +17,8 @@ dependencies:
   - DIPO-279
   - DIPO-284
   - DIPO-289
+  - DIPO-291
+  - DIPO-292
 references:
   - packages/engine/src/box/lifetime.ts
   - packages/engine/src/run/
