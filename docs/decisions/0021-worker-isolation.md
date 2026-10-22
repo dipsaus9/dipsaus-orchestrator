@@ -379,9 +379,21 @@ Checked against the open stories on 2026-10-21. Each story is re-read before it 
   - Without the web proxy, a box still reached neither the internet, the router nor the registries; through it, the Mac, its local-network address, the box network, the router, IP literals and plain HTTP were refused.
   - The maintainer accepts the wider risk on the same terms. DIPO-283 closes both.
   - The box network's address exists on the Mac only while a box runs on that network, so dipo's proxies can start only after the first box of the network is running.
-- 2026-10-22, DIPO-275 (maintainer): decisions 4 and 8, sections 2, 5 and 9. **CI is the verify of a box run; dipo prepares the box with the packages installed.**
+- 2026-10-22, DIPO-275 (maintainer): decisions 4, 8 and 18, sections 2, 5, 7 (W2, D4), 9 and 10, and 0019 sections 1, 7 and 8. **CI is the verify of a box run; dipo prepares the box with the packages installed.**
   - In the first box run (DIPO-248), the repository's verify failed 305 tests inside the box because they need the git program, which the box does not have (decision 4 stands). The worker tried to install git, and the story parked as verify-failing after three loops, although its change caused none of the failures.
   - **Preparing the box.** Before the worker starts, dipo installs the office's packages in the box at the start commit, with the office's install command, through the box's web route and Safe-Chain (later from the package cache, DIPO-295). The box gets only the files the office config lists (section 2); no environment variables of the Mac.
   - **The worker checks its own work.** The worker runs the office's verify in its box before it reports done, and fixes what its change broke. The box prompt says the box has no git program, that failures caused by that are not the worker's, and that the worker does not install missing system tools (DIPO-293). dipo does not check that the worker ran verify.
   - **CI is the verify.** dipo no longer runs verify in the box at done (this replaces section 9 and the full verify of decision 8). At done, dipo commits and pushes the last part, opens the story PR, and starts the review and CI together (0019 section 7). Red CI goes back to the same worker through the CI loop of 0019 section 8.
   - **An office without CI** relies on the worker's own verify and the review.
+  - **Replaced for box runs:**
+    - in decision 4, "Verify is a command dipo runs in the worker's box";
+    - decision 8's full verify at done;
+    - in decision 18, "Verify and the reviewer are the check", which now reads CI and the reviewer;
+    - section 9;
+    - the W2 row's "Runs verify in the box": W2 now pushes, opens the PR and starts the review and CI;
+    - the D4 row: D4 now carries red CI output;
+    - in section 10, "verify green", which now reads CI green, and "The PR is opened after the review passes": the PR opens at done, as 0019 section 3 decides.
+  - **In 0019, for box runs:**
+    - the verify in section 1 step 1 and section 8's local verify cap no longer apply;
+    - section 7's wait for checks the host has not reported does not hold an office without CI (DIPO-299).
+  - Mac runs keep their verify until DIPO-280 removes them.

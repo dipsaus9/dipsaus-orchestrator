@@ -4,7 +4,7 @@ title: Make CI the verify of a box run
 status: To Do
 assignee: []
 created_date: '2026-10-22 09:34'
-updated_date: '2026-10-22 09:34'
+updated_date: '2026-10-22 09:37'
 labels:
   - 'tier:M'
   - box
@@ -42,4 +42,5 @@ unknowns: []
 - [ ] #3 An office whose story PRs get no CI checks is not held waiting for them: the review decides, and the run's record says that no CI ran
 - [ ] #4 implement-box.md tells the worker to run the office's verify in its box before it reports done and to fix what its change broke, and no longer says that dipo runs verify at done
 - [ ] #5 Tests cover: done without a verify in the box; red CI back to the worker; the CI cap; an office without CI; the prompt text
+- [ ] #6 packages/engine/src/box/verify.ts keeps only what box runs still use (the install of DIPO-294 and the box command runner); the done-time verify in the box is removed
 <!-- AC:END -->
