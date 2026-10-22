@@ -16,7 +16,7 @@
 //   dipo streams only that file out (`cat` through `execLive`, cut at the cap) into a fresh
 //   folder, and `extractCacheArchive` unpacks it on the Mac, taking only files and folders (no
 //   links) within its caps. The unpacked tree is then walked with lstat (`checkCopiedTree`) as a
-//   second check.
+//   second check: folders and regular files only, no link of any kind.
 // - A fill box that could not be deleted, or a route that could not be released, is reported
 //   through `onEvent` and in the details of the fill's error.
 // - The cache shape is the manager's own, so a box installs from it as from any cache: Bun's
@@ -31,12 +31,17 @@
 //   and a box still running on an older generation keeps it unchanged.
 // - Any failure refuses the box with a coded `BoxError`: `box.cacheUnsupported`,
 //   `box.cacheFillFailed` or `box.cacheOutsideRoot`. `createBoxWithPackageCache` never creates a
-//   box without its cache.
+//   box without its cache. A box run's box (`BoxWorkers.create`, DIPO-295) is made without one
+//   instead, with the reason (`cacheSkipReason`) in a notice: the cache only saves downloads.
 // - Before a box is created, the cache path is resolved with realpath and refused unless it lies
 //   under dipo's own cache root (`resolvePackageCacheMount`), so a symlink cannot point the
 //   read-only mount anywhere else. The root must be this user's and writable by no one else.
 // - A worker's own installs use the package manager's default cache in the box's own filesystem,
 //   through the web route and Safe-Chain; nothing in the worker's environment names the cache.
+// - The office's own install before the worker (DIPO-294, DIPO-295) takes the cached packages
+//   through `boxCacheEnv`: the variables that point its manager at the read-only cache, offline
+//   first, for that install only. Each office's root is `PACKAGE_CACHE_DIR/<office>` in dipo's
+//   state folder (`officePackageCacheRoot`).
 
 import { createHash, randomUUID } from "node:crypto";
 import {
@@ -51,7 +56,7 @@ import {
   rm,
   writeFile,
 } from "node:fs/promises";
-import { dirname, isAbsolute, join, posix } from "node:path";
+import { dirname, join, posix } from "node:path";
 
 import type { Clock } from "@dipsaus-orchestrator/contract";
 
@@ -72,6 +77,7 @@ import {
   extractCacheArchive,
   streamCacheArchive,
 } from "./cache-extract";
+import { cleanDoorText } from "./door";
 import { baseCommit, type BoxToolchain, filesAt } from "./image";
 import {
   BOX_PACKAGE_CACHE_PATH,
@@ -109,6 +115,23 @@ export const FILL_BOX_DIR = "/tmp/dipo-fill";
 export const FILL_BOX_RUN_PREFIX = "fill-";
 /** How much of a failed fill's output its error keeps. */
 const FAILED_OUTPUT_CHARS = 4_000;
+/** The folder in dipo's state folder that holds one package cache root per office. */
+export const PACKAGE_CACHE_DIR = "package-cache";
+
+/** dipo's package cache root of `office`: `<state>/PACKAGE_CACHE_DIR/<office>`. */
+export function officePackageCacheRoot(stateDir: string, office: string): string {
+  if (!isProjectPath(office) || office.includes("/")) {
+    throw new BoxError(
+      "box.cacheOutsideRoot",
+      "an office id cannot name a package cache root.",
+      false,
+      {
+        office,
+      },
+    );
+  }
+  return join(stateDir, PACKAGE_CACHE_DIR, office);
+}
 
 function unsupported(message: string, details: Readonly<Record<string, unknown>> = {}): never {
   throw new BoxError("box.cacheUnsupported", message, false, details);
@@ -405,30 +428,27 @@ function copiedTreeError(path: string, why: string): BoxError {
 }
 
 /**
- * Walks a copied-out cache with lstat: only files, folders and symlinks that are relative and
- * resolve, with realpath, inside `base`. Refuses anything else with `box.cacheFillFailed`.
+ * Walks a copied-out cache with lstat: only folders and regular files with one link, the only
+ * entries `extractCacheArchive` writes. Refuses a symlink of any kind, a file with a second hard
+ * link and anything else with `box.cacheFillFailed`, so a mounted cache never holds a link.
  */
 export async function checkCopiedTree(base: string): Promise<void> {
-  const realBase = await realpath(base);
-  const walk = async (dir: string): Promise<void> => {
-    for (const entry of await readdir(dir)) {
-      const path = join(dir, entry);
-      const info = await lstat(path);
-      if (info.isDirectory()) await walk(path);
-      else if (info.isSymbolicLink()) {
-        const target = await readlink(path);
-        if (isAbsolute(target))
-          throw copiedTreeError(path, `a symlink to the absolute path ${target}`);
-        const resolved = await realpath(path).catch(() => null);
-        if (resolved === null) throw copiedTreeError(path, "a symlink that resolves to nothing");
-        if (resolved !== realBase && !resolved.startsWith(`${realBase}/`)) {
-          throw copiedTreeError(path, "a symlink that resolves outside the cache");
-        }
-      } else if (!info.isFile())
-        throw copiedTreeError(path, "neither a file, a folder nor a symlink");
+  await walkCopiedTree(await realpath(base));
+}
+
+async function walkCopiedTree(dir: string): Promise<void> {
+  for (const entry of await readdir(dir)) {
+    const path = join(dir, entry);
+    const info = await lstat(path);
+    if (info.isDirectory()) await walkCopiedTree(path);
+    else if (info.isSymbolicLink()) {
+      throw copiedTreeError(path, `a symlink to ${await readlink(path)}; the cache takes no links`);
+    } else if (!info.isFile()) {
+      throw copiedTreeError(path, "neither a file nor a folder");
+    } else if (info.nlink !== 1) {
+      throw copiedTreeError(path, "a file with a second hard link; the cache takes no links");
     }
-  };
-  await walk(realBase);
+  }
 }
 
 /** A clean-up step of a fill box that failed: the box may be left, or the route held. */
@@ -797,5 +817,72 @@ export function boxCacheInstall(manager: CacheManager): BoxCacheInstall {
           pnpm_config_side_effects_cache_readonly: "true",
         },
       };
+  }
+}
+
+/**
+ * The variables the office's own install in a box gets when the cache is mounted (DIPO-295): its
+ * manager's cache or store at the read-only mount, offline first, and nothing written there. Bun
+ * reads its install cache (cache first for a locked version); npm its cache, with its logs and
+ * update check moved out of it; pnpm its store, copying files into `node_modules` and its
+ * side-effects cache read-only, as `boxCacheInstall` does (both setting prefixes, for pnpm 10
+ * and 11). For that install only; a worker's environment never names the cache.
+ */
+export function boxCacheEnv(manager: CacheManager): Readonly<Record<string, string>> {
+  const cache = posix.join(BOX_PACKAGE_CACHE_PATH, manager);
+  switch (manager) {
+    case "bun":
+      return { BUN_INSTALL_CACHE_DIR: cache };
+    case "npm":
+      return {
+        npm_config_cache: cache,
+        npm_config_prefer_offline: "true",
+        npm_config_logs_dir: "/tmp/dipo-npm-logs",
+        npm_config_update_notifier: "false",
+      };
+    case "pnpm":
+      return {
+        npm_config_store_dir: cache,
+        pnpm_config_store_dir: cache,
+        npm_config_prefer_offline: "true",
+        pnpm_config_prefer_offline: "true",
+        npm_config_package_import_method: "copy",
+        pnpm_config_package_import_method: "copy",
+        npm_config_side_effects_cache_readonly: "true",
+        pnpm_config_side_effects_cache_readonly: "true",
+      };
+  }
+}
+
+/** The most characters of a message a skip reason carries. */
+const SKIP_MESSAGE_MAX = 300;
+
+/** `text` cleaned of control characters, on one line, and cut. */
+function shortText(text: string): string {
+  const line = cleanDoorText(text).replaceAll(/\s+/g, " ").trim();
+  return line.length > SKIP_MESSAGE_MAX ? `${line.slice(0, SKIP_MESSAGE_MAX)}…` : line;
+}
+
+/**
+ * Why a box runs without the package cache, for the maintainer's notice (DIPO-295), from the
+ * error of the fill or the lockfile read. A refused lockfile says what dipo found on the base. A
+ * failed fill says only how it ended, never the fill box's output, which stays in the daemon's log.
+ */
+export function cacheSkipReason(error: unknown): string {
+  if (!(error instanceof BoxError)) return `the fill failed: ${shortText(messageOf(error))}`;
+  const { manager, code, cause } = error.details;
+  switch (error.code) {
+    case "box.cacheUnsupported":
+      return `the package cache cannot be filled from this base: ${shortText(error.message)}`;
+    case "box.cacheFillFailed":
+      if (typeof manager === "string" && typeof code === "number") {
+        return `${shortText(manager)} exited ${code} in the fill box`;
+      }
+      if (cause === "box.timedOut") return "the fill passed its deadline";
+      return `the fill failed (${shortText(typeof cause === "string" ? cause : error.code)})`;
+    case "box.cacheOutsideRoot":
+      return "the package cache is not a folder under dipo's cache root";
+    default:
+      return `the fill failed (${shortText(error.code)})`;
   }
 }

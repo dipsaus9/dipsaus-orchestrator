@@ -45,6 +45,7 @@ import {
   findRun,
   type HostStarter,
   LAUNCH_NOTICES,
+  packageCacheSkippedText,
   RunLauncher,
   runSteps,
   START_FAILED_END,
@@ -71,7 +72,7 @@ import { findClaim, insertClaim, releaseClaim, type ClaimRecord } from "../../sr
 import type { SetupOutcome } from "../../src/worktree/setup";
 import type { StartTreeCheck } from "../../src/box/parts";
 import { BoxError } from "../../src/box/port";
-import type { BoxInstallResult } from "../../src/box/verify";
+import type { BoxCacheUse, BoxWorkerInstall } from "../../src/box/workers";
 import type { RunProfile } from "../../src/scan/detect";
 import { addOffice, countRows, openTestState, type TestState } from "../commands/helpers";
 import { storeResolvedVerify } from "./verify-profile";
@@ -200,7 +201,9 @@ interface World {
     timeoutMs: number;
   }[];
   /** What the install in the box and the check of its /work give (DIPO-294). */
-  boxInstall: BoxInstallResult;
+  boxInstall: BoxWorkerInstall;
+  /** What a new box got of the package cache (DIPO-295). */
+  boxCache: BoxCacheUse;
   /** Thrown by the install in the box instead of a result, when set. */
   boxInstallThrows: Error | null;
   boxTree: StartTreeCheck;
@@ -266,7 +269,8 @@ beforeEach(async () => {
     boxCalls: [] as string[],
     boxFails: false,
     boxInstalls: [] as World["boxInstalls"],
-    boxInstall: { ok: true } as BoxInstallResult,
+    boxInstall: { ok: true } as BoxWorkerInstall,
+    boxCache: { kind: "off" } as BoxCacheUse,
     boxInstallThrows: null,
     boxTree: { kind: "same" } as StartTreeCheck,
     profile: FROZEN_INSTALL,
@@ -357,7 +361,7 @@ beforeEach(async () => {
       create: async (input) => {
         w.boxCalls.push(`create ${input.runId} at ${input.startCommit} in ${input.runDir}`);
         if (w.boxFails) throw new Error("the image build failed");
-        return `dipo-${input.runId}`;
+        return { name: `dipo-${input.runId}`, cache: w.boxCache };
       },
       discard: async (runId) => {
         w.boxCalls.push(`discard ${runId}`);
@@ -518,13 +522,14 @@ function resultOf<T>(reply: CommandReply | ReadReply): T {
   return reply.result as T;
 }
 
-function entries(): { type: string; delta: Record<string, unknown> }[] {
+function entries(): { type: string; delta: Record<string, unknown>; run?: string }[] {
   const { epoch } = readLogState(world.office);
   const result = replay(world.office, cursorAt(world.officeId, epoch, 0));
   if (!result.ok) throw new Error(result.error.message);
-  return result.entries.map(({ type, delta }) => ({
-    type,
-    delta: delta as Record<string, unknown>,
+  return result.entries.map((entry) => ({
+    type: entry.type,
+    delta: entry.delta as Record<string, unknown>,
+    ...(entry.run === undefined ? {} : { run: entry.run }),
   }));
 }
 
@@ -880,6 +885,78 @@ describe("a box worker's run (DIPO-271)", () => {
       "install",
       "check",
       "discard",
+    ]);
+  });
+});
+
+/** The notices of a box run without the package cache (DIPO-295). */
+function cacheNotices(): ReturnType<typeof entries> {
+  return entries().filter(
+    (e) => e.type === "engine.notice" && e.delta["code"] === LAUNCH_NOTICES.packageCacheSkipped,
+  );
+}
+
+describe("the package cache of a box run (DIPO-295)", () => {
+  it("starts the run without a notice when the box got the cache", async () => {
+    story("TASK-1", "Ready");
+    world.boxCache = { kind: "mounted", path: "/cache/key", manager: "bun", filled: false };
+    const boxed = resultOf<RunResult>(await run({ stories: ["TASK-1"], box: true }));
+    expect(boxed.started).toHaveLength(1);
+    expect(cacheNotices()).toEqual([]);
+  });
+
+  it("goes on without the cache when the fill failed, and says why in a notice on the run", async () => {
+    story("TASK-1", "Ready");
+    world.boxCache = { kind: "skipped", reason: "bun exited 1 in the fill box" };
+    const boxed = resultOf<RunResult>(await run({ stories: ["TASK-1"], box: true }));
+    expect(boxed.started).toHaveLength(1);
+    const runId = boxed.started[0]?.run as string;
+    expect(world.boxCalls.map((call) => call.split(" ")[0])).toEqual([
+      "create",
+      "install",
+      "check",
+    ]);
+    const notices = cacheNotices();
+    expect(notices).toHaveLength(1);
+    expect(notices[0]?.run).toBe(runId);
+    expect(notices[0]?.delta["level"]).toBe("warn");
+    expect(notices[0]?.delta["text"]).toBe(
+      packageCacheSkippedText("TASK-1", "bun exited 1 in the fill box", false),
+    );
+    expect(String(notices[0]?.delta["text"])).toContain(
+      "TASK-1 runs without the package cache: bun exited 1 in the fill box.",
+    );
+  });
+
+  it("goes on without the cache for an unsupported lockfile, with the reason in the notice", async () => {
+    story("TASK-1", "Ready");
+    world.boxCache = {
+      kind: "skipped",
+      reason:
+        "the package cache cannot be filled from this base: dipo cannot fill a package cache from yarn.lock; use bun.lock, pnpm-lock.yaml or package-lock.json.",
+    };
+    const boxed = resultOf<RunResult>(await run({ stories: ["TASK-1"], box: true }));
+    expect(boxed.started).toHaveLength(1);
+    expect(String(cacheNotices()[0]?.delta["text"])).toContain(
+      "from yarn.lock; use bun.lock, pnpm-lock.yaml or package-lock.json. The install in the box",
+    );
+  });
+
+  it("says so when the install from the cache failed and passed again without it", async () => {
+    story("TASK-1", "Ready");
+    world.boxCache = { kind: "mounted", path: "/cache/key", manager: "bun", filled: true };
+    world.boxInstall = {
+      ok: true,
+      cacheFallback: "the install (bun install --frozen-lockfile) exited 1 in the box",
+    };
+    const boxed = resultOf<RunResult>(await run({ stories: ["TASK-1"], box: true }));
+    expect(boxed.started).toHaveLength(1);
+    expect(cacheNotices().map((e) => e.delta["text"])).toEqual([
+      packageCacheSkippedText(
+        "TASK-1",
+        "the install (bun install --frozen-lockfile) exited 1 in the box",
+        true,
+      ),
     ]);
   });
 });

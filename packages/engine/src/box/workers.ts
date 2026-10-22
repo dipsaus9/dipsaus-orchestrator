@@ -4,10 +4,17 @@
 //
 // - `create` (the launch's setup): the start check, the office image built from the base branch's
 //   box block (`ensureImageWithBuildProxy`: a build proxy only for the length of a build), the
-//   host-only box network, the box with nothing of the Mac mounted (the office package cache only
-//   when one is given: the DIPO-267 seam), started, and the code copied in (`stageBoxCode`: the
-//   start commit from git's objects plus the listed files from the office's main checkout, never
-//   `.git`), and dipo's `dipo-part` command installed (`installDipoPart`, DIPO-272).
+//   host-only box network, the box with nothing of the Mac mounted but the office package cache,
+//   started, and the code copied in (`stageBoxCode`: the start commit from git's objects plus the
+//   listed files from the office's main checkout, never `.git`), and dipo's `dipo-part` command
+//   installed (`installDipoPart`, DIPO-272).
+// - The package cache (DIPO-295, with `packageCache`): before the box is made, the office's cache
+//   is reused when its key (the base lockfile and the image's manager version) matches, or filled
+//   in a fill box (`ensurePackageCache`) through this daemon's web route; a reuse makes no fill
+//   box. Two runs of one office that need the same fill share it. The box mounts the generation
+//   read-only. A fill that fails or times out, or a lockfile the cache does not support, never
+//   stops the run: the box is made without a cache and `create` returns the reason, which the
+//   launch shows in a notice. The full error goes to the daemon's log only.
 // - `session` (each developer session): the box running again, dipo's web route and model proxy
 //   for the box network (both started only once a box on it runs, because the network's address
 //   exists on the Mac only then), and dipo's files copied to `BOX_DIPO_DIR`: the system file and
@@ -23,7 +30,9 @@
 //   stop, which ends the worker inside it.
 // - Before the worker's first session (the launch, after `create`; DIPO-294): `install` runs the
 //   office's install in the box at the start commit with the box's web route and the Safe-Chain CA
-//   bundle, as a session gets them (`runBoxInstall`), and `changedSinceStart` compares `/work`
+//   bundle, as a session gets them (`runBoxInstall`); with a mounted cache first with
+//   `boxCacheEnv`, and when that install fails (not at its deadline) once more without the cache,
+//   with the reason in the result. `changedSinceStart` compares `/work`
 //   with the start commit on dipo's own copy (`BoxWorkersDeps.treeCheck`), never by running git
 //   or any tool on the box's files.
 //
@@ -42,9 +51,19 @@ import type { OfficeGit } from "../git/office";
 import { ensurePrivateDir } from "../platform/paths";
 import { type AdapterHolds, holdMessage } from "../workers/hold";
 import { ensureImageWithBuildProxy } from "./build-proxy";
+import {
+  type BaseLockfile,
+  boxCacheEnv,
+  type CacheManager,
+  cacheSkipReason,
+  ensurePackageCache,
+  type PackageCache,
+  type PackageCacheRequest,
+  readBaseLockfile,
+} from "./cache";
 import { BOX_DIPO_DIR, BOX_WORKDIR, type BoxCodeDeps, stageBoxCode } from "./code";
 import { BoxDoor, type BoxDoorDeps, type DoorRead, installDipoPart } from "./door";
-import type { BaseBox } from "./image";
+import type { BaseBox, BoxToolchain } from "./image";
 import { boxModelEnvironment, type RunningModelProxy } from "./model-proxy";
 import {
   BoxError,
@@ -103,6 +122,52 @@ export interface BoxSession {
   readonly stop: BoxClientCommand;
 }
 
+/** How the box workers fill and reuse each office's package cache (DIPO-295). */
+export interface BoxPackageCacheDeps {
+  /**
+   * dipo's package cache root of `office`, in dipo's state folder (`officePackageCacheRoot`);
+   * made 0700 when missing.
+   */
+  readonly root: (office: OfficeId) => string;
+  /** Reads the lockfile from the base branch's git objects; `readBaseLockfile` by default. */
+  readonly readSource?: (git: OfficeGit) => Promise<BaseLockfile>;
+  /** Fills or reuses the cache; `ensurePackageCache` by default. */
+  readonly ensure?: (request: PackageCacheRequest) => Promise<PackageCache>;
+  /** The fill install's deadline; `PACKAGE_CACHE_FILL_TIMEOUT_MS` by default. */
+  readonly timeoutMs?: number;
+  /** The fill box's id; random by default. */
+  readonly fillId?: () => string;
+}
+
+/** What a new box got of the office package cache (DIPO-295). */
+export type BoxCacheUse =
+  /** This daemon fills no cache. */
+  | { readonly kind: "off" }
+  /** The generation is mounted read-only; `filled` is false when it was reused. */
+  | {
+      readonly kind: "mounted";
+      readonly path: string;
+      readonly manager: CacheManager | null;
+      readonly filled: boolean;
+    }
+  /** The box runs without a cache, for `reason` (no box output in it). */
+  | { readonly kind: "skipped"; readonly reason: string };
+
+/** The box `create` made, and what it got of the package cache. */
+export interface BoxMade {
+  readonly name: string;
+  readonly cache: BoxCacheUse;
+}
+
+/** What `install` did: `runBoxInstall`'s result, and why the cache was left out, if it was. */
+export type BoxWorkerInstall = BoxInstallResult & {
+  /**
+   * Set when the install from the mounted cache failed and dipo ran it again without the cache:
+   * that install's reason.
+   */
+  readonly cacheFallback?: string;
+};
+
 export interface BoxWorkersDeps {
   readonly boxes: BoxPort;
   /** Starts dipo's web route (Safe-Chain and the web proxy) on the box network's host address. */
@@ -133,10 +198,10 @@ export interface BoxWorkersDeps {
   /** dipo's private folder for image build folders. */
   readonly scratchRoot: string;
   /**
-   * The office package cache to mount read-only (DIPO-267, set up by DIPO-275); undefined mounts
-   * nothing, which is the default.
+   * The office package cache (DIPO-267, DIPO-295): filled or reused before each box is made and
+   * mounted read-only. Without it no box gets a cache.
    */
-  readonly packageCache?: (office: OfficeId) => string | undefined;
+  readonly packageCache?: BoxPackageCacheDeps;
   /**
    * The box door (DIPO-272): with it, dipo reads each box's part queue while a session runs and
    * hands each part to `onPart` (DIPO-273 delivers it). Without it no queue is read; `dipo-part` is
@@ -209,6 +274,8 @@ export class BoxWorkers {
   readonly #fresh = new Set<string>();
   /** The part queues read while a session runs (DIPO-272); null without `door`. */
   readonly #door: BoxDoor | null;
+  /** The manager of the cache each box `create` mounted, by run id, for its install. */
+  readonly #cached = new Map<string, CacheManager>();
 
   constructor(deps: BoxWorkersDeps) {
     this.#deps = deps;
@@ -279,8 +346,62 @@ export class BoxWorkers {
   }
 
   /**
-   * Makes the run's box (the launch's setup): image, network, the box started and the code
-   * copied in. Throws a `BoxError` when it cannot; a box it made is deleted again then.
+   * The office's package cache for a new box (DIPO-295; see the file comment): reused or filled,
+   * or skipped with the reason. Never rejects.
+   */
+  async #packageCache(
+    office: OfficeId,
+    runId: string,
+    git: OfficeGit,
+    image: { readonly tag: string; readonly toolchain: BoxToolchain },
+  ): Promise<BoxCacheUse> {
+    const deps = this.#deps.packageCache;
+    if (deps === undefined) return { kind: "off" };
+    try {
+      const source = await (deps.readSource ?? readBaseLockfile)(git);
+      const cache = await (deps.ensure ?? ensurePackageCache)({
+        root: deps.root(office),
+        source,
+        boxes: this.#deps.boxes,
+        image,
+        // The fill box reaches the registries only through this daemon's web route.
+        route: {
+          acquire: (box) => this.#web.acquire(box),
+          release: (box) => this.#web.release(box),
+        },
+        clock: this.#deps.code.clock,
+        ...(deps.timeoutMs === undefined ? {} : { timeoutMs: deps.timeoutMs }),
+        ...(deps.fillId === undefined ? {} : { fillId: deps.fillId }),
+        onEvent: (event) =>
+          this.#deps.warn?.("a fill box was not cleaned up", {
+            run: runId,
+            box: event.box,
+            step: event.step,
+            reason: event.reason,
+          }),
+      });
+      this.#deps.info?.(cache.filled ? "package cache filled" : "package cache reused", {
+        run: runId,
+        key: cache.key,
+        manager: cache.manager,
+      });
+      return { kind: "mounted", path: cache.path, manager: cache.manager, filled: cache.filled };
+    } catch (error) {
+      const reason = cacheSkipReason(error);
+      this.#deps.warn?.("the box runs without the package cache", {
+        run: runId,
+        reason,
+        code: error instanceof BoxError ? error.code : "error",
+        message: messageOf(error),
+      });
+      return { kind: "skipped", reason };
+    }
+  }
+
+  /**
+   * Makes the run's box (the launch's setup): image, network, the package cache, the box started
+   * and the code copied in. Throws a `BoxError` when it cannot; a box it made is deleted again
+   * then. A package cache that cannot be had never throws: the box is made without one.
    */
   async create(input: {
     readonly office: OfficeId;
@@ -288,7 +409,7 @@ export class BoxWorkers {
     readonly runDir: string;
     readonly git: OfficeGit;
     readonly startCommit: string;
-  }): Promise<string> {
+  }): Promise<BoxMade> {
     const { boxes } = this.#deps;
     const held = this.#deps.holds.adapterHeld(this.#deps.adapter);
     if (held?.liftedBy !== undefined) throw new BoxError("box.held", holdMessage(held));
@@ -305,6 +426,10 @@ export class BoxWorkers {
     );
     const network = await this.#networkOf();
     const name = boxName(input.runId);
+    const cache = await this.#packageCache(input.office, input.runId, input.git, {
+      tag: image.tag,
+      toolchain: base.description.image.toolchain,
+    });
     // Recorded before the box exists, so a crash in between leaves a box dipo knows to clean up.
     writeJson(join(input.runDir, BOX_RUN_FILE), {
       runId: input.runId,
@@ -313,13 +438,12 @@ export class BoxWorkers {
     } satisfies BoxRunRecord);
     ensurePrivateDir(this.#index);
     writeJson(this.#indexFile(input.runId), { runDir: input.runDir });
-    const cache = this.#deps.packageCache?.(input.office);
     try {
       await boxes.create({
         runId: input.runId,
         image: image.tag,
         network,
-        ...(cache === undefined ? {} : { packageCache: cache }),
+        ...(cache.kind === "mounted" ? { packageCache: cache.path } : {}),
       });
       await boxes.start(name);
       const staged = await stageBoxCode(this.#deps.code, {
@@ -350,8 +474,16 @@ export class BoxWorkers {
       throw new BoxError("box.failed", `the box could not be made: ${messageOf(error)}`);
     }
     this.#fresh.add(name);
-    this.#deps.info?.("box ready", { run: input.runId, box: name, image: image.tag });
-    return name;
+    if (cache.kind === "mounted" && cache.manager !== null) {
+      this.#cached.set(input.runId, cache.manager);
+    }
+    this.#deps.info?.("box ready", {
+      run: input.runId,
+      box: name,
+      image: image.tag,
+      packageCache: cache.kind,
+    });
+    return { name, cache };
   }
 
   /**
@@ -524,38 +656,58 @@ export class BoxWorkers {
    * the box network's address exists on the Mac), the Safe-Chain CA bundle copied in, and each
    * command list run in `/work` with `env` plus the route's HTTPS_PROXY, HTTP_PROXY and
    * NODE_EXTRA_CA_CERTS, exactly as a session gets them, within `timeoutMs` (`runBoxInstall`).
-   * The session later uses the same route. A failure is a result, logged with the cleaned tail of
-   * the box's output; a route that does not start throws its `BoxError`.
+   * With a package cache mounted (DIPO-295), the install first gets `boxCacheEnv`, so it takes the
+   * cached packages; when that install fails, but not at its deadline, it runs once more without
+   * the cache, through the web route only, and `cacheFallback` says why. The session later uses
+   * the same route. A failure is a result, logged with the cleaned tail of the box's output; a
+   * route that does not start throws its `BoxError`.
    */
   async install(input: {
     readonly runId: string;
     readonly commands: readonly (readonly string[])[];
     readonly env: Readonly<Record<string, string>>;
     readonly timeoutMs: number;
-  }): Promise<BoxInstallResult> {
+  }): Promise<BoxWorkerInstall> {
     const box = boxName(input.runId);
     const web = await this.#web.acquire(box);
     await this.#copyDipoFiles(box, null, web.caFile);
-    const result = await runBoxInstall(
-      {
-        boxes: this.#deps.boxes,
-        clock: this.#deps.code.clock,
-        ...(this.#deps.warn === undefined ? {} : { warn: this.#deps.warn }),
-      },
-      {
-        box,
-        commands: input.commands,
-        env: {
-          ...input.env,
-          HTTPS_PROXY: web.url,
-          HTTP_PROXY: web.url,
-          NODE_EXTRA_CA_CERTS: BOX_CA_FILE,
+    const run = (cacheEnv: Readonly<Record<string, string>>): Promise<BoxInstallResult> =>
+      runBoxInstall(
+        {
+          boxes: this.#deps.boxes,
+          clock: this.#deps.code.clock,
+          ...(this.#deps.warn === undefined ? {} : { warn: this.#deps.warn }),
         },
-        timeoutMs: input.timeoutMs,
-      },
-    );
+        {
+          box,
+          commands: input.commands,
+          env: {
+            ...input.env,
+            ...cacheEnv,
+            HTTPS_PROXY: web.url,
+            HTTP_PROXY: web.url,
+            NODE_EXTRA_CA_CERTS: BOX_CA_FILE,
+          },
+          timeoutMs: input.timeoutMs,
+        },
+      );
+    const manager = this.#cached.get(input.runId);
+    let result: BoxWorkerInstall = await run(manager === undefined ? {} : boxCacheEnv(manager));
+    if (manager !== undefined && !result.ok && result.ended === null) {
+      this.#deps.warn?.("the install from the package cache failed; running it without the cache", {
+        run: input.runId,
+        box,
+        reason: result.reason,
+        output: result.output,
+      });
+      result = { ...(await run({})), cacheFallback: result.reason };
+    }
     if (result.ok) {
-      this.#deps.info?.("the install in the box passed", { run: input.runId, box });
+      this.#deps.info?.("the install in the box passed", {
+        run: input.runId,
+        box,
+        packageCache: manager !== undefined && result.cacheFallback === undefined,
+      });
     } else {
       this.#deps.warn?.("the install in the box failed", {
         run: input.runId,
@@ -608,6 +760,7 @@ export class BoxWorkers {
 
   /** Marks the run's record finished and drops it from the index. */
   #forget(runId: string, name: string): void {
+    this.#cached.delete(runId);
     const runDir = this.#runDirOf(runId);
     try {
       rmSync(this.#indexFile(runId), { force: true });

@@ -31,6 +31,11 @@
 // 14). A failed or timed-out install, a file git does not ignore beyond the start commit's, or a
 // check that cannot finish fails the setup as the Mac worktree setup fails it: the claim rolls
 // back with the reason in its notice, and the box is deleted.
+//
+// The box gets the office's package cache when it can (DIPO-295, `BoxWorkers.create`). When it
+// cannot (a fill that failed or timed out, a lockfile the cache does not support), the run goes on
+// without it and a `run.packageCacheSkipped` notice on the run says why; so does one when the
+// install from the cache failed and dipo ran it again without the cache. Neither stops the launch.
 
 import { createHash } from "node:crypto";
 import { rmSync, writeFileSync } from "node:fs";
@@ -114,6 +119,7 @@ export const REVIEW_SYSTEM_FILE = "system-review.md";
 export const LAUNCH_NOTICES = {
   planRefused: "run.planRefused",
   startFailed: "run.startFailed",
+  packageCacheSkipped: "run.packageCacheSkipped",
 } as const;
 
 /** The end kind of a run whose worker host did not start. */
@@ -133,6 +139,17 @@ export function boxTreeChangedText(paths: readonly string[]): string {
   const shown = paths.slice(0, TREE_PATHS_SHOWN).map((path) => cleanDoorText(path).slice(0, 200));
   const more = paths.length > shown.length ? `, and ${paths.length - shown.length} more` : "";
   return `the install left files git does not ignore in the box's /work (${shown.join(", ")}${more}); setup steps may change only ignored files. If install rewrote a lockfile, use a frozen install (for example \`bun install --frozen-lockfile\`); write generated files to ignored paths`;
+}
+
+/**
+ * The notice of a box run without the package cache (DIPO-295): the run goes on, and the install
+ * in the box downloads its packages through Safe-Chain.
+ */
+export function packageCacheSkippedText(story: string, reason: string, fallback: boolean): string {
+  const why = reason.replace(/\.+$/, "");
+  return fallback
+    ? `${story}'s install from the package cache failed (${why}); dipo ran it again without the cache, through Safe-Chain.`
+    : `${story} runs without the package cache: ${why}. The install in the box downloads its packages through Safe-Chain instead.`;
 }
 
 /** The most characters of an unexpected error's message a box preparation's reason carries. */
@@ -467,6 +484,7 @@ export class RunLauncher {
     claim: ClaimRecord,
     slot: number | null,
     boxes: NonNullable<RunLauncherDeps["boxes"]>,
+    cacheSkipped: (reason: string, fallback: boolean) => void,
   ): Promise<string | null> {
     if (this.#deps.profile === undefined) {
       return "this daemon cannot read the run profile, so the box gets no install";
@@ -498,6 +516,7 @@ export class RunLauncher {
         env,
         timeoutMs: minutes * 60_000,
       });
+      if (installed.cacheFallback !== undefined) cacheSkipped(installed.cacheFallback, true);
       if (!installed.ok) return installed.reason;
     }
     const tree = await boxes.changedSinceStart({
@@ -596,8 +615,19 @@ export class RunLauncher {
       return fail(`the prompts could not be rendered: ${messageOf(error)}`);
     }
     if (boxes !== undefined) {
+      const cacheSkipped = (reason: string, fallback: boolean): void =>
+        notify({
+          type: "engine.notice",
+          key: claim.key,
+          run: facts.runId as RunId,
+          delta: {
+            level: "warn",
+            code: LAUNCH_NOTICES.packageCacheSkipped,
+            text: packageCacheSkippedText(claim.story, reason, fallback),
+          },
+        });
       try {
-        await boxes.create({
+        const made = await boxes.create({
           office: facts.office,
           runId: facts.runId,
           runDir: paths.runDir,
@@ -605,12 +635,13 @@ export class RunLauncher {
           startCommit: claim.startSha,
         });
         boxMade = true;
+        if (made.cache.kind === "skipped") cacheSkipped(made.cache.reason, false);
       } catch (error) {
         return fail(`the box could not be made: ${messageOf(error)}`);
       }
       let ready: string | null;
       try {
-        ready = await this.#readyBox(facts, claim, setup.slot, boxes);
+        ready = await this.#readyBox(facts, claim, setup.slot, boxes, cacheSkipped);
       } catch (error) {
         ready = boxPrepareFailedText(error);
       }

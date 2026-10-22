@@ -12,7 +12,11 @@
 //   sticky box-token hold refuses a new box (criterion 8);
 // - before the worker (DIPO-294): the office's install runs in the box with the box's web route as
 //   a session gets it, a failed or timed-out install is a result with its reason, and `/work` is
-//   compared with the start commit on dipo's own copy (`BoxParts.changedSinceStart`).
+//   compared with the start commit on dipo's own copy (`BoxParts.changedSinceStart`);
+// - the package cache (DIPO-295): filled in a fill box through the web route, or reused without
+//   one, and mounted read-only; a failed or timed-out fill and an unsupported lockfile make the box
+//   without a cache and say why; two runs share one fill; the install takes the cached packages,
+//   and runs again without them when that fails.
 
 import {
   existsSync,
@@ -48,7 +52,13 @@ import {
   NODE_TARBALL_SHA256,
 } from "../../src/box/image";
 import { BOX_PLACEHOLDER_API_KEY, type RunningModelProxy } from "../../src/box/model-proxy";
-import { BoxError, boxName } from "../../src/box/port";
+import {
+  boxCacheEnv,
+  officePackageCacheRoot,
+  PACKAGE_CACHE_DIR,
+  readBaseLockfile,
+} from "../../src/box/cache";
+import { BOX_PACKAGE_CACHE_PATH, BoxError, boxName } from "../../src/box/port";
 import { SecretToken } from "../../src/box/token";
 import { BOX_TOKEN_CHECK } from "../../src/box/token-check";
 import { boxTokenHoldPath, boxTokenStickyHolds } from "../../src/box/token-hold";
@@ -58,7 +68,9 @@ import {
   BOX_INDEX_DIR,
   BOX_RUN_FILE,
   BOX_SYSTEM_FILE,
+  type BoxMade,
   BoxWorkers,
+  type BoxPackageCacheDeps,
   type BoxWorkersDeps,
   readBoxRun,
 } from "../../src/box/workers";
@@ -68,7 +80,12 @@ import { OfficeGit, spawnGitExec } from "../../src/git";
 import { systemClock } from "../../src/platform/clock";
 import { systemSpawn } from "../../src/platform/process";
 import { AdapterHolds, type HoldNotice } from "../../src/workers/hold";
-import { BOX_HOST_ADDRESS, BUILD_HOST_ADDRESS, FakeBoxes } from "./fake-boxes";
+import {
+  BOX_HOST_ADDRESS,
+  BUILD_HOST_ADDRESS,
+  FakeBoxes,
+  type FakeBoxesOptions,
+} from "./fake-boxes";
 
 const OFFICE = "off_01J9ZK5Q8W3V4X6Y7Z00000271" as OfficeId;
 const RUN = "run_01J9ZK5Q8W3V4X6Y7Z00000001";
@@ -125,7 +142,12 @@ interface World {
 
 interface WorldOptions {
   readonly boxes?: ConstructorParameters<typeof FakeBoxes>[0];
-  readonly packageCache?: string;
+  /** The package cache (DIPO-295); no box gets one without it. */
+  readonly packageCache?: BoxPackageCacheDeps;
+  /** The office image the base's box block describes; `IMAGE` by default. */
+  readonly image?: BoxImageDescription;
+  /** More files of the start commit, by path. */
+  readonly committed?: Readonly<Record<string, string>>;
   readonly sticky?: boolean;
   readonly modelFails?: boolean;
   /** The box door (DIPO-272); no queue is read without it. */
@@ -147,6 +169,9 @@ async function world(repo: TempRepo, tmp: string, options: WorldOptions = {}): P
   writeFileSync(join(repo.dir, "README.md"), "# repo\n");
   if (options.gitignore !== undefined)
     writeFileSync(join(repo.dir, ".gitignore"), options.gitignore);
+  for (const [path, text] of Object.entries(options.committed ?? {})) {
+    writeFileSync(join(repo.dir, path), text);
+  }
   const commit = await repo.commitAll("start");
   await repo.git("update-ref", "refs/remotes/origin/main", commit);
   const git = officeGit(repo.dir, repo.env);
@@ -217,7 +242,7 @@ async function world(repo: TempRepo, tmp: string, options: WorldOptions = {}): P
     readBaseBox: async (): Promise<BaseBox> =>
       ({
         ok: true,
-        description: { image: IMAGE, files: LISTED },
+        description: { image: options.image ?? IMAGE, files: LISTED },
         detected: {},
         commit,
       }) as unknown as BaseBox,
@@ -227,7 +252,7 @@ async function world(repo: TempRepo, tmp: string, options: WorldOptions = {}): P
     tmpRoot: tmp,
     indexDir,
     scratchRoot: tmp,
-    ...(options.packageCache === undefined ? {} : { packageCache: () => options.packageCache }),
+    ...(options.packageCache === undefined ? {} : { packageCache: options.packageCache }),
     ...(options.door === undefined ? {} : { door: options.door }),
     ...(options.treeCheck === undefined ? {} : { treeCheck: options.treeCheck }),
     warn: (message, fields) => warnings.push({ message, fields }),
@@ -253,14 +278,10 @@ async function world(repo: TempRepo, tmp: string, options: WorldOptions = {}): P
   };
 }
 
-async function created(w: World): Promise<void> {
-  await w.workers.create({
-    office: OFFICE,
-    runId: RUN,
-    runDir: w.runDir,
-    git: w.git,
-    startCommit: w.commit,
-  });
+async function created(w: World, runId = RUN): Promise<BoxMade> {
+  const runDir = runId === RUN ? w.runDir : join(w.tmp, "runs", runId);
+  mkdirSync(runDir, { recursive: true });
+  return w.workers.create({ office: OFFICE, runId, runDir, git: w.git, startCommit: w.commit });
 }
 
 function inBoxes(fn: (repo: TempRepo, tmp: string) => Promise<void>): Promise<void> {
@@ -442,13 +463,6 @@ describe("the box of a box run (criteria 4 and 10)", () => {
       expect(w.log.filter((line) => line.includes(BOX_HOST_ADDRESS))).toEqual([]);
       expect(w.boxes.boxes.has(BOX)).toBe(false);
       expect(readBoxRun(w.runDir)?.finished).toBe(true);
-    }));
-
-  it("mounts the office package cache read-only only when one is given (the DIPO-267 seam)", () =>
-    inBoxes(async (repo, tmp) => {
-      const w = await world(repo, tmp, { packageCache: "/opt/dipo/cache/office" });
-      await created(w);
-      expect(w.boxes.boxes.get(BOX)?.spec.packageCache).toBe("/opt/dipo/cache/office");
     }));
 
   it("refuses a new box while the box-token hold stands, before anything is made (criterion 8)", () =>
@@ -989,5 +1003,293 @@ describe("the check of /work after the install (DIPO-294)", () => {
         kind: "unknown",
         reason: "this daemon cannot compare the box's files with the start commit",
       });
+    }));
+});
+
+/** A second run of the office, for the shared fill and the reuse. */
+const RUN_2 = "run_01J9ZK5Q8W3V4X6Y7Z00000002";
+/** The office image with Bun, the manager of the committed `bun.lock`. */
+const BUN_IMAGE: BoxImageDescription = { ...IMAGE, toolchain: { node: "24.22.1", bun: "1.4.2" } };
+const FILL = boxName("fill-1");
+/** A base with one registry package, as `bun.lock` records it. */
+const BUN_PROJECT = {
+  "package.json": '{ "name": "repo", "dependencies": { "is-number": "7.0.0" } }\n',
+  "bun.lock": JSON.stringify({
+    lockfileVersion: 1,
+    workspaces: { "": { name: "repo", dependencies: { "is-number": "7.0.0" } } },
+    packages: { "is-number": ["is-number@7.0.0", "", {}, "sha512-x"] },
+  }),
+};
+
+/** The fake backend's scripts of `fillScripts`, and what they saw. */
+interface FillScripts {
+  readonly files: string;
+  readonly exec: NonNullable<FakeBoxesOptions["exec"]>;
+  readonly live: NonNullable<FakeBoxesOptions["live"]>;
+  /** The boxes whose fill install ran, in order. */
+  readonly installs: string[];
+  /** Sets how the scripts read the environment of the last live exec. */
+  bindEnv(read: () => Readonly<Record<string, string>>): void;
+}
+
+/** How the fill box's install ends: a package written, an exit, or an error thrown. */
+type FillOutcome = "ok" | { readonly code: number; readonly output: string } | BoxError;
+
+/**
+ * The fake backend's scripts for a fill box (DIPO-295): its files lie in `<files>/<box>`; the
+ * install writes one package into the cache folder it names, the host's tar packs it, and the
+ * archive is streamed out with `cat`. The story box's own install exits `storyInstall(env)`.
+ */
+function fillScripts(
+  files: string,
+  outcome: () => FillOutcome,
+  storyInstall: (env: Readonly<Record<string, string>>) => number = () => 0,
+): FillScripts {
+  const installs: string[] = [];
+  const at = (box: string, path: string) => join(files, box, path);
+  let envOf: (() => Readonly<Record<string, string>>) | null = null;
+  return {
+    files,
+    installs,
+    exec: (box, command) => {
+      if (!box.startsWith("dipo-fill-")) return undefined;
+      switch (command[0]) {
+        case "mkdir":
+          mkdirSync(at(box, command[2]!), { recursive: true });
+          return { code: 0, stdout: "", stderr: "" };
+        case "tar": {
+          const [, , , from, , archive, folder] = command;
+          const packed = spawnSync(
+            "tar",
+            ["-C", at(box, from!), "-cf", at(box, archive!), folder!],
+            { env: { PATH: "/usr/bin:/bin", COPYFILE_DISABLE: "1" } },
+          );
+          return { code: packed.status ?? 1, stdout: "", stderr: String(packed.stderr) };
+        }
+        case "stat":
+          return { code: 0, stdout: `${statSync(at(box, command[3]!)).size}\n`, stderr: "" };
+        default: {
+          installs.push(box);
+          const result = outcome();
+          if (result instanceof BoxError) throw result;
+          if (result !== "ok") return { code: result.code, stdout: result.output, stderr: "" };
+          const cacheDir = command.find((arg) => arg.startsWith("--cache-dir="))!.split("=")[1]!;
+          mkdirSync(at(box, `${cacheDir}/is-number@7.0.0@@@1`), { recursive: true });
+          writeFileSync(at(box, `${cacheDir}/is-number@7.0.0@@@1/package.json`), "{}\n");
+          return { code: 0, stdout: "", stderr: "" };
+        }
+      }
+    },
+    live: (box, command) => {
+      if (box.startsWith("dipo-fill-") && command[0] === "cat") {
+        return { bytes: new Uint8Array(readFileSync(at(box, command[1]!))) };
+      }
+      return { code: storyInstall(envOf?.() ?? {}) };
+    },
+    bindEnv: (read) => {
+      envOf = read;
+    },
+  };
+}
+
+/** A world whose box workers fill the office's package cache under `<tmp>/state`. */
+async function cacheWorld(
+  repo: TempRepo,
+  tmp: string,
+  options: {
+    readonly outcome?: () => FillOutcome;
+    readonly storyInstall?: (env: Readonly<Record<string, string>>) => number;
+    readonly committed?: Readonly<Record<string, string>>;
+    readonly cache?: Partial<BoxPackageCacheDeps>;
+  } = {},
+) {
+  const scripts = fillScripts(
+    join(tmp, "box-files"),
+    options.outcome ?? (() => "ok"),
+    options.storyInstall,
+  );
+  const root = join(tmp, "state", PACKAGE_CACHE_DIR, OFFICE);
+  const w = await world(repo, tmp, {
+    boxes: { exec: scripts.exec, live: scripts.live, files: scripts.files },
+    image: BUN_IMAGE,
+    committed: options.committed ?? BUN_PROJECT,
+    packageCache: {
+      root: (office) => officePackageCacheRoot(join(tmp, "state"), office),
+      fillId: () => "1",
+      ...options.cache,
+    },
+  });
+  scripts.bindEnv(() => w.boxes.liveExecs.at(-1)?.env ?? {});
+  return { w, root, installs: scripts.installs };
+}
+
+describe("the package cache of a box run (DIPO-295)", () => {
+  it("fills the cache in a fill box through the web route before the box, and mounts it read-only", () =>
+    inBoxes(async (repo, tmp) => {
+      const { w, root, installs } = await cacheWorld(repo, tmp);
+      const made = await created(w);
+      expect(made.cache).toMatchObject({ kind: "mounted", manager: "bun", filled: true });
+      expect(installs).toEqual([FILL]);
+      // The fill box ran on the box network, reached out only through the web route, was
+      // deleted before the story's box was made, and its stream's stdin was closed.
+      const order = [
+        `create ${FILL}`,
+        `start ${FILL}`,
+        `web route started on ${BOX_HOST_ADDRESS}`,
+        `exec ${FILL} bun`,
+        `exec live ${FILL} cat /tmp/dipo-fill/cache.tar`,
+        `delete ${FILL}`,
+        `create ${BOX}`,
+      ].map((line) => w.log.indexOf(line));
+      expect(order.every((index) => index >= 0)).toBe(true);
+      expect(order).toEqual(order.toSorted((a, b) => a - b));
+      expect(w.boxes.stdinEnded).toEqual([FILL]);
+      expect(w.boxes.boxes.get(FILL)?.spec.packageCache).toBeUndefined();
+      // The story's box gets the generation's real path under the office's root.
+      const mounted = w.boxes.boxes.get(BOX)?.spec.packageCache;
+      expect(made.cache.kind === "mounted" ? made.cache.path : undefined).toBe(mounted);
+      expect(mounted?.startsWith(`${realpathSync(root)}/`)).toBe(true);
+      expect(readdirSync(join(mounted!, "bun"))).toEqual(["is-number@7.0.0@@@1"]);
+      expect(w.workers.routeUsers.web).toEqual([]);
+    }));
+
+  it("reuses the filled cache for the next box without a fill box", () =>
+    inBoxes(async (repo, tmp) => {
+      const { w, installs } = await cacheWorld(repo, tmp);
+      const first = await created(w);
+      w.log.length = 0;
+      const second = await created(w, RUN_2);
+      expect(second.cache).toMatchObject({ kind: "mounted", filled: false });
+      expect(installs).toEqual([FILL]);
+      expect(w.log.filter((line) => line.includes("dipo-fill-"))).toEqual([]);
+      // No route is started for a reuse: the box's own install starts it later.
+      expect(w.log.filter((line) => line.includes("web route"))).toEqual([]);
+      expect(w.boxes.boxes.get(boxName(RUN_2))?.spec.packageCache).toBe(
+        first.cache.kind === "mounted" ? first.cache.path : "",
+      );
+    }));
+
+  it("shares one fill between two runs of the office that start together", () =>
+    inBoxes(async (repo, tmp) => {
+      // Both runs read the base lockfile before either fill starts, so the second asks while the
+      // first fill runs.
+      const reads: (() => void)[] = [];
+      const { w, installs } = await cacheWorld(repo, tmp, {
+        cache: {
+          readSource: async (git) => {
+            const source = await readBaseLockfile(git);
+            await new Promise<void>((resolve) => {
+              reads.push(resolve);
+              if (reads.length === 2) for (const read of reads) read();
+            });
+            return source;
+          },
+        },
+      });
+      const [a, b] = await Promise.all([created(w), created(w, RUN_2)]);
+      expect(installs).toEqual([FILL]);
+      expect(w.log.filter((line) => line === `create ${FILL}`)).toHaveLength(1);
+      expect(a.cache).toMatchObject({ kind: "mounted", filled: true });
+      // The second run waited for the same fill.
+      expect(b.cache).toEqual(a.cache);
+      expect(w.boxes.boxes.get(boxName(RUN_2))?.spec.packageCache).toBe(
+        w.boxes.boxes.get(BOX)?.spec.packageCache,
+      );
+    }));
+
+  it("makes the box without a cache when the fill fails, with the reason and no box output", () =>
+    inBoxes(async (repo, tmp) => {
+      const { w, root } = await cacheWorld(repo, tmp, {
+        outcome: () => ({ code: 1, output: "error: BOX-OUTPUT-1 could not fetch" }),
+      });
+      const made = await created(w);
+      expect(made.cache).toEqual({ kind: "skipped", reason: "bun exited 1 in the fill box" });
+      expect(w.boxes.boxes.get(BOX)?.spec.packageCache).toBeUndefined();
+      expect(w.boxes.boxes.has(BOX)).toBe(true);
+      expect(w.log).toContain(`delete ${FILL}`);
+      // Nothing half-filled is left to mount; the box output stays in the log.
+      expect(readdirSync(root)).toEqual([]);
+      const warning = w.warnings.find((warn) => warn.message.includes("without the package cache"));
+      expect(String(warning?.fields["message"])).toContain("BOX-OUTPUT-1");
+      expect(made.cache.kind === "skipped" ? made.cache.reason : "").not.toContain("BOX-OUTPUT-1");
+    }));
+
+  it("makes the box without a cache when the fill passes its deadline", () =>
+    inBoxes(async (repo, tmp) => {
+      const { w } = await cacheWorld(repo, tmp, {
+        outcome: () => new BoxError("box.timedOut", "container exec passed its deadline"),
+        cache: { timeoutMs: 1_000 },
+      });
+      const made = await created(w);
+      expect(made.cache).toEqual({ kind: "skipped", reason: "the fill passed its deadline" });
+      expect(w.log).toContain(`delete ${FILL}`);
+      expect(w.boxes.boxes.get(BOX)?.spec.packageCache).toBeUndefined();
+    }));
+
+  it("makes the box without a cache for a lockfile the cache does not support, before any fill box", () =>
+    inBoxes(async (repo, tmp) => {
+      const { w } = await cacheWorld(repo, tmp, {
+        committed: { "package.json": '{ "name": "repo" }\n', "yarn.lock": "# yarn lockfile v1\n" },
+      });
+      const made = await created(w);
+      expect(made.cache.kind).toBe("skipped");
+      expect(made.cache.kind === "skipped" && made.cache.reason).toBe(
+        "the package cache cannot be filled from this base: dipo cannot fill a package cache from yarn.lock; use bun.lock, pnpm-lock.yaml or package-lock.json.",
+      );
+      expect(w.log.filter((line) => line.includes("dipo-fill-"))).toEqual([]);
+      expect(w.boxes.boxes.get(BOX)?.spec.packageCache).toBeUndefined();
+    }));
+
+  it("lets the install take the cached packages, offline first, for that install only", () =>
+    inBoxes(async (repo, tmp) => {
+      const { w } = await cacheWorld(repo, tmp);
+      await created(w);
+      expect(await installIn(w)).toEqual({ ok: true });
+      const install = w.boxes.liveExecs.filter((exec) => exec.box === BOX);
+      expect(install).toHaveLength(1);
+      expect(install[0]?.env).toMatchObject({
+        ...boxCacheEnv("bun"),
+        BUN_INSTALL_CACHE_DIR: `${BOX_PACKAGE_CACHE_PATH}/bun`,
+        DIPO_STORY: "DIPO-1",
+      });
+      // The worker's session never names the cache.
+      const session = await w.workers.session({
+        runId: RUN,
+        runDir: w.runDir,
+        systemFile: w.systemFile,
+      });
+      expect(JSON.stringify(session.env)).not.toContain(BOX_PACKAGE_CACHE_PATH);
+    }));
+
+  it("runs the install again without the cache when the install from the cache fails", () =>
+    inBoxes(async (repo, tmp) => {
+      const { w } = await cacheWorld(repo, tmp, {
+        storyInstall: (env) => (env["BUN_INSTALL_CACHE_DIR"] === undefined ? 0 : 1),
+      });
+      await created(w);
+      const result = await installIn(w);
+      expect(result).toEqual({
+        ok: true,
+        cacheFallback: "the install (bun install --frozen-lockfile) exited 1 in the box",
+      });
+      const envs = w.boxes.liveExecs.filter((exec) => exec.box === BOX).map((exec) => exec.env);
+      expect(envs).toHaveLength(2);
+      expect(envs[1]?.["BUN_INSTALL_CACHE_DIR"]).toBeUndefined();
+      expect(envs[1]?.["HTTPS_PROXY"]).toBe(`http://${BOX_HOST_ADDRESS}:3128`);
+    }));
+
+  it("installs without the cache env and once only when the box got no cache", () =>
+    inBoxes(async (repo, tmp) => {
+      const { w } = await cacheWorld(repo, tmp, {
+        outcome: () => ({ code: 1, output: "" }),
+        storyInstall: () => 1,
+      });
+      await created(w);
+      const result = await installIn(w);
+      expect(result.ok).toBe(false);
+      expect(result.cacheFallback).toBeUndefined();
+      const envs = w.boxes.liveExecs.filter((exec) => exec.box === BOX).map((exec) => exec.env);
+      expect(envs).toHaveLength(1);
+      expect(envs[0]?.["BUN_INSTALL_CACHE_DIR"]).toBeUndefined();
     }));
 });
