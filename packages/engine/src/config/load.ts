@@ -346,13 +346,18 @@ async function readOptional(dir: string, file: string): Promise<string | undefin
 /**
  * Loads `<dir>/.dipo/office.yaml` and `<dir>/.dipo/office.local.yaml`. A missing file is no
  * layer (office init writes no `office.yaml`, DIPO-15 D9). Never throws for a bad file.
+ * `office` replaces the `office.yaml` under `dir` with a text read elsewhere, such as the file as
+ * committed on the base (DIPO-303); its `text` is undefined when that file does not exist.
  */
 export async function loadOfficeConfig(
   dir: string,
-  options: { readonly flags?: unknown } = {},
+  options: {
+    readonly flags?: unknown;
+    readonly office?: { readonly text: string | undefined };
+  } = {},
 ): Promise<OfficeConfigResult> {
   const [office, local] = await Promise.all([
-    readOptional(dir, OFFICE_FILE),
+    options.office === undefined ? readOptional(dir, OFFICE_FILE) : options.office.text,
     readOptional(dir, OFFICE_LOCAL_FILE),
   ]);
   const readErrors = [office, local].filter(

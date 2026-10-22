@@ -46,6 +46,8 @@ export interface RunProfilesDeps {
   readonly stories?: { indexStories(office: OfficeId): Promise<unknown> };
   /** Reconcile (DIPO-56), which `office.rescan` runs after a successful index pass. */
   readonly reconcile?: (office: OfficeId) => Promise<unknown>;
+  /** Reads the configuration again when `.dipo/office.yaml` changed on the base (DIPO-303). */
+  readonly reloadConfig?: (office: OfficeId) => Promise<unknown>;
   /** The file facts of a checkout; git-backed by default. */
   readonly files?: (dir: string) => RepoFiles;
   /** Detection; the pure DIPO-33 `detect` by default. Tests count its calls. */
@@ -231,6 +233,7 @@ export class RunProfiles {
         // Reconcile compares that pass with the database; it reports its own failure.
         if (indexed) await this.#deps.reconcile?.(office);
       }
+      await this.#deps.reloadConfig?.(office);
     } catch (error) {
       warnings.push(reasonOf(error));
     }

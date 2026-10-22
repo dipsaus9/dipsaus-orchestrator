@@ -12,6 +12,7 @@ import { basename, dirname, isAbsolute, join } from "node:path";
 
 import {
   type Clock,
+  configError,
   type ConfigError,
   engineError,
   type EngineError,
@@ -19,6 +20,7 @@ import {
   OfficeId,
 } from "@dipsaus-orchestrator/contract";
 
+import { filesAt } from "../box/image";
 import { appendEntries, newLogState } from "../changelog/log";
 import { CommandError } from "../commands/errors";
 import {
@@ -30,12 +32,15 @@ import {
 import type { CommandOutcome, Registry } from "../commands/registry";
 import {
   loadOfficeConfig,
+  OFFICE_FILE,
   OFFICE_LOCAL_FILE,
   type OfficeConfig,
+  type OfficeConfigResult,
   updateLocalPrivacy,
 } from "../config";
 import type { StateDatabase } from "../db/database";
 import type { OfficeHandle } from "../db/office";
+import type { OfficeGit } from "../git/office";
 import type { Logger } from "../log/logger";
 import type { RandomFill } from "../platform/ids";
 import type { MountReader } from "../platform/sqlite";
@@ -123,6 +128,17 @@ class OfficeInstance {
     readonly localOverrideKeys: readonly string[];
   } | null = null;
   configErrors: readonly ConfigError[] = [];
+  /**
+   * The `.dipo/office.yaml` text the configuration was last read from, the checkout's or
+   * the base's (DIPO-303); undefined when that file did not exist or could not be read.
+   */
+  officeText: string | undefined = undefined;
+  /**
+   * What `reloadIfChanged` last saw of `.dipo/office.yaml` on the base (DIPO-303), null before its
+   * first read. Only a change of this reads the configuration again, so an explicit reload of the
+   * checkout's file stays in force until the base changes.
+   */
+  seenOnBase: BaseOfficeFile | null = null;
 
   constructor(
     readonly officeId: OfficeId,
@@ -130,6 +146,52 @@ class OfficeInstance {
     readonly path: string,
     readonly commonDir: string,
   ) {}
+}
+
+/** The text of `.dipo/office.yaml` under `dir`, or undefined when it is missing or unreadable. */
+function readOfficeText(dir: string): string | undefined {
+  try {
+    return readFileSync(join(dir, OFFICE_FILE), "utf8");
+  } catch {
+    return undefined;
+  }
+}
+
+/** `.dipo/office.yaml` as committed on `<remote>/<base>` (DIPO-303). */
+export type BaseOfficeFile =
+  /** `text` is undefined when the base has no such file. */
+  | { readonly kind: "file"; readonly text: string | undefined }
+  /** The path on the base is a directory, a link or a submodule. */
+  | { readonly kind: "notRegular"; readonly base: string };
+
+/**
+ * Reads `.dipo/office.yaml` at the commit `<remote>/<base>` points at, from git's objects, never
+ * from a checkout: a poll or `office.rescan` moves only the base, not the maintainer's checkout
+ * (0010 section 2). One queue item of the office git. Null when the office has no base branch or
+ * `<remote>/<base>` does not exist; the load and the scan report that already.
+ */
+export function readBaseOfficeFile(git: OfficeGit): Promise<BaseOfficeFile | null> {
+  return git.run(async (session) => {
+    const base = await git.resolveBaseIn(session).catch(() => null);
+    if (base === null) return null;
+    const ref = `refs/remotes/${git.settings.remote}/${base}^{commit}`;
+    const resolved = await session.step(session.repository, [
+      "rev-parse",
+      "--verify",
+      "--quiet",
+      ref,
+    ]);
+    if (resolved.code !== 0) return null;
+    const commit = resolved.stdout.trim();
+    const file = (await filesAt(session, commit, [OFFICE_FILE])).get(OFFICE_FILE);
+    if (file === undefined) return { kind: "file", text: undefined };
+    if (file.text === undefined) return { kind: "notRegular", base };
+    return { kind: "file", text: file.text };
+  });
+}
+
+function sameBaseFile(a: BaseOfficeFile, b: BaseOfficeFile): boolean {
+  return a.kind === "file" && b.kind === "file" ? a.text === b.text : a.kind === b.kind;
 }
 
 const ROW_COLUMNS = "office_id, path, display_name, added_at, forgotten_at";
@@ -306,10 +368,31 @@ export class OfficeManager implements OfficeDirectory {
    * Reads the office's configuration (DIPO-26). A valid result replaces the one in force and clears
    * the errors; an invalid one keeps it, records the errors and puts an `engine.notice` on the
    * office stream. A valid result's warnings, such as a retired key it still sets (DIPO-285), each
-   * become a `config.warning` notice there. Returns whether anything changed.
+   * become a `config.warning` notice there. Returns whether anything changed. Without `from` it
+   * reads the checkout's files; with it, `office.yaml` as read from the base (DIPO-303) and the
+   * checkout's machine-local `office.local.yaml`.
    */
-  async #readConfig(instance: OfficeInstance): Promise<boolean> {
-    const result = await loadOfficeConfig(instance.path);
+  async #readConfig(instance: OfficeInstance, from?: BaseOfficeFile): Promise<boolean> {
+    let result: OfficeConfigResult;
+    if (from === undefined) {
+      instance.officeText = readOfficeText(instance.path);
+      result = await loadOfficeConfig(instance.path);
+    } else if (from.kind === "file") {
+      instance.officeText = from.text;
+      result = await loadOfficeConfig(instance.path, { office: { text: from.text } });
+    } else {
+      result = {
+        ok: false,
+        errors: [
+          configError(
+            OFFICE_FILE,
+            "(top level)",
+            "regular file",
+            `the file on ${from.base} is not a regular file`,
+          ),
+        ],
+      };
+    }
     if (result.ok) {
       const changed =
         instance.config?.configHash !== result.configHash || instance.configErrors.length > 0;
@@ -340,6 +423,50 @@ export class OfficeManager implements OfficeDirectory {
       text: `The office configuration is invalid; new runs are refused until \`dipo office reload-config\` reads a valid one, and ${kept}. ${result.errors.map((error) => error.message).join("; ")}`,
     });
     return changed;
+  }
+
+  /**
+   * Reads the configuration again when `.dipo/office.yaml` on the base changed (DIPO-303). The poll
+   * after a fetch and `office.rescan` call it with the office's git, so a change that reached the
+   * base is in force without a daemon restart, whatever the maintainer's checkout holds. The file
+   * is read at `<remote>/<base>` and compared with what the last call saw there; the first call
+   * compares it with the text the configuration was read from at load. A valid change goes to the
+   * config-reload listeners; a refused one keeps the configuration in force and raises the
+   * `config.invalid` notice once. An office that is not loaded, has no office git or no base is
+   * left alone.
+   */
+  reloadIfChanged(office: OfficeId, git: OfficeGit | undefined): Promise<void> {
+    return this.#serialised(async () => {
+      const instance = this.#instances.get(office);
+      if (instance === undefined || git === undefined) return;
+      const onBase = await readBaseOfficeFile(git);
+      if (onBase === null) return;
+      const seen = instance.seenOnBase;
+      instance.seenOnBase = onBase;
+      if (seen === null) {
+        if (onBase.kind === "file" && onBase.text === instance.officeText) return;
+      } else if (sameBaseFile(seen, onBase)) {
+        return;
+      }
+      // Refused or loaded again while the base was read: only the instance in force reads it.
+      if (this.#instances.get(office) !== instance) return;
+      const changed = await this.#readConfig(instance, onBase);
+      this.#deps.logger.info("office configuration read from the base", {
+        office,
+        valid: instance.configErrors.length === 0,
+        changed,
+      });
+      if (changed) this.#listenConfigReload(instance);
+    });
+  }
+
+  /** Tells every config-reload listener the configuration in force, when it is valid. */
+  #listenConfigReload(instance: OfficeInstance): void {
+    if (instance.config === null || instance.configErrors.length > 0) return;
+    const config = instance.config.config;
+    for (const { listen } of this.#deps.registry().configReloads()) {
+      listen({ officeId: instance.officeId, office: instance.office, config });
+    }
   }
 
   #officeNotice(
@@ -712,12 +839,7 @@ export class OfficeManager implements OfficeDirectory {
     }
     // A load just read the configuration; only an office loaded before reads it again.
     const changed = wasLoaded ? await this.#readConfig(instance) : false;
-    if (wasLoaded && instance.config !== null && instance.configErrors.length === 0) {
-      const config = instance.config.config;
-      for (const { listen } of this.#deps.registry().configReloads()) {
-        listen({ officeId, office: instance.office, config });
-      }
-    }
+    if (wasLoaded) this.#listenConfigReload(instance);
     return {
       result: {
         office: officeId,

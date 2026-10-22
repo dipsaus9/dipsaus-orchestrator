@@ -6,7 +6,7 @@ title: >-
 status: Refined
 assignee: []
 created_date: '2026-10-17 12:52'
-updated_date: '2026-10-22 18:16'
+updated_date: '2026-10-22 19:15'
 labels:
   - 'tier:L'
   - 'slice:m1a'
@@ -112,6 +112,7 @@ test_plan:
 - [ ] #11 (from DIPO-151) A review-blocked park opens a merge gate summarising the blocking findings; gate.approve on it without a note answers gate.noteRequired, and with a note records a maintainer override, marks the verdict overridden, resolves the park with resolved_how override (added to the parks check by migration) and returns the story to In Review with no session
 - [ ] #12 (from DIPO-151) dipo approve <ID> [--note <text>] and dipo reject <ID> --note <text> (with confirmation) send the story's open maintainer gate read from story.detail, and with none print that nothing waits and exit 1; capability flag review in reads/hello.ts lists gate.approve and gate.reject
 - [ ] #13 (from DIPO-151) A hand merge detected by the Done poll decides the open gate approved by maintainer with the note merged on the host in the same transaction
+- [ ] #14 Stages of a run after its start (story PR open, required checks, reviewer model and adapter, the merge) read the run's recorded configuration snapshot, not the configuration in force, since a base change now reloads it on the poll (DIPO-303 review, 2026-10-22)
 <!-- AC:END -->
 
 ## Implementation Notes
