@@ -7,7 +7,7 @@
 // `work.run`'s `box` runs its developer in its own box (`BoxWorkers`). The box ends with its run:
 // after each exit decision the boxes of ended runs get the post-run token check and are deleted,
 // and so are those a stopped daemon left (`finishEndedBoxes`, at the recovery step). At start the
-// token check's leftover export folders are swept.
+// token check's leftover export folders and the part stage folders a stopped daemon left are swept.
 
 import { realpathSync, rmSync } from "node:fs";
 import { isAbsolute, join } from "node:path";
@@ -42,6 +42,7 @@ import {
   readBaseBox,
   startBoxWebRoute,
   startModelProxy,
+  sweepPartStages,
   sweepReviewFolders,
   sweepTokenCheckLeftovers,
   systemIsExecutable,
@@ -329,6 +330,21 @@ export async function sweepBoxTokenChecks(
 }
 
 /**
+ * Removes the part stage folders a stopped daemon left in `tmpRoot` (DIPO-290): a crash during a
+ * part leaves the box's files there. Runs at daemon start, leaving the stages `parts` uses; never
+ * rejects.
+ */
+export async function sweepBoxPartStages(
+  tmpRoot: string,
+  parts: Pick<BoxParts, "sweepStages"> | null,
+  logger: Pick<Logger, "info">,
+): Promise<number> {
+  const removed = await (parts === null ? sweepPartStages(tmpRoot) : parts.sweepStages());
+  if (removed > 0) logger.info("removed part stage folders a stopped daemon left", { removed });
+  return removed;
+}
+
+/**
  * The door's `onPart` of the daemon's box workers: the part is delivered (DIPO-273), then a
  * collision check runs, since the part may change the files the story changes (DIPO-277). A part
  * that was not delivered rejects, stays queued in the box and starts no check.
@@ -567,6 +583,7 @@ export function daemonRuns(options: DaemonRunsOptions): DaemonRuns {
   );
   const boxWorkers = boxed?.workers ?? null;
   void sweepBoxTokenChecks(realDir(options.tmpRoot), options.logger).catch(() => {});
+  void sweepBoxPartStages(realDir(options.tmpRoot), boxed?.parts ?? null, options.logger);
   const finishEndedBoxes = async (
     finishOptions: { readonly listBoxes?: boolean } = {},
   ): Promise<void> => {
