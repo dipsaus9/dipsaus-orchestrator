@@ -24,6 +24,17 @@
 //
 // `BoxWebRoute` starts the proxy with the first box that uses it and stops it with the last.
 //
+// The reviewer has no box and fetches from the Mac (0021 section 10), so it gets a listener of its
+// own (DIPO-292, `startReviewWebProxy`): the same proxy and the same address rule, on the loopback
+// interface only and on a port the system picks, for the length of one review session. Its
+// `HTTPS_PROXY` and `HTTP_PROXY` name it, so each web fetch, and each redirect the fetch follows
+// (a new connection), tunnels through it and is checked at connect time on the address used. It
+// has no Safe-Chain behind it: a reviewer installs nothing, so a registry name is a host like any
+// other there, under the address rule. Its rule refuses the box network as the web guard's does:
+// by the box network's host address the caller names (read for each check, as the guard reads
+// it), when a box network exists. Without one, the Mac's own addresses and on-link prefixes are
+// still refused, so a box network that exists on an interface of the Mac is refused by its prefix.
+//
 // Known gaps:
 // - A registry alias or another name on a registry's CDN reaches the registry directly (DIPO-281).
 // - Listed local ports of the Mac are not allowed yet (DIPO-282).
@@ -60,8 +71,12 @@ export const WEB_PROXY_LIMITS = {
   /** A tunnel with no traffic either way for this long is closed. */
   idleTimeoutMs: 10 * 60_000,
 } as const;
+/** The loopback address: where dipo's Safe-Chain proxy listens, and the reviewer's web proxy. */
+const LOOPBACK = "127.0.0.1";
 /** Where dipo's Safe-Chain proxy listens (`startSafeChainProxy`). */
-const SAFE_CHAIN_HOST = "127.0.0.1";
+const SAFE_CHAIN_HOST = LOOPBACK;
+/** Where a reviewer session's web proxy listens (DIPO-292): the loopback interface only. */
+export const REVIEW_WEB_PROXY_HOST = LOOPBACK;
 
 // ---------------------------------------------------------------------------------------------
 // The address rule.
@@ -414,10 +429,10 @@ export interface BoxWebProxyDeps {
 }
 
 export interface RunningBoxWebProxy {
-  /** The address it listens on: the box network's host address. */
+  /** The address it listens on: the box network's host address (loopback for a reviewer). */
   readonly host: string;
   readonly port: number;
-  /** The proxy URL a box's `https_proxy` names. */
+  /** The proxy URL a box's `https_proxy` (or a reviewer's `HTTPS_PROXY`) names. */
   readonly url: string;
   /** Closes the port and destroys every open connection. */
   stop(): Promise<void>;
@@ -502,11 +517,69 @@ function hostForUrl(host: string): string {
  * Starts the web proxy on the box network's host address. Refuses a host address that is not an
  * IP literal, or the unspecified address, which would listen on every interface.
  */
-export async function startBoxWebProxy(
+export function startBoxWebProxy(
   options: BoxWebProxyOptions,
   deps: BoxWebProxyDeps,
 ): Promise<RunningBoxWebProxy> {
-  const listenHost = options.network.hostAddress;
+  return startWebProxy(
+    {
+      listenHost: options.network.hostAddress,
+      boxHostAddress: () => options.network.hostAddress,
+      safeChainPort: options.safeChainPort,
+      port: options.port ?? 0,
+      limits: options.limits ?? {},
+    },
+    deps,
+  );
+}
+
+export interface ReviewWebProxyOptions {
+  /** Caps and idle timeout; each one left out takes its `WEB_PROXY_LIMITS` value. */
+  readonly limits?: BoxWebProxyOptions["limits"];
+  /**
+   * The box network's host address when a box network exists, else null; read for each check.
+   * The source the web guard reads (`FetchAddressDeps.boxHostAddress`); none by default.
+   */
+  readonly boxHostAddress?: () => string | null;
+}
+
+/**
+ * Starts the web proxy of one reviewer session (DIPO-292, file comment): on the loopback interface
+ * only, on a port the system picks, with no Safe-Chain behind it, refusing the box network named by
+ * `options.boxHostAddress`. The caller stops it when the session ends.
+ */
+export function startReviewWebProxy(
+  deps: BoxWebProxyDeps,
+  options: ReviewWebProxyOptions = {},
+): Promise<RunningBoxWebProxy> {
+  return startWebProxy(
+    {
+      listenHost: REVIEW_WEB_PROXY_HOST,
+      boxHostAddress: options.boxHostAddress ?? (() => null),
+      safeChainPort: null,
+      port: 0,
+      limits: options.limits ?? {},
+    },
+    deps,
+  );
+}
+
+/** Where one listener of the web proxy listens and what its address rule knows. */
+interface WebProxyListener {
+  readonly listenHost: string;
+  /** The box network's host address for the address rule, read for each check; null: none. */
+  readonly boxHostAddress: () => string | null;
+  /** dipo's Safe-Chain proxy for registry tunnels; null: none, a registry is a host like others. */
+  readonly safeChainPort: number | null;
+  readonly port: number;
+  readonly limits: NonNullable<BoxWebProxyOptions["limits"]>;
+}
+
+async function startWebProxy(
+  options: WebProxyListener,
+  deps: BoxWebProxyDeps,
+): Promise<RunningBoxWebProxy> {
+  const { listenHost, safeChainPort } = options;
   const parsed = parseAddress(listenHost);
   if (
     parsed === null ||
@@ -582,7 +655,7 @@ export async function startBoxWebProxy(
     const { host, port } = request;
     const target = `${host}:${port}`;
     const rest = head.subarray(end + 4);
-    if (isRegistryHost(host)) {
+    if (safeChainPort !== null && isRegistryHost(host)) {
       if (port !== SAFE_CHAIN_TLS_PORT) {
         refuse(
           client,
@@ -599,7 +672,7 @@ export async function startBoxWebProxy(
         Buffer.from(`CONNECT ${target} HTTP/1.1\r\nHost: ${target}\r\n\r\n`, "latin1"),
         rest,
       ]);
-      connectFirst([SAFE_CHAIN_HOST], options.safeChainPort, (upstream) => {
+      connectFirst([SAFE_CHAIN_HOST], safeChainPort, (upstream) => {
         if (client.destroyed) {
           upstream?.destroy();
           return;
@@ -617,7 +690,7 @@ export async function startBoxWebProxy(
         if (stopped || client.destroyed) return;
         const context = {
           interfaces: interfaces(),
-          boxHostAddress: listenHost,
+          boxHostAddress: options.boxHostAddress() ?? "",
           ...(deps.publicStandIns === undefined ? {} : { publicStandIns: deps.publicStandIns }),
         };
         const verdicts = addresses.map((address) => checkAddress(address, context));
@@ -690,11 +763,11 @@ export async function startBoxWebProxy(
     client.on("close", () => deps.clock.clearTimeout(timer));
   });
 
-  await (deps.listen ?? systemListen)(server, listenHost, options.port ?? 0);
+  await (deps.listen ?? systemListen)(server, listenHost, options.port);
   const address = server.address();
   const bound = typeof address === "object" && address !== null ? address : null;
   if (deps.listen === undefined && (bound === null || bound.port === 0)) {
-    // dipo's own listen must bind a TCP port, or a box's proxy URL would name none.
+    // dipo's own listen must bind a TCP port, or a proxy URL would name none.
     await new Promise<void>((resolveClose) => server.close(() => resolveClose()));
     throw new Error(`the web proxy did not bind a TCP port on ${listenHost}`);
   }

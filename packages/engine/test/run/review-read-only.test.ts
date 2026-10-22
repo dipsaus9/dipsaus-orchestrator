@@ -4,7 +4,9 @@
 // it when the session's start fails or its exit is decided; the daemon-start sweep removes what a
 // stopped daemon left. The commit holds a planted `.claude/settings.json` with hooks, a hook script,
 // a CLAUDE.md and more: none of it reaches the session's settings, argv or prompt. The worker port
-// is a fake that plans with the real Claude plan, so no `claude` process starts.
+// is a fake that plans with the real Claude plan, so no `claude` process starts. Each session's
+// own web proxy (DIPO-292) is a fake listener that logs its start and stop, except in one test
+// of the real loopback listener.
 
 import {
   chmodSync,
@@ -19,6 +21,7 @@ import {
   symlinkSync,
   writeFileSync,
 } from "node:fs";
+import { connect } from "node:net";
 import { dirname, join } from "node:path";
 
 import { afterEach, beforeEach, describe, expect, it } from "bun:test";
@@ -114,6 +117,10 @@ interface World {
   prepare: ((spec: WorkerSpec) => PreparedWorker) | null;
   /** Throws from the next host start when set. */
   hostFails: boolean;
+  /** The fake web proxies' starts and stops, by URL. */
+  readonly proxyLog: string[];
+  /** Throws from the next web proxy start when set. */
+  proxyFails: boolean;
 }
 
 let rounds: RoundsWorld;
@@ -190,6 +197,10 @@ async function world(repo: TempRepo): Promise<World> {
   } as unknown as World;
   w.prepare = null;
   w.hostFails = false;
+  w.proxyFails = false;
+  const proxyLog: string[] = [];
+  (w as { proxyLog: string[] }).proxyLog = proxyLog;
+  let proxies = 0;
   const worker = {
     id: "claude-cli",
     reportSchema: REPORT_JSON_SCHEMAS,
@@ -221,6 +232,18 @@ async function world(repo: TempRepo): Promise<World> {
     },
     ingest: { start: () => undefined },
     control: { track: () => undefined },
+    webProxy: async () => {
+      if (w.proxyFails) throw new Error("no port to listen on");
+      proxies += 1;
+      const url = `http://127.0.0.1:${proxies}`;
+      proxyLog.push(`start ${url}`);
+      return {
+        url,
+        stop: async () => {
+          proxyLog.push(`stop ${url}`);
+        },
+      };
+    },
   };
   (w as { deps: typeof deps }).deps = deps;
   (w as { launcher: ReviewLauncher }).launcher = new ReviewLauncher(deps);
@@ -544,5 +567,104 @@ describe("no configuration from the reviewer's copy (DIPO-276)", () => {
         "Read,Glob,Grep,WebSearch,WebFetch",
       );
       await w.launcher.finish(w.rounds.office.officeId as OfficeId, w.run.runId, s.agent);
+    }));
+});
+
+/** Whether a new TCP connection to `port` on loopback is taken. */
+function reachable(port: number): Promise<boolean> {
+  return new Promise((resolve) => {
+    const socket = connect(port, "127.0.0.1");
+    socket.on("connect", () => {
+      socket.destroy();
+      resolve(true);
+    });
+    socket.on("error", () => resolve(false));
+  });
+}
+
+describe("the reviewer's own web proxy (DIPO-292)", () => {
+  it("starts one for each session, names it in the session's proxy variables and stops it when the session finishes", () =>
+    withWorld(async (w) => {
+      const office = w.rounds.office.officeId as OfficeId;
+      const first = await startSession(w);
+      const second = await startSession(w);
+      expect(first.spec.webProxy).toBe("http://127.0.0.1:1");
+      expect(first.plan.env["HTTPS_PROXY"]).toBe("http://127.0.0.1:1");
+      expect(first.plan.env["HTTP_PROXY"]).toBe("http://127.0.0.1:1");
+      expect(first.plan.env["NO_PROXY"]).toBe("api.anthropic.com");
+      expect(second.plan.env["HTTPS_PROXY"]).toBe("http://127.0.0.1:2");
+      expect(w.proxyLog).toEqual(["start http://127.0.0.1:1", "start http://127.0.0.1:2"]);
+      // The exit or lost host of a session, a crash or a stop included, is decided with finish.
+      await w.launcher.finish(office, w.run.runId, first.agent);
+      expect(w.proxyLog.at(-1)).toBe("stop http://127.0.0.1:1");
+      await w.launcher.finish(office, w.run.runId, second.agent);
+      await w.launcher.finish(office, w.run.runId, second.agent);
+      expect(w.proxyLog).toEqual([
+        "start http://127.0.0.1:1",
+        "start http://127.0.0.1:2",
+        "stop http://127.0.0.1:1",
+        "stop http://127.0.0.1:2",
+      ]);
+    }));
+
+  it("stops it when the launch check refuses, the plan throws or the host does not start", () =>
+    withWorld(async (w) => {
+      const office = w.rounds.office.officeId as OfficeId;
+      const request = { office, run: w.run, taskMessage: TASK, head: w.tip };
+      w.prepare = () => ({
+        ok: false,
+        outcome: "startFailed",
+        hold: { adapter: "claude-cli", check: "probe", detail: "x", failures: [], since: 0 },
+      });
+      expect((await w.launcher.start(request)).kind).toBe("startFailed");
+      w.prepare = () => {
+        throw new PlanError("refused");
+      };
+      expect(await w.launcher.start(request)).toMatchObject({ kind: "failed" });
+      w.prepare = null;
+      w.hostFails = true;
+      expect(await w.launcher.start(request)).toMatchObject({ kind: "failed" });
+      expect(w.proxyLog).toEqual(
+        [1, 2, 3].flatMap((n) => [`start http://127.0.0.1:${n}`, `stop http://127.0.0.1:${n}`]),
+      );
+    }));
+
+  it("fails the review start with the reason when the proxy cannot start, and runs no session", () =>
+    withWorld(async (w) => {
+      w.proxyFails = true;
+      const outcome = await w.launcher.start({
+        office: w.rounds.office.officeId as OfficeId,
+        run: w.run,
+        taskMessage: TASK,
+        head: w.tip,
+      });
+      expect(outcome).toEqual({
+        kind: "failed",
+        reason:
+          "the reviewer's web proxy did not start, and a reviewer never fetches without it: no port to listen on",
+      });
+      expect(w.prepared).toEqual([]);
+      expect(w.started).toEqual([]);
+      expect(folders(w)).toEqual([]);
+    }));
+
+  it("is by default a real listener on loopback for the length of the session", () =>
+    withWorld(async (w) => {
+      const { webProxy: _fake, ...real } = w.deps;
+      const launcher = new ReviewLauncher(real);
+      const office = w.rounds.office.officeId as OfficeId;
+      const outcome = await launcher.start({ office, run: w.run, taskMessage: TASK, head: w.tip });
+      if (outcome.kind !== "started") {
+        // Only a sandbox that refuses loopback listens (DIPO-287) gets here.
+        expect(outcome).toMatchObject({ kind: "failed" });
+        expect((outcome as { reason: string }).reason).toContain("web proxy did not start");
+        return;
+      }
+      const url = new URL(w.prepared.at(-1)?.plan.env["HTTPS_PROXY"] ?? "");
+      expect(url.hostname).toBe("127.0.0.1");
+      const port = Number(url.port);
+      expect(await reachable(port)).toBe(true);
+      await launcher.finish(office, w.run.runId, outcome.agent);
+      expect(await reachable(port)).toBe(false);
     }));
 });
