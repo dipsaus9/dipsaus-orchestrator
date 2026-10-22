@@ -3,6 +3,7 @@
 // workspace stays in the project; for pnpm only the `packages` of the workspace file pass.
 
 import { describe, expect, it } from "bun:test";
+import { join } from "node:path";
 
 import {
   type BaseLockfile,
@@ -56,6 +57,9 @@ const NON_REGISTRY = [
   "http://example.com/pkg.tgz",
   "file:../outside",
   "link:../outside",
+  "~/outside",
+  "~",
+  "~ /outside",
 ];
 
 describe("registry specs", () => {
@@ -63,6 +67,7 @@ describe("registry specs", () => {
     for (const spec of [
       "7.0.0",
       "^1.2.3",
+      "~8.9.0",
       ">=1 <2",
       "latest",
       "*",
@@ -185,6 +190,17 @@ describe("bun.lock", () => {
   it("refuses a workspace outside the project", () => {
     refused(base("bun", bunLock({}, { "": {}, "../outside": {} })));
     refused(base("bun", bunLock({ a: ["a@workspace:../outside"] })));
+  });
+
+  it("passes this repository's own bun.lock and manifests (a tilde range, DIPO-275)", async () => {
+    const root = `${join(import.meta.dir, "../../../..")}/`;
+    const paths = ["package.json"];
+    for await (const path of new Bun.Glob("packages/*/package.json").scan(root)) paths.push(path);
+    const files = await Promise.all(
+      paths.toSorted().map(async (path) => ({ path, text: await Bun.file(root + path).text() })),
+    );
+    const text = await Bun.file(`${root}bun.lock`).text();
+    checkFillInput(base("bun", text, files));
   });
 });
 
