@@ -4,8 +4,9 @@
 //
 // Every listed task is viewed once: the views of the Ready stories and the other tasks both come
 // from those reads, and each Ready story's input is built by the same function the daemon's read
-// uses (`gateInputOf`). The gate runs in `pickup` mode: a Ready story is checked by R01b (status
-// Ready) and R02 to R26. `ready` mode would fail every Ready story at R01a, which wants Refined.
+// uses (`gateInputOf`), with the checked-out commit's file paths as the base tree R29 reads. The
+// gate runs in `pickup` mode: a Ready story is checked by R01b (status Ready) and R02 to R30.
+// `ready` mode would fail every Ready story at R01a, which wants Refined.
 //
 // Usage: bun scripts/check-ready-gate.ts [repository]   (the repository defaults to the current directory)
 
@@ -22,6 +23,7 @@ import {
   parseMilestones,
   viewListedTasks,
 } from "../packages/engine/src/gate/store/read";
+import { treePaths } from "../packages/engine/src/gate/store/tree";
 import { systemSpawn } from "../packages/engine/src/platform/process";
 
 const READY = "Ready";
@@ -31,6 +33,17 @@ export const REPO_BACKLOG_CLI: BacklogCli = {
   spawn: systemSpawn,
   command: [process.execPath, join(import.meta.dir, "..", "node_modules", "backlog.md", "cli.js")],
 };
+
+/**
+ * The file paths of the commit checked out in `repo`, listed as the daemon lists the base tree;
+ * undefined when `repo` is not a git checkout. R29 then knows no base file, which can only add
+ * failures: a bare test file name is covered only by a file Reference of that name.
+ */
+function treeFiles(repo: string): string[] | undefined {
+  const args = ["ls-tree", "-r", "-z", "--name-only", "--full-tree", "HEAD"];
+  const listed = Bun.spawnSync(["git", "-C", repo, ...args], { stderr: "ignore" });
+  return listed.exitCode === 0 ? treePaths(listed.stdout.toString()) : undefined;
+}
 
 export interface ReadyGateReport {
   /** How many Ready stories were checked. */
@@ -57,6 +70,7 @@ export async function checkReadyGate(repo: string, cli: BacklogCli): Promise<Rea
     (await runBacklog(cli, repo, ["milestone", "list", "--show-completed", "--plain"])).stdout,
   );
   const others = gateTasksOf(views);
+  const files = treeFiles(repo);
   const ready = entries.filter((entry) => entry.group === READY);
   const failures: string[] = [];
   for (const entry of ready) {
@@ -64,7 +78,7 @@ export async function checkReadyGate(repo: string, cli: BacklogCli): Promise<Rea
     if (view === undefined) {
       throw new Error(`${entry.id} is Ready but its Backlog view does not parse`);
     }
-    const input = gateInputOf(view, others, milestones, config);
+    const input = gateInputOf(view, others, milestones, config, files);
     failures.push(...evaluateGate(input, "pickup").failures.map((failure) => failure.message));
   }
   return { checked: ready.length, failures };

@@ -114,14 +114,16 @@ export function gateTasksOf(views: ReadonlyMap<string, PlainTask | undefined>): 
 
 /**
  * The gate input of `story`, built from its view, the active tasks as GateTask values (the
- * story's own entry is replaced by its view), the milestone ids and names and the configuration.
- * Pure: the caller runs the CLI. Its subtasks are the view's.
+ * story's own entry is replaced by its view), the milestone ids and names, the configuration and,
+ * when the caller listed them, the base tree's file paths (R29, DIPO-251). Pure: the caller runs
+ * the CLI and git. Its subtasks are the view's.
  */
 export function gateInputOf(
   story: PlainTask,
   others: readonly GateTask[],
   milestones: readonly string[],
   config: GateConfig,
+  baseFiles?: readonly string[],
 ): GateInput {
   return {
     story: {
@@ -134,6 +136,7 @@ export function gateInputOf(
     activeTasks: others.map((task) => (task.id === story.id ? gateTaskFromView(story) : task)),
     milestones: [...milestones],
     config,
+    ...(baseFiles === undefined ? {} : { baseFiles }),
   };
 }
 
@@ -141,6 +144,7 @@ export function gateInputOf(
  * Reads the gate input of `story` in the worktree `cwd`. With `others`, the active tasks the
  * mirror holds for this very commit (`cachedGateTasks`), only the story and the milestones go
  * through the CLI: two calls however many tasks there are. Without it, every listed task is viewed.
+ * `baseFiles` are the base tree's file paths the caller listed, passed on in the input.
  * Throws `StoryNotFoundError` when the story is not there, `BacklogCommandError` or
  * `BacklogRefusedError` when the CLI fails otherwise, and `BacklogParseError` when an output does
  * not parse.
@@ -151,6 +155,7 @@ export async function readGateInput(
   story: string,
   config: GateConfig,
   others?: readonly GateTask[],
+  baseFiles?: readonly string[],
 ): Promise<GateInput> {
   let target;
   try {
@@ -174,5 +179,5 @@ export async function readGateInput(
   const milestones = parseMilestones(
     (await runBacklog(cli, cwd, ["milestone", "list", "--show-completed", "--plain"])).stdout,
   );
-  return gateInputOf(target, activeTasks, milestones, config);
+  return gateInputOf(target, activeTasks, milestones, config, baseFiles);
 }

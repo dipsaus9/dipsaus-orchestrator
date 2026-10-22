@@ -6,7 +6,7 @@ import { readLabels } from "../backlog/fields/labels";
 import { type GateContext, r01a, r01b, type RuleCheck, SHARED_RULES } from "./rules";
 import { BUILT_IN_ROSTER, type GateInput, type GateMode, type GateResult } from "./types";
 
-/** The rules a mode evaluates: R01a or R01b, then R02 to R28. */
+/** The rules a mode evaluates: R01a or R01b, then R02 to R30. */
 export function rulesFor(mode: GateMode): readonly RuleCheck[] {
   return [mode === "ready" ? r01a : r01b, ...SHARED_RULES];
 }
