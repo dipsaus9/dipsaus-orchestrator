@@ -2,7 +2,9 @@
 // included), host-name normalisation, the registry routing to Safe-Chain, the refusals, that a
 // tunnel goes to the address resolution returned and the rule checked (no second lookup), that
 // plain HTTP proxying is refused, the connection caps and the idle timeout, that stop destroys open
-// tunnels, and that the route starts with the first box and stops with the last.
+// tunnels, and that the route starts with the first box and stops with the last. A reviewer
+// session's own listener (DIPO-292) applies the same rule on loopback, also to every connection a
+// redirect opens.
 //
 // The Mac's interfaces and the public stand-ins are documentation addresses: the Mac has
 // 192.0.2.10/25 and 2001:db8:1::10/64, the box network is 198.51.100.1/24, and the rest of the
@@ -30,6 +32,7 @@ import {
   type BoxWebProxyOptions,
   type RunningBoxWebProxy,
   startBoxWebProxy,
+  startReviewWebProxy,
   WEB_PROXY_HEAD_LIMIT,
   WEB_PROXY_HEAD_TIMEOUT_MS,
   WEB_PROXY_LIMITS,
@@ -339,6 +342,8 @@ interface Transport {
     options: BoxWebProxyOptions,
     deps: BoxWebProxyDeps,
   ): Promise<{ proxy: RunningBoxWebProxy; endpoint: Endpoint }>;
+  /** Starts a reviewer session's web proxy (DIPO-292) on this transport. */
+  startReview(deps: BoxWebProxyDeps): Promise<{ proxy: RunningBoxWebProxy; endpoint: Endpoint }>;
 }
 
 function tcpListen(server: Server): Promise<number> {
@@ -416,6 +421,10 @@ const TCP: Transport = {
     const proxy = await startBoxWebProxy(options, deps);
     return { proxy, endpoint: proxy.port };
   },
+  async startReview(deps) {
+    const proxy = await startReviewWebProxy(deps);
+    return { proxy, endpoint: proxy.port };
+  },
 };
 
 const UNIX: Transport = {
@@ -432,6 +441,14 @@ const UNIX: Transport = {
   async startProxy(options, deps) {
     const path = socketPath();
     const proxy = await startBoxWebProxy(options, {
+      ...deps,
+      listen: (server) => unixListen(server, path),
+    });
+    return { proxy, endpoint: path };
+  },
+  async startReview(deps) {
+    const path = socketPath();
+    const proxy = await startReviewWebProxy({
       ...deps,
       listen: (server) => unixListen(server, path),
     });
@@ -914,6 +931,268 @@ for (const transport of [TCP, UNIX]) {
       expect(await reachable(endpoint)).toBe(false);
     });
   });
+}
+
+// ---------------------------------------------------------------------------------------------
+// A reviewer session's own listener (DIPO-292): the same rule on loopback, no Safe-Chain behind it,
+// no box network. The Mac has 192.0.2.10/25; 203.0.113.0/24 plays the public internet.
+
+const REVIEW_INTERFACES: readonly HostInterfaceAddress[] = [
+  { address: "192.0.2.10", cidr: "192.0.2.10/25" },
+];
+
+/** What a test web server answers for a host and path: a status line, and a Location when set. */
+type Route = { readonly status: number; readonly location?: string };
+
+interface ReviewHarness {
+  readonly proxy: RunningBoxWebProxy;
+  readonly endpoint: Endpoint;
+  readonly events: WebProxyEvent[];
+  readonly connects: string[];
+  readonly lookups: string[];
+}
+
+/**
+ * A plain HTTP server inside the tunnels: answers each request by its Host header and path from
+ * `routes`, and closes the connection, as a fetch's server with `Connection: close` does.
+ */
+async function webServer(
+  transport: Transport,
+  routes: Readonly<Record<string, Route>>,
+): Promise<Endpoint> {
+  const server = createServer((socket) => {
+    let buffer = "";
+    socket.on("data", (chunk) => {
+      buffer += chunk.toString("latin1");
+      if (!buffer.includes("\r\n\r\n")) return;
+      const path = /^GET (\S+) HTTP/.exec(buffer)?.[1] ?? "";
+      const host = /\r\nHost: (\S+)\r\n/i.exec(buffer)?.[1] ?? "";
+      const route = routes[`${host}${path}`] ?? { status: 404 };
+      const location = route.location === undefined ? "" : `Location: ${route.location}\r\n`;
+      socket.end(
+        `HTTP/1.1 ${route.status} X\r\n${location}Content-Length: 0\r\nConnection: close\r\n\r\n`,
+      );
+    });
+    socket.on("error", () => {});
+  });
+  servers.push(server);
+  return transport.listen(server);
+}
+
+/**
+ * A reviewer's proxy on `transport` with REVIEW_INTERFACES, the resolver answering from `dns` (a
+ * list per call, the last repeated) and every upstream landing on the web server of `routes`.
+ */
+async function reviewHarness(
+  transport: Transport,
+  dns: Record<string, ReadonlyArray<readonly string[]>>,
+  routes: Readonly<Record<string, Route>> = {},
+): Promise<ReviewHarness> {
+  const events: WebProxyEvent[] = [];
+  const connects: string[] = [];
+  const lookups: string[] = [];
+  const web = await webServer(transport, routes);
+  const { proxy, endpoint } = await transport.startReview({
+    clock: new ManualClock(),
+    publicStandIns: ["203.0.113.0/24"],
+    onEvent: (event) => events.push(event),
+    interfaces: () => REVIEW_INTERFACES,
+    resolve: async (host) => {
+      const seen = lookups.filter((name) => name === host).length;
+      lookups.push(host);
+      const answers = dns[host];
+      if (answers === undefined) throw new Error(`${host} does not resolve`);
+      return answers[Math.min(seen, answers.length - 1)] ?? [];
+    },
+    connect: (address, port) => {
+      connects.push(`${address}:${port}`);
+      return dial(web);
+    },
+  });
+  proxies.push(proxy);
+  return { proxy, endpoint, events, connects, lookups };
+}
+
+/** One connection of a fetch: what it asked the proxy, and how the proxy and the server answered. */
+interface Hop {
+  readonly target: string;
+  /** The proxy's status for the CONNECT. */
+  readonly tunnel: number;
+  /** The server's status, when the tunnel opened. */
+  readonly status?: number;
+}
+
+/**
+ * A fetch of `url` through the proxy, as an HTTP client with a proxy does it: a CONNECT per
+ * connection, the request inside the tunnel, and each redirect followed on a new connection, up to
+ * `limit` connections.
+ */
+async function fetchThrough(endpoint: Endpoint, url: string, limit = 5): Promise<Hop[]> {
+  const hops: Hop[] = [];
+  let next: URL | null = new URL(url);
+  while (next !== null && hops.length < limit) {
+    const at: URL = next;
+    next = null;
+    const target = `${at.hostname}:${at.port === "" ? "443" : at.port}`;
+    const request = `GET ${at.pathname} HTTP/1.1\r\nHost: ${at.hostname}\r\nConnection: close\r\n\r\n`;
+    const result = await exchange(endpoint, connectHead(target), { payload: request });
+    const tunnel = Number(/^HTTP\/1\.1 (\d{3})/.exec(result.text)?.[1] ?? 0);
+    const reply = result.text.split("\r\n\r\n")[1] ?? "";
+    const status = /^HTTP\/1\.1 (\d{3})/.exec(reply)?.[1];
+    hops.push({ target, tunnel, ...(status === undefined ? {} : { status: Number(status) }) });
+    const location = /\r\nLocation: (\S+)\r\n/.exec(reply)?.[1];
+    if (tunnel === 200 && location !== undefined) next = new URL(location, at);
+  }
+  return hops;
+}
+
+const refusals = (events: readonly WebProxyEvent[]) =>
+  events.flatMap((event) => (event.kind === "refused" ? [event.reason] : []));
+
+describe.skipIf(!TCP.runs)("a reviewer session's web proxy over TCP on loopback (DIPO-292)", () => {
+  it("listens on the loopback interface only, on a port the system picks, until it is stopped", async () => {
+    const clock = new ManualClock();
+    const first = await startReviewWebProxy({ clock });
+    const second = await startReviewWebProxy({ clock });
+    proxies.push(first, second);
+    expect(first.host).toBe(LOOPBACK);
+    expect(first.port).toBeGreaterThan(0);
+    expect(second.port).not.toBe(first.port);
+    expect(first.url).toBe(`http://${LOOPBACK}:${first.port}`);
+    expect(await reachable(first.port)).toBe(true);
+    await first.stop();
+    expect(await reachable(first.port)).toBe(false);
+    expect(await reachable(second.port)).toBe(true);
+  });
+});
+
+for (const transport of [TCP, UNIX]) {
+  describe.skipIf(!transport.runs)(
+    `a reviewer session's web proxy over ${transport.name} (DIPO-292)`,
+    () => {
+      it("tunnels to the address it resolved and checked, and never resolves the name again", async () => {
+        const h = await reviewHarness(
+          transport,
+          { "rebind.example": [["203.0.113.7"], [LOOPBACK]] },
+          { "rebind.example/": { status: 200 } },
+        );
+        expect(await fetchThrough(h.endpoint, "https://rebind.example/")).toEqual([
+          { target: "rebind.example:443", tunnel: 200, status: 200 },
+        ]);
+        expect(h.lookups).toEqual(["rebind.example"]);
+        expect(h.connects).toEqual(["203.0.113.7:443"]);
+      });
+
+      it("refuses at connect time a name that resolves to a non-public address", async () => {
+        const h = await reviewHarness(transport, {
+          "loopback.example": [[LOOPBACK]],
+          "mapped.example": [[`::ffff:${LOOPBACK}`]],
+          "mac.example": [["192.0.2.10"]],
+          "lan.example": [["192.0.2.20"]],
+          "link.example": [["fe80::1"]],
+          "docs.example": [["198.51.100.7"]],
+          "mixed.example": [["203.0.113.7", "192.0.2.20"]],
+        });
+        for (const host of [
+          "loopback.example",
+          "mapped.example",
+          "mac.example",
+          "lan.example",
+          "link.example",
+          "docs.example",
+          "mixed.example",
+        ]) {
+          expect(await fetchThrough(h.endpoint, `https://${host}/`)).toEqual([
+            { target: `${host}:443`, tunnel: 403 },
+          ]);
+        }
+        expect(h.connects).toEqual([]);
+        expect(refusals(h.events)).toEqual([
+          `loopback.example resolves to ${LOOPBACK} is loopback`,
+          `mapped.example resolves to ::ffff:${LOOPBACK} is IPv4-mapped, loopback`,
+          "mac.example resolves to 192.0.2.10 is one of the Mac's own addresses",
+          "lan.example resolves to 192.0.2.20 is in an on-link prefix of the Mac (192.0.2.10/25)",
+          "link.example resolves to fe80::1 is link-local",
+          "docs.example resolves to 198.51.100.7 is a documentation range",
+          "mixed.example resolves to 192.0.2.20 is in an on-link prefix of the Mac (192.0.2.10/25)",
+        ]);
+      });
+
+      it("refuses a redirect to a name that resolves to a non-public address, on the redirect's own connection", async () => {
+        const h = await reviewHarness(
+          transport,
+          { "public.example": [["203.0.113.7"]], "inside.example": [[LOOPBACK]] },
+          { "public.example/": { status: 302, location: "https://inside.example/admin" } },
+        );
+        expect(await fetchThrough(h.endpoint, "https://public.example/")).toEqual([
+          { target: "public.example:443", tunnel: 200, status: 302 },
+          { target: "inside.example:443", tunnel: 403 },
+        ]);
+        expect(h.connects).toEqual(["203.0.113.7:443"]);
+        expect(refusals(h.events)).toEqual([`inside.example resolves to ${LOOPBACK} is loopback`]);
+      });
+
+      it("refuses a redirect on the same host once its name resolves to a non-public address", async () => {
+        // A rebinding name: public for the first connection, the Mac's local network after.
+        const h = await reviewHarness(
+          transport,
+          { "rebind.example": [["203.0.113.7"], ["192.0.2.20"]] },
+          { "rebind.example/": { status: 301, location: "/next" } },
+        );
+        expect(await fetchThrough(h.endpoint, "https://rebind.example/")).toEqual([
+          { target: "rebind.example:443", tunnel: 200, status: 301 },
+          { target: "rebind.example:443", tunnel: 403 },
+        ]);
+        expect(h.lookups).toEqual(["rebind.example", "rebind.example"]);
+        expect(h.connects).toEqual(["203.0.113.7:443"]);
+      });
+
+      it("follows a redirect to a public name through a new tunnel", async () => {
+        const h = await reviewHarness(
+          transport,
+          { "public.example": [["203.0.113.7"]], "other.example": [["203.0.113.8"]] },
+          {
+            "public.example/": { status: 302, location: "https://other.example/page" },
+            "other.example/page": { status: 200 },
+          },
+        );
+        expect(await fetchThrough(h.endpoint, "https://public.example/")).toEqual([
+          { target: "public.example:443", tunnel: 200, status: 302 },
+          { target: "other.example:443", tunnel: 200, status: 200 },
+        ]);
+        expect(h.connects).toEqual(["203.0.113.7:443", "203.0.113.8:443"]);
+      });
+
+      it("refuses IP literals and plain HTTP proxying, as the box web proxy does", async () => {
+        const h = await reviewHarness(transport, { "public.example": [["203.0.113.7"]] });
+        const literal = await exchange(h.endpoint, connectHead(`${LOOPBACK}:443`));
+        expect(literal.text).toStartWith("HTTP/1.1 403 Forbidden\r\n");
+        const plain = await exchange(
+          h.endpoint,
+          "GET http://public.example/ HTTP/1.1\r\nHost: public.example\r\n\r\n",
+        );
+        expect(plain.text).toStartWith("HTTP/1.1 405 Method Not Allowed\r\n");
+        expect(h.connects).toEqual([]);
+      });
+
+      it("sends a registry name direct under the address rule: no Safe-Chain is behind it", async () => {
+        const registry = SAFE_CHAIN_REGISTRY_HOSTS[0] ?? "";
+        const h = await reviewHarness(
+          transport,
+          { [registry]: [["203.0.113.9"], [LOOPBACK]] },
+          { [`${registry}/`]: { status: 200 } },
+        );
+        expect(await fetchThrough(h.endpoint, `https://${registry}/`)).toEqual([
+          { target: `${registry}:443`, tunnel: 200, status: 200 },
+        ]);
+        expect(h.connects).toEqual(["203.0.113.9:443"]);
+        expect(await fetchThrough(h.endpoint, `https://${registry}/`)).toEqual([
+          { target: `${registry}:443`, tunnel: 403 },
+        ]);
+        expect(h.events.map((event) => event.kind)).toEqual(["direct", "refused"]);
+      });
+    },
+  );
 }
 
 /** A route whose start and stop are logged. */
