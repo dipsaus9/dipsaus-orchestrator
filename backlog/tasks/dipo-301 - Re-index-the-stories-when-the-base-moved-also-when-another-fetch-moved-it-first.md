@@ -3,10 +3,10 @@ id: DIPO-301
 title: >-
   Re-index the stories when the base moved, also when another fetch moved it
   first
-status: In Review
+status: Done
 assignee: []
 created_date: '2026-10-22 14:25'
-updated_date: '2026-10-22 16:54'
+updated_date: '2026-10-22 17:37'
 labels:
   - 'tier:S'
   - box
@@ -45,3 +45,9 @@ test_plan:
 - [x] #1 The poll re-indexes when the commit it last indexed differs from origin/<base> after its fetch, whatever moved the ref
 - [x] #2 A test moves origin/<base> before the poll's fetch and shows the next poll indexes the new story
 <!-- AC:END -->
+
+## Implementation Notes
+
+<!-- SECTION:NOTES:BEGIN -->
+2026-10-22: Done by dipo's box run run_01M5J8963NMP1A43MGGCAMP45G, merged as #342. dipo's reviewer found, and the maintainer side confirmed, that the old poll already re-indexed after a fetch outside dipo (fetch() always moves _base to origin/<base>), so this change is a simplification and the gap seen with DIPO-300 had another cause. Maintainer choice (2026-10-22): merge and drop that gap.
+<!-- SECTION:NOTES:END -->

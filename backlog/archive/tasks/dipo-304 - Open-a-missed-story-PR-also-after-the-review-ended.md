@@ -4,7 +4,7 @@ title: Open a missed story PR also after the review ended
 status: To Do
 assignee: []
 created_date: '2026-10-22 14:26'
-updated_date: '2026-10-22 14:26'
+updated_date: '2026-10-22 18:16'
 labels:
   - 'tier:S'
   - box
@@ -39,3 +39,9 @@ unknowns: []
 - [ ] #2 The PR opened then carries the stored review verdict in its status block
 - [ ] #3 A test switches story PRs on after the review and shows the PR opens on the next poll
 <!-- AC:END -->
+
+## Implementation Notes
+
+<!-- SECTION:NOTES:BEGIN -->
+2026-10-22: combined into DIPO-152 (maintainer, M1 speed-up)
+<!-- SECTION:NOTES:END -->

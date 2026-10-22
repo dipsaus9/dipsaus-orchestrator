@@ -3,10 +3,10 @@ id: DIPO-303
 title: >-
   Take a changed office configuration on the base into force without a daemon
   restart
-status: To Do
+status: Ready
 assignee: []
 created_date: '2026-10-22 14:25'
-updated_date: '2026-10-22 14:26'
+updated_date: '2026-10-22 18:30'
 labels:
   - 'tier:S'
   - box
@@ -31,6 +31,14 @@ Context: in the box retest of the verify redesign (DIPO-275: DIPO-300 run run_01
 ```dipo
 branch: "DIPO-303/reload-office-config"
 unknowns: []
+test_plan:
+  entries:
+    - kind: "automated"
+      check: "(unit) a poll after a base move that changed .dipo/office.yaml puts the new configuration in force, for example storyPr.open from false to true"
+    - kind: "automated"
+      check: "(unit) dipo office rescan puts a changed .dipo/office.yaml in force"
+    - kind: "automated"
+      check: "(unit) a changed .dipo/office.yaml that is refused keeps the configuration in force and raises the existing notice"
 ```
 <!-- SECTION:DESCRIPTION:END -->
 

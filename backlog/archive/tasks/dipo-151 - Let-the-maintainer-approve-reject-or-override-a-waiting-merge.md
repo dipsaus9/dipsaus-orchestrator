@@ -4,7 +4,7 @@ title: 'Let the maintainer approve, reject or override a waiting merge'
 status: Refined
 assignee: []
 created_date: '2026-10-17 12:52'
-updated_date: '2026-10-22 14:26'
+updated_date: '2026-10-22 18:16'
 labels:
   - 'tier:M'
   - 'slice:m1a'
@@ -21,7 +21,6 @@ dependencies:
   - DIPO-294
   - DIPO-295
   - DIPO-302
-  - DIPO-307
 references:
   - packages/engine/src/merge-slot/
   - packages/engine/src/gate/
@@ -79,3 +78,9 @@ test_plan:
 - [ ] #5 dipo approve <ID> [--note <text>] and dipo reject <ID> --note <text> (with confirmation) send the story's open maintainer gate read from story.detail, and with none print that nothing waits and exit 1; capability flag review in reads/hello.ts lists gate.approve and gate.reject
 - [ ] #6 A hand merge detected by the Done poll decides the open gate approved by maintainer with the note merged on the host in the same transaction
 <!-- AC:END -->
+
+## Implementation Notes
+
+<!-- SECTION:NOTES:BEGIN -->
+2026-10-22: combined into DIPO-150 (maintainer, M1 speed-up)
+<!-- SECTION:NOTES:END -->

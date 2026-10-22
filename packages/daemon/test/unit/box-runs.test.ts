@@ -1,7 +1,8 @@
 // The daemon's box workers (DIPO-271): at start the daemon sweeps the export folders a post-run
-// token check left behind (criterion 9), it finds Apple `container` on its PATH without running
-// it, and a box run counts as ended only once its run ended and every worker host exited; the box
-// runs get each office's package cache from a root in dipo's state folder (DIPO-295). Temp
+// token check left behind (criterion 9) and the part stage folders a stopped daemon left (DIPO-290),
+// it finds Apple `container` on its PATH without running it, and a box run counts as ended only
+// once its run ended and every worker host exited; the box runs get each office's package cache
+// from a root in dipo's state folder (DIPO-295). Temp
 // folders only; no `container`, no Keychain and no daemon process.
 
 import { mkdirSync, readdirSync, writeFileSync } from "node:fs";
@@ -22,6 +23,8 @@ import {
   PACKAGE_CACHE_DIR,
   TOKEN_CHECK_DIR_PREFIX,
   type OfficeHandle,
+  PART_STAGE_PREFIX,
+  partStageRoot,
   type WorkerHostRow,
 } from "@dipsaus-orchestrator/engine";
 import { ManualClock, withTempDir } from "@dipsaus-orchestrator/testkit";
@@ -35,6 +38,7 @@ import {
   deliverThenCheck,
   finishEndedBoxRuns,
   reviewHostRuns,
+  sweepBoxPartStages,
   sweepBoxTokenChecks,
 } from "../../src/runs";
 
@@ -67,9 +71,29 @@ describe("the daemon's box workers", () => {
       expect(lines).toHaveLength(1);
     }));
 
+  it("sweeps the part stage folders it left at start, only in its own folder of stages", () =>
+    withTempDir(async (dir) => {
+      const own = partStageRoot(join(dir, "state"));
+      // A hand-test daemon with another DIPO_HOME has its own folder of stages.
+      const other = partStageRoot(join(dir, "other-home"));
+      mkdirSync(join(own, `${PART_STAGE_PREFIX}a1`, "files"), { recursive: true });
+      writeFileSync(join(own, `${PART_STAGE_PREFIX}a1`, "files", "a.ts"), "box files\n");
+      mkdirSync(join(other, `${PART_STAGE_PREFIX}live`), { recursive: true });
+      const lines: unknown[] = [];
+      expect(await sweepBoxPartStages(own, null, { info: (...line) => lines.push(line) })).toBe(1);
+      expect(readdirSync(own)).toEqual([]);
+      expect(readdirSync(other)).toEqual([`${PART_STAGE_PREFIX}live`]);
+      expect(lines).toHaveLength(1);
+      // With the box backend, the delivery's own sweep runs, which leaves the stages it uses.
+      const used = { sweepStages: async () => 0 };
+      expect(await sweepBoxPartStages(own, used, { info: () => {} })).toBe(0);
+    }));
+
   it("sweeps them when the daemon's run services start", () =>
     withTempDir(async (dir) => {
       leftovers(dir);
+      const stages = partStageRoot(join(dir, "state"));
+      mkdirSync(join(stages, `${PART_STAGE_PREFIX}c3`), { recursive: true });
       const clock = new ManualClock();
       const options = {
         tools: {},
@@ -107,6 +131,8 @@ describe("the daemon's box workers", () => {
         await Bun.sleep(5);
       }
       expect(readdirSync(dir).filter((n) => n.startsWith(TOKEN_CHECK_DIR_PREFIX))).toEqual([]);
+      for (let i = 0; i < 50 && readdirSync(stages).length > 0; i++) await Bun.sleep(5);
+      expect(readdirSync(stages)).toEqual([]);
       await runs.finishEndedBoxes();
       runs.control.close();
     }));

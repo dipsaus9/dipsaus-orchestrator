@@ -7,10 +7,10 @@
 // `work.run`'s `box` runs its developer in its own box (`BoxWorkers`). The box ends with its run:
 // after each exit decision the boxes of ended runs get the post-run token check and are deleted,
 // and so are those a stopped daemon left (`finishEndedBoxes`, at the recovery step). At start the
-// token check's leftover export folders are swept. Each box gets its office's package cache
-// (DIPO-295): one root per office under `<state>/PACKAGE_CACHE_DIR` (`boxPackageCache`), filled
-// in a fill box through the daemon's web route or reused, and mounted read-only; Apple
-// `container` mounts only a cache under that folder.
+// token check's leftover export folders and the part stage folders a stopped daemon left are swept.
+// Each box gets its office's package cache (DIPO-295): one root per office under
+// `<state>/PACKAGE_CACHE_DIR` (`boxPackageCache`), filled in a fill box through the daemon's web
+// route or reused, and mounted read-only; Apple `container` mounts only a cache under that folder.
 
 import { realpathSync, rmSync } from "node:fs";
 import { isAbsolute, join } from "node:path";
@@ -48,6 +48,8 @@ import {
   readBaseBox,
   startBoxWebRoute,
   startModelProxy,
+  partStageRoot,
+  sweepPartStages,
   sweepReviewFolders,
   sweepTokenCheckLeftovers,
   systemIsExecutable,
@@ -351,6 +353,22 @@ export async function sweepBoxTokenChecks(
 }
 
 /**
+ * Removes the part stage folders this daemon left in its own folder of stages `stageRoot`
+ * (`partStageRoot`, DIPO-290) when it stopped: a crash during a part leaves the box's files there.
+ * Runs at daemon start, leaving the stages `parts` uses; another daemon's folder is never touched.
+ * Never rejects.
+ */
+export async function sweepBoxPartStages(
+  stageRoot: string,
+  parts: Pick<BoxParts, "sweepStages"> | null,
+  logger: Pick<Logger, "info">,
+): Promise<number> {
+  const removed = await (parts === null ? sweepPartStages(stageRoot) : parts.sweepStages());
+  if (removed > 0) logger.info("removed part stage folders a stopped daemon left", { removed });
+  return removed;
+}
+
+/**
  * The door's `onPart` of the daemon's box workers: the part is delivered (DIPO-273), then a
  * collision check runs, since the part may change the files the story changes (DIPO-277). A part
  * that was not delivered rejects, stays queued in the box and starts no check.
@@ -380,7 +398,7 @@ export function boxPackageCache(stateDir: string): BoxPackageCacheDeps {
 function daemonBoxWorkers(
   options: DaemonRunsOptions,
   tmpRoot: string,
-  parts: Pick<BoxPartsDeps, "run" | "live" | "park">,
+  parts: Pick<BoxPartsDeps, "run" | "live" | "park" | "notice">,
   afterPart: () => void = () => {},
 ): {
   readonly workers: BoxWorkers;
@@ -457,7 +475,10 @@ function daemonBoxWorkers(
   const delivery = new BoxParts({
     boxes,
     clock,
-    tmpRoot,
+    // This daemon's own folder of part stages, in its state folder, so no other daemon or user
+    // shares it and a daemon start sweeps only its own (DIPO-290).
+    stageRoot: partStageRoot(options.stateDir),
+    ...(uid >= 0 ? { uid } : {}),
     ...parts,
     git: (office) => options.engineGit.forOffice(office),
     listedFiles: async (git) => {
@@ -506,6 +527,37 @@ function daemonBoxWorkers(
   return { workers, parts: delivery, boxes };
 }
 
+/** Raises an `engine.notice` of a box run for the maintainer (DIPO-277, DIPO-290). */
+function runNotice(
+  options: DaemonRunsOptions,
+): (
+  office: OfficeId,
+  runId: string,
+  notice: { readonly level: "info" | "warn"; readonly code: string; readonly text: string },
+) => void {
+  return (office, runId, notice) => {
+    const handle = options.offices.get(office);
+    if (handle === undefined) return;
+    const key = findRun(handle, runId as RunId)?.key ?? null;
+    const at = options.clock.now();
+    handle.immediate(() =>
+      appendEntries(
+        handle,
+        [
+          {
+            type: "engine.notice",
+            ...(key === null ? {} : { key }),
+            run: runId as RunId,
+            delta: notice,
+          },
+        ],
+        { at },
+      ),
+    );
+    options.onChanged(office);
+  };
+}
+
 /**
  * The collision check of the box runs in progress (DIPO-277): their changed files compared, an
  * overlap told to the maintainer (an `engine.notice`) and to both workers, and the second story
@@ -533,27 +585,7 @@ function boxCollisions(
     parts: boxed.parts,
     park: (runId, park) => control.parkRun(runId, park),
     tell: (runId, text) => control.tellWorker(runId, text, "collision message"),
-    notice: (office, runId, notice) => {
-      const handle = options.offices.get(office);
-      if (handle === undefined) return;
-      const key = findRun(handle, runId as RunId)?.key ?? null;
-      const at = clock.now();
-      handle.immediate(() =>
-        appendEntries(
-          handle,
-          [
-            {
-              type: "engine.notice",
-              ...(key === null ? {} : { key }),
-              run: runId as RunId,
-              delta: notice,
-            },
-          ],
-          { at },
-        ),
-      );
-      options.onChanged(office);
-    },
+    notice: runNotice(options),
     warn: (message, fields) => options.logger.warn(message, fields),
     info: (message, fields) => options.logger.info(message, fields),
   });
@@ -599,11 +631,14 @@ export function daemonRuns(options: DaemonRunsOptions): DaemonRuns {
       run: (runId) => partRun?.(runId) ?? null,
       live: (runId) => runControl?.live(runId) === true,
       park: (runId, park) => runControl?.parkRun(runId, park) === true,
+      // A part dipo keeps failing to take out of the box is told, never parked (DIPO-290).
+      notice: (run, notice) => runNotice(options)(run.office, run.runId, notice),
     },
     () => void collisions?.check(),
   );
   const boxWorkers = boxed?.workers ?? null;
   void sweepBoxTokenChecks(realDir(options.tmpRoot), options.logger).catch(() => {});
+  void sweepBoxPartStages(partStageRoot(options.stateDir), boxed?.parts ?? null, options.logger);
   const finishEndedBoxes = async (
     finishOptions: { readonly listBoxes?: boolean } = {},
   ): Promise<void> => {

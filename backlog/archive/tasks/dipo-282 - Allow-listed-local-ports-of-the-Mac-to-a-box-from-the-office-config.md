@@ -4,7 +4,7 @@ title: Allow listed local ports of the Mac to a box from the office config
 status: To Do
 assignee: []
 created_date: '2026-10-21 13:54'
-updated_date: '2026-10-21 23:04'
+updated_date: '2026-10-22 18:16'
 labels:
   - box
   - cutover
@@ -40,3 +40,9 @@ unknowns: []
 - [ ] #1 The office config holds a list of allowed local ports, read from the base branch
 - [ ] #2 Through the web proxy, only listed local ports of the Mac are reachable from a box, shown by tests with a listed and an unlisted port; the accepted risk for Mac services that listen on all interfaces stays until DIPO-283
 <!-- AC:END -->
+
+## Implementation Notes
+
+<!-- SECTION:NOTES:BEGIN -->
+2026-10-22: combined into DIPO-281 (maintainer, M1 speed-up)
+<!-- SECTION:NOTES:END -->

@@ -6,7 +6,7 @@ title: >-
 status: Refined
 assignee: []
 created_date: '2026-10-20 20:20'
-updated_date: '2026-10-22 09:34'
+updated_date: '2026-10-22 18:16'
 labels:
   - 'tier:M'
   - cutover
@@ -70,3 +70,9 @@ test_plan:
 - [ ] #4 The worker contract in packages/engine/src/prompts/contract/implement.md asks for the two fields with tool-neutral wording, and its golden is updated
 - [ ] #5 Tests cover the schema, the refusal and its feedback, the manual and no-plan cases, the stored rows and the review task message
 <!-- AC:END -->
+
+## Implementation Notes
+
+<!-- SECTION:NOTES:BEGIN -->
+2026-10-22: combined into DIPO-186 (maintainer, M1 speed-up)
+<!-- SECTION:NOTES:END -->

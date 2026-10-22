@@ -4,7 +4,7 @@ title: Close the accepted risk of a box reaching services on the Mac
 status: To Do
 assignee: []
 created_date: '2026-10-21 13:54'
-updated_date: '2026-10-22 14:26'
+updated_date: '2026-10-22 18:16'
 labels:
   - box
   - cutover
@@ -15,18 +15,13 @@ dependencies:
   - DIPO-275
   - DIPO-277
   - DIPO-278
-  - DIPO-282
   - DIPO-288
   - DIPO-290
-  - DIPO-291
   - DIPO-292
   - DIPO-294
   - DIPO-295
-  - DIPO-297
   - DIPO-296
   - DIPO-298
-  - DIPO-305
-  - DIPO-307
 references:
   - packages/engine/src/box/
   - docs/decisions/0021-worker-isolation.md
@@ -57,4 +52,6 @@ unknowns: []
 
 <!-- SECTION:NOTES:BEGIN -->
 To settle in refinement: how the fix holds while the worker runs with all permissions inside the box (DIPO-271), and whether it sits outside the box as 0021 section 3 asks; the amendment calls an in-box rule a second layer.
+
+2026-10-22: combined into DIPO-281 (maintainer, M1 speed-up)
 <!-- SECTION:NOTES:END -->

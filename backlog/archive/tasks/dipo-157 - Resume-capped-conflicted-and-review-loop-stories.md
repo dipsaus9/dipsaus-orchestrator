@@ -4,7 +4,7 @@ title: 'Resume capped, conflicted and review-loop stories'
 status: Refined
 assignee: []
 created_date: '2026-10-17 12:52'
-updated_date: '2026-10-22 14:26'
+updated_date: '2026-10-22 18:16'
 labels:
   - 'tier:M'
   - 'slice:m1a'
@@ -23,9 +23,6 @@ dependencies:
   - DIPO-291
   - DIPO-292
   - DIPO-294
-  - DIPO-304
-  - DIPO-305
-  - DIPO-306
 references:
   - packages/engine/src/run/
   - packages/engine/src/merge-slot/
@@ -83,4 +80,6 @@ Reshaped by decision 0021 (worker isolation, DIPO-263, 2026-10-21); rewrite befo
 From the first box run (DIPO-275 on DIPO-248, 2026-10-22): a dipo steer sent to a story that then parks as verify-failing (loops) is held, and the park offers only story.drop, so the steer waits for this story's resume. The steer reply should also say when the park has no resume yet.
 
 From DIPO-299 (2026-10-22): a box run whose branch tip moved at done now parks interrupted with cause build, not verify-failing with cause refused.
+
+2026-10-22: combined into DIPO-155 (maintainer, M1 speed-up)
 <!-- SECTION:NOTES:END -->

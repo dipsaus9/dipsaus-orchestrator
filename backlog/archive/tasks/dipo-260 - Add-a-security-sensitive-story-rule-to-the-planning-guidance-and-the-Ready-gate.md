@@ -6,7 +6,7 @@ title: >-
 status: Refined
 assignee: []
 created_date: '2026-10-20 20:20'
-updated_date: '2026-10-22 14:26'
+updated_date: '2026-10-22 18:16'
 labels:
   - 'tier:S'
   - cutover
@@ -58,3 +58,9 @@ test_plan:
 - [ ] #3 In the next office config version, packages/engine/src/config/schema.ts has story.securityPhrases (defaults: deny rule, guard, sandbox setting, permission check) and story.securityCriteriaPhrases with defaults for each of the three parts, loaded by packages/engine/src/config/load.ts and written to packages/engine/schema/office.schema.json (design choice, not a maintainer decision; the maintainer may change it before a run)
 - [ ] #4 packages/engine/test/gate/gate.test.ts packages/engine/test/office/load.test.ts and the config tests cover a story with all three parts, one missing each part, a story with no security phrase, and the defaults
 <!-- AC:END -->
+
+## Implementation Notes
+
+<!-- SECTION:NOTES:BEGIN -->
+2026-10-22: combined into DIPO-251 (maintainer, M1 speed-up)
+<!-- SECTION:NOTES:END -->
