@@ -4,7 +4,7 @@ title: 'Write the structured summary on park, resume and close'
 status: Refined
 assignee: []
 created_date: '2026-10-17 12:52'
-updated_date: '2026-10-21 23:04'
+updated_date: '2026-10-22 18:16'
 labels:
   - 'tier:S'
   - 'slice:m1a'
@@ -15,9 +15,7 @@ dependencies:
   - DIPO-164
   - DIPO-150
   - DIPO-284
-  - DIPO-289
   - DIPO-290
-  - DIPO-291
 references:
   - packages/engine/src/run/park.ts
   - packages/engine/src/backlog/fields/
@@ -54,3 +52,9 @@ test_plan:
 - [ ] #3 The merge slot's close-out commit sets the final summary with criteria met, loops, review rounds, budget used of limit, runs and resumes, each park in one line, grants, web calls and proposals filed
 - [ ] #4 Every value comes from stored facts through the backlog CLI, and no written line is a line of 50 dashes
 <!-- AC:END -->
+
+## Implementation Notes
+
+<!-- SECTION:NOTES:BEGIN -->
+2026-10-22: combined into DIPO-154 (maintainer, M1 speed-up)
+<!-- SECTION:NOTES:END -->

@@ -4,7 +4,7 @@ title: 'Remove the Bash-sandbox worker setup, its hooks and its guards'
 status: Refined
 assignee: []
 created_date: '2026-10-21 13:45'
-updated_date: '2026-10-22 05:33'
+updated_date: '2026-10-22 18:16'
 labels:
   - 'tier:M'
   - cutover
@@ -15,7 +15,6 @@ dependencies:
   - DIPO-276
   - DIPO-279
   - DIPO-284
-  - DIPO-289
   - DIPO-292
 references:
   - packages/engine/src/workers/claude-cli/plan.ts
@@ -50,3 +49,9 @@ unknowns: []
 - [ ] #4 The unused commitTaskFile in packages/engine/src/git/task-commit.ts is removed (DIPO-270 moved its callers to dipo's own copy)
 - [ ] #5 packages/engine/src/hooks/web-guard.ts and the reviewer's and worker's use of it stay (DIPO-276, DIPO-292)
 <!-- AC:END -->
+
+## Implementation Notes
+
+<!-- SECTION:NOTES:BEGIN -->
+2026-10-22: combined into DIPO-240 (maintainer, M1 speed-up)
+<!-- SECTION:NOTES:END -->

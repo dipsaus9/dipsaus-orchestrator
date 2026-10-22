@@ -4,7 +4,7 @@ title: Keep a story's box from claim to merge and rebuild it from its parts when
 status: Refined
 assignee: []
 created_date: '2026-10-21 13:45'
-updated_date: '2026-10-22 14:26'
+updated_date: '2026-10-22 18:16'
 labels:
   - 'tier:M'
   - cutover
@@ -16,11 +16,8 @@ dependencies:
   - DIPO-276
   - DIPO-279
   - DIPO-284
-  - DIPO-289
-  - DIPO-291
   - DIPO-292
   - DIPO-294
-  - DIPO-305
 references:
   - packages/engine/src/box/lifetime.ts
   - packages/engine/src/run/
@@ -50,3 +47,9 @@ unknowns: []
 - [ ] #3 Merge, drop and discard delete the box
 - [ ] #4 Tests cover each transition
 <!-- AC:END -->
+
+## Implementation Notes
+
+<!-- SECTION:NOTES:BEGIN -->
+2026-10-22: combined into DIPO-240 (maintainer, M1 speed-up)
+<!-- SECTION:NOTES:END -->

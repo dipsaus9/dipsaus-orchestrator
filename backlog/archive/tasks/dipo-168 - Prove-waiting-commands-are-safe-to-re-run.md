@@ -4,13 +4,12 @@ title: Prove waiting commands are safe to re-run
 status: Refined
 assignee: []
 created_date: '2026-10-17 12:52'
-updated_date: '2026-10-17 12:52'
+updated_date: '2026-10-22 18:16'
 labels:
   - 'tier:S'
   - 'slice:m1a'
 milestone: m-1
 dependencies:
-  - DIPO-156
   - DIPO-159
   - DIPO-160
   - DIPO-161
@@ -48,3 +47,9 @@ test_plan:
 - [ ] #2 Each retry repeats no effect: no second commit, push, PR close, message to the worker or grant
 - [ ] #3 A duplicate request that arrives while the first one runs waits for the same reply, shown by a test
 <!-- AC:END -->
+
+## Implementation Notes
+
+<!-- SECTION:NOTES:BEGIN -->
+2026-10-22: combined into DIPO-155 (maintainer, M1 speed-up)
+<!-- SECTION:NOTES:END -->

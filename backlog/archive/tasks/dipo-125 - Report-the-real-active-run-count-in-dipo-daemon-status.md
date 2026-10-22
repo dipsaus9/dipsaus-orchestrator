@@ -4,12 +4,11 @@ title: Report the real active run count in dipo daemon status
 status: Refined
 assignee: []
 created_date: '2026-10-16 13:05'
-updated_date: '2026-10-22 08:33'
+updated_date: '2026-10-22 18:16'
 labels:
   - 'tier:S'
 milestone: m-1
 dependencies:
-  - DIPO-257
   - DIPO-284
   - DIPO-295
 references:
@@ -42,4 +41,6 @@ Context: packages/daemon/src/control.ts sets activeRuns: 0 with the comment "Run
 
 <!-- SECTION:NOTES:BEGIN -->
 Review note: ControlDeps has only loadedOffices() (ids); the count needs a new dep wired where controlFeature is built in packages/daemon/src/foreground.ts. activeRunCount is not exported from the engine entry; activeRuns(handle).length is.
+
+2026-10-22: combined into DIPO-120 (maintainer, M1 speed-up)
 <!-- SECTION:NOTES:END -->

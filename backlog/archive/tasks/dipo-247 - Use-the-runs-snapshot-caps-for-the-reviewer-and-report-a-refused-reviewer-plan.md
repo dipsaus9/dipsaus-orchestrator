@@ -6,7 +6,7 @@ title: >-
 status: Refined
 assignee: []
 created_date: '2026-10-20 18:35'
-updated_date: '2026-10-21 23:04'
+updated_date: '2026-10-22 18:16'
 labels:
   - 'tier:S'
   - cutover
@@ -14,7 +14,6 @@ labels:
 milestone: m-1
 dependencies:
   - DIPO-183
-  - DIPO-239
   - DIPO-148
   - DIPO-292
 references:
@@ -58,4 +57,6 @@ test_plan:
 
 <!-- SECTION:NOTES:BEGIN -->
 Reshaped by decision 0021 (worker isolation, DIPO-263, 2026-10-21); rewrite before Ready: the reviewer has no box; its tools are read-only plus web (0021 section 10).
+
+2026-10-22: combined into DIPO-148 (maintainer, M1 speed-up)
 <!-- SECTION:NOTES:END -->

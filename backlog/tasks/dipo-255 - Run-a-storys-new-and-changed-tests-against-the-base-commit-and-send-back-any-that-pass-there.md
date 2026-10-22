@@ -6,7 +6,7 @@ title: >-
 status: To Do
 assignee: []
 created_date: '2026-10-20 20:20'
-updated_date: '2026-10-22 14:26'
+updated_date: '2026-10-22 18:16'
 labels:
   - 'tier:M'
   - cutover
@@ -14,9 +14,8 @@ labels:
   - needs-refinement
 milestone: m-1
 dependencies:
-  - DIPO-254
+  - DIPO-186
   - DIPO-228
-  - DIPO-291
   - DIPO-293
   - DIPO-294
   - DIPO-299
@@ -77,4 +76,6 @@ test_plan:
 
 <!-- SECTION:NOTES:BEGIN -->
 Reshaped by decision 0021 (worker isolation, DIPO-263, 2026-10-21); rewrite before Ready: the base-commit test run happens in a box (0021 section 9).
+
+2026-10-22: dropped the dependency on DIPO-149 (which now holds DIPO-291) to break a dependency cycle left by the M1 combine; that story now comes after this one.
 <!-- SECTION:NOTES:END -->

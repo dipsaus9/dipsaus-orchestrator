@@ -1,10 +1,10 @@
 ---
 id: DIPO-295
 title: Fill the package cache before a box run and mount it in the box
-status: To Do
+status: Done
 assignee: []
 created_date: '2026-10-22 08:30'
-updated_date: '2026-10-22 14:26'
+updated_date: '2026-10-22 18:16'
 labels:
   - 'tier:M'
   - box
@@ -17,6 +17,16 @@ references:
   - packages/engine/src/box/cache.ts
   - packages/engine/src/box/workers.ts
   - packages/daemon/test/unit/box-runs.test.ts
+  - packages/engine/src/run/launch.ts
+  - packages/engine/src/run/index.ts
+  - packages/engine/src/box/index.ts
+  - packages/engine/src/box/verify.ts
+  - packages/engine/src/box/apple-args.ts
+  - packages/engine/test/box/workers.test.ts
+  - packages/engine/test/box/fake-boxes.ts
+  - packages/engine/test/box/cache.test.ts
+  - packages/engine/test/box/args.test.ts
+  - packages/engine/test/run/start.test.ts
 priority: high
 type: feature
 ordinal: 284000
@@ -37,7 +47,13 @@ unknowns: []
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 The daemon supplies the package cache to box runs: fill or reuse it by lockfile and package manager version before the story's box starts, and mount it read-only
-- [ ] #2 A fill that fails, or a lockfile the cache does not support, lets the run go on without a cache and shows a notice on the run with the reason
-- [ ] #3 Tests with a fake box backend cover fill, reuse, failure and an unsupported lockfile
+- [x] #1 The daemon supplies the package cache to box runs: fill or reuse it by lockfile and package manager version before the story's box starts, and mount it read-only
+- [x] #2 A fill that fails, or a lockfile the cache does not support, lets the run go on without a cache and shows a notice on the run with the reason
+- [x] #3 Tests with a fake box backend cover fill, reuse, failure and an unsupported lockfile
 <!-- AC:END -->
+
+## Implementation Notes
+
+<!-- SECTION:NOTES:BEGIN -->
+2026-10-22: built outside dipo (box-core fix), merged as #344 after review; the advisories are fixed. Only a live box run shows the real fill, its time and size, and that container takes the mount (DIPO-275 criterion 4).
+<!-- SECTION:NOTES:END -->

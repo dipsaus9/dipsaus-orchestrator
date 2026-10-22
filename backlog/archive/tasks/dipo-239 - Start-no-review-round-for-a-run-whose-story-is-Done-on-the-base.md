@@ -4,7 +4,7 @@ title: Start no review round for a run whose story is Done on the base
 status: Refined
 assignee: []
 created_date: '2026-10-20 18:34'
-updated_date: '2026-10-20 20:25'
+updated_date: '2026-10-22 18:16'
 labels:
   - 'tier:S'
   - cutover
@@ -49,3 +49,9 @@ test_plan:
 - [ ] #3 A run whose story is not Done on the base keeps today's behaviour: its review round and session start when the reviewer place frees
 - [ ] #4 Tests in packages/engine/test/run/reviews.test.ts cover a run ended at In Review and a run waiting for the reviewer place, each with a base read giving Done, a second start for the same run, and a run whose story is In Review on the base
 <!-- AC:END -->
+
+## Implementation Notes
+
+<!-- SECTION:NOTES:BEGIN -->
+2026-10-22: combined into DIPO-148 (maintainer, M1 speed-up)
+<!-- SECTION:NOTES:END -->

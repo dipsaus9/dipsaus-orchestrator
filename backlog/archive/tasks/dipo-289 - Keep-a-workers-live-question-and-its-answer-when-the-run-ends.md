@@ -4,7 +4,7 @@ title: Keep a worker's live question and its answer when the run ends
 status: Refined
 assignee: []
 created_date: '2026-10-21 20:24'
-updated_date: '2026-10-21 20:26'
+updated_date: '2026-10-22 18:16'
 labels:
   - 'tier:S'
   - cutover
@@ -43,3 +43,9 @@ unknowns: []
 - [ ] #4 Resolving a park another way (resume, drop, reconcile) closes its carried question as expired, and a later park of the same story is tested
 - [ ] #5 Tests cover each case
 <!-- AC:END -->
+
+## Implementation Notes
+
+<!-- SECTION:NOTES:BEGIN -->
+2026-10-22: combined into DIPO-159 (maintainer, M1 speed-up)
+<!-- SECTION:NOTES:END -->
