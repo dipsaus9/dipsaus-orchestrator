@@ -3,7 +3,7 @@
 // is checked without git or the Backlog CLI. The full flow on real git and the pinned Backlog CLI
 // is in work-run.ci.test.ts.
 
-import { afterEach, beforeEach, describe, expect, it } from "bun:test";
+import { afterEach, beforeEach, describe, expect, it, spyOn } from "bun:test";
 import { mkdtempSync, rmSync } from "node:fs";
 import { join } from "node:path";
 
@@ -58,8 +58,6 @@ import {
   WorkRun,
   type WorkRunDeps,
 } from "../../src/run";
-import { runIntents } from "../../src/run/intents";
-import { INTENT_TAGS } from "../../src/run/outcome-types";
 import type { StoredRun } from "../../src/run/records";
 import { SoftwareStream } from "../../src/software-stream";
 import { addStory } from "../../src/stories/keys";
@@ -1013,7 +1011,13 @@ function resumption(sessions: { count: number }): Resumption {
         },
       },
       caps: () => ({ budgetTokens: 1_000_000, maxTurns: 100, maxMinutes: 60 }),
-      unpark: { lift: async () => ({ commit: null, pushed: true, pushError: null }) },
+      // The lift takes a macrotask, as a real commit and push do: no wait may count ticks past it.
+      unpark: {
+        lift: async () => {
+          await Bun.sleep(1);
+          return { commit: null, pushed: true, pushError: null };
+        },
+      },
     },
     { places: () => world.places },
   ).resumption;
@@ -1040,7 +1044,13 @@ async function waitUntil(condition: () => boolean): Promise<void> {
   if (!condition()) throw new Error("the awaited condition was never reached");
 }
 
-/** Holds work.run's claim open until the answer's intent row is stored, then lets the pickup go on. */
+/**
+ * Holds work.run's claim open until the answer has reached its worker place step, then lets the
+ * pickup go on. The answer reaches that step after its intent row and the park lift, however many
+ * steps those take: it asks the places for a serialized step (DIPO-229), or, without one, checks
+ * the place at once. Either call ends the wait, so the claim opens only once the answer's place
+ * check is queued behind the pickup or already done.
+ */
 async function pickupWithAnswerInClaim(
   of: Resumption,
   parked: { run: RunId; parkId: number; question: string },
@@ -1050,12 +1060,16 @@ async function pickupWithAnswerInClaim(
   world.claimGate = { entered: () => entered.resolve(), open: opened.promise };
   const pickup = run();
   await entered.promise;
+  // The pickup's own serialized step is already running, so every call from here is the answer's.
+  const serialized = spyOn(world.places, "serialized");
+  const blocked = spyOn(world.places, "blocked");
   const reply = answer(of, parked);
-  await waitUntil(() =>
-    runIntents(world.office, parked.run).some((i) =>
-      i.detail.startsWith(`${INTENT_TAGS.parkResume} `),
-    ),
-  );
+  try {
+    await waitUntil(() => serialized.mock.calls.length > 0 || blocked.mock.calls.length > 0);
+  } finally {
+    serialized.mockRestore();
+    blocked.mockRestore();
+  }
   opened.resolve();
   return { pickup, reply };
 }
