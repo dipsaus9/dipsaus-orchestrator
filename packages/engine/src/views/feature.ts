@@ -29,6 +29,7 @@ import { readUsage } from "../ingest/usage";
 import { promptTextsOf } from "../prompts/parts";
 import { reviewVerdictOfGate, reviewVerdictView } from "../review/store";
 import { runCaps } from "../run/caps";
+import { storedDoneReport } from "../run/done-report";
 import { storedMarker } from "../run/markers";
 import { findRun } from "../run/records";
 
@@ -106,6 +107,7 @@ export function storyRuns(office: OfficeHandle, key: StoryKey): RunRecord[] {
       ...(row.ended_at === null ? {} : { endedAt: iso(row.ended_at) }),
       ...(row.end_kind === null ? {} : { outcome: row.end_kind }),
       usage: usage.run,
+      ...(row.ended_at === null ? {} : doneReportField(office, row.run_id)),
     };
   });
 }
@@ -288,3 +290,12 @@ export const viewsFeature: FeatureModule = {
     });
   },
 };
+
+/** The `doneReport` of a run record when the run stored notes or proposals (DIPO-152). */
+function doneReportField(
+  office: OfficeHandle,
+  run: string,
+): { doneReport: NonNullable<ReturnType<typeof storedDoneReport>> } | Record<string, never> {
+  const doneReport = storedDoneReport(office, RunId.parse(run));
+  return doneReport === null ? {} : { doneReport };
+}

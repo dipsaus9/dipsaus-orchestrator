@@ -36,6 +36,25 @@ function usageParts(record: RunRecord) {
   };
 }
 
+/** The most lines of the done report the facts column holds (DIPO-152). */
+const DONE_REPORT_LINES = 6;
+
+/**
+ * The ended run's done report as fact lines, marked as the worker's words and held to a few lines;
+ * the rest stays in the story detail (DIPO-152).
+ */
+export function doneReportFactLines(record: RunRecord): string[] {
+  const report = record.doneReport;
+  if (report === undefined) return [];
+  const lines = [
+    ...(report.notes === undefined
+      ? []
+      : report.notes.split("\n").filter((line) => line.trim() !== "")),
+    ...(report.proposals ?? []).map((proposal) => `proposal (${proposal.kind}): ${proposal.title}`),
+  ];
+  return ["worker's done report (its words):", ...lines.slice(0, DONE_REPORT_LINES - 1)];
+}
+
 /** The stored run's facts as labelled lines, for the side-by-side layout. */
 export function recordFactLines(record: RunRecord, now: number): string[] {
   const u = usageParts(record);
@@ -47,6 +66,7 @@ export function recordFactLines(record: RunRecord, now: number): string[] {
     `usage    ${u.io}`,
     `         ${u.cache}`,
     `         ${u.turns}${u.cost === "" ? "" : `  ${u.cost}`}`,
+    ...doneReportFactLines(record),
   ];
 }
 
@@ -57,6 +77,7 @@ export function compactRecordFactLines(record: RunRecord, now: number): string[]
   return [
     `run ${ended(record, now)}  role ${record.role}  model ${record.model}  time ${u.time}`,
     `usage ${u.io} ${u.cache} ${u.turns}${cost}`,
+    ...doneReportFactLines(record),
   ];
 }
 
