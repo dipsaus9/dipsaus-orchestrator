@@ -7,7 +7,9 @@
 //    worker question shows the time left on its wait (DIPO-159) and offers `dipo answer <question>
 //    --text "<answer>"`;
 // 2. merge gates that wait on the maintainer, with the PR from `story_prs`; a gate whose PR is
-//    labelled `autorelease: pending` offers a hand merge and no `dipo approve`;
+//    labelled `autorelease: pending` offers a hand merge and no `dipo approve`; a gate marked
+//    hand-merge only because its PR changes the release path (DIPO-331, `gates.hand_merge`) names
+//    the PR, says the maintainer merges it by hand on GitHub, and offers only `dipo reject`;
 // 3. open parks: needing a decision, then a direction or grant, then a restart. A `review-blocked`
 //    park whose merge gate is open is one row with both `dipo resume --note` and `dipo approve
 //    --note` (or the hand merge when its PR is labelled `autorelease: pending`), and that gate gets
@@ -84,6 +86,17 @@ export interface DeskGate {
   readonly gate: string;
   readonly key: string;
   readonly run: string;
+}
+
+/** An open merge gate that waits on the maintainer, as the desk reads it. */
+interface OpenMergeGate {
+  gate_id: string;
+  key: string;
+  run_id: string;
+  opened_at: number;
+  summary: string;
+  /** `release-path` for a gate only the maintainer's merge on the host decides (DIPO-331). */
+  hand_merge: string | null;
 }
 
 /** The desk's seams for facts other stories add. */
@@ -294,9 +307,18 @@ class DeskBuilder {
     this.#items.push({ group, rank, sinceMs, item: clean });
   }
 
-  /** The hand text of a gate whose PR only the maintainer merges (`autorelease: pending`). */
-  #handMerge(record: { readonly number: number; readonly url: string } | null): string {
+  /**
+   * The hand text of a gate whose PR only the maintainer merges: one labelled `autorelease:
+   * pending`, or one that changes the release path (DIPO-331).
+   */
+  #handMerge(
+    record: { readonly number: number; readonly url: string } | null,
+    why: "autorelease" | "release-path" = "autorelease",
+  ): string {
     const where = record === null ? "its PR" : `PR #${record.number} (${record.url})`;
+    if (why === "release-path") {
+      return `the maintainer merges ${where} by hand on GitHub: it changes the release path, which needs the maintainer's code owner approval, so dipo never merges it`;
+    }
     return `merge ${where} by hand on GitHub: it is labelled autorelease: pending, so dipo never approves it`;
   }
 
@@ -357,21 +379,51 @@ class DeskBuilder {
   }
 
   /** The open merge gates that wait on the maintainer, oldest first. */
-  #openMergeGates(): {
-    gate_id: string;
-    key: string;
-    run_id: string;
-    opened_at: number;
-    summary: string;
-  }[] {
+  #openMergeGates(): OpenMergeGate[] {
     return this.#office.all(
-      `select g.gate_id, g.key, g.run_id, g.opened_at, g.summary from gates g
+      `select g.gate_id, g.key, g.run_id, g.opened_at, g.summary, g.hand_merge from gates g
         where g.office_id = $office_id and g.kind = 'merge' and g.waiting_on = 'maintainer'
           and g.key is not null and g.run_id is not null
           and not exists (select 1 from gate_decisions d
                            where d.office_id = g.office_id and d.gate_id = g.gate_id)
         order by g.opened_at, g.gate_id`,
     );
+  }
+
+  /** Group 2: one merge gate that waits on the maintainer (see the file comment). */
+  #mergeGate(gate: OpenMergeGate): void {
+    const story = storyIdOf(this.#office, gate.key);
+    if (story === null) return;
+    const record =
+      findStoryPr(this.#office, RunId.parse(gate.run_id)) ?? latestStoryPr(this.#office, gate.key);
+    const reject = this.#action("gate.reject", `dipo reject ${story} --note "<why>"`);
+    let actions = [...this.#action("gate.approve", `dipo approve ${story}`), ...reject];
+    let hand: string | null = null;
+    if (gate.hand_merge === "release-path") {
+      actions = reject;
+      hand = this.#handMerge(record, "release-path");
+    } else if (
+      this.#sources.handMergeOnly(this.#office, {
+        gate: gate.gate_id,
+        key: gate.key,
+        run: gate.run_id,
+      })
+    ) {
+      actions = [];
+      hand = this.#handMerge(record);
+    }
+    this.#add(GROUP.merge, 0, gate.opened_at, {
+      kind: "MERGE",
+      story,
+      key: StoryKey.parse(gate.key),
+      gate: GateId.parse(gate.gate_id),
+      ...prOf(record),
+      detail: deskText(gate.summary),
+      since: iso(gate.opened_at),
+      blocks: this.#blocks(story),
+      actions,
+      ...(hand === null ? {} : { hand }),
+    });
   }
 
   /** Groups 2 and 3: merge gates and open parks other than `on-hold`. */
@@ -395,34 +447,7 @@ class DeskBuilder {
     );
     for (const gate of gates) {
       // A review-blocked park's gate is the PARKED row's `dipo approve --note` (0019 section 11).
-      if (reviewBlocked.has(gate.key)) continue;
-      const story = storyIdOf(this.#office, gate.key);
-      if (story === null) continue;
-      const record =
-        findStoryPr(this.#office, RunId.parse(gate.run_id)) ??
-        latestStoryPr(this.#office, gate.key);
-      const handOnly = this.#sources.handMergeOnly(this.#office, {
-        gate: gate.gate_id,
-        key: gate.key,
-        run: gate.run_id,
-      });
-      this.#add(GROUP.merge, 0, gate.opened_at, {
-        kind: "MERGE",
-        story,
-        key: StoryKey.parse(gate.key),
-        gate: GateId.parse(gate.gate_id),
-        ...prOf(record),
-        detail: deskText(gate.summary),
-        since: iso(gate.opened_at),
-        blocks: this.#blocks(story),
-        actions: handOnly
-          ? []
-          : [
-              ...this.#action("gate.approve", `dipo approve ${story}`),
-              ...this.#action("gate.reject", `dipo reject ${story} --note "<why>"`),
-            ],
-        ...(handOnly ? { hand: this.#handMerge(record) } : {}),
-      });
+      if (!reviewBlocked.has(gate.key)) this.#mergeGate(gate);
     }
     for (const park of parks) {
       const story = storyIdOf(this.#office, park.key) ?? StoryId.parse(park.story_id);
