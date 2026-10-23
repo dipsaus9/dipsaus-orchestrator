@@ -65,7 +65,12 @@ import { appendEntries, type NewEntry } from "../changelog/log";
 import type { OfficeConfig } from "../config";
 import type { OfficeHandle } from "../db/office";
 import type { GitSession, OfficeGit } from "../git/office";
-import { recordReviewVerdict, reviewDecidedEntry, reviewVerdictForTree } from "../review/store";
+import {
+  recordReviewOverride,
+  recordReviewVerdict,
+  reviewDecidedEntry,
+  reviewVerdictForTree,
+} from "../review/store";
 import { withWorkViews } from "../views/work";
 
 import { runCaps } from "./caps";
@@ -648,9 +653,15 @@ export class StoryConflicts {
 
   /**
    * A merge dipo made into the run's branch (`BoxCollisions` `recorded`): recorded, a conflicted
-   * one starts a hand-off, and a clean one may carry the run's approval to the new head.
+   * one starts a hand-off, and a clean one may carry the run's approval to the new head. With
+   * `strict` (the merge slot, DIPO-150) a carry that fails throws instead of being only logged, so
+   * no merge goes ahead on a head whose approval was not carried.
    */
-  async recorded(run: PartRun, merged: CatchUpMerged): Promise<void> {
+  async recorded(
+    run: PartRun,
+    merged: CatchUpMerged,
+    options: { readonly strict?: boolean } = {},
+  ): Promise<void> {
     const office = this.#deps.offices.get(run.office);
     if (office === undefined) return;
     this.#write(office, () => {
@@ -674,7 +685,9 @@ export class StoryConflicts {
       }
       return [];
     });
-    if (merged.conflicts.length === 0) {
+    if (merged.conflicts.length === 0 && options.strict === true) {
+      await this.#carry(office, run);
+    } else if (merged.conflicts.length === 0) {
       await this.#carry(office, run).catch((error: unknown) => {
         this.#deps.warn?.(
           "carrying an approval over a clean merge failed; the head gets a review",
@@ -780,12 +793,18 @@ export class StoryConflicts {
     return decision;
   }
 
-  /** The approval of the run carried to its branch head after a clean merge (0019 section 6). */
+  /**
+   * The approval of the run carried to its branch head after a clean merge (0019 section 6): an
+   * approved verdict, or a blocked one the maintainer overrode, which carries with its override
+   * (DIPO-150), so the override gate holds for the merged head.
+   */
   async #carry(office: OfficeHandle, run: PartRun): Promise<void> {
     const stored = findRun(office, run.runId as RunId);
     if (stored === null || stored.key === null) return;
     const verdict = lastReviewVerdict(office, run.runId as RunId);
-    if (verdict === null || verdict.verdict !== "approved") return;
+    if (verdict === null) return;
+    const override = verdict.verdict === "approved" ? null : verdict.override;
+    if (verdict.verdict !== "approved" && override === null) return;
     const git = this.#deps.git(run.office);
     if (git === undefined) return;
     const merges = new Set(
@@ -826,7 +845,7 @@ export class StoryConflicts {
         commit: carried.head,
         codeTreeKey: carried.key,
         judged: {
-          verdict: "approved",
+          verdict: verdict.verdict,
           criteria: verdict.criteria,
           findings: verdict.findings,
           summary: verdict.summary,
@@ -835,6 +854,7 @@ export class StoryConflicts {
         carriedFrom: verdict.commit,
         at,
       });
+      if (override !== null) recordReviewOverride(office, recorded.gate, override);
       return [
         reviewDecidedEntry(recorded),
         {
@@ -844,7 +864,7 @@ export class StoryConflicts {
           delta: {
             level: "info",
             code: CONFLICT_NOTICES.carried,
-            text: `${run.story}: the review approval of ${verdict.commit.slice(0, 12)} carries to ${carried.head.slice(0, 12)}, since only dipo's clean merge of the base and task-file commits lie between them; no new review round.`,
+            text: `${run.story}: the review ${override === null ? "approval" : "override"} of ${verdict.commit.slice(0, 12)} carries to ${carried.head.slice(0, 12)}, since only dipo's clean merge of the base and task-file commits lie between them; no new review round.`,
           },
         },
       ];

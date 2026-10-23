@@ -80,7 +80,7 @@ export async function filedDraft(
   return null;
 }
 
-/** Records the draft id the lane created for an accepted proposal (migration 48). */
+/** Records the draft id the lane created for an accepted proposal (migration 49). */
 export function recordDraftId(office: OfficeHandle, proposal: string, draft: string): void {
   office.immediate(() =>
     office.run(

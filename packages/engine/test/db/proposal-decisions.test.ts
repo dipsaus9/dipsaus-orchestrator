@@ -1,4 +1,4 @@
-// Migration 48 (DIPO-166): a proposal's row gains who decided it (`decided_by`) and the Backlog
+// Migration 49 (DIPO-166): a proposal's row gains who decided it (`decided_by`) and the Backlog
 // draft the lane filed for an accepted one (`draft_id`). A proposal stored before the migration
 // keeps its row, open, with both null.
 
@@ -23,12 +23,12 @@ const open = (dir: string, migrations?: readonly Migration[]) =>
     ...(migrations === undefined ? {} : { migrations }),
   });
 
-describe("migration 48 on a database at version 47", () => {
+describe("migration 49 on a database at version 48", () => {
   it("adds decided_by and draft_id to proposals and keeps the stored proposals open", () =>
     withTempDir(async (dir) => {
       const old = await open(
         dir,
-        MIGRATIONS.filter((step) => step.version <= 47),
+        MIGRATIONS.filter((step) => step.version <= 48),
       );
       try {
         old.connection.immediate(() =>
@@ -44,7 +44,7 @@ describe("migration 48 on a database at version 47", () => {
       const state = await open(dir);
       try {
         const db = state.connection;
-        expect(MIGRATIONS.find((step) => step.version === 48)?.name).toBe("proposal decisions");
+        expect(MIGRATIONS.find((step) => step.version === 49)?.name).toBe("proposal decisions");
         expect(TABLE_RETENTION["proposals"]?.tier).toBe("S");
         expect(
           db.all("select hash, state, decided_by, draft_id from proposals order by hash"),

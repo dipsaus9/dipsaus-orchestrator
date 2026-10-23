@@ -175,12 +175,17 @@ export function detail(office: OfficeHandle, key: StoryKey): DetailResult {
   const active = view.work === undefined ? null : workView(office, view.work.run);
   // A conflict with the base found while the story is In Review (DIPO-149).
   const conflict = baseConflictOf(office, key);
+  // The story's open gates that wait for the maintainer (DIPO-150): `dipo approve` sends one.
+  const gates = openGateViews(office).filter(
+    (gate) => gate.work.key === key && gate.waitingOn === "maintainer",
+  );
   return {
     view,
     ...(active === null ? {} : { work: active }),
     runs,
     verdicts: storyVerdicts(office, key),
     questions: storyQuestionViews(office, key),
+    ...(gates.length === 0 ? {} : { gates }),
     ...(conflict === null
       ? {}
       : {

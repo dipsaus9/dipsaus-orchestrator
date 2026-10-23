@@ -72,6 +72,7 @@ import type {
 import { findClaim } from "../worktree/records";
 
 import { REVIEWER_ROLE, runCaps } from "./caps";
+import { runConfigOf } from "./config-snapshot";
 import type { RunSteering } from "./control-types";
 import { resolveIntent, runIntents, sendAsIntent, type StoredIntent } from "./intents";
 import {
@@ -304,8 +305,10 @@ export class Reviews {
     given?: string,
   ): Promise<boolean> {
     const officeId = office.officeId as OfficeId;
-    const config = this.#deps.offices.config(officeId);
-    if (config === undefined || run.worktree === null) return false;
+    const inForce = this.#deps.offices.config(officeId);
+    if (inForce === undefined || run.worktree === null) return false;
+    // The prompt budgets the run started with (its configuration snapshot, DIPO-150).
+    const config = runConfigOf(office, run, inForce);
     let taskMessage: string;
     let head: string;
     try {

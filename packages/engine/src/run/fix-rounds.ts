@@ -66,6 +66,7 @@ import { withWorkViews, workRefOf } from "../views/work";
 import { findClaim } from "../worktree/records";
 
 import { REVIEWER_ROLE } from "./caps";
+import { runConfigOf } from "./config-snapshot";
 import type { RunEnding } from "./control-types";
 import type { DecidingGuard } from "./deciding";
 import {
@@ -278,7 +279,8 @@ export class FixRounds {
     const reviewed = run.reviewRoundCap != null;
     // The head's verdict is in: the review period ended with it (section 7).
     if (reviewed && run.endKind !== REVIEWED_END) return false;
-    const ci = this.#ciOf(officeId, config, run);
+    // Whether the run has story PRs comes from its configuration snapshot (DIPO-303 review).
+    const ci = this.#ciOf(officeId, runConfigOf(office, run, config), run);
     if (ci.kind === "pending") return false;
     const verdict = reviewed ? lastReviewVerdict(office, runId) : null;
     const head = ci.head ?? verdict?.commit ?? null;
@@ -301,8 +303,9 @@ export class FixRounds {
       if (!(await this.#sameTree(officeId, run, facts, verdict, ci.head))) return false;
     }
     const itemMax = itemMaxOf(config, run.tier);
+    // A blocked verdict the maintainer overrode (0019 section 11) sends nothing back.
     const review =
-      verdict?.verdict === "blocked"
+      verdict?.verdict === "blocked" && verdict.override === null
         ? reviewFeedbackItems(
             verdict,
             (n) => facts?.view.acceptanceCriteria.find((criterion) => criterion.index === n)?.text,

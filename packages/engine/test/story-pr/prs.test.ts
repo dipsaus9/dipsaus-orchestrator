@@ -17,7 +17,7 @@ import {
   type PrState,
 } from "../../src/platform/host";
 import { yieldToEventLoop } from "../../src/platform/clock";
-import { endRun, findRun, IN_REVIEW_END, insertRun } from "../../src/run";
+import { endRun, findRun, IN_REVIEW_END, insertRun, recordConfigSnapshot } from "../../src/run";
 import {
   findStoryPr,
   type StoryPrFacts,
@@ -507,6 +507,49 @@ describe("the story PR switched off with storyPr.open false", () => {
       await pollIntervals(w, 1);
       expect(w.host.creates).toHaveLength(1);
       expect(findStoryPr(w.office, w.run)?.number).toBe(7);
+    });
+  });
+});
+
+// DIPO-150 (the DIPO-303 review): a run's stages after its start read its configuration snapshot,
+// not the configuration in force, which a base change now reloads at the next poll.
+const snapshot = (w: World, config: OfficeConfig): void =>
+  w.office.immediate(() => recordConfigSnapshot(w.office, "h", config, w.t.clock.now()));
+
+describe("the story PR of a run with a configuration snapshot", () => {
+  it("opens the PR of a run that started with story PRs on, after the office switched them off", async () => {
+    await inWorld(async (w) => {
+      snapshot(w, OFFICE_DEFAULTS);
+      w.config = PRS_OFF;
+      await w.prs.sync(w.office.officeId, w.run);
+      expect(w.host.creates).toHaveLength(1);
+    });
+  });
+
+  it("opens no PR for a run that started with story PRs off, after the office switched them on", async () => {
+    await inWorld(async (w) => {
+      snapshot(w, PRS_OFF);
+      w.config = OFFICE_DEFAULTS;
+      await w.prs.sync(w.office.officeId, w.run);
+      expect(await w.prs.retry(w.office.officeId)).toEqual([]);
+      expect(w.host.calls).toEqual([]);
+    });
+  });
+
+  it("lists the required checks the run started with in the body", async () => {
+    await inWorld(async (w) => {
+      snapshot(w, {
+        ...OFFICE_DEFAULTS,
+        mergeSlot: { ...OFFICE_DEFAULTS.mergeSlot, requiredChecks: ["started-check"] },
+      });
+      w.config = {
+        ...OFFICE_DEFAULTS,
+        mergeSlot: { ...OFFICE_DEFAULTS.mergeSlot, requiredChecks: ["later-check"] },
+      };
+      await w.prs.sync(w.office.officeId, w.run);
+      const body = w.host.creates[0]?.body ?? "";
+      expect(body).toContain("started-check");
+      expect(body).not.toContain("later-check");
     });
   });
 });
