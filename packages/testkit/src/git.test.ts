@@ -46,6 +46,17 @@ describe("withTempRepo", () => {
         expect(origins.filter((line) => !/^(local|command)\t/.test(line))).toEqual([]);
         expect((await repo.git("config", "commit.gpgsign")).trim()).toBe("false");
         expect((await repo.git("config", "tag.gpgsign")).trim()).toBe("false");
+        // The repository's own config holds the identity and no signing, read as git reads it.
+        expect(
+          (await repo.git("config", "--local", "--list")).split("\n").filter((l) => l !== ""),
+        ).toEqual(
+          expect.arrayContaining([
+            `user.name=${GIT_IDENTITY.name}`,
+            `user.email=${GIT_IDENTITY.email}`,
+            "commit.gpgsign=false",
+            "tag.gpgsign=false",
+          ]),
+        );
 
         await repo.commitAll("first");
         const log = await repo.git("log", "-1", "--format=%an|%ae|%at|%cn|%ce|%ct|%G?");
