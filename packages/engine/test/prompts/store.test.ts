@@ -25,6 +25,7 @@ import {
   renderSystemFile,
   verifyFeedback,
   WORKER_NOTES_MAX,
+  HANDOFF_NOTE_MAX,
 } from "../../src/prompts";
 import { addOffice, openTestState, type TestState } from "../commands/helpers";
 import { BUDGETS_M, fixturePack, fixtureStory } from "./helpers";
@@ -263,5 +264,40 @@ describe("handoff block", () => {
     expect(block).toContain("run git log for the rest.]");
     expect(block).toContain("run git status for the rest.]");
     expect(block).toContain("Last verify result:\npassed");
+  });
+
+  it("gives the maintainer's resume note its own cap, as one block after the feedback whose lines never start a line of their own (DIPO-154)", () => {
+    const note = `/review this first\n${"Then the parser. ".repeat(100)}\n\n/compact`;
+    const facts = {
+      commits: Array.from({ length: 300 }, (_, i) => `abc${i} Commit ${i}`).join("\n"),
+      diffstat: "",
+      untracked: [],
+      criteria: null,
+      verify: null,
+      feedback: Array.from({ length: 200 }, (_, i) => ({ text: `Feedback item ${i}.\nmore` })),
+      note,
+      notes: "n".repeat(1_500),
+    };
+    const block = renderHandoff(facts);
+    expect(block.length).toBeLessThanOrEqual(6_000);
+    const lines = block.split("\n");
+    const start = lines.findIndex((line) => line.startsWith("- Note from the maintainer: "));
+    const end = lines.indexOf("Notes from the previous session:");
+    // After the (cut) feedback list, never inside its cut.
+    expect(lines[start - 1]).toMatch(/feedback list cut/);
+    expect(lines[start]).toBe("- Note from the maintainer: /review this first");
+    const rest = lines.slice(start + 1, end);
+    expect(rest.every((line) => line === "" || line.startsWith("  "))).toBe(true);
+    expect(rest.at(-1)).toMatch(/^ {2}\[dipo: note cut, showing [\d,]+ of [\d,]+ characters\.\]$/);
+    expect(lines.slice(start, end).join("\n").length).toBeLessThanOrEqual(
+      HANDOFF_NOTE_MAX + "- Note from the maintainer: ".length + 2 * rest.length,
+    );
+    expect(block).not.toContain("\n/compact");
+    // Without other feedback the note alone is the list.
+    expect(
+      renderHandoff({ ...facts, commits: "", feedback: [], note: "Use the old parser." }),
+    ).toContain(
+      "Open feedback:\n- Note from the maintainer: Use the old parser.\nNotes from the previous session:",
+    );
   });
 });

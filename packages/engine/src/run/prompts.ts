@@ -54,6 +54,12 @@ export interface RunPrompts {
   readonly nudgeSources: NudgeSources;
   /** The task message's sections in message order, measured per section (0014 section 2). */
   readonly sections: readonly Section[];
+  /**
+   * The context pack the task message was built from and the head it was read at, for its
+   * `context_packs` record (`recordContextPack`, 0014 section 10, 0020 section 6).
+   */
+  readonly pack: ContextPack;
+  readonly headSha: string;
 }
 
 /** The nudge sources of a context pack: its item paths and the story's input paths. */
@@ -81,6 +87,7 @@ export async function renderRunPrompts(input: RunPromptsInput): Promise<RunPromp
     taskFile: input.taskFile,
   });
   const size = await sizeClassOfWorkspace(workspace);
+  const headSha = await workspace.headSha();
   const budgets = config.prompt.budgets;
   const pack = await gatherContext({
     workspace,
@@ -93,7 +100,7 @@ export async function renderRunPrompts(input: RunPromptsInput): Promise<RunPromp
       inputs: story.inputs,
       components: [],
       baseSha: input.baseSha,
-      headSha: await workspace.headSha(),
+      headSha,
       sizeClass: size,
       inputsBudget: budgets.inputs[size],
     },
@@ -112,6 +119,8 @@ export async function renderRunPrompts(input: RunPromptsInput): Promise<RunPromp
     systemFile: renderSystemFile(input.box === true ? "implement-box" : "implement", "developer"),
     taskMessage: task.text,
     sections: task.sections,
+    pack,
+    headSha,
     ...nudgeSourcesOf(pack, story.inputs),
   };
 }
