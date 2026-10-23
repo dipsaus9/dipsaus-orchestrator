@@ -43,6 +43,8 @@ export {
   BOX_VERIFY,
   gatherHandoff,
   HANDOFF_BUDGET_DEFAULT,
+  HANDOFF_NOTE_MAX,
+  noteBlock,
   renderHandoff,
 } from "./handoff";
 export type { GatherHandoffOptions, HandoffFacts, HandoffFeedback, LastVerify } from "./handoff";

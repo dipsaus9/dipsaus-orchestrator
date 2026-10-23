@@ -123,15 +123,37 @@ function criteriaLines(criteria: readonly WorkerReportCriterion[] | null): strin
     .join("\n");
 }
 
+/** The first line of each open feedback item. */
+function feedbackLines(items: readonly HandoffFeedback[]): string {
+  return items.map((item) => `- ${item.text.split("\n")[0] ?? ""}`).join("\n");
+}
+
+/** The most characters of the maintainer's resume note the handoff carries. */
+export const HANDOFF_NOTE_MAX = 1_000;
+
+const noteMarker = (shown: number, total: number): string =>
+  `[dipo: note cut, showing ${formatCount(shown)} of ${formatCount(total)} characters.]`;
+
 /**
- * The first line of each open feedback item, then the maintainer's resume note, wrapped in a fixed
- * lead so it never starts a message or a line of its own (0020 section 3).
+ * The maintainer's resume note as one block after the open feedback (0020 section 3): capped at
+ * `HANDOFF_NOTE_MAX` characters with a marker, behind a fixed lead, and every further line
+ * indented, so no line of it ever starts a line of its own in the message. Null without a note.
  */
-function feedbackLines(items: readonly HandoffFeedback[], note: string | undefined): string {
-  const lines = items.map((item) => `- ${item.text.split("\n")[0] ?? ""}`);
-  const text = note?.trim() ?? "";
-  if (text !== "") lines.push(`- Note from the maintainer: ${text}`);
-  return lines.join("\n");
+export function noteBlock(note: string | undefined): string | null {
+  const text = (note ?? "").replace(/\r\n?/g, "\n").trim();
+  if (text === "") return null;
+  let shown = text;
+  if (text.length > HANDOFF_NOTE_MAX) {
+    shown = text.slice(0, HANDOFF_NOTE_MAX - noteMarker(text.length, text.length).length - 1);
+    // Never leave half of a surrogate pair.
+    if (/[\uD800-\uDBFF]$/.test(shown)) shown = shown.slice(0, -1);
+    shown = `${shown.trimEnd()}\n${noteMarker(shown.trimEnd().length, text.length)}`;
+  }
+  const [first, ...rest] = shown.split("\n");
+  return [
+    `- Note from the maintainer: ${first ?? ""}`,
+    ...rest.map((line) => (line.trim() === "" ? "" : `  ${line}`)),
+  ].join("\n");
 }
 
 /** Room the handoff keeps for its headings, criteria status and verify line. */
@@ -140,15 +162,17 @@ const HANDOFF_FRAME = 600;
 const HANDOFF_LIST_MIN = 200;
 
 /**
- * The `handoff` section. The notes are capped at 1,500 characters; the four lists (commits,
- * changes, untracked files, open feedback) share what is left of `budget` after the notes and the
- * frame, each cut at its head with a marker that says how to see the rest, so the block stays
- * within `budget` and its closing tag is never cut.
+ * The `handoff` section. The notes are capped at 1,500 characters and the maintainer's resume note
+ * at 1,000; the four lists (commits, changes, untracked files, open feedback) share what is left
+ * of `budget` after them and the frame, each cut at its head with a marker that says how to see
+ * the rest, so the block stays within `budget` and its closing tag is never cut. The resume note
+ * follows the open feedback list, outside its cut, so it always shows.
  */
 export function renderHandoff(facts: HandoffFacts, budget = HANDOFF_BUDGET_DEFAULT): string {
+  const note = noteBlock(facts.note);
   const listMax = Math.max(
     HANDOFF_LIST_MIN,
-    Math.floor((budget - WORKER_NOTES_MAX - HANDOFF_FRAME) / 4),
+    Math.floor((budget - WORKER_NOTES_MAX - (note?.length ?? 0) - HANDOFF_FRAME) / 4),
   );
   const list = (text: string, label: string, hint: string) =>
     text === "" ? NONE : cutHead(text, listMax, listMarker(label, hint)).text;
@@ -163,11 +187,15 @@ export function renderHandoff(facts: HandoffFacts, budget = HANDOFF_BUDGET_DEFAU
       : list(facts.untracked.join("\n"), "untracked list", "run git status for the rest."),
     criteria: criteriaLines(facts.criteria),
     verify: verifyLine(facts.verify, box),
-    feedback: list(
-      feedbackLines(facts.feedback, facts.note),
-      "feedback list",
-      "the rest is left out.",
-    ),
+    feedback:
+      note === null
+        ? list(feedbackLines(facts.feedback), "feedback list", "the rest is left out.")
+        : [
+            ...(facts.feedback.length === 0
+              ? []
+              : [list(feedbackLines(facts.feedback), "feedback list", "the rest is left out.")]),
+            note,
+          ].join("\n"),
     notes: facts.notes === null || facts.notes.trim() === "" ? NONE : capNotes(facts.notes),
   });
 }
