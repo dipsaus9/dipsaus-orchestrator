@@ -1,10 +1,10 @@
 ---
 id: DIPO-249
 title: Find and report what makes a dipo run start slowly before its claim
-status: To Do
+status: Done
 assignee: []
 created_date: '2026-10-20 18:35'
-updated_date: '2026-10-22 11:35'
+updated_date: '2026-10-23 10:34'
 labels:
   - 'tier:S'
   - cutover
@@ -50,3 +50,9 @@ test_plan:
 - [ ] #2 While a work.run waits more than 10 seconds before its claim, `dipo run` prints one line saying which step it waits for
 - [ ] #3 Unit tests in packages/engine/test/run/work-run.test.ts cover the debug durations and the slow-step info line with a manual clock
 <!-- AC:END -->
+
+## Implementation Notes
+
+<!-- SECTION:NOTES:BEGIN -->
+2026-10-23 (maintainer): closed without a code change. Since DIPO-240 (box only, the box kept from claim to merge) a run takes 31 s from dipo run to a ready box, down from 3.5 to 5.5 minutes; nothing slow is left to find before the claim.
+<!-- SECTION:NOTES:END -->
