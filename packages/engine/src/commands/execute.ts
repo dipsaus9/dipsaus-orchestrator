@@ -141,6 +141,7 @@ function runOfficeCommand(
         ids: deps.ids,
         requestId,
         origin: request.origin,
+        confirmed: request.confirmed === true,
         now,
         stories: resolved.stories,
         emit: (entry) => {
@@ -216,6 +217,7 @@ async function runAsyncOfficeCommand(
           ids: deps.ids,
           requestId,
           origin: request.origin,
+          confirmed: request.confirmed === true,
           now,
           stories: resolved.stories,
         },

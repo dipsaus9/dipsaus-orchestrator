@@ -12,8 +12,9 @@
 //   resumes it. The rows of M0 are `needs-permission` (the permission answer) and `plan-limit`
 //   (`work.resume` of the held run); `paused` (`work.resume` of a run the maintainer paused,
 //   `resume-paused.ts`, DIPO-163) follows. `work.resume` itself (`work-resume.ts`) decides through the
-//   table, so any other reason answers `story.notPausedOrParked`; later rows extend the table, not
-//   the run outcomes.
+//   table; every park with a row in the 0020 matrix resumes through `ParkResumes`
+//   (`park-resume.ts`, DIPO-155), whose queued developer sessions `startQueued` starts too and whose
+//   interrupted resumes `recoverParkResumes` finishes after a restart.
 
 import { type OfficeId, type RunId, type workResume } from "@dipsaus-orchestrator/contract";
 import type { z } from "zod";
@@ -27,6 +28,7 @@ import { workRefOf } from "../views/work";
 
 import { markIntentSent, recordIntent, resolveIntent, runIntents } from "./intents";
 import { RunOutcomes, type OutcomeParts } from "./outcomes";
+import { ParkResumes, type ParkResumeOptions } from "./park-resume";
 import { PausedResumes } from "./resume-paused";
 import {
   INTENT_TAGS,
@@ -80,6 +82,8 @@ export interface ResumptionOptions {
    * an on-hold story needs it.
    */
   readonly holds?: () => HoldResumer | undefined;
+  /** What the park resume needs besides the places (DIPO-155); see `ParkResumeOptions`. */
+  readonly parks?: Omit<ParkResumeOptions, "places">;
 }
 
 type ResumeArgs = z.output<typeof workResume.args>;
@@ -109,6 +113,7 @@ export class Resumption {
   readonly #sessions: OutcomeParts["sessions"];
   readonly #command: WorkResumeCommand;
   readonly #paused: PausedResumes;
+  readonly #parks: ParkResumes;
   readonly #places: () => Places | undefined;
   /** Sessions of resumed parks starting after their answer was replied to (DIPO-75). */
   readonly #inflight = new Set<Promise<unknown>>();
@@ -120,12 +125,19 @@ export class Resumption {
     this.#sessions = parts.sessions;
     this.#places = options.places ?? (() => undefined);
     this.#paused = new PausedResumes(parts, this.#places);
-    this.#command = new WorkResumeCommand(options.planLimits, options.holds, () => this.#paused);
+    this.#parks = new ParkResumes(parts, { ...options.parks, places: this.#places });
+    this.#command = new WorkResumeCommand(
+      options.planLimits,
+      options.holds,
+      () => this.#paused,
+      () => this.#parks,
+    );
   }
 
   /** Resolves once every session start of a resumed park this started has finished (DIPO-75). */
   async idle(): Promise<void> {
     while (this.#inflight.size > 0) await Promise.allSettled(this.#inflight);
+    await this.#parks.idle();
   }
 
   /** `work.resume` for held runs (`WorkResumeCommand`); read by the plan-limit schedule's feature. */
@@ -442,6 +454,9 @@ export class Resumption {
   async startQueued(officeId: OfficeId, run: StoredRun): Promise<boolean> {
     const office = this.#deps.offices.get(officeId);
     if (office === undefined) return false;
+    // A maintainer resume of a parked story by its matrix row (DIPO-155).
+    const parked = await this.#parks.startQueued(officeId, run);
+    if (parked !== null) return parked;
     const row = office.get<{ intent_id: number; detail: string }>(
       `select intent_id, detail from run_intents
         where office_id = $office_id and run_id = $run and kind = 'answer' and state = 'sent'
@@ -472,6 +487,12 @@ export class Resumption {
    * answer recorded) but no session after it: the next session starts.
    */
   async recoverParkResumes(officeId: OfficeId, office: OfficeHandle): Promise<number> {
+    void officeId;
+    return (await this.#recoverAnswers(office)) + (await this.#parks.recover(office));
+  }
+
+  /** The needs-permission park resumes a restart interrupted (DIPO-75). */
+  async #recoverAnswers(office: OfficeHandle): Promise<number> {
     const rows = office.all<{ run_id: string; intent_id: number; detail: string; state: string }>(
       `select run_id, intent_id, detail, state from run_intents
         where office_id = $office_id and kind = 'answer' and resolved_at is null
