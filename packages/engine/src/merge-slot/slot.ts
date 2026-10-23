@@ -55,7 +55,7 @@ import type { Logger } from "../log/logger";
 import { type CodeHost, CodeHostError, type PrReviewHost } from "../platform/host";
 
 import { evaluateChecks, REQUIRED_CHECKS } from "./checks";
-import { autoreleasePending, holdLabelsOn } from "./gates";
+import { autoreleasePending, holdLabelsOn, type StoredMergeGate } from "./gates";
 import { laneSlotGit, type SlotGit } from "./git";
 import { enterSlot, leaveSlot, type SlotOccupant, slotOccupant, updateSlot } from "./store";
 import {
@@ -185,6 +185,16 @@ export class MergeSlot {
     if (handle === undefined) return null;
     const occupant = slotOccupant(handle);
     return occupant?.kind === "backlog" ? occupant.branch : null;
+  }
+
+  /**
+   * True when the merge gate `gate` holds for the PR head `head`: its own head, or one its verdict
+   * carried to (`StorySlot.gateHolds`); only its own head without story PRs.
+   */
+  async gateHolds(office: OfficeHandle, gate: StoredMergeGate, head: string): Promise<boolean> {
+    if (gate.head === head) return true;
+    if (this.#stories === null) return false;
+    return this.#stories.gateHolds(office.officeId as OfficeId, office, gate, head);
   }
 
   /** The PR number in the office's slot, or null. */

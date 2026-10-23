@@ -20,9 +20,15 @@ import { appendEntries, type NewEntry } from "../../src/changelog/log";
 import { CommandError } from "../../src/commands/errors";
 import type { AsyncCommandContext } from "../../src/commands/registry";
 import { OFFICE_DEFAULTS } from "../../src/config";
-import { MergeGates, mergeGate, mergeGatesOfRun } from "../../src/merge-slot";
+import {
+  decideMergeGate,
+  MergeGates,
+  type MergeGatesDeps,
+  mergeGate,
+  mergeGatesOfRun,
+} from "../../src/merge-slot";
 import { reviewVerdictOfGate } from "../../src/review/store";
-import type { UnparkBranchRequest } from "../../src/run/park";
+import type { ParkBranchRequest, UnparkBranchRequest } from "../../src/run/park";
 import { findRun, REVIEWED_END, runSteps } from "../../src/run/records";
 import { CAPABILITY_FLAGS } from "../../src/reads/hello";
 
@@ -38,10 +44,15 @@ interface Gates {
   readonly rejects: { run: RunId; gateId: string; note: string }[];
   readonly lifts: UnparkBranchRequest[];
   readonly entries: NewEntry[];
+  /** The parks the override put back on the branch. */
+  readonly reparks: ParkBranchRequest[];
+  /** The next commit throws, after the branch work. */
+  failCommit: boolean;
   ctx(): AsyncCommandContext;
 }
 
-function gatesOf(world: StoryWorld): Gates {
+function gatesOf(world: StoryWorld, extra: Partial<MergeGatesDeps> = {}): Gates {
+  const reparks: ParkBranchRequest[] = [];
   const kicks: OfficeId[] = [];
   const rejects: Gates["rejects"] = [];
   const lifts: UnparkBranchRequest[] = [];
@@ -59,7 +70,22 @@ function gatesOf(world: StoryWorld): Gates {
       return true;
     },
     kick: (office) => kicks.push(office),
+    holds: (office, gate, head) => world.slot.gateHolds(office, gate, head),
+    repark: {
+      write: async (_office, request) => {
+        reparks.push(request);
+        return {
+          commit: "p".repeat(40),
+          lastGoodCommit: "u".repeat(40),
+          from: "In Review",
+          pushed: true,
+          pushError: null,
+        };
+      },
+    },
+    ...extra,
   });
+  const self = { failCommit: false };
   const office = world.w.office;
   return {
     gates,
@@ -67,6 +93,13 @@ function gatesOf(world: StoryWorld): Gates {
     rejects,
     lifts,
     entries,
+    reparks,
+    get failCommit() {
+      return self.failCommit;
+    },
+    set failCommit(value) {
+      self.failCommit = value;
+    },
     ctx: () => {
       const now = world.w.t.clock.now();
       return {
@@ -78,6 +111,7 @@ function gatesOf(world: StoryWorld): Gates {
         now,
         stories: new Map(),
         commit: (fn) => {
+          if (self.failCommit) throw new Error("database is locked");
           office.immediate(() => {
             const made = [...(fn() ?? [])];
             entries.push(...made);
@@ -255,5 +289,81 @@ describe("approving past a blocked review", () => {
       "select resolved_at from parks where office_id = $office_id and park_id = 1",
     );
     expect(park?.resolved_at).toBeNull();
+  });
+});
+
+describe("a gate decided only for the head it holds for", () => {
+  it("refuses approve and reject when the story PR moved to a head the gate does not hold for", async () => {
+    const gate = await waiting();
+    // A push to the PR with new code that has no verdict.
+    const H2 = "2".repeat(40);
+    s.w.office.immediate(() =>
+      s.w.office.run("update story_prs set head_sha = $head where office_id = $office_id", {
+        head: H2,
+      }),
+    );
+    const g = gatesOf(s);
+    expect(await refused(g.gates.approve(g.ctx(), { gate }))).toBe("gate.notWaitingOnMaintainer");
+    expect(await refused(g.gates.reject(g.ctx(), { gate, note: "x" }))).toBe(
+      "gate.notWaitingOnMaintainer",
+    );
+    expect(mergeGate(s.w.office, gate)?.decision).toBeNull();
+    expect(g.rejects).toEqual([]);
+  });
+
+  it("decides a gate for a later head its verdict holds for (a task-file commit on top)", async () => {
+    const gate = await waiting();
+    const C2 = "3".repeat(40);
+    s.git.trees.set(C2, "tree-1");
+    s.w.office.immediate(() =>
+      s.w.office.run("update story_prs set head_sha = $head where office_id = $office_id", {
+        head: C2,
+      }),
+    );
+    const g = gatesOf(s);
+    expect((await g.gates.approve(g.ctx(), { gate })).result.decision).toBe("approved");
+  });
+});
+
+describe("an override that cannot be recorded after its lift", () => {
+  it("puts the park back on the branch and reports it", async () => {
+    const gate = await blocked();
+    const g = gatesOf(s);
+    g.failCommit = true;
+    await expect(g.gates.approve(g.ctx(), { gate, note: "fine" })).rejects.toThrow(
+      "dipo put the park back on the branch",
+    );
+    expect(g.lifts).toHaveLength(1);
+    expect(g.reparks).toEqual([
+      expect.objectContaining({ story: "DIPO-7", reason: "review-blocked", note: "blocked" }),
+    ]);
+    expect(mergeGate(s.w.office, gate)?.decision).toBeNull();
+  });
+
+  it("lifts nothing when the gate was decided right before the lift", async () => {
+    const gate = await blocked();
+    const g = gatesOf(s, {
+      // The PR moved on (the park commit); while its head is read, another client decides.
+      holds: async (office, held) => {
+        office.immediate(() =>
+          decideMergeGate(office, held.gate, {
+            decision: "rejected",
+            by: "maintainer",
+            note: "no",
+            at: 1,
+          }),
+        );
+        return true;
+      },
+    });
+    s.w.office.immediate(() =>
+      s.w.office.run("update story_prs set head_sha = $head where office_id = $office_id", {
+        head: "4".repeat(40),
+      }),
+    );
+    expect(await refused(g.gates.approve(g.ctx(), { gate, note: "fine" }))).toBe(
+      "gate.notWaitingOnMaintainer",
+    );
+    expect(g.lifts).toEqual([]);
   });
 });

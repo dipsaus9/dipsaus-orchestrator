@@ -1,6 +1,7 @@
 // `gate.approve` and `gate.reject` on merge gates (0019 section 11; DIPO-151, combined into
 // DIPO-150). Both answer `gate.notWaitingOnMaintainer` for a gate that waits for no maintainer: a
-// gate decided by rule, one decided already, or a gate that is not a merge gate.
+// gate decided by rule, one decided already, a gate that is not a merge gate, or one that no longer
+// holds for the story PR's head (the PR moved since it opened, and its verdict did not carry).
 //
 // - `gate.approve { gate, note? }` decides the merge gate `approved` by `maintainer`, and the PR
 //   enters the merge slot at the slot's next tick (a hold label still holds it). On a PR labelled
@@ -11,7 +12,8 @@
 //   step, the park resolved as `override` (0020 section 15), and the story back In Review with no
 //   session: the park is lifted on the branch (`<ID>: status In Review`) and the run waits as
 //   reviewed. Its PR then goes through its required checks and the merge slot; the override gate
-//   is its merge decision.
+//   is its merge decision. The gate is checked undecided right before the lift; when the record
+//   fails after the lift, the park is put back on the branch (or the failure says it could not be).
 // - `gate.reject { gate, note }` (`confirm: true`) decides the gate `rejected` by the maintainer
 //   and starts a fix round with the note as its one item (`FixRounds.reject`, DIPO-148). For a
 //   flagged story this is the failed test until M1b's `test.record` takes over. Rejecting an
@@ -34,7 +36,7 @@ import type { AsyncCommandContext, CommandOutcome, FeatureModule } from "../comm
 import type { OfficeHandle } from "../db/office";
 import type { PrReviewHost } from "../platform/host";
 import { recordReviewOverride } from "../review/store";
-import { openPark, type UnparkWriter } from "../run/park";
+import { openPark, type ParkWriter, type UnparkWriter } from "../run/park";
 import { appendRunStep, findRun, REVIEWED_END, type StoredRun } from "../run/records";
 import { findStoryPr } from "../story-pr/records";
 import { deriveStoryView, storyView } from "../views/story";
@@ -63,6 +65,16 @@ export interface MergeGatesDeps {
   readonly prSync?: (office: OfficeId, runId: RunId) => Promise<void>;
   /** Reads the story again at its branch tip after the override's status commit. */
   readonly refreshStory?: (office: OfficeId, key: StoryKey) => Promise<unknown>;
+  /**
+   * True when `gate` holds for the story PR's head `head` (`MergeSlot.gateHolds`: its own head,
+   * or a head its verdict carried to); by default only its own head.
+   */
+  readonly holds?: (office: OfficeHandle, gate: StoredMergeGate, head: string) => Promise<boolean>;
+  /**
+   * Puts the park back on the story branch when the override's record failed after the park was
+   * lifted (`gitParkWriter`); without it that failure is only reported.
+   */
+  readonly repark?: ParkWriter;
 }
 
 function notWaiting(gate: string, why: string): CommandError {
@@ -104,6 +116,7 @@ export class MergeGates {
     const office = ctx.office;
     const officeId = office.officeId as OfficeId;
     const { gate, run } = this.#waiting(office, args.gate);
+    await this.#forPrHead(office, gate, run);
     const note = args.note?.trim() ?? "";
     if (gate.overrideOf !== null) {
       await this.#override(ctx, gate, run, note);
@@ -142,6 +155,7 @@ export class MergeGates {
     const office = ctx.office;
     const officeId = office.officeId as OfficeId;
     const { gate, run } = this.#waiting(office, args.gate);
+    await this.#forPrHead(office, gate, run);
     const note = args.note.trim();
     if (note === "") {
       throw new CommandError("gate.noteRequired", "A reject needs a note for the worker.", {
@@ -180,6 +194,22 @@ export class MergeGates {
     return { gate, run };
   }
 
+  /**
+   * Refuses a decision on a gate that no longer holds for the story PR's head: someone or a fix
+   * round moved the PR since the gate opened, so the maintainer would decide about another head.
+   */
+  async #forPrHead(office: OfficeHandle, gate: StoredMergeGate, run: StoredRun): Promise<void> {
+    const head = findStoryPr(office, run.runId)?.headSha ?? null;
+    if (head === null || head === gate.head) return;
+    const holds = (await this.#deps.holds?.(office, gate, head).catch(() => false)) ?? false;
+    if (!holds) {
+      throw notWaiting(
+        gate.gate,
+        `it decides about ${gate.head.slice(0, 12)}, and the PR is at ${head.slice(0, 12)} now`,
+      );
+    }
+  }
+
   /** The maintainer's override past a blocked review (see the file comment). */
   async #override(
     ctx: AsyncCommandContext,
@@ -203,13 +233,46 @@ export class MergeGates {
     if (run.branch === null || run.worktree === null) {
       throw notWaiting(gate.gate, "its story run has no branch or worktree");
     }
+    // Still undecided right before the branch changes: a decision meanwhile lifts nothing.
+    if (mergeGate(office, gate.gate)?.decision !== null) {
+      throw notWaiting(gate.gate, "it was decided meanwhile");
+    }
+    const branch = { story: run.story as string, branch: run.branch, worktree: run.worktree };
     // The branch first: the park lifted and the status back to In Review, pushed.
-    await this.#deps.unpark.lift(officeId, {
-      story: run.story as string,
-      branch: run.branch,
-      worktree: run.worktree,
-      to: "In Review",
-    });
+    await this.#deps.unpark.lift(officeId, { ...branch, to: "In Review" });
+    try {
+      this.#recordOverride(ctx, gate, run, note, park.parkId);
+    } catch (error) {
+      // The branch is In Review but the override is not recorded: put the park back, or say so.
+      const reason = error instanceof Error ? error.message : String(error);
+      let back = "this daemon cannot put the park back on the branch";
+      if (this.#deps.repark !== undefined) {
+        back = await this.#deps.repark
+          .write(officeId, { ...branch, reason: "review-blocked", note: park.detail })
+          .then(
+            () => "dipo put the park back on the branch",
+            (again: unknown) =>
+              `putting the park back on the branch failed too (${again instanceof Error ? again.message : String(again)})`,
+          );
+      }
+      throw new Error(
+        `The override of ${run.story} was not recorded (${reason}) after its park was lifted on the branch; ${back}. Check the story's status before you approve again.`,
+        { cause: error },
+      );
+    }
+    await this.#deps.refreshStory?.(officeId, run.key as StoryKey).catch(() => undefined);
+    await this.#deps.prSync?.(officeId, run.runId).catch(() => undefined);
+  }
+
+  /** In one transaction: the override's gate decision, verdict mark, run step, park and run. */
+  #recordOverride(
+    ctx: AsyncCommandContext,
+    gate: StoredMergeGate,
+    run: StoredRun,
+    note: string,
+    parkId: number,
+  ): void {
+    const office = ctx.office;
     ctx.commit(() => {
       const decided = decideMergeGate(office, gate.gate, {
         decision: "approved",
@@ -223,7 +286,7 @@ export class MergeGates {
       office.run(
         `update parks set resolved_at = $at, resolved_how = 'override'
           where office_id = $office_id and park_id = $park and resolved_at is null`,
-        { at: ctx.now, park: park.parkId },
+        { at: ctx.now, park: parkId },
       );
       // In Review with no session: the run waits as reviewed, for its checks and the merge slot.
       office.run(
@@ -232,8 +295,6 @@ export class MergeGates {
       );
       return withWorkViews(office, [...decided, ...inReviewEntries(office, run, note)]);
     });
-    await this.#deps.refreshStory?.(officeId, run.key as StoryKey).catch(() => undefined);
-    await this.#deps.prSync?.(officeId, run.runId).catch(() => undefined);
   }
 }
 

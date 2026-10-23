@@ -762,6 +762,10 @@ async function serve(run: Run, lock: HeldLock): Promise<number> {
       kick: (office) => mergeSlot.kick(office),
       prSync: (office, runId) => storyPrs.sync(office, runId),
       refreshStory: (office, key) => storyIndex.refreshStory(office, key, { quiet: true }),
+      // A decision only for the head the gate holds for; the park put back when an override is not
+      // recorded after its lift.
+      holds: (office, gate, head) => mergeSlot.gateHolds(office, gate, head),
+      repark: gitParkWriter({ git: (office) => engineGit.forOffice(office), cli: backlogCli }),
     });
     // `story.hold`, `story.drop` and the on-hold resume of `work.resume` (DIPO-160): lane
     // operations, the story PR closed through the same `gh` host and the claim released with the
