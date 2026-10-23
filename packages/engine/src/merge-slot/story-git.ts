@@ -17,7 +17,9 @@
 //   since the 0016 amendment); `always` whenever the base moved, after the host refused a merge
 //   because the base moved. A conflict is committed as git left it, markers and all (DIPO-149's
 //   committed catch-up), so the worker's resolution in its fix round is an ordinary change; a
-//   conflict in a path the worker cannot write merges nothing.
+//   conflict in a path the worker cannot write merges nothing. The box does not get the merge
+//   here: it is recorded as one the box still lacks (`catch_ups.box_copy`), and the run's next
+//   developer session copies it into the box before the worker starts (DIPO-324).
 // - The push (step 3): once, never forced.
 
 import { mkdirSync } from "node:fs";
@@ -268,6 +270,8 @@ export function gitStorySlotOps(deps: {
             commit: plan.commit,
             conflicts: plan.conflicts,
             taskFile: plan.taskFile,
+            // Made in dipo's own git, not in the box: copied in before the next session (DIPO-324).
+            outsideBox: true,
           };
           const item =
             plan.conflicts.length === 0
