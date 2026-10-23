@@ -554,3 +554,33 @@ describe("the reviewer place's model of a running run (DIPO-150, the DIPO-303 re
     }
   });
 });
+
+describe("a plan-limit hold on a running run's adapter (DIPO-150, the DIPO-303 review)", () => {
+  it("is asked for the worker.adapter of the run's configuration snapshot", () => {
+    const s = storyRun(w, { story: "DIPO-9" });
+    const asked: string[] = [];
+    const places = new Places({
+      clock: w.t.clock,
+      offices: { get: () => w.office, config: () => OFFICE_DEFAULTS },
+      held: (adapter) => {
+        asked.push(adapter);
+        return null;
+      },
+      starters: {},
+    });
+    try {
+      w.office.immediate(() =>
+        recordConfigSnapshot(
+          w.office,
+          "h",
+          { ...OFFICE_DEFAULTS, worker: { ...OFFICE_DEFAULTS.worker, adapter: "adapter-started" } },
+          0,
+        ),
+      );
+      places.blocked(officeId(), { kind: START_KINDS.review, runId: s.run, since: 0 }, "opus");
+      expect(asked).toEqual(["adapter-started"]);
+    } finally {
+      places.close();
+    }
+  });
+});

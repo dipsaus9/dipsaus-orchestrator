@@ -317,7 +317,8 @@ export class Places {
   blocked(officeId: OfficeId, start: PlaceStart, model: string | null): string | null {
     const office = this.#deps.offices.get(officeId);
     if (office === undefined) return null;
-    return placeTaken(office, start) ?? this.#paused(officeId, model);
+    const run = start.runId === null ? null : findRun(office, start.runId);
+    return placeTaken(office, start) ?? this.#paused(officeId, model, run);
   }
 
   /**
@@ -402,8 +403,17 @@ export class Places {
     return state;
   }
 
-  #paused(officeId: OfficeId, model: string | null): string | null {
-    const adapter = this.#deps.offices.config(officeId)?.worker.adapter;
+  /**
+   * Why a plan-limit hold pauses a new session of `model` now, or null. The adapter is the one the
+   * run started with (its configuration snapshot, DIPO-150), else the office's in force.
+   */
+  #paused(officeId: OfficeId, model: string | null, run: StoredRun | null = null): string | null {
+    const inForce = this.#deps.offices.config(officeId);
+    const office = this.#deps.offices.get(officeId);
+    const adapter =
+      run === null || office === undefined || inForce === undefined
+        ? inForce?.worker.adapter
+        : runConfigOf(office, run, inForce).worker.adapter;
     if (adapter === undefined || this.#deps.held === undefined) return null;
     return this.#deps.held(adapter, model);
   }
@@ -433,7 +443,7 @@ export class Places {
       const starter = this.#deps.starters[first.kind];
       if (starter === undefined) continue;
       if (await this.#parkedForCaps(office, run, first)) continue;
-      const paused = this.#paused(officeId, this.modelOf(officeId, place, run));
+      const paused = this.#paused(officeId, this.modelOf(officeId, place, run), run);
       if (paused !== null) {
         this.#limited(office, run, paused);
         continue;
