@@ -1,10 +1,10 @@
 ---
 id: DIPO-311
 title: Alert on daily and monthly token spend across offices
-status: In Progress
+status: In Review
 assignee: []
 created_date: '2026-10-22 20:56'
-updated_date: '2026-10-23 11:04'
+updated_date: '2026-10-23 11:18'
 labels:
   - 'tier:M'
   - 'slice:m1b'
@@ -82,11 +82,11 @@ test_plan:
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 The software configuration `<state>/config.yaml` at version 2 accepts `usage.alerts.dayTokens` and `usage.alerts.monthTokens` (budget tokens, no default, so alerts stay off until set) and `usage.alerts.level` (default 0.8), validated with the config's zod schema with an in-memory migration from version 1, and its JSON schema is regenerated
-- [ ] #2 Engine code sums budget tokens (input, output and cache creation; cache reads left out) of every run kind, story worker, reviewer and session, final rows plus the live rows of open agents, per office and over all offices, for the UTC calendar day and the UTC calendar month, with the estimated cost from the pricing catalog
-- [ ] #3 `OfficeSummary.dayUsage` is filled and a new optional `monthUsage` of the same shape is added, under capability flag `usage.alerts`: each office's summary carries its own tokens and the limit, share and alert of the all-office total; tokens carry the label `claimed` and cost `estimated`; a summary event follows a usage change at most once a minute (design choice)
-- [ ] #4 Crossing the alert level and crossing the limit of the all-office total each raise one `engine.notice` per window (warn at the level, error at the limit), recorded in `once_notices` so a daemon restart does not repeat it
-- [ ] #5 At a limit dipo only alerts: no pickup is held and no story parks; per-story budgets and plan-limit holds stay the only stops
-- [ ] #6 The TUI switcher keeps its `ALERT day usage`, and the overview count line, the `dipo watch` header and the `dipo desk` count line show today's and this month's tokens of the limit, with "UTC" next to the reset time
-- [ ] #7 With no limit set the tokens still show, with no share and no alert
+- [x] #1 The software configuration `<state>/config.yaml` at version 2 accepts `usage.alerts.dayTokens` and `usage.alerts.monthTokens` (budget tokens, no default, so alerts stay off until set) and `usage.alerts.level` (default 0.8), validated with the config's zod schema with an in-memory migration from version 1, and its JSON schema is regenerated
+- [x] #2 Engine code sums budget tokens (input, output and cache creation; cache reads left out) of every run kind, story worker, reviewer and session, final rows plus the live rows of open agents, per office and over all offices, for the UTC calendar day and the UTC calendar month, with the estimated cost from the pricing catalog
+- [x] #3 `OfficeSummary.dayUsage` is filled and a new optional `monthUsage` of the same shape is added, under capability flag `usage.alerts`: each office's summary carries its own tokens and the limit, share and alert of the all-office total; tokens carry the label `claimed` and cost `estimated`; a summary event follows a usage change at most once a minute (design choice)
+- [x] #4 Crossing the alert level and crossing the limit of the all-office total each raise one `engine.notice` per window (warn at the level, error at the limit), recorded in `once_notices` so a daemon restart does not repeat it
+- [x] #5 At a limit dipo only alerts: no pickup is held and no story parks; per-story budgets and plan-limit holds stay the only stops
+- [x] #6 The TUI switcher keeps its `ALERT day usage`, and the overview count line, the `dipo watch` header and the `dipo desk` count line show today's and this month's tokens of the limit, with "UTC" next to the reset time
+- [x] #7 With no limit set the tokens still show, with no share and no alert
 <!-- AC:END -->
