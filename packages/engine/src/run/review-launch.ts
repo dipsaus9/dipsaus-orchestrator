@@ -97,7 +97,7 @@ import {
   type TierCaps,
 } from "./launch";
 import { sessionUuid } from "./prompts";
-import type { StoredRun } from "./records";
+import { findRun, type StoredRun } from "./records";
 import { codeTreeKeyOf } from "./story-git";
 import { prepareRunTempDirs } from "./temp-dirs";
 
@@ -444,6 +444,11 @@ export type ReviewSessionOutcome =
        * this head can start, so the maintainer is told (DIPO-276).
        */
       readonly copyMismatch?: true;
+      /**
+       * The launch plan refused the session (`PlanError`), for example a path with a character that
+       * has a meaning in Claude Code permission rules: the maintainer is told (DIPO-247).
+       */
+      readonly planRefused?: PlanError;
     };
 
 /** Starts a reviewer session (the real one is `ReviewLauncher`). */
@@ -497,18 +502,45 @@ function messageOf(error: unknown): string {
 }
 
 /**
+ * Inside the caller's transaction: the run's snapshot of the reviewer's turn and minute caps, from
+ * the office's `review` block in force, for a run that has none (one started before they were
+ * kept). A cap the snapshot holds is never changed, so a later config change reaches new runs only
+ * (0020 section 5, DIPO-247).
+ */
+export function snapshotReviewCaps(
+  office: OfficeHandle,
+  runId: RunId | string,
+  config: Pick<OfficeConfig, "review">,
+): void {
+  office.run(
+    `update runs set review_max_turns = coalesce(review_max_turns, $turns),
+       review_max_minutes = coalesce(review_max_minutes, $minutes)
+      where office_id = $office_id and run_id = $run`,
+    { run: runId, turns: config.review.maxTurns, minutes: config.review.maxMinutes },
+  );
+}
+
+/**
  * The reviewer's settings for the run (0019 sections 4 and 16): model and effort from the office's
- * `review` block, its turn and minute caps from the run's start snapshot with their grants.
+ * `review` block, its turn and minute caps only from the run's start snapshot with their grants. A
+ * run whose snapshot has none gets the office's current caps written into it first
+ * (`snapshotReviewCaps`), and keeps them.
  */
 export function reviewerSettings(
   office: OfficeHandle,
   run: StoredRun,
   config: OfficeConfig,
 ): ReviewerSettings {
-  const caps = runCaps(office, run);
+  let current = run;
+  if (run.reviewMaxTurns == null || run.reviewMaxMinutes == null) {
+    office.immediate(() => snapshotReviewCaps(office, run.runId, config));
+    current = findRun(office, run.runId) ?? run;
+  }
+  const caps = runCaps(office, current);
   return {
     model: config.review.model,
     effort: config.review.effort,
+    // Null only for a run with no row: the snapshot was written above.
     maxTurns: caps.reviewMaxTurns ?? config.review.maxTurns,
     maxMinutes: caps.reviewMaxMinutes ?? config.review.maxMinutes,
   };
@@ -714,11 +746,14 @@ export class ReviewLauncher implements ReviewSessions {
         sessionUuid(`${agent}:launch-check`),
       );
     } catch (error) {
-      const why =
-        error instanceof PlanError
-          ? `the launch plan refused it: ${error.message}`
-          : messageOf(error);
-      return { kind: "failed", reason: why };
+      if (!(error instanceof PlanError)) return { kind: "failed", reason: messageOf(error) };
+      // A path the plan refuses is the maintainer's to fix, as for the worker's launch: the review
+      // rounds raise its notice (DIPO-247).
+      return {
+        kind: "failed",
+        reason: `the launch plan refused it: ${error.message}`,
+        planRefused: error,
+      };
     }
     if (!prepared.ok) return { kind: "startFailed", hold: prepared.hold };
 

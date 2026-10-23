@@ -8,18 +8,29 @@
 // The reviewer's two correction turns (0019 section 4, DIPO-219) are built here too: a report
 // missing or invalid against the review schema (`feedback/review-report.md`), and blocking
 // findings whose evidence did not check out, each named with why (`feedback/review-evidence.md`).
+//
+// A fix round's items (DIPO-148; 0019 section 8): a blocked verdict's unmet criteria and blocking
+// findings, each with the evidence and a signature over the fields that identify it, never over
+// the reviewer's free text; a maintainer reject's note verbatim, keyed on its gate id; and the one
+// user message that carries every item for a pushed head, repeats marked, advisories as optional.
 
 import { createHash } from "node:crypto";
 import { isAbsolute, relative, sep } from "node:path";
 
 import { formatCount } from "../context/truncate";
-import { cutTailLines } from "./cut";
+import { budgetLine, withBudgetLine, type BudgetFacts } from "./budget";
+import { cutHead, cutTailLines } from "./cut";
 import decisionNoteTemplate from "./feedback/decision-note.md" with { type: "text" };
+import fixRoundOptionalTemplate from "./feedback/fix-round-optional.md" with { type: "text" };
+import fixRoundTemplate from "./feedback/fix-round.md" with { type: "text" };
+import rejectTemplate from "./feedback/reject.md" with { type: "text" };
+import reviewCriterionTemplate from "./feedback/review-criterion.md" with { type: "text" };
 import reviewEvidenceTemplate from "./feedback/review-evidence.md" with { type: "text" };
+import reviewFindingTemplate from "./feedback/review-finding.md" with { type: "text" };
 import reviewReportTemplate from "./feedback/review-report.md" with { type: "text" };
 import testPlanTemplate from "./feedback/test-plan.md" with { type: "text" };
 import verifyRunTemplate from "./feedback/verify-run.md" with { type: "text" };
-import { FEEDBACK_TEMPLATES, renderTemplate } from "./templates";
+import { FEEDBACK_TEMPLATES, neutraliseTags, rendered, renderTemplate } from "./templates";
 
 /** The longest test-plan check a test-plan feedback line quotes, in characters. */
 export const TEST_PLAN_CHECK_MAX = 300;
@@ -208,6 +219,8 @@ export interface VerifyFeedbackOptions {
   readonly logLines?: number;
   /** The item's character budget (`prompt.budgets.feedbackItem`); default 3,000. */
   readonly itemMax?: number;
+  /** The run's caps and usage: the item ends with the budget line (DIPO-256). */
+  readonly budget?: BudgetFacts;
 }
 
 function locationList(locations: readonly SourceLocation[]): string {
@@ -226,7 +239,7 @@ export function verifyFeedback(
   options: VerifyFeedbackOptions = {},
 ): VerifyFeedbackItem {
   const logLines = options.logLines ?? FEEDBACK_LOG_LINES_DEFAULT;
-  const itemMax = options.itemMax ?? 3_000;
+  const itemMax = (options.itemMax ?? 3_000) - budgetRoom(options.budget);
   const output = plainOutput(failure.output);
   const locations = parseLocations(output, options.root);
   const values = (tail: string) => ({
@@ -254,13 +267,18 @@ export function verifyFeedback(
   return {
     kind: "verify",
     signature,
-    text: renderTemplate(FEEDBACK_TEMPLATES.verify, values(tail)),
+    text: withBudgetLine(renderTemplate(FEEDBACK_TEMPLATES.verify, values(tail)), options.budget),
     step: failure.step,
     command: failure.command,
     exitCode: failure.exitCode,
     tail,
     locations,
   };
+}
+
+/** What the budget line takes of an item's character budget: the line and its newline. */
+function budgetRoom(budget: BudgetFacts | undefined): number {
+  return budget === undefined ? 0 : budgetLine(budget).length + 1;
 }
 
 /** One failed check of a pushed head, as the code host reports it (0019 section 7). */
@@ -324,7 +342,7 @@ export function ciFeedback(
   options: VerifyFeedbackOptions = {},
 ): CiFeedbackItem {
   const logLines = options.logLines ?? FEEDBACK_LOG_LINES_DEFAULT;
-  const itemMax = options.itemMax ?? 3_000;
+  const itemMax = (options.itemMax ?? 3_000) - budgetRoom(options.budget);
   const parsed = failure.log === null ? null : parseActionsLog(failure.log);
   const job = parsed?.job ?? failure.check;
   const steps = parsed?.steps ?? [];
@@ -348,7 +366,7 @@ export function ciFeedback(
   return {
     kind: "ci",
     signature,
-    text: renderTemplate(FEEDBACK_TEMPLATES.ci, values(tail)),
+    text: withBudgetLine(renderTemplate(FEEDBACK_TEMPLATES.ci, values(tail)), options.budget),
     check: failure.check,
     job,
     steps,
@@ -356,4 +374,195 @@ export function ciFeedback(
     tail,
     locations,
   };
+}
+
+// ---- review, reject and fix-round items (0019 section 8, DIPO-148) -------------------------------
+
+/** Where a fix round's feedback item came from (0019 section 8). */
+export type FeedbackSource = "verify" | "ci" | "review" | "conflict" | "reject";
+
+/** One item a fix round carries: its source, its signature and its rendered evidence. */
+export interface FixItem {
+  readonly source: FeedbackSource;
+  /** sha256 over the fields that identify the failure; for a reject, its gate id. */
+  readonly signature: string;
+  readonly text: string;
+}
+
+/** The most characters of one stored item (0014's per-item budget, `feedback_items.text`). */
+export const FEEDBACK_ITEM_MAX = 3_000;
+
+/** The most characters of one fix round's message (0014's per-message budget). */
+export const FEEDBACK_MESSAGE_MAX = 8_000;
+
+const itemCutMarker = (shown: number, total: number): string =>
+  `[dipo: cut, showing ${formatCount(shown)} of ${formatCount(total)} characters.]`;
+
+/** `text` within `max` characters, cut at its end with a marker; whole lines where it can. */
+export function capFeedbackText(text: string, max: number = FEEDBACK_ITEM_MAX): string {
+  if (text.length <= max) return text;
+  const cut = cutHead(text, max, itemCutMarker).text;
+  if (!cut.startsWith("[dipo: cut")) return cut;
+  // The first line alone is longer than the budget: cut inside it.
+  const room = Math.max(0, max - itemCutMarker(text.length, text.length).length - 1);
+  return `${text.slice(0, room)}\n${itemCutMarker(room, text.length)}`;
+}
+
+/** Every run of whitespace as one space, trimmed: a quote's identity for its signature. */
+export function collapseWhitespace(text: string): string {
+  return text.replace(/\s+/g, " ").trim();
+}
+
+const sha = (fields: readonly unknown[]): string =>
+  createHash("sha256").update(JSON.stringify(fields)).digest("hex");
+
+/** A review criterion result as the verdict stores it. */
+export interface ReviewCriterionFact {
+  readonly n: number;
+  readonly status: string;
+  readonly evidence: string;
+}
+
+/** A review finding as the verdict stores it. */
+export interface ReviewFindingFact {
+  readonly severity: "blocking" | "advisory";
+  readonly kind: string;
+  readonly testEntry?: number | undefined;
+  readonly file?: string | undefined;
+  readonly line?: number | undefined;
+  readonly quote?: string | undefined;
+  readonly text: string;
+}
+
+/**
+ * The signature of a review item (0019 section 8): an unmet criterion by its number and status; a
+ * finding by its kind, file and the quote with whitespace collapsed, or by its kind and test-plan
+ * entry. The reviewer's free text never counts, so a reworded finding on the same line is a repeat.
+ */
+export function reviewCriterionSignature(criterion: Pick<ReviewCriterionFact, "n" | "status">) {
+  return sha(["review", "criterion", criterion.n, criterion.status]);
+}
+
+/** See `reviewCriterionSignature`. */
+export function reviewFindingSignature(finding: ReviewFindingFact): string {
+  if (finding.file === undefined && finding.testEntry !== undefined) {
+    return sha(["review", finding.kind, "test-entry", finding.testEntry]);
+  }
+  return sha(["review", finding.kind, finding.file ?? "", collapseWhitespace(finding.quote ?? "")]);
+}
+
+/**
+ * The items of a blocked verdict (0019 section 8): one per unmet criterion, with its text and the
+ * reviewer's evidence, and one per blocking finding, with its kind, `file:line`, the quoted line or
+ * the test-plan entry, and its text. `criterionText` gives a criterion's text by its number.
+ */
+export function reviewFeedbackItems(
+  verdict: {
+    readonly criteria: readonly ReviewCriterionFact[];
+    readonly findings: readonly ReviewFindingFact[];
+  },
+  criterionText: (n: number) => string | undefined = () => undefined,
+  itemMax: number = FEEDBACK_ITEM_MAX,
+): FixItem[] {
+  const max = Math.min(itemMax, FEEDBACK_ITEM_MAX);
+  const criteria = verdict.criteria
+    .filter((entry) => entry.status === "unmet")
+    .map((entry): FixItem => ({
+      source: "review",
+      signature: reviewCriterionSignature(entry),
+      text: capFeedbackText(
+        renderTemplate(reviewCriterionTemplate, {
+          n: String(entry.n),
+          criterion: criterionText(entry.n)?.trim() || "(its text was not read)",
+          evidence: entry.evidence.trim() || "none given",
+        }),
+        max,
+      ),
+    }));
+  const findings = verdict.findings
+    .filter((finding) => finding.severity === "blocking")
+    .map((finding): FixItem => ({
+      source: "review",
+      signature: reviewFindingSignature(finding),
+      text: capFeedbackText(
+        renderTemplate(reviewFindingTemplate, {
+          kind: finding.kind,
+          where: findingWhere(finding),
+          quote:
+            finding.quote === undefined || finding.quote.trim() === ""
+              ? ""
+              : `Quoted line: ${finding.quote.trim()}`,
+          text: finding.text.trim(),
+        }),
+        max,
+      ),
+    }));
+  return [...criteria, ...findings];
+}
+
+function findingWhere(finding: ReviewFindingFact): string {
+  if (finding.file !== undefined) {
+    return ` at ${finding.file}${finding.line === undefined ? "" : `:${finding.line}`}`;
+  }
+  return finding.testEntry === undefined ? "" : ` (test-plan entry #${finding.testEntry})`;
+}
+
+/** The advisory findings of a verdict, one line each, for a fix round's optional list. */
+export function advisoryLines(findings: readonly ReviewFindingFact[]): string[] {
+  return findings
+    .filter((finding) => finding.severity === "advisory")
+    .map((finding) => `- ${finding.kind}${findingWhere(finding)}: ${finding.text.trim()}`);
+}
+
+/** The signature of a maintainer reject: none of its own, keyed on the gate id (section 8). */
+export function rejectSignature(gateId: string): string {
+  return `gate:${gateId}`;
+}
+
+/**
+ * A maintainer reject item (0019 sections 8 and 11), from what `gate.reject` records (DIPO-151):
+ * the note verbatim, keyed on the gate id, so it is sent once.
+ */
+export function rejectFeedbackItem(reject: { readonly gateId: string; readonly note: string }) {
+  return {
+    source: "reject",
+    signature: rejectSignature(reject.gateId),
+    text: capFeedbackText(renderTemplate(rejectTemplate, { note: reject.note })),
+  } satisfies FixItem;
+}
+
+/** One item of a fix round's message, as stored. */
+export interface FixRoundItem {
+  readonly source: FeedbackSource;
+  readonly text: string;
+  /** The same signature was sent for an earlier head. */
+  readonly repeat: boolean;
+}
+
+/**
+ * The one user message of a fix round (0019 section 8): every item for the pushed head `head`, a
+ * repeat marked "still failing after your last change", and the verdict's advisory findings listed
+ * as optional. Cut to `FEEDBACK_MESSAGE_MAX` at the end.
+ */
+export function fixRoundMessage(input: {
+  readonly head: string;
+  readonly items: readonly FixRoundItem[];
+  readonly advisories: readonly string[];
+}): string {
+  const items = input.items
+    .map((item, index) => {
+      const repeat = item.repeat ? ", still failing after your last change" : "";
+      return `Item ${index + 1} (${item.source}${repeat}):\n${neutraliseTags(item.text)}`;
+    })
+    .join("\n\n");
+  const optional =
+    input.advisories.length === 0
+      ? ""
+      : renderTemplate(fixRoundOptionalTemplate, { findings: input.advisories.join("\n") });
+  const text = renderTemplate(fixRoundTemplate, {
+    head: input.head.slice(0, 12),
+    items: rendered(items),
+    optional: rendered(optional),
+  });
+  return text.length <= FEEDBACK_MESSAGE_MAX ? text : capFeedbackText(text, FEEDBACK_MESSAGE_MAX);
 }

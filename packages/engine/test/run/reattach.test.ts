@@ -2109,6 +2109,7 @@ describe("the handoff of a new session: notes, open feedback and the context pac
         "- Note from the maintainer: Use the old parser.",
         "Notes from the previous session:",
         "Next: the CI fix.",
+        "Budget: 0 turns used, no turns limit; 0 minutes used, no minutes limit; 0 tokens used, 1,000,000 left.",
         "</handoff>",
       ].join("\n"),
     );

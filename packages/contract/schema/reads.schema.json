@@ -3587,6 +3587,170 @@
         }
       },
       "required": ["run", "agent", "texts"]
+    },
+    "office.desk.args": {
+      "type": "object",
+      "properties": {
+        "office": {
+          "type": "string",
+          "pattern": "^off_[0-7][0-9A-HJKMNP-TV-Z]{25}$"
+        }
+      },
+      "required": ["office"]
+    },
+    "office.desk.result": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "kind": {
+            "anyOf": [
+              {
+                "type": "string",
+                "enum": [
+                  "QUESTION",
+                  "PERMISSION",
+                  "SCOPE",
+                  "MERGE",
+                  "PARKED",
+                  "PR HEAD CHANGED",
+                  "DONE ELSEWHERE",
+                  "LEFTOVERS",
+                  "BACKLOG PR",
+                  "NOTICE",
+                  "PROPOSAL",
+                  "HELD"
+                ]
+              },
+              {
+                "type": "string"
+              }
+            ]
+          },
+          "story": {
+            "type": "string",
+            "pattern": "^[A-Za-z][A-Za-z0-9]*-[0-9]+(\\.[0-9]+)*$"
+          },
+          "key": {
+            "type": "string",
+            "pattern": "^sto_[0-7][0-9A-HJKMNP-TV-Z]{25}$"
+          },
+          "question": {
+            "type": "string",
+            "pattern": "^qst_[0-7][0-9A-HJKMNP-TV-Z]{25}$"
+          },
+          "gate": {
+            "type": "string",
+            "pattern": "^gat_[0-7][0-9A-HJKMNP-TV-Z]{25}$"
+          },
+          "pr": {
+            "type": "object",
+            "properties": {
+              "number": {
+                "type": "integer",
+                "exclusiveMinimum": 0,
+                "maximum": 9007199254740991
+              },
+              "url": {
+                "type": "string",
+                "format": "uri"
+              },
+              "state": {
+                "anyOf": [
+                  {
+                    "type": "string",
+                    "enum": ["open", "merged", "closed"]
+                  },
+                  {
+                    "type": "string"
+                  }
+                ]
+              }
+            },
+            "required": ["number", "url", "state"]
+          },
+          "proposal": {
+            "type": "object",
+            "properties": {
+              "id": {
+                "type": "string"
+              },
+              "kind": {
+                "type": "string"
+              },
+              "title": {
+                "type": "string"
+              },
+              "run": {
+                "type": "string",
+                "pattern": "^run_[0-7][0-9A-HJKMNP-TV-Z]{25}$"
+              }
+            },
+            "required": ["id", "kind", "title"]
+          },
+          "reason": {
+            "anyOf": [
+              {
+                "type": "string",
+                "enum": [
+                  "ambiguous-spec",
+                  "verify-failing",
+                  "conflict",
+                  "scope-violation",
+                  "review-blocked",
+                  "budget-exceeded",
+                  "on-hold",
+                  "stopped",
+                  "interrupted",
+                  "needs-permission",
+                  "worker-failed"
+                ]
+              },
+              {
+                "type": "string"
+              }
+            ]
+          },
+          "cause": {
+            "type": "string"
+          },
+          "detail": {
+            "type": "string"
+          },
+          "since": {
+            "type": "string",
+            "format": "date-time",
+            "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d(?:\\.\\d+)?(?:Z))$"
+          },
+          "blocks": {
+            "type": "array",
+            "items": {
+              "type": "string",
+              "pattern": "^[A-Za-z][A-Za-z0-9]*-[0-9]+(\\.[0-9]+)*$"
+            }
+          },
+          "actions": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "command": {
+                  "type": "string",
+                  "pattern": "^[a-z][A-Za-z0-9]*(\\.[a-z][A-Za-z0-9]*)+$"
+                },
+                "cli": {
+                  "type": "string"
+                }
+              },
+              "required": ["command", "cli"]
+            }
+          },
+          "hand": {
+            "type": "string"
+          }
+        },
+        "required": ["kind", "detail", "since", "blocks", "actions"]
+      }
     }
   }
 }

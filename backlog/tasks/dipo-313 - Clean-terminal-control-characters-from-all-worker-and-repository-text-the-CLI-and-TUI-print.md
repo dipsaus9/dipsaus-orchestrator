@@ -3,10 +3,10 @@ id: DIPO-313
 title: >-
   Clean terminal control characters from all worker and repository text the CLI
   and TUI print
-status: Refined
+status: Ready
 assignee: []
 created_date: '2026-10-22 21:00'
-updated_date: '2026-10-23 06:18'
+updated_date: '2026-10-23 07:37'
 labels:
   - 'tier:M'
 milestone: m-1
@@ -46,6 +46,20 @@ Context:
 ```dipo
 branch: "DIPO-313/clean-terminal-control-text"
 unknowns: []
+test_plan:
+  entries:
+    - kind: "automated"
+      check: "(unit) the shared cleaner removes CSI in both forms, OSC, DCS, cursor movement and erase sequences, C0 and C1 controls and bidi overrides, and keeps tab and line breaks where the caller asks"
+    - kind: "automated"
+      check: "(unit) the door's part messages and worker report use the shared cleaner, with the door's former tests moved to it"
+    - kind: "automated"
+      check: "(unit) dipo watch and dipo run, including --dry-run, print a worker line, a story title and a notice that carry each sequence class as plain text"
+    - kind: "automated"
+      check: "(unit) the TUI output line and the prompt pane show each sequence class as plain text"
+    - kind: "automated"
+      check: "(unit) dipo daemon logs prints a log line that carries each sequence class as plain text"
+    - kind: "automated"
+      check: "(unit) worker output lines are stored cleaned at ingest"
 ```
 <!-- SECTION:DESCRIPTION:END -->
 
