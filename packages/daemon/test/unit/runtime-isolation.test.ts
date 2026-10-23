@@ -163,8 +163,10 @@ describe("a test daemon's runtime directory", () => {
     );
   }
 
+  // DIPO-316: an unusable DIPO_RUNTIME_DIR stops the daemon; it never falls through to another
+  // candidate, which outside a test can be the live daemon's runtime directory.
   it.skipIf(!LONGEST_ROOT_FITS)(
-    "stays under the test's temp directory when DIPO_RUNTIME_DIR is unusable",
+    "stops with a coded error, and takes no other candidate, when DIPO_RUNTIME_DIR is unusable",
     () =>
       withLongestTempDir((dir) => {
         mkdirSync(testRuntimeDir(dir), { mode: 0o700 });
@@ -172,12 +174,18 @@ describe("a test daemon's runtime directory", () => {
         const env = isolatedDaemonEnv(dir);
         for (const platform of ["darwin", "linux"] as const) {
           const candidates = runtimeCandidates({ platform, env, uid, lingering: true });
-          const choice = chooseRuntimeDir({ candidates, uid, tmpBase: dir, fs: confinedTo(dir) });
-          expect(choice.path).toBe(join(dir, "tmp", "dipo"));
-          expect(choice.source).toBe(platform === "darwin" ? "TMPDIR" : "XDG_RUNTIME_DIR");
-          expect(choice.rejected).toEqual([
+          let error: unknown;
+          try {
+            chooseRuntimeDir({ candidates, uid, tmpBase: dir, fs: confinedTo(dir), env });
+          } catch (thrown) {
+            error = thrown;
+          }
+          expect(error).toBeInstanceOf(RuntimeDirError);
+          expect((error as RuntimeDirError).code).toBe("paths.runtimeDirUnusable");
+          expect((error as RuntimeDirError).rejected).toEqual([
             { path: testRuntimeDir(dir), reason: "its mode is 0755, not 0700" },
           ]);
+          expect(existsSync(join(dir, "tmp", "dipo"))).toBe(false);
         }
       }),
   );

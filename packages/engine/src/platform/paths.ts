@@ -10,10 +10,11 @@ import {
   mkdirSync,
   mkdtempSync,
   renameSync,
+  statSync,
   writeFileSync,
 } from "node:fs";
 import { userInfo } from "node:os";
-import { join } from "node:path";
+import { isAbsolute, join } from "node:path";
 
 /** The platforms dipo runs on (0004). */
 export type DipoPlatform = "darwin" | "linux";
@@ -42,11 +43,112 @@ export function passwdHome(): string {
 }
 
 /**
+ * The test marker (DIPO-316): `DIPO_TEST=1`, set for every test process by the test runner's setup
+ * file and in every test daemon's environment. With it, dipo refuses the real home's state, logs
+ * and runtime folders instead of using them.
+ */
+export const TEST_MARKER = "DIPO_TEST";
+
+/** True when `env` or this process's environment carries the test marker. */
+export function isTestRun(env: Env): boolean {
+  return env[TEST_MARKER] === "1" || process.env[TEST_MARKER] === "1";
+}
+
+/** Codes of the directory refusals (DIPO-316), dotted like the contract's error codes. */
+export const DIR_ERROR_CODES = {
+  /** `DIPO_HOME` names a folder dipo cannot use. */
+  stateUnusable: "paths.stateDirUnusable",
+  /** A test resolved the real home's state or logs folder. */
+  realStateInTest: "paths.realStateInTest",
+  /** `DIPO_RUNTIME_DIR` names a folder dipo cannot use. */
+  runtimeUnusable: "paths.runtimeDirUnusable",
+  /** A test would take one of the real runtime folders. */
+  realRuntimeInTest: "paths.realRuntimeInTest",
+  /** No runtime candidate and no fallback is usable. */
+  noRuntimeDir: "paths.noRuntimeDir",
+} as const;
+
+/** A state folder dipo refuses: `code` names why, `path` and `reason` what. */
+export class SoftwareDirError extends Error {
+  constructor(
+    readonly code: string,
+    readonly path: string,
+    readonly reason: string,
+    message: string,
+  ) {
+    super(message);
+    this.name = "SoftwareDirError";
+  }
+}
+
+/** The default state and logs folders of `home` on both platforms. */
+function defaultDirsOf(home: string): string[] {
+  return [
+    join(home, "Library", "Application Support", "dipo"),
+    join(home, "Library", "Logs", "dipo"),
+    join(home, ".local", "state", "dipo"),
+  ];
+}
+
+/** True when `path` is `dir` or inside it. */
+function within(path: string, dir: string): boolean {
+  const p = stripSlash(path);
+  const d = stripSlash(dir);
+  return p === d || p.startsWith(`${d}/`);
+}
+
+/**
+ * Why `DIPO_HOME` cannot be used, or null: it must be absolute and, when it exists, a directory
+ * this user owns. A missing one is created by the daemon.
+ */
+export function checkStateDir(path: string, uid: number = process.getuid?.() ?? -1): string | null {
+  if (!isAbsolute(path)) return "it is not an absolute path";
+  let stat;
+  try {
+    stat = statSync(path);
+  } catch (error) {
+    const code = errorCode(error);
+    if (code === "ENOENT") return null;
+    if (code === "ENOTDIR") return "a part of it is not a directory";
+    return `cannot read it: ${describe(error)}`;
+  }
+  if (!stat.isDirectory()) return "it is not a directory";
+  if (uid >= 0 && stat.uid !== uid) return `it is owned by uid ${stat.uid}, not ${uid}`;
+  return null;
+}
+
+/**
  * Resolves `<state>` and `<logs>` (0006 decision 3). `DIPO_HOME` replaces the anchor, for tests
  * only; its logs go to `<DIPO_HOME>/logs` on both platforms. `XDG_STATE_HOME`, `TMPDIR` and
  * `XDG_RUNTIME_DIR` are never read: they differ between a shell, launchd, systemd and SSH.
+ *
+ * A `DIPO_HOME` dipo cannot use (`checkStateDir`) throws `SoftwareDirError`; dipo never falls back
+ * to the real folders then (DIPO-316). With the test marker, the real home's state and logs folders
+ * (of the passwd home of this process, whatever `home` says) throw too.
  */
 export function resolveSoftwareDirs(options: {
+  readonly platform: DipoPlatform;
+  readonly env: Env;
+  readonly home: string;
+}): SoftwareDirs {
+  const dirs = softwareDirsOf(options);
+  if (isTestRun(options.env)) {
+    const real = defaultDirsOf(passwdHome());
+    for (const path of [dirs.state, dirs.logs]) {
+      if (real.some((dir) => within(path, dir) || within(dir, path))) {
+        throw new SoftwareDirError(
+          DIR_ERROR_CODES.realStateInTest,
+          path,
+          "it is the real home's dipo folder",
+          `${DIR_ERROR_CODES.realStateInTest}: refusing ${path} with ${TEST_MARKER}=1: it is the real home's dipo folder. Set DIPO_HOME to a folder under DIPO_TMP.`,
+        );
+      }
+    }
+  }
+  return dirs;
+}
+
+function softwareDirsOf(options: {
   readonly platform: DipoPlatform;
   readonly env: Env;
   readonly home: string;
@@ -59,6 +161,15 @@ export function resolveSoftwareDirs(options: {
       : null;
   const override = env["DIPO_HOME"];
   if (override !== undefined && override !== "") {
+    const reason = checkStateDir(override);
+    if (reason !== null) {
+      throw new SoftwareDirError(
+        DIR_ERROR_CODES.stateUnusable,
+        override,
+        reason,
+        `${DIR_ERROR_CODES.stateUnusable}: DIPO_HOME ${override} cannot be used: ${reason}. Fix or unset DIPO_HOME; dipo does not fall back to another state folder.`,
+      );
+    }
     return { state: override, logs: join(override, "logs"), home, homeMismatch };
   }
   if (platform === "darwin") {
@@ -185,12 +296,49 @@ export interface RuntimeDirChoice {
 }
 
 export class RuntimeDirError extends Error {
-  constructor(readonly rejected: readonly RejectedRuntimeDir[]) {
-    super(
-      `No usable runtime directory: ${rejected.map((r) => `${r.path} (${r.reason})`).join("; ")}. Remove or fix the squatted path, or set DIPO_RUNTIME_DIR to a directory you own with mode 0700.`,
-    );
+  constructor(
+    readonly rejected: readonly RejectedRuntimeDir[],
+    readonly code: string = DIR_ERROR_CODES.noRuntimeDir,
+  ) {
+    super(runtimeDirMessage(code, rejected));
     this.name = "RuntimeDirError";
   }
+}
+
+function runtimeDirMessage(code: string, rejected: readonly RejectedRuntimeDir[]): string {
+  const last = rejected.at(-1);
+  if (code === DIR_ERROR_CODES.runtimeUnusable && last !== undefined) {
+    return `${code}: DIPO_RUNTIME_DIR ${last.path} cannot be used: ${last.reason}. Fix or unset DIPO_RUNTIME_DIR; dipo does not fall back to another runtime directory.`;
+  }
+  if (code === DIR_ERROR_CODES.realRuntimeInTest && last !== undefined) {
+    return `${code}: refusing runtime directory ${last.path} with ${TEST_MARKER}=1: ${last.reason}. Set DIPO_RUNTIME_DIR to a folder under DIPO_TMP.`;
+  }
+  return `${code}: No usable runtime directory: ${rejected.map((r) => `${r.path} (${r.reason})`).join("; ")}. Remove or fix the squatted path, or set DIPO_RUNTIME_DIR to a directory you own with mode 0700.`;
+}
+
+/** The macOS per-user temp folder's `dipo`: `/var/folders/<xx>/<id>/T/dipo`. */
+const MACOS_USER_TMP_DIPO = /^(\/private)?\/var\/folders\/[^/]+\/[^/]+\/T\/dipo$/;
+
+/**
+ * Why `path` is one of the real runtime folders a live daemon may use, or null (DIPO-316):
+ * `/tmp/dipo-<uid>`, `$TMPDIR/dipo` and `$XDG_RUNTIME_DIR/dipo` of this process, and the macOS
+ * per-user temp folder's `dipo`.
+ */
+export function realRuntimeDirReason(path: string, uids: readonly number[]): string | null {
+  const p = stripSlash(path);
+  for (const uid of uids) {
+    if (p === `/tmp/dipo-${uid}` || p === `/private/tmp/dipo-${uid}`) {
+      return "it is the shared runtime directory of this user";
+    }
+  }
+  for (const name of ["TMPDIR", "XDG_RUNTIME_DIR"]) {
+    const value = process.env[name];
+    if (value !== undefined && value !== "" && p === join(value, "dipo")) {
+      return `it is ${name}/dipo, a real runtime directory`;
+    }
+  }
+  if (MACOS_USER_TMP_DIPO.test(p)) return "it is the user temp folder's dipo directory";
+  return null;
 }
 
 /**
@@ -231,13 +379,27 @@ export function chooseRuntimeDir(options: {
   /** Where the `mkdtemp` fallback goes: `/tmp`, or `DIPO_TMP` in tests. */
   readonly tmpBase: string;
   readonly fs?: RuntimeDirFs;
+  /** The daemon's environment, read for the test marker only (DIPO-316). */
+  readonly env?: Env;
 }): RuntimeDirChoice {
   const fs = options.fs ?? systemRuntimeDirFs;
   const rejected: RejectedRuntimeDir[] = [];
+  const test = isTestRun(options.env ?? {});
+  const uids = [...new Set([options.uid, process.getuid?.() ?? -1])];
   for (const candidate of options.candidates) {
+    // With the test marker a real runtime folder is refused before it is touched (DIPO-316).
+    const real = test ? realRuntimeDirReason(candidate.path, uids) : null;
+    if (real !== null) {
+      rejected.push({ path: candidate.path, reason: real });
+      throw new RuntimeDirError(rejected, DIR_ERROR_CODES.realRuntimeInTest);
+    }
     const reason = checkRuntimeDir(candidate.path, options.uid, fs);
     if (reason === null) return { path: candidate.path, source: candidate.source, rejected };
     rejected.push({ path: candidate.path, reason });
+    // An override dipo cannot use stops the start; it never falls through (DIPO-316).
+    if (candidate.source === "DIPO_RUNTIME_DIR") {
+      throw new RuntimeDirError(rejected, DIR_ERROR_CODES.runtimeUnusable);
+    }
   }
   let fallback: string;
   try {

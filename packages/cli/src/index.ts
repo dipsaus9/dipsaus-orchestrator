@@ -6,6 +6,7 @@ import {
   autostartReport,
   connectOrStart,
   connectRunning,
+  dirRefusal,
   inspectDaemon,
   installDaemon,
   readSoftwareConfig,
@@ -18,7 +19,7 @@ import {
   uninstallDaemon,
   versionHint,
 } from "@dipsaus-orchestrator/client/node";
-import type { Clock } from "@dipsaus-orchestrator/contract";
+import { type Clock, EXIT_CONFIG } from "@dipsaus-orchestrator/contract";
 import { runDaemon } from "@dipsaus-orchestrator/daemon";
 import { checkInk, INK_SELF_CHECK_NAME } from "@dipsaus-orchestrator/tui";
 
@@ -73,6 +74,11 @@ export type CliDeps = {
   readonly logs?: DaemonLogsDeps;
   /** `dipo tui` (DIPO-53); absent in tests that do not need it. */
   readonly tui?: (args: readonly string[]) => Promise<number>;
+  /**
+   * The refusal of a `DIPO_HOME` or `DIPO_RUNTIME_DIR` dipo cannot use (DIPO-316), checked before
+   * every command but `--help`, `--version` and the daemon's own forms; absent, nothing is checked.
+   */
+  readonly dirRefusal?: () => { readonly code: string; readonly message: string } | null;
 };
 
 export const HELP = `dipo: run your software products with a model as your team
@@ -316,6 +322,7 @@ export function defaultDeps(): CliDeps {
     clientChecks: [{ name: INK_SELF_CHECK_NAME, run: checkInk }],
     stamp,
     runtime,
+    dirRefusal: () => dirRefusal(process.env),
   };
 }
 
@@ -343,6 +350,13 @@ export async function main(argv: readonly string[], deps: CliDeps): Promise<numb
   }
   if (args[0] === "daemon" && DAEMON_FORMS.has(args[1] ?? "")) {
     return deps.runDaemon(args.slice(1));
+  }
+  // An unusable state or runtime folder override stops every command (DIPO-316); the daemon's own
+  // forms above check it themselves.
+  const refused = deps.dirRefusal?.() ?? null;
+  if (refused !== null) {
+    deps.writeError(`dipo: ${refused.message}`);
+    return EXIT_CONFIG;
   }
   // The box login in the Keychain (DIPO-269): daemon-side code on this terminal, no daemon needed.
   if (args[0] === "login") return deps.runDaemon(args);

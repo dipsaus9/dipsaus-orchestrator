@@ -72,6 +72,7 @@ import {
   removeSocketFile,
   resolveSoftwareDirs,
   resolveTools,
+  SoftwareDirError,
   RunProfiles,
   REATTACH_STEP,
   RUN_TEMP_SWEEP_STEP,
@@ -308,7 +309,17 @@ export async function runForeground(
   );
 
   const platform = currentPlatform();
-  const dirs = resolveSoftwareDirs({ platform, env: io.env, home: passwdHome() });
+  let dirs: ReturnType<typeof resolveSoftwareDirs>;
+  try {
+    dirs = resolveSoftwareDirs({ platform, env: io.env, home: passwdHome() });
+  } catch (error) {
+    // A `DIPO_HOME` dipo cannot use, or the real state folder in a test, stops the start before
+    // anything is written (DIPO-316); like an invalid configuration, a restart would not help.
+    if (!(error instanceof SoftwareDirError)) throw error;
+    removeSignal();
+    io.writeError(`dipo: ${error.message}`);
+    return EXIT_CONFIG;
+  }
   ensurePrivateDir(dirs.state);
   const logFile = openLogFile(dirs.logs);
   const logger = createLogger({
@@ -542,6 +553,7 @@ async function serve(run: Run, lock: HeldLock): Promise<number> {
       }),
       uid,
       tmpBase,
+      env: io.env,
     });
     for (const rejected of choice.rejected) {
       logger.warn("runtime directory candidate rejected", { ...rejected });
