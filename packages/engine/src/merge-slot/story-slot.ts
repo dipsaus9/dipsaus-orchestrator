@@ -241,6 +241,11 @@ export class StorySlot {
     this.#deps = deps;
   }
 
+  /** The story PR of the run updated to its branch's pushed head (a re-entry, DIPO-324). */
+  async prSynced(office: OfficeId, runId: RunId): Promise<void> {
+    await this.#deps.prSync?.(office, runId);
+  }
+
   // ---- the gates pass -----------------------------------------------------------------------
 
   /** Opens the gates due and returns the story PRs that may enter the slot (see the file comment). */
