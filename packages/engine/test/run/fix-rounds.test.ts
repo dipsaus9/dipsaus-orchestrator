@@ -8,6 +8,7 @@ import { afterEach, beforeEach, describe, expect, it } from "bun:test";
 
 import type { OfficeId, RunId, WorkRef } from "@dipsaus-orchestrator/contract";
 
+import { conflictFeedbackItem } from "../../src/box/collisions";
 import { OFFICE_DEFAULTS, type OfficeConfig } from "../../src/config";
 import { ciFeedback, type CiFeedbackItem } from "../../src/prompts/feedback";
 import { recordReviewVerdict } from "../../src/review";
@@ -541,5 +542,26 @@ describe("a maintainer reject (0019 sections 8 and 11)", () => {
     ]);
     expect(x.started[0]?.message).toContain(note);
     expect(x.started[0]?.message).toContain("Item 1 (reject):");
+  });
+});
+
+describe("a conflict hand-off of a story In Review (DIPO-149, the merge slot's entry)", () => {
+  it("goes to the worker at once, once per head and signature, through the same send path", async () => {
+    const s = inReview("DIPO-1");
+    reviewed(s, H1, APPROVED);
+    x.ci.set(s.run, { kind: "green", head: H1 });
+    const item = conflictFeedbackItem({
+      base: "main",
+      onto: "d".repeat(40),
+      conflicts: [{ path: "src/greet.ts", kind: "content" }],
+      hunks: ["--- src/greet.ts (lines 1-5)\n<<<<<<< ours\na\n=======\nb\n>>>>>>> main"],
+    });
+    expect(await x.fix.conflict(officeId(), s.run, { head: H1, item })).toBe(true);
+    await x.fix.idle();
+    expect(feedbackItems(w.office, s.run)).toEqual([
+      expect.objectContaining({ source: "conflict", signature: item.signature, head: H1 }),
+    ]);
+    expect(x.started[0]?.message).toContain("Item 1 (conflict):");
+    expect(x.started[0]?.message).toContain("Conflicted files: content: src/greet.ts");
   });
 });

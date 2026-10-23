@@ -72,6 +72,7 @@ import {
   VerifyCommit,
   verifyResults,
 } from "../../src/run";
+import { appendHandOff, type DoneConflictDecision, handOffState } from "../../src/run/conflicts";
 import { BOX_TIP_MOVED } from "../../src/run/verify-commit";
 import type { StepRequest } from "../../src/sandbox/step";
 import { detect, type RunProfile } from "../../src/scan/detect";
@@ -676,6 +677,9 @@ interface World {
   inReviewTip: string | null;
   queuedPart: boolean;
   moveTip: boolean;
+  /** What the conflict check at done decides (DIPO-149); on to In Review at the tip by default. */
+  conflictCheck: ((tip: string, capped: boolean) => DoneConflictDecision) | null;
+  readonly checked: string[];
 }
 
 let w: World;
@@ -776,6 +780,8 @@ beforeEach(async () => {
     inReviewTip: null,
     queuedPart: false,
     moveTip: false,
+    conflictCheck: null,
+    checked: [],
   } as unknown as World;
   const config: OfficeConfig = { ...OFFICE_DEFAULTS, timeouts: { ...OFFICE_DEFAULTS.timeouts } };
   const finisher = new VerifyCommit({
@@ -799,6 +805,12 @@ beforeEach(async () => {
       },
     },
     parts: { isBoxRun: () => w.box, finishLast: fakeFinishLast },
+    conflicts: {
+      atDone: async ({ tip, capped }) => {
+        w.checked.push(tip);
+        return w.conflictCheck?.(tip, capped) ?? { kind: "go", tip };
+      },
+    },
   });
   const control = new RunControl({
     clock: f.t.clock,
@@ -1039,6 +1051,97 @@ describe("a box run at done (DIPO-299: CI is its verify)", () => {
     await play();
     expect(parks()).toEqual([]);
     expect(events("story.state").map((e) => e["to"])).toEqual(["In Review", "In Review"]);
+  });
+});
+
+describe("the conflict check at done (DIPO-149, DIPO-291)", () => {
+  it("runs in the held turn at the last part's commit, before the end is claimed", async () => {
+    await play();
+    expect(w.checked).toEqual(["9".repeat(40)]);
+    expect(events("story.state").map((e) => e["to"])).toEqual(["In Review"]);
+  });
+
+  it("keeps the story from review and the PR while conflict markers remain: a feedback turn", async () => {
+    w.conflictCheck = () => ({
+      kind: "feedback",
+      text: "Conflict markers are still in files of dipo's merge of the base",
+    });
+    await play();
+    // The run goes on: no end claimed, no In Review, no push, no PR.
+    expect(w.calls).toEqual(["last part print a greeting", "parts released (live true)"]);
+    expect(w.inReviewTip).toBeNull();
+    expect(events("story.state")).toEqual([]);
+    expect(findRun(w.f.office, w.f.run)?.endedAt).toBeNull();
+    expect(parks()).toEqual([]);
+    expect(w.sent).toHaveLength(1);
+    expect(JSON.stringify(w.sent[0])).toContain("Conflict markers are still in files");
+    expectNoVerify();
+  });
+
+  it("writes In Review at the merged head of a clean sync", async () => {
+    w.conflictCheck = () => {
+      // The sync merged the base: the branch moved to the merge.
+      w.tip = "7".repeat(40);
+      return { kind: "go", tip: "7".repeat(40) };
+    };
+    await play();
+    expect(w.inReviewTip).toBe("7".repeat(40));
+    expect(w.calls).toContain("story PR sync run");
+    expect(parks()).toEqual([]);
+  });
+
+  it("parks with the check's reason and cause, before In Review", async () => {
+    w.conflictCheck = () => ({
+      kind: "park",
+      reason: "conflict",
+      cause: "unwritable-path",
+      detail: "git could not merge main cleanly in paths the worker cannot write: .github/x.yml",
+    });
+    await play();
+    expect(parks()).toEqual([
+      {
+        reason: "conflict",
+        cause: "unwritable-path",
+        detail: "git could not merge main cleanly in paths the worker cannot write: .github/x.yml",
+      },
+    ]);
+    expect(w.inReviewTip).toBeNull();
+    expect(w.calls).not.toContain("story PR sync run");
+  });
+
+  it("fails an open conflict hand-off on a blocked report, parking conflict at the cap", async () => {
+    const { office } = w.f;
+    office.immediate(() => {
+      const at = w.f.t.clock.now();
+      appendHandOff(office, w.f.run, { kind: "start", n: 1, commit: "c".repeat(40) }, at);
+      appendHandOff(office, w.f.run, { kind: "failed", n: 1, why: "markers" }, at);
+      appendHandOff(office, w.f.run, { kind: "start", n: 2, commit: "c".repeat(40) }, at);
+    });
+    await play({ ...DONE, status: "blocked", question: "Which side wins?" });
+    // The run keeps no conflict cap of its own here: the office default of 2 holds.
+    expect(parks()).toEqual([
+      {
+        reason: "conflict",
+        cause: "merge-in-progress",
+        detail: expect.stringContaining("2 conflict hand-offs failed (the conflict cap is 2)"),
+      },
+    ]);
+    expect(handOffState(office, w.f.run)).toMatchObject({ open: false, failed: 2 });
+  });
+
+  it("parks a blocked report as before when no hand-off is open", async () => {
+    await play({ ...DONE, status: "blocked", question: "Which side wins?" });
+    expect(parks().map((p) => [p.reason, p.cause])).toEqual([["ambiguous-spec", "question"]]);
+  });
+
+  it("tells the check when the done turn crossed a cap", async () => {
+    const seen: boolean[] = [];
+    w.conflictCheck = (tip, capped) => {
+      seen.push(capped);
+      return { kind: "go", tip };
+    };
+    await play();
+    expect(seen).toEqual([false]);
   });
 });
 

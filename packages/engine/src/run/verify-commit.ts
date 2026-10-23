@@ -49,8 +49,13 @@
 // again at the door's pace, `DOOR_POLL_MS`, for up to `PART_STUCK_MIN_MS` before the story parks
 // `interrupted`, DIPO-290), the gate changes of the branch are
 // recorded for the review, and the run's end is claimed while the parts are still held, so a part
-// or catch-up queued meanwhile finds the run not live and stays in the box. Just before In Review
-// the branch must still be at the last part's commit, else the story parks (`BOX_TIP_MOVED`). Then
+// or catch-up queued meanwhile finds the run not live and stays in the box. Before the end is
+// claimed, in the same held turn, the conflict check (DIPO-149, `run/conflicts.ts`): conflict
+// markers left in a catch-up's conflicted paths go back to the worker as a feedback turn (or park
+// at the conflict cap), then the fetch and the sync with the base: a riskier story merges the base,
+// any other only on a conflict, which goes to the worker as one conflict item; a clean merge moves
+// the commit In Review is written at. Just before In Review the branch must still be at that
+// commit, else the story parks (`BOX_TIP_MOVED`). Then
 // step 5 with nothing staged (the parts are the commits) and step 6: the push opens or updates the
 // story PR, and the review (a pending review of the reviewer place) and CI (the PR poll's watch of
 // the pushed head, `StoryPrs`) start together on that head (0019 section 7). Red CI goes back to
@@ -107,6 +112,7 @@ import { findClaim, updateClaim } from "../worktree/records";
 import { buildRunEnv } from "../worktree/run-env";
 
 import { type BackstopSnapshot, backstopDetail, backstopEvidence } from "./backstop";
+import type { DoneConflictDecision } from "./conflicts";
 import { endRunMarked, markPhase } from "./markers";
 import { type FiredCap, runCaps } from "./caps";
 import { PARK_CAUSES } from "./park";
@@ -340,7 +346,12 @@ export type TurnDecision =
       readonly detail: string;
       readonly endKind: string;
     }
-  | { readonly kind: "feedback"; readonly text: string }
+  | {
+      readonly kind: "feedback";
+      readonly text: string;
+      /** What the feedback is, for the notice when it cannot be sent; verify feedback by default. */
+      readonly what?: string;
+    }
   /** The run ended at In Review; run control closes the worker's stdin. */
   | { readonly kind: "ended" };
 
@@ -410,6 +421,19 @@ export interface VerifyCommitDeps {
       message: string,
       finish: (last: LastPartAccess) => Promise<T>,
     ): Promise<LastPartFinish<T>>;
+  };
+  /**
+   * Conflicts with the base before In Review (DIPO-149, `run/conflicts.ts`): in a box run's held
+   * turn after the last part, the marker check of the recorded conflicted paths and the sync with
+   * the base. Without it a box run goes to In Review at the last part's commit.
+   */
+  readonly conflicts?: {
+    atDone(input: {
+      readonly office: OfficeHandle;
+      readonly run: StoredRun;
+      readonly tip: string;
+      readonly capped: boolean;
+    }): Promise<DoneConflictDecision>;
   };
   readonly warn?: (message: string, fields: Readonly<Record<string, unknown>>) => void;
 }
@@ -615,6 +639,8 @@ export class VerifyCommit implements RunFinisher {
     const parts = this.#deps.parts as NonNullable<VerifyCommitDeps["parts"]>;
     // What `finish` threw is kept apart from a failure to take the last part.
     let thrown: { readonly error: unknown } | null = null;
+    // What the conflict check decided instead of In Review (DIPO-149).
+    const conflict: { decided: DoneConflictDecision | null } = { decided: null };
     let done: LastPartFinish<LastPartAccess | null>;
     const clock = this.#deps.clock;
     let firstFailure: number | null = null;
@@ -624,9 +650,23 @@ export class VerifyCommit implements RunFinisher {
           try {
             if (!ctx.live()) return null;
             await this.#boxGateChanges(ctx, this.#deps.profile(ctx.office));
+            // Markers left from a catch-up, then the sync with the base (DIPO-149): a clean
+            // merge moves the tip In Review is written at; anything else decides the turn.
+            let tip = last.tip;
+            const checked = await this.#deps.conflicts?.atDone({
+              office: ctx.office,
+              run,
+              tip: last.tip,
+              capped: ctx.capped != null,
+            });
+            if (checked !== undefined && checked.kind !== "go") {
+              conflict.decided = checked;
+              return null;
+            }
+            if (checked !== undefined) tip = checked.tip;
             // Claimed while the parts are still held, so a part the door queued meanwhile, or a
             // catch-up, finds the run not live and stays queued in the box.
-            return ctx.claimEnd() ? last : null;
+            return ctx.claimEnd() ? { tip, branchTip: () => last.branchTip() } : null;
           } catch (error) {
             thrown = { error };
             return null;
@@ -673,6 +713,23 @@ export class VerifyCommit implements RunFinisher {
       }
     }
     if (thrown !== null) throw (thrown as { readonly error: unknown }).error;
+    const decided = conflict.decided as DoneConflictDecision | null;
+    if (decided !== null) {
+      switch (decided.kind) {
+        case "feedback":
+          return { kind: "feedback", text: decided.text, what: "conflict feedback" };
+        case "park":
+          return {
+            kind: "park",
+            reason: decided.reason,
+            cause: decided.cause,
+            detail: decided.detail,
+            endKind: decided.reason,
+          };
+        default:
+          return { kind: "continue" };
+      }
+    }
     const park = partPark(done.outcome);
     if (park !== null) return { kind: "park", ...park, endKind: park.reason };
     const last = done.finished?.result ?? null;

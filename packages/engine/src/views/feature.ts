@@ -29,6 +29,7 @@ import { readUsage } from "../ingest/usage";
 import { promptTextsOf } from "../prompts/parts";
 import { reviewVerdictOfGate, reviewVerdictView } from "../review/store";
 import { runCaps } from "../run/caps";
+import { baseConflictOf } from "../run/conflicts";
 import { storedMarker } from "../run/markers";
 import { findRun } from "../run/records";
 
@@ -169,12 +170,24 @@ export function detail(office: OfficeHandle, key: StoryKey): DetailResult {
   if (view === null) throw new Error(`story ${key} resolved but has no row`);
   const runs = storyRuns(office, key);
   const active = view.work === undefined ? null : workView(office, view.work.run);
+  // A conflict with the base found while the story is In Review (DIPO-149).
+  const conflict = baseConflictOf(office, key);
   return {
     view,
     ...(active === null ? {} : { work: active }),
     runs,
     verdicts: storyVerdicts(office, key),
     questions: storyQuestionViews(office, key),
+    ...(conflict === null
+      ? {}
+      : {
+          baseConflict: {
+            base: conflict.base,
+            onto: conflict.onto,
+            paths: conflict.paths,
+            at: iso(conflict.at),
+          },
+        }),
   };
 }
 

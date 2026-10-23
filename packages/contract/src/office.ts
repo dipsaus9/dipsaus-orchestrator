@@ -334,6 +334,16 @@ export const storyDetail = defineRead({
     verdicts: z.array(Verdict),
     // The story's open questions (DIPO-59, minor 1), oldest first.
     questions: z.array(QuestionView).optional(),
+    // A conflict with the base found while the story is In Review (DIPO-149, minor 1; 0019 section
+    // 10): the base, the base commit and the conflicted paths. Absent once a merge handled it.
+    baseConflict: z
+      .object({
+        base: z.string(),
+        onto: z.string(),
+        paths: z.array(z.string()),
+        at: Timestamp,
+      })
+      .optional(),
   }),
   since: 0,
 });
