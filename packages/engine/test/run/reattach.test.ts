@@ -42,9 +42,11 @@ import {
   HOST_NEVER_STARTED,
   hostSocketSteering,
   insertRun,
+  macSessionText,
   type NextSessionOutcome,
   type NextSessionRequest,
   OfficeIngest,
+  REATTACH_NOTICES,
   recordGrant,
   RunControl,
   RunOutcomes,
@@ -154,7 +156,7 @@ function daemon(
   options: Partial<
     Pick<
       ConstructorParameters<typeof RunReattacher>[0],
-      "followCheckMs" | "proxyGone" | "steering" | "adapter"
+      "followCheckMs" | "boxRecord" | "steering" | "adapter"
     >
   > = {},
 ): Daemon {
@@ -753,37 +755,52 @@ describe("re-attach (0006 decision 8)", () => {
     expect(w.sent).toEqual([encode({ kind: "stop" })]);
   });
 
-  it("a living worker whose Safe-Chain proxy is gone is stopped and parks interrupted (DIPO-84)", async () => {
+  it("a living developer on the Mac, with no box record, is stopped with a notice and parks interrupted (DIPO-240)", async () => {
     beforeRestart("success-single", 6, 20);
     const asked: string[] = [];
     const d = daemon({
-      proxyGone: (_office, run, host) => {
-        asked.push(`${run.runId} ${host.agentId}`);
-        return "DIPO-1 was stopped: its Safe-Chain proxy ended with the previous daemon.";
+      boxRecord: (runDir) => {
+        asked.push(runDir);
+        return false;
       },
     });
     expect(await d.reattacher.reattach(w.f.office.officeId)).toEqual([
-      { run: w.f.run, agent: w.f.agent, outcome: "proxyGone" },
+      { run: w.f.run, agent: w.f.agent, outcome: "macSession" },
       // The parked run's host still runs after the stop: followed until it exits (DIPO-93).
       { run: w.f.run, agent: w.f.agent, outcome: "followEnded" },
     ]);
     await d.control.idle();
-    expect(asked).toEqual([`${w.f.run} ${w.f.agent}`]);
-    expect(parks()).toEqual([
-      ["interrupted", "DIPO-1 was stopped: its Safe-Chain proxy ended with the previous daemon."],
-    ]);
+    expect(asked).toEqual([w.dir]);
+    const text = macSessionText({ story: "DIPO-1", runId: w.f.run });
+    expect(parks()).toEqual([["interrupted", text]]);
+    expect(text).toContain("outside a box");
     expect(w.sent).toEqual([encode({ kind: "stop" })]);
     const notice = loggedEvents(w.f.office).find(
       (event) =>
         event.type === "engine.notice" &&
-        (event.data as { code?: string }).code === "run.safeChainProxyGone",
+        (event.data as { code?: string }).code === REATTACH_NOTICES.macSession,
     );
-    expect(notice?.data).toMatchObject({ level: "error" });
+    expect(notice?.data).toMatchObject({ level: "error", text });
   });
 
-  it("a living worker without a Safe-Chain proxy is followed as before (DIPO-84)", async () => {
+  it("a living developer in its box is followed as before (DIPO-240)", async () => {
     beforeRestart("success-single", 6, 20);
-    const d = daemon({ proxyGone: () => null });
+    const inBox = daemon({ boxRecord: () => true });
+    expect(await inBox.reattacher.reattach(w.f.office.officeId)).toEqual([
+      { run: w.f.run, agent: w.f.agent, outcome: "steer" },
+    ]);
+    expect(parks()).toEqual([]);
+  });
+
+  it("a living reviewer on the Mac is followed, never stopped as a Mac developer (DIPO-240)", async () => {
+    beforeRestart("success-single", 6, 20);
+    w.f.office.immediate(() =>
+      w.f.office.run(
+        "update agents set role = 'reviewer' where office_id = $office_id and agent_id = $agent",
+        { agent: w.f.agent },
+      ),
+    );
+    const d = daemon({ boxRecord: () => false });
     expect(await d.reattacher.reattach(w.f.office.officeId)).toEqual([
       { run: w.f.run, agent: w.f.agent, outcome: "steer" },
     ]);

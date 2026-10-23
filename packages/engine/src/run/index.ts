@@ -360,6 +360,7 @@ export type { ComposedRuns, RunPorts } from "./compose";
 export {
   FOLLOW_CHECK_MS,
   HOST_NEVER_STARTED,
+  macSessionText,
   REATTACH_NOTICES,
   REATTACH_STEP,
   RunReattacher,
