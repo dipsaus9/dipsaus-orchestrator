@@ -870,7 +870,7 @@ describe("port slots (DIPO-197)", () => {
       "slot 1: office off_other, story TASK-8, worktree /trees/TASK-8",
     );
     expect(refusal.message).toContain(
-      "slot 2: office off_other, story TASK-9, worktree /trees/TASK-9",
+      "slot 2: office off_other, story TASK-9, worktree /trees/TASK-9. dipo discard <id> frees a story's slot.",
     );
     expect(world.claims).toEqual([]);
 

@@ -113,6 +113,7 @@ describe("setup inside the claim", () => {
       expect(outcome.reason).toBe("pickupCheckFailed");
       expect(outcome.code).toBe(SETUP_NOTICES.failed);
       expect(outcome.notice).toContain("every port slot from 1 to 1 is taken by another worktree");
+      expect(outcome.notice).toContain("dipo discard <id> frees a story's slot.");
       expect(outcome.notice).toContain("stays Ready");
       expect(outcome.log).not.toContain(SECRET);
       expect(notices(h.s.office).map((n) => n.code)).toContain(SETUP_NOTICES.failed);
@@ -257,7 +258,7 @@ describe("setting up a worktree", () => {
       ).toContain("git does not ignore backlog/config.yml");
       h.slots.take({ office: "other", story: "X-1", worktree: repo.dir, takenAt: 0 }, 1);
       expect(await failed({ worktree: { files: [], maxSlots: 1 } })).toContain(
-        `every port slot from 1 to 1 is taken by another worktree: slot 1: office other, story X-1, worktree ${repo.dir}`,
+        `every port slot from 1 to 1 is taken by another worktree: slot 1: office other, story X-1, worktree ${repo.dir}. dipo discard <id> frees a story's slot.`,
       );
       // setupWorktree leaves the worktree; the claim's rollback removes it.
       expect(existsSync(claim.worktree)).toBe(true);
