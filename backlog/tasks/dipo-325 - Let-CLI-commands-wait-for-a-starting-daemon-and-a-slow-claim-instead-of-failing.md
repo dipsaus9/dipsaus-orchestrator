@@ -3,10 +3,10 @@ id: DIPO-325
 title: >-
   Let CLI commands wait for a starting daemon and a slow claim instead of
   failing
-status: In Progress
+status: In Review
 assignee: []
 created_date: '2026-10-23 09:11'
-updated_date: '2026-10-23 10:09'
+updated_date: '2026-10-23 10:18'
 labels:
   - 'tier:S'
 milestone: m-1
@@ -42,8 +42,8 @@ test_plan:
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 dipo office rescan sent while the daemon is recovering waits until it runs, then rescans; no CLI command prints a stack trace for engine.recovering
-- [ ] #2 dipo run waits for a slow claim within a stated limit and then reports the started run, or says plainly that the claim is still going and how to follow it
-- [ ] #3 Every CLI command that subscribes to a stream handles engine.recovering and a closed stream without an unhandled error
-- [ ] #4 Tests cover rescan during recovery, a slow claim and a closed stream
+- [x] #1 dipo office rescan sent while the daemon is recovering waits until it runs, then rescans; no CLI command prints a stack trace for engine.recovering
+- [x] #2 dipo run waits for a slow claim within a stated limit and then reports the started run, or says plainly that the claim is still going and how to follow it
+- [x] #3 Every CLI command that subscribes to a stream handles engine.recovering and a closed stream without an unhandled error
+- [x] #4 Tests cover rescan during recovery, a slow claim and a closed stream
 <!-- AC:END -->
