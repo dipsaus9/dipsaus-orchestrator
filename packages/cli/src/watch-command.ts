@@ -11,6 +11,7 @@
 // It runs until it is stopped (Ctrl-C). A history gap (`stream.resetRequired`) reads the snapshot
 // again and says so. The client reconnects on its own after a lost or hung connection.
 
+import { usageParts } from "@dipsaus-orchestrator/client";
 import {
   type Event,
   engineNotice,
@@ -221,6 +222,11 @@ class Watch {
         ? `dipo watch: office ${this.#office} · ${running.length} running · Ctrl-C to stop`
         : `dipo watch: ${target.id} in office ${this.#office} · Ctrl-C to stop`,
     );
+    const usageText = usageParts(
+      this.#session.hello?.offices.find((entry) => entry.office === this.#office),
+      this.#deps.clock.now(),
+    );
+    if (usageText.length > 0) this.#line(`  usage ${usageText.join(" · ")}`);
     for (const view of running) {
       const story = watched.find((candidate) => candidate.key === view.work.key);
       this.#line(
