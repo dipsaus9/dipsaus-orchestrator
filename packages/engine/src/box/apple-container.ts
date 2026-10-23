@@ -9,19 +9,18 @@ import { availableParallelism, homedir, totalmem } from "node:os";
 import type { ChildProcess, Clock, Spawn, TimerHandle } from "@dipsaus-orchestrator/contract";
 
 import {
-  BUILD_NETWORK_NAME,
-  buildArgs,
-  builderStartArgs,
-  builderStatusArgs,
-  builderStopArgs,
+  commitArgs,
   copyInArgs,
   copyOutArgs,
   createArgs,
   deleteArgs,
   execArgs,
   exportArgs,
+  type CreateInput,
   type HostResources,
+  imageDeleteArgs,
   imageInspectArgs,
+  imagePullArgs,
   listArgs,
   networkCreateArgs,
   networkListArgs,
@@ -34,17 +33,22 @@ import {
 } from "./apple-args";
 import { resolvePackageCacheMount } from "./cache";
 import {
-  BOX_BUILD_TIMEOUT_MS,
+  type BoxFirewall,
+  checkFirewallListing,
+  firewallCommand,
+  firewallListCommand,
+  resolveNetToolsMount,
+} from "./firewall";
+import {
   BOX_CALL_TIMEOUT_MS,
   BOX_LABEL,
+  BOX_PULL_TIMEOUT_MS,
   BoxError,
-  type BoxBuildNetwork,
   type BoxCallOptions,
   type BoxCheck,
   type BoxClientCommand,
   type BoxExecOptions,
   type BoxExecResult,
-  type BoxImageBuild,
   type BoxInfo,
   type BoxMemory,
   type BoxNetwork,
@@ -59,8 +63,6 @@ import {
 export const APPLE_CONTAINER_BACKEND_ID = "apple-container";
 /** The oldest `container` dipo runs boxes on: the version the escape probe passed on (0021). */
 export const MIN_CONTAINER_VERSION = "1.6.0";
-/** How many lines of a failed build's output its error keeps. */
-export const BUILD_ERROR_LINES = 40;
 
 /** The Mac's total memory and CPU count, which every box may use (0021 decision 16). */
 export function systemHostResources(): HostResources {
@@ -86,6 +88,12 @@ export interface AppleContainerDeps {
    * with realpath, to a folder under it; without a root no box gets a package cache.
    */
   readonly packageCacheRoot?: string;
+  /**
+   * dipo's own root of the box network tools (DIPO-281). A box's tools folder must resolve, with
+   * realpath, to a folder under it that holds the tools; without a root only build boxes can be
+   * made.
+   */
+  readonly netToolsRoot?: string;
   /** The default deadline of a call; `BOX_CALL_TIMEOUT_MS` when absent. */
   readonly timeoutMs?: number;
 }
@@ -211,20 +219,6 @@ export function boxMemory(listed: readonly unknown[], name: string): BoxMemory |
 }
 
 /**
- * True when `container builder status --format json` shows a running builder (DIPO-298): one
- * record, or a list of them, whose `status` is `running` or holds `state: running`, the shape
- * `container list` prints. Anything else reads as not running: a builder that is missing may print
- * no JSON at all.
- */
-export function builderIsRunning(value: unknown): boolean {
-  const items = Array.isArray(value) ? value : [value];
-  return items.some((entry) => {
-    const status = record(entry)["status"];
-    return (typeof status === "string" ? status : record(status)["state"]) === "running";
-  });
-}
-
-/**
  * True when a failed `container stats` says box `name` is not running. 1.6.0 leaves a stopped box
  * out of its list and exits 0; this covers a version that fails instead. The output must name the
  * box, so a system service that is not running (`apiserver is not running`) still fails the call.
@@ -335,53 +329,33 @@ export class AppleContainerBoxes implements BoxPort {
     return { name: found.name, mode: "hostOnly", hostAddress: found.hostAddress };
   }
 
-  async buildNetwork(options: BoxCallOptions = {}): Promise<BoxBuildNetwork> {
-    // A builder that already runs may make `builder start` fail; what counts is the network's
-    // address, and the build proxy's listen on it, which fails when the address is not up.
-    const started = await this.#run(builderStartArgs(), options);
-    const args = networkListArgs();
-    const result = await this.#runOk(args, options);
-    const found = findNetwork(array(args, parseJson(args, result.stdout)), BUILD_NETWORK_NAME);
-    if (found === null || found.hostAddress === null) {
-      const why =
-        started.code === 0
-          ? ""
-          : `; container builder start: ${started.stderr.trim() || `exit ${started.code}`}`;
-      throw new BoxError(
-        "box.unreadable",
-        `network ${BUILD_NETWORK_NAME} has no host address for the build proxy${why}.`,
-        false,
-        { network: BUILD_NETWORK_NAME },
-      );
-    }
-    return { name: found.name, hostAddress: found.hostAddress };
-  }
-
-  async builderRunning(options: BoxCallOptions = {}): Promise<boolean> {
-    // A builder that is missing or unreadable is not running: dipo then stops it after the build
-    // that started it. A running builder this misreads is stopped too and starts again on the
-    // next build, which costs a start, not a build.
-    const result = await this.#run(builderStatusArgs(), options);
-    if (result.code !== 0) return false;
-    try {
-      return builderIsRunning(JSON.parse(result.stdout) as unknown);
-    } catch {
-      return false;
-    }
-  }
-
-  async stopBuilder(options: BoxCallOptions = {}): Promise<void> {
-    await this.#runOk(builderStopArgs(), options);
-  }
-
   async create(spec: BoxSpec, options: BoxCallOptions = {}): Promise<string> {
-    const input = {
+    const input: Omit<CreateInput, "packageCache"> & { netTools?: string } = {
       runId: spec.runId,
       image: spec.image,
       network: spec.network,
       host: this.#deps.host ?? systemHostResources(),
       home: this.#deps.home ?? homedir(),
     };
+    // The tools mount gets the real path, and only one under dipo's tools root that holds the
+    // tools (DIPO-281); checked as text first, so a refused spec reads no folder.
+    createArgs({
+      ...input,
+      ...(spec.packageCache === undefined ? {} : { packageCache: spec.packageCache }),
+      ...(spec.netTools === undefined ? {} : { netTools: spec.netTools }),
+    });
+    if (spec.netTools !== undefined) {
+      const root = this.#deps.netToolsRoot;
+      if (root === undefined) {
+        throw new BoxError(
+          "box.netToolsMissing",
+          "no box network tools root is set, so no box may get the tools.",
+          false,
+          { path: spec.netTools },
+        );
+      }
+      input.netTools = await resolveNetToolsMount(spec.netTools, root);
+    }
     let args = createArgs({
       ...input,
       ...(spec.packageCache === undefined ? {} : { packageCache: spec.packageCache }),
@@ -451,8 +425,34 @@ export class AppleContainerBoxes implements BoxPort {
       command,
       ...(options.cwd === undefined ? {} : { cwd: options.cwd }),
       ...(options.env === undefined ? {} : { env: options.env }),
+      ...(options.fullPrivilege === true ? { fullPrivilege: true } : {}),
     });
     return this.#run(args, options);
+  }
+
+  async firewall(name: string, firewall: BoxFirewall, options: BoxCallOptions = {}): Promise<void> {
+    const failedWith = (message: string, details: Readonly<Record<string, unknown>>): never => {
+      throw new BoxError("box.firewallFailed", `the box firewall of ${name} ${message}`, false, {
+        name,
+        ...details,
+      });
+    };
+    const set = await this.#run(
+      execArgs({ name, command: firewallCommand(firewall), fullPrivilege: true }),
+      options,
+    );
+    if (set.code !== 0) {
+      failedWith(`could not be set: ${set.stderr.trim() || `exit ${set.code}`}`, {
+        code: set.code,
+      });
+    }
+    const listed = await this.#run(
+      execArgs({ name, command: firewallListCommand(), fullPrivilege: true }),
+      options,
+    );
+    if (listed.code !== 0 || !checkFirewallListing(listed.stdout, firewall)) {
+      failedWith("does not show as set.", { code: listed.code, listing: listed.stdout });
+    }
   }
 
   execLive(
@@ -466,6 +466,7 @@ export class AppleContainerBoxes implements BoxPort {
       interactive: true,
       ...(options.cwd === undefined ? {} : { cwd: options.cwd }),
       ...(options.env === undefined ? {} : { env: options.env }),
+      ...(options.fullPrivilege === true ? { fullPrivilege: true } : {}),
     });
     const child = this.#spawn(args, "pipe");
     const stdin = child.stdin;
@@ -538,18 +539,18 @@ export class AppleContainerBoxes implements BoxPort {
     return result.code === 0;
   }
 
-  async buildImage(build: BoxImageBuild, options: BoxCallOptions = {}): Promise<void> {
-    const args = buildArgs(build);
-    const result = await this.#run(args, { timeoutMs: options.timeoutMs ?? BOX_BUILD_TIMEOUT_MS });
-    if (result.code === 0) return;
-    // A build prints its whole progress; the error keeps the end, where the failing step is.
-    const tail = `${result.stderr}\n${result.stdout}`.trim().split("\n").slice(-BUILD_ERROR_LINES);
-    throw new BoxError(
-      "box.failed",
-      `container build of ${build.tag} failed: ${tail.join("\n") || `exit ${result.code}`}`,
-      false,
-      { args: [...args], code: result.code, tail },
-    );
+  async pullImage(reference: string, options: BoxCallOptions = {}): Promise<void> {
+    await this.#runOk(imagePullArgs(reference), {
+      timeoutMs: options.timeoutMs ?? BOX_PULL_TIMEOUT_MS,
+    });
+  }
+
+  async commit(name: string, tag: string, options: BoxCallOptions = {}): Promise<void> {
+    await this.#runOk(commitArgs(name, tag), options);
+  }
+
+  async deleteImage(tag: string, options: BoxCallOptions = {}): Promise<void> {
+    await this.#runOk(imageDeleteArgs(tag), options);
   }
 
   async #findNetwork(options: BoxCallOptions): Promise<BoxNetworkFound | null> {

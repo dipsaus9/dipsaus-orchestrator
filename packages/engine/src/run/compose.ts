@@ -15,7 +15,7 @@ import { BOX_RUN_FILE } from "../box/workers";
 import { readBackstop } from "./backstop";
 import { type InputChangeReader, Nudges } from "../hooks/nudges";
 import { ABSENT, PermissionAsks, type Presence } from "../hooks/permissions";
-import { WebGuard } from "../hooks/web-guard";
+import { type FetchAddressDeps, SYSTEM_FETCH_ADDRESSES, WebGuard } from "../hooks/web-guard";
 import { CONTRACT_MAX_DEFAULT } from "../prompts/contract";
 import { currentProfile } from "../scan/store";
 import type { RunProfile } from "../scan/detect";
@@ -115,6 +115,12 @@ export interface RunPorts {
    */
   readonly boxes?: RunLauncherDeps["boxes"];
   /**
+   * The box network's host address while this daemon knows one, else null (DIPO-281): the live
+   * source the web guard's WebFetch check and each reviewer's web proxy read for every check, so
+   * they refuse the box network. Without it they know none (`SYSTEM_FETCH_ADDRESSES`).
+   */
+  readonly boxHostAddress?: () => string | null;
+  /**
    * Copies into a run's box the merges dipo committed on its branch outside the box, before its
    * next developer session (DIPO-324); a failure parks the story instead of starting the worker.
    */
@@ -149,6 +155,17 @@ export interface ComposedRuns {
   readonly fixRounds: FixRounds | null;
   readonly launcher: RunLauncher;
   readonly reattacher: RunReattacher | null;
+}
+
+/**
+ * What the web guard's WebFetch check reads (DIPO-281): the system's resolver and interfaces with
+ * the daemon's live box network address, read for each check; undefined without one, so the guard
+ * keeps its system default.
+ */
+export function fetchAddressesOf(
+  boxHostAddress: (() => string | null) | undefined,
+): FetchAddressDeps | undefined {
+  return boxHostAddress === undefined ? undefined : { ...SYSTEM_FETCH_ADDRESSES, boxHostAddress };
 }
 
 /** `{ [key]: value }`, or `{}` when `value` is undefined (an optional port left out). */
@@ -242,6 +259,7 @@ function buildHookListeners(
     offices: ports.offices,
     steering: ports.steering,
     encode: (op) => ports.worker.encode(op),
+    ...given("fetchAddresses", fetchAddressesOf(ports.boxHostAddress)),
     ...given("warn", ports.warn),
   });
   const onEnded = ports.ingest.onEnded;
@@ -509,6 +527,7 @@ function buildReviews(
     hosts: ports.hosts,
     ingest: ports.resumeIngest?.(ingest) ?? ingest,
     control: trackerOf(ports, control),
+    ...given("boxHostAddress", ports.boxHostAddress),
     ...given("onChanged", ports.onChanged),
     ...given("warn", ports.warn),
   });

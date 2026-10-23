@@ -21,6 +21,7 @@ import { afterAll, afterEach, describe, expect, it } from "bun:test";
 import { guardRuns, makeTempDir, ManualClock, removeTempDir } from "@dipsaus-orchestrator/testkit";
 
 import {
+  BoxAdmissions,
   BoxWebRoute,
   type AddressContext,
   checkAddress,
@@ -40,6 +41,8 @@ import {
   type WebProxyEvent,
 } from "../../src/box/web-proxy";
 import { SAFE_CHAIN_REGISTRY_HOSTS } from "../../src/sandbox/safe-chain-proxy";
+
+import { hello } from "./tls-hello";
 
 const LOOPBACK = "127.0.0.1";
 const BOX_HOST = "198.51.100.1";
@@ -542,6 +545,7 @@ async function harness(
   dns: Record<string, ReadonlyArray<readonly string[]>> = {},
   dead: readonly string[] = [],
   limits: BoxWebProxyOptions["limits"] = {},
+  admissions?: BoxAdmissions,
 ): Promise<Harness> {
   const clock = new ManualClock();
   const events: WebProxyEvent[] = [];
@@ -553,7 +557,12 @@ async function harness(
   const upstream = await echoServer(transport);
   const closed = await transport.closed();
   const { proxy, endpoint } = await transport.startProxy(
-    { network: { hostAddress: LOOPBACK }, safeChainPort, limits },
+    {
+      network: { hostAddress: LOOPBACK },
+      safeChainPort,
+      limits,
+      ...(admissions === undefined ? {} : { admissions }),
+    },
     {
       clock,
       publicStandIns: STAND_INS,
@@ -637,6 +646,10 @@ function reachable(endpoint: Endpoint): Promise<boolean> {
 
 const connectHead = (target: string, extra = "") =>
   `CONNECT ${target} HTTP/1.1\r\nHost: ${target}\r\n${extra}\r\n`;
+
+/** A Basic proxy authorization header line for the box password `password` (DIPO-282). */
+const auth = (password: string) =>
+  `Proxy-Authorization: Basic ${Buffer.from(`dipo:${password}`).toString("base64")}\r\n`;
 
 for (const transport of [TCP, UNIX]) {
   describe.skipIf(!transport.runs)(`the web proxy over ${transport.name}`, () => {
@@ -798,6 +811,140 @@ for (const transport of [TCP, UNIX]) {
       expect(result.text).toStartWith("HTTP/1.1 403 Forbidden\r\n");
       expect(h.lookups).toEqual([]);
       expect(h.connects).toEqual([]);
+    });
+
+    it("refuses another name of a registry before resolving it: an alias, a CDN name, a mirror, a zone (DIPO-281)", async () => {
+      const h = await harness(transport, { "registry.npmjs.com": [["203.0.113.7"]] });
+      for (const target of [
+        "registry.npmjs.com:443",
+        "Registry.NPMJS.com.:443",
+        "registry.npmjs.org.cdn.cloudflare.net:443",
+        "dualstack.python.map.fastly.net:443",
+        "registry.npmmirror.com:443",
+        "test.pypi.org:443",
+        "www.npmjs.org:443",
+        "x.pythonhosted.org:443",
+      ]) {
+        const result = await exchange(h.endpoint, connectHead(target));
+        expect(result.text).toStartWith("HTTP/1.1 403 Forbidden\r\n");
+      }
+      expect(h.lookups).toEqual([]);
+      expect(h.connects).toEqual([]);
+      expect(h.events.every((event) => event.kind === "refused")).toBe(true);
+    });
+
+    it("passes a TLS tunnel whose hello names the CONNECT host on to the upstream (DIPO-281)", async () => {
+      const h = await harness(transport, { "cdn.example": [["203.0.113.7"]] });
+      const bytes = hello("cdn.example");
+      const result = await exchange(h.endpoint, connectHead("cdn.example:443"), {
+        payload: bytes.toString("latin1"),
+        until: (text) => text.includes("upstream:"),
+      });
+      expect(result.text).toContain(`upstream:${bytes.toString("latin1")}`);
+      result.socket.destroy();
+    });
+
+    it("closes a tunnel to a harmless name whose hello asks for a registry on the same CDN (DIPO-281)", async () => {
+      const h = await harness(transport, { "cdn.example": [["203.0.113.7"]] });
+      const bytes = hello("registry.npmjs.org");
+      const result = await exchange(h.endpoint, connectHead("cdn.example:443"), {
+        payload: bytes.toString("latin1"),
+      });
+      expect(result.closed).toBe(true);
+      expect(result.text).toBe("HTTP/1.1 200 Connection Established\r\n\r\n");
+      // Nothing the box sent reached the upstream.
+      expect(h.upstream.sockets.every((socket) => socket.bytesRead === 0)).toBe(true);
+      expect(h.events).toEqual([
+        { kind: "direct", host: "cdn.example", port: 443, address: "203.0.113.7" },
+        {
+          kind: "refused",
+          target: "cdn.example:443",
+          reason: "the TLS handshake asks for registry.npmjs.org, not cdn.example",
+        },
+      ]);
+    });
+
+    it("closes a clear-text tunnel that names a registry, before the request goes on (DIPO-281)", async () => {
+      const h = await harness(transport, { "cdn.example": [["203.0.113.7"]] });
+      const result = await exchange(h.endpoint, connectHead("cdn.example:80"), {
+        payload: "GET /left-pad HTTP/1.1\r\nHost: registry.npmjs.org\r\n\r\n",
+      });
+      expect(result.closed).toBe(true);
+      expect(result.text).not.toContain("upstream:");
+      expect(h.upstream.sockets.every((socket) => socket.bytesRead === 0)).toBe(true);
+      expect(h.events.at(-1)).toEqual({
+        kind: "refused",
+        target: "cdn.example:80",
+        reason: "the tunnel names registry.npmjs.org in clear text",
+      });
+    });
+
+    it("closes a tunnel whose start never arrives whole within the head timeout (DIPO-281)", async () => {
+      const h = await harness(transport, { "cdn.example": [["203.0.113.7"]] });
+      const bytes = hello("cdn.example");
+      const pending = exchange(h.endpoint, connectHead("cdn.example:443"), {
+        payload: bytes.subarray(0, 20).toString("latin1"),
+      });
+      await Bun.sleep(50);
+      h.clock.advance(WEB_PROXY_HEAD_TIMEOUT_MS);
+      const result = await pending;
+      expect(result.closed).toBe(true);
+      expect(h.events.at(-1)).toMatchObject({
+        kind: "refused",
+        reason: "the tunnel's first bytes did not arrive in time",
+      });
+    });
+
+    it("reaches a listed local port of the Mac only for an admitted box, and no other port (DIPO-282)", async () => {
+      const admissions = new BoxAdmissions(() => "secret-a");
+      admissions.admit("dipo-a", [5432]);
+      const h = await harness(transport, {}, [], {}, admissions);
+      const listed = await exchange(
+        h.endpoint,
+        connectHead("host.dipo.internal:5432", auth("secret-a")),
+        { payload: "ping", until: (text) => text.includes("upstream:ping") },
+      );
+      expect(listed.text).toStartWith("HTTP/1.1 200 Connection Established\r\n\r\n");
+      listed.socket.destroy();
+      expect(h.connects).toEqual([`${LOOPBACK}:5432`]);
+      for (const [target, extra] of [
+        ["host.dipo.internal:6379", auth("secret-a")],
+        ["host.dipo.internal:5432", ""],
+        ["host.dipo.internal:5432", auth("guessed")],
+        ["HOST.dipo.internal.:6379", auth("secret-a")],
+      ] as const) {
+        const result = await exchange(h.endpoint, connectHead(target, extra));
+        expect(result.text).toStartWith("HTTP/1.1 403 Forbidden\r\n");
+      }
+      admissions.forget("dipo-a");
+      const forgotten = await exchange(
+        h.endpoint,
+        connectHead("host.dipo.internal:5432", auth("secret-a")),
+      );
+      expect(forgotten.text).toStartWith("HTTP/1.1 403 Forbidden\r\n");
+      expect(h.connects).toEqual([`${LOOPBACK}:5432`]);
+      expect(h.lookups).toEqual([]);
+      expect(refusals(h.events)).toEqual([
+        "port 6379 of the Mac is not listed in the office config (box.localPorts)",
+        "the tunnel names no box dipo admitted, so it reaches no local port",
+        "the tunnel names no box dipo admitted, so it reaches no local port",
+        "port 6379 of the Mac is not listed in the office config (box.localPorts)",
+        "the tunnel names no box dipo admitted, so it reaches no local port",
+      ]);
+      expect(h.events[0]).toEqual({ kind: "local", port: 5432 });
+    });
+
+    it("reaches no local port of the Mac without admissions, and never by the Mac's addresses (DIPO-282)", async () => {
+      const h = await harness(transport, { "mac.example": [["192.0.2.10"]] });
+      const local = await exchange(h.endpoint, connectHead("host.dipo.internal:5432"));
+      expect(local.text).toStartWith("HTTP/1.1 403 Forbidden\r\n");
+      const byName = await exchange(h.endpoint, connectHead("mac.example:5432"));
+      expect(byName.text).toStartWith("HTTP/1.1 403 Forbidden\r\n");
+      expect(h.connects).toEqual([]);
+      expect(refusals(h.events)).toEqual([
+        "the Mac's local ports are reached only from a box",
+        "mac.example resolves to 192.0.2.10 is one of the Mac's own addresses",
+      ]);
     });
 
     it("refuses plain HTTP proxying with 405, so it is no open forward proxy", async () => {

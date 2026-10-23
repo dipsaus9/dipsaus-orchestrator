@@ -36,13 +36,17 @@
 // names a security barrier, and per part the phrases a criterion uses for what the old barrier
 // caught, the bypass forms and the fail-closed test against the real path. `office.local.yaml`
 // gains no key.
+// Version 12 (DIPO-282) adds `box.localPorts` (0021 section 3 and decision 10): the local ports of
+// the Mac a box may reach, only through dipo's web proxy and only on the Mac's loopback. dipo reads
+// it from the base branch with the rest of the `box` block, so a story cannot change it.
+// `office.local.yaml` gains no key.
 
 import { z } from "zod";
 
 /** The newest office configuration version this binary knows. */
-export const OFFICE_CONFIG_VERSION = 11;
+export const OFFICE_CONFIG_VERSION = 12;
 /** Every version this binary reads; an older file is migrated in memory (`migrateOfficeDocument`). */
-export const OFFICE_CONFIG_VERSIONS = [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11] as const;
+export const OFFICE_CONFIG_VERSIONS = [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12] as const;
 export type OfficeConfigVersion = (typeof OFFICE_CONFIG_VERSIONS)[number];
 
 const count = () => z.int().positive();
@@ -445,9 +449,33 @@ const StoryV11 = z.strictObject({
 });
 
 // Version 11: the office keys of version 10 plus the R30 story keys (DIPO-251).
-const officeShape = {
+const officeShapeV11 = {
   ...officeShapeV10,
   story: StoryV11,
+};
+
+// Version 12 (DIPO-282): the `box` block plus `localPorts`.
+const BoxLocalPort = z
+  .int()
+  .min(1, "must be a port from 1 to 65535")
+  .max(65_535, "must be a port from 1 to 65535");
+const BoxSectionV12 = z
+  .strictObject({
+    ...BoxSection.shape,
+    localPorts: z
+      .array(BoxLocalPort)
+      .refine((ports) => new Set(ports).size === ports.length, "must not name a port twice")
+      .describe(
+        "Local ports of this Mac a box may reach (0021 section 3, DIPO-282), only through dipo's web proxy, as host.dipo.internal:<port>, which dipo connects to on the Mac's loopback. No other service on the Mac or its local network is reachable from a box. Empty by default.",
+      ),
+  })
+  .partial()
+  .describe(BoxSection.description ?? "");
+
+// Version 12: the office keys of version 11 with `box.localPorts` (DIPO-282).
+const officeShape = {
+  ...officeShapeV11,
+  box: BoxSectionV12,
 };
 
 /** The effective configuration of an office, version 1 (kept to read version 1 files). */
@@ -540,19 +568,28 @@ export const OfficeConfigV10 = z.strictObject({
   retention: z.strictObject(retentionShape),
 });
 
+/** The effective configuration of an office, version 11 (kept to read version 11 files). */
+export const OfficeConfigV11 = z.strictObject({
+  version: z.literal(11),
+  ...officeShapeV11,
+  // Machine-local only (0007 sections 7 and 8, 0017 section 5).
+  privacy: z.strictObject(privacyShape),
+  retention: z.strictObject(retentionShape),
+});
+
 /**
  * The effective configuration of an office: every key set, after defaults and overrides. The
  * `box` block is the one exception: its keys stay optional, and what it leaves out is detected
  * from the repository (`box/image.ts`).
  */
-export const OfficeConfigV11 = z.strictObject({
+export const OfficeConfigV12 = z.strictObject({
   version: z.literal(OFFICE_CONFIG_VERSION),
   ...officeShape,
   // Machine-local only (0007 sections 7 and 8, 0017 section 5).
   privacy: z.strictObject(privacyShape),
   retention: z.strictObject(retentionShape),
 });
-export type OfficeConfig = z.infer<typeof OfficeConfigV11>;
+export type OfficeConfig = z.infer<typeof OfficeConfigV12>;
 /** The `box` block of an office (version 9, DIPO-266), as committed: every key optional. */
 export type OfficeBoxSection = OfficeConfig["box"];
 
@@ -687,6 +724,12 @@ export const OfficeFileV10 = z.strictObject({
  * `story.securityCriteriaPhrases` (DIPO-251).
  */
 export const OfficeFileV11 = z.strictObject({
+  version: z.literal(11),
+  ...fileShape(officeShapeV11),
+}) as unknown as z.ZodType<OfficeFileOf<11>>;
+
+/** `.dipo/office.yaml`, version 12: version 11 plus `box.localPorts` (DIPO-282). */
+export const OfficeFileV12 = z.strictObject({
   version: z.literal(OFFICE_CONFIG_VERSION),
   ...fileShape(officeShape),
 }) as unknown as z.ZodType<OfficeFile>;
@@ -768,6 +811,15 @@ export const OfficeLocalFileV10 = z.strictObject({
 
 /** `.dipo/office.local.yaml`, version 11: the same keys as version 10 (DIPO-251 adds none here). */
 export const OfficeLocalFileV11 = z.strictObject({
+  version: z.literal(11),
+  ...fileShape(localShape),
+}) as unknown as z.ZodType<OfficeLocalFileOf<11>>;
+
+/**
+ * `.dipo/office.local.yaml`, version 12: the same keys as version 11. DIPO-282 adds none here: the
+ * box's local ports are read from the base branch, never from a machine-local file.
+ */
+export const OfficeLocalFileV12 = z.strictObject({
   version: z.literal(OFFICE_CONFIG_VERSION),
   ...fileShape(localShape),
 }) as unknown as z.ZodType<OfficeLocalFile>;
@@ -829,12 +881,18 @@ export const OfficeOverridesV10 = z.strictObject(
 ) as unknown as z.ZodType<OfficeOverrides>;
 
 /**
- * Overrides from flags on a single command: any `office.yaml` key except `version` and `box`,
- * with the R30 story keys (DIPO-251).
+ * Overrides from flags on a single command, version 11 keys: any `office.yaml` key except
+ * `version` and `box`, with the R30 story keys (DIPO-251).
  */
 export const OfficeOverridesV11 = z.strictObject(
   fileShape({ ...officeShapeV8, permissions: PermissionsV10, story: StoryV11 }),
 ) as unknown as z.ZodType<OfficeOverrides>;
+
+/**
+ * Overrides from flags on a single command: the keys of version 11. Version 12 adds a `box` key
+ * only (DIPO-282), and the box is never set by a flag.
+ */
+export const OfficeOverridesV12 = OfficeOverridesV11;
 
 /** The file schemas of each version, for `resolveOfficeConfig`. */
 export const OFFICE_FILE_SCHEMAS: Readonly<Record<OfficeConfigVersion, z.ZodType>> = {
@@ -849,6 +907,7 @@ export const OFFICE_FILE_SCHEMAS: Readonly<Record<OfficeConfigVersion, z.ZodType
   9: OfficeFileV9,
   10: OfficeFileV10,
   11: OfficeFileV11,
+  12: OfficeFileV12,
 };
 export const OFFICE_LOCAL_FILE_SCHEMAS: Readonly<Record<OfficeConfigVersion, z.ZodType>> = {
   1: OfficeLocalFileV1,
@@ -862,6 +921,7 @@ export const OFFICE_LOCAL_FILE_SCHEMAS: Readonly<Record<OfficeConfigVersion, z.Z
   9: OfficeLocalFileV9,
   10: OfficeLocalFileV10,
   11: OfficeLocalFileV11,
+  12: OfficeLocalFileV12,
 };
 
 /** A key that a version retires: nothing reads it any more, and that version's files refuse it. */
@@ -923,6 +983,8 @@ function withoutRetired(document: Record<string, unknown>, version: OfficeConfig
  * the load warns about it.
  * Version 10 to 11 is the identity: `story.securityPhrases` and `story.securityCriteriaPhrases`
  * take their defaults (DIPO-251).
+ * Version 11 to 12 is the identity: `box.localPorts` is new, and without it a box reaches no local
+ * port (DIPO-282).
  * Works for both office files; the document must already be valid for its own version.
  */
 export function migrateOfficeDocument(
@@ -940,6 +1002,7 @@ export function migrateOfficeDocument(
   if (current.version === 8) current = { ...current, version: 9 };
   if (current.version === 9) current = { ...withoutRetired(current, 10), version: 10 };
   if (current.version === 10) current = { ...current, version: 11 };
+  if (current.version === 11) current = { ...current, version: 12 };
   return current;
 }
 

@@ -59,13 +59,18 @@ import {
 } from "../../src/box/port";
 import { OfficeGit, spawnGitExec } from "../../src/git";
 import { systemSpawn } from "../../src/platform/process";
+import { writeNetTools } from "./fake-boxes";
 import { fakeContainer } from "./fake-container";
 
 const OFFICE = "off_01J9ZK5Q8W3V4X6Y7Z00000267" as OfficeId;
 const PROXY_URL = "http://192.0.2.1:3128";
 const CA = "-----BEGIN CERTIFICATE-----\nMIIBdGVzdA==\n-----END CERTIFICATE-----\n";
 const NETWORK: BoxNetwork = { name: BOX_NETWORK_NAME, mode: "hostOnly", hostAddress: "192.0.2.1" };
-const IMAGE = { tag: `dipo-box:${"b".repeat(64)}`, toolchain: { node: "24.22.1", bun: "1.4.2" } };
+const IMAGE = {
+  tag: `dipo-box:${"b".repeat(64)}`,
+  toolchain: { node: "24.22.1", bun: "1.4.2" },
+  netTools: "/state/box-net-tools/b",
+};
 const FILL_BOX = boxName("fill-1");
 
 const BUN_LOCK = (version: string) =>
@@ -176,6 +181,9 @@ function fakeFill(dir: string, install: (cacheDir: string) => InstallResult = wr
     },
     stop: async (name) => {
       calls.push(`stop ${name}`);
+    },
+    firewall: async (name, firewall) => {
+      calls.push(`firewall ${name} ${firewall.hostAddress} ${firewall.ports.join(",")}`);
     },
   };
   const caFile = join(dir, "ca.pem");
@@ -288,6 +296,7 @@ const FILL_CALLS = [
   `create ${FILL_BOX}`,
   `start ${FILL_BOX}`,
   `acquire ${FILL_BOX}`,
+  `firewall ${FILL_BOX} 192.0.2.1 3128`,
   `exec ${FILL_BOX} mkdir`,
   `copyIn ${FILL_BOX} ${FILL_BOX_DIR}/project`,
   `copyIn ${FILL_BOX} ${FILL_BOX_DIR}/ca.pem`,
@@ -417,7 +426,11 @@ describe("the fill box", () => {
       await ensurePackageCache(request(dir, fill));
       expect(fill.calls).toEqual(FILL_CALLS);
       // The office image on the host-only network, and no package cache mounted.
-      expect(fill.specs).toEqual([{ runId: "fill-1", image: IMAGE.tag, network: NETWORK }]);
+      // The image's box network tools are mounted (DIPO-281), and the firewall is set before the
+      // install's first script.
+      expect(fill.specs).toEqual([
+        { runId: "fill-1", image: IMAGE.tag, network: NETWORK, netTools: IMAGE.netTools },
+      ]);
       expect(FILL_BOX).toBe("dipo-fill-1");
     }));
 
@@ -727,12 +740,14 @@ describe("the read-only attachment", () => {
       expect(next.cache.path).not.toBe(made.cache.path);
     }));
 
-  it("reaches the backend as the one bind mount of the cache, read-only", () =>
+  it("reaches the backend as a read-only bind mount of the cache, beside the read-only box network tools", () =>
     withTempDir(async (dir) => {
       const fill = fakeFill(dir);
       const { source: _, boxes: __, ...cache } = request(dir, fill);
       // Filled first; the story box then reuses it, so only `container create` runs.
       const filled = await ensurePackageCache(request(dir, fill));
+      const toolsRoot = join(dir, "box-net-tools");
+      const tools = realpathSync(writeNetTools(toolsRoot, IMAGE.tag));
       const container = fakeContainer(() => ({ stdout: "dipo-run_1\n" }));
       const boxes = new AppleContainerBoxes({
         spawn: container.spawn,
@@ -741,10 +756,16 @@ describe("the read-only attachment", () => {
         host: { memoryBytes: 8 * 1024 ** 3, cpus: 4 },
         home: "/Users/someone",
         packageCacheRoot: cache.root,
+        netToolsRoot: toolsRoot,
       });
       const made = await createBoxWithPackageCache({
         boxes,
-        spec: { runId: "run_1", image: "docker.io/library/alpine:3.20", network: NETWORK },
+        spec: {
+          runId: "run_1",
+          image: "docker.io/library/alpine:3.20",
+          network: NETWORK,
+          netTools: tools,
+        },
         readSource: async () => source(),
         cache,
       });
@@ -754,6 +775,7 @@ describe("the read-only attachment", () => {
       const mounts = args!.flatMap((arg, at) => (arg === "--mount" ? [args![at + 1]] : []));
       expect(mounts).toEqual([
         `type=bind,source=${made.cache.path},target=${BOX_PACKAGE_CACHE_PATH},readonly`,
+        `type=bind,source=${tools},target=/opt/dipo-net,readonly`,
       ]);
       expect(args).not.toContain("--volume");
     }));

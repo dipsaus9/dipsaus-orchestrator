@@ -12,6 +12,7 @@ import { ManualClock } from "@dipsaus-orchestrator/testkit";
 import { OFFICE_DEFAULTS } from "../../src/config";
 import type { BoxSession } from "../../src/box/workers";
 import { BOX_PLACEHOLDER_API_KEY } from "../../src/box/model-proxy";
+import { uncontained } from "../../src/box/firewall";
 import { BoxError } from "../../src/box/port";
 import { BOX_REST_WAIT_CODE } from "../../src/box/workers";
 import { BOX_TOKEN_CHECK } from "../../src/box/token-check";
@@ -80,8 +81,11 @@ function boxEnv(argv: readonly string[]): Record<string, string> {
 }
 
 /** The argv after the box name: what runs inside the box. */
+/** The command the worker runs in the box; it must run contained (DIPO-281, `firewall.ts`). */
 function inBox(argv: readonly string[]): string[] {
-  return argv.slice(argv.indexOf(BOX) + 1);
+  const inner = uncontained(argv.slice(argv.indexOf(BOX) + 1));
+  if (inner === null) throw new Error(`the box command is not contained: ${argv.join(" ")}`);
+  return [...inner];
 }
 
 describe("the box worker's plan (criteria 1 and 2)", () => {
