@@ -3,3 +3,28 @@
 node_modules/
 .tsbuild/
 *.tsbuildinfo
+
+# Files that hold secrets never enter the repository (DIPO-321), for example the release App's
+# private key (docs/release.md). Checked by scripts/release-path.test.ts.
+# Env files.
+.env
+.env.*
+# Private keys and certificates.
+*.pem
+*.key
+*.p8
+*.p12
+*.pfx
+*.crt
+*.cer
+*.der
+*.jks
+*.keystore
+id_rsa
+id_dsa
+id_ecdsa
+id_ed25519
+# npm and Yarn credential files.
+.npmrc
+.yarnrc
+.yarnrc.yml

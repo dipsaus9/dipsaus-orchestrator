@@ -139,8 +139,14 @@ jobs:
           } >> "$GITHUB_OUTPUT"
           cat "$GITHUB_OUTPUT"
 
-  # Same build script and smoke test as CI (0016 rule 1), on the four native runners. No dependency
-  # cache: a release build installs from bun.lock alone.
+  # Same build script and smoke test as CI (0016 rule 1), on the four native runners. No cache of
+  # any kind: a release build installs from bun.lock alone, and it does not use setup-bun, whose
+  # Bun executable cache a release could restore. It downloads the Bun of `.bun-version` from
+  # Bun's release and checks it against the SHA-256 pinned below before it runs (DIPO-321).
+  #
+  # A Bun update changes BUN_VERSION and the four bun-sha256 values together, copied from
+  # https://github.com/oven-sh/bun/releases/download/bun-v<version>/SHASUMS256.txt.
+  # scripts/release-path.test.ts fails while BUN_VERSION and .bun-version differ.
   build:
     name: build (${{ matrix.target }})
     needs: release-please
@@ -152,29 +158,65 @@ jobs:
           - target: darwin-arm64
             runner: macos-26
             file: "Mach-O 64-bit executable arm64"
+            bun-asset: bun-darwin-aarch64
+            bun-sha256: 90987a3a16d7db556d886ac3d551e7b6d3edf0a1cf43acaed622e8676be1d12f
           - target: darwin-x64
             runner: macos-26-intel
             file: "Mach-O 64-bit executable x86_64"
+            bun-asset: bun-darwin-x64
+            bun-sha256: 80520d7e17526308c9185d261679ac6d27798d3803a0e9f7ff9121ab8affb012
           - target: linux-x64
             runner: ubuntu-24.04
             file: "ELF 64-bit LSB executable, x86-64"
+            bun-asset: bun-linux-x64
+            bun-sha256: 36368faef7527875d5ffa52e53cd48021741f2a83eb6208a8dd64068d422a913
           - target: linux-arm64
             runner: ubuntu-24.04-arm
             file: "ELF 64-bit LSB executable, ARM aarch64"
+            bun-asset: bun-linux-aarch64
+            bun-sha256: 54328bbc2d9c8e0c9f892c544d66c57a83b84139e34909e5ee81758f1ac8fda7
     runs-on: ${{ matrix.runner }}
     permissions:
       contents: read
     env:
       TARGET: ${{ matrix.target }}
       RELEASE: ${{ needs.release-please.outputs.publish }}
+      BUN_VERSION: "1.4.2"
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           ref: ${{ needs.release-please.outputs.ref }}
           persist-credentials: false
-      - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2.2.0
-        with:
-          bun-version-file: .bun-version
+      - name: Install Bun and check it against the pinned SHA-256
+        env:
+          BUN_ASSET: ${{ matrix.bun-asset }}
+          BUN_SHA256: ${{ matrix.bun-sha256 }}
+        run: |
+          pinned="$(cat .bun-version)"
+          if [ "$pinned" != "$BUN_VERSION" ]; then
+            echo ".bun-version says $pinned but the release build pins Bun $BUN_VERSION."
+            exit 1
+          fi
+          dir="$RUNNER_TEMP/bun"
+          mkdir -p "$dir"
+          curl -fsSL --proto '=https' --tlsv1.2 -o "$dir/$BUN_ASSET.zip" \
+            "https://github.com/oven-sh/bun/releases/download/bun-v$BUN_VERSION/$BUN_ASSET.zip"
+          if command -v sha256sum > /dev/null 2>&1; then
+            actual="$(sha256sum "$dir/$BUN_ASSET.zip" | cut -d ' ' -f 1)"
+          else
+            actual="$(shasum -a 256 "$dir/$BUN_ASSET.zip" | cut -d ' ' -f 1)"
+          fi
+          if [ "$actual" != "$BUN_SHA256" ]; then
+            echo "checksum mismatch for $BUN_ASSET.zip: expected $BUN_SHA256, got $actual"
+            exit 1
+          fi
+          unzip -q "$dir/$BUN_ASSET.zip" -d "$dir"
+          "$dir/$BUN_ASSET/bun" --version
+          if [ "$("$dir/$BUN_ASSET/bun" --version)" != "$BUN_VERSION" ]; then
+            echo "the downloaded Bun does not report version $BUN_VERSION"
+            exit 1
+          fi
+          echo "$dir/$BUN_ASSET" >> "$GITHUB_PATH"
       - run: bun install --frozen-lockfile
       - name: Build
         run: |

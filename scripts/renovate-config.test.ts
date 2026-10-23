@@ -32,7 +32,7 @@ interface Update {
   depName: string;
   packageName?: string;
   depType: string;
-  updateType: "major" | "minor" | "patch" | "digest" | "pin" | "pinDigest";
+  updateType: "major" | "minor" | "patch" | "digest" | "pin" | "pinDigest" | "lockFileMaintenance";
 }
 
 const MATCHERS = new Set([
@@ -79,6 +79,28 @@ function automerges(config: RenovateConfig, update: Update, vulnerability = fals
   }
   if (vulnerability && config.vulnerabilityAlerts?.automerge !== undefined) {
     automerge = config.vulnerabilityAlerts.automerge;
+  }
+  return automerge;
+}
+
+/**
+ * Whether Renovate would automerge the lockfile-maintenance PR: the global setting, then
+ * `lockFileMaintenance`, then every package rule that matches an update of type
+ * `lockFileMaintenance`, which has no dependency name or type.
+ */
+function lockFileMaintenanceAutomerges(config: RenovateConfig): boolean {
+  let automerge = config.automerge ?? false;
+  if (config.lockFileMaintenance?.automerge !== undefined) {
+    automerge = config.lockFileMaintenance.automerge;
+  }
+  const update: Update = {
+    manager: "bun",
+    depName: "",
+    depType: "",
+    updateType: "lockFileMaintenance",
+  };
+  for (const rule of config.packageRules ?? []) {
+    if (ruleMatches(rule, update) && rule.automerge !== undefined) automerge = rule.automerge;
   }
   return automerge;
 }
@@ -169,7 +191,7 @@ describe("renovate.json automerge (AC #2)", () => {
     expect(config.vulnerabilityAlerts?.automerge).toBe(false);
   });
 
-  it("is on for devDependency minor and patch updates and lockfile maintenance", () => {
+  it("is on for devDependency minor and patch updates", () => {
     for (const updateType of ["minor", "patch"] as const) {
       expect(
         automerges(config, {
@@ -180,7 +202,6 @@ describe("renovate.json automerge (AC #2)", () => {
         }),
       ).toBe(true);
     }
-    expect(config.lockFileMaintenance?.automerge).toBe(true);
   });
 
   const never: Array<[string, Update]> = [
@@ -243,6 +264,40 @@ describe("renovate.json automerge (AC #2)", () => {
       updateType: "patch",
     };
     expect(automerges(config, update, true)).toBe(false);
+  });
+});
+
+describe("lockfile maintenance (DIPO-321)", () => {
+  it("is off, set explicitly on lockFileMaintenance", () => {
+    expect(config.lockFileMaintenance?.automerge).toBe(false);
+    expect(lockFileMaintenanceAutomerges(config)).toBe(false);
+  });
+
+  it("fails when any setting or rule enables automerge for it", () => {
+    const rules = config.packageRules ?? [];
+    const lockFileMaintenance = config.lockFileMaintenance ?? {};
+    const broken: RenovateConfig[] = [
+      { ...config, lockFileMaintenance: { ...lockFileMaintenance, automerge: true } },
+      {
+        ...config,
+        packageRules: [...rules, { matchUpdateTypes: ["lockFileMaintenance"], automerge: true }],
+      },
+      { ...config, packageRules: [...rules, { matchManagers: ["bun"], automerge: true }] },
+      { ...config, packageRules: [...rules, { automerge: true }] },
+    ];
+    for (const candidate of broken) {
+      expect(lockFileMaintenanceAutomerges(candidate)).toBe(true);
+    }
+  });
+
+  it("is not enabled by rules that match only named dependencies", () => {
+    // The one automerge rule matches devDependencies, which a lockfile-maintenance PR has none of.
+    const candidate: RenovateConfig = {
+      ...config,
+      lockFileMaintenance: { ...config.lockFileMaintenance },
+    };
+    delete candidate.lockFileMaintenance?.automerge;
+    expect(lockFileMaintenanceAutomerges(candidate)).toBe(false);
   });
 });
 
