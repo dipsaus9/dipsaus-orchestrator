@@ -13,6 +13,10 @@
 // Each box gets its office's package cache (DIPO-295): one root per office under
 // `<state>/PACKAGE_CACHE_DIR` (`boxPackageCache`), filled in a fill box through the daemon's web
 // route or reused, and mounted read-only; Apple `container` mounts only a cache under that folder.
+// Each image's box network tools (DIPO-281) are kept under `<state>/BOX_NET_TOOLS_DIR` and mounted
+// read-only into every box of the image; Apple `container` mounts only tools under that folder.
+// The web guard and each reviewer's web proxy read the box network's host address from the box
+// workers, live (DIPO-281).
 
 import { realpathSync, rmSync } from "node:fs";
 import { isAbsolute, join } from "node:path";
@@ -38,9 +42,9 @@ import {
   AppleContainerBoxes,
   appendEntries,
   BOX_INDEX_DIR,
+  BOX_NET_TOOLS_DIR,
   baseStoryFacts,
   BoxCollisions,
-  type BoxBuildNetwork,
   boxInstallInput,
   inReviewRunIds,
   type MergeGatesDeps,
@@ -482,15 +486,17 @@ function daemonBoxWorkers(
             env: { PATH: env["PATH"] ?? "/usr/bin:/bin", HOME: home },
             // A box mounts only a package cache under dipo's own folder of caches (DIPO-295).
             packageCacheRoot: join(options.stateDir, PACKAGE_CACHE_DIR),
+            // A box mounts only box network tools under dipo's own folder of them (DIPO-281).
+            netToolsRoot: join(options.stateDir, BOX_NET_TOOLS_DIR),
           });
   }
   if (boxes === null) return null;
   const routeRoot = join(tmpRoot, "dipo-box-routes");
   const scratchRoot = join(tmpRoot, "dipo-box-builds");
   let routes = 0;
-  // dipo's web route (Safe-Chain behind the web proxy) on a network's host address: the box
-  // network's for the boxes, the builder's for one image build.
-  const startRoute = async (network: Pick<BoxNetwork, "hostAddress"> | BoxBuildNetwork) => {
+  // dipo's web route (Safe-Chain behind the web proxy) on the box network's host address, for the
+  // boxes and the build boxes alike (DIPO-281).
+  const startRoute = async (network: Pick<BoxNetwork, "hostAddress">) => {
     ensurePrivateDir(routeRoot);
     routes += 1;
     const dir = join(routeRoot, `route-${routes}`);
@@ -555,7 +561,6 @@ function daemonBoxWorkers(
   workers = new BoxWorkers({
     boxes,
     startWebRoute: startRoute,
-    startBuildRoute: startRoute,
     startModelProxy: (network) =>
       startModelProxy({
         network,
@@ -584,6 +589,7 @@ function daemonBoxWorkers(
       ensurePrivateDir(scratchRoot);
       return scratchRoot;
     })(),
+    netToolsRoot: join(options.stateDir, BOX_NET_TOOLS_DIR),
     warn: (message, fields) => options.logger.warn(message, fields),
     info: (message, fields) => options.logger.info(message, fields),
   });
@@ -993,6 +999,8 @@ export function daemonRuns(options: DaemonRunsOptions): DaemonRuns {
       void finishEndedBoxes();
     },
     ...(boxWorkers === null ? {} : { boxes: boxWorkers }),
+    // The box network's host address, live, for the web guard and each reviewer's web proxy.
+    ...(boxWorkers === null ? {} : { boxHostAddress: () => boxWorkers.hostAddress }),
     // A fix round waits for the CI of the pushed head and carries its red items (DIPO-148); a box
     // run's developer gets a new session in its box (0021 section 6).
     ...(options.storyPr?.ciState === undefined

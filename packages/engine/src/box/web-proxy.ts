@@ -1347,8 +1347,6 @@ export interface RunningBoxWebRoute extends RunningBoxWebProxy {
    * gets: `url` with the box's own proxy password. An earlier URL of the box stops naming it.
    */
   admit(box: string, ports: readonly number[]): string;
-  /** Forgets `box`: its proxy URL reaches no local port any more. */
-  forget(box: string): void;
 }
 
 export type BoxWebRouteStart =
@@ -1386,7 +1384,6 @@ export async function startBoxWebRoute(
       ...proxy,
       caFile: started.proxy.caFile,
       admit: (box, ports) => admittedUrl(proxy.url, admissions.admit(box, ports)),
-      forget: (box) => admissions.forget(box),
       async stop() {
         try {
           await proxy.stop();
