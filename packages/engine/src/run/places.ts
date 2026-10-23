@@ -32,12 +32,13 @@ import type { Clock, OfficeId, RunId, TimerHandle, WorkRef } from "@dipsaus-orch
 
 import { appendEntries, type NewEntry } from "../changelog/log";
 import type { FeatureModule } from "../commands/registry";
-import type { OfficeConfig } from "../config";
+import { OFFICE_DEFAULTS, type OfficeConfig } from "../config";
 import type { OfficeHandle } from "../db/office";
 import { background } from "../platform/background";
 import { withWorkViews, workRefOf } from "../views/work";
 
 import { REVIEWER_ROLE } from "./caps";
+import { runConfigOf } from "./config-snapshot";
 import type { RunEnding } from "./control-types";
 import { openWait } from "./outcome-types";
 import { pausedWithoutSession } from "./pauses";
@@ -321,14 +322,19 @@ export class Places {
 
   /**
    * The model the next session of `place` uses for `run`: the reviewer's is `reviewModel`, else
-   * the office config's `review.model` in force, else `DEFAULT_REVIEW_MODEL`.
+   * the `review.model` of the run's configuration snapshot (laid on the configuration in force,
+   * DIPO-150), else `DEFAULT_REVIEW_MODEL`.
    */
   modelOf(officeId: OfficeId, place: Place, run: StoredRun): string {
-    return place === "reviewer"
-      ? (this.#deps.reviewModel?.(officeId) ??
-          this.#deps.offices.config(officeId)?.review.model ??
-          DEFAULT_REVIEW_MODEL)
-      : run.model;
+    if (place !== "reviewer") return run.model;
+    const given = this.#deps.reviewModel?.(officeId);
+    if (given !== undefined) return given;
+    const office = this.#deps.offices.get(officeId);
+    const inForce = this.#deps.offices.config(officeId);
+    if (office === undefined) return inForce?.review.model ?? DEFAULT_REVIEW_MODEL;
+    return (
+      runConfigOf(office, run, inForce ?? OFFICE_DEFAULTS).review.model ?? DEFAULT_REVIEW_MODEL
+    );
   }
 
   /** Starts what waits for a free place in the office, once any drain under way finished. */

@@ -689,11 +689,15 @@ export class ReviewLauncher implements ReviewSessions {
     const deps = this.#deps;
     const { run } = request;
     const office = deps.offices.get(request.office);
-    const config = deps.offices.config(request.office);
+    const inForce = deps.offices.config(request.office);
     const git = deps.git(request.office);
-    if (office === undefined || config === undefined || git === undefined) {
+    if (office === undefined || inForce === undefined || git === undefined) {
       return { kind: "failed", reason: `office ${request.office} is not loaded` };
     }
+    // The configuration the run started with (its snapshot, DIPO-150): a base change that
+    // reloaded the configuration in force never reaches a running run's reviewer, its launch plan
+    // or its ingest adapter.
+    const config = runConfigOf(office, run, inForce);
     if (run.worktree === null || run.key === null || run.story === null) {
       return { kind: "failed", reason: `${run.runId} is not a story run with a worktree` };
     }
