@@ -219,8 +219,10 @@ function rebuildable(worktree: string, entry: string): boolean {
 }
 
 /**
- * Walks `root` without following a link: false when a `.git` file or folder lies at any depth, or
- * when the walk fails or passes `NODE_MODULES_WALK_MAX` entries.
+ * Walks `root` without following a link: false when a repository lies at any depth (a `.git` file
+ * or folder in any letter case, as the Mac's file system matches names, or a bare one: a folder
+ * holding `HEAD`, `objects/` and `refs/`), or when the walk fails or passes
+ * `NODE_MODULES_WALK_MAX` entries.
  */
 function holdsNoRepository(root: string): boolean {
   try {
@@ -229,16 +231,24 @@ function holdsNoRepository(root: string): boolean {
     let seen = 0;
     while (folders.length > 0) {
       const folder = folders.pop() as string;
+      const names = new Set<string>();
+      const subfolders = new Set<string>();
       for (const entry of readdirSync(folder, { withFileTypes: true })) {
         seen += 1;
-        if (seen > NODE_MODULES_WALK_MAX || entry.name === ".git") return false;
+        const name = entry.name.toLowerCase();
+        if (seen > NODE_MODULES_WALK_MAX || name === ".git") return false;
+        names.add(name);
         const path = join(folder, entry.name);
         // A link is never followed; an entry of unknown type is read with lstat.
         const directory =
           entry.isDirectory() ||
           (!entry.isSymbolicLink() && !entry.isFile() && lstatSync(path).isDirectory());
-        if (directory) folders.push(path);
+        if (directory) {
+          subfolders.add(name);
+          folders.push(path);
+        }
       }
+      if (names.has("head") && subfolders.has("objects") && subfolders.has("refs")) return false;
     }
     return true;
   } catch {

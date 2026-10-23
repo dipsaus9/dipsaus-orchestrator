@@ -547,6 +547,25 @@ describe("what git status does not list keeps the worktree (DIPO-332 review)", (
       expect(existsSync(join(pkg, ".git"))).toBe(true);
     }));
 
+  it("keeps a node_modules/ holding a .GIT folder or a bare repository", () =>
+    withReconcileOffice({}, async (o) => {
+      const record = await claimed(o, { ".gitignore": "node_modules/\n" });
+      await boxRun(o, record);
+      const upper = join(record.worktree, "node_modules/pkg/.GIT");
+      mkdirSync(upper, { recursive: true });
+      writeFileSync(join(upper, "HEAD"), "ref: refs/heads/main\n");
+      expect(await remove(o, record)).toMatchObject({ ok: false, files: ["node_modules/"] });
+
+      rmSync(join(record.worktree, "node_modules/pkg"), { recursive: true });
+      const bare = join(record.worktree, "node_modules/cache/mirror");
+      await gitIn(o.repo.root, o.repo.home, "init", "--quiet", "--bare", bare);
+      expect(await remove(o, record)).toMatchObject({ ok: false, files: ["node_modules/"] });
+      expect(existsSync(join(bare, "HEAD"))).toBe(true);
+
+      rmSync(join(record.worktree, "node_modules/cache"), { recursive: true });
+      expect(await remove(o, record)).toEqual({ ok: true });
+    }));
+
   it("keeps an ignored .env inside a tracked build/ folder: only a whole node_modules/ may go", () =>
     withReconcileOffice({}, async (o) => {
       const record = await claimed(o, { ".gitignore": ".env\n", "build/keep.txt": "kept\n" });
@@ -565,17 +584,19 @@ describe("what git status does not list keeps the worktree (DIPO-332 review)", (
       await boxRun(o, record);
       expect(await unlagged(o, record)).toEqual([]);
       const git = gitOf(o);
-      // An edit lands while dipo lists the ignored files, after the first lagging check.
+      // An edit lands after the first lagging check hashed the files, before the second.
+      let edited = false;
       const outcome = await git.run((session) => {
         const racing: typeof session = {
           repository: session.repository,
-          step: (location, args, options) => session.step(location, args, options),
-          ok: (location, args, options) => {
-            if (args.includes("--ignored")) {
+          step: (location, args, options) => {
+            if (args[0] === "rev-list" && !edited) {
+              edited = true;
               writeFileSync(join(record.worktree, "src/shared.ts"), "export const shared = 42;\n");
             }
-            return session.ok(location, args, options);
+            return session.step(location, args, options);
           },
+          ok: (location, args, options) => session.ok(location, args, options),
         };
         return removeWorktree({ office: o.office, git, clock: o.s.clock }, racing, record);
       });

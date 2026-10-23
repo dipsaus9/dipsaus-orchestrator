@@ -390,18 +390,6 @@ export async function removeWorktree(
     const listed = await statusFiles(deps, git, path);
     const lagging =
       listed.length > 0 && (await unlaggedPaths(deps.git, git, claim, heads))?.length === 0;
-    // `git worktree remove` deletes ignored files, forced or not, and `git status` never lists
-    // them: only a whole `node_modules/` and `.DS_Store` may go (DIPO-332, `lagging.ts`). Checked
-    // right before the removal.
-    const ignored = await keptIgnored(deps.git, git, path);
-    if (ignored === null || ignored.length > 0) {
-      return keep(
-        ignored === null
-          ? `dipo could not list the ignored files of the worktree ${path}, which git would delete with it`
-          : `the worktree ${path} holds ignored files that git would delete with it`,
-        ignored ?? [],
-      );
-    }
     if (lagging) {
       // Once more right before the forced removal: anything that changed since keeps everything.
       const again = await statusFiles(deps, git, path);
@@ -416,6 +404,21 @@ export async function removeWorktree(
         );
       }
     }
+    // `git worktree remove` deletes ignored files, forced or not, and `git status` never lists
+    // them: only a whole `node_modules/` and `.DS_Store` may go (DIPO-332, `lagging.ts`). The last
+    // step before the removal.
+    const ignored = await keptIgnored(deps.git, git, path);
+    if (ignored === null || ignored.length > 0) {
+      return keep(
+        ignored === null
+          ? `dipo could not list the ignored files of the worktree ${path}, which git would delete with it`
+          : `the worktree ${path} holds ignored files that git would delete with it`,
+        ignored ?? [],
+      );
+    }
+    // The window that remains: an edit made in the worktree after the last check above, just
+    // before this removal, is lost. Accepted: nothing writes the Mac worktree during a box run (the
+    // worker works in its box, and dipo's own writes run in this office git queue).
     const removed = await git.step(git.repository, [
       "worktree",
       "remove",
