@@ -382,4 +382,34 @@ describe("dipo daemon --foreground", () => {
     },
     TIMEOUT_MS,
   );
+
+  it(
+    "stops its workers through run control on daemon.stop with stopWorkers, and logs what it did (DIPO-315)",
+    async () => {
+      await withDaemonTempDir(async (dir) => {
+        const daemon = start(daemonTestEnv(dir));
+        try {
+          await waitUntilServing(dir, daemon);
+          const client = await TestClient.connect(join(dir, "run", "dipo.sock"));
+          expect((await client.hello()).ok).toBe(true);
+          const reply = await client.command("daemon.stop", { stopWorkers: true });
+          expect(reply).toMatchObject({ ok: true, result: { state: "draining" }, changed: true });
+          expect(await daemon.exited).toBe(0);
+          const messages = readFileSync(join(dir, "state", "logs", "daemon.log"), "utf8")
+            .trim()
+            .split("\n")
+            .map((line) => (JSON.parse(line) as { msg: string }).msg);
+          // Run control was asked, found no live worker, and the drain ended after it.
+          expect(messages).not.toContain("no workers to stop: this daemon has no run control");
+          expect(messages).toContain("no live workers to stop");
+          expect(messages.indexOf("no live workers to stop")).toBeLessThan(
+            messages.indexOf("drained"),
+          );
+        } finally {
+          await stop(daemon);
+        }
+      });
+    },
+    TIMEOUT_MS,
+  );
 });

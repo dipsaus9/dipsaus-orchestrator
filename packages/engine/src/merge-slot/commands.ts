@@ -38,7 +38,7 @@ import type { PrReviewHost } from "../platform/host";
 import { recordReviewOverride } from "../review/store";
 import { openPark, type ParkWriter, type UnparkWriter } from "../run/park";
 import { appendRunStep, findRun, REVIEWED_END, type StoredRun } from "../run/records";
-import { findStoryPr } from "../story-pr/records";
+import { type BranchPush, findStoryPr, recordBranchPush } from "../story-pr/records";
 import { deriveStoryView, storyView } from "../views/story";
 import { withWorkViews } from "../views/work";
 
@@ -239,9 +239,12 @@ export class MergeGates {
     }
     const branch = { story: run.story as string, branch: run.branch, worktree: run.worktree };
     // The branch first: the park lifted and the status back to In Review, pushed.
-    await this.#deps.unpark.lift(officeId, { ...branch, to: "In Review" });
+    const lifted = await this.#deps.unpark.lift(officeId, { ...branch, to: "In Review" });
     try {
-      this.#recordOverride(ctx, gate, run, note, park.parkId);
+      this.#recordOverride(ctx, gate, run, note, park.parkId, {
+        pushed: lifted.pushed,
+        error: lifted.pushError,
+      });
     } catch (error) {
       // The branch is In Review but the override is not recorded: put the park back, or say so.
       const reason = error instanceof Error ? error.message : String(error);
@@ -271,9 +274,12 @@ export class MergeGates {
     run: StoredRun,
     note: string,
     parkId: number,
+    push: BranchPush,
   ): void {
     const office = ctx.office;
     ctx.commit(() => {
+      // The lift's push, on the claim like every story-branch push (DIPO-315).
+      if (run.branch !== null) recordBranchPush(office, run.branch, push, ctx.now);
       const decided = decideMergeGate(office, gate.gate, {
         decision: "approved",
         by: "maintainer",

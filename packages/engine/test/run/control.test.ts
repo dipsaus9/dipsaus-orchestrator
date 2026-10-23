@@ -43,14 +43,24 @@ import {
   RunControl,
   runIntents,
   type RunSteering,
+  DAEMON_STOPPED_DETAIL,
   STORY_NOT_RUNNING,
+  STREAM_DRIFT_LINES,
 } from "../../src/run";
+import { reopenParkedRun } from "../../src/run/park";
 import { addStory } from "../../src/stories/keys";
 import { encode, STOP_MESSAGE } from "../../src/workers/claude-cli/encode";
 import { initialState, interpret } from "../../src/workers/claude-cli/interpret";
-import type { Caps, HostOp, ParseState, WorkerEvent, WorkerReport } from "../../src/workers/types";
+import type {
+  Caps,
+  HostLine,
+  HostOp,
+  ParseState,
+  WorkerEvent,
+  WorkerReport,
+} from "../../src/workers/types";
 import { TASK_FIELD_ERROR } from "../../src/backlog/runner";
-import { insertClaim } from "../../src/worktree/records";
+import { findClaim, insertClaim } from "../../src/worktree/records";
 import { countRows } from "../commands/helpers";
 import {
   appendLines,
@@ -1429,5 +1439,208 @@ describe("a park whose summary block was not written (DIPO-154)", () => {
     expect(notices.find((n) => n.code === "park.summaryMissing")?.text).toContain(
       "appending it failed: the Backlog CLI exited 1",
     );
+  });
+});
+
+/** Ingests `lines` with run control as the ingestion hooks. */
+async function ingestLines(lines: readonly HostLine[]): Promise<void> {
+  appendLines(w.f.eventFile, lines);
+  if (w.ingestor === null) {
+    w.ingestor = new Ingestor({
+      office: w.f.office,
+      clock: w.f.t.clock,
+      pricing: null,
+      hooks: w.control.hooks,
+    });
+    w.ingestor.track(
+      target(w.f, claude, initialState({ plannedModel: "haiku" }) as unknown as ParseState),
+    );
+  } else {
+    w.ingestor.pass(w.f.run, w.f.agent);
+  }
+  await w.control.idle();
+}
+
+const settle = async () => {
+  for (let i = 0; i < 20; i++) await Promise.resolve();
+};
+
+describe("stream drift (DIPO-315)", () => {
+  let at = 0;
+  const out = (data: unknown): HostLine => ({
+    t: (at += 10),
+    ch: "stdout",
+    data: JSON.stringify(data),
+  });
+  const init = out({
+    type: "system",
+    subtype: "init",
+    session_id: "session-1",
+    model: "claude-haiku-5-5",
+    claude_code_version: "2.1.296",
+    permissionMode: "default",
+    tools: ["Read", "StructuredOutput"],
+    apiKeySource: "none",
+    cwd: "/work",
+  });
+  const dropped = (n: number) => out({ type: "brand_new_type", n });
+
+  it("parks worker-failed with cause stream-drift at the threshold, naming the version and count", async () => {
+    track();
+    await ingestLines([
+      init,
+      ...Array.from({ length: STREAM_DRIFT_LINES - 1 }, (_, n) => dropped(n)),
+    ]);
+    expect(parks()).toEqual([]);
+    expect(w.sent).toEqual([]);
+
+    await ingestLines([dropped(100)]);
+    const [park] = parks();
+    expect(park?.reason).toBe("worker-failed");
+    expect(park?.cause).toBe("stream-drift");
+    expect(park?.detail).toContain("Claude Code 2.1.296");
+    expect(park?.detail).toContain(`${STREAM_DRIFT_LINES} unreadable stream lines`);
+    expect(park?.detail).toContain(`the threshold is ${STREAM_DRIFT_LINES}`);
+    expect(causes()).toEqual({ stored: ["stream-drift"], emitted: ["stream-drift"] });
+    // The stop sequence, after its intent.
+    expect(w.sent).toEqual([encode({ kind: "stop" })]);
+    expect(runIntents(w.f.office, w.f.run).map((i) => i.kind)).toEqual(["park"]);
+    expect(findRun(w.f.office, w.f.run)?.endKind).toBe("worker-failed");
+  });
+
+  it("starts the drift count again when the stream-drift park is resumed, and says so", async () => {
+    track();
+    await ingestLines([init, ...Array.from({ length: STREAM_DRIFT_LINES }, (_, n) => dropped(n))]);
+    const [park] = parks();
+    expect(park?.cause).toBe("stream-drift");
+    expect(park?.detail).toContain("A resume starts the count again from 0.");
+    const lines = () =>
+      w.f.office.get<{ n: number }>(
+        `select coalesce(sum(drift_lines), 0) as n from ingest_cursors
+          where office_id = $office_id and run_id = $run`,
+        { run: w.f.run },
+      )?.n;
+    expect(lines()).toBe(STREAM_DRIFT_LINES);
+    const stored = w.f.office.get<{ park_id: number; reason: string; detail: string }>(
+      "select park_id, reason, detail from parks where office_id = $office_id",
+    );
+    const run = findRun(w.f.office, w.f.run);
+    if (stored === null || run === null) throw new Error("no park or run");
+    w.f.office.immediate(() =>
+      reopenParkedRun(
+        w.f.office,
+        { parkId: stored.park_id, reason: stored.reason, detail: stored.detail },
+        run,
+        "In Progress",
+        w.f.t.clock.now(),
+      ),
+    );
+    expect(lines()).toBe(0);
+  });
+
+  it("parks at once when a completed turn reports no token usage, before its done report decides", async () => {
+    track();
+    const report: WorkerReport = {
+      status: "done",
+      criteria: [{ n: 1, met: true, evidence: "e" }],
+      summary: "s",
+      commitSubject: "c",
+    };
+    await ingestLines([
+      init,
+      out({
+        type: "result",
+        subtype: "success",
+        session_id: "session-1",
+        is_error: false,
+        num_turns: 2,
+        terminal_reason: "completed",
+        structured_output: report,
+        modelUsage: {},
+      }),
+    ]);
+    const [park] = parks();
+    expect([park?.reason, park?.cause]).toEqual(["worker-failed", "stream-drift"]);
+    expect(park?.detail).toContain("reports no token usage");
+    expect(park?.detail).toContain("Claude Code 2.1.296");
+    expect(park?.detail).toContain("0 unreadable stream lines");
+    expect(findRun(w.f.office, w.f.run)?.endKind).toBe("worker-failed");
+  });
+
+  it("parks at once on a result line whose usage cannot be read", async () => {
+    track();
+    await ingestLines([
+      init,
+      out({ type: "result", subtype: "success", session_id: "session-1", modelUsage: [1] }),
+    ]);
+    expect(parks().map((park) => [park.reason, park.cause])).toEqual([
+      ["worker-failed", "stream-drift"],
+    ]);
+    expect(parks()[0]?.detail).toContain("result failed its schema");
+  });
+
+  it("does not park a run whose stream reads cleanly (success-single)", async () => {
+    track();
+    await ingestRecording("success-single");
+    expect(parks().filter((park) => park.cause === "stream-drift")).toEqual([]);
+  });
+});
+
+describe("stopAll: daemon.stop with stopWorkers (DIPO-315)", () => {
+  it("stops every live worker through run control, parks it stopped and waits for its exit", async () => {
+    track();
+    await ingestRecording("success-single");
+    // The recording's exit untracked the run: track it again as a worker that still runs.
+    expect(w.control.isTracked(w.f.run)).toBe(false);
+    track();
+    const done = w.control.stopAll(60_000);
+    const box: { result: Awaited<typeof done> | null } = { result: null };
+    void done.then((value) => {
+      box.result = value;
+    });
+    await settle();
+    await w.control.idle();
+    expect(w.sent).toEqual([encode({ kind: "stop" })]);
+    expect(parks().map((p) => [p.reason, p.cause, p.detail])).toEqual([
+      ["stopped", "maintainer", DAEMON_STOPPED_DETAIL],
+    ]);
+    // The park commit's push reached the remote: recorded on the claim, as every story-branch push.
+    expect(findClaim(w.f.office, w.f.run)?.pushedAt).toBe(
+      findRun(w.f.office, w.f.run)?.endedAt ?? -1,
+    );
+    expect(runIntents(w.f.office, w.f.run).map((i) => i.kind)).toEqual(["stop"]);
+    // Still waiting: the worker has not exited.
+    w.f.t.clock.advance(1_000);
+    await settle();
+    expect(box.result).toBeNull();
+    // The exit is ingested; the next look sees no worker left.
+    w.control.onEnded(w.f.run);
+    w.f.t.clock.advance(250);
+    await settle();
+    await done;
+    expect(box.result).toEqual({ stopped: 1, deciding: 0, running: 0 });
+  });
+
+  it("counts a worker that has not exited within the wait, and stops nothing twice", async () => {
+    track();
+    const done = w.control.stopAll(1_000);
+    await settle();
+    await w.control.idle();
+    for (let i = 0; i < 5; i++) {
+      w.f.t.clock.advance(250);
+      await settle();
+    }
+    expect(await done).toEqual({ stopped: 1, deciding: 0, running: 1 });
+    // A second stopAll finds the run already decided: no second stop, no second park.
+    const again = w.control.stopAll(0);
+    await settle();
+    expect(await again).toEqual({ stopped: 0, deciding: 1, running: 1 });
+    expect(w.sent).toEqual([encode({ kind: "stop" })]);
+    expect(parks()).toHaveLength(1);
+  });
+
+  it("returns at once with nothing to stop", async () => {
+    expect(await w.control.stopAll()).toEqual({ stopped: 0, deciding: 0, running: 0 });
+    expect(w.sent).toEqual([]);
   });
 });

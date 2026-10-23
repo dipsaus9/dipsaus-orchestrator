@@ -1114,6 +1114,11 @@ export interface BoxPartsDeps {
   readonly park?: (runId: string, park: PartPark) => boolean;
   /** Tells the maintainer (an `engine.notice` of the run). */
   readonly notice?: (run: PartRun, notice: PartNotice) => void;
+  /**
+   * Records a part's push of the run's branch on its claim (DIPO-315: every story-branch push sets
+   * `claims.pushed_at` once it reaches the remote). A throw is logged; the part stands.
+   */
+  readonly pushed?: (run: PartRun, push: PushResult) => void;
   /** Reads the run's door now (`BoxWorkers.readDoor`), so queued parts go first. */
   readonly readDoor?: (runId: string) => Promise<unknown> | null;
   readonly limits?: CacheArchiveLimits;
@@ -1749,9 +1754,22 @@ export class BoxParts {
       const push = await git
         .run((session) => pushBranch(session, git.settings.remote, run.branch))
         .catch((error: unknown) => ({ pushed: false, rejected: false, error: messageOf(error) }));
+      this.#recordPush(run, push);
       this.#deps.info?.("a part was committed", { run: run.runId, part: n, commit });
       return { kind: "committed", n, commit, paths: changes.map((c) => c.path), push };
     });
+  }
+
+  /** A part's push on the run's claim (DIPO-315); a failure to record it is logged only. */
+  #recordPush(run: PartRun, push: PushResult): void {
+    try {
+      this.#deps.pushed?.(run, push);
+    } catch (error) {
+      this.#deps.warn?.("a part's push could not be recorded", {
+        run: run.runId,
+        reason: messageOf(error),
+      });
+    }
   }
 
   /** The paths of a hit, cleaned, in the run directory's record only; never in the park detail. */
