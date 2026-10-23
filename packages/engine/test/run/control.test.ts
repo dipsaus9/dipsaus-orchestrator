@@ -1563,9 +1563,9 @@ describe("stopAll: daemon.stop with stopWorkers (DIPO-315)", () => {
     expect(w.control.isTracked(w.f.run)).toBe(false);
     track();
     const done = w.control.stopAll(60_000);
-    let result: Awaited<typeof done> | null = null;
+    const box: { result: Awaited<typeof done> | null } = { result: null };
     void done.then((value) => {
-      result = value;
+      box.result = value;
     });
     await settle();
     await w.control.idle();
@@ -1581,13 +1581,13 @@ describe("stopAll: daemon.stop with stopWorkers (DIPO-315)", () => {
     // Still waiting: the worker has not exited.
     w.f.t.clock.advance(1_000);
     await settle();
-    expect(result).toBeNull();
+    expect(box.result).toBeNull();
     // The exit is ingested; the next look sees no worker left.
     w.control.onEnded(w.f.run);
     w.f.t.clock.advance(250);
     await settle();
     await done;
-    expect(result).toEqual({ stopped: 1, deciding: 0, running: 0 });
+    expect(box.result).toEqual({ stopped: 1, deciding: 0, running: 0 });
   });
 
   it("counts a worker that has not exited within the wait, and stops nothing twice", async () => {
