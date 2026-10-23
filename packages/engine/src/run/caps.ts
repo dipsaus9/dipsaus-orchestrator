@@ -12,6 +12,25 @@ import { grantTotals } from "./grants";
 import { pausedMs } from "./pauses";
 import type { StoredRun } from "./records";
 
+/**
+ * The ms the run's worker questions waited live up to `now` (0020 section 7, DIPO-159, the
+ * `questions` table of `hooks/questions.ts`): from each question's `asked_at` to the first of its
+ * close, its park (the park's own time is the run's `parked_ms`), the end of its wait and `now`.
+ * The minute cap leaves them out.
+ */
+export function questionWaitMs(office: OfficeHandle, runId: string, now: number): number {
+  const row = office.get<{ total: number | null }>(
+    `select sum(max(0, min(coalesce(q.closed_at, $now), coalesce(p.at, $now), q.wait_until, $now)
+         - q.asked_at)) as total
+       from questions q
+       left join parks p on p.office_id = q.office_id and p.park_id = q.park_id
+      where q.office_id = $office_id and q.run_id = $run and q.kind = 'question'
+        and q.wait_until is not null`,
+    { run: runId, now },
+  );
+  return row?.total ?? 0;
+}
+
 /** The cap that fired, as the park detail and the `cap` intent name it. */
 export type CapName = "budgetTokens" | "maxTurns" | "maxMinutes";
 
@@ -63,10 +82,10 @@ export const REVIEWER_ROLE = "reviewer";
 /**
  * The run's totals from the stored usage, and the wall-clock time from `startedAt` (when its worker
  * host started, moved by the time it stood parked, ended or in review) to `now`, less the time
- * the maintainer paused it. The budget counts
- * every agent of the run, the reviewer's too, since the story's budget pays for its review; the
- * turns count only the developer's agents, since a reviewer's turns count only toward its own
- * session cap (0019 sections 4 and 13).
+ * the maintainer paused it and the time its worker questions waited live (0020 section 7). The
+ * budget counts every agent of the run, the reviewer's too, since the story's budget pays for
+ * its review; the turns count only the developer's agents, since a reviewer's turns count only
+ * toward its own session cap (0019 sections 4 and 13).
  */
 export function runTotals(
   office: OfficeHandle,
@@ -86,8 +105,12 @@ export function runTotals(
   return {
     budgetTokens: row?.budget ?? 0,
     turns: row?.turns ?? 0,
-    // The time the maintainer paused the run does not count (0020 section 9, DIPO-163).
-    elapsedMs: Math.max(0, now - startedAt - pausedMs(office, runId, now)),
+    // The time the maintainer paused the run (0020 section 9, DIPO-163) and the live wait of its
+    // worker questions (0020 section 7, DIPO-159) do not count.
+    elapsedMs: Math.max(
+      0,
+      now - startedAt - pausedMs(office, runId, now) - questionWaitMs(office, runId, now),
+    ),
   };
 }
 

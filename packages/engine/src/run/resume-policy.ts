@@ -9,9 +9,11 @@
 // - `PARK_RESUME_MATRIX` is keyed by `reason/cause`, or by the reason alone for a row that holds
 //   for every cause with no own row. A row either refuses (`notResumable`, `decisionRequired`) or
 //   says how the resume goes. A reason or cause with no row is not resumed here: `work.resume`
-//   answers `story.notPausedOrParked` for it, as before (a question park waits for DIPO-159's
-//   answer). The box parks of a protected file, a secret, a refused part and a task file dipo
-//   does not know are never resumable (maintainer decision, DIPO-155 review): `dipo discard`.
+//   answers `story.notPausedOrParked` for it, as before. A question park (`ambiguous-spec` with
+//   cause `question`) resumes with its answer: the note of `work.resume`, or the text of
+//   `work.answer` on its question (DIPO-159). The box parks of a protected file, a secret, a
+//   refused part and a task file dipo does not know are never resumable (maintainer decision,
+//   DIPO-155 review): `dipo discard`.
 // - Box runs (0021 sections 6 and 7): every developer session of a box run is a new session in the
 //   story's box with a handoff, never a native resume, so `developer` means a handoff there.
 
@@ -71,9 +73,18 @@ export type ResumeSession = "developer" | "handoff" | "review" | "fix-round" | "
  * The first message's delta before the note (0020 section 3): `resume` is `feedback/resume.md`
  * with the park's detail, `detail` the detail in `feedback/parked.md`, `verify-item` and `ci-item`
  * the run's last stored verify or CI feedback item (the detail when none was stored), `topup`
- * `feedback/topup.md` after the round's undelivered feedback, `none` nothing.
+ * `feedback/topup.md` after the round's undelivered feedback, `answer` the park's question and the
+ * maintainer's answer in `feedback/answer.md`, where the note is the answer (DIPO-159), `none`
+ * nothing.
  */
-export type ResumeDelta = "resume" | "detail" | "verify-item" | "ci-item" | "topup" | "none";
+export type ResumeDelta =
+  | "resume"
+  | "detail"
+  | "verify-item"
+  | "ci-item"
+  | "topup"
+  | "answer"
+  | "none";
 
 /**
  * The grant a resume records (0020 decision 6b and section 4): one more round of the limit that
@@ -172,6 +183,8 @@ export const PARK_RESUME_MATRIX: Readonly<Record<string, ParkMatrixRow>> = {
   "conflict/unwritable-path": required("developer", "none", { port: "conflict" }),
   "conflict/push-rejected": required("developer", "none", { port: "conflict" }),
   "conflict/slot-refused": required("none", "none", { port: "slot" }),
+  // The note is the answer to the park's question (0020 section 7, DIPO-159).
+  "ambiguous-spec/question": required("developer", "answer"),
   "ambiguous-spec/no-report": required("handoff", "none"),
   "ambiguous-spec/rule-conflict": required("developer", "detail"),
   "needs-permission": { kind: "refuse", code: "resume.decisionRequired" },

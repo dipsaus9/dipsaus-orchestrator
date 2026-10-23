@@ -42,6 +42,9 @@ export const CAPABILITY_FLAGS: Readonly<Record<string, readonly string[]>> = {
   review: ["gate.approve", "gate.reject"],
   // The plain-text desk (0020 section 12, DIPO-158).
   desk: ["office.desk"],
+  // Accept or dismiss a worker's proposals, and their `proposal.filed` and `proposal.closed` events
+  // (0020 section 14, DIPO-166).
+  proposals: ["proposal.accept", "proposal.dismiss"],
 };
 
 /** The capability flags `registry` can back, in table order. */

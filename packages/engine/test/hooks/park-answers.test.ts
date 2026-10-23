@@ -454,6 +454,18 @@ describe("a story parked for another reason (AC #4)", () => {
         { key: w.work.key, run: w.f.run },
       );
     });
+    // Resolving the park expires its question at once (migration 48, DIPO-159).
+    expect(findQuestion(w.f.office, question.questionId)?.closedHow).toBe("expired");
+    const closed = await answer({ question: question.questionId, text: "", decision: "allow" });
+    expect(closed).toMatchObject({ ok: false, error: { code: "question.closed" } });
+    // A question a park resolved before migration 48 left open: the answer names the new park.
+    office.immediate(() =>
+      office.run(
+        `update questions set closed_at = null, closed_how = null
+          where office_id = $office_id and question_id = $question`,
+        { question: question.questionId },
+      ),
+    );
     const reply = await answer({ question: question.questionId, text: "", decision: "allow" });
     expect(reply).toMatchObject({
       ok: false,
