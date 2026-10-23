@@ -248,7 +248,9 @@ async function readStoryOutput(
 // project's other Backlog files (its configuration, milestones). The pass lists the blob of every
 // such file at the commit it reads (`backlogBlobs`, from `git ls-tree`), and a view is taken from
 // the office's `StoryViewCache` when the story's own files, and those of every story id its view
-// printed, have the same blobs as when it was read, and no other Backlog file changed.
+// printed (with or without a file then), have the same blobs as when it was read, and no other
+// Backlog file changed. The pass lists the folders the CLI reads (`backlogFolders`): `backlog/`,
+// `.backlog/` and the folder `backlog.config.yml` names.
 //
 // A story read again, added or gone may change what the views of the stories it names print (a
 // new subtask, a new dependent), so each story id a new or an old view of such a story prints is
@@ -301,12 +303,15 @@ export function backlogBlobs(output: string): BacklogBlobs {
   };
 }
 
-/** The story ids `output` names that are files of `blobs`, the story's own left out. */
-function namedIds(output: string, blobs: BacklogBlobs, own: string): Set<string> {
+/**
+ * Every story id `output` names, the story's own left out, whether or not it has a file yet: a
+ * dependency on a story that does not exist yet prints differently once it does.
+ */
+function namedIds(output: string, own: string): Set<string> {
   const ids = new Set<string>();
   for (const match of output.matchAll(ID_TOKEN)) {
     const id = match[0].toUpperCase();
-    if (id !== own && blobs.byId.has(id)) ids.add(id);
+    if (id !== own) ids.add(id);
   }
   return ids;
 }
@@ -314,7 +319,7 @@ function namedIds(output: string, blobs: BacklogBlobs, own: string): Set<string>
 interface CachedView {
   /** The fingerprint of the story's own files when it was read. */
   readonly own: string;
-  /** The fingerprint of each story id the view named, when it was read. */
+  /** The fingerprint of each story id the view named when it was read; "" when it had no file. */
   readonly named: ReadonlyMap<string, string>;
   readonly story: BacklogStory;
 }
@@ -356,7 +361,7 @@ export class ViewPass {
     const own = this.blobs.byId.get(id.toUpperCase());
     if (kept === undefined || own === undefined || kept.own !== own) return undefined;
     for (const [named, fingerprint] of kept.named) {
-      if (this.blobs.byId.get(named) !== fingerprint) return undefined;
+      if ((this.blobs.byId.get(named) ?? "") !== fingerprint) return undefined;
     }
     this.reused.add(key);
     return kept.story;
@@ -370,7 +375,7 @@ export class ViewPass {
     const old = this.views.get(key);
     for (const named of old?.named.keys() ?? []) this.touched.add(named);
     const own = this.blobs.byId.get(upper);
-    const ids = namedIds(output, this.blobs, upper);
+    const ids = namedIds(output, upper);
     for (const named of ids) this.touched.add(named);
     if (own === undefined) {
       this.views.delete(key);

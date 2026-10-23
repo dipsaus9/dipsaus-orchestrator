@@ -18,7 +18,10 @@
 
 import type { Clock, Cursor, IdSource, StoryKey } from "@dipsaus-orchestrator/contract";
 
-import type { BacklogCli } from "../backlog/runner";
+import { readFileSync } from "node:fs";
+import { join } from "node:path";
+
+import { type BacklogCli, backlogPointer } from "../backlog/runner";
 import { appendEntries } from "../changelog/log";
 import type { OfficeHandle } from "../db/office";
 import type { GitSession, OfficeGit } from "../git/office";
@@ -75,6 +78,9 @@ export interface IndexResult {
   readonly baseStatus: ReadonlyMap<StoryKey, string>;
 }
 
+/** The Backlog CLI's root configuration file. */
+const BACKLOG_ROOT_CONFIG = "backlog.config.yml";
+
 /** Each office's kept views (DIPO-314), for as long as its handle lives. */
 const VIEW_CACHES = new WeakMap<OfficeHandle, StoryViewCache>();
 
@@ -88,23 +94,40 @@ export function viewCacheOf(office: OfficeHandle): StoryViewCache {
   return cache;
 }
 
-/** The pass's view of the office's cache at `sha`, or undefined when the blobs cannot be listed. */
+/**
+ * The folders the Backlog CLI reads its files from in the checkout `cwd`, as `scanBacklogFiles`
+ * resolves them: `backlog/`, `.backlog/` and the folder `backlog.config.yml` names, with that
+ * file itself; null when the file names a folder dipo cannot resolve, or cannot be read.
+ */
+export function backlogFolders(cwd: string): string[] | null {
+  const folders = ["backlog", ".backlog", BACKLOG_ROOT_CONFIG];
+  let text: string;
+  try {
+    text = readFileSync(join(cwd, BACKLOG_ROOT_CONFIG), "utf8");
+  } catch (error) {
+    return (error as { code?: unknown }).code === "ENOENT" ? folders : null;
+  }
+  const pointer = backlogPointer(text);
+  if (pointer.kind === "unresolved") return null;
+  if (pointer.kind === "folder" && !folders.includes(pointer.folder)) folders.push(pointer.folder);
+  return folders;
+}
+
+/**
+ * The pass's view of the office's cache at `sha`, or undefined when the blobs cannot be listed or
+ * the Backlog folders cannot be resolved.
+ */
 async function viewPass(
   office: OfficeHandle,
   git: GitSession,
   location: ReturnType<OfficeGit["worktreeLocation"]>,
   sha: string,
+  basePath: string,
 ): Promise<ViewPass | undefined> {
+  const folders = backlogFolders(basePath);
+  if (folders === null) return undefined;
   try {
-    const listing = await git.ok(location, [
-      "ls-tree",
-      "-r",
-      "-z",
-      sha,
-      "--",
-      "backlog",
-      "backlog.config.yml",
-    ]);
+    const listing = await git.ok(location, ["ls-tree", "-r", "-z", sha, "--", ...folders]);
     return viewCacheOf(office).pass(backlogBlobs(listing));
   } catch {
     return undefined;
@@ -147,7 +170,9 @@ export async function indexPass(
   const location = deps.git.worktreeLocation(basePath);
   const sha = (await git.ok(location, ["rev-parse", "--verify", "HEAD"])).trim();
   const pass =
-    deps.reuseViews === true ? await viewPass(deps.office, git, location, sha) : undefined;
+    deps.reuseViews === true
+      ? await viewPass(deps.office, git, location, sha, basePath)
+      : undefined;
   const fromBase = await readBacklog(deps.cli, basePath, pass);
   const { read, branchUnread, baseStatus } = await overlayClaimed(deps, git, basePath, fromBase);
   const at = deps.clock.now();

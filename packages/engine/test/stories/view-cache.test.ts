@@ -7,6 +7,10 @@ import { describe, expect, it } from "bun:test";
 
 import type { SpawnOptions } from "@dipsaus-orchestrator/contract";
 
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { join } from "node:path";
+
+import { backlogFolders } from "../../src/stories/index-stories";
 import { backlogBlobs, readBacklog, StoryViewCache } from "../../src/stories/read";
 import { scriptedSpawn } from "../backlog/helpers";
 import { withReconcileOffice } from "../reconcile/helpers";
@@ -146,6 +150,26 @@ describe("an index read with the view cache", () => {
     expect(views().slice(5)).toEqual(["TASK-3"]);
   });
 
+  it("reads a kept story again once an id it named without a file gets one", async () => {
+    const cache = new StoryViewCache();
+    const named: Story[] = [
+      { id: "TASK-1", status: "Ready" },
+      { id: "TASK-2", status: "Ready", names: ["TASK-9"] },
+    ];
+    const { cli: backlog, views } = cli(() => named);
+    const two = { [file("TASK-1")]: "a1", [file("TASK-2")]: "b1" };
+    await readBacklog(backlog, "/nowhere", cache.pass(backlogBlobs(tree(two))));
+    await readBacklog(backlog, "/nowhere", cache.pass(backlogBlobs(tree(two))));
+    expect(views()).toEqual(["TASK-1", "TASK-2"]);
+    // TASK-9 appears (completed, so not listed): TASK-2's view prints it differently now.
+    await readBacklog(
+      backlog,
+      "/nowhere",
+      cache.pass(backlogBlobs(tree({ ...two, "backlog/completed/task-9 - Done.md": "z1" }))),
+    );
+    expect(views()).toEqual(["TASK-1", "TASK-2", "TASK-2"]);
+  });
+
   it("reads every story again when another Backlog file changed", async () => {
     const cache = new StoryViewCache();
     const { cli: backlog, views } = cli(() => stories);
@@ -169,6 +193,40 @@ describe("an index read with the view cache", () => {
     await readBacklog(backlog, "/nowhere", cache.pass(backlogBlobs(tree(partial))));
     await readBacklog(backlog, "/nowhere", cache.pass(backlogBlobs(tree(partial))));
     expect(views().filter((id) => id === "TASK-3")).toEqual(["TASK-3", "TASK-3"]);
+  });
+});
+
+/** Runs `fn` in a checkout with `backlog/` and, unless null, a `backlog.config.yml` of `config`. */
+function withCheckout(config: string | null, fn: (dir: string) => void): void {
+  const dir = mkdtempSync(join(process.env["DIPO_TMP"] || "/tmp", "folders-"));
+  try {
+    if (config !== null) writeFileSync(join(dir, "backlog.config.yml"), config);
+    mkdirSync(join(dir, "backlog"));
+    fn(dir);
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+}
+
+describe("backlogFolders", () => {
+  it("lists backlog/, .backlog/ and the folder backlog.config.yml names, as the scan does", () => {
+    withCheckout(null, (dir) =>
+      expect(backlogFolders(dir)).toEqual(["backlog", ".backlog", "backlog.config.yml"]),
+    );
+    withCheckout('project_name: "x"\nbacklog_directory: "planning"\n', (dir) =>
+      expect(backlogFolders(dir)).toEqual([
+        "backlog",
+        ".backlog",
+        "backlog.config.yml",
+        "planning",
+      ]),
+    );
+  });
+
+  it("turns the cache off for a folder it cannot resolve", () => {
+    withCheckout("backlog_directory: /elsewhere\n", (dir) =>
+      expect(backlogFolders(dir)).toBeNull(),
+    );
   });
 });
 
