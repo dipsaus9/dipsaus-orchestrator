@@ -5,7 +5,7 @@
 // the checks of the pushed head and squash-merge at that head with the PR title; a restart
 // continues with the persisted occupant and merges once; labels, a moved host head, a PR closed
 // on the host, red checks, a conflict and a host that keeps refusing are handled by section 9.
-// The real-git cases are in story-slot.git.test.ts.
+// The real-git cases are in story-slot.git.ci.test.ts.
 
 import { afterEach, describe, expect, it } from "bun:test";
 

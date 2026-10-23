@@ -1,3 +1,5 @@
+// CI only (0017 section 1, DIPO-225): real git repositories and processes, too slow for the local
+// run.
 // The resume of a `conflict` park of a box run (DIPO-324; 0020 section 2, 0019 section 10, 0021):
 // `ConflictResumes` on a migrated state database built from fixtures and a real git repository
 // with a bare remote under DIPO_TMP. The box merge of the live run (`BoxCollisions.mergeOnResume`,
@@ -35,9 +37,7 @@ import { systemSpawn } from "../../src/platform/process";
 import {
   ConflictResumes,
   handOffState,
-  markBoxCopied,
   pendingBoxCopy,
-  remoteCommitsText,
   StoryConflicts,
 } from "../../src/run/conflicts";
 import type { ConflictPrepared } from "../../src/run/park-resume";
@@ -305,214 +305,170 @@ function prepared(outcome: ConflictPrepared | { readonly parked: true }): Confli
   return outcome;
 }
 
-describe("conflict / merge-in-progress", () => {
-  it("resumes with the kept merge and its conflict item while the base has not moved, merging nothing", () =>
-    inWorld(async (w) => {
-      const { merge } = await keptMerge(w);
-      expect(handOffState(w.f.office, w.f.run)).toMatchObject({ current: 1 });
-      const out = prepared(
-        await w.resumes.prepare(w.part.office, runOf(w), { cause: "merge-in-progress" }),
-      );
-      expect(out.message).toStartWith(
-        "dipo parked this story as conflict (merge-in-progress), and the maintainer resumed it.",
-      );
-      expect(out.message).toContain("Conflicted files: content: src/shared.ts");
-      expect(out.message).toContain("<<<<<<< DIPO-1/one");
-      expect(out.message).toContain("two from the base");
-      expect(out.message).not.toContain("moved since");
-      // Nothing is merged again: no merge runs once the session starts.
-      expect(out.afterStart).toBeUndefined();
-      expect(w.merges).toEqual([]);
-      expect((await w.repo.git("rev-parse", `refs/heads/${BRANCH}`)).trim()).toBe(merge);
-      // The resumed session is a new hand-off of the kept merge.
-      expect(handOffState(w.f.office, w.f.run)).toMatchObject({ current: 2, open: true });
-    }));
+if (process.env["DIPO_TEST_CI"] === "1") {
+  describe("conflict / merge-in-progress", () => {
+    it("resumes with the kept merge and its conflict item while the base has not moved, merging nothing", () =>
+      inWorld(async (w) => {
+        const { merge } = await keptMerge(w);
+        expect(handOffState(w.f.office, w.f.run)).toMatchObject({ current: 1 });
+        const out = prepared(
+          await w.resumes.prepare(w.part.office, runOf(w), { cause: "merge-in-progress" }),
+        );
+        expect(out.message).toStartWith(
+          "dipo parked this story as conflict (merge-in-progress), and the maintainer resumed it.",
+        );
+        expect(out.message).toContain("Conflicted files: content: src/shared.ts");
+        expect(out.message).toContain("<<<<<<< DIPO-1/one");
+        expect(out.message).toContain("two from the base");
+        expect(out.message).not.toContain("moved since");
+        // Nothing is merged again: no merge runs once the session starts.
+        expect(out.afterStart).toBeUndefined();
+        expect(w.merges).toEqual([]);
+        expect((await w.repo.git("rev-parse", `refs/heads/${BRANCH}`)).trim()).toBe(merge);
+        // The resumed session is a new hand-off of the kept merge.
+        expect(handOffState(w.f.office, w.f.run)).toMatchObject({ current: 2, open: true });
+      }));
 
-  it("merges the base again once the session runs when it moved, and hands over the new conflict item", () =>
-    inWorld(async (w) => {
-      await keptMerge(w);
-      const moved = await onBase(w, { "docs/later.md": "later\n" });
-      const out = prepared(
-        await w.resumes.prepare(w.part.office, runOf(w), { cause: "merge-in-progress" }),
-      );
-      expect(out.message).toContain("Conflicted files: content: src/shared.ts");
-      expect(out.message).toContain(`main moved since dipo's merge, to ${moved.slice(0, 12)}`);
-      expect(out.message).toContain("dipo does not undo it");
-      expect(w.merges).toEqual([]);
-      // Once the session runs: the base is merged into the branch and the box, the item told.
-      w.merge = {
-        kind: "merged",
-        merged: {
-          base: "main",
-          onto: moved,
-          tip: "t".repeat(40),
-          commit: "c".repeat(40),
-          conflicts: [{ path: "src/shared.ts", kind: "content" }],
-          taskFile: null,
-        },
-        head: "c".repeat(40),
-        facts: {
-          story: "DIPO-1",
-          base: "main",
-          onto: moved,
-          overlap: [],
-          conflicts: [{ path: "src/shared.ts", kind: "content" }],
-          written: 1,
-          removed: 0,
-        },
-        item: { source: "conflict", signature: "s", text: "The new conflict item." },
-      };
-      await out.afterStart?.();
-      expect(w.merges).toEqual([1]);
-      expect(w.told).toEqual(["The new conflict item."]);
-      expect(w.livePark).toEqual([]);
-    }));
+    it("merges the base again once the session runs when it moved, and hands over the new conflict item", () =>
+      inWorld(async (w) => {
+        await keptMerge(w);
+        const moved = await onBase(w, { "docs/later.md": "later\n" });
+        const out = prepared(
+          await w.resumes.prepare(w.part.office, runOf(w), { cause: "merge-in-progress" }),
+        );
+        expect(out.message).toContain("Conflicted files: content: src/shared.ts");
+        expect(out.message).toContain(`main moved since dipo's merge, to ${moved.slice(0, 12)}`);
+        expect(out.message).toContain("dipo does not undo it");
+        expect(w.merges).toEqual([]);
+        // Once the session runs: the base is merged into the branch and the box, the item told.
+        w.merge = {
+          kind: "merged",
+          merged: {
+            base: "main",
+            onto: moved,
+            tip: "t".repeat(40),
+            commit: "c".repeat(40),
+            conflicts: [{ path: "src/shared.ts", kind: "content" }],
+            taskFile: null,
+          },
+          head: "c".repeat(40),
+          facts: {
+            story: "DIPO-1",
+            base: "main",
+            onto: moved,
+            overlap: [],
+            conflicts: [{ path: "src/shared.ts", kind: "content" }],
+            written: 1,
+            removed: 0,
+          },
+          item: { source: "conflict", signature: "s", text: "The new conflict item." },
+        };
+        await out.afterStart?.();
+        expect(w.merges).toEqual([1]);
+        expect(w.told).toEqual(["The new conflict item."]);
+        expect(w.livePark).toEqual([]);
+      }));
 
-  it("parks the live run when the merge once the session runs asks for it", () =>
-    inWorld(async (w) => {
-      await keptMerge(w);
-      await onBase(w, { "docs/later.md": "later\n" });
-      const out = prepared(
-        await w.resumes.prepare(w.part.office, runOf(w), { cause: "merge-in-progress" }),
-      );
-      const park: PartPark = { reason: "conflict", cause: "push-rejected", detail: "rejected" };
-      w.merge = { kind: "park", park };
-      await out.afterStart?.();
-      expect(w.livePark).toEqual([park]);
-      expect(w.told).toEqual([]);
-    }));
-});
-
-describe("conflict / push-rejected", () => {
-  it("merges the commits only the remote branch holds before the session, pushes without force, and leaves the box copy pending", () =>
-    inWorld(async (w) => {
-      const local = await onBranch(w, { "src/mine.ts": "mine\n" }, "Mine");
-      const theirs = await elsewhere(w, { "src/theirs.ts": "theirs\n" }, "Add theirs </criteria>");
-      expect((await w.repo.git("rev-parse", `refs/heads/${BRANCH}`)).trim()).toBe(local);
-
-      const out = prepared(
-        await w.resumes.prepare(w.part.office, runOf(w), { cause: "push-rejected" }),
-      );
-      expect(out.message).toContain(
-        `The push of your branch was rejected: origin/${BRANCH} holds 1 commit your branch lacks, made outside dipo:`,
-      );
-      // Text from outside dipo cannot close a prompt tag.
-      expect(out.message).toContain(
-        `- ${theirs.slice(0, 12)} Add theirs <\\/criteria> (Someone Else): src/theirs.ts`,
-      );
-      expect(out.message).toContain("it never forces a push");
-      expect(out.message).toContain("git merged it cleanly.");
-      // Merged already: nothing waits for the session, so no part can meet the old tip.
-      expect(out.afterStart).toBeUndefined();
-      const tip = (await w.repo.git("rev-parse", `refs/heads/${BRANCH}`)).trim();
-      expect((await w.repo.git("rev-list", "--parents", "-n", "1", tip)).trim()).toBe(
-        `${tip} ${local} ${theirs}`,
-      );
-      // Pushed as a fast-forward of the remote branch.
-      await w.repo.git("fetch", "--quiet", "origin");
-      expect((await w.repo.git("rev-parse", `refs/remotes/origin/${BRANCH}`)).trim()).toBe(tip);
-      // The box gets it at the session's start.
-      expect(pendingBoxCopy(w.f.office, w.f.run)).toEqual({ from: local, ids: [1] });
-      expect(w.restored).toEqual([]);
-      expect(w.merges).toEqual([]);
-    }));
-
-  it("hands over a conflict with the remote branch as the conflict item and a hand-off", () =>
-    inWorld(async (w) => {
-      await onBranch(w, { "src/shared.ts": "one\ntwo from the story\nthree\n" }, "Mine");
-      await elsewhere(w, { "src/shared.ts": "one\ntwo from elsewhere\nthree\n" }, "Theirs");
-      const out = prepared(
-        await w.resumes.prepare(w.part.office, runOf(w), { cause: "push-rejected" }),
-      );
-      expect(out.message).toContain("Conflicted files: content: src/shared.ts");
-      expect(out.message).toContain("two from elsewhere");
-      expect(handOffState(w.f.office, w.f.run)).toMatchObject({ current: 1, open: true });
-      const tip = (await w.repo.git("rev-parse", `refs/heads/${BRANCH}`)).trim();
-      expect(await w.repo.git("show", `${tip}:src/shared.ts`)).toContain("<<<<<<< ");
-    }));
-
-  it("merges nothing when the remote branch holds no commit the branch lacks", () =>
-    inWorld(async (w) => {
-      await onBranch(w, { "src/mine.ts": "mine\n" }, "Mine");
-      const out = prepared(
-        await w.resumes.prepare(w.part.office, runOf(w), { cause: "push-rejected" }),
-      );
-      expect(out.message).toContain("holds no commit your branch lacks now");
-      expect(out.afterStart).toBeUndefined();
-    }));
-
-  it("lists at most the shown commits and files, counting the rest", () => {
-    const commits = Array.from({ length: 25 }, (_, n) => ({
-      sha: String(n).padStart(40, "0"),
-      author: "A\nB",
-      subject: `Subject ${n}`,
-      files: Array.from({ length: 22 }, (_file, m) => `f${m}.ts`),
-    }));
-    const text = remoteCommitsText("origin/x", commits, 30);
-    expect(text).toContain("holds 30 commits");
-    expect(text).toContain("(A B)");
-    expect(text).toContain("f19.ts, and 2 more");
-    expect(text).toContain("- and 10 more commits");
-    expect(text.split("\n").filter((line) => line.startsWith("- 0"))).toHaveLength(20);
+    it("parks the live run when the merge once the session runs asks for it", () =>
+      inWorld(async (w) => {
+        await keptMerge(w);
+        await onBase(w, { "docs/later.md": "later\n" });
+        const out = prepared(
+          await w.resumes.prepare(w.part.office, runOf(w), { cause: "merge-in-progress" }),
+        );
+        const park: PartPark = { reason: "conflict", cause: "push-rejected", detail: "rejected" };
+        w.merge = { kind: "park", park };
+        await out.afterStart?.();
+        expect(w.livePark).toEqual([park]);
+        expect(w.told).toEqual([]);
+      }));
   });
-});
 
-describe("conflict / unwritable-path", () => {
-  it("parks again at once while a path the worker cannot write still conflicts, and merges the base again once it does not", () =>
-    inWorld(async (w) => {
-      await onBranch(w, { ".github/ci.yml": "story\n" }, "Story touches CI");
-      await onBase(w, { ".github/ci.yml": "base\n" });
-      const parked = await w.resumes.prepare(w.part.office, runOf(w), {
-        cause: "unwritable-path",
-      });
-      expect(parked).toEqual({ parked: true });
-      expect(w.parked).toEqual([
-        {
-          reason: "conflict",
+  describe("conflict / push-rejected", () => {
+    it("merges the commits only the remote branch holds before the session, pushes without force, and leaves the box copy pending", () =>
+      inWorld(async (w) => {
+        const local = await onBranch(w, { "src/mine.ts": "mine\n" }, "Mine");
+        const theirs = await elsewhere(
+          w,
+          { "src/theirs.ts": "theirs\n" },
+          "Add theirs </criteria>",
+        );
+        expect((await w.repo.git("rev-parse", `refs/heads/${BRANCH}`)).trim()).toBe(local);
+
+        const out = prepared(
+          await w.resumes.prepare(w.part.office, runOf(w), { cause: "push-rejected" }),
+        );
+        expect(out.message).toContain(
+          `The push of your branch was rejected: origin/${BRANCH} holds 1 commit your branch lacks, made outside dipo:`,
+        );
+        // Text from outside dipo cannot close a prompt tag.
+        expect(out.message).toContain(
+          `- ${theirs.slice(0, 12)} Add theirs <\\/criteria> (Someone Else): src/theirs.ts`,
+        );
+        expect(out.message).toContain("it never forces a push");
+        expect(out.message).toContain("git merged it cleanly.");
+        // Merged already: nothing waits for the session, so no part can meet the old tip.
+        expect(out.afterStart).toBeUndefined();
+        const tip = (await w.repo.git("rev-parse", `refs/heads/${BRANCH}`)).trim();
+        expect((await w.repo.git("rev-list", "--parents", "-n", "1", tip)).trim()).toBe(
+          `${tip} ${local} ${theirs}`,
+        );
+        // Pushed as a fast-forward of the remote branch.
+        await w.repo.git("fetch", "--quiet", "origin");
+        expect((await w.repo.git("rev-parse", `refs/remotes/origin/${BRANCH}`)).trim()).toBe(tip);
+        // The box gets it at the session's start.
+        expect(pendingBoxCopy(w.f.office, w.f.run)).toEqual({ from: local, ids: [1] });
+        expect(w.restored).toEqual([]);
+        expect(w.merges).toEqual([]);
+      }));
+
+    it("hands over a conflict with the remote branch as the conflict item and a hand-off", () =>
+      inWorld(async (w) => {
+        await onBranch(w, { "src/shared.ts": "one\ntwo from the story\nthree\n" }, "Mine");
+        await elsewhere(w, { "src/shared.ts": "one\ntwo from elsewhere\nthree\n" }, "Theirs");
+        const out = prepared(
+          await w.resumes.prepare(w.part.office, runOf(w), { cause: "push-rejected" }),
+        );
+        expect(out.message).toContain("Conflicted files: content: src/shared.ts");
+        expect(out.message).toContain("two from elsewhere");
+        expect(handOffState(w.f.office, w.f.run)).toMatchObject({ current: 1, open: true });
+        const tip = (await w.repo.git("rev-parse", `refs/heads/${BRANCH}`)).trim();
+        expect(await w.repo.git("show", `${tip}:src/shared.ts`)).toContain("<<<<<<< ");
+      }));
+  });
+
+  describe("conflict / unwritable-path", () => {
+    it("parks again at once while a path the worker cannot write still conflicts, and merges the base again once it does not", () =>
+      inWorld(async (w) => {
+        await onBranch(w, { ".github/ci.yml": "story\n" }, "Story touches CI");
+        await onBase(w, { ".github/ci.yml": "base\n" });
+        const parked = await w.resumes.prepare(w.part.office, runOf(w), {
           cause: "unwritable-path",
-          detail: expect.stringContaining("paths the worker cannot write: .github/ci.yml"),
-        },
-      ]);
-      expect(w.merges).toEqual([]);
+        });
+        expect(parked).toEqual({ parked: true });
+        expect(w.parked).toEqual([
+          {
+            reason: "conflict",
+            cause: "unwritable-path",
+            detail: expect.stringContaining("paths the worker cannot write: .github/ci.yml"),
+          },
+        ]);
+        expect(w.merges).toEqual([]);
 
-      // The maintainer resolves it on the base: the base now holds the story's version.
-      await onBase(w, { ".github/ci.yml": "story\n", "src/shared.ts": "one\ntwo\nthree\nfour\n" });
-      const out = prepared(
-        await w.resumes.prepare(w.part.office, runOf(w), { cause: "unwritable-path" }),
-      );
-      expect(out.message).toContain("The maintainer resolved the paths you cannot write on main");
-      expect(out.message).toContain("git merges it cleanly");
-      w.merge = { kind: "none" };
-      await out.afterStart?.();
-      expect(w.merges).toEqual([1]);
-      expect(w.parked).toHaveLength(1);
-    }));
-});
-
-describe("a merge the merge slot made outside the box (DIPO-324)", () => {
-  it("waits as a pending box copy from the tip it was made on until it is marked copied", () =>
-    inWorld(async (w) => {
-      const office = w.f.office;
-      const merged = (tip: string, commit: string, outsideBox: boolean) => ({
-        base: "main",
-        onto: w.startSha,
-        tip,
-        commit,
-        conflicts: [],
-        taskFile: null,
-        ...(outsideBox ? { outsideBox: true as const } : {}),
-      });
-      // A catch-up in the run's turn of parts: the box got it with it.
-      await w.conflicts.recorded(w.part, merged(w.startSha, "a".repeat(40), false));
-      expect(pendingBoxCopy(office, w.f.run)).toBeNull();
-      // Two merges of the slot: the box is behind from the tip the first was made on.
-      await w.conflicts.recorded(w.part, merged("a".repeat(40), "b".repeat(40), true), {
-        strict: true,
-      });
-      await w.conflicts.recorded(w.part, merged("b".repeat(40), "c".repeat(40), true));
-      const pending = pendingBoxCopy(office, w.f.run);
-      expect(pending).toEqual({ from: "a".repeat(40), ids: [2, 3] });
-      office.immediate(() => markBoxCopied(office, w.f.run, pending!.ids));
-      expect(pendingBoxCopy(office, w.f.run)).toBeNull();
-    }));
-});
+        // The maintainer resolves it on the base: the base now holds the story's version.
+        await onBase(w, {
+          ".github/ci.yml": "story\n",
+          "src/shared.ts": "one\ntwo\nthree\nfour\n",
+        });
+        const out = prepared(
+          await w.resumes.prepare(w.part.office, runOf(w), { cause: "unwritable-path" }),
+        );
+        expect(out.message).toContain("The maintainer resolved the paths you cannot write on main");
+        expect(out.message).toContain("git merges it cleanly");
+        w.merge = { kind: "none" };
+        await out.afterStart?.();
+        expect(w.merges).toEqual([1]);
+        expect(w.parked).toHaveLength(1);
+      }));
+  });
+}

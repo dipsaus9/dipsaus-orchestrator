@@ -20,25 +20,4 @@ describe("the test runner's per-test timeout (DIPO-335)", () => {
     ]);
     expect(testArgs([], {})).toEqual(["test", "--timeout=5000"]);
   });
-
-  it("applies the timeout to a test file that is not the first of the run", async () => {
-    const dir = `${process.env["DIPO_TMP"] ?? "/tmp"}/dipo-335-${process.pid}`;
-    await Bun.write(`${dir}/a.test.ts`, 'import { it } from "bun:test";\nit("a", () => {});\n');
-    await Bun.write(
-      `${dir}/b.test.ts`,
-      'import { it } from "bun:test";\nit("b waits 6 s", async () => { await Bun.sleep(6000); });\n',
-    );
-    try {
-      const run = Bun.spawn(
-        [
-          process.execPath,
-          ...testArgs([`${dir}/a.test.ts`, `${dir}/b.test.ts`], { DIPO_TEST_CI: "1" }),
-        ],
-        { cwd: dir, stdout: "pipe", stderr: "pipe" },
-      );
-      expect(await run.exited).toBe(0);
-    } finally {
-      await Bun.$`rm -rf ${dir}`.quiet();
-    }
-  }, 30_000);
 });

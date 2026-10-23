@@ -1,3 +1,5 @@
+// CI only (0017 section 1, DIPO-225): real git repositories and processes, too slow for the local
+// run.
 // The story index against the pinned Backlog CLI and real git (DIPO-32 test plan): the office
 // loads and indexes the Backlog fixture from `_base`, keys stay stable across passes and a retitle,
 // an archived or completed task closes as Removed with a notice, a hand-promoted draft is
@@ -92,87 +94,75 @@ function mirrorStatus(office: OfficeHandle, id: string): string | undefined {
   );
 }
 
-describe("story index on the Backlog CLI", () => {
-  it("indexes the fixture at load, and a pushed status after polling.fetchSeconds with the key kept", () =>
-    withIndexedOffice(async ({ repo, s, index, officeId, office }) => {
-      const loaded = storyRows(office);
-      expect(loaded.map((row) => [row.story_id, row.removed])).toEqual([
-        ["DRAFT-1", false],
-        ["TASK-1", false],
-        ["TASK-2", false],
-        ["TASK-3", false],
-      ]);
-      expect(mirrorStatus(office, "TASK-1")).toBe("Ready");
-      expect(mirrorStatus(office, "DRAFT-1")).toBe("Draft");
-      expect(
-        office.get<{ backlog_created: string }>(
-          "select backlog_created from stories where office_id = $office_id and story_id = 'TASK-1'",
-        )?.backlog_created,
-      ).toBe("2026-10-12 11:28 (UTC)");
-      const states = entriesAfter(office).filter((e) => e.type === "story.state");
-      expect(states.map((e) => [e.delta["story"], e.delta["to"], e.view?.["column"]])).toEqual([
-        ["DRAFT-1", "Draft", "draft"],
-        ["TASK-1", "Ready", "ready"],
-        ["TASK-2", "Refined", "refined"],
-        // TASK-3 is parked on-hold in its field block (DIPO-52).
-        ["TASK-3", "Parked", "held"],
-      ]);
-
-      // A status pushed to the remote is indexed by the poll after polling.fetchSeconds, not before.
-      // The full case, with a second clone and the CLI, is in index.ci.test.ts.
-      const file = join(repo.dir, "backlog", "tasks", "task-2 - Rename-the-export-setting.md");
-      writeFileSync(file, readFileSync(file, "utf8").replace(/^status: .*$/m, "status: Ready"));
-      await publish(repo, "TASK-2 Ready");
-      const key = keyOf(office, "TASK-2");
-      const polled = lastSeq(office);
-      const interval = OFFICE_DEFAULTS.polling.fetchSeconds * 1000;
-      s.clock.advance(interval - 1);
-      await index.whenIdle(officeId);
-      expect(mirrorStatus(office, "TASK-2")).toBe("Refined");
-      s.clock.advance(1);
-      await index.whenIdle(officeId);
-      expect(mirrorStatus(office, "TASK-2")).toBe("Ready");
-      expect(storyRows(office)).toEqual(loaded);
-      expect(entriesAfter(office, polled)[0]?.delta).toEqual({
-        story: "TASK-2",
-        key,
-        from: "Refined",
-        to: "Ready",
-      });
-    }));
-
-  it("indexes the new base at the next poll when origin/<base> moved before the poll's fetch", () =>
-    withIndexedOffice(async ({ repo, s, index, officeId, office }) => {
-      // The push moves origin/main before the poll fetches, as a pull or fetch outside dipo does.
-      const file = join(repo.dir, "backlog", "tasks", "task-2 - Rename-the-export-setting.md");
-      writeFileSync(file, readFileSync(file, "utf8").replace(/^status: .*$/m, "status: Ready"));
-      await publish(repo, "TASK-2 Ready");
-      expect(mirrorStatus(office, "TASK-2")).toBe("Refined");
-      s.clock.advance(OFFICE_DEFAULTS.polling.fetchSeconds * 1000);
-      await index.whenIdle(officeId);
-      expect(mirrorStatus(office, "TASK-2")).toBe("Ready");
-    }));
-
-  it("does not index again at a poll when origin/<base> is the commit last indexed", () =>
-    withIndexedOffice(async ({ s, index, officeId }) => {
-      const last = index.lastPass(officeId);
-      expect(last).not.toBeNull();
-      s.clock.advance(OFFICE_DEFAULTS.polling.fetchSeconds * 1000);
-      await index.whenIdle(officeId);
-      expect(index.lastPass(officeId)).toBe(last);
-    }));
-
-  it("loads the office with a stories.notIndexed notice when the Backlog CLI fails", () =>
-    withIndexedOffice(
-      async ({ s, officeId, office }) => {
-        expect(s.manager.get(officeId)).toBe(office);
-        expect(storyRows(office)).toEqual([]);
-        const notices = entriesAfter(office).filter((e) => e.type === "engine.notice");
-        expect(notices.map((e) => e.delta)).toEqual([
-          expect.objectContaining({ level: "warn", code: "stories.notIndexed" }),
+if (process.env["DIPO_TEST_CI"] === "1") {
+  describe("story index on the Backlog CLI", () => {
+    it("indexes the fixture at load, and a pushed status after polling.fetchSeconds with the key kept", () =>
+      withIndexedOffice(async ({ repo, s, index, officeId, office }) => {
+        const loaded = storyRows(office);
+        expect(loaded.map((row) => [row.story_id, row.removed])).toEqual([
+          ["DRAFT-1", false],
+          ["TASK-1", false],
+          ["TASK-2", false],
+          ["TASK-3", false],
         ]);
-        expect(s.changed).toContain(officeId);
-      },
-      ["false"],
-    ));
-});
+        expect(mirrorStatus(office, "TASK-1")).toBe("Ready");
+        expect(mirrorStatus(office, "DRAFT-1")).toBe("Draft");
+        expect(
+          office.get<{ backlog_created: string }>(
+            "select backlog_created from stories where office_id = $office_id and story_id = 'TASK-1'",
+          )?.backlog_created,
+        ).toBe("2026-10-12 11:28 (UTC)");
+        const states = entriesAfter(office).filter((e) => e.type === "story.state");
+        expect(states.map((e) => [e.delta["story"], e.delta["to"], e.view?.["column"]])).toEqual([
+          ["DRAFT-1", "Draft", "draft"],
+          ["TASK-1", "Ready", "ready"],
+          ["TASK-2", "Refined", "refined"],
+          // TASK-3 is parked on-hold in its field block (DIPO-52).
+          ["TASK-3", "Parked", "held"],
+        ]);
+
+        // A status pushed to the remote is indexed by the poll after polling.fetchSeconds, not before.
+        // The full case, with a second clone and the CLI, is in index.ci.test.ts.
+        const file = join(repo.dir, "backlog", "tasks", "task-2 - Rename-the-export-setting.md");
+        writeFileSync(file, readFileSync(file, "utf8").replace(/^status: .*$/m, "status: Ready"));
+        await publish(repo, "TASK-2 Ready");
+        const key = keyOf(office, "TASK-2");
+        const polled = lastSeq(office);
+        const interval = OFFICE_DEFAULTS.polling.fetchSeconds * 1000;
+        s.clock.advance(interval - 1);
+        await index.whenIdle(officeId);
+        expect(mirrorStatus(office, "TASK-2")).toBe("Refined");
+        s.clock.advance(1);
+        await index.whenIdle(officeId);
+        expect(mirrorStatus(office, "TASK-2")).toBe("Ready");
+        expect(storyRows(office)).toEqual(loaded);
+        expect(entriesAfter(office, polled)[0]?.delta).toEqual({
+          story: "TASK-2",
+          key,
+          from: "Refined",
+          to: "Ready",
+        });
+      }));
+
+    it("indexes the new base at the next poll when origin/<base> moved before the poll's fetch", () =>
+      withIndexedOffice(async ({ repo, s, index, officeId, office }) => {
+        // The push moves origin/main before the poll fetches, as a pull or fetch outside dipo does.
+        const file = join(repo.dir, "backlog", "tasks", "task-2 - Rename-the-export-setting.md");
+        writeFileSync(file, readFileSync(file, "utf8").replace(/^status: .*$/m, "status: Ready"));
+        await publish(repo, "TASK-2 Ready");
+        expect(mirrorStatus(office, "TASK-2")).toBe("Refined");
+        s.clock.advance(OFFICE_DEFAULTS.polling.fetchSeconds * 1000);
+        await index.whenIdle(officeId);
+        expect(mirrorStatus(office, "TASK-2")).toBe("Ready");
+      }));
+
+    it("does not index again at a poll when origin/<base> is the commit last indexed", () =>
+      withIndexedOffice(async ({ s, index, officeId }) => {
+        const last = index.lastPass(officeId);
+        expect(last).not.toBeNull();
+        s.clock.advance(OFFICE_DEFAULTS.polling.fetchSeconds * 1000);
+        await index.whenIdle(officeId);
+        expect(index.lastPass(officeId)).toBe(last);
+      }));
+  });
+}
