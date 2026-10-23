@@ -80,6 +80,12 @@ export const SOFTWARE_ERROR_CODES = [
 // way back, such as tampered git links, naming `dipo discard`), `resume.capReached` (what remains
 // of the run's caps is zero, naming `--budget`) and `resume.decisionRequired` (a park resumed by
 // its question's answer, naming `dipo answer`).
+// Since minor 1 (DIPO-310, 0013 section 6), not retryable, from `office.infer` and `office.confirm`:
+// `scan.noProfile` (the office has no run profile yet), `scan.noProposal` (no pending proposal to
+// accept, edit or reject), `scan.resolvedByCode` (code resolves the capability: change the script
+// instead), `scan.notConflict` and `scan.noCandidate` (a pick of a capability not in conflict, or a
+// candidate it does not have), `scan.notConfirmed` (`keep` of a capability with no confirmation) and
+// `scan.invalidCommand` (a working directory outside the repository).
 export const OFFICE_ERROR_CODES = [
   "config.invalid",
   "backlog.unreadable",
@@ -95,6 +101,13 @@ export const OFFICE_ERROR_CODES = [
   "resume.notResumable",
   "resume.capReached",
   "resume.decisionRequired",
+  "scan.noProfile",
+  "scan.noProposal",
+  "scan.resolvedByCode",
+  "scan.notConflict",
+  "scan.noCandidate",
+  "scan.notConfirmed",
+  "scan.invalidCommand",
 ] as const;
 
 export type GenericErrorCode = (typeof GENERIC_ERROR_CODES)[number];

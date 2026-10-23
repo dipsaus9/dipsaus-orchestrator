@@ -209,7 +209,7 @@ describe("errors", () => {
     );
   });
 
-  it("exports the office-level codes of minor 1 (DIPO-71, DIPO-48, DIPO-59, DIPO-163, DIPO-155)", () => {
+  it("exports the office-level codes of minor 1 (DIPO-71, DIPO-48, DIPO-59, DIPO-163, DIPO-155, DIPO-310)", () => {
     expect([...OFFICE_ERROR_CODES]).toEqual([
       "config.invalid",
       "backlog.unreadable",
@@ -225,6 +225,13 @@ describe("errors", () => {
       "resume.notResumable",
       "resume.capReached",
       "resume.decisionRequired",
+      "scan.noProfile",
+      "scan.noProposal",
+      "scan.resolvedByCode",
+      "scan.notConflict",
+      "scan.noCandidate",
+      "scan.notConfirmed",
+      "scan.invalidCommand",
     ]);
   });
 

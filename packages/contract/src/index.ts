@@ -12,6 +12,7 @@ export * from "./errors";
 export * from "./fieldblock";
 export * from "./ids";
 export * from "./office";
+export * from "./profile";
 export * from "./repository";
 export * from "./software";
 export * from "./version";
