@@ -391,6 +391,20 @@ describe("the CI watch of the PR poll", () => {
     });
   });
 
+  it("keeps watching a story the merge slot closed out, Done on its branch until its PR merges (DIPO-150)", async () => {
+    await inWorld(async (w) => {
+      const id = w.office.officeId;
+      await w.prs.sync(id, w.run);
+      w.office.immediate(() =>
+        w.office.run("update backlog_mirror set status = 'Done' where office_id = $office_id"),
+      );
+      w.host.required = [report("ci-ok", "pending")];
+      await w.prs.retry(id);
+      expect(w.host.count("requiredChecks")).toBe(1);
+      expect(w.prs.ciState(id, w.run)?.kind).toBe("pending");
+    });
+  });
+
   it("reads no checks while the host's PR is on another head than the pushed one", async () => {
     await inWorld(async (w) => {
       const id = w.office.officeId;

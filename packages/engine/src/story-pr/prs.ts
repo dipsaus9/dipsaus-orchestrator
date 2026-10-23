@@ -92,7 +92,15 @@ import { runConfigOf } from "../run/config-snapshot";
 import { storedDoneReport } from "../run/done-report";
 import { runCaps } from "../run/caps";
 import { PARK_CAUSES, type ParkWriter, parkStory } from "../run/park";
-import { appendRunStep, findRun, runRoundCounts, runSteps, type StoredRun } from "../run/records";
+import {
+  appendRunStep,
+  findRun,
+  IN_REVIEW_END,
+  REVIEWED_END,
+  runRoundCounts,
+  runSteps,
+  type StoredRun,
+} from "../run/records";
 import { findStoryByKey } from "../stories/keys";
 import { withWorkViews } from "../views/work";
 
@@ -692,9 +700,14 @@ export class StoryPrs {
   ): Promise<void> {
     const office = state.office;
     const run = findRun(office, stored.runId);
-    // A story in the merge slot is Done on its branch (the close-out) and still watched (DIPO-150).
+    // A story the merge slot closed out is Done on its branch, provisionally until the host merge,
+    // and still watched: in the slot, or after it left the slot unmerged (DIPO-150).
     if (run === null) return;
-    if (!storyInReview(office, stored.key) && !runInSlot(office, run.runId)) return;
+    const watched =
+      storyInReview(office, stored.key) ||
+      runInSlot(office, run.runId) ||
+      closedOutUnmerged(office, run);
+    if (!watched) return;
     const config = this.#runConfig(officeId, run);
     const names = config.mergeSlot.requiredChecks;
     const now = this.#deps.clock.now();
@@ -1033,6 +1046,26 @@ export class StoryPrs {
 }
 
 /** What the body's review line is built from: the latest verdict and an override on it. */
+/**
+ * True when the merge slot's close-out set the story Done on its branch but its PR has not merged:
+ * the run still waits after its review, with a live claim and no open park (DIPO-150).
+ */
+function closedOutUnmerged(office: OfficeHandle, run: StoredRun): boolean {
+  if (run.key === null || run.endedAt === null) return false;
+  if (run.endKind !== REVIEWED_END && run.endKind !== IN_REVIEW_END) return false;
+  return (
+    office.get(
+      `select 1 as found from backlog_mirror m
+        where m.office_id = $office_id and m.key = $key and m.status = 'Done'
+          and exists (select 1 from claims c where c.office_id = m.office_id
+            and c.run_id = $run and c.released_at is null)
+          and not exists (select 1 from parks p where p.office_id = m.office_id
+            and p.run_id = $run and p.resolved_at is null)`,
+      { key: run.key, run: run.runId },
+    ) !== null
+  );
+}
+
 function reviewKey(verdict: StoredReviewVerdict | null): string {
   return verdict === null
     ? "none"
