@@ -63,6 +63,8 @@ import {
   officeSummarySource,
   OfficeManager,
   summarySettings,
+  UsageAlerts,
+  UsageMeter,
   openLogFile,
   openStateDatabase,
   passwdHome,
@@ -72,6 +74,7 @@ import {
   removeSocketFile,
   resolveSoftwareDirs,
   resolveTools,
+  ProposalCommands,
   RunProfiles,
   REATTACH_STEP,
   RUN_TEMP_SWEEP_STEP,
@@ -466,6 +469,7 @@ async function serve(run: Run, lock: HeldLock): Promise<number> {
     storyPrs: StoryPrs | null;
     mergeSlot: MergeSlot | null;
     retention: Retention | null;
+    usageAlerts: UsageAlerts | null;
     maintenance: MaintenanceScheduler | null;
     ingest: { close(): void } | null;
     /** The box workers (DIPO-271): every running box is stopped at daemon stop. */
@@ -485,6 +489,7 @@ async function serve(run: Run, lock: HeldLock): Promise<number> {
     storyPrs: null,
     mergeSlot: null,
     retention: null,
+    usageAlerts: null,
     maintenance: null,
     ingest: null,
     boxes: null,
@@ -809,6 +814,9 @@ async function serve(run: Run, lock: HeldLock): Promise<number> {
       // A story the `backlog` on this PATH reads Done in `_base` gets no Refined write.
       cli: backlogCli,
     });
+    // `proposal.accept` and `proposal.dismiss` (DIPO-166): an accepted worker proposal becomes a
+    // Backlog draft through the planning lane.
+    const proposals = new ProposalCommands({ lane: (office) => lane.forOffice(office) });
     // The story index (DIPO-32): indexes each office at load, after the git load step and the
     // lane's replay, and polls its remote every `polling.fetchSeconds`, with the `backlog` this
     // daemon found on its PATH.
@@ -968,8 +976,33 @@ async function serve(run: Run, lock: HeldLock): Promise<number> {
     // Office summaries for `engine.hello` and the software stream, from the office rows (DIPO-32).
     // `optIns` names the privacy opt-ins that are on (0007 section 8, DIPO-83) and
     // `outputRetentionDays` the stored-output retention period (0007 section 7, DIPO-97).
-    const settingsOf = (office: OfficeId) =>
-      summarySettings(offices.config(office), offices.localOverrideKeys(office));
+    // The tokens of today and this month with the all-office limits come from `usage` (DIPO-311).
+    const alerts = run.settings.usage.alerts;
+    const usage = new UsageMeter({
+      database: () => held.database,
+      clock,
+      limits: {
+        level: alerts.level,
+        ...(alerts.dayTokens === undefined ? {} : { dayTokens: alerts.dayTokens }),
+        ...(alerts.monthTokens === undefined ? {} : { monthTokens: alerts.monthTokens }),
+      },
+    });
+    const usageAlerts = new UsageAlerts({
+      meter: usage,
+      database: () => held.database,
+      software,
+      clock,
+      onOfficeChanged: (office) => server?.notifyOffice(office),
+      logger: logger.child({ component: "usage" }),
+    });
+    held.usageAlerts = usageAlerts;
+    const settingsOf = (office: OfficeId) => {
+      const usageOf = usage.of(office);
+      return {
+        ...summarySettings(offices.config(office), offices.localOverrideKeys(office)),
+        ...(usageOf === undefined ? {} : { usage: usageOf }),
+      };
+    };
     const summaries = officeSummarySource(() => held.database, settingsOf);
     const registry: Registry = engineRegistry([
       ...engineFeatures({ backlog: backlogCli }),
@@ -987,6 +1020,7 @@ async function serve(run: Run, lock: HeldLock): Promise<number> {
       planning.feature,
       mergeGates.feature,
       discard.feature,
+      proposals.feature,
       runs.control.feature,
       runs.outcomes.feature,
       runs.permissions.feature,
@@ -994,6 +1028,7 @@ async function serve(run: Run, lock: HeldLock): Promise<number> {
       // After the outcomes' load step: what waited for a place starts once exits are decided.
       runs.places.feature,
       retention.feature,
+      usageAlerts.feature,
       reconciler.feature,
       officeFeature(offices),
       // The summary names the privacy opt-ins that are on (DIPO-83): an office load or a reloaded
@@ -1291,6 +1326,8 @@ async function serve(run: Run, lock: HeldLock): Promise<number> {
       logger,
       request,
       caps: options.drainCaps ?? DEFAULT_DRAIN_CAPS,
+      // `daemon.stop { stopWorkers: true }` (0006 decision 7, DIPO-315): through run control.
+      stopWorkers: () => runs.control.stopAll(),
     });
     // A requested drain exits 0 and is no crash, even at its cap (0006 amendment of 2026-10-12,
     // DIPO-68). After an error no code caught it is a crash, whichever reason the drain has.
@@ -1318,6 +1355,7 @@ async function serve(run: Run, lock: HeldLock): Promise<number> {
     held.contract?.close();
     // A retention pass or backup still running finishes before the database closes.
     await held.retention?.stop();
+    held.usageAlerts?.stop();
     await held.maintenance?.stop();
     // Clean exit: remove dipo.sock, then dipo.pid (0006 decision 6). A daemon that lost the lock
     // leaves the socket path alone: it may belong to the daemon that holds the lock now. The

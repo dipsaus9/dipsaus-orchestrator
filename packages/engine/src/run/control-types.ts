@@ -46,6 +46,10 @@ export const INTERRUPTED_END = "interrupted";
 /** The park detail of `work.stop` without a note. */
 export const STOPPED_DETAIL = "Stopped by the maintainer.";
 
+/** The park detail of a worker `daemon.stop { stopWorkers: true }` stopped (DIPO-315). */
+export const DAEMON_STOPPED_DETAIL =
+  "Stopped by the maintainer: daemon.stop with stopWorkers stopped every worker before the daemon exited.";
+
 /** `engine.notice` codes of run control. */
 export const CONTROL_NOTICES = {
   notSent: "run.stopNotSent",
@@ -168,6 +172,11 @@ export interface RunEnding {
   readonly endKind: string;
   /** The report that led to the end, when a turn decided it. */
   readonly report?: WorkerReport | null;
+  /**
+   * The worker's question an `ambiguous-spec` park asks when no open question of the run carries
+   * over to it (DIPO-159): the question of a blocked report with no TUI connected.
+   */
+  readonly question?: string;
   /** An `engine.notice` written before the park (DIPO-51). */
   readonly notice?: {
     readonly level: "info" | "warn" | "error";

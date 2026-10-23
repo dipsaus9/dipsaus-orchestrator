@@ -14,9 +14,12 @@ import type {
   WorkView,
 } from "@dipsaus-orchestrator/contract";
 
-import { fitSections, type Section } from "./overview";
+import type { OfficeStoreState } from "@dipsaus-orchestrator/client";
+
+import { countLine, fitSections, type Section } from "./overview";
 import { goldenHello, goldenSnapshots, OFFICES } from "./testing/fake-session";
 import { mount } from "./testing/setup";
+import { switcherCells } from "./views";
 
 const mounted: { unmount(): Promise<void> }[] = [];
 const STREAM = `office:${OFFICES.dipsaus}`;
@@ -523,5 +526,65 @@ describe("opening any board row (DIPO-81)", () => {
     const frame = await ui.waitFor("stores commands");
     expect(frame).toMatch(/ · held \d+ · stores commands/);
     expect(frame).not.toContain("opt-in");
+  });
+});
+
+describe("usage on the count line and in the switcher (DIPO-311)", () => {
+  const NOW = Date.UTC(2026, 9, 22, 14);
+  const office = OFFICES.dipsaus;
+  const stateWith = (summary: object): OfficeStoreState =>
+    ({
+      office,
+      work: [],
+      stories: [],
+      offices: [{ office, name: "dipsaus-orchestrator", summary }],
+    }) as unknown as OfficeStoreState;
+  const base = {
+    office,
+    name: "o",
+    path: "/o",
+    running: 0,
+    parked: 0,
+    onHold: 0,
+    waitingOnMaintainer: 0,
+  };
+
+  it("shows today and this month of the limit with UTC next to the reset time", () => {
+    const line = countLine(
+      stateWith({
+        ...base,
+        dayUsage: { tokens: 1_200_000, limit: 4_000_000, share: 0.3, alert: false },
+        monthUsage: { tokens: 20_000_000, limit: 90_000_000, share: 0.22, alert: false },
+      }),
+      "·",
+      "full",
+      NOW,
+    );
+    expect(line).toContain(
+      "today 1.2M of 4.0M tokens (30%, resets 00:00 UTC) · this month 20.0M of 90.0M tokens (22%, resets 1 Nov 00:00 UTC)",
+    );
+  });
+
+  it("shows the tokens alone with no limit, no share and no alert", () => {
+    const line = countLine(
+      stateWith({
+        ...base,
+        dayUsage: { tokens: 1_200_000, alert: false },
+        monthUsage: { tokens: 3_000, alert: false },
+      }),
+      "·",
+      "full",
+      NOW,
+    );
+    expect(line).toEndWith("today 1.2M tokens · this month 3k tokens");
+  });
+
+  it("keeps ALERT day usage in the switcher", () => {
+    const entry = {
+      name: "o",
+      office,
+      summary: { ...base, dayUsage: { tokens: 9, limit: 10, share: 0.9, alert: true } },
+    };
+    expect(switcherCells(entry as never, true).at(-1)).toBe("90%  ALERT day usage");
   });
 });

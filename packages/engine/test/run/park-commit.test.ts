@@ -281,3 +281,73 @@ describe("a park whose summary cannot be written (DIPO-154)", () => {
     );
   });
 });
+
+describe("the answer of a question park in the lift commit (DIPO-159; 0020 section 7)", () => {
+  it("adds the answer as a resolved unknown in the task-file commit, once, and leaves it out over R26", async () => {
+    await withTempRepo(
+      async (repo) => {
+        await publish(repo);
+        const s = await claimSetup(repo);
+        const claim = claimed(await claimStory(s.deps(), s.request(s.key()))).claim;
+        const deps = { git: () => s.git, cli: s.cli };
+        const park = () =>
+          gitParkWriter(deps).write(s.office.officeId, {
+            story: TASK_1,
+            branch: BRANCH_1,
+            worktree: claim.worktree,
+            reason: "ambiguous-spec",
+            note: "Which greeting should the CLI print?",
+          });
+        await park();
+        const answer = {
+          q: "Which greeting should the CLI print?",
+          answer: "Print Hello, Ada!",
+          contractMax: 12_000,
+        };
+        const lift = await gitUnparkWriter(deps).lift(s.office.officeId, {
+          story: TASK_1,
+          branch: BRANCH_1,
+          worktree: claim.worktree,
+          to: "In Progress",
+          answer,
+        });
+        expect(lift.answerError).toBeNull();
+        // One commit, the task file only, holds the lifted park and the resolved unknown.
+        expect(await filesOf(repo.dir, repo.home, lift.commit as string)).toEqual([TASK_FILE_1]);
+        const lifted = await taskFileAt(repo, lift.commit as string);
+        expect(lifted).toContain("status: In Progress");
+        expect(lifted).toContain("Which greeting should the CLI print?");
+        expect(lifted).toContain("resolved");
+        expect(lifted).toContain("Print Hello, Ada!");
+        expect(lifted).not.toContain("park:");
+
+        // A lift repeated after a restart writes the same unknown and commits nothing.
+        const again = await gitUnparkWriter(deps).lift(s.office.officeId, {
+          story: TASK_1,
+          branch: BRANCH_1,
+          worktree: claim.worktree,
+          to: "In Progress",
+          answer,
+        });
+        expect(again.commit).toBeNull();
+
+        // A later park of the same story whose answer would break R26: lifted, answer left out.
+        await park();
+        const over = await gitUnparkWriter(deps).lift(s.office.officeId, {
+          story: TASK_1,
+          branch: BRANCH_1,
+          worktree: claim.worktree,
+          to: "In Progress",
+          answer: { q: "Which exit code?", answer: "Exit 2.", contractMax: 10 },
+        });
+        expect(over.answerError).toContain("(R26)");
+        const tip = await taskFileAt(repo, over.commit as string);
+        expect(tip).toContain("status: In Progress");
+        expect(tip).not.toContain("Which exit code?");
+        // The first answer stays a fact of the story.
+        expect(tip).toContain("Print Hello, Ada!");
+      },
+      { fixture: BACKLOG_FIXTURE },
+    );
+  });
+});

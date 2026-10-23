@@ -863,6 +863,57 @@
       },
       "required": ["gate", "decision"]
     },
+    "proposal.accept.args": {
+      "type": "object",
+      "properties": {
+        "proposal": {
+          "type": "string",
+          "pattern": "^[0-9a-f]{8,64}$"
+        }
+      },
+      "required": ["proposal"]
+    },
+    "proposal.accept.result": {
+      "type": "object",
+      "properties": {
+        "proposal": {
+          "type": "string",
+          "pattern": "^[0-9a-f]{64}$"
+        },
+        "state": {
+          "type": "string",
+          "const": "accepted"
+        },
+        "draft": {
+          "type": "string"
+        }
+      },
+      "required": ["proposal", "state"]
+    },
+    "proposal.dismiss.args": {
+      "type": "object",
+      "properties": {
+        "proposal": {
+          "type": "string",
+          "pattern": "^[0-9a-f]{8,64}$"
+        }
+      },
+      "required": ["proposal"]
+    },
+    "proposal.dismiss.result": {
+      "type": "object",
+      "properties": {
+        "proposal": {
+          "type": "string",
+          "pattern": "^[0-9a-f]{64}$"
+        },
+        "state": {
+          "type": "string",
+          "const": "dismissed"
+        }
+      },
+      "required": ["proposal", "state"]
+    },
     "test.start.args": {
       "type": "object",
       "properties": {

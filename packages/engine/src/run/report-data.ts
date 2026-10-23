@@ -19,8 +19,14 @@
 
 import { createHash } from "node:crypto";
 
-import type { RunId, StoryKey, TestPlan } from "@dipsaus-orchestrator/contract";
+import {
+  cleanText,
+  type RunId,
+  type StoryKey,
+  type TestPlan,
+} from "@dipsaus-orchestrator/contract";
 
+import { appendEntries, type NewEntry } from "../changelog/log";
 import type { OfficeHandle } from "../db/office";
 import type {
   ToolEffect,
@@ -277,9 +283,14 @@ export function proposalHash(proposal: Pick<WorkerProposal, "title" | "paths">):
   return hashOf([proposal.title.trim(), ...[...(proposal.paths ?? [])].toSorted()]);
 }
 
+/** The longest title a `proposal.filed` event carries, in characters (the report's own cap). */
+const FILED_TITLE_MAX = 120;
+
 /**
  * Stores a report's proposals for the maintainer, state open; a proposal with the same title and
- * paths as a stored one is not stored again. Returns how many rows were added.
+ * paths as a stored one is not stored again. Each stored one appends a `proposal.filed` entry
+ * (DIPO-166) in the caller's transaction, its title cleaned and on one line. Returns how many rows
+ * were added.
  */
 export function storeProposals(
   office: OfficeHandle,
@@ -290,15 +301,21 @@ export function storeProposals(
     readonly at: number;
   },
 ): number {
-  let added = 0;
+  const story =
+    office.get<{ story_id: string }>(
+      "select story_id from stories where office_id = $office_id and key = $key",
+      { key: input.key },
+    )?.story_id ?? null;
+  const filed: NewEntry[] = [];
   for (const proposal of input.proposals) {
-    added += office.run(
+    const hash = proposalHash(proposal);
+    const changes = office.run(
       `insert into proposals (office_id, hash, story_key, run_id, kind, title, outcome, why, paths,
          created_at, updated_at)
        values ($office_id, $hash, $key, $run, $kind, $title, $outcome, $why, $paths, $at, $at)
        on conflict (office_id, hash) do nothing`,
       {
-        hash: proposalHash(proposal),
+        hash,
         key: input.key,
         run: input.runId,
         kind: proposal.kind,
@@ -309,8 +326,31 @@ export function storeProposals(
         at: input.at,
       },
     ).changes;
+    if (changes === 0) continue;
+    filed.push({
+      type: "proposal.filed",
+      key: input.key,
+      run: input.runId,
+      delta: {
+        proposal: hash,
+        kind: proposal.kind,
+        key: input.key,
+        ...(story === null ? {} : { story }),
+        run: input.runId,
+        title: filedTitle(proposal.title),
+      },
+    });
   }
-  return added;
+  appendEntries(office, filed, { at: input.at });
+  return filed.length;
+}
+
+/** A worker's title as an event carries it: cleaned, on one line and capped. */
+function filedTitle(title: string): string {
+  const chars = Array.from(cleanText(title).replace(/\s+/g, " ").trim());
+  return chars.length <= FILED_TITLE_MAX
+    ? chars.join("")
+    : `${chars.slice(0, FILED_TITLE_MAX - 1).join("")}…`;
 }
 
 /** The key of a stored decision note: its story, file, section and text. */

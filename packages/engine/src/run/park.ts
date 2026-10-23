@@ -27,6 +27,7 @@ import { join } from "node:path";
 
 import {
   type CommandName,
+  type FieldBlock,
   type Lifecycle,
   type OfficeId,
   type ParkReason,
@@ -41,12 +42,15 @@ import { type BacklogCli, runBacklog, TASK_FIELD_ERROR } from "../backlog/runner
 import { BOX_RUN_FILE } from "../box/workers";
 import type { NewEntry } from "../changelog/log";
 import type { OfficeHandle } from "../db/office";
+import { gateStoryFromView } from "../gate/input";
+import { contractCharacters } from "../gate/rules";
 import type { GitLocation } from "../git/hardened";
 import type { OfficeGit } from "../git/office";
 import { GitError } from "../git/runner";
 import { pushBranch } from "../git/task-commit";
+import { recordBranchPush } from "../story-pr/records";
 import { parkQuestionText, recordedPermission } from "../hooks/park-questions";
-import { insertParkQuestion, questionViewOf } from "../hooks/questions";
+import { insertParkQuestion, insertWorkerQuestion, questionViewOf } from "../hooks/questions";
 import { officeDirectory } from "../office/marker";
 import { runDirectory } from "../runs/worker-hosts";
 import { deriveStoryView, storyView } from "../views/story";
@@ -113,6 +117,8 @@ export const PARK_CAUSES = {
   review: "review",
   /** `worker-failed`: the reviewer hit its own turn or minute cap (0019). */
   reviewCap: "review-cap",
+  /** `worker-failed`: dipo could not read the worker's stream, so the caps were blind (DIPO-315). */
+  streamDrift: "stream-drift",
   /** `stopped`: the maintainer stopped a developer session. */
   maintainer: "maintainer",
   /** `stopped`: the story PR was closed on the host (0019). */
@@ -127,6 +133,11 @@ export const PARK_NOTICES = {
   pushFailed: "park.pushFailed",
   /** The park or lift was written, but its implementation-notes summary was not (0020 section 13). */
   summaryMissing: "park.summaryMissing",
+  /**
+   * A question park was resumed with its answer, but the answer was not written to the story's
+   * unknowns: writing it would break R26, or the write failed (0020 section 7, DIPO-159).
+   */
+  answerNotWritten: "park.answerNotWritten",
 } as const;
 
 /** Commands a parked story's `actions` may offer, when the engine implements them (0005). */
@@ -327,6 +338,35 @@ export interface UnparkBranchRequest {
    * commit when the park is still on the branch; a lift already written appends nothing.
    */
   readonly line?: string;
+  /**
+   * The answer of a question park's resume (0020 section 7, DIPO-159): added to the story's
+   * unknowns as a resolved unknown in the same commit, through the single field write path, unless
+   * the story contract would then be over `contractMax` characters (R26).
+   */
+  readonly answer?: UnparkAnswer;
+}
+
+/** The answer a question park's lift writes to the story as a resolved unknown. */
+export interface UnparkAnswer {
+  /** The worker's question. */
+  readonly q: string;
+  readonly answer: string;
+  /** `prompt.contractMax` of the office (R26). */
+  readonly contractMax: number;
+}
+
+/**
+ * Pure: the field block with `answer` as a resolved unknown (DIPO-159), replacing an unknown with
+ * the same question, so a lift written again changes nothing.
+ */
+export function withResolvedUnknown(
+  fields: FieldBlock,
+  answer: Pick<UnparkAnswer, "q" | "answer">,
+): FieldBlock {
+  const q = answer.q.trim();
+  const unknown = { q, status: "resolved" as const, answer: answer.answer.trim() };
+  const kept = (fields.unknowns ?? []).filter((candidate) => candidate.q.trim() !== q);
+  return { ...fields, unknowns: [...kept, unknown] };
 }
 
 /** What lifting the park on the branch did. */
@@ -337,6 +377,11 @@ export interface BranchUnpark {
   readonly pushError: string | null;
   /** Why the resume's line was not appended, or null; the lift itself is always committed. */
   readonly lineError?: string | null;
+  /**
+   * Why the request's answer was not written as a resolved unknown (it would break R26), or null;
+   * the lift itself is always committed, and the answer still reaches the worker.
+   */
+  readonly answerError?: string | null;
 }
 
 /** Lifts a park on the story branch (the real one is `gitUnparkWriter`). */
@@ -349,7 +394,9 @@ export interface UnparkWriter {
  * own copy of the story's backlog (`editInStoryBacklog`), never the worktree, the F16 `park` block is
  * removed through the single field write path and the status set back to the park's `from`; only
  * the task file is committed, as `<ID>: status <to>`,
- * and the branch is pushed without force. A tampered worktree throws `git.worktreeTampered`.
+ * and the branch is pushed without force. A tampered worktree throws `git.worktreeTampered`. The
+ * answer of a question park goes into the same field write as a resolved unknown, unless the
+ * story contract would then break R26 (`answerError`).
  */
 export function gitUnparkWriter(deps: {
   readonly git: (office: OfficeId) => OfficeGit | undefined;
@@ -362,6 +409,8 @@ export function gitUnparkWriter(deps: {
       return git.run(async (session) => {
         const location = git.worktreeLocation(request.worktree) as WorktreeLocation;
         let lineError: string | null = null;
+        let answerError: string | null = null;
+        const answer = request.answer;
         // Only the task file: anything else staged stays out of the commit.
         const { commit } = await editInStoryBacklog(
           git,
@@ -374,7 +423,15 @@ export function gitUnparkWriter(deps: {
             const before = await viewStory(target);
             await writeFields(target, (fields) => {
               const { park: _park, ...rest } = fields;
-              return rest;
+              if (answer === undefined) return rest;
+              // The answer is a story fact only while the contract stays within R26.
+              const answered = withResolvedUnknown(rest, answer);
+              const size = contractCharacters(gateStoryFromView(before, []), answered);
+              answerError =
+                size <= answer.contractMax
+                  ? null
+                  : `the story contract would be ${size} characters with it, over the limit of ${answer.contractMax} (R26)`;
+              return answerError === null ? answered : rest;
             });
             if (before.status !== request.to) {
               await runBacklog(deps.cli, backlog.cwd, [
@@ -401,10 +458,26 @@ export function gitUnparkWriter(deps: {
           },
         );
         const pushed = await pushBranch(session, git.settings.remote, request.branch);
-        return { commit, pushed: pushed.pushed, pushError: pushed.error, lineError };
+        return {
+          commit,
+          pushed: pushed.pushed,
+          pushError: pushed.error,
+          lineError,
+          ...(answer === undefined ? {} : { answerError }),
+        };
       });
     },
   };
+}
+
+/** The cause a park row records; null when it has none. */
+function parkCause(office: OfficeHandle, parkId: number): string | null {
+  return (
+    office.get<{ cause: string | null }>(
+      "select cause from parks where office_id = $office_id and park_id = $park",
+      { park: parkId },
+    )?.cause ?? null
+  );
 }
 
 /**
@@ -425,6 +498,14 @@ export function reopenParkedRun(
   note: string | null = null,
 ): NewEntry[] {
   resolveParkResumed(office, park.parkId, at, note);
+  // A stream drift park's count starts again (DIPO-315): the resumed session gets the whole
+  // threshold, so one stray line does not park it again at once.
+  if (parkCause(office, park.parkId) === PARK_CAUSES.streamDrift) {
+    office.run(
+      `update ingest_cursors set drift_lines = 0 where office_id = $office_id and run_id = $run`,
+      { run: run.runId },
+    );
+  }
   reopenRun(office, run.runId, at);
   const key = run.key;
   const story = run.story;
@@ -528,25 +609,68 @@ function askParkQuestion(
 }
 
 /**
- * Inside the park's transaction, after the park row (DIPO-272): a worker question still asked live
- * when the run parks (a cap, a stop, or any other end while it waited) becomes this park's question
- * and stays open, so the maintainer's question is not lost. Its answer then waits for the next
- * session (`PermissionAsks`). Nothing is emitted: the question was asked already.
+ * Inside the park's transaction, after the park row (DIPO-272, DIPO-159): a worker question still
+ * open when the run parks (asked live and then let go by a cap, a stop, the end of its wait, the
+ * last TUI closing or the worker's own exit) becomes this park's question and stays open, so the
+ * maintainer's question is not lost. So does one of the session that parks whose answer came while
+ * the run was ending and is held for the next session. Nothing is emitted: the question was asked
+ * already. Returns the park's id, or null.
  */
-function carryWorkerQuestions(office: OfficeHandle, run: StoredRun): NewEntry[] {
+function carryWorkerQuestions(office: OfficeHandle, run: StoredRun): number | null {
   const park = office.get<{ park_id: number }>(
     `select park_id from parks where office_id = $office_id and run_id = $run
       order by park_id desc limit 1`,
     { run: run.runId },
   );
-  if (park === null) return [];
+  if (park === null) return null;
   office.run(
     `update questions set park_id = $park
       where office_id = $office_id and run_id = $run and kind = 'question' and park_id is null
-        and closed_at is null`,
+        and (closed_at is null
+          or (closed_how = 'answered' and delivered = 'on-resume'
+            and asked_at >= coalesce((select max(started_at) from agents
+              where office_id = $office_id and run_id = $run), 0)))`,
     { park: park.park_id, run: run.runId },
   );
-  return [];
+  return park.park_id;
+}
+
+/**
+ * Inside the park's transaction, after the carry (DIPO-159, 0020 section 7): an `ambiguous-spec`
+ * park with cause `question` that carries no worker question asks its own (the worker's question
+ * when no TUI was connected), kind `question`, linked to the run and the park, and emits
+ * `question.asked`, so the maintainer can answer it with `dipo answer <question> --text`.
+ */
+function askWorkerQuestionOfPark(
+  deps: ParkDeps,
+  request: ParkRequest,
+  park: { readonly parkId: number | null; readonly reason: ParkReason; readonly cause: string },
+  at: number,
+): NewEntry[] {
+  const { run } = request;
+  const text = request.question?.trim() ?? "";
+  if (park.reason !== "ambiguous-spec" || park.cause !== PARK_CAUSES.question) return [];
+  if (park.parkId === null || deps.question === undefined || run.key === null) return [];
+  const office = deps.office;
+  const carried = office.get<{ found: number }>(
+    `select 1 as found from questions where office_id = $office_id and park_id = $park
+      and kind = 'question' limit 1`,
+    { park: park.parkId },
+  );
+  const work = request.work ?? workRefOf(office, run.runId);
+  if (carried !== null || work === null || text === "") return [];
+  const question = insertWorkerQuestion(office, {
+    questionId: deps.question.id(),
+    runId: run.runId,
+    agentId: work.agent,
+    text,
+    at,
+    parkId: park.parkId,
+  });
+  const view = questionViewOf(office, question);
+  return view === null
+    ? []
+    : [{ type: "question.asked", key: run.key, run: run.runId, delta: view }];
 }
 
 export interface ParkRequest {
@@ -561,6 +685,11 @@ export interface ParkRequest {
   readonly endKind: string;
   /** The `cap` run step value of a done turn that crossed a cap, written with the run's end (DIPO-222). */
   readonly capStep?: string;
+  /**
+   * The worker's question of an `ambiguous-spec` park with cause `question` (DIPO-159): asked as the
+   * park's question unless an open question of the run carries over to it.
+   */
+  readonly question?: string;
 }
 
 export interface ParkOutcome {
@@ -583,17 +712,22 @@ export function resumableByCommand(reason: string, cause: string | null): boolea
 }
 
 /**
- * The actions a parked story offers (0005 section 5): only commands the engine implements, and
- * `work.resume` only for a reason and cause it resumes (0020 section 14).
+ * The actions a parked story offers (0005 section 5): only commands the engine implements,
+ * `work.answer` for a park that waits on its question's answer (`needs-permission`, and
+ * `ambiguous-spec` with cause `question`, DIPO-159), and `work.resume` only for a reason and cause
+ * it resumes (0020 section 14).
  */
 export function parkActions(
   reason: ParkReason,
   implemented: (name: CommandName) => boolean,
   cause: string | null = null,
 ): CommandName[] {
+  const answers =
+    reason === "needs-permission" ||
+    (reason === "ambiguous-spec" && cause === PARK_CAUSES.question);
   return PARK_ACTIONS.filter(
     (name) =>
-      (name !== "work.answer" || reason === "needs-permission") &&
+      (name !== "work.answer" || answers) &&
       (name !== "work.resume" || resumableByCommand(reason, cause)) &&
       implemented(name),
   );
@@ -695,6 +829,10 @@ export async function parkStory(deps: ParkDeps, request: ParkRequest): Promise<P
       { key, story, run: run.runId, reason, cause, from, detail, commit: lastGoodCommit, at },
     );
     if (request.capStep !== undefined) appendRunStep(office, run.runId, "cap", request.capStep, at);
+    // The park commit's push, on the claim like every story-branch push (DIPO-315).
+    if (branch !== null && run.branch !== null) {
+      recordBranchPush(office, run.branch, { pushed: branch.pushed, error: branch.pushError }, at);
+    }
     endRunMarked(office, run.runId, at, request.endKind);
     // The agent ends when its exit is ingested; the reason it ended is known now.
     office.run(
@@ -738,7 +876,12 @@ export async function parkStory(deps: ParkDeps, request: ParkRequest): Promise<P
         },
       },
       ...askParkQuestion(deps, request, reason, detail, at),
-      ...carryWorkerQuestions(deps.office, request.run),
+      ...askWorkerQuestionOfPark(
+        deps,
+        request,
+        { parkId: carryWorkerQuestions(deps.office, request.run), reason, cause },
+        at,
+      ),
     ];
   });
   return {

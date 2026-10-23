@@ -246,6 +246,8 @@ describe("office commands and reads", () => {
     "work.discard": 1,
     "gate.approve": 1,
     "gate.reject": 1,
+    "proposal.accept": 1,
+    "proposal.dismiss": 1,
   };
   const provisional = [
     "work.reassign",
@@ -270,6 +272,8 @@ describe("office commands and reads", () => {
         "story.drop",
         "gate.approve",
         "gate.reject",
+        "proposal.accept",
+        "proposal.dismiss",
         "test.start",
         "test.record",
       ].toSorted(),

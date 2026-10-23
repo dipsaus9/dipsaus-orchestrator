@@ -6,13 +6,13 @@ title: >-
 status: To Do
 assignee: []
 created_date: '2026-10-20 20:20'
-updated_date: '2026-10-22 18:16'
+updated_date: '2026-10-23 10:34'
 labels:
   - 'tier:M'
   - cutover
   - needs-info
   - needs-refinement
-milestone: m-1
+milestone: m-2
 dependencies:
   - DIPO-186
   - DIPO-228
@@ -78,4 +78,6 @@ test_plan:
 Reshaped by decision 0021 (worker isolation, DIPO-263, 2026-10-21); rewrite before Ready: the base-commit test run happens in a box (0021 section 9).
 
 2026-10-22: dropped the dependency on DIPO-149 (which now holds DIPO-291) to break a dependency cycle left by the M1 combine; that story now comes after this one.
+
+2026-10-23 (maintainer): moved to M2. In box runs CI is the verify, so the step this story hooks into (verify before the commit) no longer exists; rewrite where the base check runs before it is made Ready.
 <!-- SECTION:NOTES:END -->

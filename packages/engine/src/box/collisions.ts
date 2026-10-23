@@ -1100,6 +1100,11 @@ export interface BoxCollisionsDeps {
    * hand-off, and an approval carried over a clean merge. Called once the branch moved.
    */
   readonly recorded?: (run: PartRun, merged: CatchUpMerged) => Promise<void>;
+  /**
+   * Records a catch-up's push of the run's branch on its claim (DIPO-315: every story-branch push
+   * sets `claims.pushed_at` once it reaches the remote). A throw is logged; the catch-up stands.
+   */
+  readonly pushed?: (run: PartRun, push: PushResult) => void;
   /** A conflict found while the story is In Review (DIPO-149): recorded and told, never merged. */
   readonly found?: (run: PartRun, found: CatchUpFound) => void;
   /** A later check of a story In Review found no conflict: a conflict found earlier is cleared. */
@@ -1617,6 +1622,14 @@ export class BoxCollisions {
     const push: PushResult = await git
       .run((session) => pushBranch(session, git.settings.remote, run.branch))
       .catch((error: unknown) => ({ pushed: false, rejected: false, error: messageOf(error) }));
+    try {
+      this.#deps.pushed?.(run, push);
+    } catch (error) {
+      this.#deps.warn?.("a catch-up's push could not be recorded", {
+        run: run.runId,
+        reason: messageOf(error),
+      });
+    }
     const facts: CatchUpFacts = {
       story: run.story,
       base: plan.base,

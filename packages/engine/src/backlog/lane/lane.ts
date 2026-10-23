@@ -570,7 +570,7 @@ export class OfficeLane {
       let outcome;
       try {
         outcome = await kind.apply(
-          { cli: this.#cli, cwd: location.workTree, story, entry },
+          { cli: this.#cli, cwd: location.workTree, story, entry, office: this.#office },
           entry.target,
         );
       } catch (error) {

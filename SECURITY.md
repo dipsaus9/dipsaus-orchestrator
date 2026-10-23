@@ -14,6 +14,7 @@ Include what you found, the version (`dipo --version`) or commit, and the steps 
 
 ## How dependencies are watched
 
-- Renovate raises update and vulnerability pull requests (`renovate.json`). Security fixes never merge without review.
-- `bun audit --audit-level=high` runs daily and on every pull request that changes `bun.lock` (`.github/workflows/audit.yml`). A failing daily run opens or updates one issue labelled `security`.
+- Renovate raises update and vulnerability pull requests (`renovate.json`). Security fixes and lockfile maintenance never merge without review.
+- `bun audit --audit-level=high` runs daily and on every pull request that changes `bun.lock` (`.github/workflows/audit.yml`). A failing daily run opens or updates one issue labelled `security`. An ignored advisory names its tracking story and the dependency version that ends it.
+- Changes to CI, the release workflow, `install.sh` and the release-please config need the maintainer's review (`.github/CODEOWNERS`). The release build checks the Bun it downloads against a pinned SHA-256, and `install.sh` checks the release's checksum and, with `gh`, its build provenance attestation (`docs/release.md`).
 - Dependency review runs on every pull request; CodeQL, secret scanning and push protection are enabled on the repository.

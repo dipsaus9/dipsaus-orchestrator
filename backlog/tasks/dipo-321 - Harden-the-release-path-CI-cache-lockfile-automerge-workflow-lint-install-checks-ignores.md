@@ -3,29 +3,34 @@ id: DIPO-321
 title: >-
   Harden the release path: CI cache, lockfile automerge, workflow lint, install
   checks, ignores
-status: Refined
+status: Done
 assignee: []
 created_date: '2026-10-22 21:00'
-updated_date: '2026-10-23 06:18'
+updated_date: '2026-10-23 11:33'
 labels:
   - 'tier:M'
   - release
 milestone: m-1
 dependencies: []
 references:
-  - .github/workflows/release.yml
+  - '- .github/workflows/release.yml'
+  - .github/CODEOWNERS
+  - .github/workflows/audit.yml
   - .github/workflows/ci.yml
   - .github/workflows/pr-title.yml
-  - .github/workflows/audit.yml
-  - renovate.json
-  - scripts/renovate-config.test.ts
-  - scripts/check-pr-title.ts
-  - install.sh
-  - test/install-script/
+  - .github/workflows/release.yml
   - .gitignore
-  - docs/release.md
-  - SECURITY.md
   - CLAUDE.md
+  - SECURITY.md
+  - docs/decisions/0016-ci-release-and-versioning.md
+  - docs/release.md
+  - install.sh
+  - renovate.json
+  - scripts/check-pr-title.ts
+  - scripts/release-path.test.ts
+  - scripts/renovate-config.test.ts
+  - test/install-script/
+  - test/install-script/install.test.ts
 type: chore
 ordinal: 306000
 ---
@@ -50,12 +55,18 @@ unknowns: []
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 The release build in `release.yml` restores no setup-bun cache and checks the Bun it downloads against a pinned checksum.
-- [ ] #2 Lockfile-maintenance PRs do not automerge, and `scripts/renovate-config.test.ts` checks it.
-- [ ] #3 A change under `.github/`, to `install.sh` or to the release-please config needs the maintainer's approval before it merges. How (CODEOWNERS with required review, or a required check) is proposed as a dated 0016 note for the maintainer's approval, and the settings list in CLAUDE.md is updated.
-- [ ] #4 `pr-title.yml` runs `check-pr-title.ts` from the base branch, never from the PR head.
-- [ ] #5 A workflow linter job, pinned by digest, runs in CI and is part of `ci-ok`.
-- [ ] #6 Without gh, `install.sh` stops with a message saying how to verify the download, unless an explicit opt-out is set. With gh, it also pins the source digest of the release tag. `docs/release.md` describes both.
-- [ ] #7 `.gitignore` ignores env files, private key and certificate files, and npm credential files, and `git ls-files` shows none of them tracked.
-- [ ] #8 Every advisory ignore in `audit.yml` names its tracking story and the dependency version that ends it.
+- [x] #1 The release build in `release.yml` restores no setup-bun cache and checks the Bun it downloads against a pinned checksum.
+- [x] #2 Lockfile-maintenance PRs do not automerge, and `scripts/renovate-config.test.ts` checks it.
+- [x] #3 A change under `.github/`, to `install.sh` or to the release-please config needs the maintainer's approval before it merges. How (CODEOWNERS with required review, or a required check) is proposed as a dated 0016 note for the maintainer's approval, and the settings list in CLAUDE.md is updated.
+- [x] #4 `pr-title.yml` runs `check-pr-title.ts` from the base branch, never from the PR head.
+- [x] #5 A workflow linter job, pinned by digest, runs in CI and is part of `ci-ok`.
+- [x] #6 Without gh, `install.sh` stops with a message saying how to verify the download, unless an explicit opt-out is set. With gh, it also pins the source digest of the release tag. `docs/release.md` describes both.
+- [x] #7 `.gitignore` ignores env files, private key and certificate files, and npm credential files, and `git ls-files` shows none of them tracked.
+- [x] #8 Every advisory ignore in `audit.yml` names its tracking story and the dependency version that ends it.
 <!-- AC:END -->
+
+## Implementation Notes
+
+<!-- SECTION:NOTES:BEGIN -->
+Done 2026-10-23 (maintainer session): built outside dipo, reviewed by a separate agent (all 8 criteria met; its scope findings are closed by these References). Criterion 3: the maintainer chose code owners plus a ruleset (0016 amendment of 2026-10-23, CLAUDE.md settings list); the maintainer applies the ruleset by hand after this merges. The audit ignore's tracking story is DIPO-329. Follow-up DIPO-331: the merge slot holds story PRs that touch the release path for the maintainer.
+<!-- SECTION:NOTES:END -->

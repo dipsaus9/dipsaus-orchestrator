@@ -14,6 +14,7 @@ export const ids = {
   test: `tst_${ULID}`,
   request: ULID,
   request2: ULID2,
+  proposal: "3f".repeat(32),
 };
 
 export const softwareCursor = { stream: "software", epoch: "e1", seq: 42 };
@@ -215,6 +216,14 @@ const officeCommandFixtures: Record<string, { args: unknown; result: unknown }> 
   "gate.reject": {
     args: { gate: ids.gate, note: "Split the migration." },
     result: { gate: ids.gate, decision: "rejected" },
+  },
+  "proposal.accept": {
+    args: { proposal: ids.proposal.slice(0, 12) },
+    result: { proposal: ids.proposal, state: "accepted", draft: "DRAFT-4" },
+  },
+  "proposal.dismiss": {
+    args: { proposal: ids.proposal },
+    result: { proposal: ids.proposal, state: "dismissed" },
   },
   "test.start": {
     args: { story: "DIPO-15" },
@@ -462,6 +471,15 @@ const officeEventFixtures: Record<string, unknown> = {
     key: ids.storyKey,
     pr: { number: 142, url: "https://github.com/example/demo/pull/142", state: "open" },
   },
+  "proposal.filed": {
+    proposal: ids.proposal,
+    kind: "follow-up",
+    key: ids.storyKey,
+    story: "DIPO-122",
+    run: ids.run,
+    title: "Split RunOutcomes",
+  },
+  "proposal.closed": { proposal: ids.proposal, key: ids.storyKey, state: "accepted" },
   "test.started": testView,
   "test.recorded": {
     test: ids.test,

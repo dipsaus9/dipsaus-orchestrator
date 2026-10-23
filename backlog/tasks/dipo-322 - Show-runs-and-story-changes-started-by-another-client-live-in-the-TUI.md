@@ -1,20 +1,24 @@
 ---
 id: DIPO-322
 title: Show runs and story changes started by another client live in the TUI
-status: Refined
+status: Done
 assignee: []
 created_date: '2026-10-23 08:11'
-updated_date: '2026-10-23 08:13'
+updated_date: '2026-10-23 10:29'
 labels:
   - 'tier:M'
   - 'slice:m1b'
 milestone: m-1
 dependencies: []
 references:
-  - packages/client/src/store/
+  - '- packages/client/src/store/'
   - packages/client/src/client.ts
-  - packages/tui/src/
+  - packages/client/src/store/office-store.ts
   - packages/client/test/
+  - packages/client/test/unit/fake-daemon.ts
+  - packages/client/test/unit/live-updates.test.ts
+  - packages/tui/src/
+  - packages/tui/src/live.test.tsx
 priority: medium
 type: bug
 ordinal: 307000
@@ -41,8 +45,14 @@ test_plan:
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 The cause is named in the PR: why an open view does not take changes that the stream carries
-- [ ] #2 After a daemon restart the TUI reconnects, resubscribes after its last cursor and keeps updating live
-- [ ] #3 Tests cover events from another client and the reconnect
-- [ ] #4 An open TUI shows a run started, moved or ended by another client (the stream's work.assigned, work.phase, work.progress, work.output and story.state events) in the overview, the queue, the live agent view and the story detail within 5 seconds of the event
+- [x] #1 The cause is named in the PR: why an open view does not take changes that the stream carries
+- [x] #2 After a daemon restart the TUI reconnects, resubscribes after its last cursor and keeps updating live
+- [x] #3 Tests cover events from another client and the reconnect
+- [x] #4 An open TUI shows a run started, moved or ended by another client (the stream's work.assigned, work.phase, work.progress, work.output and story.state events) in the overview, the queue, the live agent view and the story detail within 5 seconds of the event
 <!-- AC:END -->
+
+## Implementation Notes
+
+<!-- SECTION:NOTES:BEGIN -->
+Done 2026-10-23 (maintainer session): built outside dipo, reviewed by a separate agent (all 4 criteria met; 6 of the 8 new tests fail without the fix). Cause: after a daemon restart the client re-sends its office subscription while the daemon still recovers, the daemon refuses it with engine.recovering, and the office store subscribed again only on stream.resetRequired, so the open view froze until the office was entered again; a failed office switch also dropped the current office's events. The live 5-second check of criterion 4 is the maintainer's. Advisories filed as DIPO-327.
+<!-- SECTION:NOTES:END -->

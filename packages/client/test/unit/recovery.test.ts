@@ -10,12 +10,14 @@ import { describe, expect, it } from "bun:test";
 import {
   type ClientFrame,
   CONTRACT_VERSION,
+  type Cursor,
   type DaemonState,
   officeOpen,
   type OfficeId,
   type RequestId,
   officeSnapshot,
   type ServerFrame,
+  type StreamName,
   workRun,
 } from "@dipsaus-orchestrator/contract";
 import { ManualClock } from "@dipsaus-orchestrator/testkit";
@@ -323,5 +325,66 @@ describe("waitForRecovery", () => {
     expect((failure as ClientError).code).toBe("client.closed");
     expect(clock.pendingTimers).toBe(0);
     expect(said).toEqual([]);
+  });
+});
+
+/** A session whose subscriptions are recorded; the test answers each one by hand. */
+function subscribeSession() {
+  const attempts: { after: unknown; onEnded?: (error: unknown) => void }[] = [];
+  const session = {
+    command: () => Promise.reject(new Error("unused")),
+    read: () => Promise.reject(new Error("unused")),
+    subscribe: (
+      name: StreamName,
+      options: { after?: unknown; onEnded?: (error: unknown) => void },
+    ) => {
+      attempts.push({
+        after: options.after,
+        ...(options.onEnded ? { onEnded: options.onEnded } : {}),
+      });
+      return { stream: name, cursor: options.after, unsubscribe: () => undefined };
+    },
+    close: () => undefined,
+  };
+  return { session, attempts };
+}
+
+describe("subscribe while the daemon recovers (DIPO-325)", () => {
+  const cursor = { stream: "office:x", epoch: "e1", seq: 4 } as Cursor;
+  const stream = "office:x" as StreamName;
+
+  it("sends a refused subscription again after a poll from its last cursor, and ends with a closed stream", async () => {
+    const clock = new ManualClock();
+    const { session, attempts } = subscribeSession();
+    const wrapped = waitForRecovery(session as never, { clock });
+    const ended: string[] = [];
+    wrapped.subscribe(stream, {
+      after: cursor,
+      onEvent: () => undefined,
+      onEnded: (error) => ended.push(error.code),
+    });
+    attempts[0]?.onEnded?.(RECOVERING);
+    expect(attempts).toHaveLength(1);
+    clock.advance(RECOVERY_POLL_MS);
+    await flush();
+    expect(attempts).toHaveLength(2);
+    expect(attempts[1]?.after).toEqual(cursor);
+    attempts[1]?.onEnded?.({ code: "stream.resetRequired", message: "gap", retryable: false });
+    expect(ended).toEqual(["stream.resetRequired"]);
+    expect(attempts).toHaveLength(2);
+    expect(clock.pendingTimers).toBe(0);
+  });
+
+  it("stops sending a refused subscription once it is unsubscribed", async () => {
+    const clock = new ManualClock();
+    const { session, attempts } = subscribeSession();
+    const wrapped = waitForRecovery(session as never, { clock });
+    const subscription = wrapped.subscribe(stream, { onEvent: () => undefined });
+    attempts[0]?.onEnded?.(RECOVERING);
+    subscription.unsubscribe();
+    clock.advance(RECOVERY_POLL_MS);
+    await flush();
+    expect(attempts).toHaveLength(1);
+    expect(clock.pendingTimers).toBe(0);
   });
 });

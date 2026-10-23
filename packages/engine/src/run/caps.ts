@@ -2,6 +2,11 @@
 // creation, summed over the run's agents), turns summed by the engine (the CLI's `--max-turns`
 // counts again with every queued message, so it is only a backstop) and wall-clock minutes since
 // the worker started, sleep included. A cap fires at 100%; the budget is never raised (0001).
+//
+// The caps see only the usage the adapter could read (DIPO-315). A run whose worker stream drifts
+// (lines that fail their schema or have a message type the adapter drops, `STREAM_DRIFT_LINES` of
+// them over the run's agents, or one turn end whose usage cannot be read) parks `worker-failed`
+// with cause `stream-drift` instead of running past its budget unseen.
 
 import type { RunId } from "@dipsaus-orchestrator/contract";
 
@@ -11,6 +16,25 @@ import type { Caps } from "../workers/types";
 import { grantTotals } from "./grants";
 import { pausedMs } from "./pauses";
 import type { StoredRun } from "./records";
+
+/**
+ * The ms the run's worker questions waited live up to `now` (0020 section 7, DIPO-159, the
+ * `questions` table of `hooks/questions.ts`): from each question's `asked_at` to the first of its
+ * close, its park (the park's own time is the run's `parked_ms`), the end of its wait and `now`.
+ * The minute cap leaves them out.
+ */
+export function questionWaitMs(office: OfficeHandle, runId: string, now: number): number {
+  const row = office.get<{ total: number | null }>(
+    `select sum(max(0, min(coalesce(q.closed_at, $now), coalesce(p.at, $now), q.wait_until, $now)
+         - q.asked_at)) as total
+       from questions q
+       left join parks p on p.office_id = q.office_id and p.park_id = q.park_id
+      where q.office_id = $office_id and q.run_id = $run and q.kind = 'question'
+        and q.wait_until is not null`,
+    { run: runId, now },
+  );
+  return row?.total ?? 0;
+}
 
 /** The cap that fired, as the park detail and the `cap` intent name it. */
 export type CapName = "budgetTokens" | "maxTurns" | "maxMinutes";
@@ -29,6 +53,35 @@ export interface FiredCap {
 }
 
 const MINUTE_MS = 60_000;
+
+/**
+ * The unreadable stream lines at which a run parks with cause `stream-drift` (DIPO-315, a design
+ * choice). A new message type the CLI sends with every turn, or a changed field of a frequent line,
+ * reaches ten within a few turns, while one odd line (a line cut at a crash) never does. A turn end
+ * whose usage cannot be read parks at once, whatever the count.
+ */
+export const STREAM_DRIFT_LINES = 10;
+
+/** What a stream drift park says (DIPO-315). */
+export interface StreamDriftFacts {
+  /** `usage` when a turn end's usage cannot be read; else the count reached the threshold. */
+  readonly usage: boolean;
+  /** The worker and its version, as the adapter names them. */
+  readonly worker: string;
+  /** The deciding line's problem. */
+  readonly detail: string;
+  readonly lines: number;
+  readonly threshold: number;
+}
+
+/** Pure: the park detail of a stream drift, naming the worker's version and the count. */
+export function streamDriftDetail(facts: StreamDriftFacts): string {
+  const counted = `${count(facts.lines)} unreadable stream ${facts.lines === 1 ? "line" : "lines"} in the run (the threshold is ${count(facts.threshold)})`;
+  if (facts.usage) {
+    return `stream drift on ${facts.worker}: ${facts.detail}, so the caps cannot count the turn's usage; ${counted}. A resume starts the count again from 0.`;
+  }
+  return `stream drift on ${facts.worker}: ${counted}, lines that failed their schema or had a message type dipo drops, so the caps may not see all usage; the last: ${facts.detail}. A resume starts the count again from 0.`;
+}
 
 function count(value: number): string {
   return value.toLocaleString("en-US");
@@ -63,10 +116,10 @@ export const REVIEWER_ROLE = "reviewer";
 /**
  * The run's totals from the stored usage, and the wall-clock time from `startedAt` (when its worker
  * host started, moved by the time it stood parked, ended or in review) to `now`, less the time
- * the maintainer paused it. The budget counts
- * every agent of the run, the reviewer's too, since the story's budget pays for its review; the
- * turns count only the developer's agents, since a reviewer's turns count only toward its own
- * session cap (0019 sections 4 and 13).
+ * the maintainer paused it and the time its worker questions waited live (0020 section 7). The
+ * budget counts every agent of the run, the reviewer's too, since the story's budget pays for
+ * its review; the turns count only the developer's agents, since a reviewer's turns count only
+ * toward its own session cap (0019 sections 4 and 13).
  */
 export function runTotals(
   office: OfficeHandle,
@@ -86,8 +139,12 @@ export function runTotals(
   return {
     budgetTokens: row?.budget ?? 0,
     turns: row?.turns ?? 0,
-    // The time the maintainer paused the run does not count (0020 section 9, DIPO-163).
-    elapsedMs: Math.max(0, now - startedAt - pausedMs(office, runId, now)),
+    // The time the maintainer paused the run (0020 section 9, DIPO-163) and the live wait of its
+    // worker questions (0020 section 7, DIPO-159) do not count.
+    elapsedMs: Math.max(
+      0,
+      now - startedAt - pausedMs(office, runId, now) - questionWaitMs(office, runId, now),
+    ),
   };
 }
 

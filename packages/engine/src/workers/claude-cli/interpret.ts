@@ -24,6 +24,7 @@ import type {
   PlanLimitScope,
   ReportKind,
   ReviewReport,
+  StreamDriftKind,
   ToolEffect,
   TurnProblem,
   UsageTotalsByModel,
@@ -34,6 +35,7 @@ import { WEB_LINE_PREFIX } from "../types";
 import { flatInput } from "../../ingest/output";
 import { hookEventOf, WEB_TOOLS } from "./hooks";
 import { pluginRefusal, refusedPlugins } from "./plugins";
+import { CHECKED_CLAUDE_VERSION, compareVersions } from "./probe";
 import { parseReviewReport, parseWorkerReport } from "./report-schema";
 import { skillRefusal } from "./skills";
 import {
@@ -515,7 +517,31 @@ function remember(list: readonly string[], item: string): readonly string[] {
 }
 
 function problem(state: ClaudeParseState, text: string): ClaudeParseState {
-  return { ...state, problems: [...state.problems, text] };
+  return { ...state, problems: [...(state.problems ?? []), text] };
+}
+
+/** The worker and its version, as a drift event or a notice names them (DIPO-315). */
+function workerLabel(state: ClaudeParseState): string {
+  return state.version === null
+    ? "Claude Code (version not reported yet)"
+    : `Claude Code ${state.version}`;
+}
+
+function driftEvent(state: ClaudeParseState, kind: StreamDriftKind, detail: string): WorkerEvent {
+  return { t: "streamDrift", kind, detail, worker: workerLabel(state) };
+}
+
+/**
+ * `step` with one `streamDrift` event of `kind` ahead of its events for each problem it added to
+ * `before`'s (DIPO-315): the engine counts them and parks a run whose stream it cannot read.
+ */
+function withDrift(before: ClaudeParseState, step: Step, kind: StreamDriftKind): Step {
+  const added = (step.state.problems ?? []).slice((before.problems ?? []).length);
+  if (added.length === 0) return step;
+  return {
+    events: [...added.map((detail) => driftEvent(step.state, kind, detail)), ...step.events],
+    state: step.state,
+  };
 }
 
 /** Compactions this process already emitted; a state stored before DIPO-100 emitted every one. */
@@ -542,7 +568,7 @@ export function interpret(line: HostLine, state: ClaudeParseState): Step {
     case "stdout":
       return stdoutText(line.data, state);
     case "hook":
-      return hookLine(line.data, state, line.end ?? null);
+      return withDrift(state, hookLine(line.data, state, line.end ?? null), "schema");
     case "exit": {
       // Compaction counts are per process; a hook-only compaction is reported before they reset.
       const flushed = flushCompactions(state);
@@ -610,7 +636,13 @@ function tryParse(text: string): { ok: true; value: unknown } | { ok: false } {
 
 function completeLine(text: string, state: ClaudeParseState): Step {
   const parsed = tryParse(text);
-  if (!parsed.ok) return { events: [], state: problem(state, "unparseable stdout line") };
+  if (!parsed.ok) {
+    return withDrift(
+      state,
+      { events: [], state: problem(state, "unparseable stdout line") },
+      "schema",
+    );
+  }
   return message(parsed.value, state);
 }
 
@@ -641,14 +673,26 @@ function parseWith<T>(
   return { ok: false, state: problem(state, `${kind} failed its schema at ${path || "(root)"}`) };
 }
 
-/** One stream-json object. */
+/**
+ * One stream-json object. A line that fails its schema, and one of a type the adapter drops, is
+ * also a `streamDrift` event (DIPO-315); a `result` that fails its schema is a `usage` drift,
+ * since its usage cannot be read.
+ */
 export function message(value: unknown, state: ClaudeParseState): Step {
+  const kind: StreamDriftKind = isRecord(value) && kindOf(value) === "result" ? "usage" : "schema";
+  return withDrift(state, readMessage(value, state), kind);
+}
+
+function readMessage(value: unknown, state: ClaudeParseState): Step {
   if (!isRecord(value))
     return { events: [], state: problem(state, "stdout line is not an object") };
   if (!isKnown(value)) {
+    const kind = kindOf(value);
     return {
-      events: [],
-      state: { ...state, unknownTypes: remember(state.unknownTypes, kindOf(value)) },
+      events: [
+        driftEvent(state, "dropped", `message type ${kind} is not known, so it was dropped`),
+      ],
+      state: { ...state, unknownTypes: remember(state.unknownTypes, kind) },
     };
   }
   switch (kindOf(value)) {
@@ -842,6 +886,16 @@ function init(value: unknown, state: ClaudeParseState): Step {
       tools: [...msg.tools],
     });
     next = { ...next, started: true, model: msg.model };
+    // A newer Claude Code than dipo was checked with (DIPO-315): the engine notes it once.
+    const version = msg.claude_code_version;
+    if (compareVersions(version, CHECKED_CLAUDE_VERSION) > 0) {
+      events.push({
+        t: "newerVersion",
+        worker: "Claude Code",
+        version,
+        checked: CHECKED_CLAUDE_VERSION,
+      });
+    }
   } else if (next.model !== null && next.model !== msg.model) {
     // With a planned model the switch was reported when a message or a result first showed it.
     if (next.plannedModel === null) {
@@ -1168,6 +1222,19 @@ function result(value: unknown, state: ClaudeParseState): Step {
     Object.values(msg.modelUsage).find((entry) => entry.contextWindow !== undefined)?.contextWindow;
   if (window !== undefined) next = { ...next, contextWindow: window };
 
+  // A completed turn always spent tokens: one that reports none means the CLI's usage moved where
+  // dipo does not read it, so the caps would not see the turn (DIPO-315). An aborted or failed
+  // turn may report none (the `pause-now` and `start-failed` recordings), so only a completed
+  // one drifts. The drift comes ahead of the turn, so the run parks before its report decides.
+  if (none && completed) {
+    events.unshift(
+      driftEvent(
+        next,
+        "usage",
+        `a completed turn's result reports no token usage (${msg.terminal_reason ?? msg.subtype})`,
+      ),
+    );
+  }
   const read = readReport(msg.structured_output, next.reportKind);
   // A session that failed its start (an unlisted plugin, DIPO-108, or a skill, DIPO-130) reports
   // nothing the engine may act on: its turn carries no report, so verify and commit never run on

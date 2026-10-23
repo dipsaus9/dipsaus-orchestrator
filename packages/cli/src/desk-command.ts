@@ -8,6 +8,7 @@
 
 import { basename } from "node:path";
 
+import { usageParts } from "@dipsaus-orchestrator/client";
 import { type DeskItem, officeDesk } from "@dipsaus-orchestrator/contract";
 
 import { engineFailure, usage } from "./daemon-commands";
@@ -36,12 +37,22 @@ function commandLine(item: DeskItem): string {
   return lines.length === 0 ? "(no command in this dipo yet)" : lines.join(" | ");
 }
 
-/** The desk as plain-text lines; `label` names the office on the count line. */
-export function formatDesk(label: string, items: readonly DeskItem[], nowMs: number): string[] {
+/**
+ * The desk as plain-text lines; `label` names the office on the count line, which ends with
+ * `usageText`, today's and this month's tokens (DIPO-311).
+ */
+export function formatDesk(
+  label: string,
+  items: readonly DeskItem[],
+  nowMs: number,
+  usageText: readonly string[] = [],
+): string[] {
   if (items.length === 0) return [EMPTY_DESK];
   const held = items.filter((item) => item.kind === "HELD");
   const open = items.filter((item) => item.kind !== "HELD");
-  const lines = [`${label} · desk ${open.length} · held ${held.length}`];
+  const lines = [
+    [`${label} · desk ${open.length} · held ${held.length}`, ...usageText].join(" · "),
+  ];
   const kindWidth = Math.max(0, ...open.map((item) => item.kind.length));
   const storyWidth = Math.max(0, ...open.map((item) => (item.story ?? "").length));
   for (const item of open) {
@@ -100,7 +111,11 @@ export async function deskCommand(
         return 0;
       }
       const label = main === undefined ? office : basename(main);
-      for (const line of formatDesk(label, outcome.result, deps.clock.now())) deps.writeLine(line);
+      const now = deps.clock.now();
+      const summary = session.hello?.offices.find((entry) => entry.office === office);
+      for (const line of formatDesk(label, outcome.result, now, usageParts(summary, now))) {
+        deps.writeLine(line);
+      }
       return 0;
     },
     undefined,

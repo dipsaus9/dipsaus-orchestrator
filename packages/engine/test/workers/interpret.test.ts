@@ -12,8 +12,11 @@ import {
   rateLimitScope,
   webLine,
 } from "../../src/workers/claude-cli/interpret";
+import { CHECKED_CLAUDE_VERSION, compareVersions } from "../../src/workers/claude-cli/probe";
 import { result } from "../../src/workers/claude-cli/result";
 import type { HostLine, WorkerEvent, WorkerReport } from "../../src/workers/types";
+import { BOX_DEFAULTS } from "../../src/box/image";
+import { loadRecording, recordingNames } from "./replay";
 
 const MODEL = "claude-haiku-5-5";
 
@@ -536,18 +539,40 @@ describe("interpret (0008 section 3)", () => {
     expect(result(ended.state, { code: 1, signal: null }).outcome).toBe("crashed");
   });
 
-  it("logs an unknown message type once per run and ignores it", () => {
+  it("logs an unknown message type once per run and drops it, each line a dropped drift", () => {
     const logged: string[] = [];
     let state = initialState();
+    const drifts: WorkerEvent[] = [];
     for (const data of [
       { type: "brand_new", x: 1 },
       { type: "brand_new", x: 2 },
       { type: "system", subtype: "fresh_subtype" },
     ]) {
       const step = interpretLogged(out(data), state, (message) => logged.push(message));
-      expect(step.events).toEqual([]);
+      drifts.push(...step.events);
       state = step.state;
     }
+    // DIPO-315: every dropped line is counted, not only the first of its type.
+    expect(drifts).toEqual([
+      {
+        t: "streamDrift",
+        kind: "dropped",
+        detail: "message type brand_new is not known, so it was dropped",
+        worker: "Claude Code (version not reported yet)",
+      },
+      {
+        t: "streamDrift",
+        kind: "dropped",
+        detail: "message type brand_new is not known, so it was dropped",
+        worker: "Claude Code (version not reported yet)",
+      },
+      {
+        t: "streamDrift",
+        kind: "dropped",
+        detail: "message type system/fresh_subtype is not known, so it was dropped",
+        worker: "Claude Code (version not reported yet)",
+      },
+    ]);
     expect(state.unknownTypes).toEqual(["brand_new", "system/fresh_subtype"]);
     expect(logged).toEqual([
       "claude-cli: unknown stream-json message type brand_new ignored",
@@ -555,10 +580,46 @@ describe("interpret (0008 section 3)", () => {
     ]);
   });
 
-  it("records a known line that fails its schema as a problem, without events", () => {
+  it("records a known line that fails its schema as a problem and a drift event (DIPO-315)", () => {
+    const { events, state } = run([
+      init(),
+      out({ type: "system", subtype: "compact_boundary", compact_metadata: { pre_tokens: "x" } }),
+    ]);
+    expect(events.filter((event) => event.t === "streamDrift")).toEqual([
+      {
+        t: "streamDrift",
+        kind: "schema",
+        detail: "system/compact_boundary failed its schema at compact_metadata.pre_tokens",
+        worker: `Claude Code ${state.version}`,
+      },
+    ]);
+    expect(state.problems).toEqual([
+      "system/compact_boundary failed its schema at compact_metadata.pre_tokens",
+    ]);
+  });
+
+  it("makes a result whose schema fails a usage drift, with no turn (DIPO-315)", () => {
     const { events, state } = run([out({ type: "result", subtype: "success" })]);
-    expect(events).toEqual([]);
+    expect(events).toEqual([
+      {
+        t: "streamDrift",
+        kind: "usage",
+        detail: "result failed its schema at session_id",
+        worker: "Claude Code (version not reported yet)",
+      },
+    ]);
     expect(state.problems).toEqual(["result failed its schema at session_id"]);
+  });
+
+  it("makes an unparseable stdout line and a hook line that fails its schema schema drifts", () => {
+    const { events } = run([
+      { t: 1, ch: "stdout", data: "{not json\n" },
+      { t: 2, ch: "hook", data: "{also not json" },
+    ]);
+    expect(events.map((event) => (event.t === "streamDrift" ? event.kind : event.t))).toEqual([
+      "schema",
+      "schema",
+    ]);
   });
 });
 
@@ -779,5 +840,78 @@ describe("plan-limit scopes (DIPO-61)", () => {
     expect(rateLimitScope("seven_day_sonnet")).toBe("model:sonnet");
     expect(rateLimitScope("overage")).toBeUndefined();
     expect(rateLimitScope(undefined)).toBeUndefined();
+  });
+});
+
+describe("stream drift and the checked version (DIPO-315)", () => {
+  it("puts a usage drift ahead of a completed turn whose result reports no token usage", () => {
+    const { events } = run([init(), resultLine({ modelUsage: {} })]);
+    const kinds = events.map((event) => event.t);
+    expect(kinds.indexOf("streamDrift")).toBeGreaterThanOrEqual(0);
+    expect(kinds.indexOf("streamDrift")).toBeLessThan(kinds.indexOf("turn"));
+    expect(events.find((event) => event.t === "streamDrift")).toEqual({
+      t: "streamDrift",
+      kind: "usage",
+      detail: "a completed turn's result reports no token usage (completed)",
+      worker: "Claude Code 2.1.296",
+    });
+    // All-zero totals are no usage either.
+    const zero = run([
+      init(),
+      resultLine({
+        modelUsage: {
+          [MODEL]: {
+            inputTokens: 0,
+            outputTokens: 0,
+            cacheReadInputTokens: 0,
+            cacheCreationInputTokens: 0,
+          },
+        },
+      }),
+    ]);
+    expect(zero.events.filter((event) => event.t === "streamDrift")).toHaveLength(1);
+  });
+
+  it("does not drift on an aborted or failed turn without usage, nor on a turn with usage", () => {
+    const aborted = run([
+      init(),
+      resultLine({ modelUsage: {}, terminal_reason: "aborted_streaming" }),
+    ]);
+    const failed = run([
+      init(),
+      resultLine({ modelUsage: {}, subtype: "error_during_execution", terminal_reason: "error" }),
+    ]);
+    const counted = run([init(), resultLine()]);
+    for (const replayed of [aborted, failed, counted]) {
+      expect(replayed.events.filter((event) => event.t === "streamDrift")).toEqual([]);
+    }
+  });
+
+  it("notes a Claude Code newer than the checked one at its start, once per process", () => {
+    const newer = run([
+      init({ claude_code_version: "2.1.400" }),
+      init({ claude_code_version: "2.1.400" }),
+    ]);
+    expect(newer.events.filter((event) => event.t === "newerVersion")).toEqual([
+      {
+        t: "newerVersion",
+        worker: "Claude Code",
+        version: "2.1.400",
+        checked: CHECKED_CLAUDE_VERSION,
+      },
+    ]);
+    for (const version of [CHECKED_CLAUDE_VERSION, "2.1.296"]) {
+      const quiet = run([init({ claude_code_version: version })]);
+      expect(quiet.events.filter((event) => event.t === "newerVersion")).toEqual([]);
+    }
+  });
+
+  it("checks the box image's Claude Code and is at least every recording's version", () => {
+    expect(CHECKED_CLAUDE_VERSION).toBe(BOX_DEFAULTS.claudeCode);
+    for (const name of recordingNames()) {
+      const recorded = loadRecording(name).meta["claude_code_version"];
+      if (typeof recorded !== "string") continue;
+      expect(compareVersions(recorded, CHECKED_CLAUDE_VERSION)).toBeLessThanOrEqual(0);
+    }
   });
 });

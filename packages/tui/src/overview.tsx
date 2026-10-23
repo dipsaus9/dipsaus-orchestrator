@@ -13,7 +13,7 @@
 // story's live detail (DIPO-55), or the latest run of a story that ran (DIPO-81). Lines are
 // memoised by their text and cut to the width.
 
-import type { OfficeStoreState } from "@dipsaus-orchestrator/client";
+import { type OfficeStoreState, usageParts } from "@dipsaus-orchestrator/client";
 import type {
   Clock,
   GateView,
@@ -33,7 +33,6 @@ import {
   evidenceOf,
   marked,
   percent,
-  tokens,
   truncate,
   type Width,
 } from "./format";
@@ -97,11 +96,17 @@ function columnCount(state: OfficeStoreState, column: string): number {
 }
 
 /**
- * `1 running · 1 needs you · 1 in review · Ready 1 · waiting 0 · held 0 · today 1.2M of 4M tokens`,
- * with `stores commands` before `today` while a privacy setting that stores data is on (0007
- * section 8).
+ * `1 running · 1 needs you · 1 in review · Ready 1 · waiting 0 · held 0 · today 1.2M of 4M tokens
+ * (30%, resets 00:00 UTC) · this month 20M of 90M tokens (22%, resets 1 Nov 00:00 UTC)`, with
+ * `stores commands` before `today` while a privacy setting that stores data is on (0007 section 8).
+ * The usage parts are the engine's (DIPO-311); without a limit only the tokens show.
  */
-export function countLine(state: OfficeStoreState, dot: string, width: Width): string {
+export function countLine(
+  state: OfficeStoreState,
+  dot: string,
+  width: Width,
+  nowMs: number,
+): string {
   const summary = state.offices.find((entry) => entry.office === state.office)?.summary;
   const parts = [
     `${state.work.length} running`,
@@ -113,12 +118,7 @@ export function countLine(state: OfficeStoreState, dot: string, width: Width): s
   ];
   const stored = storedLabel(officeOptIns(state));
   if (stored !== "") parts.push(stored);
-  const day = summary?.dayUsage;
-  if (day !== undefined && width === "full") {
-    const limit = day.limit === undefined ? "" : ` of ${tokens(day.limit)}`;
-    const cost = day.estimatedCost === undefined ? "" : ` (~$${day.estimatedCost.toFixed(2)})`;
-    parts.push(`today ${tokens(day.tokens)}${limit} tokens${cost}`);
-  }
+  if (width === "full") parts.push(...usageParts(summary, nowMs));
   return ` ${parts.join(` ${dot} `)}`;
 }
 
@@ -499,7 +499,9 @@ export function Overview(props: {
   if (state.loading && state.stories.length === 0) {
     return <Text>{` Loading${ellipsis}`}</Text>;
   }
-  const top: BoardLine[] = [{ key: "counts", text: countLine(state, dot, width) }];
+  const top: BoardLine[] = [
+    { key: "counts", text: countLine(state, dot, width, props.clock.now()) },
+  ];
   if (state.work.length === 0) top.push({ key: "idle", text: idleLine(state, dot) });
   const board = fitSections(
     sections({

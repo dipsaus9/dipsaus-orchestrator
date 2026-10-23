@@ -9,6 +9,7 @@ import { parseFieldBlock } from "../backlog/fields/block";
 import { viewStory } from "../backlog/fields/write";
 import type { BacklogCli } from "../backlog/runner";
 import type { GitLocation } from "../git/hardened";
+import { type PushResult, pushBranch } from "../git/task-commit";
 import type { OfficeGit } from "../git/office";
 import { promptStoryOf } from "../prompts/story";
 import { inStoryBacklog, repoPath } from "../worktree/claim";
@@ -38,6 +39,11 @@ export interface StoryPrGit {
     office: OfficeId,
     input: { readonly worktree: string; readonly story: string },
   ): Promise<StoryPrFacts>;
+  /**
+   * Pushes the story branch again, never forced (DIPO-315: the PR poll's retry of a failed In
+   * Review push). Absent: the poll pushes nothing.
+   */
+  push?(office: OfficeId, branch: string): Promise<PushResult>;
 }
 
 /** The real reads, on the office git and the Backlog CLI. */
@@ -46,6 +52,11 @@ export function gitStoryPrOps(deps: {
   readonly cli: BacklogCli;
 }): StoryPrGit {
   return {
+    push: (office, branch) => {
+      const git = deps.git(office);
+      if (git === undefined) throw new Error(`Office ${office} has no git attached.`);
+      return git.run((session) => pushBranch(session, git.settings.remote, branch));
+    },
     read: (office, input) => {
       const git = deps.git(office);
       if (git === undefined) throw new Error(`Office ${office} has no git attached.`);

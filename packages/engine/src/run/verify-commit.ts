@@ -84,7 +84,8 @@ import {
   refusedDetail,
 } from "../box/parts";
 import { BoxError } from "../box/port";
-import { findClaim, updateClaim } from "../worktree/records";
+import { recordBranchPush } from "../story-pr/records";
+import { findClaim } from "../worktree/records";
 
 import type { BackstopSnapshot } from "./backstop";
 import type { DoneConflictDecision } from "./conflicts";
@@ -280,7 +281,11 @@ export interface VerifyCommitDeps {
    * The story PR (DIPO-144): called right after an In Review push that reached the remote, to open
    * or update the story's PR. It never throws; a failure is its own notice.
    */
-  readonly storyPr?: { sync(office: OfficeId, runId: RunId): Promise<void> };
+  readonly storyPr?: {
+    sync(office: OfficeId, runId: RunId): Promise<void>;
+    /** The In Review push failed (DIPO-315): its review waits for the PR poll to push again. */
+    pushHeld?(office: OfficeId, runId: RunId): void;
+  };
   /**
    * The box runs' parts (DIPO-273): whether a run's developer works in a box, and its last part at
    * done (`BoxParts.finishLast`). Without them no run reaches In Review here.
@@ -776,8 +781,9 @@ export class VerifyCommit implements RunFinisher {
       const office = ctx.office;
       const at = this.#deps.clock.now();
       storeRunSummary(office, run.runId, { report: input.report, diffstat, at });
-      // The In Review push on the remote, at the run's end: the PR poll retries only such a run.
-      if (push.pushed) updateClaim(office, run.runId, { pushedAt: at });
+      // The In Review push on the remote, at the run's end, or no remote to push to (DIPO-315): the
+      // review starts only then, and the PR poll pushes again a run without either.
+      recordBranchPush(office, run.branch as string, push, at);
       // A done turn that crossed a cap: its cap step is written with the run's end (DIPO-222).
       if (ctx.capped != null) {
         appendRunStep(office, run.runId, "cap", `${ctx.capped.cap}: ${ctx.capped.detail}`, at);
@@ -831,6 +837,7 @@ export class VerifyCommit implements RunFinisher {
     });
     // 6. The story PR: opened, or updated when an earlier push already opened it (0019 section 3).
     if (push.pushed) await this.#deps.storyPr?.sync(officeId, run.runId);
+    else if (push.error !== null) this.#deps.storyPr?.pushHeld?.(officeId, run.runId);
     return { kind: "ended" };
   }
 }

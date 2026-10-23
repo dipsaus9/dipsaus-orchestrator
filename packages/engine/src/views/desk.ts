@@ -3,7 +3,9 @@
 // stored facts; nothing asks a model, and clients never derive it (0005, 0009).
 //
 // The six groups, in order:
-// 1. a question, permission or scope request a live worker waits on (no park took it over);
+// 1. a question, permission or scope request a live worker waits on (no park took it over); a
+//    worker question shows the time left on its wait (DIPO-159) and offers `dipo answer <question>
+//    --text "<answer>"`;
 // 2. merge gates that wait on the maintainer, with the PR from `story_prs`; a gate whose PR is
 //    labelled `autorelease: pending` offers a hand merge and no `dipo approve`;
 // 3. open parks: needing a decision, then a direction or grant, then a restart. A `review-blocked`
@@ -176,10 +178,13 @@ export function deskText(text: string): string {
 
 /** A detail or hand text: cleaned, on one line, and at most `DESK_DETAIL_MAX` characters. */
 export function deskLine(text: string): string {
-  const chars = Array.from(deskText(text));
-  return chars.length <= DESK_DETAIL_MAX
-    ? chars.join("")
-    : `${chars.slice(0, DESK_DETAIL_MAX - 1).join("")}…`;
+  return cut(deskText(text), DESK_DETAIL_MAX);
+}
+
+/** At most `max` characters: a longer text is cut and ends in `…`. */
+function cut(text: string, max: number): string {
+  const chars = Array.from(text);
+  return chars.length <= max ? text : `${chars.slice(0, Math.max(0, max - 1)).join("")}…`;
 }
 
 function iso(ms: number): string {
@@ -250,12 +255,20 @@ class DeskBuilder {
   readonly #implemented: Implemented;
   readonly #dependents: Map<string, StoryId[]>;
   readonly #items: Ranked[] = [];
+  /** The time of the read, for the time left on a waiting question; none without one. */
+  readonly #now: number | undefined;
 
-  constructor(office: OfficeHandle, sources: DeskSources, implemented: Implemented) {
+  constructor(
+    office: OfficeHandle,
+    sources: DeskSources,
+    implemented: Implemented,
+    now: number | undefined,
+  ) {
     this.#office = office;
     this.#sources = sources;
     this.#implemented = implemented;
     this.#dependents = dependentsByStory(office);
+    this.#now = now;
   }
 
   /** The action, when this engine ships its command. */
@@ -291,13 +304,23 @@ class DeskBuilder {
   #answerActions(question: StoredQuestion): DeskAction[] {
     const id = question.questionId;
     if (question.kind === "question") {
-      // DIPO-159 makes this `--text <answer>`; today the text follows the question id.
-      return this.#action("work.answer", `dipo answer ${id} "<answer>"`);
+      // A worker question's answer is a flag, never read as a decision (0020 section 7).
+      return this.#action("work.answer", `dipo answer ${id} --text "<answer>"`);
     }
     return [
       ...this.#action("work.answer", `dipo answer ${id} allow`),
       ...this.#action("work.answer", `dipo answer ${id} deny "<reason>"`),
     ];
+  }
+
+  /**
+   * `, <n> min left` while a worker question's live wait runs (rounded up, at least 1), `, its wait
+   * is over` once it has ended; empty for a question with no wait or a desk read without a time.
+   */
+  #timeLeft(question: StoredQuestion): string {
+    if (question.waitUntil === null || this.#now === undefined) return "";
+    const left = question.waitUntil - this.#now;
+    return left <= 0 ? ", its wait is over" : `, ${Math.max(1, Math.ceil(left / 60_000))} min left`;
   }
 
   /** Group 1: questions a live worker waits on; a park's questions are on its PARKED row. */
@@ -316,12 +339,16 @@ class DeskBuilder {
           : question.kind === "question"
             ? "QUESTION"
             : "SCOPE";
-      const text = deskText(question.text);
+      // The time left on a worker question's live wait (0020 section 7, DIPO-159), kept whole when
+      // a long question is cut.
+      const waiting = ` · worker waiting${this.#timeLeft(question)}`;
+      const room = DESK_DETAIL_MAX - Array.from(waiting).length - (kind === "QUESTION" ? 2 : 0);
+      const text = cut(deskText(question.text), room);
       this.#add(GROUP.live, 0, question.askedAt, {
         kind,
         ...(story === null || key === null ? {} : { story, key: StoryKey.parse(key) }),
         question: QuestionId.parse(question.questionId),
-        detail: `${kind === "QUESTION" ? JSON.stringify(text) : text} · worker waiting`,
+        detail: `${kind === "QUESTION" ? JSON.stringify(text) : text}${waiting}`,
         since: iso(question.askedAt),
         blocks: this.#blocks(story),
         actions: this.#answerActions(question),
@@ -552,13 +579,17 @@ class DeskBuilder {
   }
 }
 
-/** What waits on the maintainer in `office`, in desk order (see the file comment). */
+/**
+ * What waits on the maintainer in `office`, in desk order (see the file comment). `now` is the time
+ * of the read, for the time left on a worker question's wait; without it none is shown.
+ */
 export function desk(
   office: OfficeHandle,
   implemented: Implemented,
   sources: DeskSources = DESK_SOURCES,
+  now?: number,
 ): DeskItem[] {
-  const builder = new DeskBuilder(office, sources, implemented);
+  const builder = new DeskBuilder(office, sources, implemented, now);
   builder.liveQuestions();
   builder.gatesAndParks();
   builder.handActions();
@@ -572,7 +603,7 @@ export function registerDesk(registry: FeatureRegistry, sources: DeskSources = D
     definition: officeDesk,
     handle: (ctx: ReadContext) => {
       if (ctx.office === undefined) throw new Error("office.desk runs with its office");
-      return desk(ctx.office, implementedIn(ctx.registry), sources);
+      return desk(ctx.office, implementedIn(ctx.registry), sources, ctx.clock.now());
     },
   });
 }

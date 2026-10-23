@@ -370,6 +370,24 @@ describe("a part on real git", () => {
       expect((await w.repo.git("rev-parse", "--abbrev-ref", "HEAD")).trim()).toBe("main");
     }));
 
+  it("records each part's push that reached the remote (DIPO-315)", () => {
+    const pushes: { branch: string; pushed: boolean; error: string | null }[] = [];
+    return inParts(
+      async (w) => {
+        write(w.work, { "src/a.ts": "export const a = 3;\n" });
+        await w.parts.onPart(part("Change a"));
+        expect(w.parks).toEqual([]);
+        expect(pushes).toEqual([{ branch: BRANCH, pushed: true, error: null }]);
+      },
+      {
+        deps: {
+          pushed: (run, push) =>
+            pushes.push({ branch: run.branch, pushed: push.pushed, error: push.error }),
+        },
+      },
+    );
+  });
+
   it("numbers the parts, commits nothing for an unchanged box and keeps a record", () =>
     inParts(async (w) => {
       write(w.work, { "src/a.ts": "export const a = 2;\n" });

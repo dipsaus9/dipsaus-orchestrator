@@ -120,9 +120,37 @@ jobs:
           test -f install.sh
           git ls-files -z "*.sh" | xargs -0 shellcheck --severity=style
 
+  # DIPO-321: lint every workflow under .github/workflows/ with actionlint, which also runs the
+  # runner image's shellcheck on each `run:` script. The release archive is pinned by version and
+  # SHA-256, copied from actionlint_<version>_checksums.txt on the actionlint release page.
+  actionlint:
+    name: actionlint
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: read
+    env:
+      ACTIONLINT_VERSION: "1.7.12"
+      ACTIONLINT_SHA256: 8aca8db96f1b94770f1b0d72b6dddcb1ebb8123cb3712530b08cc387b349a3d8
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Download actionlint and check it against the pinned SHA-256
+        run: |
+          archive="actionlint_${ACTIONLINT_VERSION}_linux_amd64.tar.gz"
+          curl -fsSL --proto '=https' --tlsv1.2 -o "$RUNNER_TEMP/$archive" \
+            "https://github.com/rhysd/actionlint/releases/download/v$ACTIONLINT_VERSION/$archive"
+          echo "$ACTIONLINT_SHA256  $RUNNER_TEMP/$archive" | sha256sum --check --strict
+          tar -xzf "$RUNNER_TEMP/$archive" -C "$RUNNER_TEMP" actionlint
+      - name: actionlint
+        run: |
+          shellcheck --version
+          "$RUNNER_TEMP/actionlint" -version
+          "$RUNNER_TEMP/actionlint" -color
+
   ci-ok:
     name: ci-ok
-    needs: [verify, shellcheck, dependency-review, smoke]
+    needs: [verify, shellcheck, actionlint, dependency-review, smoke]
     if: always()
     runs-on: ubuntu-24.04
     permissions: {}

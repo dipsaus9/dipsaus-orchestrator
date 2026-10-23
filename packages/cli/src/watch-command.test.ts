@@ -84,6 +84,8 @@ function fake(options: {
   readonly ended?: () => boolean;
   readonly interactive?: boolean;
   readonly title?: string;
+  /** The office summary `engine.hello` carried. */
+  readonly summary?: Record<string, unknown>;
 }) {
   const shown = { ...story, title: options.title ?? story.title };
   const out: string[] = [];
@@ -126,6 +128,9 @@ function fake(options: {
       return { stream, cursor: undefined, unsubscribe: () => undefined };
     }) as unknown as DaemonSession["subscribe"],
     close: () => undefined,
+    hello: (options.summary === undefined
+      ? null
+      : { offices: [{ office: OFFICE, ...options.summary }] }) as never,
   };
   const deps: CliDeps = {
     writeLine: (line) => out.push(line),
@@ -260,6 +265,35 @@ describe("dipo watch", () => {
     ctx.end({ code: "office.unknown", message: "gone", retryable: false });
     expect(await done).toBe(1);
     expect(ctx.err).toEqual(["dipo: office.unknown: gone"]);
+  });
+
+  it("waits out a subscription refused while the daemon recovers, then follows the office (DIPO-325)", async () => {
+    const ctx = fake({ running: false });
+    const done = main(["watch"], ctx.deps);
+    await until(() => ctx.subscriptions.length === 1);
+    ctx.end({ code: "engine.recovering", message: "recovering", retryable: true });
+    (ctx.deps.clock as ManualClock).advance(RECOVERY_POLL_MS);
+    await until(() => ctx.subscriptions.length === 2);
+    expect(ctx.err).toEqual([]);
+    ctx.end({ code: "office.unknown", message: "gone", retryable: false });
+    expect(await done).toBe(1);
+  });
+
+  it("shows today's and this month's tokens of the limit with UTC in the header (DIPO-311)", async () => {
+    const ctx = fake({
+      running: false,
+      summary: {
+        dayUsage: { tokens: 1_200_000, limit: 4_000_000, share: 0.3, alert: false },
+        monthUsage: { tokens: 20_000_000, limit: 90_000_000, share: 0.22, alert: false },
+      },
+    });
+    const done = main(["watch"], ctx.deps);
+    await until(() => ctx.subscriptions.length === 1);
+    expect(ctx.out[1]).toMatch(
+      /^  usage today 1\.2M of 4\.0M tokens \(30%, resets 00:00 UTC\) · this month 20\.0M of 90\.0M tokens \(22%, resets 1 [A-Z][a-z]{2} 00:00 UTC\)$/,
+    );
+    ctx.end({ code: "office.unknown", message: "gone", retryable: false });
+    expect(await done).toBe(1);
   });
 
   it("follows the office until a run starts, and reloads after a history gap", async () => {

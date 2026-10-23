@@ -26,6 +26,8 @@ import { buildRegistry } from "../../src/commands/registry";
 import { MemoryRequestTable } from "../../src/commands/requests";
 import type { AsyncCommandContext } from "../../src/commands/registry";
 import { GitError } from "../../src/git/runner";
+import { workerAnswerText } from "../../src/hooks/permissions";
+import { closeQuestion, findQuestion, insertWorkerQuestion } from "../../src/hooks/questions";
 import { HANDOFF_NOTE_MAX } from "../../src/prompts/handoff";
 import {
   backstopSnapshotOf,
@@ -53,6 +55,8 @@ import type { BackstopSnapshot } from "../../src/run/backstop";
 import { storeFeedbackItems } from "../../src/run/feedback-items";
 import { FIX_ROUND_TAG } from "../../src/run/fix-rounds";
 import { recordIntent } from "../../src/run/intents";
+import { openPark } from "../../src/run/park";
+import { MAINTAINER_TAGS } from "../../src/run/pauses";
 import type { NextSessionRequest } from "../../src/run/resume";
 import { addStory } from "../../src/stories/keys";
 import { encode } from "../../src/workers/claude-cli/encode";
@@ -95,6 +99,8 @@ interface World {
   hold: AdapterHold | null;
   snapshot: BackstopSnapshot | Error;
   request: number;
+  /** Why the fake lift did not write a question park's answer (DIPO-159), or null. */
+  answerError: string | null;
 }
 
 let w: World;
@@ -169,6 +175,7 @@ beforeEach(async () => {
     hold: null,
     snapshot: { head: "c".repeat(40), branch: "refs/heads/DIPO-1/x", stash: "", backlogStatus: "" },
     request: 0,
+    answerError: null,
   };
 });
 
@@ -200,7 +207,12 @@ function resumption(options: Partial<ResumptionOptions> = {}): Resumption {
       unpark: {
         lift: async (_office, request) => {
           w.lifts.push(request);
-          return { commit: null, pushed: true, pushError: null };
+          return {
+            commit: null,
+            pushed: true,
+            pushError: null,
+            ...(request.answer === undefined ? {} : { answerError: w.answerError }),
+          };
         },
       },
     },
@@ -351,8 +363,12 @@ describe("the resume matrix", () => {
       code: "resume.notResumable",
     });
     expect(parkResumeRow("needs-permission", "build")).toMatchObject({ kind: "refuse" });
-    // A question waits for its answer (DIPO-159).
-    expect(parkResumeRow("ambiguous-spec", "question")).toBeNull();
+    // A question park resumes with its answer as the note (DIPO-159).
+    expect(parkResumeRow("ambiguous-spec", "question")).toMatchObject({
+      kind: "resume",
+      note: "required",
+      delta: "answer",
+    });
     // The box parks are never resumable (the maintainer's decision).
     for (const cause of ["protected-file", "secret", "part-refused", "task-file"]) {
       expect(parkResumeRow("scope-violation", cause)).toEqual({
@@ -369,7 +385,10 @@ describe("the resume matrix", () => {
     expect(parkActions("on-hold", all, null)).toContain("work.resume");
     expect(parkActions("scope-violation", all, "tampered")).not.toContain("work.resume");
     expect(parkActions("needs-permission", all, "build")).not.toContain("work.resume");
-    expect(parkActions("ambiguous-spec", all, "question")).not.toContain("work.resume");
+    expect(parkActions("ambiguous-spec", all, "question")).toEqual(
+      expect.arrayContaining(["work.resume", "work.answer"]),
+    );
+    expect(parkActions("ambiguous-spec", all, "no-report")).not.toContain("work.answer");
   });
 });
 
@@ -1299,5 +1318,179 @@ describe("the client name of a top-up (0020 section 4, DIPO-155 review)", () => 
     expect(grants().map((grant) => [grant.kind, grant.client, grant.origin])).toEqual([
       ["budget", "dipo-tui", "cli"],
     ]);
+  });
+});
+
+/** The deltas of the change-log entries of `type`, oldest first. */
+function entries(type: string): Record<string, unknown>[] {
+  return w.f.office
+    .all<{ delta: string }>(
+      "select delta from change_log where office_id = $office_id and type = $type order by seq",
+      { type },
+    )
+    .map((row) => JSON.parse(row.delta) as Record<string, unknown>);
+}
+
+describe("a question park resumed with its answer (DIPO-159; 0020 sections 2 and 7)", () => {
+  const QUESTION = "Which greeting should the CLI print?";
+
+  /** A park `ambiguous-spec` (question) whose question is stored, linked to it; its id. */
+  function questionPark(): { parkId: number; question: string } {
+    const parkId = park("ambiguous-spec", "question", "In Progress", QUESTION);
+    const question = w.f.t.ids.next("qst");
+    w.f.office.immediate(() =>
+      insertWorkerQuestion(w.f.office, {
+        questionId: question,
+        runId: w.f.run,
+        agentId: w.f.agent,
+        text: QUESTION,
+        at: w.f.t.clock.now(),
+        parkId,
+      }),
+    );
+    return { parkId, question };
+  }
+
+  it("sends the question and the answer first, writes the answer as a resolved unknown in the lift, and closes the question", async () => {
+    const { parkId, question } = questionPark();
+    const reply = await resume(
+      resumption({ parks: { contractMax: () => 9_000 } } as Partial<ResumptionOptions>),
+      { note: "Print Hello, Ada!" },
+    );
+    expect(reply.result).toMatchObject({ to: "In Progress", run: w.f.run });
+    // The lift carries the answer for the story's unknowns, with the office's R26 limit.
+    expect(w.lifts).toHaveLength(1);
+    expect(w.lifts[0]?.answer).toEqual({
+      q: QUESTION,
+      answer: "Print Hello, Ada!",
+      contractMax: 9_000,
+    });
+    // The first message: feedback/answer.md with the question and the answer, no second note.
+    const session = w.sessions[0] as NextSessionRequest;
+    expect(session.message).toContain(`Your question: ${QUESTION}`);
+    expect(session.message).toContain("The maintainer's answer: Print Hello, Ada!");
+    expect(session.note).toBeUndefined();
+    expect(first(session).startsWith("Print Hello")).toBe(false);
+    // The question closed answered with the resume; the park keeps the answer as its note.
+    expect(findQuestion(w.f.office, question)).toMatchObject({
+      closedHow: "answered",
+      answer: "Print Hello, Ada!",
+      delivered: "on-resume",
+    });
+    expect(entries("question.closed")).toEqual([{ question, answer: "Print Hello, Ada!" }]);
+    expect(parkRow(parkId)).toEqual({ resolved_how: "resume", resolved_note: "Print Hello, Ada!" });
+    // The loop count stays (no grant), the run is active again.
+    expect(grants()).toEqual([]);
+    expect(findRun(w.f.office, w.f.run)?.endedAt).toBeNull();
+  });
+
+  it("resumes the park the same way through work.answer's question park resumer", async () => {
+    const { question } = questionPark();
+    const of = resumption();
+    const run = findRun(w.f.office, w.f.run);
+    const parked = openPark(w.f.office, w.key);
+    if (run === null || parked === null) throw new Error("fixture changed");
+    const resumed = await of.questionParks.resume(ctx(), run, parked, "Print Hello, Ada!");
+    await of.idle();
+    expect(resumed).toEqual({ run: w.f.run });
+    expect(w.lifts[0]?.answer?.answer).toBe("Print Hello, Ada!");
+    expect(findQuestion(w.f.office, question)?.closedHow).toBe("answered");
+    expect(w.sessions).toHaveLength(1);
+  });
+
+  it("refuses a resume with no answer, naming dipo answer --text and dipo resume --note", async () => {
+    const { question } = questionPark();
+    const error = await refusal(resumption());
+    expect(error.error.code).toBe("resume.noteRequired");
+    expect(error.message).toContain(`dipo answer ${question} --text <answer>`);
+    expect(error.message).toContain("dipo resume DIPO-1 --note <answer>");
+    expect(w.lifts).toEqual([]);
+    expect(findQuestion(w.f.office, question)?.closedAt).toBeNull();
+  });
+
+  it("delivers the answer without writing it when it would break R26, with an engine.notice", async () => {
+    questionPark();
+    w.answerError =
+      "the story contract would be 12,040 characters with it, over the limit of 12000 (R26)";
+    await resume(resumption(), { note: "Print Hello, Ada!" });
+    const notices = entries("engine.notice").filter(
+      (delta) => delta["code"] === "park.answerNotWritten",
+    );
+    expect(notices).toHaveLength(1);
+    expect(String(notices[0]?.["text"])).toContain("(R26)");
+    // The answer still reaches the worker.
+    expect(w.sessions[0]?.message).toContain("The maintainer's answer: Print Hello, Ada!");
+  });
+
+  it("resumes with no note when the park's question was answered while its run was ending, the held answer going first", async () => {
+    const { parkId, question } = questionPark();
+    w.f.office.immediate(() => {
+      closeQuestion(w.f.office, question, "answered", w.f.t.clock.now(), {
+        text: "Print Hello, Ada!",
+        decision: null,
+        delivered: "on-resume",
+      });
+      recordIntent(
+        w.f.office,
+        w.f.run,
+        "steer",
+        `${MAINTAINER_TAGS.held} ${workerAnswerText("Print Hello, Ada!")}`,
+        w.f.t.clock.now(),
+      );
+    });
+    const reply = await resume(resumption());
+    expect(reply.result.to).toBe("In Progress");
+    expect(w.lifts[0]?.answer?.answer).toBe("Print Hello, Ada!");
+    // The held answer goes with the first message once; no answer.md repeats it.
+    expect(first(w.sessions[0])).toContain(workerAnswerText("Print Hello, Ada!"));
+    expect(first(w.sessions[0])).not.toContain("The maintainer's answer:");
+    expect(parkRow(parkId)?.resolved_how).toBe("resume");
+  });
+
+  it("expires every other open question of a park it resumes, and a budget park's carried question", async () => {
+    const parkId = park("budget-exceeded", "build", "In Progress", "turn cap reached");
+    const question = w.f.t.ids.next("qst");
+    w.f.office.immediate(() =>
+      insertWorkerQuestion(w.f.office, {
+        questionId: question,
+        runId: w.f.run,
+        agentId: w.f.agent,
+        text: QUESTION,
+        at: w.f.t.clock.now(),
+        parkId,
+      }),
+    );
+    await resume(resumption(), { budget: { share: 50 }, note: "One more go." }, ctx(true));
+    expect(findQuestion(w.f.office, question)?.closedHow).toBe("expired");
+    expect(entries("question.closed")).toEqual([{ question }]);
+    expect(w.lifts[0]?.answer).toBeUndefined();
+  });
+});
+
+describe("the rule-conflict and no-report resumes (DIPO-159 AC #6; 0020 section 2)", () => {
+  it("resumes ambiguous-spec (rule-conflict) with a required note, the conflict the worker named first", async () => {
+    park(
+      "ambiguous-spec",
+      "rule-conflict",
+      "In Progress",
+      "CLAUDE.md forbids the flag the story asks for",
+    );
+    const refused = await refusal(resumption());
+    expect(refused.error.code).toBe("resume.noteRequired");
+    await resume(resumption(), { note: "Keep the flag; the story wins." });
+    const session = w.sessions[0] as NextSessionRequest;
+    const text = first(session);
+    expect(text).toContain("CLAUDE.md forbids the flag the story asks for");
+    expect(text.indexOf("CLAUDE.md forbids")).toBeLessThan(
+      text.indexOf("Note from the maintainer: Keep the flag; the story wins."),
+    );
+  });
+
+  it("resumes ambiguous-spec (no-report) only with a note, always in a handoff session", async () => {
+    park("ambiguous-spec", "no-report");
+    expect((await refusal(resumption())).error.code).toBe("resume.noteRequired");
+    await resume(resumption(), { note: "Report in the schema." });
+    expect(w.sessions[0]?.mode).toBe("handoff");
+    expect(w.sessions[0]?.note).toBe("Report in the schema.");
   });
 });
