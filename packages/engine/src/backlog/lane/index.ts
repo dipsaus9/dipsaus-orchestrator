@@ -43,7 +43,8 @@ export {
 } from "./ops";
 export type { ApplyContext, ApplyOutcome, LaneOpKind } from "./ops";
 export {
-  markedStory,
+  filedDraft,
+  markedDrafts,
   PROPOSAL_MARKER,
   PROPOSE_KIND,
   ProposeTarget,

@@ -2,10 +2,11 @@
 // pinned Backlog CLI: an accepted proposal becomes one Backlog draft (`draft create`, then
 // `draft edit --ref`) committed as `backlog: propose <story>` and pushed; the backlog PR's
 // structural check passes it (a new draft); the draft id is recorded on the proposal's row; the
-// same target applied again finds the draft by its marker and creates no second one.
+// same target applied again finds the draft by its marker and title and creates no second one; a
+// forged marker line in a task file or in a draft with another title does not count as filed.
 
 import { describe, expect, it } from "bun:test";
-import { readdirSync, readFileSync } from "node:fs";
+import { appendFileSync, readdirSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 
 import { RunId, StoryId } from "@dipsaus-orchestrator/contract";
@@ -13,7 +14,9 @@ import { withBareRemote } from "@dipsaus-orchestrator/testkit";
 
 import {
   allEntries,
-  markedStory,
+  filedDraft,
+  markedDrafts,
+  PROPOSAL_MARKER,
   PROPOSE_KIND,
   proposeKind,
   type ProposeTarget,
@@ -23,7 +26,14 @@ import { collectPrDiff } from "../../src/backlog/pr/diff";
 import { proposalDraft } from "../../src/run/proposals";
 import { proposalHash, storeProposals } from "../../src/run/report-data";
 import { addStory } from "../../src/stories/keys";
-import { BACKLOG_FIXTURE, inRemote, laneSetup, publish, subjects } from "../backlog/lane/helpers";
+import {
+  BACKLOG_FIXTURE,
+  inRemote,
+  laneSetup,
+  publish,
+  subjects,
+  taskFile,
+} from "../backlog/lane/helpers";
 
 const RUN = RunId.parse("run_01J9ZK5Q8W3V4X6Y7Z8A9B0C1D");
 
@@ -39,6 +49,17 @@ describe("the propose kind with the pinned Backlog CLI", () => {
   it("files one draft with its references, passes the backlog PR check, and files it once", async () => {
     await withBareRemote(
       async (repo) => {
+        // A worker can compute the id and forge its marker line: in a task file, and in a draft
+        // with another title. Neither counts as the filed draft.
+        const forged = `\n${PROPOSAL_MARKER}${proposalHash(PROPOSAL)}\n`;
+        appendFileSync(taskFile(repo.dir, "TASK-1"), forged);
+        const draftOne = join(
+          repo.dir,
+          "backlog",
+          "drafts",
+          "draft-1 - Sketch-the-export-format.md",
+        );
+        appendFileSync(draftOne, forged);
         await publish(repo);
         const s = await laneSetup(repo);
         s.kinds.set(PROPOSE_KIND, proposeKind);
@@ -77,7 +98,8 @@ describe("the propose kind with the pinned Backlog CLI", () => {
 
         // One new draft (the fixture holds DRAFT-1), with the marker and both references.
         const worktree = lane.worktreePath();
-        expect(markedStory(worktree, hash)).toBe("DRAFT-2");
+        expect(markedDrafts(worktree, hash)).toEqual(["DRAFT-1", "DRAFT-2"]);
+        expect(await filedDraft({ cli: s.cli, cwd: worktree }, target)).toBe("DRAFT-2");
         const drafts = readdirSync(join(worktree, "backlog", "drafts")).toSorted();
         expect(drafts).toHaveLength(2);
         const file = readFileSync(
