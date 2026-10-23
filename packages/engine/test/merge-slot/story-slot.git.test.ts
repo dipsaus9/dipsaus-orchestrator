@@ -30,6 +30,7 @@ import {
 import { CodeHostError, type HostPr, type RequiredCheck } from "../../src/platform/host";
 import { recordReviewVerdict, reviewVerdictForTree } from "../../src/review/store";
 import { StoryConflicts } from "../../src/run/conflicts";
+import { gitParkWriter } from "../../src/run/park";
 import { endRun, findRun, insertRun, REVIEWED_END, runRoundCounts } from "../../src/run/records";
 import { findStoryPr, insertStoryPr, updateStoryPr } from "../../src/story-pr/records";
 import { addStory } from "../../src/stories/keys";
@@ -306,6 +307,62 @@ describe("the story merge slot on real git", () => {
           });
           expect(runRoundCounts(s.office, run).reviewRounds).toBe(0);
           expect(slotOccupant(s.office)).toBeNull();
+        }),
+      { fixture: BACKLOG_FIXTURE },
+    );
+  });
+});
+
+describe("the close-out commit of a story that held a park record (DIPO-324, 0019 section 9)", () => {
+  it("removes the F16 park block through the single field write path in the commit that sets Done", async () => {
+    await withBareRemote(
+      async (repo) =>
+        scenario(repo, async ({ officeId, run, s }) => {
+          const stored = findRun(s.office, run)!;
+          const worktree = stored.worktree as string;
+          // A park whose record stayed on the branch (DIPO-129's stale block).
+          await gitParkWriter({ git: () => s.git, cli: s.cli }).write(officeId, {
+            story: TASK_1,
+            branch: BRANCH_1,
+            worktree,
+            reason: "conflict",
+            note: "base moved during merge 3 times",
+          });
+          const parked = await git(
+            repo.dir,
+            repo.home,
+            "show",
+            `refs/heads/${BRANCH_1}:${TASK_FILE_1}`,
+          );
+          expect(parked).toMatch(/^park:$/m);
+          const slotGit = gitStorySlotOps({ git: () => s.git, cli: s.cli });
+          const commit = await slotGit.closeOut(
+            officeId,
+            {
+              runId: run,
+              story: TASK_1,
+              branch: BRANCH_1,
+              worktree,
+              startSha: stored.startSha as string,
+            },
+            (target) => setFinalSummary(target, "Done by the slot."),
+          );
+          expect(commit).not.toBeNull();
+          const closed = await git(repo.dir, repo.home, "show", `${commit}:${TASK_FILE_1}`);
+          expect(closed).toMatch(/^status: Done$/m);
+          expect(closed).not.toMatch(/^park:$/m);
+          expect(closed).not.toContain("base moved during merge");
+          // One commit of the task file alone.
+          const files = await git(
+            repo.dir,
+            repo.home,
+            "diff-tree",
+            "--no-commit-id",
+            "--name-only",
+            "-r",
+            commit as string,
+          );
+          expect(files.trim().split("\n")).toEqual([TASK_FILE_1]);
         }),
       { fixture: BACKLOG_FIXTURE },
     );

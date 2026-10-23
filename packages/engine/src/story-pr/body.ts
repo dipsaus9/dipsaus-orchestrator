@@ -63,6 +63,11 @@ export interface PrBodyStatus {
    * `dipo` after it.
    */
   readonly merge?: "maintainer" | "dipo";
+  /**
+   * The closed PR of the same story run this one replaces (0020 section 2, `stopped` /
+   * `pr-closed`, DIPO-324); the status block names it. Left out for a PR that replaces none.
+   */
+  readonly replaces?: number;
 }
 
 const SHORT_SHA = 8;
@@ -130,9 +135,19 @@ function statusSection(status: PrBodyStatus): string {
       : status.checks === undefined
         ? []
         : [checksLine(status.checks)];
-  return ["## Status", "", verify, reviewLine(status.review), ...checks, mergeLine(status)].join(
-    "\n",
-  );
+  const replaces =
+    status.replaces === undefined
+      ? []
+      : [`- replaces #${status.replaces}, which was closed on the host without a merge`];
+  return [
+    "## Status",
+    "",
+    ...replaces,
+    verify,
+    reviewLine(status.review),
+    ...checks,
+    mergeLine(status),
+  ].join("\n");
 }
 
 function footer(story: PrBodyStory): string {

@@ -183,6 +183,9 @@ export const PARK_RESUME_MATRIX: Readonly<Record<string, ParkMatrixRow>> = {
   "conflict/unwritable-path": required("developer", "none", { port: "conflict" }),
   "conflict/push-rejected": required("developer", "none", { port: "conflict" }),
   "conflict/slot-refused": required("none", "none", { port: "slot" }),
+  // A catch-up or a merge of dipo's that could not reach the box (DIPO-277, DIPO-324): the next
+  // session copies what the box lacks into it first, then the base is merged again.
+  "conflict/catch-up-failed": required("developer", "none", { port: "conflict" }),
   // The note is the answer to the park's question (0020 section 7, DIPO-159).
   "ambiguous-spec/question": required("developer", "answer"),
   "ambiguous-spec/no-report": required("handoff", "none"),

@@ -24,14 +24,9 @@
 // - the park and resume path: red CI at a CI cap of 1 parks `verify-failing` (cause `ci`), and
 //   `work.resume` with a note grants one CI attempt and sends the CI item to the worker.
 //
-// One scenario is `it.failing`: it states what 0019 and 0021 promise and the engine does not do
-// yet, and becomes a plain `it` in the story that closes it:
-//
-// - the merge slot's conflict merge is made in dipo's repository and never reaches the box, so
-//   the worker never sees the markers and its next part, taken against the merged tip, reverts what
-//   the base changed (here a file the base added is gone from main after the merge); DIPO-324.
-//
-// The Done poll ending a merged story without a restart was such a scenario until DIPO-328.
+// No scenario is `it.failing` any more. The Done poll ending a merged story without a restart was
+// one until DIPO-328, and the slot's conflict merge reaching the worker's box (its markers, and
+// what the base changed kept on main after the merge) one until DIPO-324.
 //
 // Each scenario needs many CLI calls, pushes and an office load: far over the local budget.
 
@@ -421,7 +416,7 @@ if (process.env["DIPO_TEST_CI"] === "1") {
             [2, "approved"],
           ]);
           await expectMergedOnce(w, run, CSV_V2);
-          // Main loses the file the base added here; the `it.failing` sibling pins that (DIPO-324).
+          // What the base added stays on main: the next scenario checks it (DIPO-324).
           // The branch holds the slot's merge of the moved base (read from the merge call: the Done
           // teardown deleted the branch).
           const tip = w.host.merges[0]?.headSha ?? "";
@@ -432,8 +427,8 @@ if (process.env["DIPO_TEST_CI"] === "1") {
       120_000,
     );
 
-    it.failing(
-      "a conflict hand-off gives the worker's box the slot's merge (open gap, DIPO-324)",
+    it(
+      "a conflict hand-off gives the worker's box the slot's merge (DIPO-324)",
       () =>
         withLoopOffice({}, async (w) => {
           const { markers } = await conflictHandOff(w);

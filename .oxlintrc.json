@@ -811,6 +811,12 @@
         "dipo/no-bun-import": "off",
         "dipo/no-bun-global": "off"
       }
+    },
+    {
+      "files": ["**/*.ci.test.ts"],
+      "rules": {
+        "dipo/ci-test-guard": "error"
+      }
     }
   ]
 }

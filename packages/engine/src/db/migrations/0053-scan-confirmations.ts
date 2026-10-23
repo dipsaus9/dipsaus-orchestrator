@@ -1,4 +1,4 @@
-// Migration 52 (DIPO-310): what the maintainer confirmed of an office's run profile, and what the
+// Migration 53 (DIPO-310): what the maintainer confirmed of an office's run profile, and what the
 // scan fallback proposed (0013 sections 4 to 6). These rows sit beside the stored profiles, not in
 // them: a rescan stores a new profile from code, and these rows lay over it when it is read, so a
 // confirmation carries into every later profile until code resolves its capability.
@@ -20,7 +20,7 @@
 import type { SqlMigration } from "../migrations";
 
 export const scanConfirmations: SqlMigration = {
-  version: 52,
+  version: 53,
   name: "scan confirmations",
   sql: `
 create table capability_confirmations (

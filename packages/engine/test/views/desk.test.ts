@@ -535,6 +535,49 @@ describe("stored text on the desk", () => {
   });
 });
 
+describe("the conflict, merge slot and closed-PR parks (DIPO-324)", () => {
+  it("offer dipo resume now that work.resume resumes them: a note for a conflict, none for a closed PR", () =>
+    withTempDir(async (dir) => {
+      const t = await openTestState(dir);
+      try {
+        const office = addOffice(t);
+        const parks = [
+          ["DIPO-1", "conflict", "merge-in-progress"],
+          ["DIPO-2", "conflict", "unwritable-path"],
+          ["DIPO-3", "conflict", "push-rejected"],
+          ["DIPO-4", "conflict", "slot-refused"],
+          ["DIPO-5", "stopped", "pr-closed"],
+        ] as const;
+        pass(
+          t,
+          office,
+          parks.map(([story]) => task(story, { status: "Parked" })),
+        );
+        const at = t.clock.now();
+        for (const [story, reason, cause] of parks) {
+          insertPark(office, story, { reason, cause, detail: `${cause} detail`, at });
+        }
+        const items = desk(office, all);
+        const actionsOf = (story: string) =>
+          items.find((item) => "story" in item && item.story === story)?.actions;
+        for (const story of ["DIPO-1", "DIPO-2", "DIPO-3", "DIPO-4"]) {
+          expect(actionsOf(story)).toEqual([
+            { command: "work.resume", cli: `dipo resume ${story} --note "<why>"` },
+          ]);
+        }
+        expect(actionsOf("DIPO-5")).toEqual([
+          { command: "work.resume", cli: "dipo resume DIPO-5" },
+        ]);
+        // The desk shows the paths an unwritable-path park names (0020 section 2).
+        expect(items.find((item) => "story" in item && item.story === "DIPO-2")).toMatchObject({
+          detail: "unwritable-path detail",
+        });
+      } finally {
+        t.state.close();
+      }
+    }));
+});
+
 describe("the resume needs of this engine", () => {
   it("follow work.resume's policy: on-hold resumes, the 0020 matrix decides every other park (DIPO-155)", () => {
     expect(policyResumeNeeds("on-hold", null)).toEqual({ kind: "resume", note: "optional" });

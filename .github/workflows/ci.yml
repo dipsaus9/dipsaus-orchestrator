@@ -44,6 +44,33 @@ jobs:
         run: sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns=0
       - run: bun run verify
 
+  # DIPO-316: the same verify with the CI-only tests on macOS, where the maintainer runs the daemon
+  # and the boxes. The macOS image has zsh and the system sandbox (Seatbelt) the CI-only sandbox
+  # tests start srt in.
+  verify-macos:
+    name: verify-macos
+    runs-on: macos-26
+    permissions:
+      contents: read
+    env:
+      DIPO_TEST_CI: "1"
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2.2.0
+        with:
+          bun-version-file: .bun-version
+      - uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: ~/.bun/install/cache
+          key: bun-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('bun.lock') }}
+      - run: bun install --frozen-lockfile
+      # srt and its tests look for ripgrep, as on Linux (0008); install it only when the image lacks it.
+      - name: Make sure ripgrep is installed
+        run: command -v rg || brew install ripgrep
+      - run: bun run verify
+
   dependency-review:
     name: dependency-review
     if: github.event_name == 'pull_request'
@@ -150,7 +177,7 @@ jobs:
 
   ci-ok:
     name: ci-ok
-    needs: [verify, shellcheck, actionlint, dependency-review, smoke]
+    needs: [verify, verify-macos, shellcheck, actionlint, dependency-review, smoke]
     if: always()
     runs-on: ubuntu-24.04
     permissions: {}

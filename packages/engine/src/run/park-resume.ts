@@ -40,6 +40,14 @@
 // worker question whose answer is held already (it came while the run was ending) resumes without
 // a note: the held answer goes with the first message. Every other open question of the park
 // closes as expired with the resume.
+//
+// The parks another part of dipo finishes (DIPO-324): a `conflict` park's developer session starts
+// with the first message `ConflictResumer.prepare` builds (the kept merge's conflict item, or the
+// commits only the remote branch holds), and the merge it needs runs once that session started
+// (`afterStart`), in the live run's box. A `slot-refused` or `pr-closed` park starts no session:
+// its run waits In Review again (end kind `in-review`, or `reviewed` once a verdict exists), and
+// the merge slot takes it in again (`SlotReentry`) or a new story PR opens in place of the closed
+// one (`PrReplacement`).
 
 import {
   type Lifecycle,
@@ -68,6 +76,7 @@ import {
   type StoredQuestion,
 } from "../hooks/questions";
 import { CONTRACT_MAX_DEFAULT } from "../prompts/contract";
+import { latestVerdictOfRun } from "../review/store";
 import { fixRoundMessage } from "../prompts/feedback";
 import { capNote } from "../prompts/handoff";
 import answerTemplate from "../prompts/feedback/answer.md" with { type: "text" };
@@ -98,7 +107,7 @@ import {
 } from "./park";
 import { MAINTAINER_TAGS } from "./pauses";
 import { PLACE_NOTICES, type Places, START_KINDS, waitForPlace } from "./places";
-import { findRun, storeBackstopSnapshot, type StoredRun } from "./records";
+import { findRun, IN_REVIEW_END, storeBackstopSnapshot, type StoredRun } from "./records";
 import { recordBranchPush } from "../story-pr/records";
 import {
   type ParkRefusalRow,
@@ -142,19 +151,31 @@ export const PARK_RESUME_NOTICES = {
   resumed: "park.resumed",
 } as const;
 
-/** The 0019 conflict hand-off a `conflict` park resumes through (DIPO-149; nothing provides it yet). */
+/** What a conflict resume prepared for the developer's next session (DIPO-324). */
+export interface ConflictPrepared {
+  /** The first message: the conflict item, or the commits only the remote branch holds. */
+  readonly message: string;
+  /**
+   * Runs once that session started and the run is live: the merge a box run needs, made in the
+   * run's turn of parts so the box gets it too (`BoxCollisions.mergeOnResume`).
+   */
+  readonly afterStart?: () => Promise<void>;
+}
+
+/** The 0019 conflict hand-off a `conflict` park resumes through (`ConflictResumes`, DIPO-324). */
 export interface ConflictResumer {
   /**
-   * After the park is lifted: continues the kept merge, or aborts it and merges the base again
-   * when the base moved, or merges the remote branch after a rejected push, through the 0019
-   * hand-off. Returns the conflict item or the remote commits for the worker's first message, or
-   * `parked` when it parked the story again (an unwritable path still conflicts).
+   * After the park is lifted, before the session: the kept merge's conflict item, or the commits
+   * only the remote branch holds after a rejected push (merged into the branch already, the box
+   * copy left for the session's start), and the merge of the base the session needs once it runs,
+   * through the 0019 hand-off; or `parked` when it parked the story again (an unwritable path
+   * still conflicts, or the push is rejected again).
    */
   prepare(
     office: OfficeId,
     run: StoredRun,
     park: { readonly cause: string | null },
-  ): Promise<{ readonly message: string } | { readonly parked: true }>;
+  ): Promise<ConflictPrepared | { readonly parked: true }>;
 }
 
 /** The merge slot a `slot-refused` park re-enters with a fresh per-stay count (DIPO-150's). */
@@ -958,6 +979,15 @@ export class ParkResumes {
         return stateEntries(office, run, detail.to, why);
       case "none":
         resolveParkResumed(office, park.parkId, at, detail.note);
+        // The run waits In Review again (DIPO-324): the merge slot and the PR poll take only a run
+        // ended at In Review or after its review, so a re-entry or a new story PR takes effect.
+        if (detail.to === "In Review") {
+          endedAs(
+            office,
+            run.runId,
+            latestVerdictOfRun(office, run.runId) === null ? IN_REVIEW_END : REVIEWED_END,
+          );
+        }
         return stateEntries(office, run, detail.to, why);
     }
   }
@@ -1076,15 +1106,26 @@ export class ParkResumes {
       return false;
     }
     let message = detail.message;
+    let afterStart: (() => Promise<void>) | undefined;
     if (detail.reason === "conflict") {
-      const prepared = await this.#options
-        .conflicts?.()
-        ?.prepare(officeId, run, { cause: detail.cause });
+      let prepared;
+      try {
+        prepared = await this.#options
+          .conflicts?.()
+          ?.prepare(officeId, run, { cause: detail.cause });
+      } catch (error) {
+        this.#s.deps.warn?.("preparing the conflict of a resumed park failed", {
+          run: run.runId,
+          reason: messageOf(error),
+        });
+        prepared = undefined;
+      }
       if (prepared === undefined || "parked" in prepared) {
         resolve(prepared === undefined ? "failed" : "parked");
         return false;
       }
       message = [prepared.message, message].filter((part) => part !== null).join("\n\n");
+      afterStart = prepared.afterStart;
     }
     const box = this.#options.boxRun?.(officeId, run) === true;
     const started = await this.#sessions.next(office, run, view, {
@@ -1106,6 +1147,17 @@ export class ParkResumes {
       }
       resolveIntent(office, run.runId, intentId, started ? "resumed" : "notStarted", at);
     });
+    if (started && afterStart !== undefined) {
+      // The merge the session needs runs in its live run's turn, outside this run's guard.
+      const job = afterStart().catch((error: unknown) => {
+        this.#s.deps.warn?.("the merge of a resumed conflict failed", {
+          run: run.runId,
+          reason: messageOf(error),
+        });
+      });
+      this.#inflight.add(job);
+      void job.finally(() => this.#inflight.delete(job));
+    }
     return started;
   }
 

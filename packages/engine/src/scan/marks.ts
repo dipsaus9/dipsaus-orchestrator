@@ -1,5 +1,5 @@
 // The stored confirmations, pending proposals and the nothing-to-start mark of an office (migration
-// 52, DIPO-310). Writers run inside the caller's transaction; readers are plain office reads.
+// 53, DIPO-310). Writers run inside the caller's transaction; readers are plain office reads.
 
 import type { OfficeHandle } from "../db/office";
 
