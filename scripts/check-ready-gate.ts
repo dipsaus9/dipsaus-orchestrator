@@ -59,7 +59,9 @@ export interface ReadyGateReport {
 
 /**
  * Runs the Ready gate over every Ready story of the backlog in `repo`. Throws when the office
- * configuration is invalid or a Ready story's view does not parse, since nothing can be checked then.
+ * configuration is invalid, a Ready story's view does not parse, a CLI call fails, or the task
+ * list disagrees with its `--count` (DIPO-323), since nothing can be checked then: the gate never
+ * runs on part of the backlog.
  */
 export async function checkReadyGate(repo: string, cli: BacklogCli): Promise<ReadyGateReport> {
   const loaded = await loadOfficeConfig(repo);

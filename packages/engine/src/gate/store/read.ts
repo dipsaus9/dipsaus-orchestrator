@@ -1,12 +1,12 @@
 // The gate's inputs read through the Backlog CLI in one worktree (the office's `_base`): the story
 // (`task view`, or `draft view` for a `DRAFT-n` id), every active task with its dependencies and
-// branch (from the mirror when the caller has it for this commit, DIPO-180, else `task list` and
-// one `task view` each) and the milestones (`milestone list`). The office configuration comes from
-// the caller.
+// branch (from the mirror when the caller has it for this commit, DIPO-180, else `task list`,
+// checked against its `--count`, and one `task view` each) and the milestones (`milestone list`).
+// The office configuration comes from the caller.
 
+import { listAll } from "../../backlog/list";
 import {
   BacklogParseError,
-  parseList,
   parseView,
   type PlainListEntry,
   type PlainTask,
@@ -76,10 +76,13 @@ export function isStoryNotFound(error: BacklogCommandError, story: string): bool
   return error.stderr.split("\n").some((text) => line.test(text));
 }
 
-/** The active tasks of `task list --plain`, in the order listed. */
+/**
+ * The active tasks of `task list --plain`, in the order listed, all of them: the list must agree
+ * with its `--count` (DIPO-323), so a task missing from the output fails the read with
+ * `BacklogListIncompleteError` instead of failing a story at R13.
+ */
 export async function listTasks(cli: BacklogCli, cwd: string): Promise<readonly PlainListEntry[]> {
-  const { stdout } = await runBacklog(cli, cwd, ["task", "list", "--plain"]);
-  return parseList(stdout).entries;
+  return (await listAll(cli, cwd, "task")).entries;
 }
 
 /**
@@ -146,8 +149,9 @@ export function gateInputOf(
  * through the CLI: two calls however many tasks there are. Without it, every listed task is viewed.
  * `baseFiles` are the base tree's file paths the caller listed, passed on in the input.
  * Throws `StoryNotFoundError` when the story is not there, `BacklogCommandError` or
- * `BacklogRefusedError` when the CLI fails otherwise, and `BacklogParseError` when an output does
- * not parse.
+ * `BacklogRefusedError` when the CLI fails otherwise (`BacklogListIncompleteError` when the task
+ * list disagrees with its count), and `BacklogParseError` when an output does not parse. A failed
+ * view fails the read; the input is never built from part of the backlog.
  */
 export async function readGateInput(
   cli: BacklogCli,

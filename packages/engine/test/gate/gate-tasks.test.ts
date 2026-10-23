@@ -79,7 +79,9 @@ function fakeCli(tasks: readonly FakeTask[]): { cli: BacklogCli; calls: string[]
     calls.push(args);
     let stdout = "";
     const [group, sub, id] = args;
-    if (group === "task" && sub === "list") {
+    if (group === "task" && sub === "list" && args.includes("--count")) {
+      stdout = `${tasks.length}\n`;
+    } else if (group === "task" && sub === "list") {
       stdout = `Refined:\n${tasks.map((task) => `  ${task.id} - Task ${task.id} (ac: 0/0)`).join("\n")}\n`;
     } else if (group === "task" && sub === "view") {
       const task = byId.get(id ?? "");
