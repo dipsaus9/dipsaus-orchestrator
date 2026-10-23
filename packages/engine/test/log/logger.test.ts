@@ -7,6 +7,7 @@ import { join } from "node:path";
 import { engineError } from "@dipsaus-orchestrator/contract";
 import { ManualClock, withTempDir } from "@dipsaus-orchestrator/testkit";
 
+import { GitError } from "../../src/git/runner";
 import { openLogFile } from "../../src/log/file";
 import {
   createLogger,
@@ -245,6 +246,55 @@ const content = () => ({
   args: { title: "secret-args" },
   nested: [{ prompt: "secret-nested" }],
   kept: "visible",
+});
+
+// DIPO-312: the shapes a stored tool line is scrubbed of are replaced in a line's message and in
+// every string of its fields, an error's message and stack included.
+describe("credential-shaped text in a line (DIPO-312)", () => {
+  const REMOTE = "https://x-access-token:hunter2hunter2@github.com/o/r.git";
+  const TOKEN = `ghp_${"Z9y8".repeat(10)}`;
+
+  it("redacts a credentialed remote URL in a git error, in the message and the error", () => {
+    const { logger, lines, parsed } = memory();
+    const error = new GitError(
+      "git.fetchFailed",
+      `git fetch failed: fatal: unable to access '${REMOTE}/': The requested URL returned error: 403`,
+    );
+    logger.error(`fetch of ${REMOTE} failed`, { error, detail: String(error) });
+    expect(lines.join("\n")).not.toContain("hunter2hunter2");
+    expect(lines.join("\n")).not.toContain("x-access-token");
+    const line = parsed()[0] as {
+      msg: string;
+      error: { name: string; message: string; stack: string };
+      detail: string;
+    };
+    expect(line.msg).toBe(`fetch of ${REDACTED} failed`);
+    expect(line.error.name).toBe("GitError");
+    expect(line.error.message).toBe(
+      `git fetch failed: fatal: unable to access '${REDACTED}': The requested URL returned error: 403`,
+    );
+    expect(line.error.stack).not.toContain("hunter2hunter2");
+    expect(line.detail).toBe(
+      `GitError: git fetch failed: fatal: unable to access '${REDACTED}': The requested URL returned error: 403`,
+    );
+  });
+
+  for (const level of LOG_LEVELS) {
+    it(`redacts a token in any string of a ${level} line, at any depth, and keeps the rest`, () => {
+      const { logger, lines, parsed } = memory();
+      at(logger, level)(`pushed with ${TOKEN}`, {
+        nested: { list: [`token=${TOKEN}`, "plain"] },
+        stderr: `remote: ${REMOTE}`,
+        count: 3,
+      });
+      expect(lines.join("\n")).not.toContain(TOKEN);
+      expect(lines.join("\n")).not.toContain("hunter2hunter2");
+      const line = parsed()[0] as Record<string, unknown>;
+      expect(line["msg"]).toBe(`pushed with ${REDACTED}`);
+      expect(line["nested"]).toEqual({ list: [`token=${REDACTED}`, "plain"] });
+      expect(line["count"]).toBe(3);
+    });
+  }
 });
 
 describe("prompts, worker output and command bodies (DIPO-64)", () => {

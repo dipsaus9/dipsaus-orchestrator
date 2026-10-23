@@ -3,14 +3,19 @@
 // redacted at every level, at any depth. A field named `code` shows error and exit codes such as
 // `engine.recovering`, but stays redacted where the contract carries the web bootstrap code under
 // that name and whenever its value is not code-shaped (`showsCode`; 0006 amendment of 2026-10-15
-// (DIPO-91)). Redaction works on field names and `code` values only: secret-bearing maps (env,
-// headers) and secrets inside messages or URLs must never be logged. Fields that carry prompts, worker output or command bodies
-// (`DEBUG_ONLY_KEYS`) appear only in `debug` and `trace` lines; in `error`, `warn` and `info`
-// lines their value is replaced, at any depth. Time comes from the
-// injected clock. Sinks receive finished lines; the daemon writes them to `<logs>/daemon.log` and, in
+// (DIPO-91)). The message and every string of the fields, an error's message and stack included,
+// have each value of a `SECRET_PATTERNS` shape and each URL that holds user information replaced
+// by `[redacted]` (`redactSecretText`, DIPO-312), so a git error that quotes a credentialed remote
+// is logged without the credential. Other secrets inside text are not recognised: secret-bearing
+// maps (env, headers) must still never be logged. Fields that carry prompts, worker output or
+// command bodies (`DEBUG_ONLY_KEYS`) appear only in `debug` and `trace` lines; in `error`,
+// `warn` and `info` lines their value is replaced, at any depth. Time comes from the injected
+// clock. Sinks receive finished lines; the daemon writes them to `<logs>/daemon.log` and, in
 // foreground, to stderr.
 
 import type { Clock, LogLevel } from "@dipsaus-orchestrator/contract";
+
+import { redactSecretText } from "../context/secrets";
 
 export type LogFields = Readonly<Record<string, unknown>>;
 
@@ -124,16 +129,22 @@ export interface CreateLoggerOptions {
 
 /**
  * Replaces redacted fields at any depth, and debug-only fields too unless `debugFields`; cycles
- * become `"[cycle]"`.
+ * become `"[cycle]"`. Every string, an error's message and stack included, is scrubbed of
+ * credential-shaped values (`redactSecretText`).
  */
 export function redact(
   value: unknown,
   seen: WeakSet<object> = new WeakSet(),
   debugFields: boolean = true,
 ): unknown {
+  if (typeof value === "string") return redactSecretText(value);
   if (typeof value !== "object" || value === null) return value;
   if (value instanceof Error) {
-    return { name: value.name, message: value.message, stack: value.stack };
+    return {
+      name: redactSecretText(value.name),
+      message: redactSecretText(value.message),
+      stack: value.stack === undefined ? undefined : redactSecretText(value.stack),
+    };
   }
   if (seen.has(value)) return "[cycle]";
   seen.add(value);
@@ -160,7 +171,7 @@ export function formatLogLine(
   const line: Record<string, unknown> = {
     ts: new Date(ts).toISOString(),
     level,
-    msg: message,
+    msg: redactSecretText(message),
     component: context.component ?? "daemon",
   };
   if (context.office !== undefined) line["office"] = context.office;

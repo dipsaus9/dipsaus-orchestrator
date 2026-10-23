@@ -563,8 +563,14 @@ async function serve(run: Run, lock: HeldLock): Promise<number> {
     const tools = resolveTools(io.env["PATH"]);
     logger.info("tools resolved", { ...tools.paths, missing: tools.missing });
     for (const tool of tools.missing) logger.warn("tool not found on PATH", { tool });
-    // Every Backlog CLI call of this daemon runs the `backlog` it resolved (DIPO-74).
-    const backlogCli = backlogCliFor(tools.paths);
+    // Every Backlog CLI call of this daemon runs the `backlog` it resolved (DIPO-74). A status
+    // change the runner refuses (a Backlog file defines a command for it, DIPO-312) is an
+    // `engine.notice` on the software stream.
+    const backlogCli = {
+      ...backlogCliFor(tools.paths),
+      notify: (notice: { level: "error"; code: string; text: string }) =>
+        software.append("engine.notice", notice),
+    };
     // The machine-wide port slot table (DIPO-39): setup takes a slot, teardown and a rolled-back
     // setup free it.
     const slots = SlotTable.inState(stateDir);
