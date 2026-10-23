@@ -36,6 +36,15 @@
 //   `encode`: a now-priority message, stdin closed, SIGTERM after 10 s, SIGKILL after 30 s) and
 //   parks the story `stopped`; branch and worktree are kept.
 //
+// - Stream drift (DIPO-315). A `streamDrift` event the ingestor marks as deciding (`onStreamDrift`:
+//   the run's unreadable lines reached `STREAM_DRIFT_LINES`, or a turn end's usage cannot be read)
+//   stops the worker and parks the story `worker-failed` with cause `stream-drift`, the detail naming
+//   the worker's version and the count. It decides in event order, so a drift ahead of a turn wins
+//   over that turn's report.
+// - `daemon.stop { stopWorkers: true }` (0006 decision 7, DIPO-315, `stopAll`): every tracked run
+//   nothing was decided for yet is stopped as `work.stop` stops one, and parks `stopped` with
+//   `DAEMON_STOPPED_DETAIL`; the drain waits for the parks and for the workers' exits.
+//
 // - `work.steer` and `work.pause` (DIPO-163, `intervene.ts`): the maintainer's message to a live
 //   worker, and the pause that closes its stdin after 10 minutes on the cap tick.
 //
@@ -68,7 +77,7 @@ import {
 
 import type { AsyncCommandContext, CommandOutcome, FeatureModule } from "../commands/registry";
 import type { OfficeHandle } from "../db/office";
-import type { IngestedExit, IngestHooks } from "../ingest/ingestor";
+import type { IngestedExit, IngestHooks, StreamDriftCount } from "../ingest/ingestor";
 import { background } from "../platform/background";
 import { recordWorkerNotes } from "../prompts/notes";
 import type { WorkerEvent, WorkerReport } from "../workers/types";
@@ -81,12 +90,15 @@ import {
   reviewTotals,
   runCaps,
   runTotals,
+  type StreamDriftFacts,
+  streamDriftDetail,
 } from "./caps";
 import { blockedHandOff } from "./conflicts";
 import { capDetail, capEnding, reviewCapEnding, RunEndings } from "./control-endings";
 import { ReconcileStops } from "./control-reconcile";
 import {
   CAP_TICK_MS,
+  DAEMON_STOPPED_DETAIL,
   disarm,
   EVENT_FILE_CHANGED,
   INTERRUPTED_END,
@@ -112,6 +124,7 @@ import { emptyTrail, followTool, storeProposals } from "./report-data";
 export {
   CAP_TICK_MS,
   CONTROL_NOTICES,
+  DAEMON_STOPPED_DETAIL,
   EVENT_FILE_CHANGED,
   INTERRUPTED_END,
   RECONCILED_END,
@@ -126,12 +139,29 @@ export type {
   TrackedRun,
 } from "./control-types";
 
+/** How long `stopAll` waits for the stopped workers to exit: past the host's SIGKILL at 30 s. */
+export const STOP_ALL_EXIT_WAIT_MS = 45_000;
+/** How often `stopAll` looks whether the stopped workers exited. */
+const STOP_ALL_POLL_MS = 250;
+
+/** What `stopAll` did, for the drain's log line. */
+export interface StopAllResult {
+  /** Live workers it stopped. */
+  readonly stopped: number;
+  /** Runs already being decided (a cap, a report, a done path), whose decision it awaited. */
+  readonly deciding: number;
+  /** Workers of those runs still running when it stopped waiting. */
+  readonly running: number;
+}
+
 export class RunControl implements RunEnder {
   readonly #deps: RunControlDeps;
   readonly #tracked = new Map<string, Tracked>();
   readonly #inflight = new Set<Promise<unknown>>();
   /** Events at which a cap was reached, as of that event inside its pass (`onEventApplied`). */
   readonly #crossings = new WeakMap<WorkerEvent, FiredCap>();
+  /** Stream drift events that decide, as the pass counted them (`onStreamDrift`, DIPO-315). */
+  readonly #drifts = new WeakMap<WorkerEvent, StreamDriftFacts>();
   readonly #endings: RunEndings;
   readonly #turns: AfterTurns;
   readonly #reconcile: ReconcileStops;
@@ -149,6 +179,7 @@ export class RunControl implements RunEnder {
   get hooks(): IngestHooks {
     return {
       onEventApplied: (run, _agent, event) => this.onEventApplied(run, event),
+      onStreamDrift: (_run, _agent, event, count) => this.#noteDrift(event, count),
       onWorkerEvents: (run, agent, events) => this.onWorkerEvents(run, events, agent),
       onInitRejected: (run, _agent, reason) => this.#initRejected(run, reason),
       onEnded: (run, agent, end) => this.onEnded(run, agent, end),
@@ -280,6 +311,20 @@ export class RunControl implements RunEnder {
     let pending: FiredCap | null = null;
     for (const [index, event] of events.entries()) {
       if (tracked.ending !== null) return;
+      // The worker's stream cannot be read, so its caps are blind (DIPO-315); a done turn that
+      // already took the done path keeps it.
+      const drift = this.#drifts.get(event);
+      if (drift !== undefined && tracked.capped === null) {
+        this.#endings.begin(tracked, {
+          intent: "park",
+          ops: this.#deps.encode({ kind: "stop" }),
+          reason: "worker-failed",
+          cause: PARK_CAUSES.streamDrift,
+          detail: streamDriftDetail(drift),
+          endKind: "worker-failed",
+        });
+        return;
+      }
       if (event.t === "initRejected") {
         // 0008 section 2: stop the worker before it does anything (DIPO-51).
         this.#initRejected(run, event.reason);
@@ -403,6 +448,53 @@ export class RunControl implements RunEnder {
         return;
       }
     }
+  }
+
+  /** Inside a pass: remembers a deciding stream drift, acted on after the commit (DIPO-315). */
+  #noteDrift(event: Extract<WorkerEvent, { t: "streamDrift" }>, count: StreamDriftCount): void {
+    this.#drifts.set(event, {
+      usage: event.kind === "usage",
+      worker: event.worker,
+      detail: event.detail,
+      lines: count.lines,
+      threshold: count.threshold,
+    });
+  }
+
+  /**
+   * `daemon.stop { stopWorkers: true }` (0006 decision 7, DIPO-315): stops every live worker this
+   * control tracks, as `work.stop` stops one (the stop sequence through its host, a `stop` intent
+   * first, the story parked `stopped` with `DAEMON_STOPPED_DETAIL`, the reviewer's cause during a
+   * review). A run already being decided (a cap, a report, a done path) keeps that decision. Resolves
+   * once every decision finished and the stopped workers exited, or `exitWaitMs` after the stops
+   * were sent with the ones still running counted; the drain's cap bounds it too.
+   */
+  async stopAll(exitWaitMs = STOP_ALL_EXIT_WAIT_MS): Promise<StopAllResult> {
+    const all = [...this.#tracked.values()];
+    let stopped = 0;
+    for (const tracked of all) {
+      if (tracked.ending !== null) continue;
+      this.#endings.begin(tracked, {
+        intent: "stop",
+        ops: this.#deps.encode({ kind: "stop" }),
+        reason: "stopped",
+        cause: reviewing(tracked) ? PARK_CAUSES.review : PARK_CAUSES.maintainer,
+        detail: DAEMON_STOPPED_DETAIL,
+        endKind: "stopped",
+      });
+      if (tracked.ending !== null) stopped += 1;
+    }
+    await Promise.allSettled(all.map((tracked) => tracked.ending ?? Promise.resolve(null)));
+    // The host sends SIGTERM 10 s after the stop and SIGKILL after 30 s; each exit is ingested and
+    // decided before its run is untracked.
+    const clock = this.#deps.clock;
+    const until = clock.now() + exitWaitMs;
+    const running = () => all.filter((tracked) => this.#tracked.get(tracked.runId) === tracked);
+    while (running().length > 0 && clock.now() < until) {
+      await new Promise<void>((resolve) => clock.setTimeout(resolve, STOP_ALL_POLL_MS));
+    }
+    await this.idle();
+    return { stopped, deciding: all.length - stopped, running: running().length };
   }
 
   /**

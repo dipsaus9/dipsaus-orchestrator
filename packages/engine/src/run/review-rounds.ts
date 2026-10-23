@@ -3,7 +3,9 @@
 //
 // - Pending reviews. A story run that ended at In Review, whose claim is live and whose run keeps
 //   the review loop's caps, waits for a review while its code tree key (recorded on its green
-//   verify) has no verdict in the claim. It waits from its In Review time, so the reviewer place
+//   verify) has no verdict in the claim. It is not pending until its head is on the remote
+//   (DIPO-315): the claim's `pushed_at` at or after the run's end, or `no_remote_at` there when the
+//   office has no remote. A failed In Review push holds the review until the PR poll pushes again. It waits from its In Review time, so the reviewer place
 //   starts the oldest In Review first. A tree with a verdict is never reviewed again: the verdict
 //   holds for every commit with the same code tree key, also after a daemon restart, since both
 //   facts are rows.
@@ -138,8 +140,9 @@ export function verifiedTreeKey(office: OfficeHandle, runId: RunId): string | nu
 
 /**
  * The pending reviews of the office (`PlacesDeps.pending`, 0019 section 12), oldest In Review
- * first: story runs ended at In Review with a live claim and the review loop's caps, whose
- * verified code tree has no verdict in the claim. Each waits from its In Review time.
+ * first: story runs ended at In Review with a live claim and the review loop's caps, whose head is
+ * on the remote (or whose office has none, DIPO-315) and whose verified code tree has no verdict in
+ * the claim. Each waits from its In Review time.
  */
 export function pendingReviews(office: OfficeHandle): PlaceStart[] {
   const rows = office.all<{ run_id: string; ended_at: number }>(
@@ -147,7 +150,8 @@ export function pendingReviews(office: OfficeHandle): PlaceStart[] {
       where r.office_id = $office_id and r.kind = 'story' and r.ended_at is not null
         and r.end_kind = $in_review and r.review_round_cap is not null
         and exists (select 1 from claims c where c.office_id = r.office_id
-          and c.run_id = r.run_id and c.released_at is null)
+          and c.run_id = r.run_id and c.released_at is null
+          and (c.pushed_at >= r.ended_at or c.no_remote_at >= r.ended_at))
       order by r.ended_at, r.run_id`,
     { in_review: IN_REVIEW_END },
   );

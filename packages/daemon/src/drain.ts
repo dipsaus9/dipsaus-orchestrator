@@ -2,7 +2,10 @@
 // writes, the current recovery step), waits for every child process the daemon started itself, and
 // is capped at 20 s, or 60 s while workers are being stopped. At the cap the daemon kills the
 // process group of every child still running and exits anyway; the next start recovers as after a
-// crash. Worker hosts are never the daemon's children here, so they keep running (decision 8).
+// crash. Worker hosts are never the daemon's children here, so they keep running (decision 8),
+// unless `daemon.stop { stopWorkers: true }` asked for them to be stopped: then run control stops
+// every live worker through its host first (DIPO-315), each story parks `stopped`, and the drain
+// waits for the parks and the exits under the longer cap. The log line says what happened.
 
 import type { Clock } from "@dipsaus-orchestrator/contract";
 import type { ChildProcesses, Logger } from "@dipsaus-orchestrator/engine";
@@ -37,8 +40,18 @@ export interface DrainOptions {
   readonly logger: Logger;
   readonly request: DrainRequest;
   readonly caps?: DrainCaps;
-  /** Ends the workers through their hosts; DIPO-50 provides it. */
-  readonly stopWorkers?: () => Promise<void>;
+  /** Ends the workers through their hosts: run control's `stopAll` (DIPO-315). */
+  readonly stopWorkers?: () => Promise<StoppedWorkers>;
+}
+
+/** What stopping the workers did (`RunControl.stopAll`), for the log line. */
+export interface StoppedWorkers {
+  /** Live workers stopped. */
+  readonly stopped: number;
+  /** Runs already being decided (a cap, a report, a done path), whose decision was awaited. */
+  readonly deciding: number;
+  /** Workers still running when the wait for their exits ended. */
+  readonly running: number;
 }
 
 export interface DrainResult {
@@ -78,8 +91,20 @@ export async function drain(options: DrainOptions): Promise<DrainResult> {
   const work = (async () => {
     if (request.stopWorkers) {
       try {
-        if (options.stopWorkers === undefined) logger.info("no workers to stop");
-        else await options.stopWorkers();
+        if (options.stopWorkers === undefined) {
+          logger.info("no workers to stop: this daemon has no run control");
+        } else {
+          const done = await options.stopWorkers();
+          if (done.stopped === 0 && done.deciding === 0) {
+            logger.info("no live workers to stop");
+          } else if (done.running > 0) {
+            logger.warn("stopped the workers, but some had not exited yet; their hosts end them", {
+              ...done,
+            });
+          } else {
+            logger.info("stopped the workers; every one exited", { ...done });
+          }
+        }
       } catch (error) {
         logger.error("stopping the workers failed", { error });
       }

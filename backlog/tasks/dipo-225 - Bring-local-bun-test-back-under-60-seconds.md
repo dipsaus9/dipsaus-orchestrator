@@ -4,7 +4,7 @@ title: Bring local bun test back under 60 seconds
 status: To Do
 assignee: []
 created_date: '2026-10-19 23:02'
-updated_date: '2026-10-22 18:16'
+updated_date: '2026-10-23 10:34'
 labels:
   - 'tier:M'
   - cutover
@@ -13,7 +13,6 @@ dependencies:
   - DIPO-284
   - DIPO-285
   - DIPO-287
-  - DIPO-288
   - DIPO-159
   - DIPO-290
   - DIPO-149
@@ -50,7 +49,8 @@ Context: on the maintainer's machine on 2026-10-20 a local `bun run verify` took
 branch: "DIPO-225/local-bun-test-under-60s"
 unknowns:
   - q: "How is the 60 s reached? (a) Move the slowest files that start real processes or real git repositories to *.ci.test.ts, keeping a local unit test for each rule they check (0017 allows slow tests CI only). (b) Run local bun test with --parallel, which changes the test script that verify, workers and CI share and needs every test to keep its own temp paths and ports. (c) Speed up the slowest files (shared fixture repositories, fewer process spawns) and move only what stays slow. Recommended: (a), with (c) for a file whose time comes from a fixture it can share."
-    status: "open"
+    status: "resolved"
+    answer: "(a) with (c) (maintainer session, 2026-10-23, a reversible choice under the speed-up process): move the slowest files that start real processes or real git repositories to *.ci.test.ts, keeping a local unit test for each rule they check, and speed up a file whose time comes from a fixture it can share."
 test_plan:
   entries:
     - kind: "automated"

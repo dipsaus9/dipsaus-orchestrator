@@ -99,6 +99,7 @@ import {
 import { MAINTAINER_TAGS } from "./pauses";
 import { PLACE_NOTICES, type Places, START_KINDS, waitForPlace } from "./places";
 import { findRun, storeBackstopSnapshot, type StoredRun } from "./records";
+import { recordBranchPush } from "../story-pr/records";
 import {
   type ParkRefusalRow,
   type ParkResumeRow,
@@ -844,6 +845,9 @@ export class ParkResumes {
         const current = openPark(office, key);
         if (current?.parkId !== detail.parkId) return [];
         wrote = true;
+        // The lift's push, on the claim like every story-branch push (DIPO-315).
+        const push = { pushed: lifted.pushed, error: lifted.pushError };
+        recordBranchPush(office, run.branch as string, push, at);
         const entries = this.#apply(office, run, current, detail, at);
         for (const grant of detail.grants) {
           recordGrant(office, run.runId, {

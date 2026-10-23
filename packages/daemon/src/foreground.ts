@@ -1306,6 +1306,8 @@ async function serve(run: Run, lock: HeldLock): Promise<number> {
       logger,
       request,
       caps: options.drainCaps ?? DEFAULT_DRAIN_CAPS,
+      // `daemon.stop { stopWorkers: true }` (0006 decision 7, DIPO-315): through run control.
+      stopWorkers: () => runs.control.stopAll(),
     });
     // A requested drain exits 0 and is no crash, even at its cap (0006 amendment of 2026-10-12,
     // DIPO-68). After an error no code caught it is a crash, whichever reason the drain has.

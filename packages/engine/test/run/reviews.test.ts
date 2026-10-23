@@ -56,6 +56,7 @@ import {
   type ReviewReport,
   type WorkerEvent,
 } from "../../src/workers/types";
+import { updateClaim } from "../../src/worktree/records";
 import { loggedEvents } from "../ingest/helpers";
 import { plainTask } from "../prompts/helpers";
 import {
@@ -164,7 +165,11 @@ function inReview(
   });
   addAgent(w, s.run, "developer", false);
   green(s, tree);
-  write(() => endRun(w.office, s.run, now(), IN_REVIEW_END));
+  write(() => {
+    endRun(w.office, s.run, now(), IN_REVIEW_END);
+    // The In Review push reached the remote, at the run's end: the review may start (DIPO-315).
+    updateClaim(w.office, s.run, { pushedAt: now() });
+  });
   return s;
 }
 

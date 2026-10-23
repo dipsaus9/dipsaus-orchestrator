@@ -9,6 +9,15 @@ import type { AdapterStatus } from "../types";
 
 /** The oldest Claude Code with the `--settings` sandbox locks (0008 section 2). */
 export const MIN_CLAUDE_VERSION = "2.1.285";
+/**
+ * The newest Claude Code dipo was checked with (DIPO-315): the version the box image installs by
+ * default (`BOX_DEFAULTS.claudeCode`), whose stream the newest recordings under
+ * `test/recordings/claude-cli` (2.1.302) and the box checks were read against. A worker that
+ * reports a newer version at its start gets one `engine.notice` per office and version: its stream
+ * may have changed, and a run whose stream dipo cannot read parks with cause `stream-drift`. Raise
+ * it together with the box image's version, after the recordings are checked again with it.
+ */
+export const CHECKED_CLAUDE_VERSION = "2.1.303";
 /** The only login a worker may run on (0008 section 2). */
 export const REQUIRED_AUTH_METHOD = "claude.ai";
 /** What this adapter offers (0008 section 11); `hooks` since the hook relay (DIPO-59). */
