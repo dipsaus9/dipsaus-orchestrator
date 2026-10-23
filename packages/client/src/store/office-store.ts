@@ -13,6 +13,7 @@ import {
   type Cursor,
   type DaemonState,
   daemonStateChanged,
+  DatabaseUnavailableDetails,
   type EngineError,
   engineHello,
   type Event,
@@ -83,6 +84,16 @@ export interface OfficeEntry {
   readonly summary: OfficeSummary | undefined;
 }
 
+/**
+ * The database line a failed read leaves (DIPO-120): the details of a `database.unavailable`
+ * answer, null when they do not parse, or undefined for any other error, which leaves it as it is.
+ */
+function databaseOf(error: EngineError): DatabaseUnavailableDetails | null | undefined {
+  if (error.code !== "database.unavailable") return undefined;
+  const details = DatabaseUnavailableDetails.safeParse(error.details);
+  return details.success ? details.data : null;
+}
+
 export interface OfficeStoreState {
   readonly connection: ConnectionState;
   /** When the connection was lost (clock milliseconds); null while connected. */
@@ -119,6 +130,12 @@ export interface OfficeStoreState {
   readonly notice: string | null;
   /** The last failed read or ended subscription, until the next success. */
   readonly error: EngineError | null;
+  /**
+   * Why the daemon's state database is unavailable (DIPO-111), from a `database.unavailable` answer;
+   * null otherwise. Kept across office switches; cleared by `draining` and by a fresh `engine.hello`
+   * (DIPO-120).
+   */
+  readonly database: DatabaseUnavailableDetails | null;
 }
 
 /**
@@ -214,6 +231,7 @@ export class OfficeStore {
       notice: null,
       snapshots: 0,
       error: null,
+      database: null,
     };
   }
 
@@ -341,11 +359,31 @@ export class OfficeStore {
       }
       const unchanged =
         timed && JSON.stringify(this.#state.error) === JSON.stringify(outcome.error);
-      if (!unchanged) this.#update({ loading: false, error: outcome.error });
+      const database = databaseOf(outcome.error);
+      if (!unchanged) {
+        this.#update({
+          loading: false,
+          error: outcome.error,
+          ...(database === undefined ? {} : { database }),
+        });
+      }
       return outcome;
     }
     this.#replace(office, outcome.result);
     return outcome;
+  }
+
+  /**
+   * A daemon held in `recovering` with no office selected: one office read, so that its
+   * `database.unavailable` answer reaches `database` (DIPO-120). The snapshot is not applied.
+   */
+  async #probeDatabase(): Promise<void> {
+    const office = this.#state.offices[0]?.office;
+    if (office === undefined || this.#state.office !== null) return;
+    const outcome = await this.#read(officeSnapshot, { office });
+    if (this.#closed || this.#state.office !== null || outcome.ok) return;
+    const database = databaseOf(outcome.error);
+    if (database !== undefined) this.#update({ database });
   }
 
   #clearRetryTimer(): void {
@@ -452,7 +490,10 @@ export class OfficeStore {
         path: summary.path,
         summary,
       })),
+      // A fresh hello starts without the database line; a daemon still held answers it again.
+      database: null,
     });
+    if (hello.daemon === "recovering" && this.#state.office === null) void this.#probeDatabase();
   }
 
   #applySoftware(event: Event): void {
@@ -492,9 +533,11 @@ export class OfficeStore {
       case daemonStateChanged.type: {
         const data = daemonStateChanged.data.safeParse(event.data);
         if (!data.success) return;
-        this.#update({ daemon: data.data.to });
+        const to = data.data.to;
+        this.#update({ daemon: to, ...(to === "draining" ? { database: null } : {}) });
         const retry = this.#retry;
-        if (data.data.to === "running" && retry !== null) void this.#load(retry.office, retry.read);
+        if (to === "running" && retry !== null) void this.#load(retry.office, retry.read);
+        if (to === "recovering" && this.#state.office === null) void this.#probeDatabase();
         return;
       }
       default:

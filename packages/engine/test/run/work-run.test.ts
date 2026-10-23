@@ -23,6 +23,7 @@ import type { PlainTask } from "../../src/backlog/plain";
 import { cursorAt, readLogState } from "../../src/changelog/log";
 import { replay } from "../../src/changelog/replay";
 import { executeCommand, type ExecutorDeps } from "../../src/commands/execute";
+import { CRASH, crashAfterHandler } from "../commands/crash";
 import { stateOfficeDirectory } from "../../src/commands/offices";
 import { buildRegistry, type Registry } from "../../src/commands/registry";
 import { MemoryRequestTable } from "../../src/commands/requests";
@@ -331,10 +332,17 @@ function story(id: string, status: string, overrides: Partial<PlainTask> = {}): 
 }
 
 let requests = 0;
-function run(args: Record<string, unknown> = {}): Promise<CommandReply> {
+function run(
+  args: Record<string, unknown> = {},
+  retry?: { readonly id: string; readonly crash: boolean },
+): Promise<CommandReply> {
   requests += 1;
-  return executeCommand(world.deps, {
-    requestId: RequestId.parse(`01J9ZK5Q8W3V4X6Y7Z${requests.toString().padStart(8, "0")}`),
+  // A crash after the handler's commits and before the requests row (DIPO-168 in DIPO-155).
+  const deps = retry?.crash === true ? crashAfterHandler(world.deps, "work.run") : world.deps;
+  return executeCommand(deps, {
+    requestId: RequestId.parse(
+      retry?.id ?? `01J9ZK5Q8W3V4X6Y7Z${requests.toString().padStart(8, "0")}`,
+    ),
     name: "work.run",
     args,
     origin: "cli",
@@ -529,6 +537,20 @@ describe("work.run picks and claims one Ready story", () => {
     // `office.forget` still sees the session run.
     expect(hasActiveRun(world.office)).toBe(true);
     expect(resultOf(await run()).started.map((s) => s.story)).toEqual(["TASK-1"]);
+  });
+
+  it("claims once when a crash before the requests row makes the retry run the handler again (DIPO-168)", async () => {
+    story("TASK-1", "Ready");
+    const id = "01J9ZK5Q8W3V4X6Y7Z90000003";
+    const crashed = await run({}, { id, crash: true });
+    expect(crashed.ok ? null : crashed.error.message).toContain(CRASH);
+    expect(world.claims).toHaveLength(1);
+    // The retry sees the live claim and the active run: it skips the story, claims nothing.
+    const retried = resultOf(await run({}, { id, crash: false }));
+    expect(retried.started).toEqual([]);
+    expect(retried.skipped.map((s) => [s.story, s.reason])).toEqual([["TASK-1", "notRunnable"]]);
+    expect(world.claims).toHaveLength(1);
+    expect(entries().filter((entry) => entry.type === "work.assigned")).toHaveLength(1);
   });
 
   it("runs only the named stories and skips each by its state", async () => {
@@ -870,7 +892,7 @@ describe("port slots (DIPO-197)", () => {
       "slot 1: office off_other, story TASK-8, worktree /trees/TASK-8",
     );
     expect(refusal.message).toContain(
-      "slot 2: office off_other, story TASK-9, worktree /trees/TASK-9",
+      "slot 2: office off_other, story TASK-9, worktree /trees/TASK-9. dipo discard <id> frees a story's slot.",
     );
     expect(world.claims).toEqual([]);
 

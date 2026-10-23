@@ -1,6 +1,7 @@
 // The per-reason resume policy table of `resumption.ts` (DIPO-138): the M0 rows resume a
-// needs-permission park through its answer and a plan-limit hold through work.resume; every other
-// reason has no row, so work.resume answers story.notPausedOrParked for it. The command and the
+// needs-permission park through its answer and a plan-limit hold through work.resume; the parks of
+// the 0020 matrix resume through work.resume by their cause (DIPO-155, test/run/resume-parks.test.ts),
+// and a park whose reason and cause have no resuming row answers story.notPausedOrParked. The command and the
 // park resume are driven on a migrated state database with one story run, a fake plan-limit
 // schedule, a fake unpark writer and a fake next session.
 
@@ -26,6 +27,7 @@ import {
   INTENT_TAGS,
   insertRun,
   PARK_RESUME_POLICY,
+  parkResumeRow,
   raiseSignal,
   recordIntent,
   type Resumption,
@@ -59,16 +61,27 @@ describe("the resume policy table", () => {
     expect(resumeVia("paused")).toBe("work.resume");
   });
 
-  it("has the rows of M0, of the hold and of the pause only; every other park reason has no row", () => {
+  it("has the rows of M0, of the hold, of the pause and of the 0020 matrix reasons (DIPO-155)", () => {
     expect(Object.keys(PARK_RESUME_POLICY).toSorted()).toEqual([
+      "ambiguous-spec",
+      "budget-exceeded",
+      "conflict",
+      "interrupted",
       "needs-permission",
       "on-hold",
       "paused",
       "plan-limit",
+      "review-blocked",
+      "scope-violation",
+      "stopped",
+      "verify-failing",
+      "worker-failed",
     ]);
     for (const reason of KNOWN_PARK_REASONS) {
-      if (reason === "needs-permission" || reason === "on-hold") continue;
-      expect(resumeVia(reason)).toBeNull();
+      if (reason === "needs-permission") continue;
+      expect(resumeVia(reason)).toBe(
+        Object.hasOwn(PARK_RESUME_POLICY, reason) ? "work.resume" : null,
+      );
     }
     expect(resumeVia("constructor")).toBeNull();
     expect(resumeVia("not-a-reason")).toBeNull();
@@ -253,7 +266,10 @@ async function refusal(of: Resumption): Promise<CommandError | null> {
 }
 
 describe("work.resume through the policy table", () => {
-  for (const reason of KNOWN_PARK_REASONS) {
+  // A park recorded without a cause has a resuming row only where the matrix holds for every cause
+  // of its reason (DIPO-155); those resume in resume-parks.test.ts, and needs-permission answers
+  // resume.decisionRequired there.
+  for (const reason of KNOWN_PARK_REASONS.filter((known) => parkResumeRow(known, null) === null)) {
     // An on-hold park is resumed by the planning lane (planning.test.ts, DIPO-160).
     if (reason === "on-hold") continue;
     it(`answers story.notPausedOrParked for a story parked ${reason}`, async () => {

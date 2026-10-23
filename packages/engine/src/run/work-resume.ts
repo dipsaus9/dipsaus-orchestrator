@@ -1,11 +1,12 @@
-// `work.resume { story, note? }` (0005 section 4, DIPO-61, DIPO-138): the command of the
-// resumption module. It works out the reason the story stands still, asks the policy table
-// (`resume-policy.ts`) whether `work.resume` resumes that reason, and dispatches on the row. In M0
-// the only `work.resume` row is `plan-limit`, which the plan-limit schedule resumes at once
-// (`PlanLimits.resumeNow`); every other reason, a park included, answers `story.notPausedOrParked`.
-// The `paused` row (DIPO-163) is a run the maintainer paused: `PausedResumes` continues it.
-// The park `on-hold` (DIPO-160) is the exception: it has no run, and its row hands the story to the
-// planning lane (`HoldResumer`), which removes F16 and sets `park.from`.
+// `work.resume { story, note?, budget? }` (0005 section 4, DIPO-61, DIPO-138, DIPO-155): the
+// command of the resumption module. It works out the reason the story stands still, asks the policy
+// table (`resume-policy.ts`) whether `work.resume` resumes that reason, and dispatches on the row.
+// `plan-limit` is resumed at once by the plan-limit schedule (`PlanLimits.resumeNow`); `paused`
+// (DIPO-163) is a run the maintainer paused, continued by `PausedResumes`; the park `on-hold`
+// (DIPO-160) has no run, and its row hands the story to the planning lane (`HoldResumer`), which
+// removes F16 and sets `park.from`. Every other park goes to the park resume
+// (`ParkResumes`, `park-resume.ts`), which follows the 0020 matrix row of its reason and cause,
+// refusals included; a story standing still for nothing answers `story.notPausedOrParked`.
 
 import {
   type Lifecycle,
@@ -54,6 +55,24 @@ export interface HoldResumer {
   ): Promise<Lifecycle>;
 }
 
+/** The resume of a parked story by its matrix row (`ParkResumes`, DIPO-155). */
+export interface ParkResumer {
+  resume(
+    ctx: AsyncCommandContext,
+    identity: StoryIdentity,
+    park: NonNullable<ReturnType<typeof openPark>>,
+    args: z.output<typeof workResume.args>,
+  ): Promise<CommandOutcome<z.input<typeof workResume.result>>>;
+  /**
+   * A retry of a request whose park resume was stored (a crash before its reply): finished when it
+   * was not, and replied with what it did; null when the request stored none.
+   */
+  replay(
+    ctx: AsyncCommandContext,
+    identity: StoryIdentity,
+  ): Promise<CommandOutcome<z.input<typeof workResume.result>> | null>;
+}
+
 /** The maintainer-paused run's resume (`PausedResumes`, DIPO-163). */
 export interface PausedResumer {
   resumePaused(
@@ -87,14 +106,19 @@ export class WorkResumeCommand {
   /** The resume of a maintainer-paused run. */
   readonly #paused: () => PausedResumer | undefined;
 
+  /** The resume of a parked story by its matrix row. */
+  readonly #parks: () => ParkResumer | undefined;
+
   constructor(
     planLimits: () => HeldRunResumer | undefined = () => undefined,
     holds: () => HoldResumer | undefined = () => undefined,
     paused: () => PausedResumer | undefined = () => undefined,
+    parks: () => ParkResumer | undefined = () => undefined,
   ) {
     this.#planLimits = planLimits;
     this.#holds = holds;
     this.#paused = paused;
+    this.#parks = parks;
   }
 
   /** `work.resume` for held runs; read by the plan-limit schedule's feature. */
@@ -125,10 +149,20 @@ export class WorkResumeCommand {
     const notHeld = () =>
       new CommandError(
         NOT_PAUSED_OR_PARKED,
-        `${identity.story} has no run held by a plan limit; work.resume continues only those for now.`,
+        `${identity.story} is not paused, held by a plan limit or parked, so there is nothing to resume.`,
         { story: identity.story },
       );
+    // A retry of a park resume this request stored repeats nothing (0005 note of 2026-10-17).
+    const replayed = await this.#parks()?.replay(ctx, identity);
+    if (replayed != null) return replayed;
     const standing = standingOf(handle, identity.key);
+    // A parked story other than on-hold resumes by its matrix row (DIPO-155), refusals included.
+    const parks = this.#parks();
+    if (standing.held === null && standing.reason !== null && standing.reason !== "on-hold") {
+      const park = openPark(handle, identity.key);
+      if (parks !== undefined && park !== null)
+        return await parks.resume(ctx, identity, park, args);
+    }
     if (standing.reason === null || resumeVia(standing.reason) !== "work.resume") throw notHeld();
     switch (standing.reason) {
       case "paused": {

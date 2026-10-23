@@ -44,7 +44,7 @@ import { cleanDoorText } from "../box/door";
 import type { FeatureRegistry, ReadContext, Registry } from "../commands/registry";
 import type { OfficeHandle } from "../db/office";
 import { openParkQuestions, openQuestions, type StoredQuestion } from "../hooks/questions";
-import { resumeVia } from "../run/resume-policy";
+import { parkResumeRow } from "../run/resume-policy";
 import { findStoryPr, latestStoryPr } from "../story-pr/records";
 import { doneElsewhereDeskItems } from "../worktree/done-elsewhere";
 
@@ -94,16 +94,12 @@ export interface DeskSources {
 }
 
 /**
- * The resume needs `work.resume` meets today (`resume-policy.ts`): an `on-hold` park resumes with
- * an optional note, a `needs-permission` park is resumed by its answer, and no other park reason
- * is resumed by `work.resume` yet. DIPO-155's matrix replaces it.
+ * The resume needs `work.resume` meets (`resume-policy.ts`, DIPO-155): an `on-hold` park resumes
+ * with an optional note through the planning lane, every other park as its row of the 0020 matrix
+ * says (`parkResumeRow`), refusals included; a reason and cause with no row offer no resume.
  */
-export const policyResumeNeeds: ResumeNeeds = (reason) => {
-  if (reason === "needs-permission") return { kind: "refuse", code: "resume.decisionRequired" };
-  return reason !== "plan-limit" && reason !== "paused" && resumeVia(reason) === "work.resume"
-    ? { kind: "resume", note: "optional" }
-    : null;
-};
+export const policyResumeNeeds: ResumeNeeds = (reason, cause) =>
+  reason === "on-hold" ? { kind: "resume", note: "optional" } : parkResumeRow(reason, cause);
 
 /**
  * The sources of this engine: no stored PR labels yet; the hand items are DIPO-161's DONE ELSEWHERE

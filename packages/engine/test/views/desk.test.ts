@@ -436,7 +436,7 @@ describe("review-blocked parks and hand-merge-only gates", () => {
       }
     }));
 
-  it("offers discard for a park that is never resumable, and nothing a policy cannot resume", () =>
+  it("offers discard for a park that is never resumable, and the resume the matrix allows", () =>
     withTempDir(async (dir) => {
       const t = await openTestState(dir);
       try {
@@ -462,8 +462,11 @@ describe("review-blocked parks and hand-merge-only gates", () => {
           [{ command: "work.discard", cli: 'dipo discard DIPO-1 --note "<why>"' }],
           [{ command: "work.resume", cli: 'dipo resume DIPO-2 --note "<why>"' }],
         ]);
-        // This engine's work.resume resumes no verify-failing park yet: no command is offered.
-        expect(desk(office, all).map((item) => item.actions)).toEqual([[], []]);
+        // This engine's sources are the 0020 matrix (DIPO-155): the same actions.
+        expect(desk(office, all).map((item) => item.actions)).toEqual([
+          [{ command: "work.discard", cli: 'dipo discard DIPO-1 --note "<why>"' }],
+          [{ command: "work.resume", cli: 'dipo resume DIPO-2 --note "<why>"' }],
+        ]);
       } finally {
         t.state.close();
       }
@@ -533,13 +536,28 @@ describe("stored text on the desk", () => {
 });
 
 describe("the resume needs of this engine", () => {
-  it("follow work.resume's policy: on-hold resumes, needs-permission is answered, others wait", () => {
+  it("follow work.resume's policy: on-hold resumes, the 0020 matrix decides every other park (DIPO-155)", () => {
     expect(policyResumeNeeds("on-hold", null)).toEqual({ kind: "resume", note: "optional" });
     expect(policyResumeNeeds("needs-permission", null)).toEqual({
       kind: "refuse",
       code: "resume.decisionRequired",
     });
-    expect(policyResumeNeeds("verify-failing", "loops")).toBeNull();
+    expect(policyResumeNeeds("verify-failing", "loops")).toMatchObject({
+      kind: "resume",
+      note: "required",
+    });
+    expect(policyResumeNeeds("budget-exceeded", "build")).toMatchObject({
+      kind: "resume",
+      note: "required",
+      topUp: true,
+    });
+    expect(policyResumeNeeds("stopped", "maintainer")).toMatchObject({ note: "optional" });
+    expect(policyResumeNeeds("scope-violation", "secret")).toMatchObject({
+      kind: "refuse",
+      code: "resume.notResumable",
+    });
+    // A question waits for its answer; no park of this reason offers a resume.
+    expect(policyResumeNeeds("ambiguous-spec", "question")).toBeNull();
     expect(policyResumeNeeds("plan-limit", null)).toBeNull();
   });
 });

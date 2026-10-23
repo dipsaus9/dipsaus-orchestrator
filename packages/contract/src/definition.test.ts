@@ -115,6 +115,17 @@ describe("commands.describe", () => {
     expect(hold).not.toHaveProperty("irreversibleWhen");
   });
 
+  it("lists work.resume as needing confirmation when budget is set (DIPO-155)", () => {
+    const commands = describeContract().commands;
+    const resume = commands.find((command) => command.name === "work.resume");
+    expect(resume).toMatchObject({ since: 1, confirm: false, confirmWhen: ["budget"] });
+    const args = resume?.args as { properties?: object } | undefined;
+    expect(Object.keys(args?.properties ?? {}).toSorted()).toEqual(["budget", "note", "story"]);
+    // Only a command that declares it carries the key.
+    const drop = commands.find((command) => command.name === "story.drop");
+    expect(drop).not.toHaveProperty("confirmWhen");
+  });
+
   it("lists work.discard since minor 1 with confirm and irreversible (DIPO-161)", () => {
     const entry = describeContract().commands.find((command) => command.name === "work.discard");
     expect(entry).toMatchObject({

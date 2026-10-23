@@ -4,8 +4,10 @@
 // - Sources. A blocked review verdict (its unmet criteria and blocking findings), the red required
 //   checks of the pushed head (`StoryPrs.ciState`, DIPO-147; CI is the verify of a box run,
 //   DIPO-299) and a maintainer reject (`reject`, fed by DIPO-151's `gate.reject`, which does not
-//   exist yet, so no reject item is produced until it does). Advisory findings never start a round
-//   on their own; a round that starts for another reason lists them as optional.
+//   exist yet, so no reject item is produced until it does). A conflict hand-off of a run In
+//   Review (`conflict`, the entry for the merge slot's sync, DIPO-150) is sent at once like a
+//   reject. Advisory findings never start a round on their own; a round that starts for another
+//   reason lists them as optional.
 // - Timing (section 7). `consider` runs when a run ends reviewed (a reviewer session's exit after
 //   its verdict, or a head that took its tree's verdict without a round), when the CI of a head
 //   stops being pending (`onCiFinal`), and at the daemon's recovery step (`recover`). It waits
@@ -344,7 +346,31 @@ export class FixRounds {
       head,
       items: [rejectFeedbackItem(reject)],
       advisories: [],
-      reject: true,
+      atOnce: true,
+    });
+  }
+
+  /**
+   * A conflict hand-off of a run waiting In Review (0019 sections 8 and 10, DIPO-149): the one
+   * conflict item of a merge dipo made into the branch, sent at once like a reject, through the
+   * same send path (once per head and signature). The entry for the merge slot's sync (DIPO-150);
+   * a box run's sync before In Review hands its conflict over in the live session instead. True
+   * when a round was queued.
+   */
+  async conflict(
+    officeId: OfficeId,
+    runId: RunId,
+    input: { readonly head: string; readonly item: FixItem },
+  ): Promise<boolean> {
+    const office = this.#deps.offices.get(officeId);
+    if (office === undefined) return false;
+    const run = findRun(office, runId);
+    if (run === null || !this.#waitsInReview(office, run, undefined)) return false;
+    return await this.#queue(office, run, {
+      head: input.head,
+      items: [input.item],
+      advisories: [],
+      atOnce: true,
     });
   }
 
@@ -572,7 +598,8 @@ export class FixRounds {
       readonly head: string;
       readonly items: readonly FixItem[];
       readonly advisories: readonly string[];
-      readonly reject?: boolean;
+      /** Sent at once, not held to one round per head: a reject or a conflict (section 8). */
+      readonly atOnce?: boolean;
     },
   ): Promise<boolean> {
     const officeId = office.officeId as OfficeId;
@@ -582,8 +609,8 @@ export class FixRounds {
         const current = findRun(office, run.runId);
         const none = { value: false, entries: [] };
         if (current === null || current.endedAt === null) return none;
-        // One round per head; a reject is its own round, sent at once.
-        if (round.reject !== true && fixRoundQueued(office, run.runId, round.head)) return none;
+        // One round per head; a reject or a conflict is its own round, sent at once.
+        if (round.atOnce !== true && fixRoundQueued(office, run.runId, round.head)) return none;
         const planned = planFeedback(office, run.runId, round.head, round.items);
         // Nothing new for this head: advisories never start a round on their own.
         if (planned.length === 0) return none;
