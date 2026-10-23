@@ -65,6 +65,7 @@ Dependencies are pinned exactly in `package.json`. Later stories add the package
 - Prefix `DIPO`. Milestones `m-0` to `m-5` are M0 to M5 (see `docs/decisions/0003-milestones-and-quality-bar.md`). Backlog.md has no epic type, so milestones play that role.
 - Architecture spikes (`--type spike`) each end in an ADR in `docs/decisions/`. Implementation stories are written after the spikes resolve.
 - `auto_commit` is off. Commit backlog changes yourself.
+- A story that adds or replaces a guard, a deny rule, a sandbox setting or a permission check lists in its criteria: what the old barrier caught, with a test for each; the bypass forms to test (wrappers, quoting, indirection, chaining); and a fail-closed test against the real path rather than a fake. The Ready gate refuses such a story without them (R30).
 
 ## Review
 

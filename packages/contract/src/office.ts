@@ -293,6 +293,24 @@ export const officeSwitch = defineRead({
   since: 1,
 });
 
+// The notes and proposals of a run's done report (DIPO-152), the worker's own words, cleaned and
+// capped as door messages are (0021 section 7). Absent when the report had neither.
+export const DoneReport = z.object({
+  notes: z.string().optional(),
+  proposals: z
+    .array(
+      z.object({
+        kind: z.string(),
+        title: z.string(),
+        outcome: z.string(),
+        why: z.string(),
+        paths: z.array(z.string()).optional(),
+      }),
+    )
+    .optional(),
+});
+export type DoneReport = z.infer<typeof DoneReport>;
+
 // One past or current run of a story.
 export const RunRecord = z.object({
   run: RunId,
@@ -304,6 +322,8 @@ export const RunRecord = z.object({
   endedAt: Timestamp.optional(),
   outcome: z.string().optional(), // how the run ended, absent while it runs
   usage: UsageTotals,
+  // Since minor 1 (DIPO-152): the notes and proposals of the done report that ended the run.
+  doneReport: DoneReport.optional(),
 });
 export type RunRecord = z.infer<typeof RunRecord>;
 
@@ -388,6 +408,9 @@ export type GateDependency = z.infer<typeof GateDependency>;
 // (M0 breakdown decision D3, DIPO-71). It passes only with no failures; failures are in rule order.
 // Since minor 1 (DIPO-179): `waitingOn` lists the dependencies that are not Done, absent when none
 // are open. The verdict does not depend on it: a passing story can still wait before pickup.
+// Since minor 1 (DIPO-251): `warnings` lists the rules that only warn (R29, test plan names no
+// Reference covers), each `ready <ID> warning <rule>: <message>`, absent when none. They do not
+// change `passed`.
 export const storyGate = defineRead({
   name: "story.gate",
   args: z.object({ office: OfficeId, story: StoryRefValue }),
@@ -397,6 +420,7 @@ export const storyGate = defineRead({
     passed: z.boolean(),
     failures: z.array(GateRuleFailure),
     waitingOn: z.array(GateDependency).optional(),
+    warnings: z.array(GateRuleFailure).optional(),
   }),
   since: 1,
 });

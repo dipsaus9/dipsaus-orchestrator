@@ -14,13 +14,12 @@ import { runProgress, workRefOf } from "../views/work";
 
 import { endRunMarked, markPhase } from "./markers";
 import { START_KINDS, type StartKind, waitForPlace } from "./places";
-import { findRun, reopenRun, type StoredRun } from "./records";
+import { findRun, REVIEWED_END, reopenRun, type StoredRun } from "./records";
+
+export { REVIEWED_END };
 
 /** What a run ended at In Review reopens for. */
 export type RoundKind = "review" | "fix" | "conflict";
-
-/** The end kind of a review period: the run waits for the verdict, CI or the merge gate. */
-export const REVIEWED_END = "reviewed";
 
 const ROUND_STARTS: Readonly<Record<RoundKind, StartKind>> = {
   review: START_KINDS.review,
