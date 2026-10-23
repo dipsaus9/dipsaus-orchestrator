@@ -27,6 +27,10 @@ export type CommandDefinition<
   // Since minor 1 (DIPO-160, 0020 section 14): argument names that make a call irreversible when
   // they are set to something other than false, such as `story.drop` with `deleteBranch`.
   irreversibleWhen?: readonly string[] | undefined;
+  // Since minor 1 (DIPO-155, 0020 section 4): argument names that make a call need the yes/no
+  // confirmation of `confirm` when they are set, such as `work.resume` with `budget`: every client
+  // asks first, the CLI showing the caps before and after.
+  confirmWhen?: readonly string[] | undefined;
 } & Versioning;
 
 export type ReadDefinition<
@@ -99,6 +103,7 @@ export const CommandDescription = z.object({
   confirm: z.boolean(),
   irreversible: z.boolean(),
   irreversibleWhen: z.array(z.string()).optional(),
+  confirmWhen: z.array(z.string()).optional(),
 });
 export type CommandDescription = z.infer<typeof CommandDescription>;
 
@@ -128,6 +133,7 @@ export function describeCommand(definition: CommandDefinition): CommandDescripti
     ...(definition.irreversibleWhen === undefined
       ? {}
       : { irreversibleWhen: [...definition.irreversibleWhen] }),
+    ...(definition.confirmWhen === undefined ? {} : { confirmWhen: [...definition.confirmWhen] }),
   };
 }
 

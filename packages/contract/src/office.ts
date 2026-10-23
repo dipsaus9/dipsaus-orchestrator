@@ -131,21 +131,60 @@ export const workPause = defineCommand({
 // A paused run continues (DIPO-163: at once while its worker lives, else with `--resume`, queued when
 // the worker place is taken); a parked story returns to `park.from`, and to In Progress or In Review
 // it starts or re-attaches a run. Since minor 1 (DIPO-61) the engine implements it for runs held
-// by a plan limit: the held session continues at once and a `credits` hold is lifted. A parked
-// story is not resumed yet; it fails `story.notPausedOrParked` like a story with no held run.
+// by a plan limit: the held session continues at once and a `credits` hold is lifted. Since minor 1
+// (DIPO-155, 0020 sections 1 to 4) it resumes a parked story as the 0020 resume matrix says: `note`
+// is the maintainer's note (required for some reasons, `resume.noteRequired`), `budget` the top-up
+// of a `budget-exceeded` park (a share of the run's starting caps, or a token amount), which needs
+// the yes/no confirmation (`confirmWhen`); the result names the grants the resume recorded and
+// says `queued` when the session waits for its place. Errors: `resume.topUpRequired`,
+// `resume.topUpTooSmall`, `resume.noteRequired`, `resume.notResumable`, `resume.capReached`,
+// `resume.decisionRequired`, and `confirmation.required` with the caps before and after
+// (`ResumeConfirmDetails`) for a top-up sent without `confirmed`.
+// A top-up: `share` is a percent of the run's starting caps (`50` is +50%), `tokens` a token amount.
+export const ResumeBudget = z.union([
+  z.object({ share: z.number().positive() }),
+  z.object({ tokens: z.int().positive() }),
+]);
+export type ResumeBudget = z.infer<typeof ResumeBudget>;
+
+// One grant a resume recorded (0020 sections 4 and 5): a budget grant names its tokens, turns and
+// minutes, a reviewer cap grant its turns and minutes, a counted grant its count.
+export const ResumeGrant = z.object({
+  kind: z.string(),
+  tokens: Count.optional(),
+  turns: Count.optional(),
+  minutes: Count.optional(),
+  count: Count.optional(),
+});
+export type ResumeGrant = z.infer<typeof ResumeGrant>;
+
+// The developer caps of a run: its budget tokens, turns and minutes.
+export const ResumeCaps = z.object({ budgetTokens: Count, maxTurns: Count, maxMinutes: Count });
+export type ResumeCaps = z.infer<typeof ResumeCaps>;
+
+// `details` of `confirmation.required` for a top-up: the caps before and after it.
+export const ResumeConfirmDetails = z.object({ before: ResumeCaps, after: ResumeCaps });
+export type ResumeConfirmDetails = z.infer<typeof ResumeConfirmDetails>;
+
 export const workResume = defineCommand({
   name: "work.resume",
   level: "office",
-  args: z.object({ ...StoryRef.shape, note: z.string().optional() }),
-  // `queued` (DIPO-163): the run waits for the office's worker place before its session starts.
+  args: z.object({
+    ...StoryRef.shape,
+    note: z.string().optional(),
+    budget: ResumeBudget.optional(),
+  }),
+  // `queued` (DIPO-163): the run waits for the office's session place before its session starts.
   result: z.object({
     story: StoryId,
     key: StoryKey,
     to: Lifecycle,
     run: RunId.optional(),
     queued: z.boolean().optional(),
+    grants: z.array(ResumeGrant).optional(),
   }),
   confirm: false,
+  confirmWhen: ["budget"],
   irreversible: false,
   since: 1,
 });
