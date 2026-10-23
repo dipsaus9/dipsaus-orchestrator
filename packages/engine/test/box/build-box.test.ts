@@ -27,6 +27,8 @@ import {
   BUILD_DIR_IN_BOX,
   BUILD_PROXY_ENV,
   BUILD_STEPS_SCRIPT,
+  BUILD_SYSTEM_SCRIPT,
+  buildCleanupCommand,
   boxBuildScripts,
   boxImageTag,
   type BoxImageDescription,
@@ -120,16 +122,27 @@ describe("building the office image in a build box (DIPO-281)", () => {
         `firewall ${BUILD} ${BOX_HOST_ADDRESS} 3128`,
         `exec live ${BUILD} tar -cf -`,
         `exec ${BUILD} /bin/sh`,
+        `exec ${BUILD} /bin/sh`,
+        `exec ${BUILD} /bin/rm`,
         `stop ${BUILD}`,
         `commit ${BUILD} ${TAG.slice(0, 16)}`,
         `release ${BUILD}`,
         `delete ${BUILD}`,
       ]);
       expect(b.boxes.commits).toEqual([TAG]);
-      // The bootstrap alone runs with the box's capabilities; the install steps run contained.
-      expect(b.execs.map((exec) => [exec.command.join(" "), exec.options?.fullPrivilege])).toEqual([
-        [`/bin/sh ${BUILD_DIR_IN_BOX}/${BUILD_BOOTSTRAP_SCRIPT}`, true],
-        [`/bin/sh ${BUILD_DIR_IN_BOX}/${BUILD_STEPS_SCRIPT}`, undefined],
+      // The bootstrap alone runs with the box's capabilities; Debian's packages and the cleanup
+      // run as root steps, npm's as the box user (DIPO-334).
+      expect(
+        b.execs.map((exec) => [
+          exec.command.join(" "),
+          exec.options?.fullPrivilege,
+          exec.options?.rootStep,
+        ]),
+      ).toEqual([
+        [`/bin/sh ${BUILD_DIR_IN_BOX}/${BUILD_BOOTSTRAP_SCRIPT}`, true, undefined],
+        [`/bin/sh ${BUILD_DIR_IN_BOX}/${BUILD_SYSTEM_SCRIPT}`, undefined, true],
+        [`/bin/sh ${BUILD_DIR_IN_BOX}/${BUILD_STEPS_SCRIPT}`, undefined, undefined],
+        [buildCleanupCommand().join(" "), undefined, true],
       ]);
       for (const exec of b.execs) {
         expect(exec.options?.env).toEqual({ [BUILD_PROXY_ENV]: ROUTE_URL });
@@ -144,16 +157,22 @@ describe("building the office image in a build box (DIPO-281)", () => {
       expect(readdirSync(b.toolsRoot)).toEqual([TAG.split(":")[1] ?? ""]);
     }));
 
-  it("copies in only the two scripts and the route's CA bundle", () =>
+  it("copies in only the three scripts and the route's CA bundle", () =>
     withTempDir(async (dir) => {
       const b = build(dir, { files: join(dir, "box-files") });
       await ensureBoxImage(b.deps, IMAGE);
       const folder = b.boxes.filesOf(BUILD, BUILD_DIR_IN_BOX);
       expect(readdirSync(folder).toSorted()).toEqual(
-        [BOX_BUILD_CA_FILE, BUILD_BOOTSTRAP_SCRIPT, BUILD_STEPS_SCRIPT].toSorted(),
+        [
+          BOX_BUILD_CA_FILE,
+          BUILD_BOOTSTRAP_SCRIPT,
+          BUILD_SYSTEM_SCRIPT,
+          BUILD_STEPS_SCRIPT,
+        ].toSorted(),
       );
       const scripts = boxBuildScripts(IMAGE);
       expect(readFileSync(join(folder, BUILD_BOOTSTRAP_SCRIPT), "utf8")).toBe(scripts.bootstrap);
+      expect(readFileSync(join(folder, BUILD_SYSTEM_SCRIPT), "utf8")).toBe(scripts.system);
       expect(readFileSync(join(folder, BUILD_STEPS_SCRIPT), "utf8")).toBe(scripts.build);
       expect(readFileSync(join(folder, BOX_BUILD_CA_FILE), "utf8")).toBe(CA);
     }));

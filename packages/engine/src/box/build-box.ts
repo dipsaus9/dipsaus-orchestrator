@@ -10,15 +10,18 @@
 // 2. Debian's slim base image is pulled on the Mac, and a build box made from it on the box
 //    network, with nothing mounted, and started. The web route is acquired for it: it listens on
 //    the box network's address on the Mac, which exists only while a box on it runs.
-// 3. dipo's build folder goes in: the two scripts (`boxBuildScripts`) and the route's CA bundle.
+// 3. dipo's build folder goes in: the three scripts (`boxBuildScripts`) and the route's CA bundle.
 // 4. The bootstrap script runs with the box's capabilities. It runs only programs of the base
 //    image and no install script, and extracts the box network tools (`firewall.ts`).
 // 5. The box firewall is set: the box reaches the web route's port on the Mac and nothing else,
 //    not the Mac's other services, the local network, or a registry but through Safe-Chain.
 // 6. The tools are streamed out of the box and extracted into dipo's tools folder of the image
 //    (`netToolsDir`), with links refused; every later box of the image mounts them read-only.
-// 7. The build script runs contained, behind the firewall: every install step, and every install
-//    script of Debian's packages, Node.js, the package managers and Claude Code.
+// 7. Behind the firewall (DIPO-334): the system script as one of dipo's root steps, with the root
+//    allow list (Debian's signed packages, the pinned Node.js tarball, the box user and its
+//    folders); then the build script as the box user, so no npm install script of the package
+//    managers or Claude Code can write `/etc`, `/usr`, `/opt` or the tools; then dipo's cleanup,
+//    a root step, removes the build folder and the tools' copy.
 // 8. The box is stopped and committed to the image's tag (an older image of the tag is deleted
 //    first), whatever the build's result the route is released and the build box deleted.
 //
@@ -40,9 +43,11 @@ import {
   BUILD_DIR_IN_BOX,
   BUILD_PROXY_ENV,
   BUILD_STEPS_SCRIPT,
+  BUILD_SYSTEM_SCRIPT,
   type BoxImageDescription,
   boxBuildScripts,
   boxImageTag,
+  buildCleanupCommand,
 } from "./image";
 import {
   BOX_BUILD_CA_FILE,
@@ -206,18 +211,29 @@ async function copyToolsOut(
   }
 }
 
+/** Who a build step runs as: the box's capabilities, a root step, or the box user. */
+type StepPrivilege = "full" | "root" | "user";
+
+/** The name of the cleanup step in a failed step's error. */
+const CLEANUP_STEP = "cleanup";
+
 /** Runs one step of the build in the box; a non-zero exit fails the build with its output. */
 async function step(
   deps: BoxImageDeps,
   box: string,
   scriptName: string,
   url: string,
-  fullPrivilege: boolean,
+  privilege: StepPrivilege,
 ): Promise<void> {
-  const result = await deps.boxes.exec(box, ["/bin/sh", `${BUILD_DIR_IN_BOX}/${scriptName}`], {
+  const command: [string, ...string[]] =
+    scriptName === CLEANUP_STEP
+      ? buildCleanupCommand()
+      : ["/bin/sh", `${BUILD_DIR_IN_BOX}/${scriptName}`];
+  const result = await deps.boxes.exec(box, command, {
     env: { [BUILD_PROXY_ENV]: url },
     timeoutMs: deps.timeoutMs ?? BOX_BUILD_TIMEOUT_MS,
-    ...(fullPrivilege ? { fullPrivilege: true } : {}),
+    ...(privilege === "full" ? { fullPrivilege: true } : {}),
+    ...(privilege === "root" ? { rootStep: true } : {}),
   });
   if (result.code !== 0) {
     const tail = outputTail(result);
@@ -267,11 +283,15 @@ async function buildInBox(
       flag: "wx",
       mode: 0o644,
     });
+    await writeFile(join(folder, BUILD_SYSTEM_SCRIPT), scripts.system, {
+      flag: "wx",
+      mode: 0o644,
+    });
     await writeFile(join(folder, BUILD_STEPS_SCRIPT), scripts.build, { flag: "wx", mode: 0o644 });
     await writeFile(join(folder, BOX_BUILD_CA_FILE), ca, { flag: "wx", mode: 0o644 });
     await boxes.copyIn(name, `${folder}/.`, BUILD_DIR_IN_BOX, options);
     // Before any install script: only the base image's programs run, with the box's capabilities.
-    await step(deps, name, BUILD_BOOTSTRAP_SCRIPT, route.url, true);
+    await step(deps, name, BUILD_BOOTSTRAP_SCRIPT, route.url, "full");
     await boxes.firewall(
       name,
       { hostAddress: network.hostAddress, ports: [routePort(route.url)] },
@@ -279,8 +299,11 @@ async function buildInBox(
     );
     netTools = await copyToolsOut(deps, name, tag, work);
     await deps.beforeInstall?.(name, route.url);
-    // Every install step, contained and behind the firewall.
-    await step(deps, name, BUILD_STEPS_SCRIPT, route.url, false);
+    // Every install step behind the firewall: Debian's and Node.js as a root step with the root
+    // allow list, npm's as the box user (DIPO-334), then the cleanup as a root step.
+    await step(deps, name, BUILD_SYSTEM_SCRIPT, route.url, "root");
+    await step(deps, name, BUILD_STEPS_SCRIPT, route.url, "user");
+    await step(deps, name, CLEANUP_STEP, route.url, "root");
     await boxes.stop(name, options);
     if (imageExists) await boxes.deleteImage(tag, options);
     await boxes.commit(name, tag, options);
