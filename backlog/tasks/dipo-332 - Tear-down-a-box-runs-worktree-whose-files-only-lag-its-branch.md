@@ -1,21 +1,27 @@
 ---
 id: DIPO-332
 title: Tear down a box run's worktree whose files only lag its branch
-status: Refined
+status: Done
 assignee: []
 created_date: '2026-10-23 12:10'
-updated_date: '2026-10-23 13:09'
+updated_date: '2026-10-23 13:31'
 labels:
   - 'tier:M'
 milestone: m-1
 dependencies: []
 references:
-  - packages/engine/src/worktree/teardown.ts
-  - packages/engine/src/worktree/done.ts
-  - packages/engine/src/worktree/done-elsewhere.ts
   - packages/engine/src/reconcile/done-on-base.ts
   - packages/engine/src/run/conflicts.ts
+  - packages/engine/src/story-pr/prs.ts
+  - packages/engine/src/worktree/done-elsewhere.ts
+  - packages/engine/src/worktree/done.ts
+  - packages/engine/src/worktree/lagging.ts
+  - packages/engine/src/worktree/teardown.ts
+  - packages/engine/test/reconcile/done-elsewhere.test.ts
+  - packages/engine/test/run/conflicts.test.ts
+  - packages/engine/test/story-pr/prs.test.ts
   - packages/engine/test/worktree/lagging-worktree.test.ts
+  - packages/engine/test/worktree/teardown.test.ts
 priority: high
 type: bug
 ordinal: 316000
@@ -72,4 +78,6 @@ Second review fixes (2026-10-23):
 - The only ignored entries a removal may delete are a whole ignored node_modules/ folder (the entry itself) with no .git file or folder anywhere inside it, found by a walk that follows no link, and a .DS_Store file. Anything else ignored keeps the worktree, also below a tracked folder such as build/, and so does a failed walk.
 - The ignored check runs right before the removal. Before a forced removal, the status and lagging check runs once more, and any change keeps the worktree.
 - A claim with an open park whose PR merged and whose branch moved past it is not released. The Done poll and reconcile tell the maintainer in a notice instead, and the park stays on the desk.
+
+Done 2026-10-23 (maintainer session): reviewed three times by separate agents; the first two rounds found ways a forced removal could delete changes only the worktree held (a hidden submodule, ignored files and nested repositories), all fixed
 <!-- SECTION:NOTES:END -->
