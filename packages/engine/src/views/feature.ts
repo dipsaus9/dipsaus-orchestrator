@@ -33,6 +33,7 @@ import { storedDoneReport } from "../run/done-report";
 import { storedMarker } from "../run/markers";
 import { findRun } from "../run/records";
 
+import { registerDesk } from "./desk";
 import { activeStoryViews, storyView } from "./story";
 import { openGateViews } from "./summary";
 import { activeWorkViews, workView } from "./work";
@@ -288,6 +289,8 @@ export const viewsFeature: FeatureModule = {
       definition: workPrompt,
       handle: (ctx, args) => storedPrompt(officeOf(ctx), args.run, args.agent),
     });
+    // `office.desk` (DIPO-158): what waits on the maintainer.
+    registerDesk(registry);
   },
 };
 

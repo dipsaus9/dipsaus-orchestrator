@@ -36,6 +36,15 @@ export {
   workView,
 } from "./work";
 export type { HealthFacts } from "./work";
+export { desk, DESK_SOURCES, implementedIn, policyResumeNeeds, registerDesk } from "./desk";
+export type {
+  DeskGate,
+  DeskSources,
+  HandDeskItem,
+  Implemented,
+  ResumeNeed,
+  ResumeNeeds,
+} from "./desk";
 export { openDecisionNotes, openProposals, proposalItems } from "./proposals";
 export type { ProposalItem } from "./proposals";
 export {
