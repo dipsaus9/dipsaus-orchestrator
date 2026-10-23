@@ -13,6 +13,7 @@ export {
 } from "./work-run";
 export type { BaseRead, RunBase, RunLane, RunOffices, WorkRunDeps } from "./work-run";
 export {
+  boxInstallInput,
   DEVELOPER_TOOLS,
   LAUNCH_NOTICES,
   packageCacheSkippedText,

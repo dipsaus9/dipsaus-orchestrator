@@ -34,6 +34,7 @@ import {
   baseStoryFacts,
   BoxCollisions,
   type BoxBuildNetwork,
+  boxInstallInput,
   feedbackItemMax,
   inReviewRunIds,
   StoryConflicts,
@@ -635,11 +636,33 @@ function boxCollisions(
             service.recorded(run, merged),
           found: (run: PartRun, found: Parameters<StoryConflicts["found"]>[1]) =>
             service.found(run, found),
+          cleared: (run: PartRun) => service.cleared(run),
         }),
+    // A catch-up that changed a lockfile installs the office's packages in the box again, as the
+    // launch does before the worker (DIPO-294); a failure is the catch-up's warning only.
+    reinstall: async (run) => {
+      const stored = storedRun(run);
+      const config = options.offices.config(run.office);
+      const handle = options.offices.get(run.office);
+      const profile = handle === undefined ? null : (currentProfile(handle)?.profile ?? null);
+      if (stored === null || config === undefined || profile === null) {
+        throw new Error(`run ${run.runId} has no run profile to install with`);
+      }
+      const install = boxInstallInput({
+        profile,
+        config,
+        story: run.story,
+        slot: stored.slot,
+      });
+      if (install === null) return;
+      if ("refused" in install) throw new Error(install.refused);
+      const installed = await boxed.workers.install({ runId: run.runId, ...install });
+      if (!installed.ok) throw new Error(installed.reason);
+    },
     taskStatus: async (run, status) => {
       const stored = storedRun(run);
       if (stored === null || stored.worktree === null) {
-        throw new Error(`run  has no worktree to write its task file from`);
+        throw new Error(`run ${run.runId} has no worktree to write its task file from`);
       }
       await conflicts.unpark.lift(run.office, {
         story: run.story,
