@@ -374,28 +374,48 @@ export async function removeWorktree(
         files: await dirtyFiles(deps, git, claim, heads),
       };
     }
-    // `git worktree remove` deletes ignored files, forced or not, and `git status` never lists
-    // them: only rebuildable ones may go (DIPO-332, `lagging.ts`).
-    const ignored = await keptIgnored(deps.git, git, path);
-    if (ignored === null || ignored.length > 0) {
-      if (claim.teardownStartedAt !== null) mark(null);
-      return {
-        ok: false,
-        why:
-          ignored === null
-            ? `dipo could not list the ignored files of the worktree ${path}, which git would delete with it`
-            : `the worktree ${path} holds ignored files that git would delete with it`,
-        files: ignored ?? [],
-      };
-    }
     // Recorded before the first step that removes anything, so a crash after it is resumable.
     mark(deps.clock.now());
     if (lock === ours) await git.ok(git.repository, ["worktree", "unlock", path]);
+    /** Keeps everything: the lock put back and the start record cleared. */
+    const keep = async (why: string, files: readonly string[]): Promise<WorktreeOutcome> => {
+      if (lock === ours) {
+        await git.step(git.repository, ["worktree", "lock", "--reason", ours, path]);
+      }
+      mark(null);
+      return { ok: false, why, files };
+    };
     // Changes that only reflect the branch moving are not work; git would refuse them. Only a
     // worktree proven to hold nothing of its own is removed with `--force`.
+    const listed = await statusFiles(deps, git, path);
     const lagging =
-      (await statusFiles(deps, git, path)).length > 0 &&
-      (await unlaggedPaths(deps.git, git, claim, heads))?.length === 0;
+      listed.length > 0 && (await unlaggedPaths(deps.git, git, claim, heads))?.length === 0;
+    // `git worktree remove` deletes ignored files, forced or not, and `git status` never lists
+    // them: only a whole `node_modules/` and `.DS_Store` may go (DIPO-332, `lagging.ts`). Checked
+    // right before the removal.
+    const ignored = await keptIgnored(deps.git, git, path);
+    if (ignored === null || ignored.length > 0) {
+      return keep(
+        ignored === null
+          ? `dipo could not list the ignored files of the worktree ${path}, which git would delete with it`
+          : `the worktree ${path} holds ignored files that git would delete with it`,
+        ignored ?? [],
+      );
+    }
+    if (lagging) {
+      // Once more right before the forced removal: anything that changed since keeps everything.
+      const again = await statusFiles(deps, git, path);
+      const still =
+        again.length === listed.length &&
+        again.every((file, at) => file === listed[at]) &&
+        (await unlaggedPaths(deps.git, git, claim, heads))?.length === 0;
+      if (!still) {
+        return keep(
+          `the worktree ${path} changed while dipo checked it`,
+          await dirtyFiles(deps, git, claim, heads),
+        );
+      }
+    }
     const removed = await git.step(git.repository, [
       "worktree",
       "remove",
@@ -403,15 +423,10 @@ export async function removeWorktree(
       path,
     ]);
     if (removed.code !== 0) {
-      if (lock === ours) {
-        await git.step(git.repository, ["worktree", "lock", "--reason", ours, path]);
-      }
-      mark(null);
-      return {
-        ok: false,
-        why: `git refused to remove the worktree ${path} (${removed.stderr.trim() || `exit ${removed.code}`})`,
-        files: await dirtyFiles(deps, git, claim, heads),
-      };
+      return keep(
+        `git refused to remove the worktree ${path} (${removed.stderr.trim() || `exit ${removed.code}`})`,
+        await dirtyFiles(deps, git, claim, heads),
+      );
     }
     deps.git.unpinWorktree(path);
   } else if (existsSync(path)) {

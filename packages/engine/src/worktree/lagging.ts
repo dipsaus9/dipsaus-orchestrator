@@ -22,11 +22,11 @@
 //
 // Ignored files are not in `git status`, but `git worktree remove` deletes them, forced or not.
 // `keptIgnored` lists them (`ls-files --others --ignored --exclude-standard --directory`): every
-// entry outside `REBUILDABLE_IGNORED` (an install or a build makes it again) keeps the worktree, and
-// so does an ignored folder that holds a repository (`.git`), wherever it is.
+// entry except a whole ignored `node_modules/` folder and a `.DS_Store` file keeps the worktree
+// (`REBUILDABLE_IGNORED`), and so does a `node_modules/` that holds a repository at any depth.
 
 import { createHash } from "node:crypto";
-import { existsSync, lstatSync, readFileSync, readlinkSync, type Stats } from "node:fs";
+import { lstatSync, readdirSync, readFileSync, readlinkSync, type Stats } from "node:fs";
 import { join } from "node:path";
 
 import type { GitSession, OfficeGit } from "../git/office";
@@ -38,24 +38,17 @@ export const LAG_COMMITS_MAX = 500;
 const LITERAL_PATHS_MAX = 256;
 
 /**
- * The ignored entries a worktree removal may delete (DIPO-332): folders that an install or a build
- * of the office makes again, by name at any depth (`node_modules/` of every package manager, the
- * usual build, cache and coverage output), and the macOS folder metadata file. Anything else
- * ignored, such as `.env` or a local database, keeps the worktree.
+ * The ignored entries a worktree removal may delete (DIPO-332). The one exception to "an ignored
+ * entry keeps the worktree": a whole ignored `node_modules/` folder (the entry itself, at any
+ * depth), which the office's install makes again, is deleted with its contents, unless a repository
+ * (a `.git` file or folder) lies anywhere inside it. Besides it only the macOS folder metadata
+ * file `.DS_Store`. Anything else ignored, such as `.env`, a build output folder holding a file of
+ * the maintainer's, or a local database, keeps the worktree.
  */
-export const REBUILDABLE_IGNORED = {
-  folders: new Set([
-    "node_modules",
-    "dist",
-    "build",
-    "coverage",
-    ".turbo",
-    ".cache",
-    ".next",
-    ".vite",
-  ]),
-  files: new Set([".DS_Store"]),
-} as const;
+export const REBUILDABLE_IGNORED = { folder: "node_modules", file: ".DS_Store" } as const;
+
+/** The most entries walked below one `node_modules/`; a larger one keeps the worktree. */
+const NODE_MODULES_WALK_MAX = 2_000_000;
 
 /** A path's entry: absent, or its mode and blob (or commit, for a submodule) id. */
 type Entry = { readonly mode: string; readonly id: string } | null;
@@ -211,14 +204,46 @@ export async function keptIgnored(
   }
 }
 
-/** True when an ignored entry is rebuildable and holds no repository. */
+/**
+ * True when an ignored entry may go with the worktree: itself a `node_modules/` folder with no
+ * repository anywhere inside, or a file named `.DS_Store`.
+ */
 function rebuildable(worktree: string, entry: string): boolean {
-  const folder = entry.endsWith("/");
-  if (folder && existsSync(join(worktree, entry, ".git"))) return false;
-  const parts = entry.split("/").filter((part) => part !== "");
-  const last = parts.at(-1) ?? "";
-  if (parts.slice(0, -1).some((part) => REBUILDABLE_IGNORED.folders.has(part))) return true;
-  return folder ? REBUILDABLE_IGNORED.folders.has(last) : REBUILDABLE_IGNORED.files.has(last);
+  const last =
+    entry
+      .split("/")
+      .filter((part) => part !== "")
+      .at(-1) ?? "";
+  if (!entry.endsWith("/")) return last === REBUILDABLE_IGNORED.file;
+  return last === REBUILDABLE_IGNORED.folder && holdsNoRepository(join(worktree, entry));
+}
+
+/**
+ * Walks `root` without following a link: false when a `.git` file or folder lies at any depth, or
+ * when the walk fails or passes `NODE_MODULES_WALK_MAX` entries.
+ */
+function holdsNoRepository(root: string): boolean {
+  try {
+    if (!lstatSync(root).isDirectory()) return false;
+    const folders = [root];
+    let seen = 0;
+    while (folders.length > 0) {
+      const folder = folders.pop() as string;
+      for (const entry of readdirSync(folder, { withFileTypes: true })) {
+        seen += 1;
+        if (seen > NODE_MODULES_WALK_MAX || entry.name === ".git") return false;
+        const path = join(folder, entry.name);
+        // A link is never followed; an entry of unknown type is read with lstat.
+        const directory =
+          entry.isDirectory() ||
+          (!entry.isSymbolicLink() && !entry.isFile() && lstatSync(path).isDirectory());
+        if (directory) folders.push(path);
+      }
+    }
+    return true;
+  } catch {
+    return false;
+  }
 }
 
 /**

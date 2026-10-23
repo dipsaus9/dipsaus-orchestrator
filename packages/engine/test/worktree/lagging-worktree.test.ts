@@ -529,13 +529,62 @@ describe("what git status does not list keeps the worktree (DIPO-332 review)", (
       expect(existsSync(record.worktree)).toBe(false);
     }));
 
-  it("keeps an ignored folder that holds a repository, even under an allowed name", () =>
+  it("keeps a node_modules/ that holds a repository at any depth, next to a lagging file", () =>
     withReconcileOffice({}, async (o) => {
-      const record = await claimed(o, { ".gitignore": "dist/\n" });
-      await gitIn(o.repo.root, o.repo.home, "init", "--quiet", join(record.worktree, "dist"));
+      const record = await claimed(o, { ".gitignore": "node_modules/\n" });
+      await boxRun(o, record);
+      const pkg = join(record.worktree, "node_modules/@scope/pkg");
+      mkdirSync(pkg, { recursive: true });
+      await gitIn(o.repo.root, o.repo.home, "init", "--quiet", pkg);
+      writeFileSync(join(pkg, "index.js"), "module.exports = 1;\n");
+      await gitIn(pkg, o.repo.home, "add", "--all");
+      await gitIn(pkg, o.repo.home, "commit", "--quiet", "-m", "local work");
+      expect(await unlagged(o, record)).toEqual([]);
+
       const outcome = await remove(o, record);
-      expect(outcome).toMatchObject({ ok: false, files: ["dist/"] });
-      expect(existsSync(join(record.worktree, "dist/.git"))).toBe(true);
+
+      expect(outcome).toMatchObject({ ok: false, files: ["node_modules/"] });
+      expect(existsSync(join(pkg, ".git"))).toBe(true);
+    }));
+
+  it("keeps an ignored .env inside a tracked build/ folder: only a whole node_modules/ may go", () =>
+    withReconcileOffice({}, async (o) => {
+      const record = await claimed(o, { ".gitignore": ".env\n", "build/keep.txt": "kept\n" });
+      await boxRun(o, record);
+      writeFileSync(join(record.worktree, "build/.env"), "TOKEN=local\n");
+
+      const outcome = await remove(o, record);
+
+      expect(outcome).toMatchObject({ ok: false, files: ["build/.env"] });
+      expect(existsSync(join(record.worktree, "build/.env"))).toBe(true);
+    }));
+
+  it("keeps a lagging worktree that changes between the check and the forced removal", () =>
+    withReconcileOffice({}, async (o) => {
+      const record = await claimed(o);
+      await boxRun(o, record);
+      expect(await unlagged(o, record)).toEqual([]);
+      const git = gitOf(o);
+      // An edit lands while dipo lists the ignored files, after the first lagging check.
+      const outcome = await git.run((session) => {
+        const racing: typeof session = {
+          repository: session.repository,
+          step: (location, args, options) => session.step(location, args, options),
+          ok: (location, args, options) => {
+            if (args.includes("--ignored")) {
+              writeFileSync(join(record.worktree, "src/shared.ts"), "export const shared = 42;\n");
+            }
+            return session.ok(location, args, options);
+          },
+        };
+        return removeWorktree({ office: o.office, git, clock: o.s.clock }, racing, record);
+      });
+
+      expect(outcome).toMatchObject({ ok: false, files: ["src/shared.ts"] });
+      expect(existsSync(join(record.worktree, "src/shared.ts"))).toBe(true);
+      expect(await o.repo.git("worktree", "list", "--porcelain")).toContain(
+        `locked dipo ${record.runId}`,
+      );
     }));
 
   it("cannot judge assume-unchanged, skip-worktree or unmerged entries, and compares links as links", () =>
@@ -637,5 +686,32 @@ describe("a claim whose branch moved past its merged PR's head (DIPO-332 review)
       const seq = lastSeq(o.office);
       await reconcile(o);
       expectLeftovers(o, record, seq);
+    }));
+
+  it("is kept with a notice while its story has an open park, by the Done poll and by reconcile", () =>
+    withReconcileOffice({ base: DONE }, async (o) => {
+      const record = await movedPast(o);
+      o.office.run(
+        `insert into parks (office_id, park_id, key, story_id, run_id, reason, from_state, detail,
+           last_good_commit, at, cause)
+         values ($office_id, 1, $key, 'TASK-1', $run, 'budget-exceeded', 'In Review',
+           'turn cap', null, 1, 'build')`,
+        { key: record.key, run: record.runId },
+      );
+      const seq = lastSeq(o.office);
+      const teardown = pollOf(o);
+      const report = await teardown.poll(o.officeId as OfficeId);
+      teardown.stop();
+      await reconcile(o);
+
+      expect(report.kept.map((c) => c.runId)).toEqual([record.runId]);
+      expect(liveClaimOf(o.office, record.key)).not.toBeNull();
+      expect(existsSync(record.worktree)).toBe(true);
+      expect(findDoneElsewhere(o.office, record.runId)).toBeNull();
+      const notices = noticesAfter(o.office, seq);
+      const parked = notices.find((n) => n.code === TEARDOWN_NOTICES.parked);
+      expect(parked?.text).toContain("is Parked, but its PR #377 merged");
+      expect(parked?.text).toContain("dipo discard TASK-1");
+      expect(notices.some((n) => n.code === "reconcile.doneOnBaseKept")).toBe(true);
     }));
 });
