@@ -80,6 +80,7 @@ import { findClaim } from "../worktree/records";
 import { hostAlive, workerHostsOf } from "../runs/worker-hosts";
 
 import type { BackstopSnapshot } from "./backstop";
+import { runBudgetFacts } from "./budget-line";
 import { runCaps, runTotals } from "./caps";
 import {
   capsOf,
@@ -740,6 +741,7 @@ export class RunResumer implements NextSession {
       openFeedback: openFeedbackOf(office, run.runId),
       ...(extra.note === undefined ? {} : { note: extra.note }),
       ...(extra.box ? { box: true } : {}),
+      budget: runBudgetFacts(office, run, this.#deps.clock.now()),
     });
   }
 

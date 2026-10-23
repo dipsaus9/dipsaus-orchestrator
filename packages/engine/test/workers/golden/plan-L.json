@@ -15,7 +15,7 @@
     "--effort",
     "high",
     "--max-turns",
-    "200",
+    "300",
     "--permission-mode",
     "default",
     "--permission-prompts",

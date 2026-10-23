@@ -783,8 +783,8 @@ describe("defaults", () => {
       model: "sonnet",
       effort: "medium",
       budgetTokens: 800_000,
-      maxTurns: 120,
-      maxMinutes: 60,
+      maxTurns: 200,
+      maxMinutes: 90,
       loops: 5,
     });
     expect(OFFICE_DEFAULTS.timeouts).toEqual({
@@ -830,5 +830,24 @@ describe("privacyOptIns (DIPO-83)", () => {
         privacy: { storePrompts: false, storeCommandBodies: true, keepRawEvents: true },
       }),
     ).toEqual(["privacy.storeCommandBodies", "privacy.keepRawEvents"]);
+  });
+});
+
+// DIPO-256 (maintainer decision D4 of 2026-10-20): the raised tier caps; tokens and review caps stay.
+const capsOf = (name: "S" | "M" | "L") => {
+  const { budgetTokens, maxTurns, maxMinutes } = OFFICE_DEFAULTS.tiers[name];
+  return { budgetTokens, maxTurns, maxMinutes };
+};
+
+describe("tier cap defaults (DIPO-256)", () => {
+  it("are S 90 turns and 45 minutes, M 200 and 90, L 300 and 180, with the budgets unchanged", () => {
+    expect(capsOf("S")).toEqual({ budgetTokens: 300_000, maxTurns: 90, maxMinutes: 45 });
+    expect(capsOf("M")).toEqual({ budgetTokens: 800_000, maxTurns: 200, maxMinutes: 90 });
+    expect(capsOf("L")).toEqual({ budgetTokens: 2_000_000, maxTurns: 300, maxMinutes: 180 });
+  });
+
+  it("leave the review caps at 60 turns and 30 minutes", () => {
+    expect(OFFICE_DEFAULTS.review.maxTurns).toBe(60);
+    expect(OFFICE_DEFAULTS.review.maxMinutes).toBe(30);
   });
 });
