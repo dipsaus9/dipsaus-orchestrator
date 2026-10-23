@@ -22,6 +22,7 @@ import { insertParkQuestion, insertWorkerQuestion } from "../../src/hooks/questi
 import { executeRead } from "../../src/reads/execute";
 import { capabilityFlags } from "../../src/reads/hello";
 import { storeDecisionNotes, storeProposals } from "../../src/run/report-data";
+import { StoryDiscard } from "../../src/stories/discard";
 import {
   desk,
   DESK_DETAIL_MAX,
@@ -692,6 +693,71 @@ describe("a review-blocked park whose PR is labelled autorelease: pending", () =
           actions: [{ command: "work.resume", cli: 'dipo resume DIPO-1 --note "<why>"' }],
           hand: "merge PR #9 (https://github.com/o/r/pull/9) by hand on GitHub: it is labelled autorelease: pending, so dipo never approves it",
         });
+      } finally {
+        t.state.close();
+      }
+    }));
+});
+
+/** `office.desk` with `work.discard` registered, as the daemon's registry has it. */
+async function readWithDiscard(t: TestState, office: OfficeHandle): Promise<DeskItem[]> {
+  const discard = new StoryDiscard({
+    lane: () => undefined,
+    git: () => undefined,
+    host: { closePr: async () => {} },
+    probe: async () => null,
+  });
+  const reply = await executeRead(
+    {
+      registry: buildRegistry([viewsFeature, discard.feature]),
+      offices: directory(office),
+      clock: t.clock,
+    },
+    {
+      requestId: RequestId.parse("01J9ZK5Q8W3V4X6Y7Z00000002"),
+      name: "office.desk",
+      args: { office: office.officeId },
+    },
+  );
+  if (!reply.ok) throw new Error(`office.desk failed: ${reply.error.code}`);
+  return reply.result as DeskItem[];
+}
+
+describe("the desk shows a story Done elsewhere (DIPO-161)", () => {
+  it("lists a LEFTOVERS row with the dipo discard action, and a DONE ELSEWHERE row while the worker runs", () =>
+    withTempDir(async (dir) => {
+      const t = await openTestState(dir);
+      try {
+        const office = addOffice(t);
+        pass(t, office, [
+          task("DIPO-105", { status: "Done" }),
+          task("DIPO-106", { status: "Done" }),
+        ]);
+        office.immediate(() => {
+          office.run(
+            `insert into done_elsewhere (office_id, run_id, key, story_id, branch, worktree, base,
+               base_commit, released_at, settled_at, worktree_kept, branch_kept, commits, files)
+             values ($office_id, 'run_1', $key, 'DIPO-105', 'DIPO-105/x', '/trees/DIPO-105', 'main',
+               'a1b2c3d4e5f6a7b8', 2, 3, 1, 1, '[{"sha":"abc1234","subject":"wip"}]',
+               '["notes.txt"]')`,
+            { key: keyOf(office, "DIPO-105") },
+          );
+          office.run(
+            `insert into done_elsewhere (office_id, run_id, key, story_id, branch, worktree, base,
+               flagged_at)
+             values ($office_id, 'run_2', $key, 'DIPO-106', 'DIPO-106/x', '/trees/DIPO-106', 'main',
+               4)`,
+            { key: keyOf(office, "DIPO-106") },
+          );
+        });
+
+        const items = await readWithDiscard(t, office);
+
+        expect(rows(items)).toEqual(["LEFTOVERS DIPO-105", "DONE ELSEWHERE DIPO-106"]);
+        expect(items[0]?.actions).toEqual([
+          { command: "work.discard", cli: 'dipo discard DIPO-105 --note "<why>"' },
+        ]);
+        expect(items[0]?.detail).toContain("1 commit not on main");
       } finally {
         t.state.close();
       }

@@ -24,7 +24,7 @@
 // An action is listed only when this engine registers its command as shipped, so the desk never
 // offers a command the daemon would answer with `capability.missing`. Seams for stories not built
 // yet are `DeskSources`: the resume needs of a park (DIPO-155's resume matrix), the hand-merge-only
-// label of a gate's PR (DIPO-150) and further hand items (DIPO-161).
+// label of a gate's PR (DIPO-150) and further hand items (DIPO-161's are in `DESK_SOURCES`).
 
 import {
   type CommandName,
@@ -46,6 +46,7 @@ import type { OfficeHandle } from "../db/office";
 import { openParkQuestions, openQuestions, type StoredQuestion } from "../hooks/questions";
 import { resumeVia } from "../run/resume-policy";
 import { findStoryPr, latestStoryPr } from "../story-pr/records";
+import { doneElsewhereDeskItems } from "../worktree/done-elsewhere";
 
 import { proposalItems, type ProposalItem } from "./proposals";
 import { lifecycleOf } from "./story";
@@ -104,11 +105,15 @@ export const policyResumeNeeds: ResumeNeeds = (reason) => {
     : null;
 };
 
-/** The sources of this engine: no stored PR labels yet and no further hand items. */
+/**
+ * The sources of this engine: no stored PR labels yet; the hand items are DIPO-161's DONE ELSEWHERE
+ * (a live worker of a story Done on the base) and LEFTOVERS (what such a story left kept, with
+ * `dipo discard <id> --note "<why>"`).
+ */
 export const DESK_SOURCES: DeskSources = {
   resumeNeeds: policyResumeNeeds,
   handMergeOnly: () => false,
-  handItems: [],
+  handItems: [doneElsewhereDeskItems],
 };
 
 /** Whether a command is registered and shipped, so the desk may offer it. */
