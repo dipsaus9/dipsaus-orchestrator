@@ -3,10 +3,10 @@ id: DIPO-120
 title: >-
   Show the daemon's state truthfully: recovering reason, active runs, port slot
   command
-status: Refined
+status: Ready
 assignee: []
 created_date: '2026-10-16 11:52'
-updated_date: '2026-10-22 19:26'
+updated_date: '2026-10-23 08:15'
 labels:
   - 'tier:S'
   - cutover
