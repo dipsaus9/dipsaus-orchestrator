@@ -5,15 +5,18 @@
 // here, so a test exercises the wiring the daemon runs. What differs between them is only which
 // ports are injected.
 
+import { existsSync } from "node:fs";
+import { join } from "node:path";
+
 import type { Clock, IdSource, OfficeId } from "@dipsaus-orchestrator/contract";
 
+import { BOX_RUN_FILE } from "../box/workers";
 import { type InputChangeReader, Nudges } from "../hooks/nudges";
 import { ABSENT, PermissionAsks, type Presence } from "../hooks/permissions";
 import { WebGuard } from "../hooks/web-guard";
 import { currentProfile } from "../scan/store";
 import type { RunProfile } from "../scan/detect";
 import type { WorkerPort } from "../workers/port";
-import { readBackstop } from "./backstop";
 import { RunControl, type RunControlDeps, type RunSteering } from "./control";
 import { OfficeIngest, type OfficeIngestOptions, type OfficeRunListener } from "./hosts";
 import { RunLauncher, type HostStarter, type RunIngest, type RunLauncherDeps } from "./launch";
@@ -360,10 +363,6 @@ function buildReviews(
     hosts: ports.hosts,
     ingest: ports.resumeIngest?.(ingest) ?? ingest,
     control: trackerOf(ports, control),
-    // The backstop's snapshot before the review, which only the finisher reads.
-    ...(ports.control?.finisher === undefined
-      ? {}
-      : { snapshot: (office: OfficeId, worktree: string) => snapshotOf(ports, office, worktree) }),
     ...given("onChanged", ports.onChanged),
     ...given("warn", ports.warn),
   });
@@ -398,6 +397,8 @@ function buildReattacher(
     offices: ports.offices,
     ingest,
     control,
+    // A developer runs only in its box: a living Mac session of an earlier binary is stopped.
+    boxRecord: (runDir) => existsSync(join(runDir, BOX_RUN_FILE)),
     pricing: ports.ingest.pricing,
     ...given("outcomes", outcomes ?? undefined),
     ...given("onChanged", ports.onChanged),
@@ -435,12 +436,6 @@ function profileOf(ports: RunPorts): (office: OfficeId) => RunProfile | null {
     const handle = ports.offices.get(office);
     return handle === undefined ? null : (currentProfile(handle)?.profile ?? null);
   };
-}
-
-function snapshotOf(ports: RunPorts, office: OfficeId, worktree: string) {
-  const git = ports.git(office);
-  if (git === undefined) throw new Error(`Office ${office} has no git attached.`);
-  return readBackstop(git, worktree);
 }
 
 /** Builds the run services from `ports`. */

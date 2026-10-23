@@ -5,8 +5,8 @@
 // first message, the reviewer's tools, model, effort and its own
 // turn and minute caps (`runWorkerSpec` with the review settings), and what remains of the story's
 // budget. The launch checks run first (`WorkerPort.prepare`); a refused check is `startFailed`
-// with the adapter hold set. The backstop snapshot is taken before the session starts, so a
-// worktree the review changed parks `scope-violation` with cause `backstop` (0008 backstop).
+// with the adapter hold set. No backstop snapshot is taken: the reviewer reads a read-only copy,
+// and the Mac backstop went with the Mac worker path (DIPO-240).
 // Ingestion starts after what earlier hosts wrote to the run's event file, and run control tracks
 // the session with the reviewer's caps.
 //
@@ -85,7 +85,6 @@ import type { AdapterHold } from "../workers/hold";
 import type { WorkerPort } from "../workers/port";
 import { PlanError, type Caps } from "../workers/types";
 
-import type { BackstopSnapshot } from "./backstop";
 import { REVIEWER_ROLE, runCaps, runTotals } from "./caps";
 import type { TrackedRun } from "./control-types";
 import {
@@ -489,8 +488,6 @@ export interface ReviewLauncherDeps {
    * default.
    */
   readonly boxHostAddress?: FetchAddressDeps["boxHostAddress"];
-  /** The backstop snapshot of the worktree before the review; without it no backstop runs. */
-  readonly snapshot?: (office: OfficeId, worktree: string) => Promise<BackstopSnapshot>;
   readonly onChanged?: (office: OfficeId) => void;
   readonly warn?: (message: string, fields: Readonly<Record<string, unknown>>) => void;
 }
@@ -725,17 +722,6 @@ export class ReviewLauncher implements ReviewSessions {
     }
     if (!prepared.ok) return { kind: "startFailed", hold: prepared.hold };
 
-    let snapshot: BackstopSnapshot | null = null;
-    if (deps.snapshot !== undefined) {
-      try {
-        snapshot = await deps.snapshot(request.office, run.worktree);
-      } catch (error) {
-        deps.warn?.("the backstop snapshot before a review could not be taken; no backstop runs", {
-          run: run.runId,
-          reason: messageOf(error),
-        });
-      }
-    }
     // The new host appends to the run's event file: its ingestion starts after what is there.
     let offset = 0;
     try {
@@ -821,7 +807,7 @@ export class ReviewLauncher implements ReviewSessions {
       work,
       caps,
       startedAt: deps.clock.now(),
-      snapshot,
+      snapshot: null,
     });
     deps.ingest.start(office, host, {
       run: run.runId,
