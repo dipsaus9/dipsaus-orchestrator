@@ -47,6 +47,8 @@ export {
   noteBlock,
   renderHandoff,
 } from "./handoff";
+export { budgetLine, withBudgetLine } from "./budget";
+export type { BudgetCaps, BudgetFacts, BudgetUsed } from "./budget";
 export type { GatherHandoffOptions, HandoffFacts, HandoffFeedback, LastVerify } from "./handoff";
 export {
   capNotes,

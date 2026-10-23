@@ -128,8 +128,9 @@ import { findClaim, updateClaim } from "../worktree/records";
 import { buildRunEnv } from "../worktree/run-env";
 
 import { type BackstopSnapshot, backstopDetail, backstopEvidence } from "./backstop";
-import { endRunMarked, markPhase } from "./markers";
+import { runBudgetFacts } from "./budget-line";
 import { type FiredCap, runCaps } from "./caps";
+import { endRunMarked, markPhase } from "./markers";
 import { PARK_CAUSES } from "./park";
 import { appendRunStep, IN_REVIEW_END, recordGateChanges, type StoredRun } from "./records";
 import {
@@ -791,7 +792,11 @@ export class VerifyCommit implements RunFinisher {
         exitCode: failure.exitCode,
         output: failure.output,
       },
-      { root, itemMax: feedbackItemMax(config, run.tier) },
+      {
+        root,
+        itemMax: feedbackItemMax(config, run.tier),
+        budget: runBudgetFacts(ctx.office, run, this.#deps.clock.now()),
+      },
     );
     // A done turn that crossed a cap has no turn left for feedback; `capped` wins over `loops`.
     if (ctx.capped != null) {
