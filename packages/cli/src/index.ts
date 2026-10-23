@@ -36,7 +36,7 @@ import { OFFICE_SUBCOMMANDS } from "./office-commands";
 import { runCommand } from "./run-command";
 import { stopCommand } from "./stop-command";
 import { pauseCommand, steerCommand } from "./intervene-commands";
-import { dropCommand, holdCommand } from "./story-commands";
+import { discardCommand, dropCommand, holdCommand } from "./story-commands";
 import { statsCommand } from "./stats-command";
 import { systemTui } from "./tui-command";
 import { watchCommand } from "./watch-command";
@@ -151,6 +151,12 @@ Usage:
                     kept unless --delete-branch, which also removes dirty files
                     and deletes the branch locally and on the remote after you
                     type the story id
+  dipo discard <id> --note <text> [--office <id>]
+                    throw a story's work away after listing what is lost and
+                    asking for the story id typed out: stop its worker, close
+                    its open PR, remove its worktree and delete its branch
+                    locally and on the remote, and return it to Refined; for a
+                    story Done on the base it removes the leftovers only
   dipo steer <id> <text> [--office <id>]
                     send the story's worker your text as its next message; a
                     paused or parked story gets it with the first message on
@@ -362,6 +368,10 @@ export async function main(argv: readonly string[], deps: CliDeps): Promise<numb
   if (args[0] === "drop") {
     const { version } = versionInfo(deps.stamp, deps.runtime);
     return dropCommand(args.slice(1), { ...deps, version });
+  }
+  if (args[0] === "discard") {
+    const { version } = versionInfo(deps.stamp, deps.runtime);
+    return discardCommand(args.slice(1), { ...deps, version });
   }
   if (args[0] === "steer") {
     const { version } = versionInfo(deps.stamp, deps.runtime);

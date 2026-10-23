@@ -92,6 +92,10 @@ export const TABLE_RETENTION: Readonly<Record<string, TablePolicy>> = {
   run_signals: { tier: "S", rule: "with its run, ended more than stateDays ago" },
   run_intents: { tier: "S", rule: "with its run, ended more than stateDays ago" },
   parks: { tier: "S", rule: "resolved more than stateDays ago; an open park is kept" },
+  done_elsewhere: {
+    tier: "S",
+    rule: "cleared more than stateDays ago; leftovers not cleared are kept",
+  },
   verify_results: { tier: "S", rule: "with its run, ended more than stateDays ago" },
   run_summaries: { tier: "S", rule: "with its run, ended more than stateDays ago" },
   done_reports: { tier: "S", rule: "with its run, ended more than stateDays ago" },

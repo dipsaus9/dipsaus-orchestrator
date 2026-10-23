@@ -173,7 +173,12 @@ export const workStop = defineCommand({
   since: 0,
 });
 
-// Ends the run, removes the worktree, deletes the story branch and returns the story to Refined.
+// Ends the run, removes the worktree, deletes the story branch and returns the story to Refined
+// (0020 section 8). Since minor 1 (DIPO-161), on the waiting command path. Clients list what is
+// lost (`story.losses`) and ask for the story id typed out. Also discards the leftovers of a story
+// Done on the base through another branch, with no backlog write. Errors: `story.prMerged`,
+// `story.notDiscardable`, `story.prNotClosed`, and the retryable `run.hostAlive` while a worker
+// host of the run still runs. A remote branch whose tip dipo did not push is kept with a notice.
 export const workDiscard = defineCommand({
   name: "work.discard",
   level: "office",
@@ -181,7 +186,7 @@ export const workDiscard = defineCommand({
   result: StoryResult,
   confirm: true,
   irreversible: true,
-  provisional: true,
+  since: 1,
 });
 
 // Parks a Refined or Ready story with reason `on-hold` through the planning lane (0020 section 8).
@@ -434,14 +439,24 @@ export type LostCommit = z.infer<typeof LostCommit>;
 // story's branch that are not on the base, and the uncommitted and untracked files of its worktree.
 // The branch is the live claim's, else the open released branches of the story; the files are the
 // live claim's only. Both are empty for a story with neither. Changes nothing.
+// `command` (DIPO-161) names the command the list is for, `story.drop` by default. For
+// `work.discard` of a story without a live claim it lists exactly what the discard removes: the
+// commits of the open released branches and of the branches of its leftovers (a story Done on the
+// base through another branch), and the files of the worktrees kept as leftovers. For `story.drop`
+// those worktrees are not removed: `kept` names them.
 export const storyLosses = defineRead({
   name: "story.losses",
-  args: z.object({ office: OfficeId, story: StoryRefValue }),
+  args: z.object({
+    office: OfficeId,
+    story: StoryRefValue,
+    command: z.enum(["story.drop", "work.discard"]).optional(),
+  }),
   result: z.object({
     story: StoryId,
     key: StoryKey,
     commits: z.array(LostCommit),
     files: z.array(z.string()),
+    kept: z.array(z.string()).optional(),
   }),
   since: 1,
 });

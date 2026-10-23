@@ -20,6 +20,7 @@ import { appendEntries } from "../changelog/log";
 import type { FeatureModule } from "../commands/registry";
 import type { OfficeHandle } from "../db/office";
 import type { OfficeGit } from "../git/office";
+import type { CodeHost } from "../platform/host";
 import type { Logger } from "../log/logger";
 import { readMarker } from "../office/marker";
 import type { IndexResult } from "../stories/index-stories";
@@ -58,6 +59,10 @@ export interface ReconcilerDeps {
   readonly refuse?: (office: OfficeId, text: string) => void;
   /** The machine-wide port slot table; the slot of a claim released as Done on the base is freed. */
   readonly slots?: SlotTable;
+  /** Closes dipo's open story PR of a story Done elsewhere (DIPO-161). */
+  readonly host?: Pick<CodeHost, "closePr"> | null;
+  /** Checks and deletes the boxes of ended runs after a release (0021 section 6). */
+  readonly finishBoxes?: () => Promise<unknown>;
   /** Reconcile appended entries outside a command; subscribers catch up. */
   readonly onOfficeChanged?: (office: OfficeId) => void;
   readonly logger?: Logger;
@@ -169,6 +174,8 @@ export class Reconciler {
           clock: state.clock,
           ...(this.#deps.runs === undefined ? {} : { runs: this.#deps.runs }),
           ...(this.#deps.slots === undefined ? {} : { slots: this.#deps.slots }),
+          ...(this.#deps.host === undefined ? {} : { host: this.#deps.host }),
+          ...(this.#deps.finishBoxes === undefined ? {} : { finishBoxes: this.#deps.finishBoxes }),
           ...(releaseClaim === undefined
             ? {}
             : { releaseClaim: (claim, reason) => releaseClaim(office, claim, reason) }),
