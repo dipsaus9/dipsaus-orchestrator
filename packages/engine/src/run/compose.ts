@@ -15,7 +15,7 @@ import { BOX_RUN_FILE } from "../box/workers";
 import { readBackstop } from "./backstop";
 import { type InputChangeReader, Nudges } from "../hooks/nudges";
 import { ABSENT, PermissionAsks, type Presence } from "../hooks/permissions";
-import { WebGuard } from "../hooks/web-guard";
+import { type FetchAddressDeps, SYSTEM_FETCH_ADDRESSES, WebGuard } from "../hooks/web-guard";
 import { CONTRACT_MAX_DEFAULT } from "../prompts/contract";
 import { currentProfile } from "../scan/store";
 import type { RunProfile } from "../scan/detect";
@@ -104,6 +104,12 @@ export interface RunPorts {
    * launch and made again before a later session when it was lost. No box runs without them.
    */
   readonly boxes?: RunLauncherDeps["boxes"];
+  /**
+   * The box network's host address while this daemon knows one, else null (DIPO-281): the live
+   * source the web guard's WebFetch check and each reviewer's web proxy read for every check, so
+   * they refuse the box network. Without it they know none (`SYSTEM_FETCH_ADDRESSES`).
+   */
+  readonly boxHostAddress?: () => string | null;
   /** Re-attach after a restart; needs `control`. */
   readonly reattach?: Omit<
     RunReattacherDeps,
@@ -137,6 +143,17 @@ export interface ComposedRuns {
 }
 
 /** `{ [key]: value }`, or `{}` when `value` is undefined (an optional port left out). */
+/**
+ * What the web guard's WebFetch check reads (DIPO-281): the system's resolver and interfaces with
+ * the daemon's live box network address, read for each check; undefined without one, so the guard
+ * keeps its system default.
+ */
+export function fetchAddressesOf(
+  boxHostAddress: (() => string | null) | undefined,
+): FetchAddressDeps | undefined {
+  return boxHostAddress === undefined ? undefined : { ...SYSTEM_FETCH_ADDRESSES, boxHostAddress };
+}
+
 function given<K extends string, V>(key: K, value: V | undefined): { [P in K]?: V } {
   return value === undefined ? {} : ({ [key]: value } as { [P in K]?: V });
 }
@@ -227,6 +244,7 @@ function buildHookListeners(
     offices: ports.offices,
     steering: ports.steering,
     encode: (op) => ports.worker.encode(op),
+    ...given("fetchAddresses", fetchAddressesOf(ports.boxHostAddress)),
     ...given("warn", ports.warn),
   });
   const onEnded = ports.ingest.onEnded;
@@ -430,6 +448,7 @@ function buildReviews(
     hosts: ports.hosts,
     ingest: ports.resumeIngest?.(ingest) ?? ingest,
     control: trackerOf(ports, control),
+    ...given("boxHostAddress", ports.boxHostAddress),
     ...given("onChanged", ports.onChanged),
     ...given("warn", ports.warn),
   });
