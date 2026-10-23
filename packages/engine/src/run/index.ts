@@ -407,6 +407,14 @@ export type {
   ResumeWaitOutcome,
   ResumptionOptions,
 } from "./resumption";
+// The resume of every parked story by the 0020 matrix (DIPO-155).
+export { MAINTAINER_RESUME_TAG, PARK_RESUME_NOTICES, RESUME_ERRORS } from "./park-resume";
+export { HALF_SHARE, share, smallestShare, withGrants } from "./resume-caps";
+export { noteText } from "./resume";
+export type { ConflictResumer, ParkResumeOptions, PrReplacement, SlotReentry } from "./park-resume";
+export { PARK_RESUME_MATRIX, parkResumeRow } from "./resume-policy";
+export type { ParkMatrixRow, ParkResumeRow, ResumeSession } from "./resume-policy";
+export { resolveParkResumed, resumableByCommand } from "./park";
 export {
   baseStoryFacts,
   HOST_EXIT_WAIT_MS,

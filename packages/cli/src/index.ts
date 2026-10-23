@@ -36,6 +36,7 @@ import { OFFICE_SUBCOMMANDS } from "./office-commands";
 import { runCommand } from "./run-command";
 import { stopCommand } from "./stop-command";
 import { pauseCommand, steerCommand } from "./intervene-commands";
+import { resumeCommand } from "./resume-command";
 import { discardCommand, dropCommand, holdCommand } from "./story-commands";
 import { statsCommand } from "./stats-command";
 import { systemTui } from "./tui-command";
@@ -141,6 +142,11 @@ Usage:
   dipo stop <id> [--note <text>] [--office <id>] [--yes]
                     stop the story's worker after asking; the story parks as
                     stopped with branch and worktree kept
+  dipo resume <id> [--note <text>] [--budget +<n>%|+<tokens>] [--yes] [--office <id>]
+                    resume a paused run or a parked story as its park reason
+                    says; some reasons need a note, and a budget-exceeded story
+                    needs --budget with a note: dipo shows its caps before and
+                    after and asks first (--yes answers for a script)
   dipo hold <id> --note <text> [--office <id>]
                     set a Refined or Ready story aside: it parks on-hold through
                     the backlog PR and no run picks it until it is resumed; a
@@ -368,6 +374,10 @@ export async function main(argv: readonly string[], deps: CliDeps): Promise<numb
   if (args[0] === "drop") {
     const { version } = versionInfo(deps.stamp, deps.runtime);
     return dropCommand(args.slice(1), { ...deps, version });
+  }
+  if (args[0] === "resume") {
+    const { version } = versionInfo(deps.stamp, deps.runtime);
+    return resumeCommand(args.slice(1), { ...deps, version });
   }
   if (args[0] === "discard") {
     const { version } = versionInfo(deps.stamp, deps.runtime);

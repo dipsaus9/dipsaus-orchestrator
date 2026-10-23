@@ -21,6 +21,7 @@ import { allEntries, type LaneOp, type OfficeLane } from "../../src/backlog/lane
 import type { BacklogCli } from "../../src/backlog/runner";
 import { insertEntry } from "../../src/backlog/lane/journal";
 import { executeCommand } from "../../src/commands/execute";
+import { CRASH, crashAfterHandler } from "../commands/crash";
 import type { FeatureModule } from "../../src/commands/registry";
 import type { OfficeHandle } from "../../src/db/office";
 import type { OfficeGit } from "../../src/git/office";
@@ -138,9 +139,12 @@ function discard(
   o: ReconcileOffice,
   story: string,
   note = "wrong approach",
+  retry?: { readonly id: RequestId; readonly crash: boolean },
 ): Promise<CommandReply> {
-  return executeCommand(o.s.deps, {
-    requestId: requestId(),
+  // A crash after the handler's commits and before the requests row (DIPO-168 in DIPO-155).
+  const deps = retry?.crash === true ? crashAfterHandler(o.s.deps, "work.discard") : o.s.deps;
+  return executeCommand(deps, {
+    requestId: retry?.id ?? requestId(),
     name: "work.discard",
     args: { story, note },
     origin: "cli",
@@ -289,6 +293,32 @@ describe("work.discard of a parked story (DIPO-161)", () => {
       const again = await discard(o, "TASK-1");
       expect(again).toMatchObject({ ok: true, changed: false });
       expect(seen.ops).toHaveLength(1);
+    });
+  });
+
+  it("repeats no effect when a crash before the requests row makes the retry run the handler again (DIPO-168)", async () => {
+    const seen = seenOf();
+    await withReconcileOffice({ base: PARKED, features: features(seen) }, async (o) => {
+      seen.office = o.office;
+      const key = keyOf(o.office, "TASK-1");
+      const record = await claim(o, o.office, "TASK-1", key, { active: false });
+      await o.repo.git("push", "--quiet", "origin", record.branch);
+      parkRow(o.office, key, record.runId);
+      openPr(o.office, key, record.runId, record.claimSha ?? "");
+      const seq = lastSeq(o.office);
+      const id = requestId();
+
+      const crashed = await discard(o, "TASK-1", "wrong approach", { id, crash: true });
+      expect(crashed.ok ? null : crashed.error.message).toContain(CRASH);
+      expect(existsSync(record.worktree)).toBe(false);
+      expect([seen.ops.length, seen.closed.length, seen.boxes]).toEqual([1, 1, 1]);
+
+      // The retry sees what the first run did: no second op, PR close, box removal or state.
+      const retried = await discard(o, "TASK-1", "wrong approach", { id, crash: false });
+      expect(retried).toMatchObject({ ok: true, result: { story: "TASK-1", key } });
+      expect([seen.ops.length, seen.closed.length, seen.boxes]).toEqual([1, 1, 1]);
+      expect(await tipOf(o, `refs/heads/${record.branch}`)).toBeNull();
+      expect(entriesOf(o.office, "story.state", seq).map((d) => d["to"])).toEqual(["Refined"]);
     });
   });
 

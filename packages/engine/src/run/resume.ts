@@ -69,8 +69,9 @@ import {
 import { BOX_RUN_FILE } from "../box/workers";
 import { BOX_LIFETIME_NOTICES, BoxLifetime, boxRebuiltText, type RunBoxes } from "../box/lifetime";
 import type { RunProfile } from "../scan/detect";
-import { gatherHandoff, type HandoffFacts, type LastVerify } from "../prompts/handoff";
+import { capNote, gatherHandoff, type HandoffFacts, type LastVerify } from "../prompts/handoff";
 import { renderSystemFile } from "../prompts/system";
+import maintainerNoteTemplate from "../prompts/feedback/maintainer-note.md" with { type: "text" };
 import { FEEDBACK_TEMPLATES, renderTemplate } from "../prompts/templates";
 import { withWorkViews } from "../views/work";
 import type { AdapterHold } from "../workers/hold";
@@ -100,6 +101,15 @@ import type { StoredRun } from "./records";
 import { clearSignals } from "./signals";
 import { verifyResults } from "./verify-records";
 import type { RunBase } from "./work-run";
+
+/**
+ * The maintainer's note as the worker reads it (`feedback/maintainer-note.md`, 0020 section 3): never
+ * sent verbatim, so maintainer text never starts a message, and capped with the handoff block's
+ * limit and marker (`capNote`).
+ */
+export function noteText(note: string): string {
+  return renderTemplate(maintainerNoteTemplate, { text: capNote(note) });
+}
 
 /** 0014 section 6 until `office.yaml` version 2 (0014 amendment, DIPO-51): engine constants. */
 export const RESUME_POLICY = { maxContextShare: 0.6, rereadFactor: 3 } as const;
@@ -212,6 +222,11 @@ export interface NextSessionRequest {
    * native resume does not read it here: its first message is the caller's.
    */
   readonly note?: string;
+  /**
+   * Steers and feedback that waited for this session, sent after the first message and, in a native
+   * resume, after the note (DIPO-155); a caller without a note merges them into `message` instead.
+   */
+  readonly held?: readonly string[];
   /**
    * Only a resume will do (DIPO-57: a host lost while the daemon was down): when the session
    * cannot be resumed nothing starts and the outcome is `notResumed`.
@@ -430,9 +445,17 @@ export class RunResumer implements NextSession {
       resume && previous.sessionId !== null
         ? { id: previous.sessionId, resume: true }
         : { id: sessionUuid(agent), resume: false };
+    // A native resume: the caller's first message, then the maintainer's note in its template
+    // (0020 section 3), then what waited; a handoff lists the note in its block's open feedback.
     const taskMessage = resume
-      ? (request.message ?? renderTemplate(FEEDBACK_TEMPLATES.resume, { reason: request.why }))
-      : [(handoff as { text: string }).text, request.message]
+      ? [
+          request.message ?? renderTemplate(FEEDBACK_TEMPLATES.resume, { reason: request.why }),
+          request.note === undefined ? undefined : noteText(request.note),
+          ...(request.held ?? []),
+        ]
+          .filter((part) => part !== undefined && part !== "")
+          .join("\n\n")
+      : [(handoff as { text: string }).text, request.message, ...(request.held ?? [])]
           .filter((part) => part !== undefined && part !== "")
           .join("\n\n");
     const spec = runWorkerSpec(

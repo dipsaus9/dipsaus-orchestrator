@@ -4,8 +4,15 @@ export { RECONCILE_STEP, Reconciler } from "./feature";
 export type { ReconcilerDeps } from "./feature";
 export { clearCommands, goneWorktrees, parseWorktreeList, readGitFacts } from "./git-facts";
 export type { GitFacts, GoneWorktree, ListedWorktree } from "./git-facts";
-export { ORPHANED, RECONCILE_NOTICES, reconcileOffice, RECORDED_BY_HAND } from "./reconcile";
+export {
+  ORPHANED,
+  parkStateAction,
+  RECONCILE_NOTICES,
+  reconcileOffice,
+  RECORDED_BY_HAND,
+} from "./reconcile";
 export type {
+  ParkStateAction,
   ReconcileDeps,
   ReconcileFinding,
   ReconcileInput,

@@ -141,20 +141,27 @@ const noteMarker = (shown: number, total: number): string =>
   `[dipo: note cut, showing ${formatCount(shown)} of ${formatCount(total)} characters.]`;
 
 /**
+ * The maintainer's note with LF line endings, trimmed and capped at `HANDOFF_NOTE_MAX` characters
+ * with a marker; empty without a note. Every place a note reaches a worker uses it: the handoff
+ * block and the first message of a native resume or a fix round (DIPO-155).
+ */
+export function capNote(note: string | undefined): string {
+  const text = (note ?? "").replace(/\r\n?/g, "\n").trim();
+  if (text.length <= HANDOFF_NOTE_MAX) return text;
+  let shown = text.slice(0, HANDOFF_NOTE_MAX - noteMarker(text.length, text.length).length - 1);
+  // Never leave half of a surrogate pair.
+  if (/[\uD800-\uDBFF]$/.test(shown)) shown = shown.slice(0, -1);
+  return `${shown.trimEnd()}\n${noteMarker(shown.trimEnd().length, text.length)}`;
+}
+
+/**
  * The maintainer's resume note as one block after the open feedback (0020 section 3): capped at
  * `HANDOFF_NOTE_MAX` characters with a marker, behind a fixed lead, and every further line
  * indented, so no line of it ever starts a line of its own in the message. Null without a note.
  */
 export function noteBlock(note: string | undefined): string | null {
-  const text = (note ?? "").replace(/\r\n?/g, "\n").trim();
-  if (text === "") return null;
-  let shown = text;
-  if (text.length > HANDOFF_NOTE_MAX) {
-    shown = text.slice(0, HANDOFF_NOTE_MAX - noteMarker(text.length, text.length).length - 1);
-    // Never leave half of a surrogate pair.
-    if (/[\uD800-\uDBFF]$/.test(shown)) shown = shown.slice(0, -1);
-    shown = `${shown.trimEnd()}\n${noteMarker(shown.trimEnd().length, text.length)}`;
-  }
+  const shown = capNote(note);
+  if (shown === "") return null;
   const [first, ...rest] = shown.split("\n");
   return [
     `- Note from the maintainer: ${first ?? ""}`,
