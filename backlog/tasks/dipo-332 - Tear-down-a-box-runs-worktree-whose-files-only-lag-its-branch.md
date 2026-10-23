@@ -4,7 +4,7 @@ title: Tear down a box run's worktree whose files only lag its branch
 status: Refined
 assignee: []
 created_date: '2026-10-23 12:10'
-updated_date: '2026-10-23 12:50'
+updated_date: '2026-10-23 13:09'
 labels:
   - 'tier:M'
 milestone: m-1
@@ -67,4 +67,9 @@ Review fixes (2026-10-23):
 - A claim whose own PR is recorded merged, but whose branch moved past that head with changes the base lacks, is released as done by the Done poll or reconcile. Its worktree and branch are settled as leftovers with the dipo discard action (releaseMovedPastMerge).
 - The PR poll records the host's head when it records the merged transition.
 - Real-git tests cover the submodule, the ignored files, assume-unchanged, skip-worktree, unmerged entries and symbolic links.
+
+Second review fixes (2026-10-23):
+- The only ignored entries a removal may delete are a whole ignored node_modules/ folder (the entry itself) with no .git file or folder anywhere inside it, found by a walk that follows no link, and a .DS_Store file. Anything else ignored keeps the worktree, also below a tracked folder such as build/, and so does a failed walk.
+- The ignored check runs right before the removal. Before a forced removal, the status and lagging check runs once more, and any change keeps the worktree.
+- A claim with an open park whose PR merged and whose branch moved past it is not released. The Done poll and reconcile tell the maintainer in a notice instead, and the park stays on the desk.
 <!-- SECTION:NOTES:END -->
