@@ -3,10 +3,10 @@ id: DIPO-281
 title: >-
   Harden the box network: registry aliases, listed Mac ports, no route to the
   Mac or the LAN
-status: To Do
+status: Done
 assignee: []
 created_date: '2026-10-21 13:54'
-updated_date: '2026-10-23 13:38'
+updated_date: '2026-10-23 13:46'
 labels:
   - box
   - cutover
@@ -29,12 +29,49 @@ dependencies:
   - DIPO-298
   - DIPO-152
 references:
+  - '- docs/decisions/0021-worker-isolation.md'
   - docs/decisions/0021-worker-isolation.md
+  - packages/daemon/src/runs.ts
+  - packages/daemon/test/unit/box-runs.test.ts
+  - packages/engine/schema/office.schema.json
   - packages/engine/src/box/
+  - packages/engine/src/box/apple-args.ts
+  - packages/engine/src/box/apple-container.ts
+  - packages/engine/src/box/build-box.ts
+  - packages/engine/src/box/build-proxy.ts
+  - packages/engine/src/box/cache.ts
+  - packages/engine/src/box/firewall.ts
   - packages/engine/src/box/image.ts
+  - packages/engine/src/box/index.ts
+  - packages/engine/src/box/port.ts
   - packages/engine/src/box/web-proxy.ts
+  - packages/engine/src/box/workers.ts
+  - packages/engine/src/config/index.ts
+  - packages/engine/src/config/load.ts
   - packages/engine/src/config/schema.ts
+  - packages/engine/src/run/compose.ts
+  - packages/engine/src/run/index.ts
+  - packages/engine/test/box/apple-container.test.ts
+  - packages/engine/test/box/args.test.ts
+  - packages/engine/test/box/box-network.ci.test.ts
+  - packages/engine/test/box/build-box.test.ts
+  - packages/engine/test/box/build-proxy.test.ts
+  - packages/engine/test/box/cache.test.ts
+  - packages/engine/test/box/fake-boxes.ts
+  - packages/engine/test/box/firewall.test.ts
+  - packages/engine/test/box/image.test.ts
+  - packages/engine/test/box/lifetime.test.ts
+  - packages/engine/test/box/real-box.box.test.ts
+  - packages/engine/test/box/tls-hello.ts
+  - packages/engine/test/box/web-proxy-names.test.ts
   - packages/engine/test/box/web-proxy.test.ts
+  - packages/engine/test/box/worker.box.test.ts
+  - packages/engine/test/box/workers.test.ts
+  - packages/engine/test/config/load.test.ts
+  - packages/engine/test/config/schema.test.ts
+  - packages/engine/test/office/load.test.ts
+  - packages/engine/test/run/compose.test.ts
+  - packages/engine/test/workers/box-plan.test.ts
 type: feature
 ordinal: 270000
 ---
@@ -61,16 +98,16 @@ unknowns:
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 Tunnels to known registry aliases and the registries' CDN names go to Safe-Chain or are refused, never direct
-- [ ] #2 The address rule covers the IPv6 forms that embed a private IPv4 address
-- [ ] #3 Tests cover each alias and address form
-- [ ] #4 (from DIPO-282) The office config holds a list of allowed local ports, read from the base branch
-- [ ] #5 (from DIPO-282) Through the web proxy, only listed local ports of the Mac are reachable from a box, shown by tests with a listed and an unlisted port; the accepted risk for Mac services that listen on all interfaces stays until DIPO-283
-- [ ] #6 (from DIPO-283) docs/decisions/0021-worker-isolation.md gets a dated amendment that closes the accepted risk
-- [ ] #7 (from DIPO-283) Line 2 of the DIPO-264 probe, and the direct line to the Mac's own local-network address in the real-box web-proxy test, fail for Mac services that listen on all interfaces or on that address, except the ports the office config allows (DIPO-282)
-- [ ] #8 (from DIPO-286) During an image build, no install step can reach the Mac, the local network or a registry except through dipo's proxies, shown by a real-box build test
-- [ ] #9 (from DIPO-286) docs/decisions/0021-worker-isolation.md gets a dated amendment that closes the build-time risk
-- [ ] #10 The web guard and the reviewer's web proxy get a live box host address source from the daemon instead of the system default that always returns none (DIPO-292 review)
+- [x] #1 Tunnels to known registry aliases and the registries' CDN names go to Safe-Chain or are refused, never direct
+- [x] #2 The address rule covers the IPv6 forms that embed a private IPv4 address
+- [x] #3 Tests cover each alias and address form
+- [x] #4 (from DIPO-282) The office config holds a list of allowed local ports, read from the base branch
+- [x] #5 (from DIPO-282) Through the web proxy, only listed local ports of the Mac are reachable from a box, shown by tests with a listed and an unlisted port; the accepted risk for Mac services that listen on all interfaces stays until DIPO-283
+- [x] #6 (from DIPO-283) docs/decisions/0021-worker-isolation.md gets a dated amendment that closes the accepted risk
+- [x] #7 (from DIPO-283) Line 2 of the DIPO-264 probe, and the direct line to the Mac's own local-network address in the real-box web-proxy test, fail for Mac services that listen on all interfaces or on that address, except the ports the office config allows (DIPO-282)
+- [x] #8 (from DIPO-286) During an image build, no install step can reach the Mac, the local network or a registry except through dipo's proxies, shown by a real-box build test
+- [x] #9 (from DIPO-286) docs/decisions/0021-worker-isolation.md gets a dated amendment that closes the build-time risk
+- [x] #10 The web guard and the reviewer's web proxy get a live box host address source from the daemon instead of the system default that always returns none (DIPO-292 review)
 <!-- AC:END -->
 
 ## Implementation Notes
@@ -85,4 +122,6 @@ Carried from DIPO-283: To settle in refinement: how the fix holds while the work
 2026-10-22: dropped the dependency on DIPO-149 (which now holds DIPO-291) to break a dependency cycle left by the M1 combine; that story now comes after this one.
 
 2026-10-23 (maintainer): criterion 6 moved to DIPO-334; the review showed a root worker can undo the in-box firewall through the dynamic loader and a renamed /opt.
+
+Done 2026-10-23 (maintainer session): built outside dipo, reviewed by a separate agent; the real-box test (box-network.ci.test.ts) passed twice in the maintainer session (3 of 3; direct paths to the Mac, the local network, the gateway and the registry closed from a build box and a worker box; flush refused as an install script and as the worker, also through setpriv +net_admin; listed local port reachable only through the proxy with the box's password). The review found that a root worker can undo the firewall through the dynamic loader and a renamed /opt: criterion 6 moved to DIPO-334 (non-root box user), and the 0021 lines say so plainly. Also fixed from the review: a split clear-text HTTP/2 preface, domain fronting named as an open risk. Office config version 12.
 <!-- SECTION:NOTES:END -->
