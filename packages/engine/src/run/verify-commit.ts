@@ -1,87 +1,57 @@
-// Verify and commit at In Review (DIPO-49; 0010 section 7, 0014 sections 3 and 7, 0008 section 2,
-// 0013 section 5, 0007 section 4). Run control (DIPO-50) calls `afterTurn` once per worker turn,
-// one at a time per run, unless the turn already ended the run (a cap or a blocked report):
+// The end of a developer's turn and In Review (DIPO-49, DIPO-273, DIPO-299; 0010 section 7, 0013
+// section 5, 0007 section 4, 0021 sections 8 and 13 and its amendment of 2026-10-22). Run control
+// (DIPO-50) calls `afterTurn` once per worker turn, one at a time per run, unless the turn already
+// ended the run (a cap or a blocked report). Only a turn whose report is `done` goes on.
 //
-// 1. Backstop. The worktree's HEAD, checked-out branch, the stash and
-//    `git status --porcelain -- backlog .dipo` are compared with the run-start snapshot
-//    (`backstop.ts`); any change parks `scope-violation` with the evidence.
-// 2. Only a turn whose report is `done` goes on. Scope check: every modified, staged and untracked
-//    path from `git status --porcelain=v1 -z --untracked-files=all` must be covered by the run's
-//    declared scope (a scope path covers a path it equals or that lies under it), be the story's
-//    own task file, or be a lockfile paired with an in-scope manifest: a lockfile beside an in-scope
-//    `package.json`, and the root lockfile for an in-scope workspace manifest. Any other path parks
-//    `scope-violation` with the paths and the declared scope (0014 section 7).
-// 3. Verify. The branch's verify comes from a code-only scan of the worktree (the stored base
-//    profile when the fingerprints match). When the branch changed a gate script (`test`, `lint`,
-//    `typecheck`, `verify`: the root `package.json` script or the resolved command list) against
-//    the base, the changes are recorded on the run and the base profile's verify also runs when its
-//    commands differ. Each command list runs through DIPO-37's sandboxed step with the verify policy
-//    (network closed) and the run environment; `work.phase verify` is emitted first, keep-awake
-//    holds while it runs, its output is stored as source `verify` and emitted as `work.output`
-//    while it arrives, and each list gets a `verify_results` row (exit code, duration, output range).
-// 4. Red. A verify feedback item (DIPO-47) with the failing command, exit code, output tail and
-//    parsed `file:line` locations is returned for run control to send as the next user message; a
-//    loop step is recorded, so `Progress.loop` increases and `verify` shows `failing`. When the red
-//    verifies of the run reach the tier loop cap, the story parks `verify-failing` instead. A done
-//    turn that crossed a run cap (DIPO-205) has no turn left for feedback: its red verify parks
-//    `verify-failing` with cause `capped` and the failure as detail, also at the loop cap. A verify
-//    that could not start in the sandbox parks `verify-failing` at once: it never runs unsandboxed.
-// 5. Green. The run claims its end (a cap or `work.stop` after this waits for it). Exactly the
-//    scope paths and paired lockfiles are staged and committed with the worker's subject plus the
-//    story id; the code tree key is recorded on the green results; the Backlog CLI checks off the
-//    criteria the report marks met and sets In Review, committed alone as `<ID>: status In Review`;
-//    the branch is pushed without force. Then, in one transaction, the run ends at In Review with
-//    its outcome row (`endRun`) and summary, a push that reached the remote is recorded on the
-//    claim at the run's end (`claims.pushed_at`), and `story.state` moves the story to In Review. A
-//    non-fast-forward push rejection parks `conflict` (0010); any other push failure is a notice and
-//    the story stays In Review with the branch local. A failure in the commit steps parks
-//    `interrupted` with the error. A commit that holds dependency files (manifests, lockfiles,
-//    `requirements*.txt`) raises `verify.dependenciesChanged` naming them (DIPO-84).
-// 6. The story PR (DIPO-144; 0019 section 3). After a push that reached the remote, `storyPr.sync`
-//    opens the story's ready PR, or updates the one it has. It never fails the commit: a failed
-//    create is a `pr.openFailed` notice and a retry poll, and the story stays In Review.
+// Every developer works in its story's box (DIPO-240), so dipo runs no verify of its own, no
+// backstop and no scope check: the worker runs the office's verify in its box before it reports
+// done, CI on the story PR is the verify, and the only check of what a part changes is the
+// protected-file and secret scan of each part (`box/parts.ts`). The Mac verify runner, the backstop
+// after each turn and the scope check at done went with the Mac sandbox worker path. A run without
+// a box (none starts any more; one parked before the change has its box made at its next session,
+// `box/lifetime.ts`) that reports done parks `interrupted`.
 //
-// A box run (DIPO-273; 0021 sections 8 and 13) has no backstop and no scope check, and dipo runs
-// no verify for it (0021 amendment of 2026-10-22, DIPO-299): the worker runs the office's verify in
-// its box before it reports done, and CI on the story PR is the verify. At done, in one held turn
-// of the run's parts (`BoxParts.finishLast`), so no part moves the branch meanwhile: the last part
-// is delivered (a hit, a refused part or a rejected push parks; one dipo cannot take out is tried
-// again at the door's pace, `DOOR_POLL_MS`, for up to `PART_STUCK_MIN_MS` before the story parks
-// `interrupted`, DIPO-290), the gate changes of the branch are
-// recorded for the review, and the run's end is claimed while the parts are still held, so a part
-// or catch-up queued meanwhile finds the run not live and stays in the box. Just before In Review
-// the branch must still be at the last part's commit, else the story parks (`BOX_TIP_MOVED`). Then
-// step 5 with nothing staged (the parts are the commits) and step 6: the push opens or updates the
-// story PR, and the review (a pending review of the reviewer place) and CI (the PR poll's watch of
-// the pushed head, `StoryPrs`) start together on that head (0019 section 7). Red CI goes back to
-// the worker through the CI loop of 0019 section 8 (`mergeSlot.ciAttempts`, parked `verify-failing`
-// with cause `ci` at the cap). No verify loop step is written, so the tier's loop cap never parks a
-// box run.
+// At done, in one held turn of the run's parts (`BoxParts.finishLast`), so no part moves the branch
+// meanwhile: the last part is delivered (a hit, a refused part or a rejected push parks; one dipo
+// cannot take out is tried again at the door's pace, `DOOR_POLL_MS`, for up to `PART_STUCK_MIN_MS`
+// before the story parks `interrupted`, DIPO-290), the gate changes of the branch are recorded for
+// the review, and the run's end is claimed while the parts are still held, so a part or catch-up
+// queued meanwhile finds the run not live and stays in the box. Just before In Review the branch
+// must still be at the last part's commit, else the story parks (`BOX_TIP_MOVED`). Then:
+//
+// - The code tree key is recorded, the Backlog CLI checks off the criteria the report marks met and
+//   sets In Review, committed alone as `<ID>: status In Review`; the branch is pushed without
+//   force. In one transaction the run ends at In Review with its outcome row (`endRun`) and
+//   summary, a push that reached the remote is recorded on the claim (`claims.pushed_at`), and
+//   `story.state` moves the story to In Review. A non-fast-forward push rejection parks `conflict`
+//   (0010); any other push failure is a notice and the story stays In Review with the branch local.
+//   A failure in the commit steps parks `interrupted` with the error. Dependency files the parts
+//   changed (manifests, lockfiles, `requirements*.txt`) raise `verify.dependenciesChanged`.
+// - The story PR (DIPO-144; 0019 section 3): after a push that reached the remote, `storyPr.sync`
+//   opens the story's ready PR, or updates the one it has; the review (a pending review of the
+//   reviewer place) and CI (the PR poll's watch of the pushed head) start together on that head
+//   (0019 section 7). Red CI goes back to the worker through the CI loop of 0019 section 8.
 //
 // The report gate (DIPO-186; 0014 and 0008 notes of 2026-10-20, 0021 amendment of 2026-10-22), for
-// every done report before the steps above, Mac and box: the report's test-plan entries and
-// deviations are stored for the run (`done_reports`). Then code checks three things, and one
-// feedback item that names each miss goes back to the worker, with no commit and the run going on:
+// every done report before the steps above: the report's test-plan entries and deviations are
+// stored for the run (`done_reports`). Then code checks three things, and one feedback item that
+// names each miss goes back to the worker, with no commit and the run going on:
 // - an automated entry of the story's test plan (read on the office base) that the report does not
 //   mark done, or gives no entry; every such report is refused, manual entries never block, and a
 //   story without a test plan is unchanged;
 // - a decision note whose file is missing at the story branch, or holds no section with that
 //   heading; sent back once per file and section, then left out. Each note that passes is stored in
 //   `decision_notes` with its story and run, also from a report that ends the run (`summarize`);
-// - a box run whose worker edited a file and ran no verify or test command of the office's profile
-//   after its last edit (the turn's tool trail); sent back once per run.
+// - a worker that edited a file and ran no verify or test command of the office's profile after
+//   its last edit (the turn's tool trail); sent back once per run.
 // A done turn that crossed a cap has no turn left: its test-plan miss parks `verify-failing` with
 // cause `capped`, and the two send-once checks are skipped.
-
-import { readFile } from "node:fs/promises";
-import { join } from "node:path";
 
 import {
   type Clock,
   type FieldBlock,
   type OfficeId,
   type ParkReason,
-  type Progress,
   type RunId,
   StoryId,
   type StoryKey,
@@ -90,28 +60,13 @@ import {
 
 import { TASK_FIELD_ERROR } from "../backlog/runner";
 import type { NewEntry } from "../changelog/log";
-import type { OfficeConfig } from "../config";
 import type { OfficeHandle } from "../db/office";
 import { GitError } from "../git/runner";
-import {
-  decisionNoteFeedback,
-  testPlanFeedback,
-  verifyFeedback,
-  verifyRunFeedback,
-} from "../prompts/feedback";
-import type { StepRequest, StepResult } from "../sandbox/step";
+import { decisionNoteFeedback, testPlanFeedback, verifyRunFeedback } from "../prompts/feedback";
 import { shownSpec } from "../scan/diff";
-import {
-  type CapabilityName,
-  type CommandSpec,
-  detect,
-  fingerprint,
-  readProbe,
-  type RunProfile,
-} from "../scan/detect";
+import type { CapabilityName, RunProfile } from "../scan/detect";
 import { LOCKFILES, parseManifest } from "../scan/detect/manifest";
 import { deriveStoryView, storyView } from "../views/story";
-import { runProgress } from "../views/work";
 import type { WorkerDecisionNote, WorkerReport } from "../workers/types";
 import { DOOR_POLL_MS } from "../box/door";
 import {
@@ -125,12 +80,10 @@ import {
 } from "../box/parts";
 import { BoxError } from "../box/port";
 import { findClaim, updateClaim } from "../worktree/records";
-import { buildRunEnv } from "../worktree/run-env";
 
-import { type BackstopSnapshot, backstopDetail, backstopEvidence } from "./backstop";
-import { runBudgetFacts } from "./budget-line";
-import { type FiredCap, runCaps } from "./caps";
-import { endRunMarked, markPhase } from "./markers";
+import type { BackstopSnapshot } from "./backstop";
+import { endRunMarked } from "./markers";
+import type { FiredCap } from "./caps";
 import { PARK_CAUSES } from "./park";
 import { appendRunStep, IN_REVIEW_END, recordGateChanges, type StoredRun } from "./records";
 import {
@@ -147,17 +100,7 @@ import {
   type ToolTrail,
 } from "./report-data";
 import type { StoryGit } from "./story-git";
-import {
-  appendVerifyOutput,
-  insertVerifyResult,
-  recordCodeTreeKey,
-  storeRunSummary,
-  verifyOutputEnd,
-  type VerifyProfile,
-} from "./verify-records";
-
-/** The verify deadline shown in the timeout text when `timeouts.scriptMinutes` names none. */
-export const VERIFY_MINUTES_DEFAULT = 20;
+import { recordCodeTreeKey, storeRunSummary } from "./verify-records";
 
 /**
  * The park detail when the story branch moved off the last part's commit after a box run claimed
@@ -166,14 +109,11 @@ export const VERIFY_MINUTES_DEFAULT = 20;
 export const BOX_TIP_MOVED =
   "the story branch moved off the last part's commit before In Review, so dipo did not move the story to review; In Review is written only at the commit the last part left.";
 
-/** How verify runs its commands: on the Mac in the sandboxed step. */
-interface VerifyRunner {
-  run(command: [string, ...string[]], onOutput: (text: string) => void): Promise<StepResult>;
-  /** The verify deadline in minutes, for the timeout text. */
-  readonly minutes: number;
-}
+/** The park detail of a run without a box that reports done (DIPO-240). */
+export const NO_BOX_AT_DONE =
+  "the run has no box, so dipo cannot take its work as parts; resume the story, and dipo makes its box from the start commit and the delivered parts first.";
 
-/** `engine.notice` codes of verify and commit. */
+/** `engine.notice` codes of In Review. */
 export const VERIFY_NOTICES = {
   pushFailed: "verify.pushFailed",
   dependenciesChanged: "verify.dependenciesChanged",
@@ -181,7 +121,7 @@ export const VERIFY_NOTICES = {
 
 /**
  * Dependency files (DIPO-84): manifests and lockfiles of the package managers workers may install
- * with. A commit that changes one raises `verify.dependenciesChanged`, so the maintainer sees new
+ * with. A run that changes one raises `verify.dependenciesChanged`, so the maintainer sees new
  * packages at review.
  */
 export const DEPENDENCY_FILES: readonly string[] = [
@@ -208,81 +148,21 @@ export function dependencyFiles(paths: readonly string[]): string[] {
   ].toSorted();
 }
 
-/** Pure: the notice text of a commit that changed dependency files. */
+/** Pure: the notice text of a run that changed dependency files. */
 export function dependenciesChangedText(story: string, files: readonly string[]): string {
   return `${story} changed dependency files: ${files.join(", ")}. Review the added or changed packages before you merge.`;
 }
 
-/** Gate capabilities whose change makes the base verify run too (0013 section 5). */
+/** Gate capabilities whose change the review is told about (0013 section 5). */
 export const GATE_CAPABILITIES: readonly CapabilityName[] = ["test", "lint", "typecheck", "verify"];
 
-/** Lockfile names paired with manifests (0014 section 3, 0010 amendment). */
+/** Lockfile names paired with manifests (0014 section 3, 0010 amendment); the scope nudge's. */
 export const DEFAULT_LOCKFILES: readonly string[] = LOCKFILES.map(([name]) => name);
-
-/** How long verify output is buffered before it is stored and emitted. */
-export const OUTPUT_FLUSH_MS = 500;
-
-// ---- pure rules ----------------------------------------------------------------------------------
 
 /** True when the scope path `scope` covers `path`: equal, or `path` lies under it. */
 export function scopeCovers(scope: string, path: string): boolean {
   const dir = scope.endsWith("/") ? scope : `${scope}/`;
   return path === scope || path.startsWith(dir);
-}
-
-function dirOf(path: string): string {
-  const at = path.lastIndexOf("/");
-  return at < 0 ? "" : path.slice(0, at);
-}
-
-function baseName(path: string): string {
-  return path.slice(path.lastIndexOf("/") + 1);
-}
-
-export interface ScopeInput {
-  /** Changed paths, repo-relative. */
-  readonly paths: readonly string[];
-  readonly scope: readonly string[];
-  /** The story's own task file, repo-relative. */
-  readonly taskFile: string;
-  readonly lockfiles?: readonly string[];
-  /** Workspace package directories of the run profile; their manifests pair the root lockfile. */
-  readonly workspaceDirs?: readonly string[];
-}
-
-export interface ScopeResult {
-  /** In-scope paths and paired lockfiles: what the code commit stages, sorted. */
-  readonly code: readonly string[];
-  /** Paths outside scope, sorted. */
-  readonly outside: readonly string[];
-}
-
-/** Pure: the scope check at `done` (0010 section 7, 0014 section 3 with lockfile pairing). */
-export function checkScope(input: ScopeInput): ScopeResult {
-  const lockfiles = new Set(input.lockfiles ?? DEFAULT_LOCKFILES);
-  const inScope = (path: string) => input.scope.some((scope) => scopeCovers(scope, path));
-  const manifestIn = (dir: string) => inScope(dir === "" ? "package.json" : `${dir}/package.json`);
-  const paired = (path: string): boolean => {
-    if (!lockfiles.has(baseName(path))) return false;
-    const dir = dirOf(path);
-    if (manifestIn(dir)) return true;
-    // Bun workspaces have one root lockfile: it pairs with any in-scope workspace manifest.
-    return dir === "" && (input.workspaceDirs ?? []).some((ws) => manifestIn(ws));
-  };
-  const code: string[] = [];
-  const outside: string[] = [];
-  for (const path of new Set(input.paths)) {
-    // Only the story's own task file is exempt: dipo writes it, so it is never a scope path.
-    if (path === input.taskFile) continue;
-    if (inScope(path) || paired(path)) code.push(path);
-    else outside.push(path);
-  }
-  return { code: code.toSorted(), outside: outside.toSorted() };
-}
-
-/** The park detail of a scope violation at `done` (0014 section 7, scope feedback). */
-export function scopeDetail(outside: readonly string[], scope: readonly string[]): string {
-  return `Paths written outside the declared scope: ${outside.join(", ")}. Declared scope: ${scope.length === 0 ? "none" : scope.join(", ")}. The story's own task file, written by dipo, is exempt from scope.`;
 }
 
 function shownCapability(profile: RunProfile, name: CapabilityName): string {
@@ -293,11 +173,6 @@ function shownCapability(profile: RunProfile, name: CapabilityName): string {
 
 function shownScript(value: string | undefined): string {
   return value === undefined ? "none" : JSON.stringify(value);
-}
-
-function resolvedVerify(profile: RunProfile | null): CommandSpec | null {
-  const verify = profile?.capabilities.verify;
-  return verify?.status === "resolved" ? verify.value : null;
 }
 
 /**
@@ -327,41 +202,6 @@ export function gateChanges(input: {
   return lines;
 }
 
-/** One command list verify runs. */
-export interface VerifyStep {
-  readonly profile: VerifyProfile;
-  readonly spec: CommandSpec;
-}
-
-/**
- * Pure: the command lists verify runs. The branch's resolved verify, else the base's; with gate
- * changes also the base's verify when its commands differ from the branch's.
- */
-export function verifyPlan(input: {
-  readonly base: RunProfile | null;
-  readonly branch: RunProfile;
-  readonly changed: boolean;
-}): VerifyStep[] {
-  const branch = resolvedVerify(input.branch);
-  const base = resolvedVerify(input.base);
-  const steps: VerifyStep[] = [];
-  if (branch !== null) steps.push({ profile: "branch", spec: branch });
-  if (
-    base !== null &&
-    (branch === null || (input.changed && shownSpec(base) !== shownSpec(branch)))
-  )
-    steps.push({ profile: "base", spec: base });
-  return steps;
-}
-
-/** Pure: the code commit message, the worker's subject plus the story id. */
-export function commitMessage(story: string, subject: string, title: string): string {
-  const first = subject.split("\n")[0]?.trim() ?? "";
-  const prefix = `${story}:`;
-  const clean = (first.startsWith(prefix) ? first.slice(prefix.length) : first).trim();
-  return `${story}: ${clean === "" ? title : clean}`;
-}
-
 // ---- the flow ------------------------------------------------------------------------------------
 
 /** What run control decides after a turn. */
@@ -386,10 +226,11 @@ export interface TurnContext {
   readonly work: WorkRef;
   readonly report: WorkerReport | null;
   /**
-   * The cap this turn crossed while it carried a done report (DIPO-205): no turn is left for
-   * verify feedback, so a red verify parks `verify-failing` with cause `capped`.
+   * The cap this turn crossed while it carried a done report (DIPO-205): its cap step is written
+   * with the run's end.
    */
   readonly capped?: FiredCap | null;
+  /** The run-start snapshot run control tracks; a box run is checked by its parts instead. */
   readonly snapshot: BackstopSnapshot | null;
   /** True while no other decision (a cap, a stop) ended the run. */
   readonly live: () => boolean;
@@ -412,7 +253,7 @@ export interface ReportGateFacts {
   readonly view: { readonly type?: string };
 }
 
-/** What run control asks of verify and commit. */
+/** What run control asks at the end of a turn. */
 export interface RunFinisher {
   afterTurn(ctx: TurnContext): Promise<TurnDecision>;
   /** Stores the run summary of a run that ended outside `afterTurn` (a park). */
@@ -422,32 +263,16 @@ export interface RunFinisher {
 export interface VerifyCommitDeps {
   readonly clock: Clock;
   readonly story: StoryGit;
-  /** The office's main checkout, whose shared `.git` a step may not write. */
-  readonly mainCheckout: (office: OfficeId) => string;
-  /** Runs one sandboxed step (`runSandboxedStep` with the daemon's step dependencies). */
-  readonly runStep: (request: StepRequest) => Promise<StepResult>;
-  readonly config: (office: OfficeId) => OfficeConfig | undefined;
-  /** The office's stored run profile (the base profile). */
+  /** The office's stored run profile (the base profile), for the gate changes. */
   readonly profile: (office: OfficeHandle) => RunProfile | null;
-  /** A code-only scan of a worktree; `detect(readProbe(dir))` by default. */
-  readonly scanWorktree?: (dir: string, base: RunProfile | null) => Promise<RunProfile>;
-  readonly host: {
-    readonly home: string;
-    readonly uid: number;
-    readonly env: Readonly<Record<string, string | undefined>>;
-  };
-  /** Keep-awake: verify registers while it runs (DIPO-63). */
-  readonly work?: { beginVerify(): () => void };
   /**
    * The story PR (DIPO-144): called right after an In Review push that reached the remote, to open
    * or update the story's PR. It never throws; a failure is its own notice.
    */
   readonly storyPr?: { sync(office: OfficeId, runId: RunId): Promise<void> };
   /**
-   * Box runs (DIPO-273 and DIPO-299, 0021 sections 8 and 13 and its amendment of 2026-10-22): a
-   * run whose developer works in a box has no backstop, no scope check and no verify; at done its
-   * undelivered changes become a last part, a part hit parks, and the run's end is claimed while
-   * the run's parts are held (`BoxParts.finishLast`). Without it every run takes the Mac path.
+   * The box runs' parts (DIPO-273): whether a run's developer works in a box, and its last part at
+   * done (`BoxParts.finishLast`). Without them no run reaches In Review here.
    */
   readonly parts?: {
     isBoxRun(office: OfficeId, run: StoredRun): boolean;
@@ -465,27 +290,12 @@ export interface VerifyCommitDeps {
   readonly warn?: (message: string, fields: Readonly<Record<string, unknown>>) => void;
 }
 
-/** The default worktree scan: the base profile when the fingerprints match, else `detect`. */
-export async function scanWorktree(dir: string, base: RunProfile | null): Promise<RunProfile> {
-  const probe = await readProbe(dir);
-  if (base !== null && base.fingerprint === fingerprint(probe)) return base;
-  return detect(probe);
-}
-
 function messageOf(error: unknown): string {
   return error instanceof Error ? error.message : String(error);
 }
 
 function scriptsOf(text: string | null): Record<string, string> {
   return text === null ? {} : { ...parseManifest(text)?.scripts };
-}
-
-interface PassResult {
-  readonly passed: boolean;
-  /** The failing command and its output, for the feedback item. */
-  readonly failure: { command: string; exitCode: number; output: string } | null;
-  /** Why verify could not run at all; parks at once. */
-  readonly refused: string | null;
 }
 
 export class VerifyCommit implements RunFinisher {
@@ -497,111 +307,34 @@ export class VerifyCommit implements RunFinisher {
 
   async afterTurn(ctx: TurnContext): Promise<TurnDecision> {
     const { run } = ctx;
-    const officeId = ctx.office.officeId;
-    const worktree = run.worktree;
-    const story = run.story;
-    if (run.kind !== "story" || worktree === null || story === null) return { kind: "continue" };
-    // A box worker never reaches the story's Mac worktree, and dipo's part commits move its HEAD.
-    const box = this.#deps.parts?.isBoxRun(officeId, run) === true;
-
-    // 1. The backstop after every turn, for a worker on the Mac.
-    if (ctx.snapshot !== null && !box) {
-      try {
-        const now = await this.#deps.story.snapshot(officeId, worktree);
-        const evidence = backstopEvidence(ctx.snapshot, now);
-        if (evidence.length > 0) return scopePark(PARK_CAUSES.backstop, backstopDetail(evidence));
-      } catch (error) {
-        if (error instanceof GitError && error.code === "git.worktreeTampered") {
-          return scopePark(PARK_CAUSES.tampered, error.message);
-        }
-        throw error;
-      }
+    if (run.kind !== "story" || run.worktree === null || run.story === null) {
+      return { kind: "continue" };
     }
     if (ctx.report?.status !== "done" || !ctx.live()) return { kind: "continue" };
+    if (this.#deps.parts?.isBoxRun(ctx.office.officeId, run) !== true) {
+      return {
+        kind: "park",
+        reason: "interrupted",
+        cause: PARK_CAUSES.build,
+        detail: NO_BOX_AT_DONE,
+        endKind: "interrupted",
+      };
+    }
     const report = ctx.report;
-
-    // 1a. The report gate (DIPO-186): stored, then its test plan, decision notes and, in a box
-    // run, a verify run after the last edit.
-    const gate = await this.#reportGate(ctx, report, box);
+    // The report gate (DIPO-186): stored, then its test plan, decision notes and a verify run
+    // after the last edit.
+    const gate = await this.#reportGate(ctx, report);
     if (gate !== null || !ctx.live()) return gate ?? { kind: "continue" };
-
-    // 1b. A box run: its last part, then In Review with no verify of dipo's (DIPO-299).
-    if (box) return this.#boxDone(ctx, report);
-
-    // 2. The scope check over every changed path, for a worker on the Mac; a box run has none
-    // (0021 section 13), only the protected-file check of its parts.
-    const scope = run.scope ?? [];
-    const base = this.#deps.profile(ctx.office);
-    // The branch scan comes first: a workspace package the story adds pairs the root lockfile too.
-    // A failed scan never hides a scope violation: pairing then uses the base workspaces, and
-    // the scan error surfaces only once the paths are in scope.
-    const scanned = await (this.#deps.scanWorktree ?? scanWorktree)(worktree, base).then(
-      (profile) => ({ profile, error: null }),
-      (error: unknown) => ({ profile: null, error }),
-    );
-    let view: Awaited<ReturnType<StoryGit["story"]>>;
-    try {
-      view = await this.#deps.story.story(officeId, worktree, story);
-    } catch (error) {
-      if (isTaskFieldError(error)) return scopePark(PARK_CAUSES.taskFile, error.message);
-      throw error;
-    }
-    let code: readonly string[] = [];
-    if (!box) {
-      const paths = await this.#deps.story.changedPaths(officeId, worktree);
-      const checked = checkScope({
-        paths,
-        scope,
-        taskFile: view.taskFile,
-        workspaceDirs:
-          scanned.profile === null
-            ? (base?.toolchain.workspaces.map((ws) => ws.dir) ?? [])
-            : workspaceDirsOf(base, scanned.profile),
-      });
-      if (checked.outside.length > 0) {
-        return scopePark(PARK_CAUSES.paths, scopeDetail(checked.outside, scope));
-      }
-      code = checked.code;
-    }
-    if (!ctx.live()) return { kind: "continue" };
-
-    // 3. Verify.
-    const config = this.#deps.config(officeId);
-    if (config === undefined) throw new Error(`office ${officeId} has no configuration loaded`);
-    if (scanned.profile === null) throw scanned.error;
-    const steps = await this.#plan(ctx, base, scanned.profile);
-    const loop = loopsOf(ctx.office, run.runId);
-    ctx.flushOutput();
-    ctx.write(() => {
-      const marker = markPhase(ctx.office, run.runId, "verify", this.#deps.clock.now());
-      return [...marker, phaseEntry(ctx, "verify")];
-    });
-    const done = this.#deps.work?.beginVerify();
-    let pass: PassResult;
-    try {
-      pass = await this.#verify(ctx, config, steps, loop, this.#macRunner(ctx, config));
-    } finally {
-      done?.();
-    }
-    const red = this.#red(ctx, config, pass, loop, worktree);
-    if (red !== null) return red;
-
-    // 5. Green.
-    if (!ctx.claimEnd()) return { kind: "continue" };
-    return this.#commit(ctx, { report, view, code, loop, box });
+    return this.#boxDone(ctx, report);
   }
 
   /**
    * The report gate of a done report (DIPO-186): stores its test-plan entries and deviations, then
-   * checks its test plan, its decision notes and, for a box run, that a verify or test command ran
-   * after the last edit. Null when the report goes on; else the one feedback item, or the park of
+   * checks its test plan, its decision notes and that a verify or test command ran after the last
+   * edit (every run is a box run, DIPO-240). Null when the report goes on; else the one feedback item, or the park of
    * a capped turn.
    */
-  async #reportGate(
-    ctx: TurnContext,
-    report: WorkerReport,
-    box: boolean,
-  ): Promise<TurnDecision | null> {
+  async #reportGate(ctx: TurnContext, report: WorkerReport): Promise<TurnDecision | null> {
     const { run } = ctx;
     const office = ctx.office;
     const at = this.#deps.clock.now();
@@ -675,7 +408,6 @@ export class VerifyCommit implements RunFinisher {
 
     // A box worker that edited after its last verify or test run gets one turn to run it.
     const unchecked =
-      box &&
       ctx.capped == null &&
       ctx.trail != null &&
       ctx.trail.edited &&
@@ -758,73 +490,6 @@ export class VerifyCommit implements RunFinisher {
       );
     }
     return { misses };
-  }
-
-  /**
-   * The red side of a verify pass (step 4), or null for a green one: a verify that could not run
-   * parks at once; a red one is the next message to the worker, or parks at a cap or the loop cap.
-   * `root` is where the output's paths are relative to.
-   */
-  #red(
-    ctx: TurnContext,
-    config: OfficeConfig,
-    pass: PassResult,
-    loop: number,
-    root: string,
-  ): TurnDecision | null {
-    const { run } = ctx;
-    if (pass.refused !== null) {
-      return {
-        kind: "park",
-        reason: "verify-failing",
-        cause: PARK_CAUSES.refused,
-        detail: `verify could not run: ${pass.refused}`,
-        endKind: "verify-failing",
-      };
-    }
-    if (!ctx.live()) return { kind: "continue" };
-    if (pass.passed) return null;
-    const failure = pass.failure ?? { command: "verify", exitCode: 1, output: "" };
-    const item = verifyFeedback(
-      {
-        step: "verify",
-        command: failure.command,
-        exitCode: failure.exitCode,
-        output: failure.output,
-      },
-      {
-        root,
-        itemMax: feedbackItemMax(config, run.tier),
-        budget: runBudgetFacts(ctx.office, run, this.#deps.clock.now()),
-      },
-    );
-    // A done turn that crossed a cap has no turn left for feedback; `capped` wins over `loops`.
-    if (ctx.capped != null) {
-      return {
-        kind: "park",
-        reason: "verify-failing",
-        cause: PARK_CAUSES.capped,
-        detail: item.text,
-        endKind: "verify-failing",
-      };
-    }
-    const loopCap = runCaps(ctx.office, run).loopCap;
-    if (loop + 1 >= loopCap) {
-      return {
-        kind: "park",
-        reason: "verify-failing",
-        cause: PARK_CAUSES.loops,
-        detail: `verify failed ${loop + 1} of ${loopCap} times (the tier loop cap). ${item.text}`,
-        endKind: "verify-failing",
-      };
-    }
-    ctx.write(() => {
-      const at = this.#deps.clock.now();
-      appendRunStep(ctx.office, run.runId, "loop", String(loop + 1), at);
-      const marker = markPhase(ctx.office, run.runId, "build", at);
-      return [...marker, phaseEntry(ctx, "build")];
-    });
-    return { kind: "feedback", text: item.text };
   }
 
   /**
@@ -929,9 +594,7 @@ export class VerifyCommit implements RunFinisher {
     return this.#commit(ctx, {
       report,
       view,
-      code: [],
       loop: loopsOf(ctx.office, run.runId),
-      box: true,
     });
   }
 
@@ -952,50 +615,6 @@ export class VerifyCommit implements RunFinisher {
     const branchScripts = scriptsOf(await show(`refs/heads/${run.branch}`));
     const changes = gateChanges({ baseScripts, branchScripts, base, branch: base });
     ctx.office.immediate(() => recordGateChanges(ctx.office, run.runId, changes));
-  }
-
-  /** Verify on the Mac: DIPO-37's sandboxed step with the verify policy, in the worktree. */
-  #macRunner(ctx: TurnContext, config: OfficeConfig): VerifyRunner {
-    const { run } = ctx;
-    const worktree = run.worktree as string;
-    let env: Readonly<Record<string, string>> | null = null;
-    return {
-      // Without a `verify` entry the step does not start, so it never times out.
-      minutes: config.timeouts.scriptMinutes["verify"] ?? VERIFY_MINUTES_DEFAULT,
-      run: (command, onOutput) => {
-        env ??= this.#runEnv(ctx, config, worktree);
-        return this.#deps.runStep({
-          kind: "verify",
-          script: "verify",
-          command,
-          worktree,
-          mainCheckout: this.#deps.mainCheckout(ctx.office.officeId),
-          home: this.#deps.host.home,
-          uid: this.#deps.host.uid,
-          sandbox: {
-            installCachePaths: config.sandbox.installCachePaths,
-            registryHosts: config.sandbox.registryHosts,
-          },
-          scriptMinutes: config.timeouts.scriptMinutes,
-          env: this.#deps.host.env,
-          extraEnv: env,
-          onOutput,
-        });
-      },
-    };
-  }
-
-  #runEnv(ctx: TurnContext, config: OfficeConfig, worktree: string): Record<string, string> {
-    const { run } = ctx;
-    return buildRunEnv({
-      slot: run.slot ?? 0,
-      stride: config.worktree.ports.stride,
-      story: run.story as string,
-      worktree,
-      named: config.worktree.ports.named,
-      devPort: devPortOf(this.#deps.profile(ctx.office)),
-      env: config.worktree.env,
-    });
   }
 
   async summarize(
@@ -1024,13 +643,12 @@ export class VerifyCommit implements RunFinisher {
   async #diffstat(office: OfficeId, run: StoredRun): Promise<string> {
     if (run.worktree === null || run.startSha === null) return "";
     try {
-      // A box run's changes are its part commits; its Mac worktree holds none of them.
-      const box = this.#deps.parts?.isBoxRun(office, run) === true;
+      // The run's changes are its part commits on the branch; its Mac worktree holds none of them.
       return await this.#deps.story.diffstat(
         office,
         run.worktree,
         run.startSha,
-        box && run.branch !== null ? run.branch : undefined,
+        run.branch ?? undefined,
       );
     } catch (error) {
       this.#deps.warn?.("the run diffstat could not be read", {
@@ -1041,108 +659,13 @@ export class VerifyCommit implements RunFinisher {
     }
   }
 
-  /** The verify steps and the gate changes, recorded on the run. */
-  async #plan(
-    ctx: TurnContext,
-    base: RunProfile | null,
-    branch: RunProfile,
-  ): Promise<VerifyStep[]> {
-    const { run } = ctx;
-    const worktree = run.worktree as string;
-    const officeId = ctx.office.officeId;
-    const claim = findClaim(ctx.office, run.runId);
-    const baseSha = claim?.baseSha ?? run.startSha;
-    const baseScripts =
-      baseSha === null
-        ? {}
-        : scriptsOf(await this.#deps.story.showAt(officeId, worktree, baseSha, "package.json"));
-    const branchScripts = scriptsOf(
-      await readFile(join(worktree, "package.json"), "utf8").catch(() => null),
-    );
-    const changes = gateChanges({ baseScripts, branchScripts, base, branch });
-    ctx.office.immediate(() => recordGateChanges(ctx.office, run.runId, changes));
-    return verifyPlan({ base, branch, changed: changes.length > 0 });
-  }
-
-  /** Runs every verify step through `runner`; stops at the first failing command. */
-  async #verify(
-    ctx: TurnContext,
-    config: OfficeConfig,
-    steps: readonly VerifyStep[],
-    loop: number,
-    runner: VerifyRunner,
-  ): Promise<PassResult> {
-    const { run } = ctx;
-    if (steps.length === 0) {
-      return { passed: false, failure: null, refused: "the run profile has no resolved verify" };
-    }
-    for (const step of steps) {
-      if (step.spec.cwd !== ".") {
-        return {
-          passed: false,
-          failure: null,
-          refused: `verify runs in ${step.spec.cwd}, but dipo runs verify only at the worktree root`,
-        };
-      }
-      const sink = new OutputSink(ctx, this.#deps.clock);
-      const started = this.#deps.clock.now();
-      let exited: (StepResult & { outcome: "exited" }) | null = null;
-      let failure: PassResult["failure"] = null;
-      for (const command of step.spec.commands) {
-        const [program, ...args] = command;
-        if (program === undefined) continue;
-        const shown = shownSpec({ commands: [command], cwd: "." });
-        sink.write(`$ ${shown}\n`);
-        const result = await runner.run([program, ...args], (text) => sink.write(text));
-        if (result.outcome === "startFailed") {
-          sink.write(`dipo: verify did not start: ${result.reason}\n`);
-          sink.close();
-          return { passed: false, failure: null, refused: result.reason };
-        }
-        exited = result;
-        if (result.timedOut || result.code !== 0) {
-          const why = result.timedOut ? `\n[dipo: timed out after ${runner.minutes} min]` : "";
-          failure = {
-            command: shown,
-            exitCode: result.code ?? -1,
-            output: `${result.stdout.text}${result.stderr.text}${why}`,
-          };
-          break;
-        }
-      }
-      const range = sink.close();
-      const passed = failure === null;
-      ctx.write(() => {
-        insertVerifyResult(ctx.office, run.runId, {
-          loop,
-          profile: step.profile,
-          commands: step.spec.commands,
-          exitCode: exited?.code ?? (passed ? 0 : null),
-          signal: exited?.signal ?? null,
-          timedOut: exited?.timedOut ?? false,
-          passed,
-          durationMs: this.#deps.clock.now() - started,
-          outputFrom: range.from,
-          outputTo: range.to,
-          at: this.#deps.clock.now(),
-        });
-        return [progressEntry(ctx)];
-      });
-      if (failure !== null) return { passed: false, failure, refused: null };
-    }
-    return { passed: true, failure: null, refused: null };
-  }
-
-  /** The commit steps of a green verify; the run's end is claimed. */
+  /** The steps at In Review once the last part is in; the run's end is claimed. */
   async #commit(
     ctx: TurnContext,
     input: {
       readonly report: WorkerReport;
       readonly view: { taskFile: string; title: string; criteria: readonly number[] };
-      readonly code: readonly string[];
       readonly loop: number;
-      /** A box run: its code arrived in parts, so nothing is staged here. */
-      readonly box: boolean;
     },
   ): Promise<TurnDecision> {
     const { run } = ctx;
@@ -1151,14 +674,6 @@ export class VerifyCommit implements RunFinisher {
     const story = run.story as string;
     const git = this.#deps.story;
     try {
-      if (!input.box) {
-        await git.commitPaths(
-          officeId,
-          worktree,
-          input.code,
-          commitMessage(story, input.report.commitSubject, input.view.title),
-        );
-      }
       const key = await git.codeTreeKey(officeId, worktree, input.view.taskFile);
       ctx.office.immediate(() => recordCodeTreeKey(ctx.office, run.runId, input.loop, key));
       const known = new Set(input.view.criteria);
@@ -1193,11 +708,11 @@ export class VerifyCommit implements RunFinisher {
         endKind: "conflict",
       };
     }
-    // The dependency files the run committed (DIPO-84): a box run's from its parts on the branch.
+    // The dependency files the run committed (DIPO-84), from its parts on the branch.
     const committed =
-      input.box && run.startSha !== null
-        ? await git.changedFiles(officeId, run.branch as string, run.startSha).catch(() => [])
-        : input.code;
+      run.startSha === null
+        ? []
+        : await git.changedFiles(officeId, run.branch as string, run.startSha).catch(() => []);
     const diffstat = await this.#diffstat(officeId, run);
     ctx.flushOutput();
     ctx.write(() => {
@@ -1263,6 +778,26 @@ export class VerifyCommit implements RunFinisher {
   }
 }
 
+/** True when the story's task file was refused for fields dipo does not know (0021 section 14). */
+function isTaskFieldError(error: unknown): error is GitError {
+  return error instanceof GitError && error.code === TASK_FIELD_ERROR;
+}
+
+function scopePark(cause: string, detail: string): TurnDecision {
+  return { kind: "park", reason: "scope-violation", cause, detail, endKind: "scope-violation" };
+}
+
+/** Loops started so far in the run (0-based index of the current verify pass). */
+function loopsOf(office: OfficeHandle, runId: RunId): number {
+  return (
+    office.get<{ n: number }>(
+      `select count(*) as n from run_steps where office_id = $office_id and run_id = $run
+        and kind = 'loop'`,
+      { run: runId },
+    )?.n ?? 0
+  );
+}
+
 /**
  * The done reports a run may have refused for its test plan (DIPO-186): the one that reaches it
  * parks `verify-failing` with cause `loops` instead of another refusal turn, so a worker that
@@ -1305,122 +840,4 @@ export function runnableCommand(command: CheckCommand): string {
   return command.cwd === "." || command.cwd === ""
     ? command.text
     : `cd ${command.cwd} && ${command.text}`;
-}
-
-/** Workspace package directories of the base and the branch profile, each once. */
-export function workspaceDirsOf(base: RunProfile | null, branch: RunProfile): string[] {
-  const dirs = [...(base?.toolchain.workspaces ?? []), ...branch.toolchain.workspaces];
-  return [...new Set(dirs.map((ws) => ws.dir))];
-}
-
-/** The feedback item budget of the run's tier, the `M` entry when the tier has none. */
-export function feedbackItemMax(config: Pick<OfficeConfig, "prompt">, tier: string | null): number {
-  const budgets = config.prompt.budgets.feedbackItem as Readonly<Record<string, number>>;
-  return (tier === null ? undefined : budgets[tier]) ?? config.prompt.budgets.feedbackItem.M;
-}
-
-/** True when the story's task file was refused for fields dipo does not know (0021 section 14). */
-function isTaskFieldError(error: unknown): error is GitError {
-  return error instanceof GitError && error.code === TASK_FIELD_ERROR;
-}
-
-function scopePark(cause: string, detail: string): TurnDecision {
-  return { kind: "park", reason: "scope-violation", cause, detail, endKind: "scope-violation" };
-}
-
-function devPortOf(profile: RunProfile | null): number | null {
-  const ports = profile?.devPorts ?? [];
-  return (ports.find((port) => port.dir === ".") ?? ports[0])?.port ?? null;
-}
-
-/** Loops started so far in the run (0-based index of the current verify pass). */
-function loopsOf(office: OfficeHandle, runId: RunId): number {
-  return (
-    office.get<{ n: number }>(
-      `select count(*) as n from run_steps where office_id = $office_id and run_id = $run
-        and kind = 'loop'`,
-      { run: runId },
-    )?.n ?? 0
-  );
-}
-
-function progressOf(ctx: TurnContext): Progress {
-  const progress = runProgress(ctx.office, ctx.run.runId);
-  if (progress === null) throw new Error(`run ${ctx.run.runId} is not recorded`);
-  return progress;
-}
-
-function phaseEntry(ctx: TurnContext, phase: "verify" | "build"): NewEntry {
-  return {
-    type: "work.phase",
-    key: ctx.work.key,
-    run: ctx.run.runId,
-    delta: { work: ctx.work, phase, progress: progressOf(ctx) },
-  };
-}
-
-function progressEntry(ctx: TurnContext): NewEntry {
-  return {
-    type: "work.progress",
-    key: ctx.work.key,
-    run: ctx.run.runId,
-    delta: { work: ctx.work, progress: progressOf(ctx) },
-  };
-}
-
-/**
- * Verify output on its way to `output_chunks` and `work.output`: buffered for `OUTPUT_FLUSH_MS`,
- * then stored and emitted in one transaction, so a client sees it while verify runs.
- */
-class OutputSink {
-  readonly #ctx: TurnContext;
-  readonly #clock: VerifyCommitDeps["clock"];
-  #buffer = "";
-  #timer: ReturnType<Clock["setTimeout"]> | null = null;
-  #from: number | null = null;
-  #to: number | null = null;
-
-  constructor(ctx: TurnContext, clock: VerifyCommitDeps["clock"]) {
-    this.#ctx = ctx;
-    this.#clock = clock;
-  }
-
-  write(text: string): void {
-    this.#buffer += text;
-    if (this.#timer === null) {
-      this.#timer = this.#clock.setTimeout(() => {
-        this.#timer = null;
-        this.#flush();
-      }, OUTPUT_FLUSH_MS);
-    }
-  }
-
-  #flush(): void {
-    const text = this.#buffer;
-    if (text === "") return;
-    this.#buffer = "";
-    const ctx = this.#ctx;
-    ctx.write(() => {
-      const range = appendVerifyOutput(ctx.office, ctx.run.runId, text, this.#clock.now());
-      this.#from ??= range.from;
-      this.#to = range.to;
-      return [
-        {
-          type: "work.output",
-          key: ctx.work.key,
-          run: ctx.run.runId,
-          delta: { work: ctx.work, source: "verify", from: range.from, to: range.to, text },
-        },
-      ];
-    });
-  }
-
-  /** Stores what is left and returns the byte range of everything written. */
-  close(): { readonly from: number; readonly to: number } {
-    if (this.#timer !== null) this.#clock.clearTimeout(this.#timer);
-    this.#timer = null;
-    this.#flush();
-    const end = this.#to ?? verifyOutputEnd(this.#ctx.office, this.#ctx.run.runId);
-    return { from: this.#from ?? end, to: end };
-  }
 }

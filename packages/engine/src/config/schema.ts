@@ -109,6 +109,8 @@ const timeoutsShape = {
   workerStallMinutes: count(),
   workerQuietMinutes: count(),
   questionWaitMinutes: count(),
+  // Read by nothing since the permission relay went (DIPO-240); kept so existing office files
+  // stay valid, and dropped in a later config version.
   permissionWaitSeconds: count(),
   // 0013 section 1: one timeout per script the engine runs, by script name.
   scriptMinutes: z.record(text(), count()),

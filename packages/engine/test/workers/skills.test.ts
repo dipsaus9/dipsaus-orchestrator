@@ -1,4 +1,4 @@
-// Skills in worker sessions (DIPO-130): every session, the self-test included, is planned with
+// Skills in worker sessions (DIPO-130): every session, a reviewer's and a box developer's, is planned with
 // `--disable-slash-commands`, so no skill loads and a steer that starts with `/` expands nothing;
 // a session whose `system/init` still lists a skill is stopped at its `system/init`
 // (`startRefused`) and ends `startFailed` naming the skills, its turn carrying no report, while the
@@ -6,37 +6,25 @@
 
 import { describe, expect, it } from "bun:test";
 
-import type { Spawn } from "@dipsaus-orchestrator/contract";
-import { type FakeProcess, ManualClock, type Recording } from "@dipsaus-orchestrator/testkit";
+import { ManualClock, type Recording } from "@dipsaus-orchestrator/testkit";
+
+import type { BoxSession } from "../../src/box/workers";
+import { boxClaudeArgv } from "../../src/workers/claude-cli/box-plan";
 
 import { claudeCliAdapter } from "../../src/workers/claude-cli/adapter";
 import { initialState, interpret } from "../../src/workers/claude-cli/interpret";
-import { prepareLaunch } from "../../src/workers/claude-cli/launch-checks";
-import { CLAUDE_CLI_ADAPTER_ID, plan } from "../../src/workers/claude-cli/plan";
+import { plan } from "../../src/workers/claude-cli/plan";
 import { result } from "../../src/workers/claude-cli/result";
-import { selfTestLayout } from "../../src/workers/claude-cli/self-test";
 import { DISABLE_SLASH_COMMANDS, skillRefusal } from "../../src/workers/claude-cli/skills";
-import { AdapterHolds } from "../../src/workers/hold";
 import type { ParseState } from "../../src/workers/types";
 import { hostLines } from "../ingest/helpers";
 import {
-  ADMIN_DIR,
-  BLOCKED_RESULTS,
   context,
-  credentialSteps,
-  HOME,
   initPlugin,
-  MAIN,
-  MemoryFs,
-  reachedStandIn,
-  scriptedClaude,
-  SELF_TEST_SESSION,
-  selfTestSession,
+  reviewContext,
+  reviewSpec,
   spec,
-  TMP_DIR,
-  TOOLS,
   withoutSkills,
-  WORKDIR,
 } from "./launch-fixtures";
 import { loadRecording, replay } from "./replay";
 
@@ -75,22 +63,24 @@ const initLine = (fields: Record<string, unknown> = {}) => ({
   })}\n`,
 });
 
+/** A box developer's argv (DIPO-240): only its system file comes from the box session. */
+const BOX_DEVELOPER_ARGV = boxClaudeArgv(spec(), { systemFile: "/dipo/system.md" } as BoxSession);
+
 const checking = () => initialState({ plannedModel: "haiku", refuseSkills: true });
 
 describe("(unit) the plan disables slash commands and skills", () => {
   it("passes --disable-slash-commands once, on a launch and on a resume", () => {
     for (const resume of [false, true]) {
       const launch = plan(
-        spec({ session: { id: spec().session.id, resume } }),
-        context({ plugins: { installed: [], allowed: [] } }),
+        reviewSpec({ session: { id: reviewSpec().session.id, resume } }),
+        reviewContext({ plugins: { installed: [], allowed: [] } }),
       );
       expect(launch.argv.filter((flag) => flag === DISABLE_SLASH_COMMANDS)).toHaveLength(1);
     }
   });
 
-  it("passes it whatever the role's tools, Skill included (no session has grants yet)", () => {
-    const launch = plan(spec({ tools: { allow: ["Read", "Skill"], deny: [] } }), context());
-    expect(launch.argv).toContain(DISABLE_SLASH_COMMANDS);
+  it("passes it in a box developer's session too (DIPO-240)", () => {
+    expect(BOX_DEVELOPER_ARGV).toContain(DISABLE_SLASH_COMMANDS);
   });
 });
 
@@ -213,95 +203,5 @@ describe("(engine) the adapter checks skills on every launch", () => {
       state = adapter.interpret(line, state).state;
     }
     expect(adapter.result(state, { code: 0, signal: null }).outcome).toBe("done");
-  });
-});
-
-describe("(engine) skills in the self-test session", () => {
-  const LAYOUT = selfTestLayout({
-    main: MAIN,
-    workdir: WORKDIR,
-    adminDir: ADMIN_DIR,
-    tmpDir: TMP_DIR,
-    nonce: SELF_TEST_SESSION.replaceAll("-", "").slice(0, 16),
-    tools: TOOLS,
-    home: HOME,
-  });
-
-  function run(
-    skills: readonly string[],
-    init: Record<string, unknown> = {},
-    ctx: Parameters<typeof context>[0] = {},
-  ) {
-    const clock = new ManualClock();
-    const holds = new AdapterHolds({ clock, notify: () => undefined });
-    const fs = new MemoryFs();
-    const sessions: FakeProcess[] = [];
-    const calls: (readonly string[])[] = [];
-    const base = scriptedClaude(clock, {
-      session: withInitSkills(selfTestSession([LAYOUT.command]), skills, init),
-      onSession: () => {
-        fs.files.set(LAYOUT.resultsFile, BLOCKED_RESULTS);
-        fs.files.set(LAYOUT.controlFile, "");
-      },
-    });
-    const spawn: Spawn = (options) => {
-      const child = base.spawn(options);
-      if (options.cmd.includes("-p")) {
-        sessions.push(child as FakeProcess);
-        calls.push(options.cmd);
-      }
-      return child;
-    };
-    const launch = prepareLaunch(spec(), context(ctx), holds, {
-      spawn,
-      clock,
-      selfTestSessionId: SELF_TEST_SESSION,
-      standIn: reachedStandIn(),
-      platform: "darwin",
-      runStep: credentialSteps().runStep,
-      uid: 501,
-      allowProjectSettings: [],
-      readText: async () => undefined,
-      fs,
-    });
-    return { launch, holds, sessions, calls };
-  }
-
-  it("plans the self-test session with --disable-slash-commands and passes on skills: []", async () => {
-    const { launch, holds, sessions, calls } = run([]);
-    expect((await launch).ok).toBe(true);
-    expect(holds.adapterHeld(CLAUDE_CLI_ADAPTER_ID)).toBeNull();
-    expect(calls).toHaveLength(1);
-    expect(calls[0]).toContain(DISABLE_SLASH_COMMANDS);
-    expect(sessions[0]?.signals).toEqual([]);
-  });
-
-  it("refuses startFailed, stopping the session at system/init before its Bash call", async () => {
-    const { launch, holds, sessions } = run(["x"]);
-    expect(await launch).toMatchObject({ ok: false, outcome: "startFailed" });
-    const hold = holds.adapterHeld(CLAUDE_CLI_ADAPTER_ID);
-    expect(hold).toMatchObject({ check: "self-test", key: "skills" });
-    expect(hold?.detail).toContain("system/init lists skill x");
-    expect(hold?.failures[0]?.fix).toContain(DISABLE_SLASH_COMMANDS);
-    expect(sessions).toHaveLength(1);
-    expect(sessions[0]?.signals).toEqual(["SIGTERM"]);
-  });
-
-  it("reports a rejected init, not the skills or plugins, when the key source fails too", async () => {
-    const warp = "warp@claude-code-warp";
-    for (const [init, ctx] of [
-      [{ apiKeySource: "user" }, {}],
-      [
-        { apiKeySource: "user", plugins: [initPlugin(warp)] },
-        { plugins: { installed: [warp], allowed: [] } },
-      ],
-    ] as const) {
-      const { launch, holds } = run(["x"], init, ctx);
-      expect(await launch).toMatchObject({ ok: false, outcome: "startFailed" });
-      const hold = holds.adapterHeld(CLAUDE_CLI_ADAPTER_ID);
-      expect(hold?.key).toBeUndefined();
-      expect(hold?.detail).toContain("ended initRejected: apiKeySource is user");
-      expect(hold?.detail).not.toContain("system/init lists");
-    }
   });
 });

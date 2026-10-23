@@ -1,41 +1,18 @@
-// The live scenarios of 0017 section 2 that `recordings:capture` runs, plus the 0008 live checks
-// (DIPO-41 AC #9). Every scenario runs on the `greeter` fixture with the cheapest model the launch
-// plan allows. Prompts are small and fixed; only their size and hash reach `meta.json`.
+// The live scenarios of 0017 section 2 that `recordings:capture` ran, plus the 0008 live checks
+// (DIPO-41 AC #9). Since every developer runs in its box (DIPO-240) only the review scenarios can be
+// captured again; the developer ones document their committed recordings. The launch self-test
+// scenarios went with the self-test. Every scenario runs on the `greeter` fixture with the
+// cheapest model the launch plan allows. Prompts are small and fixed; only their size and hash reach `meta.json`.
 
-import { existsSync, readFileSync, realpathSync, writeFileSync } from "node:fs";
-import { homedir } from "node:os";
+import { existsSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 
 import {
-  APPROVAL_COMMAND,
-  approvalFacts,
   assembleReviewTaskMessage,
-  claudeResult,
-  currentPlatform,
-  engineCredentialCheck,
-  initialClaudeState,
-  interpretClaudeLine,
-  judgeSelfTest,
-  PROBE_GROUPS,
   renderSystemFile,
   REVIEW_TOOLS,
-  runSandboxedStep,
-  selfTestBashCalls,
-  SELF_TEST_SYSTEM_PROMPT,
-  selfTestLayout,
-  systemClock,
-  systemSandboxHost,
 } from "../../packages/engine/src/index";
-import type {
-  ClaudeParseState,
-  CredentialCheckResult,
-  ProbeName,
-  PromptStory,
-  RunStep,
-  SelfTestDisk,
-  SelfTestTools,
-  StandInRequest,
-} from "../../packages/engine/src/index";
+import type { PromptStory } from "../../packages/engine/src/index";
 import type { Envelope } from "./format";
 import { isRecord } from "./format";
 
@@ -69,21 +46,11 @@ export interface Scenario {
   /** Turns of a second process started with `--resume` on the same session. */
   readonly resumeTurns?: readonly TurnText[];
   readonly expected: string;
-  /**
-   * Checks on disk and on the raw stream in memory; only the findings are stored. `requests` are
-   * the PermissionRequests the stand-in host of `standIn` received (empty without it).
-   */
+  /** Checks on disk and on the raw stream in memory; only the findings are stored. */
   readonly verify?: (
     paths: CapturePaths,
     raw: readonly Envelope[],
-    requests: readonly StandInRequest[],
   ) => Promise<Record<string, unknown>>;
-  /**
-   * A launch self-test session (DIPO-244): the capture starts the engine's host-protocol stand-in
-   * at the session's own socket (`selfTestSocketPath`), so the approval call's PermissionRequest
-   * gets dipo's deny as the engine's self-test gets it. The run settings then carry the hooks.
-   */
-  readonly standIn?: true;
   readonly timeoutMs: number;
   /**
    * Extra allow rules added to the run settings file for a diagnostic scenario. They only skip
@@ -477,137 +444,6 @@ const SCENARIOS_BASE: readonly Scenario[] = [
   },
 ];
 
-// DIPO-43 AC #8: the self-test command itself, one probe group per recording, under the launch
-// plan as it is. The capture judges it with the engine's own verdict over the raw stream and the
-// disk, and stores the disk facts and the verdict, so replay tests can judge the committed stream.
-
-/** The self-test's paths for a capture, the same the capture's verify and prompt use. */
-export function selfTestPaths(paths: CapturePaths) {
-  return {
-    main: paths.main,
-    workdir: paths.workdir,
-    adminDir: join(paths.main, ".git", "worktrees", "story"),
-    // The capture's sandbox temp directory (`capture.ts`).
-    tmpDir: join(paths.root, "tmp"),
-    // The temp repository is fresh for every capture.
-    nonce: "capture",
-    tools: captureTools(),
-  };
-}
-
-/** `perl` and `gh` as the engine runs them: absolute, symlinks resolved, from this PATH. */
-function captureTools(): SelfTestTools {
-  return { perl: findTool("perl"), gh: findTool("gh") };
-}
-
-function findTool(name: string): string {
-  const found = Bun.which(name);
-  if (found === null) throw new Error(`${name} is not on PATH; the self-test scenarios need it`);
-  return realpathSync(found);
-}
-
-/** The engine's credential check, run as the engine runs it: through `dipo daemon sandbox-exec`. */
-async function captureCredentialCheck(paths: CapturePaths): Promise<CredentialCheckResult> {
-  const platform = currentPlatform();
-  const runStep: RunStep = (request) =>
-    runSandboxedStep({ clock: systemClock, platform, host: systemSandboxHost(platform) }, request);
-  return engineCredentialCheck(runStep, {
-    platform,
-    gh: captureTools().gh,
-    worktree: paths.workdir,
-    mainCheckout: paths.main,
-    home: homedir(),
-    uid: process.getuid?.() ?? 0,
-    env: process.env,
-  });
-}
-
-function verifySelfTest(probes: readonly ProbeName[], credentials: boolean) {
-  return async (
-    paths: CapturePaths,
-    raw: readonly Envelope[],
-    requests: readonly StandInRequest[],
-  ): Promise<Record<string, unknown>> => {
-    const layout = selfTestLayout(selfTestPaths(paths), probes);
-    const results = existsSync(layout.resultsFile)
-      ? readFileSync(layout.resultsFile, "utf8")
-      : null;
-    const written = layout.targets.flatMap((target) =>
-      target.name !== "control" && target.name !== "pointer" && existsSync(target.path)
-        ? [target.name]
-        : [],
-    );
-    const pointer = readFileSync(join(paths.workdir, ".git"), "utf8");
-    const disk: SelfTestDisk = {
-      results,
-      written,
-      pointerChanged: pointer !== `gitdir: ${join(paths.main, ".git", "worktrees", "story")}\n`,
-      controlWritten: existsSync(layout.controlFile),
-    };
-    let state: ClaudeParseState = initialClaudeState({ plannedModel: "haiku" });
-    const denied: string[] = [];
-    let exit = { code: null as number | null, signal: null as string | null };
-    for (const line of raw) {
-      if (line.ch !== "stdout" && line.ch !== "exit") continue;
-      if (line.ch === "exit") exit = line.data as typeof exit;
-      const data = JSON.stringify(line.data);
-      const step = interpretClaudeLine(
-        { t: line.t, ch: line.ch, data: line.ch === "stdout" ? `${data}\n` : data },
-        state,
-      );
-      state = step.state as ClaudeParseState;
-      for (const event of step.events) if (event.t === "denied") denied.push(event.tool);
-    }
-    const outcome = claudeResult(state, exit).outcome;
-    // Recordings redact tool inputs, so the exact-command check is taken here, on the raw stream.
-    const stdout = raw
-      .filter((line) => line.ch === "stdout")
-      .map((line) => `${JSON.stringify(line.data)}\n`)
-      .join("");
-    // The two planned calls (DIPO-231): the probe, then the approval call dipo denies.
-    const bash = selfTestBashCalls(stdout, [layout.command, APPROVAL_COMMAND]);
-    // The stand-in's PermissionRequests decide whether the approval call reached dipo (as in
-    // `runSelfTest`); the stdout holds the call's tool result and the CLI's own denial.
-    const reached = requests.some(
-      (request) => request.tool === "Bash" && request.command === APPROVAL_COMMAND,
-    );
-    const approval = approvalFacts(stdout, reached);
-    const verdict = judgeSelfTest({ probes, outcome, denied, bash, approval, disk });
-    return {
-      disk,
-      bash,
-      approval,
-      verdict,
-      probes,
-      ...(credentials
-        ? {
-            // The engine-side half (0008 amendments): gh auth token and, on macOS, the Keychain
-            // lookup with -w under srt's verify policy, output to /dev/null, no model.
-            engineCredentialCheck: await captureCredentialCheck(paths),
-          }
-        : {}),
-    };
-  };
-}
-
-function selfTestScenario(name: keyof typeof PROBE_GROUPS, expected: string): Scenario {
-  const probes = PROBE_GROUPS[name];
-  return {
-    name,
-    fixture: "greeter",
-    model: "haiku",
-    effort: "low",
-    maxTurns: 6,
-    tools: ["Bash"],
-    turns: [(paths) => selfTestLayout(selfTestPaths(paths), probes).prompt],
-    expected,
-    verify: verifySelfTest(probes, name === "safety-gh-token"),
-    standIn: true,
-    systemPrompt: SELF_TEST_SYSTEM_PROMPT,
-    timeoutMs: 300_000,
-  };
-}
-
 // The review kind (DIPO-145; 0019 sections 4 and 5). Each scenario commits a change on the story
 // branch before the session, then gives the reviewer the review task message of a fixture story
 // about it, built by the engine's own assembly, under the reviewer's own system file.
@@ -804,18 +640,6 @@ export const SCENARIOS: readonly Scenario[] = [
     expected:
       "The same probes under the launch plan as it is: with --permission-prompts none and no Bash allow rule, every Bash call is denied by the permission layer before the sandbox runs it (decision_reason_type asyncAgent).",
   },
-  selfTestScenario(
-    "safety-gitdir-write",
-    "The DIPO-43 self-test command under the launch plan as it is, from a linked worktree: writes to <main>/.git, its worktree admin directory, refs and objects are refused inside the sandbox; the control write in the worktree succeeds; the session ends with a done report.",
-  ),
-  selfTestScenario(
-    "safety-pointer-write",
-    "The DIPO-43 self-test command under the launch plan as it is: appending one byte to the <worktree>/.git pointer is refused inside the sandbox and the pointer is unchanged on disk; the control write in the worktree succeeds; the session ends with a done report.",
-  ),
-  selfTestScenario(
-    "safety-gh-token",
-    "The DIPO-43 engine-side credential check (0008 amendments of 2026-10-13): the session runs no credential probe and makes only the control write, which succeeds; the session ends with a done report. checks.engineCredentialCheck holds the check: gh auth token and, on macOS, security find-generic-password -s gh:github.com -w run by the engine under srt's verify policy (output to /dev/null) and their non-zero exit codes, each taken from the marker line printed inside the sandbox.",
-  ),
   ...REVIEW_SCENARIOS,
 ];
 

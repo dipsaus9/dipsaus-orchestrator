@@ -41,8 +41,6 @@ import { executeRead } from "../../src/reads/execute";
 import {
   type BaseRead,
   backstopSnapshotOf,
-  type BackstopSnapshot,
-  endRun,
   findRun,
   type HostStarter,
   LAUNCH_NOTICES,
@@ -52,7 +50,7 @@ import {
   START_FAILED_END,
   WorkRun,
 } from "../../src/run";
-import { readShortTempRun, shortTempDir } from "../../src/run/temp-dirs";
+import { shortTempDir } from "../../src/run/temp-dirs";
 import { recordWorkerHost, type LaunchedHost } from "../../src/runs/worker-hosts";
 import { addStory } from "../../src/stories/keys";
 import {
@@ -61,30 +59,25 @@ import {
   claudeSessionFacts,
 } from "../../src/workers/claude-cli/adapter";
 import { encode } from "../../src/workers/claude-cli/encode";
+import { standInPlan } from "./stand-in-plan";
 import { type ClaudeParseState, initialState } from "../../src/workers/claude-cli/interpret";
 import { REPORT_JSON_SCHEMAS } from "../../src/workers/claude-cli/report-schema";
 import { CLAUDE_LOCAL_SETTINGS } from "../../src/workers/claude-cli/settings-check";
 import { result as claudeResult } from "../../src/workers/claude-cli/result";
 import { AdapterHolds, gateLaunch, type LaunchCheckOutcome } from "../../src/workers/hold";
 import type { RunLaunchPaths, WorkerPort } from "../../src/workers/port";
-import { type LaunchPlan, type ParseState, PlanError } from "../../src/workers/types";
+import { type LaunchPlan, type ParseState } from "../../src/workers/types";
 import type { ClaimOutcome, ClaimRequest, ClaimSetupFailed } from "../../src/worktree/claim";
 import { findClaim, insertClaim, releaseClaim, type ClaimRecord } from "../../src/worktree/records";
 import type { SetupOutcome } from "../../src/worktree/setup";
+import type { RunBoxes } from "../../src/box/lifetime";
 import type { StartTreeCheck } from "../../src/box/parts";
 import { BoxError } from "../../src/box/port";
 import type { BoxCacheUse, BoxWorkerInstall } from "../../src/box/workers";
 import type { RunProfile } from "../../src/scan/detect";
 import { addOffice, countRows, openTestState, type TestState } from "../commands/helpers";
-import { storeResolvedVerify } from "./verify-profile";
 
 const CLAUDE = "/opt/claude/bin/claude";
-const BACKSTOP: BackstopSnapshot = {
-  head: "a".repeat(40),
-  branch: "refs/heads/TASK-1/add-a-greeting",
-  stash: "",
-  backlogStatus: "",
-};
 const HOME = "/home/maintainer";
 const BLOCK = (id: string) =>
   ["```dipo", `branch: "${id}/add-a-greeting"`, "unknowns: []", "```"].join("\n");
@@ -190,11 +183,14 @@ interface World {
   releaseFails: boolean;
   readonly warnings: string[];
   gate: GateResult;
-  /** The verify tools check's refusal (DIPO-173); null passes. */
-  verifyRefusal: string | null;
   /** What the box workers were asked (DIPO-271), and whether making a box fails. */
   readonly boxCalls: string[];
   boxFails: boolean;
+  /**
+   * Whether the launcher has box workers: with them every run is a box run (DIPO-240); the tests
+   * of the launch itself leave them out, as a daemon with no box backend has none.
+   */
+  withBoxes: boolean;
   /** Each install in a box (DIPO-294): its commands, environment and deadline. */
   readonly boxInstalls: {
     commands: readonly (readonly string[])[];
@@ -266,9 +262,9 @@ beforeEach(async () => {
     releaseFails: false,
     warnings: [] as string[],
     gate: { mode: "pickup", passed: true, failures: [] } as GateResult,
-    verifyRefusal: null,
     boxCalls: [] as string[],
     boxFails: false,
+    withBoxes: false,
     boxInstalls: [] as World["boxInstalls"],
     boxInstall: { ok: true } as BoxWorkerInstall,
     boxCache: { kind: "off" } as BoxCacheUse,
@@ -287,18 +283,14 @@ beforeEach(async () => {
     id: "claude-cli",
     reportSchema: REPORT_JSON_SCHEMAS,
     localSettings: CLAUDE_LOCAL_SETTINGS,
-    adapter: (paths, config) =>
-      claudeCliAdapter(ctxOf(paths, config), { spawn: neverSpawn, clock: t.clock }),
-    // The verify tools check (DIPO-173), scripted: it refuses with `w.verifyRefusal` when set.
-    checkVerify: async () => {
-      if (w.verifyRefusal !== null) throw new PlanError(w.verifyRefusal);
-    },
-    prepare: async (spec, paths, config, _checkSession, verify) => {
-      if (verify !== undefined && w.verifyRefusal !== null) throw new PlanError(w.verifyRefusal);
-      const plan = claudeCliAdapter(ctxOf(paths, config), {
-        spawn: neverSpawn,
-        clock: t.clock,
-      }).plan(spec);
+    // The Claude parser with a stand-in plan: the Claude CLI plans no developer on the Mac, and
+    // these tests launch without box workers (DIPO-240).
+    adapter: (paths, config) => ({
+      ...claudeCliAdapter(ctxOf(paths, config), { spawn: neverSpawn, clock: t.clock }),
+      plan: (spec) => standInPlan(spec, paths, CLAUDE),
+    }),
+    prepare: async (spec, paths) => {
+      const plan = standInPlan(spec, paths, CLAUDE);
       const gate = await gateLaunch("claude-cli", holds, async () => w.checks);
       return gate.ok ? { ok: true, plan } : gate;
     },
@@ -344,8 +336,6 @@ beforeEach(async () => {
     dependencies: async () => [],
     runtimeDir: join(dir, "runtime"),
     tmpRoot: join(dir, "tmp"),
-    // The backstop's run-start snapshot (DIPO-49), stored with the run (DIPO-93).
-    snapshot: async () => BACKSTOP,
     hosts,
     ingest: { start: (_office, _host, target) => w.ingested.push(target) },
     release: async (_office, claim, reason) => {
@@ -357,33 +347,37 @@ beforeEach(async () => {
     },
     workspace: (_git, path) => memoryWorkspace(path),
     warn: (message, fields) => w.warnings.push(`${message}: ${String(fields["reason"])}`),
-    // Box workers (DIPO-271), scripted.
-    boxes: {
-      create: async (input) => {
-        w.boxCalls.push(`create ${input.runId} at ${input.startCommit} in ${input.runDir}`);
-        if (w.boxFails) throw new Error("the image build failed");
-        return { name: `dipo-${input.runId}`, cache: w.boxCache };
-      },
-      discard: async (runId) => {
-        w.boxCalls.push(`discard ${runId}`);
-      },
-      install: async (input) => {
-        w.boxCalls.push(`install ${input.runId}`);
-        w.boxInstalls.push({
-          commands: input.commands,
-          env: input.env,
-          timeoutMs: input.timeoutMs,
-        });
-        if (w.boxInstallThrows !== null) throw w.boxInstallThrows;
-        return w.boxInstall;
-      },
-      changedSinceStart: async (input) => {
-        w.boxCalls.push(`check ${input.runId} at ${input.startSha}`);
-        return w.boxTree;
-      },
+    // Box workers (DIPO-271), scripted, while the test gives them.
+    get boxes(): RunBoxes {
+      return (w.withBoxes ? boxes : undefined) as RunBoxes;
     },
     profile: () => w.profile,
   });
+  const boxes: RunBoxes = {
+    create: async (input) => {
+      w.boxCalls.push(`create ${input.runId} at ${input.startCommit} in ${input.runDir}`);
+      if (w.boxFails) throw new Error("the image build failed");
+      return { name: `dipo-${input.runId}`, cache: w.boxCache };
+    },
+    discard: async (runId) => {
+      w.boxCalls.push(`discard ${runId}`);
+    },
+    install: async (input) => {
+      w.boxCalls.push(`install ${input.runId}`);
+      w.boxInstalls.push({
+        commands: input.commands,
+        env: input.env,
+        timeoutMs: input.timeoutMs,
+      });
+      if (w.boxInstallThrows !== null) throw w.boxInstallThrows;
+      return w.boxInstall;
+    },
+    changedSinceStart: async (input) => {
+      w.boxCalls.push(`check ${input.runId} at ${input.startSha}`);
+      return w.boxTree;
+    },
+    has: async () => "ready" as const,
+  };
 
   const read = (ids: readonly string[] | null): BaseRead => ({
     statuses: new Map(w.tasks.map((x) => [x.id, x.status])),
@@ -589,10 +583,11 @@ describe("work.run starts the worker of a claimed run", () => {
     expect(readFileSync(systemFile, "utf8")).toContain("developer");
     expect(host?.plan.stdin[0]).toContain("TASK-1");
     expect(host?.plan.env["GH_TOKEN"]).toBeUndefined();
-    // The short temp root (DIPO-118) is made before the plan, names its run and is DIPO_TMP.
+    // No run temp directory or short temp root is made on the Mac: the developer's temp files live
+    // in its box (DIPO-240).
     const shortTmp = shortTempDir(join(world.dir, "tmp"), runId);
-    expect(host?.plan.env["DIPO_TMP"]).toBe(shortTmp);
-    expect(readShortTempRun(shortTmp)).toBe(runId);
+    expect(existsSync(shortTmp)).toBe(false);
+    expect(existsSync(join(world.dir, "tmp"))).toBe(false);
 
     // The run row has the slot setup took; ingestion runs with the tier's budget.
     expect(findRun(world.office, runId)).toMatchObject({ slot: 3, model: caps.model, tier: "M" });
@@ -661,22 +656,13 @@ describe("work.run starts the worker of a claimed run", () => {
     expect(world.hosts).toHaveLength(1);
   });
 
-  it("plans the M0 developer tools and only the Bash PreToolUse entry with worker.web false (DIPO-164)", async () => {
+  it("plans the M0 developer tools with worker.web false (DIPO-164)", async () => {
     world.config = { ...OFFICE_DEFAULTS, worker: { ...OFFICE_DEFAULTS.worker, web: false } };
     story("TASK-1", "Ready");
     expect(resultOf<RunResult>(await run()).started).toHaveLength(1);
     const [host] = world.hosts;
     const argv: readonly string[] = host?.plan.argv ?? [];
     expect(argv[argv.indexOf("--tools") + 1]).toBe("Read,Edit,Write,Glob,Grep,Bash");
-    const settings = JSON.parse(
-      host?.plan.files.find((file) => file.name === "claude-settings.json")?.content ?? "{}",
-    ) as {
-      hooks: Record<string, Array<{ matcher?: string }>>;
-      permissions: { allow: string[] };
-    };
-    expect(settings.hooks["PreToolUse"]?.map((entry) => entry.matcher)).toEqual(["Bash"]);
-    expect(Object.keys(settings.hooks)).toContain("PermissionRequest");
-    expect(settings.permissions.allow.filter((rule) => rule.startsWith("Web"))).toEqual([]);
   });
 
   it("stores no prompt text with storePrompts off (DIPO-137)", async () => {
@@ -728,18 +714,10 @@ describe("work.run starts the worker of a claimed run", () => {
     }
   });
 
-  it("stores the backstop snapshot with the run before the host starts (DIPO-93 AC #4)", async () => {
+  it("takes no backstop snapshot: the developer never works in the Mac worktree (DIPO-240)", async () => {
     story("TASK-1", "Ready");
-    let atStart = null as BackstopSnapshot | null;
-    world.onHostStart = (runId) => {
-      atStart = backstopSnapshotOf(world.office, runId);
-    };
     const result = resultOf<RunResult>(await run());
     const runId = result.started[0]?.run as RunId;
-    expect(atStart).toEqual(BACKSTOP);
-    expect(backstopSnapshotOf(world.office, runId)).toEqual(BACKSTOP);
-    // The run's end clears it: the engine's own commit at the end moves what it compares.
-    world.office.immediate(() => endRun(world.office, runId, world.t.clock.now(), "done"));
     expect(backstopSnapshotOf(world.office, runId)).toBeNull();
   });
 
@@ -761,8 +739,8 @@ describe("work.run starts the worker of a claimed run", () => {
     expect(existsSync(join(world.dir, "repo", ".git", "dipo", "runs"))).toBe(true);
     const runs = join(world.dir, "repo", ".git", "dipo", "runs");
     expect(readdirSync(runs)).toEqual([]);
-    // Both run temp directories went with the rollback (DIPO-118).
-    expect(readdirSync(join(world.dir, "tmp"))).toEqual([]);
+    // No run temp directory was made to begin with (DIPO-240).
+    expect(existsSync(join(world.dir, "tmp"))).toBe(false);
   });
 
   it("repeats the launch checks on a run that names its story while the adapter is held, and lifts the hold", async () => {
@@ -816,11 +794,19 @@ describe("work.run starts the worker of a claimed run", () => {
 });
 
 describe("a box worker's run (DIPO-271)", () => {
-  it("makes no box for a run started without box", async () => {
+  beforeEach(() => {
+    world.withBoxes = true;
+  });
+
+  it("makes the box of every run, with or without work.run's box (DIPO-240)", async () => {
     story("TASK-1", "Ready");
     const plain = resultOf<RunResult>(await run({ stories: ["TASK-1"] }));
     expect(plain.started).toHaveLength(1);
-    expect(world.boxCalls).toEqual([]);
+    expect(world.boxCalls.map((call) => call.split(" ")[0])).toEqual([
+      "create",
+      "install",
+      "check",
+    ]);
   });
 
   it("makes the run's box from the claim's start commit before the launch checks", async () => {
@@ -904,6 +890,10 @@ function cacheNotices(): ReturnType<typeof entries> {
 }
 
 describe("the package cache of a box run (DIPO-295)", () => {
+  beforeEach(() => {
+    world.withBoxes = true;
+  });
+
   it("starts the run without a notice when the box got the cache", async () => {
     story("TASK-1", "Ready");
     world.boxCache = { kind: "mounted", path: "/cache/key", manager: "bun", filled: false };
@@ -979,6 +969,10 @@ function skipped(result: RunResult): { notice: string } {
 }
 
 describe("the install in a box run's box before its worker (DIPO-294)", () => {
+  beforeEach(() => {
+    world.withBoxes = true;
+  });
+
   it("runs the profile's install in the box after it is made and before the launch checks and the worker", async () => {
     story("TASK-1", "Ready");
     world.config = {
@@ -1125,10 +1119,10 @@ describe("the install in a box run's box before its worker (DIPO-294)", () => {
     expect(world.boxCalls.filter((call) => call.startsWith("discard"))).toHaveLength(2);
   });
 
-  it("runs no install for a run started without box", async () => {
+  it("runs the install in the box of a run started without box too (DIPO-240)", async () => {
     story("TASK-1", "Ready");
     resultOf<RunResult>(await run({ stories: ["TASK-1"] }));
-    expect(world.boxInstalls).toEqual([]);
+    expect(world.boxInstalls).toHaveLength(1);
   });
 });
 
@@ -1186,7 +1180,6 @@ describe("work.preview, the dry run", () => {
     expect(launch?.branch).toBe("TASK-1/add-a-greeting");
     expect(launch?.worktree).toBe(join(world.worktreeRoot, "TASK-1"));
     expect(launch?.argv[0]).toBe(CLAUDE);
-    expect(launch?.argv).toContain("--settings");
     expect(launch).toMatchObject({ model: caps.model, effort: caps.effort });
     expect(launch?.caps).toEqual({
       budgetTokens: caps.budgetTokens,
@@ -1198,13 +1191,8 @@ describe("work.preview, the dry run", () => {
     expect(launch?.envNames).toContain("PATH");
     expect(launch?.envNames).not.toContain("GH_TOKEN");
     expect(JSON.stringify(launch)).not.toContain("/usr/bin:/bin");
-    const settings = launch?.files.find((file) => file.name === "claude-settings.json");
-    expect(JSON.parse(settings?.content ?? "{}").sandbox.enabled).toBe(true);
     // The short temp root (DIPO-118) is a placeholder, as its name hashes the real run id.
     expect(launch?.envNames).toContain("DIPO_TMP");
-    expect(JSON.parse(settings?.content ?? "{}").sandbox.filesystem.allowWrite).toContain(
-      join(world.dir, "tmp", "dipo-t-<hash>"),
-    );
     expect(existsSync(join(world.dir, "tmp"))).toBe(false);
     expect(launch?.systemFile.text).toContain("developer");
     expect(launch?.taskMessage).toContain("TASK-1");
@@ -1257,28 +1245,5 @@ describe("work.preview, the dry run", () => {
     const result = resultOf<PreviewResult>(await preview());
     expect(result.launch).toBeNull();
     expect(result.problem).toContain('"["');
-  });
-
-  it("reports a refused verify tool as the problem, in the text of the launch's planRefused notice (DIPO-173)", async () => {
-    story("TASK-1", "Ready");
-    storeResolvedVerify(world.office, { commands: [["bun", "run", "verify"]], cwd: "." });
-    world.verifyRefusal =
-      "verify runs oxfmt (node_modules/.bin), which needs node (#! line), but node does not resolve on the worker's PATH";
-    const before = snapshot();
-    const result = resultOf<PreviewResult>(await preview());
-    expect(snapshot()).toEqual(before);
-    expect(result.story?.story).toBe("TASK-1");
-    expect(result.launch).toBeNull();
-
-    // The real launch of the same story refuses with the same PlanError: its notice is the problem.
-    const started = resultOf<RunResult>(await run());
-    expect(started.started).toEqual([]);
-    expect(world.hosts).toEqual([]);
-    const notice = entries().find(
-      (e) => e.type === "engine.notice" && e.delta["code"] === LAUNCH_NOTICES.planRefused,
-    );
-    expect(notice).toBeDefined();
-    expect(result.problem).toBe(String(notice?.delta["text"]));
-    expect(result.problem).toContain(world.verifyRefusal);
   });
 });

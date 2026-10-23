@@ -13,7 +13,7 @@ import { viewStory } from "../backlog/fields/write";
 import { type BacklogCli, runBacklog } from "../backlog/runner";
 import type { GitLocation } from "../git/hardened";
 import type { OfficeGit } from "../git/office";
-import { EXTERNAL_STEP_TIMEOUT_MS, GitError, type GitResult } from "../git/runner";
+import { GitError } from "../git/runner";
 import { type PushResult, pushBranch, statusPaths } from "../git/task-commit";
 import { editInStoryBacklog, inStoryBacklog, repoPath } from "../worktree/claim";
 
@@ -34,7 +34,7 @@ export interface WorktreeStory {
   readonly criteria: readonly number[];
 }
 
-/** The steps verify and commit runs in a story worktree. */
+/** The git steps of a story run on dipo's own copy: the worktree and the branch. */
 export interface StoryGit {
   snapshot(office: OfficeId, worktree: string): Promise<BackstopSnapshot>;
   /** Every modified, staged and untracked path (`git status --porcelain=v1 -z --untracked-files=all`). */
@@ -42,13 +42,6 @@ export interface StoryGit {
   story(office: OfficeId, worktree: string, id: string): Promise<WorktreeStory>;
   /** A file's text at `sha`, or null when the commit has no such file. */
   showAt(office: OfficeId, worktree: string, sha: string, path: string): Promise<string | null>;
-  /** Stages exactly `paths` and commits them; returns the commit, or null when nothing changed. */
-  commitPaths(
-    office: OfficeId,
-    worktree: string,
-    paths: readonly string[],
-    message: string,
-  ): Promise<string | null>;
   /** sha256 of `git ls-tree -r HEAD` without the story's own task file (0010 section 7). */
   codeTreeKey(office: OfficeId, worktree: string, taskFile: string): Promise<string>;
   /**
@@ -86,19 +79,6 @@ export function codeTreeKeyOf(tree: string, taskFile: string): string {
     .split("\0")
     .filter((entry) => entry !== "" && entry.slice(entry.indexOf("\t") + 1) !== taskFile);
   return createHash("sha256").update(kept.join("\0")).digest("hex");
-}
-
-async function commitOrFail(
-  run: (args: readonly string[]) => Promise<GitResult>,
-  message: string,
-): Promise<void> {
-  const committed = await run(["commit", "--quiet", "--no-verify", "-m", message]);
-  if (committed.code !== 0) {
-    throw new GitError(
-      "git.failed",
-      `git commit failed: ${committed.stderr.trim() || committed.stdout.trim() || `exit ${committed.code}`}`,
-    );
-  }
 }
 
 function at(git: OfficeGit, worktree: string): WorktreeLocation {
@@ -149,32 +129,6 @@ export function gitStoryOps(deps: {
       return git.run(async (session) => {
         const shown = await session.step(at(git, worktree), ["show", `${sha}:${path}`]);
         return shown.code === 0 ? shown.stdout : null;
-      });
-    },
-    commitPaths: (office, worktree, paths, message) => {
-      const git = gitOf(office);
-      return git.run(async (session) => {
-        if (paths.length === 0) return null;
-        const location = at(git, worktree);
-        await session.ok(location, ["--literal-pathspecs", "add", "--all", "--", ...paths]);
-        const staged = await session.step(location, [
-          "--literal-pathspecs",
-          "diff",
-          "--cached",
-          "--quiet",
-          "--",
-          ...paths,
-        ]);
-        if (staged.code === 0) return null;
-        // Only these paths: anything else staged stays out of the commit.
-        await commitOrFail(
-          (args) =>
-            session.step(location, ["--literal-pathspecs", ...args, "--", ...paths], {
-              timeoutMs: EXTERNAL_STEP_TIMEOUT_MS,
-            }),
-          message,
-        );
-        return (await session.ok(location, ["rev-parse", "--verify", "HEAD"])).trim();
       });
     },
     codeTreeKey: (office, worktree, taskFile) => {

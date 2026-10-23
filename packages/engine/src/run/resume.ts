@@ -67,9 +67,10 @@ import {
   TASK_PART,
 } from "../prompts/parts";
 import { BOX_RUN_FILE } from "../box/workers";
+import { BOX_LIFETIME_NOTICES, BoxLifetime, boxRebuiltText, type RunBoxes } from "../box/lifetime";
+import type { RunProfile } from "../scan/detect";
 import { gatherHandoff, type HandoffFacts, type LastVerify } from "../prompts/handoff";
 import { renderSystemFile } from "../prompts/system";
-import { verifyCommands } from "../scan/store";
 import { FEEDBACK_TEMPLATES, renderTemplate } from "../prompts/templates";
 import { withWorkViews } from "../views/work";
 import type { AdapterHold } from "../workers/hold";
@@ -84,6 +85,8 @@ import { runBudgetFacts } from "./budget-line";
 import { runCaps, runTotals } from "./caps";
 import {
   capsOf,
+  LAUNCH_NOTICES,
+  packageCacheSkippedText,
   runLaunchPaths,
   runWorkerSpec,
   systemHashOf,
@@ -95,7 +98,6 @@ import { openFeedbackOf } from "./open-feedback";
 import { renderRunPrompts, sessionUuid } from "./prompts";
 import type { StoredRun } from "./records";
 import { clearSignals } from "./signals";
-import { prepareRunTempDirs } from "./temp-dirs";
 import { verifyResults } from "./verify-records";
 import type { RunBase } from "./work-run";
 
@@ -136,8 +138,6 @@ export interface RunResumerDeps {
   readonly story: (office: OfficeId, run: StoredRun) => Promise<RunStoryFacts>;
   readonly runtimeDir: string;
   readonly tmpRoot: string;
-  /** The owner written into a fresh run temp directory (`RunTempDirs.owner`, DIPO-102). */
-  readonly tempOwner?: () => string | undefined;
   readonly hosts: HostStarter;
   readonly ingest: RunIngest;
   /** Run control: the new session is tracked before its ingestion starts. */
@@ -163,6 +163,14 @@ export interface RunResumerDeps {
   readonly hostExitWaitMs?: number;
   /** The checkout the context pack reads; `gitWorkspace` on the office git by default. */
   readonly workspace?: (git: OfficeGit, path: string) => Workspace;
+  /**
+   * The box workers (DIPO-278, DIPO-240): every developer session of a run with them runs in the
+   * run's box, which is rebuilt from the start commit and the delivered parts when it was lost
+   * (`BoxLifetime.ensure`). Without them no box is made or checked.
+   */
+  readonly boxes?: RunBoxes;
+  /** The office's current run profile, whose install a rebuilt box gets (DIPO-294). */
+  readonly profile?: (office: OfficeId) => RunProfile | null;
   /** The handoff facts of the worktree; `gatherHandoff` on the office git by default. */
   readonly handoff?: (
     office: OfficeHandle,
@@ -348,8 +356,9 @@ export class RunResumer implements NextSession {
     const paths = runLaunchPaths(git, deps, run.worktree, run.runId);
     const previous = previousAgent(office, run.runId, request.work.agent);
     const facts = previous.state === undefined ? null : deps.worker.sessionFacts(previous.state);
-    // A box worker's run reads the box contract in every session (DIPO-272).
-    const box = existsSync(join(paths.runDir, BOX_RUN_FILE));
+    // A box worker's run reads the box contract in every session (DIPO-272); with box workers every
+    // developer session is one, a run from before them included, whose box is made below.
+    const box = deps.boxes !== undefined || existsSync(join(paths.runDir, BOX_RUN_FILE));
     const systemFile = renderSystemFile(box ? "implement-box" : "implement", "developer");
     const systemHash = systemHashOf(systemFile);
 
@@ -435,8 +444,8 @@ export class RunResumer implements NextSession {
       this.#remaining(office, run, tier, request),
     );
     try {
+      // The developer's temp files live in its box: no run temp directory on the Mac (DIPO-240).
       ensurePrivateDir(paths.runDir);
-      prepareRunTempDirs(paths, run.runId, deps.tempOwner?.());
       if (!resume) writeFileSync(spec.systemFile, systemFile, { mode: 0o600 });
     } catch (error) {
       return {
@@ -445,8 +454,11 @@ export class RunResumer implements NextSession {
       };
     }
 
-    // The launch checks run before every launch and resume (0008 section 2), the verify tools
-    // check (DIPO-173) with them, on the office's resolved verify as the first launch reads it.
+    // The run's box lives from claim to merge; one that was lost is rebuilt first (DIPO-278).
+    const ensured = await this.#ensureBox(office, request, run, paths.runDir, git, config);
+    if (ensured !== null) return { kind: "failed", reason: ensured };
+
+    // The launch checks run before every launch and resume (0008 section 2).
     let prepared;
     try {
       prepared = await deps.worker.prepare(
@@ -454,7 +466,6 @@ export class RunResumer implements NextSession {
         paths,
         config,
         sessionUuid(`${agent}:launch-check`),
-        verifyCommands(office) ?? undefined,
       );
     } catch (error) {
       const why =
@@ -631,6 +642,73 @@ export class RunResumer implements NextSession {
       resumed: resume,
       ...(notResumed === undefined ? {} : { notResumed }),
     };
+  }
+
+  /**
+   * Makes sure the run's box is there before its next developer session (DIPO-278): null when it
+   * is, or was rebuilt (the maintainer is told what it was made from and that undelivered work is
+   * lost), else why it could not be. Without box workers there is nothing to check.
+   */
+  async #ensureBox(
+    office: OfficeHandle,
+    request: NextSessionRequest,
+    run: StoredRun,
+    runDir: string,
+    git: OfficeGit,
+    config: OfficeConfig,
+  ): Promise<string | null> {
+    const boxes = this.#deps.boxes;
+    if (boxes === undefined) return null;
+    const story = run.story ?? run.runId;
+    if (run.branch === null || run.startSha === null) {
+      return `${story}'s run has no branch or start commit to make its box from`;
+    }
+    const notices: NewEntry[] = [];
+    const lifetime = new BoxLifetime({
+      boxes,
+      ...(this.#deps.profile === undefined ? {} : { profile: this.#deps.profile }),
+      tmpRoot: this.#deps.tmpRoot,
+    });
+    const ensured = await lifetime.ensure(
+      {
+        office: request.office,
+        runId: run.runId,
+        runDir,
+        story,
+        branch: run.branch,
+        startSha: run.startSha,
+        slot: run.slot,
+        git,
+        config,
+      },
+      (reason, fallback) =>
+        notices.push({
+          type: "engine.notice",
+          key: request.work.key,
+          run: run.runId,
+          delta: {
+            level: "warn",
+            code: LAUNCH_NOTICES.packageCacheSkipped,
+            text: packageCacheSkippedText(story, reason, fallback),
+          },
+        }),
+    );
+    if (ensured.kind === "rebuilt") {
+      notices.push({
+        type: "engine.notice",
+        key: request.work.key,
+        run: run.runId,
+        delta: {
+          level: "warn",
+          code: BOX_LIFETIME_NOTICES.rebuilt,
+          text: boxRebuiltText(story, ensured),
+        },
+      });
+    }
+    if (notices.length > 0) this.#write(office, request.office, () => notices);
+    return ensured.kind === "failed"
+      ? `the run's box could not be made ready: ${ensured.reason}`
+      : null;
   }
 
   /**

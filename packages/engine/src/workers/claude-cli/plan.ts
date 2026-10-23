@@ -1,6 +1,13 @@
-// The Claude Code CLI launch plan (0008 section 2, 0014 sections 1 and 5). `plan` is pure: it
-// turns a WorkerSpec and the run's launch context into argv, an allowlisted environment, the run
-// settings file and the first stdin line, and refuses anything it cannot launch safely.
+// The Claude Code CLI launch plan of a reviewer session on the Mac (0008 section 2, 0019 section 4,
+// 0021 section 10). `plan` is pure: it turns a review WorkerSpec and the run's launch context into
+// argv, an allowlisted environment, the run settings file and the first stdin line, and refuses
+// anything it cannot launch safely.
+//
+// A developer session is never planned here (DIPO-240, 0021): it runs only in its story's box
+// (`box-plan.ts`), with no run settings file, Bash sandbox, permission rules or hooks. What stays
+// is the reviewer's: read-only tools on dipo's copy of the pushed commit, the web tools through
+// dipo's web proxy (DIPO-292) with the fail-closed web gate hook (DIPO-164), and the relay of its
+// other hooks to the worker host. `checkSpec` is shared with the box plan.
 
 import { posix } from "node:path";
 
@@ -10,22 +17,8 @@ import { SRT_DEFAULT_HOME_WRITE_PATHS, SRT_DEFAULT_WRITE_PATHS } from "../../san
 import { PlanError } from "../types";
 import type { LaunchPlan, WorkerKind, WorkerSpec } from "../types";
 import { userMessageLine } from "./encode";
-import {
-  DEFAULT_PERMISSION_WAIT_SECONDS,
-  HOOK_BUNFIG_FILE,
-  hookSettings,
-  WEB_TOOLS,
-} from "./hooks";
+import { HOOK_BUNFIG_FILE, hookSettings, WEB_TOOLS } from "./hooks";
 import { enabledPluginsSetting, type WorkerPlugins } from "./plugins";
-import {
-  PREVIEW_SAFE_CHAIN_ROUTE,
-  SAFE_CHAIN_SHELL_DIR,
-  safeChainShellFiles,
-  safeChainShellPath,
-  SHELL_SNAPSHOTS_DIR,
-  type SafeChainLaunch,
-  type SafeChainRoute,
-} from "./safe-chain";
 import { DISABLE_SLASH_COMMANDS } from "./skills";
 
 export const CLAUDE_CLI_ADAPTER_ID = "claude-cli";
@@ -43,34 +36,34 @@ export const CLOSED_WRITES_FILE = "sandbox-closed-writes.json";
 export const INCLUDE_PARTIAL_MESSAGES = "--include-partial-messages";
 
 // srt, the sandbox runtime under Claude Code's Bash sandbox, makes these paths writable for every
-// sandboxed command unless the settings deny them (DIPO-98). A worker writes only its worktree and
-// its run temp directory, so the run settings deny writes to each with `sandbox.filesystem.denyWrite`,
-// which srt honours over its defaults (measured with srt 0.0.79 on macOS; Claude Code 2.1.301
-// bundles the same defaults). Keyed by srt's own lists, so a new default needs a decision here.
+// sandboxed command unless the settings deny them (DIPO-98). A session writes only its run temp
+// directories, so the run settings deny writes to each with `sandbox.filesystem.denyWrite`, which
+// srt honours over its defaults (measured with srt 0.0.79 on macOS; Claude Code 2.1.301 bundles the
+// same defaults). Keyed by srt's own lists, so a new default needs a decision here.
 const CLOSED_HOME_WRITE_REASONS: Readonly<
   Record<(typeof SRT_DEFAULT_HOME_WRITE_PATHS)[number], string>
 > = {
   ".claude/debug":
     "srt opens it for Claude Code's debug logs, but Claude Code writes them from its own process outside the sandbox, so no sandboxed command needs it; it lies in the maintainer's Claude Code configuration directory.",
   ".npm/_logs":
-    "srt opens it for npm's debug logs. It is the maintainer's own npm log directory outside the sandbox, so worker code could leave files there that outlive the run; the worker environment sets npm_config_logs_dir to the run temp directory, so npm, Claude Code's own start-up npm call included, logs there instead.",
+    "srt opens it for npm's debug logs. It is the maintainer's own npm log directory outside the sandbox, so a session's commands could leave files there that outlive the run; the session environment sets npm_config_logs_dir to the run temp directory, so npm, Claude Code's own start-up npm call included, logs there instead.",
 };
 const CLOSED_WRITE_REASONS: Readonly<Record<(typeof SRT_DEFAULT_WRITE_PATHS)[number], string>> = {
   "/tmp/claude":
-    "srt's fallback temp directory, shared by every srt sandbox on the machine. Claude Code points its sandboxed commands at its own per-session temp directory and the run has its own temp directory, so a worker never needs it; closed, worker code cannot leave files there for other sandboxes.",
+    "srt's fallback temp directory, shared by every srt sandbox on the machine. Claude Code points its sandboxed commands at its own per-session temp directory and the run has its own temp directory, so a session never needs it; closed, its commands cannot leave files there for other sandboxes.",
   "/private/tmp/claude": "The same directory as /tmp/claude, as macOS resolves it.",
 };
 
 const CLOSED_WRITES_REASON =
-  "srt, the sandbox runtime under Claude Code's Bash sandbox, makes these paths writable for every sandboxed command unless the settings deny them. A worker writes only its worktree and its run temp directory, so the run settings deny writes to each (claude-settings.json, sandbox.filesystem.denyWrite; DIPO-98).";
+  "srt, the sandbox runtime under Claude Code's Bash sandbox, makes these paths writable for every sandboxed command unless the settings deny them. A session writes only its run temp directories, so the run settings deny writes to each (claude-settings.json, sandbox.filesystem.denyWrite; DIPO-98).";
 
-/** A path srt makes writable by default that the worker sandbox closes again (DIPO-98). */
+/** A path srt makes writable by default that the session sandbox closes again (DIPO-98). */
 export interface ClosedWritePath {
   readonly path: string;
   readonly reason: string;
 }
 
-/** Every srt default write path, made absolute against `home`, with why the worker may not write it. */
+/** Every srt default write path, made absolute against `home`, with why a session may not write it. */
 export function closedWritePaths(home: string): ClosedWritePath[] {
   return [
     ...SRT_DEFAULT_HOME_WRITE_PATHS.map((rel) => ({
@@ -81,8 +74,15 @@ export function closedWritePaths(home: string): ClosedWritePath[] {
   ];
 }
 
-/** Kinds this adapter plans: `implement` (D12, DIPO-15) and `review` (0019 section 4, DIPO-145). */
+/**
+ * Kinds this adapter plans: `implement` (D12, DIPO-15), only in a box (`box-plan.ts`), and
+ * `review` (0019 section 4, DIPO-145), on the Mac with `plan`.
+ */
 export const PLANNED_KINDS: readonly WorkerKind[] = ["implement", "review"];
+
+/** Why `plan` refuses a developer session (DIPO-240, 0021). */
+export const DEVELOPER_ON_MAC_REFUSED =
+  "a developer session runs only in its story's box (0021); dipo plans no developer on the Mac";
 
 /**
  * The only tools a `review` session may have (0021 section 10, DIPO-276): it reads the read-only
@@ -111,28 +111,23 @@ export const EMPTY_MCP_CONFIG_FILE = "mcp-empty.json";
 export const EMPTY_MCP_CONFIG = { mcpServers: {} } as const;
 
 /**
- * The launch context a `spec` is planned with. A `review` session (0019 section 4) runs with no
- * Safe-Chain proxy, since a reviewer installs nothing, and with no plugin the office allows its
- * workers: `worker.plugins` does not apply, so every installed plugin is switched off. With the
- * official Safe-Chain install it keeps the PATH `detectSafeChain` built (`reviewShell`), so bun
- * resolves in the reviewer sandbox, and closes the CLI's shell snapshot (DIPO-250).
+ * The launch context a review `spec` is planned with (0019 section 4): no plugin the office allows
+ * its workers, since `worker.plugins` does not apply to a reviewer, so every installed plugin is
+ * switched off.
  */
 export function kindContext(
   spec: Pick<WorkerSpec, "kind">,
   ctx: ClaudeLaunchContext,
 ): ClaudeLaunchContext {
-  if (spec.kind !== "review") return ctx;
-  const { safeChain, ...without } = ctx;
-  const rest: ClaudeLaunchContext =
-    safeChain === undefined ? without : { ...without, reviewShell: { path: safeChain.path } };
-  return rest.plugins === undefined ? rest : { ...rest, plugins: { ...rest.plugins, allowed: [] } };
+  if (spec.kind !== "review" || ctx.plugins === undefined) return ctx;
+  return { ...ctx, plugins: { ...ctx.plugins, allowed: [] } };
 }
 
 /** Variables passed through from the daemon's environment (0008 section 2). */
 export const ENV_ALLOWLIST = ["PATH", "HOME", "USER", "SHELL", "LANG", "TERM", "TMPDIR"] as const;
 
 // Names an office may never declare as tool variables: API keys and tokens that would move a
-// worker off the Max login or hand it a credential, the engine's own variables, and variables that
+// session off the Max login or hand it a credential, the engine's own variables, and variables that
 // change how processes start (loader, Node and shell startup) or where git resolves its repository.
 const REFUSED_TOOL_VARIABLE = /^(?:ANTHROPIC_|CLAUDE_|AWS_|DIPO_|LD_|DYLD_|GIT_)/;
 const REFUSED_TOOL_VARIABLES = new Set([
@@ -146,9 +141,8 @@ const REFUSED_TOOL_VARIABLES = new Set([
 const VARIABLE_NAME = /^[A-Za-z_][A-Za-z0-9_]*$/;
 
 // Git verbs that write or reach the network (0014 section 3): the engine handles every one of them.
-// Bash rules match the command text only (`sh -c`, aliases and scripts get past them), so they
-// guide the model and stop the obvious forms. The real boundary is the sandbox `denyWrite` on
-// `<main>/.git` and `<worktree>/.git` plus the closed network (0008 section 2).
+// The reviewer has no Bash, so these deny rules only keep its settings closed should a tool list
+// ever grow one.
 export const GIT_WRITE_VERBS = [
   "add",
   "am",
@@ -206,42 +200,17 @@ export interface ClaudeLaunchContext {
   /** The sandbox temp directory sandboxed commands may write. */
   readonly tmpDir: string;
   /**
-   * The run's short temp root (DIPO-118): the worker's `DIPO_TMP`, writable by sandboxed commands
-   * and the one place they may bind and reach Unix sockets.
-   * `claudeLaunchContext` always sets it; without it (the recordings capture) the worker gets no
-   * `DIPO_TMP`, and the sandbox no extra write path and no Unix sockets.
+   * The run's short temp root (DIPO-118): the session's `DIPO_TMP`, writable by sandboxed
+   * commands. `claudeLaunchContext` always sets it; without it (the recordings capture) the
+   * session gets no `DIPO_TMP` and the sandbox no extra write path.
    */
   readonly shortTmpDir?: string;
-  /** The office `mcp.json`, when the office has one. */
-  readonly mcpConfig?: string;
   /**
    * How to run this `dipo` (`selfCommand()`): the binary's `process.execPath`, or Bun with the
    * entry script when run from source. The hooks of the run settings file run `<it> hook <event>`
    * (0008 section 5), so they need no `PATH`. Required when the spec asks for the hook relay.
    */
   readonly hookCommand?: readonly [string, ...string[]];
-  /**
-   * `timeouts.permissionWaitSeconds` (0008 section 5): how long the `PermissionRequest` hook may
-   * wait for the maintainer; its hook timeout is 30 s above it. 300 by default.
-   */
-  readonly permissionWaitSeconds?: number;
-  /**
-   * The official Safe-Chain install found at launch (DIPO-82, DIPO-84), absent when there is none.
-   * Then Claude Code's shell is the wrapper in `shellDir` (`<runDir>/safe-chain` for a run; its
-   * self-test reuses the run's), the sandbox may read the wrapper directory, the shell snapshot
-   * and the proxy directory are read-denied, and the sandbox network is only `route.port`, dipo's
-   * Safe-Chain proxy. Without `route` (the dry run) the plan shows placeholders.
-   */
-  readonly safeChain?: SafeChainLaunch & {
-    readonly shellDir: string;
-    readonly route?: SafeChainRoute;
-  };
-  /**
-   * Set by `kindContext` for a review session on a machine with the official Safe-Chain install
-   * (DIPO-250): the worker PATH `detectSafeChain` built, which the reviewer gets as its PATH, and
-   * with it the CLI's shell snapshot is read-denied. A reviewer has no Safe-Chain shell, proxy or install.
-   */
-  readonly reviewShell?: { readonly path: string };
   readonly sandbox: Pick<
     OfficeConfig["sandbox"],
     "toolchainReadPaths" | "allowRead" | "allowedDomains" | "allowLocalBinding"
@@ -364,7 +333,7 @@ function webTools(spec: Pick<WorkerSpec, "tools">): boolean {
   return spec.tools.allow.some((tool) => WEB_TOOLS.includes(tool));
 }
 
-/** Where npm writes its debug logs in a worker run: the run temp directory (DIPO-98). */
+/** Where npm writes its debug logs in a session: the run temp directory (DIPO-98). */
 export const NPM_LOGS_SUBDIR = "npm-logs";
 // npm's log settings, which only dipo sets: an office value could point them back into home.
 const NPM_LOG_VARIABLE = /^npm_config_logs[-_]/i;
@@ -393,16 +362,11 @@ function environment(spec: WorkerSpec, ctx: ClaudeLaunchContext, paths: Paths) {
   env.DIPO_RUN = spec.run;
   env.DIPO_HOST_SOCKET = absolute("hostSocket", ctx.hostSocket);
   // Set by the engine, never taken from the daemon's environment (DIPO_ is not allowlisted and
-  // not an office tool variable): tests the worker runs keep their temp files and sockets here.
+  // not an office tool variable).
   if (paths.shortTmp !== undefined) env.DIPO_TMP = paths.shortTmp;
   // Claude Code runs `npm root --global` at start, outside the sandbox, and npm would write a
-  // debug log into <home>/.npm/_logs; every npm the worker runs inherits this too (DIPO-98).
+  // debug log into <home>/.npm/_logs (DIPO-98).
   env.npm_config_logs_dir = `${tmp}/${NPM_LOGS_SUBDIR}`;
-  if (ctx.safeChain !== undefined) {
-    env.CLAUDE_CODE_SHELL = safeChainShellPath(ctx.safeChain.shellDir, ctx.safeChain);
-  } else if (ctx.reviewShell !== undefined) {
-    env.PATH = ctx.reviewShell.path;
-  }
   // A reviewer's fetches, and every redirect they follow, tunnel through its web proxy; only the
   // model API goes direct (DIPO-292). Any other proxy variable, in either case, is dropped first:
   // an office tool variable such as `no_proxy` would otherwise send fetches around it.
@@ -437,18 +401,29 @@ function gitWriteVerbRules(verb: string): string[] {
 interface Paths {
   readonly home: string;
   readonly workdir: string;
-  /** A reviewer's read-only copy of the pushed commit (DIPO-276); undefined for a worker. */
-  readonly copy: string | undefined;
+  /** The reviewer's read-only copy of the pushed commit (DIPO-276). */
+  readonly copy: string;
   readonly main: string;
   readonly tmp: string;
   readonly shortTmp: string | undefined;
   readonly runDir: string;
 }
 
+/**
+ * A reviewer's permission rules (0021 section 10): its tool list has no Edit, Write or Bash, and
+ * the rules deny writes on its folder and on the copy as well. It reads only the copy, outside its
+ * working directory, so the copy is an added directory of the run settings (DIPO-276). That is
+ * never its project root: no project settings, hooks or MCP servers of the copy load. Claude Code
+ * can still find a few things in an added directory, so these guards keep them inert rather than
+ * the setting itself: skills and commands, by `--disable-slash-commands`; subagents, by no Agent
+ * or Task tool; plugin keys of the copy's settings, by `enabledPlugins` false for every installed
+ * plugin in the run settings and the refusal of any plugin `system/init` lists; its CLAUDE.md and
+ * rules files, by `claudeMdExcludes` and the variable that would load them never being set.
+ */
 function permissions(spec: WorkerSpec, paths: Paths) {
+  const { copy } = paths;
   const fileRules = (tool: "Edit" | "Write") => [
-    // `//` anchors at the root. `./` would follow the shell's current directory, so after a `cd`
-    // it would stop covering the worktree root (DIPO-193).
+    // `//` anchors at the root (DIPO-193).
     `${tool}(/${paths.workdir}/.git)`,
     `${tool}(/${paths.workdir}/.git/**)`,
     `${tool}(/${paths.workdir}/backlog/**)`,
@@ -470,161 +445,63 @@ function permissions(spec: WorkerSpec, paths: Paths) {
     "Read(~/.netrc)",
     ...GIT_WRITE_VERBS.flatMap(gitWriteVerbRules),
     ...commands("backlog"),
-    // With the hook relay the Bash check refuses every gh call but the help forms (DIPO-195): a deny
-    // rule cannot carve them out, and Bash(gh *) would deny `gh pr view --help` too.
-    ...(spec.hookRelay ? [] : commands("gh")),
+    ...commands("gh"),
     ...spec.tools.deny,
+    `Edit(/${paths.workdir}/**)`,
+    `Write(/${paths.workdir}/**)`,
+    `Edit(/${copy}/**)`,
+    `Write(/${copy}/**)`,
+    `Read(/${copy}/**/.env*)`,
   ];
-  // A reviewer is read-only (0021 section 10): its tool list has no Edit, Write or Bash, and the
-  // rules deny writes on its folder and on the copy as well. It reads only the copy, outside its
-  // working directory, so the copy is an added directory of the run settings (DIPO-276). That is
-  // never its project root: no project settings, hooks or MCP servers of the copy load. Claude Code
-  // can still find a few things in an added directory, so these guards keep them inert rather than
-  // the setting itself: skills and commands, by `--disable-slash-commands`; subagents, by no Agent
-  // or Task tool; plugin keys of the copy's settings, by `enabledPlugins` false for every installed
-  // plugin in the run settings and the refusal of any plugin `system/init` lists; its CLAUDE.md
-  // and rules files, by `claudeMdExcludes` and the variable that would load them never being set.
-  const copy = paths.copy;
-  if (spec.kind === "review" && copy !== undefined) {
-    deny.push(
-      `Edit(/${paths.workdir}/**)`,
-      `Write(/${paths.workdir}/**)`,
-      `Edit(/${copy}/**)`,
-      `Write(/${copy}/**)`,
-      `Read(/${copy}/**/.env*)`,
-    );
-    return {
-      allow: [`Read(/${copy}/**)`, ...WEB_TOOLS.filter((tool) => spec.tools.allow.includes(tool))],
-      deny: unique(deny),
-      additionalDirectories: [copy],
-      blockReadsOutsideWorkingDirectories: true,
-    };
-  }
   return {
-    // `Bash` needs an allow rule: under `--permission-prompts none` the permission layer denies
-    // every Bash call without one (0008 amendment of 2026-10-12, recording
-    // `safety-bash-prompts-none`). The deny rules above, the read block, the sandbox and the
-    // backstop stay the boundary.
-    // With `worker.web` the two web tools are allowed too: under `--permission-prompts none` a
-    // call nothing allows is denied (0020 section 11b). The `PreToolUse` hook is their check.
-    allow: [
-      `Read(/${paths.workdir}/**)`,
-      `Edit(/${paths.workdir}/**)`,
-      `Write(/${paths.workdir}/**)`,
-      "Bash",
-      ...WEB_TOOLS.filter((tool) => spec.tools.allow.includes(tool)),
-    ],
+    allow: [`Read(/${copy}/**)`, ...WEB_TOOLS.filter((tool) => spec.tools.allow.includes(tool))],
     deny: unique(deny),
+    additionalDirectories: [copy],
     blockReadsOutsideWorkingDirectories: true,
   };
 }
 
-/** The run's Safe-Chain proxy, or the dry run's placeholders. */
-function safeChainRoute(ctx: ClaudeLaunchContext): SafeChainRoute {
-  return ctx.safeChain?.route ?? PREVIEW_SAFE_CHAIN_ROUTE;
-}
-
-/** The office's network: closed unless it allows domains (0008 section 2). */
-function closedNetwork(ctx: ClaudeLaunchContext) {
-  return {
-    allowedDomains: unique(ctx.sandbox.allowedDomains),
-    strictAllowlist: true,
-    allowLocalBinding: ctx.sandbox.allowLocalBinding,
-  };
-}
-
 /**
- * With Safe-Chain (DIPO-84): the sandbox's HTTP proxy is dipo's Safe-Chain proxy, so every request
- * a command makes through it reaches only the registries Safe-Chain checks, and Claude Code's own
- * SOCKS proxy allows no domain. Local binding stays off: it would let worker code reach every local
- * port. An office that allows domains or local binding cannot run with it; dipo refuses rather
- * than route that traffic around Safe-Chain or drop the setting.
- */
-function safeChainNetwork(ctx: ClaudeLaunchContext) {
-  if (ctx.sandbox.allowedDomains.length > 0) {
-    throw new PlanError(
-      `sandbox.allowedDomains (${ctx.sandbox.allowedDomains.join(", ")}) cannot be used while Safe-Chain is installed: worker network goes only through dipo's Safe-Chain proxy to the package registries; remove the setting from .dipo/office.yaml`,
-    );
-  }
-  if (ctx.sandbox.allowLocalBinding) {
-    throw new PlanError(
-      "sandbox.allowLocalBinding cannot be true while Safe-Chain is installed: worker code would reach every local port, Safe-Chain's own proxy included; remove the setting from .dipo/office.yaml",
-    );
-  }
-  return {
-    allowedDomains: [],
-    strictAllowlist: true,
-    allowLocalBinding: false,
-    httpProxyPort: safeChainRoute(ctx).port,
-  };
-}
-
-/**
- * A reviewer's network (0019 section 4): closed, whatever the office allows its workers, with no
- * Safe-Chain proxy and no local binding, since a reviewer installs and serves nothing.
+ * A reviewer's network (0019 section 4): closed, whatever the office allows, with no local
+ * binding, since a reviewer installs and serves nothing; its web tools run outside the Bash
+ * sandbox, through dipo's web proxy.
  */
 const REVIEW_NETWORK = { allowedDomains: [], strictAllowlist: true, allowLocalBinding: false };
 
-function sandbox(spec: WorkerSpec, ctx: ClaudeLaunchContext, paths: Paths) {
-  const { home, workdir, main, tmp, shortTmp } = paths;
-  const review = spec.kind === "review";
-  // The toolchain read list, not the install caches: the worker must reach `~/.bun/bin` to run bun.
+function sandbox(ctx: ClaudeLaunchContext, paths: Paths) {
+  const { home, workdir, main, tmp, shortTmp, copy } = paths;
   const allowRead = unique([
     ...ctx.sandbox.toolchainReadPaths.map((path) =>
       expandHome("sandbox.toolchainReadPaths", path, home),
     ),
     ...ctx.sandbox.allowRead.map((path) => expandHome("sandbox.allowRead", path, home)),
-    // The shell wrapper and the proxy's CA bundle (DIPO-84); nothing of `~/.safe-chain`.
-    ...(ctx.safeChain === undefined ? [] : [ctx.safeChain.shellDir]),
   ]);
   return {
     enabled: true,
     failIfUnavailable: true,
     allowUnsandboxedCommands: false,
     filesystem: {
-      // The short temp root is the only write path added for tests (DIPO-118). A reviewer writes
-      // only the two temp roots, never the worktree (0019 section 4).
-      allowWrite: [
-        ...(review ? [] : [workdir]),
-        tmp,
-        ...(shortTmp === undefined ? [] : [shortTmp]),
-      ],
+      // A reviewer writes only the two temp roots, never the worktree or the copy.
+      allowWrite: [tmp, ...(shortTmp === undefined ? [] : [shortTmp])],
       // The Keychain files stay closed even where an allowRead toolchain path re-opens part of home
       // (0008 amendment of 2026-10-13); a sandbox deny only, never a permission rule.
-      // With Safe-Chain the shell snapshot stays closed too: its functions would replace the
-      // wrapper's environment (DIPO-82); and the parent of every Safe-Chain proxy directory, with
-      // their CA keys (DIPO-84).
-      denyRead: [
-        `${home}/Library/Keychains`,
-        ...(ctx.safeChain !== undefined
-          ? [`${home}/${SHELL_SNAPSHOTS_DIR}`, posix.dirname(safeChainRoute(ctx).dir)]
-          : ctx.reviewShell !== undefined
-            ? [`${home}/${SHELL_SNAPSHOTS_DIR}`]
-            : []),
-      ],
+      denyRead: [`${home}/Library/Keychains`],
       denyWrite: [
         `${main}/.git`,
         `${workdir}/.git`,
-        // A reviewer's own folder and its copy of the pushed commit (DIPO-276).
-        ...(review ? [workdir, ...(paths.copy === undefined ? [] : [paths.copy])] : []),
+        // The reviewer's own folder and its copy of the pushed commit (DIPO-276).
+        workdir,
+        copy,
         `${workdir}/backlog`,
         `${workdir}/.dipo`,
         `${workdir}/.claude/settings.json`,
         `${workdir}/.claude/settings.local.json`,
-        // srt's default write paths (DIPO-98), with or without Safe-Chain.
+        // srt's default write paths (DIPO-98).
         ...closedWritePaths(home).map((closed) => closed.path),
       ],
       allowRead,
     },
-    network: review
-      ? REVIEW_NETWORK
-      : {
-          ...(ctx.safeChain === undefined ? closedNetwork(ctx) : safeChainNetwork(ctx)),
-          // A test daemon binds its socket under DIPO_TMP. macOS filters Unix sockets by path, so
-          // only sockets under the run's own short temp root open (bind and connect); Linux
-          // cannot filter them by path, so there they stay closed (DIPO-118).
-          ...(shortTmp === undefined ? {} : { allowUnixSockets: [shortTmp] }),
-        },
+    network: REVIEW_NETWORK,
     credentials: {
       files: CREDENTIAL_FILES.map((file) => ({ path: `${home}/${file}`, mode: "deny" })),
       envVars: CREDENTIAL_VARIABLES.map((name) => ({ name, mode: "deny" })),
@@ -644,7 +521,7 @@ function hooks(
   if (command === undefined) {
     throw new PlanError("the hook relay needs the dipo command the hooks run");
   }
-  // Hooks run outside the sandbox: a command the worker could rewrite would run its code there.
+  // Hooks run outside any sandbox: a command in a folder the session could reach is refused.
   for (const part of command) {
     const path = absolute("hookCommand", part);
     if (isInside(path, workdir)) {
@@ -652,25 +529,16 @@ function hooks(
         path,
       });
     }
-    if (paths.copy !== undefined && isInside(path, paths.copy)) {
+    if (isInside(path, paths.copy)) {
       throw new PlanError(`the hook command ${path} must lie outside the review copy`, { path });
     }
   }
-  const wait = ctx.permissionWaitSeconds ?? DEFAULT_PERMISSION_WAIT_SECONDS;
-  if (!Number.isInteger(wait) || wait <= 0 || wait > MAX_PERMISSION_WAIT_SECONDS) {
-    throw new PlanError(
-      `permissionWaitSeconds must be a whole number from 1 to ${MAX_PERMISSION_WAIT_SECONDS}: ${wait}`,
-    );
-  }
-  return hookSettings(command, wait, runDir, webTools(spec));
+  return hookSettings(command, runDir, webTools(spec));
 }
-
-/** The largest `timeouts.permissionWaitSeconds` the relay accepts (`dipo hook --wait`): one hour. */
-export const MAX_PERMISSION_WAIT_SECONDS = 3_600;
 
 /**
  * `enabledPlugins` false for every installed plugin the office does not name (DIPO-108). A plugin
- * hook runs outside the sandbox with the maintainer's credentials, and a SessionStart hook runs
+ * hook runs outside any sandbox with the maintainer's credentials, and a SessionStart hook runs
  * before `system/init` could be checked, so the switch-off is in the settings, not only the parser.
  * A plugin list that could not be read refuses the plan: what cannot be named cannot be switched off.
  */
@@ -695,20 +563,25 @@ function settings(spec: WorkerSpec, ctx: ClaudeLaunchContext, paths: Paths) {
     // is neither the working directory nor its parent, Claude Code loads those of an added directory
     // only with CLAUDE_CODE_ADDITIONAL_DIRECTORIES_CLAUDE_MD (never passed), and they are excluded by
     // path here too.
-    ...(paths.copy === undefined ? {} : { claudeMdExcludes: [`${paths.copy}/**`] }),
+    claudeMdExcludes: [`${paths.copy}/**`],
     attribution: { commit: "", pr: "" },
     permissions: permissions(spec, paths),
-    sandbox: sandbox(spec, ctx, paths),
+    sandbox: sandbox(ctx, paths),
     ...(hookBlock === undefined ? {} : { hooks: hookBlock }),
     ...(enabledPlugins === undefined ? {} : { enabledPlugins }),
   };
 }
 
-/** Pure: the launch plan for one Claude Code worker. Throws `PlanError` when it cannot. */
+/**
+ * Pure: the launch plan of one Claude Code reviewer session on the Mac. Throws `PlanError` when it
+ * cannot, and for a developer session, which runs only in its box (`planInBox`).
+ */
 export function plan(spec: WorkerSpec, launch: ClaudeLaunchContext): LaunchPlan {
   checkSpec(spec);
+  if (spec.kind !== "review" || spec.readOnlyDir === undefined) {
+    throw new PlanError(DEVELOPER_ON_MAC_REFUSED);
+  }
   const ctx = kindContext(spec, launch);
-  const review = spec.kind === "review";
   const claude = absolute("claudePath", ctx.claudePath);
   const home = absolute("home", ctx.home);
   const workdir = ruleSafe("workdir", absolute("workdir", spec.workdir));
@@ -723,26 +596,21 @@ export function plan(spec: WorkerSpec, launch: ClaudeLaunchContext): LaunchPlan 
       path: workdir,
     });
   }
-  const copy =
-    spec.readOnlyDir === undefined
-      ? undefined
-      : ruleSafe("readOnlyDir", absolute("readOnlyDir", spec.readOnlyDir));
+  const copy = ruleSafe("readOnlyDir", absolute("readOnlyDir", spec.readOnlyDir));
   // A reviewer's working directory is outside its copy and holds no part of it, so Claude Code
   // finds no project settings, hooks or CLAUDE.md of the commit there or in its parents (0021
   // section 14); the copy is no checkout and no home either.
-  if (copy !== undefined) {
-    for (const [label, other] of [
-      ["working directory", workdir],
-      ["main checkout", main],
-      ["home directory", home],
-      ["sandbox temp directory", tmp],
-      ...(shortTmp === undefined ? [] : [["short temp root", shortTmp] as const]),
-    ] as const) {
-      if (isInside(copy, other) || isInside(other, copy)) {
-        throw new PlanError(`the review copy ${copy} must lie outside the ${label} ${other}`, {
-          path: copy,
-        });
-      }
+  for (const [label, other] of [
+    ["working directory", workdir],
+    ["main checkout", main],
+    ["home directory", home],
+    ["sandbox temp directory", tmp],
+    ...(shortTmp === undefined ? [] : [["short temp root", shortTmp] as const]),
+  ] as const) {
+    if (isInside(copy, other) || isInside(other, copy)) {
+      throw new PlanError(`the review copy ${copy} must lie outside the ${label} ${other}`, {
+        path: copy,
+      });
     }
   }
   const closed = closedWritePaths(home);
@@ -762,40 +630,29 @@ export function plan(spec: WorkerSpec, launch: ClaudeLaunchContext): LaunchPlan 
     const under = closed.find((entry) => isInside(dir, entry.path));
     if (under !== undefined) {
       throw new PlanError(
-        `${label} ${dir} must lie outside ${under.path}, which the worker sandbox may not write`,
+        `${label} ${dir} must lie outside ${under.path}, which the session sandbox may not write`,
         { path: dir },
       );
     }
     const holds = closed.find((entry) => isInside(entry.path, dir));
     if (holds !== undefined) {
       throw new PlanError(
-        `${label} ${dir} must not hold ${holds.path}, which the worker sandbox may not write`,
+        `${label} ${dir} must not hold ${holds.path}, which the session sandbox may not write`,
         { path: dir },
       );
     }
   }
   // A reviewer gets the empty MCP config, never the office's (0019 section 4).
-  const mcpConfig = review
-    ? `${runDir}/${EMPTY_MCP_CONFIG_FILE}`
-    : ctx.mcpConfig === undefined
-      ? undefined
-      : absolute("mcpConfig", ctx.mcpConfig);
-  // The Safe-Chain wrapper also runs outside the sandbox (Claude Code's shell snapshot), so the
-  // worker must not be able to change it.
-  const shellDir =
-    ctx.safeChain === undefined
-      ? undefined
-      : absolute("safeChain.shellDir", ctx.safeChain.shellDir);
+  const mcpConfig = `${runDir}/${EMPTY_MCP_CONFIG_FILE}`;
   for (const [label, path] of [
     ["runDir", runDir],
     ["systemFile", systemFile],
     ["mcpConfig", mcpConfig],
-    ["safeChain.shellDir", shellDir],
   ] as const) {
-    if (path !== undefined && isInside(path, workdir)) {
+    if (isInside(path, workdir)) {
       throw new PlanError(`${label} ${path} must lie outside the worktree ${workdir}`);
     }
-    if (path !== undefined && copy !== undefined && isInside(path, copy)) {
+    if (isInside(path, copy)) {
       throw new PlanError(`${label} ${path} must lie outside the review copy ${copy}`);
     }
   }
@@ -832,7 +689,8 @@ export function plan(spec: WorkerSpec, launch: ClaudeLaunchContext): LaunchPlan 
     "--setting-sources",
     "project,local",
     "--strict-mcp-config",
-    ...(mcpConfig === undefined ? [] : ["--mcp-config", mcpConfig]),
+    "--mcp-config",
+    mcpConfig,
     "--append-system-prompt-file",
     systemFile,
     "--exclude-dynamic-system-prompt-sections",
@@ -850,10 +708,8 @@ export function plan(spec: WorkerSpec, launch: ClaudeLaunchContext): LaunchPlan 
     files: [
       { name: SETTINGS_FILE, content: `${JSON.stringify(settings(spec, ctx, paths), null, 2)}\n` },
       { name: REPORT_SCHEMA_FILE, content: `${JSON.stringify(spec.reportSchema, null, 2)}\n` },
-      ...(review
-        ? [{ name: EMPTY_MCP_CONFIG_FILE, content: `${JSON.stringify(EMPTY_MCP_CONFIG)}\n` }]
-        : []),
-      // For `dipo run --dry-run` and people: which default write paths the settings close, and why.
+      { name: EMPTY_MCP_CONFIG_FILE, content: `${JSON.stringify(EMPTY_MCP_CONFIG)}\n` },
+      // For people: which default write paths the settings close, and why.
       {
         name: CLOSED_WRITES_FILE,
         content: `${JSON.stringify({ reason: CLOSED_WRITES_REASON, denyWrite: closed }, null, 2)}\n`,
@@ -861,11 +717,6 @@ export function plan(spec: WorkerSpec, launch: ClaudeLaunchContext): LaunchPlan 
       // Run from source, the hooks start Bun with this empty config (`hookCommandLine`).
       ...(spec.hookRelay && (ctx.hookCommand?.length ?? 0) > 1
         ? [{ name: HOOK_BUNFIG_FILE, content: "" }]
-        : []),
-      // The Safe-Chain shell wrapper and its init file (DIPO-82); a self-test, whose run
-      // directory differs, uses the run's.
-      ...(ctx.safeChain !== undefined && shellDir === `${runDir}/${SAFE_CHAIN_SHELL_DIR}`
-        ? safeChainShellFiles(ctx.safeChain, shellDir, { tmpDir: tmp, route: safeChainRoute(ctx) })
         : []),
     ],
     stdin: [userMessageLine(spec.taskMessage)],

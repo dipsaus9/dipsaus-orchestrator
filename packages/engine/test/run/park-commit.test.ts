@@ -3,7 +3,7 @@
 // before the park stays staged and out of the commit. No remote: the claim cuts the branch from
 // the local `main`, and nothing is pushed. The full park flow runs in CI (park.ci.test.ts).
 
-import { describe, expect, it } from "bun:test";
+import { describe, expect, it, setDefaultTimeout } from "bun:test";
 import { writeFileSync } from "node:fs";
 import { join } from "node:path";
 
@@ -25,6 +25,10 @@ import {
   TASK_1,
   TASK_FILE_1,
 } from "../worktree/helpers";
+
+// Every case runs real git and the pinned Backlog CLI several times; a CI runner under load needs
+// more than the default 5 s, as the real-git cases in park.ci.test.ts and reattach.ci.test.ts do.
+setDefaultTimeout(30_000);
 
 function claimed(outcome: ClaimOutcome): Extract<ClaimOutcome, { ok: true }> {
   if (!outcome.ok)

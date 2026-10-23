@@ -45,7 +45,7 @@ import type { GitLocation } from "../git/hardened";
 import type { OfficeGit } from "../git/office";
 import { GitError } from "../git/runner";
 import { pushBranch } from "../git/task-commit";
-import { parkQuestionText, recordedPermission, sandboxBinding } from "../hooks/park-questions";
+import { parkQuestionText, recordedPermission } from "../hooks/park-questions";
 import { insertParkQuestion, questionViewOf } from "../hooks/questions";
 import { officeDirectory } from "../office/marker";
 import { runDirectory } from "../runs/worker-hosts";
@@ -463,13 +463,10 @@ export interface ParkDeps {
   /** True when the engine implements the command; `actions` lists only those. */
   readonly implemented: (name: CommandName) => boolean;
   /**
-   * The permission question of a `needs-permission` park (DIPO-75): a new question id and the
-   * office's `sandbox.allowedDomains`. Without it no question is asked.
+   * The permission question of a `needs-permission` park (DIPO-75): a new question id. Without it
+   * no question is asked.
    */
-  readonly question?: {
-    readonly id: () => string;
-    readonly allowedDomains: readonly string[];
-  };
+  readonly question?: { readonly id: () => string };
 }
 
 /**
@@ -495,10 +492,6 @@ function askParkQuestion(
     { run: run.runId },
   );
   if (park === null) return [];
-  const binding = sandboxBinding(permission, {
-    worktree: run.worktree,
-    allowedDomains: deps.question.allowedDomains,
-  });
   const question = insertParkQuestion(office, {
     questionId: deps.question.id(),
     runId: run.runId,
@@ -506,7 +499,7 @@ function askParkQuestion(
     parkId: park.park_id,
     tool: permission.tool,
     action: permission.action,
-    text: parkQuestionText(permission, binding),
+    text: parkQuestionText(permission),
     at,
   });
   const view = questionViewOf(office, question);

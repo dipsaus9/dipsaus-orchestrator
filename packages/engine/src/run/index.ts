@@ -270,39 +270,25 @@ export {
   storedFeedbackOf,
 } from "./open-feedback";
 export type { AnswerKind, RunAnswers, StoredFeedback } from "./open-feedback";
-// Verify and commit at In Review, the backstop after every turn and run outcomes (DIPO-49).
+// In Review at a box run's done, the reviewer's backstop and run outcomes (DIPO-49, DIPO-240).
 export { backstopDetail, backstopEvidence, readBackstop } from "./backstop";
 export type { BackstopSnapshot } from "./backstop";
 export { gitStoryOps, IN_REVIEW_STATUS } from "./story-git";
 export type { PushResult, StoryGit, WorktreeStory } from "./story-git";
 export {
-  checkScope,
-  commitMessage,
+  BOX_TIP_MOVED,
   DEFAULT_LOCKFILES,
   dependenciesChangedText,
   DEPENDENCY_FILES,
   dependencyFiles,
-  feedbackItemMax,
   GATE_CAPABILITIES,
   gateChanges,
-  OUTPUT_FLUSH_MS,
-  scanWorktree,
+  NO_BOX_AT_DONE,
   scopeCovers,
-  scopeDetail,
   VERIFY_NOTICES,
   VerifyCommit,
-  verifyPlan,
-  workspaceDirsOf,
 } from "./verify-commit";
-export type {
-  RunFinisher,
-  ScopeInput,
-  ScopeResult,
-  TurnContext,
-  TurnDecision,
-  VerifyCommitDeps,
-  VerifyStep,
-} from "./verify-commit";
+export type { RunFinisher, TurnContext, TurnDecision, VerifyCommitDeps } from "./verify-commit";
 export {
   appendVerifyOutput,
   insertVerifyResult,
@@ -430,6 +416,7 @@ export type { ComposedRuns, RunPorts } from "./compose";
 export {
   FOLLOW_CHECK_MS,
   HOST_NEVER_STARTED,
+  macSessionText,
   REATTACH_NOTICES,
   REATTACH_STEP,
   RunReattacher,

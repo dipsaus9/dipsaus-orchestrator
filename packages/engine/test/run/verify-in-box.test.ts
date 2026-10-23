@@ -22,6 +22,7 @@ import { afterEach, beforeEach, describe, expect, it } from "bun:test";
 
 import {
   type ChildExit,
+  type FieldBlock,
   type OfficeId,
   type RunId,
   type Signal,
@@ -57,7 +58,6 @@ import {
   boxCommand,
   runBoxCommand,
 } from "../../src/box/verify";
-import { OFFICE_DEFAULTS, type OfficeConfig } from "../../src/config";
 import { OfficeGit, spawnGitExec } from "../../src/git";
 import { systemSpawn } from "../../src/platform/process";
 import {
@@ -67,18 +67,19 @@ import {
   pendingReviews,
   reopenForRound,
   RunControl,
+  runIntents,
+  runOutcome,
   runSteps,
   type StoryGit,
   VerifyCommit,
   verifyResults,
 } from "../../src/run";
-import { BOX_TIP_MOVED } from "../../src/run/verify-commit";
-import type { StepRequest } from "../../src/sandbox/step";
+import { BOX_TIP_MOVED, NO_BOX_AT_DONE, TEST_PLAN_REFUSALS_MAX } from "../../src/run/verify-commit";
 import { detect, type RunProfile } from "../../src/scan/detect";
 import { addStory } from "../../src/stories/keys";
 import { encode } from "../../src/workers/claude-cli/encode";
 import type { HostOp, WorkerEvent, WorkerReport } from "../../src/workers/types";
-import { insertClaim } from "../../src/worktree/records";
+import { findClaim, insertClaim } from "../../src/worktree/records";
 import { type IngestFixture, ingestFixture, loggedEvents } from "../ingest/helpers";
 
 const TMP = process.env["DIPO_TMP"] || "/tmp";
@@ -656,8 +657,6 @@ interface World {
   readonly work: WorkRef;
   readonly sent: HostOp[][];
   readonly calls: string[];
-  readonly steps: StepRequest[];
-  readonly scans: string[];
   base: RunProfile | null;
   /** True: a box run. */
   box: boolean;
@@ -676,6 +675,14 @@ interface World {
   inReviewTip: string | null;
   queuedPart: boolean;
   moveTip: boolean;
+  /** Why the In Review push failed, or null when it reached the remote. */
+  pushError: string | null;
+  /** The files the run committed on the branch since its start. */
+  committedFiles: string[];
+  /** The story's field block on the base, for the report gate (DIPO-186). */
+  fields: FieldBlock;
+  /** Files at the story branch that are not `package.json`, by path (DIPO-186). */
+  files: Record<string, string>;
 }
 
 let w: World;
@@ -690,14 +697,12 @@ function fakeStoryGit(): StoryGit {
       status: "In Progress",
       criteria: [1, 2],
     }),
-    showAt: async (_o, _w, sha) =>
-      JSON.stringify({
-        scripts: sha.startsWith("refs/heads/") ? w.branchScripts : { verify: "bun test" },
-      }),
-    commitPaths: async (_o, _w, paths, message) => {
-      w.calls.push(`commit ${message} [${paths.join(", ")}]`);
-      return "f".repeat(40);
-    },
+    showAt: async (_o, _w, sha, path) =>
+      path === "package.json"
+        ? JSON.stringify({
+            scripts: sha.startsWith("refs/heads/") ? w.branchScripts : { verify: "bun test" },
+          })
+        : (w.files[path] ?? null),
     codeTreeKey: async () => "k".repeat(64),
     markInReview: async (_o, input) => {
       w.inReviewTip = w.tip;
@@ -706,10 +711,12 @@ function fakeStoryGit(): StoryGit {
     },
     push: async (_o, branch) => {
       w.calls.push(`push ${branch}`);
-      return { pushed: true, rejected: false, error: null };
+      return w.pushError === null
+        ? { pushed: true, rejected: false, error: null }
+        : { pushed: false, rejected: false, error: w.pushError };
     },
     diffstat: async () => " src/greet.ts | 2 +-\n 1 file changed",
-    changedFiles: async () => ["src/greet.ts"],
+    changedFiles: async () => w.committedFiles,
   };
 }
 
@@ -763,8 +770,6 @@ beforeEach(async () => {
     f,
     sent: [],
     calls: [],
-    steps: [],
-    scans: [],
     base: profileOf({ verify: "bun test" }),
     box: true,
     outcome: LAST_PART,
@@ -776,29 +781,22 @@ beforeEach(async () => {
     inReviewTip: null,
     queuedPart: false,
     moveTip: false,
+    pushError: null,
+    committedFiles: ["src/greet.ts"],
+    fields: {},
+    files: {},
   } as unknown as World;
-  const config: OfficeConfig = { ...OFFICE_DEFAULTS, timeouts: { ...OFFICE_DEFAULTS.timeouts } };
   const finisher = new VerifyCommit({
     clock: f.t.clock,
     story: fakeStoryGit(),
-    mainCheckout: () => join(dir, "main"),
-    runStep: async (step) => {
-      w.steps.push(step);
-      return { outcome: "startFailed", reason: "the Mac step is not run here" };
-    },
-    config: () => config,
     profile: () => w.base,
-    scanWorktree: async (scanned) => {
-      w.scans.push(scanned);
-      return profileOf({ verify: "true" });
-    },
-    host: { home: dir, uid: 501, env: { PATH: "/usr/bin:/bin" } },
     storyPr: {
       sync: async (_office, runId: RunId) => {
         w.calls.push(`story PR sync ${runId === w.f.run ? "run" : runId}`);
       },
     },
     parts: { isBoxRun: () => w.box, finishLast: fakeFinishLast },
+    storyFacts: async () => ({ fields: w.fields, view: { type: "feature" } }),
   });
   const control = new RunControl({
     clock: f.t.clock,
@@ -924,8 +922,6 @@ function parks(): { reason: string; cause: string | null; detail: string }[] {
 
 /** What a box run's done must never do: a verify of dipo's, in the box or on the Mac. */
 function expectNoVerify(): void {
-  expect(w.steps).toEqual([]);
-  expect(w.scans).toEqual([]);
   expect(verifyResults(w.f.office, w.f.run)).toEqual([]);
   expect(events("work.phase").map((e) => e["phase"])).not.toContain("verify");
   expect(events("work.output").filter((e) => e["source"] === "verify")).toEqual([]);
@@ -1144,22 +1140,198 @@ describe("the last part at done (DIPO-273)", () => {
     ]);
   });
 
-  it("keeps the scope check and the Mac verify for a worker on the Mac", async () => {
+  it("parks a run without a box at done, with no scope check and no verify of dipo's (DIPO-240)", async () => {
     w.box = false;
     w.changed = ["src/greet.ts", "README.md"];
     await play();
-    expect(parks().map((p) => [p.reason, p.cause])).toEqual([["scope-violation", "paths"]]);
+    expect(parks().map((p) => [p.reason, p.cause, p.detail])).toEqual([
+      ["interrupted", "build", NO_BOX_AT_DONE],
+    ]);
     expect(w.calls).toEqual([]);
+    expectNoVerify();
   });
 });
 
-describe("the Mac path keeps its verify", () => {
-  it("runs verify in the sandboxed step at done, never the box's finishLast", async () => {
-    w.box = false;
+describe("the In Review end of a box run (DIPO-144, DIPO-84, restated for box runs by DIPO-240)", () => {
+  it("records the In Review push on the claim at the run's end", async () => {
     await play();
-    expect(w.steps.map((step) => step.kind)).toEqual(["verify"]);
-    expect(w.calls.some((call) => call.startsWith("last part"))).toBe(false);
-    expect(parks().map((p) => [p.reason, p.cause])).toEqual([["verify-failing", "refused"]]);
+    const run = findRun(w.f.office, w.f.run);
+    expect(run?.endKind).toBe("in-review");
+    expect(findClaim(w.f.office, w.f.run)?.pushedAt).toBe(run?.endedAt ?? -1);
+  });
+
+  it("leaves the claim's push unrecorded when the In Review push fails, and opens no PR", async () => {
+    w.pushError = "pushing failed (network is down)";
+    await play();
+    expect(findRun(w.f.office, w.f.run)?.endKind).toBe("in-review");
+    expect(findClaim(w.f.office, w.f.run)?.pushedAt).toBeNull();
+    expect(w.calls).not.toContain("story PR sync run");
+    expect(events("engine.notice").map((n) => n["code"])).toContain("verify.pushFailed");
+  });
+
+  it("raises a notice on the run and story naming the dependency files its parts committed", async () => {
+    w.committedFiles = ["src/greet.ts", "src/package.json", "src/bun.lock", "test/greet.test.ts"];
+    await play();
+    const notices = loggedEvents(w.f.office).filter(
+      (event) =>
+        event.type === "engine.notice" &&
+        (event.data as { code?: string }).code === "verify.dependenciesChanged",
+    );
+    expect(notices).toHaveLength(1);
+    const rows = w.f.office.all<{ run_id: string | null; key: string | null }>(
+      "select run_id, key from change_log where office_id = $office_id and type = 'engine.notice'",
+    );
+    expect(rows).toEqual([{ run_id: w.f.run, key: w.work.key }]);
+    expect(notices[0]?.data).toEqual({
+      level: "warn",
+      code: "verify.dependenciesChanged",
+      text: "DIPO-1 changed dependency files: src/bun.lock, src/package.json. Review the added or changed packages before you merge.",
+    });
+  });
+
+  it("raises no dependency notice when no dependency file changed", async () => {
+    await play();
+    expect(
+      events("engine.notice").filter((n) => n["code"] === "verify.dependenciesChanged"),
+    ).toEqual([]);
+  });
+
+  it("writes an outcome row for a budget-exceeded park too", async () => {
+    w.control.close();
+    const control = new RunControl({
+      clock: w.f.t.clock,
+      offices: { get: () => w.f.office },
+      writer: {
+        write: async () => ({
+          commit: null,
+          lastGoodCommit: "a".repeat(40),
+          from: "In Progress",
+          pushed: true,
+          pushError: null,
+        }),
+      },
+      steering: { send: async () => ({ ok: true }) },
+      encode,
+    });
+    control.track(w.f.office.officeId, {
+      runId: w.f.run,
+      work: w.work,
+      caps: { budgetTokens: 1, maxTurns: 100, maxMinutes: 1 },
+      startedAt: w.f.t.clock.now(),
+      snapshot: null,
+    });
+    w.f.t.clock.advance(2 * 60_000);
+    await control.idle();
+    control.close();
+    expect(runOutcome(w.f.office, w.f.run)).toMatchObject({
+      outcome: "parked",
+      parkReasons: ["budget-exceeded"],
+      minutes: 2,
+    });
+  });
+});
+
+// ---- a done report on the turn that crosses a cap (DIPO-205), restated for box runs ------------
+
+const MODEL = "claude-haiku-5-5";
+function setRun(column: "max_turns" | "budget_limit", value: number): void {
+  w.f.office.run(
+    `update runs set ${column} = $value where office_id = $office_id and run_id = $run`,
+    { value, run: w.f.run },
+  );
+}
+function capSteps(): { value: string }[] {
+  return w.f.office.all<{ value: string }>(
+    `select value from run_steps where office_id = $office_id and run_id = $run
+      and kind = 'cap'`,
+    { run: w.f.run },
+  );
+}
+/**
+ * One ingestion pass as run control sees it: the usage the events folded in is stored, then
+ * every `usage` and `turn` event is applied (the cap marks) before the pass is handled.
+ */
+async function capPass(
+  pending: readonly WorkerEvent[],
+  used: { readonly turns: number; readonly tokens: number },
+): Promise<void> {
+  w.f.office.immediate(() => {
+    w.f.office.run(
+      `insert or ignore into agents (office_id, agent_id, run_id, role, model, session_id,
+         started_at) values ($office_id, $agent, $run, 'developer', $model, 's-1', 0)`,
+      { agent: w.f.agent, run: w.f.run, model: MODEL },
+    );
+    w.f.office.run(
+      `insert into usage_totals (office_id, run_id, agent_id, model, role, tier, input, turns,
+         updated_at)
+       values ($office_id, $run, $agent, $model, 'developer', 'S', $tokens, $turns, 0)`,
+      { agent: w.f.agent, run: w.f.run, model: MODEL, tokens: used.tokens, turns: used.turns },
+    );
+  });
+  for (const event of pending) {
+    if (event.t === "usage" || event.t === "turn") w.control.onEventApplied(w.f.run, event);
+  }
+  w.control.onWorkerEvents(w.f.run, pending);
+  await w.control.idle();
+}
+const IN_REVIEW_CALLS = [
+  "last part print a greeting",
+  "parts released (live false)",
+  "in-review [1]",
+  "push DIPO-1/add-a-greeting",
+  "story PR sync run",
+];
+
+describe("a done report on the turn that crosses a cap, in a box run (DIPO-205, DIPO-240)", () => {
+  it("takes the done path on the turn that reaches the engine turn cap and records the cap", async () => {
+    setRun("max_turns", 1);
+    await capPass([turn(DONE)], { turns: 1, tokens: 10 });
+    expect(parks()).toEqual([]);
+    expect(w.calls).toEqual(IN_REVIEW_CALLS);
+    expect(findRun(w.f.office, w.f.run)?.endKind).toBe("in-review");
+    expect(capSteps()).toEqual([{ value: "maxTurns: turn cap reached: 1 of 1 turns" }]);
+    expect(runIntents(w.f.office, w.f.run).map((i) => i.kind)).not.toContain("cap");
+    expectNoVerify();
+  });
+
+  it("takes the done path on the turn that reaches the token budget and records the cap", async () => {
+    setRun("budget_limit", 1_000);
+    await capPass([turn(DONE)], { turns: 1, tokens: 2_000 });
+    expect(parks()).toEqual([]);
+    expect(w.calls).toEqual(IN_REVIEW_CALLS);
+    expect(capSteps().map((step) => step.value)).toEqual([
+      "budgetTokens: token budget reached: 2,000 of 1,000 budget tokens (input, output and cache creation)",
+    ]);
+  });
+
+  it("takes the done path on a done turn that ended at the CLI --max-turns backstop", async () => {
+    const capped: WorkerEvent = {
+      t: "turn",
+      report: DONE,
+      totals: {},
+      numTurns: 61,
+      terminal: "max_turns",
+      capped: "turn cap (--max-turns) after 61 turns",
+    };
+    w.control.onWorkerEvents(w.f.run, [capped]);
+    await w.control.idle();
+    expect(parks()).toEqual([]);
+    expect(w.calls).toEqual(IN_REVIEW_CALLS);
+    expect(capSteps()).toEqual([{ value: "maxTurns: turn cap (--max-turns) after 61 turns" }]);
+  });
+
+  it("still parks budget-exceeded with the cap detail when the crossing turn has no done report", async () => {
+    setRun("max_turns", 1);
+    await capPass([turn(null)], { turns: 1, tokens: 10 });
+    expect(parks().map((p) => [p.reason, p.cause, p.detail])).toEqual([
+      ["budget-exceeded", "build", "turn cap reached: 1 of 1 turns"],
+    ]);
+    expect(w.calls).toEqual([]);
+    expect(capSteps()).toEqual([]);
+    expect(runOutcome(w.f.office, w.f.run)).toMatchObject({
+      outcome: "parked",
+      parkReasons: ["budget-exceeded"],
+    });
   });
 });
 
@@ -1282,12 +1454,11 @@ describe("a box run's report data at done (DIPO-186)", () => {
     expect(w.calls).toEqual(inReview);
   });
 
-  it("asks nothing on the Mac path, which runs verify itself", async () => {
+  it("asks nothing of a run without a box, which parks at done (DIPO-240)", async () => {
     w.box = false;
     await playEvents([edit, turn(DONE)]);
-    expect(feedbackTexts().some((text) => text.includes("no run of the project's verify"))).toBe(
-      false,
-    );
+    expect(feedbackTexts()).toEqual([]);
+    expect(parks().map((p) => p.detail)).toEqual([NO_BOX_AT_DONE]);
   });
 
   const PROPOSAL = {
@@ -1328,5 +1499,177 @@ describe("a box run's report data at done (DIPO-186)", () => {
     expect(proposals()).toEqual([
       { kind: "follow-up", title: "Greet in Dutch", story_key: w.work.key, run_id: w.f.run },
     ]);
+  });
+});
+
+// The report gate (DIPO-186 with DIPO-254) in a box run (restated from the Mac path by DIPO-240):
+// the test plan and the decision notes of a done report.
+function storedReports(): { report: number; test_plan: string; deviations: string }[] {
+  return w.f.office.all(
+    `select report, test_plan, deviations from done_reports where office_id = $office_id
+      order by report`,
+  );
+}
+
+function notes(): {
+  file: string;
+  section: string;
+  text: string;
+  story_key: string;
+  run_id: string;
+}[] {
+  return w.f.office.all(
+    "select file, section, text, story_key, run_id from decision_notes where office_id = $office_id",
+  );
+}
+
+describe("the report gate at done, in a box run (DIPO-186, DIPO-240)", () => {
+  const PLAN: FieldBlock = {
+    test_plan: {
+      entries: [
+        { kind: "automated", check: "(unit) greet returns the greeting" },
+        { kind: "manual", check: "Run shop greet Ada", expect: "It prints Hello, Ada!" },
+        { kind: "automated", check: "(unit) an empty name exits 2" },
+      ],
+    },
+  };
+  const DECISION = "docs/decisions/0008-worker-adapter.md";
+  const NOTE = { file: DECISION, section: "1. The port", text: "The report gains a field." };
+
+  const commit = "last part print a greeting";
+
+  it("refuses a done report whose automated entry is not done or missing: one feedback item naming them, no commit, the run goes on", async () => {
+    w.fields = PLAN;
+    await play({
+      ...DONE,
+      testPlan: [
+        { n: 1, status: "not-done", evidence: "not written yet" },
+        { n: 2, status: "manual", evidence: "the maintainer runs it" },
+      ],
+    });
+    const texts = feedbackTexts();
+    expect(texts).toHaveLength(1);
+    expect(texts[0]).toContain(
+      "Your report says done, but these automated test-plan entries are not done:\n- #1 (reported not done): (unit) greet returns the greeting\n- #3 (not reported): (unit) an empty name exits 2",
+    );
+    // Manual entry #2 is never named.
+    expect(texts[0]).not.toContain("#2");
+    expect(w.calls).toEqual([]);
+    expect(parks()).toEqual([]);
+    expect(findRun(w.f.office, w.f.run)?.endedAt).toBeNull();
+    // The refused report is stored too.
+    expect(storedReports().map((row) => row.report)).toEqual([1]);
+  });
+
+  it("refuses every such report again, and commits as before once each automated entry is done", async () => {
+    w.fields = PLAN;
+    await play(DONE);
+    expect(feedbackTexts()).toHaveLength(1);
+    expect(feedbackTexts()[0]).toContain("- #1 (not reported)");
+    await play({ ...DONE, testPlan: [{ n: 1, status: "done", evidence: "x" }] });
+    expect(feedbackTexts()).toHaveLength(2);
+    expect(feedbackTexts()[1]).toContain("- #3 (not reported)");
+    expect(w.calls).toEqual([]);
+    await play({
+      ...DONE,
+      testPlan: [
+        { n: 1, status: "done", evidence: "test/greet.test.ts: greets" },
+        { n: 3, status: "done", evidence: "test/greet.test.ts: empty name" },
+      ],
+      deviations: [{ where: "criterion #2", what: "exits 64", why: "the usage code" }],
+    });
+    expect(w.calls[0]).toBe(commit);
+    expect(findRun(w.f.office, w.f.run)?.endKind).toBe("in-review");
+    expect(storedReports()).toHaveLength(3);
+    expect(JSON.parse(storedReports()[2]?.deviations ?? "[]")).toEqual([
+      { where: "criterion #2", what: "exits 64", why: "the usage code" },
+    ]);
+  });
+
+  it("tells the worker that a test failing only for the box's missing git counts as done", async () => {
+    w.fields = PLAN;
+    await play(DONE);
+    expect(feedbackTexts()[0]).toContain(
+      "A test you wrote that fails in the box only because the box has no git program counts as done: report it done and name that in its evidence.",
+    );
+  });
+
+  it(`parks verify-failing at the ${TEST_PLAN_REFUSALS_MAX}rd refused report instead of another refusal turn`, async () => {
+    expect(TEST_PLAN_REFUSALS_MAX).toBe(3);
+    w.fields = PLAN;
+    await play(DONE);
+    await play({ ...DONE, testPlan: [{ n: 1, status: "done", evidence: "x" }] });
+    expect(feedbackTexts()).toHaveLength(2);
+    expect(parks()).toEqual([]);
+    await play(DONE);
+    expect(feedbackTexts()).toHaveLength(2);
+    const [park] = parks();
+    expect([park?.reason, park?.cause]).toEqual(["verify-failing", "loops"]);
+    expect(park?.detail).toStartWith("the done report was refused for its test plan 3 of 3 times.");
+    expect(park?.detail).toContain("- #1 (not reported)");
+    expect(w.calls).toEqual([]);
+  });
+
+  it("leaves a story without a test plan, or with only manual entries, unchanged", async () => {
+    w.fields = { test_plan: { entries: [{ kind: "manual", check: "Look at it" }] } };
+    await play(DONE);
+    expect(feedbackTexts()).toEqual([]);
+    expect(w.calls[0]).toBe(commit);
+  });
+
+  it("does not check a story whose plan does not apply", async () => {
+    w.fields = { test_plan: { not_applicable: "Docs only." } };
+    await play(DONE);
+    expect(w.calls[0]).toBe(commit);
+  });
+
+  it("stores a decision note whose file and section exist, with its story and run, and commits", async () => {
+    w.files = { [DECISION]: "# 0008\n\n## Decision\n\n### 1. The port\n\nText.\n" };
+    await play({ ...DONE, decisionNotes: [NOTE] });
+    expect(feedbackTexts()).toEqual([]);
+    expect(w.calls[0]).toBe(commit);
+    expect(notes()).toEqual([{ ...NOTE, story_key: w.work.key, run_id: w.f.run }]);
+  });
+
+  it("sends a note with a missing file or section back once, naming the file and the section; the next done drops it", async () => {
+    w.files = { [DECISION]: "# 0008\n\n## Decision\n" };
+    const missing = { file: "docs/decisions/0099-none.md", section: "Decision", text: "t" };
+    await play({ ...DONE, decisionNotes: [NOTE, missing] });
+    const texts = feedbackTexts();
+    expect(texts).toHaveLength(1);
+    expect(texts[0]).toContain(
+      `- ${DECISION}, section "1. The port": the file has no section with that heading\n- docs/decisions/0099-none.md, section "Decision": the file does not exist`,
+    );
+    expect(w.calls).toEqual([]);
+    expect(notes()).toEqual([]);
+    // The same misses again: not sent back a second time; the rest of the report goes on.
+    await play({ ...DONE, decisionNotes: [NOTE, missing] });
+    expect(feedbackTexts()).toHaveLength(1);
+    expect(w.calls[0]).toBe(commit);
+    expect(notes()).toEqual([]);
+  });
+
+  it("names the test plan and the decision note in one feedback item when both miss", async () => {
+    w.fields = PLAN;
+    await play({ ...DONE, decisionNotes: [NOTE] });
+    const texts = feedbackTexts();
+    expect(texts).toHaveLength(1);
+    expect(texts[0]).toContain("these automated test-plan entries are not done");
+    expect(texts[0]).toContain(`- ${DECISION}, section "1. The port": the file does not exist`);
+  });
+
+  it("keeps the checked notes of a report that ends the run in a park", async () => {
+    w.files = { [DECISION]: "## 1. The port\n" };
+    w.control.onWorkerEvents(w.f.run, [
+      turn({
+        ...DONE,
+        status: "blocked",
+        question: "Which code?",
+        decisionNotes: [NOTE, { ...NOTE, section: "Gone" }],
+      }),
+    ]);
+    await w.control.idle();
+    expect(parks().map((park) => park.reason)).toEqual(["ambiguous-spec"]);
+    expect(notes().map((note) => note.section)).toEqual(["1. The port"]);
   });
 });

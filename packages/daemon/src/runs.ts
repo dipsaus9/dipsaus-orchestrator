@@ -3,10 +3,12 @@
 // daemon resolved on its PATH at start. `claude` and `backlog` are absolute paths, never looked up
 // again; a missing `claude` refuses each launch with a notice instead of stopping the daemon.
 //
-// Box workers (DIPO-271, 0021): with Apple `container` on the daemon's PATH, a run started with
-// `work.run`'s `box` runs its developer in its own box (`BoxWorkers`). The box ends with its run:
-// after each exit decision the boxes of ended runs get the post-run token check and are deleted,
-// and so are those a stopped daemon left (`finishEndedBoxes`, at the recovery step). At start the
+// Box workers (DIPO-271, 0021): with Apple `container` on the daemon's PATH, every run's developer
+// works in its story's box (`BoxWorkers`, DIPO-240); without it no developer starts. A box lives
+// from claim to merge (DIPO-278): after each exit decision, on a minute tick and at the recovery
+// step (`finishEndedBoxes`), the box of a run that waits is checked for the token and stopped, and
+// the box of a run whose claim ended (merge, drop, discard) is checked and deleted, also those a
+// stopped daemon left. At start the
 // token check's leftover export folders and the part stage folders a stopped daemon left are swept.
 // Each box gets its office's package cache (DIPO-295): one root per office under
 // `<state>/PACKAGE_CACHE_DIR` (`boxPackageCache`), filled in a fill box through the daemon's web
@@ -27,6 +29,11 @@ import type {
 } from "@dipsaus-orchestrator/contract";
 import {
   type AdapterHolds,
+  type BoxEnded,
+  type BoxPassOptions,
+  boxEndedOf,
+  boxRunState,
+  findClaim,
   AppleContainerBoxes,
   appendEntries,
   BOX_INDEX_DIR,
@@ -59,7 +66,6 @@ import {
   type BacklogCli,
   capsOf,
   claudeWorkerPort,
-  detectSafeChain,
   currentProfile,
   gitParkWriter,
   gitUnparkWriter,
@@ -88,12 +94,7 @@ import {
   RunReattacher,
   runCaps,
   runLaunchPaths,
-  runSandboxedStep,
   runWorkerSpec,
-  SafeChainProxies,
-  startSafeChainProxy,
-  launchedThroughSafeChain,
-  safeChainProxyGoneText,
   sweepSafeChainProxies,
   type IngestAdapter,
   Nudges,
@@ -108,18 +109,15 @@ import {
   type StateDatabase,
   type StoryClaims,
   type StoryIndex,
-  systemDiskProbe,
   systemHostStarter,
   signalProcess,
   startTierOf,
   systemProcessProbe,
-  systemSandboxHost,
   storyHoldsWork,
   systemSpawn,
   type currentPlatform,
   VerifyCommit,
   Watchdog,
-  type WorkTracker,
 } from "@dipsaus-orchestrator/engine";
 
 /**
@@ -193,8 +191,6 @@ export interface DaemonRunsOptions {
   readonly holdResumer?: () => HoldResumer | undefined;
   /** The story index, which reads a story again after its park or In Review commit (DIPO-56). */
   readonly stories?: StoryIndex;
-  /** Keep-awake's tracker: verify registers while it runs (DIPO-49, DIPO-63). */
-  readonly work?: WorkTracker;
   /** Whether a TUI is connected, for live questions (DIPO-279); none by default. */
   readonly presence?: Presence;
   /** Raises an `engine.notice` on the software stream (a plan-limit warning, DIPO-61). */
@@ -239,11 +235,6 @@ export interface DaemonRuns {
    */
   readonly places: Places;
   /**
-   * The Safe-Chain checking proxies of the runs (DIPO-84): one per run while its worker session
-   * runs, on a machine with Safe-Chain. `stopAll` at shutdown.
-   */
-  readonly safeChainProxies: SafeChainProxies;
-  /**
    * The run temp directories (DIPO-102): swept after each worker exit here, and at daemon start
    * by a recovery step after re-attach (`sweep("recovery")`).
    */
@@ -263,6 +254,8 @@ export interface DaemonRuns {
    * (`listBoxes`). Never rejects.
    */
   finishEndedBoxes(options?: { readonly listBoxes?: boolean }): Promise<void>;
+  /** Stops the minute tick of the box passes (DIPO-278), at daemon stop. */
+  stopBoxPasses(): void;
   /**
    * Removes the folder of every reviewer session whose host no longer runs (DIPO-276), with its
    * read-only copy of the pushed commit: at daemon start by the recovery step. Never rejects.
@@ -294,8 +287,11 @@ function hostExited(host: ReturnType<typeof workerHostsOf>[number]): boolean {
 }
 
 /**
- * Whether run `runId` ended with every worker host exited (true), still goes (false), or is
- * unknown to every loaded office (null), for `BoxWorkers.finishEnded`.
+ * What the daemon's pass does with run `runId`'s box (DIPO-278, `boxRunState`), as
+ * `BoxWorkers.finishEnded` asks it: true when the run's claim ended (merge, drop, discard) and every
+ * worker host exited (the box is deleted), `BOX_WAITING` when the run ended with its claim live and
+ * its hosts exited (the story waits: the box stops, files kept), false while a session runs or may
+ * start, null when no loaded office knows the run.
  */
 export function boxRunEnded(
   offices: Pick<DaemonRunsOptions["offices"], "loadedOffices" | "get">,
@@ -306,14 +302,25 @@ export function boxRunEnded(
       runId: RunId,
     ) => { readonly endedAt: number | null } | null;
     readonly hosts: (handle: OfficeHandle, runId: string) => ReturnType<typeof workerHostsOf>;
-  } = { run: findRun, hosts: workerHostsOf },
-): boolean | null {
+    readonly claim: (
+      handle: OfficeHandle,
+      runId: RunId,
+    ) => { readonly releasedAt: number | null } | null;
+  } = { run: findRun, hosts: workerHostsOf, claim: findClaim },
+): BoxEnded {
   for (const office of offices.loadedOffices()) {
     const handle = offices.get(office);
     if (handle === undefined) continue;
     const run = read.run(handle, runId as RunId);
     if (run === null) continue;
-    return run.endedAt !== null && read.hosts(handle, runId).every(hostExited);
+    const claim = read.claim(handle, runId as RunId);
+    return boxEndedOf(
+      boxRunState({
+        endedAt: run.endedAt,
+        claimLive: claim === null ? null : claim.releasedAt === null,
+        hostsExited: read.hosts(handle, runId).every(hostExited),
+      }),
+    );
   }
   return null;
 }
@@ -345,9 +352,9 @@ export function reviewHostRuns(
  */
 export async function finishEndedBoxRuns(
   workers: Pick<BoxWorkers, "finishEnded">,
-  ended: (runId: string) => boolean | null,
+  ended: (runId: string) => BoxEnded,
   logger: Pick<Logger, "info">,
-  options: { readonly listBoxes?: boolean } = {},
+  options: BoxPassOptions = {},
 ): Promise<string[]> {
   const finished = await workers.finishEnded(ended, options);
   if (finished.length > 0) logger.info("ended box runs checked and deleted", { finished });
@@ -618,11 +625,12 @@ export function realDir(dir: string): string {
   }
 }
 
+/** How often the daemon passes over the boxes besides each exit decision (DIPO-278). */
+export const BOX_PASS_TICK_MS = 60_000;
+
 /** The run launcher `work.run` starts workers with. */
 export function daemonRuns(options: DaemonRunsOptions): DaemonRuns {
   const { clock, platform, env, home, uid } = options;
-  const runStep = (request: Parameters<typeof runSandboxedStep>[1]) =>
-    runSandboxedStep({ clock, platform, host: systemSandboxHost(platform) }, request);
   // The watchdog (DIPO-52) writes `quiet` and `no-output` by the office's `timeouts`, and every
   // entry ingestion or the watchdog appends reaches subscribers at once.
   const watchdog = new Watchdog({
@@ -662,8 +670,26 @@ export function daemonRuns(options: DaemonRunsOptions): DaemonRuns {
       boxWorkers,
       (runId) => boxRunEnded(options.offices, runId),
       options.logger,
-      finishOptions,
+      // A listed box the index lost gets its entry again from the office that knows its run.
+      { ...finishOptions, runDirOf: (runId) => runDirOfRun(runId) },
     );
+  };
+  // A drop or a merge ends a claim with no worker exit, so a minute tick also runs the pass: the
+  // box of a released claim is deleted within about a minute (DIPO-278).
+  let boxTick: ReturnType<typeof clock.setTimeout> | null = null;
+  let boxTicks = boxWorkers !== null;
+  const armBoxTick = (): void => {
+    if (!boxTicks) return;
+    boxTick = clock.setTimeout(() => {
+      boxTick = null;
+      void finishEndedBoxes().finally(armBoxTick);
+    }, BOX_PASS_TICK_MS);
+  };
+  armBoxTick();
+  const stopBoxPasses = (): void => {
+    boxTicks = false;
+    if (boxTick !== null) clock.clearTimeout(boxTick);
+    boxTick = null;
   };
   const tempDirs = new RunTempDirs({
     tmpRoot: realDir(options.tmpRoot),
@@ -684,8 +710,8 @@ export function daemonRuns(options: DaemonRunsOptions): DaemonRuns {
         }),
     );
   };
-  // Worker installs go through a Safe-Chain checking proxy per run, sandboxed itself (DIPO-84).
-  // Proxy directories a killed daemon left behind go first; a running daemon's stay.
+  // Safe-Chain proxy directories a killed daemon left behind (a box web route's) go first; a
+  // running daemon's stay.
   void sweepSafeChainProxies(options.safeChainRoot).then(
     (removed) => {
       if (removed.length > 0) {
@@ -696,19 +722,6 @@ export function daemonRuns(options: DaemonRunsOptions): DaemonRuns {
     },
     () => {},
   );
-  const safeChainProxies = new SafeChainProxies({
-    clock,
-    start: ({ caFile }) =>
-      startSafeChainProxy(
-        { installRoot: `${home}/.safe-chain`, caFile, home, uid, env },
-        {
-          platform,
-          clock,
-          ...(options.safeChainRoot === undefined ? {} : { root: options.safeChainRoot }),
-        },
-      ),
-    warn: (message, fields) => options.logger.warn(message, fields),
-  });
   const worker = claudeWorkerPort({
     spawn: systemSpawn,
     clock,
@@ -716,26 +729,14 @@ export function daemonRuns(options: DaemonRunsOptions): DaemonRuns {
     home,
     env,
     holds: options.holds,
-    platform,
-    runStep,
-    uid,
-    // The run settings file's hooks run this binary (DIPO-59).
+    // A reviewer's run settings hooks run this binary (DIPO-59).
     dipoCommand: selfCommand(),
-    // Workers run package managers through the official Safe-Chain when it is installed (DIPO-82).
-    detectSafeChain: (input) => detectSafeChain(input),
-    safeChainProxies,
-    warn: (message, fields) => options.logger.warn(message, fields),
     ...(boxWorkers === null ? {} : { boxes: boxWorkers }),
   });
   const tierOf = (office: OfficeId, run: StoredRun) =>
     run.tier === null
       ? undefined
       : options.offices.config(office)?.tiers[run.tier as "S" | "M" | "L"];
-  const gitOf = (office: OfficeId) => {
-    const git = options.engineGit.forOffice(office);
-    if (git === undefined) throw new Error(`Office ${office} has no git attached.`);
-    return git;
-  };
   const storyGit = gitStoryOps({
     git: (office) => options.engineGit.forOffice(office),
     cli: options.cli,
@@ -746,16 +747,11 @@ export function daemonRuns(options: DaemonRunsOptions): DaemonRuns {
     const paths = boxed === null ? null : runPaths(office, run);
     return paths !== null && boxed !== null && boxed.workers.isBoxRun(paths.runDir);
   };
-  // Verify and commit at In Review and the backstop after every turn (DIPO-49).
+  // In Review at a box run's done (DIPO-49, DIPO-273): no verify, backstop or scope check of dipo's.
   const finisher = new VerifyCommit({
     clock,
     story: storyGit,
-    mainCheckout: (office) => gitOf(office).mainWorktree,
-    runStep,
-    config: (office) => options.offices.config(office),
     profile: (office) => currentProfile(office)?.profile ?? null,
-    host: { home, uid, env },
-    ...(options.work === undefined ? {} : { work: options.work }),
     ...(options.storyPr === undefined ? {} : { storyPr: options.storyPr }),
     // The report gate reads the story's test plan on the office base (DIPO-186).
     storyFacts: baseStoryFacts(options.base),
@@ -778,14 +774,7 @@ export function daemonRuns(options: DaemonRunsOptions): DaemonRuns {
     env,
     probe,
   });
-  // A started worker host keeps its run's Safe-Chain proxy until the session ends (DIPO-84).
-  const hosts: typeof started = {
-    start: async (office, launch) => {
-      const host = await started.start(office, launch);
-      safeChainProxies.hostStarted(launch.runId);
-      return host;
-    },
-  };
+  const hosts = started;
   const release = (
     office: OfficeId,
     claim: Parameters<StoryClaims["releaseUnstarted"]>[1],
@@ -800,6 +789,16 @@ export function daemonRuns(options: DaemonRunsOptions): DaemonRuns {
       run.worktree,
       run.runId,
     );
+  };
+  // The run directory of a run a loaded office knows (DIPO-278: an index entry written again).
+  const runDirOfRun = (runId: string): string | null => {
+    for (const office of options.offices.loadedOffices()) {
+      const handle = options.offices.get(office);
+      const run = handle === undefined ? null : findRun(handle, runId as RunId);
+      if (run === null) continue;
+      return runPaths(office, run)?.runDir ?? null;
+    }
+    return null;
   };
   // The facts of a box run a part needs (DIPO-273), from the loaded office that knows the run.
   partRun = (runId) => {
@@ -876,9 +875,7 @@ export function daemonRuns(options: DaemonRunsOptions): DaemonRuns {
     ingest: {
       pricing: () => options.database()?.pricing ?? null,
       watchdog,
-      onEnded: (_office, run) => {
-        // The session's worker ended: its Safe-Chain proxy stops (DIPO-84).
-        void safeChainProxies.stop(run);
+      onEnded: () => {
         // A run that ended before its worker exited loses its temp directory now (DIPO-102).
         sweepTempDirs();
         void finishEndedBoxes();
@@ -911,7 +908,7 @@ export function daemonRuns(options: DaemonRunsOptions): DaemonRuns {
       holds: options.holds,
       ...(options.notify === undefined ? {} : { notify: options.notify }),
     },
-    // DIPO-39's worktree setup of a claimed story, before its worker starts.
+    // DIPO-39's worktree setup of a claimed story (slot, run environment, files), before its box.
     setup: async (office, claim) => {
       const handle = options.offices.get(office);
       const config = options.offices.config(office);
@@ -927,19 +924,10 @@ export function daemonRuns(options: DaemonRunsOptions): DaemonRuns {
           git,
           clock,
           onChanged: options.onChanged,
-          disk: systemDiskProbe,
           slots: options.slots,
-          runStep,
           localSettings: worker.localSettings,
-          warn: (message, fields) => options.logger.warn(message, { office, ...fields }),
-          debug: (message, fields) => options.logger.debug(message, { office, ...fields }),
         },
-        {
-          claim,
-          config,
-          profile: currentProfile(handle)?.profile ?? null,
-          host: { home, uid, env },
-        },
+        { claim, config, profile: currentProfile(handle)?.profile ?? null },
       );
     },
     // Re-attach after a restart (DIPO-57): every active run's newest worker host is followed again.
@@ -947,11 +935,6 @@ export function daemonRuns(options: DaemonRunsOptions): DaemonRuns {
       probe,
       // A living host of an ended run whose stop did not reach it is stopped again (DIPO-93).
       steering,
-      // A worker launched through a Safe-Chain proxy that ended with the previous daemon (DIPO-84).
-      proxyGone: (_office, run, host) =>
-        launchedThroughSafeChain(host.runDir) && safeChainProxies.get(run.runId) === undefined
-          ? safeChainProxyGoneText(run.story ?? run.runId)
-          : null,
       adapter: (office, run) => {
         const paths = runPaths(office, run);
         const config = options.offices.config(office);
@@ -1010,12 +993,12 @@ export function daemonRuns(options: DaemonRunsOptions): DaemonRuns {
     reattacher,
     planLimits,
     places,
-    safeChainProxies,
     tempDirs,
     boxes: boxWorkers,
     isBoxRun,
     collisions,
     finishEndedBoxes,
+    stopBoxPasses,
     recoverFixRounds: async () => {
       let queued = 0;
       for (const office of options.offices.loadedOffices()) {

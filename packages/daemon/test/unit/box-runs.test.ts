@@ -14,6 +14,7 @@ import type { OfficeId, RunId } from "@dipsaus-orchestrator/contract";
 import {
   AdapterHolds,
   BOX_INDEX_DIR,
+  BOX_WAITING,
   BoxCollisions,
   type BoxPort,
   BoxWorkers,
@@ -192,12 +193,19 @@ describe("the daemon's box workers", () => {
     expect(containerOnPath(undefined, isExecutable)).toBeUndefined();
   });
 
-  it("counts a box run as ended only once the run ended and its hosts exited", () => {
+  it("deletes a box once its claim ended, stops it while the story waits, and leaves a working one (DIPO-278)", () => {
     const office = "off_1" as OfficeId;
-    const rows: Record<string, { endedAt: number | null; hosts: WorkerHostRow[] }> = {
-      run_live: { endedAt: null, hosts: [host(null)] },
-      run_ending: { endedAt: 5, hosts: [host(null)] },
-      run_done: { endedAt: 5, hosts: [host(6)] },
+    const rows: Record<
+      string,
+      { endedAt: number | null; hosts: WorkerHostRow[]; released: number | null | "none" }
+    > = {
+      run_live: { endedAt: null, hosts: [host(null)], released: null },
+      run_ending: { endedAt: 5, hosts: [host(null)], released: null },
+      run_waiting: { endedAt: 5, hosts: [host(6)], released: null },
+      run_reopened: { endedAt: null, hosts: [host(6)], released: null },
+      run_merged: { endedAt: 5, hosts: [host(6)], released: 9 },
+      run_dropped_live_host: { endedAt: 5, hosts: [host(null)], released: 9 },
+      run_no_claim: { endedAt: 5, hosts: [host(6)], released: "none" },
     };
     const offices = {
       loadedOffices: () => [office],
@@ -206,10 +214,19 @@ describe("the daemon's box workers", () => {
     const read = {
       run: (_handle: OfficeHandle, runId: RunId) => rows[runId] ?? null,
       hosts: (_handle: OfficeHandle, runId: string) => rows[runId]?.hosts ?? [],
+      claim: (_handle: OfficeHandle, runId: RunId) => {
+        const released = rows[runId]?.released;
+        return released === undefined || released === "none" ? null : { releasedAt: released };
+      },
     };
     expect(boxRunEnded(offices, "run_live", read)).toBe(false);
     expect(boxRunEnded(offices, "run_ending", read)).toBe(false);
-    expect(boxRunEnded(offices, "run_done", read)).toBe(true);
+    expect(boxRunEnded(offices, "run_waiting", read)).toBe(BOX_WAITING);
+    // A run reopened for a review or a fix round waits for its place: its box is left as it is.
+    expect(boxRunEnded(offices, "run_reopened", read)).toBe(false);
+    expect(boxRunEnded(offices, "run_merged", read)).toBe(true);
+    expect(boxRunEnded(offices, "run_dropped_live_host", read)).toBe(false);
+    expect(boxRunEnded(offices, "run_no_claim", read)).toBe(true);
     expect(boxRunEnded(offices, "run_unknown", read)).toBeNull();
   });
 

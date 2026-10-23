@@ -38,8 +38,8 @@ export {
   findBaseVerify,
   storeBaseVerify,
 } from "./base-verify";
-export { ENV_FILES_RULE, SETUP_NOTICES, setupWorktree, STEP_OUTPUT_TAIL } from "./setup";
-export type { SetupDeps, SetupDone, SetupHost, SetupOutcome, SetupRequest } from "./setup";
+export { ENV_FILES_RULE, SETUP_NOTICES, setupWorktree } from "./setup";
+export type { SetupDeps, SetupDone, SetupOutcome, SetupRequest } from "./setup";
 export { MAIN_CHECKOUT_SLOT, SLOTS_FILE, SlotTable, SlotTableError } from "./slots";
 export type { SlotEntry, SlotTableOptions } from "./slots";
 export { SWEEP_MARGIN_MS, sweepBranchReads } from "./sweep";

@@ -248,6 +248,31 @@ describe("a worker's question with a TUI connected (criterion 5)", () => {
     expect(w.sent).toEqual([]);
   });
 
+  it("is expired at office load when a previous daemon left it open (the load step of work.answer)", async () => {
+    await blockedQuestion();
+    expect(openQuestions(w.f.office, w.f.run)).toHaveLength(1);
+    // A new daemon knows no live question: its load step closes the one left open.
+    w.asks.close();
+    const step = buildRegistry([w.asks.feature])
+      .loadSteps()
+      .find((candidate) => candidate.name === "expire open permission questions");
+    await step?.run({
+      officeId: w.f.office.officeId as OfficeId,
+      office: w.f.office,
+      path: w.dir,
+      commonDir: w.dir,
+      config: OFFICE_DEFAULTS,
+      clock: w.f.t.clock,
+      ids: w.f.t.ids,
+    });
+    expect(openQuestions(w.f.office, w.f.run)).toEqual([]);
+    expect(
+      w.f.office.get<{ closed_how: string }>(
+        "select closed_how from questions where office_id = $office_id",
+      ),
+    ).toEqual({ closed_how: "expired" });
+  });
+
   it("parks the story with the question at once when the last TUI closes while it waits (DIPO-284)", async () => {
     await blockedQuestion();
     const [question] = openQuestions(w.f.office, w.f.run);
