@@ -25,14 +25,14 @@
 //   `work.resume` with a note grants one CI attempt and sends the CI item to the worker.
 //
 // Two scenarios are `it.failing`: they state what 0019 and 0021 promise and the engine does not do
-// yet (see the report of DIPO-153):
+// yet. Each becomes a plain `it` in the story that closes it:
 //
 // - the merge slot's conflict merge is made in dipo's repository and never reaches the box, so
 //   the worker never sees the markers and its next part, taken against the merged tip, reverts what
-//   the base changed (here a file the base added is gone from main after the merge);
+//   the base changed (here a file the base added is gone from main after the merge); DIPO-324;
 // - nothing sets `worker_hosts.ended_at` when a session exits normally (only a restart's re-attach
 //   does), so the Done poll keeps a merged story "while a worker of its run is still running"
-//   until the daemon restarts.
+//   until the daemon restarts; DIPO-328.
 //
 // Each scenario needs many CLI calls, pushes and an office load: far over the local budget.
 
@@ -273,7 +273,7 @@ if (process.env["DIPO_TEST_CI"] === "1") {
     );
 
     it.failing(
-      "the Done poll ends a merged story's run without a daemon restart (open gap)",
+      "the Done poll ends a merged story's run without a daemon restart (open gap, DIPO-328)",
       () =>
         withLoopOffice({}, async (w) => {
           approving(w);
@@ -420,6 +420,7 @@ if (process.env["DIPO_TEST_CI"] === "1") {
             [2, "approved"],
           ]);
           await expectMergedOnce(w, run, CSV_V2);
+          // Main loses the file the base added here; the `it.failing` sibling pins that (DIPO-324).
           // The branch holds the slot's merge of the moved base.
           const tip = await w.host.tip(BRANCH_1);
           const merges = await git(w.repo.remote, w.repo.home, "rev-list", "--merges", tip);
@@ -430,7 +431,7 @@ if (process.env["DIPO_TEST_CI"] === "1") {
     );
 
     it.failing(
-      "a conflict hand-off gives the worker's box the slot's merge (open gap)",
+      "a conflict hand-off gives the worker's box the slot's merge (open gap, DIPO-324)",
       () =>
         withLoopOffice({}, async (w) => {
           const { markers } = await conflictHandOff(w);
