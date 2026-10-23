@@ -52,7 +52,6 @@ import type { AsyncCommandContext, CommandOutcome } from "../commands/registry";
 import type { OfficeHandle } from "../db/office";
 import { GitError } from "../git/runner";
 import { fixRoundMessage } from "../prompts/feedback";
-import maintainerNoteTemplate from "../prompts/feedback/maintainer-note.md" with { type: "text" };
 import parkedTemplate from "../prompts/feedback/parked.md" with { type: "text" };
 import topupTemplate from "../prompts/feedback/topup.md" with { type: "text" };
 import { FEEDBACK_TEMPLATES, renderTemplate } from "../prompts/templates";
@@ -92,7 +91,9 @@ import {
   usedOf,
   withGrants,
 } from "./resume-caps";
+import { noteText } from "./resume";
 import { REVIEWED_END } from "./rounds";
+import { resumeLine } from "./summary";
 
 type ResumeArgs = z.output<typeof workResume.args>;
 type ResumeResult = z.input<typeof workResume.result>;
@@ -474,7 +475,7 @@ export class ParkResumes {
       session,
       to,
       message: isDeveloper(session)
-        ? this.#message(office, run, park, row, note, grants, legacy, fix)
+        ? this.#message(office, run, park, row, grants, legacy, fix)
         : null,
       note: note ?? null,
       why: row.why ?? `the maintainer resumed it from ${label}`,
@@ -644,10 +645,31 @@ export class ParkResumes {
         branch: run.branch,
         worktree: run.worktree,
         to: detail.to,
+        // The resume's line in the implementation notes (0020 section 13), in the same commit.
+        line: resumeLine({
+          at: clock.now(),
+          grants: detail.grants.map((grant) => grant.amount),
+          ...(detail.note === null ? {} : { note: detail.note }),
+        }),
       });
     } catch (error) {
       return fail(`lifting the park of ${run.story} failed: ${messageOf(error)}`);
     }
+    const lineNotice: NewEntry[] =
+      lifted.lineError == null
+        ? []
+        : [
+            {
+              type: "engine.notice",
+              key: work.key,
+              run: run.runId,
+              delta: {
+                level: "warn",
+                code: PARK_NOTICES.summaryMissing,
+                text: `${run.story}: the park was lifted, but its resume line is missing from the task file's implementation notes: ${lifted.lineError}`,
+              },
+            },
+          ];
     const pushNotice: NewEntry[] =
       lifted.pushError === null
         ? []
@@ -707,7 +729,7 @@ export class ParkResumes {
                 : `${story}: resumed${granted}; its session starts when the office's ${detail.session === "review" ? "reviewer" : "worker"} place frees (${waits}).`,
           },
         };
-        return [...entries, ...pushNotice, notice];
+        return [...entries, ...lineNotice, ...pushNotice, notice];
       });
     // The place check and the reopen are one serialized step of the office (DIPO-229).
     if (places === undefined) await step();
@@ -892,6 +914,8 @@ export class ParkResumes {
       mode: box || detail.session === "handoff" ? "handoff" : "resume",
       why: detail.why,
       ...(message === null || message === "" ? {} : { message }),
+      // After the delta in a native resume, in the handoff's open feedback otherwise (section 3).
+      ...(detail.note === null ? {} : { note: detail.note }),
     });
     const at = clock.now();
     office.immediate(() => {
@@ -1103,7 +1127,6 @@ export class ParkResumes {
     run: StoredRun,
     park: OpenPark,
     row: ParkResumeRow,
-    note: string | undefined,
     grants: readonly PlannedGrant[],
     legacy: Caps,
     fix: ReturnType<typeof pendingFixRound>,
@@ -1158,7 +1181,7 @@ export class ParkResumes {
       case "none":
         break;
     }
-    if (note !== undefined) parts.push(noteText(note));
+    // The note follows the delta: the session start adds it (`NextSessionRequest.note`).
     return parts.length === 0 ? null : parts.join("\n\n");
   }
 }
@@ -1186,11 +1209,6 @@ function refusal(
         `${story} is parked as ${label} and cannot be resumed; \`dipo discard ${story} --note <why>\` removes its work.`,
         { story, reason: park.reason, ...(park.cause === null ? {} : { cause: park.cause }) },
       );
-}
-
-/** The maintainer's note as the worker reads it (`feedback/maintainer-note.md`). */
-export function noteText(note: string): string {
-  return renderTemplate(maintainerNoteTemplate, { text: note });
 }
 
 /** Inside the caller's transaction: an ended run takes the end kind `kind`, its outcome row too. */

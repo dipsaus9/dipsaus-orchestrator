@@ -1814,6 +1814,52 @@ describe("the prompt parts of a resume and a handoff (DIPO-177)", () => {
   });
 });
 
+describe("the maintainer's resume note in the next session (0020 section 3, DIPO-155)", () => {
+  const noted = {
+    message: "dipo parked this story as stopped (maintainer), and the maintainer resumed it.",
+    note: "/compact the tests first",
+    held: ["The maintainer says: mind the edge case."],
+  };
+
+  it("a native resume sends the delta, then the note in its template, then what waited", async () => {
+    firstSession();
+    const outcome = await realResumer(hosts, {
+      probe: async () => null,
+      story: async () => storyOf(),
+      handoff,
+      workspace,
+    }).next({ ...nextRequest(), ...noted });
+    expect(outcome).toMatchObject({ kind: "started", resumed: true });
+    expect(sentText()).toBe(
+      [noted.message, "Note from the maintainer: /compact the tests first", noted.held[0]].join(
+        "\n\n",
+      ),
+    );
+  });
+
+  it("a handoff lists the note in its block's open feedback, once, never starting the message", async () => {
+    firstSession();
+    const outcome = await realResumer(
+      hosts,
+      {
+        probe: async () => null,
+        story: async () => storyOf(),
+        handoff: async (_office, _run, _report, extra) => ({
+          ...(await handoff()),
+          ...(extra?.note === undefined ? {} : { note: extra.note }),
+        }),
+        workspace,
+      },
+      () => ({ ok: false, reason: "the context is too full" }),
+    ).next({ ...nextRequest(), ...noted });
+    expect(outcome).toMatchObject({ kind: "started", resumed: false });
+    const text = sentText();
+    expect(text.split("Note from the maintainer: /compact the tests first")).toHaveLength(2);
+    expect(text.startsWith("/")).toBe(false);
+    expect(text.indexOf(noted.message)).toBeLessThan(text.indexOf(noted.held[0] ?? ""));
+  });
+});
+
 describe("the prompts of a box worker's next session (DIPO-272)", () => {
   it("a run directory with the box record gets the box contract and the box scope section", async () => {
     firstSession();

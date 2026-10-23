@@ -34,6 +34,7 @@ import {
   grantTotals,
   insertRun,
   MAINTAINER_RESUME_TAG,
+  noteText,
   PARK_RESUME_MATRIX,
   parkActions,
   parkResumeRow,
@@ -59,6 +60,21 @@ import type { Caps } from "../../src/workers/types";
 import { insertClaim } from "../../src/worktree/records";
 import { CRASH, crashAfterHandler } from "../commands/crash";
 import { type IngestFixture, ingestFixture } from "../ingest/helpers";
+
+/**
+ * The first message a native resume of `request` sends (`RunResumer`): the caller's message, the
+ * note in its template, then what waited. A handoff lists the note in its block instead.
+ */
+function first(request: NextSessionRequest | undefined): string {
+  if (request === undefined) return "";
+  return [
+    request.message,
+    request.note === undefined ? undefined : noteText(request.note),
+    ...(request.held ?? []),
+  ]
+    .filter((part) => part !== undefined && part !== "")
+    .join("\n\n");
+}
 
 /** Every command counts as implemented. */
 const all = () => true;
@@ -431,14 +447,18 @@ describe("work.resume of a park that needs no grant", () => {
           branch: "DIPO-1/add-a-greeting",
           worktree: join(w.dir, "trees", "DIPO-1"),
           to: "In Progress",
+          // The resume's line in the implementation notes (0020 section 13, DIPO-154).
+          line: `Resumed 2026-01-01 00:00 UTC; grants: none; note: ${row.note ?? "none"}`,
         },
       ]);
       expect(w.sessions).toHaveLength(1);
       const session = w.sessions[0] as NextSessionRequest;
+      // The note goes to the session start apart from the delta (0020 section 3).
+      expect(session.note).toBe(row.note);
       expect(session.mode).toBe(row.mode);
-      for (const part of row.first) expect(session.message).toContain(part);
+      for (const part of row.first) expect(first(session)).toContain(part);
       // Maintainer text never starts a message (0020 section 3).
-      expect(session.message?.startsWith(row.note ?? "\0")).toBe(false);
+      expect(first(session)?.startsWith(row.note ?? "\0")).toBe(false);
       // The note is a fact on the resolved park (migration 44); the run is active again.
       expect(parkRow(parkId)).toEqual({ resolved_how: "resume", resolved_note: row.note ?? null });
       expect(findRun(w.f.office, w.f.run)?.endedAt).toBeNull();
@@ -608,7 +628,7 @@ describe("top-up of a budget-exceeded park (0020 section 4)", () => {
     expect(after.budgetTokens - before.budgetTokens).toBe(150_000);
     expect(after.maxTurns - before.maxTurns).toBe(30);
     expect(after.maxMinutes - before.maxMinutes).toBe(15);
-    const message = w.sessions[0]?.message ?? "";
+    const message = first(w.sessions[0]) ?? "";
     expect(message).toContain(
       "The maintainer raised this story's budget by 150,000 tokens, 30 turns and 15 minutes",
     );
@@ -665,7 +685,7 @@ describe("top-up of a budget-exceeded park (0020 section 4)", () => {
       ctx(true),
     );
     expect(reply.result.to).toBe("In Progress");
-    const message = w.sessions[0]?.message ?? "";
+    const message = first(w.sessions[0]) ?? "";
     expect(message.indexOf("Required check ci-ok failed.")).toBeGreaterThanOrEqual(0);
     expect(message.indexOf("Required check ci-ok failed.")).toBeLessThan(
       message.indexOf("raised this story's budget"),
@@ -708,7 +728,7 @@ describe("capped, conflicted and review-loop resumes (0020 decision 6b)", () => 
     );
     await resume(resumption(), { note: "Use bun test --bail." });
     expect(grants().map((grant) => [grant.kind, grant.amount])).toEqual([["loop", "1"]]);
-    const message = w.sessions[0]?.message ?? "";
+    const message = first(w.sessions[0]) ?? "";
     expect(message.indexOf("Verify failed at the verify step.")).toBeLessThan(
       message.indexOf("Note from the maintainer: Use bun test --bail."),
     );
@@ -735,7 +755,7 @@ describe("capped, conflicted and review-loop resumes (0020 decision 6b)", () => 
     park("verify-failing", "ci", "In Review", "required checks were red on 2 pushed heads");
     await resume(resumption(), { note: "Run the linter." });
     expect(grants().map((grant) => [grant.kind, grant.amount])).toEqual([["ciAttempt", "1"]]);
-    const message = w.sessions[0]?.message ?? "";
+    const message = first(w.sessions[0]) ?? "";
     expect(message).toContain("Required check ci-ok failed: lint.");
     expect(message.indexOf("lint.")).toBeLessThan(message.indexOf("Note from the maintainer"));
   });
@@ -747,7 +767,7 @@ describe("capped, conflicted and review-loop resumes (0020 decision 6b)", () => 
     expect(reply.result.grants).toEqual([
       { kind: "budget", tokens: 150_000, turns: 30, minutes: 15 },
     ]);
-    const message = w.sessions[0]?.message ?? "";
+    const message = first(w.sessions[0]) ?? "";
     expect(message.indexOf("Verify failed at the verify step.")).toBeLessThan(
       message.indexOf("Note from the maintainer: Last push."),
     );
@@ -777,7 +797,7 @@ describe("capped, conflicted and review-loop resumes (0020 decision 6b)", () => 
     await resume(resumption(), { note: "Keep both sides." });
     expect(w.ported).toEqual(["conflict:merge-in-progress"]);
     expect(grants().map((grant) => [grant.kind, grant.amount])).toEqual([["conflictHandoff", "1"]]);
-    const message = w.sessions[0]?.message ?? "";
+    const message = first(w.sessions[0]) ?? "";
     expect(message.indexOf("Conflict item")).toBeLessThan(
       message.indexOf("Note from the maintainer"),
     );
@@ -972,9 +992,7 @@ describe("a resume whose place is taken (0020 section 1, 0019 section 12)", () =
     await places.drain(office.officeId as OfficeId);
     await resuming.idle();
     expect(w.sessions).toHaveLength(1);
-    expect(w.sessions[0]?.message).toContain(
-      "Note from the maintainer: When the other one is done.",
-    );
+    expect(first(w.sessions[0])).toContain("Note from the maintainer: When the other one is done.");
     places.close();
   });
 });
