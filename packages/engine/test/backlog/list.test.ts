@@ -1,5 +1,6 @@
 // A whole Backlog list (DIPO-323): `--count` output parses to one number or not at all, and
-// `listAll` reads the list and its count once more on a mismatch before it fails.
+// `listAll` reads the list and its count once more on a mismatch before it fails. The error says how
+// much arrived: the bytes, the last line and whether the output ended with a newline (DIPO-333).
 
 import { describe, expect, it } from "bun:test";
 
@@ -7,9 +8,11 @@ import type { Spawn } from "@dipsaus-orchestrator/contract";
 
 import {
   BacklogListIncompleteError,
+  LAST_LINE_MAX,
   LIST_ATTEMPTS,
   listAll,
   parseCount,
+  receivedText,
 } from "../../src/backlog/list";
 import { BacklogParseError } from "../../src/backlog/plain";
 
@@ -34,6 +37,37 @@ describe("parseCount", () => {
       expect(() => parseCount(output)).toThrow(BacklogParseError);
     });
   }
+});
+
+describe("receivedText", () => {
+  it("names the bytes, the last line that is not blank and the final newline", () => {
+    expect(receivedText(WHOLE)).toBe(
+      `dipo received ${WHOLE.length} bytes, last non-blank line "  TASK-3 - Three", with a final newline`,
+    );
+  });
+
+  it("names a line cut in the middle, without a final newline", () => {
+    expect(receivedText("Done:\n  TASK-1 - One\n  TASK-2 - T")).toBe(
+      'dipo received 33 bytes, last non-blank line "  TASK-2 - T", without a final newline',
+    );
+  });
+
+  it("counts bytes, not characters, and quotes control characters", () => {
+    expect(receivedText("Done:\n  TASK-1 - Café \u001b[2J\n")).toBe(
+      'dipo received 28 bytes, last non-blank line "  TASK-1 - Café \\u001b[2J", with a final newline',
+    );
+  });
+
+  it("names an empty output", () => {
+    expect(receivedText("")).toBe(
+      'dipo received 0 bytes, last non-blank line "", without a final newline',
+    );
+  });
+
+  it(`quotes at most ${LAST_LINE_MAX} characters of the last line`, () => {
+    const long = `  TASK-1 - ${"z".repeat(500)}`;
+    expect(receivedText(long)).toContain(JSON.stringify(long.slice(0, LAST_LINE_MAX)));
+  });
 });
 
 /** A CLI whose `task list` prints `lists[n]` on its n-th call (the last one after that). */
@@ -83,6 +117,7 @@ describe("listAll", () => {
     await expect(read).rejects.toThrow(
       "`backlog task list --plain` printed 2 entries, but its --count says 3: the list is incomplete",
     );
+    await expect(read).rejects.toThrow(`(${receivedText(CUT)})`);
     expect(cli.calls).toHaveLength(2 * LIST_ATTEMPTS);
   });
 

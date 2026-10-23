@@ -28,5 +28,6 @@ export type {
   Signal,
   Spawn,
   SpawnOptions,
+  SpawnOutputFile,
   TimerHandle,
 } from "./runtime";
