@@ -174,9 +174,9 @@ Usage:
                     time does not count toward its minute cap
   dipo answer <question> --text <answer> [--office <id>]
                     answer a worker's question: a worker waiting on it gets the
-                    answer now, a story parked on it resumes with it, and dipo
-                    writes it to the story as a resolved unknown; put the whole
-                    answer in quotes after --text
+                    answer now; a story parked on it resumes with it, and dipo
+                    writes that answer to the story as a resolved unknown; put
+                    the whole answer in quotes after --text
   dipo answer <question> allow|deny [reason] [--office <id>]
                     answer a permission or scope question: allow lets the call
                     run once, deny refuses it and tells the worker the reason
