@@ -293,6 +293,24 @@ export const officeSwitch = defineRead({
   since: 1,
 });
 
+// The notes and proposals of a run's done report (DIPO-152), the worker's own words, cleaned and
+// capped as door messages are (0021 section 7). Absent when the report had neither.
+export const DoneReport = z.object({
+  notes: z.string().optional(),
+  proposals: z
+    .array(
+      z.object({
+        kind: z.string(),
+        title: z.string(),
+        outcome: z.string(),
+        why: z.string(),
+        paths: z.array(z.string()).optional(),
+      }),
+    )
+    .optional(),
+});
+export type DoneReport = z.infer<typeof DoneReport>;
+
 // One past or current run of a story.
 export const RunRecord = z.object({
   run: RunId,
@@ -304,6 +322,8 @@ export const RunRecord = z.object({
   endedAt: Timestamp.optional(),
   outcome: z.string().optional(), // how the run ended, absent while it runs
   usage: UsageTotals,
+  // Since minor 1 (DIPO-152): the notes and proposals of the done report that ended the run.
+  doneReport: DoneReport.optional(),
 });
 export type RunRecord = z.infer<typeof RunRecord>;
 

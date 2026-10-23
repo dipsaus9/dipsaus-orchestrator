@@ -1,5 +1,6 @@
-// `dipo watch [ID] [--office <id>]` (DIPO-52; 0009 section 9): follows an office, or one story of
-// it, in plain text without Ink. It reads `office.snapshot` (and `story.detail` for a story), prints
+// `dipo watch`: follows one story or the whole office from the terminal without the TUI and shows
+// what the engine does, in plain text without Ink. It reads `office.snapshot` (and `story.detail`
+// for a story), prints
 // the state of each running story (phase, health, loop, verify, criteria, budget share, usage),
 // then subscribes after the snapshot's cursor and prints one readable line per event as it comes:
 // run start, phases, worker output, usage and turns, health changes and watchdog signals, notices,
@@ -543,6 +544,7 @@ class Watch {
         this.#line(
           `${clockTime(run.endedAt)} ${detail.view.story} end    run ${run.run} ended: ${run.outcome ?? "no outcome recorded"} · ${count(run.usage.turns)} turns`,
         );
+        for (const line of doneReportLines(run)) this.#line(line);
       }
     }
   }
@@ -594,4 +596,19 @@ export async function watchCommand(
     Number.POSITIVE_INFINITY,
     "running",
   );
+}
+
+/** The done report's notes and proposals of an ended run, marked as the worker's words (DIPO-152). */
+export function doneReportLines(run: RunRecord): string[] {
+  const report = run.doneReport;
+  if (report === undefined) return [];
+  return [
+    "  worker's done report (the worker's words, not checked by dipo):",
+    ...(report.notes === undefined
+      ? []
+      : report.notes.split("\n").map((line) => `    ${line}`.trimEnd())),
+    ...(report.proposals ?? []).map(
+      (proposal) => `    proposal (${proposal.kind}): ${proposal.title} — ${proposal.outcome}`,
+    ),
+  ];
 }
