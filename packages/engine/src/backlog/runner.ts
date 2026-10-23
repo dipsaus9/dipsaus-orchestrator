@@ -399,7 +399,9 @@ export async function runBacklog(
 ): Promise<BacklogOutput> {
   const reason = refusal(args);
   if (reason !== null) throw new BacklogRefusedError(args, reason);
-  const scan = scanBacklogFiles(cwd);
+  // `backlog --version` prints the CLI's version and reads no project.
+  const project = !(args.length === 1 && args[0] === "--version");
+  const scan = scanBacklogFiles(cwd, VERDICTS, { project });
   if (scan.refused.length > 0) {
     const refused = new BacklogFileRefusedError(args, scan.refused);
     tellOnce(cli.notify, noticeKeys(scan, scan.refused), () => refused.notice());
@@ -454,8 +456,10 @@ export async function runBacklog(
 // (`---js`, `--- yaml`, in any case, after any number of byte order marks) or does not parse
 // (read as 1.53 reads it, which quotes a hand-written `due_date`, `assignee` or `reporter` value
 // first), a Backlog file that is not a plain file dipo can read whole (a special file, or larger
-// than `BACKLOG_CHECK_MAX`), or a `backlog.config.yml` that names a backlog folder dipo cannot
-// resolve inside the folder the call runs in.
+// than `BACKLOG_CHECK_MAX`), a `backlog.config.yml` that names a backlog folder dipo cannot
+// resolve inside the folder the call runs in, or a folder with no project configuration of its own
+// (a `backlog.config.yml` with a project name, or `config.yml` or `config.yaml` in `backlog/` or
+// `.backlog/`), where the CLI would look for one in the folders above.
 //
 // Before a status change (`task edit` or `draft edit` with `--status`), dipo also refuses when the
 // configuration or a task file defines a command for the CLI to run on that change
@@ -498,6 +502,8 @@ const DEFINES_COMMAND = "defines a command for the Backlog CLI to run on a statu
 const NOT_PLAIN_YAML =
   "opens a front matter block that is not plain YAML, which dipo does not let the Backlog CLI read";
 const DOES_NOT_PARSE = "holds a front matter block that does not parse, so dipo cannot check it";
+const NO_PROJECT_CONFIG =
+  "holds no Backlog project configuration (backlog.config.yml with a project name, or config.yml in backlog/ or .backlog/), so dipo does not run the Backlog CLI there";
 const UNRESOLVED_FOLDER =
   "names a backlog folder dipo cannot resolve inside the repository, so dipo cannot check it";
 
@@ -566,6 +572,26 @@ export function backlogPointer(text: string): BacklogPointer {
   }
   if (isAbsolute(folder)) return { kind: "unresolved" };
   return { kind: "folder", folder };
+}
+
+/**
+ * Pure: true when the root configuration `text` names a project (`project_name` or
+ * `projectName` with a value), which 1.53 needs to take it as the project's root.
+ */
+export function hasProjectName(text: string): boolean {
+  for (const raw of text.split("\n")) {
+    const line = raw.trim();
+    if (line === "" || line.startsWith("#")) continue;
+    const colon = line.indexOf(":");
+    if (colon < 0) continue;
+    const key = line.slice(0, colon).trim();
+    const value = line
+      .slice(colon + 1)
+      .trim()
+      .replace(/^['"]|['"]$/g, "");
+    if ((key === "project_name" || key === "projectName") && value !== "") return true;
+  }
+  return false;
 }
 
 /** What dipo found in one Markdown file's front matter. */
@@ -808,9 +834,14 @@ function identityOf(stat: Stats): string {
 /**
  * Scans the Backlog files of `cwd` (see the section above). Configuration files come first, then
  * the Markdown files of the task folders, then the rest of each backlog folder by path. `cache`
- * keeps the verdicts between scans.
+ * keeps the verdicts between scans. With `project: false` (a call that reads no project, such as
+ * `--version`), a folder without a project configuration is not refused.
  */
-export function scanBacklogFiles(cwd: string, cache: VerdictCache = VERDICTS): BacklogScan {
+export function scanBacklogFiles(
+  cwd: string,
+  cache: VerdictCache = VERDICTS,
+  options: { readonly project?: boolean } = {},
+): BacklogScan {
   const refused: BacklogFileHit[] = [];
   const statusCommands: BacklogFileHit[] = [];
   const keys = new Map<BacklogFileHit, string>();
@@ -884,11 +915,14 @@ export function scanBacklogFiles(cwd: string, cache: VerdictCache = VERDICTS): B
 
   // The root configuration, and the folder it names.
   const folders = ["backlog", ".backlog"];
+  let rooted = false;
   const rootStat = checkConfig(ROOT_CONFIG);
   if (rootStat !== undefined && rootStat.isFile() && rootStat.size <= BACKLOG_CHECK_MAX) {
     let pointer: BacklogPointer = { kind: "unresolved" };
     try {
-      pointer = backlogPointer(readFileSync(join(cwd, ROOT_CONFIG), "utf8"));
+      const rootText = readFileSync(join(cwd, ROOT_CONFIG), "utf8");
+      pointer = backlogPointer(rootText);
+      rooted = hasProjectName(rootText);
     } catch {
       // An unreadable root configuration is refused as unresolved.
     }
@@ -898,8 +932,15 @@ export function scanBacklogFiles(cwd: string, cache: VerdictCache = VERDICTS): B
     }
   }
   for (const folder of folders) {
-    for (const name of FOLDER_CONFIGS) checkConfig(`${folder}/${name}`);
+    for (const name of FOLDER_CONFIGS) {
+      const stat = checkConfig(`${folder}/${name}`);
+      if (stat?.isFile() === true && (folder === "backlog" || folder === ".backlog")) rooted = true;
+    }
   }
+  // Without a project configuration here, the CLI looks for one in the folders above, which dipo
+  // does not check. A folder that does not exist is left alone: the CLI cannot start in it.
+  const here = statOf(cwd);
+  if (options.project !== false && !rooted && here !== undefined) refuse(".", NO_PROJECT_CONFIG);
 
   // The task folders by their identity: the folder the CLI opens under each name.
   const taskFolders = new Set<string>();

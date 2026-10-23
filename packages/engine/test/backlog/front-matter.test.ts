@@ -19,7 +19,7 @@ import {
 } from "node:fs";
 import { dirname, join } from "node:path";
 
-import { withTempDir, withTempRepo } from "@dipsaus-orchestrator/testkit";
+import { tempRoot, withTempDir, withTempRepo } from "@dipsaus-orchestrator/testkit";
 
 import {
   type BacklogNotice,
@@ -28,6 +28,7 @@ import {
   BacklogRefusedError,
   backlogPointer,
   frontMatterRefusal,
+  hasProjectName,
   preparedFrontMatter,
   taskStatusCommand,
   runBacklog,
@@ -170,7 +171,7 @@ describe("every Backlog CLI call", () => {
   it("checks the backlog folder backlog.config.yml names", () =>
     withTempDir(async (dir) => {
       write(dir, {
-        "backlog.config.yml": 'backlog_directory: "planning"\n',
+        "backlog.config.yml": 'project_name: x\nbacklog_directory: "planning"\n',
         "planning/tasks/task-1 - Story.md": "--- JS\n{}\n---\n",
       });
       const { error } = await call(dir, ["task", "list", "--plain"]);
@@ -209,7 +210,10 @@ describe("every Backlog CLI call", () => {
 
   it("raises the notice once for an unchanged file, and again after it changed", () =>
     withTempDir(async (dir) => {
-      write(dir, { "backlog/tasks/task-2 - Other.md": "---js\n{}\n---\n" });
+      write(dir, {
+        "backlog/config.yml": CONFIG,
+        "backlog/tasks/task-2 - Other.md": "---js\n{}\n---\n",
+      });
       const notices: BacklogNotice[] = [];
       await call(dir, ["task", "list", "--plain"], notices);
       await call(dir, ["task", "view", "TASK-2", "--plain"], notices);
@@ -256,7 +260,7 @@ describe("the verdict cache", () => {
       const path = join(dir, "backlog/tasks/task-1 - Story.md");
       const clean = "---\nid: TASK-1\n---\n";
       const tagged = "---js\n{ id: 1 }\n---\n".slice(0, clean.length).padEnd(clean.length, " ");
-      write(dir, { "backlog/tasks/task-1 - Story.md": clean });
+      write(dir, { "backlog/config.yml": CONFIG, "backlog/tasks/task-1 - Story.md": clean });
       const cache = new VerdictCache();
       expect(scanBacklogFiles(dir, cache).refused).toEqual([]);
       const before = statSync(path);
@@ -482,5 +486,61 @@ describe("notices of refused calls (DIPO-312)", () => {
       }
       expect(notices.map((notice) => notice.text.includes("TASK-2"))).toEqual([false, true]);
       expect(stub.calls).toEqual([]);
+    }));
+});
+
+describe("a folder without a project configuration of its own (DIPO-312)", () => {
+  it("is refused, so the CLI never looks for a project in a folder above it", () =>
+    withTempDir(async (root) => {
+      write(root, { "backlog/config.yml": CONFIG, "backlog/tasks/task-1 - Story.md": CLEAN });
+      const inner = join(root, "packages", "inner");
+      write(inner, { "backlog/tasks/task-1 - Story.md": CLEAN });
+      const { error, spawned } = await call(inner, ["task", "list", "--plain"]);
+      expect(spawned).toBe(0);
+      expect(error).toBeInstanceOf(BacklogFileRefusedError);
+      expect((error as BacklogFileRefusedError).files).toEqual([
+        {
+          path: ".",
+          reason:
+            "holds no Backlog project configuration (backlog.config.yml with a project name, or config.yml in backlog/ or .backlog/), so dipo does not run the Backlog CLI there",
+        },
+      ]);
+      // The parent itself is a project.
+      expect((await call(root, ["task", "list", "--plain"])).spawned).toBe(1);
+    }));
+
+  it("is refused when backlog.config.yml names no project", () =>
+    withTempDir(async (dir) => {
+      write(dir, { "backlog.config.yml": 'backlog_directory: "backlog"\n' });
+      const { error } = await call(dir, ["task", "list", "--plain"]);
+      expect((error as BacklogFileRefusedError).files.map((file) => file.path)).toEqual(["."]);
+    }));
+
+  it("passes with each kind of project configuration", () =>
+    withTempDir(async (root) => {
+      for (const [name, files] of [
+        ["folder config.yml", { "backlog/config.yml": CONFIG }],
+        ["folder config.yaml", { "backlog/config.yaml": CONFIG }],
+        ["hidden folder config.yml", { ".backlog/config.yml": CONFIG }],
+        ["hidden folder config.yaml", { ".backlog/config.yaml": CONFIG }],
+        ["root config with a project", { "backlog.config.yml": "project_name: 'x'\n" }],
+      ] as const) {
+        const dir = join(root, name.replaceAll(" ", "-"));
+        write(dir, files);
+        expect([name, (await call(dir, ["task", "list", "--plain"])).spawned]).toEqual([name, 1]);
+      }
+      expect(hasProjectName('projectName: "x"\n')).toBe(true);
+      expect(hasProjectName('project_name: ""\n# project_name: x\n')).toBe(false);
+    }));
+
+  it("leaves a folder that does not exist to the CLI, which cannot start in it", async () => {
+    const missing = join(tempRoot(), "dipo-no-such-folder");
+    expect((await call(missing, ["task", "list", "--plain"])).spawned).toBe(1);
+  });
+
+  it("lets `--version` through, which reads no project", () =>
+    withTempDir(async (dir) => {
+      expect((await call(dir, ["--version"])).spawned).toBe(1);
+      expect((await call(dir, ["task", "list", "--plain"])).spawned).toBe(0);
     }));
 });
