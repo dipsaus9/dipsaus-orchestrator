@@ -12,7 +12,8 @@
 //    the PR, says the maintainer merges it by hand on GitHub, and offers only `dipo reject`;
 // 3. open parks: needing a decision, then a direction or grant, then a restart. A `review-blocked`
 //    park whose merge gate is open is one row with both `dipo resume --note` and `dipo approve
-//    --note` (or the hand merge when its PR is labelled `autorelease: pending`), and that gate gets
+//    --note` (or the hand merge when its PR is labelled `autorelease: pending` or its gate is
+//    marked hand-merge only for the release path), and that gate gets
 //    no MERGE row of its own;
 // 4. hand actions: a backlog PR whose structural check failed or could not run, and the items of
 //    `DeskSources.handItems` (DIPO-161's DONE ELSEWHERE and LEFTOVERS);
@@ -390,6 +391,24 @@ class DeskBuilder {
     );
   }
 
+  /**
+   * The hand text of a gate only the maintainer merges, by hand: one whose PR changes the release
+   * path (`gates.hand_merge`, DIPO-331) or is labelled `autorelease: pending`; null when `dipo
+   * approve` decides it.
+   */
+  #handOnlyText(
+    gate: OpenMergeGate,
+    record: { readonly number: number; readonly url: string } | null,
+  ): string | null {
+    if (gate.hand_merge === "release-path") return this.#handMerge(record, "release-path");
+    const labelled = this.#sources.handMergeOnly(this.#office, {
+      gate: gate.gate_id,
+      key: gate.key,
+      run: gate.run_id,
+    });
+    return labelled ? this.#handMerge(record) : null;
+  }
+
   /** Group 2: one merge gate that waits on the maintainer (see the file comment). */
   #mergeGate(gate: OpenMergeGate): void {
     const story = storyIdOf(this.#office, gate.key);
@@ -397,21 +416,10 @@ class DeskBuilder {
     const record =
       findStoryPr(this.#office, RunId.parse(gate.run_id)) ?? latestStoryPr(this.#office, gate.key);
     const reject = this.#action("gate.reject", `dipo reject ${story} --note "<why>"`);
+    const hand = this.#handOnlyText(gate, record);
+    // A release-path PR can still be sent back; an `autorelease: pending` one only merges by hand.
     let actions = [...this.#action("gate.approve", `dipo approve ${story}`), ...reject];
-    let hand: string | null = null;
-    if (gate.hand_merge === "release-path") {
-      actions = reject;
-      hand = this.#handMerge(record, "release-path");
-    } else if (
-      this.#sources.handMergeOnly(this.#office, {
-        gate: gate.gate_id,
-        key: gate.key,
-        run: gate.run_id,
-      })
-    ) {
-      actions = [];
-      hand = this.#handMerge(record);
-    }
+    if (hand !== null) actions = gate.hand_merge === "release-path" ? reject : [];
     this.#add(GROUP.merge, 0, gate.opened_at, {
       kind: "MERGE",
       story,
@@ -465,17 +473,14 @@ class DeskBuilder {
           ? (gates.find((candidate) => candidate.key === park.key) ?? null)
           : null;
       if (open !== null) {
-        // The park's merge gate (0019 section 11): `dipo approve --note`, unless its PR is labelled
-        // `autorelease: pending`, which only the maintainer merges, by hand.
+        // The park's merge gate (0019 section 11): `dipo approve --note`, unless only the
+        // maintainer merges its PR, by hand.
         gate = open.gate_id;
-        const handOnly = this.#sources.handMergeOnly(this.#office, {
-          gate: open.gate_id,
-          key: open.key,
-          run: open.run_id,
-        });
-        if (handOnly) {
-          hand = this.#handMerge(findStoryPr(this.#office, RunId.parse(open.run_id)) ?? record);
-        } else {
+        hand = this.#handOnlyText(
+          open,
+          findStoryPr(this.#office, RunId.parse(open.run_id)) ?? record,
+        );
+        if (hand === null) {
           actions.push(...this.#action("gate.approve", `dipo approve ${story} --note "<why>"`));
         }
       }

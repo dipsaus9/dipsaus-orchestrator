@@ -10,7 +10,7 @@
 //   merge, and the approval of the head before it carries to the merged head (only that merge and
 //   a task-file commit lie between them) with no new review round; the PR merges at that head.
 
-import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import { chmodSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 
 import { describe, expect, it } from "bun:test";
@@ -493,6 +493,49 @@ describe("the release path of a story PR on real git", () => {
           async (worktree) => {
             mkdirSync(join(worktree, "scripts"), { recursive: true });
             await git(worktree, repo.home, "mv", "install.sh", "scripts/install.sh");
+          },
+        );
+      },
+      { fixture: BACKLOG_FIXTURE },
+    );
+  });
+
+  it("holds a PR whose only change to install.sh is its mode", async () => {
+    await withBareRemote(
+      async (repo) => {
+        releaseBase(repo);
+        await scenario(
+          repo,
+          async ({ slot, host, officeId, head, slotGit }) => {
+            expect(await slotGit.releasePaths(officeId, head)).toEqual(["install.sh"]);
+            expect(await slot.tick(officeId)).toBe("idle");
+            expect(host.merges).toEqual([]);
+          },
+          async (worktree) => {
+            chmodSync(join(worktree, "install.sh"), 0o755);
+            await git(worktree, repo.home, "update-index", "--chmod=+x", "install.sh");
+          },
+        );
+      },
+      { fixture: BACKLOG_FIXTURE },
+    );
+  });
+
+  it("holds a PR that deletes an owned file", async () => {
+    await withBareRemote(
+      async (repo) => {
+        releaseBase(repo);
+        await scenario(
+          repo,
+          async ({ slot, host, officeId, head, slotGit }) => {
+            expect(await slotGit.releasePaths(officeId, head)).toEqual([
+              ".github/workflows/ci.yml",
+            ]);
+            expect(await slot.tick(officeId)).toBe("idle");
+            expect(host.merges).toEqual([]);
+          },
+          async (worktree) => {
+            await git(worktree, repo.home, "rm", "--quiet", ".github/workflows/ci.yml");
           },
         );
       },

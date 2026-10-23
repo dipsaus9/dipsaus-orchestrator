@@ -38,7 +38,8 @@
 //      fix round of DIPO-148 takes the red head; checks that stay unfinished past the run's
 //      `mergeSlot.checksWaitMinutes` leave it until they pass;
 //   5. the label guard (`autorelease: pending` is never merged, a hold label waits), the release
-//      path guard (read again for the pushed head; one changed, or unreadable, leaves), the host's
+//      path guard (the base fetched again and read for the pushed head; one changed, a failed
+//      fetch or an unreadable answer leaves), the host's
 //      PR head equal to the pushed head, and an approved or overridden verdict and an approved
 //      merge gate that hold for exactly that head (else the story leaves the slot unmerged and the
 //      review loop takes the head);
@@ -395,16 +396,21 @@ export class StorySlot {
       return null;
     });
     if (paths !== null) return paths;
+    this.#releaseUnknown(ctx, run, head, "the base's CODEOWNERS or the PR's diff");
+    return null;
+  }
+
+  /** The `mergeSlot.releasePathUnknown` notice, once per head: nothing merges it this time. */
+  #releaseUnknown(ctx: StorySlotContext, run: StoredRun, head: string, what: string): void {
     ctx.once(`story:${run.runId}`, STORY_SLOT_NOTICES.releaseUnknown, head, () =>
       notice(
         "warn",
         STORY_SLOT_NOTICES.releaseUnknown,
-        `${run.story}: dipo could not read whether ${short(head)} changes the release path (the base's CODEOWNERS or the PR's diff), so it does not merge it. It tries again at the next check.`,
+        `${run.story}: dipo could not read whether ${short(head)} changes the release path (${what}), so it does not merge it. It tries again at the next check.`,
         run.key,
         run.runId,
       ),
     );
-    return null;
   }
 
   /**
@@ -1056,7 +1062,9 @@ export class StorySlot {
 
   /**
    * Step 5's label and release path guards for the head that would merge: true when a hold label
-   * or the release path holds it (with its notice), or the release path cannot be read.
+   * or the release path holds it (with its notice), or the release path cannot be read. The base is
+   * fetched first, so the CODEOWNERS read is the base's as it is now, not as it was at the sync; a
+   * failed fetch leaves the slot with the `mergeSlot.releasePathUnknown` notice.
    */
   async #guarded(
     ctx: StorySlotContext,
@@ -1069,6 +1077,10 @@ export class StorySlot {
     const held = holdLabelsOn(labels, config.mergeSlot.holdLabels);
     if (held.length > 0) {
       return this.#heldBack(ctx, run, { number: current.number, head, held, release: [] }, "slot");
+    }
+    if (!(await this.#deps.git.fetch(ctx.officeId).catch(() => false))) {
+      this.#releaseUnknown(ctx, run, head, "the fetch of the base failed");
+      return true;
     }
     const release = await this.#releasePaths(ctx, run, head);
     if (release === null) return true;

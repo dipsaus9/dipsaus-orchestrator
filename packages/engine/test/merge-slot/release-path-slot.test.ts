@@ -104,6 +104,31 @@ describe("a story PR whose diff changes the release path", () => {
     expect(row?.detail).toContain(CI_FILE);
   });
 
+  it("shows the hand merge and no dipo approve on the row of a review-blocked park whose gate it is", async () => {
+    s = await storyWorld();
+    s.git.release.set(H1, [CI_FILE]);
+    expect(await tick()).toBe("idle");
+    const gate = gates()[0]!.gate;
+    // A review-blocked park of the story while that gate is open: the desk makes one PARKED row.
+    s.w.office.immediate(() =>
+      s.w.office.run(
+        `insert into parks (office_id, park_id, key, story_id, run_id, reason, cause, from_state,
+           detail, at)
+         values ($office_id, 1, $key, 'DIPO-7', $run, 'review-blocked', 'rounds', 'In Review',
+           'round 3 blocked', $at)`,
+        { key: s.key, run: s.run, at: s.w.t.clock.now() },
+      ),
+    );
+    const items = desk(s.w.office, () => true);
+    expect(items.filter((item) => item.kind === "MERGE")).toEqual([]);
+    const [row] = items.filter((item) => item.kind === "PARKED");
+    expect(row).toMatchObject({ story: "DIPO-7", gate, reason: "review-blocked" });
+    expect(row?.hand).toBe(
+      `the maintainer merges PR #${PR} (${PR_URL}) by hand on GitHub: it changes the release path, which needs the maintainer's code owner approval, so dipo never merges it`,
+    );
+    expect(row?.actions.map((action) => action.command)).not.toContain("gate.approve");
+  });
+
   it("closes its gate when the maintainer merges the PR on the host (the Done poll)", async () => {
     s = await storyWorld();
     s.git.release.set(H1, [CI_FILE]);
@@ -141,8 +166,10 @@ describe("a story PR outside the release path", () => {
     s.ci.set(s.run, { kind: "green", head: C1 });
     expect(await tick()).toBe("merged");
     expect(s.host.merges).toEqual([{ number: PR, headSha: C1 }]);
-    // Before its gate opened, and again for the head that merged.
+    // Before its gate opened, and again for the head that merged, after a fresh fetch of the base.
     expect(s.git.releaseReads).toEqual([H1, C1]);
+    expect(s.git.calls.filter((call) => call === "fetch")).toHaveLength(2);
+    expect(s.git.calls.at(-1)).toBe("fetch");
     expect(mergeRows()).toEqual([]);
   });
 });
@@ -194,6 +221,23 @@ describe("when git cannot tell the release path", () => {
     expect(await tick()).toBe("left");
     expect(s.host.merges).toEqual([]);
     expect(noticeCodes(s.w.office)).toContain(STORY_SLOT_NOTICES.releaseUnknown);
+  });
+});
+
+describe("the fetch of the base right before the last check", () => {
+  it("leaves the slot unmerged with the release path notice when it fails", async () => {
+    s = await storyWorld();
+    expect(await tick()).toBe("waiting");
+    s.git.fetchOk = false;
+    s.ci.set(s.run, { kind: "green", head: C1 });
+    expect(await tick()).toBe("left");
+    expect(s.host.merges).toEqual([]);
+    expect(slotOccupant(s.w.office)).toBeNull();
+    // The release path was not read on a stale base.
+    expect(s.git.releaseReads).toEqual([H1]);
+    expect(noticeTexts(s.w.office, STORY_SLOT_NOTICES.releaseUnknown)[0]).toContain(
+      "the fetch of the base failed",
+    );
   });
 });
 
