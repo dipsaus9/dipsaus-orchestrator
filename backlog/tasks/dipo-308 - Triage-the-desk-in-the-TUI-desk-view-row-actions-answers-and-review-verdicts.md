@@ -3,10 +3,10 @@ id: DIPO-308
 title: >-
   Triage the desk in the TUI: desk view, row actions, answers and review
   verdicts
-status: Ready
+status: In Progress
 assignee: []
 created_date: '2026-10-22 20:55'
-updated_date: '2026-10-23 10:44'
+updated_date: '2026-10-23 12:59'
 labels:
   - 'tier:L'
   - 'slice:m1b'
