@@ -162,7 +162,7 @@ export class AfterTurns {
         }
         case "feedback":
           if (tracked.ending !== null) return "decided";
-          await this.#endings.sendFeedback(office, run, decision.text, write);
+          await this.#endings.sendFeedback(office, run, decision.text, write, decision.what);
           return "decided";
         case "ended":
           // The In Review commit is read again at the branch tip (DIPO-56).

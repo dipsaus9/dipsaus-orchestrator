@@ -254,6 +254,48 @@ function devPortOf(profile: RunProfile | null): number | null {
   return (ports.find((port) => port.dir === ".") ?? ports[0])?.port ?? null;
 }
 
+/**
+ * The office's install for a box (DIPO-294), also run again after a catch-up changed a lockfile
+ * (DIPO-149): its commands, environment and deadline; `refused` with why it cannot run; null when
+ * the run profile has no install.
+ */
+export function boxInstallInput(input: {
+  readonly profile: RunProfile;
+  readonly config: OfficeConfig;
+  readonly story: string;
+  readonly slot: number | null;
+}):
+  | {
+      readonly commands: readonly (readonly string[])[];
+      readonly env: Readonly<Record<string, string>>;
+      readonly timeoutMs: number;
+    }
+  | { readonly refused: string }
+  | null {
+  const install = input.profile.capabilities.install;
+  if (install.status === "conflict") {
+    return { refused: "the run profile's install is in conflict; confirm one in the office" };
+  }
+  if (install.status !== "resolved") return null;
+  if (install.value.cwd !== ".") {
+    return {
+      refused: `install runs in ${install.value.cwd}, but the box runs it only at the root of /work`,
+    };
+  }
+  const { config } = input;
+  const env = buildRunEnv({
+    slot: input.slot ?? 0,
+    stride: config.worktree.ports.stride,
+    story: input.story,
+    worktree: BOX_WORKDIR,
+    named: config.worktree.ports.named,
+    devPort: devPortOf(input.profile),
+    env: config.worktree.env,
+  });
+  const minutes = config.timeouts.scriptMinutes["install"] ?? BOX_INSTALL_MINUTES_DEFAULT;
+  return { commands: install.value.commands, env, timeoutMs: minutes * 60_000 };
+}
+
 export class BoxLifetime {
   readonly #deps: BoxLifetimeDeps;
 
@@ -350,31 +392,15 @@ export class BoxLifetime {
     }
     const profile = this.#deps.profile(request.office);
     if (profile === null) return "the office has no run profile yet; rescan the office";
-    const install = profile.capabilities.install;
-    if (install.status === "conflict") {
-      return "the run profile's install is in conflict; confirm one in the office";
-    }
-    if (install.status === "resolved") {
-      if (install.value.cwd !== ".") {
-        return `install runs in ${install.value.cwd}, but the box runs it only at the root of /work`;
-      }
-      const { config } = request;
-      const env = buildRunEnv({
-        slot: request.slot ?? 0,
-        stride: config.worktree.ports.stride,
-        story: request.story,
-        worktree: BOX_WORKDIR,
-        named: config.worktree.ports.named,
-        devPort: devPortOf(profile),
-        env: config.worktree.env,
-      });
-      const minutes = config.timeouts.scriptMinutes["install"] ?? BOX_INSTALL_MINUTES_DEFAULT;
-      const installed = await boxes.install({
-        runId: request.runId,
-        commands: install.value.commands,
-        env,
-        timeoutMs: minutes * 60_000,
-      });
+    const install = boxInstallInput({
+      profile,
+      config: request.config,
+      story: request.story,
+      slot: request.slot,
+    });
+    if (install !== null && "refused" in install) return install.refused;
+    if (install !== null) {
+      const installed = await boxes.install({ runId: request.runId, ...install });
       if (installed.cacheFallback !== undefined) cacheSkipped(installed.cacheFallback, true);
       if (!installed.ok) return installed.reason;
     }

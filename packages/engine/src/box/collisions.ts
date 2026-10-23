@@ -41,9 +41,27 @@
 //   box and the branch on the same tree, so the worker's resolution is an ordinary part (scanned
 //   like any other); holding the base back as a second parent of the next part instead would make
 //   the base's own changes look like the worker's, and a base change to a protected file
-//   (`.github/`) would park the story. A conflict inside `backlog/` is the maintainer's: dipo
-//   merges nothing, code included, leaves the branch and the box alone and tells only the
-//   maintainer, once per base commit.
+//   (`.github/`) would park the story. The message ends with the conflict hunks as git left them
+//   (`conflictFeedbackItem`, within the item budget), and the merge is recorded (`recorded`), so
+//   the check at done can refuse In Review while a marker line remains (DIPO-149).
+// - Paths the worker cannot write (DIPO-149, 0019 section 10). A conflict in the story's own task
+//   file is dipo's: the merge takes the base's version of it (a temporary index in dipo's stage
+//   folder, from git objects), and once the branch moved the branch's status is written back
+//   through the single field write path (`taskStatus`). A conflict in any other protected path
+//   (`protectedKind`: the rest of `backlog/`, `.dipo/`, `.github/`, the Claude settings, git's
+//   attribute files), or a task-file conflict other than in its content, merges nothing, into
+//   neither the branch nor the box, and parks `conflict` with cause `unwritable-path`.
+// - The sync before In Review (`syncInTurn`, DIPO-149): verify and commit runs the same catch-up
+//   at done, in the run's held turn, for a riskier story whenever the base moved and for any other
+//   on a conflict; the caller tells the worker. Both are planned on git's merge alone, never on the
+//   overlap of changed files: a re-claimed branch's earlier work lies below its start commit. A
+//   merge that changed a lockfile installs the office's packages in the box again (`reinstall`,
+//   the launch's install). Accepted: a conflicted catch-up during a fix round pushes the merge, its
+//   markers included, to the story branch and so to its open PR; the check at done keeps that head
+//   from review until the worker resolved it.
+// - Stories In Review (`inReview`, DIPO-149): each pass checks their tips against the base with the
+//   same plan, once per tip and base commit (remembered in memory), and hands a conflict to
+//   `found`, a clean merge to `cleared`; nothing is merged until their next sync.
 //
 // Every git call runs on the repository without a work tree through the office git queue, with the
 // hardened config, hooks off and filters off (`filtersOffConfig`); none runs in a folder the worker
@@ -60,10 +78,14 @@ import { join } from "node:path";
 
 import type { OfficeId, TimerHandle } from "@dipsaus-orchestrator/contract";
 
+import { isTaskFileOf, TASKS_DIR } from "../backlog/runner";
 import { BASE_CHECKOUT_ENV } from "../git/hardened";
 import type { GitSession, OfficeGit } from "../git/office";
 import { EXTERNAL_STEP_TIMEOUT_MS, GitError } from "../git/runner";
 import { type PushResult, pushBranch } from "../git/task-commit";
+import conflictMarkersTemplate from "../prompts/feedback/conflict-markers.md" with { type: "text" };
+import conflictTemplate from "../prompts/feedback/conflict.md" with { type: "text" };
+import { neutraliseTags, renderTemplate } from "../prompts/templates";
 import { BOX_WORKDIR, type BoxCodeDeps, filtersOffConfig, unpack } from "./code";
 import { cleanDoorText } from "./door";
 import {
@@ -73,6 +95,7 @@ import {
   partPark,
   type PartRun,
   partSubject,
+  protectedKind,
   unsafePath,
 } from "./parts";
 import { BoxError, type BoxPort } from "./port";
@@ -104,15 +127,27 @@ export const COLLISION_NOTICES = {
   overlap: "box.storiesOverlap",
   caughtUp: "box.caughtUp",
   conflict: "box.catchUpConflict",
-  backlogConflict: "box.catchUpBacklogConflict",
+  /** A conflict in a path the worker cannot write: nothing merged, the story parks (DIPO-149). */
+  unwritable: "box.catchUpUnwritable",
   failed: "box.catchUpFailed",
+  /** The story's own task file conflicted and dipo could not write its status back (DIPO-149). */
+  taskFile: "box.catchUpTaskFile",
 } as const;
 
 /** The park causes of a catch-up. */
 export const CATCH_UP_CAUSES = {
   failed: "catch-up-failed",
   pushRejected: "push-rejected",
+  /** 0019 section 10: a conflict in a path the worker cannot write (`PARK_CAUSES.unwritablePath`). */
+  unwritablePath: "unwritable-path",
 } as const;
+
+/** The most bytes of one conflicted file read for its hunks; a larger file is named only. */
+export const CONFLICT_FILE_READ_MAX = 1024 * 1024;
+/** Lines of context shown around each conflict hunk. */
+export const CONFLICT_CONTEXT_LINES = 2;
+/** The most marker lines named per file when markers are left at done. */
+export const MARKER_LINES_SHOWN = 5;
 
 // ---- the prefix rule -----------------------------------------------------------------------------
 
@@ -324,28 +359,189 @@ export interface CatchUpFacts {
 /** Pure: the maintainer's notice of a catch-up. */
 export function catchUpNotice(facts: CatchUpFacts): string {
   const at = `${facts.base} at ${facts.onto.slice(0, 12)}`;
+  if (facts.conflicts.length === 0 && facts.overlap.length === 0) {
+    return `dipo merged ${at} into ${facts.story}'s branch and box before review: a story of tier L or flagged test-before-merge always syncs with its base.`;
+  }
   return facts.conflicts.length === 0
     ? `dipo merged ${at} into ${facts.story}'s branch and box: the base changed ${files(facts.overlap.length)} the story changed too (${shownPaths(facts.overlap)}).`
     : `${files(facts.conflicts.length)} conflicted when git merged ${at} into ${facts.story}'s branch (${conflictSummary(facts.conflicts)}). dipo committed the merge as git left it, copied it into the box, and gave the worker a fix round.`;
 }
 
-/** Pure: the message to the worker of a caught-up story. */
-export function catchUpMessage(facts: CatchUpFacts): string {
+/**
+ * Pure: the message to the worker of a caught-up story. A conflict's message ends with its hunks
+ * as git left them (`facts.hunks`, from `conflictHunks`), when there are any.
+ */
+export function catchUpMessage(facts: CatchUpFacts & { readonly hunks?: string }): string {
   const copied = `It copied the merge into your box: ${files(facts.written)} written, ${files(facts.removed)} removed.`;
   if (facts.conflicts.length === 0) {
     return `dipo: ${facts.base} changed files your story changes too (${shownPaths(facts.overlap)}), so dipo merged ${facts.base} into your branch. ${copied} Read those files again before you change them further, and keep going.`;
   }
   const help = kindsOf(facts.conflicts).map((kind) => CONFLICT_KIND_HELP[kind]);
-  return `dipo: fix round. ${facts.base} changed files your story changes too, and ${files(facts.conflicts.length)} conflicted when git merged ${facts.base} into your branch: ${conflictSummary(facts.conflicts)}. dipo committed the merge as git left it. ${copied} ${help.join(" ")} Then run the tests and hand a part with dipo-part.`;
+  const text = `dipo: fix round. ${facts.base} changed files your story changes too, and ${files(facts.conflicts.length)} conflicted when git merged ${facts.base} into your branch: ${conflictSummary(facts.conflicts)}. dipo committed the merge as git left it. ${copied} ${help.join(" ")} Then run the tests and hand a part with dipo-part. dipo does not move the story to review while a conflict marker line remains in one of these files.`;
+  return facts.hunks === undefined || facts.hunks === ""
+    ? text
+    : `${text}\n\nThe conflicts as git left them:\n<diff>\n${neutraliseTags(facts.hunks)}\n</diff>`;
 }
 
-/** Pure: the maintainer's notice of a conflict in the backlog, which dipo leaves alone. */
-export function backlogConflictNotice(
-  story: string,
-  base: string,
-  paths: readonly string[],
+/**
+ * Pure: the maintainer's notice of a conflict in a path the worker cannot write (0019 section 10):
+ * dipo merged nothing and parks the story.
+ */
+export function unwritableNotice(story: string, base: string, paths: readonly string[]): string {
+  return `git could not merge ${base} into ${story}'s branch cleanly, and the conflict is in ${files(paths.length)} the worker cannot write (${shownPaths(paths)}). dipo merged nothing, into neither the branch nor the box, and parked ${story}: resolve the conflict on the base or the branch by hand, then resume the story.`;
+}
+
+// ---- the conflict item and its markers (0019 sections 8 and 10, DIPO-149) ------------------------
+
+/**
+ * A conflict marker line, as git writes them (marker size 7): `<<<<<<< ` and `>>>>>>> ` with the
+ * side's name, and `=======` alone on its line. A line of eight `=` (a Markdown heading underline)
+ * is no marker.
+ */
+export const CONFLICT_MARKER = /^(?:<{7} |>{7} |={7}(?:[ \r]|$))/;
+/** The same rule for `git grep -E`. */
+const CONFLICT_MARKER_GREP = "^(<{7} |>{7} |={7}([ \r]|$))";
+
+/** True for a `<<<<<<< ` or `>>>>>>> ` line: a side marker, not the lone `=======`. */
+function sideMarker(line: string): boolean {
+  return line.startsWith("<<<<<<< ") || line.startsWith(">>>>>>> ");
+}
+
+/**
+ * Pure: the marker lines of one file, `{ n, text }` each, as found. A lone `=======` counts only
+ * while a `<<<<<<< ` or `>>>>>>> ` line remains in the same file, so a resolved file whose text
+ * holds a seven-character heading underline is no conflict.
+ */
+export function countedMarkers(
+  found: readonly { readonly n: number; readonly text: string }[],
+): number[] {
+  if (!found.some((line) => sideMarker(line.text))) return [];
+  return found.map((line) => line.n);
+}
+
+/** Pure: the 1-based numbers of the conflict marker lines of `text` (`countedMarkers`). */
+export function markerLines(text: string): number[] {
+  return countedMarkers(
+    text
+      .split("\n")
+      .flatMap((line, at) => (CONFLICT_MARKER.test(line) ? [{ n: at + 1, text: line }] : [])),
+  );
+}
+
+/**
+ * Pure: the conflict hunks of one file's text as git left them, each from its `<<<<<<<` line to
+ * its `>>>>>>>` line with `CONFLICT_CONTEXT_LINES` around it, headed by the path and line range.
+ */
+export function fileHunks(path: string, text: string): string[] {
+  const lines = text.split("\n");
+  const hunks: string[] = [];
+  for (let at = 0; at < lines.length; at += 1) {
+    if (!lines[at]!.startsWith("<<<<<<< ")) continue;
+    let end = at + 1;
+    while (end < lines.length && !lines[end]!.startsWith(">>>>>>> ")) end += 1;
+    const from = Math.max(0, at - CONFLICT_CONTEXT_LINES);
+    const to = Math.min(lines.length - 1, end + CONFLICT_CONTEXT_LINES);
+    hunks.push(
+      `--- ${cleanDoorText(path).slice(0, 300)} (lines ${from + 1}-${to + 1})\n${lines.slice(from, to + 1).join("\n")}`,
+    );
+    at = end;
+  }
+  return hunks;
+}
+
+/** Pure: `hunks` joined within `max` characters; the ones left out are counted. */
+export function hunksWithin(hunks: readonly string[], max: number): string {
+  const shown: string[] = [];
+  let used = 0;
+  for (const hunk of hunks) {
+    const room = max - used - (shown.length === 0 ? 0 : 2);
+    if (hunk.length > room) break;
+    shown.push(hunk);
+    used += hunk.length + (shown.length === 1 ? 0 : 2);
+  }
+  const rest = hunks.length - shown.length;
+  if (rest === 0) return shown.join("\n\n");
+  const more = `[dipo: ${rest} more conflict hunk${rest === 1 ? "" : "s"} not shown; open the files in your box.]`;
+  return [...shown, more].join("\n\n");
+}
+
+/** Pure: the signature of a conflict item (0019 section 8): the base commit and the sorted paths. */
+export function conflictSignature(onto: string, paths: readonly string[]): string {
+  return createHash("sha256")
+    .update(JSON.stringify(["conflict", onto, [...paths].toSorted()]))
+    .digest("hex");
+}
+
+/** A conflict feedback item (0019 section 8), for the developer session. */
+export interface ConflictItem {
+  readonly source: "conflict";
+  readonly signature: string;
+  readonly text: string;
+}
+
+/**
+ * Pure: the one conflict item of a merge (0019 sections 8 and 10): the conflicted paths by kind,
+ * what to do about each kind, and the hunks within the item budget `itemMax`, signed over the base
+ * commit and the sorted paths.
+ */
+export function conflictFeedbackItem(input: {
+  readonly base: string;
+  readonly onto: string;
+  readonly conflicts: readonly ConflictFile[];
+  /** The hunks of every content conflict, in path order (`fileHunks`). */
+  readonly hunks: readonly string[];
+  readonly itemMax?: number;
+}): ConflictItem {
+  const conflicts = [...input.conflicts].toSorted((a, b) =>
+    a.path < b.path ? -1 : a.path > b.path ? 1 : 0,
+  );
+  const values = (hunks: string) => ({
+    base: input.base,
+    onto: input.onto.slice(0, 12),
+    files: conflictSummary(conflicts),
+    help: kindsOf(conflicts)
+      .map((kind) => CONFLICT_KIND_HELP[kind])
+      .join(" "),
+    hunks: hunks === "" ? "(no conflict hunks: see the kinds above)" : hunks,
+  });
+  const frame = renderTemplate(conflictTemplate, values("")).length;
+  const room = Math.max(0, (input.itemMax ?? 3_000) - frame);
+  return {
+    source: "conflict",
+    signature: conflictSignature(
+      input.onto,
+      input.conflicts.map((file) => file.path),
+    ),
+    text: renderTemplate(conflictTemplate, values(hunksWithin(input.hunks, room))),
+  };
+}
+
+/**
+ * Pure: the feedback turn naming what is left unresolved on the tip, per file: the conflict marker
+ * lines, and each binary, modify/delete or file vs folder conflict still as git left it.
+ */
+export function markersLeftText(
+  left: ReadonlyMap<string, readonly number[]>,
+  unchanged: readonly ConflictFile[] = [],
 ): string {
-  return `git could not merge ${base} into ${story}'s branch cleanly, and the conflict is in the backlog (${shownPaths(paths)}), which only dipo and the maintainer write. dipo merged nothing: the base's code changes were not merged into the branch or the box either, and ${story} continues as it is. Resolve the task file on the base by hand; dipo tries again when the base moves.`;
+  const entries: [string, string][] = [
+    ...[...left.entries()].map(([path, lines]): [string, string] => {
+      const named = lines.slice(0, MARKER_LINES_SHOWN).join(", ");
+      const more =
+        lines.length > MARKER_LINES_SHOWN ? ` and ${lines.length - MARKER_LINES_SHOWN} more` : "";
+      return [path, `line${lines.length === 1 ? "" : "s"} ${named}${more}`];
+    }),
+    ...unchanged.map((file): [string, string] => [
+      file.path,
+      `the ${CONFLICT_KIND_TEXT[file.kind]} conflict is still as git left it in dipo's merge`,
+    ]),
+  ].toSorted(([a], [b]) => (a < b ? -1 : a > b ? 1 : 0));
+  const shown = entries
+    .slice(0, SHOWN_PATHS_MAX)
+    .map(([path, what]) => `- ${cleanDoorText(path).slice(0, 300)}: ${what}`);
+  const rest = entries.length - shown.length;
+  if (rest > 0) shown.push(`- and ${rest} more files`);
+  return renderTemplate(conflictMarkersTemplate, { lines: shown.join("\n") });
 }
 
 /** Pure: the commit message of a catch-up merge. */
@@ -547,8 +743,18 @@ export type CatchUpPlan =
   | { readonly kind: "current" }
   /** The base changed nothing the story changed: no catch-up. */
   | { readonly kind: "apart"; readonly onto: string }
-  /** The merge conflicts inside `backlog/`: the maintainer's. */
-  | { readonly kind: "backlog"; readonly onto: string; readonly conflicts: readonly string[] }
+  /**
+   * The merge conflicts in paths the worker cannot write (0019 section 10): any protected path
+   * (`protectedKind`: `backlog/`, `.dipo/`, `.github/`, the Claude settings, git's attribute
+   * files) other than the story's own task file, or that task file conflicting other than in its
+   * content. Nothing is merged.
+   */
+  | {
+      readonly kind: "unwritable";
+      readonly tip: string;
+      readonly onto: string;
+      readonly paths: readonly string[];
+    }
   | {
       readonly kind: "merge";
       readonly tip: string;
@@ -557,14 +763,72 @@ export type CatchUpPlan =
       /** The merge commit, made only when asked to write. */
       readonly commit: string | null;
       readonly overlap: readonly string[];
+      /** The conflicts left for the worker; the story's own task file is never one. */
       readonly conflicts: readonly ConflictFile[];
+      /**
+       * The story's own task file when it conflicted: the merge holds the base's version of it,
+       * and dipo writes the branch's status back through the single field write path after the
+       * branch moved (0019 section 10). Null when it merged cleanly.
+       */
+      readonly taskFile: string | null;
     };
+
+/** How a catch-up check merges: on an overlap (the poll), or whenever the base moved (DIPO-149). */
+export type CatchUpMode = "overlap" | "always";
+
+/** The story's task file at `commit`: the one file of `story` directly in `backlog/tasks`. */
+async function taskFileAt(
+  session: GitSession,
+  commit: string,
+  story: string,
+): Promise<string | null> {
+  const listed = nulList(
+    await session.ok(session.repository, [
+      "ls-tree",
+      "-z",
+      "--name-only",
+      commit,
+      "--",
+      `${TASKS_DIR}/`,
+    ]),
+  ).filter((path) => isTaskFileOf(path.slice(path.lastIndexOf("/") + 1), story));
+  return listed.length === 1 ? listed[0]! : null;
+}
+
+/**
+ * The tree `tree` with the blob `id` (mode 100644) at `path`, written through a temporary index in
+ * `scratch` (`read-tree`, `update-index --cacheinfo`, `write-tree`): from git objects alone.
+ */
+async function treeWith(
+  session: GitSession,
+  scratch: string,
+  tree: string,
+  path: string,
+  id: string,
+): Promise<string> {
+  const index = { env: { ...BASE_CHECKOUT_ENV, GIT_INDEX_FILE: join(scratch, "catch-up-index") } };
+  const repo = session.repository;
+  try {
+    await session.ok(repo, ["read-tree", tree], index);
+    await session.ok(
+      repo,
+      ["--literal-pathspecs", "update-index", "--add", "--cacheinfo", `100644,${id},${path}`],
+      index,
+    );
+    return (await session.ok(repo, ["write-tree"], index)).trim();
+  } finally {
+    await rm(join(scratch, "catch-up-index"), { force: true });
+  }
+}
 
 /**
  * The catch-up check of one story (criterion 4): does the base hold changes, since the merge base,
- * to files the story changed, and does git merge them cleanly (`git merge-tree --write-tree` from
- * objects alone, `mergeOffConfig`)? With `write` the merge commit is made too (`commit-tree`, the
- * tip and the base as parents), but no ref moves.
+ * to files the story changed (with mode `always`, any change since the merge base: the sync of a
+ * riskier story before In Review, DIPO-149), and does git merge them cleanly
+ * (`git merge-tree --write-tree` from objects alone, `mergeOffConfig`)? With `write` the merge
+ * commit is made too (`commit-tree`, the tip and the base as parents), but no ref moves; a
+ * conflict in the story's own task file is resolved to the base's version in it, through a
+ * temporary index in `scratch`.
  */
 export async function planCatchUp(
   session: GitSession,
@@ -575,6 +839,9 @@ export async function planCatchUp(
     readonly base: string;
     readonly baseRef: string;
     readonly write: boolean;
+    readonly mode?: CatchUpMode;
+    /** A folder of dipo's own for the temporary index; needed to write a task-file resolution. */
+    readonly scratch?: string;
   },
 ): Promise<CatchUpPlan> {
   const repo = session.repository;
@@ -589,7 +856,7 @@ export async function planCatchUp(
     await namesBetween(session, from, tip),
     await namesBetween(session, mergeBase, onto),
   );
-  if (overlap.length === 0) return { kind: "apart", onto };
+  if (overlap.length === 0 && input.mode !== "always") return { kind: "apart", onto };
   const merged = await session.step(
     repo,
     ["merge-tree", "--write-tree", "--name-only", "-z", tip, onto],
@@ -601,14 +868,34 @@ export async function planCatchUp(
       `git merge-tree failed (${merged.stderr.trim() || `exit ${merged.code}`}).`,
     );
   }
-  const { tree, conflicts } = parseMergeTree(merged.stdout);
-  if (merged.code === 1 && conflicts.length === 0) {
+  const parsed = parseMergeTree(merged.stdout);
+  if (merged.code === 1 && parsed.conflicts.length === 0) {
     throw new GitError("git.failed", "git merge-tree reported a conflict but named no file.");
   }
-  const inTheBacklog = conflicts.map((file) => file.path).filter(inBacklog);
-  if (inTheBacklog.length > 0) return { kind: "backlog", onto, conflicts: inTheBacklog };
+  const own = parsed.conflicts.length === 0 ? null : await taskFileAt(session, tip, input.story);
+  const ownConflict = parsed.conflicts.find((file) => file.path === own);
+  const conflicts = parsed.conflicts.filter((file) => file.path !== own);
+  const unwritable = conflicts
+    .map((file) => file.path)
+    .filter((path) => protectedKind(path) !== null);
+  const baseTask =
+    ownConflict === undefined || own === null ? null : await revParse(session, `${onto}:${own}`);
+  if (ownConflict !== undefined && (ownConflict.kind !== "content" || baseTask === null)) {
+    unwritable.push(ownConflict.path);
+  }
+  if (unwritable.length > 0) {
+    return { kind: "unwritable", tip, onto, paths: [...new Set(unwritable)].toSorted() };
+  }
+  const taskFile = ownConflict === undefined ? null : own;
+  let tree = parsed.tree;
   let commit: string | null = null;
   if (input.write) {
+    if (taskFile !== null && baseTask !== null) {
+      if (input.scratch === undefined) {
+        throw new GitError("git.failed", "a task-file resolution needs dipo's scratch folder.");
+      }
+      tree = await treeWith(session, input.scratch, tree, taskFile, baseTask);
+    }
     const message = catchUpCommitMessage({ ...input, onto, conflicts }, input.branch);
     commit = (
       await session.ok(
@@ -618,7 +905,7 @@ export async function planCatchUp(
       )
     ).trim();
   }
-  return { kind: "merge", tip, onto, tree, commit, overlap, conflicts };
+  return { kind: "merge", tip, onto, tree, commit, overlap, conflicts, taskFile };
 }
 
 /** The box changes of the merge `commit` against the tip it was made on. */
@@ -735,6 +1022,53 @@ export interface CollisionNotice {
   readonly text: string;
 }
 
+/** A merge dipo made into a story branch, for its record (DIPO-149, `catch_ups`). */
+export interface CatchUpMerged {
+  readonly base: string;
+  /** The base commit merged in. */
+  readonly onto: string;
+  /** The branch tip the merge was made on. */
+  readonly tip: string;
+  readonly commit: string;
+  /** The conflicts left for the worker; empty for a clean merge. */
+  readonly conflicts: readonly ConflictFile[];
+  /** The story's own task file when dipo resolved a conflict in it, else null. */
+  readonly taskFile: string | null;
+}
+
+/** A conflict the check of a story In Review found; nothing merged (0019 section 10). */
+export interface CatchUpFound {
+  readonly base: string;
+  readonly onto: string;
+  readonly tip: string;
+  readonly conflicts: readonly ConflictFile[];
+}
+
+/** What a base sync in the run's held turn did (`BoxCollisions.syncInTurn`, DIPO-149). */
+export type SyncOutcome =
+  /** Nothing merged: the branch holds the base, or the mode leaves a clean merge for later. */
+  | { readonly kind: "none" }
+  | {
+      readonly kind: "merged";
+      readonly merged: CatchUpMerged;
+      /** The branch tip after the merge, and after the task file's status commit when one ran. */
+      readonly head: string;
+      readonly facts: CatchUpFacts;
+      /** The conflict item for the worker; null for a clean merge. */
+      readonly item: ConflictItem | null;
+    }
+  /** The sync parks the story: a path the worker cannot write, a failed copy, a rejected push. */
+  | { readonly kind: "park"; readonly park: PartPark }
+  /** The run stopped going on meanwhile. */
+  | { readonly kind: "stopped" };
+
+/** How the sync before In Review merges (0019 section 10). */
+export type SyncMode =
+  /** A riskier story (tier L or flagged test-before-merge): whenever the base moved. */
+  | "always"
+  /** Any other story: only when git cannot merge cleanly. */
+  | "onConflict";
+
 export interface BoxCollisionsDeps {
   readonly boxes: Pick<BoxPort, "copyIn" | "exec">;
   /** The `tar` that unpacks a merge for the box, and the clock of the poll. */
@@ -743,6 +1077,11 @@ export interface BoxCollisionsDeps {
   readonly tmpRoot: string;
   /** The box runs in progress, every office. */
   readonly runs: () => readonly PartRun[];
+  /**
+   * The box runs whose story is In Review (DIPO-149): each pass checks their tip against the base
+   * with `merge-tree`, and a conflict is found (`found`), never merged.
+   */
+  readonly inReview?: () => readonly PartRun[];
   readonly git: (office: OfficeId) => OfficeGit | undefined;
   /** True while the run goes on: tracked and nothing decided for it yet. */
   readonly live: (runId: string) => boolean;
@@ -754,6 +1093,28 @@ export interface BoxCollisionsDeps {
   readonly tell: (runId: string, text: string) => Promise<unknown>;
   /** Tells the maintainer (an `engine.notice` of the run). */
   readonly notice: (office: OfficeId, runId: string, notice: CollisionNotice) => void;
+  /**
+   * Records a merge dipo made into the branch (DIPO-149): its conflicted paths, a conflict
+   * hand-off, and an approval carried over a clean merge. Called once the branch moved.
+   */
+  readonly recorded?: (run: PartRun, merged: CatchUpMerged) => Promise<void>;
+  /** A conflict found while the story is In Review (DIPO-149): recorded and told, never merged. */
+  readonly found?: (run: PartRun, found: CatchUpFound) => void;
+  /** A later check of a story In Review found no conflict: a conflict found earlier is cleared. */
+  readonly cleared?: (run: PartRun) => void;
+  /**
+   * Writes `status` back into the story's task file on its branch through the single field write
+   * path, after a merge that took the base's version of it (DIPO-149, 0019 section 10).
+   */
+  readonly taskStatus?: (run: PartRun, status: string) => Promise<void>;
+  /**
+   * Installs the office's packages in the box again after a merge that changed `lockfiles`
+   * (0019 section 10's reinstall). Without it nothing is installed again by dipo: the worker
+   * installs in its own box.
+   */
+  readonly reinstall?: (run: PartRun, lockfiles: readonly string[]) => Promise<void>;
+  /** The conflict item's character budget for the run (`prompt.budgets.feedbackItem`). */
+  readonly itemMax?: (run: PartRun) => number;
   readonly pollMs?: number;
   readonly warn?: Log;
   readonly info?: Log;
@@ -769,13 +1130,99 @@ interface StagedMerge {
   remove(): Promise<void>;
 }
 
+/** Lockfile names whose change makes a box install again. */
+const LOCKFILE_NAMES: readonly string[] = [
+  "bun.lock",
+  "bun.lockb",
+  "package-lock.json",
+  "pnpm-lock.yaml",
+  "yarn.lock",
+  "poetry.lock",
+  "uv.lock",
+];
+
+/** Pure: the lockfiles among `paths`, sorted. */
+export function changedLockfiles(paths: readonly string[]): string[] {
+  return paths
+    .filter((path) => LOCKFILE_NAMES.includes(path.slice(path.lastIndexOf("/") + 1)))
+    .toSorted();
+}
+
+/** Pure: the `status:` of a task file's front matter, or null when it has none. */
+export function taskFileStatus(text: string): string | null {
+  const front = /^---\r?\n([\s\S]*?)\r?\n---/.exec(text);
+  if (front === null) return null;
+  const line = /^status:[ \t]*(.+?)[ \t]*\r?$/m.exec(front[1] ?? "");
+  const value = line?.[1]?.replace(/^(["'])(.*)\1$/, "$2").trim() ?? "";
+  return value === "" ? null : value;
+}
+
+/**
+ * The paths of `paths` that hold a conflict marker line at `commit`, with the line numbers, read
+ * from git objects (`git grep` on the commit, no work tree). Every file is read as text (`-a`), so
+ * one NUL byte cannot hide a marker; attributes and filters are off (`mergeOffConfig`,
+ * `--no-textconv`), so no textconv or driver runs. A lone `=======` counts only beside a side
+ * marker in the same file (`countedMarkers`).
+ */
+export async function markersAt(
+  session: GitSession,
+  commit: string,
+  paths: readonly string[],
+): Promise<Map<string, number[]>> {
+  const lines = new Map<string, { n: number; text: string }[]>();
+  const config = await mergeOffConfig(session);
+  for (const group of chunks(paths)) {
+    const grep = await session.step(
+      session.repository,
+      [
+        "--literal-pathspecs",
+        "grep",
+        "-a",
+        "-n",
+        "-z",
+        "--no-color",
+        "--no-textconv",
+        "-E",
+        "-e",
+        CONFLICT_MARKER_GREP,
+        commit,
+        "--",
+        ...group,
+      ],
+      { config, env: BASE_CHECKOUT_ENV },
+    );
+    if (grep.code === 1) continue;
+    if (grep.code !== 0) {
+      throw new GitError(
+        "git.failed",
+        `git grep failed (${grep.stderr.trim() || `exit ${grep.code}`}).`,
+      );
+    }
+    // `<commit>:<path>\0<line>\0<text>` per match.
+    const items = grep.stdout.split("\n").filter((line) => line !== "");
+    for (const item of items) {
+      const [where = "", line = "", ...rest] = item.split("\0");
+      const path = where.startsWith(`${commit}:`) ? where.slice(commit.length + 1) : where;
+      const n = Number(line);
+      if (!Number.isInteger(n) || n < 1) continue;
+      lines.set(path, [...(lines.get(path) ?? []), { n, text: rest.join("\0") }]);
+    }
+  }
+  const found = new Map<string, number[]>();
+  for (const [path, matched] of lines) {
+    const counted = countedMarkers(matched);
+    if (counted.length > 0) found.set(path, counted);
+  }
+  return found;
+}
+
 /** Compares the changed files of the box runs in progress and lets the second catch up. */
 export class BoxCollisions {
   readonly #deps: BoxCollisionsDeps;
   /** The overlaps told already, by `overlapSignature`; in memory only (see the file comment). */
   readonly #told = new Set<string>();
-  /** The base commit a backlog conflict was told for, per run. */
-  readonly #backlogTold = new Map<string, string>();
+  /** The `<tip> <onto>` each story In Review was last checked at; in memory only. */
+  readonly #reviewSeen = new Map<string, string>();
   #pass: Promise<void> | null = null;
   #again = false;
   #timer: TimerHandle | null = null;
@@ -808,7 +1255,8 @@ export class BoxCollisions {
 
   /**
    * One pass over every office: overlaps told, then each story whose base changed its files caught
-   * up. One pass at a time; a call during a pass runs one more after it. Never rejects.
+   * up, then each story In Review checked against its base. One pass at a time; a call during a
+   * pass runs one more after it. Never rejects.
    */
   check(): Promise<void> {
     if (this.#pass !== null) {
@@ -831,6 +1279,28 @@ export class BoxCollisions {
     return this.#pass;
   }
 
+  /**
+   * The sync before In Review of a box run at done (DIPO-149, 0019 section 10), inside the run's
+   * held turn of parts (`BoxParts.finishLast`), so no part or catch-up runs meanwhile: `always`
+   * merges the base whenever it moved, `onConflict` only when git cannot merge it cleanly. The
+   * merge is made as a catch-up is (committed from git objects, copied into the box, the branch
+   * moved and pushed, recorded), but nothing is told to the worker: the caller decides the turn.
+   */
+  async syncInTurn(run: PartRun, mode: SyncMode): Promise<SyncOutcome> {
+    const git = this.#deps.git(run.office);
+    if (git === undefined) return { kind: "none" };
+    // Planned on git's merge alone, never on the overlap of changed files: a re-claimed branch's
+    // earlier work lies below its start commit, so the overlap would miss a conflict there.
+    const planMode: CatchUpMode = "always";
+    const plan = await this.#plan(git, run, false, planMode);
+    if (plan === null || plan.kind === "current" || plan.kind === "apart") return { kind: "none" };
+    if (plan.kind === "unwritable") return { kind: "park", park: this.#unwritable(run, plan) };
+    if (mode === "onConflict" && plan.conflicts.length === 0 && plan.taskFile === null) {
+      return { kind: "none" };
+    }
+    return this.#catchUp(git, run, planMode);
+  }
+
   async #once(): Promise<void> {
     const runs = this.#deps.runs().filter((run) => this.#deps.live(run.runId));
     const byOffice = new Map<OfficeId, PartRun[]>();
@@ -839,9 +1309,6 @@ export class BoxCollisions {
     for (const signature of this.#told) {
       const [a, b] = JSON.parse(signature) as string[];
       if (!ids.has(a ?? "") || !ids.has(b ?? "")) this.#told.delete(signature);
-    }
-    for (const runId of this.#backlogTold.keys()) {
-      if (!ids.has(runId)) this.#backlogTold.delete(runId);
     }
     for (const [office, inOffice] of byOffice) {
       const git = this.#deps.git(office);
@@ -855,6 +1322,22 @@ export class BoxCollisions {
           });
         });
       }
+    }
+    const checked = new Set<string>();
+    for (const run of this.#deps.inReview?.() ?? []) {
+      if (ids.has(run.runId) || this.#deps.live(run.runId)) continue;
+      checked.add(run.runId);
+      const git = this.#deps.git(run.office);
+      if (git === undefined) continue;
+      await this.#checkInReview(git, run).catch((error: unknown) => {
+        this.#deps.warn?.("a story In Review could not be checked against its base", {
+          run: run.runId,
+          reason: messageOf(error),
+        });
+      });
+    }
+    for (const runId of this.#reviewSeen.keys()) {
+      if (!checked.has(runId)) this.#reviewSeen.delete(runId);
     }
   }
 
@@ -903,16 +1386,66 @@ export class BoxCollisions {
 
   /** Plans without writing first, so a story whose base did not touch its files is left alone. */
   async #maybeCatchUp(git: OfficeGit, run: PartRun): Promise<void> {
-    const plan = await this.#plan(git, run, false);
+    const plan = await this.#plan(git, run, false, "overlap");
     if (plan === null || plan.kind === "current" || plan.kind === "apart") return;
-    if (plan.kind === "backlog") {
-      this.#tellBacklog(run, plan.base, plan.onto, plan.conflicts);
+    if (plan.kind === "unwritable") {
+      this.#deps.park(run.runId, this.#unwritable(run, plan));
       return;
     }
     // Whatever the box holds goes first, so the branch tip is the box's code when git merges.
     const before = await this.#deps.parts.deliverLast(run.runId, CATCH_UP_PART_MESSAGE);
     if (this.#parked(run, partPark(before)) || before.kind === "stopped") return;
-    await this.#deps.parts.inTurn(run.runId, () => this.#catchUp(git, run));
+    const outcome = await this.#deps.parts.inTurn(run.runId, () =>
+      this.#catchUp(git, run, "overlap"),
+    );
+    if (outcome.kind === "park") {
+      this.#deps.park(run.runId, outcome.park);
+      return;
+    }
+    if (outcome.kind !== "merged") return;
+    const hunks = outcome.item === null ? undefined : this.#hunksOf(outcome.item);
+    await this.#tell(
+      run.runId,
+      catchUpMessage({ ...outcome.facts, ...(hunks === undefined ? {} : { hunks }) }),
+    );
+  }
+
+  /** The hunk block of a conflict item's text, for the worker's catch-up message. */
+  #hunksOf(item: ConflictItem): string {
+    const from = item.text.indexOf("<diff>\n");
+    const close = item.text.lastIndexOf("\n</diff>");
+    return from < 0 || close < from ? "" : item.text.slice(from + "<diff>\n".length, close);
+  }
+
+  /** A story In Review: a conflict with the base is found and recorded, never merged. */
+  async #checkInReview(git: OfficeGit, run: PartRun): Promise<void> {
+    // Checked again only once the tip or the base moved.
+    const heads = await git.run(async (session) => {
+      const base = await baseRefOf(git, session);
+      const tip = await revParse(session, `refs/heads/${run.branch}^{commit}`);
+      const onto = base === null ? null : await revParse(session, `${base.ref}^{commit}`);
+      return `${tip ?? ""} ${onto ?? ""}`;
+    });
+    if (this.#reviewSeen.get(run.runId) === heads) return;
+    const plan = await this.#plan(git, run, false, "always");
+    const conflicts: readonly ConflictFile[] =
+      plan === null || plan.kind === "current" || plan.kind === "apart"
+        ? []
+        : plan.kind === "unwritable"
+          ? plan.paths.map((path) => ({ path, kind: "other" as const }))
+          : plan.conflicts;
+    if (
+      conflicts.length === 0 ||
+      plan === null ||
+      plan.kind === "current" ||
+      plan.kind === "apart"
+    ) {
+      // No conflict (any more): a conflict found earlier is cleared.
+      this.#deps.cleared?.(run);
+    } else {
+      this.#deps.found?.(run, { base: plan.base, onto: plan.onto, tip: plan.tip, conflicts });
+    }
+    this.#reviewSeen.set(run.runId, heads);
   }
 
   /** Parks the run when a part asks for it; true then. */
@@ -922,20 +1455,29 @@ export class BoxCollisions {
     return true;
   }
 
-  #tellBacklog(run: PartRun, base: string, onto: string, conflicts: readonly string[]): void {
-    if (this.#backlogTold.get(run.runId) === onto) return;
-    this.#backlogTold.set(run.runId, onto);
+  /** Tells the maintainer that the merge conflicts where the worker cannot write; the park. */
+  #unwritable(
+    run: PartRun,
+    plan: Extract<CatchUpPlan, { kind: "unwritable" }> & { readonly base: string },
+  ): PartPark {
     this.#deps.notice(run.office, run.runId, {
       level: "warn",
-      code: COLLISION_NOTICES.backlogConflict,
-      text: backlogConflictNotice(run.story, base, conflicts),
+      code: COLLISION_NOTICES.unwritable,
+      text: unwritableNotice(run.story, plan.base, plan.paths),
     });
+    return {
+      reason: "conflict",
+      cause: CATCH_UP_CAUSES.unwritablePath,
+      detail: `git could not merge ${plan.base} at ${plan.onto.slice(0, 12)} cleanly in paths the worker cannot write: ${shownPaths(plan.paths)}`,
+    };
   }
 
   async #plan(
     git: OfficeGit,
     run: PartRun,
     write: boolean,
+    mode: CatchUpMode,
+    scratch?: string,
   ): Promise<(CatchUpPlan & { readonly base: string }) | null> {
     return git.run(async (session) => {
       const base = await baseRefOf(git, session);
@@ -947,40 +1489,54 @@ export class BoxCollisions {
         base: base.base,
         baseRef: base.ref,
         write,
+        mode,
+        ...(scratch === undefined ? {} : { scratch }),
       });
       return { ...plan, base: base.base };
     });
   }
 
-  /** Tells the maintainer why the catch-up failed and parks the story. */
-  #fail(run: PartRun, detail: string): void {
+  /** Tells the maintainer why the catch-up failed; the park it asks for. */
+  #fail(run: PartRun, detail: string): SyncOutcome {
     this.#deps.notice(run.office, run.runId, {
       level: "warn",
       code: COLLISION_NOTICES.failed,
       text: `${run.story}: ${detail}`,
     });
-    this.#deps.park(run.runId, { reason: "conflict", cause: CATCH_UP_CAUSES.failed, detail });
+    return { kind: "park", park: { reason: "conflict", cause: CATCH_UP_CAUSES.failed, detail } };
   }
 
   /** The catch-up itself, in the run's turn (see the file comment). */
-  async #catchUp(git: OfficeGit, run: PartRun): Promise<void> {
+  async #catchUp(git: OfficeGit, run: PartRun, mode: CatchUpMode): Promise<SyncOutcome> {
+    const scratch = await realpath(await mkdtemp(join(this.#deps.tmpRoot, CATCH_UP_STAGE_PREFIX)));
+    try {
+      return await this.#catchUpWith(git, run, mode, scratch);
+    } finally {
+      await rm(scratch, { recursive: true, force: true });
+    }
+  }
+
+  async #catchUpWith(
+    git: OfficeGit,
+    run: PartRun,
+    mode: CatchUpMode,
+    scratch: string,
+  ): Promise<SyncOutcome> {
     for (let attempt = 1; attempt <= CATCH_UP_ATTEMPTS; attempt += 1) {
-      if (!this.#deps.live(run.runId)) return;
-      const plan = await this.#plan(git, run, true);
-      if (plan === null || plan.kind === "current" || plan.kind === "apart") return;
-      if (plan.kind === "backlog") {
-        this.#tellBacklog(run, plan.base, plan.onto, plan.conflicts);
-        return;
-      }
+      if (!this.#deps.live(run.runId)) return { kind: "stopped" };
+      const plan = await this.#plan(git, run, true, mode, scratch);
+      if (plan === null || plan.kind === "current" || plan.kind === "apart")
+        return { kind: "none" };
+      if (plan.kind === "unwritable") return { kind: "park", park: this.#unwritable(run, plan) };
       const commit = plan.commit;
-      if (commit === null) return;
+      if (commit === null) return { kind: "none" };
       const changes = await git.run((session) => boxChangesOf(session, plan.tip, commit));
-      const copyFailed = (error: unknown): void => {
+      const copyFailed = (error: unknown): SyncOutcome => {
         this.#deps.warn?.("a catch-up could not be copied into the box", {
           run: run.runId,
           reason: messageOf(error),
         });
-        this.#fail(
+        return this.#fail(
           run,
           `dipo could not copy the merge of ${plan.base} into the box, so the box may hold part of it; the branch was not moved. Resume the story to try again.`,
         );
@@ -989,36 +1545,39 @@ export class BoxCollisions {
       try {
         staged = await this.#stage(git, commit, changes);
       } catch (error) {
-        copyFailed(error);
-        return;
+        return copyFailed(error);
       }
       try {
         // The worker may have changed files since the part before the turn: one more part, now.
         const late = await this.#deps.parts.deliverInTurn(run.runId, CATCH_UP_PART_MESSAGE);
-        if (this.#parked(run, partPark(late)) || late.kind === "stopped") return;
+        const latePark = partPark(late);
+        if (latePark !== null) return { kind: "park", park: latePark };
+        if (late.kind === "stopped") return { kind: "stopped" };
         if (late.kind === "committed") {
           if (attempt < CATCH_UP_ATTEMPTS) continue;
-          this.#fail(
+          return this.#fail(
             run,
             `the worker kept changing files while dipo merged ${plan.base} into the story, so dipo merged nothing and left the branch and the box as they are. Resume the story to try again.`,
           );
-          return;
         }
         try {
           await this.#write(run, staged.dir, changes);
         } catch (error) {
-          copyFailed(error);
-          return;
+          return copyFailed(error);
         }
       } finally {
         await staged.remove();
       }
-      await this.#finish(git, run, { ...plan, commit }, changes);
-      return;
+      return this.#finish(git, run, { ...plan, commit }, changes);
     }
+    return { kind: "none" };
   }
 
-  /** After the box holds the merge: the branch moved and pushed, the maintainer and worker told. */
+  /**
+   * After the box holds the merge: the branch moved, the task file's status written back when the
+   * merge took the base's version of it, the merge recorded, the branch pushed and the maintainer
+   * told. The worker is told by the caller.
+   */
   async #finish(
     git: OfficeGit,
     run: PartRun,
@@ -1027,18 +1586,32 @@ export class BoxCollisions {
       readonly commit: string;
     },
     changes: BoxChanges,
-  ): Promise<void> {
+  ): Promise<SyncOutcome> {
     const subject = `Merge ${plan.base} into ${run.branch}`;
     const moved = await git.run((session) =>
       moveBranch(session, run.branch, plan.commit, plan.tip, subject),
     );
     if (!moved) {
-      this.#fail(
+      return this.#fail(
         run,
         `the branch ${run.branch} moved while dipo merged ${plan.base} into it, after the merge was copied into the box. Check the branch and the box, then resume the story.`,
       );
-      return;
     }
+    if (plan.taskFile !== null) await this.#writeTaskStatus(git, run, plan);
+    const merged: CatchUpMerged = {
+      base: plan.base,
+      onto: plan.onto,
+      tip: plan.tip,
+      commit: plan.commit,
+      conflicts: plan.conflicts,
+      taskFile: plan.taskFile,
+    };
+    await this.#deps.recorded?.(run, merged).catch((error: unknown) => {
+      this.#deps.warn?.("a catch-up could not be recorded", {
+        run: run.runId,
+        reason: messageOf(error),
+      });
+    });
     const push: PushResult = await git
       .run((session) => pushBranch(session, git.settings.remote, run.branch))
       .catch((error: unknown) => ({ pushed: false, rejected: false, error: messageOf(error) }));
@@ -1062,12 +1635,14 @@ export class BoxCollisions {
       text: catchUpNotice(facts),
     });
     if (push.rejected) {
-      this.#deps.park(run.runId, {
-        reason: "conflict",
-        cause: CATCH_UP_CAUSES.pushRejected,
-        detail: `${push.error ?? "the push was rejected"}; the remote branch has commits the story branch lacks`,
-      });
-      return;
+      return {
+        kind: "park",
+        park: {
+          reason: "conflict",
+          cause: CATCH_UP_CAUSES.pushRejected,
+          detail: `${push.error ?? "the push was rejected"}; the remote branch has commits the story branch lacks`,
+        },
+      };
     }
     if (push.error !== null) {
       this.#deps.warn?.("a catch-up was committed but not pushed", {
@@ -1075,7 +1650,92 @@ export class BoxCollisions {
         reason: push.error,
       });
     }
-    await this.#tell(run.runId, catchUpMessage(facts));
+    const lockfiles = changedLockfiles(changes.written);
+    if (lockfiles.length > 0) {
+      await this.#deps.reinstall?.(run, lockfiles).catch((error: unknown) => {
+        this.#deps.warn?.("the install after a catch-up failed", {
+          run: run.runId,
+          reason: messageOf(error),
+        });
+      });
+    }
+    const head = await git
+      .run((session) => revParse(session, `refs/heads/${run.branch}^{commit}`))
+      .then((found) => found ?? plan.commit);
+    const item = plan.conflicts.length === 0 ? null : await this.#item(git, run, plan);
+    return { kind: "merged", merged, head, facts, item };
+  }
+
+  /**
+   * The branch's status written back into the story's task file, which the merge took from the base
+   * (0019 section 10): through `taskStatus`, the single field write path. A failure is a notice.
+   */
+  async #writeTaskStatus(
+    git: OfficeGit,
+    run: PartRun,
+    plan: Extract<CatchUpPlan, { kind: "merge" }>,
+  ): Promise<void> {
+    const taskFile = plan.taskFile as string;
+    const status = await git
+      .run(async (session) => {
+        const shown = await session.step(session.repository, ["show", `${plan.tip}:${taskFile}`]);
+        return shown.code === 0 ? taskFileStatus(shown.stdout) : null;
+      })
+      .catch(() => null);
+    const failed = (why: string): void => {
+      this.#deps.notice(run.office, run.runId, {
+        level: "warn",
+        code: COLLISION_NOTICES.taskFile,
+        text: `${run.story}'s task file ${shownPaths([taskFile])} conflicted when dipo merged the base; dipo took the base's version, but ${why}. Check its status on the branch.`,
+      });
+    };
+    if (status === null) {
+      failed("the branch's version holds no status to write back");
+      return;
+    }
+    if (this.#deps.taskStatus === undefined) {
+      failed("this daemon cannot write the status back");
+      return;
+    }
+    await this.#deps.taskStatus(run, status).catch((error: unknown) => {
+      this.#deps.warn?.("writing the task file's status back after a catch-up failed", {
+        run: run.runId,
+        reason: messageOf(error),
+      });
+      failed(`writing its status ${status} back failed`);
+    });
+  }
+
+  /** The conflict item of a merge: its content conflicts' hunks read from the merge commit. */
+  async #item(
+    git: OfficeGit,
+    run: PartRun,
+    plan: Extract<CatchUpPlan, { kind: "merge" }> & {
+      readonly base: string;
+      readonly commit: string;
+    },
+  ): Promise<ConflictItem> {
+    const hunks = await git
+      .run(async (session) => {
+        const out: string[] = [];
+        for (const file of plan.conflicts) {
+          if (file.kind !== "content") continue;
+          const spec = `${plan.commit}:${file.path}`;
+          const size = await session.step(session.repository, ["cat-file", "-s", spec]);
+          if (size.code !== 0 || Number(size.stdout.trim()) > CONFLICT_FILE_READ_MAX) continue;
+          const text = await session.step(session.repository, ["cat-file", "blob", spec]);
+          if (text.code === 0) out.push(...fileHunks(file.path, text.stdout));
+        }
+        return out;
+      })
+      .catch(() => []);
+    return conflictFeedbackItem({
+      base: plan.base,
+      onto: plan.onto,
+      conflicts: plan.conflicts,
+      hunks,
+      ...(this.#deps.itemMax === undefined ? {} : { itemMax: this.#deps.itemMax(run) }),
+    });
   }
 
   /**

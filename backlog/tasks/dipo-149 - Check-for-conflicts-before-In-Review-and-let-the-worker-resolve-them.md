@@ -3,10 +3,10 @@ id: DIPO-149
 title: >-
   Check conflicts before In Review, let the worker resolve them, refuse conflict
   markers
-status: Refined
+status: Done
 assignee: []
 created_date: '2026-10-17 12:52'
-updated_date: '2026-10-22 19:26'
+updated_date: '2026-10-23 08:32'
 labels:
   - 'tier:L'
   - 'slice:m1a'
@@ -25,18 +25,43 @@ dependencies:
   - DIPO-302
   - DIPO-152
 references:
+  - '- packages/engine/src/box/collisions.ts'
+  - docs/decisions/0019-review-loop.md
+  - packages/contract/schema/reads.schema.json
+  - packages/contract/src/office.ts
+  - packages/daemon/src/runs.ts
   - packages/engine/src/box/collisions.ts
+  - packages/engine/src/box/index.ts
+  - packages/engine/src/box/lifetime.ts
+  - packages/engine/src/db/migrations/0046-catch-ups.ts
+  - packages/engine/src/db/schema.ts
   - packages/engine/src/prompts/feedback/
+  - packages/engine/src/prompts/feedback/conflict-markers.md
+  - packages/engine/src/prompts/feedback/conflict.md
+  - packages/engine/src/retention/policy.ts
+  - packages/engine/src/retention/run.ts
   - packages/engine/src/run/
   - packages/engine/src/run/backstop.ts
+  - packages/engine/src/run/conflicts.ts
+  - packages/engine/src/run/control-turns.ts
   - packages/engine/src/run/control.ts
+  - packages/engine/src/run/fix-rounds.ts
+  - packages/engine/src/run/index.ts
+  - packages/engine/src/run/records.ts
   - packages/engine/src/run/story-git.ts
   - packages/engine/src/run/verify-commit.ts
+  - packages/engine/src/run/work-run.ts
+  - packages/engine/src/views/feature.ts
   - packages/engine/src/worktree/claim.ts
   - packages/engine/test/box/collisions.test.ts
+  - packages/engine/test/db/catch-ups.test.ts
   - packages/engine/test/run/
+  - packages/engine/test/run/conflicts.test.ts
+  - packages/engine/test/run/fix-rounds.test.ts
+  - packages/engine/test/run/rounds.test.ts
   - packages/engine/test/run/verify-in-box.test.ts
   - packages/engine/test/worktree/
+  - packages/engine/test/worktree/claim-reuse.test.ts
 priority: high
 type: feature
 ordinal: 138000
@@ -73,17 +98,17 @@ test_plan:
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 After the scope check, green verify and the code commit, the engine fetches and runs git merge-tree --write-tree origin/<base> HEAD before the In Review commit; a story of tier L or flagged test-before-merge always merges the base there, reinstalls when the lockfile changed and runs verify again
-- [ ] #2 On a conflict the engine runs git merge --no-ff --no-edit origin/<base> in the story worktree and leaves the merge in progress, derives the merge state from git (MERGE_HEAD, unmerged entries, cleanly merged blob ids) without storing it, and refreshes the run's backstop snapshot
-- [ ] #3 The engine resolves a conflict in the story's own task file through the single field write path; a conflict in any other path the worker cannot write aborts the merge and parks conflict with cause unwritable-path, naming the paths
-- [ ] #4 Other conflicts go as one conflict item (paths and hunks within budget, signed over base commit and sorted paths) to the developer session; at done the conflicted paths must hold no conflict marker lines (one feedback turn otherwise), the scope check counts them in scope, verify runs, and the engine commits the merge with git commit --no-edit --no-verify
-- [ ] #5 A blocked report, or markers or unmerged paths left after the feedback turn, is a failed hand-off counted against conflict_cap; the failed hand-off that reaches mergeSlot.conflictAttempts parks conflict with cause merge-in-progress and the paths, with the merge left in progress; a re-claim of a kept branch uses the same hand-off
-- [ ] #6 A conflict found by a fetch while a story is In Review raises a notice and shows on the story detail, and is handled at the story's next In Review or merge-slot sync
-- [ ] #7 When the engine makes a clean base merge in the story worktree, it writes a carried review_verdicts row (carried from the approved head) through DIPO-146's verdict store, so a review approval of the head before that merge carries over to the merged head when only that merge and task-file commits lie between them, recorded as carried to the new head with no new review round (0019 section 6)
-- [ ] #8 (from DIPO-291) dipo records the conflicted paths of each catch-up
-- [ ] #9 (from DIPO-291) At done, before verify, a recorded path that still holds a line starting with '<<<<<<< ', '=======' or '>>>>>>> ' on the tip goes back to the worker as a fix-round item
-- [ ] #10 (from DIPO-291) The PR is not opened while such a line remains
-- [ ] #11 (from DIPO-291) Tests cover a resolved and an unresolved conflict
+- [x] #1 After the scope check, green verify and the code commit, the engine fetches and runs git merge-tree --write-tree origin/<base> HEAD before the In Review commit; a story of tier L or flagged test-before-merge always merges the base there, reinstalls when the lockfile changed and runs verify again
+- [x] #2 On a conflict the engine runs git merge --no-ff --no-edit origin/<base> in the story worktree and leaves the merge in progress, derives the merge state from git (MERGE_HEAD, unmerged entries, cleanly merged blob ids) without storing it, and refreshes the run's backstop snapshot
+- [x] #3 The engine resolves a conflict in the story's own task file through the single field write path; a conflict in any other path the worker cannot write aborts the merge and parks conflict with cause unwritable-path, naming the paths
+- [x] #4 Other conflicts go as one conflict item (paths and hunks within budget, signed over base commit and sorted paths) to the developer session; at done the conflicted paths must hold no conflict marker lines (one feedback turn otherwise), the scope check counts them in scope, verify runs, and the engine commits the merge with git commit --no-edit --no-verify
+- [x] #5 A blocked report, or markers or unmerged paths left after the feedback turn, is a failed hand-off counted against conflict_cap; the failed hand-off that reaches mergeSlot.conflictAttempts parks conflict with cause merge-in-progress and the paths, with the merge left in progress; a re-claim of a kept branch uses the same hand-off
+- [x] #6 A conflict found by a fetch while a story is In Review raises a notice and shows on the story detail, and is handled at the story's next In Review or merge-slot sync
+- [x] #7 When the engine makes a clean base merge in the story worktree, it writes a carried review_verdicts row (carried from the approved head) through DIPO-146's verdict store, so a review approval of the head before that merge carries over to the merged head when only that merge and task-file commits lie between them, recorded as carried to the new head with no new review round (0019 section 6)
+- [x] #8 (from DIPO-291) dipo records the conflicted paths of each catch-up
+- [x] #9 (from DIPO-291) At done, before verify, a recorded path that still holds a line starting with '<<<<<<< ', '=======' or '>>>>>>> ' on the tip goes back to the worker as a fix-round item
+- [x] #10 (from DIPO-291) The PR is not opened while such a line remains
+- [x] #11 (from DIPO-291) Tests cover a resolved and an unresolved conflict
 <!-- AC:END -->
 
 ## Implementation Notes
@@ -94,4 +119,6 @@ Reshaped by decision 0021 (worker isolation, DIPO-263, 2026-10-21); rewrite befo
 2026-10-22: combined from DIPO-291 (maintainer, M1 speed-up)
 
 2026-10-22: dropped the dependency on DIPO-159 (which now holds DIPO-289) to break a dependency cycle left by the M1 combine; that story now comes after this one.
+
+2026-10-23: built outside dipo, reviewed in two rounds (re-claim across runs, NUL bytes, renames fixed). Migration 0046. Accepted advisories (fail safe): records of a discarded branch still apply to a new branch of the same story (worst case a feedback loop to the cap); catch_ups age out with their run; a failed reinstall after a lockfile change is only a daemon warning; a binary or modify/delete conflict kept as git left it counts as unresolved.
 <!-- SECTION:NOTES:END -->

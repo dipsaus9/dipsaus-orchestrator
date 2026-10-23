@@ -27,6 +27,7 @@ import type {
   StoryKey,
   ToolPaths,
 } from "@dipsaus-orchestrator/contract";
+import { Lifecycle } from "@dipsaus-orchestrator/contract";
 import {
   type AdapterHolds,
   type BoxEnded,
@@ -40,6 +41,10 @@ import {
   baseStoryFacts,
   BoxCollisions,
   type BoxBuildNetwork,
+  boxInstallInput,
+  inReviewRunIds,
+  StoryConflicts,
+  type UnparkWriter,
   type BoxNetwork,
   type BoxPort,
   BoxParts,
@@ -590,9 +595,19 @@ function boxCollisions(
   boxed: ReturnType<typeof daemonBoxWorkers>,
   control: RunControl,
   partRun: ((runId: string) => PartRun | null) | null,
+  conflicts: {
+    readonly service: StoryConflicts | null;
+    readonly isBoxRun: (office: OfficeId, run: StoredRun) => boolean;
+    readonly unpark: UnparkWriter;
+  },
 ): BoxCollisions | null {
   if (boxed === null) return null;
   const { clock } = options;
+  const storedRun = (run: PartRun): StoredRun | null => {
+    const handle = options.offices.get(run.office);
+    return handle === undefined ? null : findRun(handle, run.runId as RunId);
+  };
+  const service = conflicts.service;
   return new BoxCollisions({
     boxes: boxed.boxes,
     code: { spawn: systemSpawn, clock },
@@ -608,6 +623,67 @@ function boxCollisions(
     park: (runId, park) => control.parkRun(runId, park),
     tell: (runId, text) => control.tellWorker(runId, text, "collision message"),
     notice: runNotice(options),
+    // Conflicts with the base (DIPO-149): the stories In Review checked, each merge recorded, a
+    // task file resolved to the base's version gets the branch's status back, the item budget.
+    inReview: () =>
+      options.offices.loadedOffices().flatMap((office) => {
+        const handle = options.offices.get(office);
+        if (handle === undefined) return [];
+        return inReviewRunIds(handle).flatMap((runId) => {
+          const run = findRun(handle, runId);
+          const part = run === null ? null : (partRun?.(runId) ?? null);
+          return run !== null && part !== null && conflicts.isBoxRun(office, run) ? [part] : [];
+        });
+      }),
+    ...(service === null
+      ? {}
+      : {
+          recorded: (run: PartRun, merged: Parameters<StoryConflicts["recorded"]>[1]) =>
+            service.recorded(run, merged),
+          found: (run: PartRun, found: Parameters<StoryConflicts["found"]>[1]) =>
+            service.found(run, found),
+          cleared: (run: PartRun) => service.cleared(run),
+        }),
+    // A catch-up that changed a lockfile installs the office's packages in the box again, as the
+    // launch does before the worker (DIPO-294); a failure is the catch-up's warning only.
+    reinstall: async (run) => {
+      const stored = storedRun(run);
+      const config = options.offices.config(run.office);
+      const handle = options.offices.get(run.office);
+      const profile = handle === undefined ? null : (currentProfile(handle)?.profile ?? null);
+      if (stored === null || config === undefined || profile === null) {
+        throw new Error(`run ${run.runId} has no run profile to install with`);
+      }
+      const install = boxInstallInput({
+        profile,
+        config,
+        story: run.story,
+        slot: stored.slot,
+      });
+      if (install === null) return;
+      if ("refused" in install) throw new Error(install.refused);
+      const installed = await boxed.workers.install({ runId: run.runId, ...install });
+      if (!installed.ok) throw new Error(installed.reason);
+    },
+    taskStatus: async (run, status) => {
+      const stored = storedRun(run);
+      if (stored === null || stored.worktree === null) {
+        throw new Error(`run ${run.runId} has no worktree to write its task file from`);
+      }
+      await conflicts.unpark.lift(run.office, {
+        story: run.story,
+        branch: run.branch,
+        worktree: stored.worktree,
+        to: Lifecycle.parse(status),
+      });
+    },
+    itemMax: (run) => {
+      const config = options.offices.config(run.office);
+      if (config === undefined) return 3_000;
+      const budgets = config.prompt.budgets.feedbackItem as Readonly<Record<string, number>>;
+      const tier = storedRun(run)?.tier ?? null;
+      return (tier === null ? undefined : budgets[tier]) ?? config.prompt.budgets.feedbackItem.M;
+    },
     warn: (message, fields) => options.logger.warn(message, fields),
     info: (message, fields) => options.logger.info(message, fields),
   });
@@ -747,6 +823,24 @@ export function daemonRuns(options: DaemonRunsOptions): DaemonRuns {
     const paths = boxed === null ? null : runPaths(office, run);
     return paths !== null && boxed !== null && boxed.workers.isBoxRun(paths.runDir);
   };
+  // Conflicts with the base before In Review and the conflict hand-off of box runs (DIPO-149): the
+  // sync runs in the run's held turn through the collision service made below.
+  const storyConflicts =
+    boxed === null
+      ? null
+      : new StoryConflicts({
+          clock,
+          ids: options.ids,
+          offices: options.offices,
+          git: (office) => options.engineGit.forOffice(office),
+          sync: async (runId, mode) => {
+            const run = partRun?.(runId) ?? null;
+            if (run === null || collisions === null) return { kind: "none" };
+            return collisions.syncInTurn(run, mode);
+          },
+          onChanged: options.onChanged,
+          warn: (message, fields) => options.logger.warn(message, fields),
+        });
   // In Review at a box run's done (DIPO-49, DIPO-273): no verify, backstop or scope check of dipo's.
   const finisher = new VerifyCommit({
     clock,
@@ -764,6 +858,7 @@ export function daemonRuns(options: DaemonRunsOptions): DaemonRuns {
             isBoxRun,
             finishLast: (runId, message, finish) => boxed.parts.finishLast(runId, message, finish),
           },
+          ...(storyConflicts === null ? {} : { conflicts: storyConflicts }),
         }),
     warn: (message, fields) => options.logger.warn(message, fields),
   });
@@ -980,7 +1075,14 @@ export function daemonRuns(options: DaemonRunsOptions): DaemonRuns {
   options.storyPr?.onCiFinal?.((office, runId) => {
     void fixRounds?.consider(office, runId);
   });
-  collisions = boxCollisions(options, boxed, control, partRun);
+  collisions = boxCollisions(options, boxed, control, partRun, {
+    service: storyConflicts,
+    isBoxRun,
+    unpark: gitUnparkWriter({
+      git: (office) => options.engineGit.forOffice(office),
+      cli: options.cli,
+    }),
+  });
   collisions?.start();
   return {
     launcher,

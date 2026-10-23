@@ -113,6 +113,20 @@ export {
 } from "./fix-rounds";
 export type { FixRoundsDeps, FixSessions } from "./fix-rounds";
 export {
+  approvalCarries,
+  baseConflictOf,
+  blockedHandOff,
+  CONFLICT_CAP_DEFAULT,
+  CONFLICT_NOTICES,
+  catchUpsOf,
+  handOffState,
+  inReviewRunIds,
+  recordCatchUp,
+  recordedConflictPaths,
+  StoryConflicts,
+} from "./conflicts";
+export type { DoneConflictDecision, StoredCatchUp, StoryConflictsDeps } from "./conflicts";
+export {
   beginReviewRound,
   failedReviewRounds,
   openReviewRound,

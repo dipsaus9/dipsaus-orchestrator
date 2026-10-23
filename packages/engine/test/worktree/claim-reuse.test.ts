@@ -157,6 +157,28 @@ describe("reusing a released branch against the local base", () => {
     }, FIXTURE);
   });
 
+  it("leaves a box run's reused branch at its kept tip, for dipo's catch-up to merge the base", async () => {
+    await withTempRepo(async (repo) => {
+      await publish(repo);
+      const s = await claimSetup(repo);
+      const key = s.key();
+      const kept = await releasedBranch(repo, s, key, "shared.txt", "branch\n");
+      await commitOnBase(repo, "shared.txt", "base\n");
+
+      const claim = claimed(
+        await claimStory(s.deps(), { ...s.request(key), baseSync: "catch-up" }),
+      ).claim;
+
+      expect(claim.reused).toBe(true);
+      expect(claim.startSha).toBe(kept);
+      expect(claim.firstFeedback).toBeNull();
+      // Only the claim commit lies on the kept tip: no merge of the base, no conflict aborted.
+      expect((await repo.git("rev-parse", `${BRANCH_1}^`)).trim()).toBe(kept);
+      expect(readFileSync(join(claim.worktree, "shared.txt"), "utf8")).toBe("branch\n");
+      expect(notices(s.office).map((n) => n.code)).not.toContain(CLAIM_NOTICES.mergeConflict);
+    }, FIXTURE);
+  });
+
   it("moves a reused branch back to its kept tip after the base merge and reopens the release, then reuses it with the base merged in", async () => {
     await withTempRepo(async (repo) => {
       await publish(repo);
