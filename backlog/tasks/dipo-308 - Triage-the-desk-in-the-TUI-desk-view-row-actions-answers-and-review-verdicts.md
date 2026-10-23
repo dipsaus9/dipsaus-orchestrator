@@ -3,10 +3,10 @@ id: DIPO-308
 title: >-
   Triage the desk in the TUI: desk view, row actions, answers and review
   verdicts
-status: In Review
+status: Parked
 assignee: []
 created_date: '2026-10-22 20:55'
-updated_date: '2026-10-23 13:28'
+updated_date: '2026-10-23 16:21'
 labels:
   - 'tier:L'
   - 'slice:m1b'
@@ -77,6 +77,10 @@ test_plan:
       check: "(unit, TUI harness) Enter on a desk row shows the park record and each review verdict with per-criterion results, findings, evidence markers and an override; Esc returns to the same row"
     - kind: "automated"
       check: "(unit) office.digest without since uses the stored time the office's last TUI client disconnected, and the overview shows its line under the count line"
+park:
+  reason: "budget-exceeded"
+  from: "In Review"
+  note: "time cap reached: 180 of 180 minutes since the worker started"
 ```
 <!-- SECTION:DESCRIPTION:END -->
 
@@ -92,3 +96,17 @@ test_plan:
 - [x] #8 The engine stores per office in its database when the last TUI client of that office disconnected; `office.digest` takes `since` as optional and defaults to that time; the overview shows one "since you left" line from `office.digest` under the count line
 - [x] #9 An action counts as done only when the office stream passes its reply cursor; errors show in the footer, and a retryable one offers Ctrl-R with the same request id (0009 section 5)
 <!-- AC:END -->
+
+## Implementation Notes
+
+<!-- SECTION:NOTES:BEGIN -->
+Parked 2026-10-23 16:21 UTC: budget-exceeded (build)
+- Detail: time cap reached: 180 of 180 minutes since the worker started
+- Run: run_01M5MDFNQ99QDPAH2SMASVZT2F
+- Criteria met: 9 of 9 (as the worker reported them)
+- Loops: 0 of 8; CI attempts: 1 of 2
+- Review rounds: 1, failed 0 of 3
+- Budget used: 628,241 of 2,200,000 tokens; 189 of 300 turns; 181 of 180 minutes
+- Last good commit: dc2ad468e4cf00d9c537dce3765e9c62adeeebc3
+- Uncommitted files: not counted (a box run: undelivered work stays in the box)
+<!-- SECTION:NOTES:END -->
