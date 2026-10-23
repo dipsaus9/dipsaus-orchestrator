@@ -28,6 +28,7 @@ import {
   GateView,
   Lifecycle,
   OutputMarker,
+  openEnum,
   OutputSource,
   ParkReason,
   Phase,
@@ -564,6 +565,74 @@ export const officeStats = defineRead({
   since: 1,
 });
 
+// The kinds of a desk item (0020 section 12), as `dipo desk` prints them. Open: later stories add
+// kinds (DIPO-161 `DONE ELSEWHERE` and `LEFTOVERS`, 0019 `PR HEAD CHANGED`, scope requests).
+export const KNOWN_DESK_KINDS = [
+  "QUESTION",
+  "PERMISSION",
+  "SCOPE",
+  "MERGE",
+  "PARKED",
+  "PR HEAD CHANGED",
+  "DONE ELSEWHERE",
+  "LEFTOVERS",
+  "BACKLOG PR",
+  "NOTICE",
+  "PROPOSAL",
+  "HELD",
+] as const;
+export const DeskKind = openEnum(KNOWN_DESK_KINDS);
+export type DeskKind = z.infer<typeof DeskKind>;
+
+// A command a desk item offers: the contract command and the exact command line to type, built by
+// the engine (0020 section 12).
+export const DeskAction = z.object({ command: CommandName, cli: z.string() });
+export type DeskAction = z.infer<typeof DeskAction>;
+
+// The proposal of a PROPOSAL item: a worker's follow-up, spike or tool proposal, or a decision note
+// (DIPO-186), with the id the maintainer accepts or dismisses it by.
+export const DeskProposal = z.object({
+  id: z.string(),
+  kind: z.string(), // follow-up, spike, tool or decision-note
+  title: z.string(),
+  run: RunId.optional(),
+});
+export type DeskProposal = z.infer<typeof DeskProposal>;
+
+// One thing that waits on the maintainer (0020 section 12). `detail` is one code-built line;
+// `since` is when it began to wait; `blocks` lists the active stories that depend on its story.
+// `actions` are the commands it offers; `hand` says what to do by hand when no dipo command does
+// it, such as a merge on the code host for a PR labelled `autorelease: pending`.
+export const DeskItem = z.object({
+  kind: DeskKind,
+  story: StoryId.optional(),
+  key: StoryKey.optional(),
+  question: QuestionId.optional(),
+  gate: GateId.optional(),
+  pr: StoryPr.optional(),
+  proposal: DeskProposal.optional(),
+  reason: ParkReason.optional(),
+  cause: z.string().optional(),
+  detail: z.string(),
+  since: Timestamp,
+  blocks: z.array(StoryId),
+  actions: z.array(DeskAction),
+  hand: z.string().optional(),
+});
+export type DeskItem = z.infer<typeof DeskItem>;
+
+// What waits on the maintainer, ordered by the engine in the six groups of 0020 section 12:
+// questions with a waiting worker, merge gates, parks (a decision, then a direction, then a
+// restart), hand actions, proposals, and the stories held by the maintainer; within a group the
+// items blocking the most stories first, then the oldest. Changes nothing. Since minor 1
+// (DIPO-158) [`desk`].
+export const officeDesk = defineRead({
+  name: "office.desk",
+  args: OfficeArgs,
+  result: z.array(DeskItem),
+  since: 1,
+});
+
 // Events (office stream, 0005 section 5)
 
 // `detail` holds gate failure messages, for example a failed pickup re-check.
@@ -776,6 +845,7 @@ export const officeReads = [
   officeStats,
   workPreview,
   workPrompt,
+  officeDesk,
 ] as const;
 
 export const officeEvents = [
