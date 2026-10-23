@@ -112,6 +112,8 @@ import {
   insertStoryPr,
   noCiRan,
   openStoryPrs,
+  pendingPrReplacements,
+  replaceStoryPr,
   runParked,
   runsWithoutPr,
   setStoryPrState,
@@ -293,8 +295,44 @@ export class StoryPrs {
         tried.push(runId);
         await this.#sync(officeId, state, runId);
       }
+      // A replacement of a closed PR whose create failed is tried again (DIPO-324).
+      for (const runId of pendingPrReplacements(state.office)) {
+        const run = findRun(state.office, runId);
+        if (run === null || !this.#opensPrs(officeId, run)) continue;
+        tried.push(runId);
+        await this.#replace(officeId, state, runId);
+      }
       return tried;
     });
+  }
+
+  /**
+   * DIPO-155's `PrReplacement` (DIPO-324; 0020 section 2, `stopped` / `pr-closed`): the run's story
+   * PR that was closed on the host without a merge is replaced by a new one for the branch's
+   * head, whose body names the closed one ("Replaces #n"); the run's record then holds the new PR,
+   * with `replaces`. A PR still open on the host is only updated, and a merged one is the Done
+   * poll's. A create that fails is the usual `pr.openFailed` notice, and the PR poll tries again
+   * (`pendingPrReplacements`).
+   */
+  replace(officeId: OfficeId, runId: RunId): Promise<void> {
+    const state = this.#state(officeId);
+    return this.#serial(state, () => this.#replace(officeId, state, runId));
+  }
+
+  async #replace(officeId: OfficeId, state: Polled, runId: RunId): Promise<void> {
+    const stored = findStoryPr(state.office, runId);
+    if (stored === null) return this.#sync(officeId, state, runId);
+    if (stored.state === "merged") return;
+    let closed = stored.state === "closed";
+    if (!closed) {
+      // The merge slot parks on the host's state; the poll may not have recorded it yet.
+      const repo = repoOfPrUrl(stored.url);
+      const viewed =
+        repo === null ? null : await this.#deps.host.viewPr(repo, stored.number).catch(() => null);
+      if (viewed?.state === "merged") return;
+      closed = viewed?.state === "closed";
+    }
+    await this.#sync(officeId, state, runId, closed ? stored : undefined);
   }
 
   /**
@@ -447,7 +485,13 @@ export class StoryPrs {
     return this.#runConfig(officeId, run).storyPr.open;
   }
 
-  async #sync(officeId: OfficeId, state: Polled, runId: RunId): Promise<void> {
+  /** Opens or updates the run's PR; with `replacing`, opens a new one in place of that closed PR. */
+  async #sync(
+    officeId: OfficeId,
+    state: Polled,
+    runId: RunId,
+    replacing?: StoryPrRecord,
+  ): Promise<void> {
     const office = state.office;
     const run = findRun(office, runId);
     if (run === null || run.key === null || run.worktree === null || run.branch === null) return;
@@ -473,6 +517,8 @@ export class StoryPrs {
       const box = this.#deps.boxRun?.(officeId, run) === true;
       const reviewed = latestVerdictOfRun(office, runId);
       state.reviewed.set(runId, reviewKey(reviewed));
+      const stored = findStoryPr(office, runId);
+      const replaces = replacing?.number ?? stored?.replaces ?? null;
       const body = storyPrBody(
         { ...facts.story, doneReport: storedDoneReport(office, runId) },
         {
@@ -482,11 +528,11 @@ export class StoryPrs {
           ...(box ? { verify: "ci" as const } : {}),
           ...(this.#deps.mergesStories === true ? { merge: "dipo" as const } : {}),
           ...(box && noCiRan(office, runId, facts.head) ? { noCi: true } : {}),
+          ...(replaces === null ? {} : { replaces }),
         },
       );
       const hash = storyPrBodyHash(body);
-      const stored = findStoryPr(office, runId);
-      if (stored === null) {
+      if (stored === null || replacing !== undefined) {
         await this.#open(officeId, state, {
           runId,
           story: run.story as string,
@@ -497,6 +543,7 @@ export class StoryPrs {
           title,
           body,
           hash,
+          ...(replacing === undefined ? {} : { replaces: replacing.number }),
         });
       } else if (stored.state === "open") {
         await this.#update(officeId, state, {
@@ -528,6 +575,8 @@ export class StoryPrs {
       title: string;
       body: string;
       hash: string;
+      /** The closed PR of the run the new one replaces (DIPO-324). */
+      replaces?: number;
     },
   ): Promise<void> {
     const host = this.#deps.host;
@@ -556,15 +605,19 @@ export class StoryPrs {
       bodyHash: input.hash,
       openedAt: this.#deps.clock.now(),
       closedAt: null,
+      replaces: input.replaces ?? null,
     };
     this.#write(officeId, state, () => {
-      insertStoryPr(state.office, record);
+      if (input.replaces === undefined) insertStoryPr(state.office, record);
+      else replaceStoryPr(state.office, record);
       return [
         prEntry(record, input.story),
         notice(
           "info",
           STORY_PR_NOTICES.opened,
-          `dipo opened PR #${record.number} for ${input.key}: ${record.url}`,
+          input.replaces === undefined
+            ? `dipo opened PR #${record.number} for ${input.key}: ${record.url}`
+            : `dipo opened PR #${record.number} for ${input.key} in place of PR #${input.replaces}, which was closed on the host: ${record.url}`,
           input.key,
           input.runId,
         ),

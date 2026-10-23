@@ -22,6 +22,8 @@ export interface StoryPrRecord {
   readonly bodyHash: string;
   readonly openedAt: number;
   readonly closedAt: number | null;
+  /** The number of the closed PR of the run this one replaces (migration 51, DIPO-324). */
+  readonly replaces?: number | null;
 }
 
 interface PrRow {
@@ -37,10 +39,11 @@ interface PrRow {
   body_hash: string;
   opened_at: number;
   closed_at: number | null;
+  replaces: number | null;
 }
 
 const COLUMNS = `run_id, key, pr_number, url, branch, base, head_sha, state, title, body_hash,
-  opened_at, closed_at`;
+  opened_at, closed_at, replaces`;
 
 function toRecord(row: PrRow): StoryPrRecord {
   return {
@@ -56,6 +59,7 @@ function toRecord(row: PrRow): StoryPrRecord {
     bodyHash: row.body_hash,
     openedAt: row.opened_at,
     closedAt: row.closed_at,
+    replaces: row.replaces,
   };
 }
 
@@ -81,9 +85,9 @@ export function latestStoryPr(office: OfficeHandle, key: string): StoryPrRecord 
 export function insertStoryPr(office: OfficeHandle, record: StoryPrRecord): void {
   office.run(
     `insert into story_prs (office_id, run_id, key, pr_number, url, branch, base, head_sha, state,
-        title, body_hash, opened_at, closed_at)
+        title, body_hash, opened_at, closed_at, replaces)
        values ($office_id, $run, $key, $number, $url, $branch, $base, $head, $state, $title,
-        $hash, $opened, $closed)`,
+        $hash, $opened, $closed, $replaces)`,
     {
       run: record.runId,
       key: record.key,
@@ -97,8 +101,57 @@ export function insertStoryPr(office: OfficeHandle, record: StoryPrRecord): void
       hash: record.bodyHash,
       opened: record.openedAt,
       closed: record.closedAt,
+      replaces: record.replaces ?? null,
     },
   );
+}
+
+/**
+ * The run's closed PR replaced in place by the new one `record` (DIPO-324): one row per run, the
+ * new PR's facts, `replaces` naming the closed one.
+ */
+export function replaceStoryPr(office: OfficeHandle, record: StoryPrRecord): void {
+  office.run(
+    `update story_prs set key = $key, pr_number = $number, url = $url, branch = $branch,
+        base = $base, head_sha = $head, state = $state, title = $title, body_hash = $hash,
+        opened_at = $opened, closed_at = $closed, replaces = $replaces
+      where office_id = $office_id and run_id = $run`,
+    {
+      run: record.runId,
+      key: record.key,
+      number: record.number,
+      url: record.url,
+      branch: record.branch,
+      base: record.base,
+      head: record.headSha,
+      state: record.state,
+      title: record.title,
+      hash: record.bodyHash,
+      opened: record.openedAt,
+      closed: record.closedAt,
+      replaces: record.replaces ?? null,
+    },
+  );
+}
+
+/**
+ * Runs whose story PR was closed on the host and whose `stopped` / `pr-closed` park of that PR
+ * (parked after it opened) the maintainer resumed, with a live claim: a new PR is still to open for them (DIPO-324), so a
+ * create that failed is tried again by the PR poll. Oldest first.
+ */
+export function pendingPrReplacements(office: OfficeHandle): RunId[] {
+  return office
+    .all<{ run_id: string }>(
+      `select p.run_id from story_prs p
+        where p.office_id = $office_id and p.state = 'closed'
+          and exists (select 1 from parks k where k.office_id = p.office_id
+            and k.run_id = p.run_id and k.cause = 'pr-closed' and k.resolved_how = 'resume'
+            and k.at >= p.opened_at)
+          and exists (select 1 from claims c where c.office_id = p.office_id
+            and c.run_id = p.run_id and c.released_at is null)
+        order by p.closed_at, p.rowid`,
+    )
+    .map((row) => row.run_id as RunId);
 }
 
 /** Records the head, title and body hash last written to the PR. */

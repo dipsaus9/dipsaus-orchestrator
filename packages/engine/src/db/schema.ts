@@ -51,6 +51,7 @@ import { parkResolvedNote } from "./migrations/0047-park-resolved-note";
 import { mergeSlot } from "./migrations/0048-merge-slot";
 import { proposalDecisions } from "./migrations/0049-proposal-decisions";
 import { questionWaits } from "./migrations/0050-question-waits";
+import { storyPrReplaces } from "./migrations/0051-story-pr-replaces";
 
 /**
  * Software-wide tables (0007 section 3). Every other table is office-scoped and has `office_id`
@@ -137,4 +138,5 @@ create table offices (
   mergeSlot,
   proposalDecisions,
   questionWaits,
+  storyPrReplaces,
 ];
