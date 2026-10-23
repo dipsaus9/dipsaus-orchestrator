@@ -19,7 +19,10 @@
 //    In Progress or In Review, or was removed, is stopped. A story In Progress with no claim is an
 //    unknown run: a notice, and it is never started.
 // 4. Park state: an open `parks` row with no F16 record is closed `reconcile`; an F16 record with
-//    no open park is recorded with detail "recorded by hand".
+//    no open park is recorded with detail "recorded by hand" only while the story is Parked. An F16
+//    record on any other status is a stale fact, not a park (0012 F16 and 0010 section 3 allow it
+//    only while Parked; the 0007 section 6 note of 2026-10-20, DIPO-190): no park row, and one warn
+//    `reconcile.parkStale` notice per pass naming the story, its status and the park reason.
 // 5. Ready: a Ready story with no passing gate decision for its current content gets a notice;
 //    the pickup re-check decides.
 
@@ -67,6 +70,8 @@ export const RECONCILE_NOTICES = {
   unknownRun: "reconcile.unknownRun",
   parkClosed: "reconcile.parkClosed",
   parkRecorded: "reconcile.parkRecorded",
+  /** An F16 park record on a story that is not Parked (DIPO-190). */
+  parkStale: "reconcile.parkStale",
   readyUngated: "reconcile.readyUngated",
   markerMismatch: "reconcile.markerMismatch",
   adoptFailed: "reconcile.adoptFailed",
@@ -411,6 +416,22 @@ function endWithNotice(
   });
 }
 
+/** What reconcile does about a story's park state (step 4): pure, from the mirror and the open park. */
+export type ParkStateAction = "close" | "record" | "stale" | null;
+
+/**
+ * Step 4 decided: an open park with no F16 record is closed; an F16 record with no open park is
+ * recorded by hand when the story is Parked, and stale on any other status (DIPO-190); else none.
+ */
+export function parkStateAction(
+  story: { readonly lifecycle: string | null; readonly park: FieldBlockPark | null },
+  hasOpenPark: boolean,
+): ParkStateAction {
+  if (hasOpenPark && story.park === null) return "close";
+  if (hasOpenPark || story.park === null) return null;
+  return story.lifecycle === "Parked" ? "record" : "stale";
+}
+
 function reconcilePark(
   deps: ReconcileDeps,
   story: Story,
@@ -418,7 +439,16 @@ function reconcilePark(
 ): void {
   const { office } = deps;
   const open = openPark(office, story.key);
-  if (open !== null && story.park === null) {
+  const action = parkStateAction(story, open !== null);
+  if (action === "stale" && story.park !== null) {
+    record({
+      code: RECONCILE_NOTICES.parkStale,
+      key: story.key,
+      text: `${story.story} is ${story.lifecycle ?? "not Parked"} in Backlog.md, but its task file still holds a park record (${story.park.reason}); a park record belongs only to a Parked story, so dipo recorded no park. Remove the park block from the task file.`,
+    });
+    return;
+  }
+  if (open !== null && action === "close") {
     record(
       {
         code: RECONCILE_NOTICES.parkClosed,
@@ -434,7 +464,7 @@ function reconcilePark(
     );
     return;
   }
-  if (open === null && story.park !== null) {
+  if (action === "record" && story.park !== null) {
     const park = story.park;
     record(
       {
