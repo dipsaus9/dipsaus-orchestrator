@@ -16,7 +16,7 @@ bun run verify   # oxfmt --check, oxlint --deny-warnings, tsc -b, bun test; stop
 
 `bun run format:fix` rewrites formatting. Tests that only run in CI are named `*.ci.test.ts` and register only when `DIPO_TEST_CI=1`; local `bun test` stays under about 60 seconds. Tests write temp files and sockets only under `DIPO_TMP` (fallback `/tmp`) (0017).
 
-CI (0016): `.github/workflows/ci.yml` (jobs `verify` (Linux) and `verify-macos` (macOS, DIPO-316), both with `DIPO_TEST_CI=1`, `shellcheck`, `dependency-review`, `smoke (*)` on four targets through `.github/actions/smoke`, aggregate `ci-ok`) and `.github/workflows/pr-title.yml` (job `pr-title`, runs `scripts/check-pr-title.ts`).
+CI (0016): `.github/workflows/ci.yml` (jobs `verify` (Linux) and `verify-macos` (macOS, DIPO-316), both with `DIPO_TEST_CI=1`, `shellcheck`, `actionlint`, `dependency-review`, `smoke (*)` on four targets through `.github/actions/smoke`, aggregate `ci-ok`) and `.github/workflows/pr-title.yml` (job `pr-title`, runs `scripts/check-pr-title.ts`).
 
 Release (0016 rules 3, 4 and 7; `docs/release.md`): `.github/workflows/release.yml` is a dry run on `workflow_dispatch` until `v0.1.0`; release-please reads `release-please-config.json` and `.release-please-manifest.json`; `install.sh` installs a release.
 
@@ -25,6 +25,7 @@ Repository settings the maintainer applies by hand on `main` (0016 rule 2):
 - Required status checks: `ci-ok` and `pr-title` (app GitHub Actions).
 - `strict` off (since 2026-10-22, 0016 amendment): a PR is brought up to date with `main` only on a conflict.
 - Squash merge commit title `PR_TITLE`, squash merge commit message `BLANK`.
+- Branch ruleset "release path review" (since 2026-10-23, 0016 amendment, DIPO-321): pull request required, 0 approvals, "Require review from Code Owners" (`.github/CODEOWNERS`: `.github/`, `install.sh`, the release-please config, `renovate.json`); bypass for repository admins, pull requests only. Agents and dipo never bypass it.
 
 ## Prerequisites
 
