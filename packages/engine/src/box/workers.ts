@@ -709,6 +709,33 @@ export class BoxWorkers {
     }
   }
 
+  /**
+   * The run's box running with no earlier process in it, before its next developer session
+   * (DIPO-324): dipo copies the merges it committed on the story branch outside the box into it
+   * then. The session that follows finds it running and fresh, so it does not start it again.
+   * Throws a `BoxError` as `session` does.
+   */
+  async awake(input: { readonly runId: string; readonly runDir: string }): Promise<string> {
+    const { runId } = input;
+    this.#epochs.set(runId, (this.#epochs.get(runId) ?? 0) + 1);
+    this.#starting.set(runId, (this.#starting.get(runId) ?? 0) + 1);
+    try {
+      await this.#restDone(runId);
+      const record = readBoxRun(input.runDir);
+      if (record === null || record.runId !== runId || record.finished === true) {
+        throw new BoxError("box.gone", `run ${runId} has no box to copy into.`);
+      }
+      await this.#running(record.box);
+      // No claude ran in it since it started: the session need not start it again.
+      this.#fresh.add(record.box);
+      return record.box;
+    } finally {
+      const left = (this.#starting.get(runId) ?? 1) - 1;
+      if (left > 0) this.#starting.set(runId, left);
+      else this.#starting.delete(runId);
+    }
+  }
+
   async #session(input: {
     readonly runId: string;
     readonly runDir: string;

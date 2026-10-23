@@ -361,6 +361,7 @@ export type {
   CatchUpMerged,
   CollisionNotice,
   ConflictFile,
+  MergeSource,
   StoryChanges,
   StoryOverlap,
   SyncMode,

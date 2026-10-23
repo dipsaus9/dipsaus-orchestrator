@@ -713,6 +713,33 @@ describe("a new session in a box that already runs (an orphaned claude)", () => 
     }));
 });
 
+describe("the box awake before a session, for dipo's copy into it (DIPO-324)", () => {
+  it("starts a resting box, and the session after it does not start it again", () =>
+    inBoxes(async (repo, tmp) => {
+      const w = await world(repo, tmp);
+      await created(w);
+      await w.workers.session({ runId: RUN, runDir: w.runDir, systemFile: w.systemFile });
+      await w.boxes.stop(BOX);
+      w.log.length = 0;
+      expect(await w.workers.awake({ runId: RUN, runDir: w.runDir })).toBe(BOX);
+      expect(w.log).toEqual(["list", `start ${BOX}`]);
+      expect(w.boxes.boxes.get(BOX)?.state).toBe("running");
+      w.log.length = 0;
+      await w.workers.session({ runId: RUN, runDir: w.runDir, systemFile: w.systemFile });
+      expect(w.log.filter((line) => line.startsWith("stop ") || line.startsWith("start "))).toEqual(
+        [],
+      );
+    }));
+
+  it("refuses a run whose box was deleted", () =>
+    inBoxes(async (repo, tmp) => {
+      const w = await world(repo, tmp);
+      await expect(w.workers.awake({ runId: RUN, runDir: w.runDir })).rejects.toThrow(
+        "has no box to copy into",
+      );
+    }));
+});
+
 describe("daemon stop (criterion 6)", () => {
   it("stops every running box, which ends the worker in it, and the routes", () =>
     inBoxes(async (repo, tmp) => {

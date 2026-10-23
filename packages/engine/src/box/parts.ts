@@ -209,6 +209,8 @@ export const PART_CAUSES = {
   secret: "secret",
   refused: "part-refused",
   pushRejected: "push-rejected",
+  /** The box lacks a merge dipo made on the branch outside it (DIPO-324): `catch-up-failed`. */
+  behind: "catch-up-failed",
 } as const;
 
 // ---- the message ---------------------------------------------------------------------------------
@@ -1044,7 +1046,12 @@ export type PartOutcome =
   /** The part could not be taken (too big, a hostile archive): the story parks. */
   | { readonly kind: "refused"; readonly detail: string }
   /** The run is not live; nothing was taken. */
-  | { readonly kind: "stopped" };
+  | { readonly kind: "stopped" }
+  /**
+   * The box lacks a merge dipo committed on the branch outside it (DIPO-324): nothing was taken,
+   * since a part against that tip would undo the merge, and the story parks.
+   */
+  | { readonly kind: "behind"; readonly detail: string };
 
 /** What the caller gets while the run's parts are held after the last part (`BoxParts.finishLast`). */
 export interface LastPartAccess {
@@ -1074,6 +1081,8 @@ export function partPark(outcome: PartOutcome): PartPark | null {
       return { reason: "scope-violation", cause: outcome.cause, detail: outcome.detail };
     case "refused":
       return { reason: "scope-violation", cause: PART_CAUSES.refused, detail: outcome.detail };
+    case "behind":
+      return { reason: "conflict", cause: PART_CAUSES.behind, detail: outcome.detail };
     case "committed":
       return outcome.push.rejected
         ? {
@@ -1110,6 +1119,11 @@ export interface BoxPartsDeps {
   readonly listedFiles?: (git: OfficeGit) => Promise<readonly string[]>;
   /** True while the run goes on: tracked and nothing decided for it yet. */
   readonly live: (runId: string) => boolean;
+  /**
+   * Why the run's box lacks a merge dipo committed on its branch outside the box (the merge
+   * slot's, DIPO-324), or null when it holds them all. No part is taken while it lacks one.
+   */
+  readonly behind?: (runId: string) => string | null;
   /** Parks the run, stopping its worker; false when another decision came first. */
   readonly park?: (runId: string, park: PartPark) => boolean;
   /** Tells the maintainer (an `engine.notice` of the run). */
@@ -1528,6 +1542,9 @@ export class BoxParts {
   }
 
   async #deliver(run: PartRun, message: string): Promise<PartOutcome> {
+    // Never a part against a tip whose files the box has not received (DIPO-324).
+    const behind = this.#deps.behind?.(run.runId) ?? null;
+    if (behind !== null) return { kind: "behind", detail: behind };
     for (let attempt = 1; ; attempt += 1) {
       const outcome = await this.#attempt(run, message);
       if (outcome !== null) {
