@@ -308,7 +308,10 @@ export function baseConflictOf(
 
 /**
  * The story runs of the office waiting In Review: ended at In Review or after their review, with a
- * live claim and no open park. The poll checks their tips against the base (0019 section 10).
+ * live claim and no open park. The poll checks their tips against the base (0019 section 10). A
+ * story that is Done is left out (DIPO-332): its own PR merged into the base, or its status reads
+ * Done (the merge slot's close-out commit on its branch, or the base's after a release). Its claim
+ * may stay live while its teardown waits, but it is not In Review, and the base holds its work.
  */
 export function inReviewRunIds(office: OfficeHandle): RunId[] {
   return office
@@ -320,6 +323,10 @@ export function inReviewRunIds(office: OfficeHandle): RunId[] {
             and c.run_id = r.run_id and c.released_at is null)
           and not exists (select 1 from parks p where p.office_id = r.office_id
             and p.run_id = r.run_id and p.resolved_at is null)
+          and not exists (select 1 from story_prs s where s.office_id = r.office_id
+            and s.run_id = r.run_id and s.state = 'merged')
+          and not exists (select 1 from backlog_mirror m where m.office_id = r.office_id
+            and m.key = r.key and m.kind = 'task' and m.status = 'Done')
         order by r.ended_at, r.run_id`,
       { in_review: IN_REVIEW_END, reviewed: REVIEWED_END },
     )
