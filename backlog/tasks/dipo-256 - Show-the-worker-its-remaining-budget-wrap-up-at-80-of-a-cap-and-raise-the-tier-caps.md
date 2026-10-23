@@ -13,6 +13,9 @@ labels:
 milestone: m-1
 dependencies:
   - DIPO-285
+  - DIPO-293
+  - DIPO-294
+  - DIPO-299
 references:
   - packages/engine/src/config/schema.ts
   - packages/engine/test/config/
@@ -63,4 +66,6 @@ test_plan:
 
 <!-- SECTION:NOTES:BEGIN -->
 2026-10-22: dropped the dependency on DIPO-149 (which now holds DIPO-291) to break a dependency cycle left by the M1 combine; that story now comes after this one.
+
+2026-10-22: the dependency on DIPO-255 was ordering for file overlap only and is dropped (maintainer: build in parallel, resolve overlaps at merge).
 <!-- SECTION:NOTES:END -->
