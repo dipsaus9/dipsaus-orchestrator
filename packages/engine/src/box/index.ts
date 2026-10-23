@@ -342,9 +342,22 @@ export {
   CATCH_UP_CAUSES,
   COLLISION_NOTICES,
   COLLISION_POLL_MS,
+  CONFLICT_MARKER,
+  conflictFeedbackItem,
   findOverlaps,
+  markersAt,
   overlappingPaths,
   pathsOverlap,
   storyChangedFiles,
 } from "./collisions";
-export type { BoxCollisionsDeps, CollisionNotice, StoryChanges, StoryOverlap } from "./collisions";
+export type {
+  BoxCollisionsDeps,
+  CatchUpFound,
+  CatchUpMerged,
+  CollisionNotice,
+  ConflictFile,
+  StoryChanges,
+  StoryOverlap,
+  SyncMode,
+  SyncOutcome,
+} from "./collisions";
