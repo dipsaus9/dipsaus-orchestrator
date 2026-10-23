@@ -89,7 +89,11 @@ import {
   StoryPlanning,
   StoryPrs,
   gitParkWriter,
+  gitStorySlotOps,
+  gitUnparkWriter,
+  MergeGates,
   StoryTeardown,
+  writeCloseOutSummary,
   systemExecutableStamp,
   systemProcessProbe,
   systemSpawn,
@@ -672,6 +676,8 @@ async function serve(run: Run, lock: HeldLock): Promise<number> {
         implemented: (name) => registry.command(name) !== undefined,
       },
       boxRun: (office, stored) => boxRunOf?.(office, stored) === true,
+      // The merge slot below merges story PRs (DIPO-150).
+      mergesStories: true,
     });
     held.storyPrs = storyPrs;
     // The backlog PR (DIPO-35): opened or updated after each lane flush through `gh` on this
@@ -711,19 +717,52 @@ async function serve(run: Run, lock: HeldLock): Promise<number> {
       prWaiting: (office) => backlogPrs.waiting(office),
       onChanged: (office) => server?.notifyOffice(office),
     });
-    // The merge slot (DIPO-73): merges the office's backlog PR once `ci-ok`, `pr-title` and the
-    // structural check pass, polling every `polling.prStateSeconds`; it holds new lane operations
-    // while a PR is in it. Its load step follows the lane's replay.
+    // The merge slot (DIPO-73, DIPO-150): merges the office's backlog PR once `ci-ok`, `pr-title`
+    // and the structural check pass, and each story PR whose merge gate was approved after its
+    // review and required checks, one PR at a time, polling every `polling.prStateSeconds`; it
+    // holds new lane operations while a backlog PR is in it. Its occupant is in the state database.
+    // The run services are made below; the slot reaches them only from a tick, after load.
+    const storySlotGit = gitStorySlotOps({
+      git: (office) => engineGit.forOffice(office),
+      cli: backlogCli,
+    });
     const mergeSlot: MergeSlot = new MergeSlot({
       host,
       prs: backlogPrs,
       lane: (office) => lane.forOffice(office),
       offices,
       clock,
+      labels: host,
+      stories: {
+        git: storySlotGit,
+        ids,
+        labels: host,
+        ci: (office, runId) => storyPrs.ciState(office, runId),
+        prSync: (office, runId) => storyPrs.sync(office, runId),
+        story: (office, stored) => runs.mergeSlot.story(office, stored),
+        summary: writeCloseOutSummary,
+        recordMerge: (office, stored, merged) => runs.mergeSlot.recordMerge(office, stored, merged),
+        conflict: (office, runId, input) => runs.mergeSlot.conflict(office, runId, input),
+        park: {
+          writer: gitParkWriter({ git: (office) => engineGit.forOffice(office), cli: backlogCli }),
+          implemented: (name) => registry.command(name) !== undefined,
+        },
+        itemMax: (office, stored) => runs.mergeSlot.itemMax(office, stored),
+      },
       onChanged: (office) => server?.notifyOffice(office),
       logger: logger.child({ component: "merge-slot" }),
     });
     held.mergeSlot = mergeSlot;
+    // `gate.approve` and `gate.reject` on merge gates (DIPO-150 with DIPO-151): a decision kicks
+    // the slot, a reject's note goes to the worker in a fix round.
+    const mergeGates = new MergeGates({
+      labels: host,
+      unpark: gitUnparkWriter({ git: (office) => engineGit.forOffice(office), cli: backlogCli }),
+      reject: (office, runId, reject) => runs.mergeSlot.reject(office, runId, reject),
+      kick: (office) => mergeSlot.kick(office),
+      prSync: (office, runId) => storyPrs.sync(office, runId),
+      refreshStory: (office, key) => storyIndex.refreshStory(office, key, { quiet: true }),
+    });
     // `story.hold`, `story.drop` and the on-hold resume of `work.resume` (DIPO-160): lane
     // operations, the story PR closed through the same `gh` host and the claim released with the
     // office git.
@@ -913,6 +952,7 @@ async function serve(run: Run, lock: HeldLock): Promise<number> {
       runProfiles.feature,
       workRun.feature,
       planning.feature,
+      mergeGates.feature,
       runs.control.feature,
       runs.outcomes.feature,
       runs.permissions.feature,

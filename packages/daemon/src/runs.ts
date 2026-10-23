@@ -36,6 +36,8 @@ import {
   type BoxBuildNetwork,
   feedbackItemMax,
   inReviewRunIds,
+  type MergeGatesDeps,
+  type StorySlotDeps,
   StoryConflicts,
   type UnparkWriter,
   type BoxNetwork,
@@ -279,6 +281,22 @@ export interface DaemonRuns {
    * many rounds it queued.
    */
   recoverFixRounds(): Promise<number>;
+  /**
+   * The merge slot's ports into the run services (DIPO-150): a conflict the slot's sync committed
+   * goes to the worker as one fix round, a maintainer reject as another, a merge the slot made is
+   * recorded (so a clean one carries the approval to the merged head), and the story's facts on
+   * the base are read as the review loop reads them.
+   */
+  readonly mergeSlot: DaemonMergeSlotPorts;
+}
+
+/** What the merge slot and the merge gates use of the run services (DIPO-150). */
+export interface DaemonMergeSlotPorts {
+  readonly conflict: NonNullable<StorySlotDeps["conflict"]>;
+  readonly reject: NonNullable<MergeGatesDeps["reject"]>;
+  readonly recordMerge: NonNullable<StorySlotDeps["recordMerge"]>;
+  readonly story: NonNullable<StorySlotDeps["story"]>;
+  readonly itemMax: NonNullable<StorySlotDeps["itemMax"]>;
 }
 
 /** Apple `container` on `pathEnv`, by absolute path; undefined when it is not there. */
@@ -1104,5 +1122,32 @@ export function daemonRuns(options: DaemonRunsOptions): DaemonRuns {
       sweepReviewFolders(realDir(options.tmpRoot), (runId, agent) =>
         reviewHostRuns(options.offices, runId, agent),
       ),
+    // The merge slot's ports (DIPO-150): its conflicts and the maintainer's rejects go through the
+    // fix rounds, and its merges are recorded as DIPO-149's catch-ups are.
+    mergeSlot: {
+      conflict: async (office, runId, input) =>
+        (await fixRounds?.conflict(office, runId, input)) ?? false,
+      reject: async (office, runId, reject) =>
+        (await fixRounds?.reject(office, runId, reject)) ?? false,
+      recordMerge: async (office, run, merged) => {
+        if (storyConflicts === null || run.story === null || run.branch === null) return;
+        await storyConflicts.recorded(
+          {
+            runId: run.runId,
+            office,
+            story: run.story,
+            branch: run.branch,
+            startSha: run.startSha ?? "",
+            box: boxName(run.runId),
+          },
+          merged,
+        );
+      },
+      story: baseStoryFacts(options.base),
+      itemMax: (office, run) => {
+        const config = options.offices.config(office);
+        return config === undefined ? 3_000 : feedbackItemMax(config, run.tier);
+      },
+    },
   };
 }
