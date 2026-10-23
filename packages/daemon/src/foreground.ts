@@ -646,8 +646,10 @@ async function serve(run: Run, lock: HeldLock): Promise<number> {
     const teardown = new StoryTeardown({
       git: (office) => engineGit.forOffice(office),
       host,
-      // A story Done on the base through another branch has its open story PR closed (DIPO-161).
+      // A story Done on the base through another branch has its open story PR closed and the box
+      // of its ended run deleted (DIPO-161); the runs are made below and called only by a poll.
       prCloser: host,
+      finishBoxes: () => runs.finishEndedBoxes(),
       cli: backlogCli,
       offices,
       slots,
@@ -753,6 +755,8 @@ async function serve(run: Run, lock: HeldLock): Promise<number> {
       probe: systemProcessProbe(platform),
       stop: (ctx, args) => runs.control.stop(ctx, args),
       finishBoxes: () => runs.finishEndedBoxes(),
+      // A story the `backlog` on this PATH reads Done in `_base` gets no Refined write.
+      cli: backlogCli,
     });
     // The story index (DIPO-32): indexes each office at load, after the git load step and the
     // lane's replay, and polls its remote every `polling.fetchSeconds`, with the `backlog` this
@@ -856,8 +860,10 @@ async function serve(run: Run, lock: HeldLock): Promise<number> {
       runs: runs.control,
       releaseClaim: (office, claim, reason) => claims.releaseUnstarted(office, claim, reason),
       slots,
-      // A story Done on the base through another branch has its open story PR closed (DIPO-161).
+      // A story Done on the base through another branch has its open story PR closed and the box
+      // of its ended run deleted (DIPO-161).
       host,
+      finishBoxes: () => runs.finishEndedBoxes(),
       adoptBacklogPr: (office) => backlogPrs.adopt(office),
       refuse: (office, text) => offices.refuse(office, text),
       onOfficeChanged: (office) => server?.notifyOffice(office),

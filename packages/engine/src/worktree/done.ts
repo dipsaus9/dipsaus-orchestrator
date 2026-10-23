@@ -31,15 +31,14 @@ import type { GitLocation } from "../git/hardened";
 import type { OfficeGit } from "../git/office";
 import type { Logger } from "../log/logger";
 import type { CodeHost, PrStateHost } from "../platform/host";
-import { lifecycleOf } from "../views/story";
 
 import { inStoryBacklog, notice, writeWith } from "./claim";
 import {
+  baseDoneOf,
   type DoneElsewhereDeps,
   findDoneElsewhere,
   flagLiveWorker,
   hasLiveWorker,
-  lastTaskCommit,
   releaseDoneElsewhere,
   settleDoneElsewhere,
   settlePending,
@@ -79,6 +78,8 @@ export interface StoryTeardownDeps {
   readonly baseDoneOf?: (claim: ClaimRecord) => Promise<{ readonly commit: string | null } | null>;
   /** Closes dipo's open story PR of a story Done elsewhere; the `gh` host in the daemon. */
   readonly prCloser?: Pick<CodeHost, "closePr"> | null;
+  /** Checks and deletes the boxes of ended runs after a release (0021 section 6). */
+  readonly finishBoxes?: () => Promise<unknown>;
   readonly onChanged?: (office: OfficeId) => void;
   readonly logger?: Logger;
 }
@@ -303,19 +304,7 @@ export class StoryTeardown {
   /** The story's Done on `_base` with the base commit of its task file, or null; never throws. */
   async #baseDone(git: OfficeGit, claim: ClaimRecord): Promise<{ commit: string | null } | null> {
     if (this.#deps.baseDoneOf !== undefined) return this.#deps.baseDoneOf(claim);
-    const path = git.baseWorktreePath();
-    if (git.adminDirOf(path) === null) return null;
-    try {
-      return await git.run(async (session) => {
-        const location = git.worktreeLocation(path);
-        const head = (await session.ok(location, ["rev-parse", "--verify", "HEAD"])).trim();
-        const view = await viewStory({ cli: this.#deps.cli, cwd: path, id: claim.story });
-        if (lifecycleOf("task", view.status) !== "Done") return null;
-        return { commit: await lastTaskCommit(session, head, claim.story) };
-      });
-    } catch {
-      return null;
-    }
+    return baseDoneOf(git, this.#deps.cli, claim.story);
   }
 
   #elsewhereDeps(deps: TeardownDeps): DoneElsewhereDeps {
@@ -327,6 +316,7 @@ export class StoryTeardown {
       ...(deps.slots === undefined ? {} : { slots: deps.slots }),
       ...(deps.onChanged === undefined ? {} : { onChanged: deps.onChanged }),
       ...(this.#deps.prCloser === undefined ? {} : { host: this.#deps.prCloser }),
+      ...(this.#deps.finishBoxes === undefined ? {} : { finishBoxes: this.#deps.finishBoxes }),
     };
   }
 

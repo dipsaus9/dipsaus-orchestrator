@@ -70,10 +70,15 @@ import { activeRuns } from "../run/records";
 import { hostAlive, workerHostsOf } from "../runs/worker-hosts";
 import { latestStoryPr, setStoryPrState } from "../story-pr/records";
 import { deriveStoryView, lifecycleOf, storyView } from "../views/story";
-import { deleteKeptBranches, dirtyFilesOf, releaseForDrop, repoOfPrUrl } from "../worktree/release";
-import { openLeftovers } from "../worktree/done-elsewhere";
 import {
-  findClaim,
+  deleteKeptBranches,
+  dirtyFilesOf,
+  leftoverBranchNames,
+  releaseForDrop,
+  repoOfPrUrl,
+} from "../worktree/release";
+import { leftoverTargets } from "../worktree/done-elsewhere";
+import {
   liveClaimOf,
   openReleasedBranches,
   type ClaimRecord,
@@ -104,7 +109,13 @@ type StoryResult = { story: StoryId; key: StoryKey };
 type HoldArgs = z.output<typeof storyHold.args>;
 type DropArgs = z.output<typeof storyDrop.args>;
 type LossesArgs = z.output<typeof storyLosses.args>;
-type LossesResult = { story: StoryId; key: StoryKey; commits: LostCommit[]; files: string[] };
+type LossesResult = {
+  story: StoryId;
+  key: StoryKey;
+  commits: LostCommit[];
+  files: string[];
+  kept?: string[];
+};
 
 /** The Backlog.md statuses a hold applies from; `To Do` is what office init migrates to Refined. */
 const HOLDABLE_STATUSES = ["Refined", "Ready", "To Do"];
@@ -151,8 +162,13 @@ export class StoryPlanning {
   /**
    * `story.losses` (DIPO-228): what `story.drop` with `deleteBranch` loses. The commits of the live
    * claim's branch, else of the open released branches, that are not on the base as last fetched,
-   * and the uncommitted and untracked files of the claim's worktree, else of the worktrees a story
-   * Done elsewhere kept as leftovers (DIPO-161). Reads git only.
+   * and the uncommitted and untracked files of the claim's worktree. Reads git only.
+   *
+   * With `command: work.discard` (DIPO-161) and no live claim it lists exactly what the discard of
+   * the story's leftovers removes (`leftoverTargets`): the commits of the open released branches
+   * and of the leftovers' own branches (settled or not), and the files of the leftover worktrees,
+   * read at their own paths, so a claim row retention removed loses nothing from the list. For
+   * `story.drop`, which never removes those worktrees, `kept` names them instead.
    */
   async losses(ctx: ReadContext, args: LossesArgs): Promise<LossesResult> {
     const office = ctx.office;
@@ -161,18 +177,21 @@ export class StoryPlanning {
       throw new Error("story.losses runs with its office and its story resolved");
     }
     const { key, story } = identity;
+    const discard = args.command === "work.discard";
     const claim = liveClaimOf(office, key);
+    const leftovers = claim === null ? leftoverTargets(office, key) : null;
     const branches =
-      claim === null
-        ? openReleasedBranches(office, key).map((release) => release.branch)
-        : [claim.branch];
+      claim !== null
+        ? [claim.branch]
+        : discard && leftovers !== null
+          ? leftoverBranchNames(leftovers)
+          : openReleasedBranches(office, key).map((release) => release.branch);
     const trees =
-      claim === null
-        ? openLeftovers(office, key)
-            .map((row) => findClaim(office, row.runId))
-            .filter((tree): tree is ClaimRecord => tree !== null)
-        : [claim];
-    if (branches.length === 0 && trees.length === 0) return { story, key, commits: [], files: [] };
+      claim !== null ? [claim] : discard && leftovers !== null ? leftovers.worktrees : [];
+    const keptTrees = !discard && leftovers !== null ? leftovers.worktrees : [];
+    if (branches.length === 0 && trees.length === 0 && keptTrees.length === 0) {
+      return { story, key, commits: [], files: [] };
+    }
     const git = this.#deps.git(office.officeId);
     if (git === undefined) throw new Error(`The office ${office.officeId} has no git attached.`);
     const commits = await git.run(async (session) => {
@@ -207,7 +226,10 @@ export class StoryPlanning {
         if (!files.includes(file)) files.push(file);
       }
     }
-    return { story, key, commits, files };
+    const kept = keptTrees
+      .map((tree) => tree.worktree)
+      .filter((path) => git.adminDirOf(path) !== null);
+    return { story, key, commits, files, ...(kept.length === 0 ? {} : { kept }) };
   }
 
   // ---- hold ----------------------------------------------------------------------------------

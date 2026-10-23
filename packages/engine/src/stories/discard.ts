@@ -1,28 +1,31 @@
 // `work.discard { story, note }` (DIPO-161; 0020 section 8 and its dirty-worktree option, 0005
 // amendment of 2026-10-17: the waiting command path). It throws a story's work away and returns the
 // story to Refined, so it must pass the Ready gate again. The client listed what is lost first
-// (`story.losses`) and asked for the story id typed out: the command is `irreversible`.
+// (`story.losses` with `command: work.discard`) and asked for the story id typed out: the command
+// is `irreversible`. It removes nothing that list did not show.
 //
 // From In Progress, In Review or Parked with a claim, in the order of 0010 section 2a:
 // 1. An active run is stopped as `work.stop` stops it; a worker host of the run that still runs
 //    answers the retryable `run.hostAlive`, with nothing changed.
 // 2. The lane-b op is journaled (status Refined, the F16 park removed), so the pending-op skip
 //    covers the story at once. It applies only while the base status is not Done: lane b never
-//    writes over a Done story.
+//    writes over a Done story, and a story the Backlog CLI reads Done in `_base` gets no op at all.
 // 3. dipo's open story PR is closed with a comment naming the discard.
 // 4. The claim is released (`discard`): the worktree removed with `--force`, the branch deleted
-//    locally and, when its tip there is one dipo pushed, on the remote; a remote tip dipo did not
-//    push keeps the remote branch with a notice and the other steps go on. The port slot is freed.
-// 5. One transaction: the run's open questions closed `ended`, an open park resolved `discard`,
-//    `story.state` to Refined. The boxes of ended runs are deleted (0021 section 6), and the lane
-//    flushes.
+//    locally and on the remote when every commit on the remote tip is on the local branch or on the
+//    base; a remote tip with other commits (someone pushed to it) keeps the remote branch with a
+//    notice and the other steps go on. The port slot is freed.
+// 5. One transaction: the run's open questions closed `ended`, an open park resolved `discard`, and
+//    `story.state` to Refined unless the base says Done. The boxes of ended runs are deleted (0021
+//    section 6), and the lane flushes.
 // The leftovers of a story Done on the base through another branch (0020 section 10) are discarded
-// the same way without a claim and with no lane-b write: their kept worktree and branches go and
-// the leftovers are cleared. A story whose PR head changed outside dipo (0019 section 9) is
-// discarded like any other; its remote branch is kept when its tip is not dipo's.
+// the same way without a claim and with no lane-b write: their kept worktrees and branches go
+// (`leftoverTargets`, exactly what the loss list shows) and the leftovers are cleared. A story whose
+// PR head changed outside dipo (0019 section 9) is discarded like any other.
 // Refused: a story whose PR in `story_prs` merged (`story.prMerged`), and a story with neither a
-// claim nor leftovers (`story.notDiscardable`). A failure before the facts are written withdraws
-// the journal entry. Every step is target-state under a re-run of the handler.
+// claim nor leftovers that was never discarded (`story.notDiscardable`). A failure before the
+// release withdraws the journal entry. A re-run after a crash between the release and the facts
+// writes the facts it owes and answers `changed: true`; after a finished discard, `changed: false`.
 
 import {
   type Lifecycle,
@@ -53,6 +56,7 @@ import type {
   FeatureRegistry,
 } from "../commands/registry";
 import type { OfficeHandle } from "../db/office";
+import type { BacklogCli } from "../backlog/runner";
 import type { OfficeGit } from "../git/office";
 import { closeQuestion, openQuestions } from "../hooks/questions";
 import { type CodeHost, CodeHostError } from "../platform/host";
@@ -63,12 +67,12 @@ import { hostAlive, workerHostsOf } from "../runs/worker-hosts";
 import { latestStoryPr, setStoryPrState } from "../story-pr/records";
 import { deriveStoryView, storyView } from "../views/story";
 import {
+  baseDoneOf,
   clearLeftovers,
-  type DoneElsewhereRecord,
+  leftoverTargets,
   openLeftovers,
-  pushedHeads,
 } from "../worktree/done-elsewhere";
-import { type ClaimRecord, liveClaimOf, openReleasedBranches } from "../worktree/records";
+import { type ClaimRecord, liveClaimOf } from "../worktree/records";
 import {
   type DiscardBranchOutcome,
   releaseForDiscard,
@@ -120,6 +124,11 @@ export interface StoryDiscardDeps {
   readonly stop?: DiscardStop;
   /** Checks and deletes the boxes of ended runs (0021 section 6); best effort. */
   readonly finishBoxes?: () => Promise<unknown>;
+  /**
+   * Reads the story's status in `_base`: a story Done there gets no backlog write and no Refined
+   * state. Without it only the leftovers of a story Done elsewhere count as Done.
+   */
+  readonly cli?: BacklogCli;
 }
 
 type DiscardArgs = z.output<typeof workDiscard.args>;
@@ -178,17 +187,11 @@ export class StoryDiscard {
       await this.#deps.stop(ctx, { story: args.story, note: `discarded: ${args.note}` });
       claim = liveClaimOf(office, key);
     }
+    const git = this.#deps.git(office.officeId);
+    if (git === undefined) throw new Error(`The office ${office.officeId} has no git attached.`);
     const leftovers = claim === null ? openLeftovers(office, key) : [];
     if (claim === null && leftovers.length === 0) {
-      if (this.#discardWritten(office, key)) {
-        await flushQuietly(this.#lane(office));
-        return { result, changed: false };
-      }
-      throw new CommandError(
-        NOT_DISCARDABLE,
-        `${story} has no claim and no leftovers, so there is no work to discard; drop it with \`dipo drop ${story}\` instead.`,
-        { story },
-      );
+      return this.#rerun(ctx, identity, git, args.note);
     }
     if (claim !== null) {
       const pid = await this.#liveHostPid(office, claim.runId);
@@ -200,11 +203,10 @@ export class StoryDiscard {
         );
       }
     }
-    const git = this.#deps.git(office.officeId);
-    if (git === undefined) throw new Error(`The office ${office.officeId} has no git attached.`);
 
-    // Leftovers of a story Done on the base write nothing to the backlog (0020 section 10).
-    const doneOnBase = claim === null;
+    // A story Done on the base (its leftovers, or a claim the Done poll has not released yet) gets
+    // no backlog write and keeps its state: Done is terminal (0020 section 10).
+    const doneOnBase = claim === null || (await this.#doneOnBase(git, story));
     const lane = doneOnBase ? null : this.#lane(office);
     const entry = lane === null ? null : await journalOnce(lane, office, discardOp(key, story));
     const withdraw = () => {
@@ -216,8 +218,8 @@ export class StoryDiscard {
     };
     let released: DiscardBranchOutcome;
     try {
-      const closed = await this.#closePr(ctx, identity, args.note, doneOnBase);
-      released = await this.#release(ctx, git, claim, leftovers, key);
+      const closed = await this.#closePr(ctx, identity, args.note, claim === null);
+      released = await this.#release(ctx, git, claim, key);
       if (!released.ok) {
         const closedText = closed === null ? "" : `PR #${closed} was closed, but `;
         throw new CommandError(
@@ -231,18 +233,38 @@ export class StoryDiscard {
       throw error;
     }
     this.#remoteNotices(ctx, identity, git, claim, released);
+    this.#finishFacts(ctx, identity, claim?.runId ?? null, args.note, !doneOnBase);
+    await this.#deps.finishBoxes?.().catch(() => undefined);
+    if (lane !== null) await flushQuietly(lane);
+    return { result, changed: true };
+  }
 
+  /**
+   * One transaction: the run's open questions closed `ended`, an open park resolved `discard`, the
+   * leftovers cleared, and with `toRefined` the `story.state` to Refined. Returns whether it wrote
+   * anything.
+   */
+  #finishFacts(
+    ctx: AsyncCommandContext,
+    identity: StoryIdentity,
+    runId: RunId | null,
+    note: string,
+    toRefined: boolean,
+  ): boolean {
+    const office = ctx.office;
+    const { key, story } = identity;
     const before = storyView(office, key);
+    let wrote = false;
     ctx.commit((): NewEntry[] => {
       const at = ctx.clock.now();
       const entries: NewEntry[] = [];
-      if (claim !== null) {
-        for (const question of openQuestions(office, claim.runId)) {
+      if (runId !== null) {
+        for (const question of openQuestions(office, runId)) {
           if (!closeQuestion(office, question.questionId, "ended", at)) continue;
           entries.push({
             type: "question.closed",
             key,
-            run: claim.runId,
+            run: runId,
             delta: { question: question.questionId },
           });
         }
@@ -255,24 +277,80 @@ export class StoryDiscard {
           { at, park: open.parkId },
         );
       }
-      clearLeftovers(office, key, at);
-      if (!doneOnBase) {
+      const cleared = clearLeftovers(office, key, at);
+      if (toRefined) {
         const from: Lifecycle = before?.lifecycle ?? "Parked";
         entries.push({
           type: "story.state",
           key,
-          delta: { story, key, from, to: "Refined", detail: [`discarded: ${args.note}`] },
+          delta: { story, key, from, to: "Refined", detail: [`${DISCARDED_DETAIL}${note}`] },
           view: deriveStoryView({
             ...(before === null ? { key, story, title: "" } : factsOf(before)),
             lifecycle: "Refined",
           }),
         });
       }
+      wrote = entries.length > 0 || open !== null || cleared > 0;
       return entries;
     });
-    await this.#deps.finishBoxes?.().catch(() => undefined);
-    if (lane !== null) await flushQuietly(lane);
-    return { result, changed: true };
+    return wrote;
+  }
+
+  /**
+   * A story with neither a claim nor leftovers. After a discard whose release ran and whose facts
+   * a crash left unwritten, the re-run writes the facts it owes (questions, park, `story.state`)
+   * and answers `changed: true`; after a finished discard it answers `changed: false`. Anything
+   * else has no work to discard.
+   */
+  async #rerun(
+    ctx: AsyncCommandContext,
+    identity: StoryIdentity,
+    git: OfficeGit,
+    note: string,
+  ): Promise<CommandOutcome<DiscardResult>> {
+    const office = ctx.office;
+    const { key, story } = identity;
+    const result = { story, key };
+    const discarded = lastDiscardedClaim(office, key);
+    const journaled = allEntries(office).some(
+      (entry) =>
+        entry.key === key && entry.kind === DISCARD_KIND && OPEN_STATES.includes(entry.state),
+    );
+    if (discarded !== null) {
+      const stateOwed = journaled && !refinedWrittenSince(office, key, discarded.releasedAt ?? 0);
+      const factsOwed =
+        openPark(office, key) !== null || openQuestions(office, discarded.runId).length > 0;
+      if (stateOwed || factsOwed) {
+        const toRefined = stateOwed && !(await this.#doneOnBase(git, story));
+        this.#finishFacts(ctx, identity, discarded.runId, note, toRefined);
+        await this.#deps.finishBoxes?.().catch(() => undefined);
+        if (journaled) await flushQuietly(this.#lane(office));
+        return { result, changed: true };
+      }
+    }
+    const cleared =
+      office.get<{ n: number }>(
+        `select 1 as n from done_elsewhere where office_id = $office_id and key = $key
+           and cleared_how = 'discard' limit 1`,
+        { key },
+      ) !== null;
+    // The target state already: the work was discarded and nothing is owed.
+    if (journaled || cleared || discarded !== null) {
+      if (journaled) await flushQuietly(this.#lane(office));
+      return { result, changed: false };
+    }
+    throw new CommandError(
+      NOT_DISCARDABLE,
+      `${story} has no claim and no leftovers, so there is no work to discard; drop it with \`dipo drop ${story}\` instead.`,
+      { story },
+    );
+  }
+
+  /** True when the Backlog CLI reads the story Done in `_base`; false without the CLI. */
+  async #doneOnBase(git: OfficeGit, story: string): Promise<boolean> {
+    const cli = this.#deps.cli;
+    if (cli === undefined) return false;
+    return (await baseDoneOf(git, cli, story)) !== null;
   }
 
   /** Releases the claim, or removes the leftovers of a story Done on the base. */
@@ -280,7 +358,6 @@ export class StoryDiscard {
     ctx: AsyncCommandContext,
     git: OfficeGit,
     claim: ClaimRecord | null,
-    leftovers: readonly DoneElsewhereRecord[],
     key: StoryKey,
   ): Promise<DiscardBranchOutcome> {
     const deps = {
@@ -290,31 +367,9 @@ export class StoryDiscard {
       clock: ctx.clock,
       ...(this.#deps.slots === undefined ? {} : { slots: this.#deps.slots }),
     };
-    const heads = pushedHeads(ctx.office, key);
-    if (claim !== null) return releaseForDiscard(deps, claim, heads);
-    // Each row's worktree (one already removed is fine), and with the first every kept branch of
-    // the story: its open releases and the rows' branches.
-    const problems: string[] = [];
-    const remoteKept: string[] = [];
-    for (const [index, row] of leftovers.entries()) {
-      const outcome = await removeLeftovers(
-        deps,
-        {
-          worktree: { runId: row.runId, worktree: row.worktree },
-          branches: index === 0 ? openReleasedBranches(ctx.office, key) : [],
-          loose: index === 0 ? leftovers.map((r) => r.branch) : [],
-        },
-        heads,
-      );
-      if (!outcome.ok) return outcome;
-      if (outcome.remoteProblem !== null) problems.push(outcome.remoteProblem);
-      if (outcome.remoteKept !== null) remoteKept.push(outcome.remoteKept);
-    }
-    return {
-      ok: true,
-      remoteProblem: problems.length === 0 ? null : problems.join("; "),
-      remoteKept: remoteKept.length === 0 ? null : remoteKept.join("; "),
-    };
+    if (claim !== null) return releaseForDiscard(deps, claim);
+    // Exactly what `story.losses` listed for `work.discard` (`leftoverTargets`).
+    return removeLeftovers(deps, leftoverTargets(ctx.office, key));
   }
 
   /** The notices of a remote branch kept or not deleted. */
@@ -336,7 +391,7 @@ export class StoryDiscard {
         delta: {
           level: "warn",
           code: DISCARD_NOTICES.remoteKept,
-          text: `dipo kept the remote branch of ${identity.story} (${claim === null ? outcome.remoteKept : `${branch} at ${outcome.remoteKept}`}): its tip there is not one dipo pushed, so someone else may have work on it. Delete it by hand once checked (\`git push ${remote} --delete ${branch}\`).`,
+          text: `dipo kept the remote branch of ${identity.story} (${claim === null ? outcome.remoteKept : `${branch} at ${outcome.remoteKept}`}): its tip there holds commits that are neither on the branch dipo listed nor on the base, so someone else may have work on it. Delete it by hand once checked (\`git push ${remote} --delete ${branch}\`).`,
         },
       });
     }
@@ -403,21 +458,6 @@ export class StoryDiscard {
     return pr.number;
   }
 
-  /** True when a discard of the story finished its facts: a re-run only owes the flush. */
-  #discardWritten(office: OfficeHandle, key: StoryKey): boolean {
-    const journaled = allEntries(office).some(
-      (entry) =>
-        entry.key === key && entry.kind === DISCARD_KIND && OPEN_STATES.includes(entry.state),
-    );
-    const cleared =
-      office.get<{ n: number }>(
-        `select 1 as n from done_elsewhere where office_id = $office_id and key = $key
-           and cleared_how = 'discard' limit 1`,
-        { key },
-      ) !== null;
-    return (journaled || cleared) && openPark(office, key) === null;
-  }
-
   async #liveHostPid(office: OfficeHandle, runId: RunId): Promise<number | null> {
     for (const host of workerHostsOf(office, runId)) {
       if (await hostAlive(host, this.#deps.probe)) return host.pid;
@@ -430,6 +470,33 @@ export class StoryDiscard {
     if (lane === undefined) throw new Error(`The office ${office.officeId} has no backlog lane.`);
     return lane;
   }
+}
+
+/** The `story.state` detail a discard writes, before its note. */
+const DISCARDED_DETAIL = "discarded: ";
+
+/** The story's latest claim `work.discard` released, or null. */
+function lastDiscardedClaim(
+  office: OfficeHandle,
+  key: StoryKey,
+): { readonly runId: RunId; readonly releasedAt: number | null } | null {
+  const row = office.get<{ run_id: string; released_at: number | null }>(
+    `select run_id, released_at from claims where office_id = $office_id and key = $key
+       and release_reason = 'discard' order by released_at desc, run_id desc limit 1`,
+    { key },
+  );
+  return row === null ? null : { runId: row.run_id as RunId, releasedAt: row.released_at };
+}
+
+/** True when a discard wrote the story's `story.state` to Refined at or after `since`. */
+function refinedWrittenSince(office: OfficeHandle, key: StoryKey, since: number): boolean {
+  return (
+    office.get<{ n: number }>(
+      `select 1 as n from change_log where office_id = $office_id and key = $key
+         and type = 'story.state' and at >= $since and delta like $marker limit 1`,
+      { key, since, marker: `%"to":"Refined"%${DISCARDED_DETAIL}%` },
+    ) !== null
+  );
 }
 
 /** The lane-b op of a discard: status Refined, the park record removed, never over Done. */

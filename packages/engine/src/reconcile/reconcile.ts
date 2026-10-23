@@ -117,6 +117,8 @@ export interface ReconcileDeps {
   readonly slots?: SlotTable;
   /** Closes dipo's open story PR of a story Done elsewhere (DIPO-161); without it a notice says so. */
   readonly host?: Pick<CodeHost, "closePr"> | null;
+  /** Checks and deletes the boxes of ended runs after a release (0021 section 6). */
+  readonly finishBoxes?: () => Promise<unknown>;
 }
 
 export interface ReconcileInput {

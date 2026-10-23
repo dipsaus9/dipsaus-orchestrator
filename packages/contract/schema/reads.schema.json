@@ -3173,6 +3173,10 @@
               "pattern": "^[A-Za-z][A-Za-z0-9]*-[0-9]+(\\.[0-9]+)*$"
             }
           ]
+        },
+        "command": {
+          "type": "string",
+          "enum": ["story.drop", "work.discard"]
         }
       },
       "required": ["office", "story"]
@@ -3204,6 +3208,12 @@
           }
         },
         "files": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "kept": {
           "type": "array",
           "items": {
             "type": "string"

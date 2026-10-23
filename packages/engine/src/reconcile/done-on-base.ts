@@ -105,6 +105,7 @@ function elsewhereDeps(
     clock: deps.clock,
     ...(deps.slots === undefined ? {} : { slots: deps.slots }),
     ...(deps.host === undefined ? {} : { host: deps.host }),
+    ...(deps.finishBoxes === undefined ? {} : { finishBoxes: deps.finishBoxes }),
   };
 }
 

@@ -10,8 +10,8 @@
 // every step is idempotent, so a re-run finishes what a crash left.
 //
 // `work.discard` (DIPO-161) releases the same way with `--force`, and deletes the remote branch only
-// when dipo pushed its tip there (`deleteOwnBranch`); `removeLeftovers` removes what a story Done
-// elsewhere left behind.
+// when every commit on its tip is on the local branch or on the base (`deleteOwnBranch`), so no
+// remote commit goes unlisted; `removeLeftovers` removes what a story Done elsewhere left behind.
 
 import { existsSync } from "node:fs";
 
@@ -61,7 +61,7 @@ export type DropReleaseOutcome =
  */
 export function dirtyFilesOf(
   deps: Pick<DropReleaseDeps, "git">,
-  claim: ClaimRecord,
+  claim: Pick<ClaimRecord, "worktree" | "branch" | "startSha">,
 ): Promise<string[]> {
   return deps.git.run(async (git) => {
     if (deps.git.adminDirOf(claim.worktree) === null) return [];
@@ -171,8 +171,9 @@ export type DiscardBranchOutcome =
       /** Why the remote branch may still exist although dipo tried to delete it, or null. */
       readonly remoteProblem: string | null;
       /**
-       * The remote branch tip dipo did not push and so kept, or null: the remote branch is gone,
-       * was deleted, or the office has no remote.
+       * The remote branch tip dipo kept because it holds commits that are neither on the local
+       * branch nor on the base, or null: the remote branch is gone, was deleted, or the office has
+       * no remote.
        */
       readonly remoteKept: string | null;
     }
@@ -181,19 +182,19 @@ export type DiscardBranchOutcome =
 /**
  * Releases the claim as `work.discard` does (0020 section 8): the worktree goes with `--force` (the
  * client listed what is lost and asked for the typed story id first), the branch is deleted locally
- * and, when its tip there is one dipo pushed, on the remote (`deleteOwnBranch`); nothing is
- * recorded as released. The claim is released as `discard`, its tier T rows are forgotten and its
- * port slot is freed. One queue item for the git steps; every step is idempotent.
+ * and on the remote when nothing there is missing from the local branch or the base
+ * (`deleteOwnBranch`); nothing is recorded as released. The claim is released as `discard`, its
+ * tier T rows are forgotten and its port slot is freed. One queue item for the git steps; every
+ * step is idempotent.
  */
 export async function releaseForDiscard(
   deps: DropReleaseDeps,
   claim: ClaimRecord,
-  knownHeads: readonly string[],
 ): Promise<DiscardBranchOutcome> {
   const outcome = await deps.git.run(async (git): Promise<DiscardBranchOutcome> => {
     const worktree = await forceRemoveWorktree(deps, git, claim);
     if (!worktree.ok) return worktree;
-    return deleteOwnBranch(deps, git, claim.branch, knownHeads);
+    return deleteOwnBranch(deps, git, claim.branch, claim.base);
   });
   if (!outcome.ok) return outcome;
   deps.office.immediate(() => {
@@ -209,33 +210,46 @@ export async function releaseForDiscard(
   return outcome;
 }
 
+/** What `work.discard` removes of the leftovers of a story Done elsewhere (0020 section 10). */
+export interface LeftoverTargets {
+  /** The worktrees kept as leftovers (a removed one is fine), by the run that claimed them. */
+  readonly worktrees: readonly Pick<ClaimRecord, "runId" | "worktree" | "branch" | "startSha">[];
+  /** The open releases of the story; each is marked reclaimed once its branch is deleted. */
+  readonly branches: readonly ReleasedBranch[];
+  /** Branches without a release row: those of leftovers not yet settled, or of a crashed teardown. */
+  readonly loose: readonly string[];
+  /** The base branch name, for the remote-branch check. */
+  readonly base: string;
+}
+
+/** The branch names `removeLeftovers` deletes for `targets`, each once, in order. */
+export function leftoverBranchNames(
+  targets: Pick<LeftoverTargets, "branches" | "loose">,
+): string[] {
+  return [...new Set([...targets.branches.map((release) => release.branch), ...targets.loose])];
+}
+
 /**
- * `work.discard` of what a released claim left behind (the leftovers of a story Done elsewhere,
- * 0020 section 10): its kept worktree goes with `--force`, and each kept branch is deleted locally
- * and, when dipo pushed its tip, on the remote; each release row is marked reclaimed.
+ * `work.discard` of what released claims left behind (the leftovers of a story Done elsewhere,
+ * 0020 section 10): each kept worktree goes with `--force`, and each branch of
+ * `leftoverBranchNames` is deleted locally and, under `deleteOwnBranch`'s rule, on the remote; each
+ * release row is marked reclaimed.
  */
 export async function removeLeftovers(
   deps: DropReleaseDeps,
-  leftovers: {
-    readonly worktree: Pick<ClaimRecord, "runId" | "worktree"> | null;
-    readonly branches: readonly ReleasedBranch[];
-    /** Branches without a release row (a teardown a crash interrupted). */
-    readonly loose: readonly string[];
-  },
-  knownHeads: readonly string[],
+  targets: LeftoverTargets,
 ): Promise<DiscardBranchOutcome> {
   return deps.git.run(async (git): Promise<DiscardBranchOutcome> => {
-    if (leftovers.worktree !== null) {
-      const removed = await forceRemoveWorktree(deps, git, leftovers.worktree);
+    for (const worktree of targets.worktrees) {
+      const removed = await forceRemoveWorktree(deps, git, worktree);
       if (!removed.ok) return removed;
     }
     const problems: string[] = [];
     const kept: string[] = [];
-    const names = [...leftovers.branches.map((release) => release.branch), ...leftovers.loose];
-    for (const branch of new Set(names)) {
-      const deleted = await deleteOwnBranch(deps, git, branch, knownHeads);
+    for (const branch of leftoverBranchNames(targets)) {
+      const deleted = await deleteOwnBranch(deps, git, branch, targets.base);
       if (!deleted.ok) return deleted;
-      for (const release of leftovers.branches.filter((r) => r.branch === branch)) {
+      for (const release of targets.branches.filter((r) => r.branch === branch)) {
         deps.office.immediate(() => markReclaimed(deps.office, release, deps.clock.now(), null));
       }
       if (deleted.remoteProblem !== null) problems.push(`${branch}: ${deleted.remoteProblem}`);
@@ -249,21 +263,60 @@ export async function removeLeftovers(
   });
 }
 
+/** What `remoteBranchOf` found of a branch on the remote. */
+export type RemoteBranch =
+  /** No remote, or the remote has no such branch. */
+  | { readonly kind: "none" }
+  /** The remote could not be read. */
+  | { readonly kind: "unread"; readonly problem: string }
+  /**
+   * The remote tip. `covered` is true when every commit on it is on the local branch or on the
+   * base, so deleting it loses nothing the caller has not listed or the base does not have.
+   */
+  | { readonly kind: "tip"; readonly tip: string; readonly covered: boolean };
+
 /**
- * Deletes the local branch, then the remote's only when its tip there is one dipo pushed: the
- * local tip, one of `knownHeads` (the heads dipo pushed to the story PR), or an ancestor of the
- * local tip that the repository already has. A remote tip dipo did not push, such as a commit
- * someone added on the host, keeps the remote branch (`remoteKept`); the delete is pushed with a
+ * The remote branch of `branch` and whether its tip is covered: the tip is in the repository and
+ * either the local tip, an ancestor of it, or (also without a local branch) a commit that adds
+ * nothing to the base (`git merge-tree`). A tip someone else pushed is not covered.
+ */
+export async function remoteBranchOf(
+  deps: Pick<DropReleaseDeps, "git">,
+  git: GitSession,
+  branch: string,
+  local: string | null,
+  base: string,
+): Promise<RemoteBranch> {
+  const { remote } = deps.git.settings;
+  if ((await remoteUrl(git, remote)) === null) return { kind: "none" };
+  const listed = await external(git, ["ls-remote", remote, `refs/heads/${branch}`]);
+  if (listed.code !== 0) {
+    return {
+      kind: "unread",
+      problem: `dipo could not read the remote branch (${listed.stderr.trim() || `exit ${listed.code}`})`,
+    };
+  }
+  const tip = listed.stdout.trim().split(/\s+/)[0] ?? "";
+  if (tip === "") return { kind: "none" };
+  return { kind: "tip", tip, covered: await covered(deps, git, tip, local, base) };
+}
+
+/**
+ * Deletes the local branch, then the remote's only when its tip is covered (`remoteBranchOf`): a
+ * remote tip with commits that are neither on the local branch nor on the base, such as a commit
+ * someone added on the host, keeps the remote branch (`remoteKept`). The delete is pushed with a
  * lease on the tip it judged, so a push that lands in between is never deleted.
  */
 export async function deleteOwnBranch(
   deps: Pick<DropReleaseDeps, "git">,
   git: GitSession,
   branch: string,
-  knownHeads: readonly string[],
+  base: string,
 ): Promise<DiscardBranchOutcome> {
   const ref = `refs/heads/${branch}`;
   const local = await revParseCommit(git, ref);
+  // Judged before the local branch goes: the ancestor check needs its tip.
+  const found = await remoteBranchOf(deps, git, branch, local, base);
   if (local !== null) {
     const deleted = await git.step(git.repository, ["update-ref", "-d", ref, local]);
     if (deleted.code !== 0) {
@@ -275,29 +328,15 @@ export async function deleteOwnBranch(
     }
     await git.step(git.repository, ["config", "--remove-section", `branch.${branch}`]);
   }
-  const { remote } = deps.git.settings;
-  if ((await remoteUrl(git, remote)) === null) {
-    return { ok: true, remoteProblem: null, remoteKept: null };
-  }
-  const listed = await external(git, ["ls-remote", remote, ref]);
-  if (listed.code !== 0) {
-    return {
-      ok: true,
-      remoteProblem: `dipo could not read the remote branch (${listed.stderr.trim() || `exit ${listed.code}`})`,
-      remoteKept: null,
-    };
-  }
-  const tip = listed.stdout.trim().split(/\s+/)[0] ?? "";
-  if (tip === "") return { ok: true, remoteProblem: null, remoteKept: null };
-  if (!(await pushedByDipo(git, tip, local, knownHeads))) {
-    return { ok: true, remoteProblem: null, remoteKept: tip };
-  }
+  if (found.kind === "none") return { ok: true, remoteProblem: null, remoteKept: null };
+  if (found.kind === "unread") return { ok: true, remoteProblem: found.problem, remoteKept: null };
+  if (!found.covered) return { ok: true, remoteProblem: null, remoteKept: found.tip };
   const pushed = await external(git, [
     "push",
     "--quiet",
     "--no-verify",
-    `--force-with-lease=${ref}:${tip}`,
-    remote,
+    `--force-with-lease=${ref}:${found.tip}`,
+    deps.git.settings.remote,
     "--delete",
     branch,
   ]);
@@ -311,19 +350,52 @@ export async function deleteOwnBranch(
   };
 }
 
-/** True when the remote tip `tip` is the local tip, a known head, or an ancestor of the local tip. */
-async function pushedByDipo(
+/** See `remoteBranchOf`. */
+async function covered(
+  deps: Pick<DropReleaseDeps, "git">,
   git: GitSession,
   tip: string,
   local: string | null,
-  knownHeads: readonly string[],
+  base: string,
 ): Promise<boolean> {
-  if (tip === local || knownHeads.includes(tip)) return true;
-  if (local === null) return false;
   const present = await git.step(git.repository, ["cat-file", "-e", `${tip}^{commit}`]);
   if (present.code !== 0) return false;
-  const ancestor = await git.step(git.repository, ["merge-base", "--is-ancestor", tip, local]);
-  return ancestor.code === 0;
+  if (local !== null) {
+    if (tip === local) return true;
+    const ancestor = await git.step(git.repository, ["merge-base", "--is-ancestor", tip, local]);
+    if (ancestor.code === 0) return true;
+  }
+  return addsNothingTo(git, await baseRefIn(deps, git, base), tip);
+}
+
+/** `refs/remotes/<remote>/<base>` when the repository has it, else `refs/heads/<base>`. */
+export async function baseRefIn(
+  deps: Pick<DropReleaseDeps, "git">,
+  git: GitSession,
+  base: string,
+): Promise<string> {
+  const remote = `refs/remotes/${deps.git.settings.remote}/${base}`;
+  return (await revParseCommit(git, remote)) === null ? `refs/heads/${base}` : remote;
+}
+
+/** True when `git merge-tree --write-tree <baseRef> <rev>` prints the base's tree. */
+export async function addsNothingTo(
+  git: GitSession,
+  baseRef: string,
+  rev: string,
+): Promise<boolean> {
+  const baseTree = await git.step(git.repository, [
+    "rev-parse",
+    "--verify",
+    "--quiet",
+    `${baseRef}^{tree}`,
+  ]);
+  if (baseTree.code !== 0) return false;
+  const merged = await git.step(git.repository, ["merge-tree", "--write-tree", baseRef, rev]);
+  if (merged.code !== 0) return false;
+  const out = merged.stdout;
+  const end = out.indexOf("\n");
+  return (end === -1 ? out : out.slice(0, end)).trim() === baseTree.stdout.trim();
 }
 
 /** A git step that reaches the remote: hardened config and the external deadline. */

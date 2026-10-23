@@ -72,11 +72,22 @@ function gitOf(o: ReconcileOffice): OfficeGit {
 async function reconcile(
   o: ReconcileOffice,
   host = hostOf(),
+  boxes = { n: 0 },
 ): Promise<{ report: ReconcileReport; host: ReturnType<typeof hostOf> }> {
   const slots = new SlotTable(join(o.repo.root, "slots.json"));
   const pass = await o.index.indexStories(o.officeId);
   const report = await reconcileOffice(
-    { officeId: o.officeId, office: o.office, git: gitOf(o), clock: o.s.clock, slots, host },
+    {
+      officeId: o.officeId,
+      office: o.office,
+      git: gitOf(o),
+      clock: o.s.clock,
+      slots,
+      host,
+      finishBoxes: async () => {
+        boxes.n += 1;
+      },
+    },
     { trigger: "rescan", pass, reindex: () => o.index.indexStories(o.officeId) },
   );
   return { report, host };
@@ -351,12 +362,16 @@ describe("the Done poll reads a claimed story's status on the base (DIPO-161)", 
         });
         await o.index.indexStories(o.officeId);
         const host = hostOf();
+        const boxes = { n: 0 };
         const teardown = new StoryTeardown({
           git: () => gitOf(o),
           host: null,
           cli: { spawn: fakeBacklog(o.tables).spawn },
           offices: { get: () => o.office, config: () => OFFICE_DEFAULTS },
           prCloser: host,
+          finishBoxes: async () => {
+            boxes.n += 1;
+          },
         });
         teardown.track(o.officeId as OfficeId, o.office, o.s.clock);
 
@@ -366,7 +381,52 @@ describe("the Done poll reads a claimed story's status on the base (DIPO-161)", 
         expect(findClaim(o.office, one.runId)?.releaseReason).toBe("done-elsewhere");
         expect(liveClaimOf(o.office, two.key as StoryKey)).not.toBeNull();
         expect(existsSync(two.worktree)).toBe(true);
+        // The released run's box is deleted too (0021 section 6).
+        expect(boxes.n).toBe(1);
         teardown.stop();
       },
     ));
+});
+
+describe("a story Done elsewhere: the box and the remote branch (DIPO-161 review)", () => {
+  it("deletes the released run's box after the release in reconcile", () =>
+    withReconcileOffice({ base: DONE }, async (o) => {
+      const key = keyOf(o.office, "TASK-1");
+      await claim(o, o.office, "TASK-1", key, { active: false });
+      const boxes = { n: 0 };
+      await reconcile(o, hostOf(), boxes);
+      expect(boxes.n).toBe(1);
+    }));
+
+  it("keeps a branch that adds nothing when its remote tip holds commits neither local nor on the base, and lists them", () =>
+    withReconcileOffice({ base: DONE }, async (o) => {
+      const key = keyOf(o.office, "TASK-1");
+      const record = await claim(o, o.office, "TASK-1", key, { active: false });
+      await o.repo.git("push", "--quiet", "origin", record.branch);
+      await mergeOnRemote(o, record);
+      // Someone pushes a commit with a change of their own to the branch on the host.
+      const elsewhere = join(o.repo.root, "elsewhere");
+      await o.repo.git("worktree", "add", "--quiet", "--detach", elsewhere, record.claimSha ?? "");
+      writeFileSync(join(elsewhere, "theirs.txt"), "their change\n");
+      for (const args of [
+        ["git", "add", "--", "theirs.txt"],
+        ["git", "commit", "--quiet", "--no-verify", "-m", "theirs on the host"],
+      ] as const) {
+        await o.repo.run(args, elsewhere);
+      }
+      const theirs = (await o.repo.run(["git", "rev-parse", "HEAD"], elsewhere)).stdout.trim();
+      await o.repo.git("push", "--quiet", "origin", `${theirs}:refs/heads/${record.branch}`);
+      await o.repo.git("worktree", "remove", "--force", elsewhere);
+
+      await reconcile(o);
+
+      expect(await tipOf(o, `refs/heads/${record.branch}`)).toBe(record.claimSha);
+      expect(await remoteTip(o, record.branch)).toBe(theirs);
+      const row = findDoneElsewhere(o.office, record.runId);
+      expect(row?.branchKept).toBe(true);
+      expect(row?.commits.map((c) => c.subject)).toEqual(["theirs on the host"]);
+      expect(doneElsewhereDeskItems(o.office).map((i) => i.kind)).toEqual([
+        DONE_ELSEWHERE_DESK.leftovers,
+      ]);
+    }));
 });

@@ -414,14 +414,24 @@ export type LostCommit = z.infer<typeof LostCommit>;
 // story's branch that are not on the base, and the uncommitted and untracked files of its worktree.
 // The branch is the live claim's, else the open released branches of the story; the files are the
 // live claim's only. Both are empty for a story with neither. Changes nothing.
+// `command` (DIPO-161) names the command the list is for, `story.drop` by default. For
+// `work.discard` of a story without a live claim it lists exactly what the discard removes: the
+// commits of the open released branches and of the branches of its leftovers (a story Done on the
+// base through another branch), and the files of the worktrees kept as leftovers. For `story.drop`
+// those worktrees are not removed: `kept` names them.
 export const storyLosses = defineRead({
   name: "story.losses",
-  args: z.object({ office: OfficeId, story: StoryRefValue }),
+  args: z.object({
+    office: OfficeId,
+    story: StoryRefValue,
+    command: z.enum(["story.drop", "work.discard"]).optional(),
+  }),
   result: z.object({
     story: StoryId,
     key: StoryKey,
     commits: z.array(LostCommit),
     files: z.array(z.string()),
+    kept: z.array(z.string()).optional(),
   }),
   since: 1,
 });

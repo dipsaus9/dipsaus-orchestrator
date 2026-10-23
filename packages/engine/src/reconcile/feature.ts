@@ -61,6 +61,8 @@ export interface ReconcilerDeps {
   readonly slots?: SlotTable;
   /** Closes dipo's open story PR of a story Done elsewhere (DIPO-161). */
   readonly host?: Pick<CodeHost, "closePr"> | null;
+  /** Checks and deletes the boxes of ended runs after a release (0021 section 6). */
+  readonly finishBoxes?: () => Promise<unknown>;
   /** Reconcile appended entries outside a command; subscribers catch up. */
   readonly onOfficeChanged?: (office: OfficeId) => void;
   readonly logger?: Logger;
@@ -173,6 +175,7 @@ export class Reconciler {
           ...(this.#deps.runs === undefined ? {} : { runs: this.#deps.runs }),
           ...(this.#deps.slots === undefined ? {} : { slots: this.#deps.slots }),
           ...(this.#deps.host === undefined ? {} : { host: this.#deps.host }),
+          ...(this.#deps.finishBoxes === undefined ? {} : { finishBoxes: this.#deps.finishBoxes }),
           ...(releaseClaim === undefined
             ? {}
             : { releaseClaim: (claim, reason) => releaseClaim(office, claim, reason) }),

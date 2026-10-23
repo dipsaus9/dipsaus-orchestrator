@@ -13,10 +13,12 @@ import {
   type OfficeId,
   RequestId,
   type RunId,
+  type Spawn,
   type StoryKey,
 } from "@dipsaus-orchestrator/contract";
 
 import { allEntries, type LaneOp, type OfficeLane } from "../../src/backlog/lane";
+import type { BacklogCli } from "../../src/backlog/runner";
 import { insertEntry } from "../../src/backlog/lane/journal";
 import { executeCommand } from "../../src/commands/execute";
 import type { FeatureModule } from "../../src/commands/registry";
@@ -26,18 +28,26 @@ import { insertWorkerQuestion } from "../../src/hooks/questions";
 import { executeRead } from "../../src/reads/execute";
 import { reconcileOffice } from "../../src/reconcile";
 import { insertStoryPr, latestStoryPr } from "../../src/story-pr/records";
-import { StoryDiscard } from "../../src/stories/discard";
+import { discardOp, StoryDiscard } from "../../src/stories/discard";
 import { StoryPlanning } from "../../src/stories/planning";
 import { doneElsewhereDeskItems, findDoneElsewhere } from "../../src/worktree/done-elsewhere";
-import { findClaim, liveClaimOf, openReleasedBranches } from "../../src/worktree/records";
+import {
+  findClaim,
+  liveClaimOf,
+  openReleasedBranches,
+  releaseClaim,
+} from "../../src/worktree/records";
+import { releaseForDiscard } from "../../src/worktree/release";
 import { SlotTable } from "../../src/worktree/slots";
 import { lastSeq } from "../stories/helpers";
 import {
   claim,
+  fakeBacklog,
   type FakeTask,
   keyOf,
   noticesAfter,
   type ReconcileOffice,
+  setBranch,
   withReconcileOffice,
 } from "../reconcile/helpers";
 
@@ -58,6 +68,8 @@ interface Seen {
   alive: number[];
   /** What the fake stop does to the run. */
   onStop?: () => void;
+  /** The Backlog CLI the discard reads `_base` with; none by default. */
+  spawn?: Spawn;
 }
 
 const HOST_START = 1_767_225_600_000;
@@ -94,6 +106,12 @@ function features(seen: Seen) {
       finishBoxes: async () => {
         seen.boxes += 1;
       },
+      cli: {
+        spawn: (options) => {
+          if (seen.spawn === undefined) throw new Error("no CLI in this test");
+          return seen.spawn(options);
+        },
+      } as BacklogCli,
     });
     const planning = new StoryPlanning({
       lane: () => lane,
@@ -131,13 +149,17 @@ function discard(
   });
 }
 
-async function losses(o: ReconcileOffice, story: string) {
+async function losses(
+  o: ReconcileOffice,
+  story: string,
+  command: "story.drop" | "work.discard" = "work.discard",
+) {
   const reply = await executeRead(
     { registry: o.s.registry, offices: o.s.manager, clock: o.s.clock },
-    { requestId: requestId(), name: "story.losses", args: { office: o.officeId, story } },
+    { requestId: requestId(), name: "story.losses", args: { office: o.officeId, story, command } },
   );
   if (!reply.ok) throw new Error(`${reply.error.code}: ${reply.error.message}`);
-  return reply.result as { commits: { subject: string }[]; files: string[] };
+  return reply.result as { commits: { subject: string }[]; files: string[]; kept?: string[] };
 }
 
 function errorCode(reply: CommandReply): string {
@@ -411,6 +433,175 @@ describe("work.discard of the leftovers of a story Done on the base (DIPO-161)",
         expect(entriesOf(o.office, "story.state", seq)).toEqual([]);
 
         expect(await discard(o, "TASK-1")).toMatchObject({ ok: true, changed: false });
+      },
+    );
+  });
+});
+
+describe("work.discard removes nothing its loss list did not show (DIPO-161 review)", () => {
+  it("lists and removes the branch of leftovers a crash left unsettled; drop lists the worktree as kept", async () => {
+    const seen = seenOf();
+    await withReconcileOffice(
+      { base: [{ id: "TASK-1", status: "Done" }], features: features(seen) },
+      async (o) => {
+        seen.office = o.office;
+        const key = keyOf(o.office, "TASK-1");
+        const record = await claim(o, o.office, "TASK-1", key, { active: false });
+        // Released as done-elsewhere, then a crash before its PR, worktree and branch were settled:
+        // no `released_branches` row for its branch.
+        o.office.immediate(() => {
+          releaseClaim(o.office, record.runId, {
+            at: 5,
+            reason: "done-elsewhere",
+            keepBranch: false,
+          });
+          o.office.run(
+            `insert into done_elsewhere (office_id, run_id, key, story_id, branch, worktree,
+               start_sha, base, released_at)
+             values ($office_id, $run, $key, 'TASK-1', $branch, $worktree, $start, 'main', 5)`,
+            {
+              run: record.runId,
+              key,
+              branch: record.branch,
+              worktree: record.worktree,
+              start: record.startSha,
+            },
+          );
+        });
+        expect(openReleasedBranches(o.office, key)).toEqual([]);
+
+        expect(await losses(o, "TASK-1")).toMatchObject({
+          commits: [{ subject: "TASK-1: status In Progress" }],
+          files: [],
+        });
+        // `story.drop` never removes the leftovers' worktree: listed as kept, its branch not lost.
+        const drop = await losses(o, "TASK-1", "story.drop");
+        expect(drop.commits).toEqual([]);
+        expect(drop.kept).toEqual([record.worktree]);
+
+        expect(await discard(o, "TASK-1")).toMatchObject({ ok: true, changed: true });
+        expect(await tipOf(o, `refs/heads/${record.branch}`)).toBeNull();
+        expect(existsSync(record.worktree)).toBe(false);
+      },
+    );
+  });
+
+  it("reads the files of a kept worktree after retention removed its claim row", async () => {
+    const seen = seenOf();
+    await withReconcileOffice(
+      { base: [{ id: "TASK-1", status: "Done" }], features: features(seen) },
+      async (o) => {
+        seen.office = o.office;
+        const key = keyOf(o.office, "TASK-1");
+        const record = await claim(o, o.office, "TASK-1", key, { active: false });
+        writeFileSync(join(record.worktree, "scratch.txt"), "work in progress\n");
+        const git = o.engineGit.forOffice(o.officeId) as OfficeGit;
+        const pass = await o.index.indexStories(o.officeId);
+        await reconcileOffice(
+          { officeId: o.officeId, office: o.office, git, clock: o.s.clock },
+          { trigger: "rescan", pass, reindex: () => o.index.indexStories(o.officeId) },
+        );
+        o.office.run("delete from claims where office_id = $office_id and run_id = $run", {
+          run: record.runId,
+        });
+        expect(findClaim(o.office, record.runId)).toBeNull();
+
+        expect((await losses(o, "TASK-1")).files).toEqual(["scratch.txt"]);
+        expect(await discard(o, "TASK-1")).toMatchObject({ ok: true });
+        expect(existsSync(record.worktree)).toBe(false);
+      },
+    );
+  });
+
+  it("keeps a remote tip dipo pushed but the local branch no longer holds, so its commits stay", async () => {
+    const seen = seenOf();
+    await withReconcileOffice({ base: PARKED, features: features(seen) }, async (o) => {
+      seen.office = o.office;
+      const key = keyOf(o.office, "TASK-1");
+      const record = await claim(o, o.office, "TASK-1", key, { active: false });
+      const pushed = await setBranch(o, record, { id: "TASK-1", status: "Parked" });
+      await o.repo.git("push", "--quiet", "origin", record.branch);
+      openPr(o.office, key, record.runId, pushed);
+      // The local branch is moved back by hand: the PR's head is no longer on it.
+      await o.repo.git("update-ref", `refs/heads/${record.branch}`, record.claimSha ?? "");
+      expect((await losses(o, "TASK-1")).commits.map((c) => c.subject)).toEqual([
+        "TASK-1: status In Progress",
+      ]);
+      const seq = lastSeq(o.office);
+
+      expect(await discard(o, "TASK-1")).toMatchObject({ ok: true });
+
+      expect(await remoteTip(o, record.branch)).toBe(pushed);
+      expect(await tipOf(o, `refs/heads/${record.branch}`)).toBeNull();
+      expect(
+        noticesAfter(o.office, seq).filter((n) => n.code === "discard.remoteBranchKept"),
+      ).toHaveLength(1);
+    });
+  });
+});
+
+describe("work.discard after a crash and on a story Done on the base (DIPO-161 review)", () => {
+  it("writes the facts a crash between the release and the commit left owed, then answers unchanged", async () => {
+    const seen = seenOf();
+    await withReconcileOffice({ base: PARKED, features: features(seen) }, async (o) => {
+      seen.office = o.office;
+      const key = keyOf(o.office, "TASK-1");
+      const record = await claim(o, o.office, "TASK-1", key, { active: false });
+      parkRow(o.office, key, record.runId);
+      o.office.immediate(() =>
+        insertWorkerQuestion(o.office, {
+          questionId: "qst_01J9ZK5Q8W3V4X6Y7Z8A9B0C1D",
+          runId: record.runId,
+          agentId: "agt_1",
+          text: "Which flag?",
+          at: 1,
+        }),
+      );
+      // The first discard journaled its op and released the claim, then crashed.
+      o.office.immediate(() => insertEntry(o.office, discardOp(key, "TASK-1"), 1));
+      const git = o.engineGit.forOffice(o.officeId) as OfficeGit;
+      const released = await releaseForDiscard(
+        { officeId: o.officeId, office: o.office, git, clock: o.s.clock },
+        record,
+      );
+      expect(released.ok).toBe(true);
+      const seq = lastSeq(o.office);
+
+      expect(await discard(o, "TASK-1")).toMatchObject({ ok: true, changed: true });
+
+      const park = o.office.get<{ how: string }>(
+        "select resolved_how as how from parks where office_id = $office_id and park_id = 1",
+      );
+      expect(park?.how).toBe("discard");
+      const question = o.office.get<{ how: string }>(
+        "select closed_how as how from questions where office_id = $office_id",
+      );
+      expect(question?.how).toBe("ended");
+      expect(entriesOf(o.office, "story.state", seq).map((d) => d["to"])).toEqual(["Refined"]);
+
+      expect(await discard(o, "TASK-1")).toMatchObject({ ok: true, changed: false });
+      expect(entriesOf(o.office, "story.state", seq)).toHaveLength(1);
+    });
+  });
+
+  it("writes no Refined state and no backlog op for a claimed story the base says is Done", async () => {
+    const seen = seenOf();
+    await withReconcileOffice(
+      { base: [{ id: "TASK-1", status: "Done" }], features: features(seen) },
+      async (o) => {
+        seen.office = o.office;
+        seen.spawn = fakeBacklog(o.tables).spawn;
+        const key = keyOf(o.office, "TASK-1");
+        const record = await claim(o, o.office, "TASK-1", key, { active: false });
+        await o.index.indexStories(o.officeId);
+        const seq = lastSeq(o.office);
+
+        expect(await discard(o, "TASK-1")).toMatchObject({ ok: true, changed: true });
+
+        expect(existsSync(record.worktree)).toBe(false);
+        expect(findClaim(o.office, record.runId)?.releaseReason).toBe("discard");
+        expect(seen.ops).toEqual([]);
+        expect(entriesOf(o.office, "story.state", seq)).toEqual([]);
       },
     );
   });

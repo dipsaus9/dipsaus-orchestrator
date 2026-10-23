@@ -27,6 +27,8 @@
 
 import type { Clock, LostCommit, OfficeId, RunId, StoryKey } from "@dipsaus-orchestrator/contract";
 
+import { viewStory } from "../backlog/fields/write";
+import type { BacklogCli } from "../backlog/runner";
 import { appendEntries, type NewEntry } from "../changelog/log";
 import { forgetContextPack } from "../context/pack";
 import type { OfficeHandle } from "../db/office";
@@ -36,11 +38,24 @@ import { CodeHostError, type CodeHost } from "../platform/host";
 import { forgetWorkerNotes } from "../prompts/notes";
 import { findRun } from "../run/records";
 import { latestStoryPr, setStoryPrState } from "../story-pr/records";
-import { storyView } from "../views/story";
+import { lifecycleOf, storyView } from "../views/story";
 
 import { notice } from "./claim";
-import { type ClaimRecord, findClaim, releaseClaim, releasedBranchFor } from "./records";
-import { deleteOwnBranch, repoOfPrUrl } from "./release";
+import {
+  type ClaimRecord,
+  findClaim,
+  openReleasedBranches,
+  releaseClaim,
+  releasedBranchFor,
+} from "./records";
+import {
+  addsNothingTo,
+  baseRefIn,
+  deleteOwnBranch,
+  type LeftoverTargets,
+  remoteBranchOf,
+  repoOfPrUrl,
+} from "./release";
 import type { SlotTable } from "./slots";
 import { dirtyFiles, removeWorktree } from "./teardown";
 
@@ -66,6 +81,8 @@ export interface DoneElsewhereRecord {
   readonly story: string;
   readonly branch: string;
   readonly worktree: string;
+  /** The commit the claim's worktree started from. */
+  readonly startSha: string;
   readonly base: string;
   readonly baseCommit: string | null;
   readonly flaggedAt: number | null;
@@ -84,6 +101,7 @@ interface Row {
   story_id: string;
   branch: string;
   worktree: string;
+  start_sha: string;
   base: string;
   base_commit: string | null;
   flagged_at: number | null;
@@ -96,7 +114,7 @@ interface Row {
   cleared_at: number | null;
 }
 
-const COLUMNS = `run_id, key, story_id, branch, worktree, base, base_commit, flagged_at, released_at,
+const COLUMNS = `run_id, key, story_id, branch, worktree, start_sha, base, base_commit, flagged_at, released_at,
   settled_at, worktree_kept, branch_kept, commits, files, cleared_at`;
 
 function toRecord(row: Row): DoneElsewhereRecord {
@@ -106,6 +124,7 @@ function toRecord(row: Row): DoneElsewhereRecord {
     story: row.story_id,
     branch: row.branch,
     worktree: row.worktree,
+    startSha: row.start_sha,
     base: row.base,
     baseCommit: row.base_commit,
     flaggedAt: row.flagged_at,
@@ -158,6 +177,26 @@ export function clearLeftovers(office: OfficeHandle, key: StoryKey, at: number):
       where office_id = $office_id and key = $key and cleared_at is null`,
     { key, at },
   ).changes;
+}
+
+/**
+ * What `work.discard` removes of the story's leftovers, and so what its loss list shows: the
+ * worktrees of the open leftovers (settled or not), the story's open releases and the leftovers'
+ * own branches.
+ */
+export function leftoverTargets(office: OfficeHandle, key: StoryKey): LeftoverTargets {
+  const rows = openLeftovers(office, key);
+  return {
+    worktrees: rows.map((row) => ({
+      runId: row.runId,
+      worktree: row.worktree,
+      branch: row.branch,
+      startSha: row.startSha,
+    })),
+    branches: openReleasedBranches(office, key),
+    loose: rows.map((row) => row.branch),
+    base: rows[0]?.base ?? "",
+  };
 }
 
 /** One item of the desk (0020 section 12) a story Done elsewhere puts up, for `office.desk`. */
@@ -236,6 +275,11 @@ export interface DoneElsewhereDeps {
   /** Closes dipo's open story PR; without it the PR is left open with a notice. */
   readonly host?: Pick<CodeHost, "closePr"> | null;
   readonly onChanged?: (office: OfficeId) => void;
+  /**
+   * Checks and deletes the boxes of ended runs (0021 section 6), as `work.discard` does, after a
+   * release is settled; best effort.
+   */
+  readonly finishBoxes?: () => Promise<unknown>;
   /** Hears each notice written, for reconcile's report. */
   readonly onNotice?: (notice: {
     readonly code: string;
@@ -276,6 +320,32 @@ export async function lastTaskCommit(
   ]);
   const sha = result.code === 0 ? result.stdout.trim() : "";
   return sha === "" ? null : sha;
+}
+
+/**
+ * Whether `story` is Done in `_base`, which the story index's fetch keeps at `<remote>/<base>`, read
+ * with the Backlog CLI, with the base commit that last changed its task file; null when it is not
+ * Done there or cannot be read. Never throws.
+ */
+export async function baseDoneOf(
+  git: OfficeGit,
+  cli: BacklogCli,
+  story: string,
+): Promise<{ readonly commit: string | null } | null> {
+  const path = git.baseWorktreePath();
+  if (git.adminDirOf(path) === null) return null;
+  try {
+    return await git.run(async (session) => {
+      const head = (
+        await session.ok(git.worktreeLocation(path), ["rev-parse", "--verify", "HEAD"])
+      ).trim();
+      const view = await viewStory({ cli, cwd: path, id: story });
+      if (lifecycleOf("task", view.status) !== "Done") return null;
+      return { commit: await lastTaskCommit(session, head, story) };
+    });
+  } catch {
+    return null;
+  }
 }
 
 /**
@@ -483,6 +553,8 @@ export async function settleDoneElsewhere(
     }
     return entries;
   });
+  // The released run's box goes too (0021 section 6).
+  await deps.finishBoxes?.().catch(() => undefined);
   return outcome;
 }
 
@@ -538,7 +610,9 @@ async function closePr(deps: DoneElsewhereDeps, row: DoneElsewhereRecord): Promi
 
 /**
  * The branch: deleted locally and on the remote when `merge-tree` shows it adds nothing to the
- * base, else kept with its commits not on the base. A branch already gone is nothing kept.
+ * base, else kept with its commits not on the base. A remote tip with commits that are neither on
+ * the local branch nor on the base keeps both, with the remote's commits not on the base listed,
+ * so no remote commit is deleted unlisted. A branch already gone is nothing kept.
  */
 async function settleBranch(
   deps: DoneElsewhereDeps,
@@ -552,32 +626,30 @@ async function settleBranch(
   const ref = `refs/heads/${row.branch}`;
   const tip = await commitOf(git, ref);
   if (tip === null) return { branchKept: false, commits: [], remoteProblem: null };
-  const baseRef = await baseRefOf(deps, git, row.base);
-  if (await addsNothing(git, baseRef, ref)) {
-    const deleted = await deleteOwnBranch(deps, git, row.branch, pushedHeads(deps.office, row.key));
-    if (!deleted.ok) throw new Error(deleted.why);
-    const remoteProblem =
-      deleted.remoteProblem ??
-      (deleted.remoteKept === null
-        ? null
-        : `its tip there (${deleted.remoteKept}) is not one dipo pushed, so dipo keeps it`);
-    return { branchKept: false, commits: [], remoteProblem };
+  const baseRef = await baseRefIn(deps, git, row.base);
+  if (!(await addsNothingTo(git, baseRef, ref))) {
+    return {
+      branchKept: true,
+      commits: await commitsNotOn(git, baseRef, ref),
+      remoteProblem: null,
+    };
   }
-  return { branchKept: true, commits: await commitsNotOn(git, baseRef, ref), remoteProblem: null };
-}
-
-/** True when `git merge-tree --write-tree <base> <branch>` prints the base's tree. */
-async function addsNothing(git: GitSession, baseRef: string, ref: string): Promise<boolean> {
-  const baseTree = await git.step(git.repository, [
-    "rev-parse",
-    "--verify",
-    "--quiet",
-    `${baseRef}^{tree}`,
-  ]);
-  if (baseTree.code !== 0) return false;
-  const merged = await git.step(git.repository, ["merge-tree", "--write-tree", baseRef, ref]);
-  if (merged.code !== 0) return false;
-  return firstLine(merged.stdout) === baseTree.stdout.trim();
+  const remote = await remoteBranchOf(deps, git, row.branch, tip, row.base);
+  if (remote.kind === "tip" && !remote.covered) {
+    return {
+      branchKept: true,
+      commits: await commitsNotOn(git, baseRef, remote.tip),
+      remoteProblem: `the remote branch is at ${remote.tip}, with commits that are neither on the local branch nor on ${row.base}, so dipo keeps the branch locally and on the remote`,
+    };
+  }
+  const deleted = await deleteOwnBranch(deps, git, row.branch, row.base);
+  if (!deleted.ok) throw new Error(deleted.why);
+  const remoteProblem =
+    deleted.remoteProblem ??
+    (deleted.remoteKept === null
+      ? null
+      : `its tip there (${deleted.remoteKept}) holds commits that are not on ${row.base}, so dipo keeps it`);
+  return { branchKept: false, commits: [], remoteProblem };
 }
 
 /** The commits of `ref` not on `baseRef`, short sha and subject, newest first. */
@@ -594,26 +666,6 @@ export async function commitsNotOn(
     if (tab > 0) commits.push({ sha: line.slice(0, tab), subject: line.slice(tab + 1) });
   }
   return commits;
-}
-
-/** `refs/remotes/<remote>/<base>` when the repository has it, else `refs/heads/<base>`. */
-export async function baseRefOf(
-  deps: Pick<DoneElsewhereDeps, "git">,
-  git: GitSession,
-  base: string,
-): Promise<string> {
-  const remote = `refs/remotes/${deps.git.settings.remote}/${base}`;
-  return (await commitOf(git, remote)) === null ? `refs/heads/${base}` : remote;
-}
-
-/** The heads dipo pushed to the story's PRs, for the remote-branch check. */
-export function pushedHeads(office: OfficeHandle, key: StoryKey): string[] {
-  return office
-    .all<{ head_sha: string }>(
-      "select head_sha from story_prs where office_id = $office_id and key = $key",
-      { key },
-    )
-    .map((row) => row.head_sha);
 }
 
 async function commitOf(git: GitSession, ref: string): Promise<string | null> {
@@ -636,16 +688,17 @@ function insertRow(
   times: { readonly flaggedAt?: number; readonly releasedAt?: number },
 ): void {
   office.run(
-    `insert into done_elsewhere (office_id, run_id, key, story_id, branch, worktree, base,
-       base_commit, flagged_at, released_at)
-     values ($office_id, $run, $key, $story, $branch, $worktree, $base, $commit, $flagged,
-       $released)`,
+    `insert into done_elsewhere (office_id, run_id, key, story_id, branch, worktree, start_sha,
+       base, base_commit, flagged_at, released_at)
+     values ($office_id, $run, $key, $story, $branch, $worktree, $start, $base, $commit,
+       $flagged, $released)`,
     {
       run: claim.runId,
       key: claim.key,
       story: claim.story,
       branch: claim.branch,
       worktree: claim.worktree,
+      start: claim.startSha,
       base: claim.base,
       commit: baseCommit,
       flagged: times.flaggedAt ?? null,
@@ -664,7 +717,7 @@ function claimOfRow(row: DoneElsewhereRecord): ClaimRecord {
     worktree: row.worktree,
     base: row.base,
     baseSha: "",
-    startSha: "",
+    startSha: row.startSha,
     claimSha: null,
     reused: false,
     snapshot: { path: row.worktree, adminDir: "", commondir: "", gitdir: "", pointer: "" },
@@ -739,9 +792,4 @@ function unique<T>(items: readonly T[], keyOf: (item: T) => string): T[] {
     seen.add(key);
     return true;
   });
-}
-
-function firstLine(text: string): string {
-  const end = text.indexOf("\n");
-  return (end === -1 ? text : text.slice(0, end)).trim();
 }

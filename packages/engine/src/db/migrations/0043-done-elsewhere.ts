@@ -10,6 +10,8 @@
 //   claim was parked or idle when it was found.
 // - `released_at`: the claim was released as `done-elsewhere` (or, for an own-branch teardown a
 //   crash interrupted, as `done`); null while it waits for the worker.
+// - `branch`, `worktree` and `start_sha`: the claim's, so its leftovers are read and removed after
+//   retention removed the released claim row.
 // - `base_commit`: the base commit that last changed the story's task file, the evidence.
 // - `settled_at`: the story PR, the worktree and the branch were handled; null until then, so a
 //   crash after the release is finished by the next Done poll or reconcile.
@@ -59,6 +61,7 @@ create table done_elsewhere (
   story_id text not null,
   branch text not null,
   worktree text not null,
+  start_sha text not null default '',
   base text not null,
   base_commit text,
   flagged_at integer,
