@@ -1,16 +1,45 @@
 ---
 id: DIPO-334
 title: Run everything untrusted in a box as a non-root user
-status: Refined
+status: Done
 assignee: []
 created_date: '2026-10-23 13:37'
+updated_date: '2026-10-23 16:27'
 labels:
   - 'tier:L'
 milestone: m-1
 dependencies: []
 references:
-  - packages/engine/src/box/
+  - '- packages/engine/src/box/'
+  - docs/decisions/0021-worker-isolation.md
+  - packages/engine/src/box/apple-args.ts
+  - packages/engine/src/box/apple-container.ts
+  - packages/engine/src/box/build-box.ts
+  - packages/engine/src/box/cache.ts
+  - packages/engine/src/box/collisions.ts
+  - packages/engine/src/box/door.ts
+  - packages/engine/src/box/firewall.ts
+  - packages/engine/src/box/image.ts
+  - packages/engine/src/box/index.ts
+  - packages/engine/src/box/port.ts
+  - packages/engine/src/box/token-check.ts
+  - packages/engine/src/box/user.ts
+  - packages/engine/src/box/workers.ts
+  - packages/engine/src/workers/claude-cli/box-plan.ts
   - packages/engine/test/box/
+  - packages/engine/test/box/apple-container.test.ts
+  - packages/engine/test/box/args.test.ts
+  - packages/engine/test/box/box-network.ci.test.ts
+  - packages/engine/test/box/build-box.test.ts
+  - packages/engine/test/box/cache.test.ts
+  - packages/engine/test/box/collisions.test.ts
+  - packages/engine/test/box/door.test.ts
+  - packages/engine/test/box/fake-boxes.ts
+  - packages/engine/test/box/firewall.test.ts
+  - packages/engine/test/box/image.test.ts
+  - packages/engine/test/box/user.test.ts
+  - packages/engine/test/box/workers.test.ts
+  - packages/engine/test/workers/box-plan.test.ts
 priority: high
 type: feature
 ordinal: 316000
@@ -41,9 +70,15 @@ test_plan:
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 The worker's session, its commands, the install and every build install step run as a fixed non-root uid in the box
-- [ ] #2 The tools mount sits directly under / and every path dipo's privileged commands load from is not writable by that uid
-- [ ] #3 The capability set of a contained command is an allow list
-- [ ] #4 A real-box test plants /etc/ld.so.preload, renames the mount's parent and tries an NSS module as the worker and as an install script, then shows the next session's firewall still sets and holds
-- [ ] #5 The package cache, /work and the Claude Code install work for that uid
+- [x] #1 The worker's session, its commands, the install and every build install step run as a fixed non-root uid in the box
+- [x] #2 The tools mount sits directly under / and every path dipo's privileged commands load from is not writable by that uid
+- [x] #3 The capability set of a contained command is an allow list
+- [x] #4 A real-box test plants /etc/ld.so.preload, renames the mount's parent and tries an NSS module as the worker and as an install script, then shows the next session's firewall still sets and holds
+- [x] #5 The package cache, /work and the Claude Code install work for that uid
 <!-- AC:END -->
+
+## Implementation Notes
+
+<!-- SECTION:NOTES:BEGIN -->
+Done 2026-10-23 (maintainer session): built outside dipo, reviewed by a separate agent (all 5 criteria met). The real-box test passed in the maintainer session (3 of 3): every plant attempt, as an install script and as the worker, was refused, the files root loads from were unchanged, the firewall holds, and claude runs as the box user. Deviation approved by the maintainer: Debian packages and the Node.js archive install as a root step before any npm code. Follow-up DIPO-336: a smaller allow list for the fixed root steps. A live dipo run as the box user waits for the weekly plan limit to reset.
+<!-- SECTION:NOTES:END -->

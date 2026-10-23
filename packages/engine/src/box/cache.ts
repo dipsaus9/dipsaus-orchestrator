@@ -87,6 +87,7 @@ import {
   type BoxSpec,
   boxName,
 } from "./port";
+import { copyInAsUser } from "./user";
 
 export type { BaseLockfile, CacheManager, ProjectFile } from "./cache-input";
 
@@ -509,7 +510,10 @@ async function fillInBox(
   work: string,
 ): Promise<void> {
   const { boxes } = request;
-  const project = join(work, "project");
+  // What goes into the fill box, as the box user's (DIPO-334): the project and the CA bundle.
+  const inbox = join(work, "in");
+  const project = join(inbox, "project");
+  await mkdir(inbox, { mode: 0o700 });
   await mkdir(project, { mode: 0o700 });
   for (const file of files) {
     const to = join(project, file.path);
@@ -544,12 +548,11 @@ async function fillInBox(
     if (!isCertificateBundle(ca)) {
       fillFailed("the web route's CA bundle is not PEM certificates.", { caFile: route.caFile });
     }
-    const caFile = join(work, "ca.pem");
+    const caFile = join(inbox, "ca.pem");
     await writeFile(caFile, ca, { flag: "wx", mode: 0o644 });
     const made = await boxes.exec(name, ["mkdir", "-p", `${FILL_BOX_DIR}/cache`]);
     if (made.code !== 0) fillFailed("the fill box could not make its work folder.", { ...made });
-    await boxes.copyIn(name, project, `${FILL_BOX_DIR}/project`);
-    await boxes.copyIn(name, caFile, `${FILL_BOX_DIR}/ca.pem`);
+    await copyInAsUser(boxes, name, inbox, FILL_BOX_DIR);
     const install = fillInstall(manager, route.url);
     const result = await boxes.exec(name, install.command, {
       cwd: `${FILL_BOX_DIR}/project`,

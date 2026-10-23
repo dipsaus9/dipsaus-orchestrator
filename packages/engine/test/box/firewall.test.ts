@@ -14,10 +14,19 @@ import { withTempDir } from "@dipsaus-orchestrator/testkit";
 
 import {
   BOX_NET_TOOLS_PATH,
+  BOX_USER_GID,
+  BOX_USER_UID,
+  BOX_NPM_PREFIX,
+  BOX_USER_ENV,
+  BOX_USER_HOME,
+  boundingSet,
   checkFirewallListing,
   CONTAINED_KEEPALIVE,
   containedCommand,
-  DROPPED_CAPABILITIES,
+  isRootStepWrapped,
+  ROOT_STEP_CAPABILITIES,
+  rootStepCommand,
+  USER_CAPABILITIES,
   firewallCommand,
   firewallListCommand,
   firewallRules,
@@ -28,6 +37,16 @@ import {
   uncontained,
 } from "../../src/box/firewall";
 import { BoxError } from "../../src/box/port";
+
+/** The box user's environment a contained command sets in the box, by key. */
+function envOf(command: readonly string[]): Record<string, string> {
+  const inner = command.slice(command.indexOf("--") + 1);
+  return Object.fromEntries(
+    inner
+      .slice(9, 13)
+      .map((pair) => [pair.slice(0, pair.indexOf("=")), pair.slice(pair.indexOf("=") + 1)]),
+  );
+}
 
 const TAG = `dipo-box:${"ab".repeat(32)}`;
 
@@ -119,28 +138,92 @@ describe("what runs with a box's capabilities", () => {
     expect(isFirewallCommand(netToolCommand("setpriv", [rule.at(-1)!]))).toBe(false);
   });
 
-  it("is not a contained command: every other command loses the capabilities that reach around the rule", () => {
+  it("is not a contained command: every other command runs as the box user with no capability (DIPO-334)", () => {
     const command = containedCommand(["claude", "-p", "hi"]);
     expect(command.slice(0, 4)).toEqual(netToolCommand("setpriv", []));
-    expect(command).toContain("--no-new-privs");
-    expect(command).toContain("--inh-caps=-all");
-    expect(command).toContain(
-      `--bounding-set=${DROPPED_CAPABILITIES.map((cap) => `-${cap}`).join(",")}`,
+    // The fixed non-root uid and gid by number, no other group, and an allow list of none.
+    expect(command.slice(4, command.indexOf("--"))).toEqual([
+      `--reuid=${BOX_USER_UID}`,
+      `--regid=${BOX_USER_GID}`,
+      "--clear-groups",
+      "--inh-caps=-all",
+      "--ambient-caps=-all",
+      "--bounding-set=-all",
+      "--no-new-privs",
+    ]);
+    expect(BOX_USER_UID).not.toBe(0);
+    expect(BOX_USER_GID).not.toBe(0);
+    expect(USER_CAPABILITIES).toEqual([]);
+    // The image's env sets the box user's environment before the program is looked up.
+    expect(command.slice(command.indexOf("--") + 1)).toEqual([
+      "/usr/bin/env",
+      ...["HOME", "USER", "LOGNAME", "PATH"].flatMap((key) => ["-u", key]),
+      `HOME=${BOX_USER_HOME}`,
+      "USER=dipo",
+      "LOGNAME=dipo",
+      `PATH=${BOX_NPM_PREFIX}/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin`,
+      "claude",
+      "-p",
+      "hi",
+    ]);
+    expect(uncontained(command)).toEqual(["claude", "-p", "hi"]);
+    expect(uncontained(["claude"])).toBeNull();
+    expect(isFirewallCommand(command)).toBe(false);
+    expect(isRootStepWrapped(command)).toBe(false);
+    // The tools folder sits directly under `/`, where the box user cannot rename its parent.
+    expect(BOX_NET_TOOLS_PATH).toBe("/dipo-net");
+    // The box keeps itself running with the mounted tail, never one of its own.
+    expect(CONTAINED_KEEPALIVE).toEqual(netToolCommand("tail", ["-f", "/dev/null"]));
+  });
+
+  it("keeps the box user's environment and lets a command's own value replace one key only (DIPO-334)", () => {
+    // Without an environment, and with one that names none of the keys: the box user's, whole.
+    expect(envOf(containedCommand(["claude", "--version"]))).toEqual({ ...BOX_USER_ENV });
+    expect(
+      envOf(containedCommand(["claude", "--version"], { DISABLE_AUTOUPDATER: "1", A: "x" })),
+    ).toEqual({ ...BOX_USER_ENV });
+    // A command's own PATH replaces PATH, and HOME stays the box user's.
+    expect(envOf(containedCommand(["bun", "install"], { PATH: "/opt/x/bin" }))).toEqual({
+      ...BOX_USER_ENV,
+      PATH: "/opt/x/bin",
+    });
+    // Claude Code and the package managers are found through the npm prefix, first on PATH.
+    expect(BOX_USER_ENV["PATH"]?.split(":")[0]).toBe(`${BOX_NPM_PREFIX}/bin`);
+    // A command that only looks like the wrapper is no contained command.
+    expect(uncontained(netToolCommand("setpriv", ["--", "/usr/bin/env", "claude"]))).toBeNull();
+  });
+
+  it("runs dipo's root steps as root with an allow list that never holds the network (DIPO-334)", () => {
+    const command = rootStepCommand(["/bin/chmod", "0755", "/usr/local/bin/dipo-part"]);
+    expect(command.slice(0, 4)).toEqual(netToolCommand("setpriv", []));
+    const options = command.slice(4, command.indexOf("--"));
+    expect(options).toEqual([
+      "--inh-caps=-all",
+      "--ambient-caps=-all",
+      boundingSet(ROOT_STEP_CAPABILITIES),
+      "--no-new-privs",
+    ]);
+    expect(options.some((option) => option.startsWith("--reuid"))).toBe(false);
+    // An allow list: everything is dropped first, then only the listed ones kept.
+    expect(boundingSet(ROOT_STEP_CAPABILITIES)).toBe(
+      "--bounding-set=-all,+audit_write,+chown,+dac_override,+dac_read_search,+fowner,+fsetid,+kill,+setgid,+setuid,+sys_chroot",
     );
-    expect(DROPPED_CAPABILITIES).toEqual([
+    for (const cap of [
       "net_admin",
       "net_raw",
       "sys_admin",
       "sys_module",
       "sys_ptrace",
       "sys_rawio",
-    ]);
-    expect(command.slice(command.indexOf("--") + 1)).toEqual(["claude", "-p", "hi"]);
-    expect(uncontained(command)).toEqual(["claude", "-p", "hi"]);
-    expect(uncontained(["claude"])).toBeNull();
+      "setpcap",
+      "setfcap",
+      "mknod",
+    ]) {
+      expect(ROOT_STEP_CAPABILITIES).not.toContain(cap);
+    }
+    expect(uncontained(command)).toEqual(["/bin/chmod", "0755", "/usr/local/bin/dipo-part"]);
+    expect(isRootStepWrapped(command)).toBe(true);
     expect(isFirewallCommand(command)).toBe(false);
-    // The box keeps itself running with the mounted tail, never one of its own.
-    expect(CONTAINED_KEEPALIVE).toEqual(netToolCommand("tail", ["-f", "/dev/null"]));
   });
 });
 

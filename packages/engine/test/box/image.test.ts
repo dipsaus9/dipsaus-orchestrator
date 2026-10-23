@@ -11,7 +11,7 @@ import { describe, expect, it } from "bun:test";
 import type { OfficeId } from "@dipsaus-orchestrator/contract";
 import { ManualClock, withTempRepo } from "@dipsaus-orchestrator/testkit";
 
-import { BOX_NET_TOOLS_PATH } from "../../src/box/firewall";
+import { BOX_NET_TOOLS_PATH, BOX_USER_GID, BOX_USER_UID } from "../../src/box/firewall";
 import {
   BOX_DEFAULTS,
   BOX_IMAGE_ENV,
@@ -20,6 +20,7 @@ import {
   type BoxImageDescription,
   BUILD_DIR_IN_BOX,
   BUILD_PROXY_ENV,
+  buildCleanupCommand,
   checkImageDescription,
   describeBox,
   NODE_TARBALL_SHA256,
@@ -27,6 +28,7 @@ import {
   readBaseBoxSection,
 } from "../../src/box/image";
 import { BOX_BUILD_CA_FILE, BoxError } from "../../src/box/port";
+import { BOX_NPM_PREFIX, BOX_ROOT_DIRS, BOX_USER_DIRS, BOX_USER_HOME } from "../../src/box/user";
 import { OfficeGit, spawnGitExec } from "../../src/git";
 import { systemSpawn } from "../../src/platform/process";
 
@@ -120,8 +122,8 @@ describe("the box description", () => {
       {},
     );
     expect(other.image.nodeSha256).toEqual({ arm64: ARM64_SUM });
-    expect(boxBuildScripts(other.image).build).toContain(`arm64) arch=arm64; sum=${ARM64_SUM} ;;`);
-    expect(boxBuildScripts(other.image).build).toContain(
+    expect(boxBuildScripts(other.image).system).toContain(`arm64) arch=arm64; sum=${ARM64_SUM} ;;`);
+    expect(boxBuildScripts(other.image).system).toContain(
       'amd64) echo "no pinned Node.js sha256 for x64" >&2; exit 1 ;;',
     );
   });
@@ -162,11 +164,12 @@ describe("the box description", () => {
 describe("the build scripts (DIPO-281)", () => {
   const scripts = boxBuildScripts(IMAGE);
   const bootstrap = scripts.bootstrap.split("\n");
+  const system = scripts.system.split("\n");
   const build = scripts.build.split("\n");
 
   it("start from the Debian slim image of the release, and take the route's address from the environment", () => {
     expect(scripts.base).toBe("docker.io/library/debian:trixie-slim");
-    for (const lines of [bootstrap, build]) {
+    for (const lines of [bootstrap, system, build]) {
       expect(lines[0]).toBe("#!/bin/sh");
       expect(lines).toContain("set -eu");
       expect(lines).toContain(`proxy="\${${BUILD_PROXY_ENV}:?the build has no web route}"`);
@@ -195,8 +198,14 @@ describe("the build scripts (DIPO-281)", () => {
     expect(scripts.bootstrap).toContain('grep -q "not found"');
   });
 
-  it("build installs the packages with apt through the route, checking TLS after the CA step", () => {
-    const apt = build.filter((line) => line.includes("apt-get "));
+  it("bootstrap leaves the build folder readable for the box user, not writable (DIPO-334)", () => {
+    expect(bootstrap).toContain(`chmod -R a+rX,go-w ${BUILD_DIR_IN_BOX}`);
+    expect(BUILD_DIR_IN_BOX.split("/")).toHaveLength(2);
+  });
+
+  it("system installs the packages with apt through the route, checking TLS after the CA step", () => {
+    expect(build.filter((line) => line.includes("apt-get "))).toEqual([]);
+    const apt = system.filter((line) => line.includes("apt-get "));
     expect(apt).toHaveLength(4);
     for (const line of apt) expect(line).toContain('-o Acquire::https::Proxy="$proxy"');
     expect(apt.filter((line) => line.includes("Verify-Peer=false"))).toHaveLength(2);
@@ -212,15 +221,30 @@ describe("the build scripts (DIPO-281)", () => {
     expect(build.filter((line) => /\bgit\b/.test(line))).toHaveLength(2);
   });
 
-  it("build installs Node from nodejs.org at its version, checked against the sha256 dipo pins", () => {
+  it("system installs Node from nodejs.org at its version, checked against the sha256 dipo pins", () => {
     const sums = NODE_TARBALL_SHA256["24.22.1"]!;
-    expect(scripts.build).toContain(
+    expect(scripts.system).toContain(
       'curl --proxy "$proxy" -fsSLO "https://nodejs.org/dist/v24.22.1/$name"',
     );
-    expect(scripts.build).toContain('name="node-v24.22.1-linux-$arch.tar.gz"');
-    expect(scripts.build).toContain(`arm64) arch=arm64; sum=${sums.arm64} ;;`);
-    expect(scripts.build).toContain(`amd64) arch=x64; sum=${sums.x64} ;;`);
-    expect(scripts.build).toContain('echo "$sum  $name" | sha256sum -c -');
+    expect(scripts.system).toContain('name="node-v24.22.1-linux-$arch.tar.gz"');
+    expect(scripts.system).toContain(`arm64) arch=arm64; sum=${sums.arm64} ;;`);
+    expect(scripts.system).toContain(`amd64) arch=x64; sum=${sums.x64} ;;`);
+    expect(scripts.system).toContain('echo "$sum  $name" | sha256sum -c -');
+  });
+
+  it("system makes the box user, refusing a base image that has its ids, then its folders (DIPO-334)", () => {
+    const at = (needle: string) => system.findIndex((line) => line.includes(needle));
+    expect(system).toContain(
+      `echo "dipo:x:${BOX_USER_UID}:${BOX_USER_GID}:dipo:${BOX_USER_HOME}:/bin/sh" >> /etc/passwd`,
+    );
+    expect(system).toContain(`echo "dipo:x:${BOX_USER_GID}:" >> /etc/group`);
+    expect(at("cut -d: -f3 /etc/passwd")).toBeLessThan(at(">> /etc/passwd"));
+    expect(system.at(-3)).toContain(`-o 0 -g 0 -m 0755`);
+    expect(system.at(-3)).toContain(BOX_ROOT_DIRS.join(" "));
+    expect(system.at(-2)).toContain(`-o ${BOX_USER_UID} -g ${BOX_USER_GID} -m 0755`);
+    expect(system.at(-2)).toContain(BOX_USER_DIRS.join(" "));
+    // Root's folders sit directly under `/`, where the box user cannot rename them.
+    for (const dir of BOX_ROOT_DIRS) expect(dir.split("/")).toHaveLength(2);
   });
 
   it("build installs Claude Code and the package managers from npm through Safe-Chain, with Claude Code's updates off", () => {
@@ -228,6 +252,11 @@ describe("the build scripts (DIPO-281)", () => {
     expect(npm).toHaveLength(1);
     expect(npm[0]).toContain(`NODE_EXTRA_CA_CERTS=${BUILD_DIR_IN_BOX}/${BOX_BUILD_CA_FILE}`);
     expect(npm[0]).toContain('--https-proxy="$proxy"');
+    // Into the box user's own prefix, which its PATH names (DIPO-334).
+    expect(npm[0]).toContain(` --global --prefix=${BOX_NPM_PREFIX} `);
+    expect(build.indexOf(`export PATH="${BOX_NPM_PREFIX}/bin:$PATH"`)).toBeLessThan(
+      build.indexOf(npm[0]!),
+    );
     expect(npm[0]).toMatch(/ bun@1\.4\.2 @anthropic-ai\/claude-code@2\.1\.303$/);
     expect(build).toContain("claude --version");
     expect(build).toContain("bun --version");
@@ -247,10 +276,15 @@ describe("the build scripts (DIPO-281)", () => {
     ).toContain(" pnpm@12.14.0 yarn@1.22.22 @anthropic-ai/claude-code@2.1.303");
   });
 
-  it("build removes dipo's build folder, with the CA bundle, and the tools' copy at its end", () => {
-    expect(build.filter((line) => line !== "").at(-1)).toBe(
-      `rm -rf ${BUILD_DIR_IN_BOX} ${BOX_NET_TOOLS_PATH} /root/.npm`,
-    );
+  it("build removes the box user's npm cache; the cleanup removes dipo's build folder and the tools' copy", () => {
+    expect(build.filter((line) => line !== "").at(-1)).toBe('rm -rf "$HOME/.npm"');
+    expect(buildCleanupCommand()).toEqual([
+      "/bin/rm",
+      "-rf",
+      "--",
+      BUILD_DIR_IN_BOX,
+      BOX_NET_TOOLS_PATH,
+    ]);
   });
 
   it("are the same text for the same description", () => {
@@ -261,10 +295,12 @@ describe("the build scripts (DIPO-281)", () => {
 describe("the image tag", () => {
   it("is dipo-box: and the sha256 of the build scripts", () => {
     const tag = boxImageTag(IMAGE);
-    const { base, bootstrap, build } = boxBuildScripts(IMAGE);
+    const { base, bootstrap, system, build } = boxBuildScripts(IMAGE);
     expect(tag).toBe(
       `dipo-box:${new Bun.CryptoHasher("sha256")
-        .update(`dipo box image, built in a box (DIPO-281)\n${base}\n${bootstrap}\n${build}`)
+        .update(
+          `dipo box image, built in a box (DIPO-281, DIPO-334)\n${base}\n${bootstrap}\n${system}\n${build}`,
+        )
         .digest("hex")}`,
     );
   });

@@ -7,9 +7,11 @@
 // stop or a delete of its box ends one that hangs. With `exec`, a short exec follows a script too
 // (the fill box of the package cache, DIPO-295). An image build (DIPO-281) runs as the real one
 // does, in a build box: its tools stream out as a small archive of stand-in files, and the commit
-// makes the image. Each firewall a box gets is kept (`firewalls`).
+// makes the image. Each firewall a box gets is kept (`firewalls`). A copy for the box user
+// (`copyInAsUser`, DIPO-334) is logged and kept as one copy to its target, as before; its stage
+// steps are kept in `stageSteps`.
 
-import { cpSync, mkdirSync, readdirSync, statSync, writeFileSync } from "node:fs";
+import { cpSync, mkdirSync, readdirSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { join, relative } from "node:path";
 
 import type { ChildExit, Signal } from "@dipsaus-orchestrator/contract";
@@ -37,6 +39,7 @@ import {
   boxName,
 } from "../../src/box/port";
 import { TOKEN_CHECK_ENV_COMMAND } from "../../src/box/token-check";
+import { BOX_STAGE_ROOT } from "../../src/box/user";
 
 import { tarBytes } from "./tar-bytes";
 
@@ -255,15 +258,63 @@ export class FakeBoxes implements BoxPort {
     this.#live.delete(name);
   }
 
+  /** Every short exec but the stage steps, in order, with its options (DIPO-334). */
+  readonly execs: {
+    readonly box: string;
+    readonly command: readonly string[];
+    readonly options?: BoxExecOptions;
+  }[] = [];
+  /** The stage steps of each copy for the box user, by box: the commands as dipo ran them. */
+  readonly stageSteps: {
+    readonly box: string;
+    readonly command: readonly string[];
+    readonly options?: BoxExecOptions;
+  }[] = [];
+  /** The host folder each stage of a copy for the box user was copied from, by box and stage. */
+  readonly #staged = new Map<string, string>();
+
   async copyIn(name: string, from: string, to: string): Promise<void> {
-    this.log.push(`copy in ${name} ${to}`);
     const box = this.#box(name);
     if (box.state !== "running") throw new BoxError("box.failed", `${name} is not running`);
+    if (to.startsWith(`${BOX_STAGE_ROOT}/`)) {
+      // Logged and kept when the box user copies it on.
+      this.#staged.set(`${name} ${to}`, from);
+      return;
+    }
+    this.#copied(name, from, to);
+  }
+
+  #copied(name: string, from: string, to: string): void {
+    this.log.push(`copy in ${name} ${to}`);
+    const box = this.#box(name);
     const dir = from.endsWith("/.") ? from.slice(0, -2) : from;
     box.copies.push({ to, listing: statSync(dir).isDirectory() ? listing(dir) : [from] });
     if (this.#options.files !== undefined) {
       cpSync(dir, this.filesOf(name, to), { recursive: true, verbatimSymlinks: true });
     }
+  }
+
+  /** A stage step of a copy for the box user, or null when `command` is none. */
+  #stageStep(
+    name: string,
+    command: readonly string[],
+    options: BoxExecOptions | undefined,
+  ): BoxExecResult | null {
+    const stage = command.find((part) => part.startsWith(`${BOX_STAGE_ROOT}/`));
+    if (stage === undefined) return null;
+    this.stageSteps.push({ box: name, command, ...(options === undefined ? {} : { options }) });
+    if (command[0] === "/bin/cp") {
+      const from = this.#staged.get(`${name} ${stage}`);
+      if (from === undefined) return { code: 1, stdout: "", stderr: "no such stage" };
+      this.#copied(name, from, command.at(-1) ?? "");
+    }
+    if (command[0] === "/bin/rm") {
+      this.#staged.delete(`${name} ${stage}`);
+      if (this.#options.files !== undefined) {
+        rmSync(this.filesOf(name, stage), { recursive: true, force: true });
+      }
+    }
+    return { code: 0, stdout: "", stderr: "" };
   }
 
   /** The host folder that holds `path` of box `name` (with `files`). */
@@ -287,9 +338,16 @@ export class FakeBoxes implements BoxPort {
     command: readonly [string, ...string[]],
     _options?: BoxExecOptions,
   ): Promise<BoxExecResult> {
-    this.log.push(`exec ${name} ${command[0]}`);
     const box = this.#box(name);
     if (box.state !== "running") throw new BoxError("box.failed", `${name} is not running`);
+    const staged = this.#stageStep(name, command, _options);
+    if (staged !== null) return staged;
+    this.log.push(`exec ${name} ${command[0]}`);
+    this.execs.push({
+      box: name,
+      command,
+      ...(_options === undefined ? {} : { options: _options }),
+    });
     const scripted = this.#options.exec?.(name, command, _options);
     if (scripted !== undefined) return scripted;
     if (command.join(" ") === TOKEN_CHECK_ENV_COMMAND.join(" ")) {

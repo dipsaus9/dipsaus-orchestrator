@@ -63,7 +63,7 @@
 // never calls the backend for `finishEnded` or `close`. Nothing here names a worker CLI.
 
 import { randomUUID } from "node:crypto";
-import { copyFile, mkdtemp, rm } from "node:fs/promises";
+import { chmod, copyFile, mkdtemp, rm } from "node:fs/promises";
 import { existsSync, readdirSync, readFileSync, renameSync, rmSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 
@@ -99,6 +99,7 @@ import {
 } from "./port";
 import type { PartRun, StartTreeCheck } from "./parts";
 import { type BoxTokenCheck, checkBoxAfterRun, tokenCheckFailure } from "./token-check";
+import { copyInAsUser } from "./user";
 import { type BoxInstallResult, runBoxInstall } from "./verify";
 import { BoxWebRoute, type BoxWebRouteStart, type RunningBoxWebRoute } from "./web-proxy";
 
@@ -715,7 +716,8 @@ export class BoxWorkers {
         tmpRoot: this.#deps.tmpRoot,
       });
       try {
-        await boxes.copyIn(name, `${staged.dir}/.`, BOX_WORKDIR);
+        // The box user's own copy (DIPO-334): `/work` is the worker's to write.
+        await copyInAsUser(boxes, name, staged.dir, BOX_WORKDIR);
       } finally {
         await staged.remove();
       }
@@ -905,6 +907,12 @@ export class BoxWorkers {
     try {
       if (systemFile !== null) await copyFile(systemFile, join(stage, "system.md"));
       await copyFile(caFile, join(stage, "safe-chain-ca.pem"));
+      // Root's in the box, in root's `BOX_DIPO_DIR`: the box user reads them and cannot change
+      // them (DIPO-334).
+      await chmod(stage, 0o755);
+      for (const file of [...(systemFile === null ? [] : ["system.md"]), "safe-chain-ca.pem"]) {
+        await chmod(join(stage, file), 0o644);
+      }
       await this.#deps.boxes.copyIn(name, `${stage}/.`, BOX_DIPO_DIR);
     } finally {
       await rm(stage, { recursive: true, force: true });

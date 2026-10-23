@@ -17,7 +17,10 @@
 // - The build reaches the network only through dipo's web route, as a worker box does: its address
 //   is in the scripts' environment, Safe-Chain's CA bundle is a file in dipo's build folder, removed
 //   before the commit. npm installs (Claude Code, Bun, pnpm, Yarn) go to the registry through
-//   Safe-Chain. The install steps run contained and behind the box firewall (`firewall.ts`).
+//   Safe-Chain. The install steps run contained and behind the box firewall (`firewall.ts`): the
+//   Debian packages from Debian's signed archive and the pinned Node.js tarball as one of dipo's
+//   root steps, everything from npm as the box user (`user.ts`, DIPO-334), whose home holds the
+//   npm prefix.
 // - Claude Code's auto-update and nonessential traffic are off in every command of the image's
 //   boxes (`BOX_IMAGE_ENV`, 0021 section 4).
 // - The block's `localPorts` (version 12, DIPO-282) is no part of the image: it says which local
@@ -35,8 +38,9 @@ import { type BoxTool, type DetectedBoxToolchain, detectBoxToolchain } from "../
 import { detect } from "../scan/detect/detect";
 import { BUN_VERSION_FILE, LOCKFILES, ROOT_MANIFEST, RUNTIME_FILES } from "../scan/detect/manifest";
 import type { Probe } from "../scan/detect/types";
-import { BOX_NET_TOOLS_PATH } from "./firewall";
+import { BOX_NET_TOOLS_PATH, BOX_USER_GID, BOX_USER_UID } from "./firewall";
 import { BOX_BUILD_CA_FILE, BOX_IMAGE_REPOSITORY, BoxError } from "./port";
+import { BOX_NPM_PREFIX, BOX_ROOT_DIRS, BOX_USER_DIRS, BOX_USER_HOME, BOX_USER_NAME } from "./user";
 
 /** dipo's defaults for what neither the box block nor the repository pins. */
 export const BOX_DEFAULTS = {
@@ -209,8 +213,18 @@ export const BUILD_PROXY_ENV = "DIPO_PROXY";
 export const BUILD_DIR_IN_BOX = "/dipo-build";
 /** The bootstrap script's name in the build folder. */
 export const BUILD_BOOTSTRAP_SCRIPT = "bootstrap.sh";
+/** The system script's name in the build folder (DIPO-334). */
+export const BUILD_SYSTEM_SCRIPT = "system.sh";
 /** The build script's name in the build folder. */
 export const BUILD_STEPS_SCRIPT = "build.sh";
+
+/**
+ * The last step of a build (DIPO-334), one of dipo's root steps: dipo's build folder and the box
+ * network tools' copy removed, so neither is in the image.
+ */
+export function buildCleanupCommand(): [string, ...string[]] {
+  return ["/bin/rm", "-rf", "--", BUILD_DIR_IN_BOX, BOX_NET_TOOLS_PATH];
+}
 
 /**
  * The environment every command in a box of the office image gets (0021 section 4): Claude Code's
@@ -241,7 +255,7 @@ function script(comment: readonly string[], lines: readonly string[]): string {
   ].join("\n");
 }
 
-/** What an office image is built from: the base image and dipo's two scripts. */
+/** What an office image is built from: the base image and dipo's three scripts. */
 export interface BoxBuildScripts {
   /** Debian's slim image of the release, pulled on the Mac. */
   readonly base: string;
@@ -253,12 +267,55 @@ export interface BoxBuildScripts {
    */
   readonly bootstrap: string;
   /**
-   * The install steps, contained and behind the box firewall: the CA certificates, curl and the
-   * office's Debian packages, Node.js checked against its pinned sha256, Claude Code and the
-   * package managers from npm through Safe-Chain, the version checks, and the check that git is
-   * not in the image. It removes dipo's build folder and the tools' copy at its end.
+   * The system steps (DIPO-334), one of dipo's root steps behind the box firewall: the CA
+   * certificates, curl and the office's Debian packages from Debian's signed archive, Node.js
+   * checked against its pinned sha256, and the box user with its folders (`user.ts`).
+   */
+  readonly system: string;
+  /**
+   * The install steps, as the box user behind the box firewall: Claude Code and the package
+   * managers from npm through Safe-Chain into the box user's npm prefix, the version checks, and
+   * the check that git is not in the image. `buildCleanupCommand` runs after it.
    */
   readonly build: string;
+}
+
+/**
+ * The bootstrap's lines (`BoxBuildScripts.bootstrap`): the box network tools extracted from
+ * Debian's packages without their scripts, with their libraries and loader.
+ */
+function bootstrapLines(): string[] {
+  const tools = BOX_NET_TOOLS_PATH;
+  return [
+    'for list in /etc/apt/sources.list /etc/apt/sources.list.d/*; do if [ -f "$list" ]; then sed -i "s|http://|https://|g" "$list"; fi; done',
+    `${apt(false)} update`,
+    "want=nftables",
+    'if [ ! -x /usr/bin/setpriv ]; then want="$want setpriv"; fi',
+    `${apt(false)} install -y --no-install-recommends --download-only $want`,
+    `stage=/opt/dipo-stage; tools=${tools}`,
+    'rm -rf "$stage" "$tools"',
+    'mkdir -p "$stage" "$tools/bin" "$tools/lib"',
+    'for deb in /var/cache/apt/archives/*.deb; do dpkg-deb -x "$deb" "$stage"; done',
+    'setpriv=/usr/bin/setpriv; if [ ! -x "$setpriv" ]; then setpriv="$stage/usr/bin/setpriv"; fi',
+    'cp -L "$stage/usr/sbin/nft" "$tools/bin/nft"',
+    'cp -L "$setpriv" "$tools/bin/setpriv"',
+    'cp -L /usr/bin/tail "$tools/bin/tail"',
+    'multiarch="$(uname -m)-linux-gnu"',
+    'libs="$stage/usr/lib/$multiarch:$stage/lib/$multiarch"',
+    'for bin in "$tools"/bin/*; do',
+    '  needs="$(LD_LIBRARY_PATH="$libs" ldd "$bin")"',
+    '  if printf "%s\\n" "$needs" | grep -q "not found"; then echo "$bin needs a library the box lacks" >&2; exit 1; fi',
+    '  for lib in $(printf "%s\\n" "$needs" | sed -n "s/.*=> \\(\\/[^ ]*\\) .*/\\1/p"); do cp -L "$lib" "$tools/lib/"; done',
+    '  loader="$(printf "%s\\n" "$needs" | sed -n "s/^[[:space:]]*\\(\\/[^ ]*\\) (0x.*/\\1/p" | head -n 1)"',
+    '  if [ -n "$loader" ]; then cp -L "$loader" "$tools/ld.so"; fi',
+    "done",
+    '[ -f "$tools/ld.so" ]',
+    'for tool in nft setpriv tail; do "$tools/ld.so" --library-path "$tools/lib" "$tools/bin/$tool" --version >/dev/null; done',
+    'chmod -R a+rX,go-w "$tools"',
+    "# The box user reads the build folder (the CA bundle) but cannot write it (DIPO-334).",
+    `chmod -R a+rX,go-w ${BUILD_DIR_IN_BOX}`,
+    'rm -rf "$stage" /var/cache/apt/archives/*.deb /var/lib/apt/lists/*',
+  ];
 }
 
 /**
@@ -268,7 +325,6 @@ export interface BoxBuildScripts {
 export function boxBuildScripts(image: BoxImageDescription): BoxBuildScripts {
   const { debian, toolchain, nodeSha256, packages, claudeCode } = checkImageDescription(image);
   const node = toolchain.node;
-  const tools = BOX_NET_TOOLS_PATH;
   // One case per architecture: its pinned sum, or a refusal when the description has none.
   const nodeCases = NODE_ARCHES.map((arch) => {
     const sum = nodeSha256[arch];
@@ -291,39 +347,12 @@ export function boxBuildScripts(image: BoxImageDescription): BoxBuildScripts {
       "The first step of a dipo office image build (DIPO-281). It runs before the box firewall, so",
       "it runs only programs of Debian's base image and no package's install script.",
     ],
-    [
-      'for list in /etc/apt/sources.list /etc/apt/sources.list.d/*; do if [ -f "$list" ]; then sed -i "s|http://|https://|g" "$list"; fi; done',
-      `${apt(false)} update`,
-      "want=nftables",
-      'if [ ! -x /usr/bin/setpriv ]; then want="$want setpriv"; fi',
-      `${apt(false)} install -y --no-install-recommends --download-only $want`,
-      `stage=/opt/dipo-stage; tools=${tools}`,
-      'rm -rf "$stage" "$tools"',
-      'mkdir -p "$stage" "$tools/bin" "$tools/lib"',
-      'for deb in /var/cache/apt/archives/*.deb; do dpkg-deb -x "$deb" "$stage"; done',
-      'setpriv=/usr/bin/setpriv; if [ ! -x "$setpriv" ]; then setpriv="$stage/usr/bin/setpriv"; fi',
-      'cp -L "$stage/usr/sbin/nft" "$tools/bin/nft"',
-      'cp -L "$setpriv" "$tools/bin/setpriv"',
-      'cp -L /usr/bin/tail "$tools/bin/tail"',
-      'multiarch="$(uname -m)-linux-gnu"',
-      'libs="$stage/usr/lib/$multiarch:$stage/lib/$multiarch"',
-      'for bin in "$tools"/bin/*; do',
-      '  needs="$(LD_LIBRARY_PATH="$libs" ldd "$bin")"',
-      '  if printf "%s\\n" "$needs" | grep -q "not found"; then echo "$bin needs a library the box lacks" >&2; exit 1; fi',
-      '  for lib in $(printf "%s\\n" "$needs" | sed -n "s/.*=> \\(\\/[^ ]*\\) .*/\\1/p"); do cp -L "$lib" "$tools/lib/"; done',
-      '  loader="$(printf "%s\\n" "$needs" | sed -n "s/^[[:space:]]*\\(\\/[^ ]*\\) (0x.*/\\1/p" | head -n 1)"',
-      '  if [ -n "$loader" ]; then cp -L "$loader" "$tools/ld.so"; fi',
-      "done",
-      '[ -f "$tools/ld.so" ]',
-      'for tool in nft setpriv tail; do "$tools/ld.so" --library-path "$tools/lib" "$tools/bin/$tool" --version >/dev/null; done',
-      'chmod -R a+rX,go-w "$tools"',
-      'rm -rf "$stage" /var/cache/apt/archives/*.deb /var/lib/apt/lists/*',
-    ],
+    bootstrapLines(),
   );
-  const build = script(
+  const system = script(
     [
-      "The install steps of a dipo office image build (DIPO-281). They run contained and behind the",
-      "box firewall: the web route is the only way out, registries go through Safe-Chain.",
+      "The system steps of a dipo office image build (DIPO-281, DIPO-334). They run as root with",
+      "dipo's root allow list, behind the box firewall: Debian's signed archive and Node.js only.",
     ],
     [
       "export DEBIAN_FRONTEND=noninteractive",
@@ -343,25 +372,54 @@ export function boxBuildScripts(image: BoxImageDescription): BoxBuildScripts {
       'tar -xzf "$name" -C /usr/local --strip-components=1 --no-same-owner --exclude="*/CHANGELOG.md" --exclude="*/LICENSE" --exclude="*/README.md"',
       'rm -f "$name"',
       "node --version",
-      "# Claude Code and the package managers from npm, through Safe-Chain at the pinned versions;",
-      "# Claude Code's auto-update and nonessential traffic are off (0021 section 4).",
+      ...boxUserLines(),
+    ],
+  );
+  const build = script(
+    [
+      "The install steps of a dipo office image build (DIPO-281, DIPO-334). They run as the box user",
+      "behind the box firewall: the web route is the only way out, registries go through Safe-Chain.",
+    ],
+    [
+      "# Claude Code and the package managers from npm, through Safe-Chain at the pinned versions,",
+      "# into the box user's prefix; Claude Code's auto-update and nonessential traffic are off",
+      "# (0021 section 4).",
       ...Object.entries(BOX_IMAGE_ENV).map(([key, value]) => `export ${key}=${value}`),
-      `HTTPS_PROXY="$proxy" HTTP_PROXY="$proxy" NODE_EXTRA_CA_CERTS=${CA_IN_BUILD} npm install --global --no-fund --no-audit --https-proxy="$proxy" --proxy="$proxy" ${npmPackages.join(" ")}`,
+      `export PATH="${BOX_NPM_PREFIX}/bin:$PATH"`,
+      `HTTPS_PROXY="$proxy" HTTP_PROXY="$proxy" NODE_EXTRA_CA_CERTS=${CA_IN_BUILD} npm install --global --prefix=${BOX_NPM_PREFIX} --no-fund --no-audit --https-proxy="$proxy" --proxy="$proxy" ${npmPackages.join(" ")}`,
       "npm cache clean --force",
       ...checks,
       "# No git in a box (0021 decision 4): the build fails when any package brought it in.",
       'if command -v git >/dev/null 2>&1 || dpkg -s git >/dev/null 2>&1; then echo "git is in the box image; a package pulled it in (0021 decision 4)" >&2; exit 1; fi',
-      `rm -rf ${BUILD_DIR_IN_BOX} ${tools} /root/.npm`,
+      'rm -rf "$HOME/.npm"',
     ],
   );
-  return { base: `docker.io/library/debian:${debian}-slim`, bootstrap, build };
+  return { base: `docker.io/library/debian:${debian}-slim`, bootstrap, system, build };
+}
+
+/**
+ * The system script's lines that make the box user (DIPO-334): its uid and gid refused when the
+ * base image already has them, its entries, root's folders, then the user's.
+ */
+function boxUserLines(): string[] {
+  const user = `${BOX_USER_NAME}:x:${BOX_USER_UID}:${BOX_USER_GID}:${BOX_USER_NAME}:${BOX_USER_HOME}:/bin/sh`;
+  return [
+    "# The box user (DIPO-334): every untrusted command of the image's boxes runs as it.",
+    `if cut -d: -f3 /etc/passwd | grep -qx ${BOX_USER_UID} || cut -d: -f3 /etc/group | grep -qx ${BOX_USER_GID}; then echo "the base image already has uid ${BOX_USER_UID} or gid ${BOX_USER_GID}" >&2; exit 1; fi`,
+    `echo "${user}" >> /etc/passwd`,
+    `echo "${BOX_USER_NAME}:x:${BOX_USER_GID}:" >> /etc/group`,
+    `for dir in ${BOX_ROOT_DIRS.join(" ")}; do install -d -o 0 -g 0 -m 0755 "$dir"; done`,
+    `for dir in ${BOX_USER_DIRS.join(" ")}; do install -d -o ${BOX_USER_UID} -g ${BOX_USER_GID} -m 0755 "$dir"; done`,
+  ];
 }
 
 /** `dipo-box:<sha256 of the build scripts>`: the image of one description. */
 export function boxImageTag(image: BoxImageDescription): string {
-  const { base, bootstrap, build } = boxBuildScripts(image);
+  const { base, bootstrap, system, build } = boxBuildScripts(image);
   const hash = createHash("sha256")
-    .update(`dipo box image, built in a box (DIPO-281)\n${base}\n${bootstrap}\n${build}`)
+    .update(
+      `dipo box image, built in a box (DIPO-281, DIPO-334)\n${base}\n${bootstrap}\n${system}\n${build}`,
+    )
     .digest("hex");
   return `${BOX_IMAGE_REPOSITORY}:${hash}`;
 }

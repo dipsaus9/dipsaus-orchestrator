@@ -79,6 +79,7 @@ import {
   readBoxRun,
 } from "../../src/box/workers";
 import { DIPO_PART_PATH } from "../../src/box/door";
+import { partModeCommand, stageCopyCommand } from "../../src/box/user";
 import { BoxParts, type BoxPartsDeps } from "../../src/box/parts";
 import { OfficeGit, spawnGitExec } from "../../src/git";
 import { systemClock } from "../../src/platform/clock";
@@ -496,6 +497,37 @@ describe("the box of a box run (criteria 4 and 10)", () => {
       // Without the door no queue is read.
       await w.workers.session({ runId: RUN, runDir: w.runDir, systemFile: w.systemFile });
       expect(w.workers.readDoor(RUN)).toBeNull();
+    }));
+
+  it("copies the code into /work as the box user's copy, through a root-only stage (DIPO-334)", () =>
+    inBoxes(async (repo, tmp) => {
+      const w = await world(repo, tmp);
+      await created(w);
+      const steps = w.boxes.stageSteps.filter((step) => step.box === BOX);
+      expect(steps.map((step) => [step.command[0], step.options?.rootStep])).toEqual([
+        ["/bin/mkdir", true],
+        ["/bin/chown", true],
+        ["/bin/cp", undefined],
+        ["/bin/rm", true],
+      ]);
+      const stage = steps[0]!.command.at(-1)!;
+      expect(steps[2]!.command).toEqual(stageCopyCommand(stage, "/work"));
+      // dipo-part is root's, made runnable by a root step; nothing else of create runs as root.
+      expect(w.boxes.execs.filter((exec) => exec.options?.rootStep === true)).toEqual([
+        { box: BOX, command: partModeCommand(), options: { rootStep: true } },
+      ]);
+    }));
+
+  it("copies dipo's files into root's /dipo readable for the box user, each session (DIPO-334)", () =>
+    inBoxes(async (repo, tmp) => {
+      const w = await world(repo, tmp, { boxes: { files: join(tmp, "box-files") } });
+      await created(w);
+      await w.workers.session({ runId: RUN, runDir: w.runDir, systemFile: w.systemFile });
+      const dipo = w.boxes.filesOf(BOX, "/dipo");
+      for (const file of ["system.md", "safe-chain-ca.pem"]) {
+        expect(statSync(join(dipo, file)).mode & 0o777).toBe(0o644);
+      }
+      expect(w.boxes.stageSteps.filter((step) => step.command.includes("/dipo"))).toEqual([]);
     }));
 
   it("reads the box's part queue only while a session runs, when the door is given (DIPO-272)", () =>

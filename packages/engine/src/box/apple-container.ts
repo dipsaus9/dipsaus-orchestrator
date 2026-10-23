@@ -426,6 +426,7 @@ export class AppleContainerBoxes implements BoxPort {
       ...(options.cwd === undefined ? {} : { cwd: options.cwd }),
       ...(options.env === undefined ? {} : { env: options.env }),
       ...(options.fullPrivilege === true ? { fullPrivilege: true } : {}),
+      ...(options.rootStep === true ? { rootStep: true } : {}),
     });
     return this.#run(args, options);
   }
@@ -467,6 +468,7 @@ export class AppleContainerBoxes implements BoxPort {
       ...(options.cwd === undefined ? {} : { cwd: options.cwd }),
       ...(options.env === undefined ? {} : { env: options.env }),
       ...(options.fullPrivilege === true ? { fullPrivilege: true } : {}),
+      ...(options.rootStep === true ? { rootStep: true } : {}),
     });
     const child = this.#spawn(args, "pipe");
     const stdin = child.stdin;
