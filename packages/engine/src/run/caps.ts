@@ -2,6 +2,11 @@
 // creation, summed over the run's agents), turns summed by the engine (the CLI's `--max-turns`
 // counts again with every queued message, so it is only a backstop) and wall-clock minutes since
 // the worker started, sleep included. A cap fires at 100%; the budget is never raised (0001).
+//
+// The caps see only the usage the adapter could read (DIPO-315). A run whose worker stream drifts
+// (lines that fail their schema or have a message type the adapter drops, `STREAM_DRIFT_LINES` of
+// them over the run's agents, or one turn end whose usage cannot be read) parks `worker-failed`
+// with cause `stream-drift` instead of running past its budget unseen.
 
 import type { RunId } from "@dipsaus-orchestrator/contract";
 
@@ -48,6 +53,35 @@ export interface FiredCap {
 }
 
 const MINUTE_MS = 60_000;
+
+/**
+ * The unreadable stream lines at which a run parks with cause `stream-drift` (DIPO-315, a design
+ * choice). A new message type the CLI sends with every turn, or a changed field of a frequent line,
+ * reaches ten within a few turns, while one odd line (a line cut at a crash) never does. A turn end
+ * whose usage cannot be read parks at once, whatever the count.
+ */
+export const STREAM_DRIFT_LINES = 10;
+
+/** What a stream drift park says (DIPO-315). */
+export interface StreamDriftFacts {
+  /** `usage` when a turn end's usage cannot be read; else the count reached the threshold. */
+  readonly usage: boolean;
+  /** The worker and its version, as the adapter names them. */
+  readonly worker: string;
+  /** The deciding line's problem. */
+  readonly detail: string;
+  readonly lines: number;
+  readonly threshold: number;
+}
+
+/** Pure: the park detail of a stream drift, naming the worker's version and the count. */
+export function streamDriftDetail(facts: StreamDriftFacts): string {
+  const counted = `${count(facts.lines)} unreadable stream ${facts.lines === 1 ? "line" : "lines"} in the run (the threshold is ${count(facts.threshold)})`;
+  if (facts.usage) {
+    return `stream drift on ${facts.worker}: ${facts.detail}, so the caps cannot count the turn's usage; ${counted}. A resume starts the count again from 0.`;
+  }
+  return `stream drift on ${facts.worker}: ${counted}, lines that failed their schema or had a message type dipo drops, so the caps may not see all usage; the last: ${facts.detail}. A resume starts the count again from 0.`;
+}
 
 function count(value: number): string {
   return value.toLocaleString("en-US");

@@ -51,6 +51,7 @@ import {
 import { openPark, PARK_NOTICES, reopenParkedRun } from "./park";
 import { PLACE_NOTICES, type Places, START_KINDS, waitForPlace } from "./places";
 import { capsStartedAt, findRun, type StoredRun } from "./records";
+import { recordBranchPush } from "../story-pr/records";
 import { resumeVia } from "./resume-policy";
 import { resumeLine } from "./summary";
 import {
@@ -397,6 +398,9 @@ export class Resumption {
       const place: { queued: string | null } = { queued: null };
       await this.#serialized(officeId, () =>
         this.#s.write(office, () => {
+          // The lift's push, on the claim like every story-branch push (DIPO-315).
+          const push = { pushed: lifted.pushed, error: lifted.pushError };
+          recordBranchPush(office, run.branch as string, push, at);
           // The answer first: resolving the park expires every question it still holds open
           // (migration 50, DIPO-159).
           const answered = answeredParkQuestion(

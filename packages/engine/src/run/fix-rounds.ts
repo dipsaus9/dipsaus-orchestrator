@@ -79,7 +79,8 @@ import {
 } from "./feedback-items";
 import { markIntentSent, recordIntent, resolveIntent, runIntents } from "./intents";
 import { intentRest, intentTag, OUTCOME_ENDS, type RunView } from "./outcome-types";
-import { openPark, PARK_CAUSES, type UnparkWriter } from "./park";
+import { type BranchUnpark, openPark, PARK_CAUSES, type UnparkWriter } from "./park";
+import { recordBranchPush } from "../story-pr/records";
 import type { Places, PlaceStart } from "./places";
 import { findRun, IN_REVIEW_END, type StoredRun } from "./records";
 import type { RunStoryFacts } from "./resume";
@@ -397,9 +398,10 @@ export class FixRounds {
       );
     }
     const { head, advisories } = pending.detail;
+    let lifted: BranchUnpark | null = null;
     if (this.#deps.unpark !== undefined) {
       try {
-        await this.#deps.unpark.lift(officeId, {
+        lifted = await this.#deps.unpark.lift(officeId, {
           story: run.story,
           branch: run.branch,
           worktree: run.worktree,
@@ -425,7 +427,14 @@ export class FixRounds {
         return false;
       }
     }
-    this.#write(office, () => inProgressEntries(office, run));
+    this.#write(office, () => {
+      // The status commit's push, on the claim like every story-branch push (DIPO-315).
+      if (lifted !== null && run.branch !== null) {
+        const push = { pushed: lifted.pushed, error: lifted.pushError };
+        recordBranchPush(office, run.branch, push, this.#deps.clock.now());
+      }
+      return inProgressEntries(office, run);
+    });
     await this.#deps.refreshStory?.(officeId, run.key).catch((error: unknown) => {
       this.#deps.warn?.("reading the story again before its fix round failed", {
         run: run.runId,

@@ -10,6 +10,7 @@ import {
   SOFTWARE_CONFIG_SCHEMAS,
   SOFTWARE_CONFIG_VERSION,
   SoftwareConfigV1,
+  SoftwareConfigV2,
   softwareConfigJsonSchema,
 } from "./config";
 import { schemaKeyPaths } from "./config-keys";
@@ -34,6 +35,14 @@ function errorsOf(text: string) {
 // needs a new version with a migration instead (0017 amendment of 2026-10-12).
 const KEY_PATHS: Record<number, readonly string[]> = {
   1: ["daemon.autoRestartOnUpgrade", "daemon.autostart", "version"],
+  2: [
+    "daemon.autoRestartOnUpgrade",
+    "daemon.autostart",
+    "usage.alerts.dayTokens",
+    "usage.alerts.level",
+    "usage.alerts.monthTokens",
+    "version",
+  ],
 };
 
 describe("config.yaml key paths", () => {
@@ -53,23 +62,34 @@ describe("config.yaml key paths", () => {
   }
 });
 
+const DEFAULT_ALERTS = { usage: { alerts: { level: 0.8 } } };
+
 describe("resolveSoftwareConfig", () => {
   it("gives the defaults when the file is absent", () => {
     expect(resolve(undefined)).toEqual({
       ok: true,
-      config: { version: 1, daemon: { autostart: true, autoRestartOnUpgrade: false } },
+      config: {
+        version: 2,
+        daemon: { autostart: true, autoRestartOnUpgrade: false },
+        ...DEFAULT_ALERTS,
+      },
       fromFile: false,
     });
     expect(SOFTWARE_CONFIG_DEFAULTS).toEqual({
-      version: 1,
+      version: 2,
       daemon: { autostart: true, autoRestartOnUpgrade: false },
+      ...DEFAULT_ALERTS,
     });
   });
 
   it("parses a valid file and fills in missing keys", () => {
     expect(resolve("version: 1\ndaemon:\n  autostart: false\n")).toEqual({
       ok: true,
-      config: { version: 1, daemon: { autostart: false, autoRestartOnUpgrade: false } },
+      config: {
+        version: 2,
+        daemon: { autostart: false, autoRestartOnUpgrade: false },
+        ...DEFAULT_ALERTS,
+      },
       fromFile: true,
     });
     expect(resolve("# settings\nversion: 1\n")).toMatchObject({
@@ -140,9 +160,50 @@ describe("resolveSoftwareConfig", () => {
     expect(errorsOf("daemon: [\n")[0]?.message).toContain("invalid YAML");
   });
 
+  it("accepts usage.alerts at version 2 and keeps the limits unset by default", () => {
+    expect(
+      resolve(
+        "version: 2\nusage:\n  alerts:\n    dayTokens: 5000\n    monthTokens: 90000\n    level: 0.5\n",
+      ),
+    ).toMatchObject({
+      ok: true,
+      config: { usage: { alerts: { dayTokens: 5000, monthTokens: 90000, level: 0.5 } } },
+    });
+    const defaults = resolve("version: 2\n");
+    if (!defaults.ok) throw new Error("expected a valid file");
+    expect(defaults.config.usage.alerts.dayTokens).toBeUndefined();
+    expect(defaults.config.usage.alerts.monthTokens).toBeUndefined();
+    expect(defaults.config.usage.alerts.level).toBe(0.8);
+  });
+
+  it("refuses a negative limit, a level above 1 and an unknown usage key with the path", () => {
+    expect(errorsOf("version: 2\nusage:\n  alerts:\n    dayTokens: -1\n")).toMatchObject([
+      { path: "usage.alerts.dayTokens" },
+    ]);
+    expect(errorsOf("version: 2\nusage:\n  alerts:\n    level: 1.5\n")).toMatchObject([
+      { path: "usage.alerts.level" },
+    ]);
+    expect(errorsOf("version: 2\nusage:\n  alerts:\n    weekTokens: 5\n")).toMatchObject([
+      {
+        path: "usage.alerts.weekTokens",
+        expected: "one of the keys dayTokens, monthTokens, level",
+      },
+    ]);
+  });
+
+  it("migrates version 1 in memory and refuses version 2 keys in it", () => {
+    expect(resolve("version: 1\ndaemon:\n  autostart: false\n")).toMatchObject({
+      ok: true,
+      config: { version: 2, daemon: { autostart: false }, ...DEFAULT_ALERTS },
+    });
+    expect(errorsOf("version: 1\nusage:\n  alerts:\n    dayTokens: 5\n")).toMatchObject([
+      { path: "usage" },
+    ]);
+  });
+
   it("refuses a newer version with upgrade dipo", () => {
-    const [error] = errorsOf("version: 2\nweb:\n  enabled: true\n");
-    expect(error).toMatchObject({ file: FILE, path: "version", expected: "integer from 1 to 1" });
+    const [error] = errorsOf("version: 3\nweb:\n  enabled: true\n");
+    expect(error).toMatchObject({ file: FILE, path: "version", expected: "integer from 1 to 2" });
     expect(error?.message).toContain("upgrade dipo");
   });
 });
@@ -166,6 +227,8 @@ describe("config.yaml JSON Schema", () => {
   });
 
   it("accepts what the zod schema accepts", () => {
+    expect(SoftwareConfigV2.safeParse({ version: 2 }).success).toBe(true);
+    expect(SoftwareConfigV2.safeParse({ version: 2, extra: 1 }).success).toBe(false);
     expect(SoftwareConfigV1.safeParse({ version: 1 }).success).toBe(true);
     expect(SoftwareConfigV1.safeParse({ version: 1, extra: 1 }).success).toBe(false);
   });

@@ -106,6 +106,8 @@ import {
   type IngestAdapter,
   Nudges,
   type PartRun,
+  type BranchPush,
+  recordBranchPush,
   type StoredRun,
   selfCommand,
   setupWorktree,
@@ -440,6 +442,18 @@ export function boxPackageCache(stateDir: string): BoxPackageCacheDeps {
 }
 
 /**
+ * Records a push of a box run's story branch on its live claim in the run's office (DIPO-315):
+ * every story-branch push dipo makes sets `claims.pushed_at` once it reaches the remote.
+ */
+function claimPushRecorder(options: DaemonRunsOptions): (run: PartRun, push: BranchPush) => void {
+  return (run, push) => {
+    const handle = options.offices.get(run.office);
+    if (handle === undefined) return;
+    handle.immediate(() => recordBranchPush(handle, run.branch, push, options.clock.now()));
+  };
+}
+
+/**
  * The box workers of the daemon (DIPO-271) and the delivery of their parts (DIPO-273), or null
  * without a box backend. `parts` gives the run facts and run control the delivery needs.
  */
@@ -534,6 +548,7 @@ function daemonBoxWorkers(
       return base.ok ? base.description.files.map((file) => file.path) : [];
     },
     readDoor: (runId) => workers?.readDoor(runId) ?? null,
+    pushed: claimPushRecorder(options),
     warn: (message, fields) => options.logger.warn(message, fields),
     info: (message, fields) => options.logger.info(message, fields),
   });
@@ -644,6 +659,7 @@ function boxCollisions(
     park: (runId, park) => control.parkRun(runId, park),
     tell: (runId, text) => control.tellWorker(runId, text, "collision message"),
     notice: runNotice(options),
+    pushed: claimPushRecorder(options),
     // Conflicts with the base (DIPO-149): the stories In Review checked, each merge recorded, a
     // task file resolved to the base's version gets the branch's status back, the item budget.
     inReview: () =>
@@ -691,12 +707,13 @@ function boxCollisions(
       if (stored === null || stored.worktree === null) {
         throw new Error(`run ${run.runId} has no worktree to write its task file from`);
       }
-      await conflicts.unpark.lift(run.office, {
+      const lifted = await conflicts.unpark.lift(run.office, {
         story: run.story,
         branch: run.branch,
         worktree: stored.worktree,
         to: Lifecycle.parse(status),
       });
+      claimPushRecorder(options)(run, { pushed: lifted.pushed, error: lifted.pushError });
     },
     itemMax: (run) => {
       const config = options.offices.config(run.office);

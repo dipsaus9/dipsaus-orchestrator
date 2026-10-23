@@ -39,7 +39,10 @@ import {
 import { type DaemonLogsDeps, logsCommand } from "./logs-command";
 
 /** What a daemon subcommand needs from a connected client. */
-export type DaemonSession = Pick<DipoClient, "command" | "read" | "subscribe" | "close">;
+export type DaemonSession = Pick<DipoClient, "command" | "read" | "subscribe" | "close"> & {
+  /** The `engine.hello` result of the connection, for the office summaries (DIPO-311). */
+  readonly hello?: DipoClient["hello"];
+};
 
 /**
  * `start` connects and starts the daemon when autostart allows (DIPO-70); `running` connects to a

@@ -420,7 +420,35 @@ export type WorkerEvent =
    * once, before any `started` of that init, so the engine stops the worker at once; the result
    * is `startFailed`, and the story stays Ready when the worktree holds no work.
    */
-  | { readonly t: "startRefused"; readonly reason: string };
+  | { readonly t: "startRefused"; readonly reason: string }
+  /**
+   * A stream line the adapter could not read (DIPO-315): `schema` for a known line that failed its
+   * schema or did not parse, `dropped` for a line of a message type the adapter does not know and
+   * drops, `usage` for a completed turn whose token usage cannot be read or that reports none at
+   * all. `worker` names the worker and its version as the adapter knows them (for example
+   * `Claude Code 2.1.303`). Adapter-neutral: the ingestor counts `schema` and `dropped` lines per
+   * run, and the run parks with cause `stream-drift` at the threshold or at any `usage` drift.
+   */
+  | {
+      readonly t: "streamDrift";
+      readonly kind: StreamDriftKind;
+      readonly detail: string;
+      readonly worker: string;
+    }
+  /**
+   * The worker runs a newer version than the newest one the adapter's recordings and the box
+   * image were checked with (DIPO-315). Emitted at the worker's start; the engine posts one
+   * `engine.notice` per office and version.
+   */
+  | {
+      readonly t: "newerVersion";
+      readonly worker: string;
+      readonly version: string;
+      readonly checked: string;
+    };
+
+/** What a `streamDrift` event is about (DIPO-315). */
+export type StreamDriftKind = "schema" | "dropped" | "usage";
 
 /**
  * The scope of a plan limit an adapter can name (0008 section 7): `session` and `weekly` cover
