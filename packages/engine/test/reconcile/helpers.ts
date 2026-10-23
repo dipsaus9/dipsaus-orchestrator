@@ -39,6 +39,8 @@ export interface FakeTask {
   readonly fields?: readonly string[];
   /** Criteria as `[checked, text]`. */
   readonly criteria?: readonly (readonly [boolean, string])[];
+  /** Set: `task list --plain` loses this line (a cut output) while `--count` still counts it. */
+  readonly cutFromList?: boolean;
 }
 
 /** The task table of `_base` (key `BASE`). */
@@ -83,7 +85,10 @@ export function viewText(task: FakeTask): string {
 
 function listText(tasks: Iterable<FakeTask>): string {
   const groups = new Map<string, FakeTask[]>();
-  for (const task of tasks) groups.set(task.status, [...(groups.get(task.status) ?? []), task]);
+  for (const task of tasks) {
+    if (task.cutFromList === true) continue;
+    groups.set(task.status, [...(groups.get(task.status) ?? []), task]);
+  }
   const lines: string[] = [];
   for (const [status, members] of groups) {
     lines.push(`${status}:`);
@@ -118,7 +123,8 @@ export function fakeBacklog(tables: Tables): { spawn: Spawn; calls: SpawnOptions
     calls.push(options);
     const cwd = options.cwd ?? "";
     const [kind, verb, id] = options.cmd.slice(1);
-    if (kind === "draft") return child("");
+    const count = options.cmd.includes("--count");
+    if (kind === "draft") return child(count ? "0\n" : "");
     if (!cwd.endsWith("/_base")) {
       const file = id === undefined ? undefined : taskFileIn(cwd, id);
       if (verb !== "view" || file === undefined) return child("", `Task ${id ?? ""} not found.`, 1);
@@ -126,7 +132,7 @@ export function fakeBacklog(tables: Tables): { spawn: Spawn; calls: SpawnOptions
     }
     const table = tables.get(BASE);
     if (table === undefined) return child("", `no table for ${cwd}`, 1);
-    if (verb === "list") return child(listText(table.values()));
+    if (verb === "list") return child(count ? `${table.size}\n` : listText(table.values()));
     const task = id === undefined ? undefined : table.get(id);
     if (verb === "view" && task !== undefined) return child(viewText(task));
     return child("", `Task ${id ?? ""} not found.`, 1);

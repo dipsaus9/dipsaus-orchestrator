@@ -4,8 +4,9 @@
 // files never appear in `task list`, so they are not active tasks; drafts are read as drafts.
 //
 // A failed list or view stops the read: a story missing from a partial read would look vanished
-// and be closed as Removed. A view that does not parse (R02) still yields the story with what the
-// list printed, so it keeps its key; its created date and branch are then unknown.
+// and be closed as Removed. So does a list that disagrees with its `--count` (DIPO-323). A view
+// that does not parse (R02) still yields the story with what the list printed, so it keeps its
+// key; its created date and branch are then unknown.
 
 import { createHash } from "node:crypto";
 
@@ -13,7 +14,8 @@ import { type FieldBlockPark, StoryId } from "@dipsaus-orchestrator/contract";
 
 import { parseFieldBlock } from "../backlog/fields/block";
 import { readLabels } from "../backlog/fields/labels";
-import { BacklogParseError, parseList, parseView, plainLines } from "../backlog/plain";
+import { listAll } from "../backlog/list";
+import { BacklogParseError, parseView, plainLines } from "../backlog/plain";
 import { type BacklogCli, runBacklog } from "../backlog/runner";
 import { gateStoryFromView, gateTaskFromView } from "../gate/input";
 import { gateContentHash } from "../gate/store/hash";
@@ -170,14 +172,13 @@ export async function mapLimited<T, R>(
 
 /**
  * Reads every active task and draft in the worktree `cwd`, in list order. Throws
- * `BacklogCommandError` or `BacklogRefusedError` when the CLI fails, and `BacklogParseError` when
- * a list does not parse.
+ * `BacklogCommandError` or `BacklogRefusedError` when the CLI fails (`BacklogListIncompleteError`
+ * when a list disagrees with its count), and `BacklogParseError` when a list does not parse.
  */
 export async function readBacklog(cli: BacklogCli, cwd: string): Promise<BacklogStory[]> {
   const listed: { kind: StoryKind; id: string; title: string; status: string }[] = [];
   for (const kind of ["task", "draft"] as const) {
-    const { stdout } = await runBacklog(cli, cwd, [kind, "list", "--plain"]);
-    for (const entry of parseList(stdout).entries) {
+    for (const entry of (await listAll(cli, cwd, kind)).entries) {
       listed.push({
         kind,
         id: entry.id,

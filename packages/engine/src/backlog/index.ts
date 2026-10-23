@@ -31,6 +31,8 @@ export type {
   UnknownItem,
 } from "./plain";
 export * from "./fields";
+export { BacklogListIncompleteError, listAll, parseCount } from "./list";
+export type { ListKind } from "./list";
 export { BacklogCommandError, BacklogRefusedError, refusal, runBacklog } from "./runner";
 export { branchFor, EMPTY_SLUG, SLUG_MAX, slug } from "./slug";
 export type { BacklogCli, BacklogOutput } from "./runner";

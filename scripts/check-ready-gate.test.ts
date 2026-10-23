@@ -1,9 +1,11 @@
 // The Ready gate over a fixture backlog (DIPO-196): a Ready story whose manual test-plan entry has
 // no expect fails R20, a clean Ready story passes, a Refined story with the same fault is not
-// checked, an R29 warning is reported without a failure, and every task is viewed once.
+// checked, an R29 warning is reported without a failure, and every task is viewed once. A task list
+// that lost its last lines fails the check loudly instead of failing a story's rules (DIPO-323).
 
 import { describe, expect, it } from "bun:test";
 
+import { BacklogListIncompleteError } from "../packages/engine/src/backlog/list";
 import type { BacklogCli } from "../packages/engine/src/backlog/runner";
 
 import { checkReadyGate } from "./check-ready-gate";
@@ -69,13 +71,18 @@ function viewOf(story: FixtureStory): string {
 }
 
 /** A `backlog` fake over `stories` that answers `task list`, `task view` and `milestone list`. */
-function fakeCli(stories: readonly FixtureStory[]): { cli: BacklogCli; views: string[] } {
+function fakeCli(
+  stories: readonly FixtureStory[],
+  listed: (stdout: string) => string = (stdout) => stdout,
+): { cli: BacklogCli; views: string[] } {
   const views: string[] = [];
   const byId = new Map(stories.map((story) => [story.id, story]));
   const spawn: BacklogCli["spawn"] = ({ cmd }) => {
     const [group, sub, id] = cmd.slice(1);
     let stdout = "";
-    if (group === "task" && sub === "list") {
+    if (group === "task" && sub === "list" && cmd.includes("--count")) {
+      stdout = `${stories.length}\n`;
+    } else if (group === "task" && sub === "list") {
       const groups = [...new Set(stories.map((story) => story.status))];
       stdout = groups
         .map(
@@ -86,6 +93,7 @@ function fakeCli(stories: readonly FixtureStory[]): { cli: BacklogCli; views: st
               .join("\n")}`,
         )
         .join("\n");
+      stdout = listed(stdout);
     } else if (group === "task" && sub === "view") {
       views.push(id ?? "");
       const story = byId.get(id ?? "");
@@ -154,5 +162,19 @@ describe("the Ready gate over the backlog", () => {
     const { cli, views } = fakeCli(stories);
     await checkReadyGate(NO_OFFICE, cli);
     expect(views.toSorted()).toEqual(["DIPO-1", "DIPO-2", "DIPO-3"]);
+  });
+
+  it("fails loudly when the task list lost its last lines", async () => {
+    const stories: FixtureStory[] = [
+      { id: "DIPO-1", status: "Ready", testPlan: CLEAN },
+      { id: "DIPO-3", status: "Refined", testPlan: CLEAN },
+    ];
+    const { cli, views } = fakeCli(stories, (stdout) =>
+      stdout.slice(0, stdout.indexOf("\n  DIPO-3")),
+    );
+    const check = checkReadyGate(NO_OFFICE, cli);
+    await expect(check).rejects.toBeInstanceOf(BacklogListIncompleteError);
+    await expect(check).rejects.toThrow(/printed 1 entries, but its --count says 2/);
+    expect(views).toEqual([]);
   });
 });

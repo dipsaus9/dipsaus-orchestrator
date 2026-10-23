@@ -3,10 +3,10 @@ id: DIPO-325
 title: >-
   Let CLI commands wait for a starting daemon and a slow claim instead of
   failing
-status: Refined
+status: Ready
 assignee: []
 created_date: '2026-10-23 09:11'
-updated_date: '2026-10-23 09:11'
+updated_date: '2026-10-23 09:43'
 labels:
   - 'tier:S'
 milestone: m-1

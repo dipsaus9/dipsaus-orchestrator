@@ -21,14 +21,10 @@ import { type Clock, type OfficeId, officeInit } from "@dipsaus-orchestrator/con
 
 import { allEntries, type JournalEntry, OPEN_STATES } from "../../backlog/lane/journal";
 import { type FlushReport, LaneFlushError, type OfficeLane } from "../../backlog/lane/lane";
-import { BacklogParseError, parseList } from "../../backlog/plain";
+import { listAll } from "../../backlog/list";
+import { BacklogParseError } from "../../backlog/plain";
 import { openPrs } from "../../backlog/pr/records";
-import {
-  type BacklogCli,
-  BacklogCommandError,
-  BacklogRefusedError,
-  runBacklog,
-} from "../../backlog/runner";
+import { type BacklogCli, BacklogCommandError, BacklogRefusedError } from "../../backlog/runner";
 import { appendEntries, type NewEntry } from "../../changelog/log";
 import { CommandError } from "../../commands/errors";
 import type { OfficeDirectory } from "../../commands/offices";
@@ -169,8 +165,10 @@ async function readBase(
   for (const key of ["defaultStatus", ...OFFICE_SETTINGS.map((setting) => setting.key)]) {
     settings[key] = await configGet(cli, ctx.cwd, key);
   }
-  const { stdout } = await runBacklog(cli, ctx.cwd, ["task", "list", "--plain"]);
-  const tasks = parseList(stdout).entries.map((entry) => ({ id: entry.id, status: entry.group }));
+  const tasks = (await listAll(cli, ctx.cwd, "task")).entries.map((entry) => ({
+    id: entry.id,
+    status: entry.group,
+  }));
   return {
     statuses: read.ok ? { ok: true, list: read.statuses } : { ok: false, reason: read.reason },
     settings,
