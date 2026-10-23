@@ -57,10 +57,10 @@ Context: NewEntry.delta is unknown (packages/engine/src/changelog/log.ts), and a
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 appendEntries validates what the renderer would send (findEvent(type).data.safeParse of the same delta and view merge renderDelta does, shared from changelog/render.ts) and throws inside the writing transaction when it fails; nothing is appended
-- [ ] #2 Tests: a malformed engine.notice fails with no change_log row and the cursor unchanged; a story.state entry with its view passes
-- [ ] #3 Every existing writer passes the check (the full suite is green); a writer the check exposes is fixed in this story; a replay of already-stored entries still renders
-- [ ] #4 What a client gets for a bad entry already stored by an older binary is decided so it cannot loop, tested, and proposed as a dated note on 0005 section 8 in the PR for the maintainer's approval
+- [x] #1 appendEntries validates what the renderer would send (findEvent(type).data.safeParse of the same delta and view merge renderDelta does, shared from changelog/render.ts) and throws inside the writing transaction when it fails; nothing is appended
+- [x] #2 Tests: a malformed engine.notice fails with no change_log row and the cursor unchanged; a story.state entry with its view passes
+- [x] #3 Every existing writer passes the check (the full suite is green); a writer the check exposes is fixed in this story; a replay of already-stored entries still renders
+- [x] #4 What a client gets for a bad entry already stored by an older binary is decided so it cannot loop, tested, and proposed as a dated note on 0005 section 8 in the PR for the maintainer's approval
 <!-- AC:END -->
 
 ## Implementation Notes
