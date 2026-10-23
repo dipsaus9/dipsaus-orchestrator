@@ -1,7 +1,7 @@
 // The gate decides only on a whole input (DIPO-323): a `task list` whose output lost its last lines,
-// or that printed an entry the parser skips, fails the read loudly instead of leaving a Done
-// dependency out of the active tasks (a false R13). A view that fails fails the read with the CLI's
-// error; a slow view is waited for.
+// or that printed an entry the parser skips, is read once more; when it is still short, the read
+// fails loudly instead of leaving a Done dependency out of the active tasks (a false R13). A view
+// that fails fails the read with the CLI's error; a slow view is waited for.
 
 import { describe, expect, it } from "bun:test";
 
@@ -164,12 +164,31 @@ describe("the gate input is whole or the read fails", () => {
     // The tail of the output is gone, as seen on CI: the Done dependency printed last is missing.
     const whole = listText(TASKS);
     const cut = whole.slice(0, whole.indexOf("Done:"));
-    const { cli } = fakeCli((args) => (isList(args) ? { stdout: cut } : undefined));
+    const { cli, calls } = fakeCli((args) => (isList(args) ? { stdout: cut } : undefined));
     const read = readGateInput(cli, "/base", "DIPO-1", DEFAULT_CONFIG);
     await expect(read).rejects.toBeInstanceOf(BacklogListIncompleteError);
     await expect(read).rejects.toThrow(/printed 3 entries, but its --count says 4/);
     // The error is a CLI error, so every caller that reports a CLI failure reports this one.
     await expect(read).rejects.toBeInstanceOf(BacklogCommandError);
+    // Cut twice: read once more, then failed; no task was viewed past the story itself.
+    expect(calls.filter(isList)).toHaveLength(2);
+    expect(calls.filter((args) => args[1] === "view")).toEqual([
+      ["task", "view", "DIPO-1", "--plain"],
+    ]);
+  });
+
+  it("reads the list once more when the first one was cut, and decides on the whole one", async () => {
+    const whole = listText(TASKS);
+    let lists = 0;
+    const { cli, calls } = fakeCli((args) =>
+      isList(args) && lists++ === 0
+        ? { stdout: whole.slice(0, whole.indexOf("Done:")) }
+        : undefined,
+    );
+    const input = await readGateInput(cli, "/base", "DIPO-1", DEFAULT_CONFIG);
+    expect(calls.filter(isList)).toHaveLength(2);
+    expect(input.activeTasks.map((task) => task.id)).toContain("DIPO-9");
+    expect(r13(input)).toEqual([]);
   });
 
   it("fails loudly when the listing holds an entry line the parser skips", async () => {

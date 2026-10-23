@@ -39,6 +39,8 @@ export interface FakeTask {
   readonly fields?: readonly string[];
   /** Criteria as `[checked, text]`. */
   readonly criteria?: readonly (readonly [boolean, string])[];
+  /** Set: `task list --plain` loses this line (a cut output) while `--count` still counts it. */
+  readonly cutFromList?: boolean;
 }
 
 /** The task table of `_base` (key `BASE`). */
@@ -83,7 +85,10 @@ export function viewText(task: FakeTask): string {
 
 function listText(tasks: Iterable<FakeTask>): string {
   const groups = new Map<string, FakeTask[]>();
-  for (const task of tasks) groups.set(task.status, [...(groups.get(task.status) ?? []), task]);
+  for (const task of tasks) {
+    if (task.cutFromList === true) continue;
+    groups.set(task.status, [...(groups.get(task.status) ?? []), task]);
+  }
   const lines: string[] = [];
   for (const [status, members] of groups) {
     lines.push(`${status}:`);

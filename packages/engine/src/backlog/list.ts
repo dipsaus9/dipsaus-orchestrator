@@ -3,7 +3,8 @@
 // among the last lines of the list, so the list's output reached the engine without its tail while
 // the CLI exited 0. The parser also skips a line it does not know, and Backlog.md skips a task
 // file it cannot read. Each way a task goes missing without an error, and a decision read from the
-// list is wrong. So the list is read together with its `--count`, and the two must agree.
+// list is wrong. So the list is read together with its `--count`, and the two must agree; a
+// mismatch is read once more before it fails, so one cut output does not fail a check.
 
 import { BacklogParseError, parseList, type PlainList, plainLines } from "./plain";
 import { type BacklogCli, BacklogCommandError, runBacklog } from "./runner";
@@ -40,27 +41,33 @@ export class BacklogListIncompleteError extends BacklogCommandError {
   }
 }
 
+/** How many times `listAll` reads the list and its count before it gives up on a mismatch. */
+export const LIST_ATTEMPTS = 2;
+
 /**
  * Every entry of `<kind> list --plain` in `cwd`, checked against `<kind> list --plain --count`
- * (both run at once). Throws `BacklogListIncompleteError` when they disagree, `BacklogParseError`
- * when an output does not parse, and as `runBacklog` does when the CLI fails.
+ * (both run at once). On a mismatch both run once more, so one cut output does not fail the read;
+ * a second mismatch throws `BacklogListIncompleteError`. Throws `BacklogParseError` when an output
+ * does not parse, and as `runBacklog` does when the CLI fails.
  */
 export async function listAll(cli: BacklogCli, cwd: string, kind: ListKind): Promise<PlainList> {
   const args = [kind, "list", "--plain"];
-  const [list, count] = await Promise.all([
-    runBacklog(cli, cwd, args),
-    runBacklog(cli, cwd, [...args, "--count"]),
-  ]);
-  const parsed = parseList(list.stdout);
-  const counted = parseCount(count.stdout);
-  if (parsed.entries.length !== counted) {
-    throw new BacklogListIncompleteError(
-      [...(cli.command ?? ["backlog"]), ...args],
-      list.stdout,
-      list.stderr,
-      parsed.entries.length,
-      counted,
-    );
+  for (let attempt = 1; ; attempt++) {
+    const [list, count] = await Promise.all([
+      runBacklog(cli, cwd, args),
+      runBacklog(cli, cwd, [...args, "--count"]),
+    ]);
+    const parsed = parseList(list.stdout);
+    const counted = parseCount(count.stdout);
+    if (parsed.entries.length === counted) return parsed;
+    if (attempt >= LIST_ATTEMPTS) {
+      throw new BacklogListIncompleteError(
+        [...(cli.command ?? ["backlog"]), ...args],
+        list.stdout,
+        list.stderr,
+        parsed.entries.length,
+        counted,
+      );
+    }
   }
-  return parsed;
 }
