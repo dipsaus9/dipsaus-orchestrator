@@ -2894,6 +2894,77 @@
             }
           },
           "required": ["base", "onto", "paths", "at"]
+        },
+        "gates": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "gate": {
+                "type": "string",
+                "pattern": "^gat_[0-7][0-9A-HJKMNP-TV-Z]{25}$"
+              },
+              "work": {
+                "type": "object",
+                "properties": {
+                  "story": {
+                    "type": "string",
+                    "pattern": "^[A-Za-z][A-Za-z0-9]*-[0-9]+(\\.[0-9]+)*$"
+                  },
+                  "key": {
+                    "type": "string",
+                    "pattern": "^sto_[0-7][0-9A-HJKMNP-TV-Z]{25}$"
+                  },
+                  "run": {
+                    "type": "string",
+                    "pattern": "^run_[0-7][0-9A-HJKMNP-TV-Z]{25}$"
+                  },
+                  "agent": {
+                    "type": "string",
+                    "pattern": "^agt_[0-7][0-9A-HJKMNP-TV-Z]{25}$"
+                  },
+                  "role": {
+                    "type": "string",
+                    "pattern": "^[a-z][a-z0-9-]*$"
+                  },
+                  "tier": {
+                    "anyOf": [
+                      {
+                        "type": "string",
+                        "enum": ["S", "M", "L"]
+                      },
+                      {
+                        "type": "string"
+                      }
+                    ]
+                  },
+                  "model": {
+                    "type": "string"
+                  }
+                },
+                "required": ["story", "key", "run", "agent", "role", "tier", "model"]
+              },
+              "kind": {
+                "anyOf": [
+                  {
+                    "type": "string",
+                    "enum": ["review", "test", "merge"]
+                  },
+                  {
+                    "type": "string"
+                  }
+                ]
+              },
+              "waitingOn": {
+                "type": "string",
+                "enum": ["maintainer", "rule"]
+              },
+              "summary": {
+                "type": "string"
+              }
+            },
+            "required": ["gate", "work", "kind", "waitingOn", "summary"]
+          }
         }
       },
       "required": ["view", "runs", "verdicts"]

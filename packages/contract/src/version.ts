@@ -65,4 +65,6 @@ export type ContractVersion = z.infer<typeof ContractVersion>;
 // the same, still unreleased, minor.
 // DIPO-271 adds the optional `box` of `work.run` (run the developer in its own box, 0021) to the
 // same, still unreleased, minor.
+// DIPO-150 adds the optional `gates` of `story.detail` (the story's open gates that wait for the
+// maintainer, 0019 section 11) to the same, still unreleased, minor.
 export const CONTRACT_VERSION = Object.freeze({ major: 1, minor: 1 }) satisfies ContractVersion;

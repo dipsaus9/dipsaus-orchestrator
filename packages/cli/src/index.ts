@@ -23,6 +23,7 @@ import { runDaemon } from "@dipsaus-orchestrator/daemon";
 import { checkInk, INK_SELF_CHECK_NAME } from "@dipsaus-orchestrator/tui";
 
 import { answerCommand } from "./answer-command";
+import { approveCommand, rejectCommand } from "./approve-commands";
 import {
   type ConnectDaemon,
   type ConnectMode,
@@ -150,6 +151,15 @@ Usage:
                     kept unless --delete-branch, which also removes dirty files
                     and deletes the branch locally and on the remote after you
                     type the story id
+  dipo approve <id> [--note <text>] [--office <id>]
+                    approve the story's merge that waits for you: it goes
+                    through the merge slot; past a blocked review the note is
+                    required and recorded as your override; exits 1 when
+                    nothing waits
+  dipo reject <id> --note <text> [--yes] [--office <id>]
+                    reject the story's merge that waits for you after asking:
+                    your note goes to its worker in a fix round; exits 1 when
+                    nothing waits
   dipo steer <id> <text> [--office <id>]
                     send the story's worker your text as its next message; a
                     paused or parked story gets it with the first message on
@@ -356,6 +366,14 @@ export async function main(argv: readonly string[], deps: CliDeps): Promise<numb
   if (args[0] === "drop") {
     const { version } = versionInfo(deps.stamp, deps.runtime);
     return dropCommand(args.slice(1), { ...deps, version });
+  }
+  if (args[0] === "approve") {
+    const { version } = versionInfo(deps.stamp, deps.runtime);
+    return approveCommand(args.slice(1), { ...deps, version });
+  }
+  if (args[0] === "reject") {
+    const { version } = versionInfo(deps.stamp, deps.runtime);
+    return rejectCommand(args.slice(1), { ...deps, version });
   }
   if (args[0] === "steer") {
     const { version } = versionInfo(deps.stamp, deps.runtime);

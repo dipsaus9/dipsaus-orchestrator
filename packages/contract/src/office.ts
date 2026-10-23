@@ -364,6 +364,9 @@ export const storyDetail = defineRead({
         at: Timestamp,
       })
       .optional(),
+    // The story's open gates that wait for the maintainer, oldest first (DIPO-150, minor 1; 0019
+    // section 11): `dipo approve` and `dipo reject` send the newest one's id.
+    gates: z.array(GateView).optional(),
   }),
   since: 0,
 });
