@@ -2185,17 +2185,47 @@ describe("the handoff of a new session: notes, open feedback and the context pac
     expect(sentText()).not.toContain("Verify failed at the test step.");
   });
 
-  it("leaves out items an approving review verdict answered", async () => {
+  it("answers each source with its own kind of fact: findings by an approval or override, failures by a green verify", async () => {
     firstSession();
     feedbackTable();
     const { office, run } = w.f;
-    office.immediate(() => {
+    const item = (id: number, source: string, text: string, at: number) =>
       office.run(
         `insert into feedback_items (office_id, run_id, item_id, source, signature, head_sha,
            round, repeat, intent_id, sent_at, text, created_at)
-         values ($office_id, $run, 1, 'ci', 's', $head, 1, 0, 1, 10, 'Red CI on the head.', 10)`,
-        { run, head: "e".repeat(40) },
+         values ($office_id, $run, $id, $source, $sig, $head, 1, 0, 1, $at, $text, $at)`,
+        { run, id, source, sig: `sig-${id}`, head: "e".repeat(40), text, at },
       );
+    const texts = () => openFeedbackOf(office, run).map((open) => open.text);
+    office.immediate(() => {
+      item(1, "ci", "Red CI on the head.", 10);
+      item(2, "review", "Blocking finding: no test for the empty name.", 10);
+      item(3, "reject", "The maintainer: keep the old flag.", 10);
+      item(4, "conflict", "Conflict in src/greet.ts.", 10);
+    });
+    // A green verify answers the failures, never a finding or a reject.
+    office.immediate(() =>
+      insertVerifyResult(office, run, {
+        loop: 1,
+        profile: "branch",
+        commands: [["bun", "run", "verify"]],
+        exitCode: 0,
+        signal: null,
+        timedOut: false,
+        passed: true,
+        durationMs: 1,
+        outputFrom: 0,
+        outputTo: 0,
+        at: 15,
+      }),
+    );
+    expect(texts()).toEqual([
+      "Blocking finding: no test for the empty name.",
+      "The maintainer: keep the old flag.",
+    ]);
+    // An approval answers the findings and the reject, never a red CI item stored after it.
+    office.immediate(() => {
+      item(5, "ci", "Red CI on the next head.", 30);
       office.run(
         `insert into review_verdicts (office_id, gate_id, run_id, key, round, agent_id, model,
            commit_sha, code_tree_key, verdict, criteria, findings, summary, validation_notes,
@@ -2205,7 +2235,20 @@ describe("the handoff of a new session: notes, open feedback and the context pac
         { run, key: w.work.key, head: "f".repeat(40) },
       );
     });
-    expect(openFeedbackOf(office, run)).toEqual([]);
+    expect(texts()).toEqual(["Red CI on the next head."]);
+    // A maintainer override past a blocked verdict answers a later finding too.
+    office.immediate(() => {
+      item(6, "review", "Blocking finding: the docs are stale.", 40);
+      office.run(
+        `insert into review_verdicts (office_id, gate_id, run_id, key, round, agent_id, model,
+           commit_sha, code_tree_key, verdict, criteria, findings, summary, validation_notes,
+           override_note, override_at, decided_at)
+         values ($office_id, 'gat_2', $run, $key, 2, null, 'opus', $head, 't2', 'blocked', '[]',
+           '[]', 'no', '[]', 'ship it', 50, 45)`,
+        { run, key: w.work.key, head: "f".repeat(40) },
+      );
+    });
+    expect(texts()).toEqual(["Red CI on the next head."]);
   });
 
   it("records the context pack of a new session's task message, and none for a resume", async () => {

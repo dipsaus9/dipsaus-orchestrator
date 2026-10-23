@@ -239,8 +239,14 @@ export {
   summaryDate,
 } from "./summary";
 export type { FinalSummaryFacts, ParkBlockFacts, ResumeLineFacts } from "./summary";
-export { lastAnsweredAt, openFeedbackOf, storedFeedbackOf } from "./open-feedback";
-export type { StoredFeedback } from "./open-feedback";
+export {
+  ANSWERED_BY,
+  answered,
+  openFeedbackOf,
+  runAnswers,
+  storedFeedbackOf,
+} from "./open-feedback";
+export type { AnswerKind, RunAnswers, StoredFeedback } from "./open-feedback";
 // Verify and commit at In Review, the backstop after every turn and run outcomes (DIPO-49).
 export { backstopDetail, backstopEvidence, readBackstop } from "./backstop";
 export type { BackstopSnapshot } from "./backstop";
