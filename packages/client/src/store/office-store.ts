@@ -4,6 +4,9 @@
 // events whose cursor it already has, and replaces the views the engine sends. It never computes
 // column, health, phase, evidence or cost: an event without a view changes nothing it shows.
 // `work.output` text is passed to `onOutput` listeners and never kept in the state (DIPO-55).
+// A stream the daemon ends with any other error than `stream.resetRequired` (such as
+// `engine.recovering` right after a daemon restart) is subscribed again after the store's last
+// cursor, so an open view keeps following (DIPO-322).
 //
 // Runtime-free like the rest of the client core: time comes from the injected clock.
 
@@ -198,7 +201,23 @@ export class OfficeStore {
   #state: OfficeStoreState;
 
   #software: Subscription | null = null;
+  /** The software stream ended with an error other than `stream.resetRequired`; see `#resume`. */
+  #softwareEnded = false;
   #officeSub: Subscription | null = null;
+  /**
+   * Identifies the current office subscription: its callbacks act only while it is this one. A
+   * switch that is still reading, or that failed, leaves the current office's stream in force.
+   */
+  #officeToken: object | null = null;
+  /**
+   * The selected office's stream, ended by the daemon with an error other than
+   * `stream.resetRequired` (DIPO-322). A daemon that restarts answers the client's re-sent
+   * subscription with `engine.recovering` until it has recovered its offices; the store then
+   * subscribes again after its last cursor every `RECOVERY_POLL_MS` while the error is
+   * retryable, at once when the daemon leaves `recovering`, and after every reconnect.
+   */
+  #ended: { readonly office: OfficeId; readonly error: EngineError } | null = null;
+  #resubscribeTimer: TimerHandle | null = null;
   /** The last stored cursor applied, per stream. */
   readonly #last = new Map<StreamName, Cursor>();
   /** Bumped on every office change; replies for an older one are dropped. */
@@ -288,11 +307,14 @@ export class OfficeStore {
   close(): void {
     this.#closed = true;
     this.#clearRetryTimer();
+    this.#clearResubscribeTimer();
     this.#stopState?.();
     this.#software?.unsubscribe();
     this.#officeSub?.unsubscribe();
     this.#software = null;
     this.#officeSub = null;
+    this.#officeToken = null;
+    this.#ended = null;
     this.#listeners.clear();
     this.#outputListeners.clear();
   }
@@ -396,6 +418,9 @@ export class OfficeStore {
   #replace(office: OfficeId, snapshot: OfficeSnapshot): void {
     const previous = this.#officeSub;
     this.#officeSub = null;
+    this.#officeToken = null;
+    this.#ended = null;
+    this.#clearResubscribeTimer();
     previous?.unsubscribe();
     const stream = StreamName.parse(`office:${office}`);
     for (const key of this.#last.keys()) if (key !== SOFTWARE) this.#last.delete(key);
@@ -413,22 +438,85 @@ export class OfficeStore {
       cursor: snapshot.cursor,
       snapshots: this.#state.snapshots + 1,
     });
-    const generation = this.#generation;
+    this.#follow(office);
+  }
+
+  /**
+   * Subscribes to `office:<id>` after the last cursor the store applied of it: the snapshot's,
+   * or the last event's when it subscribes again after an ended subscription (DIPO-322).
+   */
+  #follow(office: OfficeId): void {
+    const stream = StreamName.parse(`office:${office}`);
+    const after = this.#last.get(stream);
+    const token = {};
+    this.#officeToken = token;
+    const current = () => this.#officeToken === token;
+    // The error the ended subscription left, cleared once this one has caught up.
+    const endedError = this.#state.error;
     this.#officeSub = this.#client.subscribe(stream, {
-      after: snapshot.cursor,
+      ...(after === undefined ? {} : { after }),
       onEvent: (event) => {
-        if (generation === this.#generation) this.apply(event);
+        if (current()) this.apply(event);
       },
       onCaughtUp: () => {
-        if (generation === this.#generation) this.#update({ live: true, offlineSince: null });
+        if (!current()) return;
+        const cleared = endedError !== null && this.#state.error === endedError;
+        this.#update({ live: true, offlineSince: null, ...(cleared ? { error: null } : {}) });
       },
       onEnded: (error) => {
-        if (generation !== this.#generation) return;
+        if (!current()) return;
         this.#officeSub = null;
+        this.#officeToken = null;
         if (error.code === "stream.resetRequired") void this.#reload(office);
-        else this.#update({ error, live: false });
+        else this.#officeEnded(office, error);
       },
     });
+  }
+
+  /**
+   * The daemon ended the office stream (DIPO-322): the view says it is no longer live and the
+   * store subscribes again later, so an open view keeps following once the daemon serves it. A
+   * repeated refusal with the same error publishes nothing, so a daemon that stays in
+   * `recovering` does not make listeners render every `RECOVERY_POLL_MS`.
+   */
+  #officeEnded(office: OfficeId, error: EngineError): void {
+    const unchanged =
+      !this.#state.live && JSON.stringify(this.#state.error) === JSON.stringify(error);
+    this.#ended = { office, error };
+    const database = databaseOf(error);
+    if (!unchanged) {
+      this.#update({ error, live: false, ...(database === undefined ? {} : { database }) });
+    }
+    if (error.retryable) {
+      this.#clearResubscribeTimer();
+      this.#resubscribeTimer = this.#clock.setTimeout(() => {
+        this.#resubscribeTimer = null;
+        this.#resume();
+      }, RECOVERY_POLL_MS);
+    }
+  }
+
+  /**
+   * Subscribes again to what the daemon ended: the selected office's stream after its last
+   * cursor (DIPO-322), and the software stream after its own. A no-op while nothing ended.
+   */
+  #resume(): void {
+    if (this.#closed || this.#client.state === "closed") return;
+    if (this.#softwareEnded && this.#software === null) {
+      this.#softwareEnded = false;
+      this.#subscribeSoftware(this.#last.get(SOFTWARE));
+    }
+    const ended = this.#ended;
+    if (ended === null || this.#officeSub !== null) return;
+    this.#ended = null;
+    this.#clearResubscribeTimer();
+    if (this.#state.office === ended.office) this.#follow(ended.office);
+  }
+
+  #clearResubscribeTimer(): void {
+    if (this.#resubscribeTimer === null) return;
+    this.#clock.clearTimeout(this.#resubscribeTimer);
+    this.#resubscribeTimer = null;
   }
 
   /** A history gap: drop the view, read `engine.hello` and the snapshot again, say so once. */
@@ -458,7 +546,10 @@ export class OfficeStore {
       onEnded: (error) => {
         this.#software = null;
         if (error.code === "stream.resetRequired") void this.#reloadSoftware();
-        else this.#update({ error });
+        else {
+          this.#softwareEnded = true;
+          this.#update({ error });
+        }
       },
     });
   }
@@ -470,6 +561,7 @@ export class OfficeStore {
     });
     if (this.#closed) return;
     if (!hello.ok) {
+      this.#softwareEnded = true;
       this.#update({ error: hello.error });
       return;
     }
@@ -537,6 +629,8 @@ export class OfficeStore {
         this.#update({ daemon: to, ...(to === "draining" ? { database: null } : {}) });
         const retry = this.#retry;
         if (to === "running" && retry !== null) void this.#load(retry.office, retry.read);
+        // Out of `recovering`, the daemon serves office streams again (DIPO-322).
+        if (to === "running" || to === "safe") this.#resume();
         if (to === "recovering" && this.#state.office === null) void this.#probeDatabase();
         return;
       }
@@ -678,6 +772,9 @@ export class OfficeStore {
       // A new connection answered `engine.hello` again; its offices and daemon state are current.
       const hello = this.#client.hello;
       if (hello !== null) this.#applyHello(hello);
+      // After the client re-sent its subscriptions on the new connection: what the daemon ended
+      // is no longer among them (DIPO-322).
+      queueMicrotask(() => this.#resume());
     }
     this.#update({ connection });
   }
