@@ -4,7 +4,7 @@
   "properties": {
     "version": {
       "type": "number",
-      "const": 11
+      "const": 12
     },
     "tiers": {
       "type": "object",
@@ -1005,6 +1005,15 @@
             "description": "A file outside git that a box gets, by its path in the repository."
           },
           "description": "Files outside git that a box may get (0021 decision 9). Nothing outside git goes into a box unless it is listed here and marked noRealSecrets: true."
+        },
+        "localPorts": {
+          "type": "array",
+          "items": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 65535
+          },
+          "description": "Local ports of this Mac a box may reach (0021 section 3, DIPO-282), only through dipo's web proxy, as host.dipo.internal:<port>, which dipo connects to on the Mac's loopback. No other service on the Mac or its local network is reachable from a box. Empty by default."
         }
       },
       "additionalProperties": false,
