@@ -26,7 +26,14 @@ const DAEMON = resolve(import.meta.dir, "fixtures/scripted-worker-daemon.ts");
 const REPO_ROOT = resolve(import.meta.dir, "../../../..");
 const BACKLOG_FIXTURE = join(REPO_ROOT, "packages/engine/test/fixtures/backlog");
 const BACKLOG_JS = join(REPO_ROOT, "node_modules", "backlog.md", "cli.js");
-const TIMEOUT_MS = 180_000;
+/**
+ * The one budget every wait of this test is derived from: a daemon start, a reply, or one step of
+ * the run. Generous, because this test runs only in CI, where the macOS runner is much slower than
+ * a developer machine.
+ */
+const BUDGET_MS = 30_000;
+/** Two daemon starts, three commands, five run steps and two stops, each within the budget. */
+const TIMEOUT_MS = 14 * BUDGET_MS;
 
 type Daemon = Bun.Subprocess<"ignore", "ignore", "pipe">;
 
@@ -108,27 +115,49 @@ function logLines(dir: string): LogLine[] {
     .map((line) => JSON.parse(line) as LogLine);
 }
 
-async function waitFor<T>(what: string, read: () => T | null | Promise<T | null>, ms = 60_000) {
+/** The last lines of the daemon log, for a failure message. */
+function logTail(dir: string, lines = 40): string {
+  const path = join(dir, "state", "logs", "daemon.log");
+  if (!existsSync(path)) return "(no daemon.log yet)";
+  return readFileSync(path, "utf8").trimEnd().split("\n").slice(-lines).join("\n");
+}
+
+/** `error` with the daemon log's tail appended, so a CI failure says what the daemon did. */
+function withLog(dir: string, error: unknown): Error {
+  const message = error instanceof Error ? error.message : String(error);
+  return new Error(`${message}\n--- the last lines of daemon.log ---\n${logTail(dir)}`);
+}
+
+async function waitFor<T>(
+  dir: string,
+  what: string,
+  read: () => T | null | Promise<T | null>,
+  ms = BUDGET_MS,
+): Promise<T> {
   const deadline = performance.now() + ms;
   while (performance.now() < deadline) {
     const value = await read();
     if (value !== null) return value;
     await Bun.sleep(50);
   }
-  throw new Error(`timed out waiting for ${what}`);
+  throw withLog(dir, new Error(`timed out after ${ms} ms waiting for ${what}`));
 }
 
+/** Waits until the daemon's socket answers the handshake and `daemon.status` says `running`. */
 async function waitUntilRunning(dir: string, daemon: Daemon): Promise<void> {
   const socket = join(dir, "run", "dipo.sock");
-  await waitFor("the daemon to reach running", async () => {
+  await waitFor(dir, "the daemon to reach running", async () => {
     // A daemon that chose a runtime directory outside `dir` fails the test (DIPO-109).
     assertTestRuntimeDir(dir);
     if (daemon.exitCode !== null) {
-      throw new Error(
+      throw withLog(
+        dir,
         `daemon exited with ${daemon.exitCode}: ${await new Response(daemon.stderr).text()}`,
       );
     }
+    if (!existsSync(socket)) return null;
     try {
+      // One attempt; a daemon still starting is asked again until the budget is spent.
       const client = await TestClient.connect(socket);
       try {
         await client.hello();
@@ -144,27 +173,32 @@ async function waitUntilRunning(dir: string, daemon: Daemon): Promise<void> {
   });
 }
 
+/** Sends one command to a daemon that `waitUntilRunning` saw ready; its reply gets the budget. */
 async function command(
   dir: string,
   name: string,
   args: Record<string, unknown>,
   extra: Record<string, unknown> = {},
 ): Promise<unknown> {
-  const client = await TestClient.connect(join(dir, "run", "dipo.sock"));
   try {
-    await client.hello();
-    const reply = await client.command(name, args, extra);
-    if (!reply.ok) throw new Error(`${name}: ${reply.error.code}: ${reply.error.message}`);
-    return reply.result;
-  } finally {
-    await client.close();
+    const client = await TestClient.connect(join(dir, "run", "dipo.sock"), BUDGET_MS);
+    try {
+      await client.hello();
+      const reply = await client.command(name, args, extra);
+      if (!reply.ok) throw new Error(`${name}: ${reply.error.code}: ${reply.error.message}`);
+      return reply.result;
+    } finally {
+      await client.close();
+    }
+  } catch (error) {
+    throw withLog(dir, error instanceof Error ? new Error(`${name}: ${error.message}`) : error);
   }
 }
 
 async function stop(daemon: Daemon): Promise<void> {
   if (daemon.exitCode !== null || daemon.signalCode !== null) return;
   daemon.kill("SIGTERM");
-  const exited = await Promise.race([daemon.exited, Bun.sleep(15_000).then(() => "timeout")]);
+  const exited = await Promise.race([daemon.exited, Bun.sleep(BUDGET_MS).then(() => "timeout")]);
   if (exited === "timeout") {
     daemon.kill("SIGKILL");
     await daemon.exited;
@@ -239,7 +273,7 @@ if (process.env["DIPO_TEST_CI"] === "1") {
               expect(run).not.toBe("");
 
               // The first daemon follows the live host.
-              const live = await waitFor("the first daemon to follow the host", () => {
+              const live = await waitFor(dir, "the first daemon to follow the host", () => {
                 const host = hostsOf(dir, run)[0];
                 return host !== undefined && host.pending === 0 && host.processed_offset > 0
                   ? host
@@ -251,7 +285,7 @@ if (process.env["DIPO_TEST_CI"] === "1") {
               first = null;
               // The host and its worker go on writing while no daemon runs.
               const down = hostsOf(dir, run)[0]?.processed_offset ?? 0;
-              await waitFor("lines written while no daemon runs", () =>
+              await waitFor(dir, "lines written while no daemon runs", () =>
                 fileSize(live.event_file) > down + 200 ? true : null,
               );
 
@@ -262,14 +296,14 @@ if (process.env["DIPO_TEST_CI"] === "1") {
                 .slice(before)
                 .filter((line) => line.msg === "worker host re-attached" && line.run === run);
               expect(reattached.map((line) => line.outcome)).toEqual(["steer"]);
-              await waitFor("the second daemon to catch up", () => {
+              await waitFor(dir, "the second daemon to catch up", () => {
                 const host = hostsOf(dir, run)[0];
                 return host !== undefined && host.processed_offset > down ? true : null;
               });
 
               await command(dir, "work.stop", { story: "TASK-1" }, { office, confirmed: true });
               const exitFile = join(dirname(live.event_file), "exit.json");
-              await waitFor("the run and its worker to end", () => {
+              await waitFor(dir, "the run and its worker to end", () => {
                 const ended = query<{ n: number }>(
                   dir,
                   `select count(*) as n from runs r join agents a on a.run_id = r.run_id
