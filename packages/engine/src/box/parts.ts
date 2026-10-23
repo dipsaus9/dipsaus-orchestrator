@@ -30,7 +30,9 @@
 // 3. The scans (0021 section 8). A path with a control, bidirectional or invisible character is
 //    refused. A protected-file check (`protectedKind`, folded as APFS folds names, with a
 //    look-alike fold as a second layer: git's own folder, the whole `backlog/` with the story's
-//    task file, `.dipo/`, `.github/`, the Claude settings and `.gitattributes`/`.gitmodules`) runs
+//    task file, `.dipo/`, `.github/`, the Claude settings, `.gitattributes`/`.gitmodules`, and
+//    the configuration of the tools dipo runs on checkouts of the repository: the Backlog CLI's,
+//    Bun's and Claude Code's MCP servers', DIPO-312) runs
 //    over every added, changed and deleted path, where any link other than an unchanged tracked
 //    symlink also counts as protected. Then the secret scan, outside the git queue: the cleaned
 //    commit subject, every added or changed path's name, and every added or changed file streamed
@@ -243,7 +245,17 @@ export function partCommitMessage(
 // ---- protected files -----------------------------------------------------------------------------
 
 /** What makes a path protected: written only by dipo or the maintainer. */
-export type ProtectedKind = "git" | "backlog" | "dipo" | "ci" | "claude" | "gitConfig" | "link";
+export type ProtectedKind =
+  | "git"
+  | "backlog"
+  | "dipo"
+  | "ci"
+  | "claude"
+  | "gitConfig"
+  | "backlogConfig"
+  | "bunConfig"
+  | "mcpConfig"
+  | "link";
 
 /** The fixed text of each kind, for the park detail. */
 export const PROTECTED_TEXT: Readonly<Record<ProtectedKind, string>> = {
@@ -253,6 +265,9 @@ export const PROTECTED_TEXT: Readonly<Record<ProtectedKind, string>> = {
   ci: "CI configuration (.github/)",
   claude: "the Claude settings (.claude/settings.json)",
   gitConfig: "git's attributes or submodules (.gitattributes, .gitmodules)",
+  backlogConfig: "the Backlog CLI's configuration (backlog.config.yml, .backlog/)",
+  bunConfig: "Bun's configuration (bunfig.toml)",
+  mcpConfig: "Claude Code's MCP server configuration (.mcp.json)",
   link: "a symlink or hard link",
 };
 
@@ -316,6 +331,31 @@ function protectedOf(key: string): ProtectedKind | null {
   if (key === ".claude/settings.json" || key === ".claude/settings.local.json") return "claude";
   const name = parts.at(-1);
   if (name === ".gitattributes" || name === ".gitmodules") return "gitConfig";
+  return toolConfigOf(key, parts);
+}
+
+// The configuration of the tools dipo runs on checkouts of the repository (DIPO-312, 0021 section
+// 14): after a story merges, dipo runs the Backlog CLI (a program built with Bun) and Bun in
+// checkouts of the base, and the reviewer, a Claude Code session, runs on a copy of the story's
+// commit. A part may not add, change or delete a file any of them reads its configuration from.
+// `backlog/` itself is the `backlog` kind.
+
+/** The protected tool-configuration kind of the folded `key` (split into `parts`), or null. */
+function toolConfigOf(key: string, parts: readonly string[]): ProtectedKind | null {
+  // Backlog.md 1.53, README section "Configuration": the project configuration is
+  // `backlog.config.yml` at the project root when present, otherwise `backlog/config.yml` or
+  // `.backlog/config.yml` (its reader also takes `config.yaml` in either folder), and
+  // `.backlog/` is the other folder it keeps tasks in. dipo runs the CLI at the repository root.
+  if (key === "backlog.config.yml") return "backlogConfig";
+  if (parts[0] === ".backlog") return "backlogConfig";
+  // Bun: https://bun.sh/docs/runtime/bunfig (Bun reads `bunfig.toml` in the folder it runs in;
+  // `.bunfig.toml` is the name of its user-level file, protected too). In any folder, as a
+  // workspace script runs Bun in its package's folder.
+  const name = parts.at(-1);
+  if (name === "bunfig.toml" || name === ".bunfig.toml") return "bunConfig";
+  // Claude Code: https://docs.claude.com/en/docs/claude-code/mcp (project-scoped servers live in
+  // `.mcp.json` at the project's root).
+  if (key === ".mcp.json") return "mcpConfig";
   return null;
 }
 

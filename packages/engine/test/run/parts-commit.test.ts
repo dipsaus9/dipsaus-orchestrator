@@ -447,6 +447,51 @@ describe("the scans park and commit nothing", () => {
       }));
   }
 
+  // The configuration of the tools dipo runs on checkouts (DIPO-312): added, changed or deleted.
+  const TOOL_CONFIG = {
+    "bunfig.toml": "[install]\nexact = true\n",
+    ".mcp.json": '{ "mcpServers": {} }\n',
+    "backlog.config.yml": 'backlog_directory: "backlog"\n',
+  };
+  for (const [what, change] of [
+    ["an added Bun configuration", { "packages/x/bunfig.toml": "[test]\n" }],
+    ["an added MCP server configuration", { ".mcp.json": '{ "mcpServers": { "x": {} } }\n' }],
+    ["an added Backlog configuration", { ".backlog/config.yml": "project_name: x\n" }],
+    ["a changed Bun configuration", { "bunfig.toml": "[test]\npreload = []\n" }],
+    ["a changed Backlog configuration", { "backlog.config.yml": "project_name: x\n" }],
+  ] as const) {
+    it(`parks protected-file on ${what}`, () =>
+      inParts(
+        async (w) => {
+          write(w.work, { ...change, "src/a.ts": "export const a = 2;\n" });
+          await w.parts.onPart(part("Touch a tool's configuration"));
+          expect(w.parks.map((p) => [p.reason, p.cause])).toEqual([
+            ["scope-violation", "protected-file"],
+          ]);
+          expect(await tip(w)).toBe(w.claimTip);
+          expect(await tip(w, "remote")).toBe(w.claimTip);
+        },
+        { start: TOOL_CONFIG },
+      ));
+  }
+
+  it("parks protected-file on a deleted MCP server configuration", () =>
+    inParts(
+      async (w) => {
+        rmSync(join(w.work, ".mcp.json"));
+        await w.parts.onPart(part("Drop the MCP servers"));
+        expect(w.parks.map((p) => [p.reason, p.cause, p.detail])).toEqual([
+          [
+            "scope-violation",
+            "protected-file",
+            "The part the worker delivered changes protected files: Claude Code's MCP server configuration (.mcp.json). dipo committed and pushed nothing, and the change stays in the box. Only dipo or the maintainer writes these files.",
+          ],
+        ]);
+        expect(await tip(w)).toBe(w.claimTip);
+      },
+      { start: TOOL_CONFIG },
+    ));
+
   it("parks on a symlink, never following it, whatever it points at", () =>
     inParts(async (w) => {
       const outside = join(w.repo.root, "mac-secret");
