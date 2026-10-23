@@ -582,7 +582,8 @@ class Connection implements ConnectionSession {
    * connection is closed, so a slow client never makes the daemon read and render the whole log
    * at once. At the head it ends the catch-up with `stream.mark { caughtUp: true }`. A cursor that
    * can no longer be replayed (a restored office) closes the connection; the client subscribes
-   * again.
+   * again. A stored entry that does not render is logged and sent as an `engine.notice` at its own
+   * cursor, so the position moves past it and no client replays it for good (DIPO-124).
    */
   #pumpOffice(subscription: Subscription): void {
     const office = subscription.office;
@@ -596,10 +597,17 @@ class Connection implements ConnectionSession {
       while (!this.#closed && this.#socket.buffered() < this.#server.pumpHighWaterBytes) {
         const replayed = replay(handle, subscription.position, { limit: REPLAY_PAGE });
         if (!replayed.ok) throw new Error(replayed.error.message);
-        const events = this.#server.renderer.renderAll(
+        const events = this.#server.renderer.renderForStream(
           office,
           replayed.head.epoch,
           replayed.entries,
+          (error, entry) =>
+            this.#deps.logger.error("office change-log entry does not render", {
+              office,
+              seq: entry.seq,
+              type: entry.type,
+              error,
+            }),
         );
         const last = events.at(-1);
         if (last !== undefined) this.#deliver(subscription, events, last.cursor);

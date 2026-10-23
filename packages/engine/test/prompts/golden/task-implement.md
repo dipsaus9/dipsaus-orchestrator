@@ -60,9 +60,9 @@ You may write only these paths:
 
 <test_plan>
 Tests to write:
-- (unit) greet returns the greeting for a name.
+- #1 (unit) greet returns the greeting for a name.
 Behaviour the maintainer will check by hand:
-- Run shop greet Ada. Expected: It prints Hello, Ada!
+- #2 Run shop greet Ada. Expected: It prints Hello, Ada!
 </test_plan>
 
 <answers>

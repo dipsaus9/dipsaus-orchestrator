@@ -54,7 +54,29 @@ async function withOffice(fn: (t: TestState, office: OfficeHandle, dir: string) 
   });
 }
 
-const progress = (n: number) => ({ type: "work.progress", delta: { n } });
+// A short-tier entry that renders (the write check of DIPO-124 refuses one that does not).
+const progress = (n: number) => ({
+  type: "work.progress",
+  delta: {
+    work: {
+      story: "DIPO-21",
+      key: "sto_01J9ZK5Q8W3V4X6Y7Z8A9B0C1D",
+      run: "run_01J9ZK5Q8W3V4X6Y7Z8A9B0C1D",
+      agent: "agt_01J9ZK5Q8W3V4X6Y7Z8A9B0C1D",
+      role: "developer",
+      tier: "M",
+      model: "claude-sonnet",
+    },
+    progress: {
+      criteriaMet: n,
+      criteriaTotal: 7,
+      loop: 1,
+      loopCap: 5,
+      verify: "none",
+      reviewRound: 0,
+    },
+  },
+});
 const notice = (text: string) => ({
   type: "engine.notice",
   delta: { level: "info", code: "test.notice", text },

@@ -22,6 +22,7 @@ import { afterEach, beforeEach, describe, expect, it } from "bun:test";
 
 import {
   type ChildExit,
+  type FieldBlock,
   type OfficeId,
   type RunId,
   type Signal,
@@ -73,7 +74,7 @@ import {
   VerifyCommit,
   verifyResults,
 } from "../../src/run";
-import { BOX_TIP_MOVED, NO_BOX_AT_DONE } from "../../src/run/verify-commit";
+import { BOX_TIP_MOVED, NO_BOX_AT_DONE, TEST_PLAN_REFUSALS_MAX } from "../../src/run/verify-commit";
 import { detect, type RunProfile } from "../../src/scan/detect";
 import { addStory } from "../../src/stories/keys";
 import { encode } from "../../src/workers/claude-cli/encode";
@@ -678,6 +679,10 @@ interface World {
   pushError: string | null;
   /** The files the run committed on the branch since its start. */
   committedFiles: string[];
+  /** The story's field block on the base, for the report gate (DIPO-186). */
+  fields: FieldBlock;
+  /** Files at the story branch that are not `package.json`, by path (DIPO-186). */
+  files: Record<string, string>;
 }
 
 let w: World;
@@ -692,10 +697,12 @@ function fakeStoryGit(): StoryGit {
       status: "In Progress",
       criteria: [1, 2],
     }),
-    showAt: async (_o, _w, sha) =>
-      JSON.stringify({
-        scripts: sha.startsWith("refs/heads/") ? w.branchScripts : { verify: "bun test" },
-      }),
+    showAt: async (_o, _w, sha, path) =>
+      path === "package.json"
+        ? JSON.stringify({
+            scripts: sha.startsWith("refs/heads/") ? w.branchScripts : { verify: "bun test" },
+          })
+        : (w.files[path] ?? null),
     codeTreeKey: async () => "k".repeat(64),
     markInReview: async (_o, input) => {
       w.inReviewTip = w.tip;
@@ -776,6 +783,8 @@ beforeEach(async () => {
     moveTip: false,
     pushError: null,
     committedFiles: ["src/greet.ts"],
+    fields: {},
+    files: {},
   } as unknown as World;
   const finisher = new VerifyCommit({
     clock: f.t.clock,
@@ -787,6 +796,7 @@ beforeEach(async () => {
       },
     },
     parts: { isBoxRun: () => w.box, finishLast: fakeFinishLast },
+    storyFacts: async () => ({ fields: w.fields, view: { type: "feature" } }),
   });
   const control = new RunControl({
     clock: f.t.clock,
@@ -1322,5 +1332,344 @@ describe("a done report on the turn that crosses a cap, in a box run (DIPO-205, 
       outcome: "parked",
       parkReasons: ["budget-exceeded"],
     });
+  });
+});
+
+// DIPO-186 (gap of the DIPO-301 box run): a box worker's done report with no run of the office's
+// verify or test command after its last edit is sent back once; and DIPO-259: the proposals of
+// every report are stored, and storing them changes nothing about the story, the run or the commit.
+const shell = (input: string): WorkerEvent => ({
+  t: "activity",
+  kind: "tool",
+  tool: "Bash",
+  input,
+  effect: "shell",
+});
+
+function feedbackTexts(): string[] {
+  return w.sent.flat().flatMap((op) => {
+    if (!("write" in op)) return [];
+    return [(JSON.parse(op.write) as { message: { content: string } }).message.content];
+  });
+}
+
+async function playEvents(list: readonly WorkerEvent[]): Promise<void> {
+  w.control.onWorkerEvents(w.f.run, list);
+  await w.control.idle();
+}
+
+function proposals(): { kind: string; title: string; story_key: string; run_id: string }[] {
+  return w.f.office.all(
+    "select kind, title, story_key, run_id from proposals where office_id = $office_id order by title",
+  );
+}
+
+describe("a box run's report data at done (DIPO-186)", () => {
+  const edit: WorkerEvent = {
+    t: "activity",
+    kind: "tool",
+    tool: "Edit",
+    path: "/work/src/greet.ts",
+    effect: "edit",
+  };
+  const inReview = [
+    "last part print a greeting",
+    "parts released (live false)",
+    "in-review [1]",
+    "push DIPO-1/add-a-greeting",
+    "story PR sync run",
+  ];
+
+  it("sends a done after an edit with no verify run back once, then takes the next done to review", async () => {
+    await playEvents([shell("bun run verify"), edit, shell("ls src"), turn(DONE)]);
+    const texts = feedbackTexts();
+    expect(texts).toHaveLength(1);
+    expect(texts[0]).toContain(
+      "Your report says done, but no run of the project's verify or test command shows after your last file change. Run `bun run verify` in the box now",
+    );
+    expect(texts[0]).toContain("the failures that only the missing git program causes");
+    // Nothing was taken out of the box or moved to review.
+    expect(w.calls).toEqual([]);
+    expect(findRun(w.f.office, w.f.run)?.endedAt).toBeNull();
+    expect(parks()).toEqual([]);
+    // Once per run: the next done without a run goes on.
+    await playEvents([edit, turn(DONE)]);
+    expect(feedbackTexts()).toHaveLength(1);
+    expect(w.calls).toEqual(inReview);
+    expectNoVerify();
+  });
+
+  it("takes a done to review at once when verify or the test script ran after the last edit", async () => {
+    await playEvents([edit, shell("bun run verify 2>&1 | tail -40"), turn(DONE)]);
+    expect(feedbackTexts()).toEqual([]);
+    expect(w.calls).toEqual(inReview);
+  });
+
+  it("counts the branch's own test script as a run", async () => {
+    w.branchScripts = { verify: "bun run check", test: "bun test" };
+    await playEvents([edit, shell("bun test test/greet.test.ts"), turn(DONE)]);
+    expect(feedbackTexts()).toEqual([]);
+    expect(w.calls).toEqual(inReview);
+  });
+
+  it("names an office command off the root with cd, and counts the worker's own cd line as a run", async () => {
+    const base = profileOf({});
+    w.base = {
+      ...base,
+      capabilities: {
+        ...base.capabilities,
+        verify: { status: "resolved", value: { commands: [["bun", "test"]], cwd: "packages/app" } },
+      },
+    } as unknown as RunProfile;
+    w.branchScripts = {};
+    await playEvents([edit, turn(DONE)]);
+    expect(feedbackTexts()[0]).toContain("Run `cd packages/app && bun test` in the box now");
+    expect(feedbackTexts()[0]).not.toContain("(in packages/app)");
+  });
+
+  it("takes a done whose worker ran the off-root command with cd", async () => {
+    const base = profileOf({});
+    w.base = {
+      ...base,
+      capabilities: {
+        ...base.capabilities,
+        verify: { status: "resolved", value: { commands: [["bun", "test"]], cwd: "packages/app" } },
+      },
+    } as unknown as RunProfile;
+    w.branchScripts = {};
+    await playEvents([edit, shell("cd packages/app && bun test"), turn(DONE)]);
+    expect(feedbackTexts()).toEqual([]);
+    expect(w.calls).toEqual(inReview);
+  });
+
+  it("sends it back when the worker edited again after its verify run", async () => {
+    await playEvents([edit, shell("bun run verify"), edit, turn(DONE)]);
+    expect(feedbackTexts()).toHaveLength(1);
+    expect(w.calls).toEqual([]);
+  });
+
+  it("asks nothing of a worker that edited no file", async () => {
+    await playEvents([shell("cat README.md"), turn(DONE)]);
+    expect(feedbackTexts()).toEqual([]);
+    expect(w.calls).toEqual(inReview);
+  });
+
+  it("asks nothing of a run without a box, which parks at done (DIPO-240)", async () => {
+    w.box = false;
+    await playEvents([edit, turn(DONE)]);
+    expect(feedbackTexts()).toEqual([]);
+    expect(parks().map((p) => p.detail)).toEqual([NO_BOX_AT_DONE]);
+  });
+
+  const PROPOSAL = {
+    kind: "follow-up",
+    title: "Greet in Dutch",
+    outcome: "shop greet --nl prints Hallo.",
+    why: "Asked for twice.",
+    paths: ["src/greet.ts"],
+  } as const;
+
+  it("stores a done report's proposals once and moves the story to review as without them", async () => {
+    await play({ ...DONE, proposals: [PROPOSAL, { ...PROPOSAL, kind: "tool", title: "jq" }] });
+    expect(w.calls).toEqual(inReview);
+    expect(findRun(w.f.office, w.f.run)?.endKind).toBe("in-review");
+    expect(events("story.state").map((e) => e["to"])).toEqual(["In Review"]);
+    expect(proposals()).toEqual([
+      { kind: "follow-up", title: "Greet in Dutch", story_key: w.work.key, run_id: w.f.run },
+      { kind: "tool", title: "jq", story_key: w.work.key, run_id: w.f.run },
+    ]);
+  });
+
+  it("stores a blocked report's proposals, deduplicated, and parks as before", async () => {
+    const blocked: WorkerReport = {
+      ...DONE,
+      status: "blocked",
+      summary: "The greeting language is not decided.",
+      proposals: [PROPOSAL, PROPOSAL],
+    };
+    await play(blocked);
+    expect(parks()).toEqual([
+      {
+        reason: "ambiguous-spec",
+        cause: "question",
+        detail: "The greeting language is not decided.",
+      },
+    ]);
+    expect(w.calls).toEqual([]);
+    expect(proposals()).toEqual([
+      { kind: "follow-up", title: "Greet in Dutch", story_key: w.work.key, run_id: w.f.run },
+    ]);
+  });
+});
+
+// The report gate (DIPO-186 with DIPO-254) in a box run (restated from the Mac path by DIPO-240):
+// the test plan and the decision notes of a done report.
+function storedReports(): { report: number; test_plan: string; deviations: string }[] {
+  return w.f.office.all(
+    `select report, test_plan, deviations from done_reports where office_id = $office_id
+      order by report`,
+  );
+}
+
+function notes(): {
+  file: string;
+  section: string;
+  text: string;
+  story_key: string;
+  run_id: string;
+}[] {
+  return w.f.office.all(
+    "select file, section, text, story_key, run_id from decision_notes where office_id = $office_id",
+  );
+}
+
+describe("the report gate at done, in a box run (DIPO-186, DIPO-240)", () => {
+  const PLAN: FieldBlock = {
+    test_plan: {
+      entries: [
+        { kind: "automated", check: "(unit) greet returns the greeting" },
+        { kind: "manual", check: "Run shop greet Ada", expect: "It prints Hello, Ada!" },
+        { kind: "automated", check: "(unit) an empty name exits 2" },
+      ],
+    },
+  };
+  const DECISION = "docs/decisions/0008-worker-adapter.md";
+  const NOTE = { file: DECISION, section: "1. The port", text: "The report gains a field." };
+
+  const commit = "last part print a greeting";
+
+  it("refuses a done report whose automated entry is not done or missing: one feedback item naming them, no commit, the run goes on", async () => {
+    w.fields = PLAN;
+    await play({
+      ...DONE,
+      testPlan: [
+        { n: 1, status: "not-done", evidence: "not written yet" },
+        { n: 2, status: "manual", evidence: "the maintainer runs it" },
+      ],
+    });
+    const texts = feedbackTexts();
+    expect(texts).toHaveLength(1);
+    expect(texts[0]).toContain(
+      "Your report says done, but these automated test-plan entries are not done:\n- #1 (reported not done): (unit) greet returns the greeting\n- #3 (not reported): (unit) an empty name exits 2",
+    );
+    // Manual entry #2 is never named.
+    expect(texts[0]).not.toContain("#2");
+    expect(w.calls).toEqual([]);
+    expect(parks()).toEqual([]);
+    expect(findRun(w.f.office, w.f.run)?.endedAt).toBeNull();
+    // The refused report is stored too.
+    expect(storedReports().map((row) => row.report)).toEqual([1]);
+  });
+
+  it("refuses every such report again, and commits as before once each automated entry is done", async () => {
+    w.fields = PLAN;
+    await play(DONE);
+    expect(feedbackTexts()).toHaveLength(1);
+    expect(feedbackTexts()[0]).toContain("- #1 (not reported)");
+    await play({ ...DONE, testPlan: [{ n: 1, status: "done", evidence: "x" }] });
+    expect(feedbackTexts()).toHaveLength(2);
+    expect(feedbackTexts()[1]).toContain("- #3 (not reported)");
+    expect(w.calls).toEqual([]);
+    await play({
+      ...DONE,
+      testPlan: [
+        { n: 1, status: "done", evidence: "test/greet.test.ts: greets" },
+        { n: 3, status: "done", evidence: "test/greet.test.ts: empty name" },
+      ],
+      deviations: [{ where: "criterion #2", what: "exits 64", why: "the usage code" }],
+    });
+    expect(w.calls[0]).toBe(commit);
+    expect(findRun(w.f.office, w.f.run)?.endKind).toBe("in-review");
+    expect(storedReports()).toHaveLength(3);
+    expect(JSON.parse(storedReports()[2]?.deviations ?? "[]")).toEqual([
+      { where: "criterion #2", what: "exits 64", why: "the usage code" },
+    ]);
+  });
+
+  it("tells the worker that a test failing only for the box's missing git counts as done", async () => {
+    w.fields = PLAN;
+    await play(DONE);
+    expect(feedbackTexts()[0]).toContain(
+      "A test you wrote that fails in the box only because the box has no git program counts as done: report it done and name that in its evidence.",
+    );
+  });
+
+  it(`parks verify-failing at the ${TEST_PLAN_REFUSALS_MAX}rd refused report instead of another refusal turn`, async () => {
+    expect(TEST_PLAN_REFUSALS_MAX).toBe(3);
+    w.fields = PLAN;
+    await play(DONE);
+    await play({ ...DONE, testPlan: [{ n: 1, status: "done", evidence: "x" }] });
+    expect(feedbackTexts()).toHaveLength(2);
+    expect(parks()).toEqual([]);
+    await play(DONE);
+    expect(feedbackTexts()).toHaveLength(2);
+    const [park] = parks();
+    expect([park?.reason, park?.cause]).toEqual(["verify-failing", "loops"]);
+    expect(park?.detail).toStartWith("the done report was refused for its test plan 3 of 3 times.");
+    expect(park?.detail).toContain("- #1 (not reported)");
+    expect(w.calls).toEqual([]);
+  });
+
+  it("leaves a story without a test plan, or with only manual entries, unchanged", async () => {
+    w.fields = { test_plan: { entries: [{ kind: "manual", check: "Look at it" }] } };
+    await play(DONE);
+    expect(feedbackTexts()).toEqual([]);
+    expect(w.calls[0]).toBe(commit);
+  });
+
+  it("does not check a story whose plan does not apply", async () => {
+    w.fields = { test_plan: { not_applicable: "Docs only." } };
+    await play(DONE);
+    expect(w.calls[0]).toBe(commit);
+  });
+
+  it("stores a decision note whose file and section exist, with its story and run, and commits", async () => {
+    w.files = { [DECISION]: "# 0008\n\n## Decision\n\n### 1. The port\n\nText.\n" };
+    await play({ ...DONE, decisionNotes: [NOTE] });
+    expect(feedbackTexts()).toEqual([]);
+    expect(w.calls[0]).toBe(commit);
+    expect(notes()).toEqual([{ ...NOTE, story_key: w.work.key, run_id: w.f.run }]);
+  });
+
+  it("sends a note with a missing file or section back once, naming the file and the section; the next done drops it", async () => {
+    w.files = { [DECISION]: "# 0008\n\n## Decision\n" };
+    const missing = { file: "docs/decisions/0099-none.md", section: "Decision", text: "t" };
+    await play({ ...DONE, decisionNotes: [NOTE, missing] });
+    const texts = feedbackTexts();
+    expect(texts).toHaveLength(1);
+    expect(texts[0]).toContain(
+      `- ${DECISION}, section "1. The port": the file has no section with that heading\n- docs/decisions/0099-none.md, section "Decision": the file does not exist`,
+    );
+    expect(w.calls).toEqual([]);
+    expect(notes()).toEqual([]);
+    // The same misses again: not sent back a second time; the rest of the report goes on.
+    await play({ ...DONE, decisionNotes: [NOTE, missing] });
+    expect(feedbackTexts()).toHaveLength(1);
+    expect(w.calls[0]).toBe(commit);
+    expect(notes()).toEqual([]);
+  });
+
+  it("names the test plan and the decision note in one feedback item when both miss", async () => {
+    w.fields = PLAN;
+    await play({ ...DONE, decisionNotes: [NOTE] });
+    const texts = feedbackTexts();
+    expect(texts).toHaveLength(1);
+    expect(texts[0]).toContain("these automated test-plan entries are not done");
+    expect(texts[0]).toContain(`- ${DECISION}, section "1. The port": the file does not exist`);
+  });
+
+  it("keeps the checked notes of a report that ends the run in a park", async () => {
+    w.files = { [DECISION]: "## 1. The port\n" };
+    w.control.onWorkerEvents(w.f.run, [
+      turn({
+        ...DONE,
+        status: "blocked",
+        question: "Which code?",
+        decisionNotes: [NOTE, { ...NOTE, section: "Gone" }],
+      }),
+    ]);
+    await w.control.idle();
+    expect(parks().map((park) => park.reason)).toEqual(["ambiguous-spec"]);
+    expect(notes().map((note) => note.section)).toEqual(["1. The port"]);
   });
 });

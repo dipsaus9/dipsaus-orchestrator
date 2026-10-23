@@ -154,8 +154,15 @@ export {
 export type { AppendOptions, LogState, LogTier, NewEntry, StoredEntry } from "./changelog/log";
 export { replay } from "./changelog/replay";
 export type { ReplayOptions, ReplayResult } from "./changelog/replay";
-export { renderDelta, Renderer, RenderError } from "./changelog/render";
-export type { RenderFn } from "./changelog/render";
+export {
+  renderDelta,
+  Renderer,
+  RenderError,
+  renderProblem,
+  UNRENDERABLE_NOTICE_CODE,
+  unrenderableNotice,
+} from "./changelog/render";
+export type { RenderFn, RenderInput } from "./changelog/render";
 export { CommandError } from "./commands/errors";
 export { argsInvalid, executeCommand } from "./commands/execute";
 export type { ExecutorDeps } from "./commands/execute";

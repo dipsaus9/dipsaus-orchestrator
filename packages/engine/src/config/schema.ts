@@ -31,13 +31,18 @@
 // replaced the presence window with a check for a connected TUI (0021 section 11). An older file
 // that still sets it loads; the migration drops the key and the load warns (`RETIRED_KEYS`).
 // `office.local.yaml` gains no key.
+// Version 11 (DIPO-251, from DIPO-260) adds `story.securityPhrases` and
+// `story.securityCriteriaPhrases` (0012 section 3, R30): the phrases of a title or Outcome that
+// names a security barrier, and per part the phrases a criterion uses for what the old barrier
+// caught, the bypass forms and the fail-closed test against the real path. `office.local.yaml`
+// gains no key.
 
 import { z } from "zod";
 
 /** The newest office configuration version this binary knows. */
-export const OFFICE_CONFIG_VERSION = 10;
+export const OFFICE_CONFIG_VERSION = 11;
 /** Every version this binary reads; an older file is migrated in memory (`migrateOfficeDocument`). */
-export const OFFICE_CONFIG_VERSIONS = [1, 2, 3, 4, 5, 6, 7, 8, 9, 10] as const;
+export const OFFICE_CONFIG_VERSIONS = [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11] as const;
 export type OfficeConfigVersion = (typeof OFFICE_CONFIG_VERSIONS)[number];
 
 const count = () => z.int().positive();
@@ -404,9 +409,45 @@ const officeShapeV9 = {
 const PermissionsV10 = z.strictObject({ ask: officeShapeV1.permissions.shape.ask });
 
 // Version 10: the office keys of version 9 without `permissions.presentMinutes` (DIPO-285).
-const officeShape = {
+const officeShapeV10 = {
   ...officeShapeV9,
   permissions: PermissionsV10,
+};
+
+// Version 11 (DIPO-251): the story keys of R30, the security-sensitive story rule.
+const SecurityCriteriaPhrases = z
+  .strictObject({
+    oldBarrier: z
+      .array(text())
+      .describe(
+        "Phrases of a criterion that lists what the old barrier caught, with a test for each.",
+      ),
+    bypassForms: z
+      .array(text())
+      .describe(
+        "Phrases of a criterion that lists the bypass forms to test (wrappers, quoting, indirection, chaining).",
+      ),
+    failClosed: z
+      .array(text())
+      .describe("Phrases of a criterion that asks for a fail-closed test against the real path."),
+  })
+  .describe(
+    "Per part of R30, the phrases a criterion must contain (word match, as R27). A story whose title or Outcome names a security barrier fails once for each part no criterion matches (0012 section 3, DIPO-251).",
+  );
+const StoryV11 = z.strictObject({
+  ...officeShapeV6.story.shape,
+  securityPhrases: z
+    .array(text())
+    .describe(
+      "Phrases of a title or Outcome that adds or replaces a security barrier, such as a deny rule or a permission check. Such a story needs the criteria parts of story.securityCriteriaPhrases, else it fails the Ready gate (R30, 0012 section 3, DIPO-251).",
+    ),
+  securityCriteriaPhrases: SecurityCriteriaPhrases,
+});
+
+// Version 11: the office keys of version 10 plus the R30 story keys (DIPO-251).
+const officeShape = {
+  ...officeShapeV10,
+  story: StoryV11,
 };
 
 /** The effective configuration of an office, version 1 (kept to read version 1 files). */
@@ -490,19 +531,28 @@ export const OfficeConfigV9 = z.strictObject({
   retention: z.strictObject(retentionShape),
 });
 
+/** The effective configuration of an office, version 10 (kept to read version 10 files). */
+export const OfficeConfigV10 = z.strictObject({
+  version: z.literal(10),
+  ...officeShapeV10,
+  // Machine-local only (0007 sections 7 and 8, 0017 section 5).
+  privacy: z.strictObject(privacyShape),
+  retention: z.strictObject(retentionShape),
+});
+
 /**
  * The effective configuration of an office: every key set, after defaults and overrides. The
  * `box` block is the one exception: its keys stay optional, and what it leaves out is detected
  * from the repository (`box/image.ts`).
  */
-export const OfficeConfigV10 = z.strictObject({
+export const OfficeConfigV11 = z.strictObject({
   version: z.literal(OFFICE_CONFIG_VERSION),
   ...officeShape,
   // Machine-local only (0007 sections 7 and 8, 0017 section 5).
   privacy: z.strictObject(privacyShape),
   retention: z.strictObject(retentionShape),
 });
-export type OfficeConfig = z.infer<typeof OfficeConfigV10>;
+export type OfficeConfig = z.infer<typeof OfficeConfigV11>;
 /** The `box` block of an office (version 9, DIPO-266), as committed: every key optional. */
 export type OfficeBoxSection = OfficeConfig["box"];
 
@@ -628,6 +678,15 @@ export const OfficeFileV9 = z.strictObject({
 
 /** `.dipo/office.yaml`, version 10: version 9 without `permissions.presentMinutes` (DIPO-285). */
 export const OfficeFileV10 = z.strictObject({
+  version: z.literal(10),
+  ...fileShape(officeShapeV10),
+}) as unknown as z.ZodType<OfficeFileOf<10>>;
+
+/**
+ * `.dipo/office.yaml`, version 11: version 10 plus `story.securityPhrases` and
+ * `story.securityCriteriaPhrases` (DIPO-251).
+ */
+export const OfficeFileV11 = z.strictObject({
   version: z.literal(OFFICE_CONFIG_VERSION),
   ...fileShape(officeShape),
 }) as unknown as z.ZodType<OfficeFile>;
@@ -703,6 +762,12 @@ export const OfficeLocalFileV9 = z.strictObject({
 
 /** `.dipo/office.local.yaml`, version 10: the same keys as version 9 (DIPO-285 adds none here). */
 export const OfficeLocalFileV10 = z.strictObject({
+  version: z.literal(10),
+  ...fileShape(localShape),
+}) as unknown as z.ZodType<OfficeLocalFileOf<10>>;
+
+/** `.dipo/office.local.yaml`, version 11: the same keys as version 10 (DIPO-251 adds none here). */
+export const OfficeLocalFileV11 = z.strictObject({
   version: z.literal(OFFICE_CONFIG_VERSION),
   ...fileShape(localShape),
 }) as unknown as z.ZodType<OfficeLocalFile>;
@@ -756,11 +821,19 @@ export const OfficeOverridesV9 = z.strictObject(
 ) as unknown as z.ZodType<OfficeOverrides>;
 
 /**
- * Overrides from flags on a single command: any `office.yaml` key except `version` and `box`, so
- * without `permissions.presentMinutes` too (DIPO-285).
+ * Overrides from flags on a single command, version 10 keys: any `office.yaml` key except
+ * `version` and `box`, so without `permissions.presentMinutes` too (DIPO-285).
  */
 export const OfficeOverridesV10 = z.strictObject(
   fileShape({ ...officeShapeV8, permissions: PermissionsV10 }),
+) as unknown as z.ZodType<OfficeOverrides>;
+
+/**
+ * Overrides from flags on a single command: any `office.yaml` key except `version` and `box`,
+ * with the R30 story keys (DIPO-251).
+ */
+export const OfficeOverridesV11 = z.strictObject(
+  fileShape({ ...officeShapeV8, permissions: PermissionsV10, story: StoryV11 }),
 ) as unknown as z.ZodType<OfficeOverrides>;
 
 /** The file schemas of each version, for `resolveOfficeConfig`. */
@@ -775,6 +848,7 @@ export const OFFICE_FILE_SCHEMAS: Readonly<Record<OfficeConfigVersion, z.ZodType
   8: OfficeFileV8,
   9: OfficeFileV9,
   10: OfficeFileV10,
+  11: OfficeFileV11,
 };
 export const OFFICE_LOCAL_FILE_SCHEMAS: Readonly<Record<OfficeConfigVersion, z.ZodType>> = {
   1: OfficeLocalFileV1,
@@ -787,6 +861,7 @@ export const OFFICE_LOCAL_FILE_SCHEMAS: Readonly<Record<OfficeConfigVersion, z.Z
   8: OfficeLocalFileV8,
   9: OfficeLocalFileV9,
   10: OfficeLocalFileV10,
+  11: OfficeLocalFileV11,
 };
 
 /** A key that a version retires: nothing reads it any more, and that version's files refuse it. */
@@ -846,6 +921,8 @@ function withoutRetired(document: Record<string, unknown>, version: OfficeConfig
  * Version 8 to 9 is the identity too: without `box` the whole box is detected (DIPO-266).
  * Version 9 to 10 drops `permissions.presentMinutes`, which nothing reads (DIPO-285, `RETIRED_KEYS`);
  * the load warns about it.
+ * Version 10 to 11 is the identity: `story.securityPhrases` and `story.securityCriteriaPhrases`
+ * take their defaults (DIPO-251).
  * Works for both office files; the document must already be valid for its own version.
  */
 export function migrateOfficeDocument(
@@ -862,6 +939,7 @@ export function migrateOfficeDocument(
   if (current.version === 7) current = { ...current, version: 8 };
   if (current.version === 8) current = { ...current, version: 9 };
   if (current.version === 9) current = { ...withoutRetired(current, 10), version: 10 };
+  if (current.version === 10) current = { ...current, version: 11 };
   return current;
 }
 
@@ -986,6 +1064,41 @@ export const OFFICE_DEFAULTS: OfficeConfig = {
       "the PR states",
       "the PR description",
     ],
+    // 0012 section 3 (R30, DIPO-251): a title or Outcome that names a security barrier, and the
+    // criteria parts such a story needs. Design choice of DIPO-251; the office may change them.
+    securityPhrases: [
+      "deny rule",
+      "deny rules",
+      "guard",
+      "guards",
+      "sandbox setting",
+      "sandbox settings",
+      "permission check",
+      "permission checks",
+    ],
+    securityCriteriaPhrases: {
+      oldBarrier: [
+        "old barrier",
+        "old rule",
+        "old guard",
+        "old check",
+        "previous rule",
+        "previously caught",
+        "still catches",
+      ],
+      bypassForms: [
+        "bypass",
+        "bypasses",
+        "wrapper",
+        "wrappers",
+        "quoting",
+        "quoted",
+        "indirection",
+        "chaining",
+        "chained",
+      ],
+      failClosed: ["fail-closed", "fails closed", "fail closed", "real path"],
+    },
     titleMax: 100,
     outcomeMin: 20,
     criterionMin: 10,

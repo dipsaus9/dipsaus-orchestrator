@@ -31,9 +31,25 @@
 //   opens the story's ready PR, or updates the one it has; the review (a pending review of the
 //   reviewer place) and CI (the PR poll's watch of the pushed head) start together on that head
 //   (0019 section 7). Red CI goes back to the worker through the CI loop of 0019 section 8.
+//
+// The report gate (DIPO-186; 0014 and 0008 notes of 2026-10-20, 0021 amendment of 2026-10-22), for
+// every done report before the steps above: the report's test-plan entries and deviations are
+// stored for the run (`done_reports`). Then code checks three things, and one feedback item that
+// names each miss goes back to the worker, with no commit and the run going on:
+// - an automated entry of the story's test plan (read on the office base) that the report does not
+//   mark done, or gives no entry; every such report is refused, manual entries never block, and a
+//   story without a test plan is unchanged;
+// - a decision note whose file is missing at the story branch, or holds no section with that
+//   heading; sent back once per file and section, then left out. Each note that passes is stored in
+//   `decision_notes` with its story and run, also from a report that ends the run (`summarize`);
+// - a worker that edited a file and ran no verify or test command of the office's profile after
+//   its last edit (the turn's tool trail); sent back once per run.
+// A done turn that crossed a cap has no turn left: its test-plan miss parks `verify-failing` with
+// cause `capped`, and the two send-once checks are skipped.
 
 import {
   type Clock,
+  type FieldBlock,
   type OfficeId,
   type ParkReason,
   type RunId,
@@ -46,11 +62,12 @@ import { TASK_FIELD_ERROR } from "../backlog/runner";
 import type { NewEntry } from "../changelog/log";
 import type { OfficeHandle } from "../db/office";
 import { GitError } from "../git/runner";
+import { decisionNoteFeedback, testPlanFeedback, verifyRunFeedback } from "../prompts/feedback";
 import { shownSpec } from "../scan/diff";
 import type { CapabilityName, RunProfile } from "../scan/detect";
 import { LOCKFILES, parseManifest } from "../scan/detect/manifest";
 import { deriveStoryView, storyView } from "../views/story";
-import type { WorkerReport } from "../workers/types";
+import type { WorkerDecisionNote, WorkerReport } from "../workers/types";
 import { DOOR_POLL_MS } from "../box/door";
 import {
   type LastPartAccess,
@@ -69,6 +86,19 @@ import { endRunMarked } from "./markers";
 import type { FiredCap } from "./caps";
 import { PARK_CAUSES } from "./park";
 import { appendRunStep, IN_REVIEW_END, recordGateChanges, type StoredRun } from "./records";
+import {
+  doneReports,
+  type NoteMiss,
+  noteMiss,
+  noteSignature,
+  ranCheckAfterEdit,
+  recordSendBack,
+  sentBack,
+  storeDecisionNotes,
+  storeDoneReport,
+  testPlanGaps,
+  type ToolTrail,
+} from "./report-data";
 import type { StoryGit } from "./story-git";
 import { recordCodeTreeKey, storeRunSummary } from "./verify-records";
 
@@ -210,6 +240,17 @@ export interface TurnContext {
   readonly write: (fn: () => readonly NewEntry[]) => void;
   /** Writes the worker's pending `work.output` before a state change. */
   readonly flushOutput: () => void;
+  /**
+   * The worker's tool trail as of this turn (DIPO-186): its shell commands after its last file
+   * edit. Absent or null when run control did not follow the session from its start.
+   */
+  readonly trail?: ToolTrail | null;
+}
+
+/** The story facts the report gate reads on the office base (`baseStoryFacts`, DIPO-186). */
+export interface ReportGateFacts {
+  readonly fields: FieldBlock;
+  readonly view: { readonly type?: string };
 }
 
 /** What run control asks at the end of a turn. */
@@ -241,6 +282,11 @@ export interface VerifyCommitDeps {
       finish: (last: LastPartAccess) => Promise<T>,
     ): Promise<LastPartFinish<T>>;
   };
+  /**
+   * The story facts on the office base, for the report gate's test-plan check (DIPO-186). Without
+   * it the test plan is not checked.
+   */
+  readonly storyFacts?: (office: OfficeId, run: StoredRun) => Promise<ReportGateFacts>;
   readonly warn?: (message: string, fields: Readonly<Record<string, unknown>>) => void;
 }
 
@@ -274,7 +320,176 @@ export class VerifyCommit implements RunFinisher {
         endKind: "interrupted",
       };
     }
-    return this.#boxDone(ctx, ctx.report);
+    const report = ctx.report;
+    // The report gate (DIPO-186): stored, then its test plan, decision notes and a verify run
+    // after the last edit.
+    const gate = await this.#reportGate(ctx, report);
+    if (gate !== null || !ctx.live()) return gate ?? { kind: "continue" };
+    return this.#boxDone(ctx, report);
+  }
+
+  /**
+   * The report gate of a done report (DIPO-186): stores its test-plan entries and deviations, then
+   * checks its test plan, its decision notes and that a verify or test command ran after the last
+   * edit (every run is a box run, DIPO-240). Null when the report goes on; else the one feedback item, or the park of
+   * a capped turn.
+   */
+  async #reportGate(ctx: TurnContext, report: WorkerReport): Promise<TurnDecision | null> {
+    const { run } = ctx;
+    const office = ctx.office;
+    const at = this.#deps.clock.now();
+    office.immediate(() =>
+      storeDoneReport(office, run.runId, {
+        ...(report.testPlan === undefined ? {} : { testPlan: report.testPlan }),
+        ...(report.deviations === undefined ? {} : { deviations: report.deviations }),
+        at,
+      }),
+    );
+    const items: string[] = [];
+
+    // The test plan, read on the office base; a base that cannot be read leaves it unchecked.
+    const facts = await this.#deps.storyFacts?.(office.officeId, run).catch((error: unknown) => {
+      this.#deps.warn?.("the story's test plan could not be read; it is not checked", {
+        run: run.runId,
+        reason: messageOf(error),
+      });
+      return undefined;
+    });
+    const plan = facts?.fields.test_plan;
+    const type = facts?.view.type;
+    const gaps = testPlanGaps(plan, report.testPlan, type);
+    if (gaps.length > 0) {
+      const text = testPlanFeedback(gaps);
+      if (ctx.capped != null) {
+        return {
+          kind: "park",
+          reason: "verify-failing",
+          cause: PARK_CAUSES.capped,
+          detail: text,
+          endKind: "verify-failing",
+        };
+      }
+      // Every stored done report of the run that left an automated entry open was refused; this
+      // one is stored too. At the cap the story parks instead of another refusal turn.
+      const refusals = doneReports(office, run.runId).filter(
+        (stored) => testPlanGaps(plan, stored.testPlan, type).length > 0,
+      ).length;
+      if (refusals >= TEST_PLAN_REFUSALS_MAX) {
+        return {
+          kind: "park",
+          reason: "verify-failing",
+          cause: PARK_CAUSES.loops,
+          detail: `the done report was refused for its test plan ${refusals} of ${TEST_PLAN_REFUSALS_MAX} times. ${text}`,
+          endKind: "verify-failing",
+        };
+      }
+      items.push(text);
+    }
+
+    // Decision notes: the checked ones are stored now, a miss is sent back once.
+    const checked = await this.#checkNotes(office, run, report.decisionNotes ?? []);
+    const misses =
+      ctx.capped != null
+        ? []
+        : checked.misses.filter(
+            (miss) => !sentBack(office, run.runId, "decision-note", noteSignature(miss.note)),
+          );
+    if (misses.length > 0) {
+      items.push(
+        decisionNoteFeedback(
+          misses.map((miss) => ({
+            file: miss.note.file,
+            section: miss.note.section,
+            miss: miss.miss,
+          })),
+        ),
+      );
+    }
+
+    // A box worker that edited after its last verify or test run gets one turn to run it.
+    const unchecked =
+      ctx.capped == null &&
+      ctx.trail != null &&
+      ctx.trail.edited &&
+      !sentBack(office, run.runId, "verify-run", VERIFY_RUN_SIGNATURE)
+        ? await this.#uncheckedCommand(ctx, ctx.trail)
+        : null;
+    if (unchecked !== null) items.push(verifyRunFeedback(unchecked));
+
+    if (items.length === 0) return null;
+    office.immediate(() => {
+      for (const miss of misses) {
+        recordSendBack(office, run.runId, "decision-note", noteSignature(miss.note), at);
+      }
+      if (unchecked !== null) {
+        recordSendBack(office, run.runId, "verify-run", VERIFY_RUN_SIGNATURE, at);
+      }
+    });
+    if (!ctx.live()) return { kind: "continue" };
+    return { kind: "feedback", text: items.join("\n\n") };
+  }
+
+  /**
+   * The command a box worker is sent back to run, or null when its trail shows one ran after its
+   * last edit or the office names none (DIPO-186): the profile's verify and test commands, and the
+   * root `package.json` scripts `verify` and `test` of the story branch as written there.
+   */
+  async #uncheckedCommand(ctx: TurnContext, trail: ToolTrail): Promise<string | null> {
+    const { run } = ctx;
+    const commands = checkCommands(this.#deps.profile(ctx.office));
+    if (run.branch !== null && run.worktree !== null) {
+      const scripts = scriptsOf(
+        await this.#deps.story
+          .showAt(ctx.office.officeId, run.worktree, `refs/heads/${run.branch}`, "package.json")
+          .catch(() => null),
+      );
+      for (const name of ["verify", "test"]) {
+        const script = scripts[name]?.trim();
+        if (script !== undefined && script !== "") commands.push({ text: script, cwd: "." });
+      }
+    }
+    const first = commands[0];
+    if (first === undefined) return null;
+    return ranCheckAfterEdit(
+      trail,
+      commands.map((command) => command.text),
+    )
+      ? null
+      : runnableCommand(first);
+  }
+
+  /**
+   * Checks each decision note against its file at the story branch (the start commit when the run
+   * has no branch) and stores the notes that pass, with the story and the run (DIPO-186).
+   */
+  async #checkNotes(
+    office: OfficeHandle,
+    run: StoredRun,
+    notes: readonly WorkerDecisionNote[],
+  ): Promise<{ misses: { note: WorkerDecisionNote; miss: NoteMiss }[] }> {
+    const misses: { note: WorkerDecisionNote; miss: NoteMiss }[] = [];
+    if (notes.length === 0 || run.key === null || run.worktree === null) return { misses };
+    const ref = run.branch !== null ? `refs/heads/${run.branch}` : run.startSha;
+    const passed: WorkerDecisionNote[] = [];
+    for (const note of notes) {
+      const text =
+        ref === null
+          ? null
+          : await this.#deps.story
+              .showAt(office.officeId, run.worktree, ref, note.file)
+              .catch(() => null);
+      const miss = noteMiss(note, text);
+      if (miss === null) passed.push(note);
+      else misses.push({ note, miss });
+    }
+    if (passed.length > 0) {
+      const key = run.key;
+      const at = this.#deps.clock.now();
+      office.immediate(() =>
+        storeDecisionNotes(office, { key, runId: run.runId, notes: passed, at }),
+      );
+    }
+    return { misses };
   }
 
   /**
@@ -411,6 +626,18 @@ export class VerifyCommit implements RunFinisher {
     office.immediate(() =>
       storeRunSummary(office, run.runId, { report, diffstat, at: this.#deps.clock.now() }),
     );
+    // The decision notes of the report that ended the run: those that check out are kept for the
+    // maintainer; no turn is left to send a miss back (DIPO-186).
+    const notes = report?.decisionNotes ?? [];
+    if (notes.length > 0) {
+      const { misses } = await this.#checkNotes(office, run, notes);
+      if (misses.length > 0) {
+        this.#deps.warn?.("decision notes that do not check out were left out", {
+          run: run.runId,
+          notes: misses.length,
+        });
+      }
+    }
   }
 
   async #diffstat(office: OfficeId, run: StoredRun): Promise<string> {
@@ -569,4 +796,48 @@ function loopsOf(office: OfficeHandle, runId: RunId): number {
       { run: runId },
     )?.n ?? 0
   );
+}
+
+/**
+ * The done reports a run may have refused for its test plan (DIPO-186): the one that reaches it
+ * parks `verify-failing` with cause `loops` instead of another refusal turn, so a worker that
+ * cannot finish an automated entry does not loop until a budget cap.
+ */
+export const TEST_PLAN_REFUSALS_MAX = 3;
+
+/** The send-once signature of the verify-run check: once per run. */
+const VERIFY_RUN_SIGNATURE = "run";
+
+/** A verify or test command of the office (DIPO-186): its bare text and the folder it runs in. */
+export interface CheckCommand {
+  /** The command as typed, without its folder, for matching a shell line. */
+  readonly text: string;
+  /** Repo-relative folder; `.` for the root. */
+  readonly cwd: string;
+}
+
+/**
+ * The office's verify and test commands as a worker would type them (DIPO-186), verify first; one
+ * per command of each resolved capability. Empty when the profile resolves neither.
+ */
+export function checkCommands(profile: RunProfile | null): CheckCommand[] {
+  const found: CheckCommand[] = [];
+  for (const name of ["verify", "test"] as const) {
+    const capability = profile?.capabilities[name];
+    if (capability?.status !== "resolved") continue;
+    for (const command of capability.value.commands) {
+      if (command.length === 0) continue;
+      const text = shownSpec({ commands: [command], cwd: "." });
+      const cwd = capability.value.cwd;
+      if (!found.some((seen) => seen.text === text && seen.cwd === cwd)) found.push({ text, cwd });
+    }
+  }
+  return found;
+}
+
+/** Pure: a check command as the worker runs it from the root: `cd <dir> && <cmd>` off the root. */
+export function runnableCommand(command: CheckCommand): string {
+  return command.cwd === "." || command.cwd === ""
+    ? command.text
+    : `cd ${command.cwd} && ${command.text}`;
 }

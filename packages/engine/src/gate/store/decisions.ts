@@ -8,11 +8,15 @@ import type { GateId, IdSource, StoryKey } from "@dipsaus-orchestrator/contract"
 import type { OfficeHandle } from "../../db/office";
 import { GATE_RULES, type GateMode, type GateResult, type GateRule } from "../types";
 
-/** One rule's result as stored: passed, or failed with every message it gave. */
+/**
+ * One rule's result as stored: passed, or failed with every message it gave. A rule that only
+ * warns (R29) always passed, with its warnings, when it gave any (DIPO-251).
+ */
 export interface RuleResult {
   readonly rule: GateRule;
   readonly passed: boolean;
   readonly messages: readonly string[];
+  readonly warnings?: readonly string[];
 }
 
 /** A stored Ready gate decision. */
@@ -32,13 +36,21 @@ export function ruleNamesFor(mode: GateMode): GateRule[] {
   return [mode === "ready" ? "R01a" : "R01b", ...shared];
 }
 
-/** Every rule of the result's mode with its failures; a rule with none passed. */
+/** Every rule of the result's mode with its failures and warnings; a rule with no failure passed. */
 export function ruleResults(result: GateResult): RuleResult[] {
   return ruleNamesFor(result.mode).map((rule) => {
     const messages = result.failures
       .filter((failure) => failure.rule === rule)
       .map((failure) => failure.message);
-    return { rule, passed: messages.length === 0, messages };
+    const warnings = (result.warnings ?? [])
+      .filter((warning) => warning.rule === rule)
+      .map((warning) => warning.message);
+    return {
+      rule,
+      passed: messages.length === 0,
+      messages,
+      ...(warnings.length === 0 ? {} : { warnings }),
+    };
   });
 }
 

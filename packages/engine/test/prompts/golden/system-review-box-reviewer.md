@@ -36,6 +36,7 @@ The task message holds these sections, in this order, each in its own tag. A sec
 - `<criteria>`: the acceptance criteria, numbered.
 - `<scope>`: the paths the change may touch.
 - `<test_plan>`: the test plan entries, numbered.
+- `<worker_report>`: what the worker reported when it said done: each test plan entry with its status and evidence, and where the change differs from a criterion or the context, and why. It is the worker's own account: check it against the diff, and judge a deviation as you judge the change.
 - `<answers>`: questions about this story the maintainer has answered.
 - `<previous_findings>`: what the previous review round found. Check whether the change fixed each one.
 - `<commit>`: the pushed commit and the read-only folder that holds it. Always last.

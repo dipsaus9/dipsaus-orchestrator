@@ -1,5 +1,6 @@
 // `dipo gate <id>` (DIPO-71): sends the read `story.gate` for the office of `--office` or of the
 // current directory, prints `ready <ID> passed` or each failure line, and exits 1 on a failure.
+// Warnings (R29, DIPO-251) are printed after the verdict and do not change the exit code.
 
 import { describe, expect, it } from "bun:test";
 
@@ -184,6 +185,31 @@ describe("dipo gate", () => {
     );
     expect(await main(["gate", "DIPO-7"], ctx.deps)).toBe(1);
     expect(ctx.out).toEqual([failure, "waits on DIPO-3 (missing)"]);
+  });
+
+  it("prints each warning after the verdict and keeps the exit code (R29, DIPO-251)", async () => {
+    const warning =
+      "ready DIPO-7 warning R29: test plan entry #1 names packages/daemon/x.ts, which no Reference covers; add it to the References or drop it from the plan";
+    const warnings = [{ rule: "R29", message: warning }];
+    const passing = fake(
+      () => ({
+        ok: true,
+        result: { ...result(true).result, warnings, waitingOn: [{ id: "DIPO-3" }] },
+      }),
+      IN_OFFICE,
+    );
+    expect(await main(["gate", "DIPO-7"], passing.deps)).toBe(0);
+    expect(passing.out).toEqual(["ready DIPO-7 passed", warning, "waits on DIPO-3 (missing)"]);
+    const failure = "ready DIPO-7 failed R07: milestone is missing or does not exist";
+    const failing = fake(
+      () => ({
+        ok: true,
+        result: { ...result(false, [{ rule: "R07", message: failure }]).result, warnings },
+      }),
+      IN_OFFICE,
+    );
+    expect(await main(["gate", "DIPO-7"], failing.deps)).toBe(1);
+    expect(failing.out).toEqual([failure, warning]);
   });
 
   it("prints an engine error and exits 1", async () => {

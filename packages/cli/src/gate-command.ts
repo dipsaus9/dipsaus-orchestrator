@@ -1,6 +1,7 @@
 // `dipo gate <id> [--office <id>]` (DIPO-71, M0 breakdown decision D3): the read-only Ready gate
 // check. It sends the read `story.gate` and prints `ready <ID> passed`, or each failure message on
-// its own line and exits 1. The office comes from `--office`, else from the repository around the
+// its own line and exits 1. Each warning (R29, DIPO-251) is printed on its own line after that and
+// does not change the exit code. The office comes from `--office`, else from the repository around the
 // current directory, as for `dipo office`.
 
 import { StoryId, StoryKey, type StoryRefValue, storyGate } from "@dipsaus-orchestrator/contract";
@@ -54,12 +55,13 @@ export async function gateCommand(
         ? "unknown"
         : engineFailure(deps, outcome.error);
     }
-    const { passed, failures, waitingOn = [] } = outcome.result;
+    const { passed, failures, waitingOn = [], warnings = [] } = outcome.result;
     if (passed) {
       deps.writeLine(`ready ${outcome.result.story} passed`);
     } else {
       for (const failure of failures) deps.writeLine(failure.message);
     }
+    for (const warning of warnings) deps.writeLine(warning.message);
     // The verdict does not depend on open dependencies, but pickup skips the story until they are Done.
     if (waitingOn.length > 0) {
       const list = waitingOn.map((dep) => `${dep.id} (${dep.status ?? "missing"})`);

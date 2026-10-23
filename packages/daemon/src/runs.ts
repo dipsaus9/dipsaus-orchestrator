@@ -37,6 +37,7 @@ import {
   AppleContainerBoxes,
   appendEntries,
   BOX_INDEX_DIR,
+  baseStoryFacts,
   BoxCollisions,
   type BoxBuildNetwork,
   type BoxNetwork,
@@ -738,6 +739,8 @@ export function daemonRuns(options: DaemonRunsOptions): DaemonRuns {
     story: storyGit,
     profile: (office) => currentProfile(office)?.profile ?? null,
     ...(options.storyPr === undefined ? {} : { storyPr: options.storyPr }),
+    // The report gate reads the story's test plan on the office base (DIPO-186).
+    storyFacts: baseStoryFacts(options.base),
     // A box run has no backstop, scope check or verify of dipo's (DIPO-273, DIPO-299): its last
     // part is taken at done and its end claimed while its parts are held; CI is its verify.
     ...(boxed === null

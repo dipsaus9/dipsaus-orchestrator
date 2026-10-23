@@ -23,6 +23,10 @@
 //   the live-question rule first (DIPO-272, 0021 section 11): while a TUI is connected it is asked
 //   live (`RunControlDeps.questions`) and the worker waits on stdin for the answer, with no park; if
 //   the last TUI closes while it waits, `parkOnQuestion` parks it then.
+// - Report data (DIPO-186). The proposals of every report, done or blocked, are stored for the
+//   maintainer (`storeProposals`, deduplicated by title and paths); storing them changes nothing
+//   about the story, the run or the commit. Each tool call with an effect (a file edit, a shell
+//   command) joins the run's tool trail, which verify and commit reads at done.
 // - `work.stop { story, note? }`. A story with no active run fails `story.notRunning`. Otherwise
 //   the engine records a `stop` intent, sends the stop sequence through the host (the adapter's
 //   `encode`: a now-priority message, stdin closed, SIGTERM after 10 s, SIGKILL after 30 s) and
@@ -75,6 +79,7 @@ import {
   disarm,
   EVENT_FILE_CHANGED,
   INTERRUPTED_END,
+  messageOf,
   type ReconcileNotice,
   RECONCILED_END,
   type RunControlDeps,
@@ -91,6 +96,7 @@ import { outcomeOfIntent, resolveIntent } from "./intents";
 import { initRejectedEnding, type RunAct, type RunEnder, startRefusedAct } from "./outcome-types";
 import { PARK_CAUSES, type ParkOutcome } from "./park";
 import { findRun, type StoredRun } from "./records";
+import { emptyTrail, followTool, storeProposals } from "./report-data";
 
 export {
   CAP_TICK_MS,
@@ -293,6 +299,12 @@ export class RunControl implements RunEnder {
         });
       }
       if (event.t === "modelSwitched") outcomes?.onModelSwitched(viewOf(tracked), event.to);
+      if (event.t === "activity" && event.kind === "tool" && event.effect !== undefined) {
+        followTool((tracked.trail ??= emptyTrail()), event.effect, event.input);
+      }
+      if (event.t === "turn" && (event.report?.proposals?.length ?? 0) > 0) {
+        this.#storeProposals(tracked, event.report as WorkerReport);
+      }
       if (event.t === "turn") {
         // A done report on the turn that crosses a cap takes the done path (0008 amendment of
         // 2026-10-19, DIPO-205); without a finisher nothing could commit it, so the cap parks.
@@ -362,6 +374,30 @@ export class RunControl implements RunEnder {
         this.#cap(tracked, fired.cap, fired.detail);
         return;
       }
+    }
+  }
+
+  /**
+   * Stores a report's proposals (DIPO-186); a failure is logged and decides nothing, since the
+   * proposals change nothing about the run.
+   */
+  #storeProposals(tracked: Tracked, report: WorkerReport): void {
+    const office = this.#deps.offices.get(tracked.office);
+    if (office === undefined) return;
+    try {
+      office.immediate(() =>
+        storeProposals(office, {
+          key: tracked.work.key,
+          runId: tracked.runId,
+          proposals: report.proposals ?? [],
+          at: this.#deps.clock.now(),
+        }),
+      );
+    } catch (error) {
+      this.#deps.warn?.("storing a report's proposals failed", {
+        run: tracked.runId,
+        reason: messageOf(error),
+      });
     }
   }
 
