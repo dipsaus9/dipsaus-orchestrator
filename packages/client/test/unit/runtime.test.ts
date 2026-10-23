@@ -60,7 +60,6 @@ const code = (env: Record<string, string>) => dirRefusal(env, "darwin", "/Users/
 
 // DIPO-316: the client refuses what the daemon refuses, with the same codes.
 describe("dirRefusal", () => {
-
   it("accepts usable overrides and none", () =>
     withTempDir((dir) => {
       const run = join(dir, "run");
