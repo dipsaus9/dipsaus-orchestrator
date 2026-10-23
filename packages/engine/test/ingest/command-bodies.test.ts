@@ -75,9 +75,10 @@ const LINES: HostLine[] = [
 async function ingest(
   dir: string,
   storeCommandBodies: boolean | undefined,
+  lines: readonly HostLine[] = LINES,
 ): Promise<IngestFixture> {
   const f = await ingestFixture(dir);
-  appendLines(f.eventFile, LINES);
+  appendLines(f.eventFile, [...lines]);
   new Ingestor({
     office: f.office,
     clock: f.t.clock,
@@ -232,4 +233,50 @@ describe("stored output is cleaned of terminal control characters (DIPO-313)", (
       ).toBe("[tool] Bash ls -l\n");
     });
   }
+});
+
+// DIPO-312: a stored tool line holds no credential-shaped value, with the input stored (the
+// default of the office configuration) and in the path.
+describe("stored tool lines are scrubbed of credentials (DIPO-312)", () => {
+  const TOKEN = `ghp_${"Z9y8".repeat(10)}`;
+  const KEY = `sk-ant-api03-${"q".repeat(40)}`;
+  const REMOTE = "https://x-access-token:hunter2hunter2@github.com/o/r.git";
+  const SCRUB_LINES: HostLine[] = [
+    assistant(1, "msg-1", [
+      {
+        type: "tool_use",
+        id: "toolu-1",
+        name: "Bash",
+        input: { command: `git push ${REMOTE} HEAD && curl -H "x-api-key: ${KEY}" -d ${TOKEN}` },
+      },
+    ]),
+    assistant(2, "msg-2", [
+      { type: "tool_use", id: "toolu-2", name: "Read", input: { file_path: `notes/${TOKEN}.md` } },
+    ]),
+    { t: 3, ch: "exit", data: JSON.stringify({ code: 0, signal: null }) },
+  ];
+
+  it("replaces every secret shape and credentialed URL by [redacted] before it is stored", () =>
+    withTempDir(async (dir) => {
+      const f = await ingest(dir, true, SCRUB_LINES);
+      expect(storedOutput(f.office, f.run)).toBe(
+        [
+          '[tool] Bash git push [redacted] HEAD && curl -H "x-api-key: [redacted]" -d [redacted]',
+          "[tool] Read notes/[redacted].md",
+          "",
+        ].join("\n"),
+      );
+      expect(workOutputText(f)).not.toContain(TOKEN);
+      f.t.state.close();
+      const bytes = databaseBytes(dir);
+      for (const secret of [TOKEN, KEY, "hunter2hunter2"]) expect(bytes).not.toContain(secret);
+    }));
+
+  it("scrubs before it cuts, so a cut never leaves part of a secret", () => {
+    const input = `${"x ".repeat(INPUT_MAX_CHARS / 2 - 5)}${TOKEN}`;
+    const line = toolLine("Bash", undefined, input);
+    expect(line).not.toContain("ghp_");
+    expect(line).not.toContain("Z9y8");
+    expect(toolLine("Bash", undefined, `echo ${KEY}`)).toBe("[tool] Bash echo [redacted]\n");
+  });
 });

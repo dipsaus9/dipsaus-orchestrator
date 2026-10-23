@@ -107,6 +107,70 @@ describe("the protected list", () => {
     }
   });
 
+  it("names the configuration of the tools dipo runs on checkouts (DIPO-312)", () => {
+    for (const [path, kind] of [
+      // The Backlog CLI: every place Backlog.md 1.53 reads its configuration from.
+      ["backlog.config.yml", "backlogConfig"],
+      ["Backlog.Config.YML", "backlogConfig"],
+      [".backlog/config.yml", "backlogConfig"],
+      [".backlog/config.yaml", "backlogConfig"],
+      [".backlog/tasks/task-1 - x.md", "backlogConfig"],
+      ["backlog/config.yml", "backlog"],
+      ["backlog/config.yaml", "backlog"],
+      // Bun, in any folder it may run in.
+      ["bunfig.toml", "bunConfig"],
+      ["packages/engine/bunfig.toml", "bunConfig"],
+      ["BUNFIG.toml", "bunConfig"],
+      [".bunfig.toml", "bunConfig"],
+      // Claude Code's MCP servers.
+      [".mcp.json", "mcpConfig"],
+      [".MCP.json", "mcpConfig"],
+    ] as const) {
+      expect([path, protectedKind(path)]).toEqual([path, kind]);
+    }
+    const fullwidthM = String.fromCodePoint(0xff4d);
+    expect(protectedKind(`.${fullwidthM}cp.json`)).toBe("mcpConfig");
+    expect(protectedKind(`bunfig.to${String.fromCodePoint(0xff4d)}l`)).toBe("bunConfig");
+    for (const path of [
+      "docs/backlog.config.yml",
+      "src/.mcp.json",
+      "mcp.json",
+      "bunfig.toml.md",
+      "docs/bunfig.md",
+      "backlog-config.yml",
+    ]) {
+      expect([path, protectedKind(path)]).toEqual([path, null]);
+    }
+  });
+
+  it("names the configuration in the backlog folder backlog.config.yml names", () => {
+    for (const [path, kind] of [
+      ["planning/board/config.yml", "backlogConfig"],
+      ["Planning/Board/CONFIG.yaml", "backlogConfig"],
+      ["planning/board/tasks/task-1 - x.md", null],
+      ["planning/config.yml", null],
+    ] as const) {
+      expect([path, protectedKind(path, "planning/board")]).toEqual([path, kind]);
+    }
+    expect(protectedKind("planning/board/config.yml")).toBeNull();
+    const changes: PartChange[] = [{ path: "planning/board/config.yml", kind: "deleted" }];
+    expect(protectedHits(changes, [], "planning/board").kinds).toEqual(["backlogConfig"]);
+    expect(protectedHits(changes, []).kinds).toEqual([]);
+  });
+
+  it("names each tool-configuration kind in the park detail", () => {
+    const changes: PartChange[] = [
+      { path: "bunfig.toml", kind: "deleted" },
+      { path: ".mcp.json", kind: "added", mode: "100644", id: "1", at: "/x" },
+      { path: "backlog.config.yml", kind: "changed", mode: "100644", id: "2", at: "/y" },
+    ];
+    const hits = protectedHits(changes, []);
+    expect(hits.kinds).toEqual(["backlogConfig", "bunConfig", "mcpConfig"]);
+    expect(protectedDetail(hits.kinds)).toBe(
+      "The part the worker delivered changes protected files: the Backlog CLI's configuration (backlog.config.yml, .backlog/); Bun's configuration (bunfig.toml); Claude Code's MCP server configuration (.mcp.json). dipo committed and pushed nothing, and the change stays in the box. Only dipo or the maintainer writes these files.",
+    );
+  });
+
   it("folds case and Unicode as the volume does, and catches look-alike names", () => {
     const longS = String.fromCodePoint(0x17f);
     const fullwidthB = String.fromCodePoint(0xff42);

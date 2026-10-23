@@ -28,10 +28,13 @@ jobs:
         with:
           bun-version-file: .bun-version
       # `bun audit` reads `bun.lock`; no install is needed.
-      # Ignored advisories (maintainer decision, 2026-10-13); remove each once a fixed version ships:
-      # - GHSA-86w9-cpqp-85rv: node-forge <=1.4.0 via @anthropic-ai/sandbox-runtime 0.0.79. No
-      #   fixed node-forge or sandbox-runtime release exists yet; Renovate's vulnerability alert
-      #   opens a PR when one does.
+      # Ignored advisories (maintainer decision, 2026-10-13). Each entry names its tracking story
+      # and the dependency version that ends it; scripts/release-path.test.ts checks that every
+      # --ignore below has such an entry. Renovate opens a vulnerability PR when a fixed version
+      # ships; the tracking story then removes the ignore.
+      # - GHSA-86w9-cpqp-85rv: node-forge <=1.4.0 via @anthropic-ai/sandbox-runtime 0.0.79.
+      #   Tracking story: DIPO-329. Ends with: node-forge >1.4.0 in bun.lock (no fixed release exists
+      #   on 2026-10-23; sandbox-runtime 0.0.81 still depends on node-forge ^1.4.0).
       - name: bun audit --audit-level=high
         run: |
           set +e

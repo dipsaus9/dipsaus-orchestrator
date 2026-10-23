@@ -1,0 +1,9 @@
+# The release path needs the maintainer's approval before it merges (DIPO-321): CI, the release
+# workflow, install.sh and the release-please config, and the Renovate config that limits automerge.
+# GitHub reads this file from the base branch, so a PR cannot take itself out of it. It takes effect
+# with the "Require review from Code Owners" rule on main (docs/release.md, one-time step 7).
+/.github/ @dipsaus9
+/install.sh @dipsaus9
+/release-please-config.json @dipsaus9
+/.release-please-manifest.json @dipsaus9
+/renovate.json @dipsaus9

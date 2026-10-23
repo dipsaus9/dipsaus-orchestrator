@@ -49,8 +49,9 @@
 //   folder, from git objects), and once the branch moved the branch's status is written back
 //   through the single field write path (`taskStatus`). A conflict in any other protected path
 //   (`protectedKind`: the rest of `backlog/`, `.dipo/`, `.github/`, the Claude settings, git's
-//   attribute files), or a task-file conflict other than in its content, merges nothing, into
-//   neither the branch nor the box, and parks `conflict` with cause `unwritable-path`.
+//   attribute files, and the configuration of the Backlog CLI, Bun and Claude Code's MCP servers),
+//   or a task-file conflict other than in its content, merges nothing, into neither the branch nor
+//   the box, and parks `conflict` with cause `unwritable-path`.
 // - The sync before In Review (`syncInTurn`, DIPO-149): verify and commit runs the same catch-up
 //   at done, in the run's held turn, for a riskier story whenever the base moved and for any other
 //   on a conflict; the caller tells the worker. Both are planned on git's merge alone, never on the
@@ -746,8 +747,9 @@ export type CatchUpPlan =
   /**
    * The merge conflicts in paths the worker cannot write (0019 section 10): any protected path
    * (`protectedKind`: `backlog/`, `.dipo/`, `.github/`, the Claude settings, git's attribute
-   * files) other than the story's own task file, or that task file conflicting other than in its
-   * content. Nothing is merged.
+   * files, and the configuration of the Backlog CLI, Bun and Claude Code's MCP servers) other than
+   * the story's own task file, or that task file conflicting other than in its content. Nothing is
+   * merged.
    */
   | {
       readonly kind: "unwritable";

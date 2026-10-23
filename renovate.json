@@ -1,6 +1,6 @@
 {
   "$schema": "https://docs.renovatebot.com/renovate-schema.json",
-  "description": "Decision 0016 rules 10 and 11. Checked by scripts/renovate-config.test.ts.",
+  "description": "Decision 0016 rules 10 and 11; lockfile maintenance never automerges (DIPO-321). Checked by scripts/renovate-config.test.ts.",
   "extends": [
     "config:recommended",
     "helpers:pinGitHubActionDigests",
@@ -16,8 +16,7 @@
   "osvVulnerabilityAlerts": true,
   "lockFileMaintenance": {
     "enabled": true,
-    "automerge": true,
-    "automergeType": "pr",
+    "automerge": false,
     "schedule": ["* 0-3 1 * *"]
   },
   "packageRules": [
