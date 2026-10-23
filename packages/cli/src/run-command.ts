@@ -26,7 +26,7 @@ import {
   workRun,
 } from "@dipsaus-orchestrator/contract";
 
-import { type DaemonSession, engineFailure, usage } from "./daemon-commands";
+import { cleanedOutput, type DaemonSession, engineFailure, usage } from "./daemon-commands";
 import { type OfficeCommandDeps, parseOptions, withOffice } from "./office-commands";
 
 /**
@@ -261,8 +261,9 @@ export function storyRef(text: string): StoryRefValue | null {
 
 export async function runCommand(
   args: readonly string[],
-  deps: OfficeCommandDeps,
+  plainDeps: OfficeCommandDeps,
 ): Promise<number> {
+  const deps = cleanedOutput(plainDeps);
   const stories: StoryRefValue[] = [];
   const rest: string[] = [];
   let preview = false;

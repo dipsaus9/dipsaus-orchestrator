@@ -43,12 +43,8 @@ import { BOX_HOST_ADDRESS, FakeBoxes, type LiveReply } from "./fake-boxes";
 const encoder = new TextEncoder();
 const ESC = "\u001b";
 const RLO = String.fromCodePoint(0x202e);
-const LRI = String.fromCodePoint(0x2066);
-const PDI = String.fromCodePoint(0x2069);
 const ZWSP = String.fromCodePoint(0x200b);
-const BOM = String.fromCodePoint(0xfeff);
 const TAG_A = String.fromCodePoint(0xe0041);
-const LINE_SEPARATOR = String.fromCodePoint(0x2028);
 
 /**
  * A fake box whose exec runs dipo's command with the host's shell, on `queue` in place of the
@@ -352,34 +348,8 @@ describe("the checks on every message (criterion 3)", () => {
       expect(read.parts.map((part) => part.message)).toEqual(["Fix red text\nbelldone"]);
     }));
 
-  it("removes bidi overrides and isolates, hidden characters and tag characters", () => {
-    const text = `Fix ${RLO}gnp.exe${LRI}x${PDI} ${ZWSP}${BOM}a${TAG_A}b${LINE_SEPARATOR}c`;
-    expect(cleanDoorText(text)).toBe("Fix gnp.exex ab\nc");
-    expect(cleanDoorText(String.fromCharCode(0xd800))).toBe(String.fromCodePoint(0xfffd));
-  });
-
-  it("removes an escape with the whole astral character after it, never half of one", () => {
-    const text = cleanDoorText(`${ESC}${String.fromCodePoint(0x1f600)}after`);
-    expect(text).toBe("after");
-    expect(text.isWellFormed()).toBe(true);
-    expect(cleanDoorText(`a${ESC}`).isWellFormed()).toBe(true);
-  });
-
-  it("removes variation selectors, joiners, fillers and the other invisible characters", () => {
-    for (const point of [
-      0xe0100, 0xe01ef, 0xfe00, 0xfe0f, 0x180e, 0x00ad, 0x034f, 0x115f, 0x1160, 0x3164, 0x200c,
-      0x200d,
-    ]) {
-      expect([point, cleanDoorText(`a${String.fromCodePoint(point)}b`)]).toEqual([point, "ab"]);
-    }
-  });
-
-  it("keeps ordinary text, tabs, accents and emoji, and is idempotent", () => {
-    const text = "Café\tnaïve 👍🏽 日本語\nnext line";
-    expect(cleanDoorText(text)).toBe(text);
-    const dirty = `${ESC}[1mBold${ESC}[0m ${RLO}x${ESC}P1;2q${ESC}\\ ok`;
-    expect(cleanDoorText(cleanDoorText(dirty))).toBe(cleanDoorText(dirty));
-    expect(cleanDoorText(dirty)).toBe("Bold x ok");
+  it("cleans a part message with the shared cleaner", () => {
+    expect(cleanDoorText(`a${ESC}[31mb${RLO}`)).toBe("ab");
   });
 
   it("checks a part's bytes: the size limit first, then UTF-8, then the schema", () => {

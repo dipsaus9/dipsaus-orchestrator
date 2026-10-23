@@ -4,7 +4,7 @@
 
 import { describe, expect, it } from "bun:test";
 
-import type { OutputMarker } from "@dipsaus-orchestrator/contract";
+import { type OutputMarker, SEQUENCE_SAMPLES } from "@dipsaus-orchestrator/contract";
 
 import {
   byteLength,
@@ -164,6 +164,13 @@ describe("output lines", () => {
     expect(cleanLine("\u001b[31mFAIL\u001b[0m\ta")).toBe("FAIL  a");
     expect(cleanLine("10%\r50%\r100%")).toBe("100%");
     expect(cleanLine("bell\u0007")).toBe("bell");
+  });
+
+  it("shows each sequence class as plain text (DIPO-313)", () => {
+    for (const [name, sample] of Object.entries(SEQUENCE_SAMPLES)) {
+      expect([name, cleanLine(`a${sample}b\tc`)]).toEqual([name, "ab  c"]);
+      expect([name, splitLines(`x${sample}y\nz`)]).toEqual([name, ["xy", "z"]]);
+    }
   });
 
   it("splits on newlines without an empty last line, and wraps to the width", () => {
