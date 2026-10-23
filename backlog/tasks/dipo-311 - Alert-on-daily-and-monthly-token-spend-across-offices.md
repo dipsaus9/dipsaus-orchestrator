@@ -1,10 +1,10 @@
 ---
 id: DIPO-311
 title: Alert on daily and monthly token spend across offices
-status: Refined
+status: Ready
 assignee: []
 created_date: '2026-10-22 20:56'
-updated_date: '2026-10-22 20:56'
+updated_date: '2026-10-23 10:44'
 labels:
   - 'tier:M'
   - 'slice:m1b'
