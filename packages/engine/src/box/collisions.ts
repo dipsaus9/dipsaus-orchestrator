@@ -1035,25 +1035,10 @@ export interface CatchUpMerged {
   /** The story's own task file when dipo resolved a conflict in it, else null. */
   readonly taskFile: string | null;
   /**
-   * True for a merge of the story's own remote branch (a resumed `push-rejected` park, DIPO-324):
-   * it brings in commits no review saw, so it is never a clean merge an approval carries over.
-   */
-  readonly remote?: true;
-  /**
    * True for a merge dipo committed on the branch outside the box (the merge slot's sync,
    * DIPO-324): the box gets it only before the run's next developer session (`copyPending`).
    */
   readonly outsideBox?: true;
-}
-
-/**
- * What a merge of a resumed `conflict` park merges instead of the base (DIPO-324): the story's own
- * branch on the remote after a rejected push, by its name and ref.
- */
-export interface MergeSource {
-  /** The name the merge's subject and notice give it, `<remote>/<branch>`. */
-  readonly base: string;
-  readonly ref: string;
 }
 
 /** A conflict the check of a story In Review found; nothing merged (0019 section 10). */
@@ -1328,12 +1313,12 @@ export class BoxCollisions {
 
   /**
    * The merge a maintainer resume of a `conflict` park asks for once its new session runs in the
-   * box (DIPO-324, 0020 section 2): whatever the box holds goes first, then the base, or `source`
-   * (the story's own remote branch after a rejected push), is merged into the story branch and the
-   * box as a catch-up is, whenever it moved, never on the overlap of changed files. Nothing is told
-   * to the worker and nothing parks here: the caller decides from the outcome.
+   * box (DIPO-324, 0020 section 2): whatever the box holds goes first, then the base is merged into
+   * the story branch and the box as a catch-up is, whenever it moved, never on the overlap of
+   * changed files. Nothing is told to the worker and nothing parks here: the caller decides from
+   * the outcome.
    */
-  async mergeOnResume(run: PartRun, source?: MergeSource): Promise<SyncOutcome> {
+  async mergeOnResume(run: PartRun): Promise<SyncOutcome> {
     const git = this.#deps.git(run.office);
     if (git === undefined) return { kind: "none" };
     const before = await this.#deps.parts.deliverLast(run.runId, CATCH_UP_PART_MESSAGE);
@@ -1341,12 +1326,12 @@ export class BoxCollisions {
     if (park !== null) return { kind: "park", park };
     if (before.kind === "stopped") return { kind: "stopped" };
     return this.#deps.parts.inTurn(run.runId, async (): Promise<SyncOutcome> => {
-      const plan = await this.#plan(git, run, false, "always", undefined, source);
+      const plan = await this.#plan(git, run, false, "always");
       if (plan === null || plan.kind === "current" || plan.kind === "apart") {
         return { kind: "none" };
       }
       if (plan.kind === "unwritable") return { kind: "park", park: this.#unwritable(run, plan) };
-      return this.#catchUp(git, run, "always", source);
+      return this.#catchUp(git, run, "always");
     });
   }
 
@@ -1555,10 +1540,9 @@ export class BoxCollisions {
     write: boolean,
     mode: CatchUpMode,
     scratch?: string,
-    source?: MergeSource,
   ): Promise<(CatchUpPlan & { readonly base: string }) | null> {
     return git.run(async (session) => {
-      const base = source === undefined ? await baseRefOf(git, session) : source;
+      const base = await baseRefOf(git, session);
       if (base === null) return null;
       const plan = await planCatchUp(session, {
         branch: run.branch,
@@ -1585,15 +1569,10 @@ export class BoxCollisions {
   }
 
   /** The catch-up itself, in the run's turn (see the file comment). */
-  async #catchUp(
-    git: OfficeGit,
-    run: PartRun,
-    mode: CatchUpMode,
-    source?: MergeSource,
-  ): Promise<SyncOutcome> {
+  async #catchUp(git: OfficeGit, run: PartRun, mode: CatchUpMode): Promise<SyncOutcome> {
     const scratch = await realpath(await mkdtemp(join(this.#deps.tmpRoot, CATCH_UP_STAGE_PREFIX)));
     try {
-      return await this.#catchUpWith(git, run, mode, scratch, source);
+      return await this.#catchUpWith(git, run, mode, scratch);
     } finally {
       await rm(scratch, { recursive: true, force: true });
     }
@@ -1604,11 +1583,10 @@ export class BoxCollisions {
     run: PartRun,
     mode: CatchUpMode,
     scratch: string,
-    source?: MergeSource,
   ): Promise<SyncOutcome> {
     for (let attempt = 1; attempt <= CATCH_UP_ATTEMPTS; attempt += 1) {
       if (!this.#deps.live(run.runId)) return { kind: "stopped" };
-      const plan = await this.#plan(git, run, true, mode, scratch, source);
+      const plan = await this.#plan(git, run, true, mode, scratch);
       if (plan === null || plan.kind === "current" || plan.kind === "apart")
         return { kind: "none" };
       if (plan.kind === "unwritable") return { kind: "park", park: this.#unwritable(run, plan) };
@@ -1652,7 +1630,7 @@ export class BoxCollisions {
       } finally {
         await staged.remove();
       }
-      return this.#finish(git, run, { ...plan, commit }, changes, source !== undefined);
+      return this.#finish(git, run, { ...plan, commit }, changes);
     }
     return { kind: "none" };
   }
@@ -1670,7 +1648,6 @@ export class BoxCollisions {
       readonly commit: string;
     },
     changes: BoxChanges,
-    remote = false,
   ): Promise<SyncOutcome> {
     const subject = `Merge ${plan.base} into ${run.branch}`;
     const moved = await git.run((session) =>
@@ -1690,7 +1667,6 @@ export class BoxCollisions {
       commit: plan.commit,
       conflicts: plan.conflicts,
       taskFile: plan.taskFile,
-      ...(remote ? { remote: true as const } : {}),
     };
     await this.#deps.recorded?.(run, merged).catch((error: unknown) => {
       this.#deps.warn?.("a catch-up could not be recorded", {

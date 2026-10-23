@@ -444,6 +444,19 @@ function conflictResumesOf(
     offices: ports.offices,
     git: ports.git,
     merge,
+    tmpRoot: ports.tmpRoot,
+    // A merge that took the other side's task file gets the story's status back (In Progress).
+    restoreStatus: async (office, run) => {
+      const unpark = ports.outcomes?.unpark;
+      if (unpark === undefined || run.story === null || run.branch === null) return;
+      if (run.worktree === null) return;
+      await unpark.lift(office, {
+        story: run.story,
+        branch: run.branch,
+        worktree: run.worktree,
+        to: "In Progress",
+      });
+    },
     tell: (runId, text) => control.tellWorker(runId, text, "conflict resume"),
     parkLive: (runId, park) => control.parkRun(runId, park),
     // An unwritable path that still conflicts parks again before any session (0020 section 2).

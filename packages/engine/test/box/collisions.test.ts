@@ -430,7 +430,7 @@ async function world(repo: TempRepoWithRemote): Promise<World> {
     run: (runId) => runs.get(runId) ?? null,
     git: (office) => (office === OFFICE ? git : undefined),
     live: (runId) => !parks.some((p) => p.runId === runId) && !self!.reviewing.has(runId),
-    behind: (runId) => self!.behind.get(runId) ?? null,
+    behind: (run) => self!.behind.get(run.runId) ?? null,
     park: (runId, park) => {
       parks.push({ runId, park });
       return true;
@@ -1252,11 +1252,10 @@ async function pushedElsewhere(w: World, s: Story, files: Readonly<Record<string
 }
 
 describe("the merge of a resumed conflict park on real git (DIPO-324)", () => {
-  it("merges the remote story branch into the branch and the box after a rejected push, pushing without force", () =>
+  it("lets no part meet a rejected push again: the resume merges the remote outside the box, the box gets it first, and a part pushes", () =>
     inWorld(async (w) => {
       write(w.b.work, { "src/b.ts": "b\n" });
       await handPart(w, w.b, "B adds b");
-      const before = await tipOf(w, w.b);
       const remoteOnly = await pushedElsewhere(w, w.b, { "src/remote.ts": "remote\n" });
       // A part on top of the old tip: its push is rejected, as the park recorded.
       write(w.b.work, { "src/b2.ts": "b2\n" });
@@ -1264,35 +1263,34 @@ describe("the merge of a resumed conflict park on real git (DIPO-324)", () => {
       expect(w.parks.at(-1)?.park.cause).toBe("push-rejected");
       w.parks.length = 0;
       const local = await tipOf(w, w.b);
-      expect(local).not.toBe(before);
-
-      const merged = await w.collisions.mergeOnResume(w.b.run, {
-        base: `origin/${w.b.run.branch}`,
-        ref: `refs/remotes/origin/${w.b.run.branch}`,
-      });
-      expect(merged.kind).toBe("merged");
-      if (merged.kind !== "merged") return;
-      expect(merged.item).toBeNull();
-      expect(merged.merged).toMatchObject({ remote: true, onto: remoteOnly, conflicts: [] });
-      const tip = await tipOf(w, w.b);
-      expect((await w.repo.git("rev-list", "--parents", "-n", "1", tip)).trim()).toBe(
-        `${tip} ${local} ${remoteOnly}`,
-      );
-      // Pushed as a fast-forward of the remote branch: the remote's commit stays below the tip.
-      expect(await tipOf(w, w.b, "remote")).toBe(tip);
-      // git exits non-zero, and the helper throws, when it is not an ancestor.
-      await w.repo.git("merge-base", "--is-ancestor", remoteOnly, tip);
-      // The box holds the remote's file too, so the next part does not undo the merge.
+      // The resume (`ConflictResumes`): the remote merged into the branch in dipo's git and
+      // pushed, never forced; the box copy waits for the session's start.
+      const tree = (await w.repo.git("merge-tree", "--write-tree", local, remoteOnly))
+        .trim()
+        .split("\n")[0]!;
+      const merge = (
+        await w.repo.git("commit-tree", tree, "-p", local, "-p", remoteOnly, "-m", "Merge")
+      ).trim();
+      await w.repo.git("update-ref", `refs/heads/${w.b.run.branch}`, merge, local);
+      await w.repo.git("push", "--quiet", "origin", w.b.run.branch);
+      w.behind.set(w.b.run.runId, "the box lacks dipo's merge");
+      // A part handed before the box got the merge is refused, never taken against the merge.
+      write(w.b.work, { "src/early.ts": "early\n" });
+      await handPart(w, w.b, "An early part");
+      expect(w.parks.map((p) => p.park.cause)).toEqual(["catch-up-failed"]);
+      expect(await tipOf(w, w.b)).toBe(merge);
+      w.parks.length = 0;
+      // The session's start copies the merge in; then the part commits on it and pushes.
+      await w.collisions.copyPending(w.b.run, local);
+      w.behind.delete(w.b.run.runId);
       expect(readFileSync(join(w.b.work, "src/remote.ts"), "utf8")).toBe("remote\n");
-      expect(w.recorded).toEqual([merged.merged]);
+      await handPart(w, w.b, "The part after the copy");
       expect(w.parks).toEqual([]);
-      // Nothing more to merge now.
-      expect(
-        await w.collisions.mergeOnResume(w.b.run, {
-          base: `origin/${w.b.run.branch}`,
-          ref: `refs/remotes/origin/${w.b.run.branch}`,
-        }),
-      ).toEqual({ kind: "none" });
+      const tip = await tipOf(w, w.b);
+      expect((await w.repo.git("rev-parse", `${tip}^`)).trim()).toBe(merge);
+      expect(await tipOf(w, w.b, "remote")).toBe(tip);
+      expect((await w.repo.git("show", `${tip}:src/remote.ts`)).trim()).toBe("remote");
+      expect((await w.repo.git("show", `${tip}:src/early.ts`)).trim()).toBe("early");
     }));
 
   it("merges the base again whenever it moved, without an overlap, and hands back a conflict", () =>
@@ -1304,7 +1302,6 @@ describe("the merge of a resumed conflict park on real git (DIPO-324)", () => {
       const clean = await w.collisions.mergeOnResume(w.b.run);
       expect(clean.kind).toBe("merged");
       if (clean.kind !== "merged") return;
-      expect(clean.merged.remote).toBeUndefined();
       expect((await w.repo.git("rev-list", "--parents", "-n", "1", clean.head)).trim()).toBe(
         `${clean.head} ${before} ${onto}`,
       );
@@ -1362,6 +1359,35 @@ describe("a merge dipo committed on the branch outside the box (DIPO-324)", () =
       await handPart(w, w.b, "B changes b");
       const tip = await tipOf(w, w.b);
       expect((await w.repo.git("show", `${tip}:docs/notes.md`)).trim()).toBe("notes");
+    }));
+
+  it("removes deleted and renamed paths, writes added and binary files, and leaves backlog/ out", () =>
+    inWorld(async (w) => {
+      write(w.b.work, { "src/b.ts": "b\n" });
+      await handPart(w, w.b, "B adds b");
+      // The base deletes a file, renames another, adds a binary file and changes the backlog.
+      const logo = Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x00, 0x01, 0xff, 0x00, 0x0a]);
+      rmSync(join(w.repo.dir, "src/old.ts"));
+      rmSync(join(w.repo.dir, "README.md"));
+      mkdirSync(join(w.repo.dir, "assets"), { recursive: true });
+      writeFileSync(join(w.repo.dir, "assets/logo.png"), logo);
+      await onBase(w, {
+        "docs/README.md": "# Collisions\n",
+        "backlog/tasks/dipo-1 - One.md": "---\nid: DIPO-1\nstatus: Done\n---\n",
+      });
+      const { from } = await slotMerge(w, w.b);
+      const copied = await w.collisions.copyPending(w.b.run, from);
+      expect([...copied.written].toSorted()).toEqual(["assets/logo.png", "docs/README.md"]);
+      expect([...copied.removed].toSorted()).toEqual(["README.md", "src/old.ts"]);
+      expect(existsSync(join(w.b.work, "src/old.ts"))).toBe(false);
+      expect(existsSync(join(w.b.work, "README.md"))).toBe(false);
+      expect(readFileSync(join(w.b.work, "docs/README.md"), "utf8")).toBe("# Collisions\n");
+      expect(readFileSync(join(w.b.work, "assets/logo.png")).equals(logo)).toBe(true);
+      // dipo's own task-file commits never reach the box: backlog/ stays as the box got it.
+      expect(readFileSync(join(w.b.work, "backlog/tasks/dipo-1 - One.md"), "utf8")).toContain(
+        "status: Ready",
+      );
+      expect(readFileSync(join(w.b.work, "src/b.ts"), "utf8")).toBe("b\n");
     }));
 
   it("throws when the copy fails, and the box keeps its files", () =>

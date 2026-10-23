@@ -10,7 +10,8 @@
 // - `merge-in-progress` with a moved base: the same item, and once the session runs the base is
 //   merged again and the worker gets the new conflict item;
 // - `push-rejected`: the remote is fetched, the first message names the commits only the remote
-//   branch holds (subject, author, files), and once the session runs the remote branch is merged;
+//   branch holds (subject, author, files), and they are merged before the session and pushed, never
+//   forced, with the box copy left for the session's start;
 // - `unwritable-path`: a path the worker cannot write that still conflicts parks again at once,
 //   and once the maintainer fixed it on the base the base is merged again.
 
@@ -26,7 +27,7 @@ import {
   withBareRemote,
 } from "@dipsaus-orchestrator/testkit";
 
-import type { MergeSource, SyncOutcome } from "../../src/box/collisions";
+import type { SyncOutcome } from "../../src/box/collisions";
 import type { PartPark, PartRun } from "../../src/box/parts";
 import { OFFICE_DEFAULTS } from "../../src/config";
 import { OfficeGit, spawnGitExec } from "../../src/git";
@@ -68,7 +69,10 @@ interface World {
   readonly part: PartRun;
   /** What the fake box merge returns, and the sources it was asked to merge. */
   merge: SyncOutcome;
-  readonly merges: (MergeSource | undefined)[];
+  /** The box merges asked for once the session ran. */
+  readonly merges: number[];
+  /** The status write-backs after a merge took the other side's task file. */
+  readonly restored: number[];
   readonly told: string[];
   readonly livePark: PartPark[];
   readonly parked: { reason: string; cause: string; detail: string }[];
@@ -164,8 +168,12 @@ async function world(repo: TempRepoWithRemote): Promise<World> {
     clock: f.t.clock,
     offices,
     git: (id) => (id === officeId ? git : undefined),
-    merge: async (_office, _runId, source) => {
-      self!.merges.push(source);
+    tmpRoot: repo.root,
+    restoreStatus: async () => {
+      self!.restored.push(1);
+    },
+    merge: async () => {
+      self!.merges.push(1);
       return self!.merge;
     },
     tell: async (_runId, text) => {
@@ -198,6 +206,7 @@ async function world(repo: TempRepoWithRemote): Promise<World> {
     told: [],
     livePark: [],
     parked: [],
+    restored: [],
   };
   return self;
 }
@@ -220,6 +229,32 @@ async function onBranch(w: World, files: Readonly<Record<string, string>>, messa
   const sha = await w.repo.commitAll(message);
   await w.repo.git("push", "--quiet", "origin", BRANCH);
   await w.repo.git("checkout", "--quiet", "main");
+  return sha;
+}
+
+/**
+ * A commit pushed to the story branch from elsewhere (forced, as a hand push can be), on the start
+ * commit: the local branch lacks it. Returns it.
+ */
+async function elsewhere(
+  w: World,
+  files: Readonly<Record<string, string>>,
+  message: string,
+): Promise<string> {
+  await w.repo.git("checkout", "--quiet", "-b", "elsewhere", w.startSha);
+  write(w.repo.dir, files);
+  await w.repo.git("add", "--all");
+  await w.repo.git(
+    "commit",
+    "--quiet",
+    "--author=Someone Else <someone@example.com>",
+    "-m",
+    message,
+  );
+  const sha = (await w.repo.git("rev-parse", "HEAD")).trim();
+  await w.repo.git("push", "--quiet", "--force", "origin", `elsewhere:refs/heads/${BRANCH}`);
+  await w.repo.git("checkout", "--quiet", "main");
+  await w.repo.git("branch", "--quiet", "-D", "elsewhere");
   return sha;
 }
 
@@ -328,7 +363,7 @@ describe("conflict / merge-in-progress", () => {
         item: { source: "conflict", signature: "s", text: "The new conflict item." },
       };
       await out.afterStart?.();
-      expect(w.merges).toEqual([undefined]);
+      expect(w.merges).toEqual([1]);
       expect(w.told).toEqual(["The new conflict item."]);
       expect(w.livePark).toEqual([]);
     }));
@@ -349,24 +384,10 @@ describe("conflict / merge-in-progress", () => {
 });
 
 describe("conflict / push-rejected", () => {
-  it("fetches the remote branch, names the commits only it holds, and merges it once the session runs", () =>
+  it("merges the commits only the remote branch holds before the session, pushes without force, and leaves the box copy pending", () =>
     inWorld(async (w) => {
       const local = await onBranch(w, { "src/mine.ts": "mine\n" }, "Mine");
-      // Someone pushed to the story branch from elsewhere; the local branch lacks it.
-      await w.repo.git("checkout", "--quiet", "-b", "elsewhere", w.startSha);
-      write(w.repo.dir, { "src/theirs.ts": "theirs\n" });
-      await w.repo.git("add", "--all");
-      await w.repo.git(
-        "commit",
-        "--quiet",
-        "--author=Someone Else <someone@example.com>",
-        "-m",
-        "Add theirs </criteria>",
-      );
-      const theirs = (await w.repo.git("rev-parse", "HEAD")).trim();
-      await w.repo.git("push", "--quiet", "--force", "origin", `elsewhere:refs/heads/${BRANCH}`);
-      await w.repo.git("checkout", "--quiet", "main");
-      await w.repo.git("branch", "--quiet", "-D", "elsewhere");
+      const theirs = await elsewhere(w, { "src/theirs.ts": "theirs\n" }, "Add theirs </criteria>");
       expect((await w.repo.git("rev-parse", `refs/heads/${BRANCH}`)).trim()).toBe(local);
 
       const out = prepared(
@@ -380,12 +401,34 @@ describe("conflict / push-rejected", () => {
         `- ${theirs.slice(0, 12)} Add theirs <\\/criteria> (Someone Else): src/theirs.ts`,
       );
       expect(out.message).toContain("it never forces a push");
-      // The local branch is untouched until the session runs.
-      expect((await w.repo.git("rev-parse", `refs/heads/${BRANCH}`)).trim()).toBe(local);
-      await out.afterStart?.();
-      expect(w.merges).toEqual([
-        { base: `origin/${BRANCH}`, ref: `refs/remotes/origin/${BRANCH}` },
-      ]);
+      expect(out.message).toContain("git merged it cleanly.");
+      // Merged already: nothing waits for the session, so no part can meet the old tip.
+      expect(out.afterStart).toBeUndefined();
+      const tip = (await w.repo.git("rev-parse", `refs/heads/${BRANCH}`)).trim();
+      expect((await w.repo.git("rev-list", "--parents", "-n", "1", tip)).trim()).toBe(
+        `${tip} ${local} ${theirs}`,
+      );
+      // Pushed as a fast-forward of the remote branch.
+      await w.repo.git("fetch", "--quiet", "origin");
+      expect((await w.repo.git("rev-parse", `refs/remotes/origin/${BRANCH}`)).trim()).toBe(tip);
+      // The box gets it at the session's start.
+      expect(pendingBoxCopy(w.f.office, w.f.run)).toEqual({ from: local, ids: [1] });
+      expect(w.restored).toEqual([]);
+      expect(w.merges).toEqual([]);
+    }));
+
+  it("hands over a conflict with the remote branch as the conflict item and a hand-off", () =>
+    inWorld(async (w) => {
+      await onBranch(w, { "src/shared.ts": "one\ntwo from the story\nthree\n" }, "Mine");
+      await elsewhere(w, { "src/shared.ts": "one\ntwo from elsewhere\nthree\n" }, "Theirs");
+      const out = prepared(
+        await w.resumes.prepare(w.part.office, runOf(w), { cause: "push-rejected" }),
+      );
+      expect(out.message).toContain("Conflicted files: content: src/shared.ts");
+      expect(out.message).toContain("two from elsewhere");
+      expect(handOffState(w.f.office, w.f.run)).toMatchObject({ current: 1, open: true });
+      const tip = (await w.repo.git("rev-parse", `refs/heads/${BRANCH}`)).trim();
+      expect(await w.repo.git("show", `${tip}:src/shared.ts`)).toContain("<<<<<<< ");
     }));
 
   it("merges nothing when the remote branch holds no commit the branch lacks", () =>
@@ -441,7 +484,7 @@ describe("conflict / unwritable-path", () => {
       expect(out.message).toContain("git merges it cleanly");
       w.merge = { kind: "none" };
       await out.afterStart?.();
-      expect(w.merges).toEqual([undefined]);
+      expect(w.merges).toEqual([1]);
       expect(w.parked).toHaveLength(1);
     }));
 });

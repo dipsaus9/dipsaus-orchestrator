@@ -165,10 +165,11 @@ export interface ConflictPrepared {
 /** The 0019 conflict hand-off a `conflict` park resumes through (`ConflictResumes`, DIPO-324). */
 export interface ConflictResumer {
   /**
-   * After the park is lifted, before the session: the kept merge's conflict item, the commits only
-   * the remote branch holds after a rejected push, and the merge the session needs once it runs
-   * (the base again when it moved, or the remote branch), through the 0019 hand-off; or `parked`
-   * when it parked the story again (an unwritable path still conflicts).
+   * After the park is lifted, before the session: the kept merge's conflict item, or the commits
+   * only the remote branch holds after a rejected push (merged into the branch already, the box
+   * copy left for the session's start), and the merge of the base the session needs once it runs,
+   * through the 0019 hand-off; or `parked` when it parked the story again (an unwritable path
+   * still conflicts, or the push is rejected again).
    */
   prepare(
     office: OfficeId,
