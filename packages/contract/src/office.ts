@@ -294,7 +294,7 @@ export const ProposalRef = z
 // text marked as the worker's words. `draft` is the draft's id once the lane created it; draft ids
 // are reused by Backlog.md, so it names the draft only until it is promoted or archived. Accepting
 // an accepted proposal changes nothing. Errors: `proposal.unknown`, `proposal.ambiguous` (a prefix
-// of several), `proposal.closed` (dismissed already).
+// of several), `proposal.notOpen` (dismissed already).
 export const proposalAccept = defineCommand({
   name: "proposal.accept",
   level: "office",
@@ -310,7 +310,7 @@ export const proposalAccept = defineCommand({
 });
 
 // Since minor 1 (DIPO-166) [`proposals`]: closes an open proposal without filing anything.
-// Dismissing a dismissed proposal changes nothing. Errors as `proposal.accept`; `proposal.closed`
+// Dismissing a dismissed proposal changes nothing. Errors as `proposal.accept`; `proposal.notOpen`
 // when it was accepted already.
 export const proposalDismiss = defineCommand({
   name: "proposal.dismiss",

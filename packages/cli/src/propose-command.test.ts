@@ -101,7 +101,7 @@ describe("dipo propose accept", () => {
   it("prints the engine's refusal and exits 1", async () => {
     const ctx = fake(() => ({
       ok: false,
-      error: { code: "proposal.closed", message: "it was dismissed", retryable: false },
+      error: { code: "proposal.notOpen", message: "it was dismissed", retryable: false },
     }));
     expect(await main(["propose", "accept", PROPOSAL], ctx.deps)).toBe(1);
     expect(ctx.err.join("\n")).toContain("it was dismissed");

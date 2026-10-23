@@ -395,7 +395,7 @@ export type { DiscardStop, StoryDiscardDeps } from "../stories/discard";
 export {
   DRAFT_CAPS,
   PROPOSAL_AMBIGUOUS,
-  PROPOSAL_CLOSED,
+  PROPOSAL_NOT_OPEN,
   PROPOSAL_UNKNOWN,
   ProposalCommands,
   proposalDraft,

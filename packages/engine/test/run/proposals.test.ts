@@ -310,12 +310,34 @@ describe("proposal.accept (criterion 3)", () => {
     expect(w.flushes.n).toBe(0);
   });
 
+  it("never files an accepted proposal whose draft the lane recorded again, with no journal entry left", async () => {
+    store([FOLLOW_UP]);
+    const hash = proposalHash(FOLLOW_UP);
+    // Accepted and filed as DRAFT-4 long ago: its journal entry was pruned, the draft archived.
+    w.office.immediate(() =>
+      w.office.run(
+        `update proposals set state = 'accepted', decided_by = 'cli', draft_id = 'DRAFT-4'
+          where office_id = $office_id and hash = $hash`,
+        { hash },
+      ),
+    );
+    const reply = await send("proposal.accept", { proposal: hash });
+    expect(reply).toMatchObject({
+      ok: true,
+      changed: false,
+      result: { proposal: hash, state: "accepted", draft: "DRAFT-4" },
+    });
+    expect(w.ops).toEqual([]);
+    expect(w.flushes.n).toBe(0);
+    expect(logged("proposal.closed")).toEqual([]);
+  });
+
   it("refuses a dismissed proposal, an unknown one and an ambiguous prefix", async () => {
     store([SPIKE]);
     const hash = proposalHash(SPIKE);
     expect((await send("proposal.dismiss", { proposal: hash })).ok).toBe(true);
     const closed = await send("proposal.accept", { proposal: hash });
-    expect(closed).toMatchObject({ ok: false, error: { code: "proposal.closed" } });
+    expect(closed).toMatchObject({ ok: false, error: { code: "proposal.notOpen" } });
     const unknown = await send("proposal.accept", { proposal: "0".repeat(12) });
     expect(unknown).toMatchObject({ ok: false, error: { code: "proposal.unknown" } });
     // Two stored ids with the same first 8 characters.
@@ -363,7 +385,7 @@ describe("proposal.dismiss (criterion 3)", () => {
     const hash = proposalHash(FOLLOW_UP);
     expect((await send("proposal.accept", { proposal: hash })).ok).toBe(true);
     const reply = await send("proposal.dismiss", { proposal: hash });
-    expect(reply).toMatchObject({ ok: false, error: { code: "proposal.closed" } });
+    expect(reply).toMatchObject({ ok: false, error: { code: "proposal.notOpen" } });
     expect(stored(hash)?.state).toBe("accepted");
   });
 });
@@ -417,6 +439,8 @@ describe("the draft of an accepted proposal", () => {
         "src/c.ts, src/d.ts",
         "../outside.ts",
         "with space.ts",
+        "~/x",
+        "src/~user/x.ts",
       ],
     });
     expect(Array.from(draft.title)).toHaveLength(120);
@@ -424,6 +448,17 @@ describe("the draft of an accepted proposal", () => {
     const outcome = draft.description.split("\n").find((line) => line.startsWith("Outcome")) ?? "";
     expect(Array.from(outcome.replace("Outcome (the worker's words): ", ""))).toHaveLength(500);
     expect(draft.references).toEqual(["src/a.ts", "src/b.ts"]);
+  });
+
+  it("strips every leading mark and list number from the title", () => {
+    for (const title of ["+ Fix it", "1. Fix it", "1) Fix it", "> 2. **Fix it", "- 10) Fix it"]) {
+      expect(proposalDraft({ ...base, title }).title).toBe("Fix it");
+    }
+    // A number that is the title's own first word stays.
+    expect(proposalDraft({ ...base, title: "1.5 times faster export" }).title).toBe(
+      "1.5 times faster export",
+    );
+    expect(proposalDraft({ ...base, title: "2FA for the TUI" }).title).toBe("2FA for the TUI");
   });
 
   it("names an unknown source story by its key, and gives an empty title a fallback", () => {
