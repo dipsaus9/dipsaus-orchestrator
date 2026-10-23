@@ -16,6 +16,7 @@ import { readBackstop } from "./backstop";
 import { type InputChangeReader, Nudges } from "../hooks/nudges";
 import { ABSENT, PermissionAsks, type Presence } from "../hooks/permissions";
 import { WebGuard } from "../hooks/web-guard";
+import { CONTRACT_MAX_DEFAULT } from "../prompts/contract";
 import { currentProfile } from "../scan/store";
 import type { RunProfile } from "../scan/detect";
 import type { WorkerPort } from "../workers/port";
@@ -191,7 +192,8 @@ function buildHookListeners(
     encode: (op) => ports.worker.encode(op),
     presence: ports.presence ?? ABSENT,
     ending,
-    // A live worker question whose last TUI closed parks its story (DIPO-272, DIPO-284).
+    // A live worker question whose wait ended or whose last TUI closed parks its story (DIPO-272,
+    // DIPO-284, DIPO-159).
     parkQuestion: (_office, run, question) => {
       control?.parkOnQuestion(run, question);
     },
@@ -201,6 +203,10 @@ function buildHookListeners(
         late.resumption?.resumePark(office, run, request) ??
         Promise.resolve({ kind: "failed", reason: "worker outcomes are not ready" }),
     },
+    // An answer to a question park resumes it through work.resume's park path (DIPO-159).
+    questionParks: () => late.resumption?.questionParks,
+    // Worker outcomes decide every exit, and `afterExit` follows each decision (DIPO-159).
+    exitDecides: control !== null && ports.outcomes !== undefined,
     ...given("scheduling", ports.scheduling),
     ...given("onChanged", ports.onChanged),
     ...given("warn", ports.warn),
@@ -335,6 +341,9 @@ function buildOutcomes(
         },
         ...given("boxRun", ports.boxRun),
         fixRounds: () => fixRounds ?? undefined,
+        // A question park's answer is a resolved unknown while the contract stays within R26.
+        contractMax: (office) =>
+          ports.offices.config(office)?.prompt.contractMax ?? CONTRACT_MAX_DEFAULT,
       },
     },
   );
@@ -519,20 +528,19 @@ export function composeRuns(ports: RunPorts): ComposedRuns {
   late.resumption = built?.resumption ?? null;
   late.planLimits = built?.planLimits ?? null;
   late.places = built?.places ?? null;
-  // Each exit decision of worker outcomes, then the places (a session ended, so its place may be
-  // free) and `afterExit` (the run temp directory sweep).
+  // Each exit decision of worker outcomes, then the run's worker questions no park carried
+  // (DIPO-159), the places (a session ended, so its place may be free) and `afterExit` (the run
+  // temp directory sweep).
   // A reviewer session's turns and exit go to the review rounds (DIPO-219).
   if (outcomes !== null) {
     const places = late.places;
     const afterExit = ports.afterExit;
     const routed = built?.reviews.route(outcomes) ?? outcomes;
-    late.exitPort =
-      places === null && afterExit === undefined
-        ? routed
-        : afterRunExits(routed, () => {
-            places?.drainAll();
-            afterExit?.();
-          });
+    late.exitPort = afterRunExits(routed, (view) => {
+      permissions.afterExit(view.office, view.runId);
+      places?.drainAll();
+      afterExit?.();
+    });
   }
   const reattacher = buildReattacher(ports, control, ingest, outcomes);
   const launcher = buildLauncher(ports, control, ingest);

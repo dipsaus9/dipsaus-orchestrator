@@ -30,6 +30,16 @@
 // `feedback/maintainer-note.md` with the note, so maintainer text never starts a message. A top-up
 // of a park a reopened fix round hit before its session (DIPO-205) sends that round's undelivered
 // feedback first, then `feedback/topup.md`. A reviewer never gets the note (0002).
+//
+// A question park (`ambiguous-spec` with cause `question`, 0020 section 7, DIPO-159) resumes with
+// its answer: the note, or the text of `work.answer` on the park's question, which comes here as
+// the note. The first message is `feedback/answer.md` with the question and the answer, and the
+// note is not sent again. The lift adds the answer to the story's unknowns as a resolved unknown
+// in the same task-file commit, or, when that would break R26, leaves it out with an
+// `engine.notice`. The transaction closes the park's question as answered. A park that carries a
+// worker question whose answer is held already (it came while the run was ending) resumes without
+// a note: the held answer goes with the first message. Every other open question of the park
+// closes as expired with the resume.
 
 import {
   type Lifecycle,
@@ -51,7 +61,16 @@ import { CommandError } from "../commands/errors";
 import type { AsyncCommandContext, CommandOutcome } from "../commands/registry";
 import type { OfficeHandle } from "../db/office";
 import { GitError } from "../git/runner";
+import {
+  closeQuestion,
+  openParkQuestions,
+  parkWorkerQuestion,
+  type StoredQuestion,
+} from "../hooks/questions";
+import { CONTRACT_MAX_DEFAULT } from "../prompts/contract";
 import { fixRoundMessage } from "../prompts/feedback";
+import { capNote } from "../prompts/handoff";
+import answerTemplate from "../prompts/feedback/answer.md" with { type: "text" };
 import parkedTemplate from "../prompts/feedback/parked.md" with { type: "text" };
 import topupTemplate from "../prompts/feedback/topup.md" with { type: "text" };
 import { FEEDBACK_TEMPLATES, renderTemplate } from "../prompts/templates";
@@ -165,6 +184,19 @@ export interface ParkResumeOptions {
   readonly conflicts?: () => ConflictResumer | undefined;
   readonly slot?: () => SlotReentry | undefined;
   readonly prs?: () => PrReplacement | undefined;
+  /** `prompt.contractMax` of the office (R26), for a question park's answer; the default without. */
+  readonly contractMax?: (office: OfficeId) => number;
+}
+
+/** The answer a question park resumes with (0020 section 7, DIPO-159). */
+interface ResumeAnswer {
+  /** The park's worker question, or null when the park carries none (its detail is the question). */
+  readonly question: string | null;
+  /** The question as the worker asked it. */
+  readonly text: string;
+  readonly answer: string;
+  /** True when the answer is held already for the next session (it came while the run ended). */
+  readonly held: boolean;
 }
 
 /** What a maintainer resume's intent holds after its tag. */
@@ -189,6 +221,8 @@ interface ResumeIntent {
   readonly origin: string;
   /** The client name the request's connection gave in `engine.hello`; null without one. */
   readonly client?: string | null;
+  /** A question park's answer (DIPO-159); absent for every other park. */
+  readonly answer?: ResumeAnswer | null;
 }
 
 interface StoredResume {
@@ -433,7 +467,18 @@ export class ParkResumes {
     if (row.topUp === true && args.budget === undefined) {
       throw this.#topUpRequired(office, run, story, row, label);
     }
-    if (row.note === "required" && note === undefined) {
+    // A question park resumes with its answer, or with one held already (DIPO-159).
+    const answer = row.delta === "answer" ? questionAnswer(office, park, note) : null;
+    if (row.delta === "answer" && answer === null) {
+      const asked = parkWorkerQuestion(office, park.parkId);
+      const by = asked === null ? "" : `\`dipo answer ${asked.questionId} --text <answer>\` or `;
+      throw new CommandError(
+        RESUME_ERRORS.noteRequired,
+        `${story} is parked on its worker's question and resumes with the answer: ${by}\`dipo resume ${story} --note <answer>\`.`,
+        { story, reason: park.reason },
+      );
+    }
+    if (row.note === "required" && note === undefined && answer === null) {
       throw new CommandError(
         RESUME_ERRORS.noteRequired,
         `${story} is parked as ${label}; its resume needs a note: \`dipo resume ${story} --note <text>\`.`,
@@ -453,7 +498,18 @@ export class ParkResumes {
     this.#resuming.add(run.runId);
     const release = () => this.#resuming.delete(run.runId);
     try {
-      return await this.#checkedResume(ctx, identity, park, args, row, run, note, label, release);
+      return await this.#checkedResume(
+        ctx,
+        identity,
+        park,
+        args,
+        row,
+        run,
+        note,
+        label,
+        release,
+        answer,
+      );
     } finally {
       release();
     }
@@ -470,6 +526,7 @@ export class ParkResumes {
     note: string | undefined,
     label: string,
     release: () => void,
+    answer: ResumeAnswer | null,
   ): Promise<CommandOutcome<ResumeResult>> {
     const office = ctx.office;
     const officeId = office.officeId as OfficeId;
@@ -526,7 +583,7 @@ export class ParkResumes {
       session,
       to,
       message: isDeveloper(session)
-        ? this.#message(office, run, park, row, grants, legacy, fix)
+        ? this.#message(office, run, park, row, grants, legacy, fix, answer)
         : null,
       note: note ?? null,
       why: row.why ?? `the maintainer resumed it from ${label}`,
@@ -536,6 +593,7 @@ export class ParkResumes {
       agent: developerAgent(office, run.runId)?.agent ?? null,
       origin: ctx.origin,
       client: ctx.client ?? null,
+      ...(answer === null ? {} : { answer }),
     };
     // 2. Stored before anything changes, so a restart or a retry finishes the resume.
     const intentId = office.immediate(() =>
@@ -718,10 +776,35 @@ export class ParkResumes {
           grants: detail.grants.map((grant) => grant.amount),
           ...(detail.note === null ? {} : { note: detail.note }),
         }),
+        // A question park's answer becomes a resolved unknown in the same commit (0020 section 7).
+        ...(detail.answer == null
+          ? {}
+          : {
+              answer: {
+                q: detail.answer.text,
+                answer: detail.answer.answer,
+                contractMax: this.#options.contractMax?.(officeId) ?? CONTRACT_MAX_DEFAULT,
+              },
+            }),
       });
     } catch (error) {
       return fail(`lifting the park of ${run.story} failed: ${messageOf(error)}`);
     }
+    const answerNotice: NewEntry[] =
+      lifted.answerError == null
+        ? []
+        : [
+            {
+              type: "engine.notice",
+              key: work.key,
+              run: run.runId,
+              delta: {
+                level: "warn",
+                code: PARK_NOTICES.answerNotWritten,
+                text: `${run.story}: the answer goes to its worker, but it was not written to the story's unknowns: ${lifted.answerError}.`,
+              },
+            },
+          ];
     const lineNotice: NewEntry[] =
       lifted.lineError == null
         ? []
@@ -798,7 +881,7 @@ export class ParkResumes {
                 : `${story}: resumed${granted}; its session starts when the office's ${detail.session === "review" ? "reviewer" : "worker"} place frees (${waits}).`,
           },
         };
-        return [...entries, ...lineNotice, ...pushNotice, notice];
+        return [...entries, ...lineNotice, ...pushNotice, ...answerNotice, notice];
       });
     // The place check and the reopen are one serialized step of the office (DIPO-229).
     try {
@@ -819,8 +902,25 @@ export class ParkResumes {
     return { queued: queued.place !== null };
   }
 
-  /** Inside the resume's transaction: the park resolved and the run as its session needs it. */
+  /**
+   * Inside the resume's transaction: the park's questions closed (DIPO-159), the park resolved and
+   * the run as its session needs it.
+   */
   #apply(
+    office: OfficeHandle,
+    run: StoredRun,
+    park: OpenPark,
+    detail: ResumeIntent,
+    at: number,
+  ): NewEntry[] {
+    return [
+      ...closeParkQuestions(office, run, park.parkId, detail.answer ?? null, at),
+      ...this.#resolve(office, run, park, detail, at),
+    ];
+  }
+
+  /** Inside the resume's transaction: the park resolved and the run as its session needs it. */
+  #resolve(
     office: OfficeHandle,
     run: StoredRun,
     park: OpenPark,
@@ -989,7 +1089,8 @@ export class ParkResumes {
       why: detail.why,
       ...(message === null || message === "" ? {} : { message }),
       // After the delta in a native resume, in the handoff's open feedback otherwise (section 3).
-      ...(detail.note === null ? {} : { note: detail.note }),
+      // A question park's note is its answer, which the delta carries already (DIPO-159).
+      ...(detail.note === null || detail.answer != null ? {} : { note: detail.note }),
     });
     const at = clock.now();
     office.immediate(() => {
@@ -1204,6 +1305,7 @@ export class ParkResumes {
     grants: readonly PlannedGrant[],
     legacy: Caps,
     fix: ReturnType<typeof pendingFixRound>,
+    answer: ResumeAnswer | null,
   ): string | null {
     const parked = (detail: string) =>
       renderTemplate(parkedTemplate, {
@@ -1252,12 +1354,84 @@ export class ParkResumes {
         }
         break;
       }
+      case "answer":
+        // An answer held already goes with the first message as it waited (`heldMessages`).
+        if (answer !== null && !answer.held) {
+          parts.push(
+            renderTemplate(answerTemplate, {
+              question: answer.text,
+              answer: capNote(answer.answer),
+            }),
+          );
+        }
+        break;
       case "none":
         break;
     }
     // The note follows the delta: the session start adds it (`NextSessionRequest.note`).
     return parts.length === 0 ? null : parts.join("\n\n");
   }
+}
+
+/**
+ * The answer a question park resumes with (DIPO-159): the note, or the answer already held for the
+ * park's worker question; null when there is neither. The question is the park's worker question,
+ * or the park's detail when it carries none (a park from before questions were stored).
+ */
+function questionAnswer(
+  office: OfficeHandle,
+  park: OpenPark,
+  note: string | undefined,
+): ResumeAnswer | null {
+  const asked = parkWorkerQuestion(office, park.parkId);
+  const text = asked?.text ?? park.detail;
+  if (note !== undefined) {
+    return { question: asked?.questionId ?? null, text, answer: note, held: false };
+  }
+  if (asked?.closedHow === "answered" && asked.answer !== null) {
+    return { question: asked.questionId, text, answer: asked.answer, held: true };
+  }
+  return null;
+}
+
+/**
+ * Inside the resume's transaction (DIPO-159): the park's worker question answered by this resume
+ * closes as `answered` (delivered `on-resume`), and every other open question of the park as
+ * `expired`, each with its `question.closed`. The trigger of migration 48 then finds none open.
+ */
+function closeParkQuestions(
+  office: OfficeHandle,
+  run: StoredRun,
+  parkId: number,
+  answer: ResumeAnswer | null,
+  at: number,
+): NewEntry[] {
+  const entries: NewEntry[] = [];
+  const closed = (question: StoredQuestion, text?: string) => {
+    entries.push({
+      type: "question.closed",
+      ...(run.key === null ? {} : { key: run.key as StoryKey }),
+      run: run.runId,
+      delta: { question: question.questionId, ...(text === undefined ? {} : { answer: text }) },
+    });
+  };
+  for (const question of openParkQuestions(office, parkId)) {
+    if (answer !== null && !answer.held && question.questionId === answer.question) {
+      const text = answer.answer;
+      if (
+        closeQuestion(office, question.questionId, "answered", at, {
+          text,
+          decision: null,
+          delivered: "on-resume",
+        })
+      ) {
+        closed(question, text);
+      }
+      continue;
+    }
+    if (closeQuestion(office, question.questionId, "expired", at)) closed(question);
+  }
+  return entries;
 }
 
 /** Half of a starting reviewer cap, rounded up: what a `reviewCap` grant adds. */
