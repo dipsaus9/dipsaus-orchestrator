@@ -74,6 +74,7 @@ import {
   RunProfiles,
   REATTACH_STEP,
   RUN_TEMP_SWEEP_STEP,
+  FIX_ROUNDS_RECOVERY_STEP,
   RECONCILE_STEP,
   Reconciler,
   Retention,
@@ -1151,6 +1152,15 @@ async function serve(run: Run, lock: HeldLock): Promise<number> {
         if (copies.length > 0) {
           context.logger.info("removed reviewer copies a stopped daemon left", { removed: copies });
         }
+      },
+    });
+    // Fix rounds (DIPO-148): a round delivered just before the stop is marked so, and a reviewed
+    // head whose CI will not tell again (no story PRs, or no CI) gets its round decided.
+    steps.register({
+      name: FIX_ROUNDS_RECOVERY_STEP,
+      run: async (context) => {
+        const queued = await runs.recoverFixRounds();
+        if (queued > 0) context.logger.info("queued fix rounds a stopped daemon left", { queued });
       },
     });
     for (const step of options.recoverySteps ?? []) steps.register(step);

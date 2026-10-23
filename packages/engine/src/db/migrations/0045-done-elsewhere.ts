@@ -1,4 +1,4 @@
-// Migration 44 (DIPO-161; 0020 sections 10 and 15): a story finished outside dipo.
+// Migration 45 (DIPO-161; 0020 sections 10 and 15): a story finished outside dipo.
 //
 // `parks.resolved_how` gains `done-elsewhere`: the park of a claim the Done poll or reconcile
 // released because the story is Done on the base through another branch. SQLite cannot change a
@@ -24,7 +24,7 @@
 import type { SqlMigration } from "../migrations";
 
 export const doneElsewhere: SqlMigration = {
-  version: 44,
+  version: 45,
   name: "done elsewhere",
   sql: `
 create table parks_rebuilt (

@@ -29,6 +29,7 @@ import {
   DAEMON_SUBCOMMANDS,
   type DaemonControl,
 } from "./daemon-commands";
+import { deskCommand } from "./desk-command";
 import { gateCommand } from "./gate-command";
 import type { DaemonLogsDeps } from "./logs-command";
 import { OFFICE_SUBCOMMANDS } from "./office-commands";
@@ -169,6 +170,11 @@ Usage:
                     at a client: allow lets its call run once, deny refuses it
                     and tells the worker the reason; any other text answers a
                     worker question
+  dipo desk [--office <id>] [--json]
+                    list what waits on you, in the order to handle it: questions
+                    a worker waits on, merges, parked stories, hand actions,
+                    proposals and the stories you hold, each with the command to
+                    type; --json prints the engine's list as it is
   dipo watch [<id>] [--office <id>]
                     follow the office, or one story, in plain text until Ctrl-C:
                     each running story's phase, health, loop, verify, criteria
@@ -200,7 +206,7 @@ Office commands use --office, else the office of the current directory.
 
 Commands that need the daemon start it unless daemon.autostart is false in
 <state>/config.yaml. Read-only commands never start it: dipo gate, dipo run
---dry-run, dipo stats and dipo watch say when no daemon is running.
+--dry-run, dipo stats, dipo desk and dipo watch say when no daemon is running.
 
 Options:
   --version         print the version, commit, Bun version and platform
@@ -378,6 +384,10 @@ export async function main(argv: readonly string[], deps: CliDeps): Promise<numb
   if (args[0] === "answer") {
     const { version } = versionInfo(deps.stamp, deps.runtime);
     return answerCommand(args.slice(1), { ...deps, version });
+  }
+  if (args[0] === "desk") {
+    const { version } = versionInfo(deps.stamp, deps.runtime);
+    return deskCommand(args.slice(1), { ...deps, version });
   }
   if (args[0] === "watch") {
     const { version } = versionInfo(deps.stamp, deps.runtime);

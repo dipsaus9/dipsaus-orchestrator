@@ -187,6 +187,12 @@ export async function runRetention(options: RetentionOptions): Promise<Retention
     { cutoff: stateCutoff },
   );
   await rows(
+    "feedback_items",
+    `exists (select 1 from runs r where r.office_id = $office_id
+       and r.run_id = feedback_items.run_id and r.ended_at < $cutoff)`,
+    { cutoff: stateCutoff },
+  );
+  await rows(
     "run_intents",
     `exists (select 1 from runs r where r.office_id = $office_id and r.run_id = run_intents.run_id
        and r.ended_at < $cutoff)`,

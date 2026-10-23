@@ -15,6 +15,7 @@ import {
   activeSignals,
   composeRuns,
   endRun,
+  FixRounds,
   IN_REVIEW_END,
   insertRun,
   pendingReviews,
@@ -186,11 +187,14 @@ describe("composeRuns", () => {
     expect(controlOnly.outcomes).toBeNull();
     expect(controlOnly.resumer).toBeNull();
     expect(controlOnly.reattacher).toBeNull();
+    expect(controlOnly.fixRounds).toBeNull();
 
     const noSchedule = compose({ control: CONTROL, outcomes: {} });
     expect(noSchedule.outcomes).toBeInstanceOf(RunOutcomes);
     expect(noSchedule.resumer).toBeInstanceOf(RunResumer);
     expect(noSchedule.planLimits).toBeNull();
+    // The fix rounds continue a developer session through worker outcomes (DIPO-148).
+    expect(noSchedule.fixRounds).toBeInstanceOf(FixRounds);
 
     const all = compose({ control: CONTROL, outcomes: {}, planLimits: {}, reattach: REATTACH });
     expect(all.planLimits).toBeInstanceOf(PlanLimits);

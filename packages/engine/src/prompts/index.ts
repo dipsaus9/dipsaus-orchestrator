@@ -21,25 +21,49 @@ export {
 } from "./contract";
 export type { Section, SectionName } from "./contract";
 export {
+  advisoryLines,
+  capFeedbackText,
+  collapseWhitespace,
+  FEEDBACK_ITEM_MAX,
   FEEDBACK_LOCATIONS_MAX,
   FEEDBACK_LOG_LINES_DEFAULT,
+  FEEDBACK_MESSAGE_MAX,
   ciFeedback,
+  fixRoundMessage,
   parseActionsLog,
   parseLocations,
   plainOutput,
+  rejectFeedbackItem,
+  rejectSignature,
+  reviewCriterionSignature,
+  reviewFeedbackItems,
+  reviewFindingSignature,
   verifyFeedback,
 } from "./feedback";
 export type {
   CiFailure,
   CiFeedbackItem,
   FeedbackItem,
+  FeedbackSource,
+  FixItem,
+  FixRoundItem,
   SourceLocation,
   VerifyFailure,
   VerifyFeedbackItem,
   VerifyFeedbackOptions,
 } from "./feedback";
-export { gatherHandoff, HANDOFF_BUDGET_DEFAULT, renderHandoff } from "./handoff";
-export type { GatherHandoffOptions, HandoffFacts, LastVerify } from "./handoff";
+export {
+  BOX_CHANGES,
+  BOX_VERIFY,
+  gatherHandoff,
+  HANDOFF_BUDGET_DEFAULT,
+  HANDOFF_NOTE_MAX,
+  noteBlock,
+  renderHandoff,
+} from "./handoff";
+export { budgetLine, withBudgetLine } from "./budget";
+export type { BudgetCaps, BudgetFacts, BudgetUsed } from "./budget";
+export type { GatherHandoffOptions, HandoffFacts, HandoffFeedback, LastVerify } from "./handoff";
 export {
   capNotes,
   forgetWorkerNotes,

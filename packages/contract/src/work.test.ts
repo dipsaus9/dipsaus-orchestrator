@@ -4,10 +4,12 @@ import {
   contractCommands,
   contractReads,
   DaemonState,
+  DeskItem,
   FieldBlock,
   GateKind,
   GateView,
   Health,
+  KNOWN_DESK_KINDS,
   KNOWN_HEALTH,
   KNOWN_PARK_REASONS,
   KNOWN_PHASES,
@@ -17,6 +19,7 @@ import {
   Lifecycle,
   LIFECYCLES,
   officeCommands,
+  officeDesk,
   OfficeSummary,
   officeReads,
   ParkReason,
@@ -233,6 +236,7 @@ describe("office commands and reads", () => {
     "story.losses": 1,
     "work.preview": 1,
     "work.prompt": 1,
+    "office.desk": 1,
     "office.switch": 1,
     "work.resume": 1,
     "work.steer": 1,
@@ -283,6 +287,7 @@ describe("office commands and reads", () => {
         "office.stats",
         "work.preview",
         "work.prompt",
+        "office.desk",
       ].toSorted(),
     );
     const names = [...contractCommands, ...contractReads].map((d) => d.name);
@@ -373,5 +378,45 @@ describe("field block", () => {
     const result = FieldBlock.safeParse(invalidFieldBlocks["answer: 5173"]);
     const messages = result.error?.issues.map((issue) => issue.message) ?? [];
     expect(messages.some((message) => message.includes("quote this value"))).toBe(true);
+  });
+});
+
+// DIPO-158 (0020 section 12): the desk item and the `office.desk` read.
+describe("the desk", () => {
+  const item = {
+    kind: "PARKED",
+    story: "DIPO-105",
+    key: "sto_01J9ZK5Q8W3V4X6Y7Z8A9B0C1D",
+    pr: { number: 7, url: "https://github.com/o/r/pull/7", state: "open" },
+    reason: "review-blocked",
+    cause: "rounds",
+    detail: "round 3 blocked",
+    since: "2026-10-23T10:00:00.000Z",
+    blocks: ["DIPO-106"],
+    actions: [
+      { command: "work.resume", cli: 'dipo resume DIPO-105 --note "<why>"' },
+      { command: "gate.approve", cli: 'dipo approve DIPO-105 --note "<why>"' },
+    ],
+  };
+
+  it("parses an item with its actions, and a kind a later minor adds", () => {
+    expect(DeskItem.parse(item)).toEqual(item as never);
+    expect(DeskItem.safeParse({ ...item, kind: "SOMETHING NEW" }).success).toBe(true);
+    expect(KNOWN_DESK_KINDS).toContain("HELD");
+  });
+
+  it("needs a detail, a since, blocks and actions, and a dotted command name", () => {
+    for (const field of ["detail", "since", "blocks", "actions"]) {
+      const { [field as keyof typeof item]: _, ...without } = item;
+      expect(DeskItem.safeParse(without).success).toBe(false);
+    }
+    const bad = { ...item, actions: [{ command: "resume", cli: "dipo resume DIPO-105" }] };
+    expect(DeskItem.safeParse(bad).success).toBe(false);
+  });
+
+  it("office.desk takes an office and returns the items as a list", () => {
+    expect(officeDesk.since).toBe(1);
+    expect(officeDesk.result.safeParse([item]).success).toBe(true);
+    expect(officeDesk.args.safeParse({}).success).toBe(false);
   });
 });

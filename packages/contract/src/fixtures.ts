@@ -339,6 +339,33 @@ const officeReadFixtures: Record<string, { args: unknown; result: unknown }> = {
       ],
     },
   },
+  "office.desk": {
+    args: { office: ids.office },
+    result: [
+      {
+        kind: "QUESTION",
+        story: "DIPO-140",
+        key: ids.storyKey,
+        question: ids.question,
+        detail: '"Keep the old flag?" · worker waiting',
+        since: "2026-10-23T10:00:00.000Z",
+        blocks: [],
+        actions: [{ command: "work.answer", cli: `dipo answer ${ids.question} "<answer>"` }],
+      },
+      {
+        kind: "MERGE",
+        story: "DIPO-141",
+        key: ids.storyKey,
+        gate: ids.gate,
+        pr: { number: 7, url: "https://github.com/o/r/pull/7", state: "open" },
+        detail: "the release PR",
+        since: "2026-10-23T10:00:00.000Z",
+        blocks: ["DIPO-142"],
+        actions: [],
+        hand: "merge PR #7 by hand on GitHub",
+      },
+    ],
+  },
   "work.preview": {
     args: { office: ids.office, stories: ["DIPO-21"] },
     result: {

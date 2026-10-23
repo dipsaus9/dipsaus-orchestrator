@@ -23,8 +23,11 @@
 // head once, reads the failed Actions job logs, builds one CI feedback item per failed check,
 // appends one `ci` run step for the head and, when the run's CI cap (snapshot plus `ciAttempt`
 // grants) is reached, parks the story `verify-failing` with cause `ci`. The items stay in memory
-// for the fix round (`ciItems`); a story run in review holds no session place. The body's status
-// block lists each required check with its state and is rewritten when one changes.
+// for the fix round (`ciItems`, `ciState`), and each listener of `onCiFinal` is told when a head's
+// CI stops being pending (red, green, no CI or stuck), so the fix round of DIPO-148 starts once
+// both the verdict and the checks of that head are in; a story run in review holds no session
+// place. The body's status block lists each required check with its state and is rewritten when
+// one changes.
 //
 // CI is the verify of a box run (0021 amendment of 2026-10-22, DIPO-299): dipo runs no verify for
 // it, so the body's status block says CI checks the head, and red CI takes the same loop as above.
@@ -85,6 +88,7 @@ import {
   uncommentedVerdicts,
 } from "../review";
 import { storedDoneReport } from "../run/done-report";
+import { runBudgetFacts } from "../run/budget-line";
 import { runCaps } from "../run/caps";
 import { PARK_CAUSES, type ParkWriter, parkStory } from "../run/park";
 import { appendRunStep, findRun, runRoundCounts, runSteps, type StoredRun } from "../run/records";
@@ -196,12 +200,18 @@ interface Polled {
   readonly reviewed: Map<string, string>;
 }
 
+/** Where the CI of a run's pushed head stands (`StoryPrs.ciState`, DIPO-148). */
+export type CiHeadState =
+  | { readonly kind: "pending" | "stuck" | "green" | "none"; readonly head: string }
+  | { readonly kind: "red"; readonly head: string; readonly items: readonly CiFeedbackItem[] };
+
 const messageOf = (error: unknown): string =>
   error instanceof Error ? error.message : String(error);
 
 export class StoryPrs {
   readonly #deps: StoryPrsDeps;
   readonly #offices = new Map<OfficeId, Polled>();
+  readonly #listeners: ((office: OfficeId, runId: RunId) => void)[] = [];
   #stopped = false;
 
   constructor(deps: StoryPrsDeps) {
@@ -269,6 +279,31 @@ export class StoryPrs {
       }
       return tried;
     });
+  }
+
+  /**
+   * Where the CI of a run's pushed head stands now (DIPO-148's fix-round timing): `pending` while
+   * its required checks are not final, `stuck` once they are past the wait cap, `red` with the CI
+   * items once a failed head was handled, `green` once they passed, `none` for a box run's head
+   * the host reported no check for (`noCiRan`). Null before the poll watched any head of the run.
+   */
+  ciState(officeId: OfficeId, runId: RunId): CiHeadState | null {
+    const watch = this.#offices.get(officeId)?.watch.get(runId);
+    if (watch === undefined) return null;
+    const head = watch.head;
+    if (watch.noCi) return { kind: "none", head };
+    if (watch.items !== null) return { kind: "red", head, items: watch.items };
+    if (watch.final) return { kind: "green", head };
+    if (watch.stuck) return { kind: "stuck", head };
+    return { kind: "pending", head };
+  }
+
+  /**
+   * Calls `listener` each time the CI of a run's pushed head stops being pending (`ciState`): a
+   * fix round waits for that (DIPO-148). A listener that throws is logged.
+   */
+  onCiFinal(listener: (office: OfficeId, runId: RunId) => void): void {
+    this.#listeners.push(listener);
   }
 
   /**
@@ -581,7 +616,8 @@ export class StoryPrs {
     }
     const hostState = viewed.state;
     if (hostState === stored.state) {
-      if (hostState === "open") await this.#watch(officeId, state, stored, repo, viewed.headSha);
+      if (hostState === "open")
+        await this.#watchAndTell(officeId, state, stored, repo, viewed.headSha);
       return;
     }
     const closedAt = hostState === "open" ? null : this.#deps.clock.now();
@@ -591,6 +627,35 @@ export class StoryPrs {
       setStoryPrState(state.office, stored.runId, { state: hostState, closedAt });
       return story === undefined ? [] : [prEntry(next, story)];
     });
+  }
+
+  /**
+   * `#watch`, then each listener told when the head's CI stopped being pending in this pass, or
+   * after a restart rebuilt a watch that is already past it.
+   */
+  async #watchAndTell(
+    officeId: OfficeId,
+    state: Polled,
+    stored: StoryPrRecord,
+    repo: string,
+    hostHead: string,
+  ): Promise<void> {
+    const before = this.ciState(officeId, stored.runId);
+    await this.#watch(officeId, state, stored, repo, hostHead);
+    const after = this.ciState(officeId, stored.runId);
+    if (after === null || after.kind === "pending") return;
+    if (before !== null && before.kind === after.kind && before.head === after.head) return;
+    for (const listener of this.#listeners) {
+      try {
+        listener(officeId, stored.runId);
+      } catch (error) {
+        this.#deps.logger?.warn("a CI listener failed", {
+          office: officeId,
+          run: stored.runId,
+          reason: messageOf(error),
+        });
+      }
+    }
   }
 
   /**
@@ -812,9 +877,13 @@ export class StoryPrs {
   ): Promise<CiFeedbackItem[]> {
     const config = this.#config(officeId);
     const budgets = config.prompt.budgets.feedbackItem as Readonly<Record<string, number>>;
+    const polled = this.#offices.get(officeId);
     const options = {
       itemMax: (run.tier === null ? undefined : budgets[run.tier]) ?? budgets.M ?? 3_000,
       logLines: FEEDBACK_LOG_LINES_DEFAULT,
+      ...(polled === undefined
+        ? {}
+        : { budget: runBudgetFacts(polled.office, run, this.#deps.clock.now()) }),
     };
     const review = this.#deps.review;
     let all: readonly PrCheck[] = [];

@@ -325,8 +325,11 @@ export interface PreparedRun extends ClaimSetupDone {
   readonly officeDir: string;
   /** sha256 of the system file (L1+L2), stored on the agent for `canResume` (DIPO-51). */
   readonly systemHash: string;
-  /** The context pack and input paths of the first session, stored for the nudges (DIPO-60). */
-  readonly promptSources: Pick<RunPrompts, "nudgeSources">;
+  /**
+   * The context pack and input paths of the first session, stored for the nudges (DIPO-60), and
+   * the pack with the head it was read at, recorded in `context_packs` (0020 section 6).
+   */
+  readonly promptSources: Pick<RunPrompts, "nudgeSources" | "pack" | "headSha">;
   /** The measured prompt parts of the first session: system, task and each task section. */
   readonly parts: readonly PromptPart[];
   /** The system file and task message texts, stored when `privacy.storePrompts` is on (DIPO-137). */
@@ -608,7 +611,11 @@ export class RunLauncher {
       );
       writeFileSync(spec.systemFile, prompts.systemFile, { mode: 0o600 });
       systemHash = systemHashOf(prompts.systemFile);
-      promptSources = { nudgeSources: prompts.nudgeSources };
+      promptSources = {
+        nudgeSources: prompts.nudgeSources,
+        pack: prompts.pack,
+        headSha: prompts.headSha,
+      };
       parts = promptParts(prompts.systemFile, prompts.taskMessage, prompts.sections);
       texts = [
         { part: "system", text: prompts.systemFile },
