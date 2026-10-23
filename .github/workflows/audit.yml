@@ -33,7 +33,7 @@ jobs:
       # --ignore below has such an entry. Renovate opens a vulnerability PR when a fixed version
       # ships; the tracking story then removes the ignore.
       # - GHSA-86w9-cpqp-85rv: node-forge <=1.4.0 via @anthropic-ai/sandbox-runtime 0.0.79.
-      #   Tracking story: DIPO-326. Ends with: node-forge >1.4.0 in bun.lock (no fixed release exists
+      #   Tracking story: DIPO-329. Ends with: node-forge >1.4.0 in bun.lock (no fixed release exists
       #   on 2026-10-23; sandbox-runtime 0.0.81 still depends on node-forge ^1.4.0).
       - name: bun audit --audit-level=high
         run: |

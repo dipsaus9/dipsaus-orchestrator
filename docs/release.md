@@ -81,7 +81,7 @@ One change to `release.yml`, made with the maintainer's approval (0016 rule 3), 
 1. Set `DRY_RUN: "false"` in the workflow `env`.
 2. Add `push: branches: [main]` under `on`, next to `workflow_dispatch`.
 
-Steps 1 to 6 of the one-time list must be done first.
+Steps 1 to 7 of the one-time list must be done first.
 
 ## Each release
 
