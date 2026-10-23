@@ -97,6 +97,10 @@ export const TABLE_RETENTION: Readonly<Record<string, TablePolicy>> = {
   },
   verify_results: { tier: "S", rule: "with its run, ended more than stateDays ago" },
   run_summaries: { tier: "S", rule: "with its run, ended more than stateDays ago" },
+  done_reports: { tier: "S", rule: "with its run, ended more than stateDays ago" },
+  report_sendbacks: { tier: "S", rule: "with its run, ended more than stateDays ago" },
+  decision_notes: { tier: "S", rule: "decided more than stateDays ago; an open note is kept" },
+  proposals: { tier: "S", rule: "decided more than stateDays ago; an open proposal is kept" },
   questions: { tier: "S", rule: "with its run, ended more than stateDays ago" },
   run_outcomes: { tier: "P", rule: "kept until purge, for retro and tier tuning" },
   plan_limit_warnings: {

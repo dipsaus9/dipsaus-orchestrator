@@ -4,7 +4,7 @@
 import type { RunId, StoryKey } from "@dipsaus-orchestrator/contract";
 
 import type { OfficeHandle } from "../db/office";
-import { IN_REVIEW_END } from "../run/records";
+import { IN_REVIEW_END, REVIEWED_END } from "../run/records";
 
 export type StoryPrState = "open" | "merged" | "closed";
 
@@ -144,7 +144,8 @@ export function openStoryPrs(office: OfficeHandle): StoryPrRecord[] {
 const IN_REVIEW_STATUS = "In Review";
 
 /**
- * Runs whose PR is still to open, oldest first: a story run that ended at In Review and has no
+ * Runs whose PR is still to open, oldest first: a story run that ended at In Review, or as reviewed
+ * (DIPO-152: its review finished while story PRs were off), and has no
  * `story_prs` row, whose story is In Review now (not removed, a task at status In Review) and
  * whose claim is live with its In Review push on the remote. The In Review push records
  * `claims.pushed_at` in the transaction that ends the run (`run/verify-commit.ts`), so a push at
@@ -156,7 +157,8 @@ export function runsWithoutPr(office: OfficeHandle): { runId: RunId; key: StoryK
   return office
     .all<{ run_id: string; key: string }>(
       `select r.run_id as run_id, r.key as key from runs r
-        where r.office_id = $office_id and r.kind = 'story' and r.end_kind = $end
+        where r.office_id = $office_id and r.kind = 'story'
+          and r.end_kind in ($end, $reviewed)
           and r.key is not null and r.branch is not null and r.worktree is not null
           and not exists (select 1 from story_prs p
             where p.office_id = r.office_id and p.run_id = r.run_id)
@@ -166,9 +168,12 @@ export function runsWithoutPr(office: OfficeHandle): { runId: RunId; key: StoryK
               and m.kind = 'task' and m.status = $status)
           and exists (select 1 from claims c
             where c.office_id = r.office_id and c.run_id = r.run_id and c.released_at is null
-              and c.pushed_at is not null and c.pushed_at >= r.ended_at)
+              and c.pushed_at is not null
+              and (c.pushed_at >= r.ended_at
+                or (r.end_kind = $reviewed and exists (select 1 from review_verdicts v
+                  where v.office_id = r.office_id and v.run_id = r.run_id))))
         order by r.ended_at, r.run_id`,
-      { end: IN_REVIEW_END, status: IN_REVIEW_STATUS },
+      { end: IN_REVIEW_END, reviewed: REVIEWED_END, status: IN_REVIEW_STATUS },
     )
     .map((row) => ({ runId: row.run_id as RunId, key: row.key as StoryKey }));
 }

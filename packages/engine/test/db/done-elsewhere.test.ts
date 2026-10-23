@@ -1,5 +1,5 @@
-// Migration 43 (DIPO-161): `parks.resolved_how` accepts `done-elsewhere`, the parks of a database at
-// version 42 stay, and `done_elsewhere` exists with its retention policy.
+// Migration 44 (DIPO-161): `parks.resolved_how` accepts `done-elsewhere`, the parks of a database at
+// version 43 stay, and `done_elsewhere` exists with its retention policy.
 
 import { describe, expect, it } from "bun:test";
 import { join } from "node:path";
@@ -25,12 +25,12 @@ const open = (dir: string, migrations?: readonly Migration[]) =>
 const resolve = (how: string): string =>
   `update parks set resolved_at = 2, resolved_how = '${how}' where office_id = 'off-1' and park_id = 1`;
 
-describe("migration 43 on a database at version 42", () => {
+describe("migration 44 on a database at version 43", () => {
   it("keeps the parks and their cause and accepts done-elsewhere", () =>
     withTempDir(async (dir) => {
       const old = await open(
         dir,
-        MIGRATIONS.filter((step) => step.version <= 42),
+        MIGRATIONS.filter((step) => step.version <= 43),
       );
       try {
         old.connection.immediate(() => {
@@ -48,7 +48,7 @@ describe("migration 43 on a database at version 42", () => {
 
       const state = await open(dir);
       try {
-        expect(MIGRATIONS.find((step) => step.version === 43)?.name).toBe("done elsewhere");
+        expect(MIGRATIONS.find((step) => step.version === 44)?.name).toBe("done elsewhere");
         expect(
           state.connection.all(
             "select park_id, reason, cause, last_good_commit, resolved_how from parks",

@@ -40,7 +40,23 @@ export const WORKER_REPORT_CAPS = {
   proposalWhy: 1_000,
   proposalPaths: 20,
   path: 300,
+  testPlan: 50,
+  testEvidence: 500,
+  deviations: 10,
+  deviationWhere: 300,
+  deviationWhat: 1_000,
+  deviationWhy: 1_000,
+  decisionNotes: 3,
+  noteFile: 200,
+  noteSection: 200,
+  noteText: 2_000,
 } as const;
+
+/**
+ * A decision file a note may name: a Markdown file directly under the decision records folder, by
+ * its repo-relative path (0008 section 1 note of 2026-10-20).
+ */
+export const DECISION_FILE = /^docs\/decisions\/[A-Za-z0-9][A-Za-z0-9._-]*\.md$/;
 
 const caps = WORKER_REPORT_CAPS;
 
@@ -57,6 +73,33 @@ export const WorkerProposalSchema = z.strictObject({
     .max(caps.proposalPaths)
     .exactOptional()
     .describe("files it concerns, relative to the repository root"),
+});
+
+/** A test-plan entry as the worker reports it (DIPO-254): number, status and evidence. */
+export const WorkerTestPlanEntrySchema = z.strictObject({
+  n: z.int().positive().describe("the entry's number in the story's test plan"),
+  status: z
+    .enum(["done", "not-done", "manual"])
+    .describe(
+      "done: written and passing; not-done: not written or not passing; manual: a manual entry",
+    ),
+  evidence: Text.max(caps.testEvidence).describe("the test file and name, or why it is not done"),
+});
+
+/** A deviation (DIPO-254): where the change differs from a criterion or the context, and why. */
+export const WorkerDeviationSchema = z.strictObject({
+  where: Text.max(caps.deviationWhere).describe("the criterion, file or part of the context"),
+  what: Text.max(caps.deviationWhat).describe("what the change does differently"),
+  why: Text.max(caps.deviationWhy).describe("why"),
+});
+
+/** A note proposed for a decision record (DIPO-186). Data only: dipo never writes it there. */
+export const WorkerDecisionNoteSchema = z.strictObject({
+  file: Text.max(caps.noteFile)
+    .regex(DECISION_FILE)
+    .describe("the decision file, relative to the repository root"),
+  section: Text.max(caps.noteSection).describe("the heading of the section the note is for"),
+  text: Text.max(caps.noteText).describe("the note as it would read in the decision record"),
 });
 
 export const WorkerReportSchema = z.strictObject({
@@ -95,6 +138,21 @@ export const WorkerReportSchema = z.strictObject({
     .describe(
       "follow-ups, spikes or tools for the maintainer to decide on; nothing happens on its own",
     ),
+  testPlan: z
+    .array(WorkerTestPlanEntrySchema)
+    .max(caps.testPlan)
+    .exactOptional()
+    .describe("one entry per test-plan entry of the story"),
+  deviations: z
+    .array(WorkerDeviationSchema)
+    .max(caps.deviations)
+    .exactOptional()
+    .describe("where the change differs from a criterion or the context, and why"),
+  decisionNotes: z
+    .array(WorkerDecisionNoteSchema)
+    .max(caps.decisionNotes)
+    .exactOptional()
+    .describe("notes proposed for decision records, for the maintainer; never written there"),
 });
 
 export const ReviewReportSchema = z.strictObject({
@@ -136,10 +194,13 @@ export const ReviewReportSchema = z.strictObject({
 type Parsed = z.infer<typeof WorkerReportSchema>;
 const toContract = (report: Parsed): WorkerReport => report;
 const fromContract = (report: WorkerReport): Parsed => {
-  const { proposals, ...rest } = report;
+  const { proposals, testPlan, deviations, decisionNotes, ...rest } = report;
   return {
     ...rest,
     criteria: [...report.criteria],
+    ...(testPlan === undefined ? {} : { testPlan: [...testPlan] }),
+    ...(deviations === undefined ? {} : { deviations: [...deviations] }),
+    ...(decisionNotes === undefined ? {} : { decisionNotes: [...decisionNotes] }),
     ...(proposals === undefined
       ? {}
       : {

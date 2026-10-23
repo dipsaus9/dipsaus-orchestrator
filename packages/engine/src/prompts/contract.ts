@@ -96,9 +96,13 @@ function testPlanSection(story: PromptStory): Section | undefined {
       text: renderTemplate(TASK_TEMPLATES.testPlanNotApplicable, { reason: plan.not_applicable }),
     };
   }
-  const entries = plan.entries ?? [];
-  const line = (entry: (typeof entries)[number]) =>
-    entry.expect === undefined ? entry.check : `${entry.check} Expected: ${entry.expect}`;
+  // Each entry keeps its number in field block order, as the report's `testPlan` names it.
+  const entries = (plan.entries ?? []).map((entry, index) => ({ ...entry, n: index + 1 }));
+  const line = (entry: (typeof entries)[number]) => {
+    const text =
+      entry.expect === undefined ? entry.check : `${entry.check} Expected: ${entry.expect}`;
+    return `#${entry.n} ${text}`;
+  };
   return {
     name: "test_plan",
     text: renderTemplate(TASK_TEMPLATES.testPlan, {

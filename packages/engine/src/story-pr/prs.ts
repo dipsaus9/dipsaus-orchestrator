@@ -73,13 +73,25 @@ import {
 } from "../platform/host";
 import { type CiFeedbackItem, ciFeedback, FEEDBACK_LOG_LINES_DEFAULT } from "../prompts/feedback";
 import { cutHead } from "../prompts/cut";
+import { type EnvSecret, readEnvSecrets } from "../hooks/web-guard";
+import {
+  findingCounts,
+  latestVerdictOfRun,
+  recordReviewCommentUrl,
+  redactComment,
+  reviewComment,
+  reviewerEffort,
+  type StoredReviewVerdict,
+  uncommentedVerdicts,
+} from "../review";
+import { storedDoneReport } from "../run/done-report";
 import { runCaps } from "../run/caps";
 import { PARK_CAUSES, type ParkWriter, parkStory } from "../run/park";
 import { appendRunStep, findRun, runRoundCounts, runSteps, type StoredRun } from "../run/records";
 import { findStoryByKey } from "../stories/keys";
 import { withWorkViews } from "../views/work";
 
-import { storyPrBodyHash, storyPrBody } from "./body";
+import { type PrBodyReview, storyPrBodyHash, storyPrBody } from "./body";
 import type { StoryPrGit } from "./git";
 import {
   findStoryPr,
@@ -101,6 +113,7 @@ export const STORY_PR_NOTICES = {
   openFailed: "pr.openFailed",
   ciStuck: "ci.stuck",
   ciNone: "ci.none",
+  commentFailed: "pr.commentFailed",
 } as const;
 
 /**
@@ -142,6 +155,11 @@ export interface StoryPrsDeps {
    * final with no CI. False for every run without it.
    */
   readonly boxRun?: (office: OfficeId, run: StoredRun) => boolean;
+  /**
+   * The values of the env files dipo copied into a worktree, for the review comments (DIPO-152);
+   * the files of `readEnvSecrets` by default. It throws when a file cannot be read.
+   */
+  readonly secrets?: (worktree: string, files: OfficeConfig["worktree"]["files"]) => EnvSecret[];
 }
 
 /** What the poll knows of the pushed head of one story PR. */
@@ -174,6 +192,8 @@ interface Polled {
   readonly told: Map<string, string>;
   /** The CI watch of each run's pushed head. */
   readonly watch: Map<string, Watch>;
+  /** The review state last written to each run's PR body, so a new verdict rewrites it. */
+  readonly reviewed: Map<string, string>;
 }
 
 const messageOf = (error: unknown): string =>
@@ -214,6 +234,7 @@ export class StoryPrs {
       busy: Promise.resolve(),
       told: new Map(),
       watch: new Map(),
+      reviewed: new Map(),
     });
   }
 
@@ -237,7 +258,10 @@ export class StoryPrs {
     const state = this.#state(officeId);
     return this.#serial(state, async () => {
       if (!this.#opensPrs(officeId)) return [];
-      for (const stored of openStoryPrs(state.office)) await this.#poll(officeId, state, stored);
+      for (const stored of openStoryPrs(state.office)) {
+        await this.#poll(officeId, state, stored);
+        await this.#reviewStep(officeId, state, stored.runId);
+      }
       const tried: RunId[] = [];
       for (const { runId } of runsWithoutPr(state.office)) {
         tried.push(runId);
@@ -245,6 +269,102 @@ export class StoryPrs {
       }
       return tried;
     });
+  }
+
+  /**
+   * The review part of the poll for one open PR (0019 section 3): posts the comment of each
+   * verdict that has none, oldest first, and rewrites the body when the latest verdict changed
+   * (or an override was recorded). Nothing here is awaited by the gate, a fix round or a merge: the
+   * poll runs apart from them, and a failure is a notice and the next poll's retry.
+   */
+  async #reviewStep(officeId: OfficeId, state: Polled, runId: RunId): Promise<void> {
+    const stored = findStoryPr(state.office, runId);
+    if (stored === null || stored.state !== "open") return;
+    try {
+      await this.#comments(officeId, state, stored);
+    } catch (error) {
+      this.#deps.logger?.warn("posting the review comments failed", {
+        office: officeId,
+        run: runId,
+        reason: messageOf(error),
+      });
+    }
+    const key = reviewKey(latestVerdictOfRun(state.office, runId));
+    if (state.reviewed.get(runId) !== key) await this.#sync(officeId, state, runId);
+  }
+
+  /**
+   * Posts one comment per verdict without a comment URL, built by code, with every value of the
+   * copied env files redacted after the size cap. A verdict whose comment cannot be built or
+   * posted raises `pr.commentFailed` once per cause and waits for the next poll; the comments
+   * after it wait too, so they stay in round order. A posted comment is never edited.
+   */
+  async #comments(officeId: OfficeId, state: Polled, stored: StoryPrRecord): Promise<void> {
+    const review = this.#deps.review;
+    if (review === undefined) return;
+    const office = state.office;
+    const repo = repoOfPrUrl(stored.url);
+    const run = findRun(office, stored.runId);
+    if (repo === null || run === null) return;
+    for (const verdict of uncommentedVerdicts(office, stored.runId)) {
+      const told = `comment:${verdict.gate}`;
+      let body: string;
+      try {
+        const secrets = (this.#deps.secrets ?? readEnvSecrets)(
+          run.worktree ?? "",
+          this.#config(officeId).worktree.files,
+        );
+        body = redactComment(
+          reviewComment(verdict, { effort: reviewerEffort(office, verdict.agent) }),
+          secrets,
+        );
+      } catch (error) {
+        this.#commentFailed(
+          officeId,
+          state,
+          stored,
+          verdict,
+          told,
+          `the comment was held back: ${messageOf(error)}`,
+        );
+        return;
+      }
+      let url: string;
+      try {
+        url = await review.commentPr(repo, stored.number, body);
+      } catch (error) {
+        this.#commentFailed(officeId, state, stored, verdict, told, messageOf(error));
+        return;
+      }
+      state.told.delete(told);
+      state.office.immediate(() => recordReviewCommentUrl(office, verdict.gate, url));
+    }
+  }
+
+  #commentFailed(
+    officeId: OfficeId,
+    state: Polled,
+    stored: StoryPrRecord,
+    verdict: StoredReviewVerdict,
+    told: string,
+    reason: string,
+  ): void {
+    this.#deps.logger?.warn("posting the review comment failed", {
+      office: officeId,
+      run: stored.runId,
+      reason,
+    });
+    if (state.told.get(told) === reason) return;
+    state.told.set(told, reason);
+    this.#write(officeId, state, () => [
+      notice(
+        "warn",
+        STORY_PR_NOTICES.commentFailed,
+        `dipo could not post the review comment of round ${verdict.round} on the PR for ${stored.key}: ${reason}. dipo tries again at the next poll; the review itself is not held.`,
+        stored.key,
+        stored.runId,
+      ),
+    ]);
   }
 
   /** The CI feedback items built for the red head of a run, or none (DIPO-148 sends them). */
@@ -289,12 +409,18 @@ export class StoryPrs {
         this.#config(officeId).mergeSlot.requiredChecks,
       );
       const box = this.#deps.boxRun?.(officeId, run) === true;
-      const body = storyPrBody(facts.story, {
-        head: facts.head,
-        checks,
-        ...(box ? { verify: "ci" as const } : {}),
-        ...(box && noCiRan(office, runId, facts.head) ? { noCi: true } : {}),
-      });
+      const reviewed = latestVerdictOfRun(office, runId);
+      state.reviewed.set(runId, reviewKey(reviewed));
+      const body = storyPrBody(
+        { ...facts.story, doneReport: storedDoneReport(office, runId) },
+        {
+          head: facts.head,
+          checks,
+          review: reviewed === null ? null : reviewOfVerdict(reviewed),
+          ...(box ? { verify: "ci" as const } : {}),
+          ...(box && noCiRan(office, runId, facts.head) ? { noCi: true } : {}),
+        },
+      );
       const hash = storyPrBodyHash(body);
       const stored = findStoryPr(office, runId);
       if (stored === null) {
@@ -818,6 +944,23 @@ export class StoryPrs {
     if (state.timer !== null) state.clock.clearTimeout(state.timer);
     state.timer = null;
   }
+}
+
+/** What the body's review line is built from: the latest verdict and an override on it. */
+function reviewKey(verdict: StoredReviewVerdict | null): string {
+  return verdict === null
+    ? "none"
+    : `${verdict.gate}:${verdict.commit}:${verdict.override?.at ?? ""}`;
+}
+
+function reviewOfVerdict(verdict: StoredReviewVerdict): PrBodyReview {
+  return {
+    round: verdict.round,
+    verdict: verdict.verdict,
+    commit: verdict.commit,
+    ...findingCounts(verdict.findings),
+    overridden: verdict.override !== null,
+  };
 }
 
 /** The `[HOST/]OWNER/REPO` of a PR URL (`https://github.com/o/r/pull/7`), or null. */

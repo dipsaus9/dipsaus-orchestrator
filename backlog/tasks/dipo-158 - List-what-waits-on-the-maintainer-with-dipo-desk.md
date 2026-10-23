@@ -4,7 +4,7 @@ title: List what waits on the maintainer with dipo desk
 status: Refined
 assignee: []
 created_date: '2026-10-17 12:52'
-updated_date: '2026-10-22 18:16'
+updated_date: '2026-10-23 06:18'
 labels:
   - 'tier:M'
   - 'slice:m1a'
@@ -52,6 +52,7 @@ test_plan:
 - [ ] #3 A review-blocked story is one PARKED row offering dipo resume --note and dipo approve --note, and a gate held by autorelease: pending offers a hand merge on GitHub and no dipo approve
 - [ ] #4 dipo desk [--office <id>] [--json] prints a count line, one line per item and an indented line with the command, in plain text; --json prints the read's result; an empty desk prints Nothing waits on you.; the exit code is 0
 - [ ] #5 The contract carries the office.desk read and the DeskItem shape
+- [ ] #6 (from DIPO-186) The office.desk read returns each open decision note and open proposal (proposalItems in packages/engine/src/views/proposals.ts) as a DeskItem in the proposals group, with the file, the section and the text in its detail, and dipo desk prints it
 <!-- AC:END -->
 
 ## Implementation Notes

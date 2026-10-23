@@ -43,7 +43,8 @@ import { reviewVerdicts } from "./migrations/0039-review-verdicts";
 import { baseVerifies } from "./migrations/0040-base-verifies";
 import { runStepCiNone } from "./migrations/0041-run-step-ci-none";
 import { usageLive } from "./migrations/0042-usage-live";
-import { doneElsewhere } from "./migrations/0043-done-elsewhere";
+import { workerReportData } from "./migrations/0043-worker-report-data";
+import { doneElsewhere } from "./migrations/0044-done-elsewhere";
 
 /**
  * Software-wide tables (0007 section 3). Every other table is office-scoped and has `office_id`
@@ -122,5 +123,6 @@ create table offices (
   baseVerifies,
   runStepCiNone,
   usageLive,
+  workerReportData,
   doneElsewhere,
 ];

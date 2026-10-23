@@ -61,6 +61,8 @@ export type ContractVersion = z.infer<typeof ContractVersion>;
 // same, still unreleased, minor.
 // DIPO-136 ships the command `office.setPrivacy` and adds the optional `privacy` of `OfficeSummary`
 // (each privacy setting with its value and source) to the same, still unreleased, minor.
+// DIPO-251 adds the optional `warnings` of `story.gate` (rules that warn without failing, R29) to
+// the same, still unreleased, minor.
 // DIPO-271 adds the optional `box` of `work.run` (run the developer in its own box, 0021) to the
 // same, still unreleased, minor.
 // DIPO-161 ships the command `work.discard` and the office codes `story.prMerged` and
