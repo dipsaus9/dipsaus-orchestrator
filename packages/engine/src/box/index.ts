@@ -260,6 +260,7 @@ export type {
   BoxCacheUse,
   BoxEnded,
   BoxPresence,
+  BoxPassOptions,
   BoxRest,
   BoxFinish,
   BoxMade,

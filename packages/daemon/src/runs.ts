@@ -30,6 +30,7 @@ import type {
 import {
   type AdapterHolds,
   type BoxEnded,
+  type BoxPassOptions,
   boxEndedOf,
   boxRunState,
   findClaim,
@@ -338,7 +339,7 @@ export async function finishEndedBoxRuns(
   workers: Pick<BoxWorkers, "finishEnded">,
   ended: (runId: string) => BoxEnded,
   logger: Pick<Logger, "info">,
-  options: { readonly listBoxes?: boolean } = {},
+  options: BoxPassOptions = {},
 ): Promise<string[]> {
   const finished = await workers.finishEnded(ended, options);
   if (finished.length > 0) logger.info("ended box runs checked and deleted", { finished });
@@ -654,7 +655,8 @@ export function daemonRuns(options: DaemonRunsOptions): DaemonRuns {
       boxWorkers,
       (runId) => boxRunEnded(options.offices, runId),
       options.logger,
-      finishOptions,
+      // A listed box the index lost gets its entry again from the office that knows its run.
+      { ...finishOptions, runDirOf: (runId) => runDirOfRun(runId) },
     );
   };
   // A drop or a merge ends a claim with no worker exit, so a minute tick also runs the pass: the
@@ -770,6 +772,16 @@ export function daemonRuns(options: DaemonRunsOptions): DaemonRuns {
       run.worktree,
       run.runId,
     );
+  };
+  // The run directory of a run a loaded office knows (DIPO-278: an index entry written again).
+  const runDirOfRun = (runId: string): string | null => {
+    for (const office of options.offices.loadedOffices()) {
+      const handle = options.offices.get(office);
+      const run = handle === undefined ? null : findRun(handle, runId as RunId);
+      if (run === null) continue;
+      return runPaths(office, run)?.runDir ?? null;
+    }
+    return null;
   };
   // The facts of a box run a part needs (DIPO-273), from the loaded office that knows the run.
   partRun = (runId) => {

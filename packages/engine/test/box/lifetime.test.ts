@@ -9,7 +9,7 @@
 //   the packages installed again and `/work` checked against the delivered tree; only undelivered
 //   work is lost, and the notice says so.
 
-import { mkdirSync, readFileSync, realpathSync, writeFileSync } from "node:fs";
+import { mkdirSync, readFileSync, realpathSync, rmSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 
 import { describe, expect, it } from "bun:test";
@@ -117,7 +117,11 @@ interface World {
  * A repository whose start commit holds code and the story's task file, the box workers on the
  * fake backend, and the run's directory. The story branch is made at the start commit.
  */
-async function world(repo: TempRepo, tmp: string): Promise<World> {
+async function world(
+  repo: TempRepo,
+  tmp: string,
+  more: { readonly finishWaitMs?: number } = {},
+): Promise<World> {
   mkdirSync(join(repo.dir, "src"));
   writeFileSync(join(repo.dir, "src", "greet.ts"), "export const greet = () => 'hi';\n");
   mkdirSync(join(repo.dir, "backlog", "tasks"), { recursive: true });
@@ -171,6 +175,7 @@ async function world(repo: TempRepo, tmp: string): Promise<World> {
     tmpRoot: tmp,
     indexDir: join(tmp, "state", BOX_INDEX_DIR),
     scratchRoot: tmp,
+    ...more,
     // /work is compared with dipo's copy; here every box is found the same.
     treeCheck: async (run) => {
       log.push(`tree check against ${run.codeTip ?? run.startSha}`);
@@ -208,6 +213,26 @@ function pass(w: World, state: Parameters<typeof boxRunState>[0]) {
   return w.workers.finishEnded((runId) => (runId === RUN ? boxEndedOf(boxRunState(state)) : null));
 }
 
+/** Holds the post-run check's export of the box until `release`; `started` once it is asked. */
+function hold(w: World): { readonly started: Promise<void>; readonly release: () => void } {
+  let release!: () => void;
+  let asked!: () => void;
+  const held = new Promise<void>((resolve) => {
+    release = resolve;
+  });
+  const started = new Promise<void>((resolve) => {
+    asked = resolve;
+  });
+  const exportFiles = w.boxes.exportFiles.bind(w.boxes);
+  w.boxes.exportFiles = async (name, to) => {
+    asked();
+    await held;
+    w.boxes.exportFiles = exportFiles;
+    return exportFiles(name, to);
+  };
+  return { started, release };
+}
+
 const WAITING = { endedAt: 5, claimLive: true, hostsExited: true } as const;
 const RELEASED = { endedAt: 5, claimLive: false, hostsExited: true } as const;
 const WORKING = { endedAt: null, claimLive: true, hostsExited: false } as const;
@@ -224,8 +249,11 @@ describe("the box while the story waits", () => {
       expect(w.log).toEqual([]);
       // The run ended at In Review (or parked): the story waits for the review, CI or an answer.
       expect(await pass(w, WAITING)).toEqual([]);
+      // Stopped and started first, so no earlier claude runs in it during the check.
       expect(w.log).toEqual([
         "list",
+        `stop ${BOX}`,
+        `start ${BOX}`,
         `exec ${BOX} sh`,
         `export ${BOX}`,
         `stop ${BOX}`,
@@ -258,6 +286,111 @@ describe("the box while the story waits", () => {
       await pass(w, WAITING);
       expect(w.log).toContain(`export ${BOX}`);
       expect(w.log).toContain(`stop ${BOX}`);
+    }));
+
+  it("keeps the box and routes of a session started while the rest's export is held, and the next stop checks it again", () =>
+    inBoxes(async (repo, tmp) => {
+      const w = await world(repo, tmp);
+      await made(w);
+      await session(w);
+      const held = hold(w);
+      const resting = w.workers.rest(RUN);
+      await held.started;
+      // The next session starts during the check: it waits for the rest, which then stops nothing.
+      let ready = false;
+      const next = session(w).then(() => {
+        ready = true;
+      });
+      await Promise.resolve();
+      expect(ready).toBe(false);
+      w.log.length = 0;
+      held.release();
+      expect(await resting).toEqual({ kind: "skipped" });
+      await next;
+      expect(w.log).not.toContain("web route stopped");
+      expect(w.log).not.toContain("model proxy stopped");
+      expect(w.boxes.boxes.get(BOX)?.state).toBe("running");
+      expect(w.workers.routeUsers).toEqual({ web: [BOX], model: [BOX] });
+      expect(readBoxRun(w.runDir)?.waiting).toBeUndefined();
+      expect(w.holds.adapterHeld(ADAPTER)).toBeNull();
+      // That session ends: the next stop checks the box again before it stops it.
+      w.log.length = 0;
+      expect(await w.workers.rest(RUN)).toMatchObject({ kind: "stopped" });
+      expect(w.log).toContain(`export ${BOX}`);
+      expect(w.log.at(-3)).toBe(`stop ${BOX}`);
+      expect(readBoxRun(w.runDir)).toMatchObject({ waiting: true });
+    }));
+
+  it("is skipped while a session makes the box ready", () =>
+    inBoxes(async (repo, tmp) => {
+      const w = await world(repo, tmp);
+      await made(w);
+      await session(w);
+      // A copy into the box is held, so the session is still making its box ready.
+      let release!: () => void;
+      const copied = new Promise<void>((resolve) => {
+        release = resolve;
+      });
+      let entered!: () => void;
+      const inCopy = new Promise<void>((resolve) => {
+        entered = resolve;
+      });
+      const copyIn = w.boxes.copyIn.bind(w.boxes);
+      w.boxes.copyIn = async (...args) => {
+        entered();
+        await copied;
+        return copyIn(...args);
+      };
+      const next = session(w);
+      await inCopy;
+      expect(await w.workers.rest(RUN)).toEqual({ kind: "skipped" });
+      release();
+      await next;
+      expect(w.boxes.boxes.get(BOX)?.state).toBe("running");
+    }));
+
+  it("lets the pass go on after the wait while a rest hangs, and the rest still ends", () =>
+    inBoxes(async (repo, tmp) => {
+      const w = await world(repo, tmp, { finishWaitMs: 20 });
+      await made(w);
+      await session(w);
+      const held = hold(w);
+      expect(await pass(w, WAITING)).toEqual([]);
+      expect(readBoxRun(w.runDir)?.waiting).toBeUndefined();
+      held.release();
+      // The same rest goes on: a later call gets it and the box rests.
+      expect(await w.workers.rest(RUN)).toMatchObject({ kind: "stopped" });
+      expect(readBoxRun(w.runDir)).toMatchObject({ waiting: true });
+    }));
+
+  it("finds a listed box the index lost through the office that knows its run", () =>
+    inBoxes(async (repo, tmp) => {
+      const w = await world(repo, tmp);
+      await made(w);
+      await session(w);
+      const index = join(tmp, "state", BOX_INDEX_DIR);
+      rmSync(join(index, BOX));
+      expect(w.workers.pending()).toEqual([]);
+      await w.workers.finishEnded((runId) => (runId === RUN ? BOX_WAITING : null), {
+        listBoxes: true,
+        runDirOf: (runId) => (runId === RUN ? w.runDir : null),
+      });
+      expect(w.workers.pending()).toEqual([RUN]);
+      // With its entry back the rest finds the run's record and marks it waiting.
+      expect(readBoxRun(w.runDir)).toMatchObject({ waiting: true });
+    }));
+
+  it("writes no index entry for a listed box no office knows", () =>
+    inBoxes(async (repo, tmp) => {
+      const w = await world(repo, tmp);
+      await made(w);
+      await session(w);
+      rmSync(join(tmp, "state", BOX_INDEX_DIR, BOX));
+      await w.workers.finishEnded(() => null, {
+        listBoxes: true,
+        runDirOf: () => w.runDir,
+      });
+      expect(w.workers.pending()).toEqual([]);
     }));
 });
 

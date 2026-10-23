@@ -24,8 +24,13 @@
 //   earlier session's claude (a host killed with SIGKILL, or one that crashed, never ran its stop
 //   command), so it is stopped and started again first; only a box `create` just made is not. It returns how the worker host runs a command in the box and stops it.
 //   With `door`, the box's part queue is read while the session runs (`BoxDoor`, DIPO-272).
-// - `rest` (the story waits, DIPO-278): the post-run token check, then the box stopped with its
-//   files and its routes released; the record says it rests until the next session.
+// - `rest` (the story waits, DIPO-278): the box stopped and started again (so no earlier claude
+//   outlives its host into the check), the post-run token check, then the box stopped with its
+//   files and its routes released; the record says it rests until the next session. A session
+//   and a rest of one run never overlap: a session waits for a rest in flight, and a rest that
+//   finds a session started since it began (a per-run session epoch, read again after the check)
+//   or one still starting stops nothing, releases nothing and marks nothing. A pass waits for a
+//   rest at most `BOX_FINISH_WAIT_MS` too; the rest goes on.
 // - `finish` (the claim ended: merge, drop, discard): the post-run token check, unless the box
 //   rests already (`checkBoxAfterRun`, which holds the adapter when the token is found or the
 //   check cannot finish), then the box deleted and its routes released. `discard` deletes a box
@@ -147,8 +152,24 @@ export type BoxRest =
   | { readonly kind: "stopped"; readonly check: BoxTokenCheck }
   /** Already stopped and checked after its last session: nothing to do. */
   | { readonly kind: "resting" }
+  /**
+   * A session of the run started before the stop (during the check, or before the rest began):
+   * the box keeps running with its routes, and the next stop checks it again.
+   */
+  | { readonly kind: "skipped" }
   | { readonly kind: "gone" }
   | { readonly kind: "failed"; readonly reason: string };
+
+/** Options of a `finishEnded` pass. */
+export interface BoxPassOptions {
+  /** Also every dipo box the backend lists (daemon start). */
+  readonly listBoxes?: boolean;
+  /**
+   * The run directory of a run a loaded office knows, or null: a listed box the index lost gets
+   * its index entry again, so its rest and finish find the run's record.
+   */
+  readonly runDirOf?: (runId: string) => string | null;
+}
 
 /** One developer session's box: how the worker host runs claude in it and stops it. */
 export interface BoxSession {
@@ -355,6 +376,10 @@ export class BoxWorkers {
   readonly #finishing = new Map<string, Promise<BoxFinish>>();
   /** Stops of waiting runs in flight, by run id (DIPO-278). */
   readonly #resting = new Map<string, Promise<BoxRest>>();
+  /** Per run, how many sessions started here: a rest that sees it change stops nothing. */
+  readonly #epochs = new Map<string, number>();
+  /** Per run, the sessions whose box is being made ready now. */
+  readonly #starting = new Map<string, number>();
   /** Boxes `create` made and started, in which no session ran yet. */
   readonly #fresh = new Set<string>();
   /** The part queues read while a session runs (DIPO-272); null without `door`. */
@@ -630,6 +655,25 @@ export class BoxWorkers {
     readonly runDir: string;
     readonly systemFile: string;
   }): Promise<BoxSession> {
+    const { runId } = input;
+    // A rest in flight sees the new epoch after its check and leaves the box running (DIPO-278).
+    this.#epochs.set(runId, (this.#epochs.get(runId) ?? 0) + 1);
+    this.#starting.set(runId, (this.#starting.get(runId) ?? 0) + 1);
+    try {
+      await this.#resting.get(runId);
+      return await this.#session(input);
+    } finally {
+      const left = (this.#starting.get(runId) ?? 1) - 1;
+      if (left > 0) this.#starting.set(runId, left);
+      else this.#starting.delete(runId);
+    }
+  }
+
+  async #session(input: {
+    readonly runId: string;
+    readonly runDir: string;
+    readonly systemFile: string;
+  }): Promise<BoxSession> {
     const record = readBoxRun(input.runDir);
     if (record === null || record.runId !== input.runId) {
       throw new BoxError("box.gone", `run ${input.runId} has no box record.`);
@@ -721,7 +765,9 @@ export class BoxWorkers {
     this.#door?.stop(runId);
     const runDir = this.#runDirOf(runId);
     const rested = runDir !== undefined && readBoxRun(runDir)?.waiting === true;
-    const outcome = await this.#checked(runId, name, rested, (box) => this.#deps.boxes.delete(box));
+    const outcome = await this.#checked(runId, name, { skipCheck: rested }, (box) =>
+      this.#deps.boxes.delete(box),
+    );
     await this.#release(name);
     // A box that could not be deleted stays in the index, for the next pass.
     if (outcome.kind !== "failed") this.#forget(runId, name);
@@ -750,8 +796,24 @@ export class BoxWorkers {
     const runDir = this.#runDirOf(runId);
     const record = runDir === undefined ? null : readBoxRun(runDir);
     if (record?.waiting === true) return { kind: "resting" };
+    // A session that is making the box ready now keeps it; its run is not waiting any more.
+    if (this.#starting.has(runId)) return { kind: "skipped" };
     this.#door?.stop(runId);
-    const outcome = await this.#checked(runId, name, false, (box) => this.#deps.boxes.stop(box));
+    const epoch = this.#epochs.get(runId) ?? 0;
+    const moved = (): boolean => (this.#epochs.get(runId) ?? 0) !== epoch;
+    // The box restarts first, as before a session, so no earlier claude runs during the check.
+    const outcome = await this.#checked(runId, name, { restart: true }, async (box) => {
+      // A session started during the check: it keeps the box running, with its routes.
+      if (!moved()) await this.#deps.boxes.stop(box);
+    });
+    // No stop, release or mark for a session that started meanwhile; it waited for this rest.
+    if (moved()) {
+      this.#deps.info?.("a session started while the box was checked; it keeps running", {
+        run: runId,
+        box: name,
+      });
+      return { kind: "skipped" };
+    }
     await this.#release(name);
     if (outcome.kind === "checked") {
       if (runDir !== undefined) markWaiting(runDir, true);
@@ -764,14 +826,16 @@ export class BoxWorkers {
 
   /**
    * The post-run token check of box `name`, then `then(name)` (delete or stop): `gone` when the
-   * backend has no such box. With `skipCheck` a stopped box gets no check. A box whose check could
+   * backend has no such box. With `skipCheck` a stopped box gets no check. With `restart` a running
+   * box is stopped and started again before the check, as `#running` does before a session, so
+   * an earlier session's claude that outlived its host is gone first. A box whose check could
    * not even start holds the adapter, as a failed check does; only the error's code goes into the
    * hold, never a message that may quote the box.
    */
   async #checked(
     runId: string,
     name: string,
-    skipCheck: boolean,
+    how: { readonly skipCheck?: boolean; readonly restart?: boolean },
     then: (name: string) => Promise<void>,
   ): Promise<BoxFinish> {
     const { boxes } = this.#deps;
@@ -781,13 +845,14 @@ export class BoxWorkers {
       const listed = (await boxes.list()).find((box) => box.name === name);
       if (listed === undefined) return { kind: "gone" };
       exists = true;
-      if (skipCheck && listed.state !== "running") {
+      if (how.skipCheck === true && listed.state !== "running") {
         checked = true;
         await then(name);
         return { kind: "deleted" };
       }
       // The check reads the environment of the running box, so a stopped box starts first.
-      if (listed.state !== "running") await boxes.start(name);
+      if (how.restart === true && listed.state === "running") await boxes.stop(name);
+      if (how.restart === true || listed.state !== "running") await boxes.start(name);
       const model = await this.#model.acquire(name);
       const { result } = await checkBoxAfterRun(
         {
@@ -995,10 +1060,7 @@ export class BoxWorkers {
    * finished and reported by one pass. Never rejects; resolves to the run ids it finished, without
    * those whose finish failed (they stay in the index for the next pass).
    */
-  finishEnded(
-    ended: (runId: string) => BoxEnded,
-    options: { readonly listBoxes?: boolean } = {},
-  ): Promise<string[]> {
+  finishEnded(ended: (runId: string) => BoxEnded, options: BoxPassOptions = {}): Promise<string[]> {
     const pass = this.#pass.then(() => this.#finishEndedPass(ended, options));
     this.#pass = pass.catch(() => undefined);
     return pass;
@@ -1006,7 +1068,7 @@ export class BoxWorkers {
 
   async #finishEndedPass(
     ended: (runId: string) => BoxEnded,
-    options: { readonly listBoxes?: boolean },
+    options: BoxPassOptions,
   ): Promise<string[]> {
     const runs = new Set(this.pending());
     // The second layer (daemon start): every dipo box the backend lists, in case the index lost
@@ -1016,7 +1078,10 @@ export class BoxWorkers {
       try {
         for (const box of await this.#deps.boxes.list()) {
           if (box.runId.startsWith(FILL_BOX_RUN_PREFIX)) fills.push(box.name);
-          else runs.add(box.runId);
+          else {
+            runs.add(box.runId);
+            this.#indexAgain(box.runId, ended, options.runDirOf);
+          }
         }
       } catch (error) {
         this.#deps.warn?.("listing the boxes failed", { reason: messageOf(error) });
@@ -1028,18 +1093,21 @@ export class BoxWorkers {
       const state = ended(runId);
       if (state === BOX_WAITING) {
         // The story waits: its box stops, files kept, until its next session (DIPO-278).
-        if (!this.#finishing.has(runId)) await this.rest(runId);
+        if (!this.#finishing.has(runId)) await this.#within(this.rest(runId), runId, "stop");
         continue;
       }
       if (state !== true) continue;
-      const outcome = await this.#finishWithin(runId);
+      const outcome = await this.#within(this.finish(runId), runId, "end");
       if (outcome !== null && outcome.kind !== "failed") finished.push(runId);
     }
     return finished;
   }
 
-  /** `finish`, or null once `BOX_FINISH_WAIT_MS` passed; the finish itself goes on then. */
-  async #finishWithin(runId: string): Promise<BoxFinish | null> {
+  /**
+   * `work` (a `finish` or a `rest`), or null once `BOX_FINISH_WAIT_MS` passed; the work itself goes
+   * on then, and a later pass waits for it again.
+   */
+  async #within<T>(work: Promise<T>, runId: string, what: "end" | "stop"): Promise<T | null> {
     const { clock } = this.#deps.code;
     const waitMs = this.#deps.finishWaitMs ?? BOX_FINISH_WAIT_MS;
     let timer: ReturnType<typeof clock.setTimeout> | undefined;
@@ -1047,16 +1115,41 @@ export class BoxWorkers {
       timer = clock.setTimeout(() => resolve(null), waitMs);
     });
     try {
-      const outcome = await Promise.race([this.finish(runId), late]);
+      const outcome = await Promise.race([work, late]);
       if (outcome === null) {
-        this.#deps.warn?.("the end of a box run did not finish in time; a later pass waits again", {
-          run: runId,
-          waitMs,
-        });
+        const message =
+          what === "end"
+            ? "the end of a box run did not finish in time; a later pass waits again"
+            : "the stop of a waiting box did not finish in time; a later pass waits again";
+        this.#deps.warn?.(message, { run: runId, waitMs });
       }
       return outcome;
     } finally {
       if (timer !== undefined) clock.clearTimeout(timer);
+    }
+  }
+
+  /**
+   * Writes the index entry of a listed box again when the index lost it and an office knows its
+   * run, and the run directory's record names the run. Never throws.
+   */
+  #indexAgain(
+    runId: string,
+    ended: (runId: string) => BoxEnded,
+    runDirOf: BoxPassOptions["runDirOf"],
+  ): void {
+    if (runDirOf === undefined || existsSync(this.#indexFile(runId))) return;
+    try {
+      if (ended(runId) === null) return;
+      const runDir = runDirOf(runId);
+      if (runDir === null || readBoxRun(runDir)?.runId !== runId) return;
+      writeJson(this.#indexFile(runId), { runDir });
+      this.#deps.info?.("wrote the index entry of a listed box again", { run: runId });
+    } catch (error) {
+      this.#deps.warn?.("writing the index entry of a listed box failed", {
+        run: runId,
+        reason: messageOf(error),
+      });
     }
   }
 
