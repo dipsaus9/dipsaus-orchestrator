@@ -8,10 +8,11 @@
 // `stop --force` (DIPO-70) share this check.
 
 import { dlopen, FFIType, ptr } from "bun:ffi";
-import { closeSync, openSync } from "node:fs";
-import { readFile } from "node:fs/promises";
+import { closeSync, constants, mkdirSync, mkdtempSync, openSync, rmSync } from "node:fs";
+import { readFile, rm } from "node:fs/promises";
+import { join } from "node:path";
 
-import type { ChildStdin, Signal, Spawn } from "@dipsaus-orchestrator/contract";
+import type { ChildStdin, Signal, Spawn, SpawnOutputFile } from "@dipsaus-orchestrator/contract";
 
 import { ignoreRejection } from "./background";
 import type { DipoPlatform } from "./paths";
@@ -502,21 +503,115 @@ export function selfCommand(): [string, ...string[]] {
 
 const textEncoder = new TextEncoder();
 
+/** The name prefix of the private folder a child's output files are made in (DIPO-333). */
+export const OUTPUT_DIR_PREFIX = "dipo-out-";
+
+/** The private folder and the open files a child's stdout and stderr go to. */
+interface OutputFiles {
+  readonly dir: string;
+  readonly stdout: number;
+  readonly stderr: number;
+}
+
+/** Opens a new file at `path` for writing only, mode 0600; never an existing file or a link. */
+function openNew(path: string): number {
+  const flags = constants.O_WRONLY | constants.O_CREAT | constants.O_EXCL | constants.O_NOFOLLOW;
+  return openSync(path, flags, 0o600);
+}
+
 /**
- * The real `Spawn` (0017 section 2): `Bun.spawn` behind the contract's `ChildProcess`. Stdout and
- * stderr are always piped. With `detached` the child leads its own session and process group, so
- * `signalGroup(child.pid)` reaches its descendants too.
+ * Makes a fresh private folder (mode 0700, an unpredictable name) under `output.tempRoot` and opens
+ * the stdout and stderr files in it. Nothing is left behind when a step fails.
  */
-export const systemSpawn: Spawn = (options) => {
-  const child = Bun.spawn({
+function openOutputFiles(output: SpawnOutputFile): OutputFiles {
+  mkdirSync(output.tempRoot, { recursive: true, mode: 0o700 });
+  const dir = mkdtempSync(join(output.tempRoot, OUTPUT_DIR_PREFIX));
+  const opened: number[] = [];
+  try {
+    opened.push(openNew(join(dir, "stdout")));
+    opened.push(openNew(join(dir, "stderr")));
+    const [stdout = -1, stderr = -1] = opened;
+    return { dir, stdout, stderr };
+  } catch (error) {
+    for (const fd of opened) closeSync(fd);
+    rmSync(dir, { recursive: true, force: true });
+    throw error;
+  }
+}
+
+/**
+ * The content of both output files once `exited` settles; the folder is removed after the read,
+ * also when it fails.
+ */
+async function readOutputFiles(dir: string, exited: Promise<unknown>): Promise<Uint8Array[]> {
+  try {
+    await exited;
+    return await Promise.all([readFile(join(dir, "stdout")), readFile(join(dir, "stderr"))]);
+  } finally {
+    await rm(dir, { recursive: true, force: true });
+  }
+}
+
+/** A stream of the one chunk `bytes` settles to; a failed read errors the stream. */
+function streamOf(bytes: Promise<Uint8Array>): ReadableStream<Uint8Array> {
+  return new ReadableStream<Uint8Array>({
+    async start(controller) {
+      try {
+        const chunk = await bytes;
+        if (chunk.byteLength > 0) controller.enqueue(chunk);
+        controller.close();
+      } catch (error) {
+        controller.error(error);
+      }
+    },
+  });
+}
+
+/** `Bun.spawn` with the contract's options, stdout and stderr on `files` or on pipes. */
+function bunSpawn(options: Parameters<Spawn>[0], files: OutputFiles | null) {
+  return Bun.spawn({
     cmd: [...options.cmd],
     ...(options.cwd === undefined ? {} : { cwd: options.cwd }),
     ...(options.env === undefined ? {} : { env: { ...options.env } }),
     stdin: options.stdin === "pipe" ? "pipe" : "ignore",
-    stdout: "pipe",
-    stderr: "pipe",
+    stdout: files === null ? "pipe" : files.stdout,
+    stderr: files === null ? "pipe" : files.stderr,
     detached: options.detached === true,
   });
+}
+
+/**
+ * Spawns with `options.output` files: the parent's copies of the files are closed once the child
+ * has them, and on a failed start the folder goes too.
+ */
+function spawnWithFiles(options: Parameters<Spawn>[0], output: SpawnOutputFile) {
+  const files = openOutputFiles(output);
+  try {
+    return { child: bunSpawn(options, files), dir: files.dir };
+  } catch (error) {
+    rmSync(files.dir, { recursive: true, force: true });
+    throw error;
+  } finally {
+    closeSync(files.stdout);
+    closeSync(files.stderr);
+  }
+}
+
+/**
+ * The real `Spawn` (0017 section 2): `Bun.spawn` behind the contract's `ChildProcess`. Stdout and
+ * stderr are piped, or with `output` written to regular files that are read once the child has
+ * exited (DIPO-333). With `detached` the child leads its own session and process group, so
+ * `signalGroup(child.pid)` reaches its descendants too.
+ */
+export const systemSpawn: Spawn = (options) => {
+  const started =
+    options.output === undefined
+      ? { child: bunSpawn(options, null), dir: null }
+      : spawnWithFiles(options, options.output);
+  const { child } = started;
+  const files = started.dir === null ? null : readOutputFiles(started.dir, child.exited);
+  // An output nobody reads must not fail as an unhandled rejection (DIPO-117).
+  ignoreRejection(files);
   const sink = options.stdin === "pipe" ? (child.stdin as Bun.FileSink) : null;
   const stdin: ChildStdin | null =
     sink === null
@@ -535,8 +630,14 @@ export const systemSpawn: Spawn = (options) => {
   return {
     pid: child.pid,
     stdin,
-    stdout: child.stdout as ReadableStream<Uint8Array>,
-    stderr: child.stderr as ReadableStream<Uint8Array>,
+    stdout:
+      files === null
+        ? (child.stdout as ReadableStream<Uint8Array>)
+        : streamOf(files.then(([stdout = new Uint8Array()]) => stdout)),
+    stderr:
+      files === null
+        ? (child.stderr as ReadableStream<Uint8Array>)
+        : streamOf(files.then(([, stderr = new Uint8Array()]) => stderr)),
     exited: child.exited.then(() => ({
       code: child.signalCode === null ? child.exitCode : null,
       signal: child.signalCode ?? null,
