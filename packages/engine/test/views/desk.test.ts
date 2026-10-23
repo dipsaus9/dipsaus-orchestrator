@@ -24,6 +24,9 @@ import { capabilityFlags } from "../../src/reads/hello";
 import { storeDecisionNotes, storeProposals } from "../../src/run/report-data";
 import {
   desk,
+  DESK_DETAIL_MAX,
+  deskLine,
+  deskText,
   type DeskSources,
   DESK_SOURCES,
   policyResumeNeeds,
@@ -466,6 +469,68 @@ describe("review-blocked parks and hand-merge-only gates", () => {
     }));
 });
 
+// Terminal sequences in stored text (a worker's question, a park detail) never reach the desk.
+const ESC_CLEAR = "\u001b[2J";
+const OSC_TITLE = "\u001b]0;owned\u0007";
+const OSC_LINK = "\u001b]8;;https://example.com\u001b\\";
+
+describe("stored text on the desk", () => {
+  it("removes escape and OSC sequences, controls and bidi overrides, and caps the detail", () =>
+    withTempDir(async (dir) => {
+      const t = await openTestState(dir);
+      try {
+        const office = addOffice(t);
+        pass(t, office, [
+          task("DIPO-1", { status: "In Progress" }),
+          task("DIPO-2", { status: "Parked" }),
+          task("DIPO-3", { status: "Parked" }),
+        ]);
+        const started = startRun(t, office, "DIPO-1", dir);
+        const at = t.clock.now();
+        office.immediate(() =>
+          office.run(
+            `insert into questions (office_id, question_id, run_id, agent_id, kind, text, tool,
+               input, asked_at)
+             values ($office_id, 'qst_01J9ZK5Q8W3V4X6Y7Z8A9B0C1A', $run, $agent, 'permission',
+               $text, 'Bash', 'curl', $at)`,
+            {
+              run: started.run,
+              agent: started.agent,
+              text: `Bash(${ESC_CLEAR}curl${OSC_TITLE} ‮example.com\u0007)`,
+              at,
+            },
+          ),
+        );
+        insertPark(office, "DIPO-2", {
+          reason: "stopped",
+          cause: "maintainer",
+          detail: `stopped${ESC_CLEAR} by${OSC_LINK} the\r\nmaintainer\u009b2J`,
+          at,
+        });
+        insertPark(office, "DIPO-3", { reason: "stopped", detail: "x".repeat(1000), at: at + 1 });
+        const items = desk(office, all, ALL_SOURCES);
+        expect(items.map((item) => item.detail)).toEqual([
+          "Bash(curl example.com) · worker waiting",
+          "stopped by the maintainer",
+          `${"x".repeat(DESK_DETAIL_MAX - 1)}…`,
+        ]);
+        for (const item of items) {
+          // oxlint-disable-next-line no-control-regex -- the characters the desk must never show
+          expect(item.detail).not.toMatch(/[\u0000-\u001f\u007f-\u009f‪-‮]/u);
+          expect(Array.from(item.detail).length).toBeLessThanOrEqual(DESK_DETAIL_MAX);
+        }
+      } finally {
+        t.state.close();
+      }
+    }));
+
+  it("cleans and caps a text the same way when called alone", () => {
+    expect(deskText(`a${ESC_CLEAR}\n\tb${OSC_TITLE}`)).toBe("a b");
+    expect(deskLine("y".repeat(DESK_DETAIL_MAX))).toBe("y".repeat(DESK_DETAIL_MAX));
+    expect(deskLine("y".repeat(DESK_DETAIL_MAX + 1))).toBe(`${"y".repeat(DESK_DETAIL_MAX - 1)}…`);
+  });
+});
+
 describe("the resume needs of this engine", () => {
   it("follow work.resume's policy: on-hold resumes, needs-permission is answered, others wait", () => {
     expect(policyResumeNeeds("on-hold", null)).toEqual({ kind: "resume", note: "optional" });
@@ -580,6 +645,53 @@ describe("the office.desk read", () => {
             hand: "dipo never writes decision records: add the note by hand if you agree",
           },
         ]);
+      } finally {
+        t.state.close();
+      }
+    }));
+});
+
+describe("a review-blocked park whose PR is labelled autorelease: pending", () => {
+  it("offers resume and the hand merge, and no dipo approve", () =>
+    withTempDir(async (dir) => {
+      const t = await openTestState(dir);
+      try {
+        const office = addOffice(t);
+        pass(t, office, [task("DIPO-1", { status: "In Progress" })]);
+        const started = startRun(t, office, "DIPO-1", dir);
+        const at = t.clock.now();
+        insertPark(office, "DIPO-1", {
+          reason: "review-blocked",
+          cause: "rounds",
+          detail: "round 3 blocked",
+          at,
+          run: started.run,
+        });
+        insertStoryPr(office, { key: started.key, run: started.run, number: 9, at });
+        insertMergeGate(office, {
+          id: "gat_01J9ZK5Q8W3V4X6Y7Z8A9B0C1C",
+          key: started.key,
+          run: started.run,
+          summary: "blocking findings",
+          at,
+        });
+        const seen: string[] = [];
+        const items = desk(office, all, {
+          ...ALL_SOURCES,
+          handMergeOnly: (_office, gate) => {
+            seen.push(gate.gate);
+            return true;
+          },
+        });
+        expect(seen).toEqual(["gat_01J9ZK5Q8W3V4X6Y7Z8A9B0C1C"]);
+        expect(items).toHaveLength(1);
+        expect(items[0]).toMatchObject({
+          kind: "PARKED",
+          reason: "review-blocked",
+          gate: "gat_01J9ZK5Q8W3V4X6Y7Z8A9B0C1C",
+          actions: [{ command: "work.resume", cli: 'dipo resume DIPO-1 --note "<why>"' }],
+          hand: "merge PR #9 (https://github.com/o/r/pull/9) by hand on GitHub: it is labelled autorelease: pending, so dipo never approves it",
+        });
       } finally {
         t.state.close();
       }

@@ -8,12 +8,18 @@
 //    labelled `autorelease: pending` offers a hand merge and no `dipo approve`;
 // 3. open parks: needing a decision, then a direction or grant, then a restart. A `review-blocked`
 //    park whose merge gate is open is one row with both `dipo resume --note` and `dipo approve
-//    --note`, and that gate gets no MERGE row of its own;
+//    --note` (or the hand merge when its PR is labelled `autorelease: pending`), and that gate gets
+//    no MERGE row of its own;
 // 4. hand actions: a backlog PR whose structural check failed or could not run, and the items of
 //    `DeskSources.handItems` (DIPO-161's DONE ELSEWHERE and LEFTOVERS);
 // 5. proposals and decision notes of worker reports (`proposals.ts`), spike before follow-up;
 // 6. the stories parked `on-hold`, "Held by you".
 // Within a group the items whose story blocks the most active stories come first, then the oldest.
+//
+// Every stored free text an item shows (questions, park details, gate summaries, PR titles, check
+// failures, proposals) is cleaned of escape sequences, controls and bidi overrides, put on one line
+// and capped at `DESK_DETAIL_MAX` (`deskText`, `deskLine`): worker and host text is data, and a
+// terminal must never run it.
 //
 // An action is listed only when this engine registers its command as shipped, so the desk never
 // offers a command the daemon would answer with `capability.missing`. Seams for stories not built
@@ -34,6 +40,7 @@ import {
 } from "@dipsaus-orchestrator/contract";
 
 import { openPrs } from "../backlog/pr/records";
+import { cleanDoorText } from "../box/door";
 import type { FeatureRegistry, ReadContext, Registry } from "../commands/registry";
 import type { OfficeHandle } from "../db/office";
 import { openParkQuestions, openQuestions, type StoredQuestion } from "../hooks/questions";
@@ -145,9 +152,33 @@ interface Ranked {
   readonly item: DeskItem;
 }
 
+/**
+ * The longest `detail` or `hand` of an item, in characters; a longer one is cut and ends in `…`,
+ * so one stored text cannot flood the maintainer's terminal.
+ */
+export const DESK_DETAIL_MAX = 300;
+
 /** One line: runs of whitespace (newlines too) become one space. */
 function oneLine(text: string): string {
   return text.replace(/\s+/g, " ").trim();
+}
+
+/**
+ * A stored free text (a worker's question, a park detail, a gate summary, a PR title, a check
+ * failure, a proposal) as the desk shows it: escape sequences, C0 and C1 controls and bidi
+ * overrides removed as at the box door (`cleanDoorText`), then on one line. Worker and host text
+ * can carry terminal sequences that `dipo desk` would otherwise print raw.
+ */
+export function deskText(text: string): string {
+  return oneLine(cleanDoorText(text));
+}
+
+/** A detail or hand text: cleaned, on one line, and at most `DESK_DETAIL_MAX` characters. */
+export function deskLine(text: string): string {
+  const chars = Array.from(deskText(text));
+  return chars.length <= DESK_DETAIL_MAX
+    ? chars.join("")
+    : `${chars.slice(0, DESK_DETAIL_MAX - 1).join("")}…`;
 }
 
 function iso(ms: number): string {
@@ -235,8 +266,24 @@ class DeskBuilder {
     return story === null ? [] : (this.#dependents.get(story.toUpperCase()) ?? []);
   }
 
+  /** Adds an item; its detail and hand text are cleaned and capped here, whoever built them. */
   #add(group: number, rank: number, sinceMs: number, item: DeskItem): void {
-    this.#items.push({ group, rank, sinceMs, item });
+    const clean: DeskItem = {
+      ...item,
+      detail: deskLine(item.detail),
+      ...(item.hand === undefined ? {} : { hand: deskLine(item.hand) }),
+      ...(item.cause === undefined ? {} : { cause: deskText(item.cause) }),
+      ...(item.proposal === undefined
+        ? {}
+        : { proposal: { ...item.proposal, title: deskText(item.proposal.title) } }),
+    };
+    this.#items.push({ group, rank, sinceMs, item: clean });
+  }
+
+  /** The hand text of a gate whose PR only the maintainer merges (`autorelease: pending`). */
+  #handMerge(record: { readonly number: number; readonly url: string } | null): string {
+    const where = record === null ? "its PR" : `PR #${record.number} (${record.url})`;
+    return `merge ${where} by hand on GitHub: it is labelled autorelease: pending, so dipo never approves it`;
   }
 
   /** The answer actions of a question: allow and deny for a permission, a text for a question. */
@@ -268,7 +315,7 @@ class DeskBuilder {
           : question.kind === "question"
             ? "QUESTION"
             : "SCOPE";
-      const text = oneLine(question.text);
+      const text = deskText(question.text);
       this.#add(GROUP.live, 0, question.askedAt, {
         kind,
         ...(story === null || key === null ? {} : { story, key: StoryKey.parse(key) }),
@@ -331,14 +378,13 @@ class DeskBuilder {
         key: gate.key,
         run: gate.run_id,
       });
-      const where = record === null ? "its PR" : `PR #${record.number} (${record.url})`;
       this.#add(GROUP.merge, 0, gate.opened_at, {
         kind: "MERGE",
         story,
         key: StoryKey.parse(gate.key),
         gate: GateId.parse(gate.gate_id),
         ...prOf(record),
-        detail: oneLine(gate.summary),
+        detail: deskText(gate.summary),
         since: iso(gate.opened_at),
         blocks: this.#blocks(story),
         actions: handOnly
@@ -347,11 +393,7 @@ class DeskBuilder {
               ...this.#action("gate.approve", `dipo approve ${story}`),
               ...this.#action("gate.reject", `dipo reject ${story} --note "<why>"`),
             ],
-        ...(handOnly
-          ? {
-              hand: `merge ${where} by hand on GitHub: it is labelled autorelease: pending, so dipo never approves it`,
-            }
-          : {}),
+        ...(handOnly ? { hand: this.#handMerge(record) } : {}),
       });
     }
     for (const park of parks) {
@@ -362,14 +404,28 @@ class DeskBuilder {
         actions.push(...this.#answerActions(question));
       }
       actions.push(...this.#resumeActions(story, park.reason, park.cause));
+      const record = held ? null : latestStoryPr(this.#office, park.key);
       let gate: string | null = null;
-      if (park.reason === "review-blocked") {
-        gate = gates.find((open) => open.key === park.key)?.gate_id ?? null;
-        if (gate !== null) {
+      let hand: string | null = null;
+      const open =
+        park.reason === "review-blocked"
+          ? (gates.find((candidate) => candidate.key === park.key) ?? null)
+          : null;
+      if (open !== null) {
+        // The park's merge gate (0019 section 11): `dipo approve --note`, unless its PR is labelled
+        // `autorelease: pending`, which only the maintainer merges, by hand.
+        gate = open.gate_id;
+        const handOnly = this.#sources.handMergeOnly(this.#office, {
+          gate: open.gate_id,
+          key: open.key,
+          run: open.run_id,
+        });
+        if (handOnly) {
+          hand = this.#handMerge(findStoryPr(this.#office, RunId.parse(open.run_id)) ?? record);
+        } else {
           actions.push(...this.#action("gate.approve", `dipo approve ${story} --note "<why>"`));
         }
       }
-      const record = held ? null : latestStoryPr(this.#office, park.key);
       this.#add(
         held ? GROUP.held : GROUP.park,
         held ? 0 : (PARK_RANK[park.reason] ?? OTHER_PARK_RANK),
@@ -382,10 +438,11 @@ class DeskBuilder {
           ...prOf(record),
           reason: park.reason,
           ...(park.cause === null ? {} : { cause: park.cause }),
-          detail: oneLine(park.detail),
+          detail: deskText(park.detail),
           since: iso(park.at),
           blocks: this.#blocks(story),
           actions,
+          ...(hand === null ? {} : { hand }),
         },
       );
     }
@@ -413,17 +470,17 @@ class DeskBuilder {
       if (!failed && pr.checkError === null) continue;
       const why =
         pr.checkError !== null
-          ? `its check cannot run: ${pr.checkError}`
-          : `its check failed: ${pr.failures.map((failure) => failure.message).join("; ")}`;
+          ? `its check cannot run: ${deskText(pr.checkError)}`
+          : `its check failed: ${pr.failures.map((failure) => deskText(failure.message)).join("; ")}`;
       const since = pr.checkedAt ?? pr.updatedAt;
       this.#add(GROUP.hand, 0, since, {
         kind: "BACKLOG PR",
         pr: { number: pr.number, url: pr.url, state: pr.state },
-        detail: oneLine(`#${pr.number} ${JSON.stringify(pr.title)} · ${why}`),
+        detail: `#${pr.number} ${JSON.stringify(deskText(pr.title))} · ${why}`,
         since: iso(since),
         blocks: [],
         actions: [],
-        hand: `fix the branch ${pr.branch} of PR #${pr.number} by hand on GitHub (${pr.url})`,
+        hand: `fix the branch ${deskText(pr.branch)} of PR #${pr.number} by hand on GitHub (${pr.url})`,
       });
     }
     for (const source of this.#sources.handItems) {
@@ -433,7 +490,7 @@ class DeskBuilder {
           kind: hand.kind,
           story,
           key: hand.key,
-          detail: oneLine(hand.detail),
+          detail: deskText(hand.detail),
           since: iso(hand.since),
           blocks: this.#blocks(story),
           actions: hand.actions.flatMap((action) => this.#action(action.command, action.cli)),
@@ -460,11 +517,9 @@ class DeskBuilder {
           title: proposal.title,
           run: RunId.parse(proposal.run),
         },
-        detail: oneLine(
-          note
-            ? `decision note · ${proposal.detail}`
-            : `${proposal.kind} ${JSON.stringify(proposal.title)} · ${proposal.detail} · from ${proposal.run}`,
-        ),
+        detail: note
+          ? `decision note · ${deskText(proposal.detail)}`
+          : `${proposal.kind} ${JSON.stringify(deskText(proposal.title))} · ${deskText(proposal.detail)} · from ${proposal.run}`,
         since: iso(proposal.createdAt),
         blocks: this.#blocks(story),
         actions: note

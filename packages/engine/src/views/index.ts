@@ -36,7 +36,16 @@ export {
   workView,
 } from "./work";
 export type { HealthFacts } from "./work";
-export { desk, DESK_SOURCES, implementedIn, policyResumeNeeds, registerDesk } from "./desk";
+export {
+  desk,
+  DESK_DETAIL_MAX,
+  DESK_SOURCES,
+  deskLine,
+  deskText,
+  implementedIn,
+  policyResumeNeeds,
+  registerDesk,
+} from "./desk";
 export type {
   DeskGate,
   DeskSources,
