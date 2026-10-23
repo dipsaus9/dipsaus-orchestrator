@@ -474,8 +474,30 @@ export function releaseDoneElsewhere(
   deps.slots?.free(claim.worktree);
 }
 
+/** True when the story of the claim has an open park (DIPO-332). */
+export function hasOpenPark(office: OfficeHandle, claim: Pick<ClaimRecord, "key">): boolean {
+  return (
+    office.get<{ n: number }>(
+      `select 1 as n from parks where office_id = $office_id and key = $key and resolved_at is null
+        limit 1`,
+      { key: claim.key },
+    ) !== null
+  );
+}
+
 /**
- * Releases a parked or idle claim whose own story PR merged, but whose branch moved past the merged
+ * What the maintainer is told about a parked claim whose own PR merged while its branch moved past
+ * the merged head (DIPO-332): it is not released, as a Parked story is never torn down on its own.
+ */
+export function movedPastParkedText(
+  claim: Pick<ClaimRecord, "story" | "branch" | "base">,
+  pr: { readonly number: number; readonly url: string },
+): string {
+  return `${claim.story} is Parked, but its PR #${pr.number} merged (${pr.url}) and its branch ${claim.branch} moved past the merged head with changes ${claim.base} does not have. dipo keeps its claim, worktree and branch; resolve the park, or remove them with \`dipo discard ${claim.story} --note "<why>"\`.`;
+}
+
+/**
+ * Releases an idle claim with no open park whose own story PR merged, but whose branch moved past the merged
  * head with changes the base does not have (DIPO-332): released as `done` in one transaction, as
  * `releaseDoneElsewhere` does, then its worktree and branch settled, so what the base lacks is one
  * LEFTOVERS desk item with the `dipo discard` action instead of a claim that stays open.

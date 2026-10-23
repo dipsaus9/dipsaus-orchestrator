@@ -9,7 +9,8 @@
 //   nothing new on it) is left to the Done poll, which tears it down as `done` (DIPO-332): after
 //   the merge slot merged a PR, the next index pass reads the story Done on `_base` too. One whose
 //   branch moved past its merged PR's head with changes the base lacks is released as `done` and
-//   its worktree and branch settled as leftovers (`releaseMovedPastMerge`).
+//   its worktree and branch settled as leftovers (`releaseMovedPastMerge`); with an open park it
+//   is kept, with a notice.
 // - A parked or idle claim is checked again in one item of the office git queue (still live, its
 //   run ended, `_base` still at the pass's commit, else it is retried after a reindex, DIPO-226),
 //   which also reads the base commit that last changed the task file. Then it is released as
@@ -36,7 +37,9 @@ import {
   findDoneElsewhere,
   flagLiveWorker,
   hasLiveWorker,
+  hasOpenPark,
   lastTaskCommit,
+  movedPastParkedText,
   releaseDoneElsewhere,
   releaseMovedPastMerge,
   settleDoneElsewhere,
@@ -137,7 +140,7 @@ export async function releaseDoneOnBase(
     if (claim.claimSha === null) continue;
     if (!isDoneOnBase(baseStatusOf(pass, claim))) continue;
     try {
-      const outcome = await releaseOne(deps, elsewhere, pass, claim);
+      const outcome = await releaseOne(deps, elsewhere, pass, claim, record);
       if (outcome === "released") released += 1;
       if (outcome === "baseMoved") skippedRuns.push(claim.runId);
     } catch (error) {
@@ -157,6 +160,7 @@ async function releaseOne(
   elsewhere: DoneElsewhereDeps,
   pass: IndexResult,
   claim: ClaimRecord,
+  record: Recorder,
 ): Promise<ClaimOutcome> {
   const { git, office } = deps;
   if (hasLiveWorker(office, claim)) {
@@ -201,6 +205,15 @@ async function releaseOne(
     if (checked === "movedPast") {
       const pr = ownMergedPr(office, claim);
       if (pr === null) return "none";
+      if (hasOpenPark(office, claim)) {
+        // A Parked story is never torn down on its own: the maintainer is told instead.
+        record({
+          code: DONE_ON_BASE_NOTICES.kept,
+          key: claim.key,
+          text: movedPastParkedText(claim, pr),
+        });
+        return "none";
+      }
       await releaseMovedPastMerge(elsewhere, claim, pr);
       return "released";
     }

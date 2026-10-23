@@ -44,7 +44,9 @@ import {
   findDoneElsewhere,
   flagLiveWorker,
   hasLiveWorker,
+  hasOpenPark,
   hasUnexitedHost,
+  movedPastParkedText,
   releaseDoneElsewhere,
   releaseMovedPastMerge,
   settleDoneElsewhere,
@@ -234,11 +236,17 @@ export class StoryTeardown {
       if (elsewhere !== null) return elsewhere;
       // Its PR merged, but the branch moved past the merged head with changes the base lacks: once
       // no worker runs, those are leftovers with the `dipo discard` action, not an open claim.
+      // A parked one stays, with a notice, as a Parked story is never torn down on its own.
       if (
         own !== null &&
         check.problem?.code === TEARDOWN_NOTICES.unmergedCommits &&
         !hasLiveWorker(state.office, claim)
       ) {
+        if (hasOpenPark(state.office, claim)) {
+          const text = movedPastParkedText(claim, own);
+          this.#tell(state, deps, claim, "warn", TEARDOWN_NOTICES.parked, text);
+          return "kept";
+        }
         await releaseMovedPastMerge(this.#elsewhereDeps(deps), claim, own);
         return "released";
       }
