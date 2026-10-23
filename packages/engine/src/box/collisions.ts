@@ -1068,7 +1068,8 @@ export interface BoxCollisionsDeps {
   readonly taskStatus?: (run: PartRun, status: string) => Promise<void>;
   /**
    * Installs the office's packages in the box again after a merge that changed `lockfiles`
-   * (0019 section 10's reinstall). Without it the worker is told to run the install.
+   * (0019 section 10's reinstall). Without it nothing is installed again by dipo: the worker
+   * installs in its own box.
    */
   readonly reinstall?: (run: PartRun, lockfiles: readonly string[]) => Promise<void>;
   /** The conflict item's character budget for the run (`prompt.budgets.feedbackItem`). */
