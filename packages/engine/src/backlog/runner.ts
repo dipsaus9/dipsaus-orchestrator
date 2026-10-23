@@ -25,6 +25,7 @@
 
 import { createHash } from "node:crypto";
 import { type Dirent, readdirSync, readFileSync, type Stats, statSync } from "node:fs";
+import { tmpdir } from "node:os";
 import { isAbsolute, join, normalize } from "node:path";
 
 import type { Spawn } from "@dipsaus-orchestrator/contract";
@@ -416,7 +417,15 @@ export async function runBacklog(
   const command: [string, ...string[]] = [...(cli.command ?? ["backlog"]), ...args];
   let child;
   try {
-    child = cli.spawn({ cmd: command, cwd, env: backlogEnv(cli.env ?? process.env) });
+    // The CLI writes to regular files under the daemon's temp root (`DIPO_TMP`, else the system's),
+    // read after it exits, never to a pipe: on Linux CI the end of a long list was lost on the way
+    // while the CLI exited 0 (DIPO-333).
+    child = cli.spawn({
+      cmd: command,
+      cwd,
+      env: backlogEnv(cli.env ?? process.env),
+      output: { to: "file", tempRoot: process.env["DIPO_TMP"] || tmpdir() },
+    });
   } catch (error) {
     throw new BacklogCommandError(
       command,
