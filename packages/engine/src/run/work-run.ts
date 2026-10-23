@@ -63,7 +63,8 @@ import { readLabels } from "../backlog/fields/labels";
 import { EDIT_KIND } from "../backlog/lane/ops";
 import { type JournalEntry, type LaneOp, pendingLaneOp } from "../backlog/lane/journal";
 import { LaneError, LaneFlushError } from "../backlog/lane/lane";
-import { BacklogParseError, parseList, parseView, type PlainTask } from "../backlog/plain";
+import { listAll } from "../backlog/list";
+import { BacklogParseError, parseView, type PlainTask } from "../backlog/plain";
 import { backlogCheckBlocked } from "../backlog/pr/records";
 import { type BacklogCli, runBacklog } from "../backlog/runner";
 import type { NewEntry } from "../changelog/log";
@@ -948,9 +949,8 @@ export function cliRunBase(deps: {
       const git = gitOf(office);
       const checkout = await git.ensureBaseWorktree();
       return git.run(async () => {
-        const listed = parseList(
-          (await runBacklog(deps.cli, checkout.path, ["task", "list", "--plain"])).stdout,
-        );
+        // The whole list (DIPO-323): its statuses decide whether a dependency is Done.
+        const listed = await listAll(deps.cli, checkout.path, "task");
         const statuses = new Map(listed.entries.map((entry) => [entry.id, entry.group]));
         const wanted = (
           ids ?? listed.entries.filter((e) => e.group === READY_STATUS).map((e) => e.id)
