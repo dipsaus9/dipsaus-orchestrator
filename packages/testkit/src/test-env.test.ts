@@ -7,7 +7,7 @@ import { dirname, join } from "node:path";
 
 import { TEST_MARKER, testRuntimeDir, testStateDir } from "./runtime";
 import { tempRoot } from "./temp";
-import { isolateTestProcess } from "./test-env";
+import { CI_TEST_TIMEOUT_MS, defaultTestTimeout, isolateTestProcess } from "./test-env";
 
 const mode = (path: string) => statSync(path).mode & 0o777;
 
@@ -24,6 +24,16 @@ describe("the test runner's setup file", () => {
       expect(statSync(dir).isDirectory()).toBe(true);
       expect(mode(dir)).toBe(0o700);
     }
+  });
+
+  it("gives every test 30 s in CI and leaves Bun's 5 s locally", () => {
+    expect(CI_TEST_TIMEOUT_MS).toBe(30_000);
+    expect(defaultTestTimeout({ DIPO_TEST_CI: "1" })).toBe(30_000);
+    for (const env of [{}, { DIPO_TEST_CI: "0" }, { DIPO_TEST_CI: "" }, { DIPO_TEST_CI: "true" }]) {
+      expect(defaultTestTimeout(env)).toBeNull();
+    }
+    // This process follows its own environment.
+    expect(defaultTestTimeout()).toBe(process.env["DIPO_TEST_CI"] === "1" ? 30_000 : null);
   });
 
   it("gives each call fresh folders and leaves the real ones alone", () => {
