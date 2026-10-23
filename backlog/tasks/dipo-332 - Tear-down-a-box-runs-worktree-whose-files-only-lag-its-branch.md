@@ -4,7 +4,7 @@ title: Tear down a box run's worktree whose files only lag its branch
 status: Refined
 assignee: []
 created_date: '2026-10-23 12:10'
-updated_date: '2026-10-23 12:28'
+updated_date: '2026-10-23 12:50'
 labels:
   - 'tier:M'
 milestone: m-1
@@ -59,4 +59,12 @@ Causes found:
 - DIPO-311 classed done elsewhere: reconcile (`done-on-base.ts`, at daemon start and on every rescan) released any live claim whose story read Done on `_base`, without checking whether its own branch got it there. After the merge slot merged a PR, the claim stayed live (teardown kept, or a worker host's exit not yet seen, DIPO-328), so the next reconcile released it as `done-elsewhere`. The Done poll could do the same when the host gave no answer and `merge-tree` no longer saw the squash-merged branch as Done because the base had moved on over the same lines. Fix: reconcile leaves a claim whose own story PR is recorded merged, or that `merge-tree` finds Done, to the Done poll. The Done poll never releases a claim with a recorded merged PR as done elsewhere, and `detectDone` takes the recorded merged PR as evidence when the host gives none.
 - DIPO-311's local branch gone before its worktree: `settleDoneElsewhere` deleted a branch that adds nothing to the base even when it had just kept the worktree, which left the worktree on a missing branch (HEAD 00000000, every file listed as added). Neither the merge slot (it deletes no local branch) nor the Done teardown (it deletes the branch only after the worktree is gone) did this. Fix: a kept worktree keeps its branch. `dipo discard` removes both.
 - DIPO-325's conflict.inReview after Done: the In Review conflict check (`inReviewRunIds`) took every run ended In Review with a live claim, including a merged story whose teardown was waiting. Fix: it skips a run whose own PR is recorded merged, or whose story's status reads Done.
+
+Review fixes (2026-10-23):
+- A submodule (an index entry of mode 160000, or a submodule folder) makes the worktree unjudgeable, so git's own refusal keeps it. git status can hide its commits (submodule.<name>.ignore).
+- git worktree remove deletes ignored files, forced or not. removeWorktree now lists them (ls-files --others --ignored --exclude-standard --directory) and keeps the worktree, naming them, when any is outside REBUILDABLE_IGNORED (lagging.ts: node_modules and the usual build, cache and coverage folders, plus .DS_Store), or when an ignored folder holds a repository.
+- Each commit is compared on the listed paths only (ls-tree with :(literal) pathspecs, up to 256 paths).
+- A claim whose own PR is recorded merged, but whose branch moved past that head with changes the base lacks, is released as done by the Done poll or reconcile. Its worktree and branch are settled as leftovers with the dipo discard action (releaseMovedPastMerge).
+- The PR poll records the host's head when it records the merged transition.
+- Real-git tests cover the submodule, the ignored files, assume-unchanged, skip-worktree, unmerged entries and symbolic links.
 <!-- SECTION:NOTES:END -->
