@@ -93,6 +93,7 @@ import {
   type OfficeHandle,
   type OfficeManager,
   type ParseState,
+  type ScanSessionRunner,
   PermissionAsks,
   type Places,
   type Presence,
@@ -301,6 +302,8 @@ export interface DaemonRuns {
    * the base are read as the review loop reads them.
    */
   readonly mergeSlot: DaemonMergeSlotPorts;
+  /** The scan fallback's `session` runs (DIPO-310), which `office.infer` starts. */
+  readonly sessions: ScanSessionRunner;
 }
 
 /** What the merge slot and the merge gates use of the run services (DIPO-150). */
@@ -1233,6 +1236,7 @@ export function daemonRuns(options: DaemonRunsOptions): DaemonRuns {
   });
   collisions?.start();
   return {
+    sessions: composed.sessions,
     launcher,
     ingest,
     control,

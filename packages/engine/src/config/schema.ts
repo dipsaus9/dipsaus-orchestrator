@@ -40,13 +40,17 @@
 // the Mac a box may reach, only through dipo's web proxy and only on the Mac's loopback. dipo reads
 // it from the base branch with the rest of the `box` block, so a story cannot change it.
 // `office.local.yaml` gains no key.
+// Version 13 (DIPO-310) adds the `scan` block (0013 amendment of 2026-10-22): the model, effort,
+// token budget and minutes of the fallback session that proposes the run profile capabilities code
+// could not resolve. The session has one turn plus one schema retry, fixed in code.
+// `office.local.yaml` gains no key.
 
 import { z } from "zod";
 
 /** The newest office configuration version this binary knows. */
-export const OFFICE_CONFIG_VERSION = 12;
+export const OFFICE_CONFIG_VERSION = 13;
 /** Every version this binary reads; an older file is migrated in memory (`migrateOfficeDocument`). */
-export const OFFICE_CONFIG_VERSIONS = [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12] as const;
+export const OFFICE_CONFIG_VERSIONS = [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13] as const;
 export type OfficeConfigVersion = (typeof OFFICE_CONFIG_VERSIONS)[number];
 
 const count = () => z.int().positive();
@@ -473,9 +477,29 @@ const BoxSectionV12 = z
   .describe(BoxSection.description ?? "");
 
 // Version 12: the office keys of version 11 with `box.localPorts` (DIPO-282).
-const officeShape = {
+const officeShapeV12 = {
   ...officeShapeV11,
   box: BoxSectionV12,
+};
+
+// Version 13 (DIPO-310): the scan fallback session (0013 amendment of 2026-10-22).
+const ScanV13 = z
+  .strictObject({
+    model: text().describe("The model of the scan fallback session."),
+    effort: text().describe("The effort of the scan fallback session."),
+    budgetTokens: count().describe(
+      "Input plus output plus cache-creation tokens one fallback session may spend.",
+    ),
+    maxMinutes: count().describe("Minutes one fallback session may run before dipo stops it."),
+  })
+  .describe(
+    "The fallback session that proposes the run profile capabilities code could not resolve, started only by dipo office infer (0013 section 6, amendment of 2026-10-22). It runs on the Mac with every tool off, one turn plus one schema retry.",
+  );
+
+// Version 13: the office keys of version 12 plus `scan` (DIPO-310).
+const officeShape = {
+  ...officeShapeV12,
+  scan: ScanV13,
 };
 
 /** The effective configuration of an office, version 1 (kept to read version 1 files). */
@@ -577,19 +601,28 @@ export const OfficeConfigV11 = z.strictObject({
   retention: z.strictObject(retentionShape),
 });
 
+/** The effective configuration of an office, version 12 (kept to read version 12 files). */
+export const OfficeConfigV12 = z.strictObject({
+  version: z.literal(12),
+  ...officeShapeV12,
+  // Machine-local only (0007 sections 7 and 8, 0017 section 5).
+  privacy: z.strictObject(privacyShape),
+  retention: z.strictObject(retentionShape),
+});
+
 /**
  * The effective configuration of an office: every key set, after defaults and overrides. The
  * `box` block is the one exception: its keys stay optional, and what it leaves out is detected
  * from the repository (`box/image.ts`).
  */
-export const OfficeConfigV12 = z.strictObject({
+export const OfficeConfigV13 = z.strictObject({
   version: z.literal(OFFICE_CONFIG_VERSION),
   ...officeShape,
   // Machine-local only (0007 sections 7 and 8, 0017 section 5).
   privacy: z.strictObject(privacyShape),
   retention: z.strictObject(retentionShape),
 });
-export type OfficeConfig = z.infer<typeof OfficeConfigV12>;
+export type OfficeConfig = z.infer<typeof OfficeConfigV13>;
 /** The `box` block of an office (version 9, DIPO-266), as committed: every key optional. */
 export type OfficeBoxSection = OfficeConfig["box"];
 
@@ -730,6 +763,12 @@ export const OfficeFileV11 = z.strictObject({
 
 /** `.dipo/office.yaml`, version 12: version 11 plus `box.localPorts` (DIPO-282). */
 export const OfficeFileV12 = z.strictObject({
+  version: z.literal(12),
+  ...fileShape(officeShapeV12),
+}) as unknown as z.ZodType<OfficeFileOf<12>>;
+
+/** `.dipo/office.yaml`, version 13: version 12 plus `scan` (DIPO-310). */
+export const OfficeFileV13 = z.strictObject({
   version: z.literal(OFFICE_CONFIG_VERSION),
   ...fileShape(officeShape),
 }) as unknown as z.ZodType<OfficeFile>;
@@ -820,6 +859,12 @@ export const OfficeLocalFileV11 = z.strictObject({
  * box's local ports are read from the base branch, never from a machine-local file.
  */
 export const OfficeLocalFileV12 = z.strictObject({
+  version: z.literal(12),
+  ...fileShape(localShape),
+}) as unknown as z.ZodType<OfficeLocalFileOf<12>>;
+
+/** `.dipo/office.local.yaml`, version 13: the same keys as version 12 (DIPO-310 adds none here). */
+export const OfficeLocalFileV13 = z.strictObject({
   version: z.literal(OFFICE_CONFIG_VERSION),
   ...fileShape(localShape),
 }) as unknown as z.ZodType<OfficeLocalFile>;
@@ -894,6 +939,14 @@ export const OfficeOverridesV11 = z.strictObject(
  */
 export const OfficeOverridesV12 = OfficeOverridesV11;
 
+/**
+ * Overrides from flags on a single command: the keys of version 12 that a flag may set, with the
+ * `scan` block (DIPO-310). Never `box`.
+ */
+export const OfficeOverridesV13 = z.strictObject(
+  fileShape({ ...officeShapeV8, permissions: PermissionsV10, story: StoryV11, scan: ScanV13 }),
+) as unknown as z.ZodType<OfficeOverrides>;
+
 /** The file schemas of each version, for `resolveOfficeConfig`. */
 export const OFFICE_FILE_SCHEMAS: Readonly<Record<OfficeConfigVersion, z.ZodType>> = {
   1: OfficeFileV1,
@@ -908,6 +961,7 @@ export const OFFICE_FILE_SCHEMAS: Readonly<Record<OfficeConfigVersion, z.ZodType
   10: OfficeFileV10,
   11: OfficeFileV11,
   12: OfficeFileV12,
+  13: OfficeFileV13,
 };
 export const OFFICE_LOCAL_FILE_SCHEMAS: Readonly<Record<OfficeConfigVersion, z.ZodType>> = {
   1: OfficeLocalFileV1,
@@ -922,6 +976,7 @@ export const OFFICE_LOCAL_FILE_SCHEMAS: Readonly<Record<OfficeConfigVersion, z.Z
   10: OfficeLocalFileV10,
   11: OfficeLocalFileV11,
   12: OfficeLocalFileV12,
+  13: OfficeLocalFileV13,
 };
 
 /** A key that a version retires: nothing reads it any more, and that version's files refuse it. */
@@ -985,6 +1040,7 @@ function withoutRetired(document: Record<string, unknown>, version: OfficeConfig
  * take their defaults (DIPO-251).
  * Version 11 to 12 is the identity: `box.localPorts` is new, and without it a box reaches no local
  * port (DIPO-282).
+ * Version 12 to 13 is the identity: `scan` takes its defaults (DIPO-310).
  * Works for both office files; the document must already be valid for its own version.
  */
 export function migrateOfficeDocument(
@@ -1003,6 +1059,7 @@ export function migrateOfficeDocument(
   if (current.version === 9) current = { ...withoutRetired(current, 10), version: 10 };
   if (current.version === 10) current = { ...current, version: 11 };
   if (current.version === 11) current = { ...current, version: 12 };
+  if (current.version === 12) current = { ...current, version: 13 };
   return current;
 }
 
@@ -1079,6 +1136,8 @@ export const OFFICE_DEFAULTS: OfficeConfig = {
     maxMinutes: 30,
     budgetTokens: 200_000,
   },
+  // 0013 amendment of 2026-10-22 (DIPO-310): the scan fallback session.
+  scan: { model: "sonnet", effort: "low", budgetTokens: 100_000, maxMinutes: 5 },
   // 0008 section 5; whether the maintainer is present is a connected TUI (DIPO-279).
   permissions: { ask: "when-present" },
   // 0008, 0009 and 0013 section 1.

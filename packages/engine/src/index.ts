@@ -265,8 +265,21 @@ export {
   RECORDED_BY_HAND,
 } from "./reconcile";
 export type { ReconcileReport, ReconcilerDeps, ReconcileRuns } from "./reconcile";
-export { currentProfile, diffProfiles, RunProfiles, SCAN_STEP, verifyResolved } from "./scan";
-export type { RunProfilesDeps, ScanOutcome, ScanTrigger, StoredProfile } from "./scan";
+export {
+  currentProfile,
+  diffProfiles,
+  RunProfiles,
+  SCAN_STEP,
+  testCommandRefusal,
+  verifyResolved,
+} from "./scan";
+export type {
+  RunProfilesDeps,
+  ScanOutcome,
+  ScanSessionRunner,
+  ScanTrigger,
+  StoredProfile,
+} from "./scan";
 export {
   evaluateGate,
   findPassingDecision,

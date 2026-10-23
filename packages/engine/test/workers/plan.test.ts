@@ -136,7 +136,7 @@ describe("a developer session on the Mac (DIPO-240)", () => {
   });
 
   it("type-checks an unknown kind and refuses it naming the kind", () => {
-    expect(() => plan(spec({ kind: "session" }), context())).toThrow(/worker kind "session"/);
+    expect(() => plan(spec({ kind: "plan" }), context())).toThrow(/worker kind "plan"/);
   });
 });
 

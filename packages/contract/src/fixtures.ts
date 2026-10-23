@@ -175,6 +175,18 @@ export const officeSnapshot = {
 };
 
 const officeCommandFixtures: Record<string, { args: unknown; result: unknown }> = {
+  "office.infer": { args: {}, result: { infer: "started", capabilities: ["verify", "dev"] } },
+  "office.confirm": {
+    args: { action: "set", capability: "verify", commands: [["bun", "run", "check"]], cwd: "." },
+    result: {
+      capability: "verify",
+      source: "maintainer",
+      confirmed: true,
+      diff: [
+        "~ verify: unresolved -> bun run check [maintainer, confirmed (set by the maintainer)]",
+      ],
+    },
+  },
   "work.run": {
     args: { stories: ["DIPO-21", ids.storyKey], maxAgents: 1, from: "/work/app" },
     result: {
@@ -345,6 +357,49 @@ const officeReadFixtures: Record<string, { args: unknown; result: unknown }> = {
       tables: [
         { table: "change_log", rows: 12_400, bytes: 7_900_000 },
         { table: "requests", rows: 31, bytes: 9_300 },
+      ],
+    },
+  },
+  "office.profile": {
+    args: { office: ids.office },
+    result: {
+      office: ids.office,
+      scanned: true,
+      scannedAt: "2026-10-23T10:00:00.000Z",
+      commit: "4b825dc642cb6eb9a060e54bf8d69288fbee4904",
+      fingerprint: "sha256:1f2e",
+      level: "partial",
+      nothingToStart: false,
+      inferring: false,
+      runRefusal: 'Verify is unresolved: add a "verify" script to package.json.',
+      capabilities: [
+        {
+          name: "verify",
+          status: "unresolved",
+          confirmed: false,
+          stale: false,
+          pending: {
+            command: "make check",
+            commands: [["make", "check"]],
+            cwd: ".",
+            confidence: "low",
+            modelConfidence: "medium",
+            evidence: ["Makefile: target check runs the tests"],
+            stale: false,
+            run: ids.run,
+            proposedAt: "2026-10-23T10:05:00.000Z",
+          },
+          fix: 'add a "verify" script, so code resolves it and the confirmation can go',
+          cli: ["dipo office confirm accept verify", "dipo office confirm reject verify"],
+        },
+      ],
+      deviations: [
+        {
+          code: "missing-test",
+          message: 'No "test" script. Add one: it is required.',
+          conflict: false,
+          fix: 'add a "test" script',
+        },
       ],
     },
   },
