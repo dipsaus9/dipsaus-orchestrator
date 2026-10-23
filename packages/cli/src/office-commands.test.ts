@@ -367,6 +367,78 @@ describe("dipo office rescan", () => {
     expect(ctx.err).toEqual(["dipo: scan.running: already running"]);
     expect(ctx.unsubscribed()).toBe(1);
   });
+
+  /**
+   * A session whose office stream is refused `refusals` times with `refusal` before it is accepted;
+   * the scan's event follows the rescan command.
+   */
+  function refusingRescan(refusal: { code: string; message: string }, refusals: number) {
+    const ctx = fake(() => ok({ scan: "started" }, false), {
+      repository: { ...REPO, office: OFFICE, backlog: true },
+    });
+    const subscribed: Options[] = [];
+    let listener: Options | null = null;
+    const inner = ctx.deps.connectDaemon;
+    const deps: CliDeps = {
+      ...ctx.deps,
+      connectDaemon: async (mode) => {
+        const session = await inner(mode);
+        return {
+          ...session,
+          command: (async (definition: unknown, args: unknown, options: unknown) => {
+            const result = await session.command(
+              definition as Parameters<DaemonSession["command"]>[0],
+              args as never,
+              options as never,
+            );
+            listener?.onEvent({
+              cursor: { stream: `office:${OFFICE}`, epoch: "e", seq: 1 },
+              at: "2026-10-23T09:00:00Z",
+              type: "scan.finished",
+              data: { scripts: {}, warnings: [], trigger: "rescan", level: "partial" },
+            } as never);
+            return result;
+          }) as DaemonSession["command"],
+          subscribe: ((stream, options) => {
+            subscribed.push(options);
+            if (subscribed.length <= refusals) {
+              queueMicrotask(() => options.onEnded?.(refusal as never));
+            } else {
+              listener = options;
+              queueMicrotask(() => options.onCaughtUp?.({ stream, epoch: "e", seq: 0 } as never));
+            }
+            return { stream, cursor: undefined, unsubscribe: () => undefined };
+          }) as Subscribe,
+        };
+      },
+    };
+    return { ...ctx, deps, subscribed };
+  }
+
+  it("waits for a recovering daemon before the scan stream is subscribed, then rescans (DIPO-325)", async () => {
+    const ctx = refusingRescan({ code: "engine.recovering", message: "recovering" }, 1);
+    const code = main(["office", "rescan"], ctx.deps);
+    await settle();
+    expect(ctx.subscribed).toHaveLength(1);
+    (ctx.deps.clock as ManualClock).advance(RECOVERY_POLL_MS);
+    await settle();
+    expect(await code).toBe(0);
+    expect(ctx.subscribed).toHaveLength(2);
+    expect(ctx.sent).toEqual([{ name: "office.rescan", args: {} }]);
+    expect(ctx.out).toEqual([
+      `office ${OFFICE}: rescanned, conformance partial`,
+      "no changes since the previous profile",
+      "no deviations from the script standard",
+    ]);
+    expect(ctx.err).toEqual([]);
+  });
+
+  it("ends with the stream's error, not an unhandled rejection, when the scan stream closes", async () => {
+    const ctx = refusingRescan({ code: "stream.resetRequired", message: "history gap" }, 1);
+    expect(await main(["office", "rescan"], ctx.deps)).toBe(1);
+    expect(ctx.err).toEqual(["dipo: stream.resetRequired: history gap"]);
+    expect(ctx.sent).toEqual([]);
+  });
 });
 
 describe("dipo office init", () => {

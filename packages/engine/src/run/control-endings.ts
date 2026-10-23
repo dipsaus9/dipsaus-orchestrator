@@ -297,6 +297,7 @@ export class RunEndings {
           detail: ending.detail,
           endKind: ending.endKind,
           ...(ending.capStep === undefined ? {} : { capStep: ending.capStep }),
+          ...(ending.question === undefined ? {} : { question: ending.question }),
         },
       );
       // The run summary (DIPO-49): every run that ends here gets one.

@@ -168,6 +168,11 @@ export interface RunEnding {
   readonly endKind: string;
   /** The report that led to the end, when a turn decided it. */
   readonly report?: WorkerReport | null;
+  /**
+   * The worker's question an `ambiguous-spec` park asks when no open question of the run carries
+   * over to it (DIPO-159): the question of a blocked report with no TUI connected.
+   */
+  readonly question?: string;
   /** An `engine.notice` written before the park (DIPO-51). */
   readonly notice?: {
     readonly level: "info" | "warn" | "error";

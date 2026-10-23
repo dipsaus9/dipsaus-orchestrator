@@ -280,6 +280,48 @@ export const gateReject = defineCommand({
   since: 1,
 });
 
+// A worker's proposal (0020 section 11c, DIPO-186): its stored id is a hash of 64 lower-case hex
+// characters. A command may name it by a unique prefix of at least 8 of them.
+export const ProposalId = z.string().regex(/^[0-9a-f]{64}$/, "expected a proposal id");
+export type ProposalId = z.infer<typeof ProposalId>;
+export const ProposalRef = z
+  .string()
+  .regex(/^[0-9a-f]{8,64}$/, "expected a proposal id, or at least its first 8 characters");
+
+// Since minor 1 (DIPO-166; 0020 sections 11c and 14) [`proposals`]: files an open follow-up, spike
+// or tool proposal of a worker as a Backlog draft through the planning lane, with the title, the
+// outcome line, the paths as references and the source story in the description, the worker's
+// text marked as the worker's words. `draft` is the draft's id once the lane created it; draft ids
+// are reused by Backlog.md, so it names the draft only until it is promoted or archived. Accepting
+// an accepted proposal changes nothing. Errors: `proposal.unknown`, `proposal.ambiguous` (a prefix
+// of several), `proposal.notOpen` (dismissed already).
+export const proposalAccept = defineCommand({
+  name: "proposal.accept",
+  level: "office",
+  args: z.object({ proposal: ProposalRef }),
+  result: z.object({
+    proposal: ProposalId,
+    state: z.literal("accepted"),
+    draft: z.string().optional(),
+  }),
+  confirm: false,
+  irreversible: false,
+  since: 1,
+});
+
+// Since minor 1 (DIPO-166) [`proposals`]: closes an open proposal without filing anything.
+// Dismissing a dismissed proposal changes nothing. Errors as `proposal.accept`; `proposal.notOpen`
+// when it was accepted already.
+export const proposalDismiss = defineCommand({
+  name: "proposal.dismiss",
+  level: "office",
+  args: z.object({ proposal: ProposalRef }),
+  result: z.object({ proposal: ProposalId, state: z.literal("dismissed") }),
+  confirm: false,
+  irreversible: false,
+  since: 1,
+});
+
 export const testStart = defineCommand({
   name: "test.start",
   level: "office",
@@ -863,6 +905,36 @@ export const storyPr = defineEvent({
   data: z.object({ story: StoryId, key: StoryKey, pr: StoryPr }),
 });
 
+// Since minor 1 (DIPO-166; 0020 section 14) [`proposals`]: a worker report's proposal was stored for
+// the maintainer, once per proposal (a later report with the same title and paths files none).
+// `title` is the worker's words, cleaned of terminal control characters and on one line.
+export const proposalFiled = defineEvent({
+  type: "proposal.filed",
+  stream: "office",
+  derived: false,
+  data: z.object({
+    proposal: ProposalId,
+    kind: z.string(), // follow-up, spike or tool
+    key: StoryKey,
+    story: StoryId.optional(),
+    run: RunId,
+    title: z.string(),
+  }),
+});
+
+// Since minor 1 (DIPO-166) [`proposals`]: the maintainer accepted (filed as a Backlog draft through
+// the planning lane) or dismissed a proposal.
+export const proposalClosed = defineEvent({
+  type: "proposal.closed",
+  stream: "office",
+  derived: false,
+  data: z.object({
+    proposal: ProposalId,
+    key: StoryKey,
+    state: z.enum(["accepted", "dismissed"]),
+  }),
+});
+
 export const testStarted = defineEvent({
   type: "test.started",
   stream: "office",
@@ -896,6 +968,8 @@ export const officeCommands = [
   storyDrop,
   gateApprove,
   gateReject,
+  proposalAccept,
+  proposalDismiss,
   testStart,
   testRecord,
 ] as const;
@@ -930,6 +1004,8 @@ export const officeEvents = [
   questionClosed,
   storyParked,
   storyPr,
+  proposalFiled,
+  proposalClosed,
   testStarted,
   testRecorded,
 ] as const;

@@ -73,6 +73,7 @@ import {
   resolveSoftwareDirs,
   resolveTools,
   SoftwareDirError,
+  ProposalCommands,
   RunProfiles,
   REATTACH_STEP,
   RUN_TEMP_SWEEP_STEP,
@@ -818,6 +819,9 @@ async function serve(run: Run, lock: HeldLock): Promise<number> {
       // A story the `backlog` on this PATH reads Done in `_base` gets no Refined write.
       cli: backlogCli,
     });
+    // `proposal.accept` and `proposal.dismiss` (DIPO-166): an accepted worker proposal becomes a
+    // Backlog draft through the planning lane.
+    const proposals = new ProposalCommands({ lane: (office) => lane.forOffice(office) });
     // The story index (DIPO-32): indexes each office at load, after the git load step and the
     // lane's replay, and polls its remote every `polling.fetchSeconds`, with the `backlog` this
     // daemon found on its PATH.
@@ -997,6 +1001,7 @@ async function serve(run: Run, lock: HeldLock): Promise<number> {
       planning.feature,
       mergeGates.feature,
       discard.feature,
+      proposals.feature,
       runs.control.feature,
       runs.outcomes.feature,
       runs.permissions.feature,
