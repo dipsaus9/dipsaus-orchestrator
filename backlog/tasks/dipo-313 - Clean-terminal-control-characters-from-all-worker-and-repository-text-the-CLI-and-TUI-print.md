@@ -3,10 +3,10 @@ id: DIPO-313
 title: >-
   Clean terminal control characters from all worker and repository text the CLI
   and TUI print
-status: In Progress
+status: In Review
 assignee: []
 created_date: '2026-10-22 21:00'
-updated_date: '2026-10-23 07:58'
+updated_date: '2026-10-23 08:06'
 labels:
   - 'tier:M'
 milestone: m-1
@@ -65,10 +65,10 @@ test_plan:
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 One pure function removes terminal control characters, with the rules of `cleanDoorText`. It lives in a package that the engine and every client may import. The door uses it in place of its own copy, and its tests move with it.
-- [ ] #2 `dipo watch` and `dipo run`, including `--dry-run`, pass every interpolated string through it before printing. That covers text from a worker, a repository, a story or a notice.
-- [ ] #3 The TUI's `cleanLine` and the prompt pane use it. Tab and line-break handling stays as today. The 7-bit and one-byte control sequences, string sequences and hyperlinks are removed.
-- [ ] #4 `dipo daemon logs` prints log text through it.
-- [ ] #5 Worker output lines are stored cleaned at ingest (`packages/engine/src/ingest/output.ts`), so a client of an older build also gets plain text.
-- [ ] #6 Tests feed each sequence class through watch, run, the TUI output, the prompt pane and the log reader, and show that none reaches the output. The classes are CSI in both forms, OSC, DCS, cursor movement and erase.
+- [x] #1 One pure function removes terminal control characters, with the rules of `cleanDoorText`. It lives in a package that the engine and every client may import. The door uses it in place of its own copy, and its tests move with it.
+- [x] #2 `dipo watch` and `dipo run`, including `--dry-run`, pass every interpolated string through it before printing. That covers text from a worker, a repository, a story or a notice.
+- [x] #3 The TUI's `cleanLine` and the prompt pane use it. Tab and line-break handling stays as today. The 7-bit and one-byte control sequences, string sequences and hyperlinks are removed.
+- [x] #4 `dipo daemon logs` prints log text through it.
+- [x] #5 Worker output lines are stored cleaned at ingest (`packages/engine/src/ingest/output.ts`), so a client of an older build also gets plain text.
+- [x] #6 Tests feed each sequence class through watch, run, the TUI output, the prompt pane and the log reader, and show that none reaches the output. The classes are CSI in both forms, OSC, DCS, cursor movement and erase.
 <!-- AC:END -->
