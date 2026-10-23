@@ -46,6 +46,7 @@ import { usageLive } from "./migrations/0042-usage-live";
 import { workerReportData } from "./migrations/0043-worker-report-data";
 import { feedbackItems } from "./migrations/0044-feedback-items";
 import { catchUps } from "./migrations/0045-catch-ups";
+import { mergeSlot } from "./migrations/0046-merge-slot";
 
 /**
  * Software-wide tables (0007 section 3). Every other table is office-scoped and has `office_id`
@@ -127,4 +128,5 @@ create table offices (
   workerReportData,
   feedbackItems,
   catchUps,
+  mergeSlot,
 ];

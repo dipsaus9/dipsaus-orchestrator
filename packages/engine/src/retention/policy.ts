@@ -83,6 +83,10 @@ export const TABLE_RETENTION: Readonly<Record<string, TablePolicy>> = {
   review_verdicts: { tier: "S", rule: "decided more than stateDays ago" },
   feedback_items: { tier: "S", rule: "with its run, ended more than stateDays ago" },
   catch_ups: { tier: "S", rule: "with its run, ended more than stateDays ago" },
+  merge_slot: {
+    tier: "P",
+    rule: "no age rule: the slot code deletes its one row when the PR merges or leaves the slot",
+  },
   base_verifies: {
     tier: "P",
     rule: "kept until purge: one small row per base commit, read by every later run on that base",
