@@ -18,7 +18,8 @@ import {
   BacklogStatusCommandError,
   configStatusCommand,
   runBacklog,
-  STATUS_CHECK_MAX,
+  BACKLOG_CHECK_MAX,
+  BacklogFileRefusedError,
   STATUS_COMMAND_NOTICE,
   statusChangeOf,
   statusCommandFiles,
@@ -176,12 +177,13 @@ describe("the Backlog configuration", () => {
   it("refuses a file too large to check whole", () =>
     withTempDir(async (dir) => {
       write(dir, {
-        "backlog/config.yml": `${CONFIG}#${"x".repeat(STATUS_CHECK_MAX)}\n`,
+        "backlog/config.yml": `${CONFIG}#${"x".repeat(BACKLOG_CHECK_MAX)}\n`,
         [TASK]: CLEAN_TASK,
       });
       const { error, spawned } = await statusChange(dir);
       expect(spawned).toBe(0);
-      expect((error as BacklogStatusCommandError).files).toEqual([
+      expect(error).toBeInstanceOf(BacklogFileRefusedError);
+      expect((error as BacklogFileRefusedError).files).toEqual([
         { path: "backlog/config.yml", reason: "is too large for dipo to check" },
       ]);
     }));
@@ -205,7 +207,7 @@ describe("the task files", () => {
 
   it("stop a status change on a front matter block in another language", () => {
     for (const text of ["---js\n{ id: 'TASK-1' }\n---\n", "---javascript\n({})\n---\n"]) {
-      expect(taskStatusCommand(text)).toContain("in a language other than YAML");
+      expect(taskStatusCommand(text)).toContain("is not plain YAML");
     }
   });
 
