@@ -75,7 +75,7 @@ describe("cli", () => {
   it("names the read-only commands that never start the daemon (DIPO-187)", () => {
     expect(HELP).toContain("Commands that need the daemon start it");
     expect(HELP).toContain(
-      "Read-only commands never start it: dipo gate, dipo run\n--dry-run, dipo stats and dipo watch",
+      "Read-only commands never start it: dipo gate, dipo run\n--dry-run, dipo stats, dipo desk and dipo watch",
     );
   });
 

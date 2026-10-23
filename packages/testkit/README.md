@@ -53,7 +53,6 @@ A daemon removes the `dipo.sock` it finds in the runtime directory it chooses, a
 - Start it with `daemonTestEnv(dir)` for a process, or `isolatedDaemonEnv(dir)` in process. Both put `DIPO_HOME`, `DIPO_RUNTIME_DIR`, `TMPDIR`, `XDG_RUNTIME_DIR` and `DIPO_TMP` under the test's temp directory.
 - Wrap the test in `withDaemonTempDir`, or call `assertTestRuntimeDir(dir)`: the test fails when the daemon log names a runtime directory other than `<dir>/run` from `DIPO_RUNTIME_DIR`.
 - `DIPO_TMP` may be at most 37 bytes after symlinks (`MAX_TEMP_ROOT_BYTES`). `tempRoot()`, and so every testkit temp directory, refuses a longer one, because a test daemon's socket paths under it would pass the 100-byte limit and the daemon would fall back to a real runtime directory. A path such as `/tmp/dt` is fine; macOS `$TMPDIR` is too long.
-- A nested sandboxed verify needs a shorter outer root. `packages/engine/test/sandbox/self-verify.ci.test.ts` puts its step temp roots at `join(tempRoot(), "dipo-s-XXXXXX")`, and each becomes the inner suite's `DIPO_TMP`. That adds 13 bytes, so the outer `DIPO_TMP` may be at most about 24 bytes after symlinks. The default `/tmp` (`/private/tmp` on macOS, 12 bytes) fits.
 
 testkit keeps its own copy of the engine's `RUNTIME_PATH_LIMIT` and `LONGEST_RUNTIME_ENTRY`, since it may not import engine; `packages/daemon/test/unit/runtime-isolation.test.ts` keeps them equal and checks that every daemon and client test that starts a daemon follows the rules above.
 

@@ -1,213 +1,34 @@
-// Policy translation for install and verify, on the darwin and linux path rules (DIPO-37). The
-// translated files are compared with golden files; `DIPO_UPDATE_GOLDEN=1` rewrites them (run
-// `bun run format:fix` after).
+// The sandbox policy checks that still run (DIPO-37, DIPO-240): `dipo daemon sandbox-exec` reads
+// every root a settings file makes writable (`writableRoots`), refuses a program, binary or PATH
+// directory under one (`trustViolations`) and a deny that covers a root it must reach
+// (`coveringDenies`), with `~` expanded (`expandHome`). The settings it runs today are the
+// Safe-Chain proxy's own sandbox (`safeChainProxyPolicy`, for the box package cache and the box
+// web route); the step policies of the Mac worker path are gone, so these tests use the proxy's.
 
 import { describe, expect, it } from "bun:test";
-import { readFileSync, writeFileSync } from "node:fs";
-import { join } from "node:path";
 
-import { SandboxRuntimeConfigSchema } from "@anthropic-ai/sandbox-runtime";
-import { makeTempDir, removeTempDir } from "@dipsaus-orchestrator/testkit";
-
-import type { DipoPlatform } from "../../src/platform/paths";
 import {
   coveringDenies,
-  DENY_ALL_SETTINGS,
   denyMatches,
   expandHome,
   globRoot,
-  linuxLiteralPath,
-  translatePolicy,
   trustViolations,
   writableRoots,
-  type SandboxRun,
-  type StepPolicyKind,
 } from "../../src/sandbox/policy";
+import { safeChainProxyLayout, safeChainProxyPolicy } from "../../src/sandbox/safe-chain-proxy";
 
-const GOLDEN = join(import.meta.dir, "golden");
-const REPO_ROOT = join(import.meta.dir, "../../../..");
-const OXFMT = join(REPO_ROOT, "node_modules/.bin/oxfmt");
-const OXFMT_CONFIG = join(REPO_ROOT, ".oxfmtrc.json");
+const LAYOUT = safeChainProxyLayout("/tmp/dipo-p/AbC123");
 
-/** The golden text: JSON in the layout oxfmt gives it, so a regenerated golden passes format:check (DIPO-209). */
-function goldenText(value: unknown, name: string): string {
-  const result = Bun.spawnSync([OXFMT, `--stdin-filepath=${name}`, "-c", OXFMT_CONFIG], {
-    stdin: Buffer.from(`${JSON.stringify(value, null, 2)}\n`),
-    stdout: "pipe",
-    stderr: "pipe",
-  });
-  if (result.exitCode !== 0)
-    throw new Error(`oxfmt failed on ${name}: ${result.stderr.toString()}`);
-  return result.stdout.toString();
-}
-
-function run(platform: DipoPlatform, kind: StepPolicyKind): SandboxRun {
-  return {
+function proxyPolicy(platform: "darwin" | "linux") {
+  return safeChainProxyPolicy({
     platform,
-    kind,
     home: "/home/maintainer",
     uid: 1000,
-    mainCheckout: "/src/product",
-    worktree: "/src/product.worktrees/PROD-7",
-    tempRoot: "/tmp/dipo-s-AbC123",
+    layout: LAYOUT,
+    dipoReads: ["/home/maintainer/.local/bin/dipo"],
     dipoDirs: ["/home/maintainer/.local/state/dipo", "/run/user/1000/dipo"],
-    sshAuthSock: "/tmp/ssh-XyZ/agent.42",
-    tools: { rg: "/usr/bin/rg", bwrap: "/usr/bin/bwrap", socat: "/usr/bin/socat" },
-    installCachePaths: ["~/.bun/install/cache", "~/.npm/**", "/opt/cache/*.tmp", "~/.cache"],
-    registryHosts: ["registry.npmjs.org", "*.npmjs.org"],
-  };
+  });
 }
-
-describe("translatePolicy golden files", () => {
-  for (const platform of ["darwin", "linux"] as const) {
-    for (const kind of ["install", "verify"] as const) {
-      it(`${platform} ${kind}`, () => {
-        const translated = translatePolicy(run(platform, kind));
-        const name = `${platform}-${kind}.json`;
-        const file = join(GOLDEN, name);
-        if (process.env["DIPO_UPDATE_GOLDEN"] === "1") {
-          writeFileSync(file, goldenText(translated, name));
-        }
-        // Compared as values: oxfmt formats the golden files.
-        expect(translated).toEqual(JSON.parse(readFileSync(file, "utf8")));
-        // The file is one srt 0.0.79 accepts.
-        expect(SandboxRuntimeConfigSchema.safeParse(translated.settings).success).toBe(true);
-      });
-
-      it(`writes the ${platform} ${kind} golden in the formatter's layout (DIPO-209)`, () => {
-        const name = `${platform}-${kind}.json`;
-        const dir = makeTempDir();
-        try {
-          const file = join(dir, name);
-          writeFileSync(file, goldenText(translatePolicy(run(platform, kind)), name));
-          const check = Bun.spawnSync([OXFMT, "--check", "-c", OXFMT_CONFIG, file], {
-            stdout: "pipe",
-            stderr: "pipe",
-          });
-          expect(check.exitCode).toBe(0);
-        } finally {
-          removeTempDir(dir);
-        }
-      });
-    }
-  }
-});
-
-describe("translatePolicy", () => {
-  it("allows writes to the worktree and the temp root and denies both .git paths", () => {
-    const { settings } = translatePolicy(run("darwin", "verify"));
-    expect(settings.filesystem.allowWrite).toEqual([
-      "/src/product.worktrees/PROD-7",
-      "/tmp/dipo-s-AbC123",
-    ]);
-    expect(settings.filesystem.denyWrite).toEqual([
-      "/src/product/.git",
-      "/src/product.worktrees/PROD-7/.git",
-    ]);
-  });
-
-  it("denies reading the secrets, dipo's own directories and the agent and daemon sockets", () => {
-    const { settings } = translatePolicy(run("linux", "verify"));
-    expect(settings.filesystem.denyRead).toEqual([
-      "/home/maintainer/.ssh",
-      "/home/maintainer/.aws",
-      "/home/maintainer/.config/gh",
-      "/home/maintainer/.gnupg",
-      "/home/maintainer/.netrc",
-      "/home/maintainer/Library/Keychains",
-      "/home/maintainer/.npmrc",
-      "/home/maintainer/.git-credentials",
-      "/home/maintainer/.claude",
-      "/home/maintainer/.docker",
-      "/home/maintainer/.kube",
-      "/home/maintainer/.local/state/dipo",
-      "/run/user/1000/dipo",
-      "/run/user/1000",
-      "/var/run/docker.sock",
-      "/run/docker.sock",
-      "/tmp/ssh-*",
-      "/tmp/ssh-XyZ",
-    ]);
-  });
-
-  it("denies the agent socket itself when its directory holds the temp root", () => {
-    const { settings, warnings } = translatePolicy({
-      ...run("darwin", "verify"),
-      sshAuthSock: "/tmp/agent.sock",
-    });
-    expect(settings.filesystem.denyRead).toContain("/tmp/agent.sock");
-    expect(settings.filesystem.denyRead).not.toContain("/tmp");
-    expect(warnings).toEqual([]);
-  });
-
-  it("keeps a dipo directory that covers the temp root, for sandbox-exec to refuse", () => {
-    const { settings } = translatePolicy({ ...run("linux", "verify"), dipoDirs: ["/tmp"] });
-    expect(settings.filesystem.denyRead).toContain("/tmp");
-    expect(
-      coveringDenies(settings.filesystem.denyRead, [
-        { label: "temp root", spellings: ["/tmp/dipo-s-AbC123"] },
-      ]),
-    ).toEqual(["denyRead /tmp covers the temp root /tmp/dipo-s-AbC123"]);
-  });
-
-  it("pins rg on both platforms and bwrap and socat on Linux", () => {
-    const linux = translatePolicy(run("linux", "verify")).settings;
-    expect(linux.ripgrep).toEqual({ command: "/usr/bin/rg" });
-    expect(linux.bwrapPath).toBe("/usr/bin/bwrap");
-    expect(linux.socatPath).toBe("/usr/bin/socat");
-    const darwin = translatePolicy(run("darwin", "verify")).settings;
-    expect(darwin.ripgrep).toEqual({ command: "/usr/bin/rg" });
-    expect(darwin.bwrapPath).toBeUndefined();
-  });
-
-  it("closes the network for verify and opens only the registry hosts for install", () => {
-    const verify = translatePolicy(run("darwin", "verify")).settings.network;
-    expect(verify.allowedDomains).toEqual([]);
-    expect(verify.strictAllowlist).toBe(true);
-    const install = translatePolicy(run("darwin", "install")).settings.network;
-    expect(install.allowedDomains).toEqual(["registry.npmjs.org", "*.npmjs.org"]);
-    expect(install.strictAllowlist).toBe(true);
-  });
-
-  it("adds the install caches, with ~ expanded, to the writes of install only", () => {
-    const install = translatePolicy(run("darwin", "install")).settings.filesystem.allowWrite;
-    expect(install).toContain("/home/maintainer/.bun/install/cache");
-    expect(install).toContain("/home/maintainer/.npm/**");
-    const verify = translatePolicy(run("darwin", "verify")).settings.filesystem.allowWrite;
-    expect(verify.some((path) => path.startsWith("/home/maintainer"))).toBe(false);
-  });
-
-  it("allows Unix sockets under the temp root on macOS, and all of them on Linux", () => {
-    const darwin = translatePolicy(run("darwin", "verify")).settings.network;
-    expect(darwin.allowUnixSockets).toEqual(["/tmp/dipo-s-AbC123"]);
-    expect(darwin.allowAllUnixSockets).toBeUndefined();
-    const linux = translatePolicy(run("linux", "verify")).settings.network;
-    expect(linux.allowAllUnixSockets).toBe(true);
-    expect(linux.allowUnixSockets).toBeUndefined();
-  });
-
-  it("makes Linux write paths literal and warns about each skipped glob", () => {
-    const { settings, warnings } = translatePolicy(run("linux", "install"));
-    expect(settings.filesystem.allowWrite).toContain("/home/maintainer/.npm");
-    expect(settings.filesystem.allowWrite).not.toContain("/opt/cache/*.tmp");
-    expect(warnings).toEqual([
-      "allowWrite: skipped /opt/cache/*.tmp (a glob; Linux takes literal paths only)",
-    ]);
-    expect(translatePolicy(run("darwin", "install")).warnings).toEqual([]);
-  });
-
-  it("lists a path once when the worktree is the main checkout", () => {
-    const { settings } = translatePolicy({
-      ...run("darwin", "verify"),
-      worktree: "/src/product",
-    });
-    expect(settings.filesystem.denyWrite).toEqual(["/src/product/.git"]);
-  });
-
-  it("has a deny-all settings file srt accepts", () => {
-    expect(SandboxRuntimeConfigSchema.safeParse(DENY_ALL_SETTINGS).success).toBe(true);
-  });
-});
 
 describe("expandHome", () => {
   it("expands ~ and ~/ only", () => {
@@ -219,32 +40,27 @@ describe("expandHome", () => {
   });
 });
 
-describe("linuxLiteralPath", () => {
-  it("drops a trailing /** and refuses other globs", () => {
-    expect(linuxLiteralPath("/a/b/**")).toBe("/a/b");
-    expect(linuxLiteralPath("/a/b")).toBe("/a/b");
-    expect(linuxLiteralPath("/a/*/c")).toBeNull();
-    expect(linuxLiteralPath("/a/b?")).toBeNull();
-    expect(linuxLiteralPath("/a/{b,c}")).toBeNull();
-    expect(linuxLiteralPath("/a/**/c/**")).toBeNull();
-  });
-});
-
 describe("writableRoots", () => {
-  it("lists allowWrite roots up to their first glob and srt's default write paths", () => {
-    const roots = writableRoots(translatePolicy(run("darwin", "install")).settings, ["/h"]);
+  it("lists the proxy's allowWrite roots and srt's default write paths", () => {
+    const roots = writableRoots(proxyPolicy("darwin"), ["/h"]);
     expect(roots.map((root) => root.path)).toEqual([
-      "/src/product.worktrees/PROD-7",
-      "/tmp/dipo-s-AbC123",
-      "/home/maintainer/.bun/install/cache",
-      "/home/maintainer/.npm",
-      "/opt/cache",
-      "/home/maintainer/.cache",
+      "/tmp/dipo-p/AbC123/sc",
+      "/tmp/dipo-p/AbC123/tmp",
+      "/tmp/dipo-p/AbC123/home",
+      "/tmp/dipo-p/AbC123/out",
+      "/tmp/dipo-p/AbC123/sock",
       "/tmp/claude",
       "/private/tmp/claude",
       "/h/.claude/debug",
       "/h/.npm/_logs",
     ]);
+    expect(roots[0]?.source).toBe("allowWrite /tmp/dipo-p/AbC123/sc");
+    expect(roots.at(-1)?.source).toBe("srt default write path");
+  });
+
+  it("never makes the holder directory on the proxy's PATH writable", () => {
+    const roots = writableRoots(proxyPolicy("linux"), ["/home/maintainer"]);
+    expect(roots.some((root) => LAYOUT.holders.startsWith(root.path))).toBe(false);
   });
 
   it("cuts a glob back to its literal directory", () => {
@@ -296,6 +112,25 @@ describe("trustViolations", () => {
       trustViolations({ writable, candidates: [], pathEntries: ["bin", "", "/usr/bin"] }),
     ).toEqual(['PATH holds a relative entry "bin"', 'PATH holds a relative entry ""']);
   });
+
+  it("refuses a PATH directory in the proxy's writable install, and passes its holder directory", () => {
+    const roots = writableRoots(proxyPolicy("darwin"), ["/home/maintainer"]).map((root) => ({
+      spellings: [root.path],
+      source: root.source,
+    }));
+    expect(
+      trustViolations({
+        writable: roots,
+        candidates: [
+          { label: "PATH directory", spellings: [LAYOUT.holders] },
+          { label: "PATH directory", spellings: [`${LAYOUT.tmp}/bin`] },
+        ],
+        pathEntries: [LAYOUT.holders, `${LAYOUT.tmp}/bin`],
+      }),
+    ).toEqual([
+      `PATH directory ${LAYOUT.tmp}/bin is writable by the step (allowWrite ${LAYOUT.tmp})`,
+    ]);
+  });
 });
 
 describe("denyMatches and coveringDenies", () => {
@@ -307,13 +142,24 @@ describe("denyMatches and coveringDenies", () => {
     expect(denyMatches("/tmp/ssh-*", "/tmp")).toBe(false);
   });
 
-  it("finds nothing for the default policy of a step", () => {
-    const { settings } = translatePolicy(run("linux", "install"));
-    const roots = [
-      { label: "working directory", spellings: ["/src/product.worktrees/PROD-7"] },
-      { label: "temp root", spellings: ["/tmp/dipo-s-AbC123"] },
-      ...settings.filesystem.allowWrite.map((path) => ({ label: "write path", spellings: [path] })),
-    ];
-    expect(coveringDenies(settings.filesystem.denyRead, roots)).toEqual([]);
+  it("finds nothing for the proxy's own sandbox on either platform", () => {
+    for (const platform of ["darwin", "linux"] as const) {
+      const settings = proxyPolicy(platform);
+      const roots = [
+        { label: "proxy directory", spellings: [LAYOUT.dir] },
+        ...settings.filesystem.allowWrite.map((path) => ({
+          label: "write path",
+          spellings: [path],
+        })),
+      ];
+      expect(coveringDenies(settings.filesystem.denyRead, roots)).toEqual([]);
+    }
+  });
+
+  it("finds a deny that covers a root the proxy must reach", () => {
+    expect(
+      coveringDenies(["/tmp/dipo-p"], [{ label: "proxy directory", spellings: [LAYOUT.dir] }])
+        .length,
+    ).toBe(1);
   });
 });

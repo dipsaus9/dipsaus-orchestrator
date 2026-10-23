@@ -45,7 +45,8 @@ import { runStepCiNone } from "./migrations/0041-run-step-ci-none";
 import { usageLive } from "./migrations/0042-usage-live";
 import { workerReportData } from "./migrations/0043-worker-report-data";
 import { feedbackItems } from "./migrations/0044-feedback-items";
-import { catchUps } from "./migrations/0045-catch-ups";
+import { doneElsewhere } from "./migrations/0045-done-elsewhere";
+import { catchUps } from "./migrations/0046-catch-ups";
 
 /**
  * Software-wide tables (0007 section 3). Every other table is office-scoped and has `office_id`
@@ -126,5 +127,6 @@ create table offices (
   usageLive,
   workerReportData,
   feedbackItems,
+  doneElsewhere,
   catchUps,
 ];

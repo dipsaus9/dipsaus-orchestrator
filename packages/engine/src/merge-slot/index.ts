@@ -12,3 +12,4 @@ export {
   SLOT_NOTICES,
 } from "./slot";
 export type { MergeSlotDeps, SlotOutcome } from "./slot";
+export { writeCloseOutSummary } from "./close-out";

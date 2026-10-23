@@ -127,7 +127,8 @@ function printOpened(
  * "not an office, run `dipo office open`" and, at a terminal, one question whether to open it.
  * `mode` is how the daemon is reached; read-only commands pass `running` (DIPO-187), also for the
  * open after the question, so a read-only command never starts the daemon: with none running the
- * answer gets the not-running line.
+ * answer gets the not-running line. With `offerOpen` false (a read-only command that must change
+ * nothing, such as `dipo desk`) the folder is only named as not an office and nothing is asked.
  */
 export async function withOffice(
   deps: OfficeCommandDeps,
@@ -136,6 +137,7 @@ export async function withOffice(
   confirm: Confirm = async () => true,
   timeoutMs: number = REPLY_TIMEOUT_MS,
   mode: ConnectMode = "start",
+  offerOpen = true,
 ): Promise<number> {
   const target = await resolveTarget(deps, flag);
   if (target.kind === "exit") return target.code;
@@ -165,6 +167,10 @@ export async function withOffice(
     main = target.main;
   }
 
+  if (!offerOpen) {
+    deps.writeError(`dipo: ${main} is not an office; run \`dipo office open\` to open it.`);
+    return 1;
+  }
   deps.writeError(`dipo: ${NOT_AN_OFFICE}`);
   if (!deps.workspace.interactive) return 1;
   const answer = await deps.workspace.ask(`Open ${main} as an office now? [y/N] `);

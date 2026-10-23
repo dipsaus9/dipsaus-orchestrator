@@ -24,8 +24,14 @@ import { join } from "node:path";
 import { type OfficeId, StoryId, type WorkRef } from "@dipsaus-orchestrator/contract";
 import { readRecording } from "@dipsaus-orchestrator/testkit";
 
+import type { RunBoxes } from "../../src/box/lifetime";
 import { BOX_RUN_FILE } from "../../src/box/workers";
+import { contextPackOf, gitBlobId } from "../../src/context/pack";
+import { BOX_CHANGES, BOX_VERIFY } from "../../src/prompts/handoff";
+import { recordWorkerNotes } from "../../src/prompts/notes";
 import { renderSystemFile } from "../../src/prompts/system";
+import { openFeedbackOf } from "../../src/run/open-feedback";
+import { insertVerifyResult } from "../../src/run/verify-records";
 import { parseFieldBlock } from "../../src/backlog/fields/block";
 import { OFFICE_DEFAULTS, type OfficeConfig } from "../../src/config/schema";
 import { writeNudgeSources } from "../../src/hooks/nudges";
@@ -41,18 +47,18 @@ import {
   HOST_NEVER_STARTED,
   hostSocketSteering,
   insertRun,
+  macSessionText,
   type NextSessionOutcome,
   type NextSessionRequest,
   OfficeIngest,
+  REATTACH_NOTICES,
   recordGrant,
   RunControl,
   RunOutcomes,
   RunReattacher,
   RunResumer,
   runIntents,
-  runLaunchPaths,
   runTotals,
-  runWorkerSpec,
   storeBackstopSnapshot,
   STOP_AGAIN_DETAIL,
 } from "../../src/run";
@@ -61,7 +67,6 @@ import { activeSignals, raiseSignal } from "../../src/run/signals";
 import { promptPartsOf, promptTextsOf } from "../../src/prompts/parts";
 import { recordWorkerHost, workerHostsOf } from "../../src/runs/worker-hosts";
 import { addStory } from "../../src/stories/keys";
-import { claudeWorkerPort } from "../../src/workers/claude-cli/adapter";
 import { encode } from "../../src/workers/claude-cli/encode";
 import {
   type ClaudeParseState,
@@ -72,13 +77,11 @@ import { result as claudeResult } from "../../src/workers/claude-cli/result";
 import { readTranscript } from "../../src/workers/claude-cli/transcript";
 import { REPORT_JSON_SCHEMAS } from "../../src/workers/claude-cli/report-schema";
 import { CLAUDE_LOCAL_SETTINGS } from "../../src/workers/claude-cli/settings-check";
-import { AdapterHolds } from "../../src/workers/hold";
-import type { VerifyCommands, WorkerPort } from "../../src/workers/port";
+import type { WorkerPort } from "../../src/workers/port";
 import {
   type Caps,
   type HostOp,
   type ParseState,
-  PlanError,
   type ResumeCheck,
   type SessionRef,
   type WorkerAdapter,
@@ -100,7 +103,6 @@ import {
 import { RECORDINGS_DIR } from "../workers/replay";
 import { memoryWorkspace } from "../context/helpers";
 import { plainTask } from "../prompts/helpers";
-import { storeResolvedVerify } from "./verify-profile";
 
 const claude: IngestAdapter = {
   interpret: (line, state) =>
@@ -159,7 +161,7 @@ function daemon(
   options: Partial<
     Pick<
       ConstructorParameters<typeof RunReattacher>[0],
-      "followCheckMs" | "proxyGone" | "steering" | "adapter"
+      "followCheckMs" | "boxRecord" | "steering" | "adapter"
     >
   > = {},
 ): Daemon {
@@ -758,37 +760,52 @@ describe("re-attach (0006 decision 8)", () => {
     expect(w.sent).toEqual([encode({ kind: "stop" })]);
   });
 
-  it("a living worker whose Safe-Chain proxy is gone is stopped and parks interrupted (DIPO-84)", async () => {
+  it("a living developer on the Mac, with no box record, is stopped with a notice and parks interrupted (DIPO-240)", async () => {
     beforeRestart("success-single", 6, 20);
     const asked: string[] = [];
     const d = daemon({
-      proxyGone: (_office, run, host) => {
-        asked.push(`${run.runId} ${host.agentId}`);
-        return "DIPO-1 was stopped: its Safe-Chain proxy ended with the previous daemon.";
+      boxRecord: (runDir) => {
+        asked.push(runDir);
+        return false;
       },
     });
     expect(await d.reattacher.reattach(w.f.office.officeId)).toEqual([
-      { run: w.f.run, agent: w.f.agent, outcome: "proxyGone" },
+      { run: w.f.run, agent: w.f.agent, outcome: "macSession" },
       // The parked run's host still runs after the stop: followed until it exits (DIPO-93).
       { run: w.f.run, agent: w.f.agent, outcome: "followEnded" },
     ]);
     await d.control.idle();
-    expect(asked).toEqual([`${w.f.run} ${w.f.agent}`]);
-    expect(parks()).toEqual([
-      ["interrupted", "DIPO-1 was stopped: its Safe-Chain proxy ended with the previous daemon."],
-    ]);
+    expect(asked).toEqual([w.dir]);
+    const text = macSessionText({ story: "DIPO-1", runId: w.f.run });
+    expect(parks()).toEqual([["interrupted", text]]);
+    expect(text).toContain("outside a box");
     expect(w.sent).toEqual([encode({ kind: "stop" })]);
     const notice = loggedEvents(w.f.office).find(
       (event) =>
         event.type === "engine.notice" &&
-        (event.data as { code?: string }).code === "run.safeChainProxyGone",
+        (event.data as { code?: string }).code === REATTACH_NOTICES.macSession,
     );
-    expect(notice?.data).toMatchObject({ level: "error" });
+    expect(notice?.data).toMatchObject({ level: "error", text });
   });
 
-  it("a living worker without a Safe-Chain proxy is followed as before (DIPO-84)", async () => {
+  it("a living developer in its box is followed as before (DIPO-240)", async () => {
     beforeRestart("success-single", 6, 20);
-    const d = daemon({ proxyGone: () => null });
+    const inBox = daemon({ boxRecord: () => true });
+    expect(await inBox.reattacher.reattach(w.f.office.officeId)).toEqual([
+      { run: w.f.run, agent: w.f.agent, outcome: "steer" },
+    ]);
+    expect(parks()).toEqual([]);
+  });
+
+  it("a living reviewer on the Mac is followed, never stopped as a Mac developer (DIPO-240)", async () => {
+    beforeRestart("success-single", 6, 20);
+    w.f.office.immediate(() =>
+      w.f.office.run(
+        "update agents set role = 'reviewer' where office_id = $office_id and agent_id = $agent",
+        { agent: w.f.agent },
+      ),
+    );
+    const d = daemon({ boxRecord: () => false });
     expect(await d.reattacher.reattach(w.f.office.officeId)).toEqual([
       { run: w.f.run, agent: w.f.agent, outcome: "steer" },
     ]);
@@ -867,7 +884,7 @@ function realResumer(
   extra: Partial<
     Pick<
       ConstructorParameters<typeof RunResumer>[0],
-      "probe" | "hostExitWaitMs" | "ingest" | "story" | "handoff" | "workspace"
+      "probe" | "hostExitWaitMs" | "ingest" | "story" | "handoff" | "workspace" | "git" | "boxes"
     >
   > = {},
   canResume: (ref: SessionRef) => ResumeCheck = () => ({ ok: true }),
@@ -1818,6 +1835,41 @@ describe("the prompts of a box worker's next session (DIPO-272)", () => {
     );
     expect(text).not.toContain("You may write only these paths");
   });
+
+  it("starts the next session in the run's box when the box is there, and every session is a box session with box workers (DIPO-278)", async () => {
+    firstSession();
+    const asked: string[] = [];
+    const boxes = {
+      has: async (runId: string) => {
+        asked.push(`has ${runId}`);
+        return "ready" as const;
+      },
+    } as unknown as RunBoxes;
+    const outcome = await realResumer(
+      hosts,
+      { probe: async () => null, story: async () => storyOf(), handoff, workspace, boxes },
+      () => ({ ok: false, reason: "the context is too full" }),
+    ).next(nextRequest());
+    expect(outcome).toMatchObject({ kind: "started", resumed: false });
+    expect(asked).toEqual([`has ${w.f.run}`]);
+    // No box record in the run directory, yet the box contract: every developer is a box worker.
+    const system = readFileSync(preparedSpecs.at(-1)?.systemFile ?? "", "utf8");
+    expect(system).toBe(renderSystemFile("implement-box", "developer"));
+  });
+
+  it("starts nothing when a lost box cannot be rebuilt, and says why (DIPO-278)", async () => {
+    firstSession();
+    const boxes = { has: async () => "gone" as const } as unknown as RunBoxes;
+    const outcome = await realResumer(
+      hosts,
+      { probe: async () => null, story: async () => storyOf(), handoff, workspace, boxes },
+      () => ({ ok: false, reason: "the context is too full" }),
+    ).next(nextRequest());
+    expect(outcome.kind).toBe("failed");
+    expect(outcome.kind === "failed" ? outcome.reason : "").toContain(
+      "the run's box could not be made ready: the delivered parts of",
+    );
+  });
 });
 
 const tooFull = () => ({ ok: false as const, reason: "the context is too full" });
@@ -1905,112 +1957,6 @@ describe("the prompt texts of a resume and a handoff (DIPO-137)", () => {
   });
 });
 
-describe("the verify tools check of the next session (DIPO-173)", () => {
-  const verify: VerifyCommands = { commands: [["bun", "run", "verify"]], cwd: "." };
-  for (const mode of ["a resume", "a handoff"] as const) {
-    it(`refuses ${mode} whose verify program's interpreter is outside the read paths, as the first launch does, holding no adapter`, async () => {
-      firstSession();
-      storeResolvedVerify(w.f.office, verify);
-      // The worktree and the home lie outside the main checkout (w.dir), as the plan and the
-      // read paths want them.
-      const outside = mkdtempSync(join(process.env["DIPO_TMP"] || "/tmp", "reattach-verify-"));
-      try {
-        // The run's worktree: verify runs oxfmt from node_modules/.bin, which starts with node.
-        const worktree = join(outside, "trees", "DIPO-1");
-        w.f.office.immediate(() => {
-          w.f.office.run(
-            "update runs set worktree = $worktree where office_id = $office_id and run_id = $run",
-            { worktree, run: w.f.run },
-          );
-          // The real plan resumes only a UUID session id.
-          w.f.office.run(
-            `update agents set session_id = '1b2c3d4e-5f60-4a7b-8c9d-0e1f2a3b4c5d'
-              where office_id = $office_id and agent_id = $agent`,
-            { agent: w.f.agent },
-          );
-        });
-        mkdirSync(join(worktree, "node_modules", ".bin"), { recursive: true });
-        writeFileSync(
-          join(worktree, "package.json"),
-          JSON.stringify({ scripts: { verify: "oxfmt --check" } }),
-        );
-        writeFileSync(join(worktree, "node_modules", ".bin", "oxfmt"), "#!/usr/bin/env node\n", {
-          mode: 0o755,
-        });
-        // node lives under an nvm directory of the home, which the default read paths do not cover.
-        const home = join(outside, "home");
-        const nodeBin = join(home, ".nvm", "versions", "node", "v22.11.0", "bin");
-        mkdirSync(nodeBin, { recursive: true });
-        writeFileSync(join(nodeBin, "node"), "", { mode: 0o755 });
-        const holds = new AdapterHolds({ clock: w.f.t.clock, notify: () => undefined });
-        const port = claudeWorkerPort({
-          claudePath: "/opt/claude/bin/claude",
-          home,
-          env: { PATH: `${nodeBin}:/usr/bin:/bin`, HOME: home },
-          dipoCommand: ["/opt/dipo/bin/dipo"],
-          spawn: () => {
-            throw new Error("no process may start in this test");
-          },
-          clock: w.f.t.clock,
-          holds,
-          platform: "darwin",
-          runStep: async () => {
-            throw new Error("no step may run in this test");
-          },
-          uid: 501,
-          pluginFiles: { read: () => undefined, dirs: () => [] },
-        });
-
-        // The first launch's refusal on the same worktree, office and verify.
-        const git = { commonDir: join(w.dir, "git"), mainWorktree: w.dir } as never;
-        const paths = runLaunchPaths(
-          git,
-          { runtimeDir: join(w.dir, "rt"), tmpRoot: join(w.dir, "tmp") },
-          worktree,
-          w.f.run,
-        );
-        const launch = runWorkerSpec(
-          port,
-          { runId: w.f.run, agent: w.f.agent, caps: OFFICE_DEFAULTS.tiers.M },
-          paths,
-          "task",
-          { id: "0e6f3f4c-5b8d-4c1e-9a2b-3c4d5e6f7a8b", resume: false },
-        );
-        const refused = await port
-          .prepare(launch, paths, OFFICE_DEFAULTS, "launch-check", verify)
-          .then(
-            () => null,
-            (error: unknown) => error,
-          );
-        expect(refused).toBeInstanceOf(PlanError);
-        const text = (refused as PlanError).message;
-        expect(text).toContain("sandbox.toolchainReadPaths");
-
-        const started: string[] = [];
-        const outcome = await realResumer(
-          {
-            start: async (_office, options) => {
-              started.push(options.agentId);
-              throw new Error("no host may start in this test");
-            },
-          },
-          { probe: async () => null, story: async () => storyOf(), handoff, workspace },
-          mode === "a resume"
-            ? () => ({ ok: true })
-            : () => ({ ok: false, reason: "the context is too full" }),
-          OFFICE_DEFAULTS,
-          port.prepare,
-        ).next(nextRequest());
-        expect(outcome).toEqual({ kind: "failed", reason: `the launch plan refused it: ${text}` });
-        expect(started).toEqual([]);
-        expect(holds.adapterHeld("claude-cli")).toBeNull();
-      } finally {
-        rmSync(outside, { recursive: true, force: true });
-      }
-    });
-  }
-});
-
 describe("a later session keeps the model and effort its run started with (DIPO-207)", () => {
   /** The office's tier M edited after the run started: another model, effort high. */
   const EDITED: OfficeConfig = {
@@ -2082,5 +2028,205 @@ describe("a later session keeps the model and effort its run started with (DIPO-
     expect(spec?.model).toBe("haiku");
     expect(spec?.effort).toBe("high");
     expect(agent).toEqual({ model: "haiku", effort: "high" });
+  });
+});
+
+/** A worktree git for the default handoff gather: no commits, no changes. */
+const quietGit = () =>
+  ({
+    commonDir: join(w.dir, "git"),
+    mainWorktree: w.dir,
+    worktreeLocation: (path: string) => ({ kind: "worktree", workTree: path }),
+    run: async <T>(fn: (session: { ok: () => Promise<string> }) => Promise<T>) =>
+      fn({ ok: async () => "" }),
+  }) as unknown as ReturnType<NonNullable<ConstructorParameters<typeof RunResumer>[0]["git"]>>;
+const worktreeOf = () => findRun(w.f.office, w.f.run)?.worktree ?? "";
+
+/** 0019's `feedback_items` as DIPO-148's migration 43 makes it, when this database lacks it. */
+function feedbackTable(): void {
+  w.f.t.state.connection.exec(
+    `create table if not exists feedback_items (
+       office_id text not null, run_id text not null, item_id integer not null,
+       source text not null, signature text not null, head_sha text not null,
+       round integer not null, repeat integer not null, intent_id integer not null,
+       sent_at integer, text text not null, created_at integer not null,
+       primary key (office_id, run_id, item_id)) strict`,
+  );
+}
+
+describe("the handoff of a new session: notes, open feedback and the context pack (DIPO-154)", () => {
+  it("lists the run's open feedback items with their text, leaves out those a later green verify answered, and adds the resume note and the stored notes", async () => {
+    firstSession();
+    feedbackTable();
+    const { office, run } = w.f;
+    const item = (id: number, source: string, text: string, at: number) =>
+      office.run(
+        `insert into feedback_items (office_id, run_id, item_id, source, signature, head_sha,
+           round, repeat, intent_id, sent_at, text, created_at)
+         values ($office_id, $run, $id, $source, $sig, $head, 1, 0, 1, $at, $text, $at)`,
+        { run, id, source, sig: `sig-${id}`, head: "e".repeat(40), text, at },
+      );
+    office.immediate(() => {
+      item(1, "verify", "Verify failed at the test step.\nbun test exited 1", 100);
+      insertVerifyResult(office, run, {
+        loop: 1,
+        profile: "branch",
+        commands: [["bun", "run", "verify"]],
+        exitCode: 0,
+        signal: null,
+        timedOut: false,
+        passed: true,
+        durationMs: 1,
+        outputFrom: 0,
+        outputTo: 0,
+        at: 200,
+      });
+      item(2, "ci", "Required check ci-ok failed on the pushed head.\njob log tail", 300);
+      item(3, "review", "Blocking finding: greet.ts drops the name.", 400);
+    });
+    recordWorkerNotes(
+      office,
+      {
+        worktree: worktreeOf(),
+        run,
+        agent: w.f.agent,
+        role: "developer",
+        notes: "Next: the CI fix.",
+      },
+      w.f.t.clock,
+    );
+    const outcome = await realResumer(
+      hosts,
+      { probe: async () => null, story: async () => storyOf(), workspace, git: quietGit },
+      tooFull,
+    ).next({ ...nextRequest(), note: "Use the old parser." });
+    expect(outcome).toMatchObject({ kind: "started", resumed: false });
+    expect(sentText()).toContain(
+      [
+        "Open feedback:",
+        "- Required check ci-ok failed on the pushed head.",
+        "- Blocking finding: greet.ts drops the name.",
+        "- Note from the maintainer: Use the old parser.",
+        "Notes from the previous session:",
+        "Next: the CI fix.",
+        "Budget: 0 turns used, no turns limit; 0 minutes used, no minutes limit; 0 tokens used, 1,000,000 left.",
+        "</handoff>",
+      ].join("\n"),
+    );
+    expect(sentText()).not.toContain("Verify failed at the test step.");
+  });
+
+  it("answers each source with its own kind of fact: findings by an approval or override, failures by a green verify", async () => {
+    firstSession();
+    feedbackTable();
+    const { office, run } = w.f;
+    const item = (id: number, source: string, text: string, at: number) =>
+      office.run(
+        `insert into feedback_items (office_id, run_id, item_id, source, signature, head_sha,
+           round, repeat, intent_id, sent_at, text, created_at)
+         values ($office_id, $run, $id, $source, $sig, $head, 1, 0, 1, $at, $text, $at)`,
+        { run, id, source, sig: `sig-${id}`, head: "e".repeat(40), text, at },
+      );
+    const texts = () => openFeedbackOf(office, run).map((open) => open.text);
+    office.immediate(() => {
+      item(1, "ci", "Red CI on the head.", 10);
+      item(2, "review", "Blocking finding: no test for the empty name.", 10);
+      item(3, "reject", "The maintainer: keep the old flag.", 10);
+      item(4, "conflict", "Conflict in src/greet.ts.", 10);
+    });
+    // A green verify answers the failures, never a finding or a reject.
+    office.immediate(() =>
+      insertVerifyResult(office, run, {
+        loop: 1,
+        profile: "branch",
+        commands: [["bun", "run", "verify"]],
+        exitCode: 0,
+        signal: null,
+        timedOut: false,
+        passed: true,
+        durationMs: 1,
+        outputFrom: 0,
+        outputTo: 0,
+        at: 15,
+      }),
+    );
+    expect(texts()).toEqual([
+      "Blocking finding: no test for the empty name.",
+      "The maintainer: keep the old flag.",
+    ]);
+    // An approval answers the findings and the reject, never a red CI item stored after it.
+    office.immediate(() => {
+      item(5, "ci", "Red CI on the next head.", 30);
+      office.run(
+        `insert into review_verdicts (office_id, gate_id, run_id, key, round, agent_id, model,
+           commit_sha, code_tree_key, verdict, criteria, findings, summary, validation_notes,
+           decided_at)
+         values ($office_id, 'gat_1', $run, $key, 1, null, 'opus', $head, 't', 'approved', '[]',
+           '[]', 'ok', '[]', 20)`,
+        { run, key: w.work.key, head: "f".repeat(40) },
+      );
+    });
+    expect(texts()).toEqual(["Red CI on the next head."]);
+    // A maintainer override past a blocked verdict answers a later finding too.
+    office.immediate(() => {
+      item(6, "review", "Blocking finding: the docs are stale.", 40);
+      office.run(
+        `insert into review_verdicts (office_id, gate_id, run_id, key, round, agent_id, model,
+           commit_sha, code_tree_key, verdict, criteria, findings, summary, validation_notes,
+           override_note, override_at, decided_at)
+         values ($office_id, 'gat_2', $run, $key, 2, null, 'opus', $head, 't2', 'blocked', '[]',
+           '[]', 'no', '[]', 'ship it', 50, 45)`,
+        { run, key: w.work.key, head: "f".repeat(40) },
+      );
+    });
+    expect(texts()).toEqual(["Red CI on the next head."]);
+  });
+
+  it("records the context pack of a new session's task message, and none for a resume", async () => {
+    firstSession();
+    const facts = { probe: async () => null, story: async () => storyOf(), handoff, workspace };
+    const resumed = await realResumer(hosts, facts).next(nextRequest());
+    expect(resumed).toMatchObject({ kind: "started", resumed: true });
+    expect(contextPackOf(w.f.office, worktreeOf())).toBeNull();
+
+    const fresh = await realResumer(hosts, facts, tooFull).next(nextRequest());
+    expect(fresh).toMatchObject({ kind: "started", resumed: false });
+    const pack = contextPackOf(w.f.office, worktreeOf());
+    // The head the pack read and the blob id of the scope file it holds (0014 section 10).
+    expect(pack?.headSha).toBe("0".repeat(40));
+    expect(pack?.blobIds).toEqual({
+      "src/new.ts": gitBlobId(Buffer.from("export const fresh = 1;\n")),
+    });
+  });
+
+  it("a box run's handoff says its changes are in the box and reads no worktree diff", async () => {
+    firstSession();
+    const runDir = join(w.dir, "git", "dipo", "runs", w.f.run);
+    mkdirSync(runDir, { recursive: true });
+    writeFileSync(join(runDir, BOX_RUN_FILE), JSON.stringify({ runId: w.f.run, box: "dipo-x" }));
+    const asked: string[][] = [];
+    const git = () =>
+      ({
+        ...quietGit(),
+        run: async <T>(
+          fn: (session: { ok: (l: unknown, a: string[]) => Promise<string> }) => Promise<T>,
+        ) =>
+          fn({
+            ok: async (_location, args) => {
+              asked.push(args);
+              return args[0] === "log" ? "abc1234 the first part" : " M reversed.ts";
+            },
+          }),
+      }) as unknown as ReturnType<typeof quietGit>;
+    const outcome = await realResumer(
+      hosts,
+      { probe: async () => null, story: async () => storyOf(), workspace, git },
+      tooFull,
+    ).next(nextRequest());
+    expect(outcome).toMatchObject({ kind: "started", resumed: false });
+    expect(asked.map((args) => args[0])).toEqual(["log"]);
+    expect(sentText()).toContain("Commits on this branch:\nabc1234 the first part\n");
+    expect(sentText()).toContain(`Uncommitted changes:\n${BOX_CHANGES}\n`);
+    expect(sentText()).toContain(`Last verify result:\n${BOX_VERIFY}\n`);
   });
 });

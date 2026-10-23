@@ -1,8 +1,9 @@
 // Answering a `needs-permission` park (DIPO-75; 0008 sections 5 and 8): the `needs-permission`
 // recording (captured live, see `needs-permission.ts`) replayed through the
 // real ingestion and the Claude CLI parser into run control, which parks the story and stores the
-// park's permission question; `work.answer` through the executor with a fake park resumer; allow
-// once against the permission wait with exact, prefix, glob and other-tool requests.
+// park's permission question; `work.answer` through the executor with a fake park resumer. Allow
+// once resumes the run with a message naming the call: the relay that let exactly that call through
+// is gone with the Mac sandbox (DIPO-240), as no session registers the PermissionRequest hook.
 
 import { afterEach, beforeEach, describe, expect, it } from "bun:test";
 import { mkdtempSync, rmSync } from "node:fs";
@@ -12,7 +13,6 @@ import {
   type CommandReply,
   type OfficeId,
   RequestId,
-  type RunId,
   StoryId,
   type WorkRef,
 } from "@dipsaus-orchestrator/contract";
@@ -23,7 +23,7 @@ import { buildRegistry } from "../../src/commands/registry";
 import { MemoryRequestTable } from "../../src/commands/requests";
 import { OFFICE_DEFAULTS, type OfficeConfig } from "../../src/config";
 import type { ParkResumer } from "../../src/hooks/park-answers";
-import { OFFICE_CONFIG_FILE, parkAnswerMessage } from "../../src/hooks/park-questions";
+import { parkAnswerMessage } from "../../src/hooks/park-questions";
 import { PermissionAsks } from "../../src/hooks/permissions";
 import {
   answeredParkQuestion,
@@ -32,7 +32,6 @@ import {
   type StoredQuestion,
 } from "../../src/hooks/questions";
 import { appendEntries } from "../../src/changelog/log";
-import type { HookEvent } from "../../src/hooks/types";
 import { type IngestAdapter, Ingestor } from "../../src/ingest/ingestor";
 import {
   type BranchPark,
@@ -67,8 +66,6 @@ const claude: IngestAdapter = {
 
 const RECORDING = needsPermissionRecording();
 const PERMISSION = reportedPermission(RECORDING);
-
-type PermissionRequest = Extract<HookEvent, { kind: "permissionRequest" }>;
 
 interface World {
   readonly dir: string;
@@ -243,7 +240,6 @@ async function replayPark(midway?: () => Promise<void>): Promise<StoredQuestion>
       ...hooks,
       onWorkerEvents: (run, agent, events) => {
         hooks.onWorkerEvents?.(run, agent, events);
-        asks.onWorkerEvents(f.office, run, agent, events);
       },
       onEnded: (run, agent, end) => {
         hooks.onEnded?.(run, agent, end);
@@ -293,34 +289,6 @@ function answer(args: Record<string, unknown>): Promise<CommandReply> {
   );
 }
 
-let hookIds = 10_000;
-/** A permission request of the resumed session, as ingestion hands it to the permission wait. */
-function request(tool: string, exact: string | undefined): unknown {
-  hookIds += 1;
-  const hook: PermissionRequest = {
-    kind: "permissionRequest",
-    id: hookIds,
-    tool,
-    input: exact ?? "",
-    ...(exact === undefined ? {} : { exact }),
-  };
-  const before = w.sent.length;
-  w.asks.request(w.f.office, w.f.run as RunId, w.f.agent, hook);
-  return w.sent.slice(before);
-}
-
-async function decisionOf(sent: unknown): Promise<string> {
-  await w.asks.idle();
-  const ops = sent as HostOp[][];
-  const op = ops[0]?.[0] as { output: string } | undefined;
-  if (op === undefined) return "none";
-  if (op.output === "") return "no decision";
-  const parsed = JSON.parse(op.output) as {
-    hookSpecificOutput: { decision: { behavior: string } };
-  };
-  return parsed.hookSpecificOutput.decision.behavior;
-}
-
 function parkReasons(): string[] {
   return w.f.office
     .all<{ reason: string }>(
@@ -363,66 +331,6 @@ describe("the live needs-permission replay", () => {
     expect((parked?.data as { reason: string } | undefined)?.reason).toBe("needs-permission");
   });
 
-  it("without a TUI the request gets no decision at once and the story parks with the question (DIPO-279)", async () => {
-    // A permission request while no TUI is connected: no live question, the call is denied.
-    expect(await decisionOf(request(PERMISSION.tool, PERMISSION.action))).toBe("no decision");
-    expect(openQuestions(w.f.office)).toEqual([]);
-    // The worker then reports blocked with what it needs (the recording): the story parks with it.
-    const question = await replayPark();
-    expect(parkReasons()).toEqual(["needs-permission"]);
-    expect(openQuestions(w.f.office).map((open) => open.questionId)).toEqual([question.questionId]);
-    expect(question).toMatchObject({
-      hook: null,
-      parkId: openPark(w.f.office, w.work.key)?.parkId,
-    });
-  });
-
-  it("parks a live question when the last TUI closes; a reconnect leaves it parked, answered the parked way (DIPO-284)", async () => {
-    let liveId = "";
-    // The worker's call waits on its permission request while a TUI is connected: it is live.
-    const question = await replayPark(async () => {
-      w.tui = true;
-      expect(await decisionOf(request(PERMISSION.tool, PERMISSION.action))).toBe("none");
-      const [live] = openQuestions(w.f.office);
-      expect(live).toMatchObject({ kind: "permission", parkId: null, closedAt: null });
-      liveId = live?.questionId ?? "";
-
-      // The last TUI closes: the question ends with no decision, as if asked with no TUI.
-      w.tui = false;
-      const before = w.sent.length;
-      w.asks.presenceChanged();
-      expect(await decisionOf(w.sent.slice(before))).toBe("no decision");
-      expect(findQuestion(w.f.office, liveId)?.closedHow).toBe("ended");
-      expect(parkReasons()).toEqual([]);
-    });
-    // The call was denied; the worker reports blocked with what it needs (the recording), and
-    // the story parks with the question.
-    expect(parkReasons()).toEqual(["needs-permission"]);
-    expect(question).toMatchObject({ tool: PERMISSION.tool, input: PERMISSION.action });
-
-    // The TUI reconnects: nothing is asked again and the story stays parked with its question.
-    w.tui = true;
-    const sentBefore = w.sent.length;
-    w.asks.presenceChanged();
-    await w.asks.idle();
-    expect(w.sent).toHaveLength(sentBefore);
-    expect(parkReasons()).toEqual(["needs-permission"]);
-    expect(openQuestions(w.f.office).map((open) => open.questionId)).toEqual([question.questionId]);
-
-    // The ended live question cannot be answered; the park's question is, and resumes the run.
-    expect(await answer({ question: liveId, text: "", decision: "allow" })).toMatchObject({
-      ok: false,
-      error: { code: "question.closed" },
-    });
-    expect(w.resumes).toEqual([]);
-    const reply = await answer({ question: question.questionId, text: "", decision: "allow" });
-    expect(reply).toMatchObject({
-      ok: true,
-      result: { question: question.questionId, delivered: "on-resume", run: w.f.run },
-    });
-    expect(w.resumes.map((resumed) => resumed.request.question)).toEqual([question.questionId]);
-  });
-
   it("needs a decision: without one the answer fails with args.invalid and the question waits (AC #7)", async () => {
     const question = await replayPark();
     const reply = await answer({ question: question.questionId, text: "go ahead" });
@@ -432,7 +340,7 @@ describe("the live needs-permission replay", () => {
     expect(parkReasons()).toEqual(["needs-permission"]);
   });
 
-  it("allow once resumes the run and allows only the first request with the exact tool and command (AC #2)", async () => {
+  it("allow once resumes the run with the answer, and nothing becomes a rule (AC #2, DIPO-240)", async () => {
     const question = await replayPark();
     const reply = await answer({ question: question.questionId, text: "", decision: "allow" });
     expect(reply).toMatchObject({
@@ -460,25 +368,12 @@ describe("the live needs-permission replay", () => {
         .map((event) => event.data),
     ).toContainEqual({ question: question.questionId, answer: "allow" });
 
-    const { tool, action } = PERMISSION;
-    // Never a prefix, an extension, a glob, other whitespace, or another tool.
-    expect(await decisionOf(request(tool, action.slice(0, -1)))).toBe("no decision");
-    expect(await decisionOf(request(tool, `${action} -a`))).toBe("no decision");
-    expect(await decisionOf(request(tool, `${action} `))).toBe("no decision");
-    expect(await decisionOf(request(tool, `${action.slice(0, -1)}*`))).toBe("no decision");
-    expect(await decisionOf(request(tool, action.toUpperCase()))).toBe("no decision");
-    expect(await decisionOf(request("Write", action))).toBe("no decision");
-    expect(await decisionOf(request(tool, undefined))).toBe("no decision");
-    // The exact call is allowed, once.
-    expect(await decisionOf(request(tool, action))).toBe("allow");
-    expect(findQuestion(w.f.office, question.questionId)?.allowUsedAt).not.toBeNull();
-    expect(await decisionOf(request(tool, action))).toBe("no decision");
     // Nothing became a rule: no other question, no config change.
     expect(w.config).toBe(OFFICE_DEFAULTS);
     expect(openQuestions(w.f.office)).toEqual([]);
   });
 
-  it("deny resumes the run with 'do it without <action>' and allows nothing (AC #2)", async () => {
+  it("deny resumes the run with 'do it without <action>' (AC #2)", async () => {
     const question = await replayPark();
     const reply = await answer({
       question: question.questionId,
@@ -491,7 +386,6 @@ describe("the live needs-permission replay", () => {
     expect(message).toContain(`Do it without ${PERMISSION.action}.`);
     expect(message).toContain("use the fixture instead");
     expect(findQuestion(w.f.office, question.questionId)?.decision).toBe("deny");
-    expect(await decisionOf(request(PERMISSION.tool, PERMISSION.action))).toBe("no decision");
   });
 
   it("a session that did not start still closes the answer, without a run in the result", async () => {
@@ -552,50 +446,6 @@ describe("a story parked for another reason (AC #4)", () => {
     expect(parkReasons()).toEqual(["stopped"]);
   });
 
-  it("fails naming the reason for a waiting hook question of a story parked budget-exceeded", async () => {
-    w.tui = true;
-    w.f.office.immediate(() =>
-      w.f.office.run(
-        `insert into agents (office_id, agent_id, run_id, role, model, session_id, started_at)
-         values ($office_id, $agent, $run, 'developer', 'haiku', 'session-1', 0)`,
-        { agent: w.f.agent, run: w.f.run },
-      ),
-    );
-    // A live permission wait, then the run parks for its budget before the worker exits.
-    request("Bash", "curl https://example.com");
-    const [waiting] = openQuestions(w.f.office);
-    expect(waiting?.hook).not.toBeNull();
-    const office = w.f.office;
-    office.immediate(() =>
-      office.run(
-        `insert into parks (office_id, park_id, key, story_id, run_id, reason, from_state, detail,
-           at)
-         values ($office_id, 1, $key, 'DIPO-1', $run, 'budget-exceeded', 'In Progress',
-           'token budget reached', 1)`,
-        { key: w.work.key, run: w.f.run },
-      ),
-    );
-    const before = w.sent.length;
-    const reply = await answer({ question: waiting?.questionId, text: "", decision: "allow" });
-    expect(reply).toMatchObject({
-      ok: false,
-      error: {
-        code: "question.closed",
-        details: { reason: "budget-exceeded", questionOpen: true },
-      },
-    });
-    expect((reply as { error: { message: string } }).error.message).toContain(
-      "parked budget-exceeded",
-    );
-    expect(w.sent.length).toBe(before);
-    // The hook question stays open until its worker exits, and the refusal says so.
-    expect(findQuestion(w.f.office, waiting?.questionId ?? "")?.closedAt).toBeNull();
-    expect((reply as { error: { message: string } }).error.message).toContain(
-      "stays open until its worker exits",
-    );
-    expect(parkReasons()).toEqual(["budget-exceeded"]);
-  });
-
   it("expires a park's question at office load once its park ended, and keeps one whose park is open", async () => {
     const question = await replayPark();
     w.asks.close();
@@ -624,31 +474,20 @@ describe("a story parked for another reason (AC #4)", () => {
   });
 });
 
-describe("a sandbox-bound action (AC #3)", () => {
-  it("says so in the park's question, points to office config, and allow once changes no sandbox", async () => {
+describe("the park's question in a box run (DIPO-240)", () => {
+  it("names the call with no sandbox warning, and an allow changes no rule or setting", async () => {
     const question = await replayPark();
-    // `docker ps` reaches a daemon socket, which the worker's sandbox closes.
-    expect(question.text).toContain("Sandbox-bound");
-    expect(question.text).toContain("cannot lift a sandbox block");
-    expect(question.text).toContain(OFFICE_CONFIG_FILE);
-    expect(question.text).toContain("sandbox.allowedDomains");
+    expect(question.text).toBe(`${PERMISSION.tool}(${PERMISSION.action})`);
     const reply = await answer({ question: question.questionId, text: "", decision: "allow" });
     expect(reply).toMatchObject({ ok: true });
-    // The resume carries only the park, the question and the answer: no sandbox or config.
+    // The resume carries only the park, the question and the answer: no rule or config.
     expect(Object.keys(w.resumes[0]?.request ?? {}).toSorted()).toEqual([
       "decision",
       "parkId",
       "question",
       "text",
     ]);
-    expect(parkAnswerMessage(PERMISSION, "allow", "")).toContain(
-      "nothing about the sandbox changed",
-    );
-    expect(w.config.sandbox.allowedDomains).toEqual(OFFICE_DEFAULTS.sandbox.allowedDomains);
-    // The only effect is one hook allow for the exact call.
-    const allowed = request(PERMISSION.tool, PERMISSION.action) as HostOp[][];
-    expect(await decisionOf(allowed)).toBe("allow");
-    expect(allowed).toHaveLength(1);
-    expect(allowed[0]).toHaveLength(1);
+    expect(parkAnswerMessage(PERMISSION, "allow", "")).toContain("it changes no rule or setting");
+    expect(w.config).toBe(OFFICE_DEFAULTS);
   });
 });

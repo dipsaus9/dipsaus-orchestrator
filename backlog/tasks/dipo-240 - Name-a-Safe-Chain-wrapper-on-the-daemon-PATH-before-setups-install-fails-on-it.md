@@ -3,10 +3,10 @@ id: DIPO-240
 title: >-
   Run box only: keep the box from claim to merge, and remove the Mac sandbox
   worker path
-status: Refined
+status: Done
 assignee: []
 created_date: '2026-10-20 18:34'
-updated_date: '2026-10-22 19:26'
+updated_date: '2026-10-23 07:23'
 labels:
   - 'tier:M'
   - cutover
@@ -31,37 +31,144 @@ dependencies:
   - DIPO-292
   - DIPO-152
 references:
+  - '- packages/daemon/src/foreground.ts'
+  - docs/decisions/0008-worker-adapter.md
+  - docs/decisions/0021-worker-isolation.md
+  - packages/cli/src/index.ts
+  - packages/cli/src/run-command.test.ts
+  - packages/cli/src/run-command.ts
+  - packages/contract/src/office.ts
   - packages/daemon/src/foreground.ts
+  - packages/daemon/src/hook.ci.test.ts
+  - packages/daemon/src/hook.test.ts
   - packages/daemon/src/hook.ts
   - packages/daemon/src/runs.ts
+  - packages/daemon/test/unit/box-runs.test.ts
+  - packages/engine/src/box/index.ts
   - packages/engine/src/box/lifetime.ts
+  - packages/engine/src/box/parts.ts
+  - packages/engine/src/box/workers.ts
+  - packages/engine/src/config/schema.ts
   - packages/engine/src/git/task-commit.ts
   - packages/engine/src/hooks/
+  - packages/engine/src/hooks/bash-check.ts
+  - packages/engine/src/hooks/gh-guard.ts
+  - packages/engine/src/hooks/index.ts
+  - packages/engine/src/hooks/park-answers.ts
+  - packages/engine/src/hooks/park-questions.ts
+  - packages/engine/src/hooks/permissions.ts
+  - packages/engine/src/hooks/questions.ts
+  - packages/engine/src/hooks/temp-guard.ts
+  - packages/engine/src/index.ts
+  - packages/engine/src/platform/sandbox.ts
   - packages/engine/src/run/
   - packages/engine/src/run/compose.ts
+  - packages/engine/src/run/control-endings.ts
+  - packages/engine/src/run/index.ts
+  - packages/engine/src/run/launch.ts
+  - packages/engine/src/run/park.ts
   - packages/engine/src/run/places.ts
   - packages/engine/src/run/plan-limit.ts
+  - packages/engine/src/run/reattach.ts
+  - packages/engine/src/run/resume.ts
+  - packages/engine/src/run/review-launch.ts
   - packages/engine/src/run/review-rounds.ts
   - packages/engine/src/run/reviews.ts
+  - packages/engine/src/run/story-git.ts
+  - packages/engine/src/run/verify-commit.ts
   - packages/engine/src/run/work-run.ts
+  - packages/engine/src/sandbox/env.ts
+  - packages/engine/src/sandbox/fence.ts
+  - packages/engine/src/sandbox/index.ts
+  - packages/engine/src/sandbox/policy.ts
   - packages/engine/src/sandbox/safe-chain-proxies.ts
   - packages/engine/src/sandbox/safe-chain-proxy.ts
   - packages/engine/src/sandbox/step.ts
+  - packages/engine/src/workers/claude-cli/adapter.ts
+  - packages/engine/src/workers/claude-cli/hooks.ts
   - packages/engine/src/workers/claude-cli/launch-checks.ts
+  - packages/engine/src/workers/claude-cli/npm-token-check.ts
   - packages/engine/src/workers/claude-cli/plan.ts
   - packages/engine/src/workers/claude-cli/safe-chain.ts
   - packages/engine/src/workers/claude-cli/self-test.ts
+  - packages/engine/src/workers/claude-cli/verify-tools.ts
+  - packages/engine/src/workers/credential-check.ts
   - packages/engine/src/workers/hold.ts
+  - packages/engine/src/workers/port.ts
+  - packages/engine/src/worktree/index.ts
   - packages/engine/src/worktree/setup.ts
   - packages/engine/test/box/lifetime.test.ts
+  - packages/engine/test/box/workers.test.ts
   - packages/engine/test/hooks/
+  - packages/engine/test/hooks/gh-guard.test.ts
+  - packages/engine/test/hooks/park-answers.test.ts
+  - packages/engine/test/hooks/park-questions.test.ts
+  - packages/engine/test/hooks/permissions.test.ts
+  - packages/engine/test/hooks/temp-guard.test.ts
+  - packages/engine/test/hooks/worker-questions.test.ts
+  - packages/engine/test/run/adapter.test.ts
+  - packages/engine/test/run/park-resume.ci.test.ts
   - packages/engine/test/run/places.test.ts
+  - packages/engine/test/run/reattach.test.ts
   - packages/engine/test/run/reviews.test.ts
+  - packages/engine/test/run/run-office.ts
+  - packages/engine/test/run/stand-in-plan.ts
+  - packages/engine/test/run/start.test.ts
+  - packages/engine/test/run/temp-dirs.ci.test.ts
+  - packages/engine/test/run/verify-commit.ci.test.ts
+  - packages/engine/test/run/verify-commit.test.ts
+  - packages/engine/test/run/verify-in-box.test.ts
   - packages/engine/test/run/work-run.test.ts
+  - packages/engine/test/sandbox/env.test.ts
+  - packages/engine/test/sandbox/fence.test.ts
+  - packages/engine/test/sandbox/golden/darwin-install.json
+  - packages/engine/test/sandbox/golden/darwin-verify.json
+  - packages/engine/test/sandbox/golden/linux-install.json
+  - packages/engine/test/sandbox/golden/linux-verify.json
+  - packages/engine/test/sandbox/hardening.ci.test.ts
+  - packages/engine/test/sandbox/helpers.ts
+  - packages/engine/test/sandbox/install-cache-trust.test.ts
+  - packages/engine/test/sandbox/mktemp-wrapper.ci.test.ts
+  - packages/engine/test/sandbox/policy.test.ts
+  - packages/engine/test/sandbox/safe-chain-proxy.ci.test.ts
   - packages/engine/test/sandbox/safe-chain-proxy.test.ts
+  - packages/engine/test/sandbox/sandbox-exec.ci.test.ts
+  - packages/engine/test/sandbox/sandbox.ci.test.ts
+  - packages/engine/test/sandbox/self-verify.ci.test.ts
+  - packages/engine/test/sandbox/srt-default-writes.ci.test.ts
+  - packages/engine/test/sandbox/step.test.ts
   - packages/engine/test/workers/
+  - packages/engine/test/workers/box-plan.test.ts
+  - packages/engine/test/workers/credential-check.test.ts
+  - packages/engine/test/workers/golden/plan-L.json
+  - packages/engine/test/workers/golden/plan-M.json
+  - packages/engine/test/workers/golden/plan-S.json
+  - packages/engine/test/workers/hook-command.test.ts
+  - packages/engine/test/workers/hooks.test.ts
   - packages/engine/test/workers/launch-checks.test.ts
+  - packages/engine/test/workers/launch-fixtures.ts
+  - packages/engine/test/workers/npm-token-check.test.ts
+  - packages/engine/test/workers/plan.test.ts
+  - packages/engine/test/workers/plugins.test.ts
+  - packages/engine/test/workers/review-tools.test.ts
+  - packages/engine/test/workers/safe-chain-bash-profile.ci.test.ts
+  - packages/engine/test/workers/safe-chain-login.test.ts
+  - packages/engine/test/workers/safe-chain-shell.ci.test.ts
+  - packages/engine/test/workers/safe-chain.test.ts
+  - packages/engine/test/workers/self-test.test.ts
+  - packages/engine/test/workers/short-temp.ci.test.ts
+  - packages/engine/test/workers/skills.test.ts
+  - packages/engine/test/workers/verify-tools.test.ts
   - packages/engine/test/worktree/
+  - packages/engine/test/worktree/base-verify.test.ts
+  - packages/engine/test/worktree/setup-claim.ci.test.ts
+  - packages/engine/test/worktree/setup-harness.ts
+  - packages/engine/test/worktree/setup.ci.test.ts
+  - packages/engine/test/worktree/setup.test.ts
+  - packages/testkit/README.md
+  - tools/recordings/capture.test.ts
+  - tools/recordings/capture.ts
+  - tools/recordings/scenarios.ts
 priority: high
 type: bug
 ordinal: 240000
@@ -108,25 +215,21 @@ test_plan:
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 When the official Safe-Chain install is detected, setup in packages/engine/src/worktree/setup.ts starts the run's Safe-Chain checking proxy (SafeChainProxies.start) before the install step, and the install step's environment and sandbox settings route the package manager through the proxy port as a worker install is routed (DIPO-84), so the install never starts the Safe-Chain wrapper's own listener inside the step sandbox
-- [ ] #2 A proxy that does not start fails setup with a reason that names Safe-Chain and the proxy failure, no install runs, and the claim rolls back as for any setup failure; a setup that fails after the proxy started stops that proxy
-- [ ] #3 The launch after setup routes the worker through the run's proxy, either the one setup started or one started again under the rule of safe-chain-proxies.ts, and the run never has two proxies at once
-- [ ] #4 With no Safe-Chain install, setup and the launch behave as today
-- [ ] #5 Unit tests in packages/engine/test/worktree/ and packages/engine/test/workers/launch-checks.test.ts cover the routed install, a proxy that fails to start, a failed install that stops the proxy, the launch's proxy after setup, and the case with no Safe-Chain install, with fake proxies and fake files
-- [ ] #6 (from DIPO-257) A launch check whose verdict is unsafe (a probe write or read got through) holds the adapter in every office, as today
-- [ ] #7 (from DIPO-257) A launch check that could not run (a missing tool, a timeout, a session that ended early; a refused approval call counts as one too (design choice, not a maintainer decision; the maintainer may change it before a run)) holds only that launch kind, worker or reviewer, in that office; the other kind and the other offices still launch, and its engine.notice names the probe and the fix; every launch-check failure other than a self-test could-not-run verdict (the tools, probe, settings, engine credential and Safe-Chain proxy checks, and a CLI start failure) keeps the hold in every office, so the scoped hold fails closed
-- [ ] #8 (from DIPO-257) A could-not-run hold is checked again with backoff, after 1, 2, 4 and 8 minutes and then every 30 minutes (design choice, not a maintainer decision; the maintainer may change it before a run), and lifts when the checks pass; the re-check is scheduled on the engine clock by the run composition in packages/engine/src/run/compose.ts, as the plan-limit schedule is, and runs the held kind's launch checks through gateLaunch with that office's launch context for that kind (the reviewer's for a reviewer hold, the worker's for a worker hold)
-- [ ] #9 (from DIPO-257) In Places.drain a review start that backs off is passed over and the next pending review in order starts in its place; the backed-off review starts again after its wait with no other trigger, and the drain's minute tick keeps running while any start waits for a backoff (design choice, not a maintainer decision; the maintainer may change it before a run)
-- [ ] #10 (from DIPO-257) Tests in packages/engine/test/workers/launch-checks.test.ts, packages/engine/test/run/places.test.ts packages/engine/test/run/reviews.test.ts and packages/engine/test/run/work-run.test.ts cover the unsafe and the could-not-run holds, the backoff with a manual clock, the notice text, the passed-over head and the retry after the wait
-- [ ] #11 (from DIPO-278) The box is stopped while the story waits for a review, an answer, a resume, CI or the maintainer, and started again for the next session
-- [ ] #12 (from DIPO-278) A missing box is rebuilt from the start commit plus the delivered parts; only undelivered work is lost, and the maintainer is told
-- [ ] #13 (from DIPO-278) Merge, drop and discard delete the box
-- [ ] #14 (from DIPO-278) Tests cover each transition
-- [ ] #15 (from DIPO-280) plan.ts no longer writes the Bash sandbox settings, permission rules or hooks for a worker
-- [ ] #16 (from DIPO-280) The Bash hook, the gh and temp guards and the permission relay are removed with their tests
-- [ ] #17 (from DIPO-280) Every test still passes, and nothing in the worker path refers to the removed parts
-- [ ] #18 (from DIPO-280) The unused commitTaskFile in packages/engine/src/git/task-commit.ts is removed (DIPO-270 moved its callers to dipo's own copy)
-- [ ] #19 (from DIPO-280) packages/engine/src/hooks/web-guard.ts and the reviewer's and worker's use of it stay (DIPO-276, DIPO-292)
+- [x] #1 (from DIPO-278) The box is stopped while the story waits for a review, an answer, a resume, CI or the maintainer, and started again for the next session
+- [x] #2 (from DIPO-278) A missing box is rebuilt from the start commit plus the delivered parts; only undelivered work is lost, and the maintainer is told
+- [x] #3 (from DIPO-278) Merge, drop and discard delete the box
+- [x] #4 (from DIPO-278) Tests cover each transition
+- [x] #5 (from DIPO-280) plan.ts no longer writes the Bash sandbox settings, permission rules or hooks for a worker
+- [x] #6 (from DIPO-280) The Bash hook, the gh and temp guards and the permission relay are removed with their tests
+- [x] #7 (from DIPO-280) Every test still passes, and nothing in the worker path refers to the removed parts
+- [x] #8 (from DIPO-280) The unused commitTaskFile in packages/engine/src/git/task-commit.ts is removed (DIPO-270 moved its callers to dipo's own copy)
+- [x] #9 (from DIPO-280) packages/engine/src/hooks/web-guard.ts and the reviewer's and worker's use of it stay (DIPO-276, DIPO-292)
+- [x] #10 (audit) A box run runs no Mac worktree setup step: no install, setup or post_create step and no base-commit verify runs on the Mac; the engine step sandbox goes where nothing else uses it
+- [x] #11 (audit) The Mac verify runner, the backstop and the Mac-only scope check are removed
+- [x] #12 (audit) No run temp directory is made in the shared temp folder for a box run
+- [x] #13 (audit) The permission relay and allow-once go; the needs-permission park and its answer stay and resume the run in its box
+- [x] #14 (audit) The daemon hook entry keeps only what the reviewer uses (the gate and nudge hooks)
+- [x] #15 (audit) A launch check failure of the reviewer holds the adapter in every office; the Mac self-test and its could-not-run holds are gone
 <!-- AC:END -->
 
 ## Implementation Notes
@@ -139,4 +242,8 @@ Carried from DIPO-257: Reshaped by decision 0021 (worker isolation, DIPO-263, 20
 2026-10-22: combined from DIPO-257, DIPO-278, DIPO-280 (maintainer, M1 speed-up)
 
 2026-10-22: dropped the dependencies on DIPO-255, DIPO-159 (which now holds DIPO-289) and DIPO-149 (which now holds DIPO-291) to break a dependency cycle left by the M1 combine; those stories now come after this one.
+
+2026-10-22: criteria 1 to 10 (Safe-Chain routing of the Mac setup install from DIPO-240, and the scoped self-test holds from DIPO-257) were dropped: the Mac setup install and the self-test no longer exist. They are replaced by the audit criteria above (maintainer, M1 speed-up).
+
+2026-10-22: built outside dipo, reviewed in two rounds (the rest/session race and restored sandbox security tests fixed; a box is deleted only after a fresh token check). Follow-ups: base verify (DIPO-183) no longer runs (could run in the box); profile setup and post_create are not run in the box; timeouts.permissionWaitSeconds is unused and goes in a later config version.
 <!-- SECTION:NOTES:END -->

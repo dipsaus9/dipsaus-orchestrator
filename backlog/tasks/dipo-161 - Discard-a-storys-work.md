@@ -3,10 +3,10 @@ id: DIPO-161
 title: >-
   Discard a story's work and release a claim whose story is Done on the base
   through another branch
-status: Refined
+status: Done
 assignee: []
 created_date: '2026-10-17 12:52'
-updated_date: '2026-10-22 18:16'
+updated_date: '2026-10-23 08:04'
 labels:
   - 'tier:M'
   - 'slice:m1a'
@@ -33,25 +33,57 @@ dependencies:
   - DIPO-216
   - DIPO-226
 references:
-  - packages/cli/src/
+  - '- packages/cli/src/'
+  - docs/decisions/0020-park-and-resume.md
+  - packages/cli/src/index.ts
+  - packages/cli/src/story-commands.test.ts
+  - packages/cli/src/story-commands.ts
   - packages/contract/schema/
+  - packages/contract/schema/reads.schema.json
   - packages/contract/src/
+  - packages/contract/src/definition.test.ts
+  - packages/contract/src/office.ts
+  - packages/contract/src/version.ts
+  - packages/contract/src/work.test.ts
   - packages/daemon/src/
+  - packages/daemon/src/foreground.ts
   - packages/engine/src/backlog/lane/
+  - packages/engine/src/backlog/lane/feature.ts
+  - packages/engine/src/backlog/lane/index.ts
+  - packages/engine/src/backlog/lane/ops.ts
   - packages/engine/src/backlog/pr/
   - packages/engine/src/db/migrations/
+  - packages/engine/src/db/migrations/0045-done-elsewhere.ts
   - packages/engine/src/db/schema.ts
   - packages/engine/src/features.ts
   - packages/engine/src/reconcile/
+  - packages/engine/src/reconcile/done-on-base.ts
+  - packages/engine/src/reconcile/feature.ts
+  - packages/engine/src/reconcile/reconcile.ts
+  - packages/engine/src/retention/policy.ts
+  - packages/engine/src/retention/run.ts
   - packages/engine/src/run/
+  - packages/engine/src/run/index.ts
   - packages/engine/src/stories/
+  - packages/engine/src/stories/discard.ts
+  - packages/engine/src/stories/planning.ts
   - packages/engine/src/views/
+  - packages/engine/src/views/desk.ts
   - packages/engine/src/worktree/
+  - packages/engine/src/worktree/done-elsewhere.ts
+  - packages/engine/src/worktree/done.ts
+  - packages/engine/src/worktree/index.ts
+  - packages/engine/src/worktree/release.ts
   - packages/engine/test/backlog/
   - packages/engine/test/db/
+  - packages/engine/test/db/done-elsewhere.test.ts
   - packages/engine/test/reconcile/
+  - packages/engine/test/reconcile/done-elsewhere.test.ts
+  - packages/engine/test/reconcile/done-on-base.test.ts
   - packages/engine/test/run/
+  - packages/engine/test/views/desk.test.ts
   - packages/engine/test/worktree/
+  - packages/engine/test/worktree/discard.test.ts
 priority: high
 type: feature
 ordinal: 150000
@@ -96,17 +128,17 @@ test_plan:
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 dipo discard <id> --note <text> lists the commits not on the base and the uncommitted and untracked files, read through story.losses (DIPO-228), then asks for the typed story id; commands.describe marks work.discard irreversible
-- [ ] #2 Discard stops an active run as work.stop does, releases the claim, removes the worktree with --force, deletes the branch locally and remotely, closes open questions, frees the slot, closes the open story PR with a comment naming the discard, resolves an open park as discard and writes Refined in lane b
-- [ ] #3 Discard refuses a story whose PR in story_prs is merged, and a remote branch whose tip the engine did not push is not deleted (a notice) while the other steps go on
-- [ ] #4 Discard also works on the leftovers of a story Done on the base, writing nothing to the backlog, and on a story whose PR head changed outside dipo
-- [ ] #5 work.discard is registered with its since on the waiting command path
-- [ ] #6 (from DIPO-162) The Done poll and reconcile read a claimed story's status on the base after a fetch, and a Done there wins over the branch status when the branch is not detected Done
-- [ ] #7 (from DIPO-162) A parked or idle claim is released in one transaction with reason done-elsewhere: run ended, open park resolved done-elsewhere (added to the parks check by migration), questions closed ended, story.state Done, and a notice naming the base commit that last changed the task file
-- [ ] #8 (from DIPO-162) dipo's open story PR is closed with a comment naming that commit; a clean worktree is removed and a dirty one kept; the branch is deleted locally and remotely when merge-tree shows it adds nothing to the base, else kept in released_branches with reason done-elsewhere; this replaces DIPO-216's interim reconcile release (reason done, resolved_how reconcile, a dirty worktree keeping its claim live) for the claims it covers: a dirty worktree is kept as leftovers while its claim is released (0020 section 10)
-- [ ] #9 (from DIPO-162) A claim with a live worker is not stopped: a DONE ELSEWHERE desk item and an engine.notice are raised, and the release happens at the run's next end
-- [ ] #10 (from DIPO-162) Anything kept is one LEFTOVERS desk item with the commits not on the base, the dirty files and the action dipo discard <id>, and leftovers are never deleted automatically. An own-branch teardown that crashed after removing its worktree is now released by DIPO-216's reconcile step as done with its branch kept; this leftover handling also deletes such a branch locally and remotely when merge-tree shows it adds nothing to the base
-- [ ] #11 (from DIPO-162) A test replays the DIPO-105 case: the claim is released, the worktree with uncommitted files and the branch are kept, and one leftovers item is on the desk
+- [x] #1 dipo discard <id> --note <text> lists the commits not on the base and the uncommitted and untracked files, read through story.losses (DIPO-228), then asks for the typed story id; commands.describe marks work.discard irreversible
+- [x] #2 Discard stops an active run as work.stop does, releases the claim, removes the worktree with --force, deletes the branch locally and remotely, closes open questions, frees the slot, closes the open story PR with a comment naming the discard, resolves an open park as discard and writes Refined in lane b
+- [x] #3 Discard refuses a story whose PR in story_prs is merged, and a remote branch whose tip the engine did not push is not deleted (a notice) while the other steps go on
+- [x] #4 Discard also works on the leftovers of a story Done on the base, writing nothing to the backlog, and on a story whose PR head changed outside dipo
+- [x] #5 work.discard is registered with its since on the waiting command path
+- [x] #6 (from DIPO-162) The Done poll and reconcile read a claimed story's status on the base after a fetch, and a Done there wins over the branch status when the branch is not detected Done
+- [x] #7 (from DIPO-162) A parked or idle claim is released in one transaction with reason done-elsewhere: run ended, open park resolved done-elsewhere (added to the parks check by migration), questions closed ended, story.state Done, and a notice naming the base commit that last changed the task file
+- [x] #8 (from DIPO-162) dipo's open story PR is closed with a comment naming that commit; a clean worktree is removed and a dirty one kept; the branch is deleted locally and remotely when merge-tree shows it adds nothing to the base, else kept in released_branches with reason done-elsewhere; this replaces DIPO-216's interim reconcile release (reason done, resolved_how reconcile, a dirty worktree keeping its claim live) for the claims it covers: a dirty worktree is kept as leftovers while its claim is released (0020 section 10)
+- [x] #9 (from DIPO-162) A claim with a live worker is not stopped: a DONE ELSEWHERE desk item and an engine.notice are raised, and the release happens at the run's next end
+- [x] #10 (from DIPO-162) Anything kept is one LEFTOVERS desk item with the commits not on the base, the dirty files and the action dipo discard <id>, and leftovers are never deleted automatically. An own-branch teardown that crashed after removing its worktree is now released by DIPO-216's reconcile step as done with its branch kept; this leftover handling also deletes such a branch locally and remotely when merge-tree shows it adds nothing to the base
+- [x] #11 (from DIPO-162) A test replays the DIPO-105 case: the claim is released, the worktree with uncommitted files and the branch are kept, and one leftovers item is on the desk
 <!-- AC:END -->
 
 ## Implementation Notes
@@ -117,4 +149,6 @@ Reshaped by decision 0021 (worker isolation, DIPO-263, 2026-10-21); rewrite befo
 Carried from DIPO-162: Reshaped by decision 0021 (worker isolation, DIPO-263, 2026-10-21); rewrite before Ready: the story's box lives until merge, so discard and release must also tear down the box (0021 section 6).
 
 2026-10-22: combined from DIPO-162 (maintainer, M1 speed-up)
+
+2026-10-23: built outside dipo, reviewed in two rounds (the loss list now matches exactly what discard deletes; remote tips dipo did not push are kept). Migration 0045. The desk shows DONE ELSEWHERE and LEFTOVERS rows.
 <!-- SECTION:NOTES:END -->

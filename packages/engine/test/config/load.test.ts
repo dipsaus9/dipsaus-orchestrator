@@ -56,7 +56,10 @@ describe("validation", () => {
   it("parses the 0017 sample, with a warning for its retired presentMinutes (DIPO-285)", () => {
     const result = ok(resolveOfficeConfig({ office: SAMPLE_0017 }));
     expect(result.config.scripts).toEqual({ verify: "bun run verify" });
-    expect(result.config.tiers).toEqual(OFFICE_DEFAULTS.tiers);
+    // The sample sets the caps of 0008 section 9 as written then, not today's defaults (DIPO-256).
+    expect(result.config.tiers.S).toMatchObject({ maxTurns: 60, maxMinutes: 30 });
+    expect(result.config.tiers.M).toMatchObject({ maxTurns: 120, maxMinutes: 60 });
+    expect(result.config.tiers.L).toMatchObject({ maxTurns: 200, maxMinutes: 120 });
     expect(result.config.permissions).toEqual({ ask: "when-present" });
     expect(result.localOverrideKeys).toEqual([]);
     expect(result.warnings.map((warning) => warning.path)).toEqual(["permissions.presentMinutes"]);

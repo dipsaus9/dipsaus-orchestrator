@@ -37,6 +37,11 @@
 // - `work.steer` and `work.pause` (DIPO-163, `intervene.ts`): the maintainer's message to a live
 //   worker, and the pause that closes its stdin after 10 minutes on the cap tick.
 //
+// - Notes (0020 section 6, DIPO-154). The `notes` of every turn report are stored for the next
+//   session's handoff (`recordWorkerNotes`), keyed by the run's worktree and the agent, replacing
+//   that agent's earlier notes. A park keeps them, so a cap that fires mid-turn still leaves the
+//   previous turn's notes; teardown deletes them.
+//
 // Every op is stored as a pending intent before it is sent (`intents.ts`), and when the worker
 // exits the intent that explains the exit is resolved with its outcome. A decision without a park
 // (`act`) whose intent cannot be stored sends nothing: the failure is logged with its error code
@@ -63,6 +68,7 @@ import type { AsyncCommandContext, CommandOutcome, FeatureModule } from "../comm
 import type { OfficeHandle } from "../db/office";
 import type { IngestedExit, IngestHooks } from "../ingest/ingestor";
 import { background } from "../platform/background";
+import { recordWorkerNotes } from "../prompts/notes";
 import type { WorkerEvent, WorkerReport } from "../workers/types";
 
 import {
@@ -317,6 +323,7 @@ export class RunControl implements RunEnder {
             : event.capped !== undefined
               ? { cap: "maxTurns" as const, detail: capDetail("maxTurns", event.capped) }
               : (this.#crossings.get(event) ?? pending);
+        if (event.report !== null) this.#keepNotes(tracked, event.report, agent);
         if (event.report?.status === "done" && crossed !== null) {
           tracked.lastReport = event.report;
           outcomes?.answered(viewOf(tracked));
@@ -445,6 +452,37 @@ export class RunControl implements RunEnder {
     const questions = this.#deps.questions?.();
     if (office === undefined || questions === undefined) return false;
     return questions.askWorker(office, tracked.runId, agent, report.question);
+  }
+
+  /**
+   * Stores the notes of a developer's turn report for the next session's handoff (0020 section 6),
+   * replacing that agent's earlier notes in the run's worktree. A report without notes changes
+   * nothing, so the previous turn's notes stay. A failed write is logged; the turn goes on.
+   */
+  #keepNotes(tracked: Tracked, report: WorkerReport, agent: string | undefined): void {
+    if (report.notes === undefined || tracked.work.role === REVIEWER_ROLE) return;
+    const office = this.#deps.offices.get(tracked.office);
+    const worktree = office === undefined ? null : findRun(office, tracked.runId)?.worktree;
+    if (office === undefined || worktree == null) return;
+    try {
+      recordWorkerNotes(
+        office,
+        {
+          worktree,
+          run: tracked.runId,
+          agent: agent ?? tracked.work.agent,
+          role: tracked.work.role,
+          storyKey: tracked.work.key,
+          notes: report.notes,
+        },
+        this.#deps.clock,
+      );
+    } catch (error) {
+      this.#deps.warn?.("storing the worker's notes failed", {
+        run: tracked.runId,
+        reason: error instanceof Error ? error.message : String(error),
+      });
+    }
   }
 
   /**

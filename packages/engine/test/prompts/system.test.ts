@@ -5,6 +5,9 @@ import { describe, expect, it } from "bun:test";
 import { measurePart, renderSystemFile } from "../../src/prompts";
 import { expectGolden } from "./helpers";
 
+/** The one number the contract may hold: the wrap-up rule (DIPO-256) says "about 80% of any cap". */
+const WRAP_UP_PERCENT = "80%";
+
 describe("system file", () => {
   it("matches the golden file", async () => {
     await expectGolden("system-implement-developer.md", renderSystemFile("implement", "developer"));
@@ -20,7 +23,7 @@ describe("system file", () => {
   it("holds no id, date, path or count", () => {
     const text = renderSystemFile("implement", "developer");
     // No digit at all rules out ids (`DIPO-47`, `run-…`), dates, line numbers and counts.
-    expect(text).not.toMatch(/[0-9]/);
+    expect(text.replaceAll(WRAP_UP_PERCENT, "")).not.toMatch(/[0-9]/);
     // No path but /tmp: every token with a slash or a backslash must be that one fixed path.
     const paths = text
       .split(/\s+/)
@@ -121,7 +124,7 @@ describe("box worker system file", () => {
 
   it("holds no id, date, path or count", () => {
     const text = box();
-    expect(text).not.toMatch(/[0-9]/);
+    expect(text.replaceAll(WRAP_UP_PERCENT, "")).not.toMatch(/[0-9]/);
     expect(text.split(/\s+/).filter((token) => /[/\\]/.test(token))).toEqual([]);
     expect(text).not.toMatch(/\{\{/);
   });
@@ -166,7 +169,7 @@ describe("box worker system file", () => {
     expect(text).toContain(
       "Never write such a note into the decision records yourself, and never only describe it in `summary` or `notes`.",
     );
-    expect(text).not.toMatch(/[0-9]/);
+    expect(text.replaceAll(WRAP_UP_PERCENT, "")).not.toMatch(/[0-9]/);
     expect(text).not.toContain("docs/decisions");
   });
 
@@ -256,5 +259,15 @@ describe("box worker system file", () => {
     expect(mac).toContain("Write only the paths in `<scope>`.");
     expect(mac).toContain("Never change directory with `cd`");
     expect(box().indexOf("# Role: developer")).toBeGreaterThan(0);
+  });
+});
+
+describe("wrap-up rule (DIPO-256)", () => {
+  const rule =
+    "At about 80% of any cap, stop new work, finish what you started and report done, or blocked with what is left.";
+
+  it("is in the implement contract and the box contract", () => {
+    expect(renderSystemFile("implement", "developer")).toContain(rule);
+    expect(renderSystemFile("implement-box", "developer")).toContain(rule);
   });
 });

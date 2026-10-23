@@ -1,4 +1,4 @@
-// `dipo hook <event> [--wait <seconds>]` (DIPO-59 AC #1): the hidden form reads the payload, relays
+// `dipo hook <event> [--nudge | --gate]` (DIPO-59 AC #1): the hidden form reads the payload, relays
 // it over the host protocol's handshake, prints only the host's answer, and exits 0 silently on
 // every failure. A small line-socket server stands in for the worker host.
 
@@ -10,7 +10,6 @@ import type { ChildExit, ChildProcess, Spawn } from "@dipsaus-orchestrator/contr
 import {
   CLAUDE_GATE_NO_DECISION_MARKER,
   connectHost,
-  GH_REFUSAL,
   hostSocketPath,
   LAUNCH_FILE,
   listenLineSocket,
@@ -22,7 +21,6 @@ import {
 import { withTempDir } from "@dipsaus-orchestrator/testkit";
 
 import {
-  BASH_GH_FAILED_REASON,
   GATE_FAILED_REASON,
   GATE_NO_ANSWER_REASON,
   gateDenyOutput,
@@ -75,15 +73,11 @@ function fakeHost(path: string, output: string, frames: unknown[]) {
 }
 
 describe("dipo hook", () => {
-  it("parses the event and an optional --wait in seconds", () => {
+  it("parses the event, and refuses the permission relay's --wait and the Bash check's --bash (DIPO-240)", () => {
     expect(parseHookArgs(["Stop"])).toEqual({ event: "Stop" });
-    expect(parseHookArgs(["PermissionRequest", "--wait", "300"])).toEqual({
-      event: "PermissionRequest",
-      waitMs: 300_000,
-    });
+    expect(parseHookArgs(["PermissionRequest", "--wait", "300"])).toBeNull();
+    expect(parseHookArgs(["PreToolUse", "--bash"])).toBeNull();
     expect(parseHookArgs([])).toBeNull();
-    expect(parseHookArgs(["Stop", "--wait", "0"])).toBeNull();
-    expect(parseHookArgs(["Stop", "--wait", "99999"])).toBeNull();
     expect(parseHookArgs(["bad name"])).toBeNull();
   });
 
@@ -106,21 +100,12 @@ describe("dipo hook", () => {
       try {
         const out: string[] = [];
         const env = { DIPO_HOST_SOCKET: socket, DIPO_RUN: RUN };
-        const code = await runHookForm(
-          ["PermissionRequest", "--wait", "5"],
-          io(env, '{"hook_event_name":"PermissionRequest"}\n', out),
-        );
+        const code = await runHookForm(["Stop"], io(env, '{"hook_event_name":"Stop"}\n', out));
         expect(code).toBe(0);
         expect(out).toEqual(['{"decision":"x"}']);
         expect(frames).toEqual([
           { kind: "hello", versions: [2], run: RUN },
-          {
-            kind: "op",
-            id: 1,
-            op: "hook",
-            payload: '{"hook_event_name":"PermissionRequest"}\n',
-            waitMs: 5000,
-          },
+          { kind: "op", id: 1, op: "hook", payload: '{"hook_event_name":"Stop"}' },
         ]);
       } finally {
         await server.stop();
@@ -129,7 +114,7 @@ describe("dipo hook", () => {
 });
 
 describe("dipo hook payloads and deadline (DIPO-59 review)", () => {
-  it("relays only scalar fields, long strings cut, of a call that does not wait, and a waiting call whole", () => {
+  it("relays only scalar fields, long strings cut", () => {
     const payload = JSON.stringify({
       hook_event_name: "PostToolUse",
       tool_name: "Read",
@@ -138,7 +123,7 @@ describe("dipo hook payloads and deadline (DIPO-59 review)", () => {
       last_assistant_message: "y".repeat(5000),
       stop_hook_active: false,
     });
-    expect(JSON.parse(trimPayload(payload, false))).toEqual({
+    expect(JSON.parse(trimPayload(payload))).toEqual({
       hook_event_name: "PostToolUse",
       tool_name: "Read",
       tool_input: { file_path: "a.ts" },
@@ -150,13 +135,12 @@ describe("dipo hook payloads and deadline (DIPO-59 review)", () => {
       error: "rate_limit",
       error_type: "e".repeat(2000),
     });
-    expect(JSON.parse(trimPayload(failure, false))).toEqual({
+    expect(JSON.parse(trimPayload(failure))).toEqual({
       hook_event_name: "StopFailure",
       error: "rate_limit",
       error_type: "e".repeat(1024),
     });
-    expect(trimPayload(payload, true)).toBe(payload);
-    expect(trimPayload("not json", false)).toBe("not json");
+    expect(trimPayload("not json")).toBe("not json");
   });
 });
 
@@ -195,7 +179,7 @@ describe("dipo hook --nudge (DIPO-60 AC #3)", () => {
       tool_name: "Edit",
       tool_input: { file_path: "/w/a.ts", old_string: "a", new_string: "b".repeat(5000) },
     });
-    expect(JSON.parse(trimPayload(payload, false))).toEqual({
+    expect(JSON.parse(trimPayload(payload))).toEqual({
       hook_event_name: "PostToolUse",
       tool_name: "Edit",
       tool_input: { file_path: "/w/a.ts" },
@@ -258,12 +242,12 @@ describe("dipo hook --gate (DIPO-164; 0020 section 11b)", () => {
 
   it("keeps a URL or query whole, never cut, and drops the rest of the tool input", () => {
     const url = `https://x.test/?q=${"a".repeat(5000)}`;
-    const kept = JSON.parse(trimPayload(PAYLOAD(url), false, true)) as {
+    const kept = JSON.parse(trimPayload(PAYLOAD(url), true)) as {
       tool_input: Record<string, unknown>;
     };
     expect(kept.tool_input).toEqual({ url });
     const search = JSON.stringify({ tool_name: "WebSearch", tool_input: { query: "q", x: "y" } });
-    expect(JSON.parse(trimPayload(search, false, true))).toEqual({
+    expect(JSON.parse(trimPayload(search, true))).toEqual({
       tool_name: "WebSearch",
       tool_input: { query: "q" },
     });
@@ -505,137 +489,6 @@ describe("dipo hook --gate against the real worker host (DIPO-164 review)", () =
           const [hook] = host.pendingHooks;
           await client.request({ op: "hookReply", hook: hook ?? 0, output: reply });
           expect(await call).toEqual({ code: 0, out: [...printed] });
-        }
-      } finally {
-        client.close();
-      }
-    }));
-});
-
-/** One `dipo hook PreToolUse --bash` call for a Bash `command`, with the host socket in the env. */
-async function bashCall(
-  socket: string,
-  command: string,
-  check?: (command: string) => string | null,
-): Promise<{ code: number; out: string[] }> {
-  const out: string[] = [];
-  const env = { DIPO_HOST_SOCKET: socket, DIPO_RUN: RUN };
-  const payload = JSON.stringify({
-    hook_event_name: "PreToolUse",
-    tool_name: "Bash",
-    tool_input: { command },
-  });
-  const code = await runHookForm(["PreToolUse", "--bash"], io(env, payload, out), check);
-  return { code, out };
-}
-
-function throwingCheck(): string | null {
-  throw new Error("boom");
-}
-
-describe("dipo hook --bash (DIPO-194; 0008 amendment of 2026-10-19)", () => {
-  it("parses --bash without a value", () => {
-    expect(parseHookArgs(["PreToolUse", "--bash"])).toEqual({ event: "PreToolUse", bash: true });
-    expect(parseHookArgs(["PreToolUse", "--bash", "5"])).toBeNull();
-  });
-
-  it("denies a DIPO_TMP command, passes another, and never reaches the worker host", () =>
-    withWorkerHost(async ({ host, socket }) => {
-      const client = await watchingEngine(socket);
-      try {
-        const denied = await bashCall(socket, "export DIPO_TMP=$TMPDIR && bun run verify");
-        expect(denied.code).toBe(0);
-        expect(denied.out).toEqual([
-          gateDenyOutput(
-            "dipo refused this command because it sets or clears DIPO_TMP; dipo sets DIPO_TMP and the sandbox sets TMPDIR for the run, so never set or clear them (contract rule Temp files); run the command without it.",
-          ),
-        ]);
-        expect(host.pendingHooks).toHaveLength(0);
-        expect(await bashCall(socket, "bun run verify")).toEqual({ code: 0, out: [] });
-        expect(host.pendingHooks).toHaveLength(0);
-      } finally {
-        client.close();
-      }
-    }));
-
-  it("refuses a gh call other than the help forms with the engine's reason (DIPO-195)", () =>
-    withWorkerHost(async ({ socket }) => {
-      expect(await bashCall(socket, "gh pr view 12")).toEqual({
-        code: 0,
-        out: [gateDenyOutput(GH_REFUSAL)],
-      });
-      expect(await bashCall(socket, "gh pr view --help")).toEqual({ code: 0, out: [] });
-    }));
-
-  it("exits 2 with the reason on stderr when the check throws on a gh command, and 0 otherwise (DIPO-241)", () =>
-    withWorkerHost(async ({ socket }) => {
-      expect(await bashCall(socket, "/usr/local/bin/gh pr list", throwingCheck)).toEqual({
-        code: 2,
-        out: [`err:${BASH_GH_FAILED_REASON}`],
-      });
-      expect(BASH_GH_FAILED_REASON).toContain("the engine handles the code host");
-      // Quotes, escapes and case do not hide gh from the shell, so they do not hide it here.
-      for (const named of [
-        "'g'h pr list",
-        'g"h" pr list',
-        "g\\h pr list",
-        "g\\\nh pr list",
-        "GH pr merge 1",
-        "x\\\\\ngh pr merge 1",
-        "x\\\\\ng\\\nh pr list",
-        "true\\\\\ngh api /user",
-      ]) {
-        expect([named, (await bashCall(socket, named, throwingCheck)).code]).toEqual([named, 2]);
-      }
-      expect(await bashCall(socket, "echo gh-free", throwingCheck)).toEqual({ code: 0, out: [] });
-      expect(await bashCall(socket, "echo sigh", throwingCheck)).toEqual({ code: 0, out: [] });
-      expect(await bashCall(socket, "export DIPO_TMP=x", throwingCheck)).toEqual({
-        code: 0,
-        out: [],
-      });
-    }));
-
-  it("prints nothing and exits 0 for a check that throws, or a payload with no command", () =>
-    withWorkerHost(async ({ socket }) => {
-      expect(await bashCall(socket, "export DIPO_TMP=x", throwingCheck)).toEqual({
-        code: 0,
-        out: [],
-      });
-      const env = { DIPO_HOST_SOCKET: socket, DIPO_RUN: RUN };
-      for (const input of ["null", '{"tool_input":{"command":5}}', "{}"]) {
-        const out: string[] = [];
-        expect(await runHookForm(["PreToolUse", "--bash"], io(env, input, out))).toBe(0);
-        expect(out).toEqual([]);
-      }
-      // A payload it cannot parse or read exits 3: the shell fallback greps it for gh (DIPO-241).
-      for (const input of ["not json", null]) {
-        const out: string[] = [];
-        expect(await runHookForm(["PreToolUse", "--bash"], io(env, input, out))).toBe(3);
-        expect(out).toEqual([]);
-      }
-    }));
-});
-
-describe("dipo hook PermissionRequest --wait against the real worker host (DIPO-181)", () => {
-  it("holds each waiting call until the engine's hookReply and prints that output, call after call", () =>
-    withWorkerHost(async ({ host, socket }) => {
-      const client = await watchingEngine(socket);
-      try {
-        for (const output of ['{"decision":"allow"}', '{"decision":"deny"}']) {
-          const out: string[] = [];
-          const env = { DIPO_HOST_SOCKET: socket, DIPO_RUN: RUN };
-          const call = runHookForm(
-            ["PermissionRequest", "--wait", "310"],
-            io(env, '{"hook_event_name":"PermissionRequest"}', out),
-          );
-          for (let i = 0; i < 200 && host.pendingHooks.length === 0; i++) await Bun.sleep(5);
-          expect(host.pendingHooks).toHaveLength(1);
-          const [hook] = host.pendingHooks;
-          const reply = await client.request({ op: "hookReply", hook: hook ?? 0, output });
-          // The reply finds the held call: never hook.unknown.
-          expect(reply).toEqual({ ok: true, result: undefined });
-          expect(await call).toBe(0);
-          expect(out).toEqual([output]);
         }
       } finally {
         client.close();

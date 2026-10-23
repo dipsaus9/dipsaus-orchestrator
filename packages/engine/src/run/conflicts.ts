@@ -5,7 +5,7 @@
 // result, markers and all, is committed on the story branch from git objects and copied into the
 // box, and the worker's resolution comes back as an ordinary part.
 //
-// - Records (`catch_ups`, migration 45). Every merge dipo made into a story branch is recorded
+// - Records (`catch_ups`, migration 46). Every merge dipo made into a story branch is recorded
 //   with the base commit, the tip it was made on, the merge commit and the conflicted paths (a
 //   catch-up of the poll or the sync before In Review). This is dipo's ref journal for carried
 //   approvals and the list of paths the check at done reads. A conflict the poll finds while the

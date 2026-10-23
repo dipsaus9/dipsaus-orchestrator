@@ -18,8 +18,9 @@
 // - No new host ever starts here: a living host is followed until its exit line, and the run's
 //   next session (`RunResumer`) waits for every earlier host of the run to end.
 // - After the catch-up the run's caps are checked once, so a run over its caps is stopped at once.
-// - A living host whose run went through a Safe-Chain proxy this daemon does not run (DIPO-84) is
-//   stopped and its story parks `interrupted` naming the missing proxy.
+// - A living developer host of a run with no box record (an earlier binary's Mac session, from
+//   before every run was a box run; DIPO-240) is stopped with an error notice, and its story parks
+//   `interrupted`; its next session runs in a box. A reviewer stays on the Mac and is followed.
 // - A run whose host event file changed (DIPO-45's `ingest.fileChanged`, also one reported before
 //   the stop) parks `interrupted` with the detail "event file changed".
 //
@@ -65,7 +66,7 @@ import {
 import { withWorkViews, workRefOf } from "../views/work";
 import type { Caps, ParseState } from "../workers/types";
 
-import { runCaps } from "./caps";
+import { REVIEWER_ROLE, runCaps } from "./caps";
 import { CAP_TICK_MS, type RunEnding, type RunSteering, type TrackedRun } from "./control";
 import { HOST_CONNECT_TIMEOUT_MS } from "./hosts";
 import { runIntents, sendAsIntent } from "./intents";
@@ -80,7 +81,7 @@ export const REATTACH_STEP = "reattach";
 /** `engine.notice` codes of re-attach. */
 export const REATTACH_NOTICES = {
   followOnly: "run.followOnly",
-  proxyGone: "run.safeChainProxyGone",
+  macSession: "run.macSessionStopped",
 } as const;
 
 /** What re-attach did with one run. */
@@ -95,8 +96,8 @@ export type ReattachOutcome =
   | "hostLost"
   /** The event file changed; the story parks `interrupted`. */
   | "fileChanged"
-  /** Its Safe-Chain proxy is gone (DIPO-84); the worker is stopped and the story parks. */
-  | "proxyGone"
+  /** A developer session on the Mac, outside a box (DIPO-240): stopped, and the story parks. */
+  | "macSession"
   /** Its only host was still pending and no host claimed the launch (DIPO-93): parks. */
   | "neverStarted"
   /** A living host of a run that has ended: followed until it exits (DIPO-93). */
@@ -112,6 +113,15 @@ const ENDING_INTENTS: ReadonlySet<string> = new Set(["stop", "cap", "park"]);
 /** The detail of the `stop` intent sent again to the host of an ended run (DIPO-93). */
 export const STOP_AGAIN_DETAIL =
   "stop again after a restart: the stop that ended the run did not reach its worker host";
+
+/** Why a developer session on the Mac was stopped at re-attach (DIPO-240). */
+export function macSessionText(run: Pick<StoredRun, "story" | "runId">): string {
+  return (
+    `${run.story ?? run.runId} was stopped: its developer session ran on the Mac, outside a box, ` +
+    "as an earlier dipo started it. A developer runs only in its box now; resume the story to " +
+    "go on in one."
+  );
+}
 
 /** The park detail of a run whose worker host never started before the daemon stopped. */
 export const HOST_NEVER_STARTED =
@@ -185,12 +195,11 @@ export interface RunReattacherDeps {
   /** How often a followed host's liveness is checked; `FOLLOW_CHECK_MS` by default. */
   readonly followCheckMs?: number;
   /**
-   * Why a living host cannot go on (DIPO-84): its run was launched through a Safe-Chain proxy
-   * that this daemon does not run (it stopped with the previous daemon), so the worker's
-   * `httpProxyPort` names a port nobody owns. Null when it can go on. Such a run is stopped and
-   * parks `interrupted` with the reason.
+   * True when a run directory says its run is a box run (`BOX_RUN_FILE`, DIPO-240). With it, a
+   * living developer host of a run without one (a Mac session an earlier binary started) is
+   * stopped, never followed: a developer runs only in its box. Without it no host is checked.
    */
-  readonly proxyGone?: (office: OfficeId, run: StoredRun, host: WorkerHostRow) => string | null;
+  readonly boxRecord?: (runDir: string) => boolean;
   /**
    * Sends host ops (`hostSocketSteering`): a living host of an ended run whose ending could not
    * reach it (its last stop, cap or park intent failed, as when reconcile ran before re-attach) is
@@ -443,16 +452,21 @@ export class RunReattacher {
       return { run: run.runId, agent: host.agentId, outcome: "fileChanged" };
     }
 
-    // A living worker whose Safe-Chain proxy is gone: stopped, never left on a port nobody owns.
-    const gone = alive ? (deps.proxyGone?.(office.officeId, run, host) ?? null) : null;
-    if (gone !== null) {
+    // A living developer on the Mac, outside a box: stopped, never followed (DIPO-240).
+    const onMac =
+      alive &&
+      work.role !== REVIEWER_ROLE &&
+      deps.boxRecord !== undefined &&
+      !deps.boxRecord(host.runDir);
+    if (onMac) {
+      const text = macSessionText(run);
       const ending = deps.control.interruptedEnding();
       await deps.control.park(office, run, work, {
         ...ending,
-        detail: gone,
-        notice: { level: "error", code: REATTACH_NOTICES.proxyGone, text: gone },
+        detail: text,
+        notice: { level: "error", code: REATTACH_NOTICES.macSession, text },
       });
-      return { run: run.runId, agent: host.agentId, outcome: "proxyGone" };
+      return { run: run.runId, agent: host.agentId, outcome: "macSession" };
     }
 
     const adapter = deps.adapter(office.officeId, run);
