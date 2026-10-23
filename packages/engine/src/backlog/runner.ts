@@ -31,6 +31,7 @@
 
 import { createHash } from "node:crypto";
 import { type Dirent, readdirSync, readFileSync, type Stats, statSync } from "node:fs";
+import { tmpdir } from "node:os";
 import { isAbsolute, join, normalize } from "node:path";
 
 import type { Clock, Spawn } from "@dipsaus-orchestrator/contract";
@@ -456,10 +457,14 @@ export async function runBacklog(
   if (left <= 0) throw new BacklogTimedOutError(command, deadlineMs);
   let child;
   try {
+    // The CLI writes to regular files under the daemon's temp root (`DIPO_TMP`, else the system's),
+    // read after it exits, never to a pipe: on Linux CI the end of a long list was lost on the way
+    // while the CLI exited 0 (DIPO-333).
     child = cli.spawn({
       cmd: command,
       cwd,
       env: backlogEnv(cli.env ?? process.env),
+      output: { to: "file", tempRoot: process.env["DIPO_TMP"] || tmpdir() },
       // Its own process group, so the deadline kills what it started too (DIPO-314).
       detached: true,
     });
@@ -472,15 +477,25 @@ export async function runBacklog(
       `could not start: ${error instanceof Error ? error.message : String(error)}`,
     );
   }
-  const [stdout, stderr, exit] = await withDeadline(
-    child,
-    Promise.all([
-      new Response(child.stdout).text(),
-      new Response(child.stderr).text(),
-      child.exited,
-    ]),
-    { clock, deadlineMs: left, timedOut: () => new BacklogTimedOutError(command, deadlineMs) },
-  );
+  let stdout: string;
+  let stderr: string;
+  let exit: Awaited<typeof child.exited>;
+  try {
+    [stdout, stderr, exit] = await withDeadline(
+      child,
+      Promise.all([
+        new Response(child.stdout).text(),
+        new Response(child.stderr).text(),
+        child.exited,
+      ]),
+      { clock, deadlineMs: left, timedOut: () => new BacklogTimedOutError(command, deadlineMs) },
+    );
+  } catch (error) {
+    if (error instanceof BacklogTimedOutError) throw error;
+    // The output files could not be read (DIPO-333): a CLI error, never a stray one.
+    const why = error instanceof Error ? error.message : String(error);
+    throw new BacklogCommandError(command, null, "", "", `output could not be read: ${why}`);
+  }
   if (exit.code !== 0) {
     const how =
       exit.code === null ? `was killed by ${exit.signal ?? "a signal"}` : `exited ${exit.code}`;

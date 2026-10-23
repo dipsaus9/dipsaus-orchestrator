@@ -4,6 +4,8 @@
 
 import { describe, expect, it } from "bun:test";
 
+import { tmpdir } from "node:os";
+
 import { BacklogCommandError, BacklogRefusedError, refusal, runBacklog } from "../../src/backlog";
 import { BACKLOG_ENV_KEYS, backlogEnv } from "../../src/backlog/runner";
 import { readManifest, stubSpawn } from "./helpers";
@@ -157,8 +159,10 @@ describe("running the CLI", () => {
       "--version",
     ]);
     expect(out.stdout).toBe("1.53.0\n");
+    // The CLI's output goes to files under the temp root, never a pipe (DIPO-333).
+    const output = { to: "file" as const, tempRoot: process.env["DIPO_TMP"] || tmpdir() };
     expect(stub.calls).toEqual([
-      { cmd: ["bun", "cli.js", "--version"], cwd: "/w", env, detached: true },
+      { cmd: ["bun", "cli.js", "--version"], cwd: "/w", env, output, detached: true },
     ]);
   });
 
