@@ -423,7 +423,7 @@ describe("dipo run --dry-run", () => {
 
   it("prints the slots refusal with each holder and not would start", async () => {
     const message =
-      "every port slot from 1 to 1 is taken by another worktree: slot 1: office off_a, story DIPO-3, worktree /work/app.worktrees/DIPO-3";
+      "every port slot from 1 to 1 is taken by another worktree: slot 1: office off_a, story DIPO-3, worktree /work/app.worktrees/DIPO-3. dipo discard <id> frees a story's slot.";
     const ctx = fake(
       () => {
         throw new Error("work.run must not be sent");

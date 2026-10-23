@@ -3,10 +3,10 @@ id: DIPO-120
 title: >-
   Show the daemon's state truthfully: recovering reason, active runs, port slot
   command
-status: Ready
+status: Done
 assignee: []
 created_date: '2026-10-16 11:52'
-updated_date: '2026-10-23 08:15'
+updated_date: '2026-10-23 09:12'
 labels:
   - 'tier:S'
   - cutover
@@ -19,22 +19,30 @@ dependencies:
   - DIPO-197
   - DIPO-302
 references:
-  - docs/decisions/0009-tui.md
+  - '- docs/decisions/0009-tui.md'
   - packages/cli/src/daemon-commands.test.ts
   - packages/cli/src/daemon-commands.ts
+  - packages/cli/src/run-command.test.ts
   - packages/client/src/recovery.ts
   - packages/client/src/store
+  - packages/client/src/store/office-store.ts
   - packages/client/test
+  - packages/client/test/unit/office-store.test.ts
   - packages/contract/src/errors.ts
   - packages/daemon/src/control.ts
   - packages/daemon/src/foreground.ts
+  - packages/daemon/src/index.test.ts
   - packages/daemon/test
+  - packages/engine/src/index.ts
   - packages/engine/src/run/work-run.ts
   - packages/engine/src/views/summary.ts
   - packages/engine/src/worktree/setup.ts
+  - packages/engine/src/worktree/slots.ts
   - packages/engine/test/run/work-run.test.ts
   - packages/engine/test/worktree/setup.test.ts
   - packages/tui/src
+  - packages/tui/src/banner.test.ts
+  - packages/tui/src/views.tsx
 priority: medium
 type: feature
 ordinal: 110000
@@ -68,17 +76,17 @@ test_plan:
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 While the daemon answers database.unavailable, the banner shows a database line with the reason and, when given, the newest backup path, in place of the reconcile line
-- [ ] #2 The ordinary recovering banner (reconcile after a start) is unchanged
-- [ ] #3 The client store exposes the database line as typed state (DatabaseUnavailableDetails parsed from the error's details) that the TUI reads; with no office selected, a daemon reporting recovering gets one office read from the store so the details arrive; the line survives an office switch; no UI imports engine internals
-- [ ] #4 The database line clears when the daemon state goes to draining and after a reconnect to a daemon that answers reads again (a fresh engine.hello), with tests
-- [ ] #5 Tests cover the banner text in both cases and in ASCII mode
-- [ ] #6 A dated 0009 section 7 note for the database line is proposed in the PR for the maintainer's approval
-- [ ] #7 (from DIPO-125) daemon.status activeRuns is the sum of the active runs (activeRuns(handle).length) over the loaded offices, and the stale comment is gone
-- [ ] #8 (from DIPO-125) A test with two offices and active runs checks the count and the CLI line
-- [ ] #9 (from DIPO-199) The slots refusal of work.preview and work.run (packages/engine/src/run/work-run.ts) says, after its list of holders, that dipo discard <id> frees a story's slot; a test in packages/engine/test/run/work-run.test.ts checks the text
-- [ ] #10 (from DIPO-199) The port slot setup failure in setupWorktree (packages/engine/src/worktree/setup.ts) says the same after its list of holders; a test in packages/engine/test/worktree/setup.test.ts checks the text
-- [ ] #11 `dipo run --dry-run --box` shows what a box run would do (today it is refused)
+- [x] #1 While the daemon answers database.unavailable, the banner shows a database line with the reason and, when given, the newest backup path, in place of the reconcile line
+- [x] #2 The ordinary recovering banner (reconcile after a start) is unchanged
+- [x] #3 The client store exposes the database line as typed state (DatabaseUnavailableDetails parsed from the error's details) that the TUI reads; with no office selected, a daemon reporting recovering gets one office read from the store so the details arrive; the line survives an office switch; no UI imports engine internals
+- [x] #4 The database line clears when the daemon state goes to draining and after a reconnect to a daemon that answers reads again (a fresh engine.hello), with tests
+- [x] #5 Tests cover the banner text in both cases and in ASCII mode
+- [x] #6 A dated 0009 section 7 note for the database line is proposed in the PR for the maintainer's approval
+- [x] #7 (from DIPO-125) daemon.status activeRuns is the sum of the active runs (activeRuns(handle).length) over the loaded offices, and the stale comment is gone
+- [x] #8 (from DIPO-125) A test with two offices and active runs checks the count and the CLI line
+- [x] #9 (from DIPO-199) The slots refusal of work.preview and work.run (packages/engine/src/run/work-run.ts) says, after its list of holders, that dipo discard <id> frees a story's slot; a test in packages/engine/test/run/work-run.test.ts checks the text
+- [x] #10 (from DIPO-199) The port slot setup failure in setupWorktree (packages/engine/src/worktree/setup.ts) says the same after its list of holders; a test in packages/engine/test/worktree/setup.test.ts checks the text
+- [x] #11 `dipo run --dry-run --box` shows what a box run would do (today it is refused)
 <!-- AC:END -->
 
 ## Implementation Notes
@@ -87,4 +95,6 @@ test_plan:
 Carried from DIPO-125: Review note: ControlDeps has only loadedOffices() (ids); the count needs a new dep wired where controlFeature is built in packages/daemon/src/foreground.ts. activeRunCount is not exported from the engine entry; activeRuns(handle).length is.
 
 2026-10-22: combined from DIPO-125, DIPO-199 (maintainer, M1 speed-up)
+
+2026-10-23: Done by dipo's box run run_01M5KY4ZVQP7ATAPKXEB42HSFN (PR #367), approved by dipo's reviewer in round 1. First run on the box-only build (DIPO-240): 31 s from dipo run to a ready box, 43 s until dipo run returned (3.5 to 5.5 minutes before).
 <!-- SECTION:NOTES:END -->
