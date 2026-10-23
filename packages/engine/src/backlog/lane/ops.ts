@@ -12,6 +12,7 @@ import { join } from "node:path";
 
 import { z } from "zod";
 
+import type { OfficeHandle } from "../../db/office";
 import { FieldBlockError } from "../fields/block";
 import { editLabels, FieldWriteError, viewStory, writeFields } from "../fields/write";
 import type { PlainTask } from "../plain";
@@ -26,6 +27,11 @@ export interface ApplyContext {
   /** The story's current id (from its key when the engine knows it), else the op's subject. */
   readonly story: string;
   readonly entry: JournalEntry;
+  /**
+   * The office's state database, for a kind that records what it created (the draft id of an
+   * accepted proposal, DIPO-166). Absent where a test applies a kind by hand.
+   */
+  readonly office?: OfficeHandle;
 }
 
 export type ApplyOutcome =

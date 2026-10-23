@@ -425,7 +425,7 @@ export class RunControl implements RunEnder {
     const office = this.#deps.offices.get(tracked.office);
     if (office === undefined) return;
     try {
-      office.immediate(() =>
+      const filed = office.immediate(() =>
         storeProposals(office, {
           key: tracked.work.key,
           runId: tracked.runId,
@@ -433,6 +433,8 @@ export class RunControl implements RunEnder {
           at: this.#deps.clock.now(),
         }),
       );
+      // Each stored proposal appended its `proposal.filed` (DIPO-166).
+      if (filed > 0) this.#deps.onChanged?.(tracked.office);
     } catch (error) {
       this.#deps.warn?.("storing a report's proposals failed", {
         run: tracked.runId,

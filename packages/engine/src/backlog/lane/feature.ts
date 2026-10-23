@@ -26,6 +26,7 @@ import {
   type LaneOpKind,
   RESUME_KIND,
 } from "./ops";
+import { proposeKind } from "./propose";
 
 export class BacklogLane {
   readonly #deps: BacklogLaneDeps;
@@ -41,6 +42,8 @@ export class BacklogLane {
     this.register(dropKind);
     // Discard (0020 section 8, DIPO-161).
     this.register(editKind(DISCARD_KIND));
+    // An accepted worker proposal filed as a Backlog draft (0020 section 11c, DIPO-166).
+    this.register(proposeKind);
     for (const kind of deps.kinds ?? []) this.register(kind);
   }
 
