@@ -251,11 +251,12 @@ export interface UnpushedRun {
 }
 
 /**
- * Runs to push again (DIPO-315), oldest first: story runs that ended at In Review (or as reviewed)
- * with a live claim whose `pushed_at` is null or earlier than the run's end, so the In Review push
- * did not reach the remote, while the story is In Review now. An office without a remote stays in
- * the list: its push is a cheap no-op that records `no_remote_at`, and a remote added later gets
- * the branch.
+ * Runs to push again (DIPO-315), oldest first: story runs that ended at In Review with a live claim
+ * whose `pushed_at` is null or earlier than the run's end, so the In Review push did not reach the
+ * remote, while the story is In Review now. A reviewed run is never one: its review started only
+ * once its head was on the remote (`pendingReviews`), and the review period moves its end past
+ * that push without a push of its own. Nor is a run whose office was found to have no remote at or
+ * after its end (`no_remote_at`): nothing waits for that push.
  */
 export function runsToPush(office: OfficeHandle): UnpushedRun[] {
   return office
@@ -264,15 +265,16 @@ export function runsToPush(office: OfficeHandle): UnpushedRun[] {
         join claims c on c.office_id = r.office_id and c.run_id = r.run_id
           and c.released_at is null
         where r.office_id = $office_id and r.kind = 'story'
-          and r.end_kind in ($end, $reviewed) and r.ended_at is not null
+          and r.end_kind = $end and r.ended_at is not null
           and r.key is not null and r.branch is not null and r.worktree is not null
           and (c.pushed_at is null or c.pushed_at < r.ended_at)
+          and (c.no_remote_at is null or c.no_remote_at < r.ended_at)
           and exists (select 1 from stories s
             join backlog_mirror m on m.office_id = s.office_id and m.key = s.key
             where s.office_id = r.office_id and s.key = r.key and s.removed_at is null
               and m.kind = 'task' and m.status = $status)
         order by r.ended_at, r.run_id`,
-      { end: IN_REVIEW_END, reviewed: REVIEWED_END, status: IN_REVIEW_STATUS },
+      { end: IN_REVIEW_END, status: IN_REVIEW_STATUS },
     )
     .map((row) => ({
       runId: row.run_id as RunId,
