@@ -82,7 +82,7 @@ interface World {
   /** Story keys read again after a park (DIPO-56). */
   readonly refreshed: string[];
   readonly work: WorkRef;
-  writer: "ok" | "tampered" | "taskField" | "fails";
+  writer: "ok" | "tampered" | "taskField" | "fails" | "noSummary";
   steer: RunSteering["send"] | null;
   ingestor: Ingestor | null;
   /** What run control logged through its `warn` dependency. */
@@ -133,6 +133,9 @@ beforeEach(async () => {
           from: "In Progress",
           pushed: true,
           pushError: null,
+          ...(world.writer === "noSummary"
+            ? { summaryError: "appending it failed: the Backlog CLI exited 1" }
+            : {}),
         };
       },
     },
@@ -1374,5 +1377,27 @@ describe("worker notes for the handoff (DIPO-154; 0020 section 6)", () => {
     w.control.onWorkerEvents(w.f.run, [notesTurn("not a developer's notes")]);
     await w.control.idle();
     expect(latestWorkerNotes(w.f.office, notesWorktree())).toBeNull();
+  });
+});
+
+describe("a park whose summary block was not written (DIPO-154)", () => {
+  it("is still recorded and emitted, with a notice that the summary is missing", async () => {
+    w.writer = "noSummary";
+    track({ ...ROOMY, maxMinutes: 30 });
+    w.f.t.clock.advance(31 * CAP_TICK_MS);
+    await w.control.idle();
+    expect(parks().map((p) => p.reason)).toEqual(["budget-exceeded"]);
+    expect(parkedEvents()).toHaveLength(1);
+    // The writer was asked for the block, built from the stored facts as of the park.
+    const block = w.writes[0]?.summary?.({ lastGoodCommit: "a".repeat(40), uncommitted: 0 });
+    expect(block).toContain("Parked ");
+    expect(block).toContain(`- Run: ${w.f.run}`);
+    const notices = loggedEvents(w.f.office)
+      .filter((event) => event.type === "engine.notice")
+      .map((event) => event.data as { code: string; text: string });
+    expect(notices.map((n) => n.code)).toContain("park.summaryMissing");
+    expect(notices.find((n) => n.code === "park.summaryMissing")?.text).toContain(
+      "appending it failed: the Backlog CLI exited 1",
+    );
   });
 });

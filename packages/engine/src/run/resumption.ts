@@ -311,21 +311,31 @@ export class Resumption {
         return { kind: "failed", reason: `lifting the park failed: ${messageOf(error)}` };
       }
       const at = this.#deps.clock.now();
-      const pushNotice: NewEntry[] =
-        lifted.pushError === null
+      const notice = (code: string, text: string): NewEntry => ({
+        type: "engine.notice",
+        key: work.key,
+        run: runId,
+        delta: { level: "warn", code, text },
+      });
+      const pushNotice: NewEntry[] = [
+        // A resume line that could not be appended never costs the lift (0020 section 13).
+        ...(lifted.lineError == null
           ? []
           : [
-              {
-                type: "engine.notice",
-                key: work.key,
-                run: runId,
-                delta: {
-                  level: "warn",
-                  code: PARK_NOTICES.pushFailed,
-                  text: `${run.story}: the park was lifted, but ${lifted.pushError}; the change is on the local branch only until a later push succeeds.`,
-                },
-              },
-            ];
+              notice(
+                PARK_NOTICES.summaryMissing,
+                `${run.story}: the park was lifted, but its resume line is missing from the task file's implementation notes: ${lifted.lineError}`,
+              ),
+            ]),
+        ...(lifted.pushError === null
+          ? []
+          : [
+              notice(
+                PARK_NOTICES.pushFailed,
+                `${run.story}: the park was lifted, but ${lifted.pushError}; the change is on the local branch only until a later push succeeds.`,
+              ),
+            ]),
+      ];
       // The park resolved, the run active again, the answer recorded (an allow is in place before
       // the session's first call) and the intent sent: one transaction. A worker place that is
       // taken, or paused by a plan limit, leaves the run waiting for it (0020 section 1). The place

@@ -36,7 +36,7 @@ import {
 
 import { parseFieldBlock } from "../backlog/fields/block";
 import { appendImplementationNotes } from "../backlog/fields/summary";
-import { viewStory, writeFields } from "../backlog/fields/write";
+import { type StoryTarget, viewStory, writeFields } from "../backlog/fields/write";
 import { type BacklogCli, runBacklog, TASK_FIELD_ERROR } from "../backlog/runner";
 import { BOX_RUN_FILE } from "../box/workers";
 import type { NewEntry } from "../changelog/log";
@@ -124,6 +124,8 @@ export type ParkCause = (typeof PARK_CAUSES)[keyof typeof PARK_CAUSES];
 export const PARK_NOTICES = {
   notWritten: "park.notWritten",
   pushFailed: "park.pushFailed",
+  /** The park or lift was written, but its implementation-notes summary was not (0020 section 13). */
+  summaryMissing: "park.summaryMissing",
 } as const;
 
 /** Commands a parked story's `actions` may offer, when the engine implements them (0005). */
@@ -170,6 +172,11 @@ export interface BranchPark {
   readonly pushed: boolean;
   /** Why the push failed, or null. */
   readonly pushError: string | null;
+  /**
+   * Why the park's summary block was not written, or null: a failure building or appending it
+   * never costs the park, whose F16 block and status are committed without it.
+   */
+  readonly summaryError?: string | null;
 }
 
 /** Writes the park on the story branch (the real one is `gitParkWriter`). */
@@ -202,6 +209,19 @@ function statusEntries(status: string): number {
   return count;
 }
 
+/**
+ * Appends a summary text to the story's implementation notes; the reason it failed, or null. A
+ * failed append is caught, so the edit it is part of still commits its F16 block and status.
+ */
+async function appendOrReason(target: StoryTarget, text: string): Promise<string | null> {
+  try {
+    await appendImplementationNotes(target, text);
+    return null;
+  } catch (error) {
+    return `appending it failed: ${messageOf(error)}`;
+  }
+}
+
 /** The park written on the story branch with the Backlog CLI and the office git. */
 export function gitParkWriter(deps: {
   readonly git: (office: OfficeId) => OfficeGit | undefined;
@@ -218,19 +238,29 @@ export function gitParkWriter(deps: {
         const lastGoodCommit = (
           await session.ok(location, ["rev-parse", "--verify", "HEAD"])
         ).trim();
-        // A box run's Mac worktree keeps the start commit's files while its branch follows the
-        // delivered parts (DIPO-302), so its status counts nothing of the worker's.
-        const uncommitted =
-          request.summary === undefined || boxRunOf(git, request.runId)
-            ? null
-            : statusEntries(
-                await session.ok(location, [
-                  "status",
-                  "--porcelain=v1",
-                  "-z",
-                  "--untracked-files=all",
-                ]),
-              );
+        // The summary block is built before the CLI writes anything, and a failure building or
+        // appending it only leaves it out (`summaryError`): the park itself is always written.
+        let block: string | null = null;
+        let summaryError: string | null = null;
+        if (request.summary !== undefined) {
+          try {
+            // A box run's Mac worktree keeps the start commit's files while its branch follows
+            // the delivered parts (DIPO-302), so its status counts nothing of the worker's.
+            const uncommitted = boxRunOf(git, request.runId)
+              ? null
+              : statusEntries(
+                  await session.ok(location, [
+                    "status",
+                    "--porcelain=v1",
+                    "-z",
+                    "--untracked-files=all",
+                  ]),
+                );
+            block = request.summary({ lastGoodCommit, uncommitted });
+          } catch (error) {
+            summaryError = `building it failed: ${messageOf(error)}`;
+          }
+        }
         // Only the task file: anything else staged stays out of the park commit.
         const { value: from, commit } = await editInStoryBacklog(
           git,
@@ -264,17 +294,21 @@ export function gitParkWriter(deps: {
             }
             // The park's summary block (0020 section 13), once: a park already on the branch (a
             // retried write) appends nothing.
-            if (request.summary !== undefined && before.status !== PARKED_STATUS) {
-              await appendImplementationNotes(
-                target,
-                request.summary({ lastGoodCommit, uncommitted }),
-              );
+            if (block !== null && before.status !== PARKED_STATUS) {
+              summaryError = await appendOrReason(target, block);
             }
             return left;
           },
         );
         const pushed = await pushBranch(session, git.settings.remote, request.branch);
-        return { commit, lastGoodCommit, from, pushed: pushed.pushed, pushError: pushed.error };
+        return {
+          commit,
+          lastGoodCommit,
+          from,
+          pushed: pushed.pushed,
+          pushError: pushed.error,
+          summaryError,
+        };
       });
     },
   };
@@ -300,6 +334,8 @@ export interface BranchUnpark {
   readonly commit: string | null;
   readonly pushed: boolean;
   readonly pushError: string | null;
+  /** Why the resume's line was not appended, or null; the lift itself is always committed. */
+  readonly lineError?: string | null;
 }
 
 /** Lifts a park on the story branch (the real one is `gitUnparkWriter`). */
@@ -324,6 +360,7 @@ export function gitUnparkWriter(deps: {
       if (git === undefined) throw new Error(`Office ${office} has no git attached.`);
       return git.run(async (session) => {
         const location = git.worktreeLocation(request.worktree) as WorktreeLocation;
+        let lineError: string | null = null;
         // Only the task file: anything else staged stays out of the commit.
         const { commit } = await editInStoryBacklog(
           git,
@@ -358,12 +395,12 @@ export function gitUnparkWriter(deps: {
               before.status !== request.to ||
               parseFieldBlock(before.description).fields.park !== undefined;
             if (request.line !== undefined && lifting) {
-              await appendImplementationNotes(target, request.line);
+              lineError = await appendOrReason(target, request.line);
             }
           },
         );
         const pushed = await pushBranch(session, git.settings.remote, request.branch);
-        return { commit, pushed: pushed.pushed, pushError: pushed.error };
+        return { commit, pushed: pushed.pushed, pushError: pushed.error, lineError };
       });
     },
   };
@@ -613,6 +650,12 @@ export async function parkStory(deps: ParkDeps, request: ParkRequest): Promise<P
         `${story} parked as ${reason}, but writing the park on ${run.branch ?? "its branch"} failed: ${messageOf(error)}`,
       );
     }
+  }
+  if (branch?.summaryError != null) {
+    notice(
+      PARK_NOTICES.summaryMissing,
+      `${story} is parked, but its summary block is missing from the task file's implementation notes: ${branch.summaryError}`,
+    );
   }
   if (branch?.pushError != null) {
     notice(

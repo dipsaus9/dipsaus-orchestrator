@@ -195,3 +195,85 @@ describe("the structured summary in the task file (DIPO-154; 0020 section 13)", 
     );
   });
 });
+
+const parkRequest = (summary: () => string) => ({
+  story: TASK_1,
+  branch: BRANCH_1,
+  worktree: "",
+  reason: "stopped" as const,
+  note: "Not now.",
+  summary,
+});
+
+describe("a park whose summary cannot be written (DIPO-154)", () => {
+  it("commits the F16 block and the Parked status without the block when building it fails", async () => {
+    await withTempRepo(
+      async (repo) => {
+        await publish(repo);
+        const s = await claimSetup(repo);
+        const claim = claimed(await claimStory(s.deps(), s.request(s.key()))).claim;
+        const writer = gitParkWriter({ git: () => s.git, cli: s.cli });
+
+        const built = await writer.write(s.office.officeId, {
+          ...parkRequest(() => {
+            throw new Error("the run row is gone");
+          }),
+          worktree: claim.worktree,
+        });
+        expect(built.summaryError).toBe("building it failed: the run row is gone");
+        const parked = await taskFileAt(repo, built.commit as string);
+        expect(parked).toContain("status: Parked");
+        expect(parked).toContain('park:\n  reason: "stopped"');
+        expect(parked).not.toContain("## Implementation Notes");
+      },
+      { fixture: BACKLOG_FIXTURE },
+    );
+  });
+
+  it("commits the park when the CLI refuses the block (a line of 50 dashes)", async () => {
+    await withTempRepo(
+      async (repo) => {
+        await publish(repo);
+        const s = await claimSetup(repo);
+        const claim = claimed(await claimStory(s.deps(), s.request(s.key()))).claim;
+        const park = await gitParkWriter({ git: () => s.git, cli: s.cli }).write(
+          s.office.officeId,
+          { ...parkRequest(() => `Parked\n${SECTION_RULE}`), worktree: claim.worktree },
+        );
+        expect(park.summaryError).toMatch(/^appending it failed: .*a line of 50 `-`/);
+        const parked = await taskFileAt(repo, park.commit as string);
+        expect(parked).toContain("status: Parked");
+        expect(parked).not.toContain(SECTION_RULE);
+      },
+      { fixture: BACKLOG_FIXTURE },
+    );
+  });
+
+  it("appends no second park block when a retried write finds the story Parked on the branch", async () => {
+    await withTempRepo(
+      async (repo) => {
+        await publish(repo);
+        const s = await claimSetup(repo);
+        const claim = claimed(await claimStory(s.deps(), s.request(s.key()))).claim;
+        const writer = gitParkWriter({ git: () => s.git, cli: s.cli });
+        const block = "Parked 2026-10-22 14:05 UTC: stopped (maintainer)";
+        const first = await writer.write(s.office.officeId, {
+          ...parkRequest(() => block),
+          worktree: claim.worktree,
+        });
+        expect(first.commit).not.toBeNull();
+        // The same park written again, as after a restart between the commit and the record.
+        const again = await writer.write(s.office.officeId, {
+          ...parkRequest(() => block),
+          worktree: claim.worktree,
+        });
+        expect(again.commit).toBeNull();
+        expect(again.summaryError).toBeNull();
+        const tip = (await git(claim.worktree, repo.home, "rev-parse", "HEAD")).trim();
+        expect(tip).toBe(first.commit as string);
+        expect((await taskFileAt(repo, tip)).split(block)).toHaveLength(2);
+      },
+      { fixture: BACKLOG_FIXTURE },
+    );
+  });
+});
