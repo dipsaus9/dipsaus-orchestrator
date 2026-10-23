@@ -26,6 +26,14 @@
 //   regain the capability, or change the mounted tools, and after trying the rule still holds.
 // - Fail-closed against the real path: the firewall of a box that has no box network tools (a
 //   build box before its bootstrap) cannot be set, and says so.
+// - The box user (DIPO-334): as an install script in the build box and as the worker in a box of
+//   the image, every command runs as the fixed non-root uid, and each plant fails in every form
+//   (`PLANTS`: redirection, `tee`, `cp`, a link, quoting with `eval`, `env` and a second
+//   shell, chaining): `/etc/ld.so.preload`, `/etc/ld.so.conf.d`, the tools folder renamed or a
+//   folder of `/` made beside it, a loader or library planted in the tools, `/etc/nsswitch.conf`
+//   and an NSS module in the system's libraries, and root again through setpriv or su. After the
+//   tries none of those files changed, and the next session's firewall still sets and holds. The
+//   box user writes `/work`, its home and dipo's command folder, and runs Claude Code.
 
 import { lookup } from "node:dns/promises";
 import { existsSync } from "node:fs";
@@ -39,7 +47,7 @@ import { cleanEnv, makeTempDir, removeTempDir } from "@dipsaus-orchestrator/test
 
 import { AppleContainerBoxes } from "../../src/box/apple-container";
 import { ensureBoxImage, type BoxImageResult } from "../../src/box/build-box";
-import { BOX_NET_TOOLS_PATH, netToolCommand } from "../../src/box/firewall";
+import { BOX_NET_TOOLS_PATH, BOX_USER_UID, netToolCommand } from "../../src/box/firewall";
 import { BOX_IMAGE_ENV, describeBox } from "../../src/box/image";
 import { BoxError, type BoxNetwork, boxName } from "../../src/box/port";
 import {
@@ -53,6 +61,41 @@ import {
 import { systemClock } from "../../src/platform/clock";
 import { currentPlatform } from "../../src/platform/paths";
 import { systemSpawn } from "../../src/platform/process";
+
+/**
+ * What a box user tries in order to redirect a command dipo runs as root (DIPO-334), each as a
+ * shell line, in the bypass forms: wrappers, quoting, indirection and chaining. Every one must fail.
+ */
+const PLANTS: readonly (readonly [string, string])[] = [
+  ["ld.so.preload by redirection", "echo /tmp/x.so > /etc/ld.so.preload"],
+  ["ld.so.preload by tee", "echo /tmp/x.so | tee /etc/ld.so.preload"],
+  ["ld.so.preload by cp", "echo /tmp/x.so > /tmp/p && cp /tmp/p /etc/ld.so.preload"],
+  ["ld.so.preload through a link", "ln -sf /etc/ld.so.preload /tmp/l && echo /tmp/x.so > /tmp/l"],
+  [
+    "ld.so.preload quoted, through eval",
+    'true && eval \'printf "%s\\n" /tmp/x.so > "/etc/ld.so.preload"\'',
+  ],
+  [
+    "ld.so.preload through env and a second shell",
+    "env sh -c 'echo /tmp/x.so >> /etc/ld.so.preload'",
+  ],
+  ["ld.so.conf.d", "echo /tmp > /etc/ld.so.conf.d/x.conf"],
+  ["the tools folder renamed", `mv ${BOX_NET_TOOLS_PATH} ${BOX_NET_TOOLS_PATH}.old`],
+  ["a folder of / beside the tools", `mkdir ${BOX_NET_TOOLS_PATH}.new`],
+  ["a loader planted in the tools", `cp /bin/true ${BOX_NET_TOOLS_PATH}/ld.so`],
+  ["a library planted in the tools", `cp /bin/true ${BOX_NET_TOOLS_PATH}/lib/libx.so.1`],
+  ["nsswitch.conf", "echo 'passwd: x files' > /etc/nsswitch.conf"],
+  ["an NSS module in /lib", "cp /bin/true /lib/$(uname -m)-linux-gnu/libnss_x.so.2"],
+  ["an NSS module in /usr/lib", "cp /bin/true /usr/lib/libnss_x.so.2"],
+  ["root again through su", "su -c 'echo /tmp/x.so > /etc/ld.so.preload' root </dev/null"],
+];
+
+/** Each outcome of `plant` as it must be: the box user, nothing planted, nothing changed. */
+const expectNothingPlanted = (outcomes: readonly string[]): void => {
+  expect(outcomes[0]).toBe(`uid: ${BOX_USER_UID}`);
+  expect(outcomes.filter((line) => line.endsWith(": planted"))).toEqual([]);
+  expect(outcomes.at(-1)).toBe("files: unchanged");
+};
 
 /** The CI guard of every *.ci.test.ts file (0017 section 1). */
 const inCi = process.env["DIPO_TEST_CI"] === "1";
@@ -209,9 +252,38 @@ if (registers) {
     return tried.stdout.trim();
   };
 
+  /**
+   * The plants of `PLANTS` from inside `box`, contained, and root again through setpriv: every
+   * one's outcome, and whether the files they aim at are as before. Each is a `fact:` line.
+   */
+  const plant = async (box: string, who: string): Promise<string[]> => {
+    const watched = `cat /etc/nsswitch.conf; ls -la ${BOX_NET_TOOLS_PATH} ${BOX_NET_TOOLS_PATH}/lib; ls /etc/ld.so.conf.d; ls /etc/ld.so.preload /lib/*/libnss_x.so.2 /usr/lib/libnss_x.so.2 2>&1`;
+    const before = await boxes.exec(box, ["sh", "-c", watched]);
+    const uid = await boxes.exec(box, ["id", "-u"]);
+    const outcomes = [`uid: ${uid.stdout.trim()}`];
+    const tries: [string, [string, ...string[]]][] = [
+      ...PLANTS.map(([what, line]): [string, [string, ...string[]]] => [what, ["sh", "-c", line]]),
+      [
+        "root again through setpriv",
+        netToolCommand("setpriv", ["--reuid=0", "--regid=0", "--clear-groups", "--", "id", "-u"]),
+      ],
+    ];
+    for (const [what, command] of tries) {
+      const tried = await boxes.exec(box, command);
+      const outcome = tried.code === 0 ? "planted" : "refused";
+      outcomes.push(`${what}: ${outcome}`);
+      fact(`${who}, ${what}: exit ${tried.code}`);
+    }
+    const after = await boxes.exec(box, ["sh", "-c", watched]);
+    outcomes.push(`files: ${after.stdout === before.stdout ? "unchanged" : "changed"}`);
+    fact(`${who}, the files root's commands load from: ${outcomes.at(-1)}`);
+    return outcomes;
+  };
+
   /** Builds the image once for both tests, with the build box probes of criterion 9. */
   let building: Promise<BoxImageResult> | null = null;
   const buildProbes: string[] = [];
+  const planted: string[] = [];
   const built = (): Promise<BoxImageResult> => {
     building ??= (async () => {
       expect(existsSync(join(SAFE_CHAIN_INSTALL, "bin", "safe-chain"))).toBe(true);
@@ -261,6 +333,8 @@ if (registers) {
             const alias = await connect(box, proxy, "registry.npmjs.com:443");
             buildProbes.push(`internet: ${internet}`, `registry alias: ${alias}`);
             fact(`build box, through the web route: example.com ${internet}, alias ${alias}`);
+            // As an install script runs (DIPO-334): the box user, who can plant nothing.
+            planted.push(...(await plant(box, "build box, as an install script")));
           },
         },
         image,
@@ -294,6 +368,7 @@ if (registers) {
             expect(buildProbes.find((line) => line.startsWith("registry alias:"))).toStartWith(
               "registry alias: HTTP/1.1 403",
             );
+            expectNothingPlanted(planted);
           }
           // The image runs Claude Code, and holds neither git nor dipo's build folder.
           const runId = `test-${crypto.randomUUID().slice(0, 8)}`;
@@ -314,6 +389,15 @@ if (registers) {
             expect(git.stdout.trim()).toBe("none");
             const folder = await boxes.exec(name, ["test", "-e", "/dipo-build"]);
             expect(folder.code).not.toBe(0);
+            // The box user writes /work, its home and dipo's command folder (DIPO-334).
+            const writes = await boxes.exec(name, [
+              "sh",
+              "-c",
+              'touch /work/.probe "$HOME/.probe" /dipo/command/pid /dipo/door/.probe && id -u',
+            ]);
+            fact(`box user writes: exit ${writes.code}: ${writes.stderr.trim()}`);
+            expect(writes.code).toBe(0);
+            expect(writes.stdout.trim()).toBe(String(BOX_USER_UID));
           } finally {
             await boxes.delete(name).catch(() => {});
           }
@@ -439,6 +523,12 @@ if (registers) {
               `echo x > ${BOX_NET_TOOLS_PATH}/bin/nft`,
             ]);
             expect(write.code).not.toBe(0);
+            expect(await direct(name, hostAddress, mac.allInterfaces.port)).toBe("closed");
+            // As the worker (DIPO-334): nothing planted, then the next session's firewall still
+            // sets, and holds.
+            expectNothingPlanted(await plant(name, "box, as the worker"));
+            await boxes.firewall(name, { hostAddress, ports: [web.port, mac.model.port] });
+            expect(await direct(name, hostAddress, web.port)).toBe("open");
             expect(await direct(name, hostAddress, mac.allInterfaces.port)).toBe("closed");
             for (const event of events) fact(`web proxy event: ${JSON.stringify(event)}`);
           } finally {
