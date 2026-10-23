@@ -20,6 +20,7 @@ import {
 import { FakeProcess, readRecording } from "@dipsaus-orchestrator/testkit";
 
 import { executeCommand } from "../../src/commands/execute";
+import { CRASH, crashAfterHandler } from "../commands/crash";
 import { stateOfficeDirectory } from "../../src/commands/offices";
 import { buildRegistry } from "../../src/commands/registry";
 import { MemoryRequestTable } from "../../src/commands/requests";
@@ -546,20 +547,26 @@ describe("a tampered worktree", () => {
 });
 
 let requests = 0;
-function stopCommand(story: string, note?: string): Promise<CommandReply> {
+function stopCommand(
+  story: string,
+  note?: string,
+  retry?: { readonly id: string; readonly crash: boolean },
+): Promise<CommandReply> {
   requests += 1;
   const registry = buildRegistry([w.control.feature]);
+  const deps = {
+    registry,
+    offices: stateOfficeDirectory(w.f.t.state),
+    clock: w.f.t.clock,
+    ids: w.f.t.ids,
+    softwareRequests: new MemoryRequestTable(w.f.t.clock),
+  };
   return executeCommand(
-    {
-      registry,
-      offices: stateOfficeDirectory(w.f.t.state),
-      clock: w.f.t.clock,
-      ids: w.f.t.ids,
-      softwareRequests: new MemoryRequestTable(w.f.t.clock),
-    },
+    // A crash after the handler's commits and before the requests row (DIPO-168 in DIPO-155).
+    retry?.crash === true ? crashAfterHandler(deps, "work.stop") : deps,
     {
       requestId: RequestId.parse(
-        `01J9ZK5Q8W3V4X6Y7Z${(90_000 + requests).toString().padStart(8, "0")}`,
+        retry?.id ?? `01J9ZK5Q8W3V4X6Y7Z${(90_000 + requests).toString().padStart(8, "0")}`,
       ),
       name: "work.stop",
       args: { story, ...(note === undefined ? {} : { note }) },
@@ -620,6 +627,29 @@ describe("work.stop", () => {
       "select released_at from claims where office_id = $office_id",
     );
     expect(claim?.released_at).toBeNull();
+  });
+
+  it("sends no second stop and writes no second park when a crash before the requests row makes the retry run the handler again", async () => {
+    track();
+    const sends: unknown[] = [];
+    w.steer = async (_office, _run, ops) => {
+      sends.push(ops);
+      return { ok: true };
+    };
+    const id = "01J9ZK5Q8W3V4X6Y7Z00000009";
+    const crashed = await stopCommand("DIPO-1", "Not now.", { id, crash: true });
+    expect(crashed.ok ? null : crashed.error.message).toContain(CRASH);
+    expect(parks()).toHaveLength(1);
+    const retried = await stopCommand("DIPO-1", "Not now.", { id, crash: false });
+    // The run it stopped has ended: the retry sees that fact and stops nothing again.
+    expect(retried.ok ? null : retried.error.code).toBe(STORY_NOT_RUNNING);
+    expect(sends).toHaveLength(1);
+    expect(parks()).toHaveLength(1);
+    expect(runIntents(w.f.office, w.f.run).filter((intent) => intent.kind === "stop")).toHaveLength(
+      1,
+    );
+    // One park commit on the branch (and its one push).
+    expect(w.writes).toHaveLength(1);
   });
 
   it("fails story.notRunning for a story with no active run, and after the stop", async () => {

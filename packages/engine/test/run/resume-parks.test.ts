@@ -11,14 +11,19 @@ import { join } from "node:path";
 
 import {
   type AgentId,
+  type CommandRequest,
   type OfficeId,
-  type RequestId,
+  RequestId,
   type RunId,
   StoryId,
   type StoryKey,
 } from "@dipsaus-orchestrator/contract";
 
 import { CommandError } from "../../src/commands/errors";
+import { executeCommand, type ExecutorDeps } from "../../src/commands/execute";
+import { stateOfficeDirectory } from "../../src/commands/offices";
+import { buildRegistry } from "../../src/commands/registry";
+import { MemoryRequestTable } from "../../src/commands/requests";
 import type { AsyncCommandContext } from "../../src/commands/registry";
 import { GitError } from "../../src/git/runner";
 import {
@@ -52,6 +57,7 @@ import { encode } from "../../src/workers/claude-cli/encode";
 import type { AdapterHold } from "../../src/workers/hold";
 import type { Caps } from "../../src/workers/types";
 import { insertClaim } from "../../src/worktree/records";
+import { CRASH, crashAfterHandler } from "../commands/crash";
 import { type IngestFixture, ingestFixture } from "../ingest/helpers";
 
 /** Every command counts as implemented. */
@@ -1060,3 +1066,78 @@ function createRunOutcomesWithLift(
     unpark: { lift: async (_office, request) => lift(request) },
   }).resumption;
 }
+
+/** Executor deps with `of`'s `work.resume`; one request table, as one daemon has. */
+function executor(of: Resumption): ExecutorDeps {
+  return {
+    registry: buildRegistry([of.feature]),
+    offices: stateOfficeDirectory(w.f.t.state),
+    clock: w.f.t.clock,
+    ids: w.f.t.ids,
+    softwareRequests: new MemoryRequestTable(w.f.t.clock),
+  };
+}
+
+function resumeRequest(id: string, args: Record<string, unknown>): CommandRequest {
+  return {
+    requestId: RequestId.parse(id),
+    name: "work.resume",
+    args: { story: "DIPO-1", ...args },
+    origin: "cli",
+    confirmed: false,
+    office: w.f.office.officeId as OfficeId,
+  };
+}
+
+describe("work.resume on the waiting command path (0005 note of 2026-10-17, DIPO-168)", () => {
+  it("repeats no lift, grant or session when a crash before the requests row makes the retry run the handler again", async () => {
+    park("verify-failing", "loops");
+    const resuming = resumption();
+    const deps = executor(resuming);
+    const id = "01J9ZK5Q8W3V4X6Y7Z90000004";
+    const crashed = await executeCommand(
+      crashAfterHandler(deps, "work.resume"),
+      resumeRequest(id, { note: "One more try." }),
+    );
+    await resuming.idle();
+    expect(crashed.ok ? null : crashed.error.message).toContain(CRASH);
+    expect([w.lifts.length, w.sessions.length, grants().length]).toEqual([1, 1, 1]);
+    const retried = await executeCommand(deps, resumeRequest(id, { note: "One more try." }));
+    await resuming.idle();
+    expect(retried).toMatchObject({
+      ok: true,
+      result: {
+        story: "DIPO-1",
+        to: "In Progress",
+        run: w.f.run,
+        grants: [{ kind: "loop", count: 1 }],
+      },
+    });
+    expect([w.lifts.length, w.sessions.length, grants().length]).toEqual([1, 1, 1]);
+  });
+
+  it("gives a duplicate that arrives while the first runs the same reply, and resumes once", async () => {
+    park("stopped", "maintainer");
+    let release: (() => void) | undefined;
+    const held = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    const resuming = createRunOutcomesWithLift(async (lifted) => {
+      await held;
+      w.lifts.push(lifted);
+      return { commit: null, pushed: true, pushError: null };
+    });
+    const deps = executor(resuming);
+    const id = "01J9ZK5Q8W3V4X6Y7Z90000005";
+    const first = executeCommand(deps, resumeRequest(id, {}));
+    await Bun.sleep(0);
+    const duplicate = executeCommand(deps, resumeRequest(id, {}));
+    release?.();
+    const [one, two] = await Promise.all([first, duplicate]);
+    await resuming.idle();
+    expect(two).toEqual(one);
+    expect(one).toMatchObject({ ok: true, result: { to: "In Progress", run: w.f.run } });
+    expect(w.lifts).toHaveLength(1);
+    expect(w.sessions).toHaveLength(1);
+  });
+});

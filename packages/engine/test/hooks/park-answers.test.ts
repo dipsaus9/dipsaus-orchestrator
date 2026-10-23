@@ -18,6 +18,7 @@ import {
 } from "@dipsaus-orchestrator/contract";
 
 import { executeCommand } from "../../src/commands/execute";
+import { CRASH, crashAfterHandler } from "../commands/crash";
 import { stateOfficeDirectory } from "../../src/commands/offices";
 import { buildRegistry } from "../../src/commands/registry";
 import { MemoryRequestTable } from "../../src/commands/requests";
@@ -270,19 +271,24 @@ async function replayPark(midway?: () => Promise<void>): Promise<StoredQuestion>
 }
 
 let requests = 0;
-function answer(args: Record<string, unknown>): Promise<CommandReply> {
+function answer(
+  args: Record<string, unknown>,
+  retry?: { readonly id: string; readonly crash: boolean },
+): Promise<CommandReply> {
   requests += 1;
+  const deps = {
+    registry: buildRegistry([w.asks.feature]),
+    offices: stateOfficeDirectory(w.f.t.state),
+    clock: w.f.t.clock,
+    ids: w.f.t.ids,
+    softwareRequests: new MemoryRequestTable(w.f.t.clock),
+  };
   return executeCommand(
-    {
-      registry: buildRegistry([w.asks.feature]),
-      offices: stateOfficeDirectory(w.f.t.state),
-      clock: w.f.t.clock,
-      ids: w.f.t.ids,
-      softwareRequests: new MemoryRequestTable(w.f.t.clock),
-    },
+    // A crash after the handler's commits and before the requests row (DIPO-168 in DIPO-155).
+    retry?.crash === true ? crashAfterHandler(deps, "work.answer") : deps,
     {
       requestId: RequestId.parse(
-        `01J9ZK5Q8W3V4X6Y7Z${(90_000 + requests).toString().padStart(8, "0")}`,
+        retry?.id ?? `01J9ZK5Q8W3V4X6Y7Z${(90_000 + requests).toString().padStart(8, "0")}`,
       ),
       name: "work.answer",
       args,
@@ -476,6 +482,21 @@ describe("the live needs-permission replay", () => {
     // Nothing became a rule: no other question, no config change.
     expect(w.config).toBe(OFFICE_DEFAULTS);
     expect(openQuestions(w.f.office)).toEqual([]);
+  });
+
+  it("resumes once when a crash before the requests row makes the retry run the handler again (DIPO-168)", async () => {
+    const question = await replayPark();
+    const id = "01J9ZK5Q8W3V4X6Y7Z00000008";
+    const args = { question: question.questionId, text: "", decision: "allow" };
+    const crashed = await answer(args, { id, crash: true });
+    expect(crashed.ok ? null : crashed.error.message).toContain(CRASH);
+    expect(w.resumes).toHaveLength(1);
+    // The retry sees the answered question: no second resume, no second close.
+    await answer(args, { id, crash: false });
+    expect(w.resumes).toHaveLength(1);
+    expect(
+      loggedEvents(w.f.office).filter((event) => event.type === "question.closed"),
+    ).toHaveLength(1);
   });
 
   it("deny resumes the run with 'do it without <action>' and allows nothing (AC #2)", async () => {
