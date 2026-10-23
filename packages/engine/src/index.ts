@@ -299,6 +299,7 @@ export type {
   StoryResolution,
 } from "./stories";
 export {
+  activeRunCount,
   activeWorkViews,
   columnCounts,
   columnOf,

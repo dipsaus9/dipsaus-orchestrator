@@ -3,6 +3,7 @@
 // the engine sent it; every state is a word plus an ASCII glyph, colour is extra.
 
 import type { OfficeEntry, OfficeStoreState } from "@dipsaus-orchestrator/client";
+import type { DatabaseUnavailableDetails } from "@dipsaus-orchestrator/contract";
 import { Box, Text } from "ink";
 import type { ReactNode } from "react";
 
@@ -116,6 +117,15 @@ export function offlineBanner(state: OfficeStoreState, ascii: boolean): string |
 }
 
 /** The banner lines for the connection and the daemon state (0009 section 7). */
+/**
+ * The banner line of a daemon held in `recovering` because its state database is unavailable
+ * (DIPO-111, 0009 section 7 as amended by DIPO-120): the reason, and the newest backup when there is one.
+ */
+function databaseLine(database: DatabaseUnavailableDetails, dash: string): string {
+  const backup = database.backup === undefined ? "" : `; newest backup ${database.backup}`;
+  return `Database unavailable ${dash} reason: ${database.reason}${backup}`;
+}
+
 export function bannerLines(state: OfficeStoreState, ascii: boolean): string[] {
   const { dash } = glyphs(ascii);
   const lines: string[] = [];
@@ -124,7 +134,11 @@ export function bannerLines(state: OfficeStoreState, ascii: boolean): string[] {
   switch (state.daemon) {
     case "starting":
     case "recovering":
-      lines.push(`Daemon recovering ${dash} office data after reconcile`);
+      lines.push(
+        state.database === null
+          ? `Daemon recovering ${dash} office data after reconcile`
+          : databaseLine(state.database, dash),
+      );
       break;
     case "draining":
       lines.push(`Daemon stopping ${dash} will reconnect`);
