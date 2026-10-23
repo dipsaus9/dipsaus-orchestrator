@@ -34,6 +34,11 @@ function fake(reply: (sent: Sent) => unknown, workspace: FakeWorkspaceOptions = 
   const err: string[] = [];
   const sent: Sent[] = [];
   const modes: ConnectMode[] = [];
+  const ws = fakeWorkspace({
+    cwd: "/work/dipsaus-orchestrator/src",
+    repository: { ...REPO, office: OFFICE, backlog: true },
+    ...workspace,
+  });
   const deps: CliDeps = {
     writeLine: (line) => out.push(line),
     writeError: (line) => err.push(line),
@@ -63,13 +68,9 @@ function fake(reply: (sent: Sent) => unknown, workspace: FakeWorkspaceOptions = 
     clientChecks: [],
     stamp: undefined,
     runtime: { bun: "1.4.2", os: "linux", arch: "arm64" },
-    workspace: fakeWorkspace({
-      cwd: "/work/dipsaus-orchestrator/src",
-      repository: { ...REPO, office: OFFICE, backlog: true },
-      ...workspace,
-    }),
+    workspace: ws,
   };
-  return { deps, out, err, sent, modes };
+  return { deps, out, err, sent, modes, questions: ws.questions };
 }
 
 function ago(minutes: number): string {
@@ -227,5 +228,35 @@ describe("dipo desk", () => {
     const ctx = fake(() => ({ ok: true, result: [] }));
     expect(await main(["desk", "--all"], ctx.deps)).toBe(2);
     expect(ctx.sent).toEqual([]);
+  });
+});
+
+describe("dipo desk outside an office", () => {
+  it("names a Backlog.md folder that is not an office and asks nothing, even at a terminal", async () => {
+    const ctx = fake(() => ({ ok: true, result: [] }), {
+      interactive: true,
+      answers: ["y"],
+      repository: { ...REPO, backlog: true },
+    });
+    expect(await main(["desk"], ctx.deps)).toBe(1);
+    expect(ctx.questions).toEqual([]);
+    expect(ctx.sent).toEqual([]);
+    expect(ctx.err).toEqual([
+      "dipo: /work/dipsaus-orchestrator is not an office; run `dipo office open` to open it.",
+    ]);
+    expect(ctx.out).toEqual([]);
+  });
+
+  it("asks nothing when the daemon does not know the office of the folder", async () => {
+    const ctx = fake(
+      () => ({ ok: false, error: { code: "office.unknown", message: "no such office" } }),
+      { interactive: true, answers: ["y"] },
+    );
+    expect(await main(["desk"], ctx.deps)).toBe(1);
+    expect(ctx.questions).toEqual([]);
+    expect(ctx.sent.map((sent) => sent.name)).toEqual(["office.desk"]);
+    expect(ctx.err).toEqual([
+      "dipo: /work/dipsaus-orchestrator is not an office; run `dipo office open` to open it.",
+    ]);
   });
 });

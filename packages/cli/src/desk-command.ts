@@ -4,7 +4,7 @@
 // command to type, and the stories held by the maintainer apart at the end. `--json` prints the
 // read's result. An empty desk prints `Nothing waits on you.`. The order, the details and the
 // command lines all come from the engine; this file only lays them out. Read only: it never starts
-// the daemon.
+// the daemon, and never offers to open a folder that is not an office.
 
 import { basename } from "node:path";
 
@@ -106,5 +106,7 @@ export async function deskCommand(
     undefined,
     undefined,
     "running",
+    // Read only: a folder that is not an office is named, never offered to open.
+    false,
   );
 }
