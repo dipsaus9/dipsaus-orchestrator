@@ -6,7 +6,7 @@ title: >-
 status: Refined
 assignee: []
 created_date: '2026-10-23 13:02'
-updated_date: '2026-10-23 13:02'
+updated_date: '2026-10-23 13:14'
 labels:
   - 'tier:M'
 milestone: m-1
@@ -51,10 +51,10 @@ test_plan:
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 Every Backlog CLI call dipo makes (runBacklog) has the CLI write its stdout and stderr to regular files (mode 0600) in a private temp folder; dipo reads them after the process exits, so no pipe sits between the CLI and dipo, and the folder is removed after reading, also on a failure
-- [ ] #2 The incomplete-list error names the bytes received, the last line received and whether the output ended with a newline
-- [ ] #3 The change is tested on real processes, with large output (over 300 KB) and with a CLI stand-in that writes slowly
-- [ ] #4 scripts/check-ready-gate.ts goes through the same path
+- [x] #1 Every Backlog CLI call dipo makes (runBacklog) has the CLI write its stdout and stderr to regular files (mode 0600) in a private temp folder; dipo reads them after the process exits, so no pipe sits between the CLI and dipo, and the folder is removed after reading, also on a failure
+- [x] #2 The incomplete-list error names the bytes received, the last line received and whether the output ended with a newline
+- [x] #3 The change is tested on real processes, with large output (over 300 KB) and with a CLI stand-in that writes slowly
+- [x] #4 scripts/check-ready-gate.ts goes through the same path
 <!-- AC:END -->
 
 ## Implementation Notes
