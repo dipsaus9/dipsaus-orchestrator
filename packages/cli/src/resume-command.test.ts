@@ -104,11 +104,18 @@ describe("dipo resume", () => {
         name: "work.resume",
         args: { story: "DIPO-7", note: "Keep the old flag." },
         office: OFFICE,
-        confirmed: true,
+        // Nothing was asked, so nothing is sent confirmed.
+        confirmed: false,
       },
     ]);
     expect(ctx.ws.questions).toEqual([]);
     expect(ctx.out).toEqual([`resumed DIPO-7 (run ${RUN}); it is In Progress`]);
+  });
+
+  it("sends confirmed only with --yes when nothing was asked", async () => {
+    const ctx = fake(() => resumed());
+    expect(await main(["resume", "DIPO-7", "--yes"], ctx.deps)).toBe(0);
+    expect(ctx.sent.map((sent) => sent.confirmed)).toEqual([true]);
   });
 
   it("prints the queued reply when the session waits for its place", async () => {

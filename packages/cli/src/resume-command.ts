@@ -188,7 +188,8 @@ export async function resumeCommand(
       RESUME_TIMEOUT_MS,
     );
   const pending: { details: ResumeConfirmDetails | null } = { details: null };
-  const code = await send(!asks || options.yes, pending);
+  // Confirmed only with --yes or after the maintainer answered yes below, never by default.
+  const code = await send(options.yes, pending);
   if (code !== 0 || pending.details === null) return code;
   // Asked while no connection is open, so the reply deadline never runs while a person decides.
   deps.writeLine(`Top up ${story}: its caps go from the left to the right.`);
