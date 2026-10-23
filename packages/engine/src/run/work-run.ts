@@ -71,6 +71,7 @@ import type {
   ReadContext,
 } from "../commands/registry";
 import type { OfficeConfig } from "../config";
+import { recordContextPack } from "../context/pack";
 import type { OfficeHandle } from "../db/office";
 import type { BaseCheckout } from "../gate/store/feature";
 import type { GateMode, GateResult } from "../gate/types";
@@ -633,8 +634,10 @@ export class WorkRun {
       );
       // The context pack and input paths the nudges check (0014 section 8, DIPO-60).
       if (prepared !== null) {
-        const { nudgeSources } = prepared.promptSources;
+        const { nudgeSources, pack, headSha } = prepared.promptSources;
         writeNudgeSources(handle, runId, agent, nudgeSources, at);
+        // The pack the task message was built from, with its head and blob ids (0020 section 6).
+        recordContextPack(handle, outcome.claim.worktree, headSha, pack, ctx.clock);
         // The prompt parts of the session's text, measured for the run (0014 section 2).
         recordPromptParts(handle, runId, agent, prepared.parts, ctx.clock);
         // The prompt text itself, with `privacy.storePrompts` on (DIPO-137).
