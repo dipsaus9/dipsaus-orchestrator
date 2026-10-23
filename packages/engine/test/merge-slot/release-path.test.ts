@@ -105,3 +105,30 @@ describe("CODEOWNERS patterns", () => {
     ]);
   });
 });
+
+describe("syntax the matcher does not model (fails closed)", () => {
+  const anyPaths = ["README.md", "packages/engine/src/x.ts", "docs/a b/c.md"];
+
+  it.each([
+    ["an escaped space", "/path\\ with\\ space/ @o"],
+    ["a backslash inside the pattern", "/src/a\\b.ts @o"],
+    ["a trailing backslash", "/src\\ @o"],
+    ["an opening bracket", "/src/[ab].ts @o"],
+    ["a closing bracket", "/src/a].ts @o"],
+    ["a brace", "/src/{a,b}.ts @o"],
+    ["a control character", "/src/a\u0001b @o"],
+  ])("makes %s with an owner own every path", (_name, rule) => {
+    expect(owned(rule, anyPaths)).toEqual(anyPaths.toSorted());
+  });
+
+  it("never lets such a rule without an owner take a path out of the release path", () => {
+    expect(owned("* @o\n/src/[ab].ts\n/docs/{a}\n", ["src/a.ts", "docs/a"])).toEqual([
+      "docs/a",
+      "src/a.ts",
+    ]);
+  });
+
+  it("still reads a leading \\# as a literal #", () => {
+    expect(owned("\\#notes @o", ["#notes", "other"])).toEqual(["#notes"]);
+  });
+});

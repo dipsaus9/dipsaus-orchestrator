@@ -14,7 +14,9 @@
 //   anchors to the root, a slash inside the pattern anchors it too, a trailing `/` matches the
 //   folder's contents, and a pattern that names a folder matches everything below it (except a
 //   last segment of `*`, which GitHub documents as one level only). Negation (`!`) is not part of
-//   GitHub's syntax and such a line is skipped, which can only hold more PRs, never fewer.
+//   GitHub's syntax and such a line is skipped, which can only hold more PRs, never fewer. A rule
+//   with syntax the matcher does not model (`UNMODELLED`) fails closed: with an owner it matches
+//   every path, without one none.
 // - The changed paths are the PR's diff as GitHub shows it: merge base with the base to the head,
 //   renames as a delete and an add, so a file moved out of the release path still touches it.
 
@@ -41,9 +43,26 @@ export function parseCodeowners(text: string): CodeownersRule[] {
       owners.push(token);
     }
     const pattern = first.startsWith("\\#") ? first.slice(1) : first;
-    rules.push({ pattern, owned: owners.length > 0, matches: matcherOf(pattern) });
+    const owned = owners.length > 0;
+    rules.push({ pattern, owned, matches: unmodelled(pattern) ? () => owned : matcherOf(pattern) });
   }
   return rules;
+}
+
+/**
+ * Syntax the matcher does not model: a backslash (other than the leading `\#` read above, so also
+ * an escaped space, whose rest the line split takes for owners), `[`, `]`, `{`, `}` and control
+ * characters. Such a rule fails closed: with an owner it matches every path, without one none,
+ * so it can never take a path out of the release path.
+ */
+const UNMODELLED = "\\[]{}";
+
+/** Pure: true when `pattern` holds syntax the matcher does not model (see `UNMODELLED`). */
+function unmodelled(pattern: string): boolean {
+  return Array.from(pattern).some((c) => {
+    const code = c.charCodeAt(0);
+    return UNMODELLED.includes(c) || code < 0x20 || code === 0x7f;
+  });
 }
 
 /** Pure: the paths of `changed` whose last matching rule names an owner, sorted. */
