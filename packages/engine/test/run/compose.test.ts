@@ -11,10 +11,12 @@ import { StoryId } from "@dipsaus-orchestrator/contract";
 
 import { Nudges } from "../../src/hooks/nudges";
 import { PermissionAsks } from "../../src/hooks/permissions";
+import { fetchAddressRefusal, SYSTEM_FETCH_ADDRESSES } from "../../src/hooks/web-guard";
 import {
   activeSignals,
   composeRuns,
   endRun,
+  fetchAddressesOf,
   FixRounds,
   IN_REVIEW_END,
   insertRun,
@@ -295,4 +297,35 @@ describe("the run service wiring sites", () => {
       }
     });
   }
+});
+
+describe("the box network's live address (DIPO-281, from the DIPO-292 review)", () => {
+  test("reaches the web guard's check as the daemon's source, read for each check", async () => {
+    expect(fetchAddressesOf(undefined)).toBeUndefined();
+    let box: string | null = null;
+    const deps = fetchAddressesOf(() => box);
+    expect(deps?.resolve).toBe(SYSTEM_FETCH_ADDRESSES.resolve);
+    expect(deps?.interfaces).toBe(SYSTEM_FETCH_ADDRESSES.interfaces);
+    // A name that resolves into the box network passes while no box network exists here (the
+    // documentation range stands in for the public internet), and is refused once one does.
+    const fetch = {
+      ...deps!,
+      resolve: async () => ["198.51.100.7"],
+      interfaces: () => [],
+      publicStandIns: ["198.51.100.0/24"],
+    };
+    expect(await fetchAddressRefusal("https://boxes.example/", fetch)).toBeUndefined();
+    box = "198.51.100.1";
+    expect(await fetchAddressRefusal("https://boxes.example/", fetch)).toContain(
+      "is on the box network",
+    );
+  });
+
+  test("is passed to the web guard and to each reviewer's web proxy", () => {
+    const source = readFileSync(join(ROOT, "engine", "src", "run", "compose.ts"), "utf8");
+    expect(source).toContain('...given("fetchAddresses", fetchAddressesOf(ports.boxHostAddress)),');
+    expect(source).toContain('...given("boxHostAddress", ports.boxHostAddress),');
+    const daemon = readFileSync(join(ROOT, "daemon", "src", "runs.ts"), "utf8");
+    expect(daemon).toContain("boxHostAddress: () => boxWorkers.hostAddress");
+  });
 });

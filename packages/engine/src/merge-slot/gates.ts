@@ -10,6 +10,12 @@
 //   is on the PR (`autorelease: pending` always, which no setting removes, and every label of
 //   `mergeSlot.holdLabels`). Otherwise it is decided `approved` by `rule` when it opens, and
 //   recorded, so the audit trail shows every merge decision. `mergeWaits` decides this as data.
+// - The release path (DIPO-331, the 0016 amendment of 2026-10-23). A PR whose diff changes a path
+//   the base's CODEOWNERS gives an owner (`release-path.ts`) needs the maintainer's code owner
+//   approval, which for a PR opened with the maintainer's login is the maintainer's merge on the
+//   host. Its gate waits for the maintainer and is marked hand-merge only (`gates.hand_merge`
+//   `release-path`): `dipo approve` refuses it, dipo never merges it and never passes `--admin`,
+//   and only the hand merge (below) or a reject decides it.
 // - Summary. Built by code: why the gate waits and what to do; for a flagged story the manual
 //   test-plan entries and the worktree path to test in. The gate's phase is `test` for a flagged
 //   story and `merge` otherwise.
@@ -53,13 +59,20 @@ export const AUTORELEASE_LABEL = "autorelease: pending";
 /** The note of a merge gate a hand merge on the host decided (0019 section 11). */
 export const HAND_MERGE_NOTE = "merged on the host";
 
+/** `gates.hand_merge` of a gate whose PR changes the release path (DIPO-331). */
+export const RELEASE_PATH_HOLD = "release-path";
+
+/** Why only a merge on the host decides a merge gate; null for a gate dipo may merge. */
+export type HandMerge = typeof RELEASE_PATH_HOLD;
+
 /** Why a merge gate waits for the maintainer (0019 section 11). */
 export type MergeWait =
   | { readonly kind: "autoMergeOff" }
   | { readonly kind: "testBeforeMerge" }
   | { readonly kind: "maintainerCriteria"; readonly criteria: readonly number[] }
   | { readonly kind: "override" }
-  | { readonly kind: "holdLabel"; readonly labels: readonly string[] };
+  | { readonly kind: "holdLabel"; readonly labels: readonly string[] }
+  | { readonly kind: "releasePath"; readonly paths: readonly string[] };
 
 /** Pure: the labels of `labels` that hold a PR: `autorelease: pending` and `holdLabels`. */
 export function holdLabelsOn(labels: readonly string[], holdLabels: readonly string[]): string[] {
@@ -81,6 +94,8 @@ export interface MergeWaitFacts {
   readonly verdict: Pick<StoredReviewVerdict, "criteria" | "override">;
   /** The PR's labels that hold it (`holdLabelsOn`). */
   readonly holdLabels: readonly string[];
+  /** The release paths the PR's diff changes (`StorySlotGit.releasePaths`); none by default. */
+  readonly releasePaths?: readonly string[];
 }
 
 /** Pure: every reason the merge gate waits for the maintainer; none: it is decided by rule. */
@@ -94,6 +109,8 @@ export function mergeWaits(facts: MergeWaitFacts): MergeWait[] {
   if (maintainer.length > 0) waits.push({ kind: "maintainerCriteria", criteria: maintainer });
   if (facts.verdict.override !== null) waits.push({ kind: "override" });
   if (facts.holdLabels.length > 0) waits.push({ kind: "holdLabel", labels: facts.holdLabels });
+  const release = facts.releasePaths ?? [];
+  if (release.length > 0) waits.push({ kind: "releasePath", paths: release });
   return waits;
 }
 
@@ -110,7 +127,33 @@ export function waitLine(wait: MergeWait): string {
       return "the story passed review only by the maintainer's override";
     case "holdLabel":
       return `the PR carries ${wait.labels.length === 1 ? "the hold label" : "the hold labels"} ${wait.labels.map((label) => `"${label}"`).join(", ")}`;
+    case "releasePath":
+      return `it changes the release path, which needs the maintainer's code owner approval: ${releasePathList(wait.paths)}`;
   }
+}
+
+/** The most release paths a summary or notice names; the rest are counted. */
+const RELEASE_PATHS_NAMED = 10;
+
+/** Pure: the release paths, at most `RELEASE_PATHS_NAMED` of them, and how many more. */
+export function releasePathList(paths: readonly string[]): string {
+  const named = paths.slice(0, RELEASE_PATHS_NAMED).join(", ");
+  const more = paths.length - RELEASE_PATHS_NAMED;
+  return more > 0 ? `${named} and ${more} more` : named;
+}
+
+/** Pure: the hand-merge line of a gate summary, or null when `dipo approve` decides the gate. */
+function handMergeLine(story: string, waits: readonly MergeWait[]): string | null {
+  if (waits.some((wait) => wait.kind === "releasePath")) {
+    return `dipo never merges a PR that changes the release path and never bypasses the code owner review: the maintainer merges it by hand on GitHub, which closes this gate. To send it back instead, reject it with \`dipo reject ${story} --note <text>\`.`;
+  }
+  const held = waits.find(
+    (wait): wait is Extract<MergeWait, { kind: "holdLabel" }> => wait.kind === "holdLabel",
+  );
+  if (held !== undefined && autoreleasePending(held.labels)) {
+    return `It carries "${AUTORELEASE_LABEL}", so dipo never merges it: merge it by hand on GitHub.`;
+  }
+  return null;
 }
 
 /** What a merge gate's summary names. */
@@ -146,18 +189,12 @@ export function mergeGateSummary(facts: MergeSummaryFacts): string {
     );
     if (facts.worktree != null) lines.push(`Test in the story worktree: ${facts.worktree}`);
   }
-  const held = facts.waits.find(
-    (wait): wait is Extract<MergeWait, { kind: "holdLabel" }> => wait.kind === "holdLabel",
+  const hand = handMergeLine(facts.story, facts.waits);
+  const held = facts.waits.some((wait) => wait.kind === "holdLabel");
+  lines.push(
+    hand ??
+      `Approve with \`dipo approve ${facts.story}\` or reject with \`dipo reject ${facts.story} --note <text>\`; a merge by hand on GitHub also closes this gate.${held ? " An approved PR still waits until its hold label is gone." : ""}`,
   );
-  if (held !== undefined && autoreleasePending(held.labels)) {
-    lines.push(
-      `It carries "${AUTORELEASE_LABEL}", so dipo never merges it: merge it by hand on GitHub.`,
-    );
-  } else {
-    lines.push(
-      `Approve with \`dipo approve ${facts.story}\` or reject with \`dipo reject ${facts.story} --note <text>\`; a merge by hand on GitHub also closes this gate.${held === undefined ? "" : " An approved PR still waits until its hold label is gone."}`,
-    );
-  }
   return lines.join("\n");
 }
 
@@ -206,6 +243,8 @@ export interface StoredMergeGate {
   readonly summary: string;
   /** The review gate whose blocked verdict this gate overrides; null for a plain merge gate. */
   readonly overrideOf: GateId | null;
+  /** Why only a merge on the host decides it (DIPO-331); null for a gate dipo may merge. */
+  readonly handMerge: HandMerge | null;
   readonly openedAt: number;
   readonly decision: {
     readonly decision: "approved" | "rejected";
@@ -223,6 +262,7 @@ interface GateRow {
   waiting_on: "maintainer" | "rule";
   summary: string;
   override_of: string | null;
+  hand_merge: string | null;
   opened_at: number;
   decision: "approved" | "rejected" | null;
   decided_by: "maintainer" | "rule" | null;
@@ -231,7 +271,7 @@ interface GateRow {
 }
 
 const SELECT = `select g.gate_id, g.run_id, g.key, g.head_sha, g.waiting_on, g.summary,
-    g.override_of, g.opened_at, d.decision, d.decided_by, d.note, d.decided_at
+    g.override_of, g.hand_merge, g.opened_at, d.decision, d.decided_by, d.note, d.decided_at
   from gates g
   left join gate_decisions d on d.office_id = g.office_id and d.gate_id = g.gate_id
   where g.office_id = $office_id and g.kind = 'merge'`;
@@ -245,6 +285,7 @@ function toGate(row: GateRow): StoredMergeGate {
     waitingOn: row.waiting_on,
     summary: row.summary,
     overrideOf: row.override_of as GateId | null,
+    handMerge: row.hand_merge === RELEASE_PATH_HOLD ? RELEASE_PATH_HOLD : null,
     openedAt: row.opened_at,
     decision:
       row.decision === null || row.decided_by === null || row.decided_at === null
@@ -321,11 +362,14 @@ export function openMergeGate(
 ): { readonly gate: StoredMergeGate; readonly entries: NewEntry[] } {
   const gate = ids.next("gat") as GateId;
   const waitingOn = input.waits.length === 0 && input.overrideOf == null ? "rule" : "maintainer";
+  const hand = input.waits.some((wait) => wait.kind === "releasePath") ? RELEASE_PATH_HOLD : null;
   office.run(
     `insert into gates (office_id, gate_id, kind, key, run_id, opened_at, waiting_on, summary,
-       head_sha, override_of)
-     values ($office_id, $gate, 'merge', $key, $run, $at, $waiting, $summary, $head, $override)`,
+       head_sha, override_of, hand_merge)
+     values ($office_id, $gate, 'merge', $key, $run, $at, $waiting, $summary, $head, $override,
+       $hand)`,
     {
+      hand,
       gate,
       key: input.key,
       run: input.runId,

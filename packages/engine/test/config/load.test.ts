@@ -149,13 +149,13 @@ describe("validation", () => {
   });
 
   it("refuses a newer version with a message to upgrade dipo", () => {
-    const [error] = errors(resolveOfficeConfig({ office: "version: 13\nnewKey: true\n" }));
+    const [error] = errors(resolveOfficeConfig({ office: "version: 14\nnewKey: true\n" }));
     expect(error?.path).toBe("version");
     expect(error?.message).toContain("upgrade dipo");
   });
 
   it("refuses a newer version in the local file too", () => {
-    const [error] = errors(resolveOfficeConfig({ local: "version: 13\n" }));
+    const [error] = errors(resolveOfficeConfig({ local: "version: 14\n" }));
     expect(error?.file).toBe(".dipo/office.local.yaml");
     expect(error?.message).toContain("upgrade dipo");
   });
@@ -486,7 +486,7 @@ describe("office configuration version 2", () => {
   it("loads a version 1 file migrated to version 5, the same as its version 2 form", () => {
     const v1 = ok(resolveOfficeConfig({ office: fixture("office-v1.yaml") }));
     const v2 = ok(resolveOfficeConfig({ office: fixture("office-v2.yaml") }));
-    expect(v1.config.version).toBe(12);
+    expect(v1.config.version).toBe(13);
     expect(v1.config.worker).toEqual({
       adapter: "claude-cli",
       allowProjectSettings: ["model"],
@@ -532,7 +532,7 @@ describe("office configuration version 2", () => {
       ["version: 3\n", "version: 2\nretention: { shortDays: 3 }\n"],
     ] as const) {
       const result = ok(resolveOfficeConfig({ office, local }));
-      expect(result.config.version).toBe(12);
+      expect(result.config.version).toBe(13);
       expect(result.config.retention.shortDays).toBe(3);
     }
   });
@@ -735,7 +735,7 @@ describe("office configuration version 4: local toolchain read paths", () => {
       }),
     );
     expect(v4.config).toEqual(v3.config);
-    expect(v4.config.version).toBe(12);
+    expect(v4.config.version).toBe(13);
   });
 });
 
@@ -743,7 +743,7 @@ describe("office configuration version 4: local toolchain read paths", () => {
 describe("office configuration version 6", () => {
   it("gives a version 5 file the default step phrases", () => {
     const v5 = ok(resolveOfficeConfig({ office: "version: 5\n" }));
-    expect(v5.config.version).toBe(12);
+    expect(v5.config.version).toBe(13);
     expect(v5.config.story.maintainerStepPhrases).toEqual(
       OFFICE_DEFAULTS.story.maintainerStepPhrases,
     );
@@ -778,7 +778,7 @@ describe("office configuration version 6", () => {
 describe("office configuration version 7", () => {
   it("migrates a version 6 file in memory and opens the story PR by default", () => {
     const v6 = ok(resolveOfficeConfig({ office: "version: 6\n" }));
-    expect(v6.config.version).toBe(12);
+    expect(v6.config.version).toBe(13);
     expect(v6.config.storyPr).toEqual({ open: true });
     expect(ok(resolveOfficeConfig({})).config.storyPr.open).toBe(true);
   });
@@ -827,7 +827,7 @@ describe("office configuration version 7", () => {
         local: fixture("office-local-v4.yaml"),
       }),
     );
-    expect(result.config.version).toBe(12);
+    expect(result.config.version).toBe(13);
     expect(result.config.storyPr.open).toBe(false);
     expect(result.config.timeouts.workerStallMinutes).toBe(25);
     expect(result.config.privacy.keepRawEvents).toBe(true);
@@ -860,7 +860,7 @@ describe("office configuration version 7", () => {
 describe("office configuration version 8", () => {
   it("migrates a version 7 file in memory and gives the developer web tools by default", () => {
     const v7 = ok(resolveOfficeConfig({ office: "version: 7\nstoryPr: { open: false }\n" }));
-    expect(v7.config.version).toBe(12);
+    expect(v7.config.version).toBe(13);
     expect(v7.config.worker.web).toBe(true);
     expect(v7.config.storyPr.open).toBe(false);
     expect(ok(resolveOfficeConfig({})).config.worker.web).toBe(true);
@@ -914,7 +914,7 @@ describe("office configuration version 8", () => {
 describe("office configuration version 5", () => {
   it("migrates a version 3 file to version 5 and gives the new keys their defaults", () => {
     const v3 = ok(resolveOfficeConfig({ office: fixture("office-v3.yaml") }));
-    expect(v3.config.version).toBe(12);
+    expect(v3.config.version).toBe(13);
     expect(v3.config.review).toEqual({
       model: "opus",
       effort: "high",
@@ -1083,7 +1083,7 @@ box:
 
   it("migrates a version 8 file to the newest version with no box block", () => {
     const result = ok(resolveOfficeConfig({ office: "version: 8\nworker: { web: false }\n" }));
-    expect(result.config.version).toBe(12);
+    expect(result.config.version).toBe(13);
     expect(result.config.box).toEqual({});
   });
 
@@ -1137,7 +1137,7 @@ describe("office configuration version 10", () => {
         office: "version: 9\npermissions: { ask: never, presentMinutes: 15 }\n",
       }),
     );
-    expect(result.config.version).toBe(12);
+    expect(result.config.version).toBe(13);
     expect(result.config.permissions).toEqual({ ask: "never" });
     expect(result.warnings).toEqual([
       {
@@ -1209,7 +1209,7 @@ describe("office configuration version 11", () => {
       ok(resolveOfficeConfig({ office: "version: 10\n" })),
       ok(resolveOfficeConfig({})),
     ]) {
-      expect(result.config.version).toBe(12);
+      expect(result.config.version).toBe(13);
       expect(result.config.story.securityPhrases).toEqual([
         "deny rule",
         "deny rules",
@@ -1260,5 +1260,46 @@ describe("office configuration version 11", () => {
         office: "version: 11\nstory: { securityCriteriaPhrases: { other: [x] } }\n",
       }).ok,
     ).toBe(false);
+  });
+});
+
+// Version 12 (DIPO-282): box.localPorts, the local ports of the Mac a box may reach through the
+// web proxy; none by default.
+describe("office configuration version 12", () => {
+  it("gives a version 11 file and no file no listed local port", () => {
+    for (const result of [
+      ok(resolveOfficeConfig({ office: "version: 11\n" })),
+      ok(resolveOfficeConfig({})),
+    ]) {
+      expect(result.config.version).toBe(13);
+      expect(result.config.box.localPorts).toBeUndefined();
+    }
+  });
+
+  it("takes the listed local ports of a version 12 file", () => {
+    const result = ok(
+      resolveOfficeConfig({ office: "version: 12\nbox:\n  localPorts: [5432, 8080]\n" }),
+    );
+    expect(result.config.box.localPorts).toEqual([5432, 8080]);
+  });
+
+  it("refuses box.localPorts in a version 11 file and says version 12 adds it", () => {
+    const [error, ...rest] = errors(
+      resolveOfficeConfig({ office: "version: 11\nbox: { localPorts: [5432] }\n" }),
+    );
+    expect(rest).toEqual([]);
+    expect(error?.message).toContain("Version 12 adds box.localPorts");
+    expect(error?.message).toContain("set version: 12 to use it");
+  });
+
+  it("refuses a port out of range, a repeat, and the key in office.local.yaml", () => {
+    for (const ports of ["[0]", "[65536]", "[5432, 5432]", "[x]"]) {
+      expect(
+        resolveOfficeConfig({ office: `version: 12\nbox: { localPorts: ${ports} }\n` }).ok,
+      ).toBe(false);
+    }
+    expect(resolveOfficeConfig({ local: "version: 12\nbox: { localPorts: [5432] }\n" }).ok).toBe(
+      false,
+    );
   });
 });

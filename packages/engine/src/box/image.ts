@@ -9,19 +9,21 @@
 //   same commit.
 // - The Node.js tarball is checked against a sha256 dipo pins per version (`NODE_TARBALL_SHA256`).
 // - The build fails when git ends up in the image (0021 decision 4).
-// - dipo writes the build file itself (`boxBuildFile`), in a folder it made, and builds it with the
-//   box backend. A build file in the repository is never read.
-// - The image tag is a sha256 of that build file, which is made from the image description alone:
+// - dipo writes the build's two scripts itself (`boxBuildScripts`); a build file in the repository
+//   is never read. The image is built in a build box on the host-only box network and made by
+//   committing that box (`build-box.ts`, DIPO-281); `container build` is not used.
+// - The image tag is a sha256 of the scripts, which are made from the image description alone:
 //   an unchanged description reuses its image, a changed one builds a new one.
-// - The build reaches the network only through dipo's proxy (`BoxBuildProxy`): its address is a
-//   build argument, and Safe-Chain's CA bundle is a file in the build folder, mounted only during
-//   the npm step and never part of the image. npm installs (Claude Code, Bun, pnpm, Yarn) go to
-//   the registry through Safe-Chain.
-// - Claude Code's auto-update and nonessential traffic are off in the image (0021 section 4).
+// - The build reaches the network only through dipo's web route, as a worker box does: its address
+//   is in the scripts' environment, Safe-Chain's CA bundle is a file in dipo's build folder, removed
+//   before the commit. npm installs (Claude Code, Bun, pnpm, Yarn) go to the registry through
+//   Safe-Chain. The install steps run contained and behind the box firewall (`firewall.ts`).
+// - Claude Code's auto-update and nonessential traffic are off in every command of the image's
+//   boxes (`BOX_IMAGE_ENV`, 0021 section 4).
+// - The block's `localPorts` (version 12, DIPO-282) is no part of the image: it says which local
+//   ports of the Mac the office's boxes reach through the web route.
 
 import { createHash } from "node:crypto";
-import { mkdtemp, readFile, realpath, rm, writeFile } from "node:fs/promises";
-import { join } from "node:path";
 
 import { configError } from "@dipsaus-orchestrator/contract";
 
@@ -29,20 +31,12 @@ import { OFFICE_FILE, resolveOfficeConfig } from "../config/load";
 import type { ConfigError } from "../config/load";
 import type { OfficeBoxSection } from "../config/schema";
 import type { GitSession, OfficeGit } from "../git/office";
-import { isCertificateBundle } from "../sandbox/safe-chain-proxy";
 import { type BoxTool, type DetectedBoxToolchain, detectBoxToolchain } from "../scan/detect/box";
 import { detect } from "../scan/detect/detect";
 import { BUN_VERSION_FILE, LOCKFILES, ROOT_MANIFEST, RUNTIME_FILES } from "../scan/detect/manifest";
 import type { Probe } from "../scan/detect/types";
-import { BUILD_PROXY_ARG } from "./apple-args";
-import {
-  BOX_BUILD_CA_FILE,
-  BOX_BUILD_FILE,
-  BOX_IMAGE_REPOSITORY,
-  BoxError,
-  type BoxCallOptions,
-  type BoxPort,
-} from "./port";
+import { BOX_NET_TOOLS_PATH } from "./firewall";
+import { BOX_BUILD_CA_FILE, BOX_IMAGE_REPOSITORY, BoxError } from "./port";
 
 /** dipo's defaults for what neither the box block nor the repository pins. */
 export const BOX_DEFAULTS = {
@@ -98,10 +92,14 @@ export interface BoxFileEntry {
   readonly noRealSecrets: true;
 }
 
-/** The whole box of an office: its image and the files outside git a box may get. */
+/**
+ * The whole box of an office: its image, the files outside git a box may get, and the local ports
+ * of the Mac its boxes reach through the web route (DIPO-282), sorted.
+ */
 export interface BoxDescription {
   readonly image: BoxImageDescription;
   readonly files: readonly BoxFileEntry[];
+  readonly localPorts: readonly number[];
 }
 
 const EXACT = /^\d+\.\d+\.\d+$/;
@@ -152,7 +150,13 @@ export function describeBox(
       claudeCode: section?.claudeCode ?? BOX_DEFAULTS.claudeCode,
     },
     files: section?.files ?? [],
+    localPorts: sortedPorts(section),
   };
+}
+
+/** The listed local ports (DIPO-282), each once, in order; none when the block lists none. */
+function sortedPorts(section: OfficeBoxSection | undefined): number[] {
+  return [...new Set(section?.localPorts)].toSorted((a, b) => a - b);
 }
 
 function refuse(message: string, details: Readonly<Record<string, unknown>>): never {
@@ -199,28 +203,72 @@ export function checkImageDescription(image: BoxImageDescription): BoxImageDescr
   return image;
 }
 
-/** One RUN step: its commands joined so the shell stops at the first failure. */
-function run(commands: readonly string[], mount?: string): string {
-  const head = mount === undefined ? "RUN set -eu; \\" : `RUN ${mount} \\\n    set -eu; \\`;
+/** The environment variable that carries the web route's address into a build's scripts. */
+export const BUILD_PROXY_ENV = "DIPO_PROXY";
+/** Where a build box gets dipo's build folder: its two scripts and the Safe-Chain CA bundle. */
+export const BUILD_DIR_IN_BOX = "/dipo-build";
+/** The bootstrap script's name in the build folder. */
+export const BUILD_BOOTSTRAP_SCRIPT = "bootstrap.sh";
+/** The build script's name in the build folder. */
+export const BUILD_STEPS_SCRIPT = "build.sh";
+
+/**
+ * The environment every command in a box of the office image gets (0021 section 4): Claude Code's
+ * auto-update and nonessential traffic off, and npm's update notice off. An image made by commit
+ * keeps its base image's settings, so dipo passes these with each command instead.
+ */
+export const BOX_IMAGE_ENV: Readonly<Record<string, string>> = {
+  DISABLE_AUTOUPDATER: "1",
+  CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC: "1",
+  NPM_CONFIG_UPDATE_NOTIFIER: "false",
+};
+
+/** The CA bundle inside the build box, for the npm step. */
+const CA_IN_BUILD = `${BUILD_DIR_IN_BOX}/${BOX_BUILD_CA_FILE}`;
+/** apt through the web route; `checked` false only for the steps that run before the CAs exist. */
+const apt = (checked: boolean) =>
+  `apt-get -o Acquire::https::Proxy="$proxy"${checked ? "" : " -o Acquire::https::Verify-Peer=false -o Acquire::https::Verify-Host=false"}`;
+
+/** A script: a comment, `set -eu`, the route's address, and its lines. */
+function script(comment: readonly string[], lines: readonly string[]): string {
   return [
-    head,
-    ...commands.map((command, at) => `    ${command}${at < commands.length - 1 ? "; \\" : ""}`),
+    "#!/bin/sh",
+    ...comment.map((line) => `# ${line}`),
+    "set -eu",
+    `proxy="\${${BUILD_PROXY_ENV}:?the build has no web route}"`,
+    ...lines,
+    "",
   ].join("\n");
 }
 
-/** The CA bundle inside the build, only while the npm step runs. */
-const CA_IN_BUILD = `/run/dipo/${BOX_BUILD_CA_FILE}`;
-/** apt through the proxy; `checked` false only for the step that installs the CAs. */
-const apt = (checked: boolean) =>
-  `apt-get -o Acquire::https::Proxy="$${BUILD_PROXY_ARG}"${checked ? "" : " -o Acquire::https::Verify-Peer=false -o Acquire::https::Verify-Host=false"}`;
+/** What an office image is built from: the base image and dipo's two scripts. */
+export interface BoxBuildScripts {
+  /** Debian's slim image of the release, pulled on the Mac. */
+  readonly base: string;
+  /**
+   * The first step, with the build box's capabilities and before any package's install script
+   * runs: Debian's archive lists over https through the web route, and the box network tools
+   * (`firewall.ts`) extracted from Debian's packages without running their scripts, with their
+   * libraries and loader, to `BOX_NET_TOOLS_PATH`. Only programs of the base image run.
+   */
+  readonly bootstrap: string;
+  /**
+   * The install steps, contained and behind the box firewall: the CA certificates, curl and the
+   * office's Debian packages, Node.js checked against its pinned sha256, Claude Code and the
+   * package managers from npm through Safe-Chain, the version checks, and the check that git is
+   * not in the image. It removes dipo's build folder and the tools' copy at its end.
+   */
+  readonly build: string;
+}
 
 /**
- * The build file of `image`, written by dipo (never read from a repository). Pure: the same
+ * The scripts of `image`, written by dipo (never read from a repository). Pure: the same
  * description always gives the same text, so the image tag (`boxImageTag`) is a hash of it.
  */
-export function boxBuildFile(image: BoxImageDescription): string {
+export function boxBuildScripts(image: BoxImageDescription): BoxBuildScripts {
   const { debian, toolchain, nodeSha256, packages, claudeCode } = checkImageDescription(image);
   const node = toolchain.node;
+  const tools = BOX_NET_TOOLS_PATH;
   // One case per architecture: its pinned sum, or a refusal when the description has none.
   const nodeCases = NODE_ARCHES.map((arch) => {
     const sum = nodeSha256[arch];
@@ -228,7 +276,6 @@ export function boxBuildFile(image: BoxImageDescription): string {
       ? `${DEBIAN_ARCH[arch]}) echo "no pinned Node.js sha256 for ${arch}" >&2; exit 1 ;;`
       : `${DEBIAN_ARCH[arch]}) arch=${arch}; sum=${sum} ;;`;
   }).join(" ");
-  const proxy = `"$${BUILD_PROXY_ARG}"`;
   const npmPackages = [
     ...NPM_TOOLS.flatMap((tool) =>
       toolchain[tool] === undefined ? [] : [`${tool}@${toolchain[tool]}`],
@@ -239,187 +286,84 @@ export function boxBuildFile(image: BoxImageDescription): string {
     ...NPM_TOOLS.filter((tool) => toolchain[tool] !== undefined).map((tool) => `${tool} --version`),
     "claude --version",
   ];
-  return [
-    "# The box image of a dipo office (0021 sections 4 and 5, DIPO-266). dipo wrote this file from",
-    "# the office's box description; it never builds from a file in the repository.",
-    `FROM docker.io/library/debian:${debian}-slim`,
-    "",
-    "# dipo's proxy, the build's only way out: registries through Safe-Chain, other hosts on the",
-    "# public internet only. Safe-Chain's CA bundle is mounted for the npm step only.",
-    `ARG ${BUILD_PROXY_ARG}`,
-    "ARG DEBIAN_FRONTEND=noninteractive",
-    "",
-    "# Debian's archive over https through the proxy. The archive is signed, so the step that",
-    "# installs the CA certificates may skip the TLS check that needs them; every later step checks.",
-    run([
-      `[ -n ${proxy} ]`,
+  const bootstrap = script(
+    [
+      "The first step of a dipo office image build (DIPO-281). It runs before the box firewall, so",
+      "it runs only programs of Debian's base image and no package's install script.",
+    ],
+    [
       'for list in /etc/apt/sources.list /etc/apt/sources.list.d/*; do if [ -f "$list" ]; then sed -i "s|http://|https://|g" "$list"; fi; done',
+      `${apt(false)} update`,
+      "want=nftables",
+      'if [ ! -x /usr/bin/setpriv ]; then want="$want setpriv"; fi',
+      `${apt(false)} install -y --no-install-recommends --download-only $want`,
+      `stage=/opt/dipo-stage; tools=${tools}`,
+      'rm -rf "$stage" "$tools"',
+      'mkdir -p "$stage" "$tools/bin" "$tools/lib"',
+      'for deb in /var/cache/apt/archives/*.deb; do dpkg-deb -x "$deb" "$stage"; done',
+      'setpriv=/usr/bin/setpriv; if [ ! -x "$setpriv" ]; then setpriv="$stage/usr/bin/setpriv"; fi',
+      'cp -L "$stage/usr/sbin/nft" "$tools/bin/nft"',
+      'cp -L "$setpriv" "$tools/bin/setpriv"',
+      'cp -L /usr/bin/tail "$tools/bin/tail"',
+      'multiarch="$(uname -m)-linux-gnu"',
+      'libs="$stage/usr/lib/$multiarch:$stage/lib/$multiarch"',
+      'for bin in "$tools"/bin/*; do',
+      '  needs="$(LD_LIBRARY_PATH="$libs" ldd "$bin")"',
+      '  if printf "%s\\n" "$needs" | grep -q "not found"; then echo "$bin needs a library the box lacks" >&2; exit 1; fi',
+      '  for lib in $(printf "%s\\n" "$needs" | sed -n "s/.*=> \\(\\/[^ ]*\\) .*/\\1/p"); do cp -L "$lib" "$tools/lib/"; done',
+      '  loader="$(printf "%s\\n" "$needs" | sed -n "s/^[[:space:]]*\\(\\/[^ ]*\\) (0x.*/\\1/p" | head -n 1)"',
+      '  if [ -n "$loader" ]; then cp -L "$loader" "$tools/ld.so"; fi',
+      "done",
+      '[ -f "$tools/ld.so" ]',
+      'for tool in nft setpriv tail; do "$tools/ld.so" --library-path "$tools/lib" "$tools/bin/$tool" --version >/dev/null; done',
+      'chmod -R a+rX,go-w "$tools"',
+      'rm -rf "$stage" /var/cache/apt/archives/*.deb /var/lib/apt/lists/*',
+    ],
+  );
+  const build = script(
+    [
+      "The install steps of a dipo office image build (DIPO-281). They run contained and behind the",
+      "box firewall: the web route is the only way out, registries go through Safe-Chain.",
+    ],
+    [
+      "export DEBIAN_FRONTEND=noninteractive",
+      "# Debian's archive is signed, so the step that installs the CA certificates may skip the TLS",
+      "# check that needs them; every later step checks.",
       `${apt(false)} update`,
       `${apt(false)} install -y --no-install-recommends ca-certificates`,
       `${apt(true)} update`,
       `${apt(true)} install -y --no-install-recommends ${["curl", ...packages].join(" ")}`,
       "rm -rf /var/lib/apt/lists/*",
-    ]),
-    "",
-    "# Node.js (with npm) from nodejs.org, checked against the sha256 dipo pins for the release.",
-    run([
+      "# Node.js (with npm) from nodejs.org, checked against the sha256 dipo pins for the release.",
       `case "$(dpkg --print-architecture)" in ${nodeCases} *) echo "no pinned Node.js tarball for this architecture" >&2; exit 1 ;; esac`,
       `name="node-v${node}-linux-$arch.tar.gz"`,
       "cd /tmp",
-      `curl --proxy ${proxy} -fsSLO "https://nodejs.org/dist/v${node}/$name"`,
+      `curl --proxy "$proxy" -fsSLO "https://nodejs.org/dist/v${node}/$name"`,
       'echo "$sum  $name" | sha256sum -c -',
       'tar -xzf "$name" -C /usr/local --strip-components=1 --no-same-owner --exclude="*/CHANGELOG.md" --exclude="*/LICENSE" --exclude="*/README.md"',
       'rm -f "$name"',
       "node --version",
-    ]),
-    "",
-    "# Claude Code is pinned; its auto-update and nonessential traffic are off (0021 section 4).",
-    "ENV DISABLE_AUTOUPDATER=1 \\",
-    "    CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC=1 \\",
-    "    NPM_CONFIG_UPDATE_NOTIFIER=false",
-    "",
-    "# Claude Code and the package managers from npm, through Safe-Chain at the pinned versions.",
-    run(
-      [
-        `HTTPS_PROXY=${proxy} HTTP_PROXY=${proxy} NODE_EXTRA_CA_CERTS=${CA_IN_BUILD} npm install --global --no-fund --no-audit --https-proxy=${proxy} --proxy=${proxy} ${npmPackages.join(" ")}`,
-        "npm cache clean --force",
-        ...checks,
-      ],
-      `--mount=type=bind,source=${BOX_BUILD_CA_FILE},target=${CA_IN_BUILD}`,
-    ),
-    "",
-    "# No git in a box (0021 decision 4): the build fails when any package brought it in.",
-    'RUN if command -v git >/dev/null 2>&1 || dpkg -s git >/dev/null 2>&1; then echo "git is in the box image; a package pulled it in (0021 decision 4)" >&2; exit 1; fi',
-    "",
-  ].join("\n");
+      "# Claude Code and the package managers from npm, through Safe-Chain at the pinned versions;",
+      "# Claude Code's auto-update and nonessential traffic are off (0021 section 4).",
+      ...Object.entries(BOX_IMAGE_ENV).map(([key, value]) => `export ${key}=${value}`),
+      `HTTPS_PROXY="$proxy" HTTP_PROXY="$proxy" NODE_EXTRA_CA_CERTS=${CA_IN_BUILD} npm install --global --no-fund --no-audit --https-proxy="$proxy" --proxy="$proxy" ${npmPackages.join(" ")}`,
+      "npm cache clean --force",
+      ...checks,
+      "# No git in a box (0021 decision 4): the build fails when any package brought it in.",
+      'if command -v git >/dev/null 2>&1 || dpkg -s git >/dev/null 2>&1; then echo "git is in the box image; a package pulled it in (0021 decision 4)" >&2; exit 1; fi',
+      `rm -rf ${BUILD_DIR_IN_BOX} ${tools} /root/.npm`,
+    ],
+  );
+  return { base: `docker.io/library/debian:${debian}-slim`, bootstrap, build };
 }
 
-/** `dipo-box:<sha256 of the build file>`: the image of one description. */
+/** `dipo-box:<sha256 of the build scripts>`: the image of one description. */
 export function boxImageTag(image: BoxImageDescription): string {
-  const hash = createHash("sha256").update(boxBuildFile(image)).digest("hex");
+  const { base, bootstrap, build } = boxBuildScripts(image);
+  const hash = createHash("sha256")
+    .update(`dipo box image, built in a box (DIPO-281)\n${base}\n${bootstrap}\n${build}`)
+    .digest("hex");
   return `${BOX_IMAGE_REPOSITORY}:${hash}`;
-}
-
-/** dipo's proxy the build reaches the network through. */
-export interface BoxBuildProxy {
-  /** `http://<host>:<port>`, reachable from the builder. */
-  readonly url: string;
-  /** Safe-Chain's CA bundle (PEM certificates only), as the proxy wrote it. */
-  readonly caFile: string;
-}
-
-export interface BoxImageRequest {
-  readonly boxes: Pick<BoxPort, "hasImage" | "buildImage">;
-  readonly image: BoxImageDescription;
-  readonly proxy: BoxBuildProxy;
-  /** A private folder of dipo's, outside any repository, where the build folder is made. */
-  readonly scratchRoot: string;
-  readonly options?: BoxCallOptions;
-}
-
-export interface BoxImageResult {
-  readonly tag: string;
-  /** False when an image of this description already existed and was reused. */
-  readonly built: boolean;
-}
-
-/** Builds in flight, by tag: a second request for the same image waits for the first. */
-const building = new Map<string, Promise<BoxImageResult>>();
-
-async function build(request: BoxImageRequest, tag: string): Promise<BoxImageResult> {
-  if (await request.boxes.hasImage(tag, request.options)) return { tag, built: false };
-  const ca = await readFile(request.proxy.caFile, "utf8");
-  if (!isCertificateBundle(ca)) {
-    refuse("the build's CA bundle is not PEM certificates.", { caFile: request.proxy.caFile });
-  }
-  const contextDir = await realpath(await mkdtemp(join(request.scratchRoot, "box-build-")));
-  try {
-    // The folder holds only what dipo writes here: the build file and the CA bundle.
-    await writeFile(join(contextDir, BOX_BUILD_FILE), boxBuildFile(request.image), {
-      flag: "wx",
-      mode: 0o600,
-    });
-    await writeFile(join(contextDir, BOX_BUILD_CA_FILE), ca, { flag: "wx", mode: 0o600 });
-    await request.boxes.buildImage(
-      { tag, contextDir, proxyUrl: request.proxy.url },
-      request.options,
-    );
-    return { tag, built: true };
-  } finally {
-    await rm(contextDir, { recursive: true, force: true });
-  }
-}
-
-/**
- * The image of `request.image`: reused when its tag exists, built once otherwise. The build has
- * the backend's build deadline (`BOX_BUILD_TIMEOUT_MS`) unless the options name another.
- */
-export function ensureBoxImage(request: BoxImageRequest): Promise<BoxImageResult> {
-  const tag = boxImageTag(request.image);
-  const pending = building.get(tag);
-  if (pending !== undefined) return pending;
-  const started = build(request, tag).finally(() => building.delete(tag));
-  building.set(tag, started);
-  return started;
-}
-
-/** The image builder while builds use it: how many, and whether dipo stops it after the last. */
-interface BuilderLease {
-  users: number;
-  /** True when the builder did not run before the first of these builds. */
-  readonly stopAfter: Promise<boolean>;
-}
-
-/** The builds that use the builder now; one lease for all, so one build never stops another's. */
-let builderLease: BuilderLease | undefined;
-/** The last lease's stop: a new lease reads the builder's state only once that stop is done. */
-let builderStopping: Promise<void> = Promise.resolve();
-
-/**
- * Runs `use`, the steps of one image build that start and use the builder (`buildNetwork`, the
- * build proxy, `ensureBoxImage`), and stops the builder again after them when it did not run
- * before (DIPO-298): the builder keeps two CPUs and 2 GB while it runs. It is stopped whether the
- * build passed or failed; a builder that already ran is left running. Builds at the same time
- * share one lease, so the builder is stopped only after the last of them. A status read that fails
- * or times out counts as a builder that was not running, and a failed stop does not change the
- * build's result: neither ever fails a build.
- */
-export async function withImageBuilder<T>(
-  boxes: Pick<BoxPort, "builderRunning" | "stopBuilder">,
-  options: BoxCallOptions | undefined,
-  use: () => Promise<T>,
-): Promise<T> {
-  let lease = builderLease;
-  if (lease === undefined) {
-    const stopped = builderStopping;
-    lease = {
-      users: 0,
-      // A status call that fails, even one killed at its deadline, reads as not running: it never
-      // fails a build, and the builder is stopped after it.
-      stopAfter: stopped
-        .then(() => boxes.builderRunning(options))
-        .then(
-          (running) => !running,
-          () => true,
-        ),
-    };
-    builderLease = lease;
-  }
-  lease.users += 1;
-  try {
-    await lease.stopAfter;
-    return await use();
-  } finally {
-    lease.users -= 1;
-    if (lease.users === 0) {
-      if (builderLease === lease) builderLease = undefined;
-      const stop = lease.stopAfter
-        .then((stopAfter) => (stopAfter ? boxes.stopBuilder(options) : undefined))
-        .catch(() => undefined);
-      builderStopping = stop;
-      await stop;
-    }
-  }
 }
 
 /** The box block on the base branch, or why it cannot be read. */

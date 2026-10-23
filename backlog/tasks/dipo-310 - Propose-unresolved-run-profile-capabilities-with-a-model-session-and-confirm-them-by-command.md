@@ -6,7 +6,7 @@ title: >-
 status: Done
 assignee: []
 created_date: '2026-10-22 20:56'
-updated_date: '2026-10-23 13:55'
+updated_date: '2026-10-23 15:17'
 labels:
   - 'tier:L'
   - 'slice:m1b'
@@ -36,7 +36,6 @@ references:
   - packages/engine/src/config/index.ts
   - packages/engine/src/config/load.ts
   - packages/engine/src/config/schema.ts
-  - packages/engine/src/db/migrations/0053-scan-confirmations.ts
   - packages/engine/src/db/schema.ts
   - packages/engine/src/index.ts
   - packages/engine/src/prompts/contract/scan.md
@@ -80,6 +79,7 @@ references:
   - packages/engine/test/scan/fallback.test.ts
   - packages/engine/test/workers/plan.test.ts
   - packages/engine/test/workers/session-plan.test.ts
+  - packages/engine/src/db/migrations/0054-scan-confirmations.ts
 priority: medium
 type: feature
 ordinal: 295000
