@@ -126,3 +126,71 @@ describe("telling the engine when the last TUI closes (DIPO-284)", () => {
     expect(heard).toEqual(["changed", "changed"]);
   });
 });
+
+/** When the last TUI client of `office` left, as the daemon stored it. */
+function leftAt(office: string): number | null {
+  return (
+    harness.state.connection.get<{ at: number | null }>(
+      "select tui_left_at as at from offices where office_id = $office",
+      { office },
+    )?.at ?? null
+  );
+}
+
+describe("storing when the last TUI of an office left (DIPO-308)", () => {
+  it("stores the time once the office's last TUI stops following it, and office.digest counts from it", async () => {
+    const office = harness.addOffice();
+    const first = await connectTui();
+    const second = await connectTui();
+    await first.subscribe(`office:${office}`);
+    await second.subscribe(`office:${office}`);
+
+    // Another client following the office, and one of two TUIs closing, store nothing.
+    const cli = await TestClient.connect(harness.socketPath);
+    await cli.hello();
+    await cli.subscribe(`office:${office}`);
+    await cli.close();
+    await first.close();
+    await settle();
+    expect(leftAt(office)).toBeNull();
+
+    // Subscribing again to the same office does not leave it.
+    harness.clock.advance(60_000);
+    await second.subscribe(`office:${office}`);
+    expect(leftAt(office)).toBeNull();
+
+    // The last TUI closes: the time is stored.
+    harness.clock.advance(60_000);
+    const closedAt = harness.clock.now();
+    await second.close();
+    await settle();
+    expect(leftAt(office)).toBe(closedAt);
+
+    harness.clock.advance(60_000);
+    const reader = await TestClient.connect(harness.socketPath);
+    await reader.hello();
+    const reply = await reader.read("office.digest", { office });
+    expect(reply.ok).toBe(true);
+    expect(reply.ok && (reply.result as { since: string }).since).toBe(
+      new Date(closedAt).toISOString(),
+    );
+    await reader.close();
+    await settle();
+  });
+
+  it("stores the time when the last TUI unsubscribes from the office, as a switch to another does", async () => {
+    const office = harness.addOffice("one");
+    const other = harness.addOffice("two");
+    const tui = await connectTui();
+    await tui.subscribe(`office:${office}`);
+    harness.clock.advance(60_000);
+    const switchedAt = harness.clock.now();
+    tui.sendRaw({ kind: "unsubscribe", stream: `office:${office}` });
+    await tui.subscribe(`office:${other}`);
+    expect(leftAt(office)).toBe(switchedAt);
+    expect(leftAt(other)).toBeNull();
+    await tui.close();
+    await settle();
+    expect(leftAt(other)).toBe(switchedAt);
+  });
+});

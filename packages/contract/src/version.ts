@@ -75,4 +75,7 @@ export type ContractVersion = z.infer<typeof ContractVersion>;
 // `DeskItem` shape to the same, still unreleased, minor.
 // DIPO-311 adds the optional `monthUsage` of `OfficeSummary`, fills `dayUsage` and adds the
 // capability flag `usage.alerts` in the same, still unreleased, minor.
+// DIPO-308 ships the read `office.digest`, with `since` made optional (the engine then counts from
+// when the office's last TUI client disconnected), and so its capability flag `digest`, in the same,
+// still unreleased, minor.
 export const CONTRACT_VERSION = Object.freeze({ major: 1, minor: 1 }) satisfies ContractVersion;

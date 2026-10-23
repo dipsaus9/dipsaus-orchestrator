@@ -35,6 +35,7 @@ import { storedMarker } from "../run/markers";
 import { findRun } from "../run/records";
 
 import { registerDesk } from "./desk";
+import { registerDigest } from "./digest";
 import { activeStoryViews, storyView } from "./story";
 import { openGateViews } from "./summary";
 import { activeWorkViews, workView } from "./work";
@@ -309,6 +310,8 @@ export const viewsFeature: FeatureModule = {
     });
     // `office.desk` (DIPO-158): what waits on the maintainer.
     registerDesk(registry);
+    // `office.digest` (DIPO-308): what happened since the maintainer last left the office.
+    registerDigest(registry);
   },
 };
 
