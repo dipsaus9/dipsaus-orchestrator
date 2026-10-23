@@ -161,7 +161,7 @@ describe("office overview board", () => {
       " READY (2)",
       " DIPO-30 Add park reasons to digest   S  Ready · [2] queue, then u",
       " DIPO-32 Desk sort order              M  Ready",
-      " [Enter] detail  [j/k] move  [2] queue  [p] privacy  [o] offices  [q] quit",
+      " [Enter] detail  [j/k] move  [2] queue  [3] desk  [p] privacy  [o] offices  [q] quit",
     ]);
   });
 
@@ -185,7 +185,7 @@ describe("office overview board", () => {
       " READY (2)",
       " DIPO-30 Add park reasons to d…  Ready · [2] queue, then u",
       " DIPO-32 Desk sort order         Ready",
-      " [Enter] detail  [j/k] move  [2] queue  [p] privacy  [o] offices  [q] quit",
+      " [Enter] detail  [2] queue  [3] desk  [p] privacy  [o] offices  [q] quit",
     ]);
   });
 
@@ -205,7 +205,7 @@ describe("office overview board", () => {
       " dipsaus-orchestrator · daemon running · live",
       " 0 running · 2 needs you · 0 in review · Ready 0 · waiting 1 · held 1",
       " Nothing is running and nothing is Ready: DIPO-31 waits on DIPO-21, DIPO-33 is Refined (R15), DIPO-29 is on hold, 1 dra…",
-      " [2] queue  [p] privacy  [o] offices  [q] quit",
+      " [2] queue  [3] desk  [p] privacy  [o] offices  [q] quit",
     ]);
   });
 

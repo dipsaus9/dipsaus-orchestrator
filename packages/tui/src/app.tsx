@@ -12,6 +12,13 @@
 // keys are off while offline. In the overview `p` opens the privacy settings (`settings.tsx`):
 // Enter toggles the selected one after a yes that names what is stored, through `office.setPrivacy`.
 //
+// `3` opens Your desk (`desk.tsx`, DIPO-308): `j`/`k` move, the keys of the selected row act on it
+// (`keys.ts`, `actions.ts`), and Enter opens the story with its park record and review verdicts
+// (`story-card.tsx`), where Esc returns to the same row. The same key table gives `a` answer, `s`
+// steer and `p` pause in the live agent detail, `a` answer on an overview row whose run asks, and
+// `h` hold and `d` drop in the queue. Under the overview's count line one line says what happened
+// since the maintainer last left the office (`office.digest`).
+//
 // An action is done only when the office stream passes its reply cursor (read-your-writes). An
 // error shows in the footer; a retryable one offers Ctrl-R, which sends the same request again
 // with the same request id. The store's state is taken at most 10 times per second.
@@ -24,6 +31,7 @@ import {
 import type {
   Clock,
   Cursor,
+  DeskItem,
   EngineError,
   OfficeId,
   RequestId,
@@ -31,19 +39,48 @@ import type {
   StoryKey,
   StoryRefValue,
   StoryView,
+  Verdict,
 } from "@dipsaus-orchestrator/contract";
 import { Box, type Key, Text, useInput, useWindowSize } from "ink";
 import { useEffect, useState } from "react";
 
+import {
+  type ActionTarget,
+  type CommandOutcome,
+  type CommandRequest,
+  type LossesOutcome,
+  type LossesRequest,
+  useActions,
+} from "./actions";
 import { useBatchedState } from "./batch";
-import { Detail, type DetailTarget, type ReadOutput, type ReadPrompt, STOP_PROMPT } from "./detail";
+import {
+  Desk,
+  DESK_WIDE_COLUMNS,
+  deskRowId,
+  deskRows,
+  type ReadDesk,
+  rowHints,
+  selectedRow,
+  useDesk,
+} from "./desk";
+import {
+  answerHint,
+  Detail,
+  type DetailTarget,
+  type ReadOutput,
+  type ReadPrompt,
+  STOP_PROMPT,
+} from "./detail";
 import { skipReason, widthOf } from "./format";
 import { useLatestLines } from "./latest";
 import type { Display } from "./options";
 import { OUTPUT_TAIL_BYTES } from "./output";
 import { boardEntries, EVIDENCE_LEGEND, evidenceEnabled, Overview } from "./overview";
+import { digestLine, type ReadDigest, useDigest } from "./digest";
+import { type ActionId, allowed, binding, rowKeys, viewKeys } from "./keys";
 import { Queue, queueRows } from "./queue";
 import { appliesWords, confirmPrompt, privacySettings, Settings, settingName } from "./settings";
+import { type CardOutcome, StoryCard } from "./story-card";
 import {
   Banners,
   bannerLines,
@@ -97,7 +134,12 @@ export interface PrivacyRequest {
 export type StoryOutcome =
   | {
       readonly ok: true;
-      readonly result: { readonly view: StoryView; readonly runs: readonly RunRecord[] };
+      readonly result: {
+        readonly view: StoryView;
+        readonly runs: readonly RunRecord[];
+        /** The story's decided gates with their review rounds (0019 section 14). */
+        readonly verdicts?: readonly Verdict[];
+      };
     }
   | { readonly ok: false; readonly error: EngineError };
 
@@ -133,6 +175,14 @@ export interface TuiActions {
   setPrivacy(request: PrivacyRequest): Promise<ActionResult<null>>;
   /** `work.run` with `origin: "tui"` and the given request id (0009 section 5). */
   runStories(request: RunRequest): Promise<RunOutcome>;
+  /** One command of the desk, the detail or the queue (`actions.ts`, DIPO-308). */
+  sendCommand(request: CommandRequest): Promise<CommandOutcome>;
+  /** `story.losses` before a discard, or a drop that deletes the branch. */
+  readLosses(request: LossesRequest): Promise<LossesOutcome>;
+  /** `office.desk` (DIPO-158). */
+  readDesk: ReadDesk;
+  /** `office.digest` without `since`: since the office's last TUI client left (DIPO-308). */
+  readDigest: ReadDigest;
   /** A fresh request id for a new action; a retry reuses the old one. */
   newRequestId(): RequestId;
 }
@@ -145,7 +195,14 @@ type Mode =
   | { readonly kind: "confirm-stop"; readonly story: StoryRefValue }
   | { readonly kind: "confirm-privacy"; readonly key: string; readonly value: boolean };
 
-type View = "overview" | "queue" | "settings";
+type View = "overview" | "queue" | "settings" | "desk";
+
+/** The story a desk row opened with Enter, and what `story.detail` answered for it. */
+interface CardState {
+  readonly item: DeskItem;
+  readonly outcome: CardOutcome | null;
+  readonly top: number;
+}
 
 /** The live agent detail and the view Esc returns to. */
 interface DetailState {
@@ -184,6 +241,24 @@ export interface AppProps {
   readonly startInSwitcher?: boolean;
   /** Bytes an output pane keeps while it follows the tail; `OUTPUT_TAIL_BYTES` by default. */
   readonly outputTailBytes?: number;
+}
+
+/** One line of text: line breaks and control characters become single spaces. */
+function oneLine(text: string): string {
+  // oxlint-disable-next-line no-control-regex
+  return text.replace(/[\s\u0000-\u001f\u007f-\u009f]+/g, " ").trim();
+}
+
+/** What a desk row's action is about, with the command line the engine built for it. */
+function deskTarget(item: DeskItem, cli: string, id: ActionId): ActionTarget {
+  return {
+    ...(item.story === undefined ? {} : { story: String(item.story) }),
+    ...(item.question === undefined ? {} : { question: String(item.question) }),
+    ...(item.gate === undefined ? {} : { gate: String(item.gate) }),
+    ...(item.proposal === undefined ? {} : { proposal: item.proposal.id }),
+    cli,
+    ...(id === "answer" ? { text: item.detail } : {}),
+  };
 }
 
 function selectedIndex(state: OfficeStoreState): number {
@@ -277,6 +352,106 @@ export function App(props: AppProps) {
   const selectQueue = (index: number) => {
     const row = queue[Math.max(0, Math.min(queue.length - 1, index))];
     setQueueKey(row === undefined || row.kind === "next" ? null : row.view.key);
+  };
+  // The desk (DIPO-308): read while it or a story opened from it shows; the selection by row id,
+  // else its story key, else its place.
+  const [deskSelection, setDeskSelection] = useState<{
+    readonly id: string | null;
+    readonly key: string | null;
+    readonly index: number;
+  }>({ id: null, key: null, index: 0 });
+  const [card, setCard] = useState<CardState | null>(null);
+  const desk = useDesk({
+    store,
+    clock,
+    readDesk: actions.readDesk,
+    office: state.office,
+    active: view === "desk" && detail === null && state.capabilities.includes("desk"),
+    snapshots: state.snapshots,
+  });
+  const deskAll = desk.items === null ? [] : deskRows(desk.items).all;
+  const deskIndex = selectedRow(deskAll, deskSelection);
+  const deskItem = deskAll[deskIndex] ?? null;
+  const selectDesk = (index: number) => {
+    const item = deskAll[Math.max(0, Math.min(deskAll.length - 1, index))];
+    if (item === undefined) return;
+    setDeskSelection({
+      id: deskRowId(item),
+      key: item.key ?? null,
+      index: Math.max(0, Math.min(deskAll.length - 1, index)),
+    });
+  };
+  const digest = useDigest({
+    office: state.office,
+    enabled: state.capabilities.includes("digest"),
+    readDigest: actions.readDigest,
+  });
+  const acts = useActions({
+    store,
+    sendCommand: actions.sendCommand,
+    readLosses: actions.readLosses,
+    newRequestId: actions.newRequestId,
+    offline,
+    office: state.office,
+    cursor: state.cursor,
+    snapshots: state.snapshots,
+    ellipsis,
+  });
+  /** Starts a key table action, or says why it is off. */
+  const act = (id: ActionId, target: ActionTarget) => {
+    setMessage(null);
+    acts.start(id, target);
+  };
+  /** `a` on a run: answers its oldest open question. */
+  const answerRun = (runId: string) => {
+    const question = state.questions
+      .filter((candidate) => candidate.work.run === runId)
+      .toSorted((a, b) => Date.parse(a.askedAt) - Date.parse(b.askedAt))[0];
+    if (question === undefined) {
+      setMessage("no question waits on this run");
+    } else if (!allowed(binding("answer"), state.capabilities)) {
+      setMessage(`this daemon cannot take answers here; type ${answerHint(question)}`);
+    } else {
+      act("answer", {
+        story: String(question.work.story),
+        question: question.question,
+        text: JSON.stringify(oneLine(question.text)),
+        questionKind: question.kind,
+      });
+    }
+  };
+  /** `s` or `p` in the live agent detail. */
+  const steerOrPause = (id: "steer" | "pause", runId: string) => {
+    const live = state.work.find((candidate) => candidate.work.run === runId);
+    if (live === undefined) {
+      setMessage(`this run has ended; there is no worker to ${id}`);
+    } else if (!viewKeys("detail", state.capabilities).some((entry) => entry.id === id)) {
+      setMessage(`this daemon cannot ${id} a worker (capability ${binding(id).flag})`);
+    } else if (live.signals.some((signal) => signal.signal === "follow-only")) {
+      setMessage(
+        `this run is followed only; it cannot be ${id === "steer" ? "steered" : "paused"}`,
+      );
+    } else {
+      act(id, { story: String(live.work.story) });
+    }
+  };
+  /** Enter on a desk row: the story with its park record and review verdicts. */
+  const openCard = (item: DeskItem) => {
+    if (item.key === undefined || state.office === null) {
+      setMessage("this row names no story; what it needs is on the row");
+      return;
+    }
+    const office = state.office;
+    setMessage(null);
+    setDeskSelection({ id: deskRowId(item), key: item.key, index: deskIndex });
+    setCard({ item, outcome: null, top: 0 });
+    void actions.readStory({ office, story: item.key }).then((outcome) => {
+      if (store.state.office !== office) return;
+      const read: CardOutcome = outcome.ok
+        ? { ok: true, view: outcome.result.view, verdicts: outcome.result.verdicts ?? [] }
+        : outcome;
+      setCard((open) => (open?.item === item ? { ...open, outcome: read } : open));
+    });
   };
 
   // Read-your-writes: a run is done once the office stream passes its reply cursor, once the store
@@ -455,6 +630,9 @@ export function App(props: AppProps) {
     }
     setRefusal(null);
     if (state.notice !== null) store.dismissNotice();
+    // An open action prompt takes every key (`actions.ts`).
+    if (acts.key(input, key)) return;
+    acts.setMessage(null);
 
     if (mode.kind === "path") {
       if (key.escape) {
@@ -585,15 +763,25 @@ export function App(props: AppProps) {
         setMode({ kind: "confirm-stop", story: current.work.story });
         return;
       }
-      const leaves = input === "1" || input === "2" || input === "o";
+      // The key table's actions on the run (DIPO-308): answer its question, steer, pause.
+      if (input === "a") {
+        answerRun(detail.target.run);
+        return;
+      }
+      if (input === "s" || input === "p") {
+        steerOrPause(input === "s" ? "steer" : "pause", detail.target.run);
+        return;
+      }
+      const leaves = input === "1" || input === "2" || input === "3" || input === "o";
       if (!leaves && !(input === "S" && state.daemon === "safe") && !(key.ctrl && input === "r")) {
         return;
       }
       if (leaves) setDetail(null);
     }
 
-    // Home: the overview or the queue.
+    // Home: the overview, the queue, the desk or the settings.
     if (key.ctrl && input === "r") {
+      if (acts.retry()) return;
       if (run?.status !== "failed" || run.error?.retryable !== true) return;
       if (offline) {
         setMessage("offline: actions are disabled");
@@ -603,16 +791,40 @@ export function App(props: AppProps) {
       send(run.request, run.label);
       return;
     }
+    // The story a desk row opened: Esc returns to the desk, `j`/`k` scroll, view keys leave it.
+    if (view === "desk" && card !== null) {
+      if (key.escape) {
+        setCard(null);
+        setMessage(null);
+        return;
+      }
+      if (key.downArrow || input === "j") {
+        setCard({ ...card, top: card.top + 1 });
+        return;
+      }
+      if (key.upArrow || input === "k") {
+        setCard({ ...card, top: Math.max(0, card.top - 1) });
+        return;
+      }
+      const leaves = input === "1" || input === "2" || input === "3" || input === "o";
+      if (!leaves && !(input === "S" && state.daemon === "safe")) return;
+      if (leaves) setCard(null);
+    }
     if (input === "1") {
       setView("overview");
     } else if (input === "2") {
       setView("queue");
+    } else if (input === "3") {
+      setMessage(null);
+      setCard(null);
+      setView("desk");
     } else if (input === "o") {
       setMessage(null);
       setMode({ kind: "switcher", index: selectedIndex(state) });
     } else if (key.escape) {
       setRun(null);
       setMessage(null);
+      acts.dismiss();
       if (view === "settings") setView("overview");
     } else if (input === "S" && state.daemon === "safe") {
       if (offline) {
@@ -637,6 +849,9 @@ export function App(props: AppProps) {
         setOverviewKey(String(overviewEntry.key));
         if (overviewEntry.run !== null) openDetail(overviewEntry.run, "overview");
         else openStory(overviewEntry.key, String(overviewEntry.story), "overview");
+      } else if (input === "a" && overviewEntry !== null) {
+        if (overviewEntry.run === null) setMessage("no question waits on this row");
+        else answerRun(overviewEntry.run);
       }
     } else if (view === "settings") {
       const settings = privacySettings(state);
@@ -671,6 +886,28 @@ export function App(props: AppProps) {
           return;
         }
         runSelected();
+      } else if (input === "h" || input === "d") {
+        const row = queue[queueSelected];
+        if (row?.kind !== "story") {
+          setMessage("select a story to hold or drop");
+          return;
+        }
+        act(input === "h" ? "hold" : "drop", { story: String(row.view.story) });
+      }
+    } else if (view === "desk") {
+      if (key.downArrow || input === "j") {
+        selectDesk(deskIndex + 1);
+      } else if (key.upArrow || input === "k") {
+        selectDesk(deskIndex - 1);
+      } else if (key.return && deskItem !== null) {
+        openCard(deskItem);
+      } else if (deskItem !== null) {
+        const bound = rowKeys(deskItem, state.capabilities).bound.find(
+          (entry) => entry.binding.key === input,
+        );
+        if (bound === undefined) return;
+        setDeskSelection({ id: deskRowId(deskItem), key: deskItem.key ?? null, index: deskIndex });
+        act(bound.binding.id, deskTarget(deskItem, bound.action.cli, bound.binding.id));
       }
     }
   };
@@ -680,6 +917,7 @@ export function App(props: AppProps) {
     // path keeps the whole text.
     const several =
       mode.kind !== "path" &&
+      !acts.typing &&
       input.length > 1 &&
       !key.ctrl &&
       !key.meta &&
@@ -720,19 +958,56 @@ export function App(props: AppProps) {
   // A refusal names a run on its way; the effect that clears it runs only after the frame that
   // shows the run done, so the footer drops it in that same frame.
   const activeRefusal = run?.status === "sending" || run?.status === "syncing" ? refusal : null;
-  const footerMessage = message ?? activeRefusal ?? failure ?? stopLine ?? notice;
+  const footerMessage =
+    message ?? acts.statusLine() ?? activeRefusal ?? failure ?? stopLine ?? notice;
   const inDetail = detail !== null && !(mode.kind === "switcher" || mode.kind === "path");
   // The footer line starts with a space.
   // An ended run has no worker to stop: its detail drops `[X] stop`.
-  const detailLive =
-    detail !== null && state.work.some((candidate) => candidate.work.run === detail.target.run);
+  const detailRun =
+    detail === null
+      ? undefined
+      : state.work.find((candidate) => candidate.work.run === detail.target.run);
+  const detailLive = detailRun !== undefined;
+  const asks = (runId: string | null) =>
+    runId !== null &&
+    allowed(binding("answer"), state.capabilities) &&
+    state.questions.some((question) => question.work.run === runId);
+  // The key table's hints for what is selected (DIPO-308).
+  const rowHintList: Hint[] = [];
+  if (inDetail) {
+    if (detail !== null && asks(detail.target.run)) rowHintList.push(["[a]nswer", 85]);
+    const followOnly =
+      detailRun?.signals.some((signal) => signal.signal === "follow-only") === true;
+    if (detailLive && !followOnly) {
+      for (const entry of viewKeys("detail", state.capabilities)) {
+        rowHintList.push([entry.hint, 72]);
+      }
+    }
+  } else if (view === "overview") {
+    if (overviewEntry !== null && asks(overviewEntry.run)) rowHintList.push(["[a]nswer", 85]);
+  } else if (view === "queue") {
+    if (queue[queueSelected]?.kind === "story") {
+      for (const entry of viewKeys("queue", state.capabilities)) {
+        rowHintList.push([entry.hint, 25]);
+      }
+    }
+  } else if (view === "desk" && card === null && deskItem !== null) {
+    const hints = rowHints(deskItem, state.capabilities);
+    if (hints !== "") rowHintList.push([hints, 85]);
+  }
   const keys = footerKeys(
     mode,
-    inDetail ? (detailLive ? "detail" : "ended") : view,
+    inDetail ? (detailLive ? "detail" : "ended") : view === "desk" && card !== null ? "card" : view,
     state,
     offline,
     run,
     columns - 1,
+    {
+      prompt: acts.promptHints(),
+      row: rowHintList,
+      retry: acts.retryable,
+      desk: deskItem !== null,
+    },
   );
 
   if (narrow) {
@@ -749,6 +1024,20 @@ export function App(props: AppProps) {
   }
 
   const panel = !inSwitcher && run !== null ? runLines(run, state, ellipsis) : [];
+  // The selected desk row's actions no key sends, as the command line to type, and (below 80
+  // columns, where the row has no second line) its hand action.
+  const deskShown =
+    !inSwitcher && detail === null && view === "desk" && state.capabilities.includes("desk");
+  if (deskShown && card === null && deskItem !== null) {
+    for (const action of rowKeys(deskItem, state.capabilities).unbound) {
+      panel.push(`type: ${action.cli}`);
+    }
+    if (deskItem.hand !== undefined && columns < DESK_WIDE_COLUMNS) {
+      panel.push(`by hand: ${deskItem.hand}`);
+    }
+  }
+  // The open action prompt (`actions.ts`).
+  if (!inSwitcher) panel.push(...acts.promptLines());
   // Header, banners, footer keys and message, and the run lines stay on screen; the queue gets
   // the rest.
   const prompt = mode.kind === "path" || mode.kind.startsWith("confirm") ? 1 : 0;
@@ -790,7 +1079,7 @@ export function App(props: AppProps) {
           readPrompt={actions.readPrompt}
           columns={columns}
           height={height}
-          keysActive={mode.kind === "home"}
+          keysActive={mode.kind === "home" && acts.flow === null}
           tailBytes={props.outputTailBytes ?? OUTPUT_TAIL_BYTES}
         />
       ) : view === "settings" ? (
@@ -799,6 +1088,28 @@ export function App(props: AppProps) {
           display={display}
           selected={settingsIndex}
           written={privacyWritten}
+        />
+      ) : view === "desk" && card !== null ? (
+        <StoryCard
+          item={card.item}
+          outcome={card.outcome}
+          now={clock.now()}
+          evidence={evidenceEnabled(state)}
+          display={display}
+          columns={columns}
+          height={height}
+          top={card.top}
+        />
+      ) : view === "desk" ? (
+        <Desk
+          desk={desk}
+          available={state.capabilities.includes("desk")}
+          selected={deskIndex}
+          columns={columns}
+          height={height}
+          now={clock.now()}
+          capabilities={state.capabilities}
+          display={display}
         />
       ) : view === "queue" ? (
         <Queue
@@ -819,6 +1130,7 @@ export function App(props: AppProps) {
           clock={clock}
           latest={latest}
           selected={overviewEntry === null ? null : String(overviewEntry.key)}
+          digest={digest === null ? null : digestLine(digest, glyphs(display.ascii).dot)}
         />
       )}
       {panel.map((line, i) => (
@@ -856,14 +1168,28 @@ export function fitHints(hints: readonly Hint[], width: number): string {
 
 const QUIT = 100;
 
+/** The footer's parts the key table adds (DIPO-308). */
+interface FooterExtras {
+  /** The keys of an open action prompt; they replace every other hint. */
+  readonly prompt: string | null;
+  /** The keys of the selected row or run. */
+  readonly row: readonly Hint[];
+  /** True when a failed action offers Ctrl-R. */
+  readonly retry: boolean;
+  /** True when the desk has a row selected. */
+  readonly desk: boolean;
+}
+
 function footerKeys(
   mode: Mode,
-  view: View | "detail" | "ended",
+  view: View | "detail" | "ended" | "card",
   state: OfficeStoreState,
   offline: boolean,
   run: RunAction | null,
   width: number,
+  extras: FooterExtras,
 ): string {
+  if (extras.prompt !== null) return fitHints([[extras.prompt, QUIT]], width);
   const quit: Hint = [`[q] quit${offline ? " (offline: actions disabled)" : ""}`, QUIT];
   const hints: Hint[] = [];
   switch (mode.kind) {
@@ -905,8 +1231,14 @@ function footerKeys(
       hints.push(quit);
       return fitHints(hints, width);
     default:
-      if (run?.status === "failed" && run.error?.retryable === true) {
+      if (extras.retry || (run?.status === "failed" && run.error?.retryable === true)) {
         hints.push(["[Ctrl-R] retry", 80]);
+      }
+      hints.push(...extras.row);
+      if (view === "card") {
+        hints.push(["[j/k] scroll", 30], ["[Esc] back", 90], quit);
+        if (evidenceEnabled(state)) hints.push([EVIDENCE_LEGEND, 10]);
+        return fitHints(hints, width);
       }
       if (view === "detail" || view === "ended") {
         hints.push(
@@ -935,11 +1267,15 @@ function footerKeys(
           ["[.] show done", 20],
           ["[1] overview", 50],
         );
+        hints.push(["[3] desk", 45]);
+      } else if (view === "desk") {
+        if (extras.desk) hints.push(["[Enter] detail", 60], ["[j/k] move", 30]);
+        hints.push(["[1] overview", 50], ["[2] queue", 45]);
       } else {
         if (boardEntries(state).length > 0) {
           hints.push(["[Enter] detail", 60], ["[j/k] move", 30]);
         }
-        hints.push(["[2] queue", 50], ["[p] privacy", 45]);
+        hints.push(["[2] queue", 50], ["[3] desk", 48], ["[p] privacy", 45]);
       }
       hints.push(["[o] offices", 40]);
       if (state.daemon === "safe") hints.push(["[S] resume scheduling", 60]);

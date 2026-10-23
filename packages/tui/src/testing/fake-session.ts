@@ -121,6 +121,17 @@ export class FakeSession implements TuiSession {
   /** The most bytes one `work.outputRange` returns, as the engine's cap. */
   rangeMax = 1024 * 1024;
 
+  /** What `office.desk` answers (DIPO-308); a function answers each read on its own. */
+  desk: unknown[] | (() => unknown) = [];
+  /** What `story.losses` answers, by story id. */
+  readonly losses = new Map<string, { commits: unknown[]; files: string[]; kept?: string[] }>();
+  /** What `office.digest` answers; null answers with no digest read. */
+  digest: unknown = null;
+  /** The decided gates `story.detail` answers, by story key (0019 section 14). */
+  readonly verdicts = new Map<string, unknown[]>();
+  /** Answers every command `runReply`, `stopReply` and `office.open` do not; undefined falls through. */
+  commandReply: (name: string, args: unknown, options: unknown) => unknown = () => undefined;
+
   read = (async (
     definition: { name: string },
     args: {
@@ -134,7 +145,7 @@ export class FakeSession implements TuiSession {
     },
   ) => {
     this.reads.push({ name: definition.name, args });
-    if (definition.name === "engine.hello") return { ok: true, result: goldenHello };
+    if (definition.name === "engine.hello") return { ok: true, result: this.hello ?? goldenHello };
     if (definition.name === "story.detail") {
       const stories =
         (this.nextSnapshots.get(args.office ?? "") ?? goldenSnapshots.get(args.office ?? ""))
@@ -148,8 +159,24 @@ export class FakeSession implements TuiSession {
       }
       return {
         ok: true,
-        result: { view, runs: this.runs.get(args.story ?? "") ?? [], verdicts: [] },
+        result: {
+          view,
+          runs: this.runs.get(args.story ?? "") ?? [],
+          verdicts: this.verdicts.get(args.story ?? "") ?? [],
+        },
       };
+    }
+    if (definition.name === "office.desk") {
+      return { ok: true, result: typeof this.desk === "function" ? this.desk() : this.desk };
+    }
+    if (definition.name === "story.losses") {
+      const losses = this.losses.get(args.story ?? "") ?? { commits: [], files: [] };
+      return { ok: true, result: { story: args.story, key: args.story, ...losses } };
+    }
+    if (definition.name === "office.digest") {
+      return this.digest === null
+        ? { ok: false, error: { code: "capability.missing", message: "none", retryable: false } }
+        : { ok: true, result: this.digest };
     }
     if (definition.name === "work.prompt") {
       return {
@@ -201,6 +228,8 @@ export class FakeSession implements TuiSession {
         ? { name: definition.name, args }
         : { name: definition.name, args, options },
     );
+    const reply = this.commandReply(definition.name, args, options);
+    if (reply !== undefined) return reply;
     if (definition.name === "work.run") return this.runReply(args);
     if (definition.name === "work.stop") return this.stopReply(args);
     if (definition.name === "office.open") {

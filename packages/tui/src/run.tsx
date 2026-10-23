@@ -14,10 +14,14 @@ import {
   type Clock,
   daemonResumeScheduling,
   type EngineError,
+  findCommand,
+  officeDesk,
+  officeDigest,
   type OfficeId,
   officeOpen,
   officeSetPrivacy,
   storyDetail,
+  storyLosses,
   workOutputRange,
   workPrompt,
   workRun,
@@ -231,7 +235,14 @@ export async function runTui(args: readonly string[], deps: TuiDeps): Promise<nu
             story: request.story,
           });
           return outcome.ok
-            ? { ok: true, result: { view: outcome.result.view, runs: outcome.result.runs } }
+            ? {
+                ok: true,
+                result: {
+                  view: outcome.result.view,
+                  runs: outcome.result.runs,
+                  verdicts: outcome.result.verdicts,
+                },
+              }
             : outcome;
         } catch (error) {
           return {
@@ -250,6 +261,66 @@ export async function runTui(args: readonly string[], deps: TuiDeps): Promise<nu
           );
           if (!outcome.ok) return outcome;
           return outcome.cursor === undefined ? { ok: true } : { ok: true, cursor: outcome.cursor };
+        } catch (error) {
+          return {
+            ok: false,
+            error: { code: "client.failed", message: errorText(error), retryable: false },
+          };
+        }
+      },
+      sendCommand: async (request) => {
+        const definition = findCommand(request.command);
+        if (definition === undefined) {
+          return {
+            ok: false,
+            error: {
+              code: "capability.missing",
+              message: `This TUI knows no command ${request.command}.`,
+              retryable: false,
+            },
+          };
+        }
+        try {
+          // No deadline: `work.discard` and `work.resume` wait for git and the planning lane.
+          return await connected.command(definition, request.args, {
+            office: request.office,
+            requestId: request.requestId,
+            confirmed: request.confirmed,
+          });
+        } catch (error) {
+          return {
+            ok: false,
+            error: { code: "client.failed", message: errorText(error), retryable: false },
+          };
+        }
+      },
+      readLosses: async (request) => {
+        try {
+          return await connected.read(storyLosses, {
+            office: request.office,
+            story: request.story,
+            command: request.command,
+          });
+        } catch (error) {
+          return {
+            ok: false,
+            error: { code: "client.failed", message: errorText(error), retryable: false },
+          };
+        }
+      },
+      readDesk: async (office) => {
+        try {
+          return await connected.read(officeDesk, { office });
+        } catch (error) {
+          return {
+            ok: false,
+            error: { code: "client.failed", message: errorText(error), retryable: false },
+          };
+        }
+      },
+      readDigest: async (office) => {
+        try {
+          return await connected.read(officeDigest, { office });
         } catch (error) {
           return {
             ok: false,
