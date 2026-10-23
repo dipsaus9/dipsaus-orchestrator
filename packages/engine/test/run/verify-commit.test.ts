@@ -33,6 +33,7 @@ import {
   verifyPlan,
   verifyResults,
 } from "../../src/run";
+import { TEST_PLAN_REFUSALS_MAX } from "../../src/run/verify-commit";
 import type { StepRequest, StepResult } from "../../src/sandbox/step";
 import { detect, type RunProfile } from "../../src/scan/detect";
 import { addStory } from "../../src/stories/keys";
@@ -1001,6 +1002,30 @@ describe("the report gate at done", () => {
     expect(JSON.parse(doneReports()[2]?.deviations ?? "[]")).toEqual([
       { where: "criterion #2", what: "exits 64", why: "the usage code" },
     ]);
+  });
+
+  it("tells the worker that a test failing only for the box's missing git counts as done", async () => {
+    w.fields = PLAN;
+    await play(DONE);
+    expect(feedbackTexts()[0]).toContain(
+      "A test you wrote that fails in the box only because the box has no git program counts as done: report it done and name that in its evidence.",
+    );
+  });
+
+  it(`parks verify-failing at the ${TEST_PLAN_REFUSALS_MAX}rd refused report instead of another refusal turn`, async () => {
+    expect(TEST_PLAN_REFUSALS_MAX).toBe(3);
+    w.fields = PLAN;
+    await play(DONE);
+    await play({ ...DONE, testPlan: [{ n: 1, status: "done", evidence: "x" }] });
+    expect(feedbackTexts()).toHaveLength(2);
+    expect(parks()).toEqual([]);
+    await play(DONE);
+    expect(feedbackTexts()).toHaveLength(2);
+    const [park] = parks();
+    expect([park?.reason, park?.cause]).toEqual(["verify-failing", "loops"]);
+    expect(park?.detail).toStartWith("the done report was refused for its test plan 3 of 3 times.");
+    expect(park?.detail).toContain("- #1 (not reported)");
+    expect(w.calls).toEqual([]);
   });
 
   it("leaves a story without a test plan, or with only manual entries, unchanged", async () => {

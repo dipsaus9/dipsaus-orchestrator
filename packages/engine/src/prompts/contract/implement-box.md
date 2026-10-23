@@ -65,7 +65,7 @@ End every turn with the structured report:
 - `commitSubject`: a commit subject in the imperative, without the story id.
 - `question`: only when blocked, the one question the maintainer must answer.
 - `proposals`: at most three, each with its kind (follow-up, spike or tool), a title, its outcome, why it is needed and, when there are any, the paths it concerns.
-- `testPlan`: one entry for each entry of the test plan, by its number: done when its test is written and passes, not-done otherwise, manual for an entry the maintainer checks by hand, each with its evidence (the test file and test name, or why it is not done). dipo refuses done while an automated entry is not done.
+- `testPlan`: one entry for each entry of the test plan, by its number: done when its test is written and passes, not-done otherwise, manual for an entry the maintainer checks by hand, each with its evidence (the test file and test name, or why it is not done). A test you wrote that fails in the box only because the box has no git program counts as done: name that in its evidence. dipo refuses done while an automated entry is not done.
 - `deviations`: each place where the change differs from a criterion or from the story's context: where, what differs, and why.
 - `decisionNotes`: a note you propose for a decision record: the decision file, the heading of its section and the text of the note. dipo checks that the file and the section exist and shows the note to the maintainer. Never write such a note into the decision records yourself, and never only describe it in `summary` or `notes`.
 - `notes`: short notes for a next session on this story: what is left and what you learned. dipo cuts long notes.

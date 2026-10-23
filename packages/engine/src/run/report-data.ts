@@ -116,8 +116,10 @@ export function noteSignature(note: WorkerDecisionNote): string {
 
 /**
  * What a worker session did since its last file edit, as its tool activity shows it: `edited` once
- * any file tool changed a file in the session, and the shell commands run after the last such
- * edit. Kept in memory per tracked run; a session dipo did not follow from its start has none.
+ * any file tool changed a file, and the shell commands run after the last such edit. Kept in memory
+ * per tracked run, from the moment run control began to follow it. After a daemon restart (a
+ * reattach) the trail starts empty again: an edit made before the restart is not seen, so a done
+ * report after it is not sent back. The check fails open; it is a nudge, and CI is the verify.
  */
 export interface ToolTrail {
   edited: boolean;
@@ -202,6 +204,22 @@ export function storeDoneReport(
     },
   );
   return next;
+}
+
+/** Every done report of the run, oldest first. */
+export function doneReports(office: OfficeHandle, runId: RunId): StoredDoneReport[] {
+  return office
+    .all<{ report: number; test_plan: string; deviations: string; at: number }>(
+      `select report, test_plan, deviations, at from done_reports
+        where office_id = $office_id and run_id = $run order by report`,
+      { run: runId },
+    )
+    .map((row) => ({
+      report: row.report,
+      testPlan: JSON.parse(row.test_plan) as WorkerTestPlanEntry[],
+      deviations: JSON.parse(row.deviations) as WorkerDeviation[],
+      at: row.at,
+    }));
 }
 
 /** The run's newest done report, or null when it has none. */

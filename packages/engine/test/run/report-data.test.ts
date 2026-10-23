@@ -17,7 +17,7 @@ import {
   testPlanGaps,
   trailAt,
 } from "../../src/run/report-data";
-import { checkCommands } from "../../src/run/verify-commit";
+import { checkCommands, runnableCommand } from "../../src/run/verify-commit";
 import { detect } from "../../src/scan/detect";
 
 const PLAN: TestPlan = {
@@ -155,9 +155,45 @@ describe("the tool trail", () => {
       envFiles: [],
     });
     const commands = checkCommands(profile);
-    expect(commands[0]).toBe("bun run verify");
-    expect(commands).toContain("bun run test");
+    expect(commands[0]).toEqual({ text: "bun run verify", cwd: "." });
+    expect(commands).toContainEqual({ text: "bun run test", cwd: "." });
     expect(checkCommands(null)).toEqual([]);
+  });
+
+  it("matches a command off the root by its bare text and names it with cd for the worker", () => {
+    const base = detect({
+      texts: { "package.json": JSON.stringify({ name: "p", packageManager: "bun@1.4.2" }) },
+      lockfiles: ["bun.lock"],
+      workspaceDirs: [],
+      configImports: {},
+      envFiles: [],
+    });
+    const profile = {
+      ...base,
+      capabilities: {
+        ...base.capabilities,
+        verify: {
+          status: "resolved",
+          value: { commands: [["bun", "test"]], cwd: "packages/app" },
+        },
+      },
+    } as unknown as typeof base;
+    const commands = checkCommands(profile);
+    expect(commands[0]).toEqual({ text: "bun test", cwd: "packages/app" });
+    expect(runnableCommand({ text: "bun test", cwd: "packages/app" })).toBe(
+      "cd packages/app && bun test",
+    );
+    expect(runnableCommand({ text: "bun test", cwd: "." })).toBe("bun test");
+    // The worker's own cd line holds the bare text, so it counts as a run.
+    const trail = emptyTrail();
+    followTool(trail, "edit", undefined);
+    followTool(trail, "shell", "cd packages/app && bun test");
+    expect(
+      ranCheckAfterEdit(
+        trail,
+        commands.map((command) => command.text),
+      ),
+    ).toBe(true);
   });
 });
 

@@ -1240,6 +1240,36 @@ describe("a box run's report data at done (DIPO-186)", () => {
     expect(w.calls).toEqual(inReview);
   });
 
+  it("names an office command off the root with cd, and counts the worker's own cd line as a run", async () => {
+    const base = profileOf({});
+    w.base = {
+      ...base,
+      capabilities: {
+        ...base.capabilities,
+        verify: { status: "resolved", value: { commands: [["bun", "test"]], cwd: "packages/app" } },
+      },
+    } as unknown as RunProfile;
+    w.branchScripts = {};
+    await playEvents([edit, turn(DONE)]);
+    expect(feedbackTexts()[0]).toContain("Run `cd packages/app && bun test` in the box now");
+    expect(feedbackTexts()[0]).not.toContain("(in packages/app)");
+  });
+
+  it("takes a done whose worker ran the off-root command with cd", async () => {
+    const base = profileOf({});
+    w.base = {
+      ...base,
+      capabilities: {
+        ...base.capabilities,
+        verify: { status: "resolved", value: { commands: [["bun", "test"]], cwd: "packages/app" } },
+      },
+    } as unknown as RunProfile;
+    w.branchScripts = {};
+    await playEvents([edit, shell("cd packages/app && bun test"), turn(DONE)]);
+    expect(feedbackTexts()).toEqual([]);
+    expect(w.calls).toEqual(inReview);
+  });
+
   it("sends it back when the worker edited again after its verify run", async () => {
     await playEvents([edit, shell("bun run verify"), edit, turn(DONE)]);
     expect(feedbackTexts()).toHaveLength(1);

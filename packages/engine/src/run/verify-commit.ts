@@ -133,6 +133,7 @@ import { type FiredCap, runCaps } from "./caps";
 import { PARK_CAUSES } from "./park";
 import { appendRunStep, IN_REVIEW_END, recordGateChanges, type StoredRun } from "./records";
 import {
+  doneReports,
   type NoteMiss,
   noteMiss,
   noteSignature,
@@ -620,7 +621,9 @@ export class VerifyCommit implements RunFinisher {
       });
       return undefined;
     });
-    const gaps = testPlanGaps(facts?.fields.test_plan, report.testPlan, facts?.view.type);
+    const plan = facts?.fields.test_plan;
+    const type = facts?.view.type;
+    const gaps = testPlanGaps(plan, report.testPlan, type);
     if (gaps.length > 0) {
       const text = testPlanFeedback(gaps);
       if (ctx.capped != null) {
@@ -629,6 +632,20 @@ export class VerifyCommit implements RunFinisher {
           reason: "verify-failing",
           cause: PARK_CAUSES.capped,
           detail: text,
+          endKind: "verify-failing",
+        };
+      }
+      // Every stored done report of the run that left an automated entry open was refused; this
+      // one is stored too. At the cap the story parks instead of another refusal turn.
+      const refusals = doneReports(office, run.runId).filter(
+        (stored) => testPlanGaps(plan, stored.testPlan, type).length > 0,
+      ).length;
+      if (refusals >= TEST_PLAN_REFUSALS_MAX) {
+        return {
+          kind: "park",
+          reason: "verify-failing",
+          cause: PARK_CAUSES.loops,
+          detail: `the done report was refused for its test plan ${refusals} of ${TEST_PLAN_REFUSALS_MAX} times. ${text}`,
           endKind: "verify-failing",
         };
       }
@@ -695,10 +712,17 @@ export class VerifyCommit implements RunFinisher {
       );
       for (const name of ["verify", "test"]) {
         const script = scripts[name]?.trim();
-        if (script !== undefined && script !== "") commands.push(script);
+        if (script !== undefined && script !== "") commands.push({ text: script, cwd: "." });
       }
     }
-    return ranCheckAfterEdit(trail, commands) ? null : (commands[0] ?? null);
+    const first = commands[0];
+    if (first === undefined) return null;
+    return ranCheckAfterEdit(
+      trail,
+      commands.map((command) => command.text),
+    )
+      ? null
+      : runnableCommand(first);
   }
 
   /**
@@ -1234,24 +1258,48 @@ export class VerifyCommit implements RunFinisher {
   }
 }
 
+/**
+ * The done reports a run may have refused for its test plan (DIPO-186): the one that reaches it
+ * parks `verify-failing` with cause `loops` instead of another refusal turn, so a worker that
+ * cannot finish an automated entry does not loop until a budget cap.
+ */
+export const TEST_PLAN_REFUSALS_MAX = 3;
+
 /** The send-once signature of the verify-run check: once per run. */
 const VERIFY_RUN_SIGNATURE = "run";
 
+/** A verify or test command of the office (DIPO-186): its bare text and the folder it runs in. */
+export interface CheckCommand {
+  /** The command as typed, without its folder, for matching a shell line. */
+  readonly text: string;
+  /** Repo-relative folder; `.` for the root. */
+  readonly cwd: string;
+}
+
 /**
  * The office's verify and test commands as a worker would type them (DIPO-186), verify first; one
- * line per command of each resolved capability. Empty when the profile resolves neither.
+ * per command of each resolved capability. Empty when the profile resolves neither.
  */
-export function checkCommands(profile: RunProfile | null): string[] {
-  const lines: string[] = [];
+export function checkCommands(profile: RunProfile | null): CheckCommand[] {
+  const found: CheckCommand[] = [];
   for (const name of ["verify", "test"] as const) {
     const capability = profile?.capabilities[name];
     if (capability?.status !== "resolved") continue;
     for (const command of capability.value.commands) {
       if (command.length === 0) continue;
-      lines.push(shownSpec({ commands: [command], cwd: capability.value.cwd }));
+      const text = shownSpec({ commands: [command], cwd: "." });
+      const cwd = capability.value.cwd;
+      if (!found.some((seen) => seen.text === text && seen.cwd === cwd)) found.push({ text, cwd });
     }
   }
-  return [...new Set(lines)];
+  return found;
+}
+
+/** Pure: a check command as the worker runs it from the root: `cd <dir> && <cmd>` off the root. */
+export function runnableCommand(command: CheckCommand): string {
+  return command.cwd === "." || command.cwd === ""
+    ? command.text
+    : `cd ${command.cwd} && ${command.text}`;
 }
 
 /** Workspace package directories of the base and the branch profile, each once. */
