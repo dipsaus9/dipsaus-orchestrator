@@ -56,6 +56,7 @@ function fake(
   const err: string[] = [];
   const sent: Sent[] = [];
   const reads: string[] = [];
+  const readArgs: unknown[] = [];
   const ws: FakeWorkspace = fakeWorkspace({ cwd: "/work/app", ...IN_OFFICE, ...workspace });
   const deps: CliDeps = {
     writeLine: (line) => out.push(line),
@@ -74,8 +75,9 @@ function fake(
           sent.push(message);
           return reply(message);
         }) as DaemonSession["command"],
-        read: (async (definition: { name: string }) => {
+        read: (async (definition: { name: string }, args: unknown) => {
           reads.push(definition.name);
+          readArgs.push(args);
           return readReply();
         }) as DaemonSession["read"],
         close: () => undefined,
@@ -87,7 +89,7 @@ function fake(
     runtime: { bun: "1.4.2", os: "linux", arch: "arm64" },
     workspace: ws,
   };
-  return { deps, out, err, sent, reads, ws };
+  return { deps, out, err, sent, reads, readArgs, ws };
 }
 
 const KEY = "sto_01J9ZK5Q8W3V4X6Y7Z8A9B0C5H";
@@ -277,6 +279,8 @@ describe("dipo discard (DIPO-161)", () => {
     };
     expect(await main(["discard", "DIPO-7", "--note", "wrong approach"], ctx.deps)).toBe(0);
     expect(ctx.reads).toEqual(["story.losses"]);
+    // The list is the one for `work.discard`: exactly what the discard removes.
+    expect(ctx.readArgs).toEqual([{ office: OFFICE, story: "DIPO-7", command: "work.discard" }]);
     expect(printedAtQuestion[0]).toEqual([
       "commits not on the base (1):",
       "  3f9a1c2 feat(DIPO-7): retry",
@@ -340,5 +344,27 @@ describe("dipo discard (DIPO-161)", () => {
     );
     expect(await main(["discard", "DIPO-7", "--note", "x"], ctx.deps)).toBe(1);
     expect(ctx.err[0]).toContain("story.prMerged");
+  });
+});
+
+describe("dipo discard and drop loss lists (DIPO-161 review)", () => {
+  it("says in the prompt that a running worker is stopped after the listing and what it writes in between is lost", async () => {
+    const ctx = fake(done, { interactive: true, answers: ["DIPO-7"] }, LOST);
+    expect(await main(["discard", "DIPO-7", "--note", "x"], ctx.deps)).toBe(0);
+    expect(ctx.ws.questions[0]).toContain("stopped only after this list was read");
+    expect(ctx.ws.questions[0]).toContain("in between is lost too");
+  });
+
+  it("lists the worktrees drop --delete-branch keeps", async () => {
+    const ctx = fake(done, { interactive: true, answers: ["DIPO-7"] }, () => ({
+      ok: true,
+      result: { story: "DIPO-7", key: KEY, commits: [], files: [], kept: ["/trees/DIPO-7"] },
+    }));
+    expect(await main(["drop", "DIPO-7", "--delete-branch"], ctx.deps)).toBe(0);
+    expect(ctx.out.slice(0, 3)).toEqual([
+      "no commits or files are lost",
+      "worktrees kept with their files, not removed by this command (1):",
+      "  /trees/DIPO-7",
+    ]);
   });
 });
