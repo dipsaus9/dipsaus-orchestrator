@@ -60,9 +60,10 @@ import { z } from "zod";
 
 import { BOX_DIPO_DIR } from "./code";
 import { BoxError, type BoxPort } from "./port";
+import { DIPO_PART_PATH, partModeCommand } from "./user";
 
 /** Where `dipo-part` is installed in a box: on the box's PATH. */
-export const DIPO_PART_PATH = "/usr/local/bin/dipo-part";
+export { DIPO_PART_PATH };
 /** The queue `dipo-part` writes into and dipo reads from, under dipo's own folder in the box. */
 export const DOOR_QUEUE = `${BOX_DIPO_DIR}/door/parts`;
 /** The longest part message, in UTF-8 bytes before cleaning. */
@@ -489,7 +490,8 @@ export async function installDipoPart(
     await writeFile(file, dipoPartScript(), { mode: 0o755 });
     await chmod(file, 0o755);
     await deps.boxes.copyIn(box, file, DIPO_PART_PATH);
-    const made = await deps.boxes.exec(box, ["/bin/chmod", "0755", DIPO_PART_PATH]);
+    // Root's, in root's folder: the box user runs it and cannot change it (DIPO-334).
+    const made = await deps.boxes.exec(box, partModeCommand(), { rootStep: true });
     if (made.code !== 0) {
       throw new BoxError(
         "box.failed",

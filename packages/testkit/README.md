@@ -34,7 +34,7 @@ A fast local version checks the same outcome with less setup:
 - a file removed with `git rm` instead of a Backlog CLI call such as `backlog task archive`;
 - a process that has already exited instead of one the test waits for in real time.
 
-Unit tests always stay local. Moving a case is not deleting it: CI runs the sibling, so `DIPO_TEST_CI=1 bun test` must still pass with every test that ran before the move.
+Unit tests always stay local. Moving a case is not deleting it: CI runs the sibling, so `DIPO_TEST_CI=1 bun run test` must still pass (it gives every test 30 s, as CI does) with every test that ran before the move.
 
 A CI-only sibling starts with a comment that says what it covers and why it is CI only, and wraps its `describe` blocks:
 
@@ -46,20 +46,24 @@ if (process.env["DIPO_TEST_CI"] === "1") {
 }
 ```
 
+The lint rule `dipo(ci-test-guard)` refuses a `*.ci.test.ts` file with a `describe`, `it` or `test` outside that guard (DIPO-316).
+
 ## Tests that start a daemon
 
 A daemon removes the `dipo.sock` it finds in the runtime directory it chooses, and its last candidate is the real `/tmp/dipo-<uid>` (0006 decision 3). A test daemon must never get there (DIPO-109):
 
+- The test runner's setup file (`src/test-env.ts`, DIPO-316) gives every test process the test marker `DIPO_TEST=1` and fresh `DIPO_HOME` and `DIPO_RUNTIME_DIR` folders under `DIPO_TMP`. With the marker, dipo refuses the real home's state and runtime folders, and an override it cannot use stops it instead of falling through to another folder.
+
 - Start it with `daemonTestEnv(dir)` for a process, or `isolatedDaemonEnv(dir)` in process. Both put `DIPO_HOME`, `DIPO_RUNTIME_DIR`, `TMPDIR`, `XDG_RUNTIME_DIR` and `DIPO_TMP` under the test's temp directory.
 - Wrap the test in `withDaemonTempDir`, or call `assertTestRuntimeDir(dir)`: the test fails when the daemon log names a runtime directory other than `<dir>/run` from `DIPO_RUNTIME_DIR`.
-- `DIPO_TMP` may be at most 37 bytes after symlinks (`MAX_TEMP_ROOT_BYTES`). `tempRoot()`, and so every testkit temp directory, refuses a longer one, because a test daemon's socket paths under it would pass the 100-byte limit and the daemon would fall back to a real runtime directory. A path such as `/tmp/dt` is fine; macOS `$TMPDIR` is too long.
+- `DIPO_TMP` may be at most 37 bytes after symlinks (`MAX_TEMP_ROOT_BYTES`). `tempRoot()`, and so every testkit temp directory, refuses a longer one, because a test daemon's socket paths under it would pass the 100-byte limit and the daemon would refuse to start. A path such as `/tmp/dt` is fine; macOS `$TMPDIR` is too long.
 
 testkit keeps its own copy of the engine's `RUNTIME_PATH_LIMIT` and `LONGEST_RUNTIME_ENTRY`, since it may not import engine; `packages/daemon/test/unit/runtime-isolation.test.ts` keeps them equal and checks that every daemon and client test that starts a daemon follows the rules above.
 
 ## Finding slow tests
 
 ```sh
-DIPO_TMP=$(mktemp -d /tmp/dt.XXXX) bun test --reporter=junit --reporter-outfile=/tmp/junit.xml
+DIPO_TMP=$(mktemp -d /tmp/dt.XXXX) bun run test --reporter=junit --reporter-outfile=/tmp/junit.xml
 ```
 
 Each `<testcase>` in the report has a `time` in seconds. Sort by it to find the slowest cases, and time the whole local run before and after a move.

@@ -15,6 +15,8 @@ import {
   OfficeConfigV9,
   OfficeConfigV10,
   OfficeConfigV11,
+  OfficeConfigV12,
+  OfficeConfigV13,
   OfficeFileV1,
   OfficeFileV2,
   OfficeFileV3,
@@ -26,6 +28,8 @@ import {
   OfficeFileV9,
   OfficeFileV10,
   OfficeFileV11,
+  OfficeFileV12,
+  OfficeFileV13,
   OfficeLocalFileV1,
   OfficeLocalFileV2,
   OfficeLocalFileV3,
@@ -37,6 +41,8 @@ import {
   OfficeLocalFileV9,
   OfficeLocalFileV10,
   OfficeLocalFileV11,
+  OfficeLocalFileV12,
+  OfficeLocalFileV13,
   privacyOptIns,
   RETIRED_KEYS,
   schemaKeyPaths,
@@ -554,7 +560,6 @@ function officeFileV11(body: object): boolean {
 
 describe("version 11 key paths", () => {
   it("are the version 10 paths plus the security phrase lists", () => {
-    expect(OFFICE_CONFIG_VERSION).toBe(11);
     expect(schemaKeyPaths(OfficeConfigV11)).toEqual(VERSION_11_KEY_PATHS.toSorted());
     expect(schemaKeyPaths(OfficeFileV11)).toEqual(
       VERSION_11_KEY_PATHS.filter((path) => !localOnly(path)).toSorted(),
@@ -584,76 +589,168 @@ describe("version 11 key paths", () => {
   });
 });
 
+// Version 12 (DIPO-282): the box's listed local ports of the Mac.
+const VERSION_12_KEY_PATHS = [...VERSION_11_KEY_PATHS, "box.localPorts"];
+
+/** Whether `.dipo/office.yaml` version 12 accepts `body` as given. */
+function officeFileV12(body: object): boolean {
+  return OfficeFileV12.safeParse({ version: 12, ...body }).success;
+}
+
+describe("version 12 key paths", () => {
+  it("are the version 11 paths plus box.localPorts", () => {
+    expect(schemaKeyPaths(OfficeConfigV12)).toEqual(VERSION_12_KEY_PATHS.toSorted());
+    expect(schemaKeyPaths(OfficeFileV12)).toEqual(
+      VERSION_12_KEY_PATHS.filter((path) => !localOnly(path)).toSorted(),
+    );
+    // The box is read from the base branch only: office.local.yaml gains nothing.
+    expect(schemaKeyPaths(OfficeLocalFileV12)).toEqual(
+      VERSION_12_KEY_PATHS.filter(localAllowedV4).toSorted(),
+    );
+    expect(schemaKeyPaths(OfficeConfigV11)).toEqual(VERSION_11_KEY_PATHS.toSorted());
+  });
+
+  it("accept a list of ports and refuse a port out of range, a fraction, text or a repeat", () => {
+    expect(officeFileV12({ box: { localPorts: [5432, 8080] } })).toBe(true);
+    expect(officeFileV12({ box: { localPorts: [] } })).toBe(true);
+    expect(officeFileV12({ box: { localPorts: [1, 65_535] } })).toBe(true);
+    for (const bad of [[0], [65_536], [-1], [80.5], ["5432"], [5432, 5432]]) {
+      expect(officeFileV12({ box: { localPorts: bad } })).toBe(false);
+    }
+    expect(OfficeLocalFileV12.safeParse({ version: 12, box: { localPorts: [1] } }).success).toBe(
+      false,
+    );
+  });
+
+  it("keep version 11 without box.localPorts", () => {
+    expect(officeFileV11({ box: { localPorts: [5432] } })).toBe(false);
+  });
+});
+
+// Version 13 (DIPO-310): the scan fallback session block.
+const VERSION_13_KEY_PATHS = [
+  ...VERSION_12_KEY_PATHS,
+  "scan.model",
+  "scan.effort",
+  "scan.budgetTokens",
+  "scan.maxMinutes",
+];
+
+/** Whether `.dipo/office.yaml` version 13 accepts `body` as given. */
+function officeFileV13(body: object): boolean {
+  return OfficeFileV13.safeParse({ version: 13, ...body }).success;
+}
+
+describe("version 13 key paths", () => {
+  it("are the version 12 paths plus the scan block", () => {
+    expect(OFFICE_CONFIG_VERSION).toBe(13);
+    expect(schemaKeyPaths(OfficeConfigV13)).toEqual(VERSION_13_KEY_PATHS.toSorted());
+    expect(schemaKeyPaths(OfficeFileV13)).toEqual(
+      VERSION_13_KEY_PATHS.filter((path) => !localOnly(path)).toSorted(),
+    );
+    expect(schemaKeyPaths(OfficeLocalFileV13)).toEqual(
+      VERSION_13_KEY_PATHS.filter(localAllowedV4).toSorted(),
+    );
+  });
+
+  it("accept the scan block, one key alone, and refuse a zero budget or another key", () => {
+    expect(officeFileV13({ scan: { model: "haiku" } })).toBe(true);
+    expect(officeFileV13({ scan: { budgetTokens: 50_000, maxMinutes: 3 } })).toBe(true);
+    expect(officeFileV13({ scan: { budgetTokens: 0 } })).toBe(false);
+    expect(officeFileV13({ scan: { maxTurns: 4 } })).toBe(false);
+    expect(officeFileV12({ scan: { model: "haiku" } })).toBe(false);
+  });
+
+  it("default to sonnet, low effort, 100000 budget tokens and 5 minutes", () => {
+    expect(OFFICE_DEFAULTS.scan).toEqual({
+      model: "sonnet",
+      effort: "low",
+      budgetTokens: 100_000,
+      maxMinutes: 5,
+    });
+  });
+});
+
 describe("migrateOfficeDocument", () => {
-  it("migrates version 1 to 11 as the identity", () => {
+  it("migrates version 1 to 13 as the identity", () => {
     const v1 = { version: 1, worker: { adapter: "claude-cli" }, remote: "up" };
-    expect(migrateOfficeDocument(1, v1)).toEqual({ ...v1, version: 11 });
+    expect(migrateOfficeDocument(1, v1)).toEqual({ ...v1, version: 13 });
     expect(v1.version).toBe(1);
   });
 
-  it("migrates version 2 to 11 as the identity", () => {
+  it("migrates version 2 to 13 as the identity", () => {
     const v2 = { version: 2, worker: { plugins: ["warp@claude-code-warp"] } };
-    expect(migrateOfficeDocument(2, v2)).toEqual({ ...v2, version: 11 });
+    expect(migrateOfficeDocument(2, v2)).toEqual({ ...v2, version: 13 });
   });
 
-  it("migrates version 3 to 11 as the identity", () => {
+  it("migrates version 3 to 13 as the identity", () => {
     const v3 = { version: 3, mergeSlot: { requiredChecks: ["build"] } };
-    expect(migrateOfficeDocument(3, v3)).toEqual({ ...v3, version: 11 });
+    expect(migrateOfficeDocument(3, v3)).toEqual({ ...v3, version: 13 });
   });
 
-  it("migrates version 4 to 11 as the identity", () => {
+  it("migrates version 4 to 13 as the identity", () => {
     const v4 = { version: 4, sandbox: { toolchainReadPaths: ["~/.nvm/versions/node"] } };
-    expect(migrateOfficeDocument(4, v4)).toEqual({ ...v4, version: 11 });
+    expect(migrateOfficeDocument(4, v4)).toEqual({ ...v4, version: 13 });
   });
 
-  it("migrates version 5 to 11 as the identity", () => {
+  it("migrates version 5 to 13 as the identity", () => {
     const v5 = { version: 5, review: { maxRounds: 2 } };
-    expect(migrateOfficeDocument(5, v5)).toEqual({ ...v5, version: 11 });
+    expect(migrateOfficeDocument(5, v5)).toEqual({ ...v5, version: 13 });
   });
 
-  it("migrates version 6 to 11 as the identity", () => {
+  it("migrates version 6 to 13 as the identity", () => {
     const v6 = { version: 6, story: { maintainerStepPhrases: ["task notes"] } };
-    expect(migrateOfficeDocument(6, v6)).toEqual({ ...v6, version: 11 });
+    expect(migrateOfficeDocument(6, v6)).toEqual({ ...v6, version: 13 });
   });
 
-  it("migrates version 7 to 11 as the identity", () => {
+  it("migrates version 7 to 13 as the identity", () => {
     const v7 = { version: 7, storyPr: { open: false } };
-    expect(migrateOfficeDocument(7, v7)).toEqual({ ...v7, version: 11 });
+    expect(migrateOfficeDocument(7, v7)).toEqual({ ...v7, version: 13 });
   });
 
-  it("migrates version 8 to 11 as the identity", () => {
+  it("migrates version 8 to 13 as the identity", () => {
     const v8 = { version: 8, worker: { web: false } };
-    expect(migrateOfficeDocument(8, v8)).toEqual({ ...v8, version: 11 });
+    expect(migrateOfficeDocument(8, v8)).toEqual({ ...v8, version: 13 });
   });
 
-  it("migrates version 9 to 11 as the identity when permissions.presentMinutes is not set", () => {
+  it("migrates version 9 to 13 as the identity when permissions.presentMinutes is not set", () => {
     const v9 = { version: 9, box: { debian: "trixie" }, permissions: { ask: "never" } };
-    expect(migrateOfficeDocument(9, v9)).toEqual({ ...v9, version: 11 });
+    expect(migrateOfficeDocument(9, v9)).toEqual({ ...v9, version: 13 });
   });
 
   it("drops permissions.presentMinutes from version 9 and older, and keeps the input", () => {
     const v9 = { version: 9, permissions: { ask: "never", presentMinutes: 10 }, remote: "up" };
     expect(migrateOfficeDocument(9, v9)).toEqual({
-      version: 11,
+      version: 13,
       permissions: { ask: "never" },
       remote: "up",
     });
     expect(v9.permissions.presentMinutes).toBe(10);
     const v1 = { version: 1, permissions: { presentMinutes: 5 } };
-    expect(migrateOfficeDocument(1, v1)).toEqual({ version: 11, permissions: {} });
+    expect(migrateOfficeDocument(1, v1)).toEqual({ version: 13, permissions: {} });
   });
 
-  it("migrates version 10 to 11 as the identity", () => {
+  it("migrates version 10 to 13 as the identity", () => {
     const v10 = { version: 10, box: { debian: "trixie" } };
-    expect(migrateOfficeDocument(10, v10)).toEqual({ ...v10, version: 11 });
+    expect(migrateOfficeDocument(10, v10)).toEqual({ ...v10, version: 13 });
   });
 
-  it("leaves a version 11 document as it is", () => {
+  it("migrates version 11 to 13 as the identity", () => {
     const v11 = { version: 11, story: { securityPhrases: ["firewall rule"] } };
-    expect(migrateOfficeDocument(11, v11)).toEqual(v11);
+    expect(migrateOfficeDocument(11, v11)).toEqual({ ...v11, version: 13 });
   });
 
-  it("turns the version 1 defaults into the version 11 defaults but worker.plugins, worker.web, mergeSlot, review, the story phrases, storyPr and box", () => {
+  it("migrates version 12 to 13 as the identity", () => {
+    const v12 = { version: 12, box: { localPorts: [5432] } };
+    expect(migrateOfficeDocument(12, v12)).toEqual({ ...v12, version: 13 });
+  });
+
+  it("leaves a version 13 document as it is", () => {
+    const v13 = { version: 13, scan: { model: "haiku" } };
+    expect(migrateOfficeDocument(13, v13)).toEqual(v13);
+  });
+
+  it("turns the version 1 defaults into the version 13 defaults but worker.plugins, worker.web, mergeSlot, review, the story phrases, storyPr, box and scan", () => {
     const { plugins: _plugins, web: _web, ...worker } = OFFICE_DEFAULTS.worker;
     const {
       maintainerStepPhrases: _phrases,
@@ -666,13 +763,14 @@ describe("migrateOfficeDocument", () => {
       review: _review,
       storyPr: _storyPr,
       box: _box,
+      scan: _scan,
       ...rest
     } = OFFICE_DEFAULTS;
-    // Version 1 needs permissions.presentMinutes, which the migration to version 11 drops.
+    // Version 1 needs permissions.presentMinutes, which the migration to version 13 drops.
     const permissions = { ...OFFICE_DEFAULTS.permissions, presentMinutes: 10 };
     const v1 = OfficeConfigV1.parse({ ...rest, permissions, story, version: 1, worker });
     expect(
-      OfficeConfigV11.parse({
+      OfficeConfigV13.parse({
         ...migrateOfficeDocument(1, v1),
         worker: OFFICE_DEFAULTS.worker,
         mergeSlot: OFFICE_DEFAULTS.mergeSlot,
@@ -680,14 +778,15 @@ describe("migrateOfficeDocument", () => {
         story: OFFICE_DEFAULTS.story,
         storyPr: OFFICE_DEFAULTS.storyPr,
         box: OFFICE_DEFAULTS.box,
+        scan: OFFICE_DEFAULTS.scan,
       }),
     ).toEqual(OFFICE_DEFAULTS);
   });
 });
 
 describe("defaults", () => {
-  it("are a complete version 11 configuration", () => {
-    expect(OfficeConfigV11.parse(OFFICE_DEFAULTS)).toEqual(OFFICE_DEFAULTS);
+  it("are a complete version 13 configuration", () => {
+    expect(OfficeConfigV13.parse(OFFICE_DEFAULTS)).toEqual(OFFICE_DEFAULTS);
   });
 
   it("give R30 the security phrases and a phrase list for each criteria part (DIPO-251)", () => {

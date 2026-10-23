@@ -11,7 +11,7 @@ import type {
   JsonSchema,
   LaunchPlan,
   ParseState,
-  ReportKind,
+  SchemaKind,
   SteerOp,
   TranscriptRead,
   WorkerAdapter,
@@ -69,7 +69,7 @@ export interface WorkerPort {
    * The JSON Schema a run puts in `WorkerSpec.reportSchema`, per kind (0008 section 1 and its
    * amendment of 2026-10-16): `WorkerReport` for `implement`, `ReviewReport` for `review`.
    */
-  readonly reportSchema: Readonly<Record<ReportKind, JsonSchema>>;
+  readonly reportSchema: Readonly<Record<SchemaKind, JsonSchema>>;
   /** What worktree setup copies as the adapter's local settings (DIPO-39, DIPO-113). */
   readonly localSettings: LocalSettingsCopy;
   /** The adapter for one run, its `plan` bound to the run's launch context (0008 section 1). */

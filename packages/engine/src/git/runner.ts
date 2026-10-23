@@ -1,8 +1,19 @@
 // One engine git step: a hardened call (see `hardened.ts`) through an injected executor, with the
 // lock rule of 0010 section 7: a held `index.lock` or ref lock is retried three times with backoff,
 // then the step fails. Lock files are never deleted; another git process owns them.
+//
+// Every step has a deadline on the runner's clock (DIPO-314): `GIT_STEP_DEADLINE_MS` (120 s) by
+// default, `EXTERNAL_STEP_TIMEOUT_MS` (60 s) for the steps that may wait on something outside the
+// engine (a commit that signs, a fetch or push that authenticates). git starts in its own process
+// group; past the deadline the group gets SIGTERM, so git removes the lock files it holds, and
+// SIGKILL after `KILL_GRACE_MS` when it has not exited. The step fails with `git.timedOut` once
+// git exited or the grace passed, naming the command, the deadline and the lock file it may have
+// left, so no git step holds the office git queue for longer.
 
 import type { Clock, Spawn, TimerHandle } from "@dipsaus-orchestrator/contract";
+
+import { systemClock } from "../platform/clock";
+import { KILL_GRACE_MS, terminateChild, timedOutText, trackEngineCall } from "../platform/deadline";
 
 import { type GitLocation, hardenedArgs, hardenedCwd, hardenedEnv } from "./hardened";
 
@@ -11,8 +22,9 @@ export interface GitStepOptions {
   readonly config?: readonly (readonly [string, string])[];
   readonly env?: Readonly<Record<string, string>>;
   /**
-   * Kills the step after this long on the runner's clock and fails it with `git.timedOut`. For
-   * steps that may wait on something outside the engine: a signing program, a credential prompt.
+   * Kills the step after this long on the runner's clock and fails it with `git.timedOut`;
+   * `GIT_STEP_DEADLINE_MS` when absent. Steps that may wait on something outside the engine (a
+   * signing program, a credential prompt) pass `EXTERNAL_STEP_TIMEOUT_MS`.
    */
   readonly timeoutMs?: number;
 }
@@ -22,8 +34,10 @@ export interface GitCall {
   readonly args: readonly string[];
   readonly env: Readonly<Record<string, string>>;
   readonly cwd: string;
-  /** Aborted when the step timed out; the executor kills the process. */
+  /** Aborted when the step timed out; the executor ends the process and its group. */
   readonly signal?: AbortSignal;
+  /** The clock the executor's grace between SIGTERM and SIGKILL runs on; the system clock by default. */
+  readonly clock?: Clock;
 }
 
 export interface GitResult {
@@ -38,9 +52,12 @@ export type GitExec = (call: GitCall) => Promise<GitResult>;
 /** The executor that spawns `git` (or the absolute path the daemon resolved) through `spawn`. */
 export function spawnGitExec(spawn: Spawn, git = "git"): GitExec {
   return async (call) => {
-    const child = spawn({ cmd: [git, ...call.args], cwd: call.cwd, env: call.env });
-    if (call.signal?.aborted === true) child.kill("SIGKILL");
-    else call.signal?.addEventListener("abort", () => child.kill("SIGKILL"), { once: true });
+    // Its own process group, so a step killed at its deadline takes what it started along.
+    const child = spawn({ cmd: [git, ...call.args], cwd: call.cwd, env: call.env, detached: true });
+    trackEngineCall(child);
+    const end = () => void terminateChild(child, call.clock ?? systemClock);
+    if (call.signal?.aborted === true) end();
+    else call.signal?.addEventListener("abort", end, { once: true });
     const [stdout, stderr, exit] = await Promise.all([
       new Response(child.stdout).text(),
       new Response(child.stderr).text(),
@@ -88,39 +105,57 @@ export interface GitStepRunner {
   /** The daemon's environment, which every hardened call starts from. */
   readonly env: Readonly<Record<string, string | undefined>>;
   readonly sleep: Sleep;
-  /** The clock step timeouts run on; a step with `timeoutMs` needs it. */
+  /** The clock step deadlines run on; the system clock when absent. */
   readonly clock?: Clock;
 }
 
-/** Runs one call, killed and failed with `git.timedOut` after `timeoutMs` on `clock`. */
+/** The `git.timedOut` error of a step: the command, the deadline and the lock it may have left. */
+export function gitTimedOut(args: readonly string[], timeoutMs: number): GitError {
+  return new GitError(
+    "git.timedOut",
+    `${timedOutText(["git", ...args], timeoutMs)}. A lock file it held (\`index.lock\` or a ref's \`.lock\`) may be left behind; dipo never deletes lock files, so remove it by hand when no git process runs.`,
+    false,
+    { args: [...args], timeoutMs },
+  );
+}
+
+/**
+ * Runs one call, ended and failed with `git.timedOut` after `timeoutMs` on the runner's clock:
+ * the executor sends SIGTERM, then SIGKILL; the step fails once git exited or the grace passed.
+ */
 async function execWithTimeout(
   runner: GitStepRunner,
   call: GitCall,
   args: readonly string[],
-  timeoutMs: number | undefined,
+  timeoutMs: number = GIT_STEP_DEADLINE_MS,
 ): Promise<GitResult> {
-  if (timeoutMs === undefined) return runner.exec(call);
-  const clock = runner.clock;
-  if (clock === undefined) throw new Error("a git step with a timeout needs the runner's clock");
+  const clock = runner.clock ?? systemClock;
   const controller = new AbortController();
+  const running = runner.exec({ ...call, signal: controller.signal, clock });
   let timer: TimerHandle | undefined;
+  let fired = false;
   const timedOut = new Promise<never>((_, reject) => {
     timer = clock.setTimeout(() => {
+      timer = undefined;
+      fired = true;
       controller.abort();
-      reject(
-        new GitError(
-          "git.timedOut",
-          `git ${args.join(" ")} did not finish within ${Math.round(timeoutMs / 1000)} s and was killed.`,
-          false,
-          { args: [...args], timeoutMs },
-        ),
+      const grace = new Promise<void>((resolve) => clock.setTimeout(resolve, KILL_GRACE_MS));
+      const ended = running.then(
+        () => undefined,
+        () => undefined,
       );
+      void Promise.race([ended, grace]).then(() => reject(gitTimedOut(args, timeoutMs)));
     }, timeoutMs);
   });
   try {
     // A killed git may leave a child (a signing program) holding its pipes, so the step does not
-    // wait for the process's output once the timeout fired.
-    return await Promise.race([runner.exec({ ...call, signal: controller.signal }), timedOut]);
+    // wait for the process's output past the grace.
+    // A git that exits on its SIGTERM still timed out.
+    const settled = running.then(
+      (result) => (fired ? timedOut : result),
+      (error: unknown) => (fired ? timedOut : Promise.reject(error)),
+    );
+    return await Promise.race([settled, timedOut]);
   } finally {
     if (timer !== undefined) clock.clearTimeout(timer);
   }
@@ -183,6 +218,13 @@ export async function runGitStepOk(
  * signs, a fetch or push that authenticates. Such a step never holds the office queue forever.
  */
 export const EXTERNAL_STEP_TIMEOUT_MS = 60_000;
+
+/**
+ * The deadline of every other engine git step (DIPO-314): 120 s, so a step that hangs (a held
+ * file, a stuck filesystem) never holds the office queue forever, while a large local checkout
+ * still fits.
+ */
+export const GIT_STEP_DEADLINE_MS = 120_000;
 
 /** True when `error` is a step killed by its timeout. */
 export function isTimedOut(error: unknown): error is GitError {

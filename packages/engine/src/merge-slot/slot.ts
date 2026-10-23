@@ -39,8 +39,14 @@
 //
 // Each git step is its own item of the office git queue; waiting for CI holds only the slot. Work
 // of one office runs one tick at a time.
+//
+// With the office's PR-state poll (`prState`, DIPO-314) the slot's poll tick is part of each of its
+// rounds, after the story-PR poll, instead of a timer of its own, and that tick reads a PR's state
+// through the reads the round gave it, so a PR the story-PR poll read this round is not read
+// again; a PR the tick merged is dropped from the round. Any other tick (a kick after a flush or a
+// decision) and a read right after the slot's own merge attempt go to the host.
 
-import type { Clock, OfficeId, StoryKey, TimerHandle } from "@dipsaus-orchestrator/contract";
+import type { Clock, OfficeId, RunId, StoryKey, TimerHandle } from "@dipsaus-orchestrator/contract";
 
 import { openEntries, updateEntry } from "../backlog/lane/journal";
 import type { OfficeLane } from "../backlog/lane/lane";
@@ -53,6 +59,7 @@ import { OFFICE_DEFAULTS, type OfficeConfig } from "../config";
 import type { OfficeHandle } from "../db/office";
 import type { Logger } from "../log/logger";
 import { type CodeHost, CodeHostError, type PrReviewHost } from "../platform/host";
+import type { PrStatePoll, PrStateReads } from "../platform/pr-state";
 
 import { evaluateChecks, REQUIRED_CHECKS } from "./checks";
 import { autoreleasePending, holdLabelsOn, type StoredMergeGate } from "./gates";
@@ -134,6 +141,11 @@ export interface MergeSlotDeps {
   readonly onChanged?: (office: OfficeId) => void;
   /** Gets each tick's outcome at debug level (idle at trace) and a failed poll or tick as a warning. */
   readonly logger?: Logger;
+  /**
+   * The office's one PR-state poll (DIPO-314): the slot ticks as part of its rounds, not on a timer
+   * of its own, and reads PR state through it. Without it the slot keeps its own timer.
+   */
+  readonly prState?: Pick<PrStatePoll, "subscribe">;
 }
 
 type ParkReason =
@@ -161,6 +173,8 @@ interface OfficeSlot {
   clock: Clock;
   seconds: number;
   timer: TimerHandle | null;
+  /** The reads of the PR-state round the running tick belongs to (DIPO-314), or null. */
+  reads: PrStateReads | null;
 }
 
 /** A PR that may enter the slot, with the time it became eligible. */
@@ -177,6 +191,23 @@ export class MergeSlot {
   constructor(deps: MergeSlotDeps) {
     this.#deps = deps;
     this.#stories = deps.stories === undefined ? null : new StorySlot(deps.stories);
+    deps.prState?.subscribe("merge-slot", (office, reads) => this.#polled(office, reads));
+  }
+
+  /** The tick of a PR-state round; skipped while a tick still runs, as the slot's own poll was. */
+  async #polled(office: OfficeId, reads: PrStateReads): Promise<void> {
+    const state = this.#offices.get(office);
+    if (state === undefined || this.#deps.offices.get(office) === undefined) return;
+    if (state.pending > 0) {
+      this.#deps.logger?.debug("merge slot poll skipped: a tick still runs", { office });
+      return;
+    }
+    await this.tick(office, reads);
+  }
+
+  /** How the running tick reads a PR's state: through its PR-state round, else the host. */
+  #reads(office: OfficeId): Pick<PrStateReads, "viewPr" | "invalidate"> {
+    return this.#offices.get(office)?.reads ?? this.#deps.host;
   }
 
   /** The branch of the backlog PR in the office's slot, or null; the lane holds operations meanwhile. */
@@ -207,10 +238,17 @@ export class MergeSlot {
    * One step of the office's slot, after any tick already running: open the merge gates due, let
    * a PR in, or move the one in it on as far as it can go without waiting.
    */
-  tick(office: OfficeId): Promise<SlotOutcome> {
+  tick(office: OfficeId, reads?: PrStateReads): Promise<SlotOutcome> {
     const state = this.#stateOf(office);
     state.pending += 1;
-    const step = () => this.#logged(office, state).finally(() => (state.pending -= 1));
+    const step = () => {
+      // A tick of a PR-state round reads through it (DIPO-314); any other reads the host.
+      state.reads = reads ?? null;
+      return this.#logged(office, state).finally(() => {
+        state.reads = null;
+        state.pending -= 1;
+      });
+    };
     const run = state.busy.then(step, step);
     state.busy = run.catch(() => undefined);
     return run;
@@ -223,10 +261,20 @@ export class MergeSlot {
 
   /**
    * DIPO-155's `SlotReentry`: a resumed `slot-refused` park lets its story into the slot again, with
-   * a fresh per-stay count (a new occupant row), at the next tick it is eligible at.
+   * a fresh per-stay count (a new occupant row), at the next tick it is eligible at. The park and
+   * its lift each committed the task file on the branch and pushed it, so the story PR is first
+   * updated to that pushed head (DIPO-324): the slot compares the host's head with the recorded
+   * one, and a head it did not record keeps the story out as a hand change.
    */
   async reenter(office: OfficeId, run: { readonly runId: string }): Promise<void> {
     this.#offices.get(office)?.left.delete(run.runId);
+    await this.#stories?.prSynced(office, run.runId as RunId).catch((error: unknown) => {
+      this.#deps.logger?.warn("updating a re-entered story's PR to its head failed", {
+        office,
+        run: run.runId,
+        reason: reasonOf(error),
+      });
+    });
     this.kick(office);
   }
 
@@ -257,7 +305,10 @@ export class MergeSlot {
       name: "merge-slot",
       register: (registry) => {
         registry.registerLoadStep(MERGE_SLOT_STEP, (ctx) => {
-          this.watch(ctx.officeId, ctx.clock, secondsOf(ctx.config));
+          // With the PR-state poll the slot ticks in its rounds (DIPO-314); it only needs its state.
+          if (this.#deps.prState === undefined) {
+            this.watch(ctx.officeId, ctx.clock, secondsOf(ctx.config));
+          } else this.#stateOf(ctx.officeId);
           return { ok: true };
         });
       },
@@ -305,6 +356,7 @@ export class MergeSlot {
         clock: this.#deps.clock,
         seconds: 0,
         timer: null,
+        reads: null,
       };
       this.#offices.set(office, state);
     }
@@ -389,6 +441,7 @@ export class MergeSlot {
       officeId: office,
       office: handle,
       host: this.#deps.host,
+      prState: this.#reads(office),
       clock: this.#deps.clock,
       config: this.#deps.offices.config?.(office) ?? OFFICE_DEFAULTS,
       ...(this.#deps.checksWaitMs === undefined ? {} : { checksWaitMs: this.#deps.checksWaitMs }),
@@ -597,7 +650,7 @@ export class MergeSlot {
       // Step 3: wait for the required checks, while the PR is still open.
       let checks;
       try {
-        const pr = await this.#deps.host.viewPr(slot.repo, number);
+        const pr = await this.#reads(office).viewPr(slot.repo, number);
         const record = findPr(handle, number);
         if (pr.state === "merged" && record?.state === "open" && slot.phase === "merge") {
           // A merge this slot asked for before a restart, which the host took: finish it.
@@ -709,6 +762,8 @@ export class MergeSlot {
       }
       break;
     }
+    // The round's copy of the PR is stale now (DIPO-314).
+    this.#reads(office).invalidate?.(slot.repo, slot.number);
     await this.#merged(office, state, slot, handle, lane, git);
     return "merged";
   }

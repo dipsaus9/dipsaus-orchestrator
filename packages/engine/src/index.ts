@@ -16,17 +16,23 @@ export type { Migration, MigrateResult } from "./db/migrations";
 export { OfficeHandle } from "./db/office";
 export { platformSelfChecks, type SelfCheck } from "./platform/self-check";
 export {
+  checkStateDir,
   chooseRuntimeDir,
   currentPlatform,
+  DIR_ERROR_CODES,
   ensurePrivateDir,
+  isTestRun,
   lingeringEnabled,
   passwdHome,
   readRuntimeRecord,
+  realRuntimeDirReason,
   resolveSoftwareDirs,
   runtimeCandidates,
   RuntimeDirError,
   RUNTIME_FILE,
   SOCKET_FILE,
+  SoftwareDirError,
+  TEST_MARKER,
   writeRuntimeRecord,
 } from "./platform/paths";
 export type {
@@ -106,6 +112,9 @@ export type {
   PrState,
   RequiredCheck,
 } from "./platform/host";
+export { PR_STATE_STEP, PrStatePoll } from "./platform/pr-state";
+export { stopEngineCalls, trackEngineCalls } from "./platform/deadline";
+export type { PrStateReads } from "./platform/pr-state";
 export { connectUnixSocket, removeSocketFile } from "./platform/socket";
 export type { ConnectOptions, RequestFrame, SocketClient, SocketReply } from "./platform/socket";
 export {
@@ -256,8 +265,21 @@ export {
   RECORDED_BY_HAND,
 } from "./reconcile";
 export type { ReconcileReport, ReconcilerDeps, ReconcileRuns } from "./reconcile";
-export { currentProfile, diffProfiles, RunProfiles, SCAN_STEP, verifyResolved } from "./scan";
-export type { RunProfilesDeps, ScanOutcome, ScanTrigger, StoredProfile } from "./scan";
+export {
+  currentProfile,
+  diffProfiles,
+  RunProfiles,
+  SCAN_STEP,
+  testCommandRefusal,
+  verifyResolved,
+} from "./scan";
+export type {
+  RunProfilesDeps,
+  ScanOutcome,
+  ScanSessionRunner,
+  ScanTrigger,
+  StoredProfile,
+} from "./scan";
 export {
   evaluateGate,
   findPassingDecision,

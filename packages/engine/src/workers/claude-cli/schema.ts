@@ -389,6 +389,7 @@ export const ClaudeWorkerEventSchema = z.union([
     t: z.literal("turn"),
     report: WorkerReportSchema.nullable(),
     review: ReviewReportSchema.exactOptional(),
+    answer: z.unknown().exactOptional(),
     totals: z.record(Name, Totals),
     costUsd: z.record(Name, z.number().nonnegative()).exactOptional(),
     numTurns: Count,

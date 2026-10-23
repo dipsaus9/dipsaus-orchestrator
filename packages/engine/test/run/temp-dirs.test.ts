@@ -3,24 +3,29 @@
 // Live, held and re-attachable runs keep theirs; only real directories directly under the temp
 // root are removed, never through a link; an unknown run's directory goes only at daemon start and
 // only when this daemon's database made it. Each run's short temp root `<tmpRoot>/dipo-t-<hash>`
-// (DIPO-118) goes with it, mapped to its run by its run file and its name.
+// (DIPO-118) goes with it, mapped to its run by its run file and its name. At daemon start the
+// output folders of spawned children a crash left (`dipo-out-*`, DIPO-333) go once nothing in them
+// changed for a few minutes.
 
 import { describe, expect, it } from "bun:test";
 import {
   existsSync,
+  lstatSync,
   mkdirSync,
   readFileSync,
   realpathSync,
   statSync,
   symlinkSync,
+  utimesSync,
   writeFileSync,
 } from "node:fs";
 import { join } from "node:path";
 
 import type { RunId } from "@dipsaus-orchestrator/contract";
-import { MAX_TEMP_ROOT_BYTES, withTempDir } from "@dipsaus-orchestrator/testkit";
+import { MAX_TEMP_ROOT_BYTES, ManualClock, withTempDir } from "@dipsaus-orchestrator/testkit";
 
 import type { OfficeHandle } from "../../src/db/office";
+import { OUTPUT_DIR_PREFIX, OUTPUT_SWEEP_AGE_MS } from "../../src/platform/output-files";
 import type { ProcessInfo, ProcessProbe } from "../../src/platform/process";
 import {
   afterRunExits,
@@ -311,6 +316,69 @@ describe("the sweep at daemon start (recovery)", () => {
       expect((await dirs.sweep("recovery")).toSorted()).toEqual(gone.toSorted());
       for (const path of keep) expect(existsSync(path)).toBe(true);
       for (const path of gone) expect(existsSync(path)).toBe(false);
+    }));
+
+  it("removes this user's output folders left by a crash once they are old enough (DIPO-333)", () =>
+    withTempDir(async (dir) => {
+      const f = await fixture(dir);
+      const clock = new ManualClock();
+      const dirs = new RunTempDirs({
+        tmpRoot: f.tmpRoot,
+        database: () => f.t.state,
+        probe: DEAD,
+        clock,
+      });
+      /** An output folder whose folder and files last changed `age` ms before the clock. */
+      const output = (name: string, age: number, fileAge = age): string => {
+        const path = join(f.tmpRoot, `${OUTPUT_DIR_PREFIX}${name}`);
+        mkdirSync(path);
+        for (const file of ["stdout", "stderr"]) {
+          writeFileSync(join(path, file), "x");
+          const at = (clock.now() - fileAge) / 1000;
+          utimesSync(join(path, file), at, at);
+        }
+        utimesSync(path, (clock.now() - age) / 1000, (clock.now() - age) / 1000);
+        return path;
+      };
+      const old = output("old", OUTPUT_SWEEP_AGE_MS + 60_000);
+      const fresh = output("fresh", 60_000);
+      // An old folder whose output file a running child still writes.
+      const writing = output("writing", OUTPUT_SWEEP_AGE_MS + 60_000, 1_000);
+      const target = output("target", OUTPUT_SWEEP_AGE_MS + 60_000);
+      const link = join(f.tmpRoot, `${OUTPUT_DIR_PREFIX}link`);
+      symlinkSync(target, link);
+      const file = join(f.tmpRoot, `${OUTPUT_DIR_PREFIX}file`);
+      writeFileSync(file, "");
+      const unrelated = join(f.tmpRoot, "other-old");
+      mkdirSync(unrelated);
+      utimesSync(unrelated, 0, 0);
+
+      expect(await dirs.sweep("ended")).toEqual([]);
+      expect(existsSync(old)).toBe(true);
+      expect((await dirs.sweep("recovery")).toSorted()).toEqual([old, target].toSorted());
+      for (const path of [fresh, writing, file, unrelated]) expect(existsSync(path)).toBe(true);
+      // The link stays, though the folder it pointed at went as an old folder of its own.
+      expect(lstatSync(link).isSymbolicLink()).toBe(true);
+      expect(existsSync(old)).toBe(false);
+    }));
+
+  it("leaves another uid's output folders", () =>
+    withTempDir(async (dir) => {
+      const f = await fixture(dir);
+      const clock = new ManualClock();
+      clock.advance(10 * 365 * 24 * 3_600_000);
+      const uid = (process.getuid?.() ?? 0) + 1;
+      const dirs = new RunTempDirs({
+        tmpRoot: f.tmpRoot,
+        database: () => f.t.state,
+        probe: DEAD,
+        clock,
+        uid,
+      });
+      const path = join(f.tmpRoot, `${OUTPUT_DIR_PREFIX}foreign`);
+      mkdirSync(path);
+      expect(await dirs.sweep("recovery")).toEqual([]);
+      expect(existsSync(path)).toBe(true);
     }));
 
   it("sweeps nothing before the database is open", () =>

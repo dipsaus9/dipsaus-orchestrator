@@ -87,6 +87,7 @@ import {
   type BoxSpec,
   boxName,
 } from "./port";
+import { copyInAsUser } from "./user";
 
 export type { BaseLockfile, CacheManager, ProjectFile } from "./cache-input";
 
@@ -272,13 +273,15 @@ export interface FillRoute {
 /** The box calls a fill makes. */
 export type FillBoxes = Pick<
   BoxPort,
-  "network" | "create" | "start" | "stop" | "delete" | "exec" | "execLive" | "copyIn"
+  "network" | "create" | "start" | "stop" | "delete" | "exec" | "execLive" | "copyIn" | "firewall"
 >;
 
 /** The office image the fill box runs (`ensureBoxImage` of `readBaseBox`'s description). */
 export interface PackageCacheImage {
   readonly tag: string;
   readonly toolchain: BoxToolchain;
+  /** The image's box network tools (DIPO-281), which the fill box mounts read-only. */
+  readonly netTools: string;
 }
 
 export interface PackageCacheRequest {
@@ -507,7 +510,10 @@ async function fillInBox(
   work: string,
 ): Promise<void> {
   const { boxes } = request;
-  const project = join(work, "project");
+  // What goes into the fill box, as the box user's (DIPO-334): the project and the CA bundle.
+  const inbox = join(work, "in");
+  const project = join(inbox, "project");
+  await mkdir(inbox, { mode: 0o700 });
   await mkdir(project, { mode: 0o700 });
   for (const file of files) {
     const to = join(project, file.path);
@@ -520,23 +526,33 @@ async function fillInBox(
   let routing = false;
   let failure: { readonly error: unknown } | null = null;
   try {
-    // No package cache is mounted into the fill box.
-    await boxes.create({ runId: `${FILL_BOX_RUN_PREFIX}${id}`, image: request.image.tag, network });
+    // No package cache is mounted into the fill box; the image's box network tools are.
+    await boxes.create({
+      runId: `${FILL_BOX_RUN_PREFIX}${id}`,
+      image: request.image.tag,
+      network,
+      netTools: request.image.netTools,
+    });
     await boxes.start(name);
     // The route listens on the box network's host address, which exists only while a box runs.
     // It is released whatever `acquire` did, so a reference it took before failing is dropped.
     routing = true;
     const route = await request.route.acquire(name);
+    // Before the install's first script: the fill box reaches the web route on the Mac, no more
+    // (DIPO-281, `firewall.ts`).
+    await boxes.firewall(name, {
+      hostAddress: network.hostAddress,
+      ports: [Number(new URL(route.url).port)],
+    });
     const ca = await readFile(route.caFile, "utf8").catch(() => "");
     if (!isCertificateBundle(ca)) {
       fillFailed("the web route's CA bundle is not PEM certificates.", { caFile: route.caFile });
     }
-    const caFile = join(work, "ca.pem");
+    const caFile = join(inbox, "ca.pem");
     await writeFile(caFile, ca, { flag: "wx", mode: 0o644 });
     const made = await boxes.exec(name, ["mkdir", "-p", `${FILL_BOX_DIR}/cache`]);
     if (made.code !== 0) fillFailed("the fill box could not make its work folder.", { ...made });
-    await boxes.copyIn(name, project, `${FILL_BOX_DIR}/project`);
-    await boxes.copyIn(name, caFile, `${FILL_BOX_DIR}/ca.pem`);
+    await copyInAsUser(boxes, name, inbox, FILL_BOX_DIR);
     const install = fillInstall(manager, route.url);
     const result = await boxes.exec(name, install.command, {
       cwd: `${FILL_BOX_DIR}/project`,

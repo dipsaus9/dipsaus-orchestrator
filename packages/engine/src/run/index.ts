@@ -34,6 +34,8 @@ export type {
   StartOutcome,
   TierCaps,
 } from "./launch";
+export { SESSION_ENDS, SESSION_FOLDER_PREFIX, SessionRuns } from "./session-run";
+export type { SessionRunsDeps } from "./session-run";
 export { renderRunPrompts, sessionUuid, SYSTEM_FILE } from "./prompts";
 export type { RunPrompts, RunPromptsInput } from "./prompts";
 export {
@@ -119,13 +121,21 @@ export {
   CONFLICT_CAP_DEFAULT,
   CONFLICT_NOTICES,
   catchUpsOf,
+  ConflictResumes,
   handOffState,
   inReviewRunIds,
+  markBoxCopied,
+  pendingBoxCopy,
   recordCatchUp,
   recordedConflictPaths,
   StoryConflicts,
 } from "./conflicts";
-export type { DoneConflictDecision, StoredCatchUp, StoryConflictsDeps } from "./conflicts";
+export type {
+  ConflictResumesDeps,
+  DoneConflictDecision,
+  StoredCatchUp,
+  StoryConflictsDeps,
+} from "./conflicts";
 export {
   beginReviewRound,
   failedReviewRounds,
@@ -434,7 +444,13 @@ export type {
 export { MAINTAINER_RESUME_TAG, PARK_RESUME_NOTICES, RESUME_ERRORS } from "./park-resume";
 export { HALF_SHARE, share, smallestShare, withGrants } from "./resume-caps";
 export { noteText } from "./resume";
-export type { ConflictResumer, ParkResumeOptions, PrReplacement, SlotReentry } from "./park-resume";
+export type {
+  ConflictPrepared,
+  ConflictResumer,
+  ParkResumeOptions,
+  PrReplacement,
+  SlotReentry,
+} from "./park-resume";
 export { PARK_RESUME_MATRIX, parkResumeRow } from "./resume-policy";
 export type { ParkMatrixRow, ParkResumeRow, ResumeSession } from "./resume-policy";
 export { resolveParkResumed, resumableByCommand } from "./park";
@@ -455,7 +471,7 @@ export type {
   RunStoryFacts,
 } from "./resume";
 // The one wiring of the run services, for the daemon and the tests (DIPO-129).
-export { composeRuns } from "./compose";
+export { composeRuns, fetchAddressesOf } from "./compose";
 export type { ComposedRuns, RunPorts } from "./compose";
 // Re-attach after a daemon restart (DIPO-57).
 export {

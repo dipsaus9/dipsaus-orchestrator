@@ -11,9 +11,15 @@ import { dlopen, FFIType, ptr } from "bun:ffi";
 import { closeSync, openSync } from "node:fs";
 import { readFile } from "node:fs/promises";
 
-import type { ChildStdin, Signal, Spawn } from "@dipsaus-orchestrator/contract";
+import type { ChildStdin, Signal, Spawn, SpawnOutputFile } from "@dipsaus-orchestrator/contract";
 
 import { ignoreRejection } from "./background";
+import {
+  closeOutputFiles,
+  type OutputFiles,
+  openOutputFiles,
+  readOutputFiles,
+} from "./output-files";
 import type { DipoPlatform } from "./paths";
 
 /** Two readings of one process's start time differ by at most this much. */
@@ -502,21 +508,63 @@ export function selfCommand(): [string, ...string[]] {
 
 const textEncoder = new TextEncoder();
 
-/**
- * The real `Spawn` (0017 section 2): `Bun.spawn` behind the contract's `ChildProcess`. Stdout and
- * stderr are always piped. With `detached` the child leads its own session and process group, so
- * `signalGroup(child.pid)` reaches its descendants too.
- */
-export const systemSpawn: Spawn = (options) => {
-  const child = Bun.spawn({
+/** A stream of the one chunk `bytes` settles to; a failed read errors the stream. */
+function streamOf(bytes: Promise<Uint8Array>): ReadableStream<Uint8Array> {
+  return new ReadableStream<Uint8Array>({
+    async start(controller) {
+      try {
+        const chunk = await bytes;
+        if (chunk.byteLength > 0) controller.enqueue(chunk);
+        controller.close();
+      } catch (error) {
+        controller.error(error);
+      }
+    },
+  });
+}
+
+/** `Bun.spawn` with the contract's options, stdout and stderr on `files` or on pipes. */
+function bunSpawn(options: Parameters<Spawn>[0], files: OutputFiles | null) {
+  return Bun.spawn({
     cmd: [...options.cmd],
     ...(options.cwd === undefined ? {} : { cwd: options.cwd }),
     ...(options.env === undefined ? {} : { env: { ...options.env } }),
     stdin: options.stdin === "pipe" ? "pipe" : "ignore",
-    stdout: "pipe",
-    stderr: "pipe",
+    stdout: files === null ? "pipe" : files.stdout,
+    stderr: files === null ? "pipe" : files.stderr,
     detached: options.detached === true,
   });
+}
+
+/**
+ * Spawns with `options.output` files. dipo keeps its descriptors of the files to read them after
+ * the exit; on a failed start they are closed and the folder goes too.
+ */
+function spawnWithFiles(options: Parameters<Spawn>[0], output: SpawnOutputFile) {
+  const files = openOutputFiles(output);
+  try {
+    return { child: bunSpawn(options, files), files };
+  } catch (error) {
+    closeOutputFiles(files);
+    throw error;
+  }
+}
+
+/**
+ * The real `Spawn` (0017 section 2): `Bun.spawn` behind the contract's `ChildProcess`. Stdout and
+ * stderr are piped, or with `output` written to regular files that are read once the child has
+ * exited (DIPO-333). With `detached` the child leads its own session and process group, so
+ * `signalGroup(child.pid)`, and the child's `killGroup`, reach its descendants too.
+ */
+export const systemSpawn: Spawn = (options) => {
+  const started =
+    options.output === undefined
+      ? { child: bunSpawn(options, null), files: null }
+      : spawnWithFiles(options, options.output);
+  const { child } = started;
+  const files = started.files === null ? null : readOutputFiles(started.files, child.exited);
+  // An output nobody reads must not fail as an unhandled rejection (DIPO-117).
+  ignoreRejection(files);
   const sink = options.stdin === "pipe" ? (child.stdin as Bun.FileSink) : null;
   const stdin: ChildStdin | null =
     sink === null
@@ -535,8 +583,14 @@ export const systemSpawn: Spawn = (options) => {
   return {
     pid: child.pid,
     stdin,
-    stdout: child.stdout as ReadableStream<Uint8Array>,
-    stderr: child.stderr as ReadableStream<Uint8Array>,
+    stdout:
+      files === null
+        ? (child.stdout as ReadableStream<Uint8Array>)
+        : streamOf(files.then(([stdout]) => stdout)),
+    stderr:
+      files === null
+        ? (child.stderr as ReadableStream<Uint8Array>)
+        : streamOf(files.then(([, stderr]) => stderr)),
     exited: child.exited.then(() => ({
       code: child.signalCode === null ? child.exitCode : null,
       signal: child.signalCode ?? null,
@@ -548,5 +602,9 @@ export const systemSpawn: Spawn = (options) => {
         // Already gone.
       }
     },
+    // A detached child leads its own group; only then does a group signal reach just its own.
+    ...(options.detached === true
+      ? { killGroup: (signal: Signal) => void signalGroup(child.pid, signal) }
+      : {}),
   };
 };

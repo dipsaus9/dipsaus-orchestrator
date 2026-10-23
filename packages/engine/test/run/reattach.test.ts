@@ -884,7 +884,15 @@ function realResumer(
   extra: Partial<
     Pick<
       ConstructorParameters<typeof RunResumer>[0],
-      "probe" | "hostExitWaitMs" | "ingest" | "story" | "handoff" | "workspace" | "git" | "boxes"
+      | "probe"
+      | "hostExitWaitMs"
+      | "ingest"
+      | "story"
+      | "handoff"
+      | "workspace"
+      | "git"
+      | "boxes"
+      | "boxSync"
     >
   > = {},
   canResume: (ref: SessionRef) => ResumeCheck = () => ({ ok: true }),
@@ -1915,6 +1923,62 @@ describe("the prompts of a box worker's next session (DIPO-272)", () => {
     expect(outcome.kind === "failed" ? outcome.reason : "").toContain(
       "the run's box could not be made ready: the delivered parts of",
     );
+  });
+});
+
+describe("the merges dipo made outside the box reach it before the worker (DIPO-324)", () => {
+  it("copies them into the box after the box is ready and before the launch checks and the host", async () => {
+    firstSession();
+    const order: string[] = [];
+    const before = preparedSpecs.length;
+    const boxes = {
+      has: async () => {
+        order.push("box ready");
+        return "ready" as const;
+      },
+    } as unknown as RunBoxes;
+    const outcome = await realResumer(
+      hosts,
+      {
+        probe: async () => null,
+        story: async () => storyOf(),
+        handoff,
+        workspace,
+        boxes,
+        boxSync: async (_office, run) => {
+          order.push(`copy ${run.runId} after ${preparedSpecs.length - before} launch checks`);
+        },
+      },
+      () => ({ ok: false, reason: "the context is too full" }),
+    ).next(nextRequest());
+    expect(outcome).toMatchObject({ kind: "started" });
+    expect(order).toEqual(["box ready", `copy ${w.f.run} after 0 launch checks`]);
+    expect(preparedSpecs.length).toBe(before + 1);
+  });
+
+  it("starts no worker when the copy fails, and says why, so the caller parks the story", async () => {
+    firstSession();
+    const before = preparedSpecs.length;
+    const boxes = { has: async () => "ready" as const } as unknown as RunBoxes;
+    const outcome = await realResumer(
+      hosts,
+      {
+        probe: async () => null,
+        story: async () => storyOf(),
+        handoff,
+        workspace,
+        boxes,
+        boxSync: async () => {
+          throw new Error("the box is gone");
+        },
+      },
+      () => ({ ok: false, reason: "the context is too full" }),
+    ).next(nextRequest());
+    expect(outcome).toEqual({
+      kind: "failed",
+      reason: "dipo's merge on the story branch could not be copied into the box: the box is gone",
+    });
+    expect(preparedSpecs.length).toBe(before);
   });
 });
 

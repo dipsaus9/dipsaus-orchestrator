@@ -17,6 +17,7 @@ import {
   OfficeGit,
   readEngineCommitsAfter,
 } from "../../src/git";
+import { KILL_GRACE_MS } from "../../src/platform/deadline";
 
 import { OFFICE, officeGit, published } from "./helpers";
 
@@ -133,10 +134,10 @@ describe("readEngineCommitsAfter", () => {
     // Let the queue item reach its first step, which hangs, then let its timeout fall due.
     for (let i = 0; i < 10 && clock.pendingTimers === 0; i += 1) await Promise.resolve();
     expect(clock.pendingTimers).toBe(1);
-    clock.advance(ENGINE_READ_TIMEOUT_MS);
+    clock.advance(ENGINE_READ_TIMEOUT_MS + KILL_GRACE_MS);
     const result = await read;
     expect(result.kind).toBe("failed");
-    expect(result.kind === "failed" && result.detail).toContain("was killed");
+    expect(result.kind === "failed" && result.detail).toContain("dipo stopped it");
   });
 
   it("reads nothing when the stamp is no commit", async () => {

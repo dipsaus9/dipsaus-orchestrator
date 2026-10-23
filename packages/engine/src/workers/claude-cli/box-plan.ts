@@ -15,6 +15,7 @@
 // The host runs the session's stop command when it signals the worker and after the worker
 // exits, since a killed `container exec` client leaves claude running in the box.
 
+import { BOX_NPM_PREFIX } from "../../box/firewall";
 import type { BoxSession } from "../../box/workers";
 import type { LaunchPlan, WorkerSpec } from "../types";
 import { PlanError } from "../types";
@@ -22,8 +23,8 @@ import { userMessageLine } from "./encode";
 import { checkSpec, flagValue, INCLUDE_PARTIAL_MESSAGES } from "./plan";
 import { DISABLE_SLASH_COMMANDS } from "./skills";
 
-/** Claude Code in the box image: npm's global prefix there is /usr/local (DIPO-266). */
-export const BOX_CLAUDE = "/usr/local/bin/claude";
+/** Claude Code in the box image: in the box user's npm prefix (DIPO-266, DIPO-334). */
+export const BOX_CLAUDE = `${BOX_NPM_PREFIX}/bin/claude`;
 
 /** What Claude Code itself needs in a box, on top of the session's route environment. */
 export const BOX_CLAUDE_ENV: Readonly<Record<string, string>> = {

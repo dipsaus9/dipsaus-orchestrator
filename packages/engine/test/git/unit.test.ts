@@ -29,6 +29,7 @@ import {
   parseGitVersion,
   runGitStep,
 } from "../../src/git";
+import { KILL_GRACE_MS } from "../../src/platform/deadline";
 
 const OFFICE = "off_01J9ZK5Q8W3V4X6Y7Z00000001" as OfficeId;
 const REPO: GitLocation = { kind: "repository", commonDir: "/repo/.git" };
@@ -383,9 +384,12 @@ describe("step timeout", () => {
     clock.advance(EXTERNAL_STEP_TIMEOUT_MS - 1);
     expect(killed).toEqual([]);
     clock.advance(1);
+    // SIGTERM first; the step fails once the grace for git to remove its locks passed.
+    expect(killed).toHaveLength(1);
+    clock.advance(KILL_GRACE_MS);
     const error = (await step) as GitError;
     expect(isTimedOut(error)).toBe(true);
-    expect(error.message).toContain("did not finish within 60 s");
+    expect(error.message).toContain("did not finish within its deadline of 60 s");
     expect(killed).toHaveLength(1);
   });
 
@@ -402,7 +406,7 @@ describe("step timeout", () => {
           if (!call.args.includes("fetch"))
             return Promise.resolve({ code: 1, stdout: "", stderr: "" });
           // The fetch waits; time passes on the injected clock.
-          queueMicrotask(() => clock.advance(EXTERNAL_STEP_TIMEOUT_MS));
+          queueMicrotask(() => clock.advance(EXTERNAL_STEP_TIMEOUT_MS + KILL_GRACE_MS));
           return exec(call);
         },
         env: {},

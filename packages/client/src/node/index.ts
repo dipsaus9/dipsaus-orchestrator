@@ -9,6 +9,14 @@ export { connectToDaemon, DaemonNotRunningError } from "./connect";
 export type { ConnectToDaemonOptions } from "./connect";
 export * from "./lifecycle/index";
 export * from "./logs/index";
-export { logsDir, readRuntimeInfo, RUNTIME_FILE, stateDir } from "./runtime";
+export {
+  dirRefusal,
+  DirRefusedError,
+  logsDir,
+  readRuntimeInfo,
+  RUNTIME_FILE,
+  stateDir,
+  TEST_MARKER,
+} from "./runtime";
 export type { Env, RuntimeInfo } from "./runtime";
 export { unixSocketTransport } from "./transport";

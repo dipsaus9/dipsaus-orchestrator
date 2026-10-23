@@ -54,6 +54,11 @@
 // 2026-10-19) gets none of this: `sync` and `retry` return before they read git or the host, so
 // no PR is opened, updated, polled or retried and no `pr.openFailed` is raised. The poll timer
 // stays armed, so an office that turns the key back on is picked up at the next interval.
+//
+// With the office's PR-state poll (`prState`, DIPO-314) the PR poll is the first part of each of
+// its rounds instead of a timer of its own, and that pass reads each open PR through the reads the
+// round gave it, so the merge slot and the Done poll that follow get the same read. Every other
+// read (a sync after an In Review push) goes to the host.
 
 import type {
   Clock,
@@ -69,6 +74,7 @@ import type { FeatureModule } from "../commands/registry";
 import { OFFICE_DEFAULTS, type OfficeConfig } from "../config";
 import type { OfficeHandle } from "../db/office";
 import type { Logger } from "../log/logger";
+import type { PrStatePoll, PrStateReads } from "../platform/pr-state";
 import {
   checksFinal,
   evaluateChecks,
@@ -122,6 +128,8 @@ import {
   insertStoryPr,
   noCiRan,
   openStoryPrs,
+  pendingPrReplacements,
+  replaceStoryPr,
   runParked,
   recordBranchPush,
   runsToPush,
@@ -192,6 +200,12 @@ export interface StoryPrsDeps {
    * the files of `readEnvSecrets` by default. It throws when a file cannot be read.
    */
   readonly secrets?: (worktree: string, files: OfficeConfig["worktree"]["files"]) => EnvSecret[];
+  /**
+   * The office's one PR-state poll (DIPO-314): the PR poll runs as the first part of its rounds,
+   * not on a timer of its own, and reads each open PR through it. Without it the PR poll keeps its
+   * own timer and reads the host.
+   */
+  readonly prState?: Pick<PrStatePoll, "subscribe">;
 }
 
 /** What the poll knows of the pushed head of one story PR. */
@@ -226,6 +240,8 @@ interface Polled {
   readonly watch: Map<string, Watch>;
   /** The review state last written to each run's PR body, so a new verdict rewrites it. */
   readonly reviewed: Map<string, string>;
+  /** The reads of the PR-state round the running pass belongs to (DIPO-314), or null. */
+  reads: Pick<PrStateReads, "viewPr"> | null;
 }
 
 /** Where the CI of a run's pushed head stands (`StoryPrs.ciState`, DIPO-148). */
@@ -244,6 +260,14 @@ export class StoryPrs {
 
   constructor(deps: StoryPrsDeps) {
     this.#deps = deps;
+    deps.prState?.subscribe("story-pr", (office, reads) =>
+      this.#offices.has(office) ? this.retry(office, reads) : Promise.resolve([]),
+    );
+  }
+
+  /** How the PR poll reads a PR: through the PR-state round its pass runs in, else the host. */
+  #reads(state: Polled): Pick<PrStateReads, "viewPr"> {
+    return state.reads ?? this.#deps.host;
   }
 
   /** The feature module that adds the load step arming the retry poll. */
@@ -273,6 +297,7 @@ export class StoryPrs {
       told: new Map(),
       watch: new Map(),
       reviewed: new Map(),
+      reads: null,
     });
   }
 
@@ -290,29 +315,84 @@ export class StoryPrs {
 
   /**
    * One pass of the PR poll: reads the state of each PR still open on the host, then syncs each In
-   * Review run that has no PR yet. Returns the runs whose PR it tried to open.
+   * Review run that has no PR yet. Returns the runs whose PR it tried to open. With `reads` (a
+   * PR-state round, DIPO-314) the pass reads each open PR through them.
    */
-  retry(officeId: OfficeId): Promise<RunId[]> {
+  retry(officeId: OfficeId, reads?: Pick<PrStateReads, "viewPr">): Promise<RunId[]> {
     const state = this.#state(officeId);
     return this.#serial(state, async () => {
-      // The In Review pushes that did not reach the remote first (DIPO-315).
-      await this.#pushAgain(officeId, state);
-      for (const stored of openStoryPrs(state.office)) {
-        const owner = findRun(state.office, stored.runId);
-        if (owner !== null && !this.#opensPrs(officeId, owner)) continue;
-        await this.#poll(officeId, state, stored);
-        await this.#reviewStep(officeId, state, stored.runId);
+      state.reads = reads ?? null;
+      try {
+        return await this.#retry(officeId, state);
+      } finally {
+        state.reads = null;
       }
-      const tried: RunId[] = [];
-      for (const { runId } of runsWithoutPr(state.office)) {
-        const run = findRun(state.office, runId);
-        // Story PRs switched off for the run (its configuration snapshot, DIPO-210): no attempt.
-        if (run === null || !this.#opensPrs(officeId, run)) continue;
-        tried.push(runId);
-        await this.#sync(officeId, state, runId);
-      }
-      return tried;
     });
+  }
+
+  async #retry(officeId: OfficeId, state: Polled): Promise<RunId[]> {
+    // The In Review pushes that did not reach the remote first (DIPO-315).
+    await this.#pushAgain(officeId, state);
+    for (const stored of openStoryPrs(state.office)) {
+      const owner = findRun(state.office, stored.runId);
+      if (owner !== null && !this.#opensPrs(officeId, owner)) continue;
+      await this.#poll(officeId, state, stored);
+      await this.#reviewStep(officeId, state, stored.runId);
+    }
+    const tried: RunId[] = [];
+    for (const { runId } of runsWithoutPr(state.office)) {
+      const run = findRun(state.office, runId);
+      // Story PRs switched off for the run (its configuration snapshot, DIPO-210): no attempt.
+      if (run === null || !this.#opensPrs(officeId, run)) continue;
+      tried.push(runId);
+      await this.#sync(officeId, state, runId);
+    }
+    // A replacement of a closed PR whose create failed is tried again (DIPO-324).
+    for (const runId of pendingPrReplacements(state.office)) {
+      const run = findRun(state.office, runId);
+      if (run === null || !this.#opensPrs(officeId, run)) continue;
+      tried.push(runId);
+      await this.#replace(officeId, state, runId);
+    }
+    return tried;
+  }
+
+  /**
+   * DIPO-155's `PrReplacement` (DIPO-324; 0020 section 2, `stopped` / `pr-closed`): the run's story
+   * PR that was closed on the host without a merge is replaced by a new one for the branch's
+   * head, whose body names the closed one ("Replaces #n"); the run's record then holds the new PR,
+   * with `replaces`. A PR still open on the host is only updated, and a merged one is the Done
+   * poll's. A create that fails is the usual `pr.openFailed` notice, and the PR poll tries again
+   * (`pendingPrReplacements`).
+   */
+  replace(officeId: OfficeId, runId: RunId): Promise<void> {
+    const state = this.#state(officeId);
+    return this.#serial(state, () => this.#replace(officeId, state, runId));
+  }
+
+  async #replace(officeId: OfficeId, state: Polled, runId: RunId): Promise<void> {
+    const stored = findStoryPr(state.office, runId);
+    if (stored === null) return this.#sync(officeId, state, runId);
+    if (stored.state === "merged") return;
+    // The host decides: the merge slot parks on its state, which the poll may not have recorded,
+    // and the maintainer may have reopened the closed PR before resuming.
+    const repo = repoOfPrUrl(stored.url);
+    const viewed =
+      repo === null ? null : await this.#deps.host.viewPr(repo, stored.number).catch(() => null);
+    if (viewed?.state === "merged") return;
+    if (viewed?.state === "open") {
+      // Reopened (or never closed): the same PR, updated, never its own replacement.
+      if (stored.state !== "open") {
+        const story = findRun(state.office, runId)?.story ?? runId;
+        this.#write(officeId, state, () => {
+          setStoryPrState(state.office, runId, { state: "open", closedAt: null });
+          return [prEntry({ ...stored, state: "open", closedAt: null }, story)];
+        });
+      }
+      return this.#sync(officeId, state, runId);
+    }
+    const closed = viewed?.state === "closed" || (viewed === null && stored.state === "closed");
+    await this.#sync(officeId, state, runId, closed ? stored : undefined);
   }
 
   /**
@@ -559,7 +639,13 @@ export class StoryPrs {
     }
   }
 
-  async #sync(officeId: OfficeId, state: Polled, runId: RunId): Promise<void> {
+  /** Opens or updates the run's PR; with `replacing`, opens a new one in place of that closed PR. */
+  async #sync(
+    officeId: OfficeId,
+    state: Polled,
+    runId: RunId,
+    replacing?: StoryPrRecord,
+  ): Promise<void> {
     const office = state.office;
     const run = findRun(office, runId);
     if (run === null || run.key === null || run.worktree === null || run.branch === null) return;
@@ -585,6 +671,8 @@ export class StoryPrs {
       const box = this.#deps.boxRun?.(officeId, run) === true;
       const reviewed = latestVerdictOfRun(office, runId);
       state.reviewed.set(runId, reviewKey(reviewed));
+      const stored = findStoryPr(office, runId);
+      const replaces = replacing?.number ?? stored?.replaces ?? null;
       const body = storyPrBody(
         { ...facts.story, doneReport: storedDoneReport(office, runId) },
         {
@@ -594,11 +682,11 @@ export class StoryPrs {
           ...(box ? { verify: "ci" as const } : {}),
           ...(this.#deps.mergesStories === true ? { merge: "dipo" as const } : {}),
           ...(box && noCiRan(office, runId, facts.head) ? { noCi: true } : {}),
+          ...(replaces === null ? {} : { replaces }),
         },
       );
       const hash = storyPrBodyHash(body);
-      const stored = findStoryPr(office, runId);
-      if (stored === null) {
+      if (stored === null || replacing !== undefined) {
         await this.#open(officeId, state, {
           runId,
           story: run.story as string,
@@ -609,6 +697,7 @@ export class StoryPrs {
           title,
           body,
           hash,
+          ...(replacing === undefined ? {} : { replaces: replacing.number }),
         });
       } else if (stored.state === "open") {
         await this.#update(officeId, state, {
@@ -640,10 +729,26 @@ export class StoryPrs {
       title: string;
       body: string;
       hash: string;
+      /** The closed PR of the run the new one replaces (DIPO-324). */
+      replaces?: number;
     },
   ): Promise<void> {
     const host = this.#deps.host;
     let pr: HostPr | null = await host.findOpenPr(input.repo, input.branch);
+    if (pr !== null && pr.number === input.replaces) {
+      // The closed PR is open again on the host: it is the run's PR, never its own replacement.
+      // Its record is open with no stored body, so the next sync writes the body it should have.
+      this.#write(officeId, state, () => {
+        setStoryPrState(state.office, input.runId, { state: "open", closedAt: null });
+        updateStoryPr(state.office, input.runId, {
+          headSha: input.facts.head,
+          title: input.title,
+          bodyHash: "",
+        });
+        return [];
+      });
+      return;
+    }
     // An open PR a crash left: what it holds is not known to match, so it is written once.
     if (pr !== null) {
       await host.updatePr(input.repo, pr.number, { title: input.title, body: input.body });
@@ -668,15 +773,19 @@ export class StoryPrs {
       bodyHash: input.hash,
       openedAt: this.#deps.clock.now(),
       closedAt: null,
+      replaces: input.replaces ?? null,
     };
     this.#write(officeId, state, () => {
-      insertStoryPr(state.office, record);
+      if (input.replaces === undefined) insertStoryPr(state.office, record);
+      else replaceStoryPr(state.office, record);
       return [
         prEntry(record, input.story),
         notice(
           "info",
           STORY_PR_NOTICES.opened,
-          `dipo opened PR #${record.number} for ${input.key}: ${record.url}`,
+          input.replaces === undefined
+            ? `dipo opened PR #${record.number} for ${input.key}: ${record.url}`
+            : `dipo opened PR #${record.number} for ${input.key} in place of PR #${input.replaces}, which was closed on the host: ${record.url}`,
           input.key,
           input.runId,
         ),
@@ -745,7 +854,7 @@ export class StoryPrs {
     }
     let viewed: HostPr;
     try {
-      viewed = await this.#deps.host.viewPr(repo, stored.number);
+      viewed = await this.#reads(state).viewPr(repo, stored.number);
     } catch (error) {
       this.#deps.logger?.warn("reading the story PR failed", {
         office: officeId,
@@ -761,10 +870,23 @@ export class StoryPrs {
       return;
     }
     const closedAt = hostState === "open" ? null : this.#deps.clock.now();
-    const next: StoryPrRecord = { ...stored, state: hostState, closedAt };
+    // The head that merged, as the host reports it (DIPO-332): the Done poll compares the local
+    // branch with it when the host gives no answer.
+    const headSha =
+      hostState === "merged" && /^[0-9a-f]{40}$|^[0-9a-f]{64}$/.test(viewed.headSha)
+        ? viewed.headSha
+        : stored.headSha;
+    const next: StoryPrRecord = { ...stored, state: hostState, closedAt, headSha };
     const story = findStoryByKey(state.office, stored.key)?.story;
     this.#write(officeId, state, () => {
       setStoryPrState(state.office, stored.runId, { state: hostState, closedAt });
+      if (headSha !== stored.headSha) {
+        updateStoryPr(state.office, stored.runId, {
+          headSha,
+          title: stored.title,
+          bodyHash: stored.bodyHash,
+        });
+      }
       return story === undefined ? [] : [prEntry(next, story)];
     });
   }
@@ -1142,6 +1264,8 @@ export class StoryPrs {
       for (const held of runsToPush(state.office)) this.#heldNotice(officeId, state, held);
       return;
     }
+    // The office's PR-state poll runs the PR poll in its rounds (DIPO-314).
+    if (this.#deps.prState !== undefined) return;
     state.timer = state.clock.setTimeout(() => {
       state.timer = null;
       if (this.#offices.get(officeId) !== state) return;

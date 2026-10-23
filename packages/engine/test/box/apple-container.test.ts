@@ -1,8 +1,9 @@
 // The Apple container backend (DIPO-265) against a fake `container` CLI: the start check, the
-// host-only network, the lifecycle calls, exec (short and long-running), memory, the list of
-// dipo's own boxes, and the deadline that kills a call with `box.timedOut`.
+// host-only network, the lifecycle calls, exec (short and long-running, always contained), memory,
+// the list of dipo's own boxes, the box firewall, the build box's pull and commit (DIPO-281), and
+// the deadline that kills a call with `box.timedOut`.
 
-import { mkdirSync, realpathSync, symlinkSync } from "node:fs";
+import { mkdirSync, realpathSync, symlinkSync, writeFileSync } from "node:fs";
 import { availableParallelism, totalmem } from "node:os";
 import { join } from "node:path";
 
@@ -17,12 +18,21 @@ import {
   systemHostResources,
 } from "../../src/box/apple-container";
 import {
+  BOX_NET_TOOLS_PATH,
+  CONTAINED_KEEPALIVE,
+  containedCommand,
+  firewallCommand,
+  firewallListCommand,
+  NET_TOOLS_FILES,
+} from "../../src/box/firewall";
+import {
   BOX_CALL_TIMEOUT_MS,
   BOX_PACKAGE_CACHE_PATH,
   BoxError,
   type BoxNetwork,
   isBoxTimedOut,
 } from "../../src/box/port";
+import { BOX_USER_ENV } from "../../src/box/user";
 import {
   boxJson,
   type CliScript,
@@ -90,6 +100,24 @@ const is = (args: readonly string[], ...want: string[]) => args.join(" ") === wa
 async function settle(): Promise<void> {
   for (let i = 0; i < 10; i += 1) await Promise.resolve();
 }
+
+/** A box network tools folder under `<dir>/box-net-tools`, as a build leaves it: the root and it. */
+function netTools(dir: string): { root: string; tools: string } {
+  const root = join(dir, "box-net-tools");
+  const tools = join(root, "ab".repeat(32));
+  mkdirSync(join(tools, "bin"), { recursive: true });
+  mkdirSync(join(tools, "lib"), { recursive: true });
+  for (const file of NET_TOOLS_FILES) writeFileSync(join(tools, file), "x");
+  return { root, tools: realpathSync(tools) };
+}
+
+const BUILD_BOX = "dipo-build-0123456789abcdef";
+/** A build box's spec (DIPO-281): no mount, so no tools folder is needed. */
+const BUILD_SPEC = {
+  runId: "build-0123456789abcdef",
+  image: "docker.io/library/debian:trixie-slim",
+  network: NETWORK,
+};
 
 async function rejection(promise: Promise<unknown>): Promise<BoxError> {
   try {
@@ -225,12 +253,17 @@ describe("box lifecycle", () => {
       const root = join(dir, "package-cache");
       mkdirSync(join(root, "generation"), { recursive: true });
       const cache = realpathSync(join(root, "generation"));
-      const { port, fake } = boxes(() => ({ stdout: `${BOX}\n` }), { packageCacheRoot: root });
+      const tools = netTools(dir);
+      const { port, fake } = boxes(() => ({ stdout: `${BOX}\n` }), {
+        packageCacheRoot: root,
+        netToolsRoot: tools.root,
+      });
       const name = await port.create({
         runId: RUN,
         image: "docker.io/library/alpine:3.20",
         network: NETWORK,
         packageCache: join(root, "generation"),
+        netTools: tools.tools,
       });
       expect(name).toBe(BOX);
       expect(fake.args()).toEqual([
@@ -246,16 +279,60 @@ describe("box lifecycle", () => {
           "32768M",
           "--cpus",
           "12",
+          "--cap-add",
+          "CAP_NET_ADMIN",
           "--mount",
           `type=bind,source=${cache},target=${BOX_PACKAGE_CACHE_PATH},readonly`,
+          "--mount",
+          `type=bind,source=${tools.tools},target=${BOX_NET_TOOLS_PATH},readonly`,
           "--entrypoint",
-          "tail",
+          CONTAINED_KEEPALIVE[0],
           "docker.io/library/alpine:3.20",
-          "-f",
-          "/dev/null",
+          ...CONTAINED_KEEPALIVE.slice(1),
         ],
       ]);
     }));
+
+  it("refuses box network tools without a tools root, outside it, or missing a tool (DIPO-281)", () =>
+    withTempDir(async (dir) => {
+      const tools = netTools(dir);
+      const outside = join(dir, "outside");
+      mkdirSync(outside);
+      symlinkSync(outside, join(tools.root, "link"));
+      const { port, fake } = boxes(() => ({}), { netToolsRoot: tools.root });
+      for (const path of [join(tools.root, "link"), outside, join(tools.root, "missing")]) {
+        const error = await rejection(
+          port.create({ runId: RUN, image: "alpine:3.20", network: NETWORK, netTools: path }),
+        );
+        expect(error.code).toBe("box.netToolsMissing");
+      }
+      const { port: rootless } = boxes(() => ({}));
+      const error = await rejection(
+        rootless.create({
+          runId: RUN,
+          image: "alpine:3.20",
+          network: NETWORK,
+          netTools: tools.tools,
+        }),
+      );
+      expect(error.code).toBe("box.netToolsMissing");
+      // A box that is no build box is refused without the tools; a build box with them.
+      const without = await rejection(
+        port.create({ runId: RUN, image: "alpine:3.20", network: NETWORK }),
+      );
+      expect(without.code).toBe("box.refused");
+      const build = await rejection(port.create({ ...BUILD_SPEC, netTools: tools.tools }));
+      expect(build.code).toBe("box.refused");
+      expect(fake.calls).toHaveLength(0);
+    }));
+
+  it("creates a build box with no mount and the image's own keepalive (DIPO-281)", async () => {
+    const { port, fake } = boxes(() => ({}));
+    expect(await port.create(BUILD_SPEC)).toBe(BUILD_BOX);
+    const [args] = fake.args();
+    expect(args).not.toContain("--mount");
+    expect(args?.slice(-4)).toEqual(["tail", BUILD_SPEC.image, "-f", "/dev/null"]);
+  });
 
   it("refuses a package cache without a cache root, or one a symlink points out of the root", () =>
     withTempDir(async (dir) => {
@@ -264,20 +341,31 @@ describe("box lifecycle", () => {
       mkdirSync(root);
       mkdirSync(outside);
       symlinkSync(outside, join(root, "link"));
-      const { port, fake } = boxes(() => ({}), { packageCacheRoot: root });
+      const tools = netTools(dir);
+      const { port, fake } = boxes(() => ({}), {
+        packageCacheRoot: root,
+        netToolsRoot: tools.root,
+      });
       for (const packageCache of [join(root, "link"), outside, root, join(root, "missing")]) {
         const error = await rejection(
-          port.create({ runId: RUN, image: "alpine:3.20", network: NETWORK, packageCache }),
+          port.create({
+            runId: RUN,
+            image: "alpine:3.20",
+            network: NETWORK,
+            packageCache,
+            netTools: tools.tools,
+          }),
         );
         expect(error.code).toBe("box.cacheOutsideRoot");
       }
-      const { port: rootless } = boxes(() => ({}));
+      const { port: rootless } = boxes(() => ({}), { netToolsRoot: tools.root });
       const error = await rejection(
         rootless.create({
           runId: RUN,
           image: "alpine:3.20",
           network: NETWORK,
           packageCache: outside,
+          netTools: tools.tools,
         }),
       );
       expect(error.code).toBe("box.cacheOutsideRoot");
@@ -338,7 +426,13 @@ describe("box lifecycle", () => {
     const { port, fake } = boxes(() => ({}));
     for (const packageCache of ["/Users/someone", "/Users", "/"]) {
       const error = await rejection(
-        port.create({ runId: RUN, image: "alpine:3.20", network: NETWORK, packageCache }),
+        port.create({
+          runId: RUN,
+          image: "alpine:3.20",
+          network: NETWORK,
+          packageCache,
+          netTools: "/state/box-net-tools/ab",
+        }),
       );
       expect(error.code).toBe("box.refused");
     }
@@ -355,12 +449,12 @@ describe("exec", () => {
       "exec",
       "--workdir",
       "/work",
+      // The box user's home and PATH first (DIPO-334).
+      ...Object.entries(BOX_USER_ENV).flatMap(([key, value]) => ["--env", `${key}=${value}`]),
       "--env",
       "A=1",
       BOX,
-      "sh",
-      "-c",
-      "exit 3",
+      ...containedCommand(["sh", "-c", "exit 3"]),
     ]);
   });
 
@@ -373,9 +467,9 @@ describe("exec", () => {
       "--interactive",
       "--workdir",
       "/work",
+      ...Object.entries(BOX_USER_ENV).flatMap(([key, value]) => ["--env", `${key}=${value}`]),
       BOX,
-      "claude",
-      "-p",
+      ...containedCommand(["claude", "-p"]),
     ]);
     live.stdin.write("hello\n");
     expect(fake.children[0]?.stdinWrites).toEqual(["hello\n"]);
@@ -482,7 +576,10 @@ describe("deadlines", () => {
     const calls: [string, (port: AppleContainerBoxes) => Promise<unknown>][] = [
       ["check", (port) => port.check()],
       ["network", (port) => port.network()],
-      ["create", (port) => port.create({ runId: RUN, image: "alpine:3.20", network: NETWORK })],
+      ["create", (port) => port.create(BUILD_SPEC)],
+      ["firewall", (port) => port.firewall(BOX, { hostAddress: "192.0.2.1", ports: [3128] })],
+      ["commit", (port) => port.commit(BUILD_BOX, `dipo-box:${"0".repeat(64)}`)],
+      ["deleteImage", (port) => port.deleteImage(`dipo-box:${"0".repeat(64)}`)],
       ["start", (port) => port.start(BOX)],
       ["stop", (port) => port.stop(BOX)],
       ["delete", (port) => port.delete(BOX)],
@@ -504,9 +601,7 @@ describe("deadlines", () => {
 
   it("takes a deadline per call and per backend", async () => {
     const { port, clock, fake } = boxes(() => ({ hang: true }), { timeoutMs: 5_000 });
-    const create = rejection(
-      port.create({ runId: RUN, image: "alpine:3.20", network: NETWORK }, { timeoutMs: 300_000 }),
-    );
+    const create = rejection(port.create(BUILD_SPEC, { timeoutMs: 300_000 }));
     const start = rejection(port.start(BOX));
     await settle();
     clock.advance(5_000);
@@ -514,5 +609,63 @@ describe("deadlines", () => {
     expect(fake.children[0]?.signals).toEqual([]);
     clock.advance(295_000);
     expect((await create).code).toBe("box.timedOut");
+  });
+});
+
+describe("the box firewall (DIPO-281)", () => {
+  const firewall = { hostAddress: "192.0.2.1", ports: [3128, 4000] };
+  const listed =
+    'table inet dipo {\n\tchain output {\n\t\ttype filter hook output priority filter; policy drop;\n\t\toifname "lo" accept\n\t\tip daddr 192.0.2.1 tcp dport { 3128, 4000 } accept\n\t}\n}\n';
+
+  it("sets the rule with the box's capabilities and checks that it took", async () => {
+    const { port, fake } = boxes((args) => (args.includes("list") ? { stdout: listed } : {}));
+    await port.firewall(BOX, firewall);
+    expect(fake.args()).toEqual([
+      ["exec", BOX, ...firewallCommand(firewall)],
+      ["exec", BOX, ...firewallListCommand()],
+    ]);
+  });
+
+  it("fails closed when the rule cannot be set, or does not show as set", async () => {
+    for (const script of [
+      () => ({ code: 1, stderr: "Error: Could not process rule: Operation not permitted\n" }),
+      (args: readonly string[]) => (args.includes("list") ? { stdout: "" } : {}),
+      (args: readonly string[]) =>
+        args.includes("list") ? { stdout: listed.replace("policy drop", "policy accept") } : {},
+      (args: readonly string[]) => (args.includes("list") ? { code: 1, stdout: listed } : {}),
+    ]) {
+      const { port } = boxes(script);
+      const error = await rejection(port.firewall(BOX, firewall));
+      expect(error.code).toBe("box.firewallFailed");
+    }
+  });
+});
+
+describe("a build box's image (DIPO-281)", () => {
+  const tag = `dipo-box:${"0".repeat(64)}`;
+
+  it("pulls the base, commits only a build box and deletes an image through one call each", async () => {
+    const { port, fake } = boxes(() => ({}));
+    await port.pullImage("docker.io/library/debian:trixie-slim");
+    await port.commit(BUILD_BOX, tag);
+    await port.deleteImage(tag);
+    expect(fake.args()).toEqual([
+      ["image", "pull", "--progress", "none", "docker.io/library/debian:trixie-slim"],
+      ["commit", BUILD_BOX, tag],
+      ["image", "delete", tag],
+    ]);
+    expect((await rejection(port.commit(BOX, tag))).code).toBe("box.refused");
+    expect((await rejection(port.pullImage("alpine"))).code).toBe("box.refused");
+  });
+
+  it("runs only a build box's command with its capabilities", async () => {
+    const { port, fake } = boxes(() => ({}));
+    await port.exec(BUILD_BOX, ["/bin/sh", "/dipo-build/bootstrap.sh"], { fullPrivilege: true });
+    expect(fake.args()[0]).toEqual(["exec", BUILD_BOX, "/bin/sh", "/dipo-build/bootstrap.sh"]);
+    const error = await rejection(
+      port.exec(BOX, ["/bin/sh", "-c", "nft flush ruleset"], { fullPrivilege: true }),
+    );
+    expect(error.code).toBe("box.refused");
+    expect(fake.args()).toHaveLength(1);
   });
 });

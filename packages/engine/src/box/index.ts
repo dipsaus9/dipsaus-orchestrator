@@ -1,24 +1,25 @@
 // One real box per story (0021 sections 1 to 6, DIPO-265): the box interface and its Apple
-// `container` backend, the box image built from the office config (DIPO-266), and the office
-// package cache (DIPO-267).
+// `container` backend, the box image built from the office config (DIPO-266) in a build box
+// (DIPO-281), the box firewall (DIPO-281), and the office package cache (DIPO-267).
 
 export {
-  BOX_IMAGE_LABEL_VALUE,
+  BOX_FIREWALL_CAPABILITY,
   BOX_KEEPALIVE,
   BOX_NETWORK_LABEL_VALUE,
   BOX_NETWORK_NAME,
-  BUILD_NETWORK_NAME,
-  BUILD_PROXY_ARG,
-  buildArgs,
-  builderStartArgs,
   checkedBoxName,
+  commitArgs,
   copyInArgs,
   copyOutArgs,
   createArgs,
   deleteArgs,
   execArgs,
   exportArgs,
+  imageDeleteArgs,
   imageInspectArgs,
+  imagePullArgs,
+  isBuildBox,
+  isBuildBoxRunId,
   listArgs,
   networkCreateArgs,
   networkListArgs,
@@ -28,12 +29,11 @@ export {
   systemStatusArgs,
   versionArgs,
 } from "./apple-args";
-export type { BuildInput, CreateInput, ExecInput, HostResources } from "./apple-args";
+export type { CreateInput, ExecInput, HostResources } from "./apple-args";
 export {
   APPLE_CONTAINER_BACKEND_ID,
   AppleContainerBoxes,
   boxMemory,
-  BUILD_ERROR_LINES,
   compareVersions as compareContainerVersions,
   dipoBoxes,
   findNetwork,
@@ -45,26 +45,25 @@ export {
 export type { AppleContainerDeps, BoxNetworkFound } from "./apple-container";
 export {
   BOX_BUILD_CA_FILE,
-  BOX_BUILD_FILE,
   BOX_BUILD_TIMEOUT_MS,
   BOX_CALL_TIMEOUT_MS,
   BOX_IMAGE_REPOSITORY,
   BOX_LABEL,
   BOX_NAME_PREFIX,
   BOX_PACKAGE_CACHE_PATH,
+  BOX_PULL_TIMEOUT_MS,
   BoxError,
+  BUILD_BOX_RUN_PREFIX,
   boxName,
   isBoxTimedOut,
   runIdOfBox,
 } from "./port";
 export type {
-  BoxBuildNetwork,
   BoxCallOptions,
   BoxCheck,
   BoxClientCommand,
   BoxExecOptions,
   BoxExecResult,
-  BoxImageBuild,
   BoxInfo,
   BoxMemory,
   BoxNetwork,
@@ -142,11 +141,15 @@ export {
 export type { BaseLockfile, CacheManager, ProjectFile } from "./cache-input";
 export {
   BOX_DEFAULTS,
-  boxBuildFile,
+  BOX_IMAGE_ENV,
+  boxBuildScripts,
   boxImageTag,
+  BUILD_BOOTSTRAP_SCRIPT,
+  BUILD_DIR_IN_BOX,
+  BUILD_PROXY_ENV,
+  BUILD_STEPS_SCRIPT,
   checkImageDescription,
   describeBox,
-  ensureBoxImage,
   NODE_TARBALL_SHA256,
   readBaseBox,
   readBaseBoxSection,
@@ -154,12 +157,10 @@ export {
 export type {
   BaseBox,
   BaseBoxSection,
-  BoxBuildProxy,
+  BoxBuildScripts,
   BoxDescription,
   BoxFileEntry,
   BoxImageDescription,
-  BoxImageRequest,
-  BoxImageResult,
   BoxToolchain,
   NodeArch,
   NodeSha256,
@@ -226,8 +227,47 @@ export {
   tokenCheckFailure,
 } from "./token-check";
 export type { BoxTokenCheck, TokenCheckDeps, TokenFoundIn, TokenHoldDeps } from "./token-check";
-export { ensureImageWithBuildProxy } from "./build-proxy";
-export type { BuildProxyDeps } from "./build-proxy";
+export { BUILD_ERROR_LINES, ensureBoxImage } from "./build-box";
+export type {
+  BoxImageDeps,
+  BoxImageResult,
+  BuildBoxes,
+  BuildCleanupFailure,
+  BuildRoute,
+} from "./build-box";
+export {
+  BOX_NET_TOOLS_DIR,
+  BOX_NET_TOOLS_PATH,
+  BOX_USER_GID,
+  BOX_USER_UID,
+  boundingSet,
+  checkFirewallListing,
+  CONTAINED_KEEPALIVE,
+  containedCommand,
+  ROOT_STEP_CAPABILITIES,
+  rootStepCommand,
+  USER_CAPABILITIES,
+  firewallCommand,
+  firewallListCommand,
+  firewallRules,
+  isFirewallCommand,
+  NET_TOOLS,
+  NET_TOOLS_FILES,
+  netToolCommand,
+  netToolsDir,
+  resolveNetToolsMount,
+  uncontained,
+} from "./firewall";
+export type { BoxFirewall, NetTool } from "./firewall";
+export {
+  BOX_NPM_PREFIX,
+  BOX_STAGE_ROOT,
+  BOX_USER_ENV,
+  BOX_USER_HOME,
+  BOX_USER_NAME,
+  copyInAsUser,
+  isRootStep,
+} from "./user";
 export {
   BOX_DIPO_DIR,
   BOX_WORKDIR,
@@ -271,11 +311,21 @@ export type {
   BoxWorkersDeps,
 } from "./workers";
 export {
+  admittedUrl,
+  BOX_LOCAL_HOST,
+  BOX_PROXY_USER,
+  BoxAdmissions,
   BoxWebRoute,
   checkAddress,
+  proxyPassword,
+  readClientHello,
+  REGISTRY_OTHER_NAMES,
+  REGISTRY_ZONES,
+  registryRefusal,
   startBoxWebProxy,
   startBoxWebRoute,
   systemInterfaceAddresses,
+  TunnelInspector,
   WEB_PROXY_LIMITS,
 } from "./web-proxy";
 export type {

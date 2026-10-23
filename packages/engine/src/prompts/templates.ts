@@ -7,12 +7,14 @@ import implementBoxContract from "./contract/implement-box.md" with { type: "tex
 import implementContract from "./contract/implement.md" with { type: "text" };
 import reviewBoxContract from "./contract/review-box.md" with { type: "text" };
 import reviewContract from "./contract/review.md" with { type: "text" };
+import scanContract from "./contract/scan.md" with { type: "text" };
 import ciFeedback from "./feedback/ci.md" with { type: "text" };
 import reportFeedback from "./feedback/report.md" with { type: "text" };
 import resumeMessage from "./feedback/resume.md" with { type: "text" };
 import verifyFeedback from "./feedback/verify.md" with { type: "text" };
 import developerRole from "./roles/developer.md" with { type: "text" };
 import reviewerRole from "./roles/reviewer.md" with { type: "text" };
+import scannerRole from "./roles/scanner.md" with { type: "text" };
 import answers from "./task/answers.md" with { type: "text" };
 import background from "./task/background.md" with { type: "text" };
 import baseVerify from "./task/base-verify.md" with { type: "text" };
@@ -34,6 +36,7 @@ import reviewCommit from "./task/review-commit.md" with { type: "text" };
 import reviewScope from "./task/review-scope.md" with { type: "text" };
 import reviewTestPlan from "./task/review-test-plan.md" with { type: "text" };
 import scopeBox from "./task/scope-box.md" with { type: "text" };
+import scan from "./task/scan.md" with { type: "text" };
 import scope from "./task/scope.md" with { type: "text" };
 import story from "./task/story.md" with { type: "text" };
 import testPlanNotApplicable from "./task/test-plan-not-applicable.md" with { type: "text" };
@@ -52,6 +55,8 @@ export const CONTRACT_TEMPLATES = {
   "implement-box": implementBoxContract,
   review: reviewContract,
   "review-box": reviewBoxContract,
+  // The scan fallback session (0013 section 6, DIPO-310): no tools, structured output only.
+  scan: scanContract,
 } as const;
 export type ContractKind = keyof typeof CONTRACT_TEMPLATES;
 
@@ -59,7 +64,12 @@ export type ContractKind = keyof typeof CONTRACT_TEMPLATES;
  * Built-in L2 roles until `.dipo/roles/` (M4): `developer`, and `reviewer`, used only by the
  * `review` kind and never named by a story (0019 section 4).
  */
-export const ROLE_TEMPLATES = { developer: developerRole, reviewer: reviewerRole } as const;
+export const ROLE_TEMPLATES = {
+  developer: developerRole,
+  reviewer: reviewerRole,
+  // Used only by the `scan` kind (DIPO-310).
+  scanner: scannerRole,
+} as const;
 export type BuiltInRole = keyof typeof ROLE_TEMPLATES;
 
 /** L4 section templates. */
@@ -91,6 +101,8 @@ export const TASK_TEMPLATES = {
   previousFindings,
   // The reviewer's read-only copy of the pushed commit, added at the session's start (DIPO-276).
   reviewCommit,
+  // The scan fallback's request and evidence (DIPO-310).
+  scan,
 } as const;
 
 /**
@@ -170,6 +182,10 @@ export const PROMPT_TAGS: readonly string[] = [
   "previous_findings",
   "worker_report",
   "commit",
+  // The scan fallback (DIPO-310): repository text in the evidence cannot close these.
+  "scan_request",
+  "scan_evidence",
+  "scan_file",
 ];
 
 // Whitespace around the slash is allowed, so `</ criteria>` and `< /criteria>` are caught too.

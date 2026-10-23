@@ -10,8 +10,8 @@
 //   merge, and the approval of the head before it carries to the merged head (only that merge and
 //   a task-file commit lie between them) with no new review round; the PR merges at that head.
 
-import { writeFileSync } from "node:fs";
-import { join } from "node:path";
+import { chmodSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import { dirname, join } from "node:path";
 
 import { describe, expect, it } from "bun:test";
 
@@ -24,12 +24,15 @@ import { OFFICE_DEFAULTS } from "../../src/config";
 import {
   gitStorySlotOps,
   MergeSlot,
+  mergeGatesOfRun,
+  RELEASE_PATH_HOLD,
   slotOccupant,
   writeCloseOutSummary,
 } from "../../src/merge-slot";
 import { CodeHostError, type HostPr, type RequiredCheck } from "../../src/platform/host";
 import { recordReviewVerdict, reviewVerdictForTree } from "../../src/review/store";
 import { StoryConflicts } from "../../src/run/conflicts";
+import { gitParkWriter } from "../../src/run/park";
 import { endRun, findRun, insertRun, REVIEWED_END, runRoundCounts } from "../../src/run/records";
 import { findStoryPr, insertStoryPr, updateStoryPr } from "../../src/story-pr/records";
 import { addStory } from "../../src/stories/keys";
@@ -111,7 +114,10 @@ async function scenario(
     readonly head: string;
     readonly tree: (head: string) => Promise<string | null>;
     readonly s: Awaited<ReturnType<typeof claimSetup>>;
+    readonly slotGit: ReturnType<typeof gitStorySlotOps>;
   }) => Promise<void>,
+  /** The worker's change in the story worktree, staged; by default a new export.txt. */
+  change: (worktree: string, repo: TempRepoWithRemote) => Promise<void> = writeExport,
 ): Promise<void> {
   await publish(repo);
   const s = await claimSetup(repo);
@@ -125,8 +131,7 @@ async function scenario(
   if (!outcome.ok) throw new Error(`the claim was skipped: ${outcome.reason}`);
   const claim = outcome.claim;
   // The worker's code, committed on the story branch (as a part would be).
-  writeFileSync(join(claim.worktree, "export.txt"), "csv\n");
-  await git(claim.worktree, repo.home, "add", "export.txt");
+  await change(claim.worktree, repo);
   await git(claim.worktree, repo.home, "commit", "--quiet", "-m", "feat: export as CSV");
   await git(claim.worktree, repo.home, "push", "--quiet", "origin", BRANCH_1);
   const head = (await git(claim.worktree, repo.home, "rev-parse", "HEAD")).trim();
@@ -233,7 +238,13 @@ async function scenario(
         ),
     },
   });
-  await fn({ slot, host, officeId, run, head, tree, s });
+  await fn({ slot, host, officeId, run, head, tree, s, slotGit });
+}
+
+/** The default worker change: a new export.txt. */
+async function writeExport(worktree: string, repo: TempRepoWithRemote): Promise<void> {
+  writeFileSync(join(worktree, "export.txt"), "csv\n");
+  await git(worktree, repo.home, "add", "export.txt");
 }
 
 describe("the story merge slot on real git", () => {
@@ -312,6 +323,62 @@ describe("the story merge slot on real git", () => {
   });
 });
 
+describe("the close-out commit of a story that held a park record (DIPO-324, 0019 section 9)", () => {
+  it("removes the F16 park block through the single field write path in the commit that sets Done", async () => {
+    await withBareRemote(
+      async (repo) =>
+        scenario(repo, async ({ officeId, run, s }) => {
+          const stored = findRun(s.office, run)!;
+          const worktree = stored.worktree as string;
+          // A park whose record stayed on the branch (DIPO-129's stale block).
+          await gitParkWriter({ git: () => s.git, cli: s.cli }).write(officeId, {
+            story: TASK_1,
+            branch: BRANCH_1,
+            worktree,
+            reason: "conflict",
+            note: "base moved during merge 3 times",
+          });
+          const parked = await git(
+            repo.dir,
+            repo.home,
+            "show",
+            `refs/heads/${BRANCH_1}:${TASK_FILE_1}`,
+          );
+          expect(parked).toMatch(/^park:$/m);
+          const slotGit = gitStorySlotOps({ git: () => s.git, cli: s.cli });
+          const commit = await slotGit.closeOut(
+            officeId,
+            {
+              runId: run,
+              story: TASK_1,
+              branch: BRANCH_1,
+              worktree,
+              startSha: stored.startSha as string,
+            },
+            (target) => setFinalSummary(target, "Done by the slot."),
+          );
+          expect(commit).not.toBeNull();
+          const closed = await git(repo.dir, repo.home, "show", `${commit}:${TASK_FILE_1}`);
+          expect(closed).toMatch(/^status: Done$/m);
+          expect(closed).not.toMatch(/^park:$/m);
+          expect(closed).not.toContain("base moved during merge");
+          // One commit of the task file alone.
+          const files = await git(
+            repo.dir,
+            repo.home,
+            "diff-tree",
+            "--no-commit-id",
+            "--name-only",
+            "-r",
+            commit as string,
+          );
+          expect(files.trim().split("\n")).toEqual([TASK_FILE_1]);
+        }),
+      { fixture: BACKLOG_FIXTURE },
+    );
+  });
+});
+
 describe("the close-out commit on a later stay in the slot", () => {
   it("writes the final summary and the modified files again when the story is Done already", async () => {
     await withBareRemote(
@@ -346,6 +413,148 @@ describe("the close-out commit on a later stay in the slot", () => {
           // Nothing new: no commit.
           expect(await slotGit.closeOut(officeId, slotRun, write)).toBeNull();
         }),
+      { fixture: BACKLOG_FIXTURE },
+    );
+  });
+});
+
+// The release path on real git (DIPO-331): CODEOWNERS read from the base as last fetched, the PR's
+// diff from its merge base with the base, and the held PR never merged.
+
+const CODEOWNERS = readFileSync(join(import.meta.dir, "../../../../.github/CODEOWNERS"), "utf8");
+
+/** The base the fixture publishes: the repository's own CODEOWNERS, a workflow and install.sh. */
+function releaseBase(repo: TempRepoWithRemote, extra: Record<string, string> = {}): void {
+  const files: Record<string, string> = {
+    ".github/CODEOWNERS": CODEOWNERS,
+    ".github/workflows/ci.yml": "name: ci\n",
+    "install.sh": "#!/bin/sh\n",
+    ...extra,
+  };
+  for (const [path, text] of Object.entries(files)) {
+    mkdirSync(dirname(join(repo.dir, path)), { recursive: true });
+    writeFileSync(join(repo.dir, path), text);
+  }
+}
+
+describe("the release path of a story PR on real git", () => {
+  it("holds a PR that changes a workflow, also when it edits CODEOWNERS to leave itself out", async () => {
+    await withBareRemote(
+      async (repo) => {
+        releaseBase(repo);
+        await scenario(
+          repo,
+          async ({ slot, host, officeId, run, head, s, slotGit }) => {
+            expect(await slotGit.releasePaths(officeId, head)).toEqual([
+              ".github/CODEOWNERS",
+              ".github/workflows/ci.yml",
+            ]);
+            // Fail closed: a head git cannot read has no answer, and the slot then merges nothing.
+            expect(await slotGit.releasePaths(officeId, "0".repeat(40))).toBeNull();
+            expect(await slot.tick(officeId)).toBe("idle");
+            expect(await slot.tick(officeId)).toBe("idle");
+            expect(host.merges).toEqual([]);
+            expect(slotOccupant(s.office)).toBeNull();
+            const gates = mergeGatesOfRun(s.office, run);
+            expect(gates).toHaveLength(1);
+            expect(gates[0]).toMatchObject({
+              head,
+              waitingOn: "maintainer",
+              handMerge: RELEASE_PATH_HOLD,
+              decision: null,
+            });
+            expect(gates[0]?.summary).toContain(".github/CODEOWNERS, .github/workflows/ci.yml");
+            // Nothing reached the remote's main.
+            const main = await git(repo.remote, repo.home, "show", "main:.github/workflows/ci.yml");
+            expect(main).toBe("name: ci\n");
+          },
+          async (worktree) => {
+            writeFileSync(join(worktree, ".github/workflows/ci.yml"), "name: ci\non: push\n");
+            writeFileSync(join(worktree, ".github/CODEOWNERS"), "# nobody owns anything\n");
+            await git(worktree, repo.home, "add", ".github");
+          },
+        );
+      },
+      { fixture: BACKLOG_FIXTURE },
+    );
+  });
+
+  it("counts a file moved out of the release path as a change to it", async () => {
+    await withBareRemote(
+      async (repo) => {
+        releaseBase(repo);
+        await scenario(
+          repo,
+          async ({ slot, host, officeId, head, slotGit }) => {
+            expect(await slotGit.releasePaths(officeId, head)).toEqual(["install.sh"]);
+            expect(await slot.tick(officeId)).toBe("idle");
+            expect(host.merges).toEqual([]);
+          },
+          async (worktree) => {
+            mkdirSync(join(worktree, "scripts"), { recursive: true });
+            await git(worktree, repo.home, "mv", "install.sh", "scripts/install.sh");
+          },
+        );
+      },
+      { fixture: BACKLOG_FIXTURE },
+    );
+  });
+
+  it("holds a PR whose only change to install.sh is its mode", async () => {
+    await withBareRemote(
+      async (repo) => {
+        releaseBase(repo);
+        await scenario(
+          repo,
+          async ({ slot, host, officeId, head, slotGit }) => {
+            expect(await slotGit.releasePaths(officeId, head)).toEqual(["install.sh"]);
+            expect(await slot.tick(officeId)).toBe("idle");
+            expect(host.merges).toEqual([]);
+          },
+          async (worktree) => {
+            chmodSync(join(worktree, "install.sh"), 0o755);
+            await git(worktree, repo.home, "update-index", "--chmod=+x", "install.sh");
+          },
+        );
+      },
+      { fixture: BACKLOG_FIXTURE },
+    );
+  });
+
+  it("holds a PR that deletes an owned file", async () => {
+    await withBareRemote(
+      async (repo) => {
+        releaseBase(repo);
+        await scenario(
+          repo,
+          async ({ slot, host, officeId, head, slotGit }) => {
+            expect(await slotGit.releasePaths(officeId, head)).toEqual([
+              ".github/workflows/ci.yml",
+            ]);
+            expect(await slot.tick(officeId)).toBe("idle");
+            expect(host.merges).toEqual([]);
+          },
+          async (worktree) => {
+            await git(worktree, repo.home, "rm", "--quiet", ".github/workflows/ci.yml");
+          },
+        );
+      },
+      { fixture: BACKLOG_FIXTURE },
+    );
+  });
+
+  it("merges a PR outside the release path; the first CODEOWNERS location on the base counts", async () => {
+    await withBareRemote(
+      async (repo) => {
+        // A root CODEOWNERS that would own everything: GitHub reads .github/CODEOWNERS first.
+        releaseBase(repo, { CODEOWNERS: "* @someone\n" });
+        await scenario(repo, async ({ slot, host, officeId, run, head, s, slotGit }) => {
+          expect(await slotGit.releasePaths(officeId, head)).toEqual([]);
+          expect(await slot.tick(officeId)).toBe("merged");
+          expect(host.merges).toHaveLength(1);
+          expect(mergeGatesOfRun(s.office, run)[0]).toMatchObject({ handMerge: null });
+        });
+      },
       { fixture: BACKLOG_FIXTURE },
     );
   });

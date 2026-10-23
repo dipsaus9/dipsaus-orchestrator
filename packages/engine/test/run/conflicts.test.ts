@@ -40,6 +40,7 @@ import { handOffStateOf } from "../../src/run/conflicts";
 import { findRun, IN_REVIEW_END, insertRun, runRoundCounts } from "../../src/run/records";
 import { codeTreeKeyOf } from "../../src/run/story-git";
 import { addStory } from "../../src/stories/keys";
+import { insertStoryPr, setStoryPrState } from "../../src/story-pr/records";
 import { detail } from "../../src/views/feature";
 import { insertClaim } from "../../src/worktree/records";
 import { type IngestFixture, ingestFixture, loggedEvents } from "../ingest/helpers";
@@ -541,6 +542,52 @@ describe("an approval carried over a clean merge dipo made (0019 section 6)", ()
       const merge = await engineMerge(w, onto);
       await w.conflicts.recorded(w.part, merged(w, { ...merge, onto }));
       expect(reviewVerdictForTree(w.f.office, w.f.run, await keyOf(w, merge.commit))).toBeNull();
+    }));
+});
+
+describe("a Done story is not checked as In Review (DIPO-332)", () => {
+  it("leaves out a story whose own PR merged, and one whose status reads Done", () =>
+    inWorld(async (w) => {
+      const office = w.f.office;
+      office.run(
+        "update runs set ended_at = $at, end_kind = $kind where office_id = $office_id and run_id = $run",
+        { run: w.f.run, at: w.f.t.clock.now(), kind: IN_REVIEW_END },
+      );
+      expect(inReviewRunIds(office)).toEqual([w.f.run as RunId]);
+      // Its PR merged on the host while the teardown of its worktree waits: Done on the base.
+      office.immediate(() =>
+        insertStoryPr(office, {
+          runId: w.f.run as RunId,
+          key: w.key,
+          number: 325,
+          url: "https://github.com/o/r/pull/325",
+          branch: BRANCH,
+          base: "main",
+          headSha: w.startSha,
+          state: "open",
+          title: "fix(DIPO-1): one",
+          bodyHash: "h",
+          openedAt: 1,
+          closedAt: null,
+        }),
+      );
+      expect(inReviewRunIds(office)).toEqual([w.f.run as RunId]);
+      office.immediate(() =>
+        setStoryPrState(office, w.f.run as RunId, { state: "merged", closedAt: 2 }),
+      );
+      expect(inReviewRunIds(office)).toEqual([]);
+      // Its status reads Done (the close-out on its branch, or the base's), the PR not yet seen merged.
+      office.immediate(() =>
+        setStoryPrState(office, w.f.run as RunId, { state: "open", closedAt: null }),
+      );
+      office.run(
+        `insert into backlog_mirror (office_id, key, content_hash, kind, status, title, labels, read_at, source)
+         values ($office_id, $key, 'h', 'task', 'Done', 'One', '[]', 1, $branch)`,
+        { key: w.key, branch: BRANCH },
+      );
+      expect(inReviewRunIds(office)).toEqual([]);
+      office.run("update backlog_mirror set status = 'In Review' where office_id = $office_id", {});
+      expect(inReviewRunIds(office)).toEqual([w.f.run as RunId]);
     }));
 });
 

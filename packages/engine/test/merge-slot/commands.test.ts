@@ -32,7 +32,7 @@ import type { ParkBranchRequest, UnparkBranchRequest } from "../../src/run/park"
 import { findRun, REVIEWED_END, runSteps } from "../../src/run/records";
 import { CAPABILITY_FLAGS } from "../../src/reads/hello";
 
-import { APPROVED, PR, type StoryWorld, storyWorld } from "./story-helpers";
+import { APPROVED, H1, PR, type StoryWorld, storyWorld } from "./story-helpers";
 
 let s: StoryWorld;
 
@@ -166,6 +166,22 @@ describe("gate.approve", () => {
     const g = gatesOf(s);
     expect(await refused(g.gates.approve(g.ctx(), { gate }))).toBe("gate.handMergeOnly");
     expect(mergeGate(s.w.office, gate)?.decision).toBeNull();
+  });
+
+  it("answers gate.handMergeOnly for a gate whose PR changes the release path; reject still decides it (DIPO-331)", async () => {
+    s = await storyWorld();
+    s.git.release.set(H1, [".github/workflows/ci.yml"]);
+    expect(await s.slot.tick(s.officeId)).toBe("idle");
+    const gate = mergeGatesOfRun(s.w.office, s.run)[0]!.gate;
+    const g = gatesOf(s);
+    expect(await refused(g.gates.approve(g.ctx(), { gate, note: "looks fine" }))).toBe(
+      "gate.handMergeOnly",
+    );
+    expect(mergeGate(s.w.office, gate)?.decision).toBeNull();
+    expect(g.kicks).toEqual([]);
+    const out = await g.gates.reject(g.ctx(), { gate, note: "leave CI alone" });
+    expect(out.result).toEqual({ gate, decision: "rejected" });
+    expect(g.rejects).toEqual([{ run: s.run, gateId: gate, note: "leave CI alone" }]);
   });
 
   it("answers gate.notWaitingOnMaintainer for a gate decided by rule, and for one decided already", async () => {

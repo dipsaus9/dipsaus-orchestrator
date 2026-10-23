@@ -28,9 +28,11 @@ export class TestClient {
   readonly invalid: unknown[] = [];
   readonly closed: Promise<{ code: number; reason: string }>;
   readonly #ws: WebSocket;
+  readonly #waitMs: number;
 
-  private constructor(ws: WebSocket) {
+  private constructor(ws: WebSocket, waitMs: number) {
     this.#ws = ws;
+    this.#waitMs = waitMs;
     this.closed = new Promise((resolve) =>
       ws.addEventListener("close", (event) => resolve({ code: event.code, reason: event.reason })),
     );
@@ -42,10 +44,11 @@ export class TestClient {
     });
   }
 
-  static connect(socketPath: string): Promise<TestClient> {
+  /** `waitMs` is how long a reply or frame is waited for; 5 s unless a slow test says more. */
+  static connect(socketPath: string, waitMs: number = WAIT_MS): Promise<TestClient> {
     const ws = new WebSocket(`ws+unix://${socketPath}`);
     return new Promise((resolve, reject) => {
-      ws.addEventListener("open", () => resolve(new TestClient(ws)));
+      ws.addEventListener("open", () => resolve(new TestClient(ws, waitMs)));
       ws.addEventListener("error", () => reject(new Error(`cannot connect to ${socketPath}`)));
     });
   }
@@ -97,7 +100,7 @@ export class TestClient {
 
   /** Waits until a frame received so far, or later, matches. */
   async waitFor(match: (frame: ServerFrame) => boolean, what: string): Promise<ServerFrame> {
-    const deadline = performance.now() + WAIT_MS;
+    const deadline = performance.now() + this.#waitMs;
     for (;;) {
       const found = this.frames.find(match);
       if (found !== undefined) return found;

@@ -6,6 +6,7 @@ import {
   autostartReport,
   connectOrStart,
   connectRunning,
+  dirRefusal,
   inspectDaemon,
   installDaemon,
   readSoftwareConfig,
@@ -18,7 +19,7 @@ import {
   uninstallDaemon,
   versionHint,
 } from "@dipsaus-orchestrator/client/node";
-import type { Clock } from "@dipsaus-orchestrator/contract";
+import { type Clock, EXIT_CONFIG } from "@dipsaus-orchestrator/contract";
 import { runDaemon } from "@dipsaus-orchestrator/daemon";
 import { checkInk, INK_SELF_CHECK_NAME } from "@dipsaus-orchestrator/tui";
 
@@ -34,6 +35,7 @@ import { deskCommand } from "./desk-command";
 import { gateCommand } from "./gate-command";
 import type { DaemonLogsDeps } from "./logs-command";
 import { OFFICE_SUBCOMMANDS } from "./office-commands";
+import { PROFILE_SUBCOMMANDS } from "./profile-commands";
 import { proposeCommand } from "./propose-command";
 import { runCommand } from "./run-command";
 import { stopCommand } from "./stop-command";
@@ -74,6 +76,11 @@ export type CliDeps = {
   readonly logs?: DaemonLogsDeps;
   /** `dipo tui` (DIPO-53); absent in tests that do not need it. */
   readonly tui?: (args: readonly string[]) => Promise<number>;
+  /**
+   * The refusal of a `DIPO_HOME` or `DIPO_RUNTIME_DIR` dipo cannot use (DIPO-316), checked before
+   * every command but `--help`, `--version` and the daemon's own forms; absent, nothing is checked.
+   */
+  readonly dirRefusal?: () => { readonly code: string; readonly message: string } | null;
 };
 
 export const HELP = `dipo: run your software products with a model as your team
@@ -210,6 +217,21 @@ Usage:
   dipo office rescan [--office <id>]
                     scan the office's run profile again and print what changed,
                     its conformance level and each deviation
+  dipo office profile [--office <id>] [--json]
+                    print the run profile: each capability with its command,
+                    source, confidence and whether it is confirmed, pending or
+                    stale, the run and test refusals, and each deviation with
+                    the standard script that would remove it
+  dipo office infer [--office <id>]
+                    have a model propose a command for each capability code
+                    left unresolved or in conflict; it runs no tool and nothing
+                    it proposes runs until you confirm it
+  dipo office confirm accept|edit|reject|set|pick|keep <capability> [...]
+                    confirm the run profile: accept, edit (-- <command>) or
+                    reject a proposal, set a capability by hand (-- <command>,
+                    --cwd <dir>), pick a conflict candidate (<n>), or keep a
+                    stale confirmation; nothing-to-start [--undo] marks a
+                    product with nothing to start
   dipo stats [--office <id>]
                     print the rows and approximate bytes of each table of the
                     office, to tune retention.shortDays and retention.stateDays
@@ -326,6 +348,7 @@ export function defaultDeps(): CliDeps {
     clientChecks: [{ name: INK_SELF_CHECK_NAME, run: checkInk }],
     stamp,
     runtime,
+    dirRefusal: () => dirRefusal(process.env),
   };
 }
 
@@ -354,6 +377,13 @@ export async function main(argv: readonly string[], deps: CliDeps): Promise<numb
   if (args[0] === "daemon" && DAEMON_FORMS.has(args[1] ?? "")) {
     return deps.runDaemon(args.slice(1));
   }
+  // An unusable state or runtime folder override stops every command (DIPO-316); the daemon's own
+  // forms above check it themselves.
+  const refused = deps.dirRefusal?.() ?? null;
+  if (refused !== null) {
+    deps.writeError(`dipo: ${refused.message}`);
+    return EXIT_CONFIG;
+  }
   // The box login in the Keychain (DIPO-269): daemon-side code on this terminal, no daemon needed.
   if (args[0] === "login") return deps.runDaemon(args);
   // Offline maintenance outside the contract (0006 amendment of 2026-10-12): daemon-side code.
@@ -370,7 +400,10 @@ export async function main(argv: readonly string[], deps: CliDeps): Promise<numb
     const { version } = versionInfo(deps.stamp, deps.runtime);
     return subcommand(args.slice(2), { ...deps, version });
   }
-  const office = args[0] === "office" ? OFFICE_SUBCOMMANDS.get(args[1] ?? "") : undefined;
+  const office =
+    args[0] === "office"
+      ? (OFFICE_SUBCOMMANDS.get(args[1] ?? "") ?? PROFILE_SUBCOMMANDS.get(args[1] ?? ""))
+      : undefined;
   if (office !== undefined) {
     const { version } = versionInfo(deps.stamp, deps.runtime);
     return office(args.slice(2), { ...deps, version });

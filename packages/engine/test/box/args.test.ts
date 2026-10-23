@@ -1,8 +1,10 @@
 // The one argument builder of the Apple `container` backend (DIPO-265, 0021 sections 2, 3 and 5,
 // decision 16), over every input: every builder, every input combination, valid or refused. A box
-// gets only dipo's host-only network, at most one mount (the package cache, read-only, at its
-// fixed path) and the Mac's total memory and CPU count. Each builder may emit only the option
-// flags listed for it below; any other flag, short or combined spellings included, fails.
+// gets only dipo's host-only network, at most two mounts (the package cache and the box network
+// tools, both read-only, each at its fixed path; DIPO-281) and the Mac's total memory and CPU
+// count. Each builder may emit only the option flags listed for it below; any other flag, short or
+// combined spellings included, fails. Every command in a box runs contained, but the box
+// firewall's own and a build box's first step (DIPO-281).
 
 import { describe, expect, it } from "bun:test";
 
@@ -15,7 +17,29 @@ import {
   execArgs,
   type HostResources,
 } from "../../src/box/apple-args";
+import {
+  BOX_NET_TOOLS_PATH,
+  CONTAINED_KEEPALIVE,
+  containedCommand,
+  firewallCommand,
+  firewallListCommand,
+  rootStepCommand,
+} from "../../src/box/firewall";
 import { BOX_PACKAGE_CACHE_PATH, BoxError } from "../../src/box/port";
+import {
+  BOX_USER_ENV,
+  newStagePath,
+  partModeCommand,
+  stageCopyCommand,
+  stageHandOverCommand,
+  stageMakeCommand,
+  stageRemoveCommand,
+} from "../../src/box/user";
+
+/** The `--env` arguments of `env`, in order. */
+function envArgsOf(env: Readonly<Record<string, string>>): string[] {
+  return Object.entries(env).flatMap(([key, value]) => ["--env", `${key}=${value}`]);
+}
 
 /** What one builder's argv may hold: its subcommand words, its option flags and their values. */
 interface Shape {
@@ -41,11 +65,6 @@ const SHAPES: Readonly<Record<string, Shape>> = {
     positionals: 1,
   },
   listArgs: { words: ["list"], flags: { "--all": 0, "--format": 1 }, positionals: 0 },
-  // DIPO-271: the builder starts before the build proxy finds its network's address.
-  builderStartArgs: { words: ["builder", "start"], flags: {}, positionals: 0 },
-  // DIPO-298: the builder's state is read before a build, and a builder dipo started is stopped.
-  builderStatusArgs: { words: ["builder", "status"], flags: { "--format": 1 }, positionals: 0 },
-  builderStopArgs: { words: ["builder", "stop"], flags: {}, positionals: 0 },
   createArgs: {
     words: ["create"],
     flags: {
@@ -54,6 +73,7 @@ const SHAPES: Readonly<Record<string, Shape>> = {
       "--network": 1,
       "--memory": 1,
       "--cpus": 1,
+      "--cap-add": 1,
       "--mount": 1,
       "--entrypoint": 1,
     },
@@ -74,11 +94,10 @@ const SHAPES: Readonly<Record<string, Shape>> = {
     passthrough: true,
   },
   imageInspectArgs: { words: ["image", "inspect"], flags: {}, positionals: 1 },
-  buildArgs: {
-    words: ["build"],
-    flags: { "--file": 1, "--tag": 1, "--label": 1, "--build-arg": 1, "--progress": 1 },
-    positionals: 1,
-  },
+  // DIPO-281: the image is made by committing a build box, from a pulled Debian base.
+  imageDeleteArgs: { words: ["image", "delete"], flags: {}, positionals: 1 },
+  imagePullArgs: { words: ["image", "pull"], flags: { "--progress": 1 }, positionals: 1 },
+  commitArgs: { words: ["commit"], flags: {}, positionals: 2 },
 };
 
 /**
@@ -148,6 +167,21 @@ const IMAGES = [
   "dipo-office-image:latest",
   "ghcr.io/example/box@sha256:0123456789abcdef",
 ];
+/** A build box's run id (DIPO-281): no mount, the image's own keepalive. */
+const BUILD_RUN_ID = "build-0123456789abcdef";
+const BUILD_NAME = `dipo-${BUILD_RUN_ID}`;
+/** Each box network tools input and whether the builder accepts it for a box that is no build box. */
+const TOOLS: readonly [string | undefined, boolean][] = [
+  ["/state/box-net-tools/0123abcd", true],
+  ["/Users/someone/Library/Application Support/dipo/box-net-tools/ab", true],
+  [undefined, false],
+  [HOME, false],
+  ["/Users", false],
+  ["relative/tools", false],
+  ["/tools,target=/etc", false],
+  ["/tools/../etc", false],
+  ["/tools/", false],
+];
 /** Each package cache input and whether the builder accepts it. */
 const CACHES: readonly [string | undefined, boolean][] = [
   [undefined, true],
@@ -194,19 +228,37 @@ function createCases(): [CreateInput, boolean][] {
   for (const runId of RUN_IDS)
     for (const image of IMAGES)
       for (const [packageCache, cacheOk] of CACHES)
-        for (const host of HOSTS)
-          for (const [network, networkOk] of NETWORKS)
-            cases.push([
-              {
-                runId,
-                image,
-                network,
-                host,
-                home: HOME,
-                ...(packageCache === undefined ? {} : { packageCache }),
-              },
-              cacheOk && networkOk,
-            ]);
+        for (const [netTools, toolsOk] of TOOLS)
+          for (const host of HOSTS)
+            for (const [network, networkOk] of NETWORKS)
+              cases.push([
+                {
+                  runId,
+                  image,
+                  network,
+                  host,
+                  home: HOME,
+                  ...(packageCache === undefined ? {} : { packageCache }),
+                  ...(netTools === undefined ? {} : { netTools }),
+                },
+                cacheOk && toolsOk && networkOk,
+              ]);
+  // A build box (DIPO-281): accepted only without any mount.
+  for (const [packageCache] of CACHES.slice(0, 2))
+    for (const [netTools] of TOOLS.slice(0, 3))
+      for (const [network, networkOk] of NETWORKS)
+        cases.push([
+          {
+            runId: BUILD_RUN_ID,
+            image: "docker.io/library/debian:trixie-slim",
+            network,
+            host: HOSTS[0]!,
+            home: HOME,
+            ...(packageCache === undefined ? {} : { packageCache }),
+            ...(netTools === undefined ? {} : { netTools }),
+          },
+          packageCache === undefined && netTools === undefined && networkOk,
+        ]);
   return cases;
 }
 
@@ -216,6 +268,7 @@ const VALID: CreateInput = {
   network: { name: BOX_NETWORK_NAME, mode: "hostOnly" },
   host: HOSTS[0]!,
   home: HOME,
+  netTools: TOOLS[0]![0]!,
 };
 
 const NAMES = RUN_IDS.map((runId) => `dipo-${runId}`);
@@ -226,10 +279,9 @@ const COMMANDS: (readonly [string, ...string[]])[] = [
   ["bun", "run", "verify"],
   ["ls", "-v", "--volume", "--ssh", "-p", "--publish", "--virtualization"],
 ];
-/** Box image tags and build inputs (DIPO-266). */
+/** Box image tags (DIPO-266) and the base images a build pulls (DIPO-281). */
 const TAGS = [`dipo-box:${"0".repeat(64)}`, `dipo-box:${"ab12".repeat(16)}`];
-const CONTEXTS = ["/tmp/d266/box-build-x1", "/Users/someone/Library/Caches/dipo/box build"];
-const PROXIES = ["http://192.0.2.1:3128", "http://[2001:db8::1]:8080", "http://proxy.example:1"];
+const BASES = ["docker.io/library/debian:trixie-slim", "docker.io/library/debian:13.1-slim"];
 const ENVS = [undefined, {}, { HTTPS_PROXY: "http://proxy:1", NO_PROXY: "a,b" }];
 const CWDS = [undefined, "/work"];
 
@@ -244,14 +296,11 @@ function everyArgv(): Map<string, string[][]> {
   add("networkListArgs", builders.networkListArgs());
   add("networkCreateArgs", builders.networkCreateArgs());
   add("listArgs", builders.listArgs());
-  add("builderStartArgs", builders.builderStartArgs());
-  add("builderStatusArgs", builders.builderStatusArgs());
-  add("builderStopArgs", builders.builderStopArgs());
+  for (const base of BASES) add("imagePullArgs", builders.imagePullArgs(base));
   for (const tag of TAGS) {
     add("imageInspectArgs", builders.imageInspectArgs(tag));
-    for (const contextDir of CONTEXTS)
-      for (const proxyUrl of PROXIES)
-        add("buildArgs", builders.buildArgs({ tag, contextDir, proxyUrl }));
+    add("imageDeleteArgs", builders.imageDeleteArgs(tag));
+    add("commitArgs", builders.commitArgs(BUILD_NAME, tag));
   }
   for (const [input, ok] of createCases()) if (ok) add("createArgs", builders.createArgs(input));
   for (const name of NAMES) {
@@ -319,12 +368,12 @@ describe("the Apple container argument builder", () => {
       for (const args of argvs) {
         const flags = readFlags(args, shape);
         if (builder !== "createArgs") expect(mounts(flags)).toEqual([]);
-        else expect(mounts(flags).length).toBeLessThanOrEqual(1);
+        else expect(mounts(flags).length).toBeLessThanOrEqual(2);
       }
     }
   });
 
-  it("accepts a create input only with dipo's host-only network and a plain cache folder", () => {
+  it("accepts a create input only with dipo's host-only network, a plain cache folder and the box network tools", () => {
     for (const [input, ok] of createCases()) {
       if (!ok) {
         refused(() => createArgs(input));
@@ -338,13 +387,20 @@ describe("the Apple container argument builder", () => {
       expect(once("--network")).toEqual([BOX_NETWORK_NAME]);
       expect(once("--memory")).toEqual([`${Math.floor(input.host.memoryBytes / 1024 ** 2)}M`]);
       expect(once("--cpus")).toEqual([String(input.host.cpus)]);
-      expect(once("--entrypoint")).toEqual([BOX_KEEPALIVE[0]]);
-      expect(mounts(flags)).toEqual(
-        input.packageCache === undefined
+      // The one capability the firewall needs; no contained command keeps it (DIPO-281).
+      expect(once("--cap-add")).toEqual(["CAP_NET_ADMIN"]);
+      const build = input.runId === BUILD_RUN_ID;
+      const keepalive = build ? BOX_KEEPALIVE : CONTAINED_KEEPALIVE;
+      expect(once("--entrypoint")).toEqual([keepalive[0]]);
+      expect(mounts(flags)).toEqual([
+        ...(input.packageCache === undefined
           ? []
-          : [`type=bind,source=${input.packageCache},target=${BOX_PACKAGE_CACHE_PATH},readonly`],
-      );
-      expect(args.slice(-BOX_KEEPALIVE.length)).toEqual([input.image, ...BOX_KEEPALIVE.slice(1)]);
+          : [`type=bind,source=${input.packageCache},target=${BOX_PACKAGE_CACHE_PATH},readonly`]),
+        ...(build
+          ? []
+          : [`type=bind,source=${input.netTools},target=${BOX_NET_TOOLS_PATH},readonly`]),
+      ]);
+      expect(args.slice(-keepalive.length)).toEqual([input.image, ...keepalive.slice(1)]);
     }
   });
 
@@ -373,7 +429,7 @@ describe("the Apple container argument builder", () => {
     refused(() => createArgs({ ...VALID, home: "relative", packageCache: "/tmp/cache" }));
     expect(
       mounts(readFlags(createArgs({ ...VALID, packageCache: `${HOME}x` }), SHAPES["createArgs"]!)),
-    ).toHaveLength(1);
+    ).toHaveLength(2);
   });
 
   it("keeps a package cache path with a space whole in its one --mount element (DIPO-295)", () => {
@@ -382,6 +438,7 @@ describe("the Apple container argument builder", () => {
     const args = createArgs({ ...VALID, packageCache });
     expect(mounts(readFlags(args, SHAPES["createArgs"]!))).toEqual([
       `type=bind,source=${packageCache},target=${BOX_PACKAGE_CACHE_PATH},readonly`,
+      `type=bind,source=${VALID.netTools},target=${BOX_NET_TOOLS_PATH},readonly`,
     ]);
     expect(args).toContain(
       `type=bind,source=${packageCache},target=${BOX_PACKAGE_CACHE_PATH},readonly`,
@@ -438,6 +495,8 @@ describe("the Apple container argument builder", () => {
     });
     expect(args).toEqual([
       "exec",
+      // The box user's home and PATH first (DIPO-334).
+      ...envArgsOf(BOX_USER_ENV),
       "--env",
       "A=1",
       "--env",
@@ -445,8 +504,20 @@ describe("the Apple container argument builder", () => {
       "--env",
       "WITH_EQ=x=y",
       NAMES[0]!,
-      "env",
+      ...containedCommand(["env"]),
     ]);
+    // A command's own variable wins over the box user's, in the backend's env and in the box's.
+    const own = execArgs({ name: NAMES[0]!, command: ["env"], env: { PATH: "/bin" } });
+    expect(own.filter((arg) => arg.startsWith("PATH="))).toEqual(["PATH=/bin", "PATH=/bin"]);
+    expect(own.filter((arg) => arg.startsWith("HOME="))).toEqual([
+      "HOME=/home/dipo",
+      "HOME=/home/dipo",
+    ]);
+    // An environment that names none of the box user's keys keeps them all, in the box too.
+    const added = execArgs({ name: NAMES[0]!, command: ["claude"], env: { A: "1" } });
+    expect(added.slice(added.indexOf(NAMES[0]!) + 1)).toEqual(containedCommand(["claude"]));
+    // A program holding `=` would be read by the box's env as a variable: refused.
+    refused(() => execArgs({ name: NAMES[0]!, command: ["A=1", "sh"] }));
   });
 
   it("exports a box's filesystem to a host file only", () => {
@@ -469,29 +540,113 @@ describe("the Apple container argument builder", () => {
     ]);
   });
 
-  it("builds only dipo's own build file, with the proxy as the one build argument", () => {
-    const tag = TAGS[0]!;
-    expect(builders.buildArgs({ tag, contextDir: CONTEXTS[0]!, proxyUrl: PROXIES[0]! })).toEqual([
-      "build",
-      "--file",
-      `${CONTEXTS[0]!}/Containerfile`,
-      "--tag",
-      tag,
-      "--label",
-      "dipo=image",
-      "--build-arg",
-      `DIPO_PROXY=${PROXIES[0]!}`,
-      "--progress",
-      "plain",
-      CONTEXTS[0]!,
-    ]);
-    for (const shape of ["--ssh", "--secret", "--output", "-o", "--no-cache", "-f"]) {
-      expect(() => readFlags(["build", shape, "x", "/tmp/ctx"], SHAPES["buildArgs"]!)).toThrow();
+  it("runs every command contained, but the box firewall's own and a build box's first step (DIPO-281)", () => {
+    for (const name of NAMES) {
+      for (const command of COMMANDS) {
+        const args = execArgs({ name, command });
+        expect(args.slice(args.indexOf(name) + 1)).toEqual(containedCommand(command));
+        // Asking for the box's capabilities with any other command is refused.
+        refused(() => execArgs({ name, command, fullPrivilege: true }));
+      }
+      const rule = firewallCommand({ hostAddress: "192.0.2.1", ports: [3128] });
+      for (const command of [rule, firewallListCommand()]) {
+        const args = execArgs({ name, command, fullPrivilege: true });
+        expect(args.slice(args.indexOf(name) + 1)).toEqual(command);
+      }
+      // The firewall's tool with another argument is no firewall command.
+      refused(() =>
+        execArgs({
+          name,
+          command: [...rule.slice(0, -1), "flush ruleset"] as unknown as [string],
+          fullPrivilege: true,
+        }),
+      );
+      refused(() =>
+        execArgs({ name, command: [...rule, "extra"] as unknown as [string], fullPrivilege: true }),
+      );
     }
+    const bootstrap = execArgs({
+      name: BUILD_NAME,
+      command: ["/bin/sh", "/dipo-build/bootstrap.sh"],
+      fullPrivilege: true,
+    });
+    expect(bootstrap.slice(-2)).toEqual(["/bin/sh", "/dipo-build/bootstrap.sh"]);
+    const user = execArgs({ name: BUILD_NAME, command: ["/bin/sh", "x"] });
+    expect(user.slice(user.indexOf(BUILD_NAME) + 1)).toEqual(containedCommand(["/bin/sh", "x"]));
   });
 
-  it("refuses a build or inspect of anything but a dipo box image tag", () => {
-    const input = { tag: TAGS[0]!, contextDir: CONTEXTS[0]!, proxyUrl: PROXIES[0]! };
+  it("runs dipo's root steps as root with the allow list: any in a build box, only the fixed ones elsewhere (DIPO-334)", () => {
+    const stage = newStagePath();
+    const steps = [
+      stageMakeCommand(stage),
+      stageHandOverCommand(stage),
+      stageRemoveCommand(stage),
+      partModeCommand(),
+    ];
+    for (const name of NAMES) {
+      for (const command of steps) {
+        const args = execArgs({ name, command, rootStep: true });
+        expect(args.slice(args.indexOf(name) + 1)).toEqual(rootStepCommand(command));
+        // A root step gets no box user environment.
+        expect(args.slice(0, args.indexOf(name))).toEqual(["exec"]);
+      }
+      // Anything else as root is refused there: the user's own copy step, any other command,
+      // a stage path of another shape, a step with an extra argument, and both privileges at once.
+      for (const command of [
+        stageCopyCommand(stage, "/work"),
+        ...COMMANDS,
+        ["/bin/chmod", "0755", "/etc/ld.so.preload"],
+        ["/bin/rm", "-rf", "--", "/"],
+        ["/bin/rm", "-rf", "--", "/dipo-stage/../etc"],
+        ["/bin/chown", "-R", "-h", "1000:1000", "--", "/etc"],
+        ["/bin/chown", "-R", "-h", "1000:1000", "--", `${stage}/x`],
+        [...stageRemoveCommand(stage), "/etc"],
+        ["/bin/sh", "-c", `rm -rf ${stage}`],
+      ] as (readonly [string, ...string[]])[]) {
+        refused(() => execArgs({ name, command, rootStep: true }));
+      }
+      refused(() =>
+        execArgs({ name, command: partModeCommand(), rootStep: true, fullPrivilege: true }),
+      );
+    }
+    const system = execArgs({
+      name: BUILD_NAME,
+      command: ["/bin/sh", "/dipo-build/system.sh"],
+      rootStep: true,
+    });
+    expect(system.slice(system.indexOf(BUILD_NAME) + 1)).toEqual(
+      rootStepCommand(["/bin/sh", "/dipo-build/system.sh"]),
+    );
+  });
+
+  it("commits only a build box, to a dipo box image tag, and pulls only Debian's slim base", () => {
+    const tag = TAGS[0]!;
+    expect(builders.commitArgs(BUILD_NAME, tag)).toEqual(["commit", BUILD_NAME, tag]);
+    for (const name of NAMES) refused(() => builders.commitArgs(name, tag));
+    refused(() => builders.commitArgs("dipo-build-", tag));
+    refused(() => builders.commitArgs(BUILD_NAME, "alpine"));
+    expect(builders.imagePullArgs(BASES[0]!)).toEqual([
+      "image",
+      "pull",
+      "--progress",
+      "none",
+      BASES[0]!,
+    ]);
+    for (const reference of [
+      "alpine",
+      "docker.io/library/debian:trixie",
+      "docker.io/evil/debian:trixie-slim",
+      "--ssh",
+      "docker.io/library/debian:trixie-slim --ssh",
+      "",
+    ]) {
+      refused(() => builders.imagePullArgs(reference));
+    }
+    expect(builders.imageDeleteArgs(tag)).toEqual(["image", "delete", tag]);
+    refused(() => builders.imageDeleteArgs("alpine"));
+  });
+
+  it("refuses an inspect, a delete or a commit of anything but a dipo box image tag", () => {
     for (const tag of [
       "alpine",
       "dipo-box:latest",
@@ -500,28 +655,9 @@ describe("the Apple container argument builder", () => {
       `other:${"0".repeat(64)}`,
       "--ssh",
     ]) {
-      refused(() => builders.buildArgs({ ...input, tag }));
       refused(() => builders.imageInspectArgs(tag));
-    }
-    for (const contextDir of [
-      "relative",
-      "/",
-      "/tmp/a/",
-      "/tmp/a/../b",
-      "/tmp/a:b",
-      "/tmp/\u0007",
-    ]) {
-      refused(() => builders.buildArgs({ ...input, contextDir }));
-    }
-    for (const proxyUrl of [
-      "https://192.0.2.1:3128",
-      "http://user:pw@192.0.2.1:3128",
-      "http://192.0.2.1",
-      "http://192.0.2.1:3128/path",
-      "http://192.0.2.1:3128 --ssh",
-      "",
-    ]) {
-      refused(() => builders.buildArgs({ ...input, proxyUrl }));
+      refused(() => builders.imageDeleteArgs(tag));
+      refused(() => builders.commitArgs(BUILD_NAME, tag));
     }
   });
 });

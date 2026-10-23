@@ -30,8 +30,9 @@ export const TOKEN_CHECK_EXPORT_TIMEOUT_MS = 10 * 60_000;
 export const BOX_TOKEN_CHECK = "box-token";
 
 /**
- * Prints the box's own environment and that of every process still running in it (NUL-separated
- * in /proc); the box's shell, never a host one.
+ * Prints the box's own environment and that of every process of the box user still running in it
+ * (NUL-separated in /proc); the box's shell, never a host one. It runs as the box user (DIPO-334), so
+ * root's processes (the keepalive and dipo's own root steps) are not read.
  */
 export const TOKEN_CHECK_ENV_COMMAND: readonly [string, ...string[]] = [
   "sh",

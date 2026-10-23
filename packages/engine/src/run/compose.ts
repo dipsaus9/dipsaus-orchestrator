@@ -15,7 +15,7 @@ import { BOX_RUN_FILE } from "../box/workers";
 import { readBackstop } from "./backstop";
 import { type InputChangeReader, Nudges } from "../hooks/nudges";
 import { ABSENT, PermissionAsks, type Presence } from "../hooks/permissions";
-import { WebGuard } from "../hooks/web-guard";
+import { type FetchAddressDeps, SYSTEM_FETCH_ADDRESSES, WebGuard } from "../hooks/web-guard";
 import { CONTRACT_MAX_DEFAULT } from "../prompts/contract";
 import { currentProfile } from "../scan/store";
 import type { RunProfile } from "../scan/detect";
@@ -32,8 +32,12 @@ import { gitReviewOps, ReviewLauncher } from "./review-launch";
 import { FixRounds, type FixRoundsDeps } from "./fix-rounds";
 import { Reviews } from "./reviews";
 import { createRunOutcomes, type Resumption } from "./resumption";
+import { SessionRuns } from "./session-run";
 import { afterRunExits } from "./temp-dirs";
-import type { SlotReentry } from "./park-resume";
+import { ConflictResumes, type ConflictResumesDeps } from "./conflicts";
+import { resolveIntent, runIntents } from "./intents";
+import type { PrReplacement, SlotReentry } from "./park-resume";
+import { workRefOf } from "../views/work";
 import type { HoldResumer } from "./work-resume";
 import type { RunBase } from "./work-run";
 
@@ -82,6 +86,13 @@ export interface RunPorts {
   readonly holdResumer?: () => HoldResumer | undefined;
   /** The merge slot a resumed `slot-refused` park re-enters (DIPO-150, DIPO-155's seam). */
   readonly slotReentry?: () => SlotReentry | undefined;
+  /**
+   * The merge a resumed `conflict` park needs in its live run's box (`BoxCollisions.mergeOnResume`,
+   * DIPO-324). Without it no conflict park resumes (`resume.notResumable`).
+   */
+  readonly conflictMerge?: ConflictResumesDeps["merge"];
+  /** The new story PR of a resumed `stopped` / `pr-closed` park (`StoryPrs.replace`, DIPO-324). */
+  readonly prReplacement?: () => PrReplacement | undefined;
   /** The plan-limit schedule (DIPO-61) worker outcomes report waits to; needs `outcomes`. */
   readonly planLimits?: Pick<PlanLimitsDeps, "holds" | "notify">;
   /** The office's session places (DIPO-142): the reviewer's model and pending reviews. */
@@ -104,6 +115,17 @@ export interface RunPorts {
    * launch and made again before a later session when it was lost. No box runs without them.
    */
   readonly boxes?: RunLauncherDeps["boxes"];
+  /**
+   * The box network's host address while this daemon knows one, else null (DIPO-281): the live
+   * source the web guard's WebFetch check and each reviewer's web proxy read for every check, so
+   * they refuse the box network. Without it they know none (`SYSTEM_FETCH_ADDRESSES`).
+   */
+  readonly boxHostAddress?: () => string | null;
+  /**
+   * Copies into a run's box the merges dipo committed on its branch outside the box, before its
+   * next developer session (DIPO-324); a failure parks the story instead of starting the worker.
+   */
+  readonly boxSync?: RunResumerDeps["boxSync"];
   /** Re-attach after a restart; needs `control`. */
   readonly reattach?: Omit<
     RunReattacherDeps,
@@ -134,6 +156,22 @@ export interface ComposedRuns {
   readonly fixRounds: FixRounds | null;
   readonly launcher: RunLauncher;
   readonly reattacher: RunReattacher | null;
+  /**
+   * The scan fallback's `session` runs (DIPO-310): one model session outside a story, on the same
+   * worker port, hosts and steering as the story runs, outside the worker and reviewer places.
+   */
+  readonly sessions: SessionRuns;
+}
+
+/**
+ * What the web guard's WebFetch check reads (DIPO-281): the system's resolver and interfaces with
+ * the daemon's live box network address, read for each check; undefined without one, so the guard
+ * keeps its system default.
+ */
+export function fetchAddressesOf(
+  boxHostAddress: (() => string | null) | undefined,
+): FetchAddressDeps | undefined {
+  return boxHostAddress === undefined ? undefined : { ...SYSTEM_FETCH_ADDRESSES, boxHostAddress };
 }
 
 /** `{ [key]: value }`, or `{}` when `value` is undefined (an optional port left out). */
@@ -227,6 +265,7 @@ function buildHookListeners(
     offices: ports.offices,
     steering: ports.steering,
     encode: (op) => ports.worker.encode(op),
+    ...given("fetchAddresses", fetchAddressesOf(ports.boxHostAddress)),
     ...given("warn", ports.warn),
   });
   const onEnded = ports.ingest.onEnded;
@@ -309,6 +348,7 @@ function buildOutcomes(
     ingest: ports.resumeIngest?.(ingest) ?? ingest,
     control: trackerOf(ports, control),
     ...given("boxes", ports.boxes),
+    ...given("boxSync", ports.boxSync),
     profile: profileOf(ports),
     ...given("probe", probe),
     ...given("onChanged", ports.onChanged),
@@ -345,6 +385,9 @@ function buildOutcomes(
         ...given("boxRun", ports.boxRun),
         fixRounds: () => fixRounds ?? undefined,
         ...given("slot", ports.slotReentry),
+        // A conflict park resumes through the hand-off of its box run (DIPO-324).
+        ...given("conflicts", conflictResumesOf(ports, control)),
+        ...given("prs", ports.prReplacement),
         // A question park's answer is a resolved unknown while the contract stays within R26.
         contractMax: (office) =>
           ports.offices.config(office)?.prompt.contractMax ?? CONTRACT_MAX_DEFAULT,
@@ -410,6 +453,66 @@ function buildOutcomes(
   return { resumer, outcomes, resumption, planLimits, places, reviews, fixRounds };
 }
 
+/**
+ * The resume of a `conflict` park (DIPO-324): the office git, the box merge of the live run, and
+ * run control to tell its worker or park it. Undefined without the box merge.
+ */
+function conflictResumesOf(
+  ports: RunPorts,
+  control: RunControl,
+): (() => ConflictResumes) | undefined {
+  const merge = ports.conflictMerge;
+  if (merge === undefined) return undefined;
+  const resumes = new ConflictResumes({
+    clock: ports.clock,
+    offices: ports.offices,
+    git: ports.git,
+    merge,
+    tmpRoot: ports.tmpRoot,
+    // A merge that took the other side's task file gets the story's status back (In Progress).
+    restoreStatus: async (office, run) => {
+      const unpark = ports.outcomes?.unpark;
+      if (unpark === undefined || run.story === null || run.branch === null) return;
+      if (run.worktree === null) return;
+      await unpark.lift(office, {
+        story: run.story,
+        branch: run.branch,
+        worktree: run.worktree,
+        to: "In Progress",
+      });
+    },
+    tell: (runId, text) => control.tellWorker(runId, text, "conflict resume"),
+    parkLive: (runId, park) => control.parkRun(runId, park),
+    // An unwritable path that still conflicts parks again before any session (0020 section 2).
+    park: async (office, run, park) => {
+      await control.park(office, run, workRefOf(office, run.runId) ?? undefined, {
+        intent: "park",
+        ops: [],
+        reason: park.reason,
+        cause: park.cause,
+        detail: park.detail,
+        endKind: park.reason,
+      });
+      // No worker runs, so nothing else resolves the park's intent (as a stranded fix round's).
+      const intent = runIntents(office, run.runId)
+        .filter((candidate) => candidate.kind === "park" && candidate.resolvedAt === null)
+        .at(-1);
+      if (intent !== undefined) {
+        const at = ports.clock.now();
+        office.immediate(() => resolveIntent(office, run.runId, intent.intentId, "blocked", at));
+      }
+    },
+    itemMax: (office, run) => {
+      const budgets = ports.offices.config(office)?.prompt.budgets.feedbackItem;
+      if (budgets === undefined) return 3_000;
+      const tier = run.tier as keyof typeof budgets | null;
+      return (tier === null ? undefined : budgets[tier]) ?? budgets.M;
+    },
+    ...given("warn", ports.warn),
+  });
+  return () => resumes;
+}
+
 /** The review rounds with the real reviewer launcher on the run ports (DIPO-219). */
 function buildReviews(
   ports: RunPorts,
@@ -430,6 +533,7 @@ function buildReviews(
     hosts: ports.hosts,
     ingest: ports.resumeIngest?.(ingest) ?? ingest,
     control: trackerOf(ports, control),
+    ...given("boxHostAddress", ports.boxHostAddress),
     ...given("onChanged", ports.onChanged),
     ...given("warn", ports.warn),
   });
@@ -562,5 +666,20 @@ export function composeRuns(ports: RunPorts): ComposedRuns {
     fixRounds: built?.fixRounds ?? null,
     launcher,
     reattacher,
+    sessions: new SessionRuns({
+      clock: ports.clock,
+      ids: ports.ids,
+      offices: ports.offices,
+      worker: ports.worker,
+      git: ports.git,
+      hosts: ports.hosts,
+      steering: ports.steering,
+      pricing: ports.ingest.pricing,
+      runtimeDir: ports.runtimeDir,
+      tmpRoot: ports.tmpRoot,
+      ...given("tempOwner", ports.tempOwner),
+      ...given("onChanged", ports.onChanged),
+      ...given("warn", ports.warn),
+    }),
   };
 }

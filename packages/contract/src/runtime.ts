@@ -39,6 +39,25 @@ export interface SpawnOptions {
   readonly stdin?: "pipe" | "ignore";
   /** Start the child in its own process group so it outlives its parent (0006). */
   readonly detached?: boolean;
+  /**
+   * Where the child's stdout and stderr go; pipes when absent. With `to: "file"` they go to two
+   * regular files (mode 0600) in a fresh private folder under `tempRoot`, so no pipe sits between
+   * the child and the caller (DIPO-333). `stdout` and `stderr` then yield the files' content once
+   * the direct child has exited: only output written before that exit is returned, and output a
+   * descendant writes later is lost. The files are read through the caller's own descriptors, and
+   * the folder is removed after the read, also on a failure; a failed read errors both streams.
+   */
+  readonly output?: SpawnOutputFile;
+}
+
+/** Stdout and stderr through regular files read after the child exits (`SpawnOptions.output`). */
+export interface SpawnOutputFile {
+  readonly to: "file";
+  /**
+   * The private temp root the folder is made under; made (mode 0700) when missing. It must belong
+   * to this user or be a shared world-writable folder with the sticky bit, else the spawn throws.
+   */
+  readonly tempRoot: string;
 }
 
 export interface ChildStdin {
@@ -63,6 +82,11 @@ export interface ChildProcess {
   /** Settles once when the child has exited. */
   readonly exited: Promise<ChildExit>;
   kill(signal?: Signal): void;
+  /**
+   * Signals every process of the child's group. Present only for a child spawned `detached`,
+   * which leads its own group (DIPO-314: a call killed at its deadline takes its descendants along).
+   */
+  killGroup?(signal: Signal): void;
 }
 
 /** Process creation, injected so tests can replace the subprocess (0017 section 2). */

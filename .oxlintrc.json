@@ -812,6 +812,12 @@
         "dipo/no-bun-global": "off"
       }
     },
+    {
+      "files": ["**/*.ci.test.ts"],
+      "rules": {
+        "dipo/ci-test-guard": "error"
+      }
+    },
     // Function size caps (DIPO-127): no function over 100 lines, over complexity 20 or with
     // more than 5 parameters in product code.
     {
@@ -862,6 +868,7 @@
         "packages/engine/src/reconcile/reconcile.ts",
         "packages/engine/src/retention/run.ts",
         "packages/engine/src/run/compose.ts",
+        "packages/engine/src/run/conflicts.ts",
         "packages/engine/src/run/control.ts",
         "packages/engine/src/run/launch.ts",
         "packages/engine/src/run/outcome-exits.ts",
@@ -874,15 +881,18 @@
         "packages/engine/src/run/resume.ts",
         "packages/engine/src/run/resumption.ts",
         "packages/engine/src/run/review-launch.ts",
+        "packages/engine/src/run/session-run.ts",
         "packages/engine/src/run/story-git.ts",
         "packages/engine/src/run/verify-commit.ts",
         "packages/engine/src/run/work-run.ts",
+        "packages/engine/src/scan/confirm-command.ts",
         "packages/engine/src/scan/detect/detect.ts",
         "packages/engine/src/stories/apply.ts",
         "packages/engine/src/stories/planning.ts",
         "packages/engine/src/story-pr/prs.ts",
         "packages/engine/src/workers/claude-cli/interpret.ts",
         "packages/engine/src/workers/claude-cli/plan.ts",
+        "packages/engine/src/workers/claude-cli/result.ts",
         "packages/engine/src/worktree/claim.ts",
         "packages/tui/src/app.tsx",
         "packages/tui/src/detail.tsx",
@@ -898,6 +908,7 @@
       "files": [
         "packages/cli/src/daemon-commands.ts",
         "packages/cli/src/index.ts",
+        "packages/cli/src/profile-commands.ts",
         "packages/cli/src/watch-command.ts",
         "packages/client/src/store/office-store.ts",
         "packages/daemon/src/foreground.ts",
@@ -930,6 +941,7 @@
         "packages/engine/src/run/outcome-sessions.ts",
         "packages/engine/src/run/park-resume.ts",
         "packages/engine/src/run/park.ts",
+        "packages/engine/src/run/places.ts",
         "packages/engine/src/run/reattach.ts",
         "packages/engine/src/run/resume.ts",
         "packages/engine/src/run/resumption.ts",
@@ -937,19 +949,22 @@
         "packages/engine/src/run/reviews.ts",
         "packages/engine/src/run/verify-commit.ts",
         "packages/engine/src/run/work-run.ts",
+        "packages/engine/src/scan/answer.ts",
+        "packages/engine/src/scan/confirm-command.ts",
         "packages/engine/src/scan/detect/detect.ts",
         "packages/engine/src/scan/detect/probe.ts",
+        "packages/engine/src/scan/evidence.ts",
         "packages/engine/src/stories/apply.ts",
         "packages/engine/src/stories/discard.ts",
         "packages/engine/src/stories/planning.ts",
         "packages/engine/src/story-pr/prs.ts",
-        "packages/engine/src/views/desk.ts",
         "packages/engine/src/workers/claude-cli/hooks.ts",
         "packages/engine/src/workers/claude-cli/interpret.ts",
         "packages/engine/src/workers/claude-cli/plan.ts",
         "packages/engine/src/workers/claude-cli/result.ts",
         "packages/engine/src/workers/claude-cli/resume-check.ts",
         "packages/engine/src/worktree/claim.ts",
+        "packages/engine/src/worktree/teardown.ts",
         "packages/tui/src/app.tsx",
         "packages/tui/src/detail.tsx",
         "packages/tui/src/testing/fake-session.ts"
@@ -980,6 +995,8 @@
         "packages/engine/src/run/reattach.ts",
         "packages/engine/src/run/resume.ts",
         "packages/engine/src/run/resumption.ts",
+        "packages/engine/src/run/session-run.ts",
+        "packages/engine/src/scan/fallback.ts",
         "packages/engine/src/stories/apply.ts",
         "packages/engine/src/stories/branch-read.ts",
         "packages/engine/src/stories/discard.ts",
