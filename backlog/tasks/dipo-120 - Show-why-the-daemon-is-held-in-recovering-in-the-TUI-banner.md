@@ -3,10 +3,10 @@ id: DIPO-120
 title: >-
   Show the daemon's state truthfully: recovering reason, active runs, port slot
   command
-status: In Review
+status: Done
 assignee: []
 created_date: '2026-10-16 11:52'
-updated_date: '2026-10-23 08:36'
+updated_date: '2026-10-23 09:12'
 labels:
   - 'tier:S'
   - cutover
@@ -19,22 +19,30 @@ dependencies:
   - DIPO-197
   - DIPO-302
 references:
-  - docs/decisions/0009-tui.md
+  - '- docs/decisions/0009-tui.md'
   - packages/cli/src/daemon-commands.test.ts
   - packages/cli/src/daemon-commands.ts
+  - packages/cli/src/run-command.test.ts
   - packages/client/src/recovery.ts
   - packages/client/src/store
+  - packages/client/src/store/office-store.ts
   - packages/client/test
+  - packages/client/test/unit/office-store.test.ts
   - packages/contract/src/errors.ts
   - packages/daemon/src/control.ts
   - packages/daemon/src/foreground.ts
+  - packages/daemon/src/index.test.ts
   - packages/daemon/test
+  - packages/engine/src/index.ts
   - packages/engine/src/run/work-run.ts
   - packages/engine/src/views/summary.ts
   - packages/engine/src/worktree/setup.ts
+  - packages/engine/src/worktree/slots.ts
   - packages/engine/test/run/work-run.test.ts
   - packages/engine/test/worktree/setup.test.ts
   - packages/tui/src
+  - packages/tui/src/banner.test.ts
+  - packages/tui/src/views.tsx
 priority: medium
 type: feature
 ordinal: 110000
@@ -87,4 +95,6 @@ test_plan:
 Carried from DIPO-125: Review note: ControlDeps has only loadedOffices() (ids); the count needs a new dep wired where controlFeature is built in packages/daemon/src/foreground.ts. activeRunCount is not exported from the engine entry; activeRuns(handle).length is.
 
 2026-10-22: combined from DIPO-125, DIPO-199 (maintainer, M1 speed-up)
+
+2026-10-23: Done by dipo's box run run_01M5KY4ZVQP7ATAPKXEB42HSFN (PR #367), approved by dipo's reviewer in round 1. First run on the box-only build (DIPO-240): 31 s from dipo run to a ready box, 43 s until dipo run returned (3.5 to 5.5 minutes before).
 <!-- SECTION:NOTES:END -->
