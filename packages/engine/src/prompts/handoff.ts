@@ -16,6 +16,7 @@ import type { OfficeHandle } from "../db/office";
 import type { GitLocation } from "../git/hardened";
 import type { OfficeGit } from "../git/office";
 import type { WorkerReportCriterion } from "../workers/types";
+import { budgetLine, type BudgetFacts } from "./budget";
 import { cutHead } from "./cut";
 import { capNotes, latestWorkerNotes, WORKER_NOTES_MAX } from "./notes";
 import { renderTemplate, TASK_TEMPLATES } from "./templates";
@@ -53,6 +54,8 @@ export interface HandoffFacts {
   readonly notes: string | null;
   /** A box run: the changes are in the kept box, not in the Mac worktree (`BOX_CHANGES`). */
   readonly box?: boolean;
+  /** The run's caps and usage: the block ends with the budget line (DIPO-256). */
+  readonly budget?: BudgetFacts;
 }
 
 type WorktreeLocation = Extract<GitLocation, { kind: "worktree" }>;
@@ -70,6 +73,8 @@ export interface GatherHandoffOptions {
   readonly note?: string;
   /** A box run: the Mac worktree's diff and untracked files are not read. */
   readonly box?: boolean;
+  /** The run's caps and usage: the block ends with the budget line (DIPO-256). */
+  readonly budget?: BudgetFacts;
 }
 
 /** Reads the handoff facts of a worktree: git through the office queue, notes from the database. */
@@ -97,6 +102,7 @@ export async function gatherHandoff(options: GatherHandoffOptions): Promise<Hand
     ...(note === "" ? {} : { note }),
     notes: notes?.text ?? null,
     ...(box ? { box: true } : {}),
+    ...(options.budget === undefined ? {} : { budget: options.budget }),
   };
 }
 
@@ -135,20 +141,27 @@ const noteMarker = (shown: number, total: number): string =>
   `[dipo: note cut, showing ${formatCount(shown)} of ${formatCount(total)} characters.]`;
 
 /**
+ * The maintainer's note with LF line endings, trimmed and capped at `HANDOFF_NOTE_MAX` characters
+ * with a marker; empty without a note. Every place a note reaches a worker uses it: the handoff
+ * block and the first message of a native resume or a fix round (DIPO-155).
+ */
+export function capNote(note: string | undefined): string {
+  const text = (note ?? "").replace(/\r\n?/g, "\n").trim();
+  if (text.length <= HANDOFF_NOTE_MAX) return text;
+  let shown = text.slice(0, HANDOFF_NOTE_MAX - noteMarker(text.length, text.length).length - 1);
+  // Never leave half of a surrogate pair.
+  if (/[\uD800-\uDBFF]$/.test(shown)) shown = shown.slice(0, -1);
+  return `${shown.trimEnd()}\n${noteMarker(shown.trimEnd().length, text.length)}`;
+}
+
+/**
  * The maintainer's resume note as one block after the open feedback (0020 section 3): capped at
  * `HANDOFF_NOTE_MAX` characters with a marker, behind a fixed lead, and every further line
  * indented, so no line of it ever starts a line of its own in the message. Null without a note.
  */
 export function noteBlock(note: string | undefined): string | null {
-  const text = (note ?? "").replace(/\r\n?/g, "\n").trim();
-  if (text === "") return null;
-  let shown = text;
-  if (text.length > HANDOFF_NOTE_MAX) {
-    shown = text.slice(0, HANDOFF_NOTE_MAX - noteMarker(text.length, text.length).length - 1);
-    // Never leave half of a surrogate pair.
-    if (/[\uD800-\uDBFF]$/.test(shown)) shown = shown.slice(0, -1);
-    shown = `${shown.trimEnd()}\n${noteMarker(shown.trimEnd().length, text.length)}`;
-  }
+  const shown = capNote(note);
+  if (shown === "") return null;
   const [first, ...rest] = shown.split("\n");
   return [
     `- Note from the maintainer: ${first ?? ""}`,
@@ -196,6 +209,7 @@ export function renderHandoff(facts: HandoffFacts, budget = HANDOFF_BUDGET_DEFAU
               : [list(feedbackLines(facts.feedback), "feedback list", "the rest is left out.")]),
             note,
           ].join("\n"),
+    budget: facts.budget === undefined ? "" : budgetLine(facts.budget),
     notes: facts.notes === null || facts.notes.trim() === "" ? NONE : capNotes(facts.notes),
   });
 }

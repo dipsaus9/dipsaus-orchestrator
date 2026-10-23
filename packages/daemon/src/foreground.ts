@@ -57,6 +57,7 @@ import {
   MemoryRequestTable,
   MergeSlot,
   officeFeature,
+  activeRunCount,
   OfficeInit,
   officeSummaryOfSource,
   officeSummarySource,
@@ -85,6 +86,7 @@ import {
   SlotTable,
   SoftwareStream,
   StoryClaims,
+  StoryDiscard,
   StoryIndex,
   StoryPlanning,
   StoryPrs,
@@ -120,7 +122,7 @@ import {
   type StoredRun,
 } from "@dipsaus-orchestrator/engine";
 
-import { controlFeature, emitDaemonStates } from "./control";
+import { controlFeature, emitDaemonStates, sumActiveRuns } from "./control";
 import { CrashCounter, STABLE_RUN_MS } from "./crash-counter";
 import { DEFAULT_DRAIN_CAPS, drain, type DrainCaps, type DrainRequest } from "./drain";
 import { EngineBehindCache } from "./engine-behind";
@@ -650,6 +652,10 @@ async function serve(run: Run, lock: HeldLock): Promise<number> {
     const teardown = new StoryTeardown({
       git: (office) => engineGit.forOffice(office),
       host,
+      // A story Done on the base through another branch has its open story PR closed and the box
+      // of its ended run deleted (DIPO-161); the runs are made below and called only by a poll.
+      prCloser: host,
+      finishBoxes: () => runs.finishEndedBoxes(),
       cli: backlogCli,
       offices,
       slots,
@@ -782,6 +788,21 @@ async function serve(run: Run, lock: HeldLock): Promise<number> {
         systemProcessProbe(platform),
       ),
     );
+    // `work.discard` (DIPO-161): a running story is stopped as `work.stop` does, the story PR
+    // closed through the same `gh` host, the claim released with the office git, a Refined write
+    // through the lane, and the box of the ended run deleted (0021 section 6). The run control is
+    // made below and only called once a command runs.
+    const discard = new StoryDiscard({
+      lane: (office) => lane.forOffice(office),
+      git: (office) => engineGit.forOffice(office),
+      host,
+      slots,
+      probe: systemProcessProbe(platform),
+      stop: (ctx, args) => runs.control.stop(ctx, args),
+      finishBoxes: () => runs.finishEndedBoxes(),
+      // A story the `backlog` on this PATH reads Done in `_base` gets no Refined write.
+      cli: backlogCli,
+    });
     // The story index (DIPO-32): indexes each office at load, after the git load step and the
     // lane's replay, and polls its remote every `polling.fetchSeconds`, with the `backlog` this
     // daemon found on its PATH.
@@ -863,10 +884,11 @@ async function serve(run: Run, lock: HeldLock): Promise<number> {
       cli: backlogCli,
       storyPr: storyPrs,
       holdResumer: () => planning,
+      // A resumed slot-refused park re-enters the merge slot (DIPO-150, DIPO-155's seam).
+      slotReentry: () => mergeSlot,
       stories: storyIndex,
       // The registry is built below; parks are only written after it exists.
       implemented: (name) => registry.command(name) !== undefined,
-      work,
       // A question is live only while a TUI is connected at that moment (0021 section 11,
       // DIPO-279); the server is made below.
       presence: { tuiConnected: () => server?.presence.tuiConnected() ?? false },
@@ -884,6 +906,10 @@ async function serve(run: Run, lock: HeldLock): Promise<number> {
       runs: runs.control,
       releaseClaim: (office, claim, reason) => claims.releaseUnstarted(office, claim, reason),
       slots,
+      // A story Done on the base through another branch has its open story PR closed and the box
+      // of its ended run deleted (DIPO-161).
+      host,
+      finishBoxes: () => runs.finishEndedBoxes(),
       adoptBacklogPr: (office) => backlogPrs.adopt(office),
       refuse: (office, text) => offices.refuse(office, text),
       onOfficeChanged: (office) => server?.notifyOffice(office),
@@ -899,10 +925,7 @@ async function serve(run: Run, lock: HeldLock): Promise<number> {
         runs.permissions.close();
         runs.ingest.close();
         runs.reattacher.close();
-        // The runs' Safe-Chain proxies stop with the daemon (DIPO-84).
-        void runs.safeChainProxies.stopAll().catch((error: unknown) => {
-          logger.warn("stopping the Safe-Chain proxies failed", { error });
-        });
+        runs.stopBoxPasses();
       },
     };
     // Daemon stop ends every box worker inside its box, and its routes (DIPO-271).
@@ -957,6 +980,7 @@ async function serve(run: Run, lock: HeldLock): Promise<number> {
       workRun.feature,
       planning.feature,
       mergeGates.feature,
+      discard.feature,
       runs.control.feature,
       runs.outcomes.feature,
       runs.permissions.feature,
@@ -1003,6 +1027,11 @@ async function serve(run: Run, lock: HeldLock): Promise<number> {
         upgradePending: () => watcher.pending,
         keepAwake: () => keepAwake.status(),
         loadedOffices: () => offices.loadedOffices(),
+        activeRuns: () =>
+          sumActiveRuns(offices.loadedOffices(), (office) => {
+            const handle = offices.get(office);
+            return handle === undefined ? undefined : activeRunCount(handle);
+          }),
         requestStop: (request) => stops.request(request),
       }),
       ...(options.features ?? []),

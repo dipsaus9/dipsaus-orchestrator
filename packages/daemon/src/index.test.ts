@@ -12,7 +12,7 @@ import {
 import type { OfficeId } from "@dipsaus-orchestrator/contract";
 
 import * as daemon from "./index";
-import { controlFeature, type ControlDeps } from "./control";
+import { controlFeature, type ControlDeps, sumActiveRuns } from "./control";
 import { EngineBehindCache } from "./engine-behind";
 import { noOrphansActive } from "./io";
 import { DaemonLifecycle } from "./lifecycle";
@@ -163,7 +163,7 @@ describe("daemon.status build commit (DIPO-198)", () => {
     const result = (read.handle as (ctx: unknown, args: unknown) => unknown)({}, {});
     // A synchronous read: daemon.status answers from memory and never waits on git.
     expect(result instanceof Promise).toBe(false);
-    return result as { buildCommit?: string; engineBehind?: unknown };
+    return result as { buildCommit?: string; engineBehind?: unknown; activeRuns?: number };
   }
 
   it("carries the build commit, dirty suffix included, and the offices behind", () => {
@@ -179,6 +179,21 @@ describe("daemon.status build commit (DIPO-198)", () => {
     const result = status({});
     expect("buildCommit" in result).toBe(false);
     expect("engineBehind" in result).toBe(false);
+  });
+
+  it("counts active runs over the loaded offices (DIPO-125)", () => {
+    const B = "off_01J9ZK5Q8W3V4X6Y7Z00000002" as OfficeId;
+    const counts = new Map<OfficeId, number>([
+      [OFFICE, 2],
+      [B, 1],
+    ]);
+    const offices = [OFFICE, B];
+    const result = status({
+      loadedOffices: () => offices,
+      activeRuns: () => sumActiveRuns(offices, (office) => counts.get(office)),
+    });
+    expect(result.activeRuns).toBe(3);
+    expect(sumActiveRuns([OFFICE, B], (office) => (office === OFFICE ? undefined : 4))).toBe(4);
   });
 
   it("answers at once while the office's git read never finishes", async () => {

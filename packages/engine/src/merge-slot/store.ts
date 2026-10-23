@@ -1,4 +1,4 @@
-// The persisted occupant of the office merge slot (0019 sections 9 and 16, migration 46): one row
+// The persisted occupant of the office merge slot (0019 sections 9 and 16, migration 48): one row
 // of `merge_slot` per office while a PR is in the slot, deleted when it merges or leaves. The slot
 // reads it at every tick, so a daemon restart continues with the same occupant at the same step.
 // Writes run inside the caller's transaction.

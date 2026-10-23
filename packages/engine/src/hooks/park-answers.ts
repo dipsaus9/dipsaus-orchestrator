@@ -3,10 +3,9 @@
 // tool and action; the maintainer answers it with a decision:
 //
 // - Allow once: the park is lifted and the run's session resumes (`Resumption.resumePark`) with a
-//   message naming the call. For that run only, the first permission request whose tool and exact
-//   command or path equal the recorded ones is allowed (`takeAllowOnce`, called by the permission
-//   wait); never a prefix or glob, never saved as a rule or for a later run, and never a change
-//   to the sandbox.
+//   message naming the call. Nothing is saved as a rule or for a later run. The relay that once
+//   let exactly that call through is gone with the Mac sandbox (DIPO-240): a developer in its box
+//   needs no approval, so the message is what carries the answer.
 // - Deny: the session resumes with "do it without <action>".
 //
 // The answer needs `decision` (DIPO-59's rule, `args.invalid` without one). It resumes only a

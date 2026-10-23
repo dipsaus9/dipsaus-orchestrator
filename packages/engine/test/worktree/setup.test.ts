@@ -1,15 +1,15 @@
 // Setting up a claimed worktree (DIPO-39; 0010 sections 7, 8 and 9) against real temporary
-// repositories with a bare remote and a fake step runner in place of the sandbox. Through
-// `claimStory`: setup runs after the worktree and before the claim commit and the push, and a
-// failed setup (low disk, a failing script) rolls the claim back with nothing committed or pushed,
-// the story Ready on origin/main; a release during a setup that fails keeps the release, its row
-// and the branch. Directly: the step order and environment, the env-file notice once per office,
-// and failures that free the slot and leave the rollback to the claim. The real sandbox is
-// `setup.ci.test.ts`; a reused branch left exactly as released and a release during a setup that
-// succeeds run in CI only, in `setup-claim.ci.test.ts` (DIPO-79).
+// repositories with a bare remote. Through `claimStory`: setup runs after the worktree and before
+// the claim commit and the push, and a failed setup (a full slot table) rolls the claim back with
+// nothing committed or pushed, the story Ready on origin/main; a release during a setup that fails
+// keeps the release, its row and the branch. Directly: the slot and the run environment, the
+// env-file notice once per office, failures that free the slot and leave the rollback to the
+// claim, and no install, script or verify on the Mac (DIPO-240: the box gets the packages). A
+// reused branch left exactly as released and a release during a setup that succeeds run in CI
+// only, in `setup-claim.ci.test.ts` (DIPO-79).
 
 import { describe, expect, it } from "bun:test";
-import { existsSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, readFileSync, rmSync } from "node:fs";
 import { join } from "node:path";
 
 import {
@@ -18,7 +18,6 @@ import {
   withBareRemote,
 } from "@dipsaus-orchestrator/testkit";
 
-import { formatLogLine } from "../../src/log/logger";
 import {
   CLAIM_NOTICES,
   type ClaimRecord,
@@ -33,17 +32,13 @@ import {
   StoryClaims,
 } from "../../src/worktree";
 import type { OfficeLoadContext } from "../../src/office/steps";
-import { outputTail } from "../../src/worktree/setup";
 import type { OfficeId } from "@dipsaus-orchestrator/contract";
 import { BRANCH_1, inRemote, notices, TASK_1, TASK_FILE_1 } from "./helpers";
 import {
-  exited,
-  fakeSteps,
   FIXTURE,
   type Harness,
   harness,
   localClaim,
-  ONE_GB,
   type Options,
   product,
   releaseNow,
@@ -72,6 +67,12 @@ async function assertRolledBack(repo: TempRepoWithRemote, h: Harness, key: strin
   expect(hasLiveClaim(h.s.office, key as never)).toBe(false);
 }
 
+/** Takes the only slot for another worktree, so the next setup finds every slot taken. */
+function fillSlots(h: Harness, repo: TempRepo): Options {
+  h.slots.take({ office: "other", story: "X-1", worktree: repo.dir, takenAt: 0 }, 1);
+  return { worktree: { maxSlots: 1 } };
+}
+
 describe("setup inside the claim", () => {
   it("runs after the worktree and before the claim commit and the push", async () => {
     await withBareRemote(async (repo) => {
@@ -79,14 +80,15 @@ describe("setup inside the claim", () => {
       const h = await harness(repo);
       const key = h.s.key();
       const seen: string[] = [];
-      const steps = fakeSteps({}, async () => {
-        if (seen.length > 0) return;
-        // At the first step: the branch is still at its start and not on the remote.
-        seen.push((await repo.git("rev-parse", BRANCH_1)).trim());
-        seen.push((await inRemote(repo, "branch", "--list", BRANCH_1)).trim());
+      const outcome = await claimStory<SetupDone>(h.s.deps(), {
+        ...h.s.request(key),
+        setup: async (claim: ClaimRecord) => {
+          // At setup: the branch is still at its start and not on the remote.
+          seen.push((await repo.git("rev-parse", BRANCH_1)).trim());
+          seen.push((await inRemote(repo, "branch", "--list", BRANCH_1)).trim());
+          return h.setup(claim);
+        },
       });
-
-      const outcome = await h.claim(key, { steps });
       if (!outcome.ok) throw new Error(outcome.notice ?? "skipped");
 
       expect(seen).toEqual([outcome.claim.startSha, ""]);
@@ -101,85 +103,29 @@ describe("setup inside the claim", () => {
     }, FIXTURE);
   });
 
-  it("with 1 GB free before install fails, names the free space and leaves nothing", async () => {
+  it("a setup that fails rolls the claim back with its reason in the notice", async () => {
     await withBareRemote(async (repo) => {
       await product(repo);
       const h = await harness(repo);
       const key = h.s.key();
-      const steps = fakeSteps();
-      const request = {
-        ...h.s.request(key),
-        setup: (claim: ClaimRecord) => h.setup(claim, { disk: ONE_GB, steps }),
-      };
-
-      const outcome = skipped(await claimStory<SetupDone>(h.s.deps(), request));
+      const outcome = skipped(await h.claim(key, fillSlots(h, repo)));
 
       expect(outcome.reason).toBe("pickupCheckFailed");
       expect(outcome.code).toBe(SETUP_NOTICES.failed);
-      expect(outcome.log).toContain("has 1.0 GB free, less than the 2.0 GB");
-      expect(outcome.log).not.toContain(SECRET);
-      expect(steps.requests).toEqual([]);
-      expect(findClaim(h.s.office, request.runId)?.releaseReason).toBe("setup-failed");
-      await assertRolledBack(repo, h, key);
-    }, FIXTURE);
-  });
-
-  it("a failing setup script rolls the claim back with its output in the log", async () => {
-    await withBareRemote(async (repo) => {
-      await product(repo);
-      const h = await harness(repo);
-      const key = h.s.key();
-      const steps = fakeSteps({ setup: exited(3, "database not reachable\n") });
-      const warnings: { message: string; fields: Readonly<Record<string, unknown>> }[] = [];
-      const debugs: { message: string; fields: Readonly<Record<string, unknown>> }[] = [];
-
-      const outcome = skipped(
-        await h.claim(key, {
-          steps,
-          worktree: { post_create: [] },
-          warn: (message, fields) => warnings.push({ message, fields }),
-          debug: (message, fields) => debugs.push({ message, fields }),
-        }),
-      );
-
-      expect(steps.requests.map((r) => r.script)).toEqual(["install", "setup"]);
-      // The notice names the step, its exit and the tail of what it printed.
-      expect(outcome.notice).toContain(
-        "setup (bun run setup) failed: exit 3: database not reachable",
-      );
-      // The failed step is logged at warn: command and exit; the output for debug lines.
-      expect(warnings).toHaveLength(1);
-      expect(warnings[0]?.message).toBe("a setup step failed");
-      expect(warnings[0]?.fields).toMatchObject({
-        script: "setup",
-        command: "bun run setup",
-        exitCode: 3,
-      });
-      expect(
-        String(warnings[0]?.fields["stdout"]) + String(warnings[0]?.fields["stderr"]),
-      ).toContain("database not reachable");
+      expect(outcome.notice).toContain("every port slot from 1 to 1 is taken by another worktree");
+      expect(outcome.notice).toContain("dipo discard <id> frees a story's slot.");
       expect(outcome.notice).toContain("stays Ready");
-      // And how to read the rest of the step's output (DIPO-200): a warn line hides the output,
-      // the debug line shows it, and the notice names the steps that bring the debug line up.
-      expect(formatLogLine(0, "warn", warnings[0]!.message, {}, warnings[0]!.fields)).not.toContain(
-        "database not reachable",
-      );
-      expect(debugs).toHaveLength(1);
-      expect(formatLogLine(0, "debug", debugs[0]!.message, {}, debugs[0]!.fields)).toContain(
-        "database not reachable",
-      );
-      expect(outcome.notice).toContain(
-        "To read the step's output, run `dipo daemon log-level debug`, start the story again, then run `dipo daemon logs --level debug`.",
-      );
-      expect(outcome.log).toContain("database not reachable");
+      expect(outcome.log).not.toContain(SECRET);
       expect(notices(h.s.office).map((n) => n.code)).toContain(SETUP_NOTICES.failed);
       await assertRolledBack(repo, h, key);
-      // Nothing collides: the story can be claimed again.
+      // Nothing collides: the story can be claimed again once a slot is free.
+      h.slots.free(repo.dir);
       const again = await h.claim(key);
       expect(again.ok).toBe(true);
     }, FIXTURE);
   });
 });
+
 describe("releases and restarts around setup", () => {
   // The variant with a setup that succeeds runs in CI only, in setup-claim.ci.test.ts (DIPO-79).
   it("a release during a setup that fails keeps the release, its row and the branch", async () => {
@@ -187,11 +133,11 @@ describe("releases and restarts around setup", () => {
       await product(repo);
       const h = await harness(repo);
       const key = h.s.key();
-      const steps = fakeSteps({ setup: exited(2, "broke\n") });
+      const full = fillSlots(h, repo);
       const request = {
         ...h.s.request(key),
         setup: async (claim: ClaimRecord) => {
-          const outcome = await h.setup(claim, { steps, worktree: { post_create: [] } });
+          const outcome = await h.setup(claim, full);
           releaseNow(h, claim);
           return outcome;
         },
@@ -242,37 +188,16 @@ describe("releases and restarts around setup", () => {
       expect(await repo.git("show", `origin/main:${TASK_FILE_1}`)).toContain("status: Ready");
     }, FIXTURE);
   });
-
-  it("an install that rewrites the tracked lockfile fails setup and names it with a frozen-install hint", async () => {
-    await withBareRemote(async (repo) => {
-      await product(repo);
-      const h = await harness(repo);
-      const key = h.s.key();
-      const worktree = join(h.s.git.worktreeRoot(), TASK_1);
-      const steps = fakeSteps({}, () => {
-        writeFileSync(join(worktree, "bun.lock"), '{ "rewritten": true }\n');
-        return Promise.resolve();
-      });
-
-      const outcome = skipped(await h.claim(key, { steps, worktree: { post_create: [] } }));
-
-      expect(outcome.reason).toBe("pickupCheckFailed");
-      expect(outcome.notice).toContain("setup left files git does not ignore (bun.lock)");
-      expect(outcome.notice).toContain("bun install --frozen-lockfile");
-      await assertRolledBack(repo, h, key);
-    }, FIXTURE);
-  });
 });
 
 describe("setting up a worktree", () => {
-  it("copies files, takes slot 1 and runs install, setup and post_create in order with the run environment", async () => {
+  it("copies files, takes slot 1 and builds the run environment, and runs nothing on the Mac (DIPO-240)", async () => {
     await withBareRemote(async (repo) => {
       await product(repo);
       const h = await harness(repo);
       const claim = await localClaim(repo, h.s);
-      const steps = fakeSteps();
 
-      const outcome = done(await h.setup(claim, { steps }));
+      const outcome = done(await h.setup(claim));
 
       expect(outcome.slot).toBe(1);
       expect(h.slots.slotOf(claim.worktree)).toBe(1);
@@ -284,20 +209,13 @@ describe("setting up a worktree", () => {
         DIPO_STORY: TASK_1,
         DIPO_WORKTREE: claim.worktree,
       });
-      expect(steps.requests.map((r) => [r.script, r.kind, r.command])).toEqual([
-        ["install", "install", ["bun", "install", "--frozen-lockfile"]],
-        ["setup", "verify", ["bun", "run", "setup"]],
-        ["post_create", "verify", ["bun", "run", "db:seed"]],
-        ["post_create", "verify", ["echo", "$HOME;", "rm -rf /"]],
-        // The base verify (DIPO-183), last: after install, setup and post_create.
-        ["verify", "verify", ["bun", "run", "verify"]],
-      ]);
-      for (const request of steps.requests) {
-        expect(request.extraEnv).toEqual(outcome.env);
-        expect(request.worktree).toBe(claim.worktree);
-        expect(request.mainCheckout).toBe(h.s.git.mainWorktree);
-      }
-      expect(outcome.log.join("\n")).not.toContain(SECRET);
+      // No install, setup script, post_create or base verify: the box gets the packages, and CI
+      // is the verify (0021 amendment of 2026-10-22).
+      const log = outcome.log.join("\n");
+      expect(log).not.toMatch(/install|post_create|base verify|\$ /);
+      expect(outcome.baseVerify).toBeUndefined();
+      expect(existsSync(join(claim.worktree, "node_modules"))).toBe(false);
+      expect(log).not.toContain(SECRET);
       outcome.release();
       expect(h.slots.slotOf(claim.worktree)).toBeNull();
     }, FIXTURE);
@@ -321,12 +239,11 @@ describe("setting up a worktree", () => {
     }, FIXTURE);
   });
 
-  it("fails without a run profile, on a step that does not start, a full slot table or a tracked path, and frees its slot", async () => {
+  it("fails on a full slot table or a tracked path, and frees its slot", async () => {
     await withBareRemote(async (repo) => {
       await product(repo);
       const h = await harness(repo);
       const claim = await localClaim(repo, h.s);
-      const noFiles = { files: [], post_create: [] };
       const failed = async (options: Options): Promise<string> => {
         const outcome = await h.setup(claim, options);
         if (outcome.ok) throw new Error("expected setup to fail");
@@ -334,41 +251,27 @@ describe("setting up a worktree", () => {
         return outcome.reason;
       };
 
-      expect(await failed({ profile: null, worktree: noFiles })).toContain("no run profile");
-      const refused = fakeSteps({ install: { outcome: "startFailed", reason: "srt missing" } });
-      expect(await failed({ steps: refused, worktree: noFiles })).toContain(
-        "did not start: srt missing",
-      );
       expect(
         await failed({
           worktree: { files: [{ path: "backlog/config.yml", mode: "copy", required: true }] },
         }),
       ).toContain("git does not ignore backlog/config.yml");
-      const writer = fakeSteps({}, () => {
-        writeFileSync(join(claim.worktree, "generated.txt"), "x");
-        return Promise.resolve();
-      });
-      expect(await failed({ steps: writer, worktree: noFiles })).toContain(
-        "setup left files git does not ignore (generated.txt)",
-      );
-      rmSync(join(claim.worktree, "generated.txt"));
       h.slots.take({ office: "other", story: "X-1", worktree: repo.dir, takenAt: 0 }, 1);
-      expect(await failed({ worktree: { ...noFiles, maxSlots: 1 } })).toContain(
-        `every port slot from 1 to 1 is taken by another worktree: slot 1: office other, story X-1, worktree ${repo.dir}`,
+      expect(await failed({ worktree: { files: [], maxSlots: 1 } })).toContain(
+        `every port slot from 1 to 1 is taken by another worktree: slot 1: office other, story X-1, worktree ${repo.dir}. dipo discard <id> frees a story's slot.`,
       );
       // setupWorktree leaves the worktree; the claim's rollback removes it.
       expect(existsSync(claim.worktree)).toBe(true);
     }, FIXTURE);
   });
-});
 
-describe("the output tail a setup failure carries", () => {
-  it("is the end of the output on one line, bounded, and null for no output", () => {
-    expect(outputTail({ text: "\n  first line\nsecond  line\n", truncated: false })).toBe(
-      "first line second line",
-    );
-    const long = outputTail({ text: `${"x".repeat(500)}END`, truncated: false }, 10);
-    expect(long).toBe("…xxxxxxxEND");
-    expect(outputTail({ text: " \n", truncated: false })).toBeNull();
+  it("succeeds without a run profile, which the box's own preparation refuses (DIPO-240)", async () => {
+    await withBareRemote(async (repo) => {
+      await product(repo);
+      const h = await harness(repo);
+      const claim = await localClaim(repo, h.s);
+      const outcome = done(await h.setup(claim, { profile: null }));
+      expect(outcome.env["PORT"]).toBeUndefined();
+    }, FIXTURE);
   });
 });

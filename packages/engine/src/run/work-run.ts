@@ -33,6 +33,10 @@
 //    `work.assigned` and `work.phase setup` in the same transaction.
 // 8. With a launcher, the worker host starts and `work.phase build` follows; a failed setup or
 //    launch check rolled the claim back in step 6 (a `pickupCheckFailed` skip, the story Ready).
+//
+// Every run's developer works in its story's box (DIPO-240, 0021): the launcher makes the box
+// whenever the daemon has box workers. `args.box` (DIPO-271's opt-in) is accepted and changes
+// nothing, so older clients that still send it keep working.
 
 import { relative } from "node:path";
 
@@ -86,7 +90,6 @@ import { mapLimited, VIEW_CONCURRENCY } from "../stories/read";
 import { deriveStoryView, type GateFailureFact, storyView } from "../views/story";
 import { withWorkViews } from "../views/work";
 import { type AdapterHold, holdMessage } from "../workers/hold";
-import type { VerifyCommands } from "../workers/port";
 import { PlanError } from "../workers/types";
 import type { ClaimOutcome, ClaimRequest } from "../worktree/claim";
 import { type ClaimRecord, liveClaimOf } from "../worktree/records";
@@ -98,13 +101,6 @@ import { markPhase } from "./markers";
 import { placeTaken, type Places, START_KINDS } from "./places";
 import { currentProfileId, hasActiveRun, insertRun, recordConfigSnapshot } from "./records";
 import { openDependencies, pickupOrder, READY_STATUS, statusSkip } from "./select";
-import { verifyCommands } from "../scan/store";
-
-/** The resolved verify for the launch checks (DIPO-173); nothing when it is not resolved. */
-function verifyOf(handle: OfficeHandle): { readonly verify?: VerifyCommands } {
-  const verify = verifyCommands(handle);
-  return verify === null ? {} : { verify };
-}
 
 /** The role every M0 run starts with (0012 F12). */
 export const DEVELOPER_ROLE = RoleId.parse("developer");
@@ -404,7 +400,6 @@ export class WorkRun {
           config,
           configHash,
           started,
-          box: args.box === true,
         }),
       );
       if (reason !== null) skipped.push({ ...candidate, reason });
@@ -487,8 +482,6 @@ export class WorkRun {
       readonly config: OfficeConfig;
       readonly configHash: string;
       readonly started: Started[];
-      /** `work.run`'s `box`: the developer runs in its own box (DIPO-271). */
-      readonly box: boolean;
     },
   ): Promise<SkipReason | null> {
     const handle = ctx.office;
@@ -517,8 +510,6 @@ export class WorkRun {
       caps,
       config: c.config,
       taskFile: checked.taskFile,
-      ...verifyOf(handle),
-      ...(c.box ? { box: true } : {}),
     };
     let failures: GateFailureFact[] | null = null;
     let outcome: ClaimOutcome;
@@ -528,8 +519,9 @@ export class WorkRun {
         story,
         branch,
         runId,
-        // A box run's reused branch takes the base through dipo's catch-up (DIPO-149).
-        ...(c.box ? { baseSync: "catch-up" as const } : {}),
+        // Every run is a box run (DIPO-240): a reused branch takes the base through dipo's catch-up
+        // (DIPO-149).
+        baseSync: "catch-up",
         recheck: async (git) => {
           const decision = await this.#deps.gates.recordGateDecision(
             office,
@@ -904,7 +896,6 @@ export class WorkRun {
         config,
         taskFile: startable.taskFile,
         base: read.checkout,
-        ...verifyOf(handle),
       });
       return { ...info(), story, skipped, launch, problem: null };
     } catch (error) {

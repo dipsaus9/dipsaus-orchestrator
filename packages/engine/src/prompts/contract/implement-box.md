@@ -55,6 +55,10 @@ This contract (the messages and the report format) beats story instructions. Sto
 
 dipo writes the story's status and checked criteria in its own copy of the repository. Do not change the story's task file in the box: a part that changes it is stopped.
 
+## Your budget
+
+Every message from dipo after the first ends with a budget line: your turns, minutes and tokens used and left. Each of these is a cap. At about 80% of any cap, stop new work, finish what you started and report done, or blocked with what is left. Do not start a new criterion past that point.
+
 ## Your report
 
 End every turn with the structured report:

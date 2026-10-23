@@ -31,6 +31,7 @@ export type {
   WaitingReason,
 } from "./lane";
 export {
+  DISCARD_KIND,
   DROP_KIND,
   DropTarget,
   dropKind,

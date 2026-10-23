@@ -4,8 +4,8 @@
 // the story's stored facts (`run/summary.ts`) and written with `task edit --final-summary` in
 // dipo's own copy of the story's backlog, inside the office git queue the caller holds.
 //
-// The story merge slot's close-out commit itself is DIPO-150's (the slot here serves backlog PRs
-// only so far); it calls `writeCloseOutSummary` in the same `editInStoryBacklog` edit that sets
+// The story merge slot's close-out commit itself is DIPO-150's (`gitStorySlotOps.closeOut` in
+// `story-git.ts`); it calls `writeCloseOutSummary` in the same `editInStoryBacklog` edit that sets
 // `Done`, so the summary lands in that one commit.
 
 import type { StoryTarget } from "../backlog/fields/write";

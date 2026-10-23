@@ -28,6 +28,7 @@ import {
   GateView,
   Lifecycle,
   OutputMarker,
+  openEnum,
   OutputSource,
   ParkReason,
   Phase,
@@ -64,8 +65,8 @@ export const workRun = defineCommand({
   // Omit `stories` and the engine picks from the Ready queue. Since minor 1 (DIPO-48): `from` is
   // the main worktree a client resolved the office from (its current directory); the daemon
   // answers `office.unknown` when it is not the office's registered path. Since minor 1
-  // (DIPO-271): `box` runs the started story's developer in its own box (0021) instead of on the
-  // Mac; the old worker path stays the default until DIPO-280 removes it.
+  // (DIPO-271): `box` asked for a box run (0021); since DIPO-240 every run is a box run, so it is
+  // accepted and changes nothing.
   args: z.object({
     stories: z.array(StoryRefValue).optional(),
     maxAgents: z.int().positive().optional(),
@@ -131,21 +132,60 @@ export const workPause = defineCommand({
 // A paused run continues (DIPO-163: at once while its worker lives, else with `--resume`, queued when
 // the worker place is taken); a parked story returns to `park.from`, and to In Progress or In Review
 // it starts or re-attaches a run. Since minor 1 (DIPO-61) the engine implements it for runs held
-// by a plan limit: the held session continues at once and a `credits` hold is lifted. A parked
-// story is not resumed yet; it fails `story.notPausedOrParked` like a story with no held run.
+// by a plan limit: the held session continues at once and a `credits` hold is lifted. Since minor 1
+// (DIPO-155, 0020 sections 1 to 4) it resumes a parked story as the 0020 resume matrix says: `note`
+// is the maintainer's note (required for some reasons, `resume.noteRequired`), `budget` the top-up
+// of a `budget-exceeded` park (a share of the run's starting caps, or a token amount), which needs
+// the yes/no confirmation (`confirmWhen`); the result names the grants the resume recorded and
+// says `queued` when the session waits for its place. Errors: `resume.topUpRequired`,
+// `resume.topUpTooSmall`, `resume.noteRequired`, `resume.notResumable`, `resume.capReached`,
+// `resume.decisionRequired`, and `confirmation.required` with the caps before and after
+// (`ResumeConfirmDetails`) for a top-up sent without `confirmed`.
+// A top-up: `share` is a percent of the run's starting caps (`50` is +50%), `tokens` a token amount.
+export const ResumeBudget = z.union([
+  z.object({ share: z.number().positive() }),
+  z.object({ tokens: z.int().positive() }),
+]);
+export type ResumeBudget = z.infer<typeof ResumeBudget>;
+
+// One grant a resume recorded (0020 sections 4 and 5): a budget grant names its tokens, turns and
+// minutes, a reviewer cap grant its turns and minutes, a counted grant its count.
+export const ResumeGrant = z.object({
+  kind: z.string(),
+  tokens: Count.optional(),
+  turns: Count.optional(),
+  minutes: Count.optional(),
+  count: Count.optional(),
+});
+export type ResumeGrant = z.infer<typeof ResumeGrant>;
+
+// The developer caps of a run: its budget tokens, turns and minutes.
+export const ResumeCaps = z.object({ budgetTokens: Count, maxTurns: Count, maxMinutes: Count });
+export type ResumeCaps = z.infer<typeof ResumeCaps>;
+
+// `details` of `confirmation.required` for a top-up: the caps before and after it.
+export const ResumeConfirmDetails = z.object({ before: ResumeCaps, after: ResumeCaps });
+export type ResumeConfirmDetails = z.infer<typeof ResumeConfirmDetails>;
+
 export const workResume = defineCommand({
   name: "work.resume",
   level: "office",
-  args: z.object({ ...StoryRef.shape, note: z.string().optional() }),
-  // `queued` (DIPO-163): the run waits for the office's worker place before its session starts.
+  args: z.object({
+    ...StoryRef.shape,
+    note: z.string().optional(),
+    budget: ResumeBudget.optional(),
+  }),
+  // `queued` (DIPO-163): the run waits for the office's session place before its session starts.
   result: z.object({
     story: StoryId,
     key: StoryKey,
     to: Lifecycle,
     run: RunId.optional(),
     queued: z.boolean().optional(),
+    grants: z.array(ResumeGrant).optional(),
   }),
   confirm: false,
+  confirmWhen: ["budget"],
   irreversible: false,
   since: 1,
 });
@@ -172,7 +212,12 @@ export const workStop = defineCommand({
   since: 0,
 });
 
-// Ends the run, removes the worktree, deletes the story branch and returns the story to Refined.
+// Ends the run, removes the worktree, deletes the story branch and returns the story to Refined
+// (0020 section 8). Since minor 1 (DIPO-161), on the waiting command path. Clients list what is
+// lost (`story.losses`) and ask for the story id typed out. Also discards the leftovers of a story
+// Done on the base through another branch, with no backlog write. Errors: `story.prMerged`,
+// `story.notDiscardable`, `story.prNotClosed`, and the retryable `run.hostAlive` while a worker
+// host of the run still runs. A remote branch whose tip dipo did not push is kept with a notice.
 export const workDiscard = defineCommand({
   name: "work.discard",
   level: "office",
@@ -180,7 +225,7 @@ export const workDiscard = defineCommand({
   result: StoryResult,
   confirm: true,
   irreversible: true,
-  provisional: true,
+  since: 1,
 });
 
 // Parks a Refined or Ready story with reason `on-hold` through the planning lane (0020 section 8).
@@ -446,14 +491,24 @@ export type LostCommit = z.infer<typeof LostCommit>;
 // story's branch that are not on the base, and the uncommitted and untracked files of its worktree.
 // The branch is the live claim's, else the open released branches of the story; the files are the
 // live claim's only. Both are empty for a story with neither. Changes nothing.
+// `command` (DIPO-161) names the command the list is for, `story.drop` by default. For
+// `work.discard` of a story without a live claim it lists exactly what the discard removes: the
+// commits of the open released branches and of the branches of its leftovers (a story Done on the
+// base through another branch), and the files of the worktrees kept as leftovers. For `story.drop`
+// those worktrees are not removed: `kept` names them.
 export const storyLosses = defineRead({
   name: "story.losses",
-  args: z.object({ office: OfficeId, story: StoryRefValue }),
+  args: z.object({
+    office: OfficeId,
+    story: StoryRefValue,
+    command: z.enum(["story.drop", "work.discard"]).optional(),
+  }),
   result: z.object({
     story: StoryId,
     key: StoryKey,
     commits: z.array(LostCommit),
     files: z.array(z.string()),
+    kept: z.array(z.string()).optional(),
   }),
   since: 1,
 });
@@ -574,6 +629,74 @@ export const officeStats = defineRead({
   name: "office.stats",
   args: OfficeArgs,
   result: z.object({ office: OfficeId, tables: z.array(TableStats) }),
+  since: 1,
+});
+
+// The kinds of a desk item (0020 section 12), as `dipo desk` prints them. Open: later stories add
+// kinds (DIPO-161 `DONE ELSEWHERE` and `LEFTOVERS`, 0019 `PR HEAD CHANGED`, scope requests).
+export const KNOWN_DESK_KINDS = [
+  "QUESTION",
+  "PERMISSION",
+  "SCOPE",
+  "MERGE",
+  "PARKED",
+  "PR HEAD CHANGED",
+  "DONE ELSEWHERE",
+  "LEFTOVERS",
+  "BACKLOG PR",
+  "NOTICE",
+  "PROPOSAL",
+  "HELD",
+] as const;
+export const DeskKind = openEnum(KNOWN_DESK_KINDS);
+export type DeskKind = z.infer<typeof DeskKind>;
+
+// A command a desk item offers: the contract command and the exact command line to type, built by
+// the engine (0020 section 12).
+export const DeskAction = z.object({ command: CommandName, cli: z.string() });
+export type DeskAction = z.infer<typeof DeskAction>;
+
+// The proposal of a PROPOSAL item: a worker's follow-up, spike or tool proposal, or a decision note
+// (DIPO-186), with the id the maintainer accepts or dismisses it by.
+export const DeskProposal = z.object({
+  id: z.string(),
+  kind: z.string(), // follow-up, spike, tool or decision-note
+  title: z.string(),
+  run: RunId.optional(),
+});
+export type DeskProposal = z.infer<typeof DeskProposal>;
+
+// One thing that waits on the maintainer (0020 section 12). `detail` is one code-built line;
+// `since` is when it began to wait; `blocks` lists the active stories that depend on its story.
+// `actions` are the commands it offers; `hand` says what to do by hand when no dipo command does
+// it, such as a merge on the code host for a PR labelled `autorelease: pending`.
+export const DeskItem = z.object({
+  kind: DeskKind,
+  story: StoryId.optional(),
+  key: StoryKey.optional(),
+  question: QuestionId.optional(),
+  gate: GateId.optional(),
+  pr: StoryPr.optional(),
+  proposal: DeskProposal.optional(),
+  reason: ParkReason.optional(),
+  cause: z.string().optional(),
+  detail: z.string(),
+  since: Timestamp,
+  blocks: z.array(StoryId),
+  actions: z.array(DeskAction),
+  hand: z.string().optional(),
+});
+export type DeskItem = z.infer<typeof DeskItem>;
+
+// What waits on the maintainer, ordered by the engine in the six groups of 0020 section 12:
+// questions with a waiting worker, merge gates, parks (a decision, then a direction, then a
+// restart), hand actions, proposals, and the stories held by the maintainer; within a group the
+// items blocking the most stories first, then the oldest. Changes nothing. Since minor 1
+// (DIPO-158) [`desk`].
+export const officeDesk = defineRead({
+  name: "office.desk",
+  args: OfficeArgs,
+  result: z.array(DeskItem),
   since: 1,
 });
 
@@ -789,6 +912,7 @@ export const officeReads = [
   officeStats,
   workPreview,
   workPrompt,
+  officeDesk,
 ] as const;
 
 export const officeEvents = [

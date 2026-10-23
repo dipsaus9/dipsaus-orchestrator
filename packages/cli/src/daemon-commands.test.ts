@@ -190,6 +190,16 @@ describe("dipo daemon status build commit (DIPO-198)", () => {
     expect(ctx.out.join("\n")).not.toContain("current:");
   });
 
+  it("prints the active runs summed over the loaded offices (DIPO-125)", async () => {
+    const ctx = statusCtx({
+      ...status,
+      loadedOffices: ["off_01J9ZK5Q8W3V4X6Y7Z00000001", "off_01J9ZK5Q8W3V4X6Y7Z00000002"],
+      activeRuns: 3,
+    });
+    expect(await main(["daemon", "status"], ctx.deps)).toBe(0);
+    expect(ctx.out.join("\n")).toContain("  offices:    2 loaded, 3 active runs");
+  });
+
   it("prints neither line when run from source", async () => {
     const { buildCommit: _c, engineBehind: _e, ...source } = status;
     const ctx = statusCtx(source);

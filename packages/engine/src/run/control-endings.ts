@@ -287,7 +287,7 @@ export class RunEndings {
           now: () => this.#deps.clock.now(),
           write,
           implemented: this.#deps.implemented ?? (() => false),
-          ...this.#parkQuestion(office.officeId),
+          ...this.#parkQuestion(),
         },
         {
           run,
@@ -379,16 +379,10 @@ export class RunEndings {
   }
 
   /** What a `needs-permission` park needs to ask its question (DIPO-75); nothing without ids. */
-  #parkQuestion(officeId: OfficeId): Pick<ParkDeps, "question"> {
+  #parkQuestion(): Pick<ParkDeps, "question"> {
     const ids = this.#deps.ids;
     if (ids === undefined) return {};
-    const config = this.#deps.offices.config?.(officeId);
-    return {
-      question: {
-        id: () => ids.next("qst"),
-        allowedDomains: config?.sandbox.allowedDomains ?? [],
-      },
-    };
+    return { question: { id: () => ids.next("qst") } };
   }
 
   /** Writes entries outside a command: one transaction, then subscribers are told. */

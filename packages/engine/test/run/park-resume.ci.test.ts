@@ -4,7 +4,7 @@
 // `../hooks/needs-permission.ts`): the story parks with the park's permission question. The maintainer's allow goes through the permission wait to the real
 // `Resumption.resumePark`: the park is lifted on the story branch, the same run is active again
 // and its next session starts in a second host (replaying `success-single`) with the allow
-// message. Its done report goes through verify and commit (a fake verify step) to In Review, so
+// message. Its done report goes through its last part (the worktree stands in for its box) to In Review, so
 // the run ends once: one `run_outcomes` row whose minutes leave out the two parked hours, and one
 // run in `usage_daily` with each agent fed once. Each case needs a claim, an office load and
 // several CLI calls, well over the local per-test budget.
@@ -154,7 +154,7 @@ if (process.env["DIPO_TEST_CI"] === "1") {
             )
               .trim()
               .split("\n");
-            // The second session's done report then went through verify and commit at In Review.
+            // The second session's done report then went through its last part to In Review.
             expect(remoteLog[0]).toBe("TASK-1: status In Review");
             expect(remoteLog.slice(2)).toEqual([
               "TASK-1: status In Progress",

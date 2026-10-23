@@ -335,6 +335,11 @@ describe("a story PR with an approved verdict and green checks", () => {
     expect(openPark(s.w.office, s.key)).toBeNull();
     // It stays out until its head changes.
     expect(await tick()).toBe("idle");
+    // A maintainer resume of its park (DIPO-155's `SlotReentry`) lets it in again, fresh.
+    await s.slot.reenter(s.officeId, { runId: s.run });
+    await s.slot.whenIdle(s.officeId);
+    expect(s.host.merges.map((merge) => merge.headSha)).toEqual([C1, C1]);
+    expect(noticeCodes(s.w.office)).toContain(STORY_SLOT_NOTICES.merged);
   });
 });
 

@@ -1,13 +1,12 @@
-// The system side of sandboxed engine steps (DIPO-37, 0008 section 2). This is the only engine code
-// that starts a sandboxed step: it spawns `dipo daemon sandbox-exec --policy <file> --cwd <dir> --
-// <cmd>` from `process.execPath`, which runs the command inside the bundled `srt` library (0004
-// and 0006 amendments of 2026-10-12). It also makes the step temp root `/tmp/dipo-s-<id>`, writes
-// the policy file next to it, and resolves, trust-checks and probes the host programs srt runs
-// outside the sandbox. `sandbox-exec` repeats the trust check and the probe before it starts srt.
+// The system side of `dipo daemon sandbox-exec` (DIPO-37, 0008 section 2): how to run it from
+// `process.execPath` (it runs a command inside the bundled `srt` library, 0004 and 0006 amendments
+// of 2026-10-12), and how to resolve, trust-check and probe the host programs srt runs outside the
+// sandbox. Only the Safe-Chain checking proxy runs in it now (DIPO-84): the engine steps on
+// worker-written code (install, setup, verify) went with the Mac worker path (DIPO-240), since a
+// developer's install and verify run in its box.
 
-import type { ChildExit, ChildProcess, Signal } from "@dipsaus-orchestrator/contract";
 import { constants } from "node:fs";
-import { access, mkdtemp, readFile, realpath, rm, stat, writeFile } from "node:fs/promises";
+import { access, readFile, realpath, stat } from "node:fs/promises";
 import { dirname, join, resolve } from "node:path";
 
 import {
@@ -18,7 +17,6 @@ import {
   type TrustedCandidate,
 } from "../sandbox/policy";
 import { evaluateProbe, type ProbeResult, type SandboxFacts } from "../sandbox/probe";
-import { refusalPathFor, type SandboxHost } from "../sandbox/step";
 import {
   passwdHome,
   readRuntimeRecord,
@@ -26,9 +24,6 @@ import {
   runtimeCandidates,
   type DipoPlatform,
 } from "./paths";
-
-/** Where step temp roots live. Short, because macOS limits Unix socket paths to about 104 bytes. */
-export const STEP_TEMP_PREFIX = "/tmp/dipo-s-";
 
 /** The working directory `sandbox-exec` starts in: nothing there is writable by a step. */
 export const TRUSTED_CWD = "/";
@@ -100,11 +95,6 @@ export function sandboxExecArgv(
     "--",
     ...command,
   ];
-}
-
-/** The policy file of a temp root: a sibling, so the step cannot rewrite it under its own root. */
-export function policyPathFor(tempRoot: string): string {
-  return `${tempRoot}.policy.json`;
 }
 
 /** The entries of a PATH value, empty entries included (an empty entry means the cwd). */
@@ -280,91 +270,4 @@ export async function probeSandbox(
   tools: SandboxTools,
 ): Promise<ProbeResult> {
   return evaluateProbe(await systemSandboxFacts(platform, tools));
-}
-
-/** Wraps a Bun subprocess started in its own process group as a contract `ChildProcess`. */
-function groupChild(child: Bun.Subprocess<"ignore", "pipe", "pipe">): ChildProcess {
-  const exited: Promise<ChildExit> = child.exited.then(() => ({
-    code: child.signalCode === null ? child.exitCode : null,
-    signal: child.signalCode,
-  }));
-  return {
-    pid: child.pid,
-    stdin: null,
-    stdout: child.stdout,
-    stderr: child.stderr,
-    exited,
-    kill(signal: Signal = "SIGTERM") {
-      // The whole group: sandbox-exec, the sandbox wrapper and the step's own processes.
-      try {
-        process.kill(-child.pid, signal);
-      } catch {
-        child.kill(signal);
-      }
-    },
-  };
-}
-
-/** The real `SandboxHost`. */
-export function systemSandboxHost(
-  platform: DipoPlatform,
-  dipo: readonly string[] = dipoCommand(),
-  // Tests pass a prefix under DIPO_TMP (0017 section 3).
-  tempPrefix: string = STEP_TEMP_PREFIX,
-): SandboxHost {
-  const binary = dipo[0] ?? process.execPath;
-  return {
-    // mkdtemp makes the directory 0700 with an unpredictable name.
-    createTempRoot: () => mkdtemp(tempPrefix),
-    removeTempRoot: async (tempRoot) => {
-      const policy = policyPathFor(tempRoot);
-      await rm(refusalPathFor(policy), { force: true });
-      await rm(policy, { force: true });
-      await rm(tempRoot, { recursive: true, force: true });
-    },
-    resolveTools: (env) => resolveTools(platform, env["PATH"]),
-    trustCheck: ({ settings, home, env }) =>
-      checkTrust({
-        settings,
-        homes: [home, env["HOME"] ?? home, passwdHome()],
-        PATH: env["PATH"],
-        tools: {
-          rg: settings.ripgrep?.command ?? null,
-          bwrap: settings.bwrapPath ?? null,
-          socat: settings.socatPath ?? null,
-        },
-        binary,
-        code: sourceCodeRoots(dipo[1]),
-      }),
-    dipoDirs: (env) => systemDipoDirs(platform, env),
-    probe: (tools) => probeSandbox(platform, tools),
-    writePolicy: async (tempRoot, settings) => {
-      const path = policyPathFor(tempRoot);
-      // `wx`: never through a file or link someone else left at that name.
-      await writeFile(path, `${JSON.stringify(settings, null, 2)}\n`, { flag: "wx", mode: 0o600 });
-      return path;
-    },
-    start: ({ policyPath, command, cwd, env }) =>
-      groupChild(
-        Bun.spawn({
-          cmd: sandboxExecArgv(dipo, policyPath, command, cwd),
-          // Never the worktree: Bun would load its bunfig.toml and .env before srt starts.
-          cwd: TRUSTED_CWD,
-          env,
-          stdin: "ignore",
-          stdout: "pipe",
-          stderr: "pipe",
-          detached: true,
-        }),
-      ),
-    readRefusal: async (policyPath) => {
-      try {
-        return (await readFile(refusalPathFor(policyPath), "utf8")).trim();
-      } catch (error) {
-        // No file: sandbox-exec did not refuse. Any other error is an unreadable refusal.
-        if ((error as { code?: string }).code === "ENOENT") return null;
-        throw error;
-      }
-    },
-  };
 }

@@ -5,14 +5,20 @@
 // the engine's run tests both build them here, so a test exercises the wiring the daemon runs.
 // What differs between them is only which ports are injected.
 
+import { existsSync } from "node:fs";
+import { join } from "node:path";
+
 import type { Clock, IdSource, OfficeId } from "@dipsaus-orchestrator/contract";
 
+import { BOX_RUN_FILE } from "../box/workers";
+
+import { readBackstop } from "./backstop";
 import { type InputChangeReader, Nudges } from "../hooks/nudges";
 import { ABSENT, PermissionAsks, type Presence } from "../hooks/permissions";
 import { WebGuard } from "../hooks/web-guard";
 import { currentProfile } from "../scan/store";
+import type { RunProfile } from "../scan/detect";
 import type { WorkerPort } from "../workers/port";
-import { readBackstop } from "./backstop";
 import { RunControl, type RunControlDeps, type RunSteering } from "./control";
 import { OfficeIngest, type OfficeIngestOptions, type OfficeRunListener } from "./hosts";
 import { RunLauncher, type HostStarter, type RunIngest, type RunLauncherDeps } from "./launch";
@@ -26,6 +32,7 @@ import { FixRounds, type FixRoundsDeps } from "./fix-rounds";
 import { Reviews } from "./reviews";
 import { createRunOutcomes, type Resumption } from "./resumption";
 import { afterRunExits } from "./temp-dirs";
+import type { SlotReentry } from "./park-resume";
 import type { HoldResumer } from "./work-resume";
 import type { RunBase } from "./work-run";
 
@@ -72,6 +79,8 @@ export interface RunPorts {
   };
   /** The planning lane's resume of an on-hold park (DIPO-160), read when `work.resume` runs. */
   readonly holdResumer?: () => HoldResumer | undefined;
+  /** The merge slot a resumed `slot-refused` park re-enters (DIPO-150, DIPO-155's seam). */
+  readonly slotReentry?: () => SlotReentry | undefined;
   /** The plan-limit schedule (DIPO-61) worker outcomes report waits to; needs `outcomes`. */
   readonly planLimits?: Pick<PlanLimitsDeps, "holds" | "notify">;
   /** The office's session places (DIPO-142): the reviewer's model and pending reviews. */
@@ -89,7 +98,10 @@ export interface RunPorts {
   readonly resumeIngest?: (ingest: OfficeIngest) => RunIngest;
   /** DIPO-39's worktree setup of a claimed story, before its worker starts. */
   readonly setup: RunLauncherDeps["setup"];
-  /** Makes and deletes a box worker's box at the launch (DIPO-271); no box runs without it. */
+  /**
+   * The box workers (DIPO-271, DIPO-278): every developer works in its story's box, made at the
+   * launch and made again before a later session when it was lost. No box runs without them.
+   */
   readonly boxes?: RunLauncherDeps["boxes"];
   /** Re-attach after a restart; needs `control`. */
   readonly reattach?: Omit<
@@ -214,7 +226,6 @@ function buildHookListeners(
   const onEnded = ports.ingest.onEnded;
   const hookEvents: OfficeRunListener = {
     onWorkerEvents: (office, run, agent, events) => {
-      permissions.onWorkerEvents(office, run, agent, events);
       nudges.onWorkerEvents(office, run, agent, events);
       webGuard.onWorkerEvents(office, run, agent, events);
     },
@@ -277,6 +288,8 @@ function buildOutcomes(
 ): Outcomes | null {
   if (control === null || ports.outcomes === undefined) return null;
   const { probe, ...outcomePorts } = ports.outcomes;
+  // Built after the resumption: a resumed review-blocked park queues its fix round (DIPO-155).
+  let fixRounds: FixRounds | null = null;
   const resumer = new RunResumer({
     clock: ports.clock,
     ids: ports.ids,
@@ -286,10 +299,11 @@ function buildOutcomes(
     story: baseStoryFacts(ports.base),
     runtimeDir: ports.runtimeDir,
     tmpRoot: ports.tmpRoot,
-    ...given("tempOwner", ports.tempOwner),
     hosts: ports.hosts,
     ingest: ports.resumeIngest?.(ingest) ?? ingest,
     control: trackerOf(ports, control),
+    ...given("boxes", ports.boxes),
+    profile: profileOf(ports),
     ...given("probe", probe),
     ...given("onChanged", ports.onChanged),
   });
@@ -314,6 +328,18 @@ function buildOutcomes(
       planLimits: () => late.planLimits ?? undefined,
       places: () => late.places ?? undefined,
       ...given("holds", ports.holdResumer),
+      parks: {
+        ...given("scheduling", ports.scheduling),
+        // A git-state park reads its new backstop snapshot on the office git (decision 7).
+        snapshot: (office, worktree) => {
+          const git = ports.git(office);
+          if (git === undefined) throw new Error(`Office ${office} has no git attached.`);
+          return readBackstop(git, worktree);
+        },
+        ...given("boxRun", ports.boxRun),
+        fixRounds: () => fixRounds ?? undefined,
+        ...given("slot", ports.slotReentry),
+      },
     },
   );
   const planLimits =
@@ -329,7 +355,7 @@ function buildOutcomes(
           ...given("warn", ports.warn),
         });
   // A fix round continues the developer's session through worker outcomes (DIPO-148).
-  const fixRounds = new FixRounds({
+  fixRounds = new FixRounds({
     clock: ports.clock,
     offices: ports.offices,
     story: baseStoryFacts(ports.base),
@@ -364,6 +390,8 @@ function buildOutcomes(
     starters: {
       resume: (office, run) => resumption.startQueued(office, run),
       review: (office, run, start) => reviews.start(office, run, start),
+      // A maintainer resume that starts a fresh review of the same round (0020 section 2, DIPO-155).
+      "review-resume": (office, run, start) => reviews.start(office, run, start),
       fix: (office, run, start) => fixRounds.start(office, run, start),
     },
     ...given("scheduling", ports.scheduling),
@@ -393,10 +421,6 @@ function buildReviews(
     hosts: ports.hosts,
     ingest: ports.resumeIngest?.(ingest) ?? ingest,
     control: trackerOf(ports, control),
-    // The backstop's snapshot before the review, which only the finisher reads.
-    ...(ports.control?.finisher === undefined
-      ? {}
-      : { snapshot: (office: OfficeId, worktree: string) => snapshotOf(ports, office, worktree) }),
     ...given("onChanged", ports.onChanged),
     ...given("warn", ports.warn),
   });
@@ -435,6 +459,8 @@ function buildReattacher(
     offices: ports.offices,
     ingest,
     control,
+    // A developer runs only in its box: a living Mac session of an earlier binary is stopped.
+    boxRecord: (runDir) => existsSync(join(runDir, BOX_RUN_FILE)),
     pricing: ports.ingest.pricing,
     ...given("outcomes", outcomes ?? undefined),
     ...given("onChanged", ports.onChanged),
@@ -455,29 +481,23 @@ function buildLauncher(
       ids.length === 0 ? [] : (await ports.base.read(office, ids)).views,
     runtimeDir: ports.runtimeDir,
     tmpRoot: ports.tmpRoot,
-    ...given("tempOwner", ports.tempOwner),
     hosts: ports.hosts,
     ingest,
     ...(control === null ? {} : { control: trackerOf(ports, control) }),
     release: ports.release,
     ...given("boxes", ports.boxes),
-    // A box run's box gets the install of the office's current run profile (DIPO-294).
-    profile: (office: OfficeId) => {
-      const handle = ports.offices.get(office);
-      return handle === undefined ? null : (currentProfile(handle)?.profile ?? null);
-    },
-    // The backstop's run-start snapshot (DIPO-49), which only the finisher reads.
-    ...(ports.control?.finisher === undefined
-      ? {}
-      : { snapshot: (office: OfficeId, worktree: string) => snapshotOf(ports, office, worktree) }),
+    // A run's box gets the install of the office's current run profile (DIPO-294).
+    profile: profileOf(ports),
     ...given("warn", ports.warn),
   });
 }
 
-function snapshotOf(ports: RunPorts, office: OfficeId, worktree: string) {
-  const git = ports.git(office);
-  if (git === undefined) throw new Error(`Office ${office} has no git attached.`);
-  return readBackstop(git, worktree);
+/** The office's current run profile, whose install a run's box gets (DIPO-294). */
+function profileOf(ports: RunPorts): (office: OfficeId) => RunProfile | null {
+  return (office) => {
+    const handle = ports.offices.get(office);
+    return handle === undefined ? null : (currentProfile(handle)?.profile ?? null);
+  };
 }
 
 /** Builds the run services from `ports`. */

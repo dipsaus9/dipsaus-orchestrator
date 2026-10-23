@@ -1,4 +1,4 @@
-// Migration 46 (DIPO-150): `merge_slot` (retention tier P, one occupant per office, a story PR names
+// Migration 48 (DIPO-150): `merge_slot` (retention tier P, one occupant per office, a story PR names
 // its run), the merge gate's head and override columns on `gates`, and `parks.resolved_how` gaining
 // `override` with the park rows kept across the rebuild.
 
@@ -29,12 +29,12 @@ const slot = (kind: string, run: string | null, phase = "sync") => `insert into 
   values ('off-1', '${kind}', 7, 'o/r', 'b', ${run === null ? "null" : `'${run}'`}, '${phase}',
     null, 0, null, 'onConflict', 5)`;
 
-describe("migration 46 on a database at version 45", () => {
+describe("migration 48 on a database at version 47", () => {
   it("creates merge_slot with tier P, adds the gate columns and keeps the parks with override allowed", () =>
     withTempDir(async (dir) => {
       const old = await open(
         dir,
-        MIGRATIONS.filter((step) => step.version <= 45),
+        MIGRATIONS.filter((step) => step.version <= 47),
       );
       try {
         old.connection.immediate(() =>
@@ -57,7 +57,7 @@ describe("migration 46 on a database at version 45", () => {
       const state = await open(dir);
       try {
         const db = state.connection;
-        expect(MIGRATIONS.find((step) => step.version === 46)?.name).toBe("merge slot");
+        expect(MIGRATIONS.find((step) => step.version === 48)?.name).toBe("merge slot");
         expect(TABLE_RETENTION["merge_slot"]?.tier).toBe("P");
         // The park survived the rebuild, cause and all, and may now be resolved as an override.
         expect(db.all("select park_id, reason, cause from parks")).toEqual([

@@ -13,6 +13,7 @@ import type { OfficeHandle } from "../../src/db/office";
 import type { OfficeGit } from "../../src/git/office";
 import { DONE_ON_BASE_NOTICES, releaseDoneOnBase } from "../../src/reconcile/done-on-base";
 import { reconcileOffice, type ReconcileReport } from "../../src/reconcile";
+import { DONE_ELSEWHERE_NOTICES, findDoneElsewhere } from "../../src/worktree/done-elsewhere";
 import { findClaim, type ClaimRecord, liveClaimOf } from "../../src/worktree/records";
 import { SlotTable } from "../../src/worktree/slots";
 import { lastSeq } from "../stories/helpers";
@@ -167,7 +168,7 @@ describe("releaseDoneOnBase counts the claims it skips because _base moved (DIPO
         baseMoved: 0,
         skippedRuns: [],
       });
-      expect(claimRow(o.office, one).releaseReason).toBe("done");
+      expect(claimRow(o.office, one).releaseReason).toBe("done-elsewhere");
     }));
 
   it("with a set of run ids, looks only at those claims", () =>
@@ -218,7 +219,7 @@ describe("reconcile retries a claim skipped because _base moved, once (DIPO-226)
       const { reindexed } = await s.reconcile(git);
 
       expect(moved()).toBe(1);
-      expect(claimRow(o.office, one).releaseReason).toBe("done");
+      expect(claimRow(o.office, one).releaseReason).toBe("done-elsewhere");
       expect(existsSync(one.worktree)).toBe(false);
       expect(s.slots.slotOf(one.worktree)).toBeNull();
       // One reindex before the retry, and one after the retry released the claim.
@@ -269,26 +270,33 @@ describe("reconcile retries a claim skipped because _base moved, once (DIPO-226)
 
       expect(moved()).toBe(1);
       // The clean claim was skipped by the move and released by the retry.
-      expect(claimRow(o.office, clean).releaseReason).toBe("done");
+      expect(claimRow(o.office, clean).releaseReason).toBe("done-elsewhere");
       expect(existsSync(clean.worktree)).toBe(false);
       expect(s.slots.slotOf(clean.worktree)).toBeNull();
-      // The dirty claim keeps its worktree, claim, slot and lock.
+      // The dirty claim is released too (DIPO-161); its worktree is kept, locked, as leftovers.
+      expect(claimRow(o.office, dirty).releaseReason).toBe("done-elsewhere");
       expect(existsSync(dirty.worktree)).toBe(true);
-      expect(liveClaimOf(o.office, dirty.key)).not.toBeNull();
-      expect(s.slots.slotOf(dirty.worktree)).not.toBeNull();
+      expect(s.slots.slotOf(dirty.worktree)).toBeNull();
       expect(await o.repo.git("worktree", "list", "--porcelain")).toContain(
         `locked dipo ${dirty.runId}`,
       );
-      // Exactly one kept notice, for the dirty claim's key only; the retry never looked at it.
-      const kept = noticesAfter(o.office, seq).filter((n) => n.code === DONE_ON_BASE_NOTICES.kept);
-      expect(kept.map((n) => n.key)).toEqual([dirty.key]);
+      expect(findDoneElsewhere(o.office, dirty.runId)).toMatchObject({
+        worktreeKept: true,
+        files: ["scratch.txt"],
+      });
+      // One leftovers notice per claim (both branches hold their claim commit); the retry never
+      // looked at the dirty claim again.
+      const notices = noticesAfter(o.office, seq);
+      expect(notices.filter((n) => n.code === DONE_ON_BASE_NOTICES.kept)).toEqual([]);
+      const leftovers = notices.filter((n) => n.code === DONE_ELSEWHERE_NOTICES.leftovers);
+      expect(leftovers.map((n) => n.key)).toEqual([dirty.key, clean.key]);
       // One reindex after the skip, one after the retry released the clean claim.
       expect(reindexed).toBe(2);
     }));
 });
 
 describe("a story Done on the base releases its claim (DIPO-216)", () => {
-  it("replays 2026-10-19: the clean worktree is removed and released, the dirty one is kept", () =>
+  it("replays 2026-10-19: both claims are released, the clean worktree removed and the dirty one kept as leftovers (DIPO-161)", () =>
     withReconcileOffice({ base: DONE }, async (o) => {
       const one = await claim(o, o.office, "TASK-1", keyOf(o.office, "TASK-1"), { active: false });
       const two = await claim(o, o.office, "TASK-2", keyOf(o.office, "TASK-2"), { active: false });
@@ -307,36 +315,38 @@ describe("a story Done on the base releases its claim (DIPO-216)", () => {
 
       const { report, reindexed } = await s.reconcile();
 
-      // The clean claim: released as done, worktree gone, slot free.
+      // The clean claim: released as done-elsewhere, worktree gone, slot free.
       const released = claimRow(o.office, one);
-      expect(released.releaseReason).toBe("done");
+      expect(released.releaseReason).toBe("done-elsewhere");
       expect(released.releasedAt).not.toBeNull();
       expect(existsSync(one.worktree)).toBe(false);
       expect(s.slots.slotOf(one.worktree)).toBeNull();
       expect(slotOne).toBeGreaterThan(0);
-      // The dirty claim keeps its worktree, claim, slot and lock.
+      // The dirty claim is released too; its worktree is kept, still locked, as leftovers.
+      expect(claimRow(o.office, two).releaseReason).toBe("done-elsewhere");
+      expect(liveClaimOf(o.office, two.key)).toBeNull();
       expect(existsSync(two.worktree)).toBe(true);
-      expect(liveClaimOf(o.office, two.key)).not.toBeNull();
-      expect(claimRow(o.office, two).teardownStartedAt).toBeNull();
-      expect(s.slots.slotOf(two.worktree)).not.toBeNull();
+      expect(s.slots.slotOf(two.worktree)).toBeNull();
       const locks = await o.repo.git("worktree", "list", "--porcelain");
       expect(locks).toContain(`locked dipo ${two.runId}`);
-      // One info notice for the release, one warn notice naming the path and the file.
-      const notices = noticesAfter(o.office, seq).filter((n) =>
-        n.code.startsWith("reconcile.done"),
-      );
-      expect(notices.map((n) => n.code)).toEqual([
-        DONE_ON_BASE_NOTICES.released,
-        DONE_ON_BASE_NOTICES.kept,
+      // Per claim, a release notice, then a leftovers notice: both branches hold their claim
+      // commit, and the dirty worktree names its path and file.
+      const notices = noticesAfter(o.office, seq).filter((n) => n.code.startsWith("doneElsewhere"));
+      expect(notices.map((n) => [n.code, n.key])).toEqual([
+        [DONE_ELSEWHERE_NOTICES.released, one.key],
+        [DONE_ELSEWHERE_NOTICES.leftovers, one.key],
+        [DONE_ELSEWHERE_NOTICES.released, two.key],
+        [DONE_ELSEWHERE_NOTICES.leftovers, two.key],
       ]);
       expect(notices[0]?.text).toContain("TASK-1");
       expect(notices[0]?.text).toContain("main");
-      expect(notices[1]?.text).toContain(two.worktree);
-      expect(notices[1]?.text).toContain("scratch.txt");
-      expect(report.findings.length).toBeGreaterThanOrEqual(2);
-      // One more index pass after the release.
+      expect(notices[3]?.text).toContain(two.worktree);
+      expect(notices[3]?.text).toContain("scratch.txt");
+      expect(notices[3]?.text).toContain('dipo discard TASK-2 --note "<why>"');
+      expect(report.findings.length).toBeGreaterThanOrEqual(4);
+      // One more index pass after the releases.
       expect(reindexed).toBe(1);
-      // No branch moved, locally or on the remote.
+      // No branch moved, locally or on the remote: each holds a commit the base does not have.
       expect(await localTip(o, one.branch)).toBe(before.one[0] as string);
       expect(await remoteTip(o, one.branch)).toBe(before.one[1] as string);
       expect(await localTip(o, two.branch)).toBe(before.two[0] as string);
@@ -360,8 +370,8 @@ describe("a story Done on the base releases its claim (DIPO-216)", () => {
       const park = o.office.get<{ how: string | null }>(
         "select resolved_how as how from parks where office_id = $office_id and park_id = 1",
       );
-      expect(park?.how).toBe("reconcile");
-      expect(claimRow(o.office, one).releaseReason).toBe("done");
+      expect(park?.how).toBe("done-elsewhere");
+      expect(claimRow(o.office, one).releaseReason).toBe("done-elsewhere");
     }));
 
   it("releases a claim whose teardown started and whose worktree is already gone", () =>
@@ -402,7 +412,7 @@ describe("a story Done on the base releases its claim (DIPO-216)", () => {
       expect(await localTip(o, one.branch)).toBe(branch);
     }));
 
-  it("keeps a worktree locked by someone else and clears a teardown start left by a crash", () =>
+  it("releases the claim but keeps a worktree locked by someone else as leftovers (DIPO-161)", () =>
     withReconcileOffice({ base: DONE }, async (o) => {
       const one = await claim(o, o.office, "TASK-1", keyOf(o.office, "TASK-1"), { active: false });
       const s = setupOf(o);
@@ -418,12 +428,15 @@ describe("a story Done on the base releases its claim (DIPO-216)", () => {
       await s.reconcile();
 
       expect(existsSync(one.worktree)).toBe(true);
-      expect(liveClaimOf(o.office, one.key)).not.toBeNull();
-      expect(claimRow(o.office, one).teardownStartedAt).toBeNull();
-      expect(s.slots.slotOf(one.worktree)).not.toBeNull();
+      expect(liveClaimOf(o.office, one.key)).toBeNull();
+      expect(claimRow(o.office, one).releaseReason).toBe("done-elsewhere");
+      expect(s.slots.slotOf(one.worktree)).toBeNull();
       expect(await o.repo.git("worktree", "list", "--porcelain")).toContain("locked someone else");
-      const kept = noticesAfter(o.office, seq).filter((n) => n.code === DONE_ON_BASE_NOTICES.kept);
-      expect(kept.map((n) => n.text.includes("locked by someone else"))).toEqual([true]);
+      expect(findDoneElsewhere(o.office, one.runId)).toMatchObject({ worktreeKept: true });
+      const notices = noticesAfter(o.office, seq);
+      expect(notices.filter((n) => n.code === DONE_ON_BASE_NOTICES.kept)).toEqual([]);
+      const leftovers = notices.filter((n) => n.code === DONE_ELSEWHERE_NOTICES.leftovers);
+      expect(leftovers.map((n) => n.text.includes(one.worktree))).toEqual([true]);
     }));
 
   it("keeps the worktree, lock and claim of a run reopened before the git queue item", () =>

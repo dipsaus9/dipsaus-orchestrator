@@ -36,7 +36,10 @@ export {
 export type { MergeSlotDeps, SlotOutcome } from "./slot";
 export { enterSlot, leaveSlot, runInSlot, slotOccupant, updateSlot } from "./store";
 export type { SlotOccupant, SlotPhase, SlotSyncMode } from "./store";
-export { DONE_STATUS, gitStorySlotOps } from "./story-git";
+export { gitStorySlotOps } from "./story-git";
 export type { StorySlotGit, StorySlotRun, StorySync } from "./story-git";
 export { STORY_MERGE_ATTEMPTS, STORY_SLOT_NOTICES, StorySlot } from "./story-slot";
 export type { StoryCandidate, StorySlotContext, StorySlotDeps } from "./story-slot";
+// The close-out commit's park record and status (DIPO-155, for DIPO-150's story merge slot).
+export { closeOutFields, DONE_STATUS, gitCloseOutWriter } from "./close-out-park";
+export type { CloseOutRequest, CloseOutWriter } from "./close-out-park";

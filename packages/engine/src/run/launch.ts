@@ -16,21 +16,17 @@
 // 3. `preview` builds the same spec and plan for `work.preview` (the dry run), on `_base`, with
 //    placeholders for the run id and session, and writes nothing.
 //
-// A box worker's run (`RunFacts.box`, `work.run`'s `box`; DIPO-271, 0021) also makes the run's box
-// in `prepare`, after the prompts and before the worker's launch checks: the image, the box and
-// the code at the claim's start commit (`BoxWorkers.create`). The run directory then records the
-// box, so the worker port plans every developer session of the run inside it. A setup that fails
-// after the box exists, or a released claim, deletes the box again.
-//
-// Right after the box is made, and still before the launch checks and the worker's first session
-// (DIPO-294, 0021 amendment of 2026-10-22), dipo prepares the box with the office's packages
-// (`#readyBox`): the run profile's install runs in the box at the start commit, with the run
-// environment for `/work` and the box's web route through Safe-Chain (`BoxWorkers.install`),
-// within the office's install deadline; then `/work` is compared with the start commit on dipo's
-// own copy (`BoxWorkers.changedSinceStart`), never by running git on the box's files (0021 section
-// 14). A failed or timed-out install, a file git does not ignore beyond the start commit's, or a
-// check that cannot finish fails the setup as the Mac worktree setup fails it: the claim rolls
-// back with the reason in its notice, and the box is deleted.
+// Every developer runs in its story's box (DIPO-240, 0021): with box workers (`RunLauncherDeps.boxes`)
+// `prepare` makes the run's box after the prompts and before the worker's launch checks, and
+// prepares it with the office's packages (`BoxLifetime.make`, `box/lifetime.ts`): the image, the box
+// and the code at the claim's start commit, the run profile's install in the box with the run
+// environment for `/work` and the box's web route through Safe-Chain, then `/work` compared with the
+// start commit on dipo's own copy. The run directory then records the box, so the worker port plans
+// every developer session of the run inside it. A failed step, or a setup that fails after the box
+// exists, deletes the box and rolls the claim back with the reason in its notice. Without box
+// workers (a daemon with no box backend, or a test's fake worker port) nothing is made here, and the
+// worker port decides whether it can plan the session at all: the Claude port refuses a developer
+// session outside a box.
 //
 // The box gets the office's package cache when it can (DIPO-295, `BoxWorkers.create`). When it
 // cannot (a fill that failed or timed out, a lockfile the cache does not support), the run goes on
@@ -68,7 +64,7 @@ import { type PromptPart, type PromptText, promptParts } from "../prompts/parts"
 import type { LaunchedHost } from "../runs/worker-hosts";
 import { runDirectory } from "../runs/worker-hosts";
 import { holdMessage } from "../workers/hold";
-import type { RunLaunchPaths, VerifyCommands, WorkerPort } from "../workers/port";
+import type { RunLaunchPaths, WorkerPort } from "../workers/port";
 import {
   PlanError,
   WEB_TOOLS,
@@ -76,12 +72,8 @@ import {
   type LaunchPlan,
   type WorkerSpec,
 } from "../workers/types";
-import { BOX_WORKDIR } from "../box/code";
-import { cleanDoorText } from "../box/door";
-import { BoxError } from "../box/port";
-import type { BoxWorkers } from "../box/workers";
+import { BoxLifetime, type RunBoxes } from "../box/lifetime";
 import type { RunProfile } from "../scan/detect";
-import { buildRunEnv } from "../worktree/run-env";
 import type { ClaimSetupDone, ClaimSetupFailed } from "../worktree/claim";
 import type { ClaimRecord } from "../worktree/records";
 import type { SetupOutcome } from "../worktree/setup";
@@ -91,14 +83,7 @@ import { withWorkViews } from "../views/work";
 import type { BackstopSnapshot } from "./backstop";
 import { markPhase } from "./markers";
 import { type RunPrompts, renderRunPrompts, sessionUuid, SYSTEM_FILE } from "./prompts";
-import { storeBackstopSnapshot } from "./records";
-import {
-  prepareRunTempDirs,
-  removeShortTempDir,
-  runTempDir,
-  SHORT_TEMP_PREFIX,
-  shortTempDir,
-} from "./temp-dirs";
+import { runTempDir, SHORT_TEMP_PREFIX, shortTempDir } from "./temp-dirs";
 
 /** The tools of the developer role (0008 section 2, "Tools and rules"). */
 export const DEVELOPER_TOOLS: readonly string[] = ["Read", "Edit", "Write", "Glob", "Grep", "Bash"];
@@ -125,21 +110,12 @@ export const LAUNCH_NOTICES = {
 /** The end kind of a run whose worker host did not start. */
 export const START_FAILED_END = "start-failed";
 
-/** The install deadline in a box when the office's `timeouts.scriptMinutes` names none. */
-export const BOX_INSTALL_MINUTES_DEFAULT = 15;
-
-/** How many paths the reason of a box with files git does not ignore names; the rest are counted. */
-const TREE_PATHS_SHOWN = 5;
-
-/**
- * Why a launch fails when the install left files git does not ignore in the box's `/work`, as the
- * Mac worktree setup words it. The paths are names from the box, cleaned.
- */
-export function boxTreeChangedText(paths: readonly string[]): string {
-  const shown = paths.slice(0, TREE_PATHS_SHOWN).map((path) => cleanDoorText(path).slice(0, 200));
-  const more = paths.length > shown.length ? `, and ${paths.length - shown.length} more` : "";
-  return `the install left files git does not ignore in the box's /work (${shown.join(", ")}${more}); setup steps may change only ignored files. If install rewrote a lockfile, use a frozen install (for example \`bun install --frozen-lockfile\`); write generated files to ignored paths`;
-}
+// Kept here for the callers that read them from the launch; they live with the box's life now.
+export {
+  BOX_INSTALL_MINUTES_DEFAULT,
+  boxPrepareFailedText,
+  boxTreeChangedText,
+} from "../box/lifetime";
 
 /**
  * The notice of a box run without the package cache (DIPO-295): the run goes on, and the install
@@ -153,80 +129,6 @@ export function packageCacheSkippedText(story: string, reason: string, fallback:
   return fallback
     ? `${story}'s install from the package cache failed (${why}); dipo ran it again without the cache, through Safe-Chain.`
     : `${story} runs without the package cache: ${why}. The install in the box downloads its packages through Safe-Chain instead.`;
-}
-
-/** The most characters of an unexpected error's message a box preparation's reason carries. */
-const PREPARE_MESSAGE_MAX = 300;
-
-/** The fixed reasons of the box errors preparing a box can throw, by code. */
-const PREPARE_REASONS: Readonly<Record<string, string>> = {
-  "box.routeFailed": "dipo's web route for the box did not start",
-  "box.gone": "the box was gone",
-  "box.failed": "a call to the box failed",
-};
-
-/**
- * Why preparing a box failed, for the maintainer's notice (DIPO-294): a fixed text for a box
- * error, by its code, since its message may quote the box or a proxy; any other error's message
- * cleaned of control characters and cut.
- */
-export function boxPrepareFailedText(error: unknown): string {
-  if (error instanceof BoxError) {
-    const fixed = PREPARE_REASONS[error.code] ?? "a box step failed";
-    return `the box could not be prepared: ${fixed} (${cleanDoorText(error.code).slice(0, 60)})`;
-  }
-  const message = cleanDoorText(messageOf(error)).replaceAll(/\s+/g, " ").trim();
-  const cut =
-    message.length > PREPARE_MESSAGE_MAX ? `${message.slice(0, PREPARE_MESSAGE_MAX)}…` : message;
-  return `the box could not be prepared: ${cut}`;
-}
-
-/** The dev port of the root package, else the first the scan found; null when none. */
-function devPortOf(profile: RunProfile | null): number | null {
-  const ports = profile?.devPorts ?? [];
-  return (ports.find((port) => port.dir === ".") ?? ports[0])?.port ?? null;
-}
-
-/**
- * The office's install for a box run's box (DIPO-294), also run again after a catch-up changed a
- * lockfile (DIPO-149): its commands, environment and deadline; `refused` with why it cannot run;
- * null when the run profile has no install.
- */
-export function boxInstallInput(input: {
-  readonly profile: RunProfile;
-  readonly config: OfficeConfig;
-  readonly story: string;
-  readonly slot: number | null;
-}):
-  | {
-      readonly commands: readonly (readonly string[])[];
-      readonly env: Readonly<Record<string, string>>;
-      readonly timeoutMs: number;
-    }
-  | { readonly refused: string }
-  | null {
-  const install = input.profile.capabilities.install;
-  if (install.status === "conflict") {
-    return { refused: "the run profile's install is in conflict; confirm one in the office" };
-  }
-  if (install.status !== "resolved") return null;
-  if (install.value.cwd !== ".") {
-    return {
-      refused: `install runs in ${install.value.cwd}, but the box runs it only at the root of /work`,
-    };
-  }
-  const { config } = input;
-  const env = buildRunEnv({
-    slot: input.slot ?? 0,
-    stride: config.worktree.ports.stride,
-    story: input.story,
-    worktree: BOX_WORKDIR,
-    named: config.worktree.ports.named,
-    devPort: devPortOf(input.profile),
-    env: config.worktree.env,
-  });
-  const minutes = config.timeouts.scriptMinutes["install"] ?? BOX_INSTALL_MINUTES_DEFAULT;
-  return { commands: install.value.commands, env, timeoutMs: minutes * 60_000 };
 }
 
 /** Placeholders in the dry run for what only a real run makes. */
@@ -285,11 +187,6 @@ export interface RunLauncherDeps {
   readonly runtimeDir: string;
   /** Where each run's sandbox temp directory is made. */
   readonly tmpRoot: string;
-  /**
-   * The owner written into each new run temp directory (`RunTempDirs.owner`, DIPO-102), so the
-   * daemon-start sweep tells its own directories from another daemon's; none by default.
-   */
-  readonly tempOwner?: () => string | undefined;
   readonly hosts: HostStarter;
   readonly ingest: RunIngest;
   /**
@@ -308,11 +205,6 @@ export interface RunLauncherDeps {
       },
     ): void;
   };
-  /**
-   * Takes the backstop snapshot of a story worktree (DIPO-49), before its worker starts; without
-   * it no backstop runs after the turns.
-   */
-  readonly snapshot?: (office: OfficeId, worktree: string) => Promise<BackstopSnapshot>;
   /** Ends a live claim whose worker did not start: worktree removed, branch kept as released. */
   readonly release: (office: OfficeId, claim: ClaimRecord, reason: string) => Promise<void>;
   /** Logs what the launcher could not do (the daemon's logger); nothing by default. */
@@ -320,13 +212,13 @@ export interface RunLauncherDeps {
   /** The checkout the context pack reads; `gitWorkspace` on the office git by default. */
   readonly workspace?: (git: OfficeGit, path: string) => Workspace;
   /**
-   * Makes and deletes a box worker's box (DIPO-271), and prepares it before the worker: the
-   * install and the check of `/work` (DIPO-294); without it a box run is refused.
+   * The box workers (DIPO-271, DIPO-240): with them every run's developer works in its own box,
+   * made and prepared here (`BoxLifetime.make`). Without them no box is made.
    */
-  readonly boxes?: Pick<BoxWorkers, "create" | "discard" | "install" | "changedSinceStart">;
+  readonly boxes?: RunBoxes;
   /**
-   * The office's current run profile (DIPO-72), whose install a box run's box gets (DIPO-294);
-   * without it a box run is refused.
+   * The office's current run profile (DIPO-72), whose install a box gets (DIPO-294); without it
+   * no box is made, so no run starts.
    */
   readonly profile?: (office: OfficeId) => RunProfile | null;
 }
@@ -350,10 +242,6 @@ export interface RunFacts {
   readonly config: OfficeConfig;
   /** Repo-relative path of the story's task file. */
   readonly taskFile: string;
-  /** The office's resolved verify (DIPO-173); the launch refuses a tool that cannot start. */
-  readonly verify?: VerifyCommands;
-  /** Runs the developer in its own box (DIPO-271, `work.run`'s `box`); the Mac worker otherwise. */
-  readonly box?: boolean;
 }
 
 /** A setup that passed with a launch plan the host may start. */
@@ -522,44 +410,6 @@ export class RunLauncher {
     });
   }
 
-  /**
-   * Prepares a box run's box before its worker (DIPO-294; see the file comment): the run profile's
-   * install in the box, then the check of `/work` against the start commit. Returns why the launch
-   * must stop, or null when the box is ready. A profile with no install runs none, as on the Mac.
-   */
-  async #readyBox(
-    facts: RunFacts,
-    claim: ClaimRecord,
-    slot: number | null,
-    boxes: NonNullable<RunLauncherDeps["boxes"]>,
-    cacheSkipped: (reason: string, fallback: boolean) => void,
-  ): Promise<string | null> {
-    if (this.#deps.profile === undefined) {
-      return "this daemon cannot read the run profile, so the box gets no install";
-    }
-    const profile = this.#deps.profile(facts.office);
-    if (profile === null) return "the office has no run profile yet; rescan the office";
-    const install = boxInstallInput({ profile, config: facts.config, story: claim.story, slot });
-    if (install !== null && "refused" in install) return install.refused;
-    if (install !== null) {
-      const installed = await boxes.install({ runId: facts.runId, ...install });
-      if (installed.cacheFallback !== undefined) cacheSkipped(installed.cacheFallback, true);
-      if (!installed.ok) return installed.reason;
-    }
-    const tree = await boxes.changedSinceStart({
-      runId: facts.runId,
-      office: facts.office,
-      story: claim.story,
-      branch: claim.branch,
-      startSha: claim.startSha,
-    });
-    if (tree.kind === "changed") return boxTreeChangedText(tree.paths);
-    if (tree.kind === "unknown") {
-      return `dipo could not check the box's /work against the start commit after the install (${tree.reason})`;
-    }
-    return null;
-  }
-
   /** The session id of a run's first session (AC #3). */
   static sessionOf(agent: string): string {
     return sessionUuid(agent);
@@ -580,11 +430,16 @@ export class RunLauncher {
     const paths = this.#paths(git, claim.worktree, facts.runId);
     const cleanup = (): void => {
       rmSync(paths.runDir, { recursive: true, force: true });
-      rmSync(paths.tmpDir, { recursive: true, force: true });
-      // Never through a link, and never another run's root with the same hash.
-      removeShortTempDir(dirname(paths.shortTmpDir), facts.runId);
     };
-    const boxes = facts.box === true ? this.#deps.boxes : undefined;
+    const boxes = this.#deps.boxes;
+    const lifetime =
+      boxes === undefined
+        ? null
+        : new BoxLifetime({
+            boxes,
+            ...(this.#deps.profile === undefined ? {} : { profile: this.#deps.profile }),
+            tmpRoot: this.#deps.tmpRoot,
+          });
     let boxMade = false;
     // The box goes before the run directory that records it.
     const discardBox = async (): Promise<void> => {
@@ -596,9 +451,6 @@ export class RunLauncher {
       cleanup();
       return { ok: false, reason, log: [...setup.log, `launch: ${reason}`].join("\n") };
     };
-    if (facts.box === true && boxes === undefined) {
-      return fail("this daemon runs no box workers, so the run cannot start in a box");
-    }
     let spec: WorkerSpec;
     let systemHash: string;
     let promptSources: PreparedRun["promptSources"];
@@ -620,10 +472,11 @@ export class RunLauncher {
         // What verify said about the base in the worker's sandbox, read by setup (DIPO-183).
         ...(setup.baseVerify === undefined ? {} : { baseVerify: setup.baseVerify }),
         // A box worker reads the box contract (DIPO-272).
-        ...(facts.box === true ? { box: true } : {}),
+        ...(boxes === undefined ? {} : { box: true }),
       });
+      // No run temp directory in the shared temp folder: the developer's temp files live in its box
+      // (DIPO-240, 0021 section 2); a reviewer's are made with its own session (`review-launch.ts`).
       ensurePrivateDir(paths.runDir);
-      prepareRunTempDirs(paths, facts.runId, this.#deps.tempOwner?.());
       spec = this.#spec(
         { ...facts, web: facts.config.worker.web },
         paths,
@@ -645,7 +498,7 @@ export class RunLauncher {
     } catch (error) {
       return fail(`the prompts could not be rendered: ${messageOf(error)}`);
     }
-    if (boxes !== undefined) {
+    if (lifetime !== null) {
       const cacheSkipped = (reason: string, fallback: boolean): void =>
         notify({
           type: "engine.notice",
@@ -657,26 +510,23 @@ export class RunLauncher {
             text: packageCacheSkippedText(claim.story, reason, fallback),
           },
         });
-      try {
-        const made = await boxes.create({
+      const made = await lifetime.make(
+        {
           office: facts.office,
           runId: facts.runId,
           runDir: paths.runDir,
+          story: claim.story,
+          branch: claim.branch,
+          startSha: claim.startSha,
+          slot: setup.slot,
           git,
-          startCommit: claim.startSha,
-        });
-        boxMade = true;
-        if (made.cache.kind === "skipped") cacheSkipped(made.cache.reason, false);
-      } catch (error) {
-        return fail(`the box could not be made: ${messageOf(error)}`);
-      }
-      let ready: string | null;
-      try {
-        ready = await this.#readyBox(facts, claim, setup.slot, boxes, cacheSkipped);
-      } catch (error) {
-        ready = boxPrepareFailedText(error);
-      }
-      if (ready !== null) return fail(ready);
+          config: facts.config,
+        },
+        cacheSkipped,
+      );
+      // A box that could not be prepared is deleted by `make` already.
+      if (!made.ok) return fail(made.reason);
+      boxMade = true;
     }
     let prepared;
     try {
@@ -685,7 +535,6 @@ export class RunLauncher {
         paths,
         facts.config,
         sessionUuid(`${facts.agent}:launch-check`),
-        facts.verify,
       );
     } catch (error) {
       if (!(error instanceof PlanError))
@@ -737,24 +586,8 @@ export class RunLauncher {
   ): Promise<StartOutcome> {
     const { facts, prepared, claim, work } = run;
     const handle = ctx.office;
-    // The backstop's run-start snapshot, before the worker can change anything (DIPO-49).
-    let snapshot: BackstopSnapshot | null = null;
-    if (this.#deps.snapshot !== undefined) {
-      try {
-        snapshot = await this.#deps.snapshot(facts.office, claim.worktree);
-      } catch (error) {
-        this.#deps.warn?.("the backstop snapshot could not be taken; no backstop runs", {
-          run: facts.runId,
-          story: claim.story,
-          reason: messageOf(error),
-        });
-      }
-    }
-    // Stored with the run, so a re-attach after a restart restores it (DIPO-93).
-    if (snapshot !== null) {
-      const taken = snapshot;
-      handle.immediate(() => storeBackstopSnapshot(handle, facts.runId, taken));
-    }
+    // No backstop snapshot: the developer works in its box, never in the story's Mac worktree, and
+    // each part is scanned instead (DIPO-240, 0021 section 8).
     let host: LaunchedHost;
     try {
       host = await this.#deps.hosts.start(handle, {
@@ -796,7 +629,7 @@ export class RunLauncher {
       work,
       caps: capsOf(facts.caps),
       startedAt: ctx.clock.now(),
-      snapshot,
+      snapshot: null,
     });
     const adapter = this.#deps.worker.adapter(prepared.paths, facts.config);
     this.#deps.ingest.start(handle, host, {
@@ -840,8 +673,6 @@ export class RunLauncher {
     readonly config: OfficeConfig;
     readonly taskFile: string;
     readonly base: { readonly path: string };
-    /** The office's resolved verify (DIPO-173), checked as the real launch checks it. */
-    readonly verify?: VerifyCommands;
   }): Promise<WorkerLaunchPreview> {
     const git = this.#git(input.office);
     const worktree = join(git.worktreeRoot(), input.story);
@@ -851,6 +682,7 @@ export class RunLauncher {
       ...runPaths,
       shortTmpDir: join(dirname(runPaths.shortTmpDir), `${SHORT_TEMP_PREFIX}<hash>`),
     };
+    const box = this.#deps.boxes !== undefined;
     const dependencies = await this.#deps.dependencies(
       input.office,
       input.view.dependencies.map((dependency) => dependency.id),
@@ -864,6 +696,7 @@ export class RunLauncher {
       workspace,
       baseSha: await workspace.headSha(),
       config: input.config,
+      ...(box ? { box: true } : {}),
     });
     const spec = this.#spec(
       {
@@ -876,11 +709,12 @@ export class RunLauncher {
       prompts.taskMessage,
       PREVIEW_SESSION,
     );
-    const plan = this.#deps.worker.adapter(paths, input.config).plan(spec);
-    // The worktree does not exist yet; the main checkout's node_modules stands for its install.
-    if (input.verify !== undefined) {
-      await this.#deps.worker.checkVerify?.(paths, input.config, input.verify, paths.mainCheckout);
-    }
+    // Every developer runs in its box (DIPO-240): the dry run shows the command it runs there.
+    const previewBox = this.#deps.worker.previewBox;
+    const plan =
+      box && previewBox !== undefined
+        ? previewBox(spec, paths)
+        : this.#deps.worker.adapter(paths, input.config).plan(spec);
     return {
       adapter: this.#deps.worker.id,
       branch: input.branch,

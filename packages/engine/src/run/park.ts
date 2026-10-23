@@ -45,7 +45,7 @@ import type { GitLocation } from "../git/hardened";
 import type { OfficeGit } from "../git/office";
 import { GitError } from "../git/runner";
 import { pushBranch } from "../git/task-commit";
-import { parkQuestionText, recordedPermission, sandboxBinding } from "../hooks/park-questions";
+import { parkQuestionText, recordedPermission } from "../hooks/park-questions";
 import { insertParkQuestion, questionViewOf } from "../hooks/questions";
 import { officeDirectory } from "../office/marker";
 import { runDirectory } from "../runs/worker-hosts";
@@ -56,6 +56,7 @@ import { PARKED_STATUS } from "../worktree/done";
 
 import { endRunMarked } from "./markers";
 import { appendRunStep, reopenRun, type StoredRun } from "./records";
+import { parkResumeRow } from "./resume-policy";
 import { renderParkBlock, runSummaryFacts } from "./summary";
 
 /** The code of the refusal that parks a story `scope-violation` (DIPO-38, 0008 section 2). */
@@ -420,12 +421,10 @@ export function reopenParkedRun(
   run: StoredRun,
   to: Lifecycle,
   at: number,
+  /** The maintainer's note on the resume (0020 section 3, DIPO-155), kept on the park row. */
+  note: string | null = null,
 ): NewEntry[] {
-  office.run(
-    `update parks set resolved_at = $at, resolved_how = 'resume'
-     where office_id = $office_id and park_id = $park and resolved_at is null`,
-    { at, park: park.parkId },
-  );
+  resolveParkResumed(office, park.parkId, at, note);
   reopenRun(office, run.runId, at);
   const key = run.key;
   const story = run.story;
@@ -454,6 +453,26 @@ export function reopenParkedRun(
   ];
 }
 
+/**
+ * Inside the caller's transaction: the open park `parkId` is resolved `resume` at `at`, with the
+ * maintainer's note when the resume carried one (`parks.resolved_note`, 0020 section 3). False
+ * when it was resolved already.
+ */
+export function resolveParkResumed(
+  office: OfficeHandle,
+  parkId: number,
+  at: number,
+  note: string | null,
+): boolean {
+  return (
+    office.run(
+      `update parks set resolved_at = $at, resolved_how = 'resume', resolved_note = $note
+       where office_id = $office_id and park_id = $park and resolved_at is null`,
+      { at, park: parkId, note },
+    ).changes > 0
+  );
+}
+
 export interface ParkDeps {
   readonly office: OfficeHandle;
   readonly writer: ParkWriter;
@@ -463,13 +482,10 @@ export interface ParkDeps {
   /** True when the engine implements the command; `actions` lists only those. */
   readonly implemented: (name: CommandName) => boolean;
   /**
-   * The permission question of a `needs-permission` park (DIPO-75): a new question id and the
-   * office's `sandbox.allowedDomains`. Without it no question is asked.
+   * The permission question of a `needs-permission` park (DIPO-75): a new question id. Without it
+   * no question is asked.
    */
-  readonly question?: {
-    readonly id: () => string;
-    readonly allowedDomains: readonly string[];
-  };
+  readonly question?: { readonly id: () => string };
 }
 
 /**
@@ -495,10 +511,6 @@ function askParkQuestion(
     { run: run.runId },
   );
   if (park === null) return [];
-  const binding = sandboxBinding(permission, {
-    worktree: run.worktree,
-    allowedDomains: deps.question.allowedDomains,
-  });
   const question = insertParkQuestion(office, {
     questionId: deps.question.id(),
     runId: run.runId,
@@ -506,7 +518,7 @@ function askParkQuestion(
     parkId: park.park_id,
     tool: permission.tool,
     action: permission.action,
-    text: parkQuestionText(permission, binding),
+    text: parkQuestionText(permission),
     at,
   });
   const view = questionViewOf(office, question);
@@ -563,20 +575,26 @@ export interface ParkOutcome {
 }
 
 /**
- * Commands the engine implements, but not yet for a parked story: `work.resume` continues only
- * runs held by a plan limit (DIPO-61) and the park `on-hold` (DIPO-160).
+ * True when `work.resume` resumes a park of `reason` and `cause`: the park `on-hold` (DIPO-160) and
+ * every reason and cause with a resuming row in the 0020 matrix (`resume-policy.ts`, DIPO-155).
  */
-const NOT_FOR_PARKED: readonly CommandName[] = ["work.resume"] as CommandName[];
+export function resumableByCommand(reason: string, cause: string | null): boolean {
+  return reason === "on-hold" || parkResumeRow(reason, cause)?.kind === "resume";
+}
 
-/** The actions a parked story offers (0005 section 5): only commands the engine implements. */
+/**
+ * The actions a parked story offers (0005 section 5): only commands the engine implements, and
+ * `work.resume` only for a reason and cause it resumes (0020 section 14).
+ */
 export function parkActions(
   reason: ParkReason,
   implemented: (name: CommandName) => boolean,
+  cause: string | null = null,
 ): CommandName[] {
   return PARK_ACTIONS.filter(
     (name) =>
       (name !== "work.answer" || reason === "needs-permission") &&
-      (reason === "on-hold" || !NOT_FOR_PARKED.includes(name)) &&
+      (name !== "work.resume" || resumableByCommand(reason, cause)) &&
       implemented(name),
   );
 }
@@ -716,7 +734,7 @@ export async function parkStory(deps: ParkDeps, request: ParkRequest): Promise<P
           detail,
           from,
           ...(lastGoodCommit === null ? {} : { lastGoodCommit }),
-          actions: parkActions(reason, deps.implemented),
+          actions: parkActions(reason, deps.implemented, cause),
         },
       },
       ...askParkQuestion(deps, request, reason, detail, at),

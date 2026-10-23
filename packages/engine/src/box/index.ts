@@ -252,11 +252,16 @@ export {
   BOX_INDEX_DIR,
   BOX_RUN_FILE,
   BOX_SYSTEM_FILE,
+  BOX_WAITING,
   BoxWorkers,
   readBoxRun,
 } from "./workers";
 export type {
   BoxCacheUse,
+  BoxEnded,
+  BoxPresence,
+  BoxPassOptions,
+  BoxRest,
   BoxFinish,
   BoxMade,
   BoxPackageCacheDeps,
@@ -361,3 +366,27 @@ export type {
   SyncMode,
   SyncOutcome,
 } from "./collisions";
+export {
+  BOX_INSTALL_MINUTES_DEFAULT,
+  BOX_LIFETIME_NOTICES,
+  boxInstallInput,
+  BoxLifetime,
+  boxEndedOf,
+  boxPrepareFailedText,
+  boxRebuiltText,
+  boxRunState,
+  boxTreeChangedText,
+  DELIVERED_INDEX_PREFIX,
+  deliveredCode,
+} from "./lifetime";
+export type {
+  BoxEnsured,
+  BoxLifetimeDeps,
+  BoxMadeOutcome,
+  BoxRunFacts,
+  BoxRunState,
+  CacheSkipped,
+  DeliveredCode,
+  RunBoxes,
+  RunBoxRequest,
+} from "./lifetime";

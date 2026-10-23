@@ -17,6 +17,7 @@ import {
 } from "@dipsaus-orchestrator/contract";
 
 import { executeCommand } from "../../src/commands/execute";
+import { CRASH, crashAfterHandler } from "../commands/crash";
 import { stateOfficeDirectory } from "../../src/commands/offices";
 import { buildRegistry } from "../../src/commands/registry";
 import { MemoryRequestTable } from "../../src/commands/requests";
@@ -189,16 +190,18 @@ function track(): void {
   });
 }
 
-function command(name: string, args: object, id?: string): Promise<CommandReply> {
+function command(name: string, args: object, id?: string, crash = false): Promise<CommandReply> {
   requests += 1;
+  const deps = {
+    registry: buildRegistry([w.control.feature, w.resumption.feature]),
+    offices: stateOfficeDirectory(w.f.t.state),
+    clock: w.f.t.clock,
+    ids: w.f.t.ids,
+    softwareRequests: new MemoryRequestTable(w.f.t.clock),
+  };
   return executeCommand(
-    {
-      registry: buildRegistry([w.control.feature, w.resumption.feature]),
-      offices: stateOfficeDirectory(w.f.t.state),
-      clock: w.f.t.clock,
-      ids: w.f.t.ids,
-      softwareRequests: new MemoryRequestTable(w.f.t.clock),
-    },
+    // A crash after the handler's commits and before the requests row (DIPO-168 in DIPO-155).
+    crash ? crashAfterHandler(deps, name) : deps,
     {
       requestId: RequestId.parse(
         id ?? `01J9ZK5Q8W3V4X6Y7Z${(70_000 + requests).toString().padStart(8, "0")}`,
@@ -222,8 +225,9 @@ function failure(reply: CommandReply): string {
   return reply.error.code;
 }
 
-const steer = (text: string, id?: string) => command("work.steer", { story: "DIPO-1", text }, id);
-const pause = () => command("work.pause", { story: "DIPO-1" });
+const steer = (text: string, id?: string, crash = false) =>
+  command("work.steer", { story: "DIPO-1", text }, id, crash);
+const pause = (id?: string, crash = false) => command("work.pause", { story: "DIPO-1" }, id, crash);
 const resume = (note?: string) =>
   command("work.resume", { story: "DIPO-1", ...(note === undefined ? {} : { note }) });
 
@@ -354,6 +358,19 @@ describe("work.steer", () => {
       run: w.f.run,
       delivered: "next-turn",
     });
+    expect(ok(await steer("Use the helper.", id))).toEqual({
+      run: w.f.run,
+      delivered: "next-turn",
+    });
+    expect(w.sent).toHaveLength(1);
+    expect(steers()).toHaveLength(1);
+  });
+
+  it("sends no second message when a crash before the requests row makes the retry run the handler again", async () => {
+    const id = "01J9ZK5Q8W3V4X6Y7Z00000003";
+    const crashed = await steer("Use the helper.", id, true);
+    expect(crashed.ok ? null : crashed.error.message).toContain(CRASH);
+    expect(w.sent).toHaveLength(1);
     expect(ok(await steer("Use the helper.", id))).toEqual({
       run: w.f.run,
       delivered: "next-turn",
@@ -517,6 +534,18 @@ describe("work.pause", () => {
     w.sent.length = 0;
     expect(ok(await pause())).toEqual({ run: w.f.run });
     expect(w.sent).toEqual([]);
+  });
+
+  it("sends no second pause message when a crash before the requests row makes the retry run the handler again", async () => {
+    track();
+    const id = "01J9ZK5Q8W3V4X6Y7Z00000004";
+    const crashed = await pause(id, true);
+    expect(crashed.ok ? null : crashed.error.message).toContain(CRASH);
+    expect(w.sent).toEqual([encode({ kind: "pause" })]);
+    expect(ok(await pause(id))).toEqual({ run: w.f.run });
+    expect(w.sent).toEqual([encode({ kind: "pause" })]);
+    const pauses = runIntents(w.f.office, w.f.run).filter((intent) => intent.kind === "pause");
+    expect(pauses).toHaveLength(1);
   });
 
   it("answers story.notSteerable for a reviewer session", async () => {

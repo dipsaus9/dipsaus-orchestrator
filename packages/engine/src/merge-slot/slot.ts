@@ -221,6 +221,15 @@ export class MergeSlot {
     await this.#offices.get(office)?.busy;
   }
 
+  /**
+   * DIPO-155's `SlotReentry`: a resumed `slot-refused` park lets its story into the slot again, with
+   * a fresh per-stay count (a new occupant row), at the next tick it is eligible at.
+   */
+  async reenter(office: OfficeId, run: { readonly runId: string }): Promise<void> {
+    this.#offices.get(office)?.left.delete(run.runId);
+    this.kick(office);
+  }
+
   /** Starts a tick without waiting for it (after a flush, or a maintainer's merge decision). */
   kick(office: OfficeId): void {
     void this.tick(office).catch((error: unknown) => {

@@ -90,6 +90,7 @@ import {
 import { runInSlot } from "../merge-slot/store";
 import { runConfigOf } from "../run/config-snapshot";
 import { storedDoneReport } from "../run/done-report";
+import { runBudgetFacts } from "../run/budget-line";
 import { runCaps } from "../run/caps";
 import { PARK_CAUSES, type ParkWriter, parkStory } from "../run/park";
 import {
@@ -911,9 +912,13 @@ export class StoryPrs {
   ): Promise<CiFeedbackItem[]> {
     const config = this.#runConfig(officeId, run);
     const budgets = config.prompt.budgets.feedbackItem as Readonly<Record<string, number>>;
+    const polled = this.#offices.get(officeId);
     const options = {
       itemMax: (run.tier === null ? undefined : budgets[run.tier]) ?? budgets.M ?? 3_000,
       logLines: FEEDBACK_LOG_LINES_DEFAULT,
+      ...(polled === undefined
+        ? {}
+        : { budget: runBudgetFacts(polled.office, run, this.#deps.clock.now()) }),
     };
     const review = this.#deps.review;
     let all: readonly PrCheck[] = [];

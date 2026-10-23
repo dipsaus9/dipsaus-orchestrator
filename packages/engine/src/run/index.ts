@@ -13,7 +13,6 @@ export {
 } from "./work-run";
 export type { BaseRead, RunBase, RunLane, RunOffices, WorkRunDeps } from "./work-run";
 export {
-  boxInstallInput,
   DEVELOPER_TOOLS,
   LAUNCH_NOTICES,
   packageCacheSkippedText,
@@ -285,39 +284,25 @@ export {
   storedFeedbackOf,
 } from "./open-feedback";
 export type { AnswerKind, RunAnswers, StoredFeedback } from "./open-feedback";
-// Verify and commit at In Review, the backstop after every turn and run outcomes (DIPO-49).
+// In Review at a box run's done, the reviewer's backstop and run outcomes (DIPO-49, DIPO-240).
 export { backstopDetail, backstopEvidence, readBackstop } from "./backstop";
 export type { BackstopSnapshot } from "./backstop";
 export { gitStoryOps, IN_REVIEW_STATUS } from "./story-git";
 export type { PushResult, StoryGit, WorktreeStory } from "./story-git";
 export {
-  checkScope,
-  commitMessage,
+  BOX_TIP_MOVED,
   DEFAULT_LOCKFILES,
   dependenciesChangedText,
   DEPENDENCY_FILES,
   dependencyFiles,
-  feedbackItemMax,
   GATE_CAPABILITIES,
   gateChanges,
-  OUTPUT_FLUSH_MS,
-  scanWorktree,
+  NO_BOX_AT_DONE,
   scopeCovers,
-  scopeDetail,
   VERIFY_NOTICES,
   VerifyCommit,
-  verifyPlan,
-  workspaceDirsOf,
 } from "./verify-commit";
-export type {
-  RunFinisher,
-  ScopeInput,
-  ScopeResult,
-  TurnContext,
-  TurnDecision,
-  VerifyCommitDeps,
-  VerifyStep,
-} from "./verify-commit";
+export type { RunFinisher, TurnContext, TurnDecision, VerifyCommitDeps } from "./verify-commit";
 export {
   appendVerifyOutput,
   insertVerifyResult,
@@ -395,6 +380,16 @@ export {
   StoryPlanning,
 } from "../stories/planning";
 export type { StoryPlanningDeps } from "../stories/planning";
+// `work.discard` (DIPO-161): a story's work thrown away through the backlog lane.
+export {
+  DISCARD_NOTICES,
+  DISCARDABLE_STATUSES,
+  discardOp,
+  NOT_DISCARDABLE,
+  PR_MERGED,
+  StoryDiscard,
+} from "../stories/discard";
+export type { DiscardStop, StoryDiscardDeps } from "../stories/discard";
 export type { HoldResumer } from "./work-resume";
 // Park resume and `work.resume` in one module with a per-reason policy table (DIPO-138).
 export {
@@ -412,6 +407,14 @@ export type {
   ResumeWaitOutcome,
   ResumptionOptions,
 } from "./resumption";
+// The resume of every parked story by the 0020 matrix (DIPO-155).
+export { MAINTAINER_RESUME_TAG, PARK_RESUME_NOTICES, RESUME_ERRORS } from "./park-resume";
+export { HALF_SHARE, share, smallestShare, withGrants } from "./resume-caps";
+export { noteText } from "./resume";
+export type { ConflictResumer, ParkResumeOptions, PrReplacement, SlotReentry } from "./park-resume";
+export { PARK_RESUME_MATRIX, parkResumeRow } from "./resume-policy";
+export type { ParkMatrixRow, ParkResumeRow, ResumeSession } from "./resume-policy";
+export { resolveParkResumed, resumableByCommand } from "./park";
 export {
   baseStoryFacts,
   HOST_EXIT_WAIT_MS,
@@ -435,6 +438,7 @@ export type { ComposedRuns, RunPorts } from "./compose";
 export {
   FOLLOW_CHECK_MS,
   HOST_NEVER_STARTED,
+  macSessionText,
   REATTACH_NOTICES,
   REATTACH_STEP,
   RunReattacher,

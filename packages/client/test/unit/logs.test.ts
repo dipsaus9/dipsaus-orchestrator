@@ -13,6 +13,7 @@ import {
 } from "node:fs";
 import { join } from "node:path";
 
+import { SEQUENCE_SAMPLES } from "@dipsaus-orchestrator/contract";
 import { ManualClock, withTempDir } from "@dipsaus-orchestrator/testkit";
 
 import {
@@ -276,4 +277,18 @@ describe("followLogs", () => {
       expect(msgs()).toEqual(["old", "current", "new", "rotated"]);
     });
   });
+});
+
+describe("log text is cleaned of terminal control characters (DIPO-313)", () => {
+  for (const [name, sample] of Object.entries(SEQUENCE_SAMPLES)) {
+    it(`prints ${name} as plain text`, () => {
+      const json = line(`story${sample}done`, { detail: `x${sample}y`, other: 'a"b' });
+      const rendered = renderFiltered([json, `raw${sample}line`], {});
+      expect(rendered[0]).toContain("storydone");
+      expect(rendered[0]).toContain("detail=xy");
+      expect(rendered[1]).toBe("rawline");
+      // oxlint-disable-next-line no-control-regex
+      expect(rendered.join("\n")).not.toMatch(/[\u0000-\u0008\u000b-\u001f\u007f-\u009f]/);
+    });
+  }
 });

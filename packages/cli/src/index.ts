@@ -30,13 +30,15 @@ import {
   DAEMON_SUBCOMMANDS,
   type DaemonControl,
 } from "./daemon-commands";
+import { deskCommand } from "./desk-command";
 import { gateCommand } from "./gate-command";
 import type { DaemonLogsDeps } from "./logs-command";
 import { OFFICE_SUBCOMMANDS } from "./office-commands";
 import { runCommand } from "./run-command";
 import { stopCommand } from "./stop-command";
 import { pauseCommand, steerCommand } from "./intervene-commands";
-import { dropCommand, holdCommand } from "./story-commands";
+import { resumeCommand } from "./resume-command";
+import { discardCommand, dropCommand, holdCommand } from "./story-commands";
 import { statsCommand } from "./stats-command";
 import { systemTui } from "./tui-command";
 import { watchCommand } from "./watch-command";
@@ -130,17 +132,22 @@ Usage:
                     pick the first Ready story on the office's base branch (or
                     the named ones), claim it and start its run; prints each
                     started story and each skipped one with its reason, and
-                    exits 1 when none started; with --box the worker runs in
-                    the story's own box
+                    exits 1 when none started; the worker always runs in the
+                    story's own box (--box is accepted and changes nothing)
   dipo run --dry-run [<id>...] [--office <id>]
                     show what dipo run would do without doing it: the branch and
                     worktree it would create, the full worker launch (program,
-                    arguments, model, effort, caps, sandbox settings, variable
+                    arguments, model, effort, caps, run settings, variable
                     names) and the system file and task message the worker
                     would get; claims, creates and starts nothing
   dipo stop <id> [--note <text>] [--office <id>] [--yes]
                     stop the story's worker after asking; the story parks as
                     stopped with branch and worktree kept
+  dipo resume <id> [--note <text>] [--budget +<n>%|+<tokens>] [--yes] [--office <id>]
+                    resume a paused run or a parked story as its park reason
+                    says; some reasons need a note, and a budget-exceeded story
+                    needs --budget with a note: dipo shows its caps before and
+                    after and asks first (--yes answers for a script)
   dipo hold <id> --note <text> [--office <id>]
                     set a Refined or Ready story aside: it parks on-hold through
                     the backlog PR and no run picks it until it is resumed; a
@@ -160,6 +167,12 @@ Usage:
                     reject the story's merge that waits for you after asking:
                     your note goes to its worker in a fix round; exits 1 when
                     nothing waits
+  dipo discard <id> --note <text> [--office <id>]
+                    throw a story's work away after listing what is lost and
+                    asking for the story id typed out: stop its worker, close
+                    its open PR, remove its worktree and delete its branch
+                    locally and on the remote, and return it to Refined; for a
+                    story Done on the base it removes the leftovers only
   dipo steer <id> <text> [--office <id>]
                     send the story's worker your text as its next message; a
                     paused or parked story gets it with the first message on
@@ -173,6 +186,11 @@ Usage:
                     at a client: allow lets its call run once, deny refuses it
                     and tells the worker the reason; any other text answers a
                     worker question
+  dipo desk [--office <id>] [--json]
+                    list what waits on you, in the order to handle it: questions
+                    a worker waits on, merges, parked stories, hand actions,
+                    proposals and the stories you hold, each with the command to
+                    type; --json prints the engine's list as it is
   dipo watch [<id>] [--office <id>]
                     follow the office, or one story, in plain text until Ctrl-C:
                     each running story's phase, health, loop, verify, criteria
@@ -204,7 +222,7 @@ Office commands use --office, else the office of the current directory.
 
 Commands that need the daemon start it unless daemon.autostart is false in
 <state>/config.yaml. Read-only commands never start it: dipo gate, dipo run
---dry-run, dipo stats and dipo watch say when no daemon is running.
+--dry-run, dipo stats, dipo desk and dipo watch say when no daemon is running.
 
 Options:
   --version         print the version, commit, Bun version and platform
@@ -375,6 +393,14 @@ export async function main(argv: readonly string[], deps: CliDeps): Promise<numb
     const { version } = versionInfo(deps.stamp, deps.runtime);
     return rejectCommand(args.slice(1), { ...deps, version });
   }
+  if (args[0] === "resume") {
+    const { version } = versionInfo(deps.stamp, deps.runtime);
+    return resumeCommand(args.slice(1), { ...deps, version });
+  }
+  if (args[0] === "discard") {
+    const { version } = versionInfo(deps.stamp, deps.runtime);
+    return discardCommand(args.slice(1), { ...deps, version });
+  }
   if (args[0] === "steer") {
     const { version } = versionInfo(deps.stamp, deps.runtime);
     return steerCommand(args.slice(1), { ...deps, version });
@@ -386,6 +412,10 @@ export async function main(argv: readonly string[], deps: CliDeps): Promise<numb
   if (args[0] === "answer") {
     const { version } = versionInfo(deps.stamp, deps.runtime);
     return answerCommand(args.slice(1), { ...deps, version });
+  }
+  if (args[0] === "desk") {
+    const { version } = versionInfo(deps.stamp, deps.runtime);
+    return deskCommand(args.slice(1), { ...deps, version });
   }
   if (args[0] === "watch") {
     const { version } = versionInfo(deps.stamp, deps.runtime);

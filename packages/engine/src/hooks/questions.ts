@@ -86,42 +86,6 @@ export function permissionText(tool: string, input: string): string {
   return input === "" ? tool : `${tool}(${input})`;
 }
 
-export interface NewPermissionQuestion {
-  readonly questionId: string;
-  readonly runId: string;
-  readonly agentId: string;
-  readonly tool: string;
-  readonly input: string;
-  readonly hook: number;
-  readonly at: number;
-}
-
-/** Stores an open permission question; returns it. */
-export function insertPermissionQuestion(
-  office: OfficeHandle,
-  question: NewPermissionQuestion,
-): StoredQuestion {
-  const text = permissionText(question.tool, question.input);
-  office.run(
-    `insert into questions (office_id, question_id, run_id, agent_id, kind, text, tool, input, hook,
-       asked_at)
-     values ($office_id, $question, $run, $agent, 'permission', $text, $tool, $input, $hook, $at)`,
-    {
-      question: question.questionId,
-      run: question.runId,
-      agent: question.agentId,
-      text,
-      tool: question.tool,
-      input: question.input,
-      hook: question.hook,
-      at: question.at,
-    },
-  );
-  const row = findQuestion(office, question.questionId);
-  if (row === null) throw new Error(`question ${question.questionId} was not stored`);
-  return row;
-}
-
 export interface NewWorkerQuestion {
   readonly questionId: string;
   readonly runId: string;
@@ -207,36 +171,6 @@ export function openParkQuestions(office: OfficeHandle, parkId: number): StoredQ
       { park: parkId },
     )
     .map(stored);
-}
-
-/**
- * Allow once (0008 section 5, DIPO-75): the first answered `allow` of a park question of `runId`
- * whose tool equals `tool` and whose recorded action equals `exact`, compared byte for byte (no
- * prefix, no glob, no trimming), and not used yet. It is marked used at `at` and returned; null
- * when none matches. Runs inside the caller's transaction.
- */
-export function takeAllowOnce(
-  office: OfficeHandle,
-  runId: string,
-  tool: string,
-  exact: string,
-  at: number,
-): StoredQuestion | null {
-  const row = office.get<QuestionRow>(
-    `select ${COLUMNS} from questions
-      where office_id = $office_id and run_id = $run and park_id is not null
-        and decision = 'allow' and closed_how = 'answered' and allow_used_at is null
-        and tool = $tool and input = $exact
-      order by asked_at, question_id limit 1`,
-    { run: runId, tool, exact },
-  );
-  if (row === null) return null;
-  office.run(
-    `update questions set allow_used_at = $at
-      where office_id = $office_id and question_id = $question and allow_used_at is null`,
-    { at, question: row.question_id },
-  );
-  return stored({ ...row, allow_used_at: at });
 }
 
 /**

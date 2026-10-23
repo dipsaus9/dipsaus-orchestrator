@@ -115,6 +115,30 @@ describe("commands.describe", () => {
     expect(hold).not.toHaveProperty("irreversibleWhen");
   });
 
+  it("lists work.resume as needing confirmation when budget is set (DIPO-155)", () => {
+    const commands = describeContract().commands;
+    const resume = commands.find((command) => command.name === "work.resume");
+    expect(resume).toMatchObject({ since: 1, confirm: false, confirmWhen: ["budget"] });
+    const args = resume?.args as { properties?: object } | undefined;
+    expect(Object.keys(args?.properties ?? {}).toSorted()).toEqual(["budget", "note", "story"]);
+    // Only a command that declares it carries the key.
+    const drop = commands.find((command) => command.name === "story.drop");
+    expect(drop).not.toHaveProperty("confirmWhen");
+  });
+
+  it("lists work.discard since minor 1 with confirm and irreversible (DIPO-161)", () => {
+    const entry = describeContract().commands.find((command) => command.name === "work.discard");
+    expect(entry).toMatchObject({
+      name: "work.discard",
+      since: 1,
+      level: "office",
+      confirm: true,
+      irreversible: true,
+      args: { type: "object", required: ["story", "note"] },
+    });
+    expect(entry).not.toHaveProperty("irreversibleWhen");
+  });
+
   it("leaves provisional definitions out", () => {
     const provisional = contractCommands.find((definition) => definition.provisional === true);
     if (provisional === undefined) throw new Error("no provisional command left to check");

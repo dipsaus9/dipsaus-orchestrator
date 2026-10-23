@@ -4,7 +4,7 @@
 
 import { describe, expect, it } from "bun:test";
 
-import type { Event, OfficeId } from "@dipsaus-orchestrator/contract";
+import { type Event, type OfficeId, SEQUENCE_SAMPLES } from "@dipsaus-orchestrator/contract";
 import type { SubscribeOptions } from "@dipsaus-orchestrator/client";
 import { DaemonNotRunningError } from "@dipsaus-orchestrator/client/node";
 import { ManualClock } from "@dipsaus-orchestrator/testkit";
@@ -189,7 +189,7 @@ describe("dipo run", () => {
     expect(ctx.out).toEqual(["skipped DIPO-7: the office already runs a story"]);
   });
 
-  it("runs the developer in its own box with --box, and refuses --box with --dry-run (DIPO-271)", async () => {
+  it("still sends --box, which changes nothing now, and ignores it in a dry run (DIPO-271, DIPO-240)", async () => {
     const ctx = fake(() => result([{ story: "DIPO-7", key: KEY, run: RUN }]), IN_OFFICE);
     expect(await main(["run", "DIPO-7", "--box"], ctx.deps)).toBe(0);
     expect(ctx.sent).toEqual([
@@ -199,10 +199,27 @@ describe("dipo run", () => {
         office: OFFICE,
       },
     ]);
-    const dry = fake(() => result([]), IN_OFFICE);
-    expect(await main(["run", "--dry-run", "--box"], dry.deps)).toBe(2);
-    expect(dry.sent).toEqual([]);
-    expect(dry.err.join("\n")).toContain("--box has no dry run yet");
+    const dry = fake(
+      () => {
+        throw new Error("work.run must not be sent");
+      },
+      IN_OFFICE,
+      () => ({
+        ok: true,
+        result: {
+          refusals: [],
+          story: { story: "DIPO-7", key: KEY },
+          skipped: [],
+          launch: LAUNCH,
+          problem: null,
+        },
+      }),
+    );
+    expect(await main(["run", "--dry-run", "--box", "DIPO-7"], dry.deps)).toBe(0);
+    expect(dry.sent).toEqual([
+      { name: "work.preview", args: { office: OFFICE, stories: ["DIPO-7"] }, office: undefined },
+    ]);
+    expect(dry.err).toEqual([]);
   });
 
   it("explains a plan-limit skip in words, not as a full office (DIPO-92)", async () => {
@@ -406,7 +423,7 @@ describe("dipo run --dry-run", () => {
 
   it("prints the slots refusal with each holder and not would start", async () => {
     const message =
-      "every port slot from 1 to 1 is taken by another worktree: slot 1: office off_a, story DIPO-3, worktree /work/app.worktrees/DIPO-3";
+      "every port slot from 1 to 1 is taken by another worktree: slot 1: office off_a, story DIPO-3, worktree /work/app.worktrees/DIPO-3. dipo discard <id> frees a story's slot.";
     const ctx = fake(
       () => {
         throw new Error("work.run must not be sent");
@@ -429,4 +446,47 @@ describe("dipo run --dry-run", () => {
     expect(out).toContain("no story would start");
     expect(out).not.toContain("would start DIPO");
   });
+});
+
+describe("dipo run cleans what it prints (DIPO-313)", () => {
+  // oxlint-disable-next-line no-control-regex
+  const CONTROL = /[\u0000-\u0008\u000b-\u001f\u007f-\u009f]/;
+  for (const [name, sample] of Object.entries(SEQUENCE_SAMPLES)) {
+    it(`prints a notice, a gate line and a dry-run problem with ${name} as plain text`, async () => {
+      let ctx!: ReturnType<typeof fake>;
+      ctx = fake(() => {
+        ctx.emit("engine.notice", {
+          level: "warn",
+          code: "setup.failed",
+          text: `DIPO-7 was not started: setup${sample} failed.`,
+        });
+        return result([], [{ story: "DIPO-7", key: KEY, reason: "pickupCheckFailed" }]);
+      }, IN_OFFICE);
+      expect(await main(["run"], ctx.deps)).toBe(1);
+      expect(ctx.out.join("\n")).toContain("DIPO-7 was not started: setup failed.");
+      expect(ctx.out.join("\n")).not.toMatch(CONTROL);
+
+      const dry = fake(
+        () => {
+          throw new Error("work.run must not be sent");
+        },
+        IN_OFFICE,
+        () => ({
+          ok: true,
+          result: {
+            refusals: [{ check: "adapter", message: `held${sample} now` }],
+            story: { story: "DIPO-7", key: KEY },
+            skipped: [],
+            launch: { ...LAUNCH, taskMessage: `Title${sample} here\n` },
+            problem: null,
+          },
+        }),
+      );
+      await main(["run", "--dry-run"], dry.deps);
+      const out = dry.out.join("\n");
+      expect(out).toContain("held now");
+      expect(out).toContain("Title here");
+      expect(out).not.toMatch(CONTROL);
+    });
+  }
 });

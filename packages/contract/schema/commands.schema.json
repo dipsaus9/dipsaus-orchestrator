@@ -528,6 +528,31 @@
         },
         "note": {
           "type": "string"
+        },
+        "budget": {
+          "anyOf": [
+            {
+              "type": "object",
+              "properties": {
+                "share": {
+                  "type": "number",
+                  "exclusiveMinimum": 0
+                }
+              },
+              "required": ["share"]
+            },
+            {
+              "type": "object",
+              "properties": {
+                "tokens": {
+                  "type": "integer",
+                  "exclusiveMinimum": 0,
+                  "maximum": 9007199254740991
+                }
+              },
+              "required": ["tokens"]
+            }
+          ]
         }
       },
       "required": ["story"]
@@ -562,6 +587,38 @@
         },
         "queued": {
           "type": "boolean"
+        },
+        "grants": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "kind": {
+                "type": "string"
+              },
+              "tokens": {
+                "type": "integer",
+                "minimum": 0,
+                "maximum": 9007199254740991
+              },
+              "turns": {
+                "type": "integer",
+                "minimum": 0,
+                "maximum": 9007199254740991
+              },
+              "minutes": {
+                "type": "integer",
+                "minimum": 0,
+                "maximum": 9007199254740991
+              },
+              "count": {
+                "type": "integer",
+                "minimum": 0,
+                "maximum": 9007199254740991
+              }
+            },
+            "required": ["kind"]
+          }
         }
       },
       "required": ["story", "key", "to"]

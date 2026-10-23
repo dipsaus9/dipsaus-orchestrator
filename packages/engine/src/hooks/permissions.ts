@@ -1,45 +1,31 @@
-// The permission wait (0008 section 5, open question 2: hybrid, decided by code; DIPO-59). A
-// worker's `PermissionRequest` hook arrives as a neutral `permissionRequest` hook event with the id
-// its worker host holds the call under. The engine decides at once:
+// The questions a worker asks and the answers the maintainer gives (0008 section 5, 0021 section
+// 11): `work.answer` and the live rule of a worker's question.
 //
-// - With `permissions.ask: when-present` and a TUI connected at that moment (`questionRoute`, 0021
-//   section 11, DIPO-279), the question is live: the engine stores a permission question, emits
-//   `question.asked` (kind permission, the tool and a one-line input summary) and
-//   `work.observed input-wait`, and waits up to `timeouts.permissionWaitSeconds` for
-//   `work.answer`. An answer allows or denies the call; no answer in time denies it.
-// - Otherwise (no TUI connected, `never`, a run being ended, no story work), the question parks:
-//   the hook gets no decision at once, so the call is denied, the worker reports blocked with the
-//   tool and action it needs, and the story parks `needs-permission` with that question
-//   (DIPO-75). With the daemon down nobody answers and the worker host itself returns no decision.
-// - When the last TUI closes while a question is live (DIPO-284), the daemon calls
-//   `presenceChanged`: every live question closes (`ended`) and its hook gets no decision at once,
-//   so its story parks with the question exactly as above. A question stays live while another
-//   TUI is still connected.
+// The relay of a worker's approval calls (the `PermissionRequest` hook, its live permission
+// question, its timeout and allow-once answers) is gone with the developer's Mac sandbox (DIPO-240,
+// 0021 section 7): a developer runs in its box with all permissions and no hooks, and a reviewer
+// has no approval relay, so a call that would need approval is denied. What stays here:
 //
-// The reply goes to the worker host as the adapter encodes the neutral `HookReply`; this module
-// never names a CLI field. A worker's exit closes its open questions (`ended`), and an office load
-// closes the ones a previous daemon left (`expired`): their hook calls were already answered by the
-// host with no decision.
+// - The question of a `needs-permission` park (DIPO-75), which a run parked before the change may
+//   still have: `work.answer` with `decision` resumes the run (`park-answers.ts`).
+// - The question of a worker's report (the door's message W3, DIPO-272). Run control hands a
+//   blocked report's question to `askWorker`, before it parks:
+//   - With a TUI connected at that moment (`questionRoute`, DIPO-279) and the run not being ended,
+//     the question is live: a question of kind `question` is stored and `question.asked` and
+//     `work.observed input-wait` are emitted. The worker's turn has ended and it waits on stdin, so
+//     `work.answer` with text sends the answer as its next user message (`answer`), and the
+//     question closes `answered`. There is no timeout; the run's caps still run.
+//   - Otherwise `askWorker` returns false and run control parks the story `ambiguous-spec` with
+//     the question, as before.
+//   - When the last TUI closes while it is live (DIPO-284), `presenceChanged` closes it (`ended`)
+//     and parks the story with the question through `parkQuestion`.
+//   - When the run ends while it is live (a cap, a stop), the park takes it over (`run/park.ts`):
+//     it stays open as the park's question, and its answer is held for the first message of the
+//     run's next session, as a steer to a parked story is. The story stays Parked until its park
+//     resumes.
 //
-// The timeout's own writes run in a timer, outside any command: a database error there is logged
-// once with its error code and the deny is still sent; the question's timer is armed again and
-// only its close is retried (DIPO-123).
-//
-// The question of a worker's report (the door's message W3, DIPO-272) takes the same rule. Run
-// control hands a blocked report's question to `askWorker`, before it parks:
-//
-// - With a TUI connected at that moment (`questionRoute`) and the run not being ended, the question
-//   is live: a question of kind `question` is stored and `question.asked` and `work.observed
-//   input-wait` are emitted. The worker's turn has ended and it waits on stdin, so `work.answer`
-//   with text sends the answer as its next user message (`answer`), and the question closes
-//   `answered`. There is no timeout; the run's caps still run.
-// - Otherwise `askWorker` returns false and run control parks the story `ambiguous-spec` with the
-//   question, as before.
-// - When the last TUI closes while it is live (DIPO-284), `presenceChanged` closes it (`ended`) and
-//   parks the story with the question through `parkQuestion`.
-// - When the run ends while it is live (a cap, a stop), the park takes it over (`run/park.ts`): it
-//   stays open as the park's question, and its answer is held for the first message of the run's
-//   next session, as a steer to a parked story is. The story stays Parked until its park resumes.
+// A worker's exit closes its open questions (`ended`), and an office load closes the ones a
+// previous daemon left (`expired`).
 
 import {
   type Clock,
@@ -54,7 +40,7 @@ import { CommandError } from "../commands/errors";
 import type { AsyncCommandContext, CommandOutcome, FeatureModule } from "../commands/registry";
 import type { OfficeConfig } from "../config";
 import type { OfficeHandle } from "../db/office";
-import { background, failureFields } from "../platform/background";
+import { failureFields } from "../platform/background";
 import type { RunSteering } from "../run/control";
 import { recordIntent } from "../run/intents";
 import { type LiveQuestions, type Presence, questionRoute } from "../run/live-question";
@@ -63,35 +49,28 @@ import { MAINTAINER_TAGS } from "../run/pauses";
 import { findRun } from "../run/records";
 import { activeSignals, clearSignals, raiseSignal } from "../run/signals";
 import { withWorkViews, workRefOf } from "../views/work";
-import type { HostOp, SteerOp, WorkerEvent } from "../workers/types";
+import type { HostOp, SteerOp } from "../workers/types";
 
 import {
   answerParkQuestion,
   type ParkAnswerResult,
-  parkedElsewhere,
   type ParkResumer,
   staleParkQuestions,
 } from "./park-answers";
 import {
   closeQuestion,
   findQuestion,
-  insertPermissionQuestion,
   insertWorkerQuestion,
   openQuestions,
   type QuestionClose,
   questionViewOf,
   type StoredQuestion,
-  takeAllowOnce,
 } from "./questions";
-import type { HookEvent, HookReply, PermissionDecision } from "./types";
 
 /** The error of `work.answer` for a question that is not waiting (0005 section 4). */
 export const QUESTION_CLOSED = "question.closed";
 
-/** The host's error for a hook call it no longer holds. */
-const HOOK_GONE = "hook.unknown";
-
-/** `engine.notice` code when a decision could not reach the worker host. */
+/** `engine.notice` code when an answer could not reach the worker host. */
 export const REPLY_NOT_SENT = "run.hookReplyNotSent";
 
 export { ABSENT, type Presence } from "../run/live-question";
@@ -105,7 +84,7 @@ export interface PermissionAsksDeps {
   };
   /** Sends host ops to a run's worker host. */
   readonly steering: RunSteering;
-  /** The worker adapter's pure `encode`, which turns the neutral reply into host ops. */
+  /** The worker adapter's pure `encode`, which turns an answer into host ops. */
   readonly encode: (op: SteerOp) => HostOp[];
   readonly presence: Presence;
   /** True while a decision on the run (a cap, a park, a stop) is being carried out. */
@@ -132,8 +111,6 @@ export function workerAnswerText(text: string): string {
   return `${WORKER_ANSWER_INTRO}\n\n${text.trim()}`;
 }
 
-type PermissionRequest = Extract<HookEvent, { kind: "permissionRequest" }>;
-
 function messageOf(error: unknown): string {
   return error instanceof Error ? error.message : String(error);
 }
@@ -142,29 +119,8 @@ export class PermissionAsks implements LiveQuestions {
   readonly #deps: PermissionAsksDeps;
   /** The worker questions asked live by this engine (DIPO-272), with their office and run. */
   readonly #workerQuestions = new Map<string, { readonly office: OfficeId; readonly run: RunId }>();
-  /** Open permission questions this engine waits on (the live ones), with their office and timeout. */
-  readonly #timers = new Map<
-    string,
-    { readonly office: OfficeId; readonly timer: ReturnType<Clock["setTimeout"]> }
-  >();
-  readonly #inflight = new Set<Promise<unknown>>();
-
   constructor(deps: PermissionAsksDeps) {
     this.#deps = deps;
-  }
-
-  /** The events of one committed ingestion pass of `office`'s run `run` (`OfficeIngest`). */
-  onWorkerEvents(
-    office: OfficeHandle,
-    run: string,
-    agent: string,
-    events: readonly WorkerEvent[],
-  ): void {
-    for (const event of events) {
-      if (event.t === "hook" && event.hook.kind === "permissionRequest") {
-        this.request(office, run as RunId, agent, event.hook);
-      }
-    }
   }
 
   /** The worker of `run` exited: its open questions stop waiting. */
@@ -182,63 +138,23 @@ export class PermissionAsks implements LiveQuestions {
     this.#close(office, open, "ended");
   }
 
-  /** Resolves once every reply this module started has been sent. */
-  async idle(): Promise<void> {
-    while (this.#inflight.size > 0) await Promise.allSettled(this.#inflight);
-  }
+  /** Resolves at once: no reply to a worker host is sent in the background any more. */
+  async idle(): Promise<void> {}
 
-  /** Stops every timeout; open questions are closed as `expired` at the next office load. */
+  /** Forgets the live worker questions; open ones are closed as `expired` at the next load. */
   close(): void {
-    for (const { timer } of this.#timers.values()) this.#deps.clock.clearTimeout(timer);
-    this.#timers.clear();
     this.#workerQuestions.clear();
   }
 
   /**
    * The daemon's TUI connections changed (0021 section 11, DIPO-284). With no TUI connected any
-   * more, every live question ends at once: it closes as `ended` and its hook gets no decision, so
-   * its story parks with the question as one asked with no TUI does. While a TUI is still
-   * connected nothing changes. A question whose close fails stays live until its timeout, with a
-   * warning.
+   * more, every live worker question ends at once: it closes as `ended` and its story parks with
+   * the question as one asked with no TUI does. While a TUI is still connected nothing changes.
    */
   presenceChanged(): void {
-    if (this.#timers.size + this.#workerQuestions.size === 0) return;
+    if (this.#workerQuestions.size === 0) return;
     if (this.#deps.presence.tuiConnected()) return;
     this.#endWorkerQuestions();
-    const byOffice = new Map<OfficeId, string[]>();
-    for (const [questionId, { office }] of this.#timers) {
-      const ids = byOffice.get(office) ?? [];
-      ids.push(questionId);
-      byOffice.set(office, ids);
-    }
-    for (const [officeId, ids] of byOffice) {
-      const office = this.#deps.offices.get(officeId);
-      if (office === undefined) continue;
-      let closed: StoredQuestion[];
-      try {
-        const live = ids
-          .map((id) => findQuestion(office, id))
-          .filter(
-            (question): question is StoredQuestion =>
-              question !== null &&
-              question.closedAt === null &&
-              question.hook !== null &&
-              question.parkId === null,
-          );
-        closed = this.#close(office, live, "ended");
-      } catch (error) {
-        this.#deps.warn?.("ending live permission questions after the last TUI closed failed", {
-          office: officeId,
-          questions: ids,
-          ...failureFields(error),
-        });
-        continue;
-      }
-      for (const question of closed) {
-        if (question.hook === null) continue;
-        this.#reply(office, question.runId as RunId, { hook: question.hook, decision: null });
-      }
-    }
   }
 
   /**
@@ -448,55 +364,10 @@ export class PermissionAsks implements LiveQuestions {
     return { result: { question: question.questionId, delivered: "now" } };
   }
 
-  /** Asks the maintainer live, or denies at once so the story parks (see the file comment). */
-  request(office: OfficeHandle, run: RunId, agent: string, hook: PermissionRequest): void {
-    if (hook.id === null) return;
-    const officeId = office.officeId;
-    const config = this.#deps.offices.config(officeId);
-    const now = this.#deps.clock.now();
-    const work = workRefOf(office, run);
-    if (work !== null && this.#deps.ending?.(run) !== true && this.#allowOnce(office, run, hook)) {
-      return;
-    }
-    const allowed = this.#deps.ending?.(run) !== true && config?.permissions.ask === "when-present";
-    if (work === null || questionRoute(this.#deps.presence, allowed) === "park") {
-      this.#reply(office, run, { hook: hook.id, decision: null });
-      return;
-    }
-    const questionId = this.#deps.ids.next("qst");
-    const hookId = hook.id;
-    const appended = office.immediate(() => {
-      const question = insertPermissionQuestion(office, {
-        questionId,
-        runId: run,
-        agentId: agent,
-        tool: hook.tool,
-        input: hook.input,
-        hook: hookId,
-        at: now,
-      });
-      const view = questionViewOf(office, question);
-      const entries: NewEntry[] = [];
-      if (view !== null) entries.push({ type: "question.asked", key: work.key, run, delta: view });
-      const raised = raiseSignal(office, run, "input-wait", now);
-      if (raised !== null) {
-        entries.push({
-          type: "work.observed",
-          key: work.key,
-          run,
-          delta: { work, signal: "input-wait", since: new Date(now).toISOString() },
-        });
-      }
-      const ready = withWorkViews(office, entries);
-      appendEntries(office, ready, { at: now });
-      return ready.length;
-    });
-    if (appended > 0) this.#deps.onChanged?.(officeId);
-    const seconds = config?.timeouts.permissionWaitSeconds ?? 300;
-    this.#arm(officeId, questionId, seconds, () => this.#timeout(officeId, questionId, seconds));
-  }
-
-  /** `work.answer { question, text, decision? }` on a permission question (0008 section 5). */
+  /**
+   * `work.answer { question, text, decision? }`: a `needs-permission` park's question (DIPO-75), or
+   * a worker's question, live or taken over by its park (DIPO-272).
+   */
   async answer(
     ctx: AsyncCommandContext,
     args: {
@@ -540,43 +411,13 @@ export class PermissionAsks implements LiveQuestions {
       }
       return this.#answerWorker(ctx, question, args);
     }
-    if (question.kind !== "permission" || question.hook === null) {
-      throw new CommandError(
-        QUESTION_CLOSED,
-        `${args.question} is not a permission question this engine can answer.`,
-        { question: args.question },
-      );
-    }
-    const decision = args.decision;
-    if (decision === undefined) throw decisionMissing();
-    // A story parked meanwhile resumes only through its park's question (DIPO-75, AC #4).
-    const parked = parkedElsewhere(office, question);
-    if (parked !== null) throw parked;
-    let closed = false;
-    const now = this.#deps.clock.now();
-    ctx.commit(() => {
-      closed = closeQuestion(office, question.questionId, "answered", now, {
-        text: args.text,
-        decision,
-        delivered: "now",
-      });
-      return closed
-        ? this.#closingEntries(office, question, now, answerOf(decision, args.text))
-        : [];
-    });
-    if (!closed) {
-      throw new CommandError(QUESTION_CLOSED, `${args.question} is not waiting for an answer.`, {
-        question: args.question,
-      });
-    }
-    this.#clearTimer(question.questionId);
-    const reason = args.text.trim();
-    await this.#send(office, question.runId as RunId, {
-      hook: question.hook,
-      decision,
-      ...(decision === "deny" && reason !== "" ? { reason } : {}),
-    });
-    return { result: { question: question.questionId, delivered: "now" } };
+    // A live permission question of a relayed approval call is gone with the relay (DIPO-240); one
+    // a previous daemon left open is expired at office load.
+    throw new CommandError(
+      QUESTION_CLOSED,
+      `${args.question} is not a question this engine can answer.`,
+      { question: args.question },
+    );
   }
 
   /** The command `work.answer`. */
@@ -593,9 +434,7 @@ export class PermissionAsks implements LiveQuestions {
           // Worker questions too (DIPO-272): their worker ended with the previous daemon.
           const stale = openQuestions(ctx.office).filter(
             (question) =>
-              question.parkId === null &&
-              !this.#timers.has(question.questionId) &&
-              !this.#workerQuestions.has(question.questionId),
+              question.parkId === null && !this.#workerQuestions.has(question.questionId),
           );
           // A park's question whose park ended while no engine listened (DIPO-75).
           stale.push(...staleParkQuestions(ctx.office));
@@ -606,77 +445,8 @@ export class PermissionAsks implements LiveQuestions {
   }
 
   /**
-   * Allow once (DIPO-75, 0008 section 5): a request whose tool and exact command or path equal
-   * those of an answered `allow` of the run's park question, not used yet, is allowed at once and
-   * the allow is spent. True when it was.
-   */
-  #allowOnce(office: OfficeHandle, run: RunId, hook: PermissionRequest): boolean {
-    if (hook.id === null || hook.exact === undefined) return false;
-    const exact = hook.exact;
-    const now = this.#deps.clock.now();
-    const taken = office.immediate(() => takeAllowOnce(office, run, hook.tool, exact, now));
-    if (taken === null) return false;
-    this.#reply(office, run, { hook: hook.id, decision: "allow" });
-    return true;
-  }
-
-  /** Arms the timer of a question's wait; `fire` runs when it ends. */
-  #arm(office: OfficeId, questionId: string, seconds: number, fire: () => void): void {
-    const timer = this.#deps.clock.setTimeout(() => {
-      this.#timers.delete(questionId);
-      fire();
-    }, seconds * 1000);
-    this.#timers.set(questionId, { office, timer });
-  }
-
-  /**
-   * The wait of a question ends. The deny is sent once; a retry (`retry`, DIPO-123) only closes
-   * the question, so a close that failed before is tried again without a second reply.
-   */
-  #timeout(officeId: OfficeId, questionId: string, seconds: number, retry = false): void {
-    const office = this.#deps.offices.get(officeId);
-    if (office === undefined) return;
-    let question: StoredQuestion | null;
-    try {
-      question = findQuestion(office, questionId);
-    } catch (error) {
-      // Without the question its hook is unknown; the host gives no decision when its wait ends.
-      this.#deps.warn?.("reading a timed-out permission question failed", {
-        question: questionId,
-        ...failureFields(error),
-      });
-      return;
-    }
-    if (question === null || question.closedAt !== null || question.hook === null) return;
-    try {
-      this.#close(office, [question], "timeout");
-    } catch (error) {
-      this.#deps.warn?.("closing a timed-out permission question failed", {
-        question: questionId,
-        run: question.runId,
-        ...failureFields(error),
-      });
-      // The question stays open: its timer is armed again and only the close is retried (DIPO-123).
-      this.#arm(officeId, questionId, seconds, () =>
-        this.#timeout(officeId, questionId, seconds, true),
-      );
-    }
-    if (retry) return;
-    this.#reply(
-      office,
-      question.runId as RunId,
-      {
-        hook: question.hook,
-        decision: "deny",
-        reason: `The maintainer did not answer within ${seconds} s.`,
-      },
-      true,
-    );
-  }
-
-  /**
-   * Closes `questions` as `how` in one transaction, with their entries, and stops their timers once
-   * it committed. Returns the questions this call closed.
+   * Closes `questions` as `how` in one transaction, with their entries. Returns the questions this
+   * call closed.
    */
   #close(
     office: OfficeHandle,
@@ -697,7 +467,6 @@ export class PermissionAsks implements LiveQuestions {
       appendEntries(office, ready, { at: now });
       return ready.length;
     });
-    for (const question of questions) this.#clearTimer(question.questionId);
     if (appended > 0) this.#deps.onChanged?.(office.officeId);
     return closed;
   }
@@ -723,9 +492,7 @@ export class PermissionAsks implements LiveQuestions {
       },
     ];
     const waiting = openQuestions(office, run).some(
-      (open) =>
-        (open.kind === "permission" && open.hook !== null) ||
-        (open.kind === "question" && open.parkId === null),
+      (open) => open.kind === "question" && open.parkId === null,
     );
     if (waiting || !activeSignals(office, run).some((s) => s.signal === "input-wait")) {
       return entries;
@@ -745,78 +512,6 @@ export class PermissionAsks implements LiveQuestions {
       });
     }
     return entries;
-  }
-
-  #clearTimer(questionId: string): void {
-    const live = this.#timers.get(questionId);
-    if (live === undefined) return;
-    this.#deps.clock.clearTimeout(live.timer);
-    this.#timers.delete(questionId);
-  }
-
-  /**
-   * Sends a reply without waiting for it. The notice of a reply that did not arrive is written in
-   * the job too; a failure there is logged, never an unhandled rejection (DIPO-110).
-   */
-  #reply(office: OfficeHandle, run: RunId, reply: HookReply, timedOut = false): void {
-    background(() => this.#send(office, run, reply, timedOut), {
-      failed: "sending a permission decision failed",
-      fields: { run, hook: reply.hook },
-      log: this.#deps.warn,
-      inflight: this.#inflight,
-    });
-  }
-
-  /** Sends a reply to the run's worker host; a failure puts a notice on the office. */
-  async #send(office: OfficeHandle, run: RunId, reply: HookReply, timedOut = false): Promise<void> {
-    let error: string | null = null;
-    let code: string | undefined;
-    try {
-      const sent = await this.#deps.steering.send(
-        office,
-        run,
-        this.#deps.encode({ kind: "hookReply", reply }),
-      );
-      if (!sent.ok) {
-        error = sent.reason;
-        code = sent.code;
-      }
-    } catch (thrown) {
-      error = messageOf(thrown);
-    }
-    if (error === null) return;
-    // A timeout reply the host no longer holds a call for: the call was answered already (the
-    // worker exited, or the host gave up), so there is nothing to report.
-    if (timedOut && code === HOOK_GONE) return;
-    this.#deps.warn?.("a permission decision did not reach the worker host", {
-      run,
-      hook: reply.hook,
-      reason: error,
-    });
-    // No decision is the default the host gives anyway; only a maintainer's answer is worth a
-    // notice.
-    if (reply.decision === null) return;
-    const at = this.#deps.clock.now();
-    const work = workRefOf(office, run);
-    office.immediate(() =>
-      appendEntries(
-        office,
-        [
-          {
-            type: "engine.notice",
-            ...(work === null ? {} : { key: work.key }),
-            run,
-            delta: {
-              level: "warn",
-              code: REPLY_NOT_SENT,
-              text: `${work?.story ?? run}: dipo could not send the ${decisionWord(reply.decision)} to its worker (${error}); the worker's call was denied.`,
-            },
-          },
-        ],
-        { at },
-      ),
-    );
-    this.#deps.onChanged?.(office.officeId);
   }
 }
 
@@ -848,10 +543,6 @@ function decisionMissing(): CommandError {
   return new CommandError("args.invalid", "A permission question needs decision allow or deny.", {
     field: "decision",
   });
-}
-
-function decisionWord(decision: PermissionDecision): string {
-  return decision === "allow" ? "allow" : "deny";
 }
 
 /** The answer `question.closed` carries: the decision, and the maintainer's text after it. */

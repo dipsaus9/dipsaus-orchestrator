@@ -1,6 +1,7 @@
 // The hook command run from source (DIPO-59 review): Claude runs hooks in the worktree, outside the
 // sandbox, and Bun loads `bunfig.toml` (with `preload`) and `.env` from its working directory. A
-// worker can write both in its worktree, so the hook command must load neither. This runs the
+// file in a session's folder must never change what a hook runs, so the hook command loads neither.
+// Only a reviewer's plan registers hooks now (DIPO-240). This runs the
 // planned `Stop` hook command through `sh` in a worktree with both files planted, with a stand-in
 // entry script that prints what it saw.
 
@@ -12,13 +13,14 @@ import { withTempDir } from "@dipsaus-orchestrator/testkit";
 
 import { OFFICE_DEFAULTS } from "../../src/config";
 import { plan, SETTINGS_FILE } from "../../src/workers/claude-cli/plan";
-import { WORKER_REPORT_JSON_SCHEMA } from "../../src/workers/claude-cli/report-schema";
+import { REVIEW_REPORT_JSON_SCHEMA } from "../../src/workers/claude-cli/report-schema";
 
 describe("the hook command from source", () => {
-  it("loads no bunfig.toml preload and no .env the worker planted in the worktree", () =>
+  it("loads no bunfig.toml preload and no .env planted in the session's folder", () =>
     withTempDir(async (dir) => {
       const main = join(dir, "main");
-      const workdir = join(dir, "main.worktrees", "story");
+      const workdir = join(dir, "review", "session");
+      const copy = join(dir, "review", "copy");
       const runDir = join(main, ".git", "dipo", "runs", "run-0001");
       const source = join(dir, "dipo-src");
       for (const path of [workdir, runDir, source]) mkdirSync(path, { recursive: true });
@@ -35,8 +37,9 @@ describe("the hook command from source", () => {
         {
           run: "run-0001",
           agent: "agt-0001",
-          kind: "implement",
+          kind: "review",
           workdir,
+          readOnlyDir: copy,
           model: "haiku",
           effort: "low",
           caps: { budgetTokens: 1000, maxTurns: 5, maxMinutes: 5 },
@@ -44,7 +47,7 @@ describe("the hook command from source", () => {
           taskMessage: "task",
           tools: { allow: ["Read"], deny: [] },
           session: { id: "0e6f3f4c-5b8d-4c1e-9a2b-3c4d5e6f7a8b", resume: false },
-          reportSchema: WORKER_REPORT_JSON_SCHEMA,
+          reportSchema: REVIEW_REPORT_JSON_SCHEMA,
           hookRelay: true,
         },
         {

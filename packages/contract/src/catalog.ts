@@ -53,7 +53,7 @@ import {
   softwareReads,
 } from "./software";
 import { FieldBlock } from "./fieldblock";
-import { officeCommands, officeEvents, officeReads, OfficeSnapshot } from "./office";
+import { DeskItem, officeCommands, officeEvents, officeReads, OfficeSnapshot } from "./office";
 import { CONTRACT_VERSION, ContractVersion } from "./version";
 import {
   Evidence,
@@ -166,6 +166,7 @@ const workSchemas: Record<string, z.ZodType> = {
   QuestionView,
   TestView,
   OfficeSnapshot,
+  DeskItem,
   FieldBlock,
 };
 

@@ -17,7 +17,15 @@ import {
   LaneFlushError,
   OfficeLane,
 } from "./lane";
-import { dropKind, EDIT_KIND, editKind, HOLD_KIND, type LaneOpKind, RESUME_KIND } from "./ops";
+import {
+  DISCARD_KIND,
+  dropKind,
+  EDIT_KIND,
+  editKind,
+  HOLD_KIND,
+  type LaneOpKind,
+  RESUME_KIND,
+} from "./ops";
 
 export class BacklogLane {
   readonly #deps: BacklogLaneDeps;
@@ -31,6 +39,8 @@ export class BacklogLane {
     this.register(editKind(HOLD_KIND));
     this.register(editKind(RESUME_KIND));
     this.register(dropKind);
+    // Discard (0020 section 8, DIPO-161).
+    this.register(editKind(DISCARD_KIND));
     for (const kind of deps.kinds ?? []) this.register(kind);
   }
 

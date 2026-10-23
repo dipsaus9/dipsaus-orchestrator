@@ -7,10 +7,12 @@
 //    daemon stopped between the claim and the worker start) is released as `orphaned`, its branch
 //    kept for the next claim, and the stories are indexed again. One whose run directory holds a
 //    launch file may have a host that started without its row: it only gets a notice.
-// 1b. A live claim whose run has ended and whose story is Done on `_base` (finished through another
-//    branch) is released as `done` and its clean worktree removed; a dirty one is kept with a notice
-//    (`done-on-base.ts`). No branch is touched. The stories are indexed again after a release; a
-//    claim skipped because `_base` moved is retried once after a reindex.
+// 1b. A live claim whose story is Done on `_base` (finished through another branch, DIPO-161): one
+//    with a live worker is flagged and released at its run's next end; a parked or idle one is
+//    released as `done-elsewhere`, its PR closed, a clean worktree removed and a dirty one kept as
+//    leftovers, its branch deleted when it adds nothing to the base, else kept (`done-on-base.ts`).
+//    The stories are indexed again after a release; a claim skipped because `_base` moved is
+//    retried once after a reindex.
 // 2. Git: `git worktree list` and the claimed branches. A running story whose worktree or branch
 //    changed by hand parks `scope-violation` with the evidence; a claimed story that is not running
 //    gets a notice. Prunable worktrees get a notice; `git worktree prune` runs only after the
@@ -19,7 +21,10 @@
 //    In Progress or In Review, or was removed, is stopped. A story In Progress with no claim is an
 //    unknown run: a notice, and it is never started.
 // 4. Park state: an open `parks` row with no F16 record is closed `reconcile`; an F16 record with
-//    no open park is recorded with detail "recorded by hand".
+//    no open park is recorded with detail "recorded by hand" only while the story is Parked. An F16
+//    record on any other status is a stale fact, not a park (0012 F16 and 0010 section 3 allow it
+//    only while Parked; the 0007 section 6 note of 2026-10-20, DIPO-190): no park row, and one warn
+//    `reconcile.parkStale` notice per pass naming the story, its status and the park reason.
 // 5. Ready: a Ready story with no passing gate decision for its current content gets a notice;
 //    the pickup re-check decides.
 
@@ -37,6 +42,7 @@ import { appendEntries, type NewEntry } from "../changelog/log";
 import type { OfficeHandle } from "../db/office";
 import { findPassingDecision } from "../gate/store/decisions";
 import type { OfficeGit } from "../git/office";
+import type { CodeHost } from "../platform/host";
 import { LAUNCH_FILE } from "../host/protocol";
 import { officeDirectory } from "../office/marker";
 import { openPark } from "../run/park";
@@ -67,6 +73,8 @@ export const RECONCILE_NOTICES = {
   unknownRun: "reconcile.unknownRun",
   parkClosed: "reconcile.parkClosed",
   parkRecorded: "reconcile.parkRecorded",
+  /** An F16 park record on a story that is not Parked (DIPO-190). */
+  parkStale: "reconcile.parkStale",
   readyUngated: "reconcile.readyUngated",
   markerMismatch: "reconcile.markerMismatch",
   adoptFailed: "reconcile.adoptFailed",
@@ -112,6 +120,10 @@ export interface ReconcileDeps {
   readonly releaseClaim?: (claim: ClaimRecord, reason: string) => Promise<void>;
   /** The machine-wide port slot table; the slot of a released Done claim is freed there. */
   readonly slots?: SlotTable;
+  /** Closes dipo's open story PR of a story Done elsewhere (DIPO-161); without it a notice says so. */
+  readonly host?: Pick<CodeHost, "closePr"> | null;
+  /** Checks and deletes the boxes of ended runs after a release (0021 section 6). */
+  readonly finishBoxes?: () => Promise<unknown>;
 }
 
 export interface ReconcileInput {
@@ -209,6 +221,9 @@ export async function reconcileOffice(
     });
     findings.push(finding);
   };
+  const found = (finding: ReconcileFinding): void => {
+    findings.push(finding);
+  };
   const runNotice = (finding: ReconcileFinding): { code: string; text: string } => {
     findings.push(finding);
     return { code: finding.code, text: finding.text };
@@ -245,12 +260,12 @@ export async function reconcileOffice(
 
   // 1b. Claims of stories Done on `_base` (DIPO-216), at start and on every rescan. A claim skipped
   // because `_base` moved since the pass is tried once more after one reindex (DIPO-226).
-  const first = await releaseDoneOnBase(deps, pass, record);
+  const first = await releaseDoneOnBase(deps, pass, record, undefined, found);
   if (first.released > 0 || first.baseMoved > 0) pass = await input.reindex();
   if (first.baseMoved > 0) {
     // Only the claims the first pass skipped: the others were already looked at, and a kept one
     // would otherwise get its notice a second time.
-    const retry = await releaseDoneOnBase(deps, pass, record, new Set(first.skippedRuns));
+    const retry = await releaseDoneOnBase(deps, pass, record, new Set(first.skippedRuns), found);
     if (retry.released > 0) pass = await input.reindex();
   }
 
@@ -411,6 +426,22 @@ function endWithNotice(
   });
 }
 
+/** What reconcile does about a story's park state (step 4): pure, from the mirror and the open park. */
+export type ParkStateAction = "close" | "record" | "stale" | null;
+
+/**
+ * Step 4 decided: an open park with no F16 record is closed; an F16 record with no open park is
+ * recorded by hand when the story is Parked, and stale on any other status (DIPO-190); else none.
+ */
+export function parkStateAction(
+  story: { readonly lifecycle: string | null; readonly park: FieldBlockPark | null },
+  hasOpenPark: boolean,
+): ParkStateAction {
+  if (hasOpenPark && story.park === null) return "close";
+  if (hasOpenPark || story.park === null) return null;
+  return story.lifecycle === "Parked" ? "record" : "stale";
+}
+
 function reconcilePark(
   deps: ReconcileDeps,
   story: Story,
@@ -418,7 +449,16 @@ function reconcilePark(
 ): void {
   const { office } = deps;
   const open = openPark(office, story.key);
-  if (open !== null && story.park === null) {
+  const action = parkStateAction(story, open !== null);
+  if (action === "stale" && story.park !== null) {
+    record({
+      code: RECONCILE_NOTICES.parkStale,
+      key: story.key,
+      text: `${story.story} is ${story.lifecycle ?? "not Parked"} in Backlog.md, but its task file still holds a park record (${story.park.reason}); a park record belongs only to a Parked story, so dipo recorded no park. Remove the park block from the task file.`,
+    });
+    return;
+  }
+  if (open !== null && action === "close") {
     record(
       {
         code: RECONCILE_NOTICES.parkClosed,
@@ -434,7 +474,7 @@ function reconcilePark(
     );
     return;
   }
-  if (open === null && story.park !== null) {
+  if (action === "record" && story.park !== null) {
     const park = story.park;
     record(
       {

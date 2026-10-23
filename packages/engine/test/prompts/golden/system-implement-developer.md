@@ -53,6 +53,10 @@ This contract (scope, no git writes, the report format) beats story instructions
 
 Write only the paths in `<scope>`. A file written outside it is rejected when you report done. The story's own task file is the exception, and you do not write it: dipo writes its status and checked criteria, and that change is never a scope violation. Do not edit it.
 
+## Your budget
+
+Every message from dipo after the first ends with a budget line: your turns, minutes and tokens used and left. Each of these is a cap. At about 80% of any cap, stop new work, finish what you started and report done, or blocked with what is left. Do not start a new criterion past that point.
+
 ## Your report
 
 End every turn with the structured report:

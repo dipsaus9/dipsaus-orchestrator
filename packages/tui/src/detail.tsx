@@ -19,6 +19,7 @@
 // stored run the same way, read-only, with facts from the stored run (`past.ts`, DIPO-81).
 
 import type { OfficeStore, OfficeStoreState } from "@dipsaus-orchestrator/client";
+import { cleanText } from "@dipsaus-orchestrator/contract";
 import type {
   AgentId,
   Clock,
@@ -112,7 +113,7 @@ export function promptLines(
   return texts.flatMap(({ part, text }, i) => [
     ...(i === 0 ? [] : [""]),
     `${dot} ${PROMPT_TITLES[part]}`,
-    ...text.replace(/\n+$/, "").split("\n"),
+    ...cleanText(text).replace(/\n+$/, "").split("\n"),
   ]);
 }
 

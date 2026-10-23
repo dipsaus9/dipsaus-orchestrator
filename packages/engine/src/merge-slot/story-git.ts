@@ -7,7 +7,8 @@
 // - The close-out commit (step 1): in dipo's own copy of the story's backlog (`editInStoryBacklog`,
 //   0021 section 14), the final summary (DIPO-154's `writeCloseOutSummary`, passed in), the
 //   modified files (the paths the branch changed since its merge base with the base, without
-//   `backlog/`) and status `Done`, committed alone as `<ID>: status Done`. Provisional until the
+//   `backlog/`), then DIPO-155's `closeOutFields`: the F16 park record removed and status `Done`,
+//   committed alone as `<ID>: status Done`. Provisional until the
 //   host merge (0010).
 // - The sync (step 2): dipo merges the base into the story branch in its own repository from git
 //   objects (`planCatchUp`, `commit-tree`, `update-ref`), never in a worktree a worker writes and
@@ -25,7 +26,7 @@ import { join } from "node:path";
 
 import type { OfficeId } from "@dipsaus-orchestrator/contract";
 
-import { type StoryTarget, viewStory } from "../backlog/fields/write";
+import type { StoryTarget } from "../backlog/fields/write";
 import { type BacklogCli, isTaskFileOf, runBacklog, TASKS_DIR } from "../backlog/runner";
 import {
   baseRefOf,
@@ -39,19 +40,17 @@ import {
 } from "../box/collisions";
 import type { GitLocation } from "../git/hardened";
 import type { GitSession, OfficeGit } from "../git/office";
-import { GitError } from "../git/runner";
 import { pushBranch } from "../git/task-commit";
 import { codeTreeKeyOf } from "../run/story-git";
 import { BRANCH_READ_PREFIX } from "../stories/branch-read";
 import { editInStoryBacklog } from "../worktree/claim";
 
+import { closeOutFields, DONE_STATUS } from "./close-out-park";
+
 import type { PushOutcome } from "./git";
 import type { SlotSyncMode } from "./store";
 
 type WorktreeLocation = Extract<GitLocation, { kind: "worktree" }>;
-
-/** The Backlog.md status of a merged story (0012). */
-export const DONE_STATUS = "Done";
 
 /** The most modified files the close-out writes; the rest are left out. */
 export const MODIFIED_FILES_MAX = 200;
@@ -210,24 +209,19 @@ export function gitStorySlotOps(deps: {
           `${run.story}: status ${DONE_STATUS}`,
           async (backlog) => {
             const target = { cli: deps.cli, cwd: backlog.cwd, id: run.story };
-            const before = await viewStory(target);
             // A later stay in the slot writes the summary and the modified files again as they are
             // now, also when the story is Done from an earlier stay; nothing new commits nothing.
             await summary(target);
-            await runBacklog(deps.cli, backlog.cwd, [
-              "task",
-              "edit",
-              run.story,
-              ...(before.status === DONE_STATUS ? [] : ["--status", DONE_STATUS]),
-              ...files.flatMap((file) => ["--modified-file", file]),
-            ]);
-            const back = await viewStory(target);
-            if (back.status !== DONE_STATUS) {
-              throw new GitError(
-                "mergeSlot.statusNotWritten",
-                `The Backlog CLI left ${run.story} at ${back.status}, not ${DONE_STATUS}.`,
-              );
+            if (files.length > 0) {
+              await runBacklog(deps.cli, backlog.cwd, [
+                "task",
+                "edit",
+                run.story,
+                ...files.flatMap((file) => ["--modified-file", file]),
+              ]);
             }
+            // DIPO-155's close-out fields: the park record removed and status Done, read back.
+            await closeOutFields(target);
           },
         );
         return commit;
