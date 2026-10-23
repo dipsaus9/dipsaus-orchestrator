@@ -16,7 +16,12 @@ import { MergeSlot } from "../../src/merge-slot/slot";
 import type { OfficeLoadContext } from "../../src/office/steps";
 import type { HostPr, PrState } from "../../src/platform/host";
 import { CodeHostError } from "../../src/platform/host";
-import { PR_STATE_CONSUMERS, PrStatePoll } from "../../src/platform/pr-state";
+import {
+  PR_STATE_CONSUMERS,
+  PrStatePoll,
+  type PrStatePollConsumer,
+  type PrStateReads,
+} from "../../src/platform/pr-state";
 import type { StoryPrGit } from "../../src/story-pr/git";
 import { StoryPrs } from "../../src/story-pr/prs";
 import { StoryTeardown } from "../../src/worktree/done";
@@ -88,18 +93,15 @@ describe("one round", () => {
     const host = new Host();
     const { poll: prState } = poll(host);
     const seen: Record<string, (HostPr | null)[]> = { "story-pr": [], "merge-slot": [], done: [] };
-    prState.subscribe("story-pr", async (office) => {
-      const reads = prState.reads(office);
+    prState.subscribe("story-pr", async (_office, reads) => {
       seen["story-pr"]?.push(await reads.viewPr(REPO, 7), await reads.viewPr(REPO, 8));
     });
-    prState.subscribe("merge-slot", async (office) => {
-      seen["merge-slot"]?.push(
-        await prState.reads(office).viewPr(REPO, 7, { head: "a".repeat(40) }),
-      );
+    prState.subscribe("merge-slot", async (_office, reads) => {
+      seen["merge-slot"]?.push(await reads.viewPr(REPO, 7, { head: "a".repeat(40) }));
     });
-    prState.subscribe("done", async (office) => {
+    prState.subscribe("done", async (_office, reads) => {
       // Asked by branch: the story PR the round read answers it.
-      seen.done?.push(await prState.reads(office).findMergedPr(REPO, "DIPO-7/story"));
+      seen.done?.push(await reads.findMergedPr(REPO, "DIPO-7/story"));
     });
     await prState.round(OFFICE);
     expect(host.views).toEqual([7, 8]);
@@ -117,12 +119,8 @@ describe("one round", () => {
     host.states.set(7, "merged");
     const { poll: prState } = poll(host);
     const answers: (number | null)[] = [];
-    prState.subscribe(
-      "story-pr",
-      async (office) => void (await prState.reads(office).viewPr(REPO, 7)),
-    );
-    prState.subscribe("done", async (office) => {
-      const reads = prState.reads(office);
+    prState.subscribe("story-pr", async (_office, reads) => void (await reads.viewPr(REPO, 7)));
+    prState.subscribe("done", async (_office, reads) => {
       answers.push((await reads.findMergedPr(REPO, "DIPO-7/story"))?.number ?? null);
       answers.push((await reads.findMergedPr(REPO, "DIPO-9/other"))?.number ?? null);
       answers.push((await reads.findMergedPr(REPO, "DIPO-9/other"))?.number ?? null);
@@ -137,14 +135,11 @@ describe("one round", () => {
     const host = new Host();
     const { poll: prState } = poll(host);
     const heads: string[] = [];
-    prState.subscribe(
-      "story-pr",
-      async (office) => void (await prState.reads(office).viewPr(REPO, 7)),
-    );
-    prState.subscribe("merge-slot", async (office) => {
+    prState.subscribe("story-pr", async (_office, reads) => void (await reads.viewPr(REPO, 7)));
+    prState.subscribe("merge-slot", async (_office, reads) => {
       // The slot pushed a new head since the story-PR poll read the PR.
       host.heads.set(7, "b".repeat(40));
-      heads.push((await prState.reads(office).viewPr(REPO, 7, { head: "b".repeat(40) })).headSha);
+      heads.push((await reads.viewPr(REPO, 7, { head: "b".repeat(40) })).headSha);
     });
     await prState.round(OFFICE);
     expect(host.views).toEqual([7, 7]);
@@ -157,16 +152,13 @@ describe("one round", () => {
     const { poll: prState } = poll(host);
     const errors: string[] = [];
     let doneRan = false;
-    prState.subscribe("story-pr", async (office) => {
-      await prState
-        .reads(office)
-        .viewPr(REPO, 7)
-        .catch((error: CodeHostError) => {
-          errors.push(error.code);
-        });
+    prState.subscribe("story-pr", async (_office, reads) => {
+      await reads.viewPr(REPO, 7).catch((error: CodeHostError) => {
+        errors.push(error.code);
+      });
     });
-    prState.subscribe("merge-slot", async (office) => {
-      await prState.reads(office).viewPr(REPO, 7);
+    prState.subscribe("merge-slot", async (_office, reads) => {
+      await reads.viewPr(REPO, 7);
     });
     prState.subscribe("done", async () => {
       doneRan = true;
@@ -177,14 +169,76 @@ describe("one round", () => {
     expect(doneRan).toBe(true);
   });
 
-  it("reads the host each time outside a round", async () => {
+  it("reads the host each time through a round's reads once the round ended", async () => {
     const host = new Host();
     const { poll: prState } = poll(host);
-    await prState.reads(OFFICE).viewPr(REPO, 7);
-    await prState.reads(OFFICE).viewPr(REPO, 7);
-    await prState.reads(OFFICE).findMergedPr(REPO, "DIPO-7/story");
-    expect(host.views).toEqual([7, 7]);
+    let kept: PrStateReads | null = null;
+    prState.subscribe("story-pr", async (_office, reads) => {
+      kept = reads;
+      await reads.viewPr(REPO, 7);
+    });
+    await prState.round(OFFICE);
+    const late = kept as PrStateReads | null;
+    if (late === null) throw new Error("no reads");
+    await late.viewPr(REPO, 7);
+    await late.viewPr(REPO, 7);
+    await late.findMergedPr(REPO, "DIPO-7/story");
+    expect(host.views).toEqual([7, 7, 7]);
     expect(host.merged).toEqual(["DIPO-7/story"]);
+  });
+
+  it("gives each consumer its own reads over one shared round", async () => {
+    const host = new Host();
+    const { poll: prState } = poll(host);
+    const given: PrStateReads[] = [];
+    for (const name of PR_STATE_CONSUMERS) {
+      prState.subscribe(name, async (_office, reads) => {
+        given.push(reads);
+        await reads.viewPr(REPO, 7);
+      });
+    }
+    await prState.round(OFFICE);
+    expect(new Set(given).size).toBe(3);
+    expect(host.views).toEqual([7]);
+  });
+
+  it("drops a PR the slot merged from the round, so the Done poll asks the host", async () => {
+    const host = new Host();
+    const { poll: prState } = poll(host);
+    const answers: (number | null)[] = [];
+    const merged = Promise.withResolvers<void>();
+    prState.subscribe("story-pr", async (_office, reads) => void (await reads.viewPr(REPO, 7)));
+    prState.subscribe("merge-slot", async (_office, reads) => {
+      // The slot merged #7 in this round.
+      reads.invalidate?.(REPO, 7);
+      merged.resolve();
+    });
+    prState.subscribe("done", async (_office, reads) => {
+      await merged.promise;
+      answers.push((await reads.findMergedPr(REPO, "DIPO-7/story"))?.number ?? null);
+    });
+    await prState.round(OFFICE);
+    expect(host.merged).toEqual(["DIPO-7/story"]);
+    expect(answers).toEqual([null]);
+  });
+
+  it("runs the Done poll while a slow merge slot tick still runs, after the story-PR poll", async () => {
+    const { poll: prState } = poll(new Host());
+    const order: string[] = [];
+    const slot = Promise.withResolvers<void>();
+    prState.subscribe("story-pr", async () => void order.push("story-pr"));
+    prState.subscribe("merge-slot", async () => {
+      order.push("merge-slot started");
+      await slot.promise;
+      order.push("merge-slot ended");
+    });
+    prState.subscribe("done", async () => void order.push("done"));
+    const round = prState.round(OFFICE);
+    await Bun.sleep(1);
+    expect(order).toEqual(["story-pr", "merge-slot started", "done"]);
+    slot.resolve();
+    await round;
+    expect(order.at(-1)).toBe("merge-slot ended");
   });
 
   it("skips a round while the last one still runs", async () => {
@@ -275,14 +329,10 @@ describe("the consumers", () => {
       offices: { get: () => ({}), config: () => config(30) },
     });
     const watched = {
-      subscribe: (
-        name: (typeof PR_STATE_CONSUMERS)[number],
-        run: (o: OfficeId) => Promise<unknown>,
-      ) => {
+      subscribe: (name: (typeof PR_STATE_CONSUMERS)[number], run: PrStatePollConsumer) => {
         subscribed.push(name);
         prState.subscribe(name, run);
       },
-      reads: (office: OfficeId) => prState.reads(office),
     };
     const offices = { get: () => undefined, config: () => config(30) };
     const teardown = new StoryTeardown({

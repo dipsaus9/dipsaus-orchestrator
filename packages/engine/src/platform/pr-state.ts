@@ -1,22 +1,24 @@
 // One PR-state poll per office (DIPO-314). Every `polling.prStateSeconds` of the office
-// configuration in force, one timer runs one round: the story-PR poll (`story-pr/prs.ts`), then a
-// merge slot tick (`merge-slot/slot.ts`), then the Done poll (`worktree/done.ts`), one after the
-// other. Within a round each of them reads PR state through `reads(office)`, which asks the host
-// about each PR once: the first read of a PR is shared with every later read of it in the same
-// round, and the Done poll's "did this branch merge" question is answered from a PR of that branch
-// the round already read. So each open PR is read once per interval, and its state passes from
-// the story-PR poll to the merge slot and the Done poll.
+// configuration in force, one timer runs one round: the story-PR poll (`story-pr/prs.ts`) first,
+// then a merge slot tick (`merge-slot/slot.ts`) and the Done poll (`worktree/done.ts`) side by
+// side, so a slow slot tick does not hold the Done poll back. Each consumer gets its own reads
+// object for the round (`PrStateReads`), which asks the host about each PR once: the first read
+// of a PR is shared with every later read of it in the same round, and the Done poll's "did this
+// branch merge" question is answered from a PR of that branch the round already read. So each
+// open PR is read once per interval, and its state passes from the story-PR poll to the merge slot
+// and the Done poll.
 //
-// A read outside a round (a merge slot tick after a flush or a maintainer's decision, a sync after
-// an In Review push) goes to the host, and is not kept. A read that names the head the caller
-// expects (`head`) is read again from the host when the round's copy shows another head, so a
-// head dipo pushed during the round is never taken for a hand change. Reads that must see the
-// host's state after a step of their own (after a merge attempt) go to the host directly and do
-// not use this poll.
+// Only the reads object a round hands out uses the round: a merge slot tick after a flush or a
+// maintainer's decision, a sync after an In Review push, and a read after the round ended go to
+// the host. A read that names the head the caller expects (`head`) is read again from the host
+// when the round's copy shows another head, so a head dipo pushed during the round is never taken
+// for a hand change. A PR the slot merged in the round is dropped from it (`invalidate`), so the
+// Done poll asks the host about its branch. Reads that must see the host's state after a step of
+// their own (after a merge attempt) go to the host directly.
 //
-// A consumer that fails is logged, and the round goes on with the next. A round that is due while
-// the last one still runs is skipped, and the next timer is armed once a round ends. Each consumer
-// stops arming its own timer once it is subscribed here.
+// A consumer that fails is logged, and the round goes on with the others. A round that is due
+// while the last one still runs is skipped, and the next timer is armed once a round ends. Each
+// consumer stops arming its own timer once it is subscribed here.
 
 import type { Clock, OfficeId, TimerHandle } from "@dipsaus-orchestrator/contract";
 
@@ -34,7 +36,7 @@ export const PR_STATE_CONSUMERS = ["story-pr", "merge-slot", "done"] as const;
 
 export type PrStateConsumer = (typeof PR_STATE_CONSUMERS)[number];
 
-/** How a consumer reads PR state: through the office's round while one runs, else the host. */
+/** How a consumer reads PR state in one round (see the file comment). */
 export interface PrStateReads {
   /**
    * The PR as the host reports it. With `head`, a copy of this round that shows another head of an
@@ -43,7 +45,12 @@ export interface PrStateReads {
   viewPr(repo: string, number: number, expect?: { readonly head?: string }): Promise<HostPr>;
   /** The newest merged PR whose head is `branch`, or null (`PrStateHost.findMergedPr`). */
   findMergedPr(repo: string, branch: string): Promise<HostPr | null>;
+  /** Drops what the round read of the PR, after the caller changed it (a merge). */
+  invalidate?(repo: string, number: number): void;
 }
+
+/** A consumer of the poll: one round's work for the office, reading through `reads`. */
+export type PrStatePollConsumer = (office: OfficeId, reads: PrStateReads) => Promise<unknown>;
 
 export interface PrStatePollDeps {
   readonly host: Pick<CodeHost, "viewPr"> & PrStateHost;
@@ -75,9 +82,20 @@ interface Polled {
 const messageOf = (error: unknown): string =>
   error instanceof Error ? error.message : String(error);
 
+/** Drops what `round` read of the PR: its view and the branch answers it gave. */
+function forget(round: Round, repo: string, number: number): void {
+  round.views.delete(`${repo}#${number}`);
+  for (const [key, pr] of round.byBranch) {
+    if (pr.number === number && key.startsWith(`${repo}:`)) {
+      round.byBranch.delete(key);
+      round.merged.delete(key);
+    }
+  }
+}
+
 export class PrStatePoll {
   readonly #deps: PrStatePollDeps;
-  readonly #consumers = new Map<PrStateConsumer, (office: OfficeId) => Promise<unknown>>();
+  readonly #consumers = new Map<PrStateConsumer, PrStatePollConsumer>();
   readonly #offices = new Map<OfficeId, Polled>();
   #stopped = false;
 
@@ -86,16 +104,8 @@ export class PrStatePoll {
   }
 
   /** Makes `poll` part of every round, in its place in `PR_STATE_CONSUMERS`. */
-  subscribe(name: PrStateConsumer, poll: (office: OfficeId) => Promise<unknown>): void {
+  subscribe(name: PrStateConsumer, poll: PrStatePollConsumer): void {
     this.#consumers.set(name, poll);
-  }
-
-  /** How the office's consumers read PR state (see the file comment). */
-  reads(office: OfficeId): PrStateReads {
-    return {
-      viewPr: (repo, number, expect) => this.#view(office, repo, number, expect?.head),
-      findMergedPr: (repo, branch) => this.#merged(office, repo, branch),
-    };
   }
 
   /** True while a round of the office runs. */
@@ -118,25 +128,44 @@ export class PrStatePoll {
       this.#deps.logger?.debug("PR-state poll skipped: a round still runs", { office });
       return false;
     }
-    state.round = { views: new Map(), merged: new Map(), byBranch: new Map() };
+    const round: Round = { views: new Map(), merged: new Map(), byBranch: new Map() };
+    state.round = round;
     state.rounds += 1;
     try {
-      for (const name of PR_STATE_CONSUMERS) {
-        const poll = this.#consumers.get(name);
-        if (poll === undefined) continue;
-        try {
-          await poll(office);
-        } catch (error) {
-          this.#deps.logger?.warn(`the ${name} part of the PR-state poll failed`, {
-            office,
-            reason: messageOf(error),
-          });
-        }
-      }
+      // The story-PR poll first, so its reads pass to the others; those two side by side.
+      await this.#part(office, state, round, "story-pr");
+      await Promise.all([
+        this.#part(office, state, round, "merge-slot"),
+        this.#part(office, state, round, "done"),
+      ]);
     } finally {
       state.round = null;
     }
     return true;
+  }
+
+  /** One consumer's part of a round, with its own reads; a failure is logged. */
+  async #part(office: OfficeId, state: Polled, round: Round, name: PrStateConsumer): Promise<void> {
+    const poll = this.#consumers.get(name);
+    if (poll === undefined) return;
+    try {
+      await poll(office, this.#roundReads(state, round));
+    } catch (error) {
+      this.#deps.logger?.warn(`the ${name} part of the PR-state poll failed`, {
+        office,
+        reason: messageOf(error),
+      });
+    }
+  }
+
+  /** Reads through `round` while it is the office's running round, else the host. */
+  #roundReads(state: Polled, round: Round): PrStateReads {
+    const live = () => (state.round === round ? round : null);
+    return {
+      viewPr: (repo, number, expect) => this.#view(live(), repo, number, expect?.head),
+      findMergedPr: (repo, branch) => this.#merged(live(), repo, branch),
+      invalidate: (repo, number) => forget(round, repo, number),
+    };
   }
 
   /** Runs a round every `polling.prStateSeconds` of the office until it is forgotten. */
@@ -168,12 +197,11 @@ export class PrStatePoll {
   // ---- reads -----------------------------------------------------------------------------------
 
   async #view(
-    office: OfficeId,
+    round: Round | null,
     repo: string,
     number: number,
     head: string | undefined,
   ): Promise<HostPr> {
-    const round = this.#offices.get(office)?.round ?? null;
     if (round === null) return this.#deps.host.viewPr(repo, number);
     const key = `${repo}#${number}`;
     let read = round.views.get(key);
@@ -201,8 +229,7 @@ export class PrStatePoll {
     return read;
   }
 
-  async #merged(office: OfficeId, repo: string, branch: string): Promise<HostPr | null> {
-    const round = this.#offices.get(office)?.round ?? null;
+  async #merged(round: Round | null, repo: string, branch: string): Promise<HostPr | null> {
     if (round === null) return this.#deps.host.findMergedPr(repo, branch);
     const key = `${repo}:${branch}`;
     // A PR of the branch this round read answers it: merged is the answer, and an open PR of the

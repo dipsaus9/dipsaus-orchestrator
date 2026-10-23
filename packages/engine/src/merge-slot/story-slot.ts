@@ -173,7 +173,7 @@ export interface StorySlotContext {
    * How the slot reads a story PR's state during a tick: through the office's PR-state round
    * (DIPO-314), so a PR the story-PR poll read this round is not read again; `host` when absent.
    */
-  readonly prState?: Pick<PrStateReads, "viewPr">;
+  readonly prState?: Pick<PrStateReads, "viewPr" | "invalidate">;
   readonly clock: Clock;
   /** The configuration in force; a run's snapshot is laid on it. */
   readonly config: OfficeConfig;
@@ -935,7 +935,10 @@ export class StorySlot {
     } catch (error) {
       if (!(error instanceof CodeHostError)) throw error;
       const again = await ctx.host.viewPr(current.repo, current.number).catch(() => null);
-      if (again?.state === "merged") return this.#merged(ctx, run, current);
+      if (again?.state === "merged") {
+        ctx.prState?.invalidate?.(current.repo, current.number);
+        return this.#merged(ctx, run, current);
+      }
       const git = this.#deps.git;
       const moved =
         (await git.fetch(ctx.officeId)) && !(await git.containsBase(ctx.officeId, current.branch));
@@ -956,6 +959,8 @@ export class StorySlot {
       }
       return "again";
     }
+    // The PR-state round's copy of the PR is stale now (DIPO-314).
+    ctx.prState?.invalidate?.(current.repo, current.number);
     return this.#merged(ctx, run, current);
   }
 

@@ -56,8 +56,9 @@
 // stays armed, so an office that turns the key back on is picked up at the next interval.
 //
 // With the office's PR-state poll (`prState`, DIPO-314) the PR poll is the first part of each of
-// its rounds instead of a timer of its own, and it reads each open PR through the round, so the
-// merge slot and the Done poll that follow get the same read.
+// its rounds instead of a timer of its own, and that pass reads each open PR through the reads the
+// round gave it, so the merge slot and the Done poll that follow get the same read. Every other
+// read (a sync after an In Review push) goes to the host.
 
 import type {
   Clock,
@@ -204,7 +205,7 @@ export interface StoryPrsDeps {
    * not on a timer of its own, and reads each open PR through it. Without it the PR poll keeps its
    * own timer and reads the host.
    */
-  readonly prState?: Pick<PrStatePoll, "subscribe" | "reads">;
+  readonly prState?: Pick<PrStatePoll, "subscribe">;
 }
 
 /** What the poll knows of the pushed head of one story PR. */
@@ -239,6 +240,8 @@ interface Polled {
   readonly watch: Map<string, Watch>;
   /** The review state last written to each run's PR body, so a new verdict rewrites it. */
   readonly reviewed: Map<string, string>;
+  /** The reads of the PR-state round the running pass belongs to (DIPO-314), or null. */
+  reads: Pick<PrStateReads, "viewPr"> | null;
 }
 
 /** Where the CI of a run's pushed head stands (`StoryPrs.ciState`, DIPO-148). */
@@ -257,14 +260,14 @@ export class StoryPrs {
 
   constructor(deps: StoryPrsDeps) {
     this.#deps = deps;
-    deps.prState?.subscribe("story-pr", (office) =>
-      this.#offices.has(office) ? this.retry(office) : Promise.resolve([]),
+    deps.prState?.subscribe("story-pr", (office, reads) =>
+      this.#offices.has(office) ? this.retry(office, reads) : Promise.resolve([]),
     );
   }
 
-  /** How the PR poll reads a PR: through the office's PR-state round, else the host. */
-  #reads(officeId: OfficeId): Pick<PrStateReads, "viewPr"> {
-    return this.#deps.prState?.reads(officeId) ?? this.#deps.host;
+  /** How the PR poll reads a PR: through the PR-state round its pass runs in, else the host. */
+  #reads(state: Polled): Pick<PrStateReads, "viewPr"> {
+    return state.reads ?? this.#deps.host;
   }
 
   /** The feature module that adds the load step arming the retry poll. */
@@ -294,6 +297,7 @@ export class StoryPrs {
       told: new Map(),
       watch: new Map(),
       reviewed: new Map(),
+      reads: null,
     });
   }
 
@@ -311,36 +315,46 @@ export class StoryPrs {
 
   /**
    * One pass of the PR poll: reads the state of each PR still open on the host, then syncs each In
-   * Review run that has no PR yet. Returns the runs whose PR it tried to open.
+   * Review run that has no PR yet. Returns the runs whose PR it tried to open. With `reads` (a
+   * PR-state round, DIPO-314) the pass reads each open PR through them.
    */
-  retry(officeId: OfficeId): Promise<RunId[]> {
+  retry(officeId: OfficeId, reads?: Pick<PrStateReads, "viewPr">): Promise<RunId[]> {
     const state = this.#state(officeId);
     return this.#serial(state, async () => {
-      // The In Review pushes that did not reach the remote first (DIPO-315).
-      await this.#pushAgain(officeId, state);
-      for (const stored of openStoryPrs(state.office)) {
-        const owner = findRun(state.office, stored.runId);
-        if (owner !== null && !this.#opensPrs(officeId, owner)) continue;
-        await this.#poll(officeId, state, stored);
-        await this.#reviewStep(officeId, state, stored.runId);
+      state.reads = reads ?? null;
+      try {
+        return await this.#retry(officeId, state);
+      } finally {
+        state.reads = null;
       }
-      const tried: RunId[] = [];
-      for (const { runId } of runsWithoutPr(state.office)) {
-        const run = findRun(state.office, runId);
-        // Story PRs switched off for the run (its configuration snapshot, DIPO-210): no attempt.
-        if (run === null || !this.#opensPrs(officeId, run)) continue;
-        tried.push(runId);
-        await this.#sync(officeId, state, runId);
-      }
-      // A replacement of a closed PR whose create failed is tried again (DIPO-324).
-      for (const runId of pendingPrReplacements(state.office)) {
-        const run = findRun(state.office, runId);
-        if (run === null || !this.#opensPrs(officeId, run)) continue;
-        tried.push(runId);
-        await this.#replace(officeId, state, runId);
-      }
-      return tried;
     });
+  }
+
+  async #retry(officeId: OfficeId, state: Polled): Promise<RunId[]> {
+    // The In Review pushes that did not reach the remote first (DIPO-315).
+    await this.#pushAgain(officeId, state);
+    for (const stored of openStoryPrs(state.office)) {
+      const owner = findRun(state.office, stored.runId);
+      if (owner !== null && !this.#opensPrs(officeId, owner)) continue;
+      await this.#poll(officeId, state, stored);
+      await this.#reviewStep(officeId, state, stored.runId);
+    }
+    const tried: RunId[] = [];
+    for (const { runId } of runsWithoutPr(state.office)) {
+      const run = findRun(state.office, runId);
+      // Story PRs switched off for the run (its configuration snapshot, DIPO-210): no attempt.
+      if (run === null || !this.#opensPrs(officeId, run)) continue;
+      tried.push(runId);
+      await this.#sync(officeId, state, runId);
+    }
+    // A replacement of a closed PR whose create failed is tried again (DIPO-324).
+    for (const runId of pendingPrReplacements(state.office)) {
+      const run = findRun(state.office, runId);
+      if (run === null || !this.#opensPrs(officeId, run)) continue;
+      tried.push(runId);
+      await this.#replace(officeId, state, runId);
+    }
+    return tried;
   }
 
   /**
@@ -840,7 +854,7 @@ export class StoryPrs {
     }
     let viewed: HostPr;
     try {
-      viewed = await this.#reads(officeId).viewPr(repo, stored.number);
+      viewed = await this.#reads(state).viewPr(repo, stored.number);
     } catch (error) {
       this.#deps.logger?.warn("reading the story PR failed", {
         office: officeId,

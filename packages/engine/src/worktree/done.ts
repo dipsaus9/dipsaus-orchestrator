@@ -20,9 +20,10 @@
 // `done-elsewhere` and its PR, worktree and branch settled (`done-elsewhere.ts`). Each poll first
 // settles the released rows a crash left unsettled.
 //
-// With the office's PR-state poll (`prState`, DIPO-314) the Done poll is the last part of each of
-// its rounds instead of a timer of its own, and it asks whether a branch merged through the round,
-// so a story PR the story-PR poll read this round answers it without another host call.
+// With the office's PR-state poll (`prState`, DIPO-314) the Done poll is part of each of its
+// rounds, after the story-PR poll, instead of a timer of its own, and that poll asks whether a
+// branch merged through the reads the round gave it, so a story PR the story-PR poll read this
+// round answers it without another host call. Any other poll asks the host.
 
 import type { Clock, OfficeId, TimerHandle } from "@dipsaus-orchestrator/contract";
 
@@ -96,7 +97,7 @@ export interface StoryTeardownDeps {
    * not on a timer of its own, and asks the host through it. Without it the Done poll keeps its
    * own timer.
    */
-  readonly prState?: Pick<PrStatePoll, "subscribe" | "reads">;
+  readonly prState?: Pick<PrStatePoll, "subscribe">;
 }
 
 /** What one poll did. */
@@ -118,6 +119,8 @@ interface Polled {
   busy: Promise<unknown>;
   /** The last notice text per claim run and notice code, so a cause is reported once. */
   readonly told: Map<string, string>;
+  /** The reads of the PR-state round the running poll belongs to (DIPO-314), or null. */
+  reads: PrStateHost | null;
 }
 
 export class StoryTeardown {
@@ -127,8 +130,8 @@ export class StoryTeardown {
 
   constructor(deps: StoryTeardownDeps) {
     this.#deps = deps;
-    deps.prState?.subscribe("done", async (office) => {
-      if (this.#offices.has(office)) await this.poll(office);
+    deps.prState?.subscribe("done", async (office, reads) => {
+      if (this.#offices.has(office)) await this.poll(office, reads);
     });
   }
 
@@ -157,19 +160,28 @@ export class StoryTeardown {
       timer: null,
       busy: Promise.resolve(),
       told: new Map(),
+      reads: null,
     });
   }
 
-  /** One poll of a tracked office, after any poll already running. */
-  poll(officeId: OfficeId): Promise<PollReport> {
+  /**
+   * One poll of a tracked office, after any poll already running; with `reads` (a PR-state round,
+   * DIPO-314) it asks whether a branch merged through them.
+   */
+  poll(officeId: OfficeId, reads?: PrStateHost): Promise<PollReport> {
     const state = this.#offices.get(officeId);
     if (state === undefined) {
       return Promise.reject(new Error(`Office ${officeId} is not loaded.`));
     }
-    const run = state.busy.then(
-      () => this.#poll(officeId, state),
-      () => this.#poll(officeId, state),
-    );
+    const once = async () => {
+      state.reads = reads ?? null;
+      try {
+        return await this.#poll(officeId, state);
+      } finally {
+        state.reads = null;
+      }
+    };
+    const run = state.busy.then(once, once);
     state.busy = run.catch(() => undefined);
     return run;
   }
@@ -233,11 +245,8 @@ export class StoryTeardown {
     deps: TeardownDeps,
     claim: ClaimRecord,
   ): Promise<"open" | "kept" | "tornDown" | "released"> {
-    // Through the office's PR-state round when there is one (DIPO-314).
-    const host =
-      this.#deps.host === null
-        ? null
-        : (this.#deps.prState?.reads(deps.officeId) ?? this.#deps.host);
+    // Through the PR-state round this poll belongs to, when it does (DIPO-314).
+    const host = this.#deps.host === null ? null : (state.reads ?? this.#deps.host);
     const check = await detectDone({ git: deps.git, host }, claim);
     if (!check.done) {
       // Not Done through its own branch: a Done on the base wins (DIPO-161).
