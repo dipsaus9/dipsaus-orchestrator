@@ -25,6 +25,7 @@ import {
   RECORDED_BY_HAND,
 } from "../../src/reconcile";
 import { endRun, findRun } from "../../src/run/records";
+import { desk } from "../../src/views/desk";
 import { runDirectory } from "../../src/runs/worker-hosts";
 import { addStory } from "../../src/stories/keys";
 import { RunProfiles } from "../../src/scan";
@@ -260,6 +261,9 @@ if (process.env["DIPO_TEST_CI"] === "1") {
           expect(stale).toHaveLength(1);
           expect(stale[0]?.text).toContain("TASK-1 is Done");
           expect(stale[0]?.text).toContain("ambiguous-spec");
+          // The desk shows the Parked story, never a PARKED row for the stale record (DIPO-158).
+          const parked = desk(w.o.office, () => true).filter((item) => item.kind === "PARKED");
+          expect(parked.map((item) => String(item.story))).toEqual(["TASK-3"]);
         },
       ));
   });
