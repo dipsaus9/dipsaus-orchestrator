@@ -606,3 +606,52 @@ describe("work.discard after a crash and on a story Done on the base (DIPO-161 r
     );
   });
 });
+
+describe("work.discard touches only what it removed (DIPO-161 second review)", () => {
+  it("leaves the leftovers of an earlier run, and their desk item, when it discards a live claim", async () => {
+    const seen = seenOf();
+    await withReconcileOffice({ base: PARKED, features: features(seen) }, async (o) => {
+      seen.office = o.office;
+      const key = keyOf(o.office, "TASK-1");
+      // Leftovers of an earlier run of the story, settled with a kept worktree.
+      o.office.run(
+        `insert into done_elsewhere (office_id, run_id, key, story_id, branch, worktree, base,
+           released_at, settled_at, worktree_kept, files)
+         values ($office_id, 'run_earlier', $key, 'TASK-1', 'TASK-1/earlier', '/elsewhere/TASK-1',
+           'main', 2, 3, 1, '["notes.txt"]')`,
+        { key },
+      );
+      const record = await claim(o, o.office, "TASK-1", key, { active: false });
+
+      expect(await discard(o, "TASK-1")).toMatchObject({ ok: true, changed: true });
+
+      expect(findClaim(o.office, record.runId)?.releaseReason).toBe("discard");
+      expect(findDoneElsewhere(o.office, "run_earlier" as RunId)?.clearedAt ?? null).toBeNull();
+      expect(doneElsewhereDeskItems(o.office).map((item) => item.kind)).toEqual(["LEFTOVERS"]);
+    });
+  });
+
+  it("never resolves a later park of another run, such as a hold, as discard on a re-run", async () => {
+    const seen = seenOf();
+    await withReconcileOffice({ base: PARKED, features: features(seen) }, async (o) => {
+      seen.office = o.office;
+      const key = keyOf(o.office, "TASK-1");
+      const record = await claim(o, o.office, "TASK-1", key, { active: false });
+      parkRow(o.office, key, record.runId);
+      expect(await discard(o, "TASK-1")).toMatchObject({ ok: true, changed: true });
+      // Later the story is held: a park without a run.
+      o.office.run(
+        `insert into parks (office_id, park_id, key, story_id, run_id, reason, from_state, detail, at)
+         values ($office_id, 2, $key, 'TASK-1', null, 'on-hold', 'Refined', 'after M2', 9)`,
+        { key },
+      );
+
+      expect(await discard(o, "TASK-1")).toMatchObject({ ok: true, changed: false });
+
+      const hold = o.office.get<{ how: string | null }>(
+        "select resolved_how as how from parks where office_id = $office_id and park_id = 2",
+      );
+      expect(hold?.how).toBeNull();
+    });
+  });
+});

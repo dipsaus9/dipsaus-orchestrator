@@ -61,7 +61,6 @@ import type { OfficeGit } from "../git/office";
 import { closeQuestion, openQuestions } from "../hooks/questions";
 import { type CodeHost, CodeHostError } from "../platform/host";
 import type { ProcessProbe } from "../platform/process";
-import { openPark } from "../run/park";
 import { activeRuns } from "../run/records";
 import { hostAlive, workerHostsOf } from "../runs/worker-hosts";
 import { latestStoryPr, setStoryPrState } from "../story-pr/records";
@@ -75,6 +74,7 @@ import {
 import { type ClaimRecord, liveClaimOf } from "../worktree/records";
 import {
   type DiscardBranchOutcome,
+  type LeftoverTargets,
   releaseForDiscard,
   removeLeftovers,
   repoOfPrUrl,
@@ -216,10 +216,12 @@ export class StoryDiscard {
         );
       }
     };
+    // What the release removes: the claim, or exactly the leftovers the loss list showed.
+    const targets = claim === null ? leftoverTargets(office, key) : null;
     let released: DiscardBranchOutcome;
     try {
       const closed = await this.#closePr(ctx, identity, args.note, claim === null);
-      released = await this.#release(ctx, git, claim, key);
+      released = await this.#release(ctx, git, claim, targets);
       if (!released.ok) {
         const closedText = closed === null ? "" : `PR #${closed} was closed, but `;
         throw new CommandError(
@@ -233,16 +235,24 @@ export class StoryDiscard {
       throw error;
     }
     this.#remoteNotices(ctx, identity, git, claim, released);
-    this.#finishFacts(ctx, identity, claim?.runId ?? null, args.note, !doneOnBase);
+    this.#finishFacts(
+      ctx,
+      identity,
+      claim?.runId ?? null,
+      args.note,
+      !doneOnBase,
+      targets?.worktrees.map((tree) => tree.runId) ?? [],
+    );
     await this.#deps.finishBoxes?.().catch(() => undefined);
     if (lane !== null) await flushQuietly(lane);
     return { result, changed: true };
   }
 
   /**
-   * One transaction: the run's open questions closed `ended`, an open park resolved `discard`, the
-   * leftovers cleared, and with `toRefined` the `story.state` to Refined. Returns whether it wrote
-   * anything.
+   * One transaction: the open questions of `runId` closed `ended`, the open park of `runId`
+   * resolved `discard` (never a park of another run, such as a later hold), the leftovers of the
+   * runs in `removed` cleared (only those the release removed), and with `toRefined` the
+   * `story.state` to Refined. Returns whether it wrote anything.
    */
   #finishFacts(
     ctx: AsyncCommandContext,
@@ -250,6 +260,7 @@ export class StoryDiscard {
     runId: RunId | null,
     note: string,
     toRefined: boolean,
+    removed: readonly RunId[],
   ): boolean {
     const office = ctx.office;
     const { key, story } = identity;
@@ -269,15 +280,16 @@ export class StoryDiscard {
           });
         }
       }
-      const open = openPark(office, key);
-      if (open !== null) {
-        office.run(
-          `update parks set resolved_at = $at, resolved_how = 'discard'
-            where office_id = $office_id and park_id = $park and resolved_at is null`,
-          { at, park: open.parkId },
-        );
-      }
-      const cleared = clearLeftovers(office, key, at);
+      const parks =
+        runId === null
+          ? 0
+          : office.run(
+              `update parks set resolved_at = $at, resolved_how = 'discard'
+                where office_id = $office_id and key = $key and run_id = $run
+                  and resolved_at is null`,
+              { at, key, run: runId },
+            ).changes;
+      const cleared = clearLeftovers(office, key, at, removed);
       if (toRefined) {
         const from: Lifecycle = before?.lifecycle ?? "Parked";
         entries.push({
@@ -290,7 +302,7 @@ export class StoryDiscard {
           }),
         });
       }
-      wrote = entries.length > 0 || open !== null || cleared > 0;
+      wrote = entries.length > 0 || parks > 0 || cleared > 0;
       return entries;
     });
     return wrote;
@@ -318,11 +330,13 @@ export class StoryDiscard {
     );
     if (discarded !== null) {
       const stateOwed = journaled && !refinedWrittenSince(office, key, discarded.releasedAt ?? 0);
+      // Only what the discarded run left open: a later park, such as a hold, is not owed.
       const factsOwed =
-        openPark(office, key) !== null || openQuestions(office, discarded.runId).length > 0;
+        openParkOfRun(office, key, discarded.runId) ||
+        openQuestions(office, discarded.runId).length > 0;
       if (stateOwed || factsOwed) {
         const toRefined = stateOwed && !(await this.#doneOnBase(git, story));
-        this.#finishFacts(ctx, identity, discarded.runId, note, toRefined);
+        this.#finishFacts(ctx, identity, discarded.runId, note, toRefined, []);
         await this.#deps.finishBoxes?.().catch(() => undefined);
         if (journaled) await flushQuietly(this.#lane(office));
         return { result, changed: true };
@@ -358,7 +372,7 @@ export class StoryDiscard {
     ctx: AsyncCommandContext,
     git: OfficeGit,
     claim: ClaimRecord | null,
-    key: StoryKey,
+    targets: LeftoverTargets | null,
   ): Promise<DiscardBranchOutcome> {
     const deps = {
       officeId: ctx.office.officeId,
@@ -369,7 +383,8 @@ export class StoryDiscard {
     };
     if (claim !== null) return releaseForDiscard(deps, claim);
     // Exactly what `story.losses` listed for `work.discard` (`leftoverTargets`).
-    return removeLeftovers(deps, leftoverTargets(ctx.office, key));
+    if (targets === null) throw new Error("a discard without a claim has its leftover targets");
+    return removeLeftovers(deps, targets);
   }
 
   /** The notices of a remote branch kept or not deleted. */
@@ -474,6 +489,17 @@ export class StoryDiscard {
 
 /** The `story.state` detail a discard writes, before its note. */
 const DISCARDED_DETAIL = "discarded: ";
+
+/** True when the story has an open park of the run `runId`. */
+function openParkOfRun(office: OfficeHandle, key: StoryKey, runId: RunId): boolean {
+  return (
+    office.get<{ n: number }>(
+      `select 1 as n from parks where office_id = $office_id and key = $key and run_id = $run
+         and resolved_at is null limit 1`,
+      { key, run: runId },
+    ) !== null
+  );
+}
 
 /** The story's latest claim `work.discard` released, or null. */
 function lastDiscardedClaim(

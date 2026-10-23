@@ -170,13 +170,22 @@ export function openLeftovers(office: OfficeHandle, key: StoryKey): DoneElsewher
     .map(toRecord);
 }
 
-/** Marks the story's leftovers removed by `dipo discard`. In the caller's transaction. */
-export function clearLeftovers(office: OfficeHandle, key: StoryKey, at: number): number {
-  return office.run(
-    `update done_elsewhere set cleared_at = $at, cleared_how = 'discard'
-      where office_id = $office_id and key = $key and cleared_at is null`,
-    { key, at },
-  ).changes;
+/** Marks the leftovers of the runs in `runIds` removed by `dipo discard`, and no others. In the caller's transaction. */
+export function clearLeftovers(
+  office: OfficeHandle,
+  key: StoryKey,
+  at: number,
+  runIds: readonly RunId[],
+): number {
+  let cleared = 0;
+  for (const run of new Set(runIds)) {
+    cleared += office.run(
+      `update done_elsewhere set cleared_at = $at, cleared_how = 'discard'
+        where office_id = $office_id and key = $key and run_id = $run and cleared_at is null`,
+      { key, at, run },
+    ).changes;
+  }
+  return cleared;
 }
 
 /**
