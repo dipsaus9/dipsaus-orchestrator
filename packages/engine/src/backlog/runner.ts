@@ -22,13 +22,21 @@
 // status change when the configuration or a task file defines a command for the CLI to run on it
 // (`BacklogStatusCommandError`). Either is refused before spawning, with an `engine.notice` to the
 // CLI's `notify` naming the file (and the story, for a status change).
+//
+// Every call has a deadline on the engine clock (DIPO-314; `CALL_DEADLINE_MS`, 60 s, by default),
+// counted from the start of the call, the scan above included. The CLI starts in its own process
+// group; past the deadline the group is killed and the call throws `BacklogTimedOutError` (code
+// `timedOut`, a `BacklogCommandError`, so every caller that handles a failed CLI call handles it)
+// naming the command and the deadline, without waiting for the CLI's output.
 
 import { createHash } from "node:crypto";
 import { type Dirent, readdirSync, readFileSync, type Stats, statSync } from "node:fs";
 import { isAbsolute, join, normalize } from "node:path";
 
-import type { Spawn } from "@dipsaus-orchestrator/contract";
+import type { Clock, Spawn } from "@dipsaus-orchestrator/contract";
 
+import { systemClock } from "../platform/clock";
+import { CALL_DEADLINE_MS, TIMED_OUT, timedOutText, withDeadline } from "../platform/deadline";
 import { parseYamlDocument } from "../platform/yaml";
 
 import { hasSectionRule } from "./plain";
@@ -45,6 +53,10 @@ export interface BacklogCli {
   readonly env?: Readonly<Record<string, string | undefined>>;
   /** Receives the `engine.notice` of a refused status change (DIPO-312). */
   readonly notify?: (notice: BacklogNotice) => void;
+  /** The engine clock each call's deadline runs on; the system clock when absent. */
+  readonly clock?: Clock;
+  /** How long one call may run before it is killed (DIPO-314); `CALL_DEADLINE_MS` by default. */
+  readonly deadlineMs?: number;
 }
 
 /** An `engine.notice` the runner raises. */
@@ -101,6 +113,28 @@ export class BacklogCommandError extends Error {
     super(`\`${command.join(" ")}\` ${reason}${output === "" ? "" : `: ${output}`}`);
     this.name = "BacklogCommandError";
   }
+}
+
+/**
+ * The CLI did not finish within its deadline (DIPO-314): it and its process group were killed.
+ * A `BacklogCommandError` with code `timedOut`, the command and the deadline.
+ */
+export class BacklogTimedOutError extends BacklogCommandError {
+  readonly code = TIMED_OUT;
+
+  constructor(
+    command: readonly string[],
+    readonly deadlineMs: number,
+  ) {
+    super(command, null, "", "", "");
+    this.message = timedOutText(command, deadlineMs);
+    this.name = "BacklogTimedOutError";
+  }
+}
+
+/** True when `error` is a Backlog CLI call killed at its deadline. */
+export function isBacklogTimedOut(error: unknown): error is BacklogTimedOutError {
+  return error instanceof BacklogTimedOutError;
 }
 
 /** One file that stops a status change, with why (a fixed text). */
@@ -390,13 +424,16 @@ function notFoundLine(stdout: string, stderr: string): string | undefined {
  * spawning a refused command (`BacklogFileRefusedError` for a folder whose Backlog files dipo cannot
  * check, `BacklogStatusCommandError` for a status change the folder's Backlog files would attach a
  * command to, each with a notice to `cli.notify`) and
- * `BacklogCommandError` when the CLI fails.
+ * `BacklogCommandError` when the CLI fails (`BacklogTimedOutError` past the call's deadline).
  */
 export async function runBacklog(
   cli: BacklogCli,
   cwd: string,
   args: readonly string[],
 ): Promise<BacklogOutput> {
+  const clock = cli.clock ?? systemClock;
+  const deadlineMs = cli.deadlineMs ?? CALL_DEADLINE_MS;
+  const startedAt = clock.now();
   const reason = refusal(args);
   if (reason !== null) throw new BacklogRefusedError(args, reason);
   // `backlog --version` prints the CLI's version and reads no project.
@@ -414,9 +451,18 @@ export async function runBacklog(
     throw refused;
   }
   const command: [string, ...string[]] = [...(cli.command ?? ["backlog"]), ...args];
+  // The deadline counts from the start of the call, the scan above included.
+  const left = deadlineMs - (clock.now() - startedAt);
+  if (left <= 0) throw new BacklogTimedOutError(command, deadlineMs);
   let child;
   try {
-    child = cli.spawn({ cmd: command, cwd, env: backlogEnv(cli.env ?? process.env) });
+    child = cli.spawn({
+      cmd: command,
+      cwd,
+      env: backlogEnv(cli.env ?? process.env),
+      // Its own process group, so the deadline kills what it started too (DIPO-314).
+      detached: true,
+    });
   } catch (error) {
     throw new BacklogCommandError(
       command,
@@ -426,11 +472,15 @@ export async function runBacklog(
       `could not start: ${error instanceof Error ? error.message : String(error)}`,
     );
   }
-  const [stdout, stderr, exit] = await Promise.all([
-    new Response(child.stdout).text(),
-    new Response(child.stderr).text(),
-    child.exited,
-  ]);
+  const [stdout, stderr, exit] = await withDeadline(
+    child,
+    Promise.all([
+      new Response(child.stdout).text(),
+      new Response(child.stderr).text(),
+      child.exited,
+    ]),
+    { clock, deadlineMs: left, timedOut: () => new BacklogTimedOutError(command, deadlineMs) },
+  );
   if (exit.code !== 0) {
     const how =
       exit.code === null ? `was killed by ${exit.signal ?? "a signal"}` : `exited ${exit.code}`;

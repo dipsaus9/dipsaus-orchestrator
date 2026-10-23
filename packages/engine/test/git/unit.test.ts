@@ -385,7 +385,7 @@ describe("step timeout", () => {
     clock.advance(1);
     const error = (await step) as GitError;
     expect(isTimedOut(error)).toBe(true);
-    expect(error.message).toContain("did not finish within 60 s");
+    expect(error.message).toContain("did not finish within its deadline of 60 s");
     expect(killed).toHaveLength(1);
   });
 

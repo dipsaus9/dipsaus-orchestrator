@@ -505,7 +505,7 @@ const textEncoder = new TextEncoder();
 /**
  * The real `Spawn` (0017 section 2): `Bun.spawn` behind the contract's `ChildProcess`. Stdout and
  * stderr are always piped. With `detached` the child leads its own session and process group, so
- * `signalGroup(child.pid)` reaches its descendants too.
+ * `signalGroup(child.pid)`, and the child's `killGroup`, reach its descendants too.
  */
 export const systemSpawn: Spawn = (options) => {
   const child = Bun.spawn({
@@ -548,5 +548,9 @@ export const systemSpawn: Spawn = (options) => {
         // Already gone.
       }
     },
+    // A detached child leads its own group; only then does a group signal reach just its own.
+    ...(options.detached === true
+      ? { killGroup: (signal: Signal) => void signalGroup(child.pid, signal) }
+      : {}),
   };
 };

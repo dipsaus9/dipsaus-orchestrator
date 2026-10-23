@@ -136,7 +136,7 @@ describe("readEngineCommitsAfter", () => {
     clock.advance(ENGINE_READ_TIMEOUT_MS);
     const result = await read;
     expect(result.kind).toBe("failed");
-    expect(result.kind === "failed" && result.detail).toContain("was killed");
+    expect(result.kind === "failed" && result.detail).toContain("dipo killed it");
   });
 
   it("reads nothing when the stamp is no commit", async () => {

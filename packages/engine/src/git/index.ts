@@ -47,6 +47,7 @@ export type { SnapshotLink, WorktreeSnapshot } from "./snapshot";
 export {
   clockSleep,
   EXTERNAL_STEP_TIMEOUT_MS,
+  GIT_STEP_DEADLINE_MS,
   GitError,
   heldLock,
   isTimedOut,

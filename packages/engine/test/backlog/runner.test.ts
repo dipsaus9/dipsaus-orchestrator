@@ -157,7 +157,9 @@ describe("running the CLI", () => {
       "--version",
     ]);
     expect(out.stdout).toBe("1.53.0\n");
-    expect(stub.calls).toEqual([{ cmd: ["bun", "cli.js", "--version"], cwd: "/w", env }]);
+    expect(stub.calls).toEqual([
+      { cmd: ["bun", "cli.js", "--version"], cwd: "/w", env, detached: true },
+    ]);
   });
 
   it("passes only PATH and HOME of the given environment, never its other variables (DIPO-270)", async () => {
