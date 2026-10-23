@@ -204,10 +204,12 @@ export type { StoredSignal } from "./signals";
 export {
   CAP_TICK_MS,
   CONTROL_NOTICES,
+  DAEMON_STOPPED_DETAIL,
   EVENT_FILE_CHANGED,
   INTERRUPTED_END,
   RECONCILED_END,
   RunControl,
+  STOP_ALL_EXIT_WAIT_MS,
   STOPPED_DETAIL,
   STORY_NOT_RUNNING,
 } from "./control";
@@ -216,10 +218,18 @@ export type {
   RunControlDeps,
   RunEnding,
   RunSteering,
+  StopAllResult,
   TrackedRun,
 } from "./control";
-export { firedCap, REVIEWER_ROLE, runCaps, runTotals } from "./caps";
-export type { CapName, FiredCap, RunCaps, RunTotals } from "./caps";
+export {
+  firedCap,
+  REVIEWER_ROLE,
+  runCaps,
+  runTotals,
+  STREAM_DRIFT_LINES,
+  streamDriftDetail,
+} from "./caps";
+export type { CapName, FiredCap, RunCaps, RunTotals, StreamDriftFacts } from "./caps";
 export { preStartEnding, reachedCaps } from "./pre-start-caps";
 export { GRANT_KINDS, grantTotals, recordGrant } from "./grants";
 export type {

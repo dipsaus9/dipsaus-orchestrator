@@ -44,6 +44,7 @@ import {
 import { openPark, PARK_NOTICES, reopenParkedRun } from "./park";
 import { PLACE_NOTICES, type Places, START_KINDS, waitForPlace } from "./places";
 import { capsStartedAt, findRun, type StoredRun } from "./records";
+import { recordBranchPush } from "../story-pr/records";
 import { resumeVia } from "./resume-policy";
 import { resumeLine } from "./summary";
 import {
@@ -358,6 +359,9 @@ export class Resumption {
       await this.#serialized(officeId, () =>
         this.#s.write(office, () => {
           const reopenedEntries = reopenParkedRun(office, park, run, to, at);
+          // The lift's push, on the claim like every story-branch push (DIPO-315).
+          const push = { pushed: lifted.pushed, error: lifted.pushError };
+          recordBranchPush(office, run.branch as string, push, at);
           const answered = answeredParkQuestion(
             office,
             request.question,

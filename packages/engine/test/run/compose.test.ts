@@ -29,7 +29,7 @@ import {
   RunResumer,
   Reviews,
 } from "../../src/run";
-import { insertClaim } from "../../src/worktree/records";
+import { insertClaim, updateClaim } from "../../src/worktree/records";
 import { addStory } from "../../src/stories/keys";
 import { encode } from "../../src/workers/claude-cli/encode";
 import type { WorkerPort } from "../../src/workers/port";
@@ -239,6 +239,8 @@ describe("composeRuns", () => {
         claimedAt: f.t.clock.now(),
       });
       endRun(office, f.run, f.t.clock.now(), IN_REVIEW_END);
+      // Its In Review push reached the remote (DIPO-315).
+      updateClaim(office, f.run, { pushedAt: f.t.clock.now() });
     });
     const warned: string[] = [];
     const composed = compose({

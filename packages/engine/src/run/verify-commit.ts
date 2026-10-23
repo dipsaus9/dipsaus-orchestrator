@@ -84,7 +84,8 @@ import {
   refusedDetail,
 } from "../box/parts";
 import { BoxError } from "../box/port";
-import { findClaim, updateClaim } from "../worktree/records";
+import { recordBranchPush } from "../story-pr/records";
+import { findClaim } from "../worktree/records";
 
 import type { BackstopSnapshot } from "./backstop";
 import type { DoneConflictDecision } from "./conflicts";
@@ -776,8 +777,9 @@ export class VerifyCommit implements RunFinisher {
       const office = ctx.office;
       const at = this.#deps.clock.now();
       storeRunSummary(office, run.runId, { report: input.report, diffstat, at });
-      // The In Review push on the remote, at the run's end: the PR poll retries only such a run.
-      if (push.pushed) updateClaim(office, run.runId, { pushedAt: at });
+      // The In Review push on the remote, at the run's end, or no remote to push to (DIPO-315): the
+      // review starts only then, and the PR poll pushes again a run without either.
+      recordBranchPush(office, run.branch as string, push, at);
       // A done turn that crossed a cap: its cap step is written with the run's end (DIPO-222).
       if (ctx.capped != null) {
         appendRunStep(office, run.runId, "cap", `${ctx.capped.cap}: ${ctx.capped.detail}`, at);

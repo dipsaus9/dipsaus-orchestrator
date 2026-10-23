@@ -46,6 +46,10 @@ export const INTERRUPTED_END = "interrupted";
 /** The park detail of `work.stop` without a note. */
 export const STOPPED_DETAIL = "Stopped by the maintainer.";
 
+/** The park detail of a worker `daemon.stop { stopWorkers: true }` stopped (DIPO-315). */
+export const DAEMON_STOPPED_DETAIL =
+  "Stopped by the maintainer: daemon.stop with stopWorkers stopped every worker before the daemon exited.";
+
 /** `engine.notice` codes of run control. */
 export const CONTROL_NOTICES = {
   notSent: "run.stopNotSent",

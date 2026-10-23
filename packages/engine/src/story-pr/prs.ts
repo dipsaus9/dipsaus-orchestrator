@@ -12,6 +12,13 @@
 // Work for one office runs one piece at a time, and `sync` never throws: whatever went wrong is
 // the notice.
 //
+// A failed In Review push (DIPO-315). Each poll first pushes again, never forced, the branch of
+// every run that ended at In Review whose claim's `pushed_at` is null or earlier than the run's
+// end (`runsToPush`), whatever `storyPr.open` says, since the review waits for the head on the
+// remote (`pendingReviews`). A push that reaches the remote records `pushed_at` and syncs the PR
+// at once (the PR is opened below when it has none); one that finds no remote records
+// `no_remote_at`; a failure is a `pr.pushFailed` notice, once per cause, and is tried again.
+//
 // CI on the story PR (DIPO-147; 0019 section 7). The same poll reads, for each open PR of a story
 // still In Review, the required checks of the pushed head (`requiredChecks`: the office's
 // `mergeSlot.requiredChecks` joined with the checks the host marks required) with one call, and
@@ -113,6 +120,8 @@ import {
   noCiRan,
   openStoryPrs,
   runParked,
+  recordBranchPush,
+  runsToPush,
   runsWithoutPr,
   setStoryPrState,
   storyInReview,
@@ -128,6 +137,8 @@ export const STORY_PR_NOTICES = {
   ciStuck: "ci.stuck",
   ciNone: "ci.none",
   commentFailed: "pr.commentFailed",
+  pushedAgain: "pr.pushedAgain",
+  pushFailed: "pr.pushFailed",
 } as const;
 
 /**
@@ -279,6 +290,8 @@ export class StoryPrs {
   retry(officeId: OfficeId): Promise<RunId[]> {
     const state = this.#state(officeId);
     return this.#serial(state, async () => {
+      // The In Review pushes that did not reach the remote first (DIPO-315).
+      await this.#pushAgain(officeId, state);
       for (const stored of openStoryPrs(state.office)) {
         const owner = findRun(state.office, stored.runId);
         if (owner !== null && !this.#opensPrs(officeId, owner)) continue;
@@ -445,6 +458,69 @@ export class StoryPrs {
   /** Whether the run's configuration snapshot lets the engine open its story PR (DIPO-210). */
   #opensPrs(officeId: OfficeId, run: StoredRun): boolean {
     return this.#runConfig(officeId, run).storyPr.open;
+  }
+
+  /**
+   * Pushes again, never forced, each run whose In Review head may not be on the remote (DIPO-315),
+   * and records what the push did on its claim.
+   */
+  async #pushAgain(officeId: OfficeId, state: Polled): Promise<void> {
+    const git = this.#deps.git;
+    if (git.push === undefined) return;
+    const push = git.push.bind(git);
+    for (const unpushed of runsToPush(state.office)) {
+      const run = findRun(state.office, unpushed.runId);
+      if (run === null) continue;
+      const story = run.story ?? unpushed.runId;
+      const told = `push:${unpushed.runId}`;
+      const result = await push(officeId, unpushed.branch).catch((error: unknown) => ({
+        pushed: false,
+        rejected: false,
+        error: messageOf(error),
+      }));
+      if (result.error !== null) {
+        this.#deps.logger?.warn("pushing a story branch again failed", {
+          office: officeId,
+          run: unpushed.runId,
+          reason: result.error,
+        });
+        if (state.told.get(told) === result.error) continue;
+        state.told.set(told, result.error);
+        const why = result.rejected
+          ? `${result.error}; the remote branch has commits the story branch lacks, so dipo never forces it: bring the branch up to date by hand`
+          : result.error;
+        this.#write(officeId, state, () => [
+          notice(
+            "warn",
+            STORY_PR_NOTICES.pushFailed,
+            `${story} is In Review, but dipo could not push ${unpushed.branch} again: ${why}. Its review waits until the head is on the remote; dipo tries again.`,
+            unpushed.key,
+            unpushed.runId,
+          ),
+        ]);
+        continue;
+      }
+      state.told.delete(told);
+      const at = this.#deps.clock.now();
+      this.#write(officeId, state, () => {
+        recordBranchPush(state.office, unpushed.branch, result, at);
+        return result.pushed
+          ? [
+              notice(
+                "info",
+                STORY_PR_NOTICES.pushedAgain,
+                `dipo pushed ${unpushed.branch} of ${story} again: its In Review push had not reached the remote. Its review and CI start on that head.`,
+                unpushed.key,
+                unpushed.runId,
+              ),
+            ]
+          : [];
+      });
+      // A PR that exists follows the pushed head now; one still to open is opened below.
+      if (result.pushed && findStoryPr(state.office, unpushed.runId) !== null) {
+        await this.#sync(officeId, state, unpushed.runId);
+      }
+    }
   }
 
   async #sync(officeId: OfficeId, state: Polled, runId: RunId): Promise<void> {

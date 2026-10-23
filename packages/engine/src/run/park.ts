@@ -45,6 +45,7 @@ import type { GitLocation } from "../git/hardened";
 import type { OfficeGit } from "../git/office";
 import { GitError } from "../git/runner";
 import { pushBranch } from "../git/task-commit";
+import { recordBranchPush } from "../story-pr/records";
 import { parkQuestionText, recordedPermission } from "../hooks/park-questions";
 import { insertParkQuestion, questionViewOf } from "../hooks/questions";
 import { officeDirectory } from "../office/marker";
@@ -113,6 +114,8 @@ export const PARK_CAUSES = {
   review: "review",
   /** `worker-failed`: the reviewer hit its own turn or minute cap (0019). */
   reviewCap: "review-cap",
+  /** `worker-failed`: dipo could not read the worker's stream, so the caps were blind (DIPO-315). */
+  streamDrift: "stream-drift",
   /** `stopped`: the maintainer stopped a developer session. */
   maintainer: "maintainer",
   /** `stopped`: the story PR was closed on the host (0019). */
@@ -695,6 +698,10 @@ export async function parkStory(deps: ParkDeps, request: ParkRequest): Promise<P
       { key, story, run: run.runId, reason, cause, from, detail, commit: lastGoodCommit, at },
     );
     if (request.capStep !== undefined) appendRunStep(office, run.runId, "cap", request.capStep, at);
+    // The park commit's push, on the claim like every story-branch push (DIPO-315).
+    if (branch !== null && run.branch !== null) {
+      recordBranchPush(office, run.branch, { pushed: branch.pushed, error: branch.pushError }, at);
+    }
     endRunMarked(office, run.runId, at, request.endKind);
     // The agent ends when its exit is ingested; the reason it ended is known now.
     office.run(

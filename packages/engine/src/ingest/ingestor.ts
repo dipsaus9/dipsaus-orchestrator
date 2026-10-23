@@ -13,6 +13,15 @@
 // as fallback; `fs.watch` is not used. A host event file that shrank below the offset or was
 // replaced stops ingestion for that run and reports `ingest.fileChanged`; parking the run is
 // DIPO-57's.
+//
+// Stream drift (DIPO-315). The adapter turns each line it cannot read into a `streamDrift` event.
+// The ingestor counts the `schema` and `dropped` ones per agent in `ingest_cursors.drift_lines`,
+// in the pass that read them, so a restart neither loses nor repeats one; a run's count is the sum
+// over its agents. A drift event at which the run's count is at `STREAM_DRIFT_LINES` or above, and
+// every `usage` drift (a result whose usage cannot be read, a completed turn that reports none),
+// goes to `onStreamDrift` inside the pass, and the run parks with cause `stream-drift`
+// (`run/control.ts`). A `newerVersion` event posts one `engine.notice` per office and version,
+// recorded in `once_notices` in the same transaction.
 
 import { createHash } from "node:crypto";
 
@@ -23,6 +32,7 @@ import type { OfficeHandle } from "../db/office";
 import { agentCostDrifts, type CostDrift, CostDriftWarnings } from "../pricing/drift";
 import type { PriceBook } from "../pricing/estimate";
 import { checkCatalogGap, priceAgentUsage, recordCliCost } from "../pricing/usage";
+import { STREAM_DRIFT_LINES } from "../run/caps";
 import { recordReportedCriteria } from "../run/criteria";
 import { clearSignals, LIVENESS_SIGNALS } from "../run/signals";
 import { runProgress, withWorkViews } from "../views/work";
@@ -46,6 +56,16 @@ import {
 
 /** The engine notice code a changed host event file reports (M0 review, DIPO-15). */
 export const FILE_CHANGED_CODE = "ingest.fileChanged";
+/** The engine notice code of a worker newer than the adapter was checked with (DIPO-315). */
+export const NEWER_VERSION_CODE = "worker.newerVersion";
+
+/** What the ingestor counted at a stream drift that decides (DIPO-315). */
+export interface StreamDriftCount {
+  /** The run's unreadable lines (`schema` and `dropped`) so far, over all its agents. */
+  readonly lines: number;
+  /** The count at which the run parks. */
+  readonly threshold: number;
+}
 
 /** Debounce and poll defaults (0005 section 6 open question 5, 0007 section 5). */
 export interface IngestTimings {
@@ -107,6 +127,17 @@ export interface IngestHooks {
    * and must not write; what it learns is acted on after the commit.
    */
   readonly onEventApplied?: (run: string, agent: string, event: WorkerEvent) => void;
+  /**
+   * Called inside the pass transaction at a `streamDrift` event that decides (DIPO-315): the run's
+   * count reached the threshold, or the turn's usage cannot be read. Like `onEventApplied`, it
+   * must not throw and must not write; the run is parked after the commit, in event order.
+   */
+  readonly onStreamDrift?: (
+    run: string,
+    agent: string,
+    event: Extract<WorkerEvent, { t: "streamDrift" }>,
+    count: StreamDriftCount,
+  ) => void;
   /** Every worker event of a committed pass, in order, for health and caps. */
   readonly onWorkerEvents?: (run: string, agent: string, events: readonly WorkerEvent[]) => void;
   /**
@@ -196,6 +227,7 @@ export interface AdvancedSource {
 
 interface CursorRow {
   path: string;
+  drift_lines: number;
   device: number | null;
   inode: number | null;
   read_offset: number;
@@ -422,6 +454,8 @@ export class Ingestor {
     let usageDirty = false;
     let usageSent = false;
     let drifts: CostDrift[] = [];
+    // Unreadable lines this pass added to the agent's count (DIPO-315).
+    let driftAdded = 0;
     const end = lines[lines.length - 1]?.end ?? offset;
 
     this.#office.immediate(() => {
@@ -436,6 +470,9 @@ export class Ingestor {
       let turnEnded = false;
       // The criteria count shown before the pass's first report; undefined when none came.
       let criteriaBefore: number | null | undefined;
+      // The run's unreadable lines before this pass, over all its agents (DIPO-315).
+      const driftBefore = this.#runDriftLines(run);
+      const versionNotices: NewEntry[] = [];
       let text = "";
       for (const line of lines) {
         const hostLine = parseHostLine(line.text);
@@ -519,6 +556,17 @@ export class Ingestor {
             case "hook":
               recordTranscriptPath(this.#office, target, event.hook, now);
               break;
+            case "streamDrift": {
+              if (event.kind !== "usage") driftAdded += 1;
+              const count = { lines: driftBefore + driftAdded, threshold: STREAM_DRIFT_LINES };
+              if (event.kind === "usage" || count.lines >= count.threshold) {
+                this.#hooks.onStreamDrift?.(run, agent, event, count);
+              }
+              break;
+            }
+            case "newerVersion":
+              versionNotices.push(...this.#newerVersion(target, event, now));
+              break;
             case "initRejected":
               rejected.push(event.reason);
               this.#office.run(
@@ -557,10 +605,12 @@ export class Ingestor {
       this.#office.run(
         `update ingest_cursors set read_offset = $end, device = $device, inode = $inode,
            size = $size, last_line_hash = $hash, last_line_bytes = $bytes, parse_state = $state, first_line_t = $first,
-           last_line_t = $last, updated_at = $now, ended_at = $ended
+           last_line_t = $last, updated_at = $now, ended_at = $ended,
+           drift_lines = drift_lines + $drift
          where office_id = $office_id and run_id = $run and agent_id = $agent
            and source_kind = $kind`,
         {
+          drift: driftAdded,
           end,
           device: identity.device,
           inode: identity.inode,
@@ -590,6 +640,7 @@ export class Ingestor {
         entries.push(...this.#outputEntries(target));
       }
       if (stale !== null) entries.push(stale);
+      entries.push(...versionNotices);
       // A `work.progress` only when the count the view shows changed (DIPO-85).
       const progress =
         criteriaBefore === undefined ? null : runProgress(this.#office, target.run as RunId);
@@ -683,6 +734,14 @@ export class Ingestor {
     for (const reason of rejected) this.#hooks.onInitRejected?.(run, agent, reason);
     // Logged only once the pass committed, so a rolled-back pass warns again when it is redone.
     this.#costDrift.report(drifts, now, this.#warn, { run, agent });
+    if (driftAdded > 0) {
+      this.#warn("worker stream lines could not be read", {
+        run,
+        agent,
+        lines: driftAdded,
+        agentTotal: cursor.drift_lines + driftAdded,
+      });
+    }
     if (exited) this.#hooks.onEnded?.(run, agent, { exit, state: endState });
     return { status: exited ? "ended" : "ingested", lines: lines.length, offset: end };
   }
@@ -842,7 +901,7 @@ export class Ingestor {
   #cursor(target: IngestTarget): CursorRow {
     const row = this.#office.get<CursorRow>(
       `select path, device, inode, read_offset, last_line_hash, last_line_bytes, parse_state,
-         first_line_t, last_line_t, output_emitted_to, ended_at, changed_at
+         first_line_t, last_line_t, output_emitted_to, ended_at, changed_at, drift_lines
        from ingest_cursors
        where office_id = $office_id and run_id = $run and agent_id = $agent
          and source_kind = $kind`,
@@ -877,6 +936,46 @@ export class Ingestor {
         },
       ),
     );
+  }
+
+  /** The run's unreadable stream lines over all its agents (DIPO-315). */
+  #runDriftLines(run: string): number {
+    return (
+      this.#office.get<{ lines: number }>(
+        `select coalesce(sum(drift_lines), 0) as lines from ingest_cursors
+         where office_id = $office_id and run_id = $run`,
+        { run },
+      )?.lines ?? 0
+    );
+  }
+
+  /**
+   * Inside the pass transaction: the `engine.notice` of a worker newer than its adapter was
+   * checked with, once per office and version (DIPO-315); none when it was shown already.
+   */
+  #newerVersion(
+    target: IngestTarget,
+    event: Extract<WorkerEvent, { t: "newerVersion" }>,
+    at: number,
+  ): NewEntry[] {
+    const first = this.#office.run(
+      `insert into once_notices (office_id, code, shown_at)
+       values ($office_id, $code, $at) on conflict do nothing`,
+      { code: `${NEWER_VERSION_CODE}:${event.worker}:${event.version}`, at },
+    );
+    if (first.changes === 0) return [];
+    return [
+      {
+        type: "engine.notice",
+        ...(target.work === undefined ? {} : { key: target.work.key }),
+        run: target.run as RunId,
+        delta: {
+          level: "warn",
+          code: NEWER_VERSION_CODE,
+          text: `${target.run} started on ${event.worker} ${event.version}, newer than ${event.checked}, the newest version dipo's recordings and box image were checked with. Its stream may have changed: a run whose stream dipo cannot read parks with cause stream-drift. dipo shows this once per version.`,
+        },
+      },
+    ];
   }
 
   #agentModel(target: IngestTarget): string {
