@@ -408,6 +408,9 @@ export type GateDependency = z.infer<typeof GateDependency>;
 // (M0 breakdown decision D3, DIPO-71). It passes only with no failures; failures are in rule order.
 // Since minor 1 (DIPO-179): `waitingOn` lists the dependencies that are not Done, absent when none
 // are open. The verdict does not depend on it: a passing story can still wait before pickup.
+// Since minor 1 (DIPO-251): `warnings` lists the rules that only warn (R29, test plan names no
+// Reference covers), each `ready <ID> warning <rule>: <message>`, absent when none. They do not
+// change `passed`.
 export const storyGate = defineRead({
   name: "story.gate",
   args: z.object({ office: OfficeId, story: StoryRefValue }),
@@ -417,6 +420,7 @@ export const storyGate = defineRead({
     passed: z.boolean(),
     failures: z.array(GateRuleFailure),
     waitingOn: z.array(GateDependency).optional(),
+    warnings: z.array(GateRuleFailure).optional(),
   }),
   since: 1,
 });
