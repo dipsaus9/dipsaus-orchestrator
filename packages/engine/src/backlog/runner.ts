@@ -34,10 +34,16 @@ import { type Dirent, readdirSync, readFileSync, type Stats, statSync } from "no
 import { tmpdir } from "node:os";
 import { isAbsolute, join, normalize } from "node:path";
 
-import type { Clock, Spawn } from "@dipsaus-orchestrator/contract";
+import type { ChildProcess, Clock, Spawn } from "@dipsaus-orchestrator/contract";
 
 import { systemClock } from "../platform/clock";
-import { CALL_DEADLINE_MS, TIMED_OUT, timedOutText, withDeadline } from "../platform/deadline";
+import {
+  CALL_DEADLINE_MS,
+  TIMED_OUT,
+  timedOutText,
+  trackEngineCall,
+  withDeadline,
+} from "../platform/deadline";
 import { parseYamlDocument } from "../platform/yaml";
 
 import { hasSectionRule } from "./plain";
@@ -455,7 +461,7 @@ export async function runBacklog(
   // The deadline counts from the start of the call, the scan above included.
   const left = deadlineMs - (clock.now() - startedAt);
   if (left <= 0) throw new BacklogTimedOutError(command, deadlineMs);
-  let child;
+  let child: ChildProcess;
   try {
     // The CLI writes to regular files under the daemon's temp root (`DIPO_TMP`, else the system's),
     // read after it exits, never to a pipe: on Linux CI the end of a long list was lost on the way
@@ -477,6 +483,7 @@ export async function runBacklog(
       `could not start: ${error instanceof Error ? error.message : String(error)}`,
     );
   }
+  trackEngineCall(child);
   let stdout: string;
   let stderr: string;
   let exit: Awaited<typeof child.exited>;

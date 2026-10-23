@@ -17,6 +17,8 @@ import {
   runGitStep,
   spawnGitExec,
 } from "../../src/git/runner";
+import { resolveRepository } from "../../src/office/repository";
+import { KILL_GRACE_MS } from "../../src/platform/deadline";
 import { hangingSpawn, settle } from "../platform/hanging";
 
 const REPO: GitLocation = { kind: "repository", commonDir: "/repo/.git" };
@@ -41,15 +43,21 @@ describe("the default deadline of a git step", () => {
     expect(settled).toBe(false);
 
     clock.advance(1);
+    await settle();
+    // SIGTERM first, so git removes its lock files; the step waits for the grace.
+    expect(hang.children[0]?.groupSignals).toEqual(["SIGTERM"]);
+    expect(settled).toBe(false);
+    clock.advance(KILL_GRACE_MS);
     const error = (await step) as GitError;
     expect(isTimedOut(error)).toBe(true);
     expect(error.message).toBe(
-      "`git rev-parse HEAD` did not finish within its deadline of 120 s; dipo killed it and its process group.",
+      "`git rev-parse HEAD` did not finish within its deadline of 120 s; dipo stopped it and its process group. A lock file it held (`index.lock` or a ref's `.lock`) may be left behind; dipo never deletes lock files, so remove it by hand when no git process runs.",
     );
     expect(error.details).toEqual({ args: ["rev-parse", "HEAD"], timeoutMs: GIT_STEP_DEADLINE_MS });
     // The executor killed git's whole group.
-    expect(hang.children[0]?.groupSignals).toEqual(["SIGKILL"]);
-    expect(hang.children[0]?.signals).toEqual(["SIGKILL"]);
+    // It ignored SIGTERM, so it got SIGKILL after the grace.
+    expect(hang.children[0]?.groupSignals).toEqual(["SIGTERM", "SIGKILL"]);
+    expect(hang.children[0]?.signals).toEqual(["SIGTERM", "SIGKILL"]);
   });
 
   it("keeps the 60 s deadline a step passes for itself", async () => {
@@ -62,7 +70,7 @@ describe("the default deadline of a git step", () => {
       { timeoutMs: EXTERNAL_STEP_TIMEOUT_MS },
     ).catch((error: unknown) => error);
     await settle();
-    clock.advance(EXTERNAL_STEP_TIMEOUT_MS);
+    clock.advance(EXTERNAL_STEP_TIMEOUT_MS + KILL_GRACE_MS);
     expect(isTimedOut(await step)).toBe(true);
   });
 
@@ -77,9 +85,42 @@ describe("the default deadline of a git step", () => {
     const second = queue.run(async () => "next");
     await settle();
     expect(queue.pending).toBe(2);
-    clock.advance(GIT_STEP_DEADLINE_MS);
+    clock.advance(GIT_STEP_DEADLINE_MS + KILL_GRACE_MS);
     expect(isTimedOut(await first)).toBe(true);
     expect(await second).toBe("next");
     expect(queue.pending).toBe(0);
+  });
+
+  it("fails the step as soon as git exits on its SIGTERM, with no SIGKILL", async () => {
+    const clock = new ManualClock();
+    const hang = hangingSpawn(undefined, "SIGTERM");
+    const step = runGitStep(
+      { exec: spawnGitExec(hang.spawn), env: {}, sleep: async () => {}, clock },
+      REPO,
+      ["status"],
+    ).catch((error: unknown) => error);
+    await settle();
+    clock.advance(GIT_STEP_DEADLINE_MS);
+    // A git that ends on SIGTERM still timed out, before the grace is over.
+    expect(isTimedOut(await step)).toBe(true);
+    expect(hang.children[0]?.signals).toEqual(["SIGTERM"]);
+    clock.advance(KILL_GRACE_MS);
+    expect(hang.children[0]?.signals).toEqual(["SIGTERM"]);
+  });
+});
+
+describe("the deadline of repository discovery", () => {
+  it("fails a discovery git call that never ends with git.timedOut", async () => {
+    const clock = new ManualClock();
+    const hang = hangingSpawn();
+    const resolved = resolveRepository(
+      { spawn: hang.spawn, env: {}, clock },
+      process.env["DIPO_TMP"] || "/tmp",
+    ).catch((error: unknown) => error);
+    await settle();
+    expect(hang.calls[0]?.detached).toBe(true);
+    clock.advance(GIT_STEP_DEADLINE_MS + KILL_GRACE_MS);
+    expect(isTimedOut(await resolved)).toBe(true);
+    expect(hang.children[0]?.groupSignals).toEqual(["SIGTERM", "SIGKILL"]);
   });
 });

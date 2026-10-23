@@ -11,10 +11,10 @@ import { isAbsolute, join, normalize } from "node:path";
 import type { Clock, Signal } from "@dipsaus-orchestrator/contract";
 
 import { hardenedArgs, hardenedEnv } from "../git/hardened";
-import { GIT_STEP_DEADLINE_MS, GitError } from "../git/runner";
+import { GIT_STEP_DEADLINE_MS, gitTimedOut } from "../git/runner";
 
 import { systemClock } from "./clock";
-import { timedOutText, withDeadline } from "./deadline";
+import { trackEngineCall, withDeadline } from "./deadline";
 import { signalGroup } from "./process";
 
 export interface RepoFiles {
@@ -64,23 +64,16 @@ async function runGit(
   const child = {
     kill: (signal?: Signal) => proc.kill(signal),
     killGroup: (signal: Signal) => void signalGroup(proc.pid, signal),
+    exited: proc.exited.then((code) => ({ code, signal: null })),
   };
+  trackEngineCall(child);
   const [stdout, stderr, exitCode] = await withDeadline(
     child,
     Promise.all([new Response(proc.stdout).text(), new Response(proc.stderr).text(), proc.exited]),
     {
       clock: options.clock,
       deadlineMs: GIT_STEP_DEADLINE_MS,
-      timedOut: () =>
-        new GitError(
-          "git.timedOut",
-          `${timedOutText(["git", ...args], GIT_STEP_DEADLINE_MS)}.`,
-          false,
-          {
-            args: [...args],
-            timeoutMs: GIT_STEP_DEADLINE_MS,
-          },
-        ),
+      timedOut: () => gitTimedOut(args, GIT_STEP_DEADLINE_MS),
     },
   );
   return { exitCode, stdout, stderr };

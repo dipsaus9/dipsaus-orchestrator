@@ -57,6 +57,8 @@ import {
   MemoryRequestTable,
   MergeSlot,
   PrStatePoll,
+  stopEngineCalls,
+  trackEngineCalls,
   officeFeature,
   activeRunCount,
   OfficeInit,
@@ -682,6 +684,9 @@ async function serve(run: Run, lock: HeldLock): Promise<number> {
       env: io.env,
       logger: logger.child({ component: "gh" }),
     });
+    // The daemon's Backlog CLI, gh and git calls are tracked while they run, so the stop ends any
+    // still running (DIPO-314).
+    trackEngineCalls();
     // One PR-state poll per office (DIPO-314): every `polling.prStateSeconds` one round runs the
     // story-PR poll, a merge slot tick and the Done poll, which read each open PR once through it.
     const prState = new PrStatePoll({
@@ -1391,6 +1396,9 @@ async function serve(run: Run, lock: HeldLock): Promise<number> {
     held.ingest?.close();
     held.collisions?.stop();
     await held.boxes?.close();
+    // A Backlog CLI, gh or git call still running ends with its process group (DIPO-314).
+    const ended = await stopEngineCalls();
+    if (ended > 0) logger.info("engine calls stopped", { count: ended });
     // No more debounced office summaries once the daemon stops.
     held.contract?.close();
     // A retention pass or backup still running finishes before the database closes.

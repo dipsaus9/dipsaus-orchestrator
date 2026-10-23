@@ -17,7 +17,7 @@ import type { OfficeHandle } from "../../src/db/office";
 import { type GitCall, type GitResult, OfficeGit } from "../../src/git";
 import { HAND_MERGE_NOTE, mergeGate } from "../../src/merge-slot";
 import type { OfficeLoadContext } from "../../src/office/steps";
-import { CALL_DEADLINE_MS } from "../../src/platform/deadline";
+import { CALL_DEADLINE_MS, KILL_GRACE_MS } from "../../src/platform/deadline";
 import { CodeHostError, GhHost, type HostPr, type PrStateHost } from "../../src/platform/host";
 import {
   type ClaimRecord,
@@ -346,7 +346,7 @@ describe("detecting Done", () => {
       );
       for (let i = 0; i < 50 && clock.pendingTimers === 0; i += 1) await letCallsRun();
       expect(settled).toBe(false);
-      clock.advance(CALL_DEADLINE_MS);
+      clock.advance(CALL_DEADLINE_MS + KILL_GRACE_MS);
       const check = await checked;
       // The timed-out host call is the failure the Done poll already handles: merge-tree decides.
       expect(world.steps.some((step) => step.startsWith("merge-tree"))).toBe(true);

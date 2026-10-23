@@ -21,7 +21,13 @@
 import type { ChildProcess, Clock, Spawn } from "@dipsaus-orchestrator/contract";
 
 import { systemClock } from "./clock";
-import { CALL_DEADLINE_MS, killChildGroup, timedOutText, withDeadline } from "./deadline";
+import {
+  CALL_DEADLINE_MS,
+  killChildGroup,
+  timedOutText,
+  trackEngineCall,
+  withDeadline,
+} from "./deadline";
 
 /** The oldest `gh` with every subcommand and flag the engine uses. */
 export const MIN_GH_VERSION = "2.50.0";
@@ -725,6 +731,7 @@ export class GhHost implements CodeHost, PrStateHost, PrListHost, PrReviewHost {
         `gh could not start (${error instanceof Error ? error.message : String(error)}); install gh ${MIN_GH_VERSION} or newer (https://cli.github.com).`,
       );
     }
+    trackEngineCall(child);
     if (input !== undefined) {
       if (child.stdin === null) {
         child.kill("SIGKILL");

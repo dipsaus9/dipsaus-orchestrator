@@ -1,5 +1,5 @@
-// The Backlog CLI's deadline (DIPO-314): a CLI that never exits is killed with its process group
-// after 60 s on the engine clock, the call fails with a coded `timedOut` error naming the command
+// The Backlog CLI's deadline (DIPO-314): a CLI that never exits gets SIGTERM with its process
+// group after 60 s on the engine clock and SIGKILL after the grace, the call fails with a coded `timedOut` error naming the command
 // and the deadline, and the office git queue item that waited on it ends, so the next item runs.
 
 import { describe, expect, it } from "bun:test";
@@ -13,7 +13,7 @@ import {
   runBacklog,
 } from "../../src/backlog/runner";
 import { GitQueue } from "../../src/git/queue";
-import { CALL_DEADLINE_MS } from "../../src/platform/deadline";
+import { CALL_DEADLINE_MS, KILL_GRACE_MS } from "../../src/platform/deadline";
 import { hangingSpawn, settle } from "../platform/hanging";
 
 /** `--version` reads no project, so the call runs in a folder without one. */
@@ -36,6 +36,11 @@ describe("the Backlog CLI's deadline", () => {
     expect(hang.children[0]?.signals).toEqual([]);
 
     clock.advance(1);
+    await settle();
+    // SIGTERM first, so the CLI can end cleanly; the call waits for the grace.
+    expect(hang.children[0]?.groupSignals).toEqual(["SIGTERM"]);
+    expect(settled).toBe(false);
+    clock.advance(KILL_GRACE_MS);
     const error = await call;
     expect(error).toBeInstanceOf(BacklogTimedOutError);
     expect(isBacklogTimedOut(error)).toBe(true);
@@ -46,10 +51,10 @@ describe("the Backlog CLI's deadline", () => {
     expect(timedOut.deadlineMs).toBe(CALL_DEADLINE_MS);
     expect(timedOut.command).toEqual(["backlog", "--version"]);
     expect(timedOut.message).toBe(
-      "`backlog --version` did not finish within its deadline of 60 s; dipo killed it and its process group",
+      "`backlog --version` did not finish within its deadline of 60 s; dipo stopped it and its process group",
     );
-    expect(hang.children[0]?.groupSignals).toEqual(["SIGKILL"]);
-    expect(hang.children[0]?.signals).toEqual(["SIGKILL"]);
+    expect(hang.children[0]?.groupSignals).toEqual(["SIGTERM", "SIGKILL"]);
+    expect(hang.children[0]?.signals).toEqual(["SIGTERM", "SIGKILL"]);
   });
 
   it("takes the deadline the CLI is given", async () => {
@@ -61,7 +66,7 @@ describe("the Backlog CLI's deadline", () => {
       VERSION,
     ).catch((error: unknown) => error);
     await settle();
-    clock.advance(5_000);
+    clock.advance(5_000 + KILL_GRACE_MS);
     const error = (await call) as BacklogTimedOutError;
     expect(error.code).toBe("timedOut");
     expect(error.message).toContain("deadline of 5 s");
@@ -105,7 +110,7 @@ describe("the Backlog CLI's deadline", () => {
     expect(queue.pending).toBe(2);
     expect(ran).toBe(false);
 
-    clock.advance(CALL_DEADLINE_MS);
+    clock.advance(CALL_DEADLINE_MS + KILL_GRACE_MS);
     expect(await first).toBeInstanceOf(BacklogTimedOutError);
     expect(await second).toBe("next");
     expect(ran).toBe(true);
