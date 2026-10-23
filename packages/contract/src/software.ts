@@ -24,7 +24,7 @@ export type LogLevel = z.infer<typeof LogLevel>;
 
 const Count = z.int().nonnegative();
 
-// Today's token usage of an office, engine-derived from the usage alerts (0009 section 8). `tokens`
+// Today's (or this month's, DIPO-311) token usage of an office, engine-derived from the usage alerts (0009 section 8). `tokens`
 // counts as the budget does; `estimatedCost` is always estimated.
 export const DayUsage = z.object({
   tokens: z.number().nonnegative(),
@@ -56,6 +56,9 @@ export const OfficeSummary = z.object({
   // switcher shows Ready for offices that are not open. A minor-1 engine always sends it.
   ready: Count.optional(),
   dayUsage: DayUsage.optional(), // [`usage.alerts`]
+  // Since minor 1 (DIPO-311): the same for the UTC calendar month. `tokens` are the office's own;
+  // `limit`, `share` and `alert` are those of the all-office total.
+  monthUsage: DayUsage.optional(), // [`usage.alerts`]
   evidence: EvidenceMap.optional(), // [`evidence`]
   // The privacy opt-ins on for the office, as full keys such as `privacy.storeCommandBodies`
   // (0007 section 8: the overview shows when one is on). Absent when none is on. Minor 1, DIPO-83.

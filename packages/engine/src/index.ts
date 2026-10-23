@@ -319,6 +319,8 @@ export {
   snapshot,
   storyView,
   summarySettings,
+  summaryUsage,
+  UsageMeter,
   viewsFeature,
   withWorkViews,
   workRefOf,

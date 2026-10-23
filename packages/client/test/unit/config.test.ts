@@ -15,7 +15,11 @@ describe("readSoftwareConfig", () => {
     withTempDir((state) => {
       expect(readSoftwareConfig(state)).toEqual({
         ok: true,
-        config: { version: 1, daemon: { autostart: true, autoRestartOnUpgrade: false } },
+        config: {
+          version: 2,
+          daemon: { autostart: true, autoRestartOnUpgrade: false },
+          usage: { alerts: { level: 0.8 } },
+        },
         fromFile: false,
       });
     }));

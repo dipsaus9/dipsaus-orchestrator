@@ -38,3 +38,4 @@ export type {
 } from "./store/index";
 export type { RandomBytes, RequestIds } from "./request-id";
 export type { Transport, TransportConnection, TransportHandlers } from "./transport";
+export { resetText, usageParts, usageTokens, usageWindowText } from "./usage-text";
