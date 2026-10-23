@@ -1,17 +1,17 @@
 ---
 id: DIPO-328
 title: Tear down a Done story's worktree once its worker hosts sent their exit
-status: Refined
+status: Done
 assignee: []
 created_date: '2026-10-23 10:50'
-updated_date: '2026-10-23 11:06'
+updated_date: '2026-10-23 11:26'
 labels:
   - 'tier:S'
 milestone: m-1
 dependencies: []
 references:
-  - packages/engine/src/worktree/done.ts
   - packages/engine/src/worktree/done-elsewhere.ts
+  - packages/engine/src/worktree/done.ts
   - packages/engine/test/worktree/teardown.test.ts
 priority: high
 type: bug
@@ -35,8 +35,14 @@ test_plan:
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 The Done teardown treats a worker host whose exit line was ingested (its exit code is set) as ended, also for rows written before this fix
-- [ ] #2 A host with neither an exit code nor an end time still keeps the worktree
-- [ ] #3 Tests in teardown.test.ts cover both
-- [ ] #4 The done-elsewhere check (hasLiveWorker) uses the same rule
+- [x] #1 A host with neither an exit code nor an end time still keeps the worktree
+- [x] #2 Tests in teardown.test.ts cover both
+- [x] #3 The done-elsewhere check (hasLiveWorker) uses the same rule
+- [x] #4 The Done teardown treats a worker host whose exit line was ingested (an exit code or an exit signal is set) as ended, also for rows written before this fix, through one shared rule (hasUnexitedHost)
 <!-- AC:END -->
+
+## Implementation Notes
+
+<!-- SECTION:NOTES:BEGIN -->
+Done 2026-10-23 (maintainer session): built and fixed in the maintainer session, reviewed by a separate agent; its signal-only finding is fixed (one shared rule, hasUnexitedHost). Follow-ups: DIPO-330 (the other readers of worker_hosts.ended_at).
+<!-- SECTION:NOTES:END -->
