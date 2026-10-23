@@ -5,14 +5,14 @@
 import { describe, expect, it } from "bun:test";
 
 import { type Event, type OfficeId, SEQUENCE_SAMPLES } from "@dipsaus-orchestrator/contract";
-import type { SubscribeOptions } from "@dipsaus-orchestrator/client";
+import { RECOVERY_POLL_MS, type SubscribeOptions } from "@dipsaus-orchestrator/client";
 import { DaemonNotRunningError } from "@dipsaus-orchestrator/client/node";
 import { ManualClock } from "@dipsaus-orchestrator/testkit";
 
 import { type DaemonControl, type DaemonSession, START_HINT } from "./daemon-commands";
 import { type FakeWorkspaceOptions, fakeWorkspace } from "./fake-workspace";
 import { main, type CliDeps } from "./index";
-import { EXPLAIN_WAIT_MS } from "./run-command";
+import { EXPLAIN_WAIT_MS, RUN_TIMEOUT_MS } from "./run-command";
 
 const OFFICE = "off_01J9ZK5Q8W3V4X6Y7Z8A9B0C1D" as OfficeId;
 const OTHER = "off_01J9ZK5Q8W3V4X6Y7Z8A9B0C2E" as OfficeId;
@@ -104,6 +104,33 @@ const result = (
   started: { story: string; key: string; run: string }[],
   skipped: { story: string; key: string; reason: string }[] = [],
 ) => ({ ok: true, changed: started.length > 0, result: { started, skipped } });
+
+/** Refuses the office stream `refusals` times with `error`, as the daemon does while it recovers or has a history gap. */
+function refusingSubscribe(
+  ctx: ReturnType<typeof fake>,
+  error: unknown,
+  refusals: number,
+): CliDeps {
+  const inner = ctx.deps.connectDaemon;
+  let left = refusals;
+  return {
+    ...ctx.deps,
+    connectDaemon: async (mode) => {
+      const session = await inner(mode);
+      return {
+        ...session,
+        subscribe: ((stream: string, options: SubscribeOptions) => {
+          if (left > 0) {
+            left -= 1;
+            queueMicrotask(() => options.onEnded?.(error as never));
+            return { stream, cursor: undefined, unsubscribe: () => undefined };
+          }
+          return session.subscribe(stream as never, options);
+        }) as unknown as DaemonSession["subscribe"],
+      };
+    },
+  };
+}
 
 describe("dipo run explains its skips", () => {
   it("prints the notice of a failed setup and the gate output of a move back to Refined", async () => {
@@ -341,6 +368,50 @@ describe("dipo run without a daemon (DIPO-187)", () => {
     };
     expect(await main(["run"], deps)).toBe(1);
     expect(modes).toEqual(["start"]);
+  });
+
+  it("waits for an office stream refused while the daemon recovers, then runs (DIPO-325)", async () => {
+    const ctx = fake(() => result([{ story: "DIPO-7", key: KEY, run: RUN }]), IN_OFFICE);
+    const deps = refusingSubscribe(ctx, { code: "engine.recovering", message: "recovering" }, 1);
+    const running = main(["run"], deps);
+    for (let i = 0; i < 20; i++) await Bun.sleep(0);
+    (ctx.deps.clock as ManualClock).advance(RECOVERY_POLL_MS);
+    expect(await running).toBe(0);
+    expect(ctx.err).toEqual([]);
+    expect(ctx.out).toEqual([`started DIPO-7 (run ${RUN})`]);
+  });
+
+  it("runs and reports the started story when the office stream closes at once (DIPO-325)", async () => {
+    const ctx = fake(() => result([{ story: "DIPO-7", key: KEY, run: RUN }]), IN_OFFICE);
+    const deps = refusingSubscribe(ctx, { code: "stream.resetRequired", message: "gap" }, 1);
+    expect(await main(["run"], deps)).toBe(0);
+    expect(ctx.err).toEqual([]);
+    expect(ctx.out).toEqual([`started DIPO-7 (run ${RUN})`]);
+  });
+
+  it("waits for a claim slower than the old five-minute limit and reports the started run (DIPO-325)", async () => {
+    const claim = Promise.withResolvers<unknown>();
+    const ctx = fake(() => claim.promise, IN_OFFICE);
+    const running = main(["run"], ctx.deps);
+    for (let i = 0; i < 20 && ctx.sent.length === 0; i++) await Bun.sleep(0);
+    // Five and a half minutes, as a claim took on a Mac (DIPO-325).
+    (ctx.deps.clock as ManualClock).advance(330_000);
+    claim.resolve(result([{ story: "DIPO-7", key: KEY, run: RUN }]));
+    expect(await running).toBe(0);
+    expect(ctx.err).toEqual([]);
+    expect(ctx.out).toEqual([`started DIPO-7 (run ${RUN})`]);
+  });
+
+  it("says plainly that the claim is still going at its limit and how to follow it", async () => {
+    const ctx = fake(() => new Promise<never>(() => undefined), IN_OFFICE);
+    const running = main(["run"], ctx.deps);
+    for (let i = 0; i < 20 && ctx.sent.length === 0; i++) await Bun.sleep(0);
+    (ctx.deps.clock as ManualClock).advance(RUN_TIMEOUT_MS);
+    expect(await running).toBe(1);
+    expect(ctx.out).toEqual([]);
+    expect(ctx.err).toEqual([
+      "dipo: the claim is still going after 600 s; it may still start a story. Follow it with `dipo watch` or `dipo daemon status`.",
+    ]);
   });
 });
 

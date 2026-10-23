@@ -262,6 +262,18 @@ describe("dipo watch", () => {
     expect(ctx.err).toEqual(["dipo: office.unknown: gone"]);
   });
 
+  it("waits out a subscription refused while the daemon recovers, then follows the office (DIPO-325)", async () => {
+    const ctx = fake({ running: false });
+    const done = main(["watch"], ctx.deps);
+    await until(() => ctx.subscriptions.length === 1);
+    ctx.end({ code: "engine.recovering", message: "recovering", retryable: true });
+    (ctx.deps.clock as ManualClock).advance(RECOVERY_POLL_MS);
+    await until(() => ctx.subscriptions.length === 2);
+    expect(ctx.err).toEqual([]);
+    ctx.end({ code: "office.unknown", message: "gone", retryable: false });
+    expect(await done).toBe(1);
+  });
+
   it("follows the office until a run starts, and reloads after a history gap", async () => {
     const ctx = fake({ running: false });
     const done = main(["watch"], ctx.deps);

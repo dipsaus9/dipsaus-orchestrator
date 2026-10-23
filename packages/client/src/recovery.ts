@@ -8,7 +8,8 @@
 // answers the non-retryable `database.unavailable` instead (DIPO-111): the wait ends with that
 // answer. It sets no deadline of its own: the caller's reply deadline bounds it, `close` ends the
 // wait, and `daemon.status` failing three times in a row ends it with the `engine.recovering`
-// reply.
+// reply. A subscription refused with `engine.recovering` is sent again the same way, from its last
+// cursor (DIPO-325), so a stream that is opened while the daemon starts is not ended by the wait.
 
 import type { z } from "zod";
 
@@ -17,6 +18,7 @@ import {
   type CommandDefinition,
   daemonStatus,
   type ReadDefinition,
+  type StreamName,
   type TimerHandle,
 } from "@dipsaus-orchestrator/contract";
 
@@ -27,6 +29,8 @@ import {
   type DipoClient,
   type ReadOutcome,
   type RequestOptions,
+  type SubscribeOptions,
+  type Subscription,
 } from "./client";
 import { type RequestIds, ulidRequestIds } from "./request-id";
 
@@ -97,6 +101,45 @@ export function waitForRecovery(
 
   const ensureOpen = () => {
     if (closed) throw new ClientError("client.closed", "The client was closed.");
+  };
+
+  /**
+   * Subscribes, and when the daemon refuses the subscription with `engine.recovering` (DIPO-325),
+   * sends it again after every `pollMs` from the last cursor, until it is accepted, another error
+   * ends it (`onEnded` gets that one), or the subscription or the session is closed.
+   */
+  const subscribeWhenReady = (stream: StreamName, subscribed: SubscribeOptions): Subscription => {
+    let cursor = subscribed.after;
+    let current: Subscription | null = null;
+    let unsubscribed = false;
+    const start = (): void => {
+      const subscription = session.subscribe(stream, {
+        ...subscribed,
+        ...(cursor === undefined ? {} : { after: cursor }),
+        onEnded: (error) => {
+          if (error.code !== "engine.recovering" || closed || unsubscribed) {
+            subscribed.onEnded?.(error);
+            return;
+          }
+          cursor = subscription.cursor;
+          void sleep(pollMs).then(() => {
+            if (!closed && !unsubscribed) start();
+          });
+        },
+      });
+      current = subscription;
+    };
+    start();
+    return {
+      stream,
+      get cursor() {
+        return current?.cursor ?? cursor;
+      },
+      unsubscribe() {
+        unsubscribed = true;
+        current?.unsubscribe();
+      },
+    };
   };
 
   /**
@@ -179,7 +222,7 @@ export function waitForRecovery(
       return isRecovering(outcome) ? untilAnswered(outcome, send) : outcome;
     },
 
-    subscribe: (stream, subscribeOptions) => session.subscribe(stream, subscribeOptions),
+    subscribe: (stream, subscribeOptions) => subscribeWhenReady(stream, subscribeOptions),
 
     close() {
       if (closed) return;

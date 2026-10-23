@@ -16,13 +16,20 @@
 //   (`park-resume.ts`, DIPO-155), whose queued developer sessions `startQueued` starts too and whose
 //   interrupted resumes `recoverParkResumes` finishes after a restart.
 
-import { type OfficeId, type RunId, type workResume } from "@dipsaus-orchestrator/contract";
+import {
+  type OfficeId,
+  type RunId,
+  StoryId,
+  StoryKey,
+  type workResume,
+} from "@dipsaus-orchestrator/contract";
 import type { z } from "zod";
 
 import type { NewEntry } from "../changelog/log";
 import type { AsyncCommandContext, CommandOutcome, FeatureModule } from "../commands/registry";
 import type { OfficeHandle } from "../db/office";
 import { parkAnswerMessage } from "../hooks/park-questions";
+import type { QuestionParkResumer } from "../hooks/permissions";
 import { answeredParkQuestion, findQuestion } from "../hooks/questions";
 import { workRefOf } from "../views/work";
 
@@ -108,6 +115,14 @@ export function createRunOutcomes(
   return { outcomes, resumption };
 }
 
+/** The story of a story run, as `work.resume` names it; throws for a run with no story. */
+function identity(run: StoredRun): { readonly story: StoryId; readonly key: StoryKey } {
+  if (run.story === null || run.key === null) {
+    throw new Error(`${run.runId} is not a story run; only a story's park resumes`);
+  }
+  return { story: StoryId.parse(run.story), key: StoryKey.parse(run.key) };
+}
+
 export class Resumption {
   readonly #s: OutcomeParts["support"];
   readonly #deps: RunOutcomesDeps;
@@ -150,6 +165,31 @@ export class Resumption {
   /** `work.resume { story, note? }`, decided through the policy table (`WorkResumeCommand.run`). */
   resumeCommand(ctx: AsyncCommandContext, args: ResumeArgs): Promise<CommandOutcome<ResumeResult>> {
     return this.#command.run(ctx, args);
+  }
+
+  /**
+   * The resume of a question park by `work.answer` (0020 section 7, DIPO-159): `work.resume`'s park
+   * path for the run's story with the answer as its note, refusals included.
+   */
+  get questionParks(): QuestionParkResumer {
+    return {
+      resume: async (ctx, run, park, answer) => {
+        const story = identity(run);
+        const outcome = await this.#parks.resume(ctx, story, park, {
+          story: story.story,
+          note: answer,
+        } as ResumeArgs);
+        return {
+          ...(outcome.result.run === undefined ? {} : { run: outcome.result.run }),
+          ...(outcome.result.queued === true ? { queued: true } : {}),
+        };
+      },
+      replay: async (ctx, run) => {
+        const outcome = await this.#parks.replay(ctx, identity(run));
+        if (outcome === null) return null;
+        return outcome.result.run === undefined ? {} : { run: outcome.result.run };
+      },
+    };
   }
 
   /**
@@ -358,10 +398,11 @@ export class Resumption {
       const place: { queued: string | null } = { queued: null };
       await this.#serialized(officeId, () =>
         this.#s.write(office, () => {
-          const reopenedEntries = reopenParkedRun(office, park, run, to, at);
           // The lift's push, on the claim like every story-branch push (DIPO-315).
           const push = { pushed: lifted.pushed, error: lifted.pushError };
           recordBranchPush(office, run.branch as string, push, at);
+          // The answer first: resolving the park expires every question it still holds open
+          // (migration 50, DIPO-159).
           const answered = answeredParkQuestion(
             office,
             request.question,
@@ -369,6 +410,7 @@ export class Resumption {
             request.text,
             at,
           );
+          const reopenedEntries = reopenParkedRun(office, park, run, to, at);
           markIntentSent(office, runId, intentId, at, null);
           const queued =
             places?.blocked(

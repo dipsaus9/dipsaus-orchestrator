@@ -6,7 +6,7 @@ title: >-
 status: To Do
 assignee: []
 created_date: '2026-10-21 13:54'
-updated_date: '2026-10-22 19:26'
+updated_date: '2026-10-23 10:34'
 labels:
   - box
   - cutover
@@ -22,7 +22,6 @@ dependencies:
   - DIPO-275
   - DIPO-277
   - DIPO-240
-  - DIPO-288
   - DIPO-290
   - DIPO-294
   - DIPO-295
@@ -55,7 +54,8 @@ From DIPO-286: `container build` has no network option, so today's build runs on
 branch: "DIPO-281/box-network-hardening"
 unknowns:
   - q: "Build inside a box on the host-only network and turn it into an image, or install without lifecycle scripts and run only trusted steps?"
-    status: "open"
+    status: "resolved"
+    answer: "A (maintainer, 2026-10-23): build inside a box on the host-only network, with the same registry and web routes as a worker box, and turn it into the image with container commit; container build is no longer used for the office image."
 ```
 <!-- SECTION:DESCRIPTION:END -->
 

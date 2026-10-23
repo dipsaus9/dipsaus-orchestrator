@@ -3,10 +3,10 @@ id: DIPO-325
 title: >-
   Let CLI commands wait for a starting daemon and a slow claim instead of
   failing
-status: Ready
+status: Done
 assignee: []
 created_date: '2026-10-23 09:11'
-updated_date: '2026-10-23 09:43'
+updated_date: '2026-10-23 10:30'
 labels:
   - 'tier:S'
 milestone: m-1
@@ -14,6 +14,14 @@ dependencies: []
 references:
   - packages/cli/src/
   - packages/client/src/
+modified_files:
+  - packages/cli/src/office-commands.test.ts
+  - packages/cli/src/office-commands.ts
+  - packages/cli/src/run-command.test.ts
+  - packages/cli/src/run-command.ts
+  - packages/cli/src/watch-command.test.ts
+  - packages/client/src/recovery.ts
+  - packages/client/test/unit/recovery.test.ts
 priority: medium
 type: bug
 ordinal: 310000
@@ -42,8 +50,23 @@ test_plan:
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 dipo office rescan sent while the daemon is recovering waits until it runs, then rescans; no CLI command prints a stack trace for engine.recovering
-- [ ] #2 dipo run waits for a slow claim within a stated limit and then reports the started run, or says plainly that the claim is still going and how to follow it
-- [ ] #3 Every CLI command that subscribes to a stream handles engine.recovering and a closed stream without an unhandled error
-- [ ] #4 Tests cover rescan during recovery, a slow claim and a closed stream
+- [x] #1 dipo office rescan sent while the daemon is recovering waits until it runs, then rescans; no CLI command prints a stack trace for engine.recovering
+- [x] #2 dipo run waits for a slow claim within a stated limit and then reports the started run, or says plainly that the claim is still going and how to follow it
+- [x] #3 Every CLI command that subscribes to a stream handles engine.recovering and a closed stream without an unhandled error
+- [x] #4 Tests cover rescan during recovery, a slow claim and a closed stream
 <!-- AC:END -->
+
+## Final Summary
+
+<!-- SECTION:FINAL_SUMMARY:BEGIN -->
+Closed 2026-10-23 10:30 UTC
+- Criteria met: 4 of 4 (as the worker reported them)
+- Loops: 0; CI attempts: 0
+- Review rounds: 1, failed 0
+- Budget used: 222,185 of 500,000 tokens
+- Runs: 1; resumes: 0
+- Parks: none
+- Grants: none
+- Web calls: 0 searches, 0 fetches
+- Proposals filed: 0
+<!-- SECTION:FINAL_SUMMARY:END -->
