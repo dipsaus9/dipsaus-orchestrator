@@ -27,6 +27,7 @@ import { stateOfficeDirectory } from "../../src/commands/offices";
 import { buildRegistry, type Registry } from "../../src/commands/registry";
 import { MemoryRequestTable } from "../../src/commands/requests";
 import { OFFICE_DEFAULTS, type OfficeConfig } from "../../src/config";
+import { contextPackOf } from "../../src/context/pack";
 import type { Workspace } from "../../src/context/types";
 import type { OfficeHandle } from "../../src/db/office";
 import type { GateResult } from "../../src/gate/types";
@@ -569,6 +570,12 @@ describe("work.run starts the worker of a claimed run", () => {
     // The context pack's paths are stored for the context nudge (DIPO-60), with no nudge yet.
     expect(contextPathsOf(world.office, runId, agent?.agent_id ?? "")).toEqual(["src/greet.ts"]);
     expect(nudgeCount(world.office, runId)).toBe(0);
+    // The task message's context pack is recorded for the worktree with the head it read and the
+    // blob ids of its files (0020 section 6).
+    const pack = contextPackOf(world.office, join(world.worktreeRoot, "TASK-1"));
+    expect(pack?.headSha).toMatch(/^[0-9a-f]{40}$/);
+    expect(Object.keys(pack?.blobIds ?? {})).toContain("src/greet.ts");
+    expect(pack?.blobIds["src/greet.ts"]).toMatch(/^[0-9a-f]{40}$/);
 
     // The system file is in the run directory; the task message is the first stdin line.
     const systemFile = flag("--append-system-prompt-file") as string;

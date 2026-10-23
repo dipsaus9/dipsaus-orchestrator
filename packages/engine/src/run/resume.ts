@@ -10,7 +10,10 @@
 //   caller gives (the report feedback). A full context always starts a new session.
 // - Otherwise a new session with an engine-made session id and a 0014 handoff: the story's task
 //   message with the handoff block of the worktree (commits since the claim's base, uncommitted
-//   changes, the last report's criteria, the last verify, the previous worker's notes).
+//   changes, the last report's criteria, the last verify, the run's open feedback from
+//   `feedback_items` with the resume note, the previous worker's notes; 0020 section 6). The
+//   context pack the task message was built from is recorded for the worktree
+//   (`recordContextPack`) when the new session starts with it.
 // - The launch checks run again before every launch or resume (`WorkerPort.prepare`), with the
 //   office's resolved verify for the verify tools check (DIPO-173); a refused check is
 //   `startFailed` with the adapter hold set, a refused verify tool `failed` with the plan's
@@ -44,7 +47,8 @@ import { parseFieldBlock } from "../backlog/fields/block";
 import type { PlainTask } from "../backlog/plain";
 import { appendEntries, type NewEntry } from "../changelog/log";
 import type { OfficeConfig } from "../config";
-import type { Workspace } from "../context/types";
+import { recordContextPack } from "../context/pack";
+import type { ContextPack, Workspace } from "../context/types";
 import { gitWorkspace } from "../context/workspace";
 import type { OfficeHandle } from "../db/office";
 import type { GitLocation } from "../git/hardened";
@@ -89,6 +93,7 @@ import {
   type RunIngest,
   type TierCaps,
 } from "./launch";
+import { openFeedbackOf } from "./open-feedback";
 import { renderRunPrompts, sessionUuid } from "./prompts";
 import type { StoredRun } from "./records";
 import { clearSignals } from "./signals";
@@ -170,7 +175,24 @@ export interface RunResumerDeps {
     office: OfficeHandle,
     run: StoredRun,
     lastReport: WorkerReport | null,
+    /** A box run, and the maintainer's resume note when the resume carries one. */
+    extra?: HandoffExtra,
   ) => Promise<HandoffFacts>;
+}
+
+/** What a handoff reads besides the run: a box run, and the maintainer's resume note. */
+export interface HandoffExtra {
+  readonly box: boolean;
+  readonly note?: string;
+}
+
+/** A new session's task message with its handoff block, and what it was built from. */
+interface HandoffMessage {
+  readonly text: string;
+  /** The context pack and input paths the new session's nudges check. */
+  readonly sources: NudgeSources;
+  readonly pack: ContextPack;
+  readonly headSha: string;
 }
 
 export interface NextSessionRequest {
@@ -184,6 +206,11 @@ export interface NextSessionRequest {
   readonly why: string;
   /** The first message instead of the resume delta, added after the handoff block otherwise. */
   readonly message?: string;
+  /**
+   * The maintainer's resume note (0020 section 3), listed with the open feedback of a handoff. A
+   * native resume does not read it here: its first message is the caller's.
+   */
+  readonly note?: string;
   /**
    * Only a resume will do (DIPO-57: a host lost while the daemon was down): when the session
    * cannot be resumed nothing starts and the outcome is `notResumed`.
@@ -331,16 +358,12 @@ export class RunResumer implements NextSession {
 
     // The handoff message: the new session's task message, and the size a resume is weighed with.
     // Its context pack and input paths are the new session's nudge sources, resumed or not.
-    let handoff: { text: string; sources: NudgeSources } | { error: string };
+    let handoff: HandoffMessage | { error: string };
     try {
-      handoff = await this.#handoffMessage(
-        office,
-        git,
-        run,
-        config,
-        facts?.lastReport ?? null,
+      handoff = await this.#handoffMessage(office, git, run, config, facts?.lastReport ?? null, {
         box,
-      );
+        ...(request.note === undefined ? {} : { note: request.note }),
+      });
     } catch (error) {
       handoff = { error: messageOf(error) };
     }
@@ -513,6 +536,10 @@ export class RunResumer implements NextSession {
       // for it, or, for a resume whose handoff could not be built, the resumed session's own.
       if ("sources" in handoff) writeNudgeSources(office, run.runId, agent, handoff.sources, at);
       else copyNudgeSources(office, run.runId, request.work.agent, agent, at);
+      // The pack a new session's task message was built from (0020 section 6); a resume sends none.
+      if (!resume && "pack" in handoff && run.worktree !== null) {
+        recordContextPack(office, run.worktree, handoff.headSha, handoff.pack, deps.clock);
+      }
       const cleared = clearSignals(
         office,
         run.runId,
@@ -726,13 +753,14 @@ export class RunResumer implements NextSession {
     run: StoredRun,
     config: OfficeConfig,
     lastReport: WorkerReport | null,
-    /** A box worker's run: the box scope section (DIPO-272). */
-    box = false,
-  ): Promise<{ text: string; sources: NudgeSources }> {
+    /** A box worker's run: the box scope section (DIPO-272) and the box handoff; the resume note. */
+    extra: HandoffExtra = { box: false },
+  ): Promise<HandoffMessage> {
     const deps = this.#deps;
     const worktree = run.worktree ?? "";
+    const box = extra.box;
     const story = await deps.story(office.officeId, run);
-    const handoff = await (deps.handoff ?? this.#gather.bind(this))(office, run, lastReport);
+    const handoff = await (deps.handoff ?? this.#gather.bind(this))(office, run, lastReport, extra);
     const workspace = (deps.workspace ?? defaultWorkspace)(git, worktree);
     const claim = findClaim(office, run.runId);
     const baseSha = claim?.baseSha ?? run.startSha ?? (await workspace.headSha());
@@ -753,13 +781,19 @@ export class RunResumer implements NextSession {
         baseVerifyConfigHash(config, runProfileOf(office, run.runProfileId)),
       ),
     });
-    return { text: prompts.taskMessage, sources: prompts.nudgeSources };
+    return {
+      text: prompts.taskMessage,
+      sources: prompts.nudgeSources,
+      pack: prompts.pack,
+      headSha: prompts.headSha,
+    };
   }
 
   async #gather(
     office: OfficeHandle,
     run: StoredRun,
     lastReport: WorkerReport | null,
+    extra: HandoffExtra = { box: false },
   ): Promise<HandoffFacts> {
     const git = this.#deps.git(office.officeId);
     if (git === undefined) throw new Error(`office ${office.officeId} has no git attached`);
@@ -774,7 +808,10 @@ export class RunResumer implements NextSession {
       office,
       lastReport,
       lastVerify: lastVerifyOf(office, run.runId),
-      openFeedback: [],
+      // The items no later green verify or approval answered (0020 section 6).
+      openFeedback: openFeedbackOf(office, run.runId),
+      ...(extra.note === undefined ? {} : { note: extra.note }),
+      ...(extra.box ? { box: true } : {}),
     });
   }
 
