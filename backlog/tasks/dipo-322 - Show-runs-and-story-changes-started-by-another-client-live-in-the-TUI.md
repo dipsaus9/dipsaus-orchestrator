@@ -4,7 +4,7 @@ title: Show runs and story changes started by another client live in the TUI
 status: Refined
 assignee: []
 created_date: '2026-10-23 08:11'
-updated_date: '2026-10-23 08:11'
+updated_date: '2026-10-23 08:13'
 labels:
   - 'tier:M'
   - 'slice:m1b'
@@ -33,7 +33,7 @@ unknowns: []
 test_plan:
   entries:
     - kind: "automated"
-      check: "(unit) an office store fed a work.started, a story.state and a work.ended event from the stream updates the overview, the queue and the story detail without a new snapshot"
+      check: "(unit) an office store fed work.assigned, work.phase, work.progress, work.output and story.state events from the stream updates the overview, the queue, the live agent view and the story detail without a new snapshot"
     - kind: "automated"
       check: "(unit) after a daemon restart and the client's reconnect, the store resubscribes after its last cursor and the next events update the open views"
 ```
@@ -42,7 +42,7 @@ test_plan:
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
 - [ ] #1 The cause is named in the PR: why an open view does not take changes that the stream carries
-- [ ] #2 An open TUI shows a run started, moved or ended by another client within a few seconds, in the overview, the queue, the live agent view and the story detail
-- [ ] #3 After a daemon restart the TUI reconnects, resubscribes after its last cursor and keeps updating live
-- [ ] #4 Tests cover events from another client and the reconnect
+- [ ] #2 After a daemon restart the TUI reconnects, resubscribes after its last cursor and keeps updating live
+- [ ] #3 Tests cover events from another client and the reconnect
+- [ ] #4 An open TUI shows a run started, moved or ended by another client (the stream's work.assigned, work.phase, work.progress, work.output and story.state events) in the overview, the queue, the live agent view and the story detail within 5 seconds of the event
 <!-- AC:END -->
