@@ -297,14 +297,18 @@ export interface DoneElsewhereDeps {
   }) => void;
 }
 
-/** True when the claim's run is still active or one of its worker hosts has not ended. */
+/**
+ * True when the claim's run is still active or one of its worker hosts has neither ended nor sent its
+ * exit line (only a re-attach sets `ended_at`; DIPO-328).
+ */
 export function hasLiveWorker(office: OfficeHandle, claim: Pick<ClaimRecord, "runId">): boolean {
   const run = findRun(office, claim.runId);
   if (run !== null && run.endedAt === null) return true;
   return (
     office.get<{ n: number }>(
       `select 1 as n from worker_hosts
-        where office_id = $office_id and run_id = $run and ended_at is null limit 1`,
+        where office_id = $office_id and run_id = $run and ended_at is null and exit_code is null
+        limit 1`,
       { run: claim.runId },
     ) !== null
   );

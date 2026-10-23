@@ -414,12 +414,17 @@ export class StoryTeardown {
   }
 }
 
-/** True when a worker host of the claim's run has not ended. */
+/**
+ * True when a worker of the claim's run may still be running: its host has neither ended nor sent its
+ * exit line. Only a re-attach sets `ended_at`, so a host whose exit line was ingested (its exit code
+ * is set) counts as done (DIPO-328).
+ */
 function hasLiveHost(office: OfficeHandle, claim: ClaimRecord): boolean {
   return (
     office.get<{ n: number }>(
       `select 1 as n from worker_hosts
-       where office_id = $office_id and run_id = $run and ended_at is null limit 1`,
+       where office_id = $office_id and run_id = $run and ended_at is null and exit_code is null
+       limit 1`,
       { run: claim.runId },
     ) !== null
   );
