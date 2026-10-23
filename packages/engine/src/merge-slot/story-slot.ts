@@ -219,6 +219,13 @@ function notice(
 
 const short = (sha: string): string => sha.slice(0, 12);
 
+/**
+ * What a story that left the slot unapproved is kept out on: the head it would have merged, that
+ * head's verdict and the approved gate that held for it (`none` for each it lacked).
+ */
+const approvalKey = (head: string, verdict: string, gate: string): string =>
+  `unapproved ${head} ${verdict} ${gate}`;
+
 /** Frees the office's slot: the story PR in it left. */
 function free(ctx: StorySlotContext): void {
   ctx.write(() => {
@@ -320,7 +327,16 @@ export class StorySlot {
       );
       return null;
     }
-    if (ctx.left.get(run.runId) === head) return null;
+    // Out until its head changes; one that left unapproved also until its verdict or gate does.
+    const left = ctx.left.get(run.runId);
+    if (left === head) return null;
+    if (left?.startsWith("unapproved ") === true) {
+      // Left unapproved at the head it would merge: out until that head's verdict or gate changes.
+      const [, unapproved = ""] = left.split(" ");
+      const now = await this.#approvedFor(ctx.officeId, office, run, unapproved);
+      if (approvalKey(unapproved, now.verdict ?? "none", now.gate ?? "none") === left) return null;
+      ctx.left.delete(run.runId);
+    }
     return {
       runId: run.runId,
       key,
@@ -370,24 +386,34 @@ export class StorySlot {
   }
 
   /**
-   * True when the verdict of `head`'s code tree is approved or overridden and an approved merge
-   * gate of the run holds for `head`: what the slot checks right before the host merge.
+   * Whether the verdict of `head`'s code tree is approved or overridden and an approved merge gate
+   * of the run holds for `head` (what the slot checks right before the host merge), with the
+   * verdict's and that gate's ids, or null for each it did not find.
    */
   async #approvedFor(
     officeId: OfficeId,
     office: OfficeHandle,
     run: StoredRun,
     head: string,
-  ): Promise<boolean> {
-    if (head === "") return false;
+  ): Promise<{
+    readonly ok: boolean;
+    readonly verdict: string | null;
+    readonly gate: string | null;
+  }> {
+    const none = { ok: false, verdict: null, gate: null };
+    if (head === "") return none;
     const verdict = await this.#verdictFor(officeId, office, run, head);
-    if (verdict === null) return false;
-    if (verdict.verdict !== "approved" && verdict.override === null) return false;
+    if (verdict === null) return none;
+    if (verdict.verdict !== "approved" && verdict.override === null) {
+      return { ok: false, verdict: verdict.gate, gate: null };
+    }
     for (const gate of mergeGatesOfRun(office, run.runId).toReversed()) {
       if (gate.decision?.decision !== "approved") continue;
-      if (await this.#holds(officeId, office, run, gate, head, verdict)) return true;
+      if (await this.#holds(officeId, office, run, gate, head, verdict)) {
+        return { ok: true, verdict: verdict.gate, gate: gate.gate };
+      }
     }
-    return false;
+    return { ok: false, verdict: verdict.gate, gate: null };
   }
 
   /**
@@ -420,7 +446,7 @@ export class StorySlot {
       notice(
         "warn",
         STORY_SLOT_NOTICES.unrecorded,
-        `${run.story} left the merge slot unmerged: dipo merged the base into its branch at ${short(commit)} but could not record that merge (${reason}), so no approval carries to it. Nothing was pushed; the review loop takes the head.`,
+        `${run.story} left the merge slot unmerged: dipo merged the base into its branch at ${short(commit)} but could not record that merge (${reason}), so no approval carries to it. Nothing was pushed this time; a later stay may push that merge, but dipo never merges it without an approved review of it.`,
         run.key,
         run.runId,
       ),
@@ -863,9 +889,14 @@ export class StorySlot {
     }
     // The review verdict and an approved merge gate must hold for exactly the head that merges:
     // the slot's own commits (the close-out, a merge of the base) never merge without them.
-    if (!(await this.#approvedFor(ctx.officeId, office, run, head))) {
+    const approval = await this.#approvedFor(ctx.officeId, office, run, head);
+    if (!approval.ok) {
+      // Out of the slot until the head, its verdict or its approved gate changes, so it does not
+      // come back every tick without merging.
+      const key = approvalKey(head, approval.verdict ?? "none", approval.gate ?? "none");
+      ctx.left.set(runId, key);
       free(ctx);
-      ctx.write(() => [
+      ctx.once(`story:${runId}`, STORY_SLOT_NOTICES.unapproved, key, () =>
         notice(
           "warn",
           STORY_SLOT_NOTICES.unapproved,
@@ -873,7 +904,7 @@ export class StorySlot {
           run.key,
           runId,
         ),
-      ]);
+      );
       return "left";
     }
     // Step 6: squash-merge, only while the host's head is the one dipo pushed.

@@ -223,6 +223,43 @@ describe("a story PR with an approved verdict and green checks", () => {
     expect(noticeCodes(s.w.office)).toContain(STORY_SLOT_NOTICES.unapproved);
   });
 
+  it("keeps a story that left unapproved out until the head it would merge has a new verdict", async () => {
+    s = await storyWorld();
+    await toChecks();
+    s.ci.set(s.run, { kind: "green", head: C1 });
+    s.git.trees.set(C1, "tree-unreviewed");
+    expect(await tick()).toBe("left");
+    // The PR still shows the approved H1 (its update failed, say): it would pass the entry checks.
+    s.w.office.immediate(() =>
+      s.w.office.run("update story_prs set head_sha = $head where office_id = $office_id", {
+        head: H1,
+      }),
+    );
+    s.host.prs.set(PR, hostPr(H1));
+    s.ci.set(s.run, { kind: "green", head: H1 });
+    const calls = s.git.calls.length;
+    expect(await tick()).toBe("idle");
+    expect(await tick()).toBe("idle");
+    expect(s.git.calls).toHaveLength(calls);
+    expect(noticeTexts(s.w.office, STORY_SLOT_NOTICES.unapproved)).toHaveLength(1);
+    // The review loop approves the head the slot would merge: the story comes back.
+    s.w.office.immediate(() =>
+      recordReviewVerdict(s.w.office, s.w.t.ids, {
+        runId: s.run,
+        key: s.key,
+        round: 2,
+        agent: null,
+        model: "opus",
+        commit: C1,
+        codeTreeKey: "tree-unreviewed",
+        judged: APPROVED,
+        at: s.w.t.clock.now(),
+      }),
+    );
+    await tick();
+    expect(s.git.calls.length).toBeGreaterThan(calls);
+  });
+
   it("records the merge and closes out again after a restart between the branch move and the record", async () => {
     s = await storyWorld();
     await toChecks();
