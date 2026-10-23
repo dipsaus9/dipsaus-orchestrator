@@ -234,7 +234,7 @@ describe("a story Done on the base through another branch (DIPO-161)", () => {
       expect(doneElsewhereDeskItems(o.office)).toHaveLength(1);
     }));
 
-  it("deletes a branch that adds nothing to the base, locally and on the remote", () =>
+  it("leaves a story merged through its own branch to the Done poll, which tears it down as done (DIPO-332)", () =>
     withReconcileOffice({ base: DONE }, async (o) => {
       const key = keyOf(o.office, "TASK-1");
       const record = await claim(o, o.office, "TASK-1", key, { active: false });
@@ -244,19 +244,31 @@ describe("a story Done on the base through another branch (DIPO-161)", () => {
 
       await reconcile(o);
 
-      expect(findClaim(o.office, record.runId)?.releaseReason).toBe("done-elsewhere");
+      // Not Done elsewhere: its own branch merged, so reconcile releases nothing.
+      expect(liveClaimOf(o.office, key)).not.toBeNull();
+      expect(findDoneElsewhere(o.office, record.runId)).toBeNull();
+      expect(existsSync(record.worktree)).toBe(true);
+
+      const teardown = new StoryTeardown({
+        git: () => gitOf(o),
+        host: null,
+        cli: { spawn: fakeBacklog(o.tables).spawn },
+        offices: { get: () => o.office, config: () => OFFICE_DEFAULTS },
+        statusOf: async () => "Done",
+      });
+      teardown.track(o.officeId as OfficeId, o.office, o.s.clock);
+      const report = await teardown.poll(o.officeId as OfficeId);
+      teardown.stop();
+
+      expect(report.tornDown.map((c) => c.runId)).toEqual([record.runId]);
+      expect(findClaim(o.office, record.runId)?.releaseReason).toBe("done");
       expect(existsSync(record.worktree)).toBe(false);
       expect(await tipOf(o, `refs/heads/${record.branch}`)).toBeNull();
       expect(await remoteTip(o, record.branch)).toBe("");
-      expect(openReleasedBranches(o.office, key)).toEqual([]);
-      expect(findDoneElsewhere(o.office, record.runId)).toMatchObject({
-        worktreeKept: false,
-        branchKept: false,
-      });
+      expect(findDoneElsewhere(o.office, record.runId)).toBeNull();
       expect(doneElsewhereDeskItems(o.office)).toEqual([]);
-      expect(noticesAfter(o.office, seq).map((n) => n.code)).toContain(
-        DONE_ELSEWHERE_NOTICES.cleaned,
-      );
+      const codes = noticesAfter(o.office, seq).map((n) => n.code);
+      expect(codes).not.toContain(DONE_ELSEWHERE_NOTICES.released);
     }));
 
   it("flags a live worker once with a DONE ELSEWHERE item and releases it only at the run's next end", () =>
@@ -404,6 +416,19 @@ describe("a story Done elsewhere: the box and the remote branch (DIPO-161 review
       const record = await claim(o, o.office, "TASK-1", key, { active: false });
       await o.repo.git("push", "--quiet", "origin", record.branch);
       await mergeOnRemote(o, record);
+      // An own-branch teardown a crash interrupted after the worktree removal, released as done:
+      // its kept branch is settled by reconcile (a live claim merged through its own branch is the
+      // Done poll's, DIPO-332).
+      await o.repo.git("worktree", "unlock", record.worktree);
+      await o.repo.git("worktree", "remove", record.worktree);
+      gitOf(o).unpinWorktree(record.worktree);
+      o.office.immediate(() => {
+        o.office.run(
+          "update claims set teardown_started_at = 5 where office_id = $office_id and run_id = $run",
+          { run: record.runId },
+        );
+        releaseClaim(o.office, record.runId, { at: 6, reason: "done", keepBranch: false });
+      });
       // Someone pushes a commit with a change of their own to the branch on the host.
       const elsewhere = join(o.repo.root, "elsewhere");
       await o.repo.git("worktree", "add", "--quiet", "--detach", elsewhere, record.claimSha ?? "");
