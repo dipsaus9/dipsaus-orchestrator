@@ -1,10 +1,10 @@
 ---
 id: DIPO-155
 title: 'Resume every parked story, top up a budget, and clear stale park records'
-status: Refined
+status: Done
 assignee: []
 created_date: '2026-10-17 12:52'
-updated_date: '2026-10-22 18:15'
+updated_date: '2026-10-23 09:11'
 labels:
   - 'tier:M'
   - 'slice:m1a'
@@ -32,27 +32,77 @@ dependencies:
   - DIPO-160
   - DIPO-163
 references:
-  - docs/decisions/
+  - '- docs/decisions/'
   - packages/cli/src/
+  - packages/cli/src/index.ts
+  - packages/cli/src/resume-command.test.ts
+  - packages/cli/src/resume-command.ts
   - packages/contract/schema/
+  - packages/contract/schema/commands.schema.json
+  - packages/contract/schema/reads.schema.json
   - packages/contract/src/
+  - packages/contract/src/definition.test.ts
+  - packages/contract/src/definition.ts
+  - packages/contract/src/errors.ts
+  - packages/contract/src/index.test.ts
+  - packages/contract/src/office.ts
+  - packages/daemon/src/server.ts
   - packages/engine/src/backlog/fields/
   - packages/engine/src/commands/
+  - packages/engine/src/commands/execute.ts
+  - packages/engine/src/commands/registry.ts
   - packages/engine/src/db/migrations/
+  - packages/engine/src/db/migrations/0047-park-resolved-note.ts
   - packages/engine/src/db/schema.ts
   - packages/engine/src/merge-slot/
+  - packages/engine/src/merge-slot/close-out-park.ts
+  - packages/engine/src/merge-slot/index.ts
   - packages/engine/src/prompts/feedback/
+  - packages/engine/src/prompts/feedback/maintainer-note.md
+  - packages/engine/src/prompts/feedback/parked.md
+  - packages/engine/src/prompts/feedback/topup.md
+  - packages/engine/src/prompts/handoff.ts
   - packages/engine/src/reads/describe.ts
+  - packages/engine/src/reconcile/index.ts
   - packages/engine/src/reconcile/reconcile.ts
   - packages/engine/src/retention/
   - packages/engine/src/run/
+  - packages/engine/src/run/compose.ts
+  - packages/engine/src/run/grants.ts
+  - packages/engine/src/run/index.ts
+  - packages/engine/src/run/outcome-sessions.ts
+  - packages/engine/src/run/outcome-types.ts
+  - packages/engine/src/run/park-resume.ts
+  - packages/engine/src/run/park.ts
+  - packages/engine/src/run/resume-caps.ts
+  - packages/engine/src/run/resume-policy.ts
+  - packages/engine/src/run/resume.ts
+  - packages/engine/src/run/resumption.ts
+  - packages/engine/src/run/work-resume.ts
   - packages/engine/src/story-pr/
+  - packages/engine/src/views/desk.ts
+  - packages/engine/test/backlog/planning.test.ts
   - packages/engine/test/commands/
+  - packages/engine/test/commands/crash.ts
   - packages/engine/test/db/
+  - packages/engine/test/db/park-resolved-note.test.ts
+  - packages/engine/test/hooks/park-answers.test.ts
   - packages/engine/test/merge-slot/
+  - packages/engine/test/merge-slot/close-out-park.test.ts
   - packages/engine/test/reads/
+  - packages/engine/test/reads/describe.test.ts
   - packages/engine/test/reconcile/
+  - packages/engine/test/reconcile/park-state.test.ts
+  - packages/engine/test/reconcile/reconcile.ci.test.ts
   - packages/engine/test/run/
+  - packages/engine/test/run/control.test.ts
+  - packages/engine/test/run/intervene.test.ts
+  - packages/engine/test/run/reattach.test.ts
+  - packages/engine/test/run/resume-parks.test.ts
+  - packages/engine/test/run/resumption.test.ts
+  - packages/engine/test/run/work-run.test.ts
+  - packages/engine/test/views/desk.test.ts
+  - packages/engine/test/worktree/discard.test.ts
 priority: high
 type: feature
 ordinal: 144000
@@ -128,32 +178,29 @@ test_plan:
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 parks gains resolved_note through a migration, and a resume writes the maintainer's note on the park it resolves
-- [ ] #2 work.resume follows the section 1 path (checks without writes, intent first, lift on the branch, one transaction, next session of the same run) for stopped/maintainer, interrupted, worker-failed of a developer session, verify-failing/refused and scope-violation/paths
-- [ ] #3 scope-violation/backstop and hand-change resume with a note after the git-link check, take a new backstop snapshot and start a handoff session; scope-violation/tampered answers resume.notResumable naming dipo discard
-- [ ] #4 A required note that is missing answers resume.noteRequired, and worker-failed is refused while the adapter hold that caused it is set, naming the hold
-- [ ] #5 The first message is the reason's delta followed by feedback/maintainer-note.md built from L5 templates, so maintainer text never starts a message
-- [ ] #6 A resume whose place is taken is accepted with its intent stored and the reply says queued; dipo resume <id> [--note <text>] exists, and the contract carries the queued result of work.resume and the resume.* errors used here
-- [ ] #7 (from DIPO-156) dipo resume <id> --budget +N% or +<tokens> with --note records a budget grant in run_grants (note, origin, client name, time, caps before and after) and raises tokens, turns and minutes by the same share of the run's starting caps; a fixed amount is tokens and turns and minutes grow by its share of the starting budget
-- [ ] #8 (from DIPO-156) A resume of a budget-exceeded park without --budget answers resume.topUpRequired naming --budget and the cap that fired, and a top-up after which that cap would still be reached answers resume.topUpTooSmall naming the smallest share that clears it
-- [ ] #9 (from DIPO-156) commands.describe gains confirmWhen and work.resume declares it for budget; the CLI shows the caps before and after and asks yes or no unless --yes is given
-- [ ] #10 (from DIPO-156) Cause build resumes the developer session (native when the 0014 section 6 checks pass, else a handoff) with feedback/topup.md first; cause review starts a fresh reviewer session on the same head in the reviewer place, and that round is not counted as failed
-- [ ] #11 (from DIPO-156) The CLI --max-turns backstop of the resumed session gets the remaining turns of the raised cap
-- [ ] #12 (from DIPO-156) A top-up resume of a budget-exceeded park that a reopened round hit before any worker session (DIPO-205) sends that round's undelivered feedback first, read from the run's feedback_items rows that no delivered intent carried, then feedback/topup.md
-- [ ] #13 (from DIPO-157) verify-failing/loops and verify-failing/ci resume with a required note, the first message being the last verify or CI item from feedback_items, and record one loop or ciAttempt grant
-- [ ] #14 (from DIPO-157) conflict/merge-in-progress continues the kept merge with its conflict item when the base has not moved and aborts and merges again when it moved, recording one conflictHandoff grant; conflict/unwritable-path merges the base again and parks at once if an unwritable path still conflicts
-- [ ] #15 (from DIPO-157) conflict/push-rejected fetches the remote branch and merges it into the local branch through the 0019 hand-off, never by force, and the worker gets the commits that were only on the remote; conflict/slot-refused returns to In Review and re-enters the merge slot with a fresh per-stay count and no model session
-- [ ] #16 (from DIPO-157) review-blocked/rounds with a note returns to In Review and then In Progress as a fix round with the blocking findings first, recording one reviewRound grant
-- [ ] #17 (from DIPO-157) stopped/pr-closed returns to In Review and opens a new story PR for the same head whose body names the closed one; stopped/review and worker-failed/review start a fresh reviewer session of the same round on the same head; worker-failed/review-cap does the same and grows the cap that fired by 50% as a reviewCap grant
-- [ ] #18 (from DIPO-157) No resume raises a cap without a recorded grant, shown by a test that checks every cap change against a grant row
-- [ ] #19 (from DIPO-157) verify-failing/capped (DIPO-205) resumes only with a note, grows all three caps by 50% of the starting caps as one budget grant recorded with who and why, with no confirmation beyond the note, and starts with the verify failure from the park detail, then the note; a resume without a note answers resume.noteRequired
-- [ ] #20 (from DIPO-168) For each waiting office command (work.run, work.stop, work.answer, work.resume, story.hold, story.drop, work.discard, work.steer, work.pause) a test injects a crash after a handler commit and before the requests row, then retries the command
-- [ ] #21 (from DIPO-168) Each retry repeats no effect: no second commit, push, PR close, message to the worker or grant
-- [ ] #22 (from DIPO-168) A duplicate request that arrives while the first one runs waits for the same reply, shown by a test
-- [ ] #23 (from DIPO-190) Reconcile (reconcilePark in packages/engine/src/reconcile/reconcile.ts) records a park from an F16 block with no open park row only when the story's status is Parked
-- [ ] #24 (from DIPO-190) For a story with an F16 block whose status is not Parked, reconcile writes no parks row and emits one warn engine.notice per pass with a new RECONCILE_NOTICES code, naming the story, its status and the park reason
-- [ ] #25 (from DIPO-190) The merge slot's close-out commit (DIPO-150, packages/engine/src/merge-slot/) removes the F16 block through the single field write path in the same commit that sets Done, and a test shows a task file that held F16 at close-out has no park key after it
-- [ ] #26 (from DIPO-190) A test replays the DIPO-129 case: a Done story with an ambiguous-spec F16 block gets the notice and no parks row, while a Parked story with F16 and no row is still recorded as a park by hand
+- [x] #1 parks gains resolved_note through a migration, and a resume writes the maintainer's note on the park it resolves
+- [x] #2 work.resume follows the section 1 path (checks without writes, intent first, lift on the branch, one transaction, next session of the same run) for stopped/maintainer, interrupted, worker-failed of a developer session, verify-failing/refused and scope-violation/paths
+- [x] #3 scope-violation/backstop and hand-change resume with a note after the git-link check, take a new backstop snapshot and start a handoff session; scope-violation/tampered answers resume.notResumable naming dipo discard
+- [x] #4 A required note that is missing answers resume.noteRequired, and worker-failed is refused while the adapter hold that caused it is set, naming the hold
+- [x] #5 The first message is the reason's delta followed by feedback/maintainer-note.md built from L5 templates, so maintainer text never starts a message
+- [x] #6 A resume whose place is taken is accepted with its intent stored and the reply says queued; dipo resume <id> [--note <text>] exists, and the contract carries the queued result of work.resume and the resume.* errors used here
+- [x] #7 (from DIPO-156) dipo resume <id> --budget +N% or +<tokens> with --note records a budget grant in run_grants (note, origin, client name, time, caps before and after) and raises tokens, turns and minutes by the same share of the run's starting caps; a fixed amount is tokens and turns and minutes grow by its share of the starting budget
+- [x] #8 (from DIPO-156) A resume of a budget-exceeded park without --budget answers resume.topUpRequired naming --budget and the cap that fired, and a top-up after which that cap would still be reached answers resume.topUpTooSmall naming the smallest share that clears it
+- [x] #9 (from DIPO-156) commands.describe gains confirmWhen and work.resume declares it for budget; the CLI shows the caps before and after and asks yes or no unless --yes is given
+- [x] #10 (from DIPO-156) Cause build resumes the developer session (native when the 0014 section 6 checks pass, else a handoff) with feedback/topup.md first; cause review starts a fresh reviewer session on the same head in the reviewer place, and that round is not counted as failed
+- [x] #11 (from DIPO-156) The CLI --max-turns backstop of the resumed session gets the remaining turns of the raised cap
+- [x] #12 (from DIPO-156) A top-up resume of a budget-exceeded park that a reopened round hit before any worker session (DIPO-205) sends that round's undelivered feedback first, read from the run's feedback_items rows that no delivered intent carried, then feedback/topup.md
+- [x] #13 (from DIPO-157) verify-failing/loops and verify-failing/ci resume with a required note, the first message being the last verify or CI item from feedback_items, and record one loop or ciAttempt grant
+- [x] #14 (from DIPO-157) review-blocked/rounds with a note returns to In Review and then In Progress as a fix round with the blocking findings first, recording one reviewRound grant
+- [x] #15 (from DIPO-157) No resume raises a cap without a recorded grant, shown by a test that checks every cap change against a grant row
+- [x] #16 (from DIPO-157) verify-failing/capped (DIPO-205) resumes only with a note, grows all three caps by 50% of the starting caps as one budget grant recorded with who and why, with no confirmation beyond the note, and starts with the verify failure from the park detail, then the note; a resume without a note answers resume.noteRequired
+- [x] #17 (from DIPO-168) For each waiting office command (work.run, work.stop, work.answer, work.resume, story.hold, story.drop, work.discard, work.steer, work.pause) a test injects a crash after a handler commit and before the requests row, then retries the command
+- [x] #18 (from DIPO-168) Each retry repeats no effect: no second commit, push, PR close, message to the worker or grant
+- [x] #19 (from DIPO-168) A duplicate request that arrives while the first one runs waits for the same reply, shown by a test
+- [x] #20 (from DIPO-190) Reconcile (reconcilePark in packages/engine/src/reconcile/reconcile.ts) records a park from an F16 block with no open park row only when the story's status is Parked
+- [x] #21 (from DIPO-190) For a story with an F16 block whose status is not Parked, reconcile writes no parks row and emits one warn engine.notice per pass with a new RECONCILE_NOTICES code, naming the story, its status and the park reason
+- [x] #22 (from DIPO-190) A test replays the DIPO-129 case: a Done story with an ambiguous-spec F16 block gets the notice and no parks row, while a Parked story with F16 and no row is still recorded as a park by hand
+- [x] #23 (from DIPO-157) stopped/review and worker-failed/review start a fresh reviewer session of the same round on the same head; worker-failed/review-cap does the same and grows the cap that fired by 50% as a reviewCap grant
 <!-- AC:END -->
 
 ## Implementation Notes
@@ -170,4 +217,8 @@ From DIPO-299 (2026-10-22): a box run whose branch tip moved at done now parks i
 2026-10-22: combined from DIPO-156, DIPO-157, DIPO-168, DIPO-190 (maintainer, M1 speed-up)
 
 2026-10-22: dropped the dependencies on DIPO-159 (which now holds DIPO-289) and DIPO-161 (a dependency of DIPO-168) to break a dependency cycle left by the M1 combine; those stories now come after this one.
+
+2026-10-23: criteria 14, 15, the stopped/pr-closed half of 17 and 25 moved to DIPO-324 (they need the conflict, merge slot and PR replacement parts that DIPO-149 and DIPO-150 build; this story delivers their seams ConflictResumer, SlotReentry, PrReplacement and gitCloseOutWriter). The four box-only park causes (protected file, secret, refused part, task file) stay not resumable (maintainer, 2026-10-23). Accepted advisories: a restart plus a same-id retry can abandon an intent another pass just sent (narrow); the run hold can be released twice on success (the in-transaction park check stays the guard).
+
+2026-10-23: built outside dipo, reviewed in two rounds (two resumes of one park, grants with who and caps). Migration 0047.
 <!-- SECTION:NOTES:END -->
