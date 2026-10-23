@@ -6,7 +6,7 @@ title: >-
 status: Refined
 assignee: []
 created_date: '2026-10-20 18:34'
-updated_date: '2026-10-22 19:26'
+updated_date: '2026-10-23 07:23'
 labels:
   - 'tier:M'
   - cutover
@@ -108,25 +108,21 @@ test_plan:
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 When the official Safe-Chain install is detected, setup in packages/engine/src/worktree/setup.ts starts the run's Safe-Chain checking proxy (SafeChainProxies.start) before the install step, and the install step's environment and sandbox settings route the package manager through the proxy port as a worker install is routed (DIPO-84), so the install never starts the Safe-Chain wrapper's own listener inside the step sandbox
-- [ ] #2 A proxy that does not start fails setup with a reason that names Safe-Chain and the proxy failure, no install runs, and the claim rolls back as for any setup failure; a setup that fails after the proxy started stops that proxy
-- [ ] #3 The launch after setup routes the worker through the run's proxy, either the one setup started or one started again under the rule of safe-chain-proxies.ts, and the run never has two proxies at once
-- [ ] #4 With no Safe-Chain install, setup and the launch behave as today
-- [ ] #5 Unit tests in packages/engine/test/worktree/ and packages/engine/test/workers/launch-checks.test.ts cover the routed install, a proxy that fails to start, a failed install that stops the proxy, the launch's proxy after setup, and the case with no Safe-Chain install, with fake proxies and fake files
-- [ ] #6 (from DIPO-257) A launch check whose verdict is unsafe (a probe write or read got through) holds the adapter in every office, as today
-- [ ] #7 (from DIPO-257) A launch check that could not run (a missing tool, a timeout, a session that ended early; a refused approval call counts as one too (design choice, not a maintainer decision; the maintainer may change it before a run)) holds only that launch kind, worker or reviewer, in that office; the other kind and the other offices still launch, and its engine.notice names the probe and the fix; every launch-check failure other than a self-test could-not-run verdict (the tools, probe, settings, engine credential and Safe-Chain proxy checks, and a CLI start failure) keeps the hold in every office, so the scoped hold fails closed
-- [ ] #8 (from DIPO-257) A could-not-run hold is checked again with backoff, after 1, 2, 4 and 8 minutes and then every 30 minutes (design choice, not a maintainer decision; the maintainer may change it before a run), and lifts when the checks pass; the re-check is scheduled on the engine clock by the run composition in packages/engine/src/run/compose.ts, as the plan-limit schedule is, and runs the held kind's launch checks through gateLaunch with that office's launch context for that kind (the reviewer's for a reviewer hold, the worker's for a worker hold)
-- [ ] #9 (from DIPO-257) In Places.drain a review start that backs off is passed over and the next pending review in order starts in its place; the backed-off review starts again after its wait with no other trigger, and the drain's minute tick keeps running while any start waits for a backoff (design choice, not a maintainer decision; the maintainer may change it before a run)
-- [ ] #10 (from DIPO-257) Tests in packages/engine/test/workers/launch-checks.test.ts, packages/engine/test/run/places.test.ts packages/engine/test/run/reviews.test.ts and packages/engine/test/run/work-run.test.ts cover the unsafe and the could-not-run holds, the backoff with a manual clock, the notice text, the passed-over head and the retry after the wait
-- [ ] #11 (from DIPO-278) The box is stopped while the story waits for a review, an answer, a resume, CI or the maintainer, and started again for the next session
-- [ ] #12 (from DIPO-278) A missing box is rebuilt from the start commit plus the delivered parts; only undelivered work is lost, and the maintainer is told
-- [ ] #13 (from DIPO-278) Merge, drop and discard delete the box
-- [ ] #14 (from DIPO-278) Tests cover each transition
-- [ ] #15 (from DIPO-280) plan.ts no longer writes the Bash sandbox settings, permission rules or hooks for a worker
-- [ ] #16 (from DIPO-280) The Bash hook, the gh and temp guards and the permission relay are removed with their tests
-- [ ] #17 (from DIPO-280) Every test still passes, and nothing in the worker path refers to the removed parts
-- [ ] #18 (from DIPO-280) The unused commitTaskFile in packages/engine/src/git/task-commit.ts is removed (DIPO-270 moved its callers to dipo's own copy)
-- [ ] #19 (from DIPO-280) packages/engine/src/hooks/web-guard.ts and the reviewer's and worker's use of it stay (DIPO-276, DIPO-292)
+- [ ] #1 (from DIPO-278) The box is stopped while the story waits for a review, an answer, a resume, CI or the maintainer, and started again for the next session
+- [ ] #2 (from DIPO-278) A missing box is rebuilt from the start commit plus the delivered parts; only undelivered work is lost, and the maintainer is told
+- [ ] #3 (from DIPO-278) Merge, drop and discard delete the box
+- [ ] #4 (from DIPO-278) Tests cover each transition
+- [ ] #5 (from DIPO-280) plan.ts no longer writes the Bash sandbox settings, permission rules or hooks for a worker
+- [ ] #6 (from DIPO-280) The Bash hook, the gh and temp guards and the permission relay are removed with their tests
+- [ ] #7 (from DIPO-280) Every test still passes, and nothing in the worker path refers to the removed parts
+- [ ] #8 (from DIPO-280) The unused commitTaskFile in packages/engine/src/git/task-commit.ts is removed (DIPO-270 moved its callers to dipo's own copy)
+- [ ] #9 (from DIPO-280) packages/engine/src/hooks/web-guard.ts and the reviewer's and worker's use of it stay (DIPO-276, DIPO-292)
+- [ ] #10 (audit) A box run runs no Mac worktree setup step: no install, setup or post_create step and no base-commit verify runs on the Mac; the engine step sandbox goes where nothing else uses it
+- [ ] #11 (audit) The Mac verify runner, the backstop and the Mac-only scope check are removed
+- [ ] #12 (audit) No run temp directory is made in the shared temp folder for a box run
+- [ ] #13 (audit) The permission relay and allow-once go; the needs-permission park and its answer stay and resume the run in its box
+- [ ] #14 (audit) The daemon hook entry keeps only what the reviewer uses (the gate and nudge hooks)
+- [ ] #15 (audit) A launch check failure of the reviewer holds the adapter in every office; the Mac self-test and its could-not-run holds are gone
 <!-- AC:END -->
 
 ## Implementation Notes
@@ -139,4 +135,6 @@ Carried from DIPO-257: Reshaped by decision 0021 (worker isolation, DIPO-263, 20
 2026-10-22: combined from DIPO-257, DIPO-278, DIPO-280 (maintainer, M1 speed-up)
 
 2026-10-22: dropped the dependencies on DIPO-255, DIPO-159 (which now holds DIPO-289) and DIPO-149 (which now holds DIPO-291) to break a dependency cycle left by the M1 combine; those stories now come after this one.
+
+2026-10-22: criteria 1 to 10 (Safe-Chain routing of the Mac setup install from DIPO-240, and the scoped self-test holds from DIPO-257) were dropped: the Mac setup install and the self-test no longer exist. They are replaced by the audit criteria above (maintainer, M1 speed-up).
 <!-- SECTION:NOTES:END -->
