@@ -12,7 +12,10 @@
 // - `sweep("recovery")` runs once at daemon start, after reconcile and re-attach. It also removes
 //   the directory of a run the database does not know (a lost database, a crash between the
 //   directory and the run row), but only when the directory's owner file names this daemon's
-//   database, so another daemon's runs under the same temp root (another `DIPO_HOME`) stay.
+//   database, so another daemon's runs under the same temp root (another `DIPO_HOME`) stay. It
+//   also removes this user's `dipo-out-*` folders of a child's output files that a crash left
+//   between the spawn and the read, once nothing in them changed for a few minutes (DIPO-333,
+//   `sweepOutputDirs`).
 //
 // What is never removed: a run that has not ended (live, held, re-attachable), an ended run with a
 // worker host that still runs, a claim that is still live, anything that is not a real directory
@@ -41,10 +44,12 @@ import {
 } from "node:fs";
 import { dirname, join } from "node:path";
 
-import type { OfficeId, RunId } from "@dipsaus-orchestrator/contract";
+import type { Clock, OfficeId, RunId } from "@dipsaus-orchestrator/contract";
 
 import type { StateDatabase } from "../db/database";
 import type { OfficeHandle } from "../db/office";
+import { systemClock } from "../platform/clock";
+import { sweepOutputDirs } from "../platform/output-files";
 import { ensurePrivateDir, errorCode } from "../platform/paths";
 import type { ProcessProbe } from "../platform/process";
 import type { RunLaunchPaths } from "../workers/port";
@@ -279,6 +284,8 @@ export interface RunTempDirsDeps {
   /** The uid the directories must belong to; this process's by default. */
   readonly uid?: number;
   readonly warn?: (message: string, fields: Readonly<Record<string, unknown>>) => void;
+  /** The age of a left-over output folder is taken against it; the system clock by default. */
+  readonly clock?: Clock;
 }
 
 /** A synchronous check, made right before the removal, that the verdict still holds. */
@@ -348,7 +355,11 @@ export class RunTempDirs {
         if (runId !== null) runs.add(runId);
       }
     }
-    const removed: string[] = [];
+    // Output folders of spawned children a crash left behind (DIPO-333).
+    const removed =
+      mode === "recovery"
+        ? sweepOutputDirs(tmpRoot, (this.#deps.clock ?? systemClock).now(), uid)
+        : [];
     for (const runId of runs) {
       try {
         const verdict = await this.#removable(database, runId, mode);
