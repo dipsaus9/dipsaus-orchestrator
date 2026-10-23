@@ -281,7 +281,11 @@ export interface VerifyCommitDeps {
    * The story PR (DIPO-144): called right after an In Review push that reached the remote, to open
    * or update the story's PR. It never throws; a failure is its own notice.
    */
-  readonly storyPr?: { sync(office: OfficeId, runId: RunId): Promise<void> };
+  readonly storyPr?: {
+    sync(office: OfficeId, runId: RunId): Promise<void>;
+    /** The In Review push failed (DIPO-315): its review waits for the PR poll to push again. */
+    pushHeld?(office: OfficeId, runId: RunId): void;
+  };
   /**
    * The box runs' parts (DIPO-273): whether a run's developer works in a box, and its last part at
    * done (`BoxParts.finishLast`). Without them no run reaches In Review here.
@@ -833,6 +837,7 @@ export class VerifyCommit implements RunFinisher {
     });
     // 6. The story PR: opened, or updated when an earlier push already opened it (0019 section 3).
     if (push.pushed) await this.#deps.storyPr?.sync(officeId, run.runId);
+    else if (push.error !== null) this.#deps.storyPr?.pushHeld?.(officeId, run.runId);
     return { kind: "ended" };
   }
 }
