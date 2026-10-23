@@ -3,10 +3,10 @@ id: DIPO-313
 title: >-
   Clean terminal control characters from all worker and repository text the CLI
   and TUI print
-status: Ready
+status: In Progress
 assignee: []
 created_date: '2026-10-22 21:00'
-updated_date: '2026-10-23 07:37'
+updated_date: '2026-10-23 07:58'
 labels:
   - 'tier:M'
 milestone: m-1
