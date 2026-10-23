@@ -435,11 +435,20 @@ export async function runBacklog(
       `could not start: ${error instanceof Error ? error.message : String(error)}`,
     );
   }
-  const [stdout, stderr, exit] = await Promise.all([
-    new Response(child.stdout).text(),
-    new Response(child.stderr).text(),
-    child.exited,
-  ]);
+  let stdout: string;
+  let stderr: string;
+  let exit: Awaited<typeof child.exited>;
+  try {
+    [stdout, stderr, exit] = await Promise.all([
+      new Response(child.stdout).text(),
+      new Response(child.stderr).text(),
+      child.exited,
+    ]);
+  } catch (error) {
+    // The output files could not be read (DIPO-333): a CLI error, never a stray one.
+    const why = error instanceof Error ? error.message : String(error);
+    throw new BacklogCommandError(command, null, "", "", `output could not be read: ${why}`);
+  }
   if (exit.code !== 0) {
     const how =
       exit.code === null ? `was killed by ${exit.signal ?? "a signal"}` : `exited ${exit.code}`;

@@ -45,7 +45,8 @@ export function receivedText(stdout: string): string {
 
 /**
  * The list printed fewer or more entries than its `--count` says. A CLI error, so every caller
- * that reports a failed CLI read reports this one; the message leaves out the list itself.
+ * that reports a failed CLI read reports this one; the message leaves out the list itself and
+ * quotes at most `LAST_LINE_MAX` characters of its last non-blank line (`receivedText`).
  */
 export class BacklogListIncompleteError extends BacklogCommandError {
   constructor(

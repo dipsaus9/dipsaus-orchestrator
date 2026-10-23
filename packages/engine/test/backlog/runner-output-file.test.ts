@@ -1,7 +1,8 @@
 // Every Backlog CLI call reads the CLI's output from regular files after it exits (DIPO-333): with
 // a real CLI stand-in that prints a list of over 300 KB slowly, `runBacklog` and `listAll` get every
 // entry, the stand-in sees a regular file as its stdout and stderr (never a pipe), and the output
-// folder under `DIPO_TMP` is gone afterwards, also when the CLI fails.
+// folder under `DIPO_TMP` is gone afterwards, also when the CLI fails. An output that cannot be
+// read is a `BacklogCommandError`.
 
 import { describe, expect, it } from "bun:test";
 
@@ -12,7 +13,8 @@ import { withTempDir } from "@dipsaus-orchestrator/testkit";
 
 import { BacklogCommandError, listAll, runBacklog } from "../../src/backlog";
 import type { BacklogCli } from "../../src/backlog/runner";
-import { OUTPUT_DIR_PREFIX, systemSpawn } from "../../src/platform/process";
+import { OUTPUT_DIR_PREFIX, OUTPUT_MAX_BYTES } from "../../src/platform/output-files";
+import { systemSpawn } from "../../src/platform/process";
 
 const ENTRIES = 3000;
 
@@ -21,6 +23,10 @@ const STAND_IN = `
 const fs = require("node:fs");
 const args = process.argv.slice(2);
 const kinds = [fs.fstatSync(1), fs.fstatSync(2)].map((s) => (s.isFile() ? "file" : s.isFIFO() ? "pipe" : "other"));
+if (args.includes("huge")) {
+  fs.ftruncateSync(1, ${OUTPUT_MAX_BYTES + 1});
+  process.exit(0);
+}
 if (args.includes("fail")) {
   console.log("half a list");
   console.error("stand-in failed");
@@ -99,6 +105,40 @@ describe("runBacklog reads the CLI's output from files (DIPO-333)", () => {
       });
     });
   }, 30_000);
+
+  it("fails with a CLI error when the output file cannot be read, and removes the folder", async () => {
+    await withTempDir(async (dir) => {
+      const { cli, cwd, tmp } = project(dir);
+      await withDipoTmp(tmp, async () => {
+        const call = runBacklog(cli, cwd, ["task", "view", "huge", "--plain"]);
+        await expect(call).rejects.toBeInstanceOf(BacklogCommandError);
+        await expect(call).rejects.toThrow(/output could not be read: .*more than dipo reads/);
+        expect(leftovers(tmp)).toEqual([]);
+      });
+    });
+  }, 30_000);
+
+  it("fails with a CLI error when a stream of the output fails", async () => {
+    await withTempDir(async (dir) => {
+      const { cwd } = project(dir);
+      const failing = new ReadableStream<Uint8Array>({
+        start: (controller) => controller.error(new Error("EIO: i/o error, read")),
+      });
+      const spawn: BacklogCli["spawn"] = () => ({
+        pid: 1,
+        stdin: null,
+        stdout: failing,
+        stderr: new Response("").body as ReadableStream<Uint8Array>,
+        exited: Promise.resolve({ code: 0, signal: null }),
+        kill: () => {},
+      });
+      const call = runBacklog({ spawn, command: ["backlog"] }, cwd, ["task", "list", "--plain"]);
+      await expect(call).rejects.toBeInstanceOf(BacklogCommandError);
+      await expect(call).rejects.toThrow(
+        "`backlog task list --plain` output could not be read: EIO: i/o error, read",
+      );
+    });
+  });
 
   it("carries a failed call's output in the error and removes the folder", async () => {
     await withTempDir(async (dir) => {
