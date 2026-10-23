@@ -115,6 +115,16 @@ export const BOX_INDEX_DIR = "dipo-box-runs";
  */
 export const BOX_FINISH_WAIT_MS = 15 * 60_000;
 
+/**
+ * How long a session waits for a rest of its run that is in flight (DIPO-278): as long as a pass
+ * waits for one, so a hung backend call cannot hold the session for ever. Past it the session is
+ * refused (`BOX_REST_WAIT_CODE`) as a box that could not be made ready.
+ */
+export const BOX_SESSION_REST_WAIT_MS = BOX_FINISH_WAIT_MS;
+
+/** The `BoxError` code of a session that waited past `BOX_SESSION_REST_WAIT_MS` for a rest. */
+export const BOX_REST_WAIT_CODE = "box.restPending";
+
 type Log = (message: string, fields: Readonly<Record<string, unknown>>) => void;
 
 /** The run directory's record. */
@@ -286,6 +296,8 @@ export interface BoxWorkersDeps {
   readonly treeCheck?: (run: PartRun) => Promise<StartTreeCheck>;
   /** Overrides `BOX_FINISH_WAIT_MS`. */
   readonly finishWaitMs?: number;
+  /** Overrides `BOX_SESSION_REST_WAIT_MS`. */
+  readonly sessionRestWaitMs?: number;
   readonly warn?: Log;
   readonly info?: Log;
 }
@@ -350,6 +362,11 @@ export function readBoxRun(runDir: string): BoxRunRecord | null {
 function writeJson(path: string, value: unknown): void {
   writeFileSync(`${path}.tmp`, `${JSON.stringify(value)}\n`, { mode: 0o600 });
   renameSync(`${path}.tmp`, path);
+}
+
+/** A wait as people read it: whole minutes, or seconds below a minute. */
+function waitText(ms: number): string {
+  return ms >= 60_000 ? `${Math.round(ms / 60_000)} minutes` : `${Math.round(ms / 1000)} seconds`;
 }
 
 /** Rewrites the run directory's record with `waiting` set or cleared; no record, no write. */
@@ -649,6 +666,12 @@ export class BoxWorkers {
   /**
    * The box of the run's next developer session: running, with its routes, and dipo's files
    * copied in. Throws a `BoxError`: `box.gone` when the run has no box any more.
+   *
+   * Every caller opens the run first (DIPO-278): the launcher starts a new run, and each
+   * `RunResumer.next` follows a `reopenRun` (a resume, a review or fix round) or runs inside a run
+   * that never ended (a restart), so a pass sees the run working, never waiting, while its session
+   * starts. A rest already in flight is waited for, at most `BOX_SESSION_REST_WAIT_MS`; past it
+   * the session is refused with `BOX_REST_WAIT_CODE`.
    */
   async session(input: {
     readonly runId: string;
@@ -660,12 +683,29 @@ export class BoxWorkers {
     this.#epochs.set(runId, (this.#epochs.get(runId) ?? 0) + 1);
     this.#starting.set(runId, (this.#starting.get(runId) ?? 0) + 1);
     try {
-      await this.#resting.get(runId);
+      await this.#restDone(runId);
       return await this.#session(input);
     } finally {
       const left = (this.#starting.get(runId) ?? 1) - 1;
       if (left > 0) this.#starting.set(runId, left);
       else this.#starting.delete(runId);
+    }
+  }
+
+  /**
+   * Waits for a rest of `runId` in flight, if any, at most `BOX_SESSION_REST_WAIT_MS`. Throws a
+   * `BoxError` (`BOX_REST_WAIT_CODE`) once that passed; the rest itself goes on.
+   */
+  async #restDone(runId: string): Promise<void> {
+    const resting = this.#resting.get(runId);
+    if (resting === undefined) return;
+    const waitMs = this.#deps.sessionRestWaitMs ?? BOX_SESSION_REST_WAIT_MS;
+    const ended = await this.#within(resting, runId, "session", waitMs);
+    if (ended === null) {
+      throw new BoxError(
+        BOX_REST_WAIT_CODE,
+        `the box of run ${runId} is still being checked and stopped after ${waitText(waitMs)}; the session did not start. Name the story again later.`,
+      );
     }
   }
 
@@ -763,8 +803,13 @@ export class BoxWorkers {
   async #finish(runId: string): Promise<BoxFinish> {
     const name = boxName(runId);
     this.#door?.stop(runId);
+    // A rest in flight ends first, as for a session: its mark is read after it (DIPO-278).
+    await this.#resting.get(runId);
     const runDir = this.#runDirOf(runId);
-    const rested = runDir !== undefined && readBoxRun(runDir)?.waiting === true;
+    // Read only after the box is listed as stopped: a session clears the mark before any worker
+    // runs in its box, so a mark still set then means no session ran since the last check; one
+    // that cleared it gets a fresh token check before its box is deleted.
+    const rested = (): boolean => runDir !== undefined && readBoxRun(runDir)?.waiting === true;
     const outcome = await this.#checked(runId, name, { skipCheck: rested }, (box) =>
       this.#deps.boxes.delete(box),
     );
@@ -826,7 +871,7 @@ export class BoxWorkers {
 
   /**
    * The post-run token check of box `name`, then `then(name)` (delete or stop): `gone` when the
-   * backend has no such box. With `skipCheck` a stopped box gets no check. With `restart` a running
+   * backend has no such box. When `skipCheck` says so, read after the listing, a stopped box gets no check. With `restart` a running
    * box is stopped and started again before the check, as `#running` does before a session, so
    * an earlier session's claude that outlived its host is gone first. A box whose check could
    * not even start holds the adapter, as a failed check does; only the error's code goes into the
@@ -835,7 +880,7 @@ export class BoxWorkers {
   async #checked(
     runId: string,
     name: string,
-    how: { readonly skipCheck?: boolean; readonly restart?: boolean },
+    how: { readonly skipCheck?: () => boolean; readonly restart?: boolean },
     then: (name: string) => Promise<void>,
   ): Promise<BoxFinish> {
     const { boxes } = this.#deps;
@@ -845,7 +890,7 @@ export class BoxWorkers {
       const listed = (await boxes.list()).find((box) => box.name === name);
       if (listed === undefined) return { kind: "gone" };
       exists = true;
-      if (how.skipCheck === true && listed.state !== "running") {
+      if (listed.state !== "running" && how.skipCheck?.() === true) {
         checked = true;
         await then(name);
         return { kind: "deleted" };
@@ -1107,9 +1152,13 @@ export class BoxWorkers {
    * `work` (a `finish` or a `rest`), or null once `BOX_FINISH_WAIT_MS` passed; the work itself goes
    * on then, and a later pass waits for it again.
    */
-  async #within<T>(work: Promise<T>, runId: string, what: "end" | "stop"): Promise<T | null> {
+  async #within<T>(
+    work: Promise<T>,
+    runId: string,
+    what: "end" | "stop" | "session",
+    waitMs: number = this.#deps.finishWaitMs ?? BOX_FINISH_WAIT_MS,
+  ): Promise<T | null> {
     const { clock } = this.#deps.code;
-    const waitMs = this.#deps.finishWaitMs ?? BOX_FINISH_WAIT_MS;
     let timer: ReturnType<typeof clock.setTimeout> | undefined;
     const late = new Promise<null>((resolve) => {
       timer = clock.setTimeout(() => resolve(null), waitMs);
@@ -1120,7 +1169,9 @@ export class BoxWorkers {
         const message =
           what === "end"
             ? "the end of a box run did not finish in time; a later pass waits again"
-            : "the stop of a waiting box did not finish in time; a later pass waits again";
+            : what === "stop"
+              ? "the stop of a waiting box did not finish in time; a later pass waits again"
+              : "a session waited too long for the stop of its box; it is refused";
         this.#deps.warn?.(message, { run: runId, waitMs });
       }
       return outcome;

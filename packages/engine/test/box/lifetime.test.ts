@@ -35,9 +35,16 @@ import {
   type RunBoxRequest,
 } from "../../src/box/lifetime";
 import type { RunningModelProxy } from "../../src/box/model-proxy";
-import { boxName } from "../../src/box/port";
+import { BoxError, boxName } from "../../src/box/port";
 import { SecretToken } from "../../src/box/token";
-import { BOX_INDEX_DIR, BOX_WAITING, BoxWorkers, readBoxRun } from "../../src/box/workers";
+import {
+  BOX_INDEX_DIR,
+  BOX_REST_WAIT_CODE,
+  BOX_RUN_FILE,
+  BOX_WAITING,
+  BoxWorkers,
+  readBoxRun,
+} from "../../src/box/workers";
 import type { BoxWebRouteStart } from "../../src/box/web-proxy";
 import { OfficeGit, spawnGitExec } from "../../src/git";
 import { systemClock } from "../../src/platform/clock";
@@ -120,7 +127,7 @@ interface World {
 async function world(
   repo: TempRepo,
   tmp: string,
-  more: { readonly finishWaitMs?: number } = {},
+  more: { readonly finishWaitMs?: number; readonly sessionRestWaitMs?: number } = {},
 ): Promise<World> {
   mkdirSync(join(repo.dir, "src"));
   writeFileSync(join(repo.dir, "src", "greet.ts"), "export const greet = () => 'hi';\n");
@@ -392,9 +399,76 @@ describe("the box while the story waits", () => {
       });
       expect(w.workers.pending()).toEqual([]);
     }));
+  it("refuses a session that waited past its limit for a rest in flight, and the rest still ends", () =>
+    inBoxes(async (repo, tmp) => {
+      const w = await world(repo, tmp, { sessionRestWaitMs: 20 });
+      await made(w);
+      await session(w);
+      const held = hold(w);
+      const resting = w.workers.rest(RUN);
+      await held.started;
+      const refused = await session(w).catch((error: unknown) => error);
+      expect(refused).toBeInstanceOf(BoxError);
+      expect((refused as BoxError).code).toBe(BOX_REST_WAIT_CODE);
+      expect((refused as BoxError).message).toContain("the session did not start");
+      held.release();
+      // The rest ends; it counted the session and left the box running, so the next stop checks
+      // the box again and rests it.
+      expect(await resting).toEqual({ kind: "skipped" });
+      w.log.length = 0;
+      expect(await w.workers.rest(RUN)).toMatchObject({ kind: "stopped" });
+      expect(w.log).toContain(`export ${BOX}`);
+      expect(readBoxRun(w.runDir)).toMatchObject({ waiting: true });
+    }));
 });
 
 describe("the box when the claim ends (merge, drop, discard)", () => {
+  it("waits for a rest in flight before it lists the box, and deletes it after that rest's check", () =>
+    inBoxes(async (repo, tmp) => {
+      const w = await world(repo, tmp);
+      await made(w);
+      await session(w);
+      const held = hold(w);
+      const resting = w.workers.rest(RUN);
+      await held.started;
+      w.log.length = 0;
+      const finishing = w.workers.finish(RUN);
+      await Promise.resolve();
+      // Nothing of the finish runs while the rest's check is held.
+      expect(w.log).toEqual([]);
+      held.release();
+      expect(await resting).toMatchObject({ kind: "stopped" });
+      expect(await finishing).toEqual({ kind: "deleted" });
+      // One check (the rest's), then the stop, then the delete with no second check.
+      expect(w.log.filter((line) => line === `export ${BOX}`)).toHaveLength(1);
+      expect(w.log.indexOf(`stop ${BOX}`)).toBeLessThan(w.log.indexOf(`delete ${BOX}`));
+      expect(w.boxes.boxes.has(BOX)).toBe(false);
+    }));
+
+  it("checks the token again when a session cleared the rest mark while the box was listed", () =>
+    inBoxes(async (repo, tmp) => {
+      const w = await world(repo, tmp);
+      await made(w);
+      await session(w);
+      await pass(w, WAITING);
+      expect(readBoxRun(w.runDir)).toMatchObject({ waiting: true });
+      // A session starts in the gap: its mark is cleared while the finish lists the box.
+      const list = w.boxes.list.bind(w.boxes);
+      w.boxes.list = async () => {
+        const listed = await list();
+        w.boxes.list = list;
+        const record = readBoxRun(w.runDir)!;
+        const { waiting: _cleared, ...rest } = record;
+        writeFileSync(join(w.runDir, BOX_RUN_FILE), `${JSON.stringify(rest)}\n`);
+        return listed;
+      };
+      w.log.length = 0;
+      expect(await w.workers.finish(RUN)).toMatchObject({ kind: "checked" });
+      expect(w.log).toContain(`export ${BOX}`);
+      expect(w.log.at(-1)).not.toBe("list");
+      expect(w.boxes.boxes.has(BOX)).toBe(false);
+    }));
+
   it("is deleted without a second check when it rests already", () =>
     inBoxes(async (repo, tmp) => {
       const w = await world(repo, tmp);
