@@ -390,6 +390,19 @@ export {
   StoryDiscard,
 } from "../stories/discard";
 export type { DiscardStop, StoryDiscardDeps } from "../stories/discard";
+// `proposal.accept` and `proposal.dismiss` (DIPO-166): a worker's proposal filed as a Backlog draft
+// through the planning lane, or dismissed.
+export {
+  DRAFT_CAPS,
+  PROPOSAL_AMBIGUOUS,
+  PROPOSAL_CLOSED,
+  PROPOSAL_UNKNOWN,
+  ProposalCommands,
+  proposalDraft,
+  resolveProposal,
+  workerWords,
+} from "./proposals";
+export type { ProposalCommandsDeps, StoredProposal } from "./proposals";
 export type { HoldResumer } from "./work-resume";
 // Park resume and `work.resume` in one module with a per-reason policy table (DIPO-138).
 export {
