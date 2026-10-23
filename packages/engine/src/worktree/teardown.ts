@@ -39,7 +39,7 @@ import { forgetWorkerNotes } from "../prompts/notes";
 import { findStoryPr, type StoryPrRecord } from "../story-pr/records";
 
 import { notice, writeWith } from "./claim";
-import { type LagClaim, unlaggedPaths } from "./lagging";
+import { keptIgnored, type LagClaim, unlaggedPaths } from "./lagging";
 import { type ClaimRecord, markTeardownStarted, releaseClaim } from "./records";
 import type { SlotTable } from "./slots";
 
@@ -198,17 +198,25 @@ async function branchFacts(
 }
 
 /**
- * True when the claim's story is Done through its own branch without asking the host, inside the
- * caller's queue item (DIPO-332): its own story PR recorded merged, or the `merge-tree` rule.
+ * Whether the claim's story is Done through its own branch, without asking the host, inside the
+ * caller's queue item (DIPO-332): `done` when its own story PR is recorded merged at the local tip
+ * (or the branch is gone), or the `merge-tree` rule finds it Done, or that rule cannot run while
+ * the PR is recorded merged (the Done poll reports it); `movedPast` when the PR is recorded merged
+ * but the branch moved past that head with changes the base does not have; `no` otherwise.
  */
 export async function doneOnOwnBranchIn(
   office: OfficeHandle,
   officeGit: OfficeGit,
   git: GitSession,
   claim: ClaimRecord,
-): Promise<boolean> {
-  if (ownMergedPr(office, claim) !== null) return true;
-  return (await mergeTreeDone(git, await branchFacts(officeGit, git, claim), claim)).done;
+): Promise<"done" | "movedPast" | "no"> {
+  const own = ownMergedPr(office, claim);
+  const facts = await branchFacts(officeGit, git, claim);
+  if (own !== null && (facts.tip === null || facts.tip === own.headSha)) return "done";
+  const tree = await mergeTreeDone(git, facts, claim);
+  if (tree.done) return "done";
+  if (own === null) return "no";
+  return tree.problem === undefined ? "movedPast" : "done";
 }
 
 /** The `merge-tree` rule (0010 section 7 "Conflict check" and "Merge and Done"). */
@@ -342,7 +350,8 @@ export type WorktreeOutcome =
  * `--force` and unpins it. A worktree git refuses to remove or one locked by anyone else keeps
  * everything: the lock is put back and the start record cleared. A worktree already gone is fine.
  * The one exception to "without `--force`" is a worktree whose every listed path only lags its
- * branch (`unlaggedPaths`, DIPO-302 and DIPO-332): a box run's worktree after its parts.
+ * branch (`unlaggedPaths`, DIPO-302 and DIPO-332): a box run's worktree after its parts. A worktree
+ * with ignored files that are not rebuildable (`keptIgnored`) keeps everything too.
  */
 export async function removeWorktree(
   deps: Pick<TeardownDeps, "office" | "git" | "clock">,
@@ -363,6 +372,20 @@ export async function removeWorktree(
         ok: false,
         why: `the worktree ${path} is locked by someone else (${lock === "" ? "no reason given" : lock})`,
         files: await dirtyFiles(deps, git, claim, heads),
+      };
+    }
+    // `git worktree remove` deletes ignored files, forced or not, and `git status` never lists
+    // them: only rebuildable ones may go (DIPO-332, `lagging.ts`).
+    const ignored = await keptIgnored(deps.git, git, path);
+    if (ignored === null || ignored.length > 0) {
+      if (claim.teardownStartedAt !== null) mark(null);
+      return {
+        ok: false,
+        why:
+          ignored === null
+            ? `dipo could not list the ignored files of the worktree ${path}, which git would delete with it`
+            : `the worktree ${path} holds ignored files that git would delete with it`,
+        files: ignored ?? [],
       };
     }
     // Recorded before the first step that removes anything, so a crash after it is resumable.

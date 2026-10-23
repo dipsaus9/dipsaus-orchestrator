@@ -58,7 +58,7 @@ import {
   repoOfPrUrl,
 } from "./release";
 import type { SlotTable } from "./slots";
-import { dirtyFiles, recordedHeads, removeWorktree } from "./teardown";
+import { DONE_RELEASE_REASON, dirtyFiles, recordedHeads, removeWorktree } from "./teardown";
 
 /** The release reason of a claim whose story is Done on the base through another branch. */
 export const DONE_ELSEWHERE_REASON = "done-elsewhere";
@@ -472,6 +472,25 @@ export function releaseDoneElsewhere(
     return entries;
   });
   deps.slots?.free(claim.worktree);
+}
+
+/**
+ * Releases a parked or idle claim whose own story PR merged, but whose branch moved past the merged
+ * head with changes the base does not have (DIPO-332): released as `done` in one transaction, as
+ * `releaseDoneElsewhere` does, then its worktree and branch settled, so what the base lacks is one
+ * LEFTOVERS desk item with the `dipo discard` action instead of a claim that stays open.
+ */
+export async function releaseMovedPastMerge(
+  deps: DoneElsewhereDeps,
+  claim: ClaimRecord,
+  pr: { readonly number: number; readonly url: string },
+): Promise<SettleOutcome | null> {
+  releaseDoneElsewhere(deps, claim, null, {
+    reason: DONE_RELEASE_REASON,
+    text: `${claim.story} is Done: its PR #${pr.number} merged (${pr.url}), but its branch ${claim.branch} moved past the merged head with changes ${claim.base} does not have. dipo released its claim and ended its run; what is not on ${claim.base} stays as leftovers.`,
+  });
+  const row = findDoneElsewhere(deps.office, claim.runId);
+  return row === null ? null : settleDoneElsewhere(deps, row);
 }
 
 /**

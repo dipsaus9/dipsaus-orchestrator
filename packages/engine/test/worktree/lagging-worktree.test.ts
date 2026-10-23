@@ -6,8 +6,8 @@
 // done-elsewhere release remove such a worktree, and keep one with a change only it holds.
 
 import { describe, expect, it } from "bun:test";
-import { chmodSync, existsSync, rmSync, writeFileSync } from "node:fs";
-import { join } from "node:path";
+import { chmodSync, existsSync, mkdirSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
+import { dirname, join } from "node:path";
 
 import type { OfficeId } from "@dipsaus-orchestrator/contract";
 import { git as gitIn } from "@dipsaus-orchestrator/testkit";
@@ -18,7 +18,9 @@ import { reconcileOffice } from "../../src/reconcile";
 import { insertStoryPr } from "../../src/story-pr/records";
 import { StoryTeardown } from "../../src/worktree/done";
 import {
+  DONE_ELSEWHERE_DESK,
   DONE_ELSEWHERE_NOTICES,
+  doneElsewhereDeskItems,
   findDoneElsewhere,
   releaseDoneElsewhere,
   settleDoneElsewhere,
@@ -26,7 +28,7 @@ import {
 import { unlaggedPaths } from "../../src/worktree/lagging";
 import { type ClaimRecord, findClaim, liveClaimOf } from "../../src/worktree/records";
 import { dirtyFilesOf } from "../../src/worktree/release";
-import { TEARDOWN_NOTICES } from "../../src/worktree/teardown";
+import { removeWorktree, TEARDOWN_NOTICES } from "../../src/worktree/teardown";
 import { otherClone, squashMergeOnRemote } from "../backlog/lane/helpers";
 import {
   claim,
@@ -48,17 +50,21 @@ function gitOf(o: ReconcileOffice): OfficeGit {
   return git;
 }
 
-/** Code files on the base before the claim, pushed and fetched. */
-async function seedBase(o: ReconcileOffice): Promise<void> {
+/** Code files (and `extra` ones) on the base before the claim, pushed and fetched. */
+async function seedBase(
+  o: ReconcileOffice,
+  extra: Readonly<Record<string, string>> = {},
+): Promise<void> {
   const files: Record<string, string> = {
     "src/shared.ts": "export const shared = 1;\n",
     "src/old.ts": "export const old = 1;\n",
+    ...extra,
   };
   for (const [path, text] of Object.entries(files)) {
-    await o.repo.run(["mkdir", "-p", join(o.repo.dir, "src")]);
+    mkdirSync(dirname(join(o.repo.dir, path)), { recursive: true });
     writeFileSync(join(o.repo.dir, path), text);
   }
-  await o.repo.git("add", "--", "src");
+  await o.repo.git("add", "--all");
   await o.repo.git("commit", "--quiet", "--no-verify", "-m", "Seed the code");
   await o.repo.git("push", "--quiet", "origin", "main");
   await o.repo.git("fetch", "--quiet", "origin");
@@ -219,9 +225,20 @@ async function reconcile(o: ReconcileOffice): Promise<void> {
 }
 
 /** A claim of TASK-1 with its run ended, on a base with code files. */
-async function claimed(o: ReconcileOffice): Promise<ClaimRecord> {
-  await seedBase(o);
+async function claimed(
+  o: ReconcileOffice,
+  extra: Readonly<Record<string, string>> = {},
+): Promise<ClaimRecord> {
+  await seedBase(o, extra);
   return claim(o, o.office, "TASK-1", keyOf(o.office, "TASK-1"), { active: false });
+}
+
+/** `removeWorktree` of the claim, as the Done teardown and the releases call it. */
+function remove(o: ReconcileOffice, record: ClaimRecord) {
+  const git = gitOf(o);
+  return git.run((session) =>
+    removeWorktree({ office: o.office, git, clock: o.s.clock }, session, record),
+  );
 }
 
 /** The unlagged paths of the claim's worktree, through the office git. */
@@ -435,5 +452,190 @@ describe("a done-elsewhere release of a box run (DIPO-332)", () => {
       );
       expect(leftovers?.text).not.toContain("uncommitted");
       expect(leftovers?.text).toContain(`the branch ${record.branch}`);
+    }));
+});
+
+describe("what git status does not list keeps the worktree (DIPO-332 review)", () => {
+  it("keeps a populated submodule with a local commit that ignore=all hides, next to a lagging file", () =>
+    withReconcileOffice({}, async (o) => {
+      const home = o.repo.home;
+      const source = join(o.repo.root, "sub-source");
+      await gitIn(o.repo.root, home, "init", "--quiet", "-b", "main", source);
+      writeFileSync(join(source, "lib.ts"), "export const lib = 1;\n");
+      await gitIn(source, home, "add", "--all");
+      await gitIn(source, home, "commit", "--quiet", "-m", "lib");
+      await o.repo.git(
+        "-c",
+        "protocol.file.allow=always",
+        "submodule",
+        "add",
+        "--quiet",
+        source,
+        "vendor/sub",
+      );
+      await o.repo.git("config", "-f", ".gitmodules", "submodule.vendor/sub.ignore", "all");
+      const record = await claimed(o);
+      await gitIn(
+        record.worktree,
+        home,
+        "-c",
+        "protocol.file.allow=always",
+        "submodule",
+        "update",
+        "--init",
+        "--quiet",
+      );
+      const sub = join(record.worktree, "vendor/sub");
+      writeFileSync(join(sub, "lib.ts"), "export const lib = 2;\n");
+      await gitIn(sub, home, "commit", "--quiet", "-am", "unpushed");
+      const unpushed = (await gitIn(sub, home, "rev-parse", "HEAD")).trim();
+      await boxRun(o, record);
+      // git status hides the submodule; only the lagging files show.
+      expect((await statusOf(o, record)).some((path) => path.startsWith("vendor"))).toBe(false);
+      expect(await unlagged(o, record)).toBeNull();
+
+      const outcome = await remove(o, record);
+
+      expect(outcome.ok).toBe(false);
+      expect((await gitIn(sub, home, "rev-parse", "HEAD")).trim()).toBe(unpushed);
+    }));
+
+  it("keeps a worktree with an ignored .env, and removes one whose only ignored entry is node_modules/", () =>
+    withReconcileOffice({}, async (o) => {
+      const record = await claimed(o, { ".gitignore": ".env\nnode_modules/\n" });
+      await boxRun(o, record);
+      writeFileSync(join(record.worktree, ".env"), "TOKEN=local\n");
+      await o.repo.git("push", "--quiet", "origin", record.branch);
+      await squashMergeOnRemote(o.repo, record.branch);
+      await o.repo.git("fetch", "--quiet", "origin");
+      const seq = lastSeq(o.office);
+      const teardown = pollOf(o);
+
+      const kept = await teardown.poll(o.officeId as OfficeId);
+
+      expect(kept.kept.map((c) => c.runId)).toEqual([record.runId]);
+      expect(existsSync(join(record.worktree, ".env"))).toBe(true);
+      const told = noticesAfter(o.office, seq).filter((n) => n.code === TEARDOWN_NOTICES.kept);
+      expect(told[0]?.text).toContain("ignored files that git would delete with it");
+      expect(told[0]?.text).toContain("Files git lists there: .env.");
+
+      rmSync(join(record.worktree, ".env"));
+      mkdirSync(join(record.worktree, "node_modules/pkg"), { recursive: true });
+      writeFileSync(join(record.worktree, "node_modules/pkg/index.js"), "module.exports = 1;\n");
+      const done = await teardown.poll(o.officeId as OfficeId);
+      teardown.stop();
+
+      expect(done.tornDown.map((c) => c.runId)).toEqual([record.runId]);
+      expect(existsSync(record.worktree)).toBe(false);
+    }));
+
+  it("keeps an ignored folder that holds a repository, even under an allowed name", () =>
+    withReconcileOffice({}, async (o) => {
+      const record = await claimed(o, { ".gitignore": "dist/\n" });
+      await gitIn(o.repo.root, o.repo.home, "init", "--quiet", join(record.worktree, "dist"));
+      const outcome = await remove(o, record);
+      expect(outcome).toMatchObject({ ok: false, files: ["dist/"] });
+      expect(existsSync(join(record.worktree, "dist/.git"))).toBe(true);
+    }));
+
+  it("cannot judge assume-unchanged, skip-worktree or unmerged entries, and compares links as links", () =>
+    withReconcileOffice({}, async (o) => {
+      const record = await claimed(o, { "lib/a.ts": "export const a = 1;\n" });
+      await boxRun(o, record);
+      const wt = record.worktree;
+      const run = (...args: string[]) => gitIn(wt, o.repo.home, ...args);
+      expect(await unlagged(o, record)).toEqual([]);
+
+      await run("update-index", "--assume-unchanged", "src/shared.ts");
+      expect(await unlagged(o, record)).toBeNull();
+      await run("update-index", "--no-assume-unchanged", "src/shared.ts");
+      await run("update-index", "--skip-worktree", "src/shared.ts");
+      expect(await unlagged(o, record)).toBeNull();
+      await run("update-index", "--no-skip-worktree", "src/shared.ts");
+      expect(await unlagged(o, record)).toEqual([]);
+
+      // A link the commits do not have, and a tracked folder replaced by a link to a copy of it:
+      // the link is never followed, so the file below it is absent, as git reads it.
+      symlinkSync("shared.ts", join(wt, "src/link.ts"));
+      expect(await unlagged(o, record)).toEqual(["src/link.ts"]);
+      rmSync(join(wt, "src/link.ts"));
+      const copy = join(o.repo.root, "lib-copy");
+      mkdirSync(copy);
+      writeFileSync(join(copy, "a.ts"), "export const a = 1;\n");
+      rmSync(join(wt, "lib"), { recursive: true });
+      symlinkSync(copy, join(wt, "lib"));
+      expect((await unlagged(o, record))?.toSorted()).toEqual(["lib", "lib/a.ts"]);
+      rmSync(join(wt, "lib"));
+      await run("checkout", "--", "lib");
+      expect(await unlagged(o, record)).toEqual([]);
+
+      // Unmerged index entries for one path.
+      const blob = (await run("rev-parse", `${record.startSha}:src/shared.ts`)).trim();
+      const info = Bun.spawn(["git", "update-index", "--index-info"], {
+        cwd: wt,
+        env: o.repo.env,
+        stdin: "pipe",
+        stdout: "ignore",
+        stderr: "ignore",
+      });
+      info.stdin.write(
+        [
+          `0 ${"0".repeat(40)}\tsrc/shared.ts`,
+          ...[1, 2, 3].map((stage) => `100644 ${blob} ${stage}\tsrc/shared.ts`),
+          "",
+        ].join("\n"),
+      );
+      await info.stdin.end();
+      expect(await info.exited).toBe(0);
+      expect(await unlagged(o, record)).toBeNull();
+    }));
+});
+
+async function movedPast(o: ReconcileOffice): Promise<ClaimRecord> {
+  const record = await claimed(o);
+  const head = await boxRun(o, record);
+  mergedPr(o, record, head);
+  await onBranch(o, record, "TASK-1: after the merge", { "src/extra.ts": "export {};\n" });
+  return record;
+}
+
+function expectLeftovers(o: ReconcileOffice, record: ClaimRecord, seq: number): void {
+  expect(findClaim(o.office, record.runId)?.releaseReason).toBe("done");
+  expect(liveClaimOf(o.office, record.key)).toBeNull();
+  expect(existsSync(record.worktree)).toBe(false);
+  const row = findDoneElsewhere(o.office, record.runId);
+  expect(row).toMatchObject({ worktreeKept: false, branchKept: true });
+  expect(row?.commits.map((c) => c.subject)).toContain("TASK-1: after the merge");
+  expect(doneElsewhereDeskItems(o.office)).toMatchObject([
+    {
+      kind: DONE_ELSEWHERE_DESK.leftovers,
+      key: record.key,
+      actions: [{ command: "work.discard", cli: 'dipo discard TASK-1 --note "<why>"' }],
+    },
+  ]);
+  const notices = noticesAfter(o.office, seq);
+  expect(notices.find((n) => n.code === DONE_ELSEWHERE_NOTICES.released)?.text).toContain(
+    "moved past the merged head",
+  );
+}
+
+describe("a claim whose branch moved past its merged PR's head (DIPO-332 review)", () => {
+  it("is released by the Done poll with its branch as leftovers, not left open", () =>
+    withReconcileOffice({}, async (o) => {
+      const record = await movedPast(o);
+      const seq = lastSeq(o.office);
+      const teardown = pollOf(o);
+      const report = await teardown.poll(o.officeId as OfficeId);
+      teardown.stop();
+      expect(report.released?.map((c) => c.runId)).toEqual([record.runId]);
+      expectLeftovers(o, record, seq);
+    }));
+
+  it("is released by reconcile the same way when the base reads it Done", () =>
+    withReconcileOffice({ base: DONE }, async (o) => {
+      const record = await movedPast(o);
+      const seq = lastSeq(o.office);
+      await reconcile(o);
+      expectLeftovers(o, record, seq);
     }));
 });

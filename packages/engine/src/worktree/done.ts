@@ -19,7 +19,8 @@
 // flagged once and released when its run next ends; a parked or idle one is released as
 // `done-elsewhere` and its PR, worktree and branch settled (`done-elsewhere.ts`). A claim whose own
 // story PR dipo recorded merged is never Done elsewhere (DIPO-332): it is Done through its own
-// branch, and torn down as above. Each poll first settles the released rows a crash left unsettled.
+// branch, and torn down as above; one whose branch moved past the merged head with changes the base
+// lacks is released as `done` with its worktree and branch as leftovers (`releaseMovedPastMerge`). Each poll first settles the released rows a crash left unsettled.
 
 import type { Clock, OfficeId, TimerHandle } from "@dipsaus-orchestrator/contract";
 
@@ -45,6 +46,7 @@ import {
   hasLiveWorker,
   hasUnexitedHost,
   releaseDoneElsewhere,
+  releaseMovedPastMerge,
   settleDoneElsewhere,
   settlePending,
 } from "./done-elsewhere";
@@ -230,6 +232,16 @@ export class StoryTeardown {
       const own = ownMergedPr(state.office, claim);
       const elsewhere = own === null ? await this.#doneElsewhere(state, deps, claim) : null;
       if (elsewhere !== null) return elsewhere;
+      // Its PR merged, but the branch moved past the merged head with changes the base lacks: once
+      // no worker runs, those are leftovers with the `dipo discard` action, not an open claim.
+      if (
+        own !== null &&
+        check.problem?.code === TEARDOWN_NOTICES.unmergedCommits &&
+        !hasLiveWorker(state.office, claim)
+      ) {
+        await releaseMovedPastMerge(this.#elsewhereDeps(deps), claim, own);
+        return "released";
+      }
       if (check.problem !== undefined) {
         this.#tell(state, deps, claim, "warn", check.problem.code, check.problem.text);
       }

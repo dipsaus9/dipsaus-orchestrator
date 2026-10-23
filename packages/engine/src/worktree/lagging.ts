@@ -13,18 +13,49 @@
 // above the start commit. A path whose working file or index entry matches none of them is a
 // change only the worktree holds and is returned, so the caller keeps the worktree and lists it.
 // The comparison never runs a filter or a tool on the worktree's files: dipo reads them itself and
-// hashes them as git blobs. Anything it cannot judge keeps the worktree: an unmerged entry, an
-// index entry marked assume-unchanged or skip-worktree (git status would not list a change behind
-// it), a folder or special file where a file is listed, a nested repository, or a git error.
+// hashes them as git blobs; a symbolic link is compared as a link (its target), never followed,
+// and a path below a link is absent, as git reads it. Anything it cannot judge keeps the worktree:
+// an unmerged entry, an index entry marked assume-unchanged or skip-worktree (git status would not
+// list a change behind it), a submodule (an index entry of mode 160000: git status may hide its
+// changes and commits, `submodule.<name>.ignore`), a folder or special file where a file is listed,
+// a nested repository, or a git error.
+//
+// Ignored files are not in `git status`, but `git worktree remove` deletes them, forced or not.
+// `keptIgnored` lists them (`ls-files --others --ignored --exclude-standard --directory`): every
+// entry outside `REBUILDABLE_IGNORED` (an install or a build makes it again) keeps the worktree, and
+// so does an ignored folder that holds a repository (`.git`), wherever it is.
 
 import { createHash } from "node:crypto";
-import { lstatSync, readFileSync, readlinkSync, type Stats } from "node:fs";
+import { existsSync, lstatSync, readFileSync, readlinkSync, type Stats } from "node:fs";
 import { join } from "node:path";
 
 import type { GitSession, OfficeGit } from "../git/office";
 
 /** The most branch commits one head adds to the comparison; older ones are left out. */
 export const LAG_COMMITS_MAX = 500;
+
+/** The most paths one `ls-tree` is given; with more wanted, the whole tree is listed. */
+const LITERAL_PATHS_MAX = 256;
+
+/**
+ * The ignored entries a worktree removal may delete (DIPO-332): folders that an install or a build
+ * of the office makes again, by name at any depth (`node_modules/` of every package manager, the
+ * usual build, cache and coverage output), and the macOS folder metadata file. Anything else
+ * ignored, such as `.env` or a local database, keeps the worktree.
+ */
+export const REBUILDABLE_IGNORED = {
+  folders: new Set([
+    "node_modules",
+    "dist",
+    "build",
+    "coverage",
+    ".turbo",
+    ".cache",
+    ".next",
+    ".vite",
+  ]),
+  files: new Set([".DS_Store"]),
+} as const;
 
 /** A path's entry: absent, or its mode and blob (or commit, for a submodule) id. */
 type Entry = { readonly mode: string; readonly id: string } | null;
@@ -81,7 +112,13 @@ export async function unlaggedPaths(
     }
     for (const commit of await lagCommits(git, claim, heads)) {
       if (wanted.size === 0) break;
-      const tree = await git.step(git.repository, ["ls-tree", "-r", "-z", commit]);
+      // Only the wanted paths, as literal pathspecs, while they are few: a kept claim repeats this on
+      // every Done poll inside the office git queue.
+      const only =
+        wanted.size <= LITERAL_PATHS_MAX
+          ? ["--", ...[...wanted.keys()].map((path) => `:(literal)${path}`)]
+          : [];
+      const tree = await git.step(git.repository, ["ls-tree", "-r", "-z", commit, ...only]);
       if (tree.code !== 0) continue;
       const entries = treeEntries(tree.stdout);
       for (const [path, states] of wanted) {
@@ -148,8 +185,45 @@ function statusRecords(output: string): string[] | null {
 }
 
 /**
+ * The ignored entries of the worktree a removal would delete that are not rebuildable (see the file
+ * comment), sorted; null when they cannot be listed.
+ */
+export async function keptIgnored(
+  officeGit: Pick<OfficeGit, "worktreeLocation">,
+  git: GitSession,
+  worktree: string,
+): Promise<string[] | null> {
+  try {
+    const out = await git.ok(officeGit.worktreeLocation(worktree), [
+      "ls-files",
+      "--others",
+      "--ignored",
+      "--exclude-standard",
+      "--directory",
+      "-z",
+    ]);
+    return out
+      .split("\0")
+      .filter((entry) => entry !== "" && !rebuildable(worktree, entry))
+      .toSorted();
+  } catch {
+    return null;
+  }
+}
+
+/** True when an ignored entry is rebuildable and holds no repository. */
+function rebuildable(worktree: string, entry: string): boolean {
+  const folder = entry.endsWith("/");
+  if (folder && existsSync(join(worktree, entry, ".git"))) return false;
+  const parts = entry.split("/").filter((part) => part !== "");
+  const last = parts.at(-1) ?? "";
+  if (parts.slice(0, -1).some((part) => REBUILDABLE_IGNORED.folders.has(part))) return true;
+  return folder ? REBUILDABLE_IGNORED.folders.has(last) : REBUILDABLE_IGNORED.files.has(last);
+}
+
+/**
  * The index entries of `ls-files --stage -v -z` by path, or null when one is not a plain cached
- * entry at stage 0 (assume-unchanged, skip-worktree, unmerged).
+ * entry at stage 0 (assume-unchanged, skip-worktree, unmerged) or is a submodule (mode 160000).
  */
 function indexEntries(output: string): Map<string, Entry> | null {
   const entries = new Map<string, Entry>();
@@ -160,6 +234,7 @@ function indexEntries(output: string): Map<string, Entry> | null {
     if (tab < 0 || tag !== "H" || stage !== "0" || mode === undefined || id === undefined) {
       return null;
     }
+    if (mode === "160000") return null;
     entries.set(record.slice(tab + 1), { mode, id });
   }
   return entries;
