@@ -214,6 +214,11 @@ export interface DaemonRunsOptions {
    * no box workers otherwise. Tests pass a fake.
    */
   readonly boxes?: BoxPort | null;
+  /**
+   * Wraps the Claude CLI worker port; a test daemon process plans a scripted worker with it
+   * (DIPO-316). The port as it is by default.
+   */
+  readonly workerPort?: (port: WorkerPort) => WorkerPort;
 }
 
 export interface DaemonRuns {
@@ -819,7 +824,7 @@ export function daemonRuns(options: DaemonRunsOptions): DaemonRuns {
     },
     () => {},
   );
-  const worker = claudeWorkerPort({
+  const claude = claudeWorkerPort({
     spawn: systemSpawn,
     clock,
     claudePath: options.tools.claude,
@@ -830,6 +835,7 @@ export function daemonRuns(options: DaemonRunsOptions): DaemonRuns {
     dipoCommand: selfCommand(),
     ...(boxWorkers === null ? {} : { boxes: boxWorkers }),
   });
+  const worker = options.workerPort === undefined ? claude : options.workerPort(claude);
   const tierOf = (office: OfficeId, run: StoredRun) =>
     run.tier === null
       ? undefined

@@ -219,6 +219,7 @@ const STARTS_A_PROCESS = [
   /"daemon",\s*"(--foreground|start|restart)"/,
   /fixtures\/drain-daemon\.ts/,
   /fixtures\/uncaught-daemon\.ts/,
+  /fixtures\/scripted-worker-daemon\.ts/,
 ];
 const ISOLATED_ENV = /\b(daemonTestEnv|isolatedDaemonEnv)\(/;
 const CHECKS_RUNTIME = /\b(withDaemonTempDir|assertTestRuntimeDir)\(/;
@@ -258,6 +259,7 @@ describe("tests that start a daemon", () => {
         "daemon/test/integration/db-close.ci.test.ts",
         "daemon/test/integration/drain.ci.test.ts",
         "daemon/test/integration/foreground.test.ts",
+        "daemon/test/integration/reattach-kill.ci.test.ts",
         "daemon/test/integration/reconcile.ci.test.ts",
         "daemon/test/integration/restore.ci.test.ts",
         "daemon/test/integration/upgrade-restart.test.ts",

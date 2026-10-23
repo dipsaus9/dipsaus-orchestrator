@@ -121,6 +121,7 @@ import {
   type StoryPlanningDeps,
   type StateDatabase,
   type StoredRun,
+  type WorkerPort,
 } from "@dipsaus-orchestrator/engine";
 
 import { controlFeature, emitDaemonStates, sumActiveRuns } from "./control";
@@ -178,6 +179,8 @@ export interface ForegroundOptions {
   readonly supervisorSpawn?: Spawn;
   /** This process's parent PID, for the launchd bootout check; tests stand in for launchd (1). */
   readonly parentPid?: number;
+  /** Wraps the daemon's worker port; a test daemon process plans a scripted worker (DIPO-316). */
+  readonly workerPort?: (port: WorkerPort) => WorkerPort;
 }
 
 /** The drain reason after an error no code caught (DIPO-117). */
@@ -898,6 +901,7 @@ async function serve(run: Run, lock: HeldLock): Promise<number> {
       holdResumer: () => planning,
       // A resumed slot-refused park re-enters the merge slot (DIPO-150, DIPO-155's seam).
       slotReentry: () => mergeSlot,
+      ...(options.workerPort === undefined ? {} : { workerPort: options.workerPort }),
       stories: storyIndex,
       // The registry is built below; parks are only written after it exists.
       implemented: (name) => registry.command(name) !== undefined,
