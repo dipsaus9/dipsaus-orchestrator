@@ -11,6 +11,8 @@ import { join } from "node:path";
 import type { Clock, IdSource, OfficeId } from "@dipsaus-orchestrator/contract";
 
 import { BOX_RUN_FILE } from "../box/workers";
+
+import { readBackstop } from "./backstop";
 import { type InputChangeReader, Nudges } from "../hooks/nudges";
 import { ABSENT, PermissionAsks, type Presence } from "../hooks/permissions";
 import { WebGuard } from "../hooks/web-guard";
@@ -283,6 +285,8 @@ function buildOutcomes(
 ): Outcomes | null {
   if (control === null || ports.outcomes === undefined) return null;
   const { probe, ...outcomePorts } = ports.outcomes;
+  // Built after the resumption: a resumed review-blocked park queues its fix round (DIPO-155).
+  let fixRounds: FixRounds | null = null;
   const resumer = new RunResumer({
     clock: ports.clock,
     ids: ports.ids,
@@ -321,6 +325,17 @@ function buildOutcomes(
       planLimits: () => late.planLimits ?? undefined,
       places: () => late.places ?? undefined,
       ...given("holds", ports.holdResumer),
+      parks: {
+        ...given("scheduling", ports.scheduling),
+        // A git-state park reads its new backstop snapshot on the office git (decision 7).
+        snapshot: (office, worktree) => {
+          const git = ports.git(office);
+          if (git === undefined) throw new Error(`Office ${office} has no git attached.`);
+          return readBackstop(git, worktree);
+        },
+        ...given("boxRun", ports.boxRun),
+        fixRounds: () => fixRounds ?? undefined,
+      },
     },
   );
   const planLimits =
@@ -336,7 +351,7 @@ function buildOutcomes(
           ...given("warn", ports.warn),
         });
   // A fix round continues the developer's session through worker outcomes (DIPO-148).
-  const fixRounds = new FixRounds({
+  fixRounds = new FixRounds({
     clock: ports.clock,
     offices: ports.offices,
     story: baseStoryFacts(ports.base),
@@ -371,6 +386,8 @@ function buildOutcomes(
     starters: {
       resume: (office, run) => resumption.startQueued(office, run),
       review: (office, run, start) => reviews.start(office, run, start),
+      // A maintainer resume that starts a fresh review of the same round (0020 section 2, DIPO-155).
+      "review-resume": (office, run, start) => reviews.start(office, run, start),
       fix: (office, run, start) => fixRounds.start(office, run, start),
     },
     ...given("scheduling", ports.scheduling),

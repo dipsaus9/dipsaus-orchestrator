@@ -43,6 +43,11 @@ export class SessionStarts {
       readonly mode: "resume" | "handoff";
       readonly why: string;
       readonly message?: string;
+      /**
+       * The maintainer's resume note (0020 section 3, DIPO-155): after `message` in a native resume,
+       * in the handoff block's open feedback otherwise; the steers that waited follow it.
+       */
+      readonly note?: string;
       /** Only a resume will do; a session that cannot be resumed parks `interrupted` (DIPO-57). */
       readonly requireResume?: boolean;
       readonly clear?: readonly WatchdogSignal[];
@@ -68,8 +73,9 @@ export class SessionStarts {
       placeOfRun(office, run) === "reviewer"
         ? { ids: [], texts: [] }
         : heldMessages(office, run.runId, steerText);
+    const note = request.note?.trim() === "" ? undefined : request.note;
     const message =
-      held.texts.length === 0
+      held.texts.length === 0 || note !== undefined
         ? request.message
         : [
             request.message ??
@@ -89,6 +95,8 @@ export class SessionStarts {
         mode: request.mode,
         why: request.why,
         ...(message === undefined ? {} : { message }),
+        // With a note the steers that waited go after it (`NextSessionRequest.held`).
+        ...(note === undefined ? {} : { note, held: held.texts }),
         ...(request.requireResume === true ? { requireResume: true } : {}),
         ...(request.clear === undefined ? {} : { clear: request.clear }),
         ...(request.inRecord === undefined ? {} : { inRecord: request.inRecord }),

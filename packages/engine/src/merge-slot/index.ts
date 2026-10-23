@@ -13,3 +13,6 @@ export {
 } from "./slot";
 export type { MergeSlotDeps, SlotOutcome } from "./slot";
 export { writeCloseOutSummary } from "./close-out";
+// The close-out commit's park record and status (DIPO-155, for DIPO-150's story merge slot).
+export { closeOutFields, DONE_STATUS, gitCloseOutWriter } from "./close-out-park";
+export type { CloseOutRequest, CloseOutWriter } from "./close-out-park";

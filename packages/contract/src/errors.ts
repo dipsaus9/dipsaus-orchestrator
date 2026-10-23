@@ -72,7 +72,14 @@ export const SOFTWARE_ERROR_CODES = [
 // when the gate is a merge the maintainer merges by hand, and `gate.noteRequired` when a decision
 // that needs a note has none. Since minor 1 (DIPO-163, 0020 section 9), not retryable:
 // `story.notSteerable` when `work.steer` or `work.pause` names a story whose live session is its
-// reviewer, or whose worker host is followed only.
+// reviewer, or whose worker host is followed only. Since minor 1 (DIPO-155, 0020 sections 1, 2 and
+// 4), not retryable, from `work.resume` of a parked story: `resume.topUpRequired` (a
+// `budget-exceeded` park resumed without `budget`, naming the cap that fired), `resume.topUpTooSmall`
+// (a top-up after which that cap is still reached, naming the smallest share that clears it),
+// `resume.noteRequired` (a reason whose resume needs a note), `resume.notResumable` (a park with no
+// way back, such as tampered git links, naming `dipo discard`), `resume.capReached` (what remains
+// of the run's caps is zero, naming `--budget`) and `resume.decisionRequired` (a park resumed by
+// its question's answer, naming `dipo answer`).
 export const OFFICE_ERROR_CODES = [
   "config.invalid",
   "backlog.unreadable",
@@ -82,6 +89,12 @@ export const OFFICE_ERROR_CODES = [
   "gate.handMergeOnly",
   "gate.noteRequired",
   "story.notSteerable",
+  "resume.topUpRequired",
+  "resume.topUpTooSmall",
+  "resume.noteRequired",
+  "resume.notResumable",
+  "resume.capReached",
+  "resume.decisionRequired",
 ] as const;
 
 export type GenericErrorCode = (typeof GENERIC_ERROR_CODES)[number];

@@ -27,6 +27,19 @@ export interface BudgetGrant {
   readonly tokens: number;
   readonly turns: number;
   readonly minutes: number;
+  /**
+   * The run's developer caps before and after the grant (0020 section 4, DIPO-155); a maintainer
+   * top-up records them, a grant written before them has none.
+   */
+  readonly before?: GrantCaps;
+  readonly after?: GrantCaps;
+}
+
+/** A run's developer caps as a budget grant records them. */
+export interface GrantCaps {
+  readonly budgetTokens: number;
+  readonly maxTurns: number;
+  readonly maxMinutes: number;
 }
 
 /** A reviewer cap grant: what it adds to the reviewer's own turn and minute caps. */

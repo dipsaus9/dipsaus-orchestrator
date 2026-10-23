@@ -301,6 +301,8 @@ export interface RunOutcomesDeps {
   /** DIPO-43's adapter hold, set for start failures and credit limits. */
   readonly holds?: {
     hold(adapter: string, failures: readonly LaunchCheckFailure[]): AdapterHold;
+    /** The hold set on the adapter now, or null: a `worker-failed` resume waits for its lift. */
+    adapterHeld?(adapter: string): AdapterHold | null;
   };
   /** Releases a live claim whose worker did not start (DIPO-74's release). */
   readonly release?: (office: OfficeId, claim: ClaimRecord, reason: string) => Promise<void>;

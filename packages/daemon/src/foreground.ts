@@ -57,6 +57,7 @@ import {
   MemoryRequestTable,
   MergeSlot,
   officeFeature,
+  activeRunCount,
   OfficeInit,
   officeSummaryOfSource,
   officeSummarySource,
@@ -118,7 +119,7 @@ import {
   type StoredRun,
 } from "@dipsaus-orchestrator/engine";
 
-import { controlFeature, emitDaemonStates } from "./control";
+import { controlFeature, emitDaemonStates, sumActiveRuns } from "./control";
 import { CrashCounter, STABLE_RUN_MS } from "./crash-counter";
 import { DEFAULT_DRAIN_CAPS, drain, type DrainCaps, type DrainRequest } from "./drain";
 import { EngineBehindCache } from "./engine-behind";
@@ -985,6 +986,11 @@ async function serve(run: Run, lock: HeldLock): Promise<number> {
         upgradePending: () => watcher.pending,
         keepAwake: () => keepAwake.status(),
         loadedOffices: () => offices.loadedOffices(),
+        activeRuns: () =>
+          sumActiveRuns(offices.loadedOffices(), (office) => {
+            const handle = offices.get(office);
+            return handle === undefined ? undefined : activeRunCount(handle);
+          }),
         requestStop: (request) => stops.request(request),
       }),
       ...(options.features ?? []),

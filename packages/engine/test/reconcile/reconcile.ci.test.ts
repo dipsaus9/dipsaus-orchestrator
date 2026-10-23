@@ -25,6 +25,7 @@ import {
   RECORDED_BY_HAND,
 } from "../../src/reconcile";
 import { endRun, findRun } from "../../src/run/records";
+import { desk } from "../../src/views/desk";
 import { runDirectory } from "../../src/runs/worker-hosts";
 import { addStory } from "../../src/stories/keys";
 import { RunProfiles } from "../../src/scan";
@@ -42,6 +43,7 @@ import {
 } from "./helpers";
 
 const ON_HOLD = 'park: { reason: "on-hold", from: "Ready", note: "Waiting for the export" }';
+const AMBIGUOUS = 'park: { reason: "ambiguous-spec", from: "In Progress", note: "Which flag?" }';
 
 interface RunCall {
   readonly kind: "stop" | "park";
@@ -235,6 +237,33 @@ if (process.env["DIPO_TEST_CI"] === "1") {
           await w.rescan();
           expect(parks(w.o.office)).toHaveLength(1);
           expect(codes(w.o.office, seq)).not.toContain(RECONCILE_NOTICES.parkRecorded);
+        },
+      ));
+
+    it("replays DIPO-129: a Done story whose F16 block outlived its park gets the stale notice and no park row, while a Parked one is recorded by hand", () =>
+      withWorld(
+        [
+          { id: "TASK-1", status: "Done", fields: [AMBIGUOUS] },
+          { id: "TASK-3", status: "Parked", fields: [AMBIGUOUS] },
+        ],
+        async (w) => {
+          // The load reconciled once: only the Parked story has a park row.
+          expect(parks(w.o.office)).toEqual([
+            { reason: "ambiguous-spec", detail: RECORDED_BY_HAND, how: null },
+          ]);
+          const seq = lastSeq(w.o.office);
+          await w.rescan();
+          expect(parks(w.o.office)).toHaveLength(1);
+          // One warn notice per pass for the Done story, naming its status and the park reason.
+          const stale = noticesAfter(w.o.office, seq).filter(
+            (notice) => notice.code === RECONCILE_NOTICES.parkStale,
+          );
+          expect(stale).toHaveLength(1);
+          expect(stale[0]?.text).toContain("TASK-1 is Done");
+          expect(stale[0]?.text).toContain("ambiguous-spec");
+          // The desk shows the Parked story, never a PARKED row for the stale record (DIPO-158).
+          const parked = desk(w.o.office, () => true).filter((item) => item.kind === "PARKED");
+          expect(parked.map((item) => String(item.story))).toEqual(["TASK-3"]);
         },
       ));
   });

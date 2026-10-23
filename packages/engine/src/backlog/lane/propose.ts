@@ -63,7 +63,7 @@ export function markedStory(cwd: string, proposal: string): string | null {
   return null;
 }
 
-/** Records the draft id the lane created for an accepted proposal (migration 47). */
+/** Records the draft id the lane created for an accepted proposal (migration 48). */
 export function recordDraftId(office: OfficeHandle, proposal: string, draft: string): void {
   office.immediate(() =>
     office.run(

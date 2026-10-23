@@ -542,3 +542,65 @@ describe("OfficeStore", () => {
     expect(chunks).toHaveLength(2);
   });
 });
+
+describe("OfficeStore database line (DIPO-120)", () => {
+  const details = { reason: "damaged", backup: "/s/backups/pre-v3.db" };
+  const unavailable = {
+    code: "database.unavailable",
+    message: "The state database is damaged. No office is loaded.",
+    retryable: false,
+    details,
+  };
+
+  /** A daemon held in `recovering` with its database unavailable, and no office selected. */
+  async function held() {
+    const client = new FakeStoreClient({ ...hello(), daemon: "recovering" });
+    client.answers.set("office.snapshot", () => ({ ok: false, error: unavailable }));
+    const store = new OfficeStore({
+      client,
+      clock: new ManualClock(),
+      clientInfo: { name: "test", version: "0" },
+    });
+    store.start();
+    await settle();
+    return { client, store };
+  }
+
+  it("reads one office with no office selected, so the database details reach the state", async () => {
+    const { store } = await held();
+    expect(store.state.office).toBeNull();
+    expect(store.state.database).toEqual(details);
+  });
+
+  it("keeps the line across an office switch", async () => {
+    const { client, store } = await held();
+    client.answers.set("office.switch", () => ({
+      ok: true,
+      result: snapshot(B, 20, [], []),
+    }));
+    await store.switchTo(B);
+    expect(store.state.office).toBe(B);
+    expect(store.state.database).toEqual(details);
+  });
+
+  it("clears the line when the daemon goes to draining", async () => {
+    const { client, store } = await held();
+    client.emit(
+      "software",
+      event("software", 11, "daemon.state", { from: "recovering", to: "draining" }),
+    );
+    expect(store.state.database).toBeNull();
+    expect(store.state.daemon).toBe("draining");
+  });
+
+  it("clears the line on a fresh engine.hello from a daemon that answers reads again", async () => {
+    const { client, store } = await held();
+    expect(store.state.database).toEqual(details);
+    client.setState("reconnecting");
+    client.hello = hello(30);
+    client.setState("open");
+    await settle();
+    expect(store.state.daemon).toBe("running");
+    expect(store.state.database).toBeNull();
+  });
+});

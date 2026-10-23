@@ -155,7 +155,7 @@ export function slotsTakenMessage(live: readonly SlotEntry[], maxSlots: number):
     (entry) =>
       `slot ${entry.slot}: office ${entry.office}, story ${entry.story}, worktree ${entry.worktree}`,
   );
-  return `every port slot from 1 to ${maxSlots} is taken by another worktree: ${held.join("; ")}`;
+  return `every port slot from 1 to ${maxSlots} is taken by another worktree: ${held.join("; ")}. dipo discard <id> frees a story's slot.`;
 }
 
 function isSlotFile(value: unknown): value is SlotFile {

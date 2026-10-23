@@ -135,7 +135,7 @@ describe("migration 43", () => {
           "state",
           "created_at",
           "updated_at",
-          // Migration 47 (DIPO-166): the maintainer's decision.
+          // Migration 48 (DIPO-166): the maintainer's decision.
           "decided_by",
           "draft_id",
         ]);

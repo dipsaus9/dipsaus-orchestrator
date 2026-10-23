@@ -25,6 +25,7 @@ import {
 } from "../../src/backlog/lane";
 import { insertEntry } from "../../src/backlog/lane/journal";
 import { executeCommand } from "../../src/commands/execute";
+import { CRASH, crashAfterHandler } from "../commands/crash";
 import { executeRead } from "../../src/reads/execute";
 import { stateOfficeDirectory } from "../../src/commands/offices";
 import { buildRegistry, type FeatureModule } from "../../src/commands/registry";
@@ -293,18 +294,26 @@ function park(key: StoryKey, id: string, reason: string, from: string, runId: Ru
 }
 
 let sequence = 0;
-async function send(name: string, args: Record<string, unknown>) {
+async function send(
+  name: string,
+  args: Record<string, unknown>,
+  retry?: { readonly id: string; readonly crash: boolean },
+) {
   sequence += 1;
+  const deps = {
+    registry: w.registry,
+    offices: stateOfficeDirectory(w.t.state),
+    clock: w.t.clock,
+    ids: w.t.ids,
+    softwareRequests: new MemoryRequestTable(w.t.clock),
+  };
   return await executeCommand(
+    // A crash after the handler's commits and before the requests row (DIPO-168 in DIPO-155).
+    retry?.crash === true ? crashAfterHandler(deps, name) : deps,
     {
-      registry: w.registry,
-      offices: stateOfficeDirectory(w.t.state),
-      clock: w.t.clock,
-      ids: w.t.ids,
-      softwareRequests: new MemoryRequestTable(w.t.clock),
-    },
-    {
-      requestId: RequestId.parse(`01J9ZK5Q8W3V4X6Y7Z${String(sequence).padStart(8, "0")}`),
+      requestId: RequestId.parse(
+        retry?.id ?? `01J9ZK5Q8W3V4X6Y7Z${String(sequence).padStart(8, "0")}`,
+      ),
       name,
       args,
       origin: "cli",
@@ -398,6 +407,26 @@ describe("story.hold", () => {
     expect(w.ops).toHaveLength(1);
     const other = errorOf(await send("story.hold", { story: "DIPO-7", note: "other" }));
     expect(other.code).toBe("story.notHoldable");
+  });
+
+  it("journals one hold when a crash before the requests row makes the retry run the handler again (DIPO-168)", async () => {
+    story("DIPO-7", { status: "Ready" });
+    const id = "01J9ZK5Q8W3V4X6Y7Z90000001";
+    const crashed = await send(
+      "story.hold",
+      { story: "DIPO-7", note: "later" },
+      { id, crash: true },
+    );
+    expect(crashed.ok ? null : crashed.error.message).toContain(CRASH);
+    expect(w.ops).toHaveLength(1);
+    const retried = await send(
+      "story.hold",
+      { story: "DIPO-7", note: "later" },
+      { id, crash: false },
+    );
+    expect(retried).toMatchObject({ ok: true });
+    expect(w.ops).toHaveLength(1);
+    expect(entries("story.state")).toHaveLength(1);
   });
 
   it("refuses a running story, naming dipo stop, and journals nothing", async () => {
@@ -506,6 +535,19 @@ describe("story.drop", () => {
     // A re-run finds the target state and writes nothing more.
     const again = await send("story.drop", { story: "DIPO-7", deleteBranch: false });
     expect(again).toMatchObject({ ok: true });
+    expect(entries("story.state")).toHaveLength(1);
+  });
+
+  it("journals one drop when a crash before the requests row makes the retry run the handler again (DIPO-168)", async () => {
+    story("DIPO-7", { status: "Ready" });
+    const id = "01J9ZK5Q8W3V4X6Y7Z90000002";
+    const args = { story: "DIPO-7", deleteBranch: false };
+    const crashed = await send("story.drop", args, { id, crash: true });
+    expect(crashed.ok ? null : crashed.error.message).toContain(CRASH);
+    expect(w.ops).toHaveLength(1);
+    const retried = await send("story.drop", args, { id, crash: false });
+    expect(retried).toMatchObject({ ok: true });
+    expect(w.ops).toHaveLength(1);
     expect(entries("story.state")).toHaveLength(1);
   });
 

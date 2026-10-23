@@ -1,4 +1,4 @@
-// Migration 47 (DIPO-166; 0020 sections 11c and 15): the maintainer's decision on a worker's
+// Migration 48 (DIPO-166; 0020 sections 11c and 15): the maintainer's decision on a worker's
 // proposal, on its `proposals` row (migration 43).
 //
 // - `decided_by`: the origin of the `proposal.accept` or `proposal.dismiss` that decided it (`cli`,
@@ -14,7 +14,7 @@
 import type { SqlMigration } from "../migrations";
 
 export const proposalDecisions: SqlMigration = {
-  version: 47,
+  version: 48,
   name: "proposal decisions",
   sql: `
 alter table proposals add column decided_by text;
