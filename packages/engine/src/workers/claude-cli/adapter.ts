@@ -192,6 +192,8 @@ async function prepareInBox(
   if (!gate.ok) return gate;
   let session;
   try {
+    // The run is open here: the launcher made it, or the resumer's caller reopened it, so no pass
+    // stops this box while its session starts (`BoxWorkers.session`, DIPO-278).
     session = await boxes.session({
       runId: spec.run,
       runDir: paths.runDir,
