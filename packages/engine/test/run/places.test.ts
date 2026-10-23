@@ -25,6 +25,7 @@ import {
   placeTaken,
   PlanLimits,
   raiseSignal,
+  recordConfigSnapshot,
   recordIntent,
   reopenForRound,
   type RunEnder,
@@ -516,6 +517,70 @@ describe("the pre-start cap check (DIPO-205)", () => {
       expect(parksOf()).toEqual([]);
     } finally {
       x.close();
+    }
+  });
+});
+
+describe("the reviewer place's model of a running run (DIPO-150, the DIPO-303 review)", () => {
+  it("is the review.model of the run's configuration snapshot, not the one in force", () => {
+    const s = storyRun(w, { story: "DIPO-9" });
+    const places = new Places({
+      clock: w.t.clock,
+      offices: {
+        get: () => w.office,
+        config: () => ({
+          ...OFFICE_DEFAULTS,
+          review: { ...OFFICE_DEFAULTS.review, model: "opus" },
+        }),
+      },
+      starters: {},
+    });
+    try {
+      const run = findRun(w.office, s.run)!;
+      // No snapshot: the configuration in force.
+      expect(places.modelOf(officeId(), "reviewer", run)).toBe("opus");
+      w.office.immediate(() =>
+        recordConfigSnapshot(
+          w.office,
+          "h",
+          { ...OFFICE_DEFAULTS, review: { ...OFFICE_DEFAULTS.review, model: "sonnet" } },
+          0,
+        ),
+      );
+      expect(places.modelOf(officeId(), "reviewer", run)).toBe("sonnet");
+      expect(places.modelOf(officeId(), "worker", run)).toBe(run.model);
+    } finally {
+      places.close();
+    }
+  });
+});
+
+describe("a plan-limit hold on a running run's adapter (DIPO-150, the DIPO-303 review)", () => {
+  it("is asked for the worker.adapter of the run's configuration snapshot", () => {
+    const s = storyRun(w, { story: "DIPO-9" });
+    const asked: string[] = [];
+    const places = new Places({
+      clock: w.t.clock,
+      offices: { get: () => w.office, config: () => OFFICE_DEFAULTS },
+      held: (adapter) => {
+        asked.push(adapter);
+        return null;
+      },
+      starters: {},
+    });
+    try {
+      w.office.immediate(() =>
+        recordConfigSnapshot(
+          w.office,
+          "h",
+          { ...OFFICE_DEFAULTS, worker: { ...OFFICE_DEFAULTS.worker, adapter: "adapter-started" } },
+          0,
+        ),
+      );
+      places.blocked(officeId(), { kind: START_KINDS.review, runId: s.run, since: 0 }, "opus");
+      expect(asked).toEqual(["adapter-started"]);
+    } finally {
+      places.close();
     }
   });
 });

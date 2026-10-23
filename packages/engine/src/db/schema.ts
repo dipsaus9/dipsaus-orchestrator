@@ -48,6 +48,7 @@ import { feedbackItems } from "./migrations/0044-feedback-items";
 import { doneElsewhere } from "./migrations/0045-done-elsewhere";
 import { catchUps } from "./migrations/0046-catch-ups";
 import { parkResolvedNote } from "./migrations/0047-park-resolved-note";
+import { mergeSlot } from "./migrations/0048-merge-slot";
 
 /**
  * Software-wide tables (0007 section 3). Every other table is office-scoped and has `office_id`
@@ -131,4 +132,5 @@ create table offices (
   doneElsewhere,
   catchUps,
   parkResolvedNote,
+  mergeSlot,
 ];

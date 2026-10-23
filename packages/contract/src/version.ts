@@ -65,6 +65,8 @@ export type ContractVersion = z.infer<typeof ContractVersion>;
 // the same, still unreleased, minor.
 // DIPO-271 adds the optional `box` of `work.run` (run the developer in its own box, 0021) to the
 // same, still unreleased, minor.
+// DIPO-150 adds the optional `gates` of `story.detail` (the story's open gates that wait for the
+// maintainer, 0019 section 11) to the same, still unreleased, minor.
 // DIPO-161 ships the command `work.discard` and the office codes `story.prMerged` and
 // `story.notDiscardable` in the same, still unreleased, minor.
 // DIPO-161 also adds the optional `command` of `story.losses` and its optional `kept` result to the

@@ -4,7 +4,7 @@ title: 'Resume conflict, merge slot and closed-PR parks'
 status: Refined
 assignee: []
 created_date: '2026-10-23 09:11'
-updated_date: '2026-10-23 09:11'
+updated_date: '2026-10-23 09:36'
 labels:
   - 'tier:M'
   - 'slice:m1a'
@@ -58,3 +58,9 @@ test_plan:
 - [ ] #4 (from DIPO-155 #25) The merge slot's close-out commit removes the F16 block through the single field write path in the same commit that sets Done, and a test shows a task file that held F16 at close-out has no park key after it
 - [ ] #5 The desk offers dipo resume for these parks only once they are resumable
 <!-- AC:END -->
+
+## Implementation Notes
+
+<!-- SECTION:NOTES:BEGIN -->
+2026-10-23: DIPO-150 wired two of these: the close-out commit removes F16 (criterion 4) and SlotReentry re-enters a slot-refused story (half of criterion 2); check what the resume does to the run for slot-refused so re-entry takes effect.
+<!-- SECTION:NOTES:END -->

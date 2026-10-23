@@ -12,7 +12,7 @@ import { withTempDir } from "@dipsaus-orchestrator/testkit";
 import { allEntries, pendingLaneOp } from "../../src/backlog/lane";
 import { findPr } from "../../src/backlog/pr";
 import { OFFICE_DEFAULTS } from "../../src/config";
-import { MAX_MERGE_ATTEMPTS, SLOT_NOTICES } from "../../src/merge-slot";
+import { MAX_MERGE_ATTEMPTS, MergeSlot, SLOT_NOTICES, slotOccupant } from "../../src/merge-slot";
 import { REPO } from "../backlog/pr/helpers";
 import { notices } from "../backlog/lane/helpers";
 
@@ -261,6 +261,68 @@ describe("the merge slot", () => {
       await s.slot.whenIdle(s.officeId);
       expect(s.host.checkReads).toBe(1);
       s.slot.stop();
+    });
+  });
+});
+
+// DIPO-150 (0019 section 7): backlog PRs gain the label guard and the persisted occupant.
+describe("the merge slot's guard and persistence for backlog PRs", () => {
+  it("never merges a backlog PR labelled autorelease: pending, checked before it enters", async () => {
+    await withTempDir(async (dir) => {
+      const s = await slotSetup(dir);
+      await openBacklogPr(s);
+      s.host.checks = GREEN;
+      s.host.prLabelsOf.set(1, ["autorelease: pending"]);
+      expect(await s.slot.tick(s.officeId)).toBe("idle");
+      expect(await s.slot.tick(s.officeId)).toBe("idle");
+      expect(s.host.merges).toEqual([]);
+      expect(s.git.calls).toEqual([]);
+      expect(notices(s.office).map((n) => n.code)).toEqual([SLOT_NOTICES.held]);
+    });
+  });
+
+  it("checks the labels again right before the host merge, and holds a hold label until it is gone", async () => {
+    await withTempDir(async (dir) => {
+      const s = await slotSetup(dir);
+      s.config = {
+        ...OFFICE_DEFAULTS,
+        mergeSlot: { ...OFFICE_DEFAULTS.mergeSlot, holdLabels: ["hold"] },
+      };
+      await openBacklogPr(s);
+      expect(await s.slot.tick(s.officeId)).toBe("waiting");
+      s.host.checks = GREEN;
+      s.host.prLabelsOf.set(1, ["hold"]);
+      expect(await s.slot.tick(s.officeId)).toBe("left");
+      expect(s.host.merges).toEqual([]);
+      expect(await s.slot.tick(s.officeId)).toBe("idle");
+      s.host.prLabelsOf.set(1, []);
+      expect(await s.slot.tick(s.officeId)).toBe("merged");
+      expect(s.host.merges).toEqual([{ number: 1, headSha: HEAD }]);
+    });
+  });
+
+  it("keeps its occupant in the state database across a daemon restart and merges once", async () => {
+    await withTempDir(async (dir) => {
+      const s = await slotSetup(dir);
+      await openBacklogPr(s);
+      expect(await s.slot.tick(s.officeId)).toBe("waiting");
+      expect(slotOccupant(s.office)).toMatchObject({ kind: "backlog", number: 1, phase: "checks" });
+      // A new slot on the same database, as after a restart: the PR is still in it.
+      const again = new MergeSlot({
+        host: s.host,
+        labels: s.host,
+        prs: { recheck: async () => ({ passed: true, failures: [], touched: [] }) },
+        lane: () => s.lane,
+        offices: { get: () => s.office, config: () => OFFICE_DEFAULTS },
+        clock: s.t.clock,
+        git: () => s.git,
+      });
+      expect(again.holding(s.officeId)).toBe(BRANCH);
+      s.host.checks = GREEN;
+      expect(await again.tick(s.officeId)).toBe("merged");
+      expect(s.host.merges).toEqual([{ number: 1, headSha: HEAD }]);
+      expect(s.git.calls.filter((call) => call.startsWith("push"))).toHaveLength(1);
+      expect(slotOccupant(s.office)).toBeNull();
     });
   });
 });

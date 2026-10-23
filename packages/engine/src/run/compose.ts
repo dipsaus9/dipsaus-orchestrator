@@ -32,6 +32,7 @@ import { FixRounds, type FixRoundsDeps } from "./fix-rounds";
 import { Reviews } from "./reviews";
 import { createRunOutcomes, type Resumption } from "./resumption";
 import { afterRunExits } from "./temp-dirs";
+import type { SlotReentry } from "./park-resume";
 import type { HoldResumer } from "./work-resume";
 import type { RunBase } from "./work-run";
 
@@ -78,6 +79,8 @@ export interface RunPorts {
   };
   /** The planning lane's resume of an on-hold park (DIPO-160), read when `work.resume` runs. */
   readonly holdResumer?: () => HoldResumer | undefined;
+  /** The merge slot a resumed `slot-refused` park re-enters (DIPO-150, DIPO-155's seam). */
+  readonly slotReentry?: () => SlotReentry | undefined;
   /** The plan-limit schedule (DIPO-61) worker outcomes report waits to; needs `outcomes`. */
   readonly planLimits?: Pick<PlanLimitsDeps, "holds" | "notify">;
   /** The office's session places (DIPO-142): the reviewer's model and pending reviews. */
@@ -335,6 +338,7 @@ function buildOutcomes(
         },
         ...given("boxRun", ports.boxRun),
         fixRounds: () => fixRounds ?? undefined,
+        ...given("slot", ports.slotReentry),
       },
     },
   );

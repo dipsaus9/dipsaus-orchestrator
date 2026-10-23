@@ -41,6 +41,12 @@ export class SlotHost extends FakeHost {
   checkReads = 0;
   /** When set, reading the required checks fails with it. */
   checksError: CodeHostError | null = null;
+  /** The labels of each PR (`PrReviewHost.prLabels`, DIPO-150's guard); none by default. */
+  readonly prLabelsOf = new Map<number, string[]>();
+
+  async prLabels(_repo: string, number: number): Promise<string[]> {
+    return this.prLabelsOf.get(number) ?? [];
+  }
 
   override async requiredChecks(): Promise<RequiredCheck[]> {
     this.checkReads += 1;
@@ -205,6 +211,7 @@ export async function slotSetup(dir: string): Promise<SlotSetup> {
   } as unknown as OfficeLane;
   slot = new MergeSlot({
     host,
+    labels: host,
     prs: {
       recheck: async (_office, number): Promise<CheckResult> => {
         const pr = findPr(office, number);

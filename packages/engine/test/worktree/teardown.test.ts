@@ -15,6 +15,7 @@ import type { FeatureModule } from "../../src/commands/registry";
 import { OFFICE_DEFAULTS, type OfficeConfig } from "../../src/config";
 import type { OfficeHandle } from "../../src/db/office";
 import { type GitCall, type GitResult, OfficeGit } from "../../src/git";
+import { HAND_MERGE_NOTE, mergeGate } from "../../src/merge-slot";
 import type { OfficeLoadContext } from "../../src/office/steps";
 import { CodeHostError, type HostPr, type PrStateHost } from "../../src/platform/host";
 import {
@@ -566,6 +567,37 @@ function crashAfterGitSteps(world: World): void {
 }
 
 describe("the Done poll", () => {
+  it("decides an open merge gate approved by the maintainer when the PR was merged by hand (DIPO-150)", () =>
+    withWorld(async (world) => {
+      const claim = world.claim();
+      const gate = world.t.ids.next("gat");
+      world.office.immediate(() => {
+        world.office.run(
+          `insert into stories (office_id, key, story_id, provisional, backlog_created, first_seen_at)
+           values ($office_id, $key, 'TASK-1', 0, 1, 0)`,
+          { key: claim.key },
+        );
+        world.office.run(
+          `insert into gates (office_id, gate_id, kind, key, run_id, opened_at, waiting_on,
+             summary, head_sha)
+           values ($office_id, $gate, 'merge', $key, $run, 1, 'maintainer', 'waits', $head)`,
+          { gate, key: claim.key, run: claim.runId, head: TIP },
+        );
+      });
+      await teardownOf(world).poll(world.office.officeId as OfficeId);
+      expect(mergeGate(world.office, gate)?.decision).toMatchObject({
+        decision: "approved",
+        by: "maintainer",
+        note: HAND_MERGE_NOTE,
+      });
+      const decided = world.office.all<{ delta: string }>(
+        "select delta from change_log where office_id = $office_id and type = 'gate.decided'",
+      );
+      expect(decided.map((row) => JSON.parse(row.delta) as unknown)).toEqual([
+        { gate, decision: "approved", by: "maintainer", note: HAND_MERGE_NOTE },
+      ]);
+    }));
+
   it("keeps the worktree, branch and slot of a parked story", () =>
     withWorld(async (world) => {
       const report = await teardownOf(world, { status: "Parked" }).poll(

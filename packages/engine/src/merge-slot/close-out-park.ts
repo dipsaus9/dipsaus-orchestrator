@@ -4,8 +4,8 @@
 // path, in the same commit. DIPO-129 merged with a stale `park: ambiguous-spec` block because
 // nothing removed it.
 //
-// The story merge slot's close-out commit itself is DIPO-150's (the slot here serves backlog PRs
-// only so far). This is the narrow seam it calls: `closeOutFields` is the edit inside the
+// The story merge slot's close-out commit itself is DIPO-150's (`gitStorySlotOps.closeOut` in
+// `story-git.ts`). This is the narrow seam it calls: `closeOutFields` is the edit inside the
 // close-out's `editInStoryBacklog`, where the final summary (DIPO-154) joins it, and
 // `gitCloseOutWriter` is the whole commit for a caller that adds nothing else.
 
