@@ -3,24 +3,30 @@ id: DIPO-333
 title: >-
   Read the Backlog CLI's output from a file, never a pipe, and say how much
   arrived when a list is short
-status: Refined
+status: Done
 assignee: []
 created_date: '2026-10-23 13:02'
-updated_date: '2026-10-23 13:14'
+updated_date: '2026-10-23 13:34'
 labels:
   - 'tier:M'
 milestone: m-1
 dependencies: []
 references:
+  - '- packages/contract/src/runtime.ts'
+  - packages/contract/src/index.ts
   - packages/contract/src/runtime.ts
-  - packages/engine/src/platform/process.ts
-  - packages/engine/src/backlog/runner.ts
   - packages/engine/src/backlog/list.ts
-  - scripts/check-ready-gate.ts
-  - scripts/check-ready-gate.test.ts
-  - packages/engine/test/platform/spawn-output-file.test.ts
-  - packages/engine/test/backlog/runner-output-file.test.ts
+  - packages/engine/src/backlog/runner.ts
+  - packages/engine/src/platform/output-files.ts
+  - packages/engine/src/platform/process.ts
+  - packages/engine/src/run/temp-dirs.ts
   - packages/engine/test/backlog/list.test.ts
+  - packages/engine/test/backlog/runner-output-file.test.ts
+  - packages/engine/test/backlog/runner.test.ts
+  - packages/engine/test/platform/spawn-output-file.test.ts
+  - packages/engine/test/run/temp-dirs.test.ts
+  - scripts/check-ready-gate.test.ts
+  - scripts/check-ready-gate.ts
 priority: high
 type: bug
 ordinal: 316000
@@ -61,4 +67,6 @@ test_plan:
 
 <!-- SECTION:NOTES:BEGIN -->
 2026-10-23 findings: (1) Cross-branch reads are not the cause on 1.53.0. In the CLI, task list runs queryTasks with includeCrossBranch false, which only reads backlog/tasks; --count takes the same path and prints the length of the same array; task view, archive and the readiness helpers also default to includeCrossBranch false. A scratch repository with this repository's 294 tasks, a local bare origin and a pushed branch holding newer versions (DIPO-5 In Progress, DIPO-10 archived, DIPO-321 In Progress), with check_active_branches and remote_operations on, listed 294 and counted 294 on main every time, also in a shallow detached clone like the CI checkout. check_active_branches matters on 1.53 only for id allocation. (2) The end of the output is lost on Linux CI while the CLI exits 0: the 271 entries CI printed are exactly the first 271 lines of the local output of the same tree (29902 bytes, cut after DIPO-106 at about byte 27444) and the 23 missing (DIPO-107 to DIPO-321) are exactly its last 23 lines. (3) Not reproduced on macOS (concurrent reads, a blocked parent event loop, a 333 KB list with a delayed reader), so the pipe is taken out of the path rather than a fix aimed at one side of it.
+
+Done 2026-10-23 (maintainer session): built outside dipo, reviewed by a separate agent (all 4 criteria met; its advisories are fixed: output read through kept descriptors with a regular-file check and a size cap, a foreign temp root refused, left-over folders swept at daemon start, a failed read reported as a Backlog CLI error). The first guess, cross-branch reads, was disproved by the builder on the 1.53 CLI.
 <!-- SECTION:NOTES:END -->
