@@ -24,15 +24,14 @@
 // - the park and resume path: red CI at a CI cap of 1 parks `verify-failing` (cause `ci`), and
 //   `work.resume` with a note grants one CI attempt and sends the CI item to the worker.
 //
-// Two scenarios are `it.failing`: they state what 0019 and 0021 promise and the engine does not do
-// yet. Each becomes a plain `it` in the story that closes it:
+// One scenario is `it.failing`: it states what 0019 and 0021 promise and the engine does not do
+// yet, and becomes a plain `it` in the story that closes it:
 //
 // - the merge slot's conflict merge is made in dipo's repository and never reaches the box, so
 //   the worker never sees the markers and its next part, taken against the merged tip, reverts what
-//   the base changed (here a file the base added is gone from main after the merge); DIPO-324;
-// - nothing sets `worker_hosts.ended_at` when a session exits normally (only a restart's re-attach
-//   does), so the Done poll keeps a merged story "while a worker of its run is still running"
-//   until the daemon restarts; DIPO-328.
+//   the base changed (here a file the base added is gone from main after the merge); DIPO-324.
+//
+// The Done poll ending a merged story without a restart was such a scenario until DIPO-328.
 //
 // Each scenario needs many CLI calls, pushes and an office load: far over the local budget.
 
@@ -159,7 +158,9 @@ async function expectMergedOnce(
   csv: string,
   head?: string,
 ): Promise<void> {
-  const tip = head ?? (await w.host.tip(BRANCH_1));
+  // The Done teardown deletes the branch after the merge, so its tip is read from the merge call.
+  const tip = head ?? w.host.merges[0]?.headSha ?? "";
+  expect(tip).not.toBe("");
   expect(w.host.merges).toEqual([{ number: 1, headSha: tip, subject: TITLE }]);
   expect((await remoteSubjects(w, tip, 1))[0]).toBe(`${TASK_1}: status Done`);
   expect(await remoteFile(w, "main", CSV)).toBe(csv);
@@ -272,8 +273,8 @@ if (process.env["DIPO_TEST_CI"] === "1") {
       120_000,
     );
 
-    it.failing(
-      "the Done poll ends a merged story's run without a daemon restart (open gap, DIPO-328)",
+    it(
+      "the Done poll ends a merged story's run without a daemon restart (DIPO-328)",
       () =>
         withLoopOffice({}, async (w) => {
           approving(w);
@@ -421,8 +422,9 @@ if (process.env["DIPO_TEST_CI"] === "1") {
           ]);
           await expectMergedOnce(w, run, CSV_V2);
           // Main loses the file the base added here; the `it.failing` sibling pins that (DIPO-324).
-          // The branch holds the slot's merge of the moved base.
-          const tip = await w.host.tip(BRANCH_1);
+          // The branch holds the slot's merge of the moved base (read from the merge call: the Done
+          // teardown deleted the branch).
+          const tip = w.host.merges[0]?.headSha ?? "";
           const merges = await git(w.repo.remote, w.repo.home, "rev-list", "--merges", tip);
           expect(merges.trim().split("\n")).toHaveLength(1);
           expect(parks(w)).toEqual([]);
@@ -529,7 +531,7 @@ if (process.env["DIPO_TEST_CI"] === "1") {
           ]);
           await expectMergedOnce(w, run, CSV_V1);
           // The branch went Parked, then back In Review for the slot.
-          const tip = await w.host.tip(BRANCH_1);
+          const tip = w.host.merges[0]?.headSha ?? "";
           expect(await remoteSubjects(w, tip, 3)).toEqual([
             `${TASK_1}: status Done`,
             `${TASK_1}: status In Review`,
