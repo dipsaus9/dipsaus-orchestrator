@@ -42,3 +42,11 @@ export {
   RESUME_KIND,
 } from "./ops";
 export type { ApplyContext, ApplyOutcome, LaneOpKind } from "./ops";
+export {
+  markedStory,
+  PROPOSAL_MARKER,
+  PROPOSE_KIND,
+  ProposeTarget,
+  proposeKind,
+  recordDraftId,
+} from "./propose";
