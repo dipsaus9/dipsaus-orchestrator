@@ -27,7 +27,10 @@
 //    the story to Refined like a failed pickup re-check.
 // 6. The claim (DIPO-38) runs the pickup re-check (the Ready gate in `pickup` mode, stored through
 //    DIPO-71) first inside its git queue item. A failed re-check moves the story to Refined through
-//    the backlog lane and emits `story.state` with the gate messages in `detail`.
+//    the backlog lane and emits `story.state` with the gate messages in `detail`. The office's
+//    serialized step (the place check and the claim) ends once the claim row is committed
+//    (DIPO-314): the box preparation, its install and the launch run outside it, while the pickup
+//    holds the worker place (`Places.reservePickup`) until its run row is in.
 // 7. A claimed story gets its run row (with the slot setup took), its developer agent (with the
 //    engine-made session id), the configuration snapshot and the `setup` phase, and
 //    `work.assigned` and `work.phase setup` in the same transaction.
@@ -209,7 +212,8 @@ export interface WorkRunDeps {
    * check, claim and run record run in one of them, so a queued start cannot take the place between
    * the check and the record. Without it the steps run unserialized, as the tests of one run do.
    */
-  readonly places?: Pick<Places, "serialized">;
+  readonly places?: Pick<Places, "serialized"> &
+    Partial<Pick<Places, "reservePickup" | "pickupStarting">>;
 }
 
 type Args = z.output<typeof workRun.args>;
@@ -233,6 +237,74 @@ interface Startable {
 interface Candidate {
   readonly story: StoryId;
   readonly key: StoryKey;
+}
+
+/** What one candidate's start works from, read when its serialized step begins. */
+interface StartInput {
+  readonly candidate: Candidate;
+  readonly status: string | undefined;
+  readonly view: PlainTask | undefined;
+  readonly unparsed: boolean;
+  readonly checkout: BaseCheckout;
+  readonly full: boolean;
+  readonly config: OfficeConfig;
+  readonly configHash: string;
+  readonly started: Started[];
+}
+
+/** Inside the run's transaction: the developer agent with the engine-made session id (0007 section 4). */
+function recordAgent(
+  handle: OfficeHandle,
+  input: {
+    readonly runId: RunId;
+    readonly agent: AgentId;
+    readonly caps: OfficeConfig["tiers"]["S"];
+    readonly prepared: PreparedRun | null;
+    readonly at: number;
+  },
+): void {
+  const { prepared, caps } = input;
+  handle.run(
+    `insert into agents (office_id, agent_id, run_id, role, model, effort, session_id,
+       system_hash, started_at)
+     values ($office_id, $agent, $run, $role, $model, $effort, $session, $hash, $at)`,
+    {
+      agent: input.agent,
+      run: input.runId,
+      role: DEVELOPER_ROLE,
+      model: caps.model,
+      effort: prepared === null ? null : caps.effort,
+      session: prepared === null ? null : prepared.spec.session.id,
+      // The L1+L2 hash a resume compares (DIPO-51).
+      hash: prepared?.systemHash ?? null,
+      at: input.at,
+    },
+  );
+}
+
+/** Inside the run's transaction: what the launcher prepared, for the nudges and the prompt records. */
+function recordPrepared(
+  handle: OfficeHandle,
+  input: {
+    readonly worktree: string;
+    readonly runId: RunId;
+    readonly agent: AgentId;
+    readonly prepared: PreparedRun;
+    readonly config: OfficeConfig;
+    readonly clock: AsyncCommandContext["clock"];
+    readonly at: number;
+  },
+): void {
+  const { runId, agent, prepared, clock } = input;
+  const { nudgeSources, pack, headSha } = prepared.promptSources;
+  // The context pack and input paths the nudges check (0014 section 8, DIPO-60).
+  writeNudgeSources(handle, runId, agent, nudgeSources, input.at);
+  // The pack the task message was built from, with its head and blob ids (0020 section 6).
+  recordContextPack(handle, input.worktree, headSha, pack, clock);
+  // The prompt parts of the session's text, measured for the run (0014 section 2).
+  recordPromptParts(handle, runId, agent, prepared.parts, clock);
+  // The prompt text itself, with `privacy.storePrompts` on (DIPO-137).
+  recordPromptTexts(handle, runId, agent, prepared.texts, input.config, clock);
 }
 
 /**
@@ -377,35 +449,50 @@ export class WorkRun {
     } catch (error) {
       throw commandErrorOf(error);
     }
-    const views = new Map(read.views.map((view) => [view.id, view]));
     const candidates: Candidate[] =
       named ??
       pickupOrder(read.views).flatMap((view) => {
         const resolved = resolveStoryRef(handle, view.id);
         return resolved.ok ? [{ story: resolved.story, key: resolved.key }] : [];
       });
+    return { result: await this.#startEach(ctx, read, candidates, config, configHash) };
+  }
 
+  /** Starts the candidates in order, one at a time, each in its serialized step (step 4 on). */
+  async #startEach(
+    ctx: AsyncCommandContext,
+    read: BaseRead,
+    candidates: readonly Candidate[],
+    config: OfficeConfig,
+    configHash: string,
+  ): Promise<{ started: Started[]; skipped: Skipped[] }> {
+    const handle = ctx.office;
+    const office = handle.officeId;
+    const places = this.#deps.places;
+    const views = new Map(read.views.map((view) => [view.id, view]));
     const started: Started[] = [];
     const skipped: Skipped[] = [];
     for (const candidate of candidates) {
-      // The worker place is decided and taken in one serialized step (DIPO-208): the check, the
-      // claim and the run record, so a drain of a queued start waits for the record it counts.
-      const reason = await this.#serialized(office, () =>
-        this.#tryStart(ctx, {
-          candidate,
-          status: read.statuses.get(candidate.story),
-          view: views.get(candidate.story),
-          unparsed: read.unparsed.includes(candidate.story),
-          checkout: read.checkout,
-          full: workerPlaceTaken(handle) || started.length > 0,
-          config,
-          configHash,
-          started,
-        }),
-      );
+      // The worker place is decided and taken in one serialized step (DIPO-208): the check and the
+      // claim row. The step ends there (DIPO-314); until the run row is in, the pickup holds the
+      // worker place through the places, so a drain or another pickup never takes it meanwhile.
+      const reason = await this.#startSerialized(ctx, () => ({
+        candidate,
+        status: read.statuses.get(candidate.story),
+        view: views.get(candidate.story),
+        unparsed: read.unparsed.includes(candidate.story),
+        checkout: read.checkout,
+        full:
+          workerPlaceTaken(handle) ||
+          started.length > 0 ||
+          (places?.pickupStarting?.(office) ?? null) !== null,
+        config,
+        configHash,
+        started,
+      }));
       if (reason !== null) skipped.push({ ...candidate, reason });
     }
-    return { result: { started, skipped } };
+    return { started, skipped };
   }
 
   /**
@@ -470,24 +557,37 @@ export class WorkRun {
     return this.#deps.places === undefined ? fn() : this.#deps.places.serialized(office, fn);
   }
 
-  /** Starts one candidate, or returns why it was skipped. */
+  /**
+   * Starts one candidate in the office's serialized step (DIPO-208), which ends once the claim row
+   * is committed (DIPO-314): the box preparation, its install and the launch run after it, while
+   * the pickup holds the worker place through `reservePickup`. A start that ends before its claim
+   * row (a skip) ends the step too.
+   */
+  async #startSerialized(
+    ctx: AsyncCommandContext,
+    input: () => StartInput,
+  ): Promise<SkipReason | null> {
+    let finished: Promise<SkipReason | null> = Promise.resolve(null);
+    await this.#serialized(ctx.office.officeId, () => {
+      const claimed = Promise.withResolvers<void>();
+      finished = this.#tryStart(ctx, input(), () => claimed.resolve());
+      const ended = finished.then(
+        () => undefined,
+        () => undefined,
+      );
+      return Promise.race([claimed.promise, ended]);
+    });
+    return finished;
+  }
+
+  /** Starts one candidate, or returns why it was skipped; `claimed` is told at the claim row. */
   async #tryStart(
     ctx: AsyncCommandContext,
-    c: {
-      readonly candidate: Candidate;
-      readonly status: string | undefined;
-      readonly view: PlainTask | undefined;
-      readonly unparsed: boolean;
-      readonly checkout: BaseCheckout;
-      readonly full: boolean;
-      readonly config: OfficeConfig;
-      readonly configHash: string;
-      readonly started: Started[];
-    },
+    c: StartInput,
+    claimed: () => void,
   ): Promise<SkipReason | null> {
     const handle = ctx.office;
     const office = handle.officeId;
-    const { story, key } = c.candidate;
     const checked = this.#precheck(handle, c);
     if (checked === "gate") return this.#gateOutsideClaim(ctx, c.candidate);
     if (typeof checked === "string") return checked;
@@ -495,31 +595,61 @@ export class WorkRun {
       await this.#toRefined(ctx, c.candidate, [{ message: checked.tooLarge }]);
       return "pickupCheckFailed";
     }
-    const { view, fields, branch, tier, caps } = checked;
+    const { story } = c.candidate;
     const noSlot = slotsRefusal(this.#deps.liveSlots, office, story, c.config.worktree.maxSlots);
     if (noSlot !== null) throw refused(office, SLOTS_CHECK, noSlot);
 
     const runId = RunId.parse(ctx.ids.next("run"));
     const agent = ctx.ids.next("agt") as AgentId;
-    const launcher = this.#deps.launcher;
     const facts: RunFacts = {
       office,
       runId,
       agent,
-      view,
-      fields,
-      caps,
+      view: checked.view,
+      fields: checked.fields,
+      caps: checked.caps,
       config: c.config,
       taskFile: checked.taskFile,
     };
+    // From the claim row until the run row the pickup holds the worker place (DIPO-314).
+    let release: (() => void) | null = null;
+    try {
+      const outcome = await this.#claim(ctx, c, checked, facts, () => {
+        release = this.#deps.places?.reservePickup?.(office, runId, story) ?? null;
+        claimed();
+      });
+      if (!outcome.ok) return outcome.reason;
+      const started = this.#recordRun(ctx, c, checked, facts, outcome);
+      (release as (() => void) | null)?.();
+      release = null;
+      return await this.#launch(ctx, c, facts, outcome, started);
+    } finally {
+      (release as (() => void) | null)?.();
+    }
+  }
+
+  /**
+   * The claim with its pickup re-check and, with a launcher, its setup (the box, its install and
+   * the launch checks, DIPO-74). A failed re-check moves the story to Refined.
+   */
+  async #claim(
+    ctx: AsyncCommandContext,
+    c: StartInput,
+    checked: Startable,
+    facts: RunFacts,
+    onClaimed: () => void,
+  ): Promise<ClaimOutcome> {
+    const office = ctx.office.officeId;
+    const { story, key } = c.candidate;
+    const launcher = this.#deps.launcher;
     let failures: GateFailureFact[] | null = null;
     let outcome: ClaimOutcome;
     try {
       outcome = await this.#deps.claims.claim(office, {
         key,
         story,
-        branch,
-        runId,
+        branch: checked.branch,
+        runId: facts.runId,
         // Every run is a box run (DIPO-240): a reused branch takes the base through dipo's catch-up
         // (DIPO-149).
         baseSync: "catch-up",
@@ -535,6 +665,7 @@ export class WorkRun {
           failures = [...decision.result.failures];
           return { ok: false, reason: "pickupCheckFailed", notice: null, code: null };
         },
+        onClaimed,
         // Setup, the prompts and the launch checks, before the claim commit (DIPO-74).
         ...(launcher === undefined
           ? {}
@@ -546,13 +677,27 @@ export class WorkRun {
     } catch (error) {
       throw commandErrorOf(error);
     }
-    if (!outcome.ok) {
-      if (failures !== null) await this.#toRefined(ctx, c.candidate, failures);
-      return outcome.reason;
-    }
-    const prepared = outcome.setup as PreparedRun | null;
-    const session = prepared === null ? null : prepared.spec.session.id;
+    if (!outcome.ok && failures !== null) await this.#toRefined(ctx, c.candidate, failures);
+    return outcome;
+  }
 
+  /**
+   * The claimed story's run row (with the slot setup took), its developer agent, the
+   * configuration snapshot and the `setup` phase, with `work.assigned` and `work.phase setup`, in
+   * one transaction.
+   */
+  #recordRun(
+    ctx: AsyncCommandContext,
+    c: StartInput,
+    checked: Startable,
+    facts: RunFacts,
+    outcome: Extract<ClaimOutcome, { ok: true }>,
+  ): { readonly work: WorkRef; readonly progress: Progress } {
+    const handle = ctx.office;
+    const { story, key } = c.candidate;
+    const { view, tier, caps } = checked;
+    const { runId, agent } = facts;
+    const prepared = outcome.setup as PreparedRun | null;
     const work: WorkRef = {
       story,
       key,
@@ -610,33 +755,18 @@ export class WorkRun {
           .filter((criterion) => criterion.checked)
           .map((criterion) => criterion.index),
       });
-      // The engine-made session id is stored on the run's agent (0007 section 4, `agents`).
-      handle.run(
-        `insert into agents (office_id, agent_id, run_id, role, model, effort, session_id,
-           system_hash, started_at)
-         values ($office_id, $agent, $run, $role, $model, $effort, $session, $hash, $at)`,
-        {
-          agent,
-          run: runId,
-          role: DEVELOPER_ROLE,
-          model: caps.model,
-          effort: prepared === null ? null : caps.effort,
-          session,
-          // The L1+L2 hash a resume compares (DIPO-51).
-          hash: prepared?.systemHash ?? null,
-          at,
-        },
-      );
+      recordAgent(handle, { runId, agent, caps, prepared, at });
       // The context pack and input paths the nudges check (0014 section 8, DIPO-60).
       if (prepared !== null) {
-        const { nudgeSources, pack, headSha } = prepared.promptSources;
-        writeNudgeSources(handle, runId, agent, nudgeSources, at);
-        // The pack the task message was built from, with its head and blob ids (0020 section 6).
-        recordContextPack(handle, outcome.claim.worktree, headSha, pack, ctx.clock);
-        // The prompt parts of the session's text, measured for the run (0014 section 2).
-        recordPromptParts(handle, runId, agent, prepared.parts, ctx.clock);
-        // The prompt text itself, with `privacy.storePrompts` on (DIPO-137).
-        recordPromptTexts(handle, runId, agent, prepared.texts, c.config, ctx.clock);
+        recordPrepared(handle, {
+          worktree: outcome.claim.worktree,
+          runId,
+          agent,
+          prepared,
+          config: c.config,
+          clock: ctx.clock,
+          at,
+        });
       }
       const marker = markPhase(handle, runId, "setup", at);
       return withWorkViews(handle, [
@@ -645,20 +775,34 @@ export class WorkRun {
         { type: "work.phase", key, run: runId, delta: { work, phase: "setup", progress } },
       ]);
     });
+    return { work, progress };
+  }
+
+  /** After the run row: the story view read again, then the worker host started (DIPO-74). */
+  async #launch(
+    ctx: AsyncCommandContext,
+    c: StartInput,
+    facts: RunFacts,
+    outcome: Extract<ClaimOutcome, { ok: true }>,
+    started: { readonly work: WorkRef; readonly progress: Progress },
+  ): Promise<SkipReason | null> {
+    const { story, key } = c.candidate;
+    const prepared = outcome.setup as PreparedRun | null;
     // The claim commit set In Progress on the branch: the story view reads it from there now. A
     // read that fails leaves the next pass to do it.
-    await this.#deps.stories.refreshStory?.(office, key).catch(() => undefined);
+    await this.#deps.stories.refreshStory?.(ctx.office.officeId, key).catch(() => undefined);
+    const launcher = this.#deps.launcher;
     if (launcher !== undefined && prepared !== null) {
       const startedRun = await launcher.start(ctx, {
         facts,
         prepared,
         claim: outcome.claim,
-        work,
-        progress,
+        work: started.work,
+        progress: started.progress,
       });
       if (!startedRun.ok) return "pickupCheckFailed";
     }
-    c.started.push({ story, key, run: runId });
+    c.started.push({ story, key, run: facts.runId });
     return null;
   }
 

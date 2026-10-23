@@ -165,6 +165,11 @@ export interface ClaimRequest<S extends ClaimSetupDone = ClaimSetupDone> {
    */
   readonly recheck?: (git: GitSession) => Promise<ClaimSkip | null> | ClaimSkip | null;
   /**
+   * Called once queue item A committed the live claim row, before `setup` (DIPO-314): from then
+   * on no other claim of the story can start, so the caller's own serialized step may end here.
+   */
+  readonly onClaimed?: () => void;
+  /**
    * How a reused branch takes the base (DIPO-149): `merge` (the default) merges it in the worktree
    * here, aborting a conflict as first feedback; `catch-up`, for a box run, leaves the branch at
    * its kept tip, so the box is made from it, and dipo's catch-up merges the base into branch and
@@ -335,6 +340,7 @@ export async function claimStory<S extends ClaimSetupDone = ClaimSetupDone>(
     });
   });
   if (!started.ok) return started;
+  request.onClaimed?.();
 
   // Setup, outside the git queue.
   let setup: S | null = null;
