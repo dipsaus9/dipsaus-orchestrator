@@ -25,7 +25,9 @@
 // and no worktree at the path; `git worktree add -b` is atomic, so a lost `cannot lock ref` race
 // is a skip with nothing to clean. A branch released for the same StoryKey is reused
 // (`git worktree add <path> <branch>`) and `origin/<base>` is merged into it before the claim
-// commit; a code conflict is aborted and recorded as the worker's first feedback. A ref tracked
+// commit; a code conflict is aborted and recorded as the worker's first feedback. A box run's
+// reused branch is not merged here (`baseSync: "catch-up"`, DIPO-149): dipo's catch-up merges the
+// base into its branch and box, and a conflict becomes a recorded conflict hand-off. A ref tracked
 // for another story or unknown to the engine is a `collision` skip and is never deleted; an
 // existing worktree path is a skip and is not touched.
 //
@@ -162,6 +164,13 @@ export interface ClaimRequest<S extends ClaimSetupDone = ClaimSetupDone> {
    * ends the claim before anything is created.
    */
   readonly recheck?: (git: GitSession) => Promise<ClaimSkip | null> | ClaimSkip | null;
+  /**
+   * How a reused branch takes the base (DIPO-149): `merge` (the default) merges it in the worktree
+   * here, aborting a conflict as first feedback; `catch-up`, for a box run, leaves the branch at
+   * its kept tip, so the box is made from it, and dipo's catch-up merges the base into branch and
+   * box later, a conflict as a recorded hand-off (0019 section 10, 0021 section 12).
+   */
+  readonly baseSync?: "merge" | "catch-up";
 }
 
 export interface ClaimDeps {
@@ -426,7 +435,7 @@ async function startClaim(
     recorded = true;
 
     const location = deps.git.worktreeLocation(path) as WorktreeLocation;
-    if (released !== null) {
+    if (released !== null && request.baseSync !== "catch-up") {
       const feedback = await mergeBase(git, location, request, created);
       if (feedback !== null) {
         writeWith(deps, () => {

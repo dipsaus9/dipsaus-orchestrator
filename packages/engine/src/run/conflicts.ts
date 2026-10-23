@@ -11,12 +11,19 @@
 //   approvals and the list of paths the check at done reads. A conflict the poll finds while the
 //   story is In Review is recorded as `found`, told once per base commit and shown on the story
 //   detail (`baseConflictOf`); nothing is merged, and the story's next In Review or merge-slot
-//   sync handles it (0019 section 10).
+//   sync handles it (0019 section 10); a later check that finds none clears it (`cleared`).
+// - One story, one branch. Records and hand-offs are read by the story and its branch across runs
+//   (`storyMerges`, `handOffState`): a re-claim of a kept branch is a new run, and its branch
+//   still holds what the earlier runs' merges left. The claim of a box run's reused branch merges
+//   nothing itself (`baseSync: "catch-up"`); the catch-up does, so its conflicts are hand-offs too.
 // - At done (`StoryConflicts.atDone`, in the run's held turn of parts after the last part, before
-//   its end is claimed). First the marker check: a recorded conflicted path whose blob on the tip
-//   still holds a conflict marker line (`<<<<<<< `, `>>>>>>> `, or `=======` alone: git's own
-//   markers, read with `git grep` from git objects) keeps the story from In Review, so from the
-//   PR too: it goes back to the worker as a feedback turn naming the files and lines. Then the
+//   its end is claimed). First the check of what is left unresolved (`unresolvedAt`): a recorded
+//   content-conflicted path, or any path added or renamed since a conflicted merge, whose blob on
+//   the tip holds a conflict marker line (git's own markers, read with `git grep -a` from git
+//   objects, a NUL byte included; a lone `=======` only beside a `<<<<<<< ` or `>>>>>>> ` line),
+//   and a binary, modify/delete or file vs folder conflict whose path is unchanged since the
+//   merge, keeps the story from In Review, so from the PR too: it goes back to the worker as a
+//   feedback turn naming the files and lines. Then the
 //   fetch and the sync (`BoxCollisions.syncInTurn`): `git merge-tree --write-tree` of the tip and
 //   the base; a story of tier L or flagged test-before-merge merges the base whenever it moved,
 //   any other only on a conflict. A conflict is committed as git left it, copied into the box,
@@ -169,14 +176,100 @@ export function catchUpsOf(office: OfficeHandle, runId: RunId | string): StoredC
     .map(toCatchUp);
 }
 
-/** The conflicted paths of every merge dipo made into the run's branch, sorted, each once. */
+/**
+ * The merges dipo made into the run's branch, oldest first, by every run of the same story on the
+ * same branch: a re-claim of a kept branch is a new run, and the conflicts its branch still holds
+ * come from the merges of the runs before it (DIPO-149).
+ */
+export function storyMerges(office: OfficeHandle, runId: RunId | string): StoredCatchUp[] {
+  return office
+    .all<CatchUpRow>(
+      `select c.catch_up_id, c.kind, c.base, c.onto_sha, c.tip_sha, c.commit_sha, c.conflicts, c.at
+        from catch_ups c
+        join runs r on r.office_id = c.office_id and r.run_id = c.run_id
+        join runs me on me.office_id = c.office_id and me.run_id = $run
+        where c.office_id = $office_id and c.kind = 'merged'
+          and (c.run_id = $run or (r.key is me.key and r.branch is me.branch))
+        order by r.started_at, r.rowid, c.catch_up_id`,
+      { run: runId },
+    )
+    .map(toCatchUp);
+}
+
+/** The conflicted paths of every merge dipo made into the run's branch (`storyMerges`), sorted. */
 export function recordedConflictPaths(office: OfficeHandle, runId: RunId | string): string[] {
   const paths = new Set<string>();
-  for (const row of catchUpsOf(office, runId)) {
-    if (row.kind !== "merged") continue;
+  for (const row of storyMerges(office, runId)) {
     for (const file of row.conflicts) paths.add(file.path);
   }
   return [...paths].toSorted();
+}
+
+/** What of dipo's conflicted merges the branch tip has not resolved (`unresolvedAt`). */
+export interface Unresolved {
+  /** Files holding conflict marker lines, with their line numbers. */
+  readonly markers: ReadonlyMap<string, readonly number[]>;
+  /** Binary, modify/delete and file vs folder conflicts whose path is unchanged since the merge. */
+  readonly unchanged: readonly ConflictFile[];
+}
+
+/**
+ * What the tip `tip` has not resolved of `merges`' conflicts, read from git objects (DIPO-149):
+ * conflict markers in the recorded paths and in every path added or renamed since a conflicted
+ * merge (a conflicted file moved elsewhere keeps its markers); and each conflict of another kind
+ * whose path at the tip is what the merge commit held (git's own result, untouched).
+ */
+export async function unresolvedAt(
+  session: GitSession,
+  tip: string,
+  merges: readonly StoredCatchUp[],
+): Promise<Unresolved> {
+  const repo = session.repository;
+  const scan = new Set<string>();
+  const unchanged: ConflictFile[] = [];
+  const blob = async (commit: string, path: string): Promise<string | null> => {
+    const found = await session.step(repo, [
+      "rev-parse",
+      "--verify",
+      "--quiet",
+      `${commit}:${path}`,
+    ]);
+    return found.code === 0 ? found.stdout.trim() : null;
+  };
+  for (const row of merges) {
+    if (row.commit === null || row.conflicts.length === 0) continue;
+    const commit = row.commit;
+    const known = (await session.step(repo, ["cat-file", "-e", `${commit}^{commit}`])).code === 0;
+    for (const file of row.conflicts) {
+      if (file.kind === "content") scan.add(file.path);
+      else if (known && (await blob(commit, file.path)) === (await blob(tip, file.path))) {
+        unchanged.push(file);
+      }
+    }
+    if (!known) continue;
+    const moved = await session.ok(repo, [
+      "diff",
+      "--name-only",
+      "-z",
+      "-M",
+      "--diff-filter=AR",
+      commit,
+      tip,
+      "--",
+    ]);
+    for (const path of moved.split("\0")) if (path !== "") scan.add(path);
+  }
+  const markers: ReadonlyMap<string, readonly number[]> =
+    scan.size === 0 ? new Map() : await markersAt(session, tip, [...scan].toSorted());
+  const seen = new Set<string>();
+  return {
+    markers,
+    unchanged: unchanged.filter((file) => {
+      if (seen.has(file.path) || markers.has(file.path)) return false;
+      seen.add(file.path);
+      return true;
+    }),
+  };
 }
 
 /**
@@ -242,13 +335,19 @@ export interface HandOffState {
   readonly failed: number;
 }
 
-/** Pure: the hand-off state of `conflict` step values, oldest first. */
-export function handOffStateOf(values: readonly string[]): HandOffState {
+/**
+ * Pure: the hand-off state of `conflict` step values, oldest first. With `mine`, a failure counts
+ * only where `mine` is not false: an earlier run's failures do not use a new run's cap.
+ */
+export function handOffStateOf(
+  values: readonly string[],
+  mine: readonly boolean[] = [],
+): HandOffState {
   let current = 0;
   let open = false;
   let feedback = false;
   let failed = 0;
-  for (const value of values) {
+  for (const [at, value] of values.entries()) {
     const [event = "", n = ""] = value.split(" ");
     const number = Number(n);
     if (!Number.isInteger(number)) continue;
@@ -259,7 +358,7 @@ export function handOffStateOf(values: readonly string[]): HandOffState {
     } else if (number === current && open) {
       if (event === "feedback") feedback = true;
       if (event === "failed") {
-        failed += 1;
+        if (mine[at] !== false) failed += 1;
         open = false;
       }
       if (event === "resolved") open = false;
@@ -268,16 +367,24 @@ export function handOffStateOf(values: readonly string[]): HandOffState {
   return { current, open, feedback, failed };
 }
 
-/** The run's hand-off state. */
+/**
+ * The run's hand-off state, from the `conflict` steps of every run of the same story on the same
+ * branch: a re-claim of a kept branch continues an open hand-off (DIPO-149), and only its own
+ * failures count toward its cap.
+ */
 export function handOffState(office: OfficeHandle, runId: RunId | string): HandOffState {
+  const rows = office.all<{ value: string; run_id: string }>(
+    `select s.value, s.run_id from run_steps s
+      join runs r on r.office_id = s.office_id and r.run_id = s.run_id
+      join runs me on me.office_id = s.office_id and me.run_id = $run
+      where s.office_id = $office_id and s.kind = 'conflict'
+        and (s.run_id = $run or (r.key is me.key and r.branch is me.branch))
+      order by r.started_at, r.rowid, s.step`,
+    { run: runId },
+  );
   return handOffStateOf(
-    office
-      .all<{ value: string }>(
-        `select value from run_steps where office_id = $office_id and run_id = $run
-          and kind = 'conflict' order by step`,
-        { run: runId },
-      )
-      .map((row) => row.value),
+    rows.map((row) => row.value),
+    rows.map((row) => row.run_id === runId),
   );
 }
 
@@ -305,12 +412,19 @@ export function conflictCapOf(office: OfficeHandle, run: StoredRun, fallback: nu
   return runCaps(office, run).conflictCap ?? fallback;
 }
 
-/** The park of the failed hand-off that reached the cap (0019 section 10). */
-function capPark(paths: readonly string[], failed: number, cap: number) {
+/**
+ * The park of the failed hand-off that reached the cap (0019 section 10), or, with `capped`, of a
+ * done turn that crossed a run cap before the conflict could be handed over.
+ */
+function capPark(paths: readonly string[], failed: number, cap: number, capped = false) {
+  const kept =
+    "dipo's merge of the base stays on the branch and in the box for the worker to finish.";
   return {
     reason: "conflict" as const,
     cause: PARK_CAUSES.mergeInProgress,
-    detail: `${failed} conflict hand-off${failed === 1 ? "" : "s"} failed (the conflict cap is ${cap}); conflict markers or unresolved paths remain in ${shownPaths(paths)}. dipo's merge of the base stays on the branch and in the box for the worker to finish.`,
+    detail: capped
+      ? `the done turn crossed a run cap before the conflict could be handed over to the worker; conflict markers or unresolved paths remain in ${shownPaths(paths)}. ${kept}`
+      : `${failed} conflict hand-off${failed === 1 ? "" : "s"} failed (the conflict cap is ${cap}); conflict markers or unresolved paths remain in ${shownPaths(paths)}. ${kept}`,
   };
 }
 
@@ -479,11 +593,14 @@ export class StoryConflicts {
     if (git === undefined || run.branch === null || run.story === null) {
       return { kind: "go", tip };
     }
-    // 1. Conflict markers left in the recorded paths (DIPO-291).
-    const paths = recordedConflictPaths(office, run.runId);
-    if (paths.length > 0) {
-      const left = await git.run((session) => markersAt(session, tip, paths));
-      if (left.size > 0) return this.#markersLeft(office, run, tip, left, input.capped);
+    // 1. What the tip has not resolved of dipo's conflicted merges into this branch, by this run
+    // or one before it on the same branch (DIPO-291, DIPO-149).
+    const merges = storyMerges(office, run.runId).filter((row) => row.conflicts.length > 0);
+    if (merges.length > 0) {
+      const left = await git.run((session) => unresolvedAt(session, tip, merges));
+      if (left.markers.size > 0 || left.unchanged.length > 0) {
+        return this.#markersLeft(office, run, tip, left, input.capped);
+      }
     }
     this.#write(office, () => {
       const state = handOffState(office, run.runId);
@@ -521,6 +638,7 @@ export class StoryConflicts {
               outcome.merged.conflicts.map((file) => file.path),
               handOffState(office, run.runId).failed,
               cap,
+              true,
             ),
           };
         }
@@ -597,16 +715,34 @@ export class StoryConflicts {
     });
   }
 
-  /** The markers left at done: a feedback turn, a failed hand-off, or the park at the cap. */
+  /**
+   * A conflict cleared: a later check of the story In Review found none, so the conflict it found
+   * before no longer shows (`BoxCollisions` `cleared`).
+   */
+  cleared(run: PartRun): void {
+    const office = this.#deps.offices.get(run.office);
+    if (office === undefined) return;
+    this.#write(office, () => {
+      office.run(
+        "delete from catch_ups where office_id = $office_id and run_id = $run and kind = 'found'",
+        { run: run.runId },
+      );
+      return [];
+    });
+  }
+
+  /** What is left unresolved at done: a feedback turn, a failed hand-off, or the park at the cap. */
   #markersLeft(
     office: OfficeHandle,
     run: StoredRun,
     tip: string,
-    left: ReadonlyMap<string, readonly number[]>,
+    left: Unresolved,
     capped: boolean,
   ): DoneConflictDecision {
-    const paths = [...left.keys()].toSorted();
-    const text = markersLeftText(left);
+    const paths = [
+      ...new Set([...left.markers.keys(), ...left.unchanged.map((f) => f.path)]),
+    ].toSorted();
+    const text = markersLeftText(left.markers, left.unchanged);
     const cap = conflictCapOf(office, run, this.#fallbackCap(office.officeId as OfficeId));
     let decision: DoneConflictDecision = { kind: "feedback", text };
     this.#write(office, () => {
@@ -618,7 +754,10 @@ export class StoryConflicts {
       };
       if (capped) {
         // A done turn that crossed a run cap has no turn left for the feedback.
-        decision = { kind: "park", ...capPark(paths, state.open ? fail() : state.failed, cap) };
+        decision = {
+          kind: "park",
+          ...capPark(paths, state.open ? fail() : state.failed, cap, true),
+        };
         return [];
       }
       if (!state.open) {

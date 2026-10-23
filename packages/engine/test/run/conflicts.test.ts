@@ -538,3 +538,149 @@ describe("a conflict found while the story is In Review", () => {
       expect(detail(office, w.key).baseConflict).toBeUndefined();
     }));
 });
+
+/** A new run of the same story on the same kept branch, as a re-claim makes it. */
+function reclaim(w: World): RunId {
+  const office = w.f.office;
+  const old = findRun(office, w.f.run)!;
+  w.f.t.clock.advance(60_000);
+  const runId = w.f.t.ids.next("run") as RunId;
+  office.immediate(() => {
+    office.run(
+      "update runs set ended_at = $at, end_kind = 'conflict' where office_id = $office_id and run_id = $run",
+      { run: w.f.run, at: w.f.t.clock.now() },
+    );
+    w.f.t.clock.advance(1_000);
+    insertRun(office, {
+      runId,
+      kind: "story",
+      key: old.key,
+      story: "DIPO-1",
+      tier: "M",
+      role: "developer",
+      model: "haiku",
+      startSha: w.startSha,
+      branch: BRANCH,
+      worktree: old.worktree!,
+      slot: 1,
+      budgetUnit: "tokens",
+      budgetLimit: 300_000,
+      loopCap: 3,
+      reviewRoundCap: 3,
+      ciCap: 2,
+      conflictCap: 2,
+      configHash: "h",
+      overrideKeys: null,
+      runProfileId: null,
+      startedAt: w.f.t.clock.now(),
+      scope: ["src/"],
+    });
+  });
+  return runId;
+}
+
+describe("the review fixes of DIPO-149", () => {
+  it("keeps a re-claim of a kept branch from review while the markers its earlier run left remain", () =>
+    inWorld(async (w) => {
+      const tip = await onBranch(w, { "src/shared.ts": MARKED }, "Merge main");
+      await w.conflicts.recorded(
+        w.part,
+        merged(w, {
+          tip: w.startSha,
+          commit: tip,
+          onto: w.startSha,
+          conflicts: [{ path: "src/shared.ts", kind: "content" }],
+        }),
+      );
+      for (let turn = 0; turn < 3; turn += 1) expect((await atDone(w, tip)).kind).toBe("feedback");
+      expect((await atDone(w, tip)).kind).toBe("park");
+      // Dropped with the branch kept, then claimed again: a new run on the same branch.
+      const again = reclaim(w);
+      const decided = await w.conflicts.atDone({
+        office: w.f.office,
+        run: findRun(w.f.office, again)!,
+        tip,
+        capped: false,
+      });
+      expect(decided).toEqual({
+        kind: "feedback",
+        text: expect.stringContaining("- src/shared.ts: lines 2, 4, 6"),
+      });
+      // The new run's own cap counts: the earlier run's failures are not its.
+      expect(handOffState(w.f.office, again)).toMatchObject({ open: true, failed: 0 });
+      expect(w.modes).toEqual([]);
+    }));
+
+  it("finds markers in a conflicted file the worker moved, and keeps an untouched binary conflict unresolved", () =>
+    inWorld(async (w) => {
+      const merge = await onBranch(
+        w,
+        { "src/shared.ts": MARKED, "logo.png": "\u0089PNG ours\n" },
+        "Merge main",
+      );
+      await w.conflicts.recorded(
+        w.part,
+        merged(w, {
+          tip: w.startSha,
+          commit: merge,
+          onto: w.startSha,
+          conflicts: [
+            { path: "logo.png", kind: "binary" },
+            { path: "src/shared.ts", kind: "content" },
+          ],
+        }),
+      );
+      await w.repo.git("checkout", "--quiet", BRANCH);
+      await w.repo.git("mv", "src/shared.ts", "src/moved.ts");
+      const moved = await w.repo.commitAll("Move the file");
+      await w.repo.git("checkout", "--quiet", "main");
+      const first = await atDone(w, moved);
+      expect(first.kind).toBe("feedback");
+      if (first.kind === "feedback") {
+        expect(first.text).toContain("- logo.png: the binary conflict is still as git left it");
+        expect(first.text).toContain("- src/moved.ts: lines 2, 4, 6");
+      }
+      // The markers gone and the binary changed: resolved.
+      const fixed = await onBranch(
+        w,
+        { "src/moved.ts": "one\ntwo from both\nthree\n", "logo.png": "\u0089PNG both\n" },
+        "Resolve",
+      );
+      expect(await atDone(w, fixed)).toEqual({ kind: "go", tip: fixed });
+    }));
+
+  it("says that a capped done turn had no turn left to hand the conflict over", () =>
+    inWorld(async (w) => {
+      const tip = await onBranch(w, { "src/shared.ts": MARKED }, "Merge main");
+      await w.conflicts.recorded(
+        w.part,
+        merged(w, {
+          tip: w.startSha,
+          commit: tip,
+          onto: w.startSha,
+          conflicts: [{ path: "src/shared.ts", kind: "content" }],
+        }),
+      );
+      const parked = await atDone(w, tip, true);
+      expect(parked).toMatchObject({ kind: "park", cause: "merge-in-progress" });
+      if (parked.kind === "park") {
+        expect(parked.detail).toStartWith(
+          "the done turn crossed a run cap before the conflict could be handed over to the worker",
+        );
+      }
+    }));
+
+  it("clears a conflict found In Review once a later check finds none", () =>
+    inWorld(async (w) => {
+      w.conflicts.found(w.part, {
+        base: "main",
+        onto: "d".repeat(40),
+        tip: w.startSha,
+        conflicts: [{ path: "src/shared.ts", kind: "content" }],
+      });
+      expect(baseConflictOf(w.f.office, w.key)).not.toBeNull();
+      w.conflicts.cleared(w.part);
+      expect(baseConflictOf(w.f.office, w.key)).toBeNull();
+      expect(detail(w.f.office, w.key).baseConflict).toBeUndefined();
+    }));
+});
