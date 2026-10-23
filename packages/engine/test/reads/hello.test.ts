@@ -52,14 +52,15 @@ const requestId = RequestId.parse("01J00000000000000000000000");
 
 describe("capabilityFlags", () => {
   it("offers a flag only when its commands are registered and shipped", () => {
-    expect(capabilityFlags(buildRegistry([]))).toEqual(["replay"]);
+    expect(capabilityFlags(buildRegistry([]))).toEqual(["replay", "usage.alerts"]);
     expect(capabilityFlags(buildRegistry([logLevelFeature(daemonSetLogLevel)]))).toEqual([
       "replay",
       "daemon.logLevel",
+      "usage.alerts",
     ]);
     expect(
       capabilityFlags(buildRegistry([logLevelFeature(provisional(daemonSetLogLevel))])),
-    ).toEqual(["replay"]);
+    ).toEqual(["replay", "usage.alerts"]);
   });
 });
 
@@ -82,7 +83,7 @@ describe("engine.hello", () => {
       result: {
         engine: "1.2.3",
         contract: { ...CONTRACT_VERSION },
-        capabilities: ["replay"],
+        capabilities: ["replay", "usage.alerts"],
         daemon: "running",
         offices: [],
         cursor: { stream: "software", epoch: "e", seq: 7 },

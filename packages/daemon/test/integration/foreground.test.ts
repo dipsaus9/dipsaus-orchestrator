@@ -217,7 +217,7 @@ describe("dipo daemon --foreground", () => {
     async () => {
       await withDaemonTempDir(async (dir) => {
         const state = join(dir, "state");
-        await Bun.write(join(state, "config.yaml"), "version: 2\n");
+        await Bun.write(join(state, "config.yaml"), "version: 3\n");
         const daemon = start(daemonTestEnv(dir));
         try {
           // EX_CONFIG, so a supervisor does not restart it in a loop.

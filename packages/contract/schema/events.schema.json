@@ -92,6 +92,31 @@
           },
           "required": ["tokens", "alert"]
         },
+        "monthUsage": {
+          "type": "object",
+          "properties": {
+            "tokens": {
+              "type": "number",
+              "minimum": 0
+            },
+            "limit": {
+              "type": "number",
+              "minimum": 0
+            },
+            "share": {
+              "type": "number",
+              "minimum": 0
+            },
+            "alert": {
+              "type": "boolean"
+            },
+            "estimatedCost": {
+              "type": "number",
+              "minimum": 0
+            }
+          },
+          "required": ["tokens", "alert"]
+        },
         "evidence": {
           "type": "object",
           "propertyNames": {

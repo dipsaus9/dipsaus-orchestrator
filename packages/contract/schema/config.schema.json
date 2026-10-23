@@ -4,7 +4,7 @@
   "properties": {
     "version": {
       "type": "number",
-      "const": 1
+      "const": 2
     },
     "daemon": {
       "default": {
@@ -22,6 +22,45 @@
           "default": false,
           "description": "When the dipo executable changed, the daemon drains and restarts itself once no run is in a step that cannot be detached (0006 decision 14).",
           "type": "boolean"
+        }
+      },
+      "additionalProperties": false
+    },
+    "usage": {
+      "default": {
+        "alerts": {
+          "level": 0.8
+        }
+      },
+      "type": "object",
+      "properties": {
+        "alerts": {
+          "default": {
+            "level": 0.8
+          },
+          "type": "object",
+          "properties": {
+            "dayTokens": {
+              "description": "Budget tokens (input, output and cache creation) of all offices together per UTC calendar day that raise the alert at the level and the limit. No default: unset keeps the day alert off.",
+              "type": "integer",
+              "exclusiveMinimum": 0,
+              "maximum": 9007199254740991
+            },
+            "monthTokens": {
+              "description": "Budget tokens of all offices together per UTC calendar month that raise the alert at the level and the limit. No default: unset keeps the month alert off.",
+              "type": "integer",
+              "exclusiveMinimum": 0,
+              "maximum": 9007199254740991
+            },
+            "level": {
+              "default": 0.8,
+              "description": "The share of a limit at which the alert starts, for example 0.8 for 80%.",
+              "type": "number",
+              "exclusiveMinimum": 0,
+              "maximum": 1
+            }
+          },
+          "additionalProperties": false
         }
       },
       "additionalProperties": false

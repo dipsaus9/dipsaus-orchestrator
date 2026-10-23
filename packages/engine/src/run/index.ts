@@ -458,3 +458,5 @@ export {
   STOP_AGAIN_DETAIL,
 } from "./reattach";
 export type { ReattachedRun, ReattachOutcome, RunReattacherDeps } from "./reattach";
+export { dueNotices, USAGE_NOTICES, UsageAlerts } from "./usage-alerts";
+export type { DueNotice, UsageAlertsDeps } from "./usage-alerts";

@@ -45,7 +45,10 @@ export const RECOVERY_NOTICE_MS = 1_000;
 export const STATUS_FAILURES = 3;
 
 /** What the wrapper needs from a connected client, and what it offers in turn. */
-export type RecoverySession = Pick<DipoClient, "command" | "read" | "subscribe" | "close">;
+export type RecoverySession = Pick<DipoClient, "command" | "read" | "subscribe" | "close"> & {
+  /** The connection's `engine.hello` result; the wrapper passes it on (DIPO-311). */
+  readonly hello?: DipoClient["hello"];
+};
 
 export interface RecoveryOptions {
   readonly clock: Clock;
@@ -195,6 +198,10 @@ export function waitForRecovery(
   return {
     get waiting() {
       return waiters > 0;
+    },
+
+    get hello() {
+      return session.hello ?? null;
     },
 
     async command<A extends z.ZodType, R extends z.ZodType>(

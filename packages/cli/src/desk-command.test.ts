@@ -159,6 +159,17 @@ describe("formatDesk", () => {
     expect(formatDesk("dipsaus-orchestrator", EXAMPLE, NOW)).toEqual(EXAMPLE_LINES);
   });
 
+  it("ends the count line with today's and this month's tokens and UTC (DIPO-311)", () => {
+    const lines = formatDesk("demo", EXAMPLE, NOW, [
+      "today 1.2M of 4.0M tokens (30%, resets 00:00 UTC)",
+      "this month 3k tokens",
+    ]);
+    expect(lines[0]).toBe(
+      "demo · desk 4 · held 1 · today 1.2M of 4.0M tokens (30%, resets 00:00 UTC) · this month 3k tokens",
+    );
+    expect(lines.slice(1)).toEqual(EXAMPLE_LINES.slice(1));
+  });
+
   it("prints Nothing waits on you. for an empty desk", () => {
     expect(formatDesk("demo", [], NOW)).toEqual([EMPTY_DESK]);
     expect(EMPTY_DESK).toBe("Nothing waits on you.");

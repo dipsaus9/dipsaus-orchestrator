@@ -20,6 +20,7 @@ import { openQuestions } from "../hooks/questions";
 import { activeRuns } from "../run/records";
 
 import { activeStoryViews } from "./story";
+import type { SummaryUsage } from "./usage";
 import { workRefOf } from "./work";
 
 /** How many stories that are not removed show in each column; columns with none are absent. */
@@ -86,6 +87,8 @@ export interface SummarySettings {
   readonly outputRetentionDays?: number;
   /** Each privacy setting with its value and source, absent without a valid configuration. */
   readonly privacy?: readonly PrivacySetting[];
+  /** Today's and this month's tokens with the all-office limits (`UsageMeter.of`, DIPO-311). */
+  readonly usage?: SummaryUsage;
 }
 
 /** The summary settings of an office, from its configuration in force (`summarySettings`). */
@@ -131,7 +134,7 @@ export function deriveOfficeSummary(
   office: OfficeHandle,
   settings: SummarySettings = { optIns: [] },
 ): OfficeSummary {
-  const { optIns, outputRetentionDays, privacy } = settings;
+  const { optIns, outputRetentionDays, privacy, usage } = settings;
   const counts = columnCounts(office);
   const desk = counts.desk ?? 0;
   const held = counts.held ?? 0;
@@ -148,6 +151,9 @@ export function deriveOfficeSummary(
     ...(optIns.length === 0 ? {} : { optIns: [...optIns] }),
     ...(outputRetentionDays === undefined ? {} : { outputRetentionDays }),
     ...(privacy === undefined ? {} : { privacy: [...privacy] }),
+    ...(usage === undefined
+      ? {}
+      : { dayUsage: usage.dayUsage, monthUsage: usage.monthUsage, evidence: usage.evidence }),
   };
 }
 

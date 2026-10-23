@@ -73,4 +73,6 @@ export type ContractVersion = z.infer<typeof ContractVersion>;
 // same, still unreleased, minor.
 // DIPO-158 adds the read `office.desk` (what waits on the maintainer, ordered by the engine) and its
 // `DeskItem` shape to the same, still unreleased, minor.
+// DIPO-311 adds the optional `monthUsage` of `OfficeSummary`, fills `dayUsage` and adds the
+// capability flag `usage.alerts` in the same, still unreleased, minor.
 export const CONTRACT_VERSION = Object.freeze({ major: 1, minor: 1 }) satisfies ContractVersion;
