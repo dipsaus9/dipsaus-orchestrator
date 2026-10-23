@@ -19,7 +19,7 @@ import {
 } from "../../src/platform/deadline";
 import { systemClock } from "../../src/platform/clock";
 import { CodeHostError, GhHost, MIN_GH_VERSION } from "../../src/platform/host";
-import { signalGroup, systemSpawn } from "../../src/platform/process";
+import { systemSpawn } from "../../src/platform/process";
 import { HangingProcess, hangingSpawn, settle } from "./hanging";
 
 const VERSION = `gh version ${MIN_GH_VERSION} (2024-05-29)\n`;
@@ -205,6 +205,20 @@ describe("the calls the daemon's stop ends", () => {
   });
 });
 
+/** True once no process of the group `pgid` is left, polled on the system clock for `ms`. */
+async function groupGone(pgid: number, ms: number): Promise<boolean> {
+  const until = systemClock.now() + ms;
+  for (;;) {
+    try {
+      process.kill(-pgid, 0);
+    } catch {
+      return true;
+    }
+    if (systemClock.now() >= until) return false;
+    await Bun.sleep(20);
+  }
+}
+
 describe("the daemon's stop on a real process group", () => {
   it("ends a detached child that ignores SIGTERM, and its group, with SIGKILL after the grace", async () => {
     const calls = new EngineCalls();
@@ -219,7 +233,8 @@ describe("the daemon's stop on a real process group", () => {
     expect(await calls.stop(systemClock, 100)).toBe(1);
     const exit = await child.exited;
     expect(exit.signal).toBe("SIGKILL");
-    // Nothing of the group is left.
-    expect(signalGroup(child.pid, "SIGKILL")).toBe(false);
+    // Nothing of the group is left once its members are reaped: Linux may still list the group
+    // right after the leader's exit, so wait up to 2 s for it to go.
+    expect(await groupGone(child.pid, 2_000)).toBe(true);
   });
 });
