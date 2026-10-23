@@ -10,8 +10,8 @@
 //   for every cause with no own row. A row either refuses (`notResumable`, `decisionRequired`) or
 //   says how the resume goes. A reason or cause with no row is not resumed here: `work.resume`
 //   answers `story.notPausedOrParked` for it, as before (a question park waits for DIPO-159's
-//   answer; the box parks of a protected file, a secret, a refused part or a task file wait for a
-//   decision on how they resume).
+//   answer). The box parks of a protected file, a secret, a refused part and a task file dipo
+//   does not know are never resumable (maintainer decision, DIPO-155 review): `dipo discard`.
 // - Box runs (0021 sections 6 and 7): every developer session of a box run is a new session in the
 //   story's box with a handoff, never a native resume, so `developer` means a handoff there.
 
@@ -115,6 +115,8 @@ export interface ParkResumeRow {
 export interface ParkRefusalRow {
   readonly kind: "refuse";
   readonly code: "resume.notResumable" | "resume.decisionRequired";
+  /** A box part's park (0021 section 8) that the maintainer decided is never resumable. */
+  readonly box?: true;
 }
 
 export type ParkMatrixRow = ParkResumeRow | ParkRefusalRow;
@@ -153,6 +155,11 @@ export const PARK_RESUME_MATRIX: Readonly<Record<string, ParkMatrixRow>> = {
   "verify-failing/capped": required("developer", "detail", { grant: "budgetHalf" }),
   "scope-violation/paths": required("developer", "detail"),
   "scope-violation/tampered": { kind: "refuse", code: "resume.notResumable" },
+  // The box parks (0021 section 8): never resumable, by the maintainer's decision.
+  "scope-violation/protected-file": { kind: "refuse", code: "resume.notResumable", box: true },
+  "scope-violation/secret": { kind: "refuse", code: "resume.notResumable", box: true },
+  "scope-violation/part-refused": { kind: "refuse", code: "resume.notResumable", box: true },
+  "scope-violation/task-file": { kind: "refuse", code: "resume.notResumable", box: true },
   "scope-violation/backstop": required("handoff", "detail", { gitCheck: true }),
   "scope-violation/hand-change": required("handoff", "detail", { gitCheck: true }),
   "review-blocked/rounds": required("fix-round", "none", { grant: "reviewRound" }),

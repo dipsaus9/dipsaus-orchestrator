@@ -26,6 +26,7 @@ import { buildRegistry } from "../../src/commands/registry";
 import { MemoryRequestTable } from "../../src/commands/requests";
 import type { AsyncCommandContext } from "../../src/commands/registry";
 import { GitError } from "../../src/git/runner";
+import { HANDOFF_NOTE_MAX } from "../../src/prompts/handoff";
 import {
   backstopSnapshotOf,
   createRunOutcomes,
@@ -269,6 +270,7 @@ function ctx(confirmed = false, request?: string): AsyncCommandContext {
     requestId: (request ?? `req_${w.request}`) as RequestId,
     origin: "cli",
     confirmed,
+    client: "dipo-cli",
     now: w.f.t.clock.now(),
     stories: { get: () => ({ story: "DIPO-1", key: w.key }) },
     commit: () => {},
@@ -307,8 +309,14 @@ function parkRow(parkId: number) {
 }
 
 function grants() {
-  return w.f.office.all<{ kind: string; amount: string; note: string | null; origin: string }>(
-    "select kind, amount, note, origin from run_grants where office_id = $office_id order by at, grant_id",
+  return w.f.office.all<{
+    kind: string;
+    amount: string;
+    note: string | null;
+    origin: string;
+    client: string | null;
+  }>(
+    "select kind, amount, note, origin, client from run_grants where office_id = $office_id order by at, grant_id",
   );
 }
 
@@ -333,7 +341,7 @@ function storyStates(): { from: string; to: string }[] {
 }
 
 describe("the resume matrix", () => {
-  it("has a row for every 0020 reason and cause dipo parks with, and none for the box parks", () => {
+  it("has a row for every 0020 reason and cause dipo parks with, the box parks refused", () => {
     expect(parkResumeRow("stopped", "maintainer")).toMatchObject({ note: "optional" });
     expect(parkResumeRow("interrupted", "build")).toMatchObject({ session: "developer" });
     expect(parkResumeRow("worker-failed", "build")).toMatchObject({ holdCheck: true });
@@ -343,10 +351,15 @@ describe("the resume matrix", () => {
       code: "resume.notResumable",
     });
     expect(parkResumeRow("needs-permission", "build")).toMatchObject({ kind: "refuse" });
-    // A question waits for its answer (DIPO-159); the box parks wait for a decision.
+    // A question waits for its answer (DIPO-159).
     expect(parkResumeRow("ambiguous-spec", "question")).toBeNull();
+    // The box parks are never resumable (the maintainer's decision).
     for (const cause of ["protected-file", "secret", "part-refused", "task-file"]) {
-      expect(parkResumeRow("scope-violation", cause)).toBeNull();
+      expect(parkResumeRow("scope-violation", cause)).toEqual({
+        kind: "refuse",
+        code: "resume.notResumable",
+        box: true,
+      });
     }
   });
 
@@ -498,6 +511,17 @@ describe("work.resume refusals", () => {
     expect(runIntents(w.f.office, w.f.run)).toEqual([]);
   });
 
+  for (const cause of ["protected-file", "secret", "part-refused", "task-file"]) {
+    it(`refuses the box park scope-violation (${cause}) as never resumable, naming the decision and dipo discard`, async () => {
+      park("scope-violation", cause);
+      const error = await refusal(resumption(), { note: "please" });
+      expect(error.error.code).toBe("resume.notResumable");
+      expect(error.message).toContain("the maintainer's decision");
+      expect(error.message).toContain("dipo discard DIPO-1");
+      expect(w.lifts).toEqual([]);
+    });
+  }
+
   it("turns a backstop park whose git links changed into resume.notResumable", async () => {
     park("scope-violation", "backstop");
     w.snapshot = new GitError("git.worktreeTampered", "the worktree's git links changed");
@@ -619,9 +643,18 @@ describe("top-up of a budget-exceeded park (0020 section 4)", () => {
     expect(grants()).toEqual([
       {
         kind: "budget",
-        amount: JSON.stringify({ tokens: 150_000, turns: 30, minutes: 15 }),
+        // The caps before and after it are part of the grant (0020 section 4).
+        amount: JSON.stringify({
+          tokens: 150_000,
+          turns: 30,
+          minutes: 15,
+          before: { budgetTokens: 300_000, maxTurns: 60, maxMinutes: 30 },
+          after: { budgetTokens: 450_000, maxTurns: 90, maxMinutes: 45 },
+        }),
         note: "DIPO-105",
         origin: "cli",
+        // The client name its connection gave in engine.hello.
+        client: "dipo-cli",
       },
     ]);
     const after = runCaps(w.f.office, findRun(w.f.office, w.f.run) as never);
@@ -648,7 +681,8 @@ describe("top-up of a budget-exceeded park (0020 section 4)", () => {
     usage(80, 100_000);
     const error = await refusal(resumption(), { budget: { share: 10 }, note: "go" }, ctx(true));
     expect(error.error.code).toBe("resume.topUpTooSmall");
-    // 80 turns used of 60: 21 more turns, 35% of the starting 60 clears it (36% to be above).
+    // 80 turns used of 60: +34% of the starting 60 adds 21 turns, the fewest that leave the cap above
+    // the 80 used; +33% adds 20, which leaves it reached.
     expect(error.error.details).toMatchObject({ cap: "maxTurns", smallestShare: 34 });
     expect(error.message).toContain("--budget +34%");
     expect(
@@ -1157,5 +1191,113 @@ describe("work.resume on the waiting command path (0005 note of 2026-10-17, DIPO
     expect(one).toMatchObject({ ok: true, result: { to: "In Progress", run: w.f.run } });
     expect(w.lifts).toHaveLength(1);
     expect(w.sessions).toHaveLength(1);
+  });
+});
+
+describe("two resumes of one park (DIPO-155 review)", () => {
+  it("answers run.hostAlive to a second request with another id while the first one lifts", async () => {
+    park("verify-failing", "loops");
+    let release: (() => void) | undefined;
+    const held = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    const resuming = createRunOutcomesWithLift(async (lifted) => {
+      await held;
+      w.lifts.push(lifted);
+      return { commit: null, pushed: true, pushError: null };
+    });
+    const firstReply = resuming.resumeCommand(ctx(false, "req_one"), {
+      story: StoryId.parse("DIPO-1"),
+      note: "one",
+    });
+    await Bun.sleep(0);
+    const error = await refusal(resuming, { note: "two" }, ctx(false, "req_two"));
+    expect(error.error.code).toBe("run.hostAlive");
+    expect(error.error.retryable).toBe(true);
+    release?.();
+    const done = await firstReply;
+    await resuming.idle();
+    expect(done.result).toMatchObject({ to: "In Progress", grants: [{ kind: "loop", count: 1 }] });
+    expect(w.lifts).toHaveLength(1);
+    expect(w.sessions).toHaveLength(1);
+    expect(grants()).toHaveLength(1);
+  });
+
+  it("writes nothing, starts nothing and answers story.notPausedOrParked when the park changed during the lift", async () => {
+    const parkId = park("verify-failing", "loops");
+    // Something else resolves the park while the lift runs (a drop, a hand edit picked up).
+    const resuming = createRunOutcomesWithLift(async (lifted) => {
+      w.lifts.push(lifted);
+      w.f.office.immediate(() =>
+        w.f.office.run(
+          `update parks set resolved_at = 1, resolved_how = 'drop'
+            where office_id = $office_id and park_id = $park`,
+          { park: parkId },
+        ),
+      );
+      return { commit: null, pushed: true, pushError: null };
+    });
+    const error = await refusal(resuming, { note: "late" }, ctx(false, "req_late"));
+    await resuming.idle();
+    expect(error.error.code).toBe("story.notPausedOrParked");
+    expect(error.message).toContain("no longer parked as it was");
+    expect(w.sessions).toEqual([]);
+    expect(grants()).toEqual([]);
+    expect(findRun(w.f.office, w.f.run)?.endedAt).not.toBeNull();
+    const resumes = runIntents(w.f.office, w.f.run).filter((intent) =>
+      intent.detail.startsWith(`${MAINTAINER_RESUME_TAG} `),
+    );
+    expect(resumes.map((intent) => intent.outcome)).toEqual(["abandoned"]);
+    // A retry of the same request checks again, and finds nothing parked to resume.
+    const again = await refusal(resuming, { note: "late" }, ctx(false, "req_late"));
+    expect(again.error.code).toBe("story.notPausedOrParked");
+    expect(w.lifts).toHaveLength(1);
+  });
+});
+
+describe("the maintainer's note in a worker's message (DIPO-155 review)", () => {
+  const long = `${"word ".repeat(400)}end`;
+
+  it("caps a long note in the native resume with the handoff block's limit and marker", () => {
+    const text = noteText(long);
+    expect(text.startsWith("Note from the maintainer: ")).toBe(true);
+    expect(text.length).toBeLessThanOrEqual("Note from the maintainer: ".length + HANDOFF_NOTE_MAX);
+    expect(text).toContain("[dipo: note cut, showing");
+    expect(text).toContain(`of ${long.length.toLocaleString("en-US")} characters.]`);
+    expect(noteText("short")).toBe("Note from the maintainer: short");
+  });
+
+  it("caps the fix round's held note the same way", async () => {
+    park("review-blocked", "rounds", "In Review");
+    await resume(resumption(), { note: long });
+    const held = runIntents(w.f.office, w.f.run).find((intent) =>
+      intent.detail.startsWith("held-feedback "),
+    );
+    expect(held?.detail).toBe(`held-feedback ${noteText(long)}`);
+    expect(held?.detail).toContain("[dipo: note cut, showing");
+  });
+});
+
+describe("the client name of a top-up (0020 section 4, DIPO-155 review)", () => {
+  it("records the client name the connection gave in engine.hello on the budget grant", async () => {
+    park("budget-exceeded", "build");
+    usage(61, 100_000);
+    const resuming = resumption();
+    const reply = await executeCommand(
+      executor(resuming),
+      {
+        ...resumeRequest("01J9ZK5Q8W3V4X6Y7Z90000006", {
+          budget: { share: 50 },
+          note: "one more go",
+        }),
+        confirmed: true,
+      },
+      { client: "dipo-tui" },
+    );
+    await resuming.idle();
+    expect(reply).toMatchObject({ ok: true });
+    expect(grants().map((grant) => [grant.kind, grant.client, grant.origin])).toEqual([
+      ["budget", "dipo-tui", "cli"],
+    ]);
   });
 });

@@ -80,7 +80,12 @@ import {
 import { MAINTAINER_TAGS } from "./pauses";
 import { PLACE_NOTICES, type Places, START_KINDS, waitForPlace } from "./places";
 import { findRun, storeBackstopSnapshot, type StoredRun } from "./records";
-import { type ParkResumeRow, parkResumeRow, type ResumeSession } from "./resume-policy";
+import {
+  type ParkRefusalRow,
+  type ParkResumeRow,
+  parkResumeRow,
+  type ResumeSession,
+} from "./resume-policy";
 import {
   budgetText,
   HALF_SHARE,
@@ -182,6 +187,8 @@ interface ResumeIntent {
   /** The developer agent whose session continues, as it was at the request. */
   readonly agent: string | null;
   readonly origin: string;
+  /** The client name the request's connection gave in `engine.hello`; null without one. */
+  readonly client?: string | null;
 }
 
 interface StoredResume {
@@ -290,7 +297,8 @@ export function resumeOfRequest(office: OfficeHandle, request: string): StoredRe
     { tag: `${MAINTAINER_RESUME_TAG} %` },
   );
   for (const row of rows) {
-    if (row.outcome === "failed") continue;
+    // A resume that failed or found its park changed runs again on a retry, checks first.
+    if (row.outcome === "failed" || row.outcome === "abandoned") continue;
     const stored = storedOf(row);
     if (stored?.detail.request === request) return stored;
   }
@@ -361,6 +369,11 @@ export class ParkResumes {
   readonly #options: ParkResumeOptions;
   /** Session starts of resumed parks running after the reply. */
   readonly #inflight = new Set<Promise<unknown>>();
+  /**
+   * Runs a request is resuming, from its checks to its transaction: a second request for the same
+   * run in that time answers the retryable `run.hostAlive` instead of passing the checks too.
+   */
+  readonly #resuming = new Set<string>();
 
   constructor(parts: OutcomeParts, options: ParkResumeOptions) {
     this.#s = parts.support;
@@ -393,7 +406,6 @@ export class ParkResumes {
     args: ResumeArgs,
   ): Promise<CommandOutcome<ResumeResult>> {
     const office = ctx.office;
-    const officeId = office.officeId as OfficeId;
     const stored = resumeOfRequest(office, ctx.requestId);
     if (stored !== null) return await this.#retried(office, identity, stored);
 
@@ -407,7 +419,7 @@ export class ParkResumes {
         { story },
       );
     }
-    if (row.kind === "refuse") throw refusal(row.code, story, label, park);
+    if (row.kind === "refuse") throw refusal(row, story, label, park);
     const run = park.runId === null ? null : findRun(office, park.runId as RunId);
     if (run === null || run.kind !== "story" || run.endedAt === null) {
       throw new CommandError(
@@ -437,6 +449,31 @@ export class ParkResumes {
     }
     if (row.holdCheck === true) this.#refuseWhileHeld(story);
     this.#refuseBusy(office, run, story);
+    // Held from here (no await before it) to the resume's transaction.
+    this.#resuming.add(run.runId);
+    const release = () => this.#resuming.delete(run.runId);
+    try {
+      return await this.#checkedResume(ctx, identity, park, args, row, run, note, label, release);
+    } finally {
+      release();
+    }
+  }
+
+  /** `resume` after the run is held for this request: the rest of step 1, then steps 2 to 5. */
+  async #checkedResume(
+    ctx: AsyncCommandContext,
+    identity: StoryIdentity,
+    park: OpenPark,
+    args: ResumeArgs,
+    row: ParkResumeRow,
+    run: StoredRun,
+    note: string | undefined,
+    label: string,
+    release: () => void,
+  ): Promise<CommandOutcome<ResumeResult>> {
+    const office = ctx.office;
+    const officeId = office.officeId as OfficeId;
+    const story = identity.story;
     if (this.#options.scheduling?.() === false) {
       throw new CommandError(
         "scheduling.off",
@@ -453,16 +490,30 @@ export class ParkResumes {
     if (legacy === null || workRefOf(office, run.runId) === null) {
       throw new Error(`dipo cannot resume ${run.runId} in this office`);
     }
-    const grants = this.#plan(ctx, run, row, args.budget, legacy);
-    this.#checkCaps(office, run, story, row, session, grants, legacy, args.budget);
+    const planned = this.#plan(ctx, run, row, args.budget, legacy);
+    this.#checkCaps(office, run, story, row, session, planned, legacy, args.budget);
+    const capsBefore = runCaps(office, run, legacy);
+    const before = developerCaps(capsBefore);
+    const afterCaps = developerCaps(withGrants(capsBefore, planned));
     if (args.budget !== undefined && ctx.confirmed !== true) {
-      const before = runCaps(office, run, legacy);
       throw new CommandError(
         "confirmation.required",
         `Raising ${story}'s caps needs confirmation; send work.resume again with confirmed.`,
-        { before: developerCaps(before), after: developerCaps(withGrants(before, grants)) },
+        { before, after: afterCaps },
       );
     }
+    // A budget grant records the caps before and after it (0020 section 4).
+    const grants = planned.map((grant): PlannedGrant =>
+      grant.amount.kind === "budget"
+        ? {
+            ...grant,
+            amount: {
+              kind: "budget",
+              amount: { ...grant.amount.amount, before, after: afterCaps },
+            },
+          }
+        : grant,
+    );
     const snapshot = row.gitCheck === true ? await this.#snapshot(officeId, run, story) : null;
 
     const fix = row.delta === "topup" ? pendingFixRound(office, run.runId) : null;
@@ -484,6 +535,7 @@ export class ParkResumes {
       fix: fix?.intentId ?? null,
       agent: developerAgent(office, run.runId)?.agent ?? null,
       origin: ctx.origin,
+      client: ctx.client ?? null,
     };
     // 2. Stored before anything changes, so a restart or a retry finishes the resume.
     const intentId = office.immediate(() =>
@@ -495,7 +547,7 @@ export class ParkResumes {
         this.#s.deps.clock.now(),
       ),
     );
-    const outcome = await this.#finish(office, run, intentId, detail, true);
+    const outcome = await this.#finish(office, run, intentId, detail, true, release);
     return { result: this.#result(identity, run, detail, outcome.queued) };
   }
 
@@ -614,12 +666,29 @@ export class ParkResumes {
     intentId: number,
     detail: ResumeIntent,
     background: boolean,
+    /** Called once the transaction ran, applied or not (the request's hold on the run). */
+    applied: () => void = () => {},
   ): Promise<{ readonly queued: boolean }> {
     const officeId = office.officeId as OfficeId;
     const clock = this.#s.deps.clock;
     const fail = (why: string): never => {
       office.immediate(() => resolveIntent(office, run.runId, intentId, "failed", clock.now()));
       throw new Error(why);
+    };
+    // The park changed under the resume: nothing is written, nothing follows (DIPO-155 review).
+    const gone = (): never => {
+      office.immediate(() => resolveIntent(office, run.runId, intentId, "abandoned", clock.now()));
+      const now = run.key === null ? null : storyView(office, run.key as StoryKey);
+      const park = run.key === null ? null : openPark(office, run.key);
+      const state =
+        park === null
+          ? `it is ${now?.lifecycle ?? "no longer Parked"} now`
+          : `it is parked as ${park.reason} now`;
+      throw new CommandError(
+        "story.notPausedOrParked",
+        `${run.story ?? run.runId} is no longer parked as it was when work.resume checked it; ${state}.`,
+        { story: run.story ?? run.runId },
+      );
     };
     const unpark = this.#s.deps.unpark;
     const work = workRefOf(office, run.runId);
@@ -635,9 +704,7 @@ export class ParkResumes {
       return fail(`dipo cannot resume ${run.runId} in this office`);
     }
     const park = openPark(office, key);
-    if (park === null || park.parkId !== detail.parkId) {
-      return fail(`${run.story} is no longer parked as it was`);
-    }
+    if (park === null || park.parkId !== detail.parkId) return gone();
     let lifted;
     try {
       lifted = await unpark.lift(officeId, {
@@ -687,11 +754,13 @@ export class ParkResumes {
           ];
     const places = this.#options.places();
     const queued: { place: string | null } = { place: null };
+    let wrote = false;
     const step = async (): Promise<void> =>
       this.#s.write(office, () => {
         const at = clock.now();
         const current = openPark(office, key);
         if (current?.parkId !== detail.parkId) return [];
+        wrote = true;
         const entries = this.#apply(office, run, current, detail, at);
         for (const grant of detail.grants) {
           recordGrant(office, run.runId, {
@@ -699,7 +768,7 @@ export class ParkResumes {
             grantId: grant.grantId,
             note: detail.note,
             origin: detail.origin,
-            client: null,
+            client: detail.client ?? null,
             at,
           });
         }
@@ -732,8 +801,13 @@ export class ParkResumes {
         return [...entries, ...lineNotice, ...pushNotice, notice];
       });
     // The place check and the reopen are one serialized step of the office (DIPO-229).
-    if (places === undefined) await step();
-    else await places.serialized(officeId, step);
+    try {
+      if (places === undefined) await step();
+      else await places.serialized(officeId, step);
+    } finally {
+      applied();
+    }
+    if (!wrote) return gone();
     await this.#s.deps.refreshStory?.(officeId, work.key).catch((error: unknown) => {
       this.#s.deps.warn?.("reading the resumed story again failed", {
         run: run.runId,
@@ -1073,7 +1147,7 @@ export class ParkResumes {
         and ended_at is null limit 1`,
       { run: run.runId },
     );
-    if (live === null && !this.#s.guard.busy(run.runId)) return;
+    if (live === null && !this.#s.guard.busy(run.runId) && !this.#resuming.has(run.runId)) return;
     throw new CommandError(
       "run.hostAlive",
       `${story}'s last worker has not exited yet; send work.resume again in a moment.`,
@@ -1192,12 +1266,15 @@ function half(value: number | null | undefined): number {
 }
 
 /** The refusal of a matrix row that does not resume. */
-function refusal(
-  code: "resume.notResumable" | "resume.decisionRequired",
-  story: string,
-  label: string,
-  park: OpenPark,
-): CommandError {
+function refusal(row: ParkRefusalRow, story: string, label: string, park: OpenPark): CommandError {
+  const { code } = row;
+  if (row.box === true) {
+    return new CommandError(
+      code,
+      `${story} is parked as ${label}: a box part that touched a protected file, held what looks like a secret or was refused, or a task file with fields dipo does not know, is never resumed (the maintainer's decision); \`dipo discard ${story} --note <why>\` removes its work.`,
+      { story, reason: park.reason, ...(park.cause === null ? {} : { cause: park.cause }) },
+    );
+  }
   return code === "resume.decisionRequired"
     ? new CommandError(
         code,
