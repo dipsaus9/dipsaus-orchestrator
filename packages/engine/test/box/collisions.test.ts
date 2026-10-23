@@ -38,6 +38,7 @@ import {
   CONFLICT_MARKER,
   conflictFeedbackItem,
   conflictSignature,
+  countedMarkers,
   type CollisionNotice,
   type ConflictFile,
   conflictSummary,
@@ -284,6 +285,9 @@ interface World {
   readonly found: { runId: string; found: CatchUpFound }[];
   /** The task-file statuses written back after a merge took the base's version (DIPO-149). */
   readonly statuses: { runId: string; status: string }[];
+  /** The runs a check In Review cleared, and the installs after a catch-up changed a lockfile. */
+  readonly cleared: string[];
+  readonly reinstalls: { runId: string; lockfiles: readonly string[] }[];
   /** The runs whose story is In Review: no longer in progress. */
   inReview: PartRun[];
   readonly reviewing: Set<string>;
@@ -450,6 +454,10 @@ async function world(repo: TempRepoWithRemote): Promise<World> {
       self!.recorded.push(merged);
     },
     found: (run, found) => self!.found.push({ runId: run.runId, found }),
+    cleared: (run) => self!.cleared.push(run.runId),
+    reinstall: async (run, lockfiles) => {
+      self!.reinstalls.push({ runId: run.runId, lockfiles });
+    },
     taskStatus: async (run, status) => {
       self!.statuses.push({ runId: run.runId, status });
     },
@@ -469,6 +477,8 @@ async function world(repo: TempRepoWithRemote): Promise<World> {
     recorded: [],
     found: [],
     statuses: [],
+    cleared: [],
+    reinstalls: [],
     inReview: [],
     reviewing: new Set(),
     failCopy: false,
@@ -1144,5 +1154,83 @@ describe("the sync before In Review on real git (DIPO-149)", () => {
       expect(message).toContain("The conflicts as git left them:\n<diff>\n--- src/shared.ts");
       expect(message).toContain("dipo does not move the story to review while a conflict marker");
       expect(w.recorded.map((merged) => merged.conflicts.length)).toEqual([1]);
+    }));
+});
+
+describe("the review fixes of DIPO-149 on real git", () => {
+  it("reads markers in a file with a NUL byte, and counts a lone ======= only beside a side marker", () =>
+    inWorld(async (w) => {
+      write(w.b.work, {
+        "src/binary.ts": `one\n<<<<<<< ours\na\0b\n=======\nc\n>>>>>>> main\n`,
+        "docs/title.md": "Title\n=======\n\ntext\n",
+      });
+      await handPart(w, w.b, "Files with and without markers");
+      const head = await tipOf(w, w.b);
+      const found = await w.git.run((session) =>
+        markersAt(session, head, ["src/binary.ts", "docs/title.md"]),
+      );
+      expect([...found.entries()]).toEqual([["src/binary.ts", [2, 4, 6]]]);
+      expect(countedMarkers([{ n: 2, text: "=======" }])).toEqual([]);
+      expect(
+        countedMarkers([
+          { n: 2, text: "=======" },
+          { n: 4, text: ">>>>>>> main" },
+        ]),
+      ).toEqual([2, 4]);
+    }));
+
+  it("checks a story In Review once per tip and base, and clears a conflict a later check does not find", () =>
+    inWorld(async (w) => {
+      const { onto } = await conflictAndMerge(w);
+      w.reviewing.add(w.b.run.runId);
+      w.inReview = [w.b.run];
+      await w.collisions.check();
+      await w.collisions.check();
+      expect(w.found).toHaveLength(1);
+      expect(w.cleared).toEqual([]);
+      // The branch takes the base's line by hand: the next check finds no conflict.
+      await w.repo.git("checkout", "--quiet", w.b.run.branch);
+      write(w.repo.dir, { "src/shared.ts": lines({ 3: "FOUR from one" }) });
+      await w.repo.commitAll("Take the base's line");
+      await w.repo.git("checkout", "--quiet", "main");
+      await w.collisions.check();
+      expect(w.found).toHaveLength(1);
+      expect(w.cleared).toEqual(["run_2"]);
+      expect(onto).not.toBe("");
+    }));
+
+  it("installs the packages in the box again after a catch-up changed a lockfile", () =>
+    inWorld(async (w) => {
+      write(w.a.work, { "src/shared.ts": lines({ 0: "ONE" }), "bun.lock": "{ lock: 2 }\n" });
+      await handPart(w, w.a, "A changes shared and the lockfile");
+      write(w.b.work, { "src/shared.ts": lines({ 7: "EIGHT" }) });
+      await handPart(w, w.b, "B changes shared");
+      await mergeFirst(w);
+      await w.collisions.check();
+      expect(w.parks).toEqual([]);
+      expect(readFileSync(join(w.b.work, "bun.lock"), "utf8")).toBe("{ lock: 2 }\n");
+      expect(w.reinstalls).toEqual([{ runId: "run_2", lockfiles: ["bun.lock"] }]);
+    }));
+
+  it("finds a conflict at the sync in a file the story changed before its start commit", () =>
+    inWorld(async (w) => {
+      // A re-claimed branch: its earlier work lies below the run's start commit, so the files the
+      // story changed since its start do not overlap the base, but git's merge still conflicts.
+      write(w.a.work, { "src/shared.ts": lines({ 3: "FOUR from one" }) });
+      await handPart(w, w.a, "A changes line four");
+      await w.repo.git("checkout", "--quiet", w.b.run.branch);
+      write(w.repo.dir, { "src/shared.ts": lines({ 3: "FOUR from the earlier run" }) });
+      const earlier = await w.repo.commitAll("The earlier run's work");
+      await w.repo.git("checkout", "--quiet", "main");
+      await mergeFirst(w);
+      const reclaimed = { ...w.b.run, startSha: earlier };
+      write(w.b.work, { "src/shared.ts": lines({ 3: "FOUR from the earlier run" }) });
+      const synced = await w.parts.inTurn(reclaimed.runId, () =>
+        w.collisions.syncInTurn(reclaimed, "onConflict"),
+      );
+      expect(synced.kind).toBe("merged");
+      if (synced.kind === "merged") {
+        expect(synced.merged.conflicts).toEqual([{ path: "src/shared.ts", kind: "content" }]);
+      }
     }));
 });

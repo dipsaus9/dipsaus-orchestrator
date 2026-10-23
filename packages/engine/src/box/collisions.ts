@@ -53,10 +53,15 @@
 //   neither the branch nor the box, and parks `conflict` with cause `unwritable-path`.
 // - The sync before In Review (`syncInTurn`, DIPO-149): verify and commit runs the same catch-up
 //   at done, in the run's held turn, for a riskier story whenever the base moved and for any other
-//   on a conflict; the caller tells the worker. A merge that changed a lockfile installs again in
-//   the box (`reinstall`, when wired).
+//   on a conflict; the caller tells the worker. Both are planned on git's merge alone, never on the
+//   overlap of changed files: a re-claimed branch's earlier work lies below its start commit. A
+//   merge that changed a lockfile installs the office's packages in the box again (`reinstall`,
+//   the launch's install). Accepted: a conflicted catch-up during a fix round pushes the merge, its
+//   markers included, to the story branch and so to its open PR; the check at done keeps that head
+//   from review until the worker resolved it.
 // - Stories In Review (`inReview`, DIPO-149): each pass checks their tips against the base with the
-//   same plan and hands a conflict to `found`; nothing is merged until their next sync.
+//   same plan, once per tip and base commit (remembered in memory), and hands a conflict to
+//   `found`, a clean merge to `cleared`; nothing is merged until their next sync.
 //
 // Every git call runs on the repository without a work tree through the office git queue, with the
 // hardened config, hooks off and filters off (`filtersOffConfig`); none runs in a folder the worker
@@ -397,9 +402,30 @@ export const CONFLICT_MARKER = /^(?:<{7} |>{7} |={7}(?:[ \r]|$))/;
 /** The same rule for `git grep -E`. */
 const CONFLICT_MARKER_GREP = "^(<{7} |>{7} |={7}([ \r]|$))";
 
-/** Pure: the 1-based numbers of the conflict marker lines of `text`. */
+/** True for a `<<<<<<< ` or `>>>>>>> ` line: a side marker, not the lone `=======`. */
+function sideMarker(line: string): boolean {
+  return line.startsWith("<<<<<<< ") || line.startsWith(">>>>>>> ");
+}
+
+/**
+ * Pure: the marker lines of one file, `{ n, text }` each, as found. A lone `=======` counts only
+ * while a `<<<<<<< ` or `>>>>>>> ` line remains in the same file, so a resolved file whose text
+ * holds a seven-character heading underline is no conflict.
+ */
+export function countedMarkers(
+  found: readonly { readonly n: number; readonly text: string }[],
+): number[] {
+  if (!found.some((line) => sideMarker(line.text))) return [];
+  return found.map((line) => line.n);
+}
+
+/** Pure: the 1-based numbers of the conflict marker lines of `text` (`countedMarkers`). */
 export function markerLines(text: string): number[] {
-  return text.split("\n").flatMap((line, at) => (CONFLICT_MARKER.test(line) ? [at + 1] : []));
+  return countedMarkers(
+    text
+      .split("\n")
+      .flatMap((line, at) => (CONFLICT_MARKER.test(line) ? [{ n: at + 1, text: line }] : [])),
+  );
 }
 
 /**
@@ -490,17 +516,30 @@ export function conflictFeedbackItem(input: {
   };
 }
 
-/** Pure: the feedback turn naming the conflict marker lines left on the tip, per file. */
-export function markersLeftText(left: ReadonlyMap<string, readonly number[]>): string {
-  const paths = [...left.keys()].toSorted();
-  const shown = paths.slice(0, SHOWN_PATHS_MAX).map((path) => {
-    const lines = left.get(path) ?? [];
-    const named = lines.slice(0, MARKER_LINES_SHOWN).join(", ");
-    const more =
-      lines.length > MARKER_LINES_SHOWN ? ` and ${lines.length - MARKER_LINES_SHOWN} more` : "";
-    return `- ${cleanDoorText(path).slice(0, 300)}: line${lines.length === 1 ? "" : "s"} ${named}${more}`;
-  });
-  const rest = paths.length - shown.length;
+/**
+ * Pure: the feedback turn naming what is left unresolved on the tip, per file: the conflict marker
+ * lines, and each binary, modify/delete or file vs folder conflict still as git left it.
+ */
+export function markersLeftText(
+  left: ReadonlyMap<string, readonly number[]>,
+  unchanged: readonly ConflictFile[] = [],
+): string {
+  const entries: [string, string][] = [
+    ...[...left.entries()].map(([path, lines]): [string, string] => {
+      const named = lines.slice(0, MARKER_LINES_SHOWN).join(", ");
+      const more =
+        lines.length > MARKER_LINES_SHOWN ? ` and ${lines.length - MARKER_LINES_SHOWN} more` : "";
+      return [path, `line${lines.length === 1 ? "" : "s"} ${named}${more}`];
+    }),
+    ...unchanged.map((file): [string, string] => [
+      file.path,
+      `the ${CONFLICT_KIND_TEXT[file.kind]} conflict is still as git left it in dipo's merge`,
+    ]),
+  ].toSorted(([a], [b]) => (a < b ? -1 : a > b ? 1 : 0));
+  const shown = entries
+    .slice(0, SHOWN_PATHS_MAX)
+    .map(([path, what]) => `- ${cleanDoorText(path).slice(0, 300)}: ${what}`);
+  const rest = entries.length - shown.length;
   if (rest > 0) shown.push(`- and ${rest} more files`);
   return renderTemplate(conflictMarkersTemplate, { lines: shown.join("\n") });
 }
@@ -1061,6 +1100,8 @@ export interface BoxCollisionsDeps {
   readonly recorded?: (run: PartRun, merged: CatchUpMerged) => Promise<void>;
   /** A conflict found while the story is In Review (DIPO-149): recorded and told, never merged. */
   readonly found?: (run: PartRun, found: CatchUpFound) => void;
+  /** A later check of a story In Review found no conflict: a conflict found earlier is cleared. */
+  readonly cleared?: (run: PartRun) => void;
   /**
    * Writes `status` back into the story's task file on its branch through the single field write
    * path, after a merge that took the base's version of it (DIPO-149, 0019 section 10).
@@ -1118,15 +1159,17 @@ export function taskFileStatus(text: string): string | null {
 
 /**
  * The paths of `paths` that hold a conflict marker line at `commit`, with the line numbers, read
- * from git objects (`git grep` on the commit, no work tree; binary files are skipped). Attributes
- * and filters are off (`mergeOffConfig`), so no textconv or driver runs.
+ * from git objects (`git grep` on the commit, no work tree). Every file is read as text (`-a`), so
+ * one NUL byte cannot hide a marker; attributes and filters are off (`mergeOffConfig`,
+ * `--no-textconv`), so no textconv or driver runs. A lone `=======` counts only beside a side
+ * marker in the same file (`countedMarkers`).
  */
 export async function markersAt(
   session: GitSession,
   commit: string,
   paths: readonly string[],
 ): Promise<Map<string, number[]>> {
-  const found = new Map<string, number[]>();
+  const lines = new Map<string, { n: number; text: string }[]>();
   const config = await mergeOffConfig(session);
   for (const group of chunks(paths)) {
     const grep = await session.step(
@@ -1134,7 +1177,7 @@ export async function markersAt(
       [
         "--literal-pathspecs",
         "grep",
-        "-I",
+        "-a",
         "-n",
         "-z",
         "--no-color",
@@ -1158,12 +1201,17 @@ export async function markersAt(
     // `<commit>:<path>\0<line>\0<text>` per match.
     const items = grep.stdout.split("\n").filter((line) => line !== "");
     for (const item of items) {
-      const [where = "", line = ""] = item.split("\0");
+      const [where = "", line = "", ...rest] = item.split("\0");
       const path = where.startsWith(`${commit}:`) ? where.slice(commit.length + 1) : where;
       const n = Number(line);
-      if (!Number.isInteger(n)) continue;
-      found.set(path, [...(found.get(path) ?? []), n]);
+      if (!Number.isInteger(n) || n < 1) continue;
+      lines.set(path, [...(lines.get(path) ?? []), { n, text: rest.join("\0") }]);
     }
+  }
+  const found = new Map<string, number[]>();
+  for (const [path, matched] of lines) {
+    const counted = countedMarkers(matched);
+    if (counted.length > 0) found.set(path, counted);
   }
   return found;
 }
@@ -1173,6 +1221,8 @@ export class BoxCollisions {
   readonly #deps: BoxCollisionsDeps;
   /** The overlaps told already, by `overlapSignature`; in memory only (see the file comment). */
   readonly #told = new Set<string>();
+  /** The `<tip> <onto>` each story In Review was last checked at; in memory only. */
+  readonly #reviewSeen = new Map<string, string>();
   #pass: Promise<void> | null = null;
   #again = false;
   #timer: TimerHandle | null = null;
@@ -1239,7 +1289,9 @@ export class BoxCollisions {
   async syncInTurn(run: PartRun, mode: SyncMode): Promise<SyncOutcome> {
     const git = this.#deps.git(run.office);
     if (git === undefined) return { kind: "none" };
-    const planMode: CatchUpMode = mode === "always" ? "always" : "overlap";
+    // Planned on git's merge alone, never on the overlap of changed files: a re-claimed branch's
+    // earlier work lies below its start commit, so the overlap would miss a conflict there.
+    const planMode: CatchUpMode = "always";
     const plan = await this.#plan(git, run, false, planMode);
     if (plan === null || plan.kind === "current" || plan.kind === "apart") return { kind: "none" };
     if (plan.kind === "unwritable") return { kind: "park", park: this.#unwritable(run, plan) };
@@ -1271,8 +1323,10 @@ export class BoxCollisions {
         });
       }
     }
+    const checked = new Set<string>();
     for (const run of this.#deps.inReview?.() ?? []) {
       if (ids.has(run.runId) || this.#deps.live(run.runId)) continue;
+      checked.add(run.runId);
       const git = this.#deps.git(run.office);
       if (git === undefined) continue;
       await this.#checkInReview(git, run).catch((error: unknown) => {
@@ -1281,6 +1335,9 @@ export class BoxCollisions {
           reason: messageOf(error),
         });
       });
+    }
+    for (const runId of this.#reviewSeen.keys()) {
+      if (!checked.has(runId)) this.#reviewSeen.delete(runId);
     }
   }
 
@@ -1362,14 +1419,33 @@ export class BoxCollisions {
 
   /** A story In Review: a conflict with the base is found and recorded, never merged. */
   async #checkInReview(git: OfficeGit, run: PartRun): Promise<void> {
-    const plan = await this.#plan(git, run, false, "overlap");
-    if (plan === null || plan.kind === "current" || plan.kind === "apart") return;
+    // Checked again only once the tip or the base moved.
+    const heads = await git.run(async (session) => {
+      const base = await baseRefOf(git, session);
+      const tip = await revParse(session, `refs/heads/${run.branch}^{commit}`);
+      const onto = base === null ? null : await revParse(session, `${base.ref}^{commit}`);
+      return `${tip ?? ""} ${onto ?? ""}`;
+    });
+    if (this.#reviewSeen.get(run.runId) === heads) return;
+    const plan = await this.#plan(git, run, false, "always");
     const conflicts: readonly ConflictFile[] =
-      plan.kind === "unwritable"
-        ? plan.paths.map((path) => ({ path, kind: "other" as const }))
-        : plan.conflicts;
-    if (conflicts.length === 0) return;
-    this.#deps.found?.(run, { base: plan.base, onto: plan.onto, tip: plan.tip, conflicts });
+      plan === null || plan.kind === "current" || plan.kind === "apart"
+        ? []
+        : plan.kind === "unwritable"
+          ? plan.paths.map((path) => ({ path, kind: "other" as const }))
+          : plan.conflicts;
+    if (
+      conflicts.length === 0 ||
+      plan === null ||
+      plan.kind === "current" ||
+      plan.kind === "apart"
+    ) {
+      // No conflict (any more): a conflict found earlier is cleared.
+      this.#deps.cleared?.(run);
+    } else {
+      this.#deps.found?.(run, { base: plan.base, onto: plan.onto, tip: plan.tip, conflicts });
+    }
+    this.#reviewSeen.set(run.runId, heads);
   }
 
   /** Parks the run when a part asks for it; true then. */
