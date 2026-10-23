@@ -32,6 +32,7 @@ import { gitReviewOps, ReviewLauncher } from "./review-launch";
 import { FixRounds, type FixRoundsDeps } from "./fix-rounds";
 import { Reviews } from "./reviews";
 import { createRunOutcomes, type Resumption } from "./resumption";
+import { SessionRuns } from "./session-run";
 import { afterRunExits } from "./temp-dirs";
 import type { SlotReentry } from "./park-resume";
 import type { HoldResumer } from "./work-resume";
@@ -134,6 +135,11 @@ export interface ComposedRuns {
   readonly fixRounds: FixRounds | null;
   readonly launcher: RunLauncher;
   readonly reattacher: RunReattacher | null;
+  /**
+   * The scan fallback's `session` runs (DIPO-310): one model session outside a story, on the same
+   * worker port, hosts and steering as the story runs, outside the worker and reviewer places.
+   */
+  readonly sessions: SessionRuns;
 }
 
 /** `{ [key]: value }`, or `{}` when `value` is undefined (an optional port left out). */
@@ -562,5 +568,20 @@ export function composeRuns(ports: RunPorts): ComposedRuns {
     fixRounds: built?.fixRounds ?? null,
     launcher,
     reattacher,
+    sessions: new SessionRuns({
+      clock: ports.clock,
+      ids: ports.ids,
+      offices: ports.offices,
+      worker: ports.worker,
+      git: ports.git,
+      hosts: ports.hosts,
+      steering: ports.steering,
+      pricing: ports.ingest.pricing,
+      runtimeDir: ports.runtimeDir,
+      tmpRoot: ports.tmpRoot,
+      ...given("tempOwner", ports.tempOwner),
+      ...given("onChanged", ports.onChanged),
+      ...given("warn", ports.warn),
+    }),
   };
 }

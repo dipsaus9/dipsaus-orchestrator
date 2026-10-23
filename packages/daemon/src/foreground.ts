@@ -122,6 +122,7 @@ import {
   type ServedSocket,
   type StoryPlanningDeps,
   type StateDatabase,
+  type ScanSessionRunner,
   type StoredRun,
 } from "@dipsaus-orchestrator/engine";
 
@@ -678,6 +679,9 @@ async function serve(run: Run, lock: HeldLock): Promise<number> {
     // every `polling.prStateSeconds` until it exists, through the same `gh` host. Whether a run
     // is a box run comes from the runs made below (DIPO-299: CI is the verify of a box run).
     let boxRunOf: ((office: OfficeId, stored: StoredRun) => boolean) | null = null;
+    // The scan fallback's session runner and the plan-limit check, set once the run services exist.
+    let sessionRuns: ScanSessionRunner | undefined;
+    let planLimitHeldOf: ((adapter: string, model: string) => string | null) | undefined;
     const storyPrs = new StoryPrs({
       host,
       git: gitStoryPrOps({ git: (office) => engineGit.forOffice(office), cli: backlogCli }),
@@ -852,6 +856,13 @@ async function serve(run: Run, lock: HeldLock): Promise<number> {
     // `office.rescan`, which also indexes the stories again.
     const runProfiles = new RunProfiles({
       git: engineGit,
+      // The scan fallback (DIPO-310): its session runs through the run services made below, only
+      // when the maintainer asks (`office.infer`); a plan-limit hold makes it wait.
+      fallback: () => sessionRuns,
+      scanSettings: (office) => offices.config(office)?.scan,
+      planLimitHeld: (office, model) =>
+        planLimitHeldOf?.(offices.config(office)?.worker.adapter ?? CLAUDE_CLI_ADAPTER_ID, model) ??
+        null,
       stories: storyIndex,
       reconcile: (office) => reconciler.reconcile(office),
       reloadConfig: (office) => offices.reloadIfChanged(office, engineGit.forOffice(office)),
@@ -940,10 +951,14 @@ async function serve(run: Run, lock: HeldLock): Promise<number> {
         runs.ingest.close();
         runs.reattacher.close();
         runs.stopBoxPasses();
+        // A scan fallback session waiting for a plan limit starts no more (DIPO-310).
+        runProfiles.close();
       },
     };
     // Daemon stop ends every box worker inside its box, and its routes (DIPO-271).
     held.boxes = runs.boxes;
+    sessionRuns = runs.sessions;
+    planLimitHeldOf = (adapter, model) => runs.planLimits.held(adapter, model);
     boxRunOf = (office, stored) => runs.isBoxRun(office, stored);
     held.collisions = runs.collisions;
     // `work.run` (DIPO-48): picks and claims one Ready story and records the run, through the
