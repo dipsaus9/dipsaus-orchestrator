@@ -21,6 +21,8 @@
 //   here: it is recorded as one the box still lacks (`catch_ups.box_copy`), and the run's next
 //   developer session copies it into the box before the worker starts (DIPO-324).
 // - The push (step 3): once, never forced.
+// - The release path (DIPO-331): the paths of the PR's diff (merge base with the base to the head)
+//   that the base's CODEOWNERS gives an owner (`release-path.ts`), read from git objects.
 
 import { mkdirSync } from "node:fs";
 import { mkdtemp, realpath, rm } from "node:fs/promises";
@@ -48,6 +50,7 @@ import { BRANCH_READ_PREFIX } from "../stories/branch-read";
 import { editInStoryBacklog } from "../worktree/claim";
 
 import { closeOutFields, DONE_STATUS } from "./close-out-park";
+import { CODEOWNERS_LOCATIONS, parseCodeowners, releasePathsOf } from "./release-path";
 
 import type { PushOutcome } from "./git";
 import type { SlotSyncMode } from "./store";
@@ -122,6 +125,13 @@ export interface StorySlotGit {
    * when the commit or its one task file of `story` cannot be read.
    */
   treeKey(office: OfficeId, story: string, head: string): Promise<string | null>;
+  /**
+   * The release paths `head` changes (DIPO-331): the paths of its diff against its merge base with
+   * the base as last fetched that the base's CODEOWNERS gives an owner, sorted; empty when the base
+   * has no CODEOWNERS. Null when git cannot tell (no base, an unreadable commit): the slot then
+   * merges nothing.
+   */
+  releasePaths(office: OfficeId, head: string): Promise<readonly string[] | null>;
 }
 
 async function revParse(session: GitSession, ref: string): Promise<string | null> {
@@ -309,6 +319,8 @@ export function gitStorySlotOps(deps: {
       });
     },
 
+    releasePaths: (office, head) => releasePathsOnBase(gitOf(office), head),
+
     treeKey: (office, story, head) =>
       gitOf(office).run(async (session) => {
         const listed = await session.step(session.repository, ["ls-tree", "-r", "-z", head]);
@@ -343,4 +355,59 @@ async function hunksOf(
     if (text.code === 0) out.push(...fileHunks(file.path, text.stdout));
   }
   return out;
+}
+
+/** The release paths `head` changes against the base as last fetched; null when unreadable. */
+function releasePathsOnBase(git: OfficeGit, head: string): Promise<string[] | null> {
+  return git.run(async (session) => {
+    const base = await baseRefOf(git, session);
+    const onto = base === null ? null : await revParse(session, base.ref);
+    return onto === null ? null : releasePathsAt(session, onto, head);
+  });
+}
+
+/** The CODEOWNERS text on `commit` (the first of GitHub's locations), "" when there is none. */
+async function codeownersAt(session: GitSession, commit: string): Promise<string | null> {
+  const listed = await session.step(session.repository, [
+    "ls-tree",
+    "-r",
+    "-z",
+    "--name-only",
+    commit,
+    "--",
+    ...CODEOWNERS_LOCATIONS,
+  ]);
+  if (listed.code !== 0) return null;
+  const present = new Set(listed.stdout.split("\0"));
+  const found = CODEOWNERS_LOCATIONS.find((path) => present.has(path));
+  if (found === undefined) return "";
+  const blob = await session.step(session.repository, ["cat-file", "blob", `${commit}:${found}`]);
+  return blob.code === 0 ? blob.stdout : null;
+}
+
+/** The release paths `head` changes against its merge base with `onto`; null when unreadable. */
+async function releasePathsAt(
+  session: GitSession,
+  onto: string,
+  head: string,
+): Promise<string[] | null> {
+  const owners = await codeownersAt(session, onto);
+  if (owners === null) return null;
+  const rules = parseCodeowners(owners);
+  if (!rules.some((rule) => rule.owned)) return [];
+  const base = await session.step(session.repository, ["merge-base", head, onto]);
+  if (base.code !== 0 || base.stdout.trim() === "") return null;
+  const diff = await session.step(session.repository, [
+    "diff",
+    "--name-only",
+    "-z",
+    "--no-renames",
+    base.stdout.trim(),
+    head,
+  ]);
+  if (diff.code !== 0) return null;
+  return releasePathsOf(
+    rules,
+    diff.stdout.split("\0").filter((path) => path !== ""),
+  );
 }

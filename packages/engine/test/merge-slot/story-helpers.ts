@@ -147,6 +147,17 @@ export class FakeStoryGit implements StorySlotGit {
   async treeKey(_office: OfficeId, _story: string, head: string): Promise<string | null> {
     return this.trees.get(head) ?? `tree-${head}`;
   }
+
+  /** The release paths each head changes (DIPO-331); null: git cannot tell. None by default. */
+  readonly release = new Map<string, readonly string[] | null>();
+  /** The heads whose release paths were read, in order. */
+  readonly releaseReads: string[] = [];
+
+  async releasePaths(_office: OfficeId, head: string): Promise<readonly string[] | null> {
+    this.releaseReads.push(head);
+    const paths = this.release.get(head);
+    return paths === undefined ? [] : paths;
+  }
 }
 
 /** A backlog slot git that is never reached (no lane in these tests). */
