@@ -1,11 +1,16 @@
 // What worker output is stored (0007 section 8): the main agent's text, plus one line per tool
-// call with the tool name and its target path. Shell command text, tool inputs and tool results
-// never reach `output_chunks` by default.
+// call with the tool name and its target path. Tool results never reach `output_chunks`.
 //
-// With the machine-local opt-in `privacy.storeCommandBodies` (0007 section 8, DIPO-83) the tool
-// line also holds the call's input as one line: `[tool] Bash bun test`. Line breaks and other
-// control characters become spaces, and an input longer than `INPUT_MAX_CHARS` is cut with a marker
-// that says how much was left out.
+// `privacy.storeCommandBodies` (0007 section 8, DIPO-83) is on by default: its default in the
+// office configuration is true (`OFFICE_DEFAULTS` in `config/schema.ts`; DIPO-135, DIPO-137), so
+// the tool line also holds the call's input as one line: `[tool] Bash bun test`. Set to false, the
+// line holds the tool name and path only. `DEFAULT_OUTPUT_PRIVACY` (inputs off) applies only where
+// ingestion is given no configuration. Line breaks and other control characters become spaces, and
+// an input longer than `INPUT_MAX_CHARS` is cut with a marker that says how much was left out.
+//
+// A stored tool line holds no credential-shaped value (DIPO-312): every value of a
+// `SECRET_PATTERNS` shape and every URL that holds user information, in the path and in the
+// input, is replaced by `[redacted]` before the input is cut (`redactSecretText`).
 //
 // A finished thinking block of the main agent is one line of counts (DIPO-96): `[thinking] 0.9s
 // ~265 tokens`. It holds no thinking text; the worker event carries none.
@@ -14,17 +19,19 @@
 
 import { cleanText } from "@dipsaus-orchestrator/contract";
 
+import { redactSecretText } from "../context/secrets";
 import type { WorkerEvent } from "../workers/types";
 
 /** The most characters of a tool input one stored tool line holds. */
 export const INPUT_MAX_CHARS = 200;
 
-/** What ingestion may store beyond the default (0007 section 8). */
+/** What ingestion may store beyond the tool name and path (0007 section 8). */
 export interface OutputPrivacy {
   /** `privacy.storeCommandBodies`: tool inputs in `output_chunks`. */
   readonly storeCommandBodies: boolean;
 }
 
+/** The privacy of an ingestion given no configuration; the office configuration's default is on. */
 export const DEFAULT_OUTPUT_PRIVACY: OutputPrivacy = { storeCommandBodies: false };
 
 /** `input` as one line, whole: every run of whitespace or control characters is one space. */
@@ -39,9 +46,12 @@ export function flatInput(input: string): string {
   );
 }
 
-/** `input` as one line of at most `INPUT_MAX_CHARS` characters, cut with a marker. */
+/**
+ * `input` as one line, scrubbed (`redactSecretText`), of at most `INPUT_MAX_CHARS` characters, cut
+ * with a marker.
+ */
 export function oneLineInput(input: string): string {
-  const line = flatInput(input);
+  const line = redactSecretText(flatInput(input));
   const chars = Array.from(line);
   if (chars.length <= INPUT_MAX_CHARS) return line;
   const cut = chars.length - INPUT_MAX_CHARS;
@@ -49,12 +59,12 @@ export function oneLineInput(input: string): string {
 }
 
 /**
- * The line stored for one tool call: `[tool] Read src/greet.ts`, `[tool] Bash`, or with the opt-in
- * `[tool] Bash bun test`.
+ * The line stored for one tool call: `[tool] Read src/greet.ts`, `[tool] Bash`, or with the input
+ * `[tool] Bash bun test`; credential-shaped values are `[redacted]`.
  */
 export function toolLine(tool: string, path?: string, input?: string): string {
-  const parts = [`[tool] ${tool}`];
-  if (path !== undefined) parts.push(path);
+  const parts = [`[tool] ${redactSecretText(tool)}`];
+  if (path !== undefined) parts.push(redactSecretText(path));
   if (input !== undefined) {
     const line = oneLineInput(input);
     if (line !== "") parts.push(line);

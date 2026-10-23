@@ -203,3 +203,38 @@ describe("connectFor (DIPO-187)", () => {
     expect(err).toEqual(["dipo: started the daemon (pid 42, version 0.0.0-dev)"]);
   });
 });
+
+// DIPO-316 AC #1: a state or runtime folder override dipo cannot use stops every command with the
+// coded error; `--help`, `--version` and the daemon's own forms (which check it themselves) run.
+describe("an unusable DIPO_HOME or DIPO_RUNTIME_DIR", () => {
+  const refusal = {
+    code: "paths.runtimeDirUnusable",
+    message:
+      "paths.runtimeDirUnusable: DIPO_RUNTIME_DIR /x/run cannot be used: it is a symlink. Fix or unset DIPO_RUNTIME_DIR; dipo does not fall back to another runtime directory.",
+  };
+
+  it("refuses every command with the coded error and exit 78", async () => {
+    for (const argv of [
+      ["daemon", "status"],
+      ["daemon", "start"],
+      ["office", "list"],
+      ["run", "--dry-run"],
+      ["restore", "backup.db"],
+      ["login", "box"],
+      ["self-check"],
+    ]) {
+      const { deps, captured } = fakeDeps();
+      expect(await main(argv, { ...deps, dirRefusal: () => refusal })).toBe(78);
+      expect(captured.err).toEqual([`dipo: ${refusal.message}`]);
+      expect(captured.daemonCalls).toEqual([]);
+    }
+  });
+
+  it("still prints help and the version, and leaves the daemon's own forms to the daemon", async () => {
+    for (const argv of [["--help"], ["--version"], ["daemon", "--foreground"], ["hook", "x"]]) {
+      const { deps, captured } = fakeDeps();
+      expect(await main(argv, { ...deps, dirRefusal: () => refusal })).toBe(0);
+      expect(captured.err).toEqual([]);
+    }
+  });
+});

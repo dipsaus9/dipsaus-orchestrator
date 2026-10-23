@@ -18,8 +18,17 @@ const SECRET_NAMES: readonly RegExp[] = [
   /^credentials(\.json)?$/i,
   /^secrets\.(ya?ml|json)$/i,
   /^service-account.*\.json$/i,
-  /\.(pem|key|p12|pfx|keystore|jks)$/i,
+  /\.(pem|key|p12|pfx|keystore|jks|p8|ppk)$/i, // p8: Apple and other signing keys; ppk: PuTTY keys
   /^id_(rsa|dsa|ecdsa|ed25519)/i, // ssh keys and their .pub siblings
+  /^\.credentials\.json$/i, // Claude's login
+  /^application_default_credentials\.json$/i, // Google Cloud CLI
+  /^client_secret.*\.json$/i, // OAuth client secrets of Google Cloud
+  /^\.pypirc$/i, // Python package-registry credentials
+  /^\.vault-token$/i, // HashiCorp Vault
+  /^\.dev\.vars(\.[^.]+)?$/i, // Cloudflare Wrangler: .dev.vars, .dev.vars.<environment>
+  /\.tfstate(\.backup)?$/i, // Terraform and OpenTofu state
+  /\.tfvars(\.json)?$/i, // Terraform and OpenTofu variables
+  /^kubeconfig(\.ya?ml)?$/i, // a Kubernetes client configuration with its credentials
 ];
 
 /** A directory whose name matches makes every path under it a secret. */
@@ -45,14 +54,18 @@ export function isSecretPath(path: string): boolean {
   return base !== undefined && SECRET_NAMES.some((pattern) => pattern.test(base));
 }
 
-/** The template files of a `.env`, which a repository commits with placeholder values. */
-const ENV_TEMPLATE = /^\.env\.(example|sample)$/i;
+/**
+ * The template files of a `.env` or a `.dev.vars`, which a repository commits with placeholder
+ * values.
+ */
+const ENV_TEMPLATE = /^\.(env|dev\.vars)\.(example|sample)$/i;
 
 /**
  * The secret file names of a box part (DIPO-290): `isSecretPath`, except that a `.env.example` or
- * `.env.sample` file is no secret by its name, so a part may add or change it; its content is still
- * scanned like any file's, and a secret folder above it (`.ssh/`, `.env.d/`) still makes it one.
- * `.env` and `.env.<name>` stay secret. The context provider and the workspace keep `isSecretPath`,
+ * `.env.sample` file (and the same of `.dev.vars`, DIPO-312) is no secret by its name, so a part may
+ * add or change it; its content is still scanned like any file's, and a secret folder above it
+ * (`.ssh/`, `.env.d/`) still makes it one. `.env`, `.env.<name>`, `.dev.vars` and
+ * `.dev.vars.<name>` stay secret. The context provider and the workspace keep `isSecretPath`,
  * which follows the `.env*` read deny of 0008 and so never reads a template either.
  */
 export function isSecretPartPath(path: string): boolean {
@@ -90,6 +103,29 @@ export const SECRET_PATTERNS: readonly SecretPattern[] = [
   { kind: "a Stripe live key", pattern: /\b[rs]k_live_[0-9A-Za-z]{20,}/g },
   { kind: "an npm token", pattern: /\bnpm_[A-Za-z0-9]{36}\b/g },
 ];
+
+// Scrubbing stored text (DIPO-312): a stored tool line (`ingest/output.ts`) and a log line
+// (`log/logger.ts`) hold no value of a `SECRET_PATTERNS` shape and no URL with user information.
+
+/** What a scrubbed value becomes. */
+export const REDACTED_TEXT = "[redacted]";
+
+/** A URL that holds user information (`https://user:token@host/path`), whole. */
+const CREDENTIAL_URL = /\b[A-Za-z][A-Za-z0-9+.-]*:\/\/[^\s/?#"'`<>]*@[^\s"'`<>]*/g;
+
+/** A private key from its first line through its last, or to the end of the text. */
+const PRIVATE_KEY_BLOCK =
+  /-----BEGIN [A-Z0-9 ]*PRIVATE KEY(?: BLOCK)?-----[\s\S]*?(?:-----END [A-Z0-9 ]*PRIVATE KEY(?: BLOCK)?-----|$)/g;
+
+/**
+ * `text` with every URL that holds user information, every private key and every other value of a
+ * `SECRET_PATTERNS` shape replaced by `[redacted]`.
+ */
+export function redactSecretText(text: string): string {
+  let out = text.replace(CREDENTIAL_URL, REDACTED_TEXT).replace(PRIVATE_KEY_BLOCK, REDACTED_TEXT);
+  for (const { pattern } of SECRET_PATTERNS) out = out.replace(pattern, REDACTED_TEXT);
+  return out;
+}
 
 /** One kind of secret content found, with the matched texts (never shown, only compared). */
 export interface SecretMatch {

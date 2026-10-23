@@ -296,6 +296,8 @@ interface World {
   onStream: ((box: string, n: number) => void) | null;
   /** Runs when the merge is copied into a box, before it is. */
   onCopy: (() => Promise<void>) | null;
+  /** Why a run's box lacks a merge dipo made outside it (DIPO-324), by run. */
+  readonly behind: Map<string, string>;
 }
 
 function write(dir: string, files: Readonly<Record<string, string>>): void {
@@ -428,6 +430,7 @@ async function world(repo: TempRepoWithRemote): Promise<World> {
     run: (runId) => runs.get(runId) ?? null,
     git: (office) => (office === OFFICE ? git : undefined),
     live: (runId) => !parks.some((p) => p.runId === runId) && !self!.reviewing.has(runId),
+    behind: (run) => self!.behind.get(run.runId) ?? null,
     park: (runId, park) => {
       parks.push({ runId, park });
       return true;
@@ -484,6 +487,7 @@ async function world(repo: TempRepoWithRemote): Promise<World> {
     failCopy: false,
     onStream: null,
     onCopy: null,
+    behind: new Map(),
   };
   return self;
 }
@@ -1232,5 +1236,187 @@ describe("the review fixes of DIPO-149 on real git", () => {
       if (synced.kind === "merged") {
         expect(synced.merged.conflicts).toEqual([{ path: "src/shared.ts", kind: "content" }]);
       }
+    }));
+});
+
+/** A commit on the remote story branch the local branch lacks (pushed from elsewhere). */
+async function pushedElsewhere(w: World, s: Story, files: Readonly<Record<string, string>>) {
+  await w.repo.git("checkout", "--quiet", "-b", "elsewhere", s.run.branch);
+  write(w.repo.dir, files);
+  const sha = await w.repo.commitAll("Pushed from elsewhere");
+  await w.repo.git("push", "--quiet", "origin", `elsewhere:refs/heads/${s.run.branch}`);
+  await w.repo.git("checkout", "--quiet", "main");
+  await w.repo.git("branch", "--quiet", "-D", "elsewhere");
+  await w.repo.git("fetch", "--quiet", "origin");
+  return sha;
+}
+
+describe("the merge of a resumed conflict park on real git (DIPO-324)", () => {
+  it("lets no part meet a rejected push again: the resume merges the remote outside the box, the box gets it first, and a part pushes", () =>
+    inWorld(async (w) => {
+      write(w.b.work, { "src/b.ts": "b\n" });
+      await handPart(w, w.b, "B adds b");
+      const remoteOnly = await pushedElsewhere(w, w.b, { "src/remote.ts": "remote\n" });
+      // A part on top of the old tip: its push is rejected, as the park recorded.
+      write(w.b.work, { "src/b2.ts": "b2\n" });
+      await handPart(w, w.b, "B adds b2");
+      expect(w.parks.at(-1)?.park.cause).toBe("push-rejected");
+      w.parks.length = 0;
+      const local = await tipOf(w, w.b);
+      // The resume (`ConflictResumes`): the remote merged into the branch in dipo's git and
+      // pushed, never forced; the box copy waits for the session's start.
+      const tree = (await w.repo.git("merge-tree", "--write-tree", local, remoteOnly))
+        .trim()
+        .split("\n")[0]!;
+      const merge = (
+        await w.repo.git("commit-tree", tree, "-p", local, "-p", remoteOnly, "-m", "Merge")
+      ).trim();
+      await w.repo.git("update-ref", `refs/heads/${w.b.run.branch}`, merge, local);
+      await w.repo.git("push", "--quiet", "origin", w.b.run.branch);
+      w.behind.set(w.b.run.runId, "the box lacks dipo's merge");
+      // A part handed before the box got the merge is refused, never taken against the merge.
+      write(w.b.work, { "src/early.ts": "early\n" });
+      await handPart(w, w.b, "An early part");
+      expect(w.parks.map((p) => p.park.cause)).toEqual(["catch-up-failed"]);
+      expect(await tipOf(w, w.b)).toBe(merge);
+      w.parks.length = 0;
+      // The session's start copies the merge in; then the part commits on it and pushes.
+      await w.collisions.copyPending(w.b.run, local);
+      w.behind.delete(w.b.run.runId);
+      expect(readFileSync(join(w.b.work, "src/remote.ts"), "utf8")).toBe("remote\n");
+      await handPart(w, w.b, "The part after the copy");
+      expect(w.parks).toEqual([]);
+      const tip = await tipOf(w, w.b);
+      expect((await w.repo.git("rev-parse", `${tip}^`)).trim()).toBe(merge);
+      expect(await tipOf(w, w.b, "remote")).toBe(tip);
+      expect((await w.repo.git("show", `${tip}:src/remote.ts`)).trim()).toBe("remote");
+      expect((await w.repo.git("show", `${tip}:src/early.ts`)).trim()).toBe("early");
+    }));
+
+  it("merges the base again whenever it moved, without an overlap, and hands back a conflict", () =>
+    inWorld(async (w) => {
+      write(w.b.work, { "src/b.ts": "b\n" });
+      await handPart(w, w.b, "B adds b");
+      const before = await tipOf(w, w.b);
+      const onto = await onBase(w, { "docs/elsewhere.md": "elsewhere\n" });
+      const clean = await w.collisions.mergeOnResume(w.b.run);
+      expect(clean.kind).toBe("merged");
+      if (clean.kind !== "merged") return;
+      expect((await w.repo.git("rev-list", "--parents", "-n", "1", clean.head)).trim()).toBe(
+        `${clean.head} ${before} ${onto}`,
+      );
+      expect(readFileSync(join(w.b.work, "docs/elsewhere.md"), "utf8")).toBe("elsewhere\n");
+
+      const { onto: conflicting } = await conflictAndMerge(w);
+      const conflicted = await w.collisions.mergeOnResume(w.b.run);
+      expect(conflicted.kind).toBe("merged");
+      if (conflicted.kind !== "merged" || conflicted.item === null) throw new Error("no item");
+      expect(conflicted.merged.onto).toBe(conflicting);
+      expect(conflicted.item.text).toContain("Conflicted files: content: src/shared.ts");
+      expect(readFileSync(join(w.b.work, "src/shared.ts"), "utf8")).toContain("<<<<<<< ");
+      // The caller tells the worker.
+      expect(w.told).toEqual([]);
+    }));
+
+  it("parks nothing itself and reports a stopped run", () =>
+    inWorld(async (w) => {
+      w.reviewing.add(w.b.run.runId);
+      expect(await w.collisions.mergeOnResume(w.b.run)).toEqual({ kind: "stopped" });
+      expect(w.parks).toEqual([]);
+    }));
+});
+
+/** The merge slot's sync: the base merged into the branch from git objects, the box untouched. */
+async function slotMerge(w: World, s: Story): Promise<{ from: string; merge: string }> {
+  const from = await tipOf(w, s);
+  const onto = (await w.repo.git("rev-parse", "refs/remotes/origin/main")).trim();
+  const tree = (await w.repo.git("merge-tree", "--write-tree", from, onto)).trim().split("\n")[0]!;
+  const merge = (
+    await w.repo.git("commit-tree", tree, "-p", from, "-p", onto, "-m", "Merge main")
+  ).trim();
+  await w.repo.git("update-ref", `refs/heads/${s.run.branch}`, merge, from);
+  return { from, merge };
+}
+
+describe("a merge dipo committed on the branch outside the box (DIPO-324)", () => {
+  it("copies what the branch got outside the box into it, and leaves the branch where it is", () =>
+    inWorld(async (w) => {
+      write(w.b.work, { "src/b.ts": "b\n" });
+      await handPart(w, w.b, "B adds b");
+      await onBase(w, { "docs/notes.md": "notes\n" });
+      const { from, merge } = await slotMerge(w, w.b);
+      expect(existsSync(join(w.b.work, "docs/notes.md"))).toBe(false);
+      const copied = await w.collisions.copyPending(w.b.run, from);
+      expect(copied.written).toEqual(["docs/notes.md"]);
+      expect(readFileSync(join(w.b.work, "docs/notes.md"), "utf8")).toBe("notes\n");
+      expect(await tipOf(w, w.b)).toBe(merge);
+      expect(w.copies).toEqual([w.b.run.box]);
+      // Nothing left to copy: no box call.
+      expect((await w.collisions.copyPending(w.b.run, merge)).written).toEqual([]);
+      expect(w.copies).toEqual([w.b.run.box]);
+      // The worker's next part keeps what the base added.
+      write(w.b.work, { "src/b.ts": "b2\n" });
+      await handPart(w, w.b, "B changes b");
+      const tip = await tipOf(w, w.b);
+      expect((await w.repo.git("show", `${tip}:docs/notes.md`)).trim()).toBe("notes");
+    }));
+
+  it("removes deleted and renamed paths, writes added and binary files, and leaves backlog/ out", () =>
+    inWorld(async (w) => {
+      write(w.b.work, { "src/b.ts": "b\n" });
+      await handPart(w, w.b, "B adds b");
+      // The base deletes a file, renames another, adds a binary file and changes the backlog.
+      const logo = Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x00, 0x01, 0xff, 0x00, 0x0a]);
+      rmSync(join(w.repo.dir, "src/old.ts"));
+      rmSync(join(w.repo.dir, "README.md"));
+      mkdirSync(join(w.repo.dir, "assets"), { recursive: true });
+      writeFileSync(join(w.repo.dir, "assets/logo.png"), logo);
+      await onBase(w, {
+        "docs/README.md": "# Collisions\n",
+        "backlog/tasks/dipo-1 - One.md": "---\nid: DIPO-1\nstatus: Done\n---\n",
+      });
+      const { from } = await slotMerge(w, w.b);
+      const copied = await w.collisions.copyPending(w.b.run, from);
+      expect([...copied.written].toSorted()).toEqual(["assets/logo.png", "docs/README.md"]);
+      expect([...copied.removed].toSorted()).toEqual(["README.md", "src/old.ts"]);
+      expect(existsSync(join(w.b.work, "src/old.ts"))).toBe(false);
+      expect(existsSync(join(w.b.work, "README.md"))).toBe(false);
+      expect(readFileSync(join(w.b.work, "docs/README.md"), "utf8")).toBe("# Collisions\n");
+      expect(readFileSync(join(w.b.work, "assets/logo.png")).equals(logo)).toBe(true);
+      // dipo's own task-file commits never reach the box: backlog/ stays as the box got it.
+      expect(readFileSync(join(w.b.work, "backlog/tasks/dipo-1 - One.md"), "utf8")).toContain(
+        "status: Ready",
+      );
+      expect(readFileSync(join(w.b.work, "src/b.ts"), "utf8")).toBe("b\n");
+    }));
+
+  it("throws when the copy fails, and the box keeps its files", () =>
+    inWorld(async (w) => {
+      await onBase(w, { "docs/notes.md": "notes\n" });
+      const { from } = await slotMerge(w, w.b);
+      w.failCopy = true;
+      await expect(w.collisions.copyPending(w.b.run, from)).rejects.toThrow("the box is gone");
+      expect(existsSync(join(w.b.work, "docs/notes.md"))).toBe(false);
+    }));
+
+  it("takes no part while the box lacks the merge, and parks the story instead", () =>
+    inWorld(async (w) => {
+      await onBase(w, { "docs/notes.md": "notes\n" });
+      const { merge } = await slotMerge(w, w.b);
+      w.behind.set(w.b.run.runId, "the box lacks dipo's merge");
+      write(w.b.work, { "src/b.ts": "b\n" });
+      await handPart(w, w.b, "B adds b");
+      expect(w.parks).toEqual([
+        {
+          runId: w.b.run.runId,
+          park: {
+            reason: "conflict",
+            cause: "catch-up-failed",
+            detail: "the box lacks dipo's merge",
+          },
+        },
+      ]);
+      // Nothing was committed against the merged tip: the base's file is still on the branch.
+      expect(await tipOf(w, w.b)).toBe(merge);
     }));
 });

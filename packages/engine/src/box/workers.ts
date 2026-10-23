@@ -86,7 +86,7 @@ import {
 } from "./cache";
 import { BOX_DIPO_DIR, BOX_WORKDIR, type BoxCodeDeps, stageBoxCode } from "./code";
 import { BoxDoor, type BoxDoorDeps, type DoorRead, installDipoPart } from "./door";
-import { BOX_IMAGE_ENV, type BaseBox, type BoxToolchain } from "./image";
+import { BOX_IMAGE_ENV, type BaseBox, type BoxImageDescription, type BoxToolchain } from "./image";
 import { boxModelEnvironment, type RunningModelProxy } from "./model-proxy";
 import {
   BoxError,
@@ -594,6 +594,48 @@ export class BoxWorkers {
   }
 
   /**
+   * The office image of `image` for run `runId`'s box (DIPO-281): reused, or built in a build box
+   * through this daemon's web route (`ensureBoxImage`). The build box's name is known before it
+   * exists, so the sweep at daemon start leaves it alone.
+   */
+  async #image(
+    runId: string,
+    image: BoxImageDescription,
+  ): Promise<Awaited<ReturnType<typeof ensureBoxImage>>> {
+    let building: string | null = null;
+    try {
+      return await ensureBoxImage(
+        {
+          boxes: this.#deps.boxes,
+          route: {
+            acquire: (box) => this.#web.acquire(box),
+            release: (box) => this.#web.release(box),
+          },
+          scratchRoot: this.#deps.scratchRoot,
+          toolsRoot: this.#deps.netToolsRoot,
+          clock: this.#deps.code.clock,
+          buildId: () => {
+            const id = randomUUID().replaceAll("-", "").slice(0, 16);
+            building = boxName(`${BUILD_BOX_RUN_PREFIX}${id}`);
+            this.#filling.add(building);
+            return id;
+          },
+          onEvent: (event) =>
+            this.#deps.warn?.("a build box was not cleaned up", {
+              run: runId,
+              box: event.box,
+              step: event.step,
+              reason: event.reason,
+            }),
+        },
+        image,
+      );
+    } finally {
+      if (building !== null) this.#filling.delete(building);
+    }
+  }
+
+  /**
    * Makes the run's box (the launch's setup): image, network, the package cache, the box started
    * and the code copied in. Throws a `BoxError` when it cannot; a box it made is deleted again
    * then. A package cache that cannot be had never throws: the box is made without one.
@@ -620,39 +662,7 @@ export class BoxWorkers {
       const why = base.errors.map((error) => `${error.path}: ${error.message}`).join("; ");
       throw new BoxError("box.refused", `the base branch's box block cannot be read: ${why}`);
     }
-    // The build box's name is known before it exists, so the sweep at daemon start leaves it alone.
-    let building: string | null = null;
-    let image: Awaited<ReturnType<typeof ensureBoxImage>>;
-    try {
-      image = await ensureBoxImage(
-        {
-          boxes,
-          route: {
-            acquire: (box) => this.#web.acquire(box),
-            release: (box) => this.#web.release(box),
-          },
-          scratchRoot: this.#deps.scratchRoot,
-          toolsRoot: this.#deps.netToolsRoot,
-          clock: this.#deps.code.clock,
-          buildId: () => {
-            const id = randomUUID().replaceAll("-", "").slice(0, 16);
-            building = boxName(`${BUILD_BOX_RUN_PREFIX}${id}`);
-            this.#filling.add(building);
-            return id;
-          },
-          onEvent: (event) =>
-            this.#deps.warn?.("a build box was not cleaned up", {
-              run: input.runId,
-              box: event.box,
-              step: event.step,
-              reason: event.reason,
-            }),
-        },
-        base.description.image,
-      );
-    } finally {
-      if (building !== null) this.#filling.delete(building);
-    }
+    const image = await this.#image(input.runId, base.description.image);
     const network = await this.#networkOf();
     const name = boxName(input.runId);
     // Before the fill: a daemon that crashes in the first fill asks the backend at its next start.
@@ -779,6 +789,42 @@ export class BoxWorkers {
         BOX_REST_WAIT_CODE,
         `the box of run ${runId} is still being checked and stopped after ${waitText(waitMs)}; the session did not start. Name the story again later.`,
       );
+    }
+  }
+
+  /**
+   * The run's box running with no earlier process in it, before its next developer session
+   * (DIPO-324): dipo copies the merges it committed on the story branch outside the box into it
+   * then, behind the box firewall set to the web route (DIPO-281). The session that follows finds
+   * it running and fresh, so it does not start it again.
+   * Throws a `BoxError` as `session` does.
+   */
+  async awake(input: { readonly runId: string; readonly runDir: string }): Promise<string> {
+    const { runId } = input;
+    this.#epochs.set(runId, (this.#epochs.get(runId) ?? 0) + 1);
+    this.#starting.set(runId, (this.#starting.get(runId) ?? 0) + 1);
+    try {
+      await this.#restDone(runId);
+      const record = readBoxRun(input.runDir);
+      if (record === null || record.runId !== runId || record.finished === true) {
+        throw new BoxError("box.gone", `run ${runId} has no box to copy into.`);
+      }
+      await this.#running(record.box);
+      // Before anything is copied in (DIPO-281): the box reaches the web route on the Mac, no more.
+      // The route is the session's too; a rest or finish releases it with the box's others.
+      const web = await this.#web.acquire(record.box);
+      const network = await this.#networkOf();
+      await this.#deps.boxes.firewall(record.box, {
+        hostAddress: network.hostAddress,
+        ports: [portOf(web.url)],
+      });
+      // No claude ran in it since it started: the session need not start it again.
+      this.#fresh.add(record.box);
+      return record.box;
+    } finally {
+      const left = (this.#starting.get(runId) ?? 1) - 1;
+      if (left > 0) this.#starting.set(runId, left);
+      else this.#starting.delete(runId);
     }
   }
 

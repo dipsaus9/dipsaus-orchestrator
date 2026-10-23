@@ -40,7 +40,7 @@
 // Each git step is its own item of the office git queue; waiting for CI holds only the slot. Work
 // of one office runs one tick at a time.
 
-import type { Clock, OfficeId, StoryKey, TimerHandle } from "@dipsaus-orchestrator/contract";
+import type { Clock, OfficeId, RunId, StoryKey, TimerHandle } from "@dipsaus-orchestrator/contract";
 
 import { openEntries, updateEntry } from "../backlog/lane/journal";
 import type { OfficeLane } from "../backlog/lane/lane";
@@ -223,10 +223,20 @@ export class MergeSlot {
 
   /**
    * DIPO-155's `SlotReentry`: a resumed `slot-refused` park lets its story into the slot again, with
-   * a fresh per-stay count (a new occupant row), at the next tick it is eligible at.
+   * a fresh per-stay count (a new occupant row), at the next tick it is eligible at. The park and
+   * its lift each committed the task file on the branch and pushed it, so the story PR is first
+   * updated to that pushed head (DIPO-324): the slot compares the host's head with the recorded
+   * one, and a head it did not record keeps the story out as a hand change.
    */
   async reenter(office: OfficeId, run: { readonly runId: string }): Promise<void> {
     this.#offices.get(office)?.left.delete(run.runId);
+    await this.#stories?.prSynced(office, run.runId as RunId).catch((error: unknown) => {
+      this.#deps.logger?.warn("updating a re-entered story's PR to its head failed", {
+        office,
+        run: run.runId,
+        reason: reasonOf(error),
+      });
+    });
     this.kick(office);
   }
 

@@ -29,6 +29,7 @@ import { GitError } from "../../src/git/runner";
 import { workerAnswerText } from "../../src/hooks/permissions";
 import { closeQuestion, findQuestion, insertWorkerQuestion } from "../../src/hooks/questions";
 import { HANDOFF_NOTE_MAX } from "../../src/prompts/handoff";
+import { recordReviewVerdict } from "../../src/review/store";
 import {
   backstopSnapshotOf,
   createRunOutcomes,
@@ -873,6 +874,30 @@ describe("capped, conflicted and review-loop resumes (0020 decision 6b)", () => 
     expect(w.ported).toEqual(["slot"]);
     expect(w.sessions).toEqual([]);
     expect(w.reviews).toEqual([]);
+    // The run waits In Review again, so the merge slot takes it (DIPO-324); no review ran yet.
+    expect(findRun(w.f.office, w.f.run)?.endKind).toBe("in-review");
+    expect(grants()).toEqual([]);
+  });
+
+  it("returns a reviewed run that re-enters the merge slot to the reviewed end", async () => {
+    const { office, run, t } = w.f;
+    office.immediate(() =>
+      recordReviewVerdict(office, t.ids, {
+        runId: run,
+        key: w.key,
+        round: 1,
+        agent: null,
+        model: "opus",
+        commit: "c".repeat(40),
+        codeTreeKey: "tree",
+        judged: { verdict: "approved", criteria: [], findings: [], summary: "Fine.", notes: [] },
+        at: t.clock.now(),
+      }),
+    );
+    park("conflict", "slot-refused", "In Review");
+    await resume(resumption(), { note: "Again." });
+    expect(findRun(office, run)?.endKind).toBe("reviewed");
+    expect(w.ported).toEqual(["slot"]);
   });
 
   it("opens a new story PR for stopped (pr-closed) without a model session", async () => {
@@ -881,6 +906,49 @@ describe("capped, conflicted and review-loop resumes (0020 decision 6b)", () => 
     expect(reply.result.to).toBe("In Review");
     expect(w.ported).toEqual(["pr"]);
     expect(w.sessions).toEqual([]);
+    expect(w.lifts[0]?.to).toBe("In Review");
+    expect(findRun(w.f.office, w.f.run)?.endKind).toBe("in-review");
+  });
+
+  it("starts the box merge a conflict resume prepared only once the session started", async () => {
+    park("conflict", "push-rejected");
+    const order: string[] = [];
+    await resume(
+      resumption({
+        parks: {
+          conflicts: () => ({
+            prepare: async () => {
+              order.push("prepare");
+              return {
+                message: "The remote branch holds 1 commit your branch lacks.",
+                afterStart: async () => {
+                  order.push(`merge after ${w.sessions.length} session`);
+                },
+              };
+            },
+          }),
+        },
+      } as Partial<ResumptionOptions>),
+      { note: "Merge theirs." },
+    );
+    expect(order).toEqual(["prepare", "merge after 1 session"]);
+    expect(first(w.sessions[0])).toContain("The remote branch holds 1 commit");
+  });
+
+  it("starts no session when the conflict resume parked the story again", async () => {
+    park("conflict", "unwritable-path");
+    await resume(
+      resumption({
+        parks: { conflicts: () => ({ prepare: async () => ({ parked: true }) }) },
+      } as Partial<ResumptionOptions>),
+      { note: "Fixed on main." },
+    );
+    expect(w.sessions).toEqual([]);
+    expect(
+      runIntents(w.f.office, w.f.run).find((intent) =>
+        intent.detail.startsWith("maintainer-resume"),
+      )?.outcome,
+    ).toBe("parked");
   });
 
   for (const [reason, cause] of [

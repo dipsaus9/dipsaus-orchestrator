@@ -3,4 +3,5 @@
 randomize = true
 retry = 0
 # DIPO-117: every test leaves the process's uncaught-error listeners as it found them.
-preload = ["./packages/testkit/src/listener-guard.ts"]
+# DIPO-316: first, every test process gets the test marker and its own state and runtime folders.
+preload = ["./packages/testkit/src/test-env.ts", "./packages/testkit/src/listener-guard.ts"]

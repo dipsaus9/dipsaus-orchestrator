@@ -179,6 +179,12 @@ export interface RunResumerDeps {
    * (`BoxLifetime.ensure`). Without them no box is made or checked.
    */
   readonly boxes?: RunBoxes;
+  /**
+   * Copies into the run's box the merges dipo committed on its branch outside the box (the merge
+   * slot's, DIPO-324), before the next developer session; throws when that fails, and the session
+   * does not start (the caller parks the story). Nothing is copied without it.
+   */
+  readonly boxSync?: (office: OfficeId, run: StoredRun) => Promise<void>;
   /** The office's current run profile, whose install a rebuilt box gets (DIPO-294). */
   readonly profile?: (office: OfficeId) => RunProfile | null;
   /** The handoff facts of the worktree; `gatherHandoff` on the office git by default. */
@@ -480,6 +486,17 @@ export class RunResumer implements NextSession {
     // The run's box lives from claim to merge; one that was lost is rebuilt first (DIPO-278).
     const ensured = await this.#ensureBox(office, request, run, paths.runDir, git, config);
     if (ensured !== null) return { kind: "failed", reason: ensured };
+    // The worker never starts on a box that lacks a merge dipo made on its branch (DIPO-324).
+    if (deps.boxSync !== undefined) {
+      try {
+        await deps.boxSync(request.office, run);
+      } catch (error) {
+        return {
+          kind: "failed",
+          reason: `dipo's merge on the story branch could not be copied into the box: ${messageOf(error)}`,
+        };
+      }
+    }
 
     // The launch checks run before every launch and resume (0008 section 2).
     let prepared;

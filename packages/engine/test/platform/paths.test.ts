@@ -1,7 +1,8 @@
 // Software directories (DIPO-23): the anchor, logs, runtime directory candidates and checks.
 
 import { describe, expect, it } from "bun:test";
-import { chmodSync, mkdirSync, statSync, symlinkSync, writeFileSync } from "node:fs";
+import { chmodSync, mkdirSync, readdirSync, statSync, symlinkSync, writeFileSync } from "node:fs";
+import { userInfo } from "node:os";
 import { dirname, join } from "node:path";
 
 import { withTempDir } from "@dipsaus-orchestrator/testkit";
@@ -9,13 +10,16 @@ import { withTempDir } from "@dipsaus-orchestrator/testkit";
 import {
   checkRuntimeDir,
   chooseRuntimeDir,
+  DIR_ERROR_CODES,
   longestRuntimePathBytes,
   readRuntimeRecord,
   resolveSoftwareDirs,
   RUNTIME_PATH_LIMIT,
   runtimeCandidates,
   RuntimeDirError,
+  SoftwareDirError,
   systemRuntimeDirFs,
+  TEST_MARKER,
   writeRuntimeRecord,
   type RuntimeDirFs,
 } from "../../src/platform/paths";
@@ -145,7 +149,7 @@ describe("chooseRuntimeDir", () => {
       expect(longestRuntimePathBytes(long)).toBeGreaterThan(RUNTIME_PATH_LIMIT);
       const choice = chooseRuntimeDir({
         candidates: [
-          { path: long, source: "DIPO_RUNTIME_DIR" },
+          { path: long, source: "TMPDIR" },
           { path: short, source: "tmp" },
         ],
         uid,
@@ -191,7 +195,7 @@ describe("chooseRuntimeDir", () => {
 
       const choice = chooseRuntimeDir({
         candidates: [
-          { path: symlinked, source: "DIPO_RUNTIME_DIR" },
+          { path: symlinked, source: "XDG_RUNTIME_DIR" },
           { path: open, source: "TMPDIR" },
           { path: file, source: "tmp" },
         ],
@@ -250,6 +254,188 @@ describe("chooseRuntimeDir", () => {
       "/tmp/dipo-1000",
       "/tmp/dipo-abc123",
     ]);
+  });
+});
+
+/** The error `fn` throws; fails the test when it returns. */
+function thrown(fn: () => unknown): unknown {
+  try {
+    fn();
+  } catch (error) {
+    return error;
+  }
+  throw new Error("expected a throw");
+}
+
+/** A file system that fails the test when any path is touched. */
+const untouchable: RuntimeDirFs = {
+  lstat: (path) => {
+    throw new Error(`touched ${path}`);
+  },
+  mkdir: (path) => {
+    throw new Error(`touched ${path}`);
+  },
+  mkdtemp: (prefix) => {
+    throw new Error(`touched ${prefix}`);
+  },
+};
+
+// DIPO-316 AC #1: an override dipo cannot use stops it, naming the path and the reason, and no
+// other candidate is tried.
+describe("an unusable override", () => {
+  it("refuses a DIPO_HOME that is relative, a file, or below a file", async () => {
+    await withTempDir((dir) => {
+      const file = join(dir, "file");
+      writeFileSync(file, "");
+      const cases: [string, string][] = [
+        ["relative/state", "it is not an absolute path"],
+        [file, "it is not a directory"],
+        [join(file, "state"), "a part of it is not a directory"],
+      ];
+      for (const [home, reason] of cases) {
+        const error = thrown(() =>
+          resolveSoftwareDirs({ platform: "linux", env: { DIPO_HOME: home }, home: "/home/me" }),
+        );
+        expect(error).toBeInstanceOf(SoftwareDirError);
+        expect(error).toMatchObject({ code: DIR_ERROR_CODES.stateUnusable, path: home, reason });
+        expect((error as Error).message).toContain(home);
+        expect((error as Error).message).toContain(reason);
+      }
+    });
+  });
+
+  it("accepts a DIPO_HOME that is missing or a directory of this user", async () => {
+    await withTempDir((dir) => {
+      for (const home of [join(dir, "missing", "state"), dir]) {
+        const dirs = resolveSoftwareDirs({
+          platform: "darwin",
+          env: { DIPO_HOME: home },
+          home: "/Users/me",
+        });
+        expect(dirs.state).toBe(home);
+      }
+    });
+  });
+
+  it("refuses a DIPO_RUNTIME_DIR that is too long, a symlink or open, and tries nothing after it", async () => {
+    await withTempDir((dir) => {
+      const long = join(dir, "x".repeat(RUNTIME_PATH_LIMIT));
+      const link = join(dir, "link");
+      mkdirSync(join(dir, "target"), { mode: 0o700 });
+      symlinkSync(join(dir, "target"), link);
+      const open = join(dir, "open");
+      mkdirSync(open);
+      chmodSync(open, 0o755);
+      const next = join(dir, "next");
+      const cases: [string, string][] = [
+        [long, "100-byte limit"],
+        [link, "it is a symlink"],
+        [open, "its mode is 0755, not 0700"],
+      ];
+      for (const [path, reason] of cases) {
+        const error = thrown(() =>
+          chooseRuntimeDir({
+            candidates: [
+              { path, source: "DIPO_RUNTIME_DIR" },
+              { path: next, source: "TMPDIR" },
+            ],
+            uid,
+            tmpBase: dir,
+          }),
+        );
+        expect(error).toBeInstanceOf(RuntimeDirError);
+        expect((error as RuntimeDirError).code).toBe(DIR_ERROR_CODES.runtimeUnusable);
+        expect((error as RuntimeDirError).rejected).toHaveLength(1);
+        expect((error as RuntimeDirError).rejected[0]?.path).toBe(path);
+        expect((error as Error).message).toContain(path);
+        expect((error as Error).message).toContain(reason);
+      }
+      // The next candidate and the mkdtemp fallback were never made.
+      expect(() => statSync(next)).toThrow();
+      expect(readdirSync(dir).filter((name) => name.startsWith("dipo-"))).toEqual([]);
+    });
+  });
+});
+
+// DIPO-316 AC #3: with the test marker, which this test process has from the test runner's setup
+// file, the real home's state and runtime folders are refused.
+describe("the test marker", () => {
+  it("is set in this test process", () => {
+    expect(TEST_MARKER).toBe("DIPO_TEST");
+    expect(process.env[TEST_MARKER]).toBe("1");
+  });
+
+  it("refuses the real home's state and logs folders, by default and through DIPO_HOME", () => {
+    const home = userInfo().homedir;
+    const real = [
+      join(home, "Library", "Application Support", "dipo"),
+      join(home, ".local", "state", "dipo"),
+      join(home, "Library", "Logs", "dipo"),
+      join(home, ".local", "state", "dipo", "offices"),
+    ];
+    for (const platform of ["darwin", "linux"] as const) {
+      const error = thrown(() => resolveSoftwareDirs({ platform, env: {}, home }));
+      expect(error).toMatchObject({ code: DIR_ERROR_CODES.realStateInTest });
+    }
+    for (const path of real) {
+      const error = thrown(() =>
+        resolveSoftwareDirs({ platform: "linux", env: { DIPO_HOME: path }, home: "/home/me" }),
+      );
+      expect(error).toBeInstanceOf(SoftwareDirError);
+      expect(error).toMatchObject({ code: DIR_ERROR_CODES.realStateInTest, path });
+    }
+    // Another home's folders are not this machine's: the default paths stay testable.
+    expect(
+      resolveSoftwareDirs({ platform: "linux", env: {}, home: "/home/someone-else" }).state,
+    ).toBe("/home/someone-else/.local/state/dipo");
+  });
+
+  it("refuses the real runtime folders before touching them, wherever they are in the order", () => {
+    const real = [
+      `/tmp/dipo-${uid}`,
+      `/private/tmp/dipo-${uid}/`,
+      "/var/folders/ab/cdefgh/T/dipo",
+      "/private/var/folders/ab/cdefgh/T/dipo",
+      ...(process.env["TMPDIR"] ? [join(process.env["TMPDIR"], "dipo")] : []),
+    ];
+    for (const path of real) {
+      for (const source of ["DIPO_RUNTIME_DIR", "TMPDIR", "tmp"] as const) {
+        const error = thrown(() =>
+          chooseRuntimeDir({ candidates: [{ path, source }], uid, tmpBase: "/x", fs: untouchable }),
+        );
+        expect(error).toBeInstanceOf(RuntimeDirError);
+        expect((error as RuntimeDirError).code).toBe(DIR_ERROR_CODES.realRuntimeInTest);
+        expect((error as Error).message).toContain(path);
+      }
+    }
+  });
+
+  it("reads the marker from the daemon's environment too", () => {
+    const saved = process.env[TEST_MARKER];
+    delete process.env[TEST_MARKER];
+    try {
+      const candidates = [{ path: `/tmp/dipo-${uid}`, source: "tmp" as const }];
+      const error = thrown(() =>
+        chooseRuntimeDir({
+          candidates,
+          uid,
+          tmpBase: "/x",
+          fs: untouchable,
+          env: { [TEST_MARKER]: "1" },
+        }),
+      );
+      expect((error as RuntimeDirError).code).toBe(DIR_ERROR_CODES.realRuntimeInTest);
+      const state = thrown(() =>
+        resolveSoftwareDirs({
+          platform: "darwin",
+          env: { [TEST_MARKER]: "1" },
+          home: userInfo().homedir,
+        }),
+      );
+      expect((state as SoftwareDirError).code).toBe(DIR_ERROR_CODES.realStateInTest);
+    } finally {
+      if (saved !== undefined) process.env[TEST_MARKER] = saved;
+    }
   });
 });
 

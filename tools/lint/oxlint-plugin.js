@@ -103,9 +103,133 @@ function readsBun(node) {
   return specifierOf(member.property) === "Bun";
 }
 
+/** The test runner's registration functions a CI-only file may call only behind its guard. */
+const REGISTRATIONS = new Set(["describe", "it", "test"]);
+
+const CI_GUARD_MESSAGE =
+  'A *.ci.test.ts file registers its tests only when DIPO_TEST_CI is 1 (0017 section 1): put every top-level describe, it or test inside `if (process.env["DIPO_TEST_CI"] === "1") { ... }` (or a top-level const bound to that comparison), or use `describe.if(<that>)`.';
+
+/** `process.env.DIPO_TEST_CI` or `process.env["DIPO_TEST_CI"]`. */
+function readsCiVariable(node) {
+  if (node?.type !== "MemberExpression") return false;
+  const name = node.computed
+    ? specifierOf(node.property)
+    : node.property.type === "Identifier"
+      ? node.property.name
+      : null;
+  if (name !== "DIPO_TEST_CI") return false;
+  const env = node.object;
+  if (env?.type !== "MemberExpression" || env.computed) return false;
+  return (
+    env.property.type === "Identifier" &&
+    env.property.name === "env" &&
+    env.object.type === "Identifier" &&
+    env.object.name === "process"
+  );
+}
+
+/** The string literal "1". */
+function isOne(node) {
+  return node.type === "Literal" && node.value === "1";
+}
+
+/** `<DIPO_TEST_CI> === "1"` either way round, or a name bound to it (`guards`). */
+function isCiGuard(node, guards) {
+  if (node == null) return false;
+  if (node.type === "Identifier") return guards.has(node.name);
+  if (node.type !== "BinaryExpression" || node.operator !== "===") return false;
+  return (
+    (readsCiVariable(node.left) && isOne(node.right)) ||
+    (readsCiVariable(node.right) && isOne(node.left))
+  );
+}
+
+/** The registration a call makes (`describe`, `it.each(...)`, `describe.if(x)` ...), or null. */
+function registrationOf(call) {
+  let callee = call.callee;
+  let guardedBy = null;
+  for (;;) {
+    if (callee.type === "Identifier") {
+      return REGISTRATIONS.has(callee.name) ? { name: callee.name, guardedBy } : null;
+    }
+    if (callee.type === "MemberExpression") {
+      callee = callee.object;
+      continue;
+    }
+    if (callee.type === "CallExpression") {
+      // `describe.if(guard)(...)`: the inner call's argument is the guard.
+      const inner = callee.callee;
+      if (
+        inner.type === "MemberExpression" &&
+        !inner.computed &&
+        inner.property.type === "Identifier" &&
+        inner.property.name === "if"
+      ) {
+        guardedBy = callee.arguments[0] ?? null;
+      }
+      callee = inner;
+      continue;
+    }
+    return null;
+  }
+}
+
+const FUNCTIONS = new Set(["ArrowFunctionExpression", "FunctionExpression", "FunctionDeclaration"]);
+
 export default {
   meta: { name: "dipo" },
   rules: {
+    "ci-test-guard": {
+      meta: {
+        type: "problem",
+        docs: {
+          description:
+            "Require every top-level test registration in a *.ci.test.ts file to sit behind the DIPO_TEST_CI guard.",
+        },
+      },
+      create(context) {
+        /** Top-level `const` names bound to the guard comparison. */
+        const guards = new Set();
+        return {
+          Program(program) {
+            for (const statement of program.body) {
+              const declaration =
+                statement.type === "ExportNamedDeclaration" ? statement.declaration : statement;
+              if (declaration?.type !== "VariableDeclaration" || declaration.kind !== "const") {
+                continue;
+              }
+              for (const declarator of declaration.declarations) {
+                if (declarator.id.type === "Identifier" && isCiGuard(declarator.init, guards)) {
+                  guards.add(declarator.id.name);
+                }
+              }
+            }
+          },
+          CallExpression(node) {
+            // Only the outermost call of a chain such as `describe.each(rows)(name, fn)`.
+            if (node.parent?.type === "CallExpression" && node.parent.callee === node) return;
+            const registration = registrationOf(node);
+            if (registration === null) return;
+            if (registration.guardedBy !== null && isCiGuard(registration.guardedBy, guards))
+              return;
+            let child = node;
+            for (let parent = node.parent; parent != null; parent = parent.parent) {
+              // Inside a function: the registration that calls it is the one checked.
+              if (FUNCTIONS.has(parent.type)) return;
+              if (
+                parent.type === "IfStatement" &&
+                parent.consequent === child &&
+                isCiGuard(parent.test, guards)
+              ) {
+                return;
+              }
+              child = parent;
+            }
+            context.report({ node, message: CI_GUARD_MESSAGE });
+          },
+        };
+      },
+    },
     "no-argless-date": {
       meta: {
         type: "problem",

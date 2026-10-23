@@ -23,8 +23,8 @@ import {
   updateSlot,
 } from "../../src/merge-slot";
 import { recordReviewOverride, recordReviewVerdict } from "../../src/review/store";
-import { openPark } from "../../src/run/park";
-import { recordConfigSnapshot, runSteps } from "../../src/run/records";
+import { openPark, resolveParkResumed } from "../../src/run/park";
+import { recordConfigSnapshot, REVIEWED_END, runSteps } from "../../src/run/records";
 import { CodeHostError } from "../../src/platform/host";
 import { REPO } from "../backlog/pr/helpers";
 
@@ -40,6 +40,7 @@ import {
   type StoryWorld,
   storyWorld,
   TITLE,
+  TREE,
 } from "./story-helpers";
 
 let s: StoryWorld;
@@ -322,6 +323,43 @@ describe("a story PR with an approved verdict and green checks", () => {
       cause: "slot-refused",
     });
     expect(occupant()).toBeNull();
+  });
+
+  it("lets a resumed slot-refused story in again at the head its park and lift pushed, its PR updated to that head first (DIPO-324)", async () => {
+    s = await storyWorld();
+    await toChecks();
+    s.ci.set(s.run, { kind: "green", head: C1 });
+    s.host.refusals = STORY_MERGE_ATTEMPTS;
+    s.git.containsBaseAnswer = false;
+    expect(await tick()).toBe("left");
+    const park = openPark(s.w.office, s.key);
+    expect(park?.cause).toBe("slot-refused");
+    // The resume (`ParkResumes`): the park resolved, and the run waits In Review again.
+    s.w.office.immediate(() => {
+      resolveParkResumed(s.w.office, park!.parkId, s.w.t.clock.now(), null);
+      s.w.office.run(
+        "update runs set end_kind = $end where office_id = $office_id and run_id = $run",
+        { run: s.run, end: REVIEWED_END },
+      );
+    });
+    // The park's and the lift's task-file commits were pushed: the host shows that head, its CI
+    // ran green, and its code tree is the reviewed one.
+    const LIFT = "e".repeat(40);
+    s.git.heads.set("DIPO-7/a-story", LIFT);
+    s.git.trees.set(LIFT, TREE);
+    s.host.prs.set(PR, hostPr(LIFT));
+    s.ci.set(s.run, { kind: "green", head: LIFT });
+    // Without the PR updated, its record still names the head before the park: the checks and
+    // the host's head are of another one, so the story stays out.
+    expect(await tick()).toBe("idle");
+    expect(s.host.merges).toHaveLength(STORY_MERGE_ATTEMPTS);
+    await s.slot.reenter(s.officeId, { runId: s.run });
+    await s.slot.whenIdle(s.officeId);
+    expect(s.prSyncs.at(-1)).toBe(s.run);
+    // A fresh stay: one host merge at the lifted head, no refusal counted from the last stay.
+    expect(s.host.merges.at(-1)?.headSha).toBe(LIFT);
+    expect(s.host.merges).toHaveLength(STORY_MERGE_ATTEMPTS + 1);
+    expect(noticeCodes(s.w.office)).toContain(STORY_SLOT_NOTICES.merged);
   });
 
   it("leaves the slot with a notice when the host refuses for another reason", async () => {

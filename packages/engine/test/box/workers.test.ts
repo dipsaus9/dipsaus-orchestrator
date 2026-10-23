@@ -756,6 +756,34 @@ describe("a new session in a box that already runs (an orphaned claude)", () => 
     }));
 });
 
+describe("the box awake before a session, for dipo's copy into it (DIPO-324)", () => {
+  it("starts a resting box, and the session after it does not start it again", () =>
+    inBoxes(async (repo, tmp) => {
+      const w = await world(repo, tmp);
+      await created(w);
+      await w.workers.session({ runId: RUN, runDir: w.runDir, systemFile: w.systemFile });
+      await w.boxes.stop(BOX);
+      w.log.length = 0;
+      expect(await w.workers.awake({ runId: RUN, runDir: w.runDir })).toBe(BOX);
+      // The firewall goes on before dipo copies anything in (DIPO-281).
+      expect(w.log).toEqual(["list", `start ${BOX}`, `firewall ${BOX} ${BOX_HOST_ADDRESS} 3128`]);
+      expect(w.boxes.boxes.get(BOX)?.state).toBe("running");
+      w.log.length = 0;
+      await w.workers.session({ runId: RUN, runDir: w.runDir, systemFile: w.systemFile });
+      expect(w.log.filter((line) => line.startsWith("stop ") || line.startsWith("start "))).toEqual(
+        [],
+      );
+    }));
+
+  it("refuses a run whose box was deleted", () =>
+    inBoxes(async (repo, tmp) => {
+      const w = await world(repo, tmp);
+      await expect(w.workers.awake({ runId: RUN, runDir: w.runDir })).rejects.toThrow(
+        "has no box to copy into",
+      );
+    }));
+});
+
 describe("daemon stop (criterion 6)", () => {
   it("stops every running box, which ends the worker in it, and the routes", () =>
     inBoxes(async (repo, tmp) => {
@@ -1607,5 +1635,31 @@ describe("the box firewall, the listed local ports and the box network's address
       await w.workers.finishEnded(() => false, { listBoxes: true });
       expect(w.boxes.boxes.has(left)).toBe(false);
       expect(w.boxes.boxes.has(BOX)).toBe(true);
+    }));
+});
+
+describe("the box awake for dipo's copy, behind its firewall (DIPO-281 with DIPO-324)", () => {
+  it("sets the firewall before anything is copied in", () =>
+    inBoxes(async (repo, tmp) => {
+      const w = await world(repo, tmp);
+      await created(w);
+      await w.boxes.stop(BOX);
+      expect(await w.workers.awake({ runId: RUN, runDir: w.runDir })).toBe(BOX);
+      expect(w.boxes.firewalls.at(-1)).toEqual({
+        box: BOX,
+        firewall: { hostAddress: BOX_HOST_ADDRESS, ports: [3128] },
+      });
+    }));
+
+  it("fails closed when the firewall cannot be set, so dipo copies nothing in", () =>
+    inBoxes(async (repo, tmp) => {
+      const failing = await world(repo, tmp, {
+        boxes: { firewallFails: new BoxError("box.firewallFailed", "no netfilter") },
+      });
+      await created(failing);
+      await failing.boxes.stop(BOX);
+      await expect(failing.workers.awake({ runId: RUN, runDir: failing.runDir })).rejects.toThrow(
+        "no netfilter",
+      );
     }));
 });
