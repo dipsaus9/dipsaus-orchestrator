@@ -27,6 +27,7 @@ import {
   type UserCopyBoxes,
 } from "../../src/box/user";
 import { BOX_COMMAND_DIR } from "../../src/box/verify";
+import { BOX_CLAUDE } from "../../src/workers/claude-cli/box-plan";
 
 type Step = { readonly kind: "copy" | "exec"; readonly what: string; readonly root?: boolean };
 
@@ -59,6 +60,8 @@ describe("the box user (DIPO-334)", () => {
     expect(BOX_USER_ENV["HOME"]).toBe(BOX_USER_HOME);
     expect(BOX_USER_ENV["PATH"]?.split(":")[0]).toBe(`${BOX_NPM_PREFIX}/bin`);
     expect(BOX_NPM_PREFIX.startsWith(`${BOX_USER_HOME}/`)).toBe(true);
+    // The worker session starts Claude Code by its path in that prefix.
+    expect(BOX_CLAUDE).toBe(`${BOX_NPM_PREFIX}/bin/claude`);
   });
 
   it("owns /work, its home and dipo's folders its commands write in; root owns the rest", () => {

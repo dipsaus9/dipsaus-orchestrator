@@ -506,9 +506,18 @@ describe("the Apple container argument builder", () => {
       NAMES[0]!,
       ...containedCommand(["env"]),
     ]);
-    // A command's own variable wins over the box user's.
+    // A command's own variable wins over the box user's, in the backend's env and in the box's.
     const own = execArgs({ name: NAMES[0]!, command: ["env"], env: { PATH: "/bin" } });
-    expect(own.filter((arg) => arg.startsWith("PATH="))).toEqual(["PATH=/bin"]);
+    expect(own.filter((arg) => arg.startsWith("PATH="))).toEqual(["PATH=/bin", "PATH=/bin"]);
+    expect(own.filter((arg) => arg.startsWith("HOME="))).toEqual([
+      "HOME=/home/dipo",
+      "HOME=/home/dipo",
+    ]);
+    // An environment that names none of the box user's keys keeps them all, in the box too.
+    const added = execArgs({ name: NAMES[0]!, command: ["claude"], env: { A: "1" } });
+    expect(added.slice(added.indexOf(NAMES[0]!) + 1)).toEqual(containedCommand(["claude"]));
+    // A program holding `=` would be read by the box's env as a variable: refused.
+    refused(() => execArgs({ name: NAMES[0]!, command: ["A=1", "sh"] }));
   });
 
   it("exports a box's filesystem to a host file only", () => {

@@ -16,6 +16,9 @@ import {
   BOX_NET_TOOLS_PATH,
   BOX_USER_GID,
   BOX_USER_UID,
+  BOX_NPM_PREFIX,
+  BOX_USER_ENV,
+  BOX_USER_HOME,
   boundingSet,
   checkFirewallListing,
   CONTAINED_KEEPALIVE,
@@ -34,6 +37,16 @@ import {
   uncontained,
 } from "../../src/box/firewall";
 import { BoxError } from "../../src/box/port";
+
+/** The box user's environment a contained command sets in the box, by key. */
+function envOf(command: readonly string[]): Record<string, string> {
+  const inner = command.slice(command.indexOf("--") + 1);
+  return Object.fromEntries(
+    inner
+      .slice(9, 13)
+      .map((pair) => [pair.slice(0, pair.indexOf("=")), pair.slice(pair.indexOf("=") + 1)]),
+  );
+}
 
 const TAG = `dipo-box:${"ab".repeat(32)}`;
 
@@ -141,7 +154,18 @@ describe("what runs with a box's capabilities", () => {
     expect(BOX_USER_UID).not.toBe(0);
     expect(BOX_USER_GID).not.toBe(0);
     expect(USER_CAPABILITIES).toEqual([]);
-    expect(command.slice(command.indexOf("--") + 1)).toEqual(["claude", "-p", "hi"]);
+    // The image's env sets the box user's environment before the program is looked up.
+    expect(command.slice(command.indexOf("--") + 1)).toEqual([
+      "/usr/bin/env",
+      ...["HOME", "USER", "LOGNAME", "PATH"].flatMap((key) => ["-u", key]),
+      `HOME=${BOX_USER_HOME}`,
+      "USER=dipo",
+      "LOGNAME=dipo",
+      `PATH=${BOX_NPM_PREFIX}/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin`,
+      "claude",
+      "-p",
+      "hi",
+    ]);
     expect(uncontained(command)).toEqual(["claude", "-p", "hi"]);
     expect(uncontained(["claude"])).toBeNull();
     expect(isFirewallCommand(command)).toBe(false);
@@ -150,6 +174,23 @@ describe("what runs with a box's capabilities", () => {
     expect(BOX_NET_TOOLS_PATH).toBe("/dipo-net");
     // The box keeps itself running with the mounted tail, never one of its own.
     expect(CONTAINED_KEEPALIVE).toEqual(netToolCommand("tail", ["-f", "/dev/null"]));
+  });
+
+  it("keeps the box user's environment and lets a command's own value replace one key only (DIPO-334)", () => {
+    // Without an environment, and with one that names none of the keys: the box user's, whole.
+    expect(envOf(containedCommand(["claude", "--version"]))).toEqual({ ...BOX_USER_ENV });
+    expect(
+      envOf(containedCommand(["claude", "--version"], { DISABLE_AUTOUPDATER: "1", A: "x" })),
+    ).toEqual({ ...BOX_USER_ENV });
+    // A command's own PATH replaces PATH, and HOME stays the box user's.
+    expect(envOf(containedCommand(["bun", "install"], { PATH: "/opt/x/bin" }))).toEqual({
+      ...BOX_USER_ENV,
+      PATH: "/opt/x/bin",
+    });
+    // Claude Code and the package managers are found through the npm prefix, first on PATH.
+    expect(BOX_USER_ENV["PATH"]?.split(":")[0]).toBe(`${BOX_NPM_PREFIX}/bin`);
+    // A command that only looks like the wrapper is no contained command.
+    expect(uncontained(netToolCommand("setpriv", ["--", "/usr/bin/env", "claude"]))).toBeNull();
   });
 
   it("runs dipo's root steps as root with an allow list that never holds the network (DIPO-334)", () => {

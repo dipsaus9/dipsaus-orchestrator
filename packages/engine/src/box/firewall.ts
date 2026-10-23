@@ -58,6 +58,26 @@ export const BOX_NET_TOOLS_DIR = "box-net-tools";
 export const BOX_USER_UID = 1000;
 export const BOX_USER_GID = 1000;
 
+/** The box user's name and home. */
+export const BOX_USER_NAME = "dipo";
+export const BOX_USER_HOME = "/home/dipo";
+/** Where npm installs Claude Code and the package managers: the box user's own prefix. */
+export const BOX_NPM_PREFIX = `${BOX_USER_HOME}/.local`;
+/** The box user's PATH: its npm prefix first, then Debian's. */
+export const BOX_USER_PATH = `${BOX_NPM_PREFIX}/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin`;
+/**
+ * The environment every contained command runs with (`containedCommand`); a command's own value
+ * of one of these keys replaces that key only, never the rest.
+ */
+export const BOX_USER_ENV: Readonly<Record<string, string>> = {
+  HOME: BOX_USER_HOME,
+  USER: BOX_USER_NAME,
+  LOGNAME: BOX_USER_NAME,
+  PATH: BOX_USER_PATH,
+};
+/** The image's `env`, which sets `BOX_USER_ENV` inside the box before the command is looked up. */
+export const BOX_ENV_PROGRAM = "/usr/bin/env";
+
 /** The capabilities a contained command of the box user keeps (setpriv's names): none. */
 export const USER_CAPABILITIES: readonly string[] = [];
 
@@ -118,9 +138,48 @@ const ROOT_STEP_OPTIONS: readonly string[] = [
   "--no-new-privs",
 ];
 
-/** `command` run contained (file comment): through setpriv as the box user, with no capability. */
-export function containedCommand(command: readonly [string, ...string[]]): [string, ...string[]] {
-  return netToolCommand("setpriv", [...CONTAINED_OPTIONS, "--", ...command]);
+/**
+ * `command` behind the image's `env` with the box user's environment: each key of
+ * `BOX_USER_ENV` removed (every copy the backend or the image may have set) and set again, from
+ * `env` where it names the key, else the box user's. So PATH and HOME never depend on how the
+ * backend orders the image's environment and the command's (DIPO-334).
+ */
+function userEnvCommand(
+  command: readonly [string, ...string[]],
+  env: Readonly<Record<string, string>>,
+): [string, ...string[]] {
+  const keys = Object.keys(BOX_USER_ENV);
+  return [
+    BOX_ENV_PROGRAM,
+    ...keys.flatMap((key) => ["-u", key]),
+    ...keys.map((key) => `${key}=${env[key] ?? BOX_USER_ENV[key]}`),
+    ...command,
+  ];
+}
+
+/**
+ * `command` run contained (file comment): through setpriv as the box user, with no capability,
+ * and with the box user's environment (`userEnvCommand`); `env` may replace a key of it.
+ */
+export function containedCommand(
+  command: readonly [string, ...string[]],
+  env: Readonly<Record<string, string>> = {},
+): [string, ...string[]] {
+  return netToolCommand("setpriv", [...CONTAINED_OPTIONS, "--", ...userEnvCommand(command, env)]);
+}
+
+/** `command` without the `userEnvCommand` prefix, or null when it has none. */
+function withoutUserEnv(command: readonly string[]): readonly string[] | null {
+  const keys = Object.keys(BOX_USER_ENV);
+  const length = 1 + keys.length * 3;
+  if (command.length <= length || command[0] !== BOX_ENV_PROGRAM) return null;
+  const fits = keys.every(
+    (key, at) =>
+      command[1 + at * 2] === "-u" &&
+      command[2 + at * 2] === key &&
+      (command[1 + keys.length * 2 + at] ?? "").startsWith(`${key}=`),
+  );
+  return fits ? command.slice(length) : null;
 }
 
 /** `command` as one of dipo's root steps: root, with `ROOT_STEP_CAPABILITIES` only. */
@@ -140,7 +199,11 @@ function unwrap(
 
 /** The command a contained or root-step `command` runs, or null when it is neither. */
 export function uncontained(command: readonly string[]): readonly string[] | null {
-  return unwrap(command, containedCommand) ?? unwrap(command, rootStepCommand);
+  const user = unwrap(command, (inner) =>
+    netToolCommand("setpriv", [...CONTAINED_OPTIONS, "--", ...inner]),
+  );
+  if (user !== null) return withoutUserEnv(user);
+  return unwrap(command, rootStepCommand);
 }
 
 /** True when `command` runs as one of dipo's root steps (`rootStepCommand`). */

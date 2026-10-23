@@ -358,12 +358,16 @@ export function execArgs(input: ExecInput): string[] {
     refuse("a box command may not start with `-` or be empty.", { command: input.command[0] });
   }
   const privilege = privilegeOf(input, name);
+  if (privilege === "user" && input.command[0].includes("=")) {
+    // The box user's `env` would read it as a variable, not as the program.
+    refuse("a box command's program may not hold `=`.", { command: input.command[0] });
+  }
   const command =
     privilege === "full"
       ? input.command
       : privilege === "root"
         ? rootStepCommand(input.command)
-        : containedCommand(input.command);
+        : containedCommand(input.command, input.env ?? {});
   return [
     "exec",
     ...(input.interactive === true ? ["--interactive"] : []),

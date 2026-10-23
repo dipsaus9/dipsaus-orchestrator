@@ -19,23 +19,16 @@
 
 import { randomUUID } from "node:crypto";
 
-import { BOX_USER_GID, BOX_USER_UID } from "./firewall";
+import { BOX_USER_GID, BOX_USER_HOME, BOX_USER_UID } from "./firewall";
 import { BoxError, type BoxPort } from "./port";
 
-/** The box user's name and home. */
-export const BOX_USER_NAME = "dipo";
-export const BOX_USER_HOME = "/home/dipo";
-/** Where npm installs Claude Code and the package managers: the box user's own prefix. */
-export const BOX_NPM_PREFIX = `${BOX_USER_HOME}/.local`;
-/** The box user's PATH: its npm prefix first, then Debian's. */
-export const BOX_USER_PATH = `${BOX_NPM_PREFIX}/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin`;
-/** The environment every contained command starts with; a command's own environment wins. */
-export const BOX_USER_ENV: Readonly<Record<string, string>> = {
-  HOME: BOX_USER_HOME,
-  USER: BOX_USER_NAME,
-  LOGNAME: BOX_USER_NAME,
-  PATH: BOX_USER_PATH,
-};
+export {
+  BOX_NPM_PREFIX,
+  BOX_USER_ENV,
+  BOX_USER_HOME,
+  BOX_USER_NAME,
+  BOX_USER_PATH,
+} from "./firewall";
 /** The root-only folder of dipo's copies for the box user. */
 export const BOX_STAGE_ROOT = "/dipo-stage";
 /** dipo's `dipo-part` command in a box (`door.ts`), root's. */
