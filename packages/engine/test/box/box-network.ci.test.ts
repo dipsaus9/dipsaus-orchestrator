@@ -54,10 +54,9 @@ import { systemClock } from "../../src/platform/clock";
 import { currentPlatform } from "../../src/platform/paths";
 import { systemSpawn } from "../../src/platform/process";
 
-const registers =
-  process.env["DIPO_TEST_CI"] === "1" &&
-  process.env["DIPO_TEST_BOX"] === "1" &&
-  process.platform === "darwin";
+/** The CI guard of every *.ci.test.ts file (0017 section 1). */
+const inCi = process.env["DIPO_TEST_CI"] === "1";
+const registers = inCi && process.env["DIPO_TEST_BOX"] === "1" && process.platform === "darwin";
 
 /** The image build in a build box takes minutes; the probes, a few more. */
 const TIMEOUT_MS = 45 * 60_000;
@@ -274,198 +273,202 @@ if (registers) {
     return building;
   };
 
-  describe("the box network on real boxes (DIPO-281)", () => {
-    it(
-      "builds the office image in a build box where an install step reaches nothing but dipo's route (criterion 9)",
-      async () => {
-        const result = await built();
-        if (!result.built) {
-          fact(
-            "the image existed already: the build box probes did not run; delete the image to run them",
-          );
-        } else {
-          expect(buildProbes.filter((line) => line.endsWith(": open"))).toEqual([]);
-          expect(buildProbes).toContain("flush: refused");
-          expect(buildProbes).toContain("after the flush: closed");
-          expect(buildProbes.find((line) => line.startsWith("internet:"))).toStartWith(
-            "internet: HTTP/1.1 200",
-          );
-          expect(buildProbes.find((line) => line.startsWith("registry alias:"))).toStartWith(
-            "registry alias: HTTP/1.1 403",
-          );
-        }
-        // The image runs Claude Code, and holds neither git nor dipo's build folder.
-        const runId = `test-${crypto.randomUUID().slice(0, 8)}`;
-        const name = boxName(runId);
-        try {
-          await boxes.create({
-            runId,
-            image: result.tag,
-            network: network!,
-            netTools: result.netTools,
-          });
-          await boxes.start(name);
-          const claude = await boxes.exec(name, ["claude", "--version"], {
-            env: { ...BOX_IMAGE_ENV },
-          });
-          expect(claude.code).toBe(0);
-          const git = await boxes.exec(name, ["sh", "-c", "command -v git || echo none"]);
-          expect(git.stdout.trim()).toBe("none");
-          const folder = await boxes.exec(name, ["test", "-e", "/dipo-build"]);
-          expect(folder.code).not.toBe(0);
-        } finally {
-          await boxes.delete(name).catch(() => {});
-        }
-      },
-      TIMEOUT_MS,
-    );
-
-    it(
-      "lets a box reach the Mac only on dipo's proxy ports, and a listed local port only through the web proxy (criterion 8)",
-      async () => {
-        const result = await built();
-        const hostAddress = network!.hostAddress;
-        const runId = `test-${crypto.randomUUID().slice(0, 8)}`;
-        const name = boxName(runId);
-        try {
-          await boxes.create({
-            runId,
-            image: result.tag,
-            network: network!,
-            netTools: result.netTools,
-          });
-          await boxes.start(name);
-          const mac = await openServices(hostAddress);
-          const web = await route.acquire(name);
-          // As a session sets it: the web route and the model proxy (a stand-in here) on the Mac.
-          await boxes.firewall(name, {
-            hostAddress,
-            ports: [web.port, mac.model.port],
-          });
-          const password = new URL(web.admit(name, [mac.listed.port])).password;
-          const outcomes: Record<string, string> = {};
-          const tryDirect = async (what: string, host: string, port: number) => {
-            outcomes[what] = await direct(name, host, port);
-            fact(`box, direct to ${what}: ${outcomes[what]}`);
-          };
-          await tryDirect("the web route", hostAddress, web.port);
-          await tryDirect("the model proxy", hostAddress, mac.model.port);
-          await tryDirect("a Mac service on all interfaces", hostAddress, mac.allInterfaces.port);
-          await tryDirect(
-            "a Mac service on the box network address",
-            hostAddress,
-            mac.boxNetwork.port,
-          );
-          if (mac.lan !== null) {
-            await tryDirect(
-              "a Mac service on its local-network address",
-              mac.lan.address,
-              mac.lan.port,
+  // Behind the CI guard as well as the box one, so CI never builds an image.
+  if (inCi)
+    describe("the box network on real boxes (DIPO-281)", () => {
+      it(
+        "builds the office image in a build box where an install step reaches nothing but dipo's route (criterion 9)",
+        async () => {
+          const result = await built();
+          if (!result.built) {
+            fact(
+              "the image existed already: the build box probes did not run; delete the image to run them",
+            );
+          } else {
+            expect(buildProbes.filter((line) => line.endsWith(": open"))).toEqual([]);
+            expect(buildProbes).toContain("flush: refused");
+            expect(buildProbes).toContain("after the flush: closed");
+            expect(buildProbes.find((line) => line.startsWith("internet:"))).toStartWith(
+              "internet: HTTP/1.1 200",
+            );
+            expect(buildProbes.find((line) => line.startsWith("registry alias:"))).toStartWith(
+              "registry alias: HTTP/1.1 403",
             );
           }
-          const gateway = await gatewayFound;
-          if (gateway !== null) await tryDirect("the default gateway", gateway, 80);
-          expect(outcomes["the web route"]).toBe("open");
-          expect(outcomes["the model proxy"]).toBe("open");
-          for (const [what, outcome] of Object.entries(outcomes)) {
-            if (what !== "the web route" && what !== "the model proxy")
-              expect(outcome).toBe("closed");
+          // The image runs Claude Code, and holds neither git nor dipo's build folder.
+          const runId = `test-${crypto.randomUUID().slice(0, 8)}`;
+          const name = boxName(runId);
+          try {
+            await boxes.create({
+              runId,
+              image: result.tag,
+              network: network!,
+              netTools: result.netTools,
+            });
+            await boxes.start(name);
+            const claude = await boxes.exec(name, ["claude", "--version"], {
+              env: { ...BOX_IMAGE_ENV },
+            });
+            expect(claude.code).toBe(0);
+            const git = await boxes.exec(name, ["sh", "-c", "command -v git || echo none"]);
+            expect(git.stdout.trim()).toBe("none");
+            const folder = await boxes.exec(name, ["test", "-e", "/dipo-build"]);
+            expect(folder.code).not.toBe(0);
+          } finally {
+            await boxes.delete(name).catch(() => {});
           }
+        },
+        TIMEOUT_MS,
+      );
 
-          // The listed local port only through the web proxy, with the box's own password.
-          const proxy = { host: hostAddress, port: web.port };
-          const listed = await connect(
-            name,
-            proxy,
-            `${BOX_LOCAL_HOST}:${mac.listed.port}`,
-            password,
-          );
-          const unlisted = await connect(
-            name,
-            proxy,
-            `${BOX_LOCAL_HOST}:${mac.unlisted.port}`,
-            password,
-          );
-          const anonymous = await connect(name, proxy, `${BOX_LOCAL_HOST}:${mac.listed.port}`);
-          const guessed = await connect(
-            name,
-            proxy,
-            `${BOX_LOCAL_HOST}:${mac.listed.port}`,
-            "guessed",
-          );
-          fact(
-            `listed local port: ${listed}; unlisted: ${unlisted}; no password: ${anonymous}; a guessed one: ${guessed}`,
-          );
-          expect(listed).toStartWith("HTTP/1.1 200");
-          expect(unlisted).toStartWith("HTTP/1.1 403");
-          expect(anonymous).toStartWith("HTTP/1.1 403");
-          expect(guessed).toStartWith("HTTP/1.1 403");
-          // The loopback service itself is never reached directly.
-          expect(await direct(name, "127.0.0.1", mac.listed.port)).toBe("closed");
+      it(
+        "lets a box reach the Mac only on dipo's proxy ports, and a listed local port only through the web proxy (criterion 8)",
+        async () => {
+          const result = await built();
+          const hostAddress = network!.hostAddress;
+          const runId = `test-${crypto.randomUUID().slice(0, 8)}`;
+          const name = boxName(runId);
+          try {
+            await boxes.create({
+              runId,
+              image: result.tag,
+              network: network!,
+              netTools: result.netTools,
+            });
+            await boxes.start(name);
+            const mac = await openServices(hostAddress);
+            const web = await route.acquire(name);
+            // As a session sets it: the web route and the model proxy (a stand-in here) on the Mac.
+            await boxes.firewall(name, {
+              hostAddress,
+              ports: [web.port, mac.model.port],
+            });
+            const password = new URL(web.admit(name, [mac.listed.port])).password;
+            const outcomes: Record<string, string> = {};
+            const tryDirect = async (what: string, host: string, port: number) => {
+              outcomes[what] = await direct(name, host, port);
+              fact(`box, direct to ${what}: ${outcomes[what]}`);
+            };
+            await tryDirect("the web route", hostAddress, web.port);
+            await tryDirect("the model proxy", hostAddress, mac.model.port);
+            await tryDirect("a Mac service on all interfaces", hostAddress, mac.allInterfaces.port);
+            await tryDirect(
+              "a Mac service on the box network address",
+              hostAddress,
+              mac.boxNetwork.port,
+            );
+            if (mac.lan !== null) {
+              await tryDirect(
+                "a Mac service on its local-network address",
+                mac.lan.address,
+                mac.lan.port,
+              );
+            }
+            const gateway = await gatewayFound;
+            if (gateway !== null) await tryDirect("the default gateway", gateway, 80);
+            expect(outcomes["the web route"]).toBe("open");
+            expect(outcomes["the model proxy"]).toBe("open");
+            for (const [what, outcome] of Object.entries(outcomes)) {
+              if (what !== "the web route" && what !== "the model proxy")
+                expect(outcome).toBe("closed");
+            }
 
-          // The worker cannot undo the rule: no flush, no capability back, no change to the tools.
-          const flush = await boxes.exec(name, netToolCommand("nft", ["flush ruleset"]));
-          fact(`box, nft flush ruleset as the worker: exit ${flush.code}: ${flush.stderr.trim()}`);
-          expect(flush.code).not.toBe(0);
-          const regain = await boxes.exec(
-            name,
-            netToolCommand("setpriv", ["--bounding-set=+net_admin", "--", "true"]),
-          );
-          fact(`box, setpriv --bounding-set=+net_admin: exit ${regain.code}`);
-          const status = await boxes.exec(name, ["cat", "/proc/self/status"]);
-          const bounding = BigInt(
-            `0x${/CapBnd:\s*([0-9a-f]+)/.exec(status.stdout)?.[1] ?? "ffff"}`,
-          );
-          const effective = BigInt(
-            `0x${/CapEff:\s*([0-9a-f]+)/.exec(status.stdout)?.[1] ?? "ffff"}`,
-          );
-          expect((bounding >> NET_ADMIN_BIT) & 1n).toBe(0n);
-          expect((bounding >> NET_RAW_BIT) & 1n).toBe(0n);
-          expect((effective >> NET_ADMIN_BIT) & 1n).toBe(0n);
-          const write = await boxes.exec(name, [
-            "sh",
-            "-c",
-            `echo x > ${BOX_NET_TOOLS_PATH}/bin/nft`,
-          ]);
-          expect(write.code).not.toBe(0);
-          expect(await direct(name, hostAddress, mac.allInterfaces.port)).toBe("closed");
-          for (const event of events) fact(`web proxy event: ${JSON.stringify(event)}`);
-        } finally {
-          await route.release(name);
-          await boxes.delete(name).catch(() => {});
-        }
-      },
-      TIMEOUT_MS,
-    );
+            // The listed local port only through the web proxy, with the box's own password.
+            const proxy = { host: hostAddress, port: web.port };
+            const listed = await connect(
+              name,
+              proxy,
+              `${BOX_LOCAL_HOST}:${mac.listed.port}`,
+              password,
+            );
+            const unlisted = await connect(
+              name,
+              proxy,
+              `${BOX_LOCAL_HOST}:${mac.unlisted.port}`,
+              password,
+            );
+            const anonymous = await connect(name, proxy, `${BOX_LOCAL_HOST}:${mac.listed.port}`);
+            const guessed = await connect(
+              name,
+              proxy,
+              `${BOX_LOCAL_HOST}:${mac.listed.port}`,
+              "guessed",
+            );
+            fact(
+              `listed local port: ${listed}; unlisted: ${unlisted}; no password: ${anonymous}; a guessed one: ${guessed}`,
+            );
+            expect(listed).toStartWith("HTTP/1.1 200");
+            expect(unlisted).toStartWith("HTTP/1.1 403");
+            expect(anonymous).toStartWith("HTTP/1.1 403");
+            expect(guessed).toStartWith("HTTP/1.1 403");
+            // The loopback service itself is never reached directly.
+            expect(await direct(name, "127.0.0.1", mac.listed.port)).toBe("closed");
 
-    it(
-      "fails closed when a box has no box network tools to set its firewall with",
-      async () => {
-        await built();
-        const runId = `build-${crypto.randomUUID().replaceAll("-", "").slice(0, 16)}`;
-        const name = boxName(runId);
-        try {
-          await boxes.pullImage("docker.io/library/debian:trixie-slim");
-          await boxes.create({
-            runId,
-            image: "docker.io/library/debian:trixie-slim",
-            network: network!,
-          });
-          await boxes.start(name);
-          const error = await boxes
-            .firewall(name, { hostAddress: network!.hostAddress, ports: [3128] })
-            .then(() => null)
-            .catch((caught: unknown) => caught);
-          expect(error).toBeInstanceOf(BoxError);
-          expect((error as BoxError).code).toBe("box.firewallFailed");
-          // Nothing of the box's own can run contained without the tools either.
-          const contained = await boxes.exec(name, ["true"]);
-          expect(contained.code).not.toBe(0);
-        } finally {
-          await boxes.delete(name).catch(() => {});
-        }
-      },
-      TIMEOUT_MS,
-    );
-  });
+            // The worker cannot undo the rule: no flush, no capability back, no change to the tools.
+            const flush = await boxes.exec(name, netToolCommand("nft", ["flush ruleset"]));
+            fact(
+              `box, nft flush ruleset as the worker: exit ${flush.code}: ${flush.stderr.trim()}`,
+            );
+            expect(flush.code).not.toBe(0);
+            const regain = await boxes.exec(
+              name,
+              netToolCommand("setpriv", ["--bounding-set=+net_admin", "--", "true"]),
+            );
+            fact(`box, setpriv --bounding-set=+net_admin: exit ${regain.code}`);
+            const status = await boxes.exec(name, ["cat", "/proc/self/status"]);
+            const bounding = BigInt(
+              `0x${/CapBnd:\s*([0-9a-f]+)/.exec(status.stdout)?.[1] ?? "ffff"}`,
+            );
+            const effective = BigInt(
+              `0x${/CapEff:\s*([0-9a-f]+)/.exec(status.stdout)?.[1] ?? "ffff"}`,
+            );
+            expect((bounding >> NET_ADMIN_BIT) & 1n).toBe(0n);
+            expect((bounding >> NET_RAW_BIT) & 1n).toBe(0n);
+            expect((effective >> NET_ADMIN_BIT) & 1n).toBe(0n);
+            const write = await boxes.exec(name, [
+              "sh",
+              "-c",
+              `echo x > ${BOX_NET_TOOLS_PATH}/bin/nft`,
+            ]);
+            expect(write.code).not.toBe(0);
+            expect(await direct(name, hostAddress, mac.allInterfaces.port)).toBe("closed");
+            for (const event of events) fact(`web proxy event: ${JSON.stringify(event)}`);
+          } finally {
+            await route.release(name);
+            await boxes.delete(name).catch(() => {});
+          }
+        },
+        TIMEOUT_MS,
+      );
+
+      it(
+        "fails closed when a box has no box network tools to set its firewall with",
+        async () => {
+          await built();
+          const runId = `build-${crypto.randomUUID().replaceAll("-", "").slice(0, 16)}`;
+          const name = boxName(runId);
+          try {
+            await boxes.pullImage("docker.io/library/debian:trixie-slim");
+            await boxes.create({
+              runId,
+              image: "docker.io/library/debian:trixie-slim",
+              network: network!,
+            });
+            await boxes.start(name);
+            const error = await boxes
+              .firewall(name, { hostAddress: network!.hostAddress, ports: [3128] })
+              .then(() => null)
+              .catch((caught: unknown) => caught);
+            expect(error).toBeInstanceOf(BoxError);
+            expect((error as BoxError).code).toBe("box.firewallFailed");
+            // Nothing of the box's own can run contained without the tools either.
+            const contained = await boxes.exec(name, ["true"]);
+            expect(contained.code).not.toBe(0);
+          } finally {
+            await boxes.delete(name).catch(() => {});
+          }
+        },
+        TIMEOUT_MS,
+      );
+    });
 }

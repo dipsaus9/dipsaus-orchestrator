@@ -150,8 +150,13 @@ export function describeBox(
       claudeCode: section?.claudeCode ?? BOX_DEFAULTS.claudeCode,
     },
     files: section?.files ?? [],
-    localPorts: [...new Set(section?.localPorts ?? [])].toSorted((a, b) => a - b),
+    localPorts: sortedPorts(section),
   };
+}
+
+/** The listed local ports (DIPO-282), each once, in order; none when the block lists none. */
+function sortedPorts(section: OfficeBoxSection | undefined): number[] {
+  return [...new Set(section?.localPorts)].toSorted((a, b) => a - b);
 }
 
 function refuse(message: string, details: Readonly<Record<string, unknown>>): never {

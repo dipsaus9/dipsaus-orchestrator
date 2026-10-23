@@ -518,21 +518,30 @@ function readHelloBody(body: Buffer): ClientHelloRead {
     seen.add(type);
     if (HIDDEN_NAME_EXTENSIONS.has(type)) hiddenName = true;
     if (type !== EXTENSION_SERVER_NAME) continue;
-    if (data.length < 2 || data.readUInt16BE(0) !== data.length - 2) {
-      return badHello("the TLS server name list does not fill its extension");
-    }
-    let entry = 2;
-    while (entry < data.length) {
-      if (data.length < entry + 3) return badHello("a TLS server name is cut short");
-      const kind = data[entry] ?? 0;
-      const size = data.readUInt16BE(entry + 1);
-      if (data.length < entry + 3 + size) return badHello("a TLS server name is cut short");
-      if (kind !== 0) return badHello(`the TLS server name list holds a name of type ${kind}`);
-      serverNames.push(data.subarray(entry + 3, entry + 3 + size).toString("latin1"));
-      entry += 3 + size;
-    }
+    const names = readServerNames(data);
+    if (typeof names === "string") return badHello(names);
+    serverNames.push(...names);
   }
   return { kind: "hello", serverNames, hiddenName };
+}
+
+/** The host names of a server_name extension's data, or why it cannot be read. */
+function readServerNames(data: Buffer): string[] | string {
+  if (data.length < 2 || data.readUInt16BE(0) !== data.length - 2) {
+    return "the TLS server name list does not fill its extension";
+  }
+  const names: string[] = [];
+  let entry = 2;
+  while (entry < data.length) {
+    if (data.length < entry + 3) return "a TLS server name is cut short";
+    const kind = data[entry] ?? 0;
+    const size = data.readUInt16BE(entry + 1);
+    if (data.length < entry + 3 + size) return "a TLS server name is cut short";
+    if (kind !== 0) return `the TLS server name list holds a name of type ${kind}`;
+    names.push(data.subarray(entry + 3, entry + 3 + size).toString("latin1"));
+    entry += 3 + size;
+  }
+  return names;
 }
 
 /**
@@ -844,7 +853,7 @@ interface TunnelReading {
 
 /**
  * Joins a client and its upstream both ways; either side closing closes both, and so does no
- * traffic either way for `idleMs`. With `reading`, every byte from the client goes through its
+ * traffic either way for `timing.idleMs`. With `reading`, every byte from the client goes through its
  * inspector first: held back while it waits (at most the head timeout), passed on as it passes,
  * and the tunnel closed when it refuses. The upstream's bytes always flow, so a server that
  * speaks first still can.
@@ -853,10 +862,10 @@ function pipeSockets(
   client: Socket,
   upstream: Socket,
   first: Buffer,
-  clock: Clock,
-  idleMs: number,
+  timing: { readonly clock: Clock; readonly idleMs: number },
   reading?: TunnelReading,
 ): void {
+  const { clock, idleMs } = timing;
   upstream.pipe(client);
   let last = clock.now();
   const touch = () => {
@@ -1104,7 +1113,45 @@ async function startWebProxy(
       }
       emit({ kind: "local", port });
       client.write("HTTP/1.1 200 Connection Established\r\n\r\n");
-      pipeSockets(client, upstream, rest, deps.clock, limits.idleTimeoutMs);
+      pipeSockets(client, upstream, rest, { clock: deps.clock, idleMs: limits.idleTimeoutMs });
+    });
+  };
+
+  /** A tunnel to a registry Safe-Chain checks: through Safe-Chain, on the TLS port only. */
+  const registry = (
+    client: Socket,
+    host: string,
+    port: number,
+    rest: Buffer,
+    safeChain: number,
+  ) => {
+    const target = `${host}:${port}`;
+    if (port !== SAFE_CHAIN_TLS_PORT) {
+      refuse(
+        client,
+        target,
+        403,
+        `a registry is reached only on port ${SAFE_CHAIN_TLS_PORT}, through Safe-Chain`,
+      );
+      return;
+    }
+    // Safe-Chain reads the CONNECT itself: it gets a fresh head with the normal host name and
+    // none of the box's headers.
+    emit({ kind: "registry", host, port });
+    const forwarded = Buffer.concat([
+      Buffer.from(`CONNECT ${target} HTTP/1.1\r\nHost: ${target}\r\n\r\n`, "latin1"),
+      rest,
+    ]);
+    connectFirst([SAFE_CHAIN_HOST], safeChain, (upstream) => {
+      if (client.destroyed) {
+        upstream?.destroy();
+        return;
+      }
+      if (upstream === null) {
+        client.end(answer(502));
+        return;
+      }
+      pipeSockets(client, upstream, forwarded, { clock: deps.clock, idleMs: limits.idleTimeoutMs });
     });
   };
 
@@ -1126,33 +1173,7 @@ async function startWebProxy(
     }
     const boxListener = safeChainPort !== null;
     if (boxListener && isRegistryHost(host)) {
-      if (port !== SAFE_CHAIN_TLS_PORT) {
-        refuse(
-          client,
-          target,
-          403,
-          `a registry is reached only on port ${SAFE_CHAIN_TLS_PORT}, through Safe-Chain`,
-        );
-        return;
-      }
-      // Safe-Chain reads the CONNECT itself: it gets a fresh head with the normal host name and
-      // none of the box's headers.
-      emit({ kind: "registry", host, port });
-      const forwarded = Buffer.concat([
-        Buffer.from(`CONNECT ${target} HTTP/1.1\r\nHost: ${target}\r\n\r\n`, "latin1"),
-        rest,
-      ]);
-      connectFirst([SAFE_CHAIN_HOST], safeChainPort, (upstream) => {
-        if (client.destroyed) {
-          upstream?.destroy();
-          return;
-        }
-        if (upstream === null) {
-          client.end(answer(502));
-          return;
-        }
-        pipeSockets(client, upstream, forwarded, deps.clock, limits.idleTimeoutMs);
-      });
+      registry(client, host, port, rest, safeChainPort);
       return;
     }
     const otherName = boxListener ? registryRefusal(host) : null;
@@ -1191,8 +1212,7 @@ async function startWebProxy(
             client,
             upstream,
             rest,
-            deps.clock,
-            limits.idleTimeoutMs,
+            { clock: deps.clock, idleMs: limits.idleTimeoutMs },
             boxListener
               ? {
                   inspector: new TunnelInspector(host),
