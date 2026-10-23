@@ -9,11 +9,14 @@
 
 import { afterEach, describe, expect, it } from "bun:test";
 
+import type { OfficeLane } from "../../src/backlog/lane";
+import { insertPr, recordCheck } from "../../src/backlog/pr/records";
 import { conflictFeedbackItem } from "../../src/box/collisions";
 import { OFFICE_DEFAULTS } from "../../src/config";
 import {
   decideMergeGate,
   mergeGatesOfRun,
+  type SlotGit,
   STORY_MERGE_ATTEMPTS,
   STORY_SLOT_NOTICES,
   slotOccupant,
@@ -29,6 +32,7 @@ import {
   C1,
   H1,
   hostPr,
+  NO_BACKLOG_GIT,
   noticeCodes,
   noticeTexts,
   PR,
@@ -544,5 +548,56 @@ describe("one PR at a time", () => {
     expect(await tick()).toBe("left");
     expect(occupant()).toBeNull();
     expect(noticeCodes(s.w.office)).toContain("mergeSlot.failed");
+  });
+});
+
+describe("story and backlog PRs in one slot", () => {
+  const BACKLOG_HEAD = "b".repeat(40);
+  const backlogGit: SlotGit = {
+    ...NO_BACKLOG_GIT,
+    fetch: async () => true,
+    head: async () => BACKLOG_HEAD,
+    syncBase: async () => ({ kind: "contained", head: BACKLOG_HEAD }),
+    push: async () => ({ ok: true, pushed: false }),
+  };
+  const lane = { flush: async () => ({}) } as unknown as OfficeLane;
+
+  /** A backlog PR #1 whose structural check passed at `at`. */
+  function backlogPr(at: number): void {
+    s.w.office.immediate(() => {
+      insertPr(
+        s.w.office,
+        {
+          number: 1,
+          url: `https://github.com/${REPO}/pull/1`,
+          branch: "dipo/backlog-1",
+          title: "chore(backlog): edit",
+        },
+        at,
+      );
+      recordCheck(
+        s.w.office,
+        1,
+        { head: BACKLOG_HEAD, base: "e".repeat(40), passed: true, failures: [], touched: [] },
+        at,
+      );
+    });
+  }
+
+  it("lets the backlog PR in first when it became eligible before the story's gate was approved", async () => {
+    s = await storyWorld({ backlog: { lane, git: backlogGit } });
+    backlogPr(s.w.t.clock.now());
+    s.w.t.clock.advance(1_000);
+    await tick();
+    expect(occupant()).toMatchObject({ kind: "backlog", number: 1 });
+    // The story's gate opened meanwhile, approved by rule; it waits for the slot.
+    expect(gates()[0]?.decision?.decision).toBe("approved");
+  });
+
+  it("lets the story PR in first when its gate was approved before the backlog PR became eligible", async () => {
+    s = await storyWorld({ backlog: { lane, git: backlogGit } });
+    backlogPr(s.w.t.clock.now() + 60_000);
+    await tick();
+    expect(occupant()).toMatchObject({ kind: "story", number: PR });
   });
 });

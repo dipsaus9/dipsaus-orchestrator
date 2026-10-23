@@ -8,6 +8,7 @@ import { type OfficeId, type RunId, type StoryKey } from "@dipsaus-orchestrator/
 
 import type { StoryTarget } from "../../src/backlog/fields/write";
 import type { CatchUpMerged } from "../../src/box/collisions";
+import type { OfficeLane } from "../../src/backlog/lane";
 import { OFFICE_DEFAULTS, type OfficeConfig } from "../../src/config";
 import {
   type BaseSync,
@@ -179,7 +180,11 @@ export function hostPr(headSha: string, state: HostPr["state"] = "open"): HostPr
 }
 
 export async function storyWorld(
-  options: { readonly judged?: JudgedReview } = {},
+  options: {
+    readonly judged?: JudgedReview;
+    /** A backlog PR lane and its git, for the slot both kinds share; none by default. */
+    readonly backlog?: { readonly lane: OfficeLane; readonly git: SlotGit };
+  } = {},
 ): Promise<StoryWorld> {
   const w = await roundsWorld("story-slot-");
   const officeId = w.office.officeId as OfficeId;
@@ -231,13 +236,13 @@ export async function storyWorld(
     new MergeSlot({
       host,
       prs: { recheck: () => Promise.reject(new Error("no backlog PR in these tests")) },
-      lane: () => undefined,
+      lane: () => options.backlog?.lane,
       offices: {
         get: (id) => (id === officeId ? w.office : undefined),
         config: () => self.config,
       },
       clock: w.t.clock,
-      git: () => NO_BACKLOG_GIT,
+      git: () => options.backlog?.git ?? NO_BACKLOG_GIT,
       stories: {
         git,
         ids: w.t.ids,
