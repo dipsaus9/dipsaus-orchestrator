@@ -8,6 +8,11 @@
 // is the reviewer's: read-only tools on dipo's copy of the pushed commit, the web tools through
 // dipo's web proxy (DIPO-292) with the fail-closed web gate hook (DIPO-164), and the relay of its
 // other hooks to the worker host. `checkSpec` is shared with the box plan.
+//
+// A `session` (DIPO-310: the scan fallback, 0021 amendment of 2026-10-22) is planned here too, on
+// the Mac with no box: an empty working directory dipo made, every tool off (`--tools ""` and a
+// deny rule for each tool by name), no hooks, no MCP server, every plugin off, the closed sandbox
+// and network of a reviewer, and its structured-output schema.
 
 import { posix } from "node:path";
 
@@ -75,10 +80,37 @@ export function closedWritePaths(home: string): ClosedWritePath[] {
 }
 
 /**
- * Kinds this adapter plans: `implement` (D12, DIPO-15), only in a box (`box-plan.ts`), and
- * `review` (0019 section 4, DIPO-145), on the Mac with `plan`.
+ * Kinds this adapter plans: `implement` (D12, DIPO-15), only in a box (`box-plan.ts`), `review`
+ * (0019 section 4, DIPO-145) and `session` (DIPO-310), on the Mac with `plan`.
  */
-export const PLANNED_KINDS: readonly WorkerKind[] = ["implement", "review"];
+export const PLANNED_KINDS: readonly WorkerKind[] = ["implement", "review", "session"];
+
+/**
+ * The tools a `session` denies by name, on top of `--tools ""` (DIPO-310): every built-in tool
+ * that reads, writes, runs or fetches, so a CLI that ignored the empty tool list still has none.
+ */
+export const SESSION_DENIED_TOOLS: readonly string[] = [
+  "Read",
+  "Edit",
+  "MultiEdit",
+  "Write",
+  "NotebookEdit",
+  "NotebookRead",
+  "Glob",
+  "Grep",
+  "LS",
+  "Bash",
+  "BashOutput",
+  "KillShell",
+  "WebFetch",
+  "WebSearch",
+  "Task",
+  "Agent",
+  "Skill",
+  "SlashCommand",
+  "TodoWrite",
+  "ExitPlanMode",
+];
 
 /** Why `plan` refuses a developer session (DIPO-240, 0021). */
 export const DEVELOPER_ON_MAC_REFUSED =
@@ -119,7 +151,7 @@ export function kindContext(
   spec: Pick<WorkerSpec, "kind">,
   ctx: ClaudeLaunchContext,
 ): ClaudeLaunchContext {
-  if (spec.kind !== "review" || ctx.plugins === undefined) return ctx;
+  if ((spec.kind !== "review" && spec.kind !== "session") || ctx.plugins === undefined) return ctx;
   return { ...ctx, plugins: { ...ctx.plugins, allowed: [] } };
 }
 
@@ -284,7 +316,17 @@ export function checkSpec(spec: WorkerSpec): void {
   if (!Number.isInteger(spec.caps.maxTurns) || spec.caps.maxTurns <= 0) {
     throw new PlanError(`maxTurns must be a positive integer: ${spec.caps.maxTurns}`);
   }
-  if (spec.tools.allow.length === 0) throw new PlanError("the role must allow at least one tool");
+  if (spec.kind === "session") {
+    // Every tool off (0021 amendment of 2026-10-22, DIPO-310): no read, shell or web.
+    if (spec.tools.allow.length > 0) {
+      throw new PlanError(
+        `a session runs with every tool off, not with ${spec.tools.allow.join(", ")} (DIPO-310)`,
+      );
+    }
+    if (spec.hookRelay) throw new PlanError("a session runs with no hooks (DIPO-310)");
+  } else if (spec.tools.allow.length === 0) {
+    throw new PlanError("the role must allow at least one tool");
+  }
   for (const tool of spec.tools.allow) {
     if (!TOOL_NAME.test(tool)) throw new PlanError(`not a tool name: ${tool}`);
     if (spec.kind === "review" && !REVIEW_TOOLS.includes(tool)) {
@@ -573,11 +615,194 @@ function settings(spec: WorkerSpec, ctx: ClaudeLaunchContext, paths: Paths) {
 }
 
 /**
- * Pure: the launch plan of one Claude Code reviewer session on the Mac. Throws `PlanError` when it
- * cannot, and for a developer session, which runs only in its box (`planInBox`).
+ * Checks the run's temp roots and working directory against home and srt's closed write paths
+ * (DIPO-98): none may be the root, hold home, lie under a closed path or hold one.
+ */
+function checkWritableDirs(
+  dirs: readonly (readonly [string, string])[],
+  home: string,
+): ClosedWritePath[] {
+  const closed = closedWritePaths(home);
+  for (const [label, dir] of dirs) {
+    if (dir === "/" || isInside(home, dir)) {
+      throw new PlanError(
+        `${label} ${dir} must not be the root or hold the home directory ${home}`,
+        { path: dir },
+      );
+    }
+    const under = closed.find((entry) => isInside(dir, entry.path));
+    if (under !== undefined) {
+      throw new PlanError(
+        `${label} ${dir} must lie outside ${under.path}, which the session sandbox may not write`,
+        { path: dir },
+      );
+    }
+    const holds = closed.find((entry) => isInside(entry.path, dir));
+    if (holds !== undefined) {
+      throw new PlanError(
+        `${label} ${dir} must not hold ${holds.path}, which the session sandbox may not write`,
+        { path: dir },
+      );
+    }
+  }
+  return closed;
+}
+
+/**
+ * The run settings of a `session` (DIPO-310): no tool (each denied by name as well), reads closed
+ * outside its empty working directory, writes only to the run's temp roots, the reviewer's closed
+ * network, no hooks, and every installed plugin off.
+ */
+function sessionSettings(ctx: ClaudeLaunchContext, paths: Paths) {
+  const { home, workdir, main, tmp, shortTmp } = paths;
+  const enabledPlugins = plugins(ctx);
+  return {
+    includeGitInstructions: false,
+    claudeMdExcludes: [`${main}/**`],
+    attribution: { commit: "", pr: "" },
+    permissions: {
+      allow: [],
+      deny: [...SESSION_DENIED_TOOLS],
+      blockReadsOutsideWorkingDirectories: true,
+    },
+    sandbox: {
+      enabled: true,
+      failIfUnavailable: true,
+      allowUnsandboxedCommands: false,
+      filesystem: {
+        allowWrite: [tmp, ...(shortTmp === undefined ? [] : [shortTmp])],
+        denyRead: [`${home}/Library/Keychains`],
+        denyWrite: [
+          workdir,
+          main,
+          `${main}/.git`,
+          ...closedWritePaths(home).map((closed) => closed.path),
+        ],
+        allowRead: [],
+      },
+      network: REVIEW_NETWORK,
+      credentials: {
+        files: CREDENTIAL_FILES.map((file) => ({ path: `${home}/${file}`, mode: "deny" })),
+        envVars: CREDENTIAL_VARIABLES.map((name) => ({ name, mode: "deny" })),
+      },
+    },
+    ...(enabledPlugins === undefined ? {} : { enabledPlugins }),
+  };
+}
+
+/**
+ * Pure: the launch plan of one `session` on the Mac (DIPO-310): no worktree, branch or box, every
+ * tool off, one turn plus the CLI's schema retry as the spec's turn cap, the spec's schema as the
+ * structured output, the task message as the first message.
+ */
+function planSession(spec: WorkerSpec, launch: ClaudeLaunchContext): LaunchPlan {
+  // A session never resumes: each fallback request is a new session (DIPO-310).
+  if (spec.session.resume) throw new PlanError("a session is never resumed (DIPO-310)");
+  const ctx = kindContext(spec, launch);
+  const claude = absolute("claudePath", ctx.claudePath);
+  const home = absolute("home", ctx.home);
+  const workdir = ruleSafe("workdir", absolute("workdir", spec.workdir));
+  const main = ruleSafe("mainCheckout", absolute("mainCheckout", ctx.mainCheckout));
+  const runDir = absolute("runDir", ctx.runDir);
+  const tmp = absolute("tmpDir", ctx.tmpDir);
+  const shortTmp =
+    ctx.shortTmpDir === undefined ? undefined : absolute("shortTmpDir", ctx.shortTmpDir);
+  const systemFile = absolute("systemFile", spec.systemFile);
+  // Its working directory holds nothing of the repository, so no project settings, hooks or
+  // CLAUDE.md of the repository load from it or its parents.
+  if (isInside(workdir, main) || isInside(main, workdir)) {
+    throw new PlanError(
+      `a session's folder ${workdir} must lie outside the main checkout ${main}`,
+      {
+        path: workdir,
+      },
+    );
+  }
+  const closed = checkWritableDirs(
+    [
+      ["workdir", workdir],
+      ["tmpDir", tmp],
+      ...(shortTmp === undefined ? [] : [["shortTmpDir", shortTmp] as const]),
+    ],
+    home,
+  );
+  const mcpConfig = `${runDir}/${EMPTY_MCP_CONFIG_FILE}`;
+  for (const [label, path] of [
+    ["runDir", runDir],
+    ["systemFile", systemFile],
+    ["mcpConfig", mcpConfig],
+  ] as const) {
+    if (isInside(path, workdir)) {
+      throw new PlanError(`${label} ${path} must lie outside the session's folder ${workdir}`);
+    }
+  }
+  const paths: Paths = { home, workdir, copy: workdir, main, tmp, shortTmp, runDir };
+  const argv: [string, ...string[]] = [
+    claude,
+    "-p",
+    "--input-format",
+    "stream-json",
+    "--output-format",
+    "stream-json",
+    "--verbose",
+    INCLUDE_PARTIAL_MESSAGES,
+    "--session-id",
+    spec.session.id,
+    "--model",
+    flagValue("model", spec.model),
+    "--effort",
+    flagValue("effort", spec.effort),
+    "--max-turns",
+    String(spec.caps.maxTurns),
+    "--permission-mode",
+    "default",
+    "--permission-prompts",
+    "none",
+    // Every tool off (0021 amendment of 2026-10-22): an empty list, and each tool denied by name.
+    "--tools",
+    "",
+    "--settings",
+    `${runDir}/${SETTINGS_FILE}`,
+    "--setting-sources",
+    "project,local",
+    "--strict-mcp-config",
+    "--mcp-config",
+    mcpConfig,
+    "--append-system-prompt-file",
+    systemFile,
+    "--exclude-dynamic-system-prompt-sections",
+    DISABLE_SLASH_COMMANDS,
+    "--json-schema",
+    JSON.stringify(spec.reportSchema),
+  ];
+  return {
+    argv,
+    env: environment(spec, ctx, paths),
+    cwd: workdir,
+    files: [
+      {
+        name: SETTINGS_FILE,
+        content: `${JSON.stringify(sessionSettings(ctx, paths), null, 2)}\n`,
+      },
+      { name: REPORT_SCHEMA_FILE, content: `${JSON.stringify(spec.reportSchema, null, 2)}\n` },
+      { name: EMPTY_MCP_CONFIG_FILE, content: `${JSON.stringify(EMPTY_MCP_CONFIG)}\n` },
+      {
+        name: CLOSED_WRITES_FILE,
+        content: `${JSON.stringify({ reason: CLOSED_WRITES_REASON, denyWrite: closed }, null, 2)}\n`,
+      },
+    ],
+    stdin: [userMessageLine(spec.taskMessage)],
+  };
+}
+
+/**
+ * Pure: the launch plan of one Claude Code reviewer session or `session` on the Mac. Throws
+ * `PlanError` when it cannot, and for a developer session, which runs only in its box
+ * (`planInBox`).
  */
 export function plan(spec: WorkerSpec, launch: ClaudeLaunchContext): LaunchPlan {
   checkSpec(spec);
+  if (spec.kind === "session") return planSession(spec, launch);
   if (spec.kind !== "review" || spec.readOnlyDir === undefined) {
     throw new PlanError(DEVELOPER_ON_MAC_REFUSED);
   }

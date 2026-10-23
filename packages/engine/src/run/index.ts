@@ -34,6 +34,8 @@ export type {
   StartOutcome,
   TierCaps,
 } from "./launch";
+export { SESSION_ENDS, SESSION_FOLDER_PREFIX, SessionRuns } from "./session-run";
+export type { SessionRunsDeps } from "./session-run";
 export { renderRunPrompts, sessionUuid, SYSTEM_FILE } from "./prompts";
 export type { RunPrompts, RunPromptsInput } from "./prompts";
 export {

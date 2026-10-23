@@ -15,7 +15,7 @@ import { cleanDoorStrings, doorKeysClean } from "../../box/door";
 import {
   REVIEW_SUMMARY_MAX,
   type JsonSchema,
-  type ReportKind,
+  type SchemaKind,
   type ReviewReport,
   type WorkerReport,
 } from "../types";
@@ -235,7 +235,7 @@ export const WORKER_REPORT_JSON_SCHEMA: JsonSchema = buildJsonSchema(WorkerRepor
 export const REVIEW_REPORT_JSON_SCHEMA: JsonSchema = buildJsonSchema(ReviewReportSchema);
 
 /** The report schema of each report kind, as `WorkerPort.reportSchema` hands it out. */
-export const REPORT_JSON_SCHEMAS: Readonly<Record<ReportKind, JsonSchema>> = {
+export const REPORT_JSON_SCHEMAS: Readonly<Record<SchemaKind, JsonSchema>> = {
   implement: WORKER_REPORT_JSON_SCHEMA,
   review: REVIEW_REPORT_JSON_SCHEMA,
 };

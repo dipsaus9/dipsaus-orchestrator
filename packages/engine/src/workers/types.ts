@@ -11,8 +11,14 @@ import type { HookEvent, HookReply } from "../hooks/types";
 export const KNOWN_WORKER_KINDS = ["implement", "review", "session"] as const;
 /** An open string: a later kind needs no contract change; an adapter refuses kinds it cannot plan. */
 export type WorkerKind = OpenEnum<(typeof KNOWN_WORKER_KINDS)[number]>;
-/** The kinds with a report schema of their own (0008 amendment of 2026-10-16, DIPO-131). */
-export type ReportKind = "implement" | "review";
+/**
+ * The kinds whose turn ends in a structured report (0008 amendment of 2026-10-16, DIPO-131), and
+ * `session` (DIPO-310): a model session outside a story run, whose structured output the engine
+ * checks against the schema its spec carries (the scan fallback's answer).
+ */
+export type ReportKind = "implement" | "review" | "session";
+/** The kinds whose report schema the worker port carries (`WorkerPort.reportSchema`). */
+export type SchemaKind = Exclude<ReportKind, "session">;
 
 /**
  * The web tools `worker.web` adds to the developer role (0020 section 11b, DIPO-164). The one list:
@@ -43,7 +49,8 @@ export interface WorkerSpec {
   readonly kind: WorkerKind;
   /**
    * Absolute working directory: the story worktree for `implement`; for `review` an empty folder
-   * dipo made, outside the copy it reads (0021 section 14, DIPO-276).
+   * dipo made, outside the copy it reads (0021 section 14, DIPO-276); for `session` an empty folder
+   * dipo made, with nothing of any repository in it (DIPO-310).
    */
   readonly workdir: string;
   /**
@@ -64,7 +71,7 @@ export interface WorkerSpec {
   readonly systemFile: string;
   /** The L4 task message (0014 section 1); the first user message, never on argv. */
   readonly taskMessage: string;
-  /** `allow`: the role's tool names; `deny`: extra deny rules of the role. */
+  /** `allow`: the role's tool names (none for `session`); `deny`: extra deny rules of the role. */
   readonly tools: { readonly allow: readonly string[]; readonly deny: readonly string[] };
   /** Engine-made session id; `resume` continues that session instead of starting it. */
   readonly session: { readonly id: string; readonly resume: boolean };
@@ -360,6 +367,11 @@ export type WorkerEvent =
       readonly report: WorkerReport | null;
       /** A `review` session's valid report (0019 section 5); absent in other kinds. */
       readonly review?: ReviewReport;
+      /**
+       * A `session` kind's structured output, cleaned at the door and held to its size cap, for
+       * the engine to check against its own schema (DIPO-310); absent in other kinds.
+       */
+      readonly answer?: unknown;
       readonly totals: UsageTotalsByModel;
       /**
        * The adapter's own cost estimate in USD per model, run totals as of this turn end, when
@@ -482,6 +494,8 @@ export interface WorkerResult {
   readonly report: WorkerReport | null;
   /** A `review` session's valid report; absent in other kinds. */
   readonly review?: ReviewReport;
+  /** A `session` kind's structured output, for the engine to check (DIPO-310). */
+  readonly answer?: unknown;
   readonly usage: UsageTotalsByModel;
   readonly sessionId: string;
   readonly resumable: boolean;

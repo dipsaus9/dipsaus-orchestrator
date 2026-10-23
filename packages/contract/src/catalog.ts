@@ -54,6 +54,7 @@ import {
 } from "./software";
 import { FieldBlock } from "./fieldblock";
 import { DeskItem, officeCommands, officeEvents, officeReads, OfficeSnapshot } from "./office";
+import { profileCommands, profileReads, ProfileView } from "./profile";
 import { CONTRACT_VERSION, ContractVersion } from "./version";
 import {
   Evidence,
@@ -81,8 +82,13 @@ import {
 export const contractCommands: readonly CommandDefinition[] = [
   ...softwareCommands,
   ...officeCommands,
+  ...profileCommands,
 ];
-export const contractReads: readonly ReadDefinition[] = [...softwareReads, ...officeReads];
+export const contractReads: readonly ReadDefinition[] = [
+  ...softwareReads,
+  ...officeReads,
+  ...profileReads,
+];
 export const contractEvents: readonly EventDefinition[] = [...softwareEvents, ...officeEvents];
 
 export function findCommand(name: string): CommandDefinition | undefined {
@@ -167,6 +173,7 @@ const workSchemas: Record<string, z.ZodType> = {
   TestView,
   OfficeSnapshot,
   DeskItem,
+  ProfileView,
   FieldBlock,
 };
 

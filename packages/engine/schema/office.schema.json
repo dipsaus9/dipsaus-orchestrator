@@ -4,7 +4,7 @@
   "properties": {
     "version": {
       "type": "number",
-      "const": 12
+      "const": 13
     },
     "tiers": {
       "type": "object",
@@ -1018,6 +1018,35 @@
       },
       "additionalProperties": false,
       "description": "The office's box (0021 section 5, DIPO-266): the image every story's box runs and the files outside git it may get. dipo reads this block from the base branch only, so a story cannot change it. What it leaves out is detected from the repository; the image is built once per description and rebuilt only when the description changes."
+    },
+    "scan": {
+      "type": "object",
+      "properties": {
+        "model": {
+          "type": "string",
+          "minLength": 1,
+          "description": "The model of the scan fallback session."
+        },
+        "effort": {
+          "type": "string",
+          "minLength": 1,
+          "description": "The effort of the scan fallback session."
+        },
+        "budgetTokens": {
+          "type": "integer",
+          "exclusiveMinimum": 0,
+          "maximum": 9007199254740991,
+          "description": "Input plus output plus cache-creation tokens one fallback session may spend."
+        },
+        "maxMinutes": {
+          "type": "integer",
+          "exclusiveMinimum": 0,
+          "maximum": 9007199254740991,
+          "description": "Minutes one fallback session may run before dipo stops it."
+        }
+      },
+      "additionalProperties": false,
+      "description": "The fallback session that proposes the run profile capabilities code could not resolve, started only by dipo office infer (0013 section 6, amendment of 2026-10-22). It runs on the Mac with every tool off, one turn plus one schema retry."
     }
   },
   "required": ["version"],

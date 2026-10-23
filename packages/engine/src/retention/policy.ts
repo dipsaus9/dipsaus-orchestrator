@@ -59,6 +59,10 @@ export const TABLE_RETENTION: Readonly<Record<string, TablePolicy>> = {
   run_env_files: { tier: "P", rule: "with its profile" },
   run_ports: { tier: "P", rule: "with its profile" },
   run_extra_scripts: { tier: "P", rule: "with its profile" },
+  // DIPO-310: the maintainer's confirmations and the pending proposals lay over every profile.
+  capability_confirmations: { tier: "P", rule: "kept until purge: the maintainer's confirmations" },
+  capability_proposals: { tier: "P", rule: "kept until purge; replaced or removed by the scan" },
+  office_scan_marks: { tier: "P", rule: "kept until purge: one row per office" },
   released_branches: {
     tier: "S",
     rule: "reclaimed more than stateDays ago; a branch not yet reclaimed is kept",

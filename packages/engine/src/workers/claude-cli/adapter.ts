@@ -317,8 +317,10 @@ export function claudeWorkerPort(deps: ClaudeWorkerPortDeps): WorkerPort {
               spec.session.resume,
               spec.model,
             )),
-        // A reviewer's result carries a `ReviewReport` (0019 section 5).
+        // A reviewer's result carries a `ReviewReport` (0019 section 5); a session's its
+        // structured output (DIPO-310).
         ...(spec.kind === "review" ? { reportKind: "review" as const } : {}),
+        ...(spec.kind === "session" ? { reportKind: "session" as const } : {}),
       }) as unknown as ParseState,
     encode,
     result: (state, exit) => result(state as unknown as ClaudeParseState, exit),
