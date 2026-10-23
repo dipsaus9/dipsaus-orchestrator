@@ -195,7 +195,7 @@ describe("the task files", () => {
     ["a quoted key", '---\nid: TASK-1\n"onStatusChange": touch marker\n---\n'],
     ["an escaped key", '---\nid: TASK-1\n"on\\x53tatusChange": touch marker\n---\n'],
     ["a merge key", '---\nid: TASK-1\n<<: {"on\\u0053tatusChange": touch marker}\n---\n'],
-    ["a byte order mark", "﻿---\nid: TASK-1\nonStatusChange: touch marker\n---\n"],
+    ["a byte order mark", "\ufeff---\nid: TASK-1\nonStatusChange: touch marker\n---\n"],
     ["carriage returns", "---\r\nid: TASK-1\r\nonStatusChange: touch marker\r\n---\r\n"],
   ] as const) {
     it(`stop a status change on ${what} in the front matter`, () => {
