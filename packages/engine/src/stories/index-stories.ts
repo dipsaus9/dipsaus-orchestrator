@@ -10,6 +10,11 @@
 // claimed story whose branch cannot be read (the ref or its task file missing) keeps its base
 // read and is listed in `branchUnread`; reconcile reports it.
 // `refreshStory` reads one story the same way, right after a commit on its branch.
+//
+// The CLI does not read a story's view again in a pass when none of the Backlog files it printed
+// changed since the office's last read (DIPO-314, `StoryViewCache` in `read.ts`): the pass lists
+// the blobs of the base's Backlog files with `git ls-tree` in the same queue item. Without that
+// list (a failed `ls-tree`), or without `reuseViews`, every view is read.
 
 import type { Clock, Cursor, IdSource, StoryKey } from "@dipsaus-orchestrator/contract";
 
@@ -22,7 +27,14 @@ import { type ClaimRecord, liveClaimOf, liveClaims } from "../worktree/records";
 import { applyIndex, applyStory, type IndexStats } from "./apply";
 import { readOnBranch } from "./branch-read";
 import { findStoryByKey, isProvisionalId } from "./keys";
-import { type BacklogStory, readBacklog, readStory } from "./read";
+import {
+  backlogBlobs,
+  type BacklogStory,
+  readBacklog,
+  readStory,
+  StoryViewCache,
+  type ViewPass,
+} from "./read";
 
 export interface IndexDeps {
   readonly office: OfficeHandle;
@@ -30,6 +42,11 @@ export interface IndexDeps {
   readonly cli: BacklogCli;
   readonly clock: Clock;
   readonly ids: IdSource;
+  /**
+   * Takes a view from the office's `StoryViewCache` when none of the files it printed changed
+   * (DIPO-314); every view is read without it.
+   */
+  readonly reuseViews?: boolean;
 }
 
 /** A claimed story the pass could not read on its branch; its base read was used. */
@@ -56,6 +73,42 @@ export interface IndexResult {
    * `read` holds the branch's status, reconcile needs this one to see a story Done on the base.
    */
   readonly baseStatus: ReadonlyMap<StoryKey, string>;
+}
+
+/** Each office's kept views (DIPO-314), for as long as its handle lives. */
+const VIEW_CACHES = new WeakMap<OfficeHandle, StoryViewCache>();
+
+/** The office's kept views. */
+export function viewCacheOf(office: OfficeHandle): StoryViewCache {
+  let cache = VIEW_CACHES.get(office);
+  if (cache === undefined) {
+    cache = new StoryViewCache();
+    VIEW_CACHES.set(office, cache);
+  }
+  return cache;
+}
+
+/** The pass's view of the office's cache at `sha`, or undefined when the blobs cannot be listed. */
+async function viewPass(
+  office: OfficeHandle,
+  git: GitSession,
+  location: ReturnType<OfficeGit["worktreeLocation"]>,
+  sha: string,
+): Promise<ViewPass | undefined> {
+  try {
+    const listing = await git.ok(location, [
+      "ls-tree",
+      "-r",
+      "-z",
+      sha,
+      "--",
+      "backlog",
+      "backlog.config.yml",
+    ]);
+    return viewCacheOf(office).pass(backlogBlobs(listing));
+  } catch {
+    return undefined;
+  }
 }
 
 function messageOf(error: unknown): string {
@@ -93,7 +146,9 @@ export async function indexPass(
   // A fetch queued before this item may have moved `_base` since it was ensured.
   const location = deps.git.worktreeLocation(basePath);
   const sha = (await git.ok(location, ["rev-parse", "--verify", "HEAD"])).trim();
-  const fromBase = await readBacklog(deps.cli, basePath);
+  const pass =
+    deps.reuseViews === true ? await viewPass(deps.office, git, location, sha) : undefined;
+  const fromBase = await readBacklog(deps.cli, basePath, pass);
   const { read, branchUnread, baseStatus } = await overlayClaimed(deps, git, basePath, fromBase);
   const at = deps.clock.now();
   return deps.office.immediate(() => {

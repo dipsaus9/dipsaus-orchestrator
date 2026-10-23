@@ -857,6 +857,8 @@ async function serve(run: Run, lock: HeldLock): Promise<number> {
     const storyIndex = new StoryIndex({
       git: engineGit,
       cli: backlogCli,
+      // A pass reads a story's view again only when a Backlog file it printed changed (DIPO-314).
+      reuseViews: true,
       offices,
       onOfficeChanged: (office) => server?.notifyOffice(office),
       onPolled: (office) => {
