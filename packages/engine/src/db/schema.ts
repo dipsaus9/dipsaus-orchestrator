@@ -47,6 +47,7 @@ import { workerReportData } from "./migrations/0043-worker-report-data";
 import { feedbackItems } from "./migrations/0044-feedback-items";
 import { doneElsewhere } from "./migrations/0045-done-elsewhere";
 import { catchUps } from "./migrations/0046-catch-ups";
+import { proposalDecisions } from "./migrations/0047-proposal-decisions";
 
 /**
  * Software-wide tables (0007 section 3). Every other table is office-scoped and has `office_id`
@@ -129,4 +130,5 @@ create table offices (
   feedbackItems,
   doneElsewhere,
   catchUps,
+  proposalDecisions,
 ];
