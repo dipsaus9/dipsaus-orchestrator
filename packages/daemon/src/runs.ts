@@ -108,6 +108,8 @@ import {
   type IngestAdapter,
   Nudges,
   type PartRun,
+  CATCH_UP_CAUSES,
+  type SyncOutcome,
   type BranchPush,
   recordBranchPush,
   type StoredRun,
@@ -743,6 +745,59 @@ export function realDir(dir: string): string {
   }
 }
 
+/** Why a part is refused while the box lacks a merge dipo made outside it (DIPO-324). */
+export const BOX_BEHIND_TEXT =
+  "dipo merged the base into the story branch outside the box, and the box has not received that merge, so a part now would undo it; resume the story to copy the merge into the box first";
+
+/**
+ * The parts' `behind` check (DIPO-324): why the run's box lacks a merge dipo committed on its
+ * branch outside the box, or null when it holds them all. Fails closed: a run whose office is not
+ * loaded here is behind, since dipo cannot tell.
+ */
+export function boxBehind(offices: {
+  get(office: OfficeId): OfficeHandle | undefined;
+}): (run: PartRun) => string | null {
+  return (run) => {
+    const handle = offices.get(run.office);
+    if (handle === undefined) {
+      return `dipo cannot read the office of ${run.story} here, so it cannot tell whether the box holds every merge dipo made on the branch; no part is taken until it can`;
+    }
+    return pendingBoxCopy(handle, run.runId) === null ? null : BOX_BEHIND_TEXT;
+  };
+}
+
+/**
+ * The merge a resumed conflict park needs in its live run's box (DIPO-324,
+ * `BoxCollisions.mergeOnResume`). The worker was told dipo merges, so a merge dipo cannot make
+ * here is never silent: it is a park of the live run with what went wrong, and a warning.
+ */
+export function conflictMergeOf(deps: {
+  readonly run: (runId: string) => PartRun | null;
+  readonly collisions: () => BoxCollisions | null;
+  readonly warn: (message: string, fields: Readonly<Record<string, unknown>>) => void;
+}): (office: OfficeId, runId: RunId) => Promise<SyncOutcome> {
+  return async (office, runId) => {
+    const run = deps.run(runId);
+    const collisions = deps.collisions();
+    if (run !== null && collisions !== null && run.office === office) {
+      return collisions.mergeOnResume(run);
+    }
+    const why =
+      run === null || run.office !== office
+        ? `dipo does not know the box of run ${runId} here`
+        : "this daemon has no box collisions to merge with";
+    deps.warn("the merge a conflict resume promised cannot run", { office, run: runId, why });
+    return {
+      kind: "park",
+      park: {
+        reason: "conflict",
+        cause: CATCH_UP_CAUSES.failed,
+        detail: `dipo resumed the story to merge the base into its branch and box once the session ran, but ${why}, so nothing was merged; resume it again`,
+      },
+    };
+  };
+}
+
 /** How often the daemon passes over the boxes besides each exit decision (DIPO-278). */
 export const BOX_PASS_TICK_MS = 60_000;
 
@@ -775,12 +830,7 @@ export function daemonRuns(options: DaemonRunsOptions): DaemonRuns {
       // A part dipo keeps failing to take out of the box is told, never parked (DIPO-290).
       notice: (run, notice) => runNotice(options)(run.office, run.runId, notice),
       // No part is taken while the box lacks a merge the merge slot made (DIPO-324).
-      behind: (runId) => {
-        const part = partRun?.(runId) ?? null;
-        const handle = part === null ? undefined : options.offices.get(part.office);
-        if (handle === undefined || pendingBoxCopy(handle, runId) === null) return null;
-        return "dipo merged the base into the story branch outside the box, and the box has not received that merge, so a part now would undo it; resume the story to copy the merge into the box first";
-      },
+      behind: boxBehind(options.offices),
     },
     () => void collisions?.check(),
   );
@@ -990,11 +1040,11 @@ export function daemonRuns(options: DaemonRunsOptions): DaemonRuns {
     ...(options.slotReentry === undefined ? {} : { slotReentry: options.slotReentry }),
     // A resumed conflict park merges in its live run's box (DIPO-324), and a resumed pr-closed
     // park opens a new story PR.
-    conflictMerge: async (office, runId, source) => {
-      const run = partRun?.(runId) ?? null;
-      if (run === null || collisions === null || run.office !== office) return { kind: "none" };
-      return collisions.mergeOnResume(run, source);
-    },
+    conflictMerge: conflictMergeOf({
+      run: (runId) => partRun?.(runId) ?? null,
+      collisions: () => collisions,
+      warn: (message, fields) => options.logger.warn(message, fields),
+    }),
     ...(options.storyPr?.replace === undefined
       ? {}
       : {

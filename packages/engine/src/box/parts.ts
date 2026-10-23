@@ -1123,7 +1123,7 @@ export interface BoxPartsDeps {
    * Why the run's box lacks a merge dipo committed on its branch outside the box (the merge
    * slot's, DIPO-324), or null when it holds them all. No part is taken while it lacks one.
    */
-  readonly behind?: (runId: string) => string | null;
+  readonly behind?: (run: PartRun) => string | null;
   /** Parks the run, stopping its worker; false when another decision came first. */
   readonly park?: (runId: string, park: PartPark) => boolean;
   /** Tells the maintainer (an `engine.notice` of the run). */
@@ -1548,7 +1548,7 @@ export class BoxParts {
 
   async #deliver(run: PartRun, message: string): Promise<PartOutcome> {
     // Never a part against a tip whose files the box has not received (DIPO-324).
-    const behind = this.#deps.behind?.(run.runId) ?? null;
+    const behind = this.#deps.behind?.(run) ?? null;
     if (behind !== null) return { kind: "behind", detail: behind };
     for (let attempt = 1; ; attempt += 1) {
       const outcome = await this.#attempt(run, message);
