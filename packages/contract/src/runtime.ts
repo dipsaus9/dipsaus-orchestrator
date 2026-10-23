@@ -82,6 +82,11 @@ export interface ChildProcess {
   /** Settles once when the child has exited. */
   readonly exited: Promise<ChildExit>;
   kill(signal?: Signal): void;
+  /**
+   * Signals every process of the child's group. Present only for a child spawned `detached`,
+   * which leads its own group (DIPO-314: a call killed at its deadline takes its descendants along).
+   */
+  killGroup?(signal: Signal): void;
 }
 
 /** Process creation, injected so tests can replace the subprocess (0017 section 2). */

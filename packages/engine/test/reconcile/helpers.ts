@@ -195,6 +195,8 @@ export interface ReconcileOffice {
   readonly tables: Tables;
   /** Sets the base table; takes effect at the next index pass. */
   setBase(tasks: readonly FakeTask[]): void;
+  /** Every call of the scripted Backlog CLI, in order. */
+  readonly cliCalls: readonly SpawnOptions[];
 }
 
 export interface ReconcileOfficeOptions {
@@ -206,6 +208,8 @@ export interface ReconcileOfficeOptions {
     readonly index: StoryIndex;
     readonly setup: () => OfficeSetup;
   }) => readonly FeatureModule[];
+  /** The story index takes unchanged views from its cache (DIPO-314); off by default. */
+  readonly reuseViews?: boolean;
   /** Runs before the office loads (claims, runs and parks written directly). */
   readonly beforeLoad?: (
     o: Omit<ReconcileOffice, "office" | "officeId">,
@@ -228,9 +232,11 @@ export function withReconcileOffice(
       ]);
       const engineGit = new EngineGit({ spawn: systemSpawn, env: repo.env });
       let setup: OfficeSetup | undefined;
+      const backlog = fakeBacklog(tables);
       const index = new StoryIndex({
         git: engineGit,
-        cli: { spawn: fakeBacklog(tables).spawn },
+        cli: { spawn: backlog.spawn },
+        ...(options.reuseViews === true ? { reuseViews: true } : {}),
         offices: {
           get: (office) => setup?.manager.get(office),
           config: (office) => setup?.manager.config(office),
@@ -260,6 +266,7 @@ export function withReconcileOffice(
           index,
           tables,
           setBase: (tasks: readonly FakeTask[]) => tables.set(BASE, tableOf(tasks)),
+          cliCalls: backlog.calls,
         };
         if (options.beforeLoad !== undefined) {
           await options.beforeLoad(partial, s.state.office(officeId));

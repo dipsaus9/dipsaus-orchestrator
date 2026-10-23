@@ -124,6 +124,8 @@ const HOST_REASONS: Record<CodeHostError["code"], PrWaitingReason> = {
   tooOld: "ghTooOld",
   unauthenticated: "ghUnauthenticated",
   failed: "hostFailed",
+  // A call killed at its deadline (DIPO-314) waits like any other failed host call.
+  timedOut: "hostFailed",
 };
 
 interface OfficeState {
