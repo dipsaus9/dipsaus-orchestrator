@@ -27,6 +27,11 @@
 // - `Places.drain` starts the first waiting session of each free, unpaused place through the
 //   starter of its kind, after claiming the place in one transaction (`claimPlace`). It runs after
 //   each worker exit decision, at office load, and every minute while anything waits.
+// - A pickup that is starting (DIPO-314). `work.run`'s serialized step ends once its claim row is
+//   committed, so its box preparation, install and launch run outside it; from that commit until
+//   its run row is in, the pickup holds the worker place here (`reservePickup`, in memory), so no
+//   drain, resume or other pickup takes it meanwhile. Its release drains the office, so what
+//   waited starts when the pickup did not.
 
 import type { Clock, OfficeId, RunId, TimerHandle, WorkRef } from "@dipsaus-orchestrator/contract";
 
@@ -294,6 +299,8 @@ export interface PlacesDeps {
 interface Drained {
   busy: Promise<unknown>;
   timer: TimerHandle | null;
+  /** Pickups past their claim row and before their run row, by run, with their story. */
+  readonly starting: Map<RunId, string>;
 }
 
 function messageOf(error: unknown): string {
@@ -318,7 +325,45 @@ export class Places {
     const office = this.#deps.offices.get(officeId);
     if (office === undefined) return null;
     const run = start.runId === null ? null : findRun(office, start.runId);
-    return placeTaken(office, start) ?? this.#paused(officeId, model, run);
+    return (
+      placeTaken(office, start) ??
+      this.#startingHolder(officeId, start) ??
+      this.#paused(officeId, model, run)
+    );
+  }
+
+  /**
+   * Holds the office's worker place for a pickup between its claim row and its run row (DIPO-314).
+   * Returns the release, which drains the office in the background; calling it again does nothing.
+   */
+  reservePickup(officeId: OfficeId, runId: RunId, story: string): () => void {
+    const state = this.#state(officeId);
+    state.starting.set(runId, story);
+    let released = false;
+    return () => {
+      if (released) return;
+      released = true;
+      if (state.starting.get(runId) === story) state.starting.delete(runId);
+      if (!this.#closed) this.#background(officeId);
+    };
+  }
+
+  /** The story of a pickup holding the office's worker place while it starts, or null. */
+  pickupStarting(officeId: OfficeId): string | null {
+    const first = this.#offices.get(officeId)?.starting.values().next();
+    return first === undefined || first.done === true ? null : first.value;
+  }
+
+  /** Why `start` cannot take the worker place a starting pickup holds, or null. */
+  #startingHolder(officeId: OfficeId, start: PlaceStart): string | null {
+    if (placeOfStart(start.kind) !== "worker") return null;
+    const starting = this.#offices.get(officeId)?.starting;
+    if (starting === undefined) return null;
+    for (const [runId, story] of starting) {
+      if (runId !== start.runId)
+        return `the office's worker place is held by ${story}, which is starting`;
+    }
+    return null;
   }
 
   /**
@@ -397,7 +442,7 @@ export class Places {
   #state(officeId: OfficeId): Drained {
     let state = this.#offices.get(officeId);
     if (state === undefined) {
-      state = { busy: Promise.resolve(), timer: null };
+      state = { busy: Promise.resolve(), timer: null, starting: new Map() };
       this.#offices.set(officeId, state);
     }
     return state;
@@ -438,6 +483,8 @@ export class Places {
       if (first === undefined) continue;
       waiting = true;
       if (holders[place].length > 0) continue;
+      // A pickup past its claim row holds the worker place until its run row is in (DIPO-314).
+      if (place === "worker" && state.starting.size > 0) continue;
       const run = first.runId === null ? null : findRun(office, first.runId);
       if (run === null) continue;
       const starter = this.#deps.starters[first.kind];
