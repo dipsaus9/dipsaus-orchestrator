@@ -146,7 +146,8 @@ Usage:
                     resume a paused run or a parked story as its park reason
                     says; some reasons need a note, and a budget-exceeded story
                     needs --budget with a note: dipo shows its caps before and
-                    after and asks first (--yes answers for a script)
+                    after and asks first (--yes answers for a script); for a
+                    story parked on its worker's question the note is the answer
   dipo hold <id> --note <text> [--office <id>]
                     set a Refined or Ready story aside: it parks on-hold through
                     the backlog PR and no run picks it until it is resumed; a
@@ -171,11 +172,14 @@ Usage:
                     hold the story's worker: it stays In Progress, shown as
                     paused, and its process exits after 10 minutes; the paused
                     time does not count toward its minute cap
+  dipo answer <question> --text <answer> [--office <id>]
+                    answer a worker's question: a worker waiting on it gets the
+                    answer now, a story parked on it resumes with it, and dipo
+                    writes it to the story as a resolved unknown; put the whole
+                    answer in quotes after --text
   dipo answer <question> allow|deny [reason] [--office <id>]
-                    answer a permission question a worker asked while you were
-                    at a client: allow lets its call run once, deny refuses it
-                    and tells the worker the reason; any other text answers a
-                    worker question
+                    answer a permission or scope question: allow lets the call
+                    run once, deny refuses it and tells the worker the reason
   dipo desk [--office <id>] [--json]
                     list what waits on you, in the order to handle it: questions
                     a worker waits on, merges, parked stories, hand actions,

@@ -312,7 +312,7 @@ describe("the desk order (0020 section 12)", () => {
           actions: [
             {
               command: "work.answer",
-              cli: 'dipo answer qst_01J9ZK5Q8W3V4X6Y7Z8A9B0C1A "<answer>"',
+              cli: 'dipo answer qst_01J9ZK5Q8W3V4X6Y7Z8A9B0C1A --text "<answer>"',
             },
           ],
         });
@@ -556,8 +556,11 @@ describe("the resume needs of this engine", () => {
       kind: "refuse",
       code: "resume.notResumable",
     });
-    // A question waits for its answer; no park of this reason offers a resume.
-    expect(policyResumeNeeds("ambiguous-spec", "question")).toBeNull();
+    // A question park resumes with its answer, the note (DIPO-159).
+    expect(policyResumeNeeds("ambiguous-spec", "question")).toMatchObject({
+      kind: "resume",
+      note: "required",
+    });
     expect(policyResumeNeeds("plan-limit", null)).toBeNull();
   });
 });
@@ -776,6 +779,122 @@ describe("the desk shows a story Done elsewhere (DIPO-161)", () => {
           { command: "work.discard", cli: 'dipo discard DIPO-105 --note "<why>"' },
         ]);
         expect(items[0]?.detail).toContain("1 commit not on main");
+      } finally {
+        t.state.close();
+      }
+    }));
+});
+
+describe("a worker question waiting on the desk (DIPO-159; 0020 section 7)", () => {
+  const MINUTE = 60_000;
+
+  it("shows the time left on its wait through office.desk, and its end", () =>
+    withTempDir(async (dir) => {
+      const t = await openTestState(dir);
+      try {
+        const office = addOffice(t);
+        pass(t, office, [task("DIPO-1", { status: "In Progress" })]);
+        const started = startRun(t, office, "DIPO-1", dir);
+        const at = t.clock.now();
+        office.immediate(() =>
+          insertWorkerQuestion(office, {
+            questionId: "qst_01J9ZK5Q8W3V4X6Y7Z8A9B0C1A",
+            runId: started.run,
+            agentId: started.agent,
+            text: "Which port?",
+            at,
+            waitUntil: at + 15 * MINUTE,
+          }),
+        );
+        t.clock.advance(3 * MINUTE + 30_000);
+        expect((await readDesk(t, office)).map((item) => item.detail)).toEqual([
+          '"Which port?" · worker waiting, 12 min left',
+        ]);
+        t.clock.advance(11 * MINUTE);
+        expect((await readDesk(t, office))[0]?.detail).toBe(
+          '"Which port?" · worker waiting, 1 min left',
+        );
+        t.clock.advance(MINUTE);
+        expect((await readDesk(t, office))[0]?.detail).toBe(
+          '"Which port?" · worker waiting, its wait is over',
+        );
+        // A desk built with no time shows none.
+        expect(desk(office, all, ALL_SOURCES)[0]?.detail).toBe('"Which port?" · worker waiting');
+      } finally {
+        t.state.close();
+      }
+    }));
+
+  it("keeps the time left whole when a long question is cut, and offers dipo answer --text", () =>
+    withTempDir(async (dir) => {
+      const t = await openTestState(dir);
+      try {
+        const office = addOffice(t);
+        pass(t, office, [task("DIPO-1", { status: "In Progress" })]);
+        const started = startRun(t, office, "DIPO-1", dir);
+        const at = t.clock.now();
+        office.immediate(() =>
+          insertWorkerQuestion(office, {
+            questionId: "qst_01J9ZK5Q8W3V4X6Y7Z8A9B0C1A",
+            runId: started.run,
+            agentId: started.agent,
+            text: "q".repeat(1000),
+            at,
+            waitUntil: at + 15 * MINUTE,
+          }),
+        );
+        const [item] = desk(office, all, ALL_SOURCES, at);
+        expect(item?.detail.endsWith('…" · worker waiting, 15 min left')).toBe(true);
+        expect(Array.from(item?.detail ?? "").length).toBeLessThanOrEqual(DESK_DETAIL_MAX);
+        expect(item?.actions).toEqual([
+          {
+            command: "work.answer",
+            cli: 'dipo answer qst_01J9ZK5Q8W3V4X6Y7Z8A9B0C1A --text "<answer>"',
+          },
+        ]);
+      } finally {
+        t.state.close();
+      }
+    }));
+
+  it("puts a question park's question on its PARKED row with dipo answer --text and dipo resume --note", () =>
+    withTempDir(async (dir) => {
+      const t = await openTestState(dir);
+      try {
+        const office = addOffice(t);
+        pass(t, office, [task("DIPO-2", { status: "Parked" })]);
+        const started = startRun(t, office, "DIPO-2", dir);
+        const at = t.clock.now();
+        const parkId = insertPark(office, "DIPO-2", {
+          reason: "ambiguous-spec",
+          cause: "question",
+          detail: "Which port?",
+          at,
+          run: started.run,
+        });
+        office.immediate(() =>
+          insertWorkerQuestion(office, {
+            questionId: "qst_01J9ZK5Q8W3V4X6Y7Z8A9B0C1B",
+            runId: started.run,
+            agentId: started.agent,
+            text: "Which port?",
+            at,
+            parkId,
+          }),
+        );
+        const items = desk(office, all, DESK_SOURCES, at);
+        expect(items).toHaveLength(1);
+        expect(items[0]).toMatchObject({
+          kind: "PARKED",
+          reason: "ambiguous-spec",
+          actions: [
+            {
+              command: "work.answer",
+              cli: 'dipo answer qst_01J9ZK5Q8W3V4X6Y7Z8A9B0C1B --text "<answer>"',
+            },
+            { command: "work.resume", cli: 'dipo resume DIPO-2 --note "<answer>"' },
+          ],
+        });
       } finally {
         t.state.close();
       }
