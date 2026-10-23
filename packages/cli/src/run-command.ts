@@ -31,11 +31,14 @@ import { cleanedOutput, type DaemonSession, engineFailure, usage } from "./daemo
 import { type OfficeCommandDeps, parseOptions, withOffice } from "./office-commands";
 
 /**
- * How long `dipo run` waits for its reply: a fetch, a story index pass, the run profile, the
- * Ready gate and the claim with its push; each step that waits on something outside dipo is
- * killed after a minute.
+ * How long `dipo run` waits for its claim: a fetch, a story index pass, the run profile, the Ready
+ * gate and the claim with its push; each step that waits on something outside dipo is killed after
+ * a minute. A claim took 5.5 minutes on a Mac (DIPO-325), so this is ten.
  */
-export const RUN_TIMEOUT_MS = 300_000;
+export const RUN_TIMEOUT_MS = 600_000;
+
+/** The outer deadline of `dipo run`: the claim's limit, then the subscription and explain wait. */
+const RUN_DEADLINE_MS = RUN_TIMEOUT_MS + 60_000;
 
 /** What each skip reason means, for people (0005 section 4). */
 const REASONS: Readonly<Record<string, string>> = {
@@ -129,6 +132,19 @@ async function explainOffice(
   });
   await live.promise;
   return subscription;
+}
+
+/** Resolves with `work`'s outcome, or with `null` once `ms` on `clock` has passed first. */
+async function withinLimit<T>(work: Promise<T>, clock: Clock, ms: number): Promise<T | null> {
+  let timer: ReturnType<Clock["setTimeout"]> | null = null;
+  const limit = new Promise<null>((resolve) => {
+    timer = clock.setTimeout(() => resolve(null), ms);
+  });
+  try {
+    return await Promise.race([work, limit]);
+  } finally {
+    if (timer !== null) clock.clearTimeout(timer);
+  }
 }
 
 /** The file holding the report schema the `--json-schema` argument carries. */
@@ -298,15 +314,26 @@ export async function runCommand(
       const subscription = await explainOffice(session, office, explanations);
       let outcome;
       try {
-        outcome = await session.command(
-          workRun,
-          {
-            ...(stories.length === 0 ? {} : { stories }),
-            ...(from === undefined ? {} : { from }),
-            ...(box ? { box: true } : {}),
-          },
-          { office },
+        outcome = await withinLimit(
+          session.command(
+            workRun,
+            {
+              ...(stories.length === 0 ? {} : { stories }),
+              ...(from === undefined ? {} : { from }),
+              ...(box ? { box: true } : {}),
+            },
+            { office },
+          ),
+          deps.clock,
+          RUN_TIMEOUT_MS,
         );
+        // Still claiming at the limit: the run may yet start, so it is followed, not reported as failed.
+        if (outcome === null) {
+          deps.writeError(
+            `dipo: the claim is still going after ${RUN_TIMEOUT_MS / 1000} s; it may still start a story. Follow it with \`dipo watch\` or \`dipo daemon status\`.`,
+          );
+          return 1;
+        }
         if (outcome.ok) {
           const explained = outcome.result.skipped
             .filter((story) => EXPLAINED.has(story.reason))
@@ -332,6 +359,6 @@ export async function runCommand(
       return 1;
     },
     undefined,
-    RUN_TIMEOUT_MS,
+    RUN_DEADLINE_MS,
   );
 }

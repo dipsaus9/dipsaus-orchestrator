@@ -421,6 +421,8 @@ async function rescanAndWait(
       if (data.success && data.data.trigger === "rescan") finished.resolve(data.data);
     },
     onCaughtUp: () => live.resolve(),
+    // A refused or closed stream ends the wait with its error; a daemon still recovering is waited
+    // for by the session itself (DIPO-325).
     onEnded: (error) => {
       const failed = new Error(`${error.code}: ${error.message}`);
       live.reject(failed);
@@ -428,8 +430,9 @@ async function rescanAndWait(
     },
   });
   try {
-    // Subscribed before the command, so the scan's event cannot be missed.
-    await live.promise;
+    // Subscribed before the command, so the scan's event cannot be missed. Raced with `finished`,
+    // which the stream's end may reject first: both are awaited, so neither rejection is unhandled.
+    await Promise.race([live.promise, finished.promise]);
     const outcome = await session.command(officeRescan, {}, { office });
     if (!outcome.ok) return { ok: false, code: outcome.error.code, message: outcome.error.message };
     return { ok: true, data: await finished.promise };
