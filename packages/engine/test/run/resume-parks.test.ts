@@ -1002,9 +1002,9 @@ describe("a retry of the same request (0005 note of 2026-10-17)", () => {
     park("verify-failing", "loops");
     const context = ctx(false, "req_same");
     const resuming = resumption();
-    const first = await resume(resuming, { note: "again" }, context);
+    const once = await resume(resuming, { note: "again" }, context);
     const second = await resume(resuming, { note: "again" }, ctx(false, "req_same"));
-    expect(second.result).toEqual(first.result);
+    expect(second.result).toEqual(once.result);
     expect(w.lifts).toHaveLength(1);
     expect(w.sessions).toHaveLength(1);
     expect(grants()).toHaveLength(1);
@@ -1147,11 +1147,11 @@ describe("work.resume on the waiting command path (0005 note of 2026-10-17, DIPO
     });
     const deps = executor(resuming);
     const id = "01J9ZK5Q8W3V4X6Y7Z90000005";
-    const first = executeCommand(deps, resumeRequest(id, {}));
+    const original = executeCommand(deps, resumeRequest(id, {}));
     await Bun.sleep(0);
     const duplicate = executeCommand(deps, resumeRequest(id, {}));
     release?.();
-    const [one, two] = await Promise.all([first, duplicate]);
+    const [one, two] = await Promise.all([original, duplicate]);
     await resuming.idle();
     expect(two).toEqual(one);
     expect(one).toMatchObject({ ok: true, result: { to: "In Progress", run: w.f.run } });
