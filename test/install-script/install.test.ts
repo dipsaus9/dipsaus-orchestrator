@@ -82,9 +82,23 @@ echo "$FAKE_TRANSLATED"
 `,
 };
 
+/** The release tag and commit the gh stub reports, unless a test overrides them. */
+const TAG = "v0.4.1";
+const COMMIT = "0123456789abcdef0123456789abcdef01234567";
+
+// Answers the two `gh api` reads install.sh makes and `gh attestation verify`; logs every call.
 const GH_STUB = `#!/bin/sh
 echo "gh $*" >> "$FAKE_LOG"
-exit "\${FAKE_GH_EXIT:-0}"
+case "$1 $2" in
+  "api repos/dipsaus9/dipsaus-orchestrator/releases/latest")
+    [ "\${FAKE_GH_API_EXIT:-0}" = 0 ] || exit 1
+    echo "$FAKE_GH_TAG" ;;
+  "api repos/dipsaus9/dipsaus-orchestrator/commits/"*)
+    [ "\${FAKE_GH_API_EXIT:-0}" = 0 ] || exit 1
+    echo "$FAKE_GH_SHA" ;;
+  "attestation verify") exit "\${FAKE_GH_EXIT:-0}" ;;
+  *) exit 2 ;;
+esac
 `;
 
 function writeExecutable(path: string, content: string): void {
@@ -185,6 +199,8 @@ function install(env: Record<string, string>, options: { gh?: boolean; path?: st
       FAKE_UNAME_S: "Linux",
       FAKE_UNAME_M: "x86_64",
       FAKE_LDD: "ldd (GNU libc) 2.39",
+      FAKE_GH_TAG: TAG,
+      FAKE_GH_SHA: COMMIT,
       ...env,
     },
   });
@@ -202,22 +218,95 @@ function onlyDipoIn(path: string): boolean {
 }
 
 describe("install.sh", () => {
-  it("installs the latest release for the host to ~/.local/bin and prints the attestation command without gh", () => {
+  it("stops without gh before downloading anything and says how to verify the download", () => {
     publish("latest/download", "dipo-linux-arm64.tar.gz");
     const result = install({ FAKE_UNAME_M: "aarch64" });
+    expect(result.code).not.toBe(0);
+    expect(result.log).toBe("");
+    expect(result.stderr).toContain("gh is not installed");
+    expect(result.stderr).toContain("install gh (https://cli.github.com)");
+    expect(result.stderr).toContain(
+      `gh attestation verify dipo-linux-arm64.tar.gz ${PINNED_VERIFY.slice(1).join(" ")} --source-digest`,
+    );
+    expect(result.stderr).toContain("DIPO_SKIP_ATTESTATION=1");
+    expect(existsSync(installDir)).toBe(false);
+    expect(readdirSync(join(dir, "tmp"))).toEqual([]);
+  });
+
+  it("installs the latest release to ~/.local/bin without gh when DIPO_SKIP_ATTESTATION=1", () => {
+    publish("latest/download", "dipo-linux-arm64.tar.gz");
+    const result = install({ FAKE_UNAME_M: "aarch64", DIPO_SKIP_ATTESTATION: "1" });
     expect(result.stderr).toBe("");
     expect(result.code).toBe(0);
     expect(result.log).toBe(
       `${RELEASES}latest/download/dipo-linux-arm64.tar.gz\n${RELEASES}latest/download/SHA256SUMS\n`,
     );
+    expect(result.stdout).toContain("the build provenance attestation is not checked");
+    expect(result.stdout).toContain("checksum ok");
     expect(result.stdout).toContain("dipo fake dipo-linux-arm64.tar.gz");
-    expect(result.stdout).toContain(
-      `gh attestation verify dipo-linux-arm64.tar.gz ${PINNED_VERIFY.slice(1).join(" ")}`,
-    );
     expect(result.stdout).toContain("is not on your PATH");
     expect(statSync(join(installDir, "dipo")).mode & 0o777).toBe(0o755);
     expect(onlyDipoIn(installDir)).toBe(true);
     expect(readdirSync(join(dir, "tmp"))).toEqual([]);
+  });
+
+  it("still checks the checksum with DIPO_SKIP_ATTESTATION=1, and never calls gh", () => {
+    publish("latest/download", "dipo-linux-x64.tar.gz", { badSum: true });
+    const result = install({ DIPO_SKIP_ATTESTATION: "1" }, { gh: true });
+    expect(result.code).not.toBe(0);
+    expect(result.stderr).toContain("checksum mismatch");
+    expect(result.log).not.toContain("gh ");
+    expect(existsSync(installDir)).toBe(false);
+  });
+
+  it("with gh, resolves the latest tag and its commit, downloads that tag and pins the commit", () => {
+    publish(`download/${TAG}`, "dipo-linux-x64.tar.gz");
+    const result = install({}, { gh: true });
+    expect(result.stderr).toBe("");
+    expect(result.code).toBe(0);
+    const lines = result.log.trim().split("\n");
+    expect(lines.slice(0, 4)).toEqual([
+      "gh api repos/dipsaus9/dipsaus-orchestrator/releases/latest --jq .tag_name",
+      `gh api repos/dipsaus9/dipsaus-orchestrator/commits/${TAG} --jq .sha`,
+      `${RELEASES}download/${TAG}/dipo-linux-x64.tar.gz`,
+      `${RELEASES}download/${TAG}/SHA256SUMS`,
+    ]);
+    const verify = lines[4] ?? "";
+    for (const part of PINNED_VERIFY) expect(verify).toContain(part);
+    expect(verify).toEndWith(`--source-digest ${COMMIT}`);
+    expect(result.stdout).toContain(
+      `verifying the build provenance attestation of ${TAG} (${COMMIT})`,
+    );
+    expect(statSync(join(installDir, "dipo")).mode & 0o777).toBe(0o755);
+  });
+
+  it.each([
+    [
+      "gh cannot read the release",
+      { FAKE_GH_API_EXIT: "1" },
+      "gh could not read the latest release",
+    ],
+    ["gh reports no tag", { FAKE_GH_TAG: "" }, "the latest release tag must be a release tag"],
+    ["gh reports a malformed tag", { FAKE_GH_TAG: "v1/../x" }, "the latest release tag must be"],
+    ["gh reports a short commit", { FAKE_GH_SHA: "0123abc" }, "gh returned no commit for v0.4.1"],
+    ["gh reports a non-hex commit", { FAKE_GH_SHA: "z".repeat(40) }, "gh returned no commit"],
+    ["gh reports no commit", { FAKE_GH_SHA: "" }, "gh returned no commit"],
+  ])("stops before downloading when %s", (_name, env, message) => {
+    publish(`download/${TAG}`, "dipo-linux-x64.tar.gz");
+    const result = install(env, { gh: true });
+    expect(result.code).not.toBe(0);
+    expect(result.stderr).toContain(message);
+    expect(result.log).not.toContain(RELEASES);
+    expect(existsSync(installDir)).toBe(false);
+  });
+
+  it("stops when gh cannot read the commit of a given DIPO_VERSION", () => {
+    publish("download/v0.3.0", "dipo-linux-x64.tar.gz");
+    const result = install({ DIPO_VERSION: "v0.3.0", FAKE_GH_API_EXIT: "1" }, { gh: true });
+    expect(result.code).not.toBe(0);
+    expect(result.stderr).toContain("gh could not read the commit of v0.3.0");
+    expect(result.log).not.toContain(RELEASES);
+    expect(existsSync(installDir)).toBe(false);
   });
 
   it("honours DIPO_VERSION and DIPO_INSTALL_DIR, runs the pinned gh check and replaces dipo by rename", () => {
@@ -240,11 +329,14 @@ describe("install.sh", () => {
     expect(result.stderr).toBe("");
     expect(result.code).toBe(0);
     const lines = result.log.trim().split("\n");
-    expect(lines[0]).toBe(`${RELEASES}download/v0.3.0/dipo-darwin-arm64.tar.gz`);
-    const gh = lines.find((line) => line.startsWith("gh "));
+    // A given tag is not looked up; only its commit is.
+    expect(lines[0]).toBe("gh api repos/dipsaus9/dipsaus-orchestrator/commits/v0.3.0 --jq .sha");
+    expect(lines[1]).toBe(`${RELEASES}download/v0.3.0/dipo-darwin-arm64.tar.gz`);
+    const gh = lines.find((line) => line.startsWith("gh attestation "));
     expect(gh).toBeDefined();
     expect(gh).toContain("/dipo-darwin-arm64.tar.gz ");
     for (const part of PINNED_VERIFY) expect(gh).toContain(part);
+    expect(gh).toContain(`--source-digest ${COMMIT}`);
     expect(result.stdout).toContain("dipo fake dipo-darwin-arm64.tar.gz");
     expect(result.stdout).not.toContain("is not on your PATH");
     // A rename gives the path a new inode; a running process keeps the old file.
@@ -254,7 +346,7 @@ describe("install.sh", () => {
   });
 
   it("stops without installing when the attestation does not verify", () => {
-    publish("latest/download", "dipo-linux-x64.tar.gz");
+    publish(`download/${TAG}`, "dipo-linux-x64.tar.gz");
     const result = install({ FAKE_GH_EXIT: "1" }, { gh: true });
     expect(result.code).not.toBe(0);
     expect(result.stderr).toContain("attestation verification failed");
@@ -262,8 +354,8 @@ describe("install.sh", () => {
   });
 
   it("stops without installing on a checksum mismatch", () => {
-    publish("latest/download", "dipo-linux-x64.tar.gz", { badSum: true });
-    const result = install({});
+    publish(`download/${TAG}`, "dipo-linux-x64.tar.gz", { badSum: true });
+    const result = install({}, { gh: true });
     expect(result.code).not.toBe(0);
     expect(result.stderr).toContain("checksum mismatch");
     expect(existsSync(installDir)).toBe(false);
@@ -273,7 +365,7 @@ describe("install.sh", () => {
   it("stops when SHA256SUMS has no entry for the archive", () => {
     publish("latest/download", "dipo-linux-x64.tar.gz");
     writeFileSync(join(releases, "latest/download/SHA256SUMS"), `${"1".repeat(64)}  other\n`);
-    const result = install({});
+    const result = install({ DIPO_SKIP_ATTESTATION: "1" });
     expect(result.code).not.toBe(0);
     expect(result.stderr).toContain("SHA256SUMS has no entry for dipo-linux-x64.tar.gz");
     expect(existsSync(installDir)).toBe(false);
@@ -284,6 +376,12 @@ describe("install.sh", () => {
     ["musl", { FAKE_LDD: "musl libc (x86_64)" }, "musl-based Linux"],
     ["an unknown architecture", { FAKE_UNAME_M: "riscv64" }, "unsupported architecture: riscv64"],
     ["a malformed DIPO_VERSION", { DIPO_VERSION: "v1/../x" }, "DIPO_VERSION must be a release tag"],
+    ["a DIPO_VERSION that is not a tag", { DIPO_VERSION: "latest" }, "DIPO_VERSION must be a"],
+    [
+      "a DIPO_SKIP_ATTESTATION other than 1",
+      { DIPO_SKIP_ATTESTATION: "yes" },
+      "DIPO_SKIP_ATTESTATION must be 1 or unset",
+    ],
   ])("refuses %s before downloading anything", (_name, env, message) => {
     const result = install(env);
     expect(result.code).not.toBe(0);
