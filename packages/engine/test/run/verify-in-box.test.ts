@@ -66,6 +66,8 @@ import {
   pendingReviews,
   reopenForRound,
   RunControl,
+  runIntents,
+  runOutcome,
   runSteps,
   type StoryGit,
   VerifyCommit,
@@ -76,7 +78,7 @@ import { detect, type RunProfile } from "../../src/scan/detect";
 import { addStory } from "../../src/stories/keys";
 import { encode } from "../../src/workers/claude-cli/encode";
 import type { HostOp, WorkerEvent, WorkerReport } from "../../src/workers/types";
-import { insertClaim } from "../../src/worktree/records";
+import { findClaim, insertClaim } from "../../src/worktree/records";
 import { type IngestFixture, ingestFixture, loggedEvents } from "../ingest/helpers";
 
 const TMP = process.env["DIPO_TMP"] || "/tmp";
@@ -672,6 +674,10 @@ interface World {
   inReviewTip: string | null;
   queuedPart: boolean;
   moveTip: boolean;
+  /** Why the In Review push failed, or null when it reached the remote. */
+  pushError: string | null;
+  /** The files the run committed on the branch since its start. */
+  committedFiles: string[];
 }
 
 let w: World;
@@ -698,10 +704,12 @@ function fakeStoryGit(): StoryGit {
     },
     push: async (_o, branch) => {
       w.calls.push(`push ${branch}`);
-      return { pushed: true, rejected: false, error: null };
+      return w.pushError === null
+        ? { pushed: true, rejected: false, error: null }
+        : { pushed: false, rejected: false, error: w.pushError };
     },
     diffstat: async () => " src/greet.ts | 2 +-\n 1 file changed",
-    changedFiles: async () => ["src/greet.ts"],
+    changedFiles: async () => w.committedFiles,
   };
 }
 
@@ -766,6 +774,8 @@ beforeEach(async () => {
     inReviewTip: null,
     queuedPart: false,
     moveTip: false,
+    pushError: null,
+    committedFiles: ["src/greet.ts"],
   } as unknown as World;
   const finisher = new VerifyCommit({
     clock: f.t.clock,
@@ -1129,5 +1139,188 @@ describe("the last part at done (DIPO-273)", () => {
     ]);
     expect(w.calls).toEqual([]);
     expectNoVerify();
+  });
+});
+
+describe("the In Review end of a box run (DIPO-144, DIPO-84, restated for box runs by DIPO-240)", () => {
+  it("records the In Review push on the claim at the run's end", async () => {
+    await play();
+    const run = findRun(w.f.office, w.f.run);
+    expect(run?.endKind).toBe("in-review");
+    expect(findClaim(w.f.office, w.f.run)?.pushedAt).toBe(run?.endedAt ?? -1);
+  });
+
+  it("leaves the claim's push unrecorded when the In Review push fails, and opens no PR", async () => {
+    w.pushError = "pushing failed (network is down)";
+    await play();
+    expect(findRun(w.f.office, w.f.run)?.endKind).toBe("in-review");
+    expect(findClaim(w.f.office, w.f.run)?.pushedAt).toBeNull();
+    expect(w.calls).not.toContain("story PR sync run");
+    expect(events("engine.notice").map((n) => n["code"])).toContain("verify.pushFailed");
+  });
+
+  it("raises a notice on the run and story naming the dependency files its parts committed", async () => {
+    w.committedFiles = ["src/greet.ts", "src/package.json", "src/bun.lock", "test/greet.test.ts"];
+    await play();
+    const notices = loggedEvents(w.f.office).filter(
+      (event) =>
+        event.type === "engine.notice" &&
+        (event.data as { code?: string }).code === "verify.dependenciesChanged",
+    );
+    expect(notices).toHaveLength(1);
+    const rows = w.f.office.all<{ run_id: string | null; key: string | null }>(
+      "select run_id, key from change_log where office_id = $office_id and type = 'engine.notice'",
+    );
+    expect(rows).toEqual([{ run_id: w.f.run, key: w.work.key }]);
+    expect(notices[0]?.data).toEqual({
+      level: "warn",
+      code: "verify.dependenciesChanged",
+      text: "DIPO-1 changed dependency files: src/bun.lock, src/package.json. Review the added or changed packages before you merge.",
+    });
+  });
+
+  it("raises no dependency notice when no dependency file changed", async () => {
+    await play();
+    expect(
+      events("engine.notice").filter((n) => n["code"] === "verify.dependenciesChanged"),
+    ).toEqual([]);
+  });
+
+  it("writes an outcome row for a budget-exceeded park too", async () => {
+    w.control.close();
+    const control = new RunControl({
+      clock: w.f.t.clock,
+      offices: { get: () => w.f.office },
+      writer: {
+        write: async () => ({
+          commit: null,
+          lastGoodCommit: "a".repeat(40),
+          from: "In Progress",
+          pushed: true,
+          pushError: null,
+        }),
+      },
+      steering: { send: async () => ({ ok: true }) },
+      encode,
+    });
+    control.track(w.f.office.officeId, {
+      runId: w.f.run,
+      work: w.work,
+      caps: { budgetTokens: 1, maxTurns: 100, maxMinutes: 1 },
+      startedAt: w.f.t.clock.now(),
+      snapshot: null,
+    });
+    w.f.t.clock.advance(2 * 60_000);
+    await control.idle();
+    control.close();
+    expect(runOutcome(w.f.office, w.f.run)).toMatchObject({
+      outcome: "parked",
+      parkReasons: ["budget-exceeded"],
+      minutes: 2,
+    });
+  });
+});
+
+// ---- a done report on the turn that crosses a cap (DIPO-205), restated for box runs ------------
+
+const MODEL = "claude-haiku-5-5";
+function setRun(column: "max_turns" | "budget_limit", value: number): void {
+  w.f.office.run(
+    `update runs set ${column} = $value where office_id = $office_id and run_id = $run`,
+    { value, run: w.f.run },
+  );
+}
+function capSteps(): { value: string }[] {
+  return w.f.office.all<{ value: string }>(
+    `select value from run_steps where office_id = $office_id and run_id = $run
+      and kind = 'cap'`,
+    { run: w.f.run },
+  );
+}
+/**
+ * One ingestion pass as run control sees it: the usage the events folded in is stored, then
+ * every `usage` and `turn` event is applied (the cap marks) before the pass is handled.
+ */
+async function capPass(
+  pending: readonly WorkerEvent[],
+  used: { readonly turns: number; readonly tokens: number },
+): Promise<void> {
+  w.f.office.immediate(() => {
+    w.f.office.run(
+      `insert or ignore into agents (office_id, agent_id, run_id, role, model, session_id,
+         started_at) values ($office_id, $agent, $run, 'developer', $model, 's-1', 0)`,
+      { agent: w.f.agent, run: w.f.run, model: MODEL },
+    );
+    w.f.office.run(
+      `insert into usage_totals (office_id, run_id, agent_id, model, role, tier, input, turns,
+         updated_at)
+       values ($office_id, $run, $agent, $model, 'developer', 'S', $tokens, $turns, 0)`,
+      { agent: w.f.agent, run: w.f.run, model: MODEL, tokens: used.tokens, turns: used.turns },
+    );
+  });
+  for (const event of pending) {
+    if (event.t === "usage" || event.t === "turn") w.control.onEventApplied(w.f.run, event);
+  }
+  w.control.onWorkerEvents(w.f.run, pending);
+  await w.control.idle();
+}
+const IN_REVIEW_CALLS = [
+  "last part print a greeting",
+  "parts released (live false)",
+  "in-review [1]",
+  "push DIPO-1/add-a-greeting",
+  "story PR sync run",
+];
+
+describe("a done report on the turn that crosses a cap, in a box run (DIPO-205, DIPO-240)", () => {
+  it("takes the done path on the turn that reaches the engine turn cap and records the cap", async () => {
+    setRun("max_turns", 1);
+    await capPass([turn(DONE)], { turns: 1, tokens: 10 });
+    expect(parks()).toEqual([]);
+    expect(w.calls).toEqual(IN_REVIEW_CALLS);
+    expect(findRun(w.f.office, w.f.run)?.endKind).toBe("in-review");
+    expect(capSteps()).toEqual([{ value: "maxTurns: turn cap reached: 1 of 1 turns" }]);
+    expect(runIntents(w.f.office, w.f.run).map((i) => i.kind)).not.toContain("cap");
+    expectNoVerify();
+  });
+
+  it("takes the done path on the turn that reaches the token budget and records the cap", async () => {
+    setRun("budget_limit", 1_000);
+    await capPass([turn(DONE)], { turns: 1, tokens: 2_000 });
+    expect(parks()).toEqual([]);
+    expect(w.calls).toEqual(IN_REVIEW_CALLS);
+    expect(capSteps().map((step) => step.value)).toEqual([
+      "budgetTokens: token budget reached: 2,000 of 1,000 budget tokens (input, output and cache creation)",
+    ]);
+  });
+
+  it("takes the done path on a done turn that ended at the CLI --max-turns backstop", async () => {
+    const capped: WorkerEvent = {
+      t: "turn",
+      report: DONE,
+      totals: {},
+      numTurns: 61,
+      terminal: "max_turns",
+      capped: "turn cap (--max-turns) after 61 turns",
+    };
+    w.control.onWorkerEvents(w.f.run, [capped]);
+    await w.control.idle();
+    expect(parks()).toEqual([]);
+    expect(w.calls).toEqual(IN_REVIEW_CALLS);
+    expect(capSteps()).toEqual([{ value: "maxTurns: turn cap (--max-turns) after 61 turns" }]);
+  });
+
+  it("still parks budget-exceeded with the cap detail when the crossing turn has no done report", async () => {
+    setRun("max_turns", 1);
+    await capPass([turn(null)], { turns: 1, tokens: 10 });
+    expect(parks().map((p) => [p.reason, p.cause, p.detail])).toEqual([
+      ["budget-exceeded", "build", "turn cap reached: 1 of 1 turns"],
+    ]);
+    expect(w.calls).toEqual([]);
+    expect(capSteps()).toEqual([]);
+    expect(runOutcome(w.f.office, w.f.run)).toMatchObject({
+      outcome: "parked",
+      parkReasons: ["budget-exceeded"],
+    });
   });
 });
