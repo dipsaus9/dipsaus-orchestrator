@@ -6,7 +6,7 @@ title: >-
 status: To Do
 assignee: []
 created_date: '2026-10-21 13:54'
-updated_date: '2026-10-23 10:34'
+updated_date: '2026-10-23 13:38'
 labels:
   - box
   - cutover
@@ -66,12 +66,11 @@ unknowns:
 - [ ] #3 Tests cover each alias and address form
 - [ ] #4 (from DIPO-282) The office config holds a list of allowed local ports, read from the base branch
 - [ ] #5 (from DIPO-282) Through the web proxy, only listed local ports of the Mac are reachable from a box, shown by tests with a listed and an unlisted port; the accepted risk for Mac services that listen on all interfaces stays until DIPO-283
-- [ ] #6 (from DIPO-283) The worker inside the box cannot undo the fix
-- [ ] #7 (from DIPO-283) docs/decisions/0021-worker-isolation.md gets a dated amendment that closes the accepted risk
-- [ ] #8 (from DIPO-283) Line 2 of the DIPO-264 probe, and the direct line to the Mac's own local-network address in the real-box web-proxy test, fail for Mac services that listen on all interfaces or on that address, except the ports the office config allows (DIPO-282)
-- [ ] #9 (from DIPO-286) During an image build, no install step can reach the Mac, the local network or a registry except through dipo's proxies, shown by a real-box build test
-- [ ] #10 (from DIPO-286) docs/decisions/0021-worker-isolation.md gets a dated amendment that closes the build-time risk
-- [ ] #11 The web guard and the reviewer's web proxy get a live box host address source from the daemon instead of the system default that always returns none (DIPO-292 review)
+- [ ] #6 (from DIPO-283) docs/decisions/0021-worker-isolation.md gets a dated amendment that closes the accepted risk
+- [ ] #7 (from DIPO-283) Line 2 of the DIPO-264 probe, and the direct line to the Mac's own local-network address in the real-box web-proxy test, fail for Mac services that listen on all interfaces or on that address, except the ports the office config allows (DIPO-282)
+- [ ] #8 (from DIPO-286) During an image build, no install step can reach the Mac, the local network or a registry except through dipo's proxies, shown by a real-box build test
+- [ ] #9 (from DIPO-286) docs/decisions/0021-worker-isolation.md gets a dated amendment that closes the build-time risk
+- [ ] #10 The web guard and the reviewer's web proxy get a live box host address source from the daemon instead of the system default that always returns none (DIPO-292 review)
 <!-- AC:END -->
 
 ## Implementation Notes
@@ -84,4 +83,6 @@ Carried from DIPO-283: To settle in refinement: how the fix holds while the work
 2026-10-22: combined from DIPO-282, DIPO-283, DIPO-286 (maintainer, M1 speed-up)
 
 2026-10-22: dropped the dependency on DIPO-149 (which now holds DIPO-291) to break a dependency cycle left by the M1 combine; that story now comes after this one.
+
+2026-10-23 (maintainer): criterion 6 moved to DIPO-334; the review showed a root worker can undo the in-box firewall through the dynamic loader and a renamed /opt.
 <!-- SECTION:NOTES:END -->
