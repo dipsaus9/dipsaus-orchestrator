@@ -66,6 +66,9 @@ import { AdapterHolds } from "../../src/workers/hold";
 import { encode } from "../../src/workers/claude-cli/encode";
 import type { ClaimOutcome, ClaimRequest } from "../../src/worktree/claim";
 import { insertClaim } from "../../src/worktree/records";
+import { runBacklog } from "../../src/backlog/runner";
+import { CALL_DEADLINE_MS, KILL_GRACE_MS } from "../../src/platform/deadline";
+import { hangingSpawn } from "../platform/hanging";
 import { addOffice, countRows, openTestState, type TestState } from "../commands/helpers";
 
 import { addAgent, storyRun } from "./rounds-helpers";
@@ -150,6 +153,8 @@ interface World {
   setupGate: { readonly entered: () => void; readonly open: Promise<void> } | null;
   /** The claim's setup fails after its claim row when set, as a failed box preparation does. */
   setupFails: boolean;
+  /** Runs as the index pass when set (DIPO-314); the pass does nothing otherwise. */
+  indexStories: (() => Promise<unknown>) | null;
 }
 
 /** The git session the fake claim hands its recheck, so a test can see the gate got it (DIPO-201). */
@@ -207,6 +212,7 @@ beforeEach(async () => {
     queuedStart: null,
     setupGate: null,
     setupFails: false,
+    indexStories: null,
   };
   const read = (ids: readonly string[] | null): BaseRead => ({
     statuses: new Map(tasks.map((x) => [x.id, x.status])),
@@ -234,7 +240,7 @@ beforeEach(async () => {
       },
       read: async (_office, ids) => read(ids),
     },
-    stories: { indexStories: async () => undefined },
+    stories: { indexStories: async () => w.indexStories?.() },
     profiles: { ensureFreshProfile: async () => undefined, verifyResolved: () => w.verify },
     statuses: async () => w.statuses,
     adapterHeld: (adapter) => holds.adapterHeld(adapter),
@@ -1084,6 +1090,38 @@ describe("the pickup's serialized step ends at its claim row (DIPO-314)", () => 
       ["TASK-2", "capacity"],
     ]);
     expect(world.claims.map((c) => c.story)).toEqual(["TASK-1"]);
+    world.places.close();
+  });
+
+  it("ends work.run with backlog.unreadable when its index pass's CLI call never ends", async () => {
+    story("TASK-1", "Ready");
+    const hang = hangingSpawn();
+    world.indexStories = () =>
+      runBacklog({ spawn: hang.spawn, clock: world.t.clock, env: {} }, "/nowhere", ["--version"]);
+    const reply = run();
+    await waitUntil(() => hang.children.length > 0);
+    world.t.clock.advance(CALL_DEADLINE_MS + KILL_GRACE_MS);
+    const done = await reply;
+    expect(done.ok).toBe(false);
+    expect(!done.ok && done.error.code).toBe("backlog.unreadable");
+    expect(!done.ok && done.error.message).toContain("did not finish within its deadline of 60 s");
+    expect(hang.children[0]?.groupSignals).toEqual(["SIGTERM", "SIGKILL"]);
+    expect(world.claims).toEqual([]);
+    world.places.close();
+  });
+
+  it("makes work.preview see the worker place a starting pickup holds", async () => {
+    story("TASK-1", "Ready");
+    const release = world.places.reservePickup(world.officeId, "run_x" as RunId, "TASK-9");
+    const held = await previewRun();
+    if (!held.ok) throw new Error(held.error.message);
+    const result = held.result as { story: unknown; skipped: { story: string; reason: string }[] };
+    expect(result.story).toBeNull();
+    expect(result.skipped).toEqual([
+      expect.objectContaining({ story: "TASK-1", reason: "capacity" }),
+    ]);
+    release();
+    await world.places.idle();
     world.places.close();
   });
 

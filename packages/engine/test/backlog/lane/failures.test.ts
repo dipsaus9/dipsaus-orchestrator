@@ -21,7 +21,18 @@ import {
   pendingLaneOp,
 } from "../../../src/backlog/lane";
 import { EXTERNAL_STEP_TIMEOUT_MS } from "../../../src/git";
-import { BACKLOG_FIXTURE, inRemote, laneSetup, notices, publish, storyKey } from "./helpers";
+import { CALL_DEADLINE_MS, KILL_GRACE_MS } from "../../../src/platform/deadline";
+import { systemSpawn } from "../../../src/platform/process";
+import { hangingSpawn } from "../../platform/hanging";
+import {
+  BACKLOG_FIXTURE,
+  inRemote,
+  type LaneSetup,
+  laneSetup,
+  notices,
+  publish,
+  storyKey,
+} from "./helpers";
 
 const FIXTURE = { fixture: BACKLOG_FIXTURE };
 
@@ -61,6 +72,39 @@ describe("a planning lane that cannot finish", () => {
       const retried = await lane.flush();
       expect(retried.pushed).toBe(true);
       expect(allEntries(s.office)[0]?.state).toBe("pushed");
+    }, FIXTURE);
+  });
+
+  it("fails a flush whose Backlog CLI call never ends at its deadline, with flushFailed (DIPO-314)", async () => {
+    await withBareRemote(async (repo) => {
+      await publish(repo);
+      const s = await laneSetup(repo);
+      // The CLI's edit never ends; every other call runs the real CLI.
+      const hang = hangingSpawn((options) =>
+        options.cmd.includes("edit") ? null : systemSpawn(options),
+      );
+      const cli = { ...s.cli, spawn: hang.spawn, clock: s.t.clock };
+      (s as { cli: LaneSetup["cli"] }).cli = cli;
+      const lane = s.lane();
+      const submitted = lane
+        .submit({
+          kind: "edit",
+          key: storyKey(s),
+          subject: "TASK-1",
+          target: { status: "Refined" },
+        })
+        .catch((error: unknown) => error);
+      // Once the edit hangs, its deadline and the grace pass on the office clock.
+      for (let i = 0; i < 5_000 && hang.children.length === 0; i += 1) await Bun.sleep(1);
+      s.t.clock.advance(CALL_DEADLINE_MS + KILL_GRACE_MS);
+      const failed = await submitted;
+      expect(failed).toBeInstanceOf(LaneFlushError);
+      expect(hang.children[0]?.groupSignals).toEqual(["SIGTERM", "SIGKILL"]);
+      const failure = notices(s.office).filter((n) => n.code === LANE_NOTICES.flushFailed);
+      expect(failure).toHaveLength(1);
+      expect(failure[0]?.text).toContain("did not finish within its deadline of 60 s");
+      // The office git queue is free again.
+      expect(await s.git.run(async () => "next item")).toBe("next item");
     }, FIXTURE);
   });
 

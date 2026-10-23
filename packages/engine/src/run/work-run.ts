@@ -467,8 +467,6 @@ export class WorkRun {
     configHash: string,
   ): Promise<{ started: Started[]; skipped: Skipped[] }> {
     const handle = ctx.office;
-    const office = handle.officeId;
-    const places = this.#deps.places;
     const views = new Map(read.views.map((view) => [view.id, view]));
     const started: Started[] = [];
     const skipped: Skipped[] = [];
@@ -482,10 +480,7 @@ export class WorkRun {
         view: views.get(candidate.story),
         unparsed: read.unparsed.includes(candidate.story),
         checkout: read.checkout,
-        full:
-          workerPlaceTaken(handle) ||
-          started.length > 0 ||
-          (places?.pickupStarting?.(office) ?? null) !== null,
+        full: this.#placeTaken(handle) || started.length > 0,
         config,
         configHash,
         started,
@@ -550,6 +545,15 @@ export class WorkRun {
       return { tooLarge: `${story} cannot start: ${error.code}: ${error.message}` };
     }
     return { view, fields, branch, tier: tier as string, caps, taskFile };
+  }
+
+  /**
+   * True when a new pickup cannot take the office's worker place: `workerPlaceTaken`, or another
+   * pickup past its claim row holds it while it starts (DIPO-314).
+   */
+  #placeTaken(handle: OfficeHandle): boolean {
+    const starting = this.#deps.places?.pickupStarting?.(handle.officeId) ?? null;
+    return workerPlaceTaken(handle) || starting !== null;
   }
 
   /** Runs `fn` as one of the office's serialized steps (DIPO-208), or at once without places. */
@@ -970,7 +974,7 @@ export class WorkRun {
 
     const skipped: Preview["skipped"] = [];
     let chosen: { readonly candidate: Candidate; readonly startable: Startable } | null = null;
-    const busy = workerPlaceTaken(handle);
+    const busy = this.#placeTaken(handle);
     for (const candidate of candidates) {
       const checked = this.#precheck(handle, {
         candidate,
