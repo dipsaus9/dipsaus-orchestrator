@@ -47,6 +47,7 @@ import {
   STORY_NOT_RUNNING,
   STREAM_DRIFT_LINES,
 } from "../../src/run";
+import { reopenParkedRun } from "../../src/run/park";
 import { addStory } from "../../src/stories/keys";
 import { encode, STOP_MESSAGE } from "../../src/workers/claude-cli/encode";
 import { initialState, interpret } from "../../src/workers/claude-cli/interpret";
@@ -1505,6 +1506,36 @@ describe("stream drift (DIPO-315)", () => {
     expect(w.sent).toEqual([encode({ kind: "stop" })]);
     expect(runIntents(w.f.office, w.f.run).map((i) => i.kind)).toEqual(["park"]);
     expect(findRun(w.f.office, w.f.run)?.endKind).toBe("worker-failed");
+  });
+
+  it("starts the drift count again when the stream-drift park is resumed, and says so", async () => {
+    track();
+    await ingestLines([init, ...Array.from({ length: STREAM_DRIFT_LINES }, (_, n) => dropped(n))]);
+    const [park] = parks();
+    expect(park?.cause).toBe("stream-drift");
+    expect(park?.detail).toContain("A resume starts the count again from 0.");
+    const lines = () =>
+      w.f.office.get<{ n: number }>(
+        `select coalesce(sum(drift_lines), 0) as n from ingest_cursors
+          where office_id = $office_id and run_id = $run`,
+        { run: w.f.run },
+      )?.n;
+    expect(lines()).toBe(STREAM_DRIFT_LINES);
+    const stored = w.f.office.get<{ park_id: number; reason: string; detail: string }>(
+      "select park_id, reason, detail from parks where office_id = $office_id",
+    );
+    const run = findRun(w.f.office, w.f.run);
+    if (stored === null || run === null) throw new Error("no park or run");
+    w.f.office.immediate(() =>
+      reopenParkedRun(
+        w.f.office,
+        { parkId: stored.park_id, reason: stored.reason, detail: stored.detail },
+        run,
+        "In Progress",
+        w.f.t.clock.now(),
+      ),
+    );
+    expect(lines()).toBe(0);
   });
 
   it("parks at once when a completed turn reports no token usage, before its done report decides", async () => {

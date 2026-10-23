@@ -78,9 +78,9 @@ export interface StreamDriftFacts {
 export function streamDriftDetail(facts: StreamDriftFacts): string {
   const counted = `${count(facts.lines)} unreadable stream ${facts.lines === 1 ? "line" : "lines"} in the run (the threshold is ${count(facts.threshold)})`;
   if (facts.usage) {
-    return `stream drift on ${facts.worker}: ${facts.detail}, so the caps cannot count the turn's usage; ${counted}.`;
+    return `stream drift on ${facts.worker}: ${facts.detail}, so the caps cannot count the turn's usage; ${counted}. A resume starts the count again from 0.`;
   }
-  return `stream drift on ${facts.worker}: ${counted}, lines that failed their schema or had a message type dipo drops, so the caps may not see all usage; the last: ${facts.detail}.`;
+  return `stream drift on ${facts.worker}: ${counted}, lines that failed their schema or had a message type dipo drops, so the caps may not see all usage; the last: ${facts.detail}. A resume starts the count again from 0.`;
 }
 
 function count(value: number): string {

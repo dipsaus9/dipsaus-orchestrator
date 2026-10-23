@@ -470,6 +470,16 @@ export function gitUnparkWriter(deps: {
   };
 }
 
+/** The cause a park row records; null when it has none. */
+function parkCause(office: OfficeHandle, parkId: number): string | null {
+  return (
+    office.get<{ cause: string | null }>(
+      "select cause from parks where office_id = $office_id and park_id = $park",
+      { park: parkId },
+    )?.cause ?? null
+  );
+}
+
 /**
  * Inside the caller's transaction (DIPO-75): the park `parkId` is resolved `resume` and its run is
  * active again (`reopenRun`), so the resumed session continues the same run with what remains of
@@ -488,6 +498,14 @@ export function reopenParkedRun(
   note: string | null = null,
 ): NewEntry[] {
   resolveParkResumed(office, park.parkId, at, note);
+  // A stream drift park's count starts again (DIPO-315): the resumed session gets the whole
+  // threshold, so one stray line does not park it again at once.
+  if (parkCause(office, park.parkId) === PARK_CAUSES.streamDrift) {
+    office.run(
+      `update ingest_cursors set drift_lines = 0 where office_id = $office_id and run_id = $run`,
+      { run: run.runId },
+    );
+  }
   reopenRun(office, run.runId, at);
   const key = run.key;
   const story = run.story;
