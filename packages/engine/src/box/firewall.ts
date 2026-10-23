@@ -15,15 +15,19 @@
 //   Debian's packages before any package's install script runs, and dipo copies them out to a
 //   folder of its own (`netToolsDir`); every other box mounts that folder read-only at the same
 //   path, so a worker cannot write them.
-// - Every command dipo starts in a box runs contained (`containedCommand`): through `setpriv`
-//   with the capabilities that could change the rule or reach around it removed from its bounding
-//   set (`DROPPED_CAPABILITIES`), inherited by everything it starts and never regained, with no
-//   new privileges. Only the rule itself, and a build box's first step before any install script
-//   ran, run with all of the box's capabilities. The box's keepalive process is the mounted `tail`.
-//
-// Known gap (DIPO-334): the rule stops a direct connection a box makes by accident, but not yet a
-// worker that runs as root in the box and sets out to undo it; running everything untrusted in a
-// box as a non-root user closes that.
+// - Every command dipo starts in a box runs contained (`containedCommand`, DIPO-334): through
+//   `setpriv` as the box user, a fixed non-root uid and gid (`BOX_USER_UID`) with no other
+//   group, no capability in any set (the bounding set an allow list of none, `USER_CAPABILITIES`)
+//   and no new privileges, inherited by everything it starts and never regained. The worker's
+//   session and its commands, the office install, the package cache fill and every npm install of
+//   an image build run so. dipo's own fixed steps that must be root (`rootStepCommand`) keep only
+//   the allow list `ROOT_STEP_CAPABILITIES`, never `net_admin` or `net_raw`. Only the rule itself,
+//   and a build box's first step before any install script ran, run with all of the box's
+//   capabilities. The box's keepalive process is the mounted `tail`.
+// - The tools folder sits directly under `/`: a folder of `/` cannot be renamed by the box user,
+//   and a mount point cannot be renamed at all, so no planted loader takes its place; `/etc`,
+//   `/usr`, `/lib` and `/opt` belong to root, so neither `/etc/ld.so.preload` nor an NSS module
+//   can be planted for a command that runs as root.
 //
 // Pure, but for `resolveNetToolsMount`, which reads the folder it checks.
 
@@ -34,7 +38,7 @@ import { join } from "node:path";
 import { BoxError } from "./port";
 
 /** Where the box's network tools are: in a build box as extracted, in every other box mounted. */
-export const BOX_NET_TOOLS_PATH = "/opt/dipo-net";
+export const BOX_NET_TOOLS_PATH = "/dipo-net";
 /** The loader the tools run through, by path, so no program of the box's own takes part. */
 export const NET_TOOLS_LOADER = `${BOX_NET_TOOLS_PATH}/ld.so`;
 /** The folder of the tools' libraries. */
@@ -50,20 +54,36 @@ export const NET_TOOLS_FILES: readonly string[] = [
 /** The folder of dipo's state folder that holds each image's copy of the tools, by image hash. */
 export const BOX_NET_TOOLS_DIR = "box-net-tools";
 
+/** The box user's uid and gid (DIPO-334): no user of Debian's base image has them. */
+export const BOX_USER_UID = 1000;
+export const BOX_USER_GID = 1000;
+
+/** The capabilities a contained command of the box user keeps (setpriv's names): none. */
+export const USER_CAPABILITIES: readonly string[] = [];
+
 /**
- * The capabilities no contained command keeps (setpriv's names): changing the rule, the
- * interfaces or the routes (`net_admin`), raw and packet sockets that pass the rule by
- * (`net_raw`), mounts, namespaces and much else (`sys_admin`), kernel modules (`sys_module`),
- * tracing a process that kept them (`sys_ptrace`), and raw device access (`sys_rawio`).
+ * The capabilities one of dipo's root steps keeps (`rootStepCommand`), an allow list: owners and
+ * modes of files (`chown`, `dac_override`, `dac_read_search`, `fowner`, `fsetid`), the user
+ * switches of apt and of Debian's package scripts (`setuid`, `setgid`, `kill`, `sys_chroot`,
+ * `audit_write`). Never the network (`net_admin`, `net_raw`), mounts or tracing.
  */
-export const DROPPED_CAPABILITIES = [
-  "net_admin",
-  "net_raw",
-  "sys_admin",
-  "sys_module",
-  "sys_ptrace",
-  "sys_rawio",
-] as const;
+export const ROOT_STEP_CAPABILITIES: readonly string[] = [
+  "audit_write",
+  "chown",
+  "dac_override",
+  "dac_read_search",
+  "fowner",
+  "fsetid",
+  "kill",
+  "setgid",
+  "setuid",
+  "sys_chroot",
+];
+
+/** setpriv's bounding set option that keeps exactly `allowed`. */
+export function boundingSet(allowed: readonly string[]): string {
+  return `--bounding-set=${["-all", ...allowed.map((cap) => `+${cap}`)].join(",")}`;
+}
 
 /** `tool` run through the tools' own loader and libraries, with `args`. */
 export function netToolCommand(tool: NetTool, args: readonly string[]): [string, ...string[]] {
@@ -76,24 +96,56 @@ export function netToolCommand(tool: NetTool, args: readonly string[]): [string,
   ];
 }
 
-/** The setpriv options of a contained command, before its `--`. */
+/**
+ * The setpriv options of a contained command, before its `--`: the box user by number (no name
+ * lookup), no other group, no capability.
+ */
 const CONTAINED_OPTIONS: readonly string[] = [
+  `--reuid=${BOX_USER_UID}`,
+  `--regid=${BOX_USER_GID}`,
+  "--clear-groups",
   "--inh-caps=-all",
   "--ambient-caps=-all",
-  `--bounding-set=${DROPPED_CAPABILITIES.map((cap) => `-${cap}`).join(",")}`,
+  boundingSet(USER_CAPABILITIES),
   "--no-new-privs",
 ];
 
-/** `command` run contained (file comment): through setpriv, without `DROPPED_CAPABILITIES`. */
+/** The setpriv options of a root step: root, with `ROOT_STEP_CAPABILITIES` only. */
+const ROOT_STEP_OPTIONS: readonly string[] = [
+  "--inh-caps=-all",
+  "--ambient-caps=-all",
+  boundingSet(ROOT_STEP_CAPABILITIES),
+  "--no-new-privs",
+];
+
+/** `command` run contained (file comment): through setpriv as the box user, with no capability. */
 export function containedCommand(command: readonly [string, ...string[]]): [string, ...string[]] {
   return netToolCommand("setpriv", [...CONTAINED_OPTIONS, "--", ...command]);
 }
 
-/** The command a contained `command` runs, or null when `command` is not contained. */
-export function uncontained(command: readonly string[]): readonly string[] | null {
-  const prefix = containedCommand(["-"]).slice(0, -1);
+/** `command` as one of dipo's root steps: root, with `ROOT_STEP_CAPABILITIES` only. */
+export function rootStepCommand(command: readonly [string, ...string[]]): [string, ...string[]] {
+  return netToolCommand("setpriv", [...ROOT_STEP_OPTIONS, "--", ...command]);
+}
+
+/** `command` without the prefix that `wrap` adds, or null when it has none. */
+function unwrap(
+  command: readonly string[],
+  wrap: (inner: readonly [string, ...string[]]) => string[],
+): readonly string[] | null {
+  const prefix = wrap(["-"]).slice(0, -1);
   if (command.length <= prefix.length) return null;
   return prefix.every((part, at) => command[at] === part) ? command.slice(prefix.length) : null;
+}
+
+/** The command a contained or root-step `command` runs, or null when it is neither. */
+export function uncontained(command: readonly string[]): readonly string[] | null {
+  return unwrap(command, containedCommand) ?? unwrap(command, rootStepCommand);
+}
+
+/** True when `command` runs as one of dipo's root steps (`rootStepCommand`). */
+export function isRootStepWrapped(command: readonly string[]): boolean {
+  return unwrap(command, rootStepCommand) !== null;
 }
 
 /** The box's keepalive process: the mounted `tail`, so nothing of the box's own runs as it. */

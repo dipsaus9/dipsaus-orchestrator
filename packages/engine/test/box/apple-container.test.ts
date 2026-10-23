@@ -32,6 +32,7 @@ import {
   type BoxNetwork,
   isBoxTimedOut,
 } from "../../src/box/port";
+import { BOX_USER_ENV } from "../../src/box/user";
 import {
   boxJson,
   type CliScript,
@@ -448,6 +449,8 @@ describe("exec", () => {
       "exec",
       "--workdir",
       "/work",
+      // The box user's home and PATH first (DIPO-334).
+      ...Object.entries(BOX_USER_ENV).flatMap(([key, value]) => ["--env", `${key}=${value}`]),
       "--env",
       "A=1",
       BOX,
@@ -464,6 +467,7 @@ describe("exec", () => {
       "--interactive",
       "--workdir",
       "/work",
+      ...Object.entries(BOX_USER_ENV).flatMap(([key, value]) => ["--env", `${key}=${value}`]),
       BOX,
       ...containedCommand(["claude", "-p"]),
     ]);

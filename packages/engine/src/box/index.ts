@@ -238,10 +238,15 @@ export type {
 export {
   BOX_NET_TOOLS_DIR,
   BOX_NET_TOOLS_PATH,
+  BOX_USER_GID,
+  BOX_USER_UID,
+  boundingSet,
   checkFirewallListing,
   CONTAINED_KEEPALIVE,
   containedCommand,
-  DROPPED_CAPABILITIES,
+  ROOT_STEP_CAPABILITIES,
+  rootStepCommand,
+  USER_CAPABILITIES,
   firewallCommand,
   firewallListCommand,
   firewallRules,
@@ -254,6 +259,15 @@ export {
   uncontained,
 } from "./firewall";
 export type { BoxFirewall, NetTool } from "./firewall";
+export {
+  BOX_NPM_PREFIX,
+  BOX_STAGE_ROOT,
+  BOX_USER_ENV,
+  BOX_USER_HOME,
+  BOX_USER_NAME,
+  copyInAsUser,
+  isRootStep,
+} from "./user";
 export {
   BOX_DIPO_DIR,
   BOX_WORKDIR,

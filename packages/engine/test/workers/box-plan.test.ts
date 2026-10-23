@@ -13,6 +13,7 @@ import { OFFICE_DEFAULTS } from "../../src/config";
 import type { BoxSession } from "../../src/box/workers";
 import { BOX_PLACEHOLDER_API_KEY } from "../../src/box/model-proxy";
 import { uncontained } from "../../src/box/firewall";
+import { BOX_USER_ENV } from "../../src/box/user";
 import { BoxError } from "../../src/box/port";
 import { BOX_REST_WAIT_CODE } from "../../src/box/workers";
 import { BOX_TOKEN_CHECK } from "../../src/box/token-check";
@@ -157,7 +158,8 @@ describe("the box worker's plan (criteria 1 and 2)", () => {
     expect(JSON.stringify(plan.argv)).not.toContain(HOME);
     // The box gets exactly the routes' variables and what claude needs; the client on the Mac
     // only the backend's client environment.
-    expect(boxEnv(plan.argv)).toEqual({ ...ROUTES, ...BOX_CLAUDE_ENV });
+    // The box user's home and PATH first (DIPO-334).
+    expect(boxEnv(plan.argv)).toEqual({ ...BOX_USER_ENV, ...ROUTES, ...BOX_CLAUDE_ENV });
     expect(plan.env).toEqual(FAKE_CLIENT_ENV);
     expect(plan.cwd).toBe(RUN_DIR);
     // The host stops the box, since a killed exec client leaves claude running in it.

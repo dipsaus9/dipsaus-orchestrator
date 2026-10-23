@@ -7,8 +7,9 @@
 //   `--virtualization`;
 // - `--memory` and `--cpus` are the Mac's total memory and CPU count (decision 16: no limits);
 // - every box but a build box (DIPO-281) keeps itself running with the mounted `tail`, and every
-//   command in it runs contained (`firewall.ts`): only the box firewall's own command, and a build
-//   box's first step, run with the box's capabilities;
+//   command in it runs contained (`firewall.ts`) as the box user (DIPO-334): only the box
+//   firewall's own command, and a build box's first step, run with the box's capabilities, and
+//   only dipo's root steps (a build box's, or `isRootStep`) run as root, with the root allow list;
 // - an image is made only by committing a build box, and pulled only by a reference that is no
 //   option.
 // Inputs that could be read as another option or split into another mount are refused here.
@@ -21,6 +22,7 @@ import {
   CONTAINED_KEEPALIVE,
   containedCommand,
   isFirewallCommand,
+  rootStepCommand,
 } from "./firewall";
 import {
   BOX_IMAGE_REPOSITORY,
@@ -32,6 +34,7 @@ import {
   boxName,
   runIdOfBox,
 } from "./port";
+import { BOX_USER_ENV, isRootStep } from "./user";
 
 /** The network dipo prepares for its boxes. */
 export const BOX_NETWORK_NAME = "dipo-boxes";
@@ -80,6 +83,11 @@ export interface ExecInput {
    * box firewall's own command (`isFirewallCommand`).
    */
   readonly fullPrivilege?: boolean;
+  /**
+   * Runs `command` as one of dipo's root steps (`rootStepCommand`, DIPO-334): any in a build box,
+   * only `isRootStep` in every other box.
+   */
+  readonly rootStep?: boolean;
 }
 
 const MIB = 1024 * 1024;
@@ -311,30 +319,59 @@ export function exportArgs(name: string, to: string): string[] {
   return ["export", "--output", hostPath(to), checkedBoxName(name)];
 }
 
+/** Who `input`'s command runs as, refused unless the box may run it so. */
+function privilegeOf(input: ExecInput, name: string): "full" | "root" | "user" {
+  if (input.fullPrivilege === true && input.rootStep === true) {
+    refuse("a box command is a root step or runs with the box's capabilities, not both.", { name });
+  }
+  if (input.fullPrivilege === true) {
+    if (!isBuildBox(name) && !isFirewallCommand(input.command)) {
+      refuse("only a build box or the box firewall runs a command with the box's capabilities.", {
+        name,
+        command: input.command[0],
+      });
+    }
+    return "full";
+  }
+  if (input.rootStep === true) {
+    if (!isBuildBox(name) && !isRootStep(input.command)) {
+      refuse("only a build box or dipo's fixed root steps run a command as root.", {
+        name,
+        command: input.command[0],
+      });
+    }
+    return "root";
+  }
+  return "user";
+}
+
 /**
  * Runs a command in a box. The box name ends `container`'s options; the command follows it and
- * may not start with `-`, so it is never read as one. The command runs contained
- * (`containedCommand`, DIPO-281) unless `fullPrivilege` is set, which only a build box and the box
- * firewall's own command may.
+ * may not start with `-`, so it is never read as one. The command runs contained as the box user
+ * (`containedCommand`, DIPO-281 and DIPO-334) unless `fullPrivilege` is set, which only a build
+ * box and the box firewall's own command may, or `rootStep`, which a build box and dipo's fixed
+ * root steps may.
  */
 export function execArgs(input: ExecInput): string[] {
   const name = checkedBoxName(input.name);
   if (input.command[0].startsWith("-") || input.command[0].length === 0) {
     refuse("a box command may not start with `-` or be empty.", { command: input.command[0] });
   }
-  if (input.fullPrivilege === true && !isBuildBox(name) && !isFirewallCommand(input.command)) {
-    refuse("only a build box or the box firewall runs a command with the box's capabilities.", {
-      name,
-      command: input.command[0],
-    });
-  }
+  const privilege = privilegeOf(input, name);
+  const command =
+    privilege === "full"
+      ? input.command
+      : privilege === "root"
+        ? rootStepCommand(input.command)
+        : containedCommand(input.command);
   return [
     "exec",
     ...(input.interactive === true ? ["--interactive"] : []),
     ...(input.cwd === undefined ? [] : ["--workdir", absolutePath(input.cwd, "working directory")]),
-    ...envArgs(input.env),
+    // The box user's home and PATH unless the command names its own (DIPO-334).
+    ...envArgs(privilege === "user" ? { ...BOX_USER_ENV, ...input.env } : input.env),
     name,
-    ...(input.fullPrivilege === true ? input.command : containedCommand(input.command)),
+    ...command,
   ];
 }
 

@@ -23,8 +23,23 @@ import {
   containedCommand,
   firewallCommand,
   firewallListCommand,
+  rootStepCommand,
 } from "../../src/box/firewall";
 import { BOX_PACKAGE_CACHE_PATH, BoxError } from "../../src/box/port";
+import {
+  BOX_USER_ENV,
+  newStagePath,
+  partModeCommand,
+  stageCopyCommand,
+  stageHandOverCommand,
+  stageMakeCommand,
+  stageRemoveCommand,
+} from "../../src/box/user";
+
+/** The `--env` arguments of `env`, in order. */
+function envArgsOf(env: Readonly<Record<string, string>>): string[] {
+  return Object.entries(env).flatMap(([key, value]) => ["--env", `${key}=${value}`]);
+}
 
 /** What one builder's argv may hold: its subcommand words, its option flags and their values. */
 interface Shape {
@@ -480,6 +495,8 @@ describe("the Apple container argument builder", () => {
     });
     expect(args).toEqual([
       "exec",
+      // The box user's home and PATH first (DIPO-334).
+      ...envArgsOf(BOX_USER_ENV),
       "--env",
       "A=1",
       "--env",
@@ -489,6 +506,9 @@ describe("the Apple container argument builder", () => {
       NAMES[0]!,
       ...containedCommand(["env"]),
     ]);
+    // A command's own variable wins over the box user's.
+    const own = execArgs({ name: NAMES[0]!, command: ["env"], env: { PATH: "/bin" } });
+    expect(own.filter((arg) => arg.startsWith("PATH="))).toEqual(["PATH=/bin"]);
   });
 
   it("exports a box's filesystem to a host file only", () => {
@@ -542,8 +562,51 @@ describe("the Apple container argument builder", () => {
       fullPrivilege: true,
     });
     expect(bootstrap.slice(-2)).toEqual(["/bin/sh", "/dipo-build/bootstrap.sh"]);
-    expect(execArgs({ name: BUILD_NAME, command: ["/bin/sh", "x"] }).slice(2)).toEqual(
-      containedCommand(["/bin/sh", "x"]),
+    const user = execArgs({ name: BUILD_NAME, command: ["/bin/sh", "x"] });
+    expect(user.slice(user.indexOf(BUILD_NAME) + 1)).toEqual(containedCommand(["/bin/sh", "x"]));
+  });
+
+  it("runs dipo's root steps as root with the allow list: any in a build box, only the fixed ones elsewhere (DIPO-334)", () => {
+    const stage = newStagePath();
+    const steps = [
+      stageMakeCommand(stage),
+      stageHandOverCommand(stage),
+      stageRemoveCommand(stage),
+      partModeCommand(),
+    ];
+    for (const name of NAMES) {
+      for (const command of steps) {
+        const args = execArgs({ name, command, rootStep: true });
+        expect(args.slice(args.indexOf(name) + 1)).toEqual(rootStepCommand(command));
+        // A root step gets no box user environment.
+        expect(args.slice(0, args.indexOf(name))).toEqual(["exec"]);
+      }
+      // Anything else as root is refused there: the user's own copy step, any other command,
+      // a stage path of another shape, a step with an extra argument, and both privileges at once.
+      for (const command of [
+        stageCopyCommand(stage, "/work"),
+        ...COMMANDS,
+        ["/bin/chmod", "0755", "/etc/ld.so.preload"],
+        ["/bin/rm", "-rf", "--", "/"],
+        ["/bin/rm", "-rf", "--", "/dipo-stage/../etc"],
+        ["/bin/chown", "-R", "-h", "1000:1000", "--", "/etc"],
+        ["/bin/chown", "-R", "-h", "1000:1000", "--", `${stage}/x`],
+        [...stageRemoveCommand(stage), "/etc"],
+        ["/bin/sh", "-c", `rm -rf ${stage}`],
+      ] as (readonly [string, ...string[]])[]) {
+        refused(() => execArgs({ name, command, rootStep: true }));
+      }
+      refused(() =>
+        execArgs({ name, command: partModeCommand(), rootStep: true, fullPrivilege: true }),
+      );
+    }
+    const system = execArgs({
+      name: BUILD_NAME,
+      command: ["/bin/sh", "/dipo-build/system.sh"],
+      rootStep: true,
+    });
+    expect(system.slice(system.indexOf(BUILD_NAME) + 1)).toEqual(
+      rootStepCommand(["/bin/sh", "/dipo-build/system.sh"]),
     );
   });
 
