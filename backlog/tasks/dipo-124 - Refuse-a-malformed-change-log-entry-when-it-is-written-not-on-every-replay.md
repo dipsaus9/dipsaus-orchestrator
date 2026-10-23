@@ -1,10 +1,10 @@
 ---
 id: DIPO-124
 title: 'Refuse a malformed change-log entry when it is written, not on every replay'
-status: Refined
+status: Done
 assignee: []
 created_date: '2026-10-16 13:05'
-updated_date: '2026-10-22 18:16'
+updated_date: '2026-10-23 06:10'
 labels:
   - 'tier:S'
 milestone: m-1
@@ -27,13 +27,21 @@ dependencies:
   - DIPO-303
   - DIPO-152
 references:
-  - packages/engine/test/changelog
-  - packages/daemon/src/server.ts
-  - packages/daemon/test
+  - '- packages/engine/test/changelog'
+  - docs/decisions/0005-command-and-event-model.md
   - packages/client/src/client.ts
   - packages/client/test
+  - packages/client/test/unit/client.test.ts
+  - packages/daemon/src/server.ts
+  - packages/daemon/test
+  - packages/daemon/test/integration/server.test.ts
   - packages/engine/src
-  - docs/decisions/0005-command-and-event-model.md
+  - packages/engine/src/changelog/cursor.ts
+  - packages/engine/src/changelog/log.ts
+  - packages/engine/src/changelog/render.ts
+  - packages/engine/src/index.ts
+  - packages/engine/test/changelog/changelog.test.ts
+  - packages/engine/test/retention/retention.test.ts
 priority: medium
 type: feature
 ordinal: 114000
@@ -54,3 +62,9 @@ Context: NewEntry.delta is unknown (packages/engine/src/changelog/log.ts), and a
 - [ ] #3 Every existing writer passes the check (the full suite is green); a writer the check exposes is fixed in this story; a replay of already-stored entries still renders
 - [ ] #4 What a client gets for a bad entry already stored by an older binary is decided so it cannot loop, tested, and proposed as a dated note on 0005 section 8 in the PR for the maintainer's approval
 <!-- AC:END -->
+
+## Implementation Notes
+
+<!-- SECTION:NOTES:BEGIN -->
+2026-10-22: built outside dipo, reviewed (pass; two fixes made). The client store does not reload on changelog.unrenderable yet (follow-up; fits DIPO-320's shared client store).
+<!-- SECTION:NOTES:END -->
