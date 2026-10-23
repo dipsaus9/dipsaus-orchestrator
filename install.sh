@@ -4,14 +4,18 @@
 #   curl -fsSL https://github.com/dipsaus9/dipsaus-orchestrator/releases/latest/download/install.sh | sh
 #
 # Environment:
-#   DIPO_VERSION      release tag to install, for example v0.3.0 (default: the latest release)
-#   DIPO_INSTALL_DIR  directory for the binary (default: $HOME/.local/bin); no sudo is used
+#   DIPO_VERSION           release tag to install, for example v0.3.0 (default: the latest release)
+#   DIPO_INSTALL_DIR       directory for the binary (default: $HOME/.local/bin); no sudo is used
+#   DIPO_SKIP_ATTESTATION  set to 1 to install without checking the build provenance attestation;
+#                          the SHA-256 checksum is always checked
 #
-# Steps: detect OS and architecture, download dipo-<os>-<arch>.tar.gz and SHA256SUMS from the same
-# release, verify the checksum, verify the build provenance attestation with the pinned
-# `gh attestation verify` when gh is installed, then install. The binary is written to a temporary
-# file in the install directory and renamed over any existing dipo, so a running daemon keeps its
-# open file and no half-written binary is ever on the PATH (decision 0006 section 14).
+# Steps: detect OS and architecture; with gh, resolve the release tag and the commit it points at;
+# download dipo-<os>-<arch>.tar.gz and SHA256SUMS from that release; verify the checksum; verify
+# the build provenance attestation with the pinned `gh attestation verify`, including the tag's
+# commit as the source digest; then install. Without gh the script stops before downloading
+# anything, unless DIPO_SKIP_ATTESTATION=1 (DIPO-321). The binary is written to a temporary file in
+# the install directory and renamed over any existing dipo, so a running daemon keeps its open file
+# and no half-written binary is ever on the PATH (decision 0006 section 14).
 #
 # Everything runs inside main, called on the last line, so a partly downloaded script does nothing.
 
@@ -80,6 +84,29 @@ attestation_command() {
   echo "gh attestation verify $1 --repo $REPO --signer-workflow $SIGNER_WORKFLOW --source-ref $SOURCE_REF"
 }
 
+# Fails unless $1 is a release tag such as v0.3.0.
+check_tag() {
+  case "$1" in
+    v[0-9]*) ;;
+    *) fail "$2 must be a release tag such as v0.3.0, got: $1" ;;
+  esac
+  case "$1" in
+    *[!A-Za-z0-9.+-]*) fail "$2 must be a release tag such as v0.3.0, got: $1" ;;
+  esac
+}
+
+# Without gh the attestation cannot be checked, so nothing is downloaded or installed.
+fail_without_gh() {
+  {
+    printf 'dipo install: error: gh is not installed, so the build provenance attestation of %s cannot be checked. Nothing was downloaded or installed.\n' "$1"
+    printf 'dipo install: To verify it here, install gh (https://cli.github.com), run gh auth login and run this script again.\n'
+    printf 'dipo install: To verify it yourself, download %s and SHA256SUMS from %s, compare the SHA-256 and run:\n' "$1" "$2"
+    printf 'dipo install:   %s --source-digest <commit of the release tag>\n' "$(attestation_command "$1")"
+    printf 'dipo install: To install without the attestation check (the SHA-256 checksum is still checked), set DIPO_SKIP_ATTESTATION=1.\n'
+  } >&2
+  exit 1
+}
+
 main() {
   os=$(detect_os)
   arch=$(detect_arch "$os")
@@ -90,15 +117,17 @@ main() {
   version="${DIPO_VERSION:-}"
   case "$version" in
     "") base="https://github.com/$REPO/releases/latest/download" ;;
-    v[0-9]*) base="https://github.com/$REPO/releases/download/$version" ;;
-    [0-9]*)
-      version="v$version"
-      base="https://github.com/$REPO/releases/download/$version"
-      ;;
-    *) fail "DIPO_VERSION must be a release tag such as v0.3.0, got: $version" ;;
+    [0-9]*) version="v$version" ;;
   esac
-  case "$version" in
-    *[!A-Za-z0-9.+-]*) fail "DIPO_VERSION must be a release tag such as v0.3.0, got: $version" ;;
+  if [ -n "$version" ]; then
+    check_tag "$version" DIPO_VERSION
+    base="https://github.com/$REPO/releases/download/$version"
+  fi
+
+  skip_attestation="${DIPO_SKIP_ATTESTATION:-}"
+  case "$skip_attestation" in
+    "" | 1) ;;
+    *) fail "DIPO_SKIP_ATTESTATION must be 1 or unset, got: $skip_attestation" ;;
   esac
 
   install_dir="${DIPO_INSTALL_DIR:-${HOME:?HOME is not set}/.local/bin}"
@@ -106,6 +135,28 @@ main() {
 
   command -v curl > /dev/null 2>&1 || fail "curl is required."
   command -v tar > /dev/null 2>&1 || fail "tar is required."
+
+  # How the download is verified is settled before anything is downloaded (DIPO-321).
+  source_digest=""
+  if [ "$skip_attestation" = 1 ]; then
+    say "DIPO_SKIP_ATTESTATION=1: the build provenance attestation is not checked; the checksum is."
+  elif command -v gh > /dev/null 2>&1; then
+    if [ -z "$version" ]; then
+      version=$(gh api "repos/$REPO/releases/latest" --jq .tag_name) ||
+        fail "gh could not read the latest release; nothing was installed. gh may need 'gh auth login' first."
+      check_tag "$version" "the latest release tag"
+      base="https://github.com/$REPO/releases/download/$version"
+    fi
+    # The commit the tag points at: the attestation must name it as its source (0016 rule 4).
+    source_digest=$(gh api "repos/$REPO/commits/$version" --jq .sha) ||
+      fail "gh could not read the commit of $version; nothing was installed. gh may need 'gh auth login' first."
+    case "$source_digest" in
+      *[!0-9a-f]*) fail "gh returned no commit for $version, got: $source_digest" ;;
+    esac
+    [ "${#source_digest}" -eq 40 ] || fail "gh returned no commit for $version, got: $source_digest"
+  else
+    fail_without_gh "$asset" "$base"
+  fi
 
   work=$(mktemp -d "${TMPDIR:-/tmp}/dipo-install.XXXXXX")
   staged=""
@@ -127,16 +178,15 @@ main() {
   fi
   say "checksum ok"
 
-  if command -v gh > /dev/null 2>&1; then
-    say "verifying the build provenance attestation with gh"
-    # Accepts only attestations signed by release.yml running on main (0016 rule 4).
+  if [ -n "$source_digest" ]; then
+    say "verifying the build provenance attestation of $version ($source_digest) with gh"
+    # Accepts only attestations signed by release.yml running on main, for the tag's commit
+    # (0016 rule 4).
     if ! gh attestation verify "$work/$asset" --repo "$REPO" \
-      --signer-workflow "$SIGNER_WORKFLOW" --source-ref "$SOURCE_REF"; then
+      --signer-workflow "$SIGNER_WORKFLOW" --source-ref "$SOURCE_REF" \
+      --source-digest "$source_digest"; then
       fail "attestation verification failed for $asset; nothing was installed. gh may need 'gh auth login' first."
     fi
-  else
-    say "gh is not installed, so the attestation was not checked. To check it yourself:"
-    say "  $(attestation_command "$asset")"
   fi
 
   mkdir "$work/extract"
