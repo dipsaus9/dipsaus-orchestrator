@@ -54,6 +54,10 @@
 // 2026-10-19) gets none of this: `sync` and `retry` return before they read git or the host, so
 // no PR is opened, updated, polled or retried and no `pr.openFailed` is raised. The poll timer
 // stays armed, so an office that turns the key back on is picked up at the next interval.
+//
+// With the office's PR-state poll (`prState`, DIPO-314) the PR poll is the first part of each of
+// its rounds instead of a timer of its own, and it reads each open PR through the round, so the
+// merge slot and the Done poll that follow get the same read.
 
 import type {
   Clock,
@@ -69,6 +73,7 @@ import type { FeatureModule } from "../commands/registry";
 import { OFFICE_DEFAULTS, type OfficeConfig } from "../config";
 import type { OfficeHandle } from "../db/office";
 import type { Logger } from "../log/logger";
+import type { PrStatePoll, PrStateReads } from "../platform/pr-state";
 import {
   checksFinal,
   evaluateChecks,
@@ -194,6 +199,12 @@ export interface StoryPrsDeps {
    * the files of `readEnvSecrets` by default. It throws when a file cannot be read.
    */
   readonly secrets?: (worktree: string, files: OfficeConfig["worktree"]["files"]) => EnvSecret[];
+  /**
+   * The office's one PR-state poll (DIPO-314): the PR poll runs as the first part of its rounds,
+   * not on a timer of its own, and reads each open PR through it. Without it the PR poll keeps its
+   * own timer and reads the host.
+   */
+  readonly prState?: Pick<PrStatePoll, "subscribe" | "reads">;
 }
 
 /** What the poll knows of the pushed head of one story PR. */
@@ -246,6 +257,14 @@ export class StoryPrs {
 
   constructor(deps: StoryPrsDeps) {
     this.#deps = deps;
+    deps.prState?.subscribe("story-pr", (office) =>
+      this.#offices.has(office) ? this.retry(office) : Promise.resolve([]),
+    );
+  }
+
+  /** How the PR poll reads a PR: through the office's PR-state round, else the host. */
+  #reads(officeId: OfficeId): Pick<PrStateReads, "viewPr"> {
+    return this.#deps.prState?.reads(officeId) ?? this.#deps.host;
   }
 
   /** The feature module that adds the load step arming the retry poll. */
@@ -821,7 +840,7 @@ export class StoryPrs {
     }
     let viewed: HostPr;
     try {
-      viewed = await this.#deps.host.viewPr(repo, stored.number);
+      viewed = await this.#reads(officeId).viewPr(repo, stored.number);
     } catch (error) {
       this.#deps.logger?.warn("reading the story PR failed", {
         office: officeId,
@@ -1218,6 +1237,8 @@ export class StoryPrs {
       for (const held of runsToPush(state.office)) this.#heldNotice(officeId, state, held);
       return;
     }
+    // The office's PR-state poll runs the PR poll in its rounds (DIPO-314).
+    if (this.#deps.prState !== undefined) return;
     state.timer = state.clock.setTimeout(() => {
       state.timer = null;
       if (this.#offices.get(officeId) !== state) return;

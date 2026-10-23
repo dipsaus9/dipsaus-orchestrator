@@ -19,6 +19,10 @@
 // flagged once and released when its run next ends; a parked or idle one is released as
 // `done-elsewhere` and its PR, worktree and branch settled (`done-elsewhere.ts`). Each poll first
 // settles the released rows a crash left unsettled.
+//
+// With the office's PR-state poll (`prState`, DIPO-314) the Done poll is the last part of each of
+// its rounds instead of a timer of its own, and it asks whether a branch merged through the round,
+// so a story PR the story-PR poll read this round answers it without another host call.
 
 import type { Clock, OfficeId, TimerHandle } from "@dipsaus-orchestrator/contract";
 
@@ -33,6 +37,7 @@ import type { OfficeGit } from "../git/office";
 import type { Logger } from "../log/logger";
 import { decideOnHandMerge } from "../merge-slot/gates";
 import type { CodeHost, PrStateHost } from "../platform/host";
+import type { PrStatePoll } from "../platform/pr-state";
 import { withWorkViews } from "../views/work";
 
 import { inStoryBacklog, notice, writeWith } from "./claim";
@@ -86,6 +91,12 @@ export interface StoryTeardownDeps {
   readonly finishBoxes?: () => Promise<unknown>;
   readonly onChanged?: (office: OfficeId) => void;
   readonly logger?: Logger;
+  /**
+   * The office's one PR-state poll (DIPO-314): the Done poll runs as the last part of its rounds,
+   * not on a timer of its own, and asks the host through it. Without it the Done poll keeps its
+   * own timer.
+   */
+  readonly prState?: Pick<PrStatePoll, "subscribe" | "reads">;
 }
 
 /** What one poll did. */
@@ -116,6 +127,9 @@ export class StoryTeardown {
 
   constructor(deps: StoryTeardownDeps) {
     this.#deps = deps;
+    deps.prState?.subscribe("done", async (office) => {
+      if (this.#offices.has(office)) await this.poll(office);
+    });
   }
 
   /** The feature module that adds the load step arming the poll. */
@@ -219,7 +233,12 @@ export class StoryTeardown {
     deps: TeardownDeps,
     claim: ClaimRecord,
   ): Promise<"open" | "kept" | "tornDown" | "released"> {
-    const check = await detectDone({ git: deps.git, host: this.#deps.host }, claim);
+    // Through the office's PR-state round when there is one (DIPO-314).
+    const host =
+      this.#deps.host === null
+        ? null
+        : (this.#deps.prState?.reads(deps.officeId) ?? this.#deps.host);
+    const check = await detectDone({ git: deps.git, host }, claim);
     if (!check.done) {
       // Not Done through its own branch: a Done on the base wins (DIPO-161).
       const elsewhere = await this.#doneElsewhere(state, deps, claim);
@@ -390,7 +409,8 @@ export class StoryTeardown {
     const state = this.#offices.get(officeId);
     if (state === undefined || this.#stopped || state.timer !== null) return;
     const seconds = (config ?? OFFICE_DEFAULTS).polling.prStateSeconds;
-    if (seconds <= 0) return;
+    // The office's PR-state poll runs the Done poll in its rounds (DIPO-314).
+    if (seconds <= 0 || this.#deps.prState !== undefined) return;
     state.timer = state.clock.setTimeout(() => {
       state.timer = null;
       if (this.#offices.get(officeId) !== state) return;

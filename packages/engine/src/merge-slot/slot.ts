@@ -39,6 +39,11 @@
 //
 // Each git step is its own item of the office git queue; waiting for CI holds only the slot. Work
 // of one office runs one tick at a time.
+//
+// With the office's PR-state poll (`prState`, DIPO-314) the slot's poll tick is the second part of
+// each of its rounds, after the story-PR poll, instead of a timer of its own, and the slot reads a
+// PR's state through the round (`reads`), so a PR the story-PR poll read this round is not read
+// again. A read right after the slot's own merge attempt goes to the host.
 
 import type { Clock, OfficeId, RunId, StoryKey, TimerHandle } from "@dipsaus-orchestrator/contract";
 
@@ -53,6 +58,7 @@ import { OFFICE_DEFAULTS, type OfficeConfig } from "../config";
 import type { OfficeHandle } from "../db/office";
 import type { Logger } from "../log/logger";
 import { type CodeHost, CodeHostError, type PrReviewHost } from "../platform/host";
+import type { PrStatePoll, PrStateReads } from "../platform/pr-state";
 
 import { evaluateChecks, REQUIRED_CHECKS } from "./checks";
 import { autoreleasePending, holdLabelsOn, type StoredMergeGate } from "./gates";
@@ -134,6 +140,11 @@ export interface MergeSlotDeps {
   readonly onChanged?: (office: OfficeId) => void;
   /** Gets each tick's outcome at debug level (idle at trace) and a failed poll or tick as a warning. */
   readonly logger?: Logger;
+  /**
+   * The office's one PR-state poll (DIPO-314): the slot ticks as part of its rounds, not on a timer
+   * of its own, and reads PR state through it. Without it the slot keeps its own timer.
+   */
+  readonly prState?: Pick<PrStatePoll, "subscribe" | "reads">;
 }
 
 type ParkReason =
@@ -177,6 +188,23 @@ export class MergeSlot {
   constructor(deps: MergeSlotDeps) {
     this.#deps = deps;
     this.#stories = deps.stories === undefined ? null : new StorySlot(deps.stories);
+    deps.prState?.subscribe("merge-slot", (office) => this.#polled(office));
+  }
+
+  /** The tick of a PR-state round; skipped while a tick still runs, as the slot's own poll was. */
+  async #polled(office: OfficeId): Promise<void> {
+    const state = this.#offices.get(office);
+    if (state === undefined || this.#deps.offices.get(office) === undefined) return;
+    if (state.pending > 0) {
+      this.#deps.logger?.debug("merge slot poll skipped: a tick still runs", { office });
+      return;
+    }
+    await this.tick(office);
+  }
+
+  /** How the slot reads a PR's state: through the office's PR-state round, else the host. */
+  #reads(office: OfficeId): Pick<PrStateReads, "viewPr"> {
+    return this.#deps.prState?.reads(office) ?? this.#deps.host;
   }
 
   /** The branch of the backlog PR in the office's slot, or null; the lane holds operations meanwhile. */
@@ -267,7 +295,10 @@ export class MergeSlot {
       name: "merge-slot",
       register: (registry) => {
         registry.registerLoadStep(MERGE_SLOT_STEP, (ctx) => {
-          this.watch(ctx.officeId, ctx.clock, secondsOf(ctx.config));
+          // With the PR-state poll the slot ticks in its rounds (DIPO-314); it only needs its state.
+          if (this.#deps.prState === undefined) {
+            this.watch(ctx.officeId, ctx.clock, secondsOf(ctx.config));
+          } else this.#stateOf(ctx.officeId);
           return { ok: true };
         });
       },
@@ -399,6 +430,7 @@ export class MergeSlot {
       officeId: office,
       office: handle,
       host: this.#deps.host,
+      prState: this.#reads(office),
       clock: this.#deps.clock,
       config: this.#deps.offices.config?.(office) ?? OFFICE_DEFAULTS,
       ...(this.#deps.checksWaitMs === undefined ? {} : { checksWaitMs: this.#deps.checksWaitMs }),
@@ -607,7 +639,7 @@ export class MergeSlot {
       // Step 3: wait for the required checks, while the PR is still open.
       let checks;
       try {
-        const pr = await this.#deps.host.viewPr(slot.repo, number);
+        const pr = await this.#reads(office).viewPr(slot.repo, number);
         const record = findPr(handle, number);
         if (pr.state === "merged" && record?.state === "open" && slot.phase === "merge") {
           // A merge this slot asked for before a restart, which the host took: finish it.
