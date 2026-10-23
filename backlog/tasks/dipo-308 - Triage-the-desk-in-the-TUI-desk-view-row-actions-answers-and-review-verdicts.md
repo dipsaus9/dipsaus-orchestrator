@@ -6,7 +6,7 @@ title: >-
 status: Refined
 assignee: []
 created_date: '2026-10-22 20:55'
-updated_date: '2026-10-22 20:56'
+updated_date: '2026-10-23 06:18'
 labels:
   - 'tier:L'
   - 'slice:m1b'
@@ -43,6 +43,8 @@ Outcome: the maintainer opens the TUI in the morning, presses `3`, sees everythi
 Context: follows 0009 sections 3 to 7 and 9 (the desk mock, the interventions table, keys, connection states, narrow terminals), the 0009 amendment of 2026-10-16 (DIPO-132: the TUI desk reads the same `office.desk` as `dipo desk`), 0020 section 12 (the desk read, its six groups and order) and section 16 (the CLI forms the actions mirror), 0019 sections 11 and 14 (approve, reject and override; the verdict detail in the TUI is M1b), and 0021 section 11 (a worker's question is live only while a TUI is connected, so the TUI must be able to answer it). 0005 and 0009 forbid clients from deriving status: the TUI shows `DeskItem` rows as the engine orders them and offers only the actions a row lists. Today the TUI has the overview (`1`), the queue (`2`), the settings view, the live agent detail with `X` stop, and a shell hint (`dipo answer <id> ...`) for open questions (`packages/tui/src/detail.tsx`). It sends no answer, approve, reject, resume, hold, drop or discard.
 
 The maintainer answered this story's questions on 2026-10-22 by accepting the recommended answers. They are in the unknowns below and in the 0005 and 0009 amendments of that day. The engine already tracks TUI connections for live questions (DIPO-279), which the stored disconnect time of criterion 8 builds on.
+
+If DIPO-240 removes the permission relay, the permission-row part of criterion 6 (`A` or `n` allow or deny a permission row) falls away; DIPO-240 keeps the needs-permission park, so the answer row stays.
 
 ```dipo
 branch: "DIPO-308/tui-desk-triage"

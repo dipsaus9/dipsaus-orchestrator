@@ -6,7 +6,7 @@ title: >-
 status: Refined
 assignee: []
 created_date: '2026-10-22 21:00'
-updated_date: '2026-10-22 21:00'
+updated_date: '2026-10-23 06:18'
 labels:
   - 'tier:M'
 milestone: m-1
@@ -35,11 +35,12 @@ Outcome: no text that comes from a worker, a repository, a story or a log reache
 
 Context:
 - 0021 section 7: every message from the worker reaches the maintainer cleaned of terminal control characters.
-- The door's `cleanDoorText` (`packages/engine/src/box/door.ts`) cleans part messages and the worker's report. Worker output lines, notice texts and question texts still reach these places as written:
+- The door's `cleanDoorText` (`packages/engine/src/box/door.ts`) cleans part messages and the worker's report. The TUI cleaner and the CLI print paths do not share the rules of `cleanDoorText` yet.
+- The print paths this story covers:
   - `dipo watch` (`packages/cli/src/watch-command.ts`);
-  - `dipo run` (`packages/cli/src/run-command.ts`), including the dry run's prompt preview.
-- The TUI's `cleanLine` (`packages/tui/src/output.ts`) removes only the 7-bit escape forms. One-byte control forms, string sequences and hyperlinks pass, also in the prompt pane (`packages/tui/src/detail.tsx`).
-- The client log reader (`packages/client/src/node/logs/reader.ts`) prints log text as read.
+  - `dipo run` (`packages/cli/src/run-command.ts`), including the dry run's prompt preview;
+  - the TUI's `cleanLine` (`packages/tui/src/output.ts`) and the prompt pane (`packages/tui/src/detail.tsx`);
+  - the client log reader (`packages/client/src/node/logs/reader.ts`).
 - UIs may not import the engine (0004).
 
 ```dipo

@@ -4,7 +4,7 @@ title: Isolate every test from the live daemon and run the test suite on macOS i
 status: Refined
 assignee: []
 created_date: '2026-10-22 21:00'
-updated_date: '2026-10-22 21:00'
+updated_date: '2026-10-23 06:18'
 labels:
   - 'tier:M'
 milestone: m-1
@@ -31,7 +31,7 @@ Outcome: no test can reach the maintainer's live dipo state. An override of the 
 
 Context:
 - `platform/paths.ts` falls back to the real user folders when no override is set.
-- For the runtime folder, `paths.ts` passes over a rejected `DIPO_RUNTIME_DIR` to the next candidate, which can be the live daemon's runtime folder. One example of a rejected path is one over the socket path limit. This is how a long `DIPO_TMP` once removed the real socket.
+- For the runtime folder, `paths.ts` passes over a rejected `DIPO_RUNTIME_DIR` to the next candidate, which can be the live daemon's runtime folder. One example of a rejected path is one over the socket path limit.
 - Isolation is opt-in (`testkit/src/env.ts`, `testkit/src/runtime.ts`). The setup file that the test runner loads before every test (`packages/testkit/src/listener-guard.ts`) checks only listeners.
 - The `verify` job with `DIPO_TEST_CI=1` runs only on Linux. The macOS lanes run the build and the smoke test, not the suite, though the maintainer runs the daemon and the boxes on macOS.
 - Re-attach is tested in-process (`engine/test/run/reattach.ci.test.ts`), and no test kills a real daemon.

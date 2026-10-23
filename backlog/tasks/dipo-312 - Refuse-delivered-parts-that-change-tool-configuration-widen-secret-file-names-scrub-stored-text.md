@@ -6,7 +6,7 @@ title: >-
 status: Refined
 assignee: []
 created_date: '2026-10-22 21:00'
-updated_date: '2026-10-22 21:00'
+updated_date: '2026-10-23 06:18'
 labels:
   - 'tier:M'
 milestone: m-1
@@ -32,14 +32,14 @@ ordinal: 297000
 ## Description
 
 <!-- SECTION:DESCRIPTION:BEGIN -->
-Outcome: a part a box worker delivers can no longer add, change or delete a file that configures a tool dipo itself runs on checkouts of the repository; dipo refuses a Backlog CLI status change whose configuration or task file asks the CLI to run a command; the part scan knows the common credential file names it misses today; and stored tool lines and log messages hold no credential-shaped value.
+Outcome: a part a box worker delivers can no longer add, change or delete a file that configures a tool dipo itself runs on checkouts of the repository; dipo refuses a Backlog CLI status change whose configuration or task file asks the CLI to run a command; the part scan knows the common credential file names; and stored tool lines and log messages hold no credential-shaped value.
 
 Context:
 - 0021 section 14: dipo never runs a tool on configuration from a directory the worker can write. DIPO-270 runs story-level Backlog CLI calls in dipo's own copy, built from git objects.
-- After a story merges, dipo runs the Backlog CLI and Bun in checkouts of the base: the story index (`stories/read.ts`), the gate store, and the backlog lane, whose status edits run in `backlog/lane/ops.ts`. A configuration file a story added is read there once it is on the base, and today only the reviewer and the maintainer stand in the way.
-- The protected-file check of a part (`protectedKind` in `packages/engine/src/box/parts.ts`) covers `.git`, `backlog/`, `.dipo/`, `.github/`, the Claude settings, `.gitattributes`, `.gitmodules` and links. It covers no other tool configuration.
-- The secret-name list (`isSecretPath` and `isSecretPartPath` in `packages/engine/src/context/secrets.ts`) misses several common credential files.
-- `privacy.storeCommandBodies` defaults to true (`config/schema.ts`), while the header of `ingest/output.ts` says it is opt-in. Log messages and error strings are not scrubbed, so a git error can hold a remote URL with credentials.
+- After a story merges, dipo runs the Backlog CLI and Bun in checkouts of the base: the story index (`stories/read.ts`), the gate store, and the backlog lane, whose status edits run in `backlog/lane/ops.ts`. Criterion 2 covers those checkouts too.
+- The protected-file check of a part (`protectedKind` in `packages/engine/src/box/parts.ts`) gains the entries in criterion 1.
+- The secret-name list (`isSecretPath` and `isSecretPartPath` in `packages/engine/src/context/secrets.ts`) gains the names in criterion 3.
+- `privacy.storeCommandBodies` defaults to true (`config/schema.ts`), and criterion 4 makes the header of `ingest/output.ts` say so. Stored tool lines, log messages and error strings get the scrubbing of criteria 4 and 5.
 - `.yarnrc.yml` is left out of criterion 3 on purpose: Yarn projects commit it as plain config, and the content scan already catches tokens in it.
 
 ```dipo
