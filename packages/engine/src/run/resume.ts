@@ -67,7 +67,7 @@ import {
   TASK_PART,
 } from "../prompts/parts";
 import { BOX_RUN_FILE } from "../box/workers";
-import { gatherHandoff, type HandoffFacts, type LastVerify } from "../prompts/handoff";
+import { capNote, gatherHandoff, type HandoffFacts, type LastVerify } from "../prompts/handoff";
 import { renderSystemFile } from "../prompts/system";
 import { verifyCommands } from "../scan/store";
 import maintainerNoteTemplate from "../prompts/feedback/maintainer-note.md" with { type: "text" };
@@ -101,10 +101,11 @@ import type { RunBase } from "./work-run";
 
 /**
  * The maintainer's note as the worker reads it (`feedback/maintainer-note.md`, 0020 section 3): never
- * sent verbatim, so maintainer text never starts a message.
+ * sent verbatim, so maintainer text never starts a message, and capped with the handoff block's
+ * limit and marker (`capNote`).
  */
 export function noteText(note: string): string {
-  return renderTemplate(maintainerNoteTemplate, { text: note });
+  return renderTemplate(maintainerNoteTemplate, { text: capNote(note) });
 }
 
 /** 0014 section 6 until `office.yaml` version 2 (0014 amendment, DIPO-51): engine constants. */
