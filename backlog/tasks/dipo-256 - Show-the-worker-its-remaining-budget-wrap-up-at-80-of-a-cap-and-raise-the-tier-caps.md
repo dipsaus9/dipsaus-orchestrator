@@ -3,10 +3,10 @@ id: DIPO-256
 title: >-
   Show the worker its remaining budget, wrap up at 80% of a cap, and raise the
   tier caps
-status: In Progress
+status: In Review
 assignee: []
 created_date: '2026-10-20 20:20'
-updated_date: '2026-10-23 06:52'
+updated_date: '2026-10-23 06:59'
 labels:
   - 'tier:M'
   - cutover
@@ -56,10 +56,10 @@ test_plan:
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 The tier defaults in packages/engine/src/config/schema.ts are S 90 turns and 45 minutes, M 200 turns and 90 minutes, L 300 turns and 180 minutes, with budgetTokens unchanged (300,000, 800,000 and 2,000,000), and the review caps unchanged
-- [ ] #2 Every verify feedback message, every CI feedback message (ciFeedback) and every handoff message ends with one budget line that names turns, minutes and tokens used and left, computed from the run's start snapshot caps plus its grants; the review and reject feedback of DIPO-148 and DIPO-151 append the same line when they are built
-- [ ] #3 The worker contract in packages/engine/src/prompts/contract/implement.md says, with tool-neutral wording, that at about 80% of any cap the worker stops new work, finishes what it started and reports done, or blocked with what is left; its golden is updated
-- [ ] #4 Tests cover the new defaults, the budget line in each message kind and the contract text
+- [x] #1 The tier defaults in packages/engine/src/config/schema.ts are S 90 turns and 45 minutes, M 200 turns and 90 minutes, L 300 turns and 180 minutes, with budgetTokens unchanged (300,000, 800,000 and 2,000,000), and the review caps unchanged
+- [x] #2 Every verify feedback message, every CI feedback message (ciFeedback) and every handoff message ends with one budget line that names turns, minutes and tokens used and left, computed from the run's start snapshot caps plus its grants; the review and reject feedback of DIPO-148 and DIPO-151 append the same line when they are built
+- [x] #3 The worker contract in packages/engine/src/prompts/contract/implement.md says, with tool-neutral wording, that at about 80% of any cap the worker stops new work, finishes what it started and reports done, or blocked with what is left; its golden is updated
+- [x] #4 Tests cover the new defaults, the budget line in each message kind and the contract text
 <!-- AC:END -->
 
 ## Implementation Notes
