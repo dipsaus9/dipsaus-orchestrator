@@ -14,6 +14,17 @@
 // (0021 section 14). The caller picks the working folder: for a story it is a folder that holds
 // only dipo's own copy of the backlog, never the worktree a worker's files land in
 // (`inStoryBacklog` in `worktree/claim.ts`).
+//
+// Before a call that changes a story's status (`task edit` or `draft edit` with `--status`), in
+// whatever folder it runs (dipo's own copy, a checkout of the base, the backlog lane's worktree),
+// dipo reads the Backlog configuration and the task files the call runs with
+// (`statusCommandFiles`, DIPO-312). When one of them defines a command for the CLI to run on a
+// status change, or cannot be checked, the call is refused before spawning
+// (`BacklogStatusCommandError`) and the CLI's `notify` gets an `engine.notice` naming the story
+// and the file.
+
+import { lstatSync, readdirSync, readFileSync, statSync } from "node:fs";
+import { isAbsolute, join, normalize } from "node:path";
 
 import type { Spawn } from "@dipsaus-orchestrator/contract";
 
@@ -31,6 +42,15 @@ export interface BacklogCli {
    * `BACKLOG_ENV_KEYS` are taken (0021 section 14), so nothing else of it reaches the CLI.
    */
   readonly env?: Readonly<Record<string, string | undefined>>;
+  /** Receives the `engine.notice` of a refused status change (DIPO-312). */
+  readonly notify?: (notice: BacklogNotice) => void;
+}
+
+/** An `engine.notice` the runner raises. */
+export interface BacklogNotice {
+  readonly level: "error";
+  readonly code: string;
+  readonly text: string;
 }
 
 /**
@@ -80,6 +100,42 @@ export class BacklogCommandError extends Error {
     super(`\`${command.join(" ")}\` ${reason}${output === "" ? "" : `: ${output}`}`);
     this.name = "BacklogCommandError";
   }
+}
+
+/** One file that stops a status change, with why (a fixed text). */
+export interface StatusCommandFile {
+  /** Relative to the folder the call runs in. */
+  readonly path: string;
+  readonly reason: string;
+}
+
+/** The `engine.notice` code of a refused status change. */
+export const STATUS_COMMAND_NOTICE = "backlog.statusCommand";
+
+/**
+ * A status change dipo refused before spawning (DIPO-312): the Backlog configuration or a task file
+ * the call runs with defines a command for the CLI to run, or cannot be checked.
+ */
+export class BacklogStatusCommandError extends BacklogRefusedError {
+  constructor(
+    args: readonly string[],
+    readonly story: string,
+    readonly files: readonly StatusCommandFile[],
+  ) {
+    super(args, statusCommandText(story, files));
+    this.name = "BacklogStatusCommandError";
+  }
+
+  /** The `engine.notice` of the refusal. */
+  notice(): BacklogNotice {
+    return { level: "error", code: STATUS_COMMAND_NOTICE, text: this.reason };
+  }
+}
+
+/** The fixed text of a refused status change: the story and each file with its reason. */
+export function statusCommandText(story: string, files: readonly StatusCommandFile[]): string {
+  const named = files.map((file) => `${file.path} ${file.reason}`).join("; ");
+  return `dipo refused to change the status of ${story === "" ? "a story" : story} with the Backlog CLI: ${named}. dipo runs no command a Backlog file defines; nothing was changed`;
 }
 
 /** The subcommands the engine may run; anything else is refused. */
@@ -309,7 +365,9 @@ function notFoundLine(stdout: string, stderr: string): string | undefined {
 
 /**
  * Runs `backlog <args>` in `cwd` and returns its output. Throws `BacklogRefusedError` before
- * spawning a refused command and `BacklogCommandError` when the CLI fails.
+ * spawning a refused command (`BacklogStatusCommandError` for a status change the folder's
+ * Backlog files would attach a command to, with a notice to `cli.notify`) and
+ * `BacklogCommandError` when the CLI fails.
  */
 export async function runBacklog(
   cli: BacklogCli,
@@ -318,6 +376,15 @@ export async function runBacklog(
 ): Promise<BacklogOutput> {
   const reason = refusal(args);
   if (reason !== null) throw new BacklogRefusedError(args, reason);
+  const story = statusChangeOf(args);
+  if (story !== null) {
+    const files = statusCommandFiles(cwd);
+    if (files.length > 0) {
+      const refused = new BacklogStatusCommandError(args, story, files);
+      cli.notify?.(refused.notice());
+      throw refused;
+    }
+  }
   const command: [string, ...string[]] = [...(cli.command ?? ["backlog"]), ...args];
   let child;
   try {
@@ -346,6 +413,194 @@ export async function runBacklog(
     throw new BacklogCommandError(command, exit.code, stdout, stderr, "reported `not found`");
   }
   return { stdout, stderr };
+}
+
+// ---- commands on a status change (DIPO-312, 0021 section 14) -----------------------------------
+//
+// Backlog.md 1.53 runs a shell command after a task's status changes when the task's front matter
+// sets `onStatusChange` or the project configuration sets `onStatusChange` (or
+// `on_status_change`). dipo never lets it: before a status change it reads, in the folder the call
+// runs in, every place 1.53 takes its configuration from (`backlog.config.yml`, `config.yml` and
+// `config.yaml` in `backlog/`, in `.backlog/` and in the folder `backlog.config.yml` names) and
+// every task file the CLI loads a task from (`tasks/` and `completed/` of each of those folders).
+// It refuses the call when one of them:
+//
+// - names `onStatusChange` or `on_status_change`, compared without case after a compatibility
+//   fold (in a configuration file anywhere; in a task file within its front matter, as text and
+//   as a parsed key, a merge key counting as one);
+// - is a task file whose front matter names a language (`---js`), or does not parse as YAML;
+// - is not a plain file dipo can read whole (a special file, over `STATUS_CHECK_MAX`).
+//
+// A missing file defines nothing. The check runs on every such call, whatever the folder.
+
+/** The most bytes of one Backlog file the status check reads; a larger file is refused. */
+export const STATUS_CHECK_MAX = 1024 * 1024;
+
+/** The configuration files of Backlog.md 1.53, relative to the folder the CLI runs in. */
+const CONFIG_PLACES: readonly string[] = [
+  "backlog.config.yml",
+  "backlog/config.yml",
+  "backlog/config.yaml",
+  ".backlog/config.yml",
+  ".backlog/config.yaml",
+];
+
+/** The folders 1.53 loads a task from, inside a backlog folder. */
+const TASK_FOLDERS: readonly string[] = ["tasks", "completed"];
+
+const STATUS_COMMAND_KEYS: readonly string[] = ["onstatuschange", "on_status_change"];
+
+const DEFINES_COMMAND = "defines a command for the Backlog CLI to run on a status change";
+
+/** `text` folded for the key search: compatibility forms, combining marks dropped, lower case. */
+function foldKey(text: string): string {
+  return text.normalize("NFKD").replace(/\p{M}/gu, "").toLowerCase();
+}
+
+function namesStatusCommand(text: string): boolean {
+  const folded = foldKey(text);
+  return STATUS_COMMAND_KEYS.some((key) => folded.includes(key));
+}
+
+/**
+ * The story whose status `args` change (`task edit <id>` or `draft edit <id>` with `-s` or
+ * `--status`), "" when such a call names no id, or null for any other call.
+ */
+export function statusChangeOf(args: readonly string[]): string | null {
+  const [group, sub, id] = args;
+  if ((group !== "task" && group !== "draft") || sub !== "edit") return null;
+  const { options } = readArgs(args.slice(2));
+  if (!options.some((option) => option.name === "-s" || option.name === "--status")) return null;
+  return id === undefined || id.startsWith("-") ? "" : id;
+}
+
+/**
+ * Pure: why the Backlog configuration `text` stops a status change, or null: it names
+ * `onStatusChange` or `on_status_change` anywhere.
+ */
+export function configStatusCommand(text: string): string | null {
+  return namesStatusCommand(text) ? DEFINES_COMMAND : null;
+}
+
+/**
+ * Pure: why the task file `text` stops a status change, or null. Its front matter is found as
+ * Backlog.md finds it (a first line `---`, up to the next line that starts with `---`), after a
+ * byte order mark; a file that does not open with `---` has none.
+ */
+export function taskStatusCommand(text: string): string | null {
+  const body = text.startsWith("﻿") ? text.slice(1) : text;
+  if (!body.startsWith("---")) return null;
+  const firstEnd = body.indexOf("\n");
+  const first = (firstEnd < 0 ? body : body.slice(0, firstEnd)).replace(/\r$/, "");
+  if (first.slice(3).trim() !== "") {
+    return "opens a front matter block in a language other than YAML, which dipo does not let the Backlog CLI read";
+  }
+  if (firstEnd < 0) return null;
+  const close = body.indexOf("\n---", firstEnd);
+  const block = (close < 0 ? body.slice(firstEnd + 1) : body.slice(firstEnd + 1, close)).replace(
+    /\r$/,
+    "",
+  );
+  if (namesStatusCommand(block)) return DEFINES_COMMAND;
+  const parsed = parseYamlDocument(block.replaceAll("\r\n", "\n"));
+  if (!parsed.ok) return "holds a front matter block that does not parse, so dipo cannot check it";
+  const value = parsed.value;
+  if (typeof value === "object" && value !== null && !Array.isArray(value)) {
+    if (Object.keys(value).some((key) => key === "<<" || namesStatusCommand(key))) {
+      return DEFINES_COMMAND;
+    }
+  }
+  return null;
+}
+
+type BacklogFile =
+  | { readonly kind: "absent" }
+  | { readonly kind: "folder" }
+  | { readonly kind: "text"; readonly text: string }
+  | { readonly kind: "refused"; readonly reason: string };
+
+/** Reads `path` as the CLI would, following a link; no file, or a dangling link, is absent. */
+function readBacklogFile(path: string): BacklogFile {
+  try {
+    if (lstatSync(path, { throwIfNoEntry: false }) === undefined) return { kind: "absent" };
+    const stat = statSync(path, { throwIfNoEntry: false });
+    if (stat === undefined) return { kind: "absent" };
+    if (stat.isDirectory()) return { kind: "folder" };
+    if (!stat.isFile()) return { kind: "refused", reason: "is not a plain file dipo can check" };
+    if (stat.size > STATUS_CHECK_MAX) {
+      return { kind: "refused", reason: "is too large for dipo to check" };
+    }
+    return { kind: "text", text: readFileSync(path, "utf8") };
+  } catch {
+    return { kind: "refused", reason: "cannot be read, so dipo cannot check it" };
+  }
+}
+
+/**
+ * The project-relative backlog folder `backlog.config.yml` names (`backlog_directory`), read line by
+ * line as 1.53 reads it, or null.
+ */
+function rootBacklogFolder(text: string): string | null {
+  for (const raw of text.split("\n")) {
+    const line = raw.trim();
+    const colon = line.indexOf(":");
+    if (line.startsWith("#") || colon < 0) continue;
+    const key = line.slice(0, colon).trim();
+    if (key !== "backlog_directory" && key !== "backlogDirectory") continue;
+    const value = line
+      .slice(colon + 1)
+      .trim()
+      .replace(/['"]/g, "");
+    if (value === "" || isAbsolute(value) || value.includes("\\")) return null;
+    const folder = normalize(value).replace(/\/+$/, "");
+    if (folder === "." || folder === ".." || folder.startsWith("../")) return null;
+    return folder;
+  }
+  return null;
+}
+
+/** Why the file at `path` stops a status change, or null; `check` reads its text. */
+function fileRefusal(path: string, check: (text: string) => string | null): string | null {
+  const read = readBacklogFile(path);
+  if (read.kind === "absent" || read.kind === "folder") return null;
+  return read.kind === "refused" ? read.reason : check(read.text);
+}
+
+/**
+ * The Backlog files in `cwd` that stop a status change there (see the section above), in a fixed
+ * order: the configuration files, then the task files of each backlog folder by name.
+ */
+export function statusCommandFiles(cwd: string): StatusCommandFile[] {
+  const found: StatusCommandFile[] = [];
+  const folders = ["backlog", ".backlog"];
+  const configs = [...CONFIG_PLACES];
+  const root = readBacklogFile(join(cwd, "backlog.config.yml"));
+  const named = root.kind === "text" ? rootBacklogFolder(root.text) : null;
+  if (named !== null && !folders.includes(named)) {
+    folders.push(named);
+    configs.push(`${named}/config.yml`, `${named}/config.yaml`);
+  }
+  for (const path of configs) {
+    const reason = fileRefusal(join(cwd, path), configStatusCommand);
+    if (reason !== null) found.push({ path, reason });
+  }
+  for (const folder of folders) {
+    for (const sub of TASK_FOLDERS) {
+      let names: string[];
+      try {
+        names = readdirSync(join(cwd, folder, sub));
+      } catch {
+        continue;
+      }
+      for (const name of names.toSorted()) {
+        if (!name.toLowerCase().endsWith(".md")) continue;
+        const path = `${folder}/${sub}/${name}`;
+        const reason = fileRefusal(join(cwd, path), taskStatusCommand);
+        if (reason !== null) found.push({ path, reason });
+      }
+    }
+  }
+  return found;
 }
 
 // ---- the story's task file (0021 section 14) ---------------------------------------------------

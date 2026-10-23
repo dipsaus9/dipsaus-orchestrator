@@ -6,6 +6,9 @@
 //
 // The built-in kind `edit` sets a story's status, field-block keys and labels. Later stories add
 // their own kinds with `editKind(name)` (for example `hold` or `ready`) or a kind of their own.
+// A status change the runner refuses because a Backlog file of the `_backlog` worktree defines a
+// command for the CLI to run on it (`BacklogStatusCommandError`, DIPO-312; the runner raised the
+// `engine.notice`) no longer applies: the operation is dropped with that reason, not retried.
 
 import { mkdirSync } from "node:fs";
 import { join } from "node:path";
@@ -15,7 +18,12 @@ import { z } from "zod";
 import { FieldBlockError } from "../fields/block";
 import { editLabels, FieldWriteError, viewStory, writeFields } from "../fields/write";
 import type { PlainTask } from "../plain";
-import { BacklogCommandError, runBacklog, type BacklogCli } from "../runner";
+import {
+  BacklogCommandError,
+  BacklogStatusCommandError,
+  runBacklog,
+  type BacklogCli,
+} from "../runner";
 
 import type { JournalEntry } from "./journal";
 
@@ -134,6 +142,9 @@ export function editKind(name: string): LaneOpKind {
         // The story's block no longer parses (R02): the change cannot be applied as asked.
         if (error instanceof FieldBlockError) {
           return { applies: false, reason: `${ctx.story}: ${error.message}` };
+        }
+        if (error instanceof BacklogStatusCommandError) {
+          return { applies: false, reason: error.reason };
         }
         throw error;
       }
