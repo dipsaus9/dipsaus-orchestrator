@@ -44,6 +44,7 @@ import { baseVerifies } from "./migrations/0040-base-verifies";
 import { runStepCiNone } from "./migrations/0041-run-step-ci-none";
 import { usageLive } from "./migrations/0042-usage-live";
 import { feedbackItems } from "./migrations/0043-feedback-items";
+import { catchUps } from "./migrations/0044-catch-ups";
 
 /**
  * Software-wide tables (0007 section 3). Every other table is office-scoped and has `office_id`
@@ -123,4 +124,5 @@ create table offices (
   runStepCiNone,
   usageLive,
   feedbackItems,
+  catchUps,
 ];
