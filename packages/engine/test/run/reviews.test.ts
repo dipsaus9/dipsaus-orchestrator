@@ -224,6 +224,8 @@ interface World {
   readonly warned: unknown[];
   /** The agents whose read-only copy the launcher was told to remove (DIPO-276). */
   readonly finished: string[];
+  /** What `onReviewed` heard: `<run> <agent or ->`. */
+  readonly reviewedRuns: string[];
   /** What the next session start answers; `started` by default. */
   next: (() => ReviewSessionOutcome) | null;
   /** The finisher's backstop parks the next turn when set. */
@@ -238,6 +240,7 @@ function world(): World {
   const sent: World["sent"] = [];
   const warned: unknown[] = [];
   const finished: string[] = [];
+  const reviewedRuns: string[] = [];
   const state: { next: World["next"]; backstop: string | null } = { next: null, backstop: null };
   let reviews: Reviews | null = null;
   const base: RunOutcomesPort = {
@@ -343,6 +346,7 @@ function world(): World {
       }),
     },
     warn: (message, fields) => warned.push({ message, fields }),
+    onReviewed: (_office, run, agent) => reviewedRuns.push(`${run} ${agent ?? "-"}`),
   });
   reviews = built;
   // As `composeRuns` wires them: pending reviews and the review starter in the reviewer place.
@@ -360,6 +364,7 @@ function world(): World {
     sent,
     warned,
     finished,
+    reviewedRuns,
     get next() {
       return state.next;
     },
@@ -1108,5 +1113,33 @@ describe("a reviewer that ends without a verdict (0019 section 4)", () => {
     expect(events("story.state").at(-1)).toMatchObject({
       data: { story: "DIPO-1", from: "In Review", to: "Parked" },
     });
+  });
+});
+
+describe("a run that ends reviewed hands its head to the fix rounds (DIPO-148)", () => {
+  it("after the reviewer's exit, and when a new head takes its tree's blocked verdict without a round", async () => {
+    const s = inReview("DIPO-1", "tree-1");
+    heads.set(s.run, "tree-1");
+    const session = await reviewStarts(s);
+    await turn(session, UNMET);
+    expect(x.reviewedRuns).toEqual([]);
+    await exits(session);
+    expect(x.reviewedRuns).toEqual([`${s.run} ${session.agent}`]);
+
+    // A head that changed only the task file: In Review again on the blocked tree.
+    write(() => {
+      w.office.run(
+        `update verify_results set code_tree_key = null where office_id = $office_id and run_id = $run`,
+        { run: s.run },
+      );
+      w.office.run(
+        `update runs set end_kind = $kind where office_id = $office_id and run_id = $run`,
+        { run: s.run, kind: IN_REVIEW_END },
+      );
+    });
+    expect(await x.places.drain(officeId())).toBe(0);
+    expect(x.sessions).toHaveLength(1);
+    expect(findRun(w.office, s.run)).toMatchObject({ endKind: REVIEWED_END });
+    expect(x.reviewedRuns).toEqual([`${s.run} ${session.agent}`, `${s.run} -`]);
   });
 });
