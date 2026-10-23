@@ -1018,6 +1018,12 @@ export function App(props: AppProps) {
           display={display}
           switcher={inSwitcher ? { index: switcherIndex } : null}
         />
+        {/* An open action prompt shows at every size, so what a key does is on screen. */}
+        {acts.promptLines().map((line, i) => (
+          <Text key={`prompt:${i}`} wrap="truncate-end">
+            {line}
+          </Text>
+        ))}
         {footerMessage === null ? null : <Text wrap="truncate-end">{footerMessage}</Text>}
       </Box>
     );
