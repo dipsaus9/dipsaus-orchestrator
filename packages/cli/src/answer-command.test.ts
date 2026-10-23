@@ -1,5 +1,6 @@
-// `dipo answer <question> <text|allow|deny>` (DIPO-59 AC #7): sends `work.answer` with the decision
-// for allow and deny (a deny's further words are the reason), or the text alone.
+// `dipo answer <question> --text <answer>|allow|deny` (DIPO-59 AC #7, DIPO-159 AC #5): sends
+// `work.answer` with the decision for allow and deny (a deny's further words are the reason), or
+// the text of `--text` alone; text without `--text` is a usage error.
 
 import { describe, expect, it } from "bun:test";
 
@@ -84,7 +85,7 @@ describe("dipo answer", () => {
     expect(ctx.out).toEqual([`allowed ${QUESTION} (delivered now)`]);
   });
 
-  it("sends deny with the rest as the reason, and plain text without a decision", async () => {
+  it("sends deny with the rest as the reason, and --text as the answer without a decision", async () => {
     const deny = fake(answered);
     expect(await main(["answer", QUESTION, "deny", "use", "the", "fixture"], deny.deps)).toBe(0);
     expect(deny.sent[0]?.args).toEqual({
@@ -94,9 +95,73 @@ describe("dipo answer", () => {
     });
     const text = fake(answered);
     expect(
-      await main(["answer", QUESTION, "Yes, a 404 is fine.", "--office", OFFICE], text.deps),
+      await main(
+        ["answer", QUESTION, "--text", "Yes, a 404 is fine.", "--office", OFFICE],
+        text.deps,
+      ),
     ).toBe(0);
     expect(text.sent[0]?.args).toEqual({ question: QUESTION, text: "Yes, a 404 is fine." });
+    expect(text.out).toEqual([`answered ${QUESTION} (delivered now)`]);
+  });
+
+  it("sends --text allow as an answer text, never as a decision (DIPO-159, 0020 section 7)", async () => {
+    const ctx = fake(answered);
+    expect(await main(["answer", QUESTION, "--text", "allow"], ctx.deps)).toBe(0);
+    expect(ctx.sent).toEqual([
+      { name: "work.answer", args: { question: QUESTION, text: "allow" }, office: OFFICE },
+    ]);
+  });
+
+  it("refuses a worker answer without --text, and --text with a decision or extra words", async () => {
+    for (const args of [
+      ["answer", QUESTION, "Yes, a 404 is fine."],
+      ["answer", QUESTION, "--text", "yes", "allow"],
+      ["answer", QUESTION, "allow", "--text", "yes"],
+      ["answer", QUESTION, "--text"],
+      ["answer", QUESTION, "--text", "  "],
+      ["answer", QUESTION, "--text", "a", "--text", "b"],
+    ]) {
+      const ctx = fake(answered);
+      expect(await main(args, ctx.deps)).toBe(2);
+      expect(ctx.sent).toEqual([]);
+    }
+    const ctx = fake(answered);
+    await main(["answer", QUESTION, "Yes"], ctx.deps);
+    expect(ctx.err.join("\n")).toContain("--text <answer>");
+  });
+
+  it("prints that a held answer waits for the next session, and the resumed run of a question park", async () => {
+    const held = fake(() => ({
+      ok: true,
+      changed: true,
+      result: { question: QUESTION, delivered: "on-resume" },
+    }));
+    expect(await main(["answer", QUESTION, "--text", "Use hello"], held.deps)).toBe(0);
+    expect(held.out).toEqual([
+      `answered ${QUESTION} (delivered on-resume)`,
+      "the answer waits for the story's next session; dipo watch shows where it is now",
+    ]);
+    const RUN = "run_01J9ZK5Q8W3V4X6Y7Z8A9B0C5J";
+    const resumed = fake(() => ({
+      ok: true,
+      changed: true,
+      result: { question: QUESTION, delivered: "on-resume", run: RUN },
+    }));
+    expect(await main(["answer", QUESTION, "--text", "Use hello"], resumed.deps)).toBe(0);
+    expect(resumed.out).toEqual([
+      `answered ${QUESTION} (delivered on-resume)`,
+      `resumed run ${RUN}`,
+    ]);
+  });
+
+  it("says in its help that a worker question takes --text and a permission question allow or deny", async () => {
+    const out: string[] = [];
+    const ctx = fake(answered);
+    await main(["--help"], { ...ctx.deps, writeLine: (line) => out.push(line) });
+    const help = out.join("\n");
+    expect(help).toContain("dipo answer <question> --text <answer>");
+    expect(help).toContain("dipo answer <question> allow|deny [reason]");
+    expect(help).not.toContain("any other text answers a");
   });
 
   it("prints the resumed run of a park's question (DIPO-75 AC #5)", async () => {

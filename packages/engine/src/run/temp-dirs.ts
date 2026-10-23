@@ -51,6 +51,7 @@ import type { RunLaunchPaths } from "../workers/port";
 import { hostAlive, workerHostsOf, type WorkerHostRow } from "../runs/worker-hosts";
 
 import type { RunOutcomesPort } from "./outcomes";
+import type { RunView } from "./outcome-types";
 import { findRun } from "./records";
 
 /** The recovery step that sweeps run temp directories at daemon start, after re-attach. */
@@ -426,10 +427,13 @@ export class RunTempDirs {
 }
 
 /**
- * `port` with `after` called once each exit or lost host is decided: the run may have ended
- * there, after its worker exited (DIPO-102).
+ * `port` with `after` called once each exit or lost host is decided, with the run's view: the run
+ * may have ended there, after its worker exited (DIPO-102).
  */
-export function afterRunExits(port: RunOutcomesPort, after: () => void): RunOutcomesPort {
+export function afterRunExits(
+  port: RunOutcomesPort,
+  after: (view: RunView) => void,
+): RunOutcomesPort {
   const wrapped: RunOutcomesPort = {
     onTurnProblem: (view, problem) => port.onTurnProblem(view, problem),
     onPlanLimit: (view, limit) => port.onPlanLimit(view, limit),
@@ -439,7 +443,7 @@ export function afterRunExits(port: RunOutcomesPort, after: () => void): RunOutc
       try {
         await port.onExit(exit);
       } finally {
-        after();
+        after(exit.view);
       }
     },
   };
@@ -458,7 +462,7 @@ export function afterRunExits(port: RunOutcomesPort, after: () => void): RunOutc
             try {
               await port.onHostLost?.(lost);
             } finally {
-              after();
+              after(lost.view);
             }
           },
         }),

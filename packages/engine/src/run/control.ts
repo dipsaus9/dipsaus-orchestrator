@@ -21,8 +21,10 @@
 //   0008 section 5), else `ambiguous-spec` with the question. The engine records a `park` intent
 //   and closes the worker's stdin; worktree, branch and session are kept. A question goes through
 //   the live-question rule first (DIPO-272, 0021 section 11): while a TUI is connected it is asked
-//   live (`RunControlDeps.questions`) and the worker waits on stdin for the answer, with no park; if
-//   the last TUI closes while it waits, `parkOnQuestion` parks it then. A blocked report during an
+//   live (`RunControlDeps.questions`) and the worker waits on stdin for the answer, with no park, for
+//   at most `timeouts.questionWaitMinutes`; if the last TUI closes or the wait ends first,
+//   `parkOnQuestion` parks it then. A park with no live question asks the report's question itself
+//   (`ParkRequest.question`, DIPO-159). A blocked report during an
 //   open conflict hand-off fails it (DIPO-149, `conflicts.ts`); the failure that reaches the run's
 //   conflict cap parks `conflict` with cause `merge-in-progress` instead.
 // - Report data (DIPO-186). The proposals of every report, done or blocked, are stored for the
@@ -372,6 +374,10 @@ export class RunControl implements RunEnder {
             cause: permission === undefined ? PARK_CAUSES.question : PARK_CAUSES.build,
             detail,
             endKind: "blocked",
+            // The park asks the question when no live one carries over (DIPO-159).
+            ...(permission === undefined && report.question !== undefined
+              ? { question: report.question }
+              : {}),
           });
           return;
         }
@@ -489,8 +495,9 @@ export class RunControl implements RunEnder {
 
   /**
    * Parks the run `ambiguous-spec` with its worker's question once the question stopped being live
-   * (the last TUI closed, DIPO-284): stdin closes, as at a blocked report. False when the run is not
-   * tracked here or already being ended.
+   * (the last TUI closed, DIPO-284, or its wait of `timeouts.questionWaitMinutes` ended, DIPO-159):
+   * stdin closes, as at a blocked report, and the park carries the question, still open. False when
+   * the run is not tracked here or already being ended.
    */
   parkOnQuestion(run: string, question: string): boolean {
     const tracked = this.#tracked.get(run);
