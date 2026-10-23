@@ -36,7 +36,8 @@ import { flatInput } from "../../ingest/output";
 import { hookEventOf, WEB_TOOLS } from "./hooks";
 import { pluginRefusal, refusedPlugins } from "./plugins";
 import { CHECKED_CLAUDE_VERSION, compareVersions } from "./probe";
-import { parseReviewReport, parseWorkerReport } from "./report-schema";
+import { cleanDoorStrings } from "../../box/door";
+import { parseReviewReport, parseWorkerReport, WORKER_REPORT_MAX_CHARS } from "./report-schema";
 import { skillRefusal } from "./skills";
 import {
   ApiRetryMessage,
@@ -81,6 +82,8 @@ export interface TurnRecord {
   readonly report: WorkerReport | null;
   /** A `review` session's valid report (0019 section 5); absent in other kinds. */
   readonly review?: ReviewReport;
+  /** A `session` kind's structured output (DIPO-310); absent in other kinds. */
+  readonly answer?: unknown;
   /** Why the report is missing or invalid, when the kind's report is absent. */
   readonly reportProblem: string | null;
   readonly numTurns: number;
@@ -851,8 +854,9 @@ function init(value: unknown, state: ClaudeParseState): Step {
     next.initRejected === null &&
     next.startFailure === null
   ) {
-    const review = next.reportKind === "review";
-    const refused = refusedPlugins(plugins, review ? [] : allowed, next.knownPlugins ?? []);
+    // A `session` (DIPO-310) loads no plugin either: it is planned with every plugin off.
+    const noPlugins = next.reportKind === "review" || next.reportKind === "session";
+    const refused = refusedPlugins(plugins, noPlugins ? [] : allowed, next.knownPlugins ?? []);
     if (refused.length > 0) {
       const reason = pluginRefusal(refused, next.reportKind);
       next = { ...next, startFailure: reason };
@@ -1127,11 +1131,36 @@ function denial(state: ClaudeParseState, id: string, tool: string, reason: strin
 interface ReportRead {
   readonly report: WorkerReport | null;
   readonly review?: ReviewReport;
+  readonly answer?: unknown;
   readonly problem: string | null;
+}
+
+/**
+ * A `session` kind's structured output (DIPO-310): held to `WORKER_REPORT_MAX_CHARS` and every
+ * string cleaned at the door; the engine checks it against its own schema.
+ */
+function readAnswer(output: unknown): ReportRead {
+  if (output === undefined || output === null) {
+    return { report: null, problem: "no structured_output" };
+  }
+  let size: number;
+  try {
+    size = JSON.stringify(output).length;
+  } catch {
+    return { report: null, problem: "structured_output is not JSON" };
+  }
+  if (size > WORKER_REPORT_MAX_CHARS) {
+    return {
+      report: null,
+      problem: `structured_output has ${size} characters; at most ${WORKER_REPORT_MAX_CHARS} are allowed`,
+    };
+  }
+  return { report: null, answer: cleanDoorStrings(output), problem: null };
 }
 
 /** The report of the session's kind: a `WorkerReport`, or a `ReviewReport` for `review`. */
 function readReport(output: unknown, kind: ReportKind | undefined): ReportRead {
+  if (kind === "session") return readAnswer(output);
   if (kind === "review") {
     const read = parseReviewReport(output);
     return read.ok
@@ -1241,6 +1270,7 @@ function result(value: unknown, state: ClaudeParseState): Step {
   // it, and the start failure decides.
   const report = next.startFailure === null ? read.report : null;
   const review = next.startFailure === null ? read.review : undefined;
+  const answer = next.startFailure === null ? read.answer : undefined;
   const reportProblem = next.startFailure === null ? read.problem : next.startFailure;
   const terminal = msg.terminal_reason ?? msg.subtype;
   const turn: TurnRecord = {
@@ -1248,6 +1278,7 @@ function result(value: unknown, state: ClaudeParseState): Step {
     terminal,
     report,
     ...(review === undefined ? {} : { review }),
+    ...(answer === undefined ? {} : { answer }),
     reportProblem,
     numTurns: msg.num_turns,
     startupFailure: msg.startup_failure_reason ?? null,
@@ -1275,6 +1306,7 @@ function result(value: unknown, state: ClaudeParseState): Step {
     t: "turn",
     report,
     ...(review === undefined ? {} : { review }),
+    ...(answer === undefined ? {} : { answer }),
     totals: next.committed,
     ...(comparable ? { costUsd } : {}),
     numTurns: msg.num_turns,
@@ -1323,7 +1355,7 @@ function turnProblem(
     const last = state.lastError === null ? "" : `, last error ${state.lastError}`;
     return { kind: "error", detail: `${subtype} (${why})${last}` };
   }
-  if (turn.report === null && turn.review === undefined) {
+  if (turn.report === null && turn.review === undefined && turn.answer === undefined) {
     return { kind: "report", detail: turn.reportProblem ?? "no report" };
   }
   return null;

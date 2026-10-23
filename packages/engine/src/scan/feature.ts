@@ -2,8 +2,15 @@
 // adds the `scan.profile` office load step, which computes the fingerprint on `_base` and runs
 // detection only on a mismatch, and the `office.rescan` command, which fetches, re-indexes the
 // stories (DIPO-32), reconciles them (DIPO-56) and always runs detection. `work.run` (DIPO-48) calls `ensureFreshProfile`
-// first and `verifyResolved` for its refusal. Scans of one office run one at a time. M0 scans
-// are code only: no model is asked (0013 amendment of 2026-10-11).
+// first and `verifyResolved` for its refusal. Scans of one office run one at a time. A scan is
+// code only: no model is asked (0013 amendment of 2026-10-11).
+//
+// DIPO-310 adds the maintainer's side (0013 section 6 and its amendment of 2026-10-22):
+// `office.infer` starts the fallback session (`fallback.ts`) only when the maintainer asks,
+// `office.confirm` accepts, edits, rejects or sets a capability (`confirm-command.ts`), and
+// `office.profile` lists the profile (`profile-view.ts`). A scan lays the confirmations over what
+// code detected: they carry into the new profile, turn stale on a fingerprint change and are
+// removed, with a diff line, once code resolves their capability (`confirm.ts`).
 //
 // The load step must run after the story index's (`stories.index`), which fetched the remote;
 // the daemon lists this module after `StoryIndex.feature`.
@@ -11,6 +18,9 @@
 import {
   type Clock,
   type OfficeId,
+  officeConfirm,
+  officeInfer,
+  officeProfile,
   officeRescan,
   type RequestId,
 } from "@dipsaus-orchestrator/contract";
@@ -24,8 +34,26 @@ import type { Logger } from "../log/logger";
 import { background } from "../platform/background";
 import { createRepoFiles, type RepoFiles } from "../platform/repo-files";
 
-import { detect, fingerprint, type Probe, readProbe, type RunProfile } from "./detect";
+import { applyConfirm } from "./confirm-command";
+import { effectiveProfile, mootProposals, staleLines, supersededConfirmations } from "./confirm";
+import {
+  detect,
+  type DetectOptions,
+  fingerprint,
+  type Probe,
+  readProbe,
+  type RunProfile,
+} from "./detect";
 import { diffProfiles, profileScripts } from "./diff";
+import { readBaseEvidence } from "./evidence-read";
+import {
+  endLostScanSessions,
+  ScanFallback,
+  type ScanSessionRunner,
+  type ScanSessionSettings,
+} from "./fallback";
+import { deleteConfirmation, deleteProposal, readMarks } from "./marks";
+import { profileView } from "./profile-view";
 import {
   currentFingerprint,
   currentProfile,
@@ -39,6 +67,14 @@ import {
 /** The load step's name in the registry. */
 export const SCAN_STEP = "scan.profile";
 
+/** The `scan` block's defaults (0013 amendment of 2026-10-22), for an office without a config. */
+export const SCAN_DEFAULTS: Omit<ScanSessionSettings, "maxTurns"> = {
+  model: "sonnet",
+  effort: "low",
+  budgetTokens: 100_000,
+  maxMinutes: 5,
+};
+
 export interface RunProfilesDeps {
   /** The office's git once the git load step attached it. */
   readonly git: { forOffice(office: OfficeId): OfficeGit | undefined };
@@ -51,7 +87,18 @@ export interface RunProfilesDeps {
   /** The file facts of a checkout; git-backed by default. */
   readonly files?: (dir: string) => RepoFiles;
   /** Detection; the pure DIPO-33 `detect` by default. Tests count its calls. */
-  readonly detect?: (probe: Probe) => RunProfile;
+  readonly detect?: (probe: Probe, options?: DetectOptions) => RunProfile;
+  /**
+   * The fallback session's runner (DIPO-310): the Claude one of `run/session-run.ts` in the
+   * daemon. Without it `office.infer` reports that no session can run.
+   */
+  readonly fallback?: () => ScanSessionRunner | undefined;
+  /** The office's `scan` block in force; the defaults without one. */
+  readonly scanSettings?: (office: OfficeId) => Omit<ScanSessionSettings, "maxTurns"> | undefined;
+  /** Why a new session of `model` is held by a plan limit now; null when it is not (DIPO-61). */
+  readonly planLimitHeld?: (office: OfficeId, model: string) => string | null;
+  /** How long a held fallback session waits before it looks again; a test seam. */
+  readonly fallbackPollMs?: number;
   /** A scan outside a command appended entries; subscribers catch up. */
   readonly onOfficeChanged?: (office: OfficeId) => void;
   readonly logger?: Logger;
@@ -96,9 +143,29 @@ export class RunProfiles {
   readonly #offices = new Map<OfficeId, Tracked>();
   /** Offices with an `office.rescan` running; kept by id, so a reload of the office keeps it. */
   readonly #rescanning = new Set<OfficeId>();
+  readonly #fallback: ScanFallback;
 
   constructor(deps: RunProfilesDeps) {
     this.#deps = deps;
+    this.#fallback = new ScanFallback({
+      ...(deps.fallback === undefined ? {} : { runner: deps.fallback }),
+      settings: (office) => deps.scanSettings?.(office) ?? SCAN_DEFAULTS,
+      ...(deps.planLimitHeld === undefined ? {} : { planLimitHeld: deps.planLimitHeld }),
+      readBase: (office) => this.#readBase(office),
+      ...(deps.onOfficeChanged === undefined ? {} : { onOfficeChanged: deps.onOfficeChanged }),
+      ...(deps.logger === undefined ? {} : { logger: deps.logger }),
+      ...(deps.fallbackPollMs === undefined ? {} : { pollMs: deps.fallbackPollMs }),
+    });
+  }
+
+  /** The fallback sessions (DIPO-310). */
+  get fallback(): ScanFallback {
+    return this.#fallback;
+  }
+
+  /** Stops the fallback's waits, at daemon stop. */
+  close(): void {
+    this.#fallback.close();
   }
 
   /** The feature module with the `scan.profile` load step and `office.rescan`. */
@@ -108,6 +175,16 @@ export class RunProfiles {
       register: (registry) => {
         registry.registerLoadStep(SCAN_STEP, async (ctx) => {
           const state = this.#track(ctx.officeId, ctx.office, ctx.clock, ctx.path);
+          // A fallback session a stopped daemon left open would keep the office busy (DIPO-310).
+          if (!this.#fallback.inferring(ctx.officeId)) {
+            const lost = endLostScanSessions(ctx.office, ctx.clock.now());
+            if (lost.length > 0) {
+              this.#deps.logger?.info("ended scan sessions a stopped daemon left", {
+                office: ctx.officeId,
+                runs: lost,
+              });
+            }
+          }
           await this.#serial(state, () => this.#loadScan(ctx.officeId, state));
           return { ok: true };
         });
@@ -137,8 +214,39 @@ export class RunProfiles {
             return { result: { scan: "started" as const }, changed: false };
           },
         });
+        // The fallback starts only here, when the maintainer asks (0013 amendment of 2026-10-22).
+        registry.addOfficeCommand({
+          definition: officeInfer,
+          handle: (ctx) => ({
+            result: this.#fallback.infer(ctx.office.officeId, ctx.office, ctx.clock),
+            changed: false,
+          }),
+        });
+        registry.addOfficeCommand({
+          definition: officeConfirm,
+          handle: (ctx, args) => {
+            const outcome = applyConfirm(ctx.office, args, ctx.now);
+            ctx.emit(outcome.entry);
+            return { result: outcome.result, changed: true };
+          },
+        });
+        registry.addRead({
+          definition: officeProfile,
+          handle: (ctx, args) => {
+            if (ctx.office === undefined) throw new Error("office.profile runs with its office");
+            return profileView(args.office, ctx.office, this.#fallback.inferring(args.office));
+          },
+        });
       },
     };
+  }
+
+  /** dipo's base copy of the office: its file list and evidence texts (0021 amendment, DIPO-310). */
+  async #readBase(office: OfficeId) {
+    const git = this.#git(office);
+    const base = await git.ensureBaseWorktree();
+    // One queue item, so no fetch moves `_base` while it is read.
+    return git.run(async () => readBaseEvidence(base.path, this.#files(base.path)));
   }
 
   /**
@@ -315,15 +423,33 @@ export class RunProfiles {
       if (current !== null) return { profile: current, detected: false, diff: [] };
     }
 
-    const profile = (this.#deps.detect ?? detect)(await this.#withMainPresence(state, probe));
+    const nothingToStart = readMarks(state.office).nothingToStart;
+    const profile = (this.#deps.detect ?? detect)(await this.#withMainPresence(state, probe), {
+      nothingToStart,
+    });
     const at = state.clock.now();
     const outcome = state.office.immediate((): ScanOutcome => {
       const previous = currentProfile(state.office);
-      const diff = diffProfiles(previous?.profile ?? null, profile);
+      // The confirmations lay over the new profile (DIPO-310): one whose capability code now
+      // resolves is removed with a diff line, and one made at another fingerprint turns stale.
+      const marks = readMarks(state.office);
+      const superseded = supersededConfirmations(profile, marks);
+      for (const { capability } of superseded) deleteConfirmation(state.office, capability);
+      for (const capability of mootProposals(profile, marks))
+        deleteProposal(state.office, capability);
+      const stale = staleLines(previous?.code.fingerprint ?? null, profile.fingerprint, marks);
+      const effective = effectiveProfile(profile, readMarks(state.office)).profile;
+      const codeDiff = diffProfiles(previous?.code ?? null, profile);
+      const diff = [
+        ...diffProfiles(previous?.profile ?? null, effective),
+        ...superseded.map((s) => s.line),
+        ...stale,
+      ];
       const unchanged =
         previous !== null &&
+        codeDiff.length === 0 &&
         diff.length === 0 &&
-        previous.profile.fingerprint === profile.fingerprint;
+        previous.code.fingerprint === profile.fingerprint;
       const profileId = unchanged
         ? previous.profileId
         : insertProfile(state.office, profile, { scannedAt: at, commit });
@@ -341,14 +467,14 @@ export class RunProfiles {
       const entry: NewEntry = {
         type: "scan.finished",
         delta: {
-          scripts: profileScripts(profile),
+          scripts: profileScripts(effective),
           warnings: [
             ...(options.warnings ?? []),
-            ...profile.conformance.deviations.map((d) => d.message),
+            ...effective.conformance.deviations.map((d) => d.message),
           ],
           trigger: options.trigger,
-          level: profile.conformance.level,
-          deviations: profile.conformance.deviations.map((d) => d.message),
+          level: effective.conformance.level,
+          deviations: effective.conformance.deviations.map((d) => d.message),
           diff,
         },
       };

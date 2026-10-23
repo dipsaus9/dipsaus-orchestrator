@@ -12,8 +12,10 @@
 //    park whose merge gate is open is one row with both `dipo resume --note` and `dipo approve
 //    --note` (or the hand merge when its PR is labelled `autorelease: pending`), and that gate gets
 //    no MERGE row of its own;
-// 4. hand actions: a backlog PR whose structural check failed or could not run, and the items of
-//    `DeskSources.handItems` (DIPO-161's DONE ELSEWHERE and LEFTOVERS);
+// 4. hand actions: a backlog PR whose structural check failed or could not run, the items of
+//    `DeskSources.handItems` (DIPO-161's DONE ELSEWHERE and LEFTOVERS), and the run profile's rows
+//    (DIPO-310): each pending proposal of the scan fallback and each stale confirmation, an office
+//    item with no story, offering its `dipo office confirm` lines (no TUI keys yet);
 // 5. proposals and decision notes of worker reports (`proposals.ts`), spike before follow-up;
 // 6. the stories parked `on-hold`, "Held by you".
 // Within a group the items whose story blocks the most active stories come first, then the oldest.
@@ -47,6 +49,7 @@ import type { FeatureRegistry, ReadContext, Registry } from "../commands/registr
 import type { OfficeHandle } from "../db/office";
 import { openParkQuestions, openQuestions, type StoredQuestion } from "../hooks/questions";
 import { parkResumeRow } from "../run/resume-policy";
+import { profileDeskItems } from "../scan/profile-view";
 import { findStoryPr, latestStoryPr } from "../story-pr/records";
 import { doneElsewhereDeskItems } from "../worktree/done-elsewhere";
 
@@ -524,6 +527,16 @@ class DeskBuilder {
           actions: hand.actions.flatMap((action) => this.#action(action.command, action.cli)),
         });
       }
+    }
+    // The run profile's rows (DIPO-310): what the maintainer confirms by `dipo office confirm`.
+    for (const item of profileDeskItems(this.#office)) {
+      this.#add(GROUP.hand, 1, item.since, {
+        kind: item.kind,
+        detail: deskText(item.detail),
+        since: iso(item.since),
+        blocks: [],
+        actions: item.actions.flatMap((action) => this.#action(action.command, action.cli)),
+      });
     }
   }
 
