@@ -100,6 +100,7 @@ import {
   unsafePath,
 } from "./parts";
 import { BoxError, type BoxPort } from "./port";
+import { copyInAsUser } from "./user";
 
 /** How often the live box runs are compared and caught up. */
 export const COLLISION_POLL_MS = 60_000;
@@ -1878,7 +1879,8 @@ export class BoxCollisions {
       }
     }
     if (changes.written.length > 0) {
-      await this.#deps.boxes.copyIn(run.box, `${dir}/.`, BOX_WORKDIR);
+      // Never a root copy into `/work`, where the worker may have planted links (DIPO-334).
+      await copyInAsUser(this.#deps.boxes, run.box, dir, BOX_WORKDIR);
     }
   }
 }

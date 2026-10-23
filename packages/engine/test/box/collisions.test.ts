@@ -65,6 +65,7 @@ import {
 } from "../../src/box/collisions";
 import { BoxParts, type PartPark, type PartRun } from "../../src/box/parts";
 import type { BoxPort } from "../../src/box/port";
+import { BOX_STAGE_ROOT } from "../../src/box/user";
 import { OfficeGit, spawnGitExec } from "../../src/git";
 import { systemSpawn } from "../../src/platform/process";
 
@@ -324,6 +325,8 @@ function folderBoxes(
     return dir;
   };
   const streams = new Map<string, number>();
+  // A copy for the box user (DIPO-334): the stage's source, copied on at the box user's `cp`.
+  const staged = new Map<string, string>();
   return {
     execLive: (box) => {
       const n = (streams.get(box) ?? 0) + 1;
@@ -353,6 +356,16 @@ function folderBoxes(
     },
     stop: async () => {},
     exec: async (box, command) => {
+      const stage = command.find((part) => part.startsWith(`${BOX_STAGE_ROOT}/`));
+      if (stage !== undefined) {
+        if (command[0] === "/bin/cp") {
+          await w().onCopy?.();
+          expect(command.at(-1)).toBe("/work");
+          w().copies.push(box);
+          cpSync(staged.get(stage)!, folder(box), { recursive: true, force: true });
+        }
+        return { code: 0, stdout: "", stderr: "" };
+      }
       const [program, flag, dashes, ...paths] = command;
       if (program !== "rm" || flag !== "-f" || dashes !== "--") {
         return { code: 127, stdout: "", stderr: "unexpected command" };
@@ -363,13 +376,11 @@ function folderBoxes(
       }
       return { code: 0, stdout: "", stderr: "" };
     },
-    copyIn: async (box, from, to) => {
+    copyIn: async (_box, from, to) => {
       if (w().failCopy) throw new Error("the box is gone");
-      await w().onCopy?.();
-      expect(to).toBe("/work");
+      expect(to.startsWith(`${BOX_STAGE_ROOT}/`)).toBe(true);
       expect(from).toEndWith("/.");
-      w().copies.push(box);
-      cpSync(from.slice(0, -2), folder(box), { recursive: true, force: true });
+      staged.set(to, from.slice(0, -2));
     },
   };
 }

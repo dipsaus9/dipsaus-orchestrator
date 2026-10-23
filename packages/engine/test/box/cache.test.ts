@@ -58,6 +58,7 @@ import {
   boxName,
 } from "../../src/box/port";
 import { OfficeGit, spawnGitExec } from "../../src/git";
+import { BOX_STAGE_ROOT } from "../../src/box/user";
 import { systemSpawn } from "../../src/platform/process";
 import { writeNetTools } from "./fake-boxes";
 import { fakeContainer } from "./fake-container";
@@ -142,6 +143,15 @@ function fakeFill(dir: string, install: (cacheDir: string) => InstallResult = wr
       if (failDelete) throw new BoxError("box.failed", "container delete failed");
     },
     exec: async (name, command, options) => {
+      // A copy for the box user (DIPO-334): kept as one copy to its target when the user copies.
+      const stage = command.find((arg) => arg.startsWith(`${BOX_STAGE_ROOT}/`));
+      if (stage !== undefined) {
+        if (command[0] === "/bin/cp") {
+          calls.push(`copyIn ${name} ${command.at(-1)}`);
+          cpSync(join(boxFs, stage), join(boxFs, command.at(-1)!), { recursive: true });
+        }
+        return { code: 0, stdout: "", stderr: "" };
+      }
       calls.push(`exec ${name} ${command[0]}`);
       if (command[0] === "mkdir") {
         mkdirSync(join(boxFs, command[2]!), { recursive: true });
@@ -172,8 +182,8 @@ function fakeFill(dir: string, install: (cacheDir: string) => InstallResult = wr
       return { stdout: "", stderr: "", ...result };
     },
     copyIn: async (name, from, to) => {
-      calls.push(`copyIn ${name} ${to}`);
-      cpSync(from, join(boxFs, to), { recursive: true });
+      if (!to.startsWith(`${BOX_STAGE_ROOT}/`)) calls.push(`copyIn ${name} ${to}`);
+      cpSync(from.endsWith("/.") ? from.slice(0, -2) : from, join(boxFs, to), { recursive: true });
     },
     execLive: (name, command) => {
       calls.push(`execLive ${name} ${command.join(" ")}`);
@@ -298,8 +308,8 @@ const FILL_CALLS = [
   `acquire ${FILL_BOX}`,
   `firewall ${FILL_BOX} 192.0.2.1 3128`,
   `exec ${FILL_BOX} mkdir`,
-  `copyIn ${FILL_BOX} ${FILL_BOX_DIR}/project`,
-  `copyIn ${FILL_BOX} ${FILL_BOX_DIR}/ca.pem`,
+  // The project and the CA bundle, as the box user's copy (DIPO-334).
+  `copyIn ${FILL_BOX} ${FILL_BOX_DIR}`,
   `exec ${FILL_BOX} bun`,
   `exec ${FILL_BOX} find`,
   `exec ${FILL_BOX} tar`,
@@ -775,7 +785,7 @@ describe("the read-only attachment", () => {
       const mounts = args!.flatMap((arg, at) => (arg === "--mount" ? [args![at + 1]] : []));
       expect(mounts).toEqual([
         `type=bind,source=${made.cache.path},target=${BOX_PACKAGE_CACHE_PATH},readonly`,
-        `type=bind,source=${tools},target=/opt/dipo-net,readonly`,
+        `type=bind,source=${tools},target=/dipo-net,readonly`,
       ]);
       expect(args).not.toContain("--volume");
     }));
