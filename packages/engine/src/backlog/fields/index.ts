@@ -24,3 +24,4 @@ export {
 export type { LabelChange, StoryLabels } from "./labels";
 export { editLabels, FieldWriteError, MAX_WRITE_ATTEMPTS, viewStory, writeFields } from "./write";
 export type { StoryTarget } from "./write";
+export { appendImplementationNotes, setFinalSummary } from "./summary";

@@ -52,8 +52,16 @@ export type {
   VerifyFeedbackItem,
   VerifyFeedbackOptions,
 } from "./feedback";
-export { gatherHandoff, HANDOFF_BUDGET_DEFAULT, renderHandoff } from "./handoff";
-export type { GatherHandoffOptions, HandoffFacts, LastVerify } from "./handoff";
+export {
+  BOX_CHANGES,
+  BOX_VERIFY,
+  gatherHandoff,
+  HANDOFF_BUDGET_DEFAULT,
+  HANDOFF_NOTE_MAX,
+  noteBlock,
+  renderHandoff,
+} from "./handoff";
+export type { GatherHandoffOptions, HandoffFacts, HandoffFeedback, LastVerify } from "./handoff";
 export {
   capNotes,
   forgetWorkerNotes,
