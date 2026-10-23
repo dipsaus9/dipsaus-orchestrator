@@ -47,6 +47,7 @@ export {
   RUNTIME_PATH_LIMIT,
   runtimeChoices,
   TEMP_DIR_TEMPLATE,
+  TEST_MARKER,
   TEST_RUNTIME_SOURCE,
   testRuntimeCandidates,
   testRuntimeDir,

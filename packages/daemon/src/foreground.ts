@@ -74,6 +74,7 @@ import {
   removeSocketFile,
   resolveSoftwareDirs,
   resolveTools,
+  SoftwareDirError,
   ProposalCommands,
   RunProfiles,
   REATTACH_STEP,
@@ -123,6 +124,7 @@ import {
   type StoryPlanningDeps,
   type StateDatabase,
   type StoredRun,
+  type WorkerPort,
 } from "@dipsaus-orchestrator/engine";
 
 import { controlFeature, emitDaemonStates, sumActiveRuns } from "./control";
@@ -180,6 +182,8 @@ export interface ForegroundOptions {
   readonly supervisorSpawn?: Spawn;
   /** This process's parent PID, for the launchd bootout check; tests stand in for launchd (1). */
   readonly parentPid?: number;
+  /** Wraps the daemon's worker port; a test daemon process plans a scripted worker (DIPO-316). */
+  readonly workerPort?: (port: WorkerPort) => WorkerPort;
 }
 
 /** The drain reason after an error no code caught (DIPO-117). */
@@ -311,7 +315,17 @@ export async function runForeground(
   );
 
   const platform = currentPlatform();
-  const dirs = resolveSoftwareDirs({ platform, env: io.env, home: passwdHome() });
+  let dirs: ReturnType<typeof resolveSoftwareDirs>;
+  try {
+    dirs = resolveSoftwareDirs({ platform, env: io.env, home: passwdHome() });
+  } catch (error) {
+    // A `DIPO_HOME` dipo cannot use, or the real state folder in a test, stops the start before
+    // anything is written (DIPO-316); like an invalid configuration, a restart would not help.
+    if (!(error instanceof SoftwareDirError)) throw error;
+    removeSignal();
+    io.writeError(`dipo: ${error.message}`);
+    return EXIT_CONFIG;
+  }
   ensurePrivateDir(dirs.state);
   const logFile = openLogFile(dirs.logs);
   const logger = createLogger({
@@ -547,6 +561,7 @@ async function serve(run: Run, lock: HeldLock): Promise<number> {
       }),
       uid,
       tmpBase,
+      env: io.env,
     });
     for (const rejected of choice.rejected) {
       logger.warn("runtime directory candidate rejected", { ...rejected });
@@ -900,6 +915,7 @@ async function serve(run: Run, lock: HeldLock): Promise<number> {
       holdResumer: () => planning,
       // A resumed slot-refused park re-enters the merge slot (DIPO-150, DIPO-155's seam).
       slotReentry: () => mergeSlot,
+      ...(options.workerPort === undefined ? {} : { workerPort: options.workerPort }),
       stories: storyIndex,
       // The registry is built below; parks are only written after it exists.
       implemented: (name) => registry.command(name) !== undefined,

@@ -8,7 +8,7 @@
 
 import { writeFileSync } from "node:fs";
 
-import { describe, expect, it } from "bun:test";
+import { describe, expect, it, setDefaultTimeout } from "bun:test";
 
 import { type OfficeId, StoryId } from "@dipsaus-orchestrator/contract";
 import { git, type TempRepoWithRemote, withBareRemote } from "@dipsaus-orchestrator/testkit";
@@ -36,6 +36,10 @@ import {
 } from "../lane/helpers";
 
 import { FakeHost, REMOTE_URL } from "./helpers";
+
+// Each test drives the pinned Backlog CLI and real git several times; the GitHub macOS runner needs
+// more than the default 5 s (DIPO-316).
+setDefaultTimeout(30_000);
 
 const FIXTURE = { fixture: BACKLOG_FIXTURE };
 
