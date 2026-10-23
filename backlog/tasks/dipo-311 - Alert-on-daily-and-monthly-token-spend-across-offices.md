@@ -1,10 +1,10 @@
 ---
 id: DIPO-311
 title: Alert on daily and monthly token spend across offices
-status: In Review
+status: Done
 assignee: []
 created_date: '2026-10-22 20:56'
-updated_date: '2026-10-23 11:18'
+updated_date: '2026-10-23 11:30'
 labels:
   - 'tier:M'
   - 'slice:m1b'
@@ -28,6 +28,40 @@ references:
   - packages/engine/test/run/
   - packages/cli/src/
   - packages/tui/src/
+modified_files:
+  - packages/cli/src/daemon-commands.ts
+  - packages/cli/src/desk-command.test.ts
+  - packages/cli/src/desk-command.ts
+  - packages/cli/src/watch-command.test.ts
+  - packages/cli/src/watch-command.ts
+  - packages/client/src/index.ts
+  - packages/client/src/recovery.ts
+  - packages/client/src/usage-text.ts
+  - packages/client/test/unit/config.test.ts
+  - packages/client/test/unit/lifecycle.test.ts
+  - packages/contract/schema/config.schema.json
+  - packages/contract/schema/events.schema.json
+  - packages/contract/schema/reads.schema.json
+  - packages/contract/schema/shared.schema.json
+  - packages/contract/src/config.test.ts
+  - packages/contract/src/config.ts
+  - packages/contract/src/software.ts
+  - packages/contract/src/version.ts
+  - packages/daemon/src/foreground-bootout.test.ts
+  - packages/daemon/src/foreground.ts
+  - packages/daemon/test/integration/foreground.test.ts
+  - packages/engine/src/index.ts
+  - packages/engine/src/reads/hello.ts
+  - packages/engine/src/run/index.ts
+  - packages/engine/src/run/usage-alerts.ts
+  - packages/engine/src/views/index.ts
+  - packages/engine/src/views/summary.ts
+  - packages/engine/src/views/usage.ts
+  - packages/engine/test/config/software.test.ts
+  - packages/engine/test/reads/hello.test.ts
+  - packages/engine/test/views/usage.test.ts
+  - packages/tui/src/overview.test.tsx
+  - packages/tui/src/overview.tsx
 priority: medium
 type: feature
 ordinal: 296000
@@ -90,3 +124,18 @@ test_plan:
 - [x] #6 The TUI switcher keeps its `ALERT day usage`, and the overview count line, the `dipo watch` header and the `dipo desk` count line show today's and this month's tokens of the limit, with "UTC" next to the reset time
 - [x] #7 With no limit set the tokens still show, with no share and no alert
 <!-- AC:END -->
+
+## Final Summary
+
+<!-- SECTION:FINAL_SUMMARY:BEGIN -->
+Closed 2026-10-23 11:30 UTC
+- Criteria met: 7 of 7 (as the worker reported them)
+- Loops: 0; CI attempts: 0
+- Review rounds: 1, failed 0
+- Budget used: 273,956 of 1,000,000 tokens
+- Runs: 1; resumes: 0
+- Parks: none
+- Grants: none
+- Web calls: 0 searches, 0 fetches
+- Proposals filed: 0
+<!-- SECTION:FINAL_SUMMARY:END -->
