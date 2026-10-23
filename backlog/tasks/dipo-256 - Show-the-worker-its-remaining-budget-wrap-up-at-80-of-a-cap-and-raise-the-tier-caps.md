@@ -3,10 +3,10 @@ id: DIPO-256
 title: >-
   Show the worker its remaining budget, wrap up at 80% of a cap, and raise the
   tier caps
-status: Ready
+status: Done
 assignee: []
 created_date: '2026-10-20 20:20'
-updated_date: '2026-10-23 06:20'
+updated_date: '2026-10-23 07:24'
 labels:
   - 'tier:M'
   - cutover
@@ -17,17 +17,35 @@ dependencies:
   - DIPO-294
   - DIPO-299
 references:
+  - '- packages/engine/src/config/schema.ts'
   - packages/engine/src/config/schema.ts
-  - packages/engine/test/config/
+  - packages/engine/src/prompts/budget.ts
+  - packages/engine/src/prompts/contract/implement-box.md
+  - packages/engine/src/prompts/contract/implement.md
   - packages/engine/src/prompts/feedback.ts
   - packages/engine/src/prompts/feedback/
   - packages/engine/src/prompts/handoff.ts
+  - packages/engine/src/prompts/index.ts
   - packages/engine/src/prompts/task/
-  - packages/engine/src/prompts/contract/implement.md
-  - packages/engine/src/run/verify-commit.ts
+  - packages/engine/src/prompts/task/handoff.md
+  - packages/engine/src/run/budget-line.ts
   - packages/engine/src/run/prompts.ts
+  - packages/engine/src/run/resume.ts
+  - packages/engine/src/run/verify-commit.ts
+  - packages/engine/src/story-pr/prs.ts
+  - packages/engine/test/config/
+  - packages/engine/test/config/load.test.ts
+  - packages/engine/test/config/schema.test.ts
   - packages/engine/test/prompts/
+  - packages/engine/test/prompts/budget.test.ts
+  - packages/engine/test/prompts/golden/system-implement-box-developer.md
+  - packages/engine/test/prompts/golden/system-implement-developer.md
+  - packages/engine/test/prompts/system.test.ts
+  - packages/engine/test/run/reattach.test.ts
   - packages/engine/test/workers/golden/
+  - packages/engine/test/workers/golden/plan-L.json
+  - packages/engine/test/workers/golden/plan-M.json
+  - packages/engine/test/workers/golden/plan-S.json
 priority: high
 type: enhancement
 ordinal: 136450
@@ -56,10 +74,10 @@ test_plan:
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 The tier defaults in packages/engine/src/config/schema.ts are S 90 turns and 45 minutes, M 200 turns and 90 minutes, L 300 turns and 180 minutes, with budgetTokens unchanged (300,000, 800,000 and 2,000,000), and the review caps unchanged
-- [ ] #2 Every verify feedback message, every CI feedback message (ciFeedback) and every handoff message ends with one budget line that names turns, minutes and tokens used and left, computed from the run's start snapshot caps plus its grants; the review and reject feedback of DIPO-148 and DIPO-151 append the same line when they are built
-- [ ] #3 The worker contract in packages/engine/src/prompts/contract/implement.md says, with tool-neutral wording, that at about 80% of any cap the worker stops new work, finishes what it started and reports done, or blocked with what is left; its golden is updated
-- [ ] #4 Tests cover the new defaults, the budget line in each message kind and the contract text
+- [x] #1 The tier defaults in packages/engine/src/config/schema.ts are S 90 turns and 45 minutes, M 200 turns and 90 minutes, L 300 turns and 180 minutes, with budgetTokens unchanged (300,000, 800,000 and 2,000,000), and the review caps unchanged
+- [x] #2 Every verify feedback message, every CI feedback message (ciFeedback) and every handoff message ends with one budget line that names turns, minutes and tokens used and left, computed from the run's start snapshot caps plus its grants; the review and reject feedback of DIPO-148 and DIPO-151 append the same line when they are built
+- [x] #3 The worker contract in packages/engine/src/prompts/contract/implement.md says, with tool-neutral wording, that at about 80% of any cap the worker stops new work, finishes what it started and reports done, or blocked with what is left; its golden is updated
+- [x] #4 Tests cover the new defaults, the budget line in each message kind and the contract text
 <!-- AC:END -->
 
 ## Implementation Notes
@@ -68,4 +86,6 @@ test_plan:
 2026-10-22: dropped the dependency on DIPO-149 (which now holds DIPO-291) to break a dependency cycle left by the M1 combine; that story now comes after this one.
 
 2026-10-22: the dependency on DIPO-255 was ordering for file overlap only and is dropped (maintainer: build in parallel, resolve overlaps at merge).
+
+2026-10-23: Done by dipo's box run run_01M5KR8DTMRQBKVCCNX778R2D6 (PR #360), approved by dipo's reviewer in round 1. First run with the package cache reused, the live counter (DIPO-296) and the worker report as data (DIPO-186): the done report carried every test-plan entry with evidence and two deviations with reasons.
 <!-- SECTION:NOTES:END -->
