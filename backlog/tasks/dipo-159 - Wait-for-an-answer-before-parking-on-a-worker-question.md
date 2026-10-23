@@ -3,10 +3,10 @@ id: DIPO-159
 title: >-
   Wait for a worker's question to be answered and keep the question and answer
   when the run ends
-status: Refined
+status: Done
 assignee: []
 created_date: '2026-10-17 12:52'
-updated_date: '2026-10-22 18:16'
+updated_date: '2026-10-23 10:28'
 labels:
   - 'tier:M'
   - 'slice:m1a'
@@ -23,19 +23,40 @@ dependencies:
   - DIPO-294
   - DIPO-152
 references:
-  - packages/cli/src/
+  - '- packages/cli/src/'
+  - packages/cli/src/answer-command.test.ts
+  - packages/cli/src/answer-command.ts
+  - packages/cli/src/index.ts
   - packages/engine/src/backlog/fields/
+  - packages/engine/src/db/migrations/0050-question-waits.ts
+  - packages/engine/src/db/schema.ts
   - packages/engine/src/hooks/
   - packages/engine/src/hooks/permissions.ts
   - packages/engine/src/hooks/questions.ts
+  - packages/engine/src/prompts/feedback/answer.md
   - packages/engine/src/run/
+  - packages/engine/src/run/caps.ts
+  - packages/engine/src/run/compose.ts
+  - packages/engine/src/run/control-endings.ts
+  - packages/engine/src/run/control-types.ts
   - packages/engine/src/run/control.ts
   - packages/engine/src/run/live-question.ts
+  - packages/engine/src/run/park-resume.ts
   - packages/engine/src/run/park.ts
+  - packages/engine/src/run/resume-policy.ts
   - packages/engine/src/run/resume.ts
+  - packages/engine/src/run/resumption.ts
+  - packages/engine/src/run/temp-dirs.ts
   - packages/engine/src/views/
+  - packages/engine/src/views/desk.ts
+  - packages/engine/test/db/question-waits.test.ts
   - packages/engine/test/hooks/
+  - packages/engine/test/hooks/park-answers.test.ts
+  - packages/engine/test/hooks/worker-questions.test.ts
   - packages/engine/test/run/
+  - packages/engine/test/run/park-commit.test.ts
+  - packages/engine/test/run/resume-parks.test.ts
+  - packages/engine/test/views/desk.test.ts
 priority: high
 type: feature
 ordinal: 148000
@@ -68,17 +89,17 @@ test_plan:
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 A blocked report with a question stores a questions row (kind question, linked to the run) and emits question.asked at once; the worker process waits on stdin for timeouts.questionWaitMinutes while holding the worker place, and the wait is left out of the minute cap
-- [ ] #2 work.answer with text during the wait delivers it now as the next user message; with no answer in time stdin closes and the story parks ambiguous-spec with cause question, the question linked to the park
-- [ ] #3 A later answer through dipo answer <question> --text <answer> or dipo resume <id> --note <answer> resumes the park with feedback/answer.md first; a resume of a question park with no answer is refused
-- [ ] #4 The answer is added to the story's unknowns as a resolved unknown in the unpark commit through the single field write path, or delivered without being written, with an engine.notice, when writing it would break R26
-- [ ] #5 dipo answer takes --text for a worker question while permission and scope questions keep allow or deny with a reason, the help text says so, and a waiting question shows on the desk with the time left
-- [ ] #6 ambiguous-spec/no-report resumes with a required note in a handoff session, and ambiguous-spec/rule-conflict with a required note, the conflict the worker named first
-- [ ] #7 (from DIPO-289) An answer given after a cap or stop began, but before the run's end is ingested, is held for the next session (delivered on resume) instead of being sent to the stopping worker
-- [ ] #8 (from DIPO-289) An open question that a run being ended has already let go of, but that its park has not carried yet, takes an answer as held instead of refusing it
-- [ ] #9 (from DIPO-289) A worker that exits on its own while its question is live leaves the question to the park its exit decision makes; when no park follows, the question closes
-- [ ] #10 (from DIPO-289) Resolving a park another way (resume, drop, reconcile) closes its carried question as expired, and a later park of the same story is tested
-- [ ] #11 (from DIPO-289) Tests cover each case
+- [x] #1 A blocked report with a question stores a questions row (kind question, linked to the run) and emits question.asked at once; the worker process waits on stdin for timeouts.questionWaitMinutes while holding the worker place, and the wait is left out of the minute cap
+- [x] #2 work.answer with text during the wait delivers it now as the next user message; with no answer in time stdin closes and the story parks ambiguous-spec with cause question, the question linked to the park
+- [x] #3 A later answer through dipo answer <question> --text <answer> or dipo resume <id> --note <answer> resumes the park with feedback/answer.md first; a resume of a question park with no answer is refused
+- [x] #4 The answer is added to the story's unknowns as a resolved unknown in the unpark commit through the single field write path, or delivered without being written, with an engine.notice, when writing it would break R26
+- [x] #5 dipo answer takes --text for a worker question while permission and scope questions keep allow or deny with a reason, the help text says so, and a waiting question shows on the desk with the time left
+- [x] #6 ambiguous-spec/no-report resumes with a required note in a handoff session, and ambiguous-spec/rule-conflict with a required note, the conflict the worker named first
+- [x] #7 (from DIPO-289) An answer given after a cap or stop began, but before the run's end is ingested, is held for the next session (delivered on resume) instead of being sent to the stopping worker
+- [x] #8 (from DIPO-289) An open question that a run being ended has already let go of, but that its park has not carried yet, takes an answer as held instead of refusing it
+- [x] #9 (from DIPO-289) A worker that exits on its own while its question is live leaves the question to the park its exit decision makes; when no park follows, the question closes
+- [x] #10 (from DIPO-289) Resolving a park another way (resume, drop, reconcile) closes its carried question as expired, and a later park of the same story is tested
+- [x] #11 (from DIPO-289) Tests cover each case
 <!-- AC:END -->
 
 ## Implementation Notes
@@ -87,4 +108,6 @@ test_plan:
 Reshaped by decision 0021 (worker isolation, DIPO-263, 2026-10-21); rewrite before Ready: a question is live only while a TUI is connected at that moment, else the story parks (0021 section 11).
 
 2026-10-22: combined from DIPO-289 (maintainer, M1 speed-up)
+
+Done 2026-10-23 (maintainer session): built outside dipo, reviewed by a separate agent (all 11 criteria met; its scope findings are closed by these References). The question-waits migration is 0050 (0048 and 0049 went to DIPO-150 and DIPO-166). The help of dipo answer --text now says the answer is written to the story only when it resumes a parked story. Advisories filed as DIPO-326 (question.closed on every park resolution, held worker place test) and DIPO-327 (follow-up of DIPO-322).
 <!-- SECTION:NOTES:END -->
