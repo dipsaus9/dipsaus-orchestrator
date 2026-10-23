@@ -3,10 +3,10 @@ id: DIPO-310
 title: >-
   Propose unresolved run profile capabilities with a model session and confirm
   them by command
-status: Refined
+status: Done
 assignee: []
 created_date: '2026-10-22 20:56'
-updated_date: '2026-10-22 20:56'
+updated_date: '2026-10-23 13:55'
 labels:
   - 'tier:L'
   - 'slice:m1b'
@@ -14,26 +14,72 @@ milestone: m-1
 dependencies:
   - DIPO-158
 references:
-  - packages/engine/src/scan/
-  - packages/engine/test/scan/
-  - packages/engine/src/workers/claude-cli/
-  - packages/engine/test/workers/
-  - packages/engine/src/workers/types.ts
-  - packages/engine/src/prompts/
-  - packages/engine/test/prompts/
-  - packages/engine/src/run/
-  - packages/engine/test/run/
-  - packages/engine/src/config/
-  - packages/engine/test/config/
-  - packages/engine/src/views/
-  - packages/engine/test/views/
-  - packages/engine/src/reads/
-  - packages/engine/src/reads/hello.ts
-  - packages/engine/src/db/migrations/
+  - packages/cli/src/index.ts
+  - packages/cli/src/profile-commands.test.ts
+  - packages/cli/src/profile-commands.ts
+  - packages/contract/schema/commands.schema.json
+  - packages/contract/schema/events.schema.json
+  - packages/contract/schema/reads.schema.json
+  - packages/contract/schema/work.schema.json
+  - packages/contract/src/catalog.ts
+  - packages/contract/src/errors.ts
+  - packages/contract/src/fixtures.ts
+  - packages/contract/src/index.test.ts
+  - packages/contract/src/index.ts
+  - packages/contract/src/office.ts
+  - packages/contract/src/profile.ts
+  - packages/contract/src/software.ts
+  - packages/contract/src/version.ts
+  - packages/daemon/src/foreground.ts
+  - packages/daemon/src/runs.ts
+  - packages/engine/schema/office.schema.json
+  - packages/engine/src/config/index.ts
+  - packages/engine/src/config/load.ts
+  - packages/engine/src/config/schema.ts
+  - packages/engine/src/db/migrations/0053-scan-confirmations.ts
   - packages/engine/src/db/schema.ts
-  - packages/contract/src/
-  - packages/contract/schema/
-  - packages/cli/src/
+  - packages/engine/src/index.ts
+  - packages/engine/src/prompts/contract/scan.md
+  - packages/engine/src/prompts/roles/scanner.md
+  - packages/engine/src/prompts/task/scan.md
+  - packages/engine/src/prompts/templates.ts
+  - packages/engine/src/retention/policy.ts
+  - packages/engine/src/run/compose.ts
+  - packages/engine/src/run/index.ts
+  - packages/engine/src/run/session-run.ts
+  - packages/engine/src/scan/answer.ts
+  - packages/engine/src/scan/confirm-command.ts
+  - packages/engine/src/scan/confirm.ts
+  - packages/engine/src/scan/evidence-read.ts
+  - packages/engine/src/scan/evidence.ts
+  - packages/engine/src/scan/fallback.ts
+  - packages/engine/src/scan/feature.ts
+  - packages/engine/src/scan/index.ts
+  - packages/engine/src/scan/marks.ts
+  - packages/engine/src/scan/profile-view.ts
+  - packages/engine/src/scan/request.ts
+  - packages/engine/src/scan/store.ts
+  - packages/engine/src/views/desk.ts
+  - packages/engine/src/workers/claude-cli/adapter.ts
+  - packages/engine/src/workers/claude-cli/interpret.ts
+  - packages/engine/src/workers/claude-cli/plan.ts
+  - packages/engine/src/workers/claude-cli/report-schema.ts
+  - packages/engine/src/workers/claude-cli/result.ts
+  - packages/engine/src/workers/claude-cli/schema.ts
+  - packages/engine/src/workers/port.ts
+  - packages/engine/src/workers/types.ts
+  - packages/engine/test/config/load.test.ts
+  - packages/engine/test/config/schema.test.ts
+  - packages/engine/test/office/load.test.ts
+  - packages/engine/test/prompts/task.test.ts
+  - packages/engine/test/run/session-run.test.ts
+  - packages/engine/test/scan/answer.test.ts
+  - packages/engine/test/scan/confirm.test.ts
+  - packages/engine/test/scan/evidence.test.ts
+  - packages/engine/test/scan/fallback-office.test.ts
+  - packages/engine/test/scan/fallback.test.ts
+  - packages/engine/test/workers/plan.test.ts
+  - packages/engine/test/workers/session-plan.test.ts
 priority: medium
 type: feature
 ordinal: 295000
@@ -90,13 +136,19 @@ test_plan:
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 The Claude adapter plans a `session` run on the Mac with no box: no worktree, branch or story key, every tool off (no read, shell or web), the structured-output schema of the fallback, and the model, effort and caps of a new office key block `scan` in `.dipo/office.yaml` at the next office configuration version (defaults: model `sonnet`, effort `low`, `budgetTokens` 100000, `maxMinutes` 5, one turn plus one schema retry); its usage is stored under the office
-- [ ] #2 At most one session run per office runs at a time, outside the worker and reviewer places; plan-limit holds apply to it, so it waits and never parks; its tokens count in the office's usage
-- [ ] #3 Pure code builds the evidence bundle from dipo's base read copy as 0013 section 6 lists it (file tree to depth 2 without dependency, build and worktree folders, manifests, Makefile or justfile, the install and run sections of README and `CLAUDE.md`, CI `run:` steps, `.claude/backlog-workflow.json`, env file names), within a size budget, never with env file contents; the request names only the unresolved or conflicting capabilities
-- [ ] #4 The answer is checked against the schema and against the base copy (a referenced script or file must exist); an answer that fails is dropped with an `engine.notice` that names the check; each valid proposal is stored pending with source `inferred`, confidence `low` and its evidence, and `run`, setup and the test command never execute a pending command
-- [ ] #5 The fallback starts only when the maintainer asks, through a contract command and `dipo office infer`, never automatically; the `run` and test-command refusals and the desk name that command
-- [ ] #6 A read lists the office's current profile: per capability its status, command and working directory, source, confidence, confirmed, pending proposal with its evidence, stale, and conflict candidates, plus the deviations with the standard script that would remove each; `dipo office profile` prints it
-- [ ] #7 A command accepts, edits or rejects a proposal, sets a capability by hand, picks one candidate of a conflict, and marks the product as having nothing to start; accept gives source `inferred`, edit and set give `maintainer`, both confirmed; it writes only the database, recomputes the `run` refusal, and emits `scan.finished` with the diff; the CLI form is `dipo office confirm` with the subcommands this story names (design choice)
-- [ ] #8 A rescan carries confirmed capabilities into the new profile; on a fingerprint change they are marked stale, and a stale confirmed capability keeps working for `run` and the test command until it is confirmed again; a capability code now resolves replaces its confirmation, with a diff line
-- [ ] #9 The desk lists each pending proposal and each stale confirmation as a hand-action row with its `dipo office confirm` line; this story adds no TUI keys for those rows
+- [x] #1 The Claude adapter plans a `session` run on the Mac with no box: no worktree, branch or story key, every tool off (no read, shell or web), the structured-output schema of the fallback, and the model, effort and caps of a new office key block `scan` in `.dipo/office.yaml` at the next office configuration version (defaults: model `sonnet`, effort `low`, `budgetTokens` 100000, `maxMinutes` 5, one turn plus one schema retry); its usage is stored under the office
+- [x] #2 At most one session run per office runs at a time, outside the worker and reviewer places; plan-limit holds apply to it, so it waits and never parks; its tokens count in the office's usage
+- [x] #3 Pure code builds the evidence bundle from dipo's base read copy as 0013 section 6 lists it (file tree to depth 2 without dependency, build and worktree folders, manifests, Makefile or justfile, the install and run sections of README and `CLAUDE.md`, CI `run:` steps, `.claude/backlog-workflow.json`, env file names), within a size budget, never with env file contents; the request names only the unresolved or conflicting capabilities
+- [x] #4 The answer is checked against the schema and against the base copy (a referenced script or file must exist); an answer that fails is dropped with an `engine.notice` that names the check; each valid proposal is stored pending with source `inferred`, confidence `low` and its evidence, and `run`, setup and the test command never execute a pending command
+- [x] #5 The fallback starts only when the maintainer asks, through a contract command and `dipo office infer`, never automatically; the `run` and test-command refusals and the desk name that command
+- [x] #6 A read lists the office's current profile: per capability its status, command and working directory, source, confidence, confirmed, pending proposal with its evidence, stale, and conflict candidates, plus the deviations with the standard script that would remove each; `dipo office profile` prints it
+- [x] #7 A command accepts, edits or rejects a proposal, sets a capability by hand, picks one candidate of a conflict, and marks the product as having nothing to start; accept gives source `inferred`, edit and set give `maintainer`, both confirmed; it writes only the database, recomputes the `run` refusal, and emits `scan.finished` with the diff; the CLI form is `dipo office confirm` with the subcommands this story names (design choice)
+- [x] #8 A rescan carries confirmed capabilities into the new profile; on a fingerprint change they are marked stale, and a stale confirmed capability keeps working for `run` and the test command until it is confirmed again; a capability code now resolves replaces its confirmation, with a diff line
+- [x] #9 The desk lists each pending proposal and each stale confirmation as a hand-action row with its `dipo office confirm` line; this story adds no TUI keys for those rows
 <!-- AC:END -->
+
+## Implementation Notes
+
+<!-- SECTION:NOTES:BEGIN -->
+Done 2026-10-23 (maintainer session): built outside dipo, reviewed by a separate agent (all 9 criteria met; its advisories are fixed: a running session is stopped at daemon stop, an unread Makefile drops its proposal, a stale proposal cannot be accepted)
+<!-- SECTION:NOTES:END -->
