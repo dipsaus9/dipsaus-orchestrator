@@ -22,7 +22,7 @@ export interface StoryPrRecord {
   readonly bodyHash: string;
   readonly openedAt: number;
   readonly closedAt: number | null;
-  /** The number of the closed PR of the run this one replaces (migration 51, DIPO-324). */
+  /** The number of the closed PR of the run this one replaces (migration 52, DIPO-324). */
   readonly replaces?: number | null;
 }
 
@@ -266,4 +266,72 @@ export function noCiRan(office: OfficeHandle, runId: RunId, head: string): boole
       { run: runId, head },
     ) !== null
   );
+}
+
+/** What one push of a story branch did, as `pushBranch` reports it. */
+export interface BranchPush {
+  readonly pushed: boolean;
+  /** Why it failed; null with `pushed` false means the office has no remote. */
+  readonly error: string | null;
+}
+
+/**
+ * Inside the caller's transaction (DIPO-315): records a push of the story branch `branch` on its
+ * live claim. One that reached the remote sets `claims.pushed_at`; one that found no remote sets
+ * `claims.no_remote_at`, so a review does not wait for a remote the office does not have. A failed
+ * push records nothing: the PR poll pushes again (`runsToPush`). Every story-branch push dipo makes
+ * records here, so `pushed_at` at or after a run's end means its head is on the remote.
+ */
+export function recordBranchPush(
+  office: OfficeHandle,
+  branch: string,
+  push: BranchPush,
+  at: number,
+): void {
+  if (!push.pushed && push.error !== null) return;
+  office.run(
+    `update claims set ${push.pushed ? "pushed_at" : "no_remote_at"} = $at
+      where office_id = $office_id and branch = $branch and released_at is null`,
+    { branch, at },
+  );
+}
+
+/** A run whose In Review head may not be on the remote (`runsToPush`). */
+export interface UnpushedRun {
+  readonly runId: RunId;
+  readonly key: StoryKey;
+  readonly branch: string;
+}
+
+/**
+ * Runs to push again (DIPO-315), oldest first: story runs that ended at In Review with a live claim
+ * whose `pushed_at` is null or earlier than the run's end, so the In Review push did not reach the
+ * remote, while the story is In Review now. A reviewed run is never one: its review started only
+ * once its head was on the remote (`pendingReviews`), and the review period moves its end past
+ * that push without a push of its own. Nor is a run whose office was found to have no remote at or
+ * after its end (`no_remote_at`): nothing waits for that push.
+ */
+export function runsToPush(office: OfficeHandle): UnpushedRun[] {
+  return office
+    .all<{ run_id: string; key: string; branch: string }>(
+      `select r.run_id as run_id, r.key as key, r.branch as branch from runs r
+        join claims c on c.office_id = r.office_id and c.run_id = r.run_id
+          and c.released_at is null
+        where r.office_id = $office_id and r.kind = 'story'
+          and r.end_kind = $end and r.ended_at is not null
+          and r.key is not null and r.branch is not null and r.worktree is not null
+          and (c.pushed_at is null or c.pushed_at < r.ended_at)
+          and (c.no_remote_at is null or c.no_remote_at < r.ended_at)
+          and exists (select 1 from stories s
+            join backlog_mirror m on m.office_id = s.office_id and m.key = s.key
+            where s.office_id = r.office_id and s.key = r.key and s.removed_at is null
+              and m.kind = 'task' and m.status = $status)
+        order by r.ended_at, r.run_id`,
+      { end: IN_REVIEW_END, status: IN_REVIEW_STATUS },
+    )
+    .map((row) => ({
+      runId: row.run_id as RunId,
+      key: row.key as StoryKey,
+      branch: row.branch,
+    }));
 }

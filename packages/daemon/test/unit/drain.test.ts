@@ -13,6 +13,7 @@ import {
   drain,
   type DrainOptions,
   type DrainResult,
+  type StoppedWorkers,
 } from "../../src/drain";
 import { DaemonLifecycle } from "../../src/lifecycle";
 
@@ -154,10 +155,10 @@ describe("drain", () => {
   it("uses the 60 s cap while workers are being stopped", async () => {
     const { clock, logger, lifecycle, children } = setup();
     let stopped = false;
-    const stopping = Promise.withResolvers<void>();
+    const stopping = Promise.withResolvers<StoppedWorkers>();
     const finishStopping = () => {
       stopped = true;
-      stopping.resolve();
+      stopping.resolve({ stopped: 1, deciding: 0, running: 0 });
     };
     const options: DrainOptions = {
       lifecycle,
@@ -191,5 +192,67 @@ describe("drain", () => {
       request: { reason: "SIGTERM", stopWorkers: false },
     });
     expect(lifecycle.state).toBe("draining");
+  });
+});
+
+const stopDrain = async (stopWorkers?: () => Promise<StoppedWorkers>) => {
+  const { clock, logger, lifecycle, children, lines } = setup();
+  let called = 0;
+  await drain({
+    lifecycle,
+    children: children.tracker,
+    clock,
+    logger,
+    request: { reason: "daemon.stop", stopWorkers: true },
+    ...(stopWorkers === undefined
+      ? {}
+      : {
+          stopWorkers: () => {
+            called += 1;
+            return stopWorkers();
+          },
+        }),
+  });
+  const said = lines.map((line) => JSON.parse(line) as { msg: string; level: string });
+  return { called, said };
+};
+
+describe("drain with stopWorkers (DIPO-315)", () => {
+  it("stops the workers before the drain ends, and the log line says how many", async () => {
+    const { called, said } = await stopDrain(() =>
+      Promise.resolve({ stopped: 2, deciding: 1, running: 0 }),
+    );
+    expect(called).toBe(1);
+    const line = said.find((entry) => entry.msg.startsWith("stopped the workers"));
+    expect(line).toMatchObject({ msg: "stopped the workers; every one exited", level: "info" });
+    expect(said.findIndex((entry) => entry.msg === "drained")).toBeGreaterThan(
+      said.indexOf(line as (typeof said)[number]),
+    );
+  });
+
+  it("warns when a stopped worker had not exited yet, and says when there was none", async () => {
+    const late = await stopDrain(() => Promise.resolve({ stopped: 1, deciding: 0, running: 1 }));
+    expect(late.said.find((entry) => entry.msg.startsWith("stopped the workers"))?.level).toBe(
+      "warn",
+    );
+    const none = await stopDrain(() => Promise.resolve({ stopped: 0, deciding: 0, running: 0 }));
+    expect(none.said.some((entry) => entry.msg === "no live workers to stop")).toBe(true);
+  });
+
+  it("never calls it without stopWorkers in the request", async () => {
+    const { clock, logger, lifecycle, children } = setup();
+    let called = 0;
+    await drain({
+      lifecycle,
+      children: children.tracker,
+      clock,
+      logger,
+      request: { reason: "SIGTERM", stopWorkers: false },
+      stopWorkers: () => {
+        called += 1;
+        return Promise.resolve({ stopped: 0, deciding: 0, running: 0 });
+      },
+    });
+    expect(called).toBe(0);
   });
 });

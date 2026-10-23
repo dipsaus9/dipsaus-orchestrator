@@ -1,4 +1,4 @@
-// Migration 51 (DIPO-324): `story_prs.replaces`, the closed story PR a new one replaces (0020
+// Migration 52 (DIPO-324): `story_prs.replaces`, the closed story PR a new one replaces (0020
 // section 2, `stopped` / `pr-closed`), and `catch_ups.box_copy`, a merge dipo made outside the
 // story's box until the box gets it. The replacement is tested in test/story-pr/prs.test.ts, the
 // box copy in test/run/conflict-resume.test.ts and test/box/collisions.test.ts.
@@ -23,12 +23,12 @@ const open = (dir: string, migrations?: readonly Migration[]) =>
     ...(migrations === undefined ? {} : { migrations }),
   });
 
-describe("migration 51 on a database at version 50", () => {
+describe("migration 52 on a database at version 51", () => {
   it("adds story_prs.replaces, null for the PRs it keeps, and catch_ups.box_copy", () =>
     withTempDir(async (dir) => {
       const old = await open(
         dir,
-        MIGRATIONS.filter((step) => step.version <= 50),
+        MIGRATIONS.filter((step) => step.version <= 51),
       );
       try {
         old.connection.immediate(() =>
@@ -48,7 +48,7 @@ describe("migration 51 on a database at version 50", () => {
       const state = await open(dir);
       try {
         const db = state.connection;
-        expect(MIGRATIONS.find((step) => step.version === 51)?.name).toBe(
+        expect(MIGRATIONS.find((step) => step.version === 52)?.name).toBe(
           "story pr replaces and box copies",
         );
         expect(db.all("select run_id, pr_number, replaces from story_prs")).toEqual([

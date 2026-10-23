@@ -14,7 +14,7 @@
 //   sync handles it (0019 section 10); a later check that finds none clears it (`cleared`).
 // - Merges outside the box (DIPO-324). The merge slot merges the base into the branch in dipo's own
 //   git while the story waits In Review, with no box turn. Such a merge is recorded as one the box
-//   still lacks (`box_copy` `pending`, migration 51, `pendingBoxCopy`); the run's next developer
+//   still lacks (`box_copy` `pending`, migration 52, `pendingBoxCopy`); the run's next developer
 //   session copies what the branch got since the tip of the oldest such merge into the box before
 //   the worker starts (`RunResumerDeps.boxSync`, `BoxCollisions.copyPending`), and no part is taken
 //   while one is pending (`BoxPartsDeps.behind`): a part against that tip would undo the merge.
@@ -174,7 +174,7 @@ export function recordCatchUp(
     readonly tip: string;
     readonly commit: string | null;
     readonly conflicts: readonly ConflictFile[];
-    /** `pending` for a merge dipo made outside the run's box (migration 51, DIPO-324). */
+    /** `pending` for a merge dipo made outside the run's box (migration 52, DIPO-324). */
     readonly boxCopy?: "pending" | null;
   },
   at: number,

@@ -77,7 +77,12 @@ import {
   type StoredRun,
 } from "../run/records";
 import type { CiHeadState } from "../story-pr/prs";
-import { findStoryPr, openStoryPrs, type StoryPrRecord } from "../story-pr/records";
+import {
+  findStoryPr,
+  openStoryPrs,
+  recordBranchPush,
+  type StoryPrRecord,
+} from "../story-pr/records";
 import { withWorkViews } from "../views/work";
 import { findClaim } from "../worktree/records";
 
@@ -95,6 +100,7 @@ import {
   type StoredMergeGate,
 } from "./gates";
 import { type SlotOccupant, leaveSlot, runInSlot, updateSlot } from "./store";
+import type { PushOutcome } from "./git";
 import type { StorySlotGit, StorySlotRun } from "./story-git";
 
 /** `engine.notice` codes of story PRs in the merge slot (0019 section 15). */
@@ -741,6 +747,7 @@ export class StorySlot {
         case "push": {
           // Step 3: one push, never forced; the PR follows the pushed head.
           const pushed = await git.push(ctx.officeId, run.branch);
+          recordSlotPush(ctx, run.branch, pushed);
           const head = await git.head(ctx.officeId, run.branch);
           if (!pushed.ok || head === null) {
             const detail = pushed.ok ? `the branch ${run.branch} is gone` : pushed.detail;
@@ -978,6 +985,7 @@ export class StorySlot {
   ): Promise<Outcome> {
     const office = ctx.office;
     const pushed = await this.#deps.git.push(ctx.officeId, stored.branch);
+    recordSlotPush(ctx, stored.branch, pushed);
     ctx.write(() => {
       leaveSlot(office);
       return [
@@ -1040,4 +1048,20 @@ export class StorySlot {
       });
     }
   }
+}
+
+/**
+ * A slot push that reached the remote, on the story's live claim (DIPO-315: every story-branch push
+ * sets `claims.pushed_at`). An unchanged branch or a missing remote records nothing here.
+ */
+function recordSlotPush(
+  ctx: { readonly office: OfficeHandle; readonly clock: Clock },
+  branch: string,
+  pushed: PushOutcome,
+): void {
+  if (!pushed.ok || !pushed.pushed) return;
+  const at = ctx.clock.now();
+  ctx.office.immediate(() =>
+    recordBranchPush(ctx.office, branch, { pushed: true, error: null }, at),
+  );
 }

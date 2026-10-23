@@ -34,7 +34,7 @@ describe("migration 36", () => {
       } finally {
         old.close();
       }
-      // Its own columns: migration 51 adds `replaces` after it (DIPO-324).
+      // Its own columns: migration 52 adds `replaces` after it (DIPO-324).
       const state = await open(MIGRATIONS.filter((step) => step.version <= 36));
       try {
         const db = state.connection;

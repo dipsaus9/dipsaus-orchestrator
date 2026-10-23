@@ -66,3 +66,13 @@ export {
   storyVerdicts,
   viewsFeature,
 } from "./feature";
+export {
+  DEFAULT_USAGE_LIMITS,
+  sumUsage,
+  summaryUsage,
+  USAGE_SNAPSHOT_MS,
+  UsageMeter,
+  windowResetsAt,
+  windowUsage,
+} from "./usage";
+export type { SummaryUsage, UsageLimits, UsageSnapshot, WindowSum, WindowSums } from "./usage";

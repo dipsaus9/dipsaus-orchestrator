@@ -1,4 +1,4 @@
-// Migration 51 (DIPO-324): two facts of resuming a story whose box or PR another part of dipo
+// Migration 52 (DIPO-324): two facts of resuming a story whose box or PR another part of dipo
 // moved on.
 //
 // - `story_prs.replaces`: the number of the closed story PR this one replaces (0020 section 2,
@@ -14,7 +14,7 @@
 import type { SqlMigration } from "../migrations";
 
 export const storyPrReplaces: SqlMigration = {
-  version: 51,
+  version: 52,
   name: "story pr replaces and box copies",
   sql: `
 alter table story_prs add column replaces integer;

@@ -11,8 +11,10 @@ export {
   latestStoryPr,
   noCiRan,
   openStoryPrs,
+  recordBranchPush,
+  runsToPush,
   runsWithoutPr,
   setStoryPrState,
 } from "./records";
-export type { StoryPrRecord } from "./records";
+export type { BranchPush, StoryPrRecord, UnpushedRun } from "./records";
 export { storyPrCommitType, STORY_PR_MAX_SUBJECT, storyPrSubject, storyPrTitle } from "./title";
