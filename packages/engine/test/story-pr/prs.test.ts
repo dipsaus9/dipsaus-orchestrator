@@ -69,6 +69,8 @@ class FakeHost implements CodeHost {
   }
   /** The state `viewPr` reports, and the PR numbers it was asked for. */
   hostState: PrState = "open";
+  /** The head commit `viewPr` reports; "x" by default. */
+  hostHead = "x";
   /** The state of one PR number, over `hostState`. */
   readonly states = new Map<number, PrState>();
   readonly views: number[] = [];
@@ -78,6 +80,7 @@ class FakeHost implements CodeHost {
     return {
       ...hostPr(number, { base: "main", head: BRANCH, title: "t" }),
       state: this.states.get(number) ?? this.hostState,
+      headSha: this.hostHead,
     };
   }
   async closePr(): Promise<void> {
@@ -297,6 +300,24 @@ describe("the story PR", () => {
       expect(findStoryPr(w.office, w.run)?.headSha).toBe("b".repeat(40));
       expect(storyPrEvents(w.office)).toHaveLength(2);
     });
+  });
+
+  it("records the head the host reports when the PR merged, and keeps its own on a close (DIPO-332)", async () => {
+    for (const closed of ["merged", "closed"] as const) {
+      await inWorld(async (w) => {
+        const id = w.office.officeId;
+        await w.prs.sync(id, w.run);
+        const before = findStoryPr(w.office, w.run)?.headSha;
+        w.host.hostHead = "c".repeat(40);
+        w.host.hostState = closed;
+        w.t.clock.advance(60_000);
+        await w.prs.retry(id);
+        expect(findStoryPr(w.office, w.run)).toMatchObject({
+          state: closed,
+          headSha: closed === "merged" ? "c".repeat(40) : before,
+        });
+      });
+    }
   });
 
   for (const closed of ["merged", "closed"] as const) {

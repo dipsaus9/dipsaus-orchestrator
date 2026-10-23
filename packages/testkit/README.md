@@ -34,7 +34,7 @@ A fast local version checks the same outcome with less setup:
 - a file removed with `git rm` instead of a Backlog CLI call such as `backlog task archive`;
 - a process that has already exited instead of one the test waits for in real time.
 
-Unit tests always stay local. Moving a case is not deleting it: CI runs the sibling, so `DIPO_TEST_CI=1 bun test` must still pass with every test that ran before the move.
+Unit tests always stay local. Moving a case is not deleting it: CI runs the sibling, so `DIPO_TEST_CI=1 bun run test` must still pass (it gives every test 30 s, as CI does) with every test that ran before the move.
 
 A CI-only sibling starts with a comment that says what it covers and why it is CI only, and wraps its `describe` blocks:
 
@@ -63,7 +63,7 @@ testkit keeps its own copy of the engine's `RUNTIME_PATH_LIMIT` and `LONGEST_RUN
 ## Finding slow tests
 
 ```sh
-DIPO_TMP=$(mktemp -d /tmp/dt.XXXX) bun test --reporter=junit --reporter-outfile=/tmp/junit.xml
+DIPO_TMP=$(mktemp -d /tmp/dt.XXXX) bun run test --reporter=junit --reporter-outfile=/tmp/junit.xml
 ```
 
 Each `<testcase>` in the report has a `time` in seconds. Sort by it to find the slowest cases, and time the whole local run before and after a move.

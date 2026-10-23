@@ -3,23 +3,15 @@
 // that reads `process.env`, and every child it starts with that environment, then resolves its
 // `DIPO_HOME` and `DIPO_RUNTIME_DIR` here, never the real home's folders; with the marker set, dipo
 // refuses those even when a test forgets an override. The folders go when the process exits, unless
-// `DIPO_TEST_KEEP=1`. In CI (`DIPO_TEST_CI=1`) a test without its own timeout gets 30 s instead of
-// Bun's 5 s, since the CI runners (the macOS one most) are much slower than a developer machine.
+// `DIPO_TEST_KEEP=1`. The per-test timeout in CI is set
+// by scripts/test.ts on the command line (DIPO-335).
 
-import { afterAll, setDefaultTimeout } from "bun:test";
+import { afterAll } from "bun:test";
 import { chmodSync, mkdirSync, mkdtempSync, realpathSync, rmSync } from "node:fs";
 import { join } from "node:path";
 
 import { TEST_MARKER, testRuntimeDir, testStateDir } from "./runtime";
 import { keepTempDirs, tempRoot } from "./temp";
-
-/** The per-test timeout in CI, for every test that sets none of its own. */
-export const CI_TEST_TIMEOUT_MS = 30_000;
-
-/** The default per-test timeout `env` asks for: 30 s in CI, else null (Bun's own 5 s). */
-export function defaultTestTimeout(env: NodeJS.ProcessEnv = process.env): number | null {
-  return env["DIPO_TEST_CI"] === "1" ? CI_TEST_TIMEOUT_MS : null;
-}
 
 /** The folders `isolateTestProcess` set. */
 export interface TestProcessDirs {
@@ -53,8 +45,6 @@ export function isolateTestProcess(env: NodeJS.ProcessEnv = process.env): TestPr
 
 // Evaluated once per test process, as its first preload; a preload's `afterAll` runs after every
 // test file.
-const timeout = defaultTestTimeout();
-if (timeout !== null) setDefaultTimeout(timeout);
 const dirs = isolateTestProcess();
 afterAll(() => {
   if (!keepTempDirs()) rmSync(dirs.root, { recursive: true, force: true });

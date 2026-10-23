@@ -4,7 +4,9 @@
 // the CLI exited 0. The parser also skips a line it does not know, and Backlog.md skips a task
 // file it cannot read. Each way a task goes missing without an error, and a decision read from the
 // list is wrong. So the list is read together with its `--count`, and the two must agree; a
-// mismatch is read once more before it fails, so one cut output does not fail a check.
+// mismatch is read once more before it fails, so one cut output does not fail a check. The error
+// says how much arrived: the bytes, the last line and whether the output ended with a newline
+// (DIPO-333).
 
 import { BacklogParseError, parseList, type PlainList, plainLines } from "./plain";
 import { type BacklogCli, BacklogCommandError, runBacklog } from "./runner";
@@ -22,9 +24,29 @@ export function parseCount(output: string): number {
   return Number(only);
 }
 
+/** The most characters of the last line an incomplete-list error quotes. */
+export const LAST_LINE_MAX = 200;
+
+/**
+ * Pure: how much of `stdout` arrived, for the incomplete-list error: its size in bytes, its last
+ * line that is not blank (a list ends with a blank line after each group; quoted, at most
+ * `LAST_LINE_MAX` characters) and whether it ended with a newline.
+ */
+export function receivedText(stdout: string): string {
+  const bytes = Buffer.byteLength(stdout, "utf8");
+  const newline = stdout.endsWith("\n");
+  const last = (stdout.split("\n").findLast((line) => line.trim() !== "") ?? "").slice(
+    0,
+    LAST_LINE_MAX,
+  );
+  const ending = newline ? "with a final newline" : "without a final newline";
+  return `dipo received ${bytes} bytes, last non-blank line ${JSON.stringify(last)}, ${ending}`;
+}
+
 /**
  * The list printed fewer or more entries than its `--count` says. A CLI error, so every caller
- * that reports a failed CLI read reports this one; the message leaves out the list itself.
+ * that reports a failed CLI read reports this one; the message leaves out the list itself and
+ * quotes at most `LAST_LINE_MAX` characters of its last non-blank line (`receivedText`).
  */
 export class BacklogListIncompleteError extends BacklogCommandError {
   constructor(
@@ -34,7 +56,7 @@ export class BacklogListIncompleteError extends BacklogCommandError {
     readonly listed: number,
     readonly counted: number,
   ) {
-    const reason = `printed ${listed} entries, but its --count says ${counted}: the list is incomplete`;
+    const reason = `printed ${listed} entries, but its --count says ${counted}: the list is incomplete (${receivedText(stdout)})`;
     super(command, 0, stdout, stderr, reason);
     this.message = `\`${command.join(" ")}\` ${reason}`;
     this.name = "BacklogListIncompleteError";
