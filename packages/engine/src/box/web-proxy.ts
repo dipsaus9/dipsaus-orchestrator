@@ -49,6 +49,8 @@
 // exists on an interface of the Mac is refused by its prefix.
 //
 // Known gaps:
+// - Domain fronting on a shared CDN: a request inside a TLS session to a harmless name on the
+//   same CDN can still name a registry where the proxy cannot read it.
 // - The registry names are a list: a registry Safe-Chain does not know, a mirror not on the list,
 //   a relay of the worker's own on the internet, or a request coalesced into a TLS session with
 //   another name the registry's certificate covers still reaches registry content directly.
@@ -472,6 +474,8 @@ const EXTENSION_SERVER_NAME = 0x0000;
 const HIDDEN_NAME_EXTENSIONS: ReadonlySet<number> = new Set([0xfe0d, 0xffce]);
 /** The largest TLS record body a client may send (2^14, plus the room TLS 1.2 allows). */
 const TLS_RECORD_MAX = 16_384 + 2_048;
+/** The HTTP/2 connection preface a client sends first in clear text (RFC 9113 section 3.4). */
+const H2_PREFACE = Buffer.from("PRI * HTTP/2.0\r\n\r\nSM\r\n\r\n", "latin1");
 /** How much of a stream that is not TLS is kept, to find a name split across two reads. */
 const CLEAR_OVERLAP = 256;
 
@@ -605,7 +609,7 @@ export type InspectVerdict =
  */
 export class TunnelInspector {
   readonly #host: string;
-  #mode: "start" | "tls" | "open" | "clear" | "refused" = "start";
+  #mode: "start" | "tls" | "clearStart" | "open" | "clear" | "refused" = "start";
   #held: Buffer = Buffer.alloc(0);
   #tail: string | null = null;
 
@@ -615,7 +619,7 @@ export class TunnelInspector {
 
   /** True while the start of the stream is held back. */
   get waiting(): boolean {
-    return this.#mode === "start" || this.#mode === "tls";
+    return this.#mode === "start" || this.#mode === "tls" || this.#mode === "clearStart";
   }
 
   push(chunk: Buffer): InspectVerdict {
@@ -626,6 +630,9 @@ export class TunnelInspector {
         return { kind: "pass", bytes: chunk };
       case "clear":
         return this.#clear(chunk);
+      case "clearStart":
+        this.#held = Buffer.concat([this.#held, chunk]);
+        return this.#clearStart();
       case "start":
       case "tls": {
         this.#held = Buffer.concat([this.#held, chunk]);
@@ -636,12 +643,27 @@ export class TunnelInspector {
           return this.#hello();
         }
         if (first >= 0x80) return this.#refuse("the tunnel starts with bytes dipo cannot read");
-        this.#mode = "clear";
-        const held = this.#held;
-        this.#held = Buffer.alloc(0);
-        return this.#clear(held);
+        this.#mode = "clearStart";
+        return this.#clearStart();
       }
     }
+  }
+
+  /**
+   * The start of a stream that is not TLS, held while it may still become the HTTP/2 preface:
+   * refused once it is the preface, read as clear text once it cannot be, whatever the writes it
+   * came in.
+   */
+  #clearStart(): InspectVerdict {
+    const held = this.#held;
+    const seen = Math.min(held.length, H2_PREFACE.length);
+    if (held.subarray(0, seen).equals(H2_PREFACE.subarray(0, seen))) {
+      if (held.length < H2_PREFACE.length) return { kind: "wait" };
+      return this.#refuse("the tunnel starts HTTP/2 in clear text");
+    }
+    this.#mode = "clear";
+    this.#held = Buffer.alloc(0);
+    return this.#clear(held);
   }
 
   #refuse(reason: string): InspectVerdict {
@@ -676,11 +698,7 @@ export class TunnelInspector {
   }
 
   #clear(chunk: Buffer): InspectVerdict {
-    const start = this.#tail === null;
     const text = (this.#tail ?? "") + chunk.toString("latin1").toLowerCase();
-    if (start && text.startsWith("pri * http/2.0")) {
-      return this.#refuse("the tunnel starts HTTP/2 in clear text");
-    }
     if (/(?:^|\n)upgrade:[^\n]*h2c/.test(text)) {
       return this.#refuse("the tunnel asks for HTTP/2 in clear text");
     }

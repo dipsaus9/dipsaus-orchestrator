@@ -157,7 +157,6 @@ export interface ComposedRuns {
   readonly reattacher: RunReattacher | null;
 }
 
-/** `{ [key]: value }`, or `{}` when `value` is undefined (an optional port left out). */
 /**
  * What the web guard's WebFetch check reads (DIPO-281): the system's resolver and interfaces with
  * the daemon's live box network address, read for each check; undefined without one, so the guard
@@ -169,6 +168,7 @@ export function fetchAddressesOf(
   return boxHostAddress === undefined ? undefined : { ...SYSTEM_FETCH_ADDRESSES, boxHostAddress };
 }
 
+/** `{ [key]: value }`, or `{}` when `value` is undefined (an optional port left out). */
 function given<K extends string, V>(key: K, value: V | undefined): { [P in K]?: V } {
   return value === undefined ? {} : ({ [key]: value } as { [P in K]?: V });
 }

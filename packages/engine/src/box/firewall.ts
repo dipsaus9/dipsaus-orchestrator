@@ -4,7 +4,7 @@
 // On the host-only network the Mac is the box's neighbour, so without a rule a box reaches every
 // service of the Mac that listens on all interfaces, or on the Mac's own local-network address.
 // A rule on the Mac needs root there, which dipo does not have, so the rule sits in the box's own
-// kernel and is kept out of the reach of everything that runs in the box:
+// kernel, set and kept by dipo:
 //
 // - The rule (`firewallRules`): output only to the loopback interface and to the Mac's address on
 //   the box network on the ports of dipo's proxies; every other packet, of either IP family, is
@@ -14,12 +14,16 @@
 //   libraries and loader, run through the loader by path. A box image build extracts them from
 //   Debian's packages before any package's install script runs, and dipo copies them out to a
 //   folder of its own (`netToolsDir`); every other box mounts that folder read-only at the same
-//   path, so a worker cannot change them.
+//   path, so a worker cannot write them.
 // - Every command dipo starts in a box runs contained (`containedCommand`): through `setpriv`
 //   with the capabilities that could change the rule or reach around it removed from its bounding
 //   set (`DROPPED_CAPABILITIES`), inherited by everything it starts and never regained, with no
 //   new privileges. Only the rule itself, and a build box's first step before any install script
 //   ran, run with all of the box's capabilities. The box's keepalive process is the mounted `tail`.
+//
+// Known gap (DIPO-334): the rule stops a direct connection a box makes by accident, but not yet a
+// worker that runs as root in the box and sets out to undo it; running everything untrusted in a
+// box as a non-root user closes that.
 //
 // Pure, but for `resolveNetToolsMount`, which reads the folder it checks.
 

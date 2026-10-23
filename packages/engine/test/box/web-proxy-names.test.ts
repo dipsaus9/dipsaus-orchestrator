@@ -220,6 +220,36 @@ describe("the tunnel inspector (DIPO-281)", () => {
     expect(named(["GET / HTTP/1.1\r\nHost: test.pypi.org\r\n\r\n"])).toEqual(["refuse"]);
   });
 
+  it("holds a clear-text start while it may become the HTTP/2 preface, over any split of writes", () => {
+    const preface = "PRI * HTTP/2.0\r\n\r\nSM\r\n\r\n";
+    for (let cut = 1; cut < preface.length; cut += 1) {
+      const inspector = new TunnelInspector("cdn.example");
+      expect(inspector.push(Buffer.from(preface.slice(0, cut), "latin1"))).toEqual({
+        kind: "wait",
+      });
+      expect(inspector.waiting).toBe(true);
+      expect(inspector.push(Buffer.from(preface.slice(cut), "latin1"))).toEqual({
+        kind: "refuse",
+        reason: "the tunnel starts HTTP/2 in clear text",
+      });
+    }
+    // Byte by byte, then with frames after it.
+    const slow = new TunnelInspector("cdn.example");
+    const verdicts = [...`${preface}\u0000\u0000`].map(
+      (char) => slow.push(Buffer.from(char, "latin1")).kind,
+    );
+    expect(verdicts.slice(0, 23).every((kind) => kind === "wait")).toBe(true);
+    expect(verdicts[23]).toBe("refuse");
+    // A start that stops being a prefix passes at once, with what was held.
+    const other = new TunnelInspector("cdn.example");
+    expect(other.push(Buffer.from("PR", "latin1"))).toEqual({ kind: "wait" });
+    expect(other.push(Buffer.from("OPFIND / HTTP/1.1\r\n", "latin1"))).toEqual({
+      kind: "pass",
+      bytes: Buffer.from("PROPFIND / HTTP/1.1\r\n", "latin1"),
+    });
+    expect(other.waiting).toBe(false);
+  });
+
   it("refuses HTTP/2 in clear text and a start it cannot read", () => {
     expect(inspect(Buffer.from("PRI * HTTP/2.0\r\n\r\nSM\r\n\r\n"))).toEqual({
       kind: "refuse",

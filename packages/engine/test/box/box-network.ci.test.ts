@@ -410,11 +410,19 @@ if (registers) {
               `box, nft flush ruleset as the worker: exit ${flush.code}: ${flush.stderr.trim()}`,
             );
             expect(flush.code).not.toBe(0);
+            // Asking setpriv for the capability back, and flushing the rule with it, fails too.
             const regain = await boxes.exec(
               name,
-              netToolCommand("setpriv", ["--bounding-set=+net_admin", "--", "true"]),
+              netToolCommand("setpriv", [
+                "--bounding-set=+net_admin",
+                "--",
+                ...netToolCommand("nft", ["flush ruleset"]),
+              ]),
             );
-            fact(`box, setpriv --bounding-set=+net_admin: exit ${regain.code}`);
+            fact(
+              `box, setpriv --bounding-set=+net_admin -- nft flush ruleset: exit ${regain.code}: ${regain.stderr.trim()}`,
+            );
+            expect(regain.code).not.toBe(0);
             const status = await boxes.exec(name, ["cat", "/proc/self/status"]);
             const bounding = BigInt(
               `0x${/CapBnd:\s*([0-9a-f]+)/.exec(status.stdout)?.[1] ?? "ffff"}`,
