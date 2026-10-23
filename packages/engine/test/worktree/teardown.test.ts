@@ -35,7 +35,7 @@ import { dirtyFilesOf, releaseForDrop } from "../../src/worktree/release";
 import { insertClaim, markTeardownStarted } from "../../src/worktree/records";
 import { removeWorktree } from "../../src/worktree/teardown";
 import { notices } from "../backlog/lane/helpers";
-import { hangingSpawn, settle } from "../platform/hanging";
+import { hangingSpawn, settle as letCallsRun } from "../platform/hanging";
 import { addOffice, openTestState, type TestState } from "../commands/helpers";
 
 const START = "1".repeat(40);
@@ -344,7 +344,7 @@ describe("detecting Done", () => {
       const checked = detectDone({ git: world.git, host: gh }, world.claim()).finally(
         () => (settled = true),
       );
-      for (let i = 0; i < 50 && clock.pendingTimers === 0; i += 1) await settle();
+      for (let i = 0; i < 50 && clock.pendingTimers === 0; i += 1) await letCallsRun();
       expect(settled).toBe(false);
       clock.advance(CALL_DEADLINE_MS);
       const check = await checked;

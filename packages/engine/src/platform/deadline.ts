@@ -28,7 +28,7 @@ export function timedOutText(command: readonly string[], deadlineMs: number): st
  * Kills `child` and every process of its group with SIGKILL: the group through `killGroup` when
  * the child was spawned in its own group, and the child itself in any case.
  */
-export function killChildGroup(child: ChildProcess): void {
+export function killChildGroup(child: Pick<ChildProcess, "kill" | "killGroup">): void {
   try {
     child.killGroup?.("SIGKILL");
   } catch {
@@ -50,7 +50,7 @@ export interface DeadlineOptions {
  * for the output. A deadline of 0 or less, or one that is not finite, waits without end.
  */
 export async function withDeadline<T>(
-  child: ChildProcess,
+  child: Pick<ChildProcess, "kill" | "killGroup">,
   work: Promise<T>,
   options: DeadlineOptions,
 ): Promise<T> {
