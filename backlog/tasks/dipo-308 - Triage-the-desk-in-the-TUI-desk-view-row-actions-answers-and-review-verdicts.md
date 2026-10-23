@@ -3,10 +3,10 @@ id: DIPO-308
 title: >-
   Triage the desk in the TUI: desk view, row actions, answers and review
   verdicts
-status: In Progress
+status: In Review
 assignee: []
 created_date: '2026-10-22 20:55'
-updated_date: '2026-10-23 12:59'
+updated_date: '2026-10-23 13:28'
 labels:
   - 'tier:L'
   - 'slice:m1b'
@@ -82,13 +82,13 @@ test_plan:
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 Key `3` opens Your desk: a count line, then the rows of `office.desk` in the read's order, each with its kind, story, reason and cause, detail and age, and "Held by you" listed apart; an empty desk says `Nothing waits on you.`; below 80 columns each row is one line (0009 section 9)
-- [ ] #2 The desk view reads `office.desk` again after any office event that can change the desk (`story.parked`, a story leaving Parked, `gate.reached`, `gate.decided`, `question.asked`, a question closing, `test.started`, `test.recorded`, `proposal.filed`, `proposal.closed`, `story.pr`, `work.phase`) and after a stream reset, at most once a second, and keeps the selection by story key
-- [ ] #3 Row keys come from one fixed table from command name to key: every action `office.desk` can list, bound as 0009 section 5 shows, `y` accept and `n` dismiss on a PROPOSAL row, and in the same table `s` steer and `p` pause in the live agent detail and `h` hold and `d` drop in the queue; a key is offered only when the row's `actions` lists the command and the engine's capability flags allow it, and an action the table does not bind shows its `cli` line in the footer
-- [ ] #4 Text prompts take `Enter` to send and `Esc` to cancel and keep the draft while offline: answer, hold note, reject note, discard note, steer text, and the resume note where the park needs one; reject asks yes or no first; a resume with a budget shows the caps before and after and asks yes or no (`confirmWhen`)
-- [ ] #5 Discard, and drop with branch deletion, show the `story.losses` list and then ask for the typed story id (`irreversibleWhen`, 0009 open question 4); every other action is one key or yes or no
-- [ ] #6 `a` answers an open worker question from its desk row, from the live agent detail and from an overview row whose run asks, and `A` or `n` allow or deny a permission row; a prompt whose question or gate closed in the meantime closes with the engine's message
-- [ ] #7 Enter on a desk row opens the story detail with the park record (reason, cause, detail) and every review verdict: round, commit, verdict, per-criterion results and findings with their evidence labels, any maintainer override and the comment URL; Esc returns to the desk with the same row selected
-- [ ] #8 The engine stores per office in its database when the last TUI client of that office disconnected; `office.digest` takes `since` as optional and defaults to that time; the overview shows one "since you left" line from `office.digest` under the count line
-- [ ] #9 An action counts as done only when the office stream passes its reply cursor; errors show in the footer, and a retryable one offers Ctrl-R with the same request id (0009 section 5)
+- [x] #1 Key `3` opens Your desk: a count line, then the rows of `office.desk` in the read's order, each with its kind, story, reason and cause, detail and age, and "Held by you" listed apart; an empty desk says `Nothing waits on you.`; below 80 columns each row is one line (0009 section 9)
+- [x] #2 The desk view reads `office.desk` again after any office event that can change the desk (`story.parked`, a story leaving Parked, `gate.reached`, `gate.decided`, `question.asked`, a question closing, `test.started`, `test.recorded`, `proposal.filed`, `proposal.closed`, `story.pr`, `work.phase`) and after a stream reset, at most once a second, and keeps the selection by story key
+- [x] #3 Row keys come from one fixed table from command name to key: every action `office.desk` can list, bound as 0009 section 5 shows, `y` accept and `n` dismiss on a PROPOSAL row, and in the same table `s` steer and `p` pause in the live agent detail and `h` hold and `d` drop in the queue; a key is offered only when the row's `actions` lists the command and the engine's capability flags allow it, and an action the table does not bind shows its `cli` line in the footer
+- [x] #4 Text prompts take `Enter` to send and `Esc` to cancel and keep the draft while offline: answer, hold note, reject note, discard note, steer text, and the resume note where the park needs one; reject asks yes or no first; a resume with a budget shows the caps before and after and asks yes or no (`confirmWhen`)
+- [x] #5 Discard, and drop with branch deletion, show the `story.losses` list and then ask for the typed story id (`irreversibleWhen`, 0009 open question 4); every other action is one key or yes or no
+- [x] #6 `a` answers an open worker question from its desk row, from the live agent detail and from an overview row whose run asks, and `A` or `n` allow or deny a permission row; a prompt whose question or gate closed in the meantime closes with the engine's message
+- [x] #7 Enter on a desk row opens the story detail with the park record (reason, cause, detail) and every review verdict: round, commit, verdict, per-criterion results and findings with their evidence labels, any maintainer override and the comment URL; Esc returns to the desk with the same row selected
+- [x] #8 The engine stores per office in its database when the last TUI client of that office disconnected; `office.digest` takes `since` as optional and defaults to that time; the overview shows one "since you left" line from `office.digest` under the count line
+- [x] #9 An action counts as done only when the office stream passes its reply cursor; errors show in the footer, and a retryable one offers Ctrl-R with the same request id (0009 section 5)
 <!-- AC:END -->
