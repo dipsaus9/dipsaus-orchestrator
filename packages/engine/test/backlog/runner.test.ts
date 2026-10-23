@@ -161,7 +161,9 @@ describe("running the CLI", () => {
     expect(out.stdout).toBe("1.53.0\n");
     // The CLI's output goes to files under the temp root, never a pipe (DIPO-333).
     const output = { to: "file" as const, tempRoot: process.env["DIPO_TMP"] || tmpdir() };
-    expect(stub.calls).toEqual([{ cmd: ["bun", "cli.js", "--version"], cwd: "/w", env, output }]);
+    expect(stub.calls).toEqual([
+      { cmd: ["bun", "cli.js", "--version"], cwd: "/w", env, output, detached: true },
+    ]);
   });
 
   it("passes only PATH and HOME of the given environment, never its other variables (DIPO-270)", async () => {

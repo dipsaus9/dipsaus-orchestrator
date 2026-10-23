@@ -56,6 +56,9 @@ import {
   MaintenanceScheduler,
   MemoryRequestTable,
   MergeSlot,
+  PrStatePoll,
+  stopEngineCalls,
+  trackEngineCalls,
   officeFeature,
   activeRunCount,
   OfficeInit,
@@ -482,6 +485,8 @@ async function serve(run: Run, lock: HeldLock): Promise<number> {
     teardown: StoryTeardown | null;
     storyPrs: StoryPrs | null;
     mergeSlot: MergeSlot | null;
+    /** The one PR-state poll of every office (DIPO-314): its timers stop at daemon stop. */
+    prState: PrStatePoll | null;
     retention: Retention | null;
     usageAlerts: UsageAlerts | null;
     maintenance: MaintenanceScheduler | null;
@@ -502,6 +507,7 @@ async function serve(run: Run, lock: HeldLock): Promise<number> {
     teardown: null,
     storyPrs: null,
     mergeSlot: null,
+    prState: null,
     retention: null,
     usageAlerts: null,
     maintenance: null,
@@ -580,9 +586,11 @@ async function serve(run: Run, lock: HeldLock): Promise<number> {
     for (const tool of tools.missing) logger.warn("tool not found on PATH", { tool });
     // Every Backlog CLI call of this daemon runs the `backlog` it resolved (DIPO-74). A status
     // change the runner refuses (a Backlog file defines a command for it, DIPO-312) is an
-    // `engine.notice` on the software stream.
+    // `engine.notice` on the software stream. Each call's deadline runs on the engine clock
+    // (DIPO-314).
     const backlogCli = {
       ...backlogCliFor(tools.paths),
+      clock,
       notify: (notice: { level: "error"; code: string; text: string }) =>
         software.append("engine.notice", notice),
     };
@@ -671,11 +679,25 @@ async function serve(run: Run, lock: HeldLock): Promise<number> {
     // One `gh` host, on this daemon's PATH, for teardown, the backlog PR and the merge slot.
     const host = new GhHost({
       spawn: systemSpawn,
+      clock,
       ...(tools.paths.gh === undefined ? {} : { gh: tools.paths.gh }),
       env: io.env,
       logger: logger.child({ component: "gh" }),
     });
+    // The daemon's Backlog CLI, gh and git calls are tracked while they run, so the stop ends any
+    // still running (DIPO-314).
+    trackEngineCalls();
+    // One PR-state poll per office (DIPO-314): every `polling.prStateSeconds` one round runs the
+    // story-PR poll, a merge slot tick and the Done poll, which read each open PR once through it.
+    const prState = new PrStatePoll({
+      host,
+      offices,
+      clock,
+      logger: logger.child({ component: "pr-state" }),
+    });
+    held.prState = prState;
     const teardown = new StoryTeardown({
+      prState,
       git: (office) => engineGit.forOffice(office),
       host,
       // A story Done on the base through another branch has its open story PR closed and the box
@@ -695,6 +717,7 @@ async function serve(run: Run, lock: HeldLock): Promise<number> {
     let boxRunOf: ((office: OfficeId, stored: StoredRun) => boolean) | null = null;
     const storyPrs = new StoryPrs({
       host,
+      prState,
       git: gitStoryPrOps({ git: (office) => engineGit.forOffice(office), cli: backlogCli }),
       offices,
       clock,
@@ -760,6 +783,7 @@ async function serve(run: Run, lock: HeldLock): Promise<number> {
     });
     const mergeSlot: MergeSlot = new MergeSlot({
       host,
+      prState,
       prs: backlogPrs,
       lane: (office) => lane.forOffice(office),
       offices,
@@ -838,6 +862,8 @@ async function serve(run: Run, lock: HeldLock): Promise<number> {
     const storyIndex = new StoryIndex({
       git: engineGit,
       cli: backlogCli,
+      // A pass reads a story's view again only when a Backlog file it printed changed (DIPO-314).
+      reuseViews: true,
       offices,
       onOfficeChanged: (office) => server?.notifyOffice(office),
       onPolled: (office) => {
@@ -1029,6 +1055,8 @@ async function serve(run: Run, lock: HeldLock): Promise<number> {
       lane.feature,
       storyIndex.feature,
       mergeSlot.feature,
+      // After its three consumers' load steps, so a round finds them tracked.
+      prState.feature,
       officeInit.feature,
       gates.feature,
       runProfiles.feature,
@@ -1364,9 +1392,13 @@ async function serve(run: Run, lock: HeldLock): Promise<number> {
     held.teardown?.stop();
     held.storyPrs?.stop();
     held.mergeSlot?.stop();
+    held.prState?.stop();
     held.ingest?.close();
     held.collisions?.stop();
     await held.boxes?.close();
+    // A Backlog CLI, gh or git call still running ends with its process group (DIPO-314).
+    const ended = await stopEngineCalls();
+    if (ended > 0) logger.info("engine calls stopped", { count: ended });
     // No more debounced office summaries once the daemon stops.
     held.contract?.close();
     // A retention pass or backup still running finishes before the database closes.

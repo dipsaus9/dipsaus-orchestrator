@@ -112,6 +112,9 @@ export type {
   PrState,
   RequiredCheck,
 } from "./platform/host";
+export { PR_STATE_STEP, PrStatePoll } from "./platform/pr-state";
+export { stopEngineCalls, trackEngineCalls } from "./platform/deadline";
+export type { PrStateReads } from "./platform/pr-state";
 export { connectUnixSocket, removeSocketFile } from "./platform/socket";
 export type { ConnectOptions, RequestFrame, SocketClient, SocketReply } from "./platform/socket";
 export {

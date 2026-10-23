@@ -82,6 +82,8 @@ describe("setup inside the claim", () => {
       const seen: string[] = [];
       const outcome = await claimStory<SetupDone>(h.s.deps(), {
         ...h.s.request(key),
+        // The caller hears of the committed claim row before setup starts (DIPO-314).
+        onClaimed: () => seen.push("claimed"),
         setup: async (claim: ClaimRecord) => {
           // At setup: the branch is still at its start and not on the remote.
           seen.push((await repo.git("rev-parse", BRANCH_1)).trim());
@@ -91,7 +93,7 @@ describe("setup inside the claim", () => {
       });
       if (!outcome.ok) throw new Error(outcome.notice ?? "skipped");
 
-      expect(seen).toEqual([outcome.claim.startSha, ""]);
+      expect(seen).toEqual(["claimed", outcome.claim.startSha, ""]);
       expect(outcome.setup?.slot).toBe(1);
       expect(outcome.setup?.env["DIPO_STORY"]).toBe(TASK_1);
       expect(outcome.pushed).toBe(true);

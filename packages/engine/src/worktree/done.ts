@@ -21,6 +21,11 @@
 // story PR dipo recorded merged is never Done elsewhere (DIPO-332): it is Done through its own
 // branch, and torn down as above; one whose branch moved past the merged head with changes the base
 // lacks is released as `done` with its worktree and branch as leftovers (`releaseMovedPastMerge`). Each poll first settles the released rows a crash left unsettled.
+//
+// With the office's PR-state poll (`prState`, DIPO-314) the Done poll is part of each of its
+// rounds, after the story-PR poll, instead of a timer of its own, and that poll asks whether a
+// branch merged through the reads the round gave it, so a story PR the story-PR poll read this
+// round answers it without another host call. Any other poll asks the host.
 
 import type { Clock, OfficeId, TimerHandle } from "@dipsaus-orchestrator/contract";
 
@@ -35,6 +40,7 @@ import type { OfficeGit } from "../git/office";
 import type { Logger } from "../log/logger";
 import { decideOnHandMerge } from "../merge-slot/gates";
 import type { CodeHost, PrStateHost } from "../platform/host";
+import type { PrStatePoll } from "../platform/pr-state";
 import { withWorkViews } from "../views/work";
 
 import { inStoryBacklog, notice, writeWith } from "./claim";
@@ -91,6 +97,12 @@ export interface StoryTeardownDeps {
   readonly finishBoxes?: () => Promise<unknown>;
   readonly onChanged?: (office: OfficeId) => void;
   readonly logger?: Logger;
+  /**
+   * The office's one PR-state poll (DIPO-314): the Done poll runs as the last part of its rounds,
+   * not on a timer of its own, and asks the host through it. Without it the Done poll keeps its
+   * own timer.
+   */
+  readonly prState?: Pick<PrStatePoll, "subscribe">;
 }
 
 /** What one poll did. */
@@ -112,6 +124,8 @@ interface Polled {
   busy: Promise<unknown>;
   /** The last notice text per claim run and notice code, so a cause is reported once. */
   readonly told: Map<string, string>;
+  /** The reads of the PR-state round the running poll belongs to (DIPO-314), or null. */
+  reads: PrStateHost | null;
 }
 
 export class StoryTeardown {
@@ -121,6 +135,9 @@ export class StoryTeardown {
 
   constructor(deps: StoryTeardownDeps) {
     this.#deps = deps;
+    deps.prState?.subscribe("done", async (office, reads) => {
+      if (this.#offices.has(office)) await this.poll(office, reads);
+    });
   }
 
   /** The feature module that adds the load step arming the poll. */
@@ -148,19 +165,28 @@ export class StoryTeardown {
       timer: null,
       busy: Promise.resolve(),
       told: new Map(),
+      reads: null,
     });
   }
 
-  /** One poll of a tracked office, after any poll already running. */
-  poll(officeId: OfficeId): Promise<PollReport> {
+  /**
+   * One poll of a tracked office, after any poll already running; with `reads` (a PR-state round,
+   * DIPO-314) it asks whether a branch merged through them.
+   */
+  poll(officeId: OfficeId, reads?: PrStateHost): Promise<PollReport> {
     const state = this.#offices.get(officeId);
     if (state === undefined) {
       return Promise.reject(new Error(`Office ${officeId} is not loaded.`));
     }
-    const run = state.busy.then(
-      () => this.#poll(officeId, state),
-      () => this.#poll(officeId, state),
-    );
+    const once = async () => {
+      state.reads = reads ?? null;
+      try {
+        return await this.#poll(officeId, state);
+      } finally {
+        state.reads = null;
+      }
+    };
+    const run = state.busy.then(once, once);
     state.busy = run.catch(() => undefined);
     return run;
   }
@@ -224,10 +250,9 @@ export class StoryTeardown {
     deps: TeardownDeps,
     claim: ClaimRecord,
   ): Promise<"open" | "kept" | "tornDown" | "released"> {
-    const check = await detectDone(
-      { git: deps.git, host: this.#deps.host, office: state.office },
-      claim,
-    );
+    // Through the PR-state round this poll belongs to, when it does (DIPO-314).
+    const host = this.#deps.host === null ? null : (state.reads ?? this.#deps.host);
+    const check = await detectDone({ git: deps.git, host, office: state.office }, claim);
     if (!check.done) {
       // Not Done through its own branch: a Done on the base wins (DIPO-161). A story whose own PR
       // merged is Done through its own branch, whatever the branch did since (DIPO-332).
@@ -416,7 +441,8 @@ export class StoryTeardown {
     const state = this.#offices.get(officeId);
     if (state === undefined || this.#stopped || state.timer !== null) return;
     const seconds = (config ?? OFFICE_DEFAULTS).polling.prStateSeconds;
-    if (seconds <= 0) return;
+    // The office's PR-state poll runs the Done poll in its rounds (DIPO-314).
+    if (seconds <= 0 || this.#deps.prState !== undefined) return;
     state.timer = state.clock.setTimeout(() => {
       state.timer = null;
       if (this.#offices.get(officeId) !== state) return;
