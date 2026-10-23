@@ -1,6 +1,17 @@
-// The office merge slot for backlog PRs (0016 rule 2; 0010 section 7, Merge slot row; 0002
-// amendment: backlog-only PRs merge without the reviewer agent). One slot per office holds one PR
-// at a time. Story PRs use it from M1 (DIPO-15, M0 breakdown decision D1).
+// The office merge slot (0016 rule 2 and its amendment of 2026-10-22; 0010 section 7, Merge slot
+// row; 0019 section 9; 0002 amendment: backlog-only PRs merge without the reviewer agent). One slot
+// per office holds one PR at a time; story PRs and backlog PRs share it, first come first served by
+// the time each became eligible: a story PR when its merge gate was approved (`story-slot.ts`,
+// DIPO-150), a backlog PR when its last structural check passed.
+//
+// The occupant is persisted (`merge_slot`, `store.ts`): its PR, step, pushed head and attempt
+// count, so a daemon restart continues with the same occupant at the same step, and every step is
+// idempotent when it runs again. The row is deleted when the PR merges or leaves the slot.
+//
+// The guard (0016 rule 12, 0019 section 7): a PR labelled `autorelease: pending` is never merged by
+// the engine, for any PR kind, checked before it enters and right before the host merge; a label of
+// `mergeSlot.holdLabels` holds it until the label is gone. No engine code calls a deployment or
+// environment API.
 //
 // A backlog PR whose last structural check passed (DIPO-35) enters the slot. Inside it:
 //   1. merge `<remote>/<base>` into its branch unless the branch contains it (`SlotGit.syncBase`);
@@ -10,7 +21,7 @@
 //   3. wait for the office's `mergeSlot.requiredChecks` (`ci-ok` and `pr-title` by default, DIPO-133),
 //      read every `polling.prStateSeconds`, while the PR is open,
 //      at most `CHECKS_WAIT_MS` (also when the host cannot be read), then leave with a notice;
-//   4. run the structural check again on the head it merges;
+//   4. run the structural check again on the head it merges, and the label guard;
 //   5. squash-merge on the host with `--match-head-commit`. A refusal after which the base has
 //      moved goes back to step 1; after `MAX_MERGE_ATTEMPTS` refusals the PR stays open with an
 //      `engine.notice`. A refusal for any other reason leaves it open with a notice too.
@@ -19,11 +30,12 @@
 // PR record is merged (DIPO-35's sync does not check it again), the blocks it fixed are cleared
 // and its branch is deleted.
 //
-// While a PR is in the slot the lane holds new operations (`holding`): they stay journaled and go
-// to the next backlog PR after the merge, or onto the branch when the PR leaves the slot unmerged.
-// A PR that left the slot unmerged stays out of it until its head changes; one whose required
-// checks failed comes back once they no longer fail (a re-run), one whose checks never reported once
-// they pass. A notice that would repeat on every poll is shown once per PR, code and head or cause.
+// While a backlog PR is in the slot the lane holds new operations (`holding`): they stay journaled
+// and go to the next backlog PR after the merge, or onto the branch when the PR leaves the slot
+// unmerged. A story PR in the slot holds nothing of the lane. A PR that left the slot unmerged stays
+// out of it until its head changes; a backlog PR whose required checks failed comes back once they
+// no longer fail (a re-run), one whose checks never reported once they pass. A notice that would
+// repeat on every poll is shown once per PR, code and head or cause.
 //
 // Each git step is its own item of the office git queue; waiting for CI holds only the slot. Work
 // of one office runs one tick at a time.
@@ -40,10 +52,18 @@ import type { FeatureModule } from "../commands/registry";
 import { OFFICE_DEFAULTS, type OfficeConfig } from "../config";
 import type { OfficeHandle } from "../db/office";
 import type { Logger } from "../log/logger";
-import { type CodeHost, CodeHostError } from "../platform/host";
+import { type CodeHost, CodeHostError, type PrReviewHost } from "../platform/host";
 
 import { evaluateChecks, REQUIRED_CHECKS } from "./checks";
+import { autoreleasePending, holdLabelsOn } from "./gates";
 import { laneSlotGit, type SlotGit } from "./git";
+import { enterSlot, leaveSlot, type SlotOccupant, slotOccupant, updateSlot } from "./store";
+import {
+  type StoryCandidate,
+  StorySlot,
+  type StorySlotContext,
+  type StorySlotDeps,
+} from "./story-slot";
 
 /** The load step that starts the office's merge slot poll. */
 export const MERGE_SLOT_STEP = "mergeSlot.watch";
@@ -70,6 +90,7 @@ export const SLOT_NOTICES = {
   checksUnreadable: "mergeSlot.checksUnreadable",
   closed: "mergeSlot.closed",
   failed: "mergeSlot.failed",
+  held: "merge.held",
 } as const;
 
 /** What one tick of the slot did. */
@@ -103,22 +124,16 @@ export interface MergeSlotDeps {
   readonly requiredChecks?: readonly string[];
   /** How long a PR waits for its checks before it leaves; `CHECKS_WAIT_MS` by default. */
   readonly checksWaitMs?: number;
+  /**
+   * A backlog PR's labels, for the guard (0019 section 7). Without it a backlog PR's labels are
+   * not read (tests); story PRs read theirs through `stories.labels`.
+   */
+  readonly labels?: Pick<PrReviewHost, "prLabels">;
+  /** Story PRs in the slot (DIPO-150); without it the slot merges backlog PRs only. */
+  readonly stories?: StorySlotDeps;
   readonly onChanged?: (office: OfficeId) => void;
   /** Gets each tick's outcome at debug level (idle at trace) and a failed poll or tick as a warning. */
   readonly logger?: Logger;
-}
-
-interface InSlot {
-  readonly number: number;
-  readonly repo: string;
-  readonly branch: string;
-  /** The head the slot pushed and waits on; set by the sync step. */
-  head: string;
-  /** Host merges tried so far. */
-  attempts: number;
-  phase: "sync" | "checks";
-  /** When the slot started waiting for the checks of `head` (clock milliseconds). */
-  checksSince: number;
 }
 
 type ParkReason =
@@ -127,18 +142,20 @@ type ParkReason =
   | "checkFailed"
   | "refused"
   | "baseMoved"
-  | "closed";
+  | "closed"
+  | "held";
 
 interface OfficeSlot {
   busy: Promise<unknown>;
   /** Ticks queued or running. */
   pending: number;
-  slot: InSlot | null;
-  /** PRs that left the slot unmerged, with the head they left at. */
+  /** Backlog PRs that left the slot unmerged, with the head they left at. */
   readonly parked: Map<number, { readonly head: string; readonly reason: ParkReason }>;
+  /** Story PRs that left the slot unmerged, by run, with the head they left at. */
+  readonly left: Map<string, string>;
   /**
-   * Notices that must not repeat, by `<PR>:<code>`, with the head or cause they were given for:
-   * the same notice for the same PR, code and head or cause is shown once.
+   * Notices that must not repeat, by `<PR or story>:<code>`, with the head or cause they were
+   * given for: the same notice for the same subject, code and head or cause is shown once.
    */
   readonly noticed: Map<string, string>;
   clock: Clock;
@@ -146,28 +163,39 @@ interface OfficeSlot {
   timer: TimerHandle | null;
 }
 
+/** A PR that may enter the slot, with the time it became eligible. */
+type Candidate =
+  | { readonly kind: "backlog"; readonly occupant: SlotOccupant; readonly eligibleAt: number }
+  | { readonly kind: "story"; readonly story: StoryCandidate; readonly eligibleAt: number };
+
 export class MergeSlot {
   readonly #deps: MergeSlotDeps;
   readonly #offices = new Map<OfficeId, OfficeSlot>();
+  readonly #stories: StorySlot | null;
   #stopped = false;
 
   constructor(deps: MergeSlotDeps) {
     this.#deps = deps;
+    this.#stories = deps.stories === undefined ? null : new StorySlot(deps.stories);
   }
 
-  /** The branch of the PR in the office's slot, or null; the lane holds new operations meanwhile. */
+  /** The branch of the backlog PR in the office's slot, or null; the lane holds operations meanwhile. */
   holding(office: OfficeId): string | null {
-    return this.#offices.get(office)?.slot?.branch ?? null;
+    const handle = this.#deps.offices.get(office);
+    if (handle === undefined) return null;
+    const occupant = slotOccupant(handle);
+    return occupant?.kind === "backlog" ? occupant.branch : null;
   }
 
   /** The PR number in the office's slot, or null. */
   occupant(office: OfficeId): number | null {
-    return this.#offices.get(office)?.slot?.number ?? null;
+    const handle = this.#deps.offices.get(office);
+    return handle === undefined ? null : (slotOccupant(handle)?.number ?? null);
   }
 
   /**
-   * One step of the office's slot, after any tick already running: let a PR in, or move the one
-   * in it on as far as it can go without waiting.
+   * One step of the office's slot, after any tick already running: open the merge gates due, let
+   * a PR in, or move the one in it on as far as it can go without waiting.
    */
   tick(office: OfficeId): Promise<SlotOutcome> {
     const state = this.#stateOf(office);
@@ -183,7 +211,7 @@ export class MergeSlot {
     await this.#offices.get(office)?.busy;
   }
 
-  /** Starts a tick without waiting for it (after a flush opened or updated the backlog PR). */
+  /** Starts a tick without waiting for it (after a flush, or a maintainer's merge decision). */
   kick(office: OfficeId): void {
     void this.tick(office).catch((error: unknown) => {
       this.#deps.logger?.warn("merge slot tick failed", { office, reason: reasonOf(error) });
@@ -252,8 +280,8 @@ export class MergeSlot {
       state = {
         busy: Promise.resolve(),
         pending: 0,
-        slot: null,
         parked: new Map(),
+        left: new Map(),
         noticed: new Map(),
         clock: this.#deps.clock,
         seconds: 0,
@@ -268,9 +296,14 @@ export class MergeSlot {
 
   /** One tick, its outcome logged at debug level (an idle one at trace, as it comes every poll). */
   async #logged(office: OfficeId, state: OfficeSlot): Promise<SlotOutcome> {
-    const before = state.slot?.number ?? null;
+    const handle = this.#deps.offices.get(office);
+    const before = handle === undefined ? null : (slotOccupant(handle)?.number ?? null);
     const outcome = await this.#tick(office, state);
-    const pr = state.slot?.number ?? before;
+    const after =
+      handle === undefined || this.#deps.offices.get(office) === undefined
+        ? null
+        : (slotOccupant(handle)?.number ?? null);
+    const pr = after ?? before;
     const fields = pr === null ? { office, outcome } : { office, outcome, pr };
     if (outcome === "idle") this.#deps.logger?.trace("merge slot tick", fields);
     else this.#deps.logger?.debug("merge slot tick", fields);
@@ -287,40 +320,116 @@ export class MergeSlot {
       if (this.#offices.get(office) === state) this.#offices.delete(office);
       return "idle";
     }
-    if (lane === undefined) return "idle";
-    const git = (this.#deps.git ?? laneSlotGit)(lane);
+    if (lane === undefined && this.#stories === null) return "idle";
+    const git = lane === undefined ? null : (this.#deps.git ?? laneSlotGit)(lane);
+    const context = this.#storyContext(office, state, handle);
+    let occupant: SlotOccupant | null = null;
     try {
-      if (state.slot === null) {
-        const next = await this.#pick(office, state, handle, git);
-        if (next === null) return "idle";
-        state.slot = next;
-        this.#deps.logger?.debug("merge slot entered", {
-          office,
-          pr: next.number,
-          head: next.head,
-        });
-        this.#once(office, handle, state, next.number, SLOT_NOTICES.entered, next.head, () =>
-          notice(
-            "info",
-            SLOT_NOTICES.entered,
-            `The backlog PR #${next.number} entered the merge slot; new backlog changes wait until it leaves.`,
-          ),
-        );
+      // The merge gates open whether or not the slot is free (0019 section 11).
+      const stories =
+        this.#stories === null || context === null ? [] : await this.#stories.candidates(context);
+      occupant = slotOccupant(handle);
+      if (occupant === null) {
+        occupant = await this.#enter(office, state, handle, git, stories);
+        if (occupant === null) return "idle";
       }
-      return await this.#advance(office, state, state.slot, handle, lane, git);
+      if (occupant.kind === "story") {
+        if (this.#stories === null || context === null) {
+          this.#write(office, handle, () => leaveSlot(handle));
+          return "left";
+        }
+        return await this.#stories.advance(context, occupant);
+      }
+      if (lane === undefined || git === null) return "idle";
+      return await this.#advance(office, state, occupant, handle, lane, git);
     } catch (error) {
-      const slot = state.slot;
       const reason = reasonOf(error);
-      this.#once(office, handle, state, slot?.number ?? 0, SLOT_NOTICES.failed, reason, () =>
+      const number = occupant?.number ?? 0;
+      const what = occupant?.kind === "story" ? "story PR" : "backlog PR";
+      this.#once(office, handle, state, `${number}`, SLOT_NOTICES.failed, reason, () =>
         notice(
           "error",
           SLOT_NOTICES.failed,
-          `The merge slot could not move the backlog PR${slot === null ? "" : ` #${slot.number}`} on: ${reason}. dipo tries again at the next poll.`,
+          `The merge slot could not move the ${what}${occupant === null ? "" : ` #${number}`} on: ${reason}. dipo tries again at the next poll.`,
         ),
       );
-      await this.#release(state, handle, lane);
+      if (lane !== undefined) await this.#release(handle, lane);
+      else this.#write(office, handle, () => leaveSlot(handle));
       return "left";
     }
+  }
+
+  /** What the story steps get of this tick, or null without story PRs. */
+  #storyContext(
+    office: OfficeId,
+    state: OfficeSlot,
+    handle: OfficeHandle,
+  ): StorySlotContext | null {
+    if (this.#stories === null) return null;
+    return {
+      officeId: office,
+      office: handle,
+      host: this.#deps.host,
+      clock: this.#deps.clock,
+      config: this.#deps.offices.config?.(office) ?? OFFICE_DEFAULTS,
+      ...(this.#deps.checksWaitMs === undefined ? {} : { checksWaitMs: this.#deps.checksWaitMs }),
+      once: (subject, code, value, make) =>
+        this.#once(office, handle, state, subject, code, value, make),
+      write: (fn) => this.#write(office, handle, () => [...fn()]),
+      left: state.left,
+      ...(this.#deps.logger === undefined ? {} : { logger: this.#deps.logger }),
+    };
+  }
+
+  /** Lets the PR that became eligible first into the slot; null when none may enter. */
+  async #enter(
+    office: OfficeId,
+    state: OfficeSlot,
+    handle: OfficeHandle,
+    git: SlotGit | null,
+    stories: readonly StoryCandidate[],
+  ): Promise<SlotOccupant | null> {
+    const candidates: Candidate[] = stories.map((story) => ({
+      kind: "story",
+      story,
+      eligibleAt: story.eligibleAt,
+    }));
+    const backlog = git === null ? null : await this.#pick(office, state, handle, git);
+    if (backlog !== null) candidates.push(backlog);
+    const first = candidates.toSorted((a, b) => a.eligibleAt - b.eligibleAt)[0];
+    if (first === undefined) return null;
+    const occupant: SlotOccupant =
+      first.kind === "backlog"
+        ? first.occupant
+        : {
+            kind: "story",
+            number: first.story.number,
+            repo: first.story.repo,
+            branch: first.story.branch,
+            runId: first.story.runId,
+            phase: "close-out",
+            head: null,
+            attempts: 0,
+            checksSince: null,
+            syncMode: "onConflict",
+            enteredAt: this.#deps.clock.now(),
+          };
+    this.#write(office, handle, () => enterSlot(handle, occupant));
+    this.#deps.logger?.debug("merge slot entered", {
+      office,
+      pr: occupant.number,
+      kind: occupant.kind,
+    });
+    const head = first.kind === "story" ? first.story.head : (occupant.head ?? "");
+    const text =
+      first.kind === "story"
+        ? `The story PR #${occupant.number} entered the merge slot; other PRs of the office wait until it leaves.`
+        : `The backlog PR #${occupant.number} entered the merge slot; new backlog changes wait until it leaves.`;
+    const key = first.kind === "story" ? first.story.key : null;
+    this.#once(office, handle, state, `${occupant.number}`, SLOT_NOTICES.entered, head, () =>
+      notice("info", SLOT_NOTICES.entered, text, key),
+    );
+    return occupant;
   }
 
   /** The oldest open backlog PR whose last structural check passed and that may enter. */
@@ -329,7 +438,7 @@ export class MergeSlot {
     state: OfficeSlot,
     handle: OfficeHandle,
     git: SlotGit,
-  ): Promise<InSlot | null> {
+  ): Promise<Candidate | null> {
     for (const pr of openPrs(handle)) {
       if (pr.check !== "passed") continue;
       const repo = repoOfUrl(pr.url);
@@ -337,7 +446,7 @@ export class MergeSlot {
       const head = await git.head(pr.branch);
       if (head === null) continue;
       const parked = state.parked.get(pr.number);
-      if (parked !== undefined) {
+      if (parked !== undefined && parked.reason !== "held") {
         const recheckable = parked.reason === "checksFailed" || parked.reason === "checksStuck";
         if (parked.head === head && !recheckable) continue;
         if (parked.head === head) {
@@ -349,47 +458,99 @@ export class MergeSlot {
           if (verdict === null || verdict === "failed") continue;
           if (parked.reason === "checksStuck" && verdict !== "passed") continue;
         }
-        state.parked.delete(pr.number);
       }
+      // The label guard before the PR enters (0019 section 7); a held PR is asked again each poll.
+      if (await this.#held(office, state, handle, repo, pr.number, head)) {
+        state.parked.set(pr.number, { head, reason: "held" });
+        continue;
+      }
+      state.parked.delete(pr.number);
       return {
-        number: pr.number,
-        repo,
-        branch: pr.branch,
-        head,
-        attempts: 0,
-        phase: "sync",
-        checksSince: 0,
+        kind: "backlog",
+        eligibleAt: pr.checkedAt ?? pr.updatedAt,
+        occupant: {
+          kind: "backlog",
+          number: pr.number,
+          repo,
+          branch: pr.branch,
+          runId: null,
+          phase: "sync",
+          head,
+          attempts: 0,
+          checksSince: null,
+          syncMode: "onConflict",
+          enteredAt: this.#deps.clock.now(),
+        },
       };
     }
     return null;
   }
 
+  /**
+   * True when a label holds the backlog PR (`autorelease: pending`, or one of the office's hold
+   * labels), with a notice once per head; false when no label host is wired.
+   */
+  async #held(
+    office: OfficeId,
+    state: OfficeSlot,
+    handle: OfficeHandle,
+    repo: string,
+    number: number,
+    head: string,
+  ): Promise<boolean> {
+    const host = this.#deps.labels;
+    if (host === undefined) return false;
+    const labels = await host.prLabels(repo, number);
+    const config = this.#deps.offices.config?.(office) ?? OFFICE_DEFAULTS;
+    const held = holdLabelsOn(labels, config.mergeSlot.holdLabels);
+    if (held.length === 0) return false;
+    const value = `${head}:${held.join(",")}`;
+    this.#once(office, handle, state, `${number}`, SLOT_NOTICES.held, value, () =>
+      notice(
+        "info",
+        SLOT_NOTICES.held,
+        autoreleasePending(held)
+          ? `The backlog PR #${number} carries "autorelease: pending", so dipo never merges it; merge it by hand on GitHub.`
+          : `The backlog PR #${number} carries the hold label ${held.map((label) => `"${label}"`).join(", ")}; dipo merges it once the label is gone.`,
+      ),
+    );
+    return true;
+  }
+
   async #advance(
     office: OfficeId,
     state: OfficeSlot,
-    slot: InSlot,
+    occupant: SlotOccupant,
     handle: OfficeHandle,
     lane: OfficeLane,
     git: SlotGit,
   ): Promise<SlotOutcome> {
+    let slot = occupant;
+    const move = (change: Parameters<typeof updateSlot>[1]): void => {
+      this.#write(office, handle, () => updateSlot(handle, change));
+      slot = { ...slot, ...change };
+    };
     for (;;) {
       if (slot.phase === "sync") {
         // Step 1: bring the branch up to date with the base.
         if (!(await git.fetch())) {
           // Offline: the slot lets go, so held operations are not stuck; the next poll retries.
-          await this.#release(state, handle, lane);
+          await this.#release(handle, lane);
           return "left";
         }
         const sync = await git.syncBase(slot.branch);
         if (sync.kind === "conflict") {
-          this.#write(office, handle, () => [
-            notice(
-              "info",
-              SLOT_NOTICES.rebuilt,
-              `The backlog PR #${slot.number} conflicts with the base; dipo rebuilds its operations from the journal on a new branch, opens a new PR and closes #${slot.number}.`,
-            ),
-          ]);
-          state.slot = null;
+          const number = slot.number;
+          this.#write(office, handle, () => {
+            leaveSlot(handle);
+            return [
+              notice(
+                "info",
+                SLOT_NOTICES.rebuilt,
+                `The backlog PR #${number} conflicts with the base; dipo rebuilds its operations from the journal on a new branch, opens a new PR and closes #${number}.`,
+              ),
+            ];
+          });
           // The flush puts its own notice on the office when it fails.
           await lane.flush({ rebuild: slot.branch }).catch(() => undefined);
           return "rebuilt";
@@ -397,48 +558,54 @@ export class MergeSlot {
         // Step 2: one push, never forced.
         const pushed = await git.push(slot.branch);
         if (!pushed.ok) {
-          this.#once(office, handle, state, slot.number, SLOT_NOTICES.pushFailed, sync.head, () =>
+          const number = slot.number;
+          const branch = slot.branch;
+          this.#once(office, handle, state, `${number}`, SLOT_NOTICES.pushFailed, sync.head, () =>
             notice(
               "warn",
               SLOT_NOTICES.pushFailed,
-              `The merge slot could not push the backlog PR #${slot.number} (${slot.branch}): ${pushed.detail}. dipo tries again at the next poll.`,
+              `The merge slot could not push the backlog PR #${number} (${branch}): ${pushed.detail}. dipo tries again at the next poll.`,
             ),
           );
-          await this.#release(state, handle, lane);
+          await this.#release(handle, lane);
           return "left";
         }
-        slot.head = sync.head;
-        slot.phase = "checks";
-        slot.checksSince = this.#deps.clock.now();
+        move({ head: sync.head, phase: "checks", checksSince: this.#deps.clock.now() });
       }
 
+      const head = slot.head ?? "";
+      const number = slot.number;
       // Step 3: wait for the required checks, while the PR is still open.
       let checks;
       try {
-        const pr = await this.#deps.host.viewPr(slot.repo, slot.number);
-        const record = findPr(handle, slot.number);
+        const pr = await this.#deps.host.viewPr(slot.repo, number);
+        const record = findPr(handle, number);
+        if (pr.state === "merged" && record?.state === "open" && slot.phase === "merge") {
+          // A merge this slot asked for before a restart, which the host took: finish it.
+          break;
+        }
         if (pr.state !== "open" || record?.state !== "open") {
           const now = pr.state !== "open" ? pr.state : (record?.state ?? "gone");
-          this.#once(office, handle, state, slot.number, SLOT_NOTICES.closed, slot.head, () =>
+          this.#once(office, handle, state, `${number}`, SLOT_NOTICES.closed, head, () =>
             notice(
               "info",
               SLOT_NOTICES.closed,
-              `The backlog PR #${slot.number} left the merge slot: it is ${now} now, so dipo does not merge it.`,
+              `The backlog PR #${number} left the merge slot: it is ${now} now, so dipo does not merge it.`,
             ),
           );
-          state.parked.set(slot.number, { head: slot.head, reason: "closed" });
-          await this.#release(state, handle, lane);
+          state.parked.set(number, { head, reason: "closed" });
+          await this.#release(handle, lane);
           return "left";
         }
-        checks = await this.#deps.host.requiredChecks(slot.repo, slot.number);
+        checks = await this.#deps.host.requiredChecks(slot.repo, number);
       } catch (error) {
         if (!(error instanceof CodeHostError)) throw error;
         const cause = error.message;
-        this.#once(office, handle, state, slot.number, SLOT_NOTICES.checksUnreadable, cause, () =>
+        this.#once(office, handle, state, `${number}`, SLOT_NOTICES.checksUnreadable, cause, () =>
           notice(
             "warn",
             SLOT_NOTICES.checksUnreadable,
-            `The merge slot cannot read the state of the backlog PR #${slot.number}: ${cause} dipo asks again at the next poll.`,
+            `The merge slot cannot read the state of the backlog PR #${number}: ${cause} dipo asks again at the next poll.`,
           ),
         );
         return this.#waitOrLeave(office, state, slot, handle, lane, ["the host's answer"]);
@@ -452,38 +619,46 @@ export class MergeSlot {
           notice(
             "warn",
             SLOT_NOTICES.checksFailed,
-            `The backlog PR #${slot.number} left the merge slot unmerged: its required checks ${verdict.failed.join(", ")} failed. dipo takes it in again when they pass after a re-run or when the PR changes.`,
+            `The backlog PR #${number} left the merge slot unmerged: its required checks ${verdict.failed.join(", ")} failed. dipo takes it in again when they pass after a re-run or when the PR changes.`,
           ),
         ]);
-        state.parked.set(slot.number, { head: slot.head, reason: "checksFailed" });
-        await this.#release(state, handle, lane);
+        state.parked.set(number, { head, reason: "checksFailed" });
+        await this.#release(handle, lane);
         return "left";
       }
 
       // Step 4: the structural check again, on the head that merges. It notices its own failures.
-      const result = await this.#deps.prs.recheck(office, slot.number);
-      const record = findPr(handle, slot.number);
-      if (record === null || record.checkedHead !== slot.head) {
+      const result = await this.#deps.prs.recheck(office, number);
+      const record = findPr(handle, number);
+      if (record === null || record.checkedHead !== head) {
         // The branch moved under the slot: start again from step 1.
-        slot.phase = "sync";
+        move({ phase: "sync" });
         continue;
       }
       if (!result.passed) {
-        state.parked.set(slot.number, { head: slot.head, reason: "checkFailed" });
-        await this.#release(state, handle, lane);
+        state.parked.set(number, { head, reason: "checkFailed" });
+        await this.#release(handle, lane);
+        return "left";
+      }
+      // The label guard right before the host merge (0019 section 7).
+      if (await this.#held(office, state, handle, slot.repo, number, head)) {
+        state.parked.set(number, { head, reason: "held" });
+        await this.#release(handle, lane);
         return "left";
       }
 
       // Step 5: squash-merge, only while the head is the one checked.
       try {
-        await this.#deps.host.squashMerge(slot.repo, slot.number, {
-          headSha: slot.head,
+        move({ phase: "merge" });
+        await this.#deps.host.squashMerge(slot.repo, number, {
+          headSha: head,
           subject: record.title,
         });
       } catch (error) {
         if (!(error instanceof CodeHostError)) throw error;
-        slot.attempts += 1;
-        const host = await this.#deps.host.viewPr(slot.repo, slot.number).catch(() => null);
+        const attempts = slot.attempts + 1;
+        move({ attempts, phase: "checks" });
+        const host = await this.#deps.host.viewPr(slot.repo, number).catch(() => null);
         if (host?.state === "merged") break;
         const moved = (await git.fetch()) && !(await git.containsBase(slot.branch));
         if (!moved) {
@@ -491,26 +666,26 @@ export class MergeSlot {
             notice(
               "warn",
               SLOT_NOTICES.refused,
-              `The host refused to merge the backlog PR #${slot.number}: ${error.message} It stays open; dipo takes it in again when it changes.`,
+              `The host refused to merge the backlog PR #${number}: ${error.message} It stays open; dipo takes it in again when it changes.`,
             ),
           ]);
-          state.parked.set(slot.number, { head: slot.head, reason: "refused" });
-          await this.#release(state, handle, lane);
+          state.parked.set(number, { head, reason: "refused" });
+          await this.#release(handle, lane);
           return "left";
         }
-        if (slot.attempts >= MAX_MERGE_ATTEMPTS) {
+        if (attempts >= MAX_MERGE_ATTEMPTS) {
           this.#write(office, handle, () => [
             notice(
               "warn",
               SLOT_NOTICES.baseMoved,
-              `The backlog PR #${slot.number} stays open: base moved during merge ${MAX_MERGE_ATTEMPTS} times. dipo takes it in again when it changes.`,
+              `The backlog PR #${number} stays open: base moved during merge ${MAX_MERGE_ATTEMPTS} times. dipo takes it in again when it changes.`,
             ),
           ]);
-          state.parked.set(slot.number, { head: slot.head, reason: "baseMoved" });
-          await this.#release(state, handle, lane);
+          state.parked.set(number, { head, reason: "baseMoved" });
+          await this.#release(handle, lane);
           return "left";
         }
-        slot.phase = "sync";
+        move({ phase: "sync" });
         continue;
       }
       break;
@@ -526,18 +701,19 @@ export class MergeSlot {
   async #merged(
     office: OfficeId,
     state: OfficeSlot,
-    slot: InSlot,
+    slot: SlotOccupant,
     handle: OfficeHandle,
     lane: OfficeLane,
     git: SlotGit,
   ): Promise<void> {
+    const head = slot.head ?? "";
     // Only operations whose commit is in the merged head merged; any other stays open, and the
     // lane applies it again on a new branch (its old branch is deleted below).
     const merged: number[] = [];
     let leftOut = false;
     for (const entry of openEntries(handle)) {
       if (entry.branch !== slot.branch) continue;
-      if (entry.commit !== null && (await git.inHead(entry.commit, slot.head))) {
+      if (entry.commit !== null && (await git.inHead(entry.commit, head))) {
         merged.push(entry.opId);
       } else {
         leftOut = true;
@@ -563,7 +739,7 @@ export class MergeSlot {
     await git.deleteBranch(slot.branch).catch(() => undefined);
     // An operation left out still names the deleted branch: flush now, so the lane applies it again
     // on a new branch instead of at the next backlog change.
-    await this.#release(state, handle, lane, leftOut);
+    await this.#release(handle, lane, leftOut);
   }
 
   /**
@@ -574,33 +750,30 @@ export class MergeSlot {
   async #waitOrLeave(
     office: OfficeId,
     state: OfficeSlot,
-    slot: InSlot,
+    slot: SlotOccupant,
     handle: OfficeHandle,
     lane: OfficeLane,
     waiting: readonly string[],
   ): Promise<SlotOutcome> {
     const limit = this.#deps.checksWaitMs ?? CHECKS_WAIT_MS;
-    if (this.#deps.clock.now() - slot.checksSince < limit) return "waiting";
-    this.#once(office, handle, state, slot.number, SLOT_NOTICES.checksStuck, slot.head, () =>
+    const since = slot.checksSince ?? this.#deps.clock.now();
+    if (this.#deps.clock.now() - since < limit) return "waiting";
+    const head = slot.head ?? "";
+    this.#once(office, handle, state, `${slot.number}`, SLOT_NOTICES.checksStuck, head, () =>
       notice(
         "warn",
         SLOT_NOTICES.checksStuck,
         `The backlog PR #${slot.number} left the merge slot unmerged: after ${Math.round(limit / 60_000)} minutes it still waits for ${waiting.join(", ")}. dipo takes it in again when its checks pass or when the PR changes.`,
       ),
     );
-    state.parked.set(slot.number, { head: slot.head, reason: "checksStuck" });
-    await this.#release(state, handle, lane);
+    state.parked.set(slot.number, { head, reason: "checksStuck" });
+    await this.#release(handle, lane);
     return "left";
   }
 
   /** Lets go of the slot and applies the operations it held. */
-  async #release(
-    state: OfficeSlot,
-    handle: OfficeHandle,
-    lane: OfficeLane,
-    flush = false,
-  ): Promise<void> {
-    state.slot = null;
+  async #release(handle: OfficeHandle, lane: OfficeLane, flush = false): Promise<void> {
+    handle.immediate(() => leaveSlot(handle));
     if (!flush && !openEntries(handle).some((entry) => entry.state === "pending")) return;
     // The flush puts its own notice on the office when it fails.
     await lane.flush().catch(() => undefined);
@@ -615,17 +788,17 @@ export class MergeSlot {
     );
   }
 
-  /** Writes the notice unless this PR had it already for the same head or cause. */
+  /** Writes the notice unless this subject had it already for the same head or cause. */
   #once(
     office: OfficeId,
     handle: OfficeHandle,
     state: OfficeSlot,
-    pr: number,
+    subject: string,
     code: string,
     value: string,
     make: () => NewEntry,
   ): void {
-    const key = `${pr}:${code}`;
+    const key = `${subject}:${code}`;
     if (state.noticed.get(key) === value) return;
     state.noticed.set(key, value);
     this.#write(office, handle, () => [make()]);
@@ -642,8 +815,13 @@ export class MergeSlot {
   }
 }
 
-function notice(level: "info" | "warn" | "error", code: string, text: string): NewEntry {
-  return { type: "engine.notice", delta: { level, code, text } };
+function notice(
+  level: "info" | "warn" | "error",
+  code: string,
+  text: string,
+  key: StoryKey | null = null,
+): NewEntry {
+  return { type: "engine.notice", ...(key === null ? {} : { key }), delta: { level, code, text } };
 }
 
 function reasonOf(error: unknown): string {

@@ -17,13 +17,16 @@ import type { Clock, OfficeId, TimerHandle } from "@dipsaus-orchestrator/contrac
 
 import { viewStory } from "../backlog/fields/write";
 import type { BacklogCli } from "../backlog/runner";
+import { appendEntries } from "../changelog/log";
 import type { FeatureModule } from "../commands/registry";
 import { OFFICE_DEFAULTS, type OfficeConfig } from "../config";
 import type { OfficeHandle } from "../db/office";
 import type { GitLocation } from "../git/hardened";
 import type { OfficeGit } from "../git/office";
 import type { Logger } from "../log/logger";
+import { decideOnHandMerge } from "../merge-slot/gates";
 import type { PrStateHost } from "../platform/host";
+import { withWorkViews } from "../views/work";
 
 import { inStoryBacklog, notice, writeWith } from "./claim";
 import { type ClaimRecord, liveClaims } from "./records";
@@ -189,6 +192,8 @@ export class StoryTeardown {
       }
       return "open";
     }
+    // A merge by hand on the host closes the story's open merge gate (0019 section 11, DIPO-150).
+    if (check.evidence.by === "host") this.#handMerged(deps, claim);
     if (hasLiveHost(state.office, claim)) {
       this.#tell(
         state,
@@ -262,6 +267,30 @@ export class StoryTeardown {
       );
     } catch {
       return null;
+    }
+  }
+
+  /**
+   * The story's PR merged on the host while a merge gate stood open (a hand merge, 0019 section
+   * 11): in one transaction the open gate is decided approved by the maintainer with the note
+   * "merged on the host". A gate the merge slot's merge already decided is left as it is.
+   */
+  #handMerged(deps: TeardownDeps, claim: ClaimRecord): void {
+    const at = deps.clock.now();
+    try {
+      const appended = deps.office.immediate(() => {
+        const entries = withWorkViews(deps.office, decideOnHandMerge(deps.office, claim.key, at));
+        appendEntries(deps.office, entries, { at });
+        return entries.length;
+      });
+      if (appended > 0) deps.onChanged?.(deps.officeId);
+    } catch (error) {
+      // The teardown goes on; the next poll decides the gate again.
+      this.#deps.logger?.warn("deciding the merge gate of a hand merge failed", {
+        office: deps.officeId,
+        run: claim.runId,
+        reason: error instanceof Error ? error.message : String(error),
+      });
     }
   }
 

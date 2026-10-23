@@ -1,7 +1,29 @@
-// The office merge slot (DIPO-73; 0016 rule 2, 0010 section 7): backlog PRs merge through it in M0.
+// The office merge slot (DIPO-73; 0016 rule 2, 0010 section 7): backlog PRs since M0 and story PRs
+// since DIPO-150 (0019 sections 9 and 11), with the merge gates in front of a story PR's entry.
 
 export { checksFinal, evaluateChecks, REQUIRED_CHECKS, requiredCheckStates } from "./checks";
 export type { RequiredCheckState, ChecksVerdict } from "./checks";
+export { writeCloseOutSummary } from "./close-out";
+export { MergeGates } from "./commands";
+export type { MergeGatesDeps } from "./commands";
+export {
+  AUTORELEASE_LABEL,
+  autoreleasePending,
+  decideMergeGate,
+  decideOnHandMerge,
+  HAND_MERGE_NOTE,
+  holdLabelsOn,
+  MERGE_GATE_KIND,
+  mergeGate,
+  mergeGatesOfRun,
+  mergeGateSummary,
+  mergeWaits,
+  openMaintainerMergeGate,
+  openMergeGate,
+  overrideGateOf,
+  overrideGateSummary,
+} from "./gates";
+export type { MergeWait, StoredMergeGate } from "./gates";
 export { laneSlotGit } from "./git";
 export type { BaseSync, PushOutcome, SlotGit } from "./git";
 export {
@@ -12,4 +34,9 @@ export {
   SLOT_NOTICES,
 } from "./slot";
 export type { MergeSlotDeps, SlotOutcome } from "./slot";
-export { writeCloseOutSummary } from "./close-out";
+export { enterSlot, leaveSlot, runInSlot, slotOccupant, updateSlot } from "./store";
+export type { SlotOccupant, SlotPhase, SlotSyncMode } from "./store";
+export { DONE_STATUS, gitStorySlotOps } from "./story-git";
+export type { StorySlotGit, StorySlotRun, StorySync } from "./story-git";
+export { STORY_MERGE_ATTEMPTS, STORY_SLOT_NOTICES, StorySlot } from "./story-slot";
+export type { StoryCandidate, StorySlotContext, StorySlotDeps } from "./story-slot";
