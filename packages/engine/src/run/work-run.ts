@@ -527,6 +527,8 @@ export class WorkRun {
         story,
         branch,
         runId,
+        // A box run's reused branch takes the base through dipo's catch-up (DIPO-149).
+        ...(c.box ? { baseSync: "catch-up" as const } : {}),
         recheck: async (git) => {
           const decision = await this.#deps.gates.recordGateDecision(
             office,
