@@ -3,10 +3,10 @@ id: DIPO-251
 title: >-
   Add two Ready gate rules: test plan files inside the References, and
   security-sensitive stories
-status: Refined
+status: Done
 assignee: []
 created_date: '2026-10-20 19:03'
-updated_date: '2026-10-22 18:16'
+updated_date: '2026-10-23 06:11'
 labels:
   - 'tier:S'
   - cutover
@@ -18,21 +18,38 @@ dependencies:
   - DIPO-285
   - DIPO-303
 references:
+  - '- CLAUDE.md'
   - CLAUDE.md
+  - docs/decisions/0012-story-standard.md
+  - packages/cli/src/gate-command.test.ts
+  - packages/cli/src/gate-command.ts
+  - packages/contract/schema/reads.schema.json
+  - packages/contract/src/office.ts
+  - packages/contract/src/version.ts
   - packages/engine/schema/office.schema.json
   - packages/engine/src/config/index.ts
   - packages/engine/src/config/load.ts
   - packages/engine/src/config/schema.ts
   - packages/engine/src/gate/evaluate.ts
+  - packages/engine/src/gate/index.ts
   - packages/engine/src/gate/input.ts
   - packages/engine/src/gate/rules.ts
   - packages/engine/src/gate/store/
+  - packages/engine/src/gate/store/decisions.ts
+  - packages/engine/src/gate/store/feature.ts
+  - packages/engine/src/gate/store/index.ts
+  - packages/engine/src/gate/store/read.ts
+  - packages/engine/src/gate/store/tree.ts
   - packages/engine/src/gate/text.ts
   - packages/engine/src/gate/types.ts
   - packages/engine/test/config/
+  - packages/engine/test/config/load.test.ts
+  - packages/engine/test/config/schema.test.ts
   - packages/engine/test/gate/gate.test.ts
   - packages/engine/test/gate/store.test.ts
   - packages/engine/test/office/load.test.ts
+  - scripts/check-ready-gate.test.ts
+  - scripts/check-ready-gate.ts
 priority: medium
 type: enhancement
 ordinal: 137300
@@ -70,14 +87,14 @@ test_plan:
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 packages/engine/src/gate/rules.ts has a rule R29, evaluated in both modes after R28 and listed in GATE_RULES in packages/engine/src/gate/types.ts, that reads each automated test plan entry's check and fails the story once for each repo-relative path token (the path token rule of packages/engine/src/gate/text.ts) that no Reference covers under the prefix rule, with the reason `test plan entry #<n> names <path>, which no Reference covers; add it to the References or drop it from the plan`
-- [ ] #2 The gate store (packages/engine/src/gate/store/) lists the base tree's file paths and passes them in GateInput (packages/engine/src/gate/input.ts), as part of the gate's cache key; a bare file name ending in `.test.ts` in an automated entry's check is covered when a Reference is a file of that name or a Reference directory holds a file of that name in that list, and an uncovered bare name fails R29 with the same reason
-- [ ] #3 Manual test plan entries are exempt, and a covered token, a check with no path token or test file name, and a story with no test plan get no R29 failure; the other rules' failures and their order are unchanged
-- [ ] #4 packages/engine/test/gate/gate.test.ts and packages/engine/test/gate/store.test.ts (the base tree list and the cache key) cover an uncovered path, the same path covered by a directory Reference, a bare test file name covered by a file Reference, covered by a directory and uncovered, a manual entry and a spike with no test plan
-- [ ] #5 (from DIPO-260) The Backlog section of CLAUDE.md says that a story which adds or replaces a guard, a deny rule, a sandbox setting or a permission check lists in its criteria what the old barrier caught with a test for each, the bypass forms to test (wrappers, quoting, indirection, chaining), and a fail-closed test against the real path rather than a fake
-- [ ] #6 (from DIPO-260) packages/engine/src/gate/rules.ts has a rule R30, evaluated in both modes after R29 and listed in GATE_RULES, that applies when the story's title or Outcome matches a phrase of story.securityPhrases, and fails it once for each of the three parts (old barrier, bypass forms, fail-closed against the real path) that no criterion matches through story.securityCriteriaPhrases, matched as R27 matches (design choice, not a maintainer decision; the maintainer may change it before a run)
-- [ ] #7 (from DIPO-260) In the next office config version, packages/engine/src/config/schema.ts has story.securityPhrases (defaults: deny rule, guard, sandbox setting, permission check) and story.securityCriteriaPhrases with defaults for each of the three parts, loaded by packages/engine/src/config/load.ts and written to packages/engine/schema/office.schema.json (design choice, not a maintainer decision; the maintainer may change it before a run)
-- [ ] #8 (from DIPO-260) packages/engine/test/gate/gate.test.ts packages/engine/test/office/load.test.ts and the config tests cover a story with all three parts, one missing each part, a story with no security phrase, and the defaults
+- [x] #1 packages/engine/src/gate/rules.ts has a rule R29, evaluated in both modes after R28 and listed in GATE_RULES in packages/engine/src/gate/types.ts, that reads each automated test plan entry's check and fails the story once for each repo-relative path token (the path token rule of packages/engine/src/gate/text.ts) that no Reference covers under the prefix rule, with the reason `test plan entry #<n> names <path>, which no Reference covers; add it to the References or drop it from the plan`
+- [x] #2 The gate store (packages/engine/src/gate/store/) lists the base tree's file paths and passes them in GateInput (packages/engine/src/gate/input.ts), as part of the gate's cache key; a bare file name ending in `.test.ts` in an automated entry's check is covered when a Reference is a file of that name or a Reference directory holds a file of that name in that list, and an uncovered bare name fails R29 with the same reason
+- [x] #3 Manual test plan entries are exempt, and a covered token, a check with no path token or test file name, and a story with no test plan get no R29 failure; the other rules' failures and their order are unchanged
+- [x] #4 packages/engine/test/gate/gate.test.ts and packages/engine/test/gate/store.test.ts (the base tree list and the cache key) cover an uncovered path, the same path covered by a directory Reference, a bare test file name covered by a file Reference, covered by a directory and uncovered, a manual entry and a spike with no test plan
+- [x] #5 (from DIPO-260) The Backlog section of CLAUDE.md says that a story which adds or replaces a guard, a deny rule, a sandbox setting or a permission check lists in its criteria what the old barrier caught with a test for each, the bypass forms to test (wrappers, quoting, indirection, chaining), and a fail-closed test against the real path rather than a fake
+- [x] #6 (from DIPO-260) packages/engine/src/gate/rules.ts has a rule R30, evaluated in both modes after R29 and listed in GATE_RULES, that applies when the story's title or Outcome matches a phrase of story.securityPhrases, and fails it once for each of the three parts (old barrier, bypass forms, fail-closed against the real path) that no criterion matches through story.securityCriteriaPhrases, matched as R27 matches (design choice, not a maintainer decision; the maintainer may change it before a run)
+- [x] #7 (from DIPO-260) In the next office config version, packages/engine/src/config/schema.ts has story.securityPhrases (defaults: deny rule, guard, sandbox setting, permission check) and story.securityCriteriaPhrases with defaults for each of the three parts, loaded by packages/engine/src/config/load.ts and written to packages/engine/schema/office.schema.json (design choice, not a maintainer decision; the maintainer may change it before a run)
+- [x] #8 (from DIPO-260) packages/engine/test/gate/gate.test.ts packages/engine/test/office/load.test.ts and the config tests cover a story with all three parts, one missing each part, a story with no security phrase, and the defaults
 <!-- AC:END -->
 
 ## Implementation Notes
@@ -86,4 +103,6 @@ test_plan:
 Reshaped by decision 0021 (worker isolation, DIPO-263, 2026-10-21); rewrite before Ready: References are a forecast; R29 becomes a forecast-quality check rather than a gate (0021 section 13).
 
 2026-10-22: combined from DIPO-260 (maintainer, M1 speed-up)
+
+2026-10-22: built outside dipo, reviewed (pass). R29 made a warning by the maintainer's decision; plural security phrases added. Gate warnings are not shown in the TUI story view and work.preview yet (follow-up).
 <!-- SECTION:NOTES:END -->
