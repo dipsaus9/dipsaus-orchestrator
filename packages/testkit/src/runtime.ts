@@ -21,6 +21,9 @@ export const LONGEST_RUNTIME_ENTRY = `hosts/run_${"0".repeat(26)}.sock`;
 /** The name pattern of a testkit temp directory; `XXXXXX` is as long as what mkdtemp puts there. */
 export const TEMP_DIR_TEMPLATE = "dipo-XXXXXX";
 
+/** The test marker (engine `TEST_MARKER`): with it, dipo refuses the real home's folders (DIPO-316). */
+export const TEST_MARKER = "DIPO_TEST";
+
 /** The only runtime directory source a test daemon may report. */
 export const TEST_RUNTIME_SOURCE = "DIPO_RUNTIME_DIR";
 
@@ -65,10 +68,11 @@ export const MAX_TEMP_ROOT_BYTES =
 
 /**
  * The state, runtime and temp variables of a test daemon in `dir`, all under `dir`: `DIPO_HOME`,
- * `DIPO_RUNTIME_DIR`, `TMPDIR`, `XDG_RUNTIME_DIR` and `DIPO_TMP`. Creates `<dir>/tmp` (mode 0700)
- * so `$TMPDIR/dipo` is a usable candidate, never a reason to fall through to `/tmp/dipo-<uid>`.
+ * `DIPO_RUNTIME_DIR`, `TMPDIR`, `XDG_RUNTIME_DIR` and `DIPO_TMP`, with the test marker. Creates
+ * `<dir>/tmp` (mode 0700). A `DIPO_RUNTIME_DIR` the daemon cannot use stops it (DIPO-316).
  */
 export function isolatedDaemonEnv(dir: string): {
+  DIPO_TEST: "1";
   DIPO_HOME: string;
   DIPO_RUNTIME_DIR: string;
   TMPDIR: string;
@@ -78,6 +82,7 @@ export function isolatedDaemonEnv(dir: string): {
   const tmp = testTmpDir(dir);
   mkdirSync(tmp, { recursive: true, mode: 0o700 });
   return {
+    DIPO_TEST: "1",
     DIPO_HOME: testStateDir(dir),
     DIPO_RUNTIME_DIR: testRuntimeDir(dir),
     TMPDIR: tmp,

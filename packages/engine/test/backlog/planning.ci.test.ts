@@ -156,215 +156,222 @@ async function branchExists(cwd: string, home: string, ref: string): Promise<boo
   );
 }
 
-describe("hold and resume through the real planning lane", () => {
-  it("writes F16 and status Parked on the engine branch, then lifts it", async () => {
-    await withBareRemote(async (repo) => {
-      await publish(repo);
-      const s = await claimSetup(repo);
-      const { send } = world(s);
-      const key = indexed(s, "TASK-2", "Refined");
+if (process.env["DIPO_TEST_CI"] === "1") {
+  describe("hold and resume through the real planning lane", () => {
+    it("writes F16 and status Parked on the engine branch, then lifts it", async () => {
+      await withBareRemote(async (repo) => {
+        await publish(repo);
+        const s = await claimSetup(repo);
+        const { send } = world(s);
+        const key = indexed(s, "TASK-2", "Refined");
 
-      const held = await send("story.hold", { story: "TASK-2", note: "after M2" });
-      expect(held).toMatchObject({ ok: true, changed: true });
-      const [entry] = allEntries(s.office);
-      expect(entry).toMatchObject({ kind: "hold", state: "pushed" });
-      const branch = entry?.branch as string;
-      const onBranch = await inRemote(repo, "show", `${branch}:${TASK_2_FILE}`);
-      expect(onBranch).toContain("status: Parked");
-      expect(onBranch).toContain('reason: "on-hold"');
-      expect(onBranch).toContain('from: "Refined"');
-      expect(onBranch).toContain('note: "after M2"');
+        const held = await send("story.hold", { story: "TASK-2", note: "after M2" });
+        expect(held).toMatchObject({ ok: true, changed: true });
+        const [entry] = allEntries(s.office);
+        expect(entry).toMatchObject({ kind: "hold", state: "pushed" });
+        const branch = entry?.branch as string;
+        const onBranch = await inRemote(repo, "show", `${branch}:${TASK_2_FILE}`);
+        expect(onBranch).toContain("status: Parked");
+        expect(onBranch).toContain('reason: "on-hold"');
+        expect(onBranch).toContain('from: "Refined"');
+        expect(onBranch).toContain('note: "after M2"');
 
-      const resumed = await send("work.resume", { story: "TASK-2" });
-      expect(resumed).toMatchObject({ ok: true, result: { story: "TASK-2", key, to: "Refined" } });
-      expect(allEntries(s.office).map((e) => [e.kind, e.state])).toEqual([
-        ["hold", "pushed"],
-        ["resume", "pushed"],
-      ]);
-      const lifted = await inRemote(repo, "show", `${branch}:${TASK_2_FILE}`);
-      expect(lifted).toContain("status: Refined");
-      expect(lifted).not.toContain("on-hold");
-      expect(openPark(s.office, key)).toBeNull();
-    }, FIXTURE);
-  });
-});
-
-describe("drop through the real planning lane", () => {
-  it("removes a dirty worktree and deletes the branch locally and on the remote with deleteBranch", async () => {
-    await withBareRemote(async (repo) => {
-      await publish(repo);
-      const s = await claimSetup(repo);
-      const { send, closed } = world(s);
-      const key = indexed(s, TASK_1, "Parked", {
-        reason: "stopped",
-        from: "In Progress",
-        note: "n",
-      });
-      const outcome = await claimStory(s.deps(), s.request(key));
-      if (!outcome.ok) throw new Error(`no claim: ${outcome.notice}`);
-      const { claim } = outcome;
-      s.office.immediate(() => {
-        s.office.run(
-          `insert into parks (office_id, park_id, key, story_id, run_id, reason, from_state, detail, at)
-           values ($office_id, 1, $key, $story, $run, 'stopped', 'In Progress', 'stopped', $at)`,
-          { key, story: TASK_1, run: claim.runId, at: s.t.clock.now() },
-        );
-        insertStoryPr(s.office, {
-          runId: claim.runId,
-          key,
-          number: 12,
-          url: "https://github.com/acme/app/pull/12",
-          branch: BRANCH_1,
-          base: "main",
-          headSha: "c".repeat(40),
-          state: "open",
-          title: "feat(TASK-1): export",
-          bodyHash: "h",
-          openedAt: s.t.clock.now(),
-          closedAt: null,
+        const resumed = await send("work.resume", { story: "TASK-2" });
+        expect(resumed).toMatchObject({
+          ok: true,
+          result: { story: "TASK-2", key, to: "Refined" },
         });
-      });
-      // The branch is on the remote after the claim, and the worktree is dirty two ways.
-      expect(await branchExists(repo.remote, repo.home, BRANCH_1)).toBe(true);
-      writeFileSync(join(claim.worktree, "scratch.txt"), "untracked\n");
-      writeFileSync(join(claim.worktree, "README.md"), "changed\n");
-
-      // Without the flag the dirty worktree is refused with its files, and nothing changed.
-      const refused = await send("story.drop", { story: TASK_1, deleteBranch: false });
-      expect(refused).toMatchObject({ ok: false, error: { code: "story.dirtyWorktree" } });
-      const message = refused.ok ? "" : refused.error.message;
-      expect(message).toContain("scratch.txt");
-      expect(message).toContain("README.md");
-      expect(existsSync(claim.worktree)).toBe(true);
-      expect(liveClaimOf(s.office, key)).not.toBeNull();
-      expect(allEntries(s.office)).toEqual([]);
-      expect(closed).toEqual([]);
-
-      const dropped = await send("story.drop", { story: TASK_1, deleteBranch: true });
-      expect(dropped).toMatchObject({ ok: true, changed: true, result: { story: TASK_1, key } });
-      expect(existsSync(claim.worktree)).toBe(false);
-      expect(await branchExists(repo.dir, repo.home, `refs/heads/${BRANCH_1}`)).toBe(false);
-      expect(await branchExists(repo.remote, repo.home, `refs/heads/${BRANCH_1}`)).toBe(false);
-      expect(liveClaimOf(s.office, key)).toBeNull();
-      expect(releasedBranchFor(s.office, key, BRANCH_1)).toBeNull();
-      expect(openPark(s.office, key)).toBeNull();
-      expect(closed).toHaveLength(1);
-      expect(closed[0]).toMatchObject({ repo: "acme/app", number: 12 });
-      expect(latestStoryPr(s.office, key)?.state).toBe("closed");
-
-      // The lane archived the task file on its engine branch, which is pushed.
-      const [entry] = allEntries(s.office);
-      expect(entry).toMatchObject({ kind: "drop", state: "pushed" });
-      const files = await inRemote(repo, "ls-tree", "-r", "--name-only", entry?.branch as string);
-      expect(files).toContain("backlog/archive/tasks/task-1 - Add-the-CSV-export-command.md");
-      expect(files).not.toContain(TASK_1_FILE);
-    }, FIXTURE);
+        expect(allEntries(s.office).map((e) => [e.kind, e.state])).toEqual([
+          ["hold", "pushed"],
+          ["resume", "pushed"],
+        ]);
+        const lifted = await inRemote(repo, "show", `${branch}:${TASK_2_FILE}`);
+        expect(lifted).toContain("status: Refined");
+        expect(lifted).not.toContain("on-hold");
+        expect(openPark(s.office, key)).toBeNull();
+      }, FIXTURE);
+    });
   });
 
-  it("keeps the branch and records it as released without deleteBranch", async () => {
-    await withBareRemote(async (repo) => {
-      await publish(repo);
-      const s = await claimSetup(repo);
-      const { send } = world(s);
-      const key = indexed(s, TASK_1, "Parked", {
-        reason: "stopped",
-        from: "In Progress",
-        note: "n",
-      });
-      const outcome = await claimStory(s.deps(), s.request(key));
-      if (!outcome.ok) throw new Error(`no claim: ${outcome.notice}`);
-      const { claim } = outcome;
-
-      const dropped = await send("story.drop", { story: TASK_1, deleteBranch: false });
-      expect(dropped).toMatchObject({ ok: true, changed: true });
-      expect(existsSync(claim.worktree)).toBe(false);
-      expect(await branchExists(repo.dir, repo.home, `refs/heads/${BRANCH_1}`)).toBe(true);
-      expect(await branchExists(repo.remote, repo.home, `refs/heads/${BRANCH_1}`)).toBe(true);
-      expect(liveClaimOf(s.office, key)).toBeNull();
-      expect(releasedBranchFor(s.office, key, BRANCH_1)).toMatchObject({ reason: "drop" });
-    }, FIXTURE);
-  });
-
-  it("lists the commit and the untracked file a deleteBranch drop loses (DIPO-228)", async () => {
-    await withBareRemote(async (repo) => {
-      await publish(repo);
-      const s = await claimSetup(repo);
-      const { read } = world(s);
-      const key = indexed(s, TASK_1, "Parked", {
-        reason: "stopped",
-        from: "In Progress",
-        note: "n",
-      });
-      const outcome = await claimStory(s.deps(), s.request(key));
-      if (!outcome.ok) throw new Error(`no claim: ${outcome.notice}`);
-      const { claim } = outcome;
-      writeFileSync(join(claim.worktree, "work.txt"), "work\n");
-      await git(claim.worktree, repo.home, "add", "work.txt");
-      await git(
-        claim.worktree,
-        repo.home,
-        "-c",
-        "user.name=dipo",
-        "-c",
-        "user.email=dipo@example.test",
-        "commit",
-        "-m",
-        "feat(TASK-1): add work",
-      );
-      writeFileSync(join(claim.worktree, "scratch.txt"), "untracked\n");
-
-      const reply = await read({ story: TASK_1 });
-      expect(reply).toMatchObject({
-        ok: true,
-        result: { story: TASK_1, key, files: ["scratch.txt"] },
-      });
-      const commits = reply.ok ? (reply.result as { commits: { subject: string }[] }).commits : [];
-      const subjects = commits.map((commit) => commit.subject);
-      expect(subjects).toContain("feat(TASK-1): add work");
-    }, FIXTURE);
-  });
-
-  it("deletes the kept branch of an unclaimed story locally and on the remote, and reclaims its release", async () => {
-    await withBareRemote(async (repo) => {
-      await publish(repo);
-      const s = await claimSetup(repo);
-      const { send, read } = world(s);
-      const key = indexed(s, TASK_1, "Parked", {
-        reason: "stopped",
-        from: "In Progress",
-        note: "n",
-      });
-      const outcome = await claimStory(s.deps(), s.request(key));
-      if (!outcome.ok) throw new Error(`no claim: ${outcome.notice}`);
-      const { claim } = outcome;
-      // A release that keeps the branch, its worktree removed as the release does.
-      s.office.immediate(() =>
-        releaseClaim(s.office, claim.runId, {
-          at: s.t.clock.now(),
+  describe("drop through the real planning lane", () => {
+    it("removes a dirty worktree and deletes the branch locally and on the remote with deleteBranch", async () => {
+      await withBareRemote(async (repo) => {
+        await publish(repo);
+        const s = await claimSetup(repo);
+        const { send, closed } = world(s);
+        const key = indexed(s, TASK_1, "Parked", {
           reason: "stopped",
-          keepBranch: true,
-        }),
-      );
-      // The claim locked its worktree; the release unlocks and removes it.
-      await git(repo.dir, repo.home, "worktree", "unlock", claim.worktree);
-      await git(repo.dir, repo.home, "worktree", "remove", "--force", claim.worktree);
+          from: "In Progress",
+          note: "n",
+        });
+        const outcome = await claimStory(s.deps(), s.request(key));
+        if (!outcome.ok) throw new Error(`no claim: ${outcome.notice}`);
+        const { claim } = outcome;
+        s.office.immediate(() => {
+          s.office.run(
+            `insert into parks (office_id, park_id, key, story_id, run_id, reason, from_state, detail, at)
+           values ($office_id, 1, $key, $story, $run, 'stopped', 'In Progress', 'stopped', $at)`,
+            { key, story: TASK_1, run: claim.runId, at: s.t.clock.now() },
+          );
+          insertStoryPr(s.office, {
+            runId: claim.runId,
+            key,
+            number: 12,
+            url: "https://github.com/acme/app/pull/12",
+            branch: BRANCH_1,
+            base: "main",
+            headSha: "c".repeat(40),
+            state: "open",
+            title: "feat(TASK-1): export",
+            bodyHash: "h",
+            openedAt: s.t.clock.now(),
+            closedAt: null,
+          });
+        });
+        // The branch is on the remote after the claim, and the worktree is dirty two ways.
+        expect(await branchExists(repo.remote, repo.home, BRANCH_1)).toBe(true);
+        writeFileSync(join(claim.worktree, "scratch.txt"), "untracked\n");
+        writeFileSync(join(claim.worktree, "README.md"), "changed\n");
 
-      expect(await read({ story: TASK_1 })).toMatchObject({
-        ok: true,
-        result: { commits: expect.any(Array), files: [] },
-      });
-      expect(await branchExists(repo.dir, repo.home, `refs/heads/${BRANCH_1}`)).toBe(true);
+        // Without the flag the dirty worktree is refused with its files, and nothing changed.
+        const refused = await send("story.drop", { story: TASK_1, deleteBranch: false });
+        expect(refused).toMatchObject({ ok: false, error: { code: "story.dirtyWorktree" } });
+        const message = refused.ok ? "" : refused.error.message;
+        expect(message).toContain("scratch.txt");
+        expect(message).toContain("README.md");
+        expect(existsSync(claim.worktree)).toBe(true);
+        expect(liveClaimOf(s.office, key)).not.toBeNull();
+        expect(allEntries(s.office)).toEqual([]);
+        expect(closed).toEqual([]);
 
-      const dropped = await send("story.drop", { story: TASK_1, deleteBranch: true });
-      expect(dropped).toMatchObject({ ok: true, changed: true });
-      expect(await branchExists(repo.dir, repo.home, `refs/heads/${BRANCH_1}`)).toBe(false);
-      expect(await branchExists(repo.remote, repo.home, `refs/heads/${BRANCH_1}`)).toBe(false);
-      expect(releasedBranchFor(s.office, key, BRANCH_1)).toBeNull();
-      const row = s.office.get<{ reclaimed_at: number | null }>(
-        "select reclaimed_at from released_branches where office_id = $office_id and key = $key",
-        { key },
-      );
-      expect(row?.reclaimed_at).not.toBeNull();
-    }, FIXTURE);
+        const dropped = await send("story.drop", { story: TASK_1, deleteBranch: true });
+        expect(dropped).toMatchObject({ ok: true, changed: true, result: { story: TASK_1, key } });
+        expect(existsSync(claim.worktree)).toBe(false);
+        expect(await branchExists(repo.dir, repo.home, `refs/heads/${BRANCH_1}`)).toBe(false);
+        expect(await branchExists(repo.remote, repo.home, `refs/heads/${BRANCH_1}`)).toBe(false);
+        expect(liveClaimOf(s.office, key)).toBeNull();
+        expect(releasedBranchFor(s.office, key, BRANCH_1)).toBeNull();
+        expect(openPark(s.office, key)).toBeNull();
+        expect(closed).toHaveLength(1);
+        expect(closed[0]).toMatchObject({ repo: "acme/app", number: 12 });
+        expect(latestStoryPr(s.office, key)?.state).toBe("closed");
+
+        // The lane archived the task file on its engine branch, which is pushed.
+        const [entry] = allEntries(s.office);
+        expect(entry).toMatchObject({ kind: "drop", state: "pushed" });
+        const files = await inRemote(repo, "ls-tree", "-r", "--name-only", entry?.branch as string);
+        expect(files).toContain("backlog/archive/tasks/task-1 - Add-the-CSV-export-command.md");
+        expect(files).not.toContain(TASK_1_FILE);
+      }, FIXTURE);
+    });
+
+    it("keeps the branch and records it as released without deleteBranch", async () => {
+      await withBareRemote(async (repo) => {
+        await publish(repo);
+        const s = await claimSetup(repo);
+        const { send } = world(s);
+        const key = indexed(s, TASK_1, "Parked", {
+          reason: "stopped",
+          from: "In Progress",
+          note: "n",
+        });
+        const outcome = await claimStory(s.deps(), s.request(key));
+        if (!outcome.ok) throw new Error(`no claim: ${outcome.notice}`);
+        const { claim } = outcome;
+
+        const dropped = await send("story.drop", { story: TASK_1, deleteBranch: false });
+        expect(dropped).toMatchObject({ ok: true, changed: true });
+        expect(existsSync(claim.worktree)).toBe(false);
+        expect(await branchExists(repo.dir, repo.home, `refs/heads/${BRANCH_1}`)).toBe(true);
+        expect(await branchExists(repo.remote, repo.home, `refs/heads/${BRANCH_1}`)).toBe(true);
+        expect(liveClaimOf(s.office, key)).toBeNull();
+        expect(releasedBranchFor(s.office, key, BRANCH_1)).toMatchObject({ reason: "drop" });
+      }, FIXTURE);
+    });
+
+    it("lists the commit and the untracked file a deleteBranch drop loses (DIPO-228)", async () => {
+      await withBareRemote(async (repo) => {
+        await publish(repo);
+        const s = await claimSetup(repo);
+        const { read } = world(s);
+        const key = indexed(s, TASK_1, "Parked", {
+          reason: "stopped",
+          from: "In Progress",
+          note: "n",
+        });
+        const outcome = await claimStory(s.deps(), s.request(key));
+        if (!outcome.ok) throw new Error(`no claim: ${outcome.notice}`);
+        const { claim } = outcome;
+        writeFileSync(join(claim.worktree, "work.txt"), "work\n");
+        await git(claim.worktree, repo.home, "add", "work.txt");
+        await git(
+          claim.worktree,
+          repo.home,
+          "-c",
+          "user.name=dipo",
+          "-c",
+          "user.email=dipo@example.test",
+          "commit",
+          "-m",
+          "feat(TASK-1): add work",
+        );
+        writeFileSync(join(claim.worktree, "scratch.txt"), "untracked\n");
+
+        const reply = await read({ story: TASK_1 });
+        expect(reply).toMatchObject({
+          ok: true,
+          result: { story: TASK_1, key, files: ["scratch.txt"] },
+        });
+        const commits = reply.ok
+          ? (reply.result as { commits: { subject: string }[] }).commits
+          : [];
+        const subjects = commits.map((commit) => commit.subject);
+        expect(subjects).toContain("feat(TASK-1): add work");
+      }, FIXTURE);
+    });
+
+    it("deletes the kept branch of an unclaimed story locally and on the remote, and reclaims its release", async () => {
+      await withBareRemote(async (repo) => {
+        await publish(repo);
+        const s = await claimSetup(repo);
+        const { send, read } = world(s);
+        const key = indexed(s, TASK_1, "Parked", {
+          reason: "stopped",
+          from: "In Progress",
+          note: "n",
+        });
+        const outcome = await claimStory(s.deps(), s.request(key));
+        if (!outcome.ok) throw new Error(`no claim: ${outcome.notice}`);
+        const { claim } = outcome;
+        // A release that keeps the branch, its worktree removed as the release does.
+        s.office.immediate(() =>
+          releaseClaim(s.office, claim.runId, {
+            at: s.t.clock.now(),
+            reason: "stopped",
+            keepBranch: true,
+          }),
+        );
+        // The claim locked its worktree; the release unlocks and removes it.
+        await git(repo.dir, repo.home, "worktree", "unlock", claim.worktree);
+        await git(repo.dir, repo.home, "worktree", "remove", "--force", claim.worktree);
+
+        expect(await read({ story: TASK_1 })).toMatchObject({
+          ok: true,
+          result: { commits: expect.any(Array), files: [] },
+        });
+        expect(await branchExists(repo.dir, repo.home, `refs/heads/${BRANCH_1}`)).toBe(true);
+
+        const dropped = await send("story.drop", { story: TASK_1, deleteBranch: true });
+        expect(dropped).toMatchObject({ ok: true, changed: true });
+        expect(await branchExists(repo.dir, repo.home, `refs/heads/${BRANCH_1}`)).toBe(false);
+        expect(await branchExists(repo.remote, repo.home, `refs/heads/${BRANCH_1}`)).toBe(false);
+        expect(releasedBranchFor(s.office, key, BRANCH_1)).toBeNull();
+        const row = s.office.get<{ reclaimed_at: number | null }>(
+          "select reclaimed_at from released_branches where office_id = $office_id and key = $key",
+          { key },
+        );
+        expect(row?.reclaimed_at).not.toBeNull();
+      }, FIXTURE);
+    });
   });
-});
+}

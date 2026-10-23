@@ -12,6 +12,12 @@
 //   story is In Review is recorded as `found`, told once per base commit and shown on the story
 //   detail (`baseConflictOf`); nothing is merged, and the story's next In Review or merge-slot
 //   sync handles it (0019 section 10); a later check that finds none clears it (`cleared`).
+// - Merges outside the box (DIPO-324). The merge slot merges the base into the branch in dipo's own
+//   git while the story waits In Review, with no box turn. Such a merge is recorded as one the box
+//   still lacks (`box_copy` `pending`, migration 52, `pendingBoxCopy`); the run's next developer
+//   session copies what the branch got since the tip of the oldest such merge into the box before
+//   the worker starts (`RunResumerDeps.boxSync`, `BoxCollisions.copyPending`), and no part is taken
+//   while one is pending (`BoxPartsDeps.behind`): a part against that tip would undo the merge.
 // - One story, one branch. Records and hand-offs are read by the story and its branch across runs
 //   (`storyMerges`, `handOffState`): a re-claim of a kept branch is a new run, and its branch
 //   still holds what the earlier runs' merges left. The claim of a box run's reused branch merges
@@ -45,26 +51,61 @@
 //   (first parents) is a clean merge in the journal or a commit that changes only the story's task
 //   file: a carried `review_verdicts` row on the head's code tree key, so the review starter takes
 //   it without a round. A merge the journal does not hold never carries one.
+// - The resume of a `conflict` park (`ConflictResumes`, DIPO-324, 0020 section 2 and 0021). Every
+//   merge of a box run happens in dipo's own git and is copied into the box in the live run's turn
+//   of parts (`BoxCollisions.mergeOnResume`), never left in progress; so the resume prepares the
+//   first message before the new session, and any merge runs once that session is live:
+//   - `merge-in-progress`: the kept merge is committed on the branch and in the box. A new
+//     hand-off starts (the resume's `conflictHandoff` grant raised the cap), and the first message
+//     is the conflict item rebuilt from git: what of dipo's conflicted merges the tip has not
+//     resolved, with its hunks at the tip. When the base moved since, the committed merge cannot
+//     be undone without a forced push, so in place of 0019's abort dipo merges the base again on
+//     top of it once the session runs and hands the worker what conflicts then.
+//   - `unwritable-path`: the merge of the base is planned again first; a path the worker cannot
+//     write that still conflicts parks the story again at once, otherwise the base is merged once
+//     the session runs and a conflict is handed over as a hand-off.
+//   - `push-rejected`: the remote is fetched, and before the session dipo merges the commits only
+//     the remote branch holds into the branch in its own git (git's result, markers and all, as a
+//     catch-up commits it) and pushes, never forced. The merge waits as one the box lacks
+//     (`box_copy`), so the session's start copies it into the box before the worker runs, and no
+//     part is ever taken against the old tip: a part handed early cannot meet the rejected push
+//     again. The first message names those commits (subject, author, files) and the conflict item
+//     when git could not merge cleanly. Such a merge brings in commits no review saw, so no
+//     approval carries over it (`#carry` leaves out merges of the story's own remote branch).
+
+import { mkdtemp, realpath, rm } from "node:fs/promises";
+import { join } from "node:path";
 
 import type { IdSource, OfficeId, RunId, StoryKey } from "@dipsaus-orchestrator/contract";
 
 import { TEST_BEFORE_MERGE } from "../backlog/fields/labels";
 import { isTaskFileOf, TASKS_DIR } from "../backlog/runner";
 import {
+  baseRefOf,
   type CatchUpFound,
   type CatchUpMerged,
+  CONFLICT_FILE_READ_MAX,
   type ConflictFile,
+  conflictFeedbackItem,
+  fileHunks,
   markersAt,
   markersLeftText,
+  moveBranch,
+  planCatchUp,
+  SHOWN_PATHS_MAX,
   shownPaths,
   type SyncMode,
   type SyncOutcome,
 } from "../box/collisions";
-import type { PartRun } from "../box/parts";
+import { cleanDoorText } from "../box/door";
+import type { PartPark, PartRun } from "../box/parts";
 import { appendEntries, type NewEntry } from "../changelog/log";
 import type { OfficeConfig } from "../config";
 import type { OfficeHandle } from "../db/office";
 import type { GitSession, OfficeGit } from "../git/office";
+import { pushBranch } from "../git/task-commit";
+import parkedTemplate from "../prompts/feedback/parked.md" with { type: "text" };
+import { neutraliseTags, renderTemplate } from "../prompts/templates";
 import {
   recordReviewOverride,
   recordReviewVerdict,
@@ -76,6 +117,7 @@ import { withWorkViews } from "../views/work";
 import { runCaps } from "./caps";
 import { lastReviewVerdict } from "./fix-rounds";
 import { PARK_CAUSES } from "./park";
+import type { ConflictPrepared, ConflictResumer } from "./park-resume";
 import { appendRunStep, findRun, IN_REVIEW_END, type StoredRun } from "./records";
 import { REVIEWED_END } from "./rounds";
 import { codeTreeKeyOf } from "./story-git";
@@ -140,6 +182,8 @@ export function recordCatchUp(
     readonly tip: string;
     readonly commit: string | null;
     readonly conflicts: readonly ConflictFile[];
+    /** `pending` for a merge dipo made outside the run's box (migration 52, DIPO-324). */
+    readonly boxCopy?: "pending" | null;
   },
   at: number,
 ): StoredCatchUp {
@@ -151,8 +195,9 @@ export function recordCatchUp(
     )?.id ?? 1;
   office.run(
     `insert into catch_ups (office_id, run_id, catch_up_id, kind, base, onto_sha, tip_sha,
-       commit_sha, conflicts, at)
-     values ($office_id, $run, $id, $kind, $base, $onto, $tip, $commit, $conflicts, $at)`,
+       commit_sha, conflicts, at, box_copy)
+     values ($office_id, $run, $id, $kind, $base, $onto, $tip, $commit, $conflicts, $at,
+       $box_copy)`,
     {
       run: runId,
       id,
@@ -165,9 +210,45 @@ export function recordCatchUp(
         [...input.conflicts].toSorted((a, b) => (a.path < b.path ? -1 : a.path > b.path ? 1 : 0)),
       ),
       at,
+      box_copy: input.boxCopy ?? null,
     },
   );
   return catchUpsOf(office, runId).at(-1) as StoredCatchUp;
+}
+
+/**
+ * The merges dipo committed on the run's branch outside its box that the box has not received
+ * yet (DIPO-324): the branch tip the oldest was made on, from which the box's files are behind
+ * the branch, and the rows. Null when the box holds every merge.
+ */
+export function pendingBoxCopy(
+  office: OfficeHandle,
+  runId: RunId | string,
+): { readonly from: string; readonly ids: readonly number[] } | null {
+  const rows = office.all<{ catch_up_id: number; tip_sha: string }>(
+    `select catch_up_id, tip_sha from catch_ups where office_id = $office_id and run_id = $run
+      and kind = 'merged' and box_copy = 'pending' order by catch_up_id`,
+    { run: runId },
+  );
+  const first = rows[0];
+  return first === undefined
+    ? null
+    : { from: first.tip_sha, ids: rows.map((row) => row.catch_up_id) };
+}
+
+/** Inside the caller's transaction: the merges `ids` of the run reached its box. */
+export function markBoxCopied(
+  office: OfficeHandle,
+  runId: RunId | string,
+  ids: readonly number[],
+): void {
+  for (const id of ids) {
+    office.run(
+      `update catch_ups set box_copy = 'done' where office_id = $office_id and run_id = $run
+        and catch_up_id = $id and box_copy = 'pending'`,
+      { run: runId, id },
+    );
+  }
 }
 
 /** The run's `catch_ups` rows, oldest first. */
@@ -683,6 +764,8 @@ export class StoryConflicts {
           tip: merged.tip,
           commit: merged.commit,
           conflicts: merged.conflicts,
+          // A merge the merge slot made outside the box waits to be copied into it (DIPO-324).
+          ...(merged.outsideBox === true ? { boxCopy: "pending" as const } : {}),
         },
         at,
       );
@@ -814,9 +897,12 @@ export class StoryConflicts {
     if (verdict.verdict !== "approved" && override === null) return;
     const git = this.#deps.git(run.office);
     if (git === undefined) return;
+    // A merge of the story's own remote branch (a resumed push-rejected park, DIPO-324) brings in
+    // commits no review saw: never one an approval carries over.
+    const own = `${git.settings.remote}/${run.branch}`;
     const merges = new Set(
       catchUpsOf(office, run.runId)
-        .filter((row) => row.kind === "merged" && row.conflicts.length === 0)
+        .filter((row) => row.kind === "merged" && row.conflicts.length === 0 && row.base !== own)
         .map((row) => row.commit as string),
     );
     const carried = await git.run(async (session) => {
@@ -911,5 +997,489 @@ export class StoryConflicts {
       return entries.length;
     });
     if (appended > 0) this.#deps.onChanged?.(office.officeId as OfficeId);
+  }
+}
+
+// ---- the resume of a conflict park -----------------------------------------------------------
+
+/** The prefix of the stage folder of a resumed push's merge in dipo's temp root. */
+export const RESUME_MERGE_PREFIX = "dipo-resume-merge-";
+
+/** How many commits only the remote branch holds the first message of a resumed push names. */
+export const REMOTE_COMMITS_SHOWN = 20;
+
+/** What `ConflictResumes` needs; the daemon's are the office git and the box collisions. */
+export interface ConflictResumesDeps {
+  readonly offices: {
+    get(office: OfficeId): OfficeHandle | undefined;
+    config(office: OfficeId): OfficeConfig | undefined;
+  };
+  readonly clock: { now(): number };
+  readonly git: (office: OfficeId) => OfficeGit | undefined;
+  /**
+   * The merge of the base in the live run's turn of parts (`BoxCollisions.mergeOnResume`), into
+   * the story branch and the box.
+   */
+  readonly merge: (office: OfficeId, runId: RunId) => Promise<SyncOutcome>;
+  /** dipo's temp root: the stage folder of a merge's task-file resolution is made in it. */
+  readonly tmpRoot: string;
+  /**
+   * Writes the story's status back on its branch after a merge took the other side's version of
+   * its task file (the single field write path; `UnparkWriter.lift`).
+   */
+  readonly restoreStatus?: (office: OfficeId, run: StoredRun) => Promise<unknown>;
+  /** Sends `text` to the live run's worker as its next message (`RunControl.tellWorker`). */
+  readonly tell: (runId: RunId, text: string) => Promise<unknown>;
+  /** Parks the live run, stopping its worker (`RunControl.parkRun`). */
+  readonly parkLive: (runId: RunId, park: PartPark) => boolean;
+  /** Parks the resumed run again before any session starts (`RunControl.park`). */
+  readonly park: (
+    office: OfficeHandle,
+    run: StoredRun,
+    park: { readonly reason: "conflict"; readonly cause: string; readonly detail: string },
+  ) => Promise<unknown>;
+  /** The conflict item's character budget of the run (`prompt.budgets.feedbackItem`). */
+  readonly itemMax?: (office: OfficeId, run: StoredRun) => number;
+  readonly warn?: (message: string, fields: Readonly<Record<string, unknown>>) => void;
+}
+
+/** The commits only the remote branch holds, for the worker (subject, author, files). */
+interface RemoteCommit {
+  readonly sha: string;
+  readonly author: string;
+  readonly subject: string;
+  readonly files: readonly string[];
+}
+
+/** One line of untrusted git text (a subject, an author, a path) for the worker's message. */
+function gitLine(text: string, max: number): string {
+  return neutraliseTags(cleanDoorText(text).replaceAll(/\s+/g, " ").trim()).slice(0, max);
+}
+
+/** Pure: the commits only the remote branch holds, as the first message lists them. */
+export function remoteCommitsText(
+  name: string,
+  commits: readonly RemoteCommit[],
+  total: number,
+): string {
+  const lines = commits.slice(0, REMOTE_COMMITS_SHOWN).map((commit) => {
+    const files = commit.files.slice(0, SHOWN_PATHS_MAX).map((path) => gitLine(path, 300));
+    const more =
+      commit.files.length > files.length ? `, and ${commit.files.length - files.length} more` : "";
+    return `- ${commit.sha.slice(0, 12)} ${gitLine(commit.subject, 200)} (${gitLine(commit.author, 100)}): ${files.length === 0 ? "no files" : files.join(", ")}${more}`;
+  });
+  if (total > lines.length) lines.push(`- and ${total - lines.length} more commits`);
+  return [
+    `The push of your branch was rejected: ${name} holds ${total} commit${total === 1 ? "" : "s"} your branch lacks, made outside dipo:`,
+    ...lines,
+    `dipo merged ${name} into your branch and pushed it (it never forces a push), and your box gets that merge before you start. Read those files again before you change them further; the merged result goes through review and CI again.`,
+  ].join("\n");
+}
+
+async function revParseAt(session: GitSession, rev: string): Promise<string | null> {
+  const found = await session.step(session.repository, ["rev-parse", "--verify", "--quiet", rev]);
+  return found.code === 0 ? found.stdout.trim() : null;
+}
+
+async function ancestorAt(session: GitSession, older: string, newer: string): Promise<boolean> {
+  return (
+    (await session.step(session.repository, ["merge-base", "--is-ancestor", older, newer])).code ===
+    0
+  );
+}
+
+/** The content hunks of `paths` at `tip`, read from git objects (a file over the cap is named only). */
+async function hunksAt(
+  session: GitSession,
+  tip: string,
+  paths: readonly string[],
+): Promise<string[]> {
+  const out: string[] = [];
+  for (const path of paths) {
+    const spec = `${tip}:${path}`;
+    const size = await session.step(session.repository, ["cat-file", "-s", spec]);
+    if (size.code !== 0 || Number(size.stdout.trim()) > CONFLICT_FILE_READ_MAX) continue;
+    const blob = await session.step(session.repository, ["cat-file", "blob", spec]);
+    if (blob.code === 0) out.push(...fileHunks(path, blob.stdout));
+  }
+  return out;
+}
+
+/**
+ * The resume of a `conflict` park of a box run (DIPO-324): DIPO-155's `ConflictResumer`. See the
+ * file comment.
+ */
+export class ConflictResumes implements ConflictResumer {
+  readonly #deps: ConflictResumesDeps;
+
+  constructor(deps: ConflictResumesDeps) {
+    this.#deps = deps;
+  }
+
+  async prepare(
+    officeId: OfficeId,
+    run: StoredRun,
+    park: { readonly cause: string | null },
+  ): Promise<ConflictPrepared | { readonly parked: true }> {
+    const office = this.#deps.offices.get(officeId);
+    const git = this.#deps.git(officeId);
+    if (office === undefined || git === undefined || run.branch === null) {
+      throw new Error(`dipo cannot resume the conflict of ${run.runId} in this office`);
+    }
+    const fetched = await git.fetch();
+    if (!fetched.ok) {
+      this.#deps.warn?.("the fetch before a conflict resume failed; dipo uses what it has", {
+        run: run.runId,
+        reason: fetched.error.message,
+      });
+    }
+    switch (park.cause) {
+      case PARK_CAUSES.mergeInProgress:
+        return this.#kept(office, git, run);
+      case PARK_CAUSES.pushRejected:
+        return this.#remote(office, git, run);
+      default:
+        // `unwritable-path`, `catch-up-failed` and any other conflict park: the base again.
+        return this.#again(office, git, run, park.cause ?? PARK_CAUSES.unwritablePath);
+    }
+  }
+
+  /** `merge-in-progress`: the kept merge's conflict item, and a merge again when the base moved. */
+  async #kept(office: OfficeHandle, git: OfficeGit, run: StoredRun): Promise<ConflictPrepared> {
+    const officeId = office.officeId as OfficeId;
+    const merges = storyMerges(office, run.runId).filter(
+      (row) => row.commit !== null && row.conflicts.length > 0,
+    );
+    const kept = merges.at(-1);
+    const read = await git.run(async (session) => {
+      const ref = await baseRefOf(git, session);
+      const tip = await revParseAt(session, `refs/heads/${run.branch}^{commit}`);
+      const onto = ref === null ? null : await revParseAt(session, `${ref.ref}^{commit}`);
+      if (tip === null) return null;
+      const left = await unresolvedAt(session, tip, merges);
+      const paths = [...left.markers.keys()].toSorted();
+      return {
+        base: ref?.base ?? kept?.base ?? "the base",
+        tip,
+        onto,
+        moved: onto !== null && !(await ancestorAt(session, onto, tip)),
+        left,
+        hunks: await hunksAt(session, tip, paths),
+      };
+    });
+    if (read === null) throw new Error(`${run.story}'s branch ${run.branch} is gone`);
+    // What of the kept merge is still unresolved, as the conflict item names it.
+    const unresolved = new Set([
+      ...read.left.markers.keys(),
+      ...read.left.unchanged.map((file) => file.path),
+    ]);
+    const conflicts = (kept?.conflicts ?? []).filter((file) => unresolved.has(file.path));
+    for (const path of read.left.markers.keys()) {
+      if (!conflicts.some((file) => file.path === path)) conflicts.push({ path, kind: "content" });
+    }
+    const item = conflictFeedbackItem({
+      base: kept?.base ?? read.base,
+      onto: kept?.onto ?? read.onto ?? read.tip,
+      conflicts: conflicts.length === 0 ? (kept?.conflicts ?? []) : conflicts,
+      hunks: read.hunks,
+      ...this.#itemMax(officeId, run),
+    });
+    // The resumed session is a new hand-off of the kept merge (0019 section 10).
+    this.#write(office, () => {
+      const n = handOffState(office, run.runId).current + 1;
+      appendHandOff(
+        office,
+        run.runId,
+        { kind: "start", n, commit: kept?.commit ?? read.tip },
+        this.#now(),
+      );
+      return [];
+    });
+    const parts = [item.text];
+    if (!read.moved) return { message: this.#parked("merge-in-progress", parts) };
+    parts.push(
+      `${read.base} moved since dipo's merge, to ${(read.onto ?? "").slice(0, 12)}. dipo's merge is committed on your branch and in your box, so dipo does not undo it: once this session runs, dipo merges ${read.base} into your branch and your box again on top of it and tells you what conflicts then.`,
+    );
+    return {
+      message: this.#parked("merge-in-progress", parts),
+      afterStart: () => this.#merge(officeId, run),
+    };
+  }
+
+  /**
+   * `unwritable-path` (and `catch-up-failed`): parks again at once while a path the worker
+   * cannot write still conflicts, else merges the base again once the session runs.
+   */
+  async #again(
+    office: OfficeHandle,
+    git: OfficeGit,
+    run: StoredRun,
+    cause: string,
+  ): Promise<ConflictPrepared | { readonly parked: true }> {
+    const unwritable = cause === PARK_CAUSES.unwritablePath;
+    const officeId = office.officeId as OfficeId;
+    const plan = await git.run(async (session) => {
+      const ref = await baseRefOf(git, session);
+      if (ref === null || run.story === null || run.startSha === null) return null;
+      const planned = await planCatchUp(session, {
+        branch: run.branch as string,
+        startSha: run.startSha,
+        story: run.story,
+        base: ref.base,
+        baseRef: ref.ref,
+        write: false,
+        mode: "always",
+      });
+      return { ...planned, base: ref.base };
+    });
+    if (plan?.kind === "unwritable") {
+      await this.#deps.park(office, run, {
+        reason: "conflict",
+        cause: PARK_CAUSES.unwritablePath,
+        detail: `git still cannot merge ${plan.base} at ${plan.onto.slice(0, 12)} cleanly in paths the worker cannot write: ${shownPaths(plan.paths)}`,
+      });
+      return { parked: true };
+    }
+    if (plan === null || plan.kind !== "merge") {
+      return {
+        message: this.#parked(cause, [
+          unwritable
+            ? "The base no longer conflicts with your branch where you cannot write, and your branch needs no merge of it now."
+            : "Your branch holds the base, and your box holds every merge dipo made on it; nothing needs merging now.",
+        ]),
+      };
+    }
+    const what =
+      plan.conflicts.length === 0
+        ? "git merges it cleanly"
+        : `git cannot merge ${shownPaths(plan.conflicts.map((file) => file.path))} cleanly, so you get those conflicts to resolve`;
+    return {
+      message: this.#parked(cause, [
+        `${unwritable ? `The maintainer resolved the paths you cannot write on ${plan.base}. ` : ""}Once this session runs, dipo merges ${plan.base} at ${plan.onto.slice(0, 12)} into your branch and your box again; ${what}.`,
+      ]),
+      afterStart: () => this.#merge(officeId, run),
+    };
+  }
+
+  /**
+   * `push-rejected`: the commits only the remote branch holds, merged into the branch before the
+   * session and pushed, the box copy left pending for the session's start (see the file comment).
+   */
+  async #remote(
+    office: OfficeHandle,
+    git: OfficeGit,
+    run: StoredRun,
+  ): Promise<ConflictPrepared | { readonly parked: true }> {
+    const officeId = office.officeId as OfficeId;
+    const branch = run.branch as string;
+    const name = `${git.settings.remote}/${branch}`;
+    const ref = `refs/remotes/${git.settings.remote}/${branch}`;
+    const found = await git.run(async (session) => {
+      const tip = await revParseAt(session, `refs/heads/${branch}^{commit}`);
+      const theirs = await revParseAt(session, `${ref}^{commit}`);
+      if (tip === null || theirs === null) return null;
+      const listed = (
+        await session.ok(session.repository, ["rev-list", "--topo-order", `${tip}..${theirs}`])
+      )
+        .split("\n")
+        .map((line) => line.trim())
+        .filter((line) => line !== "");
+      const commits: RemoteCommit[] = [];
+      for (const sha of listed.slice(0, REMOTE_COMMITS_SHOWN)) {
+        const shown = await session.ok(session.repository, [
+          "show",
+          "-s",
+          "--format=%an%x00%s",
+          sha,
+        ]);
+        const [author = "", subject = ""] = shown.replace(/\n$/, "").split("\0");
+        const files = (
+          await session.ok(session.repository, [
+            "diff-tree",
+            "-r",
+            "-z",
+            "--no-commit-id",
+            "--name-only",
+            "--no-renames",
+            "--root",
+            sha,
+          ])
+        )
+          .split("\0")
+          .filter((path) => path !== "");
+        commits.push({ sha, author, subject, files });
+      }
+      return { commits, total: listed.length };
+    });
+    if (found === null || found.total === 0 || run.story === null || run.startSha === null) {
+      return {
+        message: this.#parked(PARK_CAUSES.pushRejected, [
+          `${name} holds no commit your branch lacks now, so nothing needs merging; dipo pushes your branch with your next part.`,
+        ]),
+      };
+    }
+    const story = run.story;
+    const startSha = run.startSha;
+    const scratch = await realpath(await mkdtemp(join(this.#deps.tmpRoot, RESUME_MERGE_PREFIX)));
+    let merged;
+    try {
+      merged = await git.run(async (session) => {
+        const plan = await planCatchUp(session, {
+          branch,
+          startSha,
+          story,
+          base: name,
+          baseRef: ref,
+          write: true,
+          mode: "always",
+          scratch,
+        });
+        if (plan.kind !== "merge" || plan.commit === null) return { plan, moved: false };
+        const moved = await moveBranch(
+          session,
+          branch,
+          plan.commit,
+          plan.tip,
+          `Merge ${name} into ${branch}`,
+        );
+        const hunks = moved
+          ? await hunksAt(
+              session,
+              plan.commit,
+              plan.conflicts.filter((file) => file.kind === "content").map((file) => file.path),
+            )
+          : [];
+        return { plan, moved, hunks };
+      });
+    } finally {
+      await rm(scratch, { recursive: true, force: true });
+    }
+    const plan = merged.plan;
+    if (plan.kind === "unwritable") {
+      await this.#deps.park(office, run, {
+        reason: "conflict",
+        cause: PARK_CAUSES.unwritablePath,
+        detail: `git cannot merge ${name} at ${plan.onto.slice(0, 12)} cleanly in paths the worker cannot write: ${shownPaths(plan.paths)}`,
+      });
+      return { parked: true };
+    }
+    if (plan.kind !== "merge" || plan.commit === null) {
+      return {
+        message: this.#parked(PARK_CAUSES.pushRejected, [
+          `Your branch holds ${name} already, so nothing needs merging; dipo pushes your branch with your next part.`,
+        ]),
+      };
+    }
+    if (!merged.moved) {
+      throw new Error(`the branch ${branch} moved while dipo merged ${name} into it`);
+    }
+    const commit = plan.commit;
+    // Recorded as a merge the box still lacks: the session's start copies it in (DIPO-324).
+    this.#write(office, () => {
+      const at = this.#now();
+      recordCatchUp(
+        office,
+        run.runId,
+        {
+          kind: "merged",
+          base: name,
+          onto: plan.onto,
+          tip: plan.tip,
+          commit,
+          conflicts: plan.conflicts,
+          boxCopy: "pending",
+        },
+        at,
+      );
+      if (plan.conflicts.length > 0) {
+        const n = handOffState(office, run.runId).current + 1;
+        appendHandOff(office, run.runId, { kind: "start", n, commit }, at);
+      }
+      return [];
+    });
+    if (plan.taskFile !== null) await this.#deps.restoreStatus?.(officeId, run);
+    const push = await git
+      .run((session) => pushBranch(session, git.settings.remote, branch))
+      .catch((error: unknown) => ({ pushed: false, rejected: false, error: messageOf(error) }));
+    if (push.rejected) {
+      await this.#deps.park(office, run, {
+        reason: "conflict",
+        cause: PARK_CAUSES.pushRejected,
+        detail: `${push.error ?? "the push was rejected"} again after dipo merged ${name}; the remote branch moved meanwhile`,
+      });
+      return { parked: true };
+    }
+    if (push.error !== null) {
+      this.#deps.warn?.("the merge of a resumed push-rejected park was not pushed", {
+        run: run.runId,
+        reason: push.error,
+      });
+    }
+    const parts = [remoteCommitsText(name, found.commits, found.total)];
+    if (plan.conflicts.length > 0) {
+      parts.push(
+        conflictFeedbackItem({
+          base: name,
+          onto: plan.onto,
+          conflicts: plan.conflicts,
+          hunks: merged.hunks ?? [],
+          ...this.#itemMax(officeId, run),
+        }).text,
+      );
+    } else {
+      parts.push("git merged it cleanly.");
+    }
+    return { message: this.#parked(PARK_CAUSES.pushRejected, parts) };
+  }
+
+  /** Once the session runs: the merge, then the worker told, or the park it asks for. */
+  async #merge(officeId: OfficeId, run: StoredRun): Promise<void> {
+    const outcome = await this.#deps.merge(officeId, run.runId);
+    switch (outcome.kind) {
+      case "merged": {
+        const text =
+          outcome.item === null
+            ? `dipo merged ${outcome.facts.base} at ${outcome.facts.onto.slice(0, 12)} into your branch and copied it into your box; git merged it cleanly. Read the files it changed again before you change them further, and keep going.`
+            : outcome.item.text;
+        await this.#deps.tell(run.runId, text);
+        return;
+      }
+      case "park":
+        this.#deps.parkLive(run.runId, outcome.park);
+        return;
+      case "stopped":
+        this.#deps.warn?.("the merge of a resumed conflict found the run stopped", {
+          run: run.runId,
+        });
+        return;
+      case "none":
+        return;
+    }
+  }
+
+  /** The first message: `feedback/parked.md` with the cause and the resume's own text. */
+  #parked(cause: string, parts: readonly string[]): string {
+    return renderTemplate(parkedTemplate, {
+      reason: "conflict",
+      cause,
+      detail: parts.join("\n\n"),
+    });
+  }
+
+  #itemMax(officeId: OfficeId, run: StoredRun): { itemMax?: number } {
+    const max = this.#deps.itemMax?.(officeId, run);
+    return max === undefined ? {} : { itemMax: max };
+  }
+
+  #now(): number {
+    return this.#deps.clock.now();
+  }
+
+  #write(office: OfficeHandle, fn: () => readonly NewEntry[]): void {
+    const at = this.#now();
+    office.immediate(() => {
+      const entries = withWorkViews(office, fn());
+      appendEntries(office, entries, { at });
+    });
   }
 }

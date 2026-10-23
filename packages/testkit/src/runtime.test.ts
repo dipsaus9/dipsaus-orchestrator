@@ -20,6 +20,7 @@ describe("isolatedDaemonEnv", () => {
   it("puts state, runtime and temp directories under the test directory", () =>
     withTempDir((dir) => {
       expect(isolatedDaemonEnv(dir)).toEqual({
+        DIPO_TEST: "1",
         DIPO_HOME: join(dir, "state"),
         DIPO_RUNTIME_DIR: join(dir, "run"),
         TMPDIR: join(dir, "tmp"),

@@ -1036,6 +1036,11 @@ export interface CatchUpMerged {
   readonly conflicts: readonly ConflictFile[];
   /** The story's own task file when dipo resolved a conflict in it, else null. */
   readonly taskFile: string | null;
+  /**
+   * True for a merge dipo committed on the branch outside the box (the merge slot's sync,
+   * DIPO-324): the box gets it only before the run's next developer session (`copyPending`).
+   */
+  readonly outsideBox?: true;
 }
 
 /** A conflict the check of a story In Review found; nothing merged (0019 section 10). */
@@ -1306,6 +1311,58 @@ export class BoxCollisions {
       return { kind: "none" };
     }
     return this.#catchUp(git, run, planMode);
+  }
+
+  /**
+   * The merge a maintainer resume of a `conflict` park asks for once its new session runs in the
+   * box (DIPO-324, 0020 section 2): whatever the box holds goes first, then the base is merged into
+   * the story branch and the box as a catch-up is, whenever it moved, never on the overlap of
+   * changed files. Nothing is told to the worker and nothing parks here: the caller decides from
+   * the outcome.
+   */
+  async mergeOnResume(run: PartRun): Promise<SyncOutcome> {
+    const git = this.#deps.git(run.office);
+    if (git === undefined) return { kind: "none" };
+    const before = await this.#deps.parts.deliverLast(run.runId, CATCH_UP_PART_MESSAGE);
+    const park = partPark(before);
+    if (park !== null) return { kind: "park", park };
+    if (before.kind === "stopped") return { kind: "stopped" };
+    return this.#deps.parts.inTurn(run.runId, async (): Promise<SyncOutcome> => {
+      const plan = await this.#plan(git, run, false, "always");
+      if (plan === null || plan.kind === "current" || plan.kind === "apart") {
+        return { kind: "none" };
+      }
+      if (plan.kind === "unwritable") return { kind: "park", park: this.#unwritable(run, plan) };
+      return this.#catchUp(git, run, "always");
+    });
+  }
+
+  /**
+   * Copies into the run's box what the story branch's tip holds outside `backlog/` and the tip
+   * `from` did not (DIPO-324): the merges dipo committed on the branch outside the box since
+   * `from` (the merge slot's sync), staged and checked as a catch-up's are, then removed and
+   * written in the box. The box must run, and no part is taken meanwhile: the run's session has
+   * not started. Throws when a stage or the copy fails; the branch is never moved here.
+   */
+  async copyPending(run: PartRun, from: string): Promise<BoxChanges> {
+    const git = this.#deps.git(run.office);
+    if (git === undefined) throw new BoxError("box.failed", `office ${run.office} has no git.`);
+    const tip = await git.run((session) => revParse(session, `refs/heads/${run.branch}^{commit}`));
+    if (tip === null) throw new BoxError("box.failed", `the branch ${run.branch} is gone.`);
+    const changes = await git.run((session) => boxChangesOf(session, from, tip));
+    if (changes.written.length === 0 && changes.removed.length === 0) return changes;
+    const staged = await this.#stage(git, tip, changes);
+    try {
+      await this.#write(run, staged.dir, changes);
+    } finally {
+      await staged.remove();
+    }
+    this.#deps.info?.("dipo's merges on a story branch were copied into its box", {
+      run: run.runId,
+      written: changes.written.length,
+      removed: changes.removed.length,
+    });
+    return changes;
   }
 
   async #once(): Promise<void> {

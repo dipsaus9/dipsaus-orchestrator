@@ -42,6 +42,8 @@ class FakeHost implements CodeHost {
   readonly updates: { number: number; title: string; body: string }[] = [];
   open: HostPr | null = null;
   failCreate: CodeHostError | null = null;
+  /** The number the next created PR gets. */
+  number = 7;
   async checkVersion(): Promise<string> {
     this.calls.push("checkVersion");
     return "2.50.0";
@@ -54,7 +56,7 @@ class FakeHost implements CodeHost {
     this.calls.push("createPr");
     if (this.failCreate !== null) throw this.failCreate;
     this.creates.push(pr);
-    this.open = hostPr(7, pr);
+    this.open = hostPr(this.number, pr);
     return this.open;
   }
   async updatePr(
@@ -69,13 +71,15 @@ class FakeHost implements CodeHost {
   hostState: PrState = "open";
   /** The head commit `viewPr` reports; "x" by default. */
   hostHead = "x";
+  /** The state of one PR number, over `hostState`. */
+  readonly states = new Map<number, PrState>();
   readonly views: number[] = [];
   async viewPr(_repo: string, number: number): Promise<HostPr> {
     this.calls.push("viewPr");
     this.views.push(number);
     return {
       ...hostPr(number, { base: "main", head: BRANCH, title: "t" }),
-      state: this.hostState,
+      state: this.states.get(number) ?? this.hostState,
       headSha: this.hostHead,
     };
   }
@@ -574,6 +578,155 @@ describe("the story PR of a run with a configuration snapshot", () => {
       const body = w.host.creates[0]?.body ?? "";
       expect(body).toContain("started-check");
       expect(body).not.toContain("later-check");
+    });
+  });
+});
+
+/** The `stopped` / `pr-closed` park of the run, resolved by a maintainer resume. */
+function resumedPrClosedPark(w: World): void {
+  const at = w.t.clock.now();
+  w.office.immediate(() =>
+    w.office.run(
+      `insert into parks (office_id, park_id, key, story_id, run_id, reason, cause, from_state,
+         detail, at, resolved_at, resolved_how)
+       values ($office_id, 1, $key, 'DIPO-1', $run, 'stopped', 'pr-closed', 'In Review',
+         'PR #7 was closed on the host', $at, $at, 'resume')`,
+      { key: w.key, run: w.run, at },
+    ),
+  );
+}
+
+describe("a story PR closed on the host, replaced on resume (DIPO-324)", () => {
+  it("opens a new PR for the same run and branch whose body names the closed one, and keeps naming it", async () => {
+    await inWorld(async (w) => {
+      const id = w.office.officeId;
+      await w.prs.sync(id, w.run);
+      w.host.hostState = "closed";
+      w.t.clock.advance(60_000);
+      await w.prs.retry(id);
+      expect(findStoryPr(w.office, w.run)).toMatchObject({ number: 7, state: "closed" });
+
+      // GitHub keeps the closed PR; the new one is another number for the same branch.
+      w.host.open = null;
+      w.host.number = 8;
+      w.host.states.set(7, "closed");
+      w.host.hostState = "open";
+      await w.prs.replace(id, w.run);
+      expect(w.host.creates).toHaveLength(2);
+      const created = w.host.creates[1] as NewPr;
+      expect(created).toMatchObject({ base: "main", head: BRANCH });
+      expect(created.body).toContain("- replaces #7, which was closed on the host without a merge");
+      expect(findStoryPr(w.office, w.run)).toMatchObject({
+        number: 8,
+        url: `https://github.com/${REPO}/pull/8`,
+        state: "open",
+        headSha: FACTS.head,
+        closedAt: null,
+        replaces: 7,
+      });
+      expect(storyView(w.office, w.key)?.pr).toMatchObject({ number: 8, state: "open" });
+      expect(
+        notices(w.office, STORY_PR_NOTICES.opened).map(
+          (event) => (event.data as { text: string }).text,
+        ),
+      ).toContain(
+        `dipo opened PR #8 for ${w.key} in place of PR #7, which was closed on the host: https://github.com/${REPO}/pull/8`,
+      );
+
+      // A later push rebuilds the body, which still names the closed PR.
+      w.facts = { ...FACTS, head: "f".repeat(40) };
+      await w.prs.sync(id, w.run);
+      expect(w.host.updates.at(-1)).toMatchObject({ number: 8 });
+      expect(w.host.updates.at(-1)?.body).toContain("- replaces #7");
+      // Replaced already: a retry of the resume opens nothing more.
+      await w.prs.replace(id, w.run);
+      expect(w.host.creates).toHaveLength(2);
+    });
+  });
+
+  it("replaces a PR the host closed before the PR poll recorded it", async () => {
+    await inWorld(async (w) => {
+      const id = w.office.officeId;
+      await w.prs.sync(id, w.run);
+      // The merge slot read the host and parked; the record still says open.
+      w.host.hostState = "closed";
+      w.host.open = null;
+      w.host.number = 8;
+      await w.prs.replace(id, w.run);
+      expect(w.host.creates).toHaveLength(2);
+      expect(findStoryPr(w.office, w.run)).toMatchObject({ number: 8, replaces: 7 });
+    });
+  });
+
+  it("tries a replacement whose create failed again from the PR poll", async () => {
+    await inWorld(async (w) => {
+      const id = w.office.officeId;
+      await w.prs.sync(id, w.run);
+      w.host.hostState = "closed";
+      w.t.clock.advance(60_000);
+      await w.prs.retry(id);
+      resumedPrClosedPark(w);
+      w.host.open = null;
+      w.host.number = 8;
+      w.host.failCreate = new CodeHostError("failed", "gh: network is down");
+      await w.prs.replace(id, w.run);
+      expect(findStoryPr(w.office, w.run)).toMatchObject({ number: 7, state: "closed" });
+      expect(notices(w.office, STORY_PR_NOTICES.openFailed)).toHaveLength(1);
+
+      w.host.failCreate = null;
+      expect(await w.prs.retry(id)).toEqual([w.run]);
+      expect(findStoryPr(w.office, w.run)).toMatchObject({ number: 8, state: "open", replaces: 7 });
+      // Done: the next poll tries nothing.
+      w.host.hostState = "open";
+      expect(await w.prs.retry(id)).toEqual([]);
+    });
+  });
+});
+
+describe("a closed story PR the maintainer reopened before the resume (DIPO-324)", () => {
+  it("is updated as the run's PR, never recorded as its own replacement", async () => {
+    await inWorld(async (w) => {
+      const id = w.office.officeId;
+      await w.prs.sync(id, w.run);
+      w.host.hostState = "closed";
+      w.t.clock.advance(60_000);
+      await w.prs.retry(id);
+      expect(findStoryPr(w.office, w.run)).toMatchObject({ number: 7, state: "closed" });
+      // Reopened on GitHub: open again, and the open PR of the branch.
+      w.host.hostState = "open";
+      const updates = w.host.updates.length;
+      await w.prs.replace(id, w.run);
+      expect(w.host.creates).toHaveLength(1);
+      expect(findStoryPr(w.office, w.run)).toMatchObject({
+        number: 7,
+        state: "open",
+        closedAt: null,
+        replaces: null,
+      });
+      expect(storyView(w.office, w.key)?.pr).toMatchObject({ number: 7, state: "open" });
+      // Its body is the run's own, unchanged, so it is not written again; none names a replacement.
+      expect(w.host.updates.slice(updates)).toEqual([]);
+      expect(w.host.updates.some((update) => update.body.includes("replaces #"))).toBe(false);
+    });
+  });
+
+  it("is never its own replacement when the host's open PR of the branch is the closed one", async () => {
+    await inWorld(async (w) => {
+      const id = w.office.officeId;
+      await w.prs.sync(id, w.run);
+      w.host.hostState = "closed";
+      w.t.clock.advance(60_000);
+      await w.prs.retry(id);
+      // The view still says closed, but the branch's open PR is #7 again (reopened meanwhile).
+      w.host.open = { ...(w.host.open as HostPr), number: 7 };
+      await w.prs.replace(id, w.run);
+      expect(w.host.creates).toHaveLength(1);
+      expect(findStoryPr(w.office, w.run)).toMatchObject({
+        number: 7,
+        state: "open",
+        replaces: null,
+        bodyHash: "",
+      });
     });
   });
 });

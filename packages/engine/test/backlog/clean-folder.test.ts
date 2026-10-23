@@ -6,7 +6,7 @@
 // worktree, holds only dipo's own copy of the backlog and none of those files, and its environment
 // holds only the explicit keys, not a variable of the caller's environment.
 
-import { describe, expect, it } from "bun:test";
+import { describe, expect, it, setDefaultTimeout } from "bun:test";
 import {
   appendFileSync,
   cpSync,
@@ -50,6 +50,10 @@ import {
 } from "../worktree/helpers";
 
 import { BACKLOG_CLI } from "./helpers";
+
+// Each test drives the pinned Backlog CLI and real git several times; the GitHub macOS runner needs
+// more than the default 5 s (DIPO-316).
+setDefaultTimeout(30_000);
 
 const FIXTURE = { fixture: BACKLOG_FIXTURE };
 

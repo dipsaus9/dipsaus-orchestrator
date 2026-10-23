@@ -56,6 +56,8 @@ import {
   gitStoryOps,
   gitUnparkWriter,
   type HostStarter,
+  markBoxCopied,
+  pendingBoxCopy,
   runCaps,
   type RunSteering,
   type StoredRun,
@@ -674,6 +676,32 @@ async function buildDaemon(
     },
   });
 
+  // The daemon's box copy (DIPO-324) for the stand-in box: what the branch got outside it since the
+  // oldest pending merge's tip, outside `backlog/`, written into or removed from the worktree.
+  const copyIntoWorktree = async (office: OfficeId, run: StoredRun): Promise<void> => {
+    const handle = loaded().manager.get(office);
+    const pending = handle === undefined ? null : pendingBoxCopy(handle, run.runId);
+    if (handle === undefined || pending === null || run.worktree === null) return;
+    const worktree = run.worktree;
+    const tip = (await repo.run(["git", "rev-parse", "HEAD"], worktree)).stdout.trim();
+    const changed = await repo.run(
+      ["git", "diff-tree", "-r", "-z", "--no-renames", "--name-status", pending.from, tip],
+      worktree,
+    );
+    const fields = changed.stdout.split("\0").filter((field) => field !== "");
+    for (let at = 0; at + 1 < fields.length; at += 2) {
+      const status = fields[at] as string;
+      const path = fields[at + 1] as string;
+      if (path === "backlog" || path.startsWith("backlog/")) continue;
+      if (status === "D") {
+        await repo.run(["git", "rm", "--quiet", "--force", "--", path], worktree);
+      } else {
+        await repo.run(["git", "checkout", tip, "--", path], worktree);
+      }
+    }
+    handle.immediate(() => markBoxCopied(handle, run.runId, pending.ids));
+  };
+
   // Nothing is ever sent to a scripted session: its host has its lines already.
   const steering: RunSteering = {
     send: async () => ({ ok: false, reason: "the worker host has exited" }),
@@ -714,6 +742,9 @@ async function buildDaemon(
     },
     ci: (office, runId) => storyPrs.ciState(office, runId),
     boxRun: () => true,
+    // The merges the merge slot made on the branch reach the stand-in box before the worker's
+    // next session (DIPO-324), as `BoxCollisions.copyPending` copies them into a real box.
+    boxSync: (office, run) => copyIntoWorktree(office, run),
     // Setup is stubbed: no install step runs (DIPO-39's own tests cover the real one).
     setup: async (): Promise<SetupOutcome> =>
       ({
