@@ -341,15 +341,24 @@ export class StoryPrs {
     const stored = findStoryPr(state.office, runId);
     if (stored === null) return this.#sync(officeId, state, runId);
     if (stored.state === "merged") return;
-    let closed = stored.state === "closed";
-    if (!closed) {
-      // The merge slot parks on the host's state; the poll may not have recorded it yet.
-      const repo = repoOfPrUrl(stored.url);
-      const viewed =
-        repo === null ? null : await this.#deps.host.viewPr(repo, stored.number).catch(() => null);
-      if (viewed?.state === "merged") return;
-      closed = viewed?.state === "closed";
+    // The host decides: the merge slot parks on its state, which the poll may not have recorded,
+    // and the maintainer may have reopened the closed PR before resuming.
+    const repo = repoOfPrUrl(stored.url);
+    const viewed =
+      repo === null ? null : await this.#deps.host.viewPr(repo, stored.number).catch(() => null);
+    if (viewed?.state === "merged") return;
+    if (viewed?.state === "open") {
+      // Reopened (or never closed): the same PR, updated, never its own replacement.
+      if (stored.state !== "open") {
+        const story = findRun(state.office, runId)?.story ?? runId;
+        this.#write(officeId, state, () => {
+          setStoryPrState(state.office, runId, { state: "open", closedAt: null });
+          return [prEntry({ ...stored, state: "open", closedAt: null }, story)];
+        });
+      }
+      return this.#sync(officeId, state, runId);
     }
+    const closed = viewed?.state === "closed" || (viewed === null && stored.state === "closed");
     await this.#sync(officeId, state, runId, closed ? stored : undefined);
   }
 
@@ -693,6 +702,20 @@ export class StoryPrs {
   ): Promise<void> {
     const host = this.#deps.host;
     let pr: HostPr | null = await host.findOpenPr(input.repo, input.branch);
+    if (pr !== null && pr.number === input.replaces) {
+      // The closed PR is open again on the host: it is the run's PR, never its own replacement.
+      // Its record is open with no stored body, so the next sync writes the body it should have.
+      this.#write(officeId, state, () => {
+        setStoryPrState(state.office, input.runId, { state: "open", closedAt: null });
+        updateStoryPr(state.office, input.runId, {
+          headSha: input.facts.head,
+          title: input.title,
+          bodyHash: "",
+        });
+        return [];
+      });
+      return;
+    }
     // An open PR a crash left: what it holds is not known to match, so it is written once.
     if (pr !== null) {
       await host.updatePr(input.repo, pr.number, { title: input.title, body: input.body });

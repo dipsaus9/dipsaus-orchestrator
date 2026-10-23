@@ -69,11 +69,16 @@ class FakeHost implements CodeHost {
   }
   /** The state `viewPr` reports, and the PR numbers it was asked for. */
   hostState: PrState = "open";
+  /** The state of one PR number, over `hostState`. */
+  readonly states = new Map<number, PrState>();
   readonly views: number[] = [];
   async viewPr(_repo: string, number: number): Promise<HostPr> {
     this.calls.push("viewPr");
     this.views.push(number);
-    return { ...hostPr(number, { base: "main", head: BRANCH, title: "t" }), state: this.hostState };
+    return {
+      ...hostPr(number, { base: "main", head: BRANCH, title: "t" }),
+      state: this.states.get(number) ?? this.hostState,
+    };
   }
   async closePr(): Promise<void> {
     this.calls.push("closePr");
@@ -583,6 +588,7 @@ describe("a story PR closed on the host, replaced on resume (DIPO-324)", () => {
       // GitHub keeps the closed PR; the new one is another number for the same branch.
       w.host.open = null;
       w.host.number = 8;
+      w.host.states.set(7, "closed");
       w.host.hostState = "open";
       await w.prs.replace(id, w.run);
       expect(w.host.creates).toHaveLength(2);
@@ -652,6 +658,54 @@ describe("a story PR closed on the host, replaced on resume (DIPO-324)", () => {
       // Done: the next poll tries nothing.
       w.host.hostState = "open";
       expect(await w.prs.retry(id)).toEqual([]);
+    });
+  });
+});
+
+describe("a closed story PR the maintainer reopened before the resume (DIPO-324)", () => {
+  it("is updated as the run's PR, never recorded as its own replacement", async () => {
+    await inWorld(async (w) => {
+      const id = w.office.officeId;
+      await w.prs.sync(id, w.run);
+      w.host.hostState = "closed";
+      w.t.clock.advance(60_000);
+      await w.prs.retry(id);
+      expect(findStoryPr(w.office, w.run)).toMatchObject({ number: 7, state: "closed" });
+      // Reopened on GitHub: open again, and the open PR of the branch.
+      w.host.hostState = "open";
+      const updates = w.host.updates.length;
+      await w.prs.replace(id, w.run);
+      expect(w.host.creates).toHaveLength(1);
+      expect(findStoryPr(w.office, w.run)).toMatchObject({
+        number: 7,
+        state: "open",
+        closedAt: null,
+        replaces: null,
+      });
+      expect(storyView(w.office, w.key)?.pr).toMatchObject({ number: 7, state: "open" });
+      // Its body is the run's own, unchanged, so it is not written again; none names a replacement.
+      expect(w.host.updates.slice(updates)).toEqual([]);
+      expect(w.host.updates.some((update) => update.body.includes("replaces #"))).toBe(false);
+    });
+  });
+
+  it("is never its own replacement when the host's open PR of the branch is the closed one", async () => {
+    await inWorld(async (w) => {
+      const id = w.office.officeId;
+      await w.prs.sync(id, w.run);
+      w.host.hostState = "closed";
+      w.t.clock.advance(60_000);
+      await w.prs.retry(id);
+      // The view still says closed, but the branch's open PR is #7 again (reopened meanwhile).
+      w.host.open = { ...(w.host.open as HostPr), number: 7 };
+      await w.prs.replace(id, w.run);
+      expect(w.host.creates).toHaveLength(1);
+      expect(findStoryPr(w.office, w.run)).toMatchObject({
+        number: 7,
+        state: "open",
+        replaces: null,
+        bodyHash: "",
+      });
     });
   });
 });
