@@ -143,6 +143,21 @@ describe("the protected list", () => {
     }
   });
 
+  it("names the configuration in the backlog folder backlog.config.yml names", () => {
+    for (const [path, kind] of [
+      ["planning/board/config.yml", "backlogConfig"],
+      ["Planning/Board/CONFIG.yaml", "backlogConfig"],
+      ["planning/board/tasks/task-1 - x.md", null],
+      ["planning/config.yml", null],
+    ] as const) {
+      expect([path, protectedKind(path, "planning/board")]).toEqual([path, kind]);
+    }
+    expect(protectedKind("planning/board/config.yml")).toBeNull();
+    const changes: PartChange[] = [{ path: "planning/board/config.yml", kind: "deleted" }];
+    expect(protectedHits(changes, [], "planning/board").kinds).toEqual(["backlogConfig"]);
+    expect(protectedHits(changes, []).kinds).toEqual([]);
+  });
+
   it("names each tool-configuration kind in the park detail", () => {
     const changes: PartChange[] = [
       { path: "bunfig.toml", kind: "deleted" },

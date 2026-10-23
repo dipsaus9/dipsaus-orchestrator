@@ -475,6 +475,40 @@ describe("the scans park and commit nothing", () => {
       ));
   }
 
+  it("parks protected-file on the configuration of the backlog folder backlog.config.yml names", () =>
+    inParts(
+      async (w) => {
+        write(w.work, { "planning/config.yml": "project_name: x\n" });
+        await w.parts.onPart(part("Change the named folder's configuration"));
+        expect(w.parks.map((p) => [p.reason, p.cause])).toEqual([
+          ["scope-violation", "protected-file"],
+        ]);
+        expect(await tip(w)).toBe(w.claimTip);
+      },
+      {
+        start: {
+          "backlog.config.yml": 'project_name: x\nbacklog_directory: "planning"\n',
+          "planning/config.yml": "project_name: x\nauto_commit: false\n",
+        },
+      },
+    ));
+
+  it("commits a change beside that configuration in the named folder", () =>
+    inParts(
+      async (w) => {
+        write(w.work, { "planning/notes.txt": "Notes.\n" });
+        await w.parts.onPart(part("Add notes"));
+        expect(w.parks).toEqual([]);
+        expect(await filesAt(w, await tip(w))).toContain("planning/notes.txt");
+      },
+      {
+        start: {
+          "backlog.config.yml": 'project_name: x\nbacklog_directory: "planning"\n',
+          "planning/config.yml": "project_name: x\n",
+        },
+      },
+    ));
+
   it("parks protected-file on a deleted MCP server configuration", () =>
     inParts(
       async (w) => {

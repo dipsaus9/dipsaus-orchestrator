@@ -32,7 +32,8 @@
 //    look-alike fold as a second layer: git's own folder, the whole `backlog/` with the story's
 //    task file, `.dipo/`, `.github/`, the Claude settings, `.gitattributes`/`.gitmodules`, and
 //    the configuration of the tools dipo runs on checkouts of the repository: the Backlog CLI's,
-//    Bun's and Claude Code's MCP servers', DIPO-312) runs
+//    Bun's and Claude Code's MCP servers', with the configuration in the backlog folder the
+//    delivered `backlog.config.yml` names, DIPO-312) runs
 //    over every added, changed and deleted path, where any link other than an unchanged tracked
 //    symlink also counts as protected. Then the secret scan, outside the git queue: the cleaned
 //    commit subject, every added or changed path's name, and every added or changed file streamed
@@ -103,6 +104,7 @@ import {
   secretKeysOfFile,
   type SecretValues,
 } from "../context/secrets";
+import { backlogPointer } from "../backlog/runner";
 import { BASE_CHECKOUT_ENV } from "../git/hardened";
 import type { GitSession, OfficeGit } from "../git/office";
 import { EXTERNAL_STEP_TIMEOUT_MS, GitError } from "../git/runner";
@@ -289,11 +291,17 @@ function lookAlike(text: string): string {
  * The protected kind of the repo-relative `path`, or null. Compared folded (`foldName`), as an
  * APFS volume finds files; and, as a second layer, a path with characters outside ASCII is also
  * protected when its look-alike fold (`.gitattributeſ`, `ｂacklog/`) names a protected file.
+ * `backlogFolder` is the backlog folder the delivered tree's `backlog.config.yml` names, if any:
+ * its `config.yml` and `config.yaml` are the Backlog CLI's configuration too.
  */
-export function protectedKind(path: string): ProtectedKind | null {
-  const kind = protectedOf(foldName(path));
+export function protectedKind(
+  path: string,
+  backlogFolder: string | null = null,
+): ProtectedKind | null {
+  const kind = protectedOf(foldName(path), backlogFolder === null ? null : foldName(backlogFolder));
   if (kind !== null) return kind;
-  return /[^\p{ASCII}]/u.test(path) ? protectedOf(lookAlike(path)) : null;
+  if (!/[^\p{ASCII}]/u.test(path)) return null;
+  return protectedOf(lookAlike(path), backlogFolder === null ? null : lookAlike(backlogFolder));
 }
 
 /**
@@ -322,7 +330,7 @@ export function unsafePath(path: string): boolean {
   return false;
 }
 
-function protectedOf(key: string): ProtectedKind | null {
+function protectedOf(key: string, folder: string | null): ProtectedKind | null {
   const parts = key.split("/");
   if (parts.includes(".git")) return "git";
   if (parts[0] === "backlog") return "backlog";
@@ -331,6 +339,9 @@ function protectedOf(key: string): ProtectedKind | null {
   if (key === ".claude/settings.json" || key === ".claude/settings.local.json") return "claude";
   const name = parts.at(-1);
   if (name === ".gitattributes" || name === ".gitmodules") return "gitConfig";
+  if (folder !== null && (key === `${folder}/config.yml` || key === `${folder}/config.yaml`)) {
+    return "backlogConfig";
+  }
   return toolConfigOf(key, parts);
 }
 
@@ -522,15 +533,19 @@ export function blobId(format: "sha1" | "sha256", content: Uint8Array | string):
 /** The kind a secret file name is reported by. */
 export const SECRET_NAME_KIND = "a secret file name";
 
-/** Pure: the protected-file check of a part's changes and link hits. */
+/**
+ * Pure: the protected-file check of a part's changes and link hits; `backlogFolder` as in
+ * `protectedKind`.
+ */
 export function protectedHits(
   changes: readonly PartChange[],
   linkHits: readonly string[],
+  backlogFolder: string | null = null,
 ): { readonly kinds: ProtectedKind[]; readonly paths: string[] } {
   const kinds = new Set<ProtectedKind>();
   const paths: string[] = [];
   for (const change of changes) {
-    const kind = protectedKind(change.path);
+    const kind = protectedKind(change.path, backlogFolder);
     if (kind === null) continue;
     kinds.add(kind);
     paths.push(change.path);
@@ -848,6 +863,25 @@ async function readViewAt(session: GitSession, tip: string, startSha: string): P
     ignores.push({ dir, text: await session.ok(repo, ["cat-file", "blob", entry.id]) });
   }
   return { tip, tipTree, format, entries, ignores };
+}
+
+/**
+ * The backlog folder the delivered tree's `backlog.config.yml` names (`backlogPointer`), or null:
+ * none, a link or a file too large to read, or a pointer that does not resolve (the runner then
+ * refuses every Backlog CLI call there).
+ */
+async function namedBacklogFolder(
+  session: GitSession,
+  entries: ReadonlyMap<string, TreeEntry>,
+): Promise<string | null> {
+  const entry = entries.get("backlog.config.yml");
+  if (entry === undefined || entry.type !== "blob" || entry.mode === "120000") return null;
+  const size = Number((await session.ok(session.repository, ["cat-file", "-s", entry.id])).trim());
+  if (!(size <= IGNORE_FILE_MAX)) return null;
+  const pointer = backlogPointer(
+    await session.ok(session.repository, ["cat-file", "blob", entry.id]),
+  );
+  return pointer.kind === "folder" ? pointer.folder : null;
 }
 
 /** The commit the story branch points at. */
@@ -1739,7 +1773,8 @@ export class BoxParts {
       if ([...changes.map((change) => change.path), ...linkHits].some(unsafePath)) {
         return refused("path");
       }
-      const guarded = protectedHits(changes, linkHits);
+      const folder = await git.run((session) => namedBacklogFolder(session, view.entries));
+      const guarded = protectedHits(changes, linkHits, folder);
       if (guarded.kinds.length > 0) {
         this.#hitRecord(run, PART_CAUSES.protectedFile, guarded.paths);
         return {
