@@ -5,10 +5,21 @@
 
 import type { RunId } from "@dipsaus-orchestrator/contract";
 
+import type { CatchUpMerged, ConflictItem } from "../box/collisions";
 import type { OfficeHandle } from "../db/office";
 
 /** The steps of a stay in the slot, in order (a backlog PR skips `close-out` and `push`). */
-export type SlotPhase = "close-out" | "sync" | "push" | "checks" | "merge";
+/**
+ * `record` follows a sync that planned a merge of the base: the branch moves to it and the merge is
+ * recorded, from the persisted `merge`, so a restart in between finds the merge.
+ */
+export type SlotPhase = "close-out" | "sync" | "record" | "push" | "checks" | "merge";
+
+/** A merge of the base the sync planned and the conflict item for the worker, if it conflicted. */
+export interface SlotMerge {
+  readonly merged: CatchUpMerged;
+  readonly item: ConflictItem | null;
+}
 
 /** How the next sync merges the base (0016 amendment of 2026-10-22). */
 export type SlotSyncMode = "onConflict" | "always";
@@ -28,6 +39,8 @@ export interface SlotOccupant {
   /** When the slot started waiting for the checks of `head`. */
   readonly checksSince: number | null;
   readonly syncMode: SlotSyncMode;
+  /** The merge of the base the sync planned, while the step is `record`; null otherwise. */
+  readonly merge?: SlotMerge | null;
   readonly enteredAt: number;
 }
 
@@ -42,6 +55,7 @@ interface Row {
   attempts: number;
   checks_since: number | null;
   sync_mode: SlotSyncMode;
+  merge: string | null;
   entered_at: number;
 }
 
@@ -49,7 +63,7 @@ interface Row {
 export function slotOccupant(office: OfficeHandle): SlotOccupant | null {
   const row = office.get<Row>(
     `select kind, pr_number, repo, branch, run_id, phase, pushed_head, attempts, checks_since,
-            sync_mode, entered_at
+            sync_mode, merge, entered_at
        from merge_slot where office_id = $office_id`,
   );
   if (row === null) return null;
@@ -64,6 +78,7 @@ export function slotOccupant(office: OfficeHandle): SlotOccupant | null {
     attempts: row.attempts,
     checksSince: row.checks_since,
     syncMode: row.sync_mode,
+    merge: row.merge === null ? null : (JSON.parse(row.merge) as SlotMerge),
     enteredAt: row.entered_at,
   };
 }
@@ -72,9 +87,9 @@ export function slotOccupant(office: OfficeHandle): SlotOccupant | null {
 export function enterSlot(office: OfficeHandle, occupant: SlotOccupant): void {
   office.run(
     `insert or replace into merge_slot (office_id, kind, pr_number, repo, branch, run_id, phase,
-       pushed_head, attempts, checks_since, sync_mode, entered_at)
+       pushed_head, attempts, checks_since, sync_mode, merge, entered_at)
      values ($office_id, $kind, $number, $repo, $branch, $run, $phase, $head, $attempts, $since,
-       $mode, $at)`,
+       $mode, $merge, $at)`,
     {
       kind: occupant.kind,
       number: occupant.number,
@@ -86,6 +101,7 @@ export function enterSlot(office: OfficeHandle, occupant: SlotOccupant): void {
       attempts: occupant.attempts,
       since: occupant.checksSince,
       mode: occupant.syncMode,
+      merge: occupant.merge == null ? null : JSON.stringify(occupant.merge),
       at: occupant.enteredAt,
     },
   );
@@ -94,7 +110,9 @@ export function enterSlot(office: OfficeHandle, occupant: SlotOccupant): void {
 /** Moves the occupant on: the given fields change, the rest stays. */
 export function updateSlot(
   office: OfficeHandle,
-  change: Partial<Pick<SlotOccupant, "phase" | "head" | "attempts" | "checksSince" | "syncMode">>,
+  change: Partial<
+    Pick<SlotOccupant, "phase" | "head" | "attempts" | "checksSince" | "syncMode" | "merge">
+  >,
 ): void {
   const current = slotOccupant(office);
   if (current === null) return;

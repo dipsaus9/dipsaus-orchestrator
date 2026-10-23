@@ -18,6 +18,8 @@ import { describe, expect, it } from "bun:test";
 import { type OfficeId, type RunId, StoryId } from "@dipsaus-orchestrator/contract";
 import { git, type TempRepoWithRemote, withBareRemote } from "@dipsaus-orchestrator/testkit";
 
+import { setFinalSummary } from "../../src/backlog/fields/summary";
+import type { StoryTarget } from "../../src/backlog/fields/write";
 import { OFFICE_DEFAULTS } from "../../src/config";
 import {
   gitStorySlotOps,
@@ -28,7 +30,7 @@ import {
 import { CodeHostError, type HostPr, type RequiredCheck } from "../../src/platform/host";
 import { recordReviewVerdict, reviewVerdictForTree } from "../../src/review/store";
 import { StoryConflicts } from "../../src/run/conflicts";
-import { endRun, insertRun, REVIEWED_END, runRoundCounts } from "../../src/run/records";
+import { endRun, findRun, insertRun, REVIEWED_END, runRoundCounts } from "../../src/run/records";
 import { findStoryPr, insertStoryPr, updateStoryPr } from "../../src/story-pr/records";
 import { addStory } from "../../src/stories/keys";
 import { claimStory } from "../../src/worktree";
@@ -227,6 +229,7 @@ async function scenario(
             box: "none",
           },
           merged,
+          { strict: true },
         ),
     },
   });
@@ -303,6 +306,45 @@ describe("the story merge slot on real git", () => {
           });
           expect(runRoundCounts(s.office, run).reviewRounds).toBe(0);
           expect(slotOccupant(s.office)).toBeNull();
+        }),
+      { fixture: BACKLOG_FIXTURE },
+    );
+  });
+});
+
+describe("the close-out commit on a later stay in the slot", () => {
+  it("writes the final summary and the modified files again when the story is Done already", async () => {
+    await withBareRemote(
+      async (repo) =>
+        scenario(repo, async ({ officeId, run, s }) => {
+          const stored = findRun(s.office, run)!;
+          const slotRun = {
+            runId: run,
+            story: TASK_1,
+            branch: BRANCH_1,
+            worktree: stored.worktree as string,
+            startSha: stored.startSha as string,
+          };
+          const slotGit = gitStorySlotOps({ git: () => s.git, cli: s.cli });
+          let summary = "first stay";
+          const write = (target: StoryTarget) => setFinalSummary(target, summary);
+          const first = await slotGit.closeOut(officeId, slotRun, write);
+          expect(first).not.toBeNull();
+          // A fix round added code since; the next stay closes out again.
+          await git(slotRun.worktree, repo.home, "checkout", "--quiet", "--", ".");
+          writeFileSync(join(slotRun.worktree, "later.txt"), "later\n");
+          await git(slotRun.worktree, repo.home, "add", "later.txt");
+          await git(slotRun.worktree, repo.home, "commit", "--quiet", "-m", "feat: later");
+          summary = "second stay";
+          const second = await slotGit.closeOut(officeId, slotRun, write);
+          expect(second).not.toBeNull();
+          const task = await git(repo.dir, repo.home, "show", `${second}:${TASK_FILE_1}`);
+          expect(task).toContain("status: Done");
+          expect(task).toContain("later.txt");
+          expect(task).toContain("second stay");
+          expect(task).not.toContain("first stay");
+          // Nothing new: no commit.
+          expect(await slotGit.closeOut(officeId, slotRun, write)).toBeNull();
         }),
       { fixture: BACKLOG_FIXTURE },
     );

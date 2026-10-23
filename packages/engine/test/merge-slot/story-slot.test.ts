@@ -20,6 +20,7 @@ import {
   STORY_MERGE_ATTEMPTS,
   STORY_SLOT_NOTICES,
   slotOccupant,
+  updateSlot,
 } from "../../src/merge-slot";
 import { recordReviewOverride, recordReviewVerdict } from "../../src/review/store";
 import { openPark } from "../../src/run/park";
@@ -168,13 +169,90 @@ describe("a story PR with an approved verdict and green checks", () => {
       conflicts: [{ path: "src/greet.ts", kind: "content" as const }],
       taskFile: null,
     };
-    s.git.syncs = [{ kind: "merged", merged, head: "m".repeat(40), item }];
+    s.git.syncs = [{ kind: "planned", merged, item }];
     expect(await tick()).toBe("left");
     expect(s.merges).toEqual([merged]);
+    expect(s.git.calls).toContain("moveBranch DIPO-7/a-story");
     expect(s.git.calls).toContain("push DIPO-7/a-story");
     expect(s.conflicts).toEqual([{ run: s.run, head: "m".repeat(40), item }]);
     expect(occupant()).toBeNull();
     expect(noticeCodes(s.w.office)).toContain(STORY_SLOT_NOTICES.conflict);
+  });
+
+  it("merges at the slot's clean merge of the base once the approval carried to it", async () => {
+    s = await storyWorld();
+    await toChecks();
+    s.ci.set(s.run, { kind: "green", head: C1 });
+    // The host refuses once because the base moved: the slot merges it, records it and pushes.
+    s.host.refusals = 1;
+    s.git.containsBaseAnswer = false;
+    const M = "m".repeat(40);
+    s.git.syncs = [{ kind: "planned", merged: cleanMerge(M), item: null }];
+    s.git.trees.set(M, "tree-merged");
+    expect(await tick()).toBe("waiting");
+    expect(occupant()).toMatchObject({ phase: "checks", head: M, merge: null });
+    s.ci.set(s.run, { kind: "green", head: M });
+    expect(await tick()).toBe("merged");
+    expect(s.host.merges.map((merge) => merge.headSha)).toEqual([C1, M]);
+  });
+
+  it("never reaches the host merge when the carry of the slot's clean merge fails", async () => {
+    s = await storyWorld();
+    await toChecks();
+    s.ci.set(s.run, { kind: "green", head: C1 });
+    s.host.refusals = 1;
+    s.git.containsBaseAnswer = false;
+    s.git.syncs = [{ kind: "planned", merged: cleanMerge(), item: null }];
+    s.carryFails = true;
+    expect(await tick()).toBe("left");
+    // The refused try at C1 only: the merged head never went to the host, nor was it pushed.
+    expect(s.host.merges.map((merge) => merge.headSha)).toEqual([C1]);
+    expect(s.git.calls.filter((call) => call.startsWith("push"))).toHaveLength(1);
+    expect(occupant()).toBeNull();
+    expect(noticeCodes(s.w.office)).toContain(STORY_SLOT_NOTICES.unrecorded);
+  });
+
+  it("merges nothing when no approved review holds for the head it would merge", async () => {
+    s = await storyWorld();
+    await toChecks();
+    s.ci.set(s.run, { kind: "green", head: C1 });
+    // The pushed head's code tree has no verdict (a merge that carried nothing, say).
+    s.git.trees.set(C1, "tree-unreviewed");
+    expect(await tick()).toBe("left");
+    expect(s.host.merges).toEqual([]);
+    expect(noticeCodes(s.w.office)).toContain(STORY_SLOT_NOTICES.unapproved);
+  });
+
+  it("records the merge and closes out again after a restart between the branch move and the record", async () => {
+    s = await storyWorld();
+    await toChecks();
+    const M = "m".repeat(40);
+    // The daemon stopped right after the branch moved to the planned merge, before its record:
+    // the slot's row holds the merge, the branch is at it, no catch-up row exists.
+    const merge = {
+      merged: { ...cleanMerge(M), taskFile: "backlog/tasks/dipo-7 - A.md" },
+      item: null,
+    };
+    s.w.office.immediate(() =>
+      updateSlot(s.w.office, { phase: "record", merge, head: C1, syncMode: "always" }),
+    );
+    s.git.heads.set("DIPO-7/a-story", M);
+    s.git.trees.set(M, "tree-merged");
+    s.git.closeOutCommit = "d".repeat(40);
+    s.restart();
+    expect(await tick()).toBe("waiting");
+    // Recorded once, the task file's Done written back by a second close-out, then pushed.
+    expect(s.merges).toEqual([merge.merged]);
+    expect(s.git.calls.filter((call) => call.startsWith("moveBranch"))).toEqual([]);
+    expect(s.git.calls.filter((call) => call.startsWith("closeOut"))).toHaveLength(2);
+    expect(s.git.calls.at(-1)).toBe("push DIPO-7/a-story");
+    expect(occupant()).toMatchObject({ phase: "checks", head: "d".repeat(40), merge: null });
+    // Run again, the record step finds the catch-up row and records nothing more.
+    s.w.office.immediate(() => updateSlot(s.w.office, { phase: "record", merge }));
+    s.git.heads.set("DIPO-7/a-story", M);
+    s.restart();
+    await tick();
+    expect(s.merges).toHaveLength(1);
   });
 
   it("parks conflict with cause unwritable-path when the base conflicts where the worker cannot write", async () => {
@@ -601,3 +679,15 @@ describe("story and backlog PRs in one slot", () => {
     expect(occupant()).toMatchObject({ kind: "story", number: PR });
   });
 });
+
+/** A clean merge of the moved base on top of the close-out commit C1. */
+function cleanMerge(commit = "m".repeat(40)) {
+  return {
+    base: "main",
+    onto: "e".repeat(40),
+    tip: C1,
+    commit,
+    conflicts: [],
+    taskFile: null as string | null,
+  };
+}

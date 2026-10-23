@@ -6,7 +6,9 @@
 // number, repository and branch, the story run of a story PR, the step it is at, the head the slot
 // pushed and waits on, the host merges tried in this stay, when the slot started waiting for the
 // checks of that head, whether the next sync merges the base whenever it moved (`always`, after a
-// host refusal) or only on a conflict (`onConflict`), and when it entered. The slot code deletes
+// host refusal) or only on a conflict (`onConflict`), the merge of the base the sync planned (its
+// commit, the tip it was made on and its conflicts, as JSON, while the step `record` moves the
+// branch and records it, so a restart in between finds it), and when it entered. The slot code deletes
 // the row when the PR merges or leaves the slot, so nothing of it is history: retention tier P
 // with no age rule.
 //
@@ -32,11 +34,13 @@ create table merge_slot (
   repo text not null,
   branch text not null,
   run_id text,
-  phase text not null check (phase in ('close-out', 'sync', 'push', 'checks', 'merge')),
+  phase text not null
+    check (phase in ('close-out', 'sync', 'record', 'push', 'checks', 'merge')),
   pushed_head text,
   attempts integer not null default 0 check (attempts >= 0),
   checks_since integer,
   sync_mode text not null default 'onConflict' check (sync_mode in ('onConflict', 'always')),
+  merge text,
   entered_at integer not null,
   primary key (office_id),
   check ((kind = 'story') = (run_id is not null))

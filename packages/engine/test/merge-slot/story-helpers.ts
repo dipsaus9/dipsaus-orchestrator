@@ -21,7 +21,13 @@ import {
 } from "../../src/merge-slot";
 import type { HostPr } from "../../src/platform/host";
 import type { FixItem } from "../../src/prompts/feedback";
-import { recordReviewVerdict, type StoredReviewVerdict } from "../../src/review/store";
+import {
+  latestVerdictOfRun,
+  recordReviewOverride,
+  recordReviewVerdict,
+  type StoredReviewVerdict,
+} from "../../src/review/store";
+import { recordCatchUp } from "../../src/run/conflicts";
 import type { JudgedReview } from "../../src/review/verdict";
 import type { ParkBranchRequest } from "../../src/run/park";
 import { endRun, REVIEWED_END } from "../../src/run/records";
@@ -118,8 +124,19 @@ export class FakeStoryGit implements StorySlotGit {
     this.calls.push(`sync ${run.branch} ${mode}`);
     const next = this.syncs.shift();
     if (next === undefined) return { kind: "none" };
-    if (next.kind === "merged") this.heads.set(run.branch, next.head);
     return next;
+  }
+
+  async moveBranch(
+    _office: OfficeId,
+    branch: string,
+    commit: string,
+    tip: string,
+  ): Promise<boolean> {
+    this.calls.push(`moveBranch ${branch}`);
+    if (this.heads.get(branch) !== tip) return false;
+    this.heads.set(branch, commit);
+    return true;
   }
 
   async push(_office: OfficeId, branch: string): Promise<PushOutcome> {
@@ -155,6 +172,8 @@ export interface StoryWorld {
   readonly parks: ParkBranchRequest[];
   readonly conflicts: { run: RunId; head: string; item: FixItem }[];
   readonly merges: CatchUpMerged[];
+  /** The carry of a clean merge fails (the fake `recordMerge` throws). */
+  carryFails: boolean;
   readonly prSyncs: RunId[];
   config: OfficeConfig;
   /** The verdict on H1. */
@@ -259,8 +278,38 @@ export async function storyWorld(
           if (pr !== undefined) host.prs.set(PR, { ...pr, headSha: head });
         },
         summary: async () => "summary",
-        recordMerge: async (_office, _run, merged) => {
+        recordMerge: async (_office, stored, merged) => {
           merges.push(merged);
+          // As `StoryConflicts.recorded` does: the catch-up row, and for a clean merge the
+          // approval carried to the merged head's tree.
+          w.office.immediate(() => {
+            recordCatchUp(
+              w.office,
+              stored.runId,
+              { kind: "merged", ...merged, commit: merged.commit },
+              w.t.clock.now(),
+            );
+          });
+          if (merged.conflicts.length > 0) return;
+          if (self.carryFails) throw new Error("the carry could not read the merged head");
+          const latest = latestVerdictOfRun(w.office, stored.runId);
+          if (latest === null) return;
+          w.office.immediate(() => {
+            const carried = recordReviewVerdict(w.office, w.t.ids, {
+              runId: stored.runId,
+              key: latest.key,
+              round: latest.round,
+              agent: null,
+              model: latest.model,
+              commit: merged.commit,
+              codeTreeKey: git.trees.get(merged.commit) ?? `tree-${merged.commit}`,
+              judged: { ...latest, verdict: latest.verdict },
+              carriedFrom: latest.commit,
+              at: w.t.clock.now(),
+            });
+            if (latest.override !== null)
+              recordReviewOverride(w.office, carried.gate, latest.override);
+          });
         },
         conflict: async (_office, runId, input) => {
           conflicts.push({ run: runId, ...input });
@@ -297,6 +346,7 @@ export async function storyWorld(
     merges,
     prSyncs,
     config: OFFICE_DEFAULTS,
+    carryFails: false,
     verdict: verdict as unknown as StoredReviewVerdict,
     slot: make(),
     restart: () => {

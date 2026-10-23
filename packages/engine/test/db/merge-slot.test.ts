@@ -78,6 +78,10 @@ describe("migration 46 on a database at version 45", () => {
         expect(() => db.exec(slot("story", null))).toThrow();
         expect(() => db.exec(slot("backlog", "run-1"))).toThrow();
         expect(() => db.exec(slot("story", "run-1", "nowhere"))).toThrow();
+        // The sync's planned merge is kept while the branch moves to it (step `record`).
+        db.exec(slot("story", "run-1", "record"));
+        db.exec(`update merge_slot set merge = '{}'`);
+        db.exec("delete from merge_slot");
 
         // The merge gate's head and the review gate it overrides.
         const columns = db

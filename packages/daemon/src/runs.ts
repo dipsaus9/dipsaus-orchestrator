@@ -1164,6 +1164,8 @@ export function daemonRuns(options: DaemonRunsOptions): DaemonRuns {
             box: boxName(run.runId),
           },
           merged,
+          // A carry that fails throws: the slot merges nothing on that head (DIPO-150).
+          { strict: true },
         );
       },
       story: baseStoryFacts(options.base),

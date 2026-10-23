@@ -23,13 +23,18 @@
 //      the merged head with no new review round (0019 section 6). A conflict is committed as git
 //      left it and pushed, and the story leaves the slot as a conflict hand-off: one fix round with
 //      the conflict item (`FixRounds.conflict`, DIPO-149). A conflict in a path the worker cannot
-//      write parks `conflict` with cause `unwritable-path`;
+//      write parks `conflict` with cause `unwritable-path`. The merge commit is planned first and
+//      persisted in `merge_slot` (step `record`) before the branch moves to it, so a restart in
+//      between moves or records it then; a merge whose record or carry fails pushes and merges
+//      nothing;
 //   3. one push, never forced, and the story PR updated to the pushed head;
 //   4. the required checks of that head (the PR poll reads them): red leaves the slot, and the CI
 //      fix round of DIPO-148 takes the red head; checks that stay unfinished past the run's
 //      `mergeSlot.checksWaitMinutes` leave it until they pass;
-//   5. the label guard (`autorelease: pending` is never merged, a hold label waits) and the host's
-//      PR head equal to the pushed head;
+//   5. the label guard (`autorelease: pending` is never merged, a hold label waits), the host's
+//      PR head equal to the pushed head, and an approved or overridden verdict and an approved
+//      merge gate that hold for exactly that head (else the story leaves the slot unmerged and the
+//      review loop takes the head);
 //   6. the squash merge with `--match-head-commit` and the PR title as subject. A refusal after
 //      which the base moved goes back to step 2, at most 3 times per stay; then the story parks
 //      `conflict` with cause `slot-refused`.
@@ -61,6 +66,7 @@ import {
   type StoredReviewVerdict,
 } from "../review/store";
 import { runConfigOf } from "../run/config-snapshot";
+import { catchUpsOf } from "../run/conflicts";
 import { openPark, PARK_CAUSES, type ParkWriter, parkStory } from "../run/park";
 import type { RunStoryFacts } from "../run/resume";
 import {
@@ -104,6 +110,10 @@ export const STORY_SLOT_NOTICES = {
   headChanged: "pr.headChanged",
   closedOnHost: "pr.closedOnHost",
   held: "merge.held",
+  /** The head the slot would merge has no approved review and merge gate. */
+  unapproved: "mergeSlot.unapproved",
+  /** A merge of the base the slot made could not be recorded. */
+  unrecorded: "mergeSlot.unrecorded",
 } as const;
 
 /** Host merges a story PR gets in one stay in the slot while the base keeps moving (0016 rule 2). */
@@ -359,6 +369,65 @@ export class StorySlot {
     return atGate.gate === verdict.gate || verdict.carriedFrom === atGate.commit;
   }
 
+  /**
+   * True when the verdict of `head`'s code tree is approved or overridden and an approved merge
+   * gate of the run holds for `head`: what the slot checks right before the host merge.
+   */
+  async #approvedFor(
+    officeId: OfficeId,
+    office: OfficeHandle,
+    run: StoredRun,
+    head: string,
+  ): Promise<boolean> {
+    if (head === "") return false;
+    const verdict = await this.#verdictFor(officeId, office, run, head);
+    if (verdict === null) return false;
+    if (verdict.verdict !== "approved" && verdict.override === null) return false;
+    for (const gate of mergeGatesOfRun(office, run.runId).toReversed()) {
+      if (gate.decision?.decision !== "approved") continue;
+      if (await this.#holds(officeId, office, run, gate, head, verdict)) return true;
+    }
+    return false;
+  }
+
+  /**
+   * True when the merge gate `gate` holds for `head` (its own head, or a head whose verdict is the
+   * gate head's or carried from it): `gate.approve` and `gate.reject` decide only such a gate.
+   */
+  async gateHolds(
+    officeId: OfficeId,
+    office: OfficeHandle,
+    gate: StoredMergeGate,
+    head: string,
+  ): Promise<boolean> {
+    if (gate.head === head) return true;
+    const run = findRun(office, gate.runId);
+    if (run === null) return false;
+    const verdict = await this.#verdictFor(officeId, office, run, head);
+    if (verdict === null) return false;
+    return this.#holds(officeId, office, run, gate, head, verdict);
+  }
+
+  /** True when the merge `commit` has its `catch_ups` row (DIPO-149's record of dipo's merges). */
+  #recorded(office: OfficeHandle, runId: RunId, commit: string): boolean {
+    return catchUpsOf(office, runId).some((row) => row.kind === "merged" && row.commit === commit);
+  }
+
+  /** The merge was made on the branch but not recorded: nothing goes on, the slot lets go. */
+  #unrecorded(ctx: StorySlotContext, run: StoredRun, commit: string, reason: string): Outcome {
+    free(ctx);
+    ctx.write(() => [
+      notice(
+        "warn",
+        STORY_SLOT_NOTICES.unrecorded,
+        `${run.story} left the merge slot unmerged: dipo merged the base into its branch at ${short(commit)} but could not record that merge (${reason}), so no approval carries to it. Nothing was pushed; the review loop takes the head.`,
+        run.key,
+        run.runId,
+      ),
+    ]);
+    return "left";
+  }
+
   /** The head's merge gate: one that holds for it, else a new one; superseded open ones close. */
   async #gateFor(
     ctx: StorySlotContext,
@@ -593,22 +662,49 @@ export class StorySlot {
             });
             return "left";
           }
-          if (sync.kind === "merged") {
-            await this.#deps
-              .recordMerge?.(ctx.officeId, run, sync.merged)
-              .catch((error: unknown) => {
-                ctx.logger?.warn("recording the merge slot's merge failed", {
-                  run: runId,
-                  reason: messageOf(error),
-                });
-              });
-            // The merge took the base's version of the task file: Done goes back on it.
-            if (sync.merged.taskFile !== null) await this.#closeOut(ctx, run, slotRun);
-            if (sync.item !== null) {
-              return await this.#conflict(ctx, run, stored, sync.head, sync.item);
-            }
+          if (sync.kind === "planned") {
+            // The merge is persisted before the branch moves, so a restart finds it (`record`).
+            move({ phase: "record", merge: { merged: sync.merged, item: sync.item } });
+            break;
           }
           move({ phase: "push" });
+          break;
+        }
+        case "record": {
+          // Step 2, continued: the branch moves to the planned merge, which is recorded (its catch-up
+          // row and, for a clean one, the approval carried to it). Safe to run again after a restart.
+          const merge = current.merge ?? null;
+          if (merge === null) {
+            move({ phase: "sync" });
+            break;
+          }
+          const tip = await git.head(ctx.officeId, run.branch);
+          const { merged } = merge;
+          if (tip === merged.tip) {
+            if (!(await git.moveBranch(ctx.officeId, run.branch, merged.commit, merged.tip))) {
+              move({ phase: "sync", merge: null });
+              break;
+            }
+          } else if (tip !== merged.commit) {
+            // The branch moved another way meanwhile: plan the sync again.
+            move({ phase: "sync", merge: null });
+            break;
+          }
+          if (!this.#recorded(office, runId, merged.commit)) {
+            try {
+              await this.#deps.recordMerge?.(ctx.officeId, run, merged);
+            } catch (error) {
+              // An unrecorded merge carries no approval: nothing is pushed or merged on it.
+              return this.#unrecorded(ctx, run, merged.commit, messageOf(error));
+            }
+          }
+          // The merge took the base's version of the task file: Done goes back on it.
+          if (merged.taskFile !== null) await this.#closeOut(ctx, run, slotRun);
+          if (merge.item !== null) {
+            const head = (await git.head(ctx.officeId, run.branch)) ?? merged.commit;
+            return await this.#conflict(ctx, run, stored, head, merge.item);
+          }
+          move({ phase: "push", merge: null });
           break;
         }
         case "push": {
@@ -763,6 +859,21 @@ export class StorySlot {
           runId,
         ),
       );
+      return "left";
+    }
+    // The review verdict and an approved merge gate must hold for exactly the head that merges:
+    // the slot's own commits (the close-out, a merge of the base) never merge without them.
+    if (!(await this.#approvedFor(ctx.officeId, office, run, head))) {
+      free(ctx);
+      ctx.write(() => [
+        notice(
+          "warn",
+          STORY_SLOT_NOTICES.unapproved,
+          `${run.story} left the merge slot unmerged: no approved review and merge gate hold for ${short(head)}, the head it would merge. The review loop takes that head.`,
+          run.key,
+          runId,
+        ),
+      ]);
       return "left";
     }
     // Step 6: squash-merge, only while the host's head is the one dipo pushed.

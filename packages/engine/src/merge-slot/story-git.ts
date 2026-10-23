@@ -72,10 +72,13 @@ export type StorySync =
   /** Nothing merged: the branch holds the base, or the mode leaves a clean merge for later. */
   | { readonly kind: "none" }
   | {
-      readonly kind: "merged";
+      /**
+       * The merge commit is made from git objects, but the branch has not moved: the slot records
+       * the merge first (`merge_slot`), then moves the branch (`moveBranch`), so a restart in
+       * between finds it.
+       */
+      readonly kind: "planned";
       readonly merged: CatchUpMerged;
-      /** The branch tip after the merge. */
-      readonly head: string;
       /** The conflict item for the worker; null for a clean merge. */
       readonly item: ConflictItem | null;
     }
@@ -97,15 +100,20 @@ export interface StorySlotGit {
   containsBase(office: OfficeId, branch: string): Promise<boolean>;
   /**
    * The close-out commit: `summary` writes the final summary in dipo's copy of the backlog, then
-   * the modified files and status Done. Returns the commit, or null when the story was Done.
+   * the modified files and status Done. Returns the commit, or null when nothing changed.
    */
   closeOut(
     office: OfficeId,
     run: StorySlotRun,
     summary: (target: StoryTarget) => Promise<unknown>,
   ): Promise<string | null>;
-  /** Merges the base into the story branch by `mode` (see the file comment). */
+  /**
+   * Plans the merge of the base into the story branch by `mode` and makes its commit (see the file
+   * comment); the branch does not move.
+   */
   sync(office: OfficeId, run: StorySlotRun, mode: SlotSyncMode): Promise<StorySync>;
+  /** Moves `branch` from `tip` to `commit`; false when it is not at `tip` any more. */
+  moveBranch(office: OfficeId, branch: string, commit: string, tip: string): Promise<boolean>;
   /** Pushes `branch` once, never forced, when its tip differs from the remote's. */
   push(office: OfficeId, branch: string): Promise<PushOutcome>;
   /**
@@ -203,15 +211,14 @@ export function gitStorySlotOps(deps: {
           async (backlog) => {
             const target = { cli: deps.cli, cwd: backlog.cwd, id: run.story };
             const before = await viewStory(target);
-            // Closed out already (a step run again after a restart): nothing changes.
-            if (before.status === DONE_STATUS) return;
+            // A later stay in the slot writes the summary and the modified files again as they are
+            // now, also when the story is Done from an earlier stay; nothing new commits nothing.
             await summary(target);
             await runBacklog(deps.cli, backlog.cwd, [
               "task",
               "edit",
               run.story,
-              "--status",
-              DONE_STATUS,
+              ...(before.status === DONE_STATUS ? [] : ["--status", DONE_STATUS]),
               ...files.flatMap((file) => ["--modified-file", file]),
             ]);
             const back = await viewStory(target);
@@ -260,18 +267,6 @@ export function gitStorySlotOps(deps: {
           if (mode === "onConflict" && planned.conflicts.length === 0) return { kind: "none" };
           const plan = await planCatchUp(session, { ...input, write: true });
           if (plan.kind !== "merge" || plan.commit === null) return { kind: "none" };
-          const moved = await moveBranch(
-            session,
-            run.branch,
-            plan.commit,
-            plan.tip,
-            `Merge ${base.base} into ${run.branch}`,
-          );
-          if (!moved) {
-            throw new Error(
-              `the branch ${run.branch} moved while dipo merged ${base.base} into it; the slot tries again`,
-            );
-          }
           const merged: CatchUpMerged = {
             base: base.base,
             onto: plan.onto,
@@ -290,12 +285,17 @@ export function gitStorySlotOps(deps: {
                   hunks: await hunksOf(session, plan.commit, plan.conflicts),
                   ...(run.itemMax === undefined ? {} : { itemMax: run.itemMax }),
                 });
-          return { kind: "merged", merged, head: plan.commit, item };
+          return { kind: "planned", merged, item };
         } finally {
           await rm(scratch, { recursive: true, force: true });
         }
       });
     },
+
+    moveBranch: (office, branch, commit, tip) =>
+      gitOf(office).run((session) =>
+        moveBranch(session, branch, commit, tip, `Merge the base into ${branch}`),
+      ),
 
     push: (office, branch) => {
       const git = gitOf(office);

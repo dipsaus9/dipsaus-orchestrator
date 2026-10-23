@@ -22,7 +22,11 @@ import type { PartRun } from "../../src/box/parts";
 import { OFFICE_DEFAULTS } from "../../src/config";
 import { OfficeGit, spawnGitExec } from "../../src/git";
 import { systemSpawn } from "../../src/platform/process";
-import { recordReviewVerdict, reviewVerdictForTree } from "../../src/review/store";
+import {
+  recordReviewOverride,
+  recordReviewVerdict,
+  reviewVerdictForTree,
+} from "../../src/review/store";
 import {
   baseConflictOf,
   blockedHandOff,
@@ -481,6 +485,51 @@ describe("an approval carried over a clean merge dipo made (0019 section 6)", ()
       await w.conflicts.recorded(w.part, merged(w, { ...merge, onto }));
       expect(reviewVerdictForTree(w.f.office, w.f.run, await keyOf(w, merge.commit))).toBeNull();
       expect(notices(w).map((n) => n.code)).not.toContain(CONFLICT_NOTICES.carried);
+    }));
+
+  it("carries a blocked verdict the maintainer overrode, with its override (DIPO-150)", () =>
+    inWorld(async (w) => {
+      const office = w.f.office;
+      const reviewed = await onBranch(w, { "src/a.ts": "a\n" }, "DIPO-1: add a");
+      const tree = await keyOf(w, reviewed);
+      const blocked = office.immediate(() =>
+        recordReviewVerdict(office, w.f.t.ids, {
+          runId: w.f.run,
+          key: w.key,
+          round: 3,
+          agent: null,
+          model: "opus",
+          commit: reviewed,
+          codeTreeKey: tree,
+          judged: { verdict: "blocked", criteria: [], findings: [], summary: "no", notes: [] },
+          at: w.f.t.clock.now(),
+        }),
+      );
+      office.immediate(() => recordReviewOverride(office, blocked.gate, { note: "ok", at: 5 }));
+      const onto = await onBase(w, { "README.md": "# Conflicts, moved\n" });
+      const merge = await engineMerge(w, onto);
+      await w.conflicts.recorded(w.part, merged(w, { ...merge, onto }), { strict: true });
+      expect(reviewVerdictForTree(w.f.office, w.f.run, await keyOf(w, merge.commit))).toMatchObject(
+        {
+          verdict: "blocked",
+          carriedFrom: reviewed,
+          override: { note: "ok", at: 5 },
+        },
+      );
+    }));
+
+  it("throws from a strict record when the carry fails, instead of only logging it", () =>
+    inWorld(async (w) => {
+      const approved = await onBranch(w, { "src/a.ts": "a\n" }, "DIPO-1: add a");
+      approve(w, approved, await keyOf(w, approved));
+      const onto = await onBase(w, { "README.md": "# Conflicts, moved\n" });
+      const merge = await engineMerge(w, onto);
+      // The branch is gone when the carry reads its head.
+      await w.repo.git("branch", "--quiet", "-D", BRANCH);
+      await expect(
+        w.conflicts.recorded(w.part, merged(w, { ...merge, onto }), { strict: true }),
+      ).rejects.toThrow();
+      expect(catchUpsOf(w.f.office, w.f.run)).toHaveLength(1);
     }));
 
   it("carries nothing over a merge when the code changed after the approval", () =>
