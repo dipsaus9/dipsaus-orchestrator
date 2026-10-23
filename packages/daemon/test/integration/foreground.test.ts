@@ -127,7 +127,13 @@ describe("dipo daemon --foreground", () => {
             .map((line) => JSON.parse(line) as { msg: string; step?: string })
             .filter((line) => line.msg === "recovery step")
             .map((line) => line.step);
-          expect(steps).toEqual(["migrations", "reconcile", "reattach", "run-temp-sweep"]);
+          expect(steps).toEqual([
+            "migrations",
+            "reconcile",
+            "reattach",
+            "run-temp-sweep",
+            "fix-rounds-recover",
+          ]);
           // The database opens only after the post-bind re-read: after "listening".
           expect(messages.indexOf("listening")).toBeLessThan(
             messages.indexOf("opened state database"),

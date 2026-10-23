@@ -267,6 +267,12 @@ export interface DaemonRuns {
    * read-only copy of the pushed commit: at daemon start by the recovery step. Never rejects.
    */
   sweepReviewFolders(): Promise<string[]>;
+  /**
+   * The fix rounds' recovery (DIPO-148), at daemon start: a round whose session started before the
+   * stop is marked delivered, and every run that ended reviewed gets its round decided. Returns how
+   * many rounds it queued.
+   */
+  recoverFixRounds(): Promise<number>;
 }
 
 /** Apple `container` on `pathEnv`, by absolute path; undefined when it is not there. */
@@ -1007,6 +1013,13 @@ export function daemonRuns(options: DaemonRunsOptions): DaemonRuns {
     isBoxRun,
     collisions,
     finishEndedBoxes,
+    recoverFixRounds: async () => {
+      let queued = 0;
+      for (const office of options.offices.loadedOffices()) {
+        queued += (await fixRounds?.recover(office)) ?? 0;
+      }
+      return queued;
+    },
     sweepReviewFolders: () =>
       sweepReviewFolders(realDir(options.tmpRoot), (runId, agent) =>
         reviewHostRuns(options.offices, runId, agent),
