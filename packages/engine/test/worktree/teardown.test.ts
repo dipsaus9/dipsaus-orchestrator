@@ -9,7 +9,7 @@ import { existsSync, mkdirSync, realpathSync, rmSync, writeFileSync } from "node
 import { join } from "node:path";
 
 import { type OfficeId, RunId, StoryKey } from "@dipsaus-orchestrator/contract";
-import { withTempDir } from "@dipsaus-orchestrator/testkit";
+import { ManualClock, withTempDir } from "@dipsaus-orchestrator/testkit";
 
 import type { FeatureModule } from "../../src/commands/registry";
 import { OFFICE_DEFAULTS, type OfficeConfig } from "../../src/config";
@@ -17,7 +17,8 @@ import type { OfficeHandle } from "../../src/db/office";
 import { type GitCall, type GitResult, OfficeGit } from "../../src/git";
 import { HAND_MERGE_NOTE, mergeGate } from "../../src/merge-slot";
 import type { OfficeLoadContext } from "../../src/office/steps";
-import { CodeHostError, type HostPr, type PrStateHost } from "../../src/platform/host";
+import { CALL_DEADLINE_MS } from "../../src/platform/deadline";
+import { CodeHostError, GhHost, type HostPr, type PrStateHost } from "../../src/platform/host";
 import {
   type ClaimRecord,
   detectDone,
@@ -34,6 +35,7 @@ import { dirtyFilesOf, releaseForDrop } from "../../src/worktree/release";
 import { insertClaim, markTeardownStarted } from "../../src/worktree/records";
 import { removeWorktree } from "../../src/worktree/teardown";
 import { notices } from "../backlog/lane/helpers";
+import { hangingSpawn, settle } from "../platform/hanging";
 import { addOffice, openTestState, type TestState } from "../commands/helpers";
 
 const START = "1".repeat(40);
@@ -330,6 +332,25 @@ describe("detecting Done", () => {
       expect(check.done).toBe(false);
       expect(!check.done && check.problem?.code).toBe(TEARDOWN_NOTICES.checkFailed);
       expect(!check.done && check.problem?.text).toContain("fatal: bad object");
+    }));
+
+  it("falls back to merge-tree when gh never answers and is killed at its deadline (DIPO-314)", () =>
+    withWorld(async (world) => {
+      world.answer = (args) =>
+        args[0] === "merge-tree" ? { code: 128, stderr: "fatal: bad object" } : undefined;
+      const clock = new ManualClock();
+      const gh = new GhHost({ spawn: hangingSpawn().spawn, env: {}, clock });
+      let settled = false;
+      const checked = detectDone({ git: world.git, host: gh }, world.claim()).finally(
+        () => (settled = true),
+      );
+      for (let i = 0; i < 50 && clock.pendingTimers === 0; i += 1) await settle();
+      expect(settled).toBe(false);
+      clock.advance(CALL_DEADLINE_MS);
+      const check = await checked;
+      // The timed-out host call is the failure the Done poll already handles: merge-tree decides.
+      expect(world.steps.some((step) => step.startsWith("merge-tree"))).toBe(true);
+      expect(!check.done && check.problem?.code).toBe(TEARDOWN_NOTICES.checkFailed);
     }));
 
   it("reports a merged PR whose head is not the local tip while the branch adds changes", () =>

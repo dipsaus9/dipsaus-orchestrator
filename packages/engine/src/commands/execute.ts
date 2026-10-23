@@ -382,7 +382,9 @@ async function handleSoftwareCommand(
  * refreshes (a fetch, and an index pass when `_base` moved) run once first; the command then
  * resolves as usual and fails with `story.unknown` only when the story is still missing. A retry
  * with a stored reply refreshes nothing, and the refreshes get at most `STORY_REFRESH_MS` on the
- * office clock; past that the command resolves with the state it has.
+ * office clock; past that the command resolves with the state it has. The refreshes go on in the
+ * background: each git and Backlog CLI call they make has its own deadline, which kills the call
+ * and ends the office queue item it holds (DIPO-314), so a hung remote never holds the queue.
  */
 async function refreshUnknownStories(
   deps: ExecutorDeps,
