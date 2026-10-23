@@ -6,9 +6,15 @@
 
 import { afterEach, describe, expect, it } from "bun:test";
 
-import type { Event, QuestionView, StoryView, WorkView } from "@dipsaus-orchestrator/contract";
+import {
+  type Event,
+  type QuestionView,
+  SEQUENCE_SAMPLES,
+  type StoryView,
+  type WorkView,
+} from "@dipsaus-orchestrator/contract";
 
-import { MAX_QUESTIONS, questionLines } from "./detail";
+import { MAX_QUESTIONS, promptLines, questionLines } from "./detail";
 import { goldenHello, goldenOutputEvents, goldenSnapshots, OFFICES } from "./testing/fake-session";
 import { mount } from "./testing/setup";
 
@@ -625,5 +631,23 @@ describe("worker thinking in the detail (DIPO-96)", () => {
     expect(
       lines(frame).filter((line) => line.includes("[thinking] 0.9s ~265 tokens")),
     ).toHaveLength(2);
+  });
+});
+
+describe("prompt pane text (DIPO-313)", () => {
+  it("shows each sequence class as plain text", () => {
+    for (const [name, sample] of Object.entries(SEQUENCE_SAMPLES)) {
+      const shown = promptLines(
+        [
+          { part: "system", text: `Be${sample} careful\n` },
+          { part: "message", text: `Do${sample} it\tnow\nnext` },
+        ],
+        "*",
+      );
+      expect([name, shown]).toEqual([
+        name,
+        ["* system file", "Be careful", "", "* first message", "Do it\tnow", "next"],
+      ]);
+    }
   });
 });

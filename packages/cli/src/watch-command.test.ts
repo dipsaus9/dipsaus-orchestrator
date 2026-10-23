@@ -6,7 +6,12 @@ import { describe, expect, it } from "bun:test";
 
 import { RECOVERY_POLL_MS, type SubscribeOptions } from "@dipsaus-orchestrator/client";
 import { DaemonNotRunningError } from "@dipsaus-orchestrator/client/node";
-import type { EngineError, Event, OfficeId } from "@dipsaus-orchestrator/contract";
+import {
+  type EngineError,
+  type Event,
+  type OfficeId,
+  SEQUENCE_SAMPLES,
+} from "@dipsaus-orchestrator/contract";
 import { ManualClock } from "@dipsaus-orchestrator/testkit";
 
 import { type DaemonControl, type DaemonSession, START_HINT } from "./daemon-commands";
@@ -78,7 +83,9 @@ function fake(options: {
   readonly running: boolean;
   readonly ended?: () => boolean;
   readonly interactive?: boolean;
+  readonly title?: string;
 }) {
+  const shown = { ...story, title: options.title ?? story.title };
   const out: string[] = [];
   const err: string[] = [];
   const reads: string[] = [];
@@ -86,7 +93,7 @@ function fake(options: {
   let seq = cursor.seq;
   const snapshot = () => ({
     cursor,
-    stories: options.running ? [story] : [{ ...story, lifecycle: "Ready", column: "ready" }],
+    stories: options.running ? [shown] : [{ ...shown, lifecycle: "Ready", column: "ready" }],
     work: options.running ? [view("busy")] : [],
     gates: [],
     questions: [],
@@ -110,7 +117,7 @@ function fake(options: {
       reads.push(definition.name);
       if (definition.name === "office.snapshot") return { ok: true, result: snapshot() };
       if (definition.name === "story.detail") {
-        return { ok: true, result: { view: story, runs: [run()], verdicts: [] } };
+        return { ok: true, result: { view: shown, runs: [run()], verdicts: [] } };
       }
       throw new Error(`unexpected read ${definition.name}`);
     }) as DaemonSession["read"],
@@ -427,4 +434,31 @@ describe("dipo watch against a daemon held without its state database", () => {
     expect(ctx.err).toEqual([`dipo: database.unavailable: ${unavailable.message}`]);
     expect(ctx.subscriptions).toEqual([]);
   });
+});
+
+describe("dipo watch cleans what it prints (DIPO-313)", () => {
+  for (const [name, sample] of Object.entries(SEQUENCE_SAMPLES)) {
+    it(`shows a story title, a worker line and a notice with ${name} as plain text`, async () => {
+      const ctx = fake({ running: true, title: `Greet${sample} user` });
+      const done = main(["watch", "task-1"], ctx.deps);
+      await until(() => ctx.subscriptions.length === 1);
+      ctx.emit("work.output", {
+        work,
+        source: "worker",
+        from: 0,
+        to: 10,
+        text: `I${sample} will\n`,
+        view: view("busy"),
+      });
+      ctx.emit("engine.notice", { level: "warn", code: "x", text: `TASK-1 was${sample} skipped.` });
+      const lines = ctx.out.join("\n");
+      expect(lines).toContain('"Greet user"');
+      expect(lines).toContain("I will");
+      expect(lines).toContain("TASK-1 was skipped.");
+      // oxlint-disable-next-line no-control-regex
+      expect(lines).not.toMatch(/[\u0000-\u0008\u000b-\u001f\u007f-\u009f]/);
+      ctx.end({ code: "stream.closed", message: "x" } as EngineError);
+      await done;
+    });
+  }
 });

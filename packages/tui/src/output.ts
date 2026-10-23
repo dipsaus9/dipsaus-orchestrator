@@ -8,7 +8,7 @@
 // flags of the text it holds and turns each flagged range into one marker line, so only the engine
 // can draw a marker: worker text that reads like one stays text.
 
-import type { EngineError, OutputMarker } from "@dipsaus-orchestrator/contract";
+import { cleanText, type EngineError, type OutputMarker } from "@dipsaus-orchestrator/contract";
 
 /** One byte range of stored output, as `work.output` and `work.outputRange` carry it. */
 export interface OutputRange {
@@ -42,17 +42,15 @@ export function byteLength(text: string): number {
   return encoder.encode(text).byteLength;
 }
 
-// Escape sequences (colour, cursor moves) and other control characters do not belong in a pane.
-// oxlint-disable-next-line no-control-regex
-const ESCAPES = /\u001b\[[0-?]*[ -/]*[@-~]|\u001b\][^\u0007\u001b]*(?:\u0007|\u001b\\)|\u001b./g;
-// oxlint-disable-next-line no-control-regex
-const CONTROLS = /[\u0000-\u0008\u000b-\u001f\u007f]/g;
-
-/** One stored line as the pane shows it: no escapes, tabs as spaces, the last `\r` frame only. */
+/**
+ * One stored line as the pane shows it: cleaned of terminal control characters by the shared
+ * cleaner (DIPO-313), tabs as spaces, the last `\r` frame only.
+ */
 export function cleanLine(line: string): string {
-  const frames = line.replace(ESCAPES, "").split("\r");
+  // The cleaner turns a carriage return into a line end, so the frames split on it.
+  const frames = cleanText(line).split("\n");
   const last = frames.findLast((frame) => frame !== "") ?? "";
-  return last.replaceAll("\t", "  ").replace(CONTROLS, "");
+  return last.replaceAll("\t", "  ");
 }
 
 /** `text` split into lines; a final newline ends the last line rather than starting one. */

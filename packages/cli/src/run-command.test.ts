@@ -4,7 +4,7 @@
 
 import { describe, expect, it } from "bun:test";
 
-import type { Event, OfficeId } from "@dipsaus-orchestrator/contract";
+import { type Event, type OfficeId, SEQUENCE_SAMPLES } from "@dipsaus-orchestrator/contract";
 import type { SubscribeOptions } from "@dipsaus-orchestrator/client";
 import { DaemonNotRunningError } from "@dipsaus-orchestrator/client/node";
 import { ManualClock } from "@dipsaus-orchestrator/testkit";
@@ -446,4 +446,47 @@ describe("dipo run --dry-run", () => {
     expect(out).toContain("no story would start");
     expect(out).not.toContain("would start DIPO");
   });
+});
+
+describe("dipo run cleans what it prints (DIPO-313)", () => {
+  // oxlint-disable-next-line no-control-regex
+  const CONTROL = /[\u0000-\u0008\u000b-\u001f\u007f-\u009f]/;
+  for (const [name, sample] of Object.entries(SEQUENCE_SAMPLES)) {
+    it(`prints a notice, a gate line and a dry-run problem with ${name} as plain text`, async () => {
+      let ctx!: ReturnType<typeof fake>;
+      ctx = fake(() => {
+        ctx.emit("engine.notice", {
+          level: "warn",
+          code: "setup.failed",
+          text: `DIPO-7 was not started: setup${sample} failed.`,
+        });
+        return result([], [{ story: "DIPO-7", key: KEY, reason: "pickupCheckFailed" }]);
+      }, IN_OFFICE);
+      expect(await main(["run"], ctx.deps)).toBe(1);
+      expect(ctx.out.join("\n")).toContain("DIPO-7 was not started: setup failed.");
+      expect(ctx.out.join("\n")).not.toMatch(CONTROL);
+
+      const dry = fake(
+        () => {
+          throw new Error("work.run must not be sent");
+        },
+        IN_OFFICE,
+        () => ({
+          ok: true,
+          result: {
+            refusals: [{ check: "adapter", message: `held${sample} now` }],
+            story: { story: "DIPO-7", key: KEY },
+            skipped: [],
+            launch: { ...LAUNCH, taskMessage: `Title${sample} here\n` },
+            problem: null,
+          },
+        }),
+      );
+      await main(["run", "--dry-run"], dry.deps);
+      const out = dry.out.join("\n");
+      expect(out).toContain("held now");
+      expect(out).toContain("Title here");
+      expect(out).not.toMatch(CONTROL);
+    });
+  }
 });

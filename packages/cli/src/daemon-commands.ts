@@ -26,6 +26,7 @@ import {
   type UninstallResult,
 } from "@dipsaus-orchestrator/client/node";
 import {
+  cleanText,
   type Clock,
   type ConfigError,
   ContractUnsupportedDetails,
@@ -65,6 +66,20 @@ export interface DaemonControl {
   autostart?(): Promise<AutostartReport | null>;
   /** `<state>/config.yaml` problems, which make the daemon refuse to start (exit 78). */
   configErrors?(): readonly ConfigError[] | null;
+}
+
+/**
+ * `deps` whose output lines pass through the shared cleaner, so no terminal control character in
+ * text from a worker, a repository, a story or a notice reaches the terminal (DIPO-313).
+ */
+export function cleanedOutput<T extends Pick<DaemonCommandDeps, "writeLine" | "writeError">>(
+  deps: T,
+): T {
+  return {
+    ...deps,
+    writeLine: (line: string) => deps.writeLine(cleanText(line)),
+    writeError: (line: string) => deps.writeError(cleanText(line)),
+  };
 }
 
 export interface DaemonCommandDeps {

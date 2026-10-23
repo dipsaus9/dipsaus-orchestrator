@@ -9,6 +9,10 @@
 //
 // A finished thinking block of the main agent is one line of counts (DIPO-96): `[thinking] 0.9s
 // ~265 tokens`. It holds no thinking text; the worker event carries none.
+//
+// All stored text is cleaned of terminal control characters (DIPO-313).
+
+import { cleanText } from "@dipsaus-orchestrator/contract";
 
 import type { WorkerEvent } from "../workers/types";
 
@@ -25,9 +29,14 @@ export const DEFAULT_OUTPUT_PRIVACY: OutputPrivacy = { storeCommandBodies: false
 
 /** `input` as one line, whole: every run of whitespace or control characters is one space. */
 export function flatInput(input: string): string {
-  // Line breaks, tabs and escapes all become one space.
-  // oxlint-disable-next-line no-control-regex
-  return input.replace(/[\s\u0000-\u001f\u007f-\u009f]+/g, " ").trim();
+  // Cleaned first, so an escape sequence goes whole before its parts become spaces; line breaks
+  // and tabs then become one space.
+  return (
+    cleanText(input)
+      // oxlint-disable-next-line no-control-regex
+      .replace(/[\s\u0000-\u001f\u007f-\u009f]+/g, " ")
+      .trim()
+  );
 }
 
 /** `input` as one line of at most `INPUT_MAX_CHARS` characters, cut with a marker. */
@@ -64,8 +73,19 @@ export function thinkingLine(ms?: number, tokens?: number): string {
   return `${parts.join(" ")}\n`;
 }
 
-/** Stored text for one worker event, or "" when the event adds no output. */
+/**
+ * Stored text for one worker event, or "" when the event adds no output. It is cleaned of terminal
+ * control characters by the shared cleaner (DIPO-313), so a client of an older build gets plain
+ * text too.
+ */
 export function outputText(
+  event: WorkerEvent,
+  privacy: OutputPrivacy = DEFAULT_OUTPUT_PRIVACY,
+): string {
+  return cleanText(rawOutputText(event, privacy));
+}
+
+function rawOutputText(
   event: WorkerEvent,
   privacy: OutputPrivacy = DEFAULT_OUTPUT_PRIVACY,
 ): string {

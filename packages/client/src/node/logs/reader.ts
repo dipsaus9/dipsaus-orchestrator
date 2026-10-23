@@ -7,7 +7,7 @@
 import { closeSync, fstatSync, openSync, readFileSync, readSync, statSync } from "node:fs";
 import { join } from "node:path";
 
-import { type Clock, LogLevel, type TimerHandle } from "@dipsaus-orchestrator/contract";
+import { cleanText, type Clock, LogLevel, type TimerHandle } from "@dipsaus-orchestrator/contract";
 
 export const DAEMON_LOG_FILE = "daemon.log";
 /** Rotated files next to `daemon.log`, `.1` the newest (0006 decision 13). */
@@ -88,16 +88,22 @@ export function matchesFilter(entry: LogEntry | null, filter: LogFilter): boolea
   return true;
 }
 
-function renderValue(value: unknown): string {
+function renderValue(raw: unknown): string {
+  const value = typeof raw === "string" ? cleanText(raw) : raw;
   if (typeof value === "string" && value !== "" && !/[\s"=]/.test(value)) return value;
   return JSON.stringify(value) ?? String(value);
 }
 
 /**
  * Renders a line for people: time, level, component with office and run, message, then the other
- * fields as `key=value`. A line that is not JSON is printed as it is.
+ * fields as `key=value`. A line that is not JSON is printed as it is. Either way the text is
+ * cleaned of terminal control characters (DIPO-313) and stays on one line.
  */
 export function renderLogLine(raw: string, entry: LogEntry | null = parseLogLine(raw)): string {
+  return cleanText(renderLogText(raw, entry)).replaceAll("\n", " ");
+}
+
+function renderLogText(raw: string, entry: LogEntry | null): string {
   if (entry === null) return raw;
   const where = [
     entry.component,
