@@ -3,10 +3,10 @@ id: DIPO-186
 title: >-
   Carry the worker's report as data: test-plan entries, deviations, proposals
   and decision notes
-status: Refined
+status: Done
 assignee: []
 created_date: '2026-10-17 20:30'
-updated_date: '2026-10-22 18:15'
+updated_date: '2026-10-23 06:18'
 labels:
   - 'tier:M'
   - cutover
@@ -23,30 +23,68 @@ dependencies:
   - DIPO-296
   - DIPO-299
 references:
-  - packages/cli/src/
+  - '- packages/cli/src/'
+  - docs/decisions/0019-review-loop.md
+  - docs/decisions/0021-worker-isolation.md
+  - packages/daemon/src/runs.ts
   - packages/engine/src/backlog/fields/block.ts
   - packages/engine/src/db/migrations/
+  - packages/engine/src/db/migrations/0043-worker-report-data.ts
   - packages/engine/src/db/schema.ts
+  - packages/engine/src/prompts/contract.ts
+  - packages/engine/src/prompts/contract/implement-box.md
   - packages/engine/src/prompts/contract/implement.md
+  - packages/engine/src/prompts/contract/review-box.md
+  - packages/engine/src/prompts/contract/review.md
   - packages/engine/src/prompts/feedback.ts
   - packages/engine/src/prompts/feedback/
+  - packages/engine/src/prompts/feedback/decision-note.md
+  - packages/engine/src/prompts/feedback/test-plan.md
+  - packages/engine/src/prompts/feedback/verify-run.md
   - packages/engine/src/prompts/review.ts
+  - packages/engine/src/prompts/task/review-worker-report.md
+  - packages/engine/src/prompts/templates.ts
   - packages/engine/src/reads/
   - packages/engine/src/retention/policy.ts
+  - packages/engine/src/retention/run.ts
   - packages/engine/src/run/
+  - packages/engine/src/run/control-turns.ts
+  - packages/engine/src/run/control-types.ts
   - packages/engine/src/run/control.ts
+  - packages/engine/src/run/report-data.ts
+  - packages/engine/src/run/reviews.ts
   - packages/engine/src/run/verify-commit.ts
   - packages/engine/src/views/
+  - packages/engine/src/views/index.ts
+  - packages/engine/src/views/proposals.ts
   - packages/engine/src/workers/claude-cli/interpret.ts
   - packages/engine/src/workers/claude-cli/report-schema.ts
+  - packages/engine/src/workers/claude-cli/schema.ts
   - packages/engine/src/workers/types.ts
   - packages/engine/test/db/
+  - packages/engine/test/db/worker-report-data.test.ts
   - packages/engine/test/prompts/
+  - packages/engine/test/prompts/golden/system-implement-box-developer.md
+  - packages/engine/test/prompts/golden/system-review-box-reviewer.md
+  - packages/engine/test/prompts/golden/system-review-reviewer.md
+  - packages/engine/test/prompts/golden/task-implement-box.md
+  - packages/engine/test/prompts/golden/task-implement.md
+  - packages/engine/test/prompts/review.test.ts
+  - packages/engine/test/prompts/system.test.ts
+  - packages/engine/test/prompts/task.test.ts
   - packages/engine/test/run/
   - packages/engine/test/run/control.test.ts
+  - packages/engine/test/run/report-data.test.ts
+  - packages/engine/test/run/reviews.test.ts
   - packages/engine/test/run/verify-commit.test.ts
+  - packages/engine/test/run/verify-in-box.test.ts
   - packages/engine/test/views/
+  - packages/engine/test/views/proposals.test.ts
   - packages/engine/test/workers/
+  - packages/engine/test/workers/golden/plan-L.json
+  - packages/engine/test/workers/golden/plan-M.json
+  - packages/engine/test/workers/golden/plan-S.json
+  - packages/engine/test/workers/interpret.test.ts
   - packages/engine/test/workers/report-schema.test.ts
 priority: high
 type: enhancement
@@ -99,22 +137,21 @@ test_plan:
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 WorkerReportSchema (packages/engine/src/workers/claude-cli/report-schema.ts) and WorkerReport (packages/engine/src/workers/types.ts) carry an optional field decisionNotes: at most 3 entries, each the decision file path under docs/decisions/, the section heading and the note text, each with a length cap; WORKER_REPORT_JSON_SCHEMA includes it and a report without it parses as before
-- [ ] #2 When a report carries a decision note, code checks that the file exists in the story worktree and that the section heading is in it; a miss gets one feedback turn naming the file and the section, and the rest of the report is handled as before
-- [ ] #3 Each checked note is stored with its story key and run id in a new decision_notes table (file, section, text, story key, run, state, times) added by a migration in packages/engine/src/db/migrations/, registered in packages/engine/src/db/schema.ts and given a retention tier in packages/engine/src/retention/policy.ts; a test in packages/engine/test/db/ shows a fresh and a migrated database match
-- [ ] #4 The office.desk read (DIPO-158) returns each open decision note as a DeskItem in the proposals group, with the file, the section and the text in its detail, and dipo desk prints it; a test in packages/engine/test/views/ lists a stored note on the desk
-- [ ] #5 L1 (packages/engine/src/prompts/contract/implement.md) says a note proposed for a decision record goes in the decisionNotes field of the report, is never written into the decision records, and is never only described in summary or notes, in words with no digit and no path; packages/engine/test/prompts/golden/system-implement-developer.md is updated and packages/engine/test/prompts/system.test.ts passes
-- [ ] #6 (from DIPO-254) WorkerReport gains `testPlan` (one item per test-plan entry: its number, a status of done, not-done or manual, and evidence of at most 500 characters) and `deviations` (where, what differs from a criterion or the context, and why; at most 10 items), in the type and in the report JSON schema with length caps
-- [ ] #7 (from DIPO-254) VerifyCommit refuses a done report whose testPlan leaves an automated entry of the story's test plan not done or missing: it commits nothing and sends one feedback item that names each such entry, and the run goes on; manual entries never block, and a story with no test plan is unchanged
-- [ ] #8 (from DIPO-254) The testPlan statuses and the deviations of each done report are stored for the run in a table with a registered migration and a TABLE_RETENTION line, and the review task message lists each status with its evidence and each deviation
-- [ ] #9 (from DIPO-254) The worker contract in packages/engine/src/prompts/contract/implement.md asks for the two fields with tool-neutral wording, and its golden is updated
-- [ ] #10 (from DIPO-254) Tests cover the schema, the refusal and its feedback, the manual and no-plan cases, the stored rows and the review task message
-- [ ] #11 (from DIPO-259) WorkerReport gains `proposals` (kind follow-up or spike, title, outcome, why, optional paths; at most 3) in done and blocked reports, in the type and the report JSON schema with length caps
-- [ ] #12 (from DIPO-259) A proposals table (office, story key, run, kind, title, outcome, why, paths, hash, state open, times; retention tier S) has a migration registered in packages/engine/src/db/schema.ts and a TABLE_RETENTION line, and stores each proposal of a report, deduplicated by a hash of its title and paths
-- [ ] #13 (from DIPO-259) Storing proposals changes nothing about the story's status, the run's end or the commit
-- [ ] #14 (from DIPO-259) The worker contract in packages/engine/src/prompts/contract/implement.md says, with tool-neutral wording, to put follow-ups and spike ideas in proposals instead of notes or extra work, and its golden is updated
-- [ ] #15 (from DIPO-259) Tests cover the schema caps, storing from a done and a blocked report, the dedupe and the migration
-- [ ] #16 A box worker's done report that shows no run of the office's verify (or test) command after its last edit is sent back once to the worker to run it and report failures that only the missing git causes (gap of the DIPO-301 box run, 2026-10-22)
+- [x] #1 WorkerReportSchema (packages/engine/src/workers/claude-cli/report-schema.ts) and WorkerReport (packages/engine/src/workers/types.ts) carry an optional field decisionNotes: at most 3 entries, each the decision file path under docs/decisions/, the section heading and the note text, each with a length cap; WORKER_REPORT_JSON_SCHEMA includes it and a report without it parses as before
+- [x] #2 When a report carries a decision note, code checks that the file exists in the story worktree and that the section heading is in it; a miss gets one feedback turn naming the file and the section, and the rest of the report is handled as before
+- [x] #3 Each checked note is stored with its story key and run id in a new decision_notes table (file, section, text, story key, run, state, times) added by a migration in packages/engine/src/db/migrations/, registered in packages/engine/src/db/schema.ts and given a retention tier in packages/engine/src/retention/policy.ts; a test in packages/engine/test/db/ shows a fresh and a migrated database match
+- [x] #4 L1 (packages/engine/src/prompts/contract/implement.md) says a note proposed for a decision record goes in the decisionNotes field of the report, is never written into the decision records, and is never only described in summary or notes, in words with no digit and no path; packages/engine/test/prompts/golden/system-implement-developer.md is updated and packages/engine/test/prompts/system.test.ts passes
+- [x] #5 (from DIPO-254) WorkerReport gains `testPlan` (one item per test-plan entry: its number, a status of done, not-done or manual, and evidence of at most 500 characters) and `deviations` (where, what differs from a criterion or the context, and why; at most 10 items), in the type and in the report JSON schema with length caps
+- [x] #6 (from DIPO-254) VerifyCommit refuses a done report whose testPlan leaves an automated entry of the story's test plan not done or missing: it commits nothing and sends one feedback item that names each such entry, and the run goes on; manual entries never block, and a story with no test plan is unchanged
+- [x] #7 (from DIPO-254) The testPlan statuses and the deviations of each done report are stored for the run in a table with a registered migration and a TABLE_RETENTION line, and the review task message lists each status with its evidence and each deviation
+- [x] #8 (from DIPO-254) The worker contract in packages/engine/src/prompts/contract/implement.md asks for the two fields with tool-neutral wording, and its golden is updated
+- [x] #9 (from DIPO-254) Tests cover the schema, the refusal and its feedback, the manual and no-plan cases, the stored rows and the review task message
+- [x] #10 (from DIPO-259) WorkerReport gains `proposals` (kind follow-up or spike, title, outcome, why, optional paths; at most 3) in done and blocked reports, in the type and the report JSON schema with length caps
+- [x] #11 (from DIPO-259) A proposals table (office, story key, run, kind, title, outcome, why, paths, hash, state open, times; retention tier S) has a migration registered in packages/engine/src/db/schema.ts and a TABLE_RETENTION line, and stores each proposal of a report, deduplicated by a hash of its title and paths
+- [x] #12 (from DIPO-259) Storing proposals changes nothing about the story's status, the run's end or the commit
+- [x] #13 (from DIPO-259) The worker contract in packages/engine/src/prompts/contract/implement.md says, with tool-neutral wording, to put follow-ups and spike ideas in proposals instead of notes or extra work, and its golden is updated
+- [x] #14 (from DIPO-259) Tests cover the schema caps, storing from a done and a blocked report, the dedupe and the migration
+- [x] #15 A box worker's done report that shows no run of the office's verify (or test) command after its last edit is sent back once to the worker to run it and report failures that only the missing git causes (gap of the DIPO-301 box run, 2026-10-22)
 <!-- AC:END -->
 
 ## Implementation Notes
@@ -123,4 +160,8 @@ test_plan:
 2026-10-22: combined from DIPO-254, DIPO-259 (maintainer, M1 speed-up)
 
 2026-10-22: dropped the dependencies on DIPO-166, DIPO-159 (which now holds DIPO-289), DIPO-149 (which now holds DIPO-291) and DIPO-256 (a dependency of DIPO-259) to break a dependency cycle left by the M1 combine; those stories now come after this one.
+
+2026-10-22: criterion 4 (the office.desk read and dipo desk listing open decision notes) moved to DIPO-158, which builds the desk; this story delivers the read seam proposalItems/openDecisionNotes in packages/engine/src/views/proposals.ts.
+
+2026-10-22: built outside dipo, reviewed (one block: the desk criterion, moved to DIPO-158; security and correctness advisories fixed: prompt tags, one-line fields and a section cap, git-only failures count as done, test-plan refusals park after 3, bare command matching).
 <!-- SECTION:NOTES:END -->

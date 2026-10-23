@@ -8,12 +8,14 @@
 //   Review (`conflict`, the entry for the merge slot's sync, DIPO-150) is sent at once like a
 //   reject. Advisory findings never start a round on their own; a round that starts for another
 //   reason lists them as optional.
-// - Timing (section 7). `consider` runs when a reviewer session's exit is decided after its verdict
-//   ended the review period, and when the CI of a head stops being pending (`onCiFinal`). It waits
+// - Timing (section 7). `consider` runs when a run ends reviewed (a reviewer session's exit after
+//   its verdict, or a head that took its tree's verdict without a round), when the CI of a head
+//   stops being pending (`onCiFinal`), and at the daemon's recovery step (`recover`). It waits
 //   until the head's verdict is in (a run with the review loop's caps ended `reviewed`) and its
 //   checks are final, past the wait cap, or known to be none (a box run's head with no CI, or an
-//   office whose story PRs are off), so one round carries all feedback for that head. A reject is
-//   sent at once.
+//   office whose story PRs are off), so one round carries all feedback for that head. A verdict on
+//   another commit than the CI's head holds only when that head has the verdict's code tree;
+//   otherwise the round waits for the CI of the verdict's head. A reject is sent at once.
 // - Queue. One round per head: in one serialized step of the office (`Places.serialized`, so it
 //   cannot race a pickup's place check), one transaction reopens the run for its fix round
 //   (`reopenForRound`, phase `build`, waiting for the worker place), stores the round's steer
@@ -26,10 +28,17 @@
 //   then the developer session continues: a resume when `canResume` holds, else a new session with
 //   the handoff. A box run's developer gets a new session in its box with the feedback as its task
 //   (0021 section 6; keeping the box from claim to merge is DIPO-240's). The intent is marked sent
-//   and its items delivered once the session started; a session that did not start parks the story
-//   as any next session does, and the feedback stays undelivered with its intent.
+//   and its items delivered in the transaction that records the new agent; a session that did not
+//   start parks the story as any next session does, and the feedback stays undelivered with its
+//   intent. A round that cannot start and will not on its own (no feedback behind the wait, no
+//   developer session to continue, a status commit that failed `FIX_LIFT_TRIES` times in a row)
+//   parks the story `worker-failed` with cause `build` instead of holding the worker place.
+// - Recovery (`recover`, the daemon's recovery step). A round whose session started before a stop
+//   left its delivery unwritten is marked delivered at that session's start, and every run that
+//   ended reviewed with a live claim gets `consider`.
 
 import {
+  type AgentId,
   type Clock,
   type OfficeId,
   RoleId,
@@ -57,6 +66,7 @@ import { withWorkViews, workRefOf } from "../views/work";
 import { findClaim } from "../worktree/records";
 
 import { REVIEWER_ROLE } from "./caps";
+import type { RunEnding } from "./control-types";
 import type { DecidingGuard } from "./deciding";
 import {
   feedbackOfIntent,
@@ -67,8 +77,8 @@ import {
   storeFeedbackItems,
 } from "./feedback-items";
 import { markIntentSent, recordIntent, resolveIntent, runIntents } from "./intents";
-import { intentRest, intentTag, type RunView } from "./outcome-types";
-import { openPark, type UnparkWriter } from "./park";
+import { intentRest, intentTag, OUTCOME_ENDS, type RunView } from "./outcome-types";
+import { openPark, PARK_CAUSES, type UnparkWriter } from "./park";
 import type { Places, PlaceStart } from "./places";
 import { findRun, IN_REVIEW_END, type StoredRun } from "./records";
 import type { RunStoryFacts } from "./resume";
@@ -83,6 +93,12 @@ export const FIX_NOTICES = {
   /** A fix round was queued for the worker place. */
   queued: "fix.queued",
 } as const;
+
+/** The daemon's recovery step that recovers the fix rounds (`FixRounds.recover`). */
+export const FIX_ROUNDS_RECOVERY_STEP = "fix-rounds-recover";
+
+/** How many times in a row the status commit of a fix round may fail before the story parks. */
+export const FIX_LIFT_TRIES = 3;
 
 /** What a fix round's intent detail holds after its tag. */
 interface FixIntentDetail {
@@ -100,6 +116,8 @@ export interface FixSessions {
       readonly mode: "resume" | "handoff";
       readonly why: string;
       readonly message?: string;
+      /** Runs in the transaction that records the new agent. */
+      readonly inRecord?: (agent: AgentId, at: number) => void;
     },
   ): Promise<boolean>;
 }
@@ -127,6 +145,26 @@ export interface FixRoundsDeps {
   readonly boxRun?: (office: OfficeId, run: StoredRun) => boolean;
   /** The office's places; read when needed, since they are built after this. */
   readonly places: () => Places | undefined;
+  /**
+   * Parks a run whose fix round cannot start and will not on its own (`RunControl.park`); without
+   * it such a round only warns.
+   */
+  readonly park?: (
+    office: OfficeHandle,
+    run: StoredRun,
+    work: WorkRef | undefined,
+    ending: RunEnding,
+  ) => Promise<unknown>;
+  /**
+   * The code tree key of `head` (0010; `ReviewGit.codeTreeKey`): a verdict on another commit holds
+   * for a head with the same tree. Without it a verdict holds only for its own commit.
+   */
+  readonly treeKey?: (
+    office: OfficeId,
+    run: StoredRun,
+    taskFile: string,
+    head: string,
+  ) => Promise<string>;
   /** The deciding guard of worker outcomes, so a restart step leaves a starting round alone. */
   readonly guard?: DecidingGuard;
   /** Reads the story again at its branch tip after the status commit. */
@@ -192,6 +230,8 @@ export class FixRounds {
   readonly #deps: FixRoundsDeps;
   /** Runs whose round is being decided now. */
   readonly #deciding = new Set<string>();
+  /** How many times in a row each run's status commit failed. */
+  readonly #liftFailures = new Map<string, number>();
   /** The drains a queued round started, until they finished. */
   readonly #inflight = new Set<Promise<unknown>>();
 
@@ -254,6 +294,12 @@ export class FixRounds {
     }
     // A story Done on the base gets no round; reconcile releases its claim.
     if (facts !== null && lifecycleOf("task", facts.view.status) === "Done") return false;
+    // The verdict and the checks must be of one head: a verdict on another commit holds for the
+    // CI's head only when that head has the verdict's code tree (section 6). Otherwise the round
+    // waits for the CI of the verdict's head, which tells again once it is final.
+    if (verdict !== null && ci.head !== null && verdict.commit !== ci.head) {
+      if (!(await this.#sameTree(officeId, run, facts, verdict, ci.head))) return false;
+    }
     const itemMax = itemMaxOf(config, run.tier);
     const review =
       verdict?.verdict === "blocked"
@@ -337,12 +383,16 @@ export class FixRounds {
     const office = this.#deps.offices.get(officeId);
     if (office === undefined || run.story === null || run.key === null) return false;
     if (run.branch === null || run.worktree === null) return false;
+    // Transient: an exit or resume of the run is being decided; the next drain tries again.
+    if (this.#deps.guard?.busy(run.runId) === true) return false;
     const pending = pendingFixRound(office, run.runId);
     if (pending === null) {
-      this.#deps.warn?.("a run waits for a fix round that has no feedback", { run: run.runId });
-      return false;
+      return await this.#strand(
+        office,
+        run,
+        "the run waited for a fix round, but dipo holds no undelivered feedback for it",
+      );
     }
-    if (this.#deps.guard?.busy(run.runId) === true) return false;
     const { head, advisories } = pending.detail;
     if (this.#deps.unpark !== undefined) {
       try {
@@ -352,8 +402,19 @@ export class FixRounds {
           worktree: run.worktree,
           to: "In Progress",
         });
+        this.#liftFailures.delete(run.runId);
       } catch (error) {
+        const failures = (this.#liftFailures.get(run.runId) ?? 0) + 1;
+        if (failures >= FIX_LIFT_TRIES) {
+          this.#liftFailures.delete(run.runId);
+          return await this.#strand(
+            office,
+            run,
+            `setting the story In Progress before its fix round failed ${failures} times in a row: ${messageOf(error)}`,
+          );
+        }
         // The round waits again; the next drain tries the status commit again.
+        this.#liftFailures.set(run.runId, failures);
         this.#deps.warn?.("setting the story In Progress before its fix round failed", {
           run: run.runId,
           reason: messageOf(error),
@@ -371,8 +432,11 @@ export class FixRounds {
     const fresh = findRun(office, run.runId) ?? run;
     const view = this.#developerView(officeId, office, fresh);
     if (view === null) {
-      this.#deps.warn?.("a fix round has no developer session to continue", { run: run.runId });
-      return false;
+      return await this.#strand(
+        office,
+        run,
+        "the fix round found no developer session of the run to continue",
+      );
     }
     const message = fixRoundMessage({
       head,
@@ -386,20 +450,112 @@ export class FixRounds {
         mode: box ? "handoff" : "resume",
         why: `the feedback on ${head.slice(0, 12)}`,
         message,
+        // Delivered in the transaction that records the new agent, so a stop right after the
+        // start never leaves the items to be sent again.
+        inRecord: (_agent, at) => deliverFixRound(office, run.runId, pending.intentId, at),
       });
-    const started =
-      this.#deps.guard === undefined
-        ? await work()
-        : await this.#deps.guard.within(`${run.runId} fix-round`, work);
-    if (started) {
-      const at = this.#deps.clock.now();
-      office.immediate(() => {
-        markIntentSent(office, run.runId, pending.intentId, at, null);
-        markFeedbackSent(office, run.runId, pending.intentId, at);
-        resolveIntent(office, run.runId, pending.intentId, "started", at);
+    return this.#deps.guard === undefined
+      ? await work()
+      : await this.#deps.guard.within(`${run.runId} fix-round`, work);
+  }
+
+  /**
+   * The daemon's recovery step (DIPO-148): a fix round whose session started while the daemon
+   * stopped before its delivery was written is marked delivered at that session's start, and every
+   * run that ended reviewed with a live claim gets `consider`, so a head whose verdict is in but
+   * whose CI never tells again (no story PRs, or none ran) is not left without its round. Returns
+   * how many rounds it queued.
+   */
+  async recover(officeId: OfficeId): Promise<number> {
+    const office = this.#deps.offices.get(officeId);
+    if (office === undefined) return 0;
+    const pending = office.all<{ run_id: string; intent_id: number; created_at: number }>(
+      `select run_id, intent_id, created_at from run_intents
+        where office_id = $office_id and kind = 'steer' and state = 'pending' and detail like $tag`,
+      { tag: `${FIX_ROUND_TAG} %` },
+    );
+    for (const row of pending) {
+      const started = office.get<{ started_at: number }>(
+        `select started_at from agents where office_id = $office_id and run_id = $run
+          and role <> $reviewer and started_at >= $since order by started_at, rowid limit 1`,
+        { run: row.run_id, reviewer: REVIEWER_ROLE, since: row.created_at },
+      );
+      if (started === null) continue;
+      office.immediate(() =>
+        deliverFixRound(office, row.run_id as RunId, row.intent_id, started.started_at),
+      );
+    }
+    const reviewed = office.all<{ run_id: string }>(
+      `select r.run_id from runs r where r.office_id = $office_id and r.kind = 'story'
+        and r.ended_at is not null and r.end_kind = $reviewed
+        and exists (select 1 from claims c where c.office_id = r.office_id
+          and c.run_id = r.run_id and c.released_at is null)
+      order by r.ended_at, r.run_id`,
+      { reviewed: REVIEWED_END },
+    );
+    let queued = 0;
+    for (const row of reviewed) {
+      if (await this.consider(officeId, row.run_id as RunId)) queued += 1;
+    }
+    return queued;
+  }
+
+  /** True when `head` has the code tree `verdict` judged; false when that cannot be read. */
+  async #sameTree(
+    officeId: OfficeId,
+    run: StoredRun,
+    facts: RunStoryFacts | null,
+    verdict: StoredReviewVerdict,
+    head: string,
+  ): Promise<boolean> {
+    if (this.#deps.treeKey === undefined || facts === null) return false;
+    try {
+      const tree = await this.#deps.treeKey(officeId, run, facts.taskFile, head);
+      return tree === verdict.codeTreeKey;
+    } catch (error) {
+      this.#deps.warn?.("reading the code tree of a head before its fix round failed", {
+        run: run.runId,
+        reason: messageOf(error),
+      });
+      return false;
+    }
+  }
+
+  /**
+   * A fix round that cannot start and will not on its own: the story parks `worker-failed` with
+   * cause `build` and `detail`, so the round neither holds the worker place nor warns at every
+   * drain. Its feedback stays undelivered with its intent. Always false.
+   */
+  async #strand(office: OfficeHandle, run: StoredRun, detail: string): Promise<false> {
+    const park = this.#deps.park;
+    if (park === undefined) {
+      this.#deps.warn?.("a fix round cannot start", { run: run.runId, detail });
+      return false;
+    }
+    try {
+      await park(office, run, workRefOf(office, run.runId) ?? undefined, {
+        intent: "park",
+        ops: [],
+        reason: "worker-failed",
+        cause: PARK_CAUSES.build,
+        detail,
+        endKind: OUTCOME_ENDS.crashed,
+      });
+      // No worker runs, so nothing else resolves the park's intent.
+      const intent = runIntents(office, run.runId)
+        .filter((candidate) => candidate.kind === "park" && candidate.resolvedAt === null)
+        .at(-1);
+      if (intent !== undefined) {
+        const at = this.#deps.clock.now();
+        office.immediate(() => resolveIntent(office, run.runId, intent.intentId, "blocked", at));
+      }
+    } catch (error) {
+      this.#deps.warn?.("parking a fix round that cannot start failed", {
+        run: run.runId,
+        reason: messageOf(error),
       });
     }
-    return started;
+    return false;
   }
 
   /**
@@ -559,6 +715,21 @@ export class FixRounds {
     if (appended > 0) this.#deps.onChanged?.(office.officeId as OfficeId);
     return value;
   }
+}
+
+/**
+ * Inside the caller's transaction (the one that records the new agent, or the recovery step's): the
+ * fix round's intent sent and resolved and its items delivered at `at`.
+ */
+export function deliverFixRound(
+  office: OfficeHandle,
+  runId: RunId,
+  intentId: number,
+  at: number,
+): void {
+  markIntentSent(office, runId, intentId, at, null);
+  markFeedbackSent(office, runId, intentId, at);
+  resolveIntent(office, runId, intentId, "started", at);
 }
 
 /** The per-item budget of the run's tier (`prompt.budgets.feedbackItem`). */

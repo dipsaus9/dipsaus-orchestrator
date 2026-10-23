@@ -1,4 +1,4 @@
-// Migration 44 (DIPO-149): `catch_ups` (0019 sections 6 and 10, 0021 section 12; retention tier S
+// Migration 45 (DIPO-149): `catch_ups` (0019 sections 6 and 10, 0021 section 12; retention tier S
 // with its run).
 //
 // One row per base merge dipo made into a story branch, or found while the story was In Review:
@@ -16,7 +16,7 @@
 import type { SqlMigration } from "../migrations";
 
 export const catchUps: SqlMigration = {
-  version: 44,
+  version: 45,
   name: "catch ups",
   sql: `
 create table catch_ups (

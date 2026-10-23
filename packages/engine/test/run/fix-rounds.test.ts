@@ -16,6 +16,7 @@ import type { JudgedReview } from "../../src/review/verdict";
 import {
   endRun,
   FIX_NOTICES,
+  FIX_LIFT_TRIES,
   FixRounds,
   feedbackItems,
   findRun,
@@ -130,7 +131,20 @@ interface World {
   facts: RunStoryFacts;
   /** The next session start answers this; true by default. */
   starts: boolean;
+  /** The fakes' other knobs. */
+  readonly s: Knobs;
   close(): void;
+}
+
+interface Knobs {
+  /** The code tree key of each head (`treeKey`); a head not listed has its own. */
+  readonly trees: Map<string, string>;
+  /** Worker outcomes have no view of the run (no caps). */
+  viewNull: boolean;
+  /** How many of the next status commits fail. */
+  liftFails: number;
+  /** The daemon stops right after the session's agent is recorded: the start never returns. */
+  stopAfterRecord: boolean;
 }
 
 let x: World;
@@ -150,6 +164,12 @@ function world(): World {
   const lifts: UnparkBranchRequest[] = [];
   const ci = x?.ci ?? new Map<string, CiHeadState>();
   const box = x?.box ?? new Set<string>();
+  const s: Knobs = {
+    trees: x?.s.trees ?? new Map(),
+    viewNull: false,
+    liftFails: 0,
+    stopAfterRecord: false,
+  };
   const warned: unknown[] = [];
   const state = { config: OFFICE_DEFAULTS as OfficeConfig, facts: FACTS, starts: true };
   const control = new RunControl({
@@ -182,19 +202,29 @@ function world(): World {
           message: request.message,
           work: runView.work,
         });
-        if (state.starts) addAgent(w, run.runId, "developer", true);
-        return state.starts;
+        if (!state.starts) return false;
+        const agent = addAgent(w, run.runId, "developer", true);
+        write(() => request.inRecord?.(agent, now()));
+        if (s.stopAfterRecord) throw new Error("the daemon stopped");
+        return true;
       },
     },
-    view: (office, handle, run) => view(office, handle, run),
+    view: (office, handle, run) => (s.viewNull ? null : view(office, handle, run)),
     unpark: {
       lift: async (_office, request) => {
+        if (s.liftFails > 0) {
+          s.liftFails -= 1;
+          throw new Error("the push was refused");
+        }
         lifts.push(request);
         return { commit: "f".repeat(40), pushed: true, pushError: null };
       },
     },
     boxRun: (_office, run) => box.has(run.runId),
     places: () => places ?? undefined,
+    park: (office, run, work, ending) => control.park(office, run, work, ending),
+    treeKey: async (_office, _run, _taskFile, head) =>
+      s.trees.get(head) ?? `tree-${head.slice(0, 4)}`,
     warn: (message, fields) => warned.push({ message, fields }),
   });
   places = new Places({
@@ -213,6 +243,7 @@ function world(): World {
     ci,
     box,
     warned,
+    s,
     get config() {
       return state.config;
     },
@@ -563,5 +594,161 @@ describe("a conflict hand-off of a story In Review (DIPO-149, the merge slot's e
     ]);
     expect(x.started[0]?.message).toContain("Item 1 (conflict):");
     expect(x.started[0]?.message).toContain("Conflicted files: content: src/greet.ts");
+  });
+});
+
+describe("a verdict and checks of different heads", () => {
+  it("waits for the CI of the verdict's head, unless the CI's head has the verdict's code tree", async () => {
+    const s = inReview("DIPO-1");
+    reviewed(s, H1, BLOCKED);
+    // The poll still tells of another head, with another tree: no round.
+    x.ci.set(s.run, { kind: "red", head: H2, items: [red()] });
+    expect(await x.fix.consider(officeId(), s.run)).toBe(false);
+    expect(feedbackItems(w.office, s.run)).toEqual([]);
+    // Once the CI of the verdict's head is final, the round goes.
+    x.ci.set(s.run, { kind: "red", head: H1, items: [red()] });
+    expect(await x.fix.consider(officeId(), s.run)).toBe(true);
+    expect(feedbackItems(w.office, s.run).map((item) => item.head)).toEqual([H1, H1, H1]);
+
+    // A head that changed only the task file has the verdict's tree: the verdict holds for it.
+    const t = inReview("DIPO-2");
+    reviewed(t, H1, BLOCKED);
+    x.s.trees.set(H2, `tree-${H1.slice(0, 4)}`);
+    x.ci.set(t.run, { kind: "green", head: H2 });
+    expect(await x.fix.consider(officeId(), t.run)).toBe(true);
+    expect(feedbackItems(w.office, t.run).map((item) => item.head)).toEqual([H2, H2]);
+  });
+});
+
+/** A run reviewed blocked on H1 with green CI: its fix round is ready to queue. */
+const waitingFix = (story: string): StoryRun => {
+  const s = inReview(story);
+  reviewed(s, H1, BLOCKED);
+  x.ci.set(s.run, { kind: "green", head: H1 });
+  return s;
+};
+
+describe("a fix round that cannot start", () => {
+  it("parks worker-failed with cause build when it has no feedback, instead of holding the place", async () => {
+    const s = inReview("DIPO-1");
+    // A wait for a fix round with no intent behind it.
+    write(() =>
+      w.office.run(
+        `update runs set ended_at = null, end_kind = null, waiting = $kind, waiting_since = $at
+          where office_id = $office_id and run_id = $run`,
+        { run: s.run, kind: START_KINDS.fix, at: now() },
+      ),
+    );
+    await x.places.drain(officeId());
+    expect(parksOf()).toEqual([{ reason: "worker-failed", cause: "build" }]);
+    expect(findRun(w.office, s.run)?.endedAt).not.toBeNull();
+    expect(x.started).toEqual([]);
+    expect(runIntents(w.office, s.run).filter((i) => i.kind === "park")).toEqual([
+      expect.objectContaining({ state: "resolved" }),
+    ]);
+  });
+
+  it("parks when worker outcomes have no view of the run, keeping the feedback undelivered", async () => {
+    const s = waitingFix("DIPO-1");
+    x.s.viewNull = true;
+    expect(await x.fix.consider(officeId(), s.run)).toBe(true);
+    await x.fix.idle();
+    expect(parksOf()).toEqual([{ reason: "worker-failed", cause: "build" }]);
+    expect(x.started).toEqual([]);
+    expect(feedbackItems(w.office, s.run).every((item) => item.sentAt === null)).toBe(true);
+  });
+
+  it("waits again after a failed status commit, and parks after FIX_LIFT_TRIES in a row", async () => {
+    const s = waitingFix("DIPO-1");
+    x.s.liftFails = FIX_LIFT_TRIES;
+    expect(await x.fix.consider(officeId(), s.run)).toBe(true);
+    await x.fix.idle();
+    for (let attempt = 1; attempt < FIX_LIFT_TRIES; attempt += 1) {
+      expect(parksOf()).toEqual([]);
+      expect(findRun(w.office, s.run)).toMatchObject({ endedAt: null, waiting: START_KINDS.fix });
+      await x.places.drain(officeId());
+    }
+    expect(parksOf()).toEqual([{ reason: "worker-failed", cause: "build" }]);
+    expect(x.started).toEqual([]);
+  });
+
+  it("waits again after a single failed status commit and then starts", async () => {
+    const s = waitingFix("DIPO-1");
+    x.s.liftFails = 1;
+    expect(await x.fix.consider(officeId(), s.run)).toBe(true);
+    await x.fix.idle();
+    expect(x.started).toEqual([]);
+    await x.places.drain(officeId());
+    expect(x.started).toHaveLength(1);
+    expect(parksOf()).toEqual([]);
+  });
+});
+
+describe("delivery with the session's start", () => {
+  it("marks the round delivered in the transaction that records the new agent, so a stop right after never sends it twice", async () => {
+    const s = inReview("DIPO-1");
+    reviewed(s, H1, BLOCKED);
+    x.ci.set(s.run, { kind: "green", head: H1 });
+    x.s.stopAfterRecord = true;
+    expect(await x.fix.consider(officeId(), s.run)).toBe(true);
+    await x.fix.idle();
+    expect(x.started).toHaveLength(1);
+    expect(fixIntentsOf(s.run)).toEqual([
+      expect.objectContaining({ state: "resolved", outcome: "started" }),
+    ]);
+    expect(feedbackItems(w.office, s.run).every((item) => item.sentAt !== null)).toBe(true);
+    // A restart: nothing of the round is sent again.
+    x.close();
+    x = world();
+    expect(await x.fix.recover(officeId())).toBe(0);
+    await x.places.drain(officeId());
+    expect(x.started).toEqual([]);
+  });
+
+  it("recovers a round whose session started before a stop left its delivery unwritten", async () => {
+    const s = inReview("DIPO-1");
+    reviewed(s, H1, BLOCKED);
+    x.ci.set(s.run, { kind: "green", head: H1 });
+    // Queued but not started: the worker place is held.
+    const busy = storyRun(w, { story: "DIPO-9" });
+    addAgent(w, busy.run, "developer", true);
+    expect(await x.fix.consider(officeId(), s.run)).toBe(true);
+    await x.fix.idle();
+    // The session started, and the daemon stopped before it wrote the delivery.
+    w.t.clock.advance(MINUTE);
+    const at = now();
+    addAgent(w, s.run, "developer", true);
+    write(() =>
+      w.office.run(
+        "update runs set waiting = null, waiting_since = null where office_id = $office_id and run_id = $run",
+        { run: s.run },
+      ),
+    );
+    x.close();
+    x = world();
+    await x.fix.recover(officeId());
+    expect(fixIntentsOf(s.run)).toEqual([
+      expect.objectContaining({ state: "resolved", outcome: "started", sentAt: at }),
+    ]);
+    expect(feedbackItems(w.office, s.run).map((item) => item.sentAt)).toEqual([at, at]);
+  });
+});
+
+describe("the recovery step", () => {
+  it("decides the round of a reviewed head whose CI will not tell again", async () => {
+    x.config = { ...OFFICE_DEFAULTS, storyPr: { ...OFFICE_DEFAULTS.storyPr, open: false } };
+    const s = inReview("DIPO-1");
+    reviewed(s, H1, BLOCKED);
+    const ok = inReview("DIPO-2");
+    reviewed(ok, H2, APPROVED);
+    // The daemon stopped before the reviewer's exit reached the fix rounds.
+    x.close();
+    x = world();
+    x.config = { ...OFFICE_DEFAULTS, storyPr: { ...OFFICE_DEFAULTS.storyPr, open: false } };
+    expect(await x.fix.recover(officeId())).toBe(1);
+    expect(feedbackItems(w.office, s.run).map((item) => item.head)).toEqual([H1, H1]);
+    expect(feedbackItems(w.office, ok.run)).toEqual([]);
+    // A second recovery queues nothing new.
+    expect(await x.fix.recover(officeId())).toBe(0);
   });
 });

@@ -222,7 +222,19 @@ export async function runRetention(options: RetentionOptions): Promise<Retention
        and r.run_id = run_summaries.run_id and r.ended_at < $cutoff)`,
     { cutoff: stateCutoff },
   );
+  // A run's done reports and its send-once marks (DIPO-186).
+  for (const table of ["done_reports", "report_sendbacks"]) {
+    await rows(
+      table,
+      `exists (select 1 from runs r where r.office_id = $office_id
+         and r.run_id = ${table}.run_id and r.ended_at < $cutoff)`,
+      { cutoff: stateCutoff },
+    );
+  }
   await rows("runs", "ended_at < $cutoff", { cutoff: stateCutoff });
+  // Decision notes and proposals the maintainer decided; an open one is kept (DIPO-186).
+  await rows("decision_notes", "state <> 'open' and updated_at < $cutoff", { cutoff: stateCutoff });
+  await rows("proposals", "state <> 'open' and updated_at < $cutoff", { cutoff: stateCutoff });
   // Parks resolved before the cutoff; an open park is the history of a story still Parked.
   await rows("parks", "resolved_at < $cutoff", { cutoff: stateCutoff });
   await rows(

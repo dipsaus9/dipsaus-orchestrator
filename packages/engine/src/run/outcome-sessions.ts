@@ -1,7 +1,7 @@
 // Starting the next session of a run, and the start failure that cannot (DIPO-51, split out of
 // `outcomes.ts` by DIPO-128).
 
-import type { WatchdogSignal, WorkRef } from "@dipsaus-orchestrator/contract";
+import type { AgentId, WatchdogSignal, WorkRef } from "@dipsaus-orchestrator/contract";
 
 import { FEEDBACK_TEMPLATES, renderTemplate } from "../prompts/templates";
 import { holdMessage, type AdapterHold } from "../workers/hold";
@@ -46,6 +46,8 @@ export class SessionStarts {
       /** Only a resume will do; a session that cannot be resumed parks `interrupted` (DIPO-57). */
       readonly requireResume?: boolean;
       readonly clear?: readonly WatchdogSignal[];
+      /** Runs in the transaction that records the new agent (`NextSessionRequest.inRecord`). */
+      readonly inRecord?: (agent: AgentId, at: number) => void;
     },
   ): Promise<boolean> {
     const resumer = this.#deps.resumer;
@@ -89,6 +91,7 @@ export class SessionStarts {
         ...(message === undefined ? {} : { message }),
         ...(request.requireResume === true ? { requireResume: true } : {}),
         ...(request.clear === undefined ? {} : { clear: request.clear }),
+        ...(request.inRecord === undefined ? {} : { inRecord: request.inRecord }),
         caps: view.caps,
         startedAt: view.startedAt,
         snapshot: view.snapshot,

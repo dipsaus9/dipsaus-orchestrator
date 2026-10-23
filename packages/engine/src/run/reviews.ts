@@ -93,6 +93,7 @@ import { claimPlace, type PlaceStart, START_KINDS, waitForPlace } from "./places
 import { LAUNCH_NOTICES, planRefusedText } from "./launch";
 import { endRunMarked } from "./markers";
 import { appendRunStep, DONE_END, findRun, finishRun, type StoredRun } from "./records";
+import { latestDoneReport } from "./report-data";
 import type { RunStoryFacts } from "./resume";
 import { type ReviewGit, type ReviewSessions, snapshotReviewCaps } from "./review-launch";
 import {
@@ -103,7 +104,7 @@ import {
   type ReviewRound,
   takeVerdict,
 } from "./review-rounds";
-import { endReviewPeriod, reopenForRound } from "./rounds";
+import { endReviewPeriod, reopenForRound, REVIEWED_END } from "./rounds";
 
 /** The tags of the review rounds' intents, at the start of their detail. */
 export const REVIEW_TAGS = {
@@ -158,10 +159,11 @@ export interface ReviewsDeps {
   /** The plan-limit schedule: a review's limit holds new sessions on its scope until the reset. */
   readonly waits?: () => PlanLimitWaits | undefined;
   /**
-   * Hears a reviewer session's exit once its verdict or park ended the review period, with the
-   * agent that exited: the fix round of the head decides then (DIPO-148), as no reviewer runs.
+   * Hears a run that ended reviewed: a reviewer session's exit once its verdict or park ended the
+   * review period, with the agent that exited, or a head that took its tree's verdict without a
+   * round, with none. The fix round of the head decides then (DIPO-148), as no reviewer runs.
    */
-  readonly onReviewed?: (office: OfficeId, runId: RunId, agent: string) => void;
+  readonly onReviewed?: (office: OfficeId, runId: RunId, agent?: string) => void;
   readonly onChanged?: (office: OfficeId) => void;
   readonly warn?: (message: string, fields: Readonly<Record<string, unknown>>) => void;
 }
@@ -261,6 +263,10 @@ export class Reviews {
         if (!takeVerdict(office, run.runId)) endReviewPeriod(office, run.runId, at);
         return [];
       });
+      // The run ended reviewed with the tree's verdict: a blocked one gets its fix round (DIPO-148).
+      if (findRun(office, run.runId)?.endKind === REVIEWED_END) {
+        this.#deps.onReviewed?.(officeId, run.runId);
+      }
       return false;
     }
     const at = this.#deps.clock.now();
@@ -308,6 +314,8 @@ export class Reviews {
       const { diff, changes } = await this.#deps.git.diff(officeId, run.worktree, base, head);
       const size = await this.#deps.git.sizeClass(officeId, run.worktree);
       const previous = this.#lastVerdict(office, run.runId);
+      // The worker's test-plan statuses and deviations of its last done report (DIPO-254).
+      const done = latestDoneReport(office, run.runId);
       taskMessage = assembleReviewTaskMessage({
         story: promptStoryOf(facts.view, {
           dependencies: facts.dependencies,
@@ -322,6 +330,9 @@ export class Reviews {
         ...(previous === null
           ? {}
           : { previousFindings: previous.findings as readonly ReviewFinding[] }),
+        ...(done === null
+          ? {}
+          : { workerReport: { testPlan: done.testPlan, deviations: done.deviations } }),
         diffBudget: config.prompt.budgets.diff[size],
         contractMax: config.prompt.contractMax,
       }).text;

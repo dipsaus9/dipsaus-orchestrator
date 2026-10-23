@@ -25,6 +25,7 @@ import type { LiveQuestions } from "./live-question";
 import type { RunAct, RunOutcomesPort, RunView } from "./outcome-types";
 import type { ParkOutcome, ParkWriter } from "./park";
 import type { StoredRun } from "./records";
+import type { ToolTrail } from "./report-data";
 import type { RunFinisher } from "./verify-commit";
 
 /** The error of `work.stop` for a story with no active run (0005 section 4). */
@@ -147,6 +148,11 @@ export interface Tracked extends TrackedRun {
   capped: FiredCap | null;
   /** Stdin of the paused worker was closed after the 10 minutes (DIPO-163). */
   pauseClosed?: boolean;
+  /**
+   * The worker's tool trail since run control began to follow it (DIPO-186): the shell commands
+   * after its last file edit, for the box run's verify-run check at done.
+   */
+  trail?: ToolTrail;
 }
 
 /** What ending a run does: the intent, the ops it sends and the park that follows. */

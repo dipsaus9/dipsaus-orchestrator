@@ -192,6 +192,11 @@ export interface NextSessionRequest {
    * so a limit the new session meets raises the signal again.
    */
   readonly clear?: readonly WatchdogSignal[];
+  /**
+   * Runs in the transaction that records the new agent (DIPO-148): what the caller marks as
+   * delivered with the session, so a stop between the start and a later write never sends it twice.
+   */
+  readonly inRecord?: (agent: AgentId, at: number) => void;
 }
 
 export type NextSessionOutcome =
@@ -472,6 +477,7 @@ export class RunResumer implements NextSession {
           at: deps.clock.now(),
         },
       );
+      request.inRecord?.(agent, deps.clock.now());
       // The prompt parts this session sent (0014 section 2): a handoff sends the system file and
       // the task message; a resume sends only its task message, the system file being the
       // session's own.

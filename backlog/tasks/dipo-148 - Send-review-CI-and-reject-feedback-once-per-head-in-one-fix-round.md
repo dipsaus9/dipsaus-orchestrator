@@ -1,10 +1,10 @@
 ---
 id: DIPO-148
 title: 'Send review and CI feedback once per head, with the reviewer''s caps'
-status: Refined
+status: Done
 assignee: []
 created_date: '2026-10-17 12:52'
-updated_date: '2026-10-22 19:26'
+updated_date: '2026-10-23 06:30'
 labels:
   - 'tier:M'
   - 'slice:m1a'
@@ -28,20 +28,47 @@ dependencies:
   - DIPO-296
   - DIPO-183
 references:
+  - '- packages/daemon/src/runs.ts'
+  - docs/decisions/0019-review-loop.md
+  - packages/daemon/src/foreground.ts
   - packages/daemon/src/runs.ts
+  - packages/daemon/test/integration/foreground.test.ts
   - packages/engine/src/db/migrations/
+  - packages/engine/src/db/migrations/0043-feedback-items.ts
   - packages/engine/src/db/schema.ts
   - packages/engine/src/prompts/
+  - packages/engine/src/prompts/feedback.ts
+  - packages/engine/src/prompts/feedback/fix-round-optional.md
+  - packages/engine/src/prompts/feedback/fix-round.md
+  - packages/engine/src/prompts/feedback/reject.md
+  - packages/engine/src/prompts/feedback/review-criterion.md
+  - packages/engine/src/prompts/feedback/review-finding.md
+  - packages/engine/src/prompts/index.ts
   - packages/engine/src/retention/policy.ts
+  - packages/engine/src/retention/run.ts
   - packages/engine/src/run/
+  - packages/engine/src/run/compose.ts
+  - packages/engine/src/run/feedback-items.ts
+  - packages/engine/src/run/fix-rounds.ts
+  - packages/engine/src/run/index.ts
+  - packages/engine/src/run/outcome-sessions.ts
+  - packages/engine/src/run/resume.ts
   - packages/engine/src/run/review-launch.ts
   - packages/engine/src/run/reviews.ts
   - packages/engine/src/run/rounds.ts
   - packages/engine/src/story-pr/
+  - packages/engine/src/story-pr/index.ts
+  - packages/engine/src/story-pr/prs.ts
   - packages/engine/test/db/
+  - packages/engine/test/db/feedback-items.test.ts
   - packages/engine/test/run/
+  - packages/engine/test/run/compose.test.ts
+  - packages/engine/test/run/feedback-items.test.ts
+  - packages/engine/test/run/fix-rounds.test.ts
+  - packages/engine/test/run/review-read-only.test.ts
   - packages/engine/test/run/reviews.test.ts
   - packages/engine/test/story-pr/
+  - packages/engine/test/story-pr/ci.test.ts
 priority: high
 type: feature
 ordinal: 137000
@@ -94,18 +121,18 @@ test_plan:
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 A feedback_items table (run, item id, source, signature, head commit, round, sent time, the carrying intent, rendered text of at most 3,000 characters; retention tier S) is written in the same transaction as the steer intent that sends the items
-- [ ] #2 Review items carry the section 8 evidence and signature (criterion number and status; or kind, file and the whitespace-collapsed quote; or kind and test-plan entry number), and a maintainer reject item has its stored shape (the note verbatim, keyed on the gate id) and the same send path, built from what DIPO-151's gate.reject records; until DIPO-151 exists no reject item is produced
-- [ ] #3 An item is sent at most once per head commit across polls and daemon restarts; the same signature on a later head is sent again marked still failing after your last change, and two sends in a row of one verify or CI signature raise the same-failure watchdog signal
-- [ ] #4 All feedback for one head goes in one user message; the fix round waits until that head's verdict is in and its required checks are final or past the wait cap, reopens the run in the worker place, commits <ID>: status In Progress, and resumes the developer session when canResume holds, else starts a new session with a handoff; the fix round stores its feedback_items rows and its intent when it is queued, before the shared pre-start cap check that DIPO-205 adds, so a round that check parks keeps its feedback for a top-up resume (DIPO-156)
-- [ ] #5 Advisory findings never start a fix round on their own and are listed as optional when a fix round starts for another reason
-- [ ] #6 (from DIPO-239) In Reviews.start in packages/engine/src/run/reviews.ts, after the base read of the story (deps.story, baseStoryFacts) and before any reopenForRound or beginReviewRound, a story whose base status is Done gets no review round and no session, and start returns false
-- [ ] #7 (from DIPO-239) Such a run ends with end kind done: a run ended at In Review has its end kind set to done in one write, and a run still open and waiting for the reviewer place ends through endReviewPeriod with end kind done, its waiting cleared and its place free; in both cases one info engine.notice review.doneOnBase names the story and the run, and the claim stays live for reconcile's done-on-base release
-- [ ] #8 (from DIPO-239) A run whose story is not Done on the base keeps today's behaviour: its review round and session start when the reviewer place frees
-- [ ] #9 (from DIPO-239) Tests in packages/engine/test/run/reviews.test.ts cover a run ended at In Review and a run waiting for the reviewer place, each with a base read giving Done, a second start for the same run, and a run whose story is In Review on the base
-- [ ] #10 (from DIPO-247) reviewerSettings reads the reviewer's turn and minute caps only from the run's snapshot: a run whose snapshot has no review caps gets the office's current review caps written into its snapshot at its first review start, and later config changes do not change them
-- [ ] #11 (from DIPO-247) A PlanError at reviewer launch raises the run.planRefused engine.notice on the office with planRefusedText, as the worker launch does, besides returning the failed start
-- [ ] #12 (from DIPO-247) packages/engine/test/run/reviews.test.ts covers the snapshot caps after a config change, the planRefused notice, a reviewer whose worker host is lost and a reviewer past its minute cap
+- [x] #1 A feedback_items table (run, item id, source, signature, head commit, round, sent time, the carrying intent, rendered text of at most 3,000 characters; retention tier S) is written in the same transaction as the steer intent that sends the items
+- [x] #2 Review items carry the section 8 evidence and signature (criterion number and status; or kind, file and the whitespace-collapsed quote; or kind and test-plan entry number), and a maintainer reject item has its stored shape (the note verbatim, keyed on the gate id) and the same send path, built from what DIPO-151's gate.reject records; until DIPO-151 exists no reject item is produced
+- [x] #3 An item is sent at most once per head commit across polls and daemon restarts; the same signature on a later head is sent again marked still failing after your last change, and two sends in a row of one verify or CI signature raise the same-failure watchdog signal
+- [x] #4 All feedback for one head goes in one user message; the fix round waits until that head's verdict is in and its required checks are final or past the wait cap, reopens the run in the worker place, commits <ID>: status In Progress, and resumes the developer session when canResume holds, else starts a new session with a handoff; the fix round stores its feedback_items rows and its intent when it is queued, before the shared pre-start cap check that DIPO-205 adds, so a round that check parks keeps its feedback for a top-up resume (DIPO-156)
+- [x] #5 Advisory findings never start a fix round on their own and are listed as optional when a fix round starts for another reason
+- [x] #6 (from DIPO-239) In Reviews.start in packages/engine/src/run/reviews.ts, after the base read of the story (deps.story, baseStoryFacts) and before any reopenForRound or beginReviewRound, a story whose base status is Done gets no review round and no session, and start returns false
+- [x] #7 (from DIPO-239) Such a run ends with end kind done: a run ended at In Review has its end kind set to done in one write, and a run still open and waiting for the reviewer place ends through endReviewPeriod with end kind done, its waiting cleared and its place free; in both cases one info engine.notice review.doneOnBase names the story and the run, and the claim stays live for reconcile's done-on-base release
+- [x] #8 (from DIPO-239) A run whose story is not Done on the base keeps today's behaviour: its review round and session start when the reviewer place frees
+- [x] #9 (from DIPO-239) Tests in packages/engine/test/run/reviews.test.ts cover a run ended at In Review and a run waiting for the reviewer place, each with a base read giving Done, a second start for the same run, and a run whose story is In Review on the base
+- [x] #10 (from DIPO-247) reviewerSettings reads the reviewer's turn and minute caps only from the run's snapshot: a run whose snapshot has no review caps gets the office's current review caps written into its snapshot at its first review start, and later config changes do not change them
+- [x] #11 (from DIPO-247) A PlanError at reviewer launch raises the run.planRefused engine.notice on the office with planRefusedText, as the worker launch does, besides returning the failed start
+- [x] #12 (from DIPO-247) packages/engine/test/run/reviews.test.ts covers the snapshot caps after a config change, the planRefused notice, a reviewer whose worker host is lost and a reviewer past its minute cap
 <!-- AC:END -->
 
 ## Implementation Notes
@@ -120,4 +147,6 @@ Carried from DIPO-247: Reshaped by decision 0021 (worker isolation, DIPO-263, 20
 2026-10-22: combined from DIPO-239, DIPO-247 (maintainer, M1 speed-up)
 
 2026-10-22: dropped the dependencies on DIPO-159 (which now holds DIPO-289) and DIPO-149 (which now holds DIPO-291) to break a dependency cycle left by the M1 combine; those stories now come after this one.
+
+2026-10-22: built outside dipo, reviewed (pass; correctness advisories fixed: carried verdicts decided, verdict and CI heads matched, stranded rounds park, delivery in the agent's transaction, recovery step). A box run's fix round always starts a new session in its box (0021 section 6); it needs DIPO-240 to keep the box.
 <!-- SECTION:NOTES:END -->

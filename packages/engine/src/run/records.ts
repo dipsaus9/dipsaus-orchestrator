@@ -369,6 +369,9 @@ export function currentProfileId(office: OfficeHandle): string | null {
 /** The outcome of a run that ended at In Review (DIPO-49). */
 export const IN_REVIEW_END = "in-review";
 
+/** The end kind of a review period: the run waits for the verdict, CI or the merge gate. */
+export const REVIEWED_END = "reviewed";
+
 /**
  * The end kind of a run whose story is Done (0019 section 13): the release reason the Done poll's
  * teardown ends it with (`worktree/teardown.ts`).

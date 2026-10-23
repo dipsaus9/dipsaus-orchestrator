@@ -1,4 +1,4 @@
-// Migration 44 (DIPO-149): `catch_ups` (retention tier S with its run): one row per base merge dipo
+// Migration 45 (DIPO-149): `catch_ups` (retention tier S with its run): one row per base merge dipo
 // made into a story branch (`merged`, with its commit) or found while the story was In Review
 // (`found`, no commit), numbered per run.
 
@@ -28,12 +28,12 @@ const insert = (id: number, kind: string, commit: string | null) => `insert into
   values ('off-1', 'run-1', ${id}, '${kind}', 'main', 'o', 't',
     ${commit === null ? "null" : `'${commit}'`}, '[]', 5)`;
 
-describe("migration 44 on a database at version 43", () => {
+describe("migration 45 on a database at version 44", () => {
   it("creates catch_ups with tier S, keeps the runs, and holds a commit only for a merge", () =>
     withTempDir(async (dir) => {
       const old = await open(
         dir,
-        MIGRATIONS.filter((step) => step.version <= 43),
+        MIGRATIONS.filter((step) => step.version <= 44),
       );
       try {
         old.connection.immediate(() =>
@@ -50,7 +50,7 @@ describe("migration 44 on a database at version 43", () => {
       const state = await open(dir);
       try {
         const db = state.connection;
-        expect(MIGRATIONS.find((step) => step.version === 44)?.name).toBe("catch ups");
+        expect(MIGRATIONS.find((step) => step.version === 45)?.name).toBe("catch ups");
         expect(TABLE_RETENTION["catch_ups"]?.tier).toBe("S");
         expect(db.all("select run_id from runs")).toEqual([{ run_id: "run-1" }]);
         db.exec(insert(1, "merged", "c1"));

@@ -5,15 +5,17 @@
 import {
   type Cursor,
   findEvent,
-  type OfficeId,
   type RequestId,
   type RunId,
   type StoryKey,
-  StreamName,
 } from "@dipsaus-orchestrator/contract";
 
 import type { OfficeHandle } from "../db/office";
 import { cryptoFill, type RandomFill } from "../platform/ids";
+import { cursorAt } from "./cursor";
+import { renderProblem } from "./render";
+
+export { cursorAt, officeStream } from "./cursor";
 
 /** Retention tier of an entry (0007 section 7): S state, R short. */
 export type LogTier = "S" | "R";
@@ -79,14 +81,6 @@ export function newLogState(fill?: RandomFill): LogState {
   return { epoch: newEpoch(fill), nextSeq: 1, replayFloorSeq: 0 };
 }
 
-export function officeStream(office: OfficeId): StreamName {
-  return StreamName.parse(`office:${office}`);
-}
-
-export function cursorAt(office: OfficeId, epoch: string, seq: number): Cursor {
-  return { stream: officeStream(office), epoch, seq };
-}
-
 interface OfficeLogRow {
   epoch: string;
   next_seq: number;
@@ -121,10 +115,37 @@ export interface AppendOptions {
   readonly causedBy?: RequestId;
 }
 
+/** One entry as the `change_log` columns store it. */
+interface EncodedEntry {
+  readonly entry: NewEntry;
+  readonly delta: string;
+  readonly view: string | null;
+}
+
+/**
+ * Encodes `entry` for storage and throws unless what is stored renders into a valid contract
+ * event (DIPO-124): the check reads the stored JSON back, so it sees what replay will see.
+ */
+function encodeChecked(entry: NewEntry): EncodedEntry {
+  assertOfficeFactType(entry.type);
+  const delta = JSON.stringify(entry.delta ?? null);
+  const view = entry.view === undefined ? null : JSON.stringify(entry.view);
+  const problem = renderProblem({
+    type: entry.type,
+    delta: JSON.parse(delta) as unknown,
+    ...(view === null ? {} : { view: JSON.parse(view) as unknown }),
+  });
+  if (problem !== undefined) {
+    throw new Error(`A ${entry.type} change-log entry would not render: ${problem}.`);
+  }
+  return { entry, delta, view };
+}
+
 /**
  * Appends `entries` with consecutive seqs and advances `offices.next_seq`. Must run inside the
- * transaction that writes the facts. Returns the cursor of the last entry, or undefined when
- * there was nothing to append.
+ * transaction that writes the facts. Every entry is checked before the first is written: one that
+ * would not render throws, so the transaction rolls back and nothing is appended (DIPO-124).
+ * Returns the cursor of the last entry, or undefined when there was nothing to append.
  */
 export function appendEntries(
   office: OfficeHandle,
@@ -132,10 +153,10 @@ export function appendEntries(
   options: AppendOptions,
 ): Cursor | undefined {
   if (entries.length === 0) return undefined;
-  for (const entry of entries) assertOfficeFactType(entry.type);
+  const encoded = entries.map(encodeChecked);
   const state = readLogState(office);
   let seq = state.nextSeq;
-  for (const entry of entries) {
+  for (const { entry, delta, view } of encoded) {
     office.run(
       `insert into change_log (office_id, seq, at, type, tier, key, run_id, caused_by, delta, view)
        values ($office_id, $seq, $at, $type, $tier, $key, $run, $caused_by, $delta, $view)`,
@@ -147,8 +168,8 @@ export function appendEntries(
         key: entry.key ?? null,
         run: entry.run ?? null,
         caused_by: options.causedBy ?? null,
-        delta: JSON.stringify(entry.delta ?? null),
-        view: entry.view === undefined ? null : JSON.stringify(entry.view),
+        delta,
+        view,
       },
     );
     seq += 1;

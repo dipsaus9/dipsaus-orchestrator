@@ -4,8 +4,9 @@
 //
 // Every listed task is viewed once: the views of the Ready stories and the other tasks both come
 // from those reads, and each Ready story's input is built by the same function the daemon's read
-// uses (`gateInputOf`). The gate runs in `pickup` mode: a Ready story is checked by R01b (status
-// Ready) and R02 to R26. `ready` mode would fail every Ready story at R01a, which wants Refined.
+// uses (`gateInputOf`), with the checked-out commit's file paths as the base tree R29 reads. The
+// gate runs in `pickup` mode: a Ready story is checked by R01b (status Ready) and R02 to R30.
+// `ready` mode would fail every Ready story at R01a, which wants Refined.
 //
 // Usage: bun scripts/check-ready-gate.ts [repository]   (the repository defaults to the current directory)
 
@@ -22,6 +23,7 @@ import {
   parseMilestones,
   viewListedTasks,
 } from "../packages/engine/src/gate/store/read";
+import { treePaths } from "../packages/engine/src/gate/store/tree";
 import { systemSpawn } from "../packages/engine/src/platform/process";
 
 const READY = "Ready";
@@ -32,11 +34,27 @@ export const REPO_BACKLOG_CLI: BacklogCli = {
   command: [process.execPath, join(import.meta.dir, "..", "node_modules", "backlog.md", "cli.js")],
 };
 
+/**
+ * The file paths of the commit checked out in `repo`, listed as the daemon lists the base tree;
+ * undefined when `repo` is not a git checkout. R29 then knows no base file, which can only add
+ * failures: a bare test file name is covered only by a file Reference of that name.
+ */
+function treeFiles(repo: string): string[] | undefined {
+  const args = ["ls-tree", "-r", "-z", "--name-only", "--full-tree", "HEAD"];
+  const listed = Bun.spawnSync(["git", "-C", repo, ...args], { stderr: "ignore" });
+  return listed.exitCode === 0 ? treePaths(listed.stdout.toString()) : undefined;
+}
+
 export interface ReadyGateReport {
   /** How many Ready stories were checked. */
   readonly checked: number;
   /** Each failure as the gate's own `ready <ID> failed <rule>: <message>` line. */
   readonly failures: readonly string[];
+  /**
+   * Each warning (R29) as the gate's `ready <ID> warning <rule>: <message>` line, absent when none.
+   * A warning is printed but never fails the check (DIPO-251).
+   */
+  readonly warnings?: readonly string[];
 }
 
 /**
@@ -57,22 +75,27 @@ export async function checkReadyGate(repo: string, cli: BacklogCli): Promise<Rea
     (await runBacklog(cli, repo, ["milestone", "list", "--show-completed", "--plain"])).stdout,
   );
   const others = gateTasksOf(views);
+  const files = treeFiles(repo);
   const ready = entries.filter((entry) => entry.group === READY);
   const failures: string[] = [];
+  const warnings: string[] = [];
   for (const entry of ready) {
     const view = views.get(entry.id);
     if (view === undefined) {
       throw new Error(`${entry.id} is Ready but its Backlog view does not parse`);
     }
-    const input = gateInputOf(view, others, milestones, config);
-    failures.push(...evaluateGate(input, "pickup").failures.map((failure) => failure.message));
+    const input = gateInputOf(view, others, milestones, config, files);
+    const result = evaluateGate(input, "pickup");
+    failures.push(...result.failures.map((failure) => failure.message));
+    warnings.push(...(result.warnings ?? []).map((warning) => warning.message));
   }
-  return { checked: ready.length, failures };
+  return { checked: ready.length, failures, ...(warnings.length === 0 ? {} : { warnings }) };
 }
 
 if (import.meta.main) {
   try {
     const report = await checkReadyGate(process.argv[2] ?? process.cwd(), REPO_BACKLOG_CLI);
+    for (const warning of report.warnings ?? []) console.warn(warning);
     if (report.failures.length > 0) {
       for (const failure of report.failures) console.error(failure);
       console.error(
