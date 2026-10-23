@@ -34,6 +34,7 @@ import { baseSha, cachedGateTasks } from "./cache";
 import { type GateDecisionRecord, storeGateDecision } from "./decisions";
 import { gateContentHash } from "./hash";
 import { readGateInput, StoryNotFoundError } from "./read";
+import { BaseTreeCache, listTreeFiles } from "./tree";
 
 export interface GateStoreDeps {
   /** The office's git once the git load step attached it. */
@@ -101,6 +102,8 @@ export function gateConfigOf(config: OfficeConfig): GateConfig {
 
 export class GateStore {
   readonly #deps: GateStoreDeps;
+  /** The base tree's file paths per office, for the base commit last listed (R29, DIPO-251). */
+  readonly #trees = new BaseTreeCache();
 
   constructor(deps: GateStoreDeps) {
     this.#deps = deps;
@@ -154,7 +157,8 @@ export class GateStore {
     const base = at ?? (await git.ensureBaseWorktree());
     const read = async (session: GitSession | undefined = held) => {
       const others = await this.#otherTasks(office, git, base.path, session);
-      return readGateInput(this.#deps.cli, base.path, story, gateConfigOf(config), others);
+      const files = await this.#baseFiles(office, git, base.path, session);
+      return readGateInput(this.#deps.cli, base.path, story, gateConfigOf(config), others, files);
     };
     let input;
     try {
@@ -190,6 +194,26 @@ export class GateStore {
     if (fresh !== null || session === undefined) return fresh ?? undefined;
     const pass = await this.#deps.index.indexInSession(office, session, basePath);
     return pass.sha === sha ? (cachedGateTasks(handle, sha) ?? undefined) : undefined;
+  }
+
+  /**
+   * The file paths of the tree at the commit `_base` is at (R29, DIPO-251), listed from git's
+   * objects once per base commit (`BaseTreeCache`). Undefined when that commit cannot be told, or
+   * when no session is held and the commit was not listed before; R29 then knows no base file.
+   */
+  async #baseFiles(
+    office: OfficeId,
+    git: OfficeGit,
+    basePath: string,
+    session: GitSession | undefined,
+  ): Promise<readonly string[] | undefined> {
+    const sha = baseSha(git, basePath);
+    if (sha === null) return undefined;
+    return this.#trees.filesAt(
+      office,
+      sha,
+      session === undefined ? undefined : (commit) => listTreeFiles(session, commit),
+    );
   }
 
   /**
@@ -243,6 +267,9 @@ export class GateStore {
               key: identity.key,
               passed: result.passed,
               failures: result.failures.map(({ rule, message }) => ({ rule, message })),
+              ...(result.warnings === undefined
+                ? {}
+                : { warnings: result.warnings.map(({ rule, message }) => ({ rule, message })) }),
               ...(result.waitingOn === undefined ? {} : { waitingOn: [...result.waitingOn] }),
             };
           },

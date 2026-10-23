@@ -1,6 +1,6 @@
 // The Ready gate over a fixture backlog (DIPO-196): a Ready story whose manual test-plan entry has
 // no expect fails R20, a clean Ready story passes, a Refined story with the same fault is not
-// checked, and every task is viewed once.
+// checked, an R29 warning is reported without a failure, and every task is viewed once.
 
 import { describe, expect, it } from "bun:test";
 
@@ -20,6 +20,13 @@ const MISSING_EXPECT = [
   "  entries:",
   '    - kind: "manual"',
   '      check: "the export opens in a spreadsheet"',
+];
+// R29 (DIPO-251) only warns: a check that names a path outside `packages/export/`.
+const OUTSIDE = [
+  "test_plan:",
+  "  entries:",
+  '    - kind: "automated"',
+  '      check: "(unit) packages/daemon/test/x.test.ts: the export runs"',
 ];
 const CLEAN = [
   "test_plan:",
@@ -125,6 +132,17 @@ describe("the Ready gate over the backlog", () => {
       { id: "DIPO-3", status: "Refined", testPlan: MISSING_EXPECT },
     ]);
     expect(await checkReadyGate(NO_OFFICE, cli)).toEqual({ checked: 1, failures: [] });
+  });
+
+  it("reports an R29 warning of a Ready story without failing it", async () => {
+    const { cli } = fakeCli([{ id: "DIPO-4", status: "Ready", testPlan: OUTSIDE }]);
+    expect(await checkReadyGate(NO_OFFICE, cli)).toEqual({
+      checked: 1,
+      failures: [],
+      warnings: [
+        "ready DIPO-4 warning R29: test plan entry #1 names packages/daemon/test/x.test.ts, which no Reference covers; add it to the References or drop it from the plan",
+      ],
+    });
   });
 
   it("views each task once for all Ready stories", async () => {

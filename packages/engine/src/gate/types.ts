@@ -1,10 +1,10 @@
 // Inputs and verdict of the Ready gate (0012 section 3, R26 from 0014 section 4). The caller reads
-// the story, the office's active tasks and its milestones through the Backlog CLI and passes them
-// in; the gate itself reads nothing.
+// the story, the office's active tasks and its milestones through the Backlog CLI, and the base
+// tree's file paths through git (R29), and passes them in; the gate itself reads nothing.
 
 import type { OfficeConfig } from "../config/schema";
 
-/** `ready` evaluates R01a, `pickup` (the re-check inside `work.run`) R01b; both add R02 to R28. */
+/** `ready` evaluates R01a, `pickup` (the re-check inside `work.run`) R01b; both add R02 to R30. */
 export type GateMode = "ready" | "pickup";
 
 export const GATE_RULES = [
@@ -37,6 +37,8 @@ export const GATE_RULES = [
   "R26",
   "R27",
   "R28",
+  "R29",
+  "R30",
 ] as const;
 export type GateRule = (typeof GATE_RULES)[number];
 
@@ -109,11 +111,17 @@ export interface GateInput {
   readonly config: GateConfig;
   /** Defaults to `BUILT_IN_ROSTER`. */
   readonly roster?: readonly GateRole[];
+  /**
+   * Every file path of the base tree, repo-relative (`git ls-tree -r` at the base commit), for
+   * R29's bare test file names (DIPO-251). Absent means no file is known, so a bare name is then
+   * covered only by a Reference that is a file of that name.
+   */
+  readonly baseFiles?: readonly string[];
 }
 
 export interface GateFailure {
   readonly rule: GateRule;
-  /** `ready <ID> failed <rule>: <0012 message>`. */
+  /** `ready <ID> failed <rule>: <0012 message>`, or `ready <ID> warning <rule>: …` for a warning. */
   readonly message: string;
 }
 
@@ -123,6 +131,11 @@ export interface GateResult {
   readonly passed: boolean;
   /** Every failure, in rule order. */
   readonly failures: readonly GateFailure[];
+  /**
+   * Every warning (R29, DIPO-251), `ready <ID> warning <rule>: <message>`, in rule order; absent
+   * when none. Warnings do not change `passed`.
+   */
+  readonly warnings?: readonly GateFailure[];
   /** The open dependencies of the story, absent when none (DIPO-179); they do not change `passed`. */
   readonly waitingOn?: readonly GateDependency[];
 }

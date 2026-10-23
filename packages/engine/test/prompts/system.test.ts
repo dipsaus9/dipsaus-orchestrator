@@ -148,9 +148,49 @@ describe("box worker system file", () => {
       "question",
       "proposals",
       "notes",
+      "testPlan",
+      "deviations",
+      "decisionNotes",
     ]) {
       expect(text).toContain(`- \`${field}\`:`);
     }
+  });
+
+  // DIPO-186: a note for a decision record travels as data in the report, never in the records
+  // themselves and never only in prose; the rule names neither a count nor a directory.
+  it("says a decision-record note goes in decisionNotes, never into the records and never only in summary or notes", () => {
+    const text = box();
+    expect(text).toContain(
+      "- `decisionNotes`: a note you propose for a decision record: the decision file, the heading of its section and the text of the note.",
+    );
+    expect(text).toContain(
+      "Never write such a note into the decision records yourself, and never only describe it in `summary` or `notes`.",
+    );
+    expect(text).not.toMatch(/[0-9]/);
+    expect(text).not.toContain("docs/decisions");
+  });
+
+  // DIPO-254 and DIPO-259: test-plan entries, deviations and proposals as report data.
+  it("asks for the test-plan entries by number, the deviations and proposals instead of notes or extra work", () => {
+    const text = box();
+    expect(text).toContain(
+      "- `testPlan`: one entry for each entry of the test plan, by its number: done when its test is written and passes, not-done otherwise, manual",
+    );
+    expect(text).toContain("dipo refuses done while an automated entry is not done.");
+    expect(text).toContain(
+      "- `deviations`: each place where the change differs from a criterion or from the story's context: where, what differs, and why.",
+    );
+    expect(text).toContain(
+      "Put such ideas there instead of doing extra work or writing them in notes.",
+    );
+    expect(text).toContain("each entry with its number.");
+  });
+
+  // DIPO-186 (gap of the DIPO-301 box run): a done with no verify run after the last edit.
+  it("says a done report with no verify or test run after the last file change comes back once", () => {
+    expect(box()).toContain(
+      "If your tool calls show no run of the verify or test command after your last file change, dipo sends your done report back once, so you run it.",
+    );
   });
 
   // DIPO-293: the first box run read "no git repository" as "no repository" and tried to

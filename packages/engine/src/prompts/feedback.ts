@@ -14,9 +14,73 @@ import { isAbsolute, relative, sep } from "node:path";
 
 import { formatCount } from "../context/truncate";
 import { cutTailLines } from "./cut";
+import decisionNoteTemplate from "./feedback/decision-note.md" with { type: "text" };
 import reviewEvidenceTemplate from "./feedback/review-evidence.md" with { type: "text" };
 import reviewReportTemplate from "./feedback/review-report.md" with { type: "text" };
+import testPlanTemplate from "./feedback/test-plan.md" with { type: "text" };
+import verifyRunTemplate from "./feedback/verify-run.md" with { type: "text" };
 import { FEEDBACK_TEMPLATES, renderTemplate } from "./templates";
+
+/** The longest test-plan check a test-plan feedback line quotes, in characters. */
+export const TEST_PLAN_CHECK_MAX = 300;
+
+/**
+ * A done report refused for its test plan (DIPO-254): one line per automated entry it does not
+ * show as done, with its number, what the report said and the entry's check.
+ */
+export function testPlanFeedback(
+  gaps: readonly {
+    readonly n: number;
+    readonly check: string;
+    readonly reported: "not-done" | "manual" | "missing";
+  }[],
+): string {
+  const said = {
+    "not-done": "reported not done",
+    manual: "reported manual",
+    missing: "not reported",
+  };
+  return renderTemplate(testPlanTemplate, {
+    entries: gaps
+      .map((gap) => {
+        const check =
+          gap.check.length > TEST_PLAN_CHECK_MAX
+            ? `${gap.check.slice(0, TEST_PLAN_CHECK_MAX)}…`
+            : gap.check;
+        return `- #${gap.n} (${said[gap.reported]}): ${check}`;
+      })
+      .join("\n"),
+  });
+}
+
+/**
+ * Decision notes dipo cannot place (DIPO-186): one line per note naming its file and section and
+ * whether the file or the section is missing.
+ */
+export function decisionNoteFeedback(
+  misses: readonly {
+    readonly file: string;
+    readonly section: string;
+    readonly miss: "file" | "section";
+  }[],
+): string {
+  return renderTemplate(decisionNoteTemplate, {
+    notes: misses
+      .map(
+        (miss) =>
+          `- ${miss.file}, section "${miss.section}": ${miss.miss === "file" ? "the file does not exist" : "the file has no section with that heading"}`,
+      )
+      .join("\n"),
+  });
+}
+
+/**
+ * A box worker's done report with no run of the verify or test command after its last edit
+ * (DIPO-186, 0021 amendment of 2026-10-22): the command to run, as the office's profile names it.
+ */
+export function verifyRunFeedback(command: string): string {
+  return renderTemplate(verifyRunTemplate, { command: `\`${command}\`` });
+}
 
 /** The reviewer's correction turn for a report missing or invalid against its schema. */
 export function reviewReportFeedback(why: string): string {
