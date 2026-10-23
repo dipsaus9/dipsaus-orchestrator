@@ -1,19 +1,19 @@
 // One box worker on a real box (DIPO-271), opt-in: it registers only with DIPO_TEST_BOX=1 and never
 // in CI. It needs macOS with Apple container 1.6.0 or newer and its service running, the official
-// Safe-Chain install (`~/.safe-chain`) for the web route and the build proxy, the internet, and the
-// box login stored with `dipo login box`. It runs one live Claude Code request in the box, so the
-// maintainer runs it by hand:
+// Safe-Chain install (`~/.safe-chain`) for the web route, the internet, and the box login stored
+// with `dipo login box`. It runs one live Claude Code request in the box, so the maintainer runs
+// it by hand:
 //
 //   DIPO_TEST_BOX=1 bun test packages/engine/test/box/worker.box.test.ts
 //
 // Without a stored box login it starts nothing and says so. The presence check runs `security`
 // without `-w`, which shows the entry's attributes, never the token; only the model proxy reads it.
 //
-// It makes the box of a small repository through `BoxWorkers` (the office image built on its first
-// run, which takes minutes), plans a trivial developer session with `planInBox`, runs the plan's
-// `container exec` client with stream-json in and out until the result, checks the stream came
-// from the box with all permissions, runs the plan's stop command, and ends the run: the post-run
-// token check must find no token, and the box is deleted.
+// It makes the box of a small repository through `BoxWorkers` (the office image built in a build
+// box on its first run, which takes minutes), plans a trivial developer session with `planInBox`,
+// runs the plan's `container exec` client with stream-json in and out until the result, checks the
+// stream came from the box with all permissions, runs the plan's stop command, and ends the run:
+// the post-run token check must find no token, and the box is deleted.
 
 import { existsSync, mkdirSync, realpathSync, writeFileSync } from "node:fs";
 import { homedir } from "node:os";
@@ -162,9 +162,15 @@ if (registers) {
             };
             const holds = new AdapterHolds({ clock: systemClock, notify: () => {} });
             const workers = new BoxWorkers({
-              boxes,
+              // Every box of the office image mounts its box network tools from here (DIPO-281).
+              boxes: new AppleContainerBoxes({
+                spawn: systemSpawn,
+                clock: systemClock,
+                cli: "/usr/local/bin/container",
+                env: cliEnv,
+                netToolsRoot: join(tmp, "state", "box-net-tools"),
+              }),
               startWebRoute: startRoute,
-              startBuildRoute: startRoute,
               startModelProxy: (network) =>
                 startModelProxy({
                   network,
@@ -178,6 +184,7 @@ if (registers) {
               tmpRoot: tmp,
               indexDir: join(tmp, "state", BOX_INDEX_DIR),
               scratchRoot: tmp,
+              netToolsRoot: join(tmp, "state", "box-net-tools"),
               warn: (message, fields) => fact(`${message} ${JSON.stringify(fields)}`),
             });
             const runId = `test-${crypto.randomUUID().slice(0, 8)}`;

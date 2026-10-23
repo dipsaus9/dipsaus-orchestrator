@@ -154,7 +154,6 @@ describe("the daemon's box workers", () => {
       const workers = new BoxWorkers({
         boxes,
         startWebRoute: async () => ({ ok: false, reason: "not used" }),
-        startBuildRoute: async () => ({ ok: false, reason: "not used" }),
         startModelProxy: async () => {
           throw new Error("not used");
         },
@@ -165,6 +164,7 @@ describe("the daemon's box workers", () => {
         tmpRoot: dir,
         indexDir,
         scratchRoot: dir,
+        netToolsRoot: join(dir, "state", "box-net-tools"),
       });
       const lines: unknown[][] = [];
       const logger = { info: (...line: unknown[]) => lines.push(line) };

@@ -49,6 +49,7 @@ import { CODE_STAGE_PREFIX, filtersOffConfig } from "../../src/box/code";
 import { BASE_CHECKOUT_CONFIG } from "../../src/git/hardened";
 import type { GitSession } from "../../src/git/office";
 import {
+  BOX_IMAGE_ENV,
   boxImageTag,
   type BaseBox,
   type BoxImageDescription,
@@ -83,12 +84,7 @@ import { OfficeGit, spawnGitExec } from "../../src/git";
 import { systemClock } from "../../src/platform/clock";
 import { systemSpawn } from "../../src/platform/process";
 import { AdapterHolds, type HoldNotice } from "../../src/workers/hold";
-import {
-  BOX_HOST_ADDRESS,
-  BUILD_HOST_ADDRESS,
-  FakeBoxes,
-  type FakeBoxesOptions,
-} from "./fake-boxes";
+import { BOX_HOST_ADDRESS, FakeBoxes, type FakeBoxesOptions, writeNetTools } from "./fake-boxes";
 
 const OFFICE = "off_01J9ZK5Q8W3V4X6Y7Z00000271" as OfficeId;
 const RUN = "run_01J9ZK5Q8W3V4X6Y7Z00000001";
@@ -163,6 +159,13 @@ interface WorldOptions {
   readonly treeCheck?: BoxWorkersDeps["treeCheck"];
   /** A `.gitignore` in the start commit. */
   readonly gitignore?: string;
+  /** The base box block's `localPorts` (DIPO-282); none by default. */
+  readonly localPorts?: readonly number[];
+  /**
+   * Builds the office image in a build box at the first `create` (DIPO-281); by default the image
+   * and its box network tools exist already, so no build runs.
+   */
+  readonly build?: boolean;
 }
 
 /**
@@ -197,7 +200,14 @@ async function world(repo: TempRepo, tmp: string, options: WorldOptions = {}): P
   symlinkSync(join(repo.dir, "real-folder"), join(repo.dir, "via"));
 
   const log = options.boxes?.log ?? [];
-  const boxes = new FakeBoxes({ ...options.boxes, log });
+  const netToolsRoot = join(tmp, "state", "box-net-tools");
+  const tag = boxImageTag(options.image ?? IMAGE);
+  if (options.build !== true) writeNetTools(netToolsRoot, tag);
+  const boxes = new FakeBoxes({
+    ...options.boxes,
+    log,
+    images: [...(options.boxes?.images ?? []), ...(options.build === true ? [] : [tag])],
+  });
   const notices: HoldNotice[] = [];
   const holds = new AdapterHolds({
     clock: new ManualClock(),
@@ -219,6 +229,11 @@ async function world(repo: TempRepo, tmp: string, options: WorldOptions = {}): P
           port: 3128,
           url: `http://${network.hostAddress}:3128`,
           caFile,
+          // Each box's own proxy URL names it (DIPO-282).
+          admit: (box, ports) => {
+            log.push(`${what} admitted ${box} ${ports.join(",")}`);
+            return `http://dipo:pw-${box}@${network.hostAddress}:3128`;
+          },
           stop: async () => {
             log.push(`${what} stopped`);
           },
@@ -231,7 +246,6 @@ async function world(repo: TempRepo, tmp: string, options: WorldOptions = {}): P
   const workers = new BoxWorkers({
     boxes,
     startWebRoute: route("web route"),
-    startBuildRoute: route("build route"),
     startModelProxy: async (network): Promise<RunningModelProxy> => {
       log.push(`model proxy started on ${network.hostAddress}`);
       if (options.modelGate !== undefined) await options.modelGate;
@@ -250,7 +264,11 @@ async function world(repo: TempRepo, tmp: string, options: WorldOptions = {}): P
     readBaseBox: async (): Promise<BaseBox> =>
       ({
         ok: true,
-        description: { image: options.image ?? IMAGE, files: LISTED },
+        description: {
+          image: options.image ?? IMAGE,
+          files: LISTED,
+          localPorts: options.localPorts ?? [],
+        },
         detected: {},
         commit,
       }) as unknown as BaseBox,
@@ -260,6 +278,7 @@ async function world(repo: TempRepo, tmp: string, options: WorldOptions = {}): P
     tmpRoot: tmp,
     indexDir,
     scratchRoot: tmp,
+    netToolsRoot,
     ...(options.packageCache === undefined ? {} : { packageCache: options.packageCache }),
     ...(options.door === undefined ? {} : { door: options.door }),
     ...(options.treeCheck === undefined ? {} : { treeCheck: options.treeCheck }),
@@ -394,20 +413,30 @@ describe("the archive of the start commit", () => {
 describe("the box of a box run (criteria 4 and 10)", () => {
   it("gets the office image and the box network, no Mac folder, and the proxies only once it runs", () =>
     inBoxes(async (repo, tmp) => {
-      const w = await world(repo, tmp);
+      const w = await world(repo, tmp, { build: true });
       await created(w);
       const box = w.boxes.boxes.get(BOX);
       expect(box?.spec).toEqual({
         runId: RUN,
         image: boxImageTag(IMAGE),
         network: { name: "dipo-boxes", mode: "hostOnly", hostAddress: BOX_HOST_ADDRESS },
+        netTools: join(tmp, "state", "box-net-tools", boxImageTag(IMAGE).split(":")[1] ?? ""),
       });
       expect(box?.spec.packageCache).toBeUndefined();
-      // The image was built through the build route on the builder's network, stopped after.
-      expect(w.log).toContain(`build route started on ${BUILD_HOST_ADDRESS}`);
-      expect(w.log.indexOf("build route stopped")).toBeLessThan(w.log.indexOf(`create ${BOX}`));
+      // The image was built in a build box on the box network, through the boxes' own web route,
+      // behind its firewall, and committed; the route stopped with the build box (DIPO-281).
+      const build = w.log.find((line) => line.startsWith("create dipo-build-"))?.slice(7) ?? "";
+      expect(build).not.toBe("");
+      expect(w.log.indexOf(`web route started on ${BOX_HOST_ADDRESS}`)).toBeGreaterThan(
+        w.log.indexOf(`start ${build}`),
+      );
+      expect(w.log).toContain(`firewall ${build} ${BOX_HOST_ADDRESS} 3128`);
+      expect(w.log).toContain(`commit ${build} ${boxImageTag(IMAGE).slice(0, 16)}`);
+      expect(w.log.indexOf("web route stopped")).toBeLessThan(w.log.indexOf(`create ${BOX}`));
+      expect(w.boxes.boxes.has(build)).toBe(false);
       // Making the box starts no proxy of the box network.
-      expect(w.log.filter((line) => line.includes(BOX_HOST_ADDRESS))).toEqual([]);
+      const made = w.log.slice(w.log.indexOf(`create ${BOX}`));
+      expect(made.filter((line) => line.includes("started on"))).toEqual([]);
 
       const session = await w.workers.session({
         runId: RUN,
@@ -416,16 +445,29 @@ describe("the box of a box run (criteria 4 and 10)", () => {
       });
       const started = w.log.indexOf(`start ${BOX}`);
       expect(started).toBeGreaterThanOrEqual(0);
-      expect(w.log.indexOf(`web route started on ${BOX_HOST_ADDRESS}`)).toBeGreaterThan(started);
+      expect(w.log.lastIndexOf(`web route started on ${BOX_HOST_ADDRESS}`)).toBeGreaterThan(
+        started,
+      );
       expect(w.log.indexOf(`model proxy started on ${BOX_HOST_ADDRESS}`)).toBeGreaterThan(started);
       expect(session.env).toEqual({
+        ...BOX_IMAGE_ENV,
         ANTHROPIC_API_KEY: BOX_PLACEHOLDER_API_KEY,
         ANTHROPIC_BASE_URL: `http://${BOX_HOST_ADDRESS}:4000`,
         NO_PROXY: BOX_HOST_ADDRESS,
-        HTTPS_PROXY: `http://${BOX_HOST_ADDRESS}:3128`,
-        HTTP_PROXY: `http://${BOX_HOST_ADDRESS}:3128`,
+        HTTPS_PROXY: `http://dipo:pw-${BOX}@${BOX_HOST_ADDRESS}:3128`,
+        HTTP_PROXY: `http://dipo:pw-${BOX}@${BOX_HOST_ADDRESS}:3128`,
         NODE_EXTRA_CA_CERTS: BOX_CA_FILE,
       });
+      // The firewall lets the box reach the web route and the model proxy, nothing else, and it is
+      // set before the worker's files go in (DIPO-281).
+      expect(w.boxes.firewalls.at(-1)).toEqual({
+        box: BOX,
+        firewall: { hostAddress: BOX_HOST_ADDRESS, ports: [3128, 4000] },
+      });
+      expect(w.log.lastIndexOf(`firewall ${BOX} ${BOX_HOST_ADDRESS} 3128,4000`)).toBeLessThan(
+        w.log.lastIndexOf(`copy in ${BOX} /dipo`),
+      );
+      expect(w.log).toContain(`web route admitted ${BOX} `);
       expect(JSON.stringify(session)).not.toContain(TOKEN);
       expect(session.systemFile).toBe(BOX_SYSTEM_FILE);
       expect(box?.copies.find((copy) => copy.to === "/dipo")?.listing).toEqual([
@@ -438,6 +480,7 @@ describe("the box of a box run (criteria 4 and 10)", () => {
         office: OFFICE,
         box: BOX,
         files: LISTED.map((file) => file.path),
+        localPorts: [],
       });
       expect(w.workers.isBoxRun(w.runDir)).toBe(true);
     }));
@@ -623,7 +666,6 @@ describe("the end of a box run (criterion 9)", () => {
       const restarted = new BoxWorkers({
         boxes: w.boxes,
         startWebRoute: async () => ({ ok: false, reason: "not needed" }),
-        startBuildRoute: async () => ({ ok: false, reason: "not needed" }),
         startModelProxy: async (network) => ({
           hostAddress: network.hostAddress,
           port: 4000,
@@ -639,6 +681,7 @@ describe("the end of a box run (criterion 9)", () => {
         tmpRoot: tmp,
         indexDir: w.indexDir,
         scratchRoot: tmp,
+        netToolsRoot: join(tmp, "state", "box-net-tools"),
       });
       expect(restarted.pending()).toEqual([RUN]);
       expect(await restarted.finishEnded((runId) => runId === RUN)).toEqual([RUN]);
@@ -722,7 +765,8 @@ describe("the box awake before a session, for dipo's copy into it (DIPO-324)", (
       await w.boxes.stop(BOX);
       w.log.length = 0;
       expect(await w.workers.awake({ runId: RUN, runDir: w.runDir })).toBe(BOX);
-      expect(w.log).toEqual(["list", `start ${BOX}`]);
+      // The firewall goes on before dipo copies anything in (DIPO-281).
+      expect(w.log).toEqual(["list", `start ${BOX}`, `firewall ${BOX} ${BOX_HOST_ADDRESS} 3128`]);
       expect(w.boxes.boxes.get(BOX)?.state).toBe("running");
       w.log.length = 0;
       await w.workers.session({ runId: RUN, runDir: w.runDir, systemFile: w.systemFile });
@@ -762,7 +806,6 @@ describe("daemon stop (criterion 6)", () => {
       const workers = new BoxWorkers({
         boxes: new FakeBoxes({ log }),
         startWebRoute: async () => ({ ok: false, reason: "unused" }),
-        startBuildRoute: async () => ({ ok: false, reason: "unused" }),
         startModelProxy: async () => {
           throw new Error("unused");
         },
@@ -773,6 +816,7 @@ describe("daemon stop (criterion 6)", () => {
         tmpRoot: tmp,
         indexDir: join(tmp, "state", BOX_INDEX_DIR),
         scratchRoot: tmp,
+        netToolsRoot: join(tmp, "state", "box-net-tools"),
       });
       expect(await workers.finishEnded(() => true)).toEqual([]);
       // A state folder whose boxes never ran: the second layer does not ask the backend either.
@@ -807,9 +851,12 @@ describe("the install in the box before the worker (DIPO-294)", () => {
       expect(await installIn(w)).toEqual({ ok: true });
       // The web route starts once the box runs, the CA bundle goes in, then the install: no
       // model proxy, no restart of the box.
+      // The firewall is set before the install's first script (DIPO-281).
       expect(w.log).toEqual([
         `web route started on ${BOX_HOST_ADDRESS}`,
+        `firewall ${BOX} ${BOX_HOST_ADDRESS} 3128`,
         `copy in ${BOX} /dipo`,
+        `web route admitted ${BOX} `,
         `exec live ${BOX} bun install --frozen-lockfile`,
       ]);
       expect(w.boxes.liveExecs).toEqual([
@@ -818,10 +865,11 @@ describe("the install in the box before the worker (DIPO-294)", () => {
           command: INSTALL,
           cwd: "/work",
           env: {
+            ...BOX_IMAGE_ENV,
             DIPO_STORY: "DIPO-1",
             DIPO_WORKTREE: "/work",
-            HTTPS_PROXY: `http://${BOX_HOST_ADDRESS}:3128`,
-            HTTP_PROXY: `http://${BOX_HOST_ADDRESS}:3128`,
+            HTTPS_PROXY: `http://dipo:pw-${BOX}@${BOX_HOST_ADDRESS}:3128`,
+            HTTP_PROXY: `http://dipo:pw-${BOX}@${BOX_HOST_ADDRESS}:3128`,
             NODE_EXTRA_CA_CERTS: BOX_CA_FILE,
           },
         },
@@ -1448,7 +1496,7 @@ describe("the package cache of a box run (DIPO-295)", () => {
       const envs = w.boxes.liveExecs.filter((exec) => exec.box === BOX).map((exec) => exec.env);
       expect(envs).toHaveLength(2);
       expect(envs[1]?.["BUN_INSTALL_CACHE_DIR"]).toBeUndefined();
-      expect(envs[1]?.["HTTPS_PROXY"]).toBe(`http://${BOX_HOST_ADDRESS}:3128`);
+      expect(envs[1]?.["HTTPS_PROXY"]).toBe(`http://dipo:pw-${BOX}@${BOX_HOST_ADDRESS}:3128`);
     }));
 
   it("does not run the install again when the box stopped under the install from the cache", () =>
@@ -1486,5 +1534,132 @@ describe("the package cache of a box run (DIPO-295)", () => {
       const envs = w.boxes.liveExecs.filter((exec) => exec.box === BOX).map((exec) => exec.env);
       expect(envs).toHaveLength(1);
       expect(envs[0]?.["BUN_INSTALL_CACHE_DIR"]).toBeUndefined();
+    }));
+});
+
+describe("the box firewall, the listed local ports and the box network's address (DIPO-281, DIPO-282)", () => {
+  it("never starts a session whose box firewall cannot be set: the session fails closed", () =>
+    inBoxes(async (repo, tmp) => {
+      const w = await world(repo, tmp, {
+        boxes: {
+          firewallFails: new BoxError("box.firewallFailed", "nft: Operation not permitted"),
+        },
+      });
+      await created(w);
+      const error = (await w.workers
+        .session({ runId: RUN, runDir: w.runDir, systemFile: w.systemFile })
+        .catch((e: unknown) => e)) as BoxError;
+      expect(error).toBeInstanceOf(BoxError);
+      expect(error.code).toBe("box.firewallFailed");
+      // Nothing of the worker's went in, and no command for the worker was handed out.
+      expect(w.log).not.toContain(`copy in ${BOX} /dipo`);
+      expect(w.log.some((line) => line.startsWith("web route admitted"))).toBe(false);
+    }));
+
+  it("never runs the install when the box firewall cannot be set", () =>
+    inBoxes(async (repo, tmp) => {
+      const w = await world(repo, tmp, {
+        boxes: {
+          firewallFails: new BoxError("box.firewallFailed", "no netfilter"),
+          live: () => ({ code: 0 }),
+        },
+      });
+      await created(w);
+      await expect(installIn(w)).rejects.toThrow("no netfilter");
+      expect(w.boxes.liveExecs).toEqual([]);
+    }));
+
+  it("sets the firewall again at each session, with the ports of the routes of that moment", () =>
+    inBoxes(async (repo, tmp) => {
+      const w = await world(repo, tmp);
+      await created(w);
+      await w.workers.session({ runId: RUN, runDir: w.runDir, systemFile: w.systemFile });
+      await w.workers.session({ runId: RUN, runDir: w.runDir, systemFile: w.systemFile });
+      const ofBox = w.boxes.firewalls.filter((entry) => entry.box === BOX);
+      expect(ofBox).toEqual([
+        { box: BOX, firewall: { hostAddress: BOX_HOST_ADDRESS, ports: [3128, 4000] } },
+        { box: BOX, firewall: { hostAddress: BOX_HOST_ADDRESS, ports: [3128, 4000] } },
+      ]);
+    }));
+
+  it("records the base branch's listed local ports and admits the box with them, and only them", () =>
+    inBoxes(async (repo, tmp) => {
+      const w = await world(repo, tmp, { localPorts: [5432, 8080] });
+      await created(w);
+      expect(readBoxRun(w.runDir)?.localPorts).toEqual([5432, 8080]);
+      await w.workers.session({ runId: RUN, runDir: w.runDir, systemFile: w.systemFile });
+      expect(w.log).toContain(`web route admitted ${BOX} 5432,8080`);
+      // A stop and a start keep the ports with the record (DIPO-278).
+      await w.workers.rest(RUN);
+      expect(readBoxRun(w.runDir)?.localPorts).toEqual([5432, 8080]);
+    }));
+
+  it("names the box network's host address once the network was prepared, for the web guard", () =>
+    inBoxes(async (repo, tmp) => {
+      const w = await world(repo, tmp);
+      expect(w.workers.hostAddress).toBeNull();
+      await created(w);
+      expect(w.workers.hostAddress).toBe(BOX_HOST_ADDRESS);
+    }));
+
+  it("deletes the build box and releases the route when a build fails, and makes no box", () =>
+    inBoxes(async (repo, tmp) => {
+      const w = await world(repo, tmp, {
+        build: true,
+        boxes: {
+          exec: (_box, command) =>
+            command[1]?.endsWith("/bootstrap.sh") === true
+              ? { code: 100, stdout: "", stderr: "E: Unable to fetch some archives" }
+              : undefined,
+        },
+      });
+      const error = (await created(w).catch((e: unknown) => e)) as BoxError;
+      expect(error.code).toBe("box.buildFailed");
+      expect(error.message).toContain("E: Unable to fetch some archives");
+      expect([...w.boxes.boxes.keys()]).toEqual([]);
+      expect(w.log).toContain("web route stopped");
+      expect(w.log.some((line) => line.startsWith(`create ${BOX}`))).toBe(false);
+      expect(w.boxes.commits).toEqual([]);
+    }));
+
+  it("deletes, at daemon start, a build box a stopped daemon left, as a fill box", () =>
+    inBoxes(async (repo, tmp) => {
+      const w = await world(repo, tmp);
+      await created(w);
+      const left = boxName("build-0123456789abcdef");
+      await w.boxes.create({
+        runId: "build-0123456789abcdef",
+        image: "docker.io/library/debian:trixie-slim",
+        network: { name: "dipo-boxes", mode: "hostOnly", hostAddress: BOX_HOST_ADDRESS },
+      });
+      await w.workers.finishEnded(() => false, { listBoxes: true });
+      expect(w.boxes.boxes.has(left)).toBe(false);
+      expect(w.boxes.boxes.has(BOX)).toBe(true);
+    }));
+});
+
+describe("the box awake for dipo's copy, behind its firewall (DIPO-281 with DIPO-324)", () => {
+  it("sets the firewall before anything is copied in", () =>
+    inBoxes(async (repo, tmp) => {
+      const w = await world(repo, tmp);
+      await created(w);
+      await w.boxes.stop(BOX);
+      expect(await w.workers.awake({ runId: RUN, runDir: w.runDir })).toBe(BOX);
+      expect(w.boxes.firewalls.at(-1)).toEqual({
+        box: BOX,
+        firewall: { hostAddress: BOX_HOST_ADDRESS, ports: [3128] },
+      });
+    }));
+
+  it("fails closed when the firewall cannot be set, so dipo copies nothing in", () =>
+    inBoxes(async (repo, tmp) => {
+      const failing = await world(repo, tmp, {
+        boxes: { firewallFails: new BoxError("box.firewallFailed", "no netfilter") },
+      });
+      await created(failing);
+      await failing.boxes.stop(BOX);
+      await expect(failing.workers.awake({ runId: RUN, runDir: failing.runDir })).rejects.toThrow(
+        "no netfilter",
+      );
     }));
 });

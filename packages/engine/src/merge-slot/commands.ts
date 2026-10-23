@@ -6,6 +6,8 @@
 // - `gate.approve { gate, note? }` decides the merge gate `approved` by `maintainer`, and the PR
 //   enters the merge slot at the slot's next tick (a hold label still holds it). On a PR labelled
 //   `autorelease: pending` it answers `gate.handMergeOnly`: a hand merge on GitHub is the only way.
+//   So it does on a gate marked hand-merge only because its PR changes the release path (DIPO-331):
+//   that PR needs the maintainer's code owner approval, which is the maintainer's merge on the host.
 // - On the override gate of a story parked `review-blocked`, `gate.approve` needs a note
 //   (`gate.noteRequired` without one) and records a maintainer override of the blocked verdict: the
 //   gate decided by the maintainer with the note, the verdict marked overridden, an `override` run
@@ -122,6 +124,14 @@ export class MergeGates {
       await this.#override(ctx, gate, run, note);
     } else {
       const pr = findStoryPr(office, run.runId);
+      if (gate.handMerge !== null) {
+        const which = pr === null ? "Its PR" : `PR #${pr.number}`;
+        throw new CommandError(
+          "gate.handMergeOnly",
+          `${which} changes the release path, which needs the maintainer's code owner approval, so dipo never merges it: merge it by hand on GitHub, which closes the gate.`,
+          { gate: gate.gate, ...(pr === null ? {} : { pr: pr.number }) },
+        );
+      }
       const repo = pr === null ? null : repoOfPrUrl(pr.url);
       if (pr !== null && repo !== null) {
         const labels = await this.#deps.labels.prLabels(repo, pr.number);

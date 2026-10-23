@@ -870,10 +870,23 @@ export class StoryPrs {
       return;
     }
     const closedAt = hostState === "open" ? null : this.#deps.clock.now();
-    const next: StoryPrRecord = { ...stored, state: hostState, closedAt };
+    // The head that merged, as the host reports it (DIPO-332): the Done poll compares the local
+    // branch with it when the host gives no answer.
+    const headSha =
+      hostState === "merged" && /^[0-9a-f]{40}$|^[0-9a-f]{64}$/.test(viewed.headSha)
+        ? viewed.headSha
+        : stored.headSha;
+    const next: StoryPrRecord = { ...stored, state: hostState, closedAt, headSha };
     const story = findStoryByKey(state.office, stored.key)?.story;
     this.#write(officeId, state, () => {
       setStoryPrState(state.office, stored.runId, { state: hostState, closedAt });
+      if (headSha !== stored.headSha) {
+        updateStoryPr(state.office, stored.runId, {
+          headSha,
+          title: stored.title,
+          bodyHash: stored.bodyHash,
+        });
+      }
       return story === undefined ? [] : [prEntry(next, story)];
     });
   }

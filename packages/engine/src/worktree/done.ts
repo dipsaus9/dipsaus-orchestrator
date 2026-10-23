@@ -17,8 +17,10 @@
 // its story's status in `_base`, which the story index's fetch keeps at `<remote>/<base>`, read
 // with the Backlog CLI. A Done there wins over the branch status: a claim with a live worker is
 // flagged once and released when its run next ends; a parked or idle one is released as
-// `done-elsewhere` and its PR, worktree and branch settled (`done-elsewhere.ts`). Each poll first
-// settles the released rows a crash left unsettled.
+// `done-elsewhere` and its PR, worktree and branch settled (`done-elsewhere.ts`). A claim whose own
+// story PR dipo recorded merged is never Done elsewhere (DIPO-332): it is Done through its own
+// branch, and torn down as above; one whose branch moved past the merged head with changes the base
+// lacks is released as `done` with its worktree and branch as leftovers (`releaseMovedPastMerge`). Each poll first settles the released rows a crash left unsettled.
 //
 // With the office's PR-state poll (`prState`, DIPO-314) the Done poll is part of each of its
 // rounds, after the story-PR poll, instead of a timer of its own, and that poll asks whether a
@@ -48,14 +50,17 @@ import {
   findDoneElsewhere,
   flagLiveWorker,
   hasLiveWorker,
+  hasOpenPark,
   hasUnexitedHost,
+  movedPastParkedText,
   releaseDoneElsewhere,
+  releaseMovedPastMerge,
   settleDoneElsewhere,
   settlePending,
 } from "./done-elsewhere";
 import { type ClaimRecord, liveClaims } from "./records";
 import type { SlotTable } from "./slots";
-import { detectDone, tearDown, type TeardownDeps, TEARDOWN_NOTICES } from "./teardown";
+import { detectDone, ownMergedPr, tearDown, type TeardownDeps, TEARDOWN_NOTICES } from "./teardown";
 
 /** The load step's name in the registry. */
 export const TEARDOWN_STEP = "worktree.teardown";
@@ -247,11 +252,29 @@ export class StoryTeardown {
   ): Promise<"open" | "kept" | "tornDown" | "released"> {
     // Through the PR-state round this poll belongs to, when it does (DIPO-314).
     const host = this.#deps.host === null ? null : (state.reads ?? this.#deps.host);
-    const check = await detectDone({ git: deps.git, host }, claim);
+    const check = await detectDone({ git: deps.git, host, office: state.office }, claim);
     if (!check.done) {
-      // Not Done through its own branch: a Done on the base wins (DIPO-161).
-      const elsewhere = await this.#doneElsewhere(state, deps, claim);
+      // Not Done through its own branch: a Done on the base wins (DIPO-161). A story whose own PR
+      // merged is Done through its own branch, whatever the branch did since (DIPO-332).
+      const own = ownMergedPr(state.office, claim);
+      const elsewhere = own === null ? await this.#doneElsewhere(state, deps, claim) : null;
       if (elsewhere !== null) return elsewhere;
+      // Its PR merged, but the branch moved past the merged head with changes the base lacks: once
+      // no worker runs, those are leftovers with the `dipo discard` action, not an open claim.
+      // A parked one stays, with a notice, as a Parked story is never torn down on its own.
+      if (
+        own !== null &&
+        check.problem?.code === TEARDOWN_NOTICES.unmergedCommits &&
+        !hasLiveWorker(state.office, claim)
+      ) {
+        if (hasOpenPark(state.office, claim)) {
+          const text = movedPastParkedText(claim, own);
+          this.#tell(state, deps, claim, "warn", TEARDOWN_NOTICES.parked, text);
+          return "kept";
+        }
+        await releaseMovedPastMerge(this.#elsewhereDeps(deps), claim, own);
+        return "released";
+      }
       if (check.problem !== undefined) {
         this.#tell(state, deps, claim, "warn", check.problem.code, check.problem.text);
       }
