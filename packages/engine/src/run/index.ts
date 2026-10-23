@@ -119,13 +119,21 @@ export {
   CONFLICT_CAP_DEFAULT,
   CONFLICT_NOTICES,
   catchUpsOf,
+  ConflictResumes,
   handOffState,
   inReviewRunIds,
+  markBoxCopied,
+  pendingBoxCopy,
   recordCatchUp,
   recordedConflictPaths,
   StoryConflicts,
 } from "./conflicts";
-export type { DoneConflictDecision, StoredCatchUp, StoryConflictsDeps } from "./conflicts";
+export type {
+  ConflictResumesDeps,
+  DoneConflictDecision,
+  StoredCatchUp,
+  StoryConflictsDeps,
+} from "./conflicts";
 export {
   beginReviewRound,
   failedReviewRounds,
@@ -424,7 +432,13 @@ export type {
 export { MAINTAINER_RESUME_TAG, PARK_RESUME_NOTICES, RESUME_ERRORS } from "./park-resume";
 export { HALF_SHARE, share, smallestShare, withGrants } from "./resume-caps";
 export { noteText } from "./resume";
-export type { ConflictResumer, ParkResumeOptions, PrReplacement, SlotReentry } from "./park-resume";
+export type {
+  ConflictPrepared,
+  ConflictResumer,
+  ParkResumeOptions,
+  PrReplacement,
+  SlotReentry,
+} from "./park-resume";
 export { PARK_RESUME_MATRIX, parkResumeRow } from "./resume-policy";
 export type { ParkMatrixRow, ParkResumeRow, ResumeSession } from "./resume-policy";
 export { resolveParkResumed, resumableByCommand } from "./park";

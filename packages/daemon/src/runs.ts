@@ -43,6 +43,8 @@ import {
   type BoxBuildNetwork,
   boxInstallInput,
   inReviewRunIds,
+  markBoxCopied,
+  pendingBoxCopy,
   type MergeGatesDeps,
   type StorySlotDeps,
   StoryConflicts,
@@ -192,6 +194,8 @@ export interface DaemonRunsOptions {
    */
   readonly storyPr?: {
     sync(office: OfficeId, runId: RunId): Promise<void>;
+    /** A new story PR in place of one closed on the host (a resumed `pr-closed` park, DIPO-324). */
+    replace?(office: OfficeId, runId: RunId): Promise<void>;
     ciState?(office: OfficeId, runId: RunId): CiHeadState | null;
     onCiFinal?(listener: (office: OfficeId, runId: RunId) => void): void;
   };
@@ -446,7 +450,7 @@ export function boxPackageCache(stateDir: string): BoxPackageCacheDeps {
 function daemonBoxWorkers(
   options: DaemonRunsOptions,
   tmpRoot: string,
-  parts: Pick<BoxPartsDeps, "run" | "live" | "park" | "notice">,
+  parts: Pick<BoxPartsDeps, "run" | "live" | "park" | "notice" | "behind">,
   afterPart: () => void = () => {},
 ): {
   readonly workers: BoxWorkers;
@@ -753,6 +757,13 @@ export function daemonRuns(options: DaemonRunsOptions): DaemonRuns {
       park: (runId, park) => runControl?.parkRun(runId, park) === true,
       // A part dipo keeps failing to take out of the box is told, never parked (DIPO-290).
       notice: (run, notice) => runNotice(options)(run.office, run.runId, notice),
+      // No part is taken while the box lacks a merge the merge slot made (DIPO-324).
+      behind: (runId) => {
+        const part = partRun?.(runId) ?? null;
+        const handle = part === null ? undefined : options.offices.get(part.office);
+        if (handle === undefined || pendingBoxCopy(handle, runId) === null) return null;
+        return "dipo merged the base into the story branch outside the box, and the box has not received that merge, so a part now would undo it; resume the story to copy the merge into the box first";
+      },
     },
     () => void collisions?.check(),
   );
@@ -960,6 +971,21 @@ export function daemonRuns(options: DaemonRunsOptions): DaemonRuns {
     tempOwner: () => tempDirs.owner(),
     ...(options.holdResumer === undefined ? {} : { holdResumer: options.holdResumer }),
     ...(options.slotReentry === undefined ? {} : { slotReentry: options.slotReentry }),
+    // A resumed conflict park merges in its live run's box (DIPO-324), and a resumed pr-closed
+    // park opens a new story PR.
+    conflictMerge: async (office, runId, source) => {
+      const run = partRun?.(runId) ?? null;
+      if (run === null || collisions === null || run.office !== office) return { kind: "none" };
+      return collisions.mergeOnResume(run, source);
+    },
+    ...(options.storyPr?.replace === undefined
+      ? {}
+      : {
+          prReplacement: () => ({
+            replace: (office: OfficeId, run: StoredRun) =>
+              options.storyPr?.replace?.(office, run.runId) ?? Promise.resolve(),
+          }),
+        }),
     onChanged: options.onChanged,
     warn: (message, fields) => options.logger.warn(message, fields),
     ...(refreshStory === undefined
@@ -976,6 +1002,25 @@ export function daemonRuns(options: DaemonRunsOptions): DaemonRuns {
       void finishEndedBoxes();
     },
     ...(boxWorkers === null ? {} : { boxes: boxWorkers }),
+    // The merges the merge slot made on a box run's branch reach its box before the worker's next
+    // session (DIPO-324): the box is started, the files copied in as a catch-up's are.
+    boxSync: async (office, run) => {
+      const handle = options.offices.get(office);
+      const pending = handle === undefined ? null : pendingBoxCopy(handle, run.runId);
+      if (handle === undefined || pending === null) return;
+      const part = partRun?.(run.runId) ?? null;
+      if (
+        part === null ||
+        part.runDir === undefined ||
+        boxWorkers === null ||
+        collisions === null
+      ) {
+        throw new Error(`run ${run.runId} has no box dipo can copy into here`);
+      }
+      await boxWorkers.awake({ runId: run.runId, runDir: part.runDir });
+      await collisions.copyPending(part, pending.from);
+      handle.immediate(() => markBoxCopied(handle, run.runId, pending.ids));
+    },
     // A fix round waits for the CI of the pushed head and carries its red items (DIPO-148); a box
     // run's developer gets a new session in its box (0021 section 6).
     ...(options.storyPr?.ciState === undefined
