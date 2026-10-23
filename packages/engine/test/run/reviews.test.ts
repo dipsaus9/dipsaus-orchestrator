@@ -46,6 +46,7 @@ import {
   START_KINDS,
   waitingStarts,
 } from "../../src/run";
+import { storeDoneReport } from "../../src/run/report-data";
 import type { RunStoryFacts } from "../../src/run/resume";
 import { encode } from "../../src/workers/claude-cli/encode";
 import {
@@ -612,6 +613,29 @@ describe("a pending review (0019 sections 6 and 12)", () => {
     const second = await reviewStarts(s);
     expect(second.message).toContain("<previous_findings>");
     expect(second.message).toContain("total subtracts instead of adding.");
+  });
+
+  it("gives the reviewer the test-plan statuses and deviations of the worker's last done report (DIPO-254)", async () => {
+    const s = inReview("DIPO-1", "tree-1");
+    heads.set(s.run, "tree-1");
+    w.office.immediate(() => {
+      storeDoneReport(w.office, s.run, {
+        testPlan: [{ n: 1, status: "not-done", evidence: "an older report" }],
+        at: now(),
+      });
+      storeDoneReport(w.office, s.run, {
+        testPlan: [{ n: 1, status: "done", evidence: "test/greet.test.ts: greets" }],
+        deviations: [{ where: "criterion #1", what: "prints Hi", why: "the style guide" }],
+        at: now(),
+      });
+    });
+    const session = await reviewStarts(s);
+    expect(session.message).toContain(
+      "<worker_report>\nWhat the worker reported with its last done",
+    );
+    expect(session.message).toContain("- #1 done: test/greet.test.ts: greets");
+    expect(session.message).toContain("- criterion #1: prints Hi Why: the style guide");
+    expect(session.message).not.toContain("an older report");
   });
 });
 

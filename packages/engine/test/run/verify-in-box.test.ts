@@ -1162,3 +1162,171 @@ describe("the Mac path keeps its verify", () => {
     expect(parks().map((p) => [p.reason, p.cause])).toEqual([["verify-failing", "refused"]]);
   });
 });
+
+// DIPO-186 (gap of the DIPO-301 box run): a box worker's done report with no run of the office's
+// verify or test command after its last edit is sent back once; and DIPO-259: the proposals of
+// every report are stored, and storing them changes nothing about the story, the run or the commit.
+const shell = (input: string): WorkerEvent => ({
+  t: "activity",
+  kind: "tool",
+  tool: "Bash",
+  input,
+  effect: "shell",
+});
+
+function feedbackTexts(): string[] {
+  return w.sent.flat().flatMap((op) => {
+    if (!("write" in op)) return [];
+    return [(JSON.parse(op.write) as { message: { content: string } }).message.content];
+  });
+}
+
+async function playEvents(list: readonly WorkerEvent[]): Promise<void> {
+  w.control.onWorkerEvents(w.f.run, list);
+  await w.control.idle();
+}
+
+function proposals(): { kind: string; title: string; story_key: string; run_id: string }[] {
+  return w.f.office.all(
+    "select kind, title, story_key, run_id from proposals where office_id = $office_id order by title",
+  );
+}
+
+describe("a box run's report data at done (DIPO-186)", () => {
+  const edit: WorkerEvent = {
+    t: "activity",
+    kind: "tool",
+    tool: "Edit",
+    path: "/work/src/greet.ts",
+    effect: "edit",
+  };
+  const inReview = [
+    "last part print a greeting",
+    "parts released (live false)",
+    "in-review [1]",
+    "push DIPO-1/add-a-greeting",
+    "story PR sync run",
+  ];
+
+  it("sends a done after an edit with no verify run back once, then takes the next done to review", async () => {
+    await playEvents([shell("bun run verify"), edit, shell("ls src"), turn(DONE)]);
+    const texts = feedbackTexts();
+    expect(texts).toHaveLength(1);
+    expect(texts[0]).toContain(
+      "Your report says done, but no run of the project's verify or test command shows after your last file change. Run `bun run verify` in the box now",
+    );
+    expect(texts[0]).toContain("the failures that only the missing git program causes");
+    // Nothing was taken out of the box or moved to review.
+    expect(w.calls).toEqual([]);
+    expect(findRun(w.f.office, w.f.run)?.endedAt).toBeNull();
+    expect(parks()).toEqual([]);
+    // Once per run: the next done without a run goes on.
+    await playEvents([edit, turn(DONE)]);
+    expect(feedbackTexts()).toHaveLength(1);
+    expect(w.calls).toEqual(inReview);
+    expectNoVerify();
+  });
+
+  it("takes a done to review at once when verify or the test script ran after the last edit", async () => {
+    await playEvents([edit, shell("bun run verify 2>&1 | tail -40"), turn(DONE)]);
+    expect(feedbackTexts()).toEqual([]);
+    expect(w.calls).toEqual(inReview);
+  });
+
+  it("counts the branch's own test script as a run", async () => {
+    w.branchScripts = { verify: "bun run check", test: "bun test" };
+    await playEvents([edit, shell("bun test test/greet.test.ts"), turn(DONE)]);
+    expect(feedbackTexts()).toEqual([]);
+    expect(w.calls).toEqual(inReview);
+  });
+
+  it("names an office command off the root with cd, and counts the worker's own cd line as a run", async () => {
+    const base = profileOf({});
+    w.base = {
+      ...base,
+      capabilities: {
+        ...base.capabilities,
+        verify: { status: "resolved", value: { commands: [["bun", "test"]], cwd: "packages/app" } },
+      },
+    } as unknown as RunProfile;
+    w.branchScripts = {};
+    await playEvents([edit, turn(DONE)]);
+    expect(feedbackTexts()[0]).toContain("Run `cd packages/app && bun test` in the box now");
+    expect(feedbackTexts()[0]).not.toContain("(in packages/app)");
+  });
+
+  it("takes a done whose worker ran the off-root command with cd", async () => {
+    const base = profileOf({});
+    w.base = {
+      ...base,
+      capabilities: {
+        ...base.capabilities,
+        verify: { status: "resolved", value: { commands: [["bun", "test"]], cwd: "packages/app" } },
+      },
+    } as unknown as RunProfile;
+    w.branchScripts = {};
+    await playEvents([edit, shell("cd packages/app && bun test"), turn(DONE)]);
+    expect(feedbackTexts()).toEqual([]);
+    expect(w.calls).toEqual(inReview);
+  });
+
+  it("sends it back when the worker edited again after its verify run", async () => {
+    await playEvents([edit, shell("bun run verify"), edit, turn(DONE)]);
+    expect(feedbackTexts()).toHaveLength(1);
+    expect(w.calls).toEqual([]);
+  });
+
+  it("asks nothing of a worker that edited no file", async () => {
+    await playEvents([shell("cat README.md"), turn(DONE)]);
+    expect(feedbackTexts()).toEqual([]);
+    expect(w.calls).toEqual(inReview);
+  });
+
+  it("asks nothing on the Mac path, which runs verify itself", async () => {
+    w.box = false;
+    await playEvents([edit, turn(DONE)]);
+    expect(feedbackTexts().some((text) => text.includes("no run of the project's verify"))).toBe(
+      false,
+    );
+  });
+
+  const PROPOSAL = {
+    kind: "follow-up",
+    title: "Greet in Dutch",
+    outcome: "shop greet --nl prints Hallo.",
+    why: "Asked for twice.",
+    paths: ["src/greet.ts"],
+  } as const;
+
+  it("stores a done report's proposals once and moves the story to review as without them", async () => {
+    await play({ ...DONE, proposals: [PROPOSAL, { ...PROPOSAL, kind: "tool", title: "jq" }] });
+    expect(w.calls).toEqual(inReview);
+    expect(findRun(w.f.office, w.f.run)?.endKind).toBe("in-review");
+    expect(events("story.state").map((e) => e["to"])).toEqual(["In Review"]);
+    expect(proposals()).toEqual([
+      { kind: "follow-up", title: "Greet in Dutch", story_key: w.work.key, run_id: w.f.run },
+      { kind: "tool", title: "jq", story_key: w.work.key, run_id: w.f.run },
+    ]);
+  });
+
+  it("stores a blocked report's proposals, deduplicated, and parks as before", async () => {
+    const blocked: WorkerReport = {
+      ...DONE,
+      status: "blocked",
+      summary: "The greeting language is not decided.",
+      proposals: [PROPOSAL, PROPOSAL],
+    };
+    await play(blocked);
+    expect(parks()).toEqual([
+      {
+        reason: "ambiguous-spec",
+        cause: "question",
+        detail: "The greeting language is not decided.",
+      },
+    ]);
+    expect(w.calls).toEqual([]);
+    expect(proposals()).toEqual([
+      { kind: "follow-up", title: "Greet in Dutch", story_key: w.work.key, run_id: w.f.run },
+    ]);
+  });
+});

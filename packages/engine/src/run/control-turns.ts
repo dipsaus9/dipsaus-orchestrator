@@ -9,6 +9,7 @@ import type { FiredCap } from "./caps";
 import { capEnding, type RunEndings } from "./control-endings";
 import { disarm, messageOf, type RunControlDeps, type Tracked, viewOf } from "./control-types";
 import type { ParkOutcome } from "./park";
+import { type ToolTrail, trailAt } from "./report-data";
 import { openPause } from "./pauses";
 import { findRun } from "./records";
 import type { RunFinisher } from "./verify-commit";
@@ -35,8 +36,11 @@ export class AfterTurns {
     capped: FiredCap | null = null,
     review?: ReviewReport,
   ): void {
+    // The tool trail as of this turn (DIPO-186), before a later pass can add to it.
+    const trail = tracked.trail === undefined ? null : trailAt(tracked.trail);
     tracked.turns = background(
-      () => tracked.turns.then(() => this.#runTurn(tracked, report, problem, capped, review)),
+      () =>
+        tracked.turns.then(() => this.#runTurn(tracked, report, problem, capped, review, trail)),
       {
         failed: "verify and commit after a turn failed",
         fields: { run: tracked.runId },
@@ -52,13 +56,14 @@ export class AfterTurns {
     problem: TurnProblem | undefined,
     capped: FiredCap | null,
     review: ReviewReport | undefined,
+    trail: ToolTrail | null,
   ): Promise<void> {
     if (tracked.ending !== null) return;
     const finisher = this.#deps.finisher;
     let decided: "continue" | "decided" = "continue";
     if (finisher !== undefined) {
       try {
-        decided = await this.#finishTurn(tracked, finisher, report, capped);
+        decided = await this.#finishTurn(tracked, finisher, report, capped, trail);
       } catch (thrown: unknown) {
         // A capped done turn must still end at its cap when the finisher throws (DIPO-235): the
         // run has no other ending yet, so the cap ending goes in its place.
@@ -103,6 +108,7 @@ export class AfterTurns {
     finisher: RunFinisher,
     report: WorkerReport | null,
     capped: FiredCap | null,
+    trail: ToolTrail | null,
   ): Promise<"continue" | "decided"> {
     const office = this.#deps.offices.get(tracked.office);
     if (office === undefined) return "decided";
@@ -128,6 +134,7 @@ export class AfterTurns {
         claimEnd: claim,
         write: (fn) => write(() => withWorkViews(office, fn())),
         flushOutput: () => this.#deps.flushOutput?.(office.officeId, run.runId),
+        trail,
       });
       switch (decision.kind) {
         case "continue":

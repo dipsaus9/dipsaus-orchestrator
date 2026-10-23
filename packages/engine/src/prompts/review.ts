@@ -2,14 +2,17 @@
 // The changed paths with line counts, the diff from the merge base without the story's own task
 // file (within the 0014 diff budget), the gate script changes the run recorded, the story facts
 // (story, outcome, criteria, scope, the test plan with its entry numbers, resolved unknowns) and,
-// on a re-review, the previous round's findings. Never the worker's report, notes, handoff,
-// reasoning or transcript (0002): the input has no field for them. Pure and deterministic.
+// on a re-review, the previous round's findings. Of the worker's report only the test-plan
+// statuses with their evidence and the deviations of its last done report (0021 section 15,
+// DIPO-254), as the worker's own account; never its summary, notes, handoff, reasoning or
+// transcript (0002): the input has no field for them. Pure and deterministic.
 
 import { formatCount } from "../context/truncate";
-import type { ReviewFinding } from "../workers/types";
+import type { ReviewFinding, WorkerDeviation, WorkerTestPlanEntry } from "../workers/types";
 import { assembleContract, CONTRACT_MAX_DEFAULT } from "./contract";
 import type { PromptStory } from "./story";
 import { renderTemplate, TASK_TEMPLATES } from "./templates";
+import workerReportTemplate from "./task/review-worker-report.md" with { type: "text" };
 
 /** The `review` task message sections in message order. */
 export const REVIEW_SECTION_ORDER = [
@@ -21,6 +24,7 @@ export const REVIEW_SECTION_ORDER = [
   "criteria",
   "scope",
   "test_plan",
+  "worker_report",
   "answers",
   "previous_findings",
 ] as const;
@@ -50,6 +54,14 @@ export interface ReviewTaskInput {
   readonly gateChanges: readonly string[];
   /** The previous round's findings, on a re-review. */
   readonly previousFindings?: readonly ReviewFinding[];
+  /**
+   * The test-plan statuses and deviations of the worker's last done report (DIPO-254), when the
+   * run stored one.
+   */
+  readonly workerReport?: {
+    readonly testPlan: readonly WorkerTestPlanEntry[];
+    readonly deviations: readonly WorkerDeviation[];
+  };
   /** The `diff` budget of the project's size class, in characters (0014 section 4). */
   readonly diffBudget: number;
   /** `prompt.contractMax`; default 12,000. */
@@ -193,6 +205,58 @@ function testPlanSection(story: PromptStory): ReviewSection | undefined {
   };
 }
 
+/** The most characters the `worker_report` section's lines may hold, its cut marker included. */
+export const WORKER_REPORT_SECTION_MAX = 8_000;
+
+/** Worker text on one line: every run of whitespace, line breaks included, is one space. */
+const flat = (text: string): string => text.replace(/\s+/g, " ").trim();
+
+/**
+ * The worker's test-plan statuses with their evidence and its deviations, as data. Each field is
+ * flattened to one line, so worker text cannot start an entry line or a header of its own, and the
+ * lines are cut to `WORKER_REPORT_SECTION_MAX` with a marker. Prompt tags in the text are
+ * neutralised by the template.
+ */
+function workerReportSection(report: NonNullable<ReviewTaskInput["workerReport"]>): string {
+  const entries = report.testPlan
+    .toSorted((a, b) => a.n - b.n)
+    .map((entry) => `- #${entry.n} ${entry.status}: ${flat(entry.evidence)}`);
+  const deviations = report.deviations.map(
+    (deviation) =>
+      `- ${flat(deviation.where)}: ${flat(deviation.what)} Why: ${flat(deviation.why)}`,
+  );
+  const total = [...entries, ...deviations].reduce((sum, line) => sum + line.length + 1, 0);
+  const marker = `[dipo: the worker's report is ${formatCount(total)} characters, over its ${formatCount(WORKER_REPORT_SECTION_MAX)} character limit, so its later lines are left out.]`;
+  // Over the limit, room is kept for the marker and two "left out" lines.
+  const LEFT_OUT = "- left out";
+  let room =
+    total <= WORKER_REPORT_SECTION_MAX
+      ? total
+      : WORKER_REPORT_SECTION_MAX - marker.length - 2 * (LEFT_OUT.length + 1) - 1;
+  const fit = (lines: readonly string[]): string[] =>
+    lines.flatMap((line) => {
+      if (line.length + 1 > room) {
+        room = 0;
+        return [];
+      }
+      room -= line.length + 1;
+      return [line];
+    });
+  const shownEntries = fit(entries);
+  const shownDeviations = fit(deviations);
+  const cut = shownEntries.length + shownDeviations.length < entries.length + deviations.length;
+  const list = (all: readonly string[], shown: readonly string[], last: boolean): string => {
+    if (all.length === 0) return "- none";
+    const lines = shown.length === 0 ? [LEFT_OUT] : [...shown];
+    if (cut && last) lines.push(marker);
+    return lines.join("\n");
+  };
+  return renderTemplate(workerReportTemplate, {
+    entries: list(entries, shownEntries, false),
+    deviations: list(deviations, shownDeviations, true),
+  });
+}
+
 function findingLine(finding: ReviewFinding): string {
   const where =
     finding.file === undefined
@@ -267,6 +331,9 @@ export function assembleReviewTaskMessage(input: ReviewTaskInput): ReviewTaskMes
   );
   const plan = testPlanSection(story);
   if (plan !== undefined) sections.set("test_plan", plan.text);
+  if (input.workerReport !== undefined) {
+    sections.set("worker_report", workerReportSection(input.workerReport));
+  }
   const previous = input.previousFindings ?? [];
   if (input.previousFindings !== undefined) {
     sections.set(
