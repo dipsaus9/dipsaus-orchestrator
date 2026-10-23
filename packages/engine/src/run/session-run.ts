@@ -13,7 +13,9 @@
 // - It holds neither the worker nor the reviewer place (0019 amendment of 2026-10-22); the scan
 //   fallback runs one per office at a time.
 // - dipo stops it at its minute cap and once its budget tokens pass the `scan` block's; a host that
-//   never reports its exit is given up two minutes after the cap.
+//   never reports its exit is given up two minutes after the cap. At daemon stop `stopAll` sends
+//   the stop to every session still running: its host is detached and no daemon follows it after
+//   the stop, so without it the caps would no longer hold.
 // - A plan limit the session meets ends it as `plan-limit`: the fallback waits and starts a new one,
 //   never a park.
 
@@ -103,9 +105,24 @@ interface Followed {
 /** The real `ScanSessionRunner`: one `session` run per call. */
 export class SessionRuns implements ScanSessionRunner {
   readonly #deps: SessionRunsDeps;
+  /** The stop of each session this daemon follows now, by run id. */
+  readonly #live = new Map<string, (why: string) => Promise<void>>();
 
   constructor(deps: SessionRunsDeps) {
     this.#deps = deps;
+  }
+
+  /** The run ids of the sessions this daemon follows now. */
+  liveRuns(): string[] {
+    return [...this.#live.keys()];
+  }
+
+  /**
+   * Sends the stop to every session still running (daemon stop, DIPO-310) and waits for the
+   * sends; each host then ends its process. Never rejects.
+   */
+  async stopAll(): Promise<void> {
+    await Promise.all([...this.#live.values()].map((stop) => stop("the daemon stopped")));
   }
 
   async run(request: ScanSessionRequest): Promise<ScanSessionResult> {
@@ -310,15 +327,16 @@ export class SessionRuns implements ScanSessionRunner {
     const finish = (end: IngestedExit | null) => {
       if (settled) return;
       settled = true;
+      this.#live.delete(runId);
       for (const timer of timers) deps.clock.clearTimeout(timer);
       // Stopped after the exit's pass committed, outside its hooks.
       queueMicrotask(() => ingestor.close());
       resolve({ end, stopped, resetsAt });
     };
-    const stop = (why: string) => {
-      if (stopped !== null || settled) return;
+    const stop = (why: string): Promise<void> => {
+      if (stopped !== null || settled) return Promise.resolve();
       stopped = why;
-      void deps.steering.send(office, runId, deps.worker.encode({ kind: "stop" })).then(
+      return deps.steering.send(office, runId, deps.worker.encode({ kind: "stop" })).then(
         (sent) => {
           if (!sent.ok) {
             deps.warn?.("stopping a scan session failed", { run: runId, reason: sent.reason });
@@ -353,19 +371,20 @@ export class SessionRuns implements ScanSessionRunner {
               const at = Date.parse(event.resetsAt);
               if (Number.isFinite(at)) resetsAt = at;
             }
-            if (event.t === "initRejected" || event.t === "startRefused") stop(event.reason);
+            if (event.t === "initRejected" || event.t === "startRefused") void stop(event.reason);
           }
-          if (overBudget) stop(`its budget of ${settings.budgetTokens} tokens was reached`);
+          if (overBudget) void stop(`its budget of ${settings.budgetTokens} tokens was reached`);
         },
         onEnded: (_run, _agent, end) => finish(end),
         onAppended: () => deps.onChanged?.(request.office),
       },
       warn: (message, fields) => deps.warn?.(message, fields),
     });
+    this.#live.set(runId, stop);
     const capMs = settings.maxMinutes * 60_000;
     timers.push(
       deps.clock.setTimeout(
-        () => stop(`its time cap of ${settings.maxMinutes} minutes was reached`),
+        () => void stop(`its time cap of ${settings.maxMinutes} minutes was reached`),
         capMs,
       ),
       deps.clock.setTimeout(() => finish(null), capMs + SESSION_EXIT_GRACE_MS),
@@ -383,7 +402,7 @@ export class SessionRuns implements ScanSessionRunner {
       });
     } catch (error) {
       deps.warn?.("ingesting a scan session failed", { run: runId, reason: messageOf(error) });
-      stop("its events could not be ingested");
+      void stop("its events could not be ingested");
     }
     return promise;
   }

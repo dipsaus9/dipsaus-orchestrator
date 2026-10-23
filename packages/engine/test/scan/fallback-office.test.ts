@@ -110,7 +110,7 @@ function withOffice(files: FixtureTree, fn: (o: Office) => Promise<void>): Promi
         if (!access.ok) throw new Error(`${access.error.code}: ${access.error.message}`);
         await fn({ repo, s, profiles, officeId, office: access.office, requests });
       } finally {
-        profiles.close();
+        await profiles.close();
         s.state.close();
       }
     },

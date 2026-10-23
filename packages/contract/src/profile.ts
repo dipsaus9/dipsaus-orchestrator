@@ -94,7 +94,8 @@ export type ConfirmArgs = z.infer<typeof ConfirmArgs>;
 // `scan.noProfile`, `scan.noProposal` (accept, edit or reject without a pending proposal),
 // `scan.resolvedByCode` (a capability code resolves: change the script instead), `scan.notConflict`
 // and `scan.noCandidate` (pick), `scan.notConfirmed` (keep), `scan.invalidCommand` (a working
-// directory outside the repository).
+// directory outside the repository), `scan.staleProposal` (accept of a proposal made at another
+// fingerprint: infer again, or edit or set).
 export const officeConfirm = defineCommand({
   name: "office.confirm",
   level: "office",

@@ -163,9 +163,9 @@ export class RunProfiles {
     return this.#fallback;
   }
 
-  /** Stops the fallback's waits, at daemon stop. */
-  close(): void {
-    this.#fallback.close();
+  /** At daemon stop: stops the fallback's waits and its running sessions. Never rejects. */
+  close(): Promise<void> {
+    return this.#fallback.close();
   }
 
   /** The feature module with the `scan.profile` load step and `office.rescan`. */

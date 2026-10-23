@@ -232,6 +232,7 @@ describe("errors", () => {
       "scan.noCandidate",
       "scan.notConfirmed",
       "scan.invalidCommand",
+      "scan.staleProposal",
     ]);
   });
 

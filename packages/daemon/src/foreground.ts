@@ -487,6 +487,8 @@ async function serve(run: Run, lock: HeldLock): Promise<number> {
     usageAlerts: UsageAlerts | null;
     maintenance: MaintenanceScheduler | null;
     ingest: { close(): void } | null;
+    /** The scan fallback (DIPO-310): its running sessions get the stop at daemon stop. */
+    scanSessions: { close(): Promise<void> } | null;
     /** The box workers (DIPO-271): every running box is stopped at daemon stop. */
     boxes: { close(): Promise<void> } | null;
     /** The collision check of the box runs (DIPO-277): its poll stops at daemon stop. */
@@ -507,6 +509,7 @@ async function serve(run: Run, lock: HeldLock): Promise<number> {
     usageAlerts: null,
     maintenance: null,
     ingest: null,
+    scanSessions: null,
     boxes: null,
     collisions: null,
     engineBehind: null,
@@ -967,10 +970,11 @@ async function serve(run: Run, lock: HeldLock): Promise<number> {
         runs.ingest.close();
         runs.reattacher.close();
         runs.stopBoxPasses();
-        // A scan fallback session waiting for a plan limit starts no more (DIPO-310).
-        runProfiles.close();
       },
     };
+    // A scan fallback session waiting for a plan limit starts no more, and a running one gets the
+    // stop, so its caps hold after the daemon is gone (DIPO-310).
+    held.scanSessions = { close: () => runProfiles.close() };
     // Daemon stop ends every box worker inside its box, and its routes (DIPO-271).
     held.boxes = runs.boxes;
     sessionRuns = runs.sessions;
@@ -1379,6 +1383,7 @@ async function serve(run: Run, lock: HeldLock): Promise<number> {
     held.teardown?.stop();
     held.storyPrs?.stop();
     held.mergeSlot?.stop();
+    await held.scanSessions?.close();
     held.ingest?.close();
     held.collisions?.stop();
     await held.boxes?.close();

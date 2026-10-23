@@ -96,6 +96,14 @@ export function applyConfirm(office: OfficeHandle, args: ConfirmArgs, now: numbe
     switch (args.action) {
       case "accept": {
         if (pending === null) throw noProposal(capability);
+        // Proposed at another fingerprint: the repository changed since, so it is not accepted as
+        // it stands.
+        if (pending.fingerprint !== before.code.fingerprint) {
+          throw new CommandError(
+            "scan.staleProposal",
+            `The ${capability} proposal was made before the repository's run inputs changed. Run \`dipo office infer\` again, or confirm your own command with \`dipo office confirm edit ${capability} -- <command>\` or \`dipo office confirm set ${capability} -- <command>\`.`,
+          );
+        }
         confirm("inferred", pending.spec, pending.evidence.join("; "));
         deleteProposal(office, capability);
         break;

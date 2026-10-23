@@ -166,8 +166,12 @@ function commandProblem(argv: readonly string[], cwd: string, base: BaseFacts): 
     const file = names.find((name) => files.has(name));
     if (file === undefined) return `there is no ${just ? "justfile" : "Makefile"} in ${cwd}`;
     const text = base.texts[file];
+    // A Makefile or justfile the reader left out (a link, too large) cannot show its targets.
+    if (text === undefined) {
+      return `${file} could not be read, so its ${just ? "recipes" : "targets"} cannot be checked`;
+    }
     for (const target of args.filter((arg) => !arg.startsWith("-") && !arg.includes("="))) {
-      if (text !== undefined && !hasTarget(text, target, just)) {
+      if (!hasTarget(text, target, just)) {
         return `the ${just ? "recipe" : "target"} "${target}" is not in ${file}`;
       }
     }

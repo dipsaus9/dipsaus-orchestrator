@@ -391,6 +391,29 @@ describe("office.confirm", () => {
       );
     }));
 
+  it("refuses to accept a proposal made at another fingerprint, and edit still confirms", () =>
+    withHarness(async (h) => {
+      await proposed(h);
+      h.office.run(
+        "update capability_proposals set fingerprint = 'sha256:older' where office_id = $office_id",
+      );
+      expect(errorCode(h, { action: "accept", capability: "verify" })).toBe("scan.staleProposal");
+      expect(verifyResolved(h.office)).not.toBeNull();
+      try {
+        confirm(h, { action: "accept", capability: "verify" });
+      } catch (error) {
+        const message = error instanceof Error ? error.message : "";
+        expect(message).toContain("`dipo office infer`");
+        expect(message).toContain("`dipo office confirm edit verify -- <command>`");
+      }
+      const edited = confirm(h, {
+        action: "edit",
+        capability: "verify",
+        commands: [["make", "check"]],
+      });
+      expect(edited).toMatchObject({ source: "maintainer", confirmed: true });
+    }));
+
   it("reject removes the proposal and leaves run refused", () =>
     withHarness(async (h) => {
       await proposed(h);
@@ -472,6 +495,31 @@ describe("office.confirm", () => {
       expect(currentProfile(h.office)?.testRefusal).toBeNull();
       const back = confirm(h, { action: "nothing-to-start", value: false });
       expect(back.diff).toContain("- nothing to start: taken back by the maintainer");
+    }));
+});
+
+describe("ScanFallback.close", () => {
+  it("stops waiting and sends the stop to the runner's running sessions", () =>
+    withHarness(async (h) => {
+      let stops = 0;
+      const fallback = new ScanFallback({
+        runner: () => ({
+          run: async () => ({ kind: "failed", runId: null, reason: "unused" }),
+          stopAll: async () => {
+            stops += 1;
+          },
+        }),
+        settings: () => SETTINGS,
+        planLimitHeld: () => "a weekly limit",
+        readBase: async () => BASE,
+        pollMs: 1_000,
+      });
+      fallback.infer(h.officeId, h.office, h.t.clock);
+      await fallback.close();
+      expect(stops).toBe(1);
+      // The held session starts no more.
+      await fallback.whenIdle(h.officeId);
+      expect(fallback.inferring(h.officeId)).toBe(false);
     }));
 });
 

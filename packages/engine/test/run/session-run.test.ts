@@ -303,6 +303,27 @@ describe("a scan session run", () => {
       ).toBe("stopped");
     }));
 
+  it("is stopped at daemon stop, so its caps hold after the daemon is gone", () =>
+    withWorld(async (w) => {
+      w.lines = init;
+      w.onStop = exitLine(143);
+      const pending = w.runs.run(request(w));
+      await until(() => w.runs.liveRuns().length === 1);
+      expect(w.sent).toHaveLength(0);
+      await w.runs.stopAll();
+      expect(w.sent).toHaveLength(1);
+      // The poll reads the exit the stop wrote.
+      w.t.clock.advance(1_000);
+      const outcome = await pending;
+      expect(outcome.kind === "failed" && outcome.reason).toBe(
+        "dipo stopped it: the daemon stopped",
+      );
+      expect(w.runs.liveRuns()).toEqual([]);
+      // Nothing left to stop.
+      await w.runs.stopAll();
+      expect(w.sent).toHaveLength(1);
+    }));
+
   it("is stopped at its minute cap", () =>
     withWorld(async (w) => {
       w.lines = init;

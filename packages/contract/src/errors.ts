@@ -85,7 +85,8 @@ export const SOFTWARE_ERROR_CODES = [
 // accept, edit or reject), `scan.resolvedByCode` (code resolves the capability: change the script
 // instead), `scan.notConflict` and `scan.noCandidate` (a pick of a capability not in conflict, or a
 // candidate it does not have), `scan.notConfirmed` (`keep` of a capability with no confirmation) and
-// `scan.invalidCommand` (a working directory outside the repository).
+// `scan.invalidCommand` (a working directory outside the repository), and `scan.staleProposal`
+// (accept of a proposal made before the repository's run inputs changed).
 export const OFFICE_ERROR_CODES = [
   "config.invalid",
   "backlog.unreadable",
@@ -108,6 +109,7 @@ export const OFFICE_ERROR_CODES = [
   "scan.noCandidate",
   "scan.notConfirmed",
   "scan.invalidCommand",
+  "scan.staleProposal",
 ] as const;
 
 export type GenericErrorCode = (typeof GENERIC_ERROR_CODES)[number];

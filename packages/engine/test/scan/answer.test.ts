@@ -104,6 +104,26 @@ describe("checkAnswer", () => {
     }
   });
 
+  it("drops a make or just proposal whose file is listed but could not be read (existence)", () => {
+    const unread = { files: [...BASE.files, "justfile"], texts: { "package.json": "{}" } };
+    const make = checkAnswer({ proposals: [proposal()] }, ASKED, unread);
+    expect(make.ok && make.dropped).toEqual([
+      {
+        capability: "verify",
+        check: "existence",
+        detail: "Makefile could not be read, so its targets cannot be checked",
+      },
+    ]);
+    const just = checkAnswer(
+      { proposals: [proposal({ commands: [["just", "check"]] })] },
+      ASKED,
+      unread,
+    );
+    expect(just.ok && just.dropped[0]?.detail).toBe(
+      "justfile could not be read, so its recipes cannot be checked",
+    );
+  });
+
   it("drops a path outside the repository", () => {
     const result = check([proposal({ commands: [["sh", "/tmp/x.sh"]] })]);
     expect(result.ok && result.dropped[0]?.detail).toBe(

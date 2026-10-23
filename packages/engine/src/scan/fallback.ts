@@ -107,6 +107,8 @@ export type ScanSessionResult =
 /** Starts and follows one fallback session to its end (the worker adapter behind it). */
 export interface ScanSessionRunner {
   run(request: ScanSessionRequest): Promise<ScanSessionResult>;
+  /** Stops every session still running, at daemon stop; it never rejects. */
+  stopAll?(): Promise<void>;
 }
 
 export interface ScanFallbackDeps {
@@ -116,7 +118,6 @@ export interface ScanFallbackDeps {
   readonly settings: (office: OfficeId) => Omit<ScanSessionSettings, "maxTurns">;
   /** Why new sessions of `model` are held by a plan limit now; null when they are not. */
   readonly planLimitHeld?: (office: OfficeId, model: string) => string | null;
-  /** dipo| null;
   /** dipo's base copy of the office: its files and evidence texts, read in one git queue item. */
   readonly readBase: (office: OfficeId) => Promise<BaseEvidence>;
   /** Change-log entries were appended outside a command; subscribers catch up. */
@@ -159,14 +160,22 @@ export class ScanFallback {
     }
   }
 
-  /** Stops waiting: held sessions start no more. */
-  close(): void {
+  /**
+   * At daemon stop: held sessions start no more, and every session still running gets the stop,
+   * so its caps hold after the daemon is gone (DIPO-310). Never rejects.
+   */
+  async close(): Promise<void> {
     this.#closed = true;
     for (const pending of this.#timers) {
       pending.clock.clearTimeout(pending.timer);
       pending.resolve();
     }
     this.#timers.clear();
+    try {
+      await this.#deps.runner?.()?.stopAll?.();
+    } catch (error) {
+      this.#deps.logger?.warn("stopping the scan sessions failed", { reason: reasonOf(error) });
+    }
   }
 
   /**
