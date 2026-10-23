@@ -8,13 +8,18 @@
 // `stop --force` (DIPO-70) share this check.
 
 import { dlopen, FFIType, ptr } from "bun:ffi";
-import { closeSync, constants, mkdirSync, mkdtempSync, openSync, rmSync } from "node:fs";
-import { readFile, rm } from "node:fs/promises";
-import { join } from "node:path";
+import { closeSync, openSync } from "node:fs";
+import { readFile } from "node:fs/promises";
 
 import type { ChildStdin, Signal, Spawn, SpawnOutputFile } from "@dipsaus-orchestrator/contract";
 
 import { ignoreRejection } from "./background";
+import {
+  closeOutputFiles,
+  type OutputFiles,
+  openOutputFiles,
+  readOutputFiles,
+} from "./output-files";
 import type { DipoPlatform } from "./paths";
 
 /** Two readings of one process's start time differ by at most this much. */
@@ -503,55 +508,6 @@ export function selfCommand(): [string, ...string[]] {
 
 const textEncoder = new TextEncoder();
 
-/** The name prefix of the private folder a child's output files are made in (DIPO-333). */
-export const OUTPUT_DIR_PREFIX = "dipo-out-";
-
-/** The private folder and the open files a child's stdout and stderr go to. */
-interface OutputFiles {
-  readonly dir: string;
-  readonly stdout: number;
-  readonly stderr: number;
-}
-
-/** Opens a new file at `path` for writing only, mode 0600; never an existing file or a link. */
-function openNew(path: string): number {
-  const flags = constants.O_WRONLY | constants.O_CREAT | constants.O_EXCL | constants.O_NOFOLLOW;
-  return openSync(path, flags, 0o600);
-}
-
-/**
- * Makes a fresh private folder (mode 0700, an unpredictable name) under `output.tempRoot` and opens
- * the stdout and stderr files in it. Nothing is left behind when a step fails.
- */
-function openOutputFiles(output: SpawnOutputFile): OutputFiles {
-  mkdirSync(output.tempRoot, { recursive: true, mode: 0o700 });
-  const dir = mkdtempSync(join(output.tempRoot, OUTPUT_DIR_PREFIX));
-  const opened: number[] = [];
-  try {
-    opened.push(openNew(join(dir, "stdout")));
-    opened.push(openNew(join(dir, "stderr")));
-    const [stdout = -1, stderr = -1] = opened;
-    return { dir, stdout, stderr };
-  } catch (error) {
-    for (const fd of opened) closeSync(fd);
-    rmSync(dir, { recursive: true, force: true });
-    throw error;
-  }
-}
-
-/**
- * The content of both output files once `exited` settles; the folder is removed after the read,
- * also when it fails.
- */
-async function readOutputFiles(dir: string, exited: Promise<unknown>): Promise<Uint8Array[]> {
-  try {
-    await exited;
-    return await Promise.all([readFile(join(dir, "stdout")), readFile(join(dir, "stderr"))]);
-  } finally {
-    await rm(dir, { recursive: true, force: true });
-  }
-}
-
 /** A stream of the one chunk `bytes` settles to; a failed read errors the stream. */
 function streamOf(bytes: Promise<Uint8Array>): ReadableStream<Uint8Array> {
   return new ReadableStream<Uint8Array>({
@@ -581,19 +537,16 @@ function bunSpawn(options: Parameters<Spawn>[0], files: OutputFiles | null) {
 }
 
 /**
- * Spawns with `options.output` files: the parent's copies of the files are closed once the child
- * has them, and on a failed start the folder goes too.
+ * Spawns with `options.output` files. dipo keeps its descriptors of the files to read them after
+ * the exit; on a failed start they are closed and the folder goes too.
  */
 function spawnWithFiles(options: Parameters<Spawn>[0], output: SpawnOutputFile) {
   const files = openOutputFiles(output);
   try {
-    return { child: bunSpawn(options, files), dir: files.dir };
+    return { child: bunSpawn(options, files), files };
   } catch (error) {
-    rmSync(files.dir, { recursive: true, force: true });
+    closeOutputFiles(files);
     throw error;
-  } finally {
-    closeSync(files.stdout);
-    closeSync(files.stderr);
   }
 }
 
@@ -606,10 +559,10 @@ function spawnWithFiles(options: Parameters<Spawn>[0], output: SpawnOutputFile) 
 export const systemSpawn: Spawn = (options) => {
   const started =
     options.output === undefined
-      ? { child: bunSpawn(options, null), dir: null }
+      ? { child: bunSpawn(options, null), files: null }
       : spawnWithFiles(options, options.output);
   const { child } = started;
-  const files = started.dir === null ? null : readOutputFiles(started.dir, child.exited);
+  const files = started.files === null ? null : readOutputFiles(started.files, child.exited);
   // An output nobody reads must not fail as an unhandled rejection (DIPO-117).
   ignoreRejection(files);
   const sink = options.stdin === "pipe" ? (child.stdin as Bun.FileSink) : null;
@@ -633,11 +586,11 @@ export const systemSpawn: Spawn = (options) => {
     stdout:
       files === null
         ? (child.stdout as ReadableStream<Uint8Array>)
-        : streamOf(files.then(([stdout = new Uint8Array()]) => stdout)),
+        : streamOf(files.then(([stdout]) => stdout)),
     stderr:
       files === null
         ? (child.stderr as ReadableStream<Uint8Array>)
-        : streamOf(files.then(([, stderr = new Uint8Array()]) => stderr)),
+        : streamOf(files.then(([, stderr]) => stderr)),
     exited: child.exited.then(() => ({
       code: child.signalCode === null ? child.exitCode : null,
       signal: child.signalCode ?? null,

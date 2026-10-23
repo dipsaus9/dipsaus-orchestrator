@@ -43,7 +43,9 @@ export interface SpawnOptions {
    * Where the child's stdout and stderr go; pipes when absent. With `to: "file"` they go to two
    * regular files (mode 0600) in a fresh private folder under `tempRoot`, so no pipe sits between
    * the child and the caller (DIPO-333). `stdout` and `stderr` then yield the files' content once
-   * the child has exited, and the folder is removed after it is read, also on a failure.
+   * the direct child has exited: only output written before that exit is returned, and output a
+   * descendant writes later is lost. The files are read through the caller's own descriptors, and
+   * the folder is removed after the read, also on a failure; a failed read errors both streams.
    */
   readonly output?: SpawnOutputFile;
 }
@@ -51,7 +53,10 @@ export interface SpawnOptions {
 /** Stdout and stderr through regular files read after the child exits (`SpawnOptions.output`). */
 export interface SpawnOutputFile {
   readonly to: "file";
-  /** The private temp root the folder is made under; made (mode 0700) when missing. */
+  /**
+   * The private temp root the folder is made under; made (mode 0700) when missing. It must belong
+   * to this user or be a shared world-writable folder with the sticky bit, else the spawn throws.
+   */
   readonly tempRoot: string;
 }
 

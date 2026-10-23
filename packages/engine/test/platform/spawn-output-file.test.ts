@@ -2,16 +2,32 @@
 // stderr go to regular files (mode 0600) in a private folder (mode 0700) under the temp root, never
 // to a pipe, and reach the caller whole once the child has exited, also over 300 KB and when the
 // child writes slowly. The folder is removed after the read, also when the child fails, when
-// nobody reads, and when the child cannot start.
+// nobody reads, and when the child cannot start. dipo reads through its own descriptors, so a child
+// that swaps its output paths for a FIFO or a link, or its folder for a link, can neither hang nor
+// redirect the read; an output over the size cap fails the read; a temp root of another user is
+// refused unless it is a shared folder with the sticky bit.
 
 import { describe, expect, it } from "bun:test";
 
-import { existsSync, readdirSync, statSync } from "node:fs";
+import {
+  chmodSync,
+  existsSync,
+  mkdirSync,
+  readdirSync,
+  readFileSync,
+  statSync,
+  writeFileSync,
+} from "node:fs";
 import { join } from "node:path";
 
 import { withTempDir } from "@dipsaus-orchestrator/testkit";
 
-import { OUTPUT_DIR_PREFIX, systemSpawn } from "../../src/platform/process";
+import {
+  checkTempRoot,
+  OUTPUT_DIR_PREFIX,
+  OUTPUT_MAX_BYTES,
+} from "../../src/platform/output-files";
+import { systemSpawn } from "../../src/platform/process";
 
 /** Runs `script` with this Bun, output through files under `tempRoot`. */
 function spawnScript(script: string, tempRoot: string) {
@@ -141,6 +157,88 @@ describe("systemSpawn with output to files (DIPO-333)", () => {
       expect(stdout).toBe("ok\n");
       expect(statSync(root).mode & 0o777).toBe(0o700);
       expect(leftovers(root)).toEqual([]);
+    });
+  });
+
+  it("reads its own descriptors when the child swaps its output files for a FIFO and a link", async () => {
+    await withTempDir(async (root) => {
+      const secret = join(root, "secret.txt");
+      writeFileSync(secret, "do not read me\n");
+      const script = [
+        `const fs = require("node:fs");`,
+        `const root = ${JSON.stringify(root)};`,
+        `const dir = root + "/" + fs.readdirSync(root).find((n) => n.startsWith(${JSON.stringify(OUTPUT_DIR_PREFIX)}));`,
+        `console.log("before");`,
+        `fs.unlinkSync(dir + "/stdout");`,
+        `if (Bun.spawnSync(["mkfifo", dir + "/stdout"]).exitCode !== 0) throw new Error("mkfifo");`,
+        `fs.unlinkSync(dir + "/stderr");`,
+        `fs.symlinkSync(${JSON.stringify(secret)}, dir + "/stderr");`,
+        `console.log("after");`,
+      ].join("\n");
+      const { stdout, stderr, exit } = await outputOf(spawnScript(script, root));
+      expect(exit.code).toBe(0);
+      expect(stdout).toBe("before\nafter\n");
+      expect(stderr).toBe("");
+      expect(readFileSync(secret, "utf8")).toBe("do not read me\n");
+      expect(leftovers(root)).toEqual([]);
+    });
+  });
+
+  it("removes only the link when the child swaps its folder for a link", async () => {
+    await withTempDir(async (dir) => {
+      const root = join(dir, "root");
+      const decoy = join(dir, "decoy");
+      mkdirSync(decoy);
+      writeFileSync(join(decoy, "keep"), "kept\n");
+      const script = [
+        `const fs = require("node:fs");`,
+        `const root = ${JSON.stringify(root)};`,
+        `const out = root + "/" + fs.readdirSync(root).find((n) => n.startsWith(${JSON.stringify(OUTPUT_DIR_PREFIX)}));`,
+        `console.log("written");`,
+        `fs.rmSync(out, { recursive: true });`,
+        `fs.symlinkSync(${JSON.stringify(decoy)}, out);`,
+      ].join("\n");
+      const { stdout } = await outputOf(spawnScript(script, root));
+      expect(stdout).toBe("written\n");
+      expect(readFileSync(join(decoy, "keep"), "utf8")).toBe("kept\n");
+      expect(leftovers(root)).toEqual([]);
+    });
+  });
+
+  it("fails the read of an output over the size cap, and removes the folder", async () => {
+    await withTempDir(async (root) => {
+      const script = `require("node:fs").ftruncateSync(1, ${OUTPUT_MAX_BYTES + 1});`;
+      const child = spawnScript(script, root);
+      const read = new Response(child.stdout).text();
+      await expect(read).rejects.toThrow(/stdout holds \d+ bytes, more than dipo reads/);
+      await expect(new Response(child.stderr).text()).rejects.toThrow();
+      expect(leftovers(root)).toEqual([]);
+    });
+  });
+
+  it("refuses a temp root of another user unless it is shared with the sticky bit", async () => {
+    await withTempDir(async (dir) => {
+      const other = (process.getuid?.() ?? 0) + 1;
+      const shared = join(dir, "shared");
+      mkdirSync(shared);
+      chmodSync(shared, 0o1777);
+      expect(() => checkTempRoot(shared, other)).not.toThrow();
+      const open = join(dir, "open");
+      mkdirSync(open);
+      chmodSync(open, 0o777);
+      expect(() => checkTempRoot(open, other)).toThrow(/belongs to another user/);
+      const own = join(dir, "own");
+      mkdirSync(own, { mode: 0o700 });
+      expect(() => checkTempRoot(own)).not.toThrow();
+    });
+  });
+
+  it("refuses a temp root that is not a folder, and makes nothing", async () => {
+    await withTempDir(async (dir) => {
+      const root = join(dir, "file");
+      writeFileSync(root, "");
+      expect(() => spawnScript(`console.log("no")`, root)).toThrow();
+      expect(readdirSync(dir)).toEqual(["file"]);
     });
   });
 
