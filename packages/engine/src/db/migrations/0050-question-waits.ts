@@ -13,7 +13,7 @@
 import type { SqlMigration } from "../migrations";
 
 export const questionWaits: SqlMigration = {
-  version: 48,
+  version: 50,
   name: "question waits",
   sql: `
 alter table questions add column wait_until integer;

@@ -1,4 +1,4 @@
-// Migration 48 (DIPO-159): `questions.wait_until`, the end of a worker question's live wait, and
+// Migration 50 (DIPO-159): `questions.wait_until`, the end of a worker question's live wait, and
 // the trigger that expires the questions a park carried once that park is resolved in any way. The
 // wait and the park's questions in use are tested in test/hooks/worker-questions.test.ts.
 
@@ -39,12 +39,12 @@ const ROWS = `insert into offices (office_id, path, display_name, added_at, epoc
   insert into questions (office_id, question_id, run_id, agent_id, kind, text, asked_at)
     values ('off-1', 'qst-3', 'run-1', 'agt-1', 'question', 'Other?', 1);`;
 
-describe("migration 48 on a database at version 47", () => {
+describe("migration 50 on a database at version 49", () => {
   it("adds questions.wait_until and expires a resolved park's open questions only", () =>
     withTempDir(async (dir) => {
       const old = await open(
         dir,
-        MIGRATIONS.filter((step) => step.version <= 47),
+        MIGRATIONS.filter((step) => step.version <= 49),
       );
       try {
         const columns = old.connection
@@ -58,7 +58,7 @@ describe("migration 48 on a database at version 47", () => {
       const state = await open(dir);
       try {
         const db = state.connection;
-        expect(MIGRATIONS.find((step) => step.version === 48)?.name).toBe("question waits");
+        expect(MIGRATIONS.find((step) => step.version === 50)?.name).toBe("question waits");
         db.immediate(() => db.exec(ROWS));
         expect(
           db.all("select question_id, wait_until from questions order by question_id"),

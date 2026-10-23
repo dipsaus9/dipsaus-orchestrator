@@ -30,7 +30,7 @@ import type { OfficeId } from "@dipsaus-orchestrator/contract";
 import { ManualClock, type TempRepo, withTempRepo } from "@dipsaus-orchestrator/testkit";
 
 import { BOX_RUN_FILE } from "../../src/box/workers";
-import { OFFICE_DEFAULTS } from "../../src/config";
+import { OFFICE_DEFAULTS, type OfficeConfig } from "../../src/config";
 import { renderSystemFile } from "../../src/prompts/system";
 import { OfficeGit, spawnGitExec } from "../../src/git";
 import { systemSpawn } from "../../src/platform/process";
@@ -38,6 +38,7 @@ import {
   checkCopyComplete,
   findRun,
   makeReviewCopy,
+  recordConfigSnapshot,
   REVIEW_FOLDER_PREFIX,
   REVIEW_SESSION_DIR,
   ReviewLauncher,
@@ -670,5 +671,45 @@ describe("the reviewer's own web proxy (DIPO-292)", () => {
       expect(await reachable(port)).toBe(true);
       await launcher.finish(office, w.run.runId, outcome.agent);
       expect(await reachable(port)).toBe(false);
+    }));
+});
+
+describe("the reviewer of a running run (DIPO-150, the DIPO-303 review)", () => {
+  it("is planned, launched and ingested with the configuration the run started with", () =>
+    withWorld(async (w) => {
+      const started: OfficeConfig = {
+        ...OFFICE_DEFAULTS,
+        review: { ...OFFICE_DEFAULTS.review, model: "sonnet", effort: "low" },
+      };
+      w.rounds.office.immediate(() => recordConfigSnapshot(w.rounds.office, "h", started, 0));
+      // A base change reloaded the configuration in force since the run started.
+      const inForce: OfficeConfig = {
+        ...OFFICE_DEFAULTS,
+        review: { ...OFFICE_DEFAULTS.review, model: "opus", effort: "high" },
+      };
+      const planned: OfficeConfig[] = [];
+      const ingested: OfficeConfig[] = [];
+      const base = w.deps.worker;
+      const worker = {
+        ...base,
+        prepare: (...args: Parameters<WorkerPort["prepare"]>) => {
+          planned.push(args[2]);
+          return base.prepare(...args);
+        },
+        adapter: (...args: Parameters<WorkerPort["adapter"]>) => {
+          ingested.push(args[1]);
+          return base.adapter(...args);
+        },
+      } as WorkerPort;
+      (w as { launcher: ReviewLauncher }).launcher = new ReviewLauncher({
+        ...w.deps,
+        worker,
+        offices: { get: () => w.rounds.office, config: () => inForce },
+      });
+      const s = await startSession(w);
+      expect(planned.map((config) => config.review.model)).toEqual(["sonnet"]);
+      expect(ingested.map((config) => config.review.model)).toEqual(["sonnet"]);
+      expect(s.spec.model).toBe("sonnet");
+      await w.launcher.finish(w.rounds.office.officeId as OfficeId, w.run.runId, s.agent);
     }));
 });

@@ -39,7 +39,7 @@ export interface StoredQuestion {
   /** When an allow of a park question let its one matching request through (DIPO-75). */
   readonly allowUsedAt: number | null;
   /**
-   * When the live wait of a worker question ends (DIPO-159, migration 48): null for one never
+   * When the live wait of a worker question ends (DIPO-159, migration 50): null for one never
    * asked live.
    */
   readonly waitUntil: number | null;

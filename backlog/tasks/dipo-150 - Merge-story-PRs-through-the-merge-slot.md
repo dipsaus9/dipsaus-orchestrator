@@ -3,10 +3,10 @@ id: DIPO-150
 title: >-
   Merge story PRs through the merge slot, with the maintainer's approve, reject
   or override
-status: Refined
+status: Done
 assignee: []
 created_date: '2026-10-17 12:52'
-updated_date: '2026-10-23 06:25'
+updated_date: '2026-10-23 09:36'
 labels:
   - 'tier:L'
   - 'slice:m1a'
@@ -31,24 +31,69 @@ dependencies:
   - DIPO-281
   - DIPO-302
 references:
-  - docs/decisions/
+  - '- docs/decisions/'
+  - docs/decisions/0019-review-loop.md
   - packages/cli/src/
+  - packages/cli/src/approve-commands.test.ts
+  - packages/cli/src/approve-commands.ts
+  - packages/cli/src/index.ts
+  - packages/contract/schema/reads.schema.json
+  - packages/contract/src/office.ts
+  - packages/contract/src/version.ts
   - packages/daemon/src/
+  - packages/daemon/src/foreground.ts
+  - packages/daemon/src/runs.ts
   - packages/engine/src/commands/
   - packages/engine/src/db/migrations/
+  - packages/engine/src/db/migrations/0048-merge-slot.ts
   - packages/engine/src/db/schema.ts
   - packages/engine/src/features.ts
   - packages/engine/src/gate/
   - packages/engine/src/merge-slot/
+  - packages/engine/src/merge-slot/close-out-park.ts
+  - packages/engine/src/merge-slot/close-out.ts
+  - packages/engine/src/merge-slot/commands.ts
+  - packages/engine/src/merge-slot/gates.ts
+  - packages/engine/src/merge-slot/index.ts
+  - packages/engine/src/merge-slot/slot.ts
+  - packages/engine/src/merge-slot/store.ts
+  - packages/engine/src/merge-slot/story-git.ts
+  - packages/engine/src/merge-slot/story-slot.ts
   - packages/engine/src/reads/hello.ts
   - packages/engine/src/retention/policy.ts
   - packages/engine/src/run/
+  - packages/engine/src/run/compose.ts
+  - packages/engine/src/run/config-snapshot.ts
+  - packages/engine/src/run/conflicts.ts
+  - packages/engine/src/run/fix-rounds.ts
+  - packages/engine/src/run/places.ts
+  - packages/engine/src/run/review-launch.ts
+  - packages/engine/src/run/reviews.ts
+  - packages/engine/src/story-pr/prs.ts
+  - packages/engine/src/views/feature.ts
   - packages/engine/src/worktree/done.ts
   - packages/engine/test/commands/
   - packages/engine/test/db/
+  - packages/engine/test/db/merge-slot.test.ts
   - packages/engine/test/merge-slot/
+  - packages/engine/test/merge-slot/commands.test.ts
+  - packages/engine/test/merge-slot/gates.test.ts
+  - packages/engine/test/merge-slot/helpers.ts
+  - packages/engine/test/merge-slot/slot.test.ts
+  - packages/engine/test/merge-slot/story-helpers.ts
+  - packages/engine/test/merge-slot/story-slot.git.test.ts
+  - packages/engine/test/merge-slot/story-slot.test.ts
   - packages/engine/test/run/
+  - packages/engine/test/run/config-snapshot.test.ts
+  - packages/engine/test/run/conflicts.test.ts
+  - packages/engine/test/run/fix-rounds.test.ts
+  - packages/engine/test/run/places.test.ts
+  - packages/engine/test/run/review-read-only.test.ts
+  - packages/engine/test/run/reviews.test.ts
+  - packages/engine/test/story-pr/ci.test.ts
+  - packages/engine/test/story-pr/prs.test.ts
   - packages/engine/test/worktree/
+  - packages/engine/test/worktree/teardown.test.ts
 priority: high
 type: feature
 ordinal: 139000
@@ -99,21 +144,21 @@ test_plan:
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 A story PR enters the slot when the review verdict, or a maintainer override, holds for its head, its required checks were green on that head and no hold label is on it; story and backlog PRs share the one-PR-at-a-time slot, first come first served by eligibility time (DIPO-151 later puts the merge gate in front of this entry)
-- [ ] #2 The slot runs as office git queue items in the story worktree: close-out commit, merge of the base unless contained (a conflict leaves the slot as a conflict hand-off), one push never forced, required checks (red leaves the slot as a CI fix round), label guard and host head equal to the pushed head, then squash merge with --match-head-commit and the PR title as subject
-- [ ] #3 A host refusal because the base moved goes back to the sync step at most 3 times per stay, then parks conflict with cause slot-refused
-- [ ] #4 A merge_slot table (occupant, phase, pushed head, attempt count; retention tier P) keeps the slot across a daemon restart, its row deleted when the PR merges or leaves the slot, and every step is idempotent when run again
-- [ ] #5 A PR labelled autorelease: pending is never merged by the engine for any PR kind, checked in code before entry and right before the host merge; a label in mergeSlot.holdLabels holds the PR until it is gone; backlog PRs gain the persistence and the label guard
-- [ ] #6 A host head that differs from the pushed head keeps the story out of the slot with a pr.headChanged notice naming both heads, and a story PR closed on the host without a merge parks stopped with cause pr-closed and detail PR #n was closed on the host
-- [ ] #7 The merge slot records each clean base merge it makes, so a review approval of the head before that merge carries over to the merged head when only that merge and task-file commits lie between them, recorded as carried to the new head with no new review round (0019 section 6)
-- [ ] #8 (from DIPO-151) A merge gate (gate.reached, kind merge) opens when the review approved and the required checks are green on the head, and from this story a story PR enters the merge slot of DIPO-150 only once that gate is approved, in front of the slot's own entry conditions; the gate waits for the maintainer when mergeSlot.autoMerge is false, the story is flagged test-before-merge, a criterion is marked maintainer, the story passed by override, or a hold label is on the PR, and is otherwise decided approved by rule and recorded
-- [ ] #9 (from DIPO-151) The gate's code-built summary names why it waits; for a flagged story it lists the manual test-plan entries and the worktree path, and the phase is test for a flagged story, merge otherwise
-- [ ] #10 (from DIPO-151) gate.approve decides approved by maintainer and the PR enters the slot; gate.reject (confirmation and note required) decides rejected and starts a fix round with the note; both answer gate.notWaitingOnMaintainer for a gate decided by rule, and gate.approve answers gate.handMergeOnly for a PR labelled autorelease: pending
-- [ ] #11 (from DIPO-151) A review-blocked park opens a merge gate summarising the blocking findings; gate.approve on it without a note answers gate.noteRequired, and with a note records a maintainer override, marks the verdict overridden, resolves the park with resolved_how override (added to the parks check by migration) and returns the story to In Review with no session
-- [ ] #12 (from DIPO-151) dipo approve <ID> [--note <text>] and dipo reject <ID> --note <text> (with confirmation) send the story's open maintainer gate read from story.detail, and with none print that nothing waits and exit 1; capability flag review in reads/hello.ts lists gate.approve and gate.reject
-- [ ] #13 (from DIPO-151) A hand merge detected by the Done poll decides the open gate approved by maintainer with the note merged on the host in the same transaction
-- [ ] #14 Stages of a run after its start (story PR open, required checks, reviewer model and adapter, the merge) read the run's recorded configuration snapshot, not the configuration in force, since a base change now reloads it on the poll (DIPO-303 review, 2026-10-22)
-- [ ] #15 (from DIPO-154) The merge slot close-out commit calls writeCloseOutSummary (packages/engine/src/merge-slot/close-out.ts) so the task file gets the final summary
+- [x] #1 A story PR enters the slot when the review verdict, or a maintainer override, holds for its head, its required checks were green on that head and no hold label is on it; story and backlog PRs share the one-PR-at-a-time slot, first come first served by eligibility time (DIPO-151 later puts the merge gate in front of this entry)
+- [x] #2 The slot runs as office git queue items in the story worktree: close-out commit, merge of the base unless contained (a conflict leaves the slot as a conflict hand-off), one push never forced, required checks (red leaves the slot as a CI fix round), label guard and host head equal to the pushed head, then squash merge with --match-head-commit and the PR title as subject
+- [x] #3 A host refusal because the base moved goes back to the sync step at most 3 times per stay, then parks conflict with cause slot-refused
+- [x] #4 A merge_slot table (occupant, phase, pushed head, attempt count; retention tier P) keeps the slot across a daemon restart, its row deleted when the PR merges or leaves the slot, and every step is idempotent when run again
+- [x] #5 A PR labelled autorelease: pending is never merged by the engine for any PR kind, checked in code before entry and right before the host merge; a label in mergeSlot.holdLabels holds the PR until it is gone; backlog PRs gain the persistence and the label guard
+- [x] #6 A host head that differs from the pushed head keeps the story out of the slot with a pr.headChanged notice naming both heads, and a story PR closed on the host without a merge parks stopped with cause pr-closed and detail PR #n was closed on the host
+- [x] #7 The merge slot records each clean base merge it makes, so a review approval of the head before that merge carries over to the merged head when only that merge and task-file commits lie between them, recorded as carried to the new head with no new review round (0019 section 6)
+- [x] #8 (from DIPO-151) A merge gate (gate.reached, kind merge) opens when the review approved and the required checks are green on the head, and from this story a story PR enters the merge slot of DIPO-150 only once that gate is approved, in front of the slot's own entry conditions; the gate waits for the maintainer when mergeSlot.autoMerge is false, the story is flagged test-before-merge, a criterion is marked maintainer, the story passed by override, or a hold label is on the PR, and is otherwise decided approved by rule and recorded
+- [x] #9 (from DIPO-151) The gate's code-built summary names why it waits; for a flagged story it lists the manual test-plan entries and the worktree path, and the phase is test for a flagged story, merge otherwise
+- [x] #10 (from DIPO-151) gate.approve decides approved by maintainer and the PR enters the slot; gate.reject (confirmation and note required) decides rejected and starts a fix round with the note; both answer gate.notWaitingOnMaintainer for a gate decided by rule, and gate.approve answers gate.handMergeOnly for a PR labelled autorelease: pending
+- [x] #11 (from DIPO-151) A review-blocked park opens a merge gate summarising the blocking findings; gate.approve on it without a note answers gate.noteRequired, and with a note records a maintainer override, marks the verdict overridden, resolves the park with resolved_how override (added to the parks check by migration) and returns the story to In Review with no session
+- [x] #12 (from DIPO-151) dipo approve <ID> [--note <text>] and dipo reject <ID> --note <text> (with confirmation) send the story's open maintainer gate read from story.detail, and with none print that nothing waits and exit 1; capability flag review in reads/hello.ts lists gate.approve and gate.reject
+- [x] #13 (from DIPO-151) A hand merge detected by the Done poll decides the open gate approved by maintainer with the note merged on the host in the same transaction
+- [x] #14 Stages of a run after its start (story PR open, required checks, reviewer model and adapter, the merge) read the run's recorded configuration snapshot, not the configuration in force, since a base change now reloads it on the poll (DIPO-303 review, 2026-10-22)
+- [x] #15 (from DIPO-154) The merge slot close-out commit calls writeCloseOutSummary (packages/engine/src/merge-slot/close-out.ts) so the task file gets the final summary
 <!-- AC:END -->
 
 ## Implementation Notes
@@ -124,4 +169,6 @@ From DIPO-299 (2026-10-22): the merge gate reads noCiRan() and does not wait on 
 2026-10-22: combined from DIPO-151 (maintainer, M1 speed-up)
 
 2026-10-22: dropped the dependency on DIPO-159 (which now holds DIPO-289) to break a dependency cycle left by the M1 combine; that story now comes after this one.
+
+2026-10-23: built outside dipo, reviewed in two rounds (no merge without an approved verdict and gate for the exact head; the slot's base merge recorded across a restart; the reviewer reads the run's snapshot). Migration 0048. Also wires DIPO-155's close-out F16 removal (closeOutFields) and SlotReentry for slot-refused parks (part of DIPO-324). dipo now merges its own story PRs.
 <!-- SECTION:NOTES:END -->

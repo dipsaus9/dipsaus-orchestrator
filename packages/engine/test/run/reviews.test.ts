@@ -30,6 +30,7 @@ import {
   Places,
   planRefusedText,
   recordCodeTreeKey,
+  recordConfigSnapshot,
   REVIEWED_END,
   REVIEW_NOTICES,
   REVIEWER_ROLE,
@@ -1165,5 +1166,35 @@ describe("a run that ends reviewed hands its head to the fix rounds (DIPO-148)",
     expect(x.sessions).toHaveLength(1);
     expect(findRun(w.office, s.run)).toMatchObject({ endKind: REVIEWED_END });
     expect(x.reviewedRuns).toEqual([`${s.run} ${session.agent}`, `${s.run} -`]);
+  });
+});
+
+describe("the review task message of a running run (DIPO-150, the DIPO-303 review)", () => {
+  it("is built with the prompt budgets the run started with, not the ones in force", async () => {
+    const s = inReview("DIPO-1", "tree-1");
+    heads.set(s.run, "tree-1");
+    w.office.immediate(() => recordConfigSnapshot(w.office, "h", OFFICE_DEFAULTS, 0));
+    // A base change reloaded a contract limit no story contract fits in: the run keeps its own.
+    setting.config = {
+      ...OFFICE_DEFAULTS,
+      prompt: { ...OFFICE_DEFAULTS.prompt, contractMax: 10 },
+    };
+    const session = await reviewStarts(s);
+    expect(session.message).toContain("src/greet.ts");
+  });
+
+  it("refuses a contract over the limit the run started with", async () => {
+    const s = inReview("DIPO-1", "tree-1");
+    heads.set(s.run, "tree-1");
+    w.office.immediate(() =>
+      recordConfigSnapshot(
+        w.office,
+        "h",
+        { ...OFFICE_DEFAULTS, prompt: { ...OFFICE_DEFAULTS.prompt, contractMax: 10 } },
+        0,
+      ),
+    );
+    await x.places.drain(officeId());
+    expect(x.sessions.filter((started) => started.run === s.run)).toEqual([]);
   });
 });

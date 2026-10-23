@@ -11,7 +11,7 @@ import type { OfficeId, RunId, WorkRef } from "@dipsaus-orchestrator/contract";
 import { conflictFeedbackItem } from "../../src/box/collisions";
 import { OFFICE_DEFAULTS, type OfficeConfig } from "../../src/config";
 import { ciFeedback, type CiFeedbackItem } from "../../src/prompts/feedback";
-import { recordReviewVerdict } from "../../src/review";
+import { recordReviewOverride, recordReviewVerdict } from "../../src/review";
 import type { JudgedReview } from "../../src/review/verdict";
 import {
   endRun,
@@ -393,6 +393,21 @@ describe("the timing of a fix round (0019 section 7)", () => {
     // A later poll of the same head sends nothing more.
     expect(await x.fix.consider(officeId(), s.run)).toBe(false);
     expect(x.started).toHaveLength(1);
+  });
+
+  it("sends nothing for a blocked verdict the maintainer overrode (DIPO-150)", async () => {
+    const s = inReview("DIPO-1");
+    reviewed(s, H1, BLOCKED);
+    write(() => {
+      const gate = w.office.get<{ gate_id: string }>(
+        "select gate_id from review_verdicts where office_id = $office_id and run_id = $run",
+        { run: s.run },
+      )?.gate_id;
+      recordReviewOverride(w.office, gate as never, { note: "fine as it is", at: now() });
+    });
+    x.ci.set(s.run, { kind: "green", head: H1 });
+    expect(await x.fix.consider(officeId(), s.run)).toBe(false);
+    expect(feedbackItems(w.office, s.run)).toEqual([]);
   });
 
   it("starts no round for advisory findings alone, and lists them when CI is red", async () => {

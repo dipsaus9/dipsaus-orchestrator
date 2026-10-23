@@ -86,6 +86,9 @@ function reply(cwd: string, args: readonly string[]): ScriptedReply {
     );
     return { stdout: `Set ${rest[0]} = ${value}\n` };
   }
+  if (group === "task" && sub === "list" && rest.includes("--count")) {
+    return { stdout: `${tasks(cwd).length}\n` };
+  }
   if (group === "task" && sub === "list") {
     const byStatus = new Map<string, TaskFile[]>();
     for (const task of tasks(cwd)) {

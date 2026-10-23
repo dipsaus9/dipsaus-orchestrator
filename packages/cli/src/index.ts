@@ -23,6 +23,7 @@ import { runDaemon } from "@dipsaus-orchestrator/daemon";
 import { checkInk, INK_SELF_CHECK_NAME } from "@dipsaus-orchestrator/tui";
 
 import { answerCommand } from "./answer-command";
+import { approveCommand, rejectCommand } from "./approve-commands";
 import {
   type ConnectDaemon,
   type ConnectMode,
@@ -33,6 +34,7 @@ import { deskCommand } from "./desk-command";
 import { gateCommand } from "./gate-command";
 import type { DaemonLogsDeps } from "./logs-command";
 import { OFFICE_SUBCOMMANDS } from "./office-commands";
+import { proposeCommand } from "./propose-command";
 import { runCommand } from "./run-command";
 import { stopCommand } from "./stop-command";
 import { pauseCommand, steerCommand } from "./intervene-commands";
@@ -158,6 +160,15 @@ Usage:
                     kept unless --delete-branch, which also removes dirty files
                     and deletes the branch locally and on the remote after you
                     type the story id
+  dipo approve <id> [--note <text>] [--office <id>]
+                    approve the story's merge that waits for you: it goes
+                    through the merge slot; past a blocked review the note is
+                    required and recorded as your override; exits 1 when
+                    nothing waits
+  dipo reject <id> --note <text> [--yes] [--office <id>]
+                    reject the story's merge that waits for you after asking:
+                    your note goes to its worker in a fix round; exits 1 when
+                    nothing waits
   dipo discard <id> --note <text> [--office <id>]
                     throw a story's work away after listing what is lost and
                     asking for the story id typed out: stop its worker, close
@@ -185,6 +196,11 @@ Usage:
                     a worker waits on, merges, parked stories, hand actions,
                     proposals and the stories you hold, each with the command to
                     type; --json prints the engine's list as it is
+  dipo propose accept|dismiss <proposal> [--office <id>]
+                    decide a worker's follow-up, spike or tool proposal from
+                    dipo desk: accept files it as a Backlog draft through the
+                    backlog PR, the worker's words marked as theirs; dismiss
+                    closes it and files nothing
   dipo watch [<id>] [--office <id>]
                     follow the office, or one story, in plain text until Ctrl-C:
                     each running story's phase, health, loop, verify, criteria
@@ -379,6 +395,14 @@ export async function main(argv: readonly string[], deps: CliDeps): Promise<numb
     const { version } = versionInfo(deps.stamp, deps.runtime);
     return dropCommand(args.slice(1), { ...deps, version });
   }
+  if (args[0] === "approve") {
+    const { version } = versionInfo(deps.stamp, deps.runtime);
+    return approveCommand(args.slice(1), { ...deps, version });
+  }
+  if (args[0] === "reject") {
+    const { version } = versionInfo(deps.stamp, deps.runtime);
+    return rejectCommand(args.slice(1), { ...deps, version });
+  }
   if (args[0] === "resume") {
     const { version } = versionInfo(deps.stamp, deps.runtime);
     return resumeCommand(args.slice(1), { ...deps, version });
@@ -402,6 +426,10 @@ export async function main(argv: readonly string[], deps: CliDeps): Promise<numb
   if (args[0] === "desk") {
     const { version } = versionInfo(deps.stamp, deps.runtime);
     return deskCommand(args.slice(1), { ...deps, version });
+  }
+  if (args[0] === "propose") {
+    const { version } = versionInfo(deps.stamp, deps.runtime);
+    return proposeCommand(args.slice(1), { ...deps, version });
   }
   if (args[0] === "watch") {
     const { version } = versionInfo(deps.stamp, deps.runtime);

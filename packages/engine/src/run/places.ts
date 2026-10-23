@@ -32,12 +32,13 @@ import type { Clock, OfficeId, RunId, TimerHandle, WorkRef } from "@dipsaus-orch
 
 import { appendEntries, type NewEntry } from "../changelog/log";
 import type { FeatureModule } from "../commands/registry";
-import type { OfficeConfig } from "../config";
+import { OFFICE_DEFAULTS, type OfficeConfig } from "../config";
 import type { OfficeHandle } from "../db/office";
 import { background } from "../platform/background";
 import { withWorkViews, workRefOf } from "../views/work";
 
 import { REVIEWER_ROLE } from "./caps";
+import { runConfigOf } from "./config-snapshot";
 import type { RunEnding } from "./control-types";
 import { openWait } from "./outcome-types";
 import { pausedWithoutSession } from "./pauses";
@@ -316,19 +317,25 @@ export class Places {
   blocked(officeId: OfficeId, start: PlaceStart, model: string | null): string | null {
     const office = this.#deps.offices.get(officeId);
     if (office === undefined) return null;
-    return placeTaken(office, start) ?? this.#paused(officeId, model);
+    const run = start.runId === null ? null : findRun(office, start.runId);
+    return placeTaken(office, start) ?? this.#paused(officeId, model, run);
   }
 
   /**
    * The model the next session of `place` uses for `run`: the reviewer's is `reviewModel`, else
-   * the office config's `review.model` in force, else `DEFAULT_REVIEW_MODEL`.
+   * the `review.model` of the run's configuration snapshot (laid on the configuration in force,
+   * DIPO-150), else `DEFAULT_REVIEW_MODEL`.
    */
   modelOf(officeId: OfficeId, place: Place, run: StoredRun): string {
-    return place === "reviewer"
-      ? (this.#deps.reviewModel?.(officeId) ??
-          this.#deps.offices.config(officeId)?.review.model ??
-          DEFAULT_REVIEW_MODEL)
-      : run.model;
+    if (place !== "reviewer") return run.model;
+    const given = this.#deps.reviewModel?.(officeId);
+    if (given !== undefined) return given;
+    const office = this.#deps.offices.get(officeId);
+    const inForce = this.#deps.offices.config(officeId);
+    if (office === undefined) return inForce?.review.model ?? DEFAULT_REVIEW_MODEL;
+    return (
+      runConfigOf(office, run, inForce ?? OFFICE_DEFAULTS).review.model ?? DEFAULT_REVIEW_MODEL
+    );
   }
 
   /** Starts what waits for a free place in the office, once any drain under way finished. */
@@ -396,8 +403,17 @@ export class Places {
     return state;
   }
 
-  #paused(officeId: OfficeId, model: string | null): string | null {
-    const adapter = this.#deps.offices.config(officeId)?.worker.adapter;
+  /**
+   * Why a plan-limit hold pauses a new session of `model` now, or null. The adapter is the one the
+   * run started with (its configuration snapshot, DIPO-150), else the office's in force.
+   */
+  #paused(officeId: OfficeId, model: string | null, run: StoredRun | null = null): string | null {
+    const inForce = this.#deps.offices.config(officeId);
+    const office = this.#deps.offices.get(officeId);
+    const adapter =
+      run === null || office === undefined || inForce === undefined
+        ? inForce?.worker.adapter
+        : runConfigOf(office, run, inForce).worker.adapter;
     if (adapter === undefined || this.#deps.held === undefined) return null;
     return this.#deps.held(adapter, model);
   }
@@ -427,7 +443,7 @@ export class Places {
       const starter = this.#deps.starters[first.kind];
       if (starter === undefined) continue;
       if (await this.#parkedForCaps(office, run, first)) continue;
-      const paused = this.#paused(officeId, this.modelOf(officeId, place, run));
+      const paused = this.#paused(officeId, this.modelOf(officeId, place, run), run);
       if (paused !== null) {
         this.#limited(office, run, paused);
         continue;

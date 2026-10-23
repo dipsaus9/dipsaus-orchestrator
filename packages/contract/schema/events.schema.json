@@ -3277,6 +3277,52 @@
       },
       "required": ["story", "key", "pr"]
     },
+    "proposal.filed.data": {
+      "type": "object",
+      "properties": {
+        "proposal": {
+          "type": "string",
+          "pattern": "^[0-9a-f]{64}$"
+        },
+        "kind": {
+          "type": "string"
+        },
+        "key": {
+          "type": "string",
+          "pattern": "^sto_[0-7][0-9A-HJKMNP-TV-Z]{25}$"
+        },
+        "story": {
+          "type": "string",
+          "pattern": "^[A-Za-z][A-Za-z0-9]*-[0-9]+(\\.[0-9]+)*$"
+        },
+        "run": {
+          "type": "string",
+          "pattern": "^run_[0-7][0-9A-HJKMNP-TV-Z]{25}$"
+        },
+        "title": {
+          "type": "string"
+        }
+      },
+      "required": ["proposal", "kind", "key", "run", "title"]
+    },
+    "proposal.closed.data": {
+      "type": "object",
+      "properties": {
+        "proposal": {
+          "type": "string",
+          "pattern": "^[0-9a-f]{64}$"
+        },
+        "key": {
+          "type": "string",
+          "pattern": "^sto_[0-7][0-9A-HJKMNP-TV-Z]{25}$"
+        },
+        "state": {
+          "type": "string",
+          "enum": ["accepted", "dismissed"]
+        }
+      },
+      "required": ["proposal", "key", "state"]
+    },
     "test.started.data": {
       "type": "object",
       "properties": {

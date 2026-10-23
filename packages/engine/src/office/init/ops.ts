@@ -22,7 +22,7 @@ import { dirname, join } from "node:path";
 import { z } from "zod";
 
 import type { ApplyContext, ApplyOutcome, LaneOpKind } from "../../backlog/lane/ops";
-import { parseList } from "../../backlog/plain";
+import { listAll } from "../../backlog/list";
 import { type BacklogCli, runBacklog } from "../../backlog/runner";
 
 import {
@@ -100,15 +100,14 @@ async function ensureSetting(
   return back === value ? null : `${key} read back as ${JSON.stringify(back)}, not ${value}`;
 }
 
-/** The ids of the tasks `task list --plain` shows under `status`. */
+/** The ids of the tasks `task list --plain` shows under `status`, from the whole list (DIPO-323). */
 export async function tasksWithStatus(
   cli: BacklogCli,
   cwd: string,
   status: string,
 ): Promise<string[]> {
-  const { stdout } = await runBacklog(cli, cwd, ["task", "list", "--plain"]);
-  return parseList(stdout)
-    .entries.filter((entry) => entry.group === status)
+  return (await listAll(cli, cwd, "task")).entries
+    .filter((entry) => entry.group === status)
     .map((entry) => entry.id);
 }
 

@@ -43,6 +43,8 @@ import {
   type BoxBuildNetwork,
   boxInstallInput,
   inReviewRunIds,
+  type MergeGatesDeps,
+  type StorySlotDeps,
   StoryConflicts,
   type UnparkWriter,
   type BoxNetwork,
@@ -108,6 +110,7 @@ import {
   selfCommand,
   setupWorktree,
   type HoldResumer,
+  type SlotReentry,
   type SlotTable,
   type TierCaps,
   type WorkerPort,
@@ -194,6 +197,8 @@ export interface DaemonRunsOptions {
   };
   /** The planning lane's resume of an on-hold park, for `work.resume` (DIPO-160). */
   readonly holdResumer?: () => HoldResumer | undefined;
+  /** The merge slot a resumed `slot-refused` park re-enters (DIPO-150). */
+  readonly slotReentry?: () => SlotReentry | undefined;
   /** The story index, which reads a story again after its park or In Review commit (DIPO-56). */
   readonly stories?: StoryIndex;
   /** Whether a TUI is connected, for live questions (DIPO-279); none by default. */
@@ -272,6 +277,22 @@ export interface DaemonRuns {
    * many rounds it queued.
    */
   recoverFixRounds(): Promise<number>;
+  /**
+   * The merge slot's ports into the run services (DIPO-150): a conflict the slot's sync committed
+   * goes to the worker as one fix round, a maintainer reject as another, a merge the slot made is
+   * recorded (so a clean one carries the approval to the merged head), and the story's facts on
+   * the base are read as the review loop reads them.
+   */
+  readonly mergeSlot: DaemonMergeSlotPorts;
+}
+
+/** What the merge slot and the merge gates use of the run services (DIPO-150). */
+export interface DaemonMergeSlotPorts {
+  readonly conflict: NonNullable<StorySlotDeps["conflict"]>;
+  readonly reject: NonNullable<MergeGatesDeps["reject"]>;
+  readonly recordMerge: NonNullable<StorySlotDeps["recordMerge"]>;
+  readonly story: NonNullable<StorySlotDeps["story"]>;
+  readonly itemMax: NonNullable<StorySlotDeps["itemMax"]>;
 }
 
 /** Apple `container` on `pathEnv`, by absolute path; undefined when it is not there. */
@@ -938,6 +959,7 @@ export function daemonRuns(options: DaemonRunsOptions): DaemonRuns {
     // The daemon-start sweep removes a run it does not know only when this daemon made it.
     tempOwner: () => tempDirs.owner(),
     ...(options.holdResumer === undefined ? {} : { holdResumer: options.holdResumer }),
+    ...(options.slotReentry === undefined ? {} : { slotReentry: options.slotReentry }),
     onChanged: options.onChanged,
     warn: (message, fields) => options.logger.warn(message, fields),
     ...(refreshStory === undefined
@@ -1112,5 +1134,39 @@ export function daemonRuns(options: DaemonRunsOptions): DaemonRuns {
       sweepReviewFolders(realDir(options.tmpRoot), (runId, agent) =>
         reviewHostRuns(options.offices, runId, agent),
       ),
+    // The merge slot's ports (DIPO-150): its conflicts and the maintainer's rejects go through the
+    // fix rounds, and its merges are recorded as DIPO-149's catch-ups are.
+    mergeSlot: {
+      conflict: async (office, runId, input) =>
+        (await fixRounds?.conflict(office, runId, input)) ?? false,
+      reject: async (office, runId, reject) =>
+        (await fixRounds?.reject(office, runId, reject)) ?? false,
+      recordMerge: async (office, run, merged) => {
+        if (storyConflicts === null || run.story === null || run.branch === null) return;
+        await storyConflicts.recorded(
+          {
+            runId: run.runId,
+            office,
+            story: run.story,
+            branch: run.branch,
+            startSha: run.startSha ?? "",
+            box: boxName(run.runId),
+          },
+          merged,
+          // A carry that fails throws: the slot merges nothing on that head (DIPO-150).
+          { strict: true },
+        );
+      },
+      story: baseStoryFacts(options.base),
+      itemMax: (office, run) => {
+        const config = options.offices.config(office);
+        if (config === undefined) return 3_000;
+        const budgets = config.prompt.budgets.feedbackItem as Readonly<Record<string, number>>;
+        return (
+          (run.tier === null ? undefined : budgets[run.tier]) ??
+          config.prompt.budgets.feedbackItem.M
+        );
+      },
+    },
   };
 }

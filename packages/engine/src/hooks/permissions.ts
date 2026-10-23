@@ -34,7 +34,7 @@
 //   run's end is ingested, instead of going to the stopping worker.
 //
 // An office load closes the questions a previous daemon left open (`expired`); a park resolved in
-// any way expires the questions it carried (migration 48).
+// any way expires the questions it carried (migration 50).
 
 import {
   type Clock,

@@ -1397,7 +1397,7 @@ function questionAnswer(
 /**
  * Inside the resume's transaction (DIPO-159): the park's worker question answered by this resume
  * closes as `answered` (delivered `on-resume`), and every other open question of the park as
- * `expired`, each with its `question.closed`. The trigger of migration 48 then finds none open.
+ * `expired`, each with its `question.closed`. The trigger of migration 50 then finds none open.
  */
 function closeParkQuestions(
   office: OfficeHandle,

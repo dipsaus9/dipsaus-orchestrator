@@ -398,7 +398,7 @@ export class Resumption {
       await this.#serialized(officeId, () =>
         this.#s.write(office, () => {
           // The answer first: resolving the park expires every question it still holds open
-          // (migration 48, DIPO-159).
+          // (migration 50, DIPO-159).
           const answered = answeredParkQuestion(
             office,
             request.question,
