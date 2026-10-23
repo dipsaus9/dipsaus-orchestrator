@@ -66,6 +66,11 @@ function failure(requestId: RequestId, error: EngineError): CommandReply {
   return { ok: false, requestId, error };
 }
 
+/** What a command's connection said in `engine.hello`: the client's name (0005 section 9). */
+export interface Connection {
+  readonly client?: string;
+}
+
 /** `args.invalid` with the zod issues in `details.issues`. */
 export function argsInvalid(message: string, issues: readonly unknown[] = []): EngineError {
   return engineError("args.invalid", message, { issues });
@@ -117,6 +122,7 @@ function runOfficeCommand(
   office: OfficeHandle,
   request: CommandRequest,
   args: unknown,
+  connection: Connection = {},
 ): CommandReply {
   const { requestId } = request;
   const name = command.definition.name;
@@ -142,6 +148,7 @@ function runOfficeCommand(
         requestId,
         origin: request.origin,
         confirmed: request.confirmed === true,
+        ...(connection.client === undefined ? {} : { client: connection.client }),
         now,
         stories: resolved.stories,
         emit: (entry) => {
@@ -189,6 +196,7 @@ async function runAsyncOfficeCommand(
   office: OfficeHandle,
   request: CommandRequest,
   args: unknown,
+  connection: Connection = {},
 ): Promise<CommandReply> {
   const { requestId } = request;
   const name = command.definition.name;
@@ -218,6 +226,7 @@ async function runAsyncOfficeCommand(
           requestId,
           origin: request.origin,
           confirmed: request.confirmed === true,
+          ...(connection.client === undefined ? {} : { client: connection.client }),
           now,
           stories: resolved.stories,
         },
@@ -412,6 +421,8 @@ async function refreshUnknownStories(
 export async function executeCommand(
   deps: ExecutorDeps,
   request: CommandRequest,
+  /** What the connection that sent it said in `engine.hello` (the client name, DIPO-155). */
+  connection: Connection = {},
 ): Promise<CommandReply> {
   const { requestId } = request;
   const command = deps.registry.command(request.name);
@@ -457,7 +468,7 @@ export async function executeCommand(
   if (!access.ok) return failure(requestId, access.error);
   await refreshUnknownStories(deps, command, request, officeId, access.office, parsed.data);
   if (command.waits) {
-    return runAsyncOfficeCommand(deps, command, access.office, request, parsed.data);
+    return runAsyncOfficeCommand(deps, command, access.office, request, parsed.data, connection);
   }
-  return runOfficeCommand(deps, command, access.office, request, parsed.data);
+  return runOfficeCommand(deps, command, access.office, request, parsed.data, connection);
 }

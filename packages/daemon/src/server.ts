@@ -284,6 +284,8 @@ class Connection implements ConnectionSession {
   #closed = false;
   /** True once an `engine.hello` from the TUI was accepted on this connection. */
   #tui = false;
+  /** The client name its `engine.hello` gave, carried into each command's context (DIPO-155). */
+  #client: string | undefined;
   readonly #subscriptions = new Map<StreamName, Subscription>();
   /** Frames are taken in order; only the handshake and reads are awaited, commands run alongside. */
   #queue: Promise<void> = Promise.resolve();
@@ -397,6 +399,7 @@ class Connection implements ConnectionSession {
       if (reply.ok) {
         this.#state = "ready";
         this.#tui = isTuiHello(frame.args);
+        this.#client = helloClient(frame.args);
         if (this.#tui) this.#server.presenceMayHaveChanged();
       } else if (reply.error.code === "contract.unsupported") this.#state = "foreign";
       this.#reply(reply);
@@ -488,6 +491,7 @@ class Connection implements ConnectionSession {
         softwareRequests: deps.softwareRequests,
       },
       request,
+      this.#client === undefined ? {} : { client: this.#client },
     )
       .then(
         (reply: CommandReply) => {
@@ -728,6 +732,12 @@ class Connection implements ConnectionSession {
  * name; that only keeps a question live until its timeout, and holds while workers cannot reach the
  * socket (0021).
  */
+/** The client name `engine.hello` args give, or undefined. */
+function helloClient(args: unknown): string | undefined {
+  const name = (args as { client?: { name?: unknown } } | null)?.client?.name;
+  return typeof name === "string" && name !== "" ? name : undefined;
+}
+
 function isTuiHello(args: unknown): boolean {
   const client = (args as { client?: { name?: unknown } } | null)?.client;
   return client?.name === TUI_CLIENT_NAME;

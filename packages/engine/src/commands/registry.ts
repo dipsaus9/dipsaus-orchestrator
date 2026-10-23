@@ -39,6 +39,8 @@ export interface CommandContext {
   readonly origin: Origin;
   /** The envelope's `confirmed` (0005 section 9): the client asked the maintainer first. */
   readonly confirmed?: boolean;
+  /** The client name its connection gave in `engine.hello` (0005 section 9); absent without one. */
+  readonly client?: string;
   /** The time of this command; the facts and entries it writes use it. */
   readonly now: number;
   /** The story references in the args, resolved, by key. The args carry the keys. */
