@@ -670,6 +670,20 @@ describe("the Done poll", () => {
       expect(notices(world.office).map((n) => n.code)).not.toContain(TEARDOWN_NOTICES.kept);
     }));
 
+  it("does not wait for a host killed by a signal, whose exit has no code (DIPO-328)", () =>
+    withWorld(async (world) => {
+      world.office.immediate(() =>
+        world.office.run(
+          `insert into worker_hosts (office_id, run_id, agent_id, pid, start_time_ms, socket_path,
+             protocol_version, run_dir, event_file, started_at, exit_signal)
+           values ($office_id, $run, 'agt_1', 1, 1, '/s', 1, '/r', '/e', 1, 'SIGKILL')`,
+          { run: world.claim().runId },
+        ),
+      );
+      const report = await teardownOf(world).poll(world.office.officeId as OfficeId);
+      expect(report.kept).toHaveLength(0);
+    }));
+
   it("reports a git error of one claim as a notice and keeps the claim", () =>
     withWorld(async (world) => {
       world.answer = (args) =>

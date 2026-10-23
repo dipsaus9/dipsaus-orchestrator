@@ -297,19 +297,26 @@ export interface DoneElsewhereDeps {
   }) => void;
 }
 
-/**
- * True when the claim's run is still active or one of its worker hosts has neither ended nor sent its
- * exit line (only a re-attach sets `ended_at`; DIPO-328).
- */
+/** True when the claim's run is still active or one of its worker hosts has not exited. */
 export function hasLiveWorker(office: OfficeHandle, claim: Pick<ClaimRecord, "runId">): boolean {
   const run = findRun(office, claim.runId);
   if (run !== null && run.endedAt === null) return true;
+  return hasUnexitedHost(office, claim.runId);
+}
+
+/**
+ * True when a worker host of the run has not exited. Only a re-attach sets `ended_at`; the ingestor
+ * records the exit line's code or signal, so either one means the host's worker is gone, the same
+ * rule as the run temp sweep's `hostExited` (DIPO-328).
+ */
+export function hasUnexitedHost(office: OfficeHandle, runId: string): boolean {
   return (
     office.get<{ n: number }>(
       `select 1 as n from worker_hosts
-        where office_id = $office_id and run_id = $run and ended_at is null and exit_code is null
+        where office_id = $office_id and run_id = $run
+          and ended_at is null and exit_code is null and exit_signal is null
         limit 1`,
-      { run: claim.runId },
+      { run: runId },
     ) !== null
   );
 }

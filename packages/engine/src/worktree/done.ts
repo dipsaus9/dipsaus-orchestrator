@@ -42,6 +42,7 @@ import {
   findDoneElsewhere,
   flagLiveWorker,
   hasLiveWorker,
+  hasUnexitedHost,
   releaseDoneElsewhere,
   settleDoneElsewhere,
   settlePending,
@@ -230,7 +231,7 @@ export class StoryTeardown {
     }
     // A merge by hand on the host closes the story's open merge gate (0019 section 11, DIPO-150).
     if (check.evidence.by === "host") this.#handMerged(deps, claim);
-    if (hasLiveHost(state.office, claim)) {
+    if (hasUnexitedHost(state.office, claim.runId)) {
       this.#tell(
         state,
         deps,
@@ -412,22 +413,6 @@ export class StoryTeardown {
     if (state.timer !== null) state.clock.clearTimeout(state.timer);
     state.timer = null;
   }
-}
-
-/**
- * True when a worker of the claim's run may still be running: its host has neither ended nor sent its
- * exit line. Only a re-attach sets `ended_at`, so a host whose exit line was ingested (its exit code
- * is set) counts as done (DIPO-328).
- */
-function hasLiveHost(office: OfficeHandle, claim: ClaimRecord): boolean {
-  return (
-    office.get<{ n: number }>(
-      `select 1 as n from worker_hosts
-       where office_id = $office_id and run_id = $run and ended_at is null and exit_code is null
-       limit 1`,
-      { run: claim.runId },
-    ) !== null
-  );
 }
 
 /** The key of a told notice: the claim's run and the notice code. */
