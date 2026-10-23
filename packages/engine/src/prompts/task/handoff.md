@@ -14,4 +14,5 @@ Open feedback:
 {{feedback}}
 Notes from the previous session:
 {{notes}}
+{{budget}}
 </handoff>

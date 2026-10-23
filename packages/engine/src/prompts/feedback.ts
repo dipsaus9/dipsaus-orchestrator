@@ -18,6 +18,7 @@ import { createHash } from "node:crypto";
 import { isAbsolute, relative, sep } from "node:path";
 
 import { formatCount } from "../context/truncate";
+import { budgetLine, withBudgetLine, type BudgetFacts } from "./budget";
 import { cutHead, cutTailLines } from "./cut";
 import decisionNoteTemplate from "./feedback/decision-note.md" with { type: "text" };
 import fixRoundOptionalTemplate from "./feedback/fix-round-optional.md" with { type: "text" };
@@ -218,6 +219,8 @@ export interface VerifyFeedbackOptions {
   readonly logLines?: number;
   /** The item's character budget (`prompt.budgets.feedbackItem`); default 3,000. */
   readonly itemMax?: number;
+  /** The run's caps and usage: the item ends with the budget line (DIPO-256). */
+  readonly budget?: BudgetFacts;
 }
 
 function locationList(locations: readonly SourceLocation[]): string {
@@ -236,7 +239,7 @@ export function verifyFeedback(
   options: VerifyFeedbackOptions = {},
 ): VerifyFeedbackItem {
   const logLines = options.logLines ?? FEEDBACK_LOG_LINES_DEFAULT;
-  const itemMax = options.itemMax ?? 3_000;
+  const itemMax = (options.itemMax ?? 3_000) - budgetRoom(options.budget);
   const output = plainOutput(failure.output);
   const locations = parseLocations(output, options.root);
   const values = (tail: string) => ({
@@ -264,13 +267,18 @@ export function verifyFeedback(
   return {
     kind: "verify",
     signature,
-    text: renderTemplate(FEEDBACK_TEMPLATES.verify, values(tail)),
+    text: withBudgetLine(renderTemplate(FEEDBACK_TEMPLATES.verify, values(tail)), options.budget),
     step: failure.step,
     command: failure.command,
     exitCode: failure.exitCode,
     tail,
     locations,
   };
+}
+
+/** What the budget line takes of an item's character budget: the line and its newline. */
+function budgetRoom(budget: BudgetFacts | undefined): number {
+  return budget === undefined ? 0 : budgetLine(budget).length + 1;
 }
 
 /** One failed check of a pushed head, as the code host reports it (0019 section 7). */
@@ -334,7 +342,7 @@ export function ciFeedback(
   options: VerifyFeedbackOptions = {},
 ): CiFeedbackItem {
   const logLines = options.logLines ?? FEEDBACK_LOG_LINES_DEFAULT;
-  const itemMax = options.itemMax ?? 3_000;
+  const itemMax = (options.itemMax ?? 3_000) - budgetRoom(options.budget);
   const parsed = failure.log === null ? null : parseActionsLog(failure.log);
   const job = parsed?.job ?? failure.check;
   const steps = parsed?.steps ?? [];
@@ -358,7 +366,7 @@ export function ciFeedback(
   return {
     kind: "ci",
     signature,
-    text: renderTemplate(FEEDBACK_TEMPLATES.ci, values(tail)),
+    text: withBudgetLine(renderTemplate(FEEDBACK_TEMPLATES.ci, values(tail)), options.budget),
     check: failure.check,
     job,
     steps,

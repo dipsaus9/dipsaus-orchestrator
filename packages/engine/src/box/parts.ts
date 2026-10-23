@@ -845,7 +845,11 @@ function chunks<T>(items: readonly T[]): T[][] {
 }
 
 /** The number of the next part: the part commits on the branch's first-parent line, plus one. */
-async function partNumber(session: GitSession, startSha: string, tip: string): Promise<number> {
+export async function partNumber(
+  session: GitSession,
+  startSha: string,
+  tip: string,
+): Promise<number> {
   const counted = await session.ok(session.repository, [
     "rev-list",
     "--count",
@@ -980,6 +984,11 @@ export interface PartRun {
   /** The commit the box's code was made from (`ClaimRecord.startSha`). */
   readonly startSha: string;
   readonly box: string;
+  /**
+   * The commit whose delivered tree a rebuilt box holds (DIPO-278): the story branch's tip when the
+   * box was rebuilt. `changedSinceStart` compares with it instead of the start commit.
+   */
+  readonly codeTip?: string;
   /**
    * The run directory, for `PART_RECORD_FILE` and the box's record of the listed files
    * (`BoxRunRecord.files`); absent: no record is kept, and the listed files are read from
@@ -1347,7 +1356,9 @@ export class BoxParts {
   async changedSinceStart(run: PartRun): Promise<StartTreeCheck> {
     try {
       const git = this.#gitOf(run);
-      const view = await git.run((session) => readViewAt(session, run.startSha, run.startSha));
+      const view = await git.run((session) =>
+        readViewAt(session, run.codeTip ?? run.startSha, run.startSha),
+      );
       const listed = await this.#listed(run, git);
       return await this.#inStage(async (stage): Promise<StartTreeCheck> => {
         const taken = await this.#take(run, view, listed, stage);

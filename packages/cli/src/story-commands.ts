@@ -7,6 +7,9 @@
 // With `--delete-branch` the command is irreversible (`irreversibleWhen`, 0009 section 5): the CLI
 // reads what is lost (`story.losses`, DIPO-228), lists it, and asks for the story id typed out,
 // which `--yes` does not replace.
+//
+// `dipo discard <id> --note <text>` (DIPO-161) is irreversible: it lists the same losses and asks
+// for the typed story id.
 
 import {
   type LostCommit,
@@ -16,6 +19,7 @@ import {
   storyDrop,
   storyHold,
   storyLosses,
+  workDiscard,
 } from "@dipsaus-orchestrator/contract";
 
 import { engineFailure, usage } from "./daemon-commands";
@@ -31,10 +35,26 @@ const LISTED_FILES = 50;
 interface StoryLosses {
   readonly commits: readonly LostCommit[];
   readonly files: readonly string[];
+  /** Worktrees the command keeps (`story.drop` of a story with leftovers, DIPO-161). */
+  readonly kept?: readonly string[] | undefined;
 }
 
-/** Lists what the drop loses, each list cut to its cap with a count of the rest. */
+/**
+ * Lists what the command loses, each list cut to its cap with a count of the rest, then the
+ * worktrees it keeps (DIPO-161: `story.drop` never removes the leftovers of a story Done elsewhere).
+ */
 function printLosses(deps: OfficeCommandDeps, losses: StoryLosses): void {
+  printLost(deps, losses);
+  const kept = losses.kept ?? [];
+  if (kept.length > 0) {
+    deps.writeLine(
+      `worktrees kept with their files, not removed by this command (${kept.length}):`,
+    );
+    for (const path of kept) deps.writeLine(`  ${path}`);
+  }
+}
+
+function printLost(deps: OfficeCommandDeps, losses: StoryLosses): void {
   if (losses.commits.length === 0 && losses.files.length === 0) {
     deps.writeLine("no commits or files are lost");
     return;
@@ -217,6 +237,80 @@ export async function dropCommand(
         outcome.changed
           ? `dropped ${story}; it is archived${deleteBranch ? ", its worktree and branch are removed" : ", its branch is kept"}`
           : `${story} was already dropped`,
+      );
+      return 0;
+    },
+    confirm,
+    STORY_COMMAND_TIMEOUT_MS,
+  );
+}
+
+/**
+ * `dipo discard <id> --note <text>` (DIPO-161; 0020 sections 8 and 16): `work.discard` is
+ * irreversible, so the CLI reads what is lost (`story.losses`), lists it, and asks for the story id
+ * typed out at a terminal before it sends the command; `--yes` does not replace it.
+ */
+export async function discardCommand(
+  args: readonly string[],
+  deps: OfficeCommandDeps,
+): Promise<number> {
+  const parsed = parseStoryArgs("discard", args, { note: true, deleteBranch: false }, deps);
+  if (typeof parsed === "number") return parsed;
+  if (parsed.note === undefined) return usage(deps, "discard needs --note <text>");
+  const options = parseOptions(parsed.rest, true);
+  if (typeof options === "string") return usage(deps, `discard: ${options}`);
+  const { story, note } = parsed;
+  if (!deps.workspace.interactive) {
+    deps.writeError(
+      `dipo: discarding ${story} cannot be undone, so it needs the story id typed at a terminal.`,
+    );
+    return 1;
+  }
+  const read: { losses?: StoryLosses } = {};
+  const code = await withOffice(
+    deps,
+    options.office,
+    async (session, office) => {
+      const outcome = await session.read(storyLosses, {
+        office,
+        story,
+        command: "work.discard",
+      });
+      if (!outcome.ok) {
+        return outcome.error.code === "office.unknown"
+          ? "unknown"
+          : engineFailure(deps, outcome.error);
+      }
+      read.losses = outcome.result;
+      return 0;
+    },
+    undefined,
+    STORY_COMMAND_TIMEOUT_MS,
+  );
+  if (code !== 0 || read.losses === undefined) return code || 1;
+  printLosses(deps, read.losses);
+  const confirm = async (): Promise<boolean> => {
+    const typed = await deps.workspace.ask(
+      `Discarding ${story} stops its worker, closes its open PR, removes its worktree with --force and deletes its branch locally and on the remote, and returns it to Refined: uncommitted and untracked files and commits not on the base are lost. A running worker is stopped only after this list was read, so anything it writes or commits in between is lost too. This cannot be undone. Type ${story} to confirm: `,
+    );
+    if (typed.trim().toUpperCase() === String(story).toUpperCase()) return true;
+    deps.writeLine("nothing discarded");
+    return false;
+  };
+  return withOffice(
+    deps,
+    options.office,
+    async (session, office) => {
+      const outcome = await session.command(workDiscard, { story, note }, { office });
+      if (!outcome.ok) {
+        return outcome.error.code === "office.unknown"
+          ? "unknown"
+          : engineFailure(deps, outcome.error);
+      }
+      deps.writeLine(
+        outcome.changed
+          ? `discarded ${story}; its worktree and branch are removed`
+          : `${story} was already discarded`,
       );
       return 0;
     },

@@ -13,6 +13,7 @@ import { OFFICE_DEFAULTS } from "../../src/config";
 import type { BoxSession } from "../../src/box/workers";
 import { BOX_PLACEHOLDER_API_KEY } from "../../src/box/model-proxy";
 import { BoxError } from "../../src/box/port";
+import { BOX_REST_WAIT_CODE } from "../../src/box/workers";
 import { BOX_TOKEN_CHECK } from "../../src/box/token-check";
 import {
   type ClaudeBoxWorkers,
@@ -178,11 +179,6 @@ function port(boxes: ClaudeBoxWorkers, holds: AdapterHolds) {
     spawn: neverSpawn,
     clock,
     holds,
-    platform: "darwin",
-    runStep: async () => {
-      throw new Error("no step may run in this test");
-    },
-    uid: 501,
     pluginFiles: { read: () => undefined, dirs: () => [] },
     boxes,
   });
@@ -274,6 +270,58 @@ describe("the Claude worker port with box workers", () => {
       new AdapterHolds({ clock, notify: () => {} }),
     ).prepare(spec(), PATHS, OFFICE_DEFAULTS, "7d1c2b3a-4e5f-4a6b-8c7d-9e0f1a2b3c4d");
     expect(await gone.catch((error: unknown) => error)).toBeInstanceOf(PlanError);
+  });
+
+  it("refuses a session that waited too long for its box's rest through the start failure path (DIPO-278)", async () => {
+    const holds = new AdapterHolds({ clock, notify: () => {} });
+    const waited = await port(
+      {
+        isBoxRun: () => true,
+        session: async () => {
+          throw new BoxError(
+            BOX_REST_WAIT_CODE,
+            "the box of run run_1 is still being checked and stopped after 15 minutes; the session did not start.",
+          );
+        },
+      },
+      holds,
+    ).prepare(spec(), PATHS, OFFICE_DEFAULTS, "7d1c2b3a-4e5f-4a6b-8c7d-9e0f1a2b3c4d");
+    expect(waited).toMatchObject({ ok: false, outcome: "startFailed", hold: { check: "box" } });
+    expect(holds.adapterHeld("claude-cli")?.detail).toContain("the session did not start");
+  });
+
+  it("never plans a developer session on the Mac: a run without a box, or a daemon without box workers, is refused as a plan (DIPO-240)", async () => {
+    const holds = new AdapterHolds({ clock, notify: () => {} });
+    const noBox = port({ isBoxRun: () => false, session: async () => session() }, holds);
+    const refused = await noBox
+      .prepare(spec(), PATHS, OFFICE_DEFAULTS, "7d1c2b3a-4e5f-4a6b-8c7d-9e0f1a2b3c4d")
+      .catch((error: unknown) => error);
+    expect(refused).toBeInstanceOf(PlanError);
+    expect((refused as PlanError).message).toContain("and the run has no box");
+    const noWorkers = claudeWorkerPort({
+      claudePath: `${HOME}/.local/bin/claude`,
+      home: HOME,
+      env: { PATH: "/usr/bin:/bin", HOME },
+      spawn: neverSpawn,
+      clock,
+      holds,
+    });
+    const without = await noWorkers
+      .prepare(spec(), PATHS, OFFICE_DEFAULTS, "7d1c2b3a-4e5f-4a6b-8c7d-9e0f1a2b3c4d")
+      .catch((error: unknown) => error);
+    expect((without as PlanError).message).toContain("this daemon has no box backend");
+    expect(holds.adapterHeld("claude-cli")).toBeNull();
+  });
+
+  it("shows the dry run the command Claude Code runs in the box, with placeholders (DIPO-240)", () => {
+    const preview = port(
+      { isBoxRun: () => false, session: async () => session() },
+      new AdapterHolds({ clock, notify: () => {} }),
+    ).previewBox?.(spec(), PATHS);
+    expect(preview?.argv[0]).toBe(BOX_CLAUDE);
+    expect(preview?.argv).toContain("bypassPermissions");
+    expect(preview?.files).toEqual([]);
+    expect(Object.keys(preview?.env ?? {})).toContain("HTTPS_PROXY");
   });
 });
 

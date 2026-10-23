@@ -179,7 +179,9 @@ describe("the outcome row (0019 section 13)", () => {
       appendRunStep(w.office, s.run, "review-failed", "1", now());
       appendRunStep(w.office, s.run, "review", "2", now());
       appendRunStep(w.office, s.run, "ci", "a1b2c3d", now());
-      appendRunStep(w.office, s.run, "conflict", "1", now());
+      // A hand-off counts once, at its start; its feedback turn is no second one (DIPO-149).
+      appendRunStep(w.office, s.run, "conflict", "start 1 a1b2c3d", now());
+      appendRunStep(w.office, s.run, "conflict", "feedback 1", now());
       appendRunStep(w.office, s.run, "override", "gat_1", now());
       endRunMarked(w.office, s.run, now(), IN_REVIEW_END);
     });

@@ -145,10 +145,12 @@ export function editKind(name: string): LaneOpKind {
 /** The built-in `edit` kind. */
 export const EDIT_KIND = "edit";
 
-/** The kinds of hold, resume and drop (0020 section 8); the commit's verb is the kind. */
+/** The kinds of hold, resume, drop and discard (0020 section 8); the commit's verb is the kind. */
 export const HOLD_KIND = "hold";
 export const RESUME_KIND = "resume";
 export const DROP_KIND = "drop";
+/** The kind of `work.discard` (DIPO-161): an `edit` back to Refined with the park removed. */
+export const DISCARD_KIND = "discard";
 
 /** The target state of a `drop`: the story is archived. */
 export const DropTarget = z.object({ kind: z.enum(["task", "draft"]).optional() }).strict();

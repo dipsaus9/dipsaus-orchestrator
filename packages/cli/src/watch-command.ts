@@ -40,7 +40,7 @@ import {
 
 import { markerRule } from "@dipsaus-orchestrator/tui";
 
-import { type DaemonSession, engineFailure, usage } from "./daemon-commands";
+import { cleanedOutput, type DaemonSession, engineFailure, usage } from "./daemon-commands";
 import { type OfficeCommandDeps, parseOptions, withOffice } from "./office-commands";
 import { storyRef } from "./run-command";
 
@@ -552,8 +552,9 @@ class Watch {
 
 export async function watchCommand(
   args: readonly string[],
-  deps: OfficeCommandDeps,
+  plainDeps: OfficeCommandDeps,
 ): Promise<number> {
+  const deps = cleanedOutput(plainDeps);
   const rest: string[] = [];
   let story: StoryRefValue | null = null;
   for (let i = 0; i < args.length; i++) {

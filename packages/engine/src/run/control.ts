@@ -22,7 +22,9 @@
 //   and closes the worker's stdin; worktree, branch and session are kept. A question goes through
 //   the live-question rule first (DIPO-272, 0021 section 11): while a TUI is connected it is asked
 //   live (`RunControlDeps.questions`) and the worker waits on stdin for the answer, with no park; if
-//   the last TUI closes while it waits, `parkOnQuestion` parks it then.
+//   the last TUI closes while it waits, `parkOnQuestion` parks it then. A blocked report during an
+//   open conflict hand-off fails it (DIPO-149, `conflicts.ts`); the failure that reaches the run's
+//   conflict cap parks `conflict` with cause `merge-in-progress` instead.
 // - Report data (DIPO-186). The proposals of every report, done or blocked, are stored for the
 //   maintainer (`storeProposals`, deduplicated by title and paths); storing them changes nothing
 //   about the story, the run or the commit. Each tool call with an effect (a file edit, a shell
@@ -78,6 +80,7 @@ import {
   runCaps,
   runTotals,
 } from "./caps";
+import { blockedHandOff } from "./conflicts";
 import { capDetail, capEnding, reviewCapEnding, RunEndings } from "./control-endings";
 import { ReconcileStops } from "./control-reconcile";
 import {
@@ -343,6 +346,18 @@ export class RunControl implements RunEnder {
         // decides (DIPO-272).
         const live = report?.status === "blocked" && this.#askLive(tracked, report, agent);
         if (report?.status === "blocked" && !live) {
+          // A blocked report during a conflict hand-off fails it (0019 section 10, DIPO-149); the
+          // failure that reaches the conflict cap parks `conflict` instead.
+          const handOff = this.#blockedHandOff(tracked);
+          if (handOff !== null) {
+            this.#endings.begin(tracked, {
+              intent: "park",
+              ops: [{ closeStdin: true }],
+              ...handOff,
+              endKind: handOff.reason,
+            });
+            return;
+          }
           const permission = report.needsPermission;
           const reason: ParkReason =
             permission === undefined ? "ambiguous-spec" : "needs-permission";
@@ -381,6 +396,24 @@ export class RunControl implements RunEnder {
         this.#cap(tracked, fired.cap, fired.detail);
         return;
       }
+    }
+  }
+
+  /**
+   * A blocked report while a conflict hand-off is open (DIPO-149): the hand-off fails, and the park
+   * that replaces the blocked one when that failure reaches the run's conflict cap, else null.
+   */
+  #blockedHandOff(tracked: Tracked): ReturnType<typeof blockedHandOff> {
+    const office = this.#deps.offices.get(tracked.office);
+    if (office === undefined) return null;
+    try {
+      return office.immediate(() => blockedHandOff(office, tracked.runId, this.#deps.clock.now()));
+    } catch (error) {
+      this.#deps.warn?.("recording a failed conflict hand-off failed", {
+        run: tracked.runId,
+        reason: messageOf(error),
+      });
+      return null;
     }
   }
 

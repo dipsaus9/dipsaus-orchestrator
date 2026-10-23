@@ -1,4 +1,4 @@
-// Migration 45 (DIPO-155): `parks.resolved_note`, the maintainer's note on the resume that
+// Migration 47 (DIPO-155): `parks.resolved_note`, the maintainer's note on the resume that
 // resolved a park (0020 sections 3 and 15), kept with the park (retention tier S). The resume
 // writing it is tested in test/run/resume-parks.test.ts.
 
@@ -23,12 +23,12 @@ const open = (dir: string, migrations?: readonly Migration[]) =>
     ...(migrations === undefined ? {} : { migrations }),
   });
 
-describe("migration 45 on a database at version 44", () => {
+describe("migration 47 on a database at version 46", () => {
   it("adds parks.resolved_note, keeps the parks, and holds a note on a resolved park", () =>
     withTempDir(async (dir) => {
       const old = await open(
         dir,
-        MIGRATIONS.filter((step) => step.version <= 44),
+        MIGRATIONS.filter((step) => step.version <= 46),
       );
       try {
         old.connection.immediate(() =>
@@ -51,7 +51,7 @@ describe("migration 45 on a database at version 44", () => {
       const state = await open(dir);
       try {
         const db = state.connection;
-        expect(MIGRATIONS.find((step) => step.version === 45)?.name).toBe("park resolved note");
+        expect(MIGRATIONS.find((step) => step.version === 47)?.name).toBe("park resolved note");
         expect(TABLE_RETENTION["parks"]?.tier).toBe("S");
         expect(db.all("select park_id, resolved_note from parks")).toEqual([
           { park_id: 1, resolved_note: null },

@@ -54,7 +54,7 @@ import {
 } from "../../src/run";
 import { readShortTempRun, shortTempDir } from "../../src/run/temp-dirs";
 import { type LaunchedHost, recordWorkerHost, runDirectory } from "../../src/runs/worker-hosts";
-import type { StepResult } from "../../src/sandbox/step";
+import { standInPlan } from "./stand-in-plan";
 import type { RunProfile } from "../../src/scan/detect";
 import { StoryIndex } from "../../src/stories/feature";
 import {
@@ -85,6 +85,9 @@ import { loadRecording } from "../workers/replay";
 
 export const CLAUDE = "/opt/claude/bin/claude";
 export const BRANCH = "TASK-1/add-the-csv-export-command";
+
+/** The body dipo gives a part commit, so the run's parts are counted (`box/parts.ts`). */
+const PART_BODY = "Part 1 of TASK-1, delivered from its box by dipo.";
 
 export type HostMode = "stub" | "replay";
 
@@ -181,13 +184,12 @@ export interface RunOfficeOptions {
   /** Wires run control; `caps` replaces the tier's caps it tracks the run with. */
   readonly control?: { readonly caps?: Partial<Caps> };
   /**
-   * Wires verify and commit (DIPO-49) into run control, on the office git and the Backlog CLI,
-   * with a fake sandboxed step: each verify command exits with the next of `exitCodes` (0 when
-   * none are left). `beforeWorker` runs in the worktree when the host starts, after the backstop
-   * snapshot, like the worker's own edits. `profile` is the run profile, base and branch.
+   * Wires In Review at done (DIPO-49, DIPO-273) into run control, on the office git and the
+   * Backlog CLI, with the run's worktree standing in for its box: `beforeWorker` runs in the
+   * worktree when the host starts, like the worker's own edits in its box, and the last part at
+   * done commits them on the story branch. `profile` is the run profile.
    */
   readonly finisher?: {
-    readonly exitCodes?: number[];
     readonly beforeWorker?: (worktree: string) => Promise<void> | void;
     readonly profile: RunProfile;
   };
@@ -259,12 +261,13 @@ export async function withRunOffice(
         id: "claude-cli",
         reportSchema: REPORT_JSON_SCHEMAS,
         localSettings: CLAUDE_LOCAL_SETTINGS,
-        adapter: (paths, config) =>
-          claudeCliAdapter(ctxOf(paths, config), { spawn: neverSpawn, clock }),
-        prepare: async (spec, paths, config) => {
-          const plan = claudeCliAdapter(ctxOf(paths, config), { spawn: neverSpawn, clock }).plan(
-            spec,
-          );
+        adapter: (paths, config) => ({
+          ...claudeCliAdapter(ctxOf(paths, config), { spawn: neverSpawn, clock }),
+          plan: (spec) => standInPlan(spec, paths, CLAUDE),
+        }),
+        prepare: async (spec, paths) => {
+          // The Claude CLI plans no developer on the Mac (DIPO-240): a stand-in plan.
+          const plan = standInPlan(spec, paths, CLAUDE);
           const gate = await gateLaunch("claude-cli", holds, async () => options.checks);
           return gate.ok ? { ok: true, plan } : gate;
         },
@@ -297,6 +300,8 @@ export async function withRunOffice(
         if (tempDirs !== null) sweeps.push(tempDirs.sweep("ended"));
       };
       const hosts: Running["hosts"] = [];
+      // Each run's worktree, which stands in for its box (DIPO-240).
+      const worktrees = new Map<string, string>();
       const hostStarter: HostStarter = {
         start: async (office, run) => {
           const runDir = runDirectory(run.officeDir, run.runId);
@@ -312,6 +317,7 @@ export async function withRunOffice(
             plan: run.plan,
             sizeBefore: existsSync(eventFile) ? statSync(eventFile).size : 0,
           });
+          worktrees.set(run.runId, run.plan.cwd);
           await options.finisher?.beforeWorker?.(run.plan.cwd);
           const socketPath = hostSocketPath(runtimeDir, run.runId);
           const host: LaunchedHost = {
@@ -377,7 +383,6 @@ export async function withRunOffice(
         },
       };
       const finisherOptions = options.finisher;
-      const exitCodes = [...(finisherOptions?.exitCodes ?? [])];
       const finisher =
         finisherOptions === undefined
           ? undefined
@@ -386,25 +391,29 @@ export async function withRunOffice(
                 return loaded().clock;
               },
               story: gitStoryOps({ git: (office) => engineGit.forOffice(office), cli: CLI(repo) }),
-              mainCheckout: () => repo.dir,
-              runStep: async (request): Promise<StepResult> => {
-                const code = exitCodes.shift() ?? 0;
-                const text = code === 0 ? "1 pass\n" : "1 fail\n";
-                request.onOutput?.(text);
-                return {
-                  outcome: "exited",
-                  code,
-                  signal: null,
-                  timedOut: false,
-                  stdout: { text, truncated: false },
-                  stderr: { text: "", truncated: false },
-                  warnings: [],
-                };
-              },
-              config: (office) => loaded().manager.config(office),
               profile: () => finisherOptions.profile,
-              scanWorktree: async () => finisherOptions.profile,
-              host: { home: repo.root, uid: 501, env: { PATH: "/usr/bin:/bin" } },
+              // Every run is a box run (DIPO-240); here the box is the run's worktree: its last part
+              // is what the worker wrote there, committed on the story branch as dipo commits a part.
+              parts: {
+                isBoxRun: () => true,
+                finishLast: async (runId, message, finish) => {
+                  const worktree = worktrees.get(runId);
+                  if (worktree === undefined) throw new Error(`no worktree for ${runId}`);
+                  await repo.run(["git", "add", "--all"], worktree);
+                  const staged = await repo.run(["git", "diff", "--cached", "--quiet"], worktree);
+                  if (staged.exitCode !== 0) {
+                    await repo.run(
+                      ["git", "commit", "--quiet", "-m", message, "-m", PART_BODY],
+                      worktree,
+                    );
+                  }
+                  const tipOf = async () =>
+                    (await repo.run(["git", "rev-parse", "HEAD"], worktree)).stdout.trim();
+                  const tip = await tipOf();
+                  const result = await finish({ tip, branchTip: tipOf });
+                  return { outcome: { kind: "empty" }, finished: { result } };
+                },
+              },
             });
       // The clock and ids of the office setup, which is built after this wiring.
       const officeClock: Clock = {

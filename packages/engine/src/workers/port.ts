@@ -77,26 +77,19 @@ export interface WorkerPort {
   /**
    * Plans the launch and runs the adapter's launch checks before it (0008 section 2). A refused
    * check holds the adapter and returns `startFailed`; a spec or path that cannot be planned
-   * throws `PlanError`. With `verify` (DIPO-173) a program the office's verify runs whose
-   * interpreter the worker sandbox cannot reach throws `PlanError` too, holding no adapter.
+   * throws `PlanError`. A developer session is planned only in its run's box (DIPO-240, 0021).
    */
   prepare(
     spec: WorkerSpec,
     paths: RunLaunchPaths,
     config: OfficeConfig,
     checkSession: string,
-    verify?: VerifyCommands,
   ): Promise<PreparedWorker>;
   /**
-   * The verify tools check alone, for the dry run (DIPO-173): throws the same `PlanError` as
-   * `prepare`. `root` is the checkout whose `node_modules` holds the verify programs.
+   * The dry run's plan of a developer session in a box (DIPO-240): what the worker host would run,
+   * with placeholders for the box a real run makes. An adapter without it shows none.
    */
-  checkVerify?(
-    paths: RunLaunchPaths,
-    config: OfficeConfig,
-    verify: VerifyCommands,
-    root: string,
-  ): Promise<void>;
+  previewBox?(spec: WorkerSpec, paths: RunLaunchPaths): LaunchPlan;
   /**
    * The parser state ingestion of a session starts from. For the run's next session (DIPO-51)
    * `previous` is the previous session's stored state: recorded classifier switches carry over,

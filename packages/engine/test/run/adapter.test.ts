@@ -17,7 +17,6 @@ import {
 } from "../../src/workers/claude-cli/adapter";
 import { initialState } from "../../src/workers/claude-cli/interpret";
 import { plan } from "../../src/workers/claude-cli/plan";
-import { selfTestLayout } from "../../src/workers/claude-cli/self-test";
 import {
   REPORT_JSON_SCHEMAS,
   REVIEW_REPORT_JSON_SCHEMA,
@@ -28,23 +27,16 @@ import { AdapterHolds } from "../../src/workers/hold";
 import type { RunLaunchPaths } from "../../src/workers/port";
 import { PlanError, type HostLine, type ParseState } from "../../src/workers/types";
 import {
-  ADMIN_DIR,
-  BLOCKED_RESULTS,
   context,
-  credentialSteps,
   HOME,
   MAIN,
-  MemoryFs,
-  reachedStandIn,
+  reviewContext,
+  reviewSpec,
   RUN_DIR,
   scriptedClaude,
-  SELF_TEST_SESSION,
-  selfTestSession,
   SHORT_TMP_DIR,
   spec,
   TMP_DIR,
-  TOOLS,
-  withInitPlugins,
   withoutSkills,
   WORKDIR,
 } from "../workers/launch-fixtures";
@@ -94,11 +86,6 @@ describe("the worker port seam (DIPO-113)", () => {
       spawn: neverSpawn,
       clock,
       holds: new AdapterHolds({ clock, notify: () => undefined }),
-      platform: "darwin",
-      runStep: async () => {
-        throw new Error("no step may run in this test");
-      },
-      uid: 501,
     });
     expect(port.reportSchema).toBe(REPORT_JSON_SCHEMAS);
     expect(port.reportSchema.implement).toBe(WORKER_REPORT_JSON_SCHEMA);
@@ -205,10 +192,15 @@ describe("the worker port seam (DIPO-113)", () => {
 
 describe("the Claude CLI adapter of one run", () => {
   it("binds plan(spec) to the run's launch context", () => {
-    const ctx = context();
+    const ctx = reviewContext();
     const adapter = claudeCliAdapter(ctx, { spawn: neverSpawn, clock });
     expect(adapter.id).toBe("claude-cli");
-    expect(adapter.plan(spec())).toEqual({ ...plan(spec(), ctx), lineScrub: CLAUDE_LINE_SCRUB });
+    expect(adapter.plan(reviewSpec())).toEqual({
+      ...plan(reviewSpec(), ctx),
+      lineScrub: CLAUDE_LINE_SCRUB,
+    });
+    // A developer session is never planned on the Mac (DIPO-240).
+    expect(() => adapter.plan(spec())).toThrow(PlanError);
   });
 
   it("builds the launch context from the run's paths, the office sandbox and the daemon", () => {
@@ -233,128 +225,47 @@ describe("the Claude CLI adapter of one run", () => {
       sandbox: OFFICE_DEFAULTS.sandbox,
       plugins: { installed: [], allowed: [] },
       hookCommand: ["/opt/dipo/bin/dipo"],
-      permissionWaitSeconds: 300,
     });
     const port = claudeWorkerPort({
       ...deps,
       spawn: neverSpawn,
       clock,
       holds: new AdapterHolds({ clock, notify: () => undefined }),
-      platform: "darwin",
-      runStep: async () => {
-        throw new Error("no step may run in this test");
-      },
-      uid: 501,
     });
-    expect(port.adapter(PATHS, OFFICE_DEFAULTS).plan(spec())).toEqual({
-      ...plan(spec(), ctx),
+    expect(port.adapter(PATHS, OFFICE_DEFAULTS).plan(reviewSpec())).toEqual({
+      ...plan(reviewSpec(), ctx),
       lineScrub: CLAUDE_LINE_SCRUB,
     });
   });
 
-  it("gives the plan that prepare returns for a launch and a resume the line scrub (DIPO-105)", async () => {
-    // Production launches and resumes take their plan from prepare, not from adapter.plan.
-    const layout = selfTestLayout({
-      main: MAIN,
-      workdir: WORKDIR,
-      adminDir: ADMIN_DIR,
-      tmpDir: TMP_DIR,
-      nonce: SELF_TEST_SESSION.replaceAll("-", "").slice(0, 16),
-      tools: TOOLS,
-      home: HOME,
-    });
-    for (const resume of [false, true]) {
-      const fs = new MemoryFs();
-      const claude = scriptedClaude(clock, {
-        // No plugins: the port reads none installed, so a listed one would refuse the session.
-        session: withInitPlugins(selfTestSession([layout.command]), []),
-        onSession: () => {
-          fs.files.set(layout.resultsFile, BLOCKED_RESULTS);
-          fs.files.set(layout.controlFile, "");
-        },
-      });
-      const port = claudeWorkerPort({
-        claudePath: `${HOME}/.local/bin/claude`,
-        home: HOME,
-        env: { PATH: "/usr/bin:/bin", HOME },
-        dipoCommand: ["/opt/dipo/bin/dipo"],
-        spawn: claude.spawn,
-        clock,
-        holds: new AdapterHolds({ clock, notify: () => undefined }),
-        platform: "darwin",
-        runStep: credentialSteps().runStep,
-        uid: 501,
-        pluginFiles: { read: () => undefined, dirs: () => [] },
-        launchCheckSeams: { fs, readText: async () => undefined, standIn: reachedStandIn() },
-      });
-      const session = { id: "0e6f3f4c-5b8d-4c1e-9a2b-3c4d5e6f7a8b", resume };
-      const prepared = await port.prepare(
-        spec({ session }),
-        PATHS,
-        OFFICE_DEFAULTS,
-        SELF_TEST_SESSION,
-      );
-      if (!prepared.ok) throw new Error(`prepare refused: ${JSON.stringify(prepared)}`);
-      expect(prepared.plan.argv).toContain(resume ? "--resume" : "--session-id");
-      expect(prepared.plan.lineScrub).toEqual(CLAUDE_LINE_SCRUB);
-    }
-  });
-
-  it("detects Safe-Chain at launch and gives the plan its wrapper in the run directory (DIPO-82, DIPO-84)", () => {
-    const seen: unknown[] = [];
-    const found = {
-      root: `${HOME}/.safe-chain`,
-      shell: "/bin/zsh",
-      path: "/usr/bin:/bin",
-      demoted: [],
-      dropped: [],
-      probe: "bun",
-    };
-    const deps = {
+  it("gives the plan that prepare returns for a review the line scrub (DIPO-105)", async () => {
+    // Production launches take their plan from prepare, not from adapter.plan.
+    const claude = scriptedClaude(clock, {});
+    const port = claudeWorkerPort({
       claudePath: `${HOME}/.local/bin/claude`,
       home: HOME,
       env: { PATH: "/usr/bin:/bin", HOME },
+      dipoCommand: ["/opt/dipo/bin/dipo"],
+      spawn: claude.spawn,
+      clock,
+      holds: new AdapterHolds({ clock, notify: () => undefined }),
       pluginFiles: { read: () => undefined, dirs: () => [] },
-      detectSafeChain: (input: unknown) => {
-        seen.push(input);
-        return found;
-      },
-    };
-    const ctx = claudeLaunchContext(deps, PATHS, OFFICE_DEFAULTS);
-    expect(ctx.safeChain).toEqual({ ...found, shellDir: `${RUN_DIR}/safe-chain` });
-    // Detection reads the office's toolchain and allowRead paths, with ~ expanded.
-    expect(seen).toEqual([
-      {
-        home: HOME,
-        env: deps.env,
-        readPaths: [`${HOME}/.bun`, `${HOME}/.npm`, `${HOME}/.cache`],
-      },
-    ]);
-    // The dry run shows the wrapper, its init file and the proxy description among the run
-    // directory's files, with placeholders for the proxy a real run starts (DIPO-84).
-    const files = claudeCliAdapter(ctx, { spawn: neverSpawn, clock }).plan(spec()).files;
-    const names = files.map((file) => file.name);
-    expect(names).toContain("safe-chain/zsh");
-    expect(names).toContain("safe-chain/.zshenv");
-    expect(names).toContain("safe-chain/proxy.json");
-    const settings = files.find((file) => file.name === "claude-settings.json")?.content ?? "{}";
-    expect(JSON.parse(settings).sandbox.network.httpProxyPort).toBe(0);
-    // A machine without Safe-Chain: no field at all.
-    const none = claudeLaunchContext(
-      { ...deps, detectSafeChain: () => null },
-      PATHS,
-      OFFICE_DEFAULTS,
-    );
-    expect("safeChain" in none).toBe(false);
+      launchCheckSeams: { readText: async () => undefined },
+    });
+    const prepared = await port.prepare(reviewSpec(), PATHS, OFFICE_DEFAULTS, "check");
+    if (!prepared.ok) throw new Error(`prepare refused: ${JSON.stringify(prepared)}`);
+    expect(prepared.plan.argv).toContain("--session-id");
+    expect(prepared.plan.lineScrub).toEqual(CLAUDE_LINE_SCRUB);
   });
 
-  it("switches off every installed plugin but worker.plugins, reading the list per launch (DIPO-108)", () => {
+  it("switches off every installed plugin for a reviewer, whatever worker.plugins says, reading the list per launch (DIPO-108)", () => {
     const read: string[] = [];
     let installed = ["warp@claude-code-warp"];
     const deps = {
       claudePath: `${HOME}/.local/bin/claude`,
       home: HOME,
       env: { PATH: "/usr/bin:/bin", HOME },
+      dipoCommand: ["/opt/dipo/bin/dipo"] as [string],
       pluginFiles: {
         read: (path: string) => {
           read.push(path);
@@ -375,7 +286,7 @@ describe("the Claude CLI adapter of one run", () => {
       const files = claudeCliAdapter(claudeLaunchContext(deps, PATHS, config), {
         spawn: neverSpawn,
         clock,
-      }).plan(spec()).files;
+      }).plan(reviewSpec()).files;
       return JSON.parse(
         files.find((file) => file.name === "claude-settings.json")?.content ?? "{}",
       );
@@ -383,6 +294,7 @@ describe("the Claude CLI adapter of one run", () => {
     expect(settingsOf().enabledPlugins).toEqual({ "warp@claude-code-warp": false });
     installed = ["dipsaus-ai@dipsaus-ai", "warp@claude-code-warp", "zeta@market"];
     expect(settingsOf().enabledPlugins).toEqual({
+      "dipsaus-ai@dipsaus-ai": false,
       "warp@claude-code-warp": false,
       "zeta@market": false,
     });
@@ -399,14 +311,15 @@ describe("the Claude CLI adapter of one run", () => {
         claudePath: `${HOME}/.local/bin/claude`,
         home: HOME,
         env: {},
+        dipoCommand: ["/opt/dipo/bin/dipo"],
         pluginFiles: { read: () => "{ not json", dirs: () => [] },
       },
       PATHS,
       OFFICE_DEFAULTS,
     );
     const adapter = claudeCliAdapter(ctx, { spawn: neverSpawn, clock });
-    expect(() => adapter.plan(spec())).toThrow(/installed_plugins\.json/);
-    expect(() => adapter.plan(spec())).toThrow(PlanError);
+    expect(() => adapter.plan(reviewSpec())).toThrow(/installed_plugins\.json/);
+    expect(() => adapter.plan(reviewSpec())).toThrow(PlanError);
     const step = adapter.interpret(
       { t: 1, ch: "stdout", data: "" },
       initialState() as unknown as ParseState,
@@ -475,29 +388,24 @@ describe("the Claude CLI adapter of one run", () => {
       spawn: neverSpawn,
       clock,
       holds: new AdapterHolds({ clock, notify: () => undefined }),
-      platform: "darwin",
-      runStep: async () => {
-        throw new Error("no step may run in this test");
-      },
-      uid: 501,
     });
     const adapter = claudeCliAdapter(ctx, { spawn: neverSpawn, clock });
     const warp = [{ name: "warp", source: "warp@claude-code-warp", path: "/x" }];
     const builtin = [{ name: "agents-md", source: "cc-plugin-agents-md@builtin", path: "/b" }];
-    const reviewSpec = spec({ kind: "review", model: "opus" });
+    const review = spec({ kind: "review", model: "opus" });
     // The worker of the same office may load warp; the reviewer may not.
     const worker = adapter.interpret(
       reviewerInit(warp),
       port.initialState(spec({ model: "opus" })),
     );
     expect(worker.events.map((event) => event.t)).toEqual(["started"]);
-    const reviewer = adapter.interpret(reviewerInit(warp), port.initialState(reviewSpec));
+    const reviewer = adapter.interpret(reviewerInit(warp), port.initialState(review));
     expect(reviewer.events.map((event) => event.t)).toEqual(["startRefused", "started"]);
     const result = adapter.result(reviewer.state, { code: 143, signal: null });
     expect(result.outcome).toBe("startFailed");
     expect(result.detail).toContain("a reviewer session loads no plugin");
     // Claude Code's own builtin plugins pass, as for workers.
-    const clean = adapter.interpret(reviewerInit(builtin), port.initialState(reviewSpec));
+    const clean = adapter.interpret(reviewerInit(builtin), port.initialState(review));
     expect(clean.events.map((event) => event.t)).toEqual(["started"]);
   });
 
@@ -510,11 +418,6 @@ describe("the Claude CLI adapter of one run", () => {
       spawn: neverSpawn,
       clock,
       holds: new AdapterHolds({ clock, notify: () => undefined }),
-      platform: "darwin",
-      runStep: async () => {
-        throw new Error("no step may run in this test");
-      },
-      uid: 501,
     });
     const adapter = claudeCliAdapter(ctx, { spawn: neverSpawn, clock });
     const step = adapter.interpret(
@@ -551,10 +454,10 @@ describe("the Claude CLI adapter of one run", () => {
 
 describe("a path the plan refuses", () => {
   it("names the path and the character, and suggests moving the checkout or the worktree root", () => {
-    const workdir = "/home/maintainer/code/shop (copy).worktrees/DIPO-999";
+    const workdir = "/tmp/dipo-review (copy)/session";
     let error: unknown;
     try {
-      plan(spec({ workdir }), context());
+      plan(reviewSpec({ workdir }), reviewContext());
     } catch (thrown) {
       error = thrown;
     }
@@ -569,7 +472,7 @@ describe("a path the plan refuses", () => {
   it("names a worktree that holds the home directory, without a character", () => {
     let error: unknown;
     try {
-      plan(spec({ workdir: "/home" }), context({ mainCheckout: "/srv/shop" }));
+      plan(reviewSpec({ workdir: "/home" }), reviewContext({ mainCheckout: "/srv/shop" }));
     } catch (thrown) {
       error = thrown;
     }

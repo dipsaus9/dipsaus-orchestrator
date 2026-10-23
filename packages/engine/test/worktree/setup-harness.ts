@@ -1,5 +1,5 @@
-// Shared setup for the worktree setup tests (DIPO-39): a claim setup with a fake step runner in
-// place of the sandbox, a slot table, a run profile, and the fixture product with an ignored `.env`.
+// Shared setup for the worktree setup tests (DIPO-39): a claim setup, a slot table, a run profile,
+// and the fixture product with an ignored `.env`. Setup runs no step on the Mac (DIPO-240).
 // Used by setup.test.ts and its CI-only sibling setup-claim.ci.test.ts.
 
 import { chmodSync, writeFileSync } from "node:fs";
@@ -11,7 +11,6 @@ import { OFFICE_DEFAULTS } from "../../src/config/schema";
 import { WORKTREE_ADD_CONFIG } from "../../src/git/hardened";
 import { readWorktreeSnapshot } from "../../src/git/snapshot";
 import type { DiskProbe } from "../../src/platform/disk";
-import type { StepRequest, StepResult } from "../../src/sandbox/step";
 import type { CommandSpec, Resolution, RunProfile } from "../../src/scan/detect";
 import {
   type ClaimOutcome,
@@ -88,27 +87,6 @@ export function runProfile(): RunProfile {
   };
 }
 
-export const exited = (code: number, stderr = ""): StepResult => ({
-  outcome: "exited",
-  code,
-  signal: null,
-  timedOut: false,
-  stdout: { text: code === 0 ? "" : "seeding...\n", truncated: false },
-  stderr: { text: stderr, truncated: false },
-  warnings: [],
-});
-
-/** A step runner that records each request and answers per script (exit 0 by default). */
-export function fakeSteps(answers: Record<string, StepResult> = {}, onStep?: () => Promise<void>) {
-  const requests: StepRequest[] = [];
-  const runStep = async (request: StepRequest): Promise<StepResult> => {
-    requests.push(request);
-    await onStep?.();
-    return answers[request.script] ?? exited(0);
-  };
-  return { requests, runStep };
-}
-
 /** Publishes the fixture with `.env` ignored, then creates the ignored `.env`. */
 export async function product(repo: TempRepoWithRemote): Promise<void> {
   writeFileSync(join(repo.dir, ".gitignore"), ".env\n");
@@ -120,13 +98,8 @@ export async function product(repo: TempRepoWithRemote): Promise<void> {
 
 export interface Options {
   readonly disk?: DiskProbe;
-  readonly steps?: ReturnType<typeof fakeSteps>;
   readonly profile?: RunProfile | null;
   readonly worktree?: Partial<SetupRequest["config"]["worktree"]>;
-  /** Receives setup's warn lines. */
-  readonly warn?: (message: string, fields: Readonly<Record<string, unknown>>) => void;
-  /** Receives setup's debug lines. */
-  readonly debug?: (message: string, fields: Readonly<Record<string, unknown>>) => void;
 }
 
 export interface Harness {
@@ -146,10 +119,7 @@ export async function harness(repo: TempRepo): Promise<Harness> {
       {
         ...s.deps({ disk: options.disk ?? ROOMY }),
         slots,
-        runStep: (options.steps ?? fakeSteps()).runStep,
         localSettings: CLAUDE_LOCAL_SETTINGS,
-        ...(options.warn === undefined ? {} : { warn: options.warn }),
-        ...(options.debug === undefined ? {} : { debug: options.debug }),
       },
       {
         claim,
@@ -164,11 +134,8 @@ export async function harness(repo: TempRepo): Promise<Harness> {
             ],
             ...options.worktree,
           },
-          timeouts: OFFICE_DEFAULTS.timeouts,
-          sandbox: OFFICE_DEFAULTS.sandbox,
         },
         profile: options.profile === undefined ? runProfile() : options.profile,
-        host: { home: repo.home, uid: 501, env: { PATH: "/usr/bin:/bin", HOME: repo.home } },
       },
     );
   return {

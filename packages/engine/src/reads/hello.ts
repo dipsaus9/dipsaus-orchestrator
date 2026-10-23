@@ -38,6 +38,8 @@ export const CAPABILITY_FLAGS: Readonly<Record<string, readonly string[]>> = {
   "test.sessions": ["test.start", "test.record"],
   "usage.report": ["office.usage"],
   digest: ["office.digest"],
+  // The plain-text desk (0020 section 12, DIPO-158).
+  desk: ["office.desk"],
 };
 
 /** The capability flags `registry` can back, in table order. */

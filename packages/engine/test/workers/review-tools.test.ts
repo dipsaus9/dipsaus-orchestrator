@@ -9,6 +9,7 @@ import { describe, expect, it } from "bun:test";
 import { OFFICE_DEFAULTS } from "../../src/config";
 import { REVIEWER_TOOLS } from "../../src/run/launch";
 import {
+  DEVELOPER_ON_MAC_REFUSED,
   EMPTY_MCP_CONFIG_FILE,
   MODEL_API_HOST,
   plan,
@@ -199,8 +200,7 @@ describe("the reviewer's web proxy (DIPO-292)", () => {
     expect(launch.env["HTTPS_PROXY"]).toBe(REVIEW_WEB_PROXY);
   });
 
-  it("gives a worker no web proxy of its own and refuses one in its spec", () => {
-    expect(proxyVariables(plan(spec(), reviewContext()))).toEqual({});
+  it("refuses a web proxy in a worker's spec", () => {
     expect(() => plan(spec({ webProxy: REVIEW_WEB_PROXY }), reviewContext())).toThrow(
       /only a review session/,
     );
@@ -262,13 +262,7 @@ describe("the reviewer's working directory and copy (DIPO-276)", () => {
     );
   });
 
-  it("leaves the implement plan as it was: the worktree as cwd, no copy and the office MCP config", () => {
-    const launch = plan(spec(), reviewContext({ mcpConfig: `${MAIN}/.git/dipo/mcp.json` }));
-    expect(launch.cwd).toBe(WORKDIR);
-    expect(launch.files.map((file) => file.name)).not.toContain(EMPTY_MCP_CONFIG_FILE);
-    const settings = settingsOf(launch);
-    expect(settings.claudeMdExcludes).toBeUndefined();
-    expect(settings.permissions.additionalDirectories).toBeUndefined();
-    expect(settings.permissions.allow).toContain("Bash");
+  it("plans no developer session on the Mac at all: it runs only in its box (DIPO-240)", () => {
+    expect(() => plan(spec(), reviewContext())).toThrow(DEVELOPER_ON_MAC_REFUSED);
   });
 });

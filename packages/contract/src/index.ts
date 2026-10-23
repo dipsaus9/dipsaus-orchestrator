@@ -3,6 +3,7 @@
 export const packageName = "@dipsaus-orchestrator/contract";
 
 export * from "./catalog";
+export * from "./clean-text";
 export * from "./config";
 export * from "./config-keys";
 export * from "./definition";

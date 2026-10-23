@@ -7,6 +7,7 @@ import { describe, expect, it } from "bun:test";
 import { readdirSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 
+import { SEQUENCE_SAMPLES } from "@dipsaus-orchestrator/contract";
 import { withTempDir } from "@dipsaus-orchestrator/testkit";
 
 import { type IngestAdapter, Ingestor } from "../../src/ingest/ingestor";
@@ -187,7 +188,7 @@ describe("privacy.storeCommandBodies (DIPO-83)", () => {
 describe("tool lines", () => {
   it("collapse line breaks, tabs and control characters into single spaces", () => {
     expect(oneLineInput("git status\n\n\tgit log\r\n --oneline\u001b[0m ")).toBe(
-      "git status git log --oneline [0m",
+      "git status git log --oneline",
     );
     expect(toolLine("Bash", undefined, "  \n ")).toBe("[tool] Bash\n");
     expect(toolLine("Grep", "src", "TODO")).toBe("[tool] Grep src TODO\n");
@@ -206,4 +207,29 @@ describe("tool lines", () => {
     expect(outputText(event, { storeCommandBodies: true })).toBe("[tool] Bash rm -rf build\n");
     expect(outputText({ ...event, agentId: "toolu-9" }, { storeCommandBodies: true })).toBe("");
   });
+});
+
+describe("stored output is cleaned of terminal control characters (DIPO-313)", () => {
+  for (const [name, sample] of Object.entries(SEQUENCE_SAMPLES)) {
+    it(`stores ${name} as plain text`, () => {
+      expect([name, outputText({ t: "output", text: `a${sample}b` } as never)]).toEqual([
+        name,
+        "ab\n",
+      ]);
+      expect(
+        outputText({
+          t: "activity",
+          kind: "tool",
+          tool: "Read",
+          path: `src/a${sample}.ts`,
+        } as never),
+      ).toBe("[tool] Read src/a.ts\n");
+      expect(
+        outputText(
+          { t: "activity", kind: "tool", tool: "Bash", input: `ls${sample} -l` } as never,
+          { storeCommandBodies: true },
+        ),
+      ).toBe("[tool] Bash ls -l\n");
+    });
+  }
 });

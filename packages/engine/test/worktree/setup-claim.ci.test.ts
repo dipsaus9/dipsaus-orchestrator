@@ -1,10 +1,10 @@
-// CI only (0017 section 1): the slower cases of setup inside the claim with the fake step runner
+// CI only (0017 section 1): the slower cases of setup inside the claim
 // (DIPO-39; 0010 sections 2a and 7), against a bare remote and the pinned Backlog CLI, moved out of
 // setup.test.ts for the local time budget (DIPO-79): a reused branch is left exactly as released,
 // locally and on the remote, when setup fails; and a release during a setup that succeeds keeps the
 // release, its row and the branch. The fast local versions are in setup.test.ts: a release during
 // a setup that fails keeps the release, its row and the branch at its start, and a failed setup
-// rolls the claim back. The real sandbox is setup.ci.test.ts.
+// rolls the claim back.
 
 import { describe, expect, it } from "bun:test";
 import { existsSync } from "node:fs";
@@ -21,7 +21,7 @@ import {
   type SetupDone,
 } from "../../src/worktree";
 import { BRANCH_1, inRemote, TASK_1 } from "./helpers";
-import { exited, fakeSteps, FIXTURE, harness, product, releaseNow, skipped } from "./setup-harness";
+import { FIXTURE, harness, product, releaseNow, skipped } from "./setup-harness";
 
 if (process.env["DIPO_TEST_CI"] === "1") {
   describe("setup inside the claim", () => {
@@ -47,8 +47,9 @@ if (process.env["DIPO_TEST_CI"] === "1") {
         const releasedTip = (await repo.git("rev-parse", BRANCH_1)).trim();
         const remoteTip = (await inRemote(repo, "rev-parse", `refs/heads/${BRANCH_1}`)).trim();
 
-        const steps = fakeSteps({ install: exited(1, "lockfile out of date\n") });
-        skipped(await h.claim(key, { steps }));
+        // Setup fails: every port slot is taken by another worktree.
+        h.slots.take({ office: "other", story: "X-1", worktree: repo.dir, takenAt: 0 }, 1);
+        skipped(await h.claim(key, { worktree: { maxSlots: 1 } }));
 
         expect((await repo.git("rev-parse", BRANCH_1)).trim()).toBe(releasedTip);
         expect((await inRemote(repo, "rev-parse", `refs/heads/${BRANCH_1}`)).trim()).toBe(
@@ -66,11 +67,10 @@ if (process.env["DIPO_TEST_CI"] === "1") {
         await product(repo);
         const h = await harness(repo);
         const key = h.s.key();
-        const steps = fakeSteps({});
         const request = {
           ...h.s.request(key),
           setup: async (claim: ClaimRecord) => {
-            const outcome = await h.setup(claim, { steps, worktree: { post_create: [] } });
+            const outcome = await h.setup(claim);
             releaseNow(h, claim);
             return outcome;
           },

@@ -16,6 +16,7 @@ import type { OfficeHandle } from "../db/office";
 import type { GitLocation } from "../git/hardened";
 import type { OfficeGit } from "../git/office";
 import type { WorkerReportCriterion } from "../workers/types";
+import { budgetLine, type BudgetFacts } from "./budget";
 import { cutHead } from "./cut";
 import { capNotes, latestWorkerNotes, WORKER_NOTES_MAX } from "./notes";
 import { renderTemplate, TASK_TEMPLATES } from "./templates";
@@ -53,6 +54,8 @@ export interface HandoffFacts {
   readonly notes: string | null;
   /** A box run: the changes are in the kept box, not in the Mac worktree (`BOX_CHANGES`). */
   readonly box?: boolean;
+  /** The run's caps and usage: the block ends with the budget line (DIPO-256). */
+  readonly budget?: BudgetFacts;
 }
 
 type WorktreeLocation = Extract<GitLocation, { kind: "worktree" }>;
@@ -70,6 +73,8 @@ export interface GatherHandoffOptions {
   readonly note?: string;
   /** A box run: the Mac worktree's diff and untracked files are not read. */
   readonly box?: boolean;
+  /** The run's caps and usage: the block ends with the budget line (DIPO-256). */
+  readonly budget?: BudgetFacts;
 }
 
 /** Reads the handoff facts of a worktree: git through the office queue, notes from the database. */
@@ -97,6 +102,7 @@ export async function gatherHandoff(options: GatherHandoffOptions): Promise<Hand
     ...(note === "" ? {} : { note }),
     notes: notes?.text ?? null,
     ...(box ? { box: true } : {}),
+    ...(options.budget === undefined ? {} : { budget: options.budget }),
   };
 }
 
@@ -203,6 +209,7 @@ export function renderHandoff(facts: HandoffFacts, budget = HANDOFF_BUDGET_DEFAU
               : [list(feedbackLines(facts.feedback), "feedback list", "the rest is left out.")]),
             note,
           ].join("\n"),
+    budget: facts.budget === undefined ? "" : budgetLine(facts.budget),
     notes: facts.notes === null || facts.notes.trim() === "" ? NONE : capNotes(facts.notes),
   });
 }

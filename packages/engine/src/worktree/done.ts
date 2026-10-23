@@ -12,6 +12,13 @@
 // The load step only arms the poll; it must run after `git.version` (the office's git) and after
 // the claims' load step, so the daemon registers this feature right after `StoryClaims.feature`.
 // Polls of one office run one at a time.
+//
+// A claim not detected Done on its own branch is checked on the base (DIPO-161; 0020 section 10):
+// its story's status in `_base`, which the story index's fetch keeps at `<remote>/<base>`, read
+// with the Backlog CLI. A Done there wins over the branch status: a claim with a live worker is
+// flagged once and released when its run next ends; a parked or idle one is released as
+// `done-elsewhere` and its PR, worktree and branch settled (`done-elsewhere.ts`). Each poll first
+// settles the released rows a crash left unsettled.
 
 import type { Clock, OfficeId, TimerHandle } from "@dipsaus-orchestrator/contract";
 
@@ -23,9 +30,19 @@ import type { OfficeHandle } from "../db/office";
 import type { GitLocation } from "../git/hardened";
 import type { OfficeGit } from "../git/office";
 import type { Logger } from "../log/logger";
-import type { PrStateHost } from "../platform/host";
+import type { CodeHost, PrStateHost } from "../platform/host";
 
 import { inStoryBacklog, notice, writeWith } from "./claim";
+import {
+  baseDoneOf,
+  type DoneElsewhereDeps,
+  findDoneElsewhere,
+  flagLiveWorker,
+  hasLiveWorker,
+  releaseDoneElsewhere,
+  settleDoneElsewhere,
+  settlePending,
+} from "./done-elsewhere";
 import { type ClaimRecord, liveClaims } from "./records";
 import type { SlotTable } from "./slots";
 import { detectDone, tearDown, type TeardownDeps, TEARDOWN_NOTICES } from "./teardown";
@@ -54,6 +71,15 @@ export interface StoryTeardownDeps {
   readonly slots?: SlotTable;
   /** The story's status on its branch, or null when unreadable; the Backlog CLI by default. */
   readonly statusOf?: (claim: ClaimRecord) => Promise<string | null>;
+  /**
+   * Whether the claim's story is Done on the base, with the base commit that last changed its task
+   * file; null when it is not Done there or cannot be read. Read in `_base` by default (DIPO-161).
+   */
+  readonly baseDoneOf?: (claim: ClaimRecord) => Promise<{ readonly commit: string | null } | null>;
+  /** Closes dipo's open story PR of a story Done elsewhere; the `gh` host in the daemon. */
+  readonly prCloser?: Pick<CodeHost, "closePr"> | null;
+  /** Checks and deletes the boxes of ended runs after a release (0021 section 6). */
+  readonly finishBoxes?: () => Promise<unknown>;
   readonly onChanged?: (office: OfficeId) => void;
   readonly logger?: Logger;
 }
@@ -66,6 +92,8 @@ export interface PollReport {
   readonly tornDown: readonly ClaimRecord[];
   /** Done claims that kept everything (parked, dirty, locked, live worker). */
   readonly kept: readonly ClaimRecord[];
+  /** Claims released because their story is Done on the base through another branch. */
+  readonly released?: readonly ClaimRecord[];
 }
 
 interface Polled {
@@ -139,6 +167,7 @@ export class StoryTeardown {
     if (git === undefined) return { checked: 0, tornDown: [], kept: [] };
     const tornDown: ClaimRecord[] = [];
     const kept: ClaimRecord[] = [];
+    const released: ClaimRecord[] = [];
     let checked = 0;
     const deps = {
       officeId,
@@ -148,6 +177,7 @@ export class StoryTeardown {
       ...(this.#deps.slots === undefined ? {} : { slots: this.#deps.slots }),
       ...(this.#deps.onChanged === undefined ? {} : { onChanged: this.#deps.onChanged }),
     };
+    await settlePending(this.#elsewhereDeps(deps));
     for (const claim of liveClaims(state.office)) {
       // A claim whose setup never finished is the claims' load step's to roll back.
       if (claim.claimSha === null) continue;
@@ -156,6 +186,7 @@ export class StoryTeardown {
         const result = await this.#settle(state, deps, claim);
         if (result === "tornDown") tornDown.push(claim);
         else if (result === "kept") kept.push(claim);
+        else if (result === "released") released.push(claim);
       } catch (error) {
         // One claim's git error (a tampered worktree, a held lock) does not stop the others.
         this.#tell(
@@ -173,7 +204,9 @@ export class StoryTeardown {
     for (const key of state.told.keys()) {
       if (!live.has(runOfToldKey(key))) state.told.delete(key);
     }
-    return { checked, tornDown, kept };
+    return released.length === 0
+      ? { checked, tornDown, kept }
+      : { checked, tornDown, kept, released };
   }
 
   /** Detects Done for one claim and tears it down unless something keeps it. */
@@ -181,9 +214,12 @@ export class StoryTeardown {
     state: Polled,
     deps: TeardownDeps,
     claim: ClaimRecord,
-  ): Promise<"open" | "kept" | "tornDown"> {
+  ): Promise<"open" | "kept" | "tornDown" | "released"> {
     const check = await detectDone({ git: deps.git, host: this.#deps.host }, claim);
     if (!check.done) {
+      // Not Done through its own branch: a Done on the base wins (DIPO-161).
+      const elsewhere = await this.#doneElsewhere(state, deps, claim);
+      if (elsewhere !== null) return elsewhere;
       if (check.problem !== undefined) {
         this.#tell(state, deps, claim, "warn", check.problem.code, check.problem.text);
       }
@@ -241,6 +277,47 @@ export class StoryTeardown {
       `${claim.story} is Done, but dipo kept its worktree, branch ${claim.branch} and port slot: ${outcome.why}.${files} dipo tries again on its next poll.`,
     );
     return "kept";
+  }
+
+  /**
+   * The release of a claim whose story is Done on the base (see the file comment); null when it is
+   * not Done there, so the poll goes on as before.
+   */
+  async #doneElsewhere(
+    state: Polled,
+    deps: TeardownDeps,
+    claim: ClaimRecord,
+  ): Promise<"kept" | "released" | null> {
+    const base = await this.#baseDone(deps.git, claim);
+    if (base === null) return null;
+    const elsewhere = this.#elsewhereDeps(deps);
+    if (hasLiveWorker(state.office, claim)) {
+      flagLiveWorker(elsewhere, claim, base.commit);
+      return "kept";
+    }
+    releaseDoneElsewhere(elsewhere, claim, base.commit);
+    const row = findDoneElsewhere(state.office, claim.runId);
+    if (row !== null) await settleDoneElsewhere(elsewhere, row);
+    return "released";
+  }
+
+  /** The story's Done on `_base` with the base commit of its task file, or null; never throws. */
+  async #baseDone(git: OfficeGit, claim: ClaimRecord): Promise<{ commit: string | null } | null> {
+    if (this.#deps.baseDoneOf !== undefined) return this.#deps.baseDoneOf(claim);
+    return baseDoneOf(git, this.#deps.cli, claim.story);
+  }
+
+  #elsewhereDeps(deps: TeardownDeps): DoneElsewhereDeps {
+    return {
+      officeId: deps.officeId,
+      office: deps.office,
+      git: deps.git,
+      clock: deps.clock,
+      ...(deps.slots === undefined ? {} : { slots: deps.slots }),
+      ...(deps.onChanged === undefined ? {} : { onChanged: deps.onChanged }),
+      ...(this.#deps.prCloser === undefined ? {} : { host: this.#deps.prCloser }),
+      ...(this.#deps.finishBoxes === undefined ? {} : { finishBoxes: this.#deps.finishBoxes }),
+    };
   }
 
   /**

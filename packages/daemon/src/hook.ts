@@ -1,32 +1,29 @@
-// The hidden form `dipo hook <event> [--wait <seconds> | --nudge]` (0008 section 5; 0004 and 0006
-// amendments of 2026-10-12, DIPO-59). A worker's run settings file registers it as a command hook
-// with the binary's own path, so it needs no `PATH`. It reads the hook payload on stdin and relays
-// it to the worker host named by `DIPO_HOST_SOCKET` over the host protocol's versioned handshake.
-// It prints only what the host answers for a waiting call (a decision or a nudge the adapter
-// encoded), never anything else, exits 0 and is silent on every failure: no socket, a refused
-// version, no answer. A call without `--wait` ends within 2 s; with `--nudge` it waits for the
-// engine's 0014 section 8 nudge only as long as that limit allows (DIPO-60); with `--wait` it
-// waits at most that long plus a grace. A `--gate` call (the `PreToolUse` check of a web tool,
-// 0020 section 11b, DIPO-164) waits like a nudge call but fails closed: only the engine's marker
-// that carries no decision lets the call proceed, as empty output and exit 0, so Claude's own
-// permission rules decide it; every failure, an empty answer and no answer within the limit print
-// Claude's deny, and a gate that cannot print exits 2, so the call never proceeds unchecked.
+// The hidden form `dipo hook <event> [--nudge | --gate]` (0008 section 5; 0004 and 0006
+// amendments of 2026-10-12, DIPO-59). A reviewer's run settings file registers it as a command
+// hook with the binary's own path, so it needs no `PATH`. It reads the hook payload on stdin and
+// relays it to the worker host named by `DIPO_HOST_SOCKET` over the host protocol's versioned
+// handshake. It prints only what the host answers for a call that waits (a nudge or a gate answer
+// the adapter encoded), never anything else, exits 0 and is silent on every failure: no socket, a
+// refused version, no answer. A call ends within 2 s; with `--nudge` it waits for the engine's 0014
+// section 8 nudge only as long as that limit allows (DIPO-60). A `--gate` call (the `PreToolUse`
+// check of a web tool, 0020 section 11b, DIPO-164) waits like a nudge call but fails closed: only
+// the engine's marker that carries no decision lets the call proceed, as empty output and exit 0,
+// so Claude's own permission rules decide it; every failure, an empty answer and no answer within
+// the limit print Claude's deny, and a gate that cannot print exits 2, so the call never proceeds
+// unchecked.
+//
+// The Bash check (`--bash`, with its gh and temp guards) and the permission relay (`--wait`, for a
+// `PermissionRequest` call) are gone with the developer's Mac sandbox (DIPO-240, 0021 section 7): a
+// developer runs in its box with no hooks, and a reviewer has no Bash and no approval relay.
 
-import {
-  bashRefusal,
-  claudeGateOutput,
-  encodeClaudeOp,
-  relayHookPayload,
-} from "@dipsaus-orchestrator/engine";
+import { claudeGateOutput, encodeClaudeOp, relayHookPayload } from "@dipsaus-orchestrator/engine";
 
 import { type DaemonIo, readProcessInput } from "./io";
 
-/** How long a call that does not wait may take, from start to exit. */
+/** How long a call may take, from start to exit. */
 export const HOOK_DEADLINE_MS = 1_800;
 /** How long the payload may take to arrive on stdin. */
 export const HOOK_STDIN_MS = 1_000;
-/** The largest `--wait` accepted: two hours (the engine waits at most one, plus a margin). */
-export const MAX_HOOK_WAIT_SECONDS = 7_200;
 /** The largest payload read from stdin (1 MiB); a larger one is not relayed. */
 export const MAX_HOOK_STDIN = 1024 * 1024;
 /**
@@ -35,7 +32,7 @@ export const MAX_HOOK_STDIN = 1024 * 1024;
  */
 export const NUDGE_REPLY_MARGIN_MS = 300;
 
-/** Told to the worker when a gate call got no answer within `HOOK_DEADLINE_MS`. */
+/** Told to the session when a gate call got no answer within `HOOK_DEADLINE_MS`. */
 export const GATE_NO_ANSWER_REASON =
   "dipo could not check this web call in time, so it was refused; try again.";
 
@@ -49,23 +46,19 @@ const EVENT_NAME = /^[A-Za-z][A-Za-z0-9]*$/;
 
 export interface HookArgs {
   readonly event: string;
-  /** Milliseconds the call may wait for the engine's reply; absent for a call that does not wait. */
-  readonly waitMs?: number;
   /** True for a call that waits for a nudge within `HOOK_DEADLINE_MS` (DIPO-60). */
   readonly nudge?: true;
   /** True for a fail-closed call that waits within `HOOK_DEADLINE_MS` for the engine's check. */
   readonly gate?: true;
-  /** True for the Bash check, decided in this process without the worker host (DIPO-194). */
-  readonly bash?: true;
 }
 
-/** The longest string field a call that does not wait keeps; a longer one is cut to this. */
+/** The longest string field a relayed call keeps; a longer one is cut to this. */
 export const MAX_KEPT_STRING = 1024;
 
 /** The `tool_input` keys a `--gate` call keeps whole: a web tool's URL or query. */
 export const GATE_INPUT_KEYS: readonly string[] = ["url", "query"];
 
-/** The `tool_input` keys a call that does not wait keeps: the file a write tool wrote (DIPO-60). */
+/** The `tool_input` keys a call keeps: the file a write tool wrote (DIPO-60). */
 export const KEPT_INPUT_KEYS: readonly string[] = ["file_path", "notebook_path"];
 
 function scalars(value: Record<string, unknown>): Record<string, unknown> {
@@ -79,17 +72,14 @@ function scalars(value: Record<string, unknown>): Record<string, unknown> {
 }
 
 /**
- * The payload as relayed. A call that waits (a permission request) keeps it whole, since its input
- * is what the maintainer is asked about. Any other call keeps only its top-level numbers, booleans
- * and strings, each string cut to `MAX_KEPT_STRING` characters (so a `StopFailure` error survives),
- * and of `tool_input` only the written file's path (`KEPT_INPUT_KEYS`, for the scope and context
- * nudges): other tool inputs and responses (`PostToolUse` carries the whole tool result) are
- * dropped, so the event file stays small. A `gate` call also keeps the `url` or `query` of
- * `tool_input` whole, never cut, since the engine checks all of it. A payload that is not a JSON
- * object is relayed as given.
+ * The payload as relayed: only its top-level numbers, booleans and strings, each string cut to
+ * `MAX_KEPT_STRING` characters (so a `StopFailure` error survives), and of `tool_input` only the
+ * written file's path (`KEPT_INPUT_KEYS`, for the scope and context nudges): other tool inputs and
+ * responses (`PostToolUse` carries the whole tool result) are dropped, so the event file stays
+ * small. A `gate` call also keeps the `url` or `query` of `tool_input` whole, never cut, since the
+ * engine checks all of it. A payload that is not a JSON object is relayed as given.
  */
-export function trimPayload(payload: string, waits: boolean, gate = false): string {
-  if (waits) return payload;
+export function trimPayload(payload: string, gate = false): string {
   let value: unknown;
   try {
     value = JSON.parse(payload);
@@ -116,32 +106,23 @@ export function trimPayload(payload: string, waits: boolean, gate = false): stri
   return JSON.stringify(kept);
 }
 
-/** `<event> [--wait <seconds> | --nudge | --gate | --bash]`; null when the arguments do not match. */
+/** `<event> [--nudge | --gate]`; null when the arguments do not match. */
 export function parseHookArgs(args: readonly string[]): HookArgs | null {
-  const [event, flag, seconds, ...rest] = args;
+  const [event, flag, ...rest] = args;
   if (event === undefined || !EVENT_NAME.test(event) || rest.length > 0) return null;
   if (flag === undefined) return { event };
-  if (flag === "--nudge") return seconds === undefined ? { event, nudge: true } : null;
-  if (flag === "--gate") return seconds === undefined ? { event, gate: true } : null;
-  if (flag === "--bash") return seconds === undefined ? { event, bash: true } : null;
-  if (flag !== "--wait" || seconds === undefined || !/^[1-9]\d*$/.test(seconds)) return null;
-  const value = Number(seconds);
-  if (value > MAX_HOOK_WAIT_SECONDS) return null;
-  return { event, waitMs: value * 1000 };
+  if (flag === "--nudge") return { event, nudge: true };
+  if (flag === "--gate") return { event, gate: true };
+  return null;
 }
 
 /**
- * Runs the relay. Resolves to 0, so a failure never blocks or breaks the worker, except for a gate
- * call that could not print its decision (see `runGate`).
+ * Runs the relay. Resolves to 0, so a failure never blocks or breaks the session, except for a
+ * gate call that could not print its decision (see `runGate`).
  */
-export async function runHookForm(
-  args: readonly string[],
-  io: DaemonIo,
-  bashCheck: (command: string) => string | null = bashRefusal,
-): Promise<number> {
+export async function runHookForm(args: readonly string[], io: DaemonIo): Promise<number> {
   const parsed = parseHookArgs(args);
   const write = io.write ?? ((text: string) => process.stdout.write(text));
-  if (parsed?.bash === true) return runBash(io, write, bashCheck);
   // A gate call fails closed even when its arguments do not parse.
   if (parsed?.gate === true || args.includes("--gate")) return runGate(parsed, io, write);
   let output: string | null = null;
@@ -154,77 +135,13 @@ export async function runHookForm(
     try {
       write(output);
     } catch {
-      // The worker sees no output either way.
+      // The session sees no output either way.
     }
   }
   return 0;
 }
 
-/** Told to the worker on stderr when the Bash check cannot run on a command that names gh (DIPO-241). */
-export const BASH_GH_FAILED_REASON =
-  "dipo could not check this command, and it names gh: the engine handles the code host, so the call was refused.";
-
-/** A word whose basename is gh, in any case: the words `GH_WORD_PATTERN` (engine `claude-cli/hooks.ts`) greps. */
-const GH_WORD = /(^|[^A-Za-z0-9_-])gh($|[^A-Za-z0-9_-])/i;
-
-/**
- * True when `command` names gh, read as the shell would join it: backslash pairs are decoded left to
- * right, so a backslash-newline is a line continuation but an escaped backslash before a newline is
- * not (`x\\\\<newline>gh` runs gh on the next line); then quote and backslash characters go
- * (`g\\h`, `'g'h`), and the case is ignored (a case-insensitive file system runs `GH` as gh). It errs
- * toward a gh word, which only refuses more.
- */
-function namesGh(command: string): boolean {
-  const joined = command.replace(/\\([\s\S])/g, (_, next: string) => (next === "\n" ? "" : next));
-  return GH_WORD.test(joined.replace(/['"\\]/g, ""));
-}
-
-/** The status of a `--bash` call that read no command: the shell fallback then greps the payload. */
-export const BASH_UNREAD_EXIT = 3;
-
-/**
- * A `--bash` call (DIPO-194; 0008 amendment of 2026-10-19): decides the command in this process,
- * never contacting the worker host. A command the check refuses (DIPO_TMP or TMPDIR set or cleared,
- * a gh call but the help forms; DIPO-195) prints Claude's deny with the check's reason; anything
- * else and a check that throws print nothing and exit 0 (fails open). The exception is a check that
- * throws on a command that names gh: it exits 2 with the reason on stderr, so a gh call never runs
- * unchecked (DIPO-241). A payload it cannot read (too large, too slow) or parse exits
- * `BASH_UNREAD_EXIT`, so the shell fallback of the planned command greps the raw payload for gh.
- */
-async function runBash(
-  io: DaemonIo,
-  write: (text: string) => void,
-  check: (command: string) => string | null,
-): Promise<number> {
-  let command: string | undefined;
-  try {
-    const readInput = io.readInput ?? ((max, ms) => readProcessInput(io.clock, max, ms));
-    const payload = await readInput(MAX_HOOK_STDIN, HOOK_STDIN_MS);
-    if (payload === null) return BASH_UNREAD_EXIT;
-    const input = (JSON.parse(payload) as { tool_input?: { command?: unknown } } | null)
-      ?.tool_input;
-    const text = input?.command;
-    if (typeof text !== "string") return 0;
-    command = text;
-    const reason = check(text);
-    if (reason !== null) write(gateDenyOutput(reason));
-  } catch {
-    // No command read (the payload did not parse): the shell fallback decides from the payload.
-    if (command === undefined) return BASH_UNREAD_EXIT;
-    if (namesGh(command)) {
-      try {
-        io.writeError(BASH_GH_FAILED_REASON);
-      } catch {
-        // Exit 2 blocks the call without a reason too.
-      }
-      return 2;
-    }
-    // Fails open: no output means no decision.
-  }
-  return 0;
-}
-
-/** Told to the worker on stderr when a gate call could not print its decision (exit 2). */
+/** Told to the session on stderr when a gate call could not print its decision (exit 2). */
 export const GATE_FAILED_REASON = "dipo could not check this web call, so it was refused.";
 
 /**
@@ -280,16 +197,15 @@ async function relayCall(parsed: HookArgs | null, io: DaemonIo): Promise<string 
   const relay = relayHookPayload({
     socketPath,
     runId,
-    payload: trimPayload(payload, parsed.waitMs !== undefined, parsed.gate === true),
+    payload: trimPayload(payload, parsed.gate === true),
     clock: io.clock,
     timeoutMs: left,
-    ...(parsed.waitMs === undefined ? {} : { waitMs: parsed.waitMs }),
     ...(bounded ? { waitMs: nudgeWaitMs, graceMs: NUDGE_REPLY_MARGIN_MS } : {}),
   });
   return bounded ? await withinDeadline(relay, left, io) : await relay;
 }
 
-/** The relay's answer, or null once `ms` passed: a nudge call never outlives `HOOK_DEADLINE_MS`. */
+/** The relay's answer, or null once `ms` passed: a waiting call never outlives `HOOK_DEADLINE_MS`. */
 function withinDeadline(
   relay: Promise<string | null>,
   ms: number,

@@ -497,12 +497,22 @@ export function runRoundCounts(office: OfficeHandle, runId: string): RunRounds {
     { run: runId },
   );
   const n = (kind: RunStepKind): number => rows.find((row) => row.kind === kind)?.n ?? 0;
+  // A conflict hand-off is its `start` step; its feedback, failure and resolution are steps too
+  // (DIPO-149, `run/conflicts.ts`).
+  const handOffs =
+    n("conflict") === 0
+      ? 0
+      : (office.get<{ n: number }>(
+          `select count(*) as n from run_steps where office_id = $office_id and run_id = $run
+            and kind = 'conflict' and value like 'start %'`,
+          { run: runId },
+        )?.n ?? 0);
   return {
     loops: n("loop"),
     reviewRounds: n("review"),
     reviewRoundsFailed: n("review-failed"),
     ciAttempts: n("ci"),
-    conflictHandoffs: n("conflict"),
+    conflictHandoffs: handOffs,
     override: n("override") > 0,
   };
 }
