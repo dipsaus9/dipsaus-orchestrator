@@ -33,6 +33,7 @@ import { deskCommand } from "./desk-command";
 import { gateCommand } from "./gate-command";
 import type { DaemonLogsDeps } from "./logs-command";
 import { OFFICE_SUBCOMMANDS } from "./office-commands";
+import { proposeCommand } from "./propose-command";
 import { runCommand } from "./run-command";
 import { stopCommand } from "./stop-command";
 import { pauseCommand, steerCommand } from "./intervene-commands";
@@ -175,6 +176,11 @@ Usage:
                     a worker waits on, merges, parked stories, hand actions,
                     proposals and the stories you hold, each with the command to
                     type; --json prints the engine's list as it is
+  dipo propose accept|dismiss <proposal> [--office <id>]
+                    decide a worker's follow-up, spike or tool proposal from
+                    dipo desk: accept files it as a Backlog draft through the
+                    backlog PR, the worker's words marked as theirs; dismiss
+                    closes it and files nothing
   dipo watch [<id>] [--office <id>]
                     follow the office, or one story, in plain text until Ctrl-C:
                     each running story's phase, health, loop, verify, criteria
@@ -388,6 +394,10 @@ export async function main(argv: readonly string[], deps: CliDeps): Promise<numb
   if (args[0] === "desk") {
     const { version } = versionInfo(deps.stamp, deps.runtime);
     return deskCommand(args.slice(1), { ...deps, version });
+  }
+  if (args[0] === "propose") {
+    const { version } = versionInfo(deps.stamp, deps.runtime);
+    return proposeCommand(args.slice(1), { ...deps, version });
   }
   if (args[0] === "watch") {
     const { version } = versionInfo(deps.stamp, deps.runtime);
