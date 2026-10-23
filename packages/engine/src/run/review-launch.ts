@@ -87,6 +87,7 @@ import { PlanError, type Caps } from "../workers/types";
 
 import type { BackstopSnapshot } from "./backstop";
 import { REVIEWER_ROLE, runCaps, runTotals } from "./caps";
+import { runConfigOf } from "./config-snapshot";
 import type { TrackedRun } from "./control-types";
 import {
   type HostStarter,
@@ -540,9 +541,11 @@ export function reviewerSettings(
     current = findRun(office, run.runId) ?? run;
   }
   const caps = runCaps(office, current);
+  // Model and effort as the run started with them (its configuration snapshot, DIPO-303 review).
+  const started = runConfigOf(office, current, config);
   return {
-    model: config.review.model,
-    effort: config.review.effort,
+    model: started.review.model,
+    effort: started.review.effort,
     // Null only for a run with no row: the snapshot was written above.
     maxTurns: caps.reviewMaxTurns ?? config.review.maxTurns,
     maxMinutes: caps.reviewMaxMinutes ?? config.review.maxMinutes,

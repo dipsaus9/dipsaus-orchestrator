@@ -87,6 +87,8 @@ import {
   type StoredReviewVerdict,
   uncommentedVerdicts,
 } from "../review";
+import { runInSlot } from "../merge-slot/store";
+import { runConfigOf } from "../run/config-snapshot";
 import { storedDoneReport } from "../run/done-report";
 import { runCaps } from "../run/caps";
 import { PARK_CAUSES, type ParkWriter, parkStory } from "../run/park";
@@ -158,6 +160,8 @@ export interface StoryPrsDeps {
    * final with no CI. False for every run without it.
    */
   readonly boxRun?: (office: OfficeId, run: StoredRun) => boolean;
+  /** True when the office merge slot merges story PRs (DIPO-150): the body says dipo merges. */
+  readonly mergesStories?: boolean;
   /**
    * The values of the env files dipo copied into a worktree, for the review comments (DIPO-152);
    * the files of `readEnvSecrets` by default. It throws when a file cannot be read.
@@ -266,13 +270,17 @@ export class StoryPrs {
   retry(officeId: OfficeId): Promise<RunId[]> {
     const state = this.#state(officeId);
     return this.#serial(state, async () => {
-      if (!this.#opensPrs(officeId)) return [];
       for (const stored of openStoryPrs(state.office)) {
+        const owner = findRun(state.office, stored.runId);
+        if (owner !== null && !this.#opensPrs(officeId, owner)) continue;
         await this.#poll(officeId, state, stored);
         await this.#reviewStep(officeId, state, stored.runId);
       }
       const tried: RunId[] = [];
       for (const { runId } of runsWithoutPr(state.office)) {
+        const run = findRun(state.office, runId);
+        // Story PRs switched off for the run (its configuration snapshot, DIPO-210): no attempt.
+        if (run === null || !this.#opensPrs(officeId, run)) continue;
         tried.push(runId);
         await this.#sync(officeId, state, runId);
       }
@@ -414,16 +422,27 @@ export class StoryPrs {
     return this.#deps.offices.config(officeId) ?? OFFICE_DEFAULTS;
   }
 
-  /** Whether the office's configuration in force lets the engine open story PRs (DIPO-210). */
-  #opensPrs(officeId: OfficeId): boolean {
-    return this.#config(officeId).storyPr.open;
+  /**
+   * The configuration the run started with (the DIPO-303 review): its snapshot laid on the
+   * configuration in force, which a run without a snapshot reads alone.
+   */
+  #runConfig(officeId: OfficeId, run: StoredRun): OfficeConfig {
+    const office = this.#offices.get(officeId)?.office ?? this.#deps.offices.get(officeId);
+    return office === undefined
+      ? this.#config(officeId)
+      : runConfigOf(office, run, this.#config(officeId));
+  }
+
+  /** Whether the run's configuration snapshot lets the engine open its story PR (DIPO-210). */
+  #opensPrs(officeId: OfficeId, run: StoredRun): boolean {
+    return this.#runConfig(officeId, run).storyPr.open;
   }
 
   async #sync(officeId: OfficeId, state: Polled, runId: RunId): Promise<void> {
-    if (!this.#opensPrs(officeId)) return;
     const office = state.office;
     const run = findRun(office, runId);
     if (run === null || run.key === null || run.worktree === null || run.branch === null) return;
+    if (!this.#opensPrs(officeId, run)) return;
     const key = run.key;
     try {
       const facts = await this.#deps.git.read(officeId, {
@@ -440,7 +459,7 @@ export class StoryPrs {
       const watch = state.watch.get(runId);
       const checks = requiredCheckStates(
         watch?.head === facts.head ? watch.reports : [],
-        this.#config(officeId).mergeSlot.requiredChecks,
+        this.#runConfig(officeId, run).mergeSlot.requiredChecks,
       );
       const box = this.#deps.boxRun?.(officeId, run) === true;
       const reviewed = latestVerdictOfRun(office, runId);
@@ -452,6 +471,7 @@ export class StoryPrs {
           checks,
           review: reviewed === null ? null : reviewOfVerdict(reviewed),
           ...(box ? { verify: "ci" as const } : {}),
+          ...(this.#deps.mergesStories === true ? { merge: "dipo" as const } : {}),
           ...(box && noCiRan(office, runId, facts.head) ? { noCi: true } : {}),
         },
       );
@@ -672,8 +692,10 @@ export class StoryPrs {
   ): Promise<void> {
     const office = state.office;
     const run = findRun(office, stored.runId);
-    if (run === null || !storyInReview(office, stored.key)) return;
-    const config = this.#config(officeId);
+    // A story in the merge slot is Done on its branch (the close-out) and still watched (DIPO-150).
+    if (run === null) return;
+    if (!storyInReview(office, stored.key) && !runInSlot(office, run.runId)) return;
+    const config = this.#runConfig(officeId, run);
     const names = config.mergeSlot.requiredChecks;
     const now = this.#deps.clock.now();
     let watch = state.watch.get(stored.runId);
@@ -874,7 +896,7 @@ export class StoryPrs {
     repo: string,
     reports: readonly RequiredCheck[],
   ): Promise<CiFeedbackItem[]> {
-    const config = this.#config(officeId);
+    const config = this.#runConfig(officeId, run);
     const budgets = config.prompt.budgets.feedbackItem as Readonly<Record<string, number>>;
     const options = {
       itemMax: (run.tier === null ? undefined : budgets[run.tier]) ?? budgets.M ?? 3_000,
