@@ -17,8 +17,9 @@
 // its story's status in `_base`, which the story index's fetch keeps at `<remote>/<base>`, read
 // with the Backlog CLI. A Done there wins over the branch status: a claim with a live worker is
 // flagged once and released when its run next ends; a parked or idle one is released as
-// `done-elsewhere` and its PR, worktree and branch settled (`done-elsewhere.ts`). Each poll first
-// settles the released rows a crash left unsettled.
+// `done-elsewhere` and its PR, worktree and branch settled (`done-elsewhere.ts`). A claim whose own
+// story PR dipo recorded merged is never Done elsewhere (DIPO-332): it is Done through its own
+// branch, and torn down as above. Each poll first settles the released rows a crash left unsettled.
 
 import type { Clock, OfficeId, TimerHandle } from "@dipsaus-orchestrator/contract";
 
@@ -49,7 +50,7 @@ import {
 } from "./done-elsewhere";
 import { type ClaimRecord, liveClaims } from "./records";
 import type { SlotTable } from "./slots";
-import { detectDone, tearDown, type TeardownDeps, TEARDOWN_NOTICES } from "./teardown";
+import { detectDone, ownMergedPr, tearDown, type TeardownDeps, TEARDOWN_NOTICES } from "./teardown";
 
 /** The load step's name in the registry. */
 export const TEARDOWN_STEP = "worktree.teardown";
@@ -219,10 +220,15 @@ export class StoryTeardown {
     deps: TeardownDeps,
     claim: ClaimRecord,
   ): Promise<"open" | "kept" | "tornDown" | "released"> {
-    const check = await detectDone({ git: deps.git, host: this.#deps.host }, claim);
+    const check = await detectDone(
+      { git: deps.git, host: this.#deps.host, office: state.office },
+      claim,
+    );
     if (!check.done) {
-      // Not Done through its own branch: a Done on the base wins (DIPO-161).
-      const elsewhere = await this.#doneElsewhere(state, deps, claim);
+      // Not Done through its own branch: a Done on the base wins (DIPO-161). A story whose own PR
+      // merged is Done through its own branch, whatever the branch did since (DIPO-332).
+      const own = ownMergedPr(state.office, claim);
+      const elsewhere = own === null ? await this.#doneElsewhere(state, deps, claim) : null;
       if (elsewhere !== null) return elsewhere;
       if (check.problem !== undefined) {
         this.#tell(state, deps, claim, "warn", check.problem.code, check.problem.text);

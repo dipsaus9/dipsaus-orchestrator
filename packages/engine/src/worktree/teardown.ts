@@ -3,7 +3,8 @@
 //
 // Done is detected in one of two ways, never by ancestry:
 // - the host reports a merged PR whose head is the story branch, into the claim's base, and whose
-//   head commit is the local branch tip (or the local branch is already gone);
+//   head commit is the local branch tip (or the local branch is already gone); without the host's
+//   answer, the claim's own story PR that dipo recorded merged counts the same (DIPO-332);
 // - `git merge-tree --write-tree origin/<base> <branch>` exits 0 and prints the tree of
 //   `origin/<base>`: the branch adds nothing new. A branch still at the commit it started from has
 //   nothing of its own and is never Done this way.
@@ -11,7 +12,8 @@
 // Teardown runs as one item of the office git queue. The branch must still be at the tip the
 // detection judged; a branch that moved since keeps everything. Then `claims.teardown_started_at`
 // is recorded, the worktree unlocked (only a lock this claim holds, `dipo <run-id>`) and removed
-// with `git worktree remove <path>` without `--force`; the local branch is deleted only while it is
+// with `git worktree remove <path>` without `--force` (with it only for a worktree whose every
+// listed file only lags the branch, `lagging.ts`); the local branch is deleted only while it is
 // still at the judged tip (`git update-ref -d <ref> <tip>`, the forced delete of `branch -D` without
 // its race), then `git push <remote> --delete <branch>`, a branch the remote no longer has being
 // fine. A worktree git refuses to remove (dirty) or one locked by anyone else keeps everything: the
@@ -34,8 +36,10 @@ import { canonicalFuturePath } from "../git/paths";
 import { EXTERNAL_STEP_TIMEOUT_MS, type GitResult, isTimedOut } from "../git/runner";
 import { CodeHostError, type PrStateHost, repoOfRemoteUrl } from "../platform/host";
 import { forgetWorkerNotes } from "../prompts/notes";
+import { findStoryPr, type StoryPrRecord } from "../story-pr/records";
 
 import { notice, writeWith } from "./claim";
+import { type LagClaim, unlaggedPaths } from "./lagging";
 import { type ClaimRecord, markTeardownStarted, releaseClaim } from "./records";
 import type { SlotTable } from "./slots";
 
@@ -82,6 +86,29 @@ export interface DetectDeps {
   readonly git: OfficeGit;
   /** The code host; null where the office has none, so only `merge-tree` decides. */
   readonly host: PrStateHost | null;
+  /**
+   * The office, for the claim's own story PR as dipo recorded it (DIPO-332): a PR the PR poll
+   * recorded merged counts like the host's answer when the host gives none (no host, unreachable,
+   * or no merged PR found).
+   */
+  readonly office?: OfficeHandle;
+}
+
+/**
+ * The claim's own story PR when dipo recorded it merged into the claim's base from the claim's
+ * branch (DIPO-332): the story is Done on the base through its own branch, never elsewhere.
+ */
+export function ownMergedPr(
+  office: OfficeHandle,
+  claim: Pick<ClaimRecord, "runId" | "branch" | "base">,
+): StoryPrRecord | null {
+  const pr = findStoryPr(office, claim.runId);
+  return pr !== null &&
+    pr.state === "merged" &&
+    pr.branch === claim.branch &&
+    pr.base === claim.base
+    ? pr
+    : null;
 }
 
 /** What the detection reads from git in one queue item. */
@@ -98,16 +125,7 @@ interface BranchFacts {
 
 /** Detects whether the claimed story is Done; see the file comment for the two ways. */
 export async function detectDone(deps: DetectDeps, claim: ClaimRecord): Promise<DoneCheck> {
-  const { remote } = deps.git.settings;
-  const facts = await deps.git.run(async (git): Promise<BranchFacts> => {
-    const url = await remoteUrl(git, remote);
-    return {
-      url,
-      baseRef: url === null ? `refs/heads/${claim.base}` : `refs/remotes/${remote}/${claim.base}`,
-      tip: await revParse(git, `refs/heads/${claim.branch}`),
-      worktreeGone: deps.git.adminDirOf(claim.worktree) === null && !existsSync(claim.worktree),
-    };
-  });
+  const facts = await deps.git.run((git) => branchFacts(deps.git, git, claim));
   const gone = facts.tip === null && facts.worktreeGone;
   // A teardown this engine started and a crash interrupted: its git steps already ran.
   if (gone && claim.teardownStartedAt !== null) {
@@ -120,23 +138,27 @@ export async function detectDone(deps: DetectDeps, claim: ClaimRecord): Promise<
 
   let mergedElsewhere: number | null = null;
   const repo = facts.url === null ? null : repoOfRemoteUrl(facts.url);
+  let merged: Pick<StoryPrRecord, "number" | "url" | "headSha" | "base"> | null = null;
   if (deps.host !== null && repo !== null) {
     try {
-      const pr = await deps.host.findMergedPr(repo, claim.branch);
-      if (pr !== null && pr.base === claim.base) {
-        if (facts.tip === null || pr.headSha === facts.tip) {
-          return {
-            done: true,
-            evidence: { by: "host", number: pr.number, url: pr.url },
-            tip: facts.tip,
-          };
-        }
-        mergedElsewhere = pr.number;
-      }
+      merged = await deps.host.findMergedPr(repo, claim.branch);
     } catch (error) {
       // The host is unreachable or gh is unusable: merge-tree still decides, the next poll asks again.
       if (!(error instanceof CodeHostError)) throw error;
     }
+  }
+  // Without the host's answer, the PR dipo recorded merged (DIPO-332): after the base moved on, a
+  // squash-merged branch can conflict with it, so merge-tree alone no longer sees it Done.
+  if (merged === null && deps.office !== undefined) merged = ownMergedPr(deps.office, claim);
+  if (merged !== null && merged.base === claim.base) {
+    if (facts.tip === null || merged.headSha === facts.tip) {
+      return {
+        done: true,
+        evidence: { by: "host", number: merged.number, url: merged.url },
+        tip: facts.tip,
+      };
+    }
+    mergedElsewhere = merged.number;
   }
 
   if (gone) {
@@ -157,6 +179,36 @@ export async function detectDone(deps: DetectDeps, claim: ClaimRecord): Promise<
       text: `The PR #${mergedElsewhere} of ${claim.story} merged, but the local branch ${claim.branch} is at ${facts.tip ?? "(gone)"}, not at the head that merged, and holds changes the base does not have. dipo keeps the worktree and branch; check them by hand.`,
     },
   };
+}
+
+/** What the detection reads from git, inside the caller's queue item. */
+async function branchFacts(
+  officeGit: OfficeGit,
+  git: GitSession,
+  claim: ClaimRecord,
+): Promise<BranchFacts> {
+  const { remote } = officeGit.settings;
+  const url = await remoteUrl(git, remote);
+  return {
+    url,
+    baseRef: url === null ? `refs/heads/${claim.base}` : `refs/remotes/${remote}/${claim.base}`,
+    tip: await revParse(git, `refs/heads/${claim.branch}`),
+    worktreeGone: officeGit.adminDirOf(claim.worktree) === null && !existsSync(claim.worktree),
+  };
+}
+
+/**
+ * True when the claim's story is Done through its own branch without asking the host, inside the
+ * caller's queue item (DIPO-332): its own story PR recorded merged, or the `merge-tree` rule.
+ */
+export async function doneOnOwnBranchIn(
+  office: OfficeHandle,
+  officeGit: OfficeGit,
+  git: GitSession,
+  claim: ClaimRecord,
+): Promise<boolean> {
+  if (ownMergedPr(office, claim) !== null) return true;
+  return (await mergeTreeDone(git, await branchFacts(officeGit, git, claim), claim)).done;
 }
 
 /** The `merge-tree` rule (0010 section 7 "Conflict check" and "Merge and Done"). */
@@ -289,6 +341,8 @@ export type WorktreeOutcome =
  * the worktree (only a lock this claim holds), removes it with `git worktree remove` without
  * `--force` and unpins it. A worktree git refuses to remove or one locked by anyone else keeps
  * everything: the lock is put back and the start record cleared. A worktree already gone is fine.
+ * The one exception to "without `--force`" is a worktree whose every listed path only lags its
+ * branch (`unlaggedPaths`, DIPO-302 and DIPO-332): a box run's worktree after its parts.
  */
 export async function removeWorktree(
   deps: Pick<TeardownDeps, "office" | "git" | "clock">,
@@ -297,6 +351,7 @@ export async function removeWorktree(
 ): Promise<WorktreeOutcome> {
   const path = claim.worktree;
   const ours = claimLockReason(claim.runId);
+  const heads = recordedHeads(deps.office, claim);
   const mark = (at: number | null) =>
     deps.office.immediate(() => markTeardownStarted(deps.office, claim.runId, at));
   if (deps.git.adminDirOf(path) !== null) {
@@ -307,20 +362,21 @@ export async function removeWorktree(
       return {
         ok: false,
         why: `the worktree ${path} is locked by someone else (${lock === "" ? "no reason given" : lock})`,
-        files: await dirtyFiles(deps, git, claim),
+        files: await dirtyFiles(deps, git, claim, heads),
       };
     }
     // Recorded before the first step that removes anything, so a crash after it is resumable.
     mark(deps.clock.now());
     if (lock === ours) await git.ok(git.repository, ["worktree", "unlock", path]);
-    // Changes that only reflect the branch moving (DIPO-302) are not work; git would refuse them.
-    const moved =
+    // Changes that only reflect the branch moving are not work; git would refuse them. Only a
+    // worktree proven to hold nothing of its own is removed with `--force`.
+    const lagging =
       (await statusFiles(deps, git, path)).length > 0 &&
-      (await filesAtBranchMove(deps, git, claim));
+      (await unlaggedPaths(deps.git, git, claim, heads))?.length === 0;
     const removed = await git.step(git.repository, [
       "worktree",
       "remove",
-      ...(moved ? ["--force"] : []),
+      ...(lagging ? ["--force"] : []),
       path,
     ]);
     if (removed.code !== 0) {
@@ -331,7 +387,7 @@ export async function removeWorktree(
       return {
         ok: false,
         why: `git refused to remove the worktree ${path} (${removed.stderr.trim() || `exit ${removed.code}`})`,
-        files: await dirtyFiles(deps, git, claim),
+        files: await dirtyFiles(deps, git, claim, heads),
       };
     }
     deps.git.unpinWorktree(path);
@@ -403,16 +459,32 @@ async function removeAll(
 }
 
 /**
- * The files `git status` lists in the claim's worktree, or none when they only reflect the branch
- * moving (see `filesAtBranchMove`); empty when it cannot be read.
+ * The files of the claim's worktree that hold changes of its own: of the files `git status` lists,
+ * those that do not only lag the branch (`unlaggedPaths`), or every listed file when dipo cannot
+ * tell; empty when the worktree is clean, only lags, or cannot be read. `heads` are more commits
+ * dipo made on the branch (`recordedHeads`).
  */
 export async function dirtyFiles(
   deps: Pick<TeardownDeps, "git">,
   git: GitSession,
-  claim: Pick<ClaimRecord, "branch" | "startSha" | "worktree">,
+  claim: LagClaim,
+  heads: readonly string[] = [],
 ): Promise<string[]> {
   const status = await statusFiles(deps, git, claim.worktree);
-  return status.length === 0 || (await filesAtBranchMove(deps, git, claim)) ? [] : status;
+  if (status.length === 0) return [];
+  return (await unlaggedPaths(deps.git, git, claim, heads)) ?? status;
+}
+
+/**
+ * The heads dipo pushed for the claim's run (its story PR's last pushed head), so a worktree whose
+ * branch is already gone is still compared with the commits dipo made (DIPO-332).
+ */
+export function recordedHeads(
+  office: OfficeHandle,
+  claim: Pick<ClaimRecord, "runId" | "branch">,
+): string[] {
+  const pr = findStoryPr(office, claim.runId);
+  return pr === null || pr.branch !== claim.branch || pr.headSha === "" ? [] : [pr.headSha];
 }
 
 /** The files `git status` lists in the worktree at `path`; empty when it cannot be read. */
@@ -428,33 +500,6 @@ async function statusFiles(
     );
   } catch {
     return [];
-  }
-}
-
-/**
- * Whether the claim's worktree holds the start commit's files or the branch tip's, with no
- * untracked file (DIPO-302). A box run moves the branch with `update-ref` for each part and leaves
- * the worktree at the start commit, so `git status` lists the parts reversed as staged changes
- * while the files hold nothing new. Such a worktree is clean. False when it cannot be read.
- */
-export async function filesAtBranchMove(
-  deps: Pick<TeardownDeps, "git">,
-  git: GitSession,
-  claim: Pick<ClaimRecord, "branch" | "startSha" | "worktree">,
-): Promise<boolean> {
-  try {
-    const location = deps.git.worktreeLocation(claim.worktree);
-    const untracked = await git.ok(location, ["ls-files", "--others", "--exclude-standard", "-z"]);
-    if (untracked !== "") return false;
-    const tip = await revParse(git, `refs/heads/${claim.branch}`);
-    for (const commit of [claim.startSha, tip]) {
-      if (commit === null) continue;
-      const changed = await git.ok(location, ["diff", "--name-only", "-z", commit]);
-      if (changed === "") return true;
-    }
-    return false;
-  } catch {
-    return false;
   }
 }
 

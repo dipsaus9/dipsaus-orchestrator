@@ -5,6 +5,9 @@
 //
 // - A claim whose worker is live (its run active, or a worker host not ended) is not stopped: it is
 //   flagged once (a DONE ELSEWHERE desk item and a notice) and released when the run next ends.
+// - A claim Done through its own branch (its story PR recorded merged, or `git merge-tree` finding
+//   nothing new on it) is left to the Done poll, which tears it down as `done` (DIPO-332): after
+//   the merge slot merged a PR, the next index pass reads the story Done on `_base` too.
 // - A parked or idle claim is checked again in one item of the office git queue (still live, its
 //   run ended, `_base` still at the pass's commit, else it is retried after a reindex, DIPO-226),
 //   which also reads the base commit that last changed the task file. Then it is released as
@@ -37,7 +40,7 @@ import {
   settlePending,
 } from "../worktree/done-elsewhere";
 import { type ClaimRecord, findClaim, liveClaimOf, liveClaims } from "../worktree/records";
-import { DONE_RELEASE_REASON } from "../worktree/teardown";
+import { DONE_RELEASE_REASON, doneOnOwnBranchIn } from "../worktree/teardown";
 
 import type { ReconcileDeps, ReconcileFinding } from "./reconcile";
 
@@ -182,6 +185,9 @@ async function releaseOne(
         .then((out) => out.trim())
         .catch(() => null);
       if (head !== pass.sha) return "baseMoved" as const;
+      // Done through its own branch (its PR merged, or merge-tree finds nothing new on it) is the
+      // Done poll's to tear down as `done`, never a release as done elsewhere (DIPO-332).
+      if (await doneOnOwnBranchIn(office, git, session, claim)) return "skipped" as const;
       return { commit: await lastTaskCommit(session, pass.sha, claim.story) };
     });
     if (checked === "skipped") return "none";

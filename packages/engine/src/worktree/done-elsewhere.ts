@@ -15,9 +15,10 @@
 //   commit that last changed the task file. The port slot is freed after it.
 // - `settleDoneElsewhere`, after the release (and again after a crash, for a released row not yet
 //   settled): dipo's open story PR is closed with a comment naming that commit; the worktree is
-//   removed when clean and kept when it holds uncommitted or untracked files; the branch is deleted
-//   locally and remotely when `git merge-tree` shows it adds nothing to the base, else kept and
-//   recorded in `released_branches` with reason `done-elsewhere`. Anything kept is the row's
+//   removed when clean or when it only lags its branch (`lagging.ts`, DIPO-332) and kept when it
+//   holds changes of its own; the branch is deleted locally and remotely when `git merge-tree`
+//   shows it adds nothing to the base and its worktree is gone, else kept, and recorded in
+//   `released_branches` with reason `done-elsewhere` when it adds commits. Anything kept is the row's
 //   leftovers: the commits not on the base and the dirty files, one LEFTOVERS desk item with the
 //   action `dipo discard <id>`, and a notice. Leftovers are never deleted automatically.
 //
@@ -57,7 +58,7 @@ import {
   repoOfPrUrl,
 } from "./release";
 import type { SlotTable } from "./slots";
-import { dirtyFiles, removeWorktree } from "./teardown";
+import { dirtyFiles, recordedHeads, removeWorktree } from "./teardown";
 
 /** The release reason of a claim whose story is Done on the base through another branch. */
 export const DONE_ELSEWHERE_REASON = "done-elsewhere";
@@ -514,10 +515,14 @@ export async function settleDoneElsewhere(
       if (!removed.ok) {
         worktreeKept = true;
         files = [...removed.files];
-        if (files.length === 0) files = await dirtyFiles(deps, git, claim);
+        if (files.length === 0) {
+          files = await dirtyFiles(deps, git, claim, recordedHeads(deps.office, claim));
+        }
       }
     }
-    const branch = await settleBranch(deps, git, row);
+    // A kept worktree keeps its branch too (DIPO-332): deleting it would leave the worktree on a
+    // branch that no longer exists, every file listed as added.
+    const branch = await settleBranch(deps, git, row, { mayDelete: !worktreeKept });
     return { worktreeKept, files, ...branch };
   });
   const at = deps.clock.now();
@@ -632,12 +637,15 @@ async function closePr(deps: DoneElsewhereDeps, row: DoneElsewhereRecord): Promi
  * The branch: deleted locally and on the remote when `merge-tree` shows it adds nothing to the
  * base, else kept with its commits not on the base. A remote tip with commits that are neither on
  * the local branch nor on the base keeps both, with the remote's commits not on the base listed,
- * so no remote commit is deleted unlisted. A branch already gone is nothing kept.
+ * so no remote commit is deleted unlisted. A branch already gone is nothing kept. Without
+ * `mayDelete` (its worktree is kept) a branch that adds nothing stays where it is, not recorded as
+ * kept: `dipo discard` removes it with the worktree.
  */
 async function settleBranch(
   deps: DoneElsewhereDeps,
   git: GitSession,
   row: DoneElsewhereRecord,
+  options: { readonly mayDelete: boolean },
 ): Promise<{
   readonly branchKept: boolean;
   readonly commits: LostCommit[];
@@ -654,6 +662,7 @@ async function settleBranch(
       remoteProblem: null,
     };
   }
+  if (!options.mayDelete) return { branchKept: false, commits: [], remoteProblem: null };
   const remote = await remoteBranchOf(deps, git, row.branch, tip, row.base);
   if (remote.kind === "tip" && !remote.covered) {
     return {
