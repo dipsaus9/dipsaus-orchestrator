@@ -637,7 +637,7 @@ describe("CI as the verify of a box run", () => {
           "- verify: CI on `aaaaaaaa`; dipo runs no verify of its own for a box run",
         );
         expect(body).not.toContain("verify: passed");
-        expect(body).toContain("- merge: dipo merges after review and green required checks");
+        expect(body).toContain("- merge: the maintainer merges; dipo does not merge story PRs yet");
       },
       { box: true },
     );
@@ -757,7 +757,7 @@ describe("an office whose story PRs get no CI", () => {
           "- required checks: none reported for `aaaaaaaa`, so no CI ran; the review decides",
         );
         expect(w.host.updates.at(-1)?.body).toContain(
-          "- merge: dipo merges after review; no CI ran",
+          "- merge: the maintainer merges; dipo does not merge story PRs yet; no CI ran",
         );
 
         // Final: no more check reads, no ci.stuck, also past the checks wait.

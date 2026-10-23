@@ -101,6 +101,9 @@ export {
 } from "./feedback-items";
 export type { PlannedItem, StoredFeedbackItem } from "./feedback-items";
 export {
+  deliverFixRound,
+  FIX_LIFT_TRIES,
+  FIX_ROUNDS_RECOVERY_STEP,
   FIX_NOTICES,
   FIX_ROUND_TAG,
   FixRounds,
@@ -242,9 +245,31 @@ export type {
   ParkRequest,
   ParkWriter,
   BranchUnpark,
+  ParkBranchFacts,
   UnparkBranchRequest,
   UnparkWriter,
 } from "./park";
+// The structured summary on park, resume and close, and a handoff's open feedback (DIPO-154).
+export {
+  finalSummaryFacts,
+  finalSummaryOf,
+  grantText,
+  oneLine,
+  renderFinalSummary,
+  renderParkBlock,
+  resumeLine,
+  runSummaryFacts,
+  summaryDate,
+} from "./summary";
+export type { FinalSummaryFacts, ParkBlockFacts, ResumeLineFacts } from "./summary";
+export {
+  ANSWERED_BY,
+  answered,
+  openFeedbackOf,
+  runAnswers,
+  storedFeedbackOf,
+} from "./open-feedback";
+export type { AnswerKind, RunAnswers, StoredFeedback } from "./open-feedback";
 // Verify and commit at In Review, the backstop after every turn and run outcomes (DIPO-49).
 export { backstopDetail, backstopEvidence, readBackstop } from "./backstop";
 export type { BackstopSnapshot } from "./backstop";
@@ -391,6 +416,7 @@ export type {
   NextSession,
   NextSessionOutcome,
   NextSessionRequest,
+  HandoffExtra,
   RunResumerDeps,
   RunStoryFacts,
 } from "./resume";

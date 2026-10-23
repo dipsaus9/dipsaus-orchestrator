@@ -46,6 +46,7 @@ import {
   START_KINDS,
   waitingStarts,
 } from "../../src/run";
+import { storeDoneReport } from "../../src/run/report-data";
 import type { RunStoryFacts } from "../../src/run/resume";
 import { encode } from "../../src/workers/claude-cli/encode";
 import {
@@ -224,6 +225,8 @@ interface World {
   readonly warned: unknown[];
   /** The agents whose read-only copy the launcher was told to remove (DIPO-276). */
   readonly finished: string[];
+  /** What `onReviewed` heard: `<run> <agent or ->`. */
+  readonly reviewedRuns: string[];
   /** What the next session start answers; `started` by default. */
   next: (() => ReviewSessionOutcome) | null;
   /** The finisher's backstop parks the next turn when set. */
@@ -238,6 +241,7 @@ function world(): World {
   const sent: World["sent"] = [];
   const warned: unknown[] = [];
   const finished: string[] = [];
+  const reviewedRuns: string[] = [];
   const state: { next: World["next"]; backstop: string | null } = { next: null, backstop: null };
   let reviews: Reviews | null = null;
   const base: RunOutcomesPort = {
@@ -343,6 +347,7 @@ function world(): World {
       }),
     },
     warn: (message, fields) => warned.push({ message, fields }),
+    onReviewed: (_office, run, agent) => reviewedRuns.push(`${run} ${agent ?? "-"}`),
   });
   reviews = built;
   // As `composeRuns` wires them: pending reviews and the review starter in the reviewer place.
@@ -360,6 +365,7 @@ function world(): World {
     sent,
     warned,
     finished,
+    reviewedRuns,
     get next() {
       return state.next;
     },
@@ -607,6 +613,29 @@ describe("a pending review (0019 sections 6 and 12)", () => {
     const second = await reviewStarts(s);
     expect(second.message).toContain("<previous_findings>");
     expect(second.message).toContain("total subtracts instead of adding.");
+  });
+
+  it("gives the reviewer the test-plan statuses and deviations of the worker's last done report (DIPO-254)", async () => {
+    const s = inReview("DIPO-1", "tree-1");
+    heads.set(s.run, "tree-1");
+    w.office.immediate(() => {
+      storeDoneReport(w.office, s.run, {
+        testPlan: [{ n: 1, status: "not-done", evidence: "an older report" }],
+        at: now(),
+      });
+      storeDoneReport(w.office, s.run, {
+        testPlan: [{ n: 1, status: "done", evidence: "test/greet.test.ts: greets" }],
+        deviations: [{ where: "criterion #1", what: "prints Hi", why: "the style guide" }],
+        at: now(),
+      });
+    });
+    const session = await reviewStarts(s);
+    expect(session.message).toContain(
+      "<worker_report>\nWhat the worker reported with its last done",
+    );
+    expect(session.message).toContain("- #1 done: test/greet.test.ts: greets");
+    expect(session.message).toContain("- criterion #1: prints Hi Why: the style guide");
+    expect(session.message).not.toContain("an older report");
   });
 });
 
@@ -1108,5 +1137,33 @@ describe("a reviewer that ends without a verdict (0019 section 4)", () => {
     expect(events("story.state").at(-1)).toMatchObject({
       data: { story: "DIPO-1", from: "In Review", to: "Parked" },
     });
+  });
+});
+
+describe("a run that ends reviewed hands its head to the fix rounds (DIPO-148)", () => {
+  it("after the reviewer's exit, and when a new head takes its tree's blocked verdict without a round", async () => {
+    const s = inReview("DIPO-1", "tree-1");
+    heads.set(s.run, "tree-1");
+    const session = await reviewStarts(s);
+    await turn(session, UNMET);
+    expect(x.reviewedRuns).toEqual([]);
+    await exits(session);
+    expect(x.reviewedRuns).toEqual([`${s.run} ${session.agent}`]);
+
+    // A head that changed only the task file: In Review again on the blocked tree.
+    write(() => {
+      w.office.run(
+        `update verify_results set code_tree_key = null where office_id = $office_id and run_id = $run`,
+        { run: s.run },
+      );
+      w.office.run(
+        `update runs set end_kind = $kind where office_id = $office_id and run_id = $run`,
+        { run: s.run, kind: IN_REVIEW_END },
+      );
+    });
+    expect(await x.places.drain(officeId())).toBe(0);
+    expect(x.sessions).toHaveLength(1);
+    expect(findRun(w.office, s.run)).toMatchObject({ endKind: REVIEWED_END });
+    expect(x.reviewedRuns).toEqual([`${s.run} ${session.agent}`, `${s.run} -`]);
   });
 });

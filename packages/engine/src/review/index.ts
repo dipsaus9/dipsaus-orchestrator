@@ -1,13 +1,18 @@
 // The review verdict (DIPO-146; 0019 sections 5 and 6): reviewer reports validated by code, the
 // verdict computed from them, and verdicts stored as review gates keyed on the code tree key.
 
+export { REVIEW_COMMENT_MAX, redactComment, reviewComment } from "./comment";
+export type { CommentFacts } from "./comment";
 export { parseStoryDiff } from "./diff";
 export type { DiffFile, StoryDiff } from "./diff";
 export {
   recordReviewCommentUrl,
   recordReviewOverride,
   recordReviewVerdict,
+  latestVerdictOfRun,
   reviewDecidedEntry,
+  reviewerEffort,
+  uncommentedVerdicts,
   reviewSummary,
   reviewVerdictForTree,
   reviewVerdictOfGate,

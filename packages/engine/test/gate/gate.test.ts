@@ -17,10 +17,12 @@ import {
   block,
   BRANCH,
   config,
+  DEFAULT_CONFIG,
   description,
   ID,
   input,
   OUTCOME,
+  PASSING_BLOCK,
   PASSING_STORY,
 } from "./fixtures";
 
@@ -35,6 +37,42 @@ const PLAN = [
   '      check: "the export writes one line per row"',
 ];
 const withBlock = (...lines: string[]) => description(block(...lines));
+
+interface PlanEntry {
+  readonly kind: "automated" | "manual";
+  readonly check: string;
+  readonly expect?: string;
+}
+
+/** A description whose field block has the given test plan entries (R29, DIPO-251). */
+const withPlan = (...entries: PlanEntry[]) =>
+  withBlock(
+    `branch: "${BRANCH}"`,
+    ...UNKNOWNS,
+    "test_plan:",
+    "  entries:",
+    ...entries.flatMap((entry) => [
+      `    - kind: "${entry.kind}"`,
+      `      check: ${JSON.stringify(entry.check)}`,
+      ...(entry.expect === undefined ? [] : [`      expect: ${JSON.stringify(entry.expect)}`]),
+    ]),
+  );
+const automated = (check: string): PlanEntry => ({ kind: "automated", check });
+
+/** The R29 warning for entry `n` naming `name`; R29 warns and never fails (2026-10-22). */
+const uncovered = (n: number, name: string) =>
+  `ready ${ID} warning R29: test plan entry #${n} names ${name}, which no Reference covers; add it to the References or drop it from the plan`;
+/** The R29 warning for a bare name when the base file list is unknown. */
+const unknownBase = (n: number, name: string) =>
+  `ready ${ID} warning R29: test plan entry #${n} names ${name}; the base file list is unknown, so only a Reference file of that name covers it; add it to the References or drop it from the plan`;
+const warnings = (result: GateResult) => (result.warnings ?? []).map((warning) => warning.message);
+
+/** The R30 reason for the phrase and the part it misses. */
+const R30_OLD = "what the old barrier caught and a test for each";
+const R30_BYPASS = "the bypass forms to test (wrappers, quoting, indirection, chaining)";
+const R30_CLOSED = "a fail-closed test against the real path";
+const barrier = (phrase: string, part: string) =>
+  `${prefix("R30")}title or outcome names a security barrier ("${phrase}") and no criterion covers ${part}; add a criterion for it`;
 
 interface Case {
   readonly name: string;
@@ -395,6 +433,15 @@ const CASES: readonly Case[] = [
     ],
   },
   {
+    name: "R30 security story without the criteria parts",
+    input: input({ title: "Replace the deny rule for gh" }),
+    expected: [
+      barrier("deny rule", R30_OLD),
+      barrier("deny rule", R30_BYPASS),
+      barrier("deny rule", R30_CLOSED),
+    ],
+  },
+  {
     name: "R28 labelled dropped and on-hold, one failure each",
     input: input({ labels: ["tier:M", "dropped", "on-hold"] }),
     expected: [
@@ -429,6 +476,7 @@ describe("evaluateGate", () => {
       CASES.flatMap((c) => evaluateGate(c.input, c.mode ?? "ready").failures.map((f) => f.rule)),
     );
     covered.add("R12"); // its own table below
+    covered.add("R29"); // warns only, never fails: its own block below
     expect([...covered].toSorted()).toEqual([...GATE_RULES].toSorted());
   });
 
@@ -881,5 +929,286 @@ describe("R27 maintainer steps", () => {
     expect(
       evaluateGate({ ...story, config: config({ maintainerStepPhrases: [] }) }, "ready").failures,
     ).toEqual(evaluateGate(story, "ready").failures.filter((failure) => failure.rule !== "R27"));
+  });
+});
+
+// R29 (DIPO-251): every path and bare test file name of an automated test plan entry is covered by
+// a Reference. Three M1 runs on 2026-10-20 had plans their References could not deliver. R29 only
+// warns (maintainer decision of 2026-10-22): References are a forecast (0021 section 13).
+const r29 = (story: Partial<Parameters<typeof input>[0]>, baseFiles?: readonly string[]) =>
+  warnings(evaluateGate(input(story, baseFiles === undefined ? {} : { baseFiles }), "ready"));
+
+describe("R29 test plan files inside the References", () => {
+  const DAEMON_TEST = "packages/daemon/test/unit/x.test.ts";
+  const daemonPlan = withPlan(automated(`(unit) ${DAEMON_TEST}: the poll runs once`));
+
+  it("warns about an uncovered path, naming the entry and the path, and not under a directory Reference", () => {
+    expect(r29({ description: daemonPlan })).toEqual([uncovered(1, DAEMON_TEST)]);
+    expect(
+      r29({ description: daemonPlan, references: ["packages/export/", "packages/daemon/test/"] }),
+    ).toEqual([]);
+    // The prefix rule works on segment boundaries, with or without the trailing slash.
+    expect(r29({ description: daemonPlan, references: ["packages/daemon/test"] })).toEqual([]);
+    expect(r29({ description: daemonPlan, references: [DAEMON_TEST] })).toEqual([]);
+    expect(r29({ description: daemonPlan, references: ["packages/daemon/te"] })).toEqual([
+      uncovered(1, DAEMON_TEST),
+    ]);
+  });
+
+  it("covers a directory token by a Reference inside it, as two colliding scope paths", () => {
+    const plan = withPlan(automated("(unit) every test under packages/export/ passes"));
+    expect(r29({ description: plan, references: ["packages/export/rows.ts"] })).toEqual([]);
+    expect(r29({ description: plan, references: ["docs/export.md"] })).toEqual([
+      uncovered(1, "packages/export/"),
+    ]);
+  });
+
+  it("covers a bare test file name by a file Reference of that name", () => {
+    const plan = withPlan(automated("(unit) plan.test.ts: the plan keeps its order"));
+    expect(
+      r29({ description: plan, references: ["packages/engine/test/workers/plan.test.ts"] }),
+    ).toEqual([]);
+  });
+
+  it("covers a bare test file name by a Reference directory that holds a file of that name", () => {
+    const plan = withPlan(automated("(unit) plan.test.ts: the plan keeps its order"));
+    const references = ["packages/engine/test/workers/"];
+    const files = [
+      "packages/engine/src/workers/plan.ts",
+      "packages/engine/test/workers/plan.test.ts",
+    ];
+    expect(r29({ description: plan, references }, files)).toEqual([]);
+    // A file of that name outside every Reference directory does not cover it.
+    expect(r29({ description: plan, references: ["packages/engine/test/run/"] }, files)).toEqual([
+      uncovered(1, "plan.test.ts"),
+    ]);
+  });
+
+  it("warns about an uncovered bare test file name, and says so when the base file list is unknown", () => {
+    const plan = withPlan(automated("(unit) plan.test.ts: the plan keeps its order"));
+    expect(r29({ description: plan }, ["packages/export/plan.ts"])).toEqual([
+      uncovered(1, "plan.test.ts"),
+    ]);
+    expect(r29({ description: plan, references: ["packages/engine/test/workers/"] })).toEqual([
+      unknownBase(1, "plan.test.ts"),
+    ]);
+    // A known but empty list is not unknown.
+    expect(r29({ description: plan }, [])).toEqual([uncovered(1, "plan.test.ts")]);
+    // A file Reference of that name covers it without the list.
+    expect(r29({ description: plan, references: ["packages/engine/test/plan.test.ts"] })).toEqual(
+      [],
+    );
+  });
+
+  it("exempts a manual entry, a check without a path or test file name, and a spike with no test plan", () => {
+    const manual: PlanEntry = {
+      kind: "manual",
+      check: `Run the daemon and open ${DAEMON_TEST}`,
+      expect: "the poll runs once",
+    };
+    expect(r29({ description: withPlan(manual) })).toEqual([]);
+    expect(
+      r29({ description: withPlan(automated("the export writes one line per row, and/or more")) }),
+    ).toEqual([]);
+    expect(evaluateGate(input(SPIKE_STORY), "ready").failures).toEqual([]);
+  });
+
+  it("reads paths inside code spans and brackets, once per entry, and numbers entries as the plan does", () => {
+    const plan = withPlan(
+      automated("the export writes one line per row"),
+      automated(
+        `(unit) \`${DAEMON_TEST}\` and (${DAEMON_TEST}), then tools/recordings/scenarios.ts.`,
+      ),
+    );
+    expect(r29({ description: plan })).toEqual([
+      uncovered(2, DAEMON_TEST),
+      uncovered(2, "tools/recordings/scenarios.ts"),
+    ]);
+  });
+
+  it("checks a ./ path as repo-relative, and leaves absolute, home, URL, glob, parent and backlog paths alone", () => {
+    const plan = withPlan(
+      automated(
+        "./packages/daemon/x.ts, /etc/zprofile, ~/.bun/x.ts, https://example.com/a.html, packages/*/x.ts, ../other/x.ts and backlog/tasks/x.md",
+      ),
+    );
+    expect(r29({ description: plan })).toEqual([uncovered(1, "./packages/daemon/x.ts")]);
+    expect(r29({ description: plan, references: ["packages/daemon/"] })).toEqual([]);
+  });
+
+  it("reports nothing when the field block fails R02, and warns in both modes without failing", () => {
+    // An unknown field fails R02, so the plan below it is not read.
+    const invalid = withBlock(
+      `branch: "${BRANCH}"`,
+      'owner: "me"',
+      "test_plan:",
+      "  entries:",
+      '    - kind: "automated"',
+      `      check: "${DAEMON_TEST}"`,
+    );
+    const invalidResult = evaluateGate(input({ description: invalid }), "ready");
+    expect(invalidResult.failures.map((failure) => failure.rule)).toEqual(["R02"]);
+    expect(invalidResult).not.toHaveProperty("warnings");
+
+    // An uncovered path passes the gate in both modes, with the warning beside the verdict.
+    expect(evaluateGate(input({ description: daemonPlan }), "ready")).toEqual({
+      mode: "ready",
+      passed: true,
+      failures: [],
+      warnings: [{ rule: "R29", message: uncovered(1, DAEMON_TEST) }],
+    });
+    const ready = input({ status: "Ready", description: daemonPlan });
+    expect(evaluateGate(ready, "pickup")).toEqual({
+      mode: "pickup",
+      passed: true,
+      failures: [],
+      warnings: [{ rule: "R29", message: uncovered(1, DAEMON_TEST) }],
+    });
+
+    // A failing story keeps its failures; the warning never adds one.
+    const story = input({ labels: ["tier:M", "dropped"], description: daemonPlan });
+    const result = evaluateGate(story, "ready");
+    expect(messages(result)).toEqual([
+      `${prefix("R28")}labelled dropped: the maintainer set it aside; remove the label to make it Ready`,
+    ]);
+    expect(warnings(result)).toEqual([uncovered(1, DAEMON_TEST)]);
+    expect(gateText("R29", uncovered(1, DAEMON_TEST))).toBe(
+      `test plan entry #1 names ${DAEMON_TEST}, which no Reference covers; add it to the References or drop it from the plan`,
+    );
+  });
+});
+
+// R30 (DIPO-251, from DIPO-260): a story that adds or replaces a guard, a deny rule, a sandbox
+// setting or a permission check names what the old barrier caught, the bypass forms and a
+// fail-closed test against the real path. DIPO-195 dropped a deny rule whose replacement missed
+// wrappers and quoting the old rule had caught.
+const OLD_CRITERION = "A test for each command the old rule caught still refuses it";
+const BYPASS_CRITERION =
+  "Tests cover the bypass forms: timeout and stdbuf wrappers, quoting and chaining";
+const CLOSED_CRITERION = "A fail-closed test runs the check against the real path, not a fake";
+const securityStory = (...texts: string[]) =>
+  input({
+    title: "Replace the gh deny rule with a code check",
+    acceptanceCriteria: texts.map((text, i) => ({ index: i + 1, checked: false, text })),
+  });
+const r30 = (story: GateInput, mode: GateMode = "ready") =>
+  messages(evaluateGate(story, mode)).filter((message) => message.includes(" failed R30: "));
+
+describe("R30 security-sensitive stories", () => {
+  it("passes a story whose criteria cover all three parts", () => {
+    expect(
+      evaluateGate(securityStory(OLD_CRITERION, BYPASS_CRITERION, CLOSED_CRITERION), "ready")
+        .failures,
+    ).toEqual([]);
+  });
+
+  it("fails once for each missing part, in part order", () => {
+    expect(r30(securityStory(BYPASS_CRITERION, CLOSED_CRITERION))).toEqual([
+      barrier("deny rule", R30_OLD),
+    ]);
+    expect(r30(securityStory(OLD_CRITERION, CLOSED_CRITERION))).toEqual([
+      barrier("deny rule", R30_BYPASS),
+    ]);
+    expect(r30(securityStory(OLD_CRITERION, BYPASS_CRITERION))).toEqual([
+      barrier("deny rule", R30_CLOSED),
+    ]);
+    expect(r30(securityStory("The check is written in TypeScript"))).toEqual([
+      barrier("deny rule", R30_OLD),
+      barrier("deny rule", R30_BYPASS),
+      barrier("deny rule", R30_CLOSED),
+    ]);
+  });
+
+  it("applies to a phrase in the Outcome and names the first listed phrase that matches", () => {
+    const story = input({
+      description: description(
+        PASSING_BLOCK,
+        "Outcome: the worker's permission check moves behind a new guard in the hook.",
+      ),
+    });
+    expect(r30(story)).toEqual([
+      barrier("guard", R30_OLD),
+      barrier("guard", R30_BYPASS),
+      barrier("guard", R30_CLOSED),
+    ]);
+  });
+
+  it("does not apply to a story that names no security phrase, or names one only in a criterion or a word", () => {
+    expect(r30(input())).toEqual([]);
+    expect(
+      r30(
+        input({
+          title: "Export rows to CSV",
+          acceptanceCriteria: [{ index: 1, checked: false, text: "The guard keeps rows" }],
+        }),
+      ),
+    ).toEqual([]);
+    expect(r30(input({ title: "Export the guardrails report" }))).toEqual([]);
+  });
+
+  it("applies to the plural forms of the default phrases", () => {
+    const plurals: readonly (readonly [string, string])[] = [
+      ["Drop the gh deny rules", "deny rules"],
+      ["Add guards to the hook", "guards"],
+      ["Change the sandbox settings of the box", "sandbox settings"],
+      ["Move the permission checks into code", "permission checks"],
+    ];
+    for (const [title, phrase] of plurals) {
+      expect(r30(input({ title }))).toEqual([
+        barrier(phrase, R30_OLD),
+        barrier(phrase, R30_BYPASS),
+        barrier(phrase, R30_CLOSED),
+      ]);
+    }
+  });
+
+  it("exempts a spike, which ships no barrier", () => {
+    expect(r30(input({ ...SPIKE_STORY, title: "Decide the sandbox setting for the box" }))).toEqual(
+      [],
+    );
+  });
+
+  it("runs in both modes, a hard rule beside the R29 warning", () => {
+    const story = input({
+      title: "Replace the gh deny rule with a code check",
+      description: withPlan(automated("(unit) packages/daemon/x.test.ts: the hook refuses gh")),
+      acceptanceCriteria: [
+        { index: 1, checked: false, text: OLD_CRITERION },
+        { index: 2, checked: false, text: BYPASS_CRITERION },
+      ],
+    });
+    const result = evaluateGate(story, "ready");
+    expect(result.passed).toBe(false);
+    expect(messages(result)).toEqual([barrier("deny rule", R30_CLOSED)]);
+    expect(warnings(result)).toEqual([uncovered(1, "packages/daemon/x.test.ts")]);
+    expect(r30({ ...story, story: { ...story.story, status: "Ready" } }, "pickup")).toEqual([
+      barrier("deny rule", R30_CLOSED),
+    ]);
+  });
+
+  it("reads both phrase lists from the office configuration", () => {
+    const story = securityStory(OLD_CRITERION, BYPASS_CRITERION, CLOSED_CRITERION);
+    expect(r30({ ...story, config: config({ securityPhrases: [] }) })).toEqual([]);
+    expect(
+      r30({
+        ...story,
+        config: config({
+          securityCriteriaPhrases: {
+            ...DEFAULT_CONFIG.story.securityCriteriaPhrases,
+            failClosed: ["against production"],
+          },
+        }),
+      }),
+    ).toEqual([barrier("deny rule", R30_CLOSED)]);
+    expect(
+      r30({
+        ...input({ title: "Add a firewall rule" }),
+        config: config({ securityPhrases: ["firewall rule"] }),
+      }),
+    ).toEqual([
+      barrier("firewall rule", R30_OLD),
+      barrier("firewall rule", R30_BYPASS),
+      barrier("firewall rule", R30_CLOSED),
+    ]);
   });
 });

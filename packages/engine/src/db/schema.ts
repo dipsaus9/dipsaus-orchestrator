@@ -43,8 +43,9 @@ import { reviewVerdicts } from "./migrations/0039-review-verdicts";
 import { baseVerifies } from "./migrations/0040-base-verifies";
 import { runStepCiNone } from "./migrations/0041-run-step-ci-none";
 import { usageLive } from "./migrations/0042-usage-live";
-import { feedbackItems } from "./migrations/0043-feedback-items";
-import { parkResolvedNote } from "./migrations/0044-park-resolved-note";
+import { workerReportData } from "./migrations/0043-worker-report-data";
+import { feedbackItems } from "./migrations/0044-feedback-items";
+import { parkResolvedNote } from "./migrations/0045-park-resolved-note";
 
 /**
  * Software-wide tables (0007 section 3). Every other table is office-scoped and has `office_id`
@@ -123,6 +124,7 @@ create table offices (
   baseVerifies,
   runStepCiNone,
   usageLive,
+  workerReportData,
   feedbackItems,
   parkResolvedNote,
 ];

@@ -3,16 +3,15 @@ id: DIPO-256
 title: >-
   Show the worker its remaining budget, wrap up at 80% of a cap, and raise the
   tier caps
-status: Refined
+status: Ready
 assignee: []
 created_date: '2026-10-20 20:20'
-updated_date: '2026-10-22 18:16'
+updated_date: '2026-10-23 06:20'
 labels:
   - 'tier:M'
   - cutover
 milestone: m-1
 dependencies:
-  - DIPO-255
   - DIPO-285
   - DIPO-293
   - DIPO-294
@@ -67,4 +66,6 @@ test_plan:
 
 <!-- SECTION:NOTES:BEGIN -->
 2026-10-22: dropped the dependency on DIPO-149 (which now holds DIPO-291) to break a dependency cycle left by the M1 combine; that story now comes after this one.
+
+2026-10-22: the dependency on DIPO-255 was ordering for file overlap only and is dropped (maintainer: build in parallel, resolve overlaps at merge).
 <!-- SECTION:NOTES:END -->

@@ -77,7 +77,7 @@ describe("lazy office loading", () => {
           path: repo.dir,
           commonDir: join(repo.dir, ".git"),
         });
-        expect(seen[0]?.config?.version).toBe(10);
+        expect(seen[0]?.config?.version).toBe(11);
       },
       { fixture: BACKLOG_FIXTURE },
     );
@@ -211,7 +211,8 @@ describe("office load steps", () => {
 
 const OFFICE_YAML = join(".dipo", "office.yaml");
 const CLOSED = "version: 10\nstoryPr:\n  open: false\n";
-const OPEN = "version: 10\nstoryPr:\n  open: true\n";
+// Version 11 (DIPO-251) adds the R30 story phrases; the version 10 files take their defaults.
+const OPEN = "version: 11\nstoryPr:\n  open: true\nstory:\n  securityPhrases: [firewall rule]\n";
 const INVALID = "version: 10\ntimeouts:\n  workerStallMinutes: soon\n";
 
 interface Polled {
@@ -298,6 +299,9 @@ describe("a changed office.yaml on the base (DIPO-303)", () => {
   it("is in force after the next poll, while the checkout still has the old file", () =>
     withPolledOffice(async ({ repo, s, officeId, poll }) => {
       expect(s.manager.config(officeId)?.storyPr.open).toBe(false);
+      expect(s.manager.config(officeId)?.story.securityPhrases).toEqual(
+        OFFICE_DEFAULTS.story.securityPhrases,
+      );
       const hash = s.manager.configHash(officeId);
 
       await pushToBaseOnly(repo, OPEN);
@@ -305,6 +309,10 @@ describe("a changed office.yaml on the base (DIPO-303)", () => {
       expect(s.manager.config(officeId)?.storyPr.open).toBe(false);
       await poll();
       expect(s.manager.config(officeId)?.storyPr.open).toBe(true);
+      expect(s.manager.config(officeId)?.story.securityPhrases).toEqual(["firewall rule"]);
+      expect(s.manager.config(officeId)?.story.securityCriteriaPhrases).toEqual(
+        OFFICE_DEFAULTS.story.securityCriteriaPhrases,
+      );
       expect(s.manager.configHash(officeId)).not.toBe(hash);
       expect(s.manager.configBlocksRuns(officeId)).toEqual([]);
 

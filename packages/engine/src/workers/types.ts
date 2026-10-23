@@ -186,6 +186,35 @@ export interface WorkerProposal {
 }
 
 /**
+ * One test-plan entry as the worker reports it (0014 note of 2026-10-20, DIPO-254): its number in
+ * the story's test plan (field block order, from 1), whether it is done, and the evidence.
+ */
+export interface WorkerTestPlanEntry {
+  readonly n: number;
+  readonly status: "done" | "not-done" | "manual";
+  readonly evidence: string;
+}
+
+/** Where and why the change differs from a criterion or the story's context (DIPO-254). */
+export interface WorkerDeviation {
+  readonly where: string;
+  readonly what: string;
+  readonly why: string;
+}
+
+/**
+ * A note the worker proposes for a decision record (0008 section 1, 0014 section 2 and 0020
+ * section 11, notes of 2026-10-20): the decision file, the section heading and the text. dipo
+ * carries it as data, shows it to the maintainer, and never writes it to the decision records.
+ */
+export interface WorkerDecisionNote {
+  /** Repo-relative path of the decision file. */
+  readonly file: string;
+  readonly section: string;
+  readonly text: string;
+}
+
+/**
  * The report a worker returns at the end of a turn (0008 section 1, 0014): story done (`done`),
  * a question (`blocked` with `question`), blocked with a reason (`blocked`, the reason in
  * `summary`) and proposals (0021 section 7, W2 to W5). Every text in it was cleaned at the door.
@@ -201,7 +230,16 @@ export interface WorkerReport {
   readonly needsPermission?: { readonly tool: string; readonly action: string };
   /** At most three proposals (W5). */
   readonly proposals?: readonly WorkerProposal[];
+  /** One entry per test-plan entry of the story (DIPO-254). */
+  readonly testPlan?: readonly WorkerTestPlanEntry[];
+  /** At most ten deviations (DIPO-254). */
+  readonly deviations?: readonly WorkerDeviation[];
+  /** At most three notes proposed for decision records (DIPO-186). */
+  readonly decisionNotes?: readonly WorkerDecisionNote[];
 }
+
+/** What a tool call does, adapter-neutral (DIPO-186): a file edit or a shell command. */
+export type ToolEffect = "edit" | "shell";
 
 /** The longest `ReviewReport.summary` (0019 section 5). */
 export const REVIEW_SUMMARY_MAX = 1_500;
@@ -270,6 +308,12 @@ export type WorkerEvent =
        * opt-in `privacy.storeCommandBodies` (0007 section 8, DIPO-83).
        */
       readonly input?: string;
+      /**
+       * `tool` only (DIPO-186): what the call does, as the adapter knows its tools: `edit` changes
+       * a file through a file tool, `shell` runs a command (its command line is `input`). Absent
+       * for any other tool. The engine reads it to see whether a check ran after the last edit.
+       */
+      readonly effect?: ToolEffect;
       /**
        * `thinking` only (DIPO-96): how long one finished thinking block took, in milliseconds, when
        * the adapter knows it. Counts only: no thinking text or signature ever travels.

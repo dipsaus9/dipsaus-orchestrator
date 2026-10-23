@@ -1,4 +1,4 @@
-// Migration 43 (DIPO-148): `feedback_items` (retention tier S with its run): one row per feedback
+// Migration 44 (DIPO-148): `feedback_items` (retention tier S with its run): one row per feedback
 // item a fix round carries, unique per run, signature and head, its text within 3,000 characters.
 
 import { describe, expect, it } from "bun:test";
@@ -30,12 +30,12 @@ const insert = (
   values ('off-1', 'run-1', ${id}, '${fields.source ?? "ci"}', '${fields.signature ?? "sig-1"}',
     '${fields.head ?? "h1"}', 1, 0, 1, null, '${fields.text ?? "Required check ci-ok failed."}', 5)`;
 
-describe("migration 43 on a database at version 42", () => {
+describe("migration 44 on a database at version 43", () => {
   it("creates feedback_items with tier S, keeps the runs, and refuses a second row per signature and head", () =>
     withTempDir(async (dir) => {
       const old = await open(
         dir,
-        MIGRATIONS.filter((step) => step.version <= 42),
+        MIGRATIONS.filter((step) => step.version <= 43),
       );
       try {
         old.connection.immediate(() =>
@@ -55,7 +55,7 @@ describe("migration 43 on a database at version 42", () => {
       const state = await open(dir);
       try {
         const db = state.connection;
-        expect(MIGRATIONS.find((step) => step.version === 43)?.name).toBe("feedback items");
+        expect(MIGRATIONS.find((step) => step.version === 44)?.name).toBe("feedback items");
         expect(TABLE_RETENTION["feedback_items"]?.tier).toBe("S");
         expect(db.all("select run_id from runs")).toEqual([{ run_id: "run-1" }]);
         db.exec(insert(1));

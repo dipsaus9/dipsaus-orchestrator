@@ -1,4 +1,4 @@
-// Migration 43 (DIPO-148): `feedback_items` (0019 sections 8 and 16; retention tier S with its run).
+// Migration 44 (DIPO-148): `feedback_items` (0019 sections 8 and 16; retention tier S with its run).
 //
 // One row per feedback item a fix round carries to the worker: the run, the item's number in the
 // run, its source (`verify`, `ci`, `review`, `conflict` or `reject`), its signature (sha256 over the
@@ -12,7 +12,7 @@
 import type { SqlMigration } from "../migrations";
 
 export const feedbackItems: SqlMigration = {
-  version: 43,
+  version: 44,
   name: "feedback items",
   sql: `
 create table feedback_items (

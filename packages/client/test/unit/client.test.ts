@@ -359,6 +359,38 @@ describe("DipoClient reconnect", () => {
     expect(seen).toHaveLength(5);
   });
 
+  it("moves past an entry the daemon could not render, so a reconnect never asks for it again (DIPO-124)", async () => {
+    const { clock, transport, client } = await connected();
+    const office = "office:off_01J9ZK5Q8W3V4X6Y7Z8A9B0C1D" as StreamName;
+    const at = (seq: number): Cursor => ({ stream: office, epoch: "ep1", seq });
+    const seen: string[] = [];
+    const subscription = client.subscribe(office, {
+      after: at(1),
+      onEvent: (e) => seen.push(`${e.type}@${e.cursor.seq}`),
+    });
+    const first = transport.current;
+    first.deliver(reply(requestIdOf(first), { stream: office, from: at(1) }));
+    // The daemon sends an entry stored by an older binary that does not render as this notice.
+    first.deliver({
+      kind: "events",
+      events: [
+        {
+          cursor: at(2),
+          at: "2026-01-01T00:00:00.000Z",
+          type: "engine.notice",
+          data: { level: "error", code: "changelog.unrenderable", text: "skipped" },
+        },
+      ],
+    });
+    expect(subscription.cursor).toEqual(at(2));
+    first.drop();
+
+    clock.advance(500);
+    const second = accept(transport);
+    expect(second.last()).toMatchObject({ kind: "subscribe", stream: office, after: at(2) });
+    expect(seen).toEqual(["engine.notice@2"]);
+  });
+
   it("starts a subscription without a cursor at the reply's from", async () => {
     const { transport, client } = await connected();
     const subscription = client.subscribe(SOFTWARE, { onEvent: () => {} });

@@ -1,31 +1,47 @@
 // Stored Ready gate decisions (DIPO-71): the content hash covers the story fields the gate reads
 // and not free context, every rule result is stored with the hash, and the latest passing decision
-// for a hash is found.
+// for a hash is found. The base tree's file paths R29 reads are listed once per base commit and
+// passed in the gate input (DIPO-251).
 
 import { describe, expect, it } from "bun:test";
 
-import { StoryId } from "@dipsaus-orchestrator/contract";
+import { OfficeId, StoryId } from "@dipsaus-orchestrator/contract";
 import { withTempDir } from "@dipsaus-orchestrator/testkit";
 
+import { parseView } from "../../src/backlog/plain";
 import type { OfficeHandle } from "../../src/db/office";
+import type { GitSession } from "../../src/git/office";
 import {
+  BaseTreeCache,
   evaluateGate,
   findPassingDecision,
   gateContentHash,
   gateDecisionsOf,
   type GateMode,
   isStoryNotFound,
+  listTreeFiles,
   parseMilestones,
   ruleNamesFor,
   ruleResults,
   rulesFor,
   storeGateDecision,
+  treePaths,
+  WARNING_RULES,
 } from "../../src/gate";
+import { gateInputOf } from "../../src/gate/store/read";
 import { BacklogCommandError } from "../../src/backlog/runner";
 import { addStory, type StoryIdentity } from "../../src/stories/keys";
-import { readManifest } from "../backlog/helpers";
+import { readManifest, recorded } from "../backlog/helpers";
 import { addOffice, countRows, openTestState, type TestState } from "../commands/helpers";
-import { ACTIVE_TASKS, BRANCH, description, input, PASSING_BLOCK, PASSING_STORY } from "./fixtures";
+import {
+  ACTIVE_TASKS,
+  BRANCH,
+  DEFAULT_CONFIG,
+  description,
+  input,
+  PASSING_BLOCK,
+  PASSING_STORY,
+} from "./fixtures";
 
 describe("gate content hash", () => {
   const base = gateContentHash(PASSING_STORY);
@@ -91,10 +107,42 @@ describe("gate content hash", () => {
 describe("rule results", () => {
   for (const mode of ["ready", "pickup"] as const) {
     it(`names one rule per check of ${mode} mode`, () => {
-      expect(ruleNamesFor(mode)).toHaveLength(rulesFor(mode).length);
+      // R29 only warns, so it is named but not among the rules that fail (DIPO-251).
+      expect(ruleNamesFor(mode)).toHaveLength(rulesFor(mode).length + WARNING_RULES.length);
       expect(ruleNamesFor(mode)[0]).toBe(mode === "ready" ? "R01a" : "R01b");
     });
   }
+
+  it("stores an R29 warning on a passed R29 result and keeps the decision approved (DIPO-251)", () =>
+    withStory((t, office, story) => {
+      const plan = description(
+        [
+          "```dipo",
+          `branch: "${BRANCH}"`,
+          "unknowns: []",
+          "test_plan:",
+          "  entries:",
+          '    - kind: "automated"',
+          '      check: "(unit) packages/daemon/x.test.ts runs"',
+          "```",
+        ].join("\n"),
+      );
+      const decision = store(t, office, story, "pickup", { description: plan });
+      expect(decision.passed).toBe(true);
+      const r29 = decision.ruleResults.find((result) => result.rule === "R29");
+      expect(r29).toEqual({
+        rule: "R29",
+        passed: true,
+        messages: [],
+        warnings: [
+          "ready DIPO-7 warning R29: test plan entry #1 names packages/daemon/x.test.ts, which no Reference covers; add it to the References or drop it from the plan",
+        ],
+      });
+      expect(gateDecisionsOf(office, story.key)[0]?.ruleResults).toEqual(decision.ruleResults);
+      expect(
+        ruleResults(evaluateGate(input(), "ready")).some((result) => "warnings" in result),
+      ).toBe(false);
+    }));
 
   it("lists every rule with its failures, passed or not", () => {
     const result = evaluateGate(input({ references: [], milestone: "m-9" }), "pickup");
@@ -269,4 +317,86 @@ describe("stored decisions", () => {
       expect(findPassingDecision(office, story.key, hash)).toEqual(second);
       expect(findPassingDecision(office, story.key, "0".repeat(64))).toBeUndefined();
     }));
+});
+
+/** A git session that answers every `ok` step with `listing` and records the steps it ran. */
+function treeSession(listing: string): { session: GitSession; steps: string[][] } {
+  const steps: string[][] = [];
+  const session = {
+    repository: { kind: "repository", commonDir: "/x/.git" },
+    step: async () => ({ code: 0, stdout: listing, stderr: "" }),
+    ok: async (_location: unknown, args: readonly string[]) => {
+      steps.push([...args]);
+      return listing;
+    },
+  } as unknown as GitSession;
+  return { session, steps };
+}
+
+const SHA_A = "a".repeat(40);
+const SHA_B = "b".repeat(40);
+const LISTING = "packages/engine/test/workers/plan.test.ts\0docs/a b.md\0README.md\0";
+
+describe("the base tree's file paths (R29, DIPO-251)", () => {
+  it("are read from git's objects at the base commit, with the NUL-separated names as listed", async () => {
+    const { session, steps } = treeSession(LISTING);
+    expect(await listTreeFiles(session, SHA_A)).toEqual([
+      "packages/engine/test/workers/plan.test.ts",
+      "docs/a b.md",
+      "README.md",
+    ]);
+    expect(steps).toEqual([["ls-tree", "-r", "-z", "--name-only", "--full-tree", SHA_A]]);
+    expect(treePaths("")).toEqual([]);
+  });
+
+  it("are listed once per office and base commit, and again when the base moves", async () => {
+    const cache = new BaseTreeCache();
+    const office = OfficeId.parse("off_01J00000000000000000000000");
+    const other = OfficeId.parse("off_01J00000000000000000000001");
+    const { session, steps } = treeSession(LISTING);
+    const list = (commit: string) => listTreeFiles(session, commit);
+    const first = await cache.filesAt(office, SHA_A, list);
+    expect(await cache.filesAt(office, SHA_A, list)).toBe(first);
+    expect(steps).toHaveLength(1);
+    // Without a session to list with, only the list of that very commit is known.
+    expect(await cache.filesAt(office, SHA_A)).toBe(first);
+    expect(await cache.filesAt(office, SHA_B)).toBeUndefined();
+    await cache.filesAt(office, SHA_B, list);
+    expect(steps.map((step) => step.at(-1))).toEqual([SHA_A, SHA_B]);
+    await cache.filesAt(other, SHA_B, list);
+    expect(steps).toHaveLength(3);
+    expect(await cache.filesAt(office, SHA_A)).toBeUndefined();
+  });
+
+  it("are passed in the gate input, where R29 reads them, and leave the content hash alone", () => {
+    const view = parseView(recorded("task-view-full"));
+    const files = ["packages/engine/test/workers/plan.test.ts"];
+    const withFiles = gateInputOf(view, [], ["m-0"], DEFAULT_CONFIG, files);
+    expect(withFiles.baseFiles).toEqual(files);
+    expect(gateInputOf(view, [], ["m-0"], DEFAULT_CONFIG)).not.toHaveProperty("baseFiles");
+    expect(gateContentHash(withFiles.story)).toBe(
+      gateContentHash(gateInputOf(view, [], ["m-0"], DEFAULT_CONFIG).story),
+    );
+
+    const plan = description(
+      [
+        "```dipo",
+        `branch: "${BRANCH}"`,
+        "unknowns: []",
+        "test_plan:",
+        "  entries:",
+        '    - kind: "automated"',
+        '      check: "(unit) plan.test.ts keeps the order"',
+        "```",
+      ].join("\n"),
+    );
+    const story = { description: plan, references: ["packages/engine/test/workers/"] };
+    const r29 = (baseFiles?: readonly string[]) =>
+      (
+        evaluateGate(input(story, baseFiles === undefined ? {} : { baseFiles }), "ready")
+          .warnings ?? []
+      ).map((found) => found.rule);
+    expect(r29(files)).toEqual([]);
+    expect(r29()).toEqual(["R29"]);
+  });
 });

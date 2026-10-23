@@ -30,6 +30,7 @@ import {
   AppleContainerBoxes,
   appendEntries,
   BOX_INDEX_DIR,
+  baseStoryFacts,
   BoxCollisions,
   type BoxBuildNetwork,
   type BoxNetwork,
@@ -267,6 +268,12 @@ export interface DaemonRuns {
    * read-only copy of the pushed commit: at daemon start by the recovery step. Never rejects.
    */
   sweepReviewFolders(): Promise<string[]>;
+  /**
+   * The fix rounds' recovery (DIPO-148), at daemon start: a round whose session started before the
+   * stop is marked delivered, and every run that ended reviewed gets its round decided. Returns how
+   * many rounds it queued.
+   */
+  recoverFixRounds(): Promise<number>;
 }
 
 /** Apple `container` on `pathEnv`, by absolute path; undefined when it is not there. */
@@ -750,6 +757,8 @@ export function daemonRuns(options: DaemonRunsOptions): DaemonRuns {
     host: { home, uid, env },
     ...(options.work === undefined ? {} : { work: options.work }),
     ...(options.storyPr === undefined ? {} : { storyPr: options.storyPr }),
+    // The report gate reads the story's test plan on the office base (DIPO-186).
+    storyFacts: baseStoryFacts(options.base),
     // A box run has no backstop, scope check or verify of dipo's (DIPO-273, DIPO-299): its last
     // part is taken at done and its end claimed while its parts are held; CI is its verify.
     ...(boxed === null
@@ -1007,6 +1016,13 @@ export function daemonRuns(options: DaemonRunsOptions): DaemonRuns {
     isBoxRun,
     collisions,
     finishEndedBoxes,
+    recoverFixRounds: async () => {
+      let queued = 0;
+      for (const office of options.offices.loadedOffices()) {
+        queued += (await fixRounds?.recover(office)) ?? 0;
+      }
+      return queued;
+    },
     sweepReviewFolders: () =>
       sweepReviewFolders(realDir(options.tmpRoot), (runId, agent) =>
         reviewHostRuns(options.offices, runId, agent),

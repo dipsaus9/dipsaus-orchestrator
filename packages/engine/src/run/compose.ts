@@ -348,6 +348,11 @@ function buildOutcomes(
     ...given("boxRun", ports.boxRun),
     places: () => late.places ?? undefined,
     guard: outcomes.parts.support.guard,
+    // A round that cannot start and will not on its own parks the story (DIPO-148).
+    park: (office, run, work, ending) => control.park(office, run, work, ending),
+    // A verdict on another commit holds for a head with the same code tree (0019 section 6).
+    treeKey: (office, run, taskFile, head) =>
+      gitReviewOps(ports.git).codeTreeKey(office, run.worktree ?? "", taskFile, head),
     ...given("refreshStory", ports.refreshStory),
     ...given("onChanged", ports.onChanged),
     ...given("warn", ports.warn),
@@ -420,7 +425,7 @@ function buildReviews(
     waits: () => planLimits ?? undefined,
     // Once the reviewer exited after its verdict, the head's fix round may decide (DIPO-148).
     onReviewed: (office, runId, agent) => {
-      void fixRounds.consider(office, runId, { exited: agent });
+      void fixRounds.consider(office, runId, agent === undefined ? {} : { exited: agent });
     },
     ...given("onChanged", ports.onChanged),
     ...given("warn", ports.warn),

@@ -29,10 +29,27 @@ const WRAP_END = /[)\]}"'`.,;:!?]*$/;
  * path (DIPO-218): it contains a slash and starts with `/`, `~`, `./` or `../`, or ends with a
  * slash, or its last segment ends with a file extension. So `TBD/later` and `and/or,etc` are prose.
  */
-function looksLikePath(core: string): boolean {
+export function looksLikePath(core: string): boolean {
   if (!core.includes("/")) return false;
   if (/^(\/|~|\.{1,2}\/)/.test(core) || core.endsWith("/")) return true;
   return /\.[\p{L}\p{N}]+$/u.test(core.slice(core.lastIndexOf("/") + 1));
+}
+
+/** A run without its wrapping brackets, quotes and sentence punctuation. */
+function coreOf(run: string): string {
+  const rest = run.slice(WRAP_START.exec(run)?.[0].length ?? 0);
+  return rest.slice(0, rest.length - (WRAP_END.exec(rest)?.[0].length ?? 0));
+}
+
+/**
+ * Every run of `text` without its wrapping brackets, quotes and sentence punctuation, in order. A
+ * backtick ends a run, so the words of a code span are runs of their own and a path written in
+ * one counts too (R29, DIPO-251).
+ */
+export function runCores(text: string): string[] {
+  return [...text.normalize("NFC").replaceAll("`", " ").matchAll(RUN)]
+    .map((match) => coreOf(match[0]))
+    .filter((core) => core !== "");
 }
 
 /**

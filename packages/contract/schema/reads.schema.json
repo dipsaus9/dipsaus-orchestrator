@@ -2536,6 +2536,41 @@
                   "turns",
                   "elapsedMs"
                 ]
+              },
+              "doneReport": {
+                "type": "object",
+                "properties": {
+                  "notes": {
+                    "type": "string"
+                  },
+                  "proposals": {
+                    "type": "array",
+                    "items": {
+                      "type": "object",
+                      "properties": {
+                        "kind": {
+                          "type": "string"
+                        },
+                        "title": {
+                          "type": "string"
+                        },
+                        "outcome": {
+                          "type": "string"
+                        },
+                        "why": {
+                          "type": "string"
+                        },
+                        "paths": {
+                          "type": "array",
+                          "items": {
+                            "type": "string"
+                          }
+                        }
+                      },
+                      "required": ["kind", "title", "outcome", "why"]
+                    }
+                  }
+                }
               }
             },
             "required": ["run", "agents", "role", "tier", "model", "startedAt", "usage"]
@@ -3156,6 +3191,21 @@
               }
             },
             "required": ["id"]
+          }
+        },
+        "warnings": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "rule": {
+                "type": "string"
+              },
+              "message": {
+                "type": "string"
+              }
+            },
+            "required": ["rule", "message"]
           }
         }
       },

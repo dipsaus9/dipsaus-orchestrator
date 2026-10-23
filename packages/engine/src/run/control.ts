@@ -23,6 +23,10 @@
 //   the live-question rule first (DIPO-272, 0021 section 11): while a TUI is connected it is asked
 //   live (`RunControlDeps.questions`) and the worker waits on stdin for the answer, with no park; if
 //   the last TUI closes while it waits, `parkOnQuestion` parks it then.
+// - Report data (DIPO-186). The proposals of every report, done or blocked, are stored for the
+//   maintainer (`storeProposals`, deduplicated by title and paths); storing them changes nothing
+//   about the story, the run or the commit. Each tool call with an effect (a file edit, a shell
+//   command) joins the run's tool trail, which verify and commit reads at done.
 // - `work.stop { story, note? }`. A story with no active run fails `story.notRunning`. Otherwise
 //   the engine records a `stop` intent, sends the stop sequence through the host (the adapter's
 //   `encode`: a now-priority message, stdin closed, SIGTERM after 10 s, SIGKILL after 30 s) and
@@ -30,6 +34,11 @@
 //
 // - `work.steer` and `work.pause` (DIPO-163, `intervene.ts`): the maintainer's message to a live
 //   worker, and the pause that closes its stdin after 10 minutes on the cap tick.
+//
+// - Notes (0020 section 6, DIPO-154). The `notes` of every turn report are stored for the next
+//   session's handoff (`recordWorkerNotes`), keyed by the run's worktree and the agent, replacing
+//   that agent's earlier notes. A park keeps them, so a cap that fires mid-turn still leaves the
+//   previous turn's notes; teardown deletes them.
 //
 // Every op is stored as a pending intent before it is sent (`intents.ts`), and when the worker
 // exits the intent that explains the exit is resolved with its outcome. A decision without a park
@@ -57,6 +66,7 @@ import type { AsyncCommandContext, CommandOutcome, FeatureModule } from "../comm
 import type { OfficeHandle } from "../db/office";
 import type { IngestedExit, IngestHooks } from "../ingest/ingestor";
 import { background } from "../platform/background";
+import { recordWorkerNotes } from "../prompts/notes";
 import type { WorkerEvent, WorkerReport } from "../workers/types";
 
 import {
@@ -75,6 +85,7 @@ import {
   disarm,
   EVENT_FILE_CHANGED,
   INTERRUPTED_END,
+  messageOf,
   type ReconcileNotice,
   RECONCILED_END,
   type RunControlDeps,
@@ -91,6 +102,7 @@ import { outcomeOfIntent, resolveIntent } from "./intents";
 import { initRejectedEnding, type RunAct, type RunEnder, startRefusedAct } from "./outcome-types";
 import { PARK_CAUSES, type ParkOutcome } from "./park";
 import { findRun, type StoredRun } from "./records";
+import { emptyTrail, followTool, storeProposals } from "./report-data";
 
 export {
   CAP_TICK_MS,
@@ -293,6 +305,12 @@ export class RunControl implements RunEnder {
         });
       }
       if (event.t === "modelSwitched") outcomes?.onModelSwitched(viewOf(tracked), event.to);
+      if (event.t === "activity" && event.kind === "tool" && event.effect !== undefined) {
+        followTool((tracked.trail ??= emptyTrail()), event.effect, event.input);
+      }
+      if (event.t === "turn" && (event.report?.proposals?.length ?? 0) > 0) {
+        this.#storeProposals(tracked, event.report as WorkerReport);
+      }
       if (event.t === "turn") {
         // A done report on the turn that crosses a cap takes the done path (0008 amendment of
         // 2026-10-19, DIPO-205); without a finisher nothing could commit it, so the cap parks.
@@ -302,6 +320,7 @@ export class RunControl implements RunEnder {
             : event.capped !== undefined
               ? { cap: "maxTurns" as const, detail: capDetail("maxTurns", event.capped) }
               : (this.#crossings.get(event) ?? pending);
+        if (event.report !== null) this.#keepNotes(tracked, event.report, agent);
         if (event.report?.status === "done" && crossed !== null) {
           tracked.lastReport = event.report;
           outcomes?.answered(viewOf(tracked));
@@ -366,6 +385,30 @@ export class RunControl implements RunEnder {
   }
 
   /**
+   * Stores a report's proposals (DIPO-186); a failure is logged and decides nothing, since the
+   * proposals change nothing about the run.
+   */
+  #storeProposals(tracked: Tracked, report: WorkerReport): void {
+    const office = this.#deps.offices.get(tracked.office);
+    if (office === undefined) return;
+    try {
+      office.immediate(() =>
+        storeProposals(office, {
+          key: tracked.work.key,
+          runId: tracked.runId,
+          proposals: report.proposals ?? [],
+          at: this.#deps.clock.now(),
+        }),
+      );
+    } catch (error) {
+      this.#deps.warn?.("storing a report's proposals failed", {
+        run: tracked.runId,
+        reason: messageOf(error),
+      });
+    }
+  }
+
+  /**
    * A blocked report's question through the live-question rule (DIPO-272): true when it was asked
    * live. A permission need, a report without a question or a run without its agent parks.
    */
@@ -376,6 +419,37 @@ export class RunControl implements RunEnder {
     const questions = this.#deps.questions?.();
     if (office === undefined || questions === undefined) return false;
     return questions.askWorker(office, tracked.runId, agent, report.question);
+  }
+
+  /**
+   * Stores the notes of a developer's turn report for the next session's handoff (0020 section 6),
+   * replacing that agent's earlier notes in the run's worktree. A report without notes changes
+   * nothing, so the previous turn's notes stay. A failed write is logged; the turn goes on.
+   */
+  #keepNotes(tracked: Tracked, report: WorkerReport, agent: string | undefined): void {
+    if (report.notes === undefined || tracked.work.role === REVIEWER_ROLE) return;
+    const office = this.#deps.offices.get(tracked.office);
+    const worktree = office === undefined ? null : findRun(office, tracked.runId)?.worktree;
+    if (office === undefined || worktree == null) return;
+    try {
+      recordWorkerNotes(
+        office,
+        {
+          worktree,
+          run: tracked.runId,
+          agent: agent ?? tracked.work.agent,
+          role: tracked.work.role,
+          storyKey: tracked.work.key,
+          notes: report.notes,
+        },
+        this.#deps.clock,
+      );
+    } catch (error) {
+      this.#deps.warn?.("storing the worker's notes failed", {
+        run: tracked.runId,
+        reason: error instanceof Error ? error.message : String(error),
+      });
+    }
   }
 
   /**
