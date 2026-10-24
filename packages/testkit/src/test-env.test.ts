@@ -80,20 +80,18 @@ describe("the direct git of the test process (DIPO-225)", () => {
   });
 
   it("puts the real git's folder first on PATH when git is the macOS shim", () => {
+    // Only a Mac has the shim; elsewhere /usr/bin/git is a real git and the case does not apply.
+    if (process.platform !== "darwin" || !existsSync(MACOS_GIT_SHIM)) return;
     const env: NodeJS.ProcessEnv = { PATH: "/usr/bin:/bin" };
     const bin = skipGitShim(env, "darwin");
-    if (process.platform !== "darwin" || !existsSync(MACOS_GIT_SHIM)) {
-      expect(bin).toBeNull();
-      return;
-    }
     expect(bin).not.toBeNull();
     expect(bin).not.toBe(dirname(MACOS_GIT_SHIM));
     expect(env["PATH"]).toBe(`${bin}:/usr/bin:/bin`);
     expect(Bun.which("git", { PATH: env["PATH"] ?? "" })).toBe(join(bin ?? "", "git"));
-    // The same git answers on the new PATH as through the shim, and the test process has it.
+    // The same git answers on the new PATH as through the shim. (This test process's own PATH
+    // changed only when the git it found was the shim; a CI runner may have another git first.)
     expect(run(["git", "--version"], env["PATH"] ?? "")).toBe(
       run([MACOS_GIT_SHIM, "--version"], "/usr/bin:/bin"),
     );
-    expect(process.env["PATH"]?.startsWith(`${bin}:`)).toBe(true);
   });
 });
