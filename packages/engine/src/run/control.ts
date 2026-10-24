@@ -352,6 +352,7 @@ export class RunControl implements RunEnder {
         outcomes?.onPlanWarning?.(viewOf(tracked), {
           ...(event.resetsAt === undefined ? {} : { resetsAt: event.resetsAt }),
           ...(event.scope === undefined ? {} : { scope: event.scope }),
+          ...(event.utilization === undefined ? {} : { utilization: event.utilization }),
         });
       }
       if (event.t === "modelSwitched") outcomes?.onModelSwitched(viewOf(tracked), event.to);

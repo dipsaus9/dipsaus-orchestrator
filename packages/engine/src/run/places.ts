@@ -269,8 +269,11 @@ export interface PlacesDeps {
     get(office: OfficeId): OfficeHandle | undefined;
     config(office: OfficeId): OfficeConfig | undefined;
   };
-  /** `PlanLimits.held`: why a new session on the adapter and model must wait, or null. */
-  readonly held?: (adapter: string, model: string | null) => string | null;
+  /**
+   * `PlanLimits.held`: why a new session on the adapter and model must wait, or null; the office's
+   * allowance lifts the warning holds it covers (DIPO-338).
+   */
+  readonly held?: (adapter: string, model: string | null, office: OfficeId) => string | null;
   /** False while the daemon schedules no work (`safe`); true by default. */
   readonly scheduling?: () => boolean;
   /** The reviewer's model in the office; by default the office config's `review.model`. */
@@ -460,7 +463,7 @@ export class Places {
         ? inForce?.worker.adapter
         : runConfigOf(office, run, inForce).worker.adapter;
     if (adapter === undefined || this.#deps.held === undefined) return null;
-    return this.#deps.held(adapter, model);
+    return this.#deps.held(adapter, model, officeId);
   }
 
   async #drain(officeId: OfficeId, state: Drained): Promise<number> {
@@ -530,7 +533,10 @@ export class Places {
     const park = this.#deps.park;
     if (park === undefined) return false;
     if (start.kind !== START_KINDS.fix && start.kind !== START_KINDS.conflict) return false;
-    const fired = reachedCaps(office, run, this.#deps.clock.now());
+    // The wait for the place is not work: `claimPlace` adds it to `parked_ms` once the place is
+    // taken, so the check leaves it out the same way (DIPO-338: a fix round held for hours).
+    const now = this.#deps.clock.now();
+    const fired = reachedCaps(office, run, now, Math.max(0, now - (run.waitingSince ?? now)));
     if (fired === null) return false;
     try {
       await park(office, run, workRefOf(office, run.runId) ?? undefined, preStartEnding(fired));

@@ -437,7 +437,10 @@ function buildOutcomes(
     pending: ports.places?.pending ?? ((office) => reviews.pending(office)),
     ...(planLimits === null
       ? {}
-      : { held: (adapter: string, model: string | null) => planLimits.held(adapter, model) }),
+      : {
+          held: (adapter: string, model: string | null, office: OfficeId) =>
+            planLimits.held(adapter, model, office),
+        }),
     park: (office, run, work, ending) => control.park(office, run, work, ending),
     starters: {
       resume: (office, run) => resumption.startQueued(office, run),

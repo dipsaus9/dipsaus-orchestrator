@@ -9,10 +9,16 @@ import { afterEach, beforeEach, describe, expect, it } from "bun:test";
 import { mkdtempSync, rmSync } from "node:fs";
 import { join } from "node:path";
 
-import { type AgentId, StoryId, type RunId, type WorkRef } from "@dipsaus-orchestrator/contract";
+import {
+  type AgentId,
+  type OfficeId,
+  StoryId,
+  type RunId,
+  type WorkRef,
+} from "@dipsaus-orchestrator/contract";
 import { readRecording } from "@dipsaus-orchestrator/testkit";
 
-import type { AsyncCommandContext } from "../../src/commands/registry";
+import type { AsyncCommandContext, CommandContext } from "../../src/commands/registry";
 import { CommandError } from "../../src/commands/errors";
 import type { OfficeConfig } from "../../src/config";
 import { type IngestAdapter, Ingestor } from "../../src/ingest/ingestor";
@@ -34,6 +40,7 @@ import {
   scopeHolds,
   wakeAt,
 } from "../../src/run";
+import { allowLimits, readLimits } from "../../src/run/plan-allowance";
 import { clearSignals } from "../../src/run/signals";
 import { addStory } from "../../src/stories/keys";
 import { workView } from "../../src/views/work";
@@ -173,6 +180,7 @@ beforeEach(async () => {
               { agent: f.t.ids.next("agt"), run: f.run, at: at + 1 },
             );
             clearSignals(f.office, f.run, request.clear ?? [], at);
+            request.inRecord?.("agt_next" as AgentId, at);
           });
           return { kind: "started", agent: "agt_next" as AgentId, resumed: true };
         },
@@ -677,5 +685,178 @@ describe("plan-limit-credits (AC #5)", () => {
     expect(w.plans.held(ADAPTER, null)).not.toBeNull();
     endAgents();
     expect(await refusal()).toBe("resumed");
+  });
+});
+
+const HOUR = 60 * 60_000;
+const office = () => w.f.office.officeId as OfficeId;
+
+/** The code of the error `fn` throws. */
+function codeOf(fn: () => unknown): string | undefined {
+  try {
+    fn();
+  } catch (error) {
+    return error instanceof CommandError ? error.error.code : String(error);
+  }
+  return undefined;
+}
+
+function ctx(): CommandContext {
+  return {
+    office: w.f.office,
+    now: w.f.t.clock.now(),
+    origin: "cli",
+  } as unknown as CommandContext;
+}
+
+function allow(args: { until?: string; note?: string; clear?: true }) {
+  return w.f.office.immediate(() => allowLimits(ctx(), args, w.plans));
+}
+
+function warn(scope: "session" | "weekly", reset: number): void {
+  track();
+  w.control.onWorkerEvents(w.f.run, [
+    { t: "limit", status: "allowed_warning", utilization: 0.8, resetsAt: iso(reset), scope },
+  ]);
+}
+
+function heldHere(model: string | null = null): string | null {
+  return w.plans.held(ADAPTER, model, office());
+}
+
+describe("the maintainer's allowance past a warning (DIPO-338)", () => {
+  it("a weekly warning holds the next session; the allowance lets it start until its time", async () => {
+    const reset = w.f.t.clock.now() + 72 * HOUR;
+    warn("weekly", reset);
+    await w.control.idle();
+    expect(heldHere()).toContain("the weekly limit is near");
+    const outcome = allow({ until: iso(w.f.t.clock.now() + HOUR), note: "finish M1b" });
+    expect(outcome.result.allowance).toEqual({
+      by: "cli",
+      at: iso(w.f.t.clock.now()),
+      until: iso(w.f.t.clock.now() + HOUR),
+      note: "finish M1b",
+    });
+    expect(heldHere()).toBeNull();
+    expect(heldHere("opus")).toBeNull();
+    // Asked without the office (another office), the hold stays.
+    expect(w.plans.held(ADAPTER, null)).toContain("the weekly limit is near");
+    // Every new session reports the warning again: it does not hold while the allowance is in force.
+    warn("weekly", reset);
+    await w.control.idle();
+    expect(heldHere()).toBeNull();
+    // It ends by itself at its time.
+    await advance(HOUR);
+    expect(heldHere()).toContain("the weekly limit is near");
+  });
+
+  it("--clear ends it early, and until is cut to the reset the warning names", async () => {
+    const reset = w.f.t.clock.now() + 72 * HOUR;
+    warn("weekly", reset);
+    await w.control.idle();
+    expect(
+      allow({ until: iso(reset + 120 * HOUR), note: "all week" }).result.allowance?.until,
+    ).toBe(iso(reset));
+    expect(heldHere()).toBeNull();
+    expect(allow({ clear: true })).toEqual({ result: {}, changed: true });
+    expect(heldHere()).toContain("the weekly limit is near");
+    expect(allow({ clear: true })).toEqual({ result: {}, changed: false });
+  });
+
+  it("refuses limits.noWarning with no warning an allowance lifts, and an until in the past", async () => {
+    expect(codeOf(() => allow({ until: iso(w.f.t.clock.now() + HOUR), note: "x" }))).toBe(
+      "limits.noWarning",
+    );
+    // The five-hour window is never allowed.
+    warn("session", w.f.t.clock.now() + 3 * HOUR);
+    await w.control.idle();
+    expect(codeOf(() => allow({ until: iso(w.f.t.clock.now() + HOUR), note: "x" }))).toBe(
+      "limits.noWarning",
+    );
+    warn("weekly", w.f.t.clock.now() + 72 * HOUR);
+    await w.control.idle();
+    expect(codeOf(() => allow({ until: iso(w.f.t.clock.now() - 1), note: "x" }))).toBe(
+      "args.invalid",
+    );
+  });
+
+  it("never lifts a rejected limit or the five-hour window", async () => {
+    const reset = w.f.t.clock.now() + 72 * HOUR;
+    warn("weekly", reset);
+    await w.control.idle();
+    allow({ until: iso(reset), note: "go on" });
+    expect(heldHere()).toBeNull();
+    w.plans.close();
+    w.plans = planLimits();
+    // A reviewer's rejected weekly limit still holds, and stays rejected after a restart.
+    w.plans.warned(office(), {
+      scope: "weekly",
+      resetsAt: iso(reset),
+      rejected: true,
+    });
+    expect(heldHere()).toContain("the weekly limit");
+    w.plans.close();
+    w.plans = planLimits();
+    w.plans.recover(office(), w.f.office);
+    expect(heldHere()).toContain("the weekly limit");
+    expect(
+      readLimits(w.f.office, w.f.t.clock.now(), w.plans).holds.find((h) => h.scope === "weekly"),
+    ).toEqual({
+      scope: "weekly",
+      until: iso(reset),
+      utilization: 0.8,
+      rejected: true,
+      allowed: false,
+    });
+    // A five-hour warning still holds.
+    w.plans.close();
+    w.plans = planLimits();
+    warn("session", w.f.t.clock.now() + 3 * HOUR);
+    await w.control.idle();
+    expect(heldHere()).toContain("the session limit is near");
+  });
+
+  it("a worker's rejected limit (its wait fact) still holds under an allowance", async () => {
+    w.plans.warned(office(), {
+      scope: "weekly",
+      resetsAt: iso(RECORDED_RESET + 72 * HOUR),
+    });
+    allow({ until: iso(RECORDED_RESET + HOUR), note: "go on" });
+    expect(heldHere()).toBeNull();
+    await ingestRecording("plan-limit-rejected");
+    expect(heldHere()).toContain("the session limit");
+  });
+
+  it("office.limits shows the warning, its utilization and reset, and the allowance", async () => {
+    const reset = w.f.t.clock.now() + 72 * HOUR;
+    warn("weekly", reset);
+    await w.control.idle();
+    expect(readLimits(w.f.office, w.f.t.clock.now(), w.plans)).toEqual({
+      holds: [
+        { scope: "weekly", until: iso(reset), utilization: 0.8, rejected: false, allowed: false },
+      ],
+    });
+    allow({ until: iso(reset), note: "go on" });
+    expect(readLimits(w.f.office, w.f.t.clock.now(), w.plans)).toEqual({
+      holds: [
+        { scope: "weekly", until: iso(reset), utilization: 0.8, rejected: false, allowed: true },
+      ],
+      allowance: { by: "cli", at: iso(w.f.t.clock.now()), until: iso(reset), note: "go on" },
+    });
+  });
+
+  it("the wait for the reset is left out of the run's minute cap when its session resumes", async () => {
+    const startedAt = findRun(w.f.office, w.f.run)?.startedAt ?? 0;
+    await ingestRecording("plan-limit-rejected");
+    const since =
+      w.f.office.get<{ since: number }>(
+        "select since from run_signals where office_id = $office_id and signal = 'plan-limit'",
+      )?.since ?? 0;
+    await advanceTo(RECORDED_RESET + PLAN_LIMIT_RESUME_AFTER_MS);
+    const waited = RECORDED_RESET + PLAN_LIMIT_RESUME_AFTER_MS - since;
+    expect(waited).toBeGreaterThan(0);
+    expect(w.next).toHaveLength(1);
+    expect(w.next[0]?.startedAt).toBe(startedAt + waited);
+    expect(findRun(w.f.office, w.f.run)?.parkedMs).toBe(waited);
   });
 });

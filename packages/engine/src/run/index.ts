@@ -387,6 +387,14 @@ export {
   wakeAt,
 } from "./plan-limit";
 export type { PlanLimitsDeps } from "./plan-limit";
+export {
+  allowanceInForce,
+  allowanceLifts,
+  CLEAR_ALLOWANCE_CLI,
+  LIMITS_NO_WARNING,
+  type LimitHold,
+  type StoredAllowance,
+} from "./plan-allowance";
 // `story.hold` and `story.drop` through the planning lane (DIPO-160), and the on-hold resume that
 // `work.resume` hands them.
 export {

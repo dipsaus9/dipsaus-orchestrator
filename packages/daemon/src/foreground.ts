@@ -721,7 +721,9 @@ async function serve(run: Run, lock: HeldLock): Promise<number> {
     let boxRunOf: ((office: OfficeId, stored: StoredRun) => boolean) | null = null;
     // The scan fallback's session runner and the plan-limit check, set once the run services exist.
     let sessionRuns: ScanSessionRunner | undefined;
-    let planLimitHeldOf: ((adapter: string, model: string) => string | null) | undefined;
+    let planLimitHeldOf:
+      | ((adapter: string, model: string, office: OfficeId) => string | null)
+      | undefined;
     const storyPrs = new StoryPrs({
       host,
       prState,
@@ -905,8 +907,11 @@ async function serve(run: Run, lock: HeldLock): Promise<number> {
       fallback: () => sessionRuns,
       scanSettings: (office) => offices.config(office)?.scan,
       planLimitHeld: (office, model) =>
-        planLimitHeldOf?.(offices.config(office)?.worker.adapter ?? CLAUDE_CLI_ADAPTER_ID, model) ??
-        null,
+        planLimitHeldOf?.(
+          offices.config(office)?.worker.adapter ?? CLAUDE_CLI_ADAPTER_ID,
+          model,
+          office,
+        ) ?? null,
       stories: storyIndex,
       reconcile: (office) => reconciler.reconcile(office),
       reloadConfig: (office) => offices.reloadIfChanged(office, engineGit.forOffice(office)),
@@ -1004,7 +1009,7 @@ async function serve(run: Run, lock: HeldLock): Promise<number> {
     // Daemon stop ends every box worker inside its box, and its routes (DIPO-271).
     held.boxes = runs.boxes;
     sessionRuns = runs.sessions;
-    planLimitHeldOf = (adapter, model) => runs.planLimits.held(adapter, model);
+    planLimitHeldOf = (adapter, model, office) => runs.planLimits.held(adapter, model, office);
     boxRunOf = (office, stored) => runs.isBoxRun(office, stored);
     held.collisions = runs.collisions;
     // `work.run` (DIPO-48): picks and claims one Ready story and records the run, through the
@@ -1017,7 +1022,7 @@ async function serve(run: Run, lock: HeldLock): Promise<number> {
       profiles: runProfiles,
       statuses: (office) => officeInit.officeStatusesReady(office),
       adapterHeld: (adapter) => holds.adapterHeld(adapter),
-      planLimitHeld: (adapter, model) => runs.planLimits.held(adapter, model),
+      planLimitHeld: (adapter, model, office) => runs.planLimits.held(adapter, model, office),
       claims,
       gates,
       lane: (office) => lane.forOffice(office),

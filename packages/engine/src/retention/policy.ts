@@ -117,6 +117,11 @@ export const TABLE_RETENTION: Readonly<Record<string, TablePolicy>> = {
     tier: "P",
     rule: "one row per adapter and scope, deleted by the plan-limit schedule once its hold ends",
   },
+  // DIPO-338: the maintainer's allowance past plan-limit warnings.
+  plan_limit_allowances: {
+    tier: "P",
+    rule: "one row per office, deleted by limits.allow --clear or once its time passed",
+  },
   config_snapshots: {
     tier: "S",
     rule: "first seen more than stateDays ago and named by no run that is kept",

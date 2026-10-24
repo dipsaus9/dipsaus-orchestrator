@@ -686,9 +686,11 @@ export class Reviews {
       ]);
       return;
     }
+    // Held as a warning, marked rejected, so an allowance never lifts it (DIPO-338).
     this.#deps.waits?.()?.warned(view.office, {
       ...(limit.resetsAt === undefined ? {} : { resetsAt: limit.resetsAt }),
       ...(limit.scope === undefined ? {} : { scope: limit.scope }),
+      rejected: true,
     });
   }
 

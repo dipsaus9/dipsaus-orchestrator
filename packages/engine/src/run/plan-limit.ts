@@ -18,6 +18,12 @@
 //   a rejected wait it holds every adapter. It is stored in `plan_limit_warnings` with its scope,
 //   adapter (information only) and until time (DIPO-92); the row is deleted when the hold ends. A
 //   forgotten office's holds leave memory and come back from their rows if it is opened again.
+//   The row keeps the warning's utilization, and `rejected` for a reviewer's rejected limit, which
+//   holds the same way (DIPO-338).
+// - The maintainer's allowance (`plan-allowance.ts`, DIPO-338): while an office has one in force,
+//   `held` asked for that office skips the warning holds an allowance lifts (weekly, model-family,
+//   unknown); a wait fact, a rejected limit and the five-hour window still hold. `limits.allow` and
+//   `office.limits` are registered with the schedule's load step and read its holds (`holds`).
 // - Recovery (0006 decision 7): the office load step reads every open wait fact back and arms it
 //   again, so a restart between the reject and the reset resumes at the same time; a reset that
 //   passed while the daemon was down resumes at once. It arms the office's stored warning holds
@@ -43,6 +49,14 @@ import {
   type WaitFact,
   type WaitScope,
 } from "./outcomes";
+import {
+  allowanceInForce,
+  allowanceLifts,
+  deleteEndedAllowance,
+  type LimitHold,
+  type LimitHoldSource,
+  registerLimits,
+} from "./plan-allowance";
 import { activeRuns, findRun } from "./records";
 import type { ResumeWaitOutcome } from "./resumption";
 
@@ -147,13 +161,19 @@ interface Warning {
   readonly adapter: string | null;
   readonly scope: WaitScope;
   readonly until: number;
+  /** The plan's utilization of the latest warning, when the adapter read it. */
+  readonly utilization: number | undefined;
+  /** A reviewer's rejected limit, which an allowance never lifts (DIPO-338). */
+  readonly rejected: boolean;
 }
 
-/** A stored warning hold (`plan_limit_warnings`, migration 26). */
+/** A stored warning hold (`plan_limit_warnings`, migrations 26 and 55). */
 interface WarningRow {
   readonly adapter: string;
   readonly scope: string;
   readonly until_at: number;
+  readonly utilization: number | null;
+  readonly rejected: number;
 }
 
 function warningKey(office: OfficeId, adapter: string | null, scope: WaitScope): string {
@@ -171,7 +191,7 @@ function messageOf(error: unknown): string {
   return error instanceof Error ? error.message : String(error);
 }
 
-export class PlanLimits implements PlanLimitWaits {
+export class PlanLimits implements PlanLimitWaits, LimitHoldSource {
   readonly #deps: PlanLimitsDeps;
   /** Open waits by run. */
   readonly #waits = new Map<string, Wait>();
@@ -192,7 +212,8 @@ export class PlanLimits implements PlanLimitWaits {
 
   /**
    * An `allowed_warning`: new runs on its scope wait until the reset, an hour without one. The
-   * hold is stored with the adapter as information, so it survives a restart (DIPO-92).
+   * hold is stored with the adapter as information, so it survives a restart (DIPO-92). A
+   * reviewer's rejected limit comes here too, marked `rejected` (DIPO-338).
    */
   warned(office: OfficeId, warning: PlanLimitWarning): void {
     const now = this.#deps.clock.now();
@@ -201,15 +222,22 @@ export class PlanLimits implements PlanLimitWaits {
     const until = Number.isFinite(reset) ? reset : now + PLAN_LIMIT_PROBE_MS;
     if (until <= now) return;
     const adapter = this.#deps.offices.config(office)?.worker.adapter ?? null;
-    this.#store(office, adapter, scope, until);
+    const rejected = warning.rejected === true;
+    this.#store(office, adapter, scope, { until, utilization: warning.utilization, rejected });
     const key = warningKey(office, adapter, scope);
     const previous = this.#warnings.get(key);
-    if (previous !== undefined && previous.until >= until) return;
     // One notice per hold: none while another warning already holds this scope.
     const announced = [...this.#warnings.values()].some(
       (other) => other.scope === scope && other.until > now,
     );
-    this.#warnings.set(key, { office, adapter, scope, until });
+    this.#warnings.set(key, {
+      office,
+      adapter,
+      scope,
+      until: Math.max(previous?.until ?? 0, until),
+      utilization: warning.utilization ?? previous?.utilization,
+      rejected: rejected || previous?.rejected === true,
+    });
     if (announced) return;
     this.#deps.notify?.({
       level: "warn",
@@ -220,38 +248,47 @@ export class PlanLimits implements PlanLimitWaits {
 
   /**
    * Why a new run on `adapter` with `model` must wait, or null. With `model` null only the holds
-   * of every model count (`work.run` before it knows the story's tier).
+   * of every model count (`work.run` before it knows the story's tier). With `office`, that
+   * office's allowance in force skips the warning holds it lifts (DIPO-338).
    */
-  held(adapter: string, model: string | null): string | null {
+  held(adapter: string, model: string | null, office?: OfficeId): string | null {
+    const waiting = this.#waitHeld(adapter, model);
+    if (waiting !== null) return waiting;
     const now = this.#deps.clock.now();
-    for (const wait of this.#waits.values()) {
-      if (!this.#stillOpen(wait)) continue;
-      const story = this.#storyOf(wait);
-      if (wait.fact.scope === "credits") {
-        if (wait.adapter === null || wait.adapter === adapter) {
-          return `New runs on ${adapter} are held in every office: the plan needs credits (${story} waits). Deal with the plan, then send work.resume for ${story}.`;
-        }
-        continue;
-      }
-      if (!scopeHolds(wait.fact.scope, model)) continue;
-      const until = wait.fact.resetsAt === undefined ? "" : ` until ${wait.fact.resetsAt}`;
-      return `New runs wait for ${describeScope(wait.fact.scope)}${until}: ${story} is held by it and resumes after the reset.`;
-    }
-    for (const [key, warning] of this.#warnings) {
-      if (warning.until <= now) {
-        this.#warnings.delete(key);
-        this.#unstore(warning);
-        continue;
-      }
-      // The office was forgotten: its hold goes from memory; its row is armed again if it reopens.
-      if (this.#deps.offices.get(warning.office) === undefined) {
-        this.#warnings.delete(key);
-        continue;
-      }
+    const allowed = office !== undefined && this.#allowed(office, now);
+    for (const warning of this.#liveWarnings(now)) {
       if (!scopeHolds(warning.scope, model)) continue;
+      if (allowed && allowanceLifts(warning.scope, warning.rejected)) continue;
       return `New runs wait until ${new Date(warning.until).toISOString()}: the plan warned that ${describeScope(warning.scope)} is near.`;
     }
     return null;
+  }
+
+  /**
+   * The holds in force now for `office.limits` and `limits.allow` (DIPO-338): the warning holds of
+   * every loaded office and the open waits with a reset, one per scope and kind, the latest end.
+   */
+  holds(now: number): LimitHold[] {
+    const merged = new Map<string, LimitHold>();
+    const add = (hold: LimitHold) => {
+      const key = `${hold.scope}\u0000${hold.rejected}`;
+      const previous = merged.get(key);
+      if (previous === undefined || previous.until < hold.until) merged.set(key, hold);
+    };
+    for (const warning of this.#liveWarnings(now)) {
+      add({
+        scope: warning.scope,
+        until: warning.until,
+        ...(warning.utilization === undefined ? {} : { utilization: warning.utilization }),
+        rejected: warning.rejected,
+      });
+    }
+    for (const wait of this.#waits.values()) {
+      const reset = wait.fact.resetsAt === undefined ? Number.NaN : Date.parse(wait.fact.resetsAt);
+      if (!Number.isFinite(reset) || reset <= now || !this.#stillOpen(wait)) continue;
+      add({ scope: wait.fact.scope, until: reset, rejected: true });
+    }
+    return [...merged.values()];
   }
 
   /**
@@ -314,14 +351,63 @@ export class PlanLimits implements PlanLimitWaits {
           return { ok: true };
         });
         this.#deps.commands?.register(registry);
+        registerLimits(registry, this);
       },
     };
   }
 
   // ---- warnings --------------------------------------------------------------------------------
 
+  /** Why an open wait holds a new run on `adapter` with `model`, or null. */
+  #waitHeld(adapter: string, model: string | null): string | null {
+    for (const wait of this.#waits.values()) {
+      if (!this.#stillOpen(wait)) continue;
+      const story = this.#storyOf(wait);
+      if (wait.fact.scope === "credits") {
+        if (wait.adapter === null || wait.adapter === adapter) {
+          return `New runs on ${adapter} are held in every office: the plan needs credits (${story} waits). Deal with the plan, then send work.resume for ${story}.`;
+        }
+        continue;
+      }
+      if (!scopeHolds(wait.fact.scope, model)) continue;
+      const until = wait.fact.resetsAt === undefined ? "" : ` until ${wait.fact.resetsAt}`;
+      return `New runs wait for ${describeScope(wait.fact.scope)}${until}: ${story} is held by it and resumes after the reset.`;
+    }
+    return null;
+  }
+
+  /** The warning holds in force; an ended one is deleted, a forgotten office's leaves memory. */
+  #liveWarnings(now: number): Warning[] {
+    const live: Warning[] = [];
+    for (const [key, warning] of this.#warnings) {
+      if (warning.until <= now) {
+        this.#warnings.delete(key);
+        this.#unstore(warning);
+        continue;
+      }
+      // The office was forgotten: its hold goes from memory; its row is armed again if it reopens.
+      if (this.#deps.offices.get(warning.office) === undefined) {
+        this.#warnings.delete(key);
+        continue;
+      }
+      live.push(warning);
+    }
+    return live;
+  }
+
+  /** True while the office has an allowance in force (DIPO-338). */
+  #allowed(office: OfficeId, now: number): boolean {
+    const handle = this.#deps.offices.get(office);
+    return handle !== undefined && allowanceInForce(handle, now) !== null;
+  }
+
   /** Stores a warning hold; a later warning on the same scope moves its time forward, never back. */
-  #store(office: OfficeId, adapter: string | null, scope: WaitScope, until: number): void {
+  #store(
+    office: OfficeId,
+    adapter: string | null,
+    scope: WaitScope,
+    hold: { until: number; utilization: number | undefined; rejected: boolean },
+  ): void {
     const handle = this.#deps.offices.get(office);
     if (handle === undefined) return;
     if (adapter === null) {
@@ -335,11 +421,21 @@ export class PlanLimits implements PlanLimitWaits {
     try {
       handle.immediate(() =>
         handle.run(
-          `insert into plan_limit_warnings (office_id, adapter, scope, until_at, warned_at)
-           values ($office_id, $adapter, $scope, $until, $now)
+          `insert into plan_limit_warnings
+             (office_id, adapter, scope, until_at, warned_at, utilization, rejected)
+           values ($office_id, $adapter, $scope, $until, $now, $utilization, $rejected)
            on conflict (office_id, adapter, scope) do update
-             set until_at = max(until_at, excluded.until_at), warned_at = excluded.warned_at`,
-          { adapter, scope, until, now: this.#deps.clock.now() },
+             set until_at = max(until_at, excluded.until_at), warned_at = excluded.warned_at,
+               utilization = coalesce(excluded.utilization, utilization),
+               rejected = max(rejected, excluded.rejected)`,
+          {
+            adapter,
+            scope,
+            until: hold.until,
+            now: this.#deps.clock.now(),
+            utilization: hold.utilization ?? null,
+            rejected: hold.rejected ? 1 : 0,
+          },
         ),
       );
     } catch (error) {
@@ -383,15 +479,16 @@ export class PlanLimits implements PlanLimitWaits {
     const now = this.#deps.clock.now();
     let rows: WarningRow[];
     try {
-      handle.immediate(() =>
+      handle.immediate(() => {
         handle.run(
           "delete from plan_limit_warnings where office_id = $office_id and until_at <= $now",
           { now },
-        ),
-      );
+        );
+        deleteEndedAllowance(handle, now);
+      });
       rows = handle.all<WarningRow>(
-        `select adapter, scope, until_at from plan_limit_warnings where office_id = $office_id
-         order by adapter, scope`,
+        `select adapter, scope, until_at, utilization, rejected from plan_limit_warnings
+          where office_id = $office_id order by adapter, scope`,
       );
     } catch (error) {
       // The waits are armed already; a warning hold lost here only lets new runs start sooner.
@@ -413,6 +510,8 @@ export class PlanLimits implements PlanLimitWaits {
         adapter: row.adapter,
         scope: row.scope,
         until: row.until_at,
+        utilization: row.utilization ?? undefined,
+        rejected: row.rejected === 1,
       });
     }
     return count;

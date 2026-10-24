@@ -215,6 +215,10 @@ export interface PlanLimitHit {
 export interface PlanLimitWarning {
   readonly resetsAt?: string;
   readonly scope?: PlanLimitScope;
+  /** The plan's utilization the warning reported (0 to 1), shown by `office.limits` (DIPO-338). */
+  readonly utilization?: number;
+  /** A reviewer's rejected limit, held as a warning; an allowance never lifts it (DIPO-338). */
+  readonly rejected?: true;
 }
 
 /**

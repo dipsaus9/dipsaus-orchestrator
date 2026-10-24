@@ -943,3 +943,33 @@ describe("a worker question waiting on the desk (DIPO-159; 0020 section 7)", () 
       }
     }));
 });
+
+describe("the maintainer's plan-limit allowance on the desk (DIPO-338)", () => {
+  it("shows an allowance in force as one ALLOWANCE row offering the clear, and none once it ended", () =>
+    withTempDir(async (dir) => {
+      const t = await openTestState(dir);
+      try {
+        const office = addOffice(t);
+        const at = t.clock.now();
+        office.immediate(() =>
+          office.run(
+            `insert into plan_limit_allowances (office_id, until_at, note, by, allowed_at)
+             values ($office_id, $until, 'finish M1b', 'cli', $at)`,
+            { until: at + HOUR, at },
+          ),
+        );
+        expect(desk(office, all, DESK_SOURCES, at)).toEqual([
+          {
+            kind: "ALLOWANCE",
+            detail: `new sessions go on past plan-limit warnings until ${new Date(at + HOUR).toISOString()} (set by cli: finish M1b); a rejected limit and the five-hour window still hold`,
+            since: new Date(at).toISOString(),
+            blocks: [],
+            actions: [{ command: "limits.allow", cli: "dipo limits allow --clear" }],
+          },
+        ]);
+        expect(desk(office, all, DESK_SOURCES, at + HOUR)).toEqual([]);
+      } finally {
+        t.state.close();
+      }
+    }));
+});

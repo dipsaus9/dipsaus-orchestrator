@@ -48,6 +48,8 @@ export const CAPABILITY_FLAGS: Readonly<Record<string, readonly string[]>> = {
   // Accept or dismiss a worker's proposals, and their `proposal.filed` and `proposal.closed` events
   // (0020 section 14, DIPO-166).
   proposals: ["proposal.accept", "proposal.dismiss"],
+  // The plan-limit holds and the maintainer's allowance past a warning (0008 section 7, DIPO-338).
+  limits: ["limits.allow", "office.limits"],
 };
 
 /** The capability flags `registry` can back, in table order. */

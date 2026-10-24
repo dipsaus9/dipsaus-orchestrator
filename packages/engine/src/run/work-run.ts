@@ -181,9 +181,14 @@ export interface WorkRunDeps {
   readonly adapterHeld: (adapter: string) => AdapterHold | null;
   /**
    * The plan-limit hold (DIPO-61, `PlanLimits.held`): why a new run on the adapter and model must
-   * wait, or null. With `model` null only the holds of every model count.
+   * wait, or null. With `model` null only the holds of every model count. The office's allowance
+   * lifts the warning holds it covers (DIPO-338).
    */
-  readonly planLimitHeld?: (adapter: string, model: string | null) => string | null;
+  readonly planLimitHeld?: (
+    adapter: string,
+    model: string | null,
+    office: OfficeId,
+  ) => string | null;
   readonly claims: { claim(office: OfficeId, request: ClaimRequest): Promise<ClaimOutcome> };
   readonly gates: {
     recordGateDecision(
@@ -411,7 +416,7 @@ export class WorkRun {
       throw refused(office, "adapter", holdMessage(hold));
     }
     // A plan limit of every model, or `credits`, holds every run, named or not (DIPO-61).
-    const planLimit = deps.planLimitHeld?.(config.worker.adapter, null) ?? null;
+    const planLimit = deps.planLimitHeld?.(config.worker.adapter, null, office) ?? null;
     if (planLimit !== null) throw refused(office, PLAN_LIMIT_CHECK, planLimit);
 
     try {
@@ -533,7 +538,10 @@ export class WorkRun {
       return "gate";
     }
     // A model-family plan limit holds only stories whose tier runs that family (DIPO-61).
-    if (this.#deps.planLimitHeld?.(c.config.worker.adapter, caps.model) != null) return "planLimit";
+    const officeId = handle.officeId as OfficeId;
+    if (this.#deps.planLimitHeld?.(c.config.worker.adapter, caps.model, officeId) != null) {
+      return "planLimit";
+    }
     const taskFile = relative(c.checkout.path, view.file);
     try {
       assembleContract(
@@ -943,7 +951,7 @@ export class WorkRun {
         refusals.push({ check: "adapter", message: holdMessage(hold) });
       }
     }
-    const planLimit = deps.planLimitHeld?.(config.worker.adapter, null) ?? null;
+    const planLimit = deps.planLimitHeld?.(config.worker.adapter, null, office) ?? null;
     if (planLimit !== null) refusals.push({ check: PLAN_LIMIT_CHECK, message: planLimit });
     const statuses = await deps.statuses(office);
     if (statuses !== null) refusals.push({ check: "statuses", message: statuses });
