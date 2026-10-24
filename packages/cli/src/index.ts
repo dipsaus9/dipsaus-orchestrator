@@ -35,6 +35,7 @@ import { deskCommand } from "./desk-command";
 import { gateCommand } from "./gate-command";
 import type { DaemonLogsDeps } from "./logs-command";
 import { OFFICE_SUBCOMMANDS } from "./office-commands";
+import { PROFILE_SUBCOMMANDS } from "./profile-commands";
 import { proposeCommand } from "./propose-command";
 import { runCommand } from "./run-command";
 import { stopCommand } from "./stop-command";
@@ -216,6 +217,21 @@ Usage:
   dipo office rescan [--office <id>]
                     scan the office's run profile again and print what changed,
                     its conformance level and each deviation
+  dipo office profile [--office <id>] [--json]
+                    print the run profile: each capability with its command,
+                    source, confidence and whether it is confirmed, pending or
+                    stale, the run and test refusals, and each deviation with
+                    the standard script that would remove it
+  dipo office infer [--office <id>]
+                    have a model propose a command for each capability code
+                    left unresolved or in conflict; it runs no tool and nothing
+                    it proposes runs until you confirm it
+  dipo office confirm accept|edit|reject|set|pick|keep <capability> [...]
+                    confirm the run profile: accept, edit (-- <command>) or
+                    reject a proposal, set a capability by hand (-- <command>,
+                    --cwd <dir>), pick a conflict candidate (<n>), or keep a
+                    stale confirmation; nothing-to-start [--undo] marks a
+                    product with nothing to start
   dipo stats [--office <id>]
                     print the rows and approximate bytes of each table of the
                     office, to tune retention.shortDays and retention.stateDays
@@ -384,7 +400,10 @@ export async function main(argv: readonly string[], deps: CliDeps): Promise<numb
     const { version } = versionInfo(deps.stamp, deps.runtime);
     return subcommand(args.slice(2), { ...deps, version });
   }
-  const office = args[0] === "office" ? OFFICE_SUBCOMMANDS.get(args[1] ?? "") : undefined;
+  const office =
+    args[0] === "office"
+      ? (OFFICE_SUBCOMMANDS.get(args[1] ?? "") ?? PROFILE_SUBCOMMANDS.get(args[1] ?? ""))
+      : undefined;
   if (office !== undefined) {
     const { version } = versionInfo(deps.stamp, deps.runtime);
     return office(args.slice(2), { ...deps, version });

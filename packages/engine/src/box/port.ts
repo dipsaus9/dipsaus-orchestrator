@@ -7,6 +7,8 @@
 
 import type { ChildExit, ChildStdin, Signal } from "@dipsaus-orchestrator/contract";
 
+import type { BoxFirewall } from "./firewall";
+
 /** Every box dipo makes is named `dipo-<run id>`. */
 export const BOX_NAME_PREFIX = "dipo-";
 /** The label key every box and network dipo makes carries; a box's value is its run id. */
@@ -20,12 +22,17 @@ export const BOX_CALL_TIMEOUT_MS = 60_000;
  * the network and takes minutes.
  */
 export const BOX_BUILD_TIMEOUT_MS = 30 * 60_000;
+/** The deadline of the pull of a build's base image (DIPO-281). */
+export const BOX_PULL_TIMEOUT_MS = 10 * 60_000;
 /** The repository name of every box image dipo builds; the tag is a hash of its description. */
 export const BOX_IMAGE_REPOSITORY = "dipo-box";
-/** The build file dipo writes into its own build folder; never a file from the repository. */
-export const BOX_BUILD_FILE = "Containerfile";
 /** The Safe-Chain CA bundle dipo copies into its build folder for the build's npm installs. */
 export const BOX_BUILD_CA_FILE = "safe-chain-ca.pem";
+/**
+ * The run id prefix of a build box (DIPO-281): the box an image is built in, on the host-only box
+ * network, and committed from. Only a build box runs a command with all its capabilities.
+ */
+export const BUILD_BOX_RUN_PREFIX = "build-";
 
 /** A run id a box name may carry: what `IdSource` makes (`run_<ulid>`), and test ids. */
 const RUN_ID = /^[a-zA-Z0-9][a-zA-Z0-9_.-]*$/;
@@ -87,17 +94,6 @@ export interface BoxNetwork {
   readonly hostAddress: string;
 }
 
-/**
- * The network an image build runs on (DIPO-271): Apple `container`'s default network, where its
- * builder runs, not the host-only box network (0021 amendment of 2026-10-21, DIPO-266). The build
- * proxy listens on its host address, found as the box network's is.
- */
-export interface BoxBuildNetwork {
-  readonly name: string;
-  /** The Mac's address on the network, where the build proxy listens for the builder. */
-  readonly hostAddress: string;
-}
-
 /** What one box is made from. Nothing of the maintainer's is attached (0021 section 2). */
 export interface BoxSpec {
   readonly runId: string;
@@ -110,6 +106,13 @@ export interface BoxSpec {
    * to a folder under dipo's package cache root, or the box is refused. Absent: nothing is mounted.
    */
   readonly packageCache?: string;
+  /**
+   * The host folder of the box network tools of the box's image (DIPO-281, `firewall.ts`), mounted
+   * read-only at `BOX_NET_TOOLS_PATH`. Every box but a build box must have it: its keepalive and
+   * every command dipo starts in it run from there. It must resolve, with realpath, to a folder
+   * under dipo's tools root that holds the tools, or the box is refused.
+   */
+  readonly netTools?: string;
 }
 
 export type BoxState = "running" | "stopped" | "unknown";
@@ -129,6 +132,17 @@ export interface BoxExecOptions {
   readonly env?: Readonly<Record<string, string>>;
   /** Overrides the call's deadline (`exec` only). */
   readonly timeoutMs?: number;
+  /**
+   * Runs the command with all of the box's capabilities instead of contained (DIPO-281,
+   * `containedCommand`). Only a build box takes it, for its first step, before any install script
+   * ran; every other box refuses it.
+   */
+  readonly fullPrivilege?: true;
+  /**
+   * Runs the command as one of dipo's root steps (DIPO-334, `rootStepCommand`): root, with the
+   * root allow list of capabilities. A build box takes any; every other box only `isRootStep`.
+   */
+  readonly rootStep?: true;
 }
 
 /** A finished command in a box. A non-zero exit is a result, not an error. */
@@ -162,22 +176,6 @@ export interface BoxMemory {
   readonly usedBytes: number;
   /** The box's memory limit; null when the backend does not say. */
   readonly limitBytes: number | null;
-}
-
-/**
- * One image build (DIPO-266). `contextDir` is a folder dipo made and filled itself: the build file
- * `BOX_BUILD_FILE` it wrote from the office's box description and the CA bundle `BOX_BUILD_CA_FILE`,
- * nothing from the repository.
- */
-export interface BoxImageBuild {
-  /** `dipo-box:<hash of the description>`. */
-  readonly tag: string;
-  readonly contextDir: string;
-  /**
-   * The address of dipo's proxy the build reaches the network through, `http://<host>:<port>`:
-   * registries through Safe-Chain, other hosts on the public internet only.
-   */
-  readonly proxyUrl: string;
 }
 
 /** Per-call deadline override for the lifecycle calls. */
@@ -244,24 +242,20 @@ export interface BoxPort {
   /** dipo's own boxes, running or stopped; never another program's. */
   list(options?: BoxCallOptions): Promise<BoxInfo[]>;
   /**
-   * Starts the image builder and returns the network it runs on, with the Mac's address there
-   * (DIPO-271). Like the box network's, that address exists on the Mac only while something runs
-   * on the network, so the builder is started first; a build proxy then listens there for the
-   * length of one build.
+   * Sets the box firewall of a running box (DIPO-281, `firewall.ts`): output only to loopback and
+   * to `firewall.hostAddress` on `firewall.ports`, set with the box's network tools and checked
+   * after. Fails with `box.firewallFailed` when it cannot be set or does not show as set.
    */
-  buildNetwork(options?: BoxCallOptions): Promise<BoxBuildNetwork>;
-  /**
-   * True when the image builder runs now (DIPO-298). Read before a build, so a builder that ran
-   * already is left running after it; a builder that is missing, stopped or unreadable is not.
-   */
-  builderRunning(options?: BoxCallOptions): Promise<boolean>;
-  /** Stops the image builder (DIPO-298), after a build whose `buildNetwork` started it. */
-  stopBuilder(options?: BoxCallOptions): Promise<void>;
+  firewall(name: string, firewall: BoxFirewall, options?: BoxCallOptions): Promise<void>;
   /** True when the image `tag` exists on this machine, so a build can be skipped. */
   hasImage(tag: string, options?: BoxCallOptions): Promise<boolean>;
+  /** Pulls the base image `reference` of a build onto this machine (DIPO-281). */
+  pullImage(reference: string, options?: BoxCallOptions): Promise<void>;
   /**
-   * Builds the image of `build`, within `BOX_BUILD_TIMEOUT_MS` unless the call names another
-   * deadline. On `box.timedOut` only the client was killed; the builder may still finish the image.
+   * Makes the image `tag` from the files of the stopped build box `name` (DIPO-281). Only a build
+   * box may be committed.
    */
-  buildImage(build: BoxImageBuild, options?: BoxCallOptions): Promise<void>;
+  commit(name: string, tag: string, options?: BoxCallOptions): Promise<void>;
+  /** Deletes the box image `tag`, so a build can make it again. */
+  deleteImage(tag: string, options?: BoxCallOptions): Promise<void>;
 }

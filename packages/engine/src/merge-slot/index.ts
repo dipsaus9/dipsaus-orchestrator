@@ -22,8 +22,13 @@ export {
   openMergeGate,
   overrideGateOf,
   overrideGateSummary,
+  RELEASE_PATH_HOLD,
+  releasePathList,
 } from "./gates";
-export type { MergeWait, StoredMergeGate } from "./gates";
+export type { HandMerge, MergeWait, StoredMergeGate } from "./gates";
+// The release path of a story PR (DIPO-331): the paths the base CODEOWNERS gives an owner.
+export { CODEOWNERS_LOCATIONS, parseCodeowners, releasePathsOf } from "./release-path";
+export type { CodeownersRule } from "./release-path";
 export { laneSlotGit } from "./git";
 export type { BaseSync, PushOutcome, SlotGit } from "./git";
 export {

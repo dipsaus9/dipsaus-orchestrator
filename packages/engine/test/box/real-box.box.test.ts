@@ -12,14 +12,15 @@
 // - whether a killed `container exec` client leaves its process running in the box;
 // - whether `container stats` on a stopped box exits non-zero.
 //
-// The image build (DIPO-266) registers only when the maintainer also names a running build proxy:
-// DIPO_TEST_BOX_PROXY (`http://<host>:<port>`, reachable from the builder on the default network)
-// and DIPO_TEST_BOX_CA (the Safe-Chain CA bundle that proxy wrote). dipo's web proxy
-// (`box/web-proxy.ts`, DIPO-268) is that proxy, started on an address the builder reaches: the
-// builder runs on the default network, not the box network. It builds the office image of a small
-// description (minutes on a cold builder), builds it again to see the image reused, and checks the
-// box it runs: Claude Code at its pinned version, with auto-update and nonessential traffic off,
-// and neither the build proxy, the build CA nor git in the image.
+// The boxes of the first and the network test are build boxes (DIPO-281): raw boxes with no box
+// network tools, whose commands run with all their capabilities and with no box firewall, so they
+// test the backend and the host-only network as such. Every other box dipo makes has the firewall;
+// box-network.ci.test.ts tests it, and the image build in a build box.
+//
+// The image build (DIPO-266, in a build box since DIPO-281) registers only when the maintainer
+// also sets DIPO_TEST_BOX_BUILD=1; it needs the official Safe-Chain install and the internet. The
+// package cache test (below) builds the office image of a small description that way first (or
+// reuses it).
 //
 // A second test (DIPO-268) repeats the DIPO-264 network lines through dipo's web proxy and the
 // Safe-Chain proxy behind it, so it also needs the official Safe-Chain install (`~/.safe-chain`)
@@ -66,9 +67,10 @@ import {
   createBoxWithPackageCache,
   ensurePackageCache,
 } from "../../src/box/cache";
-import { boxImageTag, describeBox, ensureBoxImage } from "../../src/box/image";
+import { ensureBoxImage } from "../../src/box/build-box";
+import { describeBox } from "../../src/box/image";
 import { AppleContainerBoxes } from "../../src/box/apple-container";
-import { BoxError, boxName, isBoxTimedOut } from "../../src/box/port";
+import { BoxError, type BoxExecOptions, boxName, isBoxTimedOut } from "../../src/box/port";
 import {
   BoxWebRoute,
   type RunningBoxWebRoute,
@@ -84,9 +86,8 @@ const IMAGE = "docker.io/library/alpine:3.20";
 /** A first run pulls the image; later calls keep the 60 s default. */
 const PULL_TIMEOUT_MS = 300_000;
 
-/** The build proxy the image build needs; the build test registers only with both. */
-const BUILD_PROXY = process.env["DIPO_TEST_BOX_PROXY"];
-const BUILD_CA = process.env["DIPO_TEST_BOX_CA"];
+/** The image build in a build box, through the web route and Safe-Chain (DIPO-281). */
+const BUILDS = process.env["DIPO_TEST_BOX_BUILD"] === "1";
 /** An image build takes minutes. */
 const BUILD_TIMEOUT_MS = 40 * 60_000;
 
@@ -165,11 +166,11 @@ if (registers) {
         const network = await boxes.network();
         expect(network.mode).toBe("hostOnly");
 
-        const runId = `test-${crypto.randomUUID().slice(0, 8)}`;
+        const runId = `build-t${crypto.randomUUID().slice(0, 8)}`;
         const name = boxName(runId);
         /** The box's processes whose command line holds `marker`. */
         const running = async (marker: string) =>
-          (await boxes.exec(name, ["ps", "-o", "pid,args"])).stdout
+          (await boxes.exec(name, ["ps", "-o", "pid,args"], { fullPrivilege: true })).stdout
             .split("\n")
             .filter((line) => line.includes(marker));
         await withTempDir(async (dir) => {
@@ -177,16 +178,8 @@ if (registers) {
           mkdirSync(code);
           writeFileSync(join(code, "hello.txt"), "hello from the host\n");
           try {
-            // A package cache must lie under the backend's cache root (DIPO-267): here the temp dir.
-            await new AppleContainerBoxes({
-              spawn: systemSpawn,
-              clock: systemClock,
-              env: cliEnv,
-              packageCacheRoot: dir,
-            }).create(
-              { runId, image: IMAGE, network, packageCache: code },
-              { timeoutMs: PULL_TIMEOUT_MS },
-            );
+            // A build box gets no mount; the read-only cache is tested with the fill below.
+            await boxes.create({ runId, image: IMAGE, network }, { timeoutMs: PULL_TIMEOUT_MS });
             const before = performance.now();
             await boxes.start(name);
             fact(`box start took ${Math.round(performance.now() - before)} ms`);
@@ -194,28 +187,33 @@ if (registers) {
             expect(await boxes.list()).toContainEqual({ name, runId, state: "running" });
 
             await boxes.copyIn(name, code, "/work");
-            const cat = await boxes.exec(name, ["cat", "/work/hello.txt"]);
+            const cat = await boxes.exec(name, ["cat", "/work/hello.txt"], { fullPrivilege: true });
             expect(cat).toMatchObject({ code: 0, stdout: "hello from the host\n" });
 
-            // The package cache is read-only inside the box.
-            const write = await boxes.exec(name, ["sh", "-c", "touch /dipo/package-cache/x"]);
-            expect(write.code).not.toBe(0);
-
-            const printed = await boxes.exec(name, ["env"], { env: { DIPO_BOX: "1" } });
+            const printed = await boxes.exec(name, ["env"], {
+              env: { DIPO_BOX: "1" },
+              fullPrivilege: true,
+            });
             expect(printed.stdout).toContain("DIPO_BOX=1");
             expect(printed.stdout).not.toContain(`HOME=${process.env["HOME"] ?? "-"}\n`);
 
-            await boxes.exec(name, ["sh", "-c", "echo made in the box > /work/out.txt"]);
+            await boxes.exec(name, ["sh", "-c", "echo made in the box > /work/out.txt"], {
+              fullPrivilege: true,
+            });
             const out = join(dir, "out.txt");
             await boxes.copyOut(name, "/work/out.txt", out);
             expect(readFileSync(out, "utf8")).toBe("made in the box\n");
 
             // A symlink in the box that points outside the copied folder.
-            await boxes.exec(name, [
-              "sh",
-              "-c",
-              "mkdir -p /work/links && echo inside > /work/links/plain.txt && ln -s /etc/hostname /work/links/hostname-link",
-            ]);
+            await boxes.exec(
+              name,
+              [
+                "sh",
+                "-c",
+                "mkdir -p /work/links && echo inside > /work/links/plain.txt && ln -s /etc/hostname /work/links/hostname-link",
+              ],
+              { fullPrivilege: true },
+            );
             const links = join(dir, "links");
             const copied = await boxes
               .copyOut(name, "/work/links", links)
@@ -228,14 +226,14 @@ if (registers) {
             fact(`the copied plain file is ${describePath(join(links, "plain.txt"))}`);
             fact(`the copied symlink is ${describePath(join(links, "hostname-link"))}`);
 
-            const live = boxes.execLive(name, ["cat"]);
+            const live = boxes.execLive(name, ["cat"], { fullPrivilege: true });
             live.stdin.write("echoed\n");
             live.stdin.end();
             expect(await new Response(live.stdout).text()).toBe("echoed\n");
             expect((await live.exited).code).toBe(0);
 
             // A long-running exec whose client is killed.
-            const sleeper = boxes.execLive(name, ["sleep", "6061"]);
+            const sleeper = boxes.execLive(name, ["sleep", "6061"], { fullPrivilege: true });
             await Bun.sleep(1000);
             sleeper.kill("SIGKILL");
             fact(`the killed exec client ended with ${JSON.stringify(await sleeper.exited)}`);
@@ -247,7 +245,7 @@ if (registers) {
 
             // An exec killed at its deadline.
             const timedOut = await boxes
-              .exec(name, ["sleep", "6062"], { timeoutMs: 2000 })
+              .exec(name, ["sleep", "6062"], { timeoutMs: 2000, fullPrivilege: true })
               .then(() => false)
               .catch((error: unknown) => isBoxTimedOut(error));
             expect(timedOut).toBe(true);
@@ -274,7 +272,7 @@ if (registers) {
             );
             expect(await boxes.memory(name)).toBeNull();
             await boxes.start(name);
-            const kept = await boxes.exec(name, ["cat", "/work/out.txt"]);
+            const kept = await boxes.exec(name, ["cat", "/work/out.txt"], { fullPrivilege: true });
             expect(kept).toMatchObject({ code: 0, stdout: "made in the box\n" });
           } finally {
             await boxes.delete(name).catch(() => {});
@@ -285,7 +283,7 @@ if (registers) {
       PULL_TIMEOUT_MS + 120_000,
     );
 
-    if (BUILD_PROXY !== undefined && BUILD_CA !== undefined) {
+    if (BUILDS) {
       it(
         "fills the office package cache in a fill box through the web route, and mounts it read-only",
         async () => {
@@ -297,11 +295,13 @@ if (registers) {
           };
           await withTempDir(async (dir) => {
             const root = join(dir, "package-cache");
+            const toolsRoot = join(dir, "box-net-tools");
             const boxes = new AppleContainerBoxes({
               spawn: systemSpawn,
               clock: systemClock,
               env: cliEnv,
               packageCacheRoot: root,
+              netToolsRoot: toolsRoot,
             });
             expect(await boxes.check()).toMatchObject({ ok: true });
             const network = await boxes.network();
@@ -323,17 +323,21 @@ if (registers) {
               if (!started.ok) throw new Error(started.reason);
               return started.route;
             });
-            // The office image with Bun, as the image build test makes it (reused when it exists).
+            // The office image with Bun, built in a build box (reused when it exists with its tools).
             const { image } = describeBox(
               { packages: ["jq"] },
               { bun: { version: "1.4.2", evidence: ".bun-version" } },
             );
-            const built = await ensureBoxImage({
-              boxes,
+            const built = await ensureBoxImage(
+              {
+                boxes,
+                route,
+                scratchRoot: join(dir, "scratch"),
+                toolsRoot,
+                clock: systemClock,
+              },
               image,
-              proxy: { url: BUILD_PROXY, caFile: BUILD_CA },
-              scratchRoot: dir,
-            });
+            );
             const runId = `test-${crypto.randomUUID().slice(0, 8)}`;
             const name = boxName(runId);
             try {
@@ -347,7 +351,12 @@ if (registers) {
               const helperRun = `test-${crypto.randomUUID().slice(0, 8)}`;
               const helper = boxName(helperRun);
               try {
-                await boxes.create({ runId: helperRun, image: built.tag, network });
+                await boxes.create({
+                  runId: helperRun,
+                  image: built.tag,
+                  network,
+                  netTools: built.netTools,
+                });
                 await boxes.start(helper);
                 const helperRoute = await route.acquire(helper);
                 await boxes.copyIn(helper, helperRoute.caFile, "/ca.pem");
@@ -383,14 +392,14 @@ if (registers) {
               };
               const cacheRequest = {
                 root,
-                image: { tag: built.tag, toolchain: image.toolchain },
+                image: { tag: built.tag, toolchain: image.toolchain, netTools: built.netTools },
                 route,
               };
 
               const before = performance.now();
               const made = await createBoxWithPackageCache({
                 boxes,
-                spec: { runId, image: built.tag, network },
+                spec: { runId, image: built.tag, network, netTools: built.netTools },
                 readSource: async () => source,
                 cache: cacheRequest,
               });
@@ -454,6 +463,7 @@ if (registers) {
                   runId: `${runId}-x`,
                   image: built.tag,
                   network,
+                  netTools: built.netTools,
                   packageCache: join(root, "escape"),
                 })
                 .then(() => "created")
@@ -464,65 +474,6 @@ if (registers) {
             } finally {
               await boxes.delete(name).catch(() => {});
               await route.close();
-            }
-          });
-        },
-        BUILD_TIMEOUT_MS,
-      );
-    }
-
-    if (BUILD_PROXY !== undefined && BUILD_CA !== undefined) {
-      it(
-        "builds the office image once through the build proxy, and runs Claude Code from it",
-        async () => {
-          const env = cleanEnv();
-          const boxes = new AppleContainerBoxes({
-            spawn: systemSpawn,
-            clock: systemClock,
-            env: { PATH: env["PATH"] ?? "/usr/bin:/bin:/usr/local/bin", HOME: env["HOME"] ?? "/" },
-          });
-          // Bun from .bun-version, as the scan detects it; the rest from dipo's defaults.
-          const { image } = describeBox(
-            { packages: ["jq"] },
-            { bun: { version: "1.4.2", evidence: ".bun-version" } },
-          );
-          await withTempDir(async (dir) => {
-            const request = {
-              boxes,
-              image,
-              proxy: { url: BUILD_PROXY, caFile: BUILD_CA },
-              scratchRoot: dir,
-            };
-            const before = performance.now();
-            const first = await ensureBoxImage(request);
-            const took = Math.round(performance.now() - before);
-            fact(`image ${first.tag} ${first.built ? "built" : "reused"} in ${took} ms`);
-            expect(first.tag).toBe(boxImageTag(image));
-            expect(await ensureBoxImage(request)).toEqual({ tag: first.tag, built: false });
-
-            const network = await boxes.network();
-            const runId = `test-${crypto.randomUUID().slice(0, 8)}`;
-            const name = boxName(runId);
-            try {
-              await boxes.create({ runId, image: first.tag, network });
-              await boxes.start(name);
-              const claude = await boxes.exec(name, ["claude", "--version"]);
-              expect(claude.code).toBe(0);
-              expect(claude.stdout).toContain(image.claudeCode);
-              const bun = await boxes.exec(name, ["bun", "--version"]);
-              expect(bun.stdout.trim()).toBe("1.4.2");
-              const printed = (await boxes.exec(name, ["env"])).stdout;
-              expect(printed).toContain("DISABLE_AUTOUPDATER=1");
-              expect(printed).toContain("CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC=1");
-              expect(printed).not.toContain("DIPO_PROXY");
-              expect(printed).not.toContain(BUILD_PROXY);
-              // The build CA was mounted for the npm step only; it is not in the image.
-              const ca = await boxes.exec(name, ["test", "-e", "/run/dipo/safe-chain-ca.pem"]);
-              expect(ca.code).not.toBe(0);
-              const git = await boxes.exec(name, ["sh", "-c", "command -v git || echo none"]);
-              expect(git.stdout.trim()).toBe("none");
-            } finally {
-              await boxes.delete(name).catch(() => {});
             }
           });
         },
@@ -546,9 +497,14 @@ if (registers) {
         });
         expect(await boxes.check()).toMatchObject({ ok: true });
         const network = await boxes.network();
-        const runId = `test-${crypto.randomUUID().slice(0, 8)}`;
+        const runId = `build-t${crypto.randomUUID().slice(0, 8)}`;
         const name = boxName(runId);
         const events: WebProxyEvent[] = [];
+        /** A command in the raw build box, with all its capabilities and no box firewall. */
+        const run = (
+          command: readonly [string, ...string[]],
+          options: Omit<BoxExecOptions, "fullPrivilege"> = {},
+        ) => boxes.exec(name, command, { ...options, fullPrivilege: true });
 
         await withTempDir(async (dir) => {
           const route = new BoxWebRoute<RunningBoxWebRoute>(async () => {
@@ -592,7 +548,7 @@ if (registers) {
             onBoxNetwork = await listenOn(network.hostAddress);
 
             // Without the proxy there is no way out.
-            const direct = await boxes.exec(name, [
+            const direct = await run([
               "sh",
               "-c",
               "wget -q -T5 -O /dev/null https://example.com && echo 'internet: yes' || echo 'internet: no'; " +
@@ -619,7 +575,7 @@ if (registers) {
             const outcomes: string[] = [];
             for (const [index, target] of literals.entries()) {
               const [host, port] = target.split(":");
-              const tried = await boxes.exec(name, [
+              const tried = await run([
                 "sh",
                 "-c",
                 `nc -z -w3 ${host} ${port} && echo open || echo closed`,
@@ -643,8 +599,7 @@ if (registers) {
               HTTPS_PROXY: route1.url,
               NODE_EXTRA_CA_CERTS: "/ca.pem",
             };
-            const setup = await boxes.exec(
-              name,
+            const setup = await run(
               [
                 "sh",
                 "-c",
@@ -656,7 +611,7 @@ if (registers) {
 
             /** The proxy's CONNECT answer and the final HTTP status of one request from the box. */
             const through = async (url: string): Promise<string> => {
-              const result = await boxes.exec(name, [
+              const result = await run([
                 "sh",
                 "-c",
                 `curl -x ${route1.url} --cacert /ca.pem -sS -m 10 -o /dev/null -w '%{http_connect} %{http_code}' '${url}' || true`,
@@ -684,14 +639,12 @@ if (registers) {
             expect(await through("https://registry.npmjs.org./")).toStartWith("200");
             expect(await through("https://example.com/")).toBe("200 200");
 
-            const allowed = await boxes.exec(
-              name,
-              ["sh", "-c", "npm --prefix /tmp/a install is-number@7.0.0"],
-              { env: proxyEnv, timeoutMs: PULL_TIMEOUT_MS },
-            );
+            const allowed = await run(["sh", "-c", "npm --prefix /tmp/a install is-number@7.0.0"], {
+              env: proxyEnv,
+              timeoutMs: PULL_TIMEOUT_MS,
+            });
             expect(allowed.code).toBe(0);
-            const blocked = await boxes.exec(
-              name,
+            const blocked = await run(
               ["sh", "-c", "npm --prefix /tmp/b install safe-chain-test 2>&1"],
               { env: proxyEnv, timeoutMs: PULL_TIMEOUT_MS },
             );

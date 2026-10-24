@@ -5,9 +5,13 @@
 // stop or a delete of the box ends it. With `live`, a live exec dipo runs itself (the install in
 // the box and the kill after its deadline, the archive of `/work`; DIPO-294) follows a script; a
 // stop or a delete of its box ends one that hangs. With `exec`, a short exec follows a script too
-// (the fill box of the package cache, DIPO-295).
+// (the fill box of the package cache, DIPO-295). An image build (DIPO-281) runs as the real one
+// does, in a build box: its tools stream out as a small archive of stand-in files, and the commit
+// makes the image. Each firewall a box gets is kept (`firewalls`). A copy for the box user
+// (`copyInAsUser`, DIPO-334) is logged and kept as one copy to its target, as before; its stage
+// steps are kept in `stageSteps`.
 
-import { cpSync, readdirSync, statSync, writeFileSync } from "node:fs";
+import { cpSync, mkdirSync, readdirSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { join, relative } from "node:path";
 
 import type { ChildExit, Signal } from "@dipsaus-orchestrator/contract";
@@ -16,13 +20,17 @@ import { ManualClock } from "@dipsaus-orchestrator/testkit";
 import { AppleContainerBoxes } from "../../src/box/apple-container";
 import { BOX_NETWORK_NAME } from "../../src/box/apple-args";
 import {
+  BOX_NET_TOOLS_PATH,
+  type BoxFirewall,
+  NET_TOOLS_FILES,
+  netToolsDir,
+} from "../../src/box/firewall";
+import {
   BoxError,
-  type BoxBuildNetwork,
   type BoxCheck,
   type BoxClientCommand,
   type BoxExecOptions,
   type BoxExecResult,
-  type BoxImageBuild,
   type BoxInfo,
   type BoxNetwork,
   type BoxPort,
@@ -31,14 +39,40 @@ import {
   boxName,
 } from "../../src/box/port";
 import { TOKEN_CHECK_ENV_COMMAND } from "../../src/box/token-check";
+import { BOX_STAGE_ROOT } from "../../src/box/user";
+
+import { tarBytes } from "./tar-bytes";
 
 /** The container program the client commands name. */
 export const FAKE_CONTAINER = "/usr/local/bin/container";
 /** The client environment of the fake backend. */
 export const FAKE_CLIENT_ENV = { PATH: "/usr/bin:/bin", HOME: "/Users/maintainer" };
-/** Documentation addresses (RFC 5737) for the two networks. */
+/** A documentation address (RFC 5737) for the box network's host address. */
 export const BOX_HOST_ADDRESS = "192.0.2.10";
-export const BUILD_HOST_ADDRESS = "192.0.2.20";
+
+/** The box network tools archive a fake build box streams out: stand-ins of each file. */
+export function netToolsArchive(): Uint8Array {
+  return tarBytes([
+    { name: "bin/", type: "5", mode: 0o755 },
+    { name: "lib/", type: "5", mode: 0o755 },
+    ...NET_TOOLS_FILES.map((file) => ({
+      name: file,
+      type: "0",
+      data: `fake ${file}\n`,
+      mode: 0o755,
+    })),
+    { name: "lib/libc.so.6", type: "0", data: "fake libc\n" },
+  ]);
+}
+
+/** Writes the box network tools of image `tag` under `root`, as a build would; returns the folder. */
+export function writeNetTools(root: string, tag: string): string {
+  const dir = netToolsDir(root, tag);
+  mkdirSync(join(dir, "bin"), { recursive: true });
+  mkdirSync(join(dir, "lib"), { recursive: true });
+  for (const file of NET_TOOLS_FILES) writeFileSync(join(dir, file), `fake ${file}\n`);
+  return dir;
+}
 
 export interface FakeBoxState {
   readonly name: string;
@@ -96,8 +130,10 @@ export interface FakeBoxesOptions {
    * first (`unwrapped`). Without it a live exec is refused, as the worker host runs the worker's.
    */
   readonly live?: (box: string, command: readonly string[]) => LiveReply;
-  /** The image builder runs before the first build. */
-  readonly builderRunning?: boolean;
+  /** Fails `firewall` with this error (a box whose firewall cannot be set, DIPO-281). */
+  readonly firewallFails?: Error;
+  /** How a build box's stream of its box network tools ends; their archive by default. */
+  readonly tools?: () => LiveReply;
   /**
    * How a short exec ends, by box and command (DIPO-295); undefined falls back to the default
    * (exit 0, no output). A thrown error is the call's.
@@ -132,9 +168,10 @@ export class FakeBoxes implements BoxPort {
   readonly log: string[];
   readonly boxes = new Map<string, FakeBoxState>();
   readonly images: Set<string>;
-  readonly builds: BoxImageBuild[] = [];
-  /** Whether the image builder runs: `buildNetwork` starts it, `stopBuilder` stops it. */
-  builder: boolean;
+  /** Every image a build box was committed to, in order. */
+  readonly commits: string[] = [];
+  /** Every firewall set, in order: the box and what it lets the box reach. */
+  readonly firewalls: { readonly box: string; readonly firewall: BoxFirewall }[] = [];
   readonly #options: FakeBoxesOptions;
   readonly #client = new AppleContainerBoxes({
     spawn: () => {
@@ -149,7 +186,6 @@ export class FakeBoxes implements BoxPort {
     this.#options = options;
     this.log = options.log ?? [];
     this.images = new Set(options.images ?? []);
-    this.builder = options.builderRunning ?? false;
   }
 
   #box(name: string): FakeBoxState {
@@ -168,20 +204,12 @@ export class FakeBoxes implements BoxPort {
     return { name: BOX_NETWORK_NAME, mode: "hostOnly", hostAddress: BOX_HOST_ADDRESS };
   }
 
-  async buildNetwork(): Promise<BoxBuildNetwork> {
-    this.log.push("build network");
-    this.builder = true;
-    return { name: "default", hostAddress: BUILD_HOST_ADDRESS };
-  }
-
-  async builderRunning(): Promise<boolean> {
-    this.log.push(`builder status ${this.builder ? "running" : "stopped"}`);
-    return this.builder;
-  }
-
-  async stopBuilder(): Promise<void> {
-    this.log.push("stop builder");
-    this.builder = false;
+  async firewall(name: string, firewall: BoxFirewall): Promise<void> {
+    this.log.push(`firewall ${name} ${firewall.hostAddress} ${firewall.ports.join(",")}`);
+    const box = this.#box(name);
+    if (box.state !== "running") throw new BoxError("box.failed", `${name} is not running`);
+    if (this.#options.firewallFails !== undefined) throw this.#options.firewallFails;
+    this.firewalls.push({ box: name, firewall });
   }
 
   async create(spec: BoxSpec): Promise<string> {
@@ -230,15 +258,63 @@ export class FakeBoxes implements BoxPort {
     this.#live.delete(name);
   }
 
+  /** Every short exec but the stage steps, in order, with its options (DIPO-334). */
+  readonly execs: {
+    readonly box: string;
+    readonly command: readonly string[];
+    readonly options?: BoxExecOptions;
+  }[] = [];
+  /** The stage steps of each copy for the box user, by box: the commands as dipo ran them. */
+  readonly stageSteps: {
+    readonly box: string;
+    readonly command: readonly string[];
+    readonly options?: BoxExecOptions;
+  }[] = [];
+  /** The host folder each stage of a copy for the box user was copied from, by box and stage. */
+  readonly #staged = new Map<string, string>();
+
   async copyIn(name: string, from: string, to: string): Promise<void> {
-    this.log.push(`copy in ${name} ${to}`);
     const box = this.#box(name);
     if (box.state !== "running") throw new BoxError("box.failed", `${name} is not running`);
+    if (to.startsWith(`${BOX_STAGE_ROOT}/`)) {
+      // Logged and kept when the box user copies it on.
+      this.#staged.set(`${name} ${to}`, from);
+      return;
+    }
+    this.#copied(name, from, to);
+  }
+
+  #copied(name: string, from: string, to: string): void {
+    this.log.push(`copy in ${name} ${to}`);
+    const box = this.#box(name);
     const dir = from.endsWith("/.") ? from.slice(0, -2) : from;
     box.copies.push({ to, listing: statSync(dir).isDirectory() ? listing(dir) : [from] });
     if (this.#options.files !== undefined) {
       cpSync(dir, this.filesOf(name, to), { recursive: true, verbatimSymlinks: true });
     }
+  }
+
+  /** A stage step of a copy for the box user, or null when `command` is none. */
+  #stageStep(
+    name: string,
+    command: readonly string[],
+    options: BoxExecOptions | undefined,
+  ): BoxExecResult | null {
+    const stage = command.find((part) => part.startsWith(`${BOX_STAGE_ROOT}/`));
+    if (stage === undefined) return null;
+    this.stageSteps.push({ box: name, command, ...(options === undefined ? {} : { options }) });
+    if (command[0] === "/bin/cp") {
+      const from = this.#staged.get(`${name} ${stage}`);
+      if (from === undefined) return { code: 1, stdout: "", stderr: "no such stage" };
+      this.#copied(name, from, command.at(-1) ?? "");
+    }
+    if (command[0] === "/bin/rm") {
+      this.#staged.delete(`${name} ${stage}`);
+      if (this.#options.files !== undefined) {
+        rmSync(this.filesOf(name, stage), { recursive: true, force: true });
+      }
+    }
+    return { code: 0, stdout: "", stderr: "" };
   }
 
   /** The host folder that holds `path` of box `name` (with `files`). */
@@ -262,9 +338,16 @@ export class FakeBoxes implements BoxPort {
     command: readonly [string, ...string[]],
     _options?: BoxExecOptions,
   ): Promise<BoxExecResult> {
-    this.log.push(`exec ${name} ${command[0]}`);
     const box = this.#box(name);
     if (box.state !== "running") throw new BoxError("box.failed", `${name} is not running`);
+    const staged = this.#stageStep(name, command, _options);
+    if (staged !== null) return staged;
+    this.log.push(`exec ${name} ${command[0]}`);
+    this.execs.push({
+      box: name,
+      command,
+      ...(_options === undefined ? {} : { options: _options }),
+    });
     const scripted = this.#options.exec?.(name, command, _options);
     if (scripted !== undefined) return scripted;
     if (command.join(" ") === TOKEN_CHECK_ENV_COMMAND.join(" ")) {
@@ -294,20 +377,33 @@ export class FakeBoxes implements BoxPort {
     options?: Omit<BoxExecOptions, "timeoutMs">,
   ): BoxProcess {
     const script = this.#options.live;
-    if (script === undefined) {
-      throw new Error("the worker host runs the live exec, not the backend");
-    }
     const inner = unwrapped(command);
     this.log.push(`exec live ${name} ${inner.slice(0, 3).join(" ")}`);
+    // A build box streams its box network tools out (DIPO-281).
+    const tools = inner[0] === "tar" && inner.includes(BOX_NET_TOOLS_PATH);
+    if (tools) {
+      if (this.#box(name).state !== "running") {
+        throw new BoxError("box.failed", `${name} is not running`);
+      }
+      return this.#reply(name, this.#options.tools?.() ?? { bytes: netToolsArchive() });
+    }
     this.liveExecs.push({
       box: name,
       command: inner,
       ...(options?.env === undefined ? {} : { env: options.env }),
       ...(options?.cwd === undefined ? {} : { cwd: options.cwd }),
     });
-    const box = this.#box(name);
-    if (box.state !== "running") throw new BoxError("box.failed", `${name} is not running`);
-    const reply = script(name, inner);
+    if (script === undefined) {
+      throw new Error("the worker host runs the live exec, not the backend");
+    }
+    if (this.#box(name).state !== "running") {
+      throw new BoxError("box.failed", `${name} is not running`);
+    }
+    return this.#reply(name, script(name, inner));
+  }
+
+  /** The process of one live exec in box `name` that answers `reply`. */
+  #reply(name: string, reply: LiveReply): BoxProcess {
     let out!: ReadableStreamDefaultController<Uint8Array>;
     const stdout = new ReadableStream<Uint8Array>({ start: (c) => void (out = c) });
     const stderr = new ReadableStream<Uint8Array>({ start: (c) => c.close() });
@@ -367,9 +463,20 @@ export class FakeBoxes implements BoxPort {
     return this.images.has(tag);
   }
 
-  async buildImage(build: BoxImageBuild): Promise<void> {
-    this.log.push(`build ${build.tag.slice(0, 16)} through ${build.proxyUrl}`);
-    this.builds.push(build);
-    this.images.add(build.tag);
+  async pullImage(reference: string): Promise<void> {
+    this.log.push(`pull ${reference}`);
+  }
+
+  async commit(name: string, tag: string): Promise<void> {
+    this.log.push(`commit ${name} ${tag.slice(0, 16)}`);
+    const box = this.#box(name);
+    if (box.state !== "stopped") throw new BoxError("box.failed", `${name} is running`);
+    this.commits.push(tag);
+    this.images.add(tag);
+  }
+
+  async deleteImage(tag: string): Promise<void> {
+    this.log.push(`delete image ${tag.slice(0, 16)}`);
+    this.images.delete(tag);
   }
 }

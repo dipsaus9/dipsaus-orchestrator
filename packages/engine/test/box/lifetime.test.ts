@@ -24,7 +24,7 @@ import {
 
 import { OFFICE_DEFAULTS } from "../../src/config";
 import type { BaseBox, BoxImageDescription } from "../../src/box/image";
-import { NODE_TARBALL_SHA256 } from "../../src/box/image";
+import { boxImageTag, NODE_TARBALL_SHA256 } from "../../src/box/image";
 import {
   BoxLifetime,
   boxEndedOf,
@@ -51,7 +51,7 @@ import { systemClock } from "../../src/platform/clock";
 import { systemSpawn } from "../../src/platform/process";
 import type { RunProfile } from "../../src/scan/detect";
 import { AdapterHolds } from "../../src/workers/hold";
-import { FakeBoxes } from "./fake-boxes";
+import { FakeBoxes, writeNetTools } from "./fake-boxes";
 
 const OFFICE = "off_01J9ZK5Q8W3V4X6Y7Z00000278" as OfficeId;
 const RUN = "run_01J9ZK5Q8W3V4X6Y7Z00000278";
@@ -138,7 +138,10 @@ async function world(
   await repo.git("branch", BRANCH, start);
   const git = officeGit(repo.dir, repo.env);
   const log: string[] = [];
-  const boxes = new FakeBoxes({ log });
+  // The office image and its box network tools exist: no build runs (DIPO-281).
+  const netToolsRoot = join(tmp, "state", "box-net-tools");
+  writeNetTools(netToolsRoot, boxImageTag(IMAGE));
+  const boxes = new FakeBoxes({ log, images: [boxImageTag(IMAGE)] });
   const holds = new AdapterHolds({ clock: new ManualClock(), notify: () => {} });
   const caFile = join(tmp, "route-ca.pem");
   writeFileSync(caFile, CA);
@@ -149,6 +152,7 @@ async function world(
       port: 3128,
       url: `http://${network.hostAddress}:3128`,
       caFile,
+      admit: (box) => `http://dipo:pw-${box}@${network.hostAddress}:3128`,
       stop: async () => {
         log.push("web route stopped");
       },
@@ -158,7 +162,6 @@ async function world(
   const workers = new BoxWorkers({
     boxes,
     startWebRoute: route,
-    startBuildRoute: route,
     startModelProxy: async (network): Promise<RunningModelProxy> => ({
       hostAddress: network.hostAddress,
       port: 4000,
@@ -172,7 +175,7 @@ async function world(
     readBaseBox: async (): Promise<BaseBox> =>
       ({
         ok: true,
-        description: { image: IMAGE, files: [] },
+        description: { image: IMAGE, files: [], localPorts: [] },
         detected: {},
         commit: start,
       }) as unknown as BaseBox,
@@ -182,6 +185,7 @@ async function world(
     tmpRoot: tmp,
     indexDir: join(tmp, "state", BOX_INDEX_DIR),
     scratchRoot: tmp,
+    netToolsRoot,
     ...more,
     // /work is compared with dipo's copy; here every box is found the same.
     treeCheck: async (run) => {

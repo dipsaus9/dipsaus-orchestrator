@@ -1,6 +1,6 @@
 // "Since you left" (DIPO-308; 0009 section 8): `office.digest` counts what the change log holds after
 // `since`, and without `since` counts from when the office's last TUI client disconnected, as
-// `recordTuiLeft` stored it in `offices.tui_left_at` (migration 53).
+// `recordTuiLeft` stored it in `offices.tui_left_at` (migration 55).
 
 import { describe, expect, it } from "bun:test";
 import { join } from "node:path";
@@ -162,7 +162,7 @@ describe("office.digest", () => {
     }));
 });
 
-describe("migration 53 on a database at version 52", () => {
+describe("migration 55 on a database at version 54", () => {
   it("adds offices.tui_left_at, null for the offices it keeps", () =>
     withTempDir(async (dir) => {
       const open = (migrations?: typeof MIGRATIONS) =>
@@ -174,7 +174,7 @@ describe("migration 53 on a database at version 52", () => {
           engineVersion: "0.0.0-test",
           ...(migrations === undefined ? {} : { migrations }),
         });
-      const old = await open(MIGRATIONS.filter((step) => step.version <= 52));
+      const old = await open(MIGRATIONS.filter((step) => step.version <= 54));
       try {
         old.connection.immediate(() =>
           old.connection.exec(`insert into offices (office_id, path, display_name, added_at, epoch,
@@ -185,7 +185,7 @@ describe("migration 53 on a database at version 52", () => {
       }
       const state = await open();
       try {
-        expect(MIGRATIONS.find((step) => step.version === 53)?.name).toBe("tui left");
+        expect(MIGRATIONS.find((step) => step.version === 55)?.name).toBe("tui left");
         expect(state.connection.all("select office_id, tui_left_at from offices")).toEqual([
           { office_id: "off-1", tui_left_at: null },
         ]);

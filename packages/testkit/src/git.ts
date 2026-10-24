@@ -2,7 +2,7 @@
 // global git config, hooks, identity and signing never reach a test: every git call testkit
 // makes, and every command run through `TempRepo.run`, gets the environment from `isolatedEnv`.
 
-import { cpSync, mkdirSync, writeFileSync } from "node:fs";
+import { appendFileSync, cpSync, mkdirSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 
 import { cleanEnv } from "./env";
@@ -19,13 +19,21 @@ const GIT_CONFIG: readonly [string, string][] = [
   ["init.defaultBranch", "main"],
 ];
 
-/** Config written into each temporary repository: the identity and no signing. */
-const REPO_CONFIG: readonly [string, string][] = [
-  ["user.name", GIT_IDENTITY.name],
-  ["user.email", GIT_IDENTITY.email],
-  ["commit.gpgsign", "false"],
-  ["tag.gpgsign", "false"],
-];
+/**
+ * Config written into each temporary repository: the identity and no signing, as the four
+ * `git config` calls would write it, appended in one write (DIPO-225: four git starts saved for
+ * every temporary repository of the suite).
+ */
+const REPO_CONFIG = [
+  "[user]",
+  `\tname = ${GIT_IDENTITY.name}`,
+  `\temail = ${GIT_IDENTITY.email}`,
+  "[commit]",
+  "\tgpgsign = false",
+  "[tag]",
+  "\tgpgsign = false",
+  "",
+].join("\n");
 
 /**
  * The environment for git and tools that call git: the cleaned environment (no ANTHROPIC_*,
@@ -152,7 +160,7 @@ export async function withTempRepo<T>(
     await git(dir, home, "init", "--quiet", "-b", "main");
     // The identity and no signing also in the repository's own config: a tool that gets only
     // PATH and HOME, like the Backlog CLI (DIPO-270), commits with them too, on any machine.
-    for (const [key, value] of REPO_CONFIG) await git(dir, home, "config", key, value);
+    appendFileSync(join(dir, ".git", "config"), REPO_CONFIG);
     if (options.fixture !== undefined) applyFixture(dir, options.fixture);
     const repo: TempRepo = {
       root,

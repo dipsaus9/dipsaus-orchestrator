@@ -61,7 +61,12 @@ export class EngineGit {
    * office is refused, or null. An office loaded again at the same paths keeps its queue.
    */
   async attach(ctx: OfficeLoadContext): Promise<string | null> {
-    const runner = { exec: this.#exec, env: this.#env, sleep: this.#sleep(ctx.clock) };
+    const runner = {
+      exec: this.#exec,
+      env: this.#env,
+      sleep: this.#sleep(ctx.clock),
+      clock: ctx.clock,
+    };
     const version = await runGitStep(runner, { kind: "none", cwd: ctx.path }, ["--version"]);
     if (version.code !== 0) {
       return `\`git --version\` failed: ${version.stderr.trim() || `exit ${version.code}`}`;

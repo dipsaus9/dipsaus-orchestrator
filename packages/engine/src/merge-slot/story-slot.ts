@@ -14,6 +14,12 @@
 //   maintainer. A story whose gate is approved and whose PR carries no hold label may enter, by the
 //   time its gate was approved; one with a hold label waits with a `merge.held` notice. Each story
 //   parked `review-blocked` gets its override gate here too.
+// - The release path (DIPO-331). Before a gate opens, the release paths the head changes are read
+//   from git (`StorySlotGit.releasePaths`: the base's CODEOWNERS, the PR's diff). A PR that
+//   changes one gets a gate that waits for the maintainer's merge on the host only (`gates.ts`),
+//   also when an earlier gate of the head was approved (the CODEOWNERS on the base grew, or an
+//   override), and never enters; dipo never passes `--admin` or any bypass. When git cannot tell,
+//   the PR stays out this tick.
 // - The steps (`advance`), each an office git queue item, in the story worktree's repository:
 //   1. the close-out commit: final summary (`writeCloseOutSummary`, DIPO-154), modified files and
 //      status Done (provisional until the host merge);
@@ -31,7 +37,9 @@
 //   4. the required checks of that head (the PR poll reads them): red leaves the slot, and the CI
 //      fix round of DIPO-148 takes the red head; checks that stay unfinished past the run's
 //      `mergeSlot.checksWaitMinutes` leave it until they pass;
-//   5. the label guard (`autorelease: pending` is never merged, a hold label waits), the host's
+//   5. the label guard (`autorelease: pending` is never merged, a hold label waits), the release
+//      path guard (the base fetched again and read for the pushed head; one changed, a failed
+//      fetch or an unreadable answer leaves), the host's
 //      PR head equal to the pushed head, and an approved or overridden verdict and an approved
 //      merge gate that hold for exactly that head (else the story leaves the slot unmerged and the
 //      review loop takes the head);
@@ -59,6 +67,7 @@ import type { OfficeConfig } from "../config";
 import type { OfficeHandle } from "../db/office";
 import type { Logger } from "../log/logger";
 import { type CodeHost, CodeHostError, type PrReviewHost, repoOfRemoteUrl } from "../platform/host";
+import type { PrStateReads } from "../platform/pr-state";
 import type { FixItem } from "../prompts/feedback";
 import {
   latestVerdictOfRun,
@@ -97,6 +106,7 @@ import {
   openMergeGate,
   overrideGateOf,
   overrideGateSummary,
+  releasePathList,
   type StoredMergeGate,
 } from "./gates";
 import { type SlotOccupant, leaveSlot, runInSlot, updateSlot } from "./store";
@@ -116,6 +126,8 @@ export const STORY_SLOT_NOTICES = {
   headChanged: "pr.headChanged",
   closedOnHost: "pr.closedOnHost",
   held: "merge.held",
+  /** The release path of a PR could not be read: it stays out of the slot (DIPO-331). */
+  releaseUnknown: "mergeSlot.releasePathUnknown",
   /** The head the slot would merge has no approved review and merge gate. */
   unapproved: "mergeSlot.unapproved",
   /** A merge of the base the slot made could not be recorded. */
@@ -168,6 +180,11 @@ export interface StorySlotContext {
   readonly officeId: OfficeId;
   readonly office: OfficeHandle;
   readonly host: CodeHost;
+  /**
+   * How the slot reads a story PR's state during a tick: through the office's PR-state round
+   * (DIPO-314), so a PR the story-PR poll read this round is not read again; `host` when absent.
+   */
+  readonly prState?: Pick<PrStateReads, "viewPr" | "invalidate">;
   readonly clock: Clock;
   /** The configuration in force; a run's snapshot is laid on it. */
   readonly config: OfficeConfig;
@@ -289,74 +306,169 @@ export class StorySlot {
   }
 
   async #candidate(ctx: StorySlotContext, stored: StoryPrRecord): Promise<StoryCandidate | null> {
-    const office = ctx.office;
-    const run = this.#waitingRun(office, stored.runId);
-    if (run === null || runInSlot(office, run.runId)) return null;
-    const repo = repoOfPrUrl(stored.url);
-    if (repo === null) return null;
-    const key = run.key as StoryKey;
-    const head = stored.headSha;
-    const config = runConfigOf(office, run, ctx.config);
-    // The required checks were green on the pushed head, or no CI ran for it (DIPO-299).
-    const ci = this.#deps.ci(ctx.officeId, run.runId);
-    if (ci === null || ci.head !== head || (ci.kind !== "green" && ci.kind !== "none")) return null;
-    // The review verdict, or the maintainer's override of it, holds for the head.
-    const verdict = await this.#verdictFor(ctx.officeId, office, run, head);
-    if (verdict === null) return null;
-    if (verdict.verdict !== "approved" && verdict.override === null) return null;
-    let view;
-    try {
-      view = await ctx.host.viewPr(repo, stored.number);
-    } catch (error) {
-      if (error instanceof CodeHostError) return null;
-      throw error;
-    }
-    if (view.state === "merged") return null;
-    if (view.state === "closed") {
-      await this.#prClosed(ctx, run, stored);
-      return null;
-    }
-    if (view.headSha !== "" && view.headSha !== head) {
-      this.#headChanged(ctx, run, stored, view.headSha);
-      return null;
-    }
+    const ready = await this.#ready(ctx, stored);
+    if (ready === null) return null;
+    const { run, repo, head, verdict } = ready;
+    if (!(await this.#openOnHost(ctx, run, stored, repo))) return null;
+    const config = runConfigOf(ctx.office, run, ctx.config);
     const labels = await this.#deps.labels.prLabels(repo, stored.number);
     const held = holdLabelsOn(labels, config.mergeSlot.holdLabels);
-    const gate = await this.#gateFor(ctx, run, stored, head, verdict, held);
+    const release = await this.#releasePaths(ctx, run, head);
+    if (release === null) return null;
+    const gate = await this.#gateFor(ctx, run, stored, { head, verdict, held, release });
     if (gate?.decision?.decision !== "approved") return null;
-    if (held.length > 0) {
-      ctx.once(`story:${run.runId}`, STORY_SLOT_NOTICES.held, `${head}:${held.join(",")}`, () =>
-        notice(
-          "info",
-          STORY_SLOT_NOTICES.held,
-          autoreleasePending(held)
-            ? `${run.story}: PR #${stored.number} carries "autorelease: pending", so dipo never merges it; merge it by hand on GitHub.`
-            : `${run.story}: PR #${stored.number} is approved but carries the hold label ${held.map((label) => `"${label}"`).join(", ")}; dipo merges it once the label is gone.`,
-          key,
-          run.runId,
-        ),
-      );
+    if (this.#heldBack(ctx, run, { number: stored.number, head, held, release }, "candidate")) {
       return null;
     }
-    // Out until its head changes; one that left unapproved also until its verdict or gate does.
-    const left = ctx.left.get(run.runId);
-    if (left === head) return null;
-    if (left?.startsWith("unapproved ") === true) {
-      // Left unapproved at the head it would merge: out until that head's verdict or gate changes.
-      const [, unapproved = ""] = left.split(" ");
-      const now = await this.#approvedFor(ctx.officeId, office, run, unapproved);
-      if (approvalKey(unapproved, now.verdict ?? "none", now.gate ?? "none") === left) return null;
-      ctx.left.delete(run.runId);
-    }
+    if (await this.#keptOut(ctx, run, head)) return null;
     return {
       runId: run.runId,
-      key,
+      key: run.key as StoryKey,
       number: stored.number,
       repo,
       branch: stored.branch,
       head,
       eligibleAt: gate.decision.at,
     };
+  }
+
+  /**
+   * The run waiting In Review of a story PR outside the slot, its repository, its pushed head and
+   * the verdict that holds for it, once its required checks were green on that head (or no CI ran
+   * for it, DIPO-299) and the verdict is approved or overridden; else null.
+   */
+  async #ready(
+    ctx: StorySlotContext,
+    stored: StoryPrRecord,
+  ): Promise<{
+    readonly run: StoredRun;
+    readonly repo: string;
+    readonly head: string;
+    readonly verdict: StoredReviewVerdict;
+  } | null> {
+    const run = this.#waitingRun(ctx.office, stored.runId);
+    if (run === null || runInSlot(ctx.office, run.runId)) return null;
+    const repo = repoOfPrUrl(stored.url);
+    if (repo === null) return null;
+    const head = stored.headSha;
+    const ci = this.#deps.ci(ctx.officeId, run.runId);
+    if (ci === null || ci.head !== head || (ci.kind !== "green" && ci.kind !== "none")) return null;
+    const verdict = await this.#verdictFor(ctx.officeId, ctx.office, run, head);
+    if (verdict === null) return null;
+    if (verdict.verdict !== "approved" && verdict.override === null) return null;
+    return { run, repo, head, verdict };
+  }
+
+  /** True when the host shows the PR open at the pushed head; a closed PR parks, a moved head tells. */
+  async #openOnHost(
+    ctx: StorySlotContext,
+    run: StoredRun,
+    stored: StoryPrRecord,
+    repo: string,
+  ): Promise<boolean> {
+    let view;
+    try {
+      // Through the PR-state round when this tick belongs to one (DIPO-314).
+      view = await readsOf(ctx).viewPr(repo, stored.number, { head: stored.headSha });
+    } catch (error) {
+      if (error instanceof CodeHostError) return false;
+      throw error;
+    }
+    if (view.state === "merged") return false;
+    if (view.state === "closed") {
+      await this.#prClosed(ctx, run, stored);
+      return false;
+    }
+    if (view.headSha !== "" && view.headSha !== stored.headSha) {
+      this.#headChanged(ctx, run, stored, view.headSha);
+      return false;
+    }
+    return true;
+  }
+
+  /**
+   * The release paths `head` changes (DIPO-331), or null with a notice (once per head) when git
+   * cannot tell: the PR then stays out of the slot, and nothing merges it.
+   */
+  async #releasePaths(
+    ctx: StorySlotContext,
+    run: StoredRun,
+    head: string,
+  ): Promise<readonly string[] | null> {
+    const paths = await this.#deps.git.releasePaths(ctx.officeId, head).catch((error: unknown) => {
+      ctx.logger?.warn("reading the release path of a story PR failed", {
+        run: run.runId,
+        reason: messageOf(error),
+      });
+      return null;
+    });
+    if (paths !== null) return paths;
+    this.#releaseUnknown(ctx, run, head, "the base's CODEOWNERS or the PR's diff");
+    return null;
+  }
+
+  /** The `mergeSlot.releasePathUnknown` notice, once per head: nothing merges it this time. */
+  #releaseUnknown(ctx: StorySlotContext, run: StoredRun, head: string, what: string): void {
+    ctx.once(`story:${run.runId}`, STORY_SLOT_NOTICES.releaseUnknown, head, () =>
+      notice(
+        "warn",
+        STORY_SLOT_NOTICES.releaseUnknown,
+        `${run.story}: dipo could not read whether ${short(head)} changes the release path (${what}), so it does not merge it. It tries again at the next check.`,
+        run.key,
+        run.runId,
+      ),
+    );
+  }
+
+  /**
+   * True when a hold label or the release path holds the PR back, with a `merge.held` notice once
+   * per head and reason: `autorelease: pending` and the release path only a hand merge resolves.
+   */
+  #heldBack(
+    ctx: StorySlotContext,
+    run: StoredRun,
+    pr: {
+      readonly number: number;
+      readonly head: string;
+      readonly held: readonly string[];
+      readonly release: readonly string[];
+    },
+    where: "candidate" | "slot",
+  ): boolean {
+    let text: string;
+    if (pr.release.length > 0) {
+      text = `${run.story}${where === "slot" ? " left the merge slot" : ""}: PR #${pr.number} changes the release path (${releasePathList(pr.release)}), which needs the maintainer's code owner approval, so dipo never merges it; the maintainer merges it by hand on GitHub.`;
+    } else if (autoreleasePending(pr.held)) {
+      text = `${run.story}: PR #${pr.number} carries "autorelease: pending", so dipo never merges it; merge it by hand on GitHub.`;
+    } else if (pr.held.length > 0) {
+      const labels = pr.held.map((label) => `"${label}"`).join(", ");
+      text =
+        where === "slot"
+          ? `${run.story} left the merge slot: PR #${pr.number} carries the hold label ${labels}; dipo merges it once the label is gone.`
+          : `${run.story}: PR #${pr.number} is approved but carries the hold label ${labels}; dipo merges it once the label is gone.`;
+    } else {
+      return false;
+    }
+    const value = `${pr.head}:${pr.held.join(",")}${pr.release.length > 0 ? ":release-path" : ""}`;
+    ctx.once(`story:${run.runId}`, STORY_SLOT_NOTICES.held, value, () =>
+      notice("info", STORY_SLOT_NOTICES.held, text, run.key, run.runId),
+    );
+    return true;
+  }
+
+  /** True when the story left the slot at `head` (or unapproved there) and stays out for now. */
+  async #keptOut(ctx: StorySlotContext, run: StoredRun, head: string): Promise<boolean> {
+    // Out until its head changes; one that left unapproved also until its verdict or gate does.
+    const left = ctx.left.get(run.runId);
+    if (left === head) return true;
+    if (left?.startsWith("unapproved ") === true) {
+      // Left unapproved at the head it would merge: out until that head's verdict or gate changes.
+      const [, unapproved = ""] = left.split(" ");
+      const now = await this.#approvedFor(ctx.officeId, ctx.office, run, unapproved);
+      if (approvalKey(unapproved, now.verdict ?? "none", now.gate ?? "none") === left) return true;
+      ctx.left.delete(run.runId);
+    }
+    return false;
   }
 
   /** The verdict of the head's code tree, or null when it has none (or the tree is unreadable). */
@@ -465,20 +577,33 @@ export class StorySlot {
     return "left";
   }
 
-  /** The head's merge gate: one that holds for it, else a new one; superseded open ones close. */
+  /**
+   * The head's merge gate: one that holds for it, else a new one; superseded open ones close. A
+   * head that changes the release path gets a hand-merge-only gate even when one that holds for it
+   * was approved (the base's CODEOWNERS grew, or an override), unless the maintainer rejected it;
+   * an open hand-merge-only gate of a head that no longer changes it is replaced.
+   */
   async #gateFor(
     ctx: StorySlotContext,
     run: StoredRun,
     stored: StoryPrRecord,
-    head: string,
-    verdict: StoredReviewVerdict,
-    held: readonly string[],
+    input: {
+      readonly head: string;
+      readonly verdict: StoredReviewVerdict;
+      readonly held: readonly string[];
+      readonly release: readonly string[];
+    },
   ): Promise<StoredMergeGate | null> {
     const office = ctx.office;
-    const gates = mergeGatesOfRun(office, run.runId).toReversed();
-    for (const gate of gates) {
-      if (await this.#holds(ctx.officeId, office, run, gate, head, verdict)) return gate;
+    const { head, verdict } = input;
+    let found: StoredMergeGate | null = null;
+    for (const gate of mergeGatesOfRun(office, run.runId).toReversed()) {
+      if (await this.#holds(ctx.officeId, office, run, gate, head, verdict)) {
+        found = gate;
+        break;
+      }
     }
+    if (found !== null && !gateOutdated(found, input.release)) return found;
     const key = run.key as StoryKey;
     const config = runConfigOf(office, run, ctx.config);
     const flagged = mirrorFlagged(office, key);
@@ -486,7 +611,8 @@ export class StorySlot {
       autoMerge: config.mergeSlot.autoMerge,
       testBeforeMerge: flagged,
       verdict,
-      holdLabels: held,
+      holdLabels: input.held,
+      releasePaths: input.release,
     });
     let manual: { check: string; expect?: string }[] = [];
     if (flagged && this.#deps.story !== undefined) {
@@ -523,7 +649,10 @@ export class StorySlot {
           ...decideMergeGate(office, gate.gate, {
             decision: "rejected",
             by: "rule",
-            note: `superseded: the PR head moved to ${short(head)}`,
+            note:
+              found === null
+                ? `superseded: the PR head moved to ${short(head)}`
+                : `superseded: the release path of ${short(head)} changed`,
             at,
           }),
         );
@@ -862,7 +991,8 @@ export class StorySlot {
     };
     let view;
     try {
-      view = await ctx.host.viewPr(current.repo, current.number);
+      // A copy of this round on another head is read again: the slot may have pushed since.
+      view = await readsOf(ctx).viewPr(current.repo, current.number, { head });
     } catch (error) {
       if (error instanceof CodeHostError) return "waiting";
       throw error;
@@ -881,22 +1011,8 @@ export class StorySlot {
       free(ctx);
       return "left";
     }
-    const config = runConfigOf(office, run, ctx.config);
-    const labels = await this.#deps.labels.prLabels(current.repo, current.number);
-    const held = holdLabelsOn(labels, config.mergeSlot.holdLabels);
-    if (held.length > 0) {
+    if (await this.#guarded(ctx, run, current, head)) {
       free(ctx);
-      ctx.once(`story:${runId}`, STORY_SLOT_NOTICES.held, `${head}:${held.join(",")}`, () =>
-        notice(
-          "info",
-          STORY_SLOT_NOTICES.held,
-          autoreleasePending(held)
-            ? `${run.story}: PR #${current.number} carries "autorelease: pending", so dipo never merges it; merge it by hand on GitHub.`
-            : `${run.story} left the merge slot: PR #${current.number} carries the hold label ${held.map((label) => `"${label}"`).join(", ")}; dipo merges it once the label is gone.`,
-          run.key,
-          runId,
-        ),
-      );
       return "left";
     }
     // The review verdict and an approved merge gate must hold for exactly the head that merges:
@@ -928,7 +1044,10 @@ export class StorySlot {
     } catch (error) {
       if (!(error instanceof CodeHostError)) throw error;
       const again = await ctx.host.viewPr(current.repo, current.number).catch(() => null);
-      if (again?.state === "merged") return this.#merged(ctx, run, current);
+      if (again?.state === "merged") {
+        ctx.prState?.invalidate?.(current.repo, current.number);
+        return this.#merged(ctx, run, current);
+      }
       const git = this.#deps.git;
       const moved =
         (await git.fetch(ctx.officeId)) && !(await git.containsBase(ctx.officeId, current.branch));
@@ -949,7 +1068,36 @@ export class StorySlot {
       }
       return "again";
     }
+    // The PR-state round's copy of the PR is stale now (DIPO-314).
+    ctx.prState?.invalidate?.(current.repo, current.number);
     return this.#merged(ctx, run, current);
+  }
+
+  /**
+   * Step 5's label and release path guards for the head that would merge: true when a hold label
+   * or the release path holds it (with its notice), or the release path cannot be read. The base is
+   * fetched first, so the CODEOWNERS read is the base's as it is now, not as it was at the sync; a
+   * failed fetch leaves the slot with the `mergeSlot.releasePathUnknown` notice.
+   */
+  async #guarded(
+    ctx: StorySlotContext,
+    run: StoredRun,
+    current: SlotOccupant,
+    head: string,
+  ): Promise<boolean> {
+    const config = runConfigOf(ctx.office, run, ctx.config);
+    const labels = await this.#deps.labels.prLabels(current.repo, current.number);
+    const held = holdLabelsOn(labels, config.mergeSlot.holdLabels);
+    if (held.length > 0) {
+      return this.#heldBack(ctx, run, { number: current.number, head, held, release: [] }, "slot");
+    }
+    if (!(await this.#deps.git.fetch(ctx.officeId).catch(() => false))) {
+      this.#releaseUnknown(ctx, run, head, "the fetch of the base failed");
+      return true;
+    }
+    const release = await this.#releasePaths(ctx, run, head);
+    if (release === null) return true;
+    return this.#heldBack(ctx, run, { number: current.number, head, held, release }, "slot");
   }
 
   #merged(ctx: StorySlotContext, run: StoredRun, current: SlotOccupant): Outcome {
@@ -1051,6 +1199,18 @@ export class StorySlot {
 }
 
 /**
+ * Pure: true when the merge gate `gate` that holds for a head no longer fits the release paths the
+ * head changes (DIPO-331): it is no hand-merge-only gate and the head changes one (and the
+ * maintainer did not reject it), or it is an open hand-merge-only gate and the head changes none.
+ */
+function gateOutdated(gate: StoredMergeGate, release: readonly string[]): boolean {
+  if (release.length > 0) {
+    return gate.handMerge === null && gate.decision?.decision !== "rejected";
+  }
+  return gate.handMerge !== null && gate.decision === null;
+}
+
+/**
  * A slot push that reached the remote, on the story's live claim (DIPO-315: every story-branch push
  * sets `claims.pushed_at`). An unchanged branch or a missing remote records nothing here.
  */
@@ -1064,4 +1224,9 @@ function recordSlotPush(
   ctx.office.immediate(() =>
     recordBranchPush(ctx.office, branch, { pushed: true, error: null }, at),
   );
+}
+
+/** How a tick reads a story PR's state: the PR-state round's reads, else the host (DIPO-314). */
+function readsOf(ctx: StorySlotContext): Pick<PrStateReads, "viewPr"> {
+  return ctx.prState ?? ctx.host;
 }

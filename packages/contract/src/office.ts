@@ -678,7 +678,8 @@ export const officeStats = defineRead({
 });
 
 // The kinds of a desk item (0020 section 12), as `dipo desk` prints them. Open: later stories add
-// kinds (DIPO-161 `DONE ELSEWHERE` and `LEFTOVERS`, 0019 `PR HEAD CHANGED`, scope requests).
+// kinds (DIPO-161 `DONE ELSEWHERE` and `LEFTOVERS`, 0019 `PR HEAD CHANGED`, scope requests; DIPO-310
+// `PROFILE`, a pending proposal or stale confirmation of the run profile, with no story).
 export const KNOWN_DESK_KINDS = [
   "QUESTION",
   "PERMISSION",
@@ -692,6 +693,7 @@ export const KNOWN_DESK_KINDS = [
   "NOTICE",
   "PROPOSAL",
   "HELD",
+  "PROFILE",
 ] as const;
 export const DeskKind = openEnum(KNOWN_DESK_KINDS);
 export type DeskKind = z.infer<typeof DeskKind>;

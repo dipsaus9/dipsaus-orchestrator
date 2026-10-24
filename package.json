@@ -17,8 +17,8 @@
     "recordings:derive": "bun tools/recordings/derive.ts",
     "recordings:refresh": "bun tools/recordings/refresh.ts",
     "recordings:status": "bun tools/recordings/status.ts",
-    "test": "bun test",
-    "verify": "bun run format:check && bun run lint && bun run typecheck && bun test"
+    "test": "bun scripts/test.ts",
+    "verify": "bun run format:check && bun run lint && bun run typecheck && bun run test"
   },
   "devDependencies": {
     "@types/bun": "1.4.2",

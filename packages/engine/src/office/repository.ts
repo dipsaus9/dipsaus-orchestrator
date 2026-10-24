@@ -3,11 +3,14 @@
 // directory is `<git-common-dir>/dipo/`, with the common directory from
 // `git rev-parse --path-format=absolute --git-common-dir`. Git runs through the injected `Spawn`
 // hardened as every engine git call is (`git/hardened.ts`): no hooks, no fsmonitor, no system config.
+// Each call has the deadline of every engine git step (DIPO-314, `GIT_STEP_DEADLINE_MS`) and fails
+// with `git.timedOut` past it.
 
 import { existsSync, realpathSync, statSync } from "node:fs";
 import { join } from "node:path";
 
 import {
+  type Clock,
   mainWorktreeOf,
   type RepositoryLocation,
   resolveRepositoryWith,
@@ -15,6 +18,9 @@ import {
 } from "@dipsaus-orchestrator/contract";
 
 import { hardenedArgs, hardenedEnv } from "../git/hardened";
+import { GIT_STEP_DEADLINE_MS, gitTimedOut } from "../git/runner";
+import { systemClock } from "../platform/clock";
+import { trackEngineCall, withDeadline } from "../platform/deadline";
 import { isNetworkFsType, mountFor, type MountReader, readSystemMounts } from "../platform/sqlite";
 
 /** The Backlog.md project file that makes a repository a project (0006 decision 4). */
@@ -27,6 +33,8 @@ export interface GitRunner {
   readonly git?: string;
   /** The complete environment for git; tests pass an isolated one. */
   readonly env?: Readonly<Record<string, string>>;
+  /** The clock each call's deadline runs on; the system clock by default. */
+  readonly clock?: Clock;
 }
 
 interface GitResult {
@@ -42,12 +50,22 @@ async function runGit(runner: GitRunner, cwd: string, args: readonly string[]): 
     cmd: [runner.git ?? "git", ...hardenedArgs(location, args)],
     cwd,
     env: hardenedEnv(runner.env ?? process.env, location),
+    detached: true,
   });
-  const [stdout, stderr, exit] = await Promise.all([
-    new Response(child.stdout).text(),
-    new Response(child.stderr).text(),
-    child.exited,
-  ]);
+  trackEngineCall(child);
+  const [stdout, stderr, exit] = await withDeadline(
+    child,
+    Promise.all([
+      new Response(child.stdout).text(),
+      new Response(child.stderr).text(),
+      child.exited,
+    ]),
+    {
+      clock: runner.clock ?? systemClock,
+      deadlineMs: GIT_STEP_DEADLINE_MS,
+      timedOut: () => gitTimedOut(args, GIT_STEP_DEADLINE_MS),
+    },
+  );
   return { code: exit.code, stdout, stderr };
 }
 

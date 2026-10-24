@@ -339,7 +339,8 @@ export const daemonStateChanged = defineEvent({
 });
 
 // What started a scan (0007 section 4). Open enum.
-export const ScanTrigger = openEnum(["start", "run", "test", "rescan"]);
+// Since minor 1 (DIPO-310): `infer` (the fallback session's proposals) and `confirm` (a confirm command).
+export const ScanTrigger = openEnum(["start", "run", "test", "rescan", "infer", "confirm"]);
 export type ScanTrigger = z.infer<typeof ScanTrigger>;
 
 // The conformance level of a run profile (0013 section 2). Open enum.

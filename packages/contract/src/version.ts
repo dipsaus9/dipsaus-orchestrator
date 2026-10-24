@@ -75,6 +75,11 @@ export type ContractVersion = z.infer<typeof ContractVersion>;
 // `DeskItem` shape to the same, still unreleased, minor.
 // DIPO-311 adds the optional `monthUsage` of `OfficeSummary`, fills `dayUsage` and adds the
 // capability flag `usage.alerts` in the same, still unreleased, minor.
+// DIPO-310 ships the commands `office.infer` and `office.confirm` and the read `office.profile` (the
+// run profile's fallback and confirmation, 0013 section 6), the `ScanTrigger` values `infer` and
+// `confirm` and the office codes `scan.noProfile`, `scan.noProposal`, `scan.resolvedByCode`,
+// `scan.notConflict`, `scan.noCandidate`, `scan.notConfirmed`, `scan.invalidCommand` and
+// `scan.staleProposal` in the same, still unreleased, minor.
 // DIPO-308 ships the read `office.digest`, with `since` made optional (the engine then counts from
 // when the office's last TUI client disconnected), and so its capability flag `digest`, in the same,
 // still unreleased, minor.

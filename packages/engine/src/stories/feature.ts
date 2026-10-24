@@ -67,6 +67,11 @@ export interface StoryIndexDeps {
    */
   readonly reloadConfig?: (office: OfficeId) => Promise<unknown>;
   readonly logger?: Logger;
+  /**
+   * An index pass takes a story's view from the office's cache when none of the Backlog files it
+   * printed changed (DIPO-314, `StoryViewCache`); off by default, the daemon turns it on.
+   */
+  readonly reuseViews?: boolean;
 }
 
 interface Indexed {
@@ -154,6 +159,7 @@ export class StoryIndex {
         cli: this.#deps.cli,
         clock: state.clock,
         ids: state.ids,
+        ...(this.#deps.reuseViews === true ? { reuseViews: true } : {}),
       },
       session,
       basePath,
@@ -256,6 +262,7 @@ export class StoryIndex {
       cli: this.#deps.cli,
       clock: state.clock,
       ids: state.ids,
+      ...(this.#deps.reuseViews === true ? { reuseViews: true } : {}),
     });
     this.#record(office, state, result);
     return result;

@@ -9,7 +9,7 @@ import { existsSync, mkdirSync, realpathSync, rmSync, writeFileSync } from "node
 import { join } from "node:path";
 
 import { type OfficeId, RunId, StoryKey } from "@dipsaus-orchestrator/contract";
-import { withTempDir } from "@dipsaus-orchestrator/testkit";
+import { ManualClock, withTempDir } from "@dipsaus-orchestrator/testkit";
 
 import type { FeatureModule } from "../../src/commands/registry";
 import { OFFICE_DEFAULTS, type OfficeConfig } from "../../src/config";
@@ -17,7 +17,9 @@ import type { OfficeHandle } from "../../src/db/office";
 import { type GitCall, type GitResult, OfficeGit } from "../../src/git";
 import { HAND_MERGE_NOTE, mergeGate } from "../../src/merge-slot";
 import type { OfficeLoadContext } from "../../src/office/steps";
-import { CodeHostError, type HostPr, type PrStateHost } from "../../src/platform/host";
+import { GIT_STEP_DEADLINE_MS } from "../../src/git/runner";
+import { CALL_DEADLINE_MS, KILL_GRACE_MS } from "../../src/platform/deadline";
+import { CodeHostError, GhHost, type HostPr, type PrStateHost } from "../../src/platform/host";
 import {
   type ClaimRecord,
   detectDone,
@@ -30,10 +32,9 @@ import {
   TEARDOWN_STEP,
   tearDown,
 } from "../../src/worktree";
-import { dirtyFilesOf, releaseForDrop } from "../../src/worktree/release";
 import { insertClaim, markTeardownStarted } from "../../src/worktree/records";
-import { removeWorktree } from "../../src/worktree/teardown";
 import { notices } from "../backlog/lane/helpers";
+import { hangingSpawn, settle as letCallsRun } from "../platform/hanging";
 import { addOffice, openTestState, type TestState } from "../commands/helpers";
 
 const START = "1".repeat(40);
@@ -68,7 +69,8 @@ interface World {
   /** Every git step, its arguments joined by spaces. */
   readonly steps: string[];
   /** Answers a step; undefined means exit 0 with no output. */
-  answer: (args: readonly string[]) => Reply;
+  /** The reply to a git step; `"hang"` makes the step never end (DIPO-314). */
+  answer: (args: readonly string[]) => Reply | "hang";
   claim(): ClaimRecord;
 }
 
@@ -128,7 +130,9 @@ async function withWorld(fn: (world: World) => Promise<void>): Promise<void> {
           exec: async (call: GitCall): Promise<GitResult> => {
             const args = stepArgs(call.args);
             steps.push(args.join(" "));
-            const reply = world.answer(args) ?? defaults(world, args) ?? {};
+            const answered = world.answer(args);
+            if (answered === "hang") return new Promise<GitResult>(() => {});
+            const reply = answered ?? defaults(world, args) ?? {};
             const result = { code: 0, stdout: "", stderr: "", ...reply };
             if (args[0] === "worktree" && args[1] === "remove" && result.code === 0) {
               rmSync(worktree, { recursive: true, force: true });
@@ -332,6 +336,25 @@ describe("detecting Done", () => {
       expect(!check.done && check.problem?.text).toContain("fatal: bad object");
     }));
 
+  it("falls back to merge-tree when gh never answers and is killed at its deadline (DIPO-314)", () =>
+    withWorld(async (world) => {
+      world.answer = (args) =>
+        args[0] === "merge-tree" ? { code: 128, stderr: "fatal: bad object" } : undefined;
+      const clock = new ManualClock();
+      const gh = new GhHost({ spawn: hangingSpawn().spawn, env: {}, clock });
+      let settled = false;
+      const checked = detectDone({ git: world.git, host: gh }, world.claim()).finally(
+        () => (settled = true),
+      );
+      for (let i = 0; i < 50 && clock.pendingTimers === 0; i += 1) await letCallsRun();
+      expect(settled).toBe(false);
+      clock.advance(CALL_DEADLINE_MS + KILL_GRACE_MS);
+      const check = await checked;
+      // The timed-out host call is the failure the Done poll already handles: merge-tree decides.
+      expect(world.steps.some((step) => step.startsWith("merge-tree"))).toBe(true);
+      expect(!check.done && check.problem?.code).toBe(TEARDOWN_NOTICES.checkFailed);
+    }));
+
   it("reports a merged PR whose head is not the local tip while the branch adds changes", () =>
     withWorld(async (world) => {
       world.answer = (args) =>
@@ -463,6 +486,30 @@ describe("tearing down", () => {
       const told = notices(world.office);
       expect(told.map((n) => n.code)).toEqual([TEARDOWN_NOTICES.kept]);
       expect(told[0]?.text).toContain("src/a.ts, notes.txt");
+    }));
+
+  it("tells a teardown step that never ends at its deadline as a failed check, and frees the queue (DIPO-314)", () =>
+    withWorld(async (world) => {
+      world.answer = (args) =>
+        args[0] === "worktree" && args[1] === "remove" ? "hang" : undefined;
+      const teardown = teardownOf(world);
+      const polled = teardown.poll(world.office.officeId as OfficeId);
+      // Once the step hangs, its deadline and the grace pass on the office clock.
+      for (
+        let i = 0;
+        i < 2_000 && !world.steps.some((step) => step.startsWith("worktree remove"));
+        i += 1
+      ) {
+        await Bun.sleep(1);
+      }
+      world.t.clock.advance(GIT_STEP_DEADLINE_MS + KILL_GRACE_MS);
+      const report = await polled;
+      expect(report.tornDown).toEqual([]);
+      const failed = notices(world.office).filter((n) => n.code === TEARDOWN_NOTICES.checkFailed);
+      expect(failed).toHaveLength(1);
+      expect(failed[0]?.text).toContain("did not finish within its deadline");
+      expect(world.claim().releasedAt).toBeNull();
+      expect(await world.git.run(async () => "next item")).toBe("next item");
     }));
 
   it("keeps everything for a worktree locked by someone else, without unlocking it", () =>
@@ -760,99 +807,5 @@ describe("worktree lock reasons", () => {
   });
 });
 
-/**
- * A box run's worktree (DIPO-302): its branch moved by `update-ref` for each part, so `git status`
- * lists the parts reversed as staged changes. `files` says what the worktree's files equal: the
- * start commit, the branch tip or neither. `untracked` is a porcelain line of an untracked file, or
- * "". Like git, a worktree with changes is refused a removal without `--force`.
- */
-function boxWorktree(world: World, files: "start" | "tip" | "neither", untracked = ""): void {
-  world.answer = (args) => {
-    const line = args.join(" ");
-    if (args[0] === "status") return { stdout: `M  src/a.ts\0${untracked}` };
-    if (line === "ls-files --others --exclude-standard -z") {
-      return { stdout: untracked.replace("?? ", "") };
-    }
-    if (line.startsWith("diff --name-only -z ")) {
-      const commit = args[args.length - 1];
-      const matches =
-        (commit === START && files === "start") || (commit === TIP && files === "tip");
-      return { stdout: matches ? "" : "src/a.ts\0" };
-    }
-    if (args[0] === "worktree" && args[1] === "remove" && !args.includes("--force")) {
-      return { code: 128, stderr: `fatal: '${world.worktree}' contains changes, use --force` };
-    }
-    return undefined;
-  };
-}
-
-/** The deps `releaseForDrop` takes, from a test world. */
-function dropDeps(world: World) {
-  return {
-    officeId: world.office.officeId as OfficeId,
-    office: world.office,
-    git: world.git,
-    clock: world.t.clock,
-  };
-}
-
-describe("box run worktrees (DIPO-302)", () => {
-  it("drops a box run whose worktree still holds the start commit, with no dirty files", () =>
-    withWorld(async (world) => {
-      boxWorktree(world, "start");
-      expect(await dirtyFilesOf({ git: world.git }, world.claim())).toEqual([]);
-      const outcome = await releaseForDrop(dropDeps(world), world.claim(), { deleteBranch: false });
-      expect(outcome).toEqual({ ok: true, remoteProblem: null });
-      expect(world.steps).toContain(`worktree remove --force ${world.worktree}`);
-      expect(world.claim().releasedAt).not.toBeNull();
-    }));
-
-  it("treats a worktree that holds the branch tip as clean", () =>
-    withWorld(async (world) => {
-      boxWorktree(world, "tip");
-      expect(await dirtyFilesOf({ git: world.git }, world.claim())).toEqual([]);
-      const outcome = await releaseForDrop(dropDeps(world), world.claim(), { deleteBranch: false });
-      expect(outcome).toEqual({ ok: true, remoteProblem: null });
-    }));
-
-  it("releases a teardown's worktree the same way when its files match the start commit", () =>
-    withWorld(async (world) => {
-      boxWorktree(world, "start");
-      const outcome = await world.git.run((git) =>
-        removeWorktree(
-          { office: world.office, git: world.git, clock: world.t.clock },
-          git,
-          world.claim(),
-        ),
-      );
-      expect(outcome).toEqual({ ok: true });
-      expect(world.steps).toContain(`worktree remove --force ${world.worktree}`);
-      expect(existsSync(world.worktree)).toBe(false);
-    }));
-
-  it("still refuses a worktree with an untracked file, even when its tracked files match", () =>
-    withWorld(async (world) => {
-      boxWorktree(world, "start", "?? notes.txt\0");
-      expect(await dirtyFilesOf({ git: world.git }, world.claim())).toEqual([
-        "src/a.ts",
-        "notes.txt",
-      ]);
-      const outcome = await releaseForDrop(dropDeps(world), world.claim(), { deleteBranch: false });
-      expect(outcome).toMatchObject({ ok: false, files: ["src/a.ts", "notes.txt"] });
-      expect(world.steps.some((s) => s.startsWith("worktree remove --force"))).toBe(false);
-      expect(world.claim().releasedAt).toBeNull();
-    }));
-
-  it("still refuses a worktree whose files match neither the start commit nor the branch tip", () =>
-    withWorld(async (world) => {
-      boxWorktree(world, "neither", "?? notes.txt\0");
-      expect(await dirtyFilesOf({ git: world.git }, world.claim())).toEqual([
-        "src/a.ts",
-        "notes.txt",
-      ]);
-      const outcome = await releaseForDrop(dropDeps(world), world.claim(), { deleteBranch: false });
-      expect(outcome).toMatchObject({ ok: false, files: ["src/a.ts", "notes.txt"] });
-      expect(world.steps.some((s) => s.startsWith("worktree remove --force"))).toBe(false);
-      expect(world.claim().releasedAt).toBeNull();
-    }));
-});
+// The box run worktrees of DIPO-302 and DIPO-332 are tested on real git in lagging-worktree.test.ts
+// and lagging-worktree.ci.test.ts.

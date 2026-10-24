@@ -15,7 +15,7 @@ import { BOX_RUN_FILE } from "../box/workers";
 import { readBackstop } from "./backstop";
 import { type InputChangeReader, Nudges } from "../hooks/nudges";
 import { ABSENT, PermissionAsks, type Presence } from "../hooks/permissions";
-import { WebGuard } from "../hooks/web-guard";
+import { type FetchAddressDeps, SYSTEM_FETCH_ADDRESSES, WebGuard } from "../hooks/web-guard";
 import { CONTRACT_MAX_DEFAULT } from "../prompts/contract";
 import { currentProfile } from "../scan/store";
 import type { RunProfile } from "../scan/detect";
@@ -32,6 +32,7 @@ import { gitReviewOps, ReviewLauncher } from "./review-launch";
 import { FixRounds, type FixRoundsDeps } from "./fix-rounds";
 import { Reviews } from "./reviews";
 import { createRunOutcomes, type Resumption } from "./resumption";
+import { SessionRuns } from "./session-run";
 import { afterRunExits } from "./temp-dirs";
 import { ConflictResumes, type ConflictResumesDeps } from "./conflicts";
 import { resolveIntent, runIntents } from "./intents";
@@ -115,6 +116,12 @@ export interface RunPorts {
    */
   readonly boxes?: RunLauncherDeps["boxes"];
   /**
+   * The box network's host address while this daemon knows one, else null (DIPO-281): the live
+   * source the web guard's WebFetch check and each reviewer's web proxy read for every check, so
+   * they refuse the box network. Without it they know none (`SYSTEM_FETCH_ADDRESSES`).
+   */
+  readonly boxHostAddress?: () => string | null;
+  /**
    * Copies into a run's box the merges dipo committed on its branch outside the box, before its
    * next developer session (DIPO-324); a failure parks the story instead of starting the worker.
    */
@@ -149,6 +156,22 @@ export interface ComposedRuns {
   readonly fixRounds: FixRounds | null;
   readonly launcher: RunLauncher;
   readonly reattacher: RunReattacher | null;
+  /**
+   * The scan fallback's `session` runs (DIPO-310): one model session outside a story, on the same
+   * worker port, hosts and steering as the story runs, outside the worker and reviewer places.
+   */
+  readonly sessions: SessionRuns;
+}
+
+/**
+ * What the web guard's WebFetch check reads (DIPO-281): the system's resolver and interfaces with
+ * the daemon's live box network address, read for each check; undefined without one, so the guard
+ * keeps its system default.
+ */
+export function fetchAddressesOf(
+  boxHostAddress: (() => string | null) | undefined,
+): FetchAddressDeps | undefined {
+  return boxHostAddress === undefined ? undefined : { ...SYSTEM_FETCH_ADDRESSES, boxHostAddress };
 }
 
 /** `{ [key]: value }`, or `{}` when `value` is undefined (an optional port left out). */
@@ -242,6 +265,7 @@ function buildHookListeners(
     offices: ports.offices,
     steering: ports.steering,
     encode: (op) => ports.worker.encode(op),
+    ...given("fetchAddresses", fetchAddressesOf(ports.boxHostAddress)),
     ...given("warn", ports.warn),
   });
   const onEnded = ports.ingest.onEnded;
@@ -509,6 +533,7 @@ function buildReviews(
     hosts: ports.hosts,
     ingest: ports.resumeIngest?.(ingest) ?? ingest,
     control: trackerOf(ports, control),
+    ...given("boxHostAddress", ports.boxHostAddress),
     ...given("onChanged", ports.onChanged),
     ...given("warn", ports.warn),
   });
@@ -641,5 +666,20 @@ export function composeRuns(ports: RunPorts): ComposedRuns {
     fixRounds: built?.fixRounds ?? null,
     launcher,
     reattacher,
+    sessions: new SessionRuns({
+      clock: ports.clock,
+      ids: ports.ids,
+      offices: ports.offices,
+      worker: ports.worker,
+      git: ports.git,
+      hosts: ports.hosts,
+      steering: ports.steering,
+      pricing: ports.ingest.pricing,
+      runtimeDir: ports.runtimeDir,
+      tmpRoot: ports.tmpRoot,
+      ...given("tempOwner", ports.tempOwner),
+      ...given("onChanged", ports.onChanged),
+      ...given("warn", ports.warn),
+    }),
   };
 }

@@ -4,9 +4,10 @@
 // `lifetime.ts` decides when, and rebuilds a box that was lost.
 //
 // - `create` (the launch's setup): the start check, the office image built from the base branch's
-//   box block (`ensureImageWithBuildProxy`: a build proxy only for the length of a build), the
-//   host-only box network, the box with nothing of the Mac mounted but the office package cache,
-//   started, and the code copied in (`stageBoxCode`: the start commit from git's objects plus the
+//   box block (`ensureBoxImage`: in a build box on the box network, through the boxes' web route,
+//   behind the box firewall, and committed; DIPO-281), the host-only box network, the box with
+//   nothing of the Mac mounted but the office package cache and the image's box network tools
+//   (read-only, DIPO-281), started, and the code copied in (`stageBoxCode`: the start commit from git's objects plus the
 //   listed files from the office's main checkout, never `.git`), and dipo's `dipo-part` command
 //   installed (`installDipoPart`, DIPO-272).
 // - The package cache (DIPO-295, with `packageCache`): before the box is made, the office's cache
@@ -19,8 +20,10 @@
 //   full error goes to the daemon's log only.
 // - `session` (each developer session): the box running again, dipo's web route and model proxy
 //   for the box network (both started only once a box on it runs, because the network's address
-//   exists on the Mac only then), and dipo's files copied to `BOX_DIPO_DIR`: the system file and
-//   the Safe-Chain CA bundle. A box that already runs when a session starts may still hold an
+//   exists on the Mac only then), the box firewall set to exactly the ports of those two (DIPO-281,
+//   `firewall.ts`), and dipo's files copied to `BOX_DIPO_DIR`: the system file and the Safe-Chain
+//   CA bundle. The box's web route address names the box by its own proxy password, which reaches
+//   the local ports of the Mac its office lists (`box.localPorts`, DIPO-282) and no other. A box that already runs when a session starts may still hold an
 //   earlier session's claude (a host killed with SIGKILL, or one that crashed, never ran its stop
 //   command), so it is stopped and started again first; only a box `create` just made is not. It returns how the worker host runs a command in the box and stops it.
 //   With `door`, the box's part queue is read while the session runs (`BoxDoor`, DIPO-272).
@@ -60,7 +63,7 @@
 // never calls the backend for `finishEnded` or `close`. Nothing here names a worker CLI.
 
 import { randomUUID } from "node:crypto";
-import { copyFile, mkdtemp, rm } from "node:fs/promises";
+import { chmod, copyFile, mkdtemp, rm } from "node:fs/promises";
 import { existsSync, readdirSync, readFileSync, renameSync, rmSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 
@@ -69,7 +72,7 @@ import type { OfficeId } from "@dipsaus-orchestrator/contract";
 import type { OfficeGit } from "../git/office";
 import { ensurePrivateDir } from "../platform/paths";
 import { type AdapterHolds, holdMessage } from "../workers/hold";
-import { ensureImageWithBuildProxy } from "./build-proxy";
+import { ensureBoxImage } from "./build-box";
 import {
   type BaseLockfile,
   boxCacheEnv,
@@ -83,11 +86,11 @@ import {
 } from "./cache";
 import { BOX_DIPO_DIR, BOX_WORKDIR, type BoxCodeDeps, stageBoxCode } from "./code";
 import { BoxDoor, type BoxDoorDeps, type DoorRead, installDipoPart } from "./door";
-import type { BaseBox, BoxToolchain } from "./image";
+import { BOX_IMAGE_ENV, type BaseBox, type BoxImageDescription, type BoxToolchain } from "./image";
 import { boxModelEnvironment, type RunningModelProxy } from "./model-proxy";
 import {
   BoxError,
-  type BoxBuildNetwork,
+  BUILD_BOX_RUN_PREFIX,
   type BoxClientCommand,
   type BoxNetwork,
   type BoxPort,
@@ -96,6 +99,7 @@ import {
 } from "./port";
 import type { PartRun, StartTreeCheck } from "./parts";
 import { type BoxTokenCheck, checkBoxAfterRun, tokenCheckFailure } from "./token-check";
+import { copyInAsUser } from "./user";
 import { type BoxInstallResult, runBoxInstall } from "./verify";
 import { BoxWebRoute, type BoxWebRouteStart, type RunningBoxWebRoute } from "./web-proxy";
 
@@ -138,6 +142,11 @@ export interface BoxRunRecord {
    * later. Absent in a record written before it was kept.
    */
   readonly files?: readonly string[];
+  /**
+   * The local ports of the Mac the base branch's box block listed (`box.localPorts`) when the box
+   * was made (DIPO-282): the only ones the box reaches, through the web route. Absent: none.
+   */
+  readonly localPorts?: readonly number[];
   /** Set once the run ended and its box was deleted. */
   readonly finished?: boolean;
   /**
@@ -256,8 +265,6 @@ export interface BoxWorkersDeps {
   readonly startModelProxy: (
     network: Pick<BoxNetwork, "hostAddress">,
   ) => Promise<RunningModelProxy>;
-  /** Starts the build's web route on the builder's network (`ensureImageWithBuildProxy`). */
-  readonly startBuildRoute: (network: BoxBuildNetwork) => Promise<BoxWebRouteStart>;
   /** Reads the office's box from its base branch (`readBaseBox`). */
   readonly readBaseBox: (git: OfficeGit) => Promise<BaseBox>;
   readonly code: BoxCodeDeps;
@@ -277,6 +284,11 @@ export interface BoxWorkersDeps {
   readonly indexDir: string;
   /** dipo's private folder for image build folders. */
   readonly scratchRoot: string;
+  /**
+   * dipo's root of the box network tools (DIPO-281): each image's copy, which every box of it
+   * mounts read-only; `join(<state>, BOX_NET_TOOLS_DIR)` in the daemon.
+   */
+  readonly netToolsRoot: string;
   /**
    * The office package cache (DIPO-267, DIPO-295): filled or reused before each box is made and
    * mounted read-only. Without it no box gets a cache.
@@ -346,11 +358,17 @@ export function readBoxRun(runDir: string): BoxRunRecord | null {
       Array.isArray(value.files) && value.files.every((file) => typeof file === "string")
         ? (value.files as string[])
         : undefined;
+    const localPorts =
+      Array.isArray(value.localPorts) &&
+      value.localPorts.every((port) => Number.isInteger(port) && port >= 1 && port <= 65_535)
+        ? (value.localPorts as number[])
+        : undefined;
     return {
       runId: value.runId,
       office: typeof value.office === "string" ? value.office : "",
       box: value.box,
       ...(files === undefined ? {} : { files }),
+      ...(localPorts === undefined ? {} : { localPorts }),
       ...(value.finished === true ? { finished: true } : {}),
       ...(value.waiting === true ? { waiting: true } : {}),
     };
@@ -362,6 +380,15 @@ export function readBoxRun(runDir: string): BoxRunRecord | null {
 function writeJson(path: string, value: unknown): void {
   writeFileSync(`${path}.tmp`, `${JSON.stringify(value)}\n`, { mode: 0o600 });
   renameSync(`${path}.tmp`, path);
+}
+
+/** The port of a route's URL, `http://[user:password@]<host>:<port>`. */
+function portOf(url: string): number {
+  const port = Number(new URL(url).port);
+  if (!Number.isInteger(port) || port < 1 || port > 65_535) {
+    throw new BoxError("box.routeFailed", `the web route's address ${url} names no port.`);
+  }
+  return port;
 }
 
 /** A wait as people read it: whole minutes, or seconds below a minute. */
@@ -378,6 +405,7 @@ function markWaiting(runDir: string, waiting: boolean): void {
     office: record.office,
     box: record.box,
     ...(record.files === undefined ? {} : { files: record.files }),
+    ...(record.localPorts === undefined ? {} : { localPorts: record.localPorts }),
     ...(record.finished === true ? { finished: true } : {}),
     ...(waiting ? { waiting: true } : {}),
   } satisfies BoxRunRecord);
@@ -403,7 +431,7 @@ export class BoxWorkers {
   readonly #door: BoxDoor | null;
   /** The manager of the cache each box `create` mounted, by run id, for its install. */
   readonly #cached = new Map<string, CacheManager>();
-  /** The fill boxes of the package cache fills in flight here, by name. */
+  /** The fill boxes and build boxes (DIPO-281) of the fills and builds in flight here, by name. */
   readonly #filling = new Set<string>();
   /** The `finishEnded` pass that runs or ran last; the next waits for it. */
   #pass: Promise<unknown> = Promise.resolve();
@@ -472,6 +500,21 @@ export class BoxWorkers {
     return this.#network;
   }
 
+  /**
+   * The box network's host address once this daemon prepared the network, else null (DIPO-281):
+   * the live source the web guard and the reviewer's web proxy read, for each check, to refuse the
+   * box network. The address exists on the Mac only while a box on it runs, and every box here
+   * runs only after the network was prepared, so null while no box ran here is no gap.
+   */
+  get hostAddress(): string | null {
+    return this.#network?.hostAddress ?? null;
+  }
+
+  /** The local ports of the Mac the box of `runDir`'s record may reach (DIPO-282); none without. */
+  #localPorts(runDir: string | undefined): readonly number[] {
+    return runDir === undefined ? [] : (readBoxRun(runDir)?.localPorts ?? []);
+  }
+
   #indexFile(runId: string): string {
     return join(this.#index, boxName(runId));
   }
@@ -496,7 +539,7 @@ export class BoxWorkers {
     office: OfficeId,
     runId: string,
     git: OfficeGit,
-    image: { readonly tag: string; readonly toolchain: BoxToolchain },
+    image: { readonly tag: string; readonly toolchain: BoxToolchain; readonly netTools: string },
   ): Promise<BoxCacheUse> {
     const deps = this.#deps.packageCache;
     if (deps === undefined) return { kind: "off" };
@@ -552,6 +595,48 @@ export class BoxWorkers {
   }
 
   /**
+   * The office image of `image` for run `runId`'s box (DIPO-281): reused, or built in a build box
+   * through this daemon's web route (`ensureBoxImage`). The build box's name is known before it
+   * exists, so the sweep at daemon start leaves it alone.
+   */
+  async #image(
+    runId: string,
+    image: BoxImageDescription,
+  ): Promise<Awaited<ReturnType<typeof ensureBoxImage>>> {
+    let building: string | null = null;
+    try {
+      return await ensureBoxImage(
+        {
+          boxes: this.#deps.boxes,
+          route: {
+            acquire: (box) => this.#web.acquire(box),
+            release: (box) => this.#web.release(box),
+          },
+          scratchRoot: this.#deps.scratchRoot,
+          toolsRoot: this.#deps.netToolsRoot,
+          clock: this.#deps.code.clock,
+          buildId: () => {
+            const id = randomUUID().replaceAll("-", "").slice(0, 16);
+            building = boxName(`${BUILD_BOX_RUN_PREFIX}${id}`);
+            this.#filling.add(building);
+            return id;
+          },
+          onEvent: (event) =>
+            this.#deps.warn?.("a build box was not cleaned up", {
+              run: runId,
+              box: event.box,
+              step: event.step,
+              reason: event.reason,
+            }),
+        },
+        image,
+      );
+    } finally {
+      if (building !== null) this.#filling.delete(building);
+    }
+  }
+
+  /**
    * Makes the run's box (the launch's setup): image, network, the package cache, the box started
    * and the code copied in. Throws a `BoxError` when it cannot; a box it made is deleted again
    * then. A package cache that cannot be had never throws: the box is made without one.
@@ -578,10 +663,7 @@ export class BoxWorkers {
       const why = base.errors.map((error) => `${error.path}: ${error.message}`).join("; ");
       throw new BoxError("box.refused", `the base branch's box block cannot be read: ${why}`);
     }
-    const image = await ensureImageWithBuildProxy(
-      { boxes, startRoute: this.#deps.startBuildRoute, scratchRoot: this.#deps.scratchRoot },
-      base.description.image,
-    );
+    const image = await this.#image(input.runId, base.description.image);
     const network = await this.#networkOf();
     const name = boxName(input.runId);
     // Before the fill: a daemon that crashes in the first fill asks the backend at its next start.
@@ -589,6 +671,7 @@ export class BoxWorkers {
     let cache = await this.#packageCache(input.office, input.runId, input.git, {
       tag: image.tag,
       toolchain: base.description.image.toolchain,
+      netTools: image.netTools,
     });
     // Recorded before the box exists, so a crash in between leaves a box dipo knows to clean up;
     // with the listed files the box gets, which decide what every part leaves out (DIPO-290).
@@ -597,10 +680,11 @@ export class BoxWorkers {
       office: input.office,
       box: name,
       files: base.description.files.map((file) => file.path),
+      localPorts: base.description.localPorts,
     } satisfies BoxRunRecord);
     writeJson(this.#indexFile(input.runId), { runDir: input.runDir });
     try {
-      const spec = { runId: input.runId, image: image.tag, network };
+      const spec = { runId: input.runId, image: image.tag, network, netTools: image.netTools };
       if (cache.kind === "mounted") {
         try {
           await boxes.create({ ...spec, packageCache: cache.path });
@@ -632,7 +716,8 @@ export class BoxWorkers {
         tmpRoot: this.#deps.tmpRoot,
       });
       try {
-        await boxes.copyIn(name, `${staged.dir}/.`, BOX_WORKDIR);
+        // The box user's own copy (DIPO-334): `/work` is the worker's to write.
+        await copyInAsUser(boxes, name, staged.dir, BOX_WORKDIR);
       } finally {
         await staged.remove();
       }
@@ -712,7 +797,8 @@ export class BoxWorkers {
   /**
    * The run's box running with no earlier process in it, before its next developer session
    * (DIPO-324): dipo copies the merges it committed on the story branch outside the box into it
-   * then. The session that follows finds it running and fresh, so it does not start it again.
+   * then, behind the box firewall set to the web route (DIPO-281). The session that follows finds
+   * it running and fresh, so it does not start it again.
    * Throws a `BoxError` as `session` does.
    */
   async awake(input: { readonly runId: string; readonly runDir: string }): Promise<string> {
@@ -726,6 +812,14 @@ export class BoxWorkers {
         throw new BoxError("box.gone", `run ${runId} has no box to copy into.`);
       }
       await this.#running(record.box);
+      // Before anything is copied in (DIPO-281): the box reaches the web route on the Mac, no more.
+      // The route is the session's too; a rest or finish releases it with the box's others.
+      const web = await this.#web.acquire(record.box);
+      const network = await this.#networkOf();
+      await this.#deps.boxes.firewall(record.box, {
+        hostAddress: network.hostAddress,
+        ports: [portOf(web.url)],
+      });
       // No claude ran in it since it started: the session need not start it again.
       this.#fresh.add(record.box);
       return record.box;
@@ -759,13 +853,21 @@ export class BoxWorkers {
     // The routes only now: the box network's address exists on the Mac once a box on it runs.
     const web = await this.#web.acquire(name);
     const model = await this.#model.acquire(name);
+    // Before anything of the worker's runs: the box reaches these two ports on the Mac, no more.
+    const network = await this.#networkOf();
+    await boxes.firewall(name, {
+      hostAddress: network.hostAddress,
+      ports: [portOf(web.url), model.port],
+    });
     await this.#copyDipoFiles(name, input.systemFile, web.caFile);
     // The part queue is read while the session runs (DIPO-272).
     this.#door?.start(input.runId, name, input.runDir);
+    const proxy = web.admit(name, record.localPorts ?? []);
     const env = {
+      ...BOX_IMAGE_ENV,
       ...boxModelEnvironment(model),
-      HTTPS_PROXY: web.url,
-      HTTP_PROXY: web.url,
+      HTTPS_PROXY: proxy,
+      HTTP_PROXY: proxy,
       NODE_EXTRA_CA_CERTS: BOX_CA_FILE,
     };
     return {
@@ -805,6 +907,12 @@ export class BoxWorkers {
     try {
       if (systemFile !== null) await copyFile(systemFile, join(stage, "system.md"));
       await copyFile(caFile, join(stage, "safe-chain-ca.pem"));
+      // Root's in the box, in root's `BOX_DIPO_DIR`: the box user reads them and cannot change
+      // them (DIPO-334).
+      await chmod(stage, 0o755);
+      for (const file of [...(systemFile === null ? [] : ["system.md"]), "safe-chain-ca.pem"]) {
+        await chmod(join(stage, file), 0o644);
+      }
       await this.#deps.boxes.copyIn(name, `${stage}/.`, BOX_DIPO_DIR);
     } finally {
       await rm(stage, { recursive: true, force: true });
@@ -994,7 +1102,14 @@ export class BoxWorkers {
   }): Promise<BoxWorkerInstall> {
     const box = boxName(input.runId);
     const web = await this.#web.acquire(box);
+    // Before the install's first script: the box reaches the web route on the Mac, no more.
+    const network = await this.#networkOf();
+    await this.#deps.boxes.firewall(box, {
+      hostAddress: network.hostAddress,
+      ports: [portOf(web.url)],
+    });
     await this.#copyDipoFiles(box, null, web.caFile);
+    const proxy = web.admit(box, this.#localPorts(this.#runDirOf(input.runId)));
     const run = (cacheEnv: Readonly<Record<string, string>>): Promise<BoxInstallResult> =>
       runBoxInstall(
         {
@@ -1006,10 +1121,11 @@ export class BoxWorkers {
           box,
           commands: input.commands,
           env: {
+            ...BOX_IMAGE_ENV,
             ...input.env,
             ...cacheEnv,
-            HTTPS_PROXY: web.url,
-            HTTP_PROXY: web.url,
+            HTTPS_PROXY: proxy,
+            HTTP_PROXY: proxy,
             NODE_EXTRA_CA_CERTS: BOX_CA_FILE,
           },
           timeoutMs: input.timeoutMs,
@@ -1114,6 +1230,7 @@ export class BoxWorkers {
         office: record?.office ?? "",
         box: name,
         ...(record?.files === undefined ? {} : { files: record.files }),
+        ...(record?.localPorts === undefined ? {} : { localPorts: record.localPorts }),
         finished: true,
       } satisfies BoxRunRecord);
     } catch (error) {
@@ -1149,8 +1266,12 @@ export class BoxWorkers {
       const fills: string[] = [];
       try {
         for (const box of await this.#deps.boxes.list()) {
-          if (box.runId.startsWith(FILL_BOX_RUN_PREFIX)) fills.push(box.name);
-          else {
+          if (
+            box.runId.startsWith(FILL_BOX_RUN_PREFIX) ||
+            box.runId.startsWith(BUILD_BOX_RUN_PREFIX)
+          ) {
+            fills.push(box.name);
+          } else {
             runs.add(box.runId);
             this.#indexAgain(box.runId, ended, options.runDirOf);
           }
@@ -1231,7 +1352,10 @@ export class BoxWorkers {
     }
   }
 
-  /** Deletes the listed fill boxes no fill here uses: a stopped daemon left them mid-fill. */
+  /**
+   * Deletes the listed fill boxes and build boxes no fill or build here uses: a stopped daemon
+   * left them mid-fill or mid-build.
+   */
   async #deleteLeftFills(fills: readonly string[]): Promise<void> {
     for (const name of fills) {
       if (this.#filling.has(name)) continue;

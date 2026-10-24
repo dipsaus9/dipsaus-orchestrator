@@ -53,7 +53,9 @@ import { proposalDecisions } from "./migrations/0049-proposal-decisions";
 import { questionWaits } from "./migrations/0050-question-waits";
 import { streamDriftPushHolds } from "./migrations/0051-stream-drift-push-holds";
 import { storyPrReplaces } from "./migrations/0052-story-pr-replaces";
-import { tuiLeft } from "./migrations/0053-tui-left";
+import { mergeGateHandMerge } from "./migrations/0053-merge-gate-hand-merge";
+import { scanConfirmations } from "./migrations/0054-scan-confirmations";
+import { tuiLeft } from "./migrations/0055-tui-left";
 
 /**
  * Software-wide tables (0007 section 3). Every other table is office-scoped and has `office_id`
@@ -142,5 +144,7 @@ create table offices (
   questionWaits,
   streamDriftPushHolds,
   storyPrReplaces,
+  mergeGateHandMerge,
+  scanConfirmations,
   tuiLeft,
 ];

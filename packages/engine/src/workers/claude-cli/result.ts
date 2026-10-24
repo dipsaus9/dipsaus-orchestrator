@@ -22,6 +22,7 @@ interface Decision {
   readonly outcome: WorkerOutcome;
   readonly report: WorkerReport | null;
   readonly review?: ReviewReport;
+  readonly answer?: unknown;
   readonly park?: { readonly reason: ParkReason; readonly detail: string };
   readonly resumable: boolean;
   readonly retry?: WorkerRetry;
@@ -86,6 +87,14 @@ function decide(state: ClaudeParseState, exit: ExitRecord): Decision {
     };
   }
   if (turn.subtype === "error_max_structured_output_retries") {
+    if (state.reportKind === "session") {
+      return {
+        outcome: "blocked",
+        report: null,
+        resumable: false,
+        detail: "no valid answer: error_max_structured_output_retries",
+      };
+    }
     return noReport("error_max_structured_output_retries", state.reportKind);
   }
   if (turn.subtype !== "success") {
@@ -97,6 +106,22 @@ function decide(state: ClaudeParseState, exit: ExitRecord): Decision {
     return crashed(`${turn.subtype} (${why})${last}, ${exitText(exit)}`);
   }
 
+  if (state.reportKind === "session") {
+    // A session outside a story (DIPO-310): its structured output is all it returns, and the
+    // engine checks it; there is no park and no feedback turn, its retry is the CLI's own.
+    const answer = turn.answer;
+    if (answer === undefined) {
+      return {
+        outcome: "blocked",
+        report: null,
+        resumable: false,
+        detail: `no valid answer: ${turn.reportProblem ?? "no structured_output"}`,
+      };
+    }
+    return exit.code === 0
+      ? { outcome: "done", report: null, answer, resumable: false }
+      : { ...crashed(`answer but ${exitText(exit)}`), answer, resumable: false };
+  }
   if (state.reportKind === "review") {
     // A reviewer session (0019 sections 4 and 5): a valid report is all it returns; code computes
     // the verdict from it.
@@ -171,10 +196,15 @@ export function result(state: ClaudeParseState, exit: ExitRecord): WorkerResult 
     outcome: decision.outcome,
     report: decision.report,
     ...(decision.review === undefined ? {} : { review: decision.review }),
+    ...(decision.answer === undefined ? {} : { answer: decision.answer }),
     usage: currentTotals(state),
     sessionId,
     // The reviewer never resumes (0008 section 8): a failed review starts a fresh session.
-    resumable: decision.resumable && sessionId !== "" && state.reportKind !== "review",
+    resumable:
+      decision.resumable &&
+      sessionId !== "" &&
+      state.reportKind !== "review" &&
+      state.reportKind !== "session",
     ...(decision.park === undefined ? {} : { park: decision.park }),
     ...(decision.retry === undefined ? {} : { retry: decision.retry }),
     ...(decision.detail === undefined ? {} : { detail: decision.detail }),

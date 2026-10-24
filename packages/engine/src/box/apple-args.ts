@@ -1,36 +1,52 @@
 // The one argument builder of the Apple `container` backend (DIPO-265, 0021 sections 2, 3 and 5).
 // Every `container` argv dipo runs comes from here, so the rules hold in one place:
 // - a box joins only dipo's host-only network, by name and mode; any other network is refused;
-// - the only mount is the office package cache, always read-only, at a fixed path in the box;
+// - the only mounts are the office package cache and the box network tools of the box's image
+//   (DIPO-281), both always read-only, each at a fixed path in the box;
 // - never `--volume`, another `--mount`, `--ssh`, `--publish`, `--publish-socket` or
 //   `--virtualization`;
 // - `--memory` and `--cpus` are the Mac's total memory and CPU count (decision 16: no limits);
-// - an image build (DIPO-266) reads only the build file dipo wrote in its own folder, with the
-//   proxy address as its one build argument.
+// - every box but a build box (DIPO-281) keeps itself running with the mounted `tail`, and every
+//   command in it runs contained (`firewall.ts`) as the box user (DIPO-334): only the box
+//   firewall's own command, and a build box's first step, run with the box's capabilities, and
+//   only dipo's root steps (a build box's, or `isRootStep`) run as root, with the root allow list;
+// - an image is made only by committing a build box, and pulled only by a reference that is no
+//   option.
 // Inputs that could be read as another option or split into another mount are refused here.
 // Pure: no I/O.
 
 import { posix } from "node:path";
 
 import {
-  BOX_BUILD_FILE,
+  BOX_NET_TOOLS_PATH,
+  CONTAINED_KEEPALIVE,
+  containedCommand,
+  isFirewallCommand,
+  rootStepCommand,
+} from "./firewall";
+import {
   BOX_IMAGE_REPOSITORY,
   BOX_LABEL,
   BOX_PACKAGE_CACHE_PATH,
   BoxError,
+  BUILD_BOX_RUN_PREFIX,
   type BoxNetwork,
   boxName,
   runIdOfBox,
 } from "./port";
+import { BOX_USER_ENV, isRootStep } from "./user";
 
 /** The network dipo prepares for its boxes. */
 export const BOX_NETWORK_NAME = "dipo-boxes";
-/** Apple `container`'s own network, where its image builder runs (DIPO-266, DIPO-271). */
-export const BUILD_NETWORK_NAME = "default";
 /** The value of the `dipo` label on that network. */
 export const BOX_NETWORK_LABEL_VALUE = "network";
-/** The box's main process: it only keeps the box running; work runs through `exec`. */
+/**
+ * A build box's main process: it only keeps the box running; work runs through `exec`. Every
+ * other box runs the mounted `tail` instead (`CONTAINED_KEEPALIVE`).
+ */
 export const BOX_KEEPALIVE: readonly [string, ...string[]] = ["tail", "-f", "/dev/null"];
+/** The Linux capability a box is made with so its firewall can be set (DIPO-281). */
+export const BOX_FIREWALL_CAPABILITY = "CAP_NET_ADMIN";
 
 /** The Mac's resources a box may use, all of them (0021 decision 16). */
 export interface HostResources {
@@ -48,6 +64,8 @@ export interface CreateInput {
    */
   readonly network: Pick<BoxNetwork, "name"> & { readonly mode: string };
   readonly packageCache?: string;
+  /** The box network tools folder (DIPO-281); required for every box but a build box. */
+  readonly netTools?: string;
   readonly host: HostResources;
   /** The maintainer's home folder: the cache may be neither it nor a folder above it. */
   readonly home: string;
@@ -60,6 +78,16 @@ export interface ExecInput {
   readonly env?: Readonly<Record<string, string>>;
   /** Keeps stdin open for a long-running command. */
   readonly interactive?: boolean;
+  /**
+   * Runs `command` with the box's capabilities, not contained: only for a build box, or for the
+   * box firewall's own command (`isFirewallCommand`).
+   */
+  readonly fullPrivilege?: boolean;
+  /**
+   * Runs `command` as one of dipo's root steps (`rootStepCommand`, DIPO-334): any in a build box,
+   * only `isRootStep` in every other box.
+   */
+  readonly rootStep?: boolean;
 }
 
 const MIB = 1024 * 1024;
@@ -98,6 +126,17 @@ export function checkedBoxName(name: string): string {
   return name;
 }
 
+/** True when `runId` is a build box's (`BUILD_BOX_RUN_PREFIX`, DIPO-281). */
+export function isBuildBoxRunId(runId: string): boolean {
+  return runId.startsWith(BUILD_BOX_RUN_PREFIX) && runId.length > BUILD_BOX_RUN_PREFIX.length;
+}
+
+/** True when `name` is a build box's name. */
+export function isBuildBox(name: string): boolean {
+  const runId = runIdOfBox(name);
+  return runId !== null && isBuildBoxRunId(runId);
+}
+
 /**
  * The read-only mount of the office package cache, the only mount a box gets. Checked as text
  * here; the backend first resolves the path with realpath and requires it under dipo's own cache
@@ -118,6 +157,33 @@ function cacheMount(path: string, home: string): string {
     refuse("the package cache may not be the home folder or a folder above it.", { path, home });
   }
   return `type=bind,source=${path},target=${BOX_PACKAGE_CACHE_PATH},readonly`;
+}
+
+/**
+ * The read-only mount of the box network tools (DIPO-281). Checked as text here, as the cache
+ * is; the backend first resolves the path with realpath and requires it under dipo's tools root
+ * and holding the tools (`resolveNetToolsMount`).
+ */
+function netToolsMount(path: string, home: string): string {
+  absolutePath(path, "box network tools");
+  if (/[,=]/.test(path))
+    refuse("the box network tools path may not hold a comma or `=`.", { path });
+  if (
+    path === "/" ||
+    posix.normalize(path) !== path ||
+    path.endsWith("/") ||
+    path.split("/").some((segment) => segment === "." || segment === "..")
+  ) {
+    refuse("the box network tools path must be a normalised folder below `/`.", { path });
+  }
+  const homeFolder = posix.normalize(`${absolutePath(home, "home folder")}/`);
+  if (homeFolder.startsWith(`${path}/`)) {
+    refuse("the box network tools may not be the home folder or a folder above it.", {
+      path,
+      home,
+    });
+  }
+  return `type=bind,source=${path},target=${BOX_NET_TOOLS_PATH},readonly`;
 }
 
 function resourceArgs(host: HostResources): string[] {
@@ -155,21 +221,6 @@ export function networkListArgs(): string[] {
   return ["network", "list", "--format", "json"];
 }
 
-/** Starts Apple `container`'s image builder, so its network's host address exists (DIPO-271). */
-export function builderStartArgs(): string[] {
-  return ["builder", "start"];
-}
-
-/** The image builder's state, as JSON: whether it already ran before a build (DIPO-298). */
-export function builderStatusArgs(): string[] {
-  return ["builder", "status", "--format", "json"];
-}
-
-/** Stops Apple `container`'s image builder after a build that started it (DIPO-298). */
-export function builderStopArgs(): string[] {
-  return ["builder", "stop"];
-}
-
 /** Creates dipo's box network: host-only (`--internal`), labelled. */
 export function networkCreateArgs(): string[] {
   return [
@@ -184,7 +235,10 @@ export function networkCreateArgs(): string[] {
 
 /**
  * Creates a stopped box. The image and its arguments come last: what follows the image is the
- * box's own command, never an option of `container`.
+ * box's own command, never an option of `container`. A build box (DIPO-281) gets no mount and
+ * keeps itself running with the image's `tail`; every other box must get the box network tools,
+ * mounted read-only, and keeps itself running with the mounted `tail`. Every box gets the one
+ * capability its firewall needs, which no contained command keeps.
  */
 export function createArgs(input: CreateInput): string[] {
   const name = boxName(input.runId);
@@ -204,7 +258,14 @@ export function createArgs(input: CreateInput): string[] {
   }
   if (!IMAGE.test(input.image))
     refuse("the image is not an image reference.", { image: input.image });
-  const [entrypoint, ...keepalive] = BOX_KEEPALIVE;
+  const build = isBuildBoxRunId(input.runId);
+  if (build && (input.packageCache !== undefined || input.netTools !== undefined)) {
+    refuse("a build box gets no mount.", { runId: input.runId });
+  }
+  if (!build && input.netTools === undefined) {
+    refuse("a box needs the box network tools of its image.", { runId: input.runId });
+  }
+  const [entrypoint, ...keepalive] = build ? BOX_KEEPALIVE : CONTAINED_KEEPALIVE;
   return [
     "create",
     "--name",
@@ -214,9 +275,12 @@ export function createArgs(input: CreateInput): string[] {
     "--network",
     BOX_NETWORK_NAME,
     ...resourceArgs(input.host),
+    "--cap-add",
+    BOX_FIREWALL_CAPABILITY,
     ...(input.packageCache === undefined
       ? []
       : ["--mount", cacheMount(input.packageCache, input.home)]),
+    ...(input.netTools === undefined ? [] : ["--mount", netToolsMount(input.netTools, input.home)]),
     "--entrypoint",
     entrypoint,
     input.image,
@@ -255,22 +319,63 @@ export function exportArgs(name: string, to: string): string[] {
   return ["export", "--output", hostPath(to), checkedBoxName(name)];
 }
 
+/** Who `input`'s command runs as, refused unless the box may run it so. */
+function privilegeOf(input: ExecInput, name: string): "full" | "root" | "user" {
+  if (input.fullPrivilege === true && input.rootStep === true) {
+    refuse("a box command is a root step or runs with the box's capabilities, not both.", { name });
+  }
+  if (input.fullPrivilege === true) {
+    if (!isBuildBox(name) && !isFirewallCommand(input.command)) {
+      refuse("only a build box or the box firewall runs a command with the box's capabilities.", {
+        name,
+        command: input.command[0],
+      });
+    }
+    return "full";
+  }
+  if (input.rootStep === true) {
+    if (!isBuildBox(name) && !isRootStep(input.command)) {
+      refuse("only a build box or dipo's fixed root steps run a command as root.", {
+        name,
+        command: input.command[0],
+      });
+    }
+    return "root";
+  }
+  return "user";
+}
+
 /**
  * Runs a command in a box. The box name ends `container`'s options; the command follows it and
- * may not start with `-`, so it is never read as one.
+ * may not start with `-`, so it is never read as one. The command runs contained as the box user
+ * (`containedCommand`, DIPO-281 and DIPO-334) unless `fullPrivilege` is set, which only a build
+ * box and the box firewall's own command may, or `rootStep`, which a build box and dipo's fixed
+ * root steps may.
  */
 export function execArgs(input: ExecInput): string[] {
   const name = checkedBoxName(input.name);
   if (input.command[0].startsWith("-") || input.command[0].length === 0) {
     refuse("a box command may not start with `-` or be empty.", { command: input.command[0] });
   }
+  const privilege = privilegeOf(input, name);
+  if (privilege === "user" && input.command[0].includes("=")) {
+    // The box user's `env` would read it as a variable, not as the program.
+    refuse("a box command's program may not hold `=`.", { command: input.command[0] });
+  }
+  const command =
+    privilege === "full"
+      ? input.command
+      : privilege === "root"
+        ? rootStepCommand(input.command)
+        : containedCommand(input.command, input.env ?? {});
   return [
     "exec",
     ...(input.interactive === true ? ["--interactive"] : []),
     ...(input.cwd === undefined ? [] : ["--workdir", absolutePath(input.cwd, "working directory")]),
-    ...envArgs(input.env),
+    // The box user's home and PATH unless the command names its own (DIPO-334).
+    ...envArgs(privilege === "user" ? { ...BOX_USER_ENV, ...input.env } : input.env),
     name,
-    ...input.command,
+    ...command,
   ];
 }
 
@@ -284,14 +389,8 @@ export function listArgs(): string[] {
   return ["list", "--all", "--format", "json"];
 }
 
-/** The value of the `dipo` label on every box image dipo builds. */
-export const BOX_IMAGE_LABEL_VALUE = "image";
-/** The build argument that carries the proxy address into the build file. */
-export const BUILD_PROXY_ARG = "DIPO_PROXY";
 /** A box image tag: dipo's repository and a sha256 of the description (DIPO-266). */
 const IMAGE_TAG = new RegExp(`^${BOX_IMAGE_REPOSITORY}:[0-9a-f]{64}$`);
-/** A proxy address without credentials or a path: `http://<host or [IPv6]>:<port>`. */
-const PROXY_URL = /^http:\/\/(?:[A-Za-z0-9.-]+|\[[0-9A-Fa-f:.]+\]):\d{1,5}$/;
 
 /** A box image tag dipo made; refuses any other image name. */
 function checkedImageTag(tag: string): string {
@@ -299,49 +398,33 @@ function checkedImageTag(tag: string): string {
   return tag;
 }
 
-/** The inputs of one `container build`. */
-export interface BuildInput {
-  readonly tag: string;
-  /** dipo's own build folder; the build file is always `BOX_BUILD_FILE` inside it. */
-  readonly contextDir: string;
-  readonly proxyUrl: string;
-}
-
 /** Inspects one box image; exits 0 only when it exists. */
 export function imageInspectArgs(tag: string): string[] {
   return ["image", "inspect", checkedImageTag(tag)];
 }
 
+/** Deletes one box image, so a build can make it again (DIPO-281). */
+export function imageDeleteArgs(tag: string): string[] {
+  return ["image", "delete", checkedImageTag(tag)];
+}
+
+/** The base image of a build: Debian's slim image of one release (DIPO-266, DIPO-281). */
+const BASE_IMAGE = /^docker\.io\/library\/debian:[a-z0-9][a-z0-9.]*-slim$/;
+
+/** Pulls the base image of a build (DIPO-281): only Debian's slim image of a release. */
+export function imagePullArgs(reference: string): string[] {
+  if (!BASE_IMAGE.test(reference)) {
+    refuse(`${JSON.stringify(reference)} is not the base image of a box build.`, { reference });
+  }
+  return ["image", "pull", "--progress", "none", reference];
+}
+
 /**
- * Builds a box image (DIPO-266) from the build file dipo wrote in its own folder: the file is
- * always `<contextDir>/BOX_BUILD_FILE`, never one a caller names. The proxy address is the only
- * build argument. Never `--ssh`, `--secret`, `--output` or `--no-cache`.
+ * Makes the box image `tag` from the files of the build box `name` (DIPO-281): the only way dipo
+ * makes an image. Any other box is refused.
  */
-export function buildArgs(input: BuildInput): string[] {
-  const tag = checkedImageTag(input.tag);
-  const contextDir = hostPath(input.contextDir);
-  if (
-    contextDir === "/" ||
-    posix.normalize(contextDir) !== contextDir ||
-    contextDir.endsWith("/")
-  ) {
-    refuse("the build folder must be a normalised folder below `/`.", { contextDir });
-  }
-  if (!PROXY_URL.test(input.proxyUrl)) {
-    refuse("the build proxy must be http://<host>:<port>.", { proxyUrl: input.proxyUrl });
-  }
-  return [
-    "build",
-    "--file",
-    posix.join(contextDir, BOX_BUILD_FILE),
-    "--tag",
-    tag,
-    "--label",
-    `${BOX_LABEL}=${BOX_IMAGE_LABEL_VALUE}`,
-    "--build-arg",
-    `${BUILD_PROXY_ARG}=${input.proxyUrl}`,
-    "--progress",
-    "plain",
-    contextDir,
-  ];
+export function commitArgs(name: string, tag: string): string[] {
+  const box = checkedBoxName(name);
+  if (!isBuildBox(box)) refuse(`${box} is no build box, so it cannot become an image.`, { name });
+  return ["commit", box, checkedImageTag(tag)];
 }

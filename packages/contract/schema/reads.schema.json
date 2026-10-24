@@ -3754,7 +3754,8 @@
                   "BACKLOG PR",
                   "NOTICE",
                   "PROPOSAL",
-                  "HELD"
+                  "HELD",
+                  "PROFILE"
                 ]
               },
               {
@@ -3886,6 +3887,233 @@
         },
         "required": ["kind", "detail", "since", "blocks", "actions"]
       }
+    },
+    "office.profile.args": {
+      "type": "object",
+      "properties": {
+        "office": {
+          "type": "string",
+          "pattern": "^off_[0-7][0-9A-HJKMNP-TV-Z]{25}$"
+        }
+      },
+      "required": ["office"]
+    },
+    "office.profile.result": {
+      "type": "object",
+      "properties": {
+        "office": {
+          "type": "string",
+          "pattern": "^off_[0-7][0-9A-HJKMNP-TV-Z]{25}$"
+        },
+        "scanned": {
+          "type": "boolean"
+        },
+        "scannedAt": {
+          "type": "string",
+          "format": "date-time",
+          "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d(?:\\.\\d+)?(?:Z))$"
+        },
+        "commit": {
+          "type": "string"
+        },
+        "fingerprint": {
+          "type": "string"
+        },
+        "level": {
+          "type": "string"
+        },
+        "nothingToStart": {
+          "type": "boolean"
+        },
+        "inferring": {
+          "type": "boolean"
+        },
+        "runRefusal": {
+          "type": "string"
+        },
+        "testRefusal": {
+          "type": "string"
+        },
+        "capabilities": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "name": {
+                "type": "string",
+                "enum": ["install", "setup", "dev", "test", "lint", "typecheck", "verify", "build"]
+              },
+              "status": {
+                "type": "string",
+                "enum": ["resolved", "conflict", "unresolved"]
+              },
+              "command": {
+                "type": "string"
+              },
+              "commands": {
+                "type": "array",
+                "items": {
+                  "type": "array",
+                  "items": {
+                    "type": "string"
+                  }
+                }
+              },
+              "cwd": {
+                "type": "string"
+              },
+              "source": {
+                "type": "string"
+              },
+              "confidence": {
+                "type": "string"
+              },
+              "evidence": {
+                "type": "string"
+              },
+              "confirmed": {
+                "type": "boolean"
+              },
+              "stale": {
+                "type": "boolean"
+              },
+              "pending": {
+                "type": "object",
+                "properties": {
+                  "command": {
+                    "type": "string"
+                  },
+                  "commands": {
+                    "type": "array",
+                    "items": {
+                      "type": "array",
+                      "items": {
+                        "type": "string"
+                      }
+                    }
+                  },
+                  "cwd": {
+                    "type": "string"
+                  },
+                  "confidence": {
+                    "type": "string",
+                    "const": "low"
+                  },
+                  "modelConfidence": {
+                    "type": "string"
+                  },
+                  "evidence": {
+                    "type": "array",
+                    "items": {
+                      "type": "string"
+                    }
+                  },
+                  "stale": {
+                    "type": "boolean"
+                  },
+                  "run": {
+                    "type": "string",
+                    "pattern": "^run_[0-7][0-9A-HJKMNP-TV-Z]{25}$"
+                  },
+                  "proposedAt": {
+                    "type": "string",
+                    "format": "date-time",
+                    "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d(?:\\.\\d+)?(?:Z))$"
+                  }
+                },
+                "required": [
+                  "command",
+                  "commands",
+                  "cwd",
+                  "confidence",
+                  "modelConfidence",
+                  "evidence",
+                  "stale",
+                  "proposedAt"
+                ]
+              },
+              "candidates": {
+                "type": "array",
+                "items": {
+                  "type": "object",
+                  "properties": {
+                    "command": {
+                      "type": "string"
+                    },
+                    "commands": {
+                      "type": "array",
+                      "items": {
+                        "type": "array",
+                        "items": {
+                          "type": "string"
+                        }
+                      }
+                    },
+                    "cwd": {
+                      "type": "string"
+                    },
+                    "n": {
+                      "type": "integer",
+                      "exclusiveMinimum": 0,
+                      "maximum": 9007199254740991
+                    },
+                    "source": {
+                      "type": "string"
+                    },
+                    "confidence": {
+                      "type": "string"
+                    },
+                    "evidence": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "command",
+                    "commands",
+                    "cwd",
+                    "n",
+                    "source",
+                    "confidence",
+                    "evidence"
+                  ]
+                }
+              },
+              "fix": {
+                "type": "string"
+              },
+              "cli": {
+                "type": "array",
+                "items": {
+                  "type": "string"
+                }
+              }
+            },
+            "required": ["name", "status", "confirmed", "stale", "cli"]
+          }
+        },
+        "deviations": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "code": {
+                "type": "string"
+              },
+              "message": {
+                "type": "string"
+              },
+              "conflict": {
+                "type": "boolean"
+              },
+              "fix": {
+                "type": "string"
+              }
+            },
+            "required": ["code", "message", "conflict"]
+          }
+        }
+      },
+      "required": ["office", "scanned", "nothingToStart", "inferring", "capabilities", "deviations"]
     }
   }
 }

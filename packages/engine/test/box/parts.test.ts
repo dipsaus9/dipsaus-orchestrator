@@ -1,7 +1,7 @@
 // Delivery in parts, the pure rules (DIPO-273, 0021 section 8): the message cleaning, the protected
 // list, the secret scan, the comparison with the last delivered tree and the in-box exclude list.
-// The flow on real git with a bare remote is in test/run/parts-commit.test.ts. Every secret-shaped
-// text here is built from pieces, so this file itself holds none a scan would find.
+// The flow on real git with a bare remote is in test/run/parts-commit.ci.test.ts (CI only). Every
+// secret-shaped text here is built from pieces, so this file itself holds none a scan would find.
 
 import { mkdirSync, readdirSync, symlinkSync, writeFileSync } from "node:fs";
 import { join } from "node:path";

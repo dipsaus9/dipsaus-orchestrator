@@ -231,6 +231,9 @@ describe("tags inside slot text", () => {
       "previous_findings",
       "worker_report",
       "commit",
+      "scan_request",
+      "scan_evidence",
+      "scan_file",
     ]);
     for (const name of REVIEW_SECTION_ORDER) expect(PROMPT_TAGS).toContain(name);
   });

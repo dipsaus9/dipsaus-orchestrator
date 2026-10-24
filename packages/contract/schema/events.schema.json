@@ -201,7 +201,7 @@
           "anyOf": [
             {
               "type": "string",
-              "enum": ["start", "run", "test", "rescan"]
+              "enum": ["start", "run", "test", "rescan", "infer", "confirm"]
             },
             {
               "type": "string"

@@ -2,13 +2,16 @@
 // no expect fails R20, a clean Ready story passes, a Refined story with the same fault is not
 // checked, an R29 warning is reported without a failure, and every task is viewed once. A task list
 // that lost its last lines fails the check loudly instead of failing a story's rules (DIPO-323).
+// The script's CLI is the daemon's spawn, and every call has the CLI write its output to files,
+// never a pipe (DIPO-333).
 
 import { describe, expect, it } from "bun:test";
 
 import { BacklogListIncompleteError } from "../packages/engine/src/backlog/list";
 import type { BacklogCli } from "../packages/engine/src/backlog/runner";
+import { systemSpawn } from "../packages/engine/src/platform/process";
 
-import { checkReadyGate } from "./check-ready-gate";
+import { checkReadyGate, REPO_BACKLOG_CLI } from "./check-ready-gate";
 
 interface FixtureStory {
   readonly id: string;
@@ -162,6 +165,22 @@ describe("the Ready gate over the backlog", () => {
     const { cli, views } = fakeCli(stories);
     await checkReadyGate(NO_OFFICE, cli);
     expect(views.toSorted()).toEqual(["DIPO-1", "DIPO-2", "DIPO-3"]);
+  });
+
+  it("runs every CLI call through the daemon's spawn with its output on files", async () => {
+    expect(REPO_BACKLOG_CLI.spawn).toBe(systemSpawn);
+    const { cli } = fakeCli([
+      { id: "DIPO-1", status: "Ready", testPlan: CLEAN },
+      { id: "DIPO-3", status: "Refined", testPlan: CLEAN },
+    ]);
+    const outputs: unknown[] = [];
+    const spawn: BacklogCli["spawn"] = (options) => {
+      outputs.push(options.output?.to);
+      return cli.spawn(options);
+    };
+    await checkReadyGate(NO_OFFICE, { ...cli, spawn });
+    expect(outputs.length).toBeGreaterThan(0);
+    expect(outputs.every((to) => to === "file")).toBe(true);
   });
 
   it("fails loudly when the task list lost its last lines", async () => {

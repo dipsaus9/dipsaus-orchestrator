@@ -34,6 +34,8 @@ export type {
   StartOutcome,
   TierCaps,
 } from "./launch";
+export { SESSION_ENDS, SESSION_FOLDER_PREFIX, SessionRuns } from "./session-run";
+export type { SessionRunsDeps } from "./session-run";
 export { renderRunPrompts, sessionUuid, SYSTEM_FILE } from "./prompts";
 export type { RunPrompts, RunPromptsInput } from "./prompts";
 export {
@@ -469,7 +471,7 @@ export type {
   RunStoryFacts,
 } from "./resume";
 // The one wiring of the run services, for the daemon and the tests (DIPO-129).
-export { composeRuns } from "./compose";
+export { composeRuns, fetchAddressesOf } from "./compose";
 export type { ComposedRuns, RunPorts } from "./compose";
 // Re-attach after a daemon restart (DIPO-57).
 export {

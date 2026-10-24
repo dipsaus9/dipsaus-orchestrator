@@ -12,8 +12,22 @@
 // (DIPO-141) add `pr view --json labels`, `pr checks --json name,state,bucket,link,workflow`,
 // `run view --repo --job --log-failed` and `pr comment --repo --body-file -`. The newest of these is
 // `pr checks --json`, added in gh 2.50.0 (https://github.com/cli/cli/releases/tag/v2.50.0).
+//
+// Every `gh` call has a deadline on the engine clock (DIPO-314; `CALL_DEADLINE_MS`, 60 s, by
+// default): `gh` starts in its own process group, and past the deadline the group is killed and
+// the call throws `CodeHostError` with code `timedOut`, naming the command and the deadline. A
+// failed-job log read (`#tailRun`) keeps its own, longer deadline (`LOG_TIMEOUT_MS`).
 
-import type { ChildProcess, Spawn } from "@dipsaus-orchestrator/contract";
+import type { ChildProcess, Clock, Spawn } from "@dipsaus-orchestrator/contract";
+
+import { systemClock } from "./clock";
+import {
+  CALL_DEADLINE_MS,
+  killChildGroup,
+  timedOutText,
+  trackEngineCall,
+  withDeadline,
+} from "./deadline";
 
 /** The oldest `gh` with every subcommand and flag the engine uses. */
 export const MIN_GH_VERSION = "2.50.0";
@@ -23,7 +37,7 @@ const EXIT_AUTH = 4;
 /** gh's exit code of `pr checks` while checks are pending. */
 const EXIT_PENDING = 8;
 
-export type CodeHostErrorCode = "missing" | "tooOld" | "unauthenticated" | "failed";
+export type CodeHostErrorCode = "missing" | "tooOld" | "unauthenticated" | "failed" | "timedOut";
 
 /** A `gh` call that failed; `code` says why. */
 export class CodeHostError extends Error {
@@ -350,6 +364,10 @@ export interface GhHostOptions {
   readonly logger?: { warn(message: string, fields?: Readonly<Record<string, unknown>>): void };
   /** How long a failed-job log read may run; `LOG_TIMEOUT_MS` by default. */
   readonly logTimeoutMs?: number;
+  /** The engine clock each call's deadline runs on; the system clock when absent. */
+  readonly clock?: Clock;
+  /** How long any other call may run before it is killed (DIPO-314); `CALL_DEADLINE_MS` by default. */
+  readonly deadlineMs?: number;
 }
 
 interface GhResult {
@@ -365,6 +383,8 @@ export class GhHost implements CodeHost, PrStateHost, PrListHost, PrReviewHost {
   readonly #env: Record<string, string>;
   readonly #logger: GhHostOptions["logger"];
   readonly #logTimeoutMs: number;
+  readonly #clock: Clock;
+  readonly #deadlineMs: number;
   #version: string | null = null;
 
   constructor(options: GhHostOptions) {
@@ -373,6 +393,8 @@ export class GhHost implements CodeHost, PrStateHost, PrListHost, PrReviewHost {
     this.#env = ghEnv(options.env ?? process.env);
     this.#logger = options.logger;
     this.#logTimeoutMs = options.logTimeoutMs ?? LOG_TIMEOUT_MS;
+    this.#clock = options.clock ?? systemClock;
+    this.#deadlineMs = options.deadlineMs ?? CALL_DEADLINE_MS;
   }
 
   async checkVersion(): Promise<string> {
@@ -637,7 +659,7 @@ export class GhHost implements CodeHost, PrStateHost, PrListHost, PrReviewHost {
     let timer: ReturnType<typeof setTimeout> | undefined;
     const timeout = new Promise<never>((_, reject) => {
       timer = setTimeout(() => {
-        child.kill("SIGKILL");
+        killChildGroup(child);
         reject(
           new CodeHostError(
             "failed",
@@ -696,14 +718,20 @@ export class GhHost implements CodeHost, PrStateHost, PrListHost, PrReviewHost {
     try {
       child =
         input === undefined
-          ? this.#spawn({ cmd: [this.#gh, ...args], env: this.#env })
-          : this.#spawn({ cmd: [this.#gh, ...args], env: this.#env, stdin: "pipe" });
+          ? this.#spawn({ cmd: [this.#gh, ...args], env: this.#env, detached: true })
+          : this.#spawn({
+              cmd: [this.#gh, ...args],
+              env: this.#env,
+              stdin: "pipe",
+              detached: true,
+            });
     } catch (error) {
       throw new CodeHostError(
         "missing",
         `gh could not start (${error instanceof Error ? error.message : String(error)}); install gh ${MIN_GH_VERSION} or newer (https://cli.github.com).`,
       );
     }
+    trackEngineCall(child);
     if (input !== undefined) {
       if (child.stdin === null) {
         child.kill("SIGKILL");
@@ -715,13 +743,24 @@ export class GhHost implements CodeHost, PrStateHost, PrListHost, PrReviewHost {
     return child;
   }
 
+  /** Runs `gh <args>` to its end, killed and failed with `timedOut` at the call's deadline. */
   async #raw(args: readonly string[], input?: string): Promise<GhResult> {
     const child = this.#spawnGh(args, input);
-    const [stdout, stderr, exit] = await Promise.all([
-      new Response(child.stdout).text(),
-      new Response(child.stderr).text(),
-      child.exited,
-    ]);
+    const deadlineMs = this.#deadlineMs;
+    const [stdout, stderr, exit] = await withDeadline(
+      child,
+      Promise.all([
+        new Response(child.stdout).text(),
+        new Response(child.stderr).text(),
+        child.exited,
+      ]),
+      {
+        clock: this.#clock,
+        deadlineMs,
+        timedOut: () =>
+          new CodeHostError("timedOut", `${timedOutText(["gh", ...args], deadlineMs)}.`),
+      },
+    );
     return { code: exit.code, stdout, stderr };
   }
 }

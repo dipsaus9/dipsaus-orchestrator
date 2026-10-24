@@ -32,6 +32,7 @@ import {
   readDoor,
 } from "../../src/box/door";
 import { BoxError, type BoxPort, type BoxProcess } from "../../src/box/port";
+import { partModeCommand } from "../../src/box/user";
 import {
   parseWorkerReport,
   WORKER_REPORT_CAPS,
@@ -225,6 +226,10 @@ describe("the dipo-part command (criterion 1)", () => {
       await installDipoPart({ boxes, tmpRoot: tmp }, "dipo-run_1");
       expect(boxes.log).toContain(`copy in dipo-run_1 ${DIPO_PART_PATH}`);
       expect(boxes.log).toContain("exec dipo-run_1 /bin/chmod");
+      // Root's file in root's folder, made runnable by one of dipo's root steps (DIPO-334).
+      expect(boxes.execs).toEqual([
+        { box: "dipo-run_1", command: partModeCommand(), options: { rootStep: true } },
+      ]);
       // The stage folder is dipo's own, and it is gone afterwards.
       expect(readdirSync(tmp)).toEqual([]);
     }));
