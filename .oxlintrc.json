@@ -817,6 +817,197 @@
       "rules": {
         "dipo/ci-test-guard": "error"
       }
+    },
+    // Function size caps (DIPO-127): no function over 100 lines, over complexity 20 or with
+    // more than 5 parameters in product code.
+    {
+      "files": ["packages/*/src/**"],
+      "rules": {
+        "max-lines-per-function": ["error", { "max": 100 }],
+        "complexity": ["error", { "max": 20 }],
+        "max-params": ["error", { "max": 5 }]
+      }
+    },
+    // Tests are excluded from the caps: a describe block is one long function by design.
+    {
+      "files": ["packages/*/src/**/*.test.ts", "packages/*/src/**/*.test.tsx"],
+      "rules": {
+        "max-lines-per-function": "off",
+        "complexity": "off",
+        "max-params": "off"
+      }
+    },
+    // Exception lists. Each block names the files that broke one cap when the caps were turned
+    // on, and exempts them from that cap only. These lists only shrink: remove a file once it
+    // is split under the cap, and never add one. New code meets the caps.
+    {
+      "files": [
+        "packages/cli/src/index.ts",
+        "packages/cli/src/watch-command.ts",
+        "packages/client/src/recovery.ts",
+        "packages/daemon/src/foreground.ts",
+        "packages/daemon/src/runs.ts",
+        "packages/engine/src/backlog/lane/lane.ts",
+        "packages/engine/src/backlog/plain.ts",
+        "packages/engine/src/backlog/pr/feature.ts",
+        "packages/engine/src/backlog/runner.ts",
+        "packages/engine/src/box/cache-extract.ts",
+        "packages/engine/src/box/cache.ts",
+        "packages/engine/src/box/web-proxy.ts",
+        "packages/engine/src/box/workers.ts",
+        "packages/engine/src/context/default-provider.ts",
+        "packages/engine/src/host/client.ts",
+        "packages/engine/src/host/main.ts",
+        "packages/engine/src/ingest/ingestor.ts",
+        "packages/engine/src/merge-slot/git.ts",
+        "packages/engine/src/merge-slot/slot.ts",
+        "packages/engine/src/merge-slot/story-git.ts",
+        "packages/engine/src/merge-slot/story-slot.ts",
+        "packages/engine/src/platform/safe-chain-proxy.ts",
+        "packages/engine/src/platform/sandbox-exec.ts",
+        "packages/engine/src/reconcile/reconcile.ts",
+        "packages/engine/src/retention/run.ts",
+        "packages/engine/src/run/compose.ts",
+        "packages/engine/src/run/conflicts.ts",
+        "packages/engine/src/run/control.ts",
+        "packages/engine/src/run/launch.ts",
+        "packages/engine/src/run/outcome-exits.ts",
+        "packages/engine/src/run/outcome-restart.ts",
+        "packages/engine/src/run/outcome-sessions.ts",
+        "packages/engine/src/run/park-resume.ts",
+        "packages/engine/src/run/park.ts",
+        "packages/engine/src/run/reattach.ts",
+        "packages/engine/src/run/resume-paused.ts",
+        "packages/engine/src/run/resume.ts",
+        "packages/engine/src/run/resumption.ts",
+        "packages/engine/src/run/review-launch.ts",
+        "packages/engine/src/run/session-run.ts",
+        "packages/engine/src/run/story-git.ts",
+        "packages/engine/src/run/verify-commit.ts",
+        "packages/engine/src/run/work-run.ts",
+        "packages/engine/src/scan/confirm-command.ts",
+        "packages/engine/src/scan/detect/detect.ts",
+        "packages/engine/src/stories/apply.ts",
+        "packages/engine/src/stories/planning.ts",
+        "packages/engine/src/story-pr/prs.ts",
+        "packages/engine/src/workers/claude-cli/interpret.ts",
+        "packages/engine/src/workers/claude-cli/plan.ts",
+        "packages/engine/src/workers/claude-cli/result.ts",
+        "packages/engine/src/worktree/claim.ts",
+        "packages/tui/src/app.tsx",
+        "packages/tui/src/detail.tsx",
+        "packages/tui/src/overview.tsx",
+        "packages/tui/src/run.tsx",
+        "packages/tui/src/testing/setup.tsx"
+      ],
+      "rules": {
+        "max-lines-per-function": "off"
+      }
+    },
+    {
+      "files": [
+        "packages/cli/src/daemon-commands.ts",
+        "packages/cli/src/index.ts",
+        "packages/cli/src/profile-commands.ts",
+        "packages/cli/src/watch-command.ts",
+        "packages/client/src/store/office-store.ts",
+        "packages/daemon/src/foreground.ts",
+        "packages/daemon/src/runs.ts",
+        "packages/engine/src/backlog/lane/lane.ts",
+        "packages/engine/src/backlog/lane/ops.ts",
+        "packages/engine/src/backlog/plain.ts",
+        "packages/engine/src/backlog/pr/adopt.ts",
+        "packages/engine/src/backlog/pr/check.ts",
+        "packages/engine/src/backlog/runner.ts",
+        "packages/engine/src/box/cache-extract.ts",
+        "packages/engine/src/box/collisions.ts",
+        "packages/engine/src/box/ignore.ts",
+        "packages/engine/src/box/image.ts",
+        "packages/engine/src/box/web-proxy.ts",
+        "packages/engine/src/context/default-provider.ts",
+        "packages/engine/src/context/workspace.ts",
+        "packages/engine/src/hooks/permissions.ts",
+        "packages/engine/src/host/main.ts",
+        "packages/engine/src/ingest/ingestor.ts",
+        "packages/engine/src/merge-slot/slot.ts",
+        "packages/engine/src/merge-slot/story-slot.ts",
+        "packages/engine/src/platform/sandbox-exec.ts",
+        "packages/engine/src/reconcile/reconcile.ts",
+        "packages/engine/src/run/control-turns.ts",
+        "packages/engine/src/run/control.ts",
+        "packages/engine/src/run/fix-rounds.ts",
+        "packages/engine/src/run/outcome-exits.ts",
+        "packages/engine/src/run/outcome-restart.ts",
+        "packages/engine/src/run/outcome-sessions.ts",
+        "packages/engine/src/run/park-resume.ts",
+        "packages/engine/src/run/park.ts",
+        "packages/engine/src/run/places.ts",
+        "packages/engine/src/run/reattach.ts",
+        "packages/engine/src/run/resume.ts",
+        "packages/engine/src/run/resumption.ts",
+        "packages/engine/src/run/review-launch.ts",
+        "packages/engine/src/run/reviews.ts",
+        "packages/engine/src/run/verify-commit.ts",
+        "packages/engine/src/run/work-run.ts",
+        "packages/engine/src/scan/answer.ts",
+        "packages/engine/src/scan/confirm-command.ts",
+        "packages/engine/src/scan/detect/detect.ts",
+        "packages/engine/src/scan/detect/probe.ts",
+        "packages/engine/src/scan/evidence.ts",
+        "packages/engine/src/stories/apply.ts",
+        "packages/engine/src/stories/discard.ts",
+        "packages/engine/src/stories/planning.ts",
+        "packages/engine/src/story-pr/prs.ts",
+        "packages/engine/src/workers/claude-cli/hooks.ts",
+        "packages/engine/src/workers/claude-cli/interpret.ts",
+        "packages/engine/src/workers/claude-cli/plan.ts",
+        "packages/engine/src/workers/claude-cli/result.ts",
+        "packages/engine/src/workers/claude-cli/resume-check.ts",
+        "packages/engine/src/worktree/claim.ts",
+        "packages/engine/src/worktree/teardown.ts",
+        "packages/tui/src/app.tsx",
+        "packages/tui/src/detail.tsx",
+        "packages/tui/src/testing/fake-session.ts"
+      ],
+      "rules": {
+        "complexity": "off"
+      }
+    },
+    {
+      "files": [
+        "packages/cli/src/office-commands.ts",
+        "packages/daemon/src/runs.ts",
+        "packages/engine/src/backlog/pr/feature.ts",
+        "packages/engine/src/commands/execute.ts",
+        "packages/engine/src/context/default-provider.ts",
+        "packages/engine/src/gate/store/read.ts",
+        "packages/engine/src/hooks/nudges.ts",
+        "packages/engine/src/merge-slot/commands.ts",
+        "packages/engine/src/merge-slot/slot.ts",
+        "packages/engine/src/merge-slot/story-slot.ts",
+        "packages/engine/src/office/init/init.ts",
+        "packages/engine/src/prompts/parts.ts",
+        "packages/engine/src/run/control-endings.ts",
+        "packages/engine/src/run/control-turns.ts",
+        "packages/engine/src/run/launch.ts",
+        "packages/engine/src/run/park-resume.ts",
+        "packages/engine/src/run/park.ts",
+        "packages/engine/src/run/reattach.ts",
+        "packages/engine/src/run/resume.ts",
+        "packages/engine/src/run/resumption.ts",
+        "packages/engine/src/run/session-run.ts",
+        "packages/engine/src/scan/fallback.ts",
+        "packages/engine/src/stories/apply.ts",
+        "packages/engine/src/stories/branch-read.ts",
+        "packages/engine/src/stories/discard.ts",
+        "packages/engine/src/story-pr/prs.ts",
+        "packages/engine/src/worktree/claim.ts",
+        "packages/engine/src/worktree/done.ts",
+        "packages/tui/src/app.tsx"
+      ],
+      "rules": {
+        "max-params": "off"
+      }
     }
   ]
 }
