@@ -4,12 +4,12 @@ title: Decide how the engine gives a worker the skills and plugins its story nee
 status: Refined
 assignee: []
 created_date: '2026-10-16 09:39'
-updated_date: '2026-10-22 08:33'
+updated_date: '2026-10-24 09:32'
 labels:
   - architecture
   - 'tier:M'
   - needs-refinement
-milestone: m-1
+milestone: m-2
 dependencies:
   - DIPO-108
   - DIPO-285
@@ -53,4 +53,6 @@ Context: DIPO-108 switches every user-scope plugin off unless the office names i
 
 <!-- SECTION:NOTES:BEGIN -->
 Reshaped by decision 0021 (worker isolation, DIPO-263, 2026-10-21); rewrite before Ready: skills and plugins live inside the box's image from the office config (0021 section 5).
+
+2026-10-23 (maintainer): moved to M2.
 <!-- SECTION:NOTES:END -->

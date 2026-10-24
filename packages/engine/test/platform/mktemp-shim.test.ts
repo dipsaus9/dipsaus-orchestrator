@@ -2,40 +2,50 @@
 // adds -p "$TMPDIR" to a call without a template and passes every other call unchanged; the shim
 // directory leads the step's PATH on darwin only, is vetted by the trust check and is removed again.
 
-import { describe, expect, it } from "bun:test";
+import { afterAll, beforeAll, describe, expect, it } from "bun:test";
 import { chmodSync, existsSync, readFileSync, statSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 
-import { withTempDir } from "@dipsaus-orchestrator/testkit";
+import { makeTempDir, removeTempDir, withTempDir } from "@dipsaus-orchestrator/testkit";
 
 import { mktempShimText, prepareStepDir, removeStepDir } from "../../src/platform/mktemp-shim";
 import { checkTrust } from "../../src/platform/sandbox";
 
-/** A fake `mktemp` that records its arguments, one per line. */
-function fakeMktemp(dir: string): { path: string; calls: () => string[] } {
-  const path = join(dir, "real-mktemp");
-  const record = join(dir, "calls");
-  writeFileSync(path, `#!/bin/sh\nprintf '%s\\n' "$@" > '${record}'\necho made\n`);
-  chmodSync(path, 0o755);
-  return {
-    path,
-    calls: () => readFileSync(record, "utf8").split("\n").slice(0, -1),
-  };
-}
+/**
+ * A fake `mktemp` that records its arguments, one per line, into `$FAKE_MKTEMP_RECORD`. One copy
+ * serves the whole file: macOS checks a new executable on its first start, which made a fresh fake
+ * per test cost far more than the test itself (DIPO-225).
+ */
+let fakeDir = "";
+const FAKE_MKTEMP = () => join(fakeDir, "real-mktemp");
+beforeAll(() => {
+  fakeDir = makeTempDir();
+  writeFileSync(
+    FAKE_MKTEMP(),
+    `#!/bin/sh\nprintf '%s\\n' "$@" > "$FAKE_MKTEMP_RECORD"\necho made\n`,
+  );
+  chmodSync(FAKE_MKTEMP(), 0o755);
+});
+afterAll(() => removeTempDir(fakeDir));
 
 async function runShim(dir: string, args: string[], env: Record<string, string> = {}) {
-  const real = fakeMktemp(dir);
+  const record = join(dir, "calls");
   const shim = join(dir, "shim");
-  writeFileSync(shim, mktempShimText(real.path), { mode: 0o755 });
+  writeFileSync(shim, mktempShimText(FAKE_MKTEMP()), { mode: 0o755 });
   const child = Bun.spawn({
     cmd: ["/bin/sh", shim, ...args],
-    env: { PATH: process.env["PATH"] ?? "/usr/bin:/bin", TMPDIR: "/step/tmp", ...env },
+    env: {
+      PATH: process.env["PATH"] ?? "/usr/bin:/bin",
+      TMPDIR: "/step/tmp",
+      FAKE_MKTEMP_RECORD: record,
+      ...env,
+    },
     stdout: "pipe",
     stderr: "pipe",
   });
   expect(await child.exited).toBe(0);
   expect((await new Response(child.stdout).text()).trim()).toBe("made");
-  return real.calls();
+  return readFileSync(record, "utf8").split("\n").slice(0, -1);
 }
 
 describe("mktempShimText", () => {

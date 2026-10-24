@@ -2,12 +2,20 @@
 // state, log and runtime folders under the temp root, before any test runs.
 
 import { describe, expect, it } from "bun:test";
-import { existsSync, readdirSync, realpathSync, rmSync, statSync } from "node:fs";
+import {
+  existsSync,
+  mkdtempSync,
+  readdirSync,
+  realpathSync,
+  rmSync,
+  statSync,
+  writeFileSync,
+} from "node:fs";
 import { dirname, join } from "node:path";
 
 import { TEST_MARKER, testRuntimeDir, testStateDir } from "./runtime";
 import { tempRoot } from "./temp";
-import { isolateTestProcess } from "./test-env";
+import { isolateTestProcess, MACOS_GIT_SHIM, skipGitShim } from "./test-env";
 
 const mode = (path: string) => statSync(path).mode & 0o777;
 
@@ -44,5 +52,46 @@ describe("the test runner's setup file", () => {
       rmSync(first.root, { recursive: true, force: true });
       rmSync(second.root, { recursive: true, force: true });
     }
+  });
+});
+
+/** The stdout of `cmd` run with only `PATH`. */
+function run(cmd: string[], PATH: string): string {
+  return Bun.spawnSync(cmd, { env: { PATH }, stdout: "pipe" }).stdout.toString();
+}
+
+describe("the direct git of the test process (DIPO-225)", () => {
+  it("leaves PATH alone off macOS", () => {
+    const env: NodeJS.ProcessEnv = { PATH: "/usr/bin:/bin" };
+    expect(skipGitShim(env, "linux")).toBeNull();
+    expect(env).toEqual({ PATH: "/usr/bin:/bin" });
+  });
+
+  it("leaves PATH alone when the git on it is not the shim", () => {
+    const root = realpathSync(mkdtempSync(join(tempRoot(), "dipo-")));
+    try {
+      writeFileSync(join(root, "git"), "#!/bin/sh\nexit 0\n", { mode: 0o755 });
+      const env: NodeJS.ProcessEnv = { PATH: `${root}:/usr/bin:/bin` };
+      expect(skipGitShim(env, "darwin")).toBeNull();
+      expect(env).toEqual({ PATH: `${root}:/usr/bin:/bin` });
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
+
+  it("puts the real git's folder first on PATH when git is the macOS shim", () => {
+    // Only a Mac has the shim; elsewhere /usr/bin/git is a real git and the case does not apply.
+    if (process.platform !== "darwin" || !existsSync(MACOS_GIT_SHIM)) return;
+    const env: NodeJS.ProcessEnv = { PATH: "/usr/bin:/bin" };
+    const bin = skipGitShim(env, "darwin");
+    expect(bin).not.toBeNull();
+    expect(bin).not.toBe(dirname(MACOS_GIT_SHIM));
+    expect(env["PATH"]).toBe(`${bin}:/usr/bin:/bin`);
+    expect(Bun.which("git", { PATH: env["PATH"] ?? "" })).toBe(join(bin ?? "", "git"));
+    // The same git answers on the new PATH as through the shim. (This test process's own PATH
+    // changed only when the git it found was the shim; a CI runner may have another git first.)
+    expect(run(["git", "--version"], env["PATH"] ?? "")).toBe(
+      run([MACOS_GIT_SHIM, "--version"], "/usr/bin:/bin"),
+    );
   });
 });

@@ -258,7 +258,7 @@ describe("tests that start a daemon", () => {
         "daemon/test/integration/crash-loop.test.ts",
         "daemon/test/integration/db-close.ci.test.ts",
         "daemon/test/integration/drain.ci.test.ts",
-        "daemon/test/integration/foreground.test.ts",
+        "daemon/test/integration/foreground.ci.test.ts",
         "daemon/test/integration/reattach-kill.ci.test.ts",
         "daemon/test/integration/reconcile.ci.test.ts",
         "daemon/test/integration/restore.ci.test.ts",

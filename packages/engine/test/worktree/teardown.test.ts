@@ -807,4 +807,5 @@ describe("worktree lock reasons", () => {
   });
 });
 
-// The box run worktrees of DIPO-302 and DIPO-332 are tested on real git in lagging-worktree.test.ts.
+// The box run worktrees of DIPO-302 and DIPO-332 are tested on real git in lagging-worktree.test.ts
+// and lagging-worktree.ci.test.ts.
