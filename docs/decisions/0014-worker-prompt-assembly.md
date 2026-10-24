@@ -20,6 +20,7 @@ A worker gets a short prompt that code builds from structured data. It does not 
 - **Templates.** Templates are logic-free Markdown with named slots. Code decides whether a section appears, fills it, applies budgets and orders it.
 - **Ownership.** L1 and the section templates are engine code; an office cannot override them, because they carry the boundary between code and AI. An office tunes roles, budgets and the context provider.
 - **Golden files.** The rendered L1+L2 and a sample L4 per kind are golden files in tests.
+- **The contract is one short page.** It says what to deliver (code and tests that meet the criteria and the test plan) and how to talk to dipo (a part, done, a question, blocked, a proposal). It explains nothing of dipo's setup: where the setup would surprise a worker, the setup is fixed instead of explained.
 - **Fixed headings.** Sections have fixed headings in XML-like tags (`<outcome>`, `<criteria>`), so the contract can name them.
 
 ## 2. What a prompt receives
@@ -71,7 +72,7 @@ These never appear as instructions:
 - the model, effort and tools per tier and role;
 - context selection and usage capture.
 
-L1 holds one sentence for the boundary: dipo handles git, the backlog, the PR and the review, and the worker reports instead. The box has no git, no `backlog` and no `gh`. The worker runs the office's verify itself before it reports done (0008).
+L1 holds one sentence for the boundary: dipo handles git, the backlog, the PR and the review, and the worker reports instead. The box has no `backlog` and no `gh`, and its git repository is the box's own (0008). The worker may run tests and the verify while it works; dipo runs the verify at done (0002).
 
 ## 4. Sizes, budgets and the handoff
 
@@ -133,7 +134,7 @@ Maintainer text is always wrapped in a template and never starts a message, so i
 - Native `--resume`, chosen when context use was under 60% and a re-read cost at most three times a handoff (2026-10-10). Replaced by a handoff in the kept box for every later session (0008, 2026-10-22).
 - Nudges through `PostToolUse` and `SessionStart` hooks: out-of-scope writes, a stale context pack, input changes, 80% of budget (2026-10-10). Removed (2026-10-24): the developer has no hooks, and the budget line plus L1's wrap-up rule cover the budget.
 - The scope contract "you may write only these paths", the no-git and no-`cd` rules, scope requests and lockfile pairing (2026-10-10, 2026-10-16). Replaced by references as a forecast and parts (0008, 2026-10-21).
-- Verify and commit by dipo at In Review, inside `srt` (2026-10-10). Replaced by the worker's own verify and CI (0002).
+- Verify and commit by dipo at In Review, inside `srt` (2026-10-10). Replaced by parts, and by dipo's verify in the box with CI as the final gate (0002).
 - A `base_verify` section with the base commit's known failures, and a run of new tests against the base commit (2026-10-20). Never fed or never built. Removed (2026-10-24); a run against the base is M2 work if it returns.
 - The optional codegraph backend, the comparison of backends, and stale-index detection (2026-10-10). Moved to Later (0003). The comparison stays in `docs/research/2026-10-comparable-tools.md`.
 - Stored context pack records with blob ids, used to rebuild packs after a restart (2026-10-16). Removed (2026-10-24): the default pack is cheap to build again.

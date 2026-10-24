@@ -33,7 +33,7 @@ All tests are plain `bun test` files using `describe`, `it` and `expect`. Golden
 The fake replaces the **subprocess**, not the adapter. The platform module's spawn is injectable. In tests it returns a process whose output and exit come from a recording, the real Claude adapter parses it (0008), and the real engine reacts. For engine tests that need no Claude detail, a `ScriptedWorker` emits worker events directly. A contract test checks that every script could come from a recording.
 
 **Recordings.** One directory per scenario: `packages/engine/test/recordings/claude-cli/<scenario>/`, holding `stream.jsonl` and `meta.json`.
-- Each line of `stream.jsonl` is `{ t, ch: stdout | stderr | hook | exit, data }`.
+- Each line of `stream.jsonl` is `{ t, ch: stdout | stderr | exit, data }`. (Older recordings may carry `hook` lines from before 2026-10-24; replay ignores them.)
 - `meta.json` holds the Claude Code version, the flags, the capture date, the prompt's size and hash (never the prompt), the expected outcome, and `synthetic` or `derivedFrom` when the recording was not captured live.
 
 **Replay.** The fake advances the injected clock by the recorded time steps instead of sleeping. SIGINT jumps to the recorded tail, and SIGTERM ends with exit 143 and no result.

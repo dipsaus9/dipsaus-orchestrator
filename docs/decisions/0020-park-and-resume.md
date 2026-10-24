@@ -119,6 +119,6 @@ Within a group, items that block the most other stories come first, then the old
 - Native `--resume` versus handoff, chosen by a cost check. Replaced by: a resume always starts a new session in the box with a handoff (2026-10-22, box runs).
 - Scope requests, `needs-scope`, the package-of-a-path rule and restricted paths (2026-10-16). Removed when the box made references a forecast (2026-10-21).
 - `needs-permission` and its allow-or-deny answers. A box worker has every permission (2026-10-22).
-- The web-value gate on the developer's web calls and the domain allowlist idea. The box has open web access and holds no real secrets (2026-10-21); only the reviewer keeps a web gate (0002).
+- The web-value gate on the developer's web calls and the domain allowlist idea. The box has open web access and holds no real secrets (2026-10-21). No session has a web gate: the reviewer box holds no secrets either (0008, 2026-10-24).
 - A question wait that depended on a TUI being connected (2026-10-21). Replaced by section 4.
 - The waiting command path with a crash-injection test per command. Idempotency is limited to commands that start or change a run (0005).

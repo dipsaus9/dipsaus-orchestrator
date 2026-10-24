@@ -267,3 +267,18 @@ The decisions above, plus Claude's proposals for the smaller points, marked (P).
 | 0016 CI and release | Rewritten 2026-10-24 |
 | 0017 Testing and configuration | Rewritten 2026-10-24 |
 | vision.md, concepts.md, CLAUDE.md | Updated 2026-10-24 |
+
+## 12. Follow-up decisions after the architecture walkthrough (2026-10-24)
+
+The maintainer reviewed the target in a slide deck, gave feedback and decided:
+
+1. **Backlog-only PRs take a light CI path.** Only the Ready gate, the structural check and the PR title check run, and `ci-ok` stays required. Setting stories Ready, in bulk if needed, takes minutes and blocks nothing else (0016, 0010).
+2. **dipo runs verify in the box at done, and CI is the final gate.** The box gets its own local git repository: a `git init` of the code copy that shares nothing with the maintainer's repository and that the Mac never runs git in (0002, 0008).
+3. **The reviewer runs in a read-only box of its own.** No session has hooks anymore, and `dipo hook` goes (0002, 0008, 0004).
+4. **Seams:** one `createEngine` factory between the daemon and the engine (0005, 0004), and a `StoryStore` interface for story reads and writes (0010). Claude names stay in the contract for now.
+5. **Workers know nothing of the setup.** The worker contract is one short page about what to deliver and how to talk to dipo (0014).
+6. **Later:** an experiment comparing a full plan in the story against a planning session by the worker (0003).
+7. **How dipo is built during the prune:**
+   - Track 1, the run path, is built by builder agents from the orchestrating session.
+   - Then comes a cutover gate, where dipo delivers one real story on the simplified path.
+   - Track 2, everything else, is built by dipo itself (0003).
