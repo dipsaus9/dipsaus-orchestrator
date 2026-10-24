@@ -35,7 +35,7 @@ Bun workspaces. Every package is TypeScript ESM, scoped `@dipsaus-orchestrator/*
 | `cli` | The binary. `dipo daemon` forms call `runDaemon`; everything else goes through `client` | `contract`, `client`, `tui`, `daemon` |
 | `testkit` | Private test helpers: clock, ids, temporary repositories, fake process | Used by tests only |
 
-The daemon-side forms of the binary are `dipo daemon --foreground`, `dipo daemon worker-host <run>`, `dipo daemon wait-pid <pid>` and `dipo hook <event>` (the reviewer's hooks, 0008). All of them call `runDaemon(argv)`.
+The daemon-side forms of the binary are `dipo daemon --foreground`, `dipo daemon worker-host <run>`, and `dipo daemon wait-pid <pid>`. All of them call `runDaemon(argv)`.
 
 ## Boundaries enforced in code
 
@@ -47,11 +47,12 @@ These are lint rules in `.oxlintrc.json` and `tools/lint/`, proven by `test/lint
 - `engine` never imports `daemon`, `client`, `tui` or `cli`, and finds no file of theirs by path.
 - Inside `engine` and `daemon`, only `engine/src/platform/**` touches `bun`, `bun:*` (except `bun:test`) or the global `Bun`.
 - Inside `engine`, only `workers/claude-cli/**` imports the Claude adapter.
+- `daemon` imports only `createEngine` and types from `engine` (0005).
 - `client`'s main entry uses no Bun or Node API.
 - No runtime import cycles (`import/no-cycle`, type-only cycles allowed).
 - Function size caps: at most 100 lines, complexity 20 and 5 parameters per function.
 
-Three of these rules are not in place yet (2026-10-24): `contract` importing nothing but zod, `engine` never importing the other packages, and the ban on deep imports by relative path. The prune plan adds them.
+Four of these rules are not in place yet (2026-10-24): `contract` importing nothing but zod, `engine` never importing the other packages, the ban on deep imports by relative path, and `daemon` importing only `createEngine`. The prune plan adds them.
 
 ## Tooling
 
@@ -86,4 +87,4 @@ bun run verify   # format:check, lint, typecheck, test; stops at the first failu
 - macOS and Linux on x64 and arm64 as product platforms (2026-10-24). Only `darwin-arm64` can run a box.
 - `srt` (`@anthropic-ai/sandbox-runtime`) bundled behind `dipo daemon sandbox-exec`, and the `safe-chain-gate` form (2026-10-24). The box is the only sandbox technology now (0008).
 - A planned browser, web, desktop or 3D client, served by the daemon (2026-10-24). It is listed under Later in 0003 and gets an ADR when it is planned.
-- A versioned handshake on `dipo hook`, so a newer binary could relay to an older host (2026-10-24). One contract version per binary (0005).
+- `dipo hook <event>` and its versioned handshake with the worker host (2026-10-12). Removed (2026-10-24): no session has hooks (0008).

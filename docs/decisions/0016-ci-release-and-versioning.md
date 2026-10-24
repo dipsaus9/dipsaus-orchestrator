@@ -19,6 +19,8 @@ It runs on `pull_request` and on `push` to `main`, with `concurrency` per ref.
 
 | Job | Runner | Does |
 |---|---|---|
+| `changes` | `ubuntu-24.04` | Decides whether the PR changes only `backlog/`; the heavy jobs below skip when it does |
+| `ready-gate` | `ubuntu-24.04` | The Ready gate and the structural check of 0010 on every story the PR changes |
 | `verify` | `ubuntu-24.04` | `bun run verify` with `DIPO_TEST_CI=1`: the same command as locally, plus the CI-only tests |
 | `verify-macos` | `macos-26` | The same, on macOS, where the box and the platform code are real |
 | `shellcheck` | `ubuntu-24.04` | `install.sh` and other shell scripts |
@@ -28,6 +30,8 @@ It runs on `pull_request` and on `push` to `main`, with `concurrency` per ref.
 | `ci-ok` | `ubuntu-24.04` | Needs every job above; fails unless each succeeded or was skipped by design |
 
 Runner labels are explicit, never `-latest`.
+
+**Backlog-only PRs take the light path.** When `changes` finds that a PR changes only `backlog/`, the verify, smoke, shellcheck, actionlint and dependency-review jobs skip by design, and only `ready-gate` and `pr-title` run. `ci-ok` stays the one required check and passes on that path. Setting stories Ready, in bulk if needed, then takes minutes and changes no code.
 
 **The PR title check** (`.github/workflows/pr-title.yml`, job `pr-title`) runs `scripts/check-pr-title.ts` on `opened`, `edited`, `synchronize` and `reopened`. It is the second required check. Accepted titles:
 
@@ -117,5 +121,6 @@ gh attestation verify <file> --repo dipsaus9/dipsaus-orchestrator \
 - `strict` on, with a merge slot that kept branches up to date at merge time (2026-10-10). `strict` turned off (2026-10-22). The slot was replaced by GitHub auto-merge (0002, 2026-10-24).
 - Fix rounds from a merge-time sync counted against the review round cap (2026-10-10). Replaced by one cap per source (0002).
 - Lockfile maintenance automerge (2026-10-10). Turned off (2026-10-23).
+- The full CI on every PR, backlog-only ones included (2026-10-10). Replaced by the light path for backlog-only PRs (2026-10-24).
 - A Homebrew tap after the first stable minor. Moved to Later (0003).
 - `setup-bun` with its cache in the release build (2026-10-10). Replaced by a Bun checked against a pinned SHA-256 (2026-10-23).

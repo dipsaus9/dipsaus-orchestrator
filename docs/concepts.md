@@ -18,7 +18,7 @@ Shared vocabulary, matching the ADRs in `docs/decisions/` (rewritten 2026-10-24)
 | **Hiring** | Adding a role to an office's roster |
 | **Roster** | The roles available in one office |
 | **Worker adapter** | The interface through which the engine runs an agent. The Claude Code CLI is the first adapter (0008) |
-| **Box** | The Apple `container` VM a developer runs in, one per story, from claim to merge. The box is the isolation boundary (0008) |
+| **Box** | The Apple `container` VM a developer runs in, one per story, from claim to merge, with its own local git repository. The box is the isolation boundary (0008) |
 | **Part** | A piece of work the worker hands over from its box. dipo scans it, commits it on the story branch and pushes it (0008) |
 | **Test box** | A short-lived box that runs a story's pushed head for the maintainer's test (0002) |
 | **Context provider** | The part of the engine that decides which code a worker sees, from the story's references and inputs (0014) |
@@ -33,7 +33,7 @@ Shared vocabulary, matching the ADRs in `docs/decisions/` (rewritten 2026-10-24)
 | **Park** | Stopping a story that needs a human, with one of eight reasons, while other work continues. Parked is the only waiting state; `dipo resume` brings it back (0001, 0020) |
 | **Starts paused** | An office-level state for problems that are not a story's: a plan limit, or a broken CLI or box token. No new session starts until it lifts (0020) |
 | **Fix round** | One round of feedback to the same worker in its box, for every source: report gate, conflict, review, CI, reject (0002) |
-| **Reviewer** | A separate agent that checks each pushed head against the story goal. Never sees the developer's reasoning (0002) |
+| **Reviewer** | A separate agent that checks each pushed head against the story goal, in a read-only box of its own. Never sees the developer's reasoning (0002) |
 | **Gate** | A point where a rule or the maintainer must pass the work before it advances: the Ready gate, the review, the merge gate (0002, 0012) |
 | **Merge gate** | The decision to merge a PR whose review approved and whose checks are green. By rule, unless something makes it wait for the maintainer (0002) |
 | **Acceptance test** | The maintainer testing the behaviour of a flagged story with `dipo test` (0002) |

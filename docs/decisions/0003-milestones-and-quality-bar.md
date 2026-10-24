@@ -32,11 +32,26 @@ The project grew to about 137k source lines in 15 days, with up to 40 amendments
 
 Until M3, stories are written by hand or with the `dipsaus-ai` skills. Until M4 there is one developer role plus the reviewer.
 
-**Later, with no milestone yet:** a codegraph context backend measured against the default, a Linux box backend, a declared "online" presence for live questions, and a web or desktop client.
+**Later, with no milestone yet:**
+
+- a codegraph context backend measured against the default;
+- a Linux box backend;
+- a declared "online" presence for live questions;
+- a web or desktop client;
+- another story tracker, such as Jira, behind the `StoryStore` seam (0010);
+- an experiment: a full plan written in the story, against a planning session by the worker before Build, measured against each other.
 
 ## Current state
 
-M1 is paused since 2026-10-24. The code is first pruned toward the rewritten ADRs, following a plan the maintainer and Claude make together after this rewrite.
+M1 is paused since 2026-10-24. The code is first pruned toward the rewritten ADRs, following a plan the maintainer and Claude make together.
+
+How dipo is built during the prune (maintainer, 2026-10-24):
+
+1. **Track 1, the run path,** is built by builder agents from the maintainer's orchestrating Claude session. These are the stories dipo needs to deliver one story the new way: the claim without a worktree, verify in the box, the reviewer box, one feedback path, GitHub auto-merge, one git module. A separate agent reviews each PR, and a scratch-repository run checks each story.
+2. **The cutover gate:** dipo delivers one real story of this repository end to end on the simplified path, and the maintainer confirms it.
+3. **Track 2, everything else,** is built by dipo itself, one story at a time. The orchestrating Claude starts the runs, answers worker questions and files every gap a run shows as a story.
+
+In both tracks dipo runs from a pinned binary that is upgraded only after a smoke run of the new build, every story names what it removes, and an ADR is rewritten in the same PR as the change it decides.
 
 ## Rationale
 

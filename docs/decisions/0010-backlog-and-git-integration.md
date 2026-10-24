@@ -33,7 +33,8 @@ Each edit runs the CLI in a fresh folder of dipo's own. The folder holds only th
 **The planning lane.** Changes that belong to no story PR go on an engine branch `dipo/backlog-<UTC time>`: office init, park and resume of a story that has no run, drop, accepted proposals, and later the M3 rituals.
 
 - **Journaled.** Each operation is a target-state entry in the database journal: `pending`, `committed`, `pushed`, `merged`, or `dropped`. It is applied through the CLI in the `_backlog` worktree and committed as `backlog: <op> <ID>`.
-- **One PR per office.** dipo pushes the branch and opens or updates one backlog-only PR. Later operations append to it until it merges.
+- **One PR per office.** dipo pushes the branch and opens or updates one backlog-only PR. Later operations append to it until it merges, so many stories can change in one bulk PR.
+- **Fast.** A backlog-only PR runs the light CI path (0016), so it merges in minutes. It blocks nothing but its own stories.
 - **A structural check by code,** with no model, stands in for the reviewer (0002). The PR passes only when:
   - it changes only `backlog/` paths;
   - every changed task parses;
@@ -45,6 +46,15 @@ Each edit runs the CLI in a fresh folder of dipo's own. The folder holds only th
 - **Rebuild, never force.** When the base moves under the open branch and the changes conflict, dipo resets `_backlog` to the base and applies the unmerged operations again. An operation that no longer applies is dropped with a notice. A rebuilt branch gets a new name and its old PR is closed.
 
 **Pickup reads the base.** `work.run` reads stories from `_base`, a detached worktree moved to `origin/<base>` after every fetch, and picks only stories that are `Ready` there.
+
+## 2a. The StoryStore seam
+
+The engine reads and writes stories only through one interface, `StoryStore`:
+
+- **reads:** list the stories of a base or a branch, and read one story with its fields;
+- **writes:** set the status, tick criteria, write the park reason and notes, write the final summary, add a resolved unknown, and file a draft.
+
+The Backlog.md implementation is this ADR: the CLI, the task-file commits of the story lane and the backlog PRs of the planning lane. Every other part of the engine only knows the interface. Another tracker, such as Jira, would be another implementation of it; that is Later (0003), and it would also change where story facts live (0001).
 
 ## 3. Stories in the task file
 

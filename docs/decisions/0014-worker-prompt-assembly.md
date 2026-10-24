@@ -20,6 +20,7 @@ A worker gets a short prompt that code builds from structured data. It does not 
 - **Templates.** Templates are logic-free Markdown with named slots. Code decides whether a section appears, fills it, applies budgets and orders it.
 - **Ownership.** L1 and the section templates are engine code; an office cannot override them, because they carry the boundary between code and AI. An office tunes roles, budgets and the context provider.
 - **Golden files.** The rendered L1+L2 and a sample L4 per kind are golden files in tests.
+- **The contract is one short page.** It says what to deliver (code and tests that meet the criteria and the test plan) and how to talk to dipo (a part, done, a question, blocked, a proposal). It explains nothing of dipo's setup: where the setup would surprise a worker, the setup is fixed instead of explained.
 - **Fixed headings.** Sections have fixed headings in XML-like tags (`<outcome>`, `<criteria>`), so the contract can name them.
 
 ## 2. What a prompt receives
@@ -71,7 +72,7 @@ These never appear as instructions:
 - the model, effort and tools per tier and role;
 - context selection and usage capture.
 
-L1 holds one sentence for the boundary: dipo handles git, the backlog, the PR and the review, and the worker reports instead. The box has no git, no `backlog` and no `gh`. The worker runs the office's verify itself before it reports done (0008).
+L1 holds one sentence for the boundary: dipo handles git, the backlog, the PR and the review, and the worker reports instead. The box has no `backlog` and no `gh`, and its git repository is the box's own (0008). The worker may run tests and the verify while it works; dipo runs the verify at done (0002).
 
 ## 4. Sizes, budgets and the handoff
 
