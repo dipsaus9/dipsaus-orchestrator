@@ -11,6 +11,7 @@ export * from "./envelope";
 export * from "./errors";
 export * from "./fieldblock";
 export * from "./ids";
+export * from "./limits";
 export * from "./office";
 export * from "./profile";
 export * from "./repository";

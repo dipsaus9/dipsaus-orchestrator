@@ -54,6 +54,7 @@ import {
 } from "./software";
 import { FieldBlock } from "./fieldblock";
 import { DeskItem, officeCommands, officeEvents, officeReads, OfficeSnapshot } from "./office";
+import { limitsCommands, limitsReads } from "./limits";
 import { profileCommands, profileReads, ProfileView } from "./profile";
 import { CONTRACT_VERSION, ContractVersion } from "./version";
 import {
@@ -83,11 +84,13 @@ export const contractCommands: readonly CommandDefinition[] = [
   ...softwareCommands,
   ...officeCommands,
   ...profileCommands,
+  ...limitsCommands,
 ];
 export const contractReads: readonly ReadDefinition[] = [
   ...softwareReads,
   ...officeReads,
   ...profileReads,
+  ...limitsReads,
 ];
 export const contractEvents: readonly EventDefinition[] = [...softwareEvents, ...officeEvents];
 

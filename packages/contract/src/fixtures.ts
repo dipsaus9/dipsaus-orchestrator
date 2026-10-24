@@ -175,6 +175,17 @@ export const officeSnapshot = {
 };
 
 const officeCommandFixtures: Record<string, { args: unknown; result: unknown }> = {
+  "limits.allow": {
+    args: { until: "2026-10-27T09:00:00.000Z", note: "Finish M1b this week." },
+    result: {
+      allowance: {
+        by: "cli",
+        at: "2026-10-24T10:00:00.000Z",
+        until: "2026-10-27T09:00:00.000Z",
+        note: "Finish M1b this week.",
+      },
+    },
+  },
   "office.infer": { args: {}, result: { infer: "started", capabilities: ["verify", "dev"] } },
   "office.confirm": {
     args: { action: "set", capability: "verify", commands: [["bun", "run", "check"]], cwd: "." },
@@ -248,6 +259,26 @@ const officeCommandFixtures: Record<string, { args: unknown; result: unknown }> 
 };
 
 const officeReadFixtures: Record<string, { args: unknown; result: unknown }> = {
+  "office.limits": {
+    args: { office: ids.office },
+    result: {
+      holds: [
+        {
+          scope: "weekly",
+          until: "2026-10-27T09:00:00.000Z",
+          utilization: 0.8,
+          rejected: false,
+          allowed: true,
+        },
+      ],
+      allowance: {
+        by: "cli",
+        at: "2026-10-24T10:00:00.000Z",
+        until: "2026-10-27T09:00:00.000Z",
+        note: "Finish M1b this week.",
+      },
+    },
+  },
   "office.snapshot": { args: { office: ids.office }, result: officeSnapshot },
   "office.switch": { args: { office: ids.office }, result: officeSnapshot },
   "story.detail": {

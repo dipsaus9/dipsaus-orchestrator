@@ -87,6 +87,8 @@ export const SOFTWARE_ERROR_CODES = [
 // candidate it does not have), `scan.notConfirmed` (`keep` of a capability with no confirmation) and
 // `scan.invalidCommand` (a working directory outside the repository), and `scan.staleProposal`
 // (accept of a proposal made before the repository's run inputs changed).
+// Since minor 1 (DIPO-338), not retryable, from `limits.allow`: `limits.noWarning` (no plan-limit
+// warning that an allowance lifts is in force, so there is nothing to allow and no reset to cap it).
 export const OFFICE_ERROR_CODES = [
   "config.invalid",
   "backlog.unreadable",
@@ -110,6 +112,7 @@ export const OFFICE_ERROR_CODES = [
   "scan.notConfirmed",
   "scan.invalidCommand",
   "scan.staleProposal",
+  "limits.noWarning",
 ] as const;
 
 export type GenericErrorCode = (typeof GENERIC_ERROR_CODES)[number];

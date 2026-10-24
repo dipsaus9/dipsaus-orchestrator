@@ -81,4 +81,7 @@ export type ContractVersion = z.infer<typeof ContractVersion>;
 // `scan.notConflict`, `scan.noCandidate`, `scan.notConfirmed`, `scan.invalidCommand` and
 // `scan.staleProposal` in the same,
 // still unreleased, minor.
+// DIPO-338 ships the command `limits.allow` and the read `office.limits` (the plan-limit holds and the
+// maintainer's allowance), the capability flag `limits`, the desk kind `ALLOWANCE` and the office
+// code `limits.noWarning` in the same, still unreleased, minor.
 export const CONTRACT_VERSION = Object.freeze({ major: 1, minor: 1 }) satisfies ContractVersion;

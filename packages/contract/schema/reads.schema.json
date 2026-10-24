@@ -3755,7 +3755,8 @@
                   "NOTICE",
                   "PROPOSAL",
                   "HELD",
-                  "PROFILE"
+                  "PROFILE",
+                  "ALLOWANCE"
                 ]
               },
               {
@@ -4114,6 +4115,72 @@
         }
       },
       "required": ["office", "scanned", "nothingToStart", "inferring", "capabilities", "deviations"]
+    },
+    "office.limits.args": {
+      "type": "object",
+      "properties": {
+        "office": {
+          "type": "string",
+          "pattern": "^off_[0-7][0-9A-HJKMNP-TV-Z]{25}$"
+        }
+      },
+      "required": ["office"]
+    },
+    "office.limits.result": {
+      "type": "object",
+      "properties": {
+        "holds": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "scope": {
+                "type": "string"
+              },
+              "until": {
+                "type": "string",
+                "format": "date-time",
+                "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d(?:\\.\\d+)?(?:Z))$"
+              },
+              "utilization": {
+                "type": "number",
+                "minimum": 0,
+                "maximum": 1
+              },
+              "rejected": {
+                "type": "boolean"
+              },
+              "allowed": {
+                "type": "boolean"
+              }
+            },
+            "required": ["scope", "until", "rejected", "allowed"]
+          }
+        },
+        "allowance": {
+          "type": "object",
+          "properties": {
+            "by": {
+              "type": "string"
+            },
+            "at": {
+              "type": "string",
+              "format": "date-time",
+              "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d(?:\\.\\d+)?(?:Z))$"
+            },
+            "until": {
+              "type": "string",
+              "format": "date-time",
+              "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d(?:\\.\\d+)?(?:Z))$"
+            },
+            "note": {
+              "type": "string"
+            }
+          },
+          "required": ["by", "at", "until", "note"]
+        }
+      },
+      "required": ["holds"]
     }
   }
 }
