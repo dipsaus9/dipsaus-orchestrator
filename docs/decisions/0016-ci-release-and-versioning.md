@@ -31,7 +31,7 @@ It runs on `pull_request` and on `push` to `main`, with `concurrency` per ref.
 
 Runner labels are explicit, never `-latest`.
 
-**Backlog-only PRs take the light path.** When `changes` finds that a PR changes only `backlog/`, the verify, smoke, shellcheck, actionlint and dependency-review jobs skip by design, and only `ready-gate` and `pr-title` run. `ci-ok` stays the one required check and passes on that path. Setting stories Ready, in bulk if needed, then takes minutes and changes no code.
+**Backlog-only PRs take the light path.** When `changes` finds that a PR changes only `backlog/`, the `verify`, `verify-macos`, smoke, shellcheck, actionlint and dependency-review jobs skip by design, and only `ready-gate` and `pr-title` run. `ci-ok` stays required and passes on that path. Setting stories Ready, in bulk if needed, then takes minutes and changes no code.
 
 **The PR title check** (`.github/workflows/pr-title.yml`, job `pr-title`) runs `scripts/check-pr-title.ts` on `opened`, `edited`, `synchronize` and `reopened`. It is the second required check. Accepted titles:
 

@@ -139,7 +139,7 @@ An office runs at most one developer session per story, at most one developer se
 - A per-round review allowance that grew the story's budget, so reviewer tokens counted against the story (2026-10-16). Replaced by the reviewer's own caps (2026-10-24).
 - A reviewer with a read-only Bash sandbox in the story worktree (2026-10-16), then a reviewer on the Mac fenced by its tool list, permission rules and a web-gate hook (2026-10-21). Replaced by a read-only reviewer box (2026-10-24).
 - Verify run by dipo inside an `srt` sandbox (2026-10-10), then CI as the only verify while the box had no git (2026-10-22), with dipo reading the worker's tool calls to see whether it ran verify. Replaced by dipo running verify in the box, which has a local git repository, with CI as the final gate (2026-10-24).
-- A conflict merge left in progress in a Mac worktree (2026-10-16). Replaced by a merge committed with markers and copied into the box (2026-10-22), since the box has no git.
+- A conflict merge left in progress in a Mac worktree (2026-10-16). Replaced by a merge committed with markers and copied into the box (2026-10-22), since dipo never runs git in a folder a worker can write.
 - A building-time sync for tier L and flagged stories. Removed (2026-10-24); a merge without a conflict is not needed.
-- `storyPr.open` to switch story PRs off (2026-10-19). Removed (2026-10-24): CI on the PR is the verify, so every story needs its PR.
+- `storyPr.open` to switch story PRs off (2026-10-19). Removed (2026-10-24): every story needs its PR, because CI on the PR is the final gate.
 - A PR closed on GitHub parked as `stopped` with cause `pr-closed`. Replaced by `by-maintainer` with a detail (2026-10-24).

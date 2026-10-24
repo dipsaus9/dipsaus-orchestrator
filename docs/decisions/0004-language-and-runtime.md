@@ -47,12 +47,12 @@ These are lint rules in `.oxlintrc.json` and `tools/lint/`, proven by `test/lint
 - `engine` never imports `daemon`, `client`, `tui` or `cli`, and finds no file of theirs by path.
 - Inside `engine` and `daemon`, only `engine/src/platform/**` touches `bun`, `bun:*` (except `bun:test`) or the global `Bun`.
 - Inside `engine`, only `workers/claude-cli/**` imports the Claude adapter.
-- `daemon` imports only `createEngine` and types from `engine` (0005).
+- `daemon` imports from `engine` only `createEngine`, types and the engine's platform entry (0005).
 - `client`'s main entry uses no Bun or Node API.
 - No runtime import cycles (`import/no-cycle`, type-only cycles allowed).
 - Function size caps: at most 100 lines, complexity 20 and 5 parameters per function.
 
-Four of these rules are not in place yet (2026-10-24): `contract` importing nothing but zod, `engine` never importing the other packages, the ban on deep imports by relative path, and `daemon` importing only `createEngine`. The prune plan adds them.
+Four of these rules are not in place yet (2026-10-24): `contract` importing nothing but zod, `engine` never importing the other packages, the ban on deep imports by relative path, and `daemon` importing only `createEngine`, types and the platform entry. The prune plan adds them.
 
 ## Tooling
 

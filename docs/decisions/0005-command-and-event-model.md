@@ -108,7 +108,8 @@ There is one daemon process per user. Inside it each office is its own engine in
 
 **The daemon and the engine.** The engine is the brain: a library that decides everything (what runs, gates, parks, reviews, merges) and knows nothing of sockets or processes, so it is tested without starting anything. The daemon is the body: the process that holds the lock, serves the socket, keeps time, starts worker hosts and runs the engine instances.
 
-- **One factory.** The daemon reaches the engine only through `createEngine`, which takes the platform pieces (database, spawn, clock, host) and returns the engine's commands, reads, event stream and scheduled jobs. The daemon imports nothing else from the engine but types (0004).
+- **One factory.** The daemon reaches the engine through `createEngine`, which takes the daemon's options (state and runtime directories, log, settings) and builds its own platform pieces from them: database, spawn, clock, host. It returns the engine's commands, reads, event stream and scheduled jobs. Tests pass fakes for the platform pieces instead.
+- **The daemon's own process pieces** (the socket server, the lock, signals, the start time probe) come from the engine's one platform entry, so only the platform module touches Bun (0004).
 - **Growth goes into the engine.** New orchestration (schedules, overnight batches, parallel runs, rituals, the conversation layer) is an engine module. The daemon only runs what the engine schedules and carries what it emits.
 
 ### 13. Directories

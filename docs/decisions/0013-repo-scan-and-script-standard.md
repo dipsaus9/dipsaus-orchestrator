@@ -17,7 +17,7 @@ The standard is a set of root `package.json` scripts, run with the detected pack
 | `test` | Required | The fast suite. Runs once, never in watch mode, with no prompts, and works with `CI=1` |
 | `lint` | Recommended | Static checks. Never rewrites files |
 | `typecheck` | Recommended | Type checking without output files |
-| `verify` | Recommended | The full gate a worker passes before it reports done: typically `lint`, `typecheck` and `test`, stopping at the first failure |
+| `verify` | Recommended | The full gate dipo runs in the box when the worker reports done (0002): typically `lint`, `typecheck` and `test`, stopping at the first failure |
 | `build` | Optional | A production build. Never part of a composed verify |
 | `format` | Optional | A formatting check only; `format:fix` writes |
 
@@ -96,6 +96,6 @@ The profile also gives dipo the default box image for the office (0008): the too
 ## Replaced
 
 - `PORT` required for `dev`, and fixed dev ports rated partial, so parallel worktrees would not clash (2026-10-10). Removed (2026-10-24): each box and test box has its own network (0008), so a fixed port no longer collides. The scan still records the port, for the test box's forwarder.
-- Install, `setup` and verify run by dipo in a Mac worktree, and the base profile's verify run next to a branch's changed verify (2026-10-10). Replaced by install and `setup` in the box, the worker's own verify, and CI as the gate (0008, 0002).
+- Install, `setup` and verify run by dipo in a Mac worktree, and the base profile's verify run next to a branch's changed verify (2026-10-10). Replaced by install and `setup` in the box, dipo's verify in the box, and CI as the final gate (0008, 0002).
 - An inference that ran by itself when a capability was unresolved (2026-10-10). Replaced by `dipo office infer` only (2026-10-22).
 - The survey of the maintainer's repositories and the fit table of 2026-10-09. They are in git history; the scan reports each repository's level itself.

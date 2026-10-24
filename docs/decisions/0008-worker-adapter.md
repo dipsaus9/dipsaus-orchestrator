@@ -176,7 +176,7 @@ An adapter implements section 1. An Agent SDK adapter would share `interpret`, b
 
 - Claude Code's Bash sandbox with permission rules, deny lists, a `PermissionRequest` relay, allow-once answers, a Bash `PreToolUse` hook with `gh` and temp guards, Keychain denies, a launch self-test and the project-settings allowlist (2026-10-10 to 2026-10-20). Replaced by the box (2026-10-21), because only Bash was sandboxed and the rest ran on the Mac.
 - `srt` around engine install and verify steps, and later around Safe-Chain (2026-10-12). Replaced by the box (2026-10-22), and Safe-Chain in a box (2026-10-24).
-- Verify run by dipo in the box at done (2026-10-21). Replaced by CI as the verify (2026-10-22), because the box has no git and many test suites need it.
+- Verify run by dipo in the box at done (2026-10-21), replaced by CI as the only verify (2026-10-22) because the box had no git and many test suites need it. Reinstated (2026-10-24) once the box got its own local git repository, with CI as the final gate (0002).
 - `bypassPermissions` ruled out as "no guard at all" (2026-10-10). Inside a box it is the documented pattern, and the box is the guard (2026-10-21).
 - A pricing catalog with versioned rates and a drift check against the CLI (2026-10-10). Replaced by the CLI's reported cost (2026-10-24).
 - Native `--resume` chosen by a cost check, and transcript tailing for usage after a crash (2026-10-10, 2026-10-18). Replaced by a new session with a handoff in the kept box, and the usage the stream showed (2026-10-24).

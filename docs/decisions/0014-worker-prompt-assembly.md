@@ -134,7 +134,7 @@ Maintainer text is always wrapped in a template and never starts a message, so i
 - Native `--resume`, chosen when context use was under 60% and a re-read cost at most three times a handoff (2026-10-10). Replaced by a handoff in the kept box for every later session (0008, 2026-10-22).
 - Nudges through `PostToolUse` and `SessionStart` hooks: out-of-scope writes, a stale context pack, input changes, 80% of budget (2026-10-10). Removed (2026-10-24): the developer has no hooks, and the budget line plus L1's wrap-up rule cover the budget.
 - The scope contract "you may write only these paths", the no-git and no-`cd` rules, scope requests and lockfile pairing (2026-10-10, 2026-10-16). Replaced by references as a forecast and parts (0008, 2026-10-21).
-- Verify and commit by dipo at In Review, inside `srt` (2026-10-10). Replaced by the worker's own verify and CI (0002).
+- Verify and commit by dipo at In Review, inside `srt` (2026-10-10). Replaced by parts, and by dipo's verify in the box with CI as the final gate (0002).
 - A `base_verify` section with the base commit's known failures, and a run of new tests against the base commit (2026-10-20). Never fed or never built. Removed (2026-10-24); a run against the base is M2 work if it returns.
 - The optional codegraph backend, the comparison of backends, and stale-index detection (2026-10-10). Moved to Later (0003). The comparison stays in `docs/research/2026-10-comparable-tools.md`.
 - Stored context pack records with blob ids, used to rebuild packs after a restart (2026-10-16). Removed (2026-10-24): the default pack is cheap to build again.
