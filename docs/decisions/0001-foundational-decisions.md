@@ -1,66 +1,96 @@
-# 0001 Foundational decisions
+# 0001 Foundation
 
-Status: accepted (grill session, 2026-10-09). Technical stack is deliberately undecided and handled in a later session.
+Status: accepted. First written 2026-10-09. Rewritten 2026-10-24 to describe the simplified design; it now also holds the office model (former 0011) and the build-our-own rule (former 0015). The research behind the rewrite is in `docs/research/2026-10-24-simplification-audit.md`.
 
-## Product shape
+## Product
 
-- **Tool, not skill.** The orchestrator is a program with physical commands.
-- **Ritual commands**, connected to Backlog.md and to interactive Claude interview sessions:
+dipo is a program with commands. It is not a skill that a model rereads and re-executes on every run.
 
-  | Ritual | Command | Code does | Model does |
-  |---|---|---|---|
-  | Plan | `plan` | Creates draft stories (temporary ids; real ids and branch names are assigned at refine, see 0012), collision check | Interviews the user, decomposes the goal |
-  | Refine | `refine <id>` | Checks completeness against the story standard | Finds gaps and unknowns, asks the user |
-  | Estimate | `estimate <id>` | Stores the size | Proposes a size, the user confirms |
-  | Ready gate | `ready <id>` | Hard checks: acceptance criteria, scope, dependencies, no open unknowns | Nothing |
-  | Run | `run` | Selects the batch, spawns workers, parks stuck stories | Implements, verifies, reviews |
-  | Review | `review` | Shows diff and verdict, records the user's decision | Independent reviewer judges |
-  | Retro | `retro` | Aggregates parked reasons, loops, cost | Suggests how to prepare better |
+One person, the maintainer, runs their software products with it the way a small office would. The maintainer plans, decides and tests. dipo's code does everything it can know or do. Agents, which are AI workers created from roles, do the work that needs judgment or content.
 
-- **v1 scope:** `plan`, `refine`, `ready`, `run`, `review`. `estimate` and `retro` follow.
-- **Lifecycle:** `Draft -> Refined -> Ready -> In Progress -> In Review -> Done`, plus `Parked` as a side state.
-- **The engine refuses to run a story that is not Ready.**
-- **No sprints.** Continuous flow from the Ready queue.
-- **`run` includes review.** Phases are composable and can be skipped or added by configuration.
-- **Estimation** sizes overnight batches and sets per-story budget caps. It is not velocity tracking.
+## The office
 
-## Architecture constraints
+- **One office per project.** A project is a git repository with a Backlog.md backlog. Its stories, agents, planning and state belong to that office. Offices do not know about each other.
+- **The software above the offices** keeps only the list of known offices. The maintainer opens a repository as an office, sees each office's status and switches between them.
+- **Shared limits are the one exception.** All offices draw from the same subscription, so spend alerts and plan-limit waits look across offices. Nothing else crosses.
 
-- **Engine is headless and separate from the UI.** The engine exposes commands in and events out. Clients use only that interface.
-- **Daemon from the start.** The engine runs detached so workers survive closing the UI. Overnight runs are a core use case. The daemon holds a keep-awake assertion while work is active.
-- **TUI first.** A local web UI or desktop app can follow as additional clients of the same engine.
-- **Worker adapter interface.** The engine defines a small `Worker` contract (start with prompt and workdir, stream events, accept steering, return result). The first adapter wraps the **Claude Code CLI as a subprocess**, using the user's Max subscription login. An SDK or API-key adapter is a possible later swap and is an open question, because subscription OAuth use outside Claude Code is restricted by Anthropic's terms.
-- **Shared plan limits.** Overnight runs draw from the same subscription limits as daytime use, so budget caps are required, not optional.
+## Principles
 
-## Unattended behavior
+Every other ADR follows these. A design that breaks one is wrong, or this ADR changes first.
 
-- A worker that needs a human **parks** its story and the run continues. The story keeps its branch and worktree.
-- Park reasons are structured: `ambiguous-spec`, `verify-failing`, `conflict`, `scope-violation`, `review-blocked`, `budget-exceeded`, plus `on-hold` when the maintainer puts a Refined or Ready story aside by hand (0012).
-- Stories depending on a parked story stay blocked. Independent stories continue.
-- Hard caps per story: loop count, review rounds, token or time budget.
-- The morning view is a triage list of parked stories with reason, last good commit, and actions (answer and resume, amend the story, drop).
+1. **Code drives, AI fills the gaps.** If dipo already knows an answer from the backlog, git, GitHub or its own state, it does not ask a model. Anything deterministic is code, never prose for a model to follow.
+2. **Prepare, don't repair.** A story runs only after it passes the Ready gate (0012).
+3. **The engine is headless.** Clients send commands and read events. The engine never changes its behaviour based on which client is connected.
+4. **Park, don't guess.** A story that cannot go on parks with a reason, and the rest continues. Parked is the only waiting state.
+5. **Effort follows difficulty.** A story's tier sets its model and its caps. A cap is never raised without a maintainer command.
+6. **Model-agnostic at the edge.** Claude is reached only through the worker adapter (0008). Claude names stay out of the engine and the contract.
+7. **One source per fact.** Every fact has one owner (see Data ownership). A second copy is a cache and never overrules the owner.
+8. **One mechanism per goal.** When a gap needs a fix, the fix replaces the mechanism that failed instead of adding one beside it (0003).
+9. **Built to last.** Each milestone is production quality for its scope (0003).
+
+## Lifecycle
+
+A story moves `Draft → Refined → Ready → In Progress → In Review → Done`. `Parked` is the one side state. A story leaves it through `dipo resume`, or by itself after a plan limit lifts (0020). `Removed` holds dropped stories. The state names and their rules are in 0012.
+
+There are no sprints. Work flows from the Ready queue.
+
+## Unattended work and parking
+
+Work can run without the maintainer, overnight included.
+
+- A story that needs a human parks with one of eight reasons:
+  - `ambiguous-spec`: the worker asked a question, or reported it is blocked, and needs the maintainer's answer.
+  - `verify-failing`: the verify or the required checks stay red at their cap.
+  - `conflict`: a conflict the worker could not resolve within its cap.
+  - `scope-violation`: a delivered part touched a protected file or held a secret.
+  - `review-blocked`: the reviewer blocked it at the round cap.
+  - `budget-exceeded`: a cap was crossed.
+  - `by-maintainer`: the maintainer parked it with `dipo park`.
+  - `worker-failed`: the worker, its box or its host failed, or was lost while the daemon was down.
+- A parked story keeps its branch and its box. Stories that depend on it stay blocked; independent stories continue.
+- Every story has hard caps: tokens, turns, minutes, loops, review rounds, CI attempts and conflict attempts, fixed at run start (0020).
+- The desk lists everything that waits on the maintainer: parked stories with their reason and actions, open questions, and gates waiting for a decision (0020).
 
 ## Data ownership
 
-- **Backlog.md / Backlog CLI is the source of truth for stories:** title, outcome, acceptance criteria, dependencies, scope, status, estimate, open unknowns.
-- **Git is the history engine for code and for the durable story record.**
-- **A local database holds orchestration state:** runs, worker events and output, loop counts, cost, reviewer verdicts in full, parked reasons, gate decisions, process and daemon state. It is per project, local and gitignored. It is the state of the orchestration and the insights of the user's machine.
-- On close or park, the engine writes a short structured summary back onto the task so git carries the durable highlights.
-- On daemon start the engine reconciles database, Backlog.md and git branches. Git and Backlog.md win on story facts, the database wins on run detail. Mismatches surface as a visible warning, never a silent fix.
-- Losing the database loses detailed history, never the project.
+| Owner | Facts |
+|---|---|
+| Backlog.md, through the Backlog CLI | Story facts: title, outcome, criteria, dependencies, references, tier, test plan, status and park reason. dipo writes status and park reason itself, through the CLI, never by editing the file |
+| Git and GitHub | Code, branches, pull requests, CI results and merges |
+| dipo's local database (0007) | Run detail only: runs, worker output, usage and cost, reviewer verdicts, gate decisions and claims. One database for all offices, keyed by office, never inside a repository |
 
-## Way of working for this repo
+Losing the database loses history, never the project. At daemon start dipo reconciles its database against Backlog.md and git. On a mismatch, Backlog.md and git win, dipo corrects its own copy and shows a notice.
 
-- Backlog.md for stories from day one, plus project rules in `CLAUDE.md`.
-- The existing `dipsaus-ai` backlog skills are inspiration only and are not a dependency.
-- The first commits go directly to `main`. Once a proper initial backlog exists, work moves to `<ID>/<slug>` branches with parallel delivery.
-- Cutover to self-hosting happens when `run` can deliver one story end to end.
+## Architecture constraints
 
-## Amendments
+- **A daemon from the start.** The engine runs detached, so work survives closing a client, and it keeps the Mac awake while work runs (0005).
+- **macOS on Apple silicon** is the platform (0004).
+- **Every worker runs in a box,** one per story (0008).
+- **The TUI is the first client** (0009). Later clients use the same commands and events.
+- **The worker adapter** starts a worker with a prompt, streams its events, accepts steering and returns a result. The first adapter wraps the Claude Code CLI on the maintainer's subscription login (0008).
+- **Commands are the only way to act on the engine.** A later conversation layer (M5) maps the maintainer's words to commands and asks for confirmation. It can never do what no command can.
 
-- 2026-10-10, decision 0012 (story standard): `plan` creates Backlog.md drafts with temporary ids; real ids and branch names are assigned at `refine`. New park reason `on-hold` for stories the maintainer puts aside by hand. Lifecycle state names are defined in 0012.
-- 2026-10-10, decision 0005: park reasons `stopped` (maintainer ended a worker) and `interrupted` (worker lost while the daemon was down).
-- 2026-10-10, decision 0008 (maintainer): park reasons `needs-permission` (worker cannot finish without a denied action) and `worker-failed` (worker crashed again after one resume, or failed its init checks: `apiKeySource`, model).
-- 2026-10-10, decision 0007 (maintainer): "local database per project" becomes local work state per project, kept in one central local database keyed by office; never in the repository and never the only copy of a story fact.
-- 2026-10-16, DIPO-131 (maintainer): the review-round hard cap counts failed rounds only: a round whose verdict is blocked counts, an approved round does not; the cap is 3 by default (`review.maxRounds`).
-- 2026-10-21, DIPO-263 (maintainer, decision 0021): the `scope-violation` park reason covers protected files only, and the Ready gate's scope check becomes a check of the planner's forecast, since References are a forecast, not a write fence (0021 sections 8 and 13).
+## Roles
+
+An agent is created from a role: purpose, instructions, allowed tools, default model and effort. A role is a versioned file in the office's repository, and hiring adds it to the office's roster. Code chooses the role per story without asking a model. Every role works the same way: all work is a story, and all output lives in the repository on a branch, is reviewed against the story's criteria and is merged. Until M4 there is one built-in developer role and the reviewer (0003).
+
+## Build our own
+
+Comparable tools (`docs/research/2026-10-comparable-tools.md`) are a source of ideas only.
+
+- dipo copies no code, naming or command syntax from them, and has no runtime dependency on them.
+- An adopted idea is restated in dipo's own terms and must fit the principles above.
+- If code is ever reused, its licence and attribution are honoured in that change.
+
+## Way of working on this repository
+
+- Stories live in Backlog.md, and project rules in `CLAUDE.md`.
+- Work happens on `<ID>/<slug>` branches and merges by PR. A separate agent reviews every PR (0002).
+- dipo has delivered its own stories since the cutover (DIPO-115).
+
+## Replaced
+
+- One database per project. Replaced by one central database keyed by office (2026-10-10), because a single daemon serves all offices.
+- References as a write fence on what a worker may change. Replaced by references as a forecast plus protected files (2026-10-21), because the box makes the fence unenforceable and unneeded.
+- Eleven park reasons, including `stopped`, `on-hold`, `interrupted` and `needs-permission`. Replaced by the eight above (2026-10-24): `by-maintainer` covers stop and hold, `worker-failed` covers interrupted, and a box worker never needs a permission.
+- A first command list (`plan`, `refine`, `estimate`, `ready`, `run`, `review`, `retro`). The rituals now live in the milestones (0003).
