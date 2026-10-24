@@ -36,6 +36,7 @@ import { gateCommand } from "./gate-command";
 import type { DaemonLogsDeps } from "./logs-command";
 import { OFFICE_SUBCOMMANDS } from "./office-commands";
 import { PROFILE_SUBCOMMANDS } from "./profile-commands";
+import { limitsCommand } from "./limits-command";
 import { proposeCommand } from "./propose-command";
 import { runCommand } from "./run-command";
 import { stopCommand } from "./stop-command";
@@ -208,6 +209,16 @@ Usage:
                     dipo desk: accept files it as a Backlog draft through the
                     backlog PR, the worker's words marked as theirs; dismiss
                     closes it and files nothing
+  dipo limits [--office <id>] [--json]
+                    list the plan-limit holds on new sessions (scope, warning
+                    or rejected, how much of the plan is used, when it ends)
+                    and the office's allowance
+  dipo limits allow --until <time> --note <why> [--office <id>]
+                    let the office's new sessions go on past the plan's warnings
+                    until <time>, at most the reset they name; a rejected limit
+                    and the five-hour window still hold
+  dipo limits allow --clear [--office <id>]
+                    end the allowance now
   dipo watch [<id>] [--office <id>]
                     follow the office, or one story, in plain text until Ctrl-C:
                     each running story's phase, health, loop, verify, criteria
@@ -459,6 +470,10 @@ export async function main(argv: readonly string[], deps: CliDeps): Promise<numb
   if (args[0] === "desk") {
     const { version } = versionInfo(deps.stamp, deps.runtime);
     return deskCommand(args.slice(1), { ...deps, version });
+  }
+  if (args[0] === "limits") {
+    const { version } = versionInfo(deps.stamp, deps.runtime);
+    return limitsCommand(args.slice(1), { ...deps, version });
   }
   if (args[0] === "propose") {
     const { version } = versionInfo(deps.stamp, deps.runtime);
