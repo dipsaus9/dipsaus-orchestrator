@@ -12,8 +12,16 @@ import { resolveIntent, runIntents } from "./intents";
 import { PARK_CAUSES } from "./park";
 import { capsStartedAt, type StoredRun } from "./records";
 
-/** The cap the run's stored caps and usage have reached now, or null. */
-export function reachedCaps(office: OfficeHandle, run: StoredRun, now: number): FiredCap | null {
+/**
+ * The cap the run's stored caps and usage have reached now, or null. `waitingMs` is the time the
+ * run has waited for its place so far, which is not counted (DIPO-338).
+ */
+export function reachedCaps(
+  office: OfficeHandle,
+  run: StoredRun,
+  now: number,
+  waitingMs = 0,
+): FiredCap | null {
   const host = office.get<{ started_at: number | null }>(
     `select min(started_at) as started_at from worker_hosts
       where office_id = $office_id and run_id = $run`,
@@ -21,7 +29,7 @@ export function reachedCaps(office: OfficeHandle, run: StoredRun, now: number): 
   );
   return firedCap(
     runCaps(office, run),
-    runTotals(office, run.runId, capsStartedAt(run, host?.started_at), now),
+    runTotals(office, run.runId, capsStartedAt(run, host?.started_at) + waitingMs, now),
   );
 }
 

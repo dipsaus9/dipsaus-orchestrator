@@ -37,6 +37,8 @@ import {
   waitForPlace,
   waitingStarts,
 } from "../../src/run";
+import type { CommandContext } from "../../src/commands/registry";
+import { allowLimits } from "../../src/run/plan-allowance";
 import type { NextSessionRequest } from "../../src/run/resume";
 import { workView } from "../../src/views/work";
 import { encode } from "../../src/workers/claude-cli/encode";
@@ -434,7 +436,7 @@ function waitingAs(story: string, kind: "fix" | "conflict", turns: number): Stor
   return s;
 }
 
-function world() {
+function world(held?: (adapter: string, model: string | null, office: OfficeId) => string | null) {
   const started: string[] = [];
   const control = new RunControl({
     clock: w.t.clock,
@@ -455,6 +457,7 @@ function world() {
     clock: w.t.clock,
     offices: { get: () => w.office, config: () => OFFICE_DEFAULTS },
     park: (office, run, work, ending) => control.park(office, run, work, ending),
+    ...(held === undefined ? {} : { held }),
     starters: {
       fix: async (_office, run) => {
         started.push(`fix ${run.story}`);
@@ -581,6 +584,67 @@ describe("a plan-limit hold on a running run's adapter (DIPO-150, the DIPO-303 r
       expect(asked).toEqual(["adapter-started"]);
     } finally {
       places.close();
+    }
+  });
+});
+
+const HOUR = 60 * MINUTE;
+const iso = (ms: number) => new Date(ms).toISOString();
+
+function schedule(): PlanLimits {
+  return new PlanLimits({
+    clock: w.t.clock,
+    offices: { get: () => w.office, config: () => OFFICE_DEFAULTS },
+    resume: async () => "notHeld",
+  });
+}
+
+describe("a plan-limit hold wait leaves the minute cap (DIPO-338)", () => {
+  it("a fix round held two hours by a weekly warning starts once allowed, not parked for its 60 minutes", async () => {
+    const limits = schedule();
+    const fix = waitingAs("DIPO-8", "fix", 1);
+    const reset = now() + 3 * HOUR;
+    limits.warned(officeId(), { scope: "weekly", resetsAt: iso(reset), utilization: 0.8 });
+    const x = world((adapter, model, office) => limits.held(adapter, model, office));
+    try {
+      // The warning holds the worker place: the fix round waits, `limited`.
+      expect(await x.places.drain(officeId())).toBe(0);
+      expect(workView(w.office, fix.run)?.health).toBe("limited");
+      w.t.clock.advance(2 * HOUR);
+      expect(await x.places.drain(officeId())).toBe(0);
+      // The maintainer allows runs past the warning: the next drain starts the session, and the
+      // two hours of waiting do not count toward the run's 60-minute cap.
+      const ctx = { office: w.office, now: now(), origin: "cli" } as unknown as CommandContext;
+      write(() => allowLimits(ctx, { until: iso(reset), note: "finish M1b" }, limits));
+      expect(await x.places.drain(officeId())).toBe(1);
+      expect(x.started).toEqual(["fix DIPO-8"]);
+      expect(parksOf()).toEqual([]);
+      expect(findRun(w.office, fix.run)?.parkedMs).toBe(2 * HOUR);
+    } finally {
+      x.close();
+      limits.close();
+    }
+  });
+
+  it("a run that worked past its minutes before it waited still parks at the pre-start check", async () => {
+    const s = storyRun(w, { story: "DIPO-8" });
+    addAgent(w, s.run, "developer", false);
+    w.t.clock.advance(61 * MINUTE);
+    write(() => waitForPlace(w.office, s.run, "fix", now()));
+    w.t.clock.advance(2 * HOUR);
+    const x = world();
+    try {
+      expect(await x.places.drain(officeId())).toBe(0);
+      expect(parksOf()).toEqual([
+        {
+          story_id: "DIPO-8",
+          reason: "budget-exceeded",
+          cause: "build",
+          detail: "time cap reached: 61 of 60 minutes since the worker started",
+        },
+      ]);
+    } finally {
+      x.close();
     }
   });
 });

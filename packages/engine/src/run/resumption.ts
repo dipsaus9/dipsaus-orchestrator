@@ -53,6 +53,7 @@ import { PLACE_NOTICES, type Places, START_KINDS, waitForPlace } from "./places"
 import { capsStartedAt, findRun, type StoredRun } from "./records";
 import { recordBranchPush } from "../story-pr/records";
 import { resumeVia } from "./resume-policy";
+import { activeSignals } from "./signals";
 import { resumeLine } from "./summary";
 import {
   type HeldRunResumer,
@@ -121,6 +122,20 @@ function identity(run: StoredRun): { readonly story: StoryId; readonly key: Stor
     throw new Error(`${run.runId} is not a story run; only a story's park resumes`);
   }
   return { story: StoryId.parse(run.story), key: StoryKey.parse(run.key) };
+}
+
+/** The ms a run held by its own plan-limit wait has waited up to `at`: since its open signal. */
+export function planLimitWaitedMs(office: OfficeHandle, runId: RunId, at: number): number {
+  const signal = activeSignals(office, runId).find((active) => active.signal === "plan-limit");
+  return signal === undefined ? 0 : Math.max(0, at - signal.since);
+}
+
+/** Adds `ms` to the run's `parked_ms`; inside the caller's transaction. */
+function addParkedMs(office: OfficeHandle, runId: RunId, ms: number): void {
+  office.run(
+    "update runs set parked_ms = parked_ms + $ms where office_id = $office_id and run_id = $run",
+    { run: runId, ms },
+  );
 }
 
 export class Resumption {
@@ -223,12 +238,22 @@ export class Resumption {
         if (intentTag(intent.detail) !== INTENT_TAGS.planLimit) continue;
         this.#s.resolve(office, runId, intent, "plan-limit", at);
       }
-      const started = await this.#sessions.next(office, run, view, {
-        mode: "resume",
-        why,
-        message: PLAN_LIMIT_CONTINUE,
-        clear: ["plan-limit"],
-      });
+      // The wait for the reset is not work (DIPO-338): it moves the caps' start later, and goes to
+      // `parked_ms` in the transaction that records the new session and clears the signal, so a
+      // session that does not start adds nothing.
+      const waited = planLimitWaitedMs(office, runId, at);
+      const started = await this.#sessions.next(
+        office,
+        run,
+        { ...view, startedAt: view.startedAt + waited },
+        {
+          mode: "resume",
+          why,
+          message: PLAN_LIMIT_CONTINUE,
+          clear: ["plan-limit"],
+          ...(waited === 0 ? {} : { inRecord: () => addParkedMs(office, runId, waited) }),
+        },
+      );
       return started ? "started" : "failed";
     });
   }
