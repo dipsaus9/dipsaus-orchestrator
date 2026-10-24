@@ -1,10 +1,10 @@
 ---
 id: DIPO-225
 title: Bring local bun test back under 60 seconds
-status: To Do
+status: Done
 assignee: []
 created_date: '2026-10-19 23:02'
-updated_date: '2026-10-23 10:34'
+updated_date: '2026-10-24 09:33'
 labels:
   - 'tier:M'
   - cutover
@@ -28,11 +28,54 @@ dependencies:
   - DIPO-303
   - DIPO-152
 references:
-  - packages/engine/test/
-  - packages/daemon/test/
-  - packages/client/test/
-  - test/
+  - '- packages/engine/test/'
   - package.json
+  - packages/client/test/
+  - packages/daemon/test/
+  - packages/daemon/test/integration/database-unavailable.ci.test.ts
+  - packages/daemon/test/integration/foreground.ci.test.ts
+  - packages/daemon/test/integration/foreground.test.ts
+  - packages/daemon/test/unit/runtime-isolation.test.ts
+  - packages/engine/test/backlog/clean-folder.ci.test.ts
+  - packages/engine/test/backlog/clean-folder.test.ts
+  - packages/engine/test/box/collisions.ci.test.ts
+  - packages/engine/test/box/collisions.test.ts
+  - packages/engine/test/box/parts.test.ts
+  - packages/engine/test/commands/helpers.ts
+  - packages/engine/test/gate/index-notify.ci.test.ts
+  - packages/engine/test/gate/index-notify.test.ts
+  - packages/engine/test/merge-slot/release-path.test.ts
+  - packages/engine/test/merge-slot/story-slot.git.ci.test.ts
+  - packages/engine/test/merge-slot/story-slot.git.test.ts
+  - packages/engine/test/merge-slot/story-slot.test.ts
+  - packages/engine/test/platform/mktemp-shim.test.ts
+  - packages/engine/test/reconcile/done-elsewhere.ci.test.ts
+  - packages/engine/test/reconcile/done-elsewhere.test.ts
+  - packages/engine/test/reconcile/done-on-base.ci.test.ts
+  - packages/engine/test/reconcile/done-on-base.test.ts
+  - packages/engine/test/run/conflict-resume.ci.test.ts
+  - packages/engine/test/run/conflict-resume.test.ts
+  - packages/engine/test/run/conflicts.ci.test.ts
+  - packages/engine/test/run/conflicts.test.ts
+  - packages/engine/test/run/park-commit.ci.test.ts
+  - packages/engine/test/run/park-commit.test.ts
+  - packages/engine/test/run/parts-commit.ci.test.ts
+  - packages/engine/test/run/parts-commit.test.ts
+  - packages/engine/test/run/summary.test.ts
+  - packages/engine/test/stories/index-cli.ci.test.ts
+  - packages/engine/test/stories/index.test.ts
+  - packages/engine/test/worktree/discard.ci.test.ts
+  - packages/engine/test/worktree/discard.test.ts
+  - packages/engine/test/worktree/lagging-worktree.ci.test.ts
+  - packages/engine/test/worktree/lagging-worktree.test.ts
+  - packages/engine/test/worktree/teardown.test.ts
+  - packages/testkit/src/git.test.ts
+  - packages/testkit/src/git.ts
+  - packages/testkit/src/test-env.test.ts
+  - packages/testkit/src/test-env.ts
+  - scripts/test.ci.test.ts
+  - scripts/test.test.ts
+  - test/
 priority: medium
 type: chore
 ordinal: 225000
@@ -64,7 +107,15 @@ test_plan:
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 The worker measures local bun test before and after its change with `bun test --timings=<file under DIPO_TMP> --update-timings`, and its evidence holds the 15 slowest files with their durations and the sum of all durations for both runs
-- [ ] #2 After the change the sum of the per-file durations of local bun test, measured that way, is under 60,000 ms, and bun run verify passes
-- [ ] #3 Every test the local run no longer runs is in a *.ci.test.ts file that registers its describe only when DIPO_TEST_CI is 1 (0017 section 1), with its test name and assertions unchanged
+- [x] #1 The worker measures local bun test before and after its change with `bun test --timings=<file under DIPO_TMP> --update-timings`, and its evidence holds the 15 slowest files with their durations and the sum of all durations for both runs
+- [x] #2 Every test the local run no longer runs is in a *.ci.test.ts file that registers its describe only when DIPO_TEST_CI is 1 (0017 section 1), with its test name and assertions unchanged
+- [x] #3 After the change the sum of the per-file durations of local bun test, measured that way, is under 100,000 ms (amended 2026-10-23 by the maintainer from 60,000 ms; the rest is DIPO-337), and bun run verify passes
 <!-- AC:END -->
+
+## Implementation Notes
+
+<!-- SECTION:NOTES:BEGIN -->
+2026-10-23 (maintainer): measured in the maintainer session on the merged branch: 90.6 s wall, sum of per-file durations 94,520 ms (was 384,838 ms). Criterion 2 amended to under 100 s; reaching 60 s is DIPO-337 (M2).
+
+Done 2026-10-23 (maintainer session): built outside dipo, reviewed by a separate agent (criteria met under the amended criterion 2). Local bun test from 384,838 ms to 94,520 ms (sum of per-file durations; 91 s wall). Also in this PR: DIPO-275 closed, DIPO-116 moved to M2, DIPO-337 filed for the rest to 60 s.
+<!-- SECTION:NOTES:END -->
