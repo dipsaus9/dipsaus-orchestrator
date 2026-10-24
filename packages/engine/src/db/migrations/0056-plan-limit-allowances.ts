@@ -1,4 +1,4 @@
-// Migration 55 (DIPO-338): the maintainer's plan-limit allowance (0008 section 7), and what the
+// Migration 56 (DIPO-338): the maintainer's plan-limit allowance (0008 section 7), and what the
 // office limits read shows of a warning hold.
 //
 // - `plan_limit_allowances`: at most one row per office. While `until_at` (engine clock) is ahead,
@@ -16,7 +16,7 @@
 import type { SqlMigration } from "../migrations";
 
 export const planLimitAllowances: SqlMigration = {
-  version: 55,
+  version: 56,
   name: "plan limit allowances",
   sql: `
 create table plan_limit_allowances (

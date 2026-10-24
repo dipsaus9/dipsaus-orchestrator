@@ -541,6 +541,33 @@ describe("OfficeStore", () => {
     client.emit(stream, output(8, 17, "more\n"));
     expect(chunks).toHaveLength(2);
   });
+
+  it("passes each stored event of the selected office to office listeners once, after applying it (DIPO-308)", async () => {
+    const { client, store } = await setup();
+    const stream = `office:${A}`;
+    const seen: { type: string; seq: number; stories: number }[] = [];
+    const stop = store.onOfficeEvent((received) =>
+      seen.push({
+        type: received.type,
+        seq: received.cursor.seq,
+        stories: store.state.stories.length,
+      }),
+    );
+    const parked = story(KEY2, "DIPO-2", "Parked");
+    const state = event(stream, 6, "story.state", {
+      story: "DIPO-2",
+      key: KEY2,
+      from: "Ready",
+      to: "Parked",
+      view: parked,
+    });
+    client.emit(stream, state);
+    client.emit(stream, state);
+    expect(seen).toEqual([{ type: "story.state", seq: 6, stories: 2 }]);
+    stop();
+    client.emit(stream, event(stream, 7, "question.closed", { question: "q" }));
+    expect(seen).toHaveLength(1);
+  });
 });
 
 describe("OfficeStore database line (DIPO-120)", () => {

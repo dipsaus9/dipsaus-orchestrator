@@ -3,10 +3,10 @@ id: DIPO-308
 title: >-
   Triage the desk in the TUI: desk view, row actions, answers and review
   verdicts
-status: Ready
+status: Done
 assignee: []
 created_date: '2026-10-22 20:55'
-updated_date: '2026-10-23 10:44'
+updated_date: '2026-10-24 14:55'
 labels:
   - 'tier:L'
   - 'slice:m1b'
@@ -82,13 +82,29 @@ test_plan:
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 Key `3` opens Your desk: a count line, then the rows of `office.desk` in the read's order, each with its kind, story, reason and cause, detail and age, and "Held by you" listed apart; an empty desk says `Nothing waits on you.`; below 80 columns each row is one line (0009 section 9)
-- [ ] #2 The desk view reads `office.desk` again after any office event that can change the desk (`story.parked`, a story leaving Parked, `gate.reached`, `gate.decided`, `question.asked`, a question closing, `test.started`, `test.recorded`, `proposal.filed`, `proposal.closed`, `story.pr`, `work.phase`) and after a stream reset, at most once a second, and keeps the selection by story key
-- [ ] #3 Row keys come from one fixed table from command name to key: every action `office.desk` can list, bound as 0009 section 5 shows, `y` accept and `n` dismiss on a PROPOSAL row, and in the same table `s` steer and `p` pause in the live agent detail and `h` hold and `d` drop in the queue; a key is offered only when the row's `actions` lists the command and the engine's capability flags allow it, and an action the table does not bind shows its `cli` line in the footer
-- [ ] #4 Text prompts take `Enter` to send and `Esc` to cancel and keep the draft while offline: answer, hold note, reject note, discard note, steer text, and the resume note where the park needs one; reject asks yes or no first; a resume with a budget shows the caps before and after and asks yes or no (`confirmWhen`)
-- [ ] #5 Discard, and drop with branch deletion, show the `story.losses` list and then ask for the typed story id (`irreversibleWhen`, 0009 open question 4); every other action is one key or yes or no
-- [ ] #6 `a` answers an open worker question from its desk row, from the live agent detail and from an overview row whose run asks, and `A` or `n` allow or deny a permission row; a prompt whose question or gate closed in the meantime closes with the engine's message
-- [ ] #7 Enter on a desk row opens the story detail with the park record (reason, cause, detail) and every review verdict: round, commit, verdict, per-criterion results and findings with their evidence labels, any maintainer override and the comment URL; Esc returns to the desk with the same row selected
-- [ ] #8 The engine stores per office in its database when the last TUI client of that office disconnected; `office.digest` takes `since` as optional and defaults to that time; the overview shows one "since you left" line from `office.digest` under the count line
-- [ ] #9 An action counts as done only when the office stream passes its reply cursor; errors show in the footer, and a retryable one offers Ctrl-R with the same request id (0009 section 5)
+- [x] #1 Key `3` opens Your desk: a count line, then the rows of `office.desk` in the read's order, each with its kind, story, reason and cause, detail and age, and "Held by you" listed apart; an empty desk says `Nothing waits on you.`; below 80 columns each row is one line (0009 section 9)
+- [x] #2 The desk view reads `office.desk` again after any office event that can change the desk (`story.parked`, a story leaving Parked, `gate.reached`, `gate.decided`, `question.asked`, a question closing, `test.started`, `test.recorded`, `proposal.filed`, `proposal.closed`, `story.pr`, `work.phase`) and after a stream reset, at most once a second, and keeps the selection by story key
+- [x] #3 Row keys come from one fixed table from command name to key: every action `office.desk` can list, bound as 0009 section 5 shows, `y` accept and `n` dismiss on a PROPOSAL row, and in the same table `s` steer and `p` pause in the live agent detail and `h` hold and `d` drop in the queue; a key is offered only when the row's `actions` lists the command and the engine's capability flags allow it, and an action the table does not bind shows its `cli` line in the footer
+- [x] #4 Text prompts take `Enter` to send and `Esc` to cancel and keep the draft while offline: answer, hold note, reject note, discard note, steer text, and the resume note where the park needs one; reject asks yes or no first; a resume with a budget shows the caps before and after and asks yes or no (`confirmWhen`)
+- [x] #5 Discard, and drop with branch deletion, show the `story.losses` list and then ask for the typed story id (`irreversibleWhen`, 0009 open question 4); every other action is one key or yes or no
+- [x] #6 `a` answers an open worker question from its desk row, from the live agent detail and from an overview row whose run asks, and `A` or `n` allow or deny a permission row; a prompt whose question or gate closed in the meantime closes with the engine's message
+- [x] #7 Enter on a desk row opens the story detail with the park record (reason, cause, detail) and every review verdict: round, commit, verdict, per-criterion results and findings with their evidence labels, any maintainer override and the comment URL; Esc returns to the desk with the same row selected
+- [x] #8 The engine stores per office in its database when the last TUI client of that office disconnected; `office.digest` takes `since` as optional and defaults to that time; the overview shows one "since you left" line from `office.digest` under the count line
+- [x] #9 An action counts as done only when the office stream passes its reply cursor; errors show in the footer, and a retryable one offers Ctrl-R with the same request id (0009 section 5)
 <!-- AC:END -->
+
+## Implementation Notes
+
+<!-- SECTION:NOTES:BEGIN -->
+Parked 2026-10-23 16:21 UTC: budget-exceeded (build)
+- Detail: time cap reached: 180 of 180 minutes since the worker started
+- Run: run_01M5MDFNQ99QDPAH2SMASVZT2F
+- Criteria met: 9 of 9 (as the worker reported them)
+- Loops: 0 of 8; CI attempts: 1 of 2
+- Review rounds: 1, failed 0 of 3
+- Budget used: 628,241 of 2,200,000 tokens; 189 of 300 turns; 181 of 180 minutes
+- Last good commit: dc2ad468e4cf00d9c537dce3765e9c62adeeebc3
+- Uncommitted files: not counted (a box run: undelivered work stays in the box)
+
+Done 2026-10-24 (maintainer session, by the maintainer's choice to force M1 through): dipo's reviewer approved round 1 at dc2ad468; CI was red only on macOS runner timeouts that main fixed in DIPO-335, and the fix round then parked on its time cap after waiting for the plan-limit hold (gap G7, DIPO-338). The maintainer session merged main into the branch, renumbered this story's migration to 0055, put actions.ts, desk.tsx and story-card.tsx on the DIPO-127 exception lists (the maintainer will refactor them), and merged the PR by hand.
+<!-- SECTION:NOTES:END -->

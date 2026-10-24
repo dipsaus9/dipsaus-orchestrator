@@ -79,7 +79,9 @@ export type ContractVersion = z.infer<typeof ContractVersion>;
 // run profile's fallback and confirmation, 0013 section 6), the `ScanTrigger` values `infer` and
 // `confirm` and the office codes `scan.noProfile`, `scan.noProposal`, `scan.resolvedByCode`,
 // `scan.notConflict`, `scan.noCandidate`, `scan.notConfirmed`, `scan.invalidCommand` and
-// `scan.staleProposal` in the same,
+// `scan.staleProposal` in the same, still unreleased, minor.
+// DIPO-308 ships the read `office.digest`, with `since` made optional (the engine then counts from
+// when the office's last TUI client disconnected), and so its capability flag `digest`, in the same,
 // still unreleased, minor.
 // DIPO-338 ships the command `limits.allow` and the read `office.limits` (the plan-limit holds and the
 // maintainer's allowance), the capability flag `limits`, the desk kind `ALLOWANCE` and the office

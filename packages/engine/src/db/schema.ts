@@ -55,7 +55,8 @@ import { streamDriftPushHolds } from "./migrations/0051-stream-drift-push-holds"
 import { storyPrReplaces } from "./migrations/0052-story-pr-replaces";
 import { mergeGateHandMerge } from "./migrations/0053-merge-gate-hand-merge";
 import { scanConfirmations } from "./migrations/0054-scan-confirmations";
-import { planLimitAllowances } from "./migrations/0055-plan-limit-allowances";
+import { tuiLeft } from "./migrations/0055-tui-left";
+import { planLimitAllowances } from "./migrations/0056-plan-limit-allowances";
 
 /**
  * Software-wide tables (0007 section 3). Every other table is office-scoped and has `office_id`
@@ -146,5 +147,6 @@ create table offices (
   storyPrReplaces,
   mergeGateHandMerge,
   scanConfirmations,
+  tuiLeft,
   planLimitAllowances,
 ];

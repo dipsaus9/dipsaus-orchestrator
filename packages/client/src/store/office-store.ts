@@ -198,6 +198,7 @@ export class OfficeStore {
   readonly #clientInfo: { readonly name: string; readonly version: string };
   readonly #listeners = new Set<() => void>();
   readonly #outputListeners = new Set<(chunk: OutputChunk) => void>();
+  readonly #officeListeners = new Set<(event: Event) => void>();
   #state: OfficeStoreState;
 
   #software: Subscription | null = null;
@@ -274,6 +275,16 @@ export class OfficeStore {
   }
 
   /**
+   * Calls `listener` with every stored event of the selected office stream, once per cursor, after
+   * the store applied it; returns a function that stops it. A view that reads what no event carries
+   * (the desk, DIPO-308) reads it again on the events that can change it.
+   */
+  onOfficeEvent(listener: (event: Event) => void): () => void {
+    this.#officeListeners.add(listener);
+    return () => this.#officeListeners.delete(listener);
+  }
+
+  /**
    * Takes the offices and daemon state from the client's `engine.hello` and subscribes to the
    * software stream after its cursor. Call once, after the client connected.
    */
@@ -317,6 +328,7 @@ export class OfficeStore {
     this.#ended = null;
     this.#listeners.clear();
     this.#outputListeners.clear();
+    this.#officeListeners.clear();
   }
 
   /**
@@ -334,6 +346,9 @@ export class OfficeStore {
     else if (this.#state.office !== null && stream === `office:${this.#state.office}`) {
       this.#applyOffice(event);
       if (!derived) this.#update({ cursor: event.cursor });
+      if (!derived && !this.#closed) {
+        for (const listener of this.#officeListeners) listener(event);
+      }
     }
   }
 

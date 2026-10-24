@@ -642,17 +642,20 @@ export const officeUsage = defineRead({
   provisional: true,
 });
 
-// Code-built "since you left" counts and lines (0009 section 8) [`digest`].
+// Code-built "since you left" counts and lines (0009 section 8) [`digest`]. Since minor 1
+// (DIPO-308): `since` is optional; without it the engine counts from when the office's last TUI
+// client disconnected, which it stores per office, or from the time of the read when no TUI has
+// left it yet. The result's `since` is the time it counted from.
 export const officeDigest = defineRead({
   name: "office.digest",
-  args: z.object({ office: OfficeId, since: Timestamp }),
+  args: z.object({ office: OfficeId, since: Timestamp.optional() }),
   result: z.object({
     since: Timestamp,
     counts: z.record(z.string(), Count), // for example done, parked
     lines: z.array(z.string()),
     evidence: EvidenceMap.optional(),
   }),
-  provisional: true,
+  since: 1,
 });
 
 // Size of one office-scoped table for one office (0007 "Size"): its row count and the approximate

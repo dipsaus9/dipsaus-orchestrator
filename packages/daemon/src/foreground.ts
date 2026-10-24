@@ -88,6 +88,7 @@ import {
   Retention,
   runtimeCandidates,
   selfCommand,
+  recordTuiLeft,
   serveUnixSocket,
   SOCKET_FILE,
   SlotTable,
@@ -1157,6 +1158,11 @@ async function serve(run: Run, lock: HeldLock): Promise<number> {
       officeSummary: officeSummaryOfSource(() => held.database, settingsOf),
       engineVersion: io.version,
       logger: logger.child({ component: "server" }),
+      // "Since you left" counts from when the office's last TUI client disconnected (DIPO-308).
+      tuiLeft: (office, at) => {
+        const handle = offices.get(office);
+        if (handle !== undefined) recordTuiLeft(handle, at);
+      },
     });
     server = contract;
     // The last TUI closing ends every live question at once, so its story parks with it (0021
