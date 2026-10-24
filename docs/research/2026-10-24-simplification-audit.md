@@ -1,6 +1,6 @@
 # Simplification audit
 
-Date: 2026-10-24, from `main` at `c2ee7a2d`. Status: working document for the maintainer and Claude. Nothing here is decided. Sources: `docs/vision.md`, all ADRs (0001 to 0021), `docs/research/2026-10-20-dipo-run-gaps.md`, and a read of `packages/*/src`. Line counts leave out tests unless a line says otherwise.
+Date: 2026-10-24, from `main` at `c2ee7a2d`. Status: decided. The answers are in section 8, the accepted proposals in section 9 and the choices derived while rewriting the ADRs in section 10. Sources: `docs/vision.md`, all ADRs (0001 to 0021), `docs/research/2026-10-20-dipo-run-gaps.md`, and a read of `packages/*/src`. Line counts leave out tests unless a line says otherwise.
 
 ## 1. The numbers
 
@@ -137,7 +137,7 @@ Asked one at a time; answers are recorded here.
    - **Now, during development:** the orchestrating Claude session answers questions through `dipo answer`. Presence is not built now. A question with nobody online parks, and the orchestrating Claude answers and resumes it.
 7. Infrastructure ahead of need (section 5): which pieces stay?
    **Answer (2026-10-24): all four groups are cut to their minimal form.**
-   - **Cost:** dipo stores the cost the Claude CLI reports per session, and the budgets and spend alerts run on that. The pricing catalogs, rate tables and drift check go.
+   - **Cost:** dipo stores the cost the Claude CLI reports per session. The pricing catalogs, rate tables and drift check go. (Clarified by Claude while rewriting: budgets and spend alerts keep counting tokens, as before; the reported cost is shown next to them.)
    - **Data care:** one retention rule plus the pre-migration backup. The retention tiers, daily backups, restore and purge go.
    - **Clients:** Unix socket only, one contract version per binary, idempotency only for commands that start or change a run, and a plain replay from the cursor. The browser listener security, the capability flags, the 24-hour idempotency table with crash injection, and the epoch and replay floor go.
    - **Daemon:** a plain PID lock, reconcile at start, then re-attach or park each live host. Safe mode, crash markers, the stale-break protocol and the follow-only host rules go.
@@ -215,10 +215,10 @@ The decisions above, plus Claude's proposals for the smaller points, marked (P).
 
 ## 10. Decisions made during the ADR rewrite
 
-- 2026-10-24, plan limit: a session running when the plan limit hits parks `worker-failed` ("plan limit until <time>"). When the office's starts paused lifts, dipo resumes exactly those parks by itself. It is the one resume that needs no command, because no cap grows and nothing is decided (0020 section 6).
-- 2026-10-24, required checks (Claude, follows from GitHub auto-merge; the maintainer may veto): the required checks are only what GitHub's branch protection or ruleset requires. The office list `mergeSlot.requiredChecks` goes, because auto-merge waits for GitHub's list only (0002 section 4).
+- 2026-10-24, plan limit: a session running when the plan limit hits parks `worker-failed` ("plan limit until <time>"). When the office's starts paused lifts, dipo resumes exactly those parks by itself. It is the one resume that needs no command, because no cap grows and nothing is decided (0020).
+- 2026-10-24, required checks (Claude, follows from GitHub auto-merge; the maintainer may veto): the required checks are only what GitHub's branch protection or ruleset requires. The office list `mergeSlot.requiredChecks` goes, because auto-merge waits for GitHub's list only (0002).
 - 2026-10-24, from the 0008 rewrite (Claude; each follows from "the box is the boundary", and the maintainer may veto any of them):
-  - `scope-violation` stays not resumable, as the maintainer decided on 2026-10-23: a part with a protected file or a secret means the box is no longer trusted, so the way on is discard (0008 section 5, 0020 table).
+  - `scope-violation` stays not resumable, as the maintainer decided on 2026-10-23: a part with a protected file or a secret means the box is no longer trusted, so the way on is discard (0008, 0020).
   - The developer gets no project-settings check: settings inside the box are harmless. The reviewer and the scan session load no settings from the repository copy.
   - The reviewer's web gate decides in its own process from a values file, so `dipo hook` no longer relays to the worker host socket.
   - Transcript tailing for usage after a crash goes; the usage the stream showed counts.
@@ -236,6 +236,7 @@ The decisions above, plus Claude's proposals for the smaller points, marked (P).
   - Backlog PRs also merge with `gh pr merge --auto` after the structural check.
   - Draft promotion, `amend` and the component map leave the ADR until their milestones (M3, M2).
 - 2026-10-24, from the 0013 rewrite (Claude; the maintainer may veto): `PORT` is no longer required for `dev`, and a fixed dev port is no longer rated partial. Every box has its own network, so ports do not collide. The scan still records the port for the test box.
+- 2026-10-24, from the review of PR #398 (Claude): a run ends `done`, `parked` or `dropped` (proposal 2), now stated in 0020.
 - 2026-10-24, from the 0014 rewrite (Claude; the maintainer may veto any of these):
   - The measurement harness (four arms, 96 runs) was never built. It leaves the ADR and gets a story when wanted.
   - Context pack records go, because the pack is rebuilt every time.
@@ -244,7 +245,7 @@ The decisions above, plus Claude's proposals for the smaller points, marked (P).
   - Health becomes five states (`lost`, `looping`, `stuck`, `quiet`, `busy`).
   - The phase `verify` and the `held` column go.
   - The digest's "since you left" time is kept by the TUI and passed as `since`, instead of the engine storing the last TUI disconnect. That follows principle 3: no engine behaviour depends on which clients are connected.
-- 2026-10-24, from the 0017 rewrite (Claude; the maintainer may veto): the config reset is **version 14**, with one migration from versions 1 to 13. Retired keys are dropped with a warning. Office sections become `tiers`, `review`, `caps`, `merge`, `box`, `scan`, `story`, `prompt`, `base`, `scripts`, `timeouts` and `polling`. After version 14 a new key with a default needs no bump.
+- 2026-10-24, from the 0017 rewrite (Claude; the maintainer may veto): the config reset is **version 14**, with one migration from versions 1 to 13. Retired keys are dropped with a warning. Office sections become `tiers`, `review`, `caps`, `merge`, `box`, `scan`, `story`, `prompt`, `base`, `worktree` (its root only), `scripts`, `timeouts` and `polling`. After version 14 a new key with a default needs no bump.
 
 ## 11. ADR rewrite progress
 
@@ -265,4 +266,4 @@ The decisions above, plus Claude's proposals for the smaller points, marked (P).
 | 0009 TUI | Rewritten 2026-10-24 |
 | 0016 CI and release | Rewritten 2026-10-24 |
 | 0017 Testing and configuration | Rewritten 2026-10-24 |
-| vision.md refresh | To do |
+| vision.md, concepts.md, CLAUDE.md | Updated 2026-10-24 |

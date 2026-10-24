@@ -40,7 +40,7 @@ Each edit runs the CLI in a fresh folder of dipo's own. The folder holds only th
   - each status change is an allowed 0012 transition;
   - each new `Ready` matches a passing gate decision for that task's content;
   - it touches no story with a live claim.
-- **Merged by GitHub.** When the check passes, dipo runs `gh pr merge --auto --squash`, as for story PRs (0002). When the maintainer merges by hand, the check runs again afterwards, and a failure stops the affected stories with a notice.
+- **Merged by GitHub.** When the check passes, dipo runs `gh pr merge --auto --squash`, as for story PRs (0002). When the maintainer merges by hand, the check runs again afterwards, and on a failure `work.run` skips the affected stories, with a notice, until a new backlog PR fixes them.
 - **A pending operation wins over pickup.** `work.run` skips any story with an unmerged journaled operation. A park on a Ready story takes effect the moment it is journaled.
 - **Rebuild, never force.** When the base moves under the open branch and the changes conflict, dipo resets `_backlog` to the base and applies the unmerged operations again. An operation that no longer applies is dropped with a notice. A rebuilt branch gets a new name and its old PR is closed.
 
@@ -95,7 +95,7 @@ dipo records the previous values. Existing ignore files are never edited.
 | Conflict check | `git merge-tree --write-tree origin/<base> <branch>`. Exit 0 is clean, exit 1 with a tree and conflict lines is a conflict, and anything else is an error, not a conflict |
 | Base sync | Only on a conflict, as a merge from objects committed with its markers (0002). Never a rebase |
 | Push | Never forced, never to the base. A rejected push parks the story `conflict` |
-| Merge and Done | GitHub merges with `--squash` (0002). Done comes from the PR state, or from `merge-tree` showing the branch adds nothing to the base. It never comes from ancestry |
+| Merge and Done | GitHub merges with `--squash` (0002). Done is the one Done check of 0002: the PR merged, or the story reads `Done` on the base while dipo holds its claim. It never comes from ancestry. `merge-tree` showing that a branch adds nothing to the base only decides whether the branch may be deleted (0020) |
 | Teardown | After Done, drop or discard: delete the local branch, delete the remote branch with a lease on the tip dipo pushed, and delete the box. A ref dipo did not create is never deleted |
 
 **When something fails:**

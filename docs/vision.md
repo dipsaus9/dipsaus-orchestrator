@@ -41,7 +41,7 @@ dipsaus-orchestrator differs on purpose:
 - **Unattended by design.** Stuck work parks and waits in a triage list; the rest continues.
 - **Roles live in the repository.** Hired, versioned, reviewed like code.
 
-We take ideas from these tools but do not copy them, and do not depend on them ([decision 0015](decisions/0015-build-own-inspired-not-dependent.md)). The research is also the reference for a future GUI and for context and token optimizations.
+We take ideas from these tools but do not copy them, and do not depend on them ([decision 0001](decisions/0001-foundational-decisions.md)). The research is also the reference for a future GUI and for context and token optimizations.
 
 ## Core principle: code drives, AI fills the gaps
 
@@ -50,7 +50,7 @@ This is the central design rule. The orchestrator is a **code-driven project**. 
 | Situation | Code knows and does | AI does |
 |---|---|---|
 | Maintainer plans a new story or milestone | Knows the backlog format and its rules, creates the item through the Backlog CLI, assigns the id, branch name, dependencies and milestone, runs validation and collision checks | Drafts the content: outcome, acceptance criteria, unknowns, test script. Interviews the maintainer. The maintainer and the AI write this together |
-| Maintainer tells the orchestrator to pick up work | Selects ready, non-colliding stories, creates branches and worktrees, spawns workers with the right prompt, enforces caps and gates, tracks state | The workers implement, self-review and are reviewed by a separate reviewer |
+| Maintainer tells the orchestrator to pick up work | Selects ready, non-colliding stories, creates branches and boxes, spawns workers with the right prompt, enforces caps and gates, tracks state | The workers implement, self-review and are reviewed by a separate reviewer |
 | A job needs an agent | Chooses the role, model and token budget from the job's size and difficulty, within configured limits | The agent does the work for its role |
 | A worker is stuck | Detects it, parks the story with a structured reason, continues other work, reports it in the overview | Explains the blocker and proposes options when asked |
 | Status question: "what is going on?" | Answers from state, with no model call | Optionally summarizes |
@@ -95,7 +95,7 @@ Each job's size and difficulty decide how much may be spent on it and which mode
 The maintainer drives planning. Execution can run unattended, including overnight. When a worker needs a human it parks its story with a structured reason (`ambiguous-spec`, `verify-failing`, `conflict`, `scope-violation`, `review-blocked`, `budget-exceeded`, `by-maintainer`, `worker-failed`) and the rest continues. Parked is the only waiting state. The morning view is the desk: one list of everything that waits on the maintainer (0020).
 
 ### 7. Review and testing
-A reviewer agent checks every PR against the story goal. The maintainer reviews by **testing behavior**, only for stories they choose to flag, and not by reading code except by exception. The product makes testing cheap by showing what to test and providing a runnable checkout.
+A reviewer agent checks every PR against the story goal. The maintainer reviews by **testing behavior**, only for stories they choose to flag, and not by reading code except by exception. The product makes testing cheap by showing what to test and running the story in a test box.
 
 How to run a product:
 

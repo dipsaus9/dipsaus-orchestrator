@@ -16,7 +16,7 @@ bun run verify   # oxfmt --check, oxlint --deny-warnings, tsc -b, bun test; stop
 
 `bun run format:fix` rewrites formatting. Tests that only run in CI are named `*.ci.test.ts` and register only when `DIPO_TEST_CI=1`; local `bun test` stays under about 60 seconds. Tests write temp files and sockets only under `DIPO_TMP` (fallback `/tmp`) (0017).
 
-CI (0016): `.github/workflows/ci.yml` (jobs `verify` (Linux) and `verify-macos` (macOS, DIPO-316), both with `DIPO_TEST_CI=1`, `shellcheck`, `actionlint`, `dependency-review`, `smoke (*)` on four targets through `.github/actions/smoke`, aggregate `ci-ok`) and `.github/workflows/pr-title.yml` (job `pr-title`, runs `scripts/check-pr-title.ts`).
+CI (0016): `.github/workflows/ci.yml` (jobs `verify` (Linux) and `verify-macos` (macOS, DIPO-316), both with `DIPO_TEST_CI=1`, `shellcheck`, `actionlint`, `dependency-review`, `smoke (*)` on four targets (darwin-arm64 only once the prune plan lands, 0016) through `.github/actions/smoke`, aggregate `ci-ok`) and `.github/workflows/pr-title.yml` (job `pr-title`, runs `scripts/check-pr-title.ts`).
 
 Release (0016, `docs/release.md`): `.github/workflows/release.yml` is a dry run on `workflow_dispatch` until `v0.1.0`; release-please reads `release-please-config.json` and `.release-please-manifest.json`; `install.sh` installs a release.
 

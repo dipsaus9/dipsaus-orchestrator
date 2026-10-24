@@ -48,8 +48,8 @@ Work can run without the maintainer, overnight included.
   - `by-maintainer`: the maintainer parked it with `dipo park`.
   - `worker-failed`: the worker, its box or its host failed, or was lost while the daemon was down.
 - A parked story keeps its branch and its box. Stories that depend on it stay blocked; independent stories continue.
-- Every story has hard caps: tokens, turns, time, loops and review rounds (0008, 0002).
-- The desk lists everything that waits on the maintainer: parked stories with their reason and actions, open questions, and gates waiting for a decision (0009).
+- Every story has hard caps: tokens, turns, minutes, loops, review rounds, CI attempts and conflict attempts, fixed at run start (0020).
+- The desk lists everything that waits on the maintainer: parked stories with their reason and actions, open questions, and gates waiting for a decision (0020).
 
 ## Data ownership
 

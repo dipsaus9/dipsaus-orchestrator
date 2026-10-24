@@ -143,7 +143,8 @@ The task message is the first stdin line, never on argv. The box's environment h
 | Report `blocked` with a question or a reason | Parks `ambiguous-spec` (0020) |
 | A cap reached (tokens, turns, minutes, the CLI's turn backstop) | Parks `budget-exceeded`, naming the cap |
 | No valid report, after one correction turn | Parks `worker-failed` |
-| A crash or a lost host | One fresh session with a handoff, then `worker-failed` |
+| A crash while the daemon watches the session | One fresh session with a handoff, then `worker-failed` |
+| A host found dead or not answering at recovery | Parks `worker-failed` (0005) |
 | 10 stream lines that fail their schema, or usage that cannot be read | Parks `worker-failed` ("stream drift"), naming the Claude Code version |
 | `rate_limit_event` `rejected` | Parks `worker-failed` ("plan limit until T"). The office's starts paused holds until T and then resumes it (0020) |
 | Login, billing, start-up or box token failure | The office's starts paused, with a notice. The story stays where it was |
@@ -155,7 +156,7 @@ The task message is the first stdin line, never on argv. The box's environment h
 
 - Per run, agent and model, dipo stores input, output, cache creation and cache read tokens, turns and durations. Live numbers come from assistant messages deduplicated by message id, and the turn's result replaces them.
 - **The budget is tokens:** input plus output plus cache creation. Cache reads are shown but do not count. Each tier has a fixed model, so a tier's tokens always mean the same thing.
-- **Cost is the cost the CLI reports** (`total_cost_usd`, `costUSD`). dipo stores it as reported and keeps no price catalog of its own (0007). Spend alerts and the cost views use it.
+- **Cost is the cost the CLI reports** (`total_cost_usd`, `costUSD`). dipo stores it as reported and keeps no price catalog of its own (0007). The views show it; budgets and spend alerts count tokens (0009).
 
 ## 8. Tiers to caps
 

@@ -6,6 +6,16 @@ Status: accepted. First written 2026-10-17 (spike DIPO-132). Rewritten 2026-10-2
 
 A story that cannot go on is **Parked** with one of the eight reasons in 0001. Parked is the only waiting state. `dipo resume` is the only way back, apart from one resume code does by itself after a plan limit (section 6), and every resume works the same way. The maintainer's other actions on a story are `park`, `drop`, `discard`, `steer` and `answer`. Everything that waits on the maintainer is one ordered list, the desk.
 
+## How a run ends
+
+A run ends in one of three ways, and every other word for an ending is a detail:
+
+- `done`: its story is Done, merged by dipo or by hand, or finished outside dipo (section 7);
+- `parked`, with one of the eight reasons;
+- `dropped`: its story was dropped or discarded (section 5).
+
+A parked run reopens on resume. The run's outcome row keeps what retro needs (0007).
+
 ## 1. Parking
 
 - **What a park writes.** dipo sets the story's status to `Parked` with the reason and a one-line detail, through the Backlog CLI on the story branch, and pushes it. Backlog.md owns this fact (0001). One transaction then ends the run, records the park detail on the run and emits `story.parked`.

@@ -61,7 +61,7 @@ Run detail, grouped by subject. The prune plan maps every table in the code to o
 | Claims | One live claim per story and per branch, enforced by unique indexes, plus released branches |
 | Backlog lane | The journal of planning operations and backlog PRs (0010) |
 | Run profile | Scans, profiles, capabilities, confirmations and proposals (0013) |
-| Prompts | Prompt part sizes and, when stored, prompt texts, worker notes and context packs for the handoff (0014) |
+| Prompts | Prompt part sizes and, when stored, prompt texts, plus worker notes for the handoff (0014) |
 | Config | Snapshots of the effective office configuration, keyed by hash (0017) |
 | Proposals | Worker proposals for the desk (0020) |
 
@@ -85,7 +85,7 @@ Reconcile runs for each office at load, in the daemon's `recovering` state, and 
 | Fact | Owner | On a mismatch |
 |---|---|---|
 | Story fields (title, criteria, tier, references, test plan, flags) | Backlog.md | Update the cache. A change on a running story is shown to the maintainer, and the run continues |
-| Status and park reason | Backlog.md: the story branch while claimed, the base otherwise; `Done` on the base always wins (0020) | Correct the database's park and run records to match. A run whose story left In Progress or In Review is stopped |
+| Status and park reason | Backlog.md: the story branch while claimed, the base otherwise; `Done` on the base always wins (0020) | Correct the database's park and run records to match. A run whose story left In Progress or In Review is ended and its session stopped |
 | Story identity | Backlog.md | An id that vanished is `Removed` (0005) |
 | Branches, SHAs, merges | git and GitHub | Correct the claims. A merged PR is Done (0002) |
 | Run detail | The database | Not compared; Backlog.md and git hold none of it |

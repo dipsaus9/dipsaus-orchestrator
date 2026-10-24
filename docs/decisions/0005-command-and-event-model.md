@@ -84,7 +84,7 @@ Every event about running work carries a `WorkRef` (story, key, run, agent, role
 
 ### 9. Idempotency and target state
 
-- **Commands are target-state.** Pausing what is paused, or parking what is parked, replies `changed: false` and changes nothing.
+- **Commands are target-state.** Parking what is parked, or resuming a story that already runs, replies `changed: false` and changes nothing.
 - **Run commands are stored.** For the commands that start or change a run (`work.run`, `work.resume`, `work.answer`, `work.steer`, `story.park`, `work.discard`, `gate.approve`, `gate.reject`, `test.record`), the request id, a hash of the resolved args and the reply are written in the same transaction as the facts. A retry with the same id after a lost reply gets the same reply. The same id with other args fails with `request.reused`. The records go when their run ends.
 - **The text the maintainer writes** (notes, answers, steers) is a maintainer-authored fact, kept for the audit trail and as worker input.
 
