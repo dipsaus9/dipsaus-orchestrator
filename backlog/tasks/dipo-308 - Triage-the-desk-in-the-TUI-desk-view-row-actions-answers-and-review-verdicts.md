@@ -3,10 +3,10 @@ id: DIPO-308
 title: >-
   Triage the desk in the TUI: desk view, row actions, answers and review
   verdicts
-status: Parked
+status: Done
 assignee: []
 created_date: '2026-10-22 20:55'
-updated_date: '2026-10-23 16:21'
+updated_date: '2026-10-24 14:55'
 labels:
   - 'tier:L'
   - 'slice:m1b'
@@ -77,10 +77,6 @@ test_plan:
       check: "(unit, TUI harness) Enter on a desk row shows the park record and each review verdict with per-criterion results, findings, evidence markers and an override; Esc returns to the same row"
     - kind: "automated"
       check: "(unit) office.digest without since uses the stored time the office's last TUI client disconnected, and the overview shows its line under the count line"
-park:
-  reason: "budget-exceeded"
-  from: "In Review"
-  note: "time cap reached: 180 of 180 minutes since the worker started"
 ```
 <!-- SECTION:DESCRIPTION:END -->
 
@@ -109,4 +105,6 @@ Parked 2026-10-23 16:21 UTC: budget-exceeded (build)
 - Budget used: 628,241 of 2,200,000 tokens; 189 of 300 turns; 181 of 180 minutes
 - Last good commit: dc2ad468e4cf00d9c537dce3765e9c62adeeebc3
 - Uncommitted files: not counted (a box run: undelivered work stays in the box)
+
+Done 2026-10-24 (maintainer session, by the maintainer's choice to force M1 through): dipo's reviewer approved round 1 at dc2ad468; CI was red only on macOS runner timeouts that main fixed in DIPO-335, and the fix round then parked on its time cap after waiting for the plan-limit hold (gap G7, DIPO-338). The maintainer session merged main into the branch, renumbered this story's migration to 0055, put actions.ts, desk.tsx and story-card.tsx on the DIPO-127 exception lists (the maintainer will refactor them), and merged the PR by hand.
 <!-- SECTION:NOTES:END -->
