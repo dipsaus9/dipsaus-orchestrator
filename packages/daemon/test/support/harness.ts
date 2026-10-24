@@ -28,6 +28,7 @@ import {
   officeSummarySource,
   openStateDatabase,
   Renderer,
+  recordTuiLeft,
   serveUnixSocket,
   SoftwareStream,
   stateOfficeDirectory,
@@ -196,6 +197,7 @@ export async function startHarness(dir: string, options: HarnessOptions = {}): P
       : {}),
     engineVersion: TEST_VERSION,
     logger,
+    tuiLeft: (office, at) => recordTuiLeft(state.office(office), at),
     ...(options.heartbeatMs === undefined ? {} : { heartbeatMs: options.heartbeatMs }),
     ...(options.renderer === undefined ? {} : { renderer: options.renderer }),
   });

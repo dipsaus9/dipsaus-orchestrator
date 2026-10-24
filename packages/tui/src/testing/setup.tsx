@@ -10,8 +10,11 @@ import type {
   TimerHandle,
 } from "@dipsaus-orchestrator/contract";
 
+import type { CommandOutcome, LossesOutcome } from "../actions";
 import { App, type RunOutcome, type StopOutcome, type StoryOutcome, type TuiActions } from "../app";
+import type { DeskOutcome } from "../desk";
 import type { PromptOutcome } from "../detail";
+import type { DigestOutcome } from "../digest";
 import type { Display } from "../options";
 import type { RangeOutcome } from "../output";
 import { FakeSession } from "./fake-session";
@@ -128,6 +131,27 @@ export async function mount(options: MountOptions = {}) {
         requestId: request.requestId,
         confirmed: true,
       })) as StopOutcome,
+    sendCommand: async (request) =>
+      (await session.command({ name: request.command } as never, request.args as never, {
+        office: request.office,
+        requestId: request.requestId,
+        confirmed: request.confirmed,
+      })) as CommandOutcome,
+    readLosses: async (request) =>
+      (await session.read(
+        { name: "story.losses" } as never,
+        { office: request.office, story: request.story, command: request.command } as never,
+      )) as LossesOutcome,
+    readDesk: async (opened) =>
+      (await session.read(
+        { name: "office.desk" } as never,
+        { office: opened } as never,
+      )) as DeskOutcome,
+    readDigest: async (opened) =>
+      (await session.read(
+        { name: "office.digest" } as never,
+        { office: opened } as never,
+      )) as DigestOutcome,
     newRequestId: () => {
       requests += 1;
       return `01J9ZK5Q8W3V4X6Y7Z8A9B0R${String(requests).padStart(2, "0")}` as RequestId;

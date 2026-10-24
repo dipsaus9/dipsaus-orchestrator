@@ -54,6 +54,15 @@ export type {
   ResumeNeed,
   ResumeNeeds,
 } from "./desk";
+export {
+  digest,
+  DIGEST_COUNTS,
+  DIGEST_LINES_MAX,
+  recordTuiLeft,
+  registerDigest,
+  tuiLeftAt,
+} from "./digest";
+export type { DigestCount } from "./digest";
 export { openDecisionNotes, openProposals, proposalItems } from "./proposals";
 export type { ProposalItem } from "./proposals";
 export {

@@ -5,7 +5,9 @@
 // lifecycle checks of 0006 decision 7. `subscribe` replays the software ring buffer or an office
 // change log after the client's cursor, marks the end of catch-up, then sends live events, with a
 // `stream.mark` heartbeat on an idle subscription. The engine keeps no per-connection state beyond
-// the subscriptions and the handshake.
+// the subscriptions and the handshake. When the last TUI that follows an office stops following it
+// (it closes, switches office or loses its connection), the server tells `tuiLeft`, which stores
+// the time for `office.digest` (DIPO-308).
 
 import {
   type Clock,
@@ -97,6 +99,11 @@ export interface ContractServerDeps {
   readonly engineVersion: string;
   readonly logger: Logger;
   readonly renderer?: Renderer;
+  /**
+   * Called when the last TUI client of `office` disconnected, at `at` (DIPO-308): its last TUI
+   * subscription to the office stream ended. The daemon stores the time for `office.digest`.
+   */
+  readonly tuiLeft?: (office: OfficeId, at: number) => void;
   readonly heartbeatMs?: number;
   /** Office catch-up pauses while more than this many bytes wait to be written. */
   readonly pumpHighWaterBytes?: number;
@@ -218,6 +225,29 @@ export class ContractServer {
     return [...this.#connections].some((connection) => connection.tui);
   }
 
+  /**
+   * A TUI connection stopped following `offices`: for each one no other TUI follows, the office's
+   * last TUI client has left (DIPO-308).
+   */
+  tuiLeftOffices(offices: readonly OfficeId[]): void {
+    const tuiLeft = this.#deps.tuiLeft;
+    if (tuiLeft === undefined) return;
+    for (const office of new Set(offices)) {
+      const followed = [...this.#connections].some(
+        (connection) => connection.tui && connection.follows(office),
+      );
+      if (followed) continue;
+      try {
+        tuiLeft(office, this.#deps.clock.now());
+      } catch (error) {
+        this.#deps.logger.warn("storing when the last TUI left an office failed", {
+          office,
+          error,
+        });
+      }
+    }
+  }
+
   /** The session for one accepted connection; `serveUnixSocket` calls it. */
   accept(socket: SocketConnection): ConnectionSession {
     const connection = new Connection(this, socket, () => {
@@ -305,6 +335,11 @@ class Connection implements ConnectionSession {
     return this.#tui && !this.#closed;
   }
 
+  /** True while this connection follows the office stream of `office`. */
+  follows(office: OfficeId): boolean {
+    return [...this.#subscriptions.values()].some((subscription) => subscription.office === office);
+  }
+
   message(text: string): void {
     this.#queue = this.#queue.then(
       () => this.#handle(text),
@@ -314,10 +349,18 @@ class Connection implements ConnectionSession {
 
   closed(): void {
     if (this.#closed) return;
+    const followed = this.#tui ? this.#followedOffices() : [];
     this.#closed = true;
     for (const subscription of this.#subscriptions.values()) this.#stopHeartbeat(subscription);
     this.#subscriptions.clear();
     this.#onClosed();
+    if (followed.length > 0) this.#server.tuiLeftOffices(followed);
+  }
+
+  #followedOffices(): OfficeId[] {
+    return [...this.#subscriptions.values()].flatMap((subscription) =>
+      subscription.office === null ? [] : [subscription.office],
+    );
   }
 
   softwareEvent(event: Event): void {
@@ -518,7 +561,8 @@ class Connection implements ConnectionSession {
     const { requestId, stream } = frame;
     const filter = frame.filter ?? [];
     const previous = this.#subscriptions.get(stream);
-    if (previous !== undefined) this.#dropSubscription(previous);
+    // Subscribing again to the same stream does not leave it.
+    if (previous !== undefined) this.#dropSubscription(previous, false);
 
     if (stream === SOFTWARE_STREAM) {
       const software = this.#deps.software;
@@ -648,10 +692,14 @@ class Connection implements ConnectionSession {
     return subscription;
   }
 
-  #dropSubscription(subscription: Subscription): void {
+  /** Ends a subscription; a TUI that `leaves` an office stream may be the office's last (DIPO-308). */
+  #dropSubscription(subscription: Subscription, leaves = true): void {
     this.#stopHeartbeat(subscription);
     if (this.#subscriptions.get(subscription.stream) === subscription) {
       this.#subscriptions.delete(subscription.stream);
+    }
+    if (leaves && this.#tui && !this.#closed && subscription.office !== null) {
+      this.#server.tuiLeftOffices([subscription.office]);
     }
   }
 
