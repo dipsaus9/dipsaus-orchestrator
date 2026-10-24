@@ -1,6 +1,6 @@
 # Vision
 
-> Status: draft for the maintainer's review (revised 2026-10-09 after the maintainer clarified the scope). Statements marked **[assumption]** are the author's interpretation and need confirmation. See also [concepts](concepts.md) and [decision 0011](decisions/0011-office-model.md).
+> Status: accepted direction (revised 2026-10-09 after the maintainer clarified the scope, and 2026-10-24 after the simplification audit, `research/2026-10-24-simplification-audit.md`). How each part is built is decided in `decisions/`, starting with [0001](decisions/0001-foundational-decisions.md). See also [concepts](concepts.md).
 
 ## In one sentence
 
@@ -89,10 +89,10 @@ Each job's size and difficulty decide how much may be spent on it and which mode
 
 - A role can override the tier default, for example a reviewer that always uses a strong model.
 - Running out of budget parks the story with `budget-exceeded`. Budgets are never raised silently.
-- Whether budgets are expressed in tokens, turns or time depends on what the Claude CLI supports (DIPO-5).
+- Budgets are tokens, turns and minutes, all capped per run (0008).
 
 ### 6. Unattended execution and parking
-The maintainer drives planning. Execution can run unattended, including overnight. When a worker needs a human it parks its story with a structured reason (`ambiguous-spec`, `verify-failing`, `conflict`, `scope-violation`, `review-blocked`, `budget-exceeded`) and the rest continues. The morning view is a triage list.
+The maintainer drives planning. Execution can run unattended, including overnight. When a worker needs a human it parks its story with a structured reason (`ambiguous-spec`, `verify-failing`, `conflict`, `scope-violation`, `review-blocked`, `budget-exceeded`, `by-maintainer`, `worker-failed`) and the rest continues. Parked is the only waiting state. The morning view is the desk: one list of everything that waits on the maintainer (0020).
 
 ### 7. Review and testing
 A reviewer agent checks every PR against the story goal. The maintainer reviews by **testing behavior**, only for stories they choose to flag, and not by reading code except by exception. The product makes testing cheap by showing what to test and providing a runnable checkout.
@@ -103,8 +103,8 @@ How to run a product:
 - **The orchestrator learns how to run a product from context.** It scans the repository for install, start and test scripts and stores the result in its local database, not in a configuration file.
 - **Standards first, AI for gaps.** A standard set of script names is defined for the maintainer's projects. A repository that follows it is understood by code alone. AI only infers what a non-standard repository does, and the maintainer confirms.
 - **Rescan on change.** When scripts change, a rescan command refreshes the stored knowledge.
-- **Testing a story is a command.** Code checks out the story branch in its worktree, installs, starts the product, and shows the story's manual test script. The maintainer records pass, or fail with a note. A failure sends the story back, and the note becomes structured input for the next worker.
-- Open for DIPO-7: git worktrees contain only tracked files, so gitignored environment files present in the main checkout are absent in a fresh worktree. Port clashes between parallel worktrees also need a rule.
+- **Testing a story is a command.** `dipo test` runs the story's pushed head in a test box, installs, starts the product, and shows the story's manual test steps. The maintainer records pass, or fail with a note. A failure sends the story back, and the note becomes structured input for the same worker (0002).
+- **Every worker runs in a box,** one per story. Files outside git reach a box only when the office lists them as holding no real secrets, and every box has its own network, so parallel stories never clash on ports (0008).
 
 ### 8. A manager's overview and feedback loop
 The maintainer is a manager who is present along the way, not only at planning time. At any moment the overview answers:
@@ -114,7 +114,7 @@ The maintainer is a manager who is present along the way, not only at planning t
 - **What needs to be done:** the queue by lifecycle state, what is Ready, what is blocked and why, and what is waiting for the maintainer.
 - **Whether it is cost efficient:** usage per story, per role and per tier compared to its budget, and trends over time, so the maintainer can see which kinds of work, roles or preparation are worth it.
 
-The manager helps along the way. While work runs, the maintainer can answer an agent's question, give direction, pause, resume, reassign or stop a story, without waiting for it to park. These are commands like any other, so every client can offer them.
+The manager helps along the way. While work runs, the maintainer can answer an agent's question, steer it, park, resume, discard or drop a story. Live answers while the maintainer is online come later (0020). These are commands like any other, so every client can offer them.
 
 The headless engine runs as a daemon so work survives closing the UI. A TUI is the first client. A local web UI or desktop app can follow. Clients only send commands and read events.
 
@@ -130,20 +130,18 @@ The maintainer visions the whole plan and micromanages it, like a good manager: 
 4. **Park, don't guess.** Stuck unattended work stops and waits for a human.
 5. **Effort follows difficulty.** Model and budget are chosen per job and always capped.
 6. **Model-agnostic at the edge.** Workers sit behind an adapter. Claude through the CLI on the Max login comes first.
-7. **Backlog is the project goal.** Stories live in Backlog.md. Git holds code history. A local database holds orchestration state and machine insights.
+7. **One source per fact.** Stories live in Backlog.md. Git and GitHub hold code, PRs and merges. A local database holds run detail only.
 8. **Built to last.** A long-lived open source project, not a proof of concept.
+9. **One mechanism per goal.** A fix replaces the mechanism that failed instead of adding one beside it. Build at the milestone, not before (0003).
 
 ## Not goals
 
 - No sprints or timeboxes.
 - Not a replacement for Backlog.md. It builds on it.
-- Not a hosted service. It runs on the maintainer's machine **[assumption, local-first]**.
+- Not a hosted service. It runs on the maintainer's Mac (Apple silicon, 0004).
 
 ## Open questions
 
-These are not decided and should be resolved before or during the architecture spikes.
+1. **Role library:** roles are stored per office (decided). Should there also be a personal library of tuned roles to copy into a new office as a starting template? Decided with M4.
 
-1. **Office switching:** how are offices registered (explicit `open`, or discovered on first use), and does one engine process serve all offices or does each office run its own? Part of the daemon spike (DIPO-3).
-2. **Role library:** roles are stored per office (decided). Should there also be a personal library of tuned roles to copy into a new office as a starting template?
-3. **Script standard:** which script names and behaviors form the standard (for example install, setup, dev, test, verify), and how strict is it?
-4. **State scope:** all work state is per office. The software above only needs a small list of known offices. Where that list lives is decided with question 1.
+Answered since the first draft: one daemon serves all offices, and offices are opened explicitly (0005); the script standard (0013); work state in one central database keyed by office (0007).

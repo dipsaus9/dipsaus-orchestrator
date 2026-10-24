@@ -1,41 +1,50 @@
 # 0003 Milestones and quality bar
 
-Status: accepted (grill session, 2026-10-09).
+Status: accepted. First written 2026-10-09. Rewritten 2026-10-24 after the simplification audit (`docs/research/2026-10-24-simplification-audit.md`).
 
 ## Quality bar
 
-This is a long-lived project, not a proof of concept. Fast results are not expected.
+This is a long-lived project, not a proof of concept.
 
-- Architecture is planned and documented as decision records before the code it governs.
-- Each milestone is production-quality for its scope. Narrow scope is acceptable, throwaway code is not.
-- Shortcuts are allowed only when recorded as explicit debt with a reason.
+- Architecture is decided in an ADR before the code it governs.
+- Each milestone is production quality for its scope. A narrow scope is fine; throwaway code is not.
+- A shortcut is allowed only when it is recorded as debt, with a reason.
 - Tests and a verify command exist from the first line of code.
-- Stack, daemon transport, database schema, worker adapter contract and TUI framework are decided in dedicated architecture sessions, each recorded in `docs/decisions/`.
+
+## How the design stays small
+
+The project grew to about 137k source lines in 15 days, with up to 40 amendments per ADR. These rules keep that from happening again.
+
+1. **Build at the milestone, not before.** Code for a later milestone, or infrastructure no current flow uses, is not built. Ideas for later go into the milestone list below, not into the code.
+2. **Delete before adding.** A story that fixes a gap names the mechanism it replaces and removes it. A story that only adds a mechanism beside an existing one for the same goal fails review.
+3. **One mechanism per goal** (0001, principle 8). Before a new state, vocabulary, table, config key or command is added, the story shows that no existing one serves the goal.
+4. **ADRs describe what runs.** A changed decision rewrites the ADR body. The ADR keeps a short "Replaced" list, one line per earlier decision and why it went. There is no amendment log; git keeps the history.
+5. **Code cites ADRs by number only,** never by section, so rewriting an ADR never leaves comments stale.
 
 ## Milestones
 
-- **M0, walking skeleton.** Engine, daemon, local database, Claude CLI adapter and a minimal TUI. Office init and switching (the office list). Repository scan and rescan for run knowledge. Context provider interface with the default provider (story scope, inputs, component map when present) and budgets by project size (research ideas 23 and 26). Takes one Ready story from Backlog.md, creates the worktree and branch, runs a worker, runs verify and shows live output. No planning, review or parallelism. Proves the core loop and the engine/UI boundary.
-- **M1, review and park.** Reviewer bot, structured park reasons, morning triage view, caps. Difficulty tiers mapped to model and budget. The test-story command with pass or fail feedback. A mechanical feedback loop for CI, review and conflicts, daily and monthly spend alerts, feedback that carries evidence, and send-once signatures with review keyed on commit, an optional codegraph context backend measured against the baseline with stale-index detection, and affected-files test selection when a backend offers it (research ideas 5, 6, 14, 17, 24, 25, 27 and 28, see `docs/research/2026-10-comparable-tools.md`).
-- **M2, parallel runs.** Batch selection, collision checks (using the declared component map when present, research idea 18), worktree locking, push serialization, worktrees prepared while a batch is being confirmed (idea 22).
-- **M3, rituals.** `plan`, `refine`, `ready` and `estimate` (with tier proposal) with Claude interview sessions. `retro` and insights: park reasons, loops, usage and cost efficiency aggregated from the local database, with suggestions for better preparation.
-- **M4, roster.** Roles as stored definitions, hiring, role chosen per story, non-code roles.
-- **M5, conversation.** Conversation layer that maps the maintainer's words to commands, with confirmation.
+- **M0, walking skeleton.** Done. Engine, daemon, database, Claude CLI adapter, minimal TUI, office init and switching, repository scan, caps, tiers and parking. Cutover (DIPO-115): dipo delivers its own stories since then.
+- **M1, review and park.** The story PR, a reviewer session, one feedback loop for review, CI and conflicts, merge on approval, resume for every park reason, the maintainer's commands (park, resume, drop, discard, steer, answer, approve, reject), and `dipo desk`. Then the triage view in the TUI, `dipo test` in a test box, the scan's AI fallback with its confirm command, and daily and monthly spend alerts. Stories carry `slice:m1a` for the unattended loop and `slice:m1b` for the rest.
+- **M2, parallel runs.** Several stories at once, each in its own box. Batch selection, collision checks on changed files, and GitHub's merge queue if merge order starts to matter.
+- **M3, rituals.** `plan`, `refine`, `ready` and `estimate` with model interviews, including the tier proposal. `retro` with insights from the database: park reasons, loops and cost per kind of work.
+- **M4, roster.** Roles as stored definitions, hiring, a role chosen per story, non-code roles.
+- **M5, conversation.** A conversation layer that maps the maintainer's words to commands, with confirmation.
 
-Until M3, stories are written by hand or with the existing `dipsaus-ai` skills. Until M4 there is one built-in developer role.
+Until M3, stories are written by hand or with the `dipsaus-ai` skills. Until M4 there is one developer role plus the reviewer.
 
-Amended 2026-10-09 after decision 0011 (office model): office basics added to M0, tiers and test command to M1, estimate to M3, and new milestones M4 and M5.
+**Later, with no milestone yet:** a codegraph context backend measured against the default, a Linux box backend, a declared "online" presence for live questions, and a web or desktop client.
+
+## Current state
+
+M1 is paused since 2026-10-24. The code is first pruned toward the rewritten ADRs, following a plan the maintainer and Claude make together after this rewrite.
 
 ## Rationale
 
-The riskiest unknowns are in the execution engine: the daemon, the worker adapter and the UI/engine boundary. Proving those first avoids building ritual UI on an engine that does not hold up. The TUI in M0 addresses the visual gap early.
+The riskiest unknowns were in the execution engine: the daemon, the worker adapter and the boundary between engine and UI. Proving those first meant no ritual UI was built on an engine that did not hold up.
 
-## Amendments
+## Replaced
 
-- 2026-10-11, M0 story breakdown (maintainer): caps (token budget, turns, time) and parking a story with a reason move from M1 to M0. The triage view and resuming parked stories stay in M1.
-- 2026-10-11, M0 story breakdown (maintainer): draft promotion moves to M3.
-- 2026-10-11, M0 story breakdown (maintainer): the M0 repository scan is code only, and `run` refuses an office whose verify is unresolved, with a message naming the script to add. The scan's AI fallback and the confirm command move to M1.
-- 2026-10-11, M0 story breakdown (maintainer): cutover comes after DIPO-55; dipo delivers the remaining M0 stories, DIPO-56 to DIPO-67, itself. `v0.1.0` follows once DIPO-66 (release pipeline) lands and the maintainer's live smoke run passes.
-- 2026-10-12, M0 story breakdown (maintainer): as an explicit exception to the 2026-10-11 line on caps and parks, answering a permission park with allow once or deny (`work.answer`, `dipo answer`) stays in M0. It resumes only a story parked `needs-permission`; every other resume of a parked story stays in M1.
-- 2026-10-12, M0 review (maintainer): reconcile at daemon start (DIPO-56) and re-attaching worker hosts after a daemon restart (DIPO-57) move before cutover. Cutover now needs DIPO-16 to DIPO-57 Done, together with the stories split from them during the M0 review (DIPO-68 to DIPO-74). dipo delivers DIPO-58 to DIPO-67 and the stories split from them (DIPO-75, DIPO-76) itself. This replaces the cutover point of the 2026-10-11 line; the `v0.1.0` rule is unchanged.
-- 2026-10-12, M0 review (maintainer): nothing planned for M0 is deferred. Pricing, nudges, restore and purge, and autostart stay in M0; a story that is too big is split instead.
-- 2026-10-16, M1 planning (maintainer): M1 is delivered in two slices, both in milestone `m-1` and labelled `slice:m1a` or `slice:m1b`. M1a is the unattended review-and-park loop: the engine opens the story PR (0010 section 7), a reviewer session reviews it, CI, review and conflict feedback go back to the worker with evidence and send-once signatures keyed on commit, an approved PR merges through the merge slot, every park reason can be resumed, the maintainer's intervention commands (hold, drop, discard, steer, pause) work, and a plain-text `dipo desk` lists what needs the maintainer. M1b adds the morning triage view in the TUI, the test-story command, the scan's AI fallback and confirm command, daily and monthly spend alerts, and skills in worker sessions (DIPO-116). Caps, difficulty tiers mapped to model and budget, and structured park reasons were built in M0 and leave the M1 list. The optional codegraph context backend, its measurement against the baseline, stale-index detection and affected-files test selection (research ideas 24, 25, 27 and 28) move to a later milestone after M2. dipo delivers M1 itself; the cutover (DIPO-115) comes first.
+- "Nothing planned for M0 is deferred" (2026-10-12). It pulled pricing catalogs, restore and purge, and an autostart supervisor into the walking skeleton. Replaced by "build at the milestone, not before".
+- An amendment log in every ADR. Replaced by rewriting the body plus a "Replaced" list (2026-10-24), because the bodies had stopped describing what runs.
+- M1 items that are now implementation details or later work: send-once feedback signatures, evidence on feedback, affected-files test selection and the codegraph backend (moved to Later).
+- M2 items for Mac worktrees (worktree locking, push serialisation, worktrees prepared during batch confirmation). The box replaced the Mac worktree.

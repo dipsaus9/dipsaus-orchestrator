@@ -1,357 +1,193 @@
-# 0005 Command and event model
+# 0005 Engine interface and process
 
-Status: Accepted (maintainer, 2026-10-10). Proposed in spike DIPO-2.
+Status: accepted. First written 2026-10-10 (spikes DIPO-2 and DIPO-3). Rewritten 2026-10-24 for the simplified design; it now also holds the daemon and its transport (former 0006). The research behind the rewrite is in `docs/research/2026-10-24-simplification-audit.md`.
 
-## Context
+## Decision in short
 
-The engine is headless. Every client (CLI, TUI, conversation layer, a later web, desktop or visual client) acts only through commands and learns only through events (0001, 0011 items 5 and 10). The contract lives in `packages/contract` as zod 4 schemas with no I/O; non-TypeScript clients use its JSON Schema export (0004). Daemon lifecycle, transport and connection auth are 0006 (DIPO-3); storage schema is DIPO-4; the story lifecycle and Ready gate are 0012 (DIPO-8). This ADR defines the transport-independent shapes between them.
+The engine is headless. Clients act only through **commands**, learn only through **reads** and **events**, and never derive a status themselves. One **daemon** per user serves every office. It talks to clients with WebSocket over a Unix socket, and it runs each worker session through a detached **worker host**, so a daemon restart never kills a running session. Client and daemon ship in one binary and speak one contract version.
 
-Requirements from the backlog and research:
-
-- Commands for: office open and switch, rescan, run, approve, reject, answer, steer, pause, resume, reassign, stop, drop, and test pass or fail with a note.
-- Events for: state changed, worker output, gate reached, parked, usage. Enough to show who (agent, role) works on which story, in which phase, with what progress and usage.
-- Facts stored, status derived; a change log feeds the stream; reconnecting clients replay what they missed (research idea 1).
-- A small read surface with capability flags (idea 10).
-- Debounced deltas, never full state on the stream (idea 21).
-
-External patterns checked: SSE stores the last event id and sends it back as `Last-Event-ID` on reconnect, but defines no replay; the server must resend [1]. WebSocket has no resume either; the usual design is a monotonic sequence, a bounded server buffer and a client cursor [2]. Kubernetes watches answer a too-old cursor with `410 Gone`, after which the client must re-list and watch from the returned version, and send `BOOKMARK` events that only advance the cursor [3]. CloudEvents makes `source` + `id` unique per event so consumers can drop duplicates [4]. The IETF idempotency key draft has the client pick a unique key per request and forbids reusing it with a different payload [5]. We restate these ideas in our own terms (0015).
-
-## Decision
+## Part 1. The contract
 
 ### 1. Three kinds of message
 
-| Kind | Direction | Changes facts | Purpose |
+| Kind | Direction | Changes facts | Reply |
 |---|---|---|---|
-| **Command** | client to engine | yes | The only way to act. Gets exactly one reply |
-| **Read** | client to engine | never | Small read surface: handshake, snapshots, detail, output ranges, command descriptions, daemon status, subscriptions |
-| **Event** | engine to client | no (reports facts already stored) | Ordered, replayable stream per office, plus one software stream |
+| Command | Client to engine | Yes | Exactly one |
+| Read | Client to engine | Never | Exactly one |
+| Event | Engine to client | No; reports facts already stored | None |
 
-Rule: a command writes facts and change-log entries in one transaction, then replies. Effects that take time (a worker running) arrive later as events. No client ever reads engine tables, imports `engine`, or derives status itself.
+A command writes its facts and their change-log entries in one transaction, then replies. Effects that take time, such as a running worker, arrive later as events. No client reads engine tables, imports `engine` or computes status: health, columns, budget shares and what waits on the maintainer all come ready from the engine.
 
 ### 2. Ids
 
-All ids are branded zod strings. Engine-made ids are a prefix plus a ULID (sortable by time). Story ids are the Backlog.md ids unchanged.
+Engine-made ids are a prefix plus a ULID: `off_` (office), `sto_` (story key), `run_`, `agt_` (one session), `gat_` (gate), `qst_` (question), `prp_` (proposal). A `StoryId` is the Backlog.md id unchanged. A `RequestId` is a ULID the client makes for every command and read. A `Cursor` is `{ stream: "office:<id>" | "software", seq }`.
+
+**Story keys.** The engine gives each story a `StoryKey` when it first sees it. Facts and events refer to the key, and every event that names a story carries both the key and the Backlog.md id of that moment. A command may name a story by either. The id of a story changes only when the engine promotes a draft (M3), which emits `story.renumbered`. A story whose id vanishes from Backlog.md outside the engine is `Removed`, and a new id is a new story; reconcile says so with a notice. The key lives only in the database (0001).
+
+### 3. Frames
 
 ```ts
-OfficeId    = "off_<ulid>"         // assigned when an office is first opened
-StoryId     = "DIPO-2" | "DRAFT-3" // Backlog.md id, scoped by office; DRAFT-n is provisional (below)
-StoryKey    = "sto_<ulid>"         // engine-made, stable for the story's whole life
-RunId       = "run_<ulid>"         // one attempt at one story
-AgentId     = "agt_<ulid>"         // one worker session; a reassign makes a new one
-RoleId      = "developer"          // role name from the office roster (one built-in role until M4)
-GateId      = "gat_<ulid>"         // one occurrence of a gate on a run
-QuestionId  = "qst_<ulid>"         // one question a worker asked
-TestId      = "tst_<ulid>"         // one acceptance-test session
-RequestId   = "<ulid>"             // client-made, one per command or read (idempotency key for commands)
-Cursor      = { stream: "office:<OfficeId>" | "software", epoch: string, seq: number }
+ClientFrame = { kind: "command", requestId, office?, name, args, origin }
+            | { kind: "read", requestId, name, args }
+            | { kind: "subscribe", requestId, stream, after?: Cursor, filter?: string[] }
+            | { kind: "unsubscribe", stream }
+ServerFrame = { kind: "reply", reply: { ok: true, requestId, result, changed?, cursor? }
+                                    | { ok: false, requestId, error: EngineError } }
+            | { kind: "events", events: Event[] }
+Event       = { cursor, at, type, causedBy?: RequestId, data }
 ```
 
-`epoch` is random per change log. If an office's state is recreated or restored, its epoch changes and old cursors are rejected instead of silently matching new positions.
-
-**Provisional story ids.** A draft uses Backlog.md's draft feature and has a temporary `DRAFT-n` id. `refine` promotes it to a real `DIPO-n` id, rewrites `DRAFT-n` references and assigns the branch (0012 section 2). A `StoryId` is stable only from Refined on.
-
-- The engine gives each story a `StoryKey` when it first sees it, draft or not. The key never changes; facts, the change log and idempotency records refer to it. `StoryView` and every event that names a story carry both `story` (the Backlog.md id at the time of the fact) and `key`. Clients index stories by `key`; `story` is for display and for typing commands.
-- **Resolving `story` in a command:** a key resolves directly. An id resolves first as a current id, then through the alias table of former ids. If an id matches a current story and a different story's alias, or two aliases, the command fails with `story.ambiguous`. An alias is retired as soon as its id becomes the current id of another story, so a reused `DRAFT-n` never reaches the old story.
-- Promotion through the engine writes the fact and emits `story.renumbered { key, from, to, detectedBy: "engine" }` in the same transaction, before `story.state` Draft to Refined.
-- **Changes outside the engine** are found by reconcile or `office.rescan`. Whenever reconcile sees a known id it checks identity: the StoryKey from the state database (0010: the key is never stored in the repository), then, after a database loss, the frozen branch (0012 F15, from Refined on), then the created date (the only check for a draft). A title change alone is an edit, never a new identity. A vanished id matched to a new one (hand promotion, or a hand demotion, which 0012 forbids the engine to do) emits `story.renumbered { ..., detectedBy: "reconcile" }`. A known id whose identity no longer matches, or a vanished id with no match, closes the old key (`story.state` to `Removed`), gives the story now under that id a new key, and emits `engine.notice`. The engine never guesses silently (0001).
-- **Removed observed by reconcile** may come from any state, including In Progress or In Review. It is an observation of what happened in Backlog.md, not an engine transition, so the 0012 transition table does not limit it. If the story had a run, the engine stops its worker as in 0006 decision 8 and the run ends.
-
-### 3. Envelopes and frames
-
-```ts
-const CommandRequest = z.object({
-  requestId: RequestId,
-  office: OfficeId.optional(),           // required on office-level commands; software-level ones
-                                         // (office.open, office.forget, daemon.*) omit it and name an office in args
-  name: CommandName,                     // e.g. "work.pause"
-  args: z.unknown(),                     // validated against the schema for `name`
-  origin: z.enum(["cli", "tui", "conversation", "web", "other"]),
-  confirmed: z.boolean().default(false), // see section 9
-});
-const ReadRequest = z.object({ requestId: RequestId, name: ReadName, args: z.unknown() });
-
-const CommandReply = z.discriminatedUnion("ok", [
-  z.object({ ok: z.literal(true),  requestId: RequestId, result: z.unknown(),
-             changed: z.boolean(), cursor: Cursor.optional() }),   // position of the last entry written
-  z.object({ ok: z.literal(false), requestId: RequestId, error: EngineError }),
-]);
-const ReadReply = z.discriminatedUnion("ok", [
-  z.object({ ok: z.literal(true),  requestId: RequestId, result: z.unknown() }),
-  z.object({ ok: z.literal(false), requestId: RequestId, error: EngineError }),
-]);
-
-const Event = z.object({
-  cursor: Cursor,                        // ordered within the stream; unique except for derived events (section 5)
-  at: z.iso.datetime(),                  // when the fact was stored
-  type: EventType,                       // e.g. "work.phase"
-  causedBy: RequestId.optional(),        // command that led to it, if any
-  data: z.unknown(),                     // schema chosen by `type`
-});
-```
-
-`changed: false` means the command was valid but the state already matched (pausing a paused story). A client that wants read-your-writes waits until its stream passes the reply's `cursor`. The engine keeps no per-connection state: a missing `office` on an office-level command is `args.invalid`, never a fallback to an "active" office.
-
-**Frames.** The contract defines one frame envelope that any transport carries, one frame per message (0006 section 9 maps it onto WebSocket):
-
-```ts
-const ClientFrame = z.discriminatedUnion("kind", [
-  z.object({ kind: z.literal("auth"), requestId: RequestId,      // first frame on the browser listener (0006 decision 11)
-             code: z.string().optional(),                        // single-use bootstrap code, exchanged for a session token
-             token: z.string().optional() })                     // session token on later connections
-    .refine((f) => (f.code === undefined) !== (f.token === undefined),
-            { message: "auth needs exactly one of code or token" }),
-  z.object({ kind: z.literal("command"), ...CommandRequest.shape }),
-  z.object({ kind: z.literal("read"), ...ReadRequest.shape }),
-  z.object({ kind: z.literal("subscribe"), requestId: RequestId, stream: Cursor.shape.stream,
-             after: Cursor.optional(), filter: z.array(z.string()).optional() }),   // filter = event type prefixes
-  z.object({ kind: z.literal("unsubscribe"), stream: Cursor.shape.stream }),
-]);
-const ServerFrame = z.discriminatedUnion("kind", [
-  z.object({ kind: z.literal("reply"), reply: z.union([CommandReply, ReadReply]) }),   // matched by requestId, any order
-  z.object({ kind: z.literal("events"), events: z.array(Event).min(1) }),              // routed by cursor.stream
-]);
-```
-
-`subscribe` gets a `reply`: ok with `{ stream, from: Cursor }`, or an error `stream.resetRequired` with `details: { oldest: Cursor }` (section 8). `auth` gets a `reply`: ok with `{ session?: { token: string } }`, or the error `auth.failed` (not retryable), after which 0006 closes the connection. After a code exchange the ok reply always carries the new session token; this reply frame is the only place the token travels to a browser (0006 decision 11). After a token `auth` it carries no `session`. The code (from `daemon.webBootstrap`) is revoked on first use; token lifetime (memory only, revoked on daemon restart or after 12 h unused) is 0006's.
+`changed: false` means the command was valid and the state already matched. A client that wants to read its own write waits until its stream passes the reply's cursor. The engine keeps no per-connection state: every office command names its office.
 
 ### 4. Commands
 
-Every command below is in contract 1.0. `StoryRef = { story: StoryId | StoryKey }` (section 2). Transitions follow 0012 section 2; the engine refuses any other.
+| Group | Commands |
+|---|---|
+| Office | `office.open`, `office.forget`, `office.init`, `office.rescan`, `office.reloadConfig`, `office.infer`, `office.confirm`, `office.setPrivacy` |
+| Work | `work.run`, `work.answer`, `work.steer`, `work.resume`, `work.discard` |
+| Story | `story.park`, `story.drop` |
+| Gates | `gate.approve`, `gate.reject` |
+| Proposals | `proposal.accept`, `proposal.dismiss` |
+| Testing | `test.start`, `test.record` |
+| Daemon | `daemon.stop`, `daemon.setLogLevel`, `daemon.resumeScheduling` |
 
-| Command | Args | Result | Specific errors |
-|---|---|---|---|
-| `office.open` | `{ path: string }` | `{ office: OfficeId, registered: boolean }` (`registered` true when new) | `office.notProject`, `office.pathMissing` |
-| `office.forget` | `{ office: OfficeId }` | `{ office }` removes it from the office list; never deletes repository data (0006) | `office.unknown`, `office.busy` (active runs) |
-| `office.switch` | `{ office: OfficeId }` | Switching changes no engine fact, so it is a **read** (section 7), listed here for completeness. The client keeps the chosen office and sends it on every command | `office.unknown` |
-| `office.rescan` | `{}` | `{ scan: "started" }` | `scan.running` |
-| `work.run` | `{ stories?: (StoryId \| StoryKey)[], maxAgents?: number }` (omit `stories` = engine picks from the Ready queue) | `{ started: { story, key, run }[], skipped: { story, key, reason: SkipReason }[] }`. Per-story problems are skips, not command errors. A failed pickup re-check (R01b) also emits `story.state` to Refined with the gate output | `scheduling.off` (retryable) |
-| `gate.approve` | `{ gate: GateId, note?: string }` | `{ gate, decision: "approved" }` | `gate.closed` |
-| `gate.reject` | `{ gate: GateId, note: string }` (note becomes worker input) | `{ gate, decision: "rejected" }` | `gate.closed` |
-| `work.answer` | `{ question: QuestionId, text: string }` | `{ question, delivered: "now" \| "on-resume" }` | `question.closed` |
-| `work.steer` | `StoryRef & { text: string }` | `{ run, delivered: "next-turn" }` | `story.notRunning` |
-| `work.pause` | `StoryRef` | `{ run }` worker held at its next safe point | `story.notRunning` |
-| `work.resume` | `StoryRef & { note?: string }` | `{ story, key, to: Lifecycle, run?: RunId }`. A paused run continues. A parked story returns to `park.from`: to In Progress or In Review it starts or re-attaches a run, returns `run` and emits `work.assigned`; to Refined or Ready (for example after `on-hold`) no run starts, and a story back in Ready is re-checked at pickup (R01b) by `work.run` | `story.notPausedOrParked`, `run.hostAlive` (retryable), `scheduling.off` (retryable) |
-| `story.hold` | `StoryRef & { note: string }` | `{ story, key }` parks a Refined or Ready story with reason `on-hold` (0012); `work.run` skips it; it shows in the triage list | `story.notHoldable` |
-| `work.reassign` | `StoryRef & { role?: RoleId, tier?: Tier }` | `{ run, agent: AgentId }` new agent, bounded handoff (idea 15). Reassign first stops the old agent through the adapter; if the old worker host has not exited (exit file written, 0006 decision 8) within 30 s (proposed default; 0006 states the same timeout) the command fails with `run.hostAlive` and the new agent is not started | `role.unknown`, `story.notRunning`, `run.hostAlive` (retryable) |
-| `work.stop` | `StoryRef & { note?: string }` | `{ run }` worker ends; branch and worktree kept; the story parks with reason `stopped` and `park.from` In Progress or In Review. `work.resume` continues it (open question 1, answered) | `story.notRunning` |
-| `work.discard` | `StoryRef & { note: string }` | `{ story, key }`: ends the run if one is active (as `work.stop`), removes the worktree and deletes the story branch, keeps the story and returns it to Refined, so it must pass the Ready gate again. Allowed from In Progress, In Review and Parked | `story.notDiscardable`, `run.hostAlive` |
-| `story.drop` | `StoryRef & { deleteBranch: boolean }` | `{ story, key }` archives a Draft, Refined, Ready or Parked story (`backlog task archive`, or archive the draft), removes its worktree if any, deletes the branch only when asked; `story.state` to `Removed` | `story.hasDependents`, `story.active` (In Progress or In Review: stop first) |
-| `test.start` | `StoryRef` | `{ test: TestId, checkout: string, script: string[] }` | `story.notTestable` (no manual test plan entry, 0002, 0012 F14) |
-| `test.record` | `{ test: TestId, result: "pass" \| "fail", note?: string }` (note required on fail) | `{ test, result }`; a fail sends the story from In Review back to In Progress with the note as worker input | `test.closed` |
-| `daemon.stop` | `{ stopWorkers: boolean }` | `{ state: "draining" }` (0006 section 5) | none |
-| `daemon.setLogLevel` | `{ level: "error" \| "warn" \| "info" \| "debug" \| "trace" }` | `{ level }` until restart | none |
-| `daemon.resumeScheduling` | `{}` | `{ state: DaemonState }` leaves `safe` | `daemon.notSafe` |
-| `daemon.webBootstrap` | `{}` | `{ url: string, code: string }`: a random single-use bootstrap code valid for 60 s, and the loopback URL to open with it (0006 decision 11). Starts the loopback listener if it is off. Accepted only on the Unix socket connection; on the loopback listener it fails with `not.permitted` | `not.permitted` |
+Their behaviour is decided where the subject lives: 0020 for park, resume, drop and discard; 0002 for gates and testing; 0013 for scan, infer and confirm; 0010 for init. `commands.describe` lists every command and read with the JSON Schema of its args and result, and marks those a client must confirm first (`confirm`) or ask for a typed id (`irreversible`). A ritual or roster command arrives with its milestone (0003).
 
-`SkipReason = "parked" | "notReady" | "notRunnable" | "dependency" | "collision" | "capacity" | "pickupCheckFailed"` (closed enum; `notRunnable` covers states run never picks, such as Draft, In Progress or Done; `capacity` means `maxAgents` or the office cap was reached). An unknown story in `stories` is `story.unknown` for the whole command.
+### 5. Reads
 
-Commands marked `confirm: true` in `commands.describe`, so every client asks first: `gate.reject`, `work.stop`, `work.discard`, `story.drop`, `work.reassign`, `office.forget`, `daemon.stop`. Later minor additions under the same envelope: in M3 `plan`, `refine`, `ready`, `unready`, `amend`, `estimate`, `review`, `retro` (0001, 0012), in M4 roster commands. Once `story.amend` exists, `story.parked.actions` includes it.
+`engine.hello`, `daemon.status`, `commands.describe`, `office.snapshot`, `office.desk`, `office.digest`, `office.stats`, `office.profile`, `story.detail`, `story.gate`, `story.losses`, `work.outputRange`, `work.preview` (the dry run of `work.run`) and `work.prompt`. Subscriptions are reads too.
 
-### 5. Events
+### 6. Events
 
-Every event about running work carries one `WorkRef`, so the overview shows who works on what without extra reads (AC 6).
+| Stream | Events |
+|---|---|
+| Software | `office.registered`, `office.forgotten`, `office.summary` (derived), `daemon.state`, `engine.notice`, `stream.mark` (derived) |
+| Office | `story.state`, `story.renumbered`, `story.parked`, `story.pr`, `work.assigned`, `work.phase`, `work.progress`, `work.output`, `work.observed`, `usage.updated`, `gate.reached`, `gate.decided`, `question.asked`, `question.closed`, `proposal.filed`, `proposal.closed`, `test.recorded`, `scan.finished`, `engine.notice`, `stream.mark` (derived) |
 
-```ts
-// Owned elsewhere, restated minimally so the contract is complete:
-const Lifecycle  = z.enum(["Draft", "Refined", "Ready", "In Progress", "In Review", "Done", "Parked", "Removed"]);
-  // 0012 states. Draft stories carry provisional DRAFT-n ids. Removed is engine-only, not a Backlog.md status:
-  // the terminal state of an archived or deleted story. Joint decision with DIPO-8: 0012 records it as
-  // an engine-only terminal state. Closed enum
-const ParkReason = z.enum(["ambiguous-spec", "verify-failing", "conflict", "scope-violation",
-                           "review-blocked", "budget-exceeded", "on-hold", "stopped", "interrupted",
-                           "needs-permission", "worker-failed"]);   // 0001, 0012, plus stopped (maintainer ended the worker), interrupted (worker lost while the daemon was down, 0006), needs-permission and worker-failed (0008). Closed enum
-const Tier       = z.enum(["S", "M", "L"]);                                    // 0012 F11 (office config). Closed enum
-const DaemonState = z.enum(["starting", "recovering", "running", "draining", "safe"]);   // 0006 section 7
+Every event about running work carries a `WorkRef` (story, key, run, agent, role, tier, model) and the engine's view of the run, so the overview shows who works on what without another read. The vocabularies these events carry are short and one per meaning (0009): lifecycle, park reason (0001), phase, and one health value with its signals as evidence.
 
-const WorkRef  = z.object({ story: StoryId, key: StoryKey, run: RunId, agent: AgentId, role: RoleId, tier: Tier, model: z.string() });
-const Phase    = z.string();  // provisional open enum: "preparing", "implementing", "verifying", "reviewing",
-                              // "awaiting-test", "merging". DIPO-6 sets the final names
-const Progress = z.object({ criteriaMet: z.int(), criteriaTotal: z.int(), loop: z.int(), loopCap: z.int(),
-                            verify: z.enum(["none", "passing", "failing"]), reviewRound: z.int() });
-const UsageTotals = z.object({ inputTokens: z.int(), outputTokens: z.int(),
-                               cacheCreateTokens: z.int(), cacheReadTokens: z.int(), turns: z.int(),
-                               elapsedMs: z.int(), estimatedCost: z.number().optional() });
-const Usage    = z.object({ agent: UsageTotals,  // cumulative for this agent within this run
-                            run: UsageTotals,    // cumulative for the run across all its agents
-                            budget: z.object({ unit: z.string(), limit: z.number(), used: z.number() }) });
-                            // unit "tokens": used = input + output + cache creation; cache reads do not count (0008)
+### 7. Facts in, status derived, change log out
 
-const StoryView = z.object({ key: StoryKey, story: StoryId, provisional: z.boolean(), title: z.string(),
-                             lifecycle: Lifecycle, tier: Tier.optional(), column: z.string(),   // derived
-                             work: WorkRef.optional(),
-                             parked: z.object({ reason: ParkReason, detail: z.string(), from: Lifecycle,
-                                                since: z.iso.datetime() }).optional() });
-const WorkView  = z.object({ work: WorkRef, phase: Phase, progress: Progress, usage: Usage,
-                             health: z.string(), startedAt: z.iso.datetime() });   // health names: DIPO-6
-const GateKind  = z.enum(["review", "test", "merge"]);   // open enum
-const GateView  = z.object({ gate: GateId, work: WorkRef, kind: GateKind, waitingOn: z.enum(["maintainer", "rule"]), summary: z.string() });
-const QuestionView = z.object({ question: QuestionId, work: WorkRef, text: z.string(), askedAt: z.iso.datetime() });
-const TestView  = z.object({ test: TestId, story: StoryId, key: StoryKey, checkout: z.string(), startedAt: z.iso.datetime() });
-const OfficeSummary = z.object({ office: OfficeId, name: z.string(), path: z.string(),
-                                 running: z.int(), parked: z.int(),   // parked includes on-hold
-                                 onHold: z.int(),                     // subset of parked
-                                 waitingOnMaintainer: z.int() });     // open gates, questions, tests, parked other than on-hold
-```
+- The engine stores facts. Display status, columns and health are derived by engine code and never stored as truth.
+- Every fact write appends a change-log entry in the same transaction: stream, a gap-free seq, the delta, and the derived view at that moment. The log is an outbox and is never read back for decisions. An entry that does not render fails its transaction.
+- **Debounce before the log.** Worker output flushes per run every 250 ms or 16 KiB, and progress and usage at most once a second per run. State changes, gates, questions and parks are written at once, after the run's pending output, so order stays causal.
+- **The software stream** (office list and daemon events) lives in an in-memory ring buffer for the daemon's lifetime.
 
-There is no budget gate: a budget overrun parks the story with `budget-exceeded` (0001, 0011). Usage carries agent and run totals, so after `work.reassign` usage stays attributable per story, role and tier.
+### 8. Attach and replay
 
-| Event | Stream | Data | Notes |
-|---|---|---|---|
-| `office.registered` | software | `{ office, path, name }` | |
-| `office.forgotten` | software | `{ office }` | |
-| `office.summary` | software | `OfficeSummary` | derived, see below |
-| `daemon.state` | software | `{ from: DaemonState, to: DaemonState, reason?: string }` | e.g. `safe` after a crash loop (0006) |
-| `scan.finished` | office | `{ scripts: Record<string, string>, warnings: string[] }` | run knowledge, shape owned by DIPO-9 |
-| `story.state` | office | `{ story, key, from: Lifecycle, to: Lifecycle, view: StoryView, detail?: string[] }` | `detail` holds gate failure messages, e.g. a failed pickup re-check |
-| `story.renumbered` | office | `{ key, from: StoryId, to: StoryId, detectedBy: "engine" \| "reconcile" }` | same transaction as the fact (section 2) |
-| `work.assigned` | office | `{ work: WorkRef }` | run start, re-attach on resume, reassign |
-| `work.phase` | office | `{ work: WorkRef, phase: Phase, progress: Progress }` | |
-| `work.progress` | office | `{ work: WorkRef, progress: Progress }` | debounced, latest wins |
-| `work.output` | office | `{ work: WorkRef, source: "worker" \| "verify" \| "script", from: int, to: int, text: string }` | byte range in the stored output |
-| `work.observed` | office | `{ work: WorkRef, signal: string, since }` | watchdog facts; provisional open enum (`silent`, `repeating-failure`, `waiting-input`), names set by DIPO-6 |
-| `usage.updated` | office | `{ work: WorkRef, usage: Usage }` | cumulative, so a duplicate or skipped one is harmless |
-| `gate.reached` | office | `GateView` | |
-| `gate.decided` | office | `{ gate, decision: "approved" \| "rejected", by: "maintainer" \| "rule", note? }` | |
-| `question.asked` | office | `QuestionView` | answered with `work.answer` |
-| `question.closed` | office | `{ question, answer? }` | |
-| `story.parked` | office | `{ story, key, work?: WorkRef, reason: ParkReason, detail: string, from: Lifecycle, lastGoodCommit?: string, actions: CommandName[] }` | `work` absent for `on-hold`; `detail` is the hold note. `actions` lists commands a client may offer: `work.resume`, `story.drop` (and `story.amend` from M3). Sent with `story.state` to Parked |
-| `test.started` / `test.recorded` | office | `TestView` / `{ test, story, key, result, note? }` | |
-| `engine.notice` | both | `{ level: "info" \| "warn" \| "error", code: string, text: string }` | e.g. reconcile mismatches (0001), `engine.recovering` |
-| `stream.mark` | both | `{ caughtUp?: boolean }` | derived, see below. Heartbeat when idle; end of catch-up when `caughtUp` |
+1. A client reads `engine.hello`, then subscribes to the software stream after the hello's cursor.
+2. For an office it reads `office.snapshot`, a view and a cursor from one read transaction, then subscribes after that cursor.
+3. On reconnect it subscribes after the last cursor it saw. The engine replays the stored entries after it, sends `stream.mark { caughtUp: true }`, then sends live events.
+4. A cursor older than the office's retention, or beyond the stream's last seq, gets `stream.resetRequired`. The client drops its view and starts again at step 2. After a daemon restart the software stream always answers this way.
+5. When idle, `stream.mark` every 15 s keeps the cursor fresh and shows a dead connection.
+6. Delivery is at least once. Clients drop events whose seq they already have.
 
-**Derived events** (`stream.mark`, `office.summary`) are not stored facts. They never consume a seq: their cursor repeats the last stored seq, they are exempt from duplicate dropping, and they are not replayed. After catch-up the engine sends the current `office.summary` for every office, and later ones debounced on change.
+### 9. Idempotency and target state
 
-### 6. Facts in, status derived, change log out
-
-- The engine stores **facts** only (a phase began, a gate was decided, tokens were counted). Display status, overview column and health are **derived** by engine code, never stored as truth (idea 1).
-- Each fact write appends one **change-log entry** in the same SQLite transaction: stream, seq (gap-free, monotonic), fact delta, and the derived `view` at that moment. The log is an outbox: disposable, never read back for decisions. Table layout and retention are DIPO-4's.
-- Events are change-log entries rendered into the current contract at send time. A contract change rewrites the renderer, not the stored log.
-- **Debounce before the log, batch after it.** High-rate sources are coalesced before they become facts: worker output flushes per run every 250 ms or 16 KiB; progress and usage at most once per second per run (defaults; DIPO-4 confirms them). State changes, gates, questions and parks are written at once, after flushing pending output for the same run, so order stays causal. The transport may pack several events into one `events` frame. The stream carries deltas for the subject that changed, never full state, and seq stays gap-free for loss detection (idea 21).
-- **Software stream.** Office list and daemon events are not office facts. The daemon keeps them in an in-memory ring buffer (owner DIPO-3, 0006) with a new epoch at every daemon start. A client reconnecting after a restart gets `stream.resetRequired` and re-reads `engine.hello`. Losing this history is harmless: the office list itself is the `offices` table in the central database (0007).
-
-### 7. Read surface and capability flags
-
-| Read | Args | Returns |
-|---|---|---|
-| `engine.hello` | `{ contract: { major, minor }, client: { name, version } }` | `{ engine: version, contract: { major, minor }, capabilities: string[], daemon: DaemonState, offices: OfficeSummary[], cursor }`; `cursor` is the software stream position read together with `offices` |
-| `office.snapshot` / `office.switch` | `{ office }` | `{ cursor, stories: StoryView[], work: WorkView[], gates: GateView[], questions: QuestionView[], tests: TestView[] }` derived, consistent with `cursor` |
-| `story.detail` | `{ office, story }` | facts and derived view for one story, including past runs and verdicts |
-| `work.outputRange` | `{ office, run, source, from, to? }` | stored output text for a byte range |
-| `commands.describe` | `{}` | every command: name, JSON Schema of args and result (`z.toJSONSchema`), `confirm`, `since` minor version |
-| `daemon.status` | `{}` | `{ state: DaemonState, stateReason?: string, pid, version, uptimeMs, socket, webUrl?, loadedOffices: OfficeId[], activeRuns: int, keepAwake: { held: boolean, reason?: string }, upgradePending: boolean }` (0006 section 5) |
-
-Subscriptions (`subscribe`, `unsubscribe`) are reads too: they change no facts (section 3, section 8).
-
-Capability flags are short strings a client checks before showing a feature, for example `replay`, `work.output`, `work.intervene`, `test.sessions`, `usage.cost`, `daemon.control`, `daemon.logLevel`, `rituals`, `roster`. A missing flag means hide or disable, never fail. Clients ignore unknown event types and unknown open-enum values, so an older client keeps working against a newer engine (idea 10).
-
-### 8. Late attach, reconnect and replay
-
-1. **First attach:** `engine.hello`, then `subscribe { stream: "software", after: hello.cursor }`. For an office: `office.snapshot` (one SQLite read transaction, so view and cursor match), then `subscribe { stream: "office:<id>", after: snapshot.cursor }`. No gap on either stream.
-2. **Reconnect:** `subscribe` with `after` = last cursor seen. The engine replays stored entries with a higher seq, sends `stream.mark { caughtUp: true }`, then live events.
-3. **Too old or wrong epoch:** the `subscribe` reply is the error `stream.resetRequired` with `details: { oldest }`. The client drops its local view and goes back to step 1 (pattern from [3]).
-4. **Idle:** `stream.mark` every 15 s keeps the cursor fresh and lets both sides detect a dead connection.
-5. **Filters:** `filter` names event type prefixes (for example to skip `work.output`); the client fetches output later with `work.outputRange`.
-6. **Delivery:** at least once. Clients drop stored events whose cursor they already have (`stream` + `epoch` + `seq`, as `source` + `id` in [4]); derived events are exempt.
-7. **Retention:** the office replay window is a default DIPO-4 sets (open question 3).
-
-With SSE `after` would travel as the last event id [1]; 0006 carries it in the `subscribe` frame [2].
-
-### 9. Idempotency, privacy, authorization and the conversation layer
-
-- **Idempotency.** The engine stores `requestId`, a hash of the args and the reply in the same transaction as the facts, kept 24 h. The hash is taken after story references are resolved to `StoryKey`, so a retry that names a story by its former `DRAFT-n` id matches. A repeat with the same id and hash returns the stored reply without running again; the same id with another hash fails with `request.reused` [5]. Software-level commands (`office.open`, `office.forget`, `daemon.*`) have no office database, so the daemon keeps their records in its own request table, in memory for the daemon's lifetime (24 h cap). Its scope is one daemon run: a retry that crosses a daemon restart runs again, which is safe because these commands are target-state (opening a registered office, forgetting a forgotten one, stopping a draining daemon all reply `changed: false`). `daemon.webBootstrap` is the exception: its reply is never stored, so a retry always gets a new code (0006 decision 13). Commands are also target-state where possible (pause a paused story: `changed: false`). Gate, question and test commands name the exact occurrence, so a stale screen cannot approve the wrong gate.
-- **Privacy (research idea 11).** The idempotency record holds the args hash, not the args. Assembled worker prompts are never part of the contract or the change log. Text the maintainer writes (`work.steer`, `work.answer`, `gate.reject`, `story.hold`, `test.record` notes) is a maintainer-authored fact, kept for the audit trail and as worker input. Retention and any opt-in for storing more follow DIPO-4.
-- **Authorization.** One local maintainer. Any connection the transport accepts (0006: runtime directory permissions, or the browser session token sent in the `auth` frame or as a Bearer header) may send every command, except `daemon.webBootstrap`, which only the Unix socket accepts. `origin` and `client.name` are recorded for the audit trail, not for permission. `not.permitted` is reserved for a future read-only remote view.
-- **Conversation layer (M5).** A client like any other. Its tool list is `commands.describe`; it cannot call anything not there. Every command it proposes is shown to the maintainer and sent with `origin: "conversation"` and `confirmed: true` only after the maintainer agrees. The engine refuses `origin: "conversation"` without `confirmed` (`confirmation.required`). This guards against a careless client; it is not a security boundary.
+- **Commands are target-state.** Pausing what is paused, or parking what is parked, replies `changed: false` and changes nothing.
+- **Run commands are stored.** For the commands that start or change a run (`work.run`, `work.resume`, `work.answer`, `work.steer`, `story.park`, `work.discard`, `gate.approve`, `gate.reject`, `test.record`), the request id, a hash of the resolved args and the reply are written in the same transaction as the facts. A retry with the same id after a lost reply gets the same reply. The same id with other args fails with `request.reused`. The records go when their run ends.
+- **The text the maintainer writes** (notes, answers, steers) is a maintainer-authored fact, kept for the audit trail and as worker input.
 
 ### 10. Errors
 
-```ts
-const EngineError = z.object({
-  code: z.string(),                // open set, dotted: "story.notRunning", "args.invalid", ...
-  message: z.string(),             // one sentence for people
-  retryable: z.boolean(),          // true only when the same request may succeed later
-  details: z.unknown().optional(), // e.g. zod issues for args.invalid, { oldest } for stream.resetRequired
-});
+`EngineError = { code, message, retryable, details? }`, with dotted codes such as `story.unknown`. Codes are part of the contract; messages are not.
+
+The generic codes are `args.invalid`, `office.unknown`, `story.unknown`, `request.reused`, `stream.resetRequired`, `database.unavailable` and `internal`. Three of them mean the request may succeed later: `engine.recovering` (wait for `running`), `run.hostAlive` (an old worker host still runs) and `git.fetchFailed`.
+
+### 11. One version
+
+- Client and daemon are one binary and speak one contract version.
+- `engine.hello` returns the daemon's binary version. A client of another version prints "daemon runs vX, this binary is vY, run `dipo daemon restart`" and offers nothing else.
+- So `dipo daemon restart` always works across versions, a few shapes never change: the frame envelope, the `reply` frame with `EngineError`, `engine.hello` with its version, `daemon.status` (`state`, `pid`, `version`) and `daemon.stop`.
+
+## Part 2. The daemon
+
+### 12. One daemon for all offices
+
+There is one daemon process per user. Inside it each office is its own engine instance with an office-scoped database handle, its scheduler and its runs, and no office code reaches another office. Only the shared subscription limits and spend alerts look across offices (0001).
+
+### 13. Directories
+
+| Purpose | Path |
+|---|---|
+| State: `dipo.db`, `dipo.pid`, `runtime.json`, `config.yaml` | `~/Library/Application Support/dipo` |
+| Logs | `~/Library/Logs/dipo` |
+| Runtime: `dipo.sock`, worker host sockets | `$TMPDIR/dipo`, else `/tmp/dipo-<uid>` |
+
+- **The state directory is the anchor.** It comes from the passwd home, never from `$HOME`, `TMPDIR` or launchd's environment, so every starter finds the same lock. `DIPO_HOME` replaces it for tests only, and tests keep it short (0017).
+- **The runtime directory** is chosen after the lock is held. It must be a real directory owned by the user with mode `0700`, else dipo uses a fresh `mkdtemp` directory. Its longest socket path must fit 100 bytes.
+
+### 14. Start, stop, status
+
+- `dipo daemon start` backgrounds `dipo daemon --foreground` through a short-lived `/bin/sh` in its own session, so the daemon is no descendant of the client. It removes `BUN_OPTIONS` and `BUN_FEATURE_FLAG_NO_ORPHANS`, then waits up to 5 s for `engine.hello`.
+- Client commands start the daemon when it is not running, unless `daemon.autostart` is false. Read-only commands (`dipo gate`, `dipo run --dry-run`, `dipo stats`, `dipo watch`) never start one.
+- `daemon.stop` drains. `dipo daemon stop --force` sends SIGTERM to the PID in `dipo.pid` after checking its start time, then SIGKILL after 10 s.
+- `dipo daemon status` prints the state with its reason, PID, version, build commit, loaded offices, active runs and keep-awake. Exit 0 means running, 3 not running, 1 unresponsive.
+- The daemon does not exit when idle.
+
+### 15. The lock
+
+`dipo.pid` holds the PID, the process start time and the version. On start:
+
+1. If the PID in it is alive, has the same start time and runs `dipo daemon`, a daemon runs. Handshake with it, or report it unresponsive.
+2. Otherwise the record is stale. Delete it.
+3. Create `dipo.pid` with `O_EXCL`. If that fails, another starter won, so go back to step 1 once. Only after the lock is held does the daemon choose the runtime directory, remove a leftover socket there and bind.
+
+The start time comes from the `kern.proc` sysctls through `bun:ffi` on macOS, because sandboxed processes cannot run `/bin/ps`. On clean exit the daemon removes the socket, then `dipo.pid`.
+
+### 16. States and recovery
+
+```
+starting -> recovering -> running -> draining -> (exit)
 ```
 
-Generic codes: `contract.unsupported`, `args.invalid`, `office.unknown`, `story.unknown`, `story.ambiguous`, `capability.missing`, `request.reused`, `confirmation.required`, `not.permitted`, `auth.failed`, `stream.resetRequired`, `internal`. Retryable codes: `engine.recovering` (daemon in `starting` or `recovering`; office commands and reads wait for `daemon.state` to `running`), `scheduling.off` (daemon in `safe`; commands that would schedule work, such as `work.run` or resume to In Progress, wait for `daemon.resumeScheduling`), and `run.hostAlive` (`work.resume` or `work.reassign` refused while the story's old worker host PID is still alive; 0006 decision 8 never restarts a run under a live host). Command-specific codes are in section 4. Codes are part of the contract; messages are not. The shape follows JSON-RPC's error object (code, message, data) [6], with dotted string codes so they read in logs.
+- **starting.** Lock held, directories checked, socket bound. `engine.hello` and `daemon.*` work. Office commands get `engine.recovering`.
+- **recovering.** Run migrations (0007), then for each office: reconcile against Backlog.md and git, then re-attach or park each worker host (section 17), then remove the temp directories of ended runs. If the database cannot be opened or migrated, the daemon stays here with the reason. Office requests then get `database.unavailable`, and the reason says what to do.
+- **running.** Scheduling on.
+- **draining.** Triggered by `daemon.stop`, SIGTERM, SIGINT, a restart or an uncaught error. No new work starts, pending writes finish, and clients are told. Worker hosts keep running unless `stopWorkers` is set. The drain is capped at 20 s, or 60 s with `stopWorkers`.
 
-### 11. Versioning
+The daemon keeps no state only in memory, so recovery after a crash is the same as after a clean stop.
 
-- The contract has `MAJOR.MINOR`, exported from `packages/contract`, independent of the binary version.
-- **Same major means compatible.** A client and engine with the same major always work together; features one side lacks are hidden through capability flags, never through errors. 0006 relies on this rule for upgrades.
-- **Minor** changes are additive only: a new command, read, event type, frame field, optional field, capability flag or open-enum value. Closed enums (lifecycle, park reasons, skip reasons, gate decisions, daemon states) change only in a major.
-- **Major** changes rename, remove or change meaning. `engine.hello` fails with `contract.unsupported` when majors differ; client and daemon ship in one binary, so this means a daemon left running across an upgrade (0006 section 14).
-- Replayed events are always rendered in the engine's current contract, so a client never sees two shapes for one event type.
-- **Frozen minimal surface.** So `dipo daemon restart` works across a major upgrade, a few shapes never change in any major: the frame envelope fields `kind` and `requestId`, the `reply` frame with `ok` and `EngineError` (`code`, `message`, `retryable`, `details`), the `engine.hello` request and its `contract.unsupported` error (whose `details` carry the daemon's `{ contract: { major, minor }, version }`), the `daemon.status` fields `state`, `pid` and `version`, and `daemon.stop { stopWorkers }`. A daemon accepts these from a client of any major; everything else needs the same major. 0006 section 14 uses this surface for the restart.
+### 17. Worker hosts
 
-### 12. No client needs engine internals
+The daemon never owns a worker process. Each session gets a worker host, `dipo daemon worker-host <run>`, started detached with its stdio to files.
 
-A client needs only `@dipsaus-orchestrator/contract` (schemas, frames, types, JSON Schema) and `@dipsaus-orchestrator/client` (transport). Derived views come from the engine in snapshots and events, the command list from `commands.describe`, features from capability flags, daemon state from `daemon.status`. The import ban in 0004 enforces the rest.
+- **What the host does.** It starts the session through the adapter's launch plan (for a developer, a `container exec` into the story's box, 0008). It appends every output line to the run's `events.ndjson` with its byte offset, and listens on `<runtime>/hosts/<run>.sock` for writes to the session's stdin and for signals. When the session exits, it writes `exit.json` and exits. It has no engine logic.
+- **Facts and offsets move together.** The engine reads the events file from a stored offset. That offset advances in the same transaction as the facts derived from the lines, so a crash never skips or doubles an event.
+- **Liveness** is the PID plus its start time, never socket reachability.
+- **Re-attach at recovery,** for each host:
+  - Alive, and its socket answers the handshake: catch up from the offset, then follow live.
+  - Alive, but its socket does not answer, or it speaks another host protocol version: send its verified PID one SIGTERM, and park the story `worker-failed` once it exits.
+  - Dead, with `exit.json`: process the remaining lines and the exit.
+  - Dead, without `exit.json`, or no live process matches its record: park the story `worker-failed`.
+- **One host at a time.** The engine never starts a new host for a run whose old host is alive (`run.hostAlive`).
+- **`--no-orphans` is never active** in the daemon chain. It would kill a detached daemon with its starter, and every host with the daemon. The daemon refuses to start when it is set.
 
-## Consequences
+### 18. Transport and security
 
-- One contract for CLI, TUI, conversation, daemon control and later UIs; a visual client is a pure function of snapshot plus events.
-- The engine pays for an extra append per fact write and a renderer per event type. Small next to worker cost.
-- Seq-based replay needs log retention; DIPO-4 sizes it. Clients must handle `stream.resetRequired`, on the software stream after every daemon restart.
-- Debouncing adds up to 1 s latency on usage and progress and 250 ms on output. State changes are never delayed.
-- Status rules live in one place (engine), so changing a rule changes every client at once.
-- Adding a ritual or roster command later is a minor contract change, not a new interface.
-- Owners: 0006 (DIPO-3) carries the frames, connection auth and the in-memory software stream. DIPO-4 provides fact tables, the office change log with epoch and seq, the request table, and story keys with the alias table. 0012 (DIPO-8) owns Lifecycle, Tier, ParkReason additions and draft promotion; this contract follows it. DIPO-5 feeds usage and questions. DIPO-6 names phases and health signals.
+- **Transport.** Clients connect with WebSocket over the Unix socket: `Bun.serve({ unix })` on the daemon side, `ws+unix://` in `client/node`. Each text frame holds one JSON frame (section 3).
+- **Security.** The runtime directory, real, owned by the user and `0700`, is the only guard; the socket file's own mode is not relied on. Any process of the same user can use the socket, which is in scope by design: there is one local user.
+- **No network listener.** The daemon opens none. A web or desktop client is Later (0003) and gets its own decision when it is planned.
 
-## Open questions for the maintainer
+### 19. Keep-awake, logs, upgrades, autostart
 
-1. **`work.stop` outcome — answered 2026-10-10: two new park reasons.** `stopped` when the maintainer ends a worker, `interrupted` when a worker was lost while the daemon was down (0006 open question 3). Both park the story with `park.from` In Progress or In Review, show in the triage list, and `work.resume` continues or restarts the run. Amends the park reasons of 0001 and 0012.
-2. **Discard the run — answered 2026-10-10: yes, `work.discard`.** Throws away the work (worktree and branch) and returns the story to Refined; it goes through the Ready gate again. Adds a transition In Progress, In Review or Parked to Refined in 0012.
-3. **Retention — answered 2026-10-10: tiered.** State-change events (lifecycle, park, gates, verdicts, test results, renumbering) are kept long (default 1 year). Usage and progress updates are kept short (default 7 days); final usage totals per run are stored as facts and kept. Worker output is kept short (default 7 days); at run end code builds a run summary with no model call (the worker's final report, diffstat, verify result, last 50 output lines) which is kept as long as state changes. A client whose cursor is older than the short tier gets a snapshot, not a full replay. All periods are office configuration; DIPO-4 sizes and implements the tiers.
-4. **Derived views — answered 2026-10-10: in the engine only.** Clients receive ready views (stuck, budget share, waiting on the maintainer, phase) and never compute status themselves, so every client shows the same thing; `contract` stays schemas-only (0004).
-5. **Debounce — answered 2026-10-10: accepted as defaults** (output every 250 ms or 16 KiB, usage and progress at most 1 per second per run, state changes immediately), tunable in office configuration.
-6. **Phase and signal names — answered 2026-10-10: provisional here, final names set by DIPO-6** (the overview spike), where they are designed for display. Renames before 1.0 are free.
-7. **Changes outside the engine — answered 2026-10-10: automatic, with a notice.** Reconcile matches by StoryKey from the database, then frozen branch, then created date (0010); a title change alone is an edit. An unmatched key is closed as Removed with an `engine.notice`; if a run was active, its worker is stopped (0006 decision 8) and the notice says so.
+- **Keep-awake.** While any office has a live worker host or a confirmed run waiting to start, the daemon holds `caffeinate -i -w <daemon pid>`, and releases it 2 minutes after work stops. Closing the lid on battery still sleeps the Mac.
+- **Logs.** JSON lines with time, level, message, component, office and run, in `daemon.log`, rotated at 10 MB with 5 kept. A worker host writes `host.log` in its run directory. Prompts and command bodies appear only at `debug` and `trace`. A field whose name ends in `token`, `secret`, `password`, `apiKey`, `credential` or `privateKey` is redacted at every level. `dipo daemon logs` reads the files directly, so it works while the daemon is down.
+- **Upgrades.** A running daemon keeps its old binary. It checks its executable every 60 s and reports "upgrade pending". `dipo daemon restart` drains it and starts the new binary. Worker hosts keep running, and the new daemon re-attaches them (section 17).
+- **Autostart.** `dipo daemon install` writes a launchd agent with `KeepAlive` (restart after a crash), `AbandonProcessGroup` and an exit timeout above the drain cap. With it, `dipo daemon start`, `stop` and `restart` go through `launchctl`. `dipo daemon uninstall` removes it.
+- **Software settings** live in `<state>/config.yaml`: `daemon.autostart` and the spend alerts (0009).
 
-## Sources
+## Replaced
 
-1. WHATWG HTML Living Standard, Server-sent events (`id` field, last event ID, `Last-Event-ID` on reconnect; no replay defined). https://html.spec.whatwg.org/multipage/server-sent-events.html
-2. websocket.org, WebSocket reconnection: state sync and recovery (sequence numbers, bounded replay buffer, at-least-once with deduplication). https://websocket.org/guides/reconnection/
-3. Kubernetes docs, API concepts: efficient detection of changes, `410 Gone`, watch bookmarks. https://kubernetes.io/docs/reference/using-api/api-concepts/
-4. CloudEvents specification (`source` + `id` unique per event; duplicates may be dropped). https://github.com/cloudevents/spec/blob/main/cloudevents/spec.md
-5. IETF draft-ietf-httpapi-idempotency-key-header-07, The Idempotency-Key HTTP Header Field (October 2025; an Internet-Draft that expired 2026-04-18, used for the pattern only, not as a standard). https://datatracker.ietf.org/doc/draft-ietf-httpapi-idempotency-key-header/
-6. JSON-RPC 2.0 specification (client-chosen request id; error object with code, message, data). https://www.jsonrpc.org/specification
-7. Zod 4 API (`z.discriminatedUnion`, `z.literal`). https://zod.dev/api ; JSON Schema export: https://zod.dev/json-schema
-8. Research ideas 1, 10, 11, 15, 21: `docs/research/2026-10-comparable-tools.md`. ADR 0012 (DIPO-8) section 2, accepted on main (includes `Removed` and `on-hold`). ADR 0006 (DIPO-3) decisions 4 to 11 and 14, Proposed.
-
-## Amendments
-
-- 2026-10-10, decision 0010 (maintainer): the StoryKey lives only in the state database, never in the repository; identity after a database loss falls back to the frozen branch, then the created date.
-- 2026-10-10, decision 0008 (maintainer): two new park reasons, `needs-permission` (the worker cannot finish without an action that was denied; worktree, branch and session are kept) and `worker-failed` (the worker crashed again after one resume, or failed its init checks: `apiKeySource`, model; detail is the last error). `Usage.budget` uses unit `"tokens"` (input + output + cache creation); `UsageTotals.cacheTokens` splits into `cacheCreateTokens` and `cacheReadTokens`. Minor additions: `QuestionView.kind` (`question` or `permission`) and `work.answer` `decision: "allow" | "deny"` for permission questions.
-- 2026-10-10, decision 0007 (maintainer): the office list is the `offices` table in the central state database, not `offices.json`.
-- 2026-10-10, decision 0009 (maintainer): minor contract additions (0009 section 8): `Evidence` labels and an optional `evidence` map [`evidence`]; final phase, watchdog signal and `Health` names as open enums; `WorkView.signals` and `lastOutputAt`; `Usage.budgetShare`; `OfficeSummary.dayUsage` in tokens [`usage.alerts`]; `work.discard` in `story.parked.actions`; `StoryView.waitingOn` and `gateMessages`; reads `office.usage` [`usage.report`] and `office.digest` [`digest`]; `irreversible` in `commands.describe`.
-- 2026-10-11, decision 0017 (maintainer): adds a config reload command and `dipo config migrate`; final names are set by the CLI story.
-- 2026-10-12, M0 review (maintainer): `Tier`, `ParkReason` and `SkipReason` become open enums with known values. An unknown string parses, clients render an unknown value generically, and a new known value is a minor change. The engine validates a tier against the office's configured tier set. `Lifecycle` stays a closed enum (section 11).
-- 2026-10-12, M0 review (maintainer): two new contract commands. `office.init { office }` runs office init (0010 section 6). `office.purge { office }`, marked `confirm: true` and `irreversible: true`, deletes the office's rows and its `<git-common-dir>/dipo/` directory (0007 section 3). Because purge deletes the office's own request table, it is treated as a software-level command for idempotency (section 9): its record is kept in the daemon's in-memory request table. `restore`, `daemon install` and `daemon logs` stay outside the contract as named offline maintenance (0006).
-- 2026-10-12, M0 review (maintainer): section 11. A command or read that the contract defines but no engine has built yet is provisional until it first ships with a `since` version. Renaming or reshaping a provisional command is not a major change.
-- 2026-10-12, M0 review (maintainer): `commands.describe` also describes reads (name, JSON Schema of args and result, `since`). Minor addition.
-- 2026-10-13, DIPO-27 (maintainer): sections 4 and 10, contract 1.1. New office codes: `office.refused` for an office that cannot load, with `details.step` naming the failing load step (`repository`: the path is no longer a git repository; `marker`: `office.json` is missing, invalid or names another id; or the name of a failing feature load step), on every office-level command, read and subscription; a registered path that no longer exists answers the existing `office.pathMissing`, now also on office-level commands, reads and subscriptions; and `office.markerInvalid` for a damaged `<git-common-dir>/dipo/office.json`. `office.open` returns optional `warnings` (copy detected, network filesystem). `office.forget` and `office.reloadConfig` take an optional `from`, the main worktree the client resolved from its working directory; the daemon answers `office.unknown` when it differs from the office's registered path, so a copied repository never acts on the original office. `office.forget` returns the registered `path`. All additive.
-- 2026-10-13, DIPO-31 (maintainer): sections 4 and 10. `git.fetchFailed` (fetching the base failed, for example offline) is a retryable code, next to `engine.recovering`, `scheduling.off` and `run.hostAlive`; `work.run` fails with it as a retryable command error. Additive; it lands with DIPO-48.
-- 2026-10-13, DIPO-72 (maintainer): sections 4 and 11, contract 1.1. `scan.finished` gains optional `trigger` (open enum `ScanTrigger`: `start`, `run`, `test`, `rescan`; what started the scan), `level` (open enum `ConformanceLevel`: `conforming`, `partial`, `non-standard`), `deviations` (the deviation messages alone; `warnings` still includes them), `diff` (one line per fact that changed against the previous run profile) and `error` (a failed scan; no profile is stored). Additive; the event shape stays owned by 0013.
-- 2026-10-13, DIPO-71 (maintainer): sections 4 and 10, contract 1.1. Two office codes, not retryable: `config.invalid` (the office has no valid configuration, so the command or read cannot run; `details.office`) and `backlog.unreadable` (the Backlog CLI could not read the story or backlog on the office's base branch; `details.office`, `details.story`). `story.gate` answers them. Additive.
-- 2026-10-14, DIPO-48 (maintainer): sections 4 and 10, contract 1.1. `work.run` takes an optional `from`, the main worktree the client resolved from its working directory, answered with `office.unknown` when it differs from the registered path (as `office.forget`). New code `run.refused`, not retryable: an office check refuses the run, with `details.check` naming it (`verify`: no resolved verify script, `statuses`: the Backlog statuses are not initialised, `adapter`: the worker adapter is held) and the check's message. `work.run` also answers `config.invalid` and the retryable `git.fetchFailed`. Additive.
-- 2026-10-14, DIPO-74 (maintainer): sections 1, 4 and 7, contract 1.1. New read `work.preview { office, stories? }`, the dry run of `work.run` (`dipo run --dry-run`). It selects as `work.run` does, from the base as last fetched, and returns `{ refusals: { check, message }[], story: { story, key } | null, skipped: { story, key, reason, detail? }[], launch: WorkerLaunchPreview | null, problem: string | null, notes?: string[] }`, with `notes` present only for information that refuses nothing, such as an adapter hold that a run naming its stories repeats the launch checks for. `launch` holds the branch and worktree it would create, the adapter's program and arguments, the model, effort and caps, the run directory files (the run settings with the sandbox), the environment variable names without values, the system file and the task message. It fetches, indexes, stores, claims and starts nothing; it is a read (section 1), not a `dryRun` flag on the command. Additive.
-- 2026-10-14, DIPO-52 (maintainer): sections 5 and 7, contract 1.1. The read `office.switch` ships as an alias of `office.snapshot`. `work.assigned`, `work.phase`, `work.progress`, `work.output`, `work.observed` and `usage.updated` carry an optional `view` (`WorkView`): the view the engine derived when it stored the fact, so clients replace the run's view and never derive health. `work.observed` gains optional `clearedAt`, set when a signal stops (`quiet` and `no-output` on the next line). `story.detail` verdicts gain `failures` (the failed rules' messages); these parts are additive. `Verdict.run` becomes optional, because Ready and pickup gate verdicts have no run: a change of meaning allowed only as a reshape of a read no released engine has served, before `v0.1.0` (contract minor 1 is unreleased).
-- 2026-10-14, DIPO-61 (maintainer): section 4. Minor 1 implements `work.resume` for runs held by a plan limit only; a parked story answers `story.notPausedOrParked` until a later story builds resuming a parked story.
-- 2026-10-14, DIPO-76 (maintainer): section 4. `office.purge` takes an optional `from`, the main worktree the client resolved from its working directory; the daemon answers `office.unknown` when it differs from the registered path (as `office.forget`). Additive.
-- 2026-10-14, DIPO-59 (maintainer): sections 7 and 10, contract 1.1. `story.detail` gains optional `questions` (`QuestionView[]`, the story's open questions, oldest first), and `question.closed` joins the exported codes. Additive.
-- 2026-10-15, DIPO-83 (maintainer): section 7, contract 1.1. `OfficeSummary` gains optional `optIns` (the names of the privacy opt-ins on for the office, from `office.local.yaml`), so the overview shows when one is on (0007 section 8). Additive.
-- 2026-10-15, DIPO-81 (maintainer): section 7, contract 1.1. `OfficeSummary` gains `ready` (`Count`, the office's Ready stories, derived by the engine), so the office switcher shows Ready for offices that are not open. Additive.
-- 2026-10-15, DIPO-95 (maintainer): sections 5 and 7, contract 1.1. `work.output` and the `work.outputRange` result gain optional `markers`, a list of `OutputMarker {from, to, kind, value, at}` (`kind` an open enum `phase | ended`). It flags the engine's phase and end markers in the worker output by byte range. Clients draw a marker only from this flag, never from the text. Additive.
-- 2026-10-15, DIPO-97 (maintainer): sections 6 and 7, contract 1.1. `OfficeSummary` gains optional `outputRetentionDays` (positive integer, the office's `retention.shortDays` from 0007 section 7; absent when the office has no valid configuration), so a client says that output was removed after the office's period instead of a built-in one. `StoryView` gains optional `gateFailures` (`StoryGateFailure`: `rule`, `message`, `text`), the failed Ready gate rules among `gateMessages` in the same order, where `text` is the message after `ready <ID> failed <rule>: `; a message no rule gave (a pickup check that could not size the story) is only in `gateMessages`. Clients take rule ids from this field and never parse message text. `gateMessages` is unchanged. Additive.
-- 2026-10-15, DIPO-92 (maintainer): section 4, contract 1.1. `SkipReason` gains the known value `planLimit`: `work.run` and `work.preview` skip a story whose model a plan limit or a plan-limit warning holds with `planLimit`, not `capacity`, which again means only `maxAgents` or the office cap. Additive (open enum, 2026-10-12 amendment).
-- 2026-10-16, DIPO-111 (maintainer): sections 10 and 11, contract 1.1. New generic code `database.unavailable`, not retryable: the daemon could not open, check or migrate its state database (0007 sections 9 and 10), so no office is loaded. Every office-level command, read and subscription, every software-level command that needs the database (`office.open`, `office.forget`, `office.init`, `office.purge`, `office.rescan`, `office.reloadConfig`) and `daemon.resumeScheduling` answer it; `engine.hello`, `commands.describe` and the other `daemon.*` commands and reads still run. The message says what to do. `details` are `DatabaseUnavailableDetails { reason, backup? }`, exported in the shared JSON schema: `reason` is an open enum (`migration`, `checksum`, `damaged`, `tooNew`, `networkFilesystem`, `open`), and `backup` names the newest backup that holds a schema when a restore is part of the fix. The daemon also sends the text as an `engine.notice` with level `error` and code `database.unavailable`. A client that waits out `engine.recovering` sends the request again after every answered `daemon.status` poll, also while the state is still `starting` or `recovering`: a command with its first `requestId`, a read with a new one. So a wait that began before the database failed ends with `database.unavailable` and does not wait for a state the daemon never reaches. `DaemonState` is unchanged. Additive.
-- 2026-10-16, DIPO-131 (maintainer): contract 1.1 (or the next unreleased minor). `gate.approve` and `gate.reject` ship. New event `story.pr`; `gate.decided` gains optional `review`; `Verdict.review`, `StoryView.pr`, `Progress.reviewRoundCap` and `Progress.reviewRoundsFailed` are added, all optional; new codes `gate.notWaitingOnMaintainer`, `gate.handMergeOnly` and `gate.noteRequired`; capability flag `review`. Additive.
-- 2026-10-17, DIPO-132 (maintainer): sections 1 and 9. Office commands whose effects take time run on a waiting path: the idempotency check and the story references in one transaction; the handler outside it, committing each fact with its change-log entries in its own transaction; the `requests` row last. A duplicate that arrives while the first runs waits for the same reply. Every waiting handler must be target-state under a re-run: a retry after a crash between a commit and the record runs the handler again, and it must see its earlier facts and not repeat their effects. Each waiting command has a test that injects a crash at that point. Today `work.run`, `work.stop`, `work.answer` and `work.resume` use it. M1a adds `story.hold`, `story.drop`, `work.discard` (also on the leftovers of a story Done on the base, where it writes nothing to the backlog), `work.steer` (also when the run is paused or parked: the steer is stored once, keyed by its request, and sent on resume) and `work.pause`. `office.rescan` and other commands that finish in one transaction keep the rule of section 1. Sections 4, 5 and 7, contract 1.1: `needs-scope` park reason; `QuestionKind` open with `scope`; `work.resume` gains `budget`, `grants` and `queued` and the `resume.*` errors; `commands.describe` gains `confirmWhen` and `irreversibleWhen`; `work.steer` may reply `on-resume`; `work.answer` takes `decision` on scope questions; new read `office.desk` and commands `proposal.accept` and `proposal.dismiss`; `story.hold`, `story.drop`, `work.discard`, `work.steer` and `work.pause` ship; `story.parked` gains `cause`; new events `proposal.filed` and `proposal.closed`; errors `story.notSteerable` and `story.dirtyWorktree`.
-- 2026-10-18, DIPO-198 (maintainer): section 7, a contract minor (additive). `daemon.status` gains an optional build commit (the commit the binary was built from, with a `-dirty` suffix for a dirty tree) and, per loaded office whose repository holds that commit, an optional count of the base commits after it that change files under `packages/`. Reason: a merged prompt or engine change reaches workers only after the binary is rebuilt, and a dev build's version is the same for every commit (DIPO-184's prompt rule, 2026-10-17).
-- 2026-10-18, DIPO-137 (maintainer): section 7, a contract minor (additive). New read `work.prompt { office, run, agent }`: the prompt texts dipo stored for one agent session (the system file and the first message; a resume has only its first message), or that none is stored (`privacy.storePrompts` off, or removed by the tier R retention).
-- 2026-10-20, DIPO-136 (maintainer): section 4. `office.setPrivacy { office, key, value }` (0007 section 8) is marked `confirm: true`, so every client asks before it changes a privacy setting, not only the TUI: turning storage on widens what dipo keeps on disk, and what was stored stays after it is turned off again. It is not `irreversible`.
-- 2026-10-22, DIPO-124 (maintainer): section 8, an entry that does not render. `appendEntries` refuses an entry whose rendered data does not parse, so the writing transaction fails and nothing is stored. An entry an older binary stored that does not render is logged and sent at its own cursor as `engine.notice { level: "error", code: "changelog.unrenderable" }`; replay moves past it, seqs stay gap-free, and `stream.resetRequired` keeps its meaning (a cursor too old or of another epoch). The fact is missing from the stream; reopening the office, or a reconnect after `stream.resetRequired`, shows the current state. Only a render failure becomes that notice; any other error still closes the stream.
-- 2026-10-22, DIPO-308 (maintainer): section 7 and the 2026-10-10 line from decision 0009, a contract minor (additive). `office.digest` takes `since` as optional; without it the engine uses the time the office's last TUI client disconnected, which it stores per office in its database.
-- 2026-10-22, DIPO-309 (maintainer): section 4, a contract minor (additive). `test.start` accepts a story In Review (phase `review`, `test` or `merge`) with at least one manual test-plan entry, flagged or not, and refuses any other status with the new code `test.notInReview`. Its reply's `checkout` is the test box's name, and the reply gains optional `url` and `shell` (the `dipo test shell <ID>` line). A story has at most one open test; several stories may each have one.
+- Contract major and minor versions, capability flags and provisional commands (2026-10-10). Replaced by one contract version per binary (2026-10-24), because client and daemon ship together.
+- A random epoch in every cursor and a replay floor (2026-10-10). Gone with backups and restore (0007, 2026-10-24). A cursor beyond the last seq asks for a reset.
+- A 24-hour idempotency table for every command, a waiting path for slow commands, and a crash-injection test per command (2026-10-10, 2026-10-17). Replaced by target-state commands plus stored replies for run commands only (2026-10-24).
+- A browser listener on 127.0.0.1 with a bootstrap code, session tokens, an `auth` frame and DNS-rebinding checks (2026-10-10). Never used; removed until a web client is planned (2026-10-24).
+- A `confirmed` flag for a conversation layer (2026-10-10). It returns with M5.
+- Story identity after a database loss matched by frozen branch, then created date (2026-10-10). Replaced by: a vanished id is Removed, a new id is a new story (2026-10-24).
+- `work.pause`, `work.reassign`, `work.stop`, `story.hold`, `office.purge`, `daemon.webBootstrap`, `office.usage` and the `office.switch` alias. Replaced by `story.park` (0020), or removed.
+- A crash-loop `safe` state, a held `recovering` state with crash markers and `needsCheck`, and a minute-by-minute lock self-check (2026-10-10 to 2026-10-16). Replaced by the plain states of section 16 (2026-10-24).
+- A PID lock broken by rename-and-verify with a `link()` restore and a stale-break window re-check (2026-10-10). Replaced by the plain lock of section 15 (2026-10-24).
+- Follow-only worker hosts, a verified-SIGTERM protocol for them, and a `launch.json` claim and rename protocol for pending hosts (2026-10-15). Replaced by re-attach or park (2026-10-24).
+- Linux support: systemd units and scopes, `systemd-inhibit`, lingering checks (2026-10-10). macOS only (0004, 2026-10-24).
+- Auto-restart on upgrade (`daemon.autoRestartOnUpgrade`, default off). Removed; `dipo daemon restart` is the way (2026-10-24).

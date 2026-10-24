@@ -1,302 +1,135 @@
 # 0017 Testing strategy and configuration format
 
-Status: accepted (spike DIPO-14, maintainer approval 2026-10-10, privacy keys decided 2026-10-11). Amends 0005, 0007 and 0016 (see "Amends").
+Status: accepted. First written 2026-10-10 (spike DIPO-14). Rewritten 2026-10-24 for the simplified design. The research behind the rewrite is in `docs/research/2026-10-24-simplification-audit.md`.
 
-## Context
+## Decision in short
 
-Decision 0003 requires tests and a verify command from the first line of code. Decision 0004 fixes the tools: TypeScript on Bun, zod 4, `bun test` with only the `describe`/`it`/`expect` subset, and one verify command (`format:check && lint && typecheck && bun test`) used locally, by workers and in CI. That composition stays as it is.
+- **Tests never call Claude.** They replay recorded Claude Code sessions through the real adapter.
+- **Tests use real tools.** git and the Backlog CLI run for real in temporary directories.
+- **Tests stay deterministic.** Time and ids are injected.
+- **Configuration** is YAML in `.dipo/`, validated by strict zod schemas. It holds only keys that code reads, and every key has a default.
 
-Two problems are specific to this project:
-
-1. **The engine drives Claude Code.** A test that starts a real `claude -p` costs tokens, needs the maintainer's Max login, is slow and gives different output each time. The engine must still be tested on the paths that matter most: parking, budget overruns, crashes and permission waits.
-2. **The engine drives git and Backlog.md.** Branches, worktrees and task files are the product's core facts (0001). Mocks of git would hide the failures we care about.
-
-The office also needs one configuration format (0011): tiers mapped to model, budget and loop cap, timeouts and script overrides now, role files later (M4).
-
-Ownership: 0007 (DIPO-4) owns the state database and the on-disk layout, 0008 (DIPO-5) the Worker contract, the budget unit and what tiers map to, 0013 (DIPO-9) what a script override means, 0009 (DIPO-6) whether Ink render tests run under `bun test`, 0014 (DIPO-10) the token-savings measurement, 0016 (DIPO-13) CI and the release flow. This ADR owns the test layers, the fake worker and its recordings, and the configuration file format, location, validation and versioning.
-
-### Verified facts about Claude Code output (2026-10-10)
-
-- `claude -p --output-format stream-json` writes one JSON object per line. `--verbose` is used with it; `--include-partial-messages` adds `stream_event` lines; `--include-hook-events` adds hook lifecycle events (`hook_started`, `hook_progress`, `hook_response`). `SessionStart` and `Setup` hook events are always included; `Notification`, `SessionEnd`, `PreCompact` and `PostCompact` never produce `hook_started` [1][2].
-- Message types include `system` (`init`, `api_retry`, `permission_denied`, `compact_boundary` and others), `assistant`, `user`, `stream_event` and a final `result` [1][4].
-- `system/init` carries `session_id`, `claude_code_version`, `cwd`, `model`, `tools`, `mcp_servers`, `plugins`, `permissionMode` and an optional `capabilities` list for feature detection [1][4].
-- `result` has `subtype` `success`, `error_max_turns`, `error_during_execution`, `error_max_budget_usd` or `error_max_structured_output_retries`, plus `is_error`, `num_turns`, `duration_ms`, `duration_api_ms`, `total_cost_usd`, `usage`, `modelUsage` (per model), `permission_denials` and `terminal_reason` [4].
-- Usage: each `assistant` message has `message.id` and `message.usage` (`input_tokens`, `output_tokens`, `cache_creation_input_tokens`, `cache_read_input_tokens`). Parallel tool calls share one id, so usage is counted once per id. Per-message `output_tokens` is a placeholder; real output counts arrive in `message_delta` stream events and in the result. Result `usage` excludes subagents; `modelUsage` and `total_cost_usd` include them. On `error_max_budget_usd`, `usage` leaves out the response that crossed the cap. A crash result may carry zeroed totals [5].
-- `--permission-prompts none` denies anything that would prompt; denials appear as `system/permission_denied` and in `permission_denials` [1][2]. Hook input always has `session_id`, `transcript_path`, `cwd`, `hook_event_name`; the `Notification` hook has matchers such as `permission_prompt`, `idle_prompt` and `agent_needs_input`; there are `PermissionRequest` and `PermissionDenied` events [3].
-- SIGTERM ends the run with exit 143 and no result for the open turn. SIGINT ends the turn first [1].
-- `--max-turns` and `--max-budget-usd` are print-mode caps; spend can pass the budget cap [2]. 0008 passes `--max-turns` only as a backstop and never passes `--max-budget-usd`; the budget is in tokens and enforced by the engine.
-
-### Verified facts about Bun and config parsing (local probes on Bun 1.3.5 and on 1.4.2, the version 0004 pins)
-
-- Bun imports `.toml`, `.yaml`, `.jsonc` and `.json5` files natively [6]. Runtime APIs on 1.4.2: `Bun.YAML.parse`/`stringify`, `Bun.TOML.parse`/`stringify`, `Bun.JSONC.parse`, `Bun.JSON5.parse`/`stringify`. Bun 1.3.5 had only `Bun.TOML.parse` and `Bun.YAML.parse`/`stringify` [13].
-- `Bun.YAML.parse` follows YAML 1.2 (`no: no` and `on: yes` stay strings), throws `SyntaxError` on invalid input, returns an array for a multi-document file, and resolves anchors and `<<` merge keys silently [7][13].
-- `Bun.YAML.stringify` drops comments (parsing to an object loses them) and by default writes everything in flow style on one line (`{version: 1,tiers: {...}}`); block style needs an indent argument [13].
-- `bun test` finds `*.test.*`, `*_test.*`, `*.spec.*`, `*_spec.*` and skips hidden directories. CLI path filters are substring matches. `bunfig.toml` `[test]` supports `root`, `preload`, `pathIgnorePatterns`, `randomize`, `seed`, `retry` and others [9][10]. `bun test --timeout=<ms>` sets the per-test timeout, default 5000 ms [13].
-- `setSystemTime` fixes `Date.now` and `new Date()` in `bun:test`; the docs do not say that `setTimeout` is faked [8].
-- A test file whose `describe` is registered only when an environment variable is set passes cleanly without it, on both 1.3.5 and 1.4.2 (`Ran 1 test across 2 files`, exit 0; with the variable, 2 tests) [13].
-
-## Options
-
-### Testing
-
-- **A. Real Claude in tests.** Most realistic. Costs tokens, needs a login, cannot run in CI, nondeterministic. Rejected for any automated layer.
-- **B. Hand-written fake events at the Worker interface.** Cheap and deterministic, but tests our own idea of Claude's output, not its real output. Adapter parsing is untested.
-- **C. Replay recorded stream-json sessions through the real adapter.** Deterministic and free, tests the real parser against real output. Needs a capture and refresh process. Chosen, with B allowed for engine tests that do not care about Claude.
-
-For git and Backlog.md: mocking the `git` and `backlog` binaries was rejected. Both are fast enough to run for real in temporary directories.
-
-### Configuration format
-
-| Criterion | YAML | JSON / JSONC | TOML |
-|---|---|---|---|
-| Human editing, nesting for tiers and roles | Good; indentation errors possible | Noisy braces and quotes | Good for flat keys, awkward for nested lists |
-| Comments | Yes | JSON no, JSONC yes | Yes |
-| Bun 1.4.2 runtime parse | `Bun.YAML.parse` (YAML 1.2) | `JSON.parse`, `Bun.JSONC.parse` | `Bun.TOML.parse` |
-| Bun 1.4.2 runtime write | `Bun.YAML.stringify` (drops comments, flow style by default) | `JSON.stringify` (drops comments) | `Bun.TOML.stringify` (comments lost on parse) |
-| Comment-preserving rewrite | `yaml` library document API [11] | None in Bun | None in Bun |
-| Frontmatter for role files (prose plus metadata) | Common convention; Backlog.md task files in this repo use it | Rare | Rare (`+++`) |
-| Ecosystem fit | `backlog/config.yml` is YAML | `tsconfig`, `.oxlintrc.json` | `bunfig.toml` |
-| Editor completion from zod | JSON Schema via yaml-language-server | JSON Schema native | Tool support uneven |
-| Pitfalls | Implicit types (reduced in 1.2), anchors | Trailing commas, no comments | Arrays of tables |
-
-## Decision
+## Part 1. Testing
 
 ### 1. Test layers
 
-All layers are plain `bun test` files using `describe`/`it`/`expect`. No snapshot API: golden files are compared with `toEqual` and rewritten only when `DIPO_UPDATE_GOLDEN=1` is set.
+All tests are plain `bun test` files using `describe`, `it` and `expect`. Golden files are compared with `toEqual`, and rewritten only with `DIPO_UPDATE_GOLDEN=1`.
 
-| Layer | Covers | Location | Runs in |
-|---|---|---|---|
-| **Unit** | Pure logic: Ready gate, batch selection, branch and slug derivation, park-reason mapping, budget arithmetic, config parse, validation and migration, stream-json line parser, scrubber | next to source, `*.test.ts` | verify |
-| **Contract** | zod schemas for commands and events: example fixtures parse, old fixtures still parse (compatibility), the generated JSON Schema files are current; every recording parses with the adapter schema | `packages/contract/test/`, `packages/engine/test/contract/` | verify |
-| **Engine** | The engine as one unit with the fake worker, a real `dipo.db` in a temporary `<state>` directory (0007), an injected clock and id source, and real temporary git and Backlog.md fixtures where the scenario touches them. Asserts on emitted events, park reasons, database facts and git state | `packages/engine/test/engine/` | verify |
-| **Integration** | Our wrappers around external tools on real temporary repositories: git (branches, worktrees, dirty trees, conflicts, existing branch), Backlog CLI (create, edit, status, parse output), repository scan (0013), daemon and client over a real Unix socket | `packages/*/test/integration/` | verify; slow ones CI only |
-| **TUI** | Ink components rendered from golden event logs produced by engine tests, via `ink-testing-library`. Client side only; no daemon | `packages/tui/test/` | verify (tooling confirmed by the first `tui` story, 0009) |
-| **Live** | Real `claude -p` runs: recording capture, and the live smoke run by the maintainer | `tools/recordings/` scripts, not test files | never automated; the live smoke run is a required release gate |
+| Layer | Covers | Where |
+|---|---|---|
+| Unit | Pure logic: the Ready gate, selection, slugs, caps, config parsing, the stream parser, the scrubber | Next to the source, `*.test.ts` |
+| Contract | The zod schemas: fixtures parse, old fixtures still parse, the generated JSON Schema files are current, every recording parses | `packages/contract/test/`, `packages/engine/test/contract/` |
+| Engine | The engine as one unit, with the fake worker, a real `dipo.db` in a temporary state directory, an injected clock and ids, and real git and Backlog fixtures | `packages/engine/test/engine/` |
+| Integration | Our wrappers on real temporary repositories: git, the Backlog CLI, the scan, the daemon and client over a real socket, the box backend on macOS | `packages/*/test/integration/` |
+| TUI | Ink components rendered from golden event logs | `packages/tui/test/` |
+| Live | Real Claude: capturing recordings, and the maintainer's live smoke run before a release (0016) | `tools/recordings/`, never a test file |
 
-The compile smoke test of the binary stays in CI outside `bun test` (0004, 0016 rule 1).
-
-**Verify versus CI only, inside `bun test`.** CI-only files are named `*.ci.test.ts` and register their `describe` only when `DIPO_TEST_CI=1`:
-
-```ts
-if (process.env.DIPO_TEST_CI === "1") {
-  describe("daemon survives client exit", () => { /* ... */ });
-}
-```
-
-CI sets `DIPO_TEST_CI=1` and runs the same `bun run verify`. Local verify and workers skip those files. A test goes CI only when it is slow (budget: the whole local `bun test` under about 60 seconds, confirmed by the maintainer), needs process lifecycles that are timing sensitive (detached daemon, kill and restart), or needs a platform matrix. Correctness rules never go CI only.
-
-**Timeouts.** The Bun default of 5000 ms per test stays for unit, contract, engine and TUI tests. A slower integration test sets its own limit with the third argument of `it(name, fn, timeoutMs)`, which is part of the 0004 subset and works the same in other runners. No global `--timeout` is added to verify; if CI runners prove slower, CI may pass `bun test --timeout` without changing the verify composition. A raised timeout never lifts the 60-second total budget.
-
-**Test plans.** A story's test plan (0012) names its automated entries in terms of these layers (for example "engine: hold parks with `on-hold`"). Manual entries follow the manual test flow of 0002.
-
-**Live smoke run before every release (required).** A release waits until the maintainer confirms that one live run worked. Before merging the release-please release PR (the first of the two release gates in 0016 rule 12), the maintainer builds `dipo` from the release PR's head with `bun scripts/build.ts` (0016 rule 1), does one live run (a story taken end to end against real Claude on the Max login), and confirms the result on the release PR. Without that confirmation the release PR is not merged. The run is never automated: CI has no Claude login and no automated layer calls Claude. Before `v0.1.0` (0016 rule 3) there is nothing to release, so the gate first applies to the first real release.
+- **CI-only tests.** Files named `*.ci.test.ts` register their tests only when `DIPO_TEST_CI=1`, which a lint rule checks. CI sets it. Local `bun test` stays under about 60 seconds, and a slow or timing-sensitive test goes CI only. Correctness rules never go CI only.
+- **Timeouts.** Bun's default per-test timeout stays. The CI command passes each test's CI timeout on the command line. A slow test sets its own with `it(name, fn, ms)`.
+- **Isolation from the live daemon.** Every test process carries `DIPO_TEST=1`, and its own `DIPO_HOME` and `DIPO_RUNTIME_DIR` under `DIPO_TMP` (fallback `/tmp`), from `packages/testkit/src/test-env.ts`. With that marker, dipo refuses the maintainer's real state, log and runtime folders. Temp paths stay short, because a socket path must fit 104 bytes.
 
 ### 2. The fake worker
 
-The fake replaces the **subprocess**, not the adapter. The platform module's spawn is injectable (0004). In tests it returns a fake process whose stdout, stderr, exit code and signal come from a recording. The real Claude CLI adapter (0008) parses it and the real engine reacts. This tests parsing, event mapping and engine behaviour against real Claude output.
+The fake replaces the **subprocess**, not the adapter. The platform module's spawn is injectable. In tests it returns a process whose output and exit come from a recording, the real Claude adapter parses it (0008), and the real engine reacts. For engine tests that need no Claude detail, a `ScriptedWorker` emits worker events directly. A contract test checks that every script could come from a recording.
 
-For engine tests that need no Claude detail, a `ScriptedWorker` implements the Worker interface directly from a short list of Worker events. It must never emit something the adapter could not produce from a recording; a contract test checks each script against the adapter's event schema.
+**Recordings.** One directory per scenario: `packages/engine/test/recordings/claude-cli/<scenario>/`, holding `stream.jsonl` and `meta.json`.
+- Each line of `stream.jsonl` is `{ t, ch: stdout | stderr | hook | exit, data }`.
+- `meta.json` holds the Claude Code version, the flags, the capture date, the prompt's size and hash (never the prompt), the expected outcome, and `synthetic` or `derivedFrom` when the recording was not captured live.
 
-**Recording format.** One directory per scenario:
+**Replay.** The fake advances the injected clock by the recorded time steps instead of sleeping. SIGINT jumps to the recorded tail, and SIGTERM ends with exit 143 and no result.
 
-```
-packages/engine/test/recordings/claude-cli/<scenario>/
-  stream.jsonl   # one line per observed item, in arrival order
-  meta.json      # how it was made and what it should cause
-```
+**Scenarios** cover what the engine decides from a session's output:
+- success, with tools and subagents;
+- the CLI's turn backstop and the engine's token cap;
+- an interrupt, a SIGTERM, a stream cut mid-line, zeroed crash totals;
+- a rejected plan limit and an API retry;
+- `apiKeySource` not `none`, and an unplanned model;
+- a start failure (auth, billing, start-up), an invalid report, a prompt that is too long;
+- a stall, a compaction, a blocked report with a question;
+- stream drift.
 
-Each `stream.jsonl` line is our envelope: `{ "t": <ms since start>, "ch": "stdout" | "stderr" | "hook" | "exit", "data": ... }`. `stdout` holds one stream-json object, `hook` holds a hook payload received by the adapter's hook relay (0008 section 5), `exit` holds `{ code, signal }`. `meta.json` holds `claude_code_version` (from `system/init`), the flags used, capture date, fixture repo hash, prompt size in bytes and its sha256 (never the prompt), the scenario's expected outcome, and `synthetic` or `derivedFrom` when not captured live.
+Scenarios whose outcome code decides from git, CI or the reviewer are engine tests with a successful recording, not special recordings.
 
-**Replay.** The fake advances the injected clock by the recorded `t` deltas instead of sleeping, so a 20-minute recording replays in milliseconds. Steering is honoured from the recording: on SIGINT the fake jumps to the recorded post-interrupt tail; on SIGTERM it emits `exit` with code 143 and no result, as Claude Code does [1]. Writes to stdin (stream-json input) are recorded by the fake so tests can assert on them.
+**Capture.** `bun run recordings:capture <scenario>` is a dev script, never a test:
+1. It builds a synthetic fixture repository in a temp directory, never a real project.
+2. It runs `claude` with the launch plan the adapter itself builds.
+3. It holds every line in memory, then scrubs it and writes only the scrubbed result. The raw stream never touches disk.
 
-**Scenarios.** Captured live unless marked; derived ones are produced by small transforms in code (`derive.ts`), so they regenerate on every refresh.
+**Scrubbing.** The repository is public, so the scrubber works from an allowlist per channel and message type. It keeps the structural fields, ids, usage numbers and every field the adapter maps to a decision. Every other string becomes `[redacted sha256:<12 hex> len:<n>]`.
+- **Normalised.** Ids become stable placeholders. Paths become `${WORKDIR}`, `${HOME}` and the like.
+- **Unknown types** are redacted whole and reported.
+- **A secret scan** for known token shapes and the real home path aborts the capture on any hit. It also runs as a unit test over every committed recording.
 
-| Scenario | Source | Engine behaviour under test |
-|---|---|---|
-| `success-single` | live | Run completes, usage stored, story advances |
-| `success-tools-subagent` | live | Tool events, `parent_tool_use_id`, usage deduplicated by message id, subagent usage from `modelUsage` |
-| `max-turns` | live, `--max-turns 1` | `error_max_turns` (the CLI backstop) gives outcome `capped` and parks `budget-exceeded` with the turn cap named (0008 section 7) |
-| `budget-engine-cap` | `success-tools-subagent` with a low `budgetTokens` for the tier in test config | Engine sees budget tokens (input + output + cache creation, 0008 section 4) pass the tier's `budgetTokens`, stops the worker, parks `budget-exceeded`, never raises the budget |
-| `permission-denied` | live, with the launch plan's `--permission-prompts none` (0008 section 2) | `system/permission_denied` and `permission_denials` reach the engine as a `denied` signal |
-| `permission-wait` | live, `PermissionRequest` hook relay with a fixture that never answers (0008 section 5) | With the maintainer present: `work.observed input-wait` and `question.asked` (kind permission); after `timeouts.permissionWaitSeconds` the call is denied and the worker continues |
-| `needs-permission` | live once a fixture story can provoke it, else derived from `permission-denied` | Report `blocked` with `needsPermission` parks `needs-permission` with the action as detail, session kept |
-| `interrupt` | live, SIGINT mid-run | Turn ends with a result; steering path works |
-| `terminated` | derived: SIGTERM, exit 143, no result | With no intent recorded the outcome is `crashed`; usage recovered from assistant messages; one resume if budget remains, else park `worker-failed` (0008 section 7) |
-| `crash-truncated` | derived: stream cut mid-line, non-zero exit | Parser survives a partial line; failure recorded, story not lost |
-| `crash-zeroed` | derived: `error_during_execution` with zeroed totals | Usage recovered from earlier messages, not overwritten with zero [5] |
-| `api-retry-rate-limit` | synthetic from documented `system/api_retry` fields, `error: rate_limit` | Signal only: retries shown, `limit` and `waiting plan-limit` give `work.observed plan-limit` (health `limited`, 0008 section 3); no wait fact, no park, the run continues |
-| `plan-limit-rejected` | live if a limit can be hit cheaply, else synthetic: `rate_limit_event` `status: rejected` with `resetsAt` | Outcome `plan-limit`: stdin closed, wait fact `{ scope, resetsAt, since }` written on the run (scope `unknown`, treated as `session`, until a recording shows it), `work.observed plan-limit`; on the injected clock the native session resumes two minutes after `resetsAt` with "continue". Never a park (0008 section 7) |
-| `plan-limit-credits` | synthetic: `rate_limit_event` with `errorCode: credits_required` | Hold, not a park: wait fact with scope `credits`, the run held as paused (stdin closed, session kept), new runs on this adapter held in every office, `engine.notice`; no probe and no retry; `work.resume` lifts the hold (0008 section 7) |
-| `init-rejected` | derived from `success-single`: `system/init` with `apiKeySource` not `none`, and a second variant with an unplanned `model` | Outcome `initRejected`: worker stopped, park `worker-failed`, `engine.notice` (0008 sections 2 and 7) |
-| `start-failed` | derived: `error_during_execution` with `startup_failure_reason`, and variants with assistant `error` `authentication_failed` and `billing_error` | Outcome `startFailed`: scheduling for this adapter stopped in all offices, `engine.notice`, the story stays Ready (0008 section 7) |
-| `report-invalid` | derived: result `error_max_structured_output_retries`, and a variant with a turn that ends without a valid report | No outcome yet: one feedback turn "report in the schema", then park `ambiguous-spec` (0008 section 7, 0014 section 2) |
-| `prompt-too-long` | derived: result with `terminal_reason: prompt_too_long` | No outcome yet: one new session with a 0014 handoff; a second hit parks `budget-exceeded` (0008 section 7) |
-| `stall` | derived: 30-minute gap in `t` | Stall detection fires on the injected clock |
-| `compaction` | live if it can be provoked cheaply, else synthetic | Compaction recorded as an event; usage stays correct |
-| `resume` | live pair: run, then `--resume` | Session resume; resumed totals include earlier spend and are not double counted [5] |
-| `worker-park-ambiguous` | live; the fixture story makes the worker return the structured report (0008 report channel) with `status: blocked` and a fixture-controlled `question` | `question.asked`; with no answer within `timeouts.questionWaitMinutes` the story parks `ambiguous-spec` with the question stored as detail |
+**Refresh** is on demand: after a Claude Code minor update, an adapter drift notice (0008), or a change to the adapter. `bun run recordings:status` lists recordings older than the installed Claude Code.
 
-`verify-failing`, `conflict`, `scope-violation` and `review-blocked` are decided by engine code from git, verify and reviewer results, and `on-hold` by the maintainer's `dipo hold` command. They are engine and integration tests with a successful recording, not special recordings.
+### 3. Real repositories
 
-**Permission waits.** `claude -p` with `--permission-prompts none` (already in the launch plan, 0008 section 2) denies a prompt at once [1], so a plain live run cannot show a wait. 0008 section 5 detects a wait through the engine's `PermissionRequest` hook, which blocks while it asks the maintainer. The capture runs that hook with a fixture that never answers and records the hook relay's `PermissionRequest` payload, plus `session_state_changed requires_action` if it appears (0008 lists it as secondary, to be confirmed live). If that proves impractical, the scenario is derived from `permission-denied` by replacing the denial with a recorded or documented wait payload and a gap in `t`, and is marked derived.
-
-**Safety recordings.** The live checks 0008 asks for before the first M0 adapter story (section 2 backstop list and Consequences: denied `.env` read, blocked writes outside the worktree and to `.git`, refused network and push, `gh auth token` failing in the sandbox (0008 amendment of 2026-10-12), the sandbox self-test, the `srt` policy for install and verify, and the other items listed there) are captured with the same capture tool and scrubber, as scenarios under `packages/engine/test/recordings/claude-cli/safety-<name>/`.
-
-**Capture.** `bun run recordings:capture <scenario>` (a dev script, never a test) does this:
-
-1. Creates a synthetic fixture repository in a temp directory from `packages/engine/test/fixtures/repos/<name>` (fixtures sit with the recordings in `engine`, where the adapter lives, 0004). Never a real project.
-2. Runs `claude` with the launch plan the adapter itself builds (0008 section 2: stream-json input and output, `--verbose`, `--permission-mode default --permission-prompts none`, `--setting-sources project,local`, `--strict-mcp-config`, the run settings file with its hooks and sandbox, `--max-turns` as backstop, no `--max-budget-usd`), plus `--include-partial-messages` and `--include-hook-events` and the scenario's flags, so the recording shows what production sees and the maintainer's user hooks, plugins and MCP servers stay out of the session.
-3. Captures every line with its arrival time, the hook relay's payloads and the exit status into memory.
-4. Scrubs (below) and writes only the scrubbed result. The raw stream is never written to disk.
-
-**Scrubbing.** The scrubber is code with unit tests, and it fails the capture rather than writing anything doubtful. It works from an **allowlist per channel and message type**: for each `ch` and, on `stdout`, each `type`/`subtype` (and each hook event name on `hook`), it lists the structural, id and usage fields that are kept. Every other string, at any depth, is redacted to `"[redacted sha256:<12 hex> len:<n>]"`. A message type or hook event the allowlist does not know is redacted whole, keeping only `type`, `subtype` or `hook_event_name`, and is reported at capture time so the allowlist can be extended in review.
-
-- **Kept as is:** `type`, `subtype`, block types, tool names, `stop_reason`, `is_error`, `parent_tool_use_id` (normalised), `model`, `claude_code_version`, `permissionMode`, `terminal_reason`, `api_error_status`, `startup_failure_reason`, `hook_event_name`, Notification matcher type, exit `code` and `signal`; on `system/init` also `apiKeySource`, `tools` (names) and `capabilities`; on `rate_limit_event` `status`, `resetsAt`, `utilization` and `errorCode`; on `system/api_retry` `error` and its attempt, retry-limit, delay and HTTP status fields; on `session_state_changed` its `state` (`idle`, `running`, `requires_action`); the assistant message `error` category; the `StopFailure` hook's error category; `tool_progress` `heartbeat`; and every usage and numeric field: `message.usage` on assistant messages, `usage` in `message_start` and `message_delta` events, result `usage`, `modelUsage`, `total_cost_usd`, `num_turns`, `duration_ms`, `duration_api_ms`, and `permission_denials` reduced to tool names and ids.
-- **Decision fields are never redacted.** Every enum or flag field that 0008 maps to an outcome, signal, wait, hold or park (sections 2, 3, 5 and 7) is on the allowlist, because a redacted value would change what the engine decides on replay: a redacted `apiKeySource` would make every replay park `worker-failed`. When 0008 maps a new field, the allowlist gains it in the same change. A unit test replays every committed recording through the adapter and asserts that none of these fields holds a redaction marker.
-- **Always redacted (examples, not an exhaustive list, since anything not allowlisted is redacted):** user message text, assistant `text` and `thinking` blocks, text deltas, `tool_use.input`, tool results, `result.result`, `structured_output` (except the report exemption below), `errors` text, every `stderr` line, and hook payload strings such as `UserPromptSubmit` `prompt`, `tool_input`, `tool_response`, the `Notification` `message` and the `Stop` `last_assistant_message`.
-- **Identifiers normalised:** `session_id`, `uuid`, `prompt_id`, message ids and tool use ids map to stable placeholders (`session-1`, `msg-3`), consistently within a recording so deduplication by message id still works.
-- **Paths normalised:** the temp directory, home directory, `cwd`, `transcript_path` and `scratchpad_dir` become `${WORKDIR}`, `${HOME}`, `${TRANSCRIPT}` and `${SCRATCHPAD}`.
-- **Report exemption:** the worker reports through the structured report (0014 section 2, "What each prompt receives"; 0008 report channel: `--json-schema` with `structured_output` on the result, or 0008's fallback if per-turn behaviour does not hold). Its `status` and the `question` and `needsPermission` fields get explicit allowlist entries in that channel so engine tests can assert on the stored text; the rest of the report stays redacted. It is safe only because the recording's fixture story makes the worker report fixed, fixture-controlled text; the secret scan still runs over it.
-- **Secret scan:** after scrubbing, the output is scanned for known token shapes (`sk-ant-`, `ghp_`, `github_pat_`, AWS keys, `Bearer `, private key headers) and for the real home path. Any hit aborts the capture. The same scan runs as a unit test over every committed recording, so a hand-edited recording cannot add a secret.
-
-**Usage for 0014's measurement.** Recordings keep all usage fields listed under "kept as is", plus prompt size and hash in `meta.json`. A unit test asserts that scrubbing changes no usage number (raw and scrubbed usage compared during capture and stored as a checksum). 0014's measurement code is tested against these recordings; the measurement itself runs on real stories and its results live in the state database (0007). Tests assert on behaviour (events, park reasons, which usage fields were read), not on exact token counts, except tests of the usage arithmetic, which read the expected numbers from the recording itself.
-
-**Storage and refresh.**
-
-- Recordings are plain `.jsonl` in git, small (target under 200 KB each) and reviewable in a diff.
-- Refresh is on demand only, with no fixed schedule (maintainer decision). It is a normal story: run `recordings:refresh` (captures all live scenarios and regenerates derived ones), commit, and let the reviewer check the diff. Triggers: a Claude Code minor version change on the maintainer's machine, an adapter parse warning in production, or a change to the Worker contract or Claude CLI adapter (0008).
-- The adapter parses with zod schemas that are strict on fields we use and tolerant of unknown message types and fields. Unknown types are logged once per run, so drift shows up in real runs before tests notice.
-- `bun run recordings:status` (dev script) compares the local `claude --version` with each recording's `claude_code_version` and lists stale ones, so the maintainer sees when a refresh is due. It is not a test, because tests must not depend on installed binaries other than git and the pinned Backlog CLI.
-- Synthetic recordings are allowed only where live capture is impractical, are marked `synthetic: true`, and cite the doc they were built from.
-
-### 3. Integration on real repositories
-
-- **Fixtures:** `withTempRepo(fn)` creates a directory under a short temp path (`/tmp/dipo-XXXX`; macOS limits Unix socket paths to about 104 bytes), runs `git init -b main`, applies a fixture tree, and removes it in a `finally` unless `DIPO_TEST_KEEP=1`. Helpers use `try`/`finally` inside `it`, so no hooks beyond the 0004 subset are needed.
-- **Isolated git:** every git call in tests runs with `GIT_CONFIG_GLOBAL=/dev/null`, `GIT_CONFIG_NOSYSTEM=1`, `HOME` set to the temp directory, fixed author and committer name, email and dates, and no signing. The maintainer's global git config, hooks and signing never affect a test.
-- **Worktrees:** created through the same engine code the product uses (0010), inside the temp repo, so cleanup removes them. Tests cover worktree creation on an existing branch, a dirty worktree, a missing gitignored env file (vision section 7) and removal.
-- **Remote:** a bare repository in the temp directory acts as `origin`, so push and fetch are real with no network.
-- **Backlog.md:** the `backlog.md` npm package is a pinned devDependency (1.53.0 at the time of writing [12]), so `bun install` provides the CLI and every machine runs the same version. A fixture project generated once by that CLI is checked in under `packages/engine/test/fixtures/backlog/` (the Backlog.md wrapper lives in `engine`, 0004); tests copy it and then change tasks only through the CLI, as the product does. The fixture is regenerated when the pin changes. Together with 0010 (Backlog.md and git contract, which supports Backlog.md 1.53.x) and 0012 (story standard), which own the behaviour, the fixture and integration tests cover at least: creating a draft with a temporary `DRAFT-n` id and promoting it at refine to a native id, with references to it rewritten; a story whose test plan field has automated and manual entries; a story whose test plan is not-applicable with a reason; and a story put on hold by hand.
-- **Environment:** tests run with a cleaned environment: no `ANTHROPIC_*`, `CLAUDE_*` or `GH_*` variables, no network.
+- **Temp repositories.** `withTempRepo` creates a repository under a short temp path, applies a fixture tree, and removes it afterwards unless `DIPO_TEST_KEEP=1`.
+- **Isolated git.** Every git call in tests runs with `GIT_CONFIG_GLOBAL=/dev/null`, `GIT_CONFIG_NOSYSTEM=1`, `HOME` set to the temp directory, fixed authors and dates, and no signing.
+- **A real remote.** A bare repository in the temp directory is `origin`, so push and fetch are real, with no network.
+- **The Backlog CLI** is the pinned `backlog.md` devDependency. A fixture project generated by that CLI is checked in, and tests change it only through the CLI, as the product does.
+- **A clean environment.** Tests run with no `ANTHROPIC_*`, `CLAUDE_*` or `GH_*` variables and no network.
 
 ### 4. Determinism
 
-- **Clock:** the engine reads time only through an injected `Clock` (`now()`, timers). Tests use a manual clock that the fake worker advances. A lint rule bans `Date.now`, `new Date()` without arguments and global timers outside the platform module (oxlint `no-restricted-globals`/`no-restricted-syntax`, or a grep test if oxlint cannot express it). `setSystemTime` is only a backstop for library code.
-- **Ids:** an injected `IdSource`. Production uses sortable random ids; tests use sequential ids (`run-0001`). Recording ids are already placeholders.
-- **Temp dirs and sockets:** one per test, never shared, never in the repository.
-- **Order:** tests may not depend on order. `bunfig.toml` sets `randomize = true`; an order failure is pinned down with `--seed` while debugging.
-- **No retries** to hide flakiness: `retry` stays 0. A flaky test is a bug.
+- **Time.** The engine reads time only through an injected `Clock`, and a lint rule bans `Date.now`, `new Date()` and global timers outside the platform module.
+- **Ids** come from an injected `IdSource`; tests use sequential ids.
+- **Order.** `bunfig.toml` sets `randomize = true`, and `retry` stays 0: a flaky test is a bug.
 
-### 5. Configuration format: YAML
+## Part 2. Configuration
 
-**YAML 1.2, parsed with `Bun.YAML.parse` behind the platform module, validated with zod** (chosen by the maintainer over TOML). Reasons: comments and readable nesting for hand editing, a built-in parser on our runtime, the same format as Backlog.md's `config.yml`, and YAML frontmatter is the natural shape for role files, which are mostly prose instructions plus a little metadata. One format covers both. TOML is the runner-up: Bun 1.4.2 parses and writes it, but it is unusual as role frontmatter and has no comment-preserving writer. JSON lost on comments; JSONC is parseable on 1.4.2 but noisy to edit and has no comment-preserving writer either.
+### 5. Format and files
 
-Mitigations for YAML's pitfalls: YAML 1.2 removes most implicit booleans; zod rejects wrong types with the key path; a file must hold exactly one document (`Bun.YAML.parse` returns an array for several, which validation rejects). Anchors and merge keys are resolved by the parser before validation, so they cannot be detected afterwards; the docs discourage them and the result is still validated.
-
-**Location in the repository:** the folder `.dipo/` at the repository root (maintainer decision), matching the command name.
+YAML 1.2, parsed with `Bun.YAML.parse` behind the platform module and validated with zod. YAML gives comments, readable nesting, the same format as Backlog.md's `config.yml`, and the natural frontmatter for role files (M4).
 
 ```
 <repo>/.dipo/
-  office.yaml        # office configuration, version 1 (committed)
-  roles/<name>.md    # role files from M4: YAML frontmatter + instructions (committed)
-  .gitignore         # one line: office.local.yaml (committed, 0007)
-  office.local.yaml  # optional, machine-specific overrides; never committed
+  office.yaml        # the office's configuration (committed)
+  roles/<name>.md    # role files from M4: YAML frontmatter plus instructions
+  .gitignore         # office.local.yaml
+  office.local.yaml  # machine-local; never committed
+<state>/config.yaml  # software settings: daemon.autostart, spend alerts (0005, 0009)
 ```
 
-`office.yaml` holds tiers (model, effort, token budget, turn and time caps, loop cap per tier), worker and permission settings, timeouts, worktree setup and script overrides. The keys and their meaning belong to the ADRs that own them (0008 tiers, `worker`, `permissions` and `timeouts`; 0009 health thresholds; 0010 `base`, the remote and `worktree` (`root`, `files`, `ports`, `env`, `post_create`); 0012 story-standard settings (type list, tier set, banned phrases and the length thresholds for title, outcome, criterion and slug, whose key names the Ready gate story fixes); 0013 scripts; 0014 `prompt.budgets` and `prompt.contractMax`); this ADR only fixes the shell. A sample, with values from 0008:
+A sample `office.yaml`. Every key is optional and has a default; the keys and their meaning belong to the ADRs named in the comments.
 
 ```yaml
 # yaml-language-server: $schema=https://<release-url>/office.schema.json
-version: 1
-tiers:                                          # caps from 0008 section 9; budgets in tokens
-  S: { model: haiku,  effort: low,    budgetTokens: 300000,  maxTurns: 60,  maxMinutes: 30,  loops: 3 }
-  M: { model: sonnet, effort: medium, budgetTokens: 800000,  maxTurns: 120, maxMinutes: 60,  loops: 5 }
-  L: { model: opus,   effort: high,   budgetTokens: 2000000, maxTurns: 200, maxMinutes: 120, loops: 8 }
-worker: { adapter: claude-cli }
-permissions: { ask: when-present }
-timeouts: { workerStallMinutes: 20, workerQuietMinutes: 3, questionWaitMinutes: 15, permissionWaitSeconds: 300 }
-scripts:
-  verify: bun run verify                        # meaning from 0013
+version: 14
+tiers:            # 0008
+  S: { model: haiku,  effort: low,    budgetTokens: 300000,  maxTurns: 90,  maxMinutes: 45,  loops: 3 }
+  M: { model: sonnet, effort: medium, budgetTokens: 800000,  maxTurns: 200, maxMinutes: 90,  loops: 5 }
+  L: { model: opus,   effort: high,   budgetTokens: 2000000, maxTurns: 300, maxMinutes: 180, loops: 8 }
+review: { model: opus, effort: high, maxRounds: 3, maxTurns: 60, maxMinutes: 30, budgetTokens: 200000 }  # 0002
+caps: { ciAttempts: 2, conflictAttempts: 2 }                       # 0002
+merge: { autoMerge: true, holdLabels: [] }                         # 0002
+box: { files: [], localPorts: [] }                                 # 0008
+scan: { model: sonnet, effort: low, budgetTokens: 100000, maxMinutes: 5 }  # 0013
+story: { bannedPhrases: [...], securityPhrases: [...] }            # 0012
+prompt: { contractMax: 12000 }                                     # 0014
+base: main                                                         # 0010
+scripts: { verify: bun run verify }                                # 0013
 ```
 
-A role file has frontmatter with `version`, `name`, `purpose`, `tools`, `model`, `effort` and optional tier overrides; the Markdown body is the instructions. The fields are confirmed in M4.
+### 6. Precedence and validation
 
-**Machine-local, never committed:** the state database, logs, sockets, run knowledge from scans (0011 item 8) and `.dipo/office.local.yaml`. 0007 places the runtime files: all offices share `<state>/dipo.db` (office list and run profile included), raw run files live in `<git-common-dir>/dipo/`, and logs and sockets stay where 0006 put them. So:
+- **Precedence**, lowest to highest: built-in defaults, then `office.yaml`, then the allowlisted keys of `office.local.yaml`, then flags on a single command. Objects merge per key, and lists and scalars replace. There is no user-level layer, because offices are isolated.
+- **The local file** accepts only `timeouts.*`, `privacy.*` and `retention.*`. `privacy.*` and `retention.*` are accepted only there: in the committed file they are an error that names the key and points to the local file.
+- **Strict schemas.** `z.strictObject` turns an unknown key into an error that names the file, the key path and "this key may need a newer dipo". An office with an invalid file starts no new runs and shows the error; other offices are unaffected.
+- **When config is read.** At daemon start, on `office.reloadConfig`, and whenever a fetch changes the file on the base. A run keeps the configuration snapshot it started with (`runs.config_hash`, 0007).
+- **JSON Schema.** The schemas are exported to `office.schema.json` and `config.schema.json` for editor completion. A contract test fails when the committed files differ from the export.
 
-- No runtime file lives under `.dipo/`, and the office list is a table in `dipo.db`, outside every repository.
-- `.dipo/.gitignore` holds one line, `office.local.yaml`. Office init adds it only if absent, through the office-init backlog PR, and `office uninstall` removes it the same way (0007, 0010), additively and removably (research idea 12).
-- Each run stores a hash of its effective configuration (`runs.config_hash`, content in `config_snapshots`) plus which local override keys were active (0007), so a run can be traced to the configuration it used.
+### 7. Versioning
 
-**Precedence.** The committed `office.yaml` describes the office. `office.local.yaml` stays, limited to an allowlisted set of machine-specific keys (maintainer decision): `timeouts.*`, `privacy.*` and `retention.*`. `privacy.*` (opt-ins, off by default) and `retention.*` (periods) are machine-local by 0007 and are accepted **only** in `office.local.yaml` (maintainer decision 2026-10-11): in the committed `office.yaml` either prefix is a validation error that names the key and points to `.dipo/office.local.yaml`. `timeouts.*` may appear in both files. Any other key in `office.local.yaml` is a validation error. Order, lowest to highest: built-in defaults < `.dipo/office.yaml` < allowlisted keys from `.dipo/office.local.yaml` < flags on a single command; for `privacy.*` and `retention.*` it is built-in defaults < `.dipo/office.local.yaml`. Objects merge per key; lists and scalars replace. There is no user-level layer for office settings, because offices are isolated (0011). The overview shows when a local override is active.
+- Every file has a required integer `version`. A file newer than the binary is refused with "upgrade dipo".
+- **One reset to version 14.** It keeps only the keys code reads, and gives every key a default. One migration takes any file from versions 1 to 13 to version 14, and drops retired keys with a warning that names them.
+- **After version 14,** adding a key with a default needs no version bump. A version changes only when a key's meaning or shape changes, and then a pure migration function from the previous version comes with it, tested on fixture files.
+- **Rewriting a file.** Only `dipo config migrate` rewrites a configuration file. It uses the `yaml` library's document API, which keeps comments, and the change shows as a normal git diff.
 
-**Validation.** Every file is validated with `z.strictObject` schemas, so unknown keys (typos) are errors. Errors name the file, the key path and the expected type. An office with invalid configuration refuses to start new runs and shows the error; other offices are unaffected; running workers keep the configuration they started with. Configuration is read at daemon start and on an explicit reload command, never mid-run. The reload command is a minor addition to 0005's command model (a new command under 0005 section 11); the CLI story names it.
+## Replaced
 
-**JSON Schema.** The zod schemas are exported with `z.toJSONSchema` to `office.schema.json` and `role.schema.json`, shipped with each release for editor completion. A contract test fails when the committed schema files differ from the export.
-
-**Versioning and migration.**
-
-- Every file has a required integer `version`. Each version has its own zod schema.
-- Migrations are pure functions `vN -> vN+1` in code, chained, each with unit tests from fixture files.
-- On load an older file is migrated in memory and works, with a warning naming `dipo config migrate` (a new CLI command, a minor addition to 0005's command model; the CLI story fixes its final name). That command is the only thing that rewrites a configuration file; it uses the `yaml` package's document API, which keeps comments [11], and the change shows up as a normal git diff for review. `Bun.YAML.stringify` is not used on hand-edited files because it drops comments and defaults to flow style [13].
-- A file with a newer `version` than the binary knows is refused with a message to upgrade `dipo`. No guessing.
-- Breaking a schema without a migration is a review-blocking finding.
-
-## Consequences
-
-- No automated test calls Claude or needs a login; verify runs anywhere with Bun and git.
-- The adapter is tested against real Claude output, so format drift shows up when recordings are refreshed, not first in an overnight run.
-- Recordings need upkeep: a refresh story after notable Claude Code updates, using the maintainer's subscription for a few cheap runs.
-- Some failure paths (rate limits, crashes) rest on synthetic or derived recordings and are only as accurate as the docs they cite.
-- Real git and Backlog CLI in tests make the suite slower than mocks; the 60-second budget and the CI-only split keep verify usable.
-- The Backlog CLI becomes a pinned devDependency of this repository.
-- Injected clock and ids add a little ceremony to engine code; lint keeps it honest.
-- One format (YAML) for office and role files; the yaml library is added as a dependency only when `config migrate` is built.
-- `.dipo/` becomes a committed folder in every office repository, created additively by office init and removable (research idea 12).
-- Every release costs the maintainer one live run and waits for it; a release cannot ship while the maintainer is away.
-
-## Amends
-
-Changes to accepted ADRs, each with a dated line under its "Amendments" (maintainer, 2026-10-10):
-
-- **0016:** the live smoke run by the maintainer (section 1, "Live smoke run before every release") is a required gate before the release PR is merged, next to the two gates of rule 12.
-- **0016:** the CI `verify` job sets `DIPO_TEST_CI=1` and runs the same `bun run verify` command as local runs and workers, so CI-only test files (`*.ci.test.ts`, section 1) run there. The command and its composition are unchanged; only the environment differs.
-- **0005 (2026-10-11):** a config reload command and `dipo config migrate` (section 5) are minor additions to the command model; the CLI story sets their final names.
-- **0007 (2026-10-11):** `privacy.*` and `retention.*` are accepted only in `.dipo/office.local.yaml`; in the committed `.dipo/office.yaml` they are a validation error (section 5, "Precedence").
-
-## Maintainer decisions (2026-10-10)
-
-1. **Format:** YAML, not TOML, for office and role files.
-2. **Folder:** `.dipo/` at the repository root.
-3. **Local overrides:** keep `.dipo/office.local.yaml`, limited to `timeouts.*`, `privacy.*` and `retention.*`; any other key is an error.
-4. **Recording refresh:** on demand only (Claude Code minor update, adapter parse warning in production, Worker contract change); `recordings:status` lists stale ones; no fixed schedule.
-5. **Live smoke before release:** required before every release; the release waits until the maintainer confirms one live run worked. Never automated.
-6. **Verify budget:** about 60 seconds for local `bun test`; slower tests go CI only (`*.ci.test.ts`).
-7. **Privacy and retention local only (2026-10-11):** `privacy.*` and `retention.*` are accepted only in `.dipo/office.local.yaml`; in the committed `.dipo/office.yaml` they are a validation error that names the key and points to the local file.
-
-## Sources
-
-1. Claude Code docs, Run Claude Code programmatically (stream-json, `system/init`, `api_retry`, `--permission-prompts`, SIGTERM). https://code.claude.com/docs/en/headless
-2. Claude Code docs, CLI reference (`--include-hook-events`, `--include-partial-messages`, `--max-turns`, `--max-budget-usd`, `--setting-sources`, `--strict-mcp-config`). https://code.claude.com/docs/en/cli-reference
-3. Claude Code docs, Hooks reference (event list, common input fields, Notification matchers). https://code.claude.com/docs/en/hooks
-4. Claude Code docs, Agent SDK TypeScript reference (`SDKMessage` union, `SDKResultMessage`, `SDKSystemMessage`, `SDKPermissionDeniedMessage`). https://code.claude.com/docs/en/agent-sdk/typescript
-5. Claude Code docs, Track cost and usage (dedup by message id, placeholder output tokens, `usage` vs `modelUsage`, crash and budget results). https://code.claude.com/docs/en/agent-sdk/cost-tracking
-6. Bun docs, File types (TOML, YAML, JSONC, JSON5 imports). https://bun.com/docs/runtime/file-types
-7. Bun docs, YAML (`Bun.YAML.parse`, YAML 1.2, `SyntaxError`). https://bun.com/docs/runtime/yaml
-8. Bun docs, Dates and times in tests (`setSystemTime`, fake timers). https://bun.com/docs/test/time
-9. Bun docs, Test discovery (file patterns, hidden directories, filters). https://bun.com/docs/test/discovery
-10. Bun docs, bunfig.toml `[test]` options. https://bun.com/docs/runtime/bunfig
-11. `yaml` library docs (comments kept on documents; trailing comment handling not fully stable), npm `yaml` 2.9.1. https://eemeli.org/yaml/
-12. npm registry, `backlog.md` 1.53.0 (`bin: backlog`). https://registry.npmjs.org/backlog.md/latest
-13. Local probes, 2026-10-10, on Bun 1.3.5 (installed) and Bun 1.4.2 (binary from npm `@oven/bun-darwin-aarch64` 1.4.2, unpacked in a scratch directory, not installed). 1.4.2: `Bun.YAML` and `Bun.TOML` have `parse` and `stringify`, `Bun.JSONC` has `parse`, `Bun.JSON5` has `parse` and `stringify`; 1.3.5: only `Bun.TOML.parse` and `Bun.YAML.parse`/`stringify`. Both: `no: no` and `on: yes` stay strings; invalid YAML throws `SyntaxError`; a two-document file parses to an array; `<<: *anchor` is merged; `Bun.YAML.stringify` drops comments and writes flow style unless given an indent; an env-gated test file passes with and without the variable. `bun test --help` on 1.4.2: `--timeout` per-test default 5000 ms.
-
-## Amendments
-
-- 2026-10-12, M0 review (maintainer): software-level configuration lives in `<state>/config.yaml` with the same shell as office files: YAML 1.2, exactly one document, `z.strictObject` schemas, a required integer `version`, a JSON Schema export checked by a contract test, and refusal of a newer `version` with "upgrade dipo". Its keys are in the 0006 amendment.
-- 2026-10-12, M0 review (maintainer): every added configuration key, in `office.yaml`, `office.local.yaml` or `config.yaml`, bumps that file's `version`, with a migration from the previous version (identity where nothing else changes). An older dipo then refuses the file with "upgrade dipo" instead of reporting an unknown key.
-- 2026-10-12, M0 review (maintainer): the safety recording for the token check uses `gh auth token`, following the 0008 amendment of the same date (section 2 text corrected in place).
-- 2026-10-16, DIPO-135 (maintainer): section 5, "Precedence". The privacy settings are no longer all off by default: `privacy.storeCommandBodies` is on by default, and `privacy.storePrompts` is on by default from the story that builds prompt storage (0007 amendment of the same date); `privacy.keepRawEvents` stays off. They stay accepted only in `.dipo/office.local.yaml`.
-- 2026-10-18, DIPO-172 (maintainer): section 5, "Precedence". `sandbox.toolchainReadPaths` is accepted in `.dipo/office.local.yaml`, so a machine-specific toolchain directory such as `~/.nvm/versions/node` stays out of the committed file (maintainer decision 2026-10-17, option A). Unlike other lists it does not replace: its entries are added to the committed list, or to the default when `office.yaml` sets none, each path once. Any other `sandbox.*` key in the local file stays a validation error. It is office configuration version 4, with an identity migration from version 3. A run is refused when an auth key sits in a `.npmrc` at the root of a read path or in the `etc/npmrc` of a node install found under one (a node version directory, nvm's `versions/node/<v>`, or the prefix of a `bin` on the worker's PATH); npm tokens belong in `~/.npmrc`. Deeper version-manager layouts such as asdf, fnm and Volta are not searched.
-- 2026-10-21, DIPO-285: section 5, the sample configuration. `permissions.presentMinutes` is retired in office config version 10 (0008 amendment of the same date); the sample's `permissions` line keeps only `ask` (corrected in place).
-- 2026-10-22, DIPO-309 (maintainer): section 5. New office key `timeouts.testIdleMinutes` (default 240) at the next office configuration version: an open test with no record closes after that many minutes, and its test box is deleted.
-- 2026-10-22, DIPO-311 (maintainer): section 5. The software configuration `<state>/config.yaml` version 2 adds `usage.alerts.dayTokens`, `usage.alerts.monthTokens` and `usage.alerts.level` (default 0.8). The limits are budget tokens, counted over all offices together, with no default: alerts stay off until a limit is set, and tokens still show. At a limit dipo only alerts; nothing is held or parked, and per-story budgets and plan-limit holds stay the only stops.
-- 2026-10-23, DIPO-316 (maintainer): section 1. CI runs verify with `DIPO_TEST_CI=1` on Linux and on macOS (job `verify-macos`, part of `ci-ok`). Every test process carries `DIPO_TEST=1` and its own `DIPO_HOME` and `DIPO_RUNTIME_DIR` under `DIPO_TMP` from the test setup file (`packages/testkit/src/test-env.ts`). With that marker dipo refuses the real home's state and logs folders and the real runtime folders, and outside tests it refuses an unusable `DIPO_HOME` or `DIPO_RUNTIME_DIR` with a coded error instead of falling through to another folder. A `*.ci.test.ts` file registers its tests only behind the `DIPO_TEST_CI` guard, checked by the lint rule `dipo/ci-test-guard`.
+- A version bump for every added key (2026-10-12). It produced 13 office versions in 15 days. Replaced by the reset to version 14 and defaults (2026-10-24).
+- About 150 office keys across 17 sections, including `permissions`, `sandbox`, `storyPr`, `mergeSlot.requiredChecks`, `scope.*`, `worker.plugins`, `worker.web`, and `worktree.files`, `ports`, `env` and `post_create`. Each served a mechanism that is gone (2026-10-24).
+- `sandbox.toolchainReadPaths` in the local file, with its `.npmrc` checks (2026-10-18). Gone with the Mac sandbox (0008).
+- Recordings and scenarios for the permission wait, `needs-permission`, credit holds and the Mac sandbox safety checks (2026-10-10, 2026-10-12). Gone with the box (0008); the escape probe is the box's safety test.
+- Recording usage kept for 0014's measurement. The measurement left 0014 (2026-10-24); the usage fields are still kept for the usage arithmetic tests.
