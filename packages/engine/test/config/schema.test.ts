@@ -833,7 +833,7 @@ describe("defaults", () => {
     expect(OFFICE_DEFAULTS.storyPr).toEqual({ open: true });
   });
 
-  it("give the story the step phrases that R27 refuses", () => {
+  it("keep the step phrases R27 read, until the key is dropped", () => {
     expect(OFFICE_DEFAULTS.story.maintainerStepPhrases).toEqual([
       "task notes",
       "implementation notes",

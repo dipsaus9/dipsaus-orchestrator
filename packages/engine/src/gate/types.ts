@@ -35,8 +35,6 @@ export const GATE_RULES = [
   "R24",
   "R25",
   "R26",
-  "R27",
-  "R28",
   "R29",
   "R30",
 ] as const;
