@@ -4,7 +4,7 @@
 // and a path outside `backlog/` fails `backlog-only`. The temporary worktree is gone afterwards.
 
 import { describe, expect, it } from "bun:test";
-import { readdirSync } from "node:fs";
+import { chmodSync, readdirSync, symlinkSync } from "node:fs";
 
 import { type TempRepo, withTempRepo } from "../packages/testkit/src/index";
 
@@ -73,13 +73,18 @@ function taskFile(id: number, status: string, plan: readonly string[]): string {
 const path = (id: number) => `backlog/tasks/dipo-${id} - Export-the-rows.md`;
 
 /** A fixture whose base commit holds DIPO-1 and DIPO-2 as Refined; `change` makes the PR commit. */
-async function pr(repo: TempRepo, change: Record<string, string>): Promise<[string, string]> {
+async function pr(
+  repo: TempRepo,
+  change: Record<string, string>,
+  more: () => Promise<unknown> = async () => {},
+): Promise<[string, string]> {
   await Bun.write(`${repo.dir}/backlog/config.yml`, CONFIG);
   await Bun.write(`${repo.dir}/backlog/milestones/m-0 - m0-fixture.md`, MILESTONE.join("\n"));
   await Bun.write(`${repo.dir}/${path(1)}`, taskFile(1, "Refined", CLEAN_PLAN));
   await Bun.write(`${repo.dir}/${path(2)}`, taskFile(2, "Refined", NO_EXPECT));
   const base = await repo.commitAll("base");
   for (const [file, text] of Object.entries(change)) await Bun.write(`${repo.dir}/${file}`, text);
+  await more();
   return [base, await repo.commitAll("pr")];
 }
 
@@ -119,6 +124,20 @@ describe("the structural check of a backlog-only PR in CI", () => {
         "README.md": "outside\n",
       });
       expect(rules(await check(repo, base, head))).toEqual(["backlog-only", "transition DIPO-1"]);
+    });
+  }, 60_000);
+
+  it("fails a symlink, an executable and a non-.md file under backlog/ (DIPO-341)", async () => {
+    await withTempRepo(async (repo) => {
+      const [base, head] = await pr(repo, { "backlog/x.test.ts": "x\n" }, async () => {
+        symlinkSync("config.yml", `${repo.dir}/backlog/link.md`);
+        chmodSync(`${repo.dir}/${path(2)}`, 0o755);
+      });
+      const result = await check(repo, base, head);
+      expect(result.failures.map((failure) => failure.message)).toEqual([
+        "the PR changes paths that are not Backlog files (a .md file under backlog/, or backlog/config.yml): backlog/x.test.ts",
+        `the PR changes entries that are not regular files (a symlink, a submodule or an executable): backlog/link.md, ${path(2)}`,
+      ]);
     });
   }, 60_000);
 });
