@@ -4,12 +4,12 @@ title: Decide how the engine gives a worker the skills and plugins its story nee
 status: Refined
 assignee: []
 created_date: '2026-10-16 09:39'
-updated_date: '2026-10-24 09:32'
+updated_date: '2026-10-25 09:55'
 labels:
   - architecture
   - 'tier:M'
   - needs-refinement
-milestone: m-2
+milestone: m-4
 dependencies:
   - DIPO-108
   - DIPO-285

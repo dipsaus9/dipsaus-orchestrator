@@ -6,7 +6,7 @@ title: >-
 status: Refined
 assignee: []
 created_date: '2026-10-22 21:00'
-updated_date: '2026-10-22 21:00'
+updated_date: '2026-10-25 09:55'
 labels:
   - 'tier:L'
 milestone: m-2
@@ -80,3 +80,12 @@ unknowns: []
 - [ ] #6 `ScriptedWorker` and the other fakes move into testkit or test folders, the engine entry no longer exports them, and the binary build passes.
 - [ ] #7 `bun run verify` passes.
 <!-- AC:END -->
+
+## Comments
+
+<!-- COMMENTS:BEGIN -->
+created: 2026-10-25 09:55
+---
+Folded into DIPO-318 on 2026-10-25 (prune plan): its layer rule, lint gaps and fakes are criteria of DIPO-318. The back-edges through hooks, pricing and the srt sandbox go with DIPO-347, DIPO-354 and DIPO-343.
+---
+<!-- COMMENTS:END -->

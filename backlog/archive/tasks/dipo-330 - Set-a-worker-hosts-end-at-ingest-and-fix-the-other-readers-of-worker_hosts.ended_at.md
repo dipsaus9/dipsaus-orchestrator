@@ -6,6 +6,7 @@ title: >-
 status: Refined
 assignee: []
 created_date: '2026-10-23 11:26'
+updated_date: '2026-10-25 09:55'
 labels: []
 milestone: m-2
 dependencies: []
@@ -31,3 +32,12 @@ Follow-up of the DIPO-328 review. Only a re-attach sets worker_hosts.ended_at, s
 - [ ] #2 Run file retention, state retention and keep-awake treat an exited host as ended
 - [ ] #3 ingest_cursors.ended_at readers are checked and fixed or named
 <!-- AC:END -->
+
+## Comments
+
+<!-- COMMENTS:BEGIN -->
+created: 2026-10-25 09:55
+---
+Folded into DIPO-354 on 2026-10-25 (prune plan): the worker host's end is set when its exit is ingested, as a criterion of the database cut.
+---
+<!-- COMMENTS:END -->

@@ -120,7 +120,7 @@ The repository setting "Allow auto-merge" must be on; the maintainer sets it by 
 
 ## 9. Testing a story
 
-`dipo test <id>` runs the story's pushed head in a test box with a port forwarder to a free port on the Mac. It installs and starts the product, and shows the test plan's manual entries. `dipo test <id> pass` records a pass for that head and decides the story's test gate. `dipo test <id> fail --note <what>` starts a fix round with the note as its item. A new head needs a new test.
+`dipo test <id>` runs the story's pushed head in a test box. It installs and starts the product, and shows the test plan's manual entries and the URL. A forwarder in the test box listens on the box's address on the host-only network and forwards to the dev port, so no port is published on the Mac. `dipo test pass <id>` records a pass for that head and decides the story's test gate. `dipo test fail <id> --note <what>` starts a fix round with the note as its item. A new head needs a new test.
 
 ## 10. Capacity
 

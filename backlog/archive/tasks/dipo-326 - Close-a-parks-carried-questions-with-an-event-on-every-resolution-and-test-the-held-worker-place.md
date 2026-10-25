@@ -6,6 +6,7 @@ title: >-
 status: Refined
 assignee: []
 created_date: '2026-10-23 10:28'
+updated_date: '2026-10-25 09:55'
 labels:
   - follow-up
 milestone: m-2
@@ -32,3 +33,12 @@ Follow-up of the DIPO-159 review (advisories). When a park is resolved by drop, 
 - [ ] #1 Every park resolution that expires carried questions writes a question.closed entry for each, as the resume path does
 - [ ] #2 A test shows the office worker place stays taken during a live question wait and is freed only after the park or the exit
 <!-- AC:END -->
+
+## Comments
+
+<!-- COMMENTS:BEGIN -->
+created: 2026-10-25 09:55
+---
+Dropped on 2026-10-25 (prune plan): its case is covered by DIPO-344, one park with eight reasons.
+---
+<!-- COMMENTS:END -->

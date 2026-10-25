@@ -4,9 +4,11 @@ title: Bring local bun test from about 90 s to under 60 s
 status: Refined
 assignee: []
 created_date: '2026-10-24 09:32'
+updated_date: '2026-10-25 09:55'
 labels: []
 milestone: m-2
-dependencies: []
+dependencies:
+  - DIPO-351
 references:
   - packages/engine/test/
   - packages/daemon/
@@ -28,3 +30,12 @@ Follow-up of DIPO-225, which brought the local run from 385 s to about 91 s. Nex
 - [ ] #1 The sum of per-file durations of local bun test is under 60,000 ms, measured as in DIPO-225
 - [ ] #2 Every rule a CI-only test checks has a fast local test
 <!-- AC:END -->
+
+## Comments
+
+<!-- COMMENTS:BEGIN -->
+created: 2026-10-25 09:55
+---
+Held on 2026-10-24 until the prune toward the simplified architecture ends (DIPO-351 and Track 2). The prune removes code and tests, so the test time is measured again after it.
+---
+<!-- COMMENTS:END -->

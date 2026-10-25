@@ -4,11 +4,10 @@ title: 'Support Yarn, bun.lockb and pnpm catalogs in the box package cache'
 status: To Do
 assignee: []
 created_date: '2026-10-21 17:40'
-updated_date: '2026-10-23 10:34'
+updated_date: '2026-10-25 09:55'
 labels:
   - box
   - needs-refinement
-milestone: m-2
 dependencies:
   - DIPO-273
   - DIPO-295
