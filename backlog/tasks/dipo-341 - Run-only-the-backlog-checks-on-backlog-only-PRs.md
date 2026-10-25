@@ -1,10 +1,10 @@
 ---
 id: DIPO-341
 title: Run only the backlog checks on backlog-only PRs
-status: Refined
+status: Done
 assignee: []
 created_date: '2026-10-25 09:50'
-updated_date: '2026-10-25 10:01'
+updated_date: '2026-10-25 11:27'
 labels:
   - 'tier:S'
   - 'slice:prune'
@@ -43,9 +43,15 @@ test_plan:
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 A changes job in ci.yml finds a PR whose changed paths are all under backlog/, and on such a PR verify, verify-macos, smoke, shellcheck, actionlint and dependency-review are skipped by design
-- [ ] #2 A ready-gate job runs scripts/check-ready-gate.ts and the 0010 structural check (scripts/check-backlog-pr.ts) on every story the PR changes, and ci-ok needs it
-- [ ] #3 ci-ok passes on a backlog-only PR whose heavy jobs were skipped by the changes job, and fails when a job failed or was skipped for any other reason
-- [ ] #4 A PR that changes any file outside backlog/, and every push to main, run every job as before
-- [ ] #5 The Ready gate rules R27 and R28 are removed from packages/engine/src/gate/ with their tests, as 0012 says, so the ready-gate job and dipo run check the same rules
+- [x] #1 A changes job in ci.yml finds a PR whose changed paths are all under backlog/, and on such a PR verify, verify-macos, smoke, shellcheck, actionlint and dependency-review are skipped by design
+- [x] #2 A ready-gate job runs scripts/check-ready-gate.ts and the 0010 structural check (scripts/check-backlog-pr.ts) on every story the PR changes, and ci-ok needs it
+- [x] #3 ci-ok passes on a backlog-only PR whose heavy jobs were skipped by the changes job, and fails when a job failed or was skipped for any other reason
+- [x] #4 A PR that changes any file outside backlog/, and every push to main, run every job as before
+- [x] #5 The Ready gate rules R27 and R28 are removed from packages/engine/src/gate/ with their tests, as 0012 says, so the ready-gate job and dipo run check the same rules
 <!-- AC:END -->
+
+## Final Summary
+
+<!-- SECTION:FINAL_SUMMARY:BEGIN -->
+Backlog-only PRs take a light CI path: the changes job in ci.yml decides the scope inline with git and bash (no code from the PR's checkout), counting a PR as backlog-only only when every changed entry is a regular .md file under backlog/ or backlog/config.yml; the heavy jobs then skip and ci-ok accepts only that skip. The ready-gate job runs the Ready gate on every PR and push, and the 0010 structural check (new scripts/check-backlog-pr.ts, same file rule) on the light path. R27 and R28 are removed from the gate. Left for DIPO-353: the unread config key story.maintainerStepPhrases.
+<!-- SECTION:FINAL_SUMMARY:END -->
