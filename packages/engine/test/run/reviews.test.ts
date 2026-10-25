@@ -24,12 +24,10 @@ import {
   findRun,
   IN_REVIEW_END,
   LAUNCH_NOTICES,
-  insertVerifyResult,
   pendingReviews,
   placeHolders,
   Places,
   planRefusedText,
-  recordCodeTreeKey,
   recordConfigSnapshot,
   REVIEWED_END,
   REVIEW_NOTICES,
@@ -148,7 +146,7 @@ function correctness(line: number): ReviewReport {
   };
 }
 
-/** A story run that worked, went green on `tree` and ended at In Review now. */
+/** A story run that worked, whose HEAD is on the code tree `tree`, ended at In Review now. */
 function inReview(
   story: string,
   tree: string,
@@ -164,39 +162,17 @@ function inReview(
     budgetLimit: BUDGET,
   });
   addAgent(w, s.run, "developer", false);
-  green(s, tree);
   write(() => {
     endRun(w.office, s.run, now(), IN_REVIEW_END);
     // The In Review push reached the remote, at the run's end: the review may start (DIPO-315).
     updateClaim(w.office, s.run, { pushedAt: now() });
   });
+  heads.set(s.run, tree);
   return s;
-}
-
-/** A green verify of the run on the code tree `tree`. */
-function green(s: StoryRun, tree: string): void {
-  write(() => {
-    const loop = runSteps(w.office, s.run).filter((step) => step.kind === "loop").length;
-    insertVerifyResult(w.office, s.run, {
-      loop,
-      profile: "branch",
-      commands: [["bun", "run", "verify"]],
-      exitCode: 0,
-      signal: null,
-      timedOut: false,
-      passed: true,
-      durationMs: 1,
-      outputFrom: 0,
-      outputTo: 0,
-      at: now(),
-    });
-    recordCodeTreeKey(w.office, s.run, loop, tree);
-  });
 }
 
 /** A fix round's In Review again (story I's part, written by hand here): a new tree, ended. */
 function fixedTo(s: StoryRun, tree: string): void {
-  green(s, tree);
   write(() =>
     w.office.run(
       `update runs set end_kind = $kind where office_id = $office_id and run_id = $run`,
@@ -663,10 +639,13 @@ describe("a code tree key with a verdict (0019 section 6)", () => {
         { run: s.run, kind: IN_REVIEW_END },
       ),
     );
-    expect(pendingReviews(w.office)).toEqual([]);
+    // It looks pending (dipo records no tree at In Review), and the drain takes its verdict: its
+    // HEAD's code tree, read at the start, is the reviewed one.
+    expect(pendingReviews(w.office)).toHaveLength(1);
     expect(await x.places.drain(officeId())).toBe(0);
     expect(x.sessions).toEqual([]);
     expect(stepsOf(s.run, "review")).toHaveLength(1);
+    expect(pendingReviews(w.office)).toEqual([]);
   });
 
   it("is taken without a round by a head whose commits changed only the task file", async () => {
@@ -676,13 +655,9 @@ describe("a code tree key with a verdict (0019 section 6)", () => {
     await turn(session, APPROVED);
     await exits(session);
 
-    // The verify recorded no tree for the new In Review head, so it looks pending; its HEAD's code
-    // tree, read at the start, is the reviewed one.
+    // dipo records no tree for the new In Review head, so it looks pending; its HEAD's code tree,
+    // read at the start, is the reviewed one.
     write(() => {
-      w.office.run(
-        `update verify_results set code_tree_key = null where office_id = $office_id and run_id = $run`,
-        { run: s.run },
-      );
       w.office.run(
         `update runs set end_kind = $kind where office_id = $office_id and run_id = $run`,
         { run: s.run, kind: IN_REVIEW_END },
@@ -1158,10 +1133,6 @@ describe("a run that ends reviewed hands its head to the fix rounds (DIPO-148)",
 
     // A head that changed only the task file: In Review again on the blocked tree.
     write(() => {
-      w.office.run(
-        `update verify_results set code_tree_key = null where office_id = $office_id and run_id = $run`,
-        { run: s.run },
-      );
       w.office.run(
         `update runs set end_kind = $kind where office_id = $office_id and run_id = $run`,
         { run: s.run, kind: IN_REVIEW_END },

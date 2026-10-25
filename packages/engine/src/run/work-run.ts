@@ -83,7 +83,6 @@ import { recordContextPack } from "../context/pack";
 import type { OfficeHandle } from "../db/office";
 import type { BaseCheckout } from "../gate/store/feature";
 import type { GateMode, GateResult } from "../gate/types";
-import { writeNudgeSources } from "../hooks/nudges";
 import type { GitSession, OfficeGit } from "../git/office";
 import { GitError } from "../git/runner";
 import { assembleContract, ContractTooLargeError } from "../prompts/contract";
@@ -282,7 +281,7 @@ function recordAgent(
   );
 }
 
-/** Inside the run's transaction: what the launcher prepared, for the nudges and the prompt records. */
+/** Inside the run's transaction: what the launcher prepared, for the prompt records. */
 function recordPrepared(
   handle: OfficeHandle,
   input: {
@@ -296,9 +295,7 @@ function recordPrepared(
   },
 ): void {
   const { runId, agent, prepared, clock } = input;
-  const { nudgeSources, pack, headSha } = prepared.promptSources;
-  // The context pack and input paths the nudges check (0014 section 8, DIPO-60).
-  writeNudgeSources(handle, runId, agent, nudgeSources, input.at);
+  const { pack, headSha } = prepared.promptSources;
   // The pack the task message was built from, with its head and blob ids (0020 section 6).
   recordContextPack(handle, input.worktree, headSha, pack, clock);
   // The prompt parts of the session's text, measured for the run (0014 section 2).
@@ -760,7 +757,7 @@ export class WorkRun {
           .map((criterion) => criterion.index),
       });
       recordAgent(handle, { runId, agent, caps, prepared, at });
-      // The context pack and input paths the nudges check (0014 section 8, DIPO-60).
+      // The context pack and the prompt records of the first session.
       if (prepared !== null) {
         recordPrepared(handle, {
           worktree: outcome.claim.worktree,

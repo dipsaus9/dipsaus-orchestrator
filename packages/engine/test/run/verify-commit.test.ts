@@ -1,5 +1,5 @@
 // The end of a developer's turn (DIPO-49, DIPO-240): the pure rules that stay (gate changes for
-// the review, dependency files, the backstop compare of the reviewer's session), and a run without
+// the review, dependency files), and a run without
 // a box that reports done, which parks: dipo runs no verify, backstop or scope check of its own any
 // more. The box run's done path, from the last part to In Review, is `verify-in-box.test.ts`.
 
@@ -8,7 +8,6 @@ import { describe, expect, it } from "bun:test";
 import type { RunId, WorkRef } from "@dipsaus-orchestrator/contract";
 
 import {
-  backstopEvidence,
   type BackstopSnapshot,
   dependencyFiles,
   gateChanges,
@@ -61,19 +60,6 @@ describe("rules", () => {
     expect(changes).toContain('scripts.verify: "bun test" -> none');
     expect(changes).toContain('scripts.test: "bun test" -> "true"');
     expect(changes.some((line) => line.startsWith("verify: bun run verify -> "))).toBe(true);
-  });
-
-  it("names every change of the backstop snapshot", () => {
-    expect(backstopEvidence(SNAP, SNAP)).toEqual([]);
-    const evidence = backstopEvidence(SNAP, {
-      head: "d".repeat(40),
-      branch: "",
-      stash: "e".repeat(40),
-      backlogStatus: " M backlog/tasks/x.md\0",
-    });
-    expect(evidence).toHaveLength(4);
-    expect(evidence[1]).toContain("to a detached HEAD");
-    expect(evidence[3]).toContain(" M backlog/tasks/x.md");
   });
 
   it("finds manifests, lockfiles and requirements files anywhere in the tree (DIPO-84)", () => {

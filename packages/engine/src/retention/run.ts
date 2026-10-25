@@ -158,13 +158,6 @@ export async function runRetention(options: RetentionOptions): Promise<Retention
        and a.run_id = prompt_parts.run_id and a.ended_at is null)`,
     { cutoff: stateCutoff },
   );
-  // The nudge source paths of such a run.
-  await rows(
-    "nudge_sources",
-    `recorded_at < $cutoff and not exists (select 1 from agents a where a.office_id = $office_id
-       and a.run_id = nudge_sources.run_id and a.ended_at is null)`,
-    { cutoff: stateCutoff },
-  );
   await rows("agents", "ended_at < $cutoff", { cutoff: stateCutoff });
   // Runs that ended before the cutoff, their steps first; then the configuration snapshots no
   // remaining run names.
@@ -202,12 +195,6 @@ export async function runRetention(options: RetentionOptions): Promise<Retention
     "run_intents",
     `exists (select 1 from runs r where r.office_id = $office_id and r.run_id = run_intents.run_id
        and r.ended_at < $cutoff)`,
-    { cutoff: stateCutoff },
-  );
-  await rows(
-    "verify_results",
-    `exists (select 1 from runs r where r.office_id = $office_id
-       and r.run_id = verify_results.run_id and r.ended_at < $cutoff)`,
     { cutoff: stateCutoff },
   );
   await rows(

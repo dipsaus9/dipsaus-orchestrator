@@ -1,8 +1,9 @@
-// The 0014 section 8 nudges (DIPO-60 AC #1 to #4): each trigger with its fact gives its text and
-// nothing else gives one; a nudge is at most 300 characters and sent once per fact signature per
-// session; every call is answered (a nudge or an empty reply) and a failure stays silent; nudges
-// are counted per run in `prompt_parts`. A migrated state database, the manual clock and a steering
-// fake that records the neutral ops reaching the worker host.
+// The 0014 section 8 budget nudge (DIPO-60 AC #1 to #4, cut to the reviewer's one fact by
+// DIPO-342): past 80% of the run's budget a tool use gets its text and nothing else gives one; a
+// nudge is at most 300 characters and sent once per session; every call is answered (a nudge or an
+// empty reply) and a failure stays silent; nudges are counted per run in `prompt_parts`. A migrated
+// state database, the manual clock and a steering fake that records the neutral ops reaching the
+// worker host.
 
 import { describe, expect, it } from "bun:test";
 
@@ -13,22 +14,13 @@ import type { OfficeHandle } from "../../src/db/office";
 import {
   budgetFact,
   composeNudge,
-  copyNudgeSources,
-  contextPathsOf,
-  inputPathsOf,
-  type InputChangeReader,
   NUDGE_MAX_CHARS,
   nudgeCount,
   nudgeSignature,
   nudgeText,
   Nudges,
-  parseInputChanges,
-  writeFacts,
-  worktreePath,
-  writeNudgeSources,
 } from "../../src/hooks/nudges";
 import type { HookEvent } from "../../src/hooks/types";
-import { promptParts, promptPartsOf, recordPromptParts } from "../../src/prompts/parts";
 import { insertRun, recordGrant, runIntents } from "../../src/run";
 import { addStory } from "../../src/stories/keys";
 import type { RunSteering } from "../../src/run/control";
@@ -38,101 +30,25 @@ import { addOffice, openTestState, type TestState } from "../commands/helpers";
 const RUN = "run_01JZ0000000000000000000060" as RunId;
 const WORKTREE = "/trees/DIPO-1";
 const SCOPE = ["packages/a/", "docs/x.md"];
+const BUDGET_TEXT = "80% of this story's budget is used; finish the current criterion and report.";
 
-describe("nudge texts and facts (pure)", () => {
-  it("gives each trigger's 0014 section 8 text", () => {
-    expect(nudgeText({ trigger: "scope", path: "src/x.ts" })).toBe(
-      "`src/x.ts` is outside the declared scope; the engine will reject it.",
-    );
-    expect(nudgeText({ trigger: "context", path: "src/y.ts" })).toBe(
-      "The context shown for `src/y.ts` predates your edit.",
-    );
-    expect(nudgeText({ trigger: "budget" })).toBe(
-      "80% of this story's budget is used; finish the current criterion and report.",
-    );
-    expect(nudgeText({ trigger: "input", path: "docs/spec.md", sha: "0123456789abcdef0123" })).toBe(
-      "Input `docs/spec.md` changed on the base at `0123456789ab`.",
-    );
-  });
-
-  it("keeps a nudge within 300 characters", () => {
-    const long = nudgeText({ trigger: "scope", path: `${"deep/".repeat(100)}x.ts` });
-    expect(long).toHaveLength(NUDGE_MAX_CHARS);
-    expect(long.endsWith("…")).toBe(true);
-    const facts = [
-      { trigger: "scope", path: "a".repeat(120) },
-      { trigger: "context", path: "b".repeat(120) },
-      { trigger: "budget" },
-    ] as const;
-    const composed = composeNudge(facts);
+describe("the budget nudge text and fact (pure)", () => {
+  it("gives the 0014 section 8 text within 300 characters", () => {
+    expect(nudgeText({ trigger: "budget" })).toBe(BUDGET_TEXT);
+    const composed = composeNudge([{ trigger: "budget" }]);
+    expect(composed).toEqual({ text: BUDGET_TEXT, facts: [{ trigger: "budget" }] });
     expect(composed.text.length).toBeLessThanOrEqual(NUDGE_MAX_CHARS);
-    // The context text does not fit beside the scope text; the shorter budget text does.
-    expect(composed.facts.map((fact) => fact.trigger)).toEqual(["scope", "budget"]);
     expect(composeNudge([])).toEqual({ text: "", facts: [] });
   });
 
-  it("signs each fact so the same fact has one signature and another fact another", () => {
-    const signatures = [
-      nudgeSignature({ trigger: "scope", path: "a.ts" }),
-      nudgeSignature({ trigger: "context", path: "a.ts" }),
-      nudgeSignature({ trigger: "budget" }),
-      nudgeSignature({ trigger: "input", path: "a.ts", sha: "1".repeat(40) }),
-      nudgeSignature({ trigger: "input", path: "a.ts", sha: "2".repeat(40) }),
-    ];
-    expect(new Set(signatures).size).toBe(signatures.length);
-    expect(nudgeSignature({ trigger: "scope", path: "a.ts" })).toBe(signatures[0] as string);
-  });
-
-  it("finds the scope and context facts of a written file and nothing for an in-scope one", () => {
-    const context = new Set(["packages/a/b.ts", "README.md"]);
-    expect(writeFacts({ path: "packages/a/c.ts", scope: SCOPE, contextPaths: context })).toEqual(
-      [],
-    );
-    expect(writeFacts({ path: "docs/x.md", scope: SCOPE, contextPaths: context })).toEqual([]);
-    expect(writeFacts({ path: "packages/a/b.ts", scope: SCOPE, contextPaths: context })).toEqual([
-      { trigger: "context", path: "packages/a/b.ts" },
-    ]);
-    expect(writeFacts({ path: "README.md", scope: SCOPE, contextPaths: context })).toEqual([
-      { trigger: "scope", path: "README.md" },
-      { trigger: "context", path: "README.md" },
-    ]);
-    // A lockfile pairs with a manifest at `done`; a run without a scope has no scope fact.
-    expect(writeFacts({ path: "bun.lock", scope: SCOPE, contextPaths: context })).toEqual([]);
-    expect(writeFacts({ path: "z.ts", scope: null, contextPaths: context })).toEqual([]);
-    // The story's own task file is committed by the engine, as at `done`.
-    const task = "backlog/tasks/dipo-1 - Add-a-greeting.md";
-    expect(
-      writeFacts({ path: task, scope: SCOPE, story: "DIPO-1", contextPaths: context }),
-    ).toEqual([]);
-    expect(
-      writeFacts({ path: task, scope: SCOPE, story: "DIPO-2", contextPaths: context }),
-    ).toEqual([{ trigger: "scope", path: task }]);
-  });
-
-  it("makes a written path worktree-relative and leaves a path outside the worktree without facts", () => {
-    expect(worktreePath("/trees/DIPO-1/src/a.ts", WORKTREE)).toBe("src/a.ts");
-    expect(worktreePath("/private/tmp/w/src/a.ts", "/tmp/w")).toBe("src/a.ts");
-    expect(worktreePath("/tmp/w/src/a.ts", "/private/tmp/w")).toBe("src/a.ts");
-    expect(worktreePath("./src/a.ts", WORKTREE)).toBe("src/a.ts");
-    expect(worktreePath("/tmp/scratch.txt", WORKTREE)).toBeNull();
-    expect(worktreePath("/trees/DIPO-10/a.ts", WORKTREE)).toBeNull();
+  it("signs the fact as its prompt_parts name", () => {
+    expect(nudgeSignature({ trigger: "budget" })).toBe("nudge.budget");
   });
 
   it("gives the budget fact from 80% of the budget", () => {
     expect(budgetFact(799, 1000)).toBeNull();
     expect(budgetFact(800, 1000)).toEqual({ trigger: "budget" });
     expect(budgetFact(5, 0)).toBeNull();
-  });
-
-  it("reads the newest base commit per input path from git log", () => {
-    const a = "a".repeat(40);
-    const b = "b".repeat(40);
-    const output = `\0${a}\n\ndocs/spec.md\nsrc/in.ts\n\0${b}\n\ndocs/spec.md\n`;
-    expect(parseInputChanges(output, ["src/in.ts", "docs/spec.md", "other.md"])).toEqual([
-      { path: "src/in.ts", sha: a },
-      { path: "docs/spec.md", sha: a },
-    ]);
-    expect(parseInputChanges("", ["x"])).toEqual([]);
   });
 });
 
@@ -162,10 +78,7 @@ function setUsage(office: OfficeHandle, input: number): void {
   );
 }
 
-async function withWorld(
-  fn: (w: World) => Promise<void> | void,
-  inputChanges?: InputChangeReader,
-): Promise<void> {
+async function withWorld(fn: (w: World) => Promise<void> | void): Promise<void> {
   await withTempDir(async (dir) => {
     const t = await openTestState(dir);
     try {
@@ -198,13 +111,6 @@ async function withWorld(
           scope: SCOPE,
         });
         addAgent(office, "agt-1", "session-1", at);
-        writeNudgeSources(
-          office,
-          RUN,
-          "agt-1",
-          { context: ["packages/a/b.ts"], inputs: ["docs/spec.md"] },
-          at,
-        );
       });
       const ops: SteerOp[] = [];
       const steering = { fail: null as "throw" | "refuse" | null };
@@ -223,7 +129,6 @@ async function withWorld(
           ops.push(op);
           return [];
         },
-        ...(inputChanges === undefined ? {} : { inputChanges }),
       });
       await fn({ t, office, nudges, ops, steering });
     } finally {
@@ -247,59 +152,26 @@ const released = (call: number): SteerOp => ({
 });
 
 describe("Nudges (DIPO-60)", () => {
-  it("nudges a write outside scope once per session and counts it in prompt_parts", () =>
+  it("nudges the budget past 80% once per session and counts it in prompt_parts", () =>
     withWorld(async (w) => {
-      await pass(w, "agt-1", {
-        kind: "toolUsed",
-        id: 10,
-        tool: "Edit",
-        wrote: `${WORKTREE}/README.md`,
-      });
-      await pass(w, "agt-1", { kind: "toolUsed", id: 20, tool: "Write", wrote: "README.md" });
+      await pass(w, "agt-1", { kind: "toolUsed", id: 1, tool: "Read" });
+      setUsage(w.office, 800);
+      await pass(w, "agt-1", { kind: "toolUsed", id: 2, tool: "Read" });
+      await pass(w, "agt-1", { kind: "toolUsed", id: 3, tool: "Grep" });
       expect(w.ops).toEqual([
-        {
-          kind: "nudge",
-          hook: 10,
-          on: "toolUsed",
-          text: "`README.md` is outside the declared scope; the engine will reject it.",
-        },
-        released(20),
+        released(1),
+        { kind: "nudge", hook: 2, on: "toolUsed", text: BUDGET_TEXT },
+        released(3),
       ]);
       expect(nudgeCount(w.office, RUN)).toBe(1);
       // A nudge is an exception to the stored intent (the `intents.ts` header): no intent row.
       expect(runIntents(w.office, RUN)).toEqual([]);
       const row = w.office.get<{ nudges: number; bytes: number }>(
         `select nudges, bytes from prompt_parts where office_id = $office_id and part = $part`,
-        { part: "nudge.scope:README.md" },
+        { part: "nudge.budget" },
       );
       expect(row?.nudges).toBe(1);
-      expect(row?.bytes).toBe(69);
-    }));
-
-  it("nudges a write to a context pack file, and the budget past 80%, each once", () =>
-    withWorld(async (w) => {
-      await pass(w, "agt-1", { kind: "toolUsed", id: 1, tool: "Edit", wrote: "packages/a/b.ts" });
-      await pass(w, "agt-1", { kind: "toolUsed", id: 2, tool: "Bash" });
-      setUsage(w.office, 800);
-      await pass(w, "agt-1", { kind: "toolUsed", id: 3, tool: "Bash" });
-      await pass(w, "agt-1", { kind: "toolUsed", id: 4, tool: "Edit", wrote: "packages/a/b.ts" });
-      expect(w.ops).toEqual([
-        {
-          kind: "nudge",
-          hook: 1,
-          on: "toolUsed",
-          text: "The context shown for `packages/a/b.ts` predates your edit.",
-        },
-        released(2),
-        {
-          kind: "nudge",
-          hook: 3,
-          on: "toolUsed",
-          text: "80% of this story's budget is used; finish the current criterion and report.",
-        },
-        released(4),
-      ]);
-      expect(nudgeCount(w.office, RUN)).toBe(2);
+      expect(row?.bytes).toBe(BUDGET_TEXT.length);
     }));
 
   it("moves the 80% budget threshold by a budget grant (DIPO-143)", () =>
@@ -317,185 +189,54 @@ describe("Nudges (DIPO-60)", () => {
         }),
       );
       setUsage(w.office, 800);
-      await pass(w, "agt-1", { kind: "toolUsed", id: 1, tool: "Bash" });
+      await pass(w, "agt-1", { kind: "toolUsed", id: 1, tool: "Read" });
       setUsage(w.office, 1600);
-      await pass(w, "agt-1", { kind: "toolUsed", id: 2, tool: "Bash" });
+      await pass(w, "agt-1", { kind: "toolUsed", id: 2, tool: "Read" });
       expect(w.ops).toEqual([
         released(1),
-        {
-          kind: "nudge",
-          hook: 2,
-          on: "toolUsed",
-          text: "80% of this story's budget is used; finish the current criterion and report.",
-        },
+        { kind: "nudge", hook: 2, on: "toolUsed", text: BUDGET_TEXT },
       ]);
     }));
 
-  it("releases every other call with an empty reply and answers no other hook", () =>
+  it("releases every other call with an empty reply, a write and a resume included, and answers no other hook", () =>
     withWorld(async (w) => {
       await pass(
         w,
         "agt-1",
-        { kind: "toolUsed", id: 1, tool: "Edit", wrote: "packages/a/new.ts" },
+        { kind: "toolUsed", id: 1, tool: "Edit", wrote: `${WORKTREE}/README.md` },
         { kind: "toolUsed", id: 2, tool: "Read" },
-        { kind: "toolUsed", id: 22, tool: "Write", wrote: "/tmp/scratch.txt" },
         { kind: "sessionStarted", id: 3, source: "startup" },
+        { kind: "sessionStarted", id: 5, source: "resume", resumed: true },
         { kind: "toolUsed", id: null, tool: "Write", wrote: "README.md" },
         { kind: "permissionRequest", id: 4, tool: "Bash", input: "ls" },
         { kind: "stopped" },
       );
-      expect(w.ops).toEqual([released(1), released(2), released(22), released(3)]);
+      expect(w.ops).toEqual([released(1), released(2), released(3), released(5)]);
       expect(nudgeCount(w.office, RUN)).toBe(0);
     }));
 
-  it("sends a fact again in a new session, but not in a resume of the same session", () =>
+  it("sends the nudge again in a new session, but not in a resume of the same session", () =>
     withWorld(async (w) => {
-      await pass(w, "agt-1", { kind: "toolUsed", id: 1, tool: "Write", wrote: "README.md" });
+      setUsage(w.office, 900);
+      await pass(w, "agt-1", { kind: "toolUsed", id: 1, tool: "Read" });
       addAgent(w.office, "agt-2", "session-1", w.t.clock.now());
-      await pass(w, "agt-2", { kind: "toolUsed", id: 2, tool: "Write", wrote: "README.md" });
+      await pass(w, "agt-2", { kind: "toolUsed", id: 2, tool: "Read" });
       addAgent(w.office, "agt-3", "session-2", w.t.clock.now());
-      await pass(w, "agt-3", { kind: "toolUsed", id: 3, tool: "Write", wrote: "README.md" });
+      await pass(w, "agt-3", { kind: "toolUsed", id: 3, tool: "Read" });
       expect(w.ops.map((op) => op.kind)).toEqual(["nudge", "hookReply", "nudge"]);
       expect(nudgeCount(w.office, RUN)).toBe(2);
     }));
 
   it("records nothing when the reply does not reach the host, and stays silent", () =>
     withWorld(async (w) => {
+      setUsage(w.office, 900);
       w.steering.fail = "throw";
-      await pass(w, "agt-1", { kind: "toolUsed", id: 1, tool: "Write", wrote: "README.md" });
+      await pass(w, "agt-1", { kind: "toolUsed", id: 1, tool: "Read" });
       w.steering.fail = "refuse";
-      await pass(w, "agt-1", { kind: "toolUsed", id: 2, tool: "Write", wrote: "README.md" });
+      await pass(w, "agt-1", { kind: "toolUsed", id: 2, tool: "Read" });
       expect(nudgeCount(w.office, RUN)).toBe(0);
       w.steering.fail = null;
-      await pass(w, "agt-1", { kind: "toolUsed", id: 3, tool: "Write", wrote: "README.md" });
+      await pass(w, "agt-1", { kind: "toolUsed", id: 3, tool: "Read" });
       expect(nudgeCount(w.office, RUN)).toBe(1);
     }));
-
-  it("nudges an input changed on the base when a session resumes", async () => {
-    const calls: { since: string; paths: readonly string[] }[] = [];
-    const sha = "d".repeat(40);
-    await withWorld(
-      async (w) => {
-        expect(inputPathsOf(w.office, RUN, "agt-1")).toEqual(["docs/spec.md"]);
-        expect(contextPathsOf(w.office, RUN, "agt-1")).toEqual(["packages/a/b.ts"]);
-        await pass(w, "agt-1", { kind: "sessionStarted", id: 5, source: "startup" });
-        await pass(w, "agt-1", { kind: "sessionStarted", id: 6, source: "resume", resumed: true });
-        await pass(w, "agt-1", { kind: "sessionStarted", id: 7, source: "resume", resumed: true });
-        expect(w.ops).toEqual([
-          released(5),
-          {
-            kind: "nudge",
-            hook: 6,
-            on: "sessionStarted",
-            text: "Input `docs/spec.md` changed on the base at `dddddddddddd`.",
-          },
-          released(7),
-        ]);
-        expect(calls).toEqual([
-          { since: "c".repeat(40), paths: ["docs/spec.md"] },
-          { since: "c".repeat(40), paths: ["docs/spec.md"] },
-        ]);
-      },
-      async (_office, _run, since, paths) => {
-        calls.push({ since, paths });
-        return [{ path: "docs/spec.md", sha }];
-      },
-    );
-  });
-
-  it("releases a resume without a nudge when the input check is too slow or fails", async () => {
-    let mode: "hang" | "fail" = "hang";
-    await withWorld(
-      async (w) => {
-        w.nudges.onWorkerEvents(w.office, RUN, "agt-1", [
-          hook({ kind: "sessionStarted", id: 8, source: "resume", resumed: true }),
-        ]);
-        await Promise.resolve();
-        expect(w.ops).toEqual([]);
-        w.t.clock.advance(1_000);
-        await w.nudges.idle();
-        mode = "fail";
-        await pass(w, "agt-1", { kind: "sessionStarted", id: 9, source: "resume", resumed: true });
-        expect(w.ops).toEqual([released(8), released(9)]);
-      },
-      () => (mode === "hang" ? new Promise(() => undefined) : Promise.reject(new Error("git"))),
-    );
-  });
-});
-
-describe("nudge sources (DIPO-99)", () => {
-  it("keeps the source paths out of the prompt parts and their size total", () =>
-    withWorld((w) => {
-      recordPromptParts(w.office, RUN, "agt-1", promptParts("sys", "task msg", []), w.t.clock);
-      const parts = promptPartsOf(w.office, RUN, "agt-1");
-      expect(parts.map((part) => part.name)).toEqual(["system", "task"]);
-      expect(parts.reduce((sum, part) => sum + part.bytes, 0)).toBe(11);
-      expect(parts.reduce((sum, part) => sum + part.estTokens, 0)).toBe(3);
-      expect(
-        w.office.all<{ part: string }>(
-          "select part from prompt_parts where office_id = $office_id order by part",
-        ),
-      ).toEqual([{ part: "system" }, { part: "task" }]);
-    }));
-
-  it("checks the paths of a resumed session whose context pack changed", async () => {
-    const calls: (readonly string[])[] = [];
-    await withWorld(
-      async (w) => {
-        w.t.clock.advance(1_000);
-        addAgent(w.office, "agt-2", "session-1", w.t.clock.now());
-        w.office.immediate(() =>
-          writeNudgeSources(
-            w.office,
-            RUN,
-            "agt-2",
-            { context: ["packages/a/c.ts"], inputs: ["docs/new.md"] },
-            w.t.clock.now(),
-          ),
-        );
-        expect(contextPathsOf(w.office, RUN, "agt-1")).toEqual(["packages/a/b.ts"]);
-        expect(contextPathsOf(w.office, RUN, "agt-2")).toEqual(["packages/a/c.ts"]);
-        expect(inputPathsOf(w.office, RUN, "agt-2")).toEqual(["docs/new.md"]);
-
-        await pass(w, "agt-2", { kind: "toolUsed", id: 1, tool: "Edit", wrote: "packages/a/b.ts" });
-        await pass(w, "agt-2", { kind: "toolUsed", id: 2, tool: "Edit", wrote: "packages/a/c.ts" });
-        await pass(w, "agt-2", { kind: "sessionStarted", id: 3, source: "resume", resumed: true });
-        expect(w.ops).toEqual([
-          released(1),
-          {
-            kind: "nudge",
-            hook: 2,
-            on: "toolUsed",
-            text: "The context shown for `packages/a/c.ts` predates your edit.",
-          },
-          released(3),
-        ]);
-        expect(calls).toEqual([["docs/new.md"]]);
-
-        // A session whose gathered pack was empty checks no paths, never another session's.
-        addAgent(w.office, "agt-3", "session-2", w.t.clock.now());
-        w.office.immediate(() =>
-          writeNudgeSources(w.office, RUN, "agt-3", { context: [], inputs: [] }, w.t.clock.now()),
-        );
-        expect(contextPathsOf(w.office, RUN, "agt-3")).toEqual([]);
-        await pass(w, "agt-3", { kind: "toolUsed", id: 4, tool: "Edit", wrote: "packages/a/c.ts" });
-        expect(w.ops.at(-1)).toEqual(released(4));
-        // A resume without a new pack takes over the pack of the session it resumes.
-        addAgent(w.office, "agt-4", "session-1", w.t.clock.now());
-        w.office.immediate(() =>
-          copyNudgeSources(w.office, RUN, "agt-2", "agt-4", w.t.clock.now()),
-        );
-        expect(contextPathsOf(w.office, RUN, "agt-4")).toEqual(["packages/a/c.ts"]);
-        expect(inputPathsOf(w.office, RUN, "agt-4")).toEqual(["docs/new.md"]);
-        // The source rows are no prompt parts of either session.
-        expect(promptPartsOf(w.office, RUN, "agt-2").map((part) => part.name)).toEqual([
-          "nudge.context:packages/a/c.ts",
-        ]);
-      },
-      async (_office, _run, _since, paths) => {
-        calls.push(paths);
-        return [];
-      },
-    );
-  });
 });

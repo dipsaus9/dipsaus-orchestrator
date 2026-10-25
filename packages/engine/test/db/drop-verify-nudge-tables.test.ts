@@ -1,6 +1,7 @@
-// Migration 40 (DIPO-183): `base_verifies`, what the office's verify said about a base commit. A
-// fresh database and one migrated from version 39 have the same table, and the retention policy
-// lists it.
+// Migration 56 (DIPO-342): drops `verify_results`, `base_verifies` and `nudge_sources`, which no
+// live path writes since the move to boxes. A database at version 55 with rows in each loses the
+// three tables and keeps its other rows; a fresh database and the migrated one have the same
+// schema; the retention policy lists none of the three.
 
 import { describe, expect, it } from "bun:test";
 import { join } from "node:path";
@@ -8,100 +9,98 @@ import { join } from "node:path";
 import { ManualClock, withTempDir } from "@dipsaus-orchestrator/testkit";
 
 import { openStateDatabase } from "../../src/db/database";
+import type { Migration } from "../../src/db/migrations";
 import { MIGRATIONS } from "../../src/db/schema";
 import { TABLE_RETENTION } from "../../src/retention/policy";
 import { localMounts, memoryLogger } from "./helpers";
 
-const COLUMNS = [
-  "office_id",
-  "base_sha",
-  "config_hash",
-  "run_id",
-  "passed",
-  "failing",
-  "output_tail",
-  "ran_at",
-];
+const DROPPED = ["base_verifies", "nudge_sources", "verify_results"];
+
+const open = (dir: string, name: string, migrations?: readonly Migration[]) =>
+  openStateDatabase({
+    stateDir: join(dir, name),
+    logger: memoryLogger(),
+    readMounts: localMounts,
+    clock: new ManualClock(),
+    engineVersion: "0.0.0-test",
+    ...(migrations === undefined ? {} : { migrations }),
+  });
 
 type Db = { all<T>(sql: string): T[] };
 
-function shape(db: Db) {
-  return {
-    columns: db
-      .all<{ name: string; type: string; notnull: number; pk: number }>(
-        `select name, type, "notnull", pk from pragma_table_info('base_verifies')`,
-      )
-      .map((c) => [c.name, c.type, c.notnull, c.pk]),
-    sql: db.all<{ sql: string }>(`select sql from sqlite_master where name = 'base_verifies'`),
-  };
+/** Every table, index and trigger of the database, with its SQL, by name. */
+function schema(db: Db): { type: string; name: string; sql: string | null }[] {
+  return db.all<{ type: string; name: string; sql: string | null }>(
+    `select type, name, sql from sqlite_master where name not like 'sqlite_%' order by type, name`,
+  );
 }
 
-describe("migration 40", () => {
-  it("gives a fresh and a migrated database the same base_verifies table", () =>
+function tables(db: Db, names: readonly string[]): string[] {
+  return db
+    .all<{ name: string }>(`select name from sqlite_master where type = 'table' order by name`)
+    .map((row) => row.name)
+    .filter((name) => names.includes(name));
+}
+
+describe("migration 56 (DIPO-342)", () => {
+  it("drops the three tables of a database at version 55 and keeps its other rows", () =>
     withTempDir(async (dir) => {
-      const open = (name: string, migrations?: typeof MIGRATIONS) =>
-        openStateDatabase({
-          stateDir: join(dir, name),
-          logger: memoryLogger(),
-          readMounts: localMounts,
-          clock: new ManualClock(),
-          engineVersion: "0.0.0-test",
-          ...(migrations === undefined ? {} : { migrations }),
-        });
-      const old = await open(
-        "migrated",
-        MIGRATIONS.filter((step) => step.version <= 39),
-      );
+      const before = MIGRATIONS.filter((step) => step.version <= 55);
+      expect(before.at(-1)?.version).toBe(55);
+      const old = await open(dir, "migrated", before);
       try {
-        expect(
-          old.connection.all("select name from sqlite_master where name = 'base_verifies'"),
-        ).toEqual([]);
+        const db = old.connection;
+        expect(tables(db, DROPPED)).toEqual(DROPPED);
+        db.immediate(() => {
+          db.exec(`
+            insert into offices (office_id, path, display_name, added_at, epoch, next_seq,
+              replay_floor_seq)
+              values ('off-1', '/repo', 'repo', 0, 'e', 1, 0);
+            insert into base_verifies values ('off-1', 'a', 'h', 'run-1', 1, '[]', null, 0);
+            insert into nudge_sources (office_id, run_id, agent_id, kind, path, recorded_at)
+              values ('off-1', 'run-1', 'agt-1', 'context', 'src/a.ts', 0);
+            insert into verify_results (office_id, run_id, result_id, loop, profile, commands,
+              exit_code, signal, timed_out, passed, duration_ms, output_from, output_to, at)
+              values ('off-1', 'run-1', 1, 1, 'branch', '[]', 0, null, 0, 1, 1, 0, 0, 0);
+          `);
+        });
       } finally {
         old.close();
       }
-      const migrated = await open("migrated");
-      const fresh = await open("fresh");
+      const migrated = await open(dir, "migrated");
       try {
-        expect(shape(migrated.connection)).toEqual(shape(fresh.connection));
-        expect(shape(fresh.connection).columns.map(([name]) => name)).toEqual(COLUMNS);
+        const db = migrated.connection;
+        expect(tables(db, DROPPED)).toEqual([]);
         expect(
-          migrated.connection.get<{ version: number }>(
-            "select max(version) as version from schema_migrations",
-          )?.version,
-        ).toBeGreaterThanOrEqual(40);
+          db.get<{ version: number }>("select max(version) as version from schema_migrations")
+            ?.version,
+        ).toBeGreaterThanOrEqual(56);
+        expect(db.all("select office_id from offices")).toEqual([{ office_id: "off-1" }]);
+      } finally {
+        migrated.close();
+      }
+    }));
 
-        const db = fresh.connection;
-        db.immediate(() =>
-          db.exec(`insert into offices (office_id, path, display_name, added_at, epoch,
-            next_seq, replay_floor_seq) values ('off-1', '/repo', 'repo', 0, 'e', 1, 0)`),
-        );
-        const insert = (passed: number, failing: string, tail: string | null, sha = "a") =>
-          db.immediate(() =>
-            db.run(
-              `insert into base_verifies values ('off-1', $sha, 'h', 'run-1', $passed, $failing,
-                 $tail, 0)`,
-              { sha, passed, failing, tail },
-            ),
-          );
-        insert(1, "[]", null, "green");
-        insert(0, '["a test"]', null, "red");
-        insert(0, "[]", "the end of the output", "tail");
-        // A green base has no failing tests and no tail; the flag is 0 or 1.
-        expect(() => insert(1, '["a test"]', null, "x")).toThrow();
-        expect(() => insert(1, "[]", "tail", "y")).toThrow();
-        expect(() => insert(2, "[]", null, "z")).toThrow();
-        // One row per office, base commit and configuration.
-        expect(() => insert(1, "[]", null, "green")).toThrow();
+  it("gives a fresh and a migrated database the same schema", () =>
+    withTempDir(async (dir) => {
+      const old = await open(
+        dir,
+        "migrated",
+        MIGRATIONS.filter((step) => step.version <= 55),
+      );
+      old.close();
+      const migrated = await open(dir, "migrated");
+      const fresh = await open(dir, "fresh");
+      try {
+        expect(schema(migrated.connection)).toEqual(schema(fresh.connection));
+        expect(tables(fresh.connection, DROPPED)).toEqual([]);
       } finally {
         migrated.close();
         fresh.close();
       }
     }));
 
-  it("lists base_verifies in the retention policy", () => {
-    expect(TABLE_RETENTION["base_verifies"]).toEqual({
-      tier: "P",
-      rule: expect.stringContaining("until purge"),
-    });
+  it("lists none of the dropped tables in the retention policy", () => {
+    for (const name of DROPPED) expect(Object.hasOwn(TABLE_RETENTION, name)).toBe(false);
   });
 });

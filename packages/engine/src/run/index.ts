@@ -143,7 +143,6 @@ export {
   pendingReviews,
   reviewRounds,
   takeVerdict,
-  verifiedTreeKey,
 } from "./review-rounds";
 export type { ReviewRound } from "./review-rounds";
 export {
@@ -304,8 +303,8 @@ export {
   storedFeedbackOf,
 } from "./open-feedback";
 export type { AnswerKind, RunAnswers, StoredFeedback } from "./open-feedback";
-// In Review at a box run's done, the reviewer's backstop and run outcomes (DIPO-49, DIPO-240).
-export { backstopDetail, backstopEvidence, readBackstop } from "./backstop";
+// In Review at a box run's done, the worktree's git state and run outcomes (DIPO-49, DIPO-240).
+export { readBackstop } from "./backstop";
 export type { BackstopSnapshot } from "./backstop";
 export { gitStoryOps, IN_REVIEW_STATUS } from "./story-git";
 export type { PushResult, StoryGit, WorktreeStory } from "./story-git";
@@ -323,23 +322,8 @@ export {
   VerifyCommit,
 } from "./verify-commit";
 export type { RunFinisher, TurnContext, TurnDecision, VerifyCommitDeps } from "./verify-commit";
-export {
-  appendVerifyOutput,
-  insertVerifyResult,
-  outputTail,
-  recordCodeTreeKey,
-  runSummary,
-  storeRunSummary,
-  SUMMARY_OUTPUT_LINES,
-  verifyOutputEnd,
-  verifyResults,
-} from "./verify-records";
-export type {
-  NewVerifyResult,
-  RunSummary,
-  StoredVerifyResult,
-  VerifyProfile,
-} from "./verify-records";
+export { outputTail, runSummary, storeRunSummary, SUMMARY_OUTPUT_LINES } from "./verify-records";
+export type { RunSummary } from "./verify-records";
 // Worker outcomes and the run's next session (DIPO-51).
 export {
   INIT_REJECTED_SIGKILL_AFTER_MS,

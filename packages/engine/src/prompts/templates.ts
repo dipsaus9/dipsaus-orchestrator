@@ -4,7 +4,6 @@
 // over every template file.
 
 import implementBoxContract from "./contract/implement-box.md" with { type: "text" };
-import implementContract from "./contract/implement.md" with { type: "text" };
 import reviewBoxContract from "./contract/review-box.md" with { type: "text" };
 import reviewContract from "./contract/review.md" with { type: "text" };
 import scanContract from "./contract/scan.md" with { type: "text" };
@@ -17,7 +16,6 @@ import reviewerRole from "./roles/reviewer.md" with { type: "text" };
 import scannerRole from "./roles/scanner.md" with { type: "text" };
 import answers from "./task/answers.md" with { type: "text" };
 import background from "./task/background.md" with { type: "text" };
-import baseVerify from "./task/base-verify.md" with { type: "text" };
 import changes from "./task/changes.md" with { type: "text" };
 import contextItem from "./task/context-item.md" with { type: "text" };
 import contextListed from "./task/context-listed.md" with { type: "text" };
@@ -43,15 +41,13 @@ import testPlanNotApplicable from "./task/test-plan-not-applicable.md" with { ty
 import testPlan from "./task/test-plan.md" with { type: "text" };
 
 /**
- * L1 worker contracts by run kind: `implement` and `review` (0019 section 4), and `implement-box`
- * for a developer in its own box (0021 section 7, 0014 amendment of 2026-10-21, DIPO-272): the door
- * messages, without the write-only-these-paths, no-git and no-`cd` rules. `implement` stays the Mac
- * worker's until DIPO-280 removes that path. `review-box` is the reviewer's of a box run (DIPO-299,
- * 0021 amendment of 2026-10-22): dipo ran no verify of its own, the developer ran verify in its
- * box, and CI runs on the same head at the same time as the review.
+ * L1 worker contracts by run kind: `implement-box` for a developer, who works only in its own box
+ * (0021 section 7, 0014 amendment of 2026-10-21, DIPO-272; the Mac worker's `implement` went with
+ * DIPO-342): the door messages. `review` (0019 section 4), and `review-box`, the reviewer's of a
+ * box run (DIPO-299, 0021 amendment of 2026-10-22): dipo ran no verify of its own, the developer
+ * ran verify in its box, and CI runs on the same head at the same time as the review.
  */
 export const CONTRACT_TEMPLATES = {
-  implement: implementContract,
   "implement-box": implementBoxContract,
   review: reviewContract,
   "review-box": reviewBoxContract,
@@ -81,7 +77,6 @@ export const TASK_TEMPLATES = {
   dependencies,
   background,
   handoff,
-  baseVerify,
   story,
   outcome,
   criteria,
@@ -166,7 +161,6 @@ export const PROMPT_TAGS: readonly string[] = [
   "dependencies",
   "background",
   "handoff",
-  "base_verify",
   "story",
   "outcome",
   "criteria",

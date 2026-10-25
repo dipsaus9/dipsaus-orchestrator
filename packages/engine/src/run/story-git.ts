@@ -42,8 +42,6 @@ export interface StoryGit {
   story(office: OfficeId, worktree: string, id: string): Promise<WorktreeStory>;
   /** A file's text at `sha`, or null when the commit has no such file. */
   showAt(office: OfficeId, worktree: string, sha: string, path: string): Promise<string | null>;
-  /** sha256 of `git ls-tree -r HEAD` without the story's own task file (0010 section 7). */
-  codeTreeKey(office: OfficeId, worktree: string, taskFile: string): Promise<string>;
   /**
    * Checks off `criteria` and sets status In Review through the Backlog CLI, then commits the task
    * file alone as `<ID>: status In Review`. Returns the commit, or null when nothing changed.
@@ -130,15 +128,6 @@ export function gitStoryOps(deps: {
         const shown = await session.step(at(git, worktree), ["show", `${sha}:${path}`]);
         return shown.code === 0 ? shown.stdout : null;
       });
-    },
-    codeTreeKey: (office, worktree, taskFile) => {
-      const git = gitOf(office);
-      return git.run(async (session) =>
-        codeTreeKeyOf(
-          await session.ok(at(git, worktree), ["ls-tree", "-r", "-z", "HEAD"]),
-          taskFile,
-        ),
-      );
     },
     markInReview: (office, input) => {
       const git = gitOf(office);

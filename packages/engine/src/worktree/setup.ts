@@ -28,7 +28,6 @@ import type { GitSession } from "../git/office";
 import type { RunProfile } from "../scan/detect";
 import type { LocalSettingsCopy } from "../workers/port";
 
-import type { BaseVerifyFacts } from "../prompts/base-verify";
 import {
   CLAIM_NOTICES,
   type ClaimDeps,
@@ -81,11 +80,6 @@ export interface SetupDone extends ClaimSetupDone {
   readonly env: Readonly<Record<string, string>>;
   readonly files: FileStepResult;
   readonly log: readonly string[];
-  /**
-   * What the office's verify said about the base commit (DIPO-183). Setup no longer runs it on the
-   * Mac (DIPO-240), so it is always absent now: not known.
-   */
-  readonly baseVerify?: BaseVerifyFacts;
 }
 
 export type SetupOutcome = SetupDone | ClaimSetupFailed;

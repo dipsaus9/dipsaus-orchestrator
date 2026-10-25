@@ -107,7 +107,7 @@ import {
   type ToolTrail,
 } from "./report-data";
 import type { StoryGit } from "./story-git";
-import { recordCodeTreeKey, storeRunSummary } from "./verify-records";
+import { storeRunSummary } from "./verify-records";
 
 /**
  * The park detail when the story branch moved off the last part's commit after a box run claimed
@@ -736,8 +736,6 @@ export class VerifyCommit implements RunFinisher {
     const story = run.story as string;
     const git = this.#deps.story;
     try {
-      const key = await git.codeTreeKey(officeId, worktree, input.view.taskFile);
-      ctx.office.immediate(() => recordCodeTreeKey(ctx.office, run.runId, input.loop, key));
       const known = new Set(input.view.criteria);
       const met = [
         ...new Set(input.report.criteria.filter((c) => c.met && known.has(c.n)).map((c) => c.n)),

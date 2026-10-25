@@ -44,10 +44,6 @@ export const TABLE_RETENTION: Readonly<Record<string, TablePolicy>> = {
     rule: "recorded more than stateDays ago, once no agent of the run is running",
   },
   prompt_texts: { tier: "R", rule: "recorded more than shortDays ago" },
-  nudge_sources: {
-    tier: "S",
-    rule: "recorded more than stateDays ago, once no agent of the run is running",
-  },
   claims: { tier: "S", rule: "released more than stateDays ago; a live claim is kept" },
   scans: { tier: "S", rule: "finished more than stateDays ago" },
   // 0007: P for the current and the previous profile; older ones are pruned, not aged.
@@ -91,10 +87,6 @@ export const TABLE_RETENTION: Readonly<Record<string, TablePolicy>> = {
     tier: "P",
     rule: "no age rule: the slot code deletes its one row when the PR merges or leaves the slot",
   },
-  base_verifies: {
-    tier: "P",
-    rule: "kept until purge: one small row per base commit, read by every later run on that base",
-  },
   runs: { tier: "S", rule: "ended more than stateDays ago; an active run is kept" },
   run_steps: { tier: "S", rule: "with its run, ended more than stateDays ago" },
   run_grants: { tier: "S", rule: "with its run, ended more than stateDays ago" },
@@ -105,7 +97,6 @@ export const TABLE_RETENTION: Readonly<Record<string, TablePolicy>> = {
     tier: "S",
     rule: "cleared more than stateDays ago; leftovers not cleared are kept",
   },
-  verify_results: { tier: "S", rule: "with its run, ended more than stateDays ago" },
   run_summaries: { tier: "S", rule: "with its run, ended more than stateDays ago" },
   done_reports: { tier: "S", rule: "with its run, ended more than stateDays ago" },
   report_sendbacks: { tier: "S", rule: "with its run, ended more than stateDays ago" },

@@ -20,7 +20,6 @@
 import type { RunId } from "@dipsaus-orchestrator/contract";
 
 import type { OfficeHandle } from "../db/office";
-import { reviewVerdictForTree } from "../review/store";
 
 import { START_KINDS, type PlaceStart } from "./places";
 import { appendRunStep, findRun, IN_REVIEW_END, type StoredRun } from "./records";
@@ -126,23 +125,10 @@ export function failedReviewRounds(office: OfficeHandle, runId: RunId): number {
   );
 }
 
-/** The code tree key the run's newest green verify recorded; null before one. */
-export function verifiedTreeKey(office: OfficeHandle, runId: RunId): string | null {
-  return (
-    office.get<{ key: string }>(
-      `select code_tree_key as key from verify_results
-        where office_id = $office_id and run_id = $run and code_tree_key is not null
-        order by result_id desc limit 1`,
-      { run: runId },
-    )?.key ?? null
-  );
-}
-
 /**
  * The pending reviews of the office (`PlacesDeps.pending`, 0019 section 12), oldest In Review
  * first: story runs ended at In Review with a live claim and the review loop's caps, whose head is
- * on the remote (or whose office has none, DIPO-315) and whose verified code tree has no verdict in
- * the claim. Each waits from its In Review time.
+ * on the remote (or whose office has none, DIPO-315). Each waits from its In Review time.
  */
 export function pendingReviews(office: OfficeHandle): PlaceStart[] {
   const rows = office.all<{ run_id: string; ended_at: number }>(
@@ -155,12 +141,11 @@ export function pendingReviews(office: OfficeHandle): PlaceStart[] {
       order by r.ended_at, r.run_id`,
     { in_review: IN_REVIEW_END },
   );
-  return rows.flatMap((row): PlaceStart[] => {
-    const runId = row.run_id as RunId;
-    const tree = verifiedTreeKey(office, runId);
-    if (tree !== null && reviewVerdictForTree(office, runId, tree) !== null) return [];
-    return [{ kind: START_KINDS.review, runId, since: row.ended_at }];
-  });
+  return rows.map((row): PlaceStart => ({
+    kind: START_KINDS.review,
+    runId: row.run_id as RunId,
+    since: row.ended_at,
+  }));
 }
 
 /**

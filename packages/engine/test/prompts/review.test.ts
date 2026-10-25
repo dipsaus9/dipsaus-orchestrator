@@ -178,7 +178,7 @@ describe("the reviewer's system file (L1 + L2)", () => {
 
   it("differs from the developer's", () => {
     expect(renderSystemFile("review", "reviewer")).not.toBe(
-      renderSystemFile("implement", "developer"),
+      renderSystemFile("implement-box", "developer"),
     );
   });
 });

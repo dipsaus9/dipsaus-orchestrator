@@ -86,7 +86,6 @@ import {
   hostSocketSteering,
   type EngineGit,
   type HoldNotice,
-  gitInputChanges,
   type CiHeadState,
   type Logger,
   OfficeIngest,
@@ -1116,8 +1115,6 @@ export function daemonRuns(options: DaemonRunsOptions): DaemonRuns {
     // The permission wait (DIPO-59) asks the maintainer when present, and holds while `safe`.
     ...(options.presence === undefined ? {} : { presence: options.presence }),
     ...(options.scheduling === undefined ? {} : { scheduling: options.scheduling }),
-    // The 0014 section 8 nudges (DIPO-60): a resume may get an input nudge.
-    inputChanges: gitInputChanges((handle) => options.engineGit.forOffice(handle.officeId)),
     ingest: {
       pricing: () => options.database()?.pricing ?? null,
       watchdog,

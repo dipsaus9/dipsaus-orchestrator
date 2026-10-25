@@ -215,7 +215,6 @@ describe("setting up a worktree", () => {
       // is the verify (0021 amendment of 2026-10-22).
       const log = outcome.log.join("\n");
       expect(log).not.toMatch(/install|post_create|base verify|\$ /);
-      expect(outcome.baseVerify).toBeUndefined();
       expect(existsSync(join(claim.worktree, "node_modules"))).toBe(false);
       expect(log).not.toContain(SECRET);
       outcome.release();

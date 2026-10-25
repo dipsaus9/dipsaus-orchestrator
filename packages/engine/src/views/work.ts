@@ -144,20 +144,11 @@ function progressOf(office: OfficeHandle, run: StoredRun): Progress {
     criteriaTotal: total,
     loop: steps.filter((step) => step.kind === "loop").length,
     loopCap: run.loopCap,
-    verify: verifyStateOf(office, run.runId),
+    // dipo stores no verify result of its own (DIPO-342): the box worker runs verify, CI checks.
+    verify: "none",
     reviewRound: steps.filter((step) => step.kind === "review").length,
     ...review,
   };
-}
-
-/** `passing` or `failing` by the run's newest verify result (DIPO-49); `none` before any. */
-function verifyStateOf(office: OfficeHandle, runId: string): Progress["verify"] {
-  const last = office.get<{ passed: number }>(
-    `select passed from verify_results where office_id = $office_id and run_id = $run
-      order by result_id desc limit 1`,
-    { run: runId },
-  );
-  return last === null ? "none" : last.passed === 1 ? "passing" : "failing";
 }
 
 /** The progress of the story run `runId` now, derived from its facts. */

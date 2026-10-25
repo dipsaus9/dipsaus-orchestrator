@@ -72,7 +72,6 @@ import {
   runSteps,
   type StoryGit,
   VerifyCommit,
-  verifyResults,
 } from "../../src/run";
 import { appendHandOff, type DoneConflictDecision, handOffState } from "../../src/run/conflicts";
 import { BOX_TIP_MOVED, NO_BOX_AT_DONE, TEST_PLAN_REFUSALS_MAX } from "../../src/run/verify-commit";
@@ -707,7 +706,6 @@ function fakeStoryGit(): StoryGit {
             scripts: sha.startsWith("refs/heads/") ? w.branchScripts : { verify: "bun test" },
           })
         : (w.files[path] ?? null),
-    codeTreeKey: async () => "k".repeat(64),
     markInReview: async (_o, input) => {
       w.inReviewTip = w.tip;
       w.calls.push(`in-review [${input.criteria.join(", ")}]`);
@@ -934,7 +932,6 @@ function parks(): { reason: string; cause: string | null; detail: string }[] {
 
 /** What a box run's done must never do: a verify of dipo's, in the box or on the Mac. */
 function expectNoVerify(): void {
-  expect(verifyResults(w.f.office, w.f.run)).toEqual([]);
   expect(events("work.phase").map((e) => e["phase"])).not.toContain("verify");
   expect(events("work.output").filter((e) => e["source"] === "verify")).toEqual([]);
   expect(runSteps(w.f.office, w.f.run).filter((s) => s.kind === "loop")).toEqual([]);
