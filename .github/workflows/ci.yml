@@ -30,9 +30,12 @@ jobs:
         with:
           persist-credentials: false
           fetch-depth: 2
-      - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2.2.0
-        with:
-          bun-version-file: .bun-version
+      # The scope is decided here with git and the shell, never by code from the PR's checkout, so
+      # a PR cannot change the decision without a change under .github/ (code-owner review). Light
+      # only when every changed entry is a regular file on both sides (mode 100644, or 000000 where
+      # it is absent) whose path is a .md file under backlog/ or backlog/config.yml. A symlink, a
+      # submodule, an executable, any other path and an empty diff are full. -z keeps paths with
+      # spaces or newlines whole; output that does not end in a whole entry is full.
       - name: Classify the changed paths
         id: scope
         env:
@@ -47,7 +50,24 @@ jobs:
             echo "The checkout is not the merge commit of the PR head $PR_HEAD"
             exit 1
           fi
-          bun scripts/changed-scope.ts HEAD^1 HEAD
+          diff="$RUNNER_TEMP/changes.raw"
+          git diff --raw -z --no-renames HEAD^1 HEAD > "$diff"
+          scope=backlog-only
+          count=0
+          meta=""
+          while IFS= read -r -d '' meta && IFS= read -r -d '' path; do
+            count=$((count + 1))
+            read -r from to _ <<< "${meta#:}"
+            case "$from" in 100644 | 000000) ;; *) scope=full ;; esac
+            case "$to" in 100644 | 000000) ;; *) scope=full ;; esac
+            case "$path" in backlog/config.yml | backlog/*.md) ;; *) scope=full ;; esac
+            meta=""
+          done < "$diff"
+          if [ "$count" -eq 0 ] || [ -n "$meta" ]; then
+            scope=full
+          fi
+          echo "$count changed entries: $scope"
+          echo "scope=$scope" >> "$GITHUB_OUTPUT"
 
   # 0016: the Ready gate on every Ready story, on every PR and push, and on a backlog-only PR the
   # structural check of 0010 on every story the PR changes.

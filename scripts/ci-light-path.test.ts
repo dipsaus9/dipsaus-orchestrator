@@ -1,10 +1,11 @@
 // The light CI path of backlog-only PRs (0016, DIPO-341), read from ci.yml as it is in the
 // repository. The `changes` step and the `ci-ok` step run here as written, with bash and jq: the
-// changes job finds a backlog-only PR from GitHub's merge commit, and ci-ok passes that PR with its
-// heavy jobs skipped, and fails a job that failed, or was skipped for any other reason.
+// changes job finds a PR that changes only regular Backlog files from GitHub's merge commit, and
+// ci-ok passes that PR with its heavy jobs skipped, and fails a job that failed, or was skipped for
+// any other reason.
 
 import { describe, expect, it } from "bun:test";
-import { copyFileSync, mkdirSync, readFileSync } from "node:fs";
+import { chmodSync, readFileSync, symlinkSync } from "node:fs";
 import { join, resolve } from "node:path";
 
 import { type TempRepo, withTempRepo } from "../packages/testkit/src/index";
@@ -101,18 +102,31 @@ describe("ci.yml light path: the jobs", () => {
 
 const CHANGES = script("changes", (step) => step.id === "scope");
 
-/** A repository with `main`, a PR branch changing `paths`, and GitHub's merge commit checked out. */
-async function mergeCheckout(repo: TempRepo, paths: readonly string[]): Promise<string> {
-  mkdirSync(join(repo.dir, "scripts"));
-  copyFileSync(join(ROOT, "scripts/changed-scope.ts"), join(repo.dir, "scripts/changed-scope.ts"));
-  await Bun.write(join(repo.dir, "backlog/tasks/a.md"), "a\n");
-  await repo.commitAll("base");
+/** Writes `text` to `path` in the work tree and stages it. */
+async function put(repo: TempRepo, path: string, text = "changed\n"): Promise<void> {
+  await Bun.write(join(repo.dir, path), text);
+  await repo.git("add", "--", path);
+}
+
+/**
+ * A repository with `main`, a PR branch on which `change` stages its changes, and GitHub's merge
+ * commit of that branch checked out after `main` moved on. Returns the PR head.
+ */
+async function mergeCheckout(
+  repo: TempRepo,
+  change: (repo: TempRepo) => Promise<unknown>,
+): Promise<string> {
+  await put(repo, "backlog/config.yml", "project_name: x\n");
+  await put(repo, "backlog/tasks/a.md", "a\n");
+  await put(repo, "backlog/tasks/gone.md", "gone\n");
+  await repo.git("commit", "--quiet", "-m", "base");
   await repo.git("switch", "--quiet", "-c", "pr");
-  for (const path of paths) await Bun.write(join(repo.dir, path), "changed\n");
-  const head = await repo.commitAll("pr");
+  await change(repo);
+  await repo.git("commit", "--quiet", "--allow-empty", "-m", "pr");
+  const head = (await repo.git("rev-parse", "HEAD")).trim();
   await repo.git("switch", "--quiet", "main");
-  await Bun.write(join(repo.dir, "README.md"), "main moved on\n");
-  await repo.commitAll("main moves");
+  await put(repo, "README.md", "main moved on\n");
+  await repo.git("commit", "--quiet", "-m", "main moves");
   await repo.git("merge", "--quiet", "--no-ff", "-m", "merge", "pr");
   return head;
 }
@@ -120,39 +134,80 @@ async function mergeCheckout(repo: TempRepo, paths: readonly string[]): Promise<
 async function scope(repo: TempRepo, env: Record<string, string>) {
   const output = join(repo.root, "github-output");
   await Bun.write(output, "");
-  const result = bash(CHANGES, { GITHUB_OUTPUT: output, ...env }, repo.dir);
+  const result = bash(CHANGES, { GITHUB_OUTPUT: output, RUNNER_TEMP: repo.root, ...env }, repo.dir);
   return { ...result, output: readFileSync(output, "utf8") };
 }
 
+async function prScope(change: (repo: TempRepo) => Promise<unknown>): Promise<string> {
+  return withTempRepo(async (repo) => {
+    const head = await mergeCheckout(repo, change);
+    const result = await scope(repo, { EVENT: "pull_request", PR_HEAD: head });
+    expect(result.code).toBe(0);
+    return result.output;
+  });
+}
+
+async function symlink(repo: TempRepo): Promise<void> {
+  symlinkSync("../README.md", join(repo.dir, "backlog/tasks/link.md"));
+  await repo.git("add", "--", "backlog/tasks/link.md");
+}
+async function executable(repo: TempRepo): Promise<void> {
+  chmodSync(join(repo.dir, "backlog/tasks/a.md"), 0o755);
+  await repo.git("add", "--", "backlog/tasks/a.md");
+}
+async function submodule(repo: TempRepo): Promise<void> {
+  const sha = (await repo.git("rev-parse", "HEAD")).trim();
+  await repo.git("update-index", "--add", "--cacheinfo", `160000,${sha},backlog/sub.md`);
+}
+
 describe("ci.yml light path: the changes job", () => {
-  it("finds a PR that changes only backlog/ although the base changed more", async () => {
-    await withTempRepo(async (repo) => {
-      const head = await mergeCheckout(repo, ["backlog/tasks/a.md", "backlog/tasks/b.md"]);
-      const result = await scope(repo, { EVENT: "pull_request", PR_HEAD: head });
-      expect(result.code).toBe(0);
-      expect(result.output).toBe("scope=backlog-only\n");
-    });
+  it("is decided in ci.yml with git and the shell, never by a script of the checkout", () => {
+    expect(CHANGES).not.toMatch(/\bbun\b|scripts\//);
+    expect(job("changes").steps?.some((step) => step.uses?.startsWith("oven-sh/"))).toBe(false);
   });
 
-  it("runs everything for a PR that changes a file outside backlog/", async () => {
-    await withTempRepo(async (repo) => {
-      const head = await mergeCheckout(repo, ["backlog/tasks/a.md", "scripts/x.ts"]);
-      const result = await scope(repo, { EVENT: "pull_request", PR_HEAD: head });
-      expect(result.code).toBe(0);
-      expect(result.output).toBe("scope=full\n");
+  it("finds a PR that changes only Backlog files, although the base changed more", async () => {
+    const output = await prScope(async (repo) => {
+      await put(repo, "backlog/tasks/a.md");
+      await put(repo, "backlog/tasks/task-2 - With spaces.md");
+      await put(repo, "backlog/tasks/odd\nname.md");
+      await put(repo, "backlog/config.yml", "project_name: y\n");
+      await repo.git("rm", "--quiet", "backlog/tasks/gone.md");
     });
+    expect(output).toBe("scope=backlog-only\n");
+  });
+
+  it("runs everything for a PR that changes a path outside backlog/", async () => {
+    expect(await prScope((repo) => put(repo, "scripts/x.ts"))).toBe("scope=full\n");
+    // A newline in the path does not make it look like a backlog/ path.
+    expect(await prScope((repo) => put(repo, "x\nbacklog/a.md"))).toBe("scope=full\n");
+  });
+
+  it("runs everything for a file under backlog/ that is not a .md file or backlog/config.yml", async () => {
+    expect(await prScope((repo) => put(repo, "backlog/x.test.ts"))).toBe("scope=full\n");
+    expect(await prScope((repo) => put(repo, "backlog/config.yaml"))).toBe("scope=full\n");
+  });
+
+  it("runs everything for a symlink, an executable or a submodule under backlog/", async () => {
+    expect(await prScope(symlink)).toBe("scope=full\n");
+    expect(await prScope(executable)).toBe("scope=full\n");
+    expect(await prScope(submodule)).toBe("scope=full\n");
+  });
+
+  it("runs everything for a PR that changes nothing", async () => {
+    expect(await prScope(async () => {})).toBe("scope=full\n");
   });
 
   it("runs everything on a push", async () => {
     await withTempRepo(async (repo) => {
-      await mergeCheckout(repo, ["backlog/tasks/a.md"]);
+      await mergeCheckout(repo, (r) => put(r, "backlog/tasks/a.md"));
       expect((await scope(repo, { EVENT: "push", PR_HEAD: "" })).output).toBe("scope=full\n");
     });
   });
 
   it("fails when the checkout is not the merge commit of the PR head", async () => {
     await withTempRepo(async (repo) => {
-      await mergeCheckout(repo, ["backlog/tasks/a.md"]);
+      await mergeCheckout(repo, (r) => put(r, "backlog/tasks/a.md"));
       const result = await scope(repo, { EVENT: "pull_request", PR_HEAD: "0".repeat(40) });
       expect(result.code).not.toBe(0);
       expect(result.output).toBe("");
