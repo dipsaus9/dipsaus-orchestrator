@@ -22,7 +22,7 @@ import type { HostOp, WorkerOutcome } from "../workers/types";
 
 /**
  * The ops 0008 section 6 names, plus `park`: closing stdin of a worker whose report parks the story
- * (blocked with a question or `needsPermission`).
+ * (blocked with a question).
  */
 export type IntentKind = "steer" | "answer" | "pause" | "stop" | "reassign" | "cap" | "park";
 

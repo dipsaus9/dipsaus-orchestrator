@@ -138,15 +138,6 @@ function decide(state: ClaudeParseState, exit: ExitRecord): Decision {
       ? { outcome: "done", report, resumable: true }
       : { ...crashed(`done report but ${exitText(exit)}`), report };
   }
-  if (report.needsPermission !== undefined) {
-    const { tool, action } = report.needsPermission;
-    return {
-      outcome: "blocked",
-      report,
-      park: { reason: "needs-permission", detail: `${tool}: ${action}` },
-      resumable: true,
-    };
-  }
   return {
     outcome: "blocked",
     report,

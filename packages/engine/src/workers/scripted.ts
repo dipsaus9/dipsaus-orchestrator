@@ -150,13 +150,7 @@ export class ScriptedWorker implements WorkerAdapter {
               usage,
               sessionId: this.#sessionId,
               resumable: true,
-              park:
-                report.needsPermission === undefined
-                  ? { reason: "ambiguous-spec", detail: report.question ?? report.summary }
-                  : {
-                      reason: "needs-permission",
-                      detail: `${report.needsPermission.tool}: ${report.needsPermission.action}`,
-                    },
+              park: { reason: "ambiguous-spec", detail: report.question ?? report.summary },
             };
     return { ...base, ...this.#override };
   }

@@ -33,7 +33,6 @@ export const WORKER_REPORT_CAPS = {
   commitSubject: 200,
   question: 2_000,
   notes: 8_000,
-  permission: 2_000,
   proposals: 3,
   proposalTitle: 120,
   proposalOutcome: 500,
@@ -127,10 +126,6 @@ export const WorkerReportSchema = z.strictObject({
     .exactOptional()
     .describe("blocked only: the one question the maintainer must answer"),
   notes: z.string().max(caps.notes).exactOptional().describe("notes for a next session"),
-  needsPermission: z
-    .strictObject({ tool: Text.max(caps.permission), action: Text.max(caps.permission) })
-    .exactOptional()
-    .describe("blocked only: the denied call the work cannot do without"),
   proposals: z
     .array(WorkerProposalSchema)
     .max(caps.proposals)

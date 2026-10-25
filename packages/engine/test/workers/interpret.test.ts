@@ -338,24 +338,17 @@ describe("interpret (0008 section 3)", () => {
     });
   });
 
-  it("report status blocked with a question gives waiting question; with needsPermission none", () => {
+  it("report status blocked with a question gives waiting question; without one none", () => {
     const question = run([
       resultLine({
         structured_output: { ...report, status: "blocked", question: "Which greeting?" },
       }),
     ]).events;
     expect(question).toContainEqual({ t: "waiting", on: "question", detail: "Which greeting?" });
-    const permission = run([
-      resultLine({
-        structured_output: {
-          ...report,
-          status: "blocked",
-          question: "May I?",
-          needsPermission: { tool: "Write", action: "write /tmp/x" },
-        },
-      }),
+    const reason = run([
+      resultLine({ structured_output: { ...report, status: "blocked" } }),
     ]).events;
-    expect(permission.some((event) => event.t === "waiting")).toBe(false);
+    expect(reason.some((event) => event.t === "waiting")).toBe(false);
   });
 
   it("reads the report from structured_output and validates it against the report schema", () => {

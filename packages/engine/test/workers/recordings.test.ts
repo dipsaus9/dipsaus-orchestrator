@@ -29,12 +29,12 @@ const EXPECTED: Readonly<Record<string, Expectation>> = {
   "init-rejected-model": ["initRejected", "worker-failed"],
   interrupt: ["crashed", "worker-failed"],
   "max-turns": ["capped", "budget-exceeded"],
-  // DIPO-75: the blocked report carries needsPermission {Bash, docker ps}.
-  "needs-permission": ["blocked", "needs-permission"],
   "model-switch": ["done", null],
   "pause-now": ["blocked", "ambiguous-spec"],
-  "permission-denied": ["blocked", "needs-permission"],
-  // The worker reports the fixture question after the denied wait, without needsPermission.
+  // Captured before DIPO-342: the report still holds the permission field the report no
+  // longer has, so it is invalid: one feedback turn, then ambiguous-spec (as report-invalid).
+  "permission-denied": ["blocked", "ambiguous-spec"],
+  // The worker reports the fixture question after the denied wait.
   "permission-wait": ["blocked", "ambiguous-spec"],
   "plan-limit-429": ["plan-limit", null],
   "plan-limit-rejected": ["plan-limit", null],
@@ -50,7 +50,7 @@ const EXPECTED: Readonly<Record<string, Expectation>> = {
   "review-blocked-live": ["done", null],
   // Asked not to report, Haiku returned a valid approval anyway; review-invalid covers the case.
   "review-invalid-live": ["done", null],
-  "safety-bash-prompts-none": ["blocked", "needs-permission"],
+  "safety-bash-prompts-none": ["blocked", "ambiguous-spec"],
   "safety-gh-token": ["done", null],
   "safety-gitdir-write": ["done", null],
   "safety-main-git": ["done", null],
@@ -68,7 +68,7 @@ const EXPECTED: Readonly<Record<string, Expectation>> = {
   "success-single": ["done", null],
   "success-tools-subagent": ["done", null],
   terminated: ["crashed", "worker-failed"],
-  // DIPO-164: the third call is refused and the worker reports blocked without needsPermission.
+  // DIPO-164: the third call is refused and the worker reports blocked.
   web: ["blocked", "ambiguous-spec"],
   // DIPO-164: derived from the first turn of success-tools-subagent, whose report says blocked.
   "web-calls": ["blocked", "ambiguous-spec"],
@@ -81,6 +81,8 @@ const RETRY: Readonly<Record<string, string>> = {
   "report-invalid": "report-feedback",
   "report-invalid-missing": "report-feedback",
   "review-invalid": "report-feedback",
+  "permission-denied": "report-feedback",
+  "safety-bash-prompts-none": "report-feedback",
 };
 
 /**

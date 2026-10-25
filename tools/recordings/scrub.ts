@@ -186,8 +186,6 @@ export const STDOUT_RULES: Readonly<Record<string, readonly PathRule[]>> = {
     // Report exemption: the fixture story makes the worker report fixed, fixture-controlled text.
     ["structured_output.status", "keep"],
     ["structured_output.question", "keep"],
-    ["structured_output.needsPermission.tool", "keep"],
-    ["structured_output.needsPermission.action", "keep"],
     // A review report's enums (0019 section 5): code computes the verdict from them.
     ["structured_output.criteria.*.status", "keep"],
     ["structured_output.findings.*.severity", "keep"],
@@ -286,8 +284,6 @@ export const DECISION_FIELDS: Readonly<Record<string, readonly string[]>> = {
     "permission_denials.*.tool_name",
     "structured_output.status",
     "structured_output.question",
-    "structured_output.needsPermission.tool",
-    "structured_output.needsPermission.action",
     "structured_output.criteria.*.status",
     "structured_output.findings.*.severity",
     "structured_output.findings.*.kind",
