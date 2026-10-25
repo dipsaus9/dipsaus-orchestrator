@@ -56,7 +56,6 @@ describe("command and read definitions", () => {
         "work.stop",
         "work.discard",
         "story.drop",
-        "work.reassign",
       ].toSorted(),
     );
   });

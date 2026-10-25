@@ -390,17 +390,17 @@ describe("the key table on desk rows", () => {
   });
 
   it("shows the command line of an action the table does not bind", async () => {
-    const reassign = DeskItem.parse({
+    const unbound = DeskItem.parse({
       ...held,
       kind: "PARKED",
       reason: "stopped",
       actions: [
-        { command: "work.reassign", cli: "dipo reassign DIPO-29 --tier L" },
+        { command: "work.run", cli: "dipo run DIPO-29" },
         { command: "work.resume", cli: "dipo resume DIPO-29" },
       ],
     });
-    const { ui } = await openDesk({ desk: [reassign] });
-    const frame = await ui.waitFor("type: dipo reassign DIPO-29 --tier L");
+    const { ui } = await openDesk({ desk: [unbound] });
+    const frame = await ui.waitFor("type: dipo run DIPO-29");
     expect(frame).toContain("[r]esume");
   });
 

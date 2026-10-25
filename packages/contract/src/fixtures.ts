@@ -207,10 +207,6 @@ const officeCommandFixtures: Record<string, { args: unknown; result: unknown }> 
     args: { story: "DIPO-21", note: "Dependency merged." },
     result: { story: "DIPO-21", key: ids.storyKey, to: "In Progress", run: ids.run },
   },
-  "work.reassign": {
-    args: { story: "DIPO-21", role: "developer", tier: "L" },
-    result: { run: ids.run, agent: ids.agent },
-  },
   "work.stop": { args: { story: "DIPO-21" }, result: { run: ids.run } },
   "work.discard": {
     args: { story: "DIPO-21", note: "Wrong approach." },
@@ -328,26 +324,6 @@ const officeReadFixtures: Record<string, { args: unknown; result: unknown }> = {
           message: "ready DIPO-21 failed R11: no declared scope; add at least one path with --ref",
         },
       ],
-    },
-  },
-  "office.usage": {
-    args: { office: ids.office, groupBy: "tier", window: "30d" },
-    result: {
-      unit: "tokens",
-      groups: [
-        {
-          group: "M",
-          stories: 9,
-          tokens: 1_200_000,
-          averageBudgetShare: 0.64,
-          within: 8,
-          over: 1,
-          averageLoops: 2.9,
-          weekly: [300_000, 400_000, 500_000],
-          estimatedCost: 3.1,
-        },
-      ],
-      evidence: { "groups.0.estimatedCost": "estimated" },
     },
   },
   "office.stats": {

@@ -623,53 +623,6 @@
       },
       "required": ["story", "key", "to"]
     },
-    "work.reassign.args": {
-      "type": "object",
-      "properties": {
-        "story": {
-          "anyOf": [
-            {
-              "type": "string",
-              "pattern": "^sto_[0-7][0-9A-HJKMNP-TV-Z]{25}$"
-            },
-            {
-              "type": "string",
-              "pattern": "^[A-Za-z][A-Za-z0-9]*-[0-9]+(\\.[0-9]+)*$"
-            }
-          ]
-        },
-        "role": {
-          "type": "string",
-          "pattern": "^[a-z][a-z0-9-]*$"
-        },
-        "tier": {
-          "anyOf": [
-            {
-              "type": "string",
-              "enum": ["S", "M", "L"]
-            },
-            {
-              "type": "string"
-            }
-          ]
-        }
-      },
-      "required": ["story"]
-    },
-    "work.reassign.result": {
-      "type": "object",
-      "properties": {
-        "run": {
-          "type": "string",
-          "pattern": "^run_[0-7][0-9A-HJKMNP-TV-Z]{25}$"
-        },
-        "agent": {
-          "type": "string",
-          "pattern": "^agt_[0-7][0-9A-HJKMNP-TV-Z]{25}$"
-        }
-      },
-      "required": ["run", "agent"]
-    },
     "work.stop.args": {
       "type": "object",
       "properties": {

@@ -190,17 +190,6 @@ export const workResume = defineCommand({
   since: 1,
 });
 
-// A new agent with a bounded handoff; the old one is stopped first.
-export const workReassign = defineCommand({
-  name: "work.reassign",
-  level: "office",
-  args: z.object({ ...StoryRef.shape, role: RoleId.optional(), tier: Tier.optional() }),
-  result: z.object({ run: RunId, agent: AgentId }),
-  confirm: true,
-  irreversible: false,
-  provisional: true,
-});
-
 // The worker ends, branch and worktree are kept, and the story parks as `stopped`.
 export const workStop = defineCommand({
   name: "work.stop",
@@ -610,38 +599,6 @@ export const workPreview = defineRead({
   since: 1,
 });
 
-export const UsageWindow = z.enum(["today", "7d", "30d"]);
-export type UsageWindow = z.infer<typeof UsageWindow>;
-
-export const UsageGroup = z.object({
-  group: z.string(), // a story id, role name or tier
-  stories: Count,
-  tokens: Count, // counted as the budget counts
-  averageBudgetShare: z.number().nonnegative(),
-  within: Count, // stories that stayed within budget
-  over: Count, // stories parked with budget-exceeded
-  averageLoops: z.number().nonnegative(),
-  weekly: z.array(Count), // tokens per week, oldest first
-  estimatedCost: z.number().nonnegative().optional(),
-});
-export type UsageGroup = z.infer<typeof UsageGroup>;
-
-// Engine-derived usage report for the cost view (0009 section 8) [`usage.report`].
-export const officeUsage = defineRead({
-  name: "office.usage",
-  args: z.object({
-    office: OfficeId,
-    groupBy: z.enum(["story", "role", "tier"]),
-    window: UsageWindow,
-  }),
-  result: z.object({
-    unit: z.literal("tokens"),
-    groups: z.array(UsageGroup),
-    evidence: EvidenceMap.optional(),
-  }),
-  provisional: true,
-});
-
 // Code-built "since you left" counts and lines (0009 section 8) [`digest`]. Since minor 1
 // (DIPO-308): `since` is optional; without it the engine counts from when the office's last TUI
 // client disconnected, which it stores per office, or from the time of the read when no TUI has
@@ -780,7 +737,7 @@ export const storyRenumbered = defineEvent({
 // engine derived when it stored the fact (0005 section 6), so a client replaces the run's view
 // and never derives health or phase itself.
 
-// Run start, re-attach on resume, reassign.
+// Run start and re-attach on resume.
 export const workAssigned = defineEvent({
   type: "work.assigned",
   stream: "office",
@@ -966,7 +923,6 @@ export const officeCommands = [
   workSteer,
   workPause,
   workResume,
-  workReassign,
   workStop,
   workDiscard,
   storyHold,
@@ -984,7 +940,6 @@ export const officeReads = [
   officeSwitch,
   storyDetail,
   workOutputRange,
-  officeUsage,
   officeDigest,
   storyGate,
   storyLosses,
