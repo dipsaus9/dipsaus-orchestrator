@@ -616,7 +616,9 @@ function settings(spec: WorkerSpec, ctx: ClaudeLaunchContext, paths: Paths) {
 
 /**
  * Checks the run's temp roots and working directory against home and srt's closed write paths
- * (DIPO-98): none may be the root, hold home, lie under a closed path or hold one.
+ * (DIPO-98): none may be the root, hold home, lie under a closed path or hold one. Under a closed
+ * path the deny would win over the run's own write path; holding one, the run's write path would
+ * reach around it, so neither is planned.
  */
 function checkWritableDirs(
   dirs: readonly (readonly [string, string])[],
@@ -838,35 +840,14 @@ export function plan(spec: WorkerSpec, launch: ClaudeLaunchContext): LaunchPlan 
       });
     }
   }
-  const closed = closedWritePaths(home);
-  for (const [label, dir] of [
-    ["workdir", workdir],
-    ["tmpDir", tmp],
-    ...(shortTmp === undefined ? [] : [["shortTmpDir", shortTmp] as const]),
-  ] as const) {
-    if (dir === "/" || isInside(home, dir)) {
-      throw new PlanError(
-        `${label} ${dir} must not be the root or hold the home directory ${home}`,
-        { path: dir },
-      );
-    }
-    // Under a closed path the deny would win over the run's own write path; holding one, the
-    // run's write path would reach around it, so neither is planned (DIPO-98).
-    const under = closed.find((entry) => isInside(dir, entry.path));
-    if (under !== undefined) {
-      throw new PlanError(
-        `${label} ${dir} must lie outside ${under.path}, which the session sandbox may not write`,
-        { path: dir },
-      );
-    }
-    const holds = closed.find((entry) => isInside(entry.path, dir));
-    if (holds !== undefined) {
-      throw new PlanError(
-        `${label} ${dir} must not hold ${holds.path}, which the session sandbox may not write`,
-        { path: dir },
-      );
-    }
-  }
+  const closed = checkWritableDirs(
+    [
+      ["workdir", workdir],
+      ["tmpDir", tmp],
+      ...(shortTmp === undefined ? [] : [["shortTmpDir", shortTmp] as const]),
+    ],
+    home,
+  );
   // A reviewer gets the empty MCP config, never the office's (0019 section 4).
   const mcpConfig = `${runDir}/${EMPTY_MCP_CONFIG_FILE}`;
   for (const [label, path] of [
