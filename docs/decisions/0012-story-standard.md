@@ -39,7 +39,7 @@ Drafts use Backlog.md's draft feature: an idea has a temporary `DRAFT-n` id unti
 |---|---|---|---|
 | (none) | Draft | A new idea, as a Backlog.md draft | Maintainer, with AI |
 | Draft | Refined | Promotion at refine: a real id and a frozen branch (M3; until then the maintainer creates stories as Refined) | Maintainer |
-| Refined | Ready | The Ready gate passes (section 3). Until the M3 `ready` command, the maintainer sets the status in a backlog PR, and CI runs the gate on every story that PR sets Ready | Maintainer, decided by code |
+| Refined | Ready | The Ready gate passes (section 3). Until the M3 `ready` command, the maintainer sets the status in a backlog PR, and CI runs the gate on every story that PR sets Ready, on the light path for backlog-only PRs (0016) | Maintainer, decided by code |
 | Ready | Refined | A gated field changed, or the pickup check failed | Engine |
 | Ready | In Progress | `work.run` picks it: the pickup check passes, every dependency is Done | Engine |
 | In Progress | In Review | The done report passed and the last part is pushed (0002) | Engine |

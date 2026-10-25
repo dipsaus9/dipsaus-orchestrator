@@ -14,7 +14,7 @@ Code decides everything between the two model sessions: when the PR opens, wheth
 
 From the developer's done report to Done:
 
-1. **Done report.** The worker reports `done`. The report gate checks the report: it is valid against the schema, every automated test-plan entry is covered, and no conflict markers are left. A miss is feedback (section 5). dipo takes the last part out of the box (0008).
+1. **Done report.** The worker reports `done`. The report gate checks the report: it is valid against the schema, every automated test-plan entry is covered, and no conflict markers are left. A miss is feedback (section 5). dipo takes the last part out of the box (0008) and runs the office's verify in the box (section 4); red is feedback too.
 2. **Conflict check.** dipo checks the branch against the base with `git merge-tree`. A conflict is feedback (section 6).
 3. **In Review.** dipo ticks the met criteria and sets the status `In Review` through the Backlog CLI, commits and pushes. Then it opens the story PR, or updates it if one is already open (section 2).
 4. **Review and CI at once.** The reviewer reviews the pushed head (section 3) while CI runs on it (section 4).
@@ -36,7 +36,7 @@ The run is one run per claim. Its active period ends at In Review and reopens fo
 
 - **Who.** A built-in `reviewer` role, used only for reviews. It is always a fresh session and is never resumed.
 - **Model and caps.** It has its own caps, separate from the story's: model `opus`, effort `high`, and per session a turn, minute and token cap from the office config. Reviewer usage is reported per story, but it never uses the developer's budget.
-- **Where it runs.** No box. It reads a read-only copy of the pushed head (`git archive`). Its tools are a read tool on that copy and web search, with no shell, no write and no `gh`. A `PreToolUse` hook refuses a web call whose URL or query contains a value from the copied env files, and the hook fails closed. The reviewer is the only session with hooks (0008).
+- **Where it runs.** In a read-only box of its own (0008), never the developer's. The box holds a `git archive` copy of the pushed head and nothing else: no `box.files`, so no secrets. Its tools are read, glob, grep, web search and web fetch, with no shell, no write and no `gh`. Its web traffic goes through the box web proxy like any box. No session has hooks.
 - **What it receives.** The story, its criteria and test plan, the resolved unknowns, the diff of the branch against its start commit, and the previous round's findings. It also gets the developer's test-plan statuses and deviations from the done report, marked as the developer's words. It never gets the developer's reasoning, notes or transcript.
 - **The report and the verdict.** The reviewer returns one result per criterion (`met`, `unmet` or `maintainer`), findings and a summary. Code validates the report against the reviewed commit and computes the verdict. A finding blocks only when it is one of these four kinds and its evidence checks out:
   - `scope`: content beyond the outcome and criteria, with a quoted changed line.
@@ -48,17 +48,18 @@ The run is one run per claim. Its active period ends at In Review and reopens fo
 - **Rounds.** A round is one reviewer session that returns a valid report. The cap counts failed rounds only: after the third blocked round the story parks `review-blocked`. A verdict is keyed on the code tree, which is the tree without the story's own task file. A head whose tree already has a verdict in this claim gets no new review, so commits that change only the task file never start one.
 - **Failures.** An invalid report gets one correction turn. A crash gets one fresh session for the same round, which is not counted. A second crash, or a reviewer cap, parks the story `worker-failed`. The story's budget running out during a review parks it `budget-exceeded`.
 
-## 4. CI is the verify
+## 4. Verify in the box, CI as the final gate
 
 - **Which checks.** The required checks are the ones GitHub's branch protection or ruleset requires on the base branch. That is one list, owned by GitHub. Every one of them must pass on the head dipo pushed.
-- **No second verify.** The worker runs the office's verify inside its box as part of its work. dipo does not check the worker's tool calls to see whether verify ran. The required checks on the PR are the gate.
+- **dipo runs verify.** When the done report passes the report gate, dipo runs the office's verify command in the story's box, as the box user, with a deadline. The box has its own local git repository (0008), so tests that need git pass. Red is feedback (section 5); green goes on to the conflict check. The worker may run tests and verify while it works, but only dipo's run counts.
+- **CI is the final gate.** The required checks on the PR must still pass before the merge gate opens. A red verify is caught in the box, so a CI round is rarely the one that finds it.
 - **Polling.** One PR poll per office, every `polling.prStateSeconds`, for each story PR whose head has unfinished checks: `gh pr view` (state, head, labels, mergeable) and `gh pr checks`. A head whose checks stay unfinished past a time limit raises one notice, and its polling slows down.
 - **Logs.** For each failed check that is a GitHub Actions job, dipo fetches the tail of the failed job's log once per head, capped, and parses `file:line` locations for the feedback.
 - **Who talks to GitHub.** Only engine code, with the maintainer's `gh` login. Workers and the reviewer never get `gh`.
 
 ## 5. One feedback path
 
-Every kind of feedback reaches the developer the same way: as a message to the developer session in its box. That covers the report gate, a conflict, a blocked review, red checks, a maintainer reject, a resume note and a steer.
+Every kind of feedback reaches the developer the same way: as a message to the developer session in its box. That covers the report gate, a red verify in the box, a conflict, a blocked review, red checks, a maintainer reject, a resume note and a steer.
 
 - **Items.** Code builds each item from the failing fact, as text with evidence. Its signature is computed over the fields that identify the failure, never over free text.
 - **Send once per head.** An item goes to the worker at most once per pushed head. The same signature on a later head is sent again, marked "still failing after your last change".
@@ -67,7 +68,7 @@ Every kind of feedback reaches the developer the same way: as a message to the d
 
   | Source | Cap | At the cap |
   |---|---|---|
-  | Report gate refusals | Tier `loops` | `verify-failing` |
+  | Report gate refusals and a red verify in the box | Tier `loops` | `verify-failing` |
   | Red required checks | CI attempts, default 2 | `verify-failing` |
   | Blocked review | Failed rounds, default 3 | `review-blocked` |
   | Conflict | Failed conflict hand-offs, default 2 | `conflict` |
@@ -136,9 +137,9 @@ An office runs at most one developer session per story, at most one developer se
 - A merge slot that merged one PR at a time, with a base sync, a re-check loop, a refusal cap and a persisted occupant (2026-10-16). Replaced by GitHub auto-merge (2026-10-24). The slot existed for "require branches to be up to date", which has been off since 2026-10-22.
 - The office list of required checks (`mergeSlot.requiredChecks`), joined with GitHub's (2026-10-16). Replaced by GitHub's required checks only (2026-10-24), because auto-merge waits for GitHub's list, and one list has one owner.
 - A per-round review allowance that grew the story's budget, so reviewer tokens counted against the story (2026-10-16). Replaced by the reviewer's own caps (2026-10-24).
-- A reviewer with a read-only Bash sandbox in the story worktree (2026-10-16). Replaced by no shell, a read-only copy and web search (2026-10-21).
-- Verify run by dipo inside an `srt` sandbox, and later dipo checking the worker's tool calls for a verify run (2026-10-22). Replaced by the required checks as the one verify gate (2026-10-24).
-- A conflict merge left in progress in a Mac worktree (2026-10-16). Replaced by a merge committed with markers and copied into the box (2026-10-22), since the box has no git.
+- A reviewer with a read-only Bash sandbox in the story worktree (2026-10-16), then a reviewer on the Mac fenced by its tool list, permission rules and a web-gate hook (2026-10-21). Replaced by a read-only reviewer box (2026-10-24).
+- Verify run by dipo inside an `srt` sandbox (2026-10-10), then CI as the only verify while the box had no git (2026-10-22), with dipo reading the worker's tool calls to see whether it ran verify. Replaced by dipo running verify in the box, which has a local git repository, with CI as the final gate (2026-10-24).
+- A conflict merge left in progress in a Mac worktree (2026-10-16). Replaced by a merge committed with markers and copied into the box (2026-10-22), since dipo never runs git in a folder a worker can write.
 - A building-time sync for tier L and flagged stories. Removed (2026-10-24); a merge without a conflict is not needed.
-- `storyPr.open` to switch story PRs off (2026-10-19). Removed (2026-10-24): CI on the PR is the verify, so every story needs its PR.
+- `storyPr.open` to switch story PRs off (2026-10-19). Removed (2026-10-24): every story needs its PR, because CI on the PR is the final gate.
 - A PR closed on GitHub parked as `stopped` with cause `pr-closed`. Replaced by `by-maintainer` with a detail (2026-10-24).

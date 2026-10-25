@@ -4,7 +4,7 @@ Status: accepted. First written 2026-10-10 (spike DIPO-5). Rewritten 2026-10-24 
 
 ## Decision in short
 
-Every developer runs inside its own **box**, a lightweight VM, one per story. The box is the boundary. Inside it the worker may do anything: read the whole repository, run any command, install packages, use the web. It cannot leave the box, it holds nothing of the maintainer's, and its work reaches the repository only as **parts** that dipo checks, commits and pushes. The reviewer and the scan session run on the Mac without a box, with no shell and no write.
+Every developer runs inside its own **box**, a lightweight VM, one per story. The box is the boundary. Inside it the worker may do anything: read the whole repository, run any command, install packages, use the web. It cannot leave the box, it holds nothing of the maintainer's, and its work reaches the repository only as **parts** that dipo checks, commits and pushes. The reviewer runs in a read-only box of its own. The scan session runs on the Mac with every tool off.
 
 The engine reaches every model session through one adapter-neutral contract (section 1). The first adapter wraps the Claude Code CLI on the maintainer's subscription login. Claude names stay inside `engine/src/workers/claude-cli/` (0004).
 
@@ -40,7 +40,7 @@ The adapter reports facts. The engine decides phase, feedback, commits and parks
 **Technology.** Apple `container`: each box is its own VM with its own kernel. The engine reaches it through one box interface (`engine/src/box/`), so another backend can be added later without changing this design. Every call except the live session has a deadline.
 
 **Contents.**
-- A plain copy of the repository at the story's start commit, with no `.git` and no history.
+- A copy of the repository at the story's start commit, with **its own local git repository**: dipo runs `git init` in the copy and commits the start state, so tests and tools that need git work. It shares nothing with your repository: no refs, no config, no hooks, no history before the start commit, and the Mac never runs git in it.
 - Files outside git only when the office config lists them in `box.files` and marks each as holding no real secrets.
 - Nothing of the maintainer's: no host environment variables, no `~/.npmrc` or other settings files, no Keychain, no SSH agent, no home folder, no mounted host directory.
 
@@ -73,7 +73,7 @@ The adapter reports facts. The engine decides phase, feedback, commits and parks
 ## 3. What dipo never does
 
 - dipo never runs a tool (git, the Backlog CLI, a package manager, a test) unsandboxed **in, or on configuration from, a folder a worker can write**. Status writes, criteria ticks and commits happen in dipo's own copy of the repository, never in the box.
-- dipo never runs a tool inside the box on the Mac's behalf, except its fixed steps (install, the part transfer, the firewall).
+- dipo runs nothing inside the box except its fixed steps (install, the part transfer, the firewall) and the office's verify at done (0002), which runs as the box user.
 - The Backlog CLI refuses to run on files dipo cannot check: front matter that is not plain YAML, a special or oversized file, or a configuration that would run a command.
 
 ## 4. The door
@@ -83,7 +83,7 @@ The only traffic between a box and dipo is the session's stream-json and these m
 | From the worker | dipo does |
 |---|---|
 | W1 **Part**, with a short message | Takes the part out, scans, commits and pushes it (section 5) |
-| W2 **Done**, with the report | Runs the report gate, then the review loop (0002) |
+| W2 **Done**, with the report | Runs the report gate and the verify in the box, then the review loop (0002) |
 | W3 **Question** | Parks the story with the question (0020) |
 | W4 **Blocked**, with a reason | Parks the story `ambiguous-spec` with the reason |
 | W5 **Proposal**: a follow-up, a spike or a tool | Stores it for the desk; nothing happens on its own (0020) |
@@ -99,7 +99,7 @@ Inside the box there are no per-call checks, no permission prompts, no hooks and
 
 ## 5. Delivery in parts
 
-1. On W1, and once more on done, dipo streams the changes since the last delivered part out of the box as one `tar`, into a fresh folder of its own. It never uses `container cp`, which keeps symlinks as links.
+1. On W1, and once more on done, dipo streams the changes since the last delivered part out of the box as one `tar`, leaving the box's `.git` out, into a fresh folder of its own. It never uses `container cp`, which keeps symlinks as links.
 2. dipo scans the part:
    - **Protected files:** the story's task file, CI workflows, dipo's configuration, and the configuration of tools dipo runs on checkouts (`backlog.config.yml`, `.backlog/`, `bunfig.toml`, `.mcp.json`).
    - **Secrets:** values from the files in `box.files`, and token formats.
@@ -128,7 +128,7 @@ claude -p --input-format stream-json --output-format stream-json --verbose --inc
 
 The task message is the first stdin line, never on argv. The box's environment holds only the route to the proxies and a placeholder key. Every session's `system/init` is checked: `apiKeySource` must be `none`, and the model must match the planned one or a classifier switch recorded on the run.
 
-**The reviewer and the scan session** run on the Mac with no box. The reviewer gets a read tool on a read-only `git archive` copy of the pushed head and web search, and nothing else: no shell, no write, no `gh`. Its web calls pass a `PreToolUse` hook, `dipo hook PreToolUse --gate`, which refuses a URL or query that contains a value from `box.files`. The hook decides in its own process from a file of those values that the launch plan writes outside the copy, and it fails closed. The scan session has every tool off. Neither session loads settings, hooks, plugins or skills from the repository copy. These are the only hooks dipo registers.
+**The reviewer** runs in a read-only box of its own, made for each review session from the office image: a `git archive` copy of the pushed head, no `box.files`, and the same firewall, box user and proxies as a developer box. Its tools are read, glob, grep, web search and web fetch: no shell, no write, no `gh`. The box is deleted when the session ends. **The scan session** runs on the Mac with every tool off. Neither session loads settings, hooks, plugins or skills from the repository copy. No session has hooks, so dipo registers none and `dipo hook` goes.
 
 **Steering and stop.**
 - Every op the engine sends is first stored as an intent on the run, so the result is read from the intent and never guessed from the exit.
@@ -176,11 +176,12 @@ An adapter implements section 1. An Agent SDK adapter would share `interpret`, b
 
 - Claude Code's Bash sandbox with permission rules, deny lists, a `PermissionRequest` relay, allow-once answers, a Bash `PreToolUse` hook with `gh` and temp guards, Keychain denies, a launch self-test and the project-settings allowlist (2026-10-10 to 2026-10-20). Replaced by the box (2026-10-21), because only Bash was sandboxed and the rest ran on the Mac.
 - `srt` around engine install and verify steps, and later around Safe-Chain (2026-10-12). Replaced by the box (2026-10-22), and Safe-Chain in a box (2026-10-24).
-- Verify run by dipo in the box at done (2026-10-21). Replaced by CI as the verify (2026-10-22), because the box has no git and many test suites need it.
+- Verify run by dipo in the box at done (2026-10-21), replaced by CI as the only verify (2026-10-22) because the box had no git and many test suites need it. Reinstated (2026-10-24) once the box got its own local git repository, with CI as the final gate (0002).
 - `bypassPermissions` ruled out as "no guard at all" (2026-10-10). Inside a box it is the documented pattern, and the box is the guard (2026-10-21).
 - A pricing catalog with versioned rates and a drift check against the CLI (2026-10-10). Replaced by the CLI's reported cost (2026-10-24).
 - Native `--resume` chosen by a cost check, and transcript tailing for usage after a crash (2026-10-10, 2026-10-18). Replaced by a new session with a handoff in the kept box, and the usage the stream showed (2026-10-24).
 - Pause, reassign and nudges as steer ops. Pause and reassign are gone (0020); nudges went with the developer's hooks.
 - `needs-permission` and `scopeRequest` in the report. A box worker has every permission, and references are a forecast (2026-10-21).
 - Plan-limit waits that held a run In Progress for days, and adapter holds per launch kind. Replaced by the office's starts paused (0020, 2026-10-24).
-- A web gate that asked the engine over the host socket. Replaced by a gate that decides in its own process (2026-10-24).
+- No git in the box at all (2026-10-21). Replaced by a box-local repository that shares nothing with yours (2026-10-24), because many test suites need git.
+- The reviewer on the Mac with a `PreToolUse` web-gate hook and its relay through the worker host (2026-10-17). Replaced by a read-only reviewer box (2026-10-24); no session has hooks.
