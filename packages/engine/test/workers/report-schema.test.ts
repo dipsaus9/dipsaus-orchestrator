@@ -16,13 +16,9 @@ const done: WorkerReport = {
 };
 
 describe("worker report schema", () => {
-  it("parses a done report and a blocked one with a permission need", () => {
+  it("parses a done report and a blocked one with a question", () => {
     expect<WorkerReport>(WorkerReportSchema.parse(done)).toEqual(done);
-    const blocked: WorkerReport = {
-      ...done,
-      status: "blocked",
-      needsPermission: { tool: "Bash", action: "curl https://registry.npmjs.org" },
-    };
+    const blocked: WorkerReport = { ...done, status: "blocked", question: "Which registry?" };
     expect<WorkerReport>(WorkerReportSchema.parse(blocked)).toEqual(blocked);
   });
 

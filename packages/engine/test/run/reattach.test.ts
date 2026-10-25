@@ -31,10 +31,8 @@ import { BOX_CHANGES, BOX_VERIFY } from "../../src/prompts/handoff";
 import { recordWorkerNotes } from "../../src/prompts/notes";
 import { renderSystemFile } from "../../src/prompts/system";
 import { openFeedbackOf } from "../../src/run/open-feedback";
-import { insertVerifyResult } from "../../src/run/verify-records";
 import { parseFieldBlock } from "../../src/backlog/fields/block";
 import { OFFICE_DEFAULTS, type OfficeConfig } from "../../src/config/schema";
-import { writeNudgeSources } from "../../src/hooks/nudges";
 import type { HostClient } from "../../src/host/client";
 import { EXIT_FILE, type HostExitFile, hostMarkerName, LAUNCH_FILE } from "../../src/host/protocol";
 import { type IngestAdapter, Ingestor } from "../../src/ingest/ingestor";
@@ -86,12 +84,7 @@ import {
   type SessionRef,
   type WorkerAdapter,
 } from "../../src/workers/types";
-import {
-  baseVerifyConfigHash,
-  runProfileOf,
-  storeBaseVerify,
-} from "../../src/worktree/base-verify";
-import { findClaim, insertClaim } from "../../src/worktree/records";
+import { insertClaim } from "../../src/worktree/records";
 import {
   appendLines,
   hostLines,
@@ -1620,16 +1613,6 @@ describe("a stop that did not reach the host before re-attach (DIPO-93)", () => 
   });
 });
 
-/** The nudge source rows of `agent`, as `kind:path`. */
-const sources = (agent: string) =>
-  w.f.office
-    .all<{ kind: string; path: string }>(
-      `select kind, path from nudge_sources where office_id = $office_id and run_id = $run
-        and agent_id = $agent order by kind, path`,
-      { run: w.f.run, agent },
-    )
-    .map((row) => `${row.kind}:${row.path}`);
-
 /** The run's first session with its pack, ready to be resumed. */
 function firstSession(): void {
   beforeRestart("terminated", 0);
@@ -1638,13 +1621,6 @@ function firstSession(): void {
       `update agents set ended_at = 1, end_reason = 'crashed', session_id = 'session-1'
         where office_id = $office_id and agent_id = $agent`,
       { agent: w.f.agent },
-    );
-    writeNudgeSources(
-      w.f.office,
-      w.f.run,
-      w.f.agent,
-      { context: ["src/old.ts"], inputs: ["docs/old.md"] },
-      1,
     );
   });
 }
@@ -1671,57 +1647,6 @@ const hosts: Parameters<typeof realResumer>[0] = {
     return host;
   },
 };
-
-describe("the next session's nudge sources (DIPO-99)", () => {
-  it("a resumed session whose context pack changed records its own pack", async () => {
-    firstSession();
-    const view = plainTask({
-      id: "DIPO-1",
-      dependencies: [],
-      references: ["src/new.ts"],
-      documentation: ["docs/new.md"],
-    });
-    const resumer = realResumer(hosts, {
-      probe: async () => null,
-      story: async () => ({
-        view,
-        fields: parseFieldBlock(view.description).fields,
-        taskFile: "backlog/tasks/dipo-1 - Story.md",
-        dependencies: [],
-      }),
-      handoff: async () => ({
-        commits: "",
-        diffstat: "",
-        untracked: [],
-        criteria: null,
-        verify: null,
-        feedback: [],
-        notes: null,
-      }),
-      workspace: () =>
-        memoryWorkspace({
-          "src/new.ts": "export const fresh = 1;\n",
-          "docs/new.md": "# New spec\n",
-        }),
-    });
-    const outcome = await resumer.next(nextRequest());
-    expect(outcome).toMatchObject({ kind: "started", resumed: true });
-    const agent = (outcome as { agent: string }).agent;
-    expect(sources(agent)).toEqual(["context:src/new.ts", "input:docs/new.md"]);
-    expect(sources(w.f.agent)).toEqual(["context:src/old.ts", "input:docs/old.md"]);
-  });
-
-  it("a resume whose handoff could not be built keeps the resumed session's pack", async () => {
-    firstSession();
-    // The default story read throws, so no new pack is gathered; the resume still starts.
-    const outcome = await realResumer(hosts, { probe: async () => null }).next(nextRequest());
-    expect(outcome).toMatchObject({ kind: "started", resumed: true });
-    expect(sources((outcome as { agent: string }).agent)).toEqual([
-      "context:src/old.ts",
-      "input:docs/old.md",
-    ]);
-  });
-});
 
 describe("the next session's caps (DIPO-143)", () => {
   it("counts a budget grant in what remains of the run's tokens, turns and minutes", async () => {
@@ -1984,45 +1909,6 @@ describe("the merges dipo made outside the box reach it before the worker (DIPO-
 
 const tooFull = () => ({ ok: false as const, reason: "the context is too full" });
 
-describe("the base verify section of a handoff (DIPO-183)", () => {
-  it("lists the failing tests stored for the run's base commit and its configuration", async () => {
-    firstSession();
-    const run = findRun(w.f.office, w.f.run);
-    const baseSha = findClaim(w.f.office, w.f.run)?.baseSha ?? run?.startSha ?? "c".repeat(40);
-    w.f.office.immediate(() =>
-      storeBaseVerify(w.f.office, {
-        baseSha,
-        hash: baseVerifyConfigHash(
-          OFFICE_DEFAULTS,
-          runProfileOf(w.f.office, run?.runProfileId ?? null),
-        ),
-        runId: w.f.run,
-        result: { kind: "red", failing: ["sandbox > reads home", "worktree > setup"], tail: null },
-        at: 1,
-      }),
-    );
-    const outcome = await realResumer(
-      hosts,
-      { probe: async () => null, story: async () => storyOf(), handoff, workspace },
-      tooFull,
-    ).next(nextRequest());
-    expect(outcome).toMatchObject({ kind: "started", resumed: false });
-    expect(sentText()).toContain("<handoff>");
-    expect(sentText()).toContain("- sandbox > reads home\n- worktree > setup");
-  });
-
-  it("gives the not-known line when nothing is stored for the base, and still starts the session", async () => {
-    firstSession();
-    const outcome = await realResumer(
-      hosts,
-      { probe: async () => null, story: async () => storyOf(), handoff, workspace },
-      tooFull,
-    ).next(nextRequest());
-    expect(outcome).toMatchObject({ kind: "started", resumed: false });
-    expect(sentText()).toContain("<base_verify>\nNot known: dipo has no verify result");
-  });
-});
-
 describe("the prompt texts of a resume and a handoff (DIPO-137)", () => {
   const noPrompts: OfficeConfig = {
     ...OFFICE_DEFAULTS,
@@ -2165,7 +2051,7 @@ function feedbackTable(): void {
 }
 
 describe("the handoff of a new session: notes, open feedback and the context pack (DIPO-154)", () => {
-  it("lists the run's open feedback items with their text, leaves out those a later green verify answered, and adds the resume note and the stored notes", async () => {
+  it("lists the run's open feedback items with their text, and adds the resume note and the stored notes", async () => {
     firstSession();
     feedbackTable();
     const { office, run } = w.f;
@@ -2177,20 +2063,6 @@ describe("the handoff of a new session: notes, open feedback and the context pac
         { run, id, source, sig: `sig-${id}`, head: "e".repeat(40), text, at },
       );
     office.immediate(() => {
-      item(1, "verify", "Verify failed at the test step.\nbun test exited 1", 100);
-      insertVerifyResult(office, run, {
-        loop: 1,
-        profile: "branch",
-        commands: [["bun", "run", "verify"]],
-        exitCode: 0,
-        signal: null,
-        timedOut: false,
-        passed: true,
-        durationMs: 1,
-        outputFrom: 0,
-        outputTo: 0,
-        at: 200,
-      });
       item(2, "ci", "Required check ci-ok failed on the pushed head.\njob log tail", 300);
       item(3, "review", "Blocking finding: greet.ts drops the name.", 400);
     });
@@ -2223,10 +2095,9 @@ describe("the handoff of a new session: notes, open feedback and the context pac
         "</handoff>",
       ].join("\n"),
     );
-    expect(sentText()).not.toContain("Verify failed at the test step.");
   });
 
-  it("answers each source with its own kind of fact: findings by an approval or override, failures by a green verify", async () => {
+  it("answers findings and rejects by an approval or override, and leaves failures listed (DIPO-342)", async () => {
     firstSession();
     feedbackTable();
     const { office, run } = w.f;
@@ -2244,25 +2115,12 @@ describe("the handoff of a new session: notes, open feedback and the context pac
       item(3, "reject", "The maintainer: keep the old flag.", 10);
       item(4, "conflict", "Conflict in src/greet.ts.", 10);
     });
-    // A green verify answers the failures, never a finding or a reject.
-    office.immediate(() =>
-      insertVerifyResult(office, run, {
-        loop: 1,
-        profile: "branch",
-        commands: [["bun", "run", "verify"]],
-        exitCode: 0,
-        signal: null,
-        timedOut: false,
-        passed: true,
-        durationMs: 1,
-        outputFrom: 0,
-        outputTo: 0,
-        at: 15,
-      }),
-    );
+    // dipo stores no verify result of its own, so nothing answers a failure yet.
     expect(texts()).toEqual([
+      "Red CI on the head.",
       "Blocking finding: no test for the empty name.",
       "The maintainer: keep the old flag.",
+      "Conflict in src/greet.ts.",
     ]);
     // An approval answers the findings and the reject, never a red CI item stored after it.
     office.immediate(() => {
@@ -2276,7 +2134,11 @@ describe("the handoff of a new session: notes, open feedback and the context pac
         { run, key: w.work.key, head: "f".repeat(40) },
       );
     });
-    expect(texts()).toEqual(["Red CI on the next head."]);
+    expect(texts()).toEqual([
+      "Red CI on the head.",
+      "Conflict in src/greet.ts.",
+      "Red CI on the next head.",
+    ]);
     // A maintainer override past a blocked verdict answers a later finding too.
     office.immediate(() => {
       item(6, "review", "Blocking finding: the docs are stale.", 40);
@@ -2289,7 +2151,11 @@ describe("the handoff of a new session: notes, open feedback and the context pac
         { run, key: w.work.key, head: "f".repeat(40) },
       );
     });
-    expect(texts()).toEqual(["Red CI on the next head."]);
+    expect(texts()).toEqual([
+      "Red CI on the head.",
+      "Conflict in src/greet.ts.",
+      "Red CI on the next head.",
+    ]);
   });
 
   it("records the context pack of a new session's task message, and none for a resume", async () => {

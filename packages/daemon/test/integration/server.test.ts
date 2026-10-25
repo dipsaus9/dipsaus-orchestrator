@@ -176,7 +176,6 @@ describe("commands.describe", () => {
     expect(commands).not.toContain("fixture.draft");
     // Contract entries no engine module registered are absent too.
     expect(commands).not.toContain("work.pause");
-    expect(reads).not.toContain("office.usage");
     // The view reads ship with DIPO-52.
     expect(reads).toEqual(expect.arrayContaining(["office.snapshot", "office.switch"]));
     const stop = described.commands.find((command) => command.name === "daemon.stop");

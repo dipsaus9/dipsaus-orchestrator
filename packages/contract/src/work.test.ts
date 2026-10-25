@@ -250,7 +250,7 @@ describe("office commands and reads", () => {
     "proposal.accept": 1,
     "proposal.dismiss": 1,
   };
-  const provisional = ["work.reassign", "test.start", "test.record", "office.usage"];
+  const provisional = ["test.start", "test.record"];
 
   it("defines every command and read of this story", () => {
     expect(officeCommands.map((d): string => d.name).toSorted()).toEqual(
@@ -260,7 +260,6 @@ describe("office commands and reads", () => {
         "work.steer",
         "work.pause",
         "work.resume",
-        "work.reassign",
         "work.stop",
         "work.discard",
         "story.hold",
@@ -279,7 +278,6 @@ describe("office commands and reads", () => {
         "office.switch",
         "story.detail",
         "work.outputRange",
-        "office.usage",
         "office.digest",
         "story.gate",
         "story.losses",

@@ -113,15 +113,7 @@ describe("task message", () => {
     });
     const plain = { ...story, dependencies: [], unknowns: [] };
     const message = assembleTaskMessage({ story: plain, pack: fixturePack(), budgets: BUDGETS_M });
-    // The base_verify section is in every task message (DIPO-183).
-    expect(names(message.text)).toEqual([
-      "context",
-      "base_verify",
-      "story",
-      "outcome",
-      "criteria",
-      "scope",
-    ]);
+    expect(names(message.text)).toEqual(["context", "story", "outcome", "criteria", "scope"]);
   });
 
   it("shows only resolved unknowns as answers and keeps the open question out", () => {

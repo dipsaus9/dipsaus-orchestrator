@@ -158,25 +158,6 @@ describe("result rows without a recording (0008 section 7)", () => {
     expect(res.retry).toBeUndefined();
     expect(result(feed([resultLine()]), OK)).toMatchObject({ outcome: "done" });
   });
-
-  it("a blocked report with needsPermission and a question parks needs-permission", () => {
-    const state = feed([
-      resultLine({
-        structured_output: {
-          ...report,
-          status: "blocked",
-          question: "May I write outside the worktree?",
-          needsPermission: { tool: "Write", action: "write ${WORKDIR}/../x" },
-        },
-      }),
-    ]);
-    const res = result(state, OK);
-    expect(res.outcome).toBe("blocked");
-    expect(res.park).toEqual({
-      reason: "needs-permission",
-      detail: "Write: write ${WORKDIR}/../x",
-    });
-  });
 });
 
 describe("usage of a turn that did not complete", () => {

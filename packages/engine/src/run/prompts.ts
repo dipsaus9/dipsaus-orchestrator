@@ -1,6 +1,6 @@
 // The prompts of a run's first session (DIPO-74; 0014 sections 1, 2, 4 and 9): the L1+L2 system
-// file for `implement` (`implement-box` for a box worker, DIPO-272) and the developer role, and the L4 task message from the story, its
-// dependencies and the context pack the default provider gathers from a checkout. A real run reads
+// file for `implement-box` (DIPO-272) and the developer role, and the L4 task message from the
+// story, its dependencies and the context pack the default provider gathers from a checkout. A real run reads
 // its new worktree; the dry run reads `_base`, which holds the same commit the worktree would start
 // from. The session id is made here too: a UUID derived from an engine-made id.
 
@@ -14,9 +14,7 @@ import { createDefaultProvider } from "../context/default-provider";
 import { gatherContext } from "../context/gather";
 import { sizeClassOfWorkspace } from "../context/size";
 import type { ContextPack, Workspace } from "../context/types";
-import type { NudgeSources } from "../hooks/nudges";
 import { assembleTaskMessage, taskBudgetsFor } from "../prompts/assemble";
-import type { BaseVerifyFacts } from "../prompts/base-verify";
 import type { Section } from "../prompts/contract";
 import type { HandoffFacts } from "../prompts/handoff";
 import { promptStoryOf } from "../prompts/story";
@@ -39,9 +37,7 @@ export interface RunPromptsInput {
   readonly config: Pick<OfficeConfig, "prompt">;
   /** The handoff of a new session for a story with earlier work (0014 section 6, DIPO-51). */
   readonly handoff?: HandoffFacts;
-  /** What verify said about the base commit in the worker's sandbox (DIPO-183); not known if absent. */
-  readonly baseVerify?: BaseVerifyFacts;
-  /** The developer works in its own box (DIPO-271): the box worker contract (DIPO-272). */
+  /** The developer works in its own box (DIPO-271): the scope section is a forecast (DIPO-272). */
   readonly box?: boolean;
 }
 
@@ -50,8 +46,6 @@ export interface RunPrompts {
   readonly systemFile: string;
   /** The task message (L4), the first user message. */
   readonly taskMessage: string;
-  /** The context pack and input paths the context and input nudges check (DIPO-60). */
-  readonly nudgeSources: NudgeSources;
   /** The task message's sections in message order, measured per section (0014 section 2). */
   readonly sections: readonly Section[];
   /**
@@ -60,19 +54,6 @@ export interface RunPrompts {
    */
   readonly pack: ContextPack;
   readonly headSha: string;
-}
-
-/** The nudge sources of a context pack: its item paths and the story's input paths. */
-export function nudgeSourcesOf(
-  pack: ContextPack,
-  inputs: readonly string[],
-): Pick<RunPrompts, "nudgeSources"> {
-  return {
-    nudgeSources: {
-      context: [...new Set(pack.items.map((item) => item.path))].toSorted(),
-      inputs: [...new Set(pack.inputs.paths.length > 0 ? pack.inputs.paths : inputs)].toSorted(),
-    },
-  };
 }
 
 /**
@@ -113,15 +94,13 @@ export async function renderRunPrompts(input: RunPromptsInput): Promise<RunPromp
     contractMax: config.prompt.contractMax,
     ...(input.box === true ? { box: true } : {}),
     ...(input.handoff === undefined ? {} : { handoff: input.handoff }),
-    ...(input.baseVerify === undefined ? {} : { baseVerify: input.baseVerify }),
   });
   return {
-    systemFile: renderSystemFile(input.box === true ? "implement-box" : "implement", "developer"),
+    systemFile: renderSystemFile("implement-box", "developer"),
     taskMessage: task.text,
     sections: task.sections,
     pack,
     headSha,
-    ...nudgeSourcesOf(pack, story.inputs),
   };
 }
 

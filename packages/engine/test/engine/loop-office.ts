@@ -40,7 +40,6 @@ import type { OfficeHandle } from "../../src/db/office";
 import { GateStore } from "../../src/gate";
 import { EngineGit } from "../../src/git";
 import { EVENTS_FILE, EXIT_FILE, hostSocketPath } from "../../src/host/protocol";
-import { gitInputChanges } from "../../src/hooks/nudges";
 import { MergeGates, MergeSlot, gitStorySlotOps, writeCloseOutSummary } from "../../src/merge-slot";
 import { officeStatusesReady } from "../../src/office/init";
 import { ensurePrivateDir } from "../../src/platform/paths";
@@ -722,7 +721,6 @@ async function buildDaemon(
     warn,
     refreshStory: (office, key) => index.refreshStory(office, key, { quiet: true }),
     slotReentry: () => slotRef ?? undefined,
-    inputChanges: gitInputChanges((handle) => engineGit.forOffice(handle.officeId)),
     ingest: { pricing: () => null },
     control: { writer: parkWriter, finisher, implemented },
     outcomes: {

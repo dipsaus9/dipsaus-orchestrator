@@ -491,7 +491,7 @@ describe("reports", () => {
     expect(causes()).toEqual({ stored: ["question"], emitted: ["question"] });
   });
 
-  it("parks needs-permission with the tool and action, keeping worktree, branch, claim and session", async () => {
+  it("parks a blocked report without a question on its summary, keeping worktree, branch, claim and session", async () => {
     track();
     w.f.office.immediate(() =>
       w.f.office.run(
@@ -500,10 +500,10 @@ describe("reports", () => {
         { agent: w.f.agent, run: w.f.run },
       ),
     );
-    w.control.onWorkerEvents(w.f.run, SCRIPTS["blocked-permission"] as WorkerEvent[]);
+    w.control.onWorkerEvents(w.f.run, SCRIPTS["blocked-reason"] as WorkerEvent[]);
     await w.control.idle();
     expect(parks().map((p) => [p.reason, p.cause, p.detail])).toEqual([
-      ["needs-permission", "build", "Bash: bun add left-pad"],
+      ["ambiguous-spec", "question", "bun add left-pad was denied."],
     ]);
     const claim = w.f.office.get<{ released_at: number | null }>(
       "select released_at from claims where office_id = $office_id and run_id = $run",

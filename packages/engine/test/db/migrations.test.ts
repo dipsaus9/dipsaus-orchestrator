@@ -366,7 +366,13 @@ describe("migration 28, nudge_sources (DIPO-99)", () => {
         old.close();
       }
 
-      const state = await openStateDatabase(options(dir, MIGRATIONS));
+      // Up to migration 28 only: migration 56 drops nudge_sources again (DIPO-342).
+      const state = await openStateDatabase(
+        options(
+          dir,
+          MIGRATIONS.filter((step) => step.version <= 28),
+        ),
+      );
       try {
         const db = state.connection;
         expect(

@@ -56,17 +56,14 @@ export const SCRIPTS: Readonly<Record<string, readonly WorkerEvent[]>> = {
     },
     { t: "waiting", on: "question", detail: "Which greeting should the CLI print?" },
   ],
-  // A call `--permission-prompts none` denied; the worker cannot finish without it (DIPO-50).
-  "blocked-permission": [
+  // A call `--permission-prompts none` denied; the worker reports blocked with the reason in its
+  // summary and no question (DIPO-50; no report names the call since DIPO-342).
+  "blocked-reason": [
     started,
     { t: "denied", tool: "Bash", reason: "permission prompts are off" },
     {
       t: "turn",
-      report: {
-        ...done,
-        status: "blocked",
-        needsPermission: { tool: "Bash", action: "bun add left-pad" },
-      },
+      report: { ...done, status: "blocked", summary: "bun add left-pad was denied." },
       totals,
       numTurns: 2,
       terminal: "completed",

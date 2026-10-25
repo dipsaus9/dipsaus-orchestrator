@@ -16,11 +16,10 @@
 //   allowances, and its own turns and minutes against the reviewer's caps: the budget parks
 //   `budget-exceeded` with cause `review`, the reviewer's turn or minute cap `worker-failed` with
 //   cause `review-cap`. Its valid report goes to worker outcomes after the backstop (`onReview`).
-// - Reports. A turn whose report is `blocked` parks the story: `needs-permission` with the tool and
-//   action as detail when it carries `needsPermission` (a call `--permission-prompts none` denied,
-//   0008 section 5), else `ambiguous-spec` with the question. The engine records a `park` intent
-//   and closes the worker's stdin; worktree, branch and session are kept. A question goes through
-//   the live-question rule first (DIPO-272, 0021 section 11): while a TUI is connected it is asked
+// - Reports. A turn whose report is `blocked` parks the story `ambiguous-spec` with the question
+//   (a box worker has every permission, so no report names a denied call, DIPO-342). The engine
+//   records a `park` intent and closes the worker's stdin; worktree, branch and session are kept.
+//   A question goes through the live-question rule first (DIPO-272, 0021 section 11): while a TUI is connected it is asked
 //   live (`RunControlDeps.questions`) and the worker waits on stdin for the answer, with no park, for
 //   at most `timeouts.questionWaitMinutes`; if the last TUI closes or the wait ends first,
 //   `parkOnQuestion` parks it then. A park with no live question asks the report's question itself
@@ -405,24 +404,15 @@ export class RunControl implements RunEnder {
             });
             return;
           }
-          const permission = report.needsPermission;
-          const reason: ParkReason =
-            permission === undefined ? "ambiguous-spec" : "needs-permission";
-          const detail =
-            permission === undefined
-              ? (report.question ?? report.summary)
-              : `${permission.tool}: ${permission.action}`;
           this.#endings.begin(tracked, {
             intent: "park",
             ops: [{ closeStdin: true }],
-            reason,
-            cause: permission === undefined ? PARK_CAUSES.question : PARK_CAUSES.build,
-            detail,
+            reason: "ambiguous-spec",
+            cause: PARK_CAUSES.question,
+            detail: report.question ?? report.summary,
             endKind: "blocked",
             // The park asks the question when no live one carries over (DIPO-159).
-            ...(permission === undefined && report.question !== undefined
-              ? { question: report.question }
-              : {}),
+            ...(report.question !== undefined ? { question: report.question } : {}),
           });
           return;
         }
@@ -543,10 +533,10 @@ export class RunControl implements RunEnder {
 
   /**
    * A blocked report's question through the live-question rule (DIPO-272): true when it was asked
-   * live. A permission need, a report without a question or a run without its agent parks.
+   * live. A report without a question or a run without its agent parks.
    */
   #askLive(tracked: Tracked, report: WorkerReport, agent: string | undefined): boolean {
-    if (report.needsPermission !== undefined || report.question === undefined) return false;
+    if (report.question === undefined) return false;
     if (agent === undefined) return false;
     const office = this.#deps.offices.get(tracked.office);
     const questions = this.#deps.questions?.();

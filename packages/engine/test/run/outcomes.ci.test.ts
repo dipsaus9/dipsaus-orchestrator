@@ -13,7 +13,6 @@ import { describe, expect, it } from "bun:test";
 import { type CommandReply, RequestId } from "@dipsaus-orchestrator/contract";
 
 import { executeCommand } from "../../src/commands/execute";
-import { contextPathsOf } from "../../src/hooks/nudges";
 import { createSystemIds } from "../../src/platform/ids";
 import { findRun, runIntents } from "../../src/run";
 import { resultOf } from "../office/helpers";
@@ -86,20 +85,7 @@ if (process.env["DIPO_TEST_CI"] === "1") {
             );
             expect(agents.map((agent) => agent.end_reason)).toEqual(["crashed", "exited"]);
 
-            // The handoff session recorded its own context pack and input paths (DIPO-99), apart
-            // from the prompt parts, and its nudges check them.
-            const sources = (agent: string) =>
-              r.office.all<{ kind: string; path: string }>(
-                `select kind, path from nudge_sources where office_id = $office_id
-                  and run_id = $run and agent_id = $agent order by kind, path`,
-                { run, agent },
-              );
-            const secondSources = sources(second?.agentId as string);
-            expect(secondSources.length).toBeGreaterThan(0);
-            expect(secondSources).toEqual(sources(first?.agentId as string));
-            expect(contextPathsOf(r.office, run, second?.agentId as string)).toEqual(
-              secondSources.filter((row) => row.kind === "context").map((row) => row.path),
-            );
+            // The handoff session's context pack and inputs are no prompt parts of their own.
             expect(
               r.office.all(
                 `select part from prompt_parts where office_id = $office_id

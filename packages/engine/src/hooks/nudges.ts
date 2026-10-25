@@ -1,24 +1,17 @@
-// Conditional nudges through hooks (0014 section 8, DIPO-60). A worker's tool use and session start
-// arrive as neutral `toolUsed` and `sessionStarted` hook events with the id the worker host holds
-// the call under (the hook waits for it, within 2 s). Code checks the facts and answers each call:
+// The budget nudge through a reviewer's hooks (0014 section 8, DIPO-60). A reviewer's tool use and
+// session start arrive as neutral `toolUsed` and `sessionStarted` hook events with the id the worker
+// host holds the call under (the hook waits for it, within 2 s). Code checks one fact and answers
+// each call: once the run's budget tokens passed 80% of its budget limit, a tool use gets the
+// `budget` nudge, at most once per session (the agents of a run that share a session id). Every
+// other call, a session start included, is released at once with an empty reply, so the hook
+// prints nothing. The text comes from `prompts/feedback/nudge-budget.md`, at most 300 characters.
+// Each nudge sent is a row of `prompt_parts` (`nudge.budget`, its text measured, `nudges` counting
+// the sends), so nudges are counted per run like any other prompt part.
 //
-// | Trigger                     | Fact checked by code                                | Nudge         |
-// | tool use writing a file     | the path lies outside the run's declared scope      | `scope`       |
-// | tool use writing a file     | the path was in the run's context pack              | `context`     |
-// | any tool use                | budget tokens passed 80% of the run's budget limit  | `budget`      |
-// | session start on a resume   | an input file changed on the base since the claim   | `input`       |
-//
-// Each fact has a signature; a signature is nudged at most once per session (the agents of a run
-// that share a session id). A call with no new fact is released at once with an empty reply, so
-// the hook prints nothing. The texts come from `prompts/feedback/nudge-*.md`; one reply holds the
-// texts of as many facts as fit in 300 characters, the rest wait for the next call. Each nudged
-// signature is a row of `prompt_parts` (`nudge.<trigger>:<subject>`, its text measured, `nudges`
-// counting the sends), so nudges are counted per run like any other prompt part.
-//
-// The context pack and input paths the context and input checks read are `nudge_sources` rows,
-// not prompt parts (DIPO-99): every session of a run (the first, a resume, a handoff) records its
-// own (a resume without a new pack copies those of the session it resumes), and a check reads
-// only those of the session it answers.
+// The developer's nudges (an out-of-scope write, a stale context pack, an input changed on the base)
+// and their `nudge_sources` are gone (DIPO-342): a developer runs in its box with no hooks, and a
+// reviewer writes no file and never resumes. What stays answers the reviewer's waiting hook calls
+// until its hooks go (DIPO-347).
 //
 // This module emits only the neutral `nudge` op; the adapter's `encode` decides what its CLI
 // prints (0008 amendment of 2026-10-12). Every failure is silent: the hook then prints nothing.
@@ -26,47 +19,31 @@
 import type { Clock, RunId } from "@dipsaus-orchestrator/contract";
 
 import type { OfficeHandle } from "../db/office";
-import type { OfficeGit } from "../git/office";
 import { background } from "../platform/background";
 import budgetTemplate from "../prompts/feedback/nudge-budget.md" with { type: "text" };
-import contextTemplate from "../prompts/feedback/nudge-context.md" with { type: "text" };
-import inputTemplate from "../prompts/feedback/nudge-input.md" with { type: "text" };
-import scopeTemplate from "../prompts/feedback/nudge-scope.md" with { type: "text" };
 import { measurePart } from "../prompts/parts";
 import { renderTemplate } from "../prompts/templates";
 import type { RunSteering } from "../run/control";
 import { runCaps, runTotals } from "../run/caps";
-import { findRun, type StoredRun } from "../run/records";
-import { DEFAULT_LOCKFILES, scopeCovers } from "../run/verify-commit";
+import { findRun } from "../run/records";
 import type { HostOp, NudgeOp, SteerOp, WorkerEvent } from "../workers/types";
-import { findClaim } from "../worktree/records";
 
 import type { HookEvent } from "./types";
 
 /** The 0014 section 8 nudge templates, one per trigger. */
 export const NUDGE_TEMPLATES = {
-  scope: scopeTemplate,
-  context: contextTemplate,
   budget: budgetTemplate,
-  input: inputTemplate,
 } as const;
 
 export type NudgeTrigger = keyof typeof NUDGE_TEMPLATES;
 
 /** One fact that makes a nudge relevant. */
-export type NudgeFact =
-  | { readonly trigger: "scope" | "context"; readonly path: string }
-  | { readonly trigger: "budget" }
-  | { readonly trigger: "input"; readonly path: string; readonly sha: string };
+export type NudgeFact = { readonly trigger: "budget" };
 
 /** The longest nudge, in characters (0014 section 4). */
 export const NUDGE_MAX_CHARS = 300;
 /** The share of the run's budget tokens past which the budget nudge fires (0014 section 8). */
 export const BUDGET_NUDGE_SHARE = 0.8;
-/** Characters of a commit id in the input nudge. */
-export const NUDGE_SHA_CHARS = 12;
-/** How long the input check on a resume may take before the call is released without it. */
-export const INPUT_CHECK_MS = 1_000;
 
 /** `prompt_parts` name prefix of a nudge row. */
 export const NUDGE_PART = "nudge.";
@@ -75,14 +52,7 @@ export const NUDGE_PART = "nudge.";
 
 /** The fact's signature, also its `prompt_parts` name: the same fact is nudged once per session. */
 export function nudgeSignature(fact: NudgeFact): string {
-  switch (fact.trigger) {
-    case "budget":
-      return `${NUDGE_PART}budget`;
-    case "input":
-      return `${NUDGE_PART}input:${fact.path}@${fact.sha}`;
-    default:
-      return `${NUDGE_PART}${fact.trigger}:${fact.path}`;
-  }
+  return `${NUDGE_PART}${fact.trigger}`;
 }
 
 /** Cuts `text` to `max` characters, ending in an ellipsis when it was cut. */
@@ -92,14 +62,7 @@ function clip(text: string, max: number): string {
 
 /** The nudge text of one fact, at most `NUDGE_MAX_CHARS` characters. */
 export function nudgeText(fact: NudgeFact): string {
-  const template = NUDGE_TEMPLATES[fact.trigger];
-  const text =
-    fact.trigger === "budget"
-      ? renderTemplate(template, {})
-      : fact.trigger === "input"
-        ? renderTemplate(template, { path: fact.path, sha: fact.sha.slice(0, NUDGE_SHA_CHARS) })
-        : renderTemplate(template, { path: fact.path });
-  return clip(text, NUDGE_MAX_CHARS);
+  return clip(renderTemplate(NUDGE_TEMPLATES[fact.trigger], {}), NUDGE_MAX_CHARS);
 }
 
 export interface ComposedNudge {
@@ -123,133 +86,12 @@ export function composeNudge(facts: readonly NudgeFact[]): ComposedNudge {
   return { text, facts: kept };
 }
 
-/** macOS links `/tmp`, `/var` and `/etc` into `/private`; a path compares without that prefix. */
-function unlinked(path: string): string {
-  return path.replace(/^\/private(?=\/(?:tmp|var|etc)\/)/, "");
-}
-
-/**
- * The written path relative to `worktree`, or null when it lies outside the worktree (a temp file:
- * the scope check at `done` covers the worktree only, so no fact is about it).
- */
-export function worktreePath(path: string, worktree: string | null): string | null {
-  if (!path.startsWith("/")) return path.replace(/^\.\//, "");
-  if (worktree === null) return null;
-  const root = unlinked(worktree.endsWith("/") ? worktree : `${worktree}/`);
-  const written = unlinked(path);
-  return written.startsWith(root) ? written.slice(root.length) : null;
-}
-
-function baseName(path: string): string {
-  return path.slice(path.lastIndexOf("/") + 1);
-}
-
-/** True for the story's Backlog.md task file, `<id lowercased> - <title>.md`. */
-function isTaskFile(path: string, story: string | null): boolean {
-  const name = baseName(path);
-  return story !== null && name.startsWith(`${story.toLowerCase()} - `) && name.endsWith(".md");
-}
-
-export interface WriteFactsInput {
-  /** The written path, relative to the worktree. */
-  readonly path: string;
-  /** The run's declared scope; null for a run without one (a session run). */
-  readonly scope: readonly string[] | null;
-  /** The story id; its own task file is never a scope fact, as at `done`. */
-  readonly story?: string | null;
-  /** The paths of the run's context pack. */
-  readonly contextPaths: ReadonlySet<string>;
-}
-
-/**
- * Pure: the facts of one written file. The story's task file and a lockfile are never scope facts,
- * as at `done`: the engine commits the task file itself and pairs a lockfile with
- * an in-scope manifest (0014 section 3), which the scope check there decides.
- */
-export function writeFacts(input: WriteFactsInput): NudgeFact[] {
-  const facts: NudgeFact[] = [];
-  const { path, scope } = input;
-  if (
-    scope !== null &&
-    !DEFAULT_LOCKFILES.includes(baseName(path)) &&
-    !isTaskFile(path, input.story ?? null) &&
-    !scope.some((entry) => scopeCovers(entry, path))
-  ) {
-    facts.push({ trigger: "scope", path });
-  }
-  if (input.contextPaths.has(path)) facts.push({ trigger: "context", path });
-  return facts;
-}
-
 /** Pure: the budget fact when `used` budget tokens passed 80% of `limit`; null otherwise. */
 export function budgetFact(used: number, limit: number): NudgeFact | null {
   return limit > 0 && used >= limit * BUDGET_NUDGE_SHARE ? { trigger: "budget" } : null;
 }
 
-/** One input file the base changed: the newest commit on the base that touched it. */
-export interface InputChange {
-  readonly path: string;
-  readonly sha: string;
-}
-
-/**
- * Pure: `git log --format=%x00%H --name-only` output, newest first, as the newest commit per path,
- * in the order of `paths`.
- */
-export function parseInputChanges(output: string, paths: readonly string[]): InputChange[] {
-  const newest = new Map<string, string>();
-  for (const block of output.split("\0")) {
-    const [sha, ...files] = block.split("\n").map((line) => line.trim());
-    if (sha === undefined || !/^[0-9a-f]{7,64}$/.test(sha)) continue;
-    for (const file of files) if (file !== "" && !newest.has(file)) newest.set(file, sha);
-  }
-  return paths.flatMap((path) => {
-    const sha = newest.get(path);
-    return sha === undefined ? [] : [{ path, sha }];
-  });
-}
-
 // ---- stored facts --------------------------------------------------------------------------------
-
-export interface NudgeSources {
-  /** The paths of the context pack items. */
-  readonly context: readonly string[];
-  /** The story's input paths. */
-  readonly inputs: readonly string[];
-}
-
-/** The `nudge_sources` kind of a path. */
-export type NudgeSourceKind = "context" | "input";
-
-/**
- * Stores the context pack and input paths of one session of a run (`agent`: the first session, a
- * resume or a handoff) as `nudge_sources` rows, one per path, for the context and input nudges.
- * Only the paths are kept; they are not prompt parts, so no prompt size counts them. Runs inside
- * the caller's transaction.
- */
-export function writeNudgeSources(
-  office: OfficeHandle,
-  run: string,
-  agent: string,
-  sources: NudgeSources,
-  at: number,
-): void {
-  const rows: [NudgeSourceKind, readonly string[]][] = [
-    ["context", sources.context],
-    ["input", sources.inputs],
-  ];
-  for (const [kind, paths] of rows) {
-    for (const path of new Set(paths)) {
-      office.run(
-        `insert into nudge_sources (office_id, run_id, agent_id, kind, path, recorded_at)
-         values ($office_id, $run, $agent, $kind, $path, $at)
-         on conflict (office_id, run_id, agent_id, kind, path) do update set
-           recorded_at = excluded.recorded_at`,
-        { run, agent, kind, path, at },
-      );
-    }
-  }
-}
 
 function insertPart(
   office: OfficeHandle,
@@ -276,48 +118,6 @@ function insertPart(
       at,
     },
   );
-}
-
-/**
- * Copies the `nudge_sources` rows of session `from` to session `to` of the same run: a resume that
- * continues `from`'s conversation without a new pack (its handoff could not be built) checks the
- * pack that conversation was given. Runs inside the caller's transaction.
- */
-export function copyNudgeSources(
-  office: OfficeHandle,
-  run: string,
-  from: string,
-  to: string,
-  at: number,
-): void {
-  office.run(
-    `insert or ignore into nudge_sources (office_id, run_id, agent_id, kind, path, recorded_at)
-     select office_id, run_id, $to, kind, path, $at from nudge_sources
-     where office_id = $office_id and run_id = $run and agent_id = $from`,
-    { run, from, to, at },
-  );
-}
-
-/** The stored `kind` paths of `agent`'s session only, sorted; none when it recorded none. */
-function pathsOf(office: OfficeHandle, run: string, agent: string, kind: NudgeSourceKind) {
-  return office
-    .all<{ path: string }>(
-      `select path from nudge_sources
-       where office_id = $office_id and run_id = $run and agent_id = $agent and kind = $kind
-       order by path`,
-      { run, agent, kind },
-    )
-    .map((row) => row.path);
-}
-
-/** The context pack paths of `agent`'s session (`writeNudgeSources`). */
-export function contextPathsOf(office: OfficeHandle, run: string, agent: string): string[] {
-  return pathsOf(office, run, agent, "context");
-}
-
-/** The input paths of `agent`'s session (`writeNudgeSources`). */
-export function inputPathsOf(office: OfficeHandle, run: string, agent: string): string[] {
-  return pathsOf(office, run, agent, "input");
 }
 
 /** True when `signature` was nudged in `agent`'s session: by it or an agent with its session id. */
@@ -353,40 +153,6 @@ export function nudgeCount(office: OfficeHandle, run: string): number {
   );
 }
 
-// ---- the base check ------------------------------------------------------------------------------
-
-/** Reads which input files the base changed after `since`; the newest commit per path. */
-export type InputChangeReader = (
-  office: OfficeHandle,
-  run: StoredRun,
-  since: string,
-  paths: readonly string[],
-) => Promise<InputChange[]>;
-
-/** The input check on the office's base (`<remote>/<base>`) through the office's git queue. */
-export function gitInputChanges(
-  git: (office: OfficeHandle) => OfficeGit | undefined,
-): InputChangeReader {
-  return async (office, _run, since, paths) => {
-    const officeGit = git(office);
-    if (officeGit === undefined || paths.length === 0) return [];
-    const base = await officeGit.resolveBase();
-    const ref = `refs/remotes/${officeGit.settings.remote}/${base}`;
-    const output = await officeGit.run((session) =>
-      session.ok(session.repository, [
-        "log",
-        "--format=%x00%H",
-        "--name-only",
-        "--no-renames",
-        `${since}..${ref}`,
-        "--",
-        ...paths,
-      ]),
-    );
-    return parseInputChanges(output, paths);
-  };
-}
-
 // ---- the listener --------------------------------------------------------------------------------
 
 export interface NudgesDeps {
@@ -395,8 +161,6 @@ export interface NudgesDeps {
   readonly steering: RunSteering;
   /** The worker adapter's pure `encode`, which turns the neutral op into host ops. */
   readonly encode: (op: SteerOp) => HostOp[];
-  /** Which input files the base changed; without it a resume gets no input nudge. */
-  readonly inputChanges?: InputChangeReader;
   /** True while a decision on the run (a cap, a park, a stop) is being carried out. */
   readonly ending?: (run: string) => boolean;
   readonly warn?: (message: string, fields: Readonly<Record<string, unknown>>) => void;
@@ -443,19 +207,10 @@ export class Nudges {
 
   #toolUsed(office: OfficeHandle, run: string, agent: string, hook: ToolUsed): void {
     const call = hook.id ?? 0;
-    let facts: NudgeFact[] = [];
+    const facts: NudgeFact[] = [];
     try {
       const stored = findRun(office, run as RunId);
       if (stored !== null && this.#deps.ending?.(run) !== true) {
-        const written = hook.wrote === undefined ? null : worktreePath(hook.wrote, stored.worktree);
-        if (written !== null) {
-          facts = writeFacts({
-            path: written,
-            scope: stored.kind === "story" ? stored.scope : null,
-            story: stored.story,
-            contextPaths: new Set(contextPathsOf(office, run, agent)),
-          });
-        }
         const now = this.#deps.clock.now();
         const budget = budgetFact(
           runTotals(office, stored.runId, stored.startedAt, now).budgetTokens,
@@ -465,53 +220,15 @@ export class Nudges {
       }
     } catch (error) {
       this.#warn("the nudge facts could not be read", run, error);
-      facts = [];
+      facts.length = 0;
     }
     this.#track(run, () => this.#reply(office, run, agent, call, "toolUsed", facts));
   }
 
+  /** A session start gets no nudge: its call is released at once. */
   #sessionStarted(office: OfficeHandle, run: string, agent: string, hook: SessionStarted): void {
     const call = hook.id ?? 0;
-    this.#track(run, async () => {
-      const facts = hook.resumed === true ? await this.#inputFacts(office, run, agent) : [];
-      await this.#reply(office, run, agent, call, "sessionStarted", facts);
-    });
-  }
-
-  /** The input facts of a resume, or none when the check fails or takes over `INPUT_CHECK_MS`. */
-  async #inputFacts(office: OfficeHandle, run: string, agent: string): Promise<NudgeFact[]> {
-    const reader = this.#deps.inputChanges;
-    if (reader === undefined || this.#deps.ending?.(run) === true) return [];
-    try {
-      const stored = findRun(office, run as RunId);
-      if (stored === null) return [];
-      const since = findClaim(office, stored.runId)?.baseSha ?? stored.startSha;
-      const paths = inputPathsOf(office, run, agent);
-      if (since === null || paths.length === 0) return [];
-      const changes = await this.#within(reader(office, stored, since, paths), INPUT_CHECK_MS);
-      return (changes ?? []).map((change) => ({ trigger: "input", ...change }));
-    } catch (error) {
-      this.#warn("the input check of a resume failed", run, error);
-      return [];
-    }
-  }
-
-  /** `work`'s result, or null once `ms` passed. */
-  #within<T>(work: Promise<T>, ms: number): Promise<T | null> {
-    const { clock } = this.#deps;
-    return new Promise((resolve, reject) => {
-      const timer = clock.setTimeout(() => resolve(null), ms);
-      work.then(
-        (value) => {
-          clock.clearTimeout(timer);
-          resolve(value);
-        },
-        (error: unknown) => {
-          clock.clearTimeout(timer);
-          reject(error instanceof Error ? error : new Error(String(error)));
-        },
-      );
-    });
+    this.#track(run, () => this.#reply(office, run, agent, call, "sessionStarted", []));
   }
 
   /** Sends the nudge of the facts not yet nudged in the session, or an empty reply. */

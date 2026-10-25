@@ -31,10 +31,9 @@ import { contextPackOf } from "../../src/context/pack";
 import type { Workspace } from "../../src/context/types";
 import type { OfficeHandle } from "../../src/db/office";
 import type { GateResult } from "../../src/gate/types";
-import { contextPathsOf, nudgeCount } from "../../src/hooks/nudges";
+import { nudgeCount } from "../../src/hooks/nudges";
 import type { OfficeGit } from "../../src/git/office";
 import type { IngestTarget } from "../../src/ingest/ingestor";
-import type { BaseVerifyFacts } from "../../src/prompts/base-verify";
 import { promptPartsOf, promptTextsOf } from "../../src/prompts/parts";
 import { renderSystemFile } from "../../src/prompts/system";
 import { executeRead } from "../../src/reads/execute";
@@ -173,8 +172,6 @@ interface World {
   readonly refreshed: StoryKey[];
   config: OfficeConfig;
   setup: "ok" | "fail";
-  /** What setup read about the base commit's verify (DIPO-183); absent means not known. */
-  baseVerify: BaseVerifyFacts | undefined;
   checks: LaunchCheckOutcome;
   worktreeRoot: string;
   hostFails: boolean;
@@ -254,7 +251,6 @@ beforeEach(async () => {
     refreshed: [] as StoryKey[],
     config: OFFICE_DEFAULTS,
     setup: "ok" as "ok" | "fail",
-    baseVerify: undefined,
     checks: { ok: true } as LaunchCheckOutcome,
     worktreeRoot: join(dir, "trees"),
     hostFails: false,
@@ -330,7 +326,6 @@ beforeEach(async () => {
             files: { log: [], skipped: [], envFiles: [], settings: null },
             log: ["slot: 3", "setup: done"],
             release: () => w.setupReleases.push(3),
-            ...(w.baseVerify === undefined ? {} : { baseVerify: w.baseVerify }),
           } as unknown as SetupOutcome)
         : { ok: false, reason: "install (bun install) failed: exit 1", log: "install: exit 1" },
     dependencies: async () => [],
@@ -567,8 +562,7 @@ describe("work.run starts the worker of a claimed run", () => {
     expect(flag("--session-id")).toBe(agent?.session_id);
     expect(agent).toMatchObject({ effort: caps.effort, model: caps.model });
 
-    // The context pack's paths are stored for the context nudge (DIPO-60), with no nudge yet.
-    expect(contextPathsOf(world.office, runId, agent?.agent_id ?? "")).toEqual(["src/greet.ts"]);
+    // No nudge yet (DIPO-60).
     expect(nudgeCount(world.office, runId)).toBe(0);
     // The task message's context pack is recorded for the worktree with the head it read and the
     // blob ids of its files (0020 section 6).
@@ -630,32 +624,6 @@ describe("work.run starts the worker of a claimed run", () => {
     ]);
   });
 
-  it("puts what setup read about the base commit's verify in the first message, before the story (DIPO-183)", async () => {
-    world.baseVerify = {
-      kind: "red",
-      failing: ["sandbox > a worker may not read the home directory", "worktree > setup copies"],
-      tail: null,
-    };
-    story("TASK-1", "Ready");
-    expect(resultOf<RunResult>(await run()).started).toHaveLength(1);
-    const sent = JSON.parse(world.hosts[0]?.plan.stdin[0] ?? "").message.content as string;
-    expect(sent).toContain(
-      "- sandbox > a worker may not read the home directory\n- worktree > setup copies",
-    );
-    expect(sent.indexOf("<base_verify>")).toBeGreaterThan(-1);
-    expect(sent.indexOf("<base_verify>")).toBeLessThan(sent.indexOf("<story>"));
-  });
-
-  it("says the base's verify result is not known when setup read none, and still starts the worker (DIPO-183)", async () => {
-    story("TASK-1", "Ready");
-    expect(resultOf<RunResult>(await run()).started).toHaveLength(1);
-    const sent = JSON.parse(world.hosts[0]?.plan.stdin[0] ?? "").message.content as string;
-    expect(sent).toContain(
-      "<base_verify>\nNot known: dipo has no verify result for this base commit.",
-    );
-    expect(world.hosts).toHaveLength(1);
-  });
-
   it("plans the M0 developer tools with worker.web false (DIPO-164)", async () => {
     world.config = { ...OFFICE_DEFAULTS, worker: { ...OFFICE_DEFAULTS.worker, web: false } };
     story("TASK-1", "Ready");
@@ -699,8 +667,8 @@ describe("work.run starts the worker of a claimed run", () => {
     const taskPart = parts.find((part) => part.name === "task");
     expect(system).toMatchObject({ sha256: sha(systemFile), bytes: systemFile.length });
     expect(taskPart).toMatchObject({ sha256: sha(sent), bytes: Buffer.byteLength(sent) });
-    // The test story's message has these six sections, each a `<name>` block of the sent text.
-    const names = ["context", "base_verify", "story", "outcome", "criteria", "scope"];
+    // The test story's message has these five sections, each a `<name>` block of the sent text.
+    const names = ["context", "story", "outcome", "criteria", "scope"];
     expect(parts.map((part) => part.name)).toEqual(
       ["system", "task", ...names.map((name) => `task.${name}`)].toSorted(),
     );
@@ -821,15 +789,12 @@ describe("a box worker's run (DIPO-271)", () => {
     ]);
   });
 
-  it("gives a box worker the box contract and a Mac worker the Mac one (DIPO-272)", async () => {
+  it("gives a box worker the box contract (DIPO-272)", async () => {
     story("TASK-1", "Ready");
     const boxed = resultOf<RunResult>(await run({ stories: ["TASK-1"], box: true }));
     const runId = boxed.started[0]?.run as string;
     const system = join(world.dir, "repo", ".git", "dipo", "runs", runId, "system.md");
     expect(readFileSync(system, "utf8")).toBe(renderSystemFile("implement-box", "developer"));
-    expect(renderSystemFile("implement-box", "developer")).not.toBe(
-      renderSystemFile("implement", "developer"),
-    );
     // Its scope section is the forecast, never the write fence (0021 section 13).
     const sent = JSON.parse(world.hosts.at(-1)?.plan.stdin[0] ?? "").message.content as string;
     expect(sent).toContain(

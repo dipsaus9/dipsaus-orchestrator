@@ -534,10 +534,8 @@ function writeRunOutcome(office: OfficeHandle, runId: RunId, kind: string): void
     .map((row) => row.reason);
   const count = (sql: string): number => office.get<{ n: number }>(sql, { run: runId })?.n ?? 0;
   const rounds = runRoundCounts(office, runId);
-  const failures = count(
-    `select count(*) as n from verify_results where office_id = $office_id and run_id = $run
-      and passed = 0`,
-  );
+  // dipo runs no verify of its own any more (DIPO-342): the column stays, always 0.
+  const failures = 0;
   const budget = count(
     `select coalesce(sum(input + output + cache_create), 0) as n from usage_totals
       where office_id = $office_id and run_id = $run`,

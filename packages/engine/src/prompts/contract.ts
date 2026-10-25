@@ -38,7 +38,6 @@ export const SECTION_ORDER = [
   "dependencies",
   "background",
   "handoff",
-  "base_verify",
   "story",
   "outcome",
   "criteria",

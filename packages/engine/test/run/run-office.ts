@@ -25,7 +25,6 @@ import type { OfficeConfig } from "../../src/config";
 import type { OfficeHandle } from "../../src/db/office";
 import { GateStore } from "../../src/gate";
 import { EngineGit } from "../../src/git";
-import { gitInputChanges } from "../../src/hooks/nudges";
 import { WorkerHost } from "../../src/host/main";
 import { EVENTS_FILE, hostSocketPath, HOSTS_DIR, LAUNCH_FILE } from "../../src/host/protocol";
 import { officeStatusesReady } from "../../src/office/init";
@@ -438,8 +437,6 @@ export async function withRunOffice(
         ...(tempDirs === null ? {} : { tempOwner: () => tempDirs.owner() }),
         release: (office, claim, reason) => claims.releaseUnstarted(office, claim, reason),
         ...(tempDirs === null ? {} : { afterExit: sweep }),
-        // The permission wait (the maintainer absent) and the nudges hear every run, as in the daemon.
-        inputChanges: gitInputChanges((handle) => engineGit.forOffice(handle.officeId)),
         ingest: {
           pricing: () => null,
           ...(tempDirs === null ? {} : { onEnded: () => sweep() }),

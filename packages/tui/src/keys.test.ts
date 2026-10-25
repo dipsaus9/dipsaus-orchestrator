@@ -82,7 +82,7 @@ describe("the key table", () => {
     const keys = rowKeys(
       row({
         actions: [
-          { command: "work.reassign", cli: "dipo reassign DIPO-1" },
+          { command: "work.run", cli: "dipo run DIPO-1" },
           { command: "gate.reject", cli: 'dipo reject DIPO-1 --note "<why>"' },
           { command: "work.answer", cli: 'dipo answer q deny "<reason>"' },
         ],
@@ -91,7 +91,7 @@ describe("the key table", () => {
     );
     expect(keys.bound.map((bound) => bound.binding.id)).toEqual(["reject"]);
     expect(keys.unbound.map((action) => action.cli)).toEqual([
-      "dipo reassign DIPO-1",
+      "dipo run DIPO-1",
       'dipo answer q deny "<reason>"',
     ]);
   });

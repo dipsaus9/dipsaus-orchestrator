@@ -44,7 +44,7 @@ async function withOffice(fn: (t: TestState, office: OfficeHandle) => Promise<vo
 describe("prompt_parts", () => {
   it("stores sha256, bytes and estimated tokens per part and never the text", () =>
     withOffice((t, office) => {
-      const system = renderSystemFile("implement", "developer");
+      const system = renderSystemFile("implement-box", "developer");
       const task = assembleTaskMessage({
         story: fixtureStory(),
         pack: fixturePack(),

@@ -31,13 +31,6 @@ export {
 export type { ClaimRecord, ReleasedBranch } from "./records";
 export { buildRunEnv, RUN_ENV_NAMES, RunEnvError, substitute } from "./run-env";
 export type { RunEnvInput } from "./run-env";
-export {
-  baseVerifyConfigHash,
-  baseVerifyFactsOf,
-  failingTests,
-  findBaseVerify,
-  storeBaseVerify,
-} from "./base-verify";
 export { ENV_FILES_RULE, SETUP_NOTICES, setupWorktree } from "./setup";
 export type { SetupDeps, SetupDone, SetupOutcome, SetupRequest } from "./setup";
 export { MAIN_CHECKOUT_SLOT, SLOTS_FILE, SlotTable, SlotTableError } from "./slots";

@@ -1,9 +1,11 @@
-// Answering a `needs-permission` park (DIPO-75; 0008 sections 5 and 8): the `needs-permission`
-// recording (captured live, see `needs-permission.ts`) replayed through the
-// real ingestion and the Claude CLI parser into run control, which parks the story and stores the
-// park's permission question; `work.answer` through the executor with a fake park resumer. Allow
-// once resumes the run with a message naming the call: the relay that let exactly that call through
-// is gone with the Mac sandbox (DIPO-240), as no session registers the PermissionRequest hook.
+// Answering a `needs-permission` park (DIPO-75; 0008 sections 5 and 8). No worker report raises
+// one any more (DIPO-342: a box worker has every permission, so no report names a denied call),
+// but a story parked so before the change still waits on its question. Run control parks the run
+// `needs-permission` with the call as detail, which stores the park's permission question, and a
+// recording replayed through the real ingestion and the Claude CLI parser ingests the worker's exit;
+// `work.answer` goes through the executor with a fake park resumer. Allow once resumes the run with a
+// message naming the call: the relay that let exactly that call through is gone with the Mac sandbox
+// (DIPO-240), as no session registers the PermissionRequest hook.
 
 import { afterEach, beforeEach, describe, expect, it } from "bun:test";
 import { mkdtempSync, rmSync } from "node:fs";
@@ -38,6 +40,7 @@ import {
   type BranchPark,
   insertRun,
   openPark,
+  PARK_CAUSES,
   type ResumeParkOutcome,
   type ResumeParkRequest,
   RunControl,
@@ -55,7 +58,9 @@ import {
   loggedEvents,
   target,
 } from "../ingest/helpers";
-import { needsPermissionRecording, reportedPermission } from "./needs-permission";
+import { readRecording } from "@dipsaus-orchestrator/testkit";
+
+import { RECORDINGS_DIR } from "../workers/replay";
 
 const claude: IngestAdapter = {
   interpret: (line, state) =>
@@ -65,8 +70,10 @@ const claude: IngestAdapter = {
     },
 };
 
-const RECORDING = needsPermissionRecording();
-const PERMISSION = reportedPermission(RECORDING);
+/** A blocked worker session; its report comes after the park and changes nothing. */
+const RECORDING = readRecording(join(RECORDINGS_DIR, "worker-park-ambiguous"));
+/** The call of the park, as a run parked before DIPO-342 recorded it. */
+const PERMISSION = { tool: "Bash", action: "docker ps" };
 
 interface World {
   readonly dir: string;
@@ -213,11 +220,11 @@ afterEach(async () => {
 });
 
 /**
- * Replays the `needs-permission` recording with run control and the permission wait as hooks.
- * With `midway`, the replay stops while the worker's first tool call waits for its result, runs
- * `midway`, then replays the rest.
+ * Replays the recording up to its result line, parks the run `needs-permission` with the call as
+ * detail, as run control did for a worker report that named it, then replays the rest, so the
+ * worker's exit is ingested after the park.
  */
-async function replayPark(midway?: () => Promise<void>): Promise<StoredQuestion> {
+async function replayPark(): Promise<StoredQuestion> {
   const { f, control, asks } = w;
   control.track(f.office.officeId, {
     runId: f.run,
@@ -226,11 +233,10 @@ async function replayPark(midway?: () => Promise<void>): Promise<StoredQuestion>
     startedAt: f.t.clock.now(),
   });
   const lines = hostLines(RECORDING);
-  const split =
-    midway === undefined
-      ? lines.length
-      : lines.findIndex((line) => line.ch === "stdout" && line.data.includes('"type":"user"'));
-  if (split < 0) throw new Error("the recording has no tool result");
+  const split = lines.findIndex(
+    (line) => line.ch === "stdout" && line.data.includes('"type":"result"'),
+  );
+  if (split < 0) throw new Error("the recording has no result");
   appendLines(f.eventFile, lines.slice(0, split));
   const hooks = control.hooks;
   const ingestor = new Ingestor({
@@ -239,9 +245,6 @@ async function replayPark(midway?: () => Promise<void>): Promise<StoredQuestion>
     pricing: null,
     hooks: {
       ...hooks,
-      onWorkerEvents: (run, agent, events) => {
-        hooks.onWorkerEvents?.(run, agent, events);
-      },
       onEnded: (run, agent, end) => {
         hooks.onEnded?.(run, agent, end);
         asks.onEnded(f.office, run);
@@ -253,14 +256,16 @@ async function replayPark(midway?: () => Promise<void>): Promise<StoredQuestion>
     target(f, claude, initialState({ plannedModel: "haiku" }) as unknown as ParseState),
   );
   await control.idle();
+  control.parkRun(f.run, {
+    reason: "needs-permission",
+    cause: PARK_CAUSES.build,
+    detail: `${PERMISSION.tool}: ${PERMISSION.action}`,
+  });
+  await control.idle();
+  appendLines(f.eventFile, lines.slice(split));
+  ingestor.pass(f.run, f.agent);
+  await control.idle();
   await asks.idle();
-  if (midway !== undefined) {
-    await midway();
-    appendLines(f.eventFile, lines.slice(split));
-    ingestor.pass(f.run, f.agent);
-    await control.idle();
-    await asks.idle();
-  }
   const [question] = openQuestions(f.office).filter((open) => open.parkId !== null);
   if (question === undefined) throw new Error("the park stored no question");
   return question;
@@ -303,7 +308,7 @@ function parkReasons(): string[] {
     .map((row) => row.reason);
 }
 
-describe("the live needs-permission replay", () => {
+describe("a needs-permission park parked before DIPO-342", () => {
   it("parks needs-permission with a permission question naming the recorded tool and action (AC #1)", async () => {
     const question = await replayPark();
     expect(parkReasons()).toEqual(["needs-permission"]);

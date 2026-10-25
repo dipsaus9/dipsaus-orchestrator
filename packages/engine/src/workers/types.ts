@@ -233,8 +233,6 @@ export interface WorkerReport {
   readonly commitSubject: string;
   readonly question?: string;
   readonly notes?: string;
-  /** Blocked on a denied call (0008 section 5). */
-  readonly needsPermission?: { readonly tool: string; readonly action: string };
   /** At most three proposals (W5). */
   readonly proposals?: readonly WorkerProposal[];
   /** One entry per test-plan entry of the story (DIPO-254). */

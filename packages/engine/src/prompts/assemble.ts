@@ -15,7 +15,6 @@ import {
   type Section,
   type SectionName,
 } from "./contract";
-import { BASE_VERIFY_UNKNOWN, type BaseVerifyFacts, renderBaseVerify } from "./base-verify";
 import { cutHead } from "./cut";
 import type { FeedbackItem } from "./feedback";
 import { renderHandoff, type HandoffFacts } from "./handoff";
@@ -53,11 +52,6 @@ export interface TaskMessageInput {
   readonly pack: ContextPack;
   /** For a new session on a story with earlier work; otherwise omitted. */
   readonly handoff?: HandoffFacts;
-  /**
-   * What verify said about the base commit in the worker's sandbox (DIPO-183). Every task message
-   * has the section; without facts it says the result is not known.
-   */
-  readonly baseVerify?: BaseVerifyFacts;
   /** For a fix turn; otherwise omitted or empty. */
   readonly feedback?: readonly FeedbackItem[];
   readonly budgets: TaskBudgets;
@@ -323,7 +317,6 @@ export function assembleTaskMessage(input: TaskMessageInput): TaskMessage {
   const feedback = input.feedback ?? [];
   const handoff =
     input.handoff === undefined ? undefined : renderHandoff(input.handoff, budgets.handoff);
-  const baseVerify = renderBaseVerify(input.baseVerify ?? BASE_VERIFY_UNKNOWN);
   const inputCount = inputContentItems(pack).length;
 
   const build = (state: DropState): Section[] => {
@@ -342,7 +335,6 @@ export function assembleTaskMessage(input: TaskMessageInput): TaskMessage {
       sections.set("background", backgroundSection(story, budgets.background, state.background));
     }
     if (handoff !== undefined) sections.set("handoff", handoff);
-    sections.set("base_verify", baseVerify);
     for (const section of contract) sections.set(section.name, section.text);
     if (feedback.length > 0) sections.set("feedback", feedbackSection(feedback, budgets));
     return SECTION_ORDER.flatMap((name) => {

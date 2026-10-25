@@ -53,7 +53,6 @@ import { gitWorkspace } from "../context/workspace";
 import type { OfficeHandle } from "../db/office";
 import type { GitLocation } from "../git/hardened";
 import type { OfficeGit } from "../git/office";
-import { copyNudgeSources, writeNudgeSources, type NudgeSources } from "../hooks/nudges";
 import { EVENTS_FILE } from "../host/protocol";
 import type { IngestAdapter } from "../ingest/ingestor";
 import { ensurePrivateDir } from "../platform/paths";
@@ -69,7 +68,7 @@ import {
 import { BOX_RUN_FILE } from "../box/workers";
 import { BOX_LIFETIME_NOTICES, BoxLifetime, boxRebuiltText, type RunBoxes } from "../box/lifetime";
 import type { RunProfile } from "../scan/detect";
-import { capNote, gatherHandoff, type HandoffFacts, type LastVerify } from "../prompts/handoff";
+import { capNote, gatherHandoff, type HandoffFacts } from "../prompts/handoff";
 import { renderSystemFile } from "../prompts/system";
 import maintainerNoteTemplate from "../prompts/feedback/maintainer-note.md" with { type: "text" };
 import { FEEDBACK_TEMPLATES, renderTemplate } from "../prompts/templates";
@@ -77,7 +76,6 @@ import { withWorkViews } from "../views/work";
 import type { AdapterHold } from "../workers/hold";
 import type { WorkerPort } from "../workers/port";
 import { PlanError, type Caps, type ParseState, type WorkerReport } from "../workers/types";
-import { baseVerifyConfigHash, baseVerifyFactsOf, runProfileOf } from "../worktree/base-verify";
 import { findClaim } from "../worktree/records";
 import { hostAlive, workerHostsOf } from "../runs/worker-hosts";
 
@@ -99,7 +97,6 @@ import { openFeedbackOf } from "./open-feedback";
 import { renderRunPrompts, sessionUuid } from "./prompts";
 import type { StoredRun } from "./records";
 import { clearSignals } from "./signals";
-import { verifyResults } from "./verify-records";
 import type { RunBase } from "./work-run";
 
 /**
@@ -206,8 +203,6 @@ export interface HandoffExtra {
 /** A new session's task message with its handoff block, and what it was built from. */
 interface HandoffMessage {
   readonly text: string;
-  /** The context pack and input paths the new session's nudges check. */
-  readonly sources: NudgeSources;
   readonly pack: ContextPack;
   readonly headSha: string;
 }
@@ -294,14 +289,6 @@ function messageOf(error: unknown): string {
   return error instanceof Error ? error.message : String(error);
 }
 
-/** The newest verify of the run as the handoff block names it; null before any. */
-function lastVerifyOf(office: OfficeHandle, runId: RunId): LastVerify | null {
-  const last = verifyResults(office, runId).at(-1);
-  if (last === undefined) return null;
-  if (last.passed) return { passed: true };
-  return { passed: false, step: last.profile, exitCode: last.exitCode ?? -1 };
-}
-
 /**
  * The tier a run's sessions use: the office tier in force with the model the run row started with
  * and the effort of the run's first developer agent, so a tier edit never changes a parked or live
@@ -377,14 +364,13 @@ export class RunResumer implements NextSession {
     const paths = runLaunchPaths(git, deps, run.worktree, run.runId);
     const previous = previousAgent(office, run.runId, request.work.agent);
     const facts = previous.state === undefined ? null : deps.worker.sessionFacts(previous.state);
-    // A box worker's run reads the box contract in every session (DIPO-272); with box workers every
-    // developer session is one, a run from before them included, whose box is made below.
+    // Every developer session reads the box contract (DIPO-272, DIPO-342); with box workers every
+    // developer session is a box worker's, a run from before them included, whose box is made below.
     const box = deps.boxes !== undefined || existsSync(join(paths.runDir, BOX_RUN_FILE));
-    const systemFile = renderSystemFile(box ? "implement-box" : "implement", "developer");
+    const systemFile = renderSystemFile("implement-box", "developer");
     const systemHash = systemHashOf(systemFile);
 
     // The handoff message: the new session's task message, and the size a resume is weighed with.
-    // Its context pack and input paths are the new session's nudge sources, resumed or not.
     let handoff: HandoffMessage | { error: string };
     try {
       handoff = await this.#handoffMessage(office, git, run, config, facts?.lastReport ?? null, {
@@ -579,10 +565,6 @@ export class RunResumer implements NextSession {
         deps.clock,
       );
       const at = deps.clock.now();
-      // The context pack and input paths this session's nudges check (DIPO-99): the pack gathered
-      // for it, or, for a resume whose handoff could not be built, the resumed session's own.
-      if ("sources" in handoff) writeNudgeSources(office, run.runId, agent, handoff.sources, at);
-      else copyNudgeSources(office, run.runId, request.work.agent, agent, at);
       // The pack a new session's task message was built from (0020 section 6); a resume sends none.
       if (!resume && "pack" in handoff && run.worktree !== null) {
         recordContextPack(office, run.worktree, handoff.headSha, handoff.pack, deps.clock);
@@ -821,16 +803,9 @@ export class RunResumer implements NextSession {
       config,
       handoff,
       ...(box ? { box: true } : {}),
-      // The result stored for this base when the run started (DIPO-183); a new session runs no verify.
-      baseVerify: baseVerifyFactsOf(
-        office,
-        baseSha,
-        baseVerifyConfigHash(config, runProfileOf(office, run.runProfileId)),
-      ),
     });
     return {
       text: prompts.taskMessage,
-      sources: prompts.nudgeSources,
       pack: prompts.pack,
       headSha: prompts.headSha,
     };
@@ -854,8 +829,9 @@ export class RunResumer implements NextSession {
       base: claim?.baseSha ?? run.startSha ?? "HEAD",
       office,
       lastReport,
-      lastVerify: lastVerifyOf(office, run.runId),
-      // The items no later green verify or approval answered (0020 section 6).
+      // dipo stores no verify result of its own: the box worker runs verify, CI checks (DIPO-342).
+      lastVerify: null,
+      // The items no later approval answered (0020 section 6).
       openFeedback: openFeedbackOf(office, run.runId),
       ...(extra.note === undefined ? {} : { note: extra.note }),
       ...(extra.box ? { box: true } : {}),

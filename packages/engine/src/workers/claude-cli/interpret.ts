@@ -1316,11 +1316,7 @@ function result(value: unknown, state: ClaudeParseState): Step {
       : {}),
     ...(trouble === null ? {} : { problem: trouble }),
   });
-  if (
-    report?.status === "blocked" &&
-    report.question !== undefined &&
-    report.needsPermission === undefined
-  ) {
+  if (report?.status === "blocked" && report.question !== undefined) {
     events.push({ t: "waiting", on: "question", detail: report.question });
   }
   return { events, state: next };

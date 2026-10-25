@@ -1,21 +1,18 @@
-// The backstop after every worker turn (DIPO-49; 0008 section 2 "Backstop after every turn", 0014
-// section 3 "Backstop in code"). At run start, before the worker host starts, the engine records
-// the story worktree's HEAD, its checked-out branch, the repository's stash and
-// `git status --porcelain -- backlog .dipo`. After every worker turn it reads them again; any
-// difference parks the story `scope-violation` with the evidence, whatever the tool rules said.
+// The git state of a story worktree (DIPO-49; 0008 section 2): its HEAD, its checked-out branch,
+// the repository's stash and `git status --porcelain -- backlog .dipo`, read in one git queue item.
+// A git-state park reads it when it resumes, as the run's new baseline (`park-resume.ts`), and the
+// worker outcomes read whether the worktree holds work (`storyHoldsWork`).
 //
-// The engine's own ref updates are excluded: the engine writes nothing in a story worktree while
-// its worker runs (no mid-implementation commits, 0014 section 3), and the commits it makes at
-// the end of a run (In Review, park) end the run, so no later turn is compared with them. A caller
-// that commits in the worktree and keeps the run going takes a new snapshot.
+// The compare after every worker turn is gone (DIPO-342): the developer works in its box, never in
+// the Mac worktree, so no turn is compared with a run-start snapshot.
 //
 // Every read goes through the office git queue and the hardened runner, so a worktree whose git
-// links changed is refused (`git.worktreeTampered`) and parks `scope-violation` the same way.
+// links changed is refused (`git.worktreeTampered`).
 
 import type { GitLocation } from "../git/hardened";
 import type { OfficeGit } from "../git/office";
 
-/** What the backstop compares (all strings as git printed them). */
+/** The git state of a story worktree (all strings as git printed them). */
 export interface BackstopSnapshot {
   /** `git rev-parse --verify HEAD`. */
   readonly head: string;
@@ -52,45 +49,4 @@ export function readBackstop(git: OfficeGit, worktree: string): Promise<Backstop
       backlogStatus: status,
     };
   });
-}
-
-function shown(value: string, empty: string): string {
-  return value === "" ? empty : value;
-}
-
-function statusLines(status: string): string {
-  const records = status.split("\0").filter((record) => record !== "");
-  return records.length === 0 ? "clean" : records.join(", ");
-}
-
-/**
- * Pure: the evidence of every change between the run-start snapshot and now, one line each, in a
- * fixed order; empty when nothing changed.
- */
-export function backstopEvidence(start: BackstopSnapshot, now: BackstopSnapshot): string[] {
-  const evidence: string[] = [];
-  if (now.head !== start.head) {
-    evidence.push(`HEAD moved from ${start.head} to ${now.head}`);
-  }
-  if (now.branch !== start.branch) {
-    evidence.push(
-      `the checked-out branch changed from ${shown(start.branch, "a detached HEAD")} to ${shown(now.branch, "a detached HEAD")}`,
-    );
-  }
-  if (now.stash !== start.stash) {
-    evidence.push(
-      `the stash changed from ${shown(start.stash, "none")} to ${shown(now.stash, "none")}`,
-    );
-  }
-  if (now.backlogStatus !== start.backlogStatus) {
-    evidence.push(
-      `git status of backlog and .dipo changed from ${statusLines(start.backlogStatus)} to ${statusLines(now.backlogStatus)}`,
-    );
-  }
-  return evidence;
-}
-
-/** The park detail of a backstop hit. */
-export function backstopDetail(evidence: readonly string[]): string {
-  return `The worker changed git state the engine owns after a turn: ${evidence.join("; ")}.`;
 }

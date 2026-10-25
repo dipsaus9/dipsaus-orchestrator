@@ -13,7 +13,7 @@ import type { Clock, IdSource, OfficeId } from "@dipsaus-orchestrator/contract";
 import { BOX_RUN_FILE } from "../box/workers";
 
 import { readBackstop } from "./backstop";
-import { type InputChangeReader, Nudges } from "../hooks/nudges";
+import { Nudges } from "../hooks/nudges";
 import { ABSENT, PermissionAsks, type Presence } from "../hooks/permissions";
 import { type FetchAddressDeps, SYSTEM_FETCH_ADDRESSES, WebGuard } from "../hooks/web-guard";
 import { CONTRACT_MAX_DEFAULT } from "../prompts/contract";
@@ -68,8 +68,6 @@ export interface RunPorts {
   readonly presence?: Presence;
   /** False while no work is scheduled: the permission wait and the plan-limit schedule (DIPO-61). */
   readonly scheduling?: () => boolean;
-  /** Which input files the base changed, for the nudges (DIPO-60); no input nudge without it. */
-  readonly inputChanges?: InputChangeReader;
   /** Ingestion; every entry it appends reaches `onChanged` at once. */
   readonly ingest: Pick<OfficeIngestOptions, "pricing" | "watchdog"> & {
     /** Hears each run's worker exit after the permission wait and the nudges did. */
@@ -256,7 +254,6 @@ function buildHookListeners(
     clock: ports.clock,
     steering: ports.steering,
     encode: (op) => ports.worker.encode(op),
-    ...given("inputChanges", ports.inputChanges),
     ending,
     ...given("warn", ports.warn),
   });
