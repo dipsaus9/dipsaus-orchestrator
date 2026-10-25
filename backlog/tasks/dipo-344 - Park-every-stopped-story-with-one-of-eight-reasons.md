@@ -4,6 +4,7 @@ title: Park every stopped story with one of eight reasons
 status: Refined
 assignee: []
 created_date: '2026-10-25 09:51'
+updated_date: '2026-10-25 10:01'
 labels:
   - 'tier:L'
   - 'slice:prune'
@@ -57,4 +58,5 @@ test_plan:
 - [ ] #4 A plan limit or a failed adapter check sets the office's starts paused with its reason and time, no new session starts until it lifts, and the desk shows it
 - [ ] #5 A session that hits the plan limit parks worker-failed with the detail plan limit until the reset time, and dipo resumes exactly those parks when starts paused lifts
 - [ ] #6 Parks stored with a removed reason or cause are migrated to the new reasons, and every way a park is resolved closes its open questions with a question.closed event
+- [ ] #7 A story's status and park reason live in Backlog.md and dipo writes them there; the parks table keeps run detail only, and on a mismatch Backlog.md wins and reconcile shows a notice (0001, one source per fact)
 <!-- AC:END -->

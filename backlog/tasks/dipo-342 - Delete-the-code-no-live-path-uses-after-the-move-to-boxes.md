@@ -4,7 +4,7 @@ title: Delete the code no live path uses after the move to boxes
 status: Refined
 assignee: []
 created_date: '2026-10-25 09:50'
-updated_date: '2026-10-25 09:57'
+updated_date: '2026-10-25 10:01'
 labels:
   - 'tier:M'
   - 'slice:prune'
@@ -49,6 +49,6 @@ test_plan:
 <!-- AC:BEGIN -->
 - [ ] #1 The Mac developer parts of workers/claude-cli/plan.ts, the implement prompt contract and the developer nudge sources are removed; plan.ts keeps only what the reviewer and the scan session use
 - [ ] #2 run/backstop.ts keeps only what git-state resumes read, and storeBaseVerify, insertVerifyResult, base_verifies and verify_results are removed with a migration
-- [ ] #3 The needsPermission field of the worker report, work.reassign and office.usage are removed from the contract, engine, CLI and TUI; test.start, test.record and test.started stay for DIPO-309
+- [ ] #3 The needsPermission field of the worker report, work.reassign and office.usage are removed from the contract, engine, CLI and TUI; test.start, test.record, the test.started and test.recorded events and the TUI key t stay, because DIPO-309 makes them real
 - [ ] #4 A search of packages/ and scripts/ finds no reference to a removed name
 <!-- AC:END -->

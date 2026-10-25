@@ -4,6 +4,7 @@ title: Run only the backlog checks on backlog-only PRs
 status: Refined
 assignee: []
 created_date: '2026-10-25 09:50'
+updated_date: '2026-10-25 10:01'
 labels:
   - 'tier:S'
   - 'slice:prune'
@@ -14,6 +15,7 @@ references:
   - .github/workflows/ci.yml
   - scripts/check-ready-gate.ts
   - scripts/check-backlog-pr.ts
+  - packages/engine/src/gate/
 priority: high
 type: chore
 ordinal: 321000
@@ -45,4 +47,5 @@ test_plan:
 - [ ] #2 A ready-gate job runs scripts/check-ready-gate.ts and the 0010 structural check (scripts/check-backlog-pr.ts) on every story the PR changes, and ci-ok needs it
 - [ ] #3 ci-ok passes on a backlog-only PR whose heavy jobs were skipped by the changes job, and fails when a job failed or was skipped for any other reason
 - [ ] #4 A PR that changes any file outside backlog/, and every push to main, run every job as before
+- [ ] #5 The Ready gate rules R27 and R28 are removed from packages/engine/src/gate/ with their tests, as 0012 says, so the ready-gate job and dipo run check the same rules
 <!-- AC:END -->

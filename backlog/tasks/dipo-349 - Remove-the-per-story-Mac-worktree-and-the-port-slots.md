@@ -4,6 +4,7 @@ title: Remove the per-story Mac worktree and the port slots
 status: Refined
 assignee: []
 created_date: '2026-10-25 09:51'
+updated_date: '2026-10-25 10:01'
 labels:
   - 'tier:L'
   - 'slice:prune'
@@ -13,6 +14,7 @@ dependencies:
   - DIPO-348
   - DIPO-347
   - DIPO-309
+  - DIPO-350
 references:
   - packages/engine/src/worktree/
   - packages/engine/src/run/
