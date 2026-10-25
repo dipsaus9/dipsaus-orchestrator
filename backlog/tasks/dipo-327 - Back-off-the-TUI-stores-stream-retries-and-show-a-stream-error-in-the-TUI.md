@@ -4,10 +4,14 @@ title: Back off the TUI store's stream retries and show a stream error in the TU
 status: Refined
 assignee: []
 created_date: '2026-10-23 10:28'
+updated_date: '2026-10-25 09:55'
 labels:
   - follow-up
-milestone: m-2
-dependencies: []
+  - 'slice:prune'
+  - 'track:2'
+milestone: m-1
+dependencies:
+  - DIPO-351
 references:
   - packages/client/src/store/office-store.ts
   - packages/client/test/

@@ -88,7 +88,7 @@ YAML 1.2, parsed with `Bun.YAML.parse` behind the platform module and validated 
   roles/<name>.md    # role files from M4: YAML frontmatter plus instructions
   .gitignore         # office.local.yaml
   office.local.yaml  # machine-local; never committed
-<state>/config.yaml  # software settings: daemon.autostart, spend alerts (0005, 0009)
+<state>/config.yaml  # software settings: daemon.autostart, spend alerts, notify.desk (0005, 0009)
 ```
 
 A sample `office.yaml`. Every key is optional and has a default; the keys and their meaning belong to the ADRs named in the comments.

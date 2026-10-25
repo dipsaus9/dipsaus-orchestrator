@@ -92,7 +92,7 @@ A story can reach Done without dipo, for example when it was finished by hand on
 
 ## 8. Proposals
 
-A worker may add up to three proposals to any report: a follow-up, a spike or a tool it would need. A proposal is never done in place. dipo stores it with an id made from a hash of its title and paths, and shows it on the desk. `dipo propose accept <id>` files it as a Backlog draft through the backlog lane, with the worker's words marked as the worker's. `dipo propose dismiss <id>` closes it. Nothing is filed without the maintainer's accept.
+A worker may add up to three proposals to any report: a follow-up, a spike or a tool it would need. A proposal is never done in place. dipo stores it with an id made from a hash of its title and paths, and shows it on the desk. `dipo propose accept <id>` files it as a Backlog draft through the backlog lane, with the worker's words marked as the worker's. A draft is not a story yet: the maintainer refines it into one before it can be made Ready. `dipo propose dismiss <id>` closes it. Nothing is filed without the maintainer's accept.
 
 ## 9. The desk
 

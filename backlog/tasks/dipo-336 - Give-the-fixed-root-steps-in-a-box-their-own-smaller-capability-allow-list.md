@@ -4,9 +4,13 @@ title: Give the fixed root steps in a box their own smaller capability allow lis
 status: Refined
 assignee: []
 created_date: '2026-10-23 16:20'
-labels: []
-milestone: m-2
-dependencies: []
+updated_date: '2026-10-25 09:55'
+labels:
+  - 'slice:prune'
+  - 'track:2'
+milestone: m-1
+dependencies:
+  - DIPO-351
 references:
   - packages/engine/src/box/firewall.ts
   - packages/engine/src/box/user.ts

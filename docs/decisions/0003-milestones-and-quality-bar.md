@@ -25,9 +25,9 @@ The project grew to about 137k source lines in 15 days, with up to 40 amendments
 
 - **M0, walking skeleton.** Done. Engine, daemon, database, Claude CLI adapter, minimal TUI, office init and switching, repository scan, caps, tiers and parking. Cutover (DIPO-115): dipo delivers its own stories since then.
 - **M1, review and park.** The story PR, a reviewer session, one feedback loop for review, CI and conflicts, merge on approval, resume for every park reason, the maintainer's commands (park, resume, drop, discard, steer, answer, approve, reject), and `dipo desk`. Then the triage view in the TUI, `dipo test` in a test box, the scan's AI fallback with its confirm command, and daily and monthly spend alerts. Stories carry `slice:m1a` for the unattended loop and `slice:m1b` for the rest.
-- **M2, parallel runs.** Several stories at once, each in its own box. Batch selection, collision checks on changed files, and GitHub's merge queue if merge order starts to matter.
+- **M2, parallel runs.** Several stories at once, each in its own box, started by a pickup loop of dipo's own instead of one `dipo run` per story. Batch selection, collision checks on changed files, and GitHub's merge queue if merge order starts to matter.
 - **M3, rituals.** `plan`, `refine`, `ready` and `estimate` with model interviews, including the tier proposal. `retro` with insights from the database: park reasons, loops and cost per kind of work.
-- **M4, roster.** Roles as stored definitions, hiring, a role chosen per story, non-code roles.
+- **M4, roster.** Roles as stored definitions, hiring, a role chosen per story, non-code roles, and the skills and plugins each role brings to its sessions.
 - **M5, conversation.** A conversation layer that maps the maintainer's words to commands, with confirmation.
 
 Until M3, stories are written by hand or with the `dipsaus-ai` skills. Until M4 there is one developer role plus the reviewer.
@@ -50,6 +50,8 @@ How dipo is built during the prune (maintainer, 2026-10-24):
 1. **Track 1, the run path,** is built by builder agents from the maintainer's orchestrating Claude session. These are the stories dipo needs to deliver one story the new way: the claim without a worktree, verify in the box, the reviewer box, one feedback path, GitHub auto-merge, one git module. A separate agent reviews each PR, and a scratch-repository run checks each story.
 2. **The cutover gate:** dipo delivers one real story of this repository end to end on the simplified path, and the maintainer confirms it.
 3. **Track 2, everything else,** is built by dipo itself, one story at a time. The orchestrating Claude starts the runs, answers worker questions and files every gap a run shows as a story.
+
+The prune stories sit in M1 with the labels `slice:prune` and `track:1` or `track:2`. The cutover gate is DIPO-351, and every Track 2 story depends on it.
 
 In both tracks dipo runs from a pinned binary that is upgraded only after a smoke run of the new build, every story names what it removes, and an ADR is rewritten in the same PR as the change it decides.
 

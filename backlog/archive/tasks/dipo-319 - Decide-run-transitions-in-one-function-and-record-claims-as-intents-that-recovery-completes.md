@@ -6,7 +6,7 @@ title: >-
 status: Refined
 assignee: []
 created_date: '2026-10-22 21:00'
-updated_date: '2026-10-22 21:00'
+updated_date: '2026-10-25 09:55'
 labels:
   - 'tier:L'
 milestone: m-2
@@ -63,3 +63,12 @@ unknowns: []
 - [ ] #6 Tests inject a crash after each claim step. After each, the story is claimable again or its claim is complete, and nothing is left orphaned.
 - [ ] #7 `bun run verify` passes.
 <!-- AC:END -->
+
+## Comments
+
+<!-- COMMENTS:BEGIN -->
+created: 2026-10-25 09:55
+---
+Folded into DIPO-345 on 2026-10-25 (prune plan): one pure function decides a run's transitions, as a criterion of the one feedback path.
+---
+<!-- COMMENTS:END -->

@@ -6,18 +6,19 @@ title: >-
 status: Refined
 assignee: []
 created_date: '2026-10-22 21:00'
-updated_date: '2026-10-22 21:00'
+updated_date: '2026-10-25 09:57'
 labels:
   - 'tier:L'
-milestone: m-2
+  - 'slice:prune'
+  - 'track:2'
+milestone: m-1
 dependencies:
-  - DIPO-313
+  - DIPO-351
 references:
   - packages/daemon/src/server.ts
   - packages/engine/src/commands/execute.ts
   - packages/engine/src/reads/execute.ts
   - packages/engine/src/reads/hello.ts
-  - packages/contract/src/version.ts
   - packages/engine/src/platform/
   - packages/client/src/node/lifecycle/
   - packages/client/src/node/logs/reader.ts
@@ -38,18 +39,26 @@ ordinal: 305000
 ## Description
 
 <!-- SECTION:DESCRIPTION:BEGIN -->
-Outcome: one slow read no longer freezes a client connection, and every command and read writes one log line with its outcome and duration. The runtime layout rules exist once, for both the engine and the client. `dipo watch` builds on the client store and uses the same formatters as the TUI. The TUI honours NO_COLOR everywhere and reads from the contract which commands need confirmation. From v0.1.0, a client refuses a daemon whose contract minor version is too old for it.
+Outcome: one slow read no longer freezes a client connection, and every command and read writes one log line with its outcome and duration. The runtime layout rules exist once, for both the engine and the client. `dipo watch` builds on the client store and uses the same formatters as the TUI. The TUI honours NO_COLOR everywhere and reads from the contract which commands need confirmation.
 
 Context:
 - **Reads.** `packages/daemon/src/server.ts` awaits reads and subscribes in order on each connection, and no request has a server-side deadline. The command and read executors (`commands/execute.ts`, `reads/execute.ts`) log nothing.
 - **Duplicated runtime rules.** Process identity, lock and runtime-record parsing, the state-folder rule and the log-rotation names exist in `engine/src/platform/` and again in `client/src/node/lifecycle/`. A parity test (`test/lifecycle-parity/`) keeps the two in line.
 - **`dipo watch`.** `packages/cli/src/watch-command.ts` folds events itself. The CLI and TUI each have their own percent formatting, health labels and output-range codec, and `storyRef` is copied four times. The TUI hard-codes which actions confirm, while the CLI reads `definition.confirm`.
 - **TUI.** Direct colour sites in the TUI bypass the NO_COLOR handling of `Colored`, and `App` (`tui/src/app.tsx`) holds the key handling of every mode.
-- **Version check.** `reads/hello.ts` compares only the contract major (`contract/src/version.ts`).
+- Trimmed on 2026-10-25: the contract has one version per binary (0014), so the minor-version check is gone from this story, and DIPO-355 removes the versioning. Track 2 of the prune (0003).
 
 ```dipo
 branch: "DIPO-320/concurrent-reads-shared-client-rules"
 unknowns: []
+test_plan:
+  entries:
+    - kind: "automated"
+      check: "(daemon) a slow read next to a fast one answers the fast one first, and a read past its deadline answers timedOut"
+    - kind: "automated"
+      check: "(cli) dipo watch builds its state on OfficeStore and prints with the shared client formatters"
+    - kind: "automated"
+      check: "(tui) with NO_COLOR set no frame holds a colour code"
 ```
 <!-- SECTION:DESCRIPTION:END -->
 
@@ -61,6 +70,5 @@ unknowns: []
 - [ ] #4 `dipo watch` builds its state on `OfficeStore`. The percent formatter, the health labels, the output-range codec and `storyRef` exist once in client and are used by cli and tui.
 - [ ] #5 The TUI reads from the command definitions which commands confirm, as the CLI does.
 - [ ] #6 Every colour in the TUI goes through one place that honours `NO_COLOR` and `--no-color`, shown by a test with `NO_COLOR` set. `App`'s key handling is split per mode.
-- [ ] #7 From v0.1.0, each contract change raises the minor version. A client that needs newer definitions refuses a daemon with a lower minor, with a message naming both versions. A dated note on 0006 is proposed in the PR for the maintainer's approval.
-- [ ] #8 Tests cover a slow read next to a fast one, the read deadline, the log line, and watch on the store.
+- [ ] #7 Tests cover a slow read next to a fast one, the read deadline, the log line, and watch on the store.
 <!-- AC:END -->

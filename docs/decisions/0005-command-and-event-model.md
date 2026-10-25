@@ -181,7 +181,7 @@ The daemon never owns a worker process. Each session gets a worker host, `dipo d
 - **Logs.** JSON lines with time, level, message, component, office and run, in `daemon.log`, rotated at 10 MB with 5 kept. A worker host writes `host.log` in its run directory. Prompts and command bodies appear only at `debug` and `trace`. A field whose name ends in `token`, `secret`, `password`, `apiKey`, `credential` or `privateKey` is redacted at every level. `dipo daemon logs` reads the files directly, so it works while the daemon is down.
 - **Upgrades.** A running daemon keeps its old binary. It checks its executable every 60 s and reports "upgrade pending". `dipo daemon restart` drains it and starts the new binary. Worker hosts keep running, and the new daemon re-attaches them (section 17).
 - **Autostart.** `dipo daemon install` writes a launchd agent with `KeepAlive` (restart after a crash), `AbandonProcessGroup` and an exit timeout above the drain cap. With it, `dipo daemon start`, `stop` and `restart` go through `launchctl`. `dipo daemon uninstall` removes it.
-- **Software settings** live in `<state>/config.yaml`: `daemon.autostart` and the spend alerts (0009).
+- **Software settings** live in `<state>/config.yaml`: `daemon.autostart`, the spend alerts and `notify.desk` (0009).
 
 ## Replaced
 
