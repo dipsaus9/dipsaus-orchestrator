@@ -378,31 +378,6 @@ export type {
   OfficeOverrides,
 } from "./config";
 export {
-  evaluateProbe,
-  expandHome,
-  KILL_GRACE_MS,
-  MIN_BWRAP_VERSION,
-  parseBwrapVersion,
-  refusalPathFor,
-  SANDBOX_REFUSED_EXIT_CODE,
-  SANDBOX_REFUSED_MARKER,
-  trustViolations,
-  writableRoots,
-} from "./sandbox";
-export type { ProbeResult, SandboxFacts, SandboxTools, SrtSettings } from "./sandbox";
-export { dipoCommand, probeSandbox, sandboxExecArgv } from "./platform/sandbox";
-export { runSandboxExec } from "./platform/sandbox-exec";
-export { runSafeChainGate, type SafeChainGateOptions } from "./platform/safe-chain-gate";
-export {
-  startSafeChainProxy,
-  sweepSafeChainProxies,
-  type RunningSafeChainProxy,
-  type SafeChainProxyDeps,
-  type SafeChainProxyRequest,
-  type SafeChainProxyStart,
-} from "./platform/safe-chain-proxy";
-export type { SandboxExecOptions } from "./platform/sandbox-exec";
-export {
   KNOWN_WORKER_KINDS,
   PlanError,
   type PlanErrorPath,

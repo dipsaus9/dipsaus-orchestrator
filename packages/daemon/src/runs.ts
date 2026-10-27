@@ -59,6 +59,7 @@ import {
   type BoxPartsDeps,
   BoxWorkers,
   type BoxPackageCacheDeps,
+  type RouteBoxIds,
   type DoorPart,
   boxName,
   CLAUDE_CLI_ADAPTER_ID,
@@ -108,7 +109,6 @@ import {
   runCaps,
   runLaunchPaths,
   runWorkerSpec,
-  sweepSafeChainProxies,
   type IngestAdapter,
   Nudges,
   type PartRun,
@@ -219,8 +219,6 @@ export interface DaemonRunsOptions {
   readonly notify?: (notice: HoldNotice) => void;
   /** False while the daemon schedules no work (`safe`): held runs resume later (DIPO-61). */
   readonly scheduling?: () => boolean;
-  /** The Safe-Chain proxies' private parent; `/tmp/dipo-p` by default (DIPO-84). */
-  readonly safeChainRoot?: string;
   /**
    * The box backend (DIPO-271); by default Apple `container` when the daemon's PATH has it, and
    * no box workers otherwise. Tests pass a fake.
@@ -484,7 +482,7 @@ function daemonBoxWorkers(
   readonly parts: BoxParts;
   readonly boxes: BoxPort;
 } | null {
-  const { clock, platform, env, home, uid } = options;
+  const { clock, env, home, uid } = options;
   let boxes = options.boxes;
   if (boxes === undefined) {
     const cli = containerOnPath(env["PATH"]);
@@ -504,30 +502,33 @@ function daemonBoxWorkers(
           });
   }
   if (boxes === null) return null;
+  const backend = boxes;
   const routeRoot = join(tmpRoot, "dipo-box-routes");
   const scratchRoot = join(tmpRoot, "dipo-box-builds");
   let routes = 0;
-  // dipo's web route (Safe-Chain behind the web proxy) on the box network's host address, for the
-  // boxes and the build boxes alike (DIPO-281).
-  const startRoute = async (network: Pick<BoxNetwork, "hostAddress">) => {
+  // dipo's web route on the box network's host address, with Safe-Chain in a box of its own behind
+  // it (DIPO-343), for the boxes, the build boxes and the fill boxes alike (DIPO-281).
+  const startRoute = async (network: BoxNetwork, ids: RouteBoxIds) => {
     ensurePrivateDir(routeRoot);
+    ensurePrivateDir(scratchRoot);
     routes += 1;
     const dir = join(routeRoot, `route-${routes}`);
     const started = await startBoxWebRoute(
       network,
       {
-        request: {
-          installRoot: `${home}/.safe-chain`,
-          caFile: join(dir, "ca.pem"),
-          home,
-          uid,
-          env,
-        },
-        deps: {
-          platform,
-          clock,
-          ...(options.safeChainRoot === undefined ? {} : { root: options.safeChainRoot }),
-        },
+        boxes: backend,
+        clock,
+        scratchRoot,
+        toolsRoot: join(options.stateDir, BOX_NET_TOOLS_DIR),
+        caFile: join(dir, "ca.pem"),
+        boxId: ids.boxId,
+        buildId: ids.buildId,
+        onEvent: (event) =>
+          options.logger.warn("a Safe-Chain image build box was not cleaned up", {
+            box: event.box,
+            step: event.step,
+            reason: event.reason,
+          }),
       },
       { clock },
     );
@@ -898,18 +899,6 @@ export function daemonRuns(options: DaemonRunsOptions): DaemonRuns {
         }),
     );
   };
-  // Safe-Chain proxy directories a killed daemon left behind (a box web route's) go first; a
-  // running daemon's stay.
-  void sweepSafeChainProxies(options.safeChainRoot).then(
-    (removed) => {
-      if (removed.length > 0) {
-        options.logger.info("removed Safe-Chain proxy directories a stopped daemon left", {
-          removed,
-        });
-      }
-    },
-    () => {},
-  );
   const claude = claudeWorkerPort({
     spawn: systemSpawn,
     clock,

@@ -1,6 +1,6 @@
 // One box worker on a real box (DIPO-271), opt-in: it registers only with DIPO_TEST_BOX=1 and never
-// in CI. It needs macOS with Apple container 1.6.0 or newer and its service running, the official
-// Safe-Chain install (`~/.safe-chain`) for the web route, the internet, and the box login stored
+// in CI. It needs macOS with Apple container 1.6.0 or newer and its service running, the
+// internet (the web route builds its Safe-Chain box from the pinned release, DIPO-343), and the box login stored
 // with `dipo login box`. It runs one live Claude Code request in the box, so the maintainer runs
 // it by hand:
 //
@@ -15,7 +15,7 @@
 // stream came from the box with all permissions, runs the plan's stop command, and ends the run:
 // the post-run token check must find no token, and the box is deleted.
 
-import { existsSync, mkdirSync, realpathSync, writeFileSync } from "node:fs";
+import { mkdirSync, realpathSync, writeFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { join } from "node:path";
 
@@ -29,12 +29,13 @@ import { readBaseBox } from "../../src/box/image";
 import { startModelProxy } from "../../src/box/model-proxy";
 import { BOX_TOKEN_CHECK } from "../../src/box/token-check";
 import { SECURITY_CLI, TOKEN_KEYCHAIN_ACCOUNT, TOKEN_KEYCHAIN_SERVICE } from "../../src/box/token";
-import { startBoxWebRoute } from "../../src/box/web-proxy";
+import type { BoxNetwork } from "../../src/box/port";
+import { startBoxWebRoute } from "../../src/box/safe-chain-box";
+import type { RouteBoxIds } from "../../src/box/workers";
 import { BOX_INDEX_DIR, BoxWorkers } from "../../src/box/workers";
 import { OfficeGit, spawnGitExec } from "../../src/git";
 import { systemListenHttp } from "../../src/platform/box-host";
 import { systemClock } from "../../src/platform/clock";
-import { currentPlatform } from "../../src/platform/paths";
 import { systemSpawn } from "../../src/platform/process";
 import { planInBox } from "../../src/workers/claude-cli/box-plan";
 import { REPORT_JSON_SCHEMAS } from "../../src/workers/claude-cli/report-schema";
@@ -49,7 +50,6 @@ const registers =
 const TIMEOUT_MS = 45 * 60_000;
 /** How long the one request may take. */
 const SESSION_MS = 5 * 60_000;
-const SAFE_CHAIN_INSTALL = join(homedir(), ".safe-chain");
 const OFFICE = "off_01J9ZK5Q8W3V4X6Y7Z0000BOX1" as OfficeId;
 
 function fact(text: string): void {
@@ -118,7 +118,6 @@ if (registers) {
           fact("no box login is stored (`dipo login box`): the box worker test started nothing");
           return;
         }
-        expect(existsSync(join(SAFE_CHAIN_INSTALL, "bin", "safe-chain"))).toBe(true);
         const cliEnv = { PATH: env["PATH"] ?? "/usr/bin:/bin:/usr/local/bin", HOME: home };
         const boxes = new AppleContainerBoxes({
           spawn: systemSpawn,
@@ -143,19 +142,25 @@ if (registers) {
               clock: new ManualClock(),
             });
             let routes = 0;
-            const startRoute = (network: { hostAddress: string }) => {
+            const routeBoxes = new AppleContainerBoxes({
+              spawn: systemSpawn,
+              clock: systemClock,
+              cli: "/usr/local/bin/container",
+              env: cliEnv,
+              netToolsRoot: join(tmp, "state", "box-net-tools"),
+            });
+            const startRoute = (network: BoxNetwork, ids: RouteBoxIds) => {
               routes += 1;
               return startBoxWebRoute(
                 network,
                 {
-                  request: {
-                    installRoot: SAFE_CHAIN_INSTALL,
-                    caFile: join(tmp, `route-${routes}`, "ca.pem"),
-                    home,
-                    uid: process.getuid?.() ?? 0,
-                    env: process.env,
-                  },
-                  deps: { platform: currentPlatform(), clock: systemClock, root: join(tmp, "p") },
+                  boxes: routeBoxes,
+                  clock: systemClock,
+                  scratchRoot: tmp,
+                  toolsRoot: join(tmp, "state", "box-net-tools"),
+                  caFile: join(tmp, `route-${routes}`, "ca.pem"),
+                  boxId: ids.boxId,
+                  buildId: ids.buildId,
                 },
                 { clock: systemClock },
               );

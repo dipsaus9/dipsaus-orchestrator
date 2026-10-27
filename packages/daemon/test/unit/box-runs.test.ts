@@ -121,7 +121,6 @@ describe("the daemon's box workers", () => {
         logger: { ...quiet, child: () => quiet },
         cli: {},
         implemented: () => false,
-        safeChainRoot: join(dir, "p"),
         // No box backend: the sweep still runs, since a crash may have left an export behind.
         boxes: null,
       } as unknown as DaemonRunsOptions;

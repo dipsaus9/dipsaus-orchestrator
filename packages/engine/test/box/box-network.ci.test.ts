@@ -1,7 +1,7 @@
 // The box network on real boxes (DIPO-281, criteria 8 and 9; from DIPO-283 and DIPO-286). It
 // registers only with both DIPO_TEST_CI=1 and DIPO_TEST_BOX=1, on macOS: it needs Apple container
-// 1.6.0 or newer with its service running, the official Safe-Chain install (`~/.safe-chain`) and
-// the internet, and builds the office image of a small description in a build box (minutes on its
+// 1.6.0 or newer with its service running and the internet (the Safe-Chain box of the web route
+// is built from its pinned release, DIPO-343), and builds the office image of a small description in a build box (minutes on its
 // first run). CI without a box sets only DIPO_TEST_CI, so it skips this file. The maintainer runs
 // it by hand:
 //
@@ -36,7 +36,6 @@
 //   box user writes `/work`, its home and dipo's command folder, and runs Claude Code.
 
 import { lookup } from "node:dns/promises";
-import { existsSync } from "node:fs";
 import { createServer, isIP, type Server } from "node:net";
 import { homedir } from "node:os";
 import { join } from "node:path";
@@ -54,12 +53,11 @@ import {
   BOX_LOCAL_HOST,
   BoxWebRoute,
   type RunningBoxWebRoute,
-  startBoxWebRoute,
   systemInterfaceAddresses,
   type WebProxyEvent,
 } from "../../src/box/web-proxy";
+import { startBoxWebRoute } from "../../src/box/safe-chain-box";
 import { systemClock } from "../../src/platform/clock";
-import { currentPlatform } from "../../src/platform/paths";
 import { systemSpawn } from "../../src/platform/process";
 
 /**
@@ -103,7 +101,6 @@ const registers = inCi && process.env["DIPO_TEST_BOX"] === "1" && process.platfo
 
 /** The image build in a build box takes minutes; the probes, a few more. */
 const TIMEOUT_MS = 45 * 60_000;
-const SAFE_CHAIN_INSTALL = join(homedir(), ".safe-chain");
 /** CAP_NET_ADMIN and CAP_NET_RAW, as bits of /proc/self/status's capability masks. */
 const NET_ADMIN_BIT = 12n;
 const NET_RAW_BIT = 13n;
@@ -152,14 +149,11 @@ if (registers) {
     const started = await startBoxWebRoute(
       network ?? (await boxes.network()),
       {
-        request: {
-          installRoot: SAFE_CHAIN_INSTALL,
-          caFile: join(root, `route-${routes}`, "ca.pem"),
-          home: homedir(),
-          uid: process.getuid?.() ?? 0,
-          env: process.env,
-        },
-        deps: { platform: currentPlatform(), clock: systemClock, root: join(root, "p") },
+        boxes,
+        clock: systemClock,
+        scratchRoot: join(root, "scratch"),
+        toolsRoot: join(root, "box-net-tools"),
+        caFile: join(root, `route-${routes}`, "ca.pem"),
       },
       { clock: systemClock, onEvent: (event) => events.push(event) },
     );
@@ -286,7 +280,6 @@ if (registers) {
   const planted: string[] = [];
   const built = (): Promise<BoxImageResult> => {
     building ??= (async () => {
-      expect(existsSync(join(SAFE_CHAIN_INSTALL, "bin", "safe-chain"))).toBe(true);
       expect(await boxes.check()).toMatchObject({ ok: true });
       network = await boxes.network();
       const hostAddress = network.hostAddress;

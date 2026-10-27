@@ -266,9 +266,6 @@ export const DAEMON_FORMS: ReadonlySet<string> = new Set([
   "--foreground",
   "worker-host",
   "wait-pid",
-  "sandbox-exec",
-  // The Safe-Chain proxy's gate, inside its own sandbox (DIPO-84).
-  "safe-chain-gate",
 ]);
 
 /** The two ways to reach the daemon: only a running one, or one started when none runs. */
