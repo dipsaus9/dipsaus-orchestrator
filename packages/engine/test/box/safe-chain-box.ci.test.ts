@@ -51,6 +51,28 @@ function fact(text: string): void {
   console.log(`fact: ${text}`);
 }
 
+/**
+ * A tunnel to example.com through the proxy in `HTTPS_PROXY` (with the box's proxy password),
+ * whose TLS handshake then names registry.npmjs.org: exit 0 only if the registry answered.
+ */
+const TLS_NAMING_A_REGISTRY = [
+  'const net = require("net"), tls = require("tls");',
+  "const u = new URL(process.env.HTTPS_PROXY);",
+  'const auth = Buffer.from(decodeURIComponent(u.username) + ":" + decodeURIComponent(u.password)).toString("base64");',
+  "const s = net.connect(Number(u.port), u.hostname, () => s.write(",
+  '  "CONNECT example.com:443 HTTP/1.1\\r\\nHost: example.com:443\\r\\nProxy-Authorization: Basic " + auth + "\\r\\n\\r\\n"));',
+  's.once("data", (d) => {',
+  '  if (!String(d).startsWith("HTTP/1.1 200")) { console.log("tunnel: " + String(d).slice(0, 40)); process.exit(2); }',
+  '  const t = tls.connect({ socket: s, servername: "registry.npmjs.org", rejectUnauthorized: false }, () =>',
+  '    t.write("GET / HTTP/1.1\\r\\nHost: registry.npmjs.org\\r\\n\\r\\n"));',
+  '  t.on("data", () => process.exit(0));',
+  '  t.on("error", (e) => { console.log("tls: " + e.message); process.exit(1); });',
+  '  t.on("close", () => { console.log("tls: closed"); process.exit(1); });',
+  "});",
+  's.on("error", (e) => { console.log("proxy: " + e.message); process.exit(3); });',
+  "setTimeout(() => process.exit(4), 15000);",
+].join("\n");
+
 /** An npm install as the worker runs one, with a fresh prefix and cache under /tmp. */
 function npm(spec: string, prefix: string): string {
   return `npm install --prefix /tmp/${prefix} --cache /tmp/${prefix}-cache --no-audit --no-fund ${spec}`;
@@ -199,19 +221,35 @@ if (registers) {
           }
 
           // Criterion 3: the bypass forms.
-          const bypasses: [string, string, Record<string, string>][] = [
-            ["a registry alias", curl("https://registry.npmjs.com/", proxy), {}],
-            ["a CDN name", curl("https://registry.npmjs.org.cdn.cloudflare.net/", proxy), {}],
-            ["an IP literal", curl(`https://${registryIp}/is-number`, proxy, "-k"), {}],
+          // Each refused tunnel's own answer, as curl reports it, or how the TLS probe ended.
+          const refusals: [string, string, Record<string, string>, RegExp][] = [
+            ["a registry alias", curl("https://registry.npmjs.com/", proxy), {}, /response 403/],
+            [
+              "a CDN name",
+              curl("https://registry.npmjs.org.cdn.cloudflare.net/", proxy),
+              {},
+              /response 403/,
+            ],
+            [
+              "an IP literal",
+              curl(`https://${registryIp}/is-number`, proxy, "-k"),
+              {},
+              /response 403/,
+            ],
             [
               "a TLS handshake naming another host",
-              curl(
-                "https://registry.npmjs.org/is-number",
-                proxy,
-                "--connect-to registry.npmjs.org:443:example.com:443",
-              ),
-              {},
+              'node -e "$TLS_PROBE"',
+              { HTTPS_PROXY: proxy, TLS_PROBE: TLS_NAMING_A_REGISTRY },
+              /^tls: /m,
             ],
+          ];
+          for (const [what, line, extra, answer] of refusals) {
+            const tried = await sh(name, line, extra);
+            fact(`${what}: exit ${tried.code} ${tried.out.trim()}`);
+            expect(tried.code).not.toBe(0);
+            expect(tried.out).toMatch(answer);
+          }
+          const bypasses: [string, string, Record<string, string>][] = [
             [
               "the proxy changed to the Safe-Chain box",
               `${npm("is-odd@3.0.1", "c")} --fetch-retries 0`,
@@ -229,8 +267,9 @@ if (registers) {
             ],
           ];
           for (const [what, line, extra] of bypasses) {
-            const tried = await sh(name, `${line} --fetch-timeout 15000 2>&1 || exit 1`, extra);
-            fact(`${what}: exit ${tried.code}`);
+            const tried = await sh(name, `${line} --fetch-timeout 15000 2>&1`, extra);
+            const tail = tried.out.trim().split("\n").slice(-2).join(" | ");
+            fact(`${what}: exit ${tried.code} ${tail}`);
             expect(tried.code).not.toBe(0);
           }
           expect(
