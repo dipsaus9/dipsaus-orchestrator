@@ -4,6 +4,7 @@ title: Run Safe-Chain in a box and remove srt
 status: Refined
 assignee: []
 created_date: '2026-10-25 09:51'
+updated_date: '2026-10-27 15:29'
 labels:
   - 'tier:L'
   - 'slice:prune'
@@ -48,10 +49,16 @@ test_plan:
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 Safe-Chain runs in a box made from the office image that only dipo's web proxy can reach, and every registry install from a developer, build or cache-fill box goes through it
+- [ ] #1 Safe-Chain runs in a box made from one Safe-Chain image for the whole machine (the pinned Debian base, the box network tools and the official safe-chain-linux-arm64 release binary pinned by sha256, with no npm install, so building it needs no Safe-Chain), that only dipo's web proxy can reach; the box lives as long as dipo's web route, and leftovers are swept at daemon start; and every registry install from a developer, build or cache-fill box goes through it
 - [ ] #2 What the old barrier caught still fails, each with a test: a registry tunnel that skips Safe-Chain, the package safe-chain-test, and a box reaching another port of the Safe-Chain box
 - [ ] #3 The bypass forms are tested: a registry alias or CDN name, an IP literal, a TLS handshake naming another host, and a proxy setting changed inside the box
 - [ ] #4 A fail-closed test against the real path: with the Safe-Chain box stopped, a box install fails and no registry is reached
 - [ ] #5 @anthropic-ai/sandbox-runtime, packages/engine/src/sandbox/, platform/sandbox.ts, platform/sandbox-exec.ts, platform/mktemp-shim.ts, the sandbox-exec and safe-chain-gate forms and the node-forge ignore in audit.yml are removed
 - [ ] #6 tools/box-probe/probe.sh passes for a developer box and for the Safe-Chain box
 <!-- AC:END -->
+
+## Implementation Notes
+
+<!-- SECTION:NOTES:BEGIN -->
+2026-10-27, maintainer: the Safe-Chain box runs from one machine-wide image, not the office image (building an office image needs Safe-Chain, and one Safe-Chain serves every office).
+<!-- SECTION:NOTES:END -->
