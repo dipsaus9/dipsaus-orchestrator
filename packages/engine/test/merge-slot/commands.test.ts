@@ -238,9 +238,8 @@ async function blocked(): Promise<GateId> {
   s.w.office.immediate(() => {
     s.w.office.run(
       `insert into parks (office_id, park_id, key, story_id, run_id, reason, from_state, detail,
-         at, cause)
-       values ($office_id, 1, $key, 'DIPO-7', $run, 'review-blocked', 'In Review', 'blocked', 0,
-         'rounds')`,
+         at)
+       values ($office_id, 1, $key, 'DIPO-7', $run, 'review-blocked', 'In Review', 'blocked', 0)`,
       { key: s.key, run: s.run },
     );
     s.w.office.run(

@@ -6,16 +6,16 @@
 // tested in test/box/collisions.test.ts), telling the worker and parking are fakes that record
 // what they were asked:
 //
-// - `merge-in-progress` with the base where the kept merge left it: the first message is the
-//   conflict item rebuilt from git (what is left unresolved, with its hunks at the tip), a new
-//   hand-off starts, and nothing is merged;
-// - `merge-in-progress` with a moved base: the same item, and once the session runs the base is
-//   merged again and the worker gets the new conflict item;
-// - `push-rejected`: the remote is fetched, the first message names the commits only the remote
-//   branch holds (subject, author, files), and they are merged before the session and pushed, never
-//   forced, with the box copy left for the session's start;
-// - `unwritable-path`: a path the worker cannot write that still conflicts parks again at once,
-//   and once the maintainer fixed it on the base the base is merged again.
+// - a kept merge (its hand-offs failed at the conflict cap), with the base where it left it: the
+//   first message is the conflict item rebuilt from git (what is left unresolved, with its hunks at
+//   the tip), a new hand-off starts, and nothing is merged;
+// - a kept merge with a moved base: the same item, and once the session runs the base is merged
+//   again and the worker gets the new conflict item;
+// - commits only the remote branch holds (a rejected push): the remote is fetched, the first
+//   message names those commits (subject, author, files), and they are merged before the session
+//   and pushed, never forced, with the box copy left for the session's start;
+// - otherwise the base again: a path the worker cannot write that still conflicts parks again at
+//   once, and once the maintainer fixed it on the base the base is merged again.
 
 import { mkdirSync, realpathSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
@@ -35,6 +35,7 @@ import { OFFICE_DEFAULTS } from "../../src/config";
 import { OfficeGit, spawnGitExec } from "../../src/git";
 import { systemSpawn } from "../../src/platform/process";
 import {
+  appendHandOff,
   ConflictResumes,
   handOffState,
   pendingBoxCopy,
@@ -75,7 +76,7 @@ interface World {
   readonly restored: number[];
   readonly told: string[];
   readonly livePark: PartPark[];
-  readonly parked: { reason: string; cause: string; detail: string }[];
+  readonly parked: { reason: string; detail: string }[];
 }
 
 function write(dir: string, files: Readonly<Record<string, string>>): void {
@@ -293,6 +294,14 @@ async function keptMerge(w: World): Promise<{ tip: string; onto: string; merge: 
     conflicts: [{ path: "src/shared.ts", kind: "content" }],
     taskFile: null,
   });
+  // Its hand-off failed at the run's conflict cap: the park that kept the merge.
+  const office = w.f.office;
+  office.immediate(() => {
+    office.run("update runs set conflict_cap = 1 where office_id = $office_id and run_id = $run", {
+      run: w.f.run,
+    });
+    appendHandOff(office, w.f.run, { kind: "failed", n: 1, why: "markers" }, 1);
+  });
   return { tip, onto, merge };
 }
 
@@ -306,16 +315,14 @@ function prepared(outcome: ConflictPrepared | { readonly parked: true }): Confli
 }
 
 if (process.env["DIPO_TEST_CI"] === "1") {
-  describe("conflict / merge-in-progress", () => {
+  describe("a conflict resume of a kept merge", () => {
     it("resumes with the kept merge and its conflict item while the base has not moved, merging nothing", () =>
       inWorld(async (w) => {
         const { merge } = await keptMerge(w);
         expect(handOffState(w.f.office, w.f.run)).toMatchObject({ current: 1 });
-        const out = prepared(
-          await w.resumes.prepare(w.part.office, runOf(w), { cause: "merge-in-progress" }),
-        );
+        const out = prepared(await w.resumes.prepare(w.part.office, runOf(w)));
         expect(out.message).toStartWith(
-          "dipo parked this story as conflict (merge-in-progress), and the maintainer resumed it.",
+          "dipo parked this story as conflict, and the maintainer resumed it.",
         );
         expect(out.message).toContain("Conflicted files: content: src/shared.ts");
         expect(out.message).toContain("<<<<<<< DIPO-1/one");
@@ -333,9 +340,7 @@ if (process.env["DIPO_TEST_CI"] === "1") {
       inWorld(async (w) => {
         await keptMerge(w);
         const moved = await onBase(w, { "docs/later.md": "later\n" });
-        const out = prepared(
-          await w.resumes.prepare(w.part.office, runOf(w), { cause: "merge-in-progress" }),
-        );
+        const out = prepared(await w.resumes.prepare(w.part.office, runOf(w)));
         expect(out.message).toContain("Conflicted files: content: src/shared.ts");
         expect(out.message).toContain(`main moved since dipo's merge, to ${moved.slice(0, 12)}`);
         expect(out.message).toContain("dipo does not undo it");
@@ -373,10 +378,8 @@ if (process.env["DIPO_TEST_CI"] === "1") {
       inWorld(async (w) => {
         await keptMerge(w);
         await onBase(w, { "docs/later.md": "later\n" });
-        const out = prepared(
-          await w.resumes.prepare(w.part.office, runOf(w), { cause: "merge-in-progress" }),
-        );
-        const park: PartPark = { reason: "conflict", cause: "push-rejected", detail: "rejected" };
+        const out = prepared(await w.resumes.prepare(w.part.office, runOf(w)));
+        const park: PartPark = { reason: "conflict", detail: "rejected" };
         w.merge = { kind: "park", park };
         await out.afterStart?.();
         expect(w.livePark).toEqual([park]);
@@ -384,7 +387,7 @@ if (process.env["DIPO_TEST_CI"] === "1") {
       }));
   });
 
-  describe("conflict / push-rejected", () => {
+  describe("a conflict resume after a rejected push", () => {
     it("merges the commits only the remote branch holds before the session, pushes without force, and leaves the box copy pending", () =>
       inWorld(async (w) => {
         const local = await onBranch(w, { "src/mine.ts": "mine\n" }, "Mine");
@@ -395,9 +398,7 @@ if (process.env["DIPO_TEST_CI"] === "1") {
         );
         expect((await w.repo.git("rev-parse", `refs/heads/${BRANCH}`)).trim()).toBe(local);
 
-        const out = prepared(
-          await w.resumes.prepare(w.part.office, runOf(w), { cause: "push-rejected" }),
-        );
+        const out = prepared(await w.resumes.prepare(w.part.office, runOf(w)));
         expect(out.message).toContain(
           `The push of your branch was rejected: origin/${BRANCH} holds 1 commit your branch lacks, made outside dipo:`,
         );
@@ -426,9 +427,7 @@ if (process.env["DIPO_TEST_CI"] === "1") {
       inWorld(async (w) => {
         await onBranch(w, { "src/shared.ts": "one\ntwo from the story\nthree\n" }, "Mine");
         await elsewhere(w, { "src/shared.ts": "one\ntwo from elsewhere\nthree\n" }, "Theirs");
-        const out = prepared(
-          await w.resumes.prepare(w.part.office, runOf(w), { cause: "push-rejected" }),
-        );
+        const out = prepared(await w.resumes.prepare(w.part.office, runOf(w)));
         expect(out.message).toContain("Conflicted files: content: src/shared.ts");
         expect(out.message).toContain("two from elsewhere");
         expect(handOffState(w.f.office, w.f.run)).toMatchObject({ current: 1, open: true });
@@ -437,19 +436,16 @@ if (process.env["DIPO_TEST_CI"] === "1") {
       }));
   });
 
-  describe("conflict / unwritable-path", () => {
+  describe("a conflict resume that merges the base again", () => {
     it("parks again at once while a path the worker cannot write still conflicts, and merges the base again once it does not", () =>
       inWorld(async (w) => {
         await onBranch(w, { ".github/ci.yml": "story\n" }, "Story touches CI");
         await onBase(w, { ".github/ci.yml": "base\n" });
-        const parked = await w.resumes.prepare(w.part.office, runOf(w), {
-          cause: "unwritable-path",
-        });
+        const parked = await w.resumes.prepare(w.part.office, runOf(w));
         expect(parked).toEqual({ parked: true });
         expect(w.parked).toEqual([
           {
             reason: "conflict",
-            cause: "unwritable-path",
             detail: expect.stringContaining("paths the worker cannot write: .github/ci.yml"),
           },
         ]);
@@ -460,10 +456,7 @@ if (process.env["DIPO_TEST_CI"] === "1") {
           ".github/ci.yml": "story\n",
           "src/shared.ts": "one\ntwo\nthree\nfour\n",
         });
-        const out = prepared(
-          await w.resumes.prepare(w.part.office, runOf(w), { cause: "unwritable-path" }),
-        );
-        expect(out.message).toContain("The maintainer resolved the paths you cannot write on main");
+        const out = prepared(await w.resumes.prepare(w.part.office, runOf(w)));
         expect(out.message).toContain("git merges it cleanly");
         w.merge = { kind: "none" };
         await out.afterStart?.();

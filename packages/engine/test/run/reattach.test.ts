@@ -660,7 +660,7 @@ describe("re-attach (0006 decision 8)", () => {
     expectOutputSentOnce();
   });
 
-  it("a dead host whose session cannot be resumed parks interrupted (AC #4)", async () => {
+  it("a dead host whose session cannot be resumed parks worker-failed (AC #4)", async () => {
     w.alive = false;
     w.nextOutcome = { kind: "notResumed", reason: "the transcript is gone" };
     beforeRestart("success-single", 6, 20);
@@ -668,12 +668,12 @@ describe("re-attach (0006 decision 8)", () => {
     await d.reattacher.reattach(w.f.office.officeId);
     await d.control.idle();
     expect(parks()).toEqual([
-      ["interrupted", `${HOST_LOST_WHY}; its session cannot be resumed: the transcript is gone`],
+      ["worker-failed", `${HOST_LOST_WHY}; its session cannot be resumed: the transcript is gone`],
     ]);
     expect(findRun(w.f.office, w.f.run)?.endKind).toBe("interrupted");
   });
 
-  it("a dead host after the run's one resume parks interrupted without another (AC #4)", async () => {
+  it("a dead host after the run's one resume parks worker-failed without another (AC #4)", async () => {
     w.alive = false;
     w.f.office.immediate(() =>
       w.f.office.run(
@@ -688,7 +688,7 @@ describe("re-attach (0006 decision 8)", () => {
     await d.reattacher.reattach(w.f.office.officeId);
     await d.control.idle();
     expect(w.next).toEqual([]);
-    expect(parks()[0]?.[0]).toBe("interrupted");
+    expect(parks()[0]?.[0]).toBe("worker-failed");
     expect(parks()[0]?.[1]).toContain("one resume after a crash was used");
   });
 
@@ -741,7 +741,7 @@ describe("re-attach (0006 decision 8)", () => {
     expect(parks()).toEqual([]);
   });
 
-  it("an event file that changed while the daemon was down parks the run interrupted (AC #7)", async () => {
+  it("an event file that changed while the daemon was down parks the run worker-failed (AC #7)", async () => {
     beforeRestart("success-single", 10, 10);
     truncateSync(w.f.eventFile, 10);
     const d = daemon();
@@ -749,11 +749,11 @@ describe("re-attach (0006 decision 8)", () => {
       { run: w.f.run, agent: w.f.agent, outcome: "fileChanged" },
     ]);
     await d.control.idle();
-    expect(parks()).toEqual([["interrupted", EVENT_FILE_CHANGED]]);
+    expect(parks()).toEqual([["worker-failed", EVENT_FILE_CHANGED]]);
     expect(w.sent).toEqual([encode({ kind: "stop" })]);
   });
 
-  it("a living developer on the Mac, with no box record, is stopped with a notice and parks interrupted (DIPO-240)", async () => {
+  it("a living developer on the Mac, with no box record, is stopped with a notice and parks worker-failed (DIPO-240)", async () => {
     beforeRestart("success-single", 6, 20);
     const asked: string[] = [];
     const d = daemon({
@@ -770,7 +770,7 @@ describe("re-attach (0006 decision 8)", () => {
     await d.control.idle();
     expect(asked).toEqual([w.dir]);
     const text = macSessionText({ story: "DIPO-1", runId: w.f.run });
-    expect(parks()).toEqual([["interrupted", text]]);
+    expect(parks()).toEqual([["worker-failed", text]]);
     expect(text).toContain("outside a box");
     expect(w.sent).toEqual([encode({ kind: "stop" })]);
     const notice = loggedEvents(w.f.office).find(
@@ -805,7 +805,7 @@ describe("re-attach (0006 decision 8)", () => {
     expect(parks()).toEqual([]);
   });
 
-  it("an ingest.fileChanged report a previous daemon left parks the run interrupted (AC #7)", async () => {
+  it("an ingest.fileChanged report a previous daemon left parks the run worker-failed (AC #7)", async () => {
     beforeRestart("success-single", 10, 10);
     w.f.office.immediate(() =>
       w.f.office.run(
@@ -817,7 +817,7 @@ describe("re-attach (0006 decision 8)", () => {
     const d = daemon();
     await d.reattacher.reattach(w.f.office.officeId);
     await d.control.idle();
-    expect(parks()).toEqual([["interrupted", EVENT_FILE_CHANGED]]);
+    expect(parks()).toEqual([["worker-failed", EVENT_FILE_CHANGED]]);
   });
 });
 
@@ -1352,7 +1352,7 @@ describe("re-attach gaps (DIPO-93)", () => {
     expect(parks()).toEqual([]);
   });
 
-  it("revokes a pending launch no host claimed: nothing ran, the story parks interrupted (AC #3)", async () => {
+  it("revokes a pending launch no host claimed: nothing ran, the story parks worker-failed (AC #3)", async () => {
     makePending();
     writeFileSync(join(w.dir, LAUNCH_FILE), JSON.stringify({ run: w.f.run, agent: w.f.agent }));
     const d = daemon();
@@ -1362,7 +1362,7 @@ describe("re-attach gaps (DIPO-93)", () => {
     await d.control.idle();
     expect(workerHostsOf(w.f.office, w.f.run)).toEqual([]);
     expect(existsSync(join(w.dir, LAUNCH_FILE))).toBe(false);
-    expect(parks()).toEqual([["interrupted", HOST_NEVER_STARTED]]);
+    expect(parks()).toEqual([["worker-failed", HOST_NEVER_STARTED]]);
     // Nothing to stop and no next session.
     expect(w.sent).toEqual([]);
     expect(w.next).toEqual([]);

@@ -21,7 +21,7 @@
 // - a review running next to a working developer session of another story (0019 section 12);
 // - a daemon restart while the story is in the merge slot: the slot continues with the same
 //   occupant and merges once, and after the restart's re-attach the Done poll ends the run done;
-// - the park and resume path: red CI at a CI cap of 1 parks `verify-failing` (cause `ci`), and
+// - the park and resume path: red CI at a CI cap of 1 parks `verify-failing`, and
 //   `work.resume` with a note grants one CI attempt and sends the CI item to the worker.
 //
 // No scenario is `it.failing` any more. The Done poll ending a merged story without a restart was
@@ -176,8 +176,8 @@ function noticeCodes(w: LoopWorld): string[] {
 }
 
 function parks(w: LoopWorld) {
-  return w.office.all<{ reason: string; cause: string | null; resolved_how: string | null }>(
-    "select reason, cause, resolved_how from parks where office_id = $office_id order by park_id",
+  return w.office.all<{ reason: string; resolved_how: string | null }>(
+    "select reason, resolved_how from parks where office_id = $office_id order by park_id",
   );
 }
 
@@ -498,10 +498,8 @@ if (process.env["DIPO_TEST_CI"] === "1") {
               (g) => g.overrideOf !== null && g.decision === null,
             );
           await w.until("the override gate", () => override() !== undefined);
-          // The first failed round reached the cap of 1: parked review-blocked, cause rounds.
-          expect(parks(w)).toEqual([
-            { reason: "review-blocked", cause: "rounds", resolved_how: null },
-          ]);
+          // The first failed round reached the cap of 1: parked review-blocked.
+          expect(parks(w)).toEqual([{ reason: "review-blocked", resolved_how: null }]);
           const gate = override();
           expect(gate?.summary).toContain("row drops the title.");
           expect(merged(w)).toBe(false);
@@ -517,9 +515,7 @@ if (process.env["DIPO_TEST_CI"] === "1") {
           // The override is recorded on the verdict and resolves the park; no session ran again.
           const [verdict] = reviewVerdictsOf(w.office, keyOf(w, run));
           expect(verdict).toMatchObject({ verdict: "blocked", override: { note } });
-          expect(parks(w)).toEqual([
-            { reason: "review-blocked", cause: "rounds", resolved_how: "override" },
-          ]);
+          expect(parks(w)).toEqual([{ reason: "review-blocked", resolved_how: "override" }]);
           expect(kinds(w)).toEqual([
             ["implement", 1],
             ["review", 1],
@@ -687,16 +683,15 @@ if (process.env["DIPO_TEST_CI"] === "1") {
             () => verdicts(w, run).length === 1 && findRun(w.office, run)?.endedAt !== null,
           );
           expect(verdicts(w, run)).toEqual([[1, "approved"]]);
-          // The red head reached the CI cap of 1: parked verify-failing, cause ci.
-          expect(parks(w)).toEqual([{ reason: "verify-failing", cause: "ci", resolved_how: null }]);
+          // The red head reached the CI cap of 1: parked verify-failing.
+          expect(parks(w)).toEqual([{ reason: "verify-failing", resolved_how: null }]);
           expect(kinds(w)).toEqual([
             ["implement", 1],
             ["review", 1],
           ]);
 
-          // The resume needs a note, grants one CI attempt and sends the CI item.
-          const bare = await w.command("work.resume", { story: TASK_1 });
-          expect(bare.ok ? "ok" : bare.error.code).toBe("resume.noteRequired");
+          // The resume needs nothing more (0020): it grants one CI attempt and sends the CI item, with
+          // the maintainer's note after it.
           const note = "The row count test fails; fix it.";
           const reply = await w.command("work.resume", { story: TASK_1, note });
           expect(reply.ok).toBe(true);
@@ -711,9 +706,7 @@ if (process.env["DIPO_TEST_CI"] === "1") {
           const resumed = w.sessions[2]?.message ?? "";
           expect(resumed).toContain(note);
           expect(resumed).toContain("expected 2 rows, got 1");
-          expect(parks(w)).toEqual([
-            { reason: "verify-failing", cause: "ci", resolved_how: "resume" },
-          ]);
+          expect(parks(w)).toEqual([{ reason: "verify-failing", resolved_how: "resume" }]);
           expect(
             w.office.all<{ kind: string }>(
               "select kind from run_grants where office_id = $office_id and run_id = $run",

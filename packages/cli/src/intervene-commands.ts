@@ -1,14 +1,7 @@
-// `dipo steer <id> <text>` and `dipo pause <id>` (DIPO-163; 0020 sections 9 and 16): `work.steer`
-// and `work.pause` for the story in the office of `--office` or of the current directory. Neither
-// asks for confirmation. The text of a steer is the words after the story id, joined with spaces.
+// `dipo steer <id> <text>` (DIPO-163; 0020): `work.steer` for the story in the office of
+// `--office` or of the current directory. It asks for no confirmation. The text of a steer is the words after the story id, joined with spaces.
 
-import {
-  StoryId,
-  StoryKey,
-  type StoryRefValue,
-  workPause,
-  workSteer,
-} from "@dipsaus-orchestrator/contract";
+import { StoryId, StoryKey, type StoryRefValue, workSteer } from "@dipsaus-orchestrator/contract";
 
 import { engineFailure, usage } from "./daemon-commands";
 import { type OfficeCommandDeps, parseOptions, withOffice } from "./office-commands";
@@ -79,37 +72,6 @@ export async function steerCommand(
         outcome.result.delivered === "next-turn"
           ? `steered ${story} (run ${outcome.result.run}); the worker reads it with its next turn`
           : `steered ${story} (run ${outcome.result.run}); the worker gets it with the first message on resume`,
-      );
-      return 0;
-    },
-    undefined,
-    INTERVENE_TIMEOUT_MS,
-  );
-}
-
-export async function pauseCommand(
-  args: readonly string[],
-  deps: OfficeCommandDeps,
-): Promise<number> {
-  const parsed = parse("pause", args, deps);
-  if (typeof parsed === "number") return parsed;
-  const options = parseOptions(parsed.rest, false);
-  if (typeof options === "string") return usage(deps, `pause: ${options}`);
-  const { story } = parsed;
-  return withOffice(
-    deps,
-    options.office,
-    async (session, office) => {
-      const outcome = await session.command(workPause, { story }, { office });
-      if (!outcome.ok) {
-        return outcome.error.code === "office.unknown"
-          ? "unknown"
-          : engineFailure(deps, outcome.error);
-      }
-      deps.writeLine(
-        outcome.changed
-          ? `paused ${story} (run ${outcome.result.run}); its worker exits after 10 minutes, \`dipo resume ${story}\` continues it`
-          : `${story} is already paused`,
       );
       return 0;
     },

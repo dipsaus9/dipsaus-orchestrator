@@ -1,7 +1,8 @@
-// `work.resume` of a parked story by the 0020 matrix (DIPO-155): every resuming row returns to its
-// lifecycle with the matrix's first message and session, the note lands on the resolved park, the
-// refusals and the top-up rules answer their `resume.*` codes, every cap change is a recorded
-// grant, a resume whose place is taken is queued, and a retry of the same request repeats nothing.
+// `work.resume` of a parked story by the 0020 table (DIPO-155, DIPO-344): every reason resumes, or
+// is refused, as the table says, with its first message, and the session follows from the run's
+// facts; the note lands on the resolved park, the top-up rules answer their `resume.*` codes, every
+// cap change is a recorded grant, a resume whose place is taken is queued, and a retry of the same
+// request repeats nothing.
 // Driven on a migrated state database with one tier S story run, a fake unpark writer, a fake next
 // session and fake review, fix-round and port starters; no git and no worker run.
 
@@ -25,13 +26,12 @@ import { stateOfficeDirectory } from "../../src/commands/offices";
 import { buildRegistry } from "../../src/commands/registry";
 import { MemoryRequestTable } from "../../src/commands/requests";
 import type { AsyncCommandContext } from "../../src/commands/registry";
-import { GitError } from "../../src/git/runner";
 import { workerAnswerText } from "../../src/hooks/permissions";
 import { closeQuestion, findQuestion, insertWorkerQuestion } from "../../src/hooks/questions";
 import { HANDOFF_NOTE_MAX } from "../../src/prompts/handoff";
 import { recordReviewVerdict } from "../../src/review/store";
 import {
-  backstopSnapshotOf,
+  appendRunStep,
   createRunOutcomes,
   endRun,
   findRun,
@@ -39,10 +39,10 @@ import {
   insertRun,
   MAINTAINER_RESUME_TAG,
   noteText,
-  PARK_RESUME_MATRIX,
   parkActions,
-  parkResumeRow,
+  parkResumeNeed,
   Places,
+  RESUME_TABLE,
   type Resumption,
   type ResumptionOptions,
   type RunEnder,
@@ -52,12 +52,11 @@ import {
   smallestShare,
   type UnparkBranchRequest,
 } from "../../src/run";
-import type { BackstopSnapshot } from "../../src/run/backstop";
 import { storeFeedbackItems } from "../../src/run/feedback-items";
 import { FIX_ROUND_TAG } from "../../src/run/fix-rounds";
 import { recordIntent } from "../../src/run/intents";
 import { openPark } from "../../src/run/park";
-import { MAINTAINER_TAGS } from "../../src/run/pauses";
+import { MAINTAINER_TAGS } from "../../src/run/steers";
 import type { NextSessionRequest } from "../../src/run/resume";
 import { addStory } from "../../src/stories/keys";
 import { encode } from "../../src/workers/claude-cli/encode";
@@ -98,7 +97,6 @@ interface World {
   readonly considered: RunId[];
   readonly ported: string[];
   hold: AdapterHold | null;
-  snapshot: BackstopSnapshot | Error;
   request: number;
   /** Why the fake lift did not write a question park's answer (DIPO-159), or null. */
   answerError: string | null;
@@ -174,7 +172,6 @@ beforeEach(async () => {
     considered: [],
     ported: [],
     hold: null,
-    snapshot: { head: "c".repeat(40), branch: "refs/heads/DIPO-1/x", stash: "", backlogStatus: "" },
     request: 0,
     answerError: null,
   };
@@ -219,10 +216,6 @@ function resumption(options: Partial<ResumptionOptions> = {}): Resumption {
     },
     {
       parks: {
-        snapshot: async () => {
-          if (w.snapshot instanceof Error) throw w.snapshot;
-          return w.snapshot;
-        },
         startReview: async (_office, run) => {
           w.reviews.push(run.runId);
           return true;
@@ -234,8 +227,8 @@ function resumption(options: Partial<ResumptionOptions> = {}): Resumption {
           },
         }),
         conflicts: () => ({
-          prepare: async (_office, _run, parked) => {
-            w.ported.push(`conflict:${parked.cause}`);
+          prepare: async () => {
+            w.ported.push("conflict");
             return { message: "Conflict item: src/a.ts has conflict markers." };
           },
         }),
@@ -255,19 +248,22 @@ function resumption(options: Partial<ResumptionOptions> = {}): Resumption {
   ).resumption;
 }
 
-/** Parks the story with `reason` and `cause` and ends its run; returns the park id. */
-function park(reason: string, cause: string | null, from = "In Progress", detail = "x"): number {
+/**
+ * Parks the story with `reason` and ends its run with `endKind` (`in-review` or `reviewed` for a
+ * run that waited In Review when it parked); returns the park id.
+ */
+function park(reason: string, from = "In Progress", detail = "x", endKind = "parked"): number {
   const { office, run, t } = w.f;
   const at = t.clock.now();
   office.immediate(() => {
     office.run(
-      `insert into parks (office_id, park_id, key, story_id, run_id, reason, cause, from_state,
-         detail, at)
+      `insert into parks (office_id, park_id, key, story_id, run_id, reason, from_state, detail,
+         at)
        values ($office_id, (select coalesce(max(park_id), 0) + 1 from parks
-         where office_id = $office_id), $key, 'DIPO-1', $run, $reason, $cause, $from, $detail, $at)`,
-      { key: w.key, run, reason, cause, from, detail, at },
+         where office_id = $office_id), $key, 'DIPO-1', $run, $reason, $from, $detail, $at)`,
+      { key: w.key, run, reason, from, detail, at },
     );
-    endRun(office, run, at, "parked");
+    endRun(office, run, at, endKind);
   });
   return office.get<{ id: number }>(
     "select max(park_id) as id from parks where office_id = $office_id",
@@ -353,120 +349,105 @@ function storyStates(): { from: string; to: string }[] {
     .map(({ from, to }) => ({ from, to }));
 }
 
-describe("the resume matrix", () => {
-  it("has a row for every 0020 reason and cause dipo parks with, the box parks refused", () => {
-    expect(parkResumeRow("stopped", "maintainer")).toMatchObject({ note: "optional" });
-    expect(parkResumeRow("interrupted", "build")).toMatchObject({ session: "developer" });
-    expect(parkResumeRow("worker-failed", "build")).toMatchObject({ holdCheck: true });
-    expect(parkResumeRow("worker-failed", "review")).toMatchObject({ session: "review" });
-    expect(parkResumeRow("scope-violation", "tampered")).toEqual({
+/** `n` run steps of `kind` (a loop, a CI attempt or a failed review round) on the run. */
+function steps(kind: "loop" | "ci" | "review-failed", n: number): void {
+  const { office, run, t } = w.f;
+  office.immediate(() => {
+    for (let i = 0; i < n; i++) appendRunStep(office, run, kind, String(i + 1), t.clock.now());
+  });
+}
+
+/** A reviewer session of the run, newer than the developer's; its agent id. */
+function reviewerAgent(): string {
+  const { office, run, t } = w.f;
+  const reviewer = t.ids.next("agt");
+  t.clock.advance(1_000);
+  office.immediate(() =>
+    office.run(
+      `insert into agents (office_id, agent_id, run_id, role, model, session_id, started_at,
+         ended_at, end_reason)
+       values ($office_id, $agent, $run, 'reviewer', 'opus', 'session-r', $at, $at, 'capped')`,
+      { agent: reviewer, run, at: t.clock.now() },
+    ),
+  );
+  return reviewer;
+}
+
+describe("the resume table (0020)", () => {
+  it("has one row per reason of 0001: what the resume requires", () => {
+    expect(Object.keys(RESUME_TABLE).toSorted()).toEqual(
+      [
+        "ambiguous-spec",
+        "budget-exceeded",
+        "by-maintainer",
+        "conflict",
+        "review-blocked",
+        "scope-violation",
+        "verify-failing",
+        "worker-failed",
+      ].toSorted(),
+    );
+    expect(parkResumeNeed("ambiguous-spec")).toEqual({ kind: "resume", note: "answer" });
+    expect(parkResumeNeed("review-blocked")).toEqual({ kind: "resume", note: "required" });
+    expect(parkResumeNeed("budget-exceeded")).toEqual({
+      kind: "resume",
+      note: "required",
+      budget: true,
+    });
+    for (const reason of ["verify-failing", "conflict", "by-maintainer", "worker-failed"]) {
+      expect(parkResumeNeed(reason)).toEqual({ kind: "resume", note: "optional" });
+    }
+    expect(parkResumeNeed("scope-violation")).toEqual({
       kind: "refuse",
       code: "resume.notResumable",
     });
-    expect(parkResumeRow("needs-permission", "build")).toMatchObject({ kind: "refuse" });
-    // A question park resumes with its answer as the note (DIPO-159).
-    expect(parkResumeRow("ambiguous-spec", "question")).toMatchObject({
-      kind: "resume",
-      note: "required",
-      delta: "answer",
-    });
-    // The box parks are never resumable (the maintainer's decision).
-    for (const cause of ["protected-file", "secret", "part-refused", "task-file"]) {
-      expect(parkResumeRow("scope-violation", cause)).toEqual({
-        kind: "refuse",
-        code: "resume.notResumable",
-        box: true,
-      });
-    }
+    // A reason outside the eight (a park record written by hand) resumes as worker-failed.
+    expect(parkResumeNeed("something-else")).toEqual(parkResumeNeed("worker-failed"));
   });
 
-  it("offers work.resume in story.parked.actions only for a reason and cause it resumes", () => {
-    expect(parkActions("stopped", all, "maintainer")).toContain("work.resume");
-    expect(parkActions("budget-exceeded", all, "build")).toContain("work.resume");
-    expect(parkActions("on-hold", all, null)).toContain("work.resume");
-    expect(parkActions("scope-violation", all, "tampered")).not.toContain("work.resume");
-    expect(parkActions("needs-permission", all, "build")).not.toContain("work.resume");
-    expect(parkActions("ambiguous-spec", all, "question")).toEqual(
-      expect.arrayContaining(["work.resume", "work.answer"]),
-    );
-    expect(parkActions("ambiguous-spec", all, "no-report")).not.toContain("work.answer");
+  it("offers work.resume in story.parked.actions for every reason but scope-violation", () => {
+    for (const reason of Object.keys(RESUME_TABLE)) {
+      const actions = parkActions(reason, all);
+      if (reason === "scope-violation") expect(actions).not.toContain("work.resume");
+      else expect(actions).toContain("work.resume");
+      // Only a park on a question waits for its answer.
+      if (reason === "ambiguous-spec") expect(actions).toContain("work.answer");
+      else expect(actions).not.toContain("work.answer");
+    }
   });
 });
 
-describe("work.resume of a park that needs no grant", () => {
+describe("work.resume of a reason that needs nothing more (0020)", () => {
   const rows: {
     reason: string;
-    cause: string;
     note?: string;
     first: readonly string[];
-    mode: "resume" | "handoff";
   }[] = [
     {
-      reason: "stopped",
-      cause: "maintainer",
+      reason: "by-maintainer",
       first: [
-        "dipo resumed this session after its worker process ended (the maintainer stopped it).",
+        "dipo parked this story as by-maintainer, and the maintainer resumed it.\nthe worker host was lost",
       ],
-      mode: "resume",
-    },
-    {
-      reason: "interrupted",
-      cause: "build",
-      first: ["(the worker host was lost)"],
-      mode: "resume",
     },
     {
       reason: "worker-failed",
-      cause: "build",
       note: "The flaky disk is replaced.",
       first: [
-        "(the worker host was lost)",
+        "dipo parked this story as worker-failed, and the maintainer resumed it.\nthe worker host was lost",
         "Note from the maintainer: The flaky disk is replaced.",
       ],
-      mode: "resume",
     },
     {
       reason: "verify-failing",
-      cause: "refused",
-      first: ["(the worker host was lost)"],
-      mode: "resume",
-    },
-    {
-      reason: "scope-violation",
-      cause: "paths",
-      note: "Keep to src/greet.ts.",
       first: [
-        "dipo parked this story as scope-violation (paths), and the maintainer resumed it.\nthe worker host was lost",
-        "Note from the maintainer: Keep to src/greet.ts.",
+        "dipo parked this story as verify-failing, and the maintainer resumed it.\nthe worker host was lost",
       ],
-      mode: "resume",
-    },
-    {
-      reason: "scope-violation",
-      cause: "backstop",
-      note: "I moved HEAD back by hand.",
-      first: ["(backstop)", "Note from the maintainer: I moved HEAD back by hand."],
-      mode: "handoff",
-    },
-    {
-      reason: "scope-violation",
-      cause: "hand-change",
-      note: "That was me.",
-      first: ["(hand-change)", "Note from the maintainer: That was me."],
-      mode: "handoff",
-    },
-    {
-      reason: "ambiguous-spec",
-      cause: "no-report",
-      note: "Report in the schema.",
-      first: ["Note from the maintainer: Report in the schema."],
-      mode: "handoff",
     },
   ];
 
   for (const row of rows) {
-    it(`resumes ${row.reason} (${row.cause}) to In Progress with its first message`, async () => {
-      const parkId = park(row.reason, row.cause, "In Progress", "the worker host was lost");
+    it(`resumes ${row.reason} to In Progress with its first message`, async () => {
+      const parkId = park(row.reason, "In Progress", "the worker host was lost");
       const reply = await resume(resumption(), row.note === undefined ? {} : { note: row.note });
       expect(reply.result).toEqual({
         story: "DIPO-1",
@@ -480,19 +461,18 @@ describe("work.resume of a park that needs no grant", () => {
           branch: "DIPO-1/add-a-greeting",
           worktree: join(w.dir, "trees", "DIPO-1"),
           to: "In Progress",
-          // The resume's line in the implementation notes (0020 section 13, DIPO-154).
+          // The resume's line in the implementation notes (0020, DIPO-154).
           line: `Resumed 2026-01-01 00:00 UTC; grants: none; note: ${row.note ?? "none"}`,
         },
       ]);
       expect(w.sessions).toHaveLength(1);
       const session = w.sessions[0] as NextSessionRequest;
-      // The note goes to the session start apart from the delta (0020 section 3).
+      // The note goes to the session start apart from the reason's part (0020).
       expect(session.note).toBe(row.note);
-      expect(session.mode).toBe(row.mode);
       for (const part of row.first) expect(first(session)).toContain(part);
-      // Maintainer text never starts a message (0020 section 3).
+      // Maintainer text never starts a message (0020).
       expect(first(session)?.startsWith(row.note ?? "\0")).toBe(false);
-      // The note is a fact on the resolved park (migration 44); the run is active again.
+      // The note is a fact on the resolved park; the run is active again.
       expect(parkRow(parkId)).toEqual({ resolved_how: "resume", resolved_note: row.note ?? null });
       expect(findRun(w.f.office, w.f.run)?.endedAt).toBeNull();
       expect(storyStates().at(-1)).toEqual({ from: "Parked", to: "In Progress" });
@@ -504,25 +484,58 @@ describe("work.resume of a park that needs no grant", () => {
     });
   }
 
-  it("takes a new backstop snapshot for a git-state park and stores it as the baseline", async () => {
-    park("scope-violation", "backstop");
-    await resume(resumption(), { note: "Fine." });
-    expect(backstopSnapshotOf(w.f.office, w.f.run)).toEqual(w.snapshot as BackstopSnapshot);
+  it("returns a story the maintainer parked while it waited In Review there, with no session", async () => {
+    park("by-maintainer", "In Review", "PR #7 closed on GitHub", "in-review");
+    const reply = await resume(resumption());
+    expect(reply.result.to).toBe("In Review");
+    expect(w.lifts[0]?.to).toBe("In Review");
+    expect(w.sessions).toEqual([]);
+    expect(w.reviews).toEqual([]);
+    // A closed PR is replaced (0002), then the merge slot takes the story in again.
+    expect(w.ported).toEqual(["pr", "slot"]);
+    expect(findRun(w.f.office, w.f.run)?.endKind).toBe("in-review");
+    expect(grants()).toEqual([]);
   });
 
-  it("starts a fresh review, not a developer session, for a backstop park raised in review", async () => {
-    park("scope-violation", "backstop", "In Review");
-    const reply = await resume(resumption(), { note: "The review touched nothing." });
-    expect(reply.result.to).toBe("In Review");
-    expect(w.sessions).toEqual([]);
-    expect(w.reviews).toEqual([w.f.run]);
-    expect(findRun(w.f.office, w.f.run)?.waiting).toBe("review-resume");
+  it("returns a reviewed run that waits In Review again to the reviewed end", async () => {
+    const { office, run, t } = w.f;
+    office.immediate(() =>
+      recordReviewVerdict(office, t.ids, {
+        runId: run,
+        key: w.key,
+        round: 1,
+        agent: null,
+        model: "opus",
+        commit: "c".repeat(40),
+        codeTreeKey: "tree",
+        judged: { verdict: "approved", criteria: [], findings: [], summary: "Fine.", notes: [] },
+        at: t.clock.now(),
+      }),
+    );
+    park("by-maintainer", "In Review", "after the release", "reviewed");
+    await resume(resumption(), { note: "Released." });
+    expect(findRun(office, run)?.endKind).toBe("reviewed");
+    expect(w.ported).toEqual(["pr", "slot"]);
   });
+
+  for (const reason of ["by-maintainer", "worker-failed"] as const) {
+    it(`starts a fresh reviewer session of the same round for ${reason} when the park stopped the reviewer, never sending the note`, async () => {
+      reviewerAgent();
+      const parkId = park(reason, "In Review");
+      const reply = await resume(resumption(), { note: "for the record" });
+      expect(reply.result.to).toBe("In Review");
+      expect(w.reviews).toEqual([w.f.run]);
+      expect(w.sessions).toEqual([]);
+      expect(grants()).toEqual([]);
+      expect(parkRow(parkId)?.resolved_note).toBe("for the record");
+      expect(findRun(w.f.office, w.f.run)?.waiting).toBe("review-resume");
+    });
+  }
 });
 
 describe("work.resume refusals", () => {
-  it("answers resume.notResumable naming dipo discard for tampered git links, and changes nothing", async () => {
-    const parkId = park("scope-violation", "tampered");
+  it("answers resume.notResumable for scope-violation, naming dipo discard, and changes nothing", async () => {
+    const parkId = park("scope-violation");
     const error = await refusal(resumption(), { note: "please" });
     expect(error.error.code).toBe("resume.notResumable");
     expect(error.message).toContain("dipo discard DIPO-1");
@@ -531,38 +544,14 @@ describe("work.resume refusals", () => {
     expect(runIntents(w.f.office, w.f.run)).toEqual([]);
   });
 
-  for (const cause of ["protected-file", "secret", "part-refused", "task-file"]) {
-    it(`refuses the box park scope-violation (${cause}) as never resumable, naming the decision and dipo discard`, async () => {
-      park("scope-violation", cause);
-      const error = await refusal(resumption(), { note: "please" });
-      expect(error.error.code).toBe("resume.notResumable");
-      expect(error.message).toContain("the maintainer's decision");
-      expect(error.message).toContain("dipo discard DIPO-1");
-      expect(w.lifts).toEqual([]);
-    });
-  }
-
-  it("turns a backstop park whose git links changed into resume.notResumable", async () => {
-    park("scope-violation", "backstop");
-    w.snapshot = new GitError("git.worktreeTampered", "the worktree's git links changed");
-    const error = await refusal(resumption(), { note: "please" });
-    expect(error.error.code).toBe("resume.notResumable");
-    expect(error.message).toContain("dipo discard DIPO-1");
-    expect(w.lifts).toEqual([]);
-  });
-
-  for (const [reason, cause] of [
-    ["verify-failing", "loops"],
-    ["verify-failing", "ci"],
-    ["verify-failing", "capped"],
-    ["scope-violation", "paths"],
-    ["scope-violation", "backstop"],
-    ["review-blocked", "rounds"],
-    ["conflict", "merge-in-progress"],
-  ] as const) {
-    it(`answers resume.noteRequired for ${reason} (${cause}) without a note`, async () => {
-      park(reason, cause);
-      const error = await refusal(resumption());
+  for (const reason of ["review-blocked", "budget-exceeded"] as const) {
+    it(`answers resume.noteRequired for ${reason} without a note`, async () => {
+      park(reason, reason === "review-blocked" ? "In Review" : "In Progress");
+      const error = await refusal(
+        resumption(),
+        reason === "budget-exceeded" ? { budget: { share: 50 } } : {},
+        ctx(true),
+      );
       expect(error.error.code).toBe("resume.noteRequired");
       expect(error.message).toContain("--note");
       expect(w.lifts).toEqual([]);
@@ -570,8 +559,14 @@ describe("work.resume refusals", () => {
     });
   }
 
-  it("refuses worker-failed while the adapter hold that caused it is set, naming the hold", async () => {
-    park("worker-failed", "build");
+  it("names dipo approve --note as the other way on for review-blocked", async () => {
+    park("review-blocked", "In Review");
+    const error = await refusal(resumption());
+    expect(error.message).toContain("dipo approve DIPO-1 --note");
+  });
+
+  it("refuses a resume while the adapter is held, naming the hold", async () => {
+    park("worker-failed");
     w.hold = {
       adapter: "claude-cli",
       check: "start-failed",
@@ -587,15 +582,8 @@ describe("work.resume refusals", () => {
     expect(w.sessions).toHaveLength(1);
   });
 
-  it("answers resume.decisionRequired for needs-permission, naming dipo answer", async () => {
-    park("needs-permission", "build");
-    const error = await refusal(resumption());
-    expect(error.error.code).toBe("resume.decisionRequired");
-    expect(error.message).toContain("dipo answer");
-  });
-
   it("answers run.hostAlive while the parked worker has not exited", async () => {
-    park("stopped", "maintainer");
+    park("by-maintainer");
     w.f.office.immediate(() =>
       w.f.office.run("update agents set ended_at = null where office_id = $office_id"),
     );
@@ -605,7 +593,7 @@ describe("work.resume refusals", () => {
   });
 
   it("answers scheduling.off while the daemon schedules no work", async () => {
-    park("stopped", "maintainer");
+    park("by-maintainer");
     const error = await refusal(
       resumption({ parks: { scheduling: () => false } } as Partial<ResumptionOptions>),
     );
@@ -614,17 +602,31 @@ describe("work.resume refusals", () => {
   });
 
   it("answers resume.capReached naming --budget when the caps are used up", async () => {
-    park("stopped", "maintainer");
+    park("by-maintainer");
     usage(60, 1_000);
     const error = await refusal(resumption());
     expect(error.error.code).toBe("resume.capReached");
     expect(error.message).toContain("--budget");
   });
+
+  it("takes a top-up on any reason whose caps are used up, as a recorded grant", async () => {
+    park("verify-failing", "In Progress", "Verify failed at the verify step.");
+    usage(60, 100_000);
+    const reply = await resume(
+      resumption(),
+      { budget: { share: 50 }, note: "Last push." },
+      ctx(true),
+    );
+    expect(reply.result.grants).toEqual([
+      { kind: "budget", tokens: 150_000, turns: 30, minutes: 15 },
+    ]);
+    expect(first(w.sessions[0])).toContain("Verify failed at the verify step.");
+  });
 });
 
-describe("top-up of a budget-exceeded park (0020 section 4)", () => {
+describe("top-up of a budget-exceeded park (0020)", () => {
   it("answers resume.topUpRequired naming --budget and the cap that fired", async () => {
-    park("budget-exceeded", "build", "In Progress", "turn cap reached: 61 of 60 turns");
+    park("budget-exceeded", "In Progress", "turn cap reached: 61 of 60 turns");
     usage(61, 100_000);
     const error = await refusal(resumption(), { note: "more" });
     expect(error.error.code).toBe("resume.topUpRequired");
@@ -634,7 +636,7 @@ describe("top-up of a budget-exceeded park (0020 section 4)", () => {
   });
 
   it("needs a note with the top-up, and a confirmation showing the caps before and after", async () => {
-    park("budget-exceeded", "build");
+    park("budget-exceeded");
     usage(61, 100_000);
     const noNote = await refusal(resumption(), { budget: { share: 50 } }, ctx(true));
     expect(noNote.error.code).toBe("resume.noteRequired");
@@ -649,7 +651,7 @@ describe("top-up of a budget-exceeded park (0020 section 4)", () => {
   });
 
   it("adds 150,000 tokens and half the turns and minutes on a tier S run as one grant", async () => {
-    park("budget-exceeded", "build");
+    park("budget-exceeded");
     usage(61, 100_000);
     const before = runCaps(w.f.office, findRun(w.f.office, w.f.run) as never);
     const reply = await resume(
@@ -663,7 +665,7 @@ describe("top-up of a budget-exceeded park (0020 section 4)", () => {
     expect(grants()).toEqual([
       {
         kind: "budget",
-        // The caps before and after it are part of the grant (0020 section 4).
+        // The caps before and after it are part of the grant (0020).
         amount: JSON.stringify({
           tokens: 150_000,
           turns: 30,
@@ -697,7 +699,7 @@ describe("top-up of a budget-exceeded park (0020 section 4)", () => {
   });
 
   it("answers resume.topUpTooSmall with the smallest share that clears the cap", async () => {
-    park("budget-exceeded", "build");
+    park("budget-exceeded");
     usage(80, 100_000);
     const error = await refusal(resumption(), { budget: { share: 10 }, note: "go" }, ctx(true));
     expect(error.error.code).toBe("resume.topUpTooSmall");
@@ -731,7 +733,7 @@ describe("top-up of a budget-exceeded park (0020 section 4)", () => {
         at: t.clock.now(),
       });
     });
-    park("budget-exceeded", "build", "In Review", "turn cap reached: 60 of 60 turns");
+    park("budget-exceeded", "In Review", "turn cap reached: 60 of 60 turns");
     usage(60, 100_000);
     const reply = await resume(
       resumption(),
@@ -753,8 +755,9 @@ describe("top-up of a budget-exceeded park (0020 section 4)", () => {
     expect(fix?.outcome).toBe("started");
   });
 
-  it("starts a fresh review, not a developer session, for a review-cause top-up", async () => {
-    park("budget-exceeded", "review", "In Review");
+  it("starts a fresh review, not a developer session, when the budget ran out in a review", async () => {
+    reviewerAgent();
+    park("budget-exceeded", "In Review");
     usage(10, 300_000);
     const reply = await resume(
       resumption(),
@@ -772,11 +775,11 @@ describe("top-up of a budget-exceeded park (0020 section 4)", () => {
   });
 });
 
-describe("capped, conflicted and review-loop resumes (0020 decision 6b)", () => {
-  it("records one loop grant and sends the last verify item first for verify-failing (loops)", async () => {
+describe("round grants: one more round of the cap that fired (0020)", () => {
+  it("records one loop grant and sends the last verify item first for verify-failing at its loop cap", async () => {
+    steps("loop", 3);
     park(
       "verify-failing",
-      "loops",
       "In Progress",
       "verify failed 3 of 3 times. Verify failed at the verify step.",
     );
@@ -788,7 +791,7 @@ describe("capped, conflicted and review-loop resumes (0020 decision 6b)", () => 
     );
   });
 
-  it("records one ciAttempt grant and sends the last stored CI item first for verify-failing (ci)", async () => {
+  it("records one ciAttempt grant and sends the last stored CI item first for verify-failing at its CI cap", async () => {
     const { office, run, t } = w.f;
     office.immediate(() =>
       storeFeedbackItems(office, run, {
@@ -806,7 +809,8 @@ describe("capped, conflicted and review-loop resumes (0020 decision 6b)", () => 
         at: t.clock.now(),
       }),
     );
-    park("verify-failing", "ci", "In Review", "required checks were red on 2 pushed heads");
+    steps("ci", 2);
+    park("verify-failing", "In Review", "required checks were red on 2 pushed heads");
     await resume(resumption(), { note: "Run the linter." });
     expect(grants().map((grant) => [grant.kind, grant.amount])).toEqual([["ciAttempt", "1"]]);
     const message = first(w.sessions[0]) ?? "";
@@ -814,21 +818,15 @@ describe("capped, conflicted and review-loop resumes (0020 decision 6b)", () => 
     expect(message.indexOf("lint.")).toBeLessThan(message.indexOf("Note from the maintainer"));
   });
 
-  it("grows all three caps by half as one budget grant for verify-failing (capped), with no confirmation", async () => {
-    park("verify-failing", "capped", "In Progress", "Verify failed at the verify step.");
-    usage(60, 100_000);
-    const reply = await resume(resumption(), { note: "Last push." });
-    expect(reply.result.grants).toEqual([
-      { kind: "budget", tokens: 150_000, turns: 30, minutes: 15 },
-    ]);
-    const message = first(w.sessions[0]) ?? "";
-    expect(message.indexOf("Verify failed at the verify step.")).toBeLessThan(
-      message.indexOf("Note from the maintainer: Last push."),
-    );
+  it("grants nothing for verify-failing below every round cap", async () => {
+    steps("loop", 1);
+    park("verify-failing");
+    await resume(resumption());
+    expect(grants()).toEqual([]);
   });
 
-  it("returns review-blocked (rounds) to In Review and queues its fix round with one reviewRound grant", async () => {
-    const parkId = park("review-blocked", "rounds", "In Review", "blocking: no test");
+  it("returns review-blocked to In Review and queues its fix round with one reviewRound grant", async () => {
+    const parkId = park("review-blocked", "In Review", "blocking: no test", "reviewed");
     const reply = await resume(resumption(), { note: "Add the test, then it passes." });
     expect(reply.result.to).toBe("In Review");
     expect(w.lifts[0]?.to).toBe("In Review");
@@ -846,19 +844,30 @@ describe("capped, conflicted and review-loop resumes (0020 decision 6b)", () => 
     );
   });
 
-  it("continues a conflict (merge-in-progress) through the conflict hand-off with one conflictHandoff grant", async () => {
-    park("conflict", "merge-in-progress");
+  it("continues a conflict through the conflict hand-off, the conflict item first", async () => {
+    park("conflict");
     await resume(resumption(), { note: "Keep both sides." });
-    expect(w.ported).toEqual(["conflict:merge-in-progress"]);
-    expect(grants().map((grant) => [grant.kind, grant.amount])).toEqual([["conflictHandoff", "1"]]);
+    expect(w.ported).toEqual(["conflict"]);
     const message = first(w.sessions[0]) ?? "";
     expect(message.indexOf("Conflict item")).toBeLessThan(
       message.indexOf("Note from the maintainer"),
     );
   });
 
+  it("records one conflictHandoff grant when the failed hand-offs reached the conflict cap", async () => {
+    const { office, run, t } = w.f;
+    office.immediate(() => {
+      for (const value of ["start 1 a", "failed 1 markers", "start 2 b", "failed 2 markers"]) {
+        appendRunStep(office, run, "conflict", value, t.clock.now());
+      }
+    });
+    park("conflict");
+    await resume(resumption());
+    expect(grants().map((grant) => [grant.kind, grant.amount])).toEqual([["conflictHandoff", "1"]]);
+  });
+
   it("answers resume.notResumable for a conflict park while no conflict hand-off exists", async () => {
-    park("conflict", "push-rejected");
+    park("conflict");
     const error = await refusal(
       resumption({ parks: { conflicts: () => undefined } } as Partial<ResumptionOptions>),
       { note: "merge it" },
@@ -867,51 +876,8 @@ describe("capped, conflicted and review-loop resumes (0020 decision 6b)", () => 
     expect(error.message).toContain("dipo discard DIPO-1");
   });
 
-  it("re-enters the merge slot for conflict (slot-refused) without a model session", async () => {
-    park("conflict", "slot-refused", "In Review");
-    const reply = await resume(resumption(), { note: "The base is calm now." });
-    expect(reply.result.to).toBe("In Review");
-    expect(w.ported).toEqual(["slot"]);
-    expect(w.sessions).toEqual([]);
-    expect(w.reviews).toEqual([]);
-    // The run waits In Review again, so the merge slot takes it (DIPO-324); no review ran yet.
-    expect(findRun(w.f.office, w.f.run)?.endKind).toBe("in-review");
-    expect(grants()).toEqual([]);
-  });
-
-  it("returns a reviewed run that re-enters the merge slot to the reviewed end", async () => {
-    const { office, run, t } = w.f;
-    office.immediate(() =>
-      recordReviewVerdict(office, t.ids, {
-        runId: run,
-        key: w.key,
-        round: 1,
-        agent: null,
-        model: "opus",
-        commit: "c".repeat(40),
-        codeTreeKey: "tree",
-        judged: { verdict: "approved", criteria: [], findings: [], summary: "Fine.", notes: [] },
-        at: t.clock.now(),
-      }),
-    );
-    park("conflict", "slot-refused", "In Review");
-    await resume(resumption(), { note: "Again." });
-    expect(findRun(office, run)?.endKind).toBe("reviewed");
-    expect(w.ported).toEqual(["slot"]);
-  });
-
-  it("opens a new story PR for stopped (pr-closed) without a model session", async () => {
-    park("stopped", "pr-closed", "In Review");
-    const reply = await resume(resumption());
-    expect(reply.result.to).toBe("In Review");
-    expect(w.ported).toEqual(["pr"]);
-    expect(w.sessions).toEqual([]);
-    expect(w.lifts[0]?.to).toBe("In Review");
-    expect(findRun(w.f.office, w.f.run)?.endKind).toBe("in-review");
-  });
-
   it("starts the box merge a conflict resume prepared only once the session started", async () => {
-    park("conflict", "push-rejected");
+    park("conflict");
     const order: string[] = [];
     await resume(
       resumption({
@@ -936,7 +902,7 @@ describe("capped, conflicted and review-loop resumes (0020 decision 6b)", () => 
   });
 
   it("starts no session when the conflict resume parked the story again", async () => {
-    park("conflict", "unwritable-path");
+    park("conflict");
     await resume(
       resumption({
         parks: { conflicts: () => ({ prepare: async () => ({ parked: true }) }) },
@@ -951,33 +917,11 @@ describe("capped, conflicted and review-loop resumes (0020 decision 6b)", () => 
     ).toBe("parked");
   });
 
-  for (const [reason, cause] of [
-    ["stopped", "review"],
-    ["worker-failed", "review"],
-  ] as const) {
-    it(`starts a fresh reviewer session of the same round for ${reason} (${cause}), never sending the note`, async () => {
-      const parkId = park(reason, cause, "In Review");
-      await resume(resumption(), { note: "for the record" });
-      expect(w.reviews).toEqual([w.f.run]);
-      expect(w.sessions).toEqual([]);
-      expect(grants()).toEqual([]);
-      expect(parkRow(parkId)?.resolved_note).toBe("for the record");
-    });
-  }
-
-  it("grows the reviewer cap that fired by 50% as a reviewCap grant for worker-failed (review-cap)", async () => {
-    const { office, run, t } = w.f;
-    const reviewer = t.ids.next("agt");
-    office.immediate(() =>
-      office.run(
-        `insert into agents (office_id, agent_id, run_id, role, model, session_id, started_at,
-           ended_at, end_reason)
-         values ($office_id, $agent, $run, 'reviewer', 'opus', 'session-r', $at, $at, 'capped')`,
-        { agent: reviewer, run, at: t.clock.now() },
-      ),
-    );
+  it("grows the reviewer cap that fired by 50% as a reviewCap grant when a failed reviewer resumes", async () => {
+    const { office, run } = w.f;
+    const reviewer = reviewerAgent();
     usage(40, 10_000, reviewer);
-    park("worker-failed", "review-cap", "In Review");
+    park("worker-failed", "In Review", "the reviewer's turn cap reached: 40 of 40 turns");
     const before = runCaps(office, findRun(office, run) as never);
     await resume(resumption());
     const after = runCaps(office, findRun(office, run) as never);
@@ -989,22 +933,20 @@ describe("capped, conflicted and review-loop resumes (0020 decision 6b)", () => 
   });
 });
 
-describe("no resume raises a cap without a recorded grant (0020 section 2, never silent)", () => {
-  const resumable = Object.entries(PARK_RESUME_MATRIX).filter(([, row]) => row.kind === "resume");
-  for (const [key, row] of resumable) {
-    it(`${key}: every cap change is a run_grants row`, async () => {
-      if (row.kind !== "resume") return;
-      const [reason, cause] = key.includes("/") ? key.split("/") : [key, "build"];
-      const from =
-        row.session === "review" || row.session === "fix-round" ? "In Review" : "In Progress";
-      park(reason as string, cause ?? null, from);
-      if (row.topUp === true || row.grant === "budgetHalf") usage(60, 100_000);
+describe("no resume raises a cap without a recorded grant (0020, never silent)", () => {
+  const resumable = Object.entries(RESUME_TABLE).filter(([, row]) => row.need.kind === "resume");
+  for (const [reason, row] of resumable) {
+    it(`${reason}: every cap change is a run_grants row`, async () => {
+      if (row.need.kind !== "resume") return;
+      const budget = row.need.budget === true;
+      park(reason, reason === "review-blocked" ? "In Review" : "In Progress");
+      if (budget) usage(60, 100_000);
       const office = w.f.office;
       const before = runCaps(office, findRun(office, w.f.run) as never);
       const grantsBefore = grantTotals(office, w.f.run);
       await resume(
         resumption(),
-        { note: "go", ...(row.topUp === true ? { budget: { share: 50 } } : {}) },
+        { note: "go", ...(budget ? { budget: { share: 50 } } : {}) },
         ctx(true),
       );
       const after = runCaps(office, findRun(office, w.f.run) as never);
@@ -1020,19 +962,11 @@ describe("no resume raises a cap without a recorded grant (0020 section 2, never
       expect((after.reviewRoundCap ?? 0) - (before.reviewRoundCap ?? 0)).toBe(added.reviewRound);
       expect((after.ciCap ?? 0) - (before.ciCap ?? 0)).toBe(added.ciAttempt);
       expect((after.conflictCap ?? 0) - (before.conflictCap ?? 0)).toBe(added.conflictHandoff);
-      expect((after.reviewMaxTurns ?? 0) - (before.reviewMaxTurns ?? 0)).toBe(
-        added.reviewCap.turns,
-      );
-      expect((after.reviewMaxMinutes ?? 0) - (before.reviewMaxMinutes ?? 0)).toBe(
-        added.reviewCap.minutes,
-      );
-      // A resume with no grant rule writes none.
-      if (row.grant === undefined && row.topUp !== true) expect(grants()).toEqual([]);
-      else expect(grants()).toHaveLength(1);
+      // Only a top-up and the review round of review-blocked grow a cap here.
+      expect(grants()).toHaveLength(budget || reason === "review-blocked" ? 1 : 0);
     });
   }
 });
-
 describe("a resume whose place is taken (0020 section 1, 0019 section 12)", () => {
   it("is accepted with its intent stored, replies queued, and starts when the worker place frees", async () => {
     const { office, t } = w.f;
@@ -1092,7 +1026,7 @@ describe("a resume whose place is taken (0020 section 1, 0019 section 12)", () =
       offices: { get: () => office, config: () => undefined },
       starters: { resume: (officeId, run) => resuming.startQueued(officeId, run) },
     });
-    park("stopped", "maintainer");
+    park("by-maintainer");
     const reply = await resume(resuming, { note: "When the other one is done." });
     expect(reply.result).toMatchObject({ to: "In Progress", queued: true });
     await places.idle();
@@ -1120,7 +1054,8 @@ describe("a resume whose place is taken (0020 section 1, 0019 section 12)", () =
 
 describe("a retry of the same request (0005 note of 2026-10-17)", () => {
   it("finishes and replies without a second lift, grant or session", async () => {
-    park("verify-failing", "loops");
+    steps("loop", 3);
+    park("verify-failing");
     const context = ctx(false, "req_same");
     const resuming = resumption();
     const once = await resume(resuming, { note: "again" }, context);
@@ -1132,7 +1067,7 @@ describe("a retry of the same request (0005 note of 2026-10-17)", () => {
   });
 
   it("answers a lift that failed with its intent resolved failed, so a retry runs again", async () => {
-    park("stopped", "maintainer");
+    park("by-maintainer");
     let fail = true;
     const resuming = createRunOutcomesWithLift(async (request) => {
       if (fail) {
@@ -1154,7 +1089,8 @@ describe("a retry of the same request (0005 note of 2026-10-17)", () => {
   });
 
   it("finishes a resume a restart interrupted after its intent, once", async () => {
-    park("verify-failing", "loops");
+    steps("loop", 3);
+    park("verify-failing");
     // The first daemon stores the intent and stops while the lift runs: it never comes back.
     const stopped = createRunOutcomesWithLift(() => new Promise(() => {}));
     void stopped.resumeCommand(ctx(false, "req_restart"), {
@@ -1230,7 +1166,8 @@ function resumeRequest(id: string, args: Record<string, unknown>): CommandReques
 
 describe("work.resume on the waiting command path (0005 note of 2026-10-17, DIPO-168)", () => {
   it("repeats no lift, grant or session when a crash before the requests row makes the retry run the handler again", async () => {
-    park("verify-failing", "loops");
+    steps("loop", 3);
+    park("verify-failing");
     const resuming = resumption();
     const deps = executor(resuming);
     const id = "01J9ZK5Q8W3V4X6Y7Z90000004";
@@ -1256,7 +1193,7 @@ describe("work.resume on the waiting command path (0005 note of 2026-10-17, DIPO
   });
 
   it("gives a duplicate that arrives while the first runs the same reply, and resumes once", async () => {
-    park("stopped", "maintainer");
+    park("by-maintainer");
     let release: (() => void) | undefined;
     const held = new Promise<void>((resolve) => {
       release = resolve;
@@ -1283,7 +1220,8 @@ describe("work.resume on the waiting command path (0005 note of 2026-10-17, DIPO
 
 describe("two resumes of one park (DIPO-155 review)", () => {
   it("answers run.hostAlive to a second request with another id while the first one lifts", async () => {
-    park("verify-failing", "loops");
+    steps("loop", 3);
+    park("verify-failing");
     let release: (() => void) | undefined;
     const held = new Promise<void>((resolve) => {
       release = resolve;
@@ -1311,7 +1249,8 @@ describe("two resumes of one park (DIPO-155 review)", () => {
   });
 
   it("writes nothing, starts nothing and answers story.notPausedOrParked when the park changed during the lift", async () => {
-    const parkId = park("verify-failing", "loops");
+    steps("loop", 3);
+    const parkId = park("verify-failing");
     // Something else resolves the park while the lift runs (a drop, a hand edit picked up).
     const resuming = createRunOutcomesWithLift(async (lifted) => {
       w.lifts.push(lifted);
@@ -1355,7 +1294,7 @@ describe("the maintainer's note in a worker's message (DIPO-155 review)", () => 
   });
 
   it("caps the fix round's held note the same way", async () => {
-    park("review-blocked", "rounds", "In Review");
+    park("review-blocked", "In Review", "x", "reviewed");
     await resume(resumption(), { note: long });
     const held = runIntents(w.f.office, w.f.run).find((intent) =>
       intent.detail.startsWith("held-feedback "),
@@ -1367,7 +1306,7 @@ describe("the maintainer's note in a worker's message (DIPO-155 review)", () => 
 
 describe("the client name of a top-up (0020 section 4, DIPO-155 review)", () => {
   it("records the client name the connection gave in engine.hello on the budget grant", async () => {
-    park("budget-exceeded", "build");
+    park("budget-exceeded");
     usage(61, 100_000);
     const resuming = resumption();
     const reply = await executeCommand(
@@ -1399,12 +1338,12 @@ function entries(type: string): Record<string, unknown>[] {
     .map((row) => JSON.parse(row.delta) as Record<string, unknown>);
 }
 
-describe("a question park resumed with its answer (DIPO-159; 0020 sections 2 and 7)", () => {
+describe("an ambiguous-spec park resumed with its answer (DIPO-159; 0020)", () => {
   const QUESTION = "Which greeting should the CLI print?";
 
-  /** A park `ambiguous-spec` (question) whose question is stored, linked to it; its id. */
+  /** A park `ambiguous-spec` whose question is stored, linked to it; its id. */
   function questionPark(): { parkId: number; question: string } {
-    const parkId = park("ambiguous-spec", "question", "In Progress", QUESTION);
+    const parkId = park("ambiguous-spec", "In Progress", QUESTION);
     const question = w.f.t.ids.next("qst");
     w.f.office.immediate(() =>
       insertWorkerQuestion(w.f.office, {
@@ -1516,7 +1455,7 @@ describe("a question park resumed with its answer (DIPO-159; 0020 sections 2 and
   });
 
   it("expires every other open question of a park it resumes, and a budget park's carried question", async () => {
-    const parkId = park("budget-exceeded", "build", "In Progress", "turn cap reached");
+    const parkId = park("budget-exceeded", "In Progress", "turn cap reached");
     const question = w.f.t.ids.next("qst");
     w.f.office.immediate(() =>
       insertWorkerQuestion(w.f.office, {
@@ -1535,30 +1474,17 @@ describe("a question park resumed with its answer (DIPO-159; 0020 sections 2 and
   });
 });
 
-describe("the rule-conflict and no-report resumes (DIPO-159 AC #6; 0020 section 2)", () => {
-  it("resumes ambiguous-spec (rule-conflict) with a required note, the conflict the worker named first", async () => {
-    park(
-      "ambiguous-spec",
-      "rule-conflict",
-      "In Progress",
-      "CLAUDE.md forbids the flag the story asks for",
-    );
+describe("an ambiguous-spec park with no stored question (0020)", () => {
+  it("needs the answer as its note, and sends the park's detail as the question with it", async () => {
+    park("ambiguous-spec", "In Progress", "CLAUDE.md forbids the flag the story asks for");
     const refused = await refusal(resumption());
     expect(refused.error.code).toBe("resume.noteRequired");
     await resume(resumption(), { note: "Keep the flag; the story wins." });
     const session = w.sessions[0] as NextSessionRequest;
-    const text = first(session);
-    expect(text).toContain("CLAUDE.md forbids the flag the story asks for");
-    expect(text.indexOf("CLAUDE.md forbids")).toBeLessThan(
-      text.indexOf("Note from the maintainer: Keep the flag; the story wins."),
+    expect(session.message).toContain(
+      "Your question: CLAUDE.md forbids the flag the story asks for",
     );
-  });
-
-  it("resumes ambiguous-spec (no-report) only with a note, always in a handoff session", async () => {
-    park("ambiguous-spec", "no-report");
-    expect((await refusal(resumption())).error.code).toBe("resume.noteRequired");
-    await resume(resumption(), { note: "Report in the schema." });
-    expect(w.sessions[0]?.mode).toBe("handoff");
-    expect(w.sessions[0]?.note).toBe("Report in the schema.");
+    expect(session.message).toContain("The maintainer's answer: Keep the flag; the story wins.");
+    expect(session.note).toBeUndefined();
   });
 });

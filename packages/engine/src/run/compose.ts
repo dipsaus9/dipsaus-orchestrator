@@ -12,7 +12,6 @@ import type { Clock, IdSource, OfficeId } from "@dipsaus-orchestrator/contract";
 
 import { BOX_RUN_FILE } from "../box/workers";
 
-import { readBackstop } from "./backstop";
 import { Nudges } from "../hooks/nudges";
 import { ABSENT, PermissionAsks, type Presence } from "../hooks/permissions";
 import { type FetchAddressDeps, SYSTEM_FETCH_ADDRESSES, WebGuard } from "../hooks/web-guard";
@@ -80,16 +79,16 @@ export interface RunPorts {
     /** The liveness of earlier hosts a next session waits for (DIPO-57). */
     readonly probe?: RunResumerDeps["probe"];
   };
-  /** The planning lane's resume of an on-hold park (DIPO-160), read when `work.resume` runs. */
+  /** The planning lane's resume of a park with no run (DIPO-160), read when `work.resume` runs. */
   readonly holdResumer?: () => HoldResumer | undefined;
-  /** The merge slot a resumed `slot-refused` park re-enters (DIPO-150, DIPO-155's seam). */
+  /** The merge slot a story resumed to wait In Review re-enters (DIPO-150). */
   readonly slotReentry?: () => SlotReentry | undefined;
   /**
    * The merge a resumed `conflict` park needs in its live run's box (`BoxCollisions.mergeOnResume`,
    * DIPO-324). Without it no conflict park resumes (`resume.notResumable`).
    */
   readonly conflictMerge?: ConflictResumesDeps["merge"];
-  /** The new story PR of a resumed `stopped` / `pr-closed` park (`StoryPrs.replace`, DIPO-324). */
+  /** The new story PR of a story resumed with its PR closed (`StoryPrs.replace`, 0002). */
   readonly prReplacement?: () => PrReplacement | undefined;
   /** The plan-limit schedule (DIPO-61) worker outcomes report waits to; needs `outcomes`. */
   readonly planLimits?: Pick<PlanLimitsDeps, "holds" | "notify">;
@@ -236,12 +235,6 @@ function buildHookListeners(
     parkQuestion: (_office, run, question) => {
       control?.parkOnQuestion(run, question);
     },
-    // An answer to a `needs-permission` park resumes its run (DIPO-75).
-    parks: {
-      resume: (office, run, request) =>
-        late.resumption?.resumePark(office, run, request) ??
-        Promise.resolve({ kind: "failed", reason: "worker outcomes are not ready" }),
-    },
     // An answer to a question park resumes it through work.resume's park path (DIPO-159).
     questionParks: () => late.resumption?.questionParks,
     // Worker outcomes decide every exit, and `afterExit` follows each decision (DIPO-159).
@@ -373,12 +366,6 @@ function buildOutcomes(
       ...given("holds", ports.holdResumer),
       parks: {
         ...given("scheduling", ports.scheduling),
-        // A git-state park reads its new backstop snapshot on the office git (decision 7).
-        snapshot: (office, worktree) => {
-          const git = ports.git(office);
-          if (git === undefined) throw new Error(`Office ${office} has no git attached.`);
-          return readBackstop(git, worktree);
-        },
         ...given("boxRun", ports.boxRun),
         fixRounds: () => fixRounds ?? undefined,
         ...given("slot", ports.slotReentry),
@@ -486,7 +473,6 @@ function conflictResumesOf(
         intent: "park",
         ops: [],
         reason: park.reason,
-        cause: park.cause,
         detail: park.detail,
         endKind: park.reason,
       });

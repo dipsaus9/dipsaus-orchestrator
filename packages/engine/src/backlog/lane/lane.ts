@@ -289,7 +289,7 @@ export class OfficeLane {
         ) {
           throw new LaneError(
             "backlog.lane.liveClaim",
-            `${op.subject} has a live claim, so its changes travel in its story PR; stop it with \`work.stop\` first.`,
+            `${op.subject} has a live claim, so its changes travel in its story PR; park it with \`story.park\` first.`,
             { key: op.key, subject: op.subject },
           );
         }

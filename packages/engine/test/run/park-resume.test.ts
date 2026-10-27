@@ -1,42 +1,25 @@
-// Resuming a `needs-permission` park (DIPO-75), fast and local: a migrated state database with one
-// claimed story run parked `needs-permission` with its question, worker outcomes with a fake unpark
-// writer and a fake next session. It covers the parked time (`runs.parked_ms`: the time cap after a
-// long park, two parks of one run each counted once, `run_outcomes.minutes`) and a resume a
-// restart interrupted, which `redispatch` finishes from its `park-resume` intent. The real path on
-// git and the Backlog CLI runs in park-resume.ci.test.ts.
+// The parked time of a resumed run (DIPO-75, DIPO-344), fast and local: a migrated state database
+// with one claimed story run parked `worker-failed`, worker outcomes with a fake unpark writer and a
+// fake next session. It covers `runs.parked_ms`: the time cap after a long park, two parks of one
+// run each counted once, and `run_outcomes.minutes`.
 
 import { afterEach, beforeEach, describe, expect, it } from "bun:test";
 import { mkdtempSync, rmSync } from "node:fs";
 import { join } from "node:path";
 
-import {
-  type OfficeId,
-  RequestId,
-  type RunId,
-  StoryId,
-  type StoryKey,
-} from "@dipsaus-orchestrator/contract";
+import { StoryId, type StoryKey } from "@dipsaus-orchestrator/contract";
 
-import { executeCommand } from "../../src/commands/execute";
-import { stateOfficeDirectory } from "../../src/commands/offices";
-import { buildRegistry } from "../../src/commands/registry";
-import { MemoryRequestTable } from "../../src/commands/requests";
-import { OFFICE_DEFAULTS } from "../../src/config";
-import { PermissionAsks } from "../../src/hooks/permissions";
-
-import { findQuestion, insertParkQuestion } from "../../src/hooks/questions";
+import type { AsyncCommandContext } from "../../src/commands/registry";
 import {
   capsStartedAt,
   endRun,
   findRun,
   firedCap,
   insertRun,
-  openPark,
   createRunOutcomes,
   type Resumption,
   type RunOutcomes,
   type RunEnder,
-  runIntents,
   runOutcome,
   runTotals,
   type UnparkBranchRequest,
@@ -52,7 +35,6 @@ import { type IngestFixture, ingestFixture } from "../ingest/helpers";
 
 const CAPS: Caps = { budgetTokens: 1_000_000, maxTurns: 100, maxMinutes: 30 };
 const MINUTE = 60_000;
-const ACTION = "docker ps";
 
 interface World {
   readonly dir: string;
@@ -124,36 +106,25 @@ afterEach(() => {
   rmSync(w.dir, { recursive: true, force: true });
 });
 
-/** Parks the run `needs-permission` at the current time with its question; returns both ids. */
-function park(): { parkId: number; question: string } {
+/** Parks the run `worker-failed` at the current time; returns the park id. */
+function park(): { parkId: number } {
   const { office, run, t } = w.f;
   const at = t.clock.now();
-  const question = t.ids.next("qst");
   let parkId = 0;
   office.immediate(() => {
     office.run(
       `insert into parks (office_id, park_id, key, story_id, run_id, reason, from_state, detail, at)
        values ($office_id, (select coalesce(max(park_id), 0) + 1 from parks
-         where office_id = $office_id), $key, 'DIPO-1', $run, 'needs-permission', 'In Progress',
-         $detail, $at)`,
-      { key: w.key, run, detail: `Bash: ${ACTION}`, at },
+         where office_id = $office_id), $key, 'DIPO-1', $run, 'worker-failed', 'In Progress',
+         'the worker host was lost', $at)`,
+      { key: w.key, run, at },
     );
     parkId = office.get<{ id: number }>(
       "select max(park_id) as id from parks where office_id = $office_id",
     )?.id as number;
-    endRun(office, run, at, "blocked");
-    insertParkQuestion(office, {
-      questionId: question,
-      runId: run,
-      agentId: w.f.agent,
-      parkId,
-      tool: "Bash",
-      action: ACTION,
-      text: `Bash(${ACTION})`,
-      at,
-    });
+    endRun(office, run, at, "interrupted");
   });
-  return { parkId, question };
+  return { parkId };
 }
 
 function built(unpark: UnparkWriter): { outcomes: RunOutcomes; resumption: Resumption } {
@@ -177,7 +148,19 @@ function built(unpark: UnparkWriter): { outcomes: RunOutcomes; resumption: Resum
   });
 }
 
-const outcomes = (unpark: UnparkWriter): RunOutcomes => built(unpark).outcomes;
+function context(): AsyncCommandContext {
+  return {
+    office: w.f.office,
+    clock: w.f.t.clock,
+    ids: w.f.t.ids,
+    requestId: "req_1",
+    origin: "cli",
+    confirmed: false,
+    now: w.f.t.clock.now(),
+    stories: { get: () => ({ story: "DIPO-1", key: w.key }) },
+    commit: () => {},
+  } as unknown as AsyncCommandContext;
+}
 const resumptionOf = (unpark: UnparkWriter): Resumption => built(unpark).resumption;
 
 const lifting: UnparkWriter = {
@@ -197,7 +180,7 @@ describe("parked time (runs.parked_ms)", () => {
     office.immediate(() =>
       reopenParkedRun(
         office,
-        { ...first, reason: "needs-permission", detail: "x" },
+        { ...first, reason: "worker-failed", detail: "x" },
         findRun(office, run)!,
         "In Progress",
         t.clock.now(),
@@ -210,7 +193,7 @@ describe("parked time (runs.parked_ms)", () => {
     office.immediate(() =>
       reopenParkedRun(
         office,
-        { ...second, reason: "needs-permission", detail: "x" },
+        { ...second, reason: "worker-failed", detail: "x" },
         findRun(office, run)!,
         "In Progress",
         t.clock.now(),
@@ -229,187 +212,23 @@ describe("parked time (runs.parked_ms)", () => {
     office.immediate(() => endRun(office, run, t.clock.now(), "in-review"));
     const outcome = runOutcome(office, run);
     expect(outcome?.minutes).toBe(20);
-    expect(outcome?.parkReasons).toEqual(["needs-permission", "needs-permission"]);
+    expect(outcome?.parkReasons).toEqual(["worker-failed", "worker-failed"]);
   });
 
   it("starts the resumed session with its caps counting from the work, after a long park", async () => {
     const { run, t } = w.f;
     const started = t.clock.now();
     t.clock.advance(10 * MINUTE);
-    const { parkId, question } = park();
+    park();
     t.clock.advance(24 * 60 * MINUTE);
     const resuming = resumptionOf(lifting);
-    const result = await resuming.resumePark(w.f.office.officeId as never, run, {
-      parkId,
-      question,
-      decision: "allow",
-      text: "",
-    });
-    expect(result).toEqual({ kind: "started" });
+    const reply = await resuming.resumeCommand(context(), { story: StoryId.parse("DIPO-1") });
+    expect(reply.result).toMatchObject({ to: "In Progress", run });
     await resuming.idle();
+    expect(w.lifts).toHaveLength(1);
     const session = w.sessions[0];
     expect(t.clock.now() - (session?.startedAt ?? 0)).toBe(10 * MINUTE);
     expect(session?.startedAt).toBe(started + 24 * 60 * MINUTE);
-    expect(session?.message).toContain(ACTION);
-  });
-});
-
-describe("a resume a restart interrupted", () => {
-  it("is finished by redispatch from its intent: lifted, reopened, answered and resumed once", async () => {
-    const { office, run } = w.f;
-    const { parkId, question } = park();
-    // The daemon stops while the park is being lifted on the branch.
-    const stuck: UnparkWriter = { lift: () => new Promise(() => undefined) };
-    void resumptionOf(stuck).resumePark(office.officeId as never, run, {
-      parkId,
-      question,
-      decision: "deny",
-      text: "use the fake",
-    });
-    await Bun.sleep(0);
-    const [intent] = runIntents(office, run);
-    expect(intent).toMatchObject({ kind: "answer", state: "pending", resolvedAt: null });
-    expect(openPark(office, w.key)?.parkId).toBe(parkId);
-    expect(findRun(office, run)?.endedAt).not.toBeNull();
-    expect(findQuestion(office, question)?.closedAt).toBeNull();
-
-    // The next daemon: redispatch rolls the resume forward.
-    const restarted = outcomes(lifting);
-    await restarted.redispatch(office.officeId as never);
-    expect(w.lifts).toHaveLength(1);
-    expect(openPark(office, w.key)).toBeNull();
-    expect(findRun(office, run)?.endedAt).toBeNull();
-    expect(findQuestion(office, question)).toMatchObject({
-      closedHow: "answered",
-      decision: "deny",
-      answer: "use the fake",
-    });
-    expect(w.sessions).toHaveLength(1);
-    expect(w.sessions[0]?.message).toContain(`Do it without ${ACTION}.`);
-    expect(runIntents(office, run).find((i) => i.kind === "answer")).toMatchObject({
-      outcome: "resumed",
-    });
-    // A second restart does nothing more.
-    await outcomes(lifting).redispatch(office.officeId as never);
-    expect(w.sessions).toHaveLength(1);
-  });
-
-  it("starts the session of a reopened run whose session never started", async () => {
-    const { office, run } = w.f;
-    const { parkId, question } = park();
-    // The reopen committed, then the daemon stopped before the session started.
-    let release!: () => void;
-    const held = new Promise<void>((resolve) => (release = resolve));
-    const first = createRunOutcomes({
-      clock: w.f.t.clock,
-      offices: { get: () => office },
-      steering: { send: async () => ({ ok: true }) },
-      encode,
-      worker: { id: "claude-cli", result: () => ({}) as never },
-      ender: () => ({ isTracked: () => false }) as unknown as RunEnder,
-      resumer: { next: () => held.then(() => new Promise(() => undefined)) },
-      caps: () => CAPS,
-      unpark: lifting,
-    });
-    void first.resumption.resumePark(office.officeId as never, run, {
-      parkId,
-      question,
-      decision: "allow",
-      text: "",
-    });
-    for (let i = 0; i < 20 && findRun(office, run)?.endedAt !== null; i++) await Bun.sleep(0);
-    expect(findRun(office, run)?.endedAt).toBeNull();
-    expect(runIntents(office, run).find((i) => i.kind === "answer")?.state).toBe("sent");
-
-    await outcomes(lifting).redispatch(office.officeId as never);
-    expect(w.lifts).toHaveLength(1);
-    expect(w.sessions).toHaveLength(1);
-    expect(runIntents(office, run).find((i) => i.kind === "answer")?.outcome).toBe("resumed");
-    release();
-  });
-
-  it("drops the intent and leaves the question answerable when the park ended meanwhile", async () => {
-    const { office, run } = w.f;
-    const { parkId, question } = park();
-    void resumptionOf({ lift: () => new Promise(() => undefined) }).resumePark(
-      office.officeId as never,
-      run,
-      { parkId, question, decision: "allow", text: "" },
-    );
-    await Bun.sleep(0);
-    office.immediate(() =>
-      office.run(
-        `update parks set resolved_at = 1, resolved_how = 'reconcile' where office_id = $office_id`,
-      ),
-    );
-    await outcomes(lifting).redispatch(office.officeId as never);
-    expect(w.lifts).toEqual([]);
-    expect(w.sessions).toEqual([]);
-    expect(runIntents(office, run).find((i) => i.kind === "answer")?.outcome).toBe("abandoned");
-    expect(findRun(office, run as RunId)?.endedAt).not.toBeNull();
-  });
-});
-
-describe("the reply of work.answer (live test of 2026-10-15)", () => {
-  it("returns once the run is reopened, before the next session's host has started", async () => {
-    const { office, run } = w.f;
-    const { question } = park();
-    // A worker host that never finishes starting.
-    let asked = 0;
-    const hanging = createRunOutcomes({
-      clock: w.f.t.clock,
-      offices: { get: () => office },
-      steering: { send: async () => ({ ok: true }) },
-      encode,
-      worker: { id: "claude-cli", result: () => ({}) as never },
-      ender: () => ({ isTracked: () => false }) as unknown as RunEnder,
-      resumer: {
-        next: () => {
-          asked += 1;
-          return new Promise(() => undefined);
-        },
-      },
-      caps: () => CAPS,
-      unpark: lifting,
-    });
-    const asks = new PermissionAsks({
-      clock: w.f.t.clock,
-      ids: w.f.t.ids,
-      offices: { get: () => office, config: () => OFFICE_DEFAULTS },
-      steering: { send: async () => ({ ok: true }) },
-      encode,
-      presence: { tuiConnected: () => false },
-      parks: { resume: (o, id, request) => hanging.resumption.resumePark(o, id, request) },
-    });
-    const reply = await executeCommand(
-      {
-        registry: buildRegistry([asks.feature]),
-        offices: stateOfficeDirectory(w.f.t.state),
-        clock: w.f.t.clock,
-        ids: w.f.t.ids,
-        softwareRequests: new MemoryRequestTable(w.f.t.clock),
-      },
-      {
-        requestId: RequestId.parse("01J9ZK5Q8W3V4X6Y7Z00095001"),
-        name: "work.answer",
-        args: { question, text: "", decision: "allow" },
-        origin: "cli",
-        confirmed: false,
-        office: office.officeId as OfficeId,
-      },
-    );
-    expect(reply).toMatchObject({
-      ok: true,
-      changed: true,
-      result: { question, delivered: "on-resume", run },
-    });
-    // The session is starting (its host never answers here), the run is active again and the
-    // answer is recorded; the intent is sent, so a restart would finish the start.
-    expect(asked).toBe(1);
-    expect(findRun(office, run)?.endedAt).toBeNull();
-    expect(findQuestion(office, question)?.closedHow).toBe("answered");
-    expect(runIntents(office, run).find((i) => i.kind === "answer")?.state).toBe("sent");
-    expect(hanging.outcomes.busy(run)).toBe(true);
-    asks.close();
+    expect(session?.message).toContain("the worker host was lost");
   });
 });

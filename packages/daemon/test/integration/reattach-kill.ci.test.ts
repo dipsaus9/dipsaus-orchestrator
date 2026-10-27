@@ -1,10 +1,10 @@
-// CI only (0017 section 1; DIPO-316 AC #5): a real daemon process is killed with SIGKILL during a
+// CI only (0017; DIPO-316 AC #5): a real daemon process is killed with SIGKILL during a
 // live run and started again, and the run re-attaches and ends once. The daemon is `dipo daemon
 // --foreground` with a scripted worker port (`fixtures/scripted-worker-daemon.ts`): `work.run`
 // claims TASK-1 of the Backlog fixture on real git with a bare `origin` and starts a real detached
 // worker host whose worker is a script. After the SIGKILL the host and the worker go on; the next
 // daemon re-attaches to the host by PID, start time and handshake, catches up on the lines written
-// while no daemon ran, and `work.stop` ends the run through the re-attached host. One host, one
+// while no daemon ran, and `story.park` ends the run through the re-attached host. One host, one
 // agent, one end. State, runtime and temp files stay under the test's temp directory, the daemon's
 // PATH holds no `claude`, `gh` or `container`, and every process is stopped in a `finally`.
 
@@ -301,7 +301,7 @@ if (process.env["DIPO_TEST_CI"] === "1") {
                 return host !== undefined && host.processed_offset > down ? true : null;
               });
 
-              await command(dir, "work.stop", { story: "TASK-1" }, { office, confirmed: true });
+              await command(dir, "story.park", { story: "TASK-1", note: "Stopped." }, { office });
               const exitFile = join(dirname(live.event_file), "exit.json");
               await waitFor(dir, "the run and its worker to end", () => {
                 const ended = query<{ n: number }>(
@@ -346,13 +346,13 @@ if (process.env["DIPO_TEST_CI"] === "1") {
                 .map((row) => row.text)
                 .join("");
               expect(output.match(/\[dipo\] \S+ ended /g)).toHaveLength(1);
-              // The stop through the re-attached host parked the story once.
+              // The park through the re-attached host parked the story once.
               const parks = query<{ reason: string }>(
                 dir,
                 "select reason from parks where run_id = $run",
                 { $run: run },
               );
-              expect(parks).toEqual([{ reason: "stopped" }]);
+              expect(parks).toEqual([{ reason: "by-maintainer" }]);
             } finally {
               if (first !== null) await stop(first);
               if (second !== null) await stop(second);

@@ -1,7 +1,7 @@
 // Your desk (`3`, 0009 sections 4, 5 and 9, amended by DIPO-132 and DIPO-308): what waits on the
 // maintainer, read from `office.desk` and shown in the engine's order. A count line, then one row
-// per item with its kind, story, park reason and cause, detail, age and the keys its actions offer
-// (`keys.ts`); the stories held by the maintainer are listed apart under "Held by you". An empty
+// per item with its kind, story, park reason, detail, age and the keys its actions offer
+// (`keys.ts`); the stories the maintainer parked are listed apart under "Parked by you". An empty
 // desk says `Nothing waits on you.`. At 80 columns and wider an item with a hand action or with
 // stories it blocks gets a second line for them; below 80 every row is one line and the keys of
 // the selected row show in the footer only.
@@ -147,16 +147,22 @@ export function deskRowId(item: DeskItem): string {
   ].join(":");
 }
 
-/** The desk's rows in the engine's order: what waits, then the stories held by the maintainer. */
+/** The kind of a desk item for a story the maintainer parked, listed under its own title (0020). */
+export const PARKED_BY_YOU = "PARKED BY YOU";
+
+/**
+ * The desk's rows in the engine's order: what waits, then the stories the maintainer parked,
+ * listed apart (0020).
+ */
 export function deskRows(items: readonly DeskItem[]): {
   readonly waiting: readonly DeskItem[];
-  readonly held: readonly DeskItem[];
+  readonly byYou: readonly DeskItem[];
   /** Both lists in display order: the order `j` and `k` move in. */
   readonly all: readonly DeskItem[];
 } {
-  const waiting = items.filter((item) => item.kind !== "HELD");
-  const held = items.filter((item) => item.kind === "HELD");
-  return { waiting, held, all: [...waiting, ...held] };
+  const waiting = items.filter((item) => item.kind !== PARKED_BY_YOU);
+  const byYou = items.filter((item) => item.kind === PARKED_BY_YOU);
+  return { waiting, byYou, all: [...waiting, ...byYou] };
 }
 
 /** The selected row: by its id, else the first row of the same story, else the same index. */
@@ -172,10 +178,9 @@ export function selectedRow(
   return Math.max(0, Math.min(rows.length - 1, selection.index));
 }
 
-/** `needs-permission (build)` for a park; empty for an item that is no park. */
+/** `review-blocked` for a park; empty for an item that is no park. */
 export function parkWords(item: DeskItem): string {
-  if (item.reason === undefined) return "";
-  return item.cause === undefined ? item.reason : `${item.reason} (${item.cause})`;
+  return item.reason ?? "";
 }
 
 /** The key hints of a row, as the footer and wide rows show them. */
@@ -277,7 +282,7 @@ export function Desk(props: {
       </Box>
     );
   }
-  const { waiting, held, all } = deskRows(desk.items);
+  const { waiting, byYou, all } = deskRows(desk.items);
   const widths = {
     kind: Math.max(0, ...all.map((item) => item.kind.length)),
     story: Math.max(0, ...all.map((item) => (item.story ?? "").length)),
@@ -303,12 +308,12 @@ export function Desk(props: {
     out.push({ text: `desk: ${desk.error.code}: ${desk.error.message}`, key: "error" });
   }
   if (waiting.length === 0) out.push({ text: EMPTY_DESK, key: "empty" });
-  // The rows with "Held by you" before the first held one, then a window that keeps the selected
+  // The rows with "Parked by you" before the first of them, then a window that keeps the selected
   // row on screen.
   const body: { text: string; key: string; tone?: "selected" | "title"; row: number }[] = [];
   rendered.forEach((lines, i) => {
     if (i === waiting.length) {
-      body.push({ text: `Held by you (${held.length})`, key: "held", tone: "title", row: i });
+      body.push({ text: `Parked by you (${byYou.length})`, key: "by-you", tone: "title", row: i });
     }
     const id = deskRowId(all[i]!);
     lines.forEach((text, n) => {

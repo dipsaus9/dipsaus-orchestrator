@@ -51,7 +51,7 @@
 //   (`protectedKind`: the rest of `backlog/`, `.dipo/`, `.github/`, the Claude settings, git's
 //   attribute files, and the configuration of the Backlog CLI, Bun and Claude Code's MCP servers),
 //   or a task-file conflict other than in its content, merges nothing, into neither the branch nor
-//   the box, and parks `conflict` with cause `unwritable-path`.
+//   the box, and parks `conflict`.
 // - The sync before In Review (`syncInTurn`, DIPO-149): verify and commit runs the same catch-up
 //   at done, in the run's held turn, for a riskier story whenever the base moved and for any other
 //   on a conflict; the caller tells the worker. Both are planned on git's merge alone, never on the
@@ -134,14 +134,6 @@ export const COLLISION_NOTICES = {
   failed: "box.catchUpFailed",
   /** The story's own task file conflicted and dipo could not write its status back (DIPO-149). */
   taskFile: "box.catchUpTaskFile",
-} as const;
-
-/** The park causes of a catch-up. */
-export const CATCH_UP_CAUSES = {
-  failed: "catch-up-failed",
-  pushRejected: "push-rejected",
-  /** 0019 section 10: a conflict in a path the worker cannot write (`PARK_CAUSES.unwritablePath`). */
-  unwritablePath: "unwritable-path",
 } as const;
 
 /** The most bytes of one conflicted file read for its hunks; a larger file is named only. */
@@ -1532,7 +1524,6 @@ export class BoxCollisions {
     });
     return {
       reason: "conflict",
-      cause: CATCH_UP_CAUSES.unwritablePath,
       detail: `git could not merge ${plan.base} at ${plan.onto.slice(0, 12)} cleanly in paths the worker cannot write: ${shownPaths(plan.paths)}`,
     };
   }
@@ -1568,7 +1559,7 @@ export class BoxCollisions {
       code: COLLISION_NOTICES.failed,
       text: `${run.story}: ${detail}`,
     });
-    return { kind: "park", park: { reason: "conflict", cause: CATCH_UP_CAUSES.failed, detail } };
+    return { kind: "park", park: { reason: "conflict", detail } };
   }
 
   /** The catch-up itself, in the run's turn (see the file comment). */
@@ -1712,7 +1703,6 @@ export class BoxCollisions {
         kind: "park",
         park: {
           reason: "conflict",
-          cause: CATCH_UP_CAUSES.pushRejected,
           detail: `${push.error ?? "the push was rejected"}; the remote branch has commits the story branch lacks`,
         },
       };

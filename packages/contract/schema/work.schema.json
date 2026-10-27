@@ -29,10 +29,7 @@
             "scope-violation",
             "review-blocked",
             "budget-exceeded",
-            "on-hold",
-            "stopped",
-            "interrupted",
-            "needs-permission",
+            "by-maintainer",
             "worker-failed"
           ]
         },
@@ -106,17 +103,7 @@
       "anyOf": [
         {
           "type": "string",
-          "enum": [
-            "draft",
-            "refined",
-            "ready",
-            "waiting",
-            "running",
-            "review",
-            "desk",
-            "held",
-            "done"
-          ]
+          "enum": ["draft", "refined", "ready", "waiting", "running", "review", "desk", "done"]
         },
         {
           "type": "string"
@@ -455,17 +442,7 @@
           "anyOf": [
             {
               "type": "string",
-              "enum": [
-                "draft",
-                "refined",
-                "ready",
-                "waiting",
-                "running",
-                "review",
-                "desk",
-                "held",
-                "done"
-              ]
+              "enum": ["draft", "refined", "ready", "waiting", "running", "review", "desk", "done"]
             },
             {
               "type": "string"
@@ -526,10 +503,7 @@
                     "scope-violation",
                     "review-blocked",
                     "budget-exceeded",
-                    "on-hold",
-                    "stopped",
-                    "interrupted",
-                    "needs-permission",
+                    "by-maintainer",
                     "worker-failed"
                   ]
                 },
@@ -1153,7 +1127,6 @@
                       "running",
                       "review",
                       "desk",
-                      "held",
                       "done"
                     ]
                   },
@@ -1216,10 +1189,7 @@
                           "scope-violation",
                           "review-blocked",
                           "budget-exceeded",
-                          "on-hold",
-                          "stopped",
-                          "interrupted",
-                          "needs-permission",
+                          "by-maintainer",
                           "worker-failed"
                         ]
                       },
@@ -1807,7 +1777,6 @@
               "type": "string",
               "enum": [
                 "QUESTION",
-                "PERMISSION",
                 "SCOPE",
                 "MERGE",
                 "PARKED",
@@ -1817,7 +1786,7 @@
                 "BACKLOG PR",
                 "NOTICE",
                 "PROPOSAL",
-                "HELD",
+                "PARKED BY YOU",
                 "PROFILE"
               ]
             },
@@ -1898,10 +1867,7 @@
                 "scope-violation",
                 "review-blocked",
                 "budget-exceeded",
-                "on-hold",
-                "stopped",
-                "interrupted",
-                "needs-permission",
+                "by-maintainer",
                 "worker-failed"
               ]
             },
@@ -1909,9 +1875,6 @@
               "type": "string"
             }
           ]
-        },
-        "cause": {
-          "type": "string"
         },
         "detail": {
           "type": "string"

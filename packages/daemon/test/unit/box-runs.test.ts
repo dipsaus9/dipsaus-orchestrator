@@ -358,7 +358,7 @@ describe("the daemon's guards of a box run's merges (DIPO-324)", () => {
       const outcome = await merge(found, with_);
       expect(outcome).toMatchObject({
         kind: "park",
-        park: { reason: "conflict", cause: "catch-up-failed" },
+        park: { reason: "conflict" },
       });
       if (outcome.kind === "park") expect(outcome.park.detail).toContain("nothing was merged");
     }

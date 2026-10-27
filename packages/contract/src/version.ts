@@ -83,4 +83,8 @@ export type ContractVersion = z.infer<typeof ContractVersion>;
 // DIPO-308 ships the read `office.digest`, with `since` made optional (the engine then counts from
 // when the office's last TUI client disconnected), and so its capability flag `digest`, in the same,
 // still unreleased, minor.
+// DIPO-344 replaces `work.stop`, `work.pause` and `story.hold` with `story.park`, cuts the park
+// reasons to the eight of 0001, and removes `cause` from `story.parked` and the desk item,
+// `decision` from `work.answer`, the `held` column and the office code `resume.decisionRequired`,
+// in the same, still unreleased, minor.
 export const CONTRACT_VERSION = Object.freeze({ major: 1, minor: 1 }) satisfies ContractVersion;

@@ -1,10 +1,11 @@
-// CI only (0017 section 1): parks on real git with a bare `origin` and the pinned Backlog CLI
+// CI only (0017): parks on real git with a bare `origin` and the pinned Backlog CLI
 // (DIPO-50 test plan). Each case claims TASK-1 with `work.run`, then:
 // - replays `budget-engine-cap` through FakeProcess with the tier budget from its meta: run control
 //   stops the worker and parks `budget-exceeded` naming the token cap, with one park commit
 //   `TASK-1: status Parked` holding the F16 block, pushed to `origin`;
-// - with no worker events, `work.stop` parks `stopped` the same way, branch and worktree kept;
-// - with the worktree's `.git` pointer changed after the claim, `work.stop` parks `scope-violation`
+// - with no worker events, `story.park` parks `by-maintainer` the same way, branch and worktree
+//   kept;
+// - with the worktree's `.git` pointer changed after the claim, `story.park` parks `scope-violation`
 //   and no git runs in that worktree: the branch tip stays the claim commit.
 // Each case needs several CLI calls, an office load, a fetch, a claim and a push, well over the
 // local per-test budget; the same rules run locally against fakes in control.test.ts.
@@ -104,23 +105,25 @@ if (process.env["DIPO_TEST_CI"] === "1") {
     }, 30_000);
 
     it(
-      "work.stop parks stopped with the note, keeping branch and worktree",
+      "story.park parks by-maintainer with the note, keeping branch and worktree",
       () =>
         withRunOffice({ host: "stub", checks: { ok: true }, control: {} }, async (r) => {
           const run = await startRun(r);
-          const reply = await command(r, "work.stop", { story: "TASK-1", note: "Not now." });
+          const reply = await command(r, "story.park", { story: "TASK-1", note: "Not now." });
           if (!reply.ok) throw new Error(`${reply.error.code}: ${reply.error.message}`);
-          expect(parks(r).map((p) => [p.reason, p.detail])).toEqual([["stopped", "Not now."]]);
+          expect(parks(r).map((p) => [p.reason, p.detail])).toEqual([
+            ["by-maintainer", "Not now."],
+          ]);
           expect((await r.repo.git("log", "--format=%s", "-n", "1", BRANCH)).trim()).toBe(
             "TASK-1: status Parked",
           );
           const worktree = worktreeOf(r, run);
-          expect(await viewIn(r, worktree)).toContain('reason: "stopped"');
+          expect(await viewIn(r, worktree)).toContain('reason: "by-maintainer"');
           const worktrees = await r.repo.git("worktree", "list", "--porcelain");
           expect(worktrees).toContain(`branch refs/heads/${BRANCH}`);
-          // A second stop finds no running worker.
-          const again = await command(r, "work.stop", { story: "TASK-1" });
-          expect(again.ok ? "ok" : again.error.code).toBe("story.notRunning");
+          // A second park finds the story parked already.
+          const again = await command(r, "story.park", { story: "TASK-1", note: "Again." });
+          expect(again).toMatchObject({ ok: true, changed: false });
         }),
       30_000,
     );
@@ -133,7 +136,7 @@ if (process.env["DIPO_TEST_CI"] === "1") {
           const before = await tip(r, BRANCH);
           const pointer = join(worktreeOf(r, run), ".git");
           writeFileSync(pointer, `${readFileSync(pointer, "utf8").trim()}/../x\n`);
-          const reply = await command(r, "work.stop", { story: "TASK-1" });
+          const reply = await command(r, "story.park", { story: "TASK-1", note: "Moved." });
           expect(reply.ok).toBe(true);
           expect(parks(r).map((p) => p.reason)).toEqual(["scope-violation"]);
           expect(parks(r)[0]?.detail).toContain("dipo runs no git in that worktree");

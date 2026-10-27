@@ -651,9 +651,9 @@ if (process.env["DIPO_TEST_CI"] === "1") {
         const record = await movedPast(o);
         o.office.run(
           `insert into parks (office_id, park_id, key, story_id, run_id, reason, from_state, detail,
-           last_good_commit, at, cause)
+           last_good_commit, at)
          values ($office_id, 1, $key, 'TASK-1', $run, 'budget-exceeded', 'In Review',
-           'turn cap', null, 1, 'build')`,
+           'turn cap', null, 1)`,
           { key: record.key, run: record.runId },
         );
         const seq = lastSeq(o.office);

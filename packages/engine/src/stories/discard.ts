@@ -5,7 +5,7 @@
 // is `irreversible`. It removes nothing that list did not show.
 //
 // From In Progress, In Review or Parked with a claim, in the order of 0010 section 2a:
-// 1. An active run is stopped as `work.stop` stops it; a worker host of the run that still runs
+// 1. An active run is stopped as `story.park` stops it; a worker host of the run that still runs
 //    answers the retryable `run.hostAlive`, with nothing changed.
 // 2. The lane-b op is journaled (status Refined, the F16 park removed), so the pending-op skip
 //    covers the story at once. It applies only while the base status is not Done: lane b never
@@ -61,6 +61,7 @@ import type { OfficeGit } from "../git/office";
 import { closeQuestion, openQuestions } from "../hooks/questions";
 import { type CodeHost, CodeHostError } from "../platform/host";
 import type { ProcessProbe } from "../platform/process";
+import { openParkIds, resolvePark } from "../run/park";
 import { activeRuns } from "../run/records";
 import { hostAlive, workerHostsOf } from "../runs/worker-hosts";
 import { latestStoryPr, setStoryPrState } from "../story-pr/records";
@@ -106,10 +107,10 @@ export const DISCARD_NOTICES = {
   remoteBranch: "discard.remoteBranch",
 } as const;
 
-/** The `work.stop` a discard of a running story calls first. */
+/** The `story.park` of a running story a discard calls first, which stops its worker. */
 export type DiscardStop = (
   ctx: AsyncCommandContext,
-  args: { readonly story: string; readonly note?: string },
+  args: { readonly story: string; readonly note: string },
 ) => Promise<unknown>;
 
 export interface StoryDiscardDeps {
@@ -120,7 +121,7 @@ export interface StoryDiscardDeps {
   readonly slots?: SlotTable;
   /** Reads whether a worker host of the claim's run still runs. */
   readonly probe: ProcessProbe;
-  /** Stops an active run as `work.stop` does; without it a running story is refused. */
+  /** Stops an active run as `story.park` does; without it a running story is refused. */
   readonly stop?: DiscardStop;
   /** Checks and deletes the boxes of ended runs (0021 section 6); best effort. */
   readonly finishBoxes?: () => Promise<unknown>;
@@ -179,7 +180,7 @@ export class StoryDiscard {
       if (this.#deps.stop === undefined) {
         throw new CommandError(
           DISCARD_STORY_ACTIVE,
-          `${story} is running; stop it with \`dipo stop ${story}\` first, then discard it.`,
+          `${story} is running; park it with \`dipo park ${story} --note <why>\` first, then discard it.`,
           { story },
         );
       }
@@ -280,15 +281,11 @@ export class StoryDiscard {
           });
         }
       }
-      const parks =
-        runId === null
-          ? 0
-          : office.run(
-              `update parks set resolved_at = $at, resolved_how = 'discard'
-                where office_id = $office_id and key = $key and run_id = $run
-                  and resolved_at is null`,
-              { at, key, run: runId },
-            ).changes;
+      let parks = 0;
+      for (const park of runId === null ? [] : openParkIds(office, key, runId)) {
+        entries.push(...resolvePark(office, park, "discard", at));
+        parks += 1;
+      }
       const cleared = clearLeftovers(office, key, at, removed);
       if (toRefined) {
         const from: Lifecycle = before?.lifecycle ?? "Parked";

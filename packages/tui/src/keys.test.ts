@@ -1,7 +1,7 @@
 // The key table (DIPO-308; 0009 sections 5 and 6): a desk row offers a key only for a command its
 // `actions` lists and the engine's flags allow, `y` and `n` accept and dismiss a PROPOSAL row, a
 // key an earlier action of the row took or a command no entry binds shows its command line, and
-// the detail and the queue get steer, pause, hold and drop from the same table.
+// the detail and the queue get steer, park and drop from the same table.
 
 import { describe, expect, it } from "bun:test";
 
@@ -27,10 +27,8 @@ function row(item: Partial<DeskItem>): DeskItem {
   } as DeskItem;
 }
 
-/** The desk action that offers `command`, with a command line of its answer form. */
+/** The desk action that offers `command`. */
 function actionFor(id: string, command: string) {
-  if (id === "allow") return { command, cli: "dipo answer q allow" };
-  if (id === "deny") return { command, cli: 'dipo answer q deny "<reason>"' };
   if (id === "answer") return { command, cli: 'dipo answer q --text "<answer>"' };
   return { command, cli: `dipo ${command}` };
 }
@@ -84,21 +82,22 @@ describe("the key table", () => {
         actions: [
           { command: "work.run", cli: "dipo run DIPO-1" },
           { command: "gate.reject", cli: 'dipo reject DIPO-1 --note "<why>"' },
-          { command: "work.answer", cli: 'dipo answer q deny "<reason>"' },
+          { command: "proposal.dismiss", cli: "dipo propose dismiss ab" },
         ],
       }),
       FLAGS,
     );
+    // `n` rejects the merge; the dismiss that would take it too shows its command line.
     expect(keys.bound.map((bound) => bound.binding.id)).toEqual(["reject"]);
     expect(keys.unbound.map((action) => action.cli)).toEqual([
       "dipo run DIPO-1",
-      'dipo answer q deny "<reason>"',
+      "dipo propose dismiss ab",
     ]);
   });
 
-  it("gives the detail steer and pause and the queue hold and drop, behind their flags", () => {
-    expect(viewKeys("detail", FLAGS).map((entry) => entry.key)).toEqual(["s", "p"]);
-    expect(viewKeys("detail", [])).toEqual([]);
-    expect(viewKeys("queue", []).map((entry) => entry.key)).toEqual(["h", "d"]);
+  it("gives the detail steer and park and the queue park and drop, steer behind its flag", () => {
+    expect(viewKeys("detail", FLAGS).map((entry) => entry.key)).toEqual(["P", "s"]);
+    expect(viewKeys("detail", []).map((entry) => entry.key)).toEqual(["P"]);
+    expect(viewKeys("queue", []).map((entry) => entry.key)).toEqual(["P", "d"]);
   });
 });

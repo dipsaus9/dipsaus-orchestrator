@@ -351,7 +351,7 @@ export {
   EXCLUDE_TAKES,
   inBoxExcludes,
   PART_ARCHIVE_LIMITS,
-  PART_CAUSES,
+  PART_HITS,
   PART_FAILED,
   PART_NOTICES,
   PART_RECORD_FILE,
@@ -394,7 +394,6 @@ export { ignoreFileDir, IgnoreRules } from "./ignore";
 export type { IgnoreFile } from "./ignore";
 export {
   BoxCollisions,
-  CATCH_UP_CAUSES,
   COLLISION_NOTICES,
   COLLISION_POLL_MS,
   CONFLICT_MARKER,

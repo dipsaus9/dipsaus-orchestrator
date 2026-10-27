@@ -11,7 +11,7 @@ import type {
 } from "@dipsaus-orchestrator/contract";
 
 import type { CommandOutcome, LossesOutcome } from "../actions";
-import { App, type RunOutcome, type StopOutcome, type StoryOutcome, type TuiActions } from "../app";
+import { App, type RunOutcome, type StoryOutcome, type TuiActions } from "../app";
 import type { DeskOutcome } from "../desk";
 import type { PromptOutcome } from "../detail";
 import type { DigestOutcome } from "../digest";
@@ -125,12 +125,6 @@ export async function mount(options: MountOptions = {}) {
         { name: "story.detail" } as never,
         { office: request.office, story: request.story } as never,
       )) as StoryOutcome,
-    stopStory: async (request) =>
-      (await session.command({ name: "work.stop" } as never, { story: request.story } as never, {
-        office: request.office,
-        requestId: request.requestId,
-        confirmed: true,
-      })) as StopOutcome,
     sendCommand: async (request) =>
       (await session.command({ name: request.command } as never, request.args as never, {
         office: request.office,

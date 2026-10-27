@@ -7,7 +7,7 @@
 //   checks must be green on the pushed head (`StoryPrs.ciState`, or no CI ran for a box run's head,
 //   DIPO-299), and the review verdict of the head's code tree must be approved or overridden. Only
 //   then the host is read: the PR's state, its head and its labels. A PR merged on the host is the
-//   Done poll's; one closed without a merge parks the story `stopped` with cause `pr-closed`; a
+//   Done poll's; one closed without a merge parks the story `by-maintainer`; a
 //   host head that differs from the pushed head keeps the story out with a `pr.headChanged` notice
 //   naming both heads, and no gate opens for it (0019 section 9). Otherwise the head's merge gate
 //   opens (`gates.ts`) unless one holds for it already, decided by rule or waiting for the
@@ -29,7 +29,7 @@
 //      the merged head with no new review round (0019 section 6). A conflict is committed as git
 //      left it and pushed, and the story leaves the slot as a conflict hand-off: one fix round with
 //      the conflict item (`FixRounds.conflict`, DIPO-149). A conflict in a path the worker cannot
-//      write parks `conflict` with cause `unwritable-path`. The merge commit is planned first and
+//      write parks `conflict`. The merge commit is planned first and
 //      persisted in `merge_slot` (step `record`) before the branch moves to it, so a restart in
 //      between moves or records it then; a merge whose record or carry fails pushes and merges
 //      nothing;
@@ -45,7 +45,7 @@
 //      review loop takes the head);
 //   6. the squash merge with `--match-head-commit` and the PR title as subject. A refusal after
 //      which the base moved goes back to step 2, at most 3 times per stay; then the story parks
-//      `conflict` with cause `slot-refused`.
+//      `conflict`.
 //   Every step is idempotent when it runs again after a daemon restart, and the slot's occupant and
 //   step are in `merge_slot`.
 // - Stages after a run's start read the run's configuration snapshot (`runConfigOf`, DIPO-303
@@ -76,7 +76,7 @@ import {
 } from "../review/store";
 import { runConfigOf } from "../run/config-snapshot";
 import { catchUpsOf } from "../run/conflicts";
-import { openPark, PARK_CAUSES, type ParkWriter, parkStory } from "../run/park";
+import { openPark, type ParkWriter, parkStory } from "../run/park";
 import type { RunStoryFacts } from "../run/resume";
 import {
   findRun,
@@ -672,7 +672,7 @@ export class StorySlot {
     return opened.gate;
   }
 
-  /** Each story parked `review-blocked` (cause `rounds`) gets its override gate (0019 section 11). */
+  /** Each story parked `review-blocked` gets its override gate (0019 section 11). */
   async #overrideGates(ctx: StorySlotContext): Promise<void> {
     const office = ctx.office;
     const parked = office.all<{ run_id: string }>(
@@ -704,8 +704,9 @@ export class StorySlot {
   }
 
   /**
-   * A story PR the host shows closed without a merge parks the story `stopped` with cause
-   * `pr-closed` (0019 section 9), once per close: a resume that keeps it closed is 0020's.
+   * A story PR the host shows closed without a merge parks the story `by-maintainer` with the
+   * detail "PR #n closed on GitHub" (0002), once per close: no park of the run since the close.
+   * Its resume opens a new PR that names the closed one (0020).
    */
   async #closedPrs(ctx: StorySlotContext): Promise<void> {
     const rows = ctx.office.all<{ run_id: string }>(
@@ -728,13 +729,13 @@ export class StorySlot {
     const since = stored.closedAt ?? stored.openedAt;
     const parkedFor = office.get(
       `select 1 as found from parks where office_id = $office_id and run_id = $run
-        and cause = $cause and at >= $since limit 1`,
-      { run: run.runId, cause: PARK_CAUSES.prClosed, since },
+        and at >= $since limit 1`,
+      { run: run.runId, since },
     );
     if (parkedFor !== null) return;
     if (runInSlot(office, run.runId)) free(ctx);
-    const detail = `PR #${stored.number} was closed on the host`;
-    await this.#park(ctx, run, { reason: "stopped", cause: PARK_CAUSES.prClosed, detail });
+    const detail = `PR #${stored.number} closed on GitHub`;
+    await this.#park(ctx, run, { reason: "by-maintainer", detail });
   }
 
   #headChanged(
@@ -823,7 +824,6 @@ export class StorySlot {
             free(ctx);
             await this.#park(ctx, run, {
               reason: "conflict",
-              cause: PARK_CAUSES.unwritablePath,
               detail: `git could not merge ${sync.base} at ${short(sync.onto)} cleanly in paths the worker cannot write: ${sync.paths.join(", ")}`,
             });
             return "left";
@@ -1061,7 +1061,6 @@ export class StorySlot {
         free(ctx);
         await this.#park(ctx, run, {
           reason: "conflict",
-          cause: PARK_CAUSES.slotRefused,
           detail: `base moved during merge ${STORY_MERGE_ATTEMPTS} times: the host refused to merge PR #${current.number} each time because the base had moved`,
         });
         return "left";
@@ -1160,8 +1159,7 @@ export class StorySlot {
     ctx: StorySlotContext,
     run: StoredRun,
     park: {
-      readonly reason: "conflict" | "stopped";
-      readonly cause: string;
+      readonly reason: "conflict" | "by-maintainer";
       readonly detail: string;
     },
   ): Promise<void> {
@@ -1171,7 +1169,7 @@ export class StorySlot {
         notice(
           "warn",
           STORY_SLOT_NOTICES.failed,
-          `${run.story} should park ${park.reason} (${park.cause}): ${park.detail}. This daemon cannot park it.`,
+          `${run.story} should park ${park.reason}: ${park.detail}. This daemon cannot park it.`,
           run.key,
           run.runId,
         ),
@@ -1187,7 +1185,7 @@ export class StorySlot {
           write: (fn) => ctx.write(() => withWorkViews(ctx.office, fn())),
           implemented: deps.implemented,
         },
-        { run, reason: park.reason, cause: park.cause, detail: park.detail, endKind: park.reason },
+        { run, reason: park.reason, detail: park.detail, endKind: park.reason },
       );
     } catch (error) {
       ctx.logger?.warn("parking a story from the merge slot failed", {

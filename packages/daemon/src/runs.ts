@@ -112,7 +112,6 @@ import {
   type IngestAdapter,
   Nudges,
   type PartRun,
-  CATCH_UP_CAUSES,
   type SyncOutcome,
   type BranchPush,
   recordBranchPush,
@@ -202,14 +201,14 @@ export interface DaemonRunsOptions {
    */
   readonly storyPr?: {
     sync(office: OfficeId, runId: RunId): Promise<void>;
-    /** A new story PR in place of one closed on the host (a resumed `pr-closed` park, DIPO-324). */
+    /** A new story PR in place of one closed on the host, after a resume (0002, DIPO-324). */
     replace?(office: OfficeId, runId: RunId): Promise<void>;
     ciState?(office: OfficeId, runId: RunId): CiHeadState | null;
     onCiFinal?(listener: (office: OfficeId, runId: RunId) => void): void;
   };
-  /** The planning lane's resume of an on-hold park, for `work.resume` (DIPO-160). */
+  /** The planning lane's resume of a park with no run, for `work.resume` (DIPO-160). */
   readonly holdResumer?: () => HoldResumer | undefined;
-  /** The merge slot a resumed `slot-refused` park re-enters (DIPO-150). */
+  /** The merge slot a story waiting In Review again re-enters after a resume (DIPO-150). */
   readonly slotReentry?: () => SlotReentry | undefined;
   /** The story index, which reads a story again after its park or In Review commit (DIPO-56). */
   readonly stories?: StoryIndex;
@@ -236,12 +235,12 @@ export interface DaemonRunsOptions {
 export interface DaemonRuns {
   readonly launcher: RunLauncher;
   readonly ingest: OfficeIngest;
-  /** Caps, report parks and `work.stop` (DIPO-50). */
+  /** Caps, report parks and `story.park` of a story with a run (DIPO-50). */
   readonly control: RunControl;
   /** Worker outcomes and the run's next session (DIPO-51); its feature decides exits at load. */
   readonly outcomes: RunOutcomes;
   /**
-   * Park resume and `work.resume` (DIPO-138): `work.answer` on a `needs-permission` park resumes
+   * Park resume and `work.resume` (DIPO-138): `work.answer` on an `ambiguous-spec` park resumes
    * through it, and its feature rides on the plan-limit schedule's.
    */
   readonly resumption: Resumption;
@@ -804,7 +803,6 @@ export function conflictMergeOf(deps: {
       kind: "park",
       park: {
         reason: "conflict",
-        cause: CATCH_UP_CAUSES.failed,
         detail: `dipo resumed the story to merge the base into its branch and box once the session ran, but ${why}, so nothing was merged; resume it again`,
       },
     };
@@ -1052,8 +1050,8 @@ export function daemonRuns(options: DaemonRunsOptions): DaemonRuns {
     tempOwner: () => tempDirs.owner(),
     ...(options.holdResumer === undefined ? {} : { holdResumer: options.holdResumer }),
     ...(options.slotReentry === undefined ? {} : { slotReentry: options.slotReentry }),
-    // A resumed conflict park merges in its live run's box (DIPO-324), and a resumed pr-closed
-    // park opens a new story PR.
+    // A resumed conflict park merges in its live run's box (DIPO-324), and a story resumed to wait
+    // In Review again gets a new story PR when its PR was closed (0002).
     conflictMerge: conflictMergeOf({
       run: (runId) => partRun?.(runId) ?? null,
       collisions: () => collisions,
@@ -1126,7 +1124,7 @@ export function daemonRuns(options: DaemonRunsOptions): DaemonRuns {
     },
     control: {
       finisher,
-      // A `needs-permission` park asks its permission question (DIPO-75).
+      // The park written on the story branch (DIPO-50).
       writer: gitParkWriter({
         git: (office) => options.engineGit.forOffice(office),
         cli: options.cli,
@@ -1138,7 +1136,7 @@ export function daemonRuns(options: DaemonRunsOptions): DaemonRuns {
       probe,
       holds: options.holds,
       holdsWork: storyHoldsWork(storyGit),
-      // Lifting a `needs-permission` park on the story branch before its run resumes (DIPO-75).
+      // Lifting a park on the story branch before its run resumes (DIPO-75).
       unpark: gitUnparkWriter({
         git: (office) => options.engineGit.forOffice(office),
         cli: options.cli,

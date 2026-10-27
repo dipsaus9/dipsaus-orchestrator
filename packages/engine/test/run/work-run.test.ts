@@ -29,7 +29,6 @@ import { buildRegistry, type Registry } from "../../src/commands/registry";
 import { MemoryRequestTable } from "../../src/commands/requests";
 import { OFFICE_DEFAULTS, type OfficeConfig } from "../../src/config";
 import type { OfficeHandle } from "../../src/db/office";
-import { insertParkQuestion } from "../../src/hooks/questions";
 import { storeGateDecision } from "../../src/gate/store/decisions";
 import type { GateMode, GateResult } from "../../src/gate/types";
 import { executeRead } from "../../src/reads/execute";
@@ -1141,45 +1140,25 @@ describe("the pickup's serialized step ends at its claim row (DIPO-314)", () => 
   });
 });
 
-/** A story run parked `needs-permission`, ended, with its permission question open (DIPO-229). */
-function parkedRun(id: string): { run: RunId; parkId: number; question: string } {
+/** A story run parked `worker-failed`, ended (DIPO-229). */
+function parkedRun(id: string): { run: RunId; key: StoryKey; story: string } {
   const started = storyRun(
     { dir, t: world.t, office: world.office, close: () => undefined },
     { story: id },
   );
   const { office, t } = world;
-  const agent = addAgent(
-    { dir, t, office, close: () => undefined },
-    started.run,
-    "developer",
-    false,
-  );
+  addAgent({ dir, t, office, close: () => undefined }, started.run, "developer", false);
   const at = t.clock.now();
-  const question = t.ids.next("qst");
-  let parkId = 0;
   office.immediate(() => {
     office.run(
       `insert into parks (office_id, park_id, key, story_id, run_id, reason, from_state, detail, at)
        values ($office_id, (select coalesce(max(park_id), 0) + 1 from parks
-         where office_id = $office_id), $key, $story, $run, 'needs-permission', 'In Progress', 'x', $at)`,
+         where office_id = $office_id), $key, $story, $run, 'worker-failed', 'In Progress', 'x', $at)`,
       { key: started.key, story: id, run: started.run, at },
     );
-    parkId = office.get<{ id: number }>(
-      "select max(park_id) as id from parks where office_id = $office_id",
-    )?.id as number;
-    endRun(office, started.run, at, "blocked");
-    insertParkQuestion(office, {
-      questionId: question,
-      runId: started.run,
-      agentId: agent,
-      parkId,
-      tool: "Bash",
-      action: "docker ps",
-      text: "Bash(docker ps)",
-      at,
-    });
+    endRun(office, started.run, at, "interrupted");
   });
-  return { run: started.run, parkId, question };
+  return { run: started.run, key: started.key, story: id };
 }
 
 /** The park resumption; a resume's session start counts into `sessions` (DIPO-229). */
@@ -1212,13 +1191,26 @@ function resumption(sessions: { count: number }): Resumption {
   ).resumption;
 }
 
-function answer(of: Resumption, parked: { run: RunId; parkId: number; question: string }) {
-  return of.resumePark(world.officeId, parked.run, {
-    parkId: parked.parkId,
-    question: parked.question,
-    decision: "allow",
-    text: "",
-  });
+/** `work.resume` of the parked story; `started`, and `queued` when it waits for its place. */
+async function answer(
+  of: Resumption,
+  parked: { run: RunId; key: StoryKey; story: string },
+): Promise<{ kind: "started"; queued?: true }> {
+  const reply = await of.resumeCommand(
+    {
+      office: world.office,
+      clock: world.t.clock,
+      ids: world.t.ids,
+      requestId: "req_resume",
+      origin: "cli",
+      confirmed: false,
+      now: world.t.clock.now(),
+      stories: { get: () => ({ story: parked.story, key: parked.key }) },
+      commit: () => {},
+    } as never,
+    { story: StoryId.parse(parked.story) },
+  );
+  return reply.result.queued === true ? { kind: "started", queued: true } : { kind: "started" };
 }
 
 function noticeCodes(): string[] {
@@ -1242,7 +1234,7 @@ async function waitUntil(condition: () => boolean): Promise<void> {
  */
 async function pickupWithAnswerInClaim(
   of: Resumption,
-  parked: { run: RunId; parkId: number; question: string },
+  parked: { run: RunId; key: StoryKey; story: string },
 ) {
   const entered = Promise.withResolvers<void>();
   const opened = Promise.withResolvers<void>();

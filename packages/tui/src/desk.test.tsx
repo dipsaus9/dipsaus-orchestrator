@@ -1,5 +1,5 @@
 // Your desk in the TUI (DIPO-308 test plan): key `3` shows the rows of `office.desk` in the read's
-// order with "Held by you" apart, the empty desk, one-line rows below 80 columns; the desk is read
+// order with "Parked by you" apart, the empty desk, one-line rows below 80 columns; the desk is read
 // again after desk-changing events and a stream reset, at most once a second, keeping the selected
 // story; the key table offers only what a row lists and the flags allow; the prompts send the
 // matching commands; closed prompts, read-your-writes and Ctrl-R; and Enter opens the story with
@@ -66,19 +66,18 @@ const merge = DeskItem.parse({
   ],
 });
 
-const permission = DeskItem.parse({
+const askedPark = DeskItem.parse({
   kind: "PARKED",
   story: "DIPO-26",
   key: KEY_26,
   question: Q26,
-  reason: "needs-permission",
-  cause: "build",
-  detail: "Bash(docker compose up)",
+  reason: "ambiguous-spec",
+  detail: "May the compose file start the database?",
   since: ago(40),
   blocks: [],
   actions: [
-    { command: "work.answer", cli: `dipo answer ${Q26} allow` },
-    { command: "work.answer", cli: `dipo answer ${Q26} deny "<reason>"` },
+    { command: "work.answer", cli: `dipo answer ${Q26} --text "<answer>"` },
+    { command: "work.resume", cli: 'dipo resume DIPO-26 --note "<answer>"' },
   ],
 });
 
@@ -88,12 +87,11 @@ const reviewBlocked = DeskItem.parse({
   key: KEY_24,
   gate: GATE_24,
   reason: "review-blocked",
-  cause: "review",
   detail: "round 3 blocked: #2 not met",
   since: ago(90),
   blocks: [],
   actions: [
-    { command: "work.resume", cli: 'dipo resume DIPO-24 --note "<why>"' },
+    { command: "work.resume", cli: 'dipo resume DIPO-24 --note "<direction>"' },
     { command: "gate.approve", cli: 'dipo approve DIPO-24 --note "<why>"' },
   ],
 });
@@ -103,7 +101,6 @@ const budget = DeskItem.parse({
   story: "DIPO-22",
   key: KEY_22,
   reason: "budget-exceeded",
-  cause: "tokens",
   detail: "used 100k of 100k (M)",
   since: ago(9 * 60),
   blocks: [],
@@ -137,18 +134,18 @@ const proposal = DeskItem.parse({
   ],
 });
 
-const held = DeskItem.parse({
-  kind: "HELD",
+const byYou = DeskItem.parse({
+  kind: "PARKED BY YOU",
   story: "DIPO-29",
   key: KEY_29,
-  reason: "on-hold",
+  reason: "by-maintainer",
   detail: "after M2",
   since: ago(3 * 24 * 60),
   blocks: [],
   actions: [{ command: "work.resume", cli: "dipo resume DIPO-29" }],
 });
 
-const DESK = [question, merge, permission, reviewBlocked, budget, backlogPr, proposal, held];
+const DESK = [question, merge, askedPark, reviewBlocked, budget, byYou, backlogPr, proposal];
 
 afterEach(async () => {
   for (const ui of mounted.splice(0)) await ui.unmount();
@@ -254,14 +251,15 @@ function asked(seq: number, run: string, story: string, key: string, kind = "que
 }
 
 describe("key 3 shows Your desk", () => {
-  it("lists the rows of office.desk in the read's order, with Held by you apart", async () => {
+  it("lists the rows of office.desk in the read's order, with Parked by you apart", async () => {
     const { ui } = await openDesk();
-    const frame = await ui.waitFor("Held by you (1)");
+    const frame = await ui.waitFor("Parked by you (1)");
     const shown = lines(frame);
     const start = shown.indexOf(" Your desk (7)");
     expect(start).toBeGreaterThan(0);
     const rows = shown.slice(start + 1).filter((line) => /^ [> ] [A-Z]/.test(line));
-    expect(rows.map((row) => row.slice(3, 14).trim())).toEqual([
+    const kinds = ["PARKED BY YOU", "BACKLOG PR", "QUESTION", "PROPOSAL", "PARKED", "MERGE"];
+    expect(rows.map((row) => kinds.find((kind) => row.slice(3).startsWith(kind)))).toEqual([
       "QUESTION",
       "MERGE",
       "PARKED",
@@ -269,18 +267,20 @@ describe("key 3 shows Your desk", () => {
       "PARKED",
       "BACKLOG PR",
       "PROPOSAL",
-      "HELD",
+      "PARKED BY YOU",
     ]);
-    // Kind, story, reason and cause, detail, age and the row's keys.
+    // Kind, story, reason, detail, age and the row's keys.
     expect(rows[0]).toMatch(
       /^ > QUESTION +DIPO-19 +"Is a 404 on an empty office ok\?" · worker waiting, 3 min left +6m {2}\[a\]nswer$/,
     );
     expect(rows[2]).toMatch(
-      /^ {3}PARKED +DIPO-26 +needs-permission \(build\) · Bash\(docker compose up\) +40m {2}\[A\]llow once \[n\] deny$/,
+      /^ {3}PARKED +DIPO-26 +ambiguous-spec · May the compose file start the database\? +40m {2}\[a\]nswer \[r\]esume$/,
     );
-    expect(rows[7]).toMatch(/^ {3}HELD +DIPO-29 +on-hold · after M2 +3d {2}\[r\]esume$/);
-    // "Held by you" comes after every other row and before the held one.
-    expect(shown.indexOf(" Held by you (1)")).toBe(shown.indexOf(rows[7]!) - 1);
+    expect(rows[7]).toMatch(
+      /^ {3}PARKED BY YOU +DIPO-29 +by-maintainer · after M2 +3d {2}\[r\]esume$/,
+    );
+    // "Parked by you" comes after every other row and before the stories it lists.
+    expect(shown.indexOf(" Parked by you (1)")).toBe(shown.indexOf(rows[7]!) - 1);
     // At 80 columns and wider an item's hand action and blocked stories get a second line.
     expect(frame).toContain("by hand: fix the branch backlog/add of PR #9");
     expect(frame).toContain("blocks DIPO-31");
@@ -295,11 +295,11 @@ describe("key 3 shows Your desk", () => {
 
   it("shows each row on one line below 80 columns", async () => {
     const { ui } = await openDesk({ columns: 70 });
-    const frame = await ui.waitFor("Held by you (1)");
+    const frame = await ui.waitFor("Parked by you (1)");
     const shown = lines(frame);
     const start = shown.indexOf(" Your desk (7)");
-    const body = shown.slice(start + 1, shown.indexOf(" Held by you (1)") + 2);
-    // Seven waiting rows, the held title and the held row: nothing else between them.
+    const body = shown.slice(start + 1, shown.indexOf(" Parked by you (1)") + 2);
+    // Seven waiting rows, the title and the parked row: nothing else between them.
     expect(body).toHaveLength(9);
     expect(frame).not.toContain("blocks DIPO-31");
     for (const line of body) expect(line.length).toBeLessThanOrEqual(70);
@@ -391,9 +391,9 @@ describe("the key table on desk rows", () => {
 
   it("shows the command line of an action the table does not bind", async () => {
     const unbound = DeskItem.parse({
-      ...held,
+      ...byYou,
       kind: "PARKED",
-      reason: "stopped",
+      reason: "worker-failed",
       actions: [
         { command: "work.run", cli: "dipo run DIPO-29" },
         { command: "work.resume", cli: "dipo resume DIPO-29" },
@@ -404,20 +404,21 @@ describe("the key table on desk rows", () => {
     expect(frame).toContain("[r]esume");
   });
 
-  it("approves a merge with y, and allows or denies a permission row with A or n", async () => {
+  it("approves a merge with y, and answers a parked question with a text", async () => {
     const { ui, session } = await openDesk();
     await selectRow(ui, "DIPO-12");
     await ui.press("y");
     await until(() => session.commands.length === 1, "gate.approve");
     await selectRow(ui, "DIPO-26");
-    await ui.press("A");
-    await until(() => session.commands.length === 2, "the allow");
-    await ui.press("n");
-    await until(() => session.commands.length === 3, "the deny");
+    await ui.press("a");
+    await ui.waitFor("answer: _");
+    await ui.press("allow");
+    await ui.press("enter");
+    await until(() => session.commands.length === 2, "the answer");
+    // An answer that reads "allow" is text, never a decision (0020).
     expect(sent(session)).toEqual([
       { name: "gate.approve", args: { gate: GATE_12 } },
-      { name: "work.answer", args: { question: Q26, text: "", decision: "allow" } },
-      { name: "work.answer", args: { question: Q26, text: "", decision: "deny" } },
+      { name: "work.answer", args: { question: Q26, text: "allow" } },
     ]);
   });
 });
@@ -583,16 +584,16 @@ describe("prompts", () => {
 });
 
 describe("the queue and the detail use the same table", () => {
-  it("holds a story with h and its note", async () => {
+  it("parks a story with P and its note", async () => {
     const { ui, session } = await openQueue();
-    expect(lines(ui.frame()).at(-1)).toContain("[h]old  [d]rop");
-    await ui.press("h");
-    await ui.waitFor("hold note: _");
+    expect(lines(ui.frame()).at(-1)).toContain("[P]ark  [d]rop");
+    await ui.press("P");
+    await ui.waitFor("park note for DIPO-30: _");
     await ui.press("after M2");
     await ui.press("enter");
-    await until(() => session.commands.length === 1, "story.hold");
+    await until(() => session.commands.length === 1, "story.park");
     expect(sent(session)).toEqual([
-      { name: "story.hold", args: { story: "DIPO-30", note: "after M2" } },
+      { name: "story.park", args: { story: "DIPO-30", note: "after M2" } },
     ]);
   });
 
@@ -622,7 +623,7 @@ describe("the queue and the detail use the same table", () => {
     });
   });
 
-  it("steers with s and pauses with p in the live agent detail", async () => {
+  it("steers with s and parks with P in the live agent detail", async () => {
     const view = await mount({ columns: 120, rows: 30, capabilities: ALL_FLAGS });
     mounted.push(view.ui);
     const { ui, session } = view;
@@ -635,11 +636,14 @@ describe("the queue and the detail use the same table", () => {
     await ui.press("Keep the old flag");
     await ui.press("enter");
     await until(() => session.commands.length === 1, "work.steer");
-    await ui.press("p");
-    await until(() => session.commands.length === 2, "work.pause");
+    await ui.press("P");
+    await ui.waitFor("park note for DIPO-21: _");
+    await ui.press("after the release");
+    await ui.press("enter");
+    await until(() => session.commands.length === 2, "story.park");
     expect(sent(session)).toEqual([
       { name: "work.steer", args: { story: "DIPO-21", text: "Keep the old flag" } },
-      { name: "work.pause", args: { story: "DIPO-21" } },
+      { name: "story.park", args: { story: "DIPO-21", note: "after the release" } },
     ]);
   });
 });
@@ -674,7 +678,7 @@ describe("answers, closed prompts, read-your-writes and retry", () => {
     ]);
   });
 
-  it("asks allow or deny for a permission question from the detail", async () => {
+  it("answers a permission question from the detail with a text, never a decision", async () => {
     const view = await mount({ columns: 120, rows: 30, capabilities: ALL_FLAGS });
     mounted.push(view.ui);
     const { ui, session } = view;
@@ -686,12 +690,11 @@ describe("answers, closed prompts, read-your-writes and retry", () => {
     await ui.waitFor("following the tail");
     await ui.waitFor("[a]nswer");
     await ui.press("a");
-    await ui.waitFor('allow once "Bash(docker compose up)"?');
-    await ui.press("n");
-    await until(() => session.commands.length === 1, "the deny");
-    expect(sent(session)).toEqual([
-      { name: "work.answer", args: { question: Q19, text: "", decision: "deny" } },
-    ]);
+    await ui.waitFor("answer: _");
+    await ui.press("deny");
+    await ui.press("enter");
+    await until(() => session.commands.length === 1, "the answer");
+    expect(sent(session)).toEqual([{ name: "work.answer", args: { question: Q19, text: "deny" } }]);
   });
 
   it("closes a prompt whose question closed with the engine's message", async () => {
@@ -833,7 +836,7 @@ describe("Enter on a desk row", () => {
     const frame = await ui.waitFor("review verdicts (1)");
     const shown = lines(frame);
     expect(shown).toContain(" DIPO-24 Add verify retry · In Progress");
-    expect(shown).toContain(" park: review-blocked (review) · 1h ago");
+    expect(shown).toContain(" park: review-blocked · 1h ago");
     expect(shown).toContain("   round 3 blocked: #2 not met");
     expect(shown.some((line) => line.startsWith(" round 1 · 4f2a9c1e5d6b · blocked · "))).toBe(
       true,

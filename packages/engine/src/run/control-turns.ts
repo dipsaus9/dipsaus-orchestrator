@@ -10,7 +10,6 @@ import { capEnding, type RunEndings } from "./control-endings";
 import { disarm, messageOf, type RunControlDeps, type Tracked, viewOf } from "./control-types";
 import type { ParkOutcome } from "./park";
 import { type ToolTrail, trailAt } from "./report-data";
-import { openPause } from "./pauses";
 import { findRun } from "./records";
 import type { RunFinisher } from "./verify-commit";
 
@@ -94,11 +93,7 @@ export class AfterTurns {
       return;
     }
     if (decided === "continue" && problem !== undefined && outcomes !== undefined) {
-      // The worker's reply to a pause carries no report; it is no problem to feed back (DIPO-163).
-      const office = this.#deps.offices.get(tracked.office);
-      const paused = office !== undefined && openPause(office, tracked.runId) !== null;
-      if (tracked.ending === null && !paused)
-        await outcomes.onTurnProblem(viewOf(tracked), problem);
+      if (tracked.ending === null) await outcomes.onTurnProblem(viewOf(tracked), problem);
     }
   }
 
@@ -149,7 +144,6 @@ export class AfterTurns {
               intent: "park",
               ops: [{ closeStdin: true }],
               reason: decision.reason,
-              cause: decision.cause,
               detail: decision.detail,
               endKind: decision.endKind,
               report,

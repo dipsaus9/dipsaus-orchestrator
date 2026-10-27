@@ -29,8 +29,6 @@ import {
   type RunView,
   type WaitFact,
 } from "./outcome-types";
-import { PARK_CAUSES } from "./park";
-import { MAINTAINER_TAGS } from "./pauses";
 import { findRun, type StoredRun } from "./records";
 import { raiseSignal } from "./signals";
 
@@ -60,7 +58,7 @@ export class ExitOutcomes {
    * 0008 section 7): `work.observed host-lost` (health `lost`) and the agent ends `host-lost`;
    * then as a crash row, except that only a resume will do: the session is resumed once when
    * budget remains and `canResume` holds (the dead agent's usage finalized first), else the story
-   * parks `interrupted`. An intent from before the stop that explains an exit decides it instead.
+   * parks `worker-failed`. An intent from before the stop that explains an exit decides it instead.
    */
   async onHostLost(lost: HostLostContext): Promise<void> {
     const key = `${lost.view.runId} ${lost.agent}`;
@@ -144,7 +142,7 @@ export class ExitOutcomes {
     });
   }
 
-  /** The decision on an agent that ended `host-lost`: one resume, else park `interrupted`. */
+  /** The decision on an agent that ended `host-lost`: one resume, else park `worker-failed`. */
   async hostLost(
     office: OfficeHandle,
     run: StoredRun,
@@ -157,8 +155,7 @@ export class ExitOutcomes {
       await this.#s.park(office, run, view.work, {
         intent: "park",
         ops: [],
-        reason: "interrupted",
-        cause: PARK_CAUSES.build,
+        reason: "worker-failed",
         detail: `${HOST_LOST_WHY}${suffix}`,
         endKind: OUTCOME_ENDS.interrupted,
       });
@@ -242,11 +239,6 @@ export class ExitOutcomes {
       });
       return;
     }
-    if (intent.kind === "pause" && tag === MAINTAINER_TAGS.pause) {
-      // The maintainer's pause: the process exited after the 10 minutes. The run stays paused,
-      // without a session and a place, until `work.resume` (DIPO-163).
-      return;
-    }
     if (intent.kind === "pause" && tag === INTENT_TAGS.planLimit) {
       // The run waits for the reset with its claim and session (DIPO-61 resumes it).
       this.#s.resolve(office, view.runId, intent, "plan-limit", at);
@@ -309,7 +301,6 @@ export class ExitOutcomes {
             await park({
               intent: "cap",
               reason: "budget-exceeded",
-              cause: PARK_CAUSES.build,
               detail: "prompt_too_long: the context is full again after a handoff",
               endKind: OUTCOME_ENDS.capped,
             });
@@ -325,7 +316,6 @@ export class ExitOutcomes {
         await park({
           intent: "cap",
           reason: result.park?.reason ?? "budget-exceeded",
-          cause: PARK_CAUSES.build,
           detail: result.park?.detail ?? "the worker stopped at a cap",
           endKind: OUTCOME_ENDS.capped,
         });
@@ -340,7 +330,6 @@ export class ExitOutcomes {
             await park({
               intent: "park",
               reason: "ambiguous-spec",
-              cause: PARK_CAUSES.noReport,
               detail: `no valid report: ${why}`,
               endKind: OUTCOME_ENDS.noReport,
             });
@@ -373,9 +362,6 @@ export class ExitOutcomes {
         await park({
           intent: "park",
           reason: result.park?.reason ?? "ambiguous-spec",
-          // A permission the worker was denied parks its session; anything else is a question.
-          cause:
-            result.park?.reason === "needs-permission" ? PARK_CAUSES.build : PARK_CAUSES.question,
           detail: result.park?.detail ?? "the worker is blocked",
           endKind: OUTCOME_ENDS.blocked,
           report: result.report,
@@ -404,7 +390,6 @@ export class ExitOutcomes {
         intent: "park",
         ops: [],
         reason: "worker-failed",
-        cause: PARK_CAUSES.build,
         detail: `${detail}${refused}`,
         endKind: OUTCOME_ENDS.crashed,
       });

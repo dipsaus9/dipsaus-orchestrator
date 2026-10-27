@@ -1,5 +1,5 @@
 // Run control (DIPO-50; 0008 sections 6 and 7, 0005 section 4): the engine's caps, the parks a
-// worker's report asks for and `work.stop`.
+// worker's report asks for and `story.park` of a story with a run.
 //
 // - Caps. Each started run is tracked with its tier's caps and the time its worker started. After
 //   every `usage` and `turn` event, as of that event inside its ingestion pass (`onEventApplied`),
@@ -14,8 +14,7 @@
 //   no cap ends the run while that path runs.
 //   A reviewer session (DIPO-219, 0019 sections 4 and 13) counts the story's budget, with its review
 //   allowances, and its own turns and minutes against the reviewer's caps: the budget parks
-//   `budget-exceeded` with cause `review`, the reviewer's turn or minute cap `worker-failed` with
-//   cause `review-cap`. Its valid report goes to worker outcomes after the backstop (`onReview`).
+//   `budget-exceeded`, the reviewer's turn or minute cap `worker-failed`. Its valid report goes to worker outcomes after the backstop (`onReview`).
 // - Reports. A turn whose report is `blocked` parks the story `ambiguous-spec` with the question
 //   (a box worker has every permission, so no report names a denied call, DIPO-342). The engine
 //   records a `park` intent and closes the worker's stdin; worktree, branch and session are kept.
@@ -25,27 +24,26 @@
 //   `parkOnQuestion` parks it then. A park with no live question asks the report's question itself
 //   (`ParkRequest.question`, DIPO-159). A blocked report during an
 //   open conflict hand-off fails it (DIPO-149, `conflicts.ts`); the failure that reaches the run's
-//   conflict cap parks `conflict` with cause `merge-in-progress` instead.
+//   conflict cap parks `conflict` instead.
 // - Report data (DIPO-186). The proposals of every report, done or blocked, are stored for the
 //   maintainer (`storeProposals`, deduplicated by title and paths); storing them changes nothing
 //   about the story, the run or the commit. Each tool call with an effect (a file edit, a shell
 //   command) joins the run's tool trail, which verify and commit reads at done.
-// - `work.stop { story, note? }`. A story with no active run fails `story.notRunning`. Otherwise
-//   the engine records a `stop` intent, sends the stop sequence through the host (the adapter's
-//   `encode`: a now-priority message, stdin closed, SIGTERM after 10 s, SIGKILL after 30 s) and
-//   parks the story `stopped`; branch and worktree are kept.
+// - `story.park { story, note }` of a story with a run (`parkByMaintainer`, 0020). The engine
+//   records a `stop` intent, sends the stop sequence through the host (the adapter's `encode`: a
+//   now-priority message, stdin closed, SIGTERM after 10 s, SIGKILL after 30 s) and parks the
+//   story `by-maintainer` with the note; branch and box are kept.
 //
 // - Stream drift (DIPO-315). A `streamDrift` event the ingestor marks as deciding (`onStreamDrift`:
 //   the run's unreadable lines reached `STREAM_DRIFT_LINES`, or a turn end's usage cannot be read)
-//   stops the worker and parks the story `worker-failed` with cause `stream-drift`, the detail naming
+//   stops the worker and parks the story `worker-failed`, the detail naming
 //   the worker's version and the count. It decides in event order, so a drift ahead of a turn wins
 //   over that turn's report.
 // - `daemon.stop { stopWorkers: true }` (0006 decision 7, DIPO-315, `stopAll`): every tracked run
-//   nothing was decided for yet is stopped as `work.stop` stops one, and parks `stopped` with
+//   nothing was decided for yet is stopped as `story.park` stops one, and parks `by-maintainer` with
 //   `DAEMON_STOPPED_DETAIL`; the drain waits for the parks and for the workers' exits.
 //
-// - `work.steer` and `work.pause` (DIPO-163, `intervene.ts`): the maintainer's message to a live
-//   worker, and the pause that closes its stdin after 10 minutes on the cap tick.
+// - `work.steer` (DIPO-163, `intervene.ts`): the maintainer's message to a live worker.
 //
 // - Notes (0020 section 6, DIPO-154). The `notes` of every turn report are stored for the next
 //   session's handoff (`recordWorkerNotes`), keyed by the run's worktree and the agent, replacing
@@ -71,7 +69,6 @@ import {
   type ParkReason,
   type RunId,
   type WorkRef,
-  workStop,
 } from "@dipsaus-orchestrator/contract";
 
 import type { AsyncCommandContext, CommandOutcome, FeatureModule } from "../commands/registry";
@@ -106,8 +103,8 @@ import {
   RECONCILED_END,
   type RunControlDeps,
   type RunEnding,
-  type StopArgs,
-  type StopResult,
+  type ParkRunArgs,
+  type ParkRunResult,
   type Tracked,
   type TrackedRun,
   viewOf,
@@ -116,7 +113,7 @@ import { AfterTurns } from "./control-turns";
 import { Interventions } from "./intervene";
 import { outcomeOfIntent, resolveIntent } from "./intents";
 import { initRejectedEnding, type RunAct, type RunEnder, startRefusedAct } from "./outcome-types";
-import { PARK_CAUSES, type ParkOutcome } from "./park";
+import { type ParkOutcome } from "./park";
 import { findRun, type StoredRun } from "./records";
 import { emptyTrail, followTool, storeProposals } from "./report-data";
 
@@ -127,7 +124,6 @@ export {
   EVENT_FILE_CHANGED,
   INTERRUPTED_END,
   RECONCILED_END,
-  STOPPED_DETAIL,
   STORY_NOT_RUNNING,
 } from "./control-types";
 export type {
@@ -171,7 +167,7 @@ export class RunControl implements RunEnder {
     this.#endings = new RunEndings(deps, this.#tracked, this.#inflight);
     this.#turns = new AfterTurns(deps, this.#endings, this.#inflight);
     this.#reconcile = new ReconcileStops(deps, this.#tracked, this.#endings);
-    this.#interventions = new Interventions(deps, this.#tracked, this.#inflight);
+    this.#interventions = new Interventions(deps);
   }
 
   /** The ingestion hooks: caps and reports after every committed pass, intents at the exit. */
@@ -188,7 +184,7 @@ export class RunControl implements RunEnder {
 
   /**
    * The run's host event file changed (0007 section 5, DIPO-45's `ingest.fileChanged`): its
-   * ingestion stopped, so the worker is stopped and the story parks `interrupted` with the
+   * ingestion stopped, so the worker is stopped and the story parks `worker-failed` with the
    * detail "event file changed" (DIPO-57). A run decided already keeps that decision.
    */
   #fileChanged(run: string): void {
@@ -207,8 +203,7 @@ export class RunControl implements RunEnder {
     return {
       intent: "stop",
       ops: this.#deps.encode({ kind: "stop" }),
-      reason: "interrupted",
-      cause: PARK_CAUSES.build,
+      reason: "worker-failed",
       detail: EVENT_FILE_CHANGED,
       endKind: INTERRUPTED_END,
     };
@@ -318,7 +313,6 @@ export class RunControl implements RunEnder {
           intent: "park",
           ops: this.#deps.encode({ kind: "stop" }),
           reason: "worker-failed",
-          cause: PARK_CAUSES.streamDrift,
           detail: streamDriftDetail(drift),
           endKind: "worker-failed",
         });
@@ -408,7 +402,6 @@ export class RunControl implements RunEnder {
             intent: "park",
             ops: [{ closeStdin: true }],
             reason: "ambiguous-spec",
-            cause: PARK_CAUSES.question,
             detail: report.question ?? report.summary,
             endKind: "blocked",
             // The park asks the question when no live one carries over (DIPO-159).
@@ -453,9 +446,8 @@ export class RunControl implements RunEnder {
 
   /**
    * `daemon.stop { stopWorkers: true }` (0006 decision 7, DIPO-315): stops every live worker this
-   * control tracks, as `work.stop` stops one (the stop sequence through its host, a `stop` intent
-   * first, the story parked `stopped` with `DAEMON_STOPPED_DETAIL`, the reviewer's cause during a
-   * review). A run already being decided (a cap, a report, a done path) keeps that decision. Resolves
+   * control tracks, as `story.park` stops one (the stop sequence through its host, a `stop` intent
+   * first, the story parked `by-maintainer` with `DAEMON_STOPPED_DETAIL`). A run already being decided (a cap, a report, a done path) keeps that decision. Resolves
    * once every decision finished and the stopped workers exited, or `exitWaitMs` after the stops
    * were sent with the ones still running counted; the drain's cap bounds it too.
    */
@@ -467,8 +459,7 @@ export class RunControl implements RunEnder {
       this.#endings.begin(tracked, {
         intent: "stop",
         ops: this.#deps.encode({ kind: "stop" }),
-        reason: "stopped",
-        cause: reviewing(tracked) ? PARK_CAUSES.review : PARK_CAUSES.maintainer,
+        reason: "by-maintainer",
         detail: DAEMON_STOPPED_DETAIL,
         endKind: "stopped",
       });
@@ -588,7 +579,6 @@ export class RunControl implements RunEnder {
       intent: "park",
       ops: [{ closeStdin: true }],
       reason: "ambiguous-spec",
-      cause: PARK_CAUSES.question,
       detail: question,
       endKind: "blocked",
     });
@@ -605,7 +595,7 @@ export class RunControl implements RunEnder {
   /**
    * A done report arrived on the turn that crossed `crossed`: the run takes the normal done path
    * (verify, commit, In Review) and no cap ends it meanwhile. The step keeps the crossed cap; a
-   * red verify parks `verify-failing` with cause `capped` (`verify-commit.ts`).
+   * red verify parks `budget-exceeded`, since no turn is left (`verify-commit.ts`).
    */
   #cappedDone(tracked: Tracked, report: WorkerReport, crossed: FiredCap): void {
     tracked.capped = crossed;
@@ -677,18 +667,14 @@ export class RunControl implements RunEnder {
 
   /**
    * Parks a tracked run while its worker works, outside any turn (DIPO-273: a box part's scan hit
-   * or rejected push): the stop sequence is sent, as for `work.stop`, and the story parks with
-   * `reason`, `cause` and `detail`. False when another decision came first.
+   * or rejected push): the stop sequence is sent, as for `story.park`, and the story parks with
+   * `reason` and `detail`. False when another decision came first.
    */
-  parkRun(
-    runId: string,
-    park: { readonly reason: ParkReason; readonly cause: string; readonly detail: string },
-  ): boolean {
+  parkRun(runId: string, park: { readonly reason: ParkReason; readonly detail: string }): boolean {
     return this.begin(runId, {
       intent: "park",
       ops: this.#deps.encode({ kind: "stop" }),
       reason: park.reason,
-      cause: park.cause,
       detail: park.detail,
       endKind: park.reason,
     });
@@ -697,7 +683,7 @@ export class RunControl implements RunEnder {
   /**
    * Sends `text` to a live run's worker as its next message, as a verify feedback item is sent
    * (DIPO-277: another story changes the same files, or dipo merged the new base into the story):
-   * stored first as a `steer` intent named `what`, and held while the maintainer paused the run.
+   * stored first as a `steer` intent named `what`.
    * False when the run is not live here.
    */
   async tellWorker(runId: string, text: string, what: string): Promise<boolean> {
@@ -742,22 +728,18 @@ export class RunControl implements RunEnder {
   #initRejected(run: string, reason: string): void {
     const tracked = this.#tracked.get(run);
     if (tracked === undefined || tracked.ending !== null) return;
-    this.#endings.begin(
-      tracked,
-      initRejectedEnding(
-        tracked.work.story,
-        reason,
-        reviewing(tracked) ? PARK_CAUSES.review : PARK_CAUSES.build,
-      ),
-    );
+    this.#endings.begin(tracked, initRejectedEnding(tracked.work.story, reason));
   }
 
-  /** `work.stop`: see the file comment. */
-  stop(ctx: AsyncCommandContext, args: StopArgs): Promise<CommandOutcome<StopResult>> {
-    return this.#endings.stop(ctx, args);
+  /** `story.park` of a story with a run: see the file comment. */
+  parkByMaintainer(
+    ctx: AsyncCommandContext,
+    args: ParkRunArgs,
+  ): Promise<CommandOutcome<ParkRunResult>> {
+    return this.#endings.parkByMaintainer(ctx, args);
   }
 
-  /** True while a decision on the run (a cap, a report, `work.stop`) is being carried out. */
+  /** True while a decision on the run (a cap, a report, `story.park`) is being carried out. */
   isEnding(run: string): boolean {
     const ending = this.#tracked.get(run)?.ending;
     return ending !== undefined && ending !== null;
@@ -783,16 +765,12 @@ export class RunControl implements RunEnder {
     return this.#reconcile.parkForReconcile(office, run, detail, notice);
   }
 
-  /** The commands `work.stop`, `work.steer` and `work.pause`. */
+  /** The command `work.steer`. */
   get feature(): FeatureModule {
     const intervene = this.#interventions.feature;
     return {
       name: "run-control",
       register: (registry) => {
-        registry.addAsyncOfficeCommand({
-          definition: workStop,
-          handle: (ctx, args) => this.stop(ctx, args),
-        });
         intervene.register(registry);
       },
     };
@@ -808,8 +786,6 @@ export class RunControl implements RunEnder {
       // A turn problem whose intent failed is decided now, before the caps (DIPO-123).
       const retry = tracked.unstored;
       if (retry !== null && this.act(tracked.runId, retry)) return;
-      // A pause older than 10 minutes closes the worker's stdin (DIPO-163).
-      this.#interventions.expire(tracked);
       if (!this.#checkCaps(tracked)) this.#arm(tracked);
     }, this.#deps.tickMs ?? CAP_TICK_MS);
   }

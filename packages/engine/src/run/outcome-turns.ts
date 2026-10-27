@@ -23,7 +23,6 @@ import {
   type RunView,
   type WaitFact,
 } from "./outcome-types";
-import { PARK_CAUSES } from "./park";
 import { raiseSignal } from "./signals";
 
 export class TurnOutcomes {
@@ -62,7 +61,6 @@ export class TurnOutcomes {
             intent: "cap",
             ops: close,
             reason: "budget-exceeded",
-            cause: PARK_CAUSES.build,
             detail: "prompt_too_long: the context is full again after a handoff",
             endKind: OUTCOME_ENDS.capped,
           });
@@ -82,7 +80,6 @@ export class TurnOutcomes {
             intent: "park",
             ops: close,
             reason: "worker-failed",
-            cause: PARK_CAUSES.build,
             detail: `${problem.detail}${refused}`,
             endKind: OUTCOME_ENDS.crashed,
           });
@@ -102,7 +99,6 @@ export class TurnOutcomes {
             intent: "park",
             ops: [{ closeStdin: true }],
             reason: "ambiguous-spec",
-            cause: PARK_CAUSES.noReport,
             detail: `no valid report: ${problem.detail}`,
             endKind: OUTCOME_ENDS.noReport,
           });

@@ -19,10 +19,10 @@
 //   (`judgeReview`) and stored as a review gate with its `review_verdicts` row (`gate.decided`); a
 //   blocked verdict appends a `review-failed` step. The review period ends (`reviewed`) and the
 //   session's stdin is closed. The failed round that reaches the run's review round cap parks
-//   `review-blocked` with cause `rounds` and the blocking findings as detail instead.
-// - Failures (section 4). Every park of a reviewer session has cause `review`, except the
-//   reviewer's own turn or minute cap (`review-cap`, run control) and a worktree the review changed
-//   (`scope-violation`, cause `backstop`, the finisher's backstop after each turn). A crash, a host
+//   `review-blocked` with the blocking findings as detail instead.
+// - Failures (section 4). The reviewer's own turn or minute cap parks `worker-failed` (run
+//   control), and a worktree the review changed `scope-violation` (the finisher's backstop after
+//   each turn). A resume of a park that stopped the reviewer starts a fresh review. A crash, a host
 //   lost, or a report still invalid after its correction turn ends the agent `review-crashed` and
 //   starts one fresh session for the same round; a second failure in the round parks
 //   `worker-failed` with the reviewer's last error. The story's budget used up parks
@@ -89,7 +89,6 @@ import {
   type RunOutcomesPort,
   type RunView,
 } from "./outcome-types";
-import { PARK_CAUSES } from "./park";
 import { claimPlace, type PlaceStart, START_KINDS, waitForPlace } from "./places";
 import { LAUNCH_NOTICES, planRefusedText } from "./launch";
 import { endRunMarked } from "./markers";
@@ -538,7 +537,6 @@ export class Reviews {
         intent: "park",
         ops: [{ closeStdin: true }],
         reason: "review-blocked",
-        cause: PARK_CAUSES.rounds,
         detail: blockingDetail(decided.stored, failedReviewRounds(office, run.runId), cap),
         endKind: REVIEW_BLOCKED_END,
       });
@@ -789,7 +787,6 @@ export class Reviews {
         intent: "park",
         ops: [],
         reason: "worker-failed",
-        cause: PARK_CAUSES.review,
         detail: `the reviewer failed twice in review round ${round?.round ?? 1}: ${why}`,
         endKind: OUTCOME_ENDS.crashed,
       });

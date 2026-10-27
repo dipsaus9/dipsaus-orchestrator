@@ -1,7 +1,7 @@
 // The cap check before a session starts for a run that already used its caps (DIPO-205; 0020
 // amendment of 2026-10-19). A fix round or conflict hand-off after a done path that crossed a cap
 // would start a worker that its own caps stop at once, so `Places.drain` asks `reachedCaps` before
-// the starter of such a wait is called, and parks the story `budget-exceeded` (cause `build`) with
+// the starter of such a wait is called, and parks the story `budget-exceeded` with
 // the cap detail instead. The park stores a `cap` intent without ops, as no worker runs.
 
 import type { OfficeHandle } from "../db/office";
@@ -9,7 +9,6 @@ import type { OfficeHandle } from "../db/office";
 import { type FiredCap, firedCap, runCaps, runTotals } from "./caps";
 import type { RunEnding } from "./control-types";
 import { resolveIntent, runIntents } from "./intents";
-import { PARK_CAUSES } from "./park";
 import { capsStartedAt, type StoredRun } from "./records";
 
 /** The cap the run's stored caps and usage have reached now, or null. */
@@ -31,7 +30,6 @@ export function preStartEnding(fired: FiredCap): RunEnding {
     intent: "cap",
     ops: [],
     reason: "budget-exceeded",
-    cause: PARK_CAUSES.build,
     detail: fired.detail,
     endKind: "capped",
   };

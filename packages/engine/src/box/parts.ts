@@ -207,14 +207,10 @@ export const PART_NOTICES = {
   unstuck: "box.partUnstuck",
 } as const;
 
-/** The park causes of a part (`run/park.ts` holds the same strings). */
-export const PART_CAUSES = {
+/** What a scan hit found, as the run directory's record names it (the park's detail says it too). */
+export const PART_HITS = {
   protectedFile: "protected-file",
   secret: "secret",
-  refused: "part-refused",
-  pushRejected: "push-rejected",
-  /** The box lacks a merge dipo made on the branch outside it (DIPO-324): `catch-up-failed`. */
-  behind: "catch-up-failed",
 } as const;
 
 // ---- the message ---------------------------------------------------------------------------------
@@ -1111,10 +1107,10 @@ export type PartOutcome =
     }
   /** Nothing changed since the last part. */
   | { readonly kind: "empty" }
-  /** A scan hit: nothing committed or pushed; the story parks `scope-violation` with `cause`. */
+  /** A scan hit: nothing committed or pushed; the story parks `scope-violation`. */
   | {
       readonly kind: "hit";
-      readonly cause: typeof PART_CAUSES.protectedFile | typeof PART_CAUSES.secret;
+      readonly hit: (typeof PART_HITS)[keyof typeof PART_HITS];
       readonly detail: string;
     }
   /** The part could not be taken (too big, a hostile archive): the story parks. */
@@ -1144,7 +1140,6 @@ export interface LastPartFinish<T> {
 /** A park a part asks for. */
 export interface PartPark {
   readonly reason: "scope-violation" | "conflict";
-  readonly cause: string;
   readonly detail: string;
 }
 
@@ -1152,16 +1147,15 @@ export interface PartPark {
 export function partPark(outcome: PartOutcome): PartPark | null {
   switch (outcome.kind) {
     case "hit":
-      return { reason: "scope-violation", cause: outcome.cause, detail: outcome.detail };
+      return { reason: "scope-violation", detail: outcome.detail };
     case "refused":
-      return { reason: "scope-violation", cause: PART_CAUSES.refused, detail: outcome.detail };
+      return { reason: "scope-violation", detail: outcome.detail };
     case "behind":
-      return { reason: "conflict", cause: PART_CAUSES.behind, detail: outcome.detail };
+      return { reason: "conflict", detail: outcome.detail };
     case "committed":
       return outcome.push.rejected
         ? {
             reason: "conflict",
-            cause: PART_CAUSES.pushRejected,
             detail: `${outcome.push.error ?? "the push was rejected"}; the remote branch has commits the story branch lacks`,
           }
         : null;
@@ -1798,10 +1792,10 @@ export class BoxParts {
       const folder = await git.run((session) => namedBacklogFolder(session, view.entries));
       const guarded = protectedHits(changes, linkHits, folder);
       if (guarded.kinds.length > 0) {
-        this.#hitRecord(run, PART_CAUSES.protectedFile, guarded.paths);
+        this.#hitRecord(run, PART_HITS.protectedFile, guarded.paths);
         return {
           kind: "hit",
-          cause: PART_CAUSES.protectedFile,
+          hit: PART_HITS.protectedFile,
           detail: protectedDetail(guarded.kinds),
         };
       }
@@ -1818,10 +1812,10 @@ export class BoxParts {
       });
       if (secrets === "tooBig") return refused("bigFile");
       if (secrets.kinds.length > 0) {
-        this.#hitRecord(run, PART_CAUSES.secret, secrets.paths);
+        this.#hitRecord(run, PART_HITS.secret, secrets.paths);
         return {
           kind: "hit",
-          cause: PART_CAUSES.secret,
+          hit: PART_HITS.secret,
           detail: secretDetail(secrets.kinds, secrets.paths.length),
         };
       }
@@ -1865,11 +1859,11 @@ export class BoxParts {
   }
 
   /** The paths of a hit, cleaned, in the run directory's record only; never in the park detail. */
-  #hitRecord(run: PartRun, cause: string, paths: readonly string[]): void {
+  #hitRecord(run: PartRun, hit: string, paths: readonly string[]): void {
     this.#append(run, {
       kind: "hit",
       at: this.#deps.clock.now(),
-      cause,
+      hit,
       paths: paths.slice(0, 50).map((path) => cleanDoorText(path).slice(0, 300)),
     });
   }

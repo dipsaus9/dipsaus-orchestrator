@@ -6,8 +6,6 @@
 // 0021 section 7): a developer runs in its box with all permissions and no hooks, and a reviewer
 // has no approval relay, so a call that would need approval is denied. What stays here:
 //
-// - The question of a `needs-permission` park (DIPO-75), which a run parked before the change may
-//   still have: `work.answer` with `decision` resumes the run (`park-answers.ts`).
 // - The question of a worker's report (the door's message W3, DIPO-272, DIPO-159). Run control
 //   hands a blocked report's question to `askWorker`, before it parks:
 //   - With a TUI connected at that moment (`questionRoute`, DIPO-279), the run not being ended and
@@ -17,24 +15,24 @@
 //     holding the worker place; the wait is left out of the run's minute cap (`questionWaitMs`).
 //     `work.answer` with text sends the answer as its next user message (`answer`, delivered
 //     `now`), and the question closes `answered`.
-//   - Otherwise `askWorker` returns false and run control parks the story `ambiguous-spec` with
-//     cause `question`; the park asks the question itself (`run/park.ts`).
+//   - Otherwise `askWorker` returns false and run control parks the story `ambiguous-spec`; the
+//     park asks the question itself (`run/park.ts`).
 //   - When its wait ends with no answer, or the last TUI closes while it is live (DIPO-284), the
 //     question is let go, still open: `parkQuestion` closes the worker's stdin and parks the story
-//     `ambiguous-spec` with cause `question`, and the park carries the question.
+//     `ambiguous-spec`, and the park carries the question.
 //   - When the run ends while it is live (a cap, a stop), or the worker exits on its own, the park
 //     the run's end or exit decision makes carries it. When no park follows an exit, the question
 //     closes `ended` after the exit decision (`afterExit`).
-// - An answer to a question of a park: on an `ambiguous-spec` park with cause `question`, the
-//   answer resumes the park (`QuestionParkResumer`, the `work.resume` path with the answer as its
+// - An answer to a question of a park: on an `ambiguous-spec` park, the answer
+//   resumes the park (`QuestionParkResumer`, the `work.resume` path with the answer as its
 //   note: `feedback/answer.md` first, the answer written as a resolved unknown). On any other park
 //   (a cap or a stop that carried it), and on a question let go by a run being ended that no park
 //   has carried yet, the answer is held for the first message of the run's next session, as a
 //   steer to a parked story is; so is an answer that comes after a cap or stop began, before the
 //   run's end is ingested, instead of going to the stopping worker.
 //
-// An office load closes the questions a previous daemon left open (`expired`); a park resolved in
-// any way expires the questions it carried (migration 50).
+// An office load closes the questions a previous daemon left open (`expired`), each with its
+// `question.closed`; a park resolved in any way expires the questions it carried (`resolvePark`).
 
 import {
   type Clock,
@@ -44,6 +42,7 @@ import {
   type TimerHandle,
   workAnswer,
 } from "@dipsaus-orchestrator/contract";
+import type { z } from "zod";
 
 import { appendEntries, type NewEntry } from "../changelog/log";
 import { CommandError } from "../commands/errors";
@@ -54,19 +53,13 @@ import { failureFields } from "../platform/background";
 import type { RunSteering } from "../run/control";
 import { recordIntent } from "../run/intents";
 import { type LiveQuestions, type Presence, questionRoute } from "../run/live-question";
-import { openPark, PARK_CAUSES } from "../run/park";
-import { MAINTAINER_TAGS } from "../run/pauses";
+import { openPark } from "../run/park";
+import { MAINTAINER_TAGS } from "../run/steers";
 import { findRun, type StoredRun } from "../run/records";
 import { activeSignals, clearSignals, raiseSignal } from "../run/signals";
 import { withWorkViews, workRefOf } from "../views/work";
 import type { HostOp, SteerOp } from "../workers/types";
 
-import {
-  answerParkQuestion,
-  type ParkAnswerResult,
-  type ParkResumer,
-  staleParkQuestions,
-} from "./park-answers";
 import {
   closeQuestion,
   findQuestion,
@@ -76,6 +69,9 @@ import {
   questionViewOf,
   type StoredQuestion,
 } from "./questions";
+
+/** What `work.answer` replies. */
+type AnswerResult = z.input<typeof workAnswer.result>;
 
 /** The error of `work.answer` for a question that is not waiting (0005 section 4). */
 export const QUESTION_CLOSED = "question.closed";
@@ -92,7 +88,7 @@ export { ABSENT, type Presence } from "../run/live-question";
 export type OpenPark = NonNullable<ReturnType<typeof openPark>>;
 
 /**
- * The resume of an `ambiguous-spec` park with cause `question` by its answer (0020 sections 2 and
+ * The resume of an `ambiguous-spec` park by its answer (0020 sections 2 and
  * 7, DIPO-159): `work.resume`'s park path with the answer as the note. The resumption provides it.
  */
 export interface QuestionParkResumer {
@@ -124,8 +120,6 @@ export interface PermissionAsksDeps {
   readonly presence: Presence;
   /** True while a decision on the run (a cap, a park, a stop) is being carried out. */
   readonly ending?: (run: string) => boolean;
-  /** Resumes the run of a `needs-permission` park its question's answer lifts (DIPO-75). */
-  readonly parks?: ParkResumer;
   /** Resumes an `ambiguous-spec` question park with its answer (DIPO-159). */
   readonly questionParks?: () => QuestionParkResumer | undefined;
   /**
@@ -357,7 +351,7 @@ export class PermissionAsks implements LiveQuestions {
     ctx: AsyncCommandContext,
     question: StoredQuestion,
     text: string,
-  ): Promise<CommandOutcome<ParkAnswerResult>> {
+  ): Promise<CommandOutcome<AnswerResult>> {
     const office = ctx.office;
     const now = this.#deps.clock.now();
     let closed = false;
@@ -396,8 +390,8 @@ export class PermissionAsks implements LiveQuestions {
   async #answerParkedWorker(
     ctx: AsyncCommandContext,
     question: StoredQuestion,
-    args: { readonly text: string; readonly decision?: "allow" | "deny" | undefined },
-  ): Promise<CommandOutcome<ParkAnswerResult>> {
+    args: { readonly text: string },
+  ): Promise<CommandOutcome<AnswerResult>> {
     const office = ctx.office;
     const text = workerAnswerTextOf(args);
     const run = findRun(office, question.runId as RunId);
@@ -416,11 +410,7 @@ export class PermissionAsks implements LiveQuestions {
       );
     }
     const resumer = this.#deps.questionParks?.();
-    if (
-      resumer !== undefined &&
-      park.reason === "ambiguous-spec" &&
-      park.cause === PARK_CAUSES.question
-    ) {
+    if (resumer !== undefined && park.reason === "ambiguous-spec") {
       // The answer resumes the question park, as `dipo resume <id> --note <answer>` does.
       const resumed = await resumer.resume(ctx, run, park, text);
       return {
@@ -439,7 +429,7 @@ export class PermissionAsks implements LiveQuestions {
     ctx: AsyncCommandContext,
     question: StoredQuestion,
     text: string,
-  ): Promise<CommandOutcome<ParkAnswerResult>> {
+  ): Promise<CommandOutcome<AnswerResult>> {
     const office = ctx.office;
     let closed = false;
     const now = this.#deps.clock.now();
@@ -502,17 +492,15 @@ export class PermissionAsks implements LiveQuestions {
   }
 
   /**
-   * `work.answer { question, text, decision? }`: a `needs-permission` park's question (DIPO-75), or
-   * a worker's question, live, let go or carried by its run's park (DIPO-272, DIPO-159).
+   * `work.answer { question, text }`: a worker's question, live, let go or carried by its run's park (DIPO-272, DIPO-159).
    */
   async answer(
     ctx: AsyncCommandContext,
     args: {
       readonly question: string;
       readonly text: string;
-      readonly decision?: "allow" | "deny" | undefined;
     },
-  ): Promise<CommandOutcome<ParkAnswerResult>> {
+  ): Promise<CommandOutcome<AnswerResult>> {
     const office = ctx.office;
     const question = findQuestion(office, args.question);
     if (question?.kind === "question" && question.parkId !== null) {
@@ -534,21 +522,6 @@ export class PermissionAsks implements LiveQuestions {
       throw new CommandError(QUESTION_CLOSED, `${args.question} is not waiting for an answer.`, {
         question: args.question,
       });
-    }
-    if (question.kind === "permission" && question.parkId !== null) {
-      // The question of a `needs-permission` park (DIPO-75): the answer resumes the run.
-      if (args.decision === undefined) throw decisionMissing();
-      return answerParkQuestion(
-        {
-          now: () => this.#deps.clock.now(),
-          ...(this.#deps.parks === undefined ? {} : { resumer: this.#deps.parks }),
-          ...(this.#deps.scheduling === undefined ? {} : { scheduling: this.#deps.scheduling }),
-          closing: (handle, closed, at, answer) => this.#closingEntries(handle, closed, at, answer),
-        },
-        ctx,
-        question,
-        { text: args.text, decision: args.decision },
-      );
     }
     if (question.kind === "question" && question.parkId !== null) {
       // A worker question its run's park carries (DIPO-272, DIPO-159).
@@ -589,7 +562,8 @@ export class PermissionAsks implements LiveQuestions {
             (question) =>
               question.parkId === null && !this.#workerQuestions.has(question.questionId),
           );
-          // A park's question whose park ended while no engine listened (DIPO-75).
+          // A park's question whose park ended, and the question of a park from before every
+          // answer was text (DIPO-344): nothing waits on either.
           stale.push(...staleParkQuestions(ctx.office));
           if (stale.length > 0) this.#close(ctx.office, stale, "expired");
         });
@@ -676,18 +650,8 @@ export class PermissionAsks implements LiveQuestions {
   }
 }
 
-/** The trimmed answer text of `work.answer` on a worker question; refuses a decision or no text. */
-function workerAnswerTextOf(args: {
-  readonly text: string;
-  readonly decision?: "allow" | "deny" | undefined;
-}): string {
-  if (args.decision !== undefined) {
-    throw new CommandError(
-      "args.invalid",
-      "A worker question takes an answer text (dipo answer <question> --text <answer>), not a decision.",
-      { field: "decision" },
-    );
-  }
+/** The trimmed answer text of `work.answer` on a worker question; refuses an empty one. */
+function workerAnswerTextOf(args: { readonly text: string }): string {
   const text = args.text.trim();
   if (text === "") {
     throw new CommandError("args.invalid", "A worker question needs an answer text.", {
@@ -697,15 +661,20 @@ function workerAnswerTextOf(args: {
   return text;
 }
 
-/** `args.invalid` for a permission answer without `decision` (DIPO-59, and DIPO-75 AC #7). */
-function decisionMissing(): CommandError {
-  return new CommandError("args.invalid", "A permission question needs decision allow or deny.", {
-    field: "decision",
+/**
+ * The open questions of a park that no longer waits on them: its park was resolved, or it is a
+ * permission question, which no answer resumes any more (DIPO-344). Kept open, the desk would
+ * still show them.
+ */
+function staleParkQuestions(office: OfficeHandle): StoredQuestion[] {
+  return openQuestions(office).filter((question) => {
+    if (question.parkId === null) return false;
+    if (question.kind === "permission") return true;
+    const open = office.get(
+      `select 1 as found from parks where office_id = $office_id and park_id = $park
+        and resolved_at is null`,
+      { park: question.parkId },
+    );
+    return open === null;
   });
-}
-
-/** The answer `question.closed` carries: the decision, and the maintainer's text after it. */
-export function answerOf(decision: "allow" | "deny", text: string): string {
-  const reason = text.trim();
-  return reason === "" ? decision : `${decision}: ${reason}`;
 }

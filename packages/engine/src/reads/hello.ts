@@ -34,7 +34,7 @@ export const CAPABILITY_FLAGS: Readonly<Record<string, readonly string[]>> = {
   "daemon.control": ["daemon.status", "daemon.stop", "daemon.resumeScheduling"],
   "daemon.logLevel": ["daemon.setLogLevel"],
   "work.output": ["work.outputRange"],
-  "work.intervene": ["work.pause", "work.resume", "work.steer", "work.answer", "work.stop"],
+  "work.intervene": ["story.park", "work.resume", "work.steer", "work.answer"],
   "test.sessions": ["test.start", "test.record"],
   digest: ["office.digest"],
   // The maintainer's decision on a merge gate that waits for them (0019 sections 11 and 15).

@@ -260,7 +260,7 @@ export class MergeSlot {
   }
 
   /**
-   * DIPO-155's `SlotReentry`: a resumed `slot-refused` park lets its story into the slot again, with
+   * DIPO-155's `SlotReentry`: a story resumed to wait In Review enters the slot again, with
    * a fresh per-stay count (a new occupant row), at the next tick it is eligible at. The park and
    * its lift each committed the task file on the branch and pushed it, so the story PR is first
    * updated to that pushed head (DIPO-324): the slot compares the host's head with the recorded

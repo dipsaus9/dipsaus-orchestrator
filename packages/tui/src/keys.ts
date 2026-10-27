@@ -1,16 +1,14 @@
 // The one key table of the TUI's actions (0009 sections 5 and 6, amended by DIPO-308): which key
 // sends which command, in which view, behind which capability flag. The desk binds every action
-// `office.desk` can list; the live agent detail adds `s` steer and `p` pause, the queue `h` hold
+// `office.desk` can list; the live agent detail adds `s` steer and `P` park, the queue `P` park
 // and `d` drop, and an overview row whose run asks offers `a` answer.
 //
 // On a desk row a key is offered only when the row's `actions` lists its command and the engine's
-// capability flags allow it; a view's row binding wins over a global key (`n` denies a permission,
-// rejects a merge and dismisses a proposal, `y` approves a merge and accepts a proposal). An
-// action no entry binds on its row, or whose key an earlier action of the row took, shows its
-// `cli` line in the footer. `work.answer` is listed once per answer form: the engine's command
-// line says which (`… allow`, `… deny "<reason>"`, or `--text`), since a permission question takes
-// allow or deny and a worker question takes a text. Commands without a flag (`story.hold`,
-// `story.drop`, `work.discard`, `work.stop`) are gated by the engine's answer alone.
+// capability flags allow it; a view's row binding wins over a global key (`n` rejects a merge and
+// dismisses a proposal, `y` approves a merge and accepts a proposal). An action no entry binds on
+// its row, or whose key an earlier action of the row took, shows its `cli` line in the footer. An
+// answer is always a text (0020). Commands without a flag (`story.park`, `story.drop`,
+// `work.discard`) are gated by the engine's answer alone.
 
 import type { DeskAction, DeskItem } from "@dipsaus-orchestrator/contract";
 
@@ -19,20 +17,16 @@ export type ActionView = "desk" | "detail" | "queue" | "overview";
 
 export type ActionId =
   | "answer"
-  | "allow"
-  | "deny"
   | "approve"
   | "reject"
   | "resume"
   | "discard"
   | "drop"
-  | "hold"
+  | "park"
   | "test"
   | "accept"
   | "dismiss"
-  | "stop"
-  | "steer"
-  | "pause";
+  | "steer";
 
 export interface KeyBinding {
   readonly id: ActionId;
@@ -54,22 +48,6 @@ export const KEY_TABLE: readonly KeyBinding[] = [
     key: "a",
     hint: "[a]nswer",
     views: ["desk", "detail", "overview"],
-    flag: "work.intervene",
-  },
-  {
-    id: "allow",
-    command: "work.answer",
-    key: "A",
-    hint: "[A]llow once",
-    views: ["desk"],
-    flag: "work.intervene",
-  },
-  {
-    id: "deny",
-    command: "work.answer",
-    key: "n",
-    hint: "[n] deny",
-    views: ["desk"],
     flag: "work.intervene",
   },
   {
@@ -121,11 +99,11 @@ export const KEY_TABLE: readonly KeyBinding[] = [
     flag: "test.sessions",
   },
   {
-    id: "hold",
-    command: "story.hold",
-    key: "h",
-    hint: "[h]old",
-    views: ["desk", "queue"],
+    id: "park",
+    command: "story.park",
+    key: "P",
+    hint: "[P]ark",
+    views: ["desk", "detail", "queue"],
     flag: null,
   },
   {
@@ -145,26 +123,10 @@ export const KEY_TABLE: readonly KeyBinding[] = [
     flag: null,
   },
   {
-    id: "stop",
-    command: "work.stop",
-    key: "X",
-    hint: "[X] stop",
-    views: ["desk", "detail"],
-    flag: null,
-  },
-  {
     id: "steer",
     command: "work.steer",
     key: "s",
     hint: "[s]teer",
-    views: ["detail"],
-    flag: "work.intervene",
-  },
-  {
-    id: "pause",
-    command: "work.pause",
-    key: "p",
-    hint: "[p]ause",
     views: ["detail"],
     flag: "work.intervene",
   },
@@ -179,13 +141,6 @@ export function binding(id: ActionId): KeyBinding {
 /** True when the engine reports the flag the binding needs. */
 export function allowed(entry: KeyBinding, capabilities: readonly string[]): boolean {
   return entry.flag === null || capabilities.includes(entry.flag);
-}
-
-/** The answer form of a `work.answer` action, from the command line the engine built for it. */
-function answerForm(action: DeskAction): ActionId {
-  if (action.cli.endsWith(" allow")) return "allow";
-  if (/ deny( |$)/.test(action.cli)) return "deny";
-  return "answer";
 }
 
 /** Whether a desk row carries the target the binding's command needs. */
@@ -221,12 +176,10 @@ export function rowKeys(item: DeskItem, capabilities: readonly string[]): RowKey
   const bound: BoundAction[] = [];
   const unbound: DeskAction[] = [];
   for (const action of item.actions) {
-    const form = action.command === "work.answer" ? answerForm(action) : null;
     const entry = KEY_TABLE.find(
       (candidate) =>
         candidate.command === action.command &&
         candidate.views.includes("desk") &&
-        (form === null || candidate.id === form) &&
         hasTarget(candidate, item) &&
         allowed(candidate, capabilities),
     );
@@ -237,13 +190,13 @@ export function rowKeys(item: DeskItem, capabilities: readonly string[]): RowKey
   return { bound, unbound };
 }
 
-/** The keys a view offers without a row's `actions` (the detail's steer and pause, the queue's). */
+/** The keys a view offers without a row's `actions` (the detail's steer and park, the queue's). */
 export function viewKeys(view: ActionView, capabilities: readonly string[]): KeyBinding[] {
   return KEY_TABLE.filter(
     (entry) =>
       entry.views.includes(view) &&
-      (view !== "detail" || entry.id === "steer" || entry.id === "pause") &&
-      (view !== "queue" || entry.id === "hold" || entry.id === "drop") &&
+      (view !== "detail" || entry.id === "steer" || entry.id === "park") &&
+      (view !== "queue" || entry.id === "park" || entry.id === "drop") &&
       allowed(entry, capabilities),
   );
 }

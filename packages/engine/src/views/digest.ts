@@ -77,14 +77,13 @@ function factOf(type: string, delta: Delta): { count: DigestCount; line: string 
       const story = text(delta["story"]);
       const reason = text(delta["reason"]);
       if (story === null || reason === null) return null;
-      return reason === "on-hold"
-        ? { count: "held", line: `${story} held` }
+      return reason === "by-maintainer"
+        ? { count: "held", line: `${story} parked by you` }
         : { count: "parked", line: `${story} parked: ${reason}` };
     }
     case "question.asked": {
       const story = workStory(delta);
-      const kind = delta["kind"] === "permission" ? "a permission" : "a question";
-      return story === null ? null : { count: "questions", line: `${story} asked ${kind}` };
+      return story === null ? null : { count: "questions", line: `${story} asked a question` };
     }
     case "gate.reached": {
       const story = workStory(delta);

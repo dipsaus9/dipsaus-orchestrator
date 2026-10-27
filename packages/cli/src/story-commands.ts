@@ -1,8 +1,8 @@
-// `dipo hold <id> --note <text>` and `dipo drop <id> [--delete-branch] [--yes]` (DIPO-160; 0020
-// sections 8 and 16): `story.hold` and `story.drop` for the story in the office of `--office` or of
+// `dipo park <id> --note <text>` and `dipo drop <id> [--delete-branch] [--yes]` (DIPO-160,
+// DIPO-344; 0020): `story.park` and `story.drop` for the story in the office of `--office` or of
 // the current directory.
 //
-// Hold has no confirmation; its note is required. Drop is `confirm: true` in the contract, so the
+// Park has no confirmation; its note is required. Drop is `confirm: true` in the contract, so the
 // CLI asks yes or no first (`--yes` answers for a script, and without a terminal it refuses).
 // With `--delete-branch` the command is irreversible (`irreversibleWhen`, 0009 section 5): the CLI
 // reads what is lost (`story.losses`, DIPO-228), lists it, and asks for the story id typed out,
@@ -17,7 +17,7 @@ import {
   StoryKey,
   type StoryRefValue,
   storyDrop,
-  storyHold,
+  storyPark,
   storyLosses,
   workDiscard,
 } from "@dipsaus-orchestrator/contract";
@@ -129,30 +129,31 @@ function parseStoryArgs(
   return { story, rest, note, deleteBranch };
 }
 
-export async function holdCommand(
+export async function parkCommand(
   args: readonly string[],
   deps: OfficeCommandDeps,
 ): Promise<number> {
-  const parsed = parseStoryArgs("hold", args, { note: true, deleteBranch: false }, deps);
+  const parsed = parseStoryArgs("park", args, { note: true, deleteBranch: false }, deps);
   if (typeof parsed === "number") return parsed;
-  if (parsed.note === undefined) return usage(deps, "hold needs --note <text>");
+  if (parsed.note === undefined) return usage(deps, "park needs --note <text>");
   const options = parseOptions(parsed.rest, false);
-  if (typeof options === "string") return usage(deps, `hold: ${options}`);
+  if (typeof options === "string") return usage(deps, `park: ${options}`);
   const { story, note } = parsed;
   return withOffice(
     deps,
     options.office,
     async (session, office) => {
-      const outcome = await session.command(storyHold, { story, note }, { office });
+      const outcome = await session.command(storyPark, { story, note }, { office });
       if (!outcome.ok) {
         return outcome.error.code === "office.unknown"
           ? "unknown"
           : engineFailure(deps, outcome.error);
       }
+      const run = outcome.result.run === undefined ? "" : ` (run ${outcome.result.run})`;
       deps.writeLine(
-        outcome.changed
-          ? `held ${story}; it is parked on-hold until \`dipo resume ${story}\``
-          : `${story} is already on hold`,
+        outcome.changed === false
+          ? `${story} is parked already`
+          : `parked ${story}${run} as by-maintainer; it waits until \`dipo resume ${story}\``,
       );
       return 0;
     },

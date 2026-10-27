@@ -16,7 +16,6 @@ import type { OfficeHandle } from "../db/office";
 import { finalizeRunAgents } from "../ingest/usage";
 
 import type { BackstopSnapshot } from "./backstop";
-import { PAUSE_OUTCOMES, pausedMs, resolvePauses } from "./pauses";
 
 export type RunKind = "story" | "session";
 
@@ -421,8 +420,6 @@ export function endRun(office: OfficeHandle, runId: RunId, at: number, kind: str
     { run: runId, at, kind },
   );
   if (ended.changes > 0) {
-    // A pause ends with the run (DIPO-163), so its time stops counting here.
-    resolvePauses(office, runId, PAUSE_OUTCOMES.runEnded, at);
     // Usage of agents whose exit is not ingested yet reaches `usage_daily` now (0007 amendment of
     // 2026-10-14, DIPO-51); what ingestion adds later feeds only its change.
     finalizeRunAgents(office, runId, at);
@@ -586,10 +583,7 @@ function writeRunOutcome(office: OfficeHandle, runId: RunId, kind: string): void
       reviews: rounds.reviewRounds,
       failures,
       budget,
-      minutes:
-        Math.round(
-          ((at - run.startedAt - (run.parkedMs ?? 0) - pausedMs(office, runId, at)) / 60_000) * 100,
-        ) / 100,
+      minutes: Math.round(((at - run.startedAt - (run.parkedMs ?? 0)) / 60_000) * 100) / 100,
       criteria,
       scope: run.scope === null ? null : run.scope.length,
       at,

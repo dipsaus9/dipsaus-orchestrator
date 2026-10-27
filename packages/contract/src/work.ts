@@ -43,8 +43,8 @@ export const KNOWN_TIERS = ["S", "M", "L"] as const;
 export const Tier = openEnum(KNOWN_TIERS);
 export type Tier = z.infer<typeof Tier>;
 
-// 0001 and 0012, plus `stopped` and `interrupted` (0005) and `needs-permission` and
-// `worker-failed` (0008).
+// The eight reasons of 0001. A park also carries a one-line text detail that no code decides from
+// (0020).
 export const KNOWN_PARK_REASONS = [
   "ambiguous-spec",
   "verify-failing",
@@ -52,10 +52,7 @@ export const KNOWN_PARK_REASONS = [
   "scope-violation",
   "review-blocked",
   "budget-exceeded",
-  "on-hold",
-  "stopped",
-  "interrupted",
-  "needs-permission",
+  "by-maintainer",
   "worker-failed",
 ] as const;
 export const ParkReason = openEnum(KNOWN_PARK_REASONS);
@@ -109,7 +106,7 @@ export const KNOWN_HEALTH = [
 export const Health = openEnum(KNOWN_HEALTH);
 export type Health = z.infer<typeof Health>;
 
-// Engine-derived queue column of a story (0009 section 3).
+// Engine-derived queue column of a story (0009).
 export const KNOWN_COLUMNS = [
   "draft",
   "refined",
@@ -118,7 +115,6 @@ export const KNOWN_COLUMNS = [
   "running",
   "review",
   "desk",
-  "held",
   "done",
 ] as const;
 export const QueueColumn = openEnum(KNOWN_COLUMNS);

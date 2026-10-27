@@ -29,7 +29,7 @@ const code = (state: DaemonState, kind: "command" | "read", name: string) =>
 describe("lifecycleGate", () => {
   for (const state of ["starting", "recovering"] as const) {
     it(`answers office commands and reads with the retryable engine.recovering in ${state}`, () => {
-      const error = lifecycleGate(lifecycleIn(state), "command", "work.pause");
+      const error = lifecycleGate(lifecycleIn(state), "command", "story.park");
       expect(error).toMatchObject({ code: "engine.recovering", retryable: true });
       expect(code(state, "command", "work.run")).toBe("engine.recovering");
       expect(code(state, "read", "office.snapshot")).toBe("engine.recovering");
@@ -40,7 +40,7 @@ describe("lifecycleGate", () => {
   it("answers scheduling commands with the retryable scheduling.off in safe", () => {
     const error = lifecycleGate(lifecycleIn("safe"), "command", "work.run");
     expect(error).toMatchObject({ code: "scheduling.off", retryable: true });
-    expect(code("safe", "command", "work.pause")).toBeNull();
+    expect(code("safe", "command", "story.park")).toBeNull();
     expect(code("safe", "read", "office.snapshot")).toBeNull();
   });
 
@@ -50,7 +50,7 @@ describe("lifecycleGate", () => {
   });
 
   it("starts no command in draining but daemon.*, and still answers reads", () => {
-    expect(code("draining", "command", "work.pause")).toBe("scheduling.off");
+    expect(code("draining", "command", "story.park")).toBe("scheduling.off");
     expect(code("draining", "read", "office.snapshot")).toBeNull();
     expect(code("draining", "command", "daemon.stop")).toBeNull();
   });
@@ -79,7 +79,7 @@ describe("lifecycleGate with an unavailable state database (DIPO-111)", () => {
   it("refuses office commands, software commands and reads with the non-retryable code", () => {
     const lifecycle = unavailable();
     for (const [kind, name] of [
-      ["command", "work.pause"],
+      ["command", "story.park"],
       ["command", "work.run"],
       ["command", "office.open"],
       ["command", "office.forget"],

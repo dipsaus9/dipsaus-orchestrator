@@ -64,8 +64,7 @@ export interface PrBodyStatus {
    */
   readonly merge?: "maintainer" | "dipo";
   /**
-   * The closed PR of the same story run this one replaces (0020 section 2, `stopped` /
-   * `pr-closed`, DIPO-324); the status block names it. Left out for a PR that replaces none.
+   * The closed PR of the same story run this one replaces (0002, DIPO-324); the status block names it. Left out for a PR that replaces none.
    */
   readonly replaces?: number;
 }

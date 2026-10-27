@@ -335,8 +335,8 @@ function backInReview(s: StoryRun): void {
 const events = (type: string) => loggedEvents(w.office).filter((event) => event.type === type);
 
 const parksOf = () =>
-  w.office.all<{ reason: string; cause: string }>(
-    "select reason, cause from parks where office_id = $office_id order by park_id",
+  w.office.all<{ reason: string }>(
+    "select reason from parks where office_id = $office_id order by park_id",
   );
 
 const fixIntentsOf = (run: RunId) =>
@@ -555,7 +555,7 @@ describe("the pre-start cap check (DIPO-205)", () => {
     await x.fix.idle();
     expect(x.started).toEqual([]);
     expect(x.lifts).toEqual([]);
-    expect(parksOf()).toEqual([{ reason: "budget-exceeded", cause: "build" }]);
+    expect(parksOf()).toEqual([{ reason: "budget-exceeded" }]);
     const rows = feedbackItems(w.office, s.run);
     expect(rows.map((row) => row.source)).toEqual(["review", "review", "ci"]);
     expect(rows.every((row) => row.sentAt === null)).toBe(true);
@@ -644,7 +644,7 @@ const waitingFix = (story: string): StoryRun => {
 };
 
 describe("a fix round that cannot start", () => {
-  it("parks worker-failed with cause build when it has no feedback, instead of holding the place", async () => {
+  it("parks worker-failed when it has no feedback, instead of holding the place", async () => {
     const s = inReview("DIPO-1");
     // A wait for a fix round with no intent behind it.
     write(() =>
@@ -655,7 +655,7 @@ describe("a fix round that cannot start", () => {
       ),
     );
     await x.places.drain(officeId());
-    expect(parksOf()).toEqual([{ reason: "worker-failed", cause: "build" }]);
+    expect(parksOf()).toEqual([{ reason: "worker-failed" }]);
     expect(findRun(w.office, s.run)?.endedAt).not.toBeNull();
     expect(x.started).toEqual([]);
     expect(runIntents(w.office, s.run).filter((i) => i.kind === "park")).toEqual([
@@ -668,7 +668,7 @@ describe("a fix round that cannot start", () => {
     x.s.viewNull = true;
     expect(await x.fix.consider(officeId(), s.run)).toBe(true);
     await x.fix.idle();
-    expect(parksOf()).toEqual([{ reason: "worker-failed", cause: "build" }]);
+    expect(parksOf()).toEqual([{ reason: "worker-failed" }]);
     expect(x.started).toEqual([]);
     expect(feedbackItems(w.office, s.run).every((item) => item.sentAt === null)).toBe(true);
   });
@@ -683,7 +683,7 @@ describe("a fix round that cannot start", () => {
       expect(findRun(w.office, s.run)).toMatchObject({ endedAt: null, waiting: START_KINDS.fix });
       await x.places.drain(officeId());
     }
-    expect(parksOf()).toEqual([{ reason: "worker-failed", cause: "build" }]);
+    expect(parksOf()).toEqual([{ reason: "worker-failed" }]);
     expect(x.started).toEqual([]);
   });
 

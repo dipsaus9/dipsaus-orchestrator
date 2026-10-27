@@ -221,9 +221,9 @@ describe("the outcome row (0019 section 13)", () => {
     workToInReview();
     write(() =>
       w.office.run(
-        `insert into parks (office_id, park_id, key, story_id, run_id, reason, cause, from_state,
-           detail, at, resolved_at, resolved_how)
-         values ($office_id, 1, $key, 'DIPO-7', $run, 'needs-permission', 'build', 'In Progress',
+        `insert into parks (office_id, park_id, key, story_id, run_id, reason, from_state, detail,
+           at, resolved_at, resolved_how)
+         values ($office_id, 1, $key, 'DIPO-7', $run, 'worker-failed', 'In Progress',
            'Bash: x', 0, 1, 'resume')`,
         { key: s.key, run: s.run },
       ),
@@ -232,7 +232,7 @@ describe("the outcome row (0019 section 13)", () => {
     expect(runOutcome(w.office, s.run)).toMatchObject({
       outcome: DONE_END,
       final: true,
-      parkReasons: ["needs-permission"],
+      parkReasons: ["worker-failed"],
     });
   });
 });

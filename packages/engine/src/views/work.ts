@@ -26,7 +26,6 @@ import type { OfficeHandle } from "../db/office";
 import { readUsage } from "../ingest/usage";
 import { runCaps } from "../run/caps";
 import { runCriteriaMet } from "../run/criteria";
-import { openPause } from "../run/pauses";
 import { activeRuns, findRun, runRoundCounts, type StoredRun } from "../run/records";
 import { activeSignals } from "../run/signals";
 
@@ -41,22 +40,19 @@ export interface HealthFacts {
   readonly exitUnprocessed: boolean;
   /** An open question or a gate waiting on the maintainer for this run (none in M0). */
   readonly asking?: boolean;
-  /** `work.pause` took effect: an open maintainer pause (DIPO-163). */
-  readonly paused?: boolean;
   readonly loop: number;
   readonly loopCap: number;
 }
 
 /**
- * Health in the 0009 precedence: `lost`, `asking`, `limited`, `paused`, `looping`, `stuck`,
- * `quiet`, `busy`. The first rule that holds wins.
+ * Health in the 0009 precedence: `lost`, `asking`, `limited`, `looping`, `stuck`, `quiet`,
+ * `busy`. The first rule that holds wins.
  */
 export function deriveHealth(facts: HealthFacts): Health {
   const has = (signal: WatchdogSignal) => facts.signals.includes(signal);
   if (has("host-lost") || facts.exitUnprocessed) return "lost";
   if (facts.asking === true || has("input-wait")) return "asking";
   if (has("plan-limit")) return "limited";
-  if (facts.paused === true) return "paused";
   if (has("same-failure") || (facts.loopCap > 0 && facts.loop >= facts.loopCap)) return "looping";
   if (has("no-output")) return "stuck";
   if (has("quiet")) return "quiet";
@@ -187,14 +183,10 @@ function viewOf(office: OfficeHandle, run: StoredRun): WorkView | null {
   // A run held for a plan limit (DIPO-51) has an exited worker on purpose: it waits for the
   // reset, so it shows `limited`, not `lost`. A run reopened for a round waits for its place
   // with the last session's agent ended (DIPO-142): not lost either.
-  // A run the maintainer paused (DIPO-163) shows `paused`, also after its worker exited.
-  const paused = run.endedAt === null && openPause(office, run.runId) !== null;
-  const waiting =
-    signals.some((signal) => signal.signal === "plan-limit") || run.waiting != null || paused;
+  const waiting = signals.some((signal) => signal.signal === "plan-limit") || run.waiting != null;
   const health = deriveHealth({
     signals: signals.map((signal) => signal.signal),
     exitUnprocessed: agent.ended_at !== null && run.endedAt === null && !waiting,
-    paused,
     loop: progress.loop,
     loopCap: progress.loopCap,
   });

@@ -4,7 +4,7 @@
 // process group of every child still running and exits anyway; the next start recovers as after a
 // crash. Worker hosts are never the daemon's children here, so they keep running (decision 8),
 // unless `daemon.stop { stopWorkers: true }` asked for them to be stopped: then run control stops
-// every live worker through its host first (DIPO-315), each story parks `stopped`, and the drain
+// every live worker through its host first (DIPO-315), each story parks `by-maintainer`, and the drain
 // waits for the parks and the exits under the longer cap. The log line says what happened.
 
 import type { Clock } from "@dipsaus-orchestrator/contract";

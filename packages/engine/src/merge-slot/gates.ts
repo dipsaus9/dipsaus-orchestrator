@@ -23,7 +23,7 @@
 //   clean merge of the base by the slot, task-file commits); a new head after a fix round opens a
 //   new gate with a new id. An open gate whose head no longer holds is decided `rejected` by rule
 //   as superseded, so nothing waits on a head that is gone.
-// - The override gate. A story parked `review-blocked` (cause `rounds`) gets a merge gate waiting
+// - The override gate. A story parked `review-blocked` gets a merge gate waiting
 //   for the maintainer whose summary lists the blocking findings and whose `override_of` names the
 //   blocked verdict's review gate. Approving it needs a note and records the override
 //   (`merge-slot/commands.ts`); that approval is the story's merge decision.

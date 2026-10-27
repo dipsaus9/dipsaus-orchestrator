@@ -670,13 +670,12 @@ describe("blob ids and parks", () => {
   });
 
   it("parks scope-violation on a hit or a refused part, conflict on a rejected push", () => {
-    expect(partPark({ kind: "hit", cause: "secret", detail: "d" })).toEqual({
+    expect(partPark({ kind: "hit", hit: "secret", detail: "d" })).toEqual({
       reason: "scope-violation",
-      cause: "secret",
       detail: "d",
     });
-    expect(partPark({ kind: "refused", detail: refusedDetail("cap", 10) })?.cause).toBe(
-      "part-refused",
+    expect(partPark({ kind: "refused", detail: refusedDetail("cap", 10) })?.reason).toBe(
+      "scope-violation",
     );
     expect(refusedDetail("cap", 10)).toContain("larger than 10 bytes");
     const push = { pushed: false, rejected: true, error: "rejected" };

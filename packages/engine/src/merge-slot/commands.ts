@@ -38,7 +38,7 @@ import type { AsyncCommandContext, CommandOutcome, FeatureModule } from "../comm
 import type { OfficeHandle } from "../db/office";
 import type { PrReviewHost } from "../platform/host";
 import { recordReviewOverride } from "../review/store";
-import { openPark, type ParkWriter, type UnparkWriter } from "../run/park";
+import { openPark, type ParkWriter, resolvePark, type UnparkWriter } from "../run/park";
 import { appendRunStep, findRun, REVIEWED_END, type StoredRun } from "../run/records";
 import { type BranchPush, findStoryPr, recordBranchPush } from "../story-pr/records";
 import { deriveStoryView, storyView } from "../views/story";
@@ -299,17 +299,13 @@ export class MergeGates {
       if (decided.length === 0) throw notWaiting(gate.gate, "it was decided meanwhile");
       recordReviewOverride(office, gate.overrideOf as GateId, { note, at: ctx.now });
       appendRunStep(office, run.runId, "override", gate.overrideOf as string, ctx.now);
-      office.run(
-        `update parks set resolved_at = $at, resolved_how = 'override'
-          where office_id = $office_id and park_id = $park and resolved_at is null`,
-        { at: ctx.now, park: parkId },
-      );
+      const closed = resolvePark(office, parkId, "override", ctx.now);
       // In Review with no session: the run waits as reviewed, for its checks and the merge slot.
       office.run(
         `update runs set end_kind = $reviewed where office_id = $office_id and run_id = $run`,
         { reviewed: REVIEWED_END, run: run.runId },
       );
-      return withWorkViews(office, [...decided, ...inReviewEntries(office, run, note)]);
+      return withWorkViews(office, [...decided, ...closed, ...inReviewEntries(office, run, note)]);
     });
   }
 }

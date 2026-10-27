@@ -209,7 +209,7 @@ export { Watchdog, WATCHDOG_DEFAULTS } from "./watchdog";
 export type { WatchdogOptions, WatchdogTimeouts } from "./watchdog";
 export { activeSignals, clearSignals, LIVENESS_SIGNALS, raiseSignal } from "./signals";
 export type { StoredSignal } from "./signals";
-// Caps, parks and `work.stop` (DIPO-50).
+// Caps, parks and `story.park` of a story with a run (DIPO-50).
 export {
   CAP_TICK_MS,
   CONTROL_NOTICES,
@@ -219,7 +219,6 @@ export {
   RECONCILED_END,
   RunControl,
   STOP_ALL_EXIT_WAIT_MS,
-  STOPPED_DETAIL,
   STORY_NOT_RUNNING,
 } from "./control";
 export type {
@@ -263,7 +262,6 @@ export {
   gitParkWriter,
   gitUnparkWriter,
   openPark,
-  PARK_CAUSES,
   PARK_NOTICES,
   parkActions,
   parkStory,
@@ -272,7 +270,6 @@ export {
 export type {
   BranchPark,
   ParkBranchRequest,
-  ParkCause,
   ParkDeps,
   ParkOutcome,
   ParkRequest,
@@ -349,8 +346,6 @@ export type {
   RunEnder,
   RunOutcomesDeps,
   RunOutcomesPort,
-  ResumeParkOutcome,
-  ResumeParkRequest,
   PlanLimitHit,
   PlanLimitWaits,
   PlanLimitWarning,
@@ -371,13 +366,13 @@ export {
   wakeAt,
 } from "./plan-limit";
 export type { PlanLimitsDeps } from "./plan-limit";
-// `story.hold` and `story.drop` through the planning lane (DIPO-160), and the on-hold resume that
-// `work.resume` hands them.
+// `story.park` of a story with no run and `story.drop` through the planning lane (DIPO-160), and
+// the resume of such a park that `work.resume` hands them.
 export {
   DIRTY_WORKTREE,
   HAS_DEPENDENTS,
   NOT_DROPPABLE,
-  NOT_HOLDABLE,
+  NOT_PARKABLE,
   PLANNING_NOTICES,
   PR_NOT_CLOSED,
   STORY_ACTIVE,
@@ -408,23 +403,10 @@ export {
 } from "./proposals";
 export type { ProposalCommandsDeps, StoredProposal } from "./proposals";
 export type { HoldResumer } from "./work-resume";
-// Park resume and `work.resume` in one module with a per-reason policy table (DIPO-138).
-export {
-  createRunOutcomes,
-  NOT_PAUSED_OR_PARKED,
-  PARK_RESUME_POLICY,
-  Resumption,
-  resumeVia,
-  RUN_HOST_ALIVE,
-} from "./resumption";
-export type {
-  HeldRunResumer,
-  ResumePolicyRow,
-  ResumeVia,
-  ResumeWaitOutcome,
-  ResumptionOptions,
-} from "./resumption";
-// The resume of every parked story by the 0020 matrix (DIPO-155).
+// Park resume and `work.resume` in one module (DIPO-138).
+export { createRunOutcomes, NOT_PAUSED_OR_PARKED, Resumption, RUN_HOST_ALIVE } from "./resumption";
+export type { HeldRunResumer, ResumeWaitOutcome, ResumptionOptions } from "./resumption";
+// The resume of every parked story by the 0020 table (DIPO-155, DIPO-344).
 export { MAINTAINER_RESUME_TAG, PARK_RESUME_NOTICES, RESUME_ERRORS } from "./park-resume";
 export { HALF_SHARE, share, smallestShare, withGrants } from "./resume-caps";
 export { noteText } from "./resume";
@@ -435,9 +417,15 @@ export type {
   PrReplacement,
   SlotReentry,
 } from "./park-resume";
-export { PARK_RESUME_MATRIX, parkResumeRow } from "./resume-policy";
-export type { ParkMatrixRow, ParkResumeRow, ResumeSession } from "./resume-policy";
-export { resolveParkResumed, resumableByCommand } from "./park";
+export {
+  parkResumeNeed,
+  RESUME_TABLE,
+  resumeRow,
+  resumeSession,
+  SUGGESTED_SHARE,
+} from "./resume-policy";
+export type { ResumeDelta, ResumeFacts, ResumeNeed, ResumeSession } from "./resume-policy";
+export { resolvePark, type ParkResolution } from "./park";
 export {
   baseStoryFacts,
   HOST_EXIT_WAIT_MS,

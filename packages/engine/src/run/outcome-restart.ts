@@ -17,7 +17,6 @@ import {
   type RunOutcomesDeps,
   type RunView,
 } from "./outcome-types";
-import { openPause } from "./pauses";
 import { activeRuns, backstopSnapshotOf, capsStartedAt } from "./records";
 
 export class Redispatch {
@@ -76,8 +75,6 @@ export class Redispatch {
       if (run.kind !== "story" || this.#guard.busy(run.runId) || tracked) continue;
       // A run reopened and waiting for its place has no exit to decide (DIPO-142).
       if (run.waiting != null) continue;
-      // A run the maintainer paused stays so until `work.resume` (DIPO-163).
-      if (openPause(office, run.runId) !== null) continue;
       const agent = office.get<{
         agent_id: string;
         end_reason: string | null;

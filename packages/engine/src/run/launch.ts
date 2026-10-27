@@ -190,7 +190,7 @@ export interface RunLauncherDeps {
   readonly hosts: HostStarter;
   readonly ingest: RunIngest;
   /**
-   * Caps, report parks and `work.stop` of started runs (DIPO-50); told about each run before its
+   * Caps, report parks and `story.park` of started runs (DIPO-50); told about each run before its
    * ingestion starts, so no event is missed.
    */
   readonly control?: {

@@ -32,7 +32,7 @@
 //   start parks the story as any next session does, and the feedback stays undelivered with its
 //   intent. A round that cannot start and will not on its own (no feedback behind the wait, no
 //   developer session to continue, a status commit that failed `FIX_LIFT_TRIES` times in a row)
-//   parks the story `worker-failed` with cause `build` instead of holding the worker place.
+//   parks the story `worker-failed` instead of holding the worker place.
 // - Recovery (`recover`, the daemon's recovery step). A round whose session started before a stop
 //   left its delivery unwritten is marked delivered at that session's start, and every run that
 //   ended reviewed with a live claim gets `consider`.
@@ -79,7 +79,7 @@ import {
 } from "./feedback-items";
 import { markIntentSent, recordIntent, resolveIntent, runIntents } from "./intents";
 import { intentRest, intentTag, OUTCOME_ENDS, type RunView } from "./outcome-types";
-import { type BranchUnpark, openPark, PARK_CAUSES, type UnparkWriter } from "./park";
+import { type BranchUnpark, openPark, type UnparkWriter } from "./park";
 import { recordBranchPush } from "../story-pr/records";
 import type { Places, PlaceStart } from "./places";
 import { findRun, IN_REVIEW_END, type StoredRun } from "./records";
@@ -535,7 +535,7 @@ export class FixRounds {
 
   /**
    * A fix round that cannot start and will not on its own: the story parks `worker-failed` with
-   * cause `build` and `detail`, so the round neither holds the worker place nor warns at every
+   * `detail`, so the round neither holds the worker place nor warns at every
    * drain. Its feedback stays undelivered with its intent. Always false.
    */
   async #strand(office: OfficeHandle, run: StoredRun, detail: string): Promise<false> {
@@ -549,7 +549,6 @@ export class FixRounds {
         intent: "park",
         ops: [],
         reason: "worker-failed",
-        cause: PARK_CAUSES.build,
         detail,
         endKind: OUTCOME_ENDS.crashed,
       });

@@ -135,8 +135,8 @@ export function replaceStoryPr(office: OfficeHandle, record: StoryPrRecord): voi
 }
 
 /**
- * Runs whose story PR was closed on the host and whose `stopped` / `pr-closed` park of that PR
- * (parked after it opened) the maintainer resumed, with a live claim: a new PR is still to open for them (DIPO-324), so a
+ * Runs whose story PR was closed on the host and that the maintainer resumed from a `by-maintainer`
+ * park made after the PR opened, with a live claim: a new PR is still to open for them (DIPO-324), so a
  * create that failed is tried again by the PR poll. Oldest first.
  */
 export function pendingPrReplacements(office: OfficeHandle): RunId[] {
@@ -145,7 +145,7 @@ export function pendingPrReplacements(office: OfficeHandle): RunId[] {
       `select p.run_id from story_prs p
         where p.office_id = $office_id and p.state = 'closed'
           and exists (select 1 from parks k where k.office_id = p.office_id
-            and k.run_id = p.run_id and k.cause = 'pr-closed' and k.resolved_how = 'resume'
+            and k.run_id = p.run_id and k.reason = 'by-maintainer' and k.resolved_how = 'resume'
             and k.at >= p.opened_at)
           and exists (select 1 from claims c where c.office_id = p.office_id
             and c.run_id = p.run_id and c.released_at is null)

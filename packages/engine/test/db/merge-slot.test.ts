@@ -13,6 +13,10 @@ import { MIGRATIONS } from "../../src/db/schema";
 import { TABLE_RETENTION } from "../../src/retention/policy";
 import { localMounts, memoryLogger } from "./helpers";
 
+// Migration 57 (DIPO-344) drops `parks.cause` and the question trigger, so these steps are read as
+// they left the schema.
+const BEFORE_57 = MIGRATIONS.filter((step) => step.version <= 56);
+
 const open = (dir: string, migrations?: readonly Migration[]) =>
   openStateDatabase({
     stateDir: join(dir, "state"),
@@ -54,7 +58,7 @@ describe("migration 48 on a database at version 47", () => {
         old.close();
       }
 
-      const state = await open(dir);
+      const state = await open(dir, BEFORE_57);
       try {
         const db = state.connection;
         expect(MIGRATIONS.find((step) => step.version === 48)?.name).toBe("merge slot");

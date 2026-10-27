@@ -32,7 +32,7 @@
 // is red once its checks are final (or the wait ran out): the engine lists every check of the
 // head once, reads the failed Actions job logs, builds one CI feedback item per failed check,
 // appends one `ci` run step for the head and, when the run's CI cap (snapshot plus `ciAttempt`
-// grants) is reached, parks the story `verify-failing` with cause `ci`. The items stay in memory
+// grants) is reached, parks the story `verify-failing`. The items stay in memory
 // for the fix round (`ciItems`, `ciState`), and each listener of `onCiFinal` is told when a head's
 // CI stops being pending (red, green, no CI or stuck), so the fix round of DIPO-148 starts once
 // both the verdict and the checks of that head are in; a story run in review holds no session
@@ -108,7 +108,7 @@ import { runConfigOf } from "../run/config-snapshot";
 import { storedDoneReport } from "../run/done-report";
 import { runBudgetFacts } from "../run/budget-line";
 import { runCaps } from "../run/caps";
-import { PARK_CAUSES, type ParkWriter, parkStory } from "../run/park";
+import { type ParkWriter, parkStory } from "../run/park";
 import {
   appendRunStep,
   findRun,
@@ -358,7 +358,7 @@ export class StoryPrs {
   }
 
   /**
-   * DIPO-155's `PrReplacement` (DIPO-324; 0020 section 2, `stopped` / `pr-closed`): the run's story
+   * DIPO-155's `PrReplacement` (DIPO-324; 0002, a PR closed on GitHub): the run's story
    * PR that was closed on the host without a merge is replaced by a new one for the branch's
    * head, whose body names the closed one ("Replaces #n"); the run's record then holds the new PR,
    * with `replaces`. A PR still open on the host is only updated, and a merged one is the Done
@@ -1031,8 +1031,8 @@ export class StoryPrs {
 
   /**
    * A red head: builds its CI items (one log read per failed check, once per head per poller, so again after a restart), appends the
-   * head's `ci` step unless an earlier poll did, and parks the story `verify-failing` with cause
-   * `ci` when the run's CI cap is reached. False when that park failed, so the head stays open.
+   * head's `ci` step unless an earlier poll did, and parks the story `verify-failing`
+   * when the run's CI cap is reached. False when that park failed, so the head stays open.
    */
   async #red(
     officeId: OfficeId,
@@ -1078,7 +1078,6 @@ export class StoryPrs {
         {
           run,
           reason: "verify-failing",
-          cause: PARK_CAUSES.ci,
           detail,
           endKind: "verify-failing",
         },

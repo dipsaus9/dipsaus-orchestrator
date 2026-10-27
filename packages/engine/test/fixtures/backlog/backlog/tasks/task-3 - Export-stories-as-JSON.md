@@ -22,7 +22,7 @@ test_plan:
   entries:
     - kind: "automated"
       check: "(unit) the JSON output parses and lists every story"
-park: { reason: "on-hold", from: "Ready", note: "Waiting for the CSV export to land first" }
+park: { reason: "by-maintainer", from: "Ready", note: "Waiting for the CSV export to land first" }
 ```
 <!-- SECTION:DESCRIPTION:END -->
 

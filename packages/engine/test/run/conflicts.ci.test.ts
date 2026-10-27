@@ -348,7 +348,6 @@ if (process.env["DIPO_TEST_CI"] === "1") {
         expect(parked).toEqual({
           kind: "park",
           reason: "conflict",
-          cause: "merge-in-progress",
           detail: expect.stringContaining("2 conflict hand-offs failed (the conflict cap is 2)"),
         });
         if (parked.kind === "park") expect(parked.detail).toContain("src/shared.ts");
@@ -396,13 +395,11 @@ if (process.env["DIPO_TEST_CI"] === "1") {
         await w.conflicts.recorded(w.part, conflicted);
         expect(office.immediate(() => blockedHandOff(office, w.f.run, 2))).toMatchObject({
           reason: "conflict",
-          cause: "merge-in-progress",
         });
         // A done turn that crossed a cap has no turn left for the feedback.
         await w.conflicts.recorded(w.part, conflicted);
         expect(await atDone(w, tip, true)).toMatchObject({
           kind: "park",
-          cause: "merge-in-progress",
         });
       }));
   });
@@ -446,14 +443,12 @@ if (process.env["DIPO_TEST_CI"] === "1") {
           kind: "park",
           park: {
             reason: "conflict",
-            cause: "unwritable-path",
             detail: ".github/workflows/ci.yml",
           },
         };
         expect(await atDone(w, tip)).toEqual({
           kind: "park",
           reason: "conflict",
-          cause: "unwritable-path",
           detail: ".github/workflows/ci.yml",
         });
       }));
@@ -747,7 +742,7 @@ if (process.env["DIPO_TEST_CI"] === "1") {
           }),
         );
         const parked = await atDone(w, tip, true);
-        expect(parked).toMatchObject({ kind: "park", cause: "merge-in-progress" });
+        expect(parked).toMatchObject({ kind: "park", reason: "conflict" });
         if (parked.kind === "park") {
           expect(parked.detail).toStartWith(
             "the done turn crossed a run cap before the conflict could be handed over to the worker",

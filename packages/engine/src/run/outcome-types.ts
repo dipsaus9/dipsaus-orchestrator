@@ -23,7 +23,7 @@ import type { ClaimRecord } from "../worktree/records";
 import type { BackstopSnapshot } from "./backstop";
 import type { RunEnding, RunSteering } from "./control-types";
 import { type IntentKind, runIntents } from "./intents";
-import { PARK_CAUSES, type ParkOutcome, type UnparkWriter } from "./park";
+import { type ParkOutcome, type UnparkWriter } from "./park";
 import type { StoredRun } from "./records";
 import type { NextSession } from "./resume";
 import { activeSignals } from "./signals";
@@ -32,8 +32,6 @@ import type { StoryGit } from "./story-git";
 /** The tags DIPO-51 stores at the start of an intent's detail. */
 export const INTENT_TAGS = {
   reportFeedback: "report-feedback",
-  /** `answer` `park-resume <request JSON>`: an answer resuming a `needs-permission` park. */
-  parkResume: "park-resume",
   contextFull: "new-session:context-full",
   error: "new-session:error",
   planLimit: "plan-limit",
@@ -257,11 +255,7 @@ export interface HostLostContext {
  * The ending of a rejected init (0008 sections 2 and 7); `cause` is the session's, the
  * reviewer's `review` for a reviewer session (0019 section 4).
  */
-export function initRejectedEnding(
-  story: string,
-  reason: string,
-  cause: string = PARK_CAUSES.build,
-): RunEnding {
+export function initRejectedEnding(story: string, reason: string): RunEnding {
   return {
     intent: "stop",
     intentDetail: `${INTENT_TAGS.initRejected} ${reason}`,
@@ -271,7 +265,6 @@ export function initRejectedEnding(
       { signal: "SIGKILL", afterMs: INIT_REJECTED_SIGKILL_AFTER_MS },
     ],
     reason: "worker-failed",
-    cause,
     detail: `the worker failed its start checks: ${reason}`,
     endKind: OUTCOME_ENDS.initRejected,
     notice: {
@@ -325,34 +318,6 @@ export interface RunOutcomesDeps {
   readonly onChanged?: (office: OfficeId) => void;
   readonly warn?: (message: string, fields: Readonly<Record<string, unknown>>) => void;
 }
-
-/** What resuming a parked run asks for (DIPO-75, `Resumption.resumePark`). */
-export interface ResumeParkRequest {
-  /** The open park the answer belongs to. */
-  readonly parkId: number;
-  /** The park's open permission question being answered. */
-  readonly question: string;
-  readonly decision: "allow" | "deny";
-  /** The maintainer's text with the decision; empty for none. */
-  readonly text: string;
-}
-
-/** What resuming a parked run did (DIPO-75). */
-export type ResumeParkOutcome =
-  /**
-   * The run is active again and the answer recorded; from `Resumption.resumePark` its next session is
-   * starting in the background (a failed start parks or releases the story with its notice), or,
-   * `queued`, waits for the office's worker place and starts when it frees (DIPO-142).
-   */
-  | { readonly kind: "started"; readonly queued?: boolean }
-  /** The park was lifted but the next session did not start; the story parked or released again. */
-  | { readonly kind: "notStarted" }
-  /** The run has no open park `parkId`, or it was not this run's. */
-  | { readonly kind: "notParked" }
-  /** The parked worker's exit is not ingested yet (retryable). */
-  | { readonly kind: "busy" }
-  /** Nothing changed: the park could not be lifted. */
-  | { readonly kind: "failed"; readonly reason: string };
 
 export function messageOf(error: unknown): string {
   return error instanceof Error ? error.message : String(error);
