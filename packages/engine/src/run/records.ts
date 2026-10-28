@@ -16,6 +16,7 @@ import type { OfficeHandle } from "../db/office";
 import { finalizeRunAgents } from "../ingest/usage";
 
 import type { BackstopSnapshot } from "./backstop";
+import { runTotals } from "./caps";
 
 export type RunKind = "story" | "session";
 
@@ -529,14 +530,11 @@ function writeRunOutcome(office: OfficeHandle, runId: RunId, kind: string): void
       { run: runId },
     )
     .map((row) => row.reason);
-  const count = (sql: string): number => office.get<{ n: number }>(sql, { run: runId })?.n ?? 0;
   const rounds = runRoundCounts(office, runId);
   // dipo runs no verify of its own any more (DIPO-342): the column stays, always 0.
   const failures = 0;
-  const budget = count(
-    `select coalesce(sum(input + output + cache_create), 0) as n from usage_totals
-      where office_id = $office_id and run_id = $run`,
-  );
+  // The developer's tokens only: a reviewer counts against its own caps, never the story's (0002).
+  const budget = runTotals(office, runId, at, at).budgetTokens;
   // The run's web calls by tool, counted from its tool activity (0020 section 11b, DIPO-164).
   const web = office.get<{ searches: number; fetches: number }>(
     `select web_searches as searches, web_fetches as fetches from runs

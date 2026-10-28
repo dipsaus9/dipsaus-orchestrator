@@ -1,8 +1,8 @@
 // The run across review rounds (DIPO-142, 0019 section 13), fast and local: one story run ends its
 // active period at In Review and reopens on the same run for a review, a fix round and a conflict
 // hand-off. The developer's minute cap leaves out the idle and review time, the reviewer's turns
-// stay out of the developer's turn cap while its tokens count toward the story budget, each end
-// rewrites the provisional outcome row and Done writes the final one.
+// and tokens stay out of the developer's caps and the story's budget (0002), each end rewrites
+// the provisional outcome row and Done writes the final one.
 
 import { afterEach, beforeEach, describe, expect, it } from "bun:test";
 
@@ -162,6 +162,15 @@ describe("the reviewer's turns and tokens (0002)", () => {
     expect(firedCap({ budgetTokens: 6_000, maxTurns: 30, maxMinutes: 60 }, totals)?.cap).toBe(
       "budgetTokens",
     );
+  });
+
+  it("stay out of the budget tokens of the run's outcome row", () => {
+    const developer = addAgent(w, s.run, "developer", false);
+    const reviewer = addAgent(w, s.run, "reviewer", false, "opus");
+    addUsage(w, s.run, developer, "developer", { turns: 20, tokens: 6_000 });
+    addUsage(w, s.run, reviewer, "reviewer", { turns: 40, tokens: 5_000 });
+    write(() => endRunMarked(w.office, s.run, now(), IN_REVIEW_END));
+    expect(runOutcome(w.office, s.run)).toMatchObject({ budgetTokens: 6_000 });
   });
 });
 
