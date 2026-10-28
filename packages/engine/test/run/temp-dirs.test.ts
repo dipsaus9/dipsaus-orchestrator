@@ -554,6 +554,5 @@ describe("afterRunExits", () => {
     await wrapped.onHostLost?.({} as never);
     wrapped.answered({} as never);
     expect(calls).toEqual(["exit", "after", "lost", "after", "answered"]);
-    expect(wrapped.onPlanWarning).toBeUndefined();
   });
 });

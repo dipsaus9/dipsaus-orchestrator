@@ -95,9 +95,11 @@ export interface RunProfilesDeps {
   readonly fallback?: () => ScanSessionRunner | undefined;
   /** The office's `scan` block in force; the defaults without one. */
   readonly scanSettings?: (office: OfficeId) => Omit<ScanSessionSettings, "maxTurns"> | undefined;
-  /** Why a new session of `model` is held by a plan limit now; null when it is not (DIPO-61). */
-  readonly planLimitHeld?: (office: OfficeId, model: string) => string | null;
-  /** How long a held fallback session waits before it looks again; a test seam. */
+  /** Why no new session starts in the office now (its starts paused, 0020); null when it may. */
+  readonly startsPaused?: (office: OfficeId) => string | null;
+  /** A fallback session met the plan limit: the office's starts pause until `resetsAt` (ms). */
+  readonly pausePlanLimit?: (office: OfficeId, resetsAt: number | undefined) => void;
+  /** How long a waiting fallback session waits before it looks again; a test seam. */
   readonly fallbackPollMs?: number;
   /** A scan outside a command appended entries; subscribers catch up. */
   readonly onOfficeChanged?: (office: OfficeId) => void;
@@ -150,7 +152,8 @@ export class RunProfiles {
     this.#fallback = new ScanFallback({
       ...(deps.fallback === undefined ? {} : { runner: deps.fallback }),
       settings: (office) => deps.scanSettings?.(office) ?? SCAN_DEFAULTS,
-      ...(deps.planLimitHeld === undefined ? {} : { planLimitHeld: deps.planLimitHeld }),
+      ...(deps.startsPaused === undefined ? {} : { startsPaused: deps.startsPaused }),
+      ...(deps.pausePlanLimit === undefined ? {} : { pausePlanLimit: deps.pausePlanLimit }),
       readBase: (office) => this.#readBase(office),
       ...(deps.onOfficeChanged === undefined ? {} : { onOfficeChanged: deps.onOfficeChanged }),
       ...(deps.logger === undefined ? {} : { logger: deps.logger }),

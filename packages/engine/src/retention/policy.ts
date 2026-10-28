@@ -104,9 +104,9 @@ export const TABLE_RETENTION: Readonly<Record<string, TablePolicy>> = {
   proposals: { tier: "S", rule: "decided more than stateDays ago; an open proposal is kept" },
   questions: { tier: "S", rule: "with its run, ended more than stateDays ago" },
   run_outcomes: { tier: "P", rule: "kept until purge, for retro and tier tuning" },
-  plan_limit_warnings: {
+  starts_paused: {
     tier: "P",
-    rule: "one row per adapter and scope, deleted by the plan-limit schedule once its hold ends",
+    rule: "one row per office, deleted when the office's starts paused lifts",
   },
   config_snapshots: {
     tier: "S",

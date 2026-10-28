@@ -3,8 +3,8 @@
 //
 // - `office.infer` names only what code left unresolved or in conflict, says `nothing` when that
 //   is empty, and starts the session after the command; a second infer of the same office waits
-//   for the running session; a plan-limit hold makes it wait, never park, and so does a session
-//   that meets the limit.
+//   for the running session; the office's starts paused makes it wait, never park, and a session
+//   that meets the plan limit pauses the starts and waits for their lift (0020).
 // - A valid answer is stored pending with confidence `low` and its evidence, never in the
 //   effective profile, so `run` still refuses; a proposal that fails a check, and an answer that
 //   fails the schema, are dropped with an `engine.notice` naming the check.
@@ -94,7 +94,10 @@ interface Harness {
   /** The next results the scripted runner gives, in order; it waits on `gate` first when set. */
   readonly results: ScanSessionResult[];
   gate: Promise<void> | null;
+  /** The office's starts paused, as the fallback reads it; null when not paused. */
   held: string | null;
+  /** The plan limits the fallback paused the office's starts for, with their reset (ms). */
+  readonly pauses: (number | undefined)[];
 }
 
 function harness(t: TestState, profile: RunProfile = MAKE_REPO): Harness {
@@ -110,6 +113,7 @@ function harness(t: TestState, profile: RunProfile = MAKE_REPO): Harness {
     results: [],
     gate: null,
     held: null,
+    pauses: [],
     fallback: undefined as unknown as ScanFallback,
   };
   (h as { fallback: ScanFallback }).fallback = new ScanFallback({
@@ -121,7 +125,11 @@ function harness(t: TestState, profile: RunProfile = MAKE_REPO): Harness {
       },
     }),
     settings: () => SETTINGS,
-    planLimitHeld: () => h.held,
+    startsPaused: () => h.held,
+    pausePlanLimit: (_office, resetsAt) => {
+      h.pauses.push(resetsAt);
+      h.held = "the office's starts are paused (plan limit)";
+    },
     readBase: async () => BASE,
     pollMs: 1_000,
   });
@@ -295,9 +303,9 @@ describe("office.infer", () => {
       expect(h.fallback.inferring(h.officeId)).toBe(false);
     }));
 
-  it("waits while a plan limit holds the model, with one notice, and never parks", () =>
+  it("waits while the office's starts are paused, with one notice, and never parks", () =>
     withHarness(async (h) => {
-      h.held = "a session limit until 14:00";
+      h.held = "the office's starts are paused (plan limit until 14:00)";
       const before = lastSeq(h.office);
       h.fallback.infer(h.officeId, h.office, h.t.clock);
       await settle();
@@ -307,7 +315,7 @@ describe("office.infer", () => {
       const waiting = notices(h.office, before);
       expect(waiting).toHaveLength(1);
       expect(waiting[0]).toMatchObject({ code: SCAN_NOTICES.waiting, level: "info" });
-      expect(waiting[0]?.text).toContain("a session limit until 14:00");
+      expect(waiting[0]?.text).toContain("plan limit until 14:00");
       h.held = null;
       h.t.clock.advance(1_000);
       await h.fallback.whenIdle(h.officeId);
@@ -315,19 +323,24 @@ describe("office.infer", () => {
       expect(h.office.get("select 1 as x from parks where office_id = $office_id")).toBeNull();
     }));
 
-  it("waits for the reset when its session meets a plan limit, then starts a new session", () =>
+  it("pauses the office's starts when its session meets a plan limit, then starts a new session once they lift", () =>
     withHarness(async (h) => {
-      h.results.push({ kind: "plan-limit", runId: "run_l", resetsAt: h.t.clock.now() + 60_000 });
+      const reset = h.t.clock.now() + 60_000;
+      h.results.push({ kind: "plan-limit", runId: "run_l", resetsAt: reset });
       h.fallback.infer(h.officeId, h.office, h.t.clock);
       await settle();
       expect(h.requests).toHaveLength(1);
+      expect(h.pauses).toEqual([reset]);
       h.t.clock.advance(60_000);
       await settle();
       expect(h.requests).toHaveLength(1);
-      h.t.clock.advance(2 * 60_000);
+      // The starts lift: the next poll starts a new session.
+      h.held = null;
+      h.t.clock.advance(1_000);
       await h.fallback.whenIdle(h.officeId);
       expect(h.requests).toHaveLength(2);
       expect(readMarks(h.office).proposals.map((p) => p.capability)).toEqual(["verify"]);
+      expect(h.office.get("select 1 as x from parks where office_id = $office_id")).toBeNull();
     }));
 });
 
@@ -510,7 +523,7 @@ describe("ScanFallback.close", () => {
           },
         }),
         settings: () => SETTINGS,
-        planLimitHeld: () => "a weekly limit",
+        startsPaused: () => "the office's starts are paused (plan limit)",
         readBase: async () => BASE,
         pollMs: 1_000,
       });

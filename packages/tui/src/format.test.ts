@@ -40,10 +40,7 @@ describe("format", () => {
     expect(gateLine({})).toBeUndefined();
   });
 
-  it("explains a plan-limit skip apart from a full office, and shows an unknown reason as is", () => {
-    expect(skipReason("planLimit")).toBe(
-      "a plan limit or plan-limit warning holds new runs on its model until the reset",
-    );
+  it("explains a full office, and shows an unknown reason as is", () => {
     expect(skipReason("capacity")).toBe("the office runs as many stories as it may");
     expect(skipReason("quota")).toBe("quota");
   });

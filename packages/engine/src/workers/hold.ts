@@ -1,8 +1,10 @@
-// The adapter hold (0008 sections 2 and 7; owned by DIPO-43, M0 review DIPO-15). A failed launch
-// check (probe, project settings, sandbox self-test) or a `startFailed` outcome from the CLI holds
-// every new run on that adapter, in every office, and raises an `engine.notice`. It is a hold, not
-// a park: the story stays Ready. An explicit `work.run` repeats the launch checks through
-// `gateLaunch`, which lifts the hold when they pass. Adapter-neutral: nothing here names a CLI.
+// The adapter hold (0008, 0020; owned by DIPO-43, M0 review DIPO-15): the record of a failed
+// adapter check, which pauses the starts of every office on that adapter (`run/starts-paused.ts`
+// reads it as the `adapter` reason of the office's starts paused). A failed launch check (probe,
+// box, self-test) or a `startFailed` outcome from the CLI holds the adapter and raises an
+// `engine.notice`. It is not a park: the story stays where it was. An explicit `work.run` repeats
+// the launch checks through `gateLaunch`, which lifts the hold when they pass, and `dipo daemon
+// resume-scheduling` lifts it by hand. Adapter-neutral: nothing here names a CLI.
 //
 // A sticky check (DIPO-271: the post-run box-token check of DIPO-269) is the exception. Its hold
 // is not about something a launch check can see again, so a passing launch check never lifts it:
@@ -63,13 +65,22 @@ function describeFailure(failure: LaunchCheckFailure): string {
   return `${failure.check}: ${failure.detail}${where.length === 0 ? "" : ` (${where.join(" ")})`}.${fix}`;
 }
 
+/** What failed, one sentence per failure. */
+export function holdFailures(hold: AdapterHold): string {
+  return hold.failures.map(describeFailure).join(" ");
+}
+
+/** How the hold lifts, as one sentence. */
+export function holdLift(hold: AdapterHold): string {
+  return (
+    hold.liftedBy ??
+    "Fix it, then name the story to repeat the launch checks (`dipo run <ID>`); the hold lifts when they pass."
+  );
+}
+
 /** The text a refusal or the notice shows for a hold. */
 export function holdMessage(hold: AdapterHold): string {
-  const lines = hold.failures.map(describeFailure).join(" ");
-  const lift =
-    hold.liftedBy ??
-    "Fix it, then name the story to repeat the launch checks (`dipo run <ID>`); the hold lifts when they pass.";
-  return `New runs on ${hold.adapter} are held in every office: ${lines} ${lift}`;
+  return `New runs on ${hold.adapter} are held in every office: ${holdFailures(hold)} ${holdLift(hold)}`;
 }
 
 /** A sticky hold as its store keeps it. */

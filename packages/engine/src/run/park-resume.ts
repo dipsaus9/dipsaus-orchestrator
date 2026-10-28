@@ -5,7 +5,7 @@
 //    naming `dipo discard`), the park has a run, a `budget-exceeded` park comes with its top-up
 //    (`resume.topUpRequired` naming `--budget` and the cap that fired), the answer of an
 //    `ambiguous-spec` park or the note a reason requires is given (`resume.noteRequired`), the
-//    worker adapter is not held (`run.refused` naming the hold), no session of the run is alive
+//    office's starts are not paused (`run.refused` naming why, 0020), no session of the run is alive
 //    (`run.hostAlive`), the daemon schedules work (`scheduling.off`), what remains of the caps,
 //    counting this resume's grants, is above zero (`resume.capReached` naming `--budget`; for a
 //    top-up `resume.topUpTooSmall` naming the smallest share that clears it), and a top-up was
@@ -46,6 +46,11 @@
 // A `conflict` park's developer session starts with the first message `ConflictResumer.prepare`
 // builds from git (the kept merge's conflict item, or the commits only the remote branch holds),
 // and the merge it needs runs once that session started (`afterStart`), in the live run's box.
+//
+// The one resume that needs no command (0020): when the office's starts paused lifts, dipo resumes
+// each park a plan limit made through this same path (`ResumeRequest.lifted`, `starts-paused.ts`),
+// with no note. It never grows a cap: a resume that would need a grant is refused, and the park
+// waits for the maintainer.
 
 import {
   type Lifecycle,
@@ -78,7 +83,6 @@ import { renderTemplate } from "../prompts/templates";
 import type { StoryIdentity } from "../stories/keys";
 import { deriveStoryView, storyView } from "../views/story";
 import { workRefOf } from "../views/work";
-import { type AdapterHold, holdMessage } from "../workers/hold";
 import type { Caps } from "../workers/types";
 
 import { type CapName, firedCap, REVIEWER_ROLE, runCaps } from "./caps";
@@ -106,11 +110,26 @@ import {
   withGrants,
 } from "./resume-caps";
 import { noteText } from "./resume";
+import { type StartsPausedState, startsPausedRefusal } from "./starts-paused";
 import { resumeLine } from "./summary";
 
 type ResumeArgs = z.output<typeof workResume.args>;
 type ResumeResult = z.input<typeof workResume.result>;
 type OpenPark = NonNullable<ReturnType<typeof openPark>>;
+
+/**
+ * Who asks for a resume: `work.resume`'s command context, or dipo itself when the office's starts
+ * paused lifted (`lifted`, with an engine-made request id and origin `other`).
+ */
+export type ResumeRequest = Pick<
+  AsyncCommandContext,
+  "office" | "origin" | "confirmed" | "client"
+> & {
+  /** The request id; a retry of the same request finishes its resume and repeats nothing. */
+  readonly requestId: string;
+  /** dipo resumes a park a plan limit made, after the office's starts paused lifted (0020). */
+  readonly lifted?: true;
+};
 
 /** The tag of a maintainer resume's `answer` intent: `maintainer-resume <ResumeIntent JSON>`. */
 export const MAINTAINER_RESUME_TAG = "maintainer-resume";
@@ -191,6 +210,8 @@ export interface ParkResumeOptions {
   readonly prs?: () => PrReplacement | undefined;
   /** `prompt.contractMax` of the office (R26), for a question park's answer; the default without. */
   readonly contractMax?: (office: OfficeId) => number;
+  /** The office's starts paused (0020): no resume while it holds; none without it. */
+  readonly startsPaused?: (office: OfficeId) => StartsPausedState | null;
 }
 
 /** The answer an `ambiguous-spec` park resumes with (0020, DIPO-159). */
@@ -226,6 +247,8 @@ interface ResumeIntent {
   readonly client?: string | null;
   /** The answer of an `ambiguous-spec` park (DIPO-159); absent for every other park. */
   readonly answer?: ResumeAnswer | null;
+  /** True when dipo resumed it after the office's starts paused lifted (0020). */
+  readonly lifted?: boolean;
 }
 
 interface StoredResume {
@@ -478,7 +501,7 @@ export class ParkResumes {
    * request that stored its intent finishes that resume and replies with it.
    */
   async resume(
-    ctx: AsyncCommandContext,
+    ctx: ResumeRequest,
     identity: StoryIdentity,
     park: OpenPark,
     args: ResumeArgs,
@@ -527,7 +550,7 @@ export class ParkResumes {
         { story, reason },
       );
     }
-    this.#refuseWhileHeld(story);
+    this.#refuseWhilePaused(office.officeId as OfficeId, story);
     this.#refuseBusy(office, run, story);
     // Held from here (no await before it) to the resume's transaction.
     this.#resuming.add(run.runId);
@@ -541,7 +564,7 @@ export class ParkResumes {
 
   /** `resume` after the run is held for this request: the rest of step 1, then steps 2 to 5. */
   async #checkedResume(
-    ctx: AsyncCommandContext,
+    ctx: ResumeRequest,
     identity: StoryIdentity,
     park: OpenPark,
     args: ResumeArgs,
@@ -573,6 +596,15 @@ export class ParkResumes {
       throw new Error(`dipo cannot resume ${run.runId} in this office`);
     }
     const planned = this.#plan(ctx, run, park.reason, session, args.budget, legacy);
+    // The resume after starts paused lifted grows no cap (0020): one that needs a grant waits for
+    // the maintainer.
+    if (ctx.lifted === true && planned.length > 0) {
+      throw new CommandError(
+        RESUME_ERRORS.capReached,
+        `${story} would need a grant to resume, and dipo grows no cap by itself; \`dipo resume ${story}\` resumes it.`,
+        { story },
+      );
+    }
     this.#checkCaps(office, run, story, session, planned, legacy, args.budget);
     const capsBefore = runCaps(office, run, legacy);
     const before = developerCaps(capsBefore);
@@ -608,13 +640,17 @@ export class ParkResumes {
       to,
       message: developer ? this.#message(office, run, park, grants, legacy, fix, answer) : null,
       note: note ?? null,
-      why: `the maintainer resumed it from ${park.reason}`,
+      why:
+        ctx.lifted === true
+          ? `dipo resumed it from ${park.reason} after the office's starts paused lifted`
+          : `the maintainer resumed it from ${park.reason}`,
       grants,
       fix: fix?.intentId ?? null,
       agent: developerAgent(office, run.runId)?.agent ?? null,
       origin: ctx.origin,
       client: ctx.client ?? null,
       ...(answer === null ? {} : { answer }),
+      ...(ctx.lifted === true ? { lifted: true } : {}),
     };
     // 2. Stored before anything changes, so a restart or a retry finishes the resume.
     const intentId = office.immediate(() =>
@@ -890,7 +926,7 @@ export class ParkResumes {
             code: waits === null ? PARK_RESUME_NOTICES.resumed : PLACE_NOTICES.queued,
             text:
               waits === null
-                ? `${story}: the maintainer resumed it from ${current.reason}${granted}.`
+                ? `${story}: ${detail.lifted === true ? "dipo resumed it after the office's starts paused lifted" : "the maintainer resumed it"} from ${current.reason}${granted}.`
                 : `${story}: resumed${granted}; its session starts when the office's ${detail.session === "review" ? "reviewer" : "worker"} place frees (${waits}).`,
           },
         };
@@ -977,21 +1013,17 @@ export class ParkResumes {
     if (detail.session === "review") {
       // A review always starts through the reviewer place's `review-resume` start.
       const blocked =
-        places?.blocked(
-          officeId,
-          { kind: START_KINDS.reviewResume, runId: run.runId, since: at },
-          places.modelOf(officeId, "reviewer", run),
-        ) ?? null;
+        places?.blocked(officeId, {
+          kind: START_KINDS.reviewResume,
+          runId: run.runId,
+          since: at,
+        }) ?? null;
       waitForPlace(office, run.runId, START_KINDS.reviewResume, at);
       return blocked;
     }
     if (detail.session !== "developer") return null;
     const blocked =
-      places?.blocked(
-        officeId,
-        { kind: START_KINDS.resume, runId: run.runId, since: at },
-        places.modelOf(officeId, "worker", run),
-      ) ?? null;
+      places?.blocked(officeId, { kind: START_KINDS.resume, runId: run.runId, since: at }) ?? null;
     if (blocked !== null) waitForPlace(office, run.runId, START_KINDS.resume, at);
     return blocked;
   }
@@ -1151,7 +1183,7 @@ export class ParkResumes {
    * the top-up, and one more round of the counted cap that fired (see the file comment).
    */
   #plan(
-    ctx: AsyncCommandContext,
+    ctx: ResumeRequest,
     run: StoredRun,
     reason: string,
     session: ResumeSession,
@@ -1259,16 +1291,11 @@ export class ParkResumes {
     );
   }
 
-  /** `run.refused` naming the adapter hold while it is set: no session can start then. */
-  #refuseWhileHeld(story: string): void {
-    const adapter = this.#s.deps.worker.id;
-    const hold: AdapterHold | null = this.#s.deps.holds?.adapterHeld?.(adapter) ?? null;
-    if (hold === null) return;
-    throw new CommandError(
-      "run.refused",
-      `${story} cannot resume while its adapter is held: ${holdMessage(hold)}`,
-      { story, check: "adapter" },
-    );
+  /** `run.refused` while the office's starts are paused: no session can start then (0020). */
+  #refuseWhilePaused(officeId: OfficeId, story: string): void {
+    const paused = this.#options.startsPaused?.(officeId) ?? null;
+    if (paused === null) return;
+    throw startsPausedRefusal(`${story} cannot resume now`, paused, { story });
   }
 
   /** `run.hostAlive` while a session of the run still runs or is being decided. */

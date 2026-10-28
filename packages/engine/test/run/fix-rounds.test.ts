@@ -229,7 +229,7 @@ function world(): World {
   });
   places = new Places({
     clock: w.t.clock,
-    offices: { get: () => w.office, config: () => state.config },
+    offices: { get: () => w.office },
     park: (office, run, work, ending) => control.park(office, run, work, ending),
     starters: { fix: (office, run, start) => fix.start(office, run, start) },
   });

@@ -83,7 +83,7 @@ export class RunEndings {
   }
 
   /**
-   * The first decision on a tracked run without a park (a reassign or a plan-limit hold): the
+   * The first decision on a tracked run without a park (a reassign or a start failure): the
    * intent is stored, then its ops are sent. Nothing else is decided for the run after it; the
    * worker's exit is decided from the intent. False when a decision was made already, or when
    * the intent could not be stored: then no op is sent and the failure is logged (DIPO-119).
@@ -315,6 +315,7 @@ export class RunEndings {
         endKind: ending.endKind,
         ...(ending.capStep === undefined ? {} : { capStep: ending.capStep }),
         ...(ending.question === undefined ? {} : { question: ending.question }),
+        ...(ending.resumeOnLift === true ? { resumeOnLift: true } : {}),
       });
       // The run summary (DIPO-49): every run that ends here gets one.
       await this.#deps.finisher

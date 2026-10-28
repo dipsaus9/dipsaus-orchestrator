@@ -4,7 +4,6 @@
 export {
   cliRunBase,
   DEVELOPER_ROLE,
-  PLAN_LIMIT_CHECK,
   REFINED_STATUS,
   RUN_NOTICES,
   RUN_REFUSED,
@@ -72,8 +71,6 @@ export type {
 // The office's worker and reviewer places and the run across review rounds (DIPO-142).
 export {
   claimPlace,
-  DEFAULT_REVIEW_MODEL,
-  pausedPlaces,
   PLACE_NOTICES,
   PLACE_TICK_MS,
   placeHolders,
@@ -329,9 +326,8 @@ export {
   HOST_LOST_WHY,
   INTENT_TAGS,
   intentTag,
-  openWait,
   OUTCOME_ENDS,
-  PLAN_LIMIT_CONTINUE,
+  planLimitEnding,
   OUTCOME_NOTICES,
   REASSIGN_SIGTERM_AFTER_MS,
   reportFeedbackText,
@@ -347,25 +343,29 @@ export type {
   RunOutcomesDeps,
   RunOutcomesPort,
   PlanLimitHit,
-  PlanLimitWaits,
-  PlanLimitWarning,
+  PlanLimitPauses,
   RunView,
-  WaitFact,
-  WaitScope,
 } from "./outcomes";
-// Waiting for plan-limit resets and `work.resume` of held runs (DIPO-61).
+// The office's starts paused: a plan limit or a failed adapter check (0020, DIPO-359).
 export {
-  inFamily,
-  PLAN_LIMIT_NOTICES,
-  PLAN_LIMIT_PROBE_MS,
+  LIFT_COMMAND,
   PLAN_LIMIT_RESUME_AFTER_MS,
-  PLAN_LIMIT_RETRY_MS,
-  PLAN_LIMIT_STEP,
-  PlanLimits,
-  scopeHolds,
-  wakeAt,
-} from "./plan-limit";
-export type { PlanLimitsDeps } from "./plan-limit";
+  PLAN_LIMIT_UNKNOWN_RESET_MS,
+  planLimitPause,
+  STARTS_PAUSED_NOTICES,
+  STARTS_PAUSED_RETRY_MS,
+  STARTS_PAUSED_STEP,
+  StartsPaused,
+  startsPausedRefusal,
+} from "./starts-paused";
+export type {
+  LiftedPark,
+  LiftedResume,
+  PlanLimitPause,
+  StartsPausedDeps,
+  StartsPausedReason,
+  StartsPausedState,
+} from "./starts-paused";
 // `story.park` of a story with no run and `story.drop` through the planning lane (DIPO-160), and
 // the resume of such a park that `work.resume` hands them.
 export {
@@ -405,7 +405,7 @@ export type { ProposalCommandsDeps, StoredProposal } from "./proposals";
 export type { HoldResumer } from "./work-resume";
 // Park resume and `work.resume` in one module (DIPO-138).
 export { createRunOutcomes, NOT_PAUSED_OR_PARKED, Resumption, RUN_HOST_ALIVE } from "./resumption";
-export type { HeldRunResumer, ResumeWaitOutcome, ResumptionOptions } from "./resumption";
+export type { ResumptionOptions } from "./resumption";
 // The resume of every parked story by the 0020 table (DIPO-155, DIPO-344).
 export { MAINTAINER_RESUME_TAG, PARK_RESUME_NOTICES, RESUME_ERRORS } from "./park-resume";
 export { HALF_SHARE, share, smallestShare, withGrants } from "./resume-caps";

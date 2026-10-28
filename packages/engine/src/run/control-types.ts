@@ -169,6 +169,8 @@ export interface RunEnding {
    * over to it (DIPO-159): the question of a blocked report with no TUI connected.
    */
   readonly question?: string;
+  /** A plan limit's park, which resumes by itself when the office's starts paused lifts (0020). */
+  readonly resumeOnLift?: boolean;
   /** An `engine.notice` written before the park (DIPO-51). */
   readonly notice?: {
     readonly level: "info" | "warn" | "error";

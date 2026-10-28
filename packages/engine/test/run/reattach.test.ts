@@ -1022,7 +1022,7 @@ describe("restart windows of DIPO-51's review", () => {
     ]);
   });
 
-  it("signals the next session clears end with its agent, so a plan limit its first pass meets stays raised", async () => {
+  it("the host signals end with the next session's agent, so one its first pass raises stays raised", async () => {
     beforeRestart("terminated", 0);
     w.f.office.immediate(() => {
       w.f.office.run(
@@ -1030,8 +1030,7 @@ describe("restart windows of DIPO-51's review", () => {
           where office_id = $office_id and agent_id = $agent`,
         { agent: w.f.agent },
       );
-      // The held run: its plan limit and the restart's host signal.
-      raiseSignal(w.f.office, w.f.run, "plan-limit", 1);
+      // The restart's host signal.
       raiseSignal(w.f.office, w.f.run, "follow-only", 1);
     });
     const runDir = join(w.dir, "git", "dipo", "runs", w.f.run);
@@ -1061,23 +1060,21 @@ describe("restart windows of DIPO-51's review", () => {
       },
       {
         probe: async () => null,
-        // The new host wrote a rate-limit rejection before its ingestion started: the first pass,
-        // synchronous in `start`, raises the plan limit again.
+        // The first pass, synchronous in `start`, raises a host signal again.
         ingest: {
           start: (office) => {
-            office.immediate(() => raiseSignal(office, w.f.run, "plan-limit", 2));
+            office.immediate(() => raiseSignal(office, w.f.run, "follow-only", 2));
           },
         },
       },
     );
-    const outcome = await resumer.next({ ...nextRequest(), clear: ["plan-limit"] });
+    const outcome = await resumer.next(nextRequest());
     expect(outcome.kind).toBe("started");
-    expect(signals()).toEqual(["plan-limit"]);
+    expect(signals()).toEqual(["follow-only"]);
     const cleared = loggedEvents(w.f.office)
       .filter((event) => event.type === "work.observed")
-      .map((event) => (event.data as { signal: string }).signal)
-      .toSorted();
-    expect(cleared).toEqual(["follow-only", "plan-limit"]);
+      .map((event) => (event.data as { signal: string }).signal);
+    expect(cleared).toEqual(["follow-only"]);
   });
 
   it("the resume check gets the previous session's version from agents.adapter_version (DIPO-101)", async () => {

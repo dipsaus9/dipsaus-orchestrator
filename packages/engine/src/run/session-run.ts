@@ -16,8 +16,8 @@
 //   never reports its exit is given up two minutes after the cap. At daemon stop `stopAll` sends
 //   the stop to every session still running: its host is detached and no daemon follows it after
 //   the stop, so without it the caps would no longer hold.
-// - A plan limit the session meets ends it as `plan-limit`: the fallback waits and starts a new one,
-//   never a park.
+// - A plan limit the session meets ends it as `plan-limit`: the fallback pauses the office's
+//   starts (0020) and starts a new session once they lift, never a park.
 
 import { mkdirSync, rmSync, writeFileSync } from "node:fs";
 import { realpath } from "node:fs/promises";

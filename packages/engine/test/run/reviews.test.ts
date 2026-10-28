@@ -337,7 +337,7 @@ function world(): World {
   // As `composeRuns` wires them: pending reviews and the review starter in the reviewer place.
   const places = new Places({
     clock: w.t.clock,
-    offices: { get: () => w.office, config: () => OFFICE_DEFAULTS },
+    offices: { get: () => w.office },
     pending: (office) => built.pending(office),
     starters: { review: (office, run, start) => built.start(office, run, start) },
   });
@@ -832,26 +832,26 @@ describe("the failure table (0019 section 4)", () => {
     expect(reviewVerdictsOf(w.office, s.key)).toEqual([]);
   });
 
-  it("stops the session at a plan limit, never parks, and waits for a fresh review from the In Review time", async () => {
+  it("parks worker-failed at a plan limit, to resume by itself when the office's starts paused lifts (0020)", async () => {
     const s = inReview("DIPO-1", "tree-1");
     heads.set(s.run, "tree-1");
-    const inReviewAt = now();
     w.t.clock.advance(MINUTE);
     const session = await reviewStarts(s);
-    x.control.onWorkerEvents(s.run, [{ t: "limit", status: "rejected", scope: "session" }]);
+    const reset = new Date(now() + 3_600_000).toISOString();
+    x.control.onWorkerEvents(s.run, [{ t: "limit", status: "rejected", resetsAt: reset }]);
     await x.control.idle();
-    expect(runIntents(w.office, s.run).at(-1)).toMatchObject({ kind: "stop" });
     await exits(session, 0);
-    expect(parksOf()).toEqual([]);
-    expect(findRun(w.office, s.run)).toMatchObject({
-      endedAt: null,
-      waiting: START_KINDS.review,
-      waitingSince: inReviewAt,
-    });
-    // After the reset a fresh session starts in the same round.
-    await reviewStarts(s);
-    expect(x.sessions).toHaveLength(2);
-    expect(stepsOf(s.run, "review")).toHaveLength(1);
+    expect(parksOf()).toEqual([
+      { story_id: "DIPO-1", reason: "worker-failed", detail: `plan limit until ${reset}` },
+    ]);
+    expect(
+      w.office.get<{ resume_on_lift: number }>(
+        "select resume_on_lift from parks where office_id = $office_id",
+      )?.resume_on_lift,
+    ).toBe(1);
+    expect(findRun(w.office, s.run)).toMatchObject({ endKind: "plan-limit", waiting: null });
+    expect(findRun(w.office, s.run)?.endedAt).not.toBeNull();
+    expect(x.sessions).toHaveLength(1);
   });
 
   it("keeps the story In Review with a notice when the reviewer's launch check is refused, and the review waits", async () => {

@@ -396,8 +396,7 @@
                       "dependency",
                       "collision",
                       "capacity",
-                      "pickupCheckFailed",
-                      "planLimit"
+                      "pickupCheckFailed"
                     ]
                   },
                   {

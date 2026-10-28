@@ -241,7 +241,7 @@ export const daemonResumeScheduling = defineCommand({
   name: "daemon.resumeScheduling",
   level: "software",
   args: z.object({}),
-  result: z.object({ state: DaemonState }), // leaves safe
+  result: z.object({ state: DaemonState }), // leaves safe, and lifts every office's starts paused (0020)
   confirm: false,
   irreversible: false,
   since: 0,

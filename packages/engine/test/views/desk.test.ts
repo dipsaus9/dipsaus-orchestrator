@@ -871,3 +871,56 @@ describe("a worker question waiting on the desk (DIPO-159; 0020 section 7)", () 
       }
     }));
 });
+
+describe("the office's starts paused on the desk (0020, DIPO-359)", () => {
+  it("comes first, with its reason, what lifts it and dipo daemon resume-scheduling", () =>
+    withTempDir(async (dir) => {
+      const t = await openTestState(dir);
+      try {
+        const office = addOffice(t);
+        pass(t, office, [task("DIPO-1", { status: "Parked" })]);
+        const at = t.clock.now();
+        insertPark(office, "DIPO-1", { reason: "worker-failed", detail: "plan limit until X", at });
+        t.clock.advance(HOUR);
+        const sources: DeskSources = {
+          ...DESK_SOURCES,
+          startsPaused: () => ({
+            reason: "plan-limit",
+            detail: "plan limit until 2026-10-28T12:00:00.000Z",
+            since: at,
+            until: at + 2 * HOUR,
+            lifts:
+              "It lifts by itself at 2026-10-28T12:02:00.000Z, or with `dipo daemon resume-scheduling`.",
+          }),
+        };
+        const items = desk(office, all, sources);
+        expect(items.map((item) => item.kind)).toEqual(["STARTS PAUSED", "PARKED"]);
+        expect(items[0]).toEqual({
+          kind: "STARTS PAUSED",
+          detail: "no new session starts · plan limit until 2026-10-28T12:00:00.000Z",
+          since: new Date(at).toISOString(),
+          blocks: [],
+          actions: [{ command: "daemon.resumeScheduling", cli: "dipo daemon resume-scheduling" }],
+          hand: "It lifts by itself at 2026-10-28T12:02:00.000Z, or with `dipo daemon resume-scheduling`.",
+        });
+
+        const adapter = desk(office, all, {
+          ...DESK_SOURCES,
+          startsPaused: () => ({
+            reason: "adapter",
+            detail: "claude-cli: probe: claude is not logged in.",
+            since: at,
+            until: null,
+            lifts: "Fix it, then name the story to repeat the launch checks (`dipo run <ID>`).",
+          }),
+        });
+        expect(adapter[0]?.detail).toBe(
+          "no new session starts · adapter check failed: claude-cli: probe: claude is not logged in.",
+        );
+        // Nothing paused: no such item.
+        expect(desk(office, all, DESK_SOURCES).map((item) => item.kind)).toEqual(["PARKED"]);
+      } finally {
+        t.state.close();
+      }
+    }));
+});
