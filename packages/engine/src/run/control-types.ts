@@ -99,6 +99,12 @@ export interface RunControlDeps {
    * once. Both already emitted the story's state.
    */
   readonly refreshStory?: (office: OfficeId, key: StoryKey) => Promise<unknown>;
+  /**
+   * Hears a park written to resume by itself when the office's starts paused lifts (0020,
+   * `StartsPaused.resumeLifted`): one that lands while the office is not paused (a run a plan limit
+   * held before the upgrade, parked at load) resumes then.
+   */
+  readonly parkedToResume?: (office: OfficeId) => void;
   readonly warn?: (message: string, fields: Readonly<Record<string, unknown>>) => void;
   /** The cap tick; one minute by default. */
   readonly tickMs?: number;
@@ -174,6 +180,8 @@ export interface RunEnding {
    * not recorded and the command fails, so the maintainer can send it again.
    */
   readonly mustWrite?: boolean;
+  /** A plan limit's park, which resumes by itself when the office's starts paused lifts (0020). */
+  readonly resumeOnLift?: boolean;
   /** An `engine.notice` written before the park (DIPO-51). */
   readonly notice?: {
     readonly level: "info" | "warn" | "error";

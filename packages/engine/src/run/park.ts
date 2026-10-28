@@ -572,6 +572,11 @@ export interface ParkRequest {
    * tampered worktree still parks `scope-violation`, held until reconcile (`heldByPark`).
    */
   readonly mustWrite?: boolean;
+  /**
+   * A park a plan limit made (0020): dipo resumes it by itself when the office's starts paused
+   * lifts (`parks.resume_on_lift`, `starts-paused.ts`).
+   */
+  readonly resumeOnLift?: boolean;
 }
 
 export interface ParkOutcome {
@@ -689,16 +694,29 @@ export async function parkStory(deps: ParkDeps, request: ParkRequest): Promise<P
   const from: Lifecycle = branch?.from ?? "In Progress";
   const lastGoodCommit = branch?.lastGoodCommit ?? null;
   const at = deps.now();
+  // Only the park the plan limit asked for resumes by itself, not one a tampered worktree turned
+  // into `scope-violation`.
+  const resumeOnLift = request.resumeOnLift === true && reason === request.reason ? 1 : 0;
   deps.write(() => {
     const office = deps.office;
     // Run detail and history (0007): the reason is the one the park was made with, never read as
     // the current reason; Backlog.md holds that, and its read-back goes to the mirror (DIPO-360).
     office.run(
       `insert into parks (office_id, park_id, key, story_id, run_id, reason, detail,
-         last_good_commit, at)
+         last_good_commit, at, resume_on_lift)
        values ($office_id, (select coalesce(max(park_id), 0) + 1 from parks
-         where office_id = $office_id), $key, $story, $run, $reason, $detail, $commit, $at)`,
-      { key, story, run: run.runId, reason, detail, commit: lastGoodCommit, at },
+         where office_id = $office_id), $key, $story, $run, $reason, $detail, $commit, $at,
+         $resumeOnLift)`,
+      {
+        key,
+        story,
+        run: run.runId,
+        reason,
+        detail,
+        commit: lastGoodCommit,
+        at,
+        resumeOnLift,
+      },
     );
     // Only a park written on the branch is a park: one that failed stays in `parks` as detail,
     // and reconcile closes it (DIPO-360).

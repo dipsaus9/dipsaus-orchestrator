@@ -113,7 +113,8 @@ Usage:
                     set the running daemon's log level until it restarts
                     (error, warn, info, debug or trace)
   dipo daemon resume-scheduling
-                    leave safe mode so the daemon schedules work again
+                    leave safe mode and lift every office's starts paused, so
+                    the daemon schedules work again
   dipo office open [path]
                     register the git repository with Backlog.md at path (default:
                     the current directory) as an office

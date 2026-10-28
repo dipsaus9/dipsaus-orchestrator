@@ -261,6 +261,27 @@ describe("daemon.* operations", () => {
     const again = await client.command("daemon.resumeScheduling", {});
     expect(errorCode(again)).toBe("daemon.notSafe");
   });
+
+  it("lifts the offices' starts paused with daemon.resumeScheduling outside safe too (0020)", async () => {
+    const lifts: string[] = [];
+    let paused = 1;
+    const h = await start({
+      liftStartsPaused: (why) => {
+        lifts.push(why);
+        const lifted = paused;
+        paused = 0;
+        return lifted;
+      },
+    });
+    const client = await connect(h);
+    const resumed = await client.command("daemon.resumeScheduling", {});
+    expect(resumed).toMatchObject({ ok: true, result: { state: "running" }, changed: true });
+    expect(lifts).toEqual(["the maintainer ran dipo daemon resume-scheduling"]);
+    expect(h.lifecycle.state).toBe("running");
+    // Nothing left to lift and not safe: daemon.notSafe, as before.
+    const again = await client.command("daemon.resumeScheduling", {});
+    expect(errorCode(again)).toBe("daemon.notSafe");
+  });
 });
 
 describe("lifecycle checks", () => {

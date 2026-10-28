@@ -34,7 +34,7 @@ import { storedDoneReport } from "../run/done-report";
 import { storedMarker } from "../run/markers";
 import { findRun } from "../run/records";
 
-import { registerDesk } from "./desk";
+import { DESK_SOURCES, type DeskSources, registerDesk } from "./desk";
 import { registerDigest } from "./digest";
 import { activeStoryViews, storyView } from "./story";
 import { openGateViews } from "./summary";
@@ -283,37 +283,47 @@ export function storedPrompt(
   return { run, agent, texts: promptTextsOf(office, run, agent) };
 }
 
-/** The view reads, listed in `features.ts`. */
-export const viewsFeature: FeatureModule = {
-  name: "views",
-  register(registry) {
-    registry.addRead({
-      definition: officeSnapshot,
-      handle: (ctx) => snapshot(officeOf(ctx)),
-    });
-    // `office.switch` changes no fact: the same snapshot (0005 section 7, 0009 section 4).
-    registry.addRead({
-      definition: officeSwitch,
-      handle: (ctx) => snapshot(officeOf(ctx)),
-    });
-    registry.addRead({
-      definition: storyDetail,
-      handle: (ctx, args) => detail(officeOf(ctx), args.story as StoryKey),
-    });
-    registry.addRead({
-      definition: workOutputRange,
-      handle: (ctx, args) => outputRange(officeOf(ctx), args.run, args.source, args.from, args.to),
-    });
-    registry.addRead({
-      definition: workPrompt,
-      handle: (ctx, args) => storedPrompt(officeOf(ctx), args.run, args.agent),
-    });
-    // `office.desk` (DIPO-158): what waits on the maintainer.
-    registerDesk(registry);
-    // `office.digest` (DIPO-308): what happened since the maintainer last left the office.
-    registerDigest(registry);
-  },
-};
+/**
+ * The view reads, listed in `features.ts`, with the desk's sources beyond this engine's own (the
+ * daemon's office starts paused, 0020).
+ */
+export function viewsFeatureWith(desk: Partial<DeskSources> = {}): FeatureModule {
+  const sources: DeskSources = { ...DESK_SOURCES, ...desk };
+  return {
+    name: "views",
+    register(registry) {
+      registry.addRead({
+        definition: officeSnapshot,
+        handle: (ctx) => snapshot(officeOf(ctx)),
+      });
+      // `office.switch` changes no fact: the same snapshot (0005 section 7, 0009 section 4).
+      registry.addRead({
+        definition: officeSwitch,
+        handle: (ctx) => snapshot(officeOf(ctx)),
+      });
+      registry.addRead({
+        definition: storyDetail,
+        handle: (ctx, args) => detail(officeOf(ctx), args.story as StoryKey),
+      });
+      registry.addRead({
+        definition: workOutputRange,
+        handle: (ctx, args) =>
+          outputRange(officeOf(ctx), args.run, args.source, args.from, args.to),
+      });
+      registry.addRead({
+        definition: workPrompt,
+        handle: (ctx, args) => storedPrompt(officeOf(ctx), args.run, args.agent),
+      });
+      // `office.desk` (DIPO-158): what waits on the maintainer.
+      registerDesk(registry, sources);
+      // `office.digest` (DIPO-308): what happened since the maintainer last left the office.
+      registerDigest(registry);
+    },
+  };
+}
+
+/** The view reads with this engine's own desk sources. */
+export const viewsFeature: FeatureModule = viewsFeatureWith();
 
 /** The `doneReport` of a run record when the run stored notes or proposals (DIPO-152). */
 function doneReportField(

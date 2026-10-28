@@ -249,17 +249,6 @@ describe("dipo run", () => {
     expect(dry.err).toEqual([]);
   });
 
-  it("explains a plan-limit skip in words, not as a full office (DIPO-92)", async () => {
-    const ctx = fake(
-      () => result([], [{ story: "DIPO-7", key: KEY, reason: "planLimit" }]),
-      IN_OFFICE,
-    );
-    expect(await main(["run"], ctx.deps)).toBe(1);
-    expect(ctx.out).toEqual([
-      "skipped DIPO-7: a plan limit, or a plan-limit warning, holds new runs on its model until the reset (it stays Ready)",
-    ]);
-  });
-
   it("says so when nothing was Ready, and prints an unknown reason as it is", async () => {
     const empty = fake(() => result([]), IN_OFFICE);
     expect(await main(["run"], empty.deps)).toBe(1);

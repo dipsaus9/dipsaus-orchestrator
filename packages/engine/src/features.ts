@@ -8,7 +8,8 @@ import { buildRegistry, type FeatureModule, type Registry } from "./commands/reg
 import { systemSpawn } from "./platform/process";
 import { describeFeature } from "./reads/describe";
 import { statsFeature } from "./retention/stats";
-import { viewsFeature } from "./views/feature";
+import type { DeskSources } from "./views/desk";
+import { viewsFeatureWith } from "./views/feature";
 
 export interface EngineFeatureOptions {
   /**
@@ -16,6 +17,8 @@ export interface EngineFeatureOptions {
    * `PATH` at start (DIPO-74), so every office uses the same binary.
    */
   readonly backlog: BacklogCli;
+  /** The desk's sources beyond the engine's own: the daemon's office starts paused (0020). */
+  readonly desk?: Partial<DeskSources>;
 }
 
 /** The engine's own feature modules, with the daemon's tools. */
@@ -27,7 +30,7 @@ export function engineFeatures(options: EngineFeatureOptions): readonly FeatureM
     // lists `Retention.feature` next to it.
     statsFeature,
     // `office.snapshot`, `office.switch`, `story.detail` and `work.outputRange` (DIPO-52).
-    viewsFeature,
+    viewsFeatureWith(options.desk),
   ];
 }
 

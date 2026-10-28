@@ -1,4 +1,4 @@
-// Migration 59 (DIPO-360): `parks.from_state` goes, since the origin of a park is Backlog.md's (the
+// Migration 60 (DIPO-360): `parks.from_state` goes, since the origin of a park is Backlog.md's (the
 // F16 record's `from`); every other park column and row stays, the reason included as history, and
 // a fresh database has the same schema as a migrated one.
 
@@ -30,13 +30,13 @@ function schema(db: Db): { type: string; name: string; sql: string | null }[] {
   );
 }
 
-const BEFORE_59 = MIGRATIONS.filter((step) => step.version <= 58);
+const BEFORE_60 = MIGRATIONS.filter((step) => step.version <= 59);
 
-describe("migration 59 (DIPO-360)", () => {
+describe("migration 60 (DIPO-360)", () => {
   it("drops parks.from_state and keeps every park row with its reason and detail", () =>
     withTempDir(async (dir) => {
-      expect(BEFORE_59.at(-1)?.version).toBe(58);
-      const old = await open(dir, "migrated", BEFORE_59);
+      expect(BEFORE_60.at(-1)?.version).toBe(59);
+      const old = await open(dir, "migrated", BEFORE_60);
       try {
         const db = old.connection;
         db.immediate(() =>
@@ -74,6 +74,7 @@ describe("migration 59 (DIPO-360)", () => {
             resolved_at: 5,
             resolved_how: "resume",
             resolved_note: "go on",
+            resume_on_lift: 0,
           },
           {
             office_id: "off-1",
@@ -88,6 +89,7 @@ describe("migration 59 (DIPO-360)", () => {
             resolved_at: null,
             resolved_how: null,
             resolved_note: null,
+            resume_on_lift: 0,
           },
         ]);
       } finally {
@@ -97,7 +99,7 @@ describe("migration 59 (DIPO-360)", () => {
 
   it("gives a fresh and a migrated database the same schema", () =>
     withTempDir(async (dir) => {
-      const old = await open(dir, "migrated", BEFORE_59);
+      const old = await open(dir, "migrated", BEFORE_60);
       old.close();
       const migrated = await open(dir, "migrated");
       const fresh = await open(dir, "fresh");

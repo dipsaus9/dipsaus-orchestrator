@@ -4,6 +4,7 @@ title: 'Simplify the daemon''s lock, states and worker re-attach'
 status: Refined
 assignee: []
 created_date: '2026-10-25 09:51'
+updated_date: '2026-10-28 09:11'
 labels:
   - 'tier:M'
   - 'slice:prune'
@@ -47,4 +48,5 @@ test_plan:
 - [ ] #2 The safe state, crash markers and needsCheck are removed; a database that cannot open keeps the daemon in recovering with database.unavailable
 - [ ] #3 A host whose socket does not answer gets one verified SIGTERM and its story parks worker-failed; follow-only mode and the launch.json claim protocol are removed
 - [ ] #4 The auth frame, the loopback listener, contract major and minor versions, capability flags and daemon.autoRestartOnUpgrade are removed
+- [ ] #5 An adapter hold is kept per adapter, not only in the offices loaded when it is set or lifted, so a lifted hold does not return from an office that was not loaded and a hold set with no office loaded is kept (from the review of DIPO-359)
 <!-- AC:END -->

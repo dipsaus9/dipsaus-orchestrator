@@ -703,7 +703,7 @@ export const TRANSFORMS: readonly Transform[] = [
     transform:
       'The first rate_limit_event becomes status "rejected" (five_hour, its resetsAt kept); the stream ends after it with exit 0, as when the engine closes stdin.',
     expected:
-      "Outcome plan-limit: stdin closed, a wait fact { scope, resetsAt?, since } on the run, work.observed plan-limit (health limited); never a park (0008 section 7).",
+      'Outcome plan-limit: stdin closed; the engine pauses the office\'s starts until two minutes after resetsAt and the story waits parked as worker-failed ("plan limit until <resetsAt>"), resumed by itself when the pause lifts (0020).',
     cites: [
       'rate_limit_event status "rejected" is illustrative; live runs showed only "allowed" (0008 source 10)',
     ],
@@ -729,7 +729,7 @@ export const TRANSFORMS: readonly Transform[] = [
     transform:
       "The first result becomes error_during_execution with api_error_status 429 and no report; exit 1.",
     expected:
-      "Outcome plan-limit: a turn ended by a 429 rate-limit error is a rejected plan limit; never a park (0008 section 7).",
+      "Outcome plan-limit: a turn ended by a 429 rate-limit error is a rejected plan limit with no reset time; the engine pauses the office's starts for an hour and the story waits parked as worker-failed (0020).",
     cites: [CITE_RESULT, CITE_TERMINAL],
     apply: (lines) =>
       replaceFirstResult(

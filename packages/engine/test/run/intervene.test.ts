@@ -95,7 +95,7 @@ beforeEach(async () => {
   const ender = { isTracked: () => false } as unknown as RunEnder;
   const places = new Places({
     clock: f.t.clock,
-    offices: { get: () => f.office, config: () => undefined },
+    offices: { get: () => f.office },
     starters: {},
   });
   const { outcomes, resumption } = createRunOutcomes(

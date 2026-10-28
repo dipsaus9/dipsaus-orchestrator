@@ -3,10 +3,10 @@ id: DIPO-359
 title: >-
   Pause starts on a plan limit or failed adapter check and resume plan-limit
   parks
-status: Refined
+status: Done
 assignee: []
 created_date: '2026-10-27 16:52'
-updated_date: '2026-10-27 16:53'
+updated_date: '2026-10-28 09:11'
 labels:
   - 'tier:M'
   - 'slice:prune'
@@ -47,7 +47,13 @@ test_plan:
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 A plan limit or a failed adapter check sets the office's starts paused with its reason and time, no new session starts until it lifts, and the desk shows it first
-- [ ] #2 A session that hits the plan limit parks worker-failed with the detail plan limit until the reset time, and dipo resumes exactly those parks when starts paused lifts
-- [ ] #3 The mechanisms this replaces (the office health paused state and any hold of runs on a plan limit) are removed
+- [x] #1 A plan limit or a failed adapter check sets the office's starts paused with its reason and time, no new session starts until it lifts, and the desk shows it first
+- [x] #2 A session that hits the plan limit parks worker-failed with the detail plan limit until the reset time, and dipo resumes exactly those parks when starts paused lifts
+- [x] #3 The mechanisms this replaces (the office health paused state and any hold of runs on a plan limit) are removed
 <!-- AC:END -->
+
+## Final Summary
+
+<!-- SECTION:FINAL_SUMMARY:BEGIN -->
+A plan limit or a failed adapter check sets the office's starts paused (table starts_paused, migration 0059) with its reason, detail and time. Adapter holds are stored there too, so they survive a restart. While it holds, no session starts: work.run, the places, work.resume, the scan fallback, and the next session of a running run (crash retry, report feedback, handoff, after a restart) are all gated. The desk shows it first in the CLI and TUI. A session that meets the plan limit parks worker-failed with the detail plan limit until <time> and resume_on_lift set, and when the pause lifts, on the clock port, dipo resumes exactly those parks through the one resume path with no cap growth. The plan-limit hold, Health paused and limited, the plan-limit signal, wait facts, resumeWait, the model-family place pauses and plan_limit_warnings are removed. Runs a plan limit held before the upgrade park at load and resume on lift. Follow-up on adapter holds of unloaded offices moved to DIPO-355.
+<!-- SECTION:FINAL_SUMMARY:END -->

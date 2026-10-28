@@ -1,35 +1,25 @@
-// `work.resume` of `resumption.ts` (DIPO-138, DIPO-344): a run held by a plan limit resumes through
-// the schedule, a story parked with no run gets its status back through the planning lane, every
-// park with a run goes to the one resume path (test/run/resume-parks.test.ts), and a story standing
-// still for nothing answers story.notPausedOrParked. Driven on a migrated state database with one
-// story run, a fake plan-limit schedule, a fake planning lane, a fake unpark writer and a fake next
-// session.
+// `work.resume` of `resumption.ts` (DIPO-138, DIPO-344, DIPO-359): a story parked with no run gets
+// its status back through the planning lane, every park with a run goes to the one resume path
+// (test/run/resume-parks.test.ts), and a story that is not parked answers story.notPausedOrParked,
+// also when a plan limit held its run before dipo paused starts instead. Driven on a migrated state
+// database with one story run, a fake planning lane, a fake unpark writer and a fake next session.
 
 import { afterEach, beforeEach, describe, expect, it } from "bun:test";
 import { mkdtempSync, rmSync } from "node:fs";
 import { join } from "node:path";
 
-import {
-  type Lifecycle,
-  type OfficeId,
-  type RunId,
-  StoryId,
-  type StoryKey,
-} from "@dipsaus-orchestrator/contract";
+import { type Lifecycle, StoryId, type StoryKey } from "@dipsaus-orchestrator/contract";
 
 import { insertPark } from "./park-fixture";
 import { CommandError } from "../../src/commands/errors";
 import type { AsyncCommandContext } from "../../src/commands/registry";
 import {
   createRunOutcomes,
-  type HeldRunResumer,
-  INTENT_TAGS,
   insertRun,
   raiseSignal,
   recordIntent,
   type Resumption,
   type RunEnder,
-  type ResumeWaitOutcome,
   type UnparkBranchRequest,
 } from "../../src/run";
 import type { NextSessionRequest } from "../../src/run/resume";
@@ -45,8 +35,6 @@ interface World {
   readonly dir: string;
   readonly f: IngestFixture;
   readonly key: StoryKey;
-  /** The fake schedule's `resumeNow` calls. */
-  readonly resumed: { office: OfficeId; run: RunId }[];
   readonly lifts: UnparkBranchRequest[];
   readonly sessions: NextSessionRequest[];
   /** The fake planning lane's resumes of a park with no run. */
@@ -106,7 +94,7 @@ beforeEach(async () => {
       { agent: f.agent, run, at: f.t.clock.now() },
     );
   });
-  w = { dir, f, key, resumed: [], lifts: [], sessions: [], holds: [] };
+  w = { dir, f, key, lifts: [], sessions: [], holds: [] };
 });
 
 afterEach(() => {
@@ -114,15 +102,8 @@ afterEach(() => {
   rmSync(w.dir, { recursive: true, force: true });
 });
 
-const schedule: HeldRunResumer = {
-  resumeNow: async (office, run): Promise<ResumeWaitOutcome> => {
-    w.resumed.push({ office, run });
-    return "started";
-  },
-};
-
-/** The resumption, with the fake schedule unless `planLimits` is null (an office without one). */
-function resumption(planLimits: HeldRunResumer | null = schedule): Resumption {
+/** The resumption with fakes for everything that would reach git or a worker. */
+function resumption(): Resumption {
   const { f } = w;
   const ender = { isTracked: () => false } as unknown as RunEnder;
   return createRunOutcomes(
@@ -148,7 +129,6 @@ function resumption(planLimits: HeldRunResumer | null = schedule): Resumption {
       },
     },
     {
-      planLimits: () => planLimits ?? undefined,
       holds: () => ({
         resumeHold: async (_ctx, _identity, park, note): Promise<Lifecycle> => {
           w.holds.push({ parkId: park.parkId, note });
@@ -178,8 +158,8 @@ function parkWithoutRun(reason: string): number {
   )?.id as number;
 }
 
-/** The run is held by a plan limit: its `plan-limit` signal and wait fact, as outcomes store them. */
-function hold(): void {
+/** The run as a plan-limit hold left it before DIPO-359: its `plan-limit` signal and wait fact. */
+function legacyHold(): void {
   const { office, run, t } = w.f;
   const at = t.clock.now();
   office.immediate(() => {
@@ -188,7 +168,7 @@ function hold(): void {
       office,
       run,
       "pause",
-      `${INTENT_TAGS.planLimit} ${JSON.stringify({ scope: "credits", since: at })}`,
+      `plan-limit ${JSON.stringify({ scope: "credits", since: at })}`,
       at,
     );
   });
@@ -224,30 +204,18 @@ describe("work.resume", () => {
     expect(w.sessions).toEqual([]);
   });
 
-  it("answers story.notPausedOrParked for a story with no run standing still", async () => {
+  it("answers story.notPausedOrParked for a story that is not parked", async () => {
     const error = await refusal(resumption());
     expect(error?.error.code).toBe("story.notPausedOrParked");
+    expect(error?.error.message).toBe("DIPO-1 is not parked, so there is nothing to resume.");
     expect(error?.error.details).toEqual({ story: "DIPO-1" });
-    expect(w.resumed).toEqual([]);
   });
 
-  it("resumes a plan-limit hold through the schedule and names the run", async () => {
-    hold();
-    const reply = await resumption().resumeCommand(ctx(), { story: StoryId.parse("DIPO-1") });
-    expect(reply.result).toEqual({
-      story: "DIPO-1",
-      key: w.key,
-      to: "In Progress",
-      run: w.f.run,
-    });
-    expect(w.resumed).toEqual([{ office: w.f.office.officeId as OfficeId, run: w.f.run }]);
-  });
-
-  it("refuses a plan-limit hold when the office has no plan-limit schedule", async () => {
-    hold();
-    await expect(
-      resumption(null).resumeCommand(ctx(), { story: StoryId.parse("DIPO-1") }),
-    ).rejects.toThrow("needs the plan-limit schedule");
-    expect(w.resumed).toEqual([]);
+  it("no longer continues a run a plan limit held: work.resume resumes only parks (0020)", async () => {
+    legacyHold();
+    const error = await refusal(resumption());
+    expect(error?.error.code).toBe("story.notPausedOrParked");
+    expect(w.sessions).toEqual([]);
+    expect(w.lifts).toEqual([]);
   });
 });

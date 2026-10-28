@@ -7,19 +7,22 @@ import type { FeatureModule } from "../commands/registry";
 import type { OfficeHandle } from "../db/office";
 import { workRefOf } from "../views/work";
 
+import type { RunEnding } from "./control-types";
 import { runIntents } from "./intents";
 import type { ExitOutcomes } from "./outcome-exits";
 import type { SessionStarts } from "./outcome-sessions";
 import type { OutcomeSupport } from "./outcome-support";
 import {
   HOST_LOST_END,
+  intentTag,
   messageOf,
-  openWait,
+  OUTCOME_ENDS,
   REDISPATCH_STEP,
   type RunOutcomesDeps,
   type RunView,
 } from "./outcome-types";
 import { activeRuns, backstopSnapshotOf, capsStartedAt, type StoredRun } from "./records";
+import { activeSignals, clearSignals } from "./signals";
 
 /**
  * The intent detail tag of a maintainer pause, which `work.pause` stored before `story.park`
@@ -30,6 +33,17 @@ export const LEGACY_PAUSE_TAG = "maintainer-pause";
 /** The detail of the park of a run that was paused when dipo was upgraded. */
 export const LEGACY_PAUSE_DETAIL =
   "Paused by the maintainer before dipo replaced pausing with parking; resume it to continue";
+
+/**
+ * The intent detail tag of a plan-limit hold, which a rejected plan limit stored before the
+ * office's starts paused replaced the hold (DIPO-359). No code writes it any more; a run still held
+ * by one, or by its `plan-limit` signal, is parked at load.
+ */
+export const LEGACY_PLAN_LIMIT_TAG = "plan-limit";
+
+/** The detail of the park of a run that a plan limit held when dipo was upgraded. */
+export const LEGACY_PLAN_LIMIT_DETAIL =
+  "plan limit (held before dipo paused the office's starts instead)";
 
 export class Redispatch {
   readonly #s: OutcomeSupport;
@@ -72,32 +86,51 @@ export class Redispatch {
   }
 
   /**
-   * Runs paused by the maintainer before the upgrade (an unresolved `maintainer-pause` intent,
-   * DIPO-344): with no pause left, such a run would stay active with no session, holding its
-   * worker place. Each pause is resolved `run-ended` and the run parks `by-maintainer`, its live
-   * worker stopped first, so `work.resume` continues it. Returns how many runs it parked.
+   * Runs paused or held before the upgrade: with no pause or hold left, such a run would stay
+   * active with no session, holding its worker place. A maintainer's pause (an unresolved
+   * `maintainer-pause` intent, DIPO-344) parks `by-maintainer`, so `work.resume` continues it. A
+   * plan-limit hold (an unresolved `plan-limit` pause intent, or the run's `plan-limit` signal,
+   * DIPO-359) parks `worker-failed` to resume by itself once the office's starts are not paused,
+   * its signal cleared. Each pause is resolved `run-ended` and a live worker is stopped first.
+   * Returns how many runs it parked.
    */
   async #parkPaused(office: OfficeHandle): Promise<number> {
     let parked = 0;
     for (const run of activeRuns(office)) {
       if (run.kind !== "story" || this.#guard.busy(run.runId)) continue;
       const pauses = runIntents(office, run.runId).filter(
-        (intent) =>
-          intent.resolvedAt === null &&
-          intent.kind === "pause" &&
-          intent.detail.startsWith(LEGACY_PAUSE_TAG),
+        (intent) => intent.resolvedAt === null && intent.kind === "pause",
       );
-      if (pauses.length === 0) continue;
+      const byMaintainer = pauses.some((pause) => pause.detail.startsWith(LEGACY_PAUSE_TAG));
+      const held =
+        !byMaintainer &&
+        (pauses.some((pause) => intentTag(pause.detail) === LEGACY_PLAN_LIMIT_TAG) ||
+          activeSignals(office, run.runId).some((signal) => signal.signal === "plan-limit"));
+      if (!byMaintainer && !held) continue;
       const at = this.#deps.clock.now();
       for (const pause of pauses) this.#s.resolve(office, run.runId, pause, "run-ended", at);
+      if (held) office.immediate(() => clearSignals(office, run.runId, ["plan-limit"], at));
       parked += 1;
-      await this.#guard.within(`${run.runId} legacy-pause`, () => this.#parkRun(office, run));
+      const ending: Omit<RunEnding, "intent" | "ops"> = byMaintainer
+        ? { reason: "by-maintainer", detail: LEGACY_PAUSE_DETAIL, endKind: "stopped" }
+        : {
+            reason: "worker-failed",
+            detail: LEGACY_PLAN_LIMIT_DETAIL,
+            endKind: OUTCOME_ENDS.planLimit,
+            resumeOnLift: true,
+          };
+      await this.#guard.within(`${run.runId} legacy-pause`, () =>
+        this.#parkRun(office, run, ending),
+      );
     }
     return parked;
   }
 
-  async #parkRun(office: OfficeHandle, run: StoredRun): Promise<void> {
-    const ending = { reason: "by-maintainer", detail: LEGACY_PAUSE_DETAIL, endKind: "stopped" };
+  async #parkRun(
+    office: OfficeHandle,
+    run: StoredRun,
+    ending: Omit<RunEnding, "intent" | "ops">,
+  ): Promise<void> {
     const ender = this.#deps.ender();
     // A worker re-attached after the restart still runs: run control stops it, then parks.
     if (ender.live(run.runId)) {
@@ -115,7 +148,7 @@ export class Redispatch {
   /**
    * Decides the exits that were ingested but not decided before the daemon stopped: every active
    * story run whose newest agent ended with no recorded decision (`end_reason` still `exited`),
-   * no open wait and no other session after it. A newest agent that ended `crashed` or
+   * and no other session after it. A newest agent that ended `crashed` or
    * `prompt-too-long` had its decision recorded but its next session never started: that session
    * starts now (a resume after a crash, a handoff after a full context).
    */
@@ -159,7 +192,6 @@ export class Redispatch {
           ? agent.end_reason
           : null;
       if (agent.end_reason !== "exited" && decided === null) continue;
-      if (openWait(office, run.runId) !== null) continue;
       const cursor = office.get<{ parse_state: string }>(
         `select parse_state from ingest_cursors
           where office_id = $office_id and run_id = $run and agent_id = $agent and source_kind = 'host-events'`,

@@ -480,7 +480,9 @@ export const DAEMON_SUBCOMMANDS: ReadonlyMap<string, Subcommand> = new Map<strin
       return withDaemon(deps, async (session) => {
         const outcome = await session.command(daemonResumeScheduling, {});
         if (!outcome.ok) return engineFailure(deps, outcome.error);
-        deps.writeLine(`scheduling resumed; daemon state: ${outcome.result.state}`);
+        deps.writeLine(
+          `scheduling resumed and starts unpaused; daemon state: ${outcome.result.state}`,
+        );
         return 0;
       });
     },
