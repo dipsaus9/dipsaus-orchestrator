@@ -45,7 +45,7 @@ import { appendEntries, type NewEntry } from "../changelog/log";
 import type { OfficeHandle } from "../db/office";
 import { findPassingDecision } from "../gate/store/decisions";
 import type { OfficeGit } from "../git/office";
-import type { CodeHost } from "../platform/host";
+import type { CodeHost, PrStateHost } from "../platform/host";
 import { LAUNCH_FILE } from "../host/protocol";
 import { officeDirectory } from "../office/marker";
 import { type BacklogPark, backlogPark, openParkIds, resolvePark } from "../run/park";
@@ -126,6 +126,11 @@ export interface ReconcileDeps {
   readonly slots?: SlotTable;
   /** Closes dipo's open story PR of a story Done elsewhere (DIPO-161); without it a notice says so. */
   readonly host?: Pick<CodeHost, "closePr"> | null;
+  /**
+   * Where the one Done check reads the merged PR of a claim's branch, as the Done poll does
+   * (`claimPr`, DIPO-363); without it dipo's record of the story PR answers.
+   */
+  readonly prs?: PrStateHost | null;
   /** Checks and deletes the boxes of ended runs after a release (0021 section 6). */
   readonly finishBoxes?: () => Promise<unknown>;
 }
