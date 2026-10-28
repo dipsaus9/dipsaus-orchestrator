@@ -1,50 +1,76 @@
 // Migration 60 (DIPO-361): every message dipo sends a developer session is one `steer` intent of
-// the one feedback path (0002), with the detail `feedback <source> <key> <text>`, where `text` is
-// the message as the worker reads it. The three tags it replaces become it:
+// the one feedback path (0002), with the detail `feedback <source> <key> <via> <text>`, where `via`
+// is `next` for a message held for the next session and `now` for one sent to a live session, and
+// `text` is the message as the worker reads it. The three tags it replaces become it:
 //
 // | Old detail                          | New detail                                              |
 // |-------------------------------------|---------------------------------------------------------|
-// | `maintainer-steer <request> <text>` | `feedback steer <request> The maintainer says: <text>`  |
-// | `held-feedback <text>`              | `feedback resume - <text>`                              |
-// | `report-feedback <agent> <why>`     | `feedback report <agent> <the report correction text>`  |
+// | `maintainer-steer <request> <text>` | `feedback steer <request> <via> <steer.md with text>`   |
+// | `held-feedback <text>`              | `feedback resume - next <text>`                         |
+// | `report-feedback <agent> <why>`     | `feedback report <agent> <via> <report.md with why>`    |
 //
-// So a steer or a held note stored before the upgrade still goes with the next session's first
-// message, a retried steer request still finds its steer, and a run's one report correction is
-// still counted. The wrapped texts are those of `feedback/steer.md` and `feedback/report.md` as
-// they were on 2026-10-28.
+// `via` is `next` for a row still pending and `now` for any other, so a steer or a held text stored
+// before the upgrade still goes with the next session's first message, a retried steer request
+// still finds its steer, and a run's one report correction is still counted. `held-feedback` held
+// both a resume note and a worker answer held for the next session; the two cannot be told apart,
+// so both become source `resume`, never `answer`. The steer and report texts are rendered through
+// the templates (`renderTemplate`), so a prompt tag in the stored text is neutralised as in any new
+// message.
 
-import type { SqlMigration } from "../migrations";
+import reportTemplate from "../../prompts/feedback/report.md" with { type: "text" };
+import steerTemplate from "../../prompts/feedback/steer.md" with { type: "text" };
+import { renderTemplate } from "../../prompts/templates";
+import type { CodeMigration, MigrationContext } from "../migrations";
 
-export const oneFeedbackTag: SqlMigration = {
+/** The first word of `rest` and what follows its space; the second part is empty without one. */
+function split(rest: string): [string, string] {
+  const space = rest.indexOf(" ");
+  return space === -1 ? [rest, ""] : [rest.slice(0, space), rest.slice(space + 1)];
+}
+
+/** The new detail of an old one, or null when the row is not one of the three old tags. */
+function rewrite(detail: string, pending: boolean): string | null {
+  const via = pending ? "next" : "now";
+  const [tag, rest] = split(detail);
+  if (tag === "maintainer-steer") {
+    const [request, text] = split(rest);
+    return `feedback steer ${request} ${via} ${renderTemplate(steerTemplate, { text })}`;
+  }
+  if (tag === "held-feedback") return `feedback resume - next ${rest}`;
+  if (tag === "report-feedback") {
+    const [agent, why] = split(rest);
+    return `feedback report ${agent} ${via} ${renderTemplate(reportTemplate, { why })}`;
+  }
+  return null;
+}
+
+export const oneFeedbackTag: CodeMigration = {
   version: 60,
   name: "one feedback tag",
-  sql: `
-update run_intents
-   set detail = case
-     when instr(substr(detail, 18), ' ') = 0
-       then 'feedback steer ' || substr(detail, 18) || ' The maintainer says: '
-     else 'feedback steer '
-       || substr(substr(detail, 18), 1, instr(substr(detail, 18), ' ') - 1)
-       || ' The maintainer says: '
-       || substr(substr(detail, 18), instr(substr(detail, 18), ' ') + 1)
-   end
- where kind = 'steer' and detail like 'maintainer-steer %';
-
-update run_intents
-   set detail = 'feedback resume - ' || substr(detail, 15)
- where kind = 'steer' and detail like 'held-feedback %';
-
-update run_intents
-   set detail = case
-     when instr(substr(detail, 17), ' ') = 0
-       then 'feedback report ' || substr(detail, 17) || ' Your last turn ended without a valid report: .'
-         || char(10) || 'Return the report in the schema now, through the structured output: status, criteria with evidence, summary and commit subject. Do not change files for it.'
-     else 'feedback report '
-       || substr(substr(detail, 17), 1, instr(substr(detail, 17), ' ') - 1)
-       || ' Your last turn ended without a valid report: '
-       || substr(substr(detail, 17), instr(substr(detail, 17), ' ') + 1) || '.'
-       || char(10) || 'Return the report in the schema now, through the structured output: status, criteria with evidence, summary and commit subject. Do not change files for it.'
-   end
- where kind = 'steer' and detail like 'report-feedback %';
-`,
+  source:
+    "run_intents of kind steer: maintainer-steer, held-feedback and report-feedback details " +
+    "rewritten to `feedback <source> <key> <via> <text>`, via next for pending rows else now, " +
+    "steer and report texts rendered through feedback/steer.md and feedback/report.md",
+  run: (db: MigrationContext) => {
+    const rows = db.all<{
+      office_id: string;
+      run_id: string;
+      intent_id: number;
+      detail: string;
+      state: string;
+    }>(
+      `select office_id, run_id, intent_id, detail, state from run_intents
+        where kind = 'steer' and (detail like 'maintainer-steer %' or detail like 'held-feedback %'
+          or detail like 'report-feedback %')`,
+    );
+    for (const row of rows) {
+      const detail = rewrite(row.detail, row.state === "pending");
+      if (detail === null) continue;
+      db.run(
+        `update run_intents set detail = $detail
+          where office_id = $office and run_id = $run and intent_id = $id`,
+        { detail, office: row.office_id, run: row.run_id, id: row.intent_id },
+      );
+    }
+  },
 };
