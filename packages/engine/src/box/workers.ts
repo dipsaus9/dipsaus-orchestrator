@@ -98,6 +98,7 @@ import {
   type BoxPort,
   boxName,
   runIdOfBox,
+  TEST_BOX_RUN_PREFIX,
 } from "./port";
 import type { PartRun, StartTreeCheck } from "./parts";
 import { type BoxTokenCheck, checkBoxAfterRun, tokenCheckFailure } from "./token-check";
@@ -1171,11 +1172,41 @@ export class BoxWorkers {
   }
 
   /**
+   * The web route of the test box `runId` (DIPO-309): acquired for the box, the Safe-Chain CA
+   * bundle copied in, and the box firewall set to that route's port, plus, with `inbound`, the
+   * Mac's address on the box network on those ports of the box (`firewall.ts`); returns the
+   * environment the test box's commands get, as an install does. Throws a `BoxError` when the route
+   * does not start or the firewall cannot be set.
+   */
+  async route(
+    runId: string,
+    options: { readonly inbound?: readonly number[] } = {},
+  ): Promise<Readonly<Record<string, string>>> {
+    const box = boxName(runId);
+    const web = await this.#web.acquire(box);
+    const network = await this.#networkOf();
+    await this.#deps.boxes.firewall(box, {
+      hostAddress: network.hostAddress,
+      ports: [portOf(web.url)],
+      ...(options.inbound === undefined ? {} : { inbound: options.inbound }),
+    });
+    await this.#copyDipoFiles(box, null, web.caFile);
+    const proxy = web.admit(box, this.#localPorts(this.#runDirOf(runId)));
+    return {
+      ...BOX_IMAGE_ENV,
+      HTTPS_PROXY: proxy,
+      HTTP_PROXY: proxy,
+      NODE_EXTRA_CA_CERTS: BOX_CA_FILE,
+    };
+  }
+
+  /**
    * The office's verify in the run's box at done (0002, DIPO-346): each command list as the box
    * user, in `/work` or the folder below it `cwd` names, with `env` plus the box's web route and
    * the CA bundle, as a session gets them, within `timeoutMs` each (`runBoxVerify`). The
    * developer's session runs, so its box firewall and dipo's files are in place and stay as they
-   * are. Never throws; a box that cannot run it is a `failed` result.
+   * are. Never throws; a box that cannot run it is a `failed` result. A test box's `setup`
+   * (DIPO-309) runs the same way, with `step` naming it in the log.
    */
   async verify(input: {
     readonly runId: string;
@@ -1183,6 +1214,7 @@ export class BoxWorkers {
     readonly cwd: string;
     readonly env: Readonly<Record<string, string>>;
     readonly timeoutMs: number;
+    readonly step?: "verify" | "setup";
   }): Promise<BoxVerifyResult> {
     const box = boxName(input.runId);
     let proxy: string;
@@ -1213,15 +1245,16 @@ export class BoxWorkers {
       },
     );
     const fields = { run: input.runId, box, kind: result.kind };
+    const step = input.step ?? "verify";
     if (result.kind === "red") {
-      this.#deps.warn?.("the verify in the box is red", { ...fields, command: result.command });
+      this.#deps.warn?.(`the ${step} in the box is red`, { ...fields, command: result.command });
     } else if (result.kind === "failed") {
-      this.#deps.warn?.("the verify in the box could not run", {
+      this.#deps.warn?.(`the ${step} in the box could not run`, {
         ...fields,
         reason: result.reason,
       });
     } else {
-      this.#deps.info?.("the verify in the box ran", fields);
+      this.#deps.info?.(`the ${step} in the box ran`, fields);
     }
     return result;
   }
@@ -1434,11 +1467,16 @@ export class BoxWorkers {
   /**
    * Daemon stop: stops every indexed box that runs, which ends the worker inside it (its host
    * then records the exit), and stops the routes. The boxes keep their files for the run's next
-   * session. Never rejects.
+   * session. A test box keeps running (DIPO-309): its product serves the open test, which the next
+   * daemon takes up again. Never rejects.
    */
   async close(): Promise<void> {
     this.#door?.close();
-    const pending = new Set(this.pending().map((runId) => boxName(runId)));
+    const pending = new Set(
+      this.pending()
+        .filter((runId) => !runId.startsWith(TEST_BOX_RUN_PREFIX))
+        .map((runId) => boxName(runId)),
+    );
     if (pending.size > 0) {
       let listed: Awaited<ReturnType<BoxPort["list"]>> = [];
       try {

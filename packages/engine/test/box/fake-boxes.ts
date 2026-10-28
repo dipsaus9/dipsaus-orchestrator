@@ -204,6 +204,12 @@ export class FakeBoxes implements BoxPort {
     return { name: BOX_NETWORK_NAME, mode: "hostOnly", hostAddress: BOX_HOST_ADDRESS };
   }
 
+  async address(name: string): Promise<string | null> {
+    this.log.push(`address ${name}`);
+    const box = this.boxes.get(name);
+    return box?.state === "running" ? "192.168.65.9" : null;
+  }
+
   async firewall(name: string, firewall: BoxFirewall): Promise<void> {
     this.log.push(`firewall ${name} ${firewall.hostAddress} ${firewall.ports.join(",")}`);
     const box = this.#box(name);

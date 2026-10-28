@@ -115,6 +115,92 @@ describe("the rule a box gets", () => {
   });
 });
 
+/** What `nft list table inet dipo` prints for the Safe-Chain box's rule (DIPO-343). */
+function safeChainListing(address: string, out: string, inbound: string, policy = "drop"): string {
+  return [
+    "table inet dipo {",
+    "\tchain output {",
+    "\t\ttype filter hook output priority filter; policy drop;",
+    '\t\toifname "lo" accept',
+    "\t\tct state established,related accept",
+    `\t\tip daddr ${address} tcp dport ${out} accept`,
+    "\t}",
+    "",
+    "\tchain input {",
+    `\t\ttype filter hook input priority filter; policy ${policy};`,
+    '\t\tiifname "lo" accept',
+    "\t\tct state established,related accept",
+    `\t\tip saddr ${address} tcp dport ${inbound} accept`,
+    "\t}",
+    "}",
+    "",
+  ].join("\n");
+}
+
+describe("the rule the Safe-Chain box gets (DIPO-343)", () => {
+  const firewall = { hostAddress: "192.0.2.1", ports: [41000], inbound: [8102, 8101] };
+
+  it("lets out only what it answers and the upstream listener, and in only the Mac's address on its ports", () => {
+    expect(firewallRules(firewall)).toBe(
+      [
+        "flush ruleset",
+        "add table inet dipo",
+        "add chain inet dipo output { type filter hook output priority 0 ; policy drop ; }",
+        'add rule inet dipo output oifname "lo" accept',
+        "add rule inet dipo output ct state established,related accept",
+        "add rule inet dipo output ip daddr 192.0.2.1 tcp dport { 41000 } accept",
+        "add chain inet dipo input { type filter hook input priority 0 ; policy drop ; }",
+        'add rule inet dipo input iifname "lo" accept',
+        "add rule inet dipo input ct state established,related accept",
+        "add rule inet dipo input ip saddr 192.0.2.1 tcp dport { 8101, 8102 } accept",
+      ].join(" ; "),
+    );
+    expect(firewallListCommand(firewall)).toEqual(
+      netToolCommand("nft", ["list", "table", "inet", "dipo"]),
+    );
+    for (const inbound of [[], [0], [1, 2, 3, 4, 5, 6, 7, 8, 9]]) {
+      expect(() => firewallRules({ ...firewall, inbound })).toThrow(BoxError);
+    }
+  });
+
+  it("shows as set only with both chains, their drop policies and every rule", () => {
+    expect(
+      checkFirewallListing(safeChainListing("192.0.2.1", "41000", "{ 8101, 8102 }"), firewall),
+    ).toBe(true);
+    for (const text of [
+      safeChainListing("192.0.2.1", "41000", "{ 8101, 8102 }", "accept"),
+      safeChainListing("192.0.2.1", "41000", "{ 8101, 8102, 22 }"),
+      safeChainListing("192.0.2.99", "41000", "{ 8101, 8102 }"),
+      listing("192.0.2.1", "41000"),
+    ]) {
+      expect(checkFirewallListing(text, firewall)).toBe(false);
+    }
+  });
+
+  it("runs with the box's capabilities only exactly as dipo writes it, and its table's list", () => {
+    const rule = firewallCommand(firewall);
+    expect(isFirewallCommand(rule)).toBe(true);
+    expect(isFirewallCommand(firewallListCommand(firewall))).toBe(true);
+    const tool = netToolCommand("nft", []);
+    for (const args of [
+      [rule.at(-1)!.replace("dport { 8101, 8102 }", "dport { 1-65535 }")],
+      [rule.at(-1)!.replace("ip saddr 192.0.2.1", "ip saddr 0.0.0.0/0")],
+      [
+        rule
+          .at(-1)!
+          .replace(
+            " ; add chain inet dipo input { type filter hook input priority 0 ; policy drop ; }",
+            " ; add chain inet dipo input { type filter hook input priority 0 ; policy accept ; }",
+          ),
+      ],
+      [`${rule.at(-1)!} ; add rule inet dipo input accept`],
+      ["list", "table", "inet", "other"],
+    ]) {
+      expect(isFirewallCommand([...tool, ...args])).toBe(false);
+    }
+  });
+});
+
 describe("what runs with a box's capabilities", () => {
   it("is only the rule exactly as dipo writes it, and the list of its chain", () => {
     const rule = firewallCommand({ hostAddress: "192.0.2.1", ports: [3128, 4000] });

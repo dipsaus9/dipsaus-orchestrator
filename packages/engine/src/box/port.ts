@@ -33,6 +33,11 @@ export const BOX_BUILD_CA_FILE = "safe-chain-ca.pem";
  * network, and committed from. Only a build box runs a command with all its capabilities.
  */
 export const BUILD_BOX_RUN_PREFIX = "build-";
+/**
+ * The run id prefix of a test box (DIPO-309): the box a story's pushed head runs in for the
+ * maintainer's test, named by its test id (`tst_<ulid>`).
+ */
+export const TEST_BOX_RUN_PREFIX = "tst_";
 
 /** A run id a box name may carry: what `IdSource` makes (`run_<ulid>`), and test ids. */
 const RUN_ID = /^[a-zA-Z0-9][a-zA-Z0-9_.-]*$/;
@@ -258,4 +263,9 @@ export interface BoxPort {
   commit(name: string, tag: string, options?: BoxCallOptions): Promise<void>;
   /** Deletes the box image `tag`, so a build can make it again. */
   deleteImage(tag: string, options?: BoxCallOptions): Promise<void>;
+  /**
+   * The IPv4 address of the running box `name` on dipo's box network (DIPO-343: dipo's web proxy
+   * reaches the Safe-Chain box there); null when the box does not run or has none.
+   */
+  address(name: string, options?: BoxCallOptions): Promise<string | null>;
 }

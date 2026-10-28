@@ -4,11 +4,13 @@
 // `execLive`, a long-running command, has no deadline. The JSON shapes read here are those of
 // `container` 1.6.0, the version the escape probe passed on (tools/box-probe/RESULTS.md).
 
+import { isIP } from "node:net";
 import { availableParallelism, homedir, totalmem } from "node:os";
 
 import type { ChildProcess, Clock, Spawn, TimerHandle } from "@dipsaus-orchestrator/contract";
 
 import {
+  checkedBoxName,
   commitArgs,
   copyInArgs,
   copyOutArgs,
@@ -194,6 +196,27 @@ export function dipoBoxes(listed: readonly unknown[]): BoxInfo[] {
     });
   }
   return boxes;
+}
+
+/**
+ * The IPv4 address of the running dipo box `name` on dipo's box network, from `container list
+ * --all --format json` (`status.networks[].ipv4Address`, its prefix dropped); null when the box
+ * does not run there or the address is no IPv4 address.
+ */
+export function boxAddress(listed: readonly unknown[], name: string): string | null {
+  if (!dipoBoxes(listed).some((box) => box.name === name && box.state === "running")) return null;
+  const item = listed.map(record).find((candidate) => {
+    const configuration = record(candidate["configuration"]);
+    return (configuration["id"] ?? candidate["id"]) === name;
+  });
+  const networks = record(item?.["status"])["networks"];
+  for (const network of Array.isArray(networks) ? networks : []) {
+    const found = record(network);
+    if (found["network"] !== BOX_NETWORK_NAME) continue;
+    const address = String(found["ipv4Address"] ?? "").split("/")[0] ?? "";
+    return isIP(address) === 4 ? address : null;
+  }
+  return null;
 }
 
 /** The memory of box `name` from `container stats --no-stream --format json`; null when absent. */
@@ -448,7 +471,7 @@ export class AppleContainerBoxes implements BoxPort {
       });
     }
     const listed = await this.#run(
-      execArgs({ name, command: firewallListCommand(), fullPrivilege: true }),
+      execArgs({ name, command: firewallListCommand(firewall), fullPrivilege: true }),
       options,
     );
     if (listed.code !== 0 || !checkFirewallListing(listed.stdout, firewall)) {
@@ -532,6 +555,12 @@ export class AppleContainerBoxes implements BoxPort {
     const args = listArgs();
     const result = await this.#runOk(args, options);
     return dipoBoxes(array(args, parseJson(args, result.stdout)));
+  }
+
+  async address(name: string, options: BoxCallOptions = {}): Promise<string | null> {
+    const args = listArgs();
+    const result = await this.#runOk(args, options);
+    return boxAddress(array(args, parseJson(args, result.stdout)), checkedBoxName(name));
   }
 
   async hasImage(tag: string, options: BoxCallOptions = {}): Promise<boolean> {
