@@ -119,20 +119,10 @@ jobs:
           path: ~/.bun/install/cache
           key: bun-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('bun.lock') }}
       - run: bun install --frozen-lockfile
-      # The CI-only sandbox tests (DIPO-37) run steps inside `srt`, which needs bubblewrap, socat and
-      # ripgrep, and a user namespace that Ubuntu 24.04's AppArmor restriction leaves usable (0008).
-      # The Safe-Chain worker shell test (DIPO-103) needs zsh, which the runner image lacks.
-      - name: Install the sandbox runtime's Linux dependencies (0008)
-        run: |
-          sudo apt-get update
-          sudo apt-get install --yes --no-install-recommends bubblewrap socat ripgrep zsh
-      - name: Allow unprivileged user namespaces for bubblewrap
-        run: sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns=0
       - run: bun run verify
 
   # DIPO-316: the same verify with the CI-only tests on macOS, where the maintainer runs the daemon
-  # and the boxes. The macOS image has zsh and the system sandbox (Seatbelt) the CI-only sandbox
-  # tests start srt in.
+  # and the boxes.
   verify-macos:
     name: verify-macos
     needs: changes
@@ -154,9 +144,6 @@ jobs:
           path: ~/.bun/install/cache
           key: bun-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('bun.lock') }}
       - run: bun install --frozen-lockfile
-      # srt and its tests look for ripgrep, as on Linux (0008); install it only when the image lacks it.
-      - name: Make sure ripgrep is installed
-        run: command -v rg || brew install ripgrep
       - run: bun run verify
 
   dependency-review:

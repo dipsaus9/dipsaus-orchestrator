@@ -47,7 +47,7 @@ Dependencies are pinned exactly in `package.json`. Later stories add the package
 | `oxfmt` | 0.72.0 | root devDependency |
 | `react` | 19.3.0 | `tui` (later story, 0009) |
 | `ink` | 8.0.0 | `tui` (later story, 0009) |
-| `@anthropic-ai/sandbox-runtime` | 0.0.79 | `engine`; removed by the prune plan (0004, 0008) |
+| `@anthropic-ai/sandbox-runtime` | removed | removed by DIPO-343 (0004, 0008) |
 | `backlog.md` | 1.53.0 (stays on 1.53.x) | global CLI; repository devDependency from DIPO-18 |
 | `release-please` | 17.11.2 (CLI, dry run) and action v5.0.0 | `release.yml` only, never installed |
 

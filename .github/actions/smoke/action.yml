@@ -19,22 +19,6 @@ inputs:
 runs:
   using: composite
   steps:
-    # The sandbox tests run steps inside `srt`, which needs bubblewrap, socat and ripgrep, and a
-    # user namespace that Ubuntu 24.04's AppArmor restriction leaves usable (0008).
-    - name: Install the sandbox runtime's Linux dependencies (0008)
-      if: runner.os == 'Linux'
-      shell: bash
-      run: |
-        sudo apt-get update
-        sudo apt-get install --yes --no-install-recommends bubblewrap socat ripgrep
-    - name: Allow unprivileged user namespaces for bubblewrap
-      if: runner.os == 'Linux'
-      shell: bash
-      run: sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns=0
-    - name: Install the sandbox probe's macOS dependency (ripgrep)
-      if: runner.os == 'macOS'
-      shell: bash
-      run: command -v rg || brew install ripgrep
     - name: dipo --version
       shell: bash
       env:
@@ -89,35 +73,6 @@ runs:
       env:
         DIPO_TMP: ${{ runner.temp }}/dipo
       run: ./dist/dipo self-check
-    # DIPO-37: a real sandboxed run inside the compiled binary. It fails on any refusal, which
-    # includes every srt dependency warning, such as a missing apply-seccomp helper on Linux.
-    - name: dipo daemon sandbox-exec (deny-all)
-      shell: bash
-      env:
-        POLICY: ${{ runner.temp }}/deny-all.json
-      run: |
-        printf '%s\n' '{"network":{"allowedDomains":[],"deniedDomains":[],"strictAllowlist":true},"filesystem":{"denyRead":[],"allowWrite":[],"denyWrite":[]}}' > "$POLICY"
-        set +e
-        ./dist/dipo daemon sandbox-exec --policy "$POLICY" -- true 2> "$RUNNER_TEMP/stderr.txt"
-        code=$?
-        set -e
-        cat "$RUNNER_TEMP/stderr.txt"
-        if [ "$code" -ne 0 ]; then echo "sandbox-exec exited with $code"; exit 1; fi
-        if [ -s "$RUNNER_TEMP/stderr.txt" ]; then echo "sandbox-exec wrote to stderr"; exit 1; fi
-        # A write outside the policy must fail inside the sandbox.
-        if ./dist/dipo daemon sandbox-exec --policy "$POLICY" -- sh -c 'echo x > "$1"' sh "$RUNNER_TEMP/escaped"; then
-          echo "a write outside the policy succeeded"; exit 1
-        fi
-        if [ -e "$RUNNER_TEMP/escaped" ]; then echo "$RUNNER_TEMP/escaped exists"; exit 1; fi
-    - name: apply-seccomp blocks Unix sockets under deny-all
-      if: runner.os == 'Linux'
-      shell: bash
-      env:
-        POLICY: ${{ runner.temp }}/deny-all.json
-      run: |
-        if ./dist/dipo daemon sandbox-exec --policy "$POLICY" -- timeout 2 socat ABSTRACT-LISTEN:dipo-smoke -; then
-          echo "a Unix socket was created under deny-all: apply-seccomp is not applied"; exit 1
-        fi
     - name: The binary ignores bunfig.toml and .env in its working directory
       shell: bash
       run: |

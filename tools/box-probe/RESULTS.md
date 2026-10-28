@@ -1,10 +1,41 @@
-# Box probe results (DIPO-264)
+# Box probe results (DIPO-264, DIPO-343)
+
+## Run of 2026-10-27: the Safe-Chain box (DIPO-343)
+
+The probe ran again after Safe-Chain moved into a box of its own and the box firewall gained the Safe-Chain box's input chain (`firewall.ts`). It ran on macOS 26.6.2 (Apple silicon) with Apple `container` 1.6.0, by the builder of DIPO-343, against boxes the probe itself started: the developer box (Alpine 3.20, the code of `origin/main` at `15923c32`, no `.git`) and the Safe-Chain box that dipo's own web route started (`web-proxy.ts`, from the machine-wide Safe-Chain image, Safe-Chain 1.5.12). The Mac's services were two stand-ins, one on all interfaces and one on loopback. Every check ran as root, the worst case; a worker runs as the box user with no capability.
+
+**Every line passes** (two root-only lines are the accepted risk, as before):
+
+| Attempt | Must | Result |
+|---|---|---|
+| Developer box: read the home folder, `.git`, host environment, SSH agent | fail | **fails**: nothing mounted, `.git` absent, environment `SHLVL HOME PATH PWD` |
+| Developer box without dipo's firewall: the Mac on all interfaces | (shows what the rule closes) | open, as on 2026-10-21 |
+| Developer box behind dipo's firewall: the Mac (all interfaces, loopback port, local-network address), the Safe-Chain box's ports 8101, 8102 and 22, dipo's upstream listener | fail | **fails**: every one closed |
+| Developer box: the router, the internet, a registry, straight out | fail | **fails**: closed, no DNS, no route |
+| Through the web proxy: the Mac's loopback by address, by name and by a public name, its local-network address, the router, the box network, the Safe-Chain box, a registry's IP address | fail | **fails**: 403 for each |
+| Through the web proxy: a registry alias, a registry's CDN name | fail | **fails**: 403 |
+| Through the web proxy: a tunnel to `example.com` whose TLS handshake names `registry.npmjs.org` | fail | **fails**: closed before the registry answers |
+| Through the web proxy: the internet | work | **works**: 200 |
+| An install through the Safe-Chain box | work | **works**: `is-number@7.0.0` installs; `safe-chain-test` is refused (`403 Forbidden`, `blocked by safe-chain`) |
+| The proxy setting changed in the box: to the Safe-Chain box, to the upstream listener | fail | **fails**: the install fails |
+| Switch off the network rules as an unprivileged user | fail | **fails**: `nft flush ruleset` refused |
+| Switch off the network rules as root (root only: dipo never runs worker code as root with the network capability, 0008) | fail for the internet, the local network and the registries | **fails** for those, and for the Safe-Chain box; the Mac's own local-network address is then reachable, the accepted risk of 2026-10-21 |
+| Safe-Chain box: the maintainer's files and settings | fail | **fails**: environment `HOME PATH PWD`, no `/Users`, `.npmrc` or `.ssh` |
+| Safe-Chain box: the Mac (all interfaces, loopback port, the web proxy), its local-network address, the router, the internet, a registry, straight out | fail | **fails**: every one closed |
+| Safe-Chain box through the upstream listener: a registry, the malware lists | work | **works**: 200 and an answer from Aikido |
+| Safe-Chain box through the upstream listener: the internet, a registry alias, the Mac's loopback | fail | **fails**: refused, each "not a host Safe-Chain reaches" |
+| Safe-Chain box: switch off its firewall as the box user | fail | **fails**: refused |
+| The Safe-Chain box after the route stops | gone | **gone**: deleted with the route |
+
+The same lines run as a test against the real path in `packages/engine/test/box/safe-chain-box.ci.test.ts`, with the developer box made from an office image and every try as the box user.
+
+## Run of 2026-10-21 (DIPO-264)
 
 Results of the escape probe that decision 0021 (section 16) makes the gate. They were run by hand on 2026-10-21, with the maintainer watching, on macOS 26.6 (Apple silicon) with Apple `container` 1.6.0 and its recommended default kernel. The box image is `docker.io/library/alpine:3.20`, and the box code came from `origin/main` (`git archive`, so no `.git`).
 
-Every command is in `probe.sh`, with placeholders for the Mac's own addresses and ports. Every check ran as root in the box (`uid=0`).
+Every command was in `probe.sh` as it was then, with placeholders for the Mac's own addresses and ports. Every check ran as root in the box (`uid=0`).
 
-## Escape table
+### Escape table
 
 | Attempt from inside the box | Must | Result |
 |---|---|---|
@@ -18,7 +49,7 @@ Every command is in `probe.sh`, with placeholders for the Mac's own addresses an
 | As root, switch off the network rules | fail | **fails** for the internet, the local network and the registries: those limits come from the host-only network and the web proxy, both outside the box. **No rule exists yet for the Mac's own services** (the accepted risk), so there is nothing to switch off there |
 | Find the Claude token in the box | fail | **fails**: after a live request, the token is in neither the box's environment nor its files. The model proxy checked this itself and reported only yes or no |
 
-## How the network is enforced
+### How the network is enforced
 
 - Each box joins a host-only network (`container network create --internal`). It has no route to the internet, the local network or a VPN.
 - The box's only way out is dipo's web proxy (`web-proxy.ts`), which listens only on the box network's address on the Mac:
@@ -30,7 +61,7 @@ Every command is in `probe.sh`, with placeholders for the Mac's own addresses an
 - The host-only network and the proxy are both outside the box, and the box cannot change them.
 - The first version of the proxy passed any target, so a box could reach the Mac's loopback services, the local network and a registry without Safe-Chain. The review of this probe caught it, and every line was then tested again through the fixed proxy.
 
-## The Claude login (decision 11)
+### The Claude login (decision 11)
 
 - The box's Claude Code (2.1.303 from npm, installed through Safe-Chain) has a placeholder key, `ANTHROPIC_BASE_URL` set to the model proxy, and `NO_PROXY` for the box network's host address.
 - The model proxy (`model-proxy.ts`) runs on the Mac, started by the maintainer in their own terminal. It:
@@ -42,7 +73,7 @@ Every command is in `probe.sh`, with placeholders for the Mac's own addresses an
 - **The first choice of decision 11 works.** The fallback (a token inside the box) is not needed.
 - The path limit and the redirect setting were added after that request. The build story's proxy keeps both.
 
-## Accepted risk (maintainer, 2026-10-21)
+### Accepted risk (maintainer, 2026-10-21)
 
 On the host-only network the Mac is the box's neighbour, so a box can reach services on the Mac that listen on all interfaces. The web proxy does not give this access; the direct network link does. Blocking it needs a firewall:
 - inside the box: the maintainer's chosen option, a rule set at box start that the worker cannot change;
@@ -50,7 +81,7 @@ On the host-only network the Mac is the box's neighbour, so a box can reach serv
 
 It could not be built in this session. The maintainer accepted the risk for now.
 
-## Measurements
+### Measurements
 
 | What | Result |
 |---|---|
@@ -60,7 +91,7 @@ It could not be built in this session. The maintainer accepted the risk for now.
 | Memory of an idle box | 7.2 MiB, of a **1 GiB default limit** that Apple `container` sets unless told otherwise |
 | Stop and start a box again | about 0 s; the files are kept |
 
-## Findings for the stories
+### Findings for the stories
 
 - Apple `container` sets a 1 GiB memory limit by default. To honour decision 16 (no limits), dipo must set an explicit high limit per box.
 - The box's model base URL must bypass the web proxy (`NO_PROXY=<box network host address>`). Without it, Claude Code sends its model requests to the web proxy.
@@ -81,3 +112,20 @@ DIPO-346 changed the image build (every office image now has git from Debian's a
 
 - Every line of the escape table came out as on 2026-10-21. Without the proxy: no internet, no registry, no router; the Mac's loopback-only port is closed; the all-interfaces port answers on the box network and on the Mac's LAN address (the accepted risk above; the probe's Alpine box has no box firewall, which dipo's boxes have since DIPO-281). Through the web proxy: the Mac's loopback by address, by name and through a public name, the LAN address, the router, the box network host and a registry IP literal are refused; a registry with a trailing dot goes to Safe-Chain; the internet answers 200; `is-number` installs through Safe-Chain and `safe-chain-test` is refused with `403 Forbidden - blocked by safe-chain`. The box's environment is only `SHLVL HOME PATH PWD`, and its files are kept across a stop and start.
 - The probe's box is Alpine, not the office image, so the git lines were checked in a box of the office image by `packages/engine/test/box/box-git.box.test.ts` (`DIPO_TEST_BOX=1`), which passed on the same day: the box's repository is the box user's, holds one commit of the start state, no remote, no other ref and no hooks; a test that needs git passes as dipo's verify in the box; a part leaves the box without `.git`, also after the worker committed, set `core.hooksPath` and added a remote there, and no hook runs on the Mac; a symlink to `.git` or to `.git/config`, a `.git` file below the root and a nested repository are each refused with nothing committed; a part that carries a changed `.git/config` (the exclude dropped on its way into the box) is refused, nothing is committed or pushed, and the Mac repository's config, refs and hooks are unchanged.
+
+## Run of 2026-10-28 (DIPO-343): the Safe-Chain box after DIPO-344 to 363, with a VPN on
+
+The probe ran again after the DIPO-343 branch took in main (git in the image and a box-local repository from DIPO-346, among others), on Apple `container` 1.6.0. It ran against boxes it started itself: the Alpine developer box on `dipo-boxes`, and the Safe-Chain box that dipo's route started. The Mac's services were two stand-ins. A VPN on the Mac routed 192.168.128.0/24, the box network's subnet, into its tunnel (`utun4`).
+
+- **The route works while a VPN routes the box subnet.** dipo opens every connection from the Mac into the box network, and its own check of the web proxy, from the box network's host address (`connectToBox`, DIPO-343). An unbound connection went into the VPN tunnel and timed out.
+- Every line came out as in the run of 2026-10-27:
+  - the developer box behind dipo's firewall reaches neither the Mac, the Safe-Chain box's ports, nor the upstream listener;
+  - through the web proxy, the Mac's addresses, the box network, the Safe-Chain box, a registry IP literal, an alias, a CDN name and a TLS handshake naming another host are refused;
+  - the internet answers 200;
+  - `is-number@7.0.0` installs through Safe-Chain and `safe-chain-test` is refused (`403 Forbidden`, `blocked by safe-chain`);
+  - a proxy changed to the Safe-Chain box or to the upstream listener fails;
+  - a user cannot flush the rules;
+  - root can, and then reaches only the Mac's local-network address, the accepted risk;
+  - the Safe-Chain box reaches only the upstream listener, which serves a registry (200) and the malware lists and refuses everything else;
+  - its box user cannot flush its firewall;
+  - the box is deleted with the route.

@@ -35,12 +35,13 @@ import {
   type RunningBoxWebProxy,
   startBoxWebProxy,
   startReviewWebProxy,
+  startSafeChainUpstreamProxy,
   WEB_PROXY_HEAD_LIMIT,
   WEB_PROXY_HEAD_TIMEOUT_MS,
   WEB_PROXY_LIMITS,
   type WebProxyEvent,
 } from "../../src/box/web-proxy";
-import { SAFE_CHAIN_REGISTRY_HOSTS } from "../../src/sandbox/safe-chain-proxy";
+import { SAFE_CHAIN_REGISTRY_HOSTS } from "../../src/box/safe-chain";
 
 import { hello } from "./tls-hello";
 
@@ -488,7 +489,7 @@ async function echoServer(
   return { endpoint: await transport.listen(server), sockets };
 }
 
-/** A stand-in for dipo's Safe-Chain proxy: records the head it gets, then echoes. */
+/** A stand-in for the Safe-Chain box: records the head it gets, then echoes. */
 async function fakeSafeChain(
   transport: Transport,
 ): Promise<{ endpoint: Endpoint; heads: string[] }> {
@@ -516,8 +517,11 @@ async function fakeSafeChain(
   return { endpoint: await transport.listen(server), heads };
 }
 
-/** The Safe-Chain port the proxy is given when the fake Safe-Chain listens on a Unix socket. */
-const SAFE_CHAIN_STAND_IN_PORT = 1;
+/** Where the fake Safe-Chain box is known to the proxy (DIPO-343): an address on the box network. */
+const SAFE_CHAIN_TARGET = {
+  address: "192.0.2.199",
+  ports: { npm: 8101, pypi: 8102 },
+} as const;
 
 interface Harness {
   readonly proxy: RunningBoxWebProxy;
@@ -529,8 +533,10 @@ interface Harness {
   readonly connects: string[];
   /** Every host name the proxy resolved. */
   readonly lookups: string[];
-  /** The fake Safe-Chain, and the port the proxy knows it by. */
-  readonly safeChain: { port: number; heads: string[] };
+  /** The fake Safe-Chain box: the heads it got. */
+  readonly safeChain: { heads: string[] };
+  /** Makes the Safe-Chain box stop or run again for the proxy (DIPO-343). */
+  readonly setSafeChain: (running: boolean) => void;
   readonly upstream: { endpoint: Endpoint; sockets: Socket[] };
 }
 
@@ -552,14 +558,13 @@ async function harness(
   const connects: string[] = [];
   const lookups: string[] = [];
   const fake = await fakeSafeChain(transport);
-  const safeChainPort =
-    typeof fake.endpoint === "number" ? fake.endpoint : SAFE_CHAIN_STAND_IN_PORT;
+  let safeChain: typeof SAFE_CHAIN_TARGET | null = SAFE_CHAIN_TARGET;
   const upstream = await echoServer(transport);
   const closed = await transport.closed();
   const { proxy, endpoint } = await transport.startProxy(
     {
       network: { hostAddress: LOOPBACK },
-      safeChainPort,
+      safeChain: () => safeChain,
       limits,
       ...(admissions === undefined ? {} : { admissions }),
     },
@@ -577,8 +582,9 @@ async function harness(
       },
       connect: (address, port) => {
         connects.push(`${address}:${port}`);
-        if (address === LOOPBACK && port === safeChainPort) return dial(fake.endpoint);
-        return dial(dead.includes(address) ? closed : upstream.endpoint);
+        if (dead.includes(address)) return dial(closed);
+        if (address === SAFE_CHAIN_TARGET.address) return dial(fake.endpoint);
+        return dial(upstream.endpoint);
       },
     },
   );
@@ -590,7 +596,10 @@ async function harness(
     events,
     connects,
     lookups,
-    safeChain: { port: safeChainPort, heads: fake.heads },
+    safeChain: { heads: fake.heads },
+    setSafeChain: (running) => {
+      safeChain = running ? SAFE_CHAIN_TARGET : null;
+    },
     upstream,
   };
 }
@@ -661,7 +670,7 @@ for (const transport of [TCP, UNIX]) {
       const clock = new ManualClock();
       for (const hostAddress of ["0.0.0.0", "::", "", "not-an-address"]) {
         await expect(
-          startBoxWebProxy({ network: { hostAddress }, safeChainPort: 1 }, { clock }),
+          startBoxWebProxy({ network: { hostAddress }, safeChain: () => null }, { clock }),
         ).rejects.toThrow("the web proxy cannot listen on");
       }
     });
@@ -796,8 +805,8 @@ for (const transport of [TCP, UNIX]) {
       ]);
       expect(h.lookups).toEqual([]);
       expect(h.connects).toEqual([
-        `${LOOPBACK}:${h.safeChain.port}`,
-        `${LOOPBACK}:${h.safeChain.port}`,
+        `${SAFE_CHAIN_TARGET.address}:${SAFE_CHAIN_TARGET.ports.npm}`,
+        `${SAFE_CHAIN_TARGET.address}:${SAFE_CHAIN_TARGET.ports.pypi}`,
       ]);
       expect(h.events).toEqual([
         { kind: "registry", host: "registry.npmjs.org", port: 443 },
@@ -811,6 +820,50 @@ for (const transport of [TCP, UNIX]) {
       expect(result.text).toStartWith("HTTP/1.1 403 Forbidden\r\n");
       expect(h.lookups).toEqual([]);
       expect(h.connects).toEqual([]);
+    });
+
+    it("refuses every registry tunnel while no Safe-Chain box runs, and never sends one direct (DIPO-343)", async () => {
+      const h = await harness(transport, {
+        "registry.npmjs.org": [["203.0.113.7"]],
+        "pypi.org": [["203.0.113.8"]],
+      });
+      h.setSafeChain(false);
+      for (const target of ["registry.npmjs.org:443", "Registry.NPMJS.org.:443", "pypi.org:443"]) {
+        const result = await exchange(h.endpoint, connectHead(target));
+        expect(result.text).toStartWith("HTTP/1.1 503 Service Unavailable\r\n");
+      }
+      expect(h.lookups).toEqual([]);
+      expect(h.connects).toEqual([]);
+      expect(h.safeChain.heads).toEqual([]);
+      expect(h.events.map((event) => event.kind)).toEqual(["refused", "refused", "refused"]);
+      // Once the box runs again, a registry goes to it.
+      h.setSafeChain(true);
+      const npm = await exchange(h.endpoint, connectHead("registry.npmjs.org:443"), {
+        payload: "x",
+        until: (text) => text.includes("safe-chain:x"),
+      });
+      npm.socket.destroy();
+      expect(h.connects).toEqual([`${SAFE_CHAIN_TARGET.address}:${SAFE_CHAIN_TARGET.ports.npm}`]);
+    });
+
+    it("fails closed when the Safe-Chain box does not answer: 502, and no registry is reached (DIPO-343)", async () => {
+      const h = await harness(transport, { "registry.npmjs.org": [["203.0.113.7"]] }, [
+        SAFE_CHAIN_TARGET.address,
+      ]);
+      const result = await exchange(h.endpoint, connectHead("registry.npmjs.org:443"), {
+        payload: "GET / HTTP/1.1\r\n\r\n",
+      });
+      expect(result.text).toStartWith("HTTP/1.1 502 Bad Gateway\r\n");
+      expect(h.lookups).toEqual([]);
+      expect(h.connects).toEqual([`${SAFE_CHAIN_TARGET.address}:${SAFE_CHAIN_TARGET.ports.npm}`]);
+      expect(h.upstream.sockets).toEqual([]);
+      expect(h.events).toEqual([
+        {
+          kind: "refused",
+          target: "registry.npmjs.org:443",
+          reason: "the Safe-Chain box did not answer",
+        },
+      ]);
     });
 
     it("refuses another name of a registry before resolving it: an alias, a CDN name, a mirror, a zone (DIPO-281)", async () => {
@@ -1071,7 +1124,7 @@ for (const transport of [TCP, UNIX]) {
       const clock = new ManualClock();
       const route = new BoxWebRoute(async () => {
         const started = await transport.startProxy(
-          { network: { hostAddress: LOOPBACK }, safeChainPort: 1 },
+          { network: { hostAddress: LOOPBACK }, safeChain: () => null },
           { clock },
         );
         return { endpoint: started.endpoint, stop: () => started.proxy.stop() };
@@ -1440,6 +1493,159 @@ function counted() {
   });
   return { route, log };
 }
+
+// ---------------------------------------------------------------------------------------------
+// Safe-Chain's own listener (DIPO-343): only the Safe-Chain box, only the hosts it reaches, on the
+// TLS port, under the address rule. TCP only: it knows the Safe-Chain box by its source address.
+
+/** Safe-Chain's own listener (DIPO-343) whose clients count as the Safe-Chain box from `source`. */
+async function upstreamHarness(source: string | null, limits?: BoxWebProxyOptions["limits"]) {
+  const clock = new ManualClock();
+  const events: WebProxyEvent[] = [];
+  const connects: string[] = [];
+  const upstream = await echoServer(TCP);
+  const proxy = await startSafeChainUpstreamProxy(
+    {
+      network: { hostAddress: LOOPBACK },
+      source: () => source,
+      ...(limits === undefined ? {} : { limits }),
+    },
+    {
+      clock,
+      publicStandIns: STAND_INS,
+      onEvent: (event) => events.push(event),
+      interfaces: () => INTERFACES,
+      resolve: async (host) => {
+        if (host === "registry.npmjs.org" || host === "malware-list.aikido.dev") {
+          return ["203.0.113.7"];
+        }
+        if (host === "example.com") return ["203.0.113.9"];
+        throw new Error(`${host} does not resolve`);
+      },
+      connect: (address, port) => {
+        connects.push(`${address}:${port}`);
+        return dial(upstream.endpoint);
+      },
+    },
+  );
+  proxies.push(proxy);
+  return { proxy, events, connects, upstream };
+}
+
+describe.skipIf(!TCP_RUNS)("the web proxy's connection into the box network (DIPO-343)", () => {
+  it("connects to the Safe-Chain box from the box network's host address, never unbound", async () => {
+    const fake = await fakeSafeChain(TCP);
+    const seen: unknown[] = [];
+    const proxy = await startBoxWebProxy(
+      { network: { hostAddress: LOOPBACK }, safeChain: () => SAFE_CHAIN_TARGET },
+      {
+        clock: new ManualClock(),
+        connectBox: (options) => {
+          seen.push(options);
+          return dial(fake.endpoint);
+        },
+      },
+    );
+    proxies.push(proxy);
+    const result = await exchange(proxy.port, connectHead("pypi.org:443"), {
+      payload: "x",
+      until: (text) => text.includes("safe-chain:x"),
+    });
+    result.socket.destroy();
+    expect(seen).toEqual([
+      {
+        host: SAFE_CHAIN_TARGET.address,
+        port: SAFE_CHAIN_TARGET.ports.pypi,
+        localAddress: LOOPBACK,
+      },
+    ]);
+  });
+});
+
+/** Opens `count` connections to the loopback `port` and keeps them open. */
+async function openConnections(port: number, count: number): Promise<Socket[]> {
+  const sockets: Socket[] = [];
+  for (let i = 0; i < count; i += 1) {
+    const socket = dial(port);
+    socket.on("error", () => {});
+    await new Promise<void>((resolve) => socket.once("connect", () => resolve()));
+    sockets.push(socket);
+  }
+  return sockets;
+}
+
+describe.skipIf(!TCP_RUNS)("the Safe-Chain upstream listener", () => {
+  it("tunnels the Safe-Chain box to a registry and to its malware lists, a TLS hello naming each", async () => {
+    const h = await upstreamHarness(LOOPBACK);
+    for (const host of ["registry.npmjs.org", "malware-list.aikido.dev"]) {
+      const bytes = hello(host);
+      const result = await exchange(h.proxy.port, connectHead(`${host}:443`), {
+        payload: bytes.toString("latin1"),
+        until: (text) => text.includes("upstream:"),
+      });
+      expect(result.text).toStartWith("HTTP/1.1 200 Connection Established\r\n\r\n");
+      result.socket.destroy();
+    }
+    expect(h.connects).toEqual(["203.0.113.7:443", "203.0.113.7:443"]);
+  });
+
+  it("refuses any host Safe-Chain does not reach, an alias, an IP literal, the Mac and a port but 443", async () => {
+    const h = await upstreamHarness(LOOPBACK);
+    for (const target of [
+      "example.com:443",
+      "registry.npmjs.com:443",
+      "104.16.3.34:443",
+      "host.dipo.internal:443",
+      "registry.npmjs.org:80",
+    ]) {
+      const result = await exchange(h.proxy.port, connectHead(target));
+      expect(result.text).toStartWith("HTTP/1.1 403 Forbidden\r\n");
+    }
+    expect(h.connects).toEqual([]);
+  });
+
+  it("closes a tunnel whose TLS hello names another host than the CONNECT", async () => {
+    const h = await upstreamHarness(LOOPBACK);
+    const result = await exchange(h.proxy.port, connectHead("registry.npmjs.org:443"), {
+      payload: hello("example.com").toString("latin1"),
+    });
+    expect(result.closed).toBe(true);
+    expect(h.upstream.sockets.every((socket) => socket.bytesRead === 0)).toBe(true);
+    expect(h.events.at(-1)).toMatchObject({ kind: "refused", target: "registry.npmjs.org:443" });
+  });
+
+  it("caps its connections over all, not per source: every one comes from the Safe-Chain box", async () => {
+    // More than the per-source cap of a box listener, all from one address, are taken.
+    const many = WEB_PROXY_LIMITS.maxConnectionsPerSource + 2;
+    const h = await upstreamHarness(LOOPBACK);
+    const held = await openConnections(h.proxy.port, many);
+    await Bun.sleep(50);
+    expect(h.events.filter((event) => event.kind === "refused")).toEqual([]);
+    for (const socket of held) socket.destroy();
+    // The overall cap still holds.
+    const capped = await upstreamHarness(LOOPBACK, { maxConnections: 2 });
+    const two = await openConnections(capped.proxy.port, 2);
+    const third = await exchange(capped.proxy.port, connectHead("registry.npmjs.org:443"));
+    expect(third.text).toStartWith("HTTP/1.1 503 Service Unavailable\r\n");
+    for (const socket of two) socket.destroy();
+  });
+
+  it("takes no client but the Safe-Chain box, and none while it has no address", async () => {
+    for (const source of ["192.0.2.199", null]) {
+      const h = await upstreamHarness(source);
+      const result = await exchange(h.proxy.port, connectHead("registry.npmjs.org:443"));
+      expect(result.text).toStartWith("HTTP/1.1 403 Forbidden\r\n");
+      expect(h.connects).toEqual([]);
+      expect(h.events).toEqual([
+        {
+          kind: "refused",
+          target: "registry.npmjs.org:443",
+          reason: "127.0.0.1 is not the Safe-Chain box; this listener serves only Safe-Chain",
+        },
+      ]);
+    }
+  });
+});
 
 describe("the web route of the boxes", () => {
   it("starts with the first box that uses it and stops with the last", async () => {

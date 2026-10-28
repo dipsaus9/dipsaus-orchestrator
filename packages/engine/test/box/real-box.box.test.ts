@@ -18,13 +18,12 @@
 // box-network.ci.test.ts tests it, and the image build in a build box.
 //
 // The image build (DIPO-266, in a build box since DIPO-281) registers only when the maintainer
-// also sets DIPO_TEST_BOX_BUILD=1; it needs the official Safe-Chain install and the internet. The
+// also sets DIPO_TEST_BOX_BUILD=1; it needs the internet (the web route builds its Safe-Chain box from the pinned release, DIPO-343). The
 // package cache test (below) builds the office image of a small description that way first (or
 // reuses it).
 //
 // A second test (DIPO-268) repeats the DIPO-264 network lines through dipo's web proxy and the
-// Safe-Chain proxy behind it, so it also needs the official Safe-Chain install (`~/.safe-chain`)
-// and the internet: no way out without the proxy (by name, and by IP address to a public address
+// Safe-Chain box behind it (DIPO-343), so it also needs the internet: no way out without the proxy (by name, and by IP address to a public address
 // and the default gateway, all found at test time); through it the Mac's loopback, the box
 // network, the Mac's own address, the default gateway and IP literals are refused, plain HTTP
 // proxying is refused, a registry (also with a trailing dot) goes through Safe-Chain, the internet
@@ -33,8 +32,7 @@
 // maintainer accepted in the 0021 amendment of 2026-10-21, until DIPO-283. The box network's
 // address exists on the Mac only while a box runs on it, so its listener opens after the box starts.
 //
-// A third test (DIPO-267), registered with the build proxy too and needing `~/.safe-chain` and the
-// internet, fills the office package cache for a small Bun project in a fill box of the office
+// A third test (DIPO-267), registered with the build proxy too and needing the internet, fills the office package cache for a small Bun project in a fill box of the office
 // image, through the web route and Safe-Chain; no package manager runs on the Mac (the project's
 // lockfile is made in a helper box the same way). It checks that the fill box is gone afterwards,
 // that an unchanged lockfile reuses the cache, that every write to the cache from inside a box
@@ -43,7 +41,6 @@
 // and that a symlink in the cache root never becomes a mount.
 
 import {
-  existsSync,
   lstatSync,
   mkdirSync,
   readdirSync,
@@ -54,7 +51,6 @@ import {
 } from "node:fs";
 import { lookup } from "node:dns/promises";
 import { createServer, isIP, type Server } from "node:net";
-import { homedir } from "node:os";
 import { join, relative } from "node:path";
 
 import { describe, expect, it } from "bun:test";
@@ -74,12 +70,11 @@ import { BoxError, type BoxExecOptions, boxName, isBoxTimedOut } from "../../src
 import {
   BoxWebRoute,
   type RunningBoxWebRoute,
-  startBoxWebRoute,
   systemInterfaceAddresses,
   type WebProxyEvent,
 } from "../../src/box/web-proxy";
+import { startBoxWebRoute } from "../../src/box/safe-chain-box";
 import { systemClock } from "../../src/platform/clock";
-import { currentPlatform } from "../../src/platform/paths";
 import { systemSpawn } from "../../src/platform/process";
 
 const IMAGE = "docker.io/library/alpine:3.20";
@@ -95,9 +90,6 @@ const registers =
   process.env["DIPO_TEST_BOX"] === "1" &&
   process.env["DIPO_TEST_CI"] !== "1" &&
   process.env["CI"] === undefined;
-
-/** The official Safe-Chain install the web route's Safe-Chain proxy copies its binary from. */
-const SAFE_CHAIN_INSTALL = join(homedir(), ".safe-chain");
 
 /** Listens on `host` with a free port, for the box to try to reach. */
 function listenOn(host: string): Promise<{ server: Server; port: number }> {
@@ -287,7 +279,6 @@ if (registers) {
       it(
         "fills the office package cache in a fill box through the web route, and mounts it read-only",
         async () => {
-          expect(existsSync(join(SAFE_CHAIN_INSTALL, "bin", "safe-chain"))).toBe(true);
           const env = cleanEnv();
           const cliEnv = {
             PATH: env["PATH"] ?? "/usr/bin:/bin:/usr/local/bin",
@@ -309,14 +300,11 @@ if (registers) {
               const started = await startBoxWebRoute(
                 network,
                 {
-                  request: {
-                    installRoot: SAFE_CHAIN_INSTALL,
-                    caFile: join(dir, "safe-chain", "ca.pem"),
-                    home: homedir(),
-                    uid: process.getuid?.() ?? 0,
-                    env: process.env,
-                  },
-                  deps: { platform: currentPlatform(), clock: systemClock, root: join(dir, "p") },
+                  boxes,
+                  clock: systemClock,
+                  scratchRoot: join(dir, "scratch"),
+                  toolsRoot,
+                  caFile: join(dir, "safe-chain", "ca.pem"),
                 },
                 { clock: systemClock },
               );
@@ -484,7 +472,6 @@ if (registers) {
     it(
       "reaches the internet only through dipo's web proxy, and the registries only through Safe-Chain",
       async () => {
-        expect(existsSync(join(SAFE_CHAIN_INSTALL, "bin", "safe-chain"))).toBe(true);
         const env = cleanEnv();
         const cliEnv = {
           PATH: env["PATH"] ?? "/usr/bin:/bin:/usr/local/bin",
@@ -507,18 +494,22 @@ if (registers) {
         ) => boxes.exec(name, command, { ...options, fullPrivilege: true });
 
         await withTempDir(async (dir) => {
+          // The Safe-Chain box mounts its image's box network tools from this folder (DIPO-343).
+          const routeBoxes = new AppleContainerBoxes({
+            spawn: systemSpawn,
+            clock: systemClock,
+            env: cliEnv,
+            netToolsRoot: join(dir, "box-net-tools"),
+          });
           const route = new BoxWebRoute<RunningBoxWebRoute>(async () => {
             const started = await startBoxWebRoute(
               network,
               {
-                request: {
-                  installRoot: SAFE_CHAIN_INSTALL,
-                  caFile: join(dir, "safe-chain", "ca.pem"),
-                  home: homedir(),
-                  uid: process.getuid?.() ?? 0,
-                  env: process.env,
-                },
-                deps: { platform: currentPlatform(), clock: systemClock, root: join(dir, "p") },
+                boxes: routeBoxes,
+                clock: systemClock,
+                scratchRoot: join(dir, "scratch"),
+                toolsRoot: join(dir, "box-net-tools"),
+                caFile: join(dir, "safe-chain", "ca.pem"),
               },
               { clock: systemClock, onEvent: (event) => events.push(event) },
             );

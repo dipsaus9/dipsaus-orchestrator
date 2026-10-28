@@ -62,7 +62,7 @@ import type { Clock } from "@dipsaus-orchestrator/contract";
 
 import type { OfficeGit } from "../git/office";
 import { systemClock } from "../platform/clock";
-import { isCertificateBundle } from "../sandbox/safe-chain-proxy";
+import { isCertificateBundle } from "./safe-chain";
 import { LOCKFILES, PNPM_WORKSPACE, ROOT_MANIFEST } from "../scan/detect/manifest";
 import {
   type BaseLockfile,

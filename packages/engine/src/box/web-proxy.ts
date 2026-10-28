@@ -4,7 +4,9 @@
 // address on the Mac, is its one way to the internet.
 //
 // - A tunnel to a package registry Safe-Chain checks (host name normalised: lower case, one
-//   trailing dot dropped) goes to dipo's Safe-Chain proxy, and only on the TLS port.
+//   trailing dot dropped) goes to the Safe-Chain box (DIPO-343, `safe-chain-box.ts`), on the port
+//   of the registry's ecosystem, and only on the TLS port. While no Safe-Chain box runs, it is
+//   refused: no registry is reached but through Safe-Chain.
 // - A tunnel to another name of a registry (DIPO-281, `registryRefusal`) is refused: a known alias,
 //   a CDN name or a public mirror of a registry Safe-Chain checks, or any name under a zone that
 //   only serves a registry. Safe-Chain checks only its own names, so none of them goes to it.
@@ -36,6 +38,12 @@
 //
 // `BoxWebRoute` starts the proxy with the first box that uses it and stops it with the last.
 //
+// Safe-Chain's own traffic gets a listener of its own (DIPO-343, `startSafeChainUpstreamProxy`),
+// on the box network's host address too: it takes connections only from the Safe-Chain box's
+// address, tunnels only to the hosts Safe-Chain reaches (`SAFE_CHAIN_UPSTREAM_HOSTS`) on the TLS
+// port, under the address rule, and reads each tunnel's TLS handshake as a box's direct tunnel is
+// read. No other box reaches it: their firewall passes only the box listener's port.
+//
 // The reviewer has no box and fetches from the Mac (0021 section 10), so it gets a listener of its
 // own (DIPO-292, `startReviewWebProxy`): the same proxy and the same address rule, on the loopback
 // interface only and on a port the system picks, for the length of one review session. Its
@@ -65,13 +73,15 @@ import { networkInterfaces } from "node:os";
 
 import type { Clock, TimerHandle } from "@dipsaus-orchestrator/contract";
 
-import {
-  startSafeChainProxy,
-  type SafeChainProxyDeps,
-  type SafeChainProxyRequest,
-} from "../platform/safe-chain-proxy";
-import { SAFE_CHAIN_REGISTRY_HOSTS, SAFE_CHAIN_TLS_PORT } from "../sandbox/safe-chain-proxy";
+import { type BoxConnector, connectToBox } from "./box-connect";
 import type { BoxNetwork } from "./port";
+import {
+  ecosystemOf,
+  SAFE_CHAIN_REGISTRY_HOSTS,
+  SAFE_CHAIN_TLS_PORT,
+  SAFE_CHAIN_UPSTREAM_HOSTS,
+  type SafeChainEcosystem,
+} from "./safe-chain";
 
 /** The longest request head read before a tunnel opens. */
 export const WEB_PROXY_HEAD_LIMIT = 8 * 1024;
@@ -88,10 +98,8 @@ export const WEB_PROXY_LIMITS = {
   /** A tunnel with no traffic either way for this long is closed. */
   idleTimeoutMs: 10 * 60_000,
 } as const;
-/** The loopback address: where dipo's Safe-Chain proxy listens, and the reviewer's web proxy. */
+/** The loopback address: where the reviewer's web proxy listens. */
 const LOOPBACK = "127.0.0.1";
-/** Where dipo's Safe-Chain proxy listens (`startSafeChainProxy`). */
-const SAFE_CHAIN_HOST = LOOPBACK;
 /** Where a reviewer session's web proxy listens (DIPO-292): the loopback interface only. */
 export const REVIEW_WEB_PROXY_HOST = LOOPBACK;
 
@@ -788,11 +796,20 @@ export type WebProxyEvent =
   | { readonly kind: "local"; readonly port: number }
   | { readonly kind: "refused"; readonly target: string; readonly reason: string };
 
+/** Where the Safe-Chain box takes registry tunnels (DIPO-343): its address, a port per ecosystem. */
+export interface SafeChainTarget {
+  readonly address: string;
+  readonly ports: Readonly<Record<SafeChainEcosystem, number>>;
+}
+
 export interface BoxWebProxyOptions {
   /** The box network; the proxy listens only on its host address. */
   readonly network: Pick<BoxNetwork, "hostAddress">;
-  /** dipo's Safe-Chain proxy on 127.0.0.1 (`RunningSafeChainProxy.port`). */
-  readonly safeChainPort: number;
+  /**
+   * The Safe-Chain box, read for each registry tunnel; null while none runs, and then every
+   * registry tunnel is refused (DIPO-343).
+   */
+  readonly safeChain: () => SafeChainTarget | null;
   /** The port to listen on; 0 (the default) takes a free one. */
   readonly port?: number;
   /** Caps and idle timeout; each one left out takes its `WEB_PROXY_LIMITS` value. */
@@ -810,6 +827,11 @@ export interface BoxWebProxyDeps {
   readonly resolve?: (host: string) => Promise<readonly string[]>;
   /** Opens an upstream connection to an IP literal. */
   readonly connect?: (address: string, port: number) => Socket;
+  /**
+   * Opens a connection into the box network, to the Safe-Chain box (DIPO-343), from the box
+   * network's host address (`connectToBox`); by default `connect` above, or the system's.
+   */
+  readonly connectBox?: BoxConnector;
   /** The Mac's interface addresses, read for each check. */
   readonly interfaces?: () => readonly HostInterfaceAddress[];
   /**
@@ -951,6 +973,30 @@ function pipeSockets(
   client.resume();
 }
 
+/**
+ * Why the upstream listener (DIPO-343) refuses a tunnel: a client that is not the Safe-Chain box,
+ * a host Safe-Chain does not reach, or a port but the TLS port. Null when it may go on.
+ */
+function upstreamRefusal(
+  client: Socket,
+  host: string,
+  port: number,
+  source: () => string | null,
+): string | null {
+  const from = (client.remoteAddress ?? "").replace(/^::ffff:/, "");
+  const allowed = source();
+  if (allowed === null || from !== allowed) {
+    return `${from || "a client"} is not the Safe-Chain box; this listener serves only Safe-Chain`;
+  }
+  if (!SAFE_CHAIN_UPSTREAM_HOSTS.includes(host)) {
+    return `${host} is not a host Safe-Chain reaches`;
+  }
+  if (port !== SAFE_CHAIN_TLS_PORT) {
+    return `Safe-Chain reaches ${host} only on port ${SAFE_CHAIN_TLS_PORT}`;
+  }
+  return null;
+}
+
 function hostForUrl(host: string): string {
   return isIP(host) === 6 ? `[${host}]` : host;
 }
@@ -967,10 +1013,45 @@ export function startBoxWebProxy(
     {
       listenHost: options.network.hostAddress,
       boxHostAddress: () => options.network.hostAddress,
-      safeChainPort: options.safeChainPort,
+      kind: { box: options.safeChain },
       port: options.port ?? 0,
       limits: options.limits ?? {},
       admissions: options.admissions ?? null,
+    },
+    deps,
+  );
+}
+
+export interface SafeChainUpstreamOptions {
+  /** The box network; the listener is on its host address, as the box web proxy is. */
+  readonly network: Pick<BoxNetwork, "hostAddress">;
+  /** The Safe-Chain box's address, read for each connection; null: no connection is taken. */
+  readonly source: () => string | null;
+  /** Caps and idle timeout; each one left out takes its `WEB_PROXY_LIMITS` value. */
+  readonly limits?: BoxWebProxyOptions["limits"];
+}
+
+/**
+ * Starts the listener of Safe-Chain's own traffic (DIPO-343, file comment): on the box network's
+ * host address, taking connections only from `options.source`, tunnelling only to
+ * `SAFE_CHAIN_UPSTREAM_HOSTS` on the TLS port under the address rule.
+ */
+export function startSafeChainUpstreamProxy(
+  options: SafeChainUpstreamOptions,
+  deps: BoxWebProxyDeps,
+): Promise<RunningBoxWebProxy> {
+  return startWebProxy(
+    {
+      listenHost: options.network.hostAddress,
+      boxHostAddress: () => options.network.hostAddress,
+      kind: { upstream: options.source },
+      port: 0,
+      // Every connection comes from the one Safe-Chain box, so its cap is the overall one.
+      limits: {
+        maxConnectionsPerSource: options.limits?.maxConnections ?? WEB_PROXY_LIMITS.maxConnections,
+        ...options.limits,
+      },
+      admissions: null,
     },
     deps,
   );
@@ -999,7 +1080,7 @@ export function startReviewWebProxy(
     {
       listenHost: REVIEW_WEB_PROXY_HOST,
       boxHostAddress: options.boxHostAddress ?? (() => null),
-      safeChainPort: null,
+      kind: "review",
       port: 0,
       limits: options.limits ?? {},
       admissions: null,
@@ -1014,11 +1095,15 @@ interface WebProxyListener {
   /** The box network's host address for the address rule, read for each check; null: none. */
   readonly boxHostAddress: () => string | null;
   /**
-   * dipo's Safe-Chain proxy for registry tunnels; null: none, a registry is a host like others.
-   * A listener with Safe-Chain is a box's: it refuses other names of a registry and reads what a
-   * box sends into each direct tunnel (DIPO-281).
+   * Whose listener it is. A box's sends registry tunnels to the Safe-Chain box, refuses other
+   * names of a registry and reads what a box sends into each direct tunnel (DIPO-281). A
+   * reviewer's has no Safe-Chain: a registry is a host like others there. Safe-Chain's own
+   * (`upstream`, DIPO-343) takes only the Safe-Chain box and reaches only the hosts it checks.
    */
-  readonly safeChainPort: number | null;
+  readonly kind:
+    | { readonly box: () => SafeChainTarget | null }
+    | { readonly upstream: () => string | null }
+    | "review";
   readonly port: number;
   readonly limits: NonNullable<BoxWebProxyOptions["limits"]>;
   /** The boxes and their listed local ports (DIPO-282); null: no local port is reachable. */
@@ -1029,7 +1114,9 @@ async function startWebProxy(
   options: WebProxyListener,
   deps: BoxWebProxyDeps,
 ): Promise<RunningBoxWebProxy> {
-  const { listenHost, safeChainPort, admissions } = options;
+  const { listenHost, kind, admissions } = options;
+  const safeChain = typeof kind === "object" && "box" in kind ? kind.box : null;
+  const upstreamSource = typeof kind === "object" && "upstream" in kind ? kind.upstream : null;
   const parsed = parseAddress(listenHost);
   if (
     parsed === null ||
@@ -1060,18 +1147,38 @@ async function startWebProxy(
     client.end(answer(status, status === 405 ? "Allow: CONNECT\r\n" : ""));
   };
 
+  /** Opens a connection into the box network from its host address (`connectToBox`). */
+  const openBox = (address: string, port: number): Socket =>
+    connectToBox(
+      { address, port, hostAddress: options.boxHostAddress() },
+      deps.connectBox ??
+        (deps.connect === undefined
+          ? undefined
+          : (target) =>
+              (deps.connect as NonNullable<typeof deps.connect>)(target.host, target.port)),
+    );
+
   /** Opens an upstream to the first of `addresses` that answers, within the deadline each. */
   const connectFirst = (
     addresses: readonly string[],
     port: number,
     done: (upstream: Socket | null, address: string | null) => void,
+    opener: (address: string, port: number) => Socket = open,
   ) => {
     const [address, ...rest] = addresses;
     if (address === undefined || stopped) {
       done(null, null);
       return;
     }
-    const upstream = track(open(address, port));
+    let opened: Socket;
+    try {
+      opened = opener(address, port);
+    } catch {
+      // Fail-closed: a connection that cannot leave the right way is not opened at all.
+      done(null, null);
+      return;
+    }
+    const upstream = track(opened);
     let timer: TimerHandle | null = deps.clock.setTimeout(
       () => upstream.destroy(),
       WEB_PROXY_CONNECT_TIMEOUT_MS,
@@ -1085,7 +1192,7 @@ async function startWebProxy(
         done(upstream, address);
       } else {
         upstream.destroy();
-        connectFirst(rest, port, done);
+        connectFirst(rest, port, done, opener);
       }
     };
     const onConnect = () => settle(true);
@@ -1135,13 +1242,16 @@ async function startWebProxy(
     });
   };
 
-  /** A tunnel to a registry Safe-Chain checks: through Safe-Chain, on the TLS port only. */
+  /**
+   * A tunnel to a registry Safe-Chain checks: through the Safe-Chain box, on the port of the
+   * registry's ecosystem, on the TLS port only; refused while no Safe-Chain box runs.
+   */
   const registry = (
     client: Socket,
     host: string,
     port: number,
     rest: Buffer,
-    safeChain: number,
+    safeChainOf: () => SafeChainTarget | null,
   ) => {
     const target = `${host}:${port}`;
     if (port !== SAFE_CHAIN_TLS_PORT) {
@@ -1153,24 +1263,45 @@ async function startWebProxy(
       );
       return;
     }
+    const box = safeChainOf();
+    const ecosystem = ecosystemOf(host);
+    if (box === null || ecosystem === null) {
+      emit({
+        kind: "refused",
+        target,
+        reason: "Safe-Chain is not running, so no registry is reached",
+      });
+      client.end(answer(503));
+      return;
+    }
     // Safe-Chain reads the CONNECT itself: it gets a fresh head with the normal host name and
     // none of the box's headers.
-    emit({ kind: "registry", host, port });
     const forwarded = Buffer.concat([
       Buffer.from(`CONNECT ${target} HTTP/1.1\r\nHost: ${target}\r\n\r\n`, "latin1"),
       rest,
     ]);
-    connectFirst([SAFE_CHAIN_HOST], safeChain, (upstream) => {
-      if (client.destroyed) {
-        upstream?.destroy();
-        return;
-      }
-      if (upstream === null) {
-        client.end(answer(502));
-        return;
-      }
-      pipeSockets(client, upstream, forwarded, { clock: deps.clock, idleMs: limits.idleTimeoutMs });
-    });
+    connectFirst(
+      [box.address],
+      box.ports[ecosystem],
+      (upstream) => {
+        if (client.destroyed) {
+          upstream?.destroy();
+          return;
+        }
+        if (upstream === null) {
+          emit({ kind: "refused", target, reason: "the Safe-Chain box did not answer" });
+          client.end(answer(502));
+          return;
+        }
+        // Only once the Safe-Chain box took it: a registry tunnel never goes anywhere else.
+        emit({ kind: "registry", host, port });
+        pipeSockets(client, upstream, forwarded, {
+          clock: deps.clock,
+          idleMs: limits.idleTimeoutMs,
+        });
+      },
+      openBox,
+    );
   };
 
   const tunnel = (client: Socket, head: Buffer, end: number) => {
@@ -1185,13 +1316,19 @@ async function startWebProxy(
     const { host, port } = request;
     const target = `${host}:${port}`;
     const rest = head.subarray(end + 4);
-    if (host === BOX_LOCAL_HOST) {
+    if (upstreamSource !== null) {
+      const why = upstreamRefusal(client, host, port, upstreamSource);
+      if (why !== null) {
+        refuse(client, target, 403, why);
+        return;
+      }
+    } else if (host === BOX_LOCAL_HOST) {
       local(client, headText, port, rest);
       return;
     }
-    const boxListener = safeChainPort !== null;
-    if (boxListener && isRegistryHost(host)) {
-      registry(client, host, port, rest, safeChainPort);
+    const boxListener = safeChain !== null;
+    if (safeChain !== null && isRegistryHost(host)) {
+      registry(client, host, port, rest, safeChain);
       return;
     }
     const otherName = boxListener ? registryRefusal(host) : null;
@@ -1231,7 +1368,7 @@ async function startWebProxy(
             upstream,
             rest,
             { clock: deps.clock, idleMs: limits.idleTimeoutMs },
-            boxListener
+            boxListener || upstreamSource !== null
               ? {
                   inspector: new TunnelInspector(host),
                   onRefused: (reason) => emit({ kind: "refused", target, reason }),
@@ -1376,9 +1513,9 @@ export class BoxWebRoute<T extends { stop(): Promise<void> }> {
   }
 }
 
-/** The web proxy together with the Safe-Chain proxy behind it. */
+/** The web proxy together with the Safe-Chain box behind it (DIPO-343). */
 export interface RunningBoxWebRoute extends RunningBoxWebProxy {
-  /** The Safe-Chain CA bundle, for the box's package managers to trust. */
+  /** The Safe-Chain CA bundle on the Mac, for the box's package managers to trust. */
   readonly caFile: string;
   /**
    * Admits `box` with its office's listed local ports (DIPO-282) and returns the proxy URL the box
@@ -1390,45 +1527,3 @@ export interface RunningBoxWebRoute extends RunningBoxWebProxy {
 export type BoxWebRouteStart =
   | { readonly ok: true; readonly route: RunningBoxWebRoute }
   | { readonly ok: false; readonly reason: string };
-
-/**
- * Starts dipo's Safe-Chain proxy and the web proxy in front of it; `stop` stops both. Fail-closed:
- * when either cannot start, what started is stopped and the reason returned.
- */
-export async function startBoxWebRoute(
-  network: Pick<BoxNetwork, "hostAddress">,
-  safeChain: { readonly request: SafeChainProxyRequest; readonly deps: SafeChainProxyDeps },
-  deps: BoxWebProxyDeps,
-): Promise<BoxWebRouteStart> {
-  const started = await startSafeChainProxy(safeChain.request, safeChain.deps);
-  if (!started.ok) return { ok: false, reason: started.reason };
-  const admissions = new BoxAdmissions();
-  let proxy: RunningBoxWebProxy;
-  try {
-    proxy = await startBoxWebProxy(
-      { network, safeChainPort: started.proxy.port, admissions },
-      deps,
-    );
-  } catch (error) {
-    await started.proxy.stop();
-    return {
-      ok: false,
-      reason: `the web proxy did not start: ${error instanceof Error ? error.message : String(error)}`,
-    };
-  }
-  return {
-    ok: true,
-    route: {
-      ...proxy,
-      caFile: started.proxy.caFile,
-      admit: (box, ports) => admittedUrl(proxy.url, admissions.admit(box, ports)),
-      async stop() {
-        try {
-          await proxy.stop();
-        } finally {
-          await started.proxy.stop();
-        }
-      },
-    },
-  };
-}
