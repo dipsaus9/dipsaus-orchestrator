@@ -81,7 +81,9 @@ const TLS_NAMING_A_REGISTRY = [
 /** The status line a CONNECT to `target` through the proxy at `host:port` gets, from the Mac. */
 function connectLine(host: string, port: number, target: string): Promise<string> {
   return new Promise((resolve) => {
-    const socket = connect(port, host, () =>
+    // From the box network's host address, as dipo connects (`connectToBox`): a VPN may route the
+    // box subnet, the bridge address among it, into its tunnel.
+    const socket = connect({ host, port, localAddress: host }, () =>
       socket.write(`CONNECT ${target} HTTP/1.1\r\nHost: ${target}\r\n\r\n`),
     );
     let text = "";

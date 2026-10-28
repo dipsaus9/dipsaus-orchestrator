@@ -112,3 +112,20 @@ DIPO-346 changed the image build (every office image now has git from Debian's a
 
 - Every line of the escape table came out as on 2026-10-21. Without the proxy: no internet, no registry, no router; the Mac's loopback-only port is closed; the all-interfaces port answers on the box network and on the Mac's LAN address (the accepted risk above; the probe's Alpine box has no box firewall, which dipo's boxes have since DIPO-281). Through the web proxy: the Mac's loopback by address, by name and through a public name, the LAN address, the router, the box network host and a registry IP literal are refused; a registry with a trailing dot goes to Safe-Chain; the internet answers 200; `is-number` installs through Safe-Chain and `safe-chain-test` is refused with `403 Forbidden - blocked by safe-chain`. The box's environment is only `SHLVL HOME PATH PWD`, and its files are kept across a stop and start.
 - The probe's box is Alpine, not the office image, so the git lines were checked in a box of the office image by `packages/engine/test/box/box-git.box.test.ts` (`DIPO_TEST_BOX=1`), which passed on the same day: the box's repository is the box user's, holds one commit of the start state, no remote, no other ref and no hooks; a test that needs git passes as dipo's verify in the box; a part leaves the box without `.git`, also after the worker committed, set `core.hooksPath` and added a remote there, and no hook runs on the Mac; a symlink to `.git` or to `.git/config`, a `.git` file below the root and a nested repository are each refused with nothing committed; a part that carries a changed `.git/config` (the exclude dropped on its way into the box) is refused, nothing is committed or pushed, and the Mac repository's config, refs and hooks are unchanged.
+
+## Run of 2026-10-28 (DIPO-343): the Safe-Chain box after DIPO-344 to 363, with a VPN on
+
+The probe ran again after the DIPO-343 branch took in main (git in the image and a box-local repository from DIPO-346, among others), on Apple `container` 1.6.0. It ran against boxes it started itself: the Alpine developer box on `dipo-boxes`, and the Safe-Chain box that dipo's route started. The Mac's services were two stand-ins. A VPN on the Mac routed 192.168.128.0/24, the box network's subnet, into its tunnel (`utun4`).
+
+- **The route works while a VPN routes the box subnet.** dipo opens every connection from the Mac into the box network, and its own check of the web proxy, from the box network's host address (`connectToBox`, DIPO-343). An unbound connection went into the VPN tunnel and timed out.
+- Every line came out as in the run of 2026-10-27:
+  - the developer box behind dipo's firewall reaches neither the Mac, the Safe-Chain box's ports, nor the upstream listener;
+  - through the web proxy, the Mac's addresses, the box network, the Safe-Chain box, a registry IP literal, an alias, a CDN name and a TLS handshake naming another host are refused;
+  - the internet answers 200;
+  - `is-number@7.0.0` installs through Safe-Chain and `safe-chain-test` is refused (`403 Forbidden`, `blocked by safe-chain`);
+  - a proxy changed to the Safe-Chain box or to the upstream listener fails;
+  - a user cannot flush the rules;
+  - root can, and then reaches only the Mac's local-network address, the accepted risk;
+  - the Safe-Chain box reaches only the upstream listener, which serves a registry (200) and the malware lists and refuses everything else;
+  - its box user cannot flush its firewall;
+  - the box is deleted with the route.
