@@ -1,10 +1,10 @@
 ---
 id: DIPO-344
 title: Park every stopped story with one of eight reasons
-status: Refined
+status: Done
 assignee: []
 created_date: '2026-10-25 09:51'
-updated_date: '2026-10-27 16:52'
+updated_date: '2026-10-28 07:24'
 labels:
   - 'tier:L'
   - 'slice:prune'
@@ -50,8 +50,14 @@ test_plan:
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 dipo park ID --note parks a Refined, Ready, In Progress or In Review story as by-maintainer, stopping a running worker first; work.stop, work.pause, story.hold, their CLI commands and their TUI keys are removed
-- [ ] #2 The park reasons are the eight of 0001, the park causes and the resume matrix are removed, and the detail is text that no code branches on
-- [ ] #3 dipo resume follows the table in 0020: an answer for ambiguous-spec, a note or approve --note for review-blocked, --budget and --note for budget-exceeded, refused for scope-violation, nothing more for the rest
-- [ ] #4 Parks stored with a removed reason or cause are migrated to the new reasons, and every way a park is resolved closes its open questions with a question.closed event
+- [x] #1 dipo park ID --note parks a Refined, Ready, In Progress or In Review story as by-maintainer, stopping a running worker first; work.stop, work.pause, story.hold, their CLI commands and their TUI keys are removed
+- [x] #2 The park reasons are the eight of 0001, the park causes and the resume matrix are removed, and the detail is text that no code branches on
+- [x] #3 dipo resume follows the table in 0020: an answer for ambiguous-spec, a note or approve --note for review-blocked, --budget and --note for budget-exceeded, refused for scope-violation, nothing more for the rest
+- [x] #4 Parks stored with a removed reason or cause are migrated to the new reasons, and every way a park is resolved closes its open questions with a question.closed event
 <!-- AC:END -->
+
+## Final Summary
+
+<!-- SECTION:FINAL_SUMMARY:BEGIN -->
+dipo park ID --note (story.park, TUI key P) replaces stop, pause and hold, and parks a story by-maintainer, stopping a running worker first. Parks carry one of the eight reasons of 0001 and a free-text detail; park causes and the resume matrix are gone. dipo resume follows the 0020 table (run/resume-policy.ts), with or without a run, and refuses scope-violation. Migration 0057 maps every old reason and cause, and a fresh database equals a migrated one. resolvePark is the one way a park resolves, and it closes its open questions with question.closed. A story parked while it waits In Review gets no reviewer until it resumes, and runs paused before the upgrade are parked by-maintainer at load. Starts paused and plan-limit resume moved to DIPO-359; Backlog.md as the one source of status and reason moved to DIPO-360.
+<!-- SECTION:FINAL_SUMMARY:END -->
