@@ -599,6 +599,31 @@ describe("a maintainer reject (0019 sections 8 and 11)", () => {
   });
 });
 
+describe("a failed test (DIPO-309, 0002)", () => {
+  it("goes to the same worker once, the note verbatim and keyed on the test id, with no cap", async () => {
+    const s = inReview("DIPO-1");
+    reviewed(s, H1, APPROVED);
+    x.ci.set(s.run, { kind: "green", head: H1 });
+    const note = "Esc does not go back to the overview.";
+    const test = { testId: "tst_01J9ZK5Q8W3V4X6Y7Z8A9B0C1D", head: H1, note };
+    expect(await x.fix.testFail(officeId(), s.run, test)).toBe(true);
+    await x.fix.idle();
+    expect(feedbackItems(w.office, s.run)).toEqual([
+      expect.objectContaining({
+        source: "test",
+        signature: `test:${test.testId}`,
+        head: H1,
+        text: `The maintainer tested the product at ${H1.slice(0, 12)} and recorded a fail with this note:\n${note}`,
+      }),
+    ]);
+    expect(x.started).toHaveLength(1);
+    expect(x.started[0]?.message).toContain("Item 1 (test):");
+    expect(x.started[0]?.message).toContain(note);
+    // Sent once: the same test's note again starts no round.
+    expect(await x.fix.testFail(officeId(), s.run, test)).toBe(false);
+  });
+});
+
 describe("a conflict hand-off of a story In Review (DIPO-149, the merge slot's entry)", () => {
   it("goes to the worker at once, once per head and signature, through the same send path", async () => {
     const s = inReview("DIPO-1");

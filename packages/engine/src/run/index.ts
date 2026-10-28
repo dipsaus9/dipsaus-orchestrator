@@ -460,3 +460,30 @@ export {
 export type { ReattachedRun, ReattachOutcome, RunReattacherDeps } from "./reattach";
 export { dueNotices, USAGE_NOTICES, UsageAlerts } from "./usage-alerts";
 export type { DueNotice, UsageAlertsDeps } from "./usage-alerts";
+// Testing a story (DIPO-309): `test.start`, `test.record`, the sweep and the records.
+export {
+  manualSteps,
+  profileRefusal,
+  StoryTests,
+  TEST_BOX_DIR,
+  TEST_RECOVERY_STEP,
+  TESTABLE_PHASES,
+  testableRun,
+  testBoxScripts,
+} from "./tests";
+export type { StoryTestsDeps, TestBoxPort } from "./tests";
+export {
+  endTest,
+  findTest,
+  latestRecordedTest,
+  openTestOf,
+  openTests,
+  openTestViews,
+  recordTestResult,
+  RECORDED_END,
+  shellLine,
+  TEST_GATE_KIND,
+  testPassedFor,
+  testViewOf,
+} from "./test-records";
+export type { StoredTest } from "./test-records";

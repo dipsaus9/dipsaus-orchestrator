@@ -71,6 +71,7 @@ const VERSION_1_KEY_PATHS = [
   "timeouts.questionWaitMinutes",
   "timeouts.permissionWaitSeconds",
   "timeouts.scriptMinutes.*",
+  "timeouts.testIdleMinutes",
   "base",
   "remote",
   "worktree.root",
@@ -895,6 +896,7 @@ describe("defaults", () => {
       questionWaitMinutes: 15,
       permissionWaitSeconds: 300,
       scriptMinutes: { install: 15, setup: 10, post_create: 10, verify: 20 },
+      testIdleMinutes: 240,
     });
     expect(OFFICE_DEFAULTS.base).toBeUndefined();
     expect(OFFICE_DEFAULTS.remote).toBe("origin");

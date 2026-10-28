@@ -54,6 +54,7 @@ export {
   BOX_PULL_TIMEOUT_MS,
   BoxError,
   BUILD_BOX_RUN_PREFIX,
+  TEST_BOX_RUN_PREFIX,
   boxName,
   isBoxTimedOut,
   runIdOfBox,
@@ -443,3 +444,26 @@ export type {
 } from "./lifetime";
 export { BOX_VERIFY_OUTPUT_TAIL, boxFolderOf, runBoxVerify } from "./verify";
 export type { BoxVerifyRequest, BoxVerifyResult } from "./verify";
+// The test box of a story's pushed head and its forwarder on the Mac (DIPO-309).
+export {
+  FORWARDER_HOST,
+  FORWARDER_MAX_CONNECTIONS,
+  startForwarder,
+  systemReach,
+} from "./forwarder";
+export type { ForwardTarget, RunningForwarder, StartForwarder } from "./forwarder";
+export {
+  firstDevUrl,
+  relayCommand,
+  TEST_DEV_START_MINUTES_DEFAULT,
+  TestBoxError,
+  TestBoxes,
+  testUrl,
+} from "./test-box";
+export type {
+  TestBoxesDeps,
+  TestBoxRequest,
+  TestBoxRunning,
+  TestBoxScript,
+  TestBoxTarget,
+} from "./test-box";

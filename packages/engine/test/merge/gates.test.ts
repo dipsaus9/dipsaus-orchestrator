@@ -99,7 +99,7 @@ describe("mergeGateSummary", () => {
     expect(text).toContain("dipo reject DIPO-7 --note <text>");
   });
 
-  it("lists a flagged story's manual test-plan entries and the worktree path", () => {
+  it("lists a flagged story's manual test-plan entries and the dipo test line (DIPO-309)", () => {
     const text = mergeGateSummary({
       story: "DIPO-7",
       pr,
@@ -109,11 +109,44 @@ describe("mergeGateSummary", () => {
         { check: "Open the TUI", expect: "the greeting shows" },
         { check: "Run dipo watch" },
       ],
-      worktree: "/trees/DIPO-7",
     });
     expect(text).toContain("1. Open the TUI (expect: the greeting shows)");
     expect(text).toContain("2. Run dipo watch");
-    expect(text).toContain("Test in the story worktree: /trees/DIPO-7");
+    expect(text).toContain(`No test is recorded for ${HEAD.slice(0, 12)}.`);
+    expect(text).toContain("`dipo test DIPO-7`");
+    expect(text).not.toContain("worktree");
+  });
+
+  it("says a flagged story's new head needs a new test, and shows an unflagged story's result (DIPO-309)", () => {
+    const older = "0".repeat(40);
+    const flagged = mergeGateSummary({
+      story: "DIPO-7",
+      pr,
+      head: HEAD,
+      waits: [{ kind: "testBeforeMerge" }],
+      test: { result: "pass", head: older, note: null },
+    });
+    expect(flagged).toContain("the new head needs a new test");
+    expect(flagged).toContain(`a pass at ${older.slice(0, 12)}`);
+    const unflagged = mergeGateSummary({
+      story: "DIPO-7",
+      pr,
+      head: HEAD,
+      waits: [],
+      test: { result: "fail", head: HEAD, note: "Esc  does\nnot go back" },
+    });
+    expect(unflagged).toContain(
+      `The maintainer's test of ${HEAD.slice(0, 12)} failed: Esc does not go back.`,
+    );
+    const waiting = mergeGateSummary({
+      story: "DIPO-7",
+      pr,
+      head: HEAD,
+      waits: [{ kind: "holdLabel", labels: ["hold"] }],
+      test: { result: "pass", head: HEAD, note: null },
+    });
+    expect(waiting).toContain(`The maintainer's test of ${HEAD.slice(0, 12)} passed.`);
+    expect(waiting).not.toContain("dipo test");
   });
 
   it("names a hand merge as the only way for autorelease: pending", () => {

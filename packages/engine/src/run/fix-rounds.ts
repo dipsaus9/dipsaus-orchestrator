@@ -57,6 +57,7 @@ import {
   fixRoundMessage,
   rejectFeedbackItem,
   reviewFeedbackItems,
+  testFeedbackItem,
 } from "../prompts/feedback";
 import type { StoredReviewVerdict } from "../review/store";
 import { reviewVerdictForTree } from "../review/store";
@@ -350,6 +351,28 @@ export class FixRounds {
     return await this.#queue(office, run, {
       head,
       items: [rejectFeedbackItem(reject)],
+      advisories: [],
+      atOnce: true,
+    });
+  }
+
+  /**
+   * A failed test (DIPO-309, 0002): the maintainer's note, keyed on the test id, goes to the same
+   * worker at once, through the same send path as a reject, with no cap. True when a round was
+   * queued.
+   */
+  async testFail(
+    officeId: OfficeId,
+    runId: RunId,
+    test: { readonly testId: string; readonly head: string; readonly note: string },
+  ): Promise<boolean> {
+    const office = this.#deps.offices.get(officeId);
+    if (office === undefined) return false;
+    const run = findRun(office, runId);
+    if (run === null || !this.#waitsInReview(office, run, undefined)) return false;
+    return await this.#queue(office, run, {
+      head: test.head,
+      items: [testFeedbackItem(test)],
       advisories: [],
       atOnce: true,
     });

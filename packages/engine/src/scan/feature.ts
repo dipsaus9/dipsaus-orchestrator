@@ -254,19 +254,18 @@ export class RunProfiles {
   }
 
   /**
-   * Before each `work.run` (DIPO-48): computes the fingerprint on `_base` and, when it differs
-   * from the current profile's, runs detection and stores the new profile with its diff. An
-   * unchanged fingerprint runs no detection. Throws when the office has not loaded or the scan
-   * fails (no base, for example); the failure is recorded as a scan.
+   * Before each `work.run` (DIPO-48) and each `test.start` (DIPO-309, trigger `test`): computes the
+   * fingerprint on `_base` and, when it differs from the current profile's, runs detection and
+   * stores the new profile with its diff. An unchanged fingerprint runs no detection. Throws when
+   * the office has not loaded or the scan fails (no base, for example); the failure is recorded as
+   * a scan.
    */
-  ensureFreshProfile(office: OfficeId): Promise<ScanOutcome> {
+  ensureFreshProfile(office: OfficeId, trigger: "run" | "test" = "run"): Promise<ScanOutcome> {
     const state = this.#offices.get(office);
     if (state === undefined) {
       return Promise.reject(new Error(`Office ${office} has not loaded; it has no run profile.`));
     }
-    return this.#serial(state, () =>
-      this.#scanOrRecord(office, state, { trigger: "run", force: false }),
-    );
+    return this.#serial(state, () => this.#scanOrRecord(office, state, { trigger, force: false }));
   }
 
   /**

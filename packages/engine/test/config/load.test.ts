@@ -9,6 +9,7 @@ import {
   configHash,
   loadOfficeConfig,
   mergeLayer,
+  OFFICE_CONFIG_VERSION,
   OFFICE_DEFAULTS,
   resolveOfficeConfig,
   type ConfigError,
@@ -211,9 +212,9 @@ describe("validation", () => {
         file: ".dipo/office.local.yaml",
         path: "timeouts.nope",
         expected:
-          "one of the keys workerStallMinutes, workerQuietMinutes, questionWaitMinutes, permissionWaitSeconds, scriptMinutes",
+          "one of the keys workerStallMinutes, workerQuietMinutes, questionWaitMinutes, permissionWaitSeconds, scriptMinutes, testIdleMinutes",
         message:
-          ".dipo/office.local.yaml: timeouts.nope: unknown key; expected one of the keys workerStallMinutes, workerQuietMinutes, questionWaitMinutes, permissionWaitSeconds, scriptMinutes",
+          ".dipo/office.local.yaml: timeouts.nope: unknown key; expected one of the keys workerStallMinutes, workerQuietMinutes, questionWaitMinutes, permissionWaitSeconds, scriptMinutes, testIdleMinutes",
       },
     ]);
   });
@@ -317,6 +318,21 @@ describe("precedence and merge", () => {
     expect(result.config.story.titleMax).toBe(100);
     expect(result.config.scripts).toEqual({ verify: "bun run check", test: "bun test" });
     expect(result.config.remote).toBe("upstream");
+  });
+
+  // DIPO-309: added with a default and no version bump (0017); any version's file may set it.
+  it("accepts the optional timeouts.testIdleMinutes with default 240 and no version bump", () => {
+    expect(OFFICE_CONFIG_VERSION).toBe(13);
+    expect(ok(resolveOfficeConfig({})).config.timeouts.testIdleMinutes).toBe(240);
+    for (const version of [1, 13]) {
+      const office = `version: ${version}\ntimeouts: { testIdleMinutes: 30 }\n`;
+      expect(ok(resolveOfficeConfig({ office })).config.timeouts.testIdleMinutes).toBe(30);
+    }
+    const local = "version: 1\ntimeouts: { testIdleMinutes: 45 }\n";
+    expect(ok(resolveOfficeConfig({ local })).config.timeouts.testIdleMinutes).toBe(45);
+    expect(
+      errors(resolveOfficeConfig({ local: "version: 1\ntimeouts: { testIdleMinutes: 0 }\n" })),
+    ).toHaveLength(1);
   });
 
   it("merges records per key", () => {

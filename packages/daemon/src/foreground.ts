@@ -100,6 +100,9 @@ import {
   StoryDiscard,
   StoryIndex,
   StoryPlanning,
+  StoryTests,
+  TEST_BOX_DIR,
+  TEST_RECOVERY_STEP,
   StoryPrs,
   gitParkWriter,
   gitStoryMergeOps,
@@ -1054,12 +1057,36 @@ async function serve(run: Run, lock: HeldLock): Promise<number> {
     // A scan fallback session waiting for the office's starts starts no more, and a running one gets the
     // stop, so its caps hold after the daemon is gone (DIPO-310).
     held.scanSessions = { close: () => runProfiles.close() };
-    // Daemon stop ends every box worker inside its box, and its routes (DIPO-271).
-    held.boxes = runs.boxes;
+    // Daemon stop ends every box worker inside its box, and its routes (DIPO-271); the forwarders
+    // of open tests stop, and their test boxes keep running for the next daemon (DIPO-309).
+    held.boxes = {
+      close: async () => {
+        await runs.testBoxes?.stopForwarders();
+        await runs.boxes?.close();
+      },
+    };
     sessionRuns = runs.sessions;
     startsPausedOf = runs.startsPaused;
     boxRunOf = (office, stored) => runs.isBoxRun(office, stored);
     held.collisions = runs.collisions;
+    // Testing a story (DIPO-309): `test.start` runs the pushed head in a test box, `test.record`
+    // records the maintainer's pass or fail; the box tick closes the tests nobody records.
+    const storyTests = new StoryTests({
+      offices,
+      clock,
+      ids,
+      git: (office) => engineGit.forOffice(office),
+      freshProfile: (office, trigger) => runProfiles.ensureFreshProfile(office, trigger),
+      story: (office, stored) => runs.merge.story(office, stored),
+      boxes: runs.testBoxes,
+      testDir: (testId) => join(stateDir, TEST_BOX_DIR, testId),
+      testFail: (office, runId, test) => runs.merge.testFail(office, runId, test),
+      kick: (office) => autoMerge.kick(office),
+      prSync: (office, runId) => storyPrs.sync(office, runId),
+      onChanged: (office) => server?.notifyOffice(office),
+      logger: logger.child({ component: "tests" }),
+    });
+    runs.onBoxTick(() => storyTests.sweep());
     // `work.run` (DIPO-48): picks and claims one Ready story and records the run, through the
     // story index, the run profile, office init's statuses check, the claims, the Ready gate and
     // the planning lane above.
@@ -1138,6 +1165,7 @@ async function serve(run: Run, lock: HeldLock): Promise<number> {
       workRun.feature,
       planning.feature,
       mergeGates.feature,
+      storyTests.feature,
       discard.feature,
       proposals.feature,
       runs.control.feature,
@@ -1369,6 +1397,14 @@ async function serve(run: Run, lock: HeldLock): Promise<number> {
         if (copies.length > 0) {
           context.logger.info("removed reviewer copies a stopped daemon left", { removed: copies });
         }
+      },
+    });
+    // Open tests (DIPO-309): each whose test box still runs gets its forwarder again; the others
+    // close, and every test box no open test names is deleted.
+    steps.register({
+      name: TEST_RECOVERY_STEP,
+      run: async () => {
+        await storyTests.recover();
       },
     });
     // Fix rounds (DIPO-148): a round delivered just before the stop is marked so, and a reviewed

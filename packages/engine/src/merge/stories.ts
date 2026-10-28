@@ -93,6 +93,7 @@ import {
   type StoryPrRecord,
 } from "../story-pr/records";
 import { withWorkViews } from "../views/work";
+import { latestRecordedTest, testPassedFor } from "../run/test-records";
 import { findClaim } from "../worktree/records";
 import { repoOfPrUrl } from "../worktree/release";
 
@@ -586,20 +587,26 @@ export class StoryMerges {
     return this.#openGate(ctx, pr, { head: input.head, waits, note });
   }
 
-  /** Every reason the head's merge gate waits for the maintainer (`mergeWaits`). */
+  /**
+   * Every reason the head's merge gate waits for the maintainer (`mergeWaits`); a flagged story
+   * whose test passed at the head no longer waits on its flag (DIPO-309).
+   */
   #waits(
     ctx: StoryMergeContext,
     run: StoredRun,
     input: {
+      readonly head: string;
       readonly verdict: StoredReviewVerdict;
       readonly held: readonly string[];
       readonly release: readonly string[];
     },
   ): MergeWait[] {
     const config = runConfigOf(ctx.office, run, ctx.config);
+    const key = run.key as StoryKey;
     return mergeWaits({
       autoMerge: config.mergeSlot.autoMerge,
-      testBeforeMerge: mirrorFlagged(ctx.office, run.key as StoryKey),
+      testBeforeMerge:
+        mirrorFlagged(ctx.office, key) && !testPassedFor(ctx.office, key, input.head),
       verdict: input.verdict,
       holdLabels: input.held,
       releasePaths: input.release,
@@ -617,12 +624,17 @@ export class StoryMerges {
     const key = run.key as StoryKey;
     const flagged = mirrorFlagged(office, key);
     const manual = flagged ? await this.#manualEntries(ctx, run) : [];
+    const tested = latestRecordedTest(office, run.runId);
     const summary = mergeGateSummary({
       story: run.story as string,
       pr: { number: stored.number, url: stored.url },
       head: input.head,
       waits: input.waits,
-      ...(flagged ? { manual, worktree: run.worktree } : {}),
+      ...(flagged ? { manual } : {}),
+      test:
+        tested === null || tested.result === null
+          ? null
+          : { result: tested.result, head: tested.head, note: tested.note },
     });
     const opened: { gate: StoredMergeGate | null } = { gate: null };
     ctx.write(() => {
@@ -892,7 +904,7 @@ export class StoryMerges {
     const head = pr.stored.headSha;
     const verdict = await this.#verdictFor(ctx.officeId, ctx.office, pr.run, head);
     if (verdict === null) return;
-    const waits = this.#waits(ctx, pr.run, { verdict, held, release: [] });
+    const waits = this.#waits(ctx, pr.run, { head, verdict, held, release: [] });
     await this.#openGate(ctx, pr, {
       head,
       waits,

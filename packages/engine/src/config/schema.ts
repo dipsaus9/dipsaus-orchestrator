@@ -122,6 +122,9 @@ const timeoutsShape = {
   permissionWaitSeconds: count(),
   // 0013 section 1: one timeout per script the engine runs, by script name.
   scriptMinutes: z.record(text(), count()),
+  // DIPO-309 (0002): how long an open test waits for its record before its box is deleted. Added
+  // with a default and no version bump (0017).
+  testIdleMinutes: count(),
 };
 
 const privacyShape = {
@@ -1143,6 +1146,7 @@ export const OFFICE_DEFAULTS: OfficeConfig = {
     questionWaitMinutes: 15,
     permissionWaitSeconds: 300,
     scriptMinutes: { install: 15, setup: 10, post_create: 10, verify: 20 },
+    testIdleMinutes: 240,
   },
   // 0010 sections 7 to 9. `base` has no default: `origin/HEAD` decides when it is absent.
   remote: "origin",
