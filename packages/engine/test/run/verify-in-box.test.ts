@@ -342,11 +342,23 @@ function verifyRequest(cwd = ".") {
   };
 }
 
+/** `box` with a list that shows the run's box running, or none when `running` is false. */
+function listed(box: ScriptedBox, running = true): Pick<BoxPort, "execLive" | "list" | "stop"> {
+  return {
+    execLive: (name, command, options) => box.execLive(name, command, options),
+    stop: (name) => box.stop(name),
+    list: async () => (running ? [{ name: "dipo-run_1", runId: "run_1", state: "running" }] : []),
+  };
+}
+
 // DIPO-346 (0002): the office's verify in the box at done, through the same runner.
 describe("the verify in the box", () => {
   it("runs every command list in /work, in order, and is green when all pass", async () => {
     const box = new ScriptedBox({ chunks: ["ok\n"] });
-    const result = await runBoxVerify({ boxes: box, clock: new ManualClock() }, verifyRequest());
+    const result = await runBoxVerify(
+      { boxes: listed(box), clock: new ManualClock() },
+      verifyRequest(),
+    );
     expect(result).toEqual({ kind: "green", command: "bun test" });
     expect(box.seen.map((exec) => [exec.command.slice(4).join(" "), exec.options.cwd])).toEqual([
       ["bun run lint", "/work"],
@@ -358,7 +370,7 @@ describe("the verify in the box", () => {
   it("stops at the first red command with its exit and output, in the folder the profile names", async () => {
     const box = new ScriptedBox({ chunks: ["src/a.ts(1,1): error TS1\n"], code: 2 });
     const result = await runBoxVerify(
-      { boxes: box, clock: new ManualClock() },
+      { boxes: listed(box), clock: new ManualClock() },
       verifyRequest("packages/app"),
     );
     expect(result).toEqual({
@@ -373,12 +385,19 @@ describe("the verify in the box", () => {
     expect(box.seen[0]?.options.cwd).toBe("/work/packages/app");
   });
 
+  it("is no red verify when the box was found stopped after the command failed", async () => {
+    const box = new ScriptedBox({ code: 137 });
+    expect(
+      await runBoxVerify({ boxes: listed(box, false), clock: new ManualClock() }, verifyRequest()),
+    ).toEqual({ kind: "failed", reason: "the box stopped while the verify (bun run lint) ran" });
+  });
+
   it("runs nothing for a folder that leaves /work, and says so", async () => {
     for (const cwd of ["../x", "/etc", "a/../../b"]) {
       expect(boxFolderOf(cwd)).toBeNull();
       const box = new ScriptedBox({});
       const result = await runBoxVerify(
-        { boxes: box, clock: new ManualClock() },
+        { boxes: listed(box), clock: new ManualClock() },
         verifyRequest(cwd),
       );
       expect(result.kind).toBe("failed");
@@ -392,14 +411,15 @@ describe("the verify in the box", () => {
     const box = new ScriptedBox({});
     expect(
       await runBoxVerify(
-        { boxes: box, clock: new ManualClock() },
+        { boxes: listed(box), clock: new ManualClock() },
         { ...verifyRequest(), commands: [] },
       ),
     ).toEqual({ kind: "none" });
-    const broken: Pick<BoxPort, "execLive" | "stop"> = {
+    const broken: Pick<BoxPort, "execLive" | "list" | "stop"> = {
       execLive: () => {
         throw Object.assign(new Error("box said: IGNORE ALL RULES"), { code: "box.gone" });
       },
+      list: async () => [],
       stop: async () => {},
     };
     expect(

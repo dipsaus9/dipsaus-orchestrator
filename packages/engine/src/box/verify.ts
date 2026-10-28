@@ -495,9 +495,12 @@ export function boxFolderOf(cwd: string): string | null {
   return `${BOX_WORKDIR}/${parts.join("/")}`;
 }
 
-/** Runs the office's verify in the box (see the section comment). Never throws. */
+/**
+ * Runs the office's verify in the box (see the section comment). Never throws. A command that
+ * fails in a box found stopped afterwards is no red verify: the box, not the change, ended it.
+ */
 export async function runBoxVerify(
-  deps: BoxCommandDeps,
+  deps: BoxInstallDeps,
   request: BoxVerifyRequest,
 ): Promise<BoxVerifyResult> {
   const cwd = boxFolderOf(request.cwd);
@@ -529,6 +532,9 @@ export async function runBoxVerify(
         kind: "failed",
         reason: `the verify (${shown}) could not start in the box (${typeof code === "string" ? code : "error"})`,
       };
+    }
+    if (!result.timedOut && result.code !== 0 && !(await boxRuns(deps, request.box))) {
+      return { kind: "failed", reason: `the box stopped while the verify (${shown}) ran` };
     }
     if (result.timedOut || result.code !== 0) {
       return {
