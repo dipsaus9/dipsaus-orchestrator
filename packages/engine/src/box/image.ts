@@ -214,6 +214,16 @@ export function checkImageDescription(image: BoxImageDescription): BoxImageDescr
  */
 export const BASE_PACKAGES: readonly string[] = ["curl", "git"];
 
+/**
+ * The Debian packages a build installs: `BASE_PACKAGES`, then the office's. A base package the
+ * office names too, with or without a version, is the office's entry alone, so apt never gets
+ * both `git` and `git=<version>`.
+ */
+export function aptPackages(packages: readonly string[]): string[] {
+  const named = new Set(packages.map((name) => name.split("=")[0]));
+  return [...new Set([...BASE_PACKAGES.filter((name) => !named.has(name)), ...packages])];
+}
+
 /** The environment variable that carries the web route's address into a build's scripts. */
 export const BUILD_PROXY_ENV = "DIPO_PROXY";
 /** Where a build box gets dipo's build folder: its two scripts and the Safe-Chain CA bundle. */
@@ -368,7 +378,7 @@ export function boxBuildScripts(image: BoxImageDescription): BoxBuildScripts {
       `${apt(false)} update`,
       `${apt(false)} install -y --no-install-recommends ca-certificates`,
       `${apt(true)} update`,
-      `${apt(true)} install -y --no-install-recommends ${[...new Set([...BASE_PACKAGES, ...packages])].join(" ")}`,
+      `${apt(true)} install -y --no-install-recommends ${aptPackages(packages).join(" ")}`,
       "rm -rf /var/lib/apt/lists/*",
       "# Node.js (with npm) from nodejs.org, checked against the sha256 dipo pins for the release.",
       `case "$(dpkg --print-architecture)" in ${nodeCases} *) echo "no pinned Node.js tarball for this architecture" >&2; exit 1 ;; esac`,

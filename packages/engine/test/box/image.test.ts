@@ -15,6 +15,7 @@ import { BOX_NET_TOOLS_PATH, BOX_USER_GID, BOX_USER_UID } from "../../src/box/fi
 import {
   BOX_DEFAULTS,
   BOX_IMAGE_ENV,
+  aptPackages,
   boxBuildScripts,
   boxImageTag,
   type BoxImageDescription,
@@ -223,6 +224,10 @@ describe("the build scripts (DIPO-281)", () => {
     expect(install).toHaveLength(1);
     expect(install[0]).toEndWith("install -y --no-install-recommends curl git jq");
     expect(build.join("\n")).not.toContain("git is in the box image");
+    // A versioned git of the office's replaces dipo's unversioned one; apt never gets both.
+    expect(aptPackages(["git=1:2.47.2-0.1", "jq"])).toEqual(["curl", "git=1:2.47.2-0.1", "jq"]);
+    expect(aptPackages(["curl=8.14.1-2"])).toEqual(["git", "curl=8.14.1-2"]);
+    expect(aptPackages([])).toEqual(["curl", "git"]);
   });
 
   it("system installs Node from nodejs.org at its version, checked against the sha256 dipo pins", () => {

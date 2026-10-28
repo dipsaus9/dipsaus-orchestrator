@@ -458,21 +458,24 @@ describe("the box's own git repository and the parts (DIPO-346)", () => {
       expect(await w.repo.git("config", "--get-all", "core.hooksPath").catch(() => "")).toBe("");
     }));
 
-  for (const [what, plant, tar] of [
+  for (const [what, plant, tar, refusal] of [
     [
       "a symlink in a part that points at .git",
       (w: World) => symlinkSync("../.git", join(w.work, "src", "repo")),
       "excludes",
+      LINK_PARK,
     ],
     [
       "a symlink in a part that points at a file in .git",
       (w: World) => symlinkSync("../.git/config", join(w.work, "src", "config")),
       "excludes",
+      LINK_PARK,
     ],
     [
       "a .git file instead of a folder, below the root",
       (w: World) => write(w.work, { "vendor/lib/.git": "gitdir: ../../.git\n" }),
       "excludes",
+      GIT_FOLDER_PARK,
     ],
     [
       "a nested repository",
@@ -484,6 +487,7 @@ describe("the box's own git repository and the parts (DIPO-346)", () => {
         expect(made.status).toBe(0);
       },
       "excludes",
+      GIT_FOLDER_PARK,
     ],
     [
       "a .git file with a gitdir pointer at the root, when the box's tar keeps it",
@@ -492,6 +496,7 @@ describe("the box's own git repository and the parts (DIPO-346)", () => {
         write(w.work, { ".git": "gitdir: /home/dipo/elsewhere\n" });
       },
       "all",
+      GIT_FOLDER_PARK,
     ],
   ] as const) {
     it(`refuses ${what}, and commits nothing`, () =>
@@ -501,8 +506,7 @@ describe("the box's own git repository and the parts (DIPO-346)", () => {
           write(w.work, { "src/a.ts": "export const a = 2;\n" });
           plant(w);
           await w.parts.onPart(part("Plant something of git"));
-          expect(w.parks).toHaveLength(1);
-          expect([GIT_FOLDER_PARK, LINK_PARK]).toContain(parkedFor(w)[0]!);
+          expect(parkedFor(w)).toEqual([refusal]);
           expect(await tip(w)).toBe(w.claimTip);
           expect(await tip(w, "remote")).toBe(w.claimTip);
         },
@@ -563,9 +567,16 @@ describe("the box's own git repository and the parts (DIPO-346)", () => {
           for (const key of ["GIT_DIR", "GIT_WORK_TREE", "GIT_COMMON_DIR"]) {
             expect(inBoxFolder(call.env[key])).toBe(false);
           }
-          expect(call.args).not.toContain("--work-tree");
-          const at = call.args.indexOf("-C");
-          if (at >= 0) expect(inBoxFolder(call.args[at + 1])).toBe(false);
+          // No work tree at all, and no git dir or folder in a box folder, in either option form.
+          expect(call.args.some((arg) => arg.startsWith("--work-tree"))).toBe(false);
+          call.args.forEach((arg, at) => {
+            if (arg === "-C" || arg === "--git-dir") {
+              expect(inBoxFolder(call.args[at + 1])).toBe(false);
+            }
+            if (arg.startsWith("--git-dir=")) {
+              expect(inBoxFolder(arg.slice("--git-dir=".length))).toBe(false);
+            }
+          });
         }
       },
       { tar: "excludes", gitCalls },

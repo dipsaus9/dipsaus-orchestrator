@@ -23,15 +23,10 @@ import {
 } from "../../src/box/box-git";
 import { BOX_WORKDIR } from "../../src/box/code";
 
-/** An environment like the box user's: no global git config, a home of its own. */
+/** An environment like the box user's: a home of its own, plus what the script's env sets. */
 function boxEnv(home: string): Record<string, string> {
   const env = cleanEnv();
-  return {
-    PATH: env["PATH"] ?? "/usr/bin:/bin",
-    HOME: home,
-    GIT_CONFIG_GLOBAL: "/dev/null",
-    ...BOX_GIT_ENV,
-  };
+  return { PATH: env["PATH"] ?? "/usr/bin:/bin", HOME: home, ...BOX_GIT_ENV };
 }
 
 function init(work: string, home: string): { status: number | null; stderr: string } {

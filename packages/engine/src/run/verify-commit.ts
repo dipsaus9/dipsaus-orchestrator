@@ -70,7 +70,12 @@ import { TASK_FIELD_ERROR } from "../backlog/runner";
 import type { NewEntry } from "../changelog/log";
 import type { OfficeHandle } from "../db/office";
 import { GitError } from "../git/runner";
-import { decisionNoteFeedback, testPlanFeedback, verifyFeedback } from "../prompts/feedback";
+import {
+  decisionNoteFeedback,
+  FEEDBACK_LOG_LINES_DEFAULT,
+  testPlanFeedback,
+  verifyFeedback,
+} from "../prompts/feedback";
 import { shownSpec } from "../scan/diff";
 import type { CapabilityName, RunProfile } from "../scan/detect";
 import { LOCKFILES, parseManifest } from "../scan/detect/manifest";
@@ -93,6 +98,8 @@ import { recordBranchPush } from "../story-pr/records";
 import { findClaim } from "../worktree/records";
 
 import type { BackstopSnapshot } from "./backstop";
+import { runBudgetFacts } from "./budget-line";
+import { runConfigOf } from "./config-snapshot";
 import type { DoneConflictDecision } from "./conflicts";
 import { endRunMarked } from "./markers";
 import { type FiredCap, runCaps } from "./caps";
@@ -503,9 +510,20 @@ export class VerifyCommit implements RunFinisher {
         : result.exitCode === null
           ? `none: it ended by ${result.signal ?? "a signal"}`
           : String(result.exitCode);
+    // The tier's item budget and the budget line, as a CI item gets them (`StoryPrs`), less the
+    // intro line before it.
+    const budgets = runConfigOf(ctx.office, run).prompt.budgets.feedbackItem as Readonly<
+      Record<string, number>
+    >;
+    const itemMax = (run.tier === null ? undefined : budgets[run.tier]) ?? budgets["M"] ?? 3_000;
     const item = verifyFeedback(
       { step: "verify", command: result.command, exitCode: exit, output: result.output },
-      { root: BOX_WORKDIR },
+      {
+        root: BOX_WORKDIR,
+        itemMax: itemMax - VERIFY_IN_BOX_INTRO.length - 2,
+        logLines: FEEDBACK_LOG_LINES_DEFAULT,
+        budget: runBudgetFacts(ctx.office, run, this.#deps.clock.now()),
+      },
     ).text;
     const text = `${VERIFY_IN_BOX_INTRO}\n\n${item}`;
     if (ctx.capped != null) {

@@ -1249,6 +1249,21 @@ describe("dipo's verify in the box at done (DIPO-346, 0002)", () => {
     expect(findRun(w.f.office, w.f.run)?.endKind).toBe("in-review");
   });
 
+  it("keeps a red verify's item within the tier's item budget and ends it with the budget line", async () => {
+    const long = Array.from({ length: 400 }, (_, n) => `line ${n} of a long failing log`).join(
+      "\n",
+    );
+    w.verifyResult = { ...RED, output: `${long}\n` };
+    await play();
+    const [text] = feedbackTexts();
+    expect(text).toBeDefined();
+    // Tier S's item budget of the default config, as a CI item gets it.
+    expect(text!.length).toBeLessThanOrEqual(3_000);
+    expect(text!.trimEnd().split("\n").at(-1)).toStartWith("Budget: ");
+    expect(text).toContain("line 399 of a long failing log");
+    expect(text).not.toContain("line 0 of a long failing log");
+  });
+
   it("names the deadline of a verify that passed it", async () => {
     w.verifyResult = { ...RED, exitCode: null, timedOutMinutes: 20, output: "still running\n" };
     await play();

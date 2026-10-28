@@ -49,8 +49,11 @@ git commit -q --no-verify --allow-empty -m '${BOX_GIT_START_SUBJECT}'`,
   ];
 }
 
-/** The environment of the script: git reads no system config. */
-export const BOX_GIT_ENV: Readonly<Record<string, string>> = { GIT_CONFIG_NOSYSTEM: "1" };
+/** The environment of the script: git reads no system and no global config. */
+export const BOX_GIT_ENV: Readonly<Record<string, string>> = {
+  GIT_CONFIG_NOSYSTEM: "1",
+  GIT_CONFIG_GLOBAL: "/dev/null",
+};
 
 /**
  * Makes the box's repository in `/work` as the box user (see the file comment). Throws a
