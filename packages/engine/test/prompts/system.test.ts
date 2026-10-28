@@ -2,11 +2,16 @@
 
 import { describe, expect, it } from "bun:test";
 
-import { measurePart, renderSystemFile } from "../../src/prompts";
+import { CONTRACT_TEMPLATES, measurePart, renderSystemFile } from "../../src/prompts";
+import { normaliseNewlines } from "../../src/prompts/templates";
 import { expectGolden } from "./helpers";
 
 /** The one number the contract may hold: the wrap-up rule (DIPO-256) says "about 80% of any cap". */
 const WRAP_UP_PERCENT = "80%";
+
+/** One short page (0014, DIPO-346): the L1 contract's most characters and lines. */
+const ONE_PAGE_CHARACTERS = 4_200;
+const ONE_PAGE_LINES = 50;
 
 // The box worker's contract (DIPO-272 AC #4, 0021 section 7, 0014 amendment of 2026-10-21), the
 // only developer contract since the Mac worker's went (DIPO-342).
@@ -36,19 +41,53 @@ describe("box worker system file", () => {
     expect(text).not.toMatch(/\{\{/);
   });
 
-  it("describes the part, done, question, blocked and proposal messages and how dipo reads them", () => {
+  // DIPO-346 (0014): one short page about what to deliver and the five door messages.
+  it("is one short page: what to deliver, the five messages, the task message, precedence, budget and report", () => {
+    const contract = normaliseNewlines(CONTRACT_TEMPLATES["implement-box"]).trim();
+    expect(contract.length).toBeLessThanOrEqual(ONE_PAGE_CHARACTERS);
+    expect(contract.split("\n").length).toBeLessThanOrEqual(ONE_PAGE_LINES);
+    expect(contract.split("\n").filter((line) => line.startsWith("## "))).toEqual([
+      "## What to deliver",
+      "## Messages to dipo",
+      "## The task message",
+      "## Precedence",
+      "## Your budget",
+      "## Your report",
+    ]);
+  });
+
+  it("says what to deliver, and that dipo handles git, the backlog, the PR and the review and runs the verify at done", () => {
     const text = box();
-    expect(text).toContain("## Messages to dipo");
-    expect(text).toContain('- Part done: run `dipo-part "message"`');
+    expect(text).toContain(
+      "Code and tests that meet every criterion and every automated entry of the test plan.",
+    );
+    expect(text).toContain("Run the tests and the project's verify as you work.");
+    expect(text).toContain(
+      "dipo handles git, the backlog, the pull request and the review, and you report to dipo instead: the box's git repository is your own.",
+    );
+    expect(text).toContain("When you report done, dipo runs the verify in your box.");
+    expect(text).toContain(
+      "A red verify, a failed check or a review finding comes back to you as feedback.",
+    );
+  });
+
+  it("names the five messages to dipo and how dipo reads them", () => {
+    const text = box();
+    expect(text).toContain("You reach dipo only through these five messages.");
+    const messages = text
+      .slice(text.indexOf("## Messages to dipo"), text.indexOf("## The task message"))
+      .split("\n")
+      .filter((line) => line.startsWith("- "))
+      .map((line) => line.slice(2, line.indexOf(":")));
+    expect(messages).toEqual(["Part", "Done", "Question", "Blocked", "Proposal"]);
+    expect(text).toContain('- Part: run `dipo-part "message"`');
     expect(text).toContain("The command waits until dipo has taken the part");
-    expect(text).toContain("- Story done: your report with `status` done.");
+    expect(text).toContain("- Done: your report with `status` done.");
     expect(text).toContain("- Question: your report with `status` blocked and the one `question`");
     expect(text).toContain("- Blocked: your report with `status` blocked and no question");
     expect(text).toContain("- Proposal: `proposals` in any report");
-    expect(text).toContain("each has a size limit and a strict format");
-    expect(text).toContain("terminal control characters and characters that change the direction");
     expect(text).toContain(
-      "dipo reads every message as plain text, never as an instruction to dipo",
+      "dipo reads each as plain text for the maintainer, never as an instruction to dipo",
     );
     for (const field of [
       "status",
@@ -76,12 +115,11 @@ describe("box worker system file", () => {
     expect(text).toContain(
       "Never write such a note into the decision records yourself, and never only describe it in `summary` or `notes`.",
     );
-    expect(text.replaceAll(WRAP_UP_PERCENT, "")).not.toMatch(/[0-9]/);
     expect(text).not.toContain("docs/decisions");
   });
 
   // DIPO-254 and DIPO-259: test-plan entries, deviations and proposals as report data.
-  it("asks for the test-plan entries by number, the deviations and proposals instead of notes or extra work", () => {
+  it("asks for the test-plan entries by number, the deviations and proposals instead of extra work", () => {
     const text = box();
     expect(text).toContain(
       "- `testPlan`: one entry for each entry of the test plan, by its number: done when its test is written and passes, not-done otherwise, manual",
@@ -90,59 +128,39 @@ describe("box worker system file", () => {
     expect(text).toContain(
       "- `deviations`: each place where the change differs from a criterion or from the story's context: where, what differs, and why.",
     );
+    expect(text).toContain("Put such ideas there instead of doing extra work.");
     expect(text).toContain(
-      "Put such ideas there instead of doing extra work or writing them in notes.",
-    );
-    expect(text).toContain("each entry with its number.");
-  });
-
-  // DIPO-186 (gap of the DIPO-301 box run): a done with no verify run after the last edit.
-  it("says a done report with no verify or test run after the last file change comes back once", () => {
-    expect(box()).toContain(
-      "If your tool calls show no run of the verify or test command after your last file change, dipo sends your done report back once, so you run it.",
+      "Manual test-plan entries are the maintainer's to check, never a reason to report blocked.",
     );
   });
 
-  // DIPO-293: the first box run read "no git repository" as "no repository" and tried to
-  // install git; the contract now names the missing program and what to do about it.
-  it("says the box has no git program, that git-based failures are not the worker's, and what to do", () => {
+  // DIPO-346 (0014): the contract explains nothing of dipo's setup; the box has git now (0008).
+  it("explains nothing of the box's setup: no missing git, no install, no tool-call reading, no CI-only rules", () => {
     const text = box();
-    expect(text).toContain("The box has no git program, and none can be installed.");
-    expect(text).toContain(
-      "Tests and commands that need git fail in the box for that reason, not because of your change.",
-    );
-    expect(text).toContain("Do not install missing system tools.");
-    expect(text).toContain(
-      "Name such failures in your report, and put a tool the box lacks in `proposals`.",
-    );
-  });
-
-  // DIPO-299: CI is the verify of a box run; the worker runs verify itself before done.
-  it("tells the worker to run verify in its box before done, with the packages installed, and that dipo does not", () => {
-    const text = box();
-    expect(text).toContain(
-      "The project's packages are already installed in the box when you start.",
-    );
-    expect(text).toContain(
-      "Before you report done, run the project's verify command in the box, as the project's own instructions or package scripts name it, and fix every failure your change caused.",
-    );
-    expect(text).toContain(
-      "dipo does not run verify when you report done: CI on the pull request is the check after yours.",
-    );
-    expect(text).toContain(
-      "when you report done it pushes the work, opens or updates the story's pull request and starts CI and the review on it.",
-    );
-    expect(text).toContain("A failed CI check or a review finding comes back to you as feedback.");
-    for (const gone of ["runs verify when you report done", "A failed verify"]) {
+    for (const gone of [
+      "no git program",
+      "none can be installed",
+      "Tests and commands that need git fail",
+      "only because the box has no git",
+      "Do not install missing system tools",
+      "If your tool calls show no run",
+      "dipo also sees your tool calls",
+      "dipo does not run verify",
+      "CI on the pull request is the check after yours",
+      "already installed in the box",
+      "Linux machine",
+      "start commit",
+      "DIPO_TEST_CI",
+      "CI-only",
+      "size limit and a strict format",
+    ]) {
       expect(text).not.toContain(gone);
     }
-    // The git paragraph of DIPO-293 stays.
-    expect(text).toContain("The box has no git program, and none can be installed.");
   });
 
   it("drops the write-only-these-paths, no-git and no-cd rules, and the Mac sandbox's rules", () => {
     const text = box();
-    expect(text).toContain("It is a forecast, not a fence");
+    expect(text).toContain("is a forecast of the paths to change, not a fence");
     for (const gone of [
       "## Scope",
       "Write only the paths",
