@@ -16,7 +16,9 @@ import { afterEach, describe, expect, it } from "bun:test";
 
 import { conflictFeedbackItem } from "../../src/box/collisions";
 import { OFFICE_DEFAULTS } from "../../src/config";
+import { appendEntries } from "../../src/changelog/log";
 import {
+  type AutoMergeGuard,
   decideMergeGate,
   guardedParkWriter,
   guardedUnparkWriter,
@@ -29,12 +31,14 @@ import { recordCatchUp } from "../../src/run/conflicts";
 import { insertPark } from "../run/park-fixture";
 import {
   openPark,
+  PARK_NOTICES,
+  parkStory,
   type ParkBranchRequest,
   type ParkWriter,
   type UnparkBranchRequest,
   type UnparkWriter,
 } from "../../src/run/park";
-import { recordConfigSnapshot, runSteps } from "../../src/run/records";
+import { findRun, recordConfigSnapshot, runSteps } from "../../src/run/records";
 import { findStoryPr } from "../../src/story-pr/records";
 
 import {
@@ -645,10 +649,8 @@ describe("a story that stops waiting for its merge while auto-merge is on", () =
   it("turns auto-merge off before a CI-cap or maintainer park and before a fix round's lift is written", async () => {
     s = await storyWorld();
     const w = branchWriters();
-    const off = (office: Parameters<typeof s.merge.autoMergeOff>[0], branch: string) =>
-      s.merge.autoMergeOff(office, branch);
-    const park = guardedParkWriter(w.park, off);
-    const unpark = guardedUnparkWriter(w.unpark, off);
+    const park = guardedParkWriter(w.park, guard());
+    const unpark = guardedUnparkWriter(w.unpark, guard());
     const request = { story: "DIPO-7", branch: BRANCH, worktree: "/w" };
     for (const reason of ["verify-failing", "by-maintainer"] as const) {
       await toArmedAgain();
@@ -667,39 +669,156 @@ describe("a story that stops waiting for its merge while auto-merge is on", () =
     s = await storyWorld();
     await toArmed();
     const w = branchWriters();
-    const off = (office: Parameters<typeof s.merge.autoMergeOff>[0], branch: string) =>
-      s.merge.autoMergeOff(office, branch);
     s.host.disableError = new CodeHostError("failed", "network down");
     const request = { story: "DIPO-7", branch: BRANCH, worktree: "/w" };
     await expect(
-      guardedParkWriter(w.park, off).write(s.officeId, {
+      guardedParkWriter(w.park, guard()).write(s.officeId, {
         ...request,
         reason: "verify-failing",
         note: "red",
       }),
-    ).rejects.toThrow("auto-merge is still on");
+    ).rejects.toThrow("turning auto-merge off for PR #7 failed (GitHub refused: network down)");
     await expect(
-      guardedUnparkWriter(w.unpark, off).lift(s.officeId, { ...request, to: "In Progress" }),
-    ).rejects.toThrow("auto-merge is still on");
+      guardedUnparkWriter(w.unpark, guard()).lift(s.officeId, { ...request, to: "In Progress" }),
+    ).rejects.toThrow("so dipo wrote nothing to");
     // GitHub cannot be read at all: no write either.
     s.host.failWith = "failed";
     await expect(
-      guardedParkWriter(w.park, off).write(s.officeId, {
+      guardedParkWriter(w.park, guard()).write(s.officeId, {
         ...request,
         reason: "by-maintainer",
         note: "stop",
       }),
-    ).rejects.toThrow();
+    ).rejects.toThrow("GitHub could not be read");
     s.host.failWith = null;
     expect(w.parks).toEqual([]);
     expect(w.lifts).toEqual([]);
     s.host.disableError = null;
-    await guardedParkWriter(w.park, off).write(s.officeId, {
+    await guardedParkWriter(w.park, guard()).write(s.officeId, {
       ...request,
       reason: "verify-failing",
       note: "red",
     });
     expect(w.parks).toHaveLength(1);
+  });
+});
+
+/** The guard the daemon builds: `AutoMerge.guarded`. */
+function guard(): AutoMergeGuard {
+  return (office, branch, write) => s.merge.guarded(office, branch, write);
+}
+
+/** `parkStory` as the daemon composes it: a guarded writer over `writer`. */
+async function guardedPark(writer: ParkWriter, reason: "verify-failing" | "by-maintainer") {
+  const run = findRun(s.w.office, s.run);
+  if (run === null) throw new Error("no run");
+  return parkStory(
+    {
+      office: s.w.office,
+      writer: guardedParkWriter(writer, guard()),
+      now: () => s.w.t.clock.now(),
+      write: (fn) =>
+        s.w.office.immediate(() => {
+          appendEntries(s.w.office, fn(), { at: s.w.t.clock.now() });
+        }),
+      implemented: () => true,
+    },
+    { run, reason, detail: "parked", endKind: reason },
+  );
+}
+
+/** A gate a test opens: a promise the fake waits on, and its release. */
+function latch(): { readonly wait: Promise<void>; readonly open: () => void } {
+  const { promise, resolve } = Promise.withResolvers<void>();
+  return { wait: promise, open: () => resolve() };
+}
+
+describe("a park through the composed writer, racing a round", () => {
+  it("turns auto-merge off before the park is written, and records it", async () => {
+    s = await storyWorld();
+    await toArmed();
+    const w = branchWriters();
+    const order: string[] = [];
+    const disable = s.host.disableAutoMerge.bind(s.host);
+    s.host.disableAutoMerge = async (...args) => {
+      order.push("off");
+      return disable(...args);
+    };
+    const write = w.park.write.bind(w.park);
+    await guardedPark(
+      { write: async (o, r) => (order.push("write"), write(o, r)) },
+      "by-maintainer",
+    );
+    expect(order).toEqual(["off", "write"]);
+    expect(openPark(s.w.office, s.key)).toMatchObject({ reason: "by-maintainer" });
+    await s.tick();
+    expect(s.host.armedAt).toHaveLength(1);
+  });
+
+  it("says the park was not written because turning auto-merge off failed", async () => {
+    s = await storyWorld();
+    await toArmed();
+    const w = branchWriters();
+    s.host.disableError = new CodeHostError("failed", "network down");
+    await guardedPark(w.park, "verify-failing");
+    expect(w.parks).toEqual([]);
+    expect(noticeTexts(s.w.office, PARK_NOTICES.notWritten)[0]).toContain(
+      "turning auto-merge off for PR #7 failed (GitHub refused: network down)",
+    );
+  });
+
+  it("waits for a round that is turning auto-merge on, then turns it off before the park", async () => {
+    s = await storyWorld();
+    const held = latch();
+    const enable = s.host.enableAutoMerge.bind(s.host);
+    s.host.enableAutoMerge = async (...args) => {
+      await held.wait;
+      return enable(...args);
+    };
+    const w = branchWriters();
+    const round = s.tick();
+    // Let the round reach GitHub's enable call before the park starts.
+    for (let i = 0; i < 50 && s.host.armedAt.length === 0 && !s.git.calls.includes("fetch"); i++) {
+      await Bun.sleep(0);
+    }
+    const parked = guardedPark(w.park, "by-maintainer");
+    await Bun.sleep(1);
+    // The park waits for the round: nothing is written yet.
+    expect(w.parks).toEqual([]);
+    held.open();
+    await round;
+    await parked;
+    expect(s.host.armedAt).toEqual([{ number: PR, head: C1 }]);
+    expect(s.host.disarmed).toEqual([PR]);
+    expect(w.parks).toHaveLength(1);
+    expect(s.host.prs.get(PR)?.autoMerge).toBe(false);
+  });
+
+  it("keeps a round that comes during the park from turning auto-merge on", async () => {
+    s = await storyWorld();
+    const held = latch();
+    const w = branchWriters();
+    const write = w.park.write.bind(w.park);
+    const parked = guardedPark(
+      {
+        write: async (o, r) => {
+          await held.wait;
+          return write(o, r);
+        },
+      },
+      "by-maintainer",
+    );
+    await Bun.sleep(1);
+    // A round comes while the park is being written: it waits for the park.
+    const round = s.tick();
+    await Bun.sleep(1);
+    expect(s.git.calls).toEqual([]);
+    held.open();
+    await parked;
+    await round;
+    expect(openPark(s.w.office, s.key)).toMatchObject({ reason: "by-maintainer" });
+    expect(s.host.armedAt).toEqual([]);
+    expect(s.git.calls).toEqual([]);
   });
 });
 

@@ -120,15 +120,25 @@ export class AutoMerge {
   }
 
   /**
-   * Turns auto-merge off for the open story PR of `branch` before dipo writes to the branch for a
-   * park or a fix round; throws when it cannot, so nothing is written to the branch meanwhile.
+   * Runs `write` to the story branch `branch` with auto-merge off for its open PR (`guard.ts`): in
+   * the office's round queue, after any round that runs, so no round turns auto-merge on between
+   * the two. Throws, writing nothing, when auto-merge cannot be turned off. Never call it from
+   * inside a round: it would wait for that round.
    */
-  async autoMergeOff(office: OfficeId, branch: string): Promise<void> {
+  guarded<T>(office: OfficeId, branch: string, write: () => Promise<T>): Promise<T> {
     const handle = this.#deps.offices.get(office);
-    if (handle === undefined || this.#stories === null) return;
-    // The host's state now, never a round's copy.
-    const ctx = { ...this.#context(office, this.#stateOf(office), handle), reads: this.#deps.host };
-    await this.#stories.offFor(ctx, branch);
+    const stories = this.#stories;
+    if (handle === undefined || stories === null) return write();
+    const state = this.#stateOf(office);
+    const step = async (): Promise<T> => {
+      // The host's state now, never a round's copy.
+      const ctx = { ...this.#context(office, state, handle), reads: this.#deps.host };
+      await stories.offFor(ctx, branch);
+      return write();
+    };
+    const run = state.busy.then(step, step);
+    state.busy = run.catch(() => undefined);
+    return run;
   }
 
   /**

@@ -84,7 +84,7 @@ import {
   gitUnparkWriter,
   guardedParkWriter,
   guardedUnparkWriter,
-  type AutoMergeOff,
+  type AutoMergeGuard,
   type ParkWriter,
   gitStoryOps,
   hostSocketSteering,
@@ -217,7 +217,7 @@ export interface DaemonRunsOptions {
    * Turns auto-merge off for a story branch's PR before a park or a lift is written to the branch
    * (0002); the write throws when it cannot. Without it the writers are not guarded (tests).
    */
-  readonly autoMergeOff?: AutoMergeOff;
+  readonly autoMergeGuard?: AutoMergeGuard;
   /** The story index, which reads a story again after its park or In Review commit (DIPO-56). */
   readonly stories?: StoryIndex;
   /** Whether a TUI is connected, for live questions (DIPO-279); none by default. */
@@ -821,7 +821,7 @@ export const BOX_PASS_TICK_MS = 60_000;
 export function daemonRuns(options: DaemonRunsOptions): DaemonRuns {
   const { clock, platform, env, home, uid } = options;
   // No park or lift reaches a story branch while its PR has auto-merge on (0002).
-  const off = options.autoMergeOff;
+  const off = options.autoMergeGuard;
   const guardPark = (writer: ParkWriter): ParkWriter =>
     off === undefined ? writer : guardedParkWriter(writer, off);
   const guardUnpark = (writer: UnparkWriter): UnparkWriter =>

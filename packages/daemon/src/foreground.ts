@@ -106,7 +106,7 @@ import {
   gitUnparkWriter,
   guardedParkWriter,
   guardedUnparkWriter,
-  type AutoMergeOff,
+  type AutoMergeGuard,
   MergeGates,
   StoryTeardown,
   writeCloseOutSummary,
@@ -725,7 +725,8 @@ async function serve(run: Run, lock: HeldLock): Promise<number> {
     held.teardown = teardown;
     // No park or lift reaches a story branch while its PR has auto-merge on (0002). The auto-merge
     // is made below; this is only called once a park or lift runs.
-    const autoMergeOff: AutoMergeOff = (office, branch) => autoMerge.autoMergeOff(office, branch);
+    const autoMergeGuard: AutoMergeGuard = (office, branch, write) =>
+      autoMerge.guarded(office, branch, write);
     // The story PR (DIPO-144): opened or updated right after each In Review push, and retried
     // every `polling.prStateSeconds` until it exists, through the same `gh` host. Whether a run
     // is a box run comes from the runs made below (DIPO-299: CI is the verify of a box run).
@@ -748,7 +749,7 @@ async function serve(run: Run, lock: HeldLock): Promise<number> {
       park: {
         writer: guardedParkWriter(
           gitParkWriter({ git: (office) => engineGit.forOffice(office), cli: backlogCli }),
-          autoMergeOff,
+          autoMergeGuard,
         ),
         implemented: (name) => registry.command(name) !== undefined,
       },
@@ -824,10 +825,8 @@ async function serve(run: Run, lock: HeldLock): Promise<number> {
         recordMerge: (office, stored, merged) => runs.merge.recordMerge(office, stored, merged),
         conflict: (office, runId, input) => runs.merge.conflict(office, runId, input),
         park: {
-          writer: guardedParkWriter(
-            gitParkWriter({ git: (office) => engineGit.forOffice(office), cli: backlogCli }),
-            autoMergeOff,
-          ),
+          // Unguarded: the auto-merge parks inside its own round, after auto-merge is off.
+          writer: gitParkWriter({ git: (office) => engineGit.forOffice(office), cli: backlogCli }),
           implemented: (name) => registry.command(name) !== undefined,
         },
         itemMax: (office, stored) => runs.merge.itemMax(office, stored),
@@ -842,7 +841,7 @@ async function serve(run: Run, lock: HeldLock): Promise<number> {
       labels: host,
       unpark: guardedUnparkWriter(
         gitUnparkWriter({ git: (office) => engineGit.forOffice(office), cli: backlogCli }),
-        autoMergeOff,
+        autoMergeGuard,
       ),
       reject: (office, runId, reject) => runs.merge.reject(office, runId, reject),
       kick: (office) => autoMerge.kick(office),
@@ -854,7 +853,7 @@ async function serve(run: Run, lock: HeldLock): Promise<number> {
       holds: (office, gate, head) => autoMerge.gateHolds(office, gate, head),
       repark: guardedParkWriter(
         gitParkWriter({ git: (office) => engineGit.forOffice(office), cli: backlogCli }),
-        autoMergeOff,
+        autoMergeGuard,
       ),
     });
     // `story.park`, `story.drop` and the resume of a park with no run (DIPO-160, DIPO-344): lane
@@ -1009,7 +1008,7 @@ async function serve(run: Run, lock: HeldLock): Promise<number> {
       holdResumer: () => planning,
       // A story resumed to wait In Review again goes back to the auto-merge (0002).
       mergeReentry: () => autoMerge,
-      autoMergeOff,
+      autoMergeGuard,
       ...(options.workerPort === undefined ? {} : { workerPort: options.workerPort }),
       stories: storyIndex,
       // The registry is built below; parks are only written after it exists.

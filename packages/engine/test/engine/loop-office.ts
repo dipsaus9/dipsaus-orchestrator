@@ -42,6 +42,7 @@ import { EngineGit } from "../../src/git";
 import { EVENTS_FILE, EXIT_FILE, hostSocketPath } from "../../src/host/protocol";
 import {
   AutoMerge,
+  type AutoMergeGuard,
   MergeGates,
   gitStoryMergeOps,
   guardedParkWriter,
@@ -615,10 +616,11 @@ async function buildDaemon(
   const implemented = (name: string) => loaded().registry.command(name as never) !== undefined;
   // As the daemon wires them: no park or lift reaches a branch while its PR has auto-merge on.
   let mergeRef: AutoMerge | null = null;
-  const autoMergeOff = async (office: OfficeId, branch: string): Promise<void> =>
-    mergeRef?.autoMergeOff(office, branch);
-  const parkWriter = guardedParkWriter(gitParkWriter({ git: gitOf, cli }), autoMergeOff);
-  const unparkWriter = guardedUnparkWriter(gitUnparkWriter({ git: gitOf, cli }), autoMergeOff);
+  const guard: AutoMergeGuard = (office, branch, write) =>
+    mergeRef === null ? write() : mergeRef.guarded(office, branch, write);
+  const rawParkWriter = gitParkWriter({ git: gitOf, cli });
+  const parkWriter = guardedParkWriter(rawParkWriter, guard);
+  const unparkWriter = guardedUnparkWriter(gitUnparkWriter({ git: gitOf, cli }), guard);
 
   // The story PR and its CI watch (DIPO-144, DIPO-147); every run is a box run (DIPO-299).
   const storyPrs = new StoryPrs({
@@ -809,7 +811,8 @@ async function buildDaemon(
         );
       },
       conflict: (office, runId, input) => fixRounds.conflict(office, runId, input),
-      park: { writer: parkWriter, implemented },
+      // Unguarded, as the daemon wires it: the auto-merge parks inside its own round.
+      park: { writer: rawParkWriter, implemented },
       itemMax: () => 3_000,
     },
   });

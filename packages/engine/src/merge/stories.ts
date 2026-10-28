@@ -296,13 +296,21 @@ export class StoryMerges {
     const stored = openStoryPrs(ctx.office).find((pr) => pr.branch === branch);
     const repo = stored === undefined ? null : repoOfPrUrl(stored.url);
     if (stored === undefined || repo === null) return;
-    const view = await ctx.reads.viewPr(repo, stored.number);
-    if (view.state !== "open" || view.autoMerge !== true) return;
-    if (!(await this.#disable(ctx, this.#target(ctx, stored, repo), { kind: "notWaiting" }))) {
-      throw new Error(
-        `auto-merge is still on for PR #${stored.number}; dipo writes nothing to ${branch} until GitHub turns it off`,
+    const failed = (why: string): Error =>
+      new Error(
+        `turning auto-merge off for PR #${stored.number} failed (${why}), so dipo wrote nothing to ${branch}`,
       );
+    let view: HostPr;
+    try {
+      view = await ctx.reads.viewPr(repo, stored.number);
+    } catch (error) {
+      throw failed(`GitHub could not be read: ${messageOf(error)}`);
     }
+    if (view.state !== "open" || view.autoMerge !== true) return;
+    const refused = await this.#disable(ctx, this.#target(ctx, stored, repo), {
+      kind: "notWaiting",
+    });
+    if (refused !== null) throw failed(`GitHub refused: ${refused}`);
   }
 
   async #story(ctx: StoryMergeContext, stored: StoryPrRecord): Promise<void> {
@@ -810,7 +818,7 @@ export class StoryMerges {
     const stop = await this.#stopOf(ctx, pr);
     if (stop === null) return;
     const { run, stored } = pr;
-    if (!(await this.#disable(ctx, this.#target(ctx, stored, pr.repo), stop))) return;
+    if ((await this.#disable(ctx, this.#target(ctx, stored, pr.repo), stop)) !== null) return;
     switch (stop.kind) {
       case "conflict":
         return this.#conflict(ctx, run, stored);
@@ -849,8 +857,8 @@ export class StoryMerges {
     return null;
   }
 
-  /** `gh pr merge --disable-auto`; false with a notice (once per cause) when it failed. */
-  async #disable(ctx: StoryMergeContext, pr: Target, stop: Stop): Promise<boolean> {
+  /** `gh pr merge --disable-auto`; null, or why it failed with a notice (once per cause). */
+  async #disable(ctx: StoryMergeContext, pr: Target, stop: Stop): Promise<string | null> {
     try {
       await this.#deps.host.disableAutoMerge(pr.repo, pr.number);
     } catch (error) {
@@ -864,7 +872,7 @@ export class StoryMerges {
           pr.runId,
         ),
       );
-      return false;
+      return error.message;
     }
     ctx.reads.invalidate?.(pr.repo, pr.number);
     ctx.write(() => [
@@ -876,7 +884,7 @@ export class StoryMerges {
         pr.runId,
       ),
     ]);
-    return true;
+    return null;
   }
 
   /** A hold label appeared while auto-merge was on: the head's merge gate waits again. */
