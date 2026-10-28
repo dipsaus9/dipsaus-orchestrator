@@ -1,12 +1,13 @@
 // The web recordings replayed (DIPO-164; 0020 section 11b, 0017 section 2): the derived
 // `web-calls` recording and the live `web` capture, each with a WebSearch, a WebFetch and a
-// WebFetch the PreToolUse hook refused, parse through the adapter, each web call shows in the worker
-// output with its query or URL, the hook lines relay the whole query or URL, the calls are counted
-// by tool, and the refusal names the env file and key and never the value.
+// WebFetch the PreToolUse hook of an earlier binary refused, parse through the adapter, each web
+// call shows in the worker output with its query or URL, the calls are counted by tool, and the
+// recorded refusal names the env file and key and never the value. No session has hooks any more
+// (0008, DIPO-347); the hook lines of these recordings are ignored.
 
 import { describe, expect, it } from "bun:test";
 
-import { findSecret, refusalText, webCallCounts } from "../../src/hooks";
+import { webCallCounts } from "../../src/run/web-calls";
 import { WEB_TOOLS } from "../../src/workers/types";
 import { loadRecording, replay } from "./replay";
 
@@ -79,30 +80,10 @@ for (const name of WEB_RECORDINGS) {
       expect(webCallCounts(run.events)).toEqual({ WebSearch: 1, WebFetch: 2 });
     });
 
-    it("relays the whole query or URL on the PreToolUse lines, and only the third holds an env value", async () => {
-      const run = await replay(loadRecording(name));
-      const calls = run.events.flatMap((event) =>
-        event.t === "hook" && event.hook.kind === "webCall"
-          ? [{ tool: event.hook.tool, target: event.hook.target }]
-          : [],
-      );
-      expect(calls).toEqual([
-        { tool: "WebSearch", target: QUERY },
-        { tool: "WebFetch", target: URL },
-        { tool: "WebFetch", target: REFUSED_URL },
-      ]);
-      expect(calls.map((call) => findSecret(call.target, [ENV]))).toEqual([
-        null,
-        null,
-        { file: ENV.file, key: ENV.key },
-      ]);
-    });
-
     it("gives the refused call the engine's reason, naming the file and key and not the value", () => {
       const refused = thirdWebResult(name);
       expect(refused.isError).toBe(true);
       // Claude Code may wrap the hook's reason in text of its own.
-      expect(refused.text).toContain(refusalText("WebFetch", { file: ENV.file, key: ENV.key }));
       expect(refused.text).toContain(".env (FIXTURE_API_KEY)");
       expect(refused.text).not.toContain(ENV.value);
     });

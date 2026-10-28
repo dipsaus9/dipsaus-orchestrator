@@ -1365,12 +1365,8 @@ async function serve(run: Run, lock: HeldLock): Promise<number> {
         }
         // The boxes of box runs that ended while no daemon ran are checked and deleted too
         // (DIPO-271).
+        // And the reviewer boxes a stopped daemon left (0002).
         await runs.finishEndedBoxes({ listBoxes: true });
-        // And the read-only copies of reviewer sessions whose host no longer runs (DIPO-276).
-        const copies = await runs.sweepReviewFolders();
-        if (copies.length > 0) {
-          context.logger.info("removed reviewer copies a stopped daemon left", { removed: copies });
-        }
       },
     });
     // Fix rounds (DIPO-148): a round delivered just before the stop is marked so, and a reviewed

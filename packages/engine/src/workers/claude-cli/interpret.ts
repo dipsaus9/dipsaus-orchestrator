@@ -30,9 +30,8 @@ import type {
   WorkerEvent,
   WorkerReport,
 } from "../types";
-import { WEB_LINE_PREFIX } from "../types";
+import { WEB_LINE_PREFIX, WEB_TOOLS } from "../types";
 import { flatInput } from "../../ingest/output";
-import { hookEventOf, WEB_TOOLS } from "./hooks";
 import { pluginRefusal, refusedPlugins } from "./plugins";
 import { CHECKED_CLAUDE_VERSION, compareVersions } from "./probe";
 import { cleanDoorStrings } from "../../box/door";
@@ -42,7 +41,6 @@ import {
   ApiRetryMessage,
   AssistantMessage,
   CompactBoundaryMessage,
-  HookPayload,
   InitMessage,
   KNOWN_SYSTEM_SUBTYPES,
   KNOWN_TYPES,
@@ -138,10 +136,10 @@ export interface ClaudeParseState {
    */
   readonly reportKind?: ReportKind;
   /**
-   * True for a developer session in a box (DIPO-271): its Claude Code has only the placeholder
-   * key of `boxModelEnvironment`, which dipo's model proxy outside the box replaces, so the
-   * `system/init` key source is the placeholder's and is not refused. Never for a reviewer, which
-   * runs on the Mac with the maintainer's login. The run's adapter sets it on every line.
+   * True for a session of a box run (DIPO-271): the developer in its box and the reviewer in its
+   * reviewer box (0002) have only the placeholder key of `boxModelEnvironment`, which dipo's model
+   * proxy outside the box replaces, so the `system/init` key source is the placeholder's and is
+   * not refused. The run's adapter sets it on every line.
    */
   readonly placeholderKey?: boolean;
   /** Message ids already counted. */
@@ -196,18 +194,10 @@ export interface ClaudeParseState {
   /** The main model's context window as the last result reported it. */
   readonly contextWindow?: number | null;
   /**
-   * Compactions this process reported through `compact_boundary` and through the `PostCompact`
-   * hook (DIPO-59). One compaction shows on both paths in either order, so `compacted` is emitted
-   * only when a path's count passes the other's. Absent in states stored before they existed.
+   * Compactions this process reported through `compact_boundary`, and those it already emitted
+   * as `compacted` (DIPO-100). Absent in states stored before they existed.
    */
   readonly compactBoundaries?: number;
-  readonly compactHooks?: number;
-  /**
-   * Compactions this process already emitted as `compacted` (DIPO-100). A hook that comes first
-   * carries no token count, so it waits for its `compact_boundary` and the real `pre_tokens`;
-   * only a turn end or the exit reports it, with no `preTokens` (DIPO-106). Absent in states
-   * stored before it existed, where every counted compaction was already emitted.
-   */
   readonly compactReported?: number;
   /**
    * The CLI's token estimate of the thinking block in progress, from `system/thinking_tokens`
@@ -548,20 +538,7 @@ function withDrift(before: ClaudeParseState, step: Step, kind: StreamDriftKind):
 
 /** Compactions this process already emitted; a state stored before DIPO-100 emitted every one. */
 function reportedCompactions(state: ClaudeParseState): number {
-  return state.compactReported ?? Math.max(state.compactBoundaries ?? 0, state.compactHooks ?? 0);
-}
-
-/**
- * Emits the compactions only the `PostCompact` hook reported, with no `preTokens` (DIPO-106):
- * their `compact_boundary` did not come by the turn end or the exit (DIPO-100).
- */
-function flushCompactions(state: ClaudeParseState): Step {
-  const reported = reportedCompactions(state);
-  const hooks = state.compactHooks ?? 0;
-  if (hooks <= reported) return { events: [], state };
-  const events: WorkerEvent[] = [];
-  for (let index = reported; index < hooks; index++) events.push({ t: "compacted" });
-  return { events, state: { ...state, compactReported: hooks } };
+  return state.compactReported ?? state.compactBoundaries ?? 0;
 }
 
 /** Pure: one host line to Worker events (0008 section 3). */
@@ -569,26 +546,19 @@ export function interpret(line: HostLine, state: ClaudeParseState): Step {
   switch (line.ch) {
     case "stdout":
       return stdoutText(line.data, state);
-    case "hook":
-      return withDrift(state, hookLine(line.data, state, line.end ?? null), "schema");
     case "exit": {
-      // Compaction counts are per process; a hook-only compaction is reported before they reset.
-      const flushed = flushCompactions(state);
+      // Compaction counts are per process.
       const {
         compactBoundaries: _boundaries,
-        compactHooks: _hooks,
         compactReported: _reported,
         // A thinking block the process never finished is not reported.
         thinkingTokens: _thinking,
         ...rest
-      } = withoutLive(flushed.state);
+      } = withoutLive(state);
       // A turn that never ended leaves no live numbers behind (DIPO-296).
       const live = (state.liveTurns ?? 0) > 0 || (state.liveOutput ?? 0) > 0;
       return {
-        events: [
-          ...flushed.events,
-          ...(live ? [{ t: "liveUsage" as const, turns: 0, output: 0 }] : []),
-        ],
+        events: live ? [{ t: "liveUsage" as const, turns: 0, output: 0 }] : [],
         state: {
           ...rest,
           pending: "",
@@ -702,11 +672,8 @@ function readMessage(value: unknown, state: ClaudeParseState): Step {
       return init(value, state);
     case "assistant":
       return assistant(value, state);
-    case "result": {
-      // A compaction only the hook reported is due by the turn end (DIPO-100).
-      const flushed = flushCompactions(state);
-      return merge(flushed, result(value, flushed.state));
-    }
+    case "result":
+      return result(value, state);
     case "system/permission_denied": {
       const parsed = parseWith(PermissionDeniedMessage, value, state);
       if (!parsed.ok) return { events: [], state: parsed.state };
@@ -740,8 +707,6 @@ function readMessage(value: unknown, state: ClaudeParseState): Step {
       const parsed = parseWith(CompactBoundaryMessage, value, state);
       if (!parsed.ok) return { events: [], state: parsed.state };
       const boundaries = (state.compactBoundaries ?? 0) + 1;
-      // The `PostCompact` hook may have counted this compaction first (DIPO-59); it waits for this
-      // line's token count unless a turn end already reported it (DIPO-100).
       return boundaries > reportedCompactions(state)
         ? {
             events: [{ t: "compacted", preTokens: parsed.value.compact_metadata.pre_tokens }],
@@ -823,7 +788,7 @@ function init(value: unknown, state: ClaudeParseState): Step {
 
   // 0008 section 2: no API key, and the planned model or a recorded classifier switch.
   if (next.initRejected === null) {
-    const placeholder = next.placeholderKey === true && next.reportKind !== "review";
+    const placeholder = next.placeholderKey === true;
     if (msg.apiKeySource !== "none" && !placeholder) {
       next = { ...next, initRejected: `apiKeySource is ${msg.apiKeySource}, not none` };
     } else if (
@@ -934,7 +899,7 @@ const INPUT_FIELDS: Readonly<Record<string, string>> = {
 /**
  * The output line of a web call: `[web] WebFetch https://…`, the input as one line but whole. The
  * engine redacts env values from the whole line before it cuts the input as other tool inputs
- * (`WebGuard.redactOutput`), so a value across the cut leaves no part of itself behind.
+ * (`WebCalls.redactOutput`), so a value across the cut leaves no part of itself behind.
  */
 export function webLine(tool: string, input: string | undefined): string {
   const line = input === undefined ? "" : flatInput(input);
@@ -1398,74 +1363,6 @@ function rateLimit(value: unknown, state: ClaudeParseState): Step {
     next = { ...next, planLimit: next.planLimit ?? detail };
   }
   return { events, state: next };
-}
-
-/**
- * One relayed hook payload (0008 sections 3 and 5, DIPO-59): the neutral `hook` event the engine
- * acts on, plus the worker events the payload also stands for. `call` is the hook line's end
- * offset, the id of a waiting `PermissionRequest` call.
- */
-function hookLine(data: string, state: ClaudeParseState, call: number | null): Step {
-  const parsedJson = tryParse(data);
-  if (!parsedJson.ok) return { events: [], state: problem(state, "unparseable hook line") };
-  const parsed = parseWith(HookPayload, parsedJson.value, state);
-  if (!parsed.ok) return { events: [], state: parsed.state };
-  const hook = parsed.value;
-  const neutral = hookEventOf(hook, call);
-  const events: WorkerEvent[] = neutral === null ? [] : [{ t: "hook", hook: neutral }];
-  let next = state;
-  switch (neutral?.kind) {
-    case "permissionRequest":
-      // The primary permission-wait signal (0008 sections 3 and 5).
-      events.push({ t: "waiting", on: "permission", detail: neutral.tool });
-      break;
-    case "stopFailed":
-      if (hook.error === "rate_limit") {
-        events.push(
-          { t: "limit", status: "rate_limit" },
-          { t: "waiting", on: "plan-limit", detail: "StopFailure rate_limit" },
-        );
-        next = { ...next, planLimit: next.planLimit ?? "StopFailure rate_limit" };
-      }
-      break;
-    case "compacted":
-      // The same compaction as a `compact_boundary` line, in either order (DIPO-42 review). The
-      // hook has no token count, so a hook ahead of the boundaries emits nothing yet: the boundary
-      // that follows reports it with its `pre_tokens`, else the turn end or exit does (DIPO-100).
-      next = {
-        ...next,
-        compactHooks: (next.compactHooks ?? 0) + 1,
-        compactReported: reportedCompactions(next),
-      };
-      break;
-    case "modelSwitched": {
-      const switched = hookModelSwitch(next, neutral.to, neutral.from);
-      events.push(...switched.events);
-      next = switched.state;
-      break;
-    }
-    default:
-      break;
-  }
-  return { events, state: next };
-}
-
-/**
- * A `PostModelSwitch` hook, deduplicated against the `system/init` and `modelUsage` paths
- * (DIPO-42 review): with a planned model, as a recorded classifier switch; without one, only when
- * the stream has not shown the model yet.
- */
-function hookModelSwitch(state: ClaudeParseState, to: string, from: string | undefined): Step {
-  if (state.plannedModel !== null) return acceptSwitch(state, to, from);
-  if (state.model === to || state.models.includes(to)) return { events: [], state };
-  return {
-    events: [{ t: "modelSwitched", from: from ?? state.model ?? to, to }],
-    state: {
-      ...state,
-      ...(state.started ? { model: to } : {}),
-      models: remember(state.models, to),
-    },
-  };
 }
 
 /** `interpret` plus a log line for each message type seen for the first time in this run. */

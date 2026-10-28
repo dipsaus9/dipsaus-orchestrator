@@ -15,8 +15,7 @@
 // route or reused, and mounted read-only; Apple `container` mounts only a cache under that folder.
 // Each image's box network tools (DIPO-281) are kept under `<state>/BOX_NET_TOOLS_DIR` and mounted
 // read-only into every box of the image; Apple `container` mounts only tools under that folder.
-// The web guard and each reviewer's web proxy read the box network's host address from the box
-// workers, live (DIPO-281).
+// Each review session runs in a reviewer box of its own, made and deleted by the box workers (0002).
 
 import { realpathSync, rmSync } from "node:fs";
 import { isAbsolute, join } from "node:path";
@@ -73,7 +72,6 @@ import {
   startModelProxy,
   partStageRoot,
   sweepPartStages,
-  sweepReviewFolders,
   sweepTokenCheckLeftovers,
   systemIsExecutable,
   systemListenHttp,
@@ -114,7 +112,6 @@ import {
   runLaunchPaths,
   runWorkerSpec,
   type IngestAdapter,
-  Nudges,
   type PartRun,
   type SyncOutcome,
   type BranchPush,
@@ -251,8 +248,6 @@ export interface DaemonRuns {
   readonly resumption: Resumption;
   /** The permission wait and `work.answer` (DIPO-59). */
   readonly permissions: PermissionAsks;
-  /** The 0014 section 8 nudges (DIPO-60). */
-  readonly nudges: Nudges;
   /** Re-attach of worker hosts after a restart (DIPO-57), a recovery step after reconcile. */
   readonly reattacher: RunReattacher;
   /**
@@ -287,11 +282,6 @@ export interface DaemonRuns {
   finishEndedBoxes(options?: { readonly listBoxes?: boolean }): Promise<void>;
   /** Stops the minute tick of the box passes (DIPO-278), at daemon stop. */
   stopBoxPasses(): void;
-  /**
-   * Removes the folder of every reviewer session whose host no longer runs (DIPO-276), with its
-   * read-only copy of the pushed commit: at daemon start by the recovery step. Never rejects.
-   */
-  sweepReviewFolders(): Promise<string[]>;
   /**
    * The fix rounds' recovery (DIPO-148), at daemon start: a round whose session started before the
    * stop is marked delivered, and every run that ended reviewed gets its round decided. Returns how
@@ -371,26 +361,6 @@ export function boxRunEnded(
     );
   }
   return null;
-}
-
-/**
- * True when run `runId` has a worker host of `agent` that has not exited in a loaded office: a
- * reviewer session whose read-only copy stays (DIPO-276).
- */
-export function reviewHostRuns(
-  offices: Pick<DaemonRunsOptions["offices"], "loadedOffices" | "get">,
-  runId: string,
-  agent: string,
-  hosts: (handle: OfficeHandle, runId: string) => ReturnType<typeof workerHostsOf> = workerHostsOf,
-): boolean {
-  for (const office of offices.loadedOffices()) {
-    const handle = offices.get(office);
-    if (handle === undefined) continue;
-    if (hosts(handle, runId).some((host) => host.agentId === agent && !hostExited(host))) {
-      return true;
-    }
-  }
-  return false;
 }
 
 /**
@@ -923,8 +893,6 @@ export function daemonRuns(options: DaemonRunsOptions): DaemonRuns {
     home,
     env,
     holds: options.holds,
-    // A reviewer's run settings hooks run this binary (DIPO-59).
-    dipoCommand: selfCommand(),
     ...(boxWorkers === null ? {} : { boxes: boxWorkers }),
   });
   const worker = options.workerPort === undefined ? claude : options.workerPort(claude);
@@ -1105,8 +1073,8 @@ export function daemonRuns(options: DaemonRunsOptions): DaemonRuns {
       void finishEndedBoxes();
     },
     ...(boxWorkers === null ? {} : { boxes: boxWorkers }),
-    // The box network's host address, live, for the web guard and each reviewer's web proxy.
-    ...(boxWorkers === null ? {} : { boxHostAddress: () => boxWorkers.hostAddress }),
+    // Each review session runs in a read-only box of its own (0002).
+    ...(boxWorkers === null ? {} : { reviewBoxes: boxWorkers }),
     // The merges dipo made on a box run's branch outside the box reach its box before the worker's next
     // session (DIPO-324): the box is started, the files copied in as a catch-up's are.
     boxSync: async (office, run) => {
@@ -1222,7 +1190,6 @@ export function daemonRuns(options: DaemonRunsOptions): DaemonRuns {
     outcomes,
     resumption,
     permissions,
-    nudges,
     reattacher,
     startsPaused,
     places,
@@ -1260,7 +1227,6 @@ export function daemonRuns(options: DaemonRunsOptions): DaemonRuns {
     outcomes,
     resumption,
     permissions,
-    nudges,
     reattacher,
     startsPaused,
     places,
@@ -1277,10 +1243,6 @@ export function daemonRuns(options: DaemonRunsOptions): DaemonRuns {
       }
       return queued;
     },
-    sweepReviewFolders: () =>
-      sweepReviewFolders(realDir(options.tmpRoot), (runId, agent) =>
-        reviewHostRuns(options.offices, runId, agent),
-      ),
     // The auto-merge's ports (0002): its conflicts and the maintainer's rejects go through the fix
     // rounds, and its conflict merges are recorded as DIPO-149's catch-ups are.
     merge: {

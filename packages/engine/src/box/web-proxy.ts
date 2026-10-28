@@ -44,17 +44,8 @@
 // port, under the address rule, and reads each tunnel's TLS handshake as a box's direct tunnel is
 // read. No other box reaches it: their firewall passes only the box listener's port.
 //
-// The reviewer has no box and fetches from the Mac (0021 section 10), so it gets a listener of its
-// own (DIPO-292, `startReviewWebProxy`): the same proxy and the same address rule, on the loopback
-// interface only and on a port the system picks, for the length of one review session. Its
-// `HTTPS_PROXY` and `HTTP_PROXY` name it, so each web fetch, and each redirect the fetch follows
-// (a new connection), tunnels through it and is checked at connect time on the address used. It
-// has no Safe-Chain behind it: a reviewer installs nothing, so a registry name is a host like any
-// other there, under the address rule, and its tunnels are not read. It reaches no local port. Its
-// rule refuses the box network as the web guard's does: by the box network's host address the
-// caller names (read for each check, as the guard reads it), when a box network exists. Without
-// one, the Mac's own addresses and on-link prefixes are still refused, so a box network that
-// exists on an interface of the Mac is refused by its prefix.
+// A reviewer runs in a box of its own (0002) and goes out through this proxy like any box, with no
+// local port of the Mac admitted.
 //
 // Known gaps:
 // - Domain fronting on a shared CDN: a request inside a TLS session to a harmless name on the
@@ -98,10 +89,8 @@ export const WEB_PROXY_LIMITS = {
   /** A tunnel with no traffic either way for this long is closed. */
   idleTimeoutMs: 10 * 60_000,
 } as const;
-/** The loopback address: where the reviewer's web proxy listens. */
+/** The loopback address: where the Mac's listed local ports are reached (DIPO-282). */
 const LOOPBACK = "127.0.0.1";
-/** Where a reviewer session's web proxy listens (DIPO-292): the loopback interface only. */
-export const REVIEW_WEB_PROXY_HOST = LOOPBACK;
 
 // ---------------------------------------------------------------------------------------------
 // The address rule.
@@ -846,10 +835,10 @@ export interface BoxWebProxyDeps {
 }
 
 export interface RunningBoxWebProxy {
-  /** The address it listens on: the box network's host address (loopback for a reviewer). */
+  /** The address it listens on: the box network's host address. */
   readonly host: string;
   readonly port: number;
-  /** The proxy URL a box's `https_proxy` (or a reviewer's `HTTPS_PROXY`) names. */
+  /** The proxy URL a box's `https_proxy` names. */
   readonly url: string;
   /** Closes the port and destroys every open connection. */
   stop(): Promise<void>;
@@ -1057,38 +1046,6 @@ export function startSafeChainUpstreamProxy(
   );
 }
 
-export interface ReviewWebProxyOptions {
-  /** Caps and idle timeout; each one left out takes its `WEB_PROXY_LIMITS` value. */
-  readonly limits?: BoxWebProxyOptions["limits"];
-  /**
-   * The box network's host address when a box network exists, else null; read for each check.
-   * The source the web guard reads (`FetchAddressDeps.boxHostAddress`); none by default.
-   */
-  readonly boxHostAddress?: () => string | null;
-}
-
-/**
- * Starts the web proxy of one reviewer session (DIPO-292, file comment): on the loopback interface
- * only, on a port the system picks, with no Safe-Chain behind it, refusing the box network named by
- * `options.boxHostAddress`. The caller stops it when the session ends.
- */
-export function startReviewWebProxy(
-  deps: BoxWebProxyDeps,
-  options: ReviewWebProxyOptions = {},
-): Promise<RunningBoxWebProxy> {
-  return startWebProxy(
-    {
-      listenHost: REVIEW_WEB_PROXY_HOST,
-      boxHostAddress: options.boxHostAddress ?? (() => null),
-      kind: "review",
-      port: 0,
-      limits: options.limits ?? {},
-      admissions: null,
-    },
-    deps,
-  );
-}
-
 /** Where one listener of the web proxy listens and what its address rule knows. */
 interface WebProxyListener {
   readonly listenHost: string;
@@ -1096,14 +1053,13 @@ interface WebProxyListener {
   readonly boxHostAddress: () => string | null;
   /**
    * Whose listener it is. A box's sends registry tunnels to the Safe-Chain box, refuses other
-   * names of a registry and reads what a box sends into each direct tunnel (DIPO-281). A
-   * reviewer's has no Safe-Chain: a registry is a host like others there. Safe-Chain's own
-   * (`upstream`, DIPO-343) takes only the Safe-Chain box and reaches only the hosts it checks.
+   * names of a registry and reads what a box sends into each direct tunnel (DIPO-281).
+   * Safe-Chain's own (`upstream`, DIPO-343) takes only the Safe-Chain box and reaches only the
+   * hosts it checks.
    */
   readonly kind:
     | { readonly box: () => SafeChainTarget | null }
-    | { readonly upstream: () => string | null }
-    | "review";
+    | { readonly upstream: () => string | null };
   readonly port: number;
   readonly limits: NonNullable<BoxWebProxyOptions["limits"]>;
   /** The boxes and their listed local ports (DIPO-282); null: no local port is reachable. */
@@ -1115,8 +1071,8 @@ async function startWebProxy(
   deps: BoxWebProxyDeps,
 ): Promise<RunningBoxWebProxy> {
   const { listenHost, kind, admissions } = options;
-  const safeChain = typeof kind === "object" && "box" in kind ? kind.box : null;
-  const upstreamSource = typeof kind === "object" && "upstream" in kind ? kind.upstream : null;
+  const safeChain = "box" in kind ? kind.box : null;
+  const upstreamSource = "upstream" in kind ? kind.upstream : null;
   const parsed = parseAddress(listenHost);
   if (
     parsed === null ||

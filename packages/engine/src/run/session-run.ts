@@ -184,7 +184,6 @@ export class SessionRuns implements ScanSessionRunner {
       tools: { allow: [], deny: [] },
       session: { id: sessionUuid(agent), resume: false },
       reportSchema: request.schema,
-      hookRelay: false,
     };
     try {
       ensurePrivateDir(paths.runDir);

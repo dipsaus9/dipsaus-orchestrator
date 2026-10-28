@@ -322,8 +322,6 @@ export function runWorkerSpec(
     workdir: paths.workdir,
     systemFile: join(paths.runDir, reviewer === undefined ? SYSTEM_FILE : REVIEW_SYSTEM_FILE),
     taskMessage,
-    // The adapter relays its hooks to the worker host (0008 section 5, DIPO-59).
-    hookRelay: true,
   };
   if (reviewer !== undefined) {
     return {

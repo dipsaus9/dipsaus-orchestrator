@@ -1,9 +1,9 @@
-// The Claude CLI launch plan of a reviewer session on the Mac (0008 section 2, 0019 section 4, 0021
-// section 10). A developer session is never planned here (DIPO-240): it runs only in its box, with
-// no run settings file, Bash sandbox, permission rules or hooks (`box-plan.test.ts`). The
-// reviewer's own tools, copy and web proxy are `review-tools.test.ts`; this file holds the rest of
-// the plan: the refusal of a developer, argv, the allowlisted environment, the credential denies,
-// srt's closed default write paths (DIPO-98), the hooks and the path checks.
+// The Claude CLI launch plan on the Mac, which is only a `session`'s (DIPO-310). A developer or
+// reviewer session is never planned here (DIPO-240, DIPO-347): each runs only in a box, with no run
+// settings file, Bash sandbox, permission rules or hooks (`box-plan.test.ts`). The session's own
+// tools and settings are `session-plan.test.ts`; this file holds the rest of the plan: the refusal
+// of a developer and a reviewer, argv, the allowlisted environment, the credential denies, srt's
+// closed default write paths (DIPO-98) and the path checks.
 
 import { describe, expect, it } from "bun:test";
 import { OFFICE_DEFAULTS } from "../../src/config";
@@ -11,6 +11,7 @@ import {
   CLOSED_WRITES_FILE,
   closedWritePaths,
   DEVELOPER_ON_MAC_REFUSED,
+  REVIEWER_ON_MAC_REFUSED,
   EMPTY_MCP_CONFIG_FILE,
   plan,
   REPORT_SCHEMA_FILE,
@@ -19,11 +20,6 @@ import {
   SRT_DEFAULT_WRITE_PATHS,
 } from "../../src/workers/claude-cli/plan";
 import type { ClaudeLaunchContext } from "../../src/workers/claude-cli/plan";
-import {
-  GATE_CRASH_EXIT,
-  HOOK_BUNFIG_FILE,
-  REGISTERED_HOOKS,
-} from "../../src/workers/claude-cli/hooks";
 import {
   REVIEW_REPORT_JSON_SCHEMA,
   WORKER_REPORT_JSON_SCHEMA,
@@ -35,25 +31,22 @@ const TASK = "<story>DIPO-999 Add a greeting</story>\n<outcome>The CLI prints he
 const API_KEY = "sk-ant-api03-not-a-real-key";
 const HOME = "/home/maintainer";
 const RUN_DIR = "/home/maintainer/code/shop/.git/dipo/runs/run-0001";
-const SESSION_DIR = "/tmp/dipo-review-run-0001-agt-0001/session";
-const COPY = "/tmp/dipo-review-run-0001-agt-0001/dipo-box-code-abc123/code";
+const SESSION_DIR = "/tmp/dipo-scan-run-0001-agt-0001/session";
 
 function spec(overrides: Partial<WorkerSpec> = {}): WorkerSpec {
   return {
     run: "run-0001",
     agent: "agt-0001",
-    kind: "review",
+    kind: "session",
     workdir: SESSION_DIR,
-    readOnlyDir: COPY,
     model: "opus",
     effort: "high",
     caps: { budgetTokens: 200_000, maxTurns: 60, maxMinutes: 30 },
     systemFile: `${RUN_DIR}/system-review.md`,
     taskMessage: TASK,
-    tools: { allow: ["Read", "Glob", "Grep"], deny: [] },
+    tools: { allow: [], deny: [] },
     session: { id: "0e6f3f4c-5b8d-4c1e-9a2b-3c4d5e6f7a8b", resume: false },
     reportSchema: REVIEW_REPORT_JSON_SCHEMA,
-    hookRelay: true,
     ...overrides,
   };
 }
@@ -83,10 +76,8 @@ function context(overrides: Partial<ClaudeLaunchContext> = {}): ClaudeLaunchCont
     toolVariables: ["JAVA_HOME"],
     mainCheckout: "/home/maintainer/code/shop",
     runDir: RUN_DIR,
-    hostSocket: "/home/maintainer/.dipo/run/hosts/run-0001.sock",
     tmpDir: "/tmp/claude-501",
     shortTmpDir: SHORT_TMP,
-    hookCommand: ["/opt/dipo/bin/dipo"],
     sandbox: OFFICE_DEFAULTS.sandbox,
     ...overrides,
   };
@@ -116,8 +107,8 @@ function flag(launch: LaunchPlan, name: string): string | undefined {
   return index === -1 ? undefined : launch.argv[index + 1];
 }
 
-describe("a developer session on the Mac (DIPO-240)", () => {
-  it("is never planned: it runs only in its box", () => {
+describe("a developer or reviewer session on the Mac (DIPO-240, DIPO-347)", () => {
+  it("never plans a developer: it runs only in its box", () => {
     const developer = spec({
       kind: "implement",
       workdir: "/home/maintainer/code/shop.worktrees/DIPO-999",
@@ -125,11 +116,19 @@ describe("a developer session on the Mac (DIPO-240)", () => {
       reportSchema: WORKER_REPORT_JSON_SCHEMA,
       systemFile: `${RUN_DIR}/system.md`,
     });
-    const { readOnlyDir: _copy, ...withoutCopy } = developer;
-    expect(() => plan(withoutCopy, context())).toThrow(DEVELOPER_ON_MAC_REFUSED);
+    expect(() => plan(developer, context())).toThrow(DEVELOPER_ON_MAC_REFUSED);
     expect(() =>
-      plan({ ...withoutCopy, session: { ...developer.session, resume: true } }, context()),
+      plan({ ...developer, session: { ...developer.session, resume: true } }, context()),
     ).toThrow(PlanError);
+  });
+
+  it("never plans a reviewer: it runs only in a read-only box of its own (0002)", () => {
+    const reviewer = spec({
+      kind: "review",
+      workdir: "/home/maintainer/code/shop.worktrees/DIPO-999",
+      tools: { allow: ["Read", "Glob", "Grep", "WebSearch", "WebFetch"], deny: [] },
+    });
+    expect(() => plan(reviewer, context())).toThrow(REVIEWER_ON_MAC_REFUSED);
   });
 
   it("type-checks an unknown kind and refuses it naming the kind", () => {
@@ -137,7 +136,7 @@ describe("a developer session on the Mac (DIPO-240)", () => {
   });
 });
 
-describe("the reviewer's plan", () => {
+describe("a session's plan", () => {
   it("starts with the absolute claude path and passes the 0008 flags", () => {
     const launch = plan(spec(), context());
     expect(launch.argv[0]).toBe("/home/maintainer/.local/bin/claude");
@@ -209,7 +208,6 @@ describe("the reviewer's plan", () => {
     expect(sandbox.credentials.envVars.map((variable) => variable.name)).toContain("GH_TOKEN");
     expect(sandbox.filesystem.allowWrite).toEqual(["/tmp/claude-501", SHORT_TMP]);
     expect(sandbox.filesystem.denyWrite).toContain(SESSION_DIR);
-    expect(sandbox.filesystem.denyWrite).toContain(COPY);
     expect(sandbox.network).toEqual({
       allowedDomains: [],
       strictAllowlist: true,
@@ -222,49 +220,7 @@ describe("the reviewer's plan", () => {
   });
 });
 
-describe("the reviewer's hooks (DIPO-59, DIPO-164, DIPO-240)", () => {
-  it("registers the relay hooks with the binary's own path, with no Bash check and no permission relay", () => {
-    const hooks = settingsOf(plan(spec(), context()))["hooks"] as Record<string, unknown>;
-    expect(Object.keys(hooks)).toEqual(REGISTERED_HOOKS.filter((event) => event !== "PreToolUse"));
-    expect(Object.keys(hooks)).not.toContain("PermissionRequest");
-    const text = JSON.stringify(hooks);
-    expect(text).toContain("'/opt/dipo/bin/dipo' hook Stop");
-    expect(text).not.toContain("--bash");
-    expect(text).not.toContain("--wait");
-  });
-
-  it("registers the fail-closed web gate only with the web tools", () => {
-    const web = spec({
-      tools: { allow: ["Read", "WebSearch", "WebFetch"], deny: [] },
-      webProxy: "http://127.0.0.1:4100",
-    });
-    const hooks = settingsOf(plan(web, context()))["hooks"] as Record<
-      string,
-      { matcher?: string; hooks: { command: string }[] }[]
-    >;
-    expect(hooks["PreToolUse"]).toHaveLength(1);
-    expect(hooks["PreToolUse"]?.[0]?.matcher).toBe("WebFetch|WebSearch");
-    expect(hooks["PreToolUse"]?.[0]?.hooks[0]?.command).toEndWith(GATE_CRASH_EXIT);
-  });
-
-  it("refuses the relay without a hook command or with one inside the session folder or the copy", () => {
-    const { hookCommand: _command, ...without } = context();
-    expect(() => plan(spec(), without)).toThrow(/needs the dipo command/);
-    expect(() => plan(spec(), context({ hookCommand: [`${SESSION_DIR}/dipo`] }))).toThrow(
-      /outside the worktree/,
-    );
-    expect(() => plan(spec(), context({ hookCommand: [`${COPY}/dipo`] }))).toThrow(
-      /outside the review copy/,
-    );
-  });
-
-  it("starts Bun from source with an empty config file in the run directory", () => {
-    const launch = plan(spec(), context({ hookCommand: ["/usr/local/bin/bun", "/src/cli.ts"] }));
-    expect(launch.files.map((file) => file.name)).toContain(HOOK_BUNFIG_FILE);
-  });
-});
-
-describe("the reviewer's plan refuses paths it cannot use", () => {
+describe("a session's plan refuses paths it cannot use", () => {
   it("refuses a session id that is not a UUID, and a model that would read as a flag", () => {
     expect(() => plan(spec({ session: { id: "nope", resume: false } }), context())).toThrow(/UUID/);
     expect(() => plan(spec({ model: "--dangerous" }), context())).toThrow(
@@ -280,10 +236,10 @@ describe("the reviewer's plan refuses paths it cannot use", () => {
 
   it("refuses a run dir or system file inside the session folder", () => {
     expect(() => plan(spec(), context({ runDir: `${SESSION_DIR}/run` }))).toThrow(
-      /must lie outside the worktree/,
+      /must lie outside the session's folder/,
     );
     expect(() => plan(spec({ systemFile: `${SESSION_DIR}/system.md` }), context())).toThrow(
-      /must lie outside the worktree/,
+      /must lie outside the session's folder/,
     );
   });
 
@@ -291,19 +247,18 @@ describe("the reviewer's plan refuses paths it cannot use", () => {
     expect(() => plan(spec(), context({ mainCheckout: "/home/maintainer/code/sh*p" }))).toThrow(
       /meaning in permission rules/,
     );
-    expect(() => plan(spec({ workdir: "/tmp/dipo-review-[x]/session" }), context())).toThrow(
+    expect(() => plan(spec({ workdir: "/tmp/dipo-scan-[x]/session" }), context())).toThrow(
       PlanError,
     );
   });
 
   it("refuses a session folder or temp directory that is the root or holds home", () => {
-    // The copy lies under / too, so the root is refused either way.
     expect(() => plan(spec(), context({ tmpDir: "/" }))).toThrow(PlanError);
     expect(() => plan(spec(), context({ tmpDir: "/home" }))).toThrow(/hold the home directory/);
   });
 });
 
-describe("the reviewer's plan closes srt's default write paths (DIPO-98)", () => {
+describe("a session's plan closes srt's default write paths (DIPO-98)", () => {
   const CLOSED = [
     "/home/maintainer/.claude/debug",
     "/home/maintainer/.npm/_logs",
@@ -335,10 +290,8 @@ describe("the reviewer's plan closes srt's default write paths (DIPO-98)", () =>
     for (const dir of ["/tmp/claude", "/tmp/claude/run-1", "/private/tmp/claude/x"]) {
       expect(() => plan(spec(), context({ tmpDir: dir }))).toThrow(/may not write/);
     }
-    // A copy outside /tmp, so the temp directory's own check speaks.
-    const elsewhere = spec({ readOnlyDir: "/var/dipo-review/code" });
     for (const dir of ["/tmp", "/private/tmp", "/private"]) {
-      expect(() => plan(elsewhere, context({ tmpDir: dir }))).toThrow(/must not hold/);
+      expect(() => plan(spec(), context({ tmpDir: dir }))).toThrow(/must not hold/);
     }
     expect(() => plan(spec(), context({ tmpDir: "/tmp/claude-501" }))).not.toThrow();
   });

@@ -139,7 +139,7 @@
         },
         "web": {
           "type": "boolean",
-          "description": "Whether the developer role gets WebSearch and WebFetch (0020 section 11b). Every call shows in the worker output and is counted on the run outcome, and a PreToolUse hook refuses a URL or query that holds a value from the copied env files, and a WebFetch whose host is not on the public internet (an IP address, or a name that resolves to this Mac, its local network or another non-public range). The Bash sandbox network stays closed. With false the developer keeps the M0 tool list. The key does not apply to the reviewer, which always has WebSearch and WebFetch under the same checks (0021 section 10)."
+          "description": "Whether the developer role gets WebSearch and WebFetch (0020 section 11b). Every call shows in the worker output and is counted on the run outcome; the box's web traffic goes through dipo's web proxy (0008). With false the developer keeps the M0 tool list. The key does not apply to the reviewer, which always has WebSearch and WebFetch in its reviewer box (0002)."
         }
       },
       "additionalProperties": false

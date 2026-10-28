@@ -24,10 +24,10 @@ import {
 import { PlanError } from "../../src/workers/types";
 import {
   BUILTIN_PLUGINS,
+  context,
   HOME,
   initPlugin,
-  reviewContext,
-  reviewSpec,
+  sessionSpec,
   withBuiltinPlugins,
   withInitPlugins,
 } from "./launch-fixtures";
@@ -53,9 +53,9 @@ function files(entries: Record<string, string>, dirs: Record<string, string[]> =
   return { read: (path) => entries[path], dirs: (path) => dirs[path] ?? [] };
 }
 
-/** The run settings of a reviewer's plan, the one session dipo plans on the Mac (DIPO-240). */
-function settingsOf(ctx: ReturnType<typeof reviewContext>): Record<string, unknown> {
-  const file = plan(reviewSpec(), ctx).files.find((entry) => entry.name === SETTINGS_FILE);
+/** The run settings of a `session`'s plan, the one session dipo plans on the Mac (DIPO-240, DIPO-347). */
+function settingsOf(ctx: ReturnType<typeof context>): Record<string, unknown> {
+  const file = plan(sessionSpec(), ctx).files.find((entry) => entry.name === SETTINGS_FILE);
   return JSON.parse(file?.content ?? "{}") as Record<string, unknown>;
 }
 
@@ -172,9 +172,9 @@ describe("(unit) the run settings switch plugins off", () => {
     expect(enabledPluginsSetting([], [WARP])).toEqual({});
   });
 
-  it("writes the block into a reviewer's claude-settings.json, switching off every plugin whatever worker.plugins names", () => {
+  it("writes the block into a session's claude-settings.json, switching off every plugin whatever worker.plugins names", () => {
     const settings = settingsOf(
-      reviewContext({
+      context({
         plugins: { installed: [LEARNING, WARP, "engineering@synced"], allowed: [WARP] },
       }),
     );
@@ -184,23 +184,23 @@ describe("(unit) the run settings switch plugins off", () => {
       "engineering@synced": false,
     });
     expect(
-      settingsOf(reviewContext({ plugins: { installed: [], allowed: [] } }))["enabledPlugins"],
+      settingsOf(context({ plugins: { installed: [], allowed: [] } }))["enabledPlugins"],
     ).toEqual({});
   });
 
   it("writes no block when the context carries no plugin lists (the recordings capture)", () => {
-    expect("enabledPlugins" in settingsOf(reviewContext())).toBe(false);
+    expect("enabledPlugins" in settingsOf(context())).toBe(false);
   });
 
   it("refuses the plan when the plugin list could not be read", () => {
-    const ctx = reviewContext({
+    const ctx = context({
       plugins: {
         installed: { error: "cannot read Claude Code's plugin list /x: boom" },
         allowed: [],
       },
     });
-    expect(() => plan(reviewSpec(), ctx)).toThrow(PlanError);
-    expect(() => plan(reviewSpec(), ctx)).toThrow("cannot switch Claude Code plugins off");
+    expect(() => plan(sessionSpec(), ctx)).toThrow(PlanError);
+    expect(() => plan(sessionSpec(), ctx)).toThrow("cannot switch Claude Code plugins off");
   });
 });
 

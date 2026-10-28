@@ -83,6 +83,7 @@ import { BACKLOG_FIXTURE, type OfficeSetup, officeSetup, resultOf, send } from "
 import { ROOMY } from "../worktree/helpers";
 import { withBuiltinPlugins, withoutSkills } from "../workers/launch-fixtures";
 import { loadRecording } from "../workers/replay";
+import { stubReviewBoxes } from "./review-boxes";
 
 export const CLAUDE = "/opt/claude/bin/claude";
 export const BRANCH = "TASK-1/add-the-csv-export-command";
@@ -102,7 +103,6 @@ const ctxOf = (paths: RunLaunchPaths, config: OfficeConfig) =>
       claudePath: CLAUDE,
       home: "/home/maintainer",
       env: { PATH: "/usr/bin:/bin" },
-      dipoCommand: ["/opt/dipo/bin/dipo"],
       pluginFiles: { read: () => undefined, dirs: () => [] },
     },
     paths,
@@ -438,6 +438,8 @@ export async function withRunOffice(
         tmpRoot,
         ...(tempDirs === null ? {} : { tempOwner: () => tempDirs.owner() }),
         release: (office, claim, reason) => claims.releaseUnstarted(office, claim, reason),
+        // Each review session's box is a stand-in: the replayed reviewer needs none (0002).
+        reviewBoxes: stubReviewBoxes(),
         ...(tempDirs === null ? {} : { afterExit: sweep }),
         ingest: {
           pricing: () => null,

@@ -1,7 +1,7 @@
 // The worker host, `dipo daemon worker-host <run-id>` (0006 decision 8, 0008 section 1). It reads
 // `launch.json` from its run directory, writes the plan's files, binds
 // `<runtime>/hosts/<run-id>.sock`, starts the worker through the injected `Spawn`, writes the
-// first stdin lines and appends every stdout and stderr line, hook payload and the exit to
+// first stdin lines and appends every stdout and stderr line and the exit to
 // `events.ndjson`. When the worker exits it cancels delayed signals, kills the worker's process
 // group so no child of the worker outlives the run, writes `exit.json` and returns.
 //
@@ -13,17 +13,10 @@
 // process running in the box. Its plan carries a stop command (`container stop <box>`), which the
 // host runs once: when it first sends the worker SIGTERM or SIGKILL, or after the worker exited.
 //
-// Hook relay (0008 section 5, DIPO-59): `dipo hook <event>` sends the payload with the `hook` op;
-// the host appends it as a `hook` line. A call with `waitMs` is held under its line's end offset
-// until the engine answers it with `hookReply`, `waitMs` passes, the worker exits, or no engine
-// watches the host any more; while no engine watches (the daemon is down) it is answered at once
-// with no output. The host never decides anything about a hook: no output means no decision.
-//
 // It holds no engine logic: no budgets, gates, git or database (a lint rule keeps those imports
 // out of `host/`). Time comes from the injected clock and the process from the injected spawn, so
 // tests run it in-process with a fake process; only the detach test needs a real one.
 
-import { timingSafeEqual } from "node:crypto";
 import { chmodSync, existsSync, readFileSync, renameSync, rmSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 
@@ -172,41 +165,6 @@ interface Client {
   readonly connection: LineConnection;
   version: number | null;
   watching: boolean;
-  /** It presented the engine's token in its hello (DIPO-59). */
-  engine: boolean;
-}
-
-/** A hook call waiting for the engine's reply, held under its line's end offset. */
-interface PendingHook {
-  readonly client: Client;
-  /** The `hook` op's request id, which the reply answers. */
-  readonly id: number;
-  readonly timer: TimerHandle;
-  readonly waitMs: number;
-}
-
-/** Why the host answered a call that carries `waitMs` with no output before the wait passed. */
-export type EarlyAnswer =
-  | "host-not-running"
-  | "no-engine-watching"
-  | "engine-connection-closed"
-  | "worker-exited";
-
-/** Compares a presented token with the launch's in constant time. */
-function tokenMatches(presented: string | undefined, token: string): boolean {
-  if (presented === undefined) return false;
-  const a = Buffer.from(presented);
-  const b = Buffer.from(token);
-  return a.byteLength === b.byteLength && timingSafeEqual(a, b);
-}
-
-/** A hook payload as one compact JSON line when it parses, else the text as given. */
-function hookLineData(payload: string): string {
-  try {
-    return JSON.stringify(JSON.parse(payload));
-  } catch {
-    return payload.trim();
-  }
 }
 
 export class WorkerHost {
@@ -222,12 +180,6 @@ export class WorkerHost {
   readonly #events: EventLog;
   readonly #startedAt: number;
   readonly #clients = new Set<Client>();
-  readonly #pendingHooks = new Map<number, PendingHook>();
-  /**
-   * The engine's secret from `launch.json` (DIPO-59), null for a launch without one. Only a
-   * connection that presented it answers hook calls and counts as the engine watching.
-   */
-  readonly #token: string | null;
   #server: LineServer | null = null;
   #child: ChildProcess | null = null;
   #steering: Steering | null = null;
@@ -249,7 +201,6 @@ export class WorkerHost {
     this.runId = options.runId;
     this.runDir = options.runDir;
     this.socketPath = launch.socket;
-    this.#token = launch.token ?? null;
     this.#hostLog = hostLog;
     this.#logger = createLogger({
       clock: options.clock,
@@ -314,24 +265,6 @@ export class WorkerHost {
     steering.apply({ signal: "SIGTERM" });
     steering.apply({ signal: "SIGKILL", afterMs: TERM_KILL_AFTER_MS });
     return true;
-  }
-
-  /**
-   * Appends a hook payload as a `hook` line (0008 section 5); `dipo hook` reaches it through the
-   * `hook` op. Returns the line's end offset, the id a waiting call is held under, or null when
-   * the host has stopped.
-   */
-  relayHook(payload: unknown): number | null {
-    if (this.#state === "exited") return null;
-    return this.#append(
-      "hook",
-      typeof payload === "string" ? hookLineData(payload) : JSON.stringify(payload),
-    );
-  }
-
-  /** Hook calls waiting for the engine's reply, by id. */
-  get pendingHooks(): readonly number[] {
-    return [...this.#pendingHooks.keys()];
   }
 
   status(): HostStatus {
@@ -549,8 +482,6 @@ export class WorkerHost {
     this.#state = "exiting";
     this.#offTerminate?.();
     this.#offTerminate = null;
-    // A hook call still waiting gets no decision: the worker it asked for has gone.
-    this.#answerAllHooks("", "worker-exited");
     const inferred = exit.signalInferred === true ? { signalInferred: true } : {};
     this.#append("exit", JSON.stringify({ code: exit.code, signal: exit.signal, ...inferred }));
     const record: HostExitFile = {
@@ -575,94 +506,14 @@ export class WorkerHost {
   }
 
   #accept(connection: LineConnection): { line(text: string): void; closed(): void } {
-    const client: Client = { connection, version: null, watching: false, engine: false };
+    const client: Client = { connection, version: null, watching: false };
     this.#clients.add(client);
     return {
       line: (text) => this.#frame(client, text),
       closed: () => {
         this.#clients.delete(client);
-        for (const [hook, pending] of this.#pendingHooks) {
-          if (pending.client !== client) continue;
-          this.#options.clock.clearTimeout(pending.timer);
-          this.#pendingHooks.delete(hook);
-        }
-        // The last engine stopped watching (the daemon is down): nobody will answer, so every
-        // waiting call gets no decision now.
-        if (client.watching && this.#isEngine(client) && !this.#watched()) {
-          this.#answerAllHooks("", "engine-connection-closed");
-        }
       },
     };
-  }
-
-  /** The engine's connection: it presented the token; any connection when the launch had none. */
-  #isEngine(client: Client): boolean {
-    return this.#token === null || client.engine;
-  }
-
-  /** True while an engine watches this host. */
-  #watched(): boolean {
-    for (const client of this.#clients) if (client.watching && this.#isEngine(client)) return true;
-    return false;
-  }
-
-  /** Answers the waiting hook call `hook` with `output`; false when none waits under that id. */
-  #answerHook(hook: number, output: string, early?: EarlyAnswer): boolean {
-    const pending = this.#pendingHooks.get(hook);
-    if (pending === undefined) return false;
-    if (early !== undefined) this.#logEarly(early, hook, pending.waitMs);
-    this.#pendingHooks.delete(hook);
-    this.#options.clock.clearTimeout(pending.timer);
-    this.#send(pending.client, { kind: "reply", id: pending.id, ok: true, result: { output } });
-    return true;
-  }
-
-  #answerAllHooks(output: string, early?: EarlyAnswer): void {
-    // A Map iterates safely while `#answerHook` deletes the entry it answered.
-    for (const hook of this.#pendingHooks.keys()) this.#answerHook(hook, output, early);
-  }
-
-  /** Records, in `host.log`, that a waiting call was answered with no output before its wait passed. */
-  #logEarly(reason: EarlyAnswer, hook: number | null, waitMs: number): void {
-    this.#logger.info("a hook call with a wait was answered early with no output", {
-      reason,
-      hook,
-      waitMs,
-    });
-  }
-
-  /** The `hook` op: append the payload, then answer at once or hold the call (file comment). */
-  #hook(client: Client, id: number, payload: string, waitMs: number | undefined): void {
-    const answer = (output: string) =>
-      this.#send(client, { kind: "reply", id, ok: true, result: { output } });
-    const hook = this.relayHook(payload);
-    const waits = waitMs !== undefined && waitMs > 0;
-    if (hook === null) {
-      if (waits) this.#logEarly("host-not-running", null, waitMs);
-      answer("");
-      return;
-    }
-    if (!waits) {
-      answer("");
-      return;
-    }
-    if (this.#state !== "running" || !this.#watched()) {
-      this.#logEarly(
-        this.#state !== "running" ? "host-not-running" : "no-engine-watching",
-        hook,
-        waitMs,
-      );
-      answer("");
-      return;
-    }
-    const timer = this.#options.clock.setTimeout(() => {
-      this.#logger.info("a hook call waited without a reply; answering it with no output", {
-        hook,
-        waitMs,
-      });
-      this.#answerHook(hook, "");
-    }, waitMs);
-    this.#pendingHooks.set(hook, { client, id, timer, waitMs });
   }
 
   #send(client: Client, frame: HostFrame): void {
@@ -703,7 +554,6 @@ export class WorkerHost {
         return;
       }
       client.version = version;
-      client.engine = this.#token !== null && tokenMatches(hello.data.token, this.#token);
       this.#send(client, { kind: "hello", version, run: this.runId, pid: this.#options.pid });
       return;
     }
@@ -737,37 +587,6 @@ export class WorkerHost {
           message: `Op ${frame.op} needs protocol ${OP_SINCE[frame.op]}; this connection speaks ${client.version}.`,
         },
       });
-      return;
-    }
-    if (frame.op === "hook") {
-      this.#hook(client, frame.id, frame.payload, frame.waitMs);
-      return;
-    }
-    if (frame.op === "hookReply") {
-      // Only the engine answers a hook call: any other client that reaches the socket could
-      // otherwise allow a pending permission request.
-      if (!this.#isEngine(client)) {
-        this.#send(client, {
-          kind: "reply",
-          id: frame.id,
-          ok: false,
-          error: { code: "not.permitted", message: "Only the engine answers a hook call." },
-        });
-        return;
-      }
-      const answered = this.#answerHook(frame.hook, frame.output);
-      this.#logger.debug("hook reply", { hook: frame.hook, answered });
-      this.#send(
-        client,
-        answered
-          ? { kind: "reply", id: frame.id, ok: true }
-          : {
-              kind: "reply",
-              id: frame.id,
-              ok: false,
-              error: { code: "hook.unknown", message: `No hook call waits as ${frame.hook}.` },
-            },
-      );
       return;
     }
     if (frame.op === "status") {

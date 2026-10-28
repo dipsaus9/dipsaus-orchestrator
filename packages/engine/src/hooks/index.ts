@@ -1,5 +1,5 @@
-// The hook relay's engine side (0008 section 5, DIPO-59): neutral hook events and replies, the
-// `questions` table and the permission wait with `work.answer`; the 0014 section 8 nudges (DIPO-60).
+// The questions a worker asks and the maintainer answers (0008, 0020): the `questions` table and
+// the live rule of a worker's question with `work.answer`.
 
 export {
   ABSENT,
@@ -21,36 +21,3 @@ export {
   type QuestionClose,
   type StoredQuestion,
 } from "./questions";
-export type { HookCall, HookEvent, HookEventKind, HookReply, PermissionDecision } from "./types";
-export {
-  BUDGET_NUDGE_SHARE,
-  budgetFact,
-  composeNudge,
-  NUDGE_MAX_CHARS,
-  NUDGE_TEMPLATES,
-  nudgeCount,
-  nudgedInSession,
-  Nudges,
-  nudgeSignature,
-  nudgeText,
-  type NudgeFact,
-  type NudgesDeps,
-} from "./nudges";
-export {
-  FETCH_RESOLVE_TIMEOUT_MS,
-  type FetchAddressDeps,
-  fetchAddressRefusal,
-  fetchRefusalText,
-  findSecret,
-  MIN_SECRET_CHARS,
-  parseEnvText,
-  readEnvSecrets,
-  refusalText,
-  SYSTEM_FETCH_ADDRESSES,
-  UNCHECKED_TEXT,
-  WebGuard,
-  webCallCounts,
-  type EnvSecret,
-  type SecretHit,
-  type WebGuardDeps,
-} from "./web-guard";

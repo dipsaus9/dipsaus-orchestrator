@@ -63,6 +63,12 @@ import {
   readBaseLockfile,
 } from "../../src/box/cache";
 import { BOX_PACKAGE_CACHE_PATH, BoxError, type BoxNetwork, boxName } from "../../src/box/port";
+import {
+  REVIEW_CODE_DIR,
+  REVIEW_ROOT,
+  REVIEW_SESSION_DIR,
+  reviewBoxName,
+} from "../../src/box/review-box";
 import { SAFE_CHAIN_BOX_RUN_PREFIX } from "../../src/box/safe-chain";
 import { SecretToken } from "../../src/box/token";
 import { BOX_TOKEN_CHECK } from "../../src/box/token-check";
@@ -1725,14 +1731,6 @@ describe("the box firewall, the listed local ports and the box network's address
       expect(readBoxRun(w.runDir)?.localPorts).toEqual([5432, 8080]);
     }));
 
-  it("names the box network's host address once the network was prepared, for the web guard", () =>
-    inBoxes(async (repo, tmp) => {
-      const w = await world(repo, tmp);
-      expect(w.workers.hostAddress).toBeNull();
-      await created(w);
-      expect(w.workers.hostAddress).toBe(BOX_HOST_ADDRESS);
-    }));
-
   it("deletes the build box and releases the route when a build fails, and makes no box", () =>
     inBoxes(async (repo, tmp) => {
       const w = await world(repo, tmp, {
@@ -1815,5 +1813,113 @@ describe("the box awake for dipo's copy, behind its firewall (DIPO-281 with DIPO
       await expect(failing.workers.awake({ runId: RUN, runDir: failing.runDir })).rejects.toThrow(
         "no netfilter",
       );
+    }));
+});
+
+const AGENT = "agt_01J9ZK5Q8W3V4X6Y7Z0000R347";
+const REVIEW_BOX = reviewBoxName(AGENT);
+
+/** A reviewer box of the world's start commit (0002). */
+function reviewed(w: World, agent = AGENT) {
+  return w.workers.review({ agent, git: w.git, commit: w.commit, systemFile: w.systemFile });
+}
+
+describe("the reviewer's box (0002, DIPO-347)", () => {
+  it("is a new box from the office image with only a read-only copy of the head, the firewall and the proxies", () =>
+    inBoxes(async (repo, tmp) => {
+      const w = await world(repo, tmp);
+      const session = await reviewed(w);
+      const box = w.boxes.boxes.get(REVIEW_BOX);
+      // The office image and its box network tools; no package cache, no other mount.
+      expect(box?.spec.image).toBe(boxImageTag(IMAGE));
+      expect(box?.spec.netTools).toBeDefined();
+      expect(box?.spec.packageCache).toBeUndefined();
+      // The copy: the commit's code and an empty session folder, never a box.files value.
+      const copy = box?.copies.find((entry) => entry.to === REVIEW_ROOT);
+      expect(copy?.listing).toEqual([
+        "code/",
+        "code/README.md",
+        "code/src/",
+        "code/src/greet.ts",
+        "session/",
+      ]);
+      expect(JSON.stringify(box?.copies)).not.toContain("local.json");
+      // Root's own files, then the session's environment through the two routes, the firewall
+      // set to exactly their ports, and no local port of the Mac admitted.
+      expect(w.boxes.firewalls).toEqual([
+        { box: REVIEW_BOX, firewall: { hostAddress: BOX_HOST_ADDRESS, ports: [3128, 4000] } },
+      ]);
+      expect(w.log).toContain(`web route admitted ${REVIEW_BOX} `);
+      expect(session.workdir).toBe(REVIEW_SESSION_DIR);
+      expect(session.env["HTTPS_PROXY"]).toBe(
+        `http://dipo:pw-${REVIEW_BOX}@${BOX_HOST_ADDRESS}:3128`,
+      );
+      expect(session.env["ANTHROPIC_BASE_URL"]).toBe(`http://${BOX_HOST_ADDRESS}:4000`);
+      expect(REVIEW_CODE_DIR.startsWith(`${REVIEW_ROOT}/`)).toBe(true);
+      // Its session starts in the box, at its empty folder.
+      const client = session.exec(["/bin/true"], {});
+      expect(client.argv).toContain(REVIEW_BOX);
+      expect(client.argv).toContain(REVIEW_SESSION_DIR);
+      // The developer's box was never made, and nothing went into the index.
+      expect(w.boxes.boxes.has(BOX)).toBe(false);
+      expect(w.workers.pending()).toEqual([]);
+
+      // The session ends: the box goes, and so do its routes.
+      await w.workers.endReview(AGENT);
+      expect(w.boxes.boxes.has(REVIEW_BOX)).toBe(false);
+      expect(w.log).toContain("web route stopped");
+      expect(w.log).toContain("model proxy stopped");
+    }));
+
+  it("leaves out a symlink of the commit that points outside the copy (bypass: a link out)", () =>
+    inBoxes(async (repo, tmp) => {
+      symlinkSync("/etc/passwd", join(repo.dir, "passwd-link"));
+      symlinkSync("../../outside", join(repo.dir, "up-link"));
+      const w = await world(repo, tmp);
+      await reviewed(w);
+      const copy = w.boxes.boxes.get(REVIEW_BOX)?.copies.find((entry) => entry.to === REVIEW_ROOT);
+      expect(copy?.listing).not.toContain("code/passwd-link");
+      expect(copy?.listing).not.toContain("code/up-link");
+      expect(copy?.listing).toContain("code/README.md");
+    }));
+
+  it("deletes the box and starts no session when the firewall cannot be set (fail closed)", () =>
+    inBoxes(async (repo, tmp) => {
+      const w = await world(repo, tmp, {
+        boxes: { firewallFails: new BoxError("box.firewallFailed", "nft: no netfilter") },
+      });
+      const error = (await reviewed(w).catch((e: unknown) => e)) as BoxError;
+      expect(error).toBeInstanceOf(BoxError);
+      expect(error.code).toBe("box.firewallFailed");
+      expect(w.boxes.boxes.has(REVIEW_BOX)).toBe(false);
+      expect(w.log).not.toContain(`copy in ${REVIEW_BOX} /dipo`);
+      expect(w.log.some((line) => line.startsWith("web route admitted"))).toBe(false);
+    }));
+
+  it("is refused while the box-token hold is set", () =>
+    inBoxes(async (repo, tmp) => {
+      const w = await world(repo, tmp, { sticky: true });
+      w.holds.hold(ADAPTER, [{ check: BOX_TOKEN_CHECK, detail: "the token was found" }]);
+      const error = (await reviewed(w).catch((e: unknown) => e)) as BoxError;
+      expect(error.code).toBe("box.held");
+      expect(w.log).toEqual([]);
+    }));
+
+  it("is deleted at daemon stop, and one a stopped daemon left is deleted at daemon start", () =>
+    inBoxes(async (repo, tmp) => {
+      const w = await world(repo, tmp);
+      await reviewed(w);
+      const other = reviewBoxName("agt_01J9ZK5Q8W3V4X6Y7Z0000LEFT");
+      await w.boxes.create({
+        runId: `review-agt_01J9ZK5Q8W3V4X6Y7Z0000LEFT`,
+        image: boxImageTag(IMAGE),
+        network: await w.boxes.network(),
+      });
+      // At daemon start: the one this daemon uses stays, the one left behind goes.
+      await w.workers.finishEnded(() => null, { listBoxes: true });
+      expect(w.boxes.boxes.has(REVIEW_BOX)).toBe(true);
+      expect(w.boxes.boxes.has(other)).toBe(false);
+      await w.workers.close();
+      expect(w.boxes.boxes.has(REVIEW_BOX)).toBe(false);
     }));
 });

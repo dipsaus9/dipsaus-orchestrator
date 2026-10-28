@@ -391,7 +391,6 @@ export {
   type LaunchFile,
   type LaunchPlan,
   type ModelUsageTotals,
-  type NudgeOp,
   type ParseState,
   REVIEW_SUMMARY_MAX,
   type ReportKind,
@@ -428,10 +427,6 @@ export {
   type ClaudeLaunchContext,
 } from "./workers/claude-cli/plan";
 export { encode as encodeClaudeOp } from "./workers/claude-cli/encode";
-export {
-  gateOutput as claudeGateOutput,
-  PRE_TOOL_USE_NO_DECISION_MARKER as CLAUDE_GATE_NO_DECISION_MARKER,
-} from "./workers/claude-cli/hooks";
 export {
   parseReviewReport,
   REPORT_JSON_SCHEMAS,
@@ -514,11 +509,9 @@ export {
   EXIT_FILE,
   HOST_LOG_CAP_BYTES,
   HOST_LOG_FILE,
-  HOOK_PROTOCOL_VERSIONS,
   HOST_OPS,
   HOST_PROTOCOL_VERSION,
   HOST_PROTOCOL_VERSIONS,
-  MAX_HOOK_PAYLOAD,
   HostExitFileSchema,
   hostSocketPath,
   HOSTS_DIR,
@@ -533,7 +526,6 @@ export {
   type HostStatus,
 } from "./host/protocol";
 export { runWorkerHost, WorkerHost, type WorkerHostOptions } from "./host/main";
-export { HOOK_REPLY_GRACE_MS, relayHookPayload, type HookRelayRequest } from "./host/relay";
 export {
   connectHost,
   type ConnectHostOptions,

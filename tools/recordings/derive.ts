@@ -3,7 +3,6 @@
 // unit test can check that the committed copies are current. Field values the docs name but no
 // live run showed (for example `startup_failure_reason`) are marked in `meta.cites`.
 
-import { refusalText } from "../../packages/engine/src/index";
 import { WEB_ENV_FILE, WEB_ENV_KEY, WEB_QUERY, WEB_REFUSED_URL, WEB_URL } from "./scenarios";
 
 import type { Envelope, Meta, Recording } from "./format";
@@ -498,7 +497,8 @@ function withWebCalls(lines: readonly Envelope[]): Envelope[] {
       tool: "WebFetch",
       target: WEB_REFUSED_URL,
       prompt: WEB_REFUSED_PROMPT,
-      result: refusalText("WebFetch", { file: WEB_ENV_FILE, key: WEB_ENV_KEY }),
+      // The web gate's refusal as the engine worded it when the recording was made (DIPO-164).
+      result: `The URL contains a value from ${WEB_ENV_FILE} (${WEB_ENV_KEY}); never send env values in a web call. Remove it and try again.`,
       refused: true,
     }),
   ].flat();

@@ -139,23 +139,15 @@ export {
 } from "./review-rounds";
 export type { ReviewRound } from "./review-rounds";
 export {
-  checkCopyComplete,
   gitReviewOps,
-  makeReviewCopy,
   parseNumstat,
-  removeReviewFolder,
-  REVIEW_COMMIT_FILE,
-  ReviewCopyMismatchError,
-  REVIEW_FOLDER_PREFIX,
-  REVIEW_SESSION_DIR,
-  reviewFolder,
+  REVIEW_COMMIT_PREFIX,
+  reviewCommitFile,
   ReviewLauncher,
   reviewerSettings,
   snapshotReviewCaps,
-  sweepReviewFolders,
 } from "./review-launch";
 export type {
-  ReviewCopy,
   ReviewGit,
   ReviewLauncherDeps,
   ReviewSessionOutcome,
@@ -442,7 +434,7 @@ export type {
   RunStoryFacts,
 } from "./resume";
 // The one wiring of the run services, for the daemon and the tests (DIPO-129).
-export { composeRuns, fetchAddressesOf } from "./compose";
+export { composeRuns } from "./compose";
 export type { ComposedRuns, RunPorts } from "./compose";
 // Re-attach after a daemon restart (DIPO-57).
 export {

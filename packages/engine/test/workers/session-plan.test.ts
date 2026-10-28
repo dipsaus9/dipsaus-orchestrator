@@ -54,7 +54,6 @@ function spec(overrides: Partial<WorkerSpec> = {}): WorkerSpec {
     tools: { allow: [], deny: [] },
     session: { id: "1e6f3f4c-5b8d-4c1e-9a2b-3c4d5e6f7a8b", resume: false },
     reportSchema: SCAN_ANSWER_JSON_SCHEMA,
-    hookRelay: false,
     ...overrides,
   };
 }
@@ -67,10 +66,8 @@ function context(overrides: Partial<ClaudeLaunchContext> = {}): ClaudeLaunchCont
     toolVariables: [],
     mainCheckout: "/home/maintainer/code/shop",
     runDir: RUN_DIR,
-    hostSocket: "/home/maintainer/.dipo/run/hosts/run-0002.sock",
     tmpDir: "/tmp/claude-run-0002",
     shortTmpDir: "/private/tmp/dipo-t-0002",
-    hookCommand: ["/opt/dipo/bin/dipo"],
     sandbox: OFFICE_DEFAULTS.sandbox,
     plugins: { installed: ["warp@claude-code-warp"], allowed: ["warp@claude-code-warp"] },
     ...overrides,
@@ -140,18 +137,16 @@ describe("the scan session's launch plan", () => {
     expect(flag(launch, "--session-id")).toBe(spec().session.id);
   });
 
-  it("refuses a session with a tool, a hook relay, a resume or a folder in the checkout", () => {
+  it("refuses a session with a tool, a resume or a folder in the checkout", () => {
     expect(() => plan(spec({ tools: { allow: ["Read"], deny: [] } }), context())).toThrow(
       /every tool off/,
     );
-    expect(() => plan(spec({ hookRelay: true }), context())).toThrow(/no hooks/);
     expect(() => plan(spec({ session: { ...spec().session, resume: true } }), context())).toThrow(
       PlanError,
     );
     expect(() => plan(spec({ workdir: "/home/maintainer/code/shop/sub" }), context())).toThrow(
       /outside the main checkout/,
     );
-    expect(() => plan(spec({ readOnlyDir: "/tmp/copy" }), context())).toThrow(PlanError);
   });
 });
 

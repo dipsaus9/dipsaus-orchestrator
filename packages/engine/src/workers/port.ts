@@ -3,6 +3,7 @@
 // settings file worktree setup copies (DIPO-113). The daemon supplies the Claude CLI one
 // (`claude-cli/adapter.ts`); tests supply fakes. Nothing here names a CLI.
 
+import type { BoxSession } from "../box/workers";
 import type { OfficeConfig } from "../config";
 import type { AdapterHold } from "./hold";
 import type {
@@ -77,13 +78,15 @@ export interface WorkerPort {
   /**
    * Plans the launch and runs the adapter's launch checks before it (0008 section 2). A refused
    * check holds the adapter and returns `startFailed`; a spec or path that cannot be planned
-   * throws `PlanError`. A developer session is planned only in its run's box (DIPO-240, 0021).
+   * throws `PlanError`. A developer session is planned only in its run's box (DIPO-240, 0008); a
+   * reviewer session only in `place`, the read-only box its caller made for it (0002).
    */
   prepare(
     spec: WorkerSpec,
     paths: RunLaunchPaths,
     config: OfficeConfig,
     checkSession: string,
+    place?: BoxSession,
   ): Promise<PreparedWorker>;
   /**
    * The dry run's plan of a developer session in a box (DIPO-240): what the worker host would run,

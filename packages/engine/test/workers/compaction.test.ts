@@ -1,7 +1,7 @@
-// One compaction reported through both `compact_boundary` and the `PostCompact` hook (DIPO-100):
-// replayed through the fake process and the real adapter, both orders give one `compacted` with
-// the real `pre_tokens`. A hook whose boundary does not come by the turn end is reported there with
-// no `preTokens` (DIPO-106), and a boundary after that does not count the compaction again.
+// One compaction as the stream reports it (DIPO-100): replayed through the fake process and the
+// real adapter, a `compact_boundary` gives one `compacted` with the real `pre_tokens`. No session
+// has hooks any more (0008, DIPO-347): a `PostCompact` hook line an earlier binary left in an event
+// file changes nothing.
 
 import { describe, expect, it } from "bun:test";
 
@@ -61,34 +61,19 @@ function withCompaction(
 
 const compacted = (events: readonly WorkerEvent[]) =>
   events.filter((event) => event.t === "compacted");
-const notHook = (events: readonly WorkerEvent[]) => events.filter((event) => event.t !== "hook");
 
-describe("a compaction seen as compact_boundary and PostCompact, replayed (DIPO-100)", () => {
-  it("gives the same count and preTokens in both orders", async () => {
-    const boundaryFirst = await replay(withCompaction((t) => [boundary(t), postCompact(t)]));
-    const hookFirst = await replay(withCompaction((t) => [postCompact(t), boundary(t)]));
-    const expected = [{ t: "compacted" as const, preTokens: PRE_TOKENS }];
-    expect(compacted(boundaryFirst.events)).toEqual(expected);
-    expect(compacted(hookFirst.events)).toEqual(expected);
-    // Apart from where the neutral hook event sits, the run is unchanged by the order.
-    expect(notHook(hookFirst.events)).toEqual(notHook(boundaryFirst.events));
-    expect(hookFirst.result).toEqual(boundaryFirst.result);
+describe("a compaction seen as compact_boundary, replayed (DIPO-100)", () => {
+  it("gives one compacted with the boundary's preTokens", async () => {
+    const replayed = await replay(withCompaction((t) => [boundary(t)]));
+    expect(compacted(replayed.events)).toEqual([{ t: "compacted", preTokens: PRE_TOKENS }]);
   });
 
-  it("reports a hook-only compaction by the turn end, and a later boundary does not count it again", async () => {
+  it("ignores a PostCompact hook line of an earlier binary, before or after the boundary", async () => {
+    const plain = await replay(withCompaction((t) => [boundary(t)]));
+    const hookFirst = await replay(withCompaction((t) => [postCompact(t), boundary(t)]));
     const hookOnly = await replay(withCompaction((t) => [postCompact(t)]));
-    expect(compacted(hookOnly.events)).toEqual([{ t: "compacted" }]);
-    // Before the turn event, so a consumer of the turn already has the compaction.
-    const at = hookOnly.events.findIndex((event) => event.t === "compacted");
-    const turn = hookOnly.events.findIndex((event) => event.t === "turn");
-    expect(at).toBeLessThan(turn);
-
-    const late = await replay(
-      withCompaction(
-        (t) => [postCompact(t)],
-        (t) => [boundary(t)],
-      ),
-    );
-    expect(compacted(late.events)).toEqual([{ t: "compacted" }]);
+    expect(hookFirst.events).toEqual(plain.events);
+    expect(hookFirst.result).toEqual(plain.result);
+    expect(compacted(hookOnly.events)).toEqual([]);
   });
 });

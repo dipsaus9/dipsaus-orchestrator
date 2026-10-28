@@ -41,45 +41,38 @@ export function spec(overrides: Partial<WorkerSpec> = {}): WorkerSpec {
     tools: { allow: ["Read", "Edit", "Write", "Glob", "Grep", "Bash"], deny: [] },
     session: { id: "0e6f3f4c-5b8d-4c1e-9a2b-3c4d5e6f7a8b", resume: false },
     reportSchema: WORKER_REPORT_JSON_SCHEMA,
-    hookRelay: false,
     ...overrides,
   };
 }
 
-/** A reviewer session's folder in dipo's temp root (DIPO-276). */
-export const REVIEW_FOLDER = "/tmp/dipo-review-run-0001-agt-0001";
-/** The reviewer's working directory: an empty folder dipo made. */
-export const REVIEW_SESSION = `${REVIEW_FOLDER}/session`;
-/** The reviewer's read-only copy of the pushed commit. */
-export const REVIEW_COPY = `${REVIEW_FOLDER}/dipo-box-code-abc123/code`;
-/** The reviewer's own web proxy listener on loopback (DIPO-292); a stand-in port. */
-export const REVIEW_WEB_PROXY = "http://127.0.0.1:1";
+/**
+ * A `session` spec (DIPO-310), the one session dipo plans on the Mac: an empty folder dipo made,
+ * every tool off, never resumed.
+ */
+export function sessionSpec(overrides: Partial<WorkerSpec> = {}): WorkerSpec {
+  return spec({
+    kind: "session",
+    workdir: "/tmp/dipo-scan-run-0001-agt-0001/session",
+    tools: { allow: [], deny: [] },
+    ...overrides,
+  });
+}
 
 /**
- * A reviewer's spec (0021 section 10, DIPO-276): kind review, an empty working directory, the
- * read-only copy, the read and web tools with the hook relay and its web proxy (DIPO-292), the
- * ReviewReport schema.
+ * A reviewer's spec (0002): kind review, the read and web tools, the ReviewReport schema. It runs
+ * only in a reviewer box of its own.
  */
 export function reviewSpec(overrides: Partial<WorkerSpec> = {}): WorkerSpec {
   return spec({
     kind: "review",
-    workdir: REVIEW_SESSION,
-    readOnlyDir: REVIEW_COPY,
-    webProxy: REVIEW_WEB_PROXY,
     model: "opus",
     effort: "high",
     caps: { budgetTokens: 200_000, maxTurns: 60, maxMinutes: 30 },
     systemFile: `${RUN_DIR}/system-review.md`,
     tools: { allow: ["Read", "Glob", "Grep", "WebSearch", "WebFetch"], deny: [] },
     reportSchema: REVIEW_REPORT_JSON_SCHEMA,
-    hookRelay: true,
     ...overrides,
   });
-}
-
-/** The context of a review launch: the hook relay's dipo command, which the web tools need. */
-export function reviewContext(overrides: Partial<ClaudeLaunchContext> = {}): ClaudeLaunchContext {
-  return context({ hookCommand: ["/opt/dipo/bin/dipo"], ...overrides });
 }
 
 export function context(overrides: Partial<ClaudeLaunchContext> = {}): ClaudeLaunchContext {
@@ -90,7 +83,6 @@ export function context(overrides: Partial<ClaudeLaunchContext> = {}): ClaudeLau
     toolVariables: [],
     mainCheckout: MAIN,
     runDir: RUN_DIR,
-    hostSocket: `${RUN_DIR}/host.sock`,
     tmpDir: TMP_DIR,
     shortTmpDir: SHORT_TMP_DIR,
     sandbox: OFFICE_DEFAULTS.sandbox,

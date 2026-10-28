@@ -456,7 +456,7 @@ describe("interpret (0008 section 3)", () => {
     expect(result(state, { code: 1, signal: null }).outcome).toBe("startFailed");
   });
 
-  it("permission waits: the PermissionRequest hook and session_state_changed requires_action", () => {
+  it("permission waits: session_state_changed requires_action; a hook line of an earlier binary is ignored", () => {
     const hook: HostLine = {
       t: 0,
       ch: "hook",
@@ -466,10 +466,7 @@ describe("interpret (0008 section 3)", () => {
         session_id: "session-1",
       }),
     };
-    expect(run([{ ...hook, end: 512 }]).events).toEqual([
-      { t: "hook", hook: { kind: "permissionRequest", id: 512, tool: "Bash", input: "" } },
-      { t: "waiting", on: "permission", detail: "Bash" },
-    ]);
+    expect(run([{ ...hook, end: 512 }]).events).toEqual([]);
     const requires = out({
       type: "system",
       subtype: "session_state_changed",
@@ -604,13 +601,12 @@ describe("interpret (0008 section 3)", () => {
     expect(state.problems).toEqual(["result failed its schema at session_id"]);
   });
 
-  it("makes an unparseable stdout line and a hook line that fails its schema schema drifts", () => {
+  it("makes an unparseable stdout line a schema drift, and ignores a hook line of an earlier binary", () => {
     const { events } = run([
       { t: 1, ch: "stdout", data: "{not json\n" },
       { t: 2, ch: "hook", data: "{also not json" },
     ]);
     expect(events.map((event) => (event.t === "streamDrift" ? event.kind : event.t))).toEqual([
-      "schema",
       "schema",
     ]);
   });

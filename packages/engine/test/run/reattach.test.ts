@@ -36,6 +36,7 @@ import { OFFICE_DEFAULTS, type OfficeConfig } from "../../src/config/schema";
 import type { HostClient } from "../../src/host/client";
 import { EXIT_FILE, type HostExitFile, hostMarkerName, LAUNCH_FILE } from "../../src/host/protocol";
 import { type IngestAdapter, Ingestor } from "../../src/ingest/ingestor";
+import { recordTranscriptPath } from "../../src/ingest/transcript";
 import {
   type BranchPark,
   EVENT_FILE_CHANGED,
@@ -601,17 +602,15 @@ describe("re-attach (0006 decision 8)", () => {
     beforeRestart("success-single", 6, 20);
     const transcript = join(w.dir, "session.jsonl");
     writeFileSync(transcript, `${message("msg-lost", 9, 11)}\n${message("msg-lost-2", 1, 2)}\n`);
-    appendLines(w.f.eventFile, [
-      {
-        t: 9_000,
-        ch: "hook",
-        data: JSON.stringify({
-          hook_event_name: "SessionStart",
-          source: "startup",
-          transcript_path: transcript,
-        }),
-      },
-    ]);
+    // An earlier binary's hook relay named the transcript (DIPO-134); no hook names one now.
+    w.f.office.immediate(() =>
+      recordTranscriptPath(
+        w.f.office,
+        { run: w.f.run, agent: w.f.agent },
+        { kind: "sessionStarted", transcriptPath: transcript },
+        w.f.t.clock.now(),
+      ),
+    );
     const stored = () =>
       w.f.office.get<{ input: number; output: number; messages: number; final: number }>(
         `select sum(t.input) as input, sum(t.output) as output, min(t.final) as final,
@@ -1403,17 +1402,15 @@ describe("re-attach gaps (DIPO-93)", () => {
     beforeRestart("success-single", 6, 20);
     const transcript = join(w.dir, "session.jsonl");
     writeFileSync(transcript, `${message("msg-lost", 9, 11)}\n${message("msg-lost-2", 1, 2)}\n`);
-    appendLines(w.f.eventFile, [
-      {
-        t: 9_000,
-        ch: "hook",
-        data: JSON.stringify({
-          hook_event_name: "SessionStart",
-          source: "startup",
-          transcript_path: transcript,
-        }),
-      },
-    ]);
+    // An earlier binary's hook relay named the transcript (DIPO-134); no hook names one now.
+    w.f.office.immediate(() =>
+      recordTranscriptPath(
+        w.f.office,
+        { run: w.f.run, agent: w.f.agent },
+        { kind: "sessionStarted", transcriptPath: transcript },
+        w.f.t.clock.now(),
+      ),
+    );
     endRunByHand();
     w.alive = false;
     const d = daemon({ adapter: () => ({ ...claude, readTranscript }) });

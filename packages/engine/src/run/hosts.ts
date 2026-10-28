@@ -91,10 +91,10 @@ export interface OfficeIngestOptions {
   /** Ingestion appended change-log entries for `office`; the daemon sends them to subscribers. */
   readonly onAppended?: (office: OfficeId) => void;
   /**
-   * The permission wait (DIPO-59): it hears every committed pass's worker events and every
-   * worker exit with the run's office.
+   * The live question rule and the web call counts: they hear every committed pass's worker
+   * events and every worker exit with the run's office.
    */
-  readonly hookEvents?: OfficeRunListener;
+  readonly runEvents?: OfficeRunListener;
   /**
    * The privacy opt-ins in force for `office` (0007 section 8, DIPO-83), read at every ingest pass.
    * Without it, or for an office without a configuration, nothing beyond the default is stored.
@@ -157,7 +157,7 @@ export class OfficeIngest implements RunIngest {
   #hooksFor(handle: OfficeHandle): IngestHooks {
     const office = handle.officeId;
     const hooks = this.#options.hooks ?? {};
-    const { watchdog, onAppended, hookEvents } = this.#options;
+    const { watchdog, onAppended, runEvents } = this.#options;
     return {
       ...hooks,
       onLines: (run, agent) => {
@@ -166,11 +166,11 @@ export class OfficeIngest implements RunIngest {
       },
       onWorkerEvents: (run, agent, events) => {
         hooks.onWorkerEvents?.(run, agent, events);
-        hookEvents?.onWorkerEvents(handle, run, agent, events);
+        runEvents?.onWorkerEvents(handle, run, agent, events);
       },
       onEnded: (run, agent, end) => {
         watchdog?.untrack(run);
-        hookEvents?.onEnded(handle, run);
+        runEvents?.onEnded(handle, run);
         hooks.onEnded?.(run, agent, end);
       },
       onAppended: () => {
@@ -288,7 +288,6 @@ export class OfficeIngest implements RunIngest {
 export function hostRequestOf(op: HostOp): HostRequest {
   if ("write" in op) return { op: "write", data: op.write };
   if ("closeStdin" in op) return { op: "closeStdin" };
-  if ("hookReply" in op) return { op: "hookReply", hook: op.hookReply, output: op.output };
   return op.afterMs === undefined
     ? { op: "signal", signal: op.signal }
     : { op: "signal", signal: op.signal, afterMs: op.afterMs };

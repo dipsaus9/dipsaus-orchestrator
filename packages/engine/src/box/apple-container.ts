@@ -455,27 +455,45 @@ export class AppleContainerBoxes implements BoxPort {
   }
 
   async firewall(name: string, firewall: BoxFirewall, options: BoxCallOptions = {}): Promise<void> {
-    const failedWith = (message: string, details: Readonly<Record<string, unknown>>): never => {
-      throw new BoxError("box.firewallFailed", `the box firewall of ${name} ${message}`, false, {
-        name,
-        ...details,
-      });
-    };
     const set = await this.#run(
       execArgs({ name, command: firewallCommand(firewall), fullPrivilege: true }),
       options,
     );
     if (set.code !== 0) {
-      failedWith(`could not be set: ${set.stderr.trim() || `exit ${set.code}`}`, {
-        code: set.code,
-      });
+      throw new BoxError(
+        "box.firewallFailed",
+        `the box firewall of ${name} could not be set: ${set.stderr.trim() || `exit ${set.code}`}`,
+        false,
+        { name, code: set.code },
+      );
     }
+    await this.checkFirewall(name, firewall, options);
+  }
+
+  /**
+   * Checks that the box firewall of the running box `name` shows as `firewall` describes it, from
+   * its listing; fails with `box.firewallFailed` when it does not. `firewall` runs it after the set.
+   */
+  async checkFirewall(
+    name: string,
+    firewall: BoxFirewall,
+    options: BoxCallOptions = {},
+  ): Promise<void> {
     const listed = await this.#run(
       execArgs({ name, command: firewallListCommand(firewall), fullPrivilege: true }),
       options,
     );
     if (listed.code !== 0 || !checkFirewallListing(listed.stdout, firewall)) {
-      failedWith("does not show as set.", { code: listed.code, listing: listed.stdout });
+      throw new BoxError(
+        "box.firewallFailed",
+        `the box firewall of ${name} does not show as set.`,
+        false,
+        {
+          name,
+          code: listed.code,
+          listing: listed.stdout,
+        },
+      );
     }
   }
 

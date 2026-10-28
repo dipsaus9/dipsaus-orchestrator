@@ -3,9 +3,11 @@
 // `plan(spec, ctx)` stays pure. `claudeWorkerPort` is what the daemon hands the run code: the
 // adapter for a run's paths, the launch checks through the adapter hold, and the parser state.
 //
-// A developer session runs only in its run's box (DIPO-240, 0021): `prepare` plans it there with
+// A developer session runs only in its run's box (DIPO-240, 0008): `prepare` plans it there with
 // `planInBox`, and refuses one whose run has no box as a plan (`PlanError`). A reviewer session
-// runs on the Mac with its read-only plan and launch checks (`plan.ts`, `launch-checks.ts`).
+// runs only in the read-only box its caller made for it (`BoxWorkers.review`, 0002), handed to
+// `prepare` as its place. A `session` runs on the Mac with its plan and launch checks (`plan.ts`,
+// `launch-checks.ts`).
 
 import type { Clock, Spawn } from "@dipsaus-orchestrator/contract";
 
@@ -38,6 +40,7 @@ import {
   DEVELOPER_ON_MAC_REFUSED,
   ENV_ALLOWLIST,
   plan,
+  REVIEWER_ON_MAC_REFUSED,
   type ClaudeLaunchContext,
 } from "./plan";
 import { readInstalledPlugins, type PluginFiles } from "./plugins";
@@ -153,12 +156,6 @@ export interface ClaudeWorkerPortDeps extends ClaudeCliAdapterDeps {
   readonly env: Readonly<Record<string, string | undefined>>;
   readonly holds: AdapterHolds;
   /**
-   * How to run this `dipo` (`selfCommand()`), for the reviewer's run settings hooks (DIPO-59).
-   * Without it the hooks are not registered, so a spec that asks for the hook relay cannot be
-   * planned.
-   */
-  readonly dipoCommand?: readonly [string, ...string[]];
-  /**
    * Reads Claude Code's plugin lists (DIPO-108); a test seam. Defaults to the files under
    * `home`.
    */
@@ -242,7 +239,7 @@ export const BOX_CHECK = "box";
 
 /** The launch context of one run from its paths, the office configuration and the daemon. */
 export function claudeLaunchContext(
-  deps: Pick<ClaudeWorkerPortDeps, "claudePath" | "home" | "env" | "dipoCommand" | "pluginFiles">,
+  deps: Pick<ClaudeWorkerPortDeps, "claudePath" | "home" | "env" | "pluginFiles">,
   paths: RunLaunchPaths,
   config: OfficeConfig,
 ): ClaudeLaunchContext {
@@ -258,7 +255,6 @@ export function claudeLaunchContext(
     toolVariables: [],
     mainCheckout: paths.mainCheckout,
     runDir: paths.runDir,
-    hostSocket: paths.hostSocket,
     tmpDir: paths.tmpDir,
     shortTmpDir: paths.shortTmpDir,
     sandbox: config.sandbox,
@@ -267,7 +263,6 @@ export function claudeLaunchContext(
       installed: readInstalledPlugins(deps.home, deps.pluginFiles),
       allowed: config.worker.plugins,
     },
-    ...(deps.dipoCommand === undefined ? {} : { hookCommand: deps.dipoCommand }),
   };
 }
 
@@ -282,9 +277,17 @@ export function claudeWorkerPort(deps: ClaudeWorkerPortDeps): WorkerPort {
         boxWorker: deps.boxes?.isBoxRun(paths.runDir) === true,
       }),
     previewBox: (spec, paths) => scrubbed(planInBox(spec, previewSession(), paths.runDir)),
-    prepare: async (spec, paths, config) => {
-      // A developer session goes into its run's box, never onto the Mac (0021); a reviewer stays on
-      // the Mac (0021 section 10).
+    prepare: async (spec, paths, config, _checkSession, place) => {
+      // A reviewer session goes into the read-only box made for it, never onto the Mac (0002).
+      if (spec.kind === "review") {
+        if (place === undefined) throw new PlanError(REVIEWER_ON_MAC_REFUSED);
+        const gate = await gateLaunch(CLAUDE_CLI_ADAPTER_ID, deps.holds, async () => ({
+          ok: true,
+        }));
+        if (!gate.ok) return gate;
+        return { ok: true, plan: scrubbed(planInBox(spec, place, paths.runDir)) };
+      }
+      // A developer session goes into its run's box, never onto the Mac (0008).
       if (spec.kind === "implement") {
         if (deps.boxes?.isBoxRun(paths.runDir) !== true) {
           throw new PlanError(
