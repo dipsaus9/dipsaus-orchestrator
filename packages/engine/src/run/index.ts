@@ -99,15 +99,12 @@ export {
 } from "./feedback-items";
 export type { PlannedItem, StoredFeedbackItem } from "./feedback-items";
 export {
-  deliverFixRound,
   FIX_LIFT_TRIES,
   FIX_ROUNDS_RECOVERY_STEP,
   FIX_NOTICES,
-  FIX_ROUND_TAG,
   FixRounds,
   fixRoundQueued,
   lastReviewVerdict,
-  pendingFixRound,
 } from "./fix-rounds";
 export type { FixRoundsDeps, FixSessions } from "./fix-rounds";
 export {

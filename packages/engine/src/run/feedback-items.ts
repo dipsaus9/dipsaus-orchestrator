@@ -1,6 +1,7 @@
 // Send-once feedback (0019 section 8, DIPO-148): the facts of `feedback_items`, read and written
-// through the office handle. Writers run inside the caller's transaction, the one that stores the
-// steer intent carrying the items, so a restart neither loses nor repeats one.
+// through the office handle. Writers run inside the caller's transaction, the one that holds the
+// round's message on the one feedback path (`sendFeedback`), so a restart neither loses nor repeats
+// one.
 //
 // - Send-once. An item is stored at most once per pushed head commit (the table's unique key on
 //   run, signature and head): a second poll, a restart or a second CI run on the same head sends
@@ -8,9 +9,9 @@
 // - Same failure. Two sends in a row of one verify or CI signature (the run's two newest fix
 //   rounds both carry it) raise the watchdog signal `same-failure` (0009). A repeat never parks on
 //   its own; parks come from the caps.
-// - Delivered. A row's `sent_at` is set when the session that carries its intent started; until
-//   then the round's feedback waits with its intent (a fix round the pre-start cap check parked
-//   keeps it for a top-up resume, DIPO-156).
+// - Delivered. A row's `sent_at` is set in the transaction that records the session its held
+//   message went with (`deliverHeld`); until then the round's feedback stays held (a fix round the
+//   pre-start cap check parked keeps it for the resume's session, DIPO-156).
 
 import type { RunId } from "@dipsaus-orchestrator/contract";
 
@@ -162,7 +163,7 @@ export function sameFailureAgain(
 }
 
 /**
- * Inside the caller's transaction, the one that stores the steer intent `intentId`: the planned
+ * Inside the caller's transaction, the one that holds the round's message `intentId`: the planned
  * items of fix round `round` for `head`, in order, with their rendered text within the per-item
  * budget. Returns what was stored.
  */

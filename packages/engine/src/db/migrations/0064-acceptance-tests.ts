@@ -1,4 +1,4 @@
-// Migration 63 (DIPO-309): the maintainer's tests of a story's pushed head (0002, 0007).
+// Migration 64 (DIPO-309): the maintainer's tests of a story's pushed head (0002, 0007).
 //
 // - `acceptance_tests`: one row per test. The story key and its run, the head it tests, its test
 //   gate (`gates` of kind `test`), the test box's name, the manual steps it shows (JSON), the URL
@@ -15,7 +15,7 @@
 import type { SqlMigration } from "../migrations";
 
 export const acceptanceTests: SqlMigration = {
-  version: 63,
+  version: 64,
   name: "acceptance tests",
   sql: `
 create table acceptance_tests (

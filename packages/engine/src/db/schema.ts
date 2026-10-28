@@ -63,7 +63,8 @@ import { startsPaused } from "./migrations/0059-starts-paused";
 import { parkOriginInBacklog } from "./migrations/0060-park-origin-in-backlog";
 import { oneFeedbackTag } from "./migrations/0061-one-feedback-tag";
 import { dropMergeSlot } from "./migrations/0062-drop-merge-slot";
-import { acceptanceTests } from "./migrations/0063-acceptance-tests";
+import { heldFixRounds } from "./migrations/0063-held-fix-rounds";
+import { acceptanceTests } from "./migrations/0064-acceptance-tests";
 
 /**
  * Software-wide tables (0007 section 3). Every other table is office-scoped and has `office_id`
@@ -162,5 +163,6 @@ create table offices (
   parkOriginInBacklog,
   oneFeedbackTag,
   dropMergeSlot,
+  heldFixRounds,
   acceptanceTests,
 ];

@@ -687,10 +687,10 @@ async function serve(run: Run, lock: HeldLock): Promise<number> {
       startedAt,
       onChanged: (office) => server?.notifyOffice(office),
     });
-    // Done detection and teardown (DIPO-58): every `polling.prStateSeconds` the merged PR of each
-    // finished claim is looked up through `gh` on this daemon's PATH (else `git merge-tree`
-    // decides); a Done story's worktree and branches are removed and its slot freed. Its load step
-    // follows claims.feature.
+    // The Done poll and teardown (DIPO-58, DIPO-363): every `polling.prStateSeconds` the one Done
+    // check reads the merged PR of each finished claim through `gh` on this daemon's PATH (else
+    // dipo's record) and the story's status on the base; a Done story's worktree and branches are
+    // removed and its slot freed. Its load step follows claims.feature.
     // One `gh` host, on this daemon's PATH, for teardown, the backlog PR and the auto-merge.
     const host = new GhHost({
       spawn: systemSpawn,
@@ -1035,6 +1035,8 @@ async function serve(run: Run, lock: HeldLock): Promise<number> {
       // A story Done on the base through another branch has its open story PR closed and the box
       // of its ended run deleted (DIPO-161).
       host,
+      // The one Done check reads the merged PR of a claim's branch here, as the Done poll does.
+      prs: host,
       finishBoxes: () => runs.finishEndedBoxes(),
       adoptBacklogPr: (office) => backlogPrs.adopt(office),
       refuse: (office, text) => offices.refuse(office, text),

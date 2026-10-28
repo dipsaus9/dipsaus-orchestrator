@@ -20,7 +20,7 @@ import { appendEntries } from "../changelog/log";
 import type { FeatureModule } from "../commands/registry";
 import type { OfficeHandle } from "../db/office";
 import type { OfficeGit } from "../git/office";
-import type { CodeHost } from "../platform/host";
+import type { CodeHost, PrStateHost } from "../platform/host";
 import type { Logger } from "../log/logger";
 import { readMarker } from "../office/marker";
 import type { IndexResult } from "../stories/index-stories";
@@ -61,6 +61,8 @@ export interface ReconcilerDeps {
   readonly slots?: SlotTable;
   /** Closes dipo's open story PR of a story Done elsewhere (DIPO-161). */
   readonly host?: Pick<CodeHost, "closePr"> | null;
+  /** Where the one Done check reads the merged PR of a claim's branch (DIPO-363). */
+  readonly prs?: PrStateHost | null;
   /** Checks and deletes the boxes of ended runs after a release (0021 section 6). */
   readonly finishBoxes?: () => Promise<unknown>;
   /** Reconcile appended entries outside a command; subscribers catch up. */
@@ -175,6 +177,7 @@ export class Reconciler {
           ...(this.#deps.runs === undefined ? {} : { runs: this.#deps.runs }),
           ...(this.#deps.slots === undefined ? {} : { slots: this.#deps.slots }),
           ...(this.#deps.host === undefined ? {} : { host: this.#deps.host }),
+          ...(this.#deps.prs === undefined ? {} : { prs: this.#deps.prs }),
           ...(this.#deps.finishBoxes === undefined ? {} : { finishBoxes: this.#deps.finishBoxes }),
           ...(releaseClaim === undefined
             ? {}
