@@ -18,6 +18,7 @@ import type { Usage, UsageTotals } from "@dipsaus-orchestrator/contract";
 
 import type { OfficeHandle } from "../db/office";
 import { canonicalModel } from "../pricing/estimate";
+import { REVIEWER_ROLE } from "../run/caps";
 import type { ModelUsageTotals, UsageTotalsByModel } from "../workers/types";
 
 /** The run and agent usage is counted for, with what `runs` holds for it. */
@@ -494,8 +495,19 @@ export function readUsage(office: OfficeHandle, scope: UsageScope): Usage {
   );
   // Includes the live output of a turn in progress (DIPO-296): the view shows the spend so far,
   // while the caps count output only at the turn end (0008 section 4), so a session may show more
-  // of its budget used than the cap check has counted yet.
-  const used = run.inputTokens + run.outputTokens + run.cacheCreateTokens;
+  // of its budget used than the cap check has counted yet. A reviewer counts against its own caps
+  // (0002): its budget is its own session's usage, and the story's budget leaves reviewers out.
+  const counted =
+    scope.role === REVIEWER_ROLE
+      ? agent
+      : toTotals(
+          office.get<SumRow>(
+            `select ${SUMS} from usage_totals where office_id = $office_id and run_id = $run
+              and role is not $reviewer`,
+            { run: scope.run, reviewer: REVIEWER_ROLE },
+          ),
+        );
+  const used = counted.inputTokens + counted.outputTokens + counted.cacheCreateTokens;
   const limit = Math.max(0, scope.budgetLimit);
   return {
     agent,

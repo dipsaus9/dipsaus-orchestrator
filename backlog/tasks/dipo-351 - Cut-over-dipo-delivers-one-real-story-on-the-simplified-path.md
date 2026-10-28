@@ -4,7 +4,7 @@ title: 'Cut over: dipo delivers one real story on the simplified path'
 status: Refined
 assignee: []
 created_date: '2026-10-25 09:51'
-updated_date: '2026-10-27 16:52'
+updated_date: '2026-10-28 08:45'
 labels:
   - 'tier:S'
   - 'slice:prune'
@@ -18,6 +18,8 @@ dependencies:
   - DIPO-359
   - DIPO-360
   - DIPO-345
+  - DIPO-361
+  - DIPO-362
   - DIPO-346
   - DIPO-347
   - DIPO-348

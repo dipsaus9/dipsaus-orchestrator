@@ -26,9 +26,10 @@
 //    Review (it waits there again; a closed story PR is replaced, 0002).
 //
 // Grants (0020): a top-up (`--budget`) is a budget grant. A round grant is one more round of the
-// cap that fired, read from the run's counters: the CI attempts or the loops of a `verify-failing`
-// park, the review rounds of a `review-blocked` one, the failed hand-offs of a `conflict` one, and
-// the reviewer's own turn or minute cap of a resumed review.
+// counted cap that fired, read from the run's counters: the CI attempts or the loops of a
+// `verify-failing` park, the review rounds of a `review-blocked` one, the failed hand-offs of a
+// `conflict` one. Each records the caps before and after it. A resumed review needs no grant: the
+// reviewer's caps hold per session, and the fresh session starts with all of them (0002).
 //
 // The first message is code-built: the reason's part, then `feedback/maintainer-note.md` with the
 // note, so maintainer text never starts a message. A top-up of a park a reopened fix round hit
@@ -85,7 +86,7 @@ import { type CapName, firedCap, REVIEWER_ROLE, runCaps } from "./caps";
 import { CONFLICT_CAP_DEFAULT, conflictCapOf, handOffState } from "./conflicts";
 import { feedbackItems, feedbackOfIntent, markFeedbackSent } from "./feedback-items";
 import { pendingFixRound } from "./fix-rounds";
-import { recordGrant } from "./grants";
+import { recordGrant, type RoundCap } from "./grants";
 import { markIntentSent, recordIntent, resolveIntent } from "./intents";
 import { markPhase } from "./markers";
 import type { OutcomeParts } from "./outcomes";
@@ -275,12 +276,8 @@ function replyGrant(grant: PlannedGrant): ResumeGrant {
         turns: amount.amount.turns,
         minutes: amount.amount.minutes,
       };
-    case "reviewCap":
-      return { kind: "reviewCap", turns: amount.amount.turns, minutes: amount.amount.minutes };
-    case "scope":
-      return { kind: "scope" };
-    default:
-      return { kind: amount.kind, count: amount.amount };
+    case "round":
+      return { kind: "round", cap: amount.amount.cap, count: amount.amount.count };
   }
 }
 
@@ -415,30 +412,6 @@ function resumeFacts(office: OfficeHandle, run: StoredRun) {
   const waitingInReview = run.endKind === IN_REVIEW_END || run.endKind === REVIEWED_END;
   const newest = newestAgent(office, run.runId);
   return { waitingInReview, reviewerStopped: !waitingInReview && newest?.role === REVIEWER_ROLE };
-}
-
-/**
- * Which of the reviewer's own caps its newest session reached, read from its turns and the minutes
- * it ran; null when neither is reached.
- */
-function reviewerCapFired(
-  office: OfficeHandle,
-  run: StoredRun,
-  caps: { readonly reviewMaxTurns: number | null; readonly reviewMaxMinutes: number | null },
-): "turns" | "minutes" | null {
-  const reviewer = newestAgent(office, run.runId);
-  if (reviewer === null || reviewer.role !== REVIEWER_ROLE) return null;
-  const turns =
-    office.get<{ n: number | null }>(
-      `select sum(turns) as n from usage_totals where office_id = $office_id and run_id = $run
-        and agent_id = $agent`,
-      { run: run.runId, agent: reviewer.agent },
-    )?.n ?? 0;
-  if (caps.reviewMaxTurns !== null && turns >= caps.reviewMaxTurns) return "turns";
-  const ended = reviewer.endedAt ?? run.endedAt ?? reviewer.startedAt;
-  const minutes = (ended - reviewer.startedAt) / 60_000;
-  if (caps.reviewMaxMinutes !== null && minutes >= caps.reviewMaxMinutes) return "minutes";
-  return null;
 }
 
 export class ParkResumes {
@@ -1148,7 +1121,8 @@ export class ParkResumes {
 
   /**
    * The grants this resume records, with ids made from the request so a retry writes none twice:
-   * the top-up, and one more round of the counted cap that fired (see the file comment).
+   * the top-up, and one more round of the counted cap that fired (see the file comment). A resumed
+   * review gets none: the reviewer's caps hold per session.
    */
   #plan(
     ctx: AsyncCommandContext,
@@ -1166,51 +1140,37 @@ export class ParkResumes {
         amount: { kind: "budget", amount: share(startCaps(run, legacy), budget) },
       });
     }
+    if (session === "review") return grants;
     const office = ctx.office;
     const caps = runCaps(office, run, legacy);
     const rounds = runRoundCounts(office, run.runId);
-    const round = (kind: "loop" | "reviewRound" | "ciAttempt" | "conflictHandoff") =>
-      grants.push({ grantId: id(kind), amount: { kind, amount: 1 } });
-    if (session === "review") {
-      // The reviewer's own cap that fired grows by half of its starting value.
-      const fired = reviewerCapFired(office, run, caps);
-      if (fired !== null) {
-        grants.push({
-          grantId: id("reviewCap"),
-          amount: {
-            kind: "reviewCap",
-            amount:
-              fired === "turns"
-                ? { turns: half(run.reviewMaxTurns), minutes: 0 }
-                : { turns: 0, minutes: half(run.reviewMaxMinutes) },
-          },
-        });
-      }
-      return grants;
-    }
+    const round = (cap: RoundCap, before: number) =>
+      grants.push({
+        grantId: id(cap),
+        amount: { kind: "round", amount: { cap, count: 1, before, after: before + 1 } },
+      });
     switch (reason) {
       case "verify-failing":
-        if (caps.ciCap !== null && rounds.ciAttempts >= caps.ciCap) round("ciAttempt");
-        else if (rounds.loops >= caps.loopCap) round("loop");
+        if (caps.ciCap !== null && rounds.ciAttempts >= caps.ciCap) round("ciAttempts", caps.ciCap);
+        else if (rounds.loops >= caps.loopCap) round("loops", caps.loopCap);
         break;
       case "review-blocked":
-        round("reviewRound");
+        if (caps.reviewRoundCap !== null) round("reviewRounds", caps.reviewRoundCap);
         break;
-      case "conflict":
-        if (
-          handOffState(office, run.runId).failed >= conflictCapOf(office, run, CONFLICT_CAP_DEFAULT)
-        ) {
-          round("conflictHandoff");
-        }
+      case "conflict": {
+        const cap = conflictCapOf(office, run, CONFLICT_CAP_DEFAULT);
+        if (handOffState(office, run.runId).failed >= cap) round("conflictAttempts", cap);
         break;
+      }
     }
     return grants;
   }
 
   /**
-   * Step 1's cap check: what remains of the caps, counting this resume's grants, is above zero.
-   * A developer session counts tokens, turns and minutes; a review counts the story's budget; a
-   * fix round or no session counts nothing here.
+   * Step 1's cap check: what remains of the developer's caps, counting this resume's grants, is
+   * above zero. Only a developer session counts them: a review counts the reviewer's own caps,
+   * which a fresh session starts with in full (0002), and a fix round or no session counts nothing
+   * here.
    */
   #checkCaps(
     office: OfficeHandle,
@@ -1221,17 +1181,13 @@ export class ParkResumes {
     legacy: Caps,
     budget: ResumeBudget | undefined,
   ): void {
-    if (session === "none" || session === "fix-round") return;
+    if (session !== "developer") return;
     const before = runCaps(office, run, legacy);
     const used = usedOf(office, run);
-    const caps = withGrants(before, grants);
-    const fired =
-      session === "review"
-        ? firedCap({ ...caps, maxTurns: Infinity, maxMinutes: Infinity }, used)
-        : firedCap(caps, used);
+    const fired = firedCap(withGrants(before, grants), used);
     if (fired === null) return;
     if (budget !== undefined) {
-      const smallest = smallestShare(startCaps(run, legacy), before, used, session);
+      const smallest = smallestShare(startCaps(run, legacy), before, used);
       throw new CommandError(
         RESUME_ERRORS.topUpTooSmall,
         `${budgetText(budget)} leaves ${story}'s ${CAP_LABELS[fired.cap]} reached (${fired.detail}); the smallest top-up that clears it is +${smallest}%: \`dipo resume ${story} --budget +${smallest}% --note <why>\`.`,
@@ -1403,11 +1359,6 @@ function answeredQuestion(
       delta: { question: answer.question, answer: answer.answer },
     },
   ];
-}
-
-/** Half of a starting reviewer cap, rounded up: what a `reviewCap` grant adds. */
-function half(value: number | null | undefined): number {
-  return Math.ceil((value ?? 0) / 2);
 }
 
 /** Inside the caller's transaction: an ended run takes the end kind `kind`, its outcome row too. */
