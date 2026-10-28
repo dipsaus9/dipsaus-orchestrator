@@ -6,6 +6,7 @@ import {
   CONTRACT_VERSION,
   contractCommands,
   contractReads,
+  describeCommand,
   describeContract,
   findCommand,
   commandsDescribe,
@@ -140,10 +141,12 @@ describe("commands.describe", () => {
   });
 
   it("leaves provisional definitions out", () => {
-    const provisional = contractCommands.find((definition) => definition.provisional === true);
-    if (provisional === undefined) throw new Error("no provisional command left to check");
-    const names = describeContract().commands.map((entry) => entry.name);
-    expect(names).not.toContain(provisional.name);
+    // No command of the contract is provisional since DIPO-309; a made-up one checks the rule.
+    expect(contractCommands.filter((definition) => definition.provisional === true)).toEqual([]);
+    const shipped = contractCommands[0];
+    if (shipped === undefined) throw new Error("the contract has no command");
+    const { since: _since, ...rest } = shipped;
+    expect(describeCommand({ ...rest, provisional: true })).toBeUndefined();
   });
 
   it("lists office.init since minor 1 with its result shape (DIPO-36)", () => {
