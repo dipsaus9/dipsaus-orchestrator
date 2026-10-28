@@ -14,7 +14,7 @@ Code decides everything between the two model sessions: when the PR opens, wheth
 
 From the developer's done report to Done:
 
-1. **Done report.** The worker reports `done`. The report gate checks the report: it is valid against the schema, every automated test-plan entry is covered, and no conflict markers are left. A miss is feedback (section 5). dipo takes the last part out of the box (0008) and runs the office's verify in the box (section 4); red is feedback too.
+1. **Done report.** The worker reports `done`. The report gate checks the valid report: every automated test-plan entry is covered, and no conflict markers are left. A miss is feedback (section 5). A report that does not parse or does not match the schema never reaches the gate: it gets one correction turn, then the story parks `worker-failed` (0008). dipo takes the last part out of the box (0008) and runs the office's verify in the box (section 4); red is feedback too.
 2. **Conflict check.** dipo checks the branch against the base with `git merge-tree`. A conflict is feedback (section 6).
 3. **In Review.** dipo ticks the met criteria and sets the status `In Review` through the Backlog CLI, commits and pushes. Then it opens the story PR, or updates it if one is already open (section 2).
 4. **Review and CI at once.** The reviewer reviews the pushed head (section 3) while CI runs on it (section 4).
@@ -77,7 +77,7 @@ Every kind of feedback reaches the developer the same way: as a message to the d
 ## 6. Conflicts
 
 - **When dipo checks.** Before In Review (section 1, step 2), and whenever the PR poll reports GitHub can't merge the PR because of a conflict.
-- **The hand-off.** dipo merges the base into the story branch in its own git, from objects. It commits the result as git left it, conflict markers included, and copies that commit into the box before the developer's next session. The developer resolves the markers as ordinary work. At done, a conflicted path that still has markers gets one feedback turn; if markers remain after it, the hand-off counts as failed.
+- **The hand-off.** dipo merges the base into the story branch in its own git, from objects. It commits the result as git left it, conflict markers included, and copies that commit into the box before the developer's next session. The developer resolves the markers as ordinary work. At done, a conflicted path that still has markers is report gate feedback (section 1), counted against the tier `loops`. A hand-off fails when the developer reports blocked while it is open.
 - **Paths the developer must not touch.** dipo resolves the story's own task file itself, taking the base's version and writing the branch's status back. A conflict in another protected path (`backlog/`, `.dipo/`, `.github/`, the Claude settings) parks the story `conflict` at once, naming the paths.
 - **No rebase, no force push.** dipo never rewrites a pushed branch.
 - **No sync without a conflict.** GitHub's "require branches to be up to date" setting is off (0016), so dipo merges the base into a branch only when there is a conflict.
@@ -143,3 +143,4 @@ An office runs at most one developer session per story, at most one developer se
 - A building-time sync for tier L and flagged stories. Removed (2026-10-24); a merge without a conflict is not needed.
 - `storyPr.open` to switch story PRs off (2026-10-19). Removed (2026-10-24): every story needs its PR, because CI on the PR is the final gate.
 - A PR closed on GitHub parked as `stopped` with cause `pr-closed`. Replaced by `by-maintainer` with a detail (2026-10-24).
+- Schema validity in the report gate, a bad report parked `ambiguous-spec`, and markers left at done failing the hand-off (2026-10-24). Replaced by one correction turn and then `worker-failed` for a report that does not parse or match the schema (0008), and by markers as report gate feedback against the tier `loops` (2026-10-28).
