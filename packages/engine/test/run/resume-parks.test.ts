@@ -59,9 +59,9 @@ import { storeFeedbackItems } from "../../src/run/feedback-items";
 import { FIX_ROUND_TAG } from "../../src/run/fix-rounds";
 import { recordIntent } from "../../src/run/intents";
 import { openPark } from "../../src/run/park";
+import { sendFeedback } from "../../src/run/feedback";
 import { insertPark, mirrorStory } from "./park-fixture";
 import { parksBeingResumed } from "../../src/run/park-resume";
-import { MAINTAINER_TAGS } from "../../src/run/steers";
 import type { NextSessionRequest } from "../../src/run/resume";
 import { addStory } from "../../src/stories/keys";
 import { encode } from "../../src/workers/claude-cli/encode";
@@ -891,10 +891,10 @@ describe("round grants: one more round of the cap that fired (0020)", () => {
     expect(parkRow(parkId)?.resolved_note).toBe("Add the test, then it passes.");
     // The note waits for the fix round's first message, after its findings.
     const held = runIntents(w.f.office, w.f.run).find((intent) =>
-      intent.detail.startsWith("held-feedback "),
+      intent.detail.startsWith("feedback resume - next "),
     );
     expect(held?.detail).toBe(
-      "held-feedback Note from the maintainer: Add the test, then it passes.",
+      "feedback resume - next Note from the maintainer: Add the test, then it passes.",
     );
   });
 
@@ -1429,9 +1429,9 @@ describe("the maintainer's note in a worker's message (DIPO-155 review)", () => 
     park("review-blocked", "In Review", "x", "reviewed");
     await resume(resumption(), { note: long });
     const held = runIntents(w.f.office, w.f.run).find((intent) =>
-      intent.detail.startsWith("held-feedback "),
+      intent.detail.startsWith("feedback resume - next "),
     );
-    expect(held?.detail).toBe(`held-feedback ${noteText(long)}`);
+    expect(held?.detail).toBe(`feedback resume - next ${noteText(long)}`);
     expect(held?.detail).toContain("[dipo: note cut, showing");
   });
 });
@@ -1569,12 +1569,11 @@ describe("an ambiguous-spec park resumed with its answer (DIPO-159; 0020)", () =
         decision: null,
         delivered: "on-resume",
       });
-      recordIntent(
+      sendFeedback(
         w.f.office,
         w.f.run,
-        "steer",
-        `${MAINTAINER_TAGS.held} ${workerAnswerText("Print Hello, Ada!")}`,
-        w.f.t.clock.now(),
+        { source: "answer", text: workerAnswerText("Print Hello, Ada!") },
+        { at: w.f.t.clock.now() },
       );
     });
     const reply = await resume(resumption());

@@ -18,7 +18,7 @@
 //   otherwise the round waits for the CI of the verdict's head. A reject is sent at once.
 // - Queue. One round per head: in one serialized step of the office (`Places.serialized`, so it
 //   cannot race a pickup's place check), one transaction reopens the run for its fix round
-//   (`reopenForRound`, phase `build`, waiting for the worker place), stores the round's steer
+//   (`reopen`, phase `build`, waiting for the worker place), stores the round's steer
 //   intent (`fix-round {head, advisories}`) and its `feedback_items` rows, send-once per head
 //   (`planFeedback`), and raises `same-failure` when a CI or verify signature is sent twice in a
 //   row. The rows and the intent are written before the places' shared pre-start cap check
@@ -85,7 +85,7 @@ import { recordBranchPush } from "../story-pr/records";
 import type { Places, PlaceStart } from "./places";
 import { findRun, IN_REVIEW_END, type StoredRun } from "./records";
 import type { RunStoryFacts } from "./resume";
-import { REVIEWED_END, reopenForRound } from "./rounds";
+import { REVIEWED_END, reopen } from "./rounds";
 import { raiseSignal } from "./signals";
 
 /** The tag of a fix round's steer intent: `steer` `fix-round {"head":…,"advisories":[…]}`. */
@@ -629,7 +629,7 @@ export class FixRounds {
         const at = this.#deps.clock.now();
         const same = sameFailureAgain(office, run.runId, planned);
         const number = nextFixRound(office, run.runId);
-        const entries = reopenForRound(office, current, "fix", at);
+        const entries = reopen(office, current, at, { kind: "fix" });
         if (findRun(office, run.runId)?.endedAt !== null) return none;
         const detail: FixIntentDetail = { head: round.head, advisories: round.advisories };
         const intentId = recordIntent(

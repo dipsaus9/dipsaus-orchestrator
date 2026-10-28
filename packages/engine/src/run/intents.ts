@@ -156,9 +156,8 @@ export interface IntentSent<R> {
  *   transaction; never marked sent.
  * - the start-failed `stop` (`run/outcome-sessions.ts`): stored, marked sent and resolved
  *   `startFailed` in one transaction.
- * - the report-feedback `steer` (`run/outcome-exits.ts`): stored and marked sent in one
- *   transaction; its text is the first message of the resume, and it is resolved `resumed` once
- *   that session started.
+ * - every `steer` of the one feedback path (`run/feedback.ts`): sent like this when the run's
+ *   session is live, else stored pending for the next session's first message.
  * - the park-resume `answer` (`run/resumption.ts`): stored before anything changes, marked sent
  *   later in the resume's own transaction (with the park lift and the answer), then resolved with
  *   how the resume went.

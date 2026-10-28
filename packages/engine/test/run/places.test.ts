@@ -20,7 +20,7 @@ import {
   placeHolders,
   Places,
   placeTaken,
-  reopenForRound,
+  reopen,
   type RunEnder,
   RunControl,
   runIntents,
@@ -100,7 +100,7 @@ describe("counting (0019 section 12)", () => {
     // reviewer place it holds that one, before and while its reviewer agent runs.
     const b = inReview("DIPO-2");
     expect(holderIds()).toEqual({ worker: ["DIPO-1"], reviewer: [] });
-    write(() => reopenForRound(w.office, findRun(w.office, b.run)!, "review", now()));
+    write(() => reopen(w.office, findRun(w.office, b.run)!, now(), { kind: "review" }));
     expect(holderIds()).toEqual({ worker: ["DIPO-1"], reviewer: [] });
     expect(waitingStarts(w.office).map((waiting) => [waiting.kind, waiting.runId])).toEqual([
       ["review", b.run],
@@ -150,7 +150,7 @@ describe("start order (0019 section 12)", () => {
 
   it("puts a waiting fix round ahead of a pickup, but not ahead of a maintainer resume", () => {
     const c = inReview("DIPO-3");
-    write(() => reopenForRound(w.office, findRun(w.office, c.run)!, "fix", now()));
+    write(() => reopen(w.office, findRun(w.office, c.run)!, now(), { kind: "fix" }));
     expect(holderIds().worker).toEqual([]);
     expect(placeTaken(w.office, pickup)).toBe("DIPO-3 waits for the office's worker place first");
     expect(
@@ -194,7 +194,7 @@ describe("a resume that finds its place taken (0020 section 1)", () => {
     const { s } = parked();
     // A fix round of DIPO-6 waits for the worker place too, from before the resume.
     const fix = inReview("DIPO-6");
-    write(() => reopenForRound(w.office, findRun(w.office, fix.run)!, "fix", now()));
+    write(() => reopen(w.office, findRun(w.office, fix.run)!, now(), { kind: "fix" }));
     w.t.clock.advance(MINUTE);
 
     let places: Places | null = null;
@@ -285,7 +285,7 @@ describe("a resume that finds its place taken (0020 section 1)", () => {
 describe("the office's starts paused keeps every waiting session waiting (0020)", () => {
   it("starts no waiting session while paused, never parks it, and starts it once the pause lifted", async () => {
     const fix = inReview("DIPO-8");
-    write(() => reopenForRound(w.office, findRun(w.office, fix.run)!, "fix", now()));
+    write(() => reopen(w.office, findRun(w.office, fix.run)!, now(), { kind: "fix" }));
     let paused: string | null = "the office's starts are paused (plan limit until later)";
     const started: string[] = [];
     const places = new Places({

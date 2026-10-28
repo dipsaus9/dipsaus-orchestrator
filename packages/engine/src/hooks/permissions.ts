@@ -51,10 +51,9 @@ import type { OfficeConfig } from "../config";
 import type { OfficeHandle } from "../db/office";
 import { failureFields } from "../platform/background";
 import type { RunSteering } from "../run/control";
-import { recordIntent } from "../run/intents";
 import { type LiveQuestions, type Presence, questionRoute } from "../run/live-question";
+import { sendFeedback } from "../run/feedback";
 import { openPark } from "../run/park";
-import { MAINTAINER_TAGS } from "../run/steers";
 import { findRun, type StoredRun } from "../run/records";
 import { activeSignals, clearSignals, raiseSignal } from "../run/signals";
 import { withWorkViews, workRefOf } from "../views/work";
@@ -344,8 +343,8 @@ export class PermissionAsks implements LiveQuestions {
    * `work.answer { question, text }` on a worker question no live worker waits on (DIPO-272,
    * DIPO-159): its run is being ended (a cap or stop began, its end not ingested yet), its run let
    * it go and no park carried it yet, or a park other than a question park carried it. The answer
-   * is recorded and held for the first message of the run's next session, as a steer to a parked
-   * story is (`heldMessages`); a parked story stays Parked until its park is resumed.
+   * is recorded and held for the first message of the run's next session through the one feedback
+   * path (`sendFeedback`, source `answer`), as a steer to a parked story is; a parked story stays Parked until its park is resumed.
    */
   async #answerHeld(
     ctx: AsyncCommandContext,
@@ -362,12 +361,11 @@ export class PermissionAsks implements LiveQuestions {
         delivered: "on-resume",
       });
       if (!closed) return [];
-      recordIntent(
+      sendFeedback(
         office,
-        question.runId as RunId,
-        "steer",
-        `${MAINTAINER_TAGS.held} ${workerAnswerText(text)}`,
-        now,
+        question.runId,
+        { source: "answer", text: workerAnswerText(text) },
+        { at: now },
       );
       return this.#closingEntries(office, question, now, text);
     });
