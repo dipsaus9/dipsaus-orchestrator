@@ -176,6 +176,75 @@ function registrationOf(call) {
 
 const FUNCTIONS = new Set(["ArrowFunctionExpression", "FunctionExpression", "FunctionDeclaration"]);
 
+// ---- the git module (0010) ----------------------------------------------------------------------
+
+const GIT_SPAWN_MESSAGE =
+  "Only the git module (packages/engine/src/git) starts git (0010): run a hardened step through its runner (`runGitStep`, an office's `GitSession`).";
+const GIT_WRITE_MESSAGE =
+  "Commits, ref changes, pushes and branch deletes go through the git writer (packages/engine/src/git/write.ts, 0010), never a raw git step.";
+
+/** Calls that start a process from an argument list. */
+const SPAWNERS = new Set(["spawn", "spawnSync", "exec", "execFile", "execFileSync", "execSync"]);
+
+/** git verbs that make a commit, move or delete a ref, or change the remote. */
+const GIT_WRITE_VERBS = new Set([
+  "am",
+  "branch",
+  "cherry-pick",
+  "commit",
+  "commit-tree",
+  "merge",
+  "pull",
+  "push",
+  "rebase",
+  "reset",
+  "revert",
+  "tag",
+  "update-ref",
+]);
+
+/** Verbs that create a branch with one of `BRANCH_FLAGS`. */
+const BRANCHING_VERBS = new Set(["checkout", "switch", "worktree"]);
+const BRANCH_FLAGS = new Set(["-b", "-B", "-c", "-C"]);
+
+/** The callee's name: `f` of `f(...)`, `m` of `x.m(...)`; null otherwise. */
+function calleeName(call) {
+  const callee = call.callee;
+  if (callee.type === "Identifier") return callee.name;
+  if (callee.type === "MemberExpression" && !callee.computed) {
+    return callee.property.type === "Identifier" ? callee.property.name : null;
+  }
+  return null;
+}
+
+/** True when `node` names the git program: `"git"`, `x ?? "git"`, or a binding called `git`. */
+function isGitProgram(node) {
+  if (node == null) return false;
+  if (specifierOf(node) === "git") return true;
+  if (node.type === "LogicalExpression") return isGitProgram(node.left) || isGitProgram(node.right);
+  if (node.type === "Identifier") return node.name === "git";
+  return node.type === "MemberExpression" && !node.computed && node.property.name === "git";
+}
+
+/** The array literals an argument may hold: itself, or both branches of a conditional. */
+function arraysOf(node) {
+  if (node == null) return [];
+  if (node.type === "ArrayExpression") return [node];
+  if (node.type === "ConditionalExpression") {
+    return [...arraysOf(node.consequent), ...arraysOf(node.alternate)];
+  }
+  return [];
+}
+
+/** True when the argument list `array` runs a git verb that writes (see `GIT_WRITE_VERBS`). */
+function writesGit(array) {
+  const words = array.elements.map((element) => specifierOf(element));
+  const verb = words.find((word) => word !== null && !word.startsWith("-"));
+  if (verb === undefined) return false;
+  if (GIT_WRITE_VERBS.has(verb)) return true;
+  return BRANCHING_VERBS.has(verb) && words.some((word) => BRANCH_FLAGS.has(word));
+}
+
 export default {
   meta: { name: "dipo" },
   rules: {
@@ -226,6 +295,49 @@ export default {
               child = parent;
             }
             context.report({ node, message: CI_GUARD_MESSAGE });
+          },
+        };
+      },
+    },
+    "git-module-only": {
+      meta: {
+        type: "problem",
+        docs: {
+          description:
+            "Ban starting git, and git steps that commit, move or delete a ref or push, outside the git module.",
+        },
+      },
+      create(context) {
+        const reportSpawn = (node) => context.report({ node, message: GIT_SPAWN_MESSAGE });
+        const reportWrites = (node) => {
+          for (const array of arraysOf(node)) {
+            if (writesGit(array)) context.report({ node: array, message: GIT_WRITE_MESSAGE });
+          }
+        };
+        return {
+          // `spawn({ cmd: ["git", ...] })`, `Bun.spawn(["git", ...])`, `execFile("git", ...)`.
+          Property(node) {
+            const key = node.key.type === "Identifier" ? node.key.name : specifierOf(node.key);
+            if (key !== "cmd") return;
+            for (const array of arraysOf(node.value)) {
+              if (isGitProgram(array.elements[0])) reportSpawn(array);
+            }
+          },
+          CallExpression(node) {
+            const name = calleeName(node);
+            if (name !== null && SPAWNERS.has(name)) {
+              const [first] = node.arguments;
+              if (isGitProgram(first)) reportSpawn(first);
+              for (const array of arraysOf(first)) {
+                if (isGitProgram(array.elements[0])) reportSpawn(array);
+              }
+            }
+            // A git argument list that writes, passed to any call (`session.ok(location, ["push",
+            // ...])`, a helper of the caller's own) or bound to a name for one.
+            for (const argument of node.arguments) reportWrites(argument);
+          },
+          VariableDeclarator(node) {
+            reportWrites(node.init);
           },
         };
       },

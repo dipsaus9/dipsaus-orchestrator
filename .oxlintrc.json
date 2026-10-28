@@ -665,6 +665,26 @@
         "dipo/no-claude-cli-import": "off"
       }
     },
+    // The git module (0010): only packages/engine/src/git starts git or makes a git write. Tests and
+    // testkit may run git on their own repositories. The CLI's repository lookup is the one
+    // exception: the CLI never imports the engine (0004).
+    {
+      "files": ["packages/*/src/**"],
+      "rules": {
+        "dipo/git-module-only": "error"
+      }
+    },
+    {
+      "files": [
+        "packages/engine/src/git/**",
+        "packages/testkit/**",
+        "packages/*/src/**/*.test.ts",
+        "packages/cli/src/workspace.ts"
+      ],
+      "rules": {
+        "dipo/git-module-only": "off"
+      }
+    },
     {
       "files": ["packages/engine/src/**", "packages/daemon/src/**"],
       "rules": {
