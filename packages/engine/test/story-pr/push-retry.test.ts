@@ -57,7 +57,6 @@ class FakeHost implements CodeHost {
     return { ...(this.open as HostPr), number };
   }
   async closePr(): Promise<void> {}
-  async squashMerge(): Promise<void> {}
   async requiredChecks(): Promise<[]> {
     return [];
   }

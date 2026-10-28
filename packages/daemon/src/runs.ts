@@ -50,7 +50,7 @@ import {
   markBoxCopied,
   pendingBoxCopy,
   type MergeGatesDeps,
-  type StorySlotDeps,
+  type StoryMergeDeps,
   StoryConflicts,
   type UnparkWriter,
   type BoxNetwork,
@@ -82,6 +82,10 @@ import {
   currentProfile,
   gitParkWriter,
   gitUnparkWriter,
+  guardedParkWriter,
+  guardedUnparkWriter,
+  type AutoMergeGuard,
+  type ParkWriter,
   gitStoryOps,
   hostSocketSteering,
   type EngineGit,
@@ -118,7 +122,7 @@ import {
   selfCommand,
   setupWorktree,
   type HoldResumer,
-  type SlotReentry,
+  type MergeReentry,
   type SlotTable,
   type TierCaps,
   type WorkerPort,
@@ -207,8 +211,13 @@ export interface DaemonRunsOptions {
   };
   /** The planning lane's resume of a park with no run, for `work.resume` (DIPO-160). */
   readonly holdResumer?: () => HoldResumer | undefined;
-  /** The merge slot a story waiting In Review again re-enters after a resume (DIPO-150). */
-  readonly slotReentry?: () => SlotReentry | undefined;
+  /** The auto-merge a story waiting In Review again goes back to after a resume (0002). */
+  readonly mergeReentry?: () => MergeReentry | undefined;
+  /**
+   * Turns auto-merge off for a story branch's PR before a park or a lift is written to the branch
+   * (0002); the write throws when it cannot. Without it the writers are not guarded (tests).
+   */
+  readonly autoMergeGuard?: AutoMergeGuard;
   /** The story index, which reads a story again after its park or In Review commit (DIPO-56). */
   readonly stories?: StoryIndex;
   /** Whether a TUI is connected, for live questions (DIPO-279); none by default. */
@@ -291,23 +300,22 @@ export interface DaemonRuns {
    */
   recoverFixRounds(): Promise<number>;
   /**
-   * The merge slot's ports into the run services (DIPO-150): a conflict the slot's sync committed
-   * goes to the worker as one fix round, a maintainer reject as another, a merge the slot made is
-   * recorded (so a clean one carries the approval to the merged head), and the story's facts on
-   * the base are read as the review loop reads them.
+   * The auto-merge's ports into the run services (0002): a conflict merge dipo committed is
+   * recorded and goes to the worker as one fix round, a maintainer reject as another, and the
+   * story's facts on the base are read as the review loop reads them.
    */
-  readonly mergeSlot: DaemonMergeSlotPorts;
+  readonly merge: DaemonMergePorts;
   /** The scan fallback's `session` runs (DIPO-310), which `office.infer` starts. */
   readonly sessions: ScanSessionRunner;
 }
 
-/** What the merge slot and the merge gates use of the run services (DIPO-150). */
-export interface DaemonMergeSlotPorts {
-  readonly conflict: NonNullable<StorySlotDeps["conflict"]>;
+/** What the auto-merge and the merge gates use of the run services (0002). */
+export interface DaemonMergePorts {
+  readonly conflict: NonNullable<StoryMergeDeps["conflict"]>;
   readonly reject: NonNullable<MergeGatesDeps["reject"]>;
-  readonly recordMerge: NonNullable<StorySlotDeps["recordMerge"]>;
-  readonly story: NonNullable<StorySlotDeps["story"]>;
-  readonly itemMax: NonNullable<StorySlotDeps["itemMax"]>;
+  readonly recordMerge: NonNullable<StoryMergeDeps["recordMerge"]>;
+  readonly story: NonNullable<StoryMergeDeps["story"]>;
+  readonly itemMax: NonNullable<StoryMergeDeps["itemMax"]>;
 }
 
 /** Apple `container` on `pathEnv`, by absolute path; undefined when it is not there. */
@@ -812,6 +820,12 @@ export const BOX_PASS_TICK_MS = 60_000;
 /** The run launcher `work.run` starts workers with. */
 export function daemonRuns(options: DaemonRunsOptions): DaemonRuns {
   const { clock, platform, env, home, uid } = options;
+  // No park or lift reaches a story branch while its PR has auto-merge on (0002).
+  const off = options.autoMergeGuard;
+  const guardPark = (writer: ParkWriter): ParkWriter =>
+    off === undefined ? writer : guardedParkWriter(writer, off);
+  const guardUnpark = (writer: UnparkWriter): UnparkWriter =>
+    off === undefined ? writer : guardedUnparkWriter(writer, off);
   // The watchdog (DIPO-52) writes `quiet` and `no-output` by the office's `timeouts`, and every
   // entry ingestion or the watchdog appends reaches subscribers at once.
   const watchdog = new Watchdog({
@@ -837,7 +851,7 @@ export function daemonRuns(options: DaemonRunsOptions): DaemonRuns {
       park: (runId, park) => runControl?.parkRun(runId, park) === true,
       // A part dipo keeps failing to take out of the box is told, never parked (DIPO-290).
       notice: (run, notice) => runNotice(options)(run.office, run.runId, notice),
-      // No part is taken while the box lacks a merge the merge slot made (DIPO-324).
+      // No part is taken while the box lacks a merge dipo made outside it (DIPO-324).
       behind: boxBehind(options.offices),
     },
     () => void collisions?.check(),
@@ -1046,7 +1060,7 @@ export function daemonRuns(options: DaemonRunsOptions): DaemonRuns {
     // The daemon-start sweep removes a run it does not know only when this daemon made it.
     tempOwner: () => tempDirs.owner(),
     ...(options.holdResumer === undefined ? {} : { holdResumer: options.holdResumer }),
-    ...(options.slotReentry === undefined ? {} : { slotReentry: options.slotReentry }),
+    ...(options.mergeReentry === undefined ? {} : { mergeReentry: options.mergeReentry }),
     // A resumed conflict park merges in its live run's box (DIPO-324), and a story resumed to wait
     // In Review again gets a new story PR when its PR was closed (0002).
     conflictMerge: conflictMergeOf({
@@ -1080,7 +1094,7 @@ export function daemonRuns(options: DaemonRunsOptions): DaemonRuns {
     ...(boxWorkers === null ? {} : { boxes: boxWorkers }),
     // The box network's host address, live, for the web guard and each reviewer's web proxy.
     ...(boxWorkers === null ? {} : { boxHostAddress: () => boxWorkers.hostAddress }),
-    // The merges the merge slot made on a box run's branch reach its box before the worker's next
+    // The merges dipo made on a box run's branch outside the box reach its box before the worker's next
     // session (DIPO-324): the box is started, the files copied in as a catch-up's are.
     boxSync: async (office, run) => {
       const handle = options.offices.get(office);
@@ -1121,11 +1135,10 @@ export function daemonRuns(options: DaemonRunsOptions): DaemonRuns {
     },
     control: {
       finisher,
-      // The park written on the story branch (DIPO-50).
-      writer: gitParkWriter({
-        git: (office) => options.engineGit.forOffice(office),
-        cli: options.cli,
-      }),
+      // The park written on the story branch (DIPO-50), after auto-merge is off (0002).
+      writer: guardPark(
+        gitParkWriter({ git: (office) => options.engineGit.forOffice(office), cli: options.cli }),
+      ),
       implemented: options.implemented,
     },
     outcomes: {
@@ -1133,11 +1146,11 @@ export function daemonRuns(options: DaemonRunsOptions): DaemonRuns {
       probe,
       holds: options.holds,
       holdsWork: storyHoldsWork(storyGit),
-      // Lifting a park on the story branch before its run resumes (DIPO-75).
-      unpark: gitUnparkWriter({
-        git: (office) => options.engineGit.forOffice(office),
-        cli: options.cli,
-      }),
+      // Lifting a park on the story branch before its run resumes (DIPO-75), and a fix round's
+      // In Progress commit, after auto-merge is off (0002).
+      unpark: guardUnpark(
+        gitUnparkWriter({ git: (office) => options.engineGit.forOffice(office), cli: options.cli }),
+      ),
       caps: capsFor,
     },
     // The office's starts paused (0020): a plan limit pauses every loaded office, and a failed
@@ -1221,10 +1234,9 @@ export function daemonRuns(options: DaemonRunsOptions): DaemonRuns {
   collisions = boxCollisions(options, boxed, control, partRun, {
     service: storyConflicts,
     isBoxRun,
-    unpark: gitUnparkWriter({
-      git: (office) => options.engineGit.forOffice(office),
-      cli: options.cli,
-    }),
+    unpark: guardUnpark(
+      gitUnparkWriter({ git: (office) => options.engineGit.forOffice(office), cli: options.cli }),
+    ),
   });
   collisions?.start();
   return {
@@ -1256,9 +1268,9 @@ export function daemonRuns(options: DaemonRunsOptions): DaemonRuns {
       sweepReviewFolders(realDir(options.tmpRoot), (runId, agent) =>
         reviewHostRuns(options.offices, runId, agent),
       ),
-    // The merge slot's ports (DIPO-150): its conflicts and the maintainer's rejects go through the
-    // fix rounds, and its merges are recorded as DIPO-149's catch-ups are.
-    mergeSlot: {
+    // The auto-merge's ports (0002): its conflicts and the maintainer's rejects go through the fix
+    // rounds, and its conflict merges are recorded as DIPO-149's catch-ups are.
+    merge: {
       conflict: async (office, runId, input) =>
         (await fixRounds?.conflict(office, runId, input)) ?? false,
       reject: async (office, runId, reject) =>
@@ -1275,8 +1287,6 @@ export function daemonRuns(options: DaemonRunsOptions): DaemonRuns {
             box: boxName(run.runId),
           },
           merged,
-          // A carry that fails throws: the slot merges nothing on that head (DIPO-150).
-          { strict: true },
         );
       },
       story: baseStoryFacts(options.base),

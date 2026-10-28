@@ -14,7 +14,7 @@ import { git, withTempRepo } from "@dipsaus-orchestrator/testkit";
 import { setFinalSummary } from "../../src/backlog/fields/summary";
 import { SECTION_RULE } from "../../src/backlog/plain";
 import type { GitLocation } from "../../src/git/hardened";
-import { writeCloseOutSummary } from "../../src/merge-slot/close-out";
+import { writeCloseOutSummary } from "../../src/merge/close-out";
 import { gitParkWriter, gitUnparkWriter, type ParkBranchFacts } from "../../src/run/park";
 import { claimStory, type ClaimOutcome } from "../../src/worktree";
 import { editInStoryBacklog } from "../../src/worktree/claim";

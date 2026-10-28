@@ -166,8 +166,8 @@ Usage:
                     and deletes the branch locally and on the remote after you
                     type the story id
   dipo approve <id> [--note <text>] [--office <id>]
-                    approve the story's merge that waits for you: it goes
-                    through the merge slot; past a blocked review the note is
+                    approve the story's merge that waits for you: dipo turns
+                    GitHub's auto-merge on; past a blocked review the note is
                     required and recorded as your override; exits 1 when
                     nothing waits
   dipo reject <id> --note <text> [--yes] [--office <id>]

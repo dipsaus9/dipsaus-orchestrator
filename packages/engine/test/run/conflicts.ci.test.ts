@@ -514,7 +514,7 @@ if (process.env["DIPO_TEST_CI"] === "1") {
         office.immediate(() => recordReviewOverride(office, blocked.gate, { note: "ok", at: 5 }));
         const onto = await onBase(w, { "README.md": "# Conflicts, moved\n" });
         const merge = await engineMerge(w, onto);
-        await w.conflicts.recorded(w.part, merged(w, { ...merge, onto }), { strict: true });
+        await w.conflicts.recorded(w.part, merged(w, { ...merge, onto }));
         expect(
           reviewVerdictForTree(w.f.office, w.f.run, await keyOf(w, merge.commit)),
         ).toMatchObject({
@@ -522,20 +522,6 @@ if (process.env["DIPO_TEST_CI"] === "1") {
           carriedFrom: reviewed,
           override: { note: "ok", at: 5 },
         });
-      }));
-
-    it("throws from a strict record when the carry fails, instead of only logging it", () =>
-      inWorld(async (w) => {
-        const approved = await onBranch(w, { "src/a.ts": "a\n" }, "DIPO-1: add a");
-        approve(w, approved, await keyOf(w, approved));
-        const onto = await onBase(w, { "README.md": "# Conflicts, moved\n" });
-        const merge = await engineMerge(w, onto);
-        // The branch is gone when the carry reads its head.
-        await w.repo.git("branch", "--quiet", "-D", BRANCH);
-        await expect(
-          w.conflicts.recorded(w.part, merged(w, { ...merge, onto }), { strict: true }),
-        ).rejects.toThrow();
-        expect(catchUpsOf(w.f.office, w.f.run)).toHaveLength(1);
       }));
 
     it("carries nothing over a merge when the code changed after the approval", () =>
@@ -619,7 +605,7 @@ if (process.env["DIPO_TEST_CI"] === "1") {
         const told = notices(w).filter((n) => n.code === CONFLICT_NOTICES.inReview);
         expect(told).toHaveLength(1);
         expect(told[0]!.text).toBe(
-          `DIPO-1 is In Review, and main at ${"d".repeat(12)} conflicts with its branch in src/shared.ts. dipo merges the base at the story's next In Review or merge-slot sync and hands the conflict to its worker then.`,
+          `DIPO-1 is In Review, and main at ${"d".repeat(12)} conflicts with its branch in src/shared.ts. dipo merges the base at the story's next In Review, or when GitHub reports the conflict at its merge, and hands the conflict to its worker then.`,
         );
         expect(baseConflictOf(office, w.key)).toMatchObject({
           base: "main",

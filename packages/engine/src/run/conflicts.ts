@@ -10,10 +10,10 @@
 //   catch-up of the poll or the sync before In Review). This is dipo's ref journal for carried
 //   approvals and the list of paths the check at done reads. A conflict the poll finds while the
 //   story is In Review is recorded as `found`, told once per base commit and shown on the story
-//   detail (`baseConflictOf`); nothing is merged, and the story's next In Review or merge-slot
-//   sync handles it (0019 section 10); a later check that finds none clears it (`cleared`).
-// - Merges outside the box (DIPO-324). The merge slot merges the base into the branch in dipo's own
-//   git while the story waits In Review, with no box turn. Such a merge is recorded as one the box
+//   detail (`baseConflictOf`); nothing is merged, and the story's next In Review, or GitHub
+//   reporting the conflict at its merge, handles it (0002); a later check that finds none clears it (`cleared`).
+// - Merges outside the box (DIPO-324). The auto-merge's conflict hand-off merges the base into the
+//   branch in dipo's own git while the story waits In Review, with no box turn. Such a merge is recorded as one the box
 //   still lacks (`box_copy` `pending`, migration 52, `pendingBoxCopy`); the run's next developer
 //   session copies what the branch got since the tip of the oldest such merge into the box before
 //   the worker starts (`RunResumerDeps.boxSync`, `BoxCollisions.copyPending`), and no part is taken
@@ -390,7 +390,7 @@ export function baseConflictOf(
  * The story runs of the office waiting In Review: ended at In Review or after their review, with a
  * live claim and no open park. The poll checks their tips against the base (0019 section 10). A
  * story that is Done is left out (DIPO-332): its own PR merged into the base, or its status reads
- * Done (the merge slot's close-out commit on its branch, or the base's after a release). Its claim
+ * Done (the close-out commit on its branch, or the base's after a release). Its claim
  * may stay live while its teardown waits, but it is not In Review, and the base holds its work.
  */
 export function inReviewRunIds(office: OfficeHandle): RunId[] {
@@ -733,16 +733,11 @@ export class StoryConflicts {
   }
 
   /**
-   * A merge dipo made into the run's branch (`BoxCollisions` `recorded`): recorded, a conflicted
-   * one starts a hand-off, and a clean one may carry the run's approval to the new head. With
-   * `strict` (the merge slot, DIPO-150) a carry that fails throws instead of being only logged, so
-   * no merge goes ahead on a head whose approval was not carried.
+   * A merge dipo made into the run's branch (`BoxCollisions` `recorded`, and the auto-merge's
+   * conflict hand-off): recorded, a conflicted one starts a hand-off, and a clean one may carry the
+   * run's approval to the new head.
    */
-  async recorded(
-    run: PartRun,
-    merged: CatchUpMerged,
-    options: { readonly strict?: boolean } = {},
-  ): Promise<void> {
+  async recorded(run: PartRun, merged: CatchUpMerged): Promise<void> {
     const office = this.#deps.offices.get(run.office);
     if (office === undefined) return;
     this.#write(office, () => {
@@ -757,7 +752,7 @@ export class StoryConflicts {
           tip: merged.tip,
           commit: merged.commit,
           conflicts: merged.conflicts,
-          // A merge the merge slot made outside the box waits to be copied into it (DIPO-324).
+          // A merge dipo made outside the box waits to be copied into it (DIPO-324).
           ...(merged.outsideBox === true ? { boxCopy: "pending" as const } : {}),
         },
         at,
@@ -768,9 +763,7 @@ export class StoryConflicts {
       }
       return [];
     });
-    if (merged.conflicts.length === 0 && options.strict === true) {
-      await this.#carry(office, run);
-    } else if (merged.conflicts.length === 0) {
+    if (merged.conflicts.length === 0) {
       await this.#carry(office, run).catch((error: unknown) => {
         this.#deps.warn?.(
           "carrying an approval over a clean merge failed; the head gets a review",
@@ -804,7 +797,7 @@ export class StoryConflicts {
           delta: {
             level: "warn",
             code: CONFLICT_NOTICES.inReview,
-            text: `${run.story} is In Review, and ${found.base} at ${found.onto.slice(0, 12)} conflicts with its branch in ${shownPaths(paths)}. dipo merges the base at the story's next In Review or merge-slot sync and hands the conflict to its worker then.`,
+            text: `${run.story} is In Review, and ${found.base} at ${found.onto.slice(0, 12)} conflicts with its branch in ${shownPaths(paths)}. dipo merges the base at the story's next In Review, or when GitHub reports the conflict at its merge, and hands the conflict to its worker then.`,
           },
         },
       ];

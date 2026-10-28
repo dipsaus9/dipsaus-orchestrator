@@ -276,10 +276,8 @@ describe("a merge the merge slot made outside the box (DIPO-324)", () => {
       // A catch-up in the run's turn of parts: the box got it with it.
       await w.conflicts.recorded(w.part, merged(w.startSha, "a".repeat(40), false));
       expect(pendingBoxCopy(office, w.f.run)).toBeNull();
-      // Two merges of the slot: the box is behind from the tip the first was made on.
-      await w.conflicts.recorded(w.part, merged("a".repeat(40), "b".repeat(40), true), {
-        strict: true,
-      });
+      // Two merges outside the box: it is behind from the tip the first was made on.
+      await w.conflicts.recorded(w.part, merged("a".repeat(40), "b".repeat(40), true));
       await w.conflicts.recorded(w.part, merged("b".repeat(40), "c".repeat(40), true));
       const pending = pendingBoxCopy(office, w.f.run);
       expect(pending).toEqual({ from: "a".repeat(40), ids: [2, 3] });

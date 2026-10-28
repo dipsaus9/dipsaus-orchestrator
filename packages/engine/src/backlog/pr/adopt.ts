@@ -3,7 +3,7 @@
 // a lane commit (`backlog: <kind> <subject>` with one `Dipo-Op` trailer), when the local branch and
 // the PR's head do not diverge, and when the branch still merges into the base: the target states
 // of its operations were journaled in the lost database, so the lane could not rebuild it. Merge
-// commits (the merge slot's base syncs) are allowed. Everything here runs inside one item of the
+// commits (base syncs of earlier dipo versions) are allowed. Everything here runs inside one item of the
 // office git queue and only reads, except `placeBranch`.
 
 import type { GitSession } from "../../git/office";

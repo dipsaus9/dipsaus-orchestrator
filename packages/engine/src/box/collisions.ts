@@ -1009,8 +1009,8 @@ export interface CatchUpMerged {
   /** The story's own task file when dipo resolved a conflict in it, else null. */
   readonly taskFile: string | null;
   /**
-   * True for a merge dipo committed on the branch outside the box (the merge slot's sync,
-   * DIPO-324): the box gets it only before the run's next developer session (`copyPending`).
+   * True for a merge dipo committed on the branch outside the box (the auto-merge's conflict
+   * hand-off, DIPO-324): the box gets it only before the run's next developer session (`copyPending`).
    */
   readonly outsideBox?: true;
 }
@@ -1315,7 +1315,7 @@ export class BoxCollisions {
   /**
    * Copies into the run's box what the story branch's tip holds outside `backlog/` and the tip
    * `from` did not (DIPO-324): the merges dipo committed on the branch outside the box since
-   * `from` (the merge slot's sync), staged and checked as a catch-up's are, then removed and
+   * `from` (the auto-merge's conflict hand-off), staged and checked as a catch-up's are, then removed and
    * written in the box. The box must run, and no part is taken meanwhile: the run's session has
    * not started. Throws when a stage or the copy fails; the branch is never moved here.
    */

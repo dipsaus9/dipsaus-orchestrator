@@ -2,8 +2,9 @@
 // 2026-10-22). `work.run` keeps the effective configuration of each run once per office and hash
 // in `config_snapshots` and records the hash on the run (`runs.config_hash`). Since a change of
 // `.dipo/office.yaml` on the base reloads the configuration in force at the next poll (DIPO-303),
-// the stages of a run after its start read this snapshot instead: the story PR it opens and the
-// required checks it waits for, its reviewer's model and adapter, and its merge (`mergeSlot`).
+// the stages of a run after its start read this snapshot instead: the story PR it opens, its
+// reviewer's model and adapter, and its merge (`mergeSlot`). The required checks are GitHub's
+// (0002), never the snapshot's: `mergeSlot.requiredChecks` is no longer read.
 //
 // A snapshot from an older configuration version lacks the keys added since; each such key takes
 // the value of the configuration it falls back to, section by section, so a run started before a

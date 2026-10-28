@@ -222,7 +222,7 @@ const requiredChecks = z
   .min(1, "must name at least one check")
   .refine((names) => new Set(names).size === names.length, "must not name a check twice")
   .describe(
-    "Checks the merge slot waits for before it merges a PR of this office (0016 rule 2): each must pass, and any failed or cancelled check holds the PR back. Names are the check names the host reports, such as ci-ok and pr-title. A repository whose CI names other checks sets its own names here.",
+    "No longer read: the required checks are the ones GitHub's branch protection or rulesets require on the base (0002). The key stays valid until the version 14 reset removes it.",
   );
 const officeShapeV3 = {
   ...officeShapeV2,
@@ -249,19 +249,21 @@ const MergeSlotV5 = z.strictObject({
   ...officeShapeV3.mergeSlot.shape,
   autoMerge: z
     .boolean()
-    .describe("Whether the merge slot merges a PR once its checks pass and it is reviewed."),
+    .describe(
+      "Whether dipo turns GitHub's auto-merge on for a story PR once it is reviewed and its checks pass, without the maintainer's approval.",
+    ),
   conflictAttempts: count().describe(
-    "Attempts to rebase a PR onto a base that moved, before the merge slot gives up on it.",
+    "Failed conflict hand-offs of a story before it parks with the reason conflict.",
   ),
   ciAttempts: count().describe(
-    "Attempts to fix a PR whose required check failed, before the merge slot gives up on it.",
+    "Pushed heads with red required checks before the story parks with the reason verify-failing.",
   ),
   holdLabels: z
     .array(text())
     .refine((labels) => new Set(labels).size === labels.length, "must not name a label twice")
-    .describe("Labels that hold a PR back from the merge slot while it carries one."),
+    .describe("Labels that keep auto-merge off for a PR while it carries one."),
   checksWaitMinutes: count().describe(
-    "Minutes the merge slot waits for the required checks of a PR to finish before it reports them stuck.",
+    "Minutes dipo waits for the required checks of a PR to finish before it reports them stuck.",
   ),
 });
 
@@ -1115,8 +1117,8 @@ export const OFFICE_DEFAULTS: OfficeConfig = {
   // 2026-10-12).
   // `web` true: the developer role gets WebSearch and WebFetch (0020 section 11b, DIPO-164).
   worker: { adapter: "claude-cli", allowProjectSettings: [], plugins: [], web: true },
-  // 0016 rule 2: the checks every backlog PR waits for in the merge slot (DIPO-133). The rest of
-  // the merge slot block and the review limits are DIPO-139's defaults (ADR 0019 section 16).
+  // `requiredChecks` is no longer read (0002); the version 14 reset removes it. The rest of the
+  // block and the review limits are DIPO-139's defaults.
   mergeSlot: {
     requiredChecks: ["ci-ok", "pr-title"],
     autoMerge: true,

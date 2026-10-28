@@ -1,14 +1,14 @@
 // The release path as data (DIPO-331; the 0016 amendment of 2026-10-23): CODEOWNERS parsed the way
 // GitHub reads it, the last matching rule deciding, and the repository's own CODEOWNERS giving the
 // release path the amendment names. No git here; the real-git cases are in
-// story-slot.git.ci.test.ts.
+// story-git.ci.test.ts.
 
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
 
 import { describe, expect, it } from "bun:test";
 
-import { parseCodeowners, releasePathsOf } from "../../src/merge-slot/release-path";
+import { parseCodeowners, releasePathsOf } from "../../src/merge/release-path";
 
 const owned = (codeowners: string, paths: readonly string[]) =>
   releasePathsOf(parseCodeowners(codeowners), paths);
@@ -41,7 +41,7 @@ describe("the repository's own CODEOWNERS", () => {
   it("leaves code, docs, the backlog and look-alike paths outside it", () => {
     expect(
       owned(text, [
-        "packages/engine/src/merge-slot/slot.ts",
+        "packages/engine/src/merge/merger.ts",
         "docs/release.md",
         "backlog/tasks/dipo-1 - A.md",
         "scripts/install.sh",

@@ -139,11 +139,12 @@ describe("gh calls", () => {
     expect(stub.calls[1]?.env).toMatchObject({ HOME: "/home/x", GH_PROMPT_DISABLED: "1" });
   });
 
-  it("edits, closes and squash-merges with the expected flags", async () => {
+  it("edits, closes, and turns auto-merge on and off with the expected flags", async () => {
     const { host: gh, stub } = host(() => ({ stdout: "" }));
     await gh.updatePr("o/r", 7, { title: "t", body: "b" });
     await gh.closePr("o/r", 7, "replaced");
-    await gh.squashMerge("o/r", 7, { headSha: "abc", subject: "chore(backlog): x" });
+    await gh.enableAutoMerge("o/r", 7, { headSha: "abc", subject: "chore(backlog): x" });
+    await gh.disableAutoMerge("o/r", 7);
     const calls = stub.calls.map((call) => call.cmd.slice(1)).filter((c) => c[0] === "pr");
     expect(calls).toEqual([
       ["pr", "edit", "7", "--repo", "o/r", "--title", "t", "--body", "b"],
@@ -154,6 +155,7 @@ describe("gh calls", () => {
         "7",
         "--repo",
         "o/r",
+        "--auto",
         "--squash",
         "--match-head-commit",
         "abc",
@@ -162,6 +164,67 @@ describe("gh calls", () => {
         "--body",
         "",
       ],
+      ["pr", "merge", "7", "--repo", "o/r", "--disable-auto"],
+    ]);
+  });
+
+  it("reads whether GitHub can merge a PR and whether auto-merge is on, with the PR", async () => {
+    const { host: gh, stub } = host(() => ({
+      stdout: JSON.stringify({
+        ...PR_JSON,
+        mergeable: "CONFLICTING",
+        autoMergeRequest: { enabledAt: "2026-10-28T10:00:00Z", mergeMethod: "SQUASH" },
+      }),
+    }));
+    expect(await gh.viewPr("o/r", 7)).toMatchObject({ mergeable: "conflicting", autoMerge: true });
+    expect(stub.calls.at(-1)?.cmd.at(-1)).toContain("mergeable,autoMergeRequest");
+    const plain = host(() => ({
+      stdout: JSON.stringify({ ...PR_JSON, mergeable: "UNKNOWN", autoMergeRequest: null }),
+    }));
+    expect(await plain.host.viewPr("o/r", 7)).toMatchObject({
+      mergeable: "unknown",
+      autoMerge: false,
+    });
+  });
+
+  it("reads the base's required checks from its branch protection and its rulesets", async () => {
+    const { host: gh, stub } = host((args) => {
+      const path = args[1] ?? "";
+      if (path.includes("/rules/branches/")) {
+        return {
+          stdout: JSON.stringify([
+            { type: "pull_request", parameters: {} },
+            {
+              type: "required_status_checks",
+              parameters: {
+                required_status_checks: [{ context: "pr-title" }, { context: "ci-ok" }],
+              },
+            },
+          ]),
+        };
+      }
+      return {
+        stdout: JSON.stringify({
+          name: "main",
+          protection: { enabled: true, required_status_checks: { contexts: ["ci-ok", "lint"] } },
+        }),
+      };
+    });
+    expect(await gh.requiredCheckNames("o/r", "main")).toEqual(["ci-ok", "lint", "pr-title"]);
+    const calls = stub.calls.map((call) => call.cmd.slice(1)).filter((c) => c[0] === "api");
+    expect(calls).toEqual([
+      ["api", "repos/o/r/branches/main"],
+      ["api", "repos/o/r/rules/branches/main"],
+    ]);
+    const enterprise = host((args) =>
+      (args.at(-1) ?? "").includes("/rules/") ? { stdout: "[]" } : { stdout: "{}" },
+    );
+    expect(await enterprise.host.requiredCheckNames("ghe.example/o/r", "main")).toEqual([]);
+    expect(enterprise.stub.calls.at(-1)?.cmd.slice(1)).toEqual([
+      "api",
+      "--hostname",
+      "ghe.example",
+      "repos/o/r/rules/branches/main",
     ]);
   });
 
@@ -448,6 +511,7 @@ describe("the review reads and comment (DIPO-141)", () => {
         return { stdout: JSON.stringify({ labels: [{ name: "autorelease: pending" }] }) };
       }
       if (command === "view") return { stdout: JSON.stringify(PR_JSON) };
+      if (group === "api") return { stdout: (command ?? "").includes("/rules/") ? "[]" : "{}" };
       return { stdout: "" };
     });
     const branch = PR_JSON.headRefName;
@@ -462,7 +526,10 @@ describe("the review reads and comment (DIPO-141)", () => {
       updatePr: () => gh.updatePr("o/r", 7, { title: "t", body: "b" }),
       viewPr: () => gh.viewPr("o/r", 7),
       closePr: () => gh.closePr("o/r", 7, "replaced"),
-      squashMerge: () => gh.squashMerge("o/r", 7, { headSha: "a".repeat(40), subject: "s" }),
+      enableAutoMerge: () =>
+        gh.enableAutoMerge("o/r", 7, { headSha: "a".repeat(40), subject: "s" }),
+      disableAutoMerge: () => gh.disableAutoMerge("o/r", 7),
+      requiredCheckNames: () => gh.requiredCheckNames("o/r", "main"),
       requiredChecks: () => gh.requiredChecks("o/r", 7),
       prLabels: () => gh.prLabels("o/r", 7),
       prChecks: () => gh.prChecks("o/r", 7),

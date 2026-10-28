@@ -7,7 +7,7 @@
 //   flagged once (a DONE ELSEWHERE desk item and a notice) and released when the run next ends.
 // - A claim Done through its own branch (its story PR recorded merged, or `git merge-tree` finding
 //   nothing new on it) is left to the Done poll, which tears it down as `done` (DIPO-332): after
-//   the merge slot merged a PR, the next index pass reads the story Done on `_base` too. One whose
+//   GitHub merged a PR, the next index pass reads the story Done on `_base` too. One whose
 //   branch moved past its merged PR's head with changes the base lacks is released as `done` and
 //   its worktree and branch settled as leftovers (`releaseMovedPastMerge`); with an open park it
 //   is kept, with a notice.

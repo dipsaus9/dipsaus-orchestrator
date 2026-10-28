@@ -237,9 +237,9 @@ function resumption(options: Partial<ResumptionOptions> = {}): Resumption {
             return { message: "Conflict item: src/a.ts has conflict markers." };
           },
         }),
-        slot: () => ({
+        merge: () => ({
           reenter: async () => {
-            w.ported.push("slot");
+            w.ported.push("merge");
           },
         }),
         prs: () => ({
@@ -490,8 +490,8 @@ describe("work.resume of a reason that needs nothing more (0020)", () => {
     expect(w.lifts[0]?.to).toBe("In Review");
     expect(w.sessions).toEqual([]);
     expect(w.reviews).toEqual([]);
-    // A closed PR is replaced (0002), then the merge slot takes the story in again.
-    expect(w.ported).toEqual(["pr", "slot"]);
+    // A closed PR is replaced (0002), then the auto-merge takes the story in again.
+    expect(w.ported).toEqual(["pr", "merge"]);
     expect(findRun(w.f.office, w.f.run)?.endKind).toBe("in-review");
     expect(grants()).toEqual([]);
   });
@@ -539,7 +539,7 @@ describe("work.resume of a reason that needs nothing more (0020)", () => {
     park("by-maintainer", "In Review", "after the release", "reviewed");
     await resume(resumption(), { note: "Released." });
     expect(findRun(office, run)?.endKind).toBe("reviewed");
-    expect(w.ported).toEqual(["pr", "slot"]);
+    expect(w.ported).toEqual(["pr", "merge"]);
   });
 
   for (const reason of ["by-maintainer", "worker-failed"] as const) {

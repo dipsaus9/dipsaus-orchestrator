@@ -22,11 +22,12 @@
 // `pr.pushHeld` notice saying why its review waits, at the load and at its failed push
 // (`pushHeld`).
 //
-// CI on the story PR (DIPO-147; 0019 section 7). The same poll reads, for each open PR of a story
-// still In Review, the required checks of the pushed head (`requiredChecks`: the office's
-// `mergeSlot.requiredChecks` joined with the checks the host marks required) with one call, and
-// only while the head's checks are not final: a final head is not read again until the head
-// changes. The PR itself is still read each interval, so a PR merged or closed on the host is
+// CI on the story PR (DIPO-147; 0002). The same poll reads, for each open PR of a story still In
+// Review or waiting for its merge, the required checks of the pushed head with one call, and only
+// while the head's checks are not final: a final head is not read again until the head changes.
+// The required checks are GitHub's: the names the base branch's protection and rulesets require
+// (`AutoMergeHost.requiredCheckNames`, read once per head; a head whose list cannot be read waits),
+// and every other check the host marks required. The PR itself is still read each interval, so a PR merged or closed on the host is
 // seen. A head whose checks are not final after `mergeSlot.checksWaitMinutes` raises one
 // `ci.stuck` notice and is read every 10 minutes from then on. A head with a failed required check
 // is red once its checks are final (or the wait ran out): the engine lists every check of the
@@ -57,7 +58,7 @@
 //
 // With the office's PR-state poll (`prState`, DIPO-314) the PR poll is the first part of each of
 // its rounds instead of a timer of its own, and that pass reads each open PR through the reads the
-// round gave it, so the merge slot and the Done poll that follow get the same read. Every other
+// round gave it, so the auto-merge and the Done poll that follow get the same read. Every other
 // read (a sync after an In Review push) goes to the host.
 
 import type {
@@ -76,12 +77,7 @@ import type { OfficeHandle } from "../db/office";
 import type { Logger } from "../log/logger";
 import type { PrStatePoll, PrStateReads } from "../platform/pr-state";
 import {
-  checksFinal,
-  evaluateChecks,
-  requiredCheckStates,
-  type RequiredCheckState,
-} from "../merge-slot/checks";
-import {
+  type AutoMergeHost,
   type CodeHost,
   CodeHostError,
   type HostPr,
@@ -103,7 +99,6 @@ import {
   type StoredReviewVerdict,
   uncommentedVerdicts,
 } from "../review";
-import { runInSlot } from "../merge-slot/store";
 import { runConfigOf } from "../run/config-snapshot";
 import { storedDoneReport } from "../run/done-report";
 import { runBudgetFacts } from "../run/budget-line";
@@ -123,6 +118,12 @@ import { findStoryByKey } from "../stories/keys";
 import { withWorkViews } from "../views/work";
 
 import { type PrBodyReview, storyPrBodyHash, storyPrBody } from "./body";
+import {
+  checksFinal,
+  evaluateChecks,
+  requiredCheckStates,
+  type RequiredCheckState,
+} from "./checks";
 import type { StoryPrGit } from "./git";
 import {
   findStoryPr,
@@ -194,8 +195,13 @@ export interface StoryPrsDeps {
    * final with no CI. False for every run without it.
    */
   readonly boxRun?: (office: OfficeId, run: StoredRun) => boolean;
-  /** True when the office merge slot merges story PRs (DIPO-150): the body says dipo merges. */
+  /** True when dipo turns auto-merge on for story PRs: the body says dipo merges. */
   readonly mergesStories?: boolean;
+  /**
+   * The names of the checks the base branch requires on GitHub (0002). Without it only the checks
+   * the host reports as required count (tests).
+   */
+  readonly required?: Pick<AutoMergeHost, "requiredCheckNames">;
   /**
    * The values of the env files dipo copied into a worktree, for the review comments (DIPO-152);
    * the files of `readEnvSecrets` by default. It throws when a file cannot be read.
@@ -219,6 +225,8 @@ interface Watch {
   stuck: boolean;
   /** Earliest next read of a stuck head. */
   nextAt: number;
+  /** The checks the base requires, read once for the head; null before that read. */
+  names: readonly string[] | null;
   /** The last states written to the body. */
   states: string;
   /** The reports the body is built from. */
@@ -375,7 +383,7 @@ export class StoryPrs {
     const stored = findStoryPr(state.office, runId);
     if (stored === null) return this.#sync(officeId, state, runId);
     if (stored.state === "merged") return;
-    // The host decides: the merge slot parks on its state, which the poll may not have recorded,
+    // The host decides: the auto-merge poll parks on its state, which the poll may not have recorded,
     // and the maintainer may have reopened the closed PR before resuming.
     const repo = repoOfPrUrl(stored.url);
     const viewed =
@@ -667,7 +675,7 @@ export class StoryPrs {
       const watch = state.watch.get(runId);
       const checks = requiredCheckStates(
         watch?.head === facts.head ? watch.reports : [],
-        this.#runConfig(officeId, run).mergeSlot.requiredChecks,
+        watch?.head === facts.head ? (watch.names ?? []) : [],
       );
       const box = this.#deps.boxRun?.(officeId, run) === true;
       const reviewed = latestVerdictOfRun(office, runId);
@@ -936,16 +944,10 @@ export class StoryPrs {
   ): Promise<void> {
     const office = state.office;
     const run = findRun(office, stored.runId);
-    // A story the merge slot closed out is Done on its branch, provisionally until the host merge,
-    // and still watched: in the slot, or after it left the slot unmerged (DIPO-150).
+    // A story dipo closed out is Done on its branch until GitHub merges it, and still watched.
     if (run === null) return;
-    const watched =
-      storyInReview(office, stored.key) ||
-      runInSlot(office, run.runId) ||
-      closedOutUnmerged(office, run);
-    if (!watched) return;
+    if (!storyInReview(office, stored.key) && !waitsForMerge(office, run)) return;
     const config = this.#runConfig(officeId, run);
-    const names = config.mergeSlot.requiredChecks;
     const now = this.#deps.clock.now();
     let watch = state.watch.get(stored.runId);
     if (watch?.head !== stored.headSha) {
@@ -955,7 +957,8 @@ export class StoryPrs {
         final: false,
         stuck: false,
         nextAt: 0,
-        states: JSON.stringify(requiredCheckStates([], names)),
+        names: null,
+        states: "",
         reports: [],
         items: null,
         parkWarned: false,
@@ -972,20 +975,12 @@ export class StoryPrs {
       return;
     }
     // Checks the host reports for another head than the one the engine pushed do not count.
-    let reports: RequiredCheck[] = [];
     const onHead = hostHead === "" || hostHead === stored.headSha;
-    if (onHead) {
-      try {
-        reports = await this.#deps.host.requiredChecks(repo, stored.number);
-      } catch (error) {
-        this.#deps.logger?.warn("reading the checks of the story PR failed", {
-          office: officeId,
-          run: stored.runId,
-          reason: messageOf(error),
-        });
-        return;
-      }
-    }
+    const [names, reports] = await Promise.all([
+      this.#requiredNames(officeId, watch, stored, repo),
+      onHead ? this.#reports(officeId, stored, repo) : Promise.resolve([]),
+    ]);
+    if (names === null || reports === null) return;
     watch.reports = reports;
     if (
       box &&
@@ -1005,8 +1000,14 @@ export class StoryPrs {
       watch.states = states;
       await this.#sync(officeId, state, stored.runId);
     }
-    const verdict = evaluateChecks(reports, names);
-    const final = checksFinal(reports, names);
+    // A base that requires no check, with no check reported, has not shown its CI yet: nothing is
+    // final then, so a head is never green before CI starts. A box run's head with no check at all
+    // is decided by the no-CI wait above.
+    const unknown = names.length === 0 && reports.length === 0;
+    const verdict = unknown
+      ? ({ state: "pending", waiting: [] } as const)
+      : evaluateChecks(reports, names);
+    const final = !unknown && checksFinal(reports, names);
     const waited = now - watch.since >= config.mergeSlot.checksWaitMinutes * 60_000;
     if (!final && waited) {
       if (!watch.stuck) {
@@ -1015,7 +1016,7 @@ export class StoryPrs {
           notice(
             "warn",
             STORY_PR_NOTICES.ciStuck,
-            `The required checks of the PR for ${stored.key} are still not final after ${config.mergeSlot.checksWaitMinutes} minutes (waiting for: ${waitingFor(reports, names).join(", ")}). dipo keeps watching, now every 10 minutes.`,
+            `The required checks of the PR for ${stored.key} are still not final after ${config.mergeSlot.checksWaitMinutes} minutes (waiting for: ${waitingFor(reports, names).join(", ") || "any check to be reported"}). dipo keeps watching, now every 10 minutes.`,
             stored.key,
             stored.runId,
           ),
@@ -1028,6 +1029,50 @@ export class StoryPrs {
       // A park that failed leaves the head open, so the next poll tries the park again.
       watch.final = await this.#red(officeId, state, run, stored, repo, reports);
     }
+  }
+
+  /** The required checks the host reports for the PR's head; null when the read failed (logged). */
+  async #reports(
+    officeId: OfficeId,
+    stored: StoryPrRecord,
+    repo: string,
+  ): Promise<RequiredCheck[] | null> {
+    try {
+      return await this.#deps.host.requiredChecks(repo, stored.number);
+    } catch (error) {
+      this.#deps.logger?.warn("reading the checks of the story PR failed", {
+        office: officeId,
+        run: stored.runId,
+        reason: messageOf(error),
+      });
+      return null;
+    }
+  }
+
+  /**
+   * The checks the base requires on GitHub, read once per watched head; null when the read failed
+   * (logged), so the head waits for the next poll.
+   */
+  async #requiredNames(
+    officeId: OfficeId,
+    watch: Watch,
+    stored: StoryPrRecord,
+    repo: string,
+  ): Promise<readonly string[] | null> {
+    if (watch.names !== null) return watch.names;
+    const required = this.#deps.required;
+    try {
+      watch.names =
+        required === undefined ? [] : await required.requiredCheckNames(repo, stored.base);
+    } catch (error) {
+      this.#deps.logger?.warn("reading the base's required checks failed", {
+        office: officeId,
+        run: stored.runId,
+        reason: messageOf(error),
+      });
+      return null;
+    }
+    return watch.names;
   }
 
   /**
@@ -1147,6 +1192,7 @@ export class StoryPrs {
     const config = this.#runConfig(officeId, run);
     const budgets = config.prompt.budgets.feedbackItem as Readonly<Record<string, number>>;
     const polled = this.#offices.get(officeId);
+    const names = polled?.watch.get(run.runId)?.names ?? [];
     const options = {
       itemMax: (run.tier === null ? undefined : budgets[run.tier]) ?? budgets.M ?? 3_000,
       logLines: FEEDBACK_LOG_LINES_DEFAULT,
@@ -1164,9 +1210,7 @@ export class StoryPrs {
         listFailed = messageOf(error);
       }
     }
-    const required = new Set(
-      requiredCheckStates(reports, config.mergeSlot.requiredChecks).map((c) => c.name),
-    );
+    const required = new Set(requiredCheckStates(reports, names).map((c) => c.name));
     const failed = all.filter(isFailed);
     // A failed required check the full list does not show is named, with no link.
     for (const report of reports) {
@@ -1290,21 +1334,18 @@ export class StoryPrs {
   }
 }
 
-/** What the body's review line is built from: the latest verdict and an override on it. */
 /**
- * True when the merge slot's close-out set the story Done on its branch but its PR has not merged:
- * the run still waits after its review, with a live claim and no open park (DIPO-150).
+ * True when the run waits after its review for its merge: ended at In Review or reviewed, with a
+ * live claim and no open park. Its story may read Done on its branch after the close-out commit.
  */
-function closedOutUnmerged(office: OfficeHandle, run: StoredRun): boolean {
+function waitsForMerge(office: OfficeHandle, run: StoredRun): boolean {
   if (run.key === null || run.endedAt === null) return false;
   if (run.endKind !== REVIEWED_END && run.endKind !== IN_REVIEW_END) return false;
   return (
     office.get(
-      `select 1 as found from backlog_mirror m
-        where m.office_id = $office_id and m.key = $key and m.status = 'Done'
-          and exists (select 1 from claims c where c.office_id = m.office_id
-            and c.run_id = $run and c.released_at is null)`,
-      { key: run.key, run: run.runId },
+      `select 1 as found from claims c where c.office_id = $office_id and c.run_id = $run
+          and c.released_at is null`,
+      { run: run.runId },
     ) !== null && !runHeldByPark(office, run.runId)
   );
 }

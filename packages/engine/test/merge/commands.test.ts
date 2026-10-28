@@ -1,8 +1,8 @@
-// `gate.approve` and `gate.reject` on merge gates (DIPO-150 with DIPO-151; 0019 section 11) on a
-// migrated state database built from fixtures: approve decides a waiting gate approved by the
-// maintainer and kicks the slot; reject decides it rejected and starts a fix round with the note;
-// both answer gate.notWaitingOnMaintainer for a gate decided by rule; approve answers
-// gate.handMergeOnly for a PR labelled autorelease: pending; on the override gate of a story parked
+// `gate.approve` and `gate.reject` on merge gates (0002) on a migrated state database built from
+// fixtures: approve decides a waiting gate approved by the maintainer and kicks the auto-merge;
+// reject decides it rejected and starts a fix round with the note; both answer
+// gate.notWaitingOnMaintainer for a gate decided by rule; approve answers gate.handMergeOnly for a
+// PR labelled autorelease: pending and for one whose head on GitHub dipo did not push; on the override gate of a story parked
 // review-blocked, approve needs a note and records the override, resolves the park as override and
 // returns the story to In Review with no session. The branch write is a fake.
 
@@ -27,13 +27,13 @@ import {
   type MergeGatesDeps,
   mergeGate,
   mergeGatesOfRun,
-} from "../../src/merge-slot";
+} from "../../src/merge";
 import { reviewVerdictOfGate } from "../../src/review/store";
 import type { ParkBranchRequest, UnparkBranchRequest } from "../../src/run/park";
 import { findRun, REVIEWED_END, runSteps } from "../../src/run/records";
 import { CAPABILITY_FLAGS } from "../../src/reads/hello";
 
-import { APPROVED, H1, PR, type StoryWorld, storyWorld } from "./story-helpers";
+import { APPROVED, C1, H1, PR, type StoryWorld, storyWorld } from "./story-helpers";
 
 let s: StoryWorld;
 
@@ -71,7 +71,8 @@ function gatesOf(world: StoryWorld, extra: Partial<MergeGatesDeps> = {}): Gates 
       return true;
     },
     kick: (office) => kicks.push(office),
-    holds: (office, gate, head) => world.slot.gateHolds(office, gate, head),
+    holds: (office, gate, head) => world.merge.gateHolds(office, gate, head),
+    view: world.host,
     repark: {
       write: async (_office, request) => {
         reparks.push(request);
@@ -138,14 +139,14 @@ async function refused(promise: Promise<unknown>): Promise<string> {
 async function waiting(): Promise<GateId> {
   s = await storyWorld();
   s.config = { ...OFFICE_DEFAULTS, mergeSlot: { ...OFFICE_DEFAULTS.mergeSlot, autoMerge: false } };
-  expect(await s.slot.tick(s.officeId)).toBe("idle");
+  await s.tick();
   const gate = mergeGatesOfRun(s.w.office, s.run)[0];
   if (gate === undefined) throw new Error("no gate opened");
   return gate.gate;
 }
 
 describe("gate.approve", () => {
-  it("decides the waiting merge gate approved by the maintainer, with the note, and kicks the slot", async () => {
+  it("decides the waiting merge gate approved by the maintainer, with the note, and kicks the auto-merge", async () => {
     const gate = await waiting();
     const g = gatesOf(s);
     const out = await g.gates.approve(g.ctx(), { gate, note: "tested by hand" });
@@ -157,13 +158,22 @@ describe("gate.approve", () => {
     });
     expect(g.entries.map((entry) => entry.type)).toEqual(["gate.decided"]);
     expect(g.kicks).toEqual([s.officeId]);
-    // The PR enters the slot at the next tick.
-    expect(await s.slot.tick(s.officeId)).toBe("waiting");
+    // Auto-merge goes on at the next round.
+    await s.tick();
+    expect(s.host.armedAt).toEqual([{ number: PR, head: C1 }]);
+  });
+
+  it("answers gate.handMergeOnly for a PR whose head on GitHub dipo did not push", async () => {
+    const gate = await waiting();
+    s.host.set(PR, { headSha: "9".repeat(40) });
+    const g = gatesOf(s);
+    expect(await refused(g.gates.approve(g.ctx(), { gate }))).toBe("gate.handMergeOnly");
+    expect(mergeGate(s.w.office, gate)?.decision).toBeNull();
   });
 
   it("answers gate.handMergeOnly for a PR labelled autorelease: pending", async () => {
     const gate = await waiting();
-    s.host.labels.set(PR, ["autorelease: pending"]);
+    s.host.prLabelsOf.set(PR, ["autorelease: pending"]);
     const g = gatesOf(s);
     expect(await refused(g.gates.approve(g.ctx(), { gate }))).toBe("gate.handMergeOnly");
     expect(mergeGate(s.w.office, gate)?.decision).toBeNull();
@@ -172,7 +182,7 @@ describe("gate.approve", () => {
   it("answers gate.handMergeOnly for a gate whose PR changes the release path; reject still decides it (DIPO-331)", async () => {
     s = await storyWorld();
     s.git.release.set(H1, [".github/workflows/ci.yml"]);
-    expect(await s.slot.tick(s.officeId)).toBe("idle");
+    await s.tick();
     const gate = mergeGatesOfRun(s.w.office, s.run)[0]!.gate;
     const g = gatesOf(s);
     expect(await refused(g.gates.approve(g.ctx(), { gate, note: "looks fine" }))).toBe(
@@ -187,7 +197,7 @@ describe("gate.approve", () => {
 
   it("answers gate.notWaitingOnMaintainer for a gate decided by rule, and for one decided already", async () => {
     s = await storyWorld();
-    expect(await s.slot.tick(s.officeId)).toBe("waiting");
+    await s.tick();
     const rule = mergeGatesOfRun(s.w.office, s.run)[0]!.gate;
     const g = gatesOf(s);
     expect(await refused(g.gates.approve(g.ctx(), { gate: rule }))).toBe(
@@ -224,7 +234,7 @@ describe("gate.reject", () => {
   });
 });
 
-/** A world whose story parked review-blocked; the slot opened its override gate. */
+/** A world whose story parked review-blocked; the auto-merge opened its override gate. */
 async function blocked(): Promise<GateId> {
   s = await storyWorld({
     judged: {
@@ -252,7 +262,7 @@ async function blocked(): Promise<GateId> {
       { run: s.run },
     );
   });
-  expect(await s.slot.tick(s.officeId)).toBe("idle");
+  await s.tick();
   return mergeGatesOfRun(s.w.office, s.run)[0]!.gate;
 }
 
@@ -296,8 +306,9 @@ describe("approving past a blocked review", () => {
       to: "In Review",
     });
     expect(g.kicks).toEqual([s.officeId]);
-    // The override gate is the merge decision: green checks on the head take it into the slot.
-    expect(await s.slot.tick(s.officeId)).toBe("waiting");
+    // The override gate is the merge decision: green checks on the head turn auto-merge on.
+    await s.tick();
+    expect(s.host.armedAt).toEqual([{ number: PR, head: C1 }]);
   });
 
   it("leaves the story parked when the override is rejected", async () => {
@@ -340,6 +351,8 @@ describe("a gate decided only for the head it holds for", () => {
         head: C2,
       }),
     );
+    // dipo pushed it: GitHub shows the same head.
+    s.host.set(PR, { headSha: C2 });
     const g = gatesOf(s);
     expect((await g.gates.approve(g.ctx(), { gate })).result.decision).toBe("approved");
   });

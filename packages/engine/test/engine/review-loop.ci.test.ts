@@ -6,26 +6,27 @@
 // none: the host's required checks decide. The scenarios:
 //
 // - approve and merge: one review round approves the In Review head, CI is green, the merge gate
-//   is decided by rule, and the merge slot closes out, pushes once and squash-merges at the head
-//   it pushed, with the PR title as subject;
+//   is decided by rule, and dipo closes out, pushes once and turns GitHub's auto-merge on at the
+//   head it pushed, which GitHub squash-merges with the PR title as subject;
 // - blocked then fixed: a blocking correctness finding at a changed line is one fix round; the
 //   next head gets a second round, which approves;
 // - a blocking security finding, the same way;
 // - red CI then green: the failed job's log tail goes back to the worker in one fix round;
 // - a conflict hand-off: the base moved with a conflicting change while the story waited, the
-//   slot commits its merge as git left it and hands the conflict to the worker, whose resolution
+//   auto-merge sees GitHub report the conflict, commits dipo's merge as git left it and hands the
+//   conflict to the worker, whose resolution
 //   gets a review round of its own before the merge;
 // - a merge gate the maintainer approves: a criterion only the maintainer can check;
 // - an override of a review-blocked park: a round cap of 1 parks the story, `gate.approve` needs a
 //   note and records the override, and the PR merges with no session;
 // - a review running next to a working developer session of another story (0019 section 12);
-// - a daemon restart while the story is in the merge slot: the slot continues with the same
-//   occupant and merges once, and after the restart's re-attach the Done poll ends the run done;
+// - a daemon restart while auto-merge is on: GitHub merges once, with no second close-out or push,
+//   and after the restart's re-attach the Done poll ends the run done;
 // - the park and resume path: red CI at a CI cap of 1 parks `verify-failing`, and
 //   `work.resume` with a note grants one CI attempt and sends the CI item to the worker.
 //
 // No scenario is `it.failing` any more. The Done poll ending a merged story without a restart was
-// one until DIPO-328, and the slot's conflict merge reaching the worker's box (its markers, and
+// one until DIPO-328, and dipo's conflict merge reaching the worker's box (its markers, and
 // what the base changed kept on main after the merge) one until DIPO-324.
 //
 // Each scenario needs many CLI calls, pushes and an office load: far over the local budget.
@@ -38,7 +39,7 @@ import { describe, expect, it } from "bun:test";
 import { type RunId, type StoryKey } from "@dipsaus-orchestrator/contract";
 import { git } from "@dipsaus-orchestrator/testkit";
 
-import { mergeGatesOfRun, slotOccupant } from "../../src/merge-slot";
+import { mergeGatesOfRun } from "../../src/merge";
 import { reviewVerdictsOf } from "../../src/review/store";
 import { findRun, openPark } from "../../src/run";
 import { findStoryPr } from "../../src/story-pr";
@@ -143,9 +144,9 @@ async function remoteSubjects(w: LoopWorld, ref: string, count: number): Promise
 }
 
 /**
- * The PR of TASK-1 merged once by the slot: one squash merge at the branch's pushed tip with the
- * PR title as subject, the tip the close-out commit (status Done, the final summary), `csv` on
- * main, the slot free, and the PR poll sees the PR merged.
+ * The PR of TASK-1 merged once by GitHub's auto-merge: one squash merge at the branch's pushed tip
+ * with the PR title as subject, the tip the close-out commit (status Done, the final summary),
+ * `csv` on main, and the PR poll sees the PR merged.
  */
 async function expectMergedOnce(
   w: LoopWorld,
@@ -162,7 +163,6 @@ async function expectMergedOnce(
   const task = await remoteFile(w, "main", TASK_FILE_1);
   expect(task).toContain("status: Done");
   expect(task).toContain("Final Summary");
-  expect(slotOccupant(w.office)).toBeNull();
   await w.until("the PR poll sees the merge", () => findStoryPr(w.office, run)?.state === "merged");
 }
 
@@ -406,9 +406,9 @@ if (process.env["DIPO_TEST_CI"] === "1") {
             ["implement", 2],
             ["review", 2],
           ]);
-          // The slot found the conflict in its sync and handed it to the worker as one fix round,
-          // the item naming the conflicted path.
-          expect(noticeCodes(w)).toContain("mergeSlot.conflict");
+          // GitHub reported the conflict; dipo handed it to the worker as one fix round, the item
+          // naming the conflicted path.
+          expect(noticeCodes(w)).toContain("merge.conflict");
           expect(w.sessions[2]?.message).toContain(CSV);
           // The resolution changed the code: a second review round, then one merge.
           expect(verdicts(w, run)).toEqual([
@@ -417,7 +417,7 @@ if (process.env["DIPO_TEST_CI"] === "1") {
           ]);
           await expectMergedOnce(w, run, CSV_V2);
           // What the base added stays on main: the next scenario checks it (DIPO-324).
-          // The branch holds the slot's merge of the moved base (read from the merge call: the Done
+          // The branch holds dipo's merge of the moved base (read from the merge call: the Done
           // teardown deleted the branch).
           const tip = w.host.merges[0]?.headSha ?? "";
           const merges = await git(w.repo.remote, w.repo.home, "rev-list", "--merges", tip);
@@ -428,7 +428,7 @@ if (process.env["DIPO_TEST_CI"] === "1") {
     );
 
     it(
-      "a conflict hand-off gives the worker's box the slot's merge (DIPO-324)",
+      "a conflict hand-off gives the worker's box dipo's merge (DIPO-324)",
       () =>
         withLoopOffice({}, async (w) => {
           const { markers } = await conflictHandOff(w);
@@ -460,7 +460,7 @@ if (process.env["DIPO_TEST_CI"] === "1") {
           // Approved and green, but nothing merges while the gate waits.
           await polls(w, 3);
           expect(merged(w)).toBe(false);
-          expect(slotOccupant(w.office)).toBeNull();
+          expect(w.host.calls.some((call) => call.startsWith("auto-merge on"))).toBe(false);
           expect(verdicts(w, run)).toEqual([[1, "approved"]]);
 
           const reply = await w.command("gate.approve", { gate: gate?.gate });
@@ -521,7 +521,7 @@ if (process.env["DIPO_TEST_CI"] === "1") {
             ["review", 1],
           ]);
           await expectMergedOnce(w, run, CSV_V1);
-          // The branch went Parked, then back In Review for the slot.
+          // The branch went Parked, then back In Review for the auto-merge.
           const tip = w.host.merges[0]?.headSha ?? "";
           expect(await remoteSubjects(w, tip, 3)).toEqual([
             `${TASK_1}: status Done`,
@@ -618,34 +618,29 @@ if (process.env["DIPO_TEST_CI"] === "1") {
     );
 
     it(
-      "a daemon restart while the story is in the merge slot",
+      "a daemon restart while auto-merge is on",
       () =>
         withLoopOffice({}, async (w) => {
           approving(w);
-          // Only the In Review head's checks are green: the slot's pushed head waits for its own.
+          // Only the In Review head's checks are green: GitHub waits for the close-out head's own.
           w.host.fallback = PENDING_CHECKS;
           const run = await startStory(w, TASK_1);
           await w.until("the PR", () => findStoryPr(w.office, run) !== null);
           w.host.checksOf.set(findStoryPr(w.office, run)?.headSha ?? "", GREEN_CHECKS);
-          await w.until(
-            "the slot waits for the checks",
-            () => slotOccupant(w.office)?.phase === "checks",
+          await w.until("auto-merge on", () =>
+            w.host.calls.some((call) => call.startsWith("auto-merge on #1 ")),
           );
-          const before = slotOccupant(w.office);
           const pushed = await w.host.tip(BRANCH_1);
-          expect(before).toMatchObject({ kind: "story", number: 1, head: pushed });
+          expect(w.host.calls).toContain(`auto-merge on #1 ${pushed}`);
           expect((await remoteSubjects(w, pushed, 1))[0]).toBe(`${TASK_1}: status Done`);
 
           await w.restart();
-          // The new daemon continues with the same occupant at the same step and head.
-          expect(slotOccupant(w.office)).toMatchObject({
-            kind: "story",
-            number: 1,
-            phase: "checks",
-            head: pushed,
-          });
+          // The new daemon reads from GitHub that auto-merge is on, and leaves it on.
           await polls(w, 3);
           expect(merged(w)).toBe(false);
+          expect(w.host.calls.filter((call) => call.startsWith("auto-merge "))).toEqual([
+            `auto-merge on #1 ${pushed}`,
+          ]);
 
           w.host.fallback = GREEN_CHECKS;
           await w.until("the merge", () => merged(w));

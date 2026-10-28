@@ -3,7 +3,7 @@
 // one it has, through the code host (`platform/host.ts`, `gh` with the maintainer's own login), and
 // stores the PR on the journal entries. Whenever the PR's head changes it runs the structural check
 // (`check.ts`); a failure keeps the PR open, puts an `engine.notice` per failure on the office and
-// leaves the PR not mergeable for the merge slot (DIPO-73, `backlogPrMergeable`).
+// leaves the PR without auto-merge (`merge/backlog.ts`).
 //
 // `sync` asks the host about the office's open backlog PRs: one merged by hand is checked again
 // right away, against the head that merged; a failure is a notice and blocks the stories it names
@@ -159,21 +159,6 @@ export class BacklogPrs {
   /** Asks the host about the office's open backlog PRs; checks one merged by hand again. */
   sync(office: OfficeId): Promise<void> {
     return this.#serial(office, () => this.#sync(office));
-  }
-
-  /**
-   * Runs the structural check on the open PR `number` at its current head and stores the result,
-   * as the merge slot does right before it merges (DIPO-73). Returns the result.
-   */
-  recheck(office: OfficeId, number: number): Promise<CheckResult> {
-    return this.#serial(office, async () => {
-      const lane = this.#lane(office);
-      const pr = findPr(this.#handle(office), number);
-      if (pr === null) throw new Error(`Office ${office} has no backlog PR #${number}.`);
-      const head = await lane.git.run((git) => this.#revParse(git, `refs/heads/${pr.branch}`));
-      if (head === null) throw new Error(`The backlog branch ${pr.branch} no longer exists.`);
-      return this.#check(office, lane, pr, head);
-    });
   }
 
   /**
@@ -343,7 +328,7 @@ export class BacklogPrs {
       }
       if (pr.state === "open") {
         // A Ready gate that passed again since a check failed for want of it (DIPO-80): check
-        // the PR again, so the merge slot can take it.
+        // the PR again, so it can get auto-merge.
         if (this.#gatePassedSince(handle, record)) {
           const head = await lane.git.run((git) =>
             this.#revParse(git, `refs/heads/${record.branch}`),
@@ -483,7 +468,7 @@ export class BacklogPrs {
     const record = findPr(handle, pr.number);
     if (record !== null) {
       // The check notices its own failures and errors; a check that could not run runs again
-      // when the merge slot or the next flush asks.
+      // when the next flush asks.
       await this.#check(office, lane, record, outcome.tip).catch(() => undefined);
     }
     return { adopted: pr.number, refused };

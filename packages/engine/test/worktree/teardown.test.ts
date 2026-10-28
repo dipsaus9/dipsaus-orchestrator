@@ -15,7 +15,7 @@ import type { FeatureModule } from "../../src/commands/registry";
 import { OFFICE_DEFAULTS, type OfficeConfig } from "../../src/config";
 import type { OfficeHandle } from "../../src/db/office";
 import { type GitCall, type GitResult, OfficeGit } from "../../src/git";
-import { HAND_MERGE_NOTE, mergeGate } from "../../src/merge-slot";
+import { HAND_MERGE_NOTE, mergeGate } from "../../src/merge";
 import type { OfficeLoadContext } from "../../src/office/steps";
 import { GIT_STEP_DEADLINE_MS } from "../../src/git/runner";
 import { CALL_DEADLINE_MS, KILL_GRACE_MS } from "../../src/platform/deadline";

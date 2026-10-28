@@ -183,8 +183,8 @@ export interface ConflictResumer {
   prepare(office: OfficeId, run: StoredRun): Promise<ConflictPrepared | { readonly parked: true }>;
 }
 
-/** The merge slot a story waiting In Review again re-enters with a fresh per-stay count. */
-export interface SlotReentry {
+/** The auto-merge a story waiting In Review again goes back to (0002). */
+export interface MergeReentry {
   reenter(office: OfficeId, run: StoredRun): Promise<void>;
 }
 
@@ -207,7 +207,7 @@ export interface ParkResumeOptions {
   /** Starts a fresh review at once when the office has no places (a test's wiring). */
   readonly startReview?: (office: OfficeId, run: StoredRun) => Promise<boolean>;
   readonly conflicts?: () => ConflictResumer | undefined;
-  readonly slot?: () => SlotReentry | undefined;
+  readonly merge?: () => MergeReentry | undefined;
   readonly prs?: () => PrReplacement | undefined;
   /** `prompt.contractMax` of the office (R26), for a question park's answer; the default without. */
   readonly contractMax?: (office: OfficeId) => number;
@@ -987,7 +987,7 @@ export class ParkResumes {
       }
       case "none": {
         const closed = resolvePark(office, park.parkId, "resume", at, detail.note);
-        // The run waits In Review again: the merge slot and the PR poll take only a run ended at
+        // The run waits In Review again: the auto-merge and the PR poll take only a run ended at
         // In Review or after its review.
         endedAs(
           office,
@@ -1059,15 +1059,15 @@ export class ParkResumes {
         return;
       case "none":
         // A PR closed on the host is replaced (0002); one still open is only updated. Then the
-        // merge slot takes the story in again.
+        // auto-merge takes the story in again.
         await this.#options
           .prs?.()
           ?.replace(officeId, run)
           .catch(warn("opening a new story PR failed"));
         await this.#options
-          .slot?.()
+          .merge?.()
           ?.reenter(officeId, run)
-          .catch(warn("re-entering the merge slot failed"));
+          .catch(warn("handing the story back to the auto-merge failed"));
         // A run with no verdict yet is a pending review again: the reviewer place takes it.
         void places?.drain(officeId).catch(warn("starting the review of a resumed story failed"));
         return;

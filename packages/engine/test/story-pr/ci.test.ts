@@ -111,7 +111,6 @@ class CiHost implements CodeHost, PrReviewHost {
     return this.pr("main", BRANCH, "t");
   }
   async closePr(): Promise<void> {}
-  async squashMerge(): Promise<void> {}
   async requiredChecks(): Promise<RequiredCheck[]> {
     this.calls.push("requiredChecks");
     return this.required;
@@ -155,6 +154,10 @@ interface World {
   prs: StoryPrs;
   /** How many more park writes fail, and what the engine logged. */
   failParks: number;
+  /** The checks the base requires on GitHub; ci-ok and pr-title by default. */
+  requiredNames: string[];
+  /** When set, reading the base's required checks fails with it. */
+  namesError: Error | null;
   readonly logged: { level: string; message: string }[];
   /** A new poller on the same database, as after a daemon restart. */
   restart(): void;
@@ -261,6 +264,13 @@ async function inWorld(
         clock: t.clock,
         logger,
         boxRun: () => setup.box === true,
+        // The base requires ci-ok and pr-title on GitHub unless a test says otherwise.
+        required: {
+          requiredCheckNames: async () => {
+            if (world.namesError !== null) throw world.namesError;
+            return [...world.requiredNames];
+          },
+        },
       });
     const world: World = {
       facts: FACTS,
@@ -272,6 +282,8 @@ async function inWorld(
       office,
       t,
       failParks: 0,
+      requiredNames: ["ci-ok", "pr-title"],
+      namesError: null,
       logged,
       restart: () => {
         world.prs.stop();
@@ -337,20 +349,26 @@ describe("the story PR body status block", () => {
       await w.prs.sync(id, w.run);
       expect(w.host.updates).toHaveLength(0);
       await w.prs.retry(id);
-      // Nothing was reported: both checks stay pending, so the body is the same.
-      expect(w.host.updates).toHaveLength(0);
+      // The first poll reads the checks the base requires on GitHub: both pending.
+      expect(w.host.updates).toHaveLength(1);
+      expect(w.host.updates[0]?.body).toContain(
+        "- required checks: `ci-ok` pending, `pr-title` pending\n",
+      );
+      await w.prs.retry(id);
+      // Nothing new was reported: the body is the same.
+      expect(w.host.updates).toHaveLength(1);
 
       w.host.required = [report("ci-ok", "pass"), report("pr-title", "pending")];
       await w.prs.retry(id);
-      expect(w.host.updates).toHaveLength(1);
-      expect(w.host.updates[0]?.body).toContain(
+      expect(w.host.updates).toHaveLength(2);
+      expect(w.host.updates[1]?.body).toContain(
         "- required checks: `ci-ok` pass, `pr-title` pending\n",
       );
 
       w.host.required = [report("ci-ok", "pass"), report("pr-title", "pass")];
       await w.prs.retry(id);
-      expect(w.host.updates).toHaveLength(2);
-      expect(w.host.updates[1]?.body).toContain("`ci-ok` pass, `pr-title` pass");
+      expect(w.host.updates).toHaveLength(3);
+      expect(w.host.updates[2]?.body).toContain("`ci-ok` pass, `pr-title` pass");
     });
   });
 });
@@ -911,6 +929,38 @@ describe("an office whose story PRs get no CI", () => {
       expect(noneSteps(w)).toEqual([]);
       expect(notices(w.office, STORY_PR_NOTICES.ciStuck)).toHaveLength(1);
       expect(notices(w.office, STORY_PR_NOTICES.ciNone)).toHaveLength(0);
+    });
+  });
+});
+
+describe("the checks the base requires on GitHub", () => {
+  it("leaves the head pending while the required check list cannot be read, and reads it again", async () => {
+    await inWorld(async (w) => {
+      const id = w.office.officeId;
+      await w.prs.sync(id, w.run);
+      w.host.required = [report("ci-ok", "pass"), report("pr-title", "pass")];
+      w.namesError = new Error("gh api: HTTP 502");
+      await w.prs.retry(id);
+      expect(w.prs.ciState(id, w.run)?.kind).toBe("pending");
+      expect(w.logged.some((line) => line.message.includes("required checks failed"))).toBe(true);
+      w.namesError = null;
+      await w.prs.retry(id);
+      expect(w.prs.ciState(id, w.run)?.kind).toBe("green");
+    });
+  });
+
+  it("never counts a head green before CI starts when the base requires no check", async () => {
+    await inWorld(async (w) => {
+      const id = w.office.officeId;
+      w.requiredNames = [];
+      await w.prs.sync(id, w.run);
+      // Nothing reported yet: not green, not final.
+      await w.prs.retry(id);
+      expect(w.prs.ciState(id, w.run)?.kind).toBe("pending");
+      // A check shows up and passes: green.
+      w.host.required = [report("lint", "pass")];
+      await w.prs.retry(id);
+      expect(w.prs.ciState(id, w.run)?.kind).toBe("green");
     });
   });
 });

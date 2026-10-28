@@ -1,16 +1,13 @@
-// CI only (0017 section 1, DIPO-225): real git repositories and processes, too slow for the local
-// run.
-// The story merge slot on real git, the pinned Backlog CLI and a bare remote under DIPO_TMP, with
-// an in-memory code host whose squash merge really merges on the remote (DIPO-150; 0019 sections
-// 6 and 9), on a migrated state database built from fixtures:
+// CI only (0017 section 1): real git repositories and processes, too slow for the local run.
+// The auto-merge of a story PR on real git (0002), the pinned Backlog CLI and a bare remote under
+// DIPO_TMP, with an in-memory code host whose auto-merge really squash-merges on the remote, on a
+// migrated state database built from fixtures:
 //
-// - a story PR whose review approved its head and whose checks are green goes through the
-//   close-out commit (final summary, modified files, status Done), the sync (nothing to merge: no
-//   conflict), one push, the checks of the pushed head and a squash merge with
-//   `--match-head-commit` at exactly that head;
-// - after the host refused because the base moved, the slot merges the base cleanly, records the
-//   merge, and the approval of the head before it carries to the merged head (only that merge and
-//   a task-file commit lie between them) with no new review round; the PR merges at that head.
+// - a story PR whose review approved its head and whose checks are green gets the close-out commit
+//   (final summary, modified files, status Done), one push, and auto-merge at exactly that head;
+// - the close-out removes a park record, and writes the summary and modified files again later;
+// - the release path read from git: CODEOWNERS from the base as last fetched, the PR's diff from its
+//   merge base with the base; such a PR never gets auto-merge.
 
 import { chmodSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
@@ -24,22 +21,20 @@ import { setFinalSummary } from "../../src/backlog/fields/summary";
 import type { StoryTarget } from "../../src/backlog/fields/write";
 import { OFFICE_DEFAULTS } from "../../src/config";
 import {
-  gitStorySlotOps,
-  MergeSlot,
+  AutoMerge,
+  gitStoryMergeOps,
   mergeGatesOfRun,
   RELEASE_PATH_HOLD,
-  slotOccupant,
   writeCloseOutSummary,
-} from "../../src/merge-slot";
-import { CodeHostError, type HostPr, type RequiredCheck } from "../../src/platform/host";
-import { recordReviewVerdict, reviewVerdictForTree } from "../../src/review/store";
-import { StoryConflicts } from "../../src/run/conflicts";
+} from "../../src/merge";
+import type { HostPr, RequiredCheck } from "../../src/platform/host";
+import { recordReviewVerdict } from "../../src/review/store";
 import { gitParkWriter } from "../../src/run/park";
-import { endRun, findRun, insertRun, REVIEWED_END, runRoundCounts } from "../../src/run/records";
+import { endRun, findRun, insertRun, REVIEWED_END } from "../../src/run/records";
 import { findStoryPr, insertStoryPr, updateStoryPr } from "../../src/story-pr/records";
 import { addStory } from "../../src/stories/keys";
 import { claimStory } from "../../src/worktree";
-import { otherClone, publish, squashMergeOnRemote } from "../backlog/lane/helpers";
+import { publish, squashMergeOnRemote } from "../backlog/lane/helpers";
 import { FakeHost } from "../backlog/pr/helpers";
 import { BACKLOG_FIXTURE, BRANCH_1, claimSetup, TASK_1, TASK_FILE_1 } from "../worktree/helpers";
 
@@ -48,10 +43,11 @@ import { APPROVED, TITLE } from "./story-helpers";
 const REPO = "o/r";
 const PR = 7;
 
-/** A host whose PR #7 shows the remote branch's tip, and whose squash merge merges on the remote. */
+/**
+ * A host whose PR #7 shows the remote branch's tip, and whose auto-merge, with green checks,
+ * squash-merges on the remote at once at the head it was given.
+ */
 class RemoteHost extends FakeHost {
-  refusals = 0;
-  onRefuse: () => Promise<void> = async () => {};
   readonly merges: { headSha: string; subject: string }[] = [];
   merged = false;
 
@@ -75,6 +71,8 @@ class RemoteHost extends FakeHost {
       base: "main",
       title: TITLE,
       mergeCommit: null,
+      mergeable: "mergeable",
+      autoMerge: false,
     };
   }
 
@@ -86,20 +84,13 @@ class RemoteHost extends FakeHost {
     return [];
   }
 
-  override async squashMerge(
+  override async enableAutoMerge(
     _repo: string,
     _number: number,
-    merge?: { headSha: string; subject: string },
+    merge: { readonly headSha: string; readonly subject: string },
   ): Promise<void> {
-    if (this.refusals > 0) {
-      this.refusals -= 1;
-      await this.onRefuse();
-      throw new CodeHostError("failed", "Base branch was modified.");
-    }
     // --match-head-commit: only the head the host shows merges.
-    if (merge?.headSha !== (await this.#tip())) {
-      throw new CodeHostError("failed", "Head branch was modified.");
-    }
+    if (merge.headSha !== (await this.#tip())) throw new Error("Head branch was modified.");
     this.merges.push({ headSha: merge.headSha, subject: merge.subject });
     await squashMergeOnRemote(this.repo, BRANCH_1);
     this.merged = true;
@@ -109,14 +100,14 @@ class RemoteHost extends FakeHost {
 async function scenario(
   repo: TempRepoWithRemote,
   fn: (w: {
-    readonly slot: MergeSlot;
+    readonly merge: AutoMerge;
     readonly host: RemoteHost;
     readonly officeId: OfficeId;
     readonly run: RunId;
     readonly head: string;
     readonly tree: (head: string) => Promise<string | null>;
     readonly s: Awaited<ReturnType<typeof claimSetup>>;
-    readonly slotGit: ReturnType<typeof gitStorySlotOps>;
+    readonly mergeGit: ReturnType<typeof gitStoryMergeOps>;
   }) => Promise<void>,
   /** The worker's change in the story worktree, staged; by default a new export.txt. */
   change: (worktree: string, repo: TempRepoWithRemote) => Promise<void> = writeExport,
@@ -137,8 +128,8 @@ async function scenario(
   await git(claim.worktree, repo.home, "commit", "--quiet", "-m", "feat: export as CSV");
   await git(claim.worktree, repo.home, "push", "--quiet", "origin", BRANCH_1);
   const head = (await git(claim.worktree, repo.home, "rev-parse", "HEAD")).trim();
-  const slotGit = gitStorySlotOps({ git: () => s.git, cli: s.cli });
-  const tree = (at: string) => slotGit.treeKey(officeId, TASK_1, at);
+  const mergeGit = gitStoryMergeOps({ git: () => s.git, cli: s.cli });
+  const tree = (at: string) => mergeGit.treeKey(officeId, TASK_1, at);
   const run = request.runId;
   const now = s.t.clock.now();
   const codeTree = (await tree(head)) as string;
@@ -200,20 +191,13 @@ async function scenario(
     });
   });
   const host = new RemoteHost(repo);
-  const conflicts = new StoryConflicts({
-    clock: s.t.clock,
-    ids: s.t.ids,
-    offices: { get: () => office, config: () => OFFICE_DEFAULTS },
-    git: () => s.git,
-  });
-  const slot = new MergeSlot({
+  const merge = new AutoMerge({
     host,
-    prs: { recheck: () => Promise.reject(new Error("no backlog PR here")) },
     lane: () => undefined,
     offices: { get: () => office, config: () => OFFICE_DEFAULTS },
     clock: s.t.clock,
     stories: {
-      git: slotGit,
+      git: mergeGit,
       ids: s.t.ids,
       labels: host,
       // The PR poll saw the checks of the stored head green.
@@ -225,22 +209,9 @@ async function scenario(
         );
       },
       summary: writeCloseOutSummary,
-      recordMerge: (_office, stored, merged) =>
-        conflicts.recorded(
-          {
-            runId: stored.runId,
-            office: officeId,
-            story: TASK_1,
-            branch: BRANCH_1,
-            startSha: claim.startSha,
-            box: "none",
-          },
-          merged,
-          { strict: true },
-        ),
     },
   });
-  await fn({ slot, host, officeId, run, head, tree, s, slotGit });
+  await fn({ merge, host, officeId, run, head, tree, s, mergeGit });
 }
 
 /** The default worker change: a new export.txt. */
@@ -249,8 +220,8 @@ async function writeExport(worktree: string, repo: TempRepoWithRemote): Promise<
   await git(worktree, repo.home, "add", "export.txt");
 }
 
-// The release path on real git (DIPO-331): CODEOWNERS read from the base as last fetched, the PR's
-// diff from its merge base with the base, and the held PR never merged.
+// The release path on real git: CODEOWNERS read from the base as last fetched, the PR's diff from
+// its merge base with the base, and the held PR never gets auto-merge.
 
 const CODEOWNERS = readFileSync(join(import.meta.dir, "../../../../.github/CODEOWNERS"), "utf8");
 
@@ -269,12 +240,12 @@ function releaseBase(repo: TempRepoWithRemote, extra: Record<string, string> = {
 }
 
 if (process.env["DIPO_TEST_CI"] === "1") {
-  describe("the story merge slot on real git", () => {
-    it("closes out, pushes once and squash-merges at the pushed head with the PR title", async () => {
+  describe("auto-merge of a story PR on real git", () => {
+    it("closes out, pushes once and turns auto-merge on at the pushed head with the PR title", async () => {
       await withBareRemote(
         async (repo) =>
-          scenario(repo, async ({ slot, host, officeId }) => {
-            expect(await slot.tick(officeId)).toBe("merged");
+          scenario(repo, async ({ merge, host, officeId }) => {
+            await merge.tick(officeId);
             const tip = (
               await git(repo.remote, repo.home, "rev-parse", `refs/heads/${BRANCH_1}`)
             ).trim();
@@ -303,49 +274,9 @@ if (process.env["DIPO_TEST_CI"] === "1") {
         { fixture: BACKLOG_FIXTURE },
       );
     });
-
-    it("carries the approval over the slot's clean merge of a moved base and a task-file commit, with no review round", async () => {
-      await withBareRemote(
-        async (repo) =>
-          scenario(repo, async ({ slot, host, officeId, run, head, tree, s }) => {
-            // The base moves while the PR is in the slot: the host refuses once.
-            host.refusals = 1;
-            host.onRefuse = async () => {
-              const other = await otherClone(repo);
-              writeFileSync(join(other, "README.md"), "moved on\n");
-              await git(other, repo.home, "add", "README.md");
-              await git(other, repo.home, "commit", "--quiet", "-m", "another change");
-              await git(other, repo.home, "push", "--quiet", "origin", "HEAD:main");
-            };
-            expect(await slot.tick(officeId)).toBe("merged");
-            const tip = (
-              await git(repo.remote, repo.home, "rev-parse", `refs/heads/${BRANCH_1}`)
-            ).trim();
-            // The merged head is the slot's clean merge of the moved base.
-            const parents = (
-              await git(repo.remote, repo.home, "rev-list", "--parents", "-n", "1", tip)
-            )
-              .trim()
-              .split(" ");
-            expect(parents).toHaveLength(3);
-            expect(host.merges).toEqual([{ headSha: tip, subject: TITLE }]);
-            // The approval of the reviewed head carried to the merged head's code tree.
-            const carried = reviewVerdictForTree(s.office, run, (await tree(tip)) as string);
-            expect(carried).toMatchObject({
-              verdict: "approved",
-              carriedFrom: head,
-              agent: null,
-              commit: tip,
-            });
-            expect(runRoundCounts(s.office, run).reviewRounds).toBe(0);
-            expect(slotOccupant(s.office)).toBeNull();
-          }),
-        { fixture: BACKLOG_FIXTURE },
-      );
-    });
   });
 
-  describe("the close-out commit of a story that held a park record (DIPO-324, 0019 section 9)", () => {
+  describe("the close-out commit of a story that held a park record", () => {
     it("removes the F16 park block through the single field write path in the commit that sets Done", async () => {
       await withBareRemote(
         async (repo) =>
@@ -367,8 +298,8 @@ if (process.env["DIPO_TEST_CI"] === "1") {
               `refs/heads/${BRANCH_1}:${TASK_FILE_1}`,
             );
             expect(parked).toMatch(/^park:$/m);
-            const slotGit = gitStorySlotOps({ git: () => s.git, cli: s.cli });
-            const commit = await slotGit.closeOut(
+            const mergeGit = gitStoryMergeOps({ git: () => s.git, cli: s.cli });
+            const commit = await mergeGit.closeOut(
               officeId,
               {
                 runId: run,
@@ -377,7 +308,7 @@ if (process.env["DIPO_TEST_CI"] === "1") {
                 worktree,
                 startSha: stored.startSha as string,
               },
-              (target) => setFinalSummary(target, "Done by the slot."),
+              (target) => setFinalSummary(target, "Done by the close-out."),
             );
             expect(commit).not.toBeNull();
             const closed = await git(repo.dir, repo.home, "show", `${commit}:${TASK_FILE_1}`);
@@ -401,31 +332,31 @@ if (process.env["DIPO_TEST_CI"] === "1") {
     });
   });
 
-  describe("the close-out commit on a later stay in the slot", () => {
+  describe("a later close-out commit", () => {
     it("writes the final summary and the modified files again when the story is Done already", async () => {
       await withBareRemote(
         async (repo) =>
           scenario(repo, async ({ officeId, run, s }) => {
             const stored = findRun(s.office, run)!;
-            const slotRun = {
+            const mergeRun = {
               runId: run,
               story: TASK_1,
               branch: BRANCH_1,
               worktree: stored.worktree as string,
               startSha: stored.startSha as string,
             };
-            const slotGit = gitStorySlotOps({ git: () => s.git, cli: s.cli });
+            const mergeGit = gitStoryMergeOps({ git: () => s.git, cli: s.cli });
             let summary = "first stay";
             const write = (target: StoryTarget) => setFinalSummary(target, summary);
-            const first = await slotGit.closeOut(officeId, slotRun, write);
+            const first = await mergeGit.closeOut(officeId, mergeRun, write);
             expect(first).not.toBeNull();
-            // A fix round added code since; the next stay closes out again.
-            await git(slotRun.worktree, repo.home, "checkout", "--quiet", "--", ".");
-            writeFileSync(join(slotRun.worktree, "later.txt"), "later\n");
-            await git(slotRun.worktree, repo.home, "add", "later.txt");
-            await git(slotRun.worktree, repo.home, "commit", "--quiet", "-m", "feat: later");
+            // A fix round added code since; the next close-out writes again.
+            await git(mergeRun.worktree, repo.home, "checkout", "--quiet", "--", ".");
+            writeFileSync(join(mergeRun.worktree, "later.txt"), "later\n");
+            await git(mergeRun.worktree, repo.home, "add", "later.txt");
+            await git(mergeRun.worktree, repo.home, "commit", "--quiet", "-m", "feat: later");
             summary = "second stay";
-            const second = await slotGit.closeOut(officeId, slotRun, write);
+            const second = await mergeGit.closeOut(officeId, mergeRun, write);
             expect(second).not.toBeNull();
             const task = await git(repo.dir, repo.home, "show", `${second}:${TASK_FILE_1}`);
             expect(task).toContain("status: Done");
@@ -433,7 +364,7 @@ if (process.env["DIPO_TEST_CI"] === "1") {
             expect(task).toContain("second stay");
             expect(task).not.toContain("first stay");
             // Nothing new: no commit.
-            expect(await slotGit.closeOut(officeId, slotRun, write)).toBeNull();
+            expect(await mergeGit.closeOut(officeId, mergeRun, write)).toBeNull();
           }),
         { fixture: BACKLOG_FIXTURE },
       );
@@ -447,17 +378,16 @@ if (process.env["DIPO_TEST_CI"] === "1") {
           releaseBase(repo);
           await scenario(
             repo,
-            async ({ slot, host, officeId, run, head, s, slotGit }) => {
-              expect(await slotGit.releasePaths(officeId, head)).toEqual([
+            async ({ merge, host, officeId, run, head, s, mergeGit }) => {
+              expect(await mergeGit.releasePaths(officeId, head)).toEqual([
                 ".github/CODEOWNERS",
                 ".github/workflows/ci.yml",
               ]);
-              // Fail closed: a head git cannot read has no answer, and the slot then merges nothing.
-              expect(await slotGit.releasePaths(officeId, "0".repeat(40))).toBeNull();
-              expect(await slot.tick(officeId)).toBe("idle");
-              expect(await slot.tick(officeId)).toBe("idle");
+              // Fail closed: a head git cannot read has no answer, and nothing gets auto-merge.
+              expect(await mergeGit.releasePaths(officeId, "0".repeat(40))).toBeNull();
+              await merge.tick(officeId);
+              await merge.tick(officeId);
               expect(host.merges).toEqual([]);
-              expect(slotOccupant(s.office)).toBeNull();
               const gates = mergeGatesOfRun(s.office, run);
               expect(gates).toHaveLength(1);
               expect(gates[0]).toMatchObject({
@@ -493,9 +423,9 @@ if (process.env["DIPO_TEST_CI"] === "1") {
           releaseBase(repo);
           await scenario(
             repo,
-            async ({ slot, host, officeId, head, slotGit }) => {
-              expect(await slotGit.releasePaths(officeId, head)).toEqual(["install.sh"]);
-              expect(await slot.tick(officeId)).toBe("idle");
+            async ({ merge, host, officeId, head, mergeGit }) => {
+              expect(await mergeGit.releasePaths(officeId, head)).toEqual(["install.sh"]);
+              await merge.tick(officeId);
               expect(host.merges).toEqual([]);
             },
             async (worktree) => {
@@ -514,9 +444,9 @@ if (process.env["DIPO_TEST_CI"] === "1") {
           releaseBase(repo);
           await scenario(
             repo,
-            async ({ slot, host, officeId, head, slotGit }) => {
-              expect(await slotGit.releasePaths(officeId, head)).toEqual(["install.sh"]);
-              expect(await slot.tick(officeId)).toBe("idle");
+            async ({ merge, host, officeId, head, mergeGit }) => {
+              expect(await mergeGit.releasePaths(officeId, head)).toEqual(["install.sh"]);
+              await merge.tick(officeId);
               expect(host.merges).toEqual([]);
             },
             async (worktree) => {
@@ -535,11 +465,11 @@ if (process.env["DIPO_TEST_CI"] === "1") {
           releaseBase(repo);
           await scenario(
             repo,
-            async ({ slot, host, officeId, head, slotGit }) => {
-              expect(await slotGit.releasePaths(officeId, head)).toEqual([
+            async ({ merge, host, officeId, head, mergeGit }) => {
+              expect(await mergeGit.releasePaths(officeId, head)).toEqual([
                 ".github/workflows/ci.yml",
               ]);
-              expect(await slot.tick(officeId)).toBe("idle");
+              await merge.tick(officeId);
               expect(host.merges).toEqual([]);
             },
             async (worktree) => {
@@ -556,9 +486,9 @@ if (process.env["DIPO_TEST_CI"] === "1") {
         async (repo) => {
           // A root CODEOWNERS that would own everything: GitHub reads .github/CODEOWNERS first.
           releaseBase(repo, { CODEOWNERS: "* @someone\n" });
-          await scenario(repo, async ({ slot, host, officeId, run, head, s, slotGit }) => {
-            expect(await slotGit.releasePaths(officeId, head)).toEqual([]);
-            expect(await slot.tick(officeId)).toBe("merged");
+          await scenario(repo, async ({ merge, host, officeId, run, head, s, mergeGit }) => {
+            expect(await mergeGit.releasePaths(officeId, head)).toEqual([]);
+            await merge.tick(officeId);
             expect(host.merges).toHaveLength(1);
             expect(mergeGatesOfRun(s.office, run)[0]).toMatchObject({ handMerge: null });
           });

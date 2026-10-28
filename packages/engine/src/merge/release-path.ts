@@ -1,8 +1,8 @@
-// The release path of a story PR (DIPO-331; the 0016 amendment of 2026-10-23, DIPO-321). The paths
-// `.github/CODEOWNERS` assigns an owner need the maintainer's code owner approval before a PR that
-// changes them merges, and for a PR opened with the maintainer's login that approval is the
-// maintainer's bypass merge on the host. dipo never passes `--admin` or any other bypass, so the
-// merge slot holds such a story PR for the maintainer: its merge gate waits for a hand merge only.
+// The release path of a story PR (0002, 0016). The paths `.github/CODEOWNERS` assigns an owner
+// need the maintainer's code owner approval before a PR that changes them merges, and for a PR
+// opened with the maintainer's login that approval is the maintainer's bypass merge on the host.
+// dipo never passes `--admin` or any other bypass and never turns auto-merge on for such a story
+// PR: its merge gate waits for a hand merge only.
 //
 // - The list comes from the base, never from the PR: GitHub reads CODEOWNERS from the base branch,
 //   so a PR cannot take itself out of it. GitHub uses the first of `.github/CODEOWNERS`,

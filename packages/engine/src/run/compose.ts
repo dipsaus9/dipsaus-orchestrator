@@ -35,7 +35,7 @@ import { StartsPaused, type StartsPausedDeps } from "./starts-paused";
 import { afterRunExits } from "./temp-dirs";
 import { ConflictResumes, type ConflictResumesDeps } from "./conflicts";
 import { resolveIntent, runIntents } from "./intents";
-import type { PrReplacement, SlotReentry } from "./park-resume";
+import type { MergeReentry, PrReplacement } from "./park-resume";
 import { workRefOf } from "../views/work";
 import type { HoldResumer } from "./work-resume";
 import type { RunBase } from "./work-run";
@@ -81,8 +81,8 @@ export interface RunPorts {
   };
   /** The planning lane's resume of a park with no run (DIPO-160), read when `work.resume` runs. */
   readonly holdResumer?: () => HoldResumer | undefined;
-  /** The merge slot a story resumed to wait In Review re-enters (DIPO-150). */
-  readonly slotReentry?: () => SlotReentry | undefined;
+  /** The auto-merge a story resumed to wait In Review goes back to (0002). */
+  readonly mergeReentry?: () => MergeReentry | undefined;
   /**
    * The merge a resumed `conflict` park needs in its live run's box (`BoxCollisions.mergeOnResume`,
    * DIPO-324). Without it no conflict park resumes (`resume.notResumable`).
@@ -373,7 +373,7 @@ function buildOutcomes(
         ...given("scheduling", ports.scheduling),
         ...given("boxRun", ports.boxRun),
         fixRounds: () => fixRounds ?? undefined,
-        ...given("slot", ports.slotReentry),
+        ...given("merge", ports.mergeReentry),
         // A conflict park resumes through the hand-off of its box run (DIPO-324).
         ...given("conflicts", conflictResumesOf(ports, control)),
         ...given("prs", ports.prReplacement),

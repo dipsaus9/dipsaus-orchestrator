@@ -1,4 +1,4 @@
-// Merge gates as data and records (DIPO-150 with DIPO-151; 0019 section 11): each waiting condition
+// Merge gates as data and records (0002): each waiting condition
 // makes the gate wait for the maintainer and none decides it by rule; the summary names why it
 // waits, and for a flagged story the manual test-plan entries and the worktree; the hold labels
 // always hold `autorelease: pending`; a gate opened by rule is decided and recorded at once; a hand
@@ -18,7 +18,7 @@ import {
   mergeWaits,
   openMaintainerMergeGate,
   openMergeGate,
-} from "../../src/merge-slot";
+} from "../../src/merge";
 import { storyVerdicts } from "../../src/views/feature";
 import { addAgent, type RoundsWorld, roundsWorld, storyRun } from "../run/rounds-helpers";
 
@@ -68,8 +68,22 @@ describe("mergeGateSummary", () => {
 
   it("says dipo merges when nothing waits", () => {
     expect(mergeGateSummary({ story: "DIPO-7", pr, head: HEAD, waits: [] })).toContain(
-      "dipo merges it through the merge slot",
+      "dipo commits the close-out and turns GitHub's auto-merge on",
     );
+  });
+
+  it("sends a head dipo did not push to a hand merge or a discard", () => {
+    const text = mergeGateSummary({
+      story: "DIPO-7",
+      pr,
+      head: HEAD,
+      waits: [{ kind: "foreignHead", head: "f".repeat(40) }],
+    });
+    expect(text).toContain(`its head on GitHub is ${"f".repeat(12)}, which dipo did not push`);
+    expect(text).toContain(
+      "merge it by hand on GitHub, or discard the story with `dipo discard DIPO-7`",
+    );
+    expect(text).not.toContain("dipo approve");
   });
 
   it("names why it waits and what to do", () => {
