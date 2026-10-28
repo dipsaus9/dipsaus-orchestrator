@@ -1,8 +1,9 @@
-// dipo never bypasses the base's merge rules (DIPO-331; 0016 rules 2 and 11 and the amendment of
-// 2026-10-23): the squash merge the merge slot makes through `gh` is `gh pr merge --squash
-// --match-head-commit` with the subject and an empty body, and nothing else; no `--admin` and no
-// `--auto`, which would merge past or around a required review. `gh` is faked through the injected
-// Spawn; no test reaches GitHub. The source check keeps `--admin` out of every package's code.
+// dipo never bypasses the base's merge rules (0002, 0016): the only merge call dipo makes through
+// `gh` is `gh pr merge --auto --squash --match-head-commit <head>` with the subject and an empty
+// body, so GitHub merges once its own required checks and reviews pass on exactly that head; the
+// only other merge call turns auto-merge off. Neither passes `--admin`. `gh` is faked through the
+// injected Spawn; no test reaches GitHub. The source check keeps `--admin` out of every package's
+// code.
 
 import { readdirSync, readFileSync, statSync } from "node:fs";
 import { join } from "node:path";
@@ -33,14 +34,18 @@ function sources(dir: string): string[] {
 }
 
 describe("the merge call", () => {
-  it("is gh pr merge --squash --match-head-commit with the subject and nothing that bypasses a rule", async () => {
+  it("is gh pr merge --auto --squash --match-head-commit with the subject, and --disable-auto, and nothing that bypasses a rule", async () => {
     const stub = scriptedSpawn(
       (args) => (args[0] === "--version" ? { stdout: VERSION } : {}),
       ["gh"],
     );
     const gh = new GhHost({ spawn: stub.spawn, gh: "gh", env: { HOME: "/home/x" } });
     const head = "a".repeat(40);
-    await gh.squashMerge("o/r", 7, { headSha: head, subject: "feat(DIPO-7): add the greeting" });
+    await gh.enableAutoMerge("o/r", 7, {
+      headSha: head,
+      subject: "feat(DIPO-7): add the greeting",
+    });
+    await gh.disableAutoMerge("o/r", 7);
     const merges = stub.calls
       .map((call) => call.cmd.slice(1))
       .filter((args) => args[1] === "merge");
@@ -51,6 +56,7 @@ describe("the merge call", () => {
         "7",
         "--repo",
         "o/r",
+        "--auto",
         "--squash",
         "--match-head-commit",
         head,
@@ -59,8 +65,9 @@ describe("the merge call", () => {
         "--body",
         "",
       ],
+      ["pr", "merge", "7", "--repo", "o/r", "--disable-auto"],
     ]);
-    for (const flag of ["--admin", "--auto"]) expect(merges[0]).not.toContain(flag);
+    for (const merge of merges) expect(merge).not.toContain("--admin");
   });
 
   it("has no --admin anywhere in the code of any package, comments aside", () => {

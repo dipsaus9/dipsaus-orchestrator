@@ -8,7 +8,7 @@ import { join } from "node:path";
 
 import { describe, expect, it } from "bun:test";
 
-import { parseCodeowners, releasePathsOf } from "../../src/merge-slot/release-path";
+import { parseCodeowners, releasePathsOf } from "../../src/merge/release-path";
 
 const owned = (codeowners: string, paths: readonly string[]) =>
   releasePathsOf(parseCodeowners(codeowners), paths);

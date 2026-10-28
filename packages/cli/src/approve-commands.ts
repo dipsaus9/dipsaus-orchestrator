@@ -135,7 +135,7 @@ export async function approveCommand(
           ? "unknown"
           : engineFailure(deps, outcome.error);
       }
-      deps.writeLine(`approved the merge of ${story}; it goes through the merge slot`);
+      deps.writeLine(`approved the merge of ${story}; dipo turns GitHub's auto-merge on for it`);
       return 0;
     },
     undefined,

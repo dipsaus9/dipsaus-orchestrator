@@ -24,8 +24,8 @@
 // to it as usual. When it needs a rebuild, its adopted operations cannot be applied again and are
 // dropped with a notice; a branch holding nothing else is let go of (`abandoned`), never closed.
 //
-// While the office's merge slot holds the open branch (DIPO-73, `held`), a flush does nothing: new
-// operations stay journaled and go to the next backlog PR, or onto the branch after the slot.
+// While the open branch's PR has GitHub's auto-merge on (`held`, 0002), a flush does nothing: new
+// operations stay journaled and go to the next backlog PR, or onto the branch once auto-merge is off.
 //
 // Each commit carries the trailer `Dipo-Op: <op id>`, so after a crash between a commit and its
 // journal update the commit is found again instead of applied twice.
@@ -175,8 +175,8 @@ export interface FlushReport {
   /** What waits for a remote, a fetch or a push; null when nothing does. */
   readonly waiting: Waiting | null;
   /**
-   * True when the flush did nothing because the open branch is in the merge slot (DIPO-73): new
-   * operations stay journaled and go to the next backlog PR, or onto the branch after the slot.
+   * True when the flush did nothing because the open branch's PR has auto-merge on (0002): new
+   * operations stay journaled and go to the next backlog PR, or onto the branch once it is off.
    */
   readonly held?: boolean;
   /**
@@ -204,8 +204,8 @@ export interface OfficeLaneOptions {
    */
   readonly onFlushed?: (office: OfficeId, report: FlushReport) => Promise<void>;
   /**
-   * The engine branch the office's merge slot holds, or null (DIPO-73; 0016 rule 2). While a branch
-   * is held, a flush applies nothing: operations are journaled and wait for the slot to let go.
+   * The engine branch whose PR has auto-merge on, or null (0002). While a branch is held, a flush
+   * applies nothing: operations are journaled and wait until auto-merge is off or the PR merged.
    */
   readonly held?: (office: OfficeId) => string | null;
 }
@@ -324,10 +324,10 @@ export class OfficeLane {
   /**
    * Brings the open branch up to date and applies every open operation: fetch (when the office
    * has a remote), drop merged operations, rebuild when needed, apply, commit, push. `rebuild`
-   * names a branch the merge slot found conflicting with the base (DIPO-73): when it is still the
-   * open branch, it is rebuilt from the journal. While the merge slot holds a branch, the flush
-   * does nothing and reports `held`; the hold is read again inside the flush item, so a flush that
-   * started before the slot took the branch applies nothing once it has.
+   * names a branch GitHub found conflicting with the base: when it is still the open branch, it is
+   * rebuilt from the journal. While a branch is held, the flush does nothing and reports `held`;
+   * the hold is read again inside the flush item, so a flush that started before auto-merge went
+   * on applies nothing once it has.
    */
   async flush(
     options: { readonly replay?: boolean; readonly rebuild?: string } = {},
@@ -402,7 +402,7 @@ export class OfficeLane {
     });
   }
 
-  /** The report of a flush that did nothing because the merge slot holds the branch, or null. */
+  /** The report of a flush that did nothing because the branch is held, or null. */
   #heldReport(): FlushReport | null {
     const held = this.#held(this.officeId);
     if (held === null) return null;
@@ -1025,7 +1025,7 @@ export interface BacklogLaneDeps {
   readonly onChanged?: (office: OfficeId) => void;
   /** Called after each successful flush (DIPO-35, the backlog PR). */
   readonly onFlushed?: (office: OfficeId, report: FlushReport) => Promise<void>;
-  /** The branch the office's merge slot holds (DIPO-73). */
+  /** The branch whose PR has auto-merge on (0002). */
   readonly held?: (office: OfficeId) => string | null;
 }
 

@@ -55,7 +55,7 @@ const violations: Case[] = [
   },
   {
     fixture: "git-write-step.ts",
-    target: "packages/engine/src/merge-slot/git.ts",
+    target: "packages/engine/src/merge/backlog-git.ts",
     spawn: 0,
     write: 6,
   },

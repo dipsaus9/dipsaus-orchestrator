@@ -1,34 +1,35 @@
-// Merge gates (0019 sections 2, 7, 9 and 11; DIPO-151, combined into DIPO-150). A merge gate is a
-// `gates` row of kind `merge` for one PR head (`gates.head_sha`), opened when the review verdict
-// holds for the head and its required checks are green on it (or no CI ran for it, DIPO-299), so
-// the maintainer only ever approves something that can merge. A story PR enters the merge slot only
-// once its gate for the head is approved; that comes in front of the slot's own entry conditions.
+// Merge gates (0002). A merge gate is a `gates` row of kind `merge` for one PR head
+// (`gates.head_sha`), opened when the review verdict holds for the head and its required checks are
+// green on it (or no CI ran for it), so the maintainer only ever approves something that can merge.
+// dipo turns GitHub's auto-merge on for a story PR only once its gate for the head is approved.
 //
-// - Waiting (section 11). The gate waits for the maintainer when the run's configuration snapshot
-//   sets `mergeSlot.autoMerge` false, the story is flagged test-before-merge, the reviewer marked a
+// - Waiting. The gate waits for the maintainer when the run's configuration snapshot sets
+//   `mergeSlot.autoMerge` false, the story is flagged test-before-merge, the reviewer marked a
 //   criterion `maintainer`, the story passed review only by a maintainer override, or a hold label
 //   is on the PR (`autorelease: pending` always, which no setting removes, and every label of
 //   `mergeSlot.holdLabels`). Otherwise it is decided `approved` by `rule` when it opens, and
 //   recorded, so the audit trail shows every merge decision. `mergeWaits` decides this as data.
-// - The release path (DIPO-331, the 0016 amendment of 2026-10-23). A PR whose diff changes a path
-//   the base's CODEOWNERS gives an owner (`release-path.ts`) needs the maintainer's code owner
-//   approval, which for a PR opened with the maintainer's login is the maintainer's merge on the
-//   host. Its gate waits for the maintainer and is marked hand-merge only (`gates.hand_merge`
-//   `release-path`): `dipo approve` refuses it, dipo never merges it and never passes `--admin`,
-//   and only the hand merge (below) or a reject decides it.
+//   A gate reopened because a hold label appeared or a head dipo did not push showed up while
+//   auto-merge was on waits too.
+// - The release path. A PR whose diff changes a path the base's CODEOWNERS gives an owner
+//   (`release-path.ts`) needs the maintainer's code owner approval, which for a PR opened with the
+//   maintainer's login is the maintainer's merge on the host. Its gate waits for the maintainer and
+//   is marked hand-merge only (`gates.hand_merge` `release-path`): `dipo approve` refuses it,
+//   dipo never turns auto-merge on for it and never passes `--admin`, and only the hand merge
+//   (below) or a reject decides it.
 // - Summary. Built by code: why the gate waits and what to do; for a flagged story the manual
 //   test-plan entries and the worktree path to test in. The gate's phase is `test` for a flagged
 //   story and `merge` otherwise.
-// - A head per gate. A gate holds for its own head and for a head its approval was carried to (a
-//   clean merge of the base by the slot, task-file commits); a new head after a fix round opens a
-//   new gate with a new id. An open gate whose head no longer holds is decided `rejected` by rule
-//   as superseded, so nothing waits on a head that is gone.
+// - A head per gate. A gate holds for its own head and for a head its approval was carried to
+//   (task-file commits such as the close-out); a new head after a fix round opens a new gate with a
+//   new id. An open gate whose head no longer holds is decided `rejected` by rule as superseded,
+//   so nothing waits on a head that is gone.
 // - The override gate. A story parked `review-blocked` gets a merge gate waiting
 //   for the maintainer whose summary lists the blocking findings and whose `override_of` names the
 //   blocked verdict's review gate. Approving it needs a note and records the override
-//   (`merge-slot/commands.ts`); that approval is the story's merge decision.
-// - A hand merge (section 11). When the Done poll finds the story's PR merged on the host, the open
-//   gate is decided `approved` by `maintainer` with the note "merged on the host".
+//   (`commands.ts`); that approval is the story's merge decision.
+// - A hand merge. When the Done poll finds the story's PR merged on the host, the open gate is
+//   decided `approved` by `maintainer` with the note "merged on the host".
 //
 // Writes run inside the caller's transaction and return the change-log entries to append.
 
@@ -51,12 +52,12 @@ import { runProgress, workRefOf } from "../views/work";
 export const MERGE_GATE_KIND = "merge";
 
 /**
- * The release-please label: a PR that carries it is never merged by the engine, for any PR kind
- * and in any office (0016 rule 12, 0019 section 7). In code, so no setting removes it.
+ * The release-please label: dipo never turns auto-merge on for a PR that carries it, for any PR
+ * kind and in any office (0002, 0016). In code, so no setting removes it.
  */
 export const AUTORELEASE_LABEL = "autorelease: pending";
 
-/** The note of a merge gate a hand merge on the host decided (0019 section 11). */
+/** The note of a merge gate a hand merge on the host decided (0002). */
 export const HAND_MERGE_NOTE = "merged on the host";
 
 /** `gates.hand_merge` of a gate whose PR changes the release path (DIPO-331). */
@@ -65,14 +66,16 @@ export const RELEASE_PATH_HOLD = "release-path";
 /** Why only a merge on the host decides a merge gate; null for a gate dipo may merge. */
 export type HandMerge = typeof RELEASE_PATH_HOLD;
 
-/** Why a merge gate waits for the maintainer (0019 section 11). */
+/** Why a merge gate waits for the maintainer (0002). */
 export type MergeWait =
   | { readonly kind: "autoMergeOff" }
   | { readonly kind: "testBeforeMerge" }
   | { readonly kind: "maintainerCriteria"; readonly criteria: readonly number[] }
   | { readonly kind: "override" }
   | { readonly kind: "holdLabel"; readonly labels: readonly string[] }
-  | { readonly kind: "releasePath"; readonly paths: readonly string[] };
+  | { readonly kind: "releasePath"; readonly paths: readonly string[] }
+  /** The PR's head on GitHub is one dipo did not push (0002): only a hand merge or a discard. */
+  | { readonly kind: "foreignHead"; readonly head: string };
 
 /** Pure: the labels of `labels` that hold a PR: `autorelease: pending` and `holdLabels`. */
 export function holdLabelsOn(labels: readonly string[], holdLabels: readonly string[]): string[] {
@@ -94,7 +97,7 @@ export interface MergeWaitFacts {
   readonly verdict: Pick<StoredReviewVerdict, "criteria" | "override">;
   /** The PR's labels that hold it (`holdLabelsOn`). */
   readonly holdLabels: readonly string[];
-  /** The release paths the PR's diff changes (`StorySlotGit.releasePaths`); none by default. */
+  /** The release paths the PR's diff changes (`StoryMergeGit.releasePaths`); none by default. */
   readonly releasePaths?: readonly string[];
 }
 
@@ -129,6 +132,8 @@ export function waitLine(wait: MergeWait): string {
       return `the PR carries ${wait.labels.length === 1 ? "the hold label" : "the hold labels"} ${wait.labels.map((label) => `"${label}"`).join(", ")}`;
     case "releasePath":
       return `it changes the release path, which needs the maintainer's code owner approval: ${releasePathList(wait.paths)}`;
+    case "foreignHead":
+      return `its head on GitHub is ${wait.head.slice(0, 12)}, which dipo did not push, so dipo turned auto-merge off`;
   }
 }
 
@@ -146,6 +151,9 @@ export function releasePathList(paths: readonly string[]): string {
 function handMergeLine(story: string, waits: readonly MergeWait[]): string | null {
   if (waits.some((wait) => wait.kind === "releasePath")) {
     return `dipo never merges a PR that changes the release path and never bypasses the code owner review: the maintainer merges it by hand on GitHub, which closes this gate. To send it back instead, reject it with \`dipo reject ${story} --note <text>\`.`;
+  }
+  if (waits.some((wait) => wait.kind === "foreignHead")) {
+    return `dipo never merges a head it did not push: merge it by hand on GitHub, or discard the story with \`dipo discard ${story}\`.`;
   }
   const held = waits.find(
     (wait): wait is Extract<MergeWait, { kind: "holdLabel" }> => wait.kind === "holdLabel",
@@ -168,11 +176,11 @@ export interface MergeSummaryFacts {
   readonly worktree?: string | null;
 }
 
-/** Pure: the code-built summary of a merge gate (0019 section 11). */
+/** Pure: the code-built summary of a merge gate (0002). */
 export function mergeGateSummary(facts: MergeSummaryFacts): string {
   const head = facts.head.slice(0, 12);
   if (facts.waits.length === 0) {
-    return `${facts.story}: PR #${facts.pr.number} at ${head} passed review and its required checks; dipo merges it through the merge slot.`;
+    return `${facts.story}: PR #${facts.pr.number} at ${head} passed review and its required checks; dipo commits the close-out and turns GitHub's auto-merge on.`;
   }
   const lines = [
     `${facts.story}: PR #${facts.pr.number} (${facts.pr.url}) at ${head} passed review and its required checks, and its merge waits for the maintainer:`,
@@ -222,7 +230,7 @@ export function overrideGateSummary(input: {
     `${input.story} parked review-blocked after ${input.failed} failed review round${input.failed === 1 ? "" : "s"}; round ${input.verdict.round} at ${input.verdict.commit.slice(0, 12)} blocked on:`,
     ...unmet,
     ...blocking,
-    `Approve past the blocked review with \`dipo approve ${input.story} --note <why>\` (the note is required and recorded as an override); the PR then goes through its required checks and the merge slot.`,
+    `Approve past the blocked review with \`dipo approve ${input.story} --note <why>\` (the note is required and recorded as an override); the PR then goes through its required checks and GitHub's auto-merge.`,
   ].join("\n");
 }
 
@@ -452,7 +460,7 @@ export function decideMergeGate(
 }
 
 /**
- * The Done poll found the story's PR merged on the host (0019 section 11): its open merge gates are
+ * The Done poll found the story's PR merged on the host (0002): its open merge gates are
  * decided `approved` by the maintainer with the note "merged on the host". Inside the caller's
  * transaction; returns the `gate.decided` entries.
  */

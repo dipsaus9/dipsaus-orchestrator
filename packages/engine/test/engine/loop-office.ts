@@ -5,7 +5,7 @@
 // `packages/daemon/src/runs.ts` and `foreground.ts` build them: `composeRuns` (run control, worker
 // outcomes, the resumer, the places, the review rounds and the fix rounds), In Review at done
 // (`VerifyCommit`), the conflicts of DIPO-149, the story PR and its CI watch (`StoryPrs`), the
-// merge slot with its story steps and the merge gates' commands, and the Done poll. Only these are
+// auto-merge of story PRs and the merge gates' commands, and the Done poll. Only these are
 // fakes:
 //
 // - the code host (`LoopHost`), in memory over the bare remote;
@@ -40,7 +40,7 @@ import type { OfficeHandle } from "../../src/db/office";
 import { GateStore } from "../../src/gate";
 import { EngineGit } from "../../src/git";
 import { EVENTS_FILE, EXIT_FILE, hostSocketPath } from "../../src/host/protocol";
-import { MergeGates, MergeSlot, gitStorySlotOps, writeCloseOutSummary } from "../../src/merge-slot";
+import { AutoMerge, MergeGates, gitStoryMergeOps, writeCloseOutSummary } from "../../src/merge";
 import { officeStatusesReady } from "../../src/office/init";
 import { ensurePrivateDir } from "../../src/platform/paths";
 import { createSystemIds } from "../../src/platform/ids";
@@ -273,7 +273,7 @@ export interface Daemon {
   readonly engineGit: EngineGit;
   readonly runs: ComposedRuns;
   readonly storyPrs: StoryPrs;
-  readonly slot: MergeSlot;
+  readonly merge: AutoMerge;
   readonly teardown: StoryTeardown;
   readonly holds: AdapterHolds;
   /** What the services warned about. */
@@ -304,7 +304,7 @@ export interface LoopWorld {
   /** Plays `events` in the held session of `agent` and ends it. */
   release(agent: string, events: readonly WorkerEvent[]): void;
   /**
-   * Runs the engine's polls (the story PR poll, the merge slot, the Done poll) and waits for its
+   * Runs the engine's polls (the story PR poll, the auto-merge, the Done poll) and waits for its
    * background work, until `done()` holds; throws naming `what` and the office's state after
    * `maxPolls` rounds of polls (400 by default).
    */
@@ -416,7 +416,7 @@ export async function withLoopOffice(
               throw new Error(`gave up waiting for ${what} after ${poll} polls\n${stateOf(world)}`);
             }
             await d.storyPrs.retry(world.officeId);
-            await d.slot.tick(world.officeId);
+            await d.merge.tick(world.officeId);
             await d.teardown.poll(world.officeId);
             await d.runs.places?.idle();
             if (await done()) return;
@@ -504,7 +504,6 @@ export function stateOf(w: LoopWorld): string {
     `parks: ${rows("select reason, detail, resolved_at from parks where office_id = $office_id")}`,
     `prs: ${rows("select pr_number, head_sha, state from story_prs where office_id = $office_id")}`,
     `verdicts: ${rows("select round, verdict, commit_sha from review_verdicts where office_id = $office_id")}`,
-    `slot: ${rows("select * from merge_slot where office_id = $office_id")}`,
     `host: ${JSON.stringify(w.host.calls)}`,
     `warnings: ${JSON.stringify(w.d.warnings)}`,
     `steps: ${rows("select run_id, kind, value from run_steps where office_id = $office_id")}`,
@@ -620,11 +619,12 @@ async function buildDaemon(
     park: { writer: parkWriter, implemented },
     boxRun: () => true,
     mergesStories: true,
+    required: host,
     secrets: () => [],
   });
 
   // Conflicts with the base (DIPO-149): no box, so no sync in the held turn; the marker check of
-  // dipo's conflicted merges and the record of each merge the slot makes stay.
+  // dipo's conflicted merges and the record of each merge the auto-merge's hand-off makes stay.
   const conflicts = new StoryConflicts({
     clock: officeClock,
     ids: { next: (prefix: IdPrefix) => loaded().ids.next(prefix) },
@@ -705,7 +705,7 @@ async function buildDaemon(
   const steering: RunSteering = {
     send: async () => ({ ok: false, reason: "the worker host has exited" }),
   };
-  let slotRef: MergeSlot | null = null;
+  let mergeRef: AutoMerge | null = null;
   const runs = composeRuns({
     clock: officeClock,
     ids: { next: (prefix: IdPrefix) => loaded().ids.next(prefix) },
@@ -720,7 +720,7 @@ async function buildDaemon(
     release: (office, claim, reason) => claims.releaseUnstarted(office, claim, reason),
     warn,
     refreshStory: (office, key) => index.refreshStory(office, key, { quiet: true }),
-    slotReentry: () => slotRef ?? undefined,
+    mergeReentry: () => mergeRef ?? undefined,
     ingest: { pricing: () => null },
     control: { writer: parkWriter, finisher, implemented },
     outcomes: {
@@ -740,7 +740,7 @@ async function buildDaemon(
     },
     ci: (office, runId) => storyPrs.ciState(office, runId),
     boxRun: () => true,
-    // The merges the merge slot made on the branch reach the stand-in box before the worker's
+    // The merges the auto-merge's conflict hand-off made on the branch reach the stand-in box before the worker's
     // next session (DIPO-324), as `BoxCollisions.copyPending` copies them into a real box.
     boxSync: (office, run) => copyIntoWorktree(office, run),
     // Setup is stubbed: no install step runs (DIPO-39's own tests cover the real one).
@@ -767,16 +767,15 @@ async function buildDaemon(
   // Each head whose CI stops being pending may start its fix round (DIPO-148).
   storyPrs.onCiFinal((office, runId) => void fixRounds.consider(office, runId));
 
-  const storySlotGit = gitStorySlotOps({ git: gitOf, cli });
-  const slot = new MergeSlot({
+  const storyMergeGit = gitStoryMergeOps({ git: gitOf, cli });
+  const merge = new AutoMerge({
     host,
-    prs: { recheck: () => Promise.reject(new Error("no backlog PR in this office")) },
     lane: () => undefined,
     offices,
     clock: officeClock,
     labels: host,
     stories: {
-      git: storySlotGit,
+      git: storyMergeGit,
       ids: { next: (prefix: IdPrefix) => loaded().ids.next(prefix) },
       labels: host,
       ci: (office, runId) => storyPrs.ciState(office, runId),
@@ -795,7 +794,6 @@ async function buildDaemon(
             box: "none",
           },
           merged,
-          { strict: true },
         );
       },
       conflict: (office, runId, input) => fixRounds.conflict(office, runId, input),
@@ -803,15 +801,16 @@ async function buildDaemon(
       itemMax: () => 3_000,
     },
   });
-  slotRef = slot;
+  mergeRef = merge;
   const mergeGates = new MergeGates({
     labels: host,
     unpark: unparkWriter,
     reject: (office, runId, reject) => fixRounds.reject(office, runId, reject),
-    kick: (office) => slot.kick(office),
+    kick: (office) => merge.kick(office),
+    view: host,
     prSync: (office, runId) => storyPrs.sync(office, runId),
     refreshStory: (office, key) => index.refreshStory(office, key, { quiet: true }),
-    holds: (office, gate, head) => slot.gateHolds(office, gate, head),
+    holds: (office, gate, head) => merge.gateHolds(office, gate, head),
     repark: parkWriter,
   });
   const teardown = new StoryTeardown({ git: gitOf, host, prCloser: host, cli, offices });
@@ -847,7 +846,7 @@ async function buildDaemon(
       storyPrs.feature,
       lane.feature,
       index.feature,
-      slot.feature,
+      merge.feature,
       gates.feature,
       workRun.feature,
       mergeGates.feature,
@@ -874,12 +873,12 @@ async function buildDaemon(
     engineGit,
     runs,
     storyPrs,
-    slot,
+    merge,
     teardown,
     holds,
     warnings,
     close: () => {
-      slot.stop();
+      merge.stop();
       storyPrs.stop();
       teardown.stop();
       planLimits.close();

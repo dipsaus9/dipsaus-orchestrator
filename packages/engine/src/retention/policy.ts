@@ -83,10 +83,6 @@ export const TABLE_RETENTION: Readonly<Record<string, TablePolicy>> = {
   review_verdicts: { tier: "S", rule: "decided more than stateDays ago" },
   feedback_items: { tier: "S", rule: "with its run, ended more than stateDays ago" },
   catch_ups: { tier: "S", rule: "with its run, ended more than stateDays ago" },
-  merge_slot: {
-    tier: "P",
-    rule: "no age rule: the slot code deletes its one row when the PR merges or leaves the slot",
-  },
   runs: { tier: "S", rule: "ended more than stateDays ago; an active run is kept" },
   run_steps: { tier: "S", rule: "with its run, ended more than stateDays ago" },
   run_grants: { tier: "S", rule: "with its run, ended more than stateDays ago" },

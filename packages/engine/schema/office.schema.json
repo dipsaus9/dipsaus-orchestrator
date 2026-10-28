@@ -832,23 +832,23 @@
             "type": "string",
             "minLength": 1
           },
-          "description": "Checks the merge slot waits for before it merges a PR of this office (0016 rule 2): each must pass, and any failed or cancelled check holds the PR back. Names are the check names the host reports, such as ci-ok and pr-title. A repository whose CI names other checks sets its own names here."
+          "description": "No longer read: the required checks are the ones GitHub's branch protection or rulesets require on the base (0002). The key stays valid until the version 14 reset removes it."
         },
         "autoMerge": {
           "type": "boolean",
-          "description": "Whether the merge slot merges a PR once its checks pass and it is reviewed."
+          "description": "Whether dipo turns GitHub's auto-merge on for a story PR once it is reviewed and its checks pass, without the maintainer's approval."
         },
         "conflictAttempts": {
           "type": "integer",
           "exclusiveMinimum": 0,
           "maximum": 9007199254740991,
-          "description": "Attempts to rebase a PR onto a base that moved, before the merge slot gives up on it."
+          "description": "Failed conflict hand-offs of a story before it parks with the reason conflict."
         },
         "ciAttempts": {
           "type": "integer",
           "exclusiveMinimum": 0,
           "maximum": 9007199254740991,
-          "description": "Attempts to fix a PR whose required check failed, before the merge slot gives up on it."
+          "description": "Pushed heads with red required checks before the story parks with the reason verify-failing."
         },
         "holdLabels": {
           "type": "array",
@@ -856,13 +856,13 @@
             "type": "string",
             "minLength": 1
           },
-          "description": "Labels that hold a PR back from the merge slot while it carries one."
+          "description": "Labels that keep auto-merge off for a PR while it carries one."
         },
         "checksWaitMinutes": {
           "type": "integer",
           "exclusiveMinimum": 0,
           "maximum": 9007199254740991,
-          "description": "Minutes the merge slot waits for the required checks of a PR to finish before it reports them stuck."
+          "description": "Minutes dipo waits for the required checks of a PR to finish before it reports them stuck."
         }
       },
       "additionalProperties": false

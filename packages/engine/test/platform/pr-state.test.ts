@@ -1,5 +1,5 @@
 // The one PR-state poll per office (DIPO-314): one timer per office runs the story-PR poll, the
-// merge slot and the Done poll in that order, and within a round each open PR is read from the
+// auto-merge and the Done poll in that order, and within a round each open PR is read from the
 // host once, whoever asks. The three consumers subscribe and arm no timer of their own.
 
 import { describe, expect, it } from "bun:test";
@@ -12,7 +12,7 @@ import type { FeatureModule } from "../../src/commands/registry";
 import { OFFICE_DEFAULTS, type OfficeConfig } from "../../src/config";
 import type { OfficeHandle } from "../../src/db/office";
 import type { OfficeLane } from "../../src/backlog/lane/lane";
-import { MergeSlot } from "../../src/merge-slot/slot";
+import { AutoMerge } from "../../src/merge/merger";
 import type { OfficeLoadContext } from "../../src/office/steps";
 import type { HostPr, PrState } from "../../src/platform/host";
 import { CodeHostError } from "../../src/platform/host";
@@ -78,13 +78,13 @@ function poll(host: Host, clock = new ManualClock(), seconds = 30) {
 }
 
 describe("one round", () => {
-  it("runs the story-PR poll, the merge slot and the Done poll in that order", async () => {
+  it("runs the story-PR poll, the auto-merge and the Done poll in that order", async () => {
     const { poll: prState } = poll(new Host());
     const order: string[] = [];
     // Subscribed out of order on purpose: the round keeps its own order.
     prState.subscribe("done", async () => void order.push("done"));
     prState.subscribe("story-pr", async () => void order.push("story-pr"));
-    prState.subscribe("merge-slot", async () => void order.push("merge-slot"));
+    prState.subscribe("merge", async () => void order.push("merge"));
     expect(await prState.round(OFFICE)).toBe(true);
     expect(order).toEqual([...PR_STATE_CONSUMERS]);
   });
@@ -92,12 +92,12 @@ describe("one round", () => {
   it("reads each open PR once and passes it to every consumer", async () => {
     const host = new Host();
     const { poll: prState } = poll(host);
-    const seen: Record<string, (HostPr | null)[]> = { "story-pr": [], "merge-slot": [], done: [] };
+    const seen: Record<string, (HostPr | null)[]> = { "story-pr": [], merge: [], done: [] };
     prState.subscribe("story-pr", async (_office, reads) => {
       seen["story-pr"]?.push(await reads.viewPr(REPO, 7), await reads.viewPr(REPO, 8));
     });
-    prState.subscribe("merge-slot", async (_office, reads) => {
-      seen["merge-slot"]?.push(await reads.viewPr(REPO, 7, { head: "a".repeat(40) }));
+    prState.subscribe("merge", async (_office, reads) => {
+      seen["merge"]?.push(await reads.viewPr(REPO, 7, { head: "a".repeat(40) }));
     });
     prState.subscribe("done", async (_office, reads) => {
       // Asked by branch: the story PR the round read answers it.
@@ -106,7 +106,7 @@ describe("one round", () => {
     await prState.round(OFFICE);
     expect(host.views).toEqual([7, 8]);
     expect(host.merged).toEqual([]);
-    expect(seen["merge-slot"]?.[0]).toBe(seen["story-pr"]?.[0] ?? null);
+    expect(seen["merge"]?.[0]).toBe(seen["story-pr"]?.[0] ?? null);
     expect(seen.done).toEqual([null]);
 
     // The next round reads again.
@@ -136,8 +136,8 @@ describe("one round", () => {
     const { poll: prState } = poll(host);
     const heads: string[] = [];
     prState.subscribe("story-pr", async (_office, reads) => void (await reads.viewPr(REPO, 7)));
-    prState.subscribe("merge-slot", async (_office, reads) => {
-      // The slot pushed a new head since the story-PR poll read the PR.
+    prState.subscribe("merge", async (_office, reads) => {
+      // dipo pushed a new head since the story-PR poll read the PR.
       host.heads.set(7, "b".repeat(40));
       heads.push((await reads.viewPr(REPO, 7, { head: "b".repeat(40) })).headSha);
     });
@@ -157,7 +157,7 @@ describe("one round", () => {
         errors.push(error.code);
       });
     });
-    prState.subscribe("merge-slot", async (_office, reads) => {
+    prState.subscribe("merge", async (_office, reads) => {
       await reads.viewPr(REPO, 7);
     });
     prState.subscribe("done", async () => {
@@ -202,14 +202,14 @@ describe("one round", () => {
     expect(host.views).toEqual([7]);
   });
 
-  it("drops a PR the slot merged from the round, so the Done poll asks the host", async () => {
+  it("drops a PR whose auto-merge the round changed, so the Done poll asks the host", async () => {
     const host = new Host();
     const { poll: prState } = poll(host);
     const answers: (number | null)[] = [];
     const merged = Promise.withResolvers<void>();
     prState.subscribe("story-pr", async (_office, reads) => void (await reads.viewPr(REPO, 7)));
-    prState.subscribe("merge-slot", async (_office, reads) => {
-      // The slot merged #7 in this round.
+    prState.subscribe("merge", async (_office, reads) => {
+      // The auto-merge changed #7 in this round.
       reads.invalidate?.(REPO, 7);
       merged.resolve();
     });
@@ -222,23 +222,23 @@ describe("one round", () => {
     expect(answers).toEqual([null]);
   });
 
-  it("runs the Done poll while a slow merge slot tick still runs, after the story-PR poll", async () => {
+  it("runs the Done poll while a slow auto-merge round still runs, after the story-PR poll", async () => {
     const { poll: prState } = poll(new Host());
     const order: string[] = [];
-    const slot = Promise.withResolvers<void>();
+    const slow = Promise.withResolvers<void>();
     prState.subscribe("story-pr", async () => void order.push("story-pr"));
-    prState.subscribe("merge-slot", async () => {
-      order.push("merge-slot started");
-      await slot.promise;
-      order.push("merge-slot ended");
+    prState.subscribe("merge", async () => {
+      order.push("merge started");
+      await slow.promise;
+      order.push("merge ended");
     });
     prState.subscribe("done", async () => void order.push("done"));
     const round = prState.round(OFFICE);
     await Bun.sleep(1);
-    expect(order).toEqual(["story-pr", "merge-slot started", "done"]);
-    slot.resolve();
+    expect(order).toEqual(["story-pr", "merge started", "done"]);
+    slow.resolve();
     await round;
-    expect(order.at(-1)).toBe("merge-slot ended");
+    expect(order.at(-1)).toBe("merge ended");
   });
 
   it("skips a round while the last one still runs", async () => {
@@ -349,9 +349,8 @@ describe("the consumers", () => {
       clock,
       prState: watched,
     });
-    const slot = new MergeSlot({
+    const merge = new AutoMerge({
       host: host as never,
-      prs: { recheck: async () => ({ passed: true }) as never },
       lane: () => undefined as OfficeLane | undefined,
       offices,
       clock,
@@ -359,7 +358,7 @@ describe("the consumers", () => {
     });
     expect(subscribed.toSorted()).toEqual([...PR_STATE_CONSUMERS].toSorted());
 
-    load([teardown.feature, storyPrs.feature, slot.feature], clock, 30);
+    load([teardown.feature, storyPrs.feature, merge.feature], clock, 30);
     expect(clock.pendingTimers).toBe(0);
     load([prState.feature], clock, 30);
     expect(clock.pendingTimers).toBe(1);
@@ -376,14 +375,13 @@ describe("the consumers", () => {
       offices,
     });
     const storyPrs = new StoryPrs({ host: host as never, git: {} as StoryPrGit, offices, clock });
-    const slot = new MergeSlot({
+    const merge = new AutoMerge({
       host: host as never,
-      prs: { recheck: async () => ({ passed: true }) as never },
       lane: () => undefined,
       offices,
       clock,
     });
-    load([teardown.feature, storyPrs.feature, slot.feature], clock, 30);
+    load([teardown.feature, storyPrs.feature, merge.feature], clock, 30);
     expect(clock.pendingTimers).toBe(3);
   });
 });

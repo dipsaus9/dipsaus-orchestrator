@@ -1,5 +1,4 @@
-// The park record at close-out (DIPO-190 in DIPO-155; 0012 F16, 0010 section 3, 0019 section 9
-// step 1): on real git and the pinned Backlog CLI, a task file that holds an F16 park block when
+// The close-out commit (0002; 0012 F16, 0010 story lane): on real git and the pinned Backlog CLI, a task file that holds an F16 park block when
 // the close-out commit sets Done has no park key after it, in that one commit of the task file
 // alone. No remote: the claim cuts the branch from the local `main`, and nothing is pushed.
 
@@ -7,7 +6,7 @@ import { describe, expect, it } from "bun:test";
 
 import { git, withTempRepo } from "@dipsaus-orchestrator/testkit";
 
-import { gitCloseOutWriter } from "../../src/merge-slot/close-out-park";
+import { gitStoryMergeOps } from "../../src/merge/story-git";
 import { gitParkWriter } from "../../src/run/park";
 import { claimStory, type ClaimOutcome } from "../../src/worktree";
 import {
@@ -50,12 +49,22 @@ describe("the close-out commit", () => {
         const parked = await git(claim.worktree, repo.home, "show", `HEAD:${TASK_FILE_1}`);
         expect(dipoBlock(parked)).toContain(`reason: "ambiguous-spec"`);
 
-        const done = await gitCloseOutWriter(deps).write(s.office.officeId, {
+        const run = {
+          runId: claim.runId,
           story: TASK_1,
+          branch: BRANCH_1,
           worktree: claim.worktree,
-        });
+          startSha: claim.startSha,
+        };
+        const summaries: string[] = [];
+        const closeOut = () =>
+          gitStoryMergeOps(deps).closeOut(s.office.officeId, run, async (target) => {
+            summaries.push(target.id);
+          });
+        const done = { commit: await closeOut() };
 
         expect(done.commit).not.toBeNull();
+        expect(summaries).toEqual([TASK_1]);
         const subject = await git(claim.worktree, repo.home, "log", "-1", "--format=%s");
         expect(subject.trim()).toBe(`${TASK_1}: status Done`);
         expect(await filesOf(repo.dir, repo.home, done.commit as string)).toEqual([TASK_FILE_1]);
@@ -66,13 +75,9 @@ describe("the close-out commit", () => {
         expect(dipoBlock(closed)).toBe(dipoBlock(parked).replace(/^park:\n(?: {2}.*\n)*/m, ""));
 
         // Once Done with no park record, a second close-out commits nothing.
-        const again = await gitCloseOutWriter(deps).write(s.office.officeId, {
-          story: TASK_1,
-          worktree: claim.worktree,
-        });
-        expect(again.commit).toBeNull();
+        expect(await closeOut()).toBeNull();
       },
       { fixture: BACKLOG_FIXTURE },
     );
-  });
+  }, 30_000);
 });

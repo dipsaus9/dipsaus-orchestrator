@@ -8,7 +8,7 @@ import { createHash } from "node:crypto";
 
 import type { DoneReport, TestPlan } from "@dipsaus-orchestrator/contract";
 
-import type { RequiredCheckState } from "../merge-slot/checks";
+import type { RequiredCheckState } from "./checks";
 
 /** GitHub allows 65,536 characters; dipo keeps its bodies well under (0019 section 3). */
 export const STORY_PR_MAX_BODY = 20_000;
@@ -59,7 +59,7 @@ export interface PrBodyStatus {
   /** The run's latest stored verdict; the review line says pending when it is left out. */
   readonly review?: PrBodyReview | null;
   /**
-   * Who merges. `maintainer` (the default) until the merge slot (DIPO-150) merges story PRs;
+   * Who merges. `maintainer` (the default) until dipo turns auto-merge on for story PRs (0002);
    * `dipo` after it.
    */
   readonly merge?: "maintainer" | "dipo";

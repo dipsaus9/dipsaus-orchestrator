@@ -111,7 +111,6 @@ class CiHost implements CodeHost, PrReviewHost {
     return this.pr("main", BRANCH, "t");
   }
   async closePr(): Promise<void> {}
-  async squashMerge(): Promise<void> {}
   async requiredChecks(): Promise<RequiredCheck[]> {
     this.calls.push("requiredChecks");
     return this.required;
@@ -261,6 +260,8 @@ async function inWorld(
         clock: t.clock,
         logger,
         boxRun: () => setup.box === true,
+        // The base requires ci-ok and pr-title on GitHub.
+        required: { requiredCheckNames: async () => ["ci-ok", "pr-title"] },
       });
     const world: World = {
       facts: FACTS,
@@ -337,20 +338,26 @@ describe("the story PR body status block", () => {
       await w.prs.sync(id, w.run);
       expect(w.host.updates).toHaveLength(0);
       await w.prs.retry(id);
-      // Nothing was reported: both checks stay pending, so the body is the same.
-      expect(w.host.updates).toHaveLength(0);
+      // The first poll reads the checks the base requires on GitHub: both pending.
+      expect(w.host.updates).toHaveLength(1);
+      expect(w.host.updates[0]?.body).toContain(
+        "- required checks: `ci-ok` pending, `pr-title` pending\n",
+      );
+      await w.prs.retry(id);
+      // Nothing new was reported: the body is the same.
+      expect(w.host.updates).toHaveLength(1);
 
       w.host.required = [report("ci-ok", "pass"), report("pr-title", "pending")];
       await w.prs.retry(id);
-      expect(w.host.updates).toHaveLength(1);
-      expect(w.host.updates[0]?.body).toContain(
+      expect(w.host.updates).toHaveLength(2);
+      expect(w.host.updates[1]?.body).toContain(
         "- required checks: `ci-ok` pass, `pr-title` pending\n",
       );
 
       w.host.required = [report("ci-ok", "pass"), report("pr-title", "pass")];
       await w.prs.retry(id);
-      expect(w.host.updates).toHaveLength(2);
-      expect(w.host.updates[1]?.body).toContain("`ci-ok` pass, `pr-title` pass");
+      expect(w.host.updates).toHaveLength(3);
+      expect(w.host.updates[2]?.body).toContain("`ci-ok` pass, `pr-title` pass");
     });
   });
 });

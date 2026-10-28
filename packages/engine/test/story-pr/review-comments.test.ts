@@ -91,7 +91,6 @@ class FakeHost implements CodeHost, PrReviewHost {
     return this.open as HostPr;
   }
   async closePr(): Promise<void> {}
-  async squashMerge(): Promise<void> {}
   async requiredChecks(): Promise<[]> {
     return [];
   }

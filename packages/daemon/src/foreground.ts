@@ -55,7 +55,7 @@ import {
   LOG_LEVELS,
   MaintenanceScheduler,
   MemoryRequestTable,
-  MergeSlot,
+  AutoMerge,
   PrStatePoll,
   stopEngineCalls,
   trackEngineCalls,
@@ -99,7 +99,7 @@ import {
   StoryPlanning,
   StoryPrs,
   gitParkWriter,
-  gitStorySlotOps,
+  gitStoryMergeOps,
   gitUnparkWriter,
   MergeGates,
   StoryTeardown,
@@ -486,7 +486,7 @@ async function serve(run: Run, lock: HeldLock): Promise<number> {
     storyIndex: StoryIndex | null;
     teardown: StoryTeardown | null;
     storyPrs: StoryPrs | null;
-    mergeSlot: MergeSlot | null;
+    autoMerge: AutoMerge | null;
     /** The one PR-state poll of every office (DIPO-314): its timers stop at daemon stop. */
     prState: PrStatePoll | null;
     retention: Retention | null;
@@ -510,7 +510,7 @@ async function serve(run: Run, lock: HeldLock): Promise<number> {
     storyIndex: null,
     teardown: null,
     storyPrs: null,
-    mergeSlot: null,
+    autoMerge: null,
     prState: null,
     retention: null,
     usageAlerts: null,
@@ -681,7 +681,7 @@ async function serve(run: Run, lock: HeldLock): Promise<number> {
     // finished claim is looked up through `gh` on this daemon's PATH (else `git merge-tree`
     // decides); a Done story's worktree and branches are removed and its slot freed. Its load step
     // follows claims.feature.
-    // One `gh` host, on this daemon's PATH, for teardown, the backlog PR and the merge slot.
+    // One `gh` host, on this daemon's PATH, for teardown, the backlog PR and the auto-merge.
     const host = new GhHost({
       spawn: systemSpawn,
       clock,
@@ -693,7 +693,7 @@ async function serve(run: Run, lock: HeldLock): Promise<number> {
     // still running (DIPO-314).
     trackEngineCalls();
     // One PR-state poll per office (DIPO-314): every `polling.prStateSeconds` one round runs the
-    // story-PR poll, a merge slot tick and the Done poll, which read each open PR once through it.
+    // story-PR poll, an auto-merge round and the Done poll, which read each open PR once through it.
     const prState = new PrStatePoll({
       host,
       offices,
@@ -739,8 +739,9 @@ async function serve(run: Run, lock: HeldLock): Promise<number> {
         implemented: (name) => registry.command(name) !== undefined,
       },
       boxRun: (office, stored) => boxRunOf?.(office, stored) === true,
-      // The merge slot below merges story PRs (DIPO-150).
+      // The auto-merge below merges story PRs, with the base's required checks from GitHub (0002).
       mergesStories: true,
+      required: host,
     });
     held.storyPrs = storyPrs;
     // The backlog PR (DIPO-35): opened or updated after each lane flush through `gh` on this
@@ -764,12 +765,12 @@ async function serve(run: Run, lock: HeldLock): Promise<number> {
       onChanged: (office) => server?.notifyOffice(office),
       onFlushed: async (office, report) => {
         await backlogPrs.afterFlush(office, report);
-        mergeSlot.kick(office);
+        autoMerge.kick(office);
       },
-      held: (office) => mergeSlot.holding(office),
+      held: (office) => autoMerge.holding(office),
     });
     // Office init (DIPO-36): `office.init` reads the base and submits its steps to the lane, whose
-    // flush opens the backlog PR and kicks the merge slot. Its load step, which raises a notice
+    // flush opens the backlog PR and kicks the auto-merge. Its load step, which raises a notice
     // while the base lacks the statuses runs need, follows the story index's fetch.
     const officeInit = new OfficeInit({
       offices,
@@ -780,55 +781,55 @@ async function serve(run: Run, lock: HeldLock): Promise<number> {
       prWaiting: (office) => backlogPrs.waiting(office),
       onChanged: (office) => server?.notifyOffice(office),
     });
-    // The merge slot (DIPO-73, DIPO-150): merges the office's backlog PR once `ci-ok`, `pr-title`
-    // and the structural check pass, and each story PR whose merge gate was approved after its
-    // review and required checks, one PR at a time, polling every `polling.prStateSeconds`; it
-    // holds new lane operations while a backlog PR is in it. Its occupant is in the state database.
-    // The run services are made below; the slot reaches them only from a tick, after load.
-    const storySlotGit = gitStorySlotOps({
+    // The auto-merge (0002): turns GitHub's auto-merge on for the office's backlog PR once its
+    // structural check passed, and for each story PR whose merge gate was approved after its review
+    // and required checks, and off again when something stops the merge, in each PR-state round; it
+    // holds new lane operations while a backlog PR has auto-merge on. The run services are made
+    // below; it reaches them only from a round, after load.
+    const storyMergeGit = gitStoryMergeOps({
       git: (office) => engineGit.forOffice(office),
       cli: backlogCli,
     });
-    const mergeSlot: MergeSlot = new MergeSlot({
+    const autoMerge: AutoMerge = new AutoMerge({
       host,
       prState,
-      prs: backlogPrs,
       lane: (office) => lane.forOffice(office),
       offices,
       clock,
       labels: host,
       stories: {
-        git: storySlotGit,
+        git: storyMergeGit,
         ids,
         labels: host,
         ci: (office, runId) => storyPrs.ciState(office, runId),
         prSync: (office, runId) => storyPrs.sync(office, runId),
-        story: (office, stored) => runs.mergeSlot.story(office, stored),
+        story: (office, stored) => runs.merge.story(office, stored),
         summary: writeCloseOutSummary,
-        recordMerge: (office, stored, merged) => runs.mergeSlot.recordMerge(office, stored, merged),
-        conflict: (office, runId, input) => runs.mergeSlot.conflict(office, runId, input),
+        recordMerge: (office, stored, merged) => runs.merge.recordMerge(office, stored, merged),
+        conflict: (office, runId, input) => runs.merge.conflict(office, runId, input),
         park: {
           writer: gitParkWriter({ git: (office) => engineGit.forOffice(office), cli: backlogCli }),
           implemented: (name) => registry.command(name) !== undefined,
         },
-        itemMax: (office, stored) => runs.mergeSlot.itemMax(office, stored),
+        itemMax: (office, stored) => runs.merge.itemMax(office, stored),
       },
       onChanged: (office) => server?.notifyOffice(office),
-      logger: logger.child({ component: "merge-slot" }),
+      logger: logger.child({ component: "merge" }),
     });
-    held.mergeSlot = mergeSlot;
+    held.autoMerge = autoMerge;
     // `gate.approve` and `gate.reject` on merge gates (DIPO-150 with DIPO-151): a decision kicks
-    // the slot, a reject's note goes to the worker in a fix round.
+    // the auto-merge, a reject's note goes to the worker in a fix round.
     const mergeGates = new MergeGates({
       labels: host,
       unpark: gitUnparkWriter({ git: (office) => engineGit.forOffice(office), cli: backlogCli }),
-      reject: (office, runId, reject) => runs.mergeSlot.reject(office, runId, reject),
-      kick: (office) => mergeSlot.kick(office),
+      reject: (office, runId, reject) => runs.merge.reject(office, runId, reject),
+      kick: (office) => autoMerge.kick(office),
+      view: host,
       prSync: (office, runId) => storyPrs.sync(office, runId),
       refreshStory: (office, key) => storyIndex.refreshStory(office, key, { quiet: true }),
       // A decision only for the head the gate holds for; the park put back when an override is not
       // recorded after its lift.
-      holds: (office, gate, head) => mergeSlot.gateHolds(office, gate, head),
+      holds: (office, gate, head) => autoMerge.gateHolds(office, gate, head),
       repark: gitParkWriter({ git: (office) => engineGit.forOffice(office), cli: backlogCli }),
     });
     // `story.park`, `story.drop` and the resume of a park with no run (DIPO-160, DIPO-344): lane
@@ -956,8 +957,8 @@ async function serve(run: Run, lock: HeldLock): Promise<number> {
       cli: backlogCli,
       storyPr: storyPrs,
       holdResumer: () => planning,
-      // A story resumed to wait In Review again re-enters the merge slot (DIPO-150).
-      slotReentry: () => mergeSlot,
+      // A story resumed to wait In Review again goes back to the auto-merge (0002).
+      mergeReentry: () => autoMerge,
       ...(options.workerPort === undefined ? {} : { workerPort: options.workerPort }),
       stories: storyIndex,
       // The registry is built below; parks are only written after it exists.
@@ -1076,7 +1077,7 @@ async function serve(run: Run, lock: HeldLock): Promise<number> {
       storyPrs.feature,
       lane.feature,
       storyIndex.feature,
-      mergeSlot.feature,
+      autoMerge.feature,
       // After its three consumers' load steps, so a round finds them tracked.
       prState.feature,
       officeInit.feature,
@@ -1261,7 +1262,7 @@ async function serve(run: Run, lock: HeldLock): Promise<number> {
       },
     });
     // Every registered office loads in `recovering` (DIPO-56): its load steps end with reconcile,
-    // so scheduling stays off until each office is reconciled, and the merge slot poll and Done
+    // so scheduling stays off until each office is reconciled, and the auto-merge and Done
     // detection resume without waiting for an office command. An office that is refused stays
     // unloaded with its notice; the daemon still starts.
     steps.register({
@@ -1418,7 +1419,7 @@ async function serve(run: Run, lock: HeldLock): Promise<number> {
     held.storyIndex?.stop();
     held.teardown?.stop();
     held.storyPrs?.stop();
-    held.mergeSlot?.stop();
+    held.autoMerge?.stop();
     held.prState?.stop();
     await held.scanSessions?.close();
     held.ingest?.close();

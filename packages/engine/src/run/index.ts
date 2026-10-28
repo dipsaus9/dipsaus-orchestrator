@@ -415,7 +415,7 @@ export type {
   ConflictResumer,
   ParkResumeOptions,
   PrReplacement,
-  SlotReentry,
+  MergeReentry,
 } from "./park-resume";
 export {
   parkResumeNeed,

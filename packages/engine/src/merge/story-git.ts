@@ -1,28 +1,23 @@
-// The git steps of the merge slot for a story PR (0019 section 9, the 0016 amendment of
-// 2026-10-22). Each method is its own item of the office git queue, so claims, parts and commits
-// of other stories run between the steps, and waiting for CI never holds the queue. Every step is
-// idempotent when run again after a daemon restart: the close-out finds the story Done, the sync
-// finds the base contained, the push finds nothing to push.
+// The git steps of a story PR's merge (0002, 0010). Each method is its own item of the office git
+// queue, so claims, parts and commits of other stories run between the steps, and waiting for
+// GitHub never holds the queue. Every step is idempotent when it runs again after a daemon
+// restart: the close-out finds the story Done, the conflict merge finds the base merged, the push
+// finds nothing to push.
 //
-// - The close-out commit (step 1): in dipo's own copy of the story's backlog (`editInStoryBacklog`,
-//   0021 section 14), the final summary (DIPO-154's `writeCloseOutSummary`, passed in), the
-//   modified files (the paths the branch changed since its merge base with the base, without
-//   `backlog/`), then DIPO-155's `closeOutFields`: the F16 park record removed and status `Done`,
-//   committed alone as `<ID>: status Done`. Provisional until the
-//   host merge (0010).
-// - The sync (step 2): dipo merges the base into the story branch in its own repository from git
-//   objects (`planCatchUp`, `commit-tree`, `update-ref`), never in a worktree a worker writes and
-//   never in the box (0021 sections 8 and 14). `onConflict` merges only when git cannot merge the
-//   base cleanly (the test the host makes when it reports a conflict; strict is off on the base
-//   since the 0016 amendment); `always` whenever the base moved, after the host refused a merge
-//   because the base moved. A conflict is committed as git left it, markers and all (DIPO-149's
-//   committed catch-up), so the worker's resolution in its fix round is an ordinary change; a
-//   conflict in a path the worker cannot write merges nothing. The box does not get the merge
-//   here: it is recorded as one the box still lacks (`catch_ups.box_copy`), and the run's next
-//   developer session copies it into the box before the worker starts (DIPO-324).
-// - The push (step 3): once, never forced.
-// - The release path (DIPO-331): the paths of the PR's diff (merge base with the base to the head)
-//   that the base's CODEOWNERS gives an owner (`release-path.ts`), read from git objects.
+// - The close-out commit: in dipo's own copy of the story's backlog (`editInStoryBacklog`), the
+//   final summary (`writeCloseOutSummary`, passed in), the modified files (the paths the branch
+//   changed since its merge base with the base, without `backlog/`), then `closeOutFields`: the
+//   park field removed and status `Done`, committed alone as `<ID>: status Done`.
+// - The conflict merge: when GitHub reports that the base conflicts with the PR, dipo merges the
+//   base into the story branch in its own repository from git objects (`planCatchUp`,
+//   `commit-tree`), never in the box. The conflict is committed as git left it, markers and all,
+//   so the worker's resolution in its fix round is an ordinary change; a conflict in a path the
+//   worker cannot write merges nothing. A base that merges cleanly merges nothing: GitHub's
+//   "require branches to be up to date" is off (0016). The box gets the merge before the run's
+//   next developer session (`catch_ups.box_copy`).
+// - The push: once, never forced.
+// - The release path: the paths of the PR's diff (merge base with the base to the head) that the
+//   base's CODEOWNERS gives an owner (`release-path.ts`), read from git objects.
 
 import { mkdirSync } from "node:fs";
 import { mkdtemp, realpath, rm } from "node:fs/promises";
@@ -48,19 +43,21 @@ import { codeTreeKeyOf } from "../run/story-git";
 import { BRANCH_READ_PREFIX } from "../stories/branch-read";
 import { editInStoryBacklog } from "../worktree/claim";
 
-import { closeOutFields, DONE_STATUS } from "./close-out-park";
+import { closeOutFields, DONE_STATUS } from "./close-out";
 import { CODEOWNERS_LOCATIONS, parseCodeowners, releasePathsOf } from "./release-path";
-
-import type { PushOutcome } from "./git";
-import type { SlotSyncMode } from "./store";
 
 type WorktreeLocation = Extract<GitLocation, { kind: "worktree" }>;
 
 /** The most modified files the close-out writes; the rest are left out. */
 export const MODIFIED_FILES_MAX = 200;
 
-/** The story run a slot step works on. */
-export interface StorySlotRun {
+/** What a push did: pushed, nothing to push, or failed with why. */
+export type PushOutcome =
+  | { readonly ok: true; readonly pushed: boolean }
+  | { readonly ok: false; readonly detail: string };
+
+/** The story run a merge step works on. */
+export interface StoryMergeRun {
   readonly runId: string;
   readonly story: string;
   readonly branch: string;
@@ -70,22 +67,18 @@ export interface StorySlotRun {
   readonly itemMax?: number;
 }
 
-/** What the sync step did. */
-export type StorySync =
-  /** Nothing merged: the branch holds the base, or the mode leaves a clean merge for later. */
+/** What the conflict merge did. */
+export type ConflictMerge =
+  /** Nothing merged: the branch holds the base, or the base merges cleanly. */
   | { readonly kind: "none" }
   | {
-      /**
-       * The merge commit is made from git objects, but the branch has not moved: the slot records
-       * the merge first (`merge_slot`), then moves the branch (`moveBranch`), so a restart in
-       * between finds it.
-       */
+      /** The merge commit is made from git objects, but the branch has not moved yet. */
       readonly kind: "planned";
       readonly merged: CatchUpMerged;
-      /** The conflict item for the worker; null for a clean merge. */
-      readonly item: ConflictItem | null;
+      /** The conflict item for the worker. */
+      readonly item: ConflictItem;
     }
-  /** The merge conflicts in paths the worker cannot write; nothing merged (0019 section 10). */
+  /** The merge conflicts in paths the worker cannot write; nothing merged (0002). */
   | {
       readonly kind: "unwritable";
       readonly base: string;
@@ -93,28 +86,26 @@ export type StorySync =
       readonly paths: readonly string[];
     };
 
-/** The git the story merge slot needs; `gitStorySlotOps` is the real one, tests use fakes. */
-export interface StorySlotGit {
+/** The git a story PR's merge needs; `gitStoryMergeOps` is the real one, tests use fakes. */
+export interface StoryMergeGit {
   /** Fetches the remote; false when the fetch failed. */
   fetch(office: OfficeId): Promise<boolean>;
   /** The local tip of `branch`, or null when it does not exist. */
   head(office: OfficeId, branch: string): Promise<string | null>;
-  /** True when `branch` contains the base as last fetched. */
-  containsBase(office: OfficeId, branch: string): Promise<boolean>;
   /**
    * The close-out commit: `summary` writes the final summary in dipo's copy of the backlog, then
    * the modified files and status Done. Returns the commit, or null when nothing changed.
    */
   closeOut(
     office: OfficeId,
-    run: StorySlotRun,
+    run: StoryMergeRun,
     summary: (target: StoryTarget) => Promise<unknown>,
   ): Promise<string | null>;
   /**
-   * Plans the merge of the base into the story branch by `mode` and makes its commit (see the file
-   * comment); the branch does not move.
+   * Plans the merge of the base into the story branch when it conflicts and makes its commit (see
+   * the file comment); the branch does not move.
    */
-  sync(office: OfficeId, run: StorySlotRun, mode: SlotSyncMode): Promise<StorySync>;
+  conflictMerge(office: OfficeId, run: StoryMergeRun): Promise<ConflictMerge>;
   /** Moves `branch` from `tip` to `commit`; false when it is not at `tip` any more. */
   moveBranch(office: OfficeId, branch: string, commit: string, tip: string): Promise<boolean>;
   /** Pushes `branch` once, never forced, when its tip differs from the remote's. */
@@ -127,8 +118,8 @@ export interface StorySlotGit {
   /**
    * The release paths `head` changes (DIPO-331): the paths of its diff against its merge base with
    * the base as last fetched that the base's CODEOWNERS gives an owner, sorted; empty when the base
-   * has no CODEOWNERS. Null when git cannot tell (no base, an unreadable commit): the slot then
-   * merges nothing.
+   * has no CODEOWNERS. Null when git cannot tell (no base, an unreadable commit): dipo then turns
+   * no auto-merge on.
    */
   releasePaths(office: OfficeId, head: string): Promise<readonly string[] | null>;
 }
@@ -169,11 +160,11 @@ async function modifiedFiles(
     .toSorted();
 }
 
-/** The story merge slot's git steps with the office git and the Backlog CLI. */
-export function gitStorySlotOps(deps: {
+/** A story PR merge's git steps with the office git and the Backlog CLI. */
+export function gitStoryMergeOps(deps: {
   readonly git: (office: OfficeId) => OfficeGit | undefined;
   readonly cli: BacklogCli;
-}): StorySlotGit {
+}): StoryMergeGit {
   const gitOf = (office: OfficeId): OfficeGit => {
     const git = deps.git(office);
     if (git === undefined) throw new Error(`Office ${office} has no git attached.`);
@@ -185,119 +176,9 @@ export function gitStorySlotOps(deps: {
     head: (office, branch) =>
       gitOf(office).run((session) => revParse(session, `refs/heads/${branch}`)),
 
-    containsBase: (office, branch) => {
-      const git = gitOf(office);
-      return git.run(async (session) => {
-        const base = await baseRefOf(git, session);
-        if (base === null) return true;
-        const result = await session.step(session.repository, [
-          "merge-base",
-          "--is-ancestor",
-          base.ref,
-          `refs/heads/${branch}`,
-        ]);
-        return result.code === 0;
-      });
-    },
+    closeOut: (office, run, summary) => closeOutIn(gitOf(office), deps.cli, run, summary),
 
-    closeOut: (office, run, summary) => {
-      const git = gitOf(office);
-      return git.run(async (session) => {
-        const tip = await revParse(session, `refs/heads/${run.branch}`);
-        if (tip === null) throw new Error(`The story branch ${run.branch} no longer exists.`);
-        const base = await baseRefOf(git, session);
-        const files = (await modifiedFiles(session, tip, base?.ref ?? null, run.startSha)).slice(
-          0,
-          MODIFIED_FILES_MAX,
-        );
-        const location = git.worktreeLocation(run.worktree) as WorktreeLocation;
-        // Only the task file: anything else staged stays out of the close-out commit.
-        const { commit } = await editInStoryBacklog(
-          git,
-          session,
-          location,
-          run.story,
-          `${run.story}: status ${DONE_STATUS}`,
-          async (backlog) => {
-            const target = { cli: deps.cli, cwd: backlog.cwd, id: run.story };
-            // A later stay in the slot writes the summary and the modified files again as they are
-            // now, also when the story is Done from an earlier stay; nothing new commits nothing.
-            await summary(target);
-            if (files.length > 0) {
-              await runBacklog(deps.cli, backlog.cwd, [
-                "task",
-                "edit",
-                run.story,
-                ...files.flatMap((file) => ["--modified-file", file]),
-              ]);
-            }
-            // DIPO-155's close-out fields: the park record removed and status Done, read back.
-            await closeOutFields(target);
-          },
-        );
-        return commit;
-      });
-    },
-
-    sync: (office, run, mode) => {
-      const git = gitOf(office);
-      return git.run(async (session): Promise<StorySync> => {
-        const base = await baseRefOf(git, session);
-        if (base === null) return { kind: "none" };
-        // A folder of dipo's own for the task file's temporary index; the claims load step sweeps
-        // one a killed daemon left behind (the branch reads' prefix).
-        const root = git.worktreeRoot();
-        mkdirSync(root, { recursive: true });
-        const scratch = await realpath(await mkdtemp(join(root, BRANCH_READ_PREFIX)));
-        try {
-          const input = {
-            branch: run.branch,
-            startSha: run.startSha,
-            story: run.story,
-            base: base.base,
-            baseRef: base.ref,
-            mode: "always" as const,
-            scratch,
-          };
-          const planned = await planCatchUp(session, { ...input, write: false });
-          if (planned.kind === "current" || planned.kind === "apart") return { kind: "none" };
-          if (planned.kind === "unwritable") {
-            return {
-              kind: "unwritable",
-              base: base.base,
-              onto: planned.onto,
-              paths: planned.paths,
-            };
-          }
-          if (mode === "onConflict" && planned.conflicts.length === 0) return { kind: "none" };
-          const plan = await planCatchUp(session, { ...input, write: true });
-          if (plan.kind !== "merge" || plan.commit === null) return { kind: "none" };
-          const merged: CatchUpMerged = {
-            base: base.base,
-            onto: plan.onto,
-            tip: plan.tip,
-            commit: plan.commit,
-            conflicts: plan.conflicts,
-            taskFile: plan.taskFile,
-            // Made in dipo's own git, not in the box: copied in before the next session (DIPO-324).
-            outsideBox: true,
-          };
-          const item =
-            plan.conflicts.length === 0
-              ? null
-              : conflictFeedbackItem({
-                  base: base.base,
-                  onto: plan.onto,
-                  conflicts: plan.conflicts,
-                  hunks: await hunksOf(session, plan.commit, plan.conflicts),
-                  ...(run.itemMax === undefined ? {} : { itemMax: run.itemMax }),
-                });
-          return { kind: "planned", merged, item };
-        } finally {
-          await rm(scratch, { recursive: true, force: true });
-        }
-      });
-    },
+    conflictMerge: (office, run) => conflictMergeIn(gitOf(office), run),
 
     moveBranch: (office, branch, commit, tip) =>
       gitOf(office).run((session) =>
@@ -409,4 +290,107 @@ async function releasePathsAt(
     rules,
     diff.stdout.split("\0").filter((path) => path !== ""),
   );
+}
+
+/** The close-out commit on the story branch (see the file comment); its commit or null. */
+function closeOutIn(
+  git: OfficeGit,
+  cli: BacklogCli,
+  run: StoryMergeRun,
+  summary: (target: StoryTarget) => Promise<unknown>,
+): Promise<string | null> {
+  return git.run(async (session) => {
+    const tip = await revParse(session, `refs/heads/${run.branch}`);
+    if (tip === null) throw new Error(`The story branch ${run.branch} no longer exists.`);
+    const base = await baseRefOf(git, session);
+    const files = (await modifiedFiles(session, tip, base?.ref ?? null, run.startSha)).slice(
+      0,
+      MODIFIED_FILES_MAX,
+    );
+    const location = git.worktreeLocation(run.worktree) as WorktreeLocation;
+    // Only the task file: anything else staged stays out of the close-out commit.
+    const { commit } = await editInStoryBacklog(
+      git,
+      session,
+      location,
+      run.story,
+      `${run.story}: status ${DONE_STATUS}`,
+      async (backlog) => {
+        const target = { cli, cwd: backlog.cwd, id: run.story };
+        // A later close-out writes the summary and the modified files again as they are now,
+        // also when the story is Done from an earlier one; nothing new commits nothing.
+        await summary(target);
+        if (files.length > 0) {
+          await runBacklog(cli, backlog.cwd, [
+            "task",
+            "edit",
+            run.story,
+            ...files.flatMap((file) => ["--modified-file", file]),
+          ]);
+        }
+        // The close-out fields: the park record removed and status Done, read back.
+        await closeOutFields(target);
+      },
+    );
+    return commit;
+  });
+}
+
+/** The conflict merge of the base into the story branch (see the file comment). */
+function conflictMergeIn(git: OfficeGit, run: StoryMergeRun): Promise<ConflictMerge> {
+  return git.run(async (session): Promise<ConflictMerge> => {
+    const base = await baseRefOf(git, session);
+    if (base === null) return { kind: "none" };
+    // A folder of dipo's own for the task file's temporary index; the claims load step sweeps
+    // one a killed daemon left behind (the branch reads' prefix).
+    const root = git.worktreeRoot();
+    mkdirSync(root, { recursive: true });
+    const scratch = await realpath(await mkdtemp(join(root, BRANCH_READ_PREFIX)));
+    try {
+      const input = {
+        branch: run.branch,
+        startSha: run.startSha,
+        story: run.story,
+        base: base.base,
+        baseRef: base.ref,
+        mode: "always" as const,
+        scratch,
+      };
+      const planned = await planCatchUp(session, { ...input, write: false });
+      if (planned.kind === "current" || planned.kind === "apart") return { kind: "none" };
+      if (planned.kind === "unwritable") {
+        return {
+          kind: "unwritable",
+          base: base.base,
+          onto: planned.onto,
+          paths: planned.paths,
+        };
+      }
+      if (planned.conflicts.length === 0) return { kind: "none" };
+      const plan = await planCatchUp(session, { ...input, write: true });
+      if (plan.kind !== "merge" || plan.commit === null || plan.conflicts.length === 0) {
+        return { kind: "none" };
+      }
+      const merged: CatchUpMerged = {
+        base: base.base,
+        onto: plan.onto,
+        tip: plan.tip,
+        commit: plan.commit,
+        conflicts: plan.conflicts,
+        taskFile: plan.taskFile,
+        // Made in dipo's own git, not in the box: copied in before the next session (DIPO-324).
+        outsideBox: true,
+      };
+      const item = conflictFeedbackItem({
+        base: base.base,
+        onto: plan.onto,
+        conflicts: plan.conflicts,
+        hunks: await hunksOf(session, plan.commit, plan.conflicts),
+        ...(run.itemMax === undefined ? {} : { itemMax: run.itemMax }),
+      });
+      return { kind: "planned", merged, item };
+    } finally {
+      await rm(scratch, { recursive: true, force: true });
+    }
+  });
 }

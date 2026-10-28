@@ -1,8 +1,8 @@
-// Office init with the pinned Backlog CLI, a bare remote, the backlog PR (DIPO-35) and the merge
-// slot (DIPO-73) against an in-memory code host whose squash merge really merges on the remote
+// Office init with the pinned Backlog CLI, a bare remote, the backlog PR (DIPO-35) and the
+// auto-merge (0002) against an in-memory code host whose auto-merge really merges on the remote
 // (DIPO-36, engine test plan entry). In CI only (0017): every step runs the real CLI, about 0.3 s a
-// call. `office.init` opens one backlog PR whose structural check passes, the slot merges it once
-// the required checks are green, `officeStatusesReady` refuses before the merge and passes after,
+// call. `office.init` opens one backlog PR whose structural check passes, auto-merge goes on and
+// GitHub merges it with the required checks green, `officeStatusesReady` refuses before the merge and passes after,
 // and a second run adds no commit. The fast versions of the same rules are in init.test.ts.
 
 import { describe, expect, it } from "bun:test";
@@ -12,7 +12,7 @@ import { type TempRepoWithRemote, withBareRemote } from "@dipsaus-orchestrator/t
 
 import { EDIT_KIND, editKind, OfficeLane } from "../../../src/backlog/lane";
 import { BacklogPrs, findPr } from "../../../src/backlog/pr";
-import { MergeSlot } from "../../../src/merge-slot";
+import { AutoMerge } from "../../../src/merge";
 import { type RequiredCheck } from "../../../src/platform/host";
 import {
   INIT_KIND,
@@ -29,11 +29,11 @@ import {
   squashMergeOnRemote,
 } from "../../backlog/lane/helpers";
 import { FakeHost, REMOTE_URL } from "../../backlog/pr/helpers";
-import { GREEN } from "../../merge-slot/helpers";
+import { GREEN } from "../../merge/helpers";
 
 import { oldOffice, oneOffice } from "./helpers";
 
-/** A host whose required checks are green and whose squash merge merges on the remote. */
+/** A host whose required checks are green and whose auto-merge merges on the remote at once. */
 class RemoteHost extends FakeHost {
   checks: RequiredCheck[] = GREEN;
 
@@ -45,21 +45,21 @@ class RemoteHost extends FakeHost {
     return this.checks;
   }
 
-  override async squashMerge(
+  override async enableAutoMerge(
     repo: string,
     number: number,
-    merge?: { headSha: string; subject: string },
+    merge: { readonly headSha: string; readonly subject: string },
   ): Promise<void> {
-    this.calls.push(`merge ${repo} #${number}`);
+    await super.enableAutoMerge(repo, number, merge);
     const pr = this.prs.get(number);
     if (pr === undefined) throw new Error(`no PR #${number}`);
     await squashMergeOnRemote(this.repo, pr.head);
-    this.prs.set(number, { ...pr, state: "merged", headSha: merge?.headSha ?? "" });
+    this.prs.set(number, { ...pr, state: "merged", headSha: merge.headSha, autoMerge: false });
   }
 }
 
 if (process.env["DIPO_TEST_CI"] === "1") {
-  describe("office init with the Backlog CLI, a remote and the merge slot", () => {
+  describe("office init with the Backlog CLI, a remote and the auto-merge", () => {
     it("opens one backlog PR that passes the check and merges; runs are refused until then", async () => {
       await withBareRemote(
         async (repo) => {
@@ -78,9 +78,8 @@ if (process.env["DIPO_TEST_CI"] === "1") {
             offices: { get: () => base.office },
             clock: base.t.clock,
           });
-          const slot = new MergeSlot({
+          const merge = new AutoMerge({
             host,
-            prs,
             lane: () => lane,
             offices: { get: () => base.office },
             clock: base.t.clock,
@@ -97,9 +96,9 @@ if (process.env["DIPO_TEST_CI"] === "1") {
             ]),
             onFlushed: async (office, report) => {
               await prs.afterFlush(office, report);
-              slot.kick(office);
+              merge.kick(office);
             },
-            held: (office) => slot.holding(office),
+            held: (office) => merge.holding(office),
           });
           const made = lane;
           const init = new OfficeInit({
@@ -135,8 +134,9 @@ if (process.env["DIPO_TEST_CI"] === "1") {
             "statuses",
           ]);
 
-          // The flush kicked the slot; once it is idle the PR has merged.
-          await slot.whenIdle(officeId);
+          // The flush kicked the auto-merge; GitHub merged the PR, and the next round records it.
+          await merge.whenIdle(officeId);
+          await merge.tick(officeId);
           expect(host.prs.get(1)?.state).toBe("merged");
           expect(findPr(base.office, 1)?.state).toBe("merged");
           await base.git.fetch();
@@ -149,8 +149,10 @@ if (process.env["DIPO_TEST_CI"] === "1") {
           expect(second.changed).toBe(true);
           expect(second.result.pr?.number).toBe(2);
           expect(host.prs.get(2)?.title).toBe("chore(backlog): init statuses");
-          await slot.whenIdle(officeId);
+          await merge.whenIdle(officeId);
+          await merge.tick(officeId);
           expect(host.prs.get(2)?.state).toBe("merged");
+          expect(findPr(base.office, 2)?.state).toBe("merged");
           await base.git.fetch();
           expect(await inRemote(repo, "show", "main:backlog/config.yml")).toContain(
             'statuses: ["Refined", "Ready", "In Progress", "In Review", "Parked", "Done"]',
