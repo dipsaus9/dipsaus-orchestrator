@@ -710,8 +710,9 @@ export class ReviewLauncher implements ReviewSessions {
     const settings = reviewerSettings(office, run, config);
     // The reviewer's working directory is the empty folder, never the worktree or the copy.
     const paths = runLaunchPaths(git, deps, copy.session, run.runId);
-    // The reviewer of a box run reads that dipo ran no verify of its own: CI is its verify
-    // (DIPO-299). The run directory says the run is a box worker's, as for its developer.
+    // The reviewer of a box run reads that dipo ran the verify in the developer's box at done and
+    // that CI runs with the review (DIPO-346). The run directory says the run is a box worker's,
+    // as for its developer.
     const box = existsSync(join(paths.runDir, BOX_RUN_FILE));
     const systemFile = renderSystemFile(box ? "review-box" : "review", "reviewer");
     const taskMessage = withReviewCommit(request.taskMessage, {

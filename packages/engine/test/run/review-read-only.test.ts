@@ -477,7 +477,9 @@ describe("the reviewer's system file by the kind of run", () => {
       const boxText = readFileSync(box.spec.systemFile, "utf8");
       expect(boxText).toBe(renderSystemFile("review-box", "reviewer"));
       expect(boxText).not.toContain("ran verify on the change");
-      expect(boxText).toContain("The engine ran no verify of its own on this change");
+      expect(boxText).toContain(
+        "The engine ran the project's verify on this change in the developer's box",
+      );
       await w.launcher.finish(office, w.run.runId, box.agent);
     }));
 });

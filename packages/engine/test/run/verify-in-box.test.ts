@@ -1258,6 +1258,8 @@ describe("dipo's verify in the box at done (DIPO-346, 0002)", () => {
     expect(park?.detail).toContain("Command: bun run verify");
     expect(loopSteps()).toEqual([REPORT_GATE_LOOP, VERIFY_LOOP, VERIFY_LOOP]);
     expect(w.calls.filter((call) => call.startsWith("in-review"))).toEqual([]);
+    // The run's outcome counts the red verifies, apart from the report gate's refusal.
+    expect(runOutcome(w.f.office, w.f.run)).toMatchObject({ loops: 3, verifyFailures: 2 });
   });
 
   it("parks worker-failed when dipo cannot run the verify in the box, and moves nothing to review", async () => {

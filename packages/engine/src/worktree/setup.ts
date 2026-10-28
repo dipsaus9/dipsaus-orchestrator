@@ -11,8 +11,8 @@
 // The worktree is dipo's own copy of the story branch: no worker reads or writes it, since every
 // developer works in its story's box (DIPO-240, 0021). So setup runs no install, no `setup` script,
 // no `worktree.post_create` and no base verify on the Mac any more: the office's packages are
-// installed in the box (`box/lifetime.ts`, DIPO-294), and CI is the verify (0021 amendment of
-// 2026-10-22). The run environment and the slot go to the box's install.
+// installed in the box (`box/lifetime.ts`, DIPO-294), and the verify runs in the box at done
+// (0002, DIPO-346). The run environment and the slot go to the box's install and verify.
 //
 // A failure frees the slot and returns `{ ok: false, reason, log }`; `claimStory` then rolls the
 // claim back (worktree removed, a new branch deleted only while it still points at its start,

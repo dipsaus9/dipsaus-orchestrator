@@ -96,7 +96,13 @@ import type { BackstopSnapshot } from "./backstop";
 import type { DoneConflictDecision } from "./conflicts";
 import { endRunMarked } from "./markers";
 import { type FiredCap, runCaps } from "./caps";
-import { appendRunStep, IN_REVIEW_END, recordGateChanges, type StoredRun } from "./records";
+import {
+  appendRunStep,
+  IN_REVIEW_END,
+  recordGateChanges,
+  type StoredRun,
+  VERIFY_LOOP,
+} from "./records";
 import {
   type NoteMiss,
   noteMiss,
@@ -549,12 +555,12 @@ export class VerifyCommit implements RunFinisher {
   }
 
   /**
-   * A box run at done (DIPO-273 and DIPO-299; 0021 section 8 and its amendment of 2026-10-22). In
-   * one held turn of the run's parts (`parts.finishLast`): the parts still queued and then what
-   * changed since are delivered as the last part; then the branch's gate changes are recorded and
-   * the run's end is claimed while the parts are still held. A hit, a refused part or a rejected
-   * push parks. dipo runs no verify: the story moves to review at the last part's commit, and the
-   * push starts the review and CI on it. A failure to take the last part is tried again every
+   * A box run at done (DIPO-273, DIPO-346; 0002, 0008). In one held turn of the run's parts
+   * (`parts.finishLast`): the parts still queued and then what changed since are delivered as the
+   * last part; the office's verify runs in the box (`#verifyInBox`), and a red one is the turn's
+   * decision; then the branch's gate changes are recorded and the run's end is claimed while the
+   * parts are still held. A hit, a refused part or a rejected push parks. The story moves to review
+   * at the last part's commit, and the push starts the review and CI on it. A failure to take the last part is tried again every
    * `DOOR_POLL_MS` while the run goes on, for up to `PART_STUCK_MIN_MS` from the first failure
    * (DIPO-290); then it parks `worker-failed` with a fixed text and the error's code: its message may
    * quote the box's output. A part dipo refuses (`PART_REFUSED`) parks `part-refused` at once, and
@@ -892,8 +898,7 @@ function loopsOf(office: OfficeHandle, runId: RunId): number {
 /** The value of the `loop` step a report gate refusal writes (0002). */
 export const REPORT_GATE_LOOP = "report-gate";
 
-/** The value of the `loop` step a red verify in the box writes (0002, DIPO-346). */
-export const VERIFY_LOOP = "verify";
+export { VERIFY_LOOP };
 
 /** The line before a red verify's evidence. */
 export const VERIFY_IN_BOX_INTRO =

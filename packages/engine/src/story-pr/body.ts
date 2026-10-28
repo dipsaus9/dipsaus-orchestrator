@@ -126,7 +126,7 @@ function statusSection(status: PrBodyStatus): string {
   const head = `\`${status.head.slice(0, SHORT_SHA)}\``;
   const verify =
     status.verify === "ci"
-      ? `- verify: CI on ${head}; dipo runs no verify of its own for a box run`
+      ? `- verify: dipo's verify in the box at done, then CI on ${head}`
       : `- verify: passed at ${head}`;
   const checks =
     status.noCi === true

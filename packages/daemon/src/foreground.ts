@@ -718,7 +718,7 @@ async function serve(run: Run, lock: HeldLock): Promise<number> {
     held.teardown = teardown;
     // The story PR (DIPO-144): opened or updated right after each In Review push, and retried
     // every `polling.prStateSeconds` until it exists, through the same `gh` host. Whether a run
-    // is a box run comes from the runs made below (DIPO-299: CI is the verify of a box run).
+    // is a box run comes from the runs made below (DIPO-299: its head may be final with no CI).
     let boxRunOf: ((office: OfficeId, stored: StoredRun) => boolean) | null = null;
     // The scan fallback's session runner and the plan-limit check, set once the run services exist.
     let sessionRuns: ScanSessionRunner | undefined;

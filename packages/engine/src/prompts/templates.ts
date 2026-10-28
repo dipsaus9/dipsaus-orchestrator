@@ -44,8 +44,8 @@ import testPlan from "./task/test-plan.md" with { type: "text" };
  * L1 worker contracts by run kind: `implement-box` for a developer, who works only in its own box
  * (0021 section 7, 0014 amendment of 2026-10-21, DIPO-272; the Mac worker's `implement` went with
  * DIPO-342): the door messages. `review` (0019 section 4), and `review-box`, the reviewer's of a
- * box run (DIPO-299, 0021 amendment of 2026-10-22): dipo ran no verify of its own, the developer
- * ran verify in its box, and CI runs on the same head at the same time as the review.
+ * box run (DIPO-299, DIPO-346): dipo ran the verify in the developer's box at done, and CI runs on
+ * the same head at the same time as the review.
  */
 export const CONTRACT_TEMPLATES = {
   "implement-box": implementBoxContract,

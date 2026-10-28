@@ -200,14 +200,16 @@ describe("the box run reviewer's system file", () => {
     expect(box().indexOf("# Reviewer contract")).toBe(0);
   });
 
-  it("says dipo ran no verify, the developer ran it in its box, and CI runs with the review", () => {
+  // DIPO-346: dipo runs the verify in the developer's box at done (0002).
+  it("says dipo ran the verify in the developer's box, and CI runs with the review", () => {
     const text = box();
     expect(text).toContain(
-      "The engine ran no verify of its own on this change: the developer ran the project's verify in its own box before it reported done, and CI runs on the same pushed commit at the same time as your review.",
+      "The engine ran the project's verify on this change in the developer's box when it reported done, and CI runs on the same pushed commit at the same time as your review.",
     );
     expect(text).toContain(
-      "no tests and no builds: the developer's verify in its box and CI on the pushed commit cover those.",
+      "no tests and no builds: the engine's verify in the developer's box and CI on the pushed commit cover those.",
     );
+    expect(text).not.toContain("ran no verify of its own");
     expect(text).not.toContain("ran verify on the change");
     expect(text).not.toContain("verify and CI already prove those");
     // The Mac run's reviewer keeps its wording.

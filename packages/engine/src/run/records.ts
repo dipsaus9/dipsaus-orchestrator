@@ -515,6 +515,9 @@ export function runRoundCounts(office: OfficeHandle, runId: string): RunRounds {
   };
 }
 
+/** The value of the `loop` step a red verify in the box writes (0002, DIPO-346). */
+export const VERIFY_LOOP = "verify";
+
 /**
  * Writes the run's `run_outcomes` row as of its end, replacing a provisional one; final for a
  * `done` end. A final row is never replaced.
@@ -531,8 +534,13 @@ function writeRunOutcome(office: OfficeHandle, runId: RunId, kind: string): void
     )
     .map((row) => row.reason);
   const rounds = runRoundCounts(office, runId);
-  // dipo runs no verify of its own any more (DIPO-342): the column stays, always 0.
-  const failures = 0;
+  // The red verifies in the box at done (DIPO-346): each wrote a `VERIFY_LOOP` step.
+  const failures =
+    office.get<{ n: number }>(
+      `select count(*) as n from run_steps where office_id = $office_id and run_id = $run
+        and kind = 'loop' and value = $value`,
+      { run: runId, value: VERIFY_LOOP },
+    )?.n ?? 0;
   // The developer's tokens only: a reviewer counts against its own caps, never the story's (0002).
   const budget = runTotals(office, runId, at, at).budgetTokens;
   // The run's web calls by tool, counted from its tool activity (0020 section 11b, DIPO-164).
