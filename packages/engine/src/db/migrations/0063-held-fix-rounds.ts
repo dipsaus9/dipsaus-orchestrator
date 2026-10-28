@@ -12,6 +12,10 @@
 // round held at upgrade time still goes with its session, and one per head still holds for rounds
 // already sent. Its state is kept.
 //
+// A top-up resume's `fix` named the fix round still waiting for its session, and its `message`
+// started with that round's message (DIPO-205). The round is held now on its own, so its message is
+// cut from the front of the resume's `message`, and the findings go to the worker once.
+//
 // A maintainer resume whose transaction ran (`sent`) but whose developer session has not started
 // held its first message in the intent, for the session start to send. That message is held now
 // in its place: the reason's part as `feedback park resume-<intent> next <message>`, then the note
@@ -100,6 +104,20 @@ function hold(db: MigrationContext, row: IntentRow, detail: string): void {
   );
 }
 
+/** The held text of the fix round `fix` of `row`'s run, when that round still waits; else null. */
+function pendingRoundText(db: MigrationContext, row: IntentRow, fix: unknown): string | null {
+  if (typeof fix !== "number") return null;
+  const round = db.get<{ detail: string }>(
+    `select detail from run_intents where office_id = $office and run_id = $run
+      and intent_id = $id and state = 'pending' and detail like 'feedback % next %'`,
+    { office: row.office_id, run: row.run_id, id: fix },
+  );
+  if (round === null) return null;
+  // `feedback <source> <head> next <text>`
+  const parts = round.detail.split(" ");
+  return parts.length < 5 ? null : parts.slice(4).join(" ");
+}
+
 function heldResumes(db: MigrationContext): void {
   const rows = db.all<IntentRow>(
     `select office_id, run_id, intent_id, detail, state, created_at from run_intents
@@ -108,6 +126,12 @@ function heldResumes(db: MigrationContext): void {
   for (const row of rows) {
     const detail = json(row.detail, RESUME);
     if (detail === null) continue;
+    const round = pendingRoundText(db, row, detail["fix"]);
+    const original = detail["message"];
+    if (round !== null && typeof original === "string" && original.startsWith(round)) {
+      const rest = original.slice(round.length).replace(/^\n\n/, "");
+      detail["message"] = rest === "" ? null : rest;
+    }
     if (row.state === "sent" && detail["session"] === "developer") {
       const message = detail["message"];
       if (typeof message === "string" && message !== "") {
@@ -141,7 +165,8 @@ export const heldFixRounds: CodeMigration = {
     "run_intents: steer fix-round {head, advisories} rewritten to `feedback <source> <head> next " +
     "<fixRoundMessage of its feedback_items>`; unresolved maintainer-resume intents lose `fix`, " +
     "and a sent developer resume's message and note are held as `feedback park resume-<intent> " +
-    "next <message>` and `feedback resume - next <maintainer-note.md>`",
+    "next <message>` and `feedback resume - next <maintainer-note.md>`, a still-pending `fix` " +
+    "round's message cut from the front of the resume's message",
   run: (db: MigrationContext) => {
     rewriteFixRounds(db);
     heldResumes(db);

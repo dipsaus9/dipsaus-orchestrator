@@ -718,8 +718,8 @@ export class ParkResumes {
           if (error instanceof LiftedResumeError) {
             // The lift is on the branch, so Backlog.md no longer holds the park: the intent stays
             // pending and keeps the park row held, or a rescan would close it and strand the
-            // story In Progress with no session. The next recovery finishes it.
-            this.#unfinished(office, run, error.message);
+            // story In Progress with no session. `#finish` wrote the notice; the next recovery
+            // finishes it.
             continue;
           }
           // A resume that failed before its park was resolved fails, so the park row is not held
@@ -960,8 +960,10 @@ export class ParkResumes {
         applied();
       }
     } catch (error) {
-      // Past the lift, which reached the branch: the caller keeps the intent pending (`recover`).
+      // Past the lift, which reached the branch: the intent stays pending, on the command path as
+      // after a restart, and the maintainer gets the notice (`recover` finishes it later).
       if (error instanceof CommandError) throw error;
+      this.#unfinished(office, run, messageOf(error));
       throw new LiftedResumeError(error);
     }
     if (!wrote) return gone();
@@ -1046,27 +1048,31 @@ export class ParkResumes {
   }
 
   /**
-   * After a recovery's resume threw past its lift: the intent stays pending, and the maintainer
-   * sees why with what follows.
+   * A resume that threw past its lift, on the command path or in a recovery: the intent stays
+   * pending, and the maintainer sees why with what follows.
    */
   #unfinished(office: OfficeHandle, run: StoredRun, reason: string): void {
     const story = run.story ?? run.runId;
-    this.#s.deps.warn?.("finishing a maintainer resume after a restart failed after its lift", {
+    this.#s.deps.warn?.("finishing a maintainer resume failed after its lift", {
       run: run.runId,
       reason,
     });
-    this.#s.write(office, () => [
-      {
-        type: "engine.notice",
-        ...(run.key === null ? {} : { key: run.key as StoryKey }),
-        run: run.runId,
-        delta: {
-          level: "warn",
-          code: PARK_RESUME_NOTICES.unfinished,
-          text: `${story}: the park was lifted on its branch, but finishing the resume failed (${reason}); dipo keeps the resume and finishes it when the daemon starts next.`,
+    try {
+      this.#s.write(office, () => [
+        {
+          type: "engine.notice",
+          ...(run.key === null ? {} : { key: run.key as StoryKey }),
+          run: run.runId,
+          delta: {
+            level: "warn",
+            code: PARK_RESUME_NOTICES.unfinished,
+            text: `${story}: the park was lifted on its branch, but finishing the resume failed (${reason}); dipo keeps the resume and tries it again when the daemon restarts. If it never finishes, \`dipo drop ${story}\` or \`dipo discard ${story} --note <why>\` clears it.`,
+          },
         },
-      },
-    ]);
+      ]);
+    } catch {
+      // The warning above stands; the error the caller rethrows says the rest.
+    }
   }
 
   /** Inside the transaction: why a developer or review session must wait for its place, or null. */

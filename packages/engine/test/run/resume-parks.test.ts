@@ -1257,6 +1257,28 @@ describe("a retry of the same request (0005 note of 2026-10-17)", () => {
     expect(parksBeingResumed(w.f.office).size).toBe(0);
   });
 
+  it("keeps a resume pending with the same notice when work.resume throws after the lift reached the branch (DIPO-362)", async () => {
+    const parkId = park("by-maintainer");
+    const resuming = createRunOutcomesWithLift(async (request) => {
+      w.lifts.push(request);
+      indexAfterLift();
+      return undefined as never;
+    });
+    await expect(resume(resuming, { note: "go" }, ctx(false, "req_live"))).rejects.toThrow();
+    const resumes = runIntents(w.f.office, w.f.run).filter((intent) =>
+      intent.detail.startsWith(`${MAINTAINER_RESUME_TAG} `),
+    );
+    expect(resumes.map((intent) => [intent.state, intent.outcome])).toEqual([["pending", null]]);
+    expect(parksBeingResumed(w.f.office).has(parkId)).toBe(true);
+    expect(w.sessions).toEqual([]);
+    const notice = entries("engine.notice").find(
+      (data) => data["code"] === PARK_RESUME_NOTICES.unfinished,
+    );
+    expect(notice?.["text"]).toContain("tries it again when the daemon restarts");
+    expect(notice?.["text"]).toContain("dipo drop DIPO-1");
+    expect(notice?.["text"]).toContain("dipo discard DIPO-1 --note <why>");
+  });
+
   it("fails a resume whose restart's lift fails, so it no longer holds the park (DIPO-360)", async () => {
     const parkId = park("by-maintainer");
     const stopped = createRunOutcomesWithLift(() => new Promise(() => {}));

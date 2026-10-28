@@ -184,8 +184,14 @@ describe("the current park's reason and origin (DIPO-360)", () => {
         2,
       ),
     );
-    expect(row()).toMatchObject({ kind: PARK_HELD, actions: [] });
+    expect(row()).toMatchObject({ kind: PARK_HELD });
     expect(row()?.detail).toContain("a resume is lifting this park");
+    // A restart retries it; drop or discard is the way out of one that never finishes (DIPO-362).
+    expect(row()?.detail).toContain("a daemon restart tries it again");
+    expect(row()?.actions.map((action) => action.cli)).toEqual([
+      expect.stringMatching(/^dipo drop /),
+      expect.stringMatching(/^dipo discard .* --note "<why>"$/),
+    ]);
   });
 
   it("follow an open planning-lane operation before its backlog PR merges", () => {

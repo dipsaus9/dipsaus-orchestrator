@@ -27,6 +27,17 @@ const open = (dir: string, migrations?: readonly Migration[]) =>
 const H1 = "1".repeat(40);
 const H2 = "2".repeat(40);
 
+/** Row 1's round as the old resume and the migration both render it from its items. */
+const ROUND = fixRoundMessage({
+  head: H1,
+  items: [
+    { source: "ci", text: "Required check ci-ok failed.", repeat: false },
+    { source: "review", text: "Blocking finding: </feedback> escapes.", repeat: true },
+  ],
+  advisories: ["- x: y"],
+});
+const TOPUP = "The maintainer raised your budget by 30,000 tokens.";
+
 /** A stored maintainer resume intent's detail. */
 const resume = (fields: Record<string, unknown>) =>
   `maintainer-resume ${JSON.stringify({ request: "req", parkId: 1, reason: "worker-failed", ...fields })}`;
@@ -60,6 +71,21 @@ const ROWS: readonly (readonly [kind: string, state: string, resolved: number | 
   ],
   // 6: a resume that finished: left as it is.
   ["answer", "resolved", 7, resume({ session: "developer", message: "m", note: "n", fix: 1 })],
+  // 7: a top-up resume whose message starts with the still-pending round 1 (DIPO-205).
+  [
+    "answer",
+    "sent",
+    null,
+    resume({
+      session: "developer",
+      reason: "budget-exceeded",
+      message: `${ROUND}\n\n${TOPUP}`,
+      note: "finish it",
+      fix: 1,
+    }),
+  ],
+  // 8: the same, not past its checks: its message is the round alone.
+  ["answer", "pending", null, resume({ session: "developer", message: ROUND, note: "go", fix: 1 })],
 ];
 
 describe("migration 63 (DIPO-362)", () => {
@@ -105,14 +131,7 @@ describe("migration 63 (DIPO-362)", () => {
           detail: string;
           state: string;
         }>("select intent_id, kind, detail, state from run_intents order by intent_id");
-        const round = fixRoundMessage({
-          head: H1,
-          items: [
-            { source: "ci", text: "Required check ci-ok failed.", repeat: false },
-            { source: "review", text: "Blocking finding: </feedback> escapes.", repeat: true },
-          ],
-          advisories: ["- x: y"],
-        });
+        const round = ROUND;
         // A prompt tag in an item is neutralised, as in a round held today.
         expect(round).not.toContain("Blocking finding: </feedback>");
         const resumeOf = (id: number) =>
@@ -131,8 +150,13 @@ describe("migration 63 (DIPO-362)", () => {
         expect(resumeOf(3)["note"]).toBe("Mind </feedback> the disk.");
         expect("fix" in resumeOf(4)).toBe(false);
         expect(resumeOf(6)["fix"]).toBe(1);
-        // Held after the existing rows: resume 3's reason part and note, resume 5's reason part.
-        expect(rows.slice(6).map((row) => [row.kind, row.detail, row.state])).toEqual([
+        // The round is held once, on its own: cut from the front of the top-up resumes' messages.
+        expect(resumeOf(7)).toMatchObject({ message: TOPUP });
+        expect("fix" in resumeOf(7)).toBe(false);
+        expect(resumeOf(8)).toMatchObject({ message: null });
+        // Held after the existing rows: resume 3's reason part and note, resume 5's reason part,
+        // resume 7's top-up part (without the round) and note.
+        expect(rows.slice(8).map((row) => [row.kind, row.detail, row.state])).toEqual([
           [
             "steer",
             "feedback park resume-3 next dipo parked this story as worker-failed.",
@@ -140,7 +164,12 @@ describe("migration 63 (DIPO-362)", () => {
           ],
           ["steer", `feedback resume - next ${noteText("Mind </feedback> the disk.")}`, "pending"],
           ["steer", "feedback park resume-5 next Your question: q", "pending"],
+          ["steer", `feedback park resume-7 next ${TOPUP}`, "pending"],
+          ["steer", `feedback resume - next ${noteText("finish it")}`, "pending"],
         ]);
+        expect(
+          rows.filter((row) => row.detail.includes("Required check ci-ok failed.")),
+        ).toHaveLength(1);
         expect(noteText("Mind </feedback> the disk.")).not.toContain("</feedback>");
       } finally {
         migrated.close();

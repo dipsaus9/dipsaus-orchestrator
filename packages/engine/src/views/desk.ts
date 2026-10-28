@@ -124,7 +124,8 @@ const RESCAN = { command: "office.rescan", cli: "dipo office rescan" } as const;
  * An open park of a story Backlog.md does not hold as parked (DIPO-360), which keeps holding the
  * story's work (`heldByPark`):
  * - its write to Backlog.md failed: `dipo park` writes it again, or a rescan's reconcile closes it;
- * - a maintainer resume is lifting it: it is held until the resume finishes, so it offers nothing;
+ * - a maintainer resume is lifting it: it is held until the resume finishes, which a daemon restart
+ *   retries (DIPO-362); `dipo drop` or `dipo discard` is the way out of one that never finishes;
  * - Backlog.md no longer holds it (lifted by hand): a rescan's reconcile closes it.
  */
 export function heldParkDeskItems(office: OfficeHandle): HandDeskItem[] {
@@ -145,8 +146,11 @@ export function heldParkDeskItems(office: OfficeHandle): HandDeskItem[] {
         return {
           ...base,
           kind: PARK_HELD,
-          detail: `${park.detail} · a resume is lifting this park; its work is held until the resume finishes`,
-          actions: [],
+          detail: `${park.detail} · a resume is lifting this park; its work is held until the resume finishes, and a daemon restart tries it again. If it never finishes, drop or discard the story`,
+          actions: [
+            { command: "story.drop", cli: `dipo drop ${park.story}` },
+            { command: "work.discard", cli: `dipo discard ${park.story} --note "<why>"` },
+          ],
         };
       case "lifted":
         return {

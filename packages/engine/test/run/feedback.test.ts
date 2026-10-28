@@ -43,7 +43,7 @@ const SOURCES: readonly (readonly [FeedbackSource, string])[] = [
 ];
 
 /** The maintainer's own words, which a first message carries after the rest (0020). */
-const WORDS: readonly FeedbackSource[] = ["resume", "steer"];
+const WORDS: readonly FeedbackSource[] = ["resume", "steer", "answer"];
 
 let dir: string;
 let f: IngestFixture;

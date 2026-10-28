@@ -12,7 +12,7 @@
 //   (a parked story, a run between two sessions, a run waiting for its place) the intent stays
 //   `pending`, and the first message of the run's next developer session carries every pending
 //   held message (`heldFeedback`): the findings and the other code-built messages first, then the
-//   maintainer's own words (a resume note, a steer), each group oldest first. They are marked
+//   maintainer's own words (a resume note, a steer, a held answer), each group oldest first. They are marked
 //   delivered, with the feedback items they carry, in the transaction that records that session's
 //   agent (`deliverHeld`), so a stop after the start never sends them twice. A `now` message
 //   left `pending` by a stop between its store and its send is never replayed: only `next`
@@ -58,7 +58,10 @@ export type FeedbackSource =
   | "ci"
   /** A maintainer reject (0002). */
   | "reject"
-  /** The reason's part of a resumed park's first message (0020). */
+  /**
+   * The reason's part of a resumed park's first message (0020). It carries no cap of its own: a
+   * resume is bounded by the grants it records and the run's caps.
+   */
   | "park"
   /** A resume note (0020). */
   | "resume"
@@ -223,8 +226,15 @@ export interface HeldFeedback {
   readonly texts: readonly string[];
 }
 
-/** The maintainer's own words, which follow the findings in a first message (0020). */
-const MAINTAINER_WORDS: ReadonlySet<string> = new Set<FeedbackSource>(["resume", "steer"]);
+/**
+ * The maintainer's own words, which follow the findings in a first message (0020): a resume note,
+ * a steer, and an answer to a worker question held for the next session.
+ */
+const MAINTAINER_WORDS: ReadonlySet<string> = new Set<FeedbackSource>([
+  "resume",
+  "steer",
+  "answer",
+]);
 
 /**
  * The run's held messages: the findings and other code-built messages first, then the
