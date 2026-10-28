@@ -194,7 +194,7 @@ export class ExitOutcomes {
       .reportFeedbacks(office, view.runId)
       .find((row) => row.resolvedAt === null && row.key === agent);
     if (feedback !== undefined) {
-      if (feedback.state !== "pending") {
+      if (feedback.via === "now") {
         office.immediate(() => {
           resolveIntent(office, view.runId, feedback.intentId, "held-again", at);
           sendFeedback(

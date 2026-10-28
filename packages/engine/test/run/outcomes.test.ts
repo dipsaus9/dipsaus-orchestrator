@@ -45,7 +45,6 @@ import {
 } from "../../src/run";
 import { FEEDBACK_TEMPLATES, renderTemplate } from "../../src/prompts/templates";
 import { sendFeedback } from "../../src/run/feedback";
-import { markIntentSent } from "../../src/run/intents";
 import {
   LEGACY_PAUSE_DETAIL,
   LEGACY_PAUSE_TAG,
@@ -395,8 +394,8 @@ describe("a report that does not parse or match the schema (AC #1, DIPO-361)", (
       ["steer", "feedback", "resumed"],
     ]);
     expect(runIntents(w.f.office, w.f.run).map((intent) => intent.detail)).toEqual([
-      `feedback report ${w.f.agent} ${text}`,
-      `feedback report ${w.f.agent} ${text}`,
+      `feedback report ${w.f.agent} now ${text}`,
+      `feedback report ${w.f.agent} next ${text}`,
     ]);
     expect(w.next.map((request) => [request.mode, request.message])).toEqual([
       ["resume", resumedWith(EXITED, text)],
@@ -883,6 +882,7 @@ describe("after a restart (decision Q6)", () => {
   it("resumes with an unanswered report feedback after a stop before the resume started", async () => {
     // The feedback was sent, the worker exited, and the daemon stopped before the resume.
     await ingestRecording("report-invalid", true);
+    // Sent to the live session (`now`); the host call went out before the stop.
     const sent = sendFeedback(
       w.f.office,
       w.f.run,
@@ -891,9 +891,15 @@ describe("after a restart (decision Q6)", () => {
         key: w.f.agent,
         text: reportFeedbackText("error_max_structured_output_retries"),
       },
-      { at: 0 },
+      {
+        sender: {
+          clock: w.f.t.clock,
+          encode,
+          steering: { send: async () => ({ ok: true as const }) },
+        },
+      },
     );
-    w.f.office.immediate(() => markIntentSent(w.f.office, w.f.run, sent.intentId, 0, null));
+    expect(await sent.done).toBeNull();
     let openWhileStarting: (string | null)[] = [];
     w.onNext = () => {
       openWhileStarting = runIntents(w.f.office, w.f.run).map((intent) => intent.outcome);

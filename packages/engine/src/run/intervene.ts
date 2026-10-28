@@ -75,7 +75,7 @@ export class Interventions {
       return {
         result: {
           run: stored.runId as SteerResult["run"],
-          delivered: stored.state === "pending" ? "on-resume" : "next-turn",
+          delivered: stored.held ? "on-resume" : "next-turn",
         },
         changed: false,
       };

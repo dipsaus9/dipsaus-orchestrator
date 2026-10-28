@@ -1,17 +1,20 @@
 // One feedback path (0002, 0008, 0020): every text dipo sends a developer session goes through
 // `sendFeedback`, tagged with its source.
 //
-// - Stored first. Each message is a `steer` intent `feedback <source> <key> <text>` on the run,
-//   written before anything is sent. `key` is what the message is keyed on: the request of a
+// - Stored first. Each message is a `steer` intent `feedback <source> <key> <via> <text>` on the
+//   run, written before anything is sent. `key` is what the message is keyed on: the request of a
 //   steer (so a retry of the request stores nothing twice), the agent a report correction went to,
-//   or `-`. `text` is the message as the worker reads it.
+//   or `-`. `via` is `now` for a message sent to a live session and `next` for one held for the
+//   next session. `text` is the message as the worker reads it.
 // - Now or with the next session. A caller whose run has a live developer session passes the
 //   sender (`FeedbackSender`): the message goes at once as one next-priority user message (0008),
 //   and the intent is marked `sent`, or `failed` with the reason the host gave. Without a sender
 //   (a parked story, a run between two sessions, a run waiting for its place) the intent stays
 //   `pending`, and the first message of the run's next developer session carries every pending
-//   message, oldest first (`heldFeedback`); they are marked delivered once that session started
-//   (`deliverHeld`). A reviewer session never gets one (0002).
+//   held message, oldest first (`heldFeedback`); they are marked delivered once that session
+//   started (`deliverHeld`). A `now` message left `pending` by a stop between its store and its
+//   send is never replayed: only `next` messages are held. A reviewer session never gets one
+//   (0002).
 
 import type { Clock, RunId } from "@dipsaus-orchestrator/contract";
 
@@ -28,6 +31,9 @@ export const FEEDBACK_TAG = "feedback";
 
 /** The key of a message that answers nothing in particular. */
 const NO_KEY = "-";
+
+/** How a message is delivered: to the live session now, or with the next session. */
+export type FeedbackVia = "now" | "next";
 
 /** Where a message to the developer comes from (0002's one feedback path). */
 export type FeedbackSource =
@@ -76,6 +82,7 @@ export interface FeedbackIntent {
   readonly intentId: number;
   readonly source: string;
   readonly key: string;
+  readonly via: FeedbackVia;
   readonly text: string;
   readonly state: string;
   readonly resolvedAt: number | null;
@@ -91,28 +98,31 @@ export interface FeedbackSent {
 }
 
 /** The detail of a feedback intent. */
-function detailOf(feedback: Feedback): string {
+function detailOf(feedback: Feedback, via: FeedbackVia): string {
   const key = feedback.key ?? NO_KEY;
   if (key === "" || /\s/.test(key)) throw new Error(`a feedback key holds no spaces: ${key}`);
-  return `${FEEDBACK_TAG} ${feedback.source} ${key} ${feedback.text}`;
+  return `${FEEDBACK_TAG} ${feedback.source} ${key} ${via} ${feedback.text}`;
 }
 
-/** Pure: the source, key and text of a feedback intent's detail; null for any other detail. */
-export function parseFeedback(
-  detail: string,
-): { readonly source: string; readonly key: string; readonly text: string } | null {
+/**
+ * Pure: the source, key, delivery and text of a feedback intent's detail; null for any other
+ * detail.
+ */
+export function parseFeedback(detail: string): {
+  readonly source: string;
+  readonly key: string;
+  readonly via: FeedbackVia;
+  readonly text: string;
+} | null {
   const prefix = `${FEEDBACK_TAG} `;
   if (!detail.startsWith(prefix)) return null;
-  const rest = detail.slice(prefix.length);
-  const first = rest.indexOf(" ");
-  if (first === -1) return null;
-  const second = rest.indexOf(" ", first + 1);
-  if (second === -1) return null;
-  return {
-    source: rest.slice(0, first),
-    key: rest.slice(first + 1, second),
-    text: rest.slice(second + 1),
-  };
+  const [source, key, via] = detail.slice(prefix.length).split(" ", 3);
+  if (source === undefined || key === undefined || (via !== "now" && via !== "next")) {
+    return null;
+  }
+  const head = `${prefix}${source} ${key} ${via}`;
+  if (detail.length > head.length && detail[head.length] !== " ") return null;
+  return { source, key, via, text: detail.slice(head.length + 1) };
 }
 
 /**
@@ -132,7 +142,13 @@ export function sendFeedback(
   if (at === undefined) throw new Error("sendFeedback needs a time or a sender");
   const run = runId as RunId;
   const intentId = office.immediate(() =>
-    recordIntent(office, run, "steer", detailOf(feedback), at),
+    recordIntent(
+      office,
+      run,
+      "steer",
+      detailOf(feedback, sender === undefined ? "next" : "now"),
+      at,
+    ),
   );
   if (sender === undefined) {
     return { intentId, delivered: "next-session", done: Promise.resolve(null) };
@@ -177,19 +193,21 @@ export function feedbackIntents(
   return out;
 }
 
-/** The steer stored for the request `request` (`key`), unless its send failed. */
+/** The steer stored for the request `request` (`key`), unless its send failed; `held` for `next`. */
 export function findSteer(
   office: OfficeHandle,
   request: string,
-): { readonly runId: string; readonly state: string } | null {
-  const row = office.get<{ run_id: string; state: string }>(
-    `select run_id, state from run_intents
+): { readonly runId: string; readonly held: boolean } | null {
+  const row = office.get<{ run_id: string; detail: string }>(
+    `select run_id, detail from run_intents
       where office_id = $office_id and kind = 'steer' and state != 'failed'
         and detail like $prefix
       order by created_at desc limit 1`,
     { prefix: `${FEEDBACK_TAG} steer ${request} %` },
   );
-  return row === null ? null : { runId: row.run_id, state: row.state };
+  return row === null
+    ? null
+    : { runId: row.run_id, held: parseFeedback(row.detail)?.via === "next" };
 }
 
 /** The messages waiting for the run's next developer session, oldest first. */
@@ -200,7 +218,9 @@ export interface HeldFeedback {
 
 /** The run's held messages (see the file comment). */
 export function heldFeedback(office: OfficeHandle, runId: RunId | string): HeldFeedback {
-  const held = feedbackIntents(office, runId).filter((item) => item.state === "pending");
+  const held = feedbackIntents(office, runId).filter(
+    (item) => item.via === "next" && item.state === "pending",
+  );
   return { ids: held.map((item) => item.intentId), texts: held.map((item) => item.text) };
 }
 

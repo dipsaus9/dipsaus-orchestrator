@@ -895,10 +895,10 @@ describe("round grants: one more round of the cap that fired (0020)", () => {
     expect(parkRow(parkId)?.resolved_note).toBe("Add the test, then it passes.");
     // The note waits for the fix round's first message, after its findings.
     const held = runIntents(w.f.office, w.f.run).find((intent) =>
-      intent.detail.startsWith("feedback resume - "),
+      intent.detail.startsWith("feedback resume - next "),
     );
     expect(held?.detail).toBe(
-      "feedback resume - Note from the maintainer: Add the test, then it passes.",
+      "feedback resume - next Note from the maintainer: Add the test, then it passes.",
     );
   });
 
@@ -1362,9 +1362,9 @@ describe("the maintainer's note in a worker's message (DIPO-155 review)", () => 
     park("review-blocked", "In Review", "x", "reviewed");
     await resume(resumption(), { note: long });
     const held = runIntents(w.f.office, w.f.run).find((intent) =>
-      intent.detail.startsWith("feedback resume - "),
+      intent.detail.startsWith("feedback resume - next "),
     );
-    expect(held?.detail).toBe(`feedback resume - ${noteText(long)}`);
+    expect(held?.detail).toBe(`feedback resume - next ${noteText(long)}`);
     expect(held?.detail).toContain("[dipo: note cut, showing");
   });
 });

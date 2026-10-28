@@ -148,6 +148,26 @@ describe("no live developer session (0020)", () => {
     ).toBe(true);
   });
 
+  it("never replays a live message a stop left pending between its store and its send", async () => {
+    // The daemon stopped after the store, before the host call: the row stays `pending`.
+    const { promise: stopped, resolve: stop } = Promise.withResolvers<void>();
+    const hung: FeedbackSender = {
+      ...sender,
+      steering: {
+        send: async () => {
+          stop();
+          return await new Promise(() => undefined);
+        },
+      },
+    };
+    sendFeedback(f.office, f.run, { source: "report-gate", text: "Cover #1." }, { sender: hung });
+    await stopped;
+    expect(runIntents(f.office, f.run).map((intent) => intent.state)).toEqual(["pending"]);
+    sendFeedback(f.office, f.run, { source: "resume", text: "Go on." }, { at: 2 });
+    // Only the held message goes with the next session; the live one is never sent twice.
+    expect(heldFeedback(f.office, f.run).texts).toEqual(["Go on."]);
+  });
+
   it("stores inside the caller's transaction", () => {
     f.office.immediate(() => {
       sendFeedback(f.office, f.run, { source: "answer", text: "Yes." }, { at: 1 });
@@ -159,20 +179,30 @@ describe("no live developer session (0020)", () => {
 describe("the stored message", () => {
   it("is keyed: a steer is found by its request, and a key holds no spaces", async () => {
     sendFeedback(f.office, f.run, { source: "steer", key: "01REQ", text: "Use bun." }, { at: 1 });
-    expect(findSteer(f.office, "01REQ")).toEqual({ runId: f.run, state: "pending" });
+    expect(findSteer(f.office, "01REQ")).toEqual({ runId: f.run, held: true });
+    sendFeedback(f.office, f.run, { source: "steer", key: "01LIVE", text: "Go." }, { sender });
+    expect(findSteer(f.office, "01LIVE")).toEqual({ runId: f.run, held: false });
     expect(findSteer(f.office, "01OTHER")).toBeNull();
     expect(() =>
       sendFeedback(f.office, f.run, { source: "steer", key: "a b", text: "x" }, { at: 1 }),
     ).toThrow("no spaces");
   });
 
-  it("reads back its source, key and text, and nothing of another detail", () => {
-    expect(parseFeedback("feedback report agt_1 Return the report.\nNow.")).toEqual({
+  it("reads back its source, key, delivery and text, and nothing of another detail", () => {
+    expect(parseFeedback("feedback report agt_1 now Return the report.\nNow.")).toEqual({
       source: "report",
       key: "agt_1",
+      via: "now",
       text: "Return the report.\nNow.",
+    });
+    expect(parseFeedback("feedback steer 01REQ next ")).toEqual({
+      source: "steer",
+      key: "01REQ",
+      via: "next",
+      text: "",
     });
     expect(parseFeedback("fix-round {}")).toBeNull();
     expect(parseFeedback("feedback report")).toBeNull();
+    expect(parseFeedback("feedback report agt_1 Return the report.")).toBeNull();
   });
 });

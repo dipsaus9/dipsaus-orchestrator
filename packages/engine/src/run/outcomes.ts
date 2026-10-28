@@ -3,7 +3,7 @@
 // worker's exit once the turns before it are handled. Every op is stored as a `run_intents` row
 // before it is sent; DIPO-51's intents carry a tag at the start of their detail:
 //
-// - `steer` `feedback report <agent> <text>`: a turn whose report does not parse or match the
+// - `steer` `feedback report <agent> <via> <text>`: a turn whose report does not parse or match the
 //   schema gets one correction turn "report in the schema" (`prompts/feedback/report.md`) through
 //   the one feedback path (`feedback.ts`); the next turn answers it. A second turn without one
 //   parks `worker-failed` ("no valid report: <why>", end kind `no-report`; 0008): a bad report is

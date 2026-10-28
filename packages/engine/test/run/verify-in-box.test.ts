@@ -1078,7 +1078,7 @@ describe("the conflict check at done (DIPO-149, DIPO-291)", () => {
     expect(findRun(w.f.office, w.f.run)?.endedAt).toBeNull();
     expect(parks()).toEqual([]);
     expect(feedbackTexts()).toEqual(["git could not merge main cleanly"]);
-    expect(feedbackDetails()).toEqual(["feedback conflict - git could not merge main cleanly"]);
+    expect(feedbackDetails()).toEqual(["feedback conflict - now git could not merge main cleanly"]);
     // A conflict hand-off is no loop: its cap is the conflict cap (0002).
     expect(loopSteps()).toEqual([]);
     expectNoVerify();
@@ -1094,8 +1094,8 @@ describe("the conflict check at done (DIPO-149, DIPO-291)", () => {
     expect(events("story.state")).toEqual([]);
     expect(feedbackTexts()).toEqual([markers, markers]);
     expect(feedbackDetails()).toEqual([
-      `feedback report-gate - ${markers}`,
-      `feedback report-gate - ${markers}`,
+      `feedback report-gate - now ${markers}`,
+      `feedback report-gate - now ${markers}`,
     ]);
     expect(parks()).toEqual([]);
     await play();
