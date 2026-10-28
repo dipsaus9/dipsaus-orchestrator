@@ -10,6 +10,10 @@
 //   the box network on the ports of dipo's proxies; every other packet, of either IP family, is
 //   dropped. dipo sets it, and checks it took (`checkFirewallListing`), before a box's first
 //   install or build step and again at each session, with the ports of that moment.
+// - The Safe-Chain box (DIPO-343) gets the same rule toward dipo's upstream listener, plus an
+//   input chain: only the Mac's address reaches it, on its Safe-Chain ports (`inbound`), and it
+//   answers only connections already made. So no other box reaches it directly, and its own
+//   traffic leaves only through dipo's upstream listener.
 // - The tools that set and keep it (`BOX_NET_TOOLS_PATH`): `nft`, `setpriv` and `tail` with their
 //   libraries and loader, run through the loader by path. A box image build extracts them from
 //   Debian's packages before any package's install script runs, and dipo copies them out to a
@@ -220,49 +224,83 @@ export interface BoxFirewall {
   readonly hostAddress: string;
   /** The ports of dipo's proxies there that the box may reach now. */
   readonly ports: readonly number[];
+  /**
+   * The Safe-Chain box only (DIPO-343): its ports that the Mac's address may connect to. With it,
+   * the rule also drops every other packet coming in, and lets the box answer what it accepted.
+   */
+  readonly inbound?: readonly number[];
 }
 
-/** The table and chain the rule lives in. */
+/** The table and chains the rule lives in. */
 const TABLE = "dipo";
 const CHAIN = "output";
+const INPUT = "input";
 
 function refuse(message: string, details: Readonly<Record<string, unknown>>): never {
   throw new BoxError("box.refused", message, false, details);
 }
 
-/** The rule's inputs, checked: an IP literal and one to eight ports. */
-function checkedFirewall(firewall: BoxFirewall): { family: 4 | 6; ports: number[] } {
+/** One to eight ports from 1 to 65535, sorted and without repeats, or a refusal. */
+function checkedPorts(ports: readonly number[], what: string): number[] {
+  const sorted = [...new Set(ports)].toSorted((a, b) => a - b);
+  if (
+    sorted.length === 0 ||
+    sorted.length > 8 ||
+    sorted.some((port) => !Number.isInteger(port) || port < 1 || port > 65_535)
+  ) {
+    refuse(`the box firewall needs one to eight ${what} from 1 to 65535.`, { ports });
+  }
+  return sorted;
+}
+
+/** The rule's inputs, checked: an IP literal and one to eight ports (each way). */
+function checkedFirewall(firewall: BoxFirewall): {
+  family: 4 | 6;
+  ports: number[];
+  inbound: number[] | null;
+} {
   const family = isIP(firewall.hostAddress);
   if (family !== 4 && family !== 6) {
     refuse("the box firewall needs the box network's host address as an IP address.", {
       hostAddress: firewall.hostAddress,
     });
   }
-  const ports = [...new Set(firewall.ports)].toSorted((a, b) => a - b);
-  if (
-    ports.length === 0 ||
-    ports.length > 8 ||
-    ports.some((port) => !Number.isInteger(port) || port < 1 || port > 65_535)
-  ) {
-    refuse("the box firewall needs one to eight ports from 1 to 65535.", { ports: firewall.ports });
-  }
-  return { family, ports };
+  const ports = checkedPorts(firewall.ports, "ports");
+  const inbound =
+    firewall.inbound === undefined ? null : checkedPorts(firewall.inbound, "inbound ports");
+  return { family, ports, inbound };
 }
+
+/** The state match of the packets of a connection the box opened or accepted. */
+const ESTABLISHED = "ct state established,related accept";
 
 /**
  * The nft commands of the rule, as one argument: the whole ruleset flushed, then one table whose
  * output chain drops everything but the loopback interface and the Mac's address on the box
- * network on `ports`.
+ * network on `ports`. With `inbound` (the Safe-Chain box), the output chain also passes the
+ * packets of connections already made, and an input chain drops everything but the loopback, those
+ * packets, and the Mac's address on `inbound`.
  */
 export function firewallRules(firewall: BoxFirewall): string {
-  const { family, ports } = checkedFirewall(firewall);
-  const match = family === 4 ? "ip daddr" : "ip6 daddr";
+  const { family, ports, inbound } = checkedFirewall(firewall);
+  const ip = family === 4 ? "ip" : "ip6";
+  const chain = (name: string, hook: string) =>
+    `add chain inet ${TABLE} ${name} { type filter hook ${hook} priority 0 ; policy drop ; }`;
   return [
     "flush ruleset",
     `add table inet ${TABLE}`,
-    `add chain inet ${TABLE} ${CHAIN} { type filter hook output priority 0 ; policy drop ; }`,
+    chain(CHAIN, "output"),
     `add rule inet ${TABLE} ${CHAIN} oifname "lo" accept`,
-    `add rule inet ${TABLE} ${CHAIN} ${match} ${firewall.hostAddress} tcp dport { ${ports.join(", ")} } accept`,
+    ...(inbound === null ? [] : [`add rule inet ${TABLE} ${CHAIN} ${ESTABLISHED}`]),
+    `add rule inet ${TABLE} ${CHAIN} ${ip} daddr ${firewall.hostAddress} tcp dport { ${ports.join(", ")} } accept`,
+    ...(inbound === null
+      ? []
+      : [
+          chain(INPUT, "input"),
+          `add rule inet ${TABLE} ${INPUT} iifname "lo" accept`,
+          `add rule inet ${TABLE} ${INPUT} ${ESTABLISHED}`,
+          `add rule inet ${TABLE} ${INPUT} ${ip} saddr ${firewall.hostAddress} tcp dport { ${inbound.join(", ")} } accept`,
+        ]),
   ].join(" ; ");
 }
 
@@ -271,16 +309,28 @@ export function firewallCommand(firewall: BoxFirewall): [string, ...string[]] {
   return netToolCommand("nft", [firewallRules(firewall)]);
 }
 
-/** The command that lists the rule's chain, to check it took. */
-export function firewallListCommand(): [string, ...string[]] {
-  return netToolCommand("nft", ["list", "chain", "inet", TABLE, CHAIN]);
+/**
+ * The command that lists the rule, to check it took: the output chain, or the whole table when
+ * the rule has an input chain too (`inbound`).
+ */
+export function firewallListCommand(firewall?: BoxFirewall): [string, ...string[]] {
+  return firewall?.inbound === undefined
+    ? netToolCommand("nft", ["list", "chain", "inet", TABLE, CHAIN])
+    : netToolCommand("nft", ["list", "table", "inet", TABLE]);
 }
 
 /** The address and ports a rule of `firewallRules` names, read back from its text. */
-const RULE_TARGET = / (?:ip|ip6) daddr (\S+) tcp dport \{ ([0-9, ]+) \} accept$/;
+const RULE_TARGET = / (?:ip|ip6) daddr (\S+) tcp dport \{ ([0-9, ]+) \} accept(?: ;|$)/;
+/** The inbound ports a rule of `firewallRules` names, read back from its text. */
+const RULE_INBOUND = / (?:ip|ip6) saddr \S+ tcp dport \{ ([0-9, ]+) \} accept$/;
+
+/** The ports of a rule's `{ a, b }` set, read back from its text. */
+function portNumbers(text: string): number[] {
+  return text.split(", ").map(Number);
+}
 
 /**
- * True when `command` is the list command above, or the command of a rule exactly as
+ * True when `command` is one of the list commands above, or the command of a rule exactly as
  * `firewallRules` writes it for some address and ports: nothing else runs with the box's
  * capabilities outside a build box.
  */
@@ -289,39 +339,61 @@ export function isFirewallCommand(command: readonly string[]): boolean {
   if (command.length <= prefix.length || !prefix.every((part, at) => command[at] === part)) {
     return false;
   }
-  const args = command.slice(prefix.length);
-  if (args.join("\u0000") === firewallListCommand().slice(prefix.length).join("\u0000")) {
-    return true;
-  }
-  const rules = args.length === 1 ? (args[0] ?? "") : null;
+  const args = command.slice(prefix.length).join("\u0000");
+  const lists = [
+    firewallListCommand(),
+    firewallListCommand({ hostAddress: "", ports: [], inbound: [] }),
+  ];
+  if (lists.some((list) => list.slice(prefix.length).join("\u0000") === args)) return true;
+  const rules = command.length === prefix.length + 1 ? (command.at(-1) ?? "") : null;
   const target = rules === null ? null : RULE_TARGET.exec(rules);
   if (rules === null || target === null) return false;
-  const ports = (target[2] ?? "").split(", ").map(Number);
+  const inbound = RULE_INBOUND.exec(rules);
   try {
-    return firewallRules({ hostAddress: target[1] ?? "", ports }) === rules;
+    return (
+      firewallRules({
+        hostAddress: target[1] ?? "",
+        ports: portNumbers(target[2] ?? ""),
+        ...(inbound === null ? {} : { inbound: portNumbers(inbound[1] ?? "") }),
+      }) === rules
+    );
   } catch {
     return false;
   }
 }
 
+/** The text nft prints for a set of `ports` (a set of one port is printed as the port alone). */
+function portLists(ports: readonly number[]): string[] {
+  return [`dport { ${ports.join(", ")} }`, ...(ports.length === 1 ? [`dport ${ports[0]}`] : [])];
+}
+
 /**
- * True when nft's listing of the chain shows the rule of `firewall`: the drop policy, the
- * loopback accept, and the Mac's address with each port.
+ * True when nft's listing shows the rule of `firewall`: the drop policy, the loopback accept, and
+ * the Mac's address with each port; with `inbound`, also the input chain with its drop policy,
+ * its loopback and Mac rules, and the state rule in both chains.
  */
 export function checkFirewallListing(listing: string, firewall: BoxFirewall): boolean {
-  const { family, ports } = checkedFirewall(firewall);
+  const { family, ports, inbound } = checkedFirewall(firewall);
   const text = listing.replace(/\s+/g, " ");
-  const match = family === 4 ? "ip daddr" : "ip6 daddr";
-  // nft prints a set of one port as the port alone.
-  const portLists = [
-    `dport { ${ports.join(", ")} }`,
-    ...(ports.length === 1 ? [`dport ${ports[0]}`] : []),
-  ];
-  return (
+  const ip = family === 4 ? "ip" : "ip6";
+  const output =
     text.includes(`chain ${CHAIN} {`) &&
     /type filter hook output priority (0|filter); policy drop;/.test(text) &&
     text.includes('oifname "lo" accept') &&
-    portLists.some((list) => text.includes(`${match} ${firewall.hostAddress} tcp ${list} accept`))
+    portLists(ports).some((list) =>
+      text.includes(`${ip} daddr ${firewall.hostAddress} tcp ${list} accept`),
+    );
+  if (inbound === null) return output;
+  const established = text.split("ct state established,related accept").length - 1 === 2;
+  return (
+    output &&
+    established &&
+    text.includes(`chain ${INPUT} {`) &&
+    /type filter hook input priority (0|filter); policy drop;/.test(text) &&
+    text.includes('iifname "lo" accept') &&
+    portLists(inbound).some((list) =>
+      text.includes(`${ip} saddr ${firewall.hostAddress} tcp ${list} accept`),
+    )
   );
 }
 

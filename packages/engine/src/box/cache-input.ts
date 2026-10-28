@@ -18,7 +18,7 @@
 import { posix } from "node:path";
 
 import { stringifyYamlDocument, parseYamlDocument } from "../platform/yaml";
-import { SAFE_CHAIN_NPM_HOSTS } from "../sandbox/safe-chain-proxy";
+import { SAFE_CHAIN_NPM_HOSTS } from "./safe-chain";
 import { PNPM_WORKSPACE, ROOT_MANIFEST } from "../scan/detect/manifest";
 import { BoxError } from "./port";
 

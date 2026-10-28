@@ -6,12 +6,7 @@
 // srt's closed default write paths (DIPO-98), the hooks and the path checks.
 
 import { describe, expect, it } from "bun:test";
-import { homedir } from "node:os";
-
-import { getDefaultWritePaths } from "@anthropic-ai/sandbox-runtime";
-
 import { OFFICE_DEFAULTS } from "../../src/config";
-import { SRT_DEFAULT_HOME_WRITE_PATHS, SRT_DEFAULT_WRITE_PATHS } from "../../src/sandbox/policy";
 import {
   CLOSED_WRITES_FILE,
   closedWritePaths,
@@ -20,6 +15,8 @@ import {
   plan,
   REPORT_SCHEMA_FILE,
   SETTINGS_FILE,
+  SRT_DEFAULT_HOME_WRITE_PATHS,
+  SRT_DEFAULT_WRITE_PATHS,
 } from "../../src/workers/claude-cli/plan";
 import type { ClaudeLaunchContext } from "../../src/workers/claude-cli/plan";
 import {
@@ -317,20 +314,6 @@ describe("the reviewer's plan closes srt's default write paths (DIPO-98)", () =>
   it("denies writes to every srt default write path", () => {
     expect(sandboxOf(plan(spec(), context())).filesystem.denyWrite.slice(-CLOSED.length)).toEqual(
       CLOSED,
-    );
-  });
-
-  it("knows every default write path of the installed srt but its /dev entries", () => {
-    // An srt upgrade that adds a default fails here until it is closed or accepted on purpose.
-    const home = homedir();
-    const installed = getDefaultWritePaths()
-      .filter((path) => !path.startsWith("/dev/"))
-      .map((path) => (path.startsWith(`${home}/`) ? `~/${path.slice(home.length + 1)}` : path));
-    expect(installed.toSorted()).toEqual(
-      [
-        ...SRT_DEFAULT_WRITE_PATHS,
-        ...SRT_DEFAULT_HOME_WRITE_PATHS.map((rel) => `~/${rel}`),
-      ].toSorted(),
     );
   });
 

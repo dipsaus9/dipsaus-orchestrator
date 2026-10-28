@@ -484,6 +484,14 @@ describe("exec", () => {
   });
 });
 
+/** A listed dipo box with its networks (DIPO-343). */
+function withNetworks(id: string, state: string, networks: unknown[]): unknown {
+  return {
+    ...(boxJson(id, state, { dipo: id.slice(5) }) as Record<string, unknown>),
+    status: { state, networks },
+  };
+}
+
 describe("memory and the list", () => {
   it("reads a running box's memory, and null for a stopped one", async () => {
     let running = true;
@@ -546,6 +554,31 @@ describe("memory and the list", () => {
       { name: "dipo-run_3", runId: "run_3", state: "unknown" },
     ]);
     expect(fake.args()[0]).toEqual(["list", "--all", "--format", "json"]);
+  });
+
+  it("reads a running dipo box's IPv4 address on dipo's box network only (DIPO-343)", async () => {
+    const { port, fake } = boxes(() => ({
+      stdout: JSON.stringify([
+        withNetworks(BOX, "running", [
+          { network: "default", ipv4Address: "192.168.64.4/24" },
+          { network: BOX_NETWORK_NAME, ipv4Address: "192.168.65.9/24" },
+        ]),
+        withNetworks("dipo-run_2", "stopped", [
+          { network: BOX_NETWORK_NAME, ipv4Address: "192.168.65.10/24" },
+        ]),
+        withNetworks("dipo-run_3", "running", [{ network: "default", ipv4Address: "10.0.0.2/24" }]),
+        withNetworks("dipo-run_4", "running", [
+          { network: BOX_NETWORK_NAME, ipv4Address: "not-an-address" },
+        ]),
+      ]),
+    }));
+    expect(await port.address(BOX)).toBe("192.168.65.9");
+    expect(await port.address("dipo-run_2")).toBeNull();
+    expect(await port.address("dipo-run_3")).toBeNull();
+    expect(await port.address("dipo-run_4")).toBeNull();
+    expect(await port.address("dipo-run_9")).toBeNull();
+    expect(fake.args()[0]).toEqual(["list", "--all", "--format", "json"]);
+    await expect(port.address("probe-box")).rejects.toThrow(BoxError);
   });
 
   it("fails with box.unreadable on output that is not the JSON it expects", async () => {
@@ -637,6 +670,49 @@ describe("the box firewall (DIPO-281)", () => {
       const { port } = boxes(script);
       const error = await rejection(port.firewall(BOX, firewall));
       expect(error.code).toBe("box.firewallFailed");
+    }
+  });
+});
+
+describe("the Safe-Chain box's firewall (DIPO-343)", () => {
+  const firewall = { hostAddress: "192.0.2.1", ports: [41000], inbound: [8101, 8102] };
+  const listed = [
+    "table inet dipo {",
+    "\tchain output {",
+    "\t\ttype filter hook output priority filter; policy drop;",
+    '\t\toifname "lo" accept',
+    "\t\tct state established,related accept",
+    "\t\tip daddr 192.0.2.1 tcp dport 41000 accept",
+    "\t}",
+    "\tchain input {",
+    "\t\ttype filter hook input priority filter; policy drop;",
+    '\t\tiifname "lo" accept',
+    "\t\tct state established,related accept",
+    "\t\tip saddr 192.0.2.1 tcp dport { 8101, 8102 } accept",
+    "\t}",
+    "}",
+    "",
+  ].join("\n");
+
+  it("sets both chains with the box's capabilities and checks the whole table", async () => {
+    const { port, fake } = boxes((args) => (args.includes("list") ? { stdout: listed } : {}));
+    await port.firewall(BOX, firewall);
+    expect(fake.args()).toEqual([
+      ["exec", BOX, ...firewallCommand(firewall)],
+      ["exec", BOX, ...firewallListCommand(firewall)],
+    ]);
+  });
+
+  it("fails closed when the input chain is missing or lets anything else in", async () => {
+    for (const stdout of [
+      listed.slice(0, listed.indexOf("\tchain input")) + "}\n",
+      listed.replace(
+        "input priority filter; policy drop;",
+        "input priority filter; policy accept;",
+      ),
+    ]) {
+      const { port } = boxes((args) => (args.includes("list") ? { stdout } : {}));
+      expect((await rejection(port.firewall(BOX, firewall))).code).toBe("box.firewallFailed");
     }
   });
 });

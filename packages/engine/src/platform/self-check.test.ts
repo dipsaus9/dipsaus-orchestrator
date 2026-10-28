@@ -8,11 +8,8 @@ import { COMPILED_WORKER_PATH, platformSelfChecks, selfCheckWorkerUrl } from "./
 const TMP_ROOT = process.env["DIPO_TMP"] || "/tmp";
 
 describe("platform self-checks", () => {
-  // `sandbox-runtime` needs bubblewrap, socat and ripgrep on Linux; the smoke jobs run it in the
-  // compiled binary. The other probes run here from source.
-  const fromSource = platformSelfChecks(TMP_ROOT).filter(
-    (check) => check.name !== "sandbox-runtime",
-  );
+  // The smoke jobs run every probe in the compiled binary; here they run from source.
+  const fromSource = platformSelfChecks(TMP_ROOT);
 
   it("covers every runtime feature named by DIPO-17", () => {
     expect(platformSelfChecks(TMP_ROOT).map((check) => check.name)).toEqual([
@@ -20,7 +17,6 @@ describe("platform self-checks", () => {
       "worker",
       "unix-websocket",
       "yaml",
-      "sandbox-runtime",
     ]);
   });
 

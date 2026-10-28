@@ -257,11 +257,11 @@ export const BOX_IMAGE_ENV: Readonly<Record<string, string>> = {
 /** The CA bundle inside the build box, for the npm step. */
 const CA_IN_BUILD = `${BUILD_DIR_IN_BOX}/${BOX_BUILD_CA_FILE}`;
 /** apt through the web route; `checked` false only for the steps that run before the CAs exist. */
-const apt = (checked: boolean) =>
+export const apt = (checked: boolean) =>
   `apt-get -o Acquire::https::Proxy="$proxy"${checked ? "" : " -o Acquire::https::Verify-Peer=false -o Acquire::https::Verify-Host=false"}`;
 
 /** A script: a comment, `set -eu`, the route's address, and its lines. */
-function script(comment: readonly string[], lines: readonly string[]): string {
+export function script(comment: readonly string[], lines: readonly string[]): string {
   return [
     "#!/bin/sh",
     ...comment.map((line) => `# ${line}`),
@@ -301,7 +301,7 @@ export interface BoxBuildScripts {
  * The bootstrap's lines (`BoxBuildScripts.bootstrap`): the box network tools extracted from
  * Debian's packages without their scripts, with their libraries and loader.
  */
-function bootstrapLines(): string[] {
+export function bootstrapLines(): string[] {
   const tools = BOX_NET_TOOLS_PATH;
   return [
     'for list in /etc/apt/sources.list /etc/apt/sources.list.d/*; do if [ -f "$list" ]; then sed -i "s|http://|https://|g" "$list"; fi; done',
@@ -418,7 +418,7 @@ export function boxBuildScripts(image: BoxImageDescription): BoxBuildScripts {
  * The system script's lines that make the box user (DIPO-334): its uid and gid refused when the
  * base image already has them, its entries, root's folders, then the user's.
  */
-function boxUserLines(): string[] {
+export function boxUserLines(): string[] {
   const user = `${BOX_USER_NAME}:x:${BOX_USER_UID}:${BOX_USER_GID}:${BOX_USER_NAME}:${BOX_USER_HOME}:/bin/sh`;
   return [
     "# The box user (DIPO-334): every untrusted command of the image's boxes runs as it.",

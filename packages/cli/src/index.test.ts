@@ -90,8 +90,6 @@ describe("cli", () => {
       ["daemon", "--foreground", "--log-level", "debug"],
       ["daemon", "worker-host", "run_01"],
       ["daemon", "wait-pid", "42"],
-      ["daemon", "sandbox-exec", "--policy", "p.json", "--", "true"],
-      ["daemon", "safe-chain-gate", "--dir", "/tmp/dipo-p-x"],
     ]) {
       const { deps, captured } = fakeDeps({ daemonCode: 3 });
       expect(await main(argv, deps)).toBe(3);

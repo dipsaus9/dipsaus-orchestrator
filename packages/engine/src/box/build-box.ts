@@ -25,6 +25,10 @@
 // 8. The box is stopped and committed to the image's tag (an older image of the tag is deleted
 //    first), whatever the build's result the route is released and the build box deleted.
 //
+// The machine-wide Safe-Chain image (DIPO-343, `ensureSafeChainImage`) is built the same way, from
+// its own scripts (`safe-chain.ts`): its route is the web proxy alone, with no Safe-Chain behind it
+// yet and so no CA bundle, since it installs nothing from a registry.
+//
 // A cleanup that fails is reported (`onEvent`) and never hides the build's own failure. Two
 // requests for one image share one build. A build box that a stopped daemon left behind is deleted
 // at the next daemon start (`BoxWorkers.finishEnded`).
@@ -35,7 +39,6 @@ import { join } from "node:path";
 
 import type { Clock } from "@dipsaus-orchestrator/contract";
 
-import { isCertificateBundle } from "../sandbox/safe-chain-proxy";
 import { extractArchive, streamFromBox } from "./cache-extract";
 import { BOX_NET_TOOLS_PATH, netToolsDir, resolveNetToolsMount } from "./firewall";
 import {
@@ -49,6 +52,7 @@ import {
   boxImageTag,
   buildCleanupCommand,
 } from "./image";
+import { isCertificateBundle, safeChainBuildPlan, safeChainImageTag } from "./safe-chain";
 import {
   BOX_BUILD_CA_FILE,
   BOX_BUILD_TIMEOUT_MS,
@@ -79,9 +83,21 @@ export type BuildBoxes = Pick<
 
 /** The web route of the boxes (`BoxWebRoute` of `startBoxWebRoute`), as a build uses it. */
 export interface BuildRoute {
-  /** Starts the route for `box` when it is the first user; the box must be running. */
-  acquire(box: string): Promise<{ readonly url: string; readonly caFile: string }>;
+  /**
+   * Starts the route for `box` when it is the first user; the box must be running. The Safe-Chain
+   * image's build (DIPO-343) has no Safe-Chain behind its route yet, so no CA bundle (null).
+   */
+  acquire(box: string): Promise<{ readonly url: string; readonly caFile: string | null }>;
   release(box: string): Promise<void>;
+}
+
+/** What a build makes an image from: the base image and the build folder's files. */
+interface BuildPlan {
+  readonly base: string;
+  /** The build folder's files by name; the three scripts among them. */
+  readonly files: Readonly<Record<string, string>>;
+  /** True when the build installs from a registry, so it needs Safe-Chain's CA bundle. */
+  readonly needsCa: boolean;
 }
 
 /** A cleanup step of a build that failed: the route's release or the build box's delete. */
@@ -247,7 +263,7 @@ async function step(
 
 async function buildInBox(
   deps: BoxImageDeps,
-  image: BoxImageDescription,
+  plan: BuildPlan,
   tag: string,
 ): Promise<BoxImageResult> {
   const { boxes } = deps;
@@ -256,8 +272,7 @@ async function buildInBox(
   if (imageExists && (await toolsReady(deps.toolsRoot, tag))) {
     return { tag, built: false, netTools: netToolsDir(await realpath(deps.toolsRoot), tag) };
   }
-  const scripts = boxBuildScripts(image);
-  await boxes.pullImage(scripts.base, options);
+  await boxes.pullImage(plan.base, options);
   const network = await boxes.network(options);
   const id = deps.buildId?.() ?? randomUUID().replaceAll("-", "").slice(0, 16);
   const runId = `${BUILD_BOX_RUN_PREFIX}${id}`;
@@ -269,26 +284,22 @@ async function buildInBox(
   let netTools = "";
   try {
     // Nothing of the Mac is mounted into a build box, and no tools yet: it is made from the base.
-    await boxes.create({ runId, image: scripts.base, network }, options);
+    await boxes.create({ runId, image: plan.base, network }, options);
     await boxes.start(name, options);
     routing = true;
     const route = await deps.route.acquire(name);
-    const ca = await readFile(route.caFile, "utf8").catch(() => "");
-    if (!isCertificateBundle(ca)) {
-      buildFailed("the web route's CA bundle is not PEM certificates.", { caFile: route.caFile });
-    }
     const folder = join(work, "build");
     await mkdir(folder, { mode: 0o700 });
-    await writeFile(join(folder, BUILD_BOOTSTRAP_SCRIPT), scripts.bootstrap, {
-      flag: "wx",
-      mode: 0o644,
-    });
-    await writeFile(join(folder, BUILD_SYSTEM_SCRIPT), scripts.system, {
-      flag: "wx",
-      mode: 0o644,
-    });
-    await writeFile(join(folder, BUILD_STEPS_SCRIPT), scripts.build, { flag: "wx", mode: 0o644 });
-    await writeFile(join(folder, BOX_BUILD_CA_FILE), ca, { flag: "wx", mode: 0o644 });
+    if (plan.needsCa) {
+      const ca = route.caFile === null ? "" : await readFile(route.caFile, "utf8").catch(() => "");
+      if (!isCertificateBundle(ca)) {
+        buildFailed("the web route's CA bundle is not PEM certificates.", { caFile: route.caFile });
+      }
+      await writeFile(join(folder, BOX_BUILD_CA_FILE), ca, { flag: "wx", mode: 0o644 });
+    }
+    for (const [file, content] of Object.entries(plan.files)) {
+      await writeFile(join(folder, file), content, { flag: "wx", mode: 0o644 });
+    }
     await boxes.copyIn(name, `${folder}/.`, BUILD_DIR_IN_BOX, options);
     // Before any install script: only the base image's programs run, with the box's capabilities.
     await step(deps, name, BUILD_BOOTSTRAP_SCRIPT, route.url, "full");
@@ -335,10 +346,33 @@ export function ensureBoxImage(
   deps: BoxImageDeps,
   image: BoxImageDescription,
 ): Promise<BoxImageResult> {
-  const tag = boxImageTag(image);
+  const scripts = boxBuildScripts(image);
+  return buildOnce(deps, boxImageTag(image), {
+    base: scripts.base,
+    files: {
+      [BUILD_BOOTSTRAP_SCRIPT]: scripts.bootstrap,
+      [BUILD_SYSTEM_SCRIPT]: scripts.system,
+      [BUILD_STEPS_SCRIPT]: scripts.build,
+    },
+    needsCa: true,
+  });
+}
+
+/**
+ * The machine-wide Safe-Chain image (DIPO-343, `safe-chain.ts`): reused when it exists with its box
+ * network tools, otherwise built as an office image is, in a build box through the web proxy, but
+ * with no registry install, so with no Safe-Chain behind the route.
+ */
+export function ensureSafeChainImage(deps: BoxImageDeps): Promise<BoxImageResult> {
+  const plan = safeChainBuildPlan();
+  return buildOnce(deps, safeChainImageTag(plan), { ...plan, needsCa: false });
+}
+
+/** One build of `tag` at a time: a second request for it waits for the first. */
+function buildOnce(deps: BoxImageDeps, tag: string, plan: BuildPlan): Promise<BoxImageResult> {
   const pending = inFlight.get(tag);
   if (pending !== undefined) return pending;
-  const started = buildInBox(deps, image, tag).finally(() => inFlight.delete(tag));
+  const started = buildInBox(deps, plan, tag).finally(() => inFlight.delete(tag));
   inFlight.set(tag, started);
   return started;
 }

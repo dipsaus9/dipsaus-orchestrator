@@ -12,8 +12,6 @@ import { FOREGROUND_USAGE, runForeground } from "./foreground";
 import { runHookForm } from "./hook";
 import { LOGIN_USAGE, runLoginForm } from "./login";
 import { RESTORE_USAGE, runRestoreForm } from "./restore";
-import { runSafeChainGateForm } from "./safe-chain-gate";
-import { runSandboxExecForm } from "./sandbox-exec";
 import { defaultIo, type DaemonIo } from "./io";
 import { runSelfChecks } from "./self-check";
 import { runWaitPidForm } from "./wait-pid";
@@ -60,10 +58,6 @@ const FORMS: ReadonlyMap<string, Form> = new Map<string, Form>([
   ["restore", { usage: RESTORE_USAGE, run: (args, io) => runRestoreForm(args, io) }],
   // Sets the box login in the Keychain on the maintainer's terminal (DIPO-269), as `dipo login box`.
   ["login", { usage: LOGIN_USAGE, run: (args, io) => runLoginForm(args, io) }],
-  // Hidden: runs one engine step inside the bundled sandbox runtime (DIPO-37).
-  ["sandbox-exec", { usage: null, run: runSandboxExecForm }],
-  // Hidden: the gate of the Safe-Chain checking proxy, inside its own sandbox (DIPO-84).
-  ["safe-chain-gate", { usage: null, run: (args, io) => runSafeChainGateForm(args, io) }],
   // Hidden: the daemon side of `dipo self-check` (DIPO-17).
   [
     "self-check",

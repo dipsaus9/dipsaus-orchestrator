@@ -18,7 +18,6 @@ import { posix } from "node:path";
 
 import { MODEL_UPSTREAM } from "../../box/model-proxy";
 import type { OfficeConfig } from "../../config";
-import { SRT_DEFAULT_HOME_WRITE_PATHS, SRT_DEFAULT_WRITE_PATHS } from "../../sandbox/policy";
 import { PlanError } from "../types";
 import type { LaunchPlan, WorkerKind, WorkerSpec } from "../types";
 import { userMessageLine } from "./encode";
@@ -45,6 +44,9 @@ export const INCLUDE_PARTIAL_MESSAGES = "--include-partial-messages";
 // directories, so the run settings deny writes to each with `sandbox.filesystem.denyWrite`, which
 // srt honours over its defaults (measured with srt 0.0.79 on macOS; Claude Code 2.1.301 bundles the
 // same defaults). Keyed by srt's own lists, so a new default needs a decision here.
+// The lists are Claude Code's bundled srt's; dipo no longer ships srt itself (DIPO-343).
+export const SRT_DEFAULT_WRITE_PATHS = ["/tmp/claude", "/private/tmp/claude"] as const;
+export const SRT_DEFAULT_HOME_WRITE_PATHS = [".claude/debug", ".npm/_logs"] as const;
 const CLOSED_HOME_WRITE_REASONS: Readonly<
   Record<(typeof SRT_DEFAULT_HOME_WRITE_PATHS)[number], string>
 > = {

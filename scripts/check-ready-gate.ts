@@ -48,6 +48,8 @@ function treeFiles(repo: string): string[] | undefined {
 export interface ReadyGateReport {
   /** How many Ready stories were checked. */
   readonly checked: number;
+  /** The ids of the Ready stories that passed, in list order. */
+  readonly passed: readonly string[];
   /** Each failure as the gate's own `ready <ID> failed <rule>: <message>` line. */
   readonly failures: readonly string[];
   /**
@@ -81,6 +83,7 @@ export async function checkReadyGate(repo: string, cli: BacklogCli): Promise<Rea
   const ready = entries.filter((entry) => entry.group === READY);
   const failures: string[] = [];
   const warnings: string[] = [];
+  const passed: string[] = [];
   for (const entry of ready) {
     const view = views.get(entry.id);
     if (view === undefined) {
@@ -88,10 +91,16 @@ export async function checkReadyGate(repo: string, cli: BacklogCli): Promise<Rea
     }
     const input = gateInputOf(view, others, milestones, config, files);
     const result = evaluateGate(input, "pickup");
+    if (result.passed) passed.push(entry.id);
     failures.push(...result.failures.map((failure) => failure.message));
     warnings.push(...(result.warnings ?? []).map((warning) => warning.message));
   }
-  return { checked: ready.length, failures, ...(warnings.length === 0 ? {} : { warnings }) };
+  return {
+    checked: ready.length,
+    passed,
+    failures,
+    ...(warnings.length === 0 ? {} : { warnings }),
+  };
 }
 
 if (import.meta.main) {

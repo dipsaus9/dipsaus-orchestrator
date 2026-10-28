@@ -258,4 +258,9 @@ export interface BoxPort {
   commit(name: string, tag: string, options?: BoxCallOptions): Promise<void>;
   /** Deletes the box image `tag`, so a build can make it again. */
   deleteImage(tag: string, options?: BoxCallOptions): Promise<void>;
+  /**
+   * The IPv4 address of the running box `name` on dipo's box network (DIPO-343: dipo's web proxy
+   * reaches the Safe-Chain box there); null when the box does not run or has none.
+   */
+  address(name: string, options?: BoxCallOptions): Promise<string | null>;
 }

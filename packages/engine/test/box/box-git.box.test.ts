@@ -1,7 +1,7 @@
 // The box's own git repository and the verify at done on a real box (DIPO-346, 0008, 0002), opt-in:
 // it registers only with DIPO_TEST_BOX=1 and never in CI. It needs macOS with Apple container
-// 1.6.0 or newer and its service running, the official Safe-Chain install (`~/.safe-chain`) for
-// the web route, and the internet: the office image (now with git) is built in a build box on its
+// 1.6.0 or newer and its service running and the internet (the
+// web route builds its Safe-Chain box from the pinned release, DIPO-343): the office image (now with git) is built in a build box on its
 // first run, which takes minutes. It needs no box login: no model session runs. The maintainer
 // runs it by hand:
 //
@@ -50,12 +50,11 @@ import {
   partStageRoot,
 } from "../../src/box/parts";
 import { type BoxPort, boxName } from "../../src/box/port";
-import { startBoxWebRoute } from "../../src/box/web-proxy";
+import { startBoxWebRoute } from "../../src/box/safe-chain-box";
 import { BOX_INDEX_DIR, BoxWorkers } from "../../src/box/workers";
 import { OfficeGit, spawnGitExec } from "../../src/git";
 import { systemListenHttp } from "../../src/platform/box-host";
 import { systemClock } from "../../src/platform/clock";
-import { currentPlatform } from "../../src/platform/paths";
 import { systemSpawn } from "../../src/platform/process";
 import { AdapterHolds } from "../../src/workers/hold";
 
@@ -66,7 +65,6 @@ const registers =
 
 /** The image build on a cold builder, the box, the parts and the verifies. */
 const TIMEOUT_MS = 45 * 60_000;
-const SAFE_CHAIN_INSTALL = join(homedir(), ".safe-chain");
 const OFFICE = "off_01J9ZK5Q8W3V4X6Y7Z0000GIT1" as OfficeId;
 const BRANCH = "DIPO-1/box-git";
 /** A test suite that needs git: it fails without a repository and its start commit. */
@@ -99,7 +97,6 @@ if (registers) {
     it(
       "makes the repository, runs a git test as the verify, and keeps every form of .git out of the parts",
       async () => {
-        expect(existsSync(join(SAFE_CHAIN_INSTALL, "bin", "safe-chain"))).toBe(true);
         const env = cleanEnv();
         const home = homedir();
         const cliEnv = { PATH: env["PATH"] ?? "/usr/bin:/bin:/usr/local/bin", HOME: home };
@@ -133,18 +130,17 @@ if (registers) {
             expect(await boxes.check()).toMatchObject({ ok: true });
             const workers = new BoxWorkers({
               boxes,
-              startWebRoute: (network) =>
+              startWebRoute: (network, ids) =>
                 startBoxWebRoute(
                   network,
                   {
-                    request: {
-                      installRoot: SAFE_CHAIN_INSTALL,
-                      caFile: join(tmp, "route", "ca.pem"),
-                      home,
-                      uid: process.getuid?.() ?? 0,
-                      env: process.env,
-                    },
-                    deps: { platform: currentPlatform(), clock: systemClock, root: join(tmp, "p") },
+                    boxes,
+                    clock: systemClock,
+                    scratchRoot: tmp,
+                    toolsRoot: join(tmp, "state", "box-net-tools"),
+                    caFile: join(tmp, "route", "ca.pem"),
+                    boxId: ids.boxId,
+                    buildId: ids.buildId,
                   },
                   { clock: systemClock },
                 ),

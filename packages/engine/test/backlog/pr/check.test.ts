@@ -12,7 +12,7 @@ import {
   type PrFacts,
   type TaskSide,
 } from "../../../src/backlog/pr/check";
-import { taskOfPath } from "../../../src/backlog/pr/diff";
+import { parseRawDiff, taskOfPath } from "../../../src/backlog/pr/diff";
 import type { PlainTask } from "../../../src/backlog/plain";
 import { gateStoryFromView } from "../../../src/gate/input";
 import { gateContentHash } from "../../../src/gate/store/hash";
@@ -74,6 +74,29 @@ describe("taskOfPath", () => {
   });
 });
 
+const sha = (c: string) => c.repeat(40);
+
+describe("parseRawDiff", () => {
+  it("reads modes, status and paths with spaces and newlines", () => {
+    const out = [
+      `:000000 100644 ${sha("0")} ${sha("a")} A`,
+      "backlog/tasks/task-1 - A b.md",
+      `:100644 120000 ${sha("a")} ${sha("b")} T`,
+      "backlog/odd\nname.md",
+      "",
+    ].join("\0");
+    expect(parseRawDiff(out)).toEqual([
+      { path: "backlog/tasks/task-1 - A b.md", from: "000000", to: "100644", status: "A" },
+      { path: "backlog/odd\nname.md", from: "100644", to: "120000", status: "T" },
+    ]);
+    expect(parseRawDiff("")).toEqual([]);
+  });
+
+  it("throws on output of another shape", () => {
+    expect(() => parseRawDiff("backlog/tasks/a.md\0")).toThrow(/unexpected git diff --raw/);
+  });
+});
+
 describe("checkBacklogPr", () => {
   it("passes a valid office-init diff: config, To Do to Refined, a new draft, a gated Ready", () => {
     const ready = task("TASK-2", "Ready");
@@ -113,8 +136,37 @@ describe("checkBacklogPr", () => {
     );
     expect(result.passed).toBe(false);
     expect(result.failures).toEqual([
-      { rule: "backlog-only", message: "the PR changes paths outside backlog/: src/index.ts" },
+      {
+        rule: "backlog-only",
+        message:
+          "the PR changes paths that are not Backlog files (a .md file under backlog/, or backlog/config.yml): src/index.ts",
+      },
     ]);
+  });
+
+  it("fails a file under backlog/ that is not a .md file or backlog/config.yml (DIPO-341)", () => {
+    const paths = ["backlog/x.test.ts", "backlog/tasks/task-1 - Story.md", "backlog/config.yaml"];
+    expect(checkBacklogPr({ paths, tasks: [] }, NO_FACTS).failures).toEqual([
+      {
+        rule: "backlog-only",
+        message:
+          "the PR changes paths that are not Backlog files (a .md file under backlog/, or backlog/config.yml): backlog/x.test.ts, backlog/config.yaml",
+      },
+    ]);
+  });
+
+  it("fails an entry that is not a regular file, under backlog/ too (DIPO-341)", () => {
+    const paths = ["backlog/tasks/link.md", "backlog/docs/doc-1 - Notes.md"];
+    expect(
+      checkBacklogPr({ paths, irregular: ["backlog/tasks/link.md"], tasks: [] }, NO_FACTS).failures,
+    ).toEqual([
+      {
+        rule: "backlog-only",
+        message:
+          "the PR changes entries that are not regular files (a symlink, a submodule or an executable): backlog/tasks/link.md",
+      },
+    ]);
+    expect(checkBacklogPr({ paths, tasks: [] }, NO_FACTS).passed).toBe(true);
   });
 
   it("passes a new .dipo/.gitignore from office init, and fails one the PR changes (DIPO-36)", () => {
@@ -125,7 +177,8 @@ describe("checkBacklogPr", () => {
     expect(checkBacklogPr({ paths, tasks: [] }, NO_FACTS).failures).toEqual([
       {
         rule: "backlog-only",
-        message: "the PR changes paths outside backlog/: .dipo/.gitignore",
+        message:
+          "the PR changes paths that are not Backlog files (a .md file under backlog/, or backlog/config.yml): .dipo/.gitignore",
       },
     ]);
     // Only that one file may be added outside backlog/.

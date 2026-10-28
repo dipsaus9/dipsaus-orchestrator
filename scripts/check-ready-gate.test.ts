@@ -127,6 +127,7 @@ describe("the Ready gate over the backlog", () => {
     ]);
     const report = await checkReadyGate(NO_OFFICE, cli);
     expect(report.checked).toBe(2);
+    expect(report.passed).toEqual(["DIPO-2"]);
     expect(report.failures.length).toBeGreaterThan(0);
     expect(report.failures.every((line) => line.startsWith("ready DIPO-1 failed "))).toBe(true);
     expect(report.failures.some((line) => line.startsWith("ready DIPO-1 failed R20:"))).toBe(true);
@@ -134,7 +135,11 @@ describe("the Ready gate over the backlog", () => {
 
   it("passes when every Ready story passes", async () => {
     const { cli } = fakeCli([{ id: "DIPO-2", status: "Ready", testPlan: CLEAN }]);
-    expect(await checkReadyGate(NO_OFFICE, cli)).toEqual({ checked: 1, failures: [] });
+    expect(await checkReadyGate(NO_OFFICE, cli)).toEqual({
+      checked: 1,
+      passed: ["DIPO-2"],
+      failures: [],
+    });
   });
 
   it("does not check a Refined story with the same fault", async () => {
@@ -142,13 +147,18 @@ describe("the Ready gate over the backlog", () => {
       { id: "DIPO-1", status: "Ready", testPlan: CLEAN },
       { id: "DIPO-3", status: "Refined", testPlan: MISSING_EXPECT },
     ]);
-    expect(await checkReadyGate(NO_OFFICE, cli)).toEqual({ checked: 1, failures: [] });
+    expect(await checkReadyGate(NO_OFFICE, cli)).toEqual({
+      checked: 1,
+      passed: ["DIPO-1"],
+      failures: [],
+    });
   });
 
   it("reports an R29 warning of a Ready story without failing it", async () => {
     const { cli } = fakeCli([{ id: "DIPO-4", status: "Ready", testPlan: OUTSIDE }]);
     expect(await checkReadyGate(NO_OFFICE, cli)).toEqual({
       checked: 1,
+      passed: ["DIPO-4"],
       failures: [],
       warnings: [
         "ready DIPO-4 warning R29: test plan entry #1 names packages/daemon/test/x.test.ts, which no Reference covers; add it to the References or drop it from the plan",

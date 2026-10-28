@@ -227,7 +227,7 @@ export {
   tokenCheckFailure,
 } from "./token-check";
 export type { BoxTokenCheck, TokenCheckDeps, TokenFoundIn, TokenHoldDeps } from "./token-check";
-export { BUILD_ERROR_LINES, ensureBoxImage } from "./build-box";
+export { BUILD_ERROR_LINES, ensureBoxImage, ensureSafeChainImage } from "./build-box";
 export type {
   BoxImageDeps,
   BoxImageResult,
@@ -309,6 +309,7 @@ export type {
   BoxSession,
   BoxWorkerInstall,
   BoxWorkersDeps,
+  RouteBoxIds,
 } from "./workers";
 export {
   admittedUrl,
@@ -323,7 +324,7 @@ export {
   REGISTRY_ZONES,
   registryRefusal,
   startBoxWebProxy,
-  startBoxWebRoute,
+  startSafeChainUpstreamProxy,
   systemInterfaceAddresses,
   TunnelInspector,
   WEB_PROXY_LIMITS,
@@ -333,8 +334,33 @@ export type {
   BoxWebRouteStart,
   RunningBoxWebProxy,
   RunningBoxWebRoute,
+  SafeChainTarget,
   WebProxyEvent,
 } from "./web-proxy";
+export {
+  ecosystemOf,
+  isCertificateBundle,
+  SAFE_CHAIN_BOX_PORTS,
+  SAFE_CHAIN_BOX_RUN_PREFIX,
+  SAFE_CHAIN_NPM_HOSTS,
+  SAFE_CHAIN_PYPI_HOSTS,
+  SAFE_CHAIN_REGISTRY_HOSTS,
+  SAFE_CHAIN_RELEASE,
+  SAFE_CHAIN_TLS_PORT,
+  SAFE_CHAIN_UPSTREAM_HOSTS,
+  safeChainBuildPlan,
+  safeChainImageTag,
+} from "./safe-chain";
+export type { SafeChainEcosystem } from "./safe-chain";
+export { runSafeChainCheck, safeChainCheckProblem, startBoxWebRoute } from "./safe-chain-box";
+export { connectToBox } from "./box-connect";
+export type { BoxConnectTarget, BoxConnector } from "./box-connect";
+export type {
+  SafeChainBoxes,
+  SafeChainBoxInfo,
+  SafeChainRouteDeps,
+  SafeChainRouteEvent,
+} from "./safe-chain-box";
 export {
   BoxDoor,
   cleanDoorText,
