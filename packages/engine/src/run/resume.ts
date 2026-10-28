@@ -98,7 +98,7 @@ import {
   type TierCaps,
 } from "./launch";
 import { openFeedbackOf } from "./open-feedback";
-import { placeOfRun } from "./places";
+import { placeOfRole } from "./places";
 import { renderRunPrompts, sessionUuid } from "./prompts";
 import type { StoredRun } from "./records";
 import { clearSignals } from "./signals";
@@ -114,10 +114,12 @@ export function noteText(note: string): string {
 
 /**
  * The messages held for the run's next session (`heldFeedback`); none for a reviewer session
- * (0002), so they wait for the developer's.
+ * (0002), so they wait for the developer's. The session is of the run's role, which it is
+ * recorded with, whatever phase the run's last session left: a developer resumed after a review
+ * (a CI park while In Review) gets them (DIPO-362).
  */
 export function sessionFeedback(office: OfficeHandle, run: StoredRun): HeldFeedback {
-  return placeOfRun(office, run) === "reviewer"
+  return placeOfRole(run.role) === "reviewer"
     ? { ids: [], texts: [] }
     : heldFeedback(office, run.runId);
 }

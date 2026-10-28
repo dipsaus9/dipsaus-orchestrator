@@ -342,15 +342,17 @@ describe("work.steer", () => {
     expect(steers().map((s) => s.state)).toEqual(["pending"]);
   });
 
-  it("keeps a held steer out of a review session's first message (reopened for a review)", async () => {
+  it("sends a held steer with a developer session whose run last ran a review (a CI park while In Review, DIPO-362)", async () => {
     park("in-review");
     expect(ok(await steer("Mind the edge case.")).delivered).toBe("on-resume");
+    // The run's last phase is the review; a reviewer is launched apart and reads no held message
+    // (0002), so the next session the resumer starts is the developer's, which gets it.
     reopenFor("review");
     exitWorker();
     expect(await startSession()).toBe(true);
     expect(w.sessions).toHaveLength(1);
-    expect(w.sessions[0]?.message ?? "").not.toContain("Mind the edge case.");
-    expect(steers().map((s) => s.state)).toEqual(["pending"]);
+    expect(w.sessions[0]?.message).toContain("The maintainer says: Mind the edge case.");
+    expect(steers().map((s) => s.state)).toEqual(["resolved"]);
   });
 
   it("sends a held steer with the developer session's first message (reopened for a fix round)", async () => {
