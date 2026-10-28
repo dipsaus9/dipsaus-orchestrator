@@ -4,13 +4,13 @@ title: Give the lifecycle parity test its own temp DIPO_HOME
 status: Refined
 assignee: []
 created_date: '2026-10-28 15:04'
+updated_date: '2026-10-28 15:07'
 labels:
   - 'tier:S'
   - 'slice:prune'
   - 'track:2'
 milestone: m-1
-dependencies:
-  - DIPO-351
+dependencies: []
 references:
   - test/lifecycle-parity/
 priority: medium
@@ -38,5 +38,5 @@ test_plan:
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
 - [ ] #1 The lifecycle parity test builds its DIPO_HOME values under a fresh folder in DIPO_TMP instead of /tmp/x/state, and still compares the same platforms
-- [ ] #2 A file at /tmp/x does not change the test's result
+- [ ] #2 The test touches no path outside DIPO_TMP (0017)
 <!-- AC:END -->

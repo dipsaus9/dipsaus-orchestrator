@@ -4,7 +4,7 @@ title: Give the fixed root steps in a box their own smaller capability allow lis
 status: Refined
 assignee: []
 created_date: '2026-10-23 16:20'
-updated_date: '2026-10-28 15:05'
+updated_date: '2026-10-28 15:07'
 labels:
   - 'slice:prune'
   - 'track:2'
@@ -44,9 +44,9 @@ test_plan:
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 Root steps outside a build box run with only the capabilities they need, and the build box keeps its own list
-- [ ] #2 Tests pin both lists
-- [ ] #3 Each fixed root step still does its job with the smaller list, each with a test: mkdir, chown -R -h, rm -rf of a stage and chmod of dipo-part
-- [ ] #4 The bypass forms are tested: a step outside the fixed list asked for as root, a capability requested by name in the step's arguments, and a build-box list used by a non-build box
-- [ ] #5 A fail-closed test against the real path: a fixed root step that needs a capability its list lacks fails, and nothing runs with the old list
+- [ ] #1 Root steps outside a build box run with only chown, dac_override and fowner, and the build box keeps its own list
+- [ ] #2 Tests pin the exact capability string of both lists, and none of dac_read_search, fsetid, setuid, setgid, kill, sys_chroot or audit_write is in the fixed-step list
+- [ ] #3 Each fixed root step still does its job with the smaller list, each with a test in a real box (a *.box.test.ts): mkdir, chown -R -h, rm -rf of a stage and chmod of dipo-part
+- [ ] #4 The bypass forms are tested: a command outside the fixed list asked for as root is refused, a step's arguments cannot add a capability, and a non-build box never gets the build box's list
+- [ ] #5 A fail-closed test against the real path: in a real box, a fixed root step that needs setuid fails, and no root step runs with the old shared list
 <!-- AC:END -->
