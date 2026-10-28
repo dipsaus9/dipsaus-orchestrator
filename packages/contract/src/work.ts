@@ -351,14 +351,41 @@ export const QuestionView = z.object({
 });
 export type QuestionView = z.infer<typeof QuestionView>;
 
+// One manual test-plan entry of a story under test (0002, DIPO-309): what to check and, when the
+// plan names it, the expected result.
+export const TestStep = z.object({ check: z.string(), expect: z.string().optional() });
+export type TestStep = z.infer<typeof TestStep>;
+
+// An open test of a story's pushed head in its test box (0002, DIPO-309). `checkout` is the test
+// box's name; `url` is where the product the box runs is reached on the Mac (absent when the
+// product has nothing to start); `shell` is the `dipo test shell <ID>` line.
 export const TestView = z.object({
   test: TestId,
   story: StoryId,
   key: StoryKey,
   checkout: z.string(),
+  head: z.string(),
+  steps: z.array(TestStep),
+  url: z.string().optional(),
+  shell: z.string().optional(),
   startedAt: Timestamp,
 });
 export type TestView = z.infer<typeof TestView>;
+
+// Why a test closed without a record (DIPO-309): a new head, the idle timeout, the story dropped,
+// discarded, merged or out of review, its box lost, or a start that failed.
+export const KNOWN_TEST_END_REASONS = [
+  "new-head",
+  "idle",
+  "dropped",
+  "discarded",
+  "merged",
+  "not-in-review",
+  "box-lost",
+  "start-failed",
+] as const;
+export const TestEndReason = openEnum(KNOWN_TEST_END_REASONS);
+export type TestEndReason = z.infer<typeof TestEndReason>;
 
 export const GateDecision = z.enum(["approved", "rejected"]);
 export type GateDecision = z.infer<typeof GateDecision>;

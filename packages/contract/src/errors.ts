@@ -86,6 +86,11 @@ export const SOFTWARE_ERROR_CODES = [
 // candidate it does not have), `scan.notConfirmed` (`keep` of a capability with no confirmation) and
 // `scan.invalidCommand` (a working directory outside the repository), and `scan.staleProposal`
 // (accept of a proposal made before the repository's run inputs changed).
+// Since minor 1 (DIPO-309, 0002), not retryable, from `test.start` and `test.record`:
+// `story.notTestable` (no manual test-plan entry), `test.notInReview` (not In Review in phase
+// review, test or merge), `test.refused` (install or `dev` unresolved; `details.capability`),
+// `test.startFailed` (the test box, install, setup or `dev` failed) and `test.closed` (the test is
+// no longer open, or its head is older than the story's current head).
 export const OFFICE_ERROR_CODES = [
   "config.invalid",
   "backlog.unreadable",
@@ -108,6 +113,11 @@ export const OFFICE_ERROR_CODES = [
   "scan.notConfirmed",
   "scan.invalidCommand",
   "scan.staleProposal",
+  "story.notTestable",
+  "test.notInReview",
+  "test.refused",
+  "test.startFailed",
+  "test.closed",
 ] as const;
 
 export type GenericErrorCode = (typeof GENERIC_ERROR_CODES)[number];

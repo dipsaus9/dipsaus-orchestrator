@@ -60,7 +60,9 @@ import {
   type BoxState,
   boxName,
   runIdOfBox,
+  TEST_BOX_RUN_PREFIX,
 } from "./port";
+import { SAFE_CHAIN_BOX_RUN_PREFIX } from "./safe-chain";
 
 export const APPLE_CONTAINER_BACKEND_ID = "apple-container";
 /** The oldest `container` dipo runs boxes on: the version the escape probe passed on (0021). */
@@ -196,6 +198,12 @@ export function dipoBoxes(listed: readonly unknown[]): BoxInfo[] {
     });
   }
   return boxes;
+}
+
+/** True for the boxes a firewall may open to the Mac: a test box and the Safe-Chain box. */
+export function answersTheMac(name: string): boolean {
+  const runId = runIdOfBox(name) ?? "";
+  return runId.startsWith(TEST_BOX_RUN_PREFIX) || runId.startsWith(SAFE_CHAIN_BOX_RUN_PREFIX);
 }
 
 /**
@@ -455,6 +463,16 @@ export class AppleContainerBoxes implements BoxPort {
   }
 
   async firewall(name: string, firewall: BoxFirewall, options: BoxCallOptions = {}): Promise<void> {
+    // A way in from the Mac only for the boxes that serve it (DIPO-309): a test box's `dev` and
+    // the Safe-Chain box (DIPO-343). No developer or reviewer box ever answers the Mac.
+    if (firewall.inbound !== undefined && !answersTheMac(name)) {
+      throw new BoxError(
+        "box.refused",
+        `only a test box or the Safe-Chain box answers the Mac; ${name} is neither.`,
+        false,
+        { name },
+      );
+    }
     const failedWith = (message: string, details: Readonly<Record<string, unknown>>): never => {
       throw new BoxError("box.firewallFailed", `the box firewall of ${name} ${message}`, false, {
         name,

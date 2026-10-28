@@ -20,6 +20,7 @@ import { appendEntries } from "../../src/changelog/log";
 import {
   type AutoMergeGuard,
   decideMergeGate,
+  decideTestedMergeGates,
   guardedParkWriter,
   guardedUnparkWriter,
   mergeGatesOfRun,
@@ -39,6 +40,7 @@ import {
   type UnparkWriter,
 } from "../../src/run/park";
 import { findRun, recordConfigSnapshot, runSteps } from "../../src/run/records";
+import { insertTest, recordTestResult } from "../../src/run/test-records";
 import { findStoryPr } from "../../src/story-pr/records";
 
 import {
@@ -78,6 +80,44 @@ function approve(gate: string): void {
       at: s.w.t.clock.now(),
     }),
   );
+}
+
+/** Flags the story test-before-merge in the mirror. */
+function flag(): void {
+  s.w.office.immediate(() =>
+    s.w.office.run(
+      `insert into backlog_mirror (office_id, key, content_hash, kind, status, title, labels,
+         read_at, source)
+       values ($office_id, $key, 'h', 'task', 'In Review', 'A story', $labels, 0, 'branch')
+       on conflict (office_id, key) do update set labels = excluded.labels,
+         source = excluded.source`,
+      { key: s.key, labels: JSON.stringify(["test-before-merge"]) },
+    ),
+  );
+}
+
+/** Records the maintainer's test of `head` with `result` (DIPO-309). */
+function tested(head: string, result: "pass" | "fail"): void {
+  s.w.office.immediate(() => {
+    const testId = s.w.t.ids.next("tst");
+    insertTest(s.w.office, {
+      testId,
+      key: s.key,
+      runId: s.run,
+      head,
+      box: `dipo-${testId}`,
+      steps: [{ check: "Open it" }],
+      at: s.w.t.clock.now(),
+    });
+    recordTestResult(s.w.office, s.w.t.ids, testId, {
+      result,
+      note: result === "fail" ? "broken" : null,
+      at: s.w.t.clock.now(),
+    });
+    if (result === "pass") {
+      decideTestedMergeGates(s.w.office, s.key, head, { testId, at: s.w.t.clock.now() });
+    }
+  });
 }
 
 describe("an approved merge gate", () => {
@@ -451,28 +491,52 @@ describe("the merge gate", () => {
     expect(gates()[0]?.summary).toContain("#2");
   });
 
-  it("waits for the maintainer for a flagged story, lists the worktree, phase test", async () => {
+  it("waits for the maintainer for a flagged story, offers dipo test, phase test", async () => {
     s = await storyWorld();
-    s.w.office.immediate(() =>
-      s.w.office.run(
-        `insert into backlog_mirror (office_id, key, content_hash, kind, status, title, labels,
-           read_at, source)
-         values ($office_id, $key, 'h', 'task', 'In Review', 'A story', $labels, 0, 'branch')
-         on conflict (office_id, key) do update set labels = excluded.labels,
-           source = excluded.source`,
-        { key: s.key, labels: JSON.stringify(["test-before-merge"]) },
-      ),
-    );
+    flag();
     await s.tick();
     const gate = gates()[0]!;
     expect(gate.waitingOn).toBe("maintainer");
+    expect(gate.waits).toEqual(["testBeforeMerge"]);
     expect(gate.summary).toContain("flagged test-before-merge");
-    expect(gate.summary).toContain("Test in the story worktree:");
+    expect(gate.summary).toContain("dipo test");
     expect(
       runSteps(s.w.office, s.run)
         .filter((step) => step.kind === "phase")
         .at(-1)?.value,
     ).toBe("test");
+  });
+
+  // DIPO-309: a pass decides the story's test gate for its head; the merge gate no longer waits on
+  // the flag for that head.
+  it("decides a flagged story's gate by rule when a pass is recorded for the head first", async () => {
+    s = await storyWorld();
+    flag();
+    tested(H1, "pass");
+    await s.tick();
+    const gate = gates()[0]!;
+    expect(gate.waits).toEqual([]);
+    expect(gate.decision).toMatchObject({ decision: "approved", by: "rule" });
+    expect(gate.summary).toContain(`The maintainer's test of ${H1.slice(0, 12)} passed.`);
+  });
+
+  it("lets a pass decide an open gate that waits only on the flag, by the maintainer", async () => {
+    s = await storyWorld();
+    flag();
+    await s.tick();
+    expect(gates()[0]?.decision).toBeNull();
+    tested(H1, "pass");
+    expect(gates()[0]?.decision).toMatchObject({ decision: "approved", by: "maintainer" });
+    expect(gates()[0]?.decision?.note).toContain("passed");
+  });
+
+  it("keeps a gate waiting after a fail, a pass on an older head, or another reason", async () => {
+    s = await storyWorld();
+    flag();
+    await s.tick();
+    tested(H1, "fail");
+    tested("0".repeat(40), "pass");
+    expect(gates()[0]?.decision).toBeNull();
   });
 
   it("waits for the maintainer when the story passed only by an override", async () => {

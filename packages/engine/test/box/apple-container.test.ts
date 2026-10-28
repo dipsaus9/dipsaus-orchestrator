@@ -14,6 +14,7 @@ import { ManualClock, withTempDir } from "@dipsaus-orchestrator/testkit";
 import { BOX_NETWORK_NAME } from "../../src/box/apple-args";
 import {
   AppleContainerBoxes,
+  answersTheMac,
   type AppleContainerDeps,
   systemHostResources,
 } from "../../src/box/apple-container";
@@ -675,6 +676,7 @@ describe("the box firewall (DIPO-281)", () => {
 });
 
 describe("the Safe-Chain box's firewall (DIPO-343)", () => {
+  const SAFE_CHAIN = "dipo-safe-chain-01J9ZK5Q8W3V4X6Y7Z8A9B0C1D";
   const firewall = { hostAddress: "192.0.2.1", ports: [41000], inbound: [8101, 8102] };
   const listed = [
     "table inet dipo {",
@@ -696,10 +698,10 @@ describe("the Safe-Chain box's firewall (DIPO-343)", () => {
 
   it("sets both chains with the box's capabilities and checks the whole table", async () => {
     const { port, fake } = boxes((args) => (args.includes("list") ? { stdout: listed } : {}));
-    await port.firewall(BOX, firewall);
+    await port.firewall(SAFE_CHAIN, firewall);
     expect(fake.args()).toEqual([
-      ["exec", BOX, ...firewallCommand(firewall)],
-      ["exec", BOX, ...firewallListCommand(firewall)],
+      ["exec", SAFE_CHAIN, ...firewallCommand(firewall)],
+      ["exec", SAFE_CHAIN, ...firewallListCommand(firewall)],
     ]);
   });
 
@@ -712,8 +714,33 @@ describe("the Safe-Chain box's firewall (DIPO-343)", () => {
       ),
     ]) {
       const { port } = boxes((args) => (args.includes("list") ? { stdout } : {}));
-      expect((await rejection(port.firewall(BOX, firewall))).code).toBe("box.firewallFailed");
+      expect((await rejection(port.firewall(SAFE_CHAIN, firewall))).code).toBe(
+        "box.firewallFailed",
+      );
     }
+  });
+});
+
+// DIPO-309: a way in from the Mac only for a test box and the Safe-Chain box.
+describe("a firewall's way in from the Mac", () => {
+  const firewall = { hostAddress: "192.0.2.1", ports: [41000], inbound: [5173] };
+
+  it("is refused for a developer, reviewer or build box before anything runs", async () => {
+    for (const name of [
+      BOX,
+      "dipo-review-01J9ZK5Q8W3V4X6Y7Z8A9B0C1D",
+      "dipo-build-0123456789abcdef",
+    ]) {
+      const { port, fake } = boxes(() => ({}));
+      expect((await rejection(port.firewall(name, firewall))).code).toBe("box.refused");
+      expect(fake.args()).toEqual([]);
+    }
+  });
+
+  it("is set for a test box and the Safe-Chain box", () => {
+    expect(answersTheMac("dipo-tst_01J9ZK5Q8W3V4X6Y7Z8A9B0C1D")).toBe(true);
+    expect(answersTheMac("dipo-safe-chain-01J9ZK5Q8W3V4X6Y7Z8A9B0C1D")).toBe(true);
+    expect(answersTheMac(BOX)).toBe(false);
   });
 });
 

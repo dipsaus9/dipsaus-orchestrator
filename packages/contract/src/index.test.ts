@@ -232,6 +232,11 @@ describe("errors", () => {
       "scan.notConfirmed",
       "scan.invalidCommand",
       "scan.staleProposal",
+      "story.notTestable",
+      "test.notInReview",
+      "test.refused",
+      "test.startFailed",
+      "test.closed",
     ]);
   });
 

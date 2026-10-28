@@ -58,6 +58,8 @@ export type FeedbackSource =
   | "ci"
   /** A maintainer reject (0002). */
   | "reject"
+  /** A failed test's note (0002, DIPO-309). */
+  | "test"
   /**
    * The reason's part of a resumed park's first message (0020). It carries no cap of its own: a
    * resume is bounded by the grants it records and the run's caps.

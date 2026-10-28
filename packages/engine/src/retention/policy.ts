@@ -82,6 +82,11 @@ export const TABLE_RETENTION: Readonly<Record<string, TablePolicy>> = {
   story_prs: { tier: "S", rule: "closed more than stateDays ago; an open PR is kept" },
   review_verdicts: { tier: "S", rule: "decided more than stateDays ago" },
   feedback_items: { tier: "S", rule: "with its run, ended more than stateDays ago" },
+  // DIPO-309: the maintainer's tests of a story's pushed head.
+  acceptance_tests: {
+    tier: "S",
+    rule: "with its run, ended more than stateDays ago; an open test is kept",
+  },
   catch_ups: { tier: "S", rule: "with its run, ended more than stateDays ago" },
   runs: { tier: "S", rule: "ended more than stateDays ago; an active run is kept" },
   run_steps: { tier: "S", rule: "with its run, ended more than stateDays ago" },

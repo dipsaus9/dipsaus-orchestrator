@@ -43,6 +43,7 @@ import {
   storyState,
   type StoryView,
   StreamName,
+  testEnded,
   testRecorded,
   testStarted,
   type TestView,
@@ -727,6 +728,12 @@ export class OfficeStore {
       }
       case testRecorded.type: {
         const data = testRecorded.data.safeParse(event.data);
+        if (!data.success) return;
+        this.#update({ tests: this.#state.tests.filter((test) => test.test !== data.data.test) });
+        return;
+      }
+      case testEnded.type: {
+        const data = testEnded.data.safeParse(event.data);
         if (!data.success) return;
         this.#update({ tests: this.#state.tests.filter((test) => test.test !== data.data.test) });
         return;

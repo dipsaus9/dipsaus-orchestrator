@@ -10,7 +10,9 @@
 // 2. merge gates that wait on the maintainer, with the PR from `story_prs`; a gate whose PR is
 //    labelled `autorelease: pending` offers a hand merge and no `dipo approve`; a gate marked
 //    hand-merge only because its PR changes the release path (DIPO-331, `gates.hand_merge`) names
-//    the PR, says the maintainer merges it by hand on GitHub, and offers only `dipo reject`;
+//    the PR, says the maintainer merges it by hand on GitHub, and offers only `dipo reject`; a
+//    gate that waits on the story's test (DIPO-309) offers `dipo test <ID>` first, or, while a
+//    test is open, `dipo test pass <ID>` and `dipo test fail <ID> --note`;
 // 3. open parks, by reason: `ambiguous-spec`, `review-blocked`, `budget-exceeded`,
 //    `verify-failing`, `conflict`, `scope-violation`, `worker-failed`. A `review-blocked`
 //    park whose merge gate is open is one row with both `dipo resume --note` and `dipo approve
@@ -54,6 +56,7 @@ import type { FeatureRegistry, ReadContext, Registry } from "../commands/registr
 import type { OfficeHandle } from "../db/office";
 import { openParkQuestions, openQuestions, type StoredQuestion } from "../hooks/questions";
 import { heldParks, openPark } from "../run/park-state";
+import { openTestOf } from "../run/test-records";
 import { parkResumeNeed, SUGGESTED_SHARE } from "../run/resume-policy";
 import { LIFT_COMMAND, type StartsPausedState } from "../run/starts-paused";
 import { profileDeskItems } from "../scan/profile-view";
@@ -90,6 +93,8 @@ interface OpenMergeGate {
   summary: string;
   /** `release-path` for a gate only the maintainer's merge on the host decides (DIPO-331). */
   hand_merge: string | null;
+  /** The kinds of the reasons it waits, as JSON (DIPO-309); null for an older gate. */
+  waits: string | null;
 }
 
 /** The desk's seams for facts other stories add. */
@@ -111,6 +116,17 @@ export const DESK_SOURCES: DeskSources = {
   handMergeOnly: () => false,
   handItems: [doneElsewhereDeskItems, heldParkDeskItems],
 };
+
+/** True when a merge gate's stored reasons name the test-before-merge flag (DIPO-309). */
+function waitsOnTest(waits: string | null): boolean {
+  if (waits === null) return false;
+  try {
+    const kinds = JSON.parse(waits) as unknown;
+    return Array.isArray(kinds) && kinds.includes("testBeforeMerge");
+  } catch {
+    return false;
+  }
+}
 
 /** The kind of a park dipo could not write to Backlog.md (DIPO-360). */
 export const PARK_NOT_WRITTEN = "PARK NOT WRITTEN";
@@ -418,7 +434,7 @@ class DeskBuilder {
   /** The open merge gates that wait on the maintainer, oldest first. */
   #openMergeGates(): OpenMergeGate[] {
     return this.#office.all(
-      `select g.gate_id, g.key, g.run_id, g.opened_at, g.summary, g.hand_merge from gates g
+      `select g.gate_id, g.key, g.run_id, g.opened_at, g.summary, g.hand_merge, g.waits from gates g
         where g.office_id = $office_id and g.kind = 'merge' and g.waiting_on = 'maintainer'
           and g.key is not null and g.run_id is not null
           and not exists (select 1 from gate_decisions d
@@ -456,6 +472,8 @@ class DeskBuilder {
     // A release-path PR can still be sent back; an `autorelease: pending` one only merges by hand.
     let actions = [...this.#action("gate.approve", `dipo approve ${story}`), ...reject];
     if (hand !== null) actions = gate.hand_merge === "release-path" ? reject : [];
+    // A story waiting on its test (DIPO-309): `dipo test`, or the record of its open test.
+    if (waitsOnTest(gate.waits)) actions = [...this.#testActions(story, gate.key), ...actions];
     this.#add(GROUP.merge, 0, gate.opened_at, {
       kind: "MERGE",
       story,
@@ -468,6 +486,16 @@ class DeskBuilder {
       actions,
       ...(hand === null ? {} : { hand }),
     });
+  }
+
+  /** The test actions of a story waiting on its test: start one, or record its open one. */
+  #testActions(story: StoryId, key: string): DeskAction[] {
+    if (openTestOf(this.#office, key) === null)
+      return this.#action("test.start", `dipo test ${story}`);
+    return [
+      ...this.#action("test.record", `dipo test pass ${story}`),
+      ...this.#action("test.record", `dipo test fail ${story} --note "<what failed>"`),
+    ];
   }
 
   /** Groups 2 and 3: merge gates and every open park, the maintainer's own parks apart. */

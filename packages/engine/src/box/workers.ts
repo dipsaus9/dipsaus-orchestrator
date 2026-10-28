@@ -98,6 +98,7 @@ import {
   type BoxPort,
   boxName,
   runIdOfBox,
+  TEST_BOX_RUN_PREFIX,
 } from "./port";
 import type { PartRun, StartTreeCheck } from "./parts";
 import { type BoxTokenCheck, checkBoxAfterRun, tokenCheckFailure } from "./token-check";
@@ -446,6 +447,11 @@ export class BoxWorkers {
   readonly #cached = new Map<string, CacheManager>();
   /** The fill boxes and build boxes (DIPO-281) of the fills and builds in flight here, by name. */
   readonly #filling = new Set<string>();
+  /** The one admission of each test box on the web route (DIPO-309, `#admit`). */
+  readonly #admitted = new Map<
+    string,
+    { readonly route: RunningBoxWebRoute; readonly proxy: string }
+  >();
   /** The `finishEnded` pass that runs or ran last; the next waits for it. */
   #pass: Promise<unknown> = Promise.resolve();
 
@@ -1164,7 +1170,7 @@ export class BoxWorkers {
       ports: [portOf(web.url)],
     });
     await this.#copyDipoFiles(box, null, web.caFile);
-    const proxy = web.admit(box, this.#localPorts(this.#runDirOf(input.runId)));
+    const proxy = this.#admit(web, box, this.#localPorts(this.#runDirOf(input.runId)));
     const run = (cacheEnv: Readonly<Record<string, string>>): Promise<BoxInstallResult> =>
       runBoxInstall(
         {
@@ -1222,11 +1228,68 @@ export class BoxWorkers {
   }
 
   /**
+   * The web route of box `runId` (DIPO-309: a test box's setup and `dev`): acquired for the box,
+   * the box firewall set to that route's port only, the Safe-Chain CA bundle copied in; returns
+   * the environment the box's commands get, as an install does (a test box keeps its one
+   * admission, `#admit`). Throws a `BoxError` when the route does not start or the firewall cannot
+   * be set.
+   */
+  async route(runId: string): Promise<Readonly<Record<string, string>>> {
+    const box = boxName(runId);
+    const web = await this.#web.acquire(box);
+    await this.#firewall(box, web, null);
+    await this.#copyDipoFiles(box, null, web.caFile);
+    const proxy = this.#admit(web, box, this.#localPorts(this.#runDirOf(runId)));
+    return {
+      ...BOX_IMAGE_ENV,
+      HTTPS_PROXY: proxy,
+      HTTP_PROXY: proxy,
+      NODE_EXTRA_CA_CERTS: BOX_CA_FILE,
+    };
+  }
+
+  /**
+   * The way into test box `runId` (DIPO-309): its firewall set again to the web route's port plus,
+   * coming in, the Mac's address on the box network on `ports` only (`firewall.ts`, `inbound`).
+   * Nothing else changes: no admission, no file. Refuses any box but a test box, so no developer or
+   * reviewer box ever answers the Mac.
+   */
+  async inbound(runId: string, ports: readonly number[]): Promise<void> {
+    if (!runId.startsWith(TEST_BOX_RUN_PREFIX)) {
+      throw new BoxError(
+        "box.refused",
+        `only a test box answers the Mac; ${runId} is none.`,
+        false,
+        {
+          runId,
+        },
+      );
+    }
+    const box = boxName(runId);
+    await this.#firewall(box, await this.#web.acquire(box), ports);
+  }
+
+  /** Sets the firewall of `box`: the web route's port out, and `inbound` in when given. */
+  async #firewall(
+    box: string,
+    web: RunningBoxWebRoute,
+    inbound: readonly number[] | null,
+  ): Promise<void> {
+    const network = await this.#networkOf();
+    await this.#deps.boxes.firewall(box, {
+      hostAddress: network.hostAddress,
+      ports: [portOf(web.url)],
+      ...(inbound === null ? {} : { inbound }),
+    });
+  }
+
+  /**
    * The office's verify in the run's box at done (0002, DIPO-346): each command list as the box
    * user, in `/work` or the folder below it `cwd` names, with `env` plus the box's web route and
    * the CA bundle, as a session gets them, within `timeoutMs` each (`runBoxVerify`). The
    * developer's session runs, so its box firewall and dipo's files are in place and stay as they
-   * are. Never throws; a box that cannot run it is a `failed` result.
+   * are. Never throws; a box that cannot run it is a `failed` result. A test box's `setup`
+   * (DIPO-309) runs the same way, with `step` naming it in the log.
    */
   async verify(input: {
     readonly runId: string;
@@ -1234,12 +1297,13 @@ export class BoxWorkers {
     readonly cwd: string;
     readonly env: Readonly<Record<string, string>>;
     readonly timeoutMs: number;
+    readonly step?: "verify" | "setup";
   }): Promise<BoxVerifyResult> {
     const box = boxName(input.runId);
     let proxy: string;
     try {
       const web = await this.#web.acquire(box);
-      proxy = web.admit(box, this.#localPorts(this.#runDirOf(input.runId)));
+      proxy = this.#admit(web, box, this.#localPorts(this.#runDirOf(input.runId)));
     } catch (error) {
       return { kind: "failed", reason: `the box's web route is not there (${codeOf(error)})` };
     }
@@ -1264,15 +1328,16 @@ export class BoxWorkers {
       },
     );
     const fields = { run: input.runId, box, kind: result.kind };
+    const step = input.step ?? "verify";
     if (result.kind === "red") {
-      this.#deps.warn?.("the verify in the box is red", { ...fields, command: result.command });
+      this.#deps.warn?.(`the ${step} in the box is red`, { ...fields, command: result.command });
     } else if (result.kind === "failed") {
-      this.#deps.warn?.("the verify in the box could not run", {
+      this.#deps.warn?.(`the ${step} in the box could not run`, {
         ...fields,
         reason: result.reason,
       });
     } else {
-      this.#deps.info?.("the verify in the box ran", fields);
+      this.#deps.info?.(`the ${step} in the box ran`, fields);
     }
     return result;
   }
@@ -1316,7 +1381,22 @@ export class BoxWorkers {
     this.#forget(runId, name);
   }
 
+  /**
+   * The proxy URL of `box` on the web route `web`. A test box (DIPO-309) is admitted once per route:
+   * its install, its setup and its `dev` share one password, since each admission ends the one
+   * before and `dev` keeps running with the URL it started with. Every other box is admitted again.
+   */
+  #admit(web: RunningBoxWebRoute, box: string, ports: readonly number[]): string {
+    const test = runIdOfBox(box)?.startsWith(TEST_BOX_RUN_PREFIX) === true;
+    const kept = test ? this.#admitted.get(box) : undefined;
+    if (kept !== undefined && kept.route === web) return kept.proxy;
+    const proxy = web.admit(box, ports);
+    if (test) this.#admitted.set(box, { route: web, proxy });
+    return proxy;
+  }
+
   async #release(name: string): Promise<void> {
+    this.#admitted.delete(name);
     await this.#web.release(name).catch(() => undefined);
     await this.#model.release(name).catch(() => undefined);
   }
@@ -1486,11 +1566,16 @@ export class BoxWorkers {
   /**
    * Daemon stop: stops every indexed box that runs, which ends the worker inside it (its host
    * then records the exit), and stops the routes. The boxes keep their files for the run's next
-   * session. Never rejects.
+   * session. A test box keeps running (DIPO-309): its product serves the open test, which the next
+   * daemon takes up again. Never rejects.
    */
   async close(): Promise<void> {
     this.#door?.close();
-    const pending = new Set(this.pending().map((runId) => boxName(runId)));
+    const pending = new Set(
+      this.pending()
+        .filter((runId) => !runId.startsWith(TEST_BOX_RUN_PREFIX))
+        .map((runId) => boxName(runId)),
+    );
     if (pending.size > 0) {
       let listed: Awaited<ReturnType<BoxPort["list"]>> = [];
       try {

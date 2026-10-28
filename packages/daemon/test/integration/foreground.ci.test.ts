@@ -135,6 +135,7 @@ if (process.env["DIPO_TEST_CI"] === "1") {
               "reconcile",
               "reattach",
               "run-temp-sweep",
+              "tests-recover",
               "fix-rounds-recover",
             ]);
             // The database opens only after the post-bind re-read: after "listening".
