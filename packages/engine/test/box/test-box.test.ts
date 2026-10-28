@@ -132,12 +132,11 @@ function request(overrides: Partial<TestBoxRequest> = {}): TestBoxRequest {
     runDir: "/tmp/never",
     git: {} as OfficeGit,
     head: HEAD,
-    install: { commands: [["bun", "install", "--frozen-lockfile"]], env: {}, timeoutMs: 60_000 },
-    setup: { commands: [["bun", "run", "setup"]], cwd: ".", env: {}, timeoutMs: 60_000 },
+    install: { commands: [["bun", "install", "--frozen-lockfile"]], timeoutMs: 60_000 },
+    setup: { commands: [["bun", "run", "setup"]], cwd: ".", timeoutMs: 60_000 },
     dev: {
       command: ["bun", "run", "dev"],
       cwd: "/work",
-      env: { PORT: "5173" },
       startTimeoutMs: 300_000,
     },
     ...overrides,
@@ -180,10 +179,11 @@ describe("a test box", () => {
       "route inbound 5173",
     ]);
     expect(w.boxes.liveExecs.map((exec) => exec.command)).toEqual([["bun", "run", "dev"]]);
+    // dev picks its own port: dipo reads the URL it prints (no dev port in the profile, DIPO-349).
     expect(w.boxes.liveExecs[0]?.env).toMatchObject({
-      PORT: "5173",
       HTTPS_PROXY: "http://box:pw@192.0.2.10:41000",
     });
+    expect(w.boxes.liveExecs[0]?.env?.["PORT"]).toBeUndefined();
     // dev answers at the box's address: no relay; the forwarder starts from the Mac's bridge address.
     expect(w.reaches).toEqual([{ address: BOX_ADDRESS, port: 5173, source: BOX_HOST_ADDRESS }]);
     expect(w.forwards).toEqual([

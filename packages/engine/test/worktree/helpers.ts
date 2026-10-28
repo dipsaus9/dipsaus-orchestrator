@@ -1,15 +1,15 @@
 // Shared setup for the claim tests: the planning-lane setup (a temporary repository with the
 // Backlog fixture, a migrated state database with one office, the office's git and the pinned
-// Backlog CLI), plus claim dependencies with a fake disk probe.
+// Backlog CLI), plus claim dependencies, and a checkout a test makes by hand to change a story
+// branch, since dipo makes no worktree for a story (DIPO-349).
 
-import { realpathSync } from "node:fs";
+import { mkdtempSync, realpathSync } from "node:fs";
 import { join } from "node:path";
 
 import { type OfficeId, RunId, StoryKey } from "@dipsaus-orchestrator/contract";
-import type { TempRepo } from "@dipsaus-orchestrator/testkit";
+import { git, type TempRepo } from "@dipsaus-orchestrator/testkit";
 
 import { type GitExec, type GitSettings, OfficeGit, spawnGitExec } from "../../src/git";
-import type { DiskProbe } from "../../src/platform/disk";
 import { systemSpawn } from "../../src/platform/process";
 import { EDIT_KIND, editKind, OfficeLane } from "../../src/backlog/lane";
 import { type ClaimDeps, type ClaimRequest, hasLiveClaim } from "../../src/worktree";
@@ -26,9 +26,6 @@ export {
   subjects,
   taskFile,
 } from "../backlog/lane/helpers";
-
-/** Plenty of free space. */
-export const ROOMY: DiskProbe = { freeBytes: () => Promise.resolve(100_000_000_000) };
 
 export const TASK_1 = "TASK-1";
 export const BRANCH_1 = "TASK-1/add-csv-export-command";
@@ -54,7 +51,6 @@ export async function claimSetup(
       git: s.git,
       cli: s.cli,
       clock: s.t.clock,
-      disk: ROOMY,
       ...overrides,
     }),
     request: (key, overrides = {}) => ({
@@ -84,6 +80,25 @@ export function secondGit(
     runner: { exec, env: repo.env, sleep: async () => {} },
     clock: s.t.clock,
   });
+}
+
+/**
+ * Runs `fn` in a checkout of `branch` the test makes by hand under the repository's temp folder, as
+ * the maintainer would, and removes it afterwards: dipo makes no worktree for a story (DIPO-349),
+ * so a test that changes a story branch by hand commits there.
+ */
+export async function byHandOn<T>(
+  repo: TempRepo,
+  branch: string,
+  fn: (dir: string) => Promise<T>,
+): Promise<T> {
+  const dir = mkdtempSync(join(repo.root, "hand-"));
+  await git(repo.dir, repo.home, "worktree", "add", "--quiet", dir, branch);
+  try {
+    return await fn(dir);
+  } finally {
+    await git(repo.dir, repo.home, "worktree", "remove", "--force", dir);
+  }
 }
 
 /** The planning lane of the setup's office, refusing stories with a live claim. */

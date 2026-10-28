@@ -586,7 +586,6 @@ describe("prompts", () => {
     const { ui, session } = await openDesk();
     session.losses.set("DIPO-22", {
       commits: [{ sha: "4f2a9c1", subject: "Cap the retries" }],
-      files: ["src/retry.ts"],
     });
     await selectRow(ui, "DIPO-22");
     await ui.press("D");
@@ -595,10 +594,9 @@ describe("prompts", () => {
     await ui.press("enter");
     const frame = await ui.waitFor("type DIPO-22 to confirm: _");
     expect(lines(frame)).toContain(
-      " Discard DIPO-22: ends the run, deletes the worktree and branch, closes the PR and returns the story to Refined.",
+      " Discard DIPO-22: ends the run, deletes the box and branch, closes the PR and returns the story to Refined.",
     );
     expect(lines(frame)).toContain("     commit 4f2a9c1 Cap the retries");
-    expect(lines(frame)).toContain("     file src/retry.ts");
     await ui.press("DIPO-2");
     await ui.press("enter");
     await ui.waitFor("type DIPO-22 to confirm, or Esc to cancel");

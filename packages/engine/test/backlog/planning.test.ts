@@ -1,7 +1,7 @@
 // `story.park`, `story.drop` and the `work.resume` of a park with no run (DIPO-160, DIPO-344; 0020), fast and
 // local: a migrated state database with stories mirrored from a pretend base, a lane that journals
-// into the real journal and records its flushes, a code host that records its PR closes and, for
-// the dirty-worktree check, a git whose one call lists the porcelain status. The real lane, git and
+// into the real journal and records its flushes, a code host that records its PR closes and a git
+// whose calls answer from the test. A claim has no worktree (DIPO-349). The real lane, git and
 // Backlog CLI run in planning.ci.test.ts.
 
 import { afterEach, beforeEach, describe, expect, it } from "bun:test";
@@ -60,11 +60,10 @@ interface World {
   readonly planning: StoryPlanning;
   readonly registry: ReturnType<typeof buildRegistry>;
   readonly hooks: {
-    dirty: string[];
     alive: number[];
-    worktreeGone: boolean;
     commits: string[];
-    lockedBy: string | undefined;
+    /** Why deleting a local branch fails, when set. */
+    deleteFails: string | undefined;
     calls: string[][];
     goneBranches: string[];
     /** The `story.park` calls handed to run control for a story with a run. */
@@ -104,9 +103,8 @@ const BRANCH_TIP = "7".repeat(40);
 interface FakeGitOptions {
   /** The `sha<TAB>subject` lines `git log` lists (DIPO-228). */
   readonly commits?: readonly string[];
-  /** The reason another run locked the worktree at `path`, when set. */
-  readonly lockedBy?: string | undefined;
-  readonly path?: string;
+  /** Why `update-ref -d` of a local branch fails, when set. */
+  readonly deleteFails?: string | undefined;
   /** Every step's arguments, in order. */
   readonly calls?: string[][];
   /** Local branches deleted by hand: `rev-parse --verify` of them fails. */
@@ -114,25 +112,22 @@ interface FakeGitOptions {
 }
 
 /**
- * A git whose calls answer from the test: `git status` lists the files in `dirty`, `git log` the
- * `commits`, `git worktree list` the worktree at `path` locked by `lockedBy`, and every step
- * succeeds with no output (`rev-parse` finds no remote ref, so the base is local `main`). With
- * `worktreeGone` it knows no worktree at the claim's path, so a drop releases the claim without git.
+ * A git whose calls answer from the test: `git log` lists the `commits`, `update-ref -d` fails with
+ * `deleteFails` when set, and every other step succeeds with no output (`rev-parse` finds no remote
+ * ref, so the base is local `main`).
  */
-function fakeGit(dirty: string[], worktreeGone: boolean, options: FakeGitOptions = {}): OfficeGit {
+function fakeGit(options: FakeGitOptions = {}): OfficeGit {
   const session = {
     repository: { kind: "repository" },
     ok: async (_location: unknown, args: string[]) => {
       if (args[0] === "log") return options.commits?.map((line) => `${line}\n`).join("") ?? "";
-      if (args[0] === "worktree") {
-        return options.lockedBy === undefined
-          ? ""
-          : `worktree ${options.path}\0locked ${options.lockedBy}\0\0`;
-      }
-      return dirty.map((file) => `?? ${file}\0`).join("");
+      return "";
     },
     step: async (_location: unknown, args: string[]) => {
       options.calls?.push(args);
+      if (args[0] === "update-ref" && args[1] === "-d" && options.deleteFails !== undefined) {
+        return { code: 1, stdout: "", stderr: options.deleteFails };
+      }
       // A local branch exists unless it is listed as gone; the remote base never does here.
       const ref = args.at(-1) ?? "";
       const branch = ref.startsWith("refs/heads/")
@@ -148,9 +143,6 @@ function fakeGit(dirty: string[], worktreeGone: boolean, options: FakeGitOptions
   return {
     run: (item: (git: unknown) => Promise<unknown>) => item(session),
     resolveBaseIn: async () => "main",
-    adminDirOf: () => (worktreeGone ? null : "/admin"),
-    unpinWorktree: () => undefined,
-    worktreeLocation: () => ({ kind: "worktree", workTree: "/wt" }),
     settings: { remote: "origin" },
   } as unknown as OfficeGit;
 }
@@ -163,11 +155,9 @@ beforeEach(async () => {
   const flushes = { n: 0 };
   const closed: Closed[] = [];
   const hooks = {
-    dirty: [] as string[],
     alive: [] as number[],
-    worktreeGone: false,
     commits: [] as string[],
-    lockedBy: undefined as string | undefined,
+    deleteFails: undefined as string | undefined,
     calls: [] as string[][],
     goneBranches: [] as string[],
     parkedRuns: [] as { story: string; note: string }[],
@@ -179,10 +169,9 @@ beforeEach(async () => {
     },
     lane: () => fakeLane(office, t, ops, flushes),
     git: () =>
-      fakeGit(hooks.dirty, hooks.worktreeGone, {
+      fakeGit({
         commits: hooks.commits,
-        lockedBy: hooks.lockedBy,
-        path: join(dir, "trees", "DIPO-7"),
+        deleteFails: hooks.deleteFails,
         calls: hooks.calls,
         goneBranches: hooks.goneBranches,
       }),
@@ -259,8 +248,6 @@ function activeRun(key: StoryKey, id: string): RunId {
       model: "haiku",
       startSha: "b".repeat(40),
       branch: `${id}/work`,
-      worktree: join(w.dir, "trees", id),
-      slot: 1,
       budgetUnit: "tokens",
       budgetLimit: 1000,
       loopCap: 3,
@@ -282,14 +269,11 @@ function claim(key: StoryKey, id: string, runId: RunId): void {
       key,
       story: id,
       branch: `${id}/work`,
-      worktree: join(w.dir, "trees", id),
       base: "main",
       baseSha: "b".repeat(40),
       startSha: "b".repeat(40),
       claimSha: "d".repeat(40),
       reused: false,
-      snapshot: { path: "/x", adminDir: "/x", commondir: "/x", gitdir: "/x", pointer: "/x" },
-      firstFeedback: null,
       claimedAt: t.clock.now(),
     }),
   );
@@ -648,29 +632,10 @@ describe("story.drop", () => {
     });
   });
 
-  it("refuses a dirty worktree listing the files unless --delete-branch is given", async () => {
-    const key = story("DIPO-7", {
-      status: "Parked",
-      park: { reason: "by-maintainer", from: "In Progress", note: "stopped" },
-    });
-    claim(key, "DIPO-7", w.t.ids.next("run") as RunId);
-    park(key, "DIPO-7", "by-maintainer", "In Progress", null);
-    w.hooks.dirty.push("src/new.ts", "notes.txt");
-    const error = errorOf(await send("story.drop", { story: "DIPO-7", deleteBranch: false }));
-    expect(error.code).toBe("story.dirtyWorktree");
-    expect(error.message).toContain("src/new.ts");
-    expect(error.message).toContain("notes.txt");
-    expect(w.ops).toEqual([]);
-    expect(allEntries(w.office)).toEqual([]);
-    expect(liveClaimOf(w.office, key)).not.toBeNull();
-  });
-
   for (const deleteBranch of [false, true]) {
     it(`refuses a parked story whose worker host still runs, and changes nothing (deleteBranch ${deleteBranch})`, async () => {
       const key = parkedClaim("DIPO-7");
       w.hooks.alive.push(4242);
-      // A dirty worktree too: the host check comes before the dirty-files check.
-      w.hooks.dirty.push("src/new.ts");
       const reply = await send("story.drop", { story: "DIPO-7", deleteBranch });
       expect(reply).toMatchObject({ ok: false, error: { code: "run.hostAlive", retryable: true } });
       const error = errorOf(reply);
@@ -681,7 +646,7 @@ describe("story.drop", () => {
       expect(allEntries(w.office)).toEqual([]);
       expect(w.closed).toEqual([]);
       expect(w.flushes.n).toBe(0);
-      // The claim is still live: the worktree was not released.
+      // The claim is still live: nothing was released.
       expect(liveClaimOf(w.office, key)).not.toBeNull();
     });
   }
@@ -692,12 +657,13 @@ describe("story.drop", () => {
     expect(errorOf(await send("story.drop", { story: "DIPO-7", deleteBranch: false })).code).toBe(
       "run.hostAlive",
     );
-    // The host has exited and its worktree is gone, so the release makes no git call.
+    // The host has exited; the release keeps the branch and makes no git call.
     w.hooks.alive.length = 0;
-    w.hooks.worktreeGone = true;
+    w.hooks.calls.length = 0;
     const reply = await send("story.drop", { story: "DIPO-7", deleteBranch: false });
     expect(reply).toMatchObject({ ok: true, changed: true });
     expect(liveClaimOf(w.office, key)).toBeNull();
+    expect(w.hooks.calls).toEqual([]);
     expect(entries("story.state").at(-1)?.delta).toMatchObject({ from: "Parked", to: "Removed" });
   });
 
@@ -752,7 +718,7 @@ describe("story.drop", () => {
     );
     const failing = new StoryPlanning({
       lane: () => fakeLane(w.office, w.t, w.ops, w.flushes),
-      git: () => fakeGit([], false),
+      git: () => fakeGit(),
       host: {
         closePr: async () => {
           throw new CodeHostError("failed", "gh down");
@@ -806,12 +772,12 @@ describe("story.drop", () => {
         closedAt: null,
       }),
     );
-    // Another run holds the worktree's lock, so the release refuses after the PR closed.
-    w.hooks.lockedBy = "someone else";
-    const reply = await send("story.drop", { story: "DIPO-7", deleteBranch: false });
+    // Deleting the branch fails, so the release refuses after the PR closed.
+    w.hooks.deleteFails = "cannot lock ref";
+    const reply = await send("story.drop", { story: "DIPO-7", deleteBranch: true });
     const message = errorOf(reply).message;
     expect(message).toContain("PR #41 was closed and the story was not archived");
-    expect(message).toContain("locked by someone else");
+    expect(message).toContain("cannot lock ref");
     expect(w.closed).toHaveLength(1);
     expect(liveClaimOf(w.office, key)).not.toBeNull();
     expect(allEntries(w.office).map((e) => e.state)).toEqual(["withdrawn"]);
@@ -843,12 +809,12 @@ async function losses(id: string) {
 }
 
 describe("story.losses and the kept branch of a story (DIPO-228)", () => {
-  it("lists the commits not on the base and the files of a live claim, and changes nothing", async () => {
+  it("lists the commits not on the base of a live claim, and changes nothing", async () => {
     const key = story("DIPO-7", { status: "Ready" });
     claim(key, "DIPO-7", w.t.ids.next("run") as RunId);
     w.hooks.commits = ["3f9a1c2\tfeat(DIPO-7): retry", "9b2e4d0\tfix: lookup"];
-    w.hooks.dirty = ["scratch.txt"];
-    expect(await losses("DIPO-7")).toMatchObject({
+    const reply = await losses("DIPO-7");
+    expect(reply).toMatchObject({
       ok: true,
       result: {
         story: "DIPO-7",
@@ -857,22 +823,26 @@ describe("story.losses and the kept branch of a story (DIPO-228)", () => {
           { sha: "3f9a1c2", subject: "feat(DIPO-7): retry" },
           { sha: "9b2e4d0", subject: "fix: lookup" },
         ],
-        files: ["scratch.txt"],
       },
     });
+    // A story has no worktree, so no file list (DIPO-349).
+    expect(reply.ok && Object.keys(reply.result as object).toSorted()).toEqual([
+      "commits",
+      "key",
+      "story",
+    ]);
     expect(w.ops).toEqual([]);
     expect(w.flushes.n).toBe(0);
     expect(entries("story.state")).toEqual([]);
   });
 
-  it("lists the commits of an open released branch, and no files without a claim", async () => {
+  it("lists the commits of an open released branch", async () => {
     const key = story("DIPO-7", { status: "Ready" });
     keepBranch(key, "DIPO-7/work");
     w.hooks.commits = ["9b2e4d0\tfix: lookup"];
-    w.hooks.dirty = ["scratch.txt"];
     expect(await losses("DIPO-7")).toMatchObject({
       ok: true,
-      result: { commits: [{ sha: "9b2e4d0", subject: "fix: lookup" }], files: [] },
+      result: { commits: [{ sha: "9b2e4d0", subject: "fix: lookup" }] },
     });
   });
 
@@ -881,20 +851,13 @@ describe("story.losses and the kept branch of a story (DIPO-228)", () => {
     keepBranch(key, "DIPO-7/work");
     w.hooks.commits = ["9b2e4d0\tfix: lookup"];
     w.hooks.goneBranches.push("DIPO-7/work");
-    expect(await losses("DIPO-7")).toMatchObject({
-      ok: true,
-      result: { commits: [], files: [] },
-    });
+    expect(await losses("DIPO-7")).toMatchObject({ ok: true, result: { commits: [] } });
   });
 
   it("answers empty lists for a story with neither a claim nor a kept branch, and changes nothing", async () => {
     story("DIPO-7", { status: "Ready" });
     w.hooks.commits = ["9b2e4d0\tfix: lookup"];
-    w.hooks.dirty = ["scratch.txt"];
-    expect(await losses("DIPO-7")).toMatchObject({
-      ok: true,
-      result: { commits: [], files: [] },
-    });
+    expect(await losses("DIPO-7")).toMatchObject({ ok: true, result: { commits: [] } });
     expect(w.ops).toEqual([]);
     expect(w.flushes.n).toBe(0);
     expect(w.hooks.calls).toEqual([]);

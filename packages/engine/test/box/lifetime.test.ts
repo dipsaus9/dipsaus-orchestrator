@@ -579,7 +579,6 @@ function request(w: World): RunBoxRequest {
     story: STORY,
     branch: BRANCH,
     startSha: w.start,
-    slot: 2,
     git: w.git,
     config: OFFICE_DEFAULTS,
   };
@@ -696,28 +695,23 @@ function verifyInputOf(verify: unknown): ReturnType<typeof boxVerifyInput> {
   return boxVerifyInput({
     profile: verifying(verify),
     config: OFFICE_DEFAULTS,
-    story: "DIPO-1",
-    slot: 1,
   });
 }
 
 // DIPO-346 (0002): what dipo's verify in the box at done runs, from the run profile and config.
 describe("the verify input of a box", () => {
-  it("takes the profile's verify commands and folder, the run environment and the verify deadline", () => {
+  it("takes the profile's verify commands and folder and the verify deadline, and no run environment", () => {
     const input = boxVerifyInput({
       profile: verifying({
         status: "resolved",
         value: { commands: [["bun", "run", "verify"]], cwd: "packages/app" },
       }),
       config: OFFICE_DEFAULTS,
-      story: "DIPO-1",
-      slot: 1,
     });
-    expect(input).toMatchObject({
+    expect(input).toEqual({
       commands: [["bun", "run", "verify"]],
       cwd: "packages/app",
       timeoutMs: (OFFICE_DEFAULTS.timeouts.scriptMinutes["verify"] ?? 0) * 60_000,
-      env: expect.objectContaining({ DIPO_STORY: "DIPO-1", DIPO_WORKTREE: "/work" }),
     });
     const config = {
       ...OFFICE_DEFAULTS,
@@ -727,8 +721,6 @@ describe("the verify input of a box", () => {
       boxVerifyInput({
         profile: verifying({ status: "resolved", value: { commands: [["make"]], cwd: "." } }),
         config,
-        story: "DIPO-1",
-        slot: null,
       }),
     ).toMatchObject({ timeoutMs: BOX_VERIFY_MINUTES_DEFAULT * 60_000 });
   });

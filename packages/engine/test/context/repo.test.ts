@@ -283,10 +283,10 @@ describe("default provider on a repository", () => {
           blobIds: { "b.ts": "2".repeat(40), "a.ts": "1".repeat(40) },
         };
         const head = "f".repeat(40);
-        const record = recordContextPack(office, "/wt/DIPO-1", head, pack, clock);
-        expect(contextPackOf(office, "/wt/DIPO-1")).toEqual(record);
+        const record = recordContextPack(office, "DIPO-1/add-a-greeting", head, pack, clock);
+        expect(contextPackOf(office, "DIPO-1/add-a-greeting")).toEqual(record);
         expect(record).toEqual({
-          worktree: "/wt/DIPO-1",
+          branch: "DIPO-1/add-a-greeting",
           headSha: head,
           blobIds: { "a.ts": "1".repeat(40), "b.ts": "2".repeat(40) },
           provider: "default",

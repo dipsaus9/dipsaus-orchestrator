@@ -22,20 +22,11 @@ function newClaim(key: StoryKey, runId: RunId, branch = "TASK-1/add-csv"): NewCl
     key,
     story: "TASK-1",
     branch,
-    worktree: "/w/TASK-1",
     base: "main",
     baseSha: "a".repeat(40),
     startSha: "a".repeat(40),
     claimSha: null,
     reused: false,
-    snapshot: {
-      path: "/w/TASK-1",
-      adminDir: "/r/.git/worktrees/TASK-1",
-      commondir: "../..\n",
-      gitdir: "/w/TASK-1/.git\n",
-      pointer: "gitdir: /r/.git/worktrees/TASK-1\n",
-    },
-    firstFeedback: null,
     claimedAt: 1,
   };
 }

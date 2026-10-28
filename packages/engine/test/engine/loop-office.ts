@@ -14,10 +14,11 @@
 //   the host starter writes them to the run's `events.ndjson` as a worker host would, with the
 //   exit line and `exit.json`; a session the director holds stays live until the scenario
 //   releases it;
-// - the box: every run is a box run (0021, DIPO-240), and the story worktree stands in for its
-//   box, so a developer session's edits are files the director writes there, and its last part at
-//   done is committed on the story branch as dipo commits a part (`run-office.ts` does the same);
-// - worktree setup (no install) and the launch checks (always pass).
+// - the box: every run is a box run (0021, DIPO-240), and a checkout of the story branch the test
+//   makes by hand stands in for its box (`standInBox`; dipo makes no worktree, DIPO-349), so a
+//   developer session's edits are files the director writes there, and its last part at done is
+//   committed on the story branch as dipo commits a part, outside `backlog/`;
+// - the launch checks (always pass).
 //
 // `restart()` stops every service and builds them again over the same state database and
 // repository, as a daemon restart does; the new manual clock starts after the old one's time.
@@ -95,10 +96,8 @@ import type {
 } from "../../src/workers/types";
 import { hasLiveClaim, StoryClaims } from "../../src/worktree";
 import { StoryTeardown } from "../../src/worktree/done";
-import type { SetupOutcome } from "../../src/worktree/setup";
 import { backlog, CLI, publish } from "../gate/gated-office";
 import { BACKLOG_FIXTURE, type OfficeSetup, officeSetup, resultOf, send } from "../office/helpers";
-import { ROOMY } from "../worktree/helpers";
 import { scriptedWorker } from "../workers/scripts";
 
 import { LoopHost, REMOTE_URL } from "./loop-host";
@@ -115,7 +114,6 @@ const PROFILE = detect({
   texts: { "package.json": JSON.stringify({ name: "fixture", scripts: { verify: "bun test" } }) },
   lockfiles: ["bun.lock"],
   workspaceDirs: [],
-  configImports: {},
   envFiles: [],
 });
 
@@ -128,7 +126,7 @@ export interface Session {
   readonly kind: SessionKind;
   readonly runId: string;
   readonly agentId: string;
-  /** The session's working directory: the story worktree (its box) or the reviewer's empty one. */
+  /** The session's working directory: the stand-in box of the story or the reviewer's empty one. */
   readonly cwd: string;
   /** The first user message: the task message, a handoff or the fix round's feedback. */
   readonly message: string;
@@ -270,6 +268,20 @@ function scriptedPort(): WorkerPort {
       lastReport: lastTurn(state)?.report ?? null,
     }),
   };
+}
+
+/**
+ * The stand-in box of a story branch: a checkout the test makes by hand under the repository's temp
+ * folder, made once per branch (dipo makes no worktree for a story, DIPO-349).
+ */
+async function standInBox(repo: TempRepoWithRemote, branch: string): Promise<string> {
+  const dir = join(repo.root, "boxes", branch.replaceAll("/", "_"));
+  if (!existsSync(dir)) {
+    mkdirSync(join(repo.root, "boxes"), { recursive: true });
+    const added = await repo.run(["git", "worktree", "add", "--quiet", dir, branch]);
+    if (added.exitCode !== 0) throw new Error(`the stand-in box failed: ${added.stderr}`);
+  }
+  return dir;
 }
 
 // ---- the world --------------------------------------------------------------------------------------
@@ -453,11 +465,15 @@ export async function withLoopOffice(
           const eventFile = join(runDir, EVENTS_FILE);
           const kind = run.plan.argv[1] === "review" ? "review" : "implement";
           counts[kind] += 1;
+          const branch = findRun(office, run.runId as RunId)?.branch ?? null;
           const session: Session = {
             kind,
             runId: run.runId,
             agentId: run.agentId,
-            cwd: run.plan.cwd,
+            cwd:
+              kind === "implement" && branch !== null
+                ? await standInBox(repo, branch)
+                : run.plan.cwd,
             message: run.plan.stdin.join(""),
             n: counts[kind],
           };
@@ -597,7 +613,7 @@ async function buildDaemon(
       return loaded().ids;
     },
   });
-  const claims = new StoryClaims({ cli, git: gitOf, disk: ROOMY });
+  const claims = new StoryClaims({ cli, git: gitOf });
   const lane = new BacklogLane({ cli, git: gitOf, liveClaim: hasLiveClaim });
   const base = cliRunBase({ git: gitOf, cli });
   const officeClock = {
@@ -631,6 +647,7 @@ async function buildDaemon(
     boxRun: () => true,
     mergesStories: true,
     required: host,
+    checkout: () => repo.dir,
     secrets: () => [],
   });
 
@@ -643,7 +660,7 @@ async function buildDaemon(
     git: gitOf,
   });
 
-  // The run of a part, whose story worktree stands in for its box.
+  // The run of a part, whose stand-in box holds its work.
   const runOf = (runId: string): StoredRun => {
     for (const office of loaded().manager.loadedOffices()) {
       const handle = loaded().manager.get(office);
@@ -665,21 +682,21 @@ async function buildDaemon(
     storyPr: storyPrs,
     storyFacts: baseStoryFacts(base),
     conflicts,
-    // The worktree stands in for the run's box: its last part is what the worker wrote there,
-    // committed on the story branch as dipo commits a part.
+    // The stand-in box: its last part is what the worker wrote there outside `backlog/`, committed
+    // on top of the branch's tip as dipo commits a part (the branch moves with dipo's own commits).
     parts: {
       isBoxRun: () => true,
       finishLast: async (runId, message, finish) => {
         const run = runOf(runId);
-        const worktree = run.worktree ?? "";
-        await repo.run(["git", "add", "--all"], worktree);
-        const staged = await repo.run(["git", "diff", "--cached", "--quiet"], worktree);
+        const box = await standInBox(repo, run.branch ?? "");
+        await repo.run(["git", "read-tree", "HEAD"], box);
+        await repo.run(["git", "add", "--all", "--", ".", ":(exclude)backlog"], box);
+        const staged = await repo.run(["git", "diff", "--cached", "--quiet"], box);
         if (staged.exitCode !== 0) {
           const body = partBody(run.story ?? runId);
-          await repo.run(["git", "commit", "--quiet", "-m", message, "-m", body], worktree);
+          await repo.run(["git", "commit", "--quiet", "-m", message, "-m", body], box);
         }
-        const tipOf = async () =>
-          (await repo.run(["git", "rev-parse", "HEAD"], worktree)).stdout.trim();
+        const tipOf = async () => (await repo.run(["git", "rev-parse", "HEAD"], box)).stdout.trim();
         const result = await finish({ tip: await tipOf(), branchTip: tipOf });
         return { outcome: { kind: "empty" }, finished: { result } };
       },
@@ -687,12 +704,12 @@ async function buildDaemon(
   });
 
   // The daemon's box copy (DIPO-324) for the stand-in box: what the branch got outside it since the
-  // oldest pending merge's tip, outside `backlog/`, written into or removed from the worktree.
+  // oldest pending merge's tip, outside `backlog/`, written into or removed from the stand-in box.
   const copyIntoWorktree = async (office: OfficeId, run: StoredRun): Promise<void> => {
     const handle = loaded().manager.get(office);
     const pending = handle === undefined ? null : pendingBoxCopy(handle, run.runId);
-    if (handle === undefined || pending === null || run.worktree === null) return;
-    const worktree = run.worktree;
+    if (handle === undefined || pending === null || run.branch === null) return;
+    const worktree = await standInBox(repo, run.branch);
     const tip = (await repo.run(["git", "rev-parse", "HEAD"], worktree)).stdout.trim();
     const changed = await repo.run(
       ["git", "diff-tree", "-r", "-z", "--no-renames", "--name-status", pending.from, tip],
@@ -755,16 +772,6 @@ async function buildDaemon(
     // The merges the auto-merge's conflict hand-off made on the branch reach the stand-in box before the worker's
     // next session (DIPO-324), as `BoxCollisions.copyPending` copies them into a real box.
     boxSync: (office, run) => copyIntoWorktree(office, run),
-    // Setup is stubbed: no install step runs (DIPO-39's own tests cover the real one).
-    setup: async (): Promise<SetupOutcome> =>
-      ({
-        ok: true,
-        slot: 1,
-        env: {},
-        files: { log: [], skipped: [], envFiles: [], settings: null },
-        log: ["setup: done"],
-        release: () => undefined,
-      }) as unknown as SetupOutcome,
   });
   const { control, outcomes, resumption, permissions, startsPaused, places, fixRounds, launcher } =
     runs;

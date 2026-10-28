@@ -8,7 +8,6 @@ import { describe, expect, it } from "bun:test";
 import type { RunId, WorkRef } from "@dipsaus-orchestrator/contract";
 
 import {
-  type BackstopSnapshot,
   dependencyFiles,
   gateChanges,
   NO_BOX_AT_DONE,
@@ -28,17 +27,9 @@ function profileOf(scripts: Record<string, string>): RunProfile {
     },
     lockfiles: ["bun.lock"],
     workspaceDirs: [],
-    configImports: {},
     envFiles: [],
   });
 }
-
-const SNAP: BackstopSnapshot = {
-  head: "c".repeat(40),
-  branch: "refs/heads/DIPO-1/add-a-greeting",
-  stash: "",
-  backlogStatus: "",
-};
 
 describe("rules", () => {
   it("lists the gate script and command changes the review is told about", () => {
@@ -130,12 +121,11 @@ function turn(box: boolean | undefined) {
     run: {
       runId: "run_1" as RunId,
       kind: "story",
-      worktree: "/w/DIPO-1",
+      branch: "DIPO-1/add-a-greeting",
       story: "DIPO-1",
     } as unknown as StoredRun,
     work: {} as WorkRef,
     report: { status: "done", criteria: [], summary: "", commitSubject: "x" },
-    snapshot: SNAP,
     live: () => true,
     claimEnd: () => true,
     write: () => undefined,

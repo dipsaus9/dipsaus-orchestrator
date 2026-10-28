@@ -64,7 +64,6 @@ import {
 import { OfficeGit, spawnGitExec } from "../../src/git";
 import { systemSpawn } from "../../src/platform/process";
 import {
-  type BackstopSnapshot,
   findRun,
   insertRun,
   pendingReviews,
@@ -198,7 +197,7 @@ function request(over: Partial<BoxCommandRequest> = {}): BoxCommandRequest {
   return {
     box: "dipo-run_1",
     command: ["bun", "run", "verify"],
-    env: { DIPO_STORY: "DIPO-1", DIPO_WORKTREE: "/work" },
+    env: { DIPO_STORY: "DIPO-1", CI: "1" },
     timeoutMs: 20 * 60_000,
     ...over,
   };
@@ -224,7 +223,7 @@ describe("one command in the box", () => {
     const [exec] = box.seen;
     expect(exec?.options).toEqual({
       cwd: "/work",
-      env: { DIPO_STORY: "DIPO-1", DIPO_WORKTREE: "/work" },
+      env: { DIPO_STORY: "DIPO-1", CI: "1" },
     });
     expect(exec?.stdinEnded).toBe(true);
     expect(exec?.command.slice(3)).toEqual(["dipo-command", "bun", "run", "verify"]);
@@ -743,17 +742,10 @@ function profileOf(scripts: Record<string, string>): RunProfile {
     },
     lockfiles: ["bun.lock"],
     workspaceDirs: [],
-    configImports: {},
     envFiles: [],
   });
 }
 
-const SNAP: BackstopSnapshot = {
-  head: "c".repeat(40),
-  branch: "refs/heads/DIPO-1/add-a-greeting",
-  stash: "",
-  backlogStatus: "",
-};
 const TASK_FILE = "backlog/tasks/dipo-1 - Add-a-greeting.md";
 const LAST_PART: PartOutcome = {
   kind: "committed",
@@ -781,7 +773,6 @@ interface World {
   onFailure: (() => void) | null;
   /** The story branch's `package.json` scripts. */
   branchScripts: Record<string, string>;
-  changed: string[];
   /** The story branch tip, as the fake parts move it. */
   tip: string;
   /** The branch tip when the story was marked In Review. */
@@ -811,15 +802,14 @@ let w: World;
 
 function fakeStoryGit(): StoryGit {
   return {
-    snapshot: async () => SNAP,
-    changedPaths: async () => w.changed,
+    tip: async () => w.tip,
     story: async () => ({
       taskFile: TASK_FILE,
       title: "Add a greeting",
       status: "In Progress",
       criteria: [1, 2],
     }),
-    showAt: async (_o, _w, sha, path) =>
+    showAt: async (_o, sha, path) =>
       path === "package.json"
         ? JSON.stringify({
             scripts: sha.startsWith("refs/heads/") ? w.branchScripts : { verify: "bun test" },
@@ -879,7 +869,6 @@ function trackRun(): void {
     work: w.work,
     caps: { budgetTokens: 300_000, maxTurns: 100, maxMinutes: 30 },
     startedAt: w.f.t.clock.now(),
-    snapshot: SNAP,
   });
 }
 
@@ -897,7 +886,6 @@ beforeEach(async () => {
     failures: 0,
     onFailure: null,
     branchScripts: { verify: "bun test" },
-    changed: ["src/greet.ts"],
     tip: "b".repeat(40),
     inReviewTip: null,
     queuedPart: false,
@@ -975,8 +963,6 @@ beforeEach(async () => {
       model: "haiku",
       startSha: "b".repeat(40),
       branch: "DIPO-1/add-a-greeting",
-      worktree: join(dir, "trees", "DIPO-1"),
-      slot: 1,
       budgetUnit: "tokens",
       budgetLimit: 300_000,
       // Tier S: three loops (0002), so the third refused report parks.
@@ -994,14 +980,11 @@ beforeEach(async () => {
       key,
       story: "DIPO-1",
       branch: "DIPO-1/add-a-greeting",
-      worktree: join(dir, "trees", "DIPO-1"),
       base: "main",
       baseSha: "b".repeat(40),
       startSha: "b".repeat(40),
       claimSha: "c".repeat(40),
       reused: false,
-      snapshot: { path: "/x", adminDir: "/x", commondir: "/x", gitdir: "/x", pointer: "/x" },
-      firstFeedback: null,
       claimedAt: f.t.clock.now(),
     });
   });
@@ -1075,9 +1058,7 @@ function expectNoVerify(): void {
 
 describe("a box run at done (DIPO-346: a green verify in the box, then In Review)", () => {
   it("commits and pushes the last part, moves to In Review after a green verify, and starts the PR and the review", async () => {
-    // Outside the References, and HEAD moved with the part commits: a box run has no scope or
-    // backstop park.
-    w.changed = ["README.md", "docs/notes.md"];
+    // A box run has no scope or backstop park.
     await play();
     expect(w.calls).toEqual([
       "last part print a greeting",
@@ -1566,7 +1547,6 @@ describe("the last part at done (DIPO-273)", () => {
 
   it("parks a run without a box at done, with no scope check and no verify of dipo's (DIPO-240)", async () => {
     w.box = false;
-    w.changed = ["src/greet.ts", "README.md"];
     await play();
     expect(parks().map((p) => [p.reason, p.detail])).toEqual([["worker-failed", NO_BOX_AT_DONE]]);
     expect(w.calls).toEqual([]);
@@ -1640,7 +1620,6 @@ describe("the In Review end of a box run (DIPO-144, DIPO-84, restated for box ru
       work: w.work,
       caps: { budgetTokens: 1, maxTurns: 100, maxMinutes: 1 },
       startedAt: w.f.t.clock.now(),
-      snapshot: null,
     });
     w.f.t.clock.advance(2 * 60_000);
     await control.idle();

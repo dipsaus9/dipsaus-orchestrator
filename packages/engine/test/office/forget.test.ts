@@ -164,27 +164,17 @@ describe("office.forget and runs (DIPO-48)", () => {
         const handle = s.state.office(office);
         const runId = RunId.parse(s.ids.next("run"));
         const key = StoryKey.parse(s.ids.next("sto"));
-        const worktree = join(repo.root, "trees", "TASK-1");
         handle.immediate(() => {
           insertClaim(handle, {
             runId,
             key,
             story: "TASK-1",
             branch: "TASK-1/a-story",
-            worktree,
             base: "main",
             baseSha: "b".repeat(40),
             startSha: "a".repeat(40),
             claimSha: "c".repeat(40),
             reused: false,
-            snapshot: {
-              path: worktree,
-              adminDir: "/x",
-              commondir: "/x",
-              gitdir: "/x",
-              pointer: "/x",
-            },
-            firstFeedback: null,
             claimedAt: 0,
           });
           insertRun(handle, {
@@ -197,8 +187,6 @@ describe("office.forget and runs (DIPO-48)", () => {
             model: "haiku",
             startSha: "a".repeat(40),
             branch: "TASK-1/a-story",
-            worktree,
-            slot: null,
             budgetUnit: "tokens",
             budgetLimit: 300_000,
             loopCap: 3,

@@ -766,18 +766,16 @@ describe("the desk shows a story Done elsewhere (DIPO-161)", () => {
         ]);
         office.immediate(() => {
           office.run(
-            `insert into done_elsewhere (office_id, run_id, key, story_id, branch, worktree, base,
-               base_commit, released_at, settled_at, worktree_kept, branch_kept, commits, files)
-             values ($office_id, 'run_1', $key, 'DIPO-105', 'DIPO-105/x', '/trees/DIPO-105', 'main',
-               'a1b2c3d4e5f6a7b8', 2, 3, 1, 1, '[{"sha":"abc1234","subject":"wip"}]',
-               '["notes.txt"]')`,
+            `insert into done_elsewhere (office_id, run_id, key, story_id, branch, base,
+               base_commit, released_at, settled_at, branch_kept, commits)
+             values ($office_id, 'run_1', $key, 'DIPO-105', 'DIPO-105/x', 'main',
+               'a1b2c3d4e5f6a7b8', 2, 3, 1, '[{"sha":"abc1234","subject":"wip"}]')`,
             { key: keyOf(office, "DIPO-105") },
           );
           office.run(
-            `insert into done_elsewhere (office_id, run_id, key, story_id, branch, worktree, base,
+            `insert into done_elsewhere (office_id, run_id, key, story_id, branch, base,
                flagged_at)
-             values ($office_id, 'run_2', $key, 'DIPO-106', 'DIPO-106/x', '/trees/DIPO-106', 'main',
-               4)`,
+             values ($office_id, 'run_2', $key, 'DIPO-106', 'DIPO-106/x', 'main', 4)`,
             { key: keyOf(office, "DIPO-106") },
           );
         });

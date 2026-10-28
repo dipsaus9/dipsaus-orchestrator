@@ -11,7 +11,7 @@
 import { existsSync, mkdirSync, statSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 
-import type { Clock, IdPrefix, OfficeId } from "@dipsaus-orchestrator/contract";
+import type { Clock, IdPrefix, OfficeId, RunId } from "@dipsaus-orchestrator/contract";
 import {
   fakeSpawn,
   ManualClock,
@@ -44,6 +44,7 @@ import {
   RunControl,
   type RunSteering,
   composeRuns,
+  findRun,
   RunOutcomes,
   type StoredRun,
   storyHoldsWork,
@@ -76,11 +77,9 @@ import { AdapterHolds, gateLaunch, type LaunchCheckOutcome } from "../../src/wor
 import type { RunLaunchPaths, WorkerPort } from "../../src/workers/port";
 import type { Caps, HostOp, LaunchPlan, ParseState } from "../../src/workers/types";
 import { hasLiveClaim, StoryClaims } from "../../src/worktree";
-import type { SlotEntry } from "../../src/worktree/slots";
-import type { SetupOutcome } from "../../src/worktree/setup";
 import { backlog, CLI, publish } from "../gate/gated-office";
 import { BACKLOG_FIXTURE, type OfficeSetup, officeSetup, resultOf, send } from "../office/helpers";
-import { ROOMY } from "../worktree/helpers";
+
 import { withBuiltinPlugins, withoutSkills } from "../workers/launch-fixtures";
 import { loadRecording } from "../workers/replay";
 import { stubReviewBoxes } from "./review-boxes";
@@ -175,8 +174,7 @@ export interface RunOfficeOptions {
    * for), with the tier caps a lifted park is resumed with.
    */
   readonly startsPaused?: boolean;
-  /** The live port slot entries `work.run` and `work.preview` check (DIPO-197). */
-  readonly liveSlots?: () => readonly SlotEntry[];
+
   /**
    * Lets worker outcomes resume a parked run (DIPO-75): the real unpark writer on the office git
    * and the tier caps.
@@ -186,9 +184,10 @@ export interface RunOfficeOptions {
   readonly control?: { readonly caps?: Partial<Caps> };
   /**
    * Wires In Review at done (DIPO-49, DIPO-273) into run control, on the office git and the
-   * Backlog CLI, with the run's worktree standing in for its box: `beforeWorker` runs in the
-   * worktree when the host starts, like the worker's own edits in its box, and the last part at
-   * done commits them on the story branch. `profile` is the run profile.
+   * Backlog CLI, with a checkout of the story branch the test makes by hand standing in for its
+   * box (dipo makes no worktree, DIPO-349): `beforeWorker` runs in it when the host starts, like
+   * the worker's own edits in its box, and the last part at done commits them on the story branch
+   * outside `backlog/`. `profile` is the run profile.
    */
   readonly finisher?: {
     readonly beforeWorker?: (worktree: string) => Promise<void> | void;
@@ -248,7 +247,6 @@ export async function withRunOffice(
       const claims = new StoryClaims({
         cli: CLI(repo),
         git: (office) => engineGit.forOffice(office),
-        disk: ROOMY,
       });
       const lane = new BacklogLane({
         cli: CLI(repo),
@@ -301,8 +299,17 @@ export async function withRunOffice(
         if (tempDirs !== null) sweeps.push(tempDirs.sweep("ended"));
       };
       const hosts: Running["hosts"] = [];
-      // Each run's worktree, which stands in for its box (DIPO-240).
+      // Each run's stand-in box: a checkout of its branch the test makes (DIPO-240, DIPO-349).
       const worktrees = new Map<string, string>();
+      const standInBox = async (branch: string): Promise<string> => {
+        const dir = join(repo.root, "boxes", branch.replaceAll("/", "_"));
+        if (!existsSync(dir)) {
+          mkdirSync(join(repo.root, "boxes"), { recursive: true });
+          const added = await repo.run(["git", "worktree", "add", "--quiet", dir, branch]);
+          if (added.exitCode !== 0) throw new Error(`the stand-in box failed: ${added.stderr}`);
+        }
+        return dir;
+      };
       const hostStarter: HostStarter = {
         start: async (office, run) => {
           const runDir = runDirectory(run.officeDir, run.runId);
@@ -318,8 +325,12 @@ export async function withRunOffice(
             plan: run.plan,
             sizeBefore: existsSync(eventFile) ? statSync(eventFile).size : 0,
           });
-          worktrees.set(run.runId, run.plan.cwd);
-          await options.finisher?.beforeWorker?.(run.plan.cwd);
+          const branch = findRun(office, run.runId as RunId)?.branch ?? null;
+          if (branch !== null && options.finisher !== undefined) {
+            const box = await standInBox(branch);
+            worktrees.set(run.runId, box);
+            await options.finisher.beforeWorker?.(box);
+          }
           const socketPath = hostSocketPath(runtimeDir, run.runId);
           const host: LaunchedHost = {
             pid: 4242,
@@ -393,14 +404,16 @@ export async function withRunOffice(
               },
               story: gitStoryOps({ git: (office) => engineGit.forOffice(office), cli: CLI(repo) }),
               profile: () => finisherOptions.profile,
-              // Every run is a box run (DIPO-240); here the box is the run's worktree: its last part
-              // is what the worker wrote there, committed on the story branch as dipo commits a part.
+              // Every run is a box run (DIPO-240); here the box is the stand-in checkout: its last
+              // part is what the worker wrote there outside `backlog/`, committed on top of the
+              // branch's tip as dipo commits a part.
               parts: {
                 isBoxRun: () => true,
                 finishLast: async (runId, message, finish) => {
                   const worktree = worktrees.get(runId);
-                  if (worktree === undefined) throw new Error(`no worktree for ${runId}`);
-                  await repo.run(["git", "add", "--all"], worktree);
+                  if (worktree === undefined) throw new Error(`no stand-in box for ${runId}`);
+                  await repo.run(["git", "read-tree", "HEAD"], worktree);
+                  await repo.run(["git", "add", "--all", "--", ".", ":(exclude)backlog"], worktree);
                   const staged = await repo.run(["git", "diff", "--cached", "--quiet"], worktree);
                   if (staged.exitCode !== 0) {
                     await repo.run(
@@ -517,16 +530,6 @@ export async function withRunOffice(
             }
           : {}),
         ...(options.startsPaused === true ? { startsPaused: { holds } } : {}),
-        // Setup is stubbed: no install step runs (DIPO-39's own tests cover the real one).
-        setup: async (): Promise<SetupOutcome> =>
-          ({
-            ok: true,
-            slot: 1,
-            env: {},
-            files: { log: [], skipped: [], envFiles: [], settings: null },
-            log: ["setup: done"],
-            release: () => undefined,
-          }) as unknown as SetupOutcome,
       });
       const { ingest, permissions, control, outcomes, resumption, startsPaused, launcher } =
         composed;
@@ -561,7 +564,6 @@ export async function withRunOffice(
         gates,
         lane: (office) => lane.forOffice(office),
         launcher,
-        ...(options.liveSlots === undefined ? {} : { liveSlots: options.liveSlots }),
       });
       const s = await officeSetup(repo.root, {
         features: [

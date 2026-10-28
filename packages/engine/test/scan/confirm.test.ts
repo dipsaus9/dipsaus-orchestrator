@@ -28,7 +28,6 @@ function probe(scripts: Record<string, string>, extra: Partial<Probe> = {}): Pro
     texts: { "package.json": json({ name: "app", scripts }) },
     lockfiles: ["bun.lock"],
     workspaceDirs: [],
-    configImports: {},
     envFiles: [],
     ...extra,
   };

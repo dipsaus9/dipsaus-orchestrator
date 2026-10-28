@@ -73,7 +73,7 @@ function note(s: OfficeSetup, office: OfficeId, text: string): void {
 }
 
 /** A released claim and its run: rows in tables that reference each other. */
-function addRun(s: OfficeSetup, office: OfficeId, worktree: string): void {
+function addRun(s: OfficeSetup, office: OfficeId): void {
   const handle = s.state.office(office);
   const runId = RunId.parse(s.ids.next("run"));
   const key = StoryKey.parse(s.ids.next("sto"));
@@ -83,14 +83,11 @@ function addRun(s: OfficeSetup, office: OfficeId, worktree: string): void {
       key,
       story: "TASK-1",
       branch: "TASK-1/a-story",
-      worktree,
       base: "main",
       baseSha: "b".repeat(40),
       startSha: "a".repeat(40),
       claimSha: "c".repeat(40),
       reused: false,
-      snapshot: { path: worktree, adminDir: "/x", commondir: "/x", gitdir: "/x", pointer: "/x" },
-      firstFeedback: null,
       claimedAt: 0,
     });
     insertRun(handle, {
@@ -103,8 +100,6 @@ function addRun(s: OfficeSetup, office: OfficeId, worktree: string): void {
       model: "haiku",
       startSha: "a".repeat(40),
       branch: "TASK-1/a-story",
-      worktree,
-      slot: null,
       budgetUnit: "tokens",
       budgetLimit: 300_000,
       loopCap: 3,
@@ -138,7 +133,7 @@ describe("office.purge", () => {
         // Loaded, with a request record, history, a run and its claim, and an mcp.json.
         resultOf(await send(s, "fixture.ping", {}, office));
         note(s, office, "history");
-        addRun(s, office, join(repo.root, "trees", "TASK-1"));
+        addRun(s, office);
         const commonDir = join(repo.dir, ".git");
         writeFileSync(join(officeDirectory(commonDir), "mcp.json"), "{}\n");
         const other = otherOffice(s);
@@ -247,7 +242,7 @@ describe("office.purge", () => {
         const office = await openOffice(s, repo.dir);
         resultOf(await send(s, "fixture.ping", {}, office));
         for (let i = 0; i < 3; i++) note(s, office, `entry ${i}`);
-        addRun(s, office, join(repo.root, "trees", "TASK-1"));
+        addRun(s, office);
         // As a first purge leaves it when it stops: forgotten, .git/dipo gone, some tables empty.
         const handle = s.state.office(office);
         handle.immediate(() => {

@@ -33,17 +33,16 @@ type Sent = { name: string; args: unknown; office: unknown };
 /** `story.losses` as the engine answers it when nothing is lost. */
 const NOTHING_LOST = () => ({
   ok: true,
-  result: { story: "DIPO-7", key: KEY, commits: [], files: [] },
+  result: { story: "DIPO-7", key: KEY, commits: [] },
 });
 
-/** `story.losses` as the engine answers it for one commit and one untracked file. */
+/** `story.losses` as the engine answers it for one commit. */
 const LOST = () => ({
   ok: true,
   result: {
     story: "DIPO-7",
     key: KEY,
     commits: [{ sha: "3f9a1c2", subject: "feat(DIPO-7): retry" }],
-    files: ["scratch.txt"],
   },
 });
 
@@ -198,7 +197,7 @@ describe("dipo drop", () => {
     expect(script.err[0]).toContain("typed at a terminal");
   });
 
-  it("lists the commits and files it loses before the typed id is asked (DIPO-228)", async () => {
+  it("lists the commits it loses before the typed id is asked (DIPO-228)", async () => {
     const ctx = fake(done, { interactive: true, answers: ["DIPO-7"] }, LOST);
     // What was printed when the question was asked: the lists come first.
     const printedAtQuestion: string[][] = [];
@@ -212,40 +211,33 @@ describe("dipo drop", () => {
     expect(ctx.out).toEqual([
       "commits not on the base (1):",
       "  3f9a1c2 feat(DIPO-7): retry",
-      "uncommitted or untracked files (1):",
-      "  scratch.txt",
-      "dropped DIPO-7; it is archived, its worktree and branch are removed",
+      "dropped DIPO-7; it is archived, its branch is deleted",
     ]);
-    expect(printedAtQuestion[0]).toEqual(ctx.out.slice(0, 4));
+    expect(printedAtQuestion[0]).toEqual(ctx.out.slice(0, 2));
     expect(ctx.ws.questions[0]).toContain("cannot be undone");
     expect(ctx.ws.questions[0]).toContain("Type DIPO-7");
   });
 
-  it("caps the lists at 20 commits and 50 files with a count of the rest", async () => {
+  it("caps the list at 20 commits with a count of the rest", async () => {
     const commits = Array.from({ length: 22 }, (_, i) => ({
       sha: `sha${i}`,
       subject: `commit ${i}`,
     }));
-    const files = Array.from({ length: 51 }, (_, i) => `file-${i}.txt`);
     const ctx = fake(done, { interactive: true, answers: ["DIPO-7"] }, () => ({
       ok: true,
-      result: { story: "DIPO-7", key: KEY, commits, files },
+      result: { story: "DIPO-7", key: KEY, commits },
     }));
     expect(await main(["drop", "DIPO-7", "--delete-branch"], ctx.deps)).toBe(0);
     expect(ctx.out).toContain("commits not on the base (22):");
     expect(ctx.out).toContain("  sha19 commit 19");
     expect(ctx.out).not.toContain("  sha20 commit 20");
     expect(ctx.out).toContain("  and 2 more");
-    expect(ctx.out).toContain("uncommitted or untracked files (51):");
-    expect(ctx.out).toContain("  file-49.txt");
-    expect(ctx.out).not.toContain("  file-50.txt");
-    expect(ctx.out).toContain("  and 1 more");
   });
 
-  it("says that no commits or files are lost when the read finds none", async () => {
+  it("says that no commits are lost when the read finds none", async () => {
     const ctx = fake(done, { interactive: true, answers: ["DIPO-7"] });
     expect(await main(["drop", "DIPO-7", "--delete-branch"], ctx.deps)).toBe(0);
-    expect(ctx.out[0]).toBe("no commits or files are lost");
+    expect(ctx.out[0]).toBe("no commits are lost");
     expect(ctx.sent.map((s) => s.name)).toEqual(["story.drop"]);
   });
 
@@ -263,19 +255,6 @@ describe("dipo drop", () => {
     expect(ctx.err[0]).toContain("could not read the branch");
     expect(ctx.ws.questions).toEqual([]);
     expect(ctx.sent).toEqual([]);
-  });
-
-  it("prints story.dirtyWorktree with the files and exits 1", async () => {
-    const ctx = fake(() => ({
-      ok: false,
-      error: {
-        code: "story.dirtyWorktree",
-        message: "The worktree of DIPO-7 has uncommitted or untracked files: a.ts.",
-        retryable: false,
-      },
-    }));
-    expect(await main(["drop", "DIPO-7", "--yes"], ctx.deps)).toBe(1);
-    expect(ctx.err[0]).toContain("a.ts");
   });
 
   it("needs exactly one story id", async () => {
@@ -307,8 +286,6 @@ describe("dipo discard (DIPO-161)", () => {
     expect(printedAtQuestion[0]).toEqual([
       "commits not on the base (1):",
       "  3f9a1c2 feat(DIPO-7): retry",
-      "uncommitted or untracked files (1):",
-      "  scratch.txt",
     ]);
     // Nothing was sent before the typed id.
     expect(sentAtQuestion).toEqual([0]);
@@ -376,18 +353,5 @@ describe("dipo discard and drop loss lists (DIPO-161 review)", () => {
     expect(await main(["discard", "DIPO-7", "--note", "x"], ctx.deps)).toBe(0);
     expect(ctx.ws.questions[0]).toContain("stopped only after this list was read");
     expect(ctx.ws.questions[0]).toContain("in between is lost too");
-  });
-
-  it("lists the worktrees drop --delete-branch keeps", async () => {
-    const ctx = fake(done, { interactive: true, answers: ["DIPO-7"] }, () => ({
-      ok: true,
-      result: { story: "DIPO-7", key: KEY, commits: [], files: [], kept: ["/trees/DIPO-7"] },
-    }));
-    expect(await main(["drop", "DIPO-7", "--delete-branch"], ctx.deps)).toBe(0);
-    expect(ctx.out.slice(0, 3)).toEqual([
-      "no commits or files are lost",
-      "worktrees kept with their files, not removed by this command (1):",
-      "  /trees/DIPO-7",
-    ]);
   });
 });

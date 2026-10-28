@@ -90,7 +90,6 @@ const PROBE: Probe = {
   texts: { "package.json": TEXTS["package.json"] ?? "" },
   lockfiles: [],
   workspaceDirs: [],
-  configImports: {},
   envFiles: [{ example: ".env.example", path: ".env", present: true, ignored: true }],
 };
 

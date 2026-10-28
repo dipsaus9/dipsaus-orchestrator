@@ -150,8 +150,6 @@ async function withWorld(fn: (w: World) => Promise<void> | void): Promise<void> 
           model: "haiku",
           startSha: "c".repeat(40),
           branch: "DIPO-1/x",
-          worktree: join(dir, "tree"),
-          slot: 1,
           budgetUnit: "tokens",
           budgetLimit: 1000,
           loopCap: 3,

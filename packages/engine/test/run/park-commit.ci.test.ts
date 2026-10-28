@@ -1,9 +1,10 @@
 // CI only (0017 section 1, DIPO-225): real git repositories and processes, too slow for the local
 // run.
 // Local cases of the park and unpark commits on real git and the pinned Backlog CLI (DIPO-112;
-// 0010 section 2a): each commits the story's task file alone, so a path staged in the worktree
-// before the park stays staged and out of the commit. No remote: the claim cuts the branch from
-// the local `main`, and nothing is pushed. The full park flow runs in CI (park.ci.test.ts).
+// 0010 section 2a): each commits the story's task file alone on top of the branch tip, from dipo's
+// own copy of the backlog, so a worker's commit below stays as it is. A story has no worktree
+// (DIPO-349). No remote: the claim cuts the branch from the local `main`, and nothing is pushed.
+// The full park flow runs in CI (park.ci.test.ts).
 
 import { describe, expect, it, setDefaultTimeout } from "bun:test";
 import { writeFileSync } from "node:fs";
@@ -13,14 +14,14 @@ import { git, withTempRepo } from "@dipsaus-orchestrator/testkit";
 
 import { setFinalSummary } from "../../src/backlog/fields/summary";
 import { SECTION_RULE } from "../../src/backlog/plain";
-import type { GitLocation } from "../../src/git/hardened";
 import { writeCloseOutSummary } from "../../src/merge/close-out";
 import { gitParkWriter, gitUnparkWriter, type ParkBranchFacts } from "../../src/run/park";
+import { editInStoryBacklog } from "../../src/stories/story-copy";
 import { claimStory, type ClaimOutcome } from "../../src/worktree";
-import { editInStoryBacklog } from "../../src/worktree/claim";
 import {
   BACKLOG_FIXTURE,
   BRANCH_1,
+  byHandOn,
   claimSetup,
   filesOf,
   publish,
@@ -38,11 +39,6 @@ function claimed(outcome: ClaimOutcome): Extract<ClaimOutcome, { ok: true }> {
   return outcome;
 }
 
-async function staged(worktree: string, home: string): Promise<string[]> {
-  const out = await git(worktree, home, "diff", "--cached", "--name-only");
-  return out.split("\n").filter((line) => line !== "");
-}
-
 /** The story's task file as committed at `commit`. */
 const taskFileAt = (repo: { dir: string; home: string }, commit: string) =>
   git(repo.dir, repo.home, "show", `${commit}:${TASK_FILE_1}`);
@@ -50,7 +46,6 @@ const taskFileAt = (repo: { dir: string; home: string }, commit: string) =>
 const parkRequest = (summary: () => string) => ({
   story: TASK_1,
   branch: BRANCH_1,
-  worktree: "",
   reason: "stopped" as const,
   note: "Not now.",
   summary,
@@ -58,22 +53,25 @@ const parkRequest = (summary: () => string) => ({
 
 if (process.env["DIPO_TEST_CI"] === "1") {
   describe("the park and unpark commits", () => {
-    it("leave a path staged before the park out of the park and unpark commits", async () => {
+    it("commit the task file alone on top of a worker's commit, which stays below them", async () => {
       await withTempRepo(
         async (repo) => {
           await publish(repo);
           const s = await claimSetup(repo);
-          const claim = claimed(await claimStory(s.deps(), s.request(s.key()))).claim;
+          claimed(await claimStory(s.deps(), s.request(s.key())));
           const deps = { git: () => s.git, cli: s.cli };
 
-          // Verified work staged but not yet committed when the park comes.
-          writeFileSync(join(claim.worktree, "work.txt"), "work\n");
-          await git(claim.worktree, repo.home, "add", "work.txt");
+          // A delivered part on the branch when the park comes.
+          const work = await byHandOn(repo, BRANCH_1, async (dir) => {
+            writeFileSync(join(dir, "work.txt"), "work\n");
+            await git(dir, repo.home, "add", "work.txt");
+            await git(dir, repo.home, "commit", "--quiet", "-m", "work");
+            return (await git(dir, repo.home, "rev-parse", "HEAD")).trim();
+          });
 
           const park = await gitParkWriter(deps).write(s.office.officeId, {
             story: TASK_1,
             branch: BRANCH_1,
-            worktree: claim.worktree,
             reason: "stopped",
             note: "Not now.",
           });
@@ -81,23 +79,25 @@ if (process.env["DIPO_TEST_CI"] === "1") {
           expect(park.commit).not.toBeNull();
           expect(park.pushed).toBe(false);
           expect(park.pushError).toBeNull();
-          const parkSubject = await git(claim.worktree, repo.home, "log", "-1", "--format=%s");
+          const parkSubject = await repo.git("log", "-1", "--format=%s", BRANCH_1);
           expect(parkSubject.trim()).toBe(`${TASK_1}: status Parked`);
           expect(await filesOf(repo.dir, repo.home, park.commit as string)).toEqual([TASK_FILE_1]);
-          expect(await staged(claim.worktree, repo.home)).toEqual(["work.txt"]);
+          expect((await repo.git("rev-parse", `${park.commit}^`)).trim()).toBe(work);
+          expect(park.lastGoodCommit).toBe(work);
 
           const lift = await gitUnparkWriter(deps).lift(s.office.officeId, {
             story: TASK_1,
             branch: BRANCH_1,
-            worktree: claim.worktree,
             to: "In Progress",
           });
 
           expect(lift.commit).not.toBeNull();
-          const liftSubject = await git(claim.worktree, repo.home, "log", "-1", "--format=%s");
+          const liftSubject = await repo.git("log", "-1", "--format=%s", BRANCH_1);
           expect(liftSubject.trim()).toBe(`${TASK_1}: status In Progress`);
           expect(await filesOf(repo.dir, repo.home, lift.commit as string)).toEqual([TASK_FILE_1]);
-          expect(await staged(claim.worktree, repo.home)).toEqual(["work.txt"]);
+          expect(await repo.git("show", `${BRANCH_1}:work.txt`)).toBe("work\n");
+          // The main checkout stays on main with no change.
+          expect(await repo.git("status", "--porcelain")).toBe("");
         },
         { fixture: BACKLOG_FIXTURE },
       );
@@ -110,40 +110,33 @@ if (process.env["DIPO_TEST_CI"] === "1") {
         async (repo) => {
           await publish(repo);
           const s = await claimSetup(repo);
-          const claim = claimed(await claimStory(s.deps(), s.request(s.key()))).claim;
+          claimed(await claimStory(s.deps(), s.request(s.key())));
           const deps = { git: () => s.git, cli: s.cli };
-          // Uncommitted work and an untracked file, as a Mac worker leaves them.
-          writeFileSync(join(claim.worktree, "work.txt"), "work\n");
-          writeFileSync(join(claim.worktree, "notes.txt"), "notes\n");
-          await git(claim.worktree, repo.home, "add", "work.txt");
           const seen: ParkBranchFacts[] = [];
 
           const park = await gitParkWriter(deps).write(s.office.officeId, {
             story: TASK_1,
             branch: BRANCH_1,
-            worktree: claim.worktree,
             reason: "budget-exceeded",
             note: "turn cap (--max-turns) after 61 turns",
             summary: (facts) => {
               seen.push(facts);
-              return `Parked 2026-10-22 14:05 UTC: budget-exceeded (build)\n- Last good commit: ${facts.lastGoodCommit}\n- Uncommitted files: ${facts.uncommitted}`;
+              return `Parked 2026-10-22 14:05 UTC: budget-exceeded (build)\n- Last good commit: ${facts.lastGoodCommit}`;
             },
           });
 
           // One commit holds the F16 block, the status and the block, and only the task file.
           expect(await filesOf(repo.dir, repo.home, park.commit as string)).toEqual([TASK_FILE_1]);
-          expect(seen).toEqual([{ lastGoodCommit: park.lastGoodCommit, uncommitted: 2 }]);
+          expect(seen).toEqual([{ lastGoodCommit: park.lastGoodCommit }]);
           const parked = await taskFileAt(repo, park.commit as string);
           expect(parked).toContain("status: Parked");
           expect(parked).toContain("Parked 2026-10-22 14:05 UTC: budget-exceeded (build)");
           expect(parked).toContain(`- Last good commit: ${park.lastGoodCommit}`);
-          expect(parked).toContain("- Uncommitted files: 2");
 
           const line = "Resumed 2026-10-22 15:00 UTC; grants: none; note: Carry on.";
           const lift = await gitUnparkWriter(deps).lift(s.office.officeId, {
             story: TASK_1,
             branch: BRANCH_1,
-            worktree: claim.worktree,
             to: "In Progress",
             line,
           });
@@ -157,12 +150,11 @@ if (process.env["DIPO_TEST_CI"] === "1") {
           const again = await gitUnparkWriter(deps).lift(s.office.officeId, {
             story: TASK_1,
             branch: BRANCH_1,
-            worktree: claim.worktree,
             to: "In Progress",
             line,
           });
           expect(again.commit).toBeNull();
-          const tip = await git(claim.worktree, repo.home, "rev-parse", "HEAD");
+          const tip = await repo.git("rev-parse", BRANCH_1);
           expect((await taskFileAt(repo, tip.trim())).split(line)).toHaveLength(2);
         },
         { fixture: BACKLOG_FIXTURE },
@@ -175,17 +167,12 @@ if (process.env["DIPO_TEST_CI"] === "1") {
           await publish(repo);
           const s = await claimSetup(repo);
           const claim = claimed(await claimStory(s.deps(), s.request(s.key()))).claim;
-          const location = s.git.worktreeLocation(claim.worktree) as Extract<
-            GitLocation,
-            { kind: "worktree" }
-          >;
           let written = "";
           const { commit } = await s.git.run((session) =>
             editInStoryBacklog(
               s.git,
               session,
-              location,
-              TASK_1,
+              { story: TASK_1, branch: BRANCH_1 },
               `${TASK_1}: close out`,
               async (b) => {
                 const target = { cli: s.cli, cwd: b.cwd, id: TASK_1 };
@@ -218,14 +205,13 @@ if (process.env["DIPO_TEST_CI"] === "1") {
         async (repo) => {
           await publish(repo);
           const s = await claimSetup(repo);
-          const claim = claimed(await claimStory(s.deps(), s.request(s.key()))).claim;
+          claimed(await claimStory(s.deps(), s.request(s.key())));
           const writer = gitParkWriter({ git: () => s.git, cli: s.cli });
 
           const built = await writer.write(s.office.officeId, {
             ...parkRequest(() => {
               throw new Error("the run row is gone");
             }),
-            worktree: claim.worktree,
           });
           expect(built.summaryError).toBe("building it failed: the run row is gone");
           const parked = await taskFileAt(repo, built.commit as string);
@@ -242,10 +228,10 @@ if (process.env["DIPO_TEST_CI"] === "1") {
         async (repo) => {
           await publish(repo);
           const s = await claimSetup(repo);
-          const claim = claimed(await claimStory(s.deps(), s.request(s.key()))).claim;
+          claimed(await claimStory(s.deps(), s.request(s.key())));
           const park = await gitParkWriter({ git: () => s.git, cli: s.cli }).write(
             s.office.officeId,
-            { ...parkRequest(() => `Parked\n${SECTION_RULE}`), worktree: claim.worktree },
+            parkRequest(() => `Parked\n${SECTION_RULE}`),
           );
           expect(park.summaryError).toMatch(/^appending it failed: .*a line of 50 `-`/);
           const parked = await taskFileAt(repo, park.commit as string);
@@ -261,22 +247,20 @@ if (process.env["DIPO_TEST_CI"] === "1") {
         async (repo) => {
           await publish(repo);
           const s = await claimSetup(repo);
-          const claim = claimed(await claimStory(s.deps(), s.request(s.key()))).claim;
+          claimed(await claimStory(s.deps(), s.request(s.key())));
           const writer = gitParkWriter({ git: () => s.git, cli: s.cli });
           const block = "Parked 2026-10-22 14:05 UTC: stopped (maintainer)";
           const first = await writer.write(s.office.officeId, {
             ...parkRequest(() => block),
-            worktree: claim.worktree,
           });
           expect(first.commit).not.toBeNull();
           // The same park written again, as after a restart between the commit and the record.
           const again = await writer.write(s.office.officeId, {
             ...parkRequest(() => block),
-            worktree: claim.worktree,
           });
           expect(again.commit).toBeNull();
           expect(again.summaryError).toBeNull();
-          const tip = (await git(claim.worktree, repo.home, "rev-parse", "HEAD")).trim();
+          const tip = (await repo.git("rev-parse", BRANCH_1)).trim();
           expect(tip).toBe(first.commit as string);
           expect((await taskFileAt(repo, tip)).split(block)).toHaveLength(2);
         },
@@ -291,13 +275,12 @@ if (process.env["DIPO_TEST_CI"] === "1") {
         async (repo) => {
           await publish(repo);
           const s = await claimSetup(repo);
-          const claim = claimed(await claimStory(s.deps(), s.request(s.key()))).claim;
+          claimed(await claimStory(s.deps(), s.request(s.key())));
           const deps = { git: () => s.git, cli: s.cli };
           const park = () =>
             gitParkWriter(deps).write(s.office.officeId, {
               story: TASK_1,
               branch: BRANCH_1,
-              worktree: claim.worktree,
               reason: "ambiguous-spec",
               note: "Which greeting should the CLI print?",
             });
@@ -310,7 +293,6 @@ if (process.env["DIPO_TEST_CI"] === "1") {
           const lift = await gitUnparkWriter(deps).lift(s.office.officeId, {
             story: TASK_1,
             branch: BRANCH_1,
-            worktree: claim.worktree,
             to: "In Progress",
             answer,
           });
@@ -328,7 +310,6 @@ if (process.env["DIPO_TEST_CI"] === "1") {
           const again = await gitUnparkWriter(deps).lift(s.office.officeId, {
             story: TASK_1,
             branch: BRANCH_1,
-            worktree: claim.worktree,
             to: "In Progress",
             answer,
           });
@@ -339,7 +320,6 @@ if (process.env["DIPO_TEST_CI"] === "1") {
           const over = await gitUnparkWriter(deps).lift(s.office.officeId, {
             story: TASK_1,
             branch: BRANCH_1,
-            worktree: claim.worktree,
             to: "In Progress",
             answer: { q: "Which exit code?", answer: "Exit 2.", contractMax: 10 },
           });

@@ -5,7 +5,6 @@
 // ingestion and the real web calls module (`run/web-calls.ts`).
 
 import { describe, expect, it } from "bun:test";
-import { join } from "node:path";
 
 import { StoryId } from "@dipsaus-orchestrator/contract";
 import { withTempDir } from "@dipsaus-orchestrator/testkit";
@@ -106,8 +105,6 @@ async function ingestWebCalls(
       model: "haiku",
       startSha: "c".repeat(40),
       branch: "DIPO-1/x",
-      worktree: join(dir, "tree"),
-      slot: 1,
       budgetUnit: "tokens",
       budgetLimit: 1000,
       loopCap: 3,
@@ -122,6 +119,7 @@ async function ingestWebCalls(
   const warnings: string[] = [];
   const guard = new WebCalls({
     offices: { config: () => OFFICE_DEFAULTS },
+    checkout: () => "/office",
     secrets,
     warn: (message) => warnings.push(message),
   });

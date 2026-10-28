@@ -100,7 +100,7 @@ interface World {
   /** Story keys read again after a park (DIPO-56). */
   readonly refreshed: string[];
   readonly work: WorkRef;
-  writer: "ok" | "tampered" | "taskField" | "fails" | "noSummary";
+  writer: "ok" | "taskField" | "fails" | "noSummary";
   steer: RunSteering["send"] | null;
   ingestor: Ingestor | null;
   /** What run control logged through its `warn` dependency. */
@@ -132,12 +132,6 @@ beforeEach(async () => {
     writer: {
       write: async (_office, request): Promise<BranchPark> => {
         writes.push(request);
-        if (world.writer === "tampered") {
-          throw new GitError(
-            "git.worktreeTampered",
-            `The git links of ${request.worktree} changed since dipo claimed it (${request.worktree}/.git); dipo runs no git in that worktree.`,
-          );
-        }
         if (world.writer === "taskField") {
           throw new GitError(
             TASK_FIELD_ERROR,
@@ -191,8 +185,6 @@ beforeEach(async () => {
       model: "haiku",
       startSha: "b".repeat(40),
       branch: "DIPO-1/add-a-greeting",
-      worktree: join(dir, "trees", "DIPO-1"),
-      slot: 1,
       budgetUnit: "tokens",
       budgetLimit: ROOMY.budgetTokens,
       loopCap: 3,
@@ -207,14 +199,11 @@ beforeEach(async () => {
       key: work.key,
       story: "DIPO-1",
       branch: "DIPO-1/add-a-greeting",
-      worktree: join(dir, "trees", "DIPO-1"),
       base: "main",
       baseSha: "b".repeat(40),
       startSha: "b".repeat(40),
       claimSha: "d".repeat(40),
       reused: false,
-      snapshot: { path: "/x", adminDir: "/x", commondir: "/x", gitdir: "/x", pointer: "/x" },
-      firstFeedback: null,
       claimedAt: f.t.clock.now(),
     });
   });
@@ -500,7 +489,7 @@ describe("reports", () => {
     expect(noCause()).toBe(true);
   });
 
-  it("parks a blocked report without a question on its summary, keeping worktree, branch, claim and session", async () => {
+  it("parks a blocked report without a question on its summary, keeping branch, claim and session", async () => {
     track();
     w.f.office.immediate(() =>
       w.f.office.run(
@@ -524,29 +513,11 @@ describe("reports", () => {
       { agent: w.f.agent },
     );
     expect(agent).toEqual({ session_id: "session-1", end_reason: "blocked" });
-    expect(w.writes[0]?.worktree).toBe(join(w.dir, "trees", "DIPO-1"));
+    expect(w.writes[0]?.branch).toBe("DIPO-1/add-a-greeting");
   });
 });
 
-describe("a tampered worktree", () => {
-  it("parks scope-violation when the park commit is refused with git.worktreeTampered", async () => {
-    track();
-    w.writer = "tampered";
-    w.control.onWorkerEvents(w.f.run, SCRIPTS["blocked-question"] as WorkerEvent[]);
-    await w.control.idle();
-    const [park] = parks();
-    expect(park?.reason).toBe("scope-violation");
-    expect(noCause()).toBe(true);
-    expect(park?.detail).toContain("dipo runs no git in that worktree");
-    expect(park?.detail).toContain("parking it as ambiguous-spec");
-    // One write attempt; nothing else ran in the worktree.
-    expect(w.writes).toHaveLength(1);
-    const notices = loggedEvents(w.f.office)
-      .filter((event) => event.type === "engine.notice")
-      .map((event) => (event.data as { code: string }).code);
-    expect(notices).toEqual(["park.notWritten"]);
-  });
-
+describe("a park the branch write refuses", () => {
   it("parks scope-violation when the park is refused for task file fields dipo does not know (DIPO-270)", async () => {
     track();
     w.writer = "taskField";
@@ -694,7 +665,7 @@ describe("story.park of a running story", () => {
     expect(runIntents(w.f.office, w.f.run).map((i) => [i.kind, i.state])).toEqual([
       ["stop", "sent"],
     ]);
-    // Branch and worktree are kept: the claim stays live.
+    // The branch is kept: the claim stays live.
     expect(countRows(w.f.office, "claims")).toBe(1);
     const claim = w.f.office.get<{ released_at: number | null }>(
       "select released_at from claims where office_id = $office_id",
@@ -897,13 +868,13 @@ describe("story views and reconcile (DIPO-56)", () => {
   it("parkForReconcile parks scope-violation without writing on the branch", async () => {
     const run = findRun(w.f.office, w.f.run);
     if (run === null) throw new Error("no run");
-    await w.control.parkForReconcile(w.f.office, run, "Changed by hand: the worktree is gone.", {
+    await w.control.parkForReconcile(w.f.office, run, "Changed by hand: the branch is gone.", {
       code: "reconcile.handChanged",
       text: "DIPO-1 changed by hand",
     });
     expect(w.writes).toEqual([]);
     expect(parks().map((p) => [p.reason, p.detail])).toEqual([
-      ["scope-violation", "Changed by hand: the worktree is gone."],
+      ["scope-violation", "Changed by hand: the branch is gone."],
     ]);
     expect(findRun(w.f.office, w.f.run)?.endKind).toBe("reconciled");
     // Nothing is read on a branch that cannot be trusted.
@@ -1218,7 +1189,7 @@ const capSteps = () =>
   );
 
 /**
- * A control whose finisher answers continue for every turn, as for a run without a worktree; with
+ * A control whose finisher answers continue for every turn, as for a session run; with
  * `throws` its afterTurn throws instead (DIPO-235).
  */
 function continuing(throws = false): RunControl {
@@ -1320,7 +1291,7 @@ describe("a capped done turn the finisher lets continue (DIPO-222)", () => {
     }
   });
 
-  // A story run always has a worktree (the runs check). The stub stands in for any RunFinisher that
+  // A story run always has a branch (the runs check). The stub stands in for any RunFinisher that
   // answers continue while no other ending holds the run; with VerifyCommit a story run reaches
   // continue only when another ending holds it, and then the fallback leaves that ending in place.
   it("parks budget-exceeded at the engine turn cap of a story run whose finisher answers continue", async () => {
@@ -1360,8 +1331,8 @@ describe("a capped done turn the finisher lets continue (DIPO-222)", () => {
   it("ends a session run at the cap: the cap intent is stored and the stop sent, no In Review end", async () => {
     w.f.t.state.connection.exec("pragma foreign_keys = off");
     w.f.office.run(
-      `update runs set kind = 'session', key = null, story_id = null, branch = null,
-         worktree = null where office_id = $office_id and run_id = $run`,
+      `update runs set kind = 'session', key = null, story_id = null, branch = null
+         where office_id = $office_id and run_id = $run`,
       { run: w.f.run },
     );
     const control = continuing();
@@ -1378,7 +1349,7 @@ describe("a capped done turn the finisher lets continue (DIPO-222)", () => {
   });
 });
 
-const notesWorktree = () => findRun(w.f.office, w.f.run)?.worktree ?? "";
+const notesBranch = () => findRun(w.f.office, w.f.run)?.branch ?? "";
 const notesTurn = (notes: string | undefined, input = 10): WorkerEvent => ({
   t: "turn",
   report: {
@@ -1412,8 +1383,8 @@ describe("worker notes for the handoff (DIPO-154; 0020 section 6)", () => {
       text: string;
     }>(
       `select agent_id, run_id, story_key, text from worker_notes
-        where office_id = $office_id and worktree = $worktree`,
-      { worktree: notesWorktree() },
+        where office_id = $office_id and branch = $branch`,
+      { branch: notesBranch() },
     );
     expect(rows).toHaveLength(1);
     expect(rows[0]).toMatchObject({ agent_id: "agt-a", run_id: w.f.run, story_key: w.work.key });
@@ -1421,7 +1392,7 @@ describe("worker notes for the handoff (DIPO-154; 0020 section 6)", () => {
     expect(rows[0]?.text.length).toBeLessThanOrEqual(WORKER_NOTES_MAX);
     // Another agent of the run (the next session) has its own row.
     w.control.onWorkerEvents(w.f.run, [notesTurn("Third: from the next session.")], "agt-b");
-    expect(latestWorkerNotes(w.f.office, notesWorktree())).toMatchObject({
+    expect(latestWorkerNotes(w.f.office, notesBranch())).toMatchObject({
       agent: "agt-b",
       text: "Third: from the next session.",
     });
@@ -1437,17 +1408,17 @@ describe("worker notes for the handoff (DIPO-154; 0020 section 6)", () => {
     await w.control.idle();
     expect(parks().map((p) => p.reason)).toEqual(["budget-exceeded"]);
     // The park kept the notes.
-    expect(latestWorkerNotes(w.f.office, notesWorktree())?.text).toBe(
+    expect(latestWorkerNotes(w.f.office, notesBranch())?.text).toBe(
       "Next: finish the greeting test; the parser is done.",
     );
-    // The next session's handoff block, gathered for the worktree, carries them.
+    // The next session's handoff block, gathered for the branch, carries them.
     const git = {
       run: async <T>(fn: (session: { ok: () => Promise<string> }) => Promise<T>) =>
         fn({ ok: async () => "" }),
     } as unknown as OfficeGit;
     const facts = await gatherHandoff({
       git,
-      location: { kind: "worktree", workTree: notesWorktree() } as never,
+      branch: notesBranch(),
       base: "b".repeat(40),
       office: w.f.office,
       lastReport: null,
@@ -1468,7 +1439,7 @@ describe("worker notes for the handoff (DIPO-154; 0020 section 6)", () => {
     });
     w.control.onWorkerEvents(w.f.run, [notesTurn("not a developer's notes")]);
     await w.control.idle();
-    expect(latestWorkerNotes(w.f.office, notesWorktree())).toBeNull();
+    expect(latestWorkerNotes(w.f.office, notesBranch())).toBeNull();
   });
 });
 
@@ -1481,7 +1452,7 @@ describe("a park whose summary block was not written (DIPO-154)", () => {
     expect(parks().map((p) => p.reason)).toEqual(["budget-exceeded"]);
     expect(parkedEvents()).toHaveLength(1);
     // The writer was asked for the block, built from the stored facts as of the park.
-    const block = w.writes[0]?.summary?.({ lastGoodCommit: "a".repeat(40), uncommitted: 0 });
+    const block = w.writes[0]?.summary?.({ lastGoodCommit: "a".repeat(40) });
     expect(block).toContain("Parked ");
     expect(block).toContain(`- Run: ${w.f.run}`);
     const notices = loggedEvents(w.f.office)

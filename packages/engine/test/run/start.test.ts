@@ -38,7 +38,6 @@ import { renderSystemFile } from "../../src/prompts/system";
 import { executeRead } from "../../src/reads/execute";
 import {
   type BaseRead,
-  backstopSnapshotOf,
   findRun,
   type HostStarter,
   LAUNCH_NOTICES,
@@ -68,7 +67,6 @@ import type { RunLaunchPaths, WorkerPort } from "../../src/workers/port";
 import { type LaunchPlan, type ParseState } from "../../src/workers/types";
 import type { ClaimOutcome, ClaimRequest, ClaimSetupFailed } from "../../src/worktree/claim";
 import { findClaim, insertClaim, releaseClaim, type ClaimRecord } from "../../src/worktree/records";
-import type { SetupOutcome } from "../../src/worktree/setup";
 import type { RunBoxes } from "../../src/box/lifetime";
 import type { StartTreeCheck } from "../../src/box/parts";
 import { BoxError } from "../../src/box/port";
@@ -165,14 +163,13 @@ interface World {
   readonly hosts: { runId: string; agentId: string; officeDir: string; plan: LaunchPlan }[];
   readonly ingested: IngestTarget[];
   readonly released: { claim: ClaimRecord; reason: string }[];
-  readonly setupReleases: number[];
   readonly claimCalls: ClaimRequest[];
   /** Stories read again after their claim commit (DIPO-56). */
   readonly refreshed: StoryKey[];
   config: OfficeConfig;
-  setup: "ok" | "fail";
   checks: LaunchCheckOutcome;
-  worktreeRoot: string;
+  /** The main checkout; the run directories sit in its `.git/dipo/runs`. */
+  repoDir: string;
   hostFails: boolean;
   /** Called as a host starts, with its run (DIPO-93). */
   onHostStart: ((runId: string) => void) | null;
@@ -187,10 +184,9 @@ interface World {
    * of the launch itself leave them out, as a daemon with no box backend has none.
    */
   withBoxes: boolean;
-  /** Each install in a box (DIPO-294): its commands, environment and deadline. */
+  /** Each install in a box (DIPO-294): its commands and deadline. */
   readonly boxInstalls: {
     commands: readonly (readonly string[])[];
-    env: Readonly<Record<string, string>>;
     timeoutMs: number;
   }[];
   /** What the install in the box and the check of its /work give (DIPO-294). */
@@ -208,7 +204,7 @@ interface World {
 
 /** A run profile with `install` as its install (DIPO-294); the launcher reads only it and ports. */
 function profileWith(install: RunProfile["capabilities"]["install"]): RunProfile {
-  return { capabilities: { install }, devPorts: [] } as unknown as RunProfile;
+  return { capabilities: { install } } as unknown as RunProfile;
 }
 
 const FROZEN_INSTALL = profileWith({
@@ -245,13 +241,11 @@ beforeEach(async () => {
     hosts: [] as World["hosts"],
     ingested: [] as IngestTarget[],
     released: [] as World["released"],
-    setupReleases: [] as number[],
     claimCalls: [] as ClaimRequest[],
     refreshed: [] as StoryKey[],
     config: OFFICE_DEFAULTS,
-    setup: "ok" as "ok" | "fail",
     checks: { ok: true } as LaunchCheckOutcome,
-    worktreeRoot: join(dir, "trees"),
+    repoDir: join(dir, "repo"),
     hostFails: false,
     onHostStart: null,
     releaseFails: false,
@@ -270,9 +264,12 @@ beforeEach(async () => {
   } as unknown as World;
 
   const git = {
-    commonDir: join(dir, "repo", ".git"),
-    mainWorktree: join(dir, "repo"),
-    worktreeRoot: () => w.worktreeRoot,
+    get commonDir() {
+      return join(w.repoDir, ".git");
+    },
+    get mainWorktree() {
+      return w.repoDir;
+    },
   } as unknown as OfficeGit;
   const worker: WorkerPort = {
     id: "claude-cli",
@@ -316,30 +313,19 @@ beforeEach(async () => {
   const launcher = new RunLauncher({
     worker,
     git: () => git,
-    setup: async (): Promise<SetupOutcome> =>
-      w.setup === "ok"
-        ? ({
-            ok: true,
-            slot: 3,
-            env: { PORT: "3030" },
-            files: { log: [], skipped: [], envFiles: [], settings: null },
-            log: ["slot: 3", "setup: done"],
-            release: () => w.setupReleases.push(3),
-          } as unknown as SetupOutcome)
-        : { ok: false, reason: "install (bun install) failed: exit 1", log: "install: exit 1" },
     dependencies: async () => [],
     runtimeDir: join(dir, "runtime"),
     tmpRoot: join(dir, "tmp"),
     hosts,
     ingest: { start: (_office, _host, target) => w.ingested.push(target) },
     release: async (_office, claim, reason) => {
-      if (w.releaseFails) throw new Error("git worktree remove failed: busy");
+      if (w.releaseFails) throw new Error("the database is busy");
       w.released.push({ claim, reason });
       office.immediate(() =>
         releaseClaim(office, claim.runId, { at: t.clock.now(), reason, keepBranch: true }),
       );
     },
-    workspace: (_git, path) => memoryWorkspace(path),
+    workspace: (_git, at) => memoryWorkspace("commit" in at ? "" : at.checkout),
     warn: (message, fields) => w.warnings.push(`${message}: ${String(fields["reason"])}`),
     // Box workers (DIPO-271), scripted, while the test gives them.
     get boxes(): RunBoxes {
@@ -358,11 +344,7 @@ beforeEach(async () => {
     },
     install: async (input) => {
       w.boxCalls.push(`install ${input.runId}`);
-      w.boxInstalls.push({
-        commands: input.commands,
-        env: input.env,
-        timeoutMs: input.timeoutMs,
-      });
+      w.boxInstalls.push({ commands: input.commands, timeoutMs: input.timeoutMs });
       if (w.boxInstallThrows !== null) throw w.boxInstallThrows;
       return w.boxInstall;
     },
@@ -407,21 +389,17 @@ beforeEach(async () => {
         w.claimCalls.push(request);
         const skip = await request.recheck?.(undefined as never);
         if (skip !== null && skip !== undefined) return skip;
-        const path = join(w.worktreeRoot, request.story);
         office.immediate(() =>
           insertClaim(office, {
             runId: request.runId,
             key: request.key,
             story: request.story,
             branch: request.branch,
-            worktree: path,
             base: "main",
             baseSha: "b".repeat(40),
             startSha: "b".repeat(40),
             claimSha: null,
             reused: false,
-            snapshot: { path, adminDir: "/x", commondir: "/x", gitdir: "/x", pointer: "/x" },
-            firstFeedback: null,
             claimedAt: t.clock.now(),
           }),
         );
@@ -550,7 +528,8 @@ describe("work.run starts the worker of a claimed run", () => {
     expect(flag("--max-turns")).toBe(String(caps.maxTurns));
     // worker.web is on by default (DIPO-164): the developer also has the web tools.
     expect(flag("--tools")).toBe("Read,Edit,Write,Glob,Grep,Bash,WebSearch,WebFetch");
-    expect(host?.plan.cwd).toBe(join(world.worktreeRoot, "TASK-1"));
+    // The session's folder on the Mac is its run directory: the code is in its box (DIPO-349).
+    expect(host?.plan.cwd).toBe(join(world.dir, "repo", ".git", "dipo", "runs", runId));
 
     // The session id is engine-made, stored on the run's agent and passed to the worker.
     const agent = world.office.get<{
@@ -566,9 +545,9 @@ describe("work.run starts the worker of a claimed run", () => {
     expect(flag("--session-id")).toBe(agent?.session_id);
     expect(agent).toMatchObject({ effort: caps.effort, model: caps.model });
 
-    // The task message's context pack is recorded for the worktree with the head it read and the
+    // The task message's context pack is recorded for the branch with the head it read and the
     // blob ids of its files (0020 section 6).
-    const pack = contextPackOf(world.office, join(world.worktreeRoot, "TASK-1"));
+    const pack = contextPackOf(world.office, "TASK-1/add-a-greeting");
     expect(pack?.headSha).toMatch(/^[0-9a-f]{40}$/);
     expect(Object.keys(pack?.blobIds ?? {})).toContain("src/greet.ts");
     expect(pack?.blobIds["src/greet.ts"]).toMatch(/^[0-9a-f]{40}$/);
@@ -585,8 +564,8 @@ describe("work.run starts the worker of a claimed run", () => {
     expect(existsSync(shortTmp)).toBe(false);
     expect(existsSync(join(world.dir, "tmp"))).toBe(false);
 
-    // The run row has the slot setup took; ingestion runs with the tier's budget.
-    expect(findRun(world.office, runId)).toMatchObject({ slot: 3, model: caps.model, tier: "M" });
+    // Ingestion runs with the tier's budget.
+    expect(findRun(world.office, runId)).toMatchObject({ model: caps.model, tier: "M" });
     expect(world.ingested).toHaveLength(1);
     expect(world.ingested[0]).toMatchObject({
       run: runId,
@@ -684,14 +663,7 @@ describe("work.run starts the worker of a claimed run", () => {
     }
   });
 
-  it("takes no backstop snapshot: the developer never works in the Mac worktree (DIPO-240)", async () => {
-    story("TASK-1", "Ready");
-    const result = resultOf<RunResult>(await run());
-    const runId = result.started[0]?.run as RunId;
-    expect(backstopSnapshotOf(world.office, runId)).toBeNull();
-  });
-
-  it("rolls back on a refused launch check: no host, the slot freed, the hold kept, the story skipped", async () => {
+  it("rolls back on a refused launch check: no host, the hold kept, the story skipped", async () => {
     story("TASK-1", "Ready");
     world.checks = {
       ok: false,
@@ -703,7 +675,6 @@ describe("work.run starts the worker of a claimed run", () => {
       { story: "TASK-1", key: world.keys.get("TASK-1") as string, reason: "pickupCheckFailed" },
     ]);
     expect(world.hosts).toEqual([]);
-    expect(world.setupReleases).toEqual([3]);
     expect(world.holds.adapterHeld("claude-cli")?.check).toBe("self-test");
     expect(countRows(world.office, "runs")).toBe(0);
     expect(existsSync(join(world.dir, "repo", ".git", "dipo", "runs"))).toBe(true);
@@ -723,18 +694,9 @@ describe("work.run starts the worker of a claimed run", () => {
     expect(world.holds.adapterHeld("claude-cli")).toBeNull();
   });
 
-  it("starts no worker when setup fails", async () => {
+  it("refuses a run directory path the plan cannot use with a notice naming the path and the character", async () => {
     story("TASK-1", "Ready");
-    world.setup = "fail";
-    const result = resultOf<RunResult>(await run());
-    expect(result.skipped.map((s) => s.reason)).toEqual(["pickupCheckFailed"]);
-    expect(world.hosts).toEqual([]);
-    expect(countRows(world.office, "runs")).toBe(0);
-  });
-
-  it("refuses a worktree path the plan cannot use with a notice naming the path and the character", async () => {
-    story("TASK-1", "Ready");
-    world.worktreeRoot = join(world.dir, "trees (old)");
+    world.repoDir = join(world.dir, "repo (old)");
     const result = resultOf<RunResult>(await run());
     expect(result.skipped.map((s) => s.reason)).toEqual(["pickupCheckFailed"]);
     expect(world.hosts).toEqual([]);
@@ -742,9 +704,9 @@ describe("work.run starts the worker of a claimed run", () => {
       (e) => e.type === "engine.notice" && e.delta["code"] === LAUNCH_NOTICES.planRefused,
     );
     const text = String(notice?.delta["text"]);
-    expect(text).toContain(join(world.worktreeRoot, "TASK-1"));
+    expect(text).toContain(world.repoDir);
     expect(text).toContain('"("');
-    expect(text).toContain("Move the checkout, or set worktree.root");
+    expect(text).toContain("Move the checkout to a path without it");
   });
 
   it("releases the claim and ends the run as start-failed when the host does not start", async () => {
@@ -757,7 +719,6 @@ describe("work.run starts the worker of a claimed run", () => {
     const runId = world.released[0]?.claim.runId as RunId;
     expect(findRun(world.office, runId)).toMatchObject({ endKind: START_FAILED_END });
     expect(findRun(world.office, runId)?.endedAt).not.toBeNull();
-    expect(world.setupReleases).toEqual([3]);
     const notice = entries().find((e) => e.delta["code"] === LAUNCH_NOTICES.startFailed);
     expect(String(notice?.delta["text"])).toContain("spawn failed: no such file");
   });
@@ -811,7 +772,6 @@ describe("a box worker's run (DIPO-271)", () => {
     const result = resultOf<RunResult>(await run({ stories: ["TASK-1"], box: true }));
     expect(result.skipped.map((s) => s.reason)).toEqual(["pickupCheckFailed"]);
     expect(world.hosts).toEqual([]);
-    expect(world.setupReleases).toEqual([3]);
     expect(world.boxCalls.filter((call) => call.startsWith("discard"))).toEqual([]);
   });
 
@@ -956,20 +916,11 @@ describe("the install in a box run's box before its worker (DIPO-294)", () => {
       "install",
       "check",
     ]);
-    // The run profile's install, the office's install deadline, and the run environment for the
-    // box's /work (the box adds its web route); nothing of the Mac worktree's path.
+    // The run profile's install and the office's install deadline; no run environment of dipo's
+    // own (no port slot, no story worktree, DIPO-349): the box adds its web route.
     expect(world.boxInstalls).toEqual([
-      {
-        commands: [["bun", "install", "--frozen-lockfile"]],
-        env: expect.objectContaining({
-          DIPO_SLOT: "3",
-          DIPO_STORY: "TASK-1",
-          DIPO_WORKTREE: "/work",
-        }),
-        timeoutMs: 7 * 60_000,
-      },
+      { commands: [["bun", "install", "--frozen-lockfile"]], timeoutMs: 7 * 60_000 },
     ]);
-    expect(JSON.stringify(world.boxInstalls)).not.toContain(world.worktreeRoot);
     expect(world.hosts).toHaveLength(1);
   });
 
@@ -994,7 +945,6 @@ describe("the install in a box run's box before its worker (DIPO-294)", () => {
       "discard",
     ]);
     expect(world.hosts).toEqual([]);
-    expect(world.setupReleases).toEqual([3]);
   });
 
   it("stops the launch on a timed-out install the box could not end, and deletes the box", async () => {
@@ -1101,11 +1051,11 @@ describe("a failed release after a failed host start", () => {
     const result = resultOf<RunResult>(await run());
     expect(result.started).toEqual([]);
     expect(world.warnings).toEqual([
-      "releasing the claim after a failed host start failed: git worktree remove failed: busy",
+      "releasing the claim after a failed host start failed: the database is busy",
     ]);
     const notice = entries().find((e) => e.delta["code"] === LAUNCH_NOTICES.startFailed);
     expect(String(notice?.delta["text"])).toContain(
-      "releasing its claim also failed (git worktree remove failed: busy)",
+      "releasing its claim also failed (the database is busy)",
     );
   });
 });
@@ -1117,7 +1067,6 @@ describe("work.preview, the dry run", () => {
     skipped: { story: string; reason: string; detail?: string[] }[];
     launch: {
       branch: string;
-      worktree: string;
       argv: string[];
       model: string;
       effort: string;
@@ -1130,7 +1079,7 @@ describe("work.preview, the dry run", () => {
     problem: string | null;
   }
 
-  it("shows the branch, worktree, full launch and prompts, and changes no fact, claim or run", async () => {
+  it("shows the branch, full launch and prompts, and changes no fact, claim or run", async () => {
     story("TASK-1", "Ready");
     story("TASK-2", "Ready");
     const before = snapshot();
@@ -1145,7 +1094,7 @@ describe("work.preview, the dry run", () => {
     const launch = result.launch;
     const caps = OFFICE_DEFAULTS.tiers.M;
     expect(launch?.branch).toBe("TASK-1/add-a-greeting");
-    expect(launch?.worktree).toBe(join(world.worktreeRoot, "TASK-1"));
+    expect(launch).not.toHaveProperty("worktree");
     expect(launch?.argv[0]).toBe(CLAUDE);
     expect(launch).toMatchObject({ model: caps.model, effort: caps.effort });
     expect(launch?.caps).toEqual({
@@ -1208,7 +1157,7 @@ describe("work.preview, the dry run", () => {
 
   it("reports a path the plan refuses as the problem", async () => {
     story("TASK-1", "Ready");
-    world.worktreeRoot = join(world.dir, "trees [x]");
+    world.repoDir = join(world.dir, "repo [x]");
     const result = resultOf<PreviewResult>(await preview());
     expect(result.launch).toBeNull();
     expect(result.problem).toContain('"["');

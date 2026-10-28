@@ -40,7 +40,7 @@ import { entriesAfter, lastSeq } from "../stories/helpers";
 const json = (value: unknown) => JSON.stringify(value);
 
 function probe(texts: Record<string, string>, lockfiles = ["bun.lock"]): Probe {
-  return { texts, lockfiles, workspaceDirs: [], configImports: {}, envFiles: [] };
+  return { texts, lockfiles, workspaceDirs: [], envFiles: [] };
 }
 
 /** A repository code cannot get verify, test or dev from: only a Makefile does it. */

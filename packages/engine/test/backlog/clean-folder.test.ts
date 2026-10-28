@@ -21,7 +21,15 @@ import { GitError } from "../../src/git";
 import { systemSpawn } from "../../src/platform/process";
 import { gitStoryOps } from "../../src/run/story-git";
 import { claimStory, type ClaimOutcome } from "../../src/worktree";
-import { BACKLOG_FIXTURE, claimSetup, publish, TASK_1, TASK_FILE_1 } from "../worktree/helpers";
+import {
+  BACKLOG_FIXTURE,
+  BRANCH_1,
+  byHandOn,
+  claimSetup,
+  publish,
+  TASK_1,
+  TASK_FILE_1,
+} from "../worktree/helpers";
 
 import { BACKLOG_CLI } from "./helpers";
 
@@ -174,20 +182,22 @@ describe("the task file path check", () => {
       await publish(repo);
       const s = await claimSetup(repo);
       const { cli, calls } = recordingCli(repo.env);
-      const { worktree } = claimed(await claimStory(s.deps({ cli }), s.request(s.key()))).claim;
-      mkdirSync(join(worktree, "backlog", "tasks", "nested"));
-      await git(
-        worktree,
-        repo.home,
-        "mv",
-        TASK_FILE_1,
-        `backlog/tasks/nested/${basename(TASK_FILE_1)}`,
-      );
-      await git(worktree, repo.home, "commit", "--quiet", "-m", "move the task file");
+      claimed(await claimStory(s.deps({ cli }), s.request(s.key())));
+      await byHandOn(repo, BRANCH_1, async (dir) => {
+        mkdirSync(join(dir, "backlog", "tasks", "nested"));
+        await git(
+          dir,
+          repo.home,
+          "mv",
+          TASK_FILE_1,
+          `backlog/tasks/nested/${basename(TASK_FILE_1)}`,
+        );
+        await git(dir, repo.home, "commit", "--quiet", "-m", "move the task file");
+      });
 
       calls.length = 0;
       const error = await gitStoryOps({ git: () => s.git, cli })
-        .story(s.office.officeId, worktree, TASK_1)
+        .story(s.office.officeId, BRANCH_1, TASK_1)
         .then(
           () => null,
           (caught: unknown) => caught,

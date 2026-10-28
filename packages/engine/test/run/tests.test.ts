@@ -47,7 +47,6 @@ function probe(scripts: Record<string, string>, lockfiles = ["bun.lock"]): Probe
     texts: { "package.json": JSON.stringify({ name: "app", scripts }) },
     lockfiles,
     workspaceDirs: [],
-    configImports: {},
     envFiles: [],
   };
 }

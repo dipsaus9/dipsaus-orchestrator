@@ -60,8 +60,6 @@ function storyRun(office: OfficeHandle, t: Awaited<ReturnType<typeof openTestSta
       model: "haiku",
       startSha: "b".repeat(40),
       branch: "DIPO-7/a-story",
-      worktree: "/trees/DIPO-7",
-      slot: 1,
       budgetUnit: "tokens",
       budgetLimit: 300_000,
       loopCap: 3,

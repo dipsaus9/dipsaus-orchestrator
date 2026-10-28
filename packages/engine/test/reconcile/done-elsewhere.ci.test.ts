@@ -5,7 +5,7 @@
 // nothing, a live worker, an own-branch teardown a crash interrupted, and the Done poll.
 
 import { describe, expect, it } from "bun:test";
-import { existsSync, writeFileSync } from "node:fs";
+import { writeFileSync } from "node:fs";
 import { join } from "node:path";
 
 import { type OfficeId, type RunId, type StoryKey } from "@dipsaus-orchestrator/contract";
@@ -30,7 +30,6 @@ import {
   openReleasedBranches,
   releaseClaim,
 } from "../../src/worktree/records";
-import { SlotTable } from "../../src/worktree/slots";
 import { lastSeq } from "../stories/helpers";
 import {
   claim,
@@ -76,7 +75,6 @@ async function reconcile(
   host = hostOf(),
   boxes = { n: 0 },
 ): Promise<{ report: ReconcileReport; host: ReturnType<typeof hostOf> }> {
-  const slots = new SlotTable(join(o.repo.root, "slots.json"));
   const pass = await o.index.indexStories(o.officeId);
   const report = await reconcileOffice(
     {
@@ -84,7 +82,6 @@ async function reconcile(
       office: o.office,
       git: gitOf(o),
       clock: o.s.clock,
-      slots,
       host,
       finishBoxes: async () => {
         boxes.n += 1;
@@ -134,11 +131,11 @@ function parkRow(office: OfficeHandle, key: StoryKey, runId: RunId): void {
 
 if (process.env["DIPO_TEST_CI"] === "1") {
   describe("a story Done on the base through another branch (DIPO-161)", () => {
-    it("replays DIPO-105: the parked claim is released, the dirty worktree and the branch are kept, one leftovers item is on the desk", () =>
+    it("replays DIPO-105: the parked claim is released, the branch is kept, one leftovers item is on the desk", () =>
       withReconcileOffice({ base: DONE }, async (o) => {
         const key = keyOf(o.office, "TASK-1");
         const record = await claim(o, o.office, "TASK-1", key, { active: false });
-        // Parked on its branch: the park commit, then work left uncommitted, pushed as dipo did.
+        // Parked on its branch: the park commit, pushed as dipo did.
         await setBranch(o, record, {
           id: "TASK-1",
           status: "Parked",
@@ -171,8 +168,6 @@ if (process.env["DIPO_TEST_CI"] === "1") {
             closedAt: null,
           }),
         );
-        writeFileSync(join(record.worktree, "README.md"), "changed by the worker\n");
-        writeFileSync(join(record.worktree, "new-file.ts"), "export {};\n");
         const local = await tipOf(o, `refs/heads/${record.branch}`);
         const remote = await remoteTip(o, record.branch);
         const commit = await taskCommit(o);
@@ -208,14 +203,13 @@ if (process.env["DIPO_TEST_CI"] === "1") {
           { repo: "o/r", number: 105, comment: expect.stringContaining(commit.slice(0, 12)) },
         ]);
         expect(latestStoryPr(o.office, key)?.state).toBe("closed");
-        // The worktree with uncommitted files and the branch are kept, locally and on the remote.
-        expect(existsSync(join(record.worktree, "new-file.ts"))).toBe(true);
+        // The branch is kept, locally and on the remote.
         expect(await tipOf(o, `refs/heads/${record.branch}`)).toBe(local);
         expect(await remoteTip(o, record.branch)).toBe(remote);
         expect(openReleasedBranches(o.office, key).map((r) => [r.branch, r.reason])).toEqual([
           [record.branch, "done-elsewhere"],
         ]);
-        // One leftovers item, with the commits not on the base, the dirty files and the action.
+        // One leftovers item, with the commits not on the base and the action.
         const items = doneElsewhereDeskItems(o.office);
         expect(items).toHaveLength(1);
         expect(items[0]).toMatchObject({
@@ -228,10 +222,9 @@ if (process.env["DIPO_TEST_CI"] === "1") {
           "TASK-1: status Parked",
           "TASK-1: status In Progress",
         ]);
-        expect(items[0]?.files.toSorted()).toEqual(["README.md", "new-file.ts"]);
         // A second reconcile changes nothing: leftovers are never deleted automatically.
         await reconcile(o);
-        expect(existsSync(join(record.worktree, "new-file.ts"))).toBe(true);
+        expect(await tipOf(o, `refs/heads/${record.branch}`)).toBe(local);
         expect(doneElsewhereDeskItems(o.office)).toHaveLength(1);
       }));
 
@@ -265,7 +258,6 @@ if (process.env["DIPO_TEST_CI"] === "1") {
         // Not Done elsewhere: its own branch merged, so reconcile releases nothing.
         expect(liveClaimOf(o.office, key)).not.toBeNull();
         expect(findDoneElsewhere(o.office, record.runId)).toBeNull();
-        expect(existsSync(record.worktree)).toBe(true);
 
         const teardown = new StoryTeardown({
           git: () => gitOf(o),
@@ -280,7 +272,6 @@ if (process.env["DIPO_TEST_CI"] === "1") {
 
         expect(report.tornDown.map((c) => c.runId)).toEqual([record.runId]);
         expect(findClaim(o.office, record.runId)?.releaseReason).toBe("done");
-        expect(existsSync(record.worktree)).toBe(false);
         expect(await tipOf(o, `refs/heads/${record.branch}`)).toBeNull();
         expect(await remoteTip(o, record.branch)).toBe("");
         expect(findDoneElsewhere(o.office, record.runId)).toBeNull();
@@ -299,7 +290,6 @@ if (process.env["DIPO_TEST_CI"] === "1") {
         await reconcile(o);
 
         expect(liveClaimOf(o.office, key)).not.toBeNull();
-        expect(existsSync(record.worktree)).toBe(true);
         const live = noticesAfter(o.office, seq).filter(
           (n) => n.code === DONE_ELSEWHERE_NOTICES.live,
         );
@@ -330,11 +320,8 @@ if (process.env["DIPO_TEST_CI"] === "1") {
         const record = await claim(o, o.office, "TASK-1", key, { active: false });
         await o.repo.git("push", "--quiet", "origin", record.branch);
         await mergeOnRemote(o, record);
-        // The teardown removed the worktree and crashed; DIPO-216 released the claim as done, and
+        // The teardown started and crashed; DIPO-216 released the claim as done, and
         // the branch stayed, locally and on the remote.
-        await o.repo.git("worktree", "unlock", record.worktree);
-        await o.repo.git("worktree", "remove", record.worktree);
-        gitOf(o).unpinWorktree(record.worktree);
         o.office.immediate(() => {
           o.office.run(
             "update claims set teardown_started_at = 5 where office_id = $office_id and run_id = $run",
@@ -389,7 +376,6 @@ if (process.env["DIPO_TEST_CI"] === "1") {
           expect(report.released?.map((c) => c.runId)).toEqual([one.runId]);
           expect(findClaim(o.office, one.runId)?.releaseReason).toBe("done-elsewhere");
           expect(liveClaimOf(o.office, two.key as StoryKey)).not.toBeNull();
-          expect(existsSync(two.worktree)).toBe(true);
           // The released run's box is deleted too (0021 section 6).
           expect(boxes.n).toBe(1);
           teardown.stop();
@@ -413,12 +399,9 @@ if (process.env["DIPO_TEST_CI"] === "1") {
         const record = await claim(o, o.office, "TASK-1", key, { active: false });
         await o.repo.git("push", "--quiet", "origin", record.branch);
         await mergeOnRemote(o, record);
-        // An own-branch teardown a crash interrupted after the worktree removal, released as done:
+        // An own-branch teardown a crash interrupted, released as done:
         // its kept branch is settled by reconcile (a live claim merged through its own branch is the
         // Done poll's, DIPO-332).
-        await o.repo.git("worktree", "unlock", record.worktree);
-        await o.repo.git("worktree", "remove", record.worktree);
-        gitOf(o).unpinWorktree(record.worktree);
         o.office.immediate(() => {
           o.office.run(
             "update claims set teardown_started_at = 5 where office_id = $office_id and run_id = $run",

@@ -3,8 +3,10 @@
 // a scripted Backlog CLI. `_base` answers from a task table; any other checkout (the branch read's
 // scratch directory) answers from the story's own task file there, which these tests write as
 // JSON. So a test sets what the base and a story branch say without the real CLI, and stays fast.
-// Claims are real git worktrees with a claim commit and their rows written directly, as a claim
-// records them; `setBranch` commits on the branch, `editWorktree` changes the file uncommitted.
+// Claims are a real branch with a claim commit and their rows written directly, as a claim records
+// them (a claim makes no worktree, DIPO-349). The test changes the branch by hand in a checkout of
+// its own (`TestClaim.worktree`, never one dipo knows of): `setBranch` commits there,
+// `editWorktree` changes the file uncommitted.
 
 import { existsSync, readdirSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
@@ -22,7 +24,6 @@ import { type TempRepoWithRemote, withBareRemote } from "@dipsaus-orchestrator/t
 import type { FeatureModule } from "../../src/commands/registry";
 import type { OfficeHandle } from "../../src/db/office";
 import { EngineGit } from "../../src/git";
-import { readWorktreeSnapshot } from "../../src/git/snapshot";
 import { systemSpawn } from "../../src/platform/process";
 import { insertRun } from "../../src/run/records";
 import { StoryIndex } from "../../src/stories/feature";
@@ -159,8 +160,14 @@ function readFakeTask(text: string): FakeTask {
   return JSON.parse(text.slice(text.indexOf("\n---\n") + 5)) as FakeTask;
 }
 
-/** Writes `task` over its task file in the worktree, in the fake task file format. */
-export function editWorktree(claimed: Pick<ClaimRecord, "worktree">, task: FakeTask): string {
+/** A claim with the checkout of its branch the test changes it in by hand. */
+export type TestClaim = ClaimRecord & {
+  /** The test's own checkout of the branch; dipo knows nothing of it. */
+  readonly worktree: string;
+};
+
+/** Writes `task` over its task file in the test's checkout, in the fake task file format. */
+export function editWorktree(claimed: Pick<TestClaim, "worktree">, task: FakeTask): string {
   const path =
     taskFileIn(claimed.worktree, task.id) ??
     join(claimed.worktree, "backlog", "tasks", `${task.id.toLowerCase()} - Story.md`);
@@ -171,7 +178,7 @@ export function editWorktree(claimed: Pick<ClaimRecord, "worktree">, task: FakeT
 /** Commits `task` as the story's task file on its branch, as the claim and park commits do. */
 export async function setBranch(
   o: Pick<ReconcileOffice, "repo">,
-  claimed: Pick<ClaimRecord, "worktree">,
+  claimed: Pick<TestClaim, "worktree">,
   task: FakeTask,
 ): Promise<string> {
   const path = editWorktree(claimed, task);
@@ -305,9 +312,9 @@ export interface ClaimOptions {
 }
 
 /**
- * Claims `id` as a claim records it: a real worktree on its branch from `origin/main`, the
- * snapshot pinned on the office git, the claim (with its claim commit) and its run. The
- * worktree's table answers what the branch says.
+ * Claims `id` as a claim records it: its branch from `origin/main` with the claim commit, the claim
+ * and its run. The test's checkout of the branch (`TestClaim.worktree`) is where it commits by hand;
+ * the branch read answers what the branch says.
  */
 export async function claim(
   o: Pick<ReconcileOffice, "repo" | "s" | "engineGit" | "tables">,
@@ -315,33 +322,24 @@ export async function claim(
   id: string,
   key: StoryKey,
   options: ClaimOptions = {},
-): Promise<ClaimRecord> {
+): Promise<TestClaim> {
   const worktree = join(o.repo.root, "trees", id);
   await o.repo.git("worktree", "add", "--quiet", "-b", branchOf(id), worktree, "origin/main");
   const sha = (await o.repo.git("rev-parse", "origin/main")).trim();
   // The claim commit: the story's task file as the branch now holds it.
   const claimSha = await setBranch(o, { worktree }, options.task ?? { id, status: "In Progress" });
-  const adminDir = (
-    await o.repo.run(["git", "rev-parse", "--absolute-git-dir"], worktree)
-  ).stdout.trim();
-  const snapshot = readWorktreeSnapshot(worktree, adminDir);
   const runId = RunId.parse(o.s.ids.next("run"));
-  // Locked as a claim locks it (0010 section 7).
-  await o.repo.git("worktree", "lock", "--reason", `dipo ${runId}`, worktree);
   office.immediate(() => {
     insertClaim(office, {
       runId,
       key,
       story: id,
       branch: branchOf(id),
-      worktree,
       base: "main",
       baseSha: sha,
       startSha: sha,
       claimSha,
       reused: false,
-      snapshot,
-      firstFeedback: null,
       claimedAt: o.s.clock.now(),
     });
     insertRun(office, {
@@ -354,8 +352,6 @@ export async function claim(
       model: "haiku",
       startSha: sha,
       branch: branchOf(id),
-      worktree,
-      slot: null,
       budgetUnit: "tokens",
       budgetLimit: 300_000,
       loopCap: 3,
@@ -372,10 +368,9 @@ export async function claim(
       );
     }
   });
-  o.engineGit.forOffice(office.officeId)?.pinWorktree(snapshot);
   const record = liveClaimOf(office, key);
   if (record === null || !existsSync(worktree)) throw new Error("the claim was not recorded");
-  return record;
+  return { ...record, worktree };
 }
 
 /** The `engine.notice` codes written after `afterSeq`, with their keys. */

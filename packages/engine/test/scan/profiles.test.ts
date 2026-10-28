@@ -181,11 +181,6 @@ describe("run profile at office load", () => {
         office.all("select name, command from run_extra_scripts where office_id = $office_id"),
       ).toEqual([]);
       expect(
-        office.all<{ dir: string; port: number }>(
-          "select dir, port from run_ports where office_id = $office_id",
-        ),
-      ).toEqual([{ dir: ".", port: 5173 }]);
-      expect(
         office.get<{ n: number }>(
           "select count(*) as n from run_capabilities where office_id = $office_id",
         )?.n,
@@ -235,7 +230,6 @@ describe("run profile at office load", () => {
         expect.arrayContaining([
           expect.stringMatching(/^~ verify: bun run verify .* -> bun run test /),
           expect.stringMatching(/^~ dev: /),
-          expect.stringMatching(/^- port \.:5173: /),
         ]),
       );
       expect(scans(office).map((row) => [row.trigger, row.result])).toEqual([

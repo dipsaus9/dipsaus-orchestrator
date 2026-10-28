@@ -1,5 +1,5 @@
 // Reconcile releases the claim of a story that is Done on `_base` (DIPO-216 test plan): the
-// 2026-10-19 case with real git and a remote, the crash between the worktree removal and the
+// 2026-10-19 case with real git and a remote, the crash between the teardown's start and the
 // release, a run reopened before the git queue item, and the claims this step leaves alone. The
 // Backlog CLI is scripted (see helpers.ts).
 //
@@ -7,8 +7,6 @@
 // item. The rest is in done-on-base.ci.test.ts (CI only, DIPO-225).
 
 import { describe, expect, it } from "bun:test";
-import { existsSync } from "node:fs";
-import { join } from "node:path";
 
 import type { StoryKey } from "@dipsaus-orchestrator/contract";
 
@@ -16,7 +14,6 @@ import type { OfficeHandle } from "../../src/db/office";
 import type { OfficeGit } from "../../src/git/office";
 import { reconcileOffice, type ReconcileReport } from "../../src/reconcile";
 import { findClaim, type ClaimRecord, liveClaimOf } from "../../src/worktree/records";
-import { SlotTable } from "../../src/worktree/slots";
 import {
   branchOf,
   claim,
@@ -32,32 +29,19 @@ const DONE: readonly FakeTask[] = [
 ];
 
 interface Setup {
-  readonly slots: SlotTable;
-  /** Takes a slot for the claim's worktree, as its setup does. */
-  hold(record: ClaimRecord): number;
   /** One reconcile at start with a fresh index pass; `git` replaces the office git. */
   reconcile(git?: OfficeGit): Promise<{ report: ReconcileReport; reindexed: number }>;
 }
 
 function setupOf(o: ReconcileOffice): Setup {
-  const slots = new SlotTable(join(o.repo.root, "slots.json"));
   return {
-    slots,
-    hold: (record) => {
-      const slot = slots.take(
-        { office: o.officeId, story: record.story, worktree: record.worktree, takenAt: 1 },
-        20,
-      );
-      if (slot === null) throw new Error("no free slot");
-      return slot;
-    },
     reconcile: async (git) => {
       const real = o.engineGit.forOffice(o.officeId);
       if (real === undefined) throw new Error("the office git is not attached");
       const pass = await o.index.indexStories(o.officeId);
       let reindexed = 0;
       const report = await reconcileOffice(
-        { officeId: o.officeId, office: o.office, git: git ?? real, clock: o.s.clock, slots },
+        { officeId: o.officeId, office: o.office, git: git ?? real, clock: o.s.clock },
         {
           trigger: "start",
           pass,
@@ -79,11 +63,10 @@ function claimRow(office: OfficeHandle, record: ClaimRecord): ClaimRecord {
 }
 
 describe("a story Done on the base releases its claim (DIPO-216)", () => {
-  it("keeps the worktree, lock and claim of a run reopened before the git queue item", () =>
+  it("keeps the branch and claim of a run reopened before the git queue item", () =>
     withReconcileOffice({ base: DONE }, async (o) => {
       const one = await claim(o, o.office, "TASK-1", keyOf(o.office, "TASK-1"), { active: false });
       const s = setupOf(o);
-      s.hold(one);
       const real = o.engineGit.forOffice(o.officeId) as OfficeGit;
       const git = new Proxy(real, {
         get(target, prop) {
@@ -103,13 +86,9 @@ describe("a story Done on the base releases its claim (DIPO-216)", () => {
 
       const { reindexed } = await s.reconcile(git);
 
-      expect(existsSync(one.worktree)).toBe(true);
       expect(liveClaimOf(o.office, one.key)).not.toBeNull();
       expect(claimRow(o.office, one).teardownStartedAt).toBeNull();
-      expect(s.slots.slotOf(one.worktree)).not.toBeNull();
-      expect(await o.repo.git("worktree", "list", "--porcelain")).toContain(
-        `locked dipo ${one.runId}`,
-      );
+      expect((await o.repo.git("rev-parse", one.branch)).trim()).toBe(one.claimSha as string);
       expect(reindexed).toBe(0);
     }));
 
@@ -135,14 +114,12 @@ describe("a story Done on the base releases its claim (DIPO-216)", () => {
           { run: noCommit.runId },
         );
         const s = setupOf(o);
-        for (const record of [running, notDone, noCommit]) s.hold(record);
 
         const { reindexed } = await s.reconcile();
 
         for (const record of [running, notDone, noCommit]) {
-          expect(existsSync(record.worktree)).toBe(true);
           expect(liveClaimOf(o.office, record.key as StoryKey)).not.toBeNull();
-          expect(s.slots.slotOf(record.worktree)).not.toBeNull();
+          expect((await o.repo.git("branch", "--list", record.branch)).trim()).not.toBe("");
         }
         expect(reindexed).toBe(0);
         expect(branchOf("TASK-1")).toBe(running.branch);

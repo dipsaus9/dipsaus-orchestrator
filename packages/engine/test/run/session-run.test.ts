@@ -1,7 +1,7 @@
 // The scan fallback's `session` run (DIPO-310 criteria 1 and 2) on a fixture-built test database,
 // with a scripted worker host whose event file holds Claude stream lines: no `claude` starts.
 //
-// - The run is kind `session`, role `scanner`, with no worktree, branch or story key; its usage is
+// - The run is kind `session`, role `scanner`, with no branch or story key; its usage is
 //   stored under the office (`usage_totals`, `usage_daily`), so it counts in the office's usage.
 // - The worker port plans it on the Mac in an empty folder dipo makes, with every tool off, the
 //   fallback's schema and the spec's model, effort and turn cap; the folder goes after the run.
@@ -258,7 +258,7 @@ describe("a scan session run", () => {
       expect(outcome.kind).toBe("answered");
       expect(outcome.kind === "answered" && outcome.answer).toEqual(ANSWER);
       const run = w.office.get<Record<string, unknown>>(
-        `select kind, key, story_id, branch, worktree, role, model, budget_limit, max_turns,
+        `select kind, key, story_id, branch, role, model, budget_limit, max_turns,
                 max_minutes, ended_at, end_kind from runs where office_id = $office_id`,
       );
       expect(run).toMatchObject({
@@ -266,7 +266,6 @@ describe("a scan session run", () => {
         key: null,
         story_id: null,
         branch: null,
-        worktree: null,
         role: "scanner",
         model: "sonnet",
         budget_limit: 100_000,

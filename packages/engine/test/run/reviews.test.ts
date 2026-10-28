@@ -189,7 +189,7 @@ function fixedTo(s: StoryRun, tree: string): void {
   heads.set(s.run, tree);
 }
 
-/** The code tree key each run's worktree HEAD has now. */
+/** The code tree key each run's branch head has now. */
 const heads = new Map<string, string>();
 
 /** The story facts the base read gives and the office configuration in force; reset per test. */
@@ -294,14 +294,14 @@ function world(): World {
     ids: w.t.ids,
     offices: { get: () => w.office, config: () => setting.config },
     git: {
-      head: async () => {
+      head: async (_office, branch) => {
         await state.onRead?.();
+        // The run whose branch was read last at this head: its tree is the key of that commit.
+        readBy.set(state.head, findRunByBranch(branch));
         return state.head;
       },
-      codeTreeKey: async (_office, worktree) => {
-        const run = findRunByWorktree(worktree);
-        return heads.get(run ?? "") ?? "tree-?";
-      },
+      codeTreeKey: async (_office, _taskFile, commit) =>
+        heads.get(readBy.get(commit) ?? "") ?? "tree-?",
       diff: async () => {
         await state.onDiff?.();
         return { diff: DIFF, changes: [{ path: "src/greet.ts", added: 2, removed: 1 }] };
@@ -418,11 +418,15 @@ function world(): World {
   return result;
 }
 
-function findRunByWorktree(worktree: string): string | null {
+/** The run whose branch the fake git read last at each head. */
+const readBy = new Map<string, string | null>();
+
+function findRunByBranch(branch: string): string | null {
   return (
     w.office.get<{ run_id: string }>(
-      "select run_id from runs where office_id = $office_id and worktree = $worktree",
-      { worktree },
+      `select run_id from runs where office_id = $office_id and branch = $branch
+        order by started_at desc limit 1`,
+      { branch },
     )?.run_id ?? null
   );
 }
