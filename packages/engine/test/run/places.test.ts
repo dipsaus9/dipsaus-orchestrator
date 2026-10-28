@@ -5,10 +5,9 @@
 
 import { afterEach, beforeEach, describe, expect, it } from "bun:test";
 
-import type { OfficeId, RunId } from "@dipsaus-orchestrator/contract";
+import { type OfficeId, type RunId, StoryId } from "@dipsaus-orchestrator/contract";
 
 import { OFFICE_DEFAULTS } from "../../src/config";
-import { insertParkQuestion } from "../../src/hooks/questions";
 import {
   activeRuns,
   claimPlace,
@@ -167,39 +166,27 @@ describe("start order (0019 section 12)", () => {
 });
 
 describe("a resume that finds its place taken (0020 section 1)", () => {
-  const ACTION = "docker ps";
+  const DETAIL = "the worker host was lost";
   const sessions: NextSessionRequest[] = [];
   const lifting: UnparkWriter = {
     lift: async () => ({ commit: null, pushed: true, pushError: null }),
   };
 
-  /** Story DIPO-5 parked `needs-permission` with its question; returns the ids. */
-  function parked(): { s: StoryRun; parkId: number; question: string } {
+  /** Story DIPO-5 parked `worker-failed`; returns its run. */
+  function parked(): { s: StoryRun } {
     const s = storyRun(w, { story: "DIPO-5" });
-    const agent = addAgent(w, s.run, "developer", false);
-    const question = w.t.ids.next("qst");
+    addAgent(w, s.run, "developer", false);
     const at = now();
     write(() => {
       w.office.run(
-        `insert into parks (office_id, park_id, key, story_id, run_id, reason, cause, from_state,
-           detail, at)
-         values ($office_id, 1, $key, 'DIPO-5', $run, 'needs-permission', 'build', 'In Progress',
-           $detail, $at)`,
-        { key: s.key, run: s.run, detail: `Bash: ${ACTION}`, at },
+        `insert into parks (office_id, park_id, key, story_id, run_id, reason, from_state, detail,
+           at)
+         values ($office_id, 1, $key, 'DIPO-5', $run, 'worker-failed', 'In Progress', $detail, $at)`,
+        { key: s.key, run: s.run, detail: DETAIL, at },
       );
-      endRun(w.office, s.run, at, "blocked");
-      insertParkQuestion(w.office, {
-        questionId: question,
-        runId: s.run,
-        agentId: agent,
-        parkId: 1,
-        tool: "Bash",
-        action: ACTION,
-        text: `Bash(${ACTION})`,
-        at,
-      });
+      endRun(w.office, s.run, at, "interrupted");
     });
-    return { s, parkId: 1, question };
+    return { s };
   }
 
   it("is accepted and waits, then starts first when the worker place frees", async () => {
@@ -207,7 +194,7 @@ describe("a resume that finds its place taken (0020 section 1)", () => {
     // DIPO-4's developer holds the worker place.
     const busy = storyRun(w, { story: "DIPO-4" });
     const developer = addAgent(w, busy.run, "developer", true);
-    const { s, parkId, question } = parked();
+    const { s } = parked();
     // A fix round of DIPO-6 waits for the worker place too, from before the resume.
     const fix = inReview("DIPO-6");
     write(() => reopenForRound(w.office, findRun(w.office, fix.run)!, "fix", now()));
@@ -247,13 +234,21 @@ describe("a resume that finds its place taken (0020 section 1)", () => {
       },
     });
 
-    const reply = await resumption.resumePark(officeId(), s.run, {
-      parkId,
-      question,
-      decision: "allow",
-      text: "",
-    });
-    expect(reply).toEqual({ kind: "started", queued: true });
+    const reply = await resumption.resumeCommand(
+      {
+        office: w.office,
+        clock: w.t.clock,
+        ids: w.t.ids,
+        requestId: "req_resume",
+        origin: "cli",
+        confirmed: false,
+        now: now(),
+        stories: { get: () => ({ story: "DIPO-5", key: s.key }) },
+        commit: () => {},
+      } as never,
+      { story: StoryId.parse("DIPO-5") },
+    );
+    expect(reply.result).toMatchObject({ to: "In Progress", queued: true });
     await places.idle();
     expect(sessions).toEqual([]);
     expect(findRun(w.office, s.run)).toMatchObject({ endedAt: null, waiting: "resume" });
@@ -272,7 +267,7 @@ describe("a resume that finds its place taken (0020 section 1)", () => {
     write(() => endRun(w.office, busy.run, now(), IN_REVIEW_END));
     expect(await places.drain(officeId())).toBe(1);
     expect(started).toEqual(["DIPO-5"]);
-    expect(sessions[0]?.message).toContain(ACTION);
+    expect(sessions[0]?.message).toContain(DETAIL);
     const resumed = findRun(w.office, s.run);
     expect(resumed?.waiting).toBeNull();
     // The wait for the place is no developer time: the park, then the 50 seconds in line.
@@ -470,8 +465,8 @@ function world() {
 }
 
 const parksOf = () =>
-  w.office.all<{ story_id: string; reason: string; cause: string; detail: string }>(
-    "select story_id, reason, cause, detail from parks where office_id = $office_id order by park_id",
+  w.office.all<{ story_id: string; reason: string; detail: string }>(
+    "select story_id, reason, detail from parks where office_id = $office_id order by park_id",
   );
 
 describe("the pre-start cap check (DIPO-205)", () => {
@@ -488,13 +483,11 @@ describe("the pre-start cap check (DIPO-205)", () => {
         {
           story_id: "DIPO-8",
           reason: "budget-exceeded",
-          cause: "build",
           detail: "turn cap reached: 100 of 100 turns",
         },
         {
           story_id: "DIPO-9",
           reason: "budget-exceeded",
-          cause: "build",
           detail: "turn cap reached: 100 of 100 turns",
         },
       ]);

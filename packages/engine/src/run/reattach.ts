@@ -14,22 +14,22 @@
 //   always does; run control and worker outcomes decide the exit.
 // - Host dead without `exit.json`: the remaining events are processed; an exit line among them is
 //   an exit as above. Otherwise the host is lost: `work.observed host-lost`, then one resume when
-//   budget remains and `canResume` holds, else the story parks `interrupted` (`RunOutcomes`).
+//   budget remains and `canResume` holds, else the story parks `worker-failed` (`RunOutcomes`).
 // - No new host ever starts here: a living host is followed until its exit line, and the run's
 //   next session (`RunResumer`) waits for every earlier host of the run to end.
 // - After the catch-up the run's caps are checked once, so a run over its caps is stopped at once.
 // - A living developer host of a run with no box record (an earlier binary's Mac session, from
 //   before every run was a box run; DIPO-240) is stopped with an error notice, and its story parks
-//   `interrupted`; its next session runs in a box. A reviewer stays on the Mac and is followed.
+//   `worker-failed`; its next session runs in a box. A reviewer stays on the Mac and is followed.
 // - A run whose host event file changed (DIPO-45's `ingest.fileChanged`, also one reported before
-//   the stop) parks `interrupted` with the detail "event file changed".
+//   the stop) parks `worker-failed` with the detail "event file changed".
 //
 // Exits ingested but not decided before the stop are `run-outcomes/redispatch`'s; runs whose host
 // has an ended agent are left to it.
 //
 // DIPO-93 adds three steps. First, `worker_hosts` rows left pending (written before their spawn)
 // are settled by the host's claimed launch or PID marker, or their launch is revoked; a run whose
-// only host never started parks `interrupted`. Then the active runs, as above, with the backstop
+// only host never started parks `worker-failed`. Then the active runs, as above, with the backstop
 // snapshot stored with the run. Last, the open hosts of runs that have ended are closed out when
 // dead, or followed until they exit, at every restart until their row ends.
 
@@ -94,7 +94,7 @@ export type ReattachOutcome =
   | "exited"
   /** The host died without an exit file; handed to worker outcomes. */
   | "hostLost"
-  /** The event file changed; the story parks `interrupted`. */
+  /** The event file changed; the story parks `worker-failed`. */
   | "fileChanged"
   /** A developer session on the Mac, outside a box (DIPO-240): stopped, and the story parks. */
   | "macSession"
@@ -396,7 +396,7 @@ export class RunReattacher {
 
   /**
    * A run whose only host was revoked while pending (DIPO-93): no worker ever ran. The story parks
-   * `interrupted`, keeping its worktree and branch, as for a run lost while the daemon was down.
+   * `worker-failed`, keeping its worktree and branch, as for a run lost while the daemon was down.
    */
   async #neverStarted(
     office: OfficeHandle,

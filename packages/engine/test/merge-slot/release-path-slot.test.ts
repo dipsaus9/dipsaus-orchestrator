@@ -112,9 +112,9 @@ describe("a story PR whose diff changes the release path", () => {
     // A review-blocked park of the story while that gate is open: the desk makes one PARKED row.
     s.w.office.immediate(() =>
       s.w.office.run(
-        `insert into parks (office_id, park_id, key, story_id, run_id, reason, cause, from_state,
-           detail, at)
-         values ($office_id, 1, $key, 'DIPO-7', $run, 'review-blocked', 'rounds', 'In Review',
+        `insert into parks (office_id, park_id, key, story_id, run_id, reason, from_state, detail,
+           at)
+         values ($office_id, 1, $key, 'DIPO-7', $run, 'review-blocked', 'In Review',
            'round 3 blocked', $at)`,
         { key: s.key, run: s.run, at: s.w.t.clock.now() },
       ),

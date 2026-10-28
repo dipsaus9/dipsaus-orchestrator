@@ -16,6 +16,7 @@ import {
   type WorkRef,
 } from "@dipsaus-orchestrator/contract";
 
+import type { AsyncCommandContext } from "../../src/commands/registry";
 import { OFFICE_DEFAULTS, type OfficeConfig } from "../../src/config";
 import { reviewVerdictForTree, reviewVerdictsOf } from "../../src/review";
 import {
@@ -24,6 +25,7 @@ import {
   findRun,
   IN_REVIEW_END,
   LAUNCH_NOTICES,
+  openPark,
   pendingReviews,
   placeHolders,
   Places,
@@ -32,6 +34,7 @@ import {
   REVIEWED_END,
   REVIEW_NOTICES,
   REVIEWER_ROLE,
+  resolvePark,
   reviewerSettings,
   Reviews,
   type ReviewSessionOutcome,
@@ -241,7 +244,6 @@ function world(): World {
         : {
             kind: "park",
             reason: "scope-violation",
-            cause: "backstop",
             detail: state.backstop,
             endKind: "scope-violation",
           },
@@ -432,8 +434,8 @@ async function exits(session: Session, code = 0): Promise<void> {
 }
 
 const parksOf = () =>
-  w.office.all<{ story_id: string; reason: string; cause: string; detail: string }>(
-    "select story_id, reason, cause, detail from parks where office_id = $office_id order by park_id",
+  w.office.all<{ story_id: string; reason: string; detail: string }>(
+    "select story_id, reason, detail from parks where office_id = $office_id order by park_id",
   );
 
 const stepsOf = (run: RunId, kind: string) =>
@@ -701,7 +703,7 @@ describe("the review allowance (0019 section 4)", () => {
 });
 
 describe("the failure table (0019 section 4)", () => {
-  it("parks review-blocked with cause rounds at the third failed round, a review-failed row per failed round", async () => {
+  it("parks review-blocked at the third failed round, a review-failed row per failed round", async () => {
     const s = inReview("DIPO-1", "tree-1");
     heads.set(s.run, "tree-1");
     for (const [round, tree] of [
@@ -722,7 +724,7 @@ describe("the failure table (0019 section 4)", () => {
     expect(stepsOf(s.run, "review-failed").map((step) => step.value)).toEqual(["1", "2", "3"]);
     const parks = parksOf();
     expect(parks).toHaveLength(1);
-    expect(parks[0]).toMatchObject({ reason: "review-blocked", cause: "rounds" });
+    expect(parks[0]).toMatchObject({ reason: "review-blocked" });
     expect(parks[0]?.detail).toContain("the 3 of 3 failed rounds");
     expect(parks[0]?.detail).toContain(
       "- blocking correctness at src/greet.ts:2: total subtracts instead of adding.",
@@ -734,7 +736,7 @@ describe("the failure table (0019 section 4)", () => {
     ]);
   });
 
-  it("gives an invalid report one correction turn, then ends the session as a crash; a second crash parks worker-failed with cause review", async () => {
+  it("gives an invalid report one correction turn, then ends the session as a crash; a second crash parks worker-failed", async () => {
     const s = inReview("DIPO-1", "tree-1");
     heads.set(s.run, "tree-1");
     const first = await reviewStarts(s);
@@ -752,13 +754,12 @@ describe("the failure table (0019 section 4)", () => {
     expect(stepsOf(s.run, "review")).toHaveLength(1);
     expect(JSON.stringify(events("engine.notice"))).toContain("review.failed");
 
-    // The fresh session crashes too: worker-failed, cause review, with its last error.
+    // The fresh session crashes too: worker-failed, with its last error.
     await exits(x.sessions[1]!, 1);
     expect(parksOf()).toEqual([
       {
         story_id: "DIPO-1",
         reason: "worker-failed",
-        cause: "review",
         detail: "the reviewer failed twice in review round 1: the reviewer exited with code 1",
       },
     ]);
@@ -786,7 +787,7 @@ describe("the failure table (0019 section 4)", () => {
     expect(stepsOf(s.run, "review-failed")).toEqual([]);
   });
 
-  it("parks worker-failed with cause review-cap at the reviewer's own turn cap, naming the cap", async () => {
+  it("parks worker-failed at the reviewer's own turn cap, naming the cap", async () => {
     const s = inReview("DIPO-1", "tree-1");
     heads.set(s.run, "tree-1");
     const session = await reviewStarts(s);
@@ -798,7 +799,6 @@ describe("the failure table (0019 section 4)", () => {
       {
         story_id: "DIPO-1",
         reason: "worker-failed",
-        cause: "review-cap",
         detail: "the reviewer's turn cap reached: 60 of 60 turns",
       },
     ]);
@@ -806,19 +806,17 @@ describe("the failure table (0019 section 4)", () => {
     expect(x.sessions).toHaveLength(1);
   });
 
-  it("parks budget-exceeded with cause review when the story's budget runs out in a review", async () => {
+  it("parks budget-exceeded when the story's budget runs out in a review", async () => {
     const s = inReview("DIPO-1", "tree-1");
     heads.set(s.run, "tree-1");
     const session = await reviewStarts(s);
     addUsage(w, s.run, session.agent, REVIEWER_ROLE, { turns: 3, tokens: BUDGET + ALLOWANCE });
     expect(x.control.checkCaps(s.run)).toBe(true);
     await x.control.idle();
-    expect(parksOf()).toEqual([
-      expect.objectContaining({ reason: "budget-exceeded", cause: "review" }),
-    ]);
+    expect(parksOf()).toEqual([expect.objectContaining({ reason: "budget-exceeded" })]);
   });
 
-  it("parks scope-violation with cause backstop when the review changed the worktree", async () => {
+  it("parks scope-violation when the review changed the worktree", async () => {
     const s = inReview("DIPO-1", "tree-1");
     heads.set(s.run, "tree-1");
     const session = await reviewStarts(s);
@@ -828,7 +826,6 @@ describe("the failure table (0019 section 4)", () => {
       {
         story_id: "DIPO-1",
         reason: "scope-violation",
-        cause: "backstop",
         detail: "HEAD moved: e1 to f2",
       },
     ]);
@@ -921,6 +918,42 @@ const claimLive = (run: RunId): boolean =>
     "select 1 as found from claims where office_id = $office_id and run_id = $run and released_at is null",
     { run },
   ) !== null;
+
+/** `story.park` of the story as the planning lane hands it to run control. */
+const parkIt = (s: StoryRun) =>
+  x.control.parkByMaintainer(
+    {
+      office: w.office,
+      stories: { get: () => ({ story: s.story, key: s.key }) },
+      commit: (fn: () => unknown) => write(() => void fn()),
+    } as unknown as AsyncCommandContext,
+    { story: s.story, note: "After the release." },
+  );
+
+describe("a story parked while it waits In Review (DIPO-344)", () => {
+  it("gets no review round or reviewer session until its park is resolved, then its review starts", async () => {
+    const s = inReview("DIPO-1", "tree-1");
+    const start = pendingReviews(w.office)[0]!;
+    await parkIt(s);
+    expect(parksOf()).toEqual([
+      { story_id: "DIPO-1", reason: "by-maintainer", detail: "After the release." },
+    ]);
+
+    expect(pendingReviews(w.office)).toEqual([]);
+    expect(await x.places.drain(officeId())).toBe(0);
+    // A start queued before the park waits too.
+    expect(await x.reviews.start(officeId(), findRun(w.office, s.run)!, start)).toBe(false);
+    expect(x.sessions).toEqual([]);
+    expect(stepsOf(s.run, "review")).toEqual([]);
+
+    // The resume resolves the park (`ParkResumes`); the next drain starts the review.
+    const parkId = openPark(w.office, s.key)!.parkId;
+    write(() => resolvePark(w.office, parkId, "resume", now()));
+    const session = await reviewStarts(s);
+    expect(session.run).toBe(s.run);
+    expect(stepsOf(s.run, "review")).toHaveLength(1);
+  });
+});
 
 describe("a story Done on the office base (DIPO-239)", () => {
   it("gets no review round or session for a run ended at In Review, which ends done once", async () => {
@@ -1067,7 +1100,7 @@ describe("a refused reviewer launch plan (DIPO-247)", () => {
 });
 
 describe("a reviewer that ends without a verdict (0019 section 4)", () => {
-  it("parks worker-failed with cause review when its host is lost twice in the round, with no review-failed step", async () => {
+  it("parks worker-failed when its host is lost twice in the round, with no review-failed step", async () => {
     const s = inReview("DIPO-1", "tree-1");
     heads.set(s.run, "tree-1");
     const first = await reviewStarts(s);
@@ -1083,7 +1116,6 @@ describe("a reviewer that ends without a verdict (0019 section 4)", () => {
       {
         story_id: "DIPO-1",
         reason: "worker-failed",
-        cause: "review",
         detail:
           "the reviewer failed twice in review round 1: the reviewer host died while the daemon was down",
       },
@@ -1095,7 +1127,7 @@ describe("a reviewer that ends without a verdict (0019 section 4)", () => {
     });
   });
 
-  it("parks worker-failed with cause review-cap past the reviewer's minute cap, with no review-failed step", async () => {
+  it("parks worker-failed past the reviewer's minute cap, with no review-failed step", async () => {
     const s = inReview("DIPO-1", "tree-1");
     heads.set(s.run, "tree-1");
     const session = await reviewStarts(s);
@@ -1107,7 +1139,7 @@ describe("a reviewer that ends without a verdict (0019 section 4)", () => {
     await x.control.idle();
     const parks = parksOf();
     expect(parks).toEqual([
-      expect.objectContaining({ story_id: "DIPO-1", reason: "worker-failed", cause: "review-cap" }),
+      expect.objectContaining({ story_id: "DIPO-1", reason: "worker-failed" }),
     ]);
     expect(parks[0]?.detail).toBe(
       "the reviewer's time cap reached: 30 of 30 minutes since the worker started",

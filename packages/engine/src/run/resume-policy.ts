@@ -1,203 +1,122 @@
-// The per-reason resume policy of `resumption.ts` (ADR 0020 sections 1 and 2, DIPO-138, DIPO-155):
-// which command resumes a run standing still for a reason, and, for a park `work.resume` resumes,
-// what the resume needs from the maintainer, which session follows, what its first message says
-// and which grant a noted resume records. Code reads the park's cause, never its detail.
+// The resume table of 0020: per park reason, what `work.resume` requires and what the first
+// message of the next session says. The reason is the only thing it reads; a park's detail is text
+// no code decides from.
 //
-// - `PARK_RESUME_POLICY` is keyed by reason: `needs-permission` resumes through its question's
-//   answer, `plan-limit` and `paused` (not parks) and every park reason with a matrix row through
-//   `work.resume`, and `on-hold` (a park with no run) through the planning lane (DIPO-160).
-// - `PARK_RESUME_MATRIX` is keyed by `reason/cause`, or by the reason alone for a row that holds
-//   for every cause with no own row. A row either refuses (`notResumable`, `decisionRequired`) or
-//   says how the resume goes. A reason or cause with no row is not resumed here: `work.resume`
-//   answers `story.notPausedOrParked` for it, as before. A question park (`ambiguous-spec` with
-//   cause `question`) resumes with its answer: the note of `work.resume`, or the text of
-//   `work.answer` on its question (DIPO-159). The box parks of a protected file, a secret, a
-//   refused part and a task file dipo does not know are never resumable (maintainer decision,
-//   DIPO-155 review): `dipo discard`.
-// - Box runs (0021 sections 6 and 7): every developer session of a box run is a new session in the
-//   story's box with a handoff, never a native resume, so `developer` means a handoff there.
+// | Reason            | Resume requires                                | First message                  |
+// |-------------------|------------------------------------------------|--------------------------------|
+// | `ambiguous-spec`  | the answer: `--note`, or `dipo answer --text`  | the question and the answer    |
+// | `review-blocked`  | `--note` with a direction (or `dipo approve`)  | the blocking findings          |
+// | `budget-exceeded` | `--budget` and `--note`                        | the raised budget              |
+// | `verify-failing`  | nothing                                        | the last red check or verify   |
+// | `conflict`        | nothing                                        | the conflicting paths          |
+// | `scope-violation` | not resumable: `dipo discard`                  | none                           |
+// | `by-maintainer`   | nothing                                        | "resumed by the maintainer"    |
+// | `worker-failed`   | nothing                                        | the last error                 |
+//
+// The maintainer's note follows the reason's message. Which session the resume starts comes from
+// the run's own facts (`resumeSession`), never from the park's detail.
 
-/** The command that resumes a run standing still for a reason. */
-export type ResumeVia = "permission-answer" | "work.resume";
-
-export interface ResumePolicyRow {
-  readonly via: ResumeVia;
-}
-
-/** The park reasons `work.resume` resumes through the matrix (0020 section 2). */
-const MATRIX_REASONS = [
-  "stopped",
-  "interrupted",
-  "worker-failed",
-  "verify-failing",
-  "scope-violation",
-  "review-blocked",
-  "budget-exceeded",
-  "conflict",
-  "ambiguous-spec",
-] as const;
+/** What `work.resume` needs for a park: a resume, or a refusal. */
+export type ResumeNeed =
+  | {
+      readonly kind: "resume";
+      /** `answer`: the note is the answer of the park's question, which may be held already. */
+      readonly note: "required" | "optional" | "answer";
+      /** A `budget-exceeded` park resumes only with a top-up (`--budget`). */
+      readonly budget?: true;
+    }
+  | { readonly kind: "refuse"; readonly code: "resume.notResumable" };
 
 /**
- * The per-reason resume policy. Keyed by the park reason; a run held by a plan limit is not parked
- * and stands under the reason `plan-limit`. A reason with no row cannot be resumed here yet.
- */
-export const PARK_RESUME_POLICY: Readonly<Record<string, ResumePolicyRow>> = {
-  "needs-permission": { via: "permission-answer" },
-  "plan-limit": { via: "work.resume" },
-  // A run the maintainer paused (0020 section 9, DIPO-163): not a park, like `plan-limit`.
-  paused: { via: "work.resume" },
-  // A park without a run: the planning lane lifts it (0020 section 8, DIPO-160).
-  "on-hold": { via: "work.resume" },
-  ...Object.fromEntries(MATRIX_REASONS.map((reason) => [reason, { via: "work.resume" }])),
-};
-
-/** The command that resumes a run standing still for `reason`, or null without a row. */
-export function resumeVia(reason: string): ResumeVia | null {
-  return Object.hasOwn(PARK_RESUME_POLICY, reason)
-    ? (PARK_RESUME_POLICY[reason]?.via ?? null)
-    : null;
-}
-
-/**
- * The session a resume starts (0020 section 1 step 5 and section 2):
- * - `developer`: the developer's native session when the 0014 section 6 checks pass, else a new
- *   session with a handoff (always a handoff for a box run);
- * - `handoff`: always a new developer session with a handoff;
- * - `review`: a fresh reviewer session of the same round on the same head, in the reviewer place;
- * - `fix-round`: back to In Review, then a fix round with the last verdict's blocking findings;
- * - `none`: no model session.
- */
-export type ResumeSession = "developer" | "handoff" | "review" | "fix-round" | "none";
-
-/**
- * The first message's delta before the note (0020 section 3): `resume` is `feedback/resume.md`
- * with the park's detail, `detail` the detail in `feedback/parked.md`, `verify-item` and `ci-item`
- * the run's last stored verify or CI feedback item (the detail when none was stored), `topup`
- * `feedback/topup.md` after the round's undelivered feedback, `answer` the park's question and the
- * maintainer's answer in `feedback/answer.md`, where the note is the answer (DIPO-159), `none`
- * nothing.
+ * The first message's part before the note: `answer` the park's question and the answer,
+ * `findings` the last verdict's blocking findings (a fix round), `topup` the raised budget,
+ * `check` the last red check or verify output, `conflict` what the conflict hand-off prepares,
+ * `maintainer` that the maintainer resumed it, `detail` the park's detail as the last error.
  */
 export type ResumeDelta =
-  | "resume"
-  | "detail"
-  | "verify-item"
-  | "ci-item"
-  | "topup"
   | "answer"
-  | "none";
+  | "findings"
+  | "topup"
+  | "check"
+  | "conflict"
+  | "maintainer"
+  | "detail";
 
-/**
- * The grant a resume records (0020 decision 6b and section 4): one more round of the limit that
- * fired, the reviewer's cap that fired grown by half (`reviewCap`), or all three developer caps
- * grown by half of the starting caps as one budget grant (`budgetHalf`, the `capped` row).
- */
-export type ResumeGrantRule =
-  | "loop"
-  | "ciAttempt"
-  | "conflictHandoff"
-  | "reviewRound"
-  | "reviewCap"
-  | "budgetHalf";
-
-/** A matrix row that resumes. */
-export interface ParkResumeRow {
-  readonly kind: "resume";
-  /** Whether `work.resume` needs a note (decision 6a). */
-  readonly note: "required" | "optional";
-  readonly session: ResumeSession;
+interface ResumeRow {
+  readonly need: ResumeNeed;
   readonly delta: ResumeDelta;
-  /** The `why` of the session's notice and of `feedback/resume.md`; the park's detail otherwise. */
-  readonly why?: string;
-  readonly grant?: ResumeGrantRule;
-  /** A `budget-exceeded` park: resumed only with a top-up (`budget`) and its why (section 4). */
-  readonly topUp?: true;
-  /** The git links are checked and a new backstop snapshot taken first (decision 7). */
-  readonly gitCheck?: true;
-  /** Refused while the adapter hold that caused it is set, naming the hold. */
-  readonly holdCheck?: true;
-  /**
-   * The rest of the resume belongs to another story's port: the 0019 conflict hand-off
-   * (`conflict`, DIPO-149), the merge slot (`slot`, DIPO-150) or a new story PR (`pr`).
-   */
-  readonly port?: "conflict" | "slot" | "pr";
 }
 
-/** A matrix row that refuses: never resumable, or resumed by a decision instead. */
-export interface ParkRefusalRow {
-  readonly kind: "refuse";
-  readonly code: "resume.notResumable" | "resume.decisionRequired";
-  /** A box part's park (0021 section 8) that the maintainer decided is never resumable. */
-  readonly box?: true;
-}
+/** The share a top-up the desk and the refusals suggest grows the caps by. */
+export const SUGGESTED_SHARE = 50;
 
-export type ParkMatrixRow = ParkResumeRow | ParkRefusalRow;
+const OPTIONAL: ResumeNeed = { kind: "resume", note: "optional" };
 
-function optional(
-  session: ResumeSession,
-  delta: ResumeDelta,
-  extra: Partial<Omit<ParkResumeRow, "kind" | "note" | "session" | "delta">> = {},
-): ParkResumeRow {
-  return { kind: "resume", note: "optional", session, delta, ...extra };
-}
-
-function required(
-  session: ResumeSession,
-  delta: ResumeDelta,
-  extra: Partial<Omit<ParkResumeRow, "kind" | "note" | "session" | "delta">> = {},
-): ParkResumeRow {
-  return { kind: "resume", note: "required", session, delta, ...extra };
-}
-
-/**
- * The resume matrix (0020 section 2 and its 2026-10-19 amendment), keyed by `reason/cause`, or by
- * the reason for a row that holds for every cause with no own row.
- */
-export const PARK_RESUME_MATRIX: Readonly<Record<string, ParkMatrixRow>> = {
-  "stopped/maintainer": optional("developer", "resume", { why: "the maintainer stopped it" }),
-  "stopped/review": optional("review", "none"),
-  "stopped/pr-closed": optional("none", "none", { port: "pr" }),
-  interrupted: optional("developer", "resume"),
-  "worker-failed/review": optional("review", "none"),
-  "worker-failed/review-cap": optional("review", "none", { grant: "reviewCap" }),
-  "worker-failed": optional("developer", "resume", { holdCheck: true }),
-  "verify-failing/refused": optional("developer", "resume"),
-  "verify-failing/loops": required("developer", "verify-item", { grant: "loop" }),
-  "verify-failing/ci": required("developer", "ci-item", { grant: "ciAttempt" }),
-  "verify-failing/capped": required("developer", "detail", { grant: "budgetHalf" }),
-  "scope-violation/paths": required("developer", "detail"),
-  "scope-violation/tampered": { kind: "refuse", code: "resume.notResumable" },
-  // The box parks (0021 section 8): never resumable, by the maintainer's decision.
-  "scope-violation/protected-file": { kind: "refuse", code: "resume.notResumable", box: true },
-  "scope-violation/secret": { kind: "refuse", code: "resume.notResumable", box: true },
-  "scope-violation/part-refused": { kind: "refuse", code: "resume.notResumable", box: true },
-  "scope-violation/task-file": { kind: "refuse", code: "resume.notResumable", box: true },
-  "scope-violation/backstop": required("handoff", "detail", { gitCheck: true }),
-  "scope-violation/hand-change": required("handoff", "detail", { gitCheck: true }),
-  "review-blocked/rounds": required("fix-round", "none", { grant: "reviewRound" }),
-  "budget-exceeded/review": required("review", "none", { topUp: true }),
-  "budget-exceeded": required("developer", "topup", { topUp: true }),
-  "conflict/merge-in-progress": required("developer", "none", {
-    grant: "conflictHandoff",
-    port: "conflict",
-  }),
-  "conflict/unwritable-path": required("developer", "none", { port: "conflict" }),
-  "conflict/push-rejected": required("developer", "none", { port: "conflict" }),
-  "conflict/slot-refused": required("none", "none", { port: "slot" }),
-  // A catch-up or a merge of dipo's that could not reach the box (DIPO-277, DIPO-324): the next
-  // session copies what the box lacks into it first, then the base is merged again.
-  "conflict/catch-up-failed": required("developer", "none", { port: "conflict" }),
-  // The note is the answer to the park's question (0020 section 7, DIPO-159).
-  "ambiguous-spec/question": required("developer", "answer"),
-  "ambiguous-spec/no-report": required("handoff", "none"),
-  "ambiguous-spec/rule-conflict": required("developer", "detail"),
-  "needs-permission": { kind: "refuse", code: "resume.decisionRequired" },
+/** The table of 0020, one row per reason of 0001. */
+export const RESUME_TABLE: Readonly<Record<string, ResumeRow>> = {
+  "ambiguous-spec": { need: { kind: "resume", note: "answer" }, delta: "answer" },
+  "review-blocked": { need: { kind: "resume", note: "required" }, delta: "findings" },
+  "budget-exceeded": {
+    need: { kind: "resume", note: "required", budget: true },
+    delta: "topup",
+  },
+  "verify-failing": { need: OPTIONAL, delta: "check" },
+  conflict: { need: OPTIONAL, delta: "conflict" },
+  "scope-violation": { need: { kind: "refuse", code: "resume.notResumable" }, delta: "detail" },
+  "by-maintainer": { need: OPTIONAL, delta: "maintainer" },
+  "worker-failed": { need: OPTIONAL, delta: "detail" },
 };
 
-/** The matrix row of a park's reason and cause, or null when `work.resume` has none for it. */
-export function parkResumeRow(reason: string, cause: string | null): ParkMatrixRow | null {
-  const exact = cause === null ? undefined : `${reason}/${cause}`;
-  if (exact !== undefined && Object.hasOwn(PARK_RESUME_MATRIX, exact)) {
-    return PARK_RESUME_MATRIX[exact] ?? null;
-  }
-  return Object.hasOwn(PARK_RESUME_MATRIX, reason) ? (PARK_RESUME_MATRIX[reason] ?? null) : null;
+const FALLBACK = "worker-failed";
+
+/**
+ * The row of a reason. A reason outside the eight (a park record written by hand in Backlog.md)
+ * resumes as `worker-failed` does: nothing is required, and its detail is the first message.
+ */
+export function resumeRow(reason: string): ResumeRow {
+  return (
+    (Object.hasOwn(RESUME_TABLE, reason) ? RESUME_TABLE[reason] : undefined) ??
+    (RESUME_TABLE[FALLBACK] as ResumeRow)
+  );
+}
+
+/** What `work.resume` needs for a park of `reason`. */
+export function parkResumeNeed(reason: string): ResumeNeed {
+  return resumeRow(reason).need;
+}
+
+/**
+ * The session a resume starts:
+ * - `developer`: a new developer session of the same run in the story's box, with a handoff;
+ * - `review`: a fresh reviewer session of the same round on the same head;
+ * - `fix-round`: back to In Review, then a fix round with the last verdict's blocking findings;
+ * - `none`: no session; the story waits In Review again.
+ */
+export type ResumeSession = "developer" | "review" | "fix-round" | "none";
+
+/** The run facts the session of a resume follows from. */
+export interface ResumeFacts {
+  /** The run's last session was the reviewer, and the park stopped it (0020, 0002). */
+  readonly reviewerStopped: boolean;
+  /**
+   * The run waited In Review when it parked (no session was live): the park did not end it, so its
+   * end kind is still the one of a run waiting for its review or merge.
+   */
+  readonly waitingInReview: boolean;
+}
+
+/**
+ * The session a resume of `reason` starts (0020): a `review-blocked` park returns through a fix
+ * round with its findings; a park that stopped the reviewer (its budget, a failed reviewer session
+ * or the maintainer) starts a fresh review of the same head; a story the maintainer parked while
+ * it waited In Review waits there again (0002: a PR closed on GitHub gets a new PR); every other
+ * resume is a new developer session.
+ */
+export function resumeSession(reason: string, facts: ResumeFacts): ResumeSession {
+  if (reason === "review-blocked") return "fix-round";
+  const stoppable =
+    reason === "budget-exceeded" || reason === "worker-failed" || reason === "by-maintainer";
+  if (stoppable && facts.reviewerStopped) return "review";
+  if (reason === "by-maintainer" && facts.waitingInReview) return "none";
+  return "developer";
 }

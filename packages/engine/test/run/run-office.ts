@@ -28,7 +28,8 @@ import { EngineGit } from "../../src/git";
 import { WorkerHost } from "../../src/host/main";
 import { EVENTS_FILE, hostSocketPath, HOSTS_DIR, LAUNCH_FILE } from "../../src/host/protocol";
 import { officeStatusesReady } from "../../src/office/init";
-import { ensurePrivateDir } from "../../src/platform/paths";
+import { currentPlatform, ensurePrivateDir } from "../../src/platform/paths";
+import { systemProcessProbe } from "../../src/platform/process";
 import {
   capsOf,
   cliRunBase,
@@ -56,6 +57,7 @@ import { type LaunchedHost, recordWorkerHost, runDirectory } from "../../src/run
 import { standInPlan } from "./stand-in-plan";
 import type { RunProfile } from "../../src/scan/detect";
 import { StoryIndex } from "../../src/stories/feature";
+import { StoryPlanning } from "../../src/stories/planning";
 import {
   claudeCliAdapter,
   claudeLaunchContext,
@@ -555,7 +557,21 @@ export async function withRunOffice(
           index.feature,
           gates.feature,
           workRun.feature,
-          ...(control === null ? [] : [control.feature]),
+          ...(control === null
+            ? []
+            : [
+                control.feature,
+                // `story.park` (0020): the planning lane parks a story with no run, run control one
+                // with a run.
+                new StoryPlanning({
+                  lane: (office) => lane.forOffice(office),
+                  git: (office) => engineGit.forOffice(office),
+                  host: { closePr: async () => undefined },
+                  implemented: () => true,
+                  probe: systemProcessProbe(currentPlatform()),
+                  parkRun: (ctx, args) => control.parkByMaintainer(ctx, args),
+                }).feature,
+              ]),
         ],
       });
       setup = s;

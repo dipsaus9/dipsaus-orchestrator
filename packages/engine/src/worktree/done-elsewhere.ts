@@ -37,6 +37,7 @@ import type { GitSession, OfficeGit } from "../git/office";
 import { closeQuestion, openQuestions } from "../hooks/questions";
 import { CodeHostError, type CodeHost } from "../platform/host";
 import { forgetWorkerNotes } from "../prompts/notes";
+import { openParkIds, resolvePark } from "../run/park-resolve";
 import { findRun } from "../run/records";
 import { latestStoryPr, setStoryPrState } from "../story-pr/records";
 import { lifecycleOf, storyView } from "../views/story";
@@ -245,7 +246,7 @@ export function doneElsewhereDeskItems(office: OfficeHandle): DoneElsewhereDeskI
         since: row.flaggedAt,
         commits: [],
         files: [],
-        actions: [{ command: "work.stop", cli: `dipo stop ${row.story}` }],
+        actions: [{ command: "story.park", cli: `dipo park ${row.story} --note "<why>"` }],
       });
     } else if (row.settledAt !== null && (row.worktreeKept || row.branchKept)) {
       leftovers.set(row.key, [...(leftovers.get(row.key) ?? []), row]);
@@ -385,7 +386,7 @@ export function flagLiveWorker(
       notice(
         "warn",
         DONE_ELSEWHERE_NOTICES.live,
-        `${claim.story} is Done on ${claim.base}${commitText(baseCommit)}, not through its own branch ${claim.branch}, but its worker still runs. dipo does not stop it: stop it with \`dipo stop ${claim.story}\`, or dipo releases the claim when the run next ends.`,
+        `${claim.story} is Done on ${claim.base}${commitText(baseCommit)}, not through its own branch ${claim.branch}, but its worker still runs. dipo does not stop it: park it with \`dipo park ${claim.story} --note <why>\`, or dipo releases the claim when the run next ends.`,
         claim.key,
       ),
     ];
@@ -413,12 +414,10 @@ export function releaseDoneElsewhere(
       reason: options.reason ?? DONE_ELSEWHERE_REASON,
       keepBranch: false,
     });
-    office.run(
-      `update parks set resolved_at = $at, resolved_how = 'done-elsewhere'
-        where office_id = $office_id and key = $key and resolved_at is null`,
-      { key: claim.key, at },
-    );
     const entries: NewEntry[] = [];
+    for (const park of openParkIds(office, claim.key)) {
+      entries.push(...resolvePark(office, park, "done-elsewhere", at));
+    }
     for (const question of openQuestions(office, claim.runId)) {
       if (!closeQuestion(office, question.questionId, "ended", at)) continue;
       entries.push({

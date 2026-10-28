@@ -42,7 +42,7 @@ import {
   withReconcileOffice,
 } from "./helpers";
 
-const ON_HOLD = 'park: { reason: "on-hold", from: "Ready", note: "Waiting for the export" }';
+const BY_YOU = 'park: { reason: "by-maintainer", from: "Ready", note: "Waiting for the export" }';
 const AMBIGUOUS = 'park: { reason: "ambiguous-spec", from: "In Progress", note: "Which flag?" }';
 
 interface RunCall {
@@ -212,13 +212,15 @@ if (process.env["DIPO_TEST_CI"] === "1") {
         w.o.office.immediate(() =>
           w.o.office.run(
             `insert into parks (office_id, park_id, key, story_id, run_id, reason, from_state, detail, at)
-           values ($office_id, 1, $key, 'TASK-1', null, 'stopped', 'In Progress', 'old', 0)`,
+           values ($office_id, 1, $key, 'TASK-1', null, 'by-maintainer', 'In Progress', 'old', 0)`,
             { key },
           ),
         );
         const seq = lastSeq(w.o.office);
         await w.rescan();
-        expect(parks(w.o.office)).toEqual([{ reason: "stopped", detail: "old", how: "reconcile" }]);
+        expect(parks(w.o.office)).toEqual([
+          { reason: "by-maintainer", detail: "old", how: "reconcile" },
+        ]);
         expect(codes(w.o.office, seq)).toContain(RECONCILE_NOTICES.parkClosed);
       }));
 
@@ -226,12 +228,12 @@ if (process.env["DIPO_TEST_CI"] === "1") {
       withWorld(
         [
           { id: "TASK-1", status: "Ready" },
-          { id: "TASK-3", status: "Parked", fields: [ON_HOLD] },
+          { id: "TASK-3", status: "Parked", fields: [BY_YOU] },
         ],
         async (w) => {
           // The load already reconciled once: the park is recorded exactly once.
           expect(parks(w.o.office)).toEqual([
-            { reason: "on-hold", detail: RECORDED_BY_HAND, how: null },
+            { reason: "by-maintainer", detail: RECORDED_BY_HAND, how: null },
           ]);
           const seq = lastSeq(w.o.office);
           await w.rescan();

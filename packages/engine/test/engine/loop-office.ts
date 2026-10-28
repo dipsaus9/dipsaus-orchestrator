@@ -501,7 +501,7 @@ export function stateOf(w: LoopWorld): string {
     `sessions: ${JSON.stringify(w.sessions.map((s) => [s.kind, s.n, s.runId, s.agentId]))}`,
     `runs: ${rows("select run_id, story_id, ended_at, end_kind from runs where office_id = $office_id")}`,
     `agents: ${rows("select agent_id, role, ended_at, end_reason from agents where office_id = $office_id")}`,
-    `parks: ${rows("select reason, cause, detail, resolved_at from parks where office_id = $office_id")}`,
+    `parks: ${rows("select reason, detail, resolved_at from parks where office_id = $office_id")}`,
     `prs: ${rows("select pr_number, head_sha, state from story_prs where office_id = $office_id")}`,
     `verdicts: ${rows("select round, verdict, commit_sha from review_verdicts where office_id = $office_id")}`,
     `slot: ${rows("select * from merge_slot where office_id = $office_id")}`,

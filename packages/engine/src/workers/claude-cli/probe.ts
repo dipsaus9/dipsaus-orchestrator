@@ -14,7 +14,7 @@ export const MIN_CLAUDE_VERSION = "2.1.285";
  * default (`BOX_DEFAULTS.claudeCode`), whose stream the newest recordings under
  * `test/recordings/claude-cli` (2.1.302) and the box checks were read against. A worker that
  * reports a newer version at its start gets one `engine.notice` per office and version: its stream
- * may have changed, and a run whose stream dipo cannot read parks with cause `stream-drift`. Raise
+ * may have changed, and a run whose stream dipo cannot read parks `worker-failed`. Raise
  * it together with the box image's version, after the recordings are checked again with it.
  */
 export const CHECKED_CLAUDE_VERSION = "2.1.303";

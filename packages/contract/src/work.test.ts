@@ -81,7 +81,7 @@ describe("closed enums", () => {
 describe("open enums", () => {
   const cases = [
     { name: "Tier", schema: Tier, known: KNOWN_TIERS, size: 3 },
-    { name: "ParkReason", schema: ParkReason, known: KNOWN_PARK_REASONS, size: 11 },
+    { name: "ParkReason", schema: ParkReason, known: KNOWN_PARK_REASONS, size: 8 },
     { name: "SkipReason", schema: SkipReason, known: KNOWN_SKIP_REASONS, size: 8 },
     { name: "Phase", schema: Phase, known: KNOWN_PHASES, size: 6 },
     { name: "WatchdogSignal", schema: WatchdogSignal, known: KNOWN_WATCHDOG_SIGNALS, size: 7 },
@@ -97,22 +97,17 @@ describe("open enums", () => {
     });
   }
 
-  it("names the eleven park reasons of 0001, 0005 and 0008", () => {
-    expect(([...KNOWN_PARK_REASONS] as string[]).toSorted()).toEqual(
-      [
-        "ambiguous-spec",
-        "verify-failing",
-        "conflict",
-        "scope-violation",
-        "review-blocked",
-        "budget-exceeded",
-        "on-hold",
-        "stopped",
-        "interrupted",
-        "needs-permission",
-        "worker-failed",
-      ].toSorted(),
-    );
+  it("names the eight park reasons of 0001", () => {
+    expect([...KNOWN_PARK_REASONS]).toEqual([
+      "ambiguous-spec",
+      "verify-failing",
+      "conflict",
+      "scope-violation",
+      "review-blocked",
+      "budget-exceeded",
+      "by-maintainer",
+      "worker-failed",
+    ]);
   });
 
   it("names the phases and health states of 0009", () => {
@@ -241,8 +236,7 @@ describe("office commands and reads", () => {
     "office.switch": 1,
     "work.resume": 1,
     "work.steer": 1,
-    "work.pause": 1,
-    "story.hold": 1,
+    "story.park": 1,
     "story.drop": 1,
     "work.discard": 1,
     "gate.approve": 1,
@@ -258,11 +252,9 @@ describe("office commands and reads", () => {
         "work.run",
         "work.answer",
         "work.steer",
-        "work.pause",
         "work.resume",
-        "work.stop",
         "work.discard",
-        "story.hold",
+        "story.park",
         "story.drop",
         "gate.approve",
         "gate.reject",
@@ -386,7 +378,6 @@ describe("the desk", () => {
     key: "sto_01J9ZK5Q8W3V4X6Y7Z8A9B0C1D",
     pr: { number: 7, url: "https://github.com/o/r/pull/7", state: "open" },
     reason: "review-blocked",
-    cause: "rounds",
     detail: "round 3 blocked",
     since: "2026-10-23T10:00:00.000Z",
     blocks: ["DIPO-106"],
@@ -399,7 +390,7 @@ describe("the desk", () => {
   it("parses an item with its actions, and a kind a later minor adds", () => {
     expect(DeskItem.parse(item)).toEqual(item as never);
     expect(DeskItem.safeParse({ ...item, kind: "SOMETHING NEW" }).success).toBe(true);
-    expect(KNOWN_DESK_KINDS).toContain("HELD");
+    expect(KNOWN_DESK_KINDS).toContain("PARKED BY YOU");
   });
 
   it("needs a detail, a since, blocks and actions, and a dotted command name", () => {

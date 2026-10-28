@@ -18,11 +18,10 @@ import {
 } from "./outcome-types";
 import { steerText } from "./intervene";
 import { markIntentSent, recordIntent, resolveIntent } from "./intents";
-import { heldMessages, markHeldSent } from "./pauses";
+import { heldMessages, markHeldSent } from "./steers";
 import { placeOfRun } from "./places";
 import { START_FAILED_END } from "./launch";
 import type { OfficeHandle } from "../db/office";
-import { PARK_CAUSES } from "./park";
 import type { StoredRun } from "./records";
 
 export class SessionStarts {
@@ -48,7 +47,7 @@ export class SessionStarts {
        * in the handoff block's open feedback otherwise; the steers that waited follow it.
        */
       readonly note?: string;
-      /** Only a resume will do; a session that cannot be resumed parks `interrupted` (DIPO-57). */
+      /** Only a resume will do; a session that cannot be resumed parks `worker-failed` (DIPO-57). */
       readonly requireResume?: boolean;
       readonly clear?: readonly WatchdogSignal[];
       /** Runs in the transaction that records the new agent (`NextSessionRequest.inRecord`). */
@@ -61,7 +60,6 @@ export class SessionStarts {
         intent: "park",
         ops: [],
         reason: "worker-failed",
-        cause: PARK_CAUSES.build,
         detail: `${request.why}; dipo cannot start another session of the run`,
         endKind: OUTCOME_ENDS.crashed,
       });
@@ -121,7 +119,6 @@ export class SessionStarts {
           intent: "park",
           ops: [],
           reason: "worker-failed",
-          cause: PARK_CAUSES.build,
           detail: `${request.why}; the next session did not start: ${outcome.reason}`,
           endKind: OUTCOME_ENDS.crashed,
         });
@@ -132,7 +129,6 @@ export class SessionStarts {
           intent: "park",
           ops: [],
           reason: "worker-failed",
-          cause: PARK_CAUSES.build,
           detail: `${request.why}; ${outcome.code}: the earlier worker host of the run (pid ${outcome.pid}) still runs, so no new session starts`,
           endKind: OUTCOME_ENDS.crashed,
         });
@@ -141,8 +137,7 @@ export class SessionStarts {
         await this.#s.park(office, run, view.work, {
           intent: "park",
           ops: [],
-          reason: "interrupted",
-          cause: PARK_CAUSES.build,
+          reason: "worker-failed",
           detail: `${request.why}; its session cannot be resumed: ${outcome.reason}`,
           endKind: OUTCOME_ENDS.interrupted,
         });
@@ -187,7 +182,6 @@ export class SessionStarts {
         intentDetail: `${INTENT_TAGS.startFailed} ${detail}`,
         ops: [],
         reason: "worker-failed",
-        cause: PARK_CAUSES.build,
         detail: message,
         endKind: START_FAILED_END,
         notice: {

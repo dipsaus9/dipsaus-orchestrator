@@ -5,9 +5,8 @@
 // lets the engine pick the next Ready one) with `work.run`, `.` shows Done stories. In the
 // overview `j`/`k` or arrows move over every board row; Enter on a running story, there or in the
 // queue, opens the live agent detail (`detail.tsx`), and on a story that ran before its latest run
-// read-only through `story.detail` (a story that never ran says so in the footer). There `X` asks
-// "worker ends, branch kept, story parks as stopped" and sends `work.stop` on yes, and Esc returns
-// to the view it came from. In the switcher: `j`/`k` or arrows move, Enter opens the office through
+// read-only through `story.detail` (a story that never ran says so in the footer). There `P` asks
+// for a note and sends `story.park`, and Esc returns to the view it came from. In the switcher: `j`/`k` or arrows move, Enter opens the office through
 // `office.switch`, `n` opens a new repository path through `office.open`, Esc goes back. Action
 // keys are off while offline. In the overview `p` opens the privacy settings (`settings.tsx`):
 // Enter toggles the selected one after a yes that names what is stored, through `office.setPrivacy`.
@@ -63,14 +62,7 @@ import {
   selectedRow,
   useDesk,
 } from "./desk";
-import {
-  answerHint,
-  Detail,
-  type DetailTarget,
-  type ReadOutput,
-  type ReadPrompt,
-  STOP_PROMPT,
-} from "./detail";
+import { answerHint, Detail, type DetailTarget, type ReadOutput, type ReadPrompt } from "./detail";
 import { skipReason, widthOf } from "./format";
 import { useLatestLines } from "./latest";
 import type { Display } from "./options";
@@ -143,17 +135,6 @@ export type StoryOutcome =
     }
   | { readonly ok: false; readonly error: EngineError };
 
-export interface StopRequest {
-  readonly office: OfficeId;
-  readonly story: StoryRefValue;
-  readonly requestId: RequestId;
-}
-
-/** A `work.stop` reply. */
-export type StopOutcome =
-  | { readonly ok: true; readonly cursor?: Cursor }
-  | { readonly ok: false; readonly error: EngineError };
-
 /** The commands the TUI sends; `run` builds them on the client session. */
 export interface TuiActions {
   /** `work.outputRange` for the live agent detail (0005 section 7). */
@@ -165,8 +146,6 @@ export interface TuiActions {
     readonly office: OfficeId;
     readonly story: StoryKey;
   }): Promise<StoryOutcome>;
-  /** `work.stop`, confirmed by the maintainer (0009 section 5). */
-  stopStory(request: StopRequest): Promise<StopOutcome>;
   /** `office.open` for a path the maintainer typed. */
   openPath(path: string): Promise<ActionResult<OfficeId>>;
   /** `daemon.resumeScheduling`, after the maintainer agreed. */
@@ -192,7 +171,6 @@ type Mode =
   | { readonly kind: "switcher"; readonly index: number }
   | { readonly kind: "path"; readonly index: number; readonly text: string }
   | { readonly kind: "confirm-resume" }
-  | { readonly kind: "confirm-stop"; readonly story: StoryRefValue }
   | { readonly kind: "confirm-privacy"; readonly key: string; readonly value: boolean };
 
 type View = "overview" | "queue" | "settings" | "desk";
@@ -208,14 +186,6 @@ interface CardState {
 interface DetailState {
   readonly target: DetailTarget;
   readonly back: View;
-}
-
-/** One `work.stop` the maintainer confirmed, from send to done. */
-interface StopAction {
-  readonly story: string;
-  readonly status: "sending" | "syncing" | "done";
-  readonly cursor?: Cursor;
-  readonly snapshots?: number;
 }
 
 /** One `work.run` the maintainer sent, from send to done. */
@@ -322,7 +292,6 @@ export function App(props: AppProps) {
   const [detail, setDetail] = useState<DetailState | null>(null);
   // The selected overview row by story key, so it follows the story when rows come and go.
   const [overviewKey, setOverviewKey] = useState<string | null>(null);
-  const [stop, setStop] = useState<StopAction | null>(null);
   // The selected privacy setting, and whether one was written (the comments warning is then gone).
   const [settingsIndex, setSettingsIndex] = useState(0);
   const [privacyWritten, setPrivacyWritten] = useState(false);
@@ -416,21 +385,22 @@ export function App(props: AppProps) {
         story: String(question.work.story),
         question: question.question,
         text: JSON.stringify(oneLine(question.text)),
-        questionKind: question.kind,
       });
     }
   };
-  /** `s` or `p` in the live agent detail. */
-  const steerOrPause = (id: "steer" | "pause", runId: string) => {
+  /** `s` or `P` in the live agent detail. */
+  const steerOrPark = (id: "steer" | "park", runId: string) => {
     const live = state.work.find((candidate) => candidate.work.run === runId);
     if (live === undefined) {
-      setMessage(`this run has ended; there is no worker to ${id}`);
+      setMessage(
+        id === "steer"
+          ? "this run has ended; there is no worker to steer"
+          : "this run has ended; park its story from the queue or the desk",
+      );
     } else if (!viewKeys("detail", state.capabilities).some((entry) => entry.id === id)) {
       setMessage(`this daemon cannot ${id} a worker (capability ${binding(id).flag})`);
-    } else if (live.signals.some((signal) => signal.signal === "follow-only")) {
-      setMessage(
-        `this run is followed only; it cannot be ${id === "steer" ? "steered" : "paused"}`,
-      );
+    } else if (id === "steer" && live.signals.some((signal) => signal.signal === "follow-only")) {
+      setMessage("this run is followed only; it cannot be steered");
     } else {
       act(id, { story: String(live.work.story) });
     }
@@ -466,38 +436,6 @@ export function App(props: AppProps) {
       (run.snapshots !== undefined && state.snapshots > run.snapshots);
     if (passed) setRun({ ...run, status: "done" });
   }, [run, state.cursor, state.office, state.snapshots]);
-
-  // The same for a stop.
-  useEffect(() => {
-    if (stop?.status !== "syncing") return;
-    const passed =
-      stop.cursor === undefined ||
-      cursorReached(state.cursor, stop.cursor) ||
-      (stop.snapshots !== undefined && state.snapshots > stop.snapshots);
-    if (passed) setStop({ ...stop, status: "done" });
-  }, [stop, state.cursor, state.snapshots]);
-
-  const sendStop = (story: StoryRefValue) => {
-    if (state.office === null) return;
-    const label = String(story);
-    setMessage(null);
-    setStop({ story: label, status: "sending" });
-    void actions
-      .stopStory({ office: state.office, story, requestId: actions.newRequestId() })
-      .then((outcome) => {
-        if (!outcome.ok) {
-          setStop(null);
-          setMessage(`stop ${label}: ${outcome.error.code}: ${outcome.error.message}`);
-          return;
-        }
-        setStop({
-          story: label,
-          status: "syncing",
-          ...(outcome.cursor === undefined ? {} : { cursor: outcome.cursor }),
-          snapshots: store.state.snapshots,
-        });
-      });
-  };
 
   const sendPrivacy = (key: string, value: boolean) => {
     if (state.office === null) return;
@@ -667,20 +605,6 @@ export function App(props: AppProps) {
       return;
     }
 
-    if (mode.kind === "confirm-stop") {
-      setMode({ kind: "home" });
-      if (input !== "y" && input !== "Y") {
-        setMessage(`${mode.story} keeps running`);
-        return;
-      }
-      if (offline) {
-        setMessage("offline: actions are disabled");
-        return;
-      }
-      sendStop(mode.story);
-      return;
-    }
-
     if (mode.kind === "confirm-privacy") {
       setMode({ kind: "home" });
       if (input !== "y" && input !== "Y") {
@@ -737,7 +661,7 @@ export function App(props: AppProps) {
       return;
     }
 
-    // The live agent detail: Esc goes back, `X` stops after a yes; the pane takes its own keys.
+    // The live agent detail: Esc goes back; the pane takes its own keys.
     if (detail !== null) {
       if (key.escape) {
         setDetail(null);
@@ -745,31 +669,13 @@ export function App(props: AppProps) {
         setMessage(null);
         return;
       }
-      if (input === "X") {
-        const current = state.work.find((candidate) => candidate.work.run === detail.target.run);
-        if (current === undefined) {
-          setMessage("this run has ended; there is no worker to stop");
-          return;
-        }
-        if (offline) {
-          setMessage("offline: actions are disabled");
-          return;
-        }
-        if (stop?.status === "sending" || stop?.status === "syncing") {
-          setMessage(`stop ${stop.story} is still on its way; wait until it is done`);
-          return;
-        }
-        setMessage(null);
-        setMode({ kind: "confirm-stop", story: current.work.story });
-        return;
-      }
-      // The key table's actions on the run (DIPO-308): answer its question, steer, pause.
+      // The key table's actions on the run (DIPO-308): answer its question, steer, park.
       if (input === "a") {
         answerRun(detail.target.run);
         return;
       }
-      if (input === "s" || input === "p") {
-        steerOrPause(input === "s" ? "steer" : "pause", detail.target.run);
+      if (input === "s" || input === "P") {
+        steerOrPark(input === "s" ? "steer" : "park", detail.target.run);
         return;
       }
       const leaves = input === "1" || input === "2" || input === "3" || input === "o";
@@ -886,13 +792,13 @@ export function App(props: AppProps) {
           return;
         }
         runSelected();
-      } else if (input === "h" || input === "d") {
+      } else if (input === "P" || input === "d") {
         const row = queue[queueSelected];
         if (row?.kind !== "story") {
-          setMessage("select a story to hold or drop");
+          setMessage("select a story to park or drop");
           return;
         }
-        act(input === "h" ? "hold" : "drop", { story: String(row.view.story) });
+        act(input === "P" ? "park" : "drop", { story: String(row.view.story) });
       }
     } else if (view === "desk") {
       if (key.downArrow || input === "j") {
@@ -947,22 +853,12 @@ export function App(props: AppProps) {
     run?.status === "failed" && run.error !== undefined
       ? `run ${run.label}: ${run.error.code}: ${run.error.message}`
       : null;
-  const stopLine =
-    stop === null
-      ? null
-      : stop.status === "sending"
-        ? `stop ${stop.story}: sending${ellipsis}`
-        : stop.status === "syncing"
-          ? `stop ${stop.story}: answered, waiting for the office stream${ellipsis}`
-          : `stop ${stop.story}: done; the worker ends and the story parks as stopped`;
   // A refusal names a run on its way; the effect that clears it runs only after the frame that
   // shows the run done, so the footer drops it in that same frame.
   const activeRefusal = run?.status === "sending" || run?.status === "syncing" ? refusal : null;
-  const footerMessage =
-    message ?? acts.statusLine() ?? activeRefusal ?? failure ?? stopLine ?? notice;
+  const footerMessage = message ?? acts.statusLine() ?? activeRefusal ?? failure ?? notice;
   const inDetail = detail !== null && !(mode.kind === "switcher" || mode.kind === "path");
   // The footer line starts with a space.
-  // An ended run has no worker to stop: its detail drops `[X] stop`.
   const detailRun =
     detail === null
       ? undefined
@@ -1147,9 +1043,6 @@ export function App(props: AppProps) {
       {mode.kind === "confirm-privacy" ? (
         <Text>{` ${confirmPrompt(mode.key, mode.value)} [y/N]`}</Text>
       ) : null}
-      {mode.kind === "confirm-stop" ? (
-        <Text wrap="truncate-end">{` Stop ${mode.story}? ${STOP_PROMPT}. [y/N]`}</Text>
-      ) : null}
       <Footer keys={keys} message={footerMessage} display={display} />
     </Box>
   );
@@ -1215,14 +1108,6 @@ function footerKeys(
         ],
         width,
       );
-    case "confirm-stop":
-      return fitHints(
-        [
-          ["[y] stop the worker", QUIT],
-          ["[any other key] keep it running", 50],
-        ],
-        width,
-      );
     case "confirm-privacy":
       return fitHints(
         [
@@ -1252,7 +1137,6 @@ function footerKeys(
           ["[k/j PgUp/PgDn] scroll", 35],
           ["[End] follow tail", 45],
         );
-        if (view === "detail") hints.push(["[X] stop", 70]);
         hints.push(["[Esc] back", 90]);
         hints.push(quit);
         if (evidenceEnabled(state)) hints.push([EVIDENCE_LEGEND, 10]);

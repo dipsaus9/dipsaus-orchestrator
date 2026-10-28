@@ -1,7 +1,7 @@
 // Run control (DIPO-50), fast and local: a migrated state database with one claimed story run, the
 // real DIPO-45 ingestion of committed Claude recordings with run control as its hooks, scripted
 // worker events, a fake park writer for the story branch (the real one runs in park.ci.test.ts on
-// real git) and a steering fake. `work.stop` runs through the executor; its stop sequence goes to a
+// real git) and a steering fake. `story.park` of a running story runs through the executor; its stop sequence goes to a
 // FakeProcess through the worker host's own `Steering`. An intent the database refuses sends nothing
 // (DIPO-119).
 
@@ -17,13 +17,14 @@ import {
   StoryId,
   type RunId,
   type WorkRef,
+  storyPark,
 } from "@dipsaus-orchestrator/contract";
 import { FakeProcess, readRecording } from "@dipsaus-orchestrator/testkit";
 
 import { executeCommand } from "../../src/commands/execute";
 import { CRASH, crashAfterHandler } from "../commands/crash";
 import { stateOfficeDirectory } from "../../src/commands/offices";
-import { buildRegistry } from "../../src/commands/registry";
+import { buildRegistry, type FeatureModule } from "../../src/commands/registry";
 import { MemoryRequestTable } from "../../src/commands/requests";
 import type { OfficeGit } from "../../src/git/office";
 import { GitError } from "../../src/git/runner";
@@ -251,23 +252,19 @@ async function ingestRecording(name: string): Promise<void> {
 
 function parks(): {
   reason: string;
-  cause: string | null;
   from_state: string;
   detail: string;
   last_good_commit: string;
 }[] {
   return w.f.office.all(
-    `select reason, cause, from_state, detail, last_good_commit from parks
+    `select reason, from_state, detail, last_good_commit from parks
       where office_id = $office_id`,
   );
 }
 
-/** The cause of each park, as `parks` records it and `story.parked` carries it (DIPO-142). */
-function causes(): { readonly stored: (string | null)[]; readonly emitted: unknown[] } {
-  return {
-    stored: parks().map((park) => park.cause),
-    emitted: parkedEvents().map((event) => event["cause"]),
-  };
+/** True when no `story.parked` carries a cause: a park has a reason and a text detail (0020). */
+function noCause(): boolean {
+  return parkedEvents().every((event) => !Object.hasOwn(event, "cause"));
 }
 
 function parkedEvents(): Record<string, unknown>[] {
@@ -319,8 +316,8 @@ describe("caps", () => {
     expect(parked?.["lastGoodCommit"]).toBe("a".repeat(40));
     expect(parked?.["actions"]).toEqual([]);
     expect((parked?.["work"] as WorkRef | undefined)?.run).toBe(w.f.run);
-    // The developer's own cap: cause `build` (0020 section 2), stored and emitted.
-    expect(causes()).toEqual({ stored: ["build"], emitted: ["build"] });
+    // A park has a reason and a text detail, no cause (0020).
+    expect(noCause()).toBe(true);
   });
 
   it("counts a budget grant: the run that parks at its start budget goes on past it (DIPO-143)", async () => {
@@ -488,7 +485,7 @@ describe("reports", () => {
     expect(runIntents(w.f.office, w.f.run).map((i) => [i.kind, i.outcome])).toEqual([
       ["park", "blocked"],
     ]);
-    expect(causes()).toEqual({ stored: ["question"], emitted: ["question"] });
+    expect(noCause()).toBe(true);
   });
 
   it("parks a blocked report without a question on its summary, keeping worktree, branch, claim and session", async () => {
@@ -502,8 +499,8 @@ describe("reports", () => {
     );
     w.control.onWorkerEvents(w.f.run, SCRIPTS["blocked-reason"] as WorkerEvent[]);
     await w.control.idle();
-    expect(parks().map((p) => [p.reason, p.cause, p.detail])).toEqual([
-      ["ambiguous-spec", "question", "bun add left-pad was denied."],
+    expect(parks().map((p) => [p.reason, p.detail])).toEqual([
+      ["ambiguous-spec", "bun add left-pad was denied."],
     ]);
     const claim = w.f.office.get<{ released_at: number | null }>(
       "select released_at from claims where office_id = $office_id and run_id = $run",
@@ -527,8 +524,7 @@ describe("a tampered worktree", () => {
     await w.control.idle();
     const [park] = parks();
     expect(park?.reason).toBe("scope-violation");
-    expect(park?.cause).toBe("tampered");
-    expect(parkedEvents()[0]?.["cause"]).toBe("tampered");
+    expect(noCause()).toBe(true);
     expect(park?.detail).toContain("dipo runs no git in that worktree");
     expect(park?.detail).toContain("parking it as ambiguous-spec");
     // One write attempt; nothing else ran in the worktree.
@@ -546,8 +542,7 @@ describe("a tampered worktree", () => {
     await w.control.idle();
     const [park] = parks();
     expect(park?.reason).toBe("scope-violation");
-    expect(park?.cause).toBe("task-file");
-    expect(parkedEvents()[0]?.["cause"]).toBe("task-file");
+    expect(noCause()).toBe(true);
     expect(park?.detail).toContain("unknown fields");
     expect(park?.detail).toContain("parking it as ambiguous-spec");
     expect(w.writes).toHaveLength(1);
@@ -563,14 +558,33 @@ describe("a tampered worktree", () => {
   });
 });
 
+/** The detail of a park the tests send without a note of their own. */
+const PARKED_NOTE = "Parked by the maintainer.";
+
 let requests = 0;
+/** `story.park` of a story with a run, as the planning feature hands it to run control. */
 function stopCommand(
   story: string,
-  note?: string,
+  note = PARKED_NOTE,
   retry?: { readonly id: string; readonly crash: boolean },
 ): Promise<CommandReply> {
   requests += 1;
-  const registry = buildRegistry([w.control.feature]);
+  const park: FeatureModule = {
+    name: "park",
+    register: (registry) =>
+      registry.addAsyncOfficeCommand({
+        definition: storyPark,
+        handle: async (ctx, args) => {
+          const parked = await w.control.parkByMaintainer(ctx, args);
+          const identity = ctx.stories.get(args.story)!;
+          return {
+            ...parked,
+            result: { story: identity.story, key: identity.key, ...parked.result },
+          };
+        },
+      }),
+  };
+  const registry = buildRegistry([w.control.feature, park]);
   const deps = {
     registry,
     offices: stateOfficeDirectory(w.f.t.state),
@@ -580,13 +594,13 @@ function stopCommand(
   };
   return executeCommand(
     // A crash after the handler's commits and before the requests row (DIPO-168 in DIPO-155).
-    retry?.crash === true ? crashAfterHandler(deps, "work.stop") : deps,
+    retry?.crash === true ? crashAfterHandler(deps, "story.park") : deps,
     {
       requestId: RequestId.parse(
         retry?.id ?? `01J9ZK5Q8W3V4X6Y7Z${(90_000 + requests).toString().padStart(8, "0")}`,
       ),
-      name: "work.stop",
-      args: { story, ...(note === undefined ? {} : { note }) },
+      name: "story.park",
+      args: { story, note },
       origin: "cli",
       confirmed: true,
       office: w.f.office.officeId as OfficeId,
@@ -594,15 +608,16 @@ function stopCommand(
   );
 }
 
-describe("work.stop", () => {
-  it("is registered with confirm: true, as commands.describe shows it", () => {
-    const stop = buildRegistry([w.control.feature])
+describe("story.park of a running story", () => {
+  it("registers no work.stop: story.park replaces it (0020)", () => {
+    const names = buildRegistry([w.control.feature])
       .commandDefinitions()
-      .find((definition) => definition.name === "work.stop");
-    expect(stop?.confirm).toBe(true);
+      .map((definition) => definition.name);
+    expect(names).not.toContain("work.stop");
+    expect(names).not.toContain("work.pause");
   });
 
-  it("records the stop intent, sends the stop sequence the fake process sees, and parks stopped", async () => {
+  it("records the stop intent, sends the stop sequence the fake process sees, and parks by-maintainer", async () => {
     track();
     const recording = readRecording(join(RECORDINGS_DIR, "success-single"));
     const child = new FakeProcess({ lines: recording.lines, clock: w.f.t.clock, stdin: "pipe" });
@@ -615,7 +630,7 @@ describe("work.stop", () => {
     };
     const reply = await stopCommand("DIPO-1", "Wrong approach; I will rewrite the story.");
     if (!reply.ok) throw new Error(`${reply.error.code}: ${reply.error.message}`);
-    expect(reply.result).toEqual({ run: w.f.run });
+    expect(reply.result).toEqual({ story: "DIPO-1", key: w.work.key, run: w.f.run });
     expect(intentBeforeSend).toBe("pending");
 
     // The fake process got the now-priority stop message and its stdin closed; SIGTERM at 10 s,
@@ -628,10 +643,10 @@ describe("work.stop", () => {
     w.f.t.clock.advance(10_000);
     expect(child.signals).toEqual(["SIGTERM"]);
 
-    expect(parks().map((p) => [p.reason, p.cause, p.from_state, p.detail])).toEqual([
-      ["stopped", "maintainer", "In Progress", "Wrong approach; I will rewrite the story."],
+    expect(parks().map((p) => [p.reason, p.from_state, p.detail])).toEqual([
+      ["by-maintainer", "In Progress", "Wrong approach; I will rewrite the story."],
     ]);
-    expect(parkedEvents().map((event) => event["cause"])).toEqual(["maintainer"]);
+    expect(noCause()).toBe(true);
     const run = findRun(w.f.office, w.f.run);
     expect(run?.endKind).toBe("stopped");
     expect(run?.endedAt).not.toBeNull();
@@ -658,8 +673,8 @@ describe("work.stop", () => {
     expect(crashed.ok ? null : crashed.error.message).toContain(CRASH);
     expect(parks()).toHaveLength(1);
     const retried = await stopCommand("DIPO-1", "Not now.", { id, crash: false });
-    // The run it stopped has ended: the retry sees that fact and stops nothing again.
-    expect(retried.ok ? null : retried.error.code).toBe(STORY_NOT_RUNNING);
+    // The run it stopped has ended and parked: the retry finds the park and changes nothing.
+    expect(retried.ok ? retried.changed : null).toBe(false);
     expect(sends).toHaveLength(1);
     expect(parks()).toHaveLength(1);
     expect(runIntents(w.f.office, w.f.run).filter((intent) => intent.kind === "stop")).toHaveLength(
@@ -669,7 +684,7 @@ describe("work.stop", () => {
     expect(w.writes).toHaveLength(1);
   });
 
-  it("fails story.notRunning for a story with no active run, and after the stop", async () => {
+  it("fails story.notRunning for a story whose run is done", async () => {
     w.f.office.immediate(() =>
       w.f.office.run(
         "update runs set ended_at = 1, end_kind = 'done' where office_id = $office_id",
@@ -681,13 +696,11 @@ describe("work.stop", () => {
     expect(parks()).toEqual([]);
   });
 
-  it("parks stopped even when the host cannot be reached, with a notice", async () => {
+  it("parks even when the host cannot be reached, with a notice", async () => {
     w.steer = async () => ({ ok: false, reason: "the worker host socket is unreachable" });
     const reply = await stopCommand("DIPO-1");
     expect(reply.ok).toBe(true);
-    expect(parks().map((p) => [p.reason, p.detail])).toEqual([
-      ["stopped", "Stopped by the maintainer."],
-    ]);
+    expect(parks().map((p) => [p.reason, p.detail])).toEqual([["by-maintainer", PARKED_NOTE]]);
     expect(runIntents(w.f.office, w.f.run).map((i) => [i.kind, i.state])).toEqual([
       ["stop", "failed"],
     ]);
@@ -705,7 +718,7 @@ function noticeCodes(): string[] {
     .map((event) => (event.data as { code: string }).code);
 }
 
-describe("work.stop on a follow-only host (DIPO-93)", () => {
+describe("story.park of a run on a follow-only host (DIPO-93)", () => {
   const START = 1_767_225_600_000;
   const signals: [number, string][] = [];
 
@@ -741,7 +754,7 @@ describe("work.stop on a follow-only host (DIPO-93)", () => {
     }).send;
   }
 
-  it("sends one SIGTERM to the verified host PID and parks stopped as for any stop (AC #1)", async () => {
+  it("sends one SIGTERM to the verified host PID and parks as for any stop (AC #1)", async () => {
     track();
     followOnly();
     realSteering({});
@@ -749,9 +762,7 @@ describe("work.stop on a follow-only host (DIPO-93)", () => {
     expect(reply.ok).toBe(true);
     // One signal, to the host PID alone (not a group), and no socket op.
     expect(signals).toEqual([[4242, "SIGTERM"]]);
-    expect(parks().map((p) => [p.reason, p.detail])).toEqual([
-      ["stopped", "Stopped by the maintainer."],
-    ]);
+    expect(parks().map((p) => [p.reason, p.detail])).toEqual([["by-maintainer", PARKED_NOTE]]);
     expect(runIntents(w.f.office, w.f.run).map((i) => [i.kind, i.state])).toEqual([
       ["stop", "sent"],
     ]);
@@ -759,7 +770,7 @@ describe("work.stop on a follow-only host (DIPO-93)", () => {
     expect(findRun(w.f.office, w.f.run)?.endKind).toBe("stopped");
   });
 
-  it("never signals a PID it cannot verify; the story still parks stopped with the reason", async () => {
+  it("never signals a PID it cannot verify; the story still parks with the reason", async () => {
     for (const info of [
       null,
       { startTimeMs: START + 60_000 },
@@ -779,7 +790,7 @@ describe("work.stop on a follow-only host (DIPO-93)", () => {
       expect(reply.ok).toBe(true);
       expect(signals).toEqual([]);
       expect(parks().length).toBe(before + 1);
-      expect(parks().at(-1)?.reason).toBe("stopped");
+      expect(parks().at(-1)?.reason).toBe("by-maintainer");
       expect(runIntents(w.f.office, w.f.run).at(-1)?.state).toBe("failed");
       expect(runIntents(w.f.office, w.f.run).at(-1)?.error).toContain("dipo sent no signal");
       expect(noticeCodes().at(-1)).toBe("run.stopNotSent");
@@ -796,7 +807,7 @@ describe("work.stop on a follow-only host (DIPO-93)", () => {
     expect((await stopCommand("DIPO-1")).ok).toBe(true);
     expect(signals).toEqual([]);
     expect(runIntents(w.f.office, w.f.run).at(-1)?.error).toContain("older dipo");
-    expect(parks().map((p) => p.reason)).toEqual(["stopped"]);
+    expect(parks().map((p) => p.reason)).toEqual(["by-maintainer"]);
   });
 
   it("still refuses ops that are not a stop: a steer, a stdin close", async () => {
@@ -850,8 +861,8 @@ describe("story views and reconcile (DIPO-56)", () => {
       text: "DIPO-1 changed by hand",
     });
     expect(w.writes).toEqual([]);
-    expect(parks().map((p) => [p.reason, p.cause, p.detail])).toEqual([
-      ["scope-violation", "hand-change", "Changed by hand: the worktree is gone."],
+    expect(parks().map((p) => [p.reason, p.detail])).toEqual([
+      ["scope-violation", "Changed by hand: the worktree is gone."],
     ]);
     expect(findRun(w.f.office, w.f.run)?.endKind).toBe("reconciled");
     // Nothing is read on a branch that cannot be trusted.
@@ -1214,8 +1225,8 @@ describe("a capped done turn whose finisher throws (DIPO-235)", () => {
       control.onWorkerEvents(w.f.run, [turn({ capped: "turn cap (--max-turns) after 61 turns" })]);
       await control.idle();
       expect(w.sent).toEqual([encode({ kind: "stop" })]);
-      expect(parks().map((p) => [p.reason, p.cause, p.detail])).toEqual([
-        ["budget-exceeded", "build", "turn cap (--max-turns) after 61 turns"],
+      expect(parks().map((p) => [p.reason, p.detail])).toEqual([
+        ["budget-exceeded", "turn cap (--max-turns) after 61 turns"],
       ]);
       expect(findRun(w.f.office, w.f.run)?.endKind).toBe("capped");
       expect(w.warnings).toEqual([
@@ -1257,8 +1268,8 @@ describe("a capped done turn the finisher lets continue (DIPO-222)", () => {
     try {
       control.onWorkerEvents(w.f.run, [turn({ capped: "turn cap (--max-turns) after 61 turns" })]);
       await control.idle();
-      expect(parks().map((p) => [p.reason, p.cause, p.detail])).toEqual([
-        ["budget-exceeded", "build", "turn cap (--max-turns) after 61 turns"],
+      expect(parks().map((p) => [p.reason, p.detail])).toEqual([
+        ["budget-exceeded", "turn cap (--max-turns) after 61 turns"],
       ]);
       expect(runIntents(w.f.office, w.f.run).map((i) => i.kind)).toEqual(["cap"]);
       expect(findRun(w.f.office, w.f.run)?.endKind).toBe("capped");
@@ -1295,8 +1306,8 @@ describe("a capped done turn the finisher lets continue (DIPO-222)", () => {
       control.onEventApplied(w.f.run, done);
       control.onWorkerEvents(w.f.run, [done]);
       await control.idle();
-      expect(parks().map((p) => [p.reason, p.cause, p.detail])).toEqual([
-        ["budget-exceeded", "build", "turn cap reached: 1 of 1 turns"],
+      expect(parks().map((p) => [p.reason, p.detail])).toEqual([
+        ["budget-exceeded", "turn cap reached: 1 of 1 turns"],
       ]);
       expect(findRun(w.f.office, w.f.run)?.endKind).toBe("capped");
       expect(capSteps()).toEqual([]);
@@ -1485,7 +1496,7 @@ describe("stream drift (DIPO-315)", () => {
   });
   const dropped = (n: number) => out({ type: "brand_new_type", n });
 
-  it("parks worker-failed with cause stream-drift at the threshold, naming the version and count", async () => {
+  it("parks worker-failed at the threshold, naming the version and count", async () => {
     track();
     await ingestLines([
       init,
@@ -1497,11 +1508,10 @@ describe("stream drift (DIPO-315)", () => {
     await ingestLines([dropped(100)]);
     const [park] = parks();
     expect(park?.reason).toBe("worker-failed");
-    expect(park?.cause).toBe("stream-drift");
     expect(park?.detail).toContain("Claude Code 2.1.296");
     expect(park?.detail).toContain(`${STREAM_DRIFT_LINES} unreadable stream lines`);
     expect(park?.detail).toContain(`the threshold is ${STREAM_DRIFT_LINES}`);
-    expect(causes()).toEqual({ stored: ["stream-drift"], emitted: ["stream-drift"] });
+    expect(noCause()).toBe(true);
     // The stop sequence, after its intent.
     expect(w.sent).toEqual([encode({ kind: "stop" })]);
     expect(runIntents(w.f.office, w.f.run).map((i) => i.kind)).toEqual(["park"]);
@@ -1512,7 +1522,7 @@ describe("stream drift (DIPO-315)", () => {
     track();
     await ingestLines([init, ...Array.from({ length: STREAM_DRIFT_LINES }, (_, n) => dropped(n))]);
     const [park] = parks();
-    expect(park?.cause).toBe("stream-drift");
+    expect(park?.reason).toBe("worker-failed");
     expect(park?.detail).toContain("A resume starts the count again from 0.");
     const lines = () =>
       w.f.office.get<{ n: number }>(
@@ -1560,7 +1570,7 @@ describe("stream drift (DIPO-315)", () => {
       }),
     ]);
     const [park] = parks();
-    expect([park?.reason, park?.cause]).toEqual(["worker-failed", "stream-drift"]);
+    expect(park?.reason).toBe("worker-failed");
     expect(park?.detail).toContain("reports no token usage");
     expect(park?.detail).toContain("Claude Code 2.1.296");
     expect(park?.detail).toContain("0 unreadable stream lines");
@@ -1573,16 +1583,14 @@ describe("stream drift (DIPO-315)", () => {
       init,
       out({ type: "result", subtype: "success", session_id: "session-1", modelUsage: [1] }),
     ]);
-    expect(parks().map((park) => [park.reason, park.cause])).toEqual([
-      ["worker-failed", "stream-drift"],
-    ]);
+    expect(parks().map((park) => park.reason)).toEqual(["worker-failed"]);
     expect(parks()[0]?.detail).toContain("result failed its schema");
   });
 
   it("does not park a run whose stream reads cleanly (success-single)", async () => {
     track();
     await ingestRecording("success-single");
-    expect(parks().filter((park) => park.cause === "stream-drift")).toEqual([]);
+    expect(parks()).toEqual([]);
   });
 });
 
@@ -1601,8 +1609,8 @@ describe("stopAll: daemon.stop with stopWorkers (DIPO-315)", () => {
     await settle();
     await w.control.idle();
     expect(w.sent).toEqual([encode({ kind: "stop" })]);
-    expect(parks().map((p) => [p.reason, p.cause, p.detail])).toEqual([
-      ["stopped", "maintainer", DAEMON_STOPPED_DETAIL],
+    expect(parks().map((p) => [p.reason, p.detail])).toEqual([
+      ["by-maintainer", DAEMON_STOPPED_DETAIL],
     ]);
     // The park commit's push reached the remote: recorded on the claim, as every story-branch push.
     expect(findClaim(w.f.office, w.f.run)?.pushedAt).toBe(

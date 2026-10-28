@@ -39,7 +39,7 @@ if (process.env["DIPO_TEST_CI"] === "1") {
 
           const before = (await viewStory(target)).description;
           const park = {
-            reason: "on-hold",
+            reason: "by-maintainer",
             from: "Ready",
             note: 'Waiting for "Bun 1.4.3": port 5173 \\ ü',
           } as const;

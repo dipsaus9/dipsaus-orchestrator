@@ -5,14 +5,14 @@ import { z } from "zod";
 import { EngineError } from "./errors";
 import { Cursor, OfficeId, RequestId } from "./ids";
 
-// Dotted names such as `work.pause`. Names stay open strings in the envelope: a frame with a name
+// Dotted names such as `work.steer`. Names stay open strings in the envelope: a frame with a name
 // this side does not know still parses, and the engine answers it with an error, never a broken
 // connection. The schema for `args`, `result` or `data` is chosen by the name.
 const dottedName = /^[a-z][A-Za-z0-9]*(\.[a-z][A-Za-z0-9]*)+$/;
 
 export const CommandName = z
   .string()
-  .regex(dottedName, "expected a dotted name such as work.pause");
+  .regex(dottedName, "expected a dotted name such as work.steer");
 export type CommandName = z.infer<typeof CommandName>;
 
 export const ReadName = z.string().regex(dottedName, "expected a dotted name such as engine.hello");

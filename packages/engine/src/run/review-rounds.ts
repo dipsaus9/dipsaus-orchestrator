@@ -128,7 +128,9 @@ export function failedReviewRounds(office: OfficeHandle, runId: RunId): number {
 /**
  * The pending reviews of the office (`PlacesDeps.pending`, 0019 section 12), oldest In Review
  * first: story runs ended at In Review with a live claim and the review loop's caps, whose head is
- * on the remote (or whose office has none, DIPO-315). Each waits from its In Review time.
+ * on the remote (or whose office has none, DIPO-315), and whose story has no open park (a story
+ * parked while it waits In Review gets no reviewer until it resumes, as the merge slot and fix
+ * rounds skip it). Each waits from its In Review time.
  */
 export function pendingReviews(office: OfficeHandle): PlaceStart[] {
   const rows = office.all<{ run_id: string; ended_at: number }>(
@@ -138,6 +140,8 @@ export function pendingReviews(office: OfficeHandle): PlaceStart[] {
         and exists (select 1 from claims c where c.office_id = r.office_id
           and c.run_id = r.run_id and c.released_at is null
           and (c.pushed_at >= r.ended_at or c.no_remote_at >= r.ended_at))
+        and not exists (select 1 from parks p where p.office_id = r.office_id and p.key = r.key
+          and p.resolved_at is null)
       order by r.ended_at, r.run_id`,
     { in_review: IN_REVIEW_END },
   );

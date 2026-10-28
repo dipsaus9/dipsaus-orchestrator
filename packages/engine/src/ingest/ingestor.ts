@@ -19,7 +19,7 @@
 // in the pass that read them, so a restart neither loses nor repeats one; a run's count is the sum
 // over its agents. A drift event at which the run's count is at `STREAM_DRIFT_LINES` or above, and
 // every `usage` drift (a result whose usage cannot be read, a completed turn that reports none),
-// goes to `onStreamDrift` inside the pass, and the run parks with cause `stream-drift`
+// goes to `onStreamDrift` inside the pass, and the run parks `worker-failed` ("stream drift")
 // (`run/control.ts`). A `newerVersion` event posts one `engine.notice` per office and version,
 // recorded in `once_notices` in the same transaction.
 

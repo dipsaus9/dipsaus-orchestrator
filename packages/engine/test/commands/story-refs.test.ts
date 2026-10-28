@@ -9,7 +9,7 @@ import {
   storyDetail,
   workRun,
   workSteer,
-  workStop,
+  storyPark,
   gateApprove,
 } from "@dipsaus-orchestrator/contract";
 import { withTempDir } from "@dipsaus-orchestrator/testkit";
@@ -142,7 +142,7 @@ describe("story references", () => {
 
   it("finds story reference fields from the contract args schemas", () => {
     expect(findStoryRefFields(workSteer.args)).toEqual([{ field: "story", many: false }]);
-    expect(findStoryRefFields(workStop.args)).toEqual([{ field: "story", many: false }]);
+    expect(findStoryRefFields(storyPark.args)).toEqual([{ field: "story", many: false }]);
     expect(findStoryRefFields(workRun.args)).toEqual([{ field: "stories", many: true }]);
     expect(findStoryRefFields(storyDetail.args)).toEqual([{ field: "story", many: false }]);
     expect(findStoryRefFields(gateApprove.args)).toEqual([]);

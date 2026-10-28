@@ -10,7 +10,6 @@ import {
   type StoryKey,
 } from "@dipsaus-orchestrator/contract";
 
-import type { NewEntry } from "../changelog/log";
 import type { OfficeHandle } from "../db/office";
 import { workRefOf } from "../views/work";
 
@@ -34,7 +33,7 @@ export interface StoredQuestion {
   readonly decision: Exclude<PermissionDecision, null> | null;
   readonly closedAt: number | null;
   readonly closedHow: QuestionClose | null;
-  /** The park the question belongs to, for the question of a `needs-permission` park (DIPO-75). */
+  /** The park the question belongs to: the worker question an `ambiguous-spec` park carries. */
   readonly parkId: number | null;
   /** When an allow of a park question let its one matching request through (DIPO-75). */
   readonly allowUsedAt: number | null;
@@ -141,48 +140,6 @@ export function insertWorkerQuestion(
   return row;
 }
 
-export interface NewParkQuestion {
-  readonly questionId: string;
-  readonly runId: string;
-  readonly agentId: string;
-  readonly parkId: number;
-  /** The recorded tool and action of the `needs-permission` park. */
-  readonly tool: string;
-  readonly action: string;
-  /** What the maintainer sees (`parkQuestionText`). */
-  readonly text: string;
-  readonly at: number;
-}
-
-/**
- * Stores the open permission question of a `needs-permission` park (DIPO-75, migration 23): the
- * recorded tool, the action as `input`, no hook call; returns it.
- */
-export function insertParkQuestion(
-  office: OfficeHandle,
-  question: NewParkQuestion,
-): StoredQuestion {
-  office.run(
-    `insert into questions (office_id, question_id, run_id, agent_id, kind, text, tool, input, hook,
-       asked_at, park_id)
-     values ($office_id, $question, $run, $agent, 'permission', $text, $tool, $input, null, $at,
-       $park)`,
-    {
-      question: question.questionId,
-      run: question.runId,
-      agent: question.agentId,
-      text: question.text,
-      tool: question.tool,
-      input: question.action,
-      at: question.at,
-      park: question.parkId,
-    },
-  );
-  const row = findQuestion(office, question.questionId);
-  if (row === null) throw new Error(`question ${question.questionId} was not stored`);
-  return row;
-}
-
 /** The open questions of the park `parkId`, oldest first. */
 export function openParkQuestions(office: OfficeHandle, parkId: number): StoredQuestion[] {
   return office
@@ -193,37 +150,6 @@ export function openParkQuestions(office: OfficeHandle, parkId: number): StoredQ
       { park: parkId },
     )
     .map(stored);
-}
-
-/**
- * Inside the caller's transaction (DIPO-75): records the maintainer's answer to a park's question
- * (`answered`, delivered `on-resume`) and returns its `question.closed`; nothing when the question
- * was not open.
- */
-export function answeredParkQuestion(
-  office: OfficeHandle,
-  questionId: string,
-  decision: "allow" | "deny",
-  text: string,
-  at: number,
-): NewEntry[] {
-  const question = findQuestion(office, questionId);
-  if (question === null) return [];
-  if (
-    !closeQuestion(office, questionId, "answered", at, { text, decision, delivered: "on-resume" })
-  ) {
-    return [];
-  }
-  const reason = text.trim();
-  const work = workRefOf(office, question.runId as RunId);
-  return [
-    {
-      type: "question.closed",
-      ...(work === null ? {} : { key: work.key }),
-      run: question.runId as RunId,
-      delta: { question: questionId, answer: reason === "" ? decision : `${decision}: ${reason}` },
-    },
-  ];
 }
 
 /**

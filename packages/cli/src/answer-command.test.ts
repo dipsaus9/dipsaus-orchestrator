@@ -1,6 +1,5 @@
-// `dipo answer <question> --text <answer>|allow|deny` (DIPO-59 AC #7, DIPO-159 AC #5): sends
-// `work.answer` with the decision for allow and deny (a deny's further words are the reason), or
-// the text of `--text` alone; text without `--text` is a usage error.
+// `dipo answer <question> --text <answer>` (DIPO-59, DIPO-159, DIPO-344): sends `work.answer` with
+// the text of `--text`; text without `--text` is a usage error, and an answer is never a decision.
 
 import { describe, expect, it } from "bun:test";
 
@@ -72,27 +71,7 @@ const answered = () => ({
 });
 
 describe("dipo answer", () => {
-  it("sends allow as the decision with an empty text", async () => {
-    const ctx = fake(answered);
-    expect(await main(["answer", QUESTION, "allow"], ctx.deps)).toBe(0);
-    expect(ctx.sent).toEqual([
-      {
-        name: "work.answer",
-        args: { question: QUESTION, text: "", decision: "allow" },
-        office: OFFICE,
-      },
-    ]);
-    expect(ctx.out).toEqual([`allowed ${QUESTION} (delivered now)`]);
-  });
-
-  it("sends deny with the rest as the reason, and --text as the answer without a decision", async () => {
-    const deny = fake(answered);
-    expect(await main(["answer", QUESTION, "deny", "use", "the", "fixture"], deny.deps)).toBe(0);
-    expect(deny.sent[0]?.args).toEqual({
-      question: QUESTION,
-      text: "use the fixture",
-      decision: "deny",
-    });
+  it("sends --text as the answer", async () => {
     const text = fake(answered);
     expect(
       await main(
@@ -112,9 +91,11 @@ describe("dipo answer", () => {
     ]);
   });
 
-  it("refuses a worker answer without --text, and --text with a decision or extra words", async () => {
+  it("refuses an answer without --text, a bare allow or deny, and --text with extra words", async () => {
     for (const args of [
       ["answer", QUESTION, "Yes, a 404 is fine."],
+      ["answer", QUESTION, "allow"],
+      ["answer", QUESTION, "deny", "use", "the", "fixture"],
       ["answer", QUESTION, "--text", "yes", "allow"],
       ["answer", QUESTION, "allow", "--text", "yes"],
       ["answer", QUESTION, "--text"],
@@ -154,38 +135,13 @@ describe("dipo answer", () => {
     ]);
   });
 
-  it("says in its help that a worker question takes --text and a permission question allow or deny", async () => {
+  it("says in its help that an answer takes --text, and offers no allow or deny", async () => {
     const out: string[] = [];
     const ctx = fake(answered);
     await main(["--help"], { ...ctx.deps, writeLine: (line) => out.push(line) });
     const help = out.join("\n");
     expect(help).toContain("dipo answer <question> --text <answer>");
-    expect(help).toContain("dipo answer <question> allow|deny [reason]");
-    expect(help).not.toContain("any other text answers a");
-  });
-
-  it("prints the resumed run of a park's question (DIPO-75 AC #5)", async () => {
-    const RUN = "run_01J9ZK5Q8W3V4X6Y7Z8A9B0C5J";
-    const resumed = fake(() => ({
-      ok: true,
-      changed: true,
-      result: { question: QUESTION, delivered: "on-resume", run: RUN },
-    }));
-    expect(await main(["answer", QUESTION, "allow"], resumed.deps)).toBe(0);
-    expect(resumed.out).toEqual([
-      `allowed ${QUESTION} (delivered on-resume)`,
-      `resumed run ${RUN}`,
-    ]);
-    const denied = fake(() => ({
-      ok: true,
-      changed: true,
-      result: { question: QUESTION, delivered: "on-resume" },
-    }));
-    expect(await main(["answer", QUESTION, "deny"], denied.deps)).toBe(0);
-    expect(denied.out).toEqual([
-      `denied ${QUESTION} (delivered on-resume)`,
-      "the story did not resume; dipo watch shows where it is now",
-    ]);
+    expect(help).not.toContain("allow|deny");
   });
 
   it("prints the engine's error and exits 1", async () => {
@@ -193,14 +149,13 @@ describe("dipo answer", () => {
       ok: false,
       error: { code: "question.closed", message: "It is not waiting.", retryable: false },
     }));
-    expect(await main(["answer", QUESTION, "allow"], ctx.deps)).toBe(1);
+    expect(await main(["answer", QUESTION, "--text", "yes"], ctx.deps)).toBe(1);
     expect(ctx.err).toEqual(["dipo: question.closed: It is not waiting."]);
   });
 
   it("needs a question id and an answer", async () => {
     expect(await main(["answer"], fake(answered).deps)).toBe(2);
-    expect(await main(["answer", "DIPO-7", "allow"], fake(answered).deps)).toBe(2);
+    expect(await main(["answer", "DIPO-7", "--text", "yes"], fake(answered).deps)).toBe(2);
     expect(await main(["answer", QUESTION], fake(answered).deps)).toBe(2);
-    expect(await main(["answer", QUESTION, "allow", "now"], fake(answered).deps)).toBe(2);
   });
 });

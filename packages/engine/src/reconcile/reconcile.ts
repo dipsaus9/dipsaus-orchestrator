@@ -45,7 +45,7 @@ import type { OfficeGit } from "../git/office";
 import type { CodeHost } from "../platform/host";
 import { LAUNCH_FILE } from "../host/protocol";
 import { officeDirectory } from "../office/marker";
-import { openPark } from "../run/park";
+import { openPark, resolvePark } from "../run/park";
 import { endRunMarked } from "../run/markers";
 import { activeRuns, findRun, type StoredRun } from "../run/records";
 import { runDirectory } from "../runs/worker-hosts";
@@ -94,7 +94,7 @@ export type ReconcileTrigger = "start" | "rescan";
 
 /** How reconcile acts on runs (the run control, DIPO-50). */
 export interface ReconcileRuns {
-  /** True while the run control is already ending the run (a cap, a report, `work.stop`). */
+  /** True while the run control is already ending the run (a cap, a report, `story.park`). */
   isEnding(run: string): boolean;
   stopForReconcile(
     office: OfficeHandle,
@@ -206,18 +206,18 @@ export async function reconcileOffice(
   /** Writes `facts` and the notice in one transaction. */
   const record = (
     finding: ReconcileFinding,
-    facts: () => void = () => {},
+    facts: () => readonly NewEntry[] | void = () => {},
     level: "info" | "warn" = "warn",
   ): void => {
     const at = deps.clock.now();
     office.immediate(() => {
-      facts();
+      const written = facts() ?? [];
       const entry: NewEntry = {
         type: "engine.notice",
         ...(finding.key === undefined ? {} : { key: finding.key }),
         delta: { level, code: finding.code, text: finding.text },
       };
-      appendEntries(office, [entry], { at });
+      appendEntries(office, [...written, entry], { at });
     });
     findings.push(finding);
   };
@@ -243,7 +243,7 @@ export async function reconcileOffice(
         record({
           code: RECONCILE_NOTICES.orphanClaim,
           key: claim.key,
-          text: `${claim.story} was claimed and its worker host may have started just before the daemon stopped, but dipo has no record of it; dipo leaves the claim and its worktree alone. Stop it with \`dipo stop ${claim.story}\` if no worker runs.`,
+          text: `${claim.story} was claimed and its worker host may have started just before the daemon stopped, but dipo has no record of it; dipo leaves the claim and its worktree alone. Park it with \`dipo park ${claim.story} --note <why>\` if no worker runs.`,
         });
         continue;
       }
@@ -445,7 +445,7 @@ export function parkStateAction(
 function reconcilePark(
   deps: ReconcileDeps,
   story: Story,
-  record: (finding: ReconcileFinding, facts?: () => void) => void,
+  record: (finding: ReconcileFinding, facts?: () => readonly NewEntry[] | void) => void,
 ): void {
   const { office } = deps;
   const open = openPark(office, story.key);
@@ -465,12 +465,7 @@ function reconcilePark(
         key: story.key,
         text: `${story.story} has an open park (${open.reason}) in dipo's database, but no park record in Backlog.md; dipo closed it.`,
       },
-      () =>
-        office.run(
-          `update parks set resolved_at = $at, resolved_how = 'reconcile'
-           where office_id = $office_id and park_id = $park and resolved_at is null`,
-          { park: open.parkId, at: deps.clock.now() },
-        ),
+      () => resolvePark(office, open.parkId, "reconcile", deps.clock.now()),
     );
     return;
   }
@@ -482,7 +477,7 @@ function reconcilePark(
         key: story.key,
         text: `${story.story} has a park record (${park.reason}) in Backlog.md that dipo did not write; dipo recorded the park as ${RECORDED_BY_HAND}.`,
       },
-      () =>
+      () => {
         office.run(
           `insert into parks (office_id, park_id, key, story_id, run_id, reason, from_state, detail,
              last_good_commit, at)
@@ -496,7 +491,8 @@ function reconcilePark(
             detail: RECORDED_BY_HAND,
             at: deps.clock.now(),
           },
-        ),
+        );
+      },
     );
   }
 }

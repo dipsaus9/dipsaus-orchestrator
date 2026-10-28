@@ -1,6 +1,7 @@
 // The queue by lifecycle (`2`, 0009 sections 4 and 9): one section per engine-derived column with
 // its count, in the order of the 0009 layout. `waiting` rows name the dependencies that are not
-// Done, Refined rows show the first Ready gate message with its rule id, and held rows the note.
+// Done, Refined rows show the first Ready gate message with its rule id, and the stories the
+// maintainer parked their note.
 // The first row is "next Ready story": `u` on it lets the engine pick, `u` on a story runs that one.
 // Done stories show only after `.`. Rows are memoised by story key, and each is cut to the width.
 
@@ -13,16 +14,7 @@ import type { Display } from "./options";
 import { glyphs } from "./views";
 
 /** Section order of the 0009 queue layout; an unknown column follows, then done when shown. */
-export const QUEUE_ORDER = [
-  "ready",
-  "waiting",
-  "refined",
-  "draft",
-  "running",
-  "review",
-  "desk",
-  "held",
-];
+export const QUEUE_ORDER = ["ready", "waiting", "refined", "draft", "running", "review", "desk"];
 
 export type QueueRow =
   | { readonly kind: "next" }
@@ -63,8 +55,8 @@ export function rowNote(view: StoryView, now: number): string {
   if (gate !== undefined) return gate;
   if (view.parked !== undefined) {
     const since = age(now - Date.parse(view.parked.since));
-    return view.parked.reason === "on-hold"
-      ? `"${view.parked.detail}" (held ${since})`
+    return view.parked.reason === "by-maintainer"
+      ? `"${view.parked.detail}" (parked by you ${since})`
       : `parked ${view.parked.reason} (${since})`;
   }
   return "";

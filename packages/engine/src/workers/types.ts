@@ -437,7 +437,7 @@ export type WorkerEvent =
    * drops, `usage` for a completed turn whose token usage cannot be read or that reports none at
    * all. `worker` names the worker and its version as the adapter knows them (for example
    * `Claude Code 2.1.303`). Adapter-neutral: the ingestor counts `schema` and `dropped` lines per
-   * run, and the run parks with cause `stream-drift` at the threshold or at any `usage` drift.
+   * run, and the run parks `worker-failed` ("stream drift") at the threshold or at any `usage` drift.
    */
   | {
       readonly t: "streamDrift";

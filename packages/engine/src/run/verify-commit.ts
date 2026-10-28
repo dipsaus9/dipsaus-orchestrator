@@ -9,12 +9,12 @@
 // protected-file and secret scan of each part (`box/parts.ts`). The Mac verify runner, the backstop
 // after each turn and the scope check at done went with the Mac sandbox worker path. A run without
 // a box (none starts any more; one parked before the change has its box made at its next session,
-// `box/lifetime.ts`) that reports done parks `interrupted`.
+// `box/lifetime.ts`) that reports done parks `worker-failed`.
 //
 // At done, in one held turn of the run's parts (`BoxParts.finishLast`), so no part moves the branch
 // meanwhile: the last part is delivered (a hit, a refused part or a rejected push parks; one dipo
 // cannot take out is tried again at the door's pace, `DOOR_POLL_MS`, for up to `PART_STUCK_MIN_MS`
-// before the story parks `interrupted`, DIPO-290), the gate changes of the branch are recorded for
+// before the story parks `worker-failed`, DIPO-290), the gate changes of the branch are recorded for
 // the review, and the run's end is claimed while the parts are still held, so a part or catch-up
 // queued meanwhile finds the run not live and stays in the box. Before the end is claimed, in the
 // same held turn, the conflict check (DIPO-149, `run/conflicts.ts`): what dipo's conflicted merges
@@ -30,7 +30,7 @@
 //   summary, a push that reached the remote is recorded on the claim (`claims.pushed_at`), and
 //   `story.state` moves the story to In Review. A non-fast-forward push rejection parks `conflict`
 //   (0010); any other push failure is a notice and the story stays In Review with the branch local.
-//   A failure in the commit steps parks `interrupted` with the error. Dependency files the parts
+//   A failure in the commit steps parks `worker-failed` with the error. Dependency files the parts
 //   changed (manifests, lockfiles, `requirements*.txt`) raise `verify.dependenciesChanged`.
 // - The story PR (DIPO-144; 0019 section 3): after a push that reached the remote, `storyPr.sync`
 //   opens the story's ready PR, or updates the one it has; the review (a pending review of the
@@ -49,8 +49,8 @@
 //   `decision_notes` with its story and run, also from a report that ends the run (`summarize`);
 // - a worker that edited a file and ran no verify or test command of the office's profile after
 //   its last edit (the turn's tool trail); sent back once per run.
-// A done turn that crossed a cap has no turn left: its test-plan miss parks `verify-failing` with
-// cause `capped`, and the two send-once checks are skipped.
+// A done turn that crossed a cap has no turn left: its test-plan miss parks `budget-exceeded`,
+// and the two send-once checks are skipped.
 
 import {
   type Clock,
@@ -91,7 +91,6 @@ import type { BackstopSnapshot } from "./backstop";
 import type { DoneConflictDecision } from "./conflicts";
 import { endRunMarked } from "./markers";
 import type { FiredCap } from "./caps";
-import { PARK_CAUSES } from "./park";
 import { appendRunStep, IN_REVIEW_END, recordGateChanges, type StoredRun } from "./records";
 import {
   doneReports,
@@ -217,8 +216,6 @@ export type TurnDecision =
   | {
       readonly kind: "park";
       readonly reason: ParkReason;
-      /** Which of the reason's causes parks it (`PARK_CAUSES`, 0020 section 2). */
-      readonly cause: string;
       readonly detail: string;
       readonly endKind: string;
     }
@@ -343,8 +340,7 @@ export class VerifyCommit implements RunFinisher {
     if (this.#deps.parts?.isBoxRun(ctx.office.officeId, run) !== true) {
       return {
         kind: "park",
-        reason: "interrupted",
-        cause: PARK_CAUSES.build,
+        reason: "worker-failed",
         detail: NO_BOX_AT_DONE,
         endKind: "interrupted",
       };
@@ -390,13 +386,8 @@ export class VerifyCommit implements RunFinisher {
     if (gaps.length > 0) {
       const text = testPlanFeedback(gaps);
       if (ctx.capped != null) {
-        return {
-          kind: "park",
-          reason: "verify-failing",
-          cause: PARK_CAUSES.capped,
-          detail: text,
-          endKind: "verify-failing",
-        };
+        // The done turn crossed a cap, so no turn is left for the feedback: only a top-up resumes.
+        return { kind: "park", reason: "budget-exceeded", detail: text, endKind: "capped" };
       }
       // Every stored done report of the run that left an automated entry open was refused; this
       // one is stored too. At the cap the story parks instead of another refusal turn.
@@ -407,7 +398,6 @@ export class VerifyCommit implements RunFinisher {
         return {
           kind: "park",
           reason: "verify-failing",
-          cause: PARK_CAUSES.loops,
           detail: `the done report was refused for its test plan ${refusals} of ${TEST_PLAN_REFUSALS_MAX} times. ${text}`,
           endKind: "verify-failing",
         };
@@ -529,7 +519,7 @@ export class VerifyCommit implements RunFinisher {
    * push parks. dipo runs no verify: the story moves to review at the last part's commit, and the
    * push starts the review and CI on it. A failure to take the last part is tried again every
    * `DOOR_POLL_MS` while the run goes on, for up to `PART_STUCK_MIN_MS` from the first failure
-   * (DIPO-290); then it parks `interrupted` with a fixed text and the error's code: its message may
+   * (DIPO-290); then it parks `worker-failed` with a fixed text and the error's code: its message may
    * quote the box's output. A part dipo refuses (`PART_REFUSED`) parks `part-refused` at once, and
    * a run that parked or stopped during the tries keeps that decision.
    */
@@ -604,8 +594,7 @@ export class VerifyCommit implements RunFinisher {
         const code = (error as { code?: unknown } | null)?.code;
         return {
           kind: "park",
-          reason: "interrupted",
-          cause: PARK_CAUSES.build,
+          reason: "worker-failed",
           detail: `dipo could not take the last part out of the box (${typeof code === "string" ? code : "error"}); nothing of it was committed.`,
           endKind: "interrupted",
         };
@@ -621,7 +610,6 @@ export class VerifyCommit implements RunFinisher {
           return {
             kind: "park",
             reason: decided.reason,
-            cause: decided.cause,
             detail: decided.detail,
             endKind: decided.reason,
           };
@@ -638,7 +626,7 @@ export class VerifyCommit implements RunFinisher {
     try {
       view = await this.#deps.story.story(ctx.office.officeId, run.worktree as string, run.story!);
     } catch (error) {
-      if (isTaskFieldError(error)) return scopePark(PARK_CAUSES.taskFile, error.message);
+      if (isTaskFieldError(error)) return scopePark(error.message);
       throw error;
     }
     // A second layer: the branch must still be at the last part's commit. Run control sends no
@@ -647,8 +635,7 @@ export class VerifyCommit implements RunFinisher {
     if (now !== last.tip) {
       return {
         kind: "park",
-        reason: "interrupted",
-        cause: PARK_CAUSES.build,
+        reason: "worker-failed",
         detail: BOX_TIP_MOVED,
         endKind: "interrupted",
       };
@@ -747,11 +734,10 @@ export class VerifyCommit implements RunFinisher {
         criteria: met,
       });
     } catch (error) {
-      if (isTaskFieldError(error)) return scopePark(PARK_CAUSES.taskFile, error.message);
+      if (isTaskFieldError(error)) return scopePark(error.message);
       return {
         kind: "park",
-        reason: "interrupted",
-        cause: PARK_CAUSES.build,
+        reason: "worker-failed",
         detail: `dipo could not commit the verified work: ${messageOf(error)}`,
         endKind: "interrupted",
       };
@@ -763,7 +749,6 @@ export class VerifyCommit implements RunFinisher {
       return {
         kind: "park",
         reason: "conflict",
-        cause: PARK_CAUSES.pushRejected,
         detail: `${push.error ?? "the push was rejected"}; the remote branch has commits the story branch lacks`,
         endKind: "conflict",
       };
@@ -845,8 +830,8 @@ function isTaskFieldError(error: unknown): error is GitError {
   return error instanceof GitError && error.code === TASK_FIELD_ERROR;
 }
 
-function scopePark(cause: string, detail: string): TurnDecision {
-  return { kind: "park", reason: "scope-violation", cause, detail, endKind: "scope-violation" };
+function scopePark(detail: string): TurnDecision {
+  return { kind: "park", reason: "scope-violation", detail, endKind: "scope-violation" };
 }
 
 /** Loops started so far in the run (0-based index of the current verify pass). */
@@ -862,7 +847,7 @@ function loopsOf(office: OfficeHandle, runId: RunId): number {
 
 /**
  * The done reports a run may have refused for its test plan (DIPO-186): the one that reaches it
- * parks `verify-failing` with cause `loops` instead of another refusal turn, so a worker that
+ * parks `verify-failing` instead of another refusal turn, so a worker that
  * cannot finish an automated entry does not loop until a budget cap.
  */
 export const TEST_PLAN_REFUSALS_MAX = 3;

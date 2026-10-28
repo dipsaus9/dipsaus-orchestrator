@@ -28,7 +28,7 @@ import type { StoredRun } from "./records";
 import type { ToolTrail } from "./report-data";
 import type { RunFinisher } from "./verify-commit";
 
-/** The error of `work.stop` for a story with no active run (0005 section 4). */
+/** The error of `work.steer` for a story with no worker and no park (0005). */
 export const STORY_NOT_RUNNING = "story.notRunning";
 
 /** How often the caps are rechecked without new events (DIPO-15 M0 review): one minute. */
@@ -40,15 +40,12 @@ export const RECONCILED_END = "reconciled";
 /** The park detail of a run whose host event file changed (0007 section 5, DIPO-57). */
 export const EVENT_FILE_CHANGED = "event file changed";
 
-/** The end kind of a run parked `interrupted` (DIPO-57). */
+/** The end kind of a run whose worker failed or was lost (DIPO-57). */
 export const INTERRUPTED_END = "interrupted";
-
-/** The park detail of `work.stop` without a note. */
-export const STOPPED_DETAIL = "Stopped by the maintainer.";
 
 /** The park detail of a worker `daemon.stop { stopWorkers: true }` stopped (DIPO-315). */
 export const DAEMON_STOPPED_DETAIL =
-  "Stopped by the maintainer: daemon.stop with stopWorkers stopped every worker before the daemon exited.";
+  "Parked by the maintainer: daemon.stop with stopWorkers stopped every worker before the daemon exited.";
 
 /** `engine.notice` codes of run control. */
 export const CONTROL_NOTICES = {
@@ -82,10 +79,9 @@ export interface RunControlDeps {
   readonly clock: Clock;
   readonly offices: {
     get(office: OfficeId): OfficeHandle | undefined;
-    /** The office config; a `needs-permission` park's question reads its sandbox from it. */
     config?(office: OfficeId): OfficeConfig | undefined;
   };
-  /** Question ids for the permission question of a `needs-permission` park (DIPO-75). */
+  /** Question ids for the worker question an `ambiguous-spec` park asks (DIPO-159). */
   readonly ids?: IdSource;
   readonly writer: ParkWriter;
   readonly steering: RunSteering;
@@ -150,8 +146,6 @@ export interface Tracked extends TrackedRun {
    * and no cap ends it while verify and commit run.
    */
   capped: FiredCap | null;
-  /** Stdin of the paused worker was closed after the 10 minutes (DIPO-163). */
-  pauseClosed?: boolean;
   /**
    * The worker's tool trail since run control began to follow it (DIPO-186): the shell commands
    * after its last file edit, for the box run's verify-run check at done.
@@ -166,8 +160,6 @@ export interface RunEnding {
   readonly intentDetail?: string;
   readonly ops: readonly HostOp[];
   readonly reason: ParkReason;
-  /** Which of the reason's causes parks it (`PARK_CAUSES`, 0020 section 2). */
-  readonly cause: string;
   readonly detail: string;
   readonly endKind: string;
   /** The report that led to the end, when a turn decided it. */
@@ -185,8 +177,9 @@ export interface RunEnding {
   };
 }
 
-export type StopArgs = { readonly story: string; readonly note?: string | undefined };
-export type StopResult = { run: RunId };
+/** `story.park` of a story with a run: the story and the maintainer's note (0020). */
+export type ParkRunArgs = { readonly story: string; readonly note: string };
+export type ParkRunResult = { run: RunId };
 
 /** A notice reconcile puts on the office with what it did to a run (DIPO-56). */
 export interface ReconcileNotice {

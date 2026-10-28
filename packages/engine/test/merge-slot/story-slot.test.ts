@@ -23,7 +23,7 @@ import {
   updateSlot,
 } from "../../src/merge-slot";
 import { recordReviewOverride, recordReviewVerdict } from "../../src/review/store";
-import { openPark, resolveParkResumed } from "../../src/run/park";
+import { openPark, resolvePark } from "../../src/run/park";
 import { recordConfigSnapshot, REVIEWED_END, runSteps } from "../../src/run/records";
 import { CodeHostError } from "../../src/platform/host";
 import { REPO } from "../backlog/pr/helpers";
@@ -293,7 +293,7 @@ describe("a story PR with an approved verdict and green checks", () => {
     expect(s.merges).toHaveLength(1);
   });
 
-  it("parks conflict with cause unwritable-path when the base conflicts where the worker cannot write", async () => {
+  it("parks conflict when the base conflicts where the worker cannot write", async () => {
     s = await storyWorld();
     s.git.syncs = [
       { kind: "unwritable", base: "main", onto: "e".repeat(40), paths: [".github/ci.yml"] },
@@ -301,12 +301,12 @@ describe("a story PR with an approved verdict and green checks", () => {
     expect(await tick()).toBe("left");
     expect(openPark(s.w.office, s.key)).toMatchObject({
       reason: "conflict",
-      cause: "unwritable-path",
+      detail: expect.stringContaining(".github/ci.yml"),
     });
     expect(occupant()).toBeNull();
   });
 
-  it("goes back to the sync at most 3 times when the host refuses because the base moved, then parks slot-refused", async () => {
+  it("goes back to the sync at most 3 times when the host refuses because the base moved, then parks conflict", async () => {
     s = await storyWorld();
     await toChecks();
     s.ci.set(s.run, { kind: "green", head: C1 });
@@ -320,12 +320,12 @@ describe("a story PR with an approved verdict and green checks", () => {
     );
     expect(openPark(s.w.office, s.key)).toMatchObject({
       reason: "conflict",
-      cause: "slot-refused",
+      detail: expect.stringContaining("base moved during merge"),
     });
     expect(occupant()).toBeNull();
   });
 
-  it("lets a resumed slot-refused story in again at the head its park and lift pushed, its PR updated to that head first (DIPO-324)", async () => {
+  it("lets a story resumed to wait In Review in again at the head its park and lift pushed, its PR updated to that head first (DIPO-324)", async () => {
     s = await storyWorld();
     await toChecks();
     s.ci.set(s.run, { kind: "green", head: C1 });
@@ -333,10 +333,10 @@ describe("a story PR with an approved verdict and green checks", () => {
     s.git.containsBaseAnswer = false;
     expect(await tick()).toBe("left");
     const park = openPark(s.w.office, s.key);
-    expect(park?.cause).toBe("slot-refused");
+    expect(park?.reason).toBe("conflict");
     // The resume (`ParkResumes`): the park resolved, and the run waits In Review again.
     s.w.office.immediate(() => {
-      resolveParkResumed(s.w.office, park!.parkId, s.w.t.clock.now(), null);
+      resolvePark(s.w.office, park!.parkId, "resume", s.w.t.clock.now());
       s.w.office.run(
         "update runs set end_kind = $end where office_id = $office_id and run_id = $run",
         { run: s.run, end: REVIEWED_END },
@@ -450,14 +450,13 @@ describe("labels and hand changes on GitHub", () => {
     expect(noticeTexts(s.w.office, STORY_SLOT_NOTICES.headChanged)).toHaveLength(1);
   });
 
-  it("parks the story stopped with cause pr-closed when its PR was closed on the host", async () => {
+  it("parks the story by-maintainer when its PR was closed on the host", async () => {
     s = await storyWorld();
     s.host.prs.set(PR, hostPr(H1, "closed"));
     expect(await tick()).toBe("idle");
     expect(openPark(s.w.office, s.key)).toMatchObject({
-      reason: "stopped",
-      cause: "pr-closed",
-      detail: `PR #${PR} was closed on the host`,
+      reason: "by-maintainer",
+      detail: `PR #${PR} closed on GitHub`,
     });
     expect(s.parks).toHaveLength(1);
     // Once: a second poll parks nothing more.
@@ -622,9 +621,8 @@ describe("the merge gate", () => {
     s.w.office.immediate(() =>
       s.w.office.run(
         `insert into parks (office_id, park_id, key, story_id, run_id, reason, from_state, detail,
-           at, cause)
-         values ($office_id, 1, $key, 'DIPO-7', $run, 'review-blocked', 'In Review', 'blocked', 0,
-           'rounds')`,
+           at)
+         values ($office_id, 1, $key, 'DIPO-7', $run, 'review-blocked', 'In Review', 'blocked', 0)`,
         { key: s.key, run: s.run },
       ),
     );

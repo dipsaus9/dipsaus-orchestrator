@@ -1,4 +1,4 @@
-// `dipo hold` and `dipo drop` (DIPO-160): hold needs a note and asks nothing; drop asks yes or no
+// `dipo park` and `dipo drop` (DIPO-160, DIPO-344): park needs a note and asks nothing; drop asks yes or no
 // (`confirm: true`), and with `--delete-branch` (`irreversibleWhen`) the story id typed out, which
 // `--yes` does not replace.
 
@@ -93,37 +93,60 @@ function fake(
 }
 
 const KEY = "sto_01J9ZK5Q8W3V4X6Y7Z8A9B0C5H";
+const RUN = "run_01J9ZK5Q8W3V4X6Y7Z8A9B0C5H";
 const done = () => ({ ok: true, changed: true, result: { story: "DIPO-7", key: KEY } });
 
-describe("dipo hold", () => {
-  it("sends story.hold with the note and asks nothing", async () => {
-    const ctx = fake(done, { interactive: true });
-    expect(await main(["hold", "dipo-7", "--note", "after M2"], ctx.deps)).toBe(0);
+describe("dipo park", () => {
+  it("sends story.park with the note and asks nothing", async () => {
+    const ctx = fake(
+      () => ({ ok: true, changed: true, result: { story: "DIPO-7", key: KEY, run: RUN } }),
+      { interactive: true },
+    );
+    expect(await main(["park", "dipo-7", "--note", "after M2"], ctx.deps)).toBe(0);
     expect(ctx.ws.questions).toEqual([]);
     expect(ctx.sent).toEqual([
-      { name: "story.hold", args: { story: "DIPO-7", note: "after M2" }, office: OFFICE },
+      { name: "story.park", args: { story: "DIPO-7", note: "after M2" }, office: OFFICE },
     ]);
-    expect(ctx.out[0]).toContain("held DIPO-7");
+    expect(ctx.out[0]).toBe(
+      `parked DIPO-7 (run ${RUN}) as by-maintainer; it waits until \`dipo resume DIPO-7\``,
+    );
+  });
+
+  it("parks a story with no run through the lane, and says when it was parked already", async () => {
+    const lane = fake(done);
+    expect(await main(["park", "DIPO-7", "--note", "after M2"], lane.deps)).toBe(0);
+    expect(lane.out[0]).toBe("parked DIPO-7 as by-maintainer; it waits until `dipo resume DIPO-7`");
+    const again = fake(() => ({ ok: true, changed: false, result: { story: "DIPO-7", key: KEY } }));
+    expect(await main(["park", "DIPO-7", "--note", "after M2"], again.deps)).toBe(0);
+    expect(again.out).toEqual(["DIPO-7 is parked already"]);
   });
 
   it("needs a story id and a note", async () => {
-    expect(await main(["hold", "DIPO-7"], fake(done).deps)).toBe(2);
-    expect(await main(["hold", "--note", "x"], fake(done).deps)).toBe(2);
-    expect(await main(["hold", "DIPO-7", "--note"], fake(done).deps)).toBe(2);
+    expect(await main(["park", "DIPO-7"], fake(done).deps)).toBe(2);
+    expect(await main(["park", "--note", "x"], fake(done).deps)).toBe(2);
+    expect(await main(["park", "DIPO-7", "--note"], fake(done).deps)).toBe(2);
   });
 
-  it("prints story.notHoldable from the engine and exits 1", async () => {
+  it("prints story.notParkable from the engine and exits 1", async () => {
     const ctx = fake(() => ({
       ok: false,
       error: {
-        code: "story.notHoldable",
-        message: "DIPO-7 is running; stop it with `dipo stop DIPO-7` first.",
+        code: "story.notParkable",
+        message:
+          "DIPO-7 is Done; only a Refined, Ready, In Progress or In Review story can be parked.",
         retryable: false,
       },
     }));
-    expect(await main(["hold", "DIPO-7", "--note", "x"], ctx.deps)).toBe(1);
-    expect(ctx.err[0]).toContain("story.notHoldable");
-    expect(ctx.err[0]).toContain("dipo stop");
+    expect(await main(["park", "DIPO-7", "--note", "x"], ctx.deps)).toBe(1);
+    expect(ctx.err[0]).toContain("story.notParkable");
+  });
+
+  it("is the one way to stop a story: dipo stop and dipo hold are gone (0020)", async () => {
+    for (const gone of ["stop", "hold"]) {
+      const ctx = fake(done);
+      expect(await main([gone, "DIPO-7", "--note", "x"], ctx.deps)).toBe(2);
+      expect(ctx.sent).toEqual([]);
+    }
   });
 });
 

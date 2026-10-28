@@ -43,17 +43,9 @@ export {
   deskLine,
   deskText,
   implementedIn,
-  policyResumeNeeds,
   registerDesk,
 } from "./desk";
-export type {
-  DeskGate,
-  DeskSources,
-  HandDeskItem,
-  Implemented,
-  ResumeNeed,
-  ResumeNeeds,
-} from "./desk";
+export type { DeskGate, DeskSources, HandDeskItem, Implemented } from "./desk";
 export {
   digest,
   DIGEST_COUNTS,

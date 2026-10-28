@@ -3,7 +3,7 @@
 // facts; no model is asked. `backlog/fields/summary.ts` writes it through the Backlog CLI:
 //
 // - On park, in the task-file commit that writes F16 (`gitParkWriter`), one implementation-notes
-//   block: date, reason and cause, the detail on one line, run id, criteria met of total (as the
+//   block: date, reason, the detail on one line, run id, criteria met of total (as the
 //   worker reported them), loops of cap and CI attempts of cap, review rounds and failed rounds,
 //   budget used of limit per cap (tokens, turns, minutes), the last good commit and the number of
 //   uncommitted files.
@@ -79,7 +79,6 @@ function usedOf(value: UsedOf, unit?: string): string {
 export interface ParkBlockFacts {
   readonly at: number;
   readonly reason: string;
-  readonly cause: string;
   readonly detail: string;
   readonly runId: string;
   /** Criteria met as the worker reported them, of the story's criteria; null when not recorded. */
@@ -151,7 +150,7 @@ export function renderParkBlock(facts: ParkBlockFacts): string {
   const rounds = facts.reviewRounds;
   const detail = oneLine(facts.detail);
   return [
-    `Parked ${summaryDate(facts.at)}: ${facts.reason} (${facts.cause})`,
+    `Parked ${summaryDate(facts.at)}: ${facts.reason}`,
     `- Detail: ${detail === "" ? "none" : detail}`,
     `- Run: ${facts.runId}`,
     `- Criteria met: ${criteriaText(facts.criteria)}`,
@@ -219,7 +218,6 @@ export interface FinalSummaryFacts {
   readonly parks: readonly {
     readonly at: number;
     readonly reason: string;
-    readonly cause: string | null;
     readonly detail: string;
   }[];
   readonly grants: readonly { readonly at: number; readonly grant: GrantAmount }[];
@@ -264,12 +262,12 @@ export function finalSummaryFacts(
   }
   const last = runs.at(-1);
   const parks = office
-    .all<{ at: number; reason: string; cause: string | null; detail: string }>(
-      `select at, reason, cause, detail from parks where office_id = $office_id and key = $key
+    .all<{ at: number; reason: string; detail: string }>(
+      `select at, reason, detail from parks where office_id = $office_id and key = $key
         order by park_id`,
       { key },
     )
-    .map((row) => ({ at: row.at, reason: row.reason, cause: row.cause, detail: row.detail }));
+    .map((row) => ({ at: row.at, reason: row.reason, detail: row.detail }));
   const resumes =
     office.get<{ n: number }>(
       `select count(*) as n from parks where office_id = $office_id and key = $key
@@ -319,7 +317,7 @@ export function finalSummaryFacts(
 export function renderFinalSummary(facts: FinalSummaryFacts): string {
   const parks = facts.parks.map((park) => {
     const detail = oneLine(park.detail);
-    return `  - ${summaryDate(park.at)} ${park.reason}${park.cause === null ? "" : ` (${park.cause})`}${detail === "" ? "" : `: ${detail}`}`;
+    return `  - ${summaryDate(park.at)} ${park.reason}${detail === "" ? "" : `: ${detail}`}`;
   });
   const grants = facts.grants.map(
     (entry) => `  - ${summaryDate(entry.at)} ${grantText(entry.grant)}`,

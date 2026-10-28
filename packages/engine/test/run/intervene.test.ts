@@ -1,7 +1,6 @@
-// `work.steer`, `work.pause` and the resume of a paused run (DIPO-163; 0020 section 9, 0008 section
-// 6): run control and the resumption on a migrated state database with one claimed story run, a
-// steering fake that records the host ops, a fake next session and the real places. The commands
-// run through the executor, as a client sends them.
+// `work.steer` (DIPO-163; 0020, 0008): run control and the resumption on a migrated state database
+// with one claimed story run, a steering fake that records the host ops, a fake next session and
+// the real places. The commands run through the executor, as a client sends them.
 
 import { afterEach, beforeEach, describe, expect, it } from "bun:test";
 import { mkdtempSync, rmSync } from "node:fs";
@@ -22,8 +21,6 @@ import { stateOfficeDirectory } from "../../src/commands/offices";
 import { buildRegistry } from "../../src/commands/registry";
 import { MemoryRequestTable } from "../../src/commands/requests";
 import {
-  CAP_TICK_MS,
-  capsStartedAt,
   createRunOutcomes,
   endRun,
   findRun,
@@ -34,18 +31,14 @@ import {
   type RunOutcomes,
   type RunEnder,
 } from "../../src/run";
-import { runTotals } from "../../src/run/caps";
-import { PAUSE_CLOSE_MS, openPause, pausedMs } from "../../src/run/pauses";
-import { placeHolders, Places } from "../../src/run/places";
+import { Places } from "../../src/run/places";
 import type { NextSessionRequest } from "../../src/run/resume";
 import { reopenForRound, type RoundKind } from "../../src/run/rounds";
 import { addStory } from "../../src/stories/keys";
-import { workView } from "../../src/views/work";
 import { encode } from "../../src/workers/claude-cli/encode";
-import type { Caps, HostOp, WorkerEvent } from "../../src/workers/types";
+import type { Caps, HostOp } from "../../src/workers/types";
 import { insertClaim } from "../../src/worktree/records";
-import { ingestFixture, type IngestFixture, loggedEvents } from "../ingest/helpers";
-import { SCRIPTS } from "../workers/scripts";
+import { ingestFixture, type IngestFixture } from "../ingest/helpers";
 
 const CAPS: Caps = { budgetTokens: 1_000_000, maxTurns: 100, maxMinutes: 30 };
 
@@ -181,15 +174,6 @@ afterEach(() => {
   rmSync(w.dir, { recursive: true, force: true });
 });
 
-function track(): void {
-  w.control.track(w.f.office.officeId, {
-    runId: w.f.run,
-    work: w.work,
-    caps: CAPS,
-    startedAt: w.f.t.clock.now(),
-  });
-}
-
 function command(name: string, args: object, id?: string, crash = false): Promise<CommandReply> {
   requests += 1;
   const deps = {
@@ -227,10 +211,6 @@ function failure(reply: CommandReply): string {
 
 const steer = (text: string, id?: string, crash = false) =>
   command("work.steer", { story: "DIPO-1", text }, id, crash);
-const pause = (id?: string, crash = false) => command("work.pause", { story: "DIPO-1" }, id, crash);
-const resume = (note?: string) =>
-  command("work.resume", { story: "DIPO-1", ...(note === undefined ? {} : { note }) });
-
 /** The live developer session exits (the 10 minutes closed its stdin). */
 function exitWorker(): void {
   w.f.office.immediate(() =>
@@ -270,72 +250,13 @@ function reopen(kind: RoundKind): void {
   office.immediate(() => reopenForRound(office, stored, kind, t.clock.now()));
 }
 
-/** Another story's run takes the worker place with a live session; returns its run. */
-function occupyWorkerPlace(): RunId {
-  const other = w.f.t.ids.next("run") as RunId;
-  const { office } = w.f;
-  const key = office.immediate(
-    () => addStory(office, w.f.t.ids, { story: StoryId.parse("DIPO-2") }, w.f.t.clock.now()).key,
-  );
-  office.immediate(() => {
-    insertRun(office, {
-      runId: other,
-      kind: "story",
-      key,
-      story: "DIPO-2",
-      tier: "M",
-      role: "developer",
-      model: "haiku",
-      startSha: "b".repeat(40),
-      branch: "DIPO-2/x",
-      worktree: join(w.dir, "trees", "DIPO-2"),
-      slot: 2,
-      budgetUnit: "tokens",
-      budgetLimit: CAPS.budgetTokens,
-      loopCap: 3,
-      reviewRoundCap: null,
-      configHash: "h",
-      overrideKeys: null,
-      runProfileId: null,
-      startedAt: w.f.t.clock.now(),
-    });
-    insertClaim(office, {
-      runId: other,
-      key,
-      story: "DIPO-2",
-      branch: "DIPO-2/x",
-      worktree: join(w.dir, "trees", "DIPO-2"),
-      base: "main",
-      baseSha: "b".repeat(40),
-      startSha: "b".repeat(40),
-      claimSha: "d".repeat(40),
-      reused: false,
-      snapshot: { path: "/x", adminDir: "/x", commondir: "/x", gitdir: "/x", pointer: "/x" },
-      firstFeedback: null,
-      claimedAt: w.f.t.clock.now(),
-    });
-    office.run(
-      `insert into agents (office_id, agent_id, run_id, role, model, session_id, started_at)
-       values ($office_id, 'agt_other', $run, 'developer', 'haiku', 's2', $at)`,
-      { run: other, at: w.f.t.clock.now() },
-    );
-  });
-  return other;
-}
-
 describe("registration", () => {
-  it("registers work.steer and work.pause with since 1, on the waiting command path", () => {
+  it("registers work.steer with since 1, on the waiting command path, and no pause", () => {
     const registry = buildRegistry([w.control.feature]);
-    const found = registry
-      .commandDefinitions()
-      .filter((definition) => ["work.steer", "work.pause"].includes(definition.name));
-    expect(found.map((definition) => [definition.name, definition.since])).toEqual(
-      expect.arrayContaining([
-        ["work.steer", 1],
-        ["work.pause", 1],
-      ]),
-    );
-    expect(found).toHaveLength(2);
+    const names = registry.commandDefinitions().map((definition) => definition.name);
+    expect(names).toContain("work.steer");
+    expect(names).not.toContain("work.pause");
+    expect(names).not.toContain("work.stop");
   });
 });
 
@@ -377,25 +298,6 @@ describe("work.steer", () => {
     });
     expect(w.sent).toHaveLength(1);
     expect(steers()).toHaveLength(1);
-  });
-
-  it("stores a steer to a paused story once, keyed by its request, and answers on-resume", async () => {
-    track();
-    ok(await pause());
-    w.sent.length = 0;
-    const id = "01J9ZK5Q8W3V4X6Y7Z00000001";
-    expect(ok(await steer("Try the other approach.", id))).toEqual({
-      run: w.f.run,
-      delivered: "on-resume",
-    });
-    expect(ok(await steer("Try the other approach.", id))).toEqual({
-      run: w.f.run,
-      delivered: "on-resume",
-    });
-    expect(w.sent).toEqual([]);
-    expect(steers()).toEqual([
-      { state: "pending", detail: `maintainer-steer ${id} Try the other approach.` },
-    ]);
   });
 
   it("stores a steer to a parked story and sends it with the first message on resume", async () => {
@@ -482,7 +384,6 @@ describe("work.steer", () => {
       ),
     );
     expect(failure(await steer("hello"))).toBe("story.notSteerable");
-    expect(failure(await pause())).toBe("story.notSteerable");
     expect(w.sent).toEqual([]);
   });
 });
@@ -505,243 +406,3 @@ async function startSession(): Promise<boolean> {
     { mode: "resume", why: "a test resume" },
   );
 }
-
-describe("work.pause", () => {
-  it("stores a pause intent, sends a now-priority message and keeps the run, claim and place", async () => {
-    track();
-    expect(ok(await pause())).toEqual({ run: w.f.run });
-    expect(w.stateAtSend).toEqual(["pending"]);
-    const [op] = w.sent[0] ?? [];
-    expect(JSON.parse((op as { write: string }).write)).toMatchObject({ priority: "now" });
-    expect(w.sent).toEqual([encode({ kind: "pause" })]);
-    expect(openPause(w.f.office, w.f.run)).not.toBeNull();
-    // Still In Progress: the run is open, its claim live, its place held, its health paused.
-    expect(findRun(w.f.office, w.f.run)?.endedAt).toBeNull();
-    expect(
-      w.f.office.get<{ released_at: number | null }>(
-        "select released_at from claims where office_id = $office_id",
-      )?.released_at,
-    ).toBeNull();
-    expect(placeHolders(w.f.office).worker.map((run) => run.runId)).toEqual([w.f.run]);
-    expect(workView(w.f.office, w.f.run)?.health).toBe("paused");
-    const progress = loggedEvents(w.f.office).filter((event) => event.type === "work.progress");
-    expect(progress).toHaveLength(1);
-  });
-
-  it("answers again with its run when the story is paused already", async () => {
-    track();
-    ok(await pause());
-    w.sent.length = 0;
-    expect(ok(await pause())).toEqual({ run: w.f.run });
-    expect(w.sent).toEqual([]);
-  });
-
-  it("sends no second pause message when a crash before the requests row makes the retry run the handler again", async () => {
-    track();
-    const id = "01J9ZK5Q8W3V4X6Y7Z00000004";
-    const crashed = await pause(id, true);
-    expect(crashed.ok ? null : crashed.error.message).toContain(CRASH);
-    expect(w.sent).toEqual([encode({ kind: "pause" })]);
-    expect(ok(await pause(id))).toEqual({ run: w.f.run });
-    expect(w.sent).toEqual([encode({ kind: "pause" })]);
-    const pauses = runIntents(w.f.office, w.f.run).filter((intent) => intent.kind === "pause");
-    expect(pauses).toHaveLength(1);
-  });
-
-  it("answers story.notSteerable for a reviewer session", async () => {
-    w.f.office.immediate(() =>
-      w.f.office.run("update agents set role = 'reviewer' where office_id = $office_id"),
-    );
-    expect(failure(await pause())).toBe("story.notSteerable");
-  });
-
-  it("closes stdin after 10 minutes, and the exited worker frees the place but not the claim", async () => {
-    track();
-    ok(await pause());
-    w.sent.length = 0;
-    // The story's 10 minutes (0020 section 9).
-    expect(PAUSE_CLOSE_MS).toBe(10 * 60_000);
-    const minutes = PAUSE_CLOSE_MS / CAP_TICK_MS;
-    for (let minute = 1; minute < minutes; minute++) w.f.t.clock.advance(CAP_TICK_MS);
-    expect(w.sent).toEqual([]);
-    w.f.t.clock.advance(CAP_TICK_MS);
-    expect(w.sent).toEqual([[{ closeStdin: true }]]);
-    // More ticks send it no more.
-    w.f.t.clock.advance(CAP_TICK_MS * 3);
-    expect(w.sent).toEqual([[{ closeStdin: true }]]);
-
-    exitWorker();
-    expect(placeHolders(w.f.office).worker).toEqual([]);
-    expect(findRun(w.f.office, w.f.run)?.endedAt).toBeNull();
-    expect(
-      w.f.office.get(
-        "select 1 as c from claims where office_id = $office_id and released_at is null",
-      ),
-    ).not.toBeNull();
-    // Paused, not lost, though its worker is gone.
-    expect(workView(w.f.office, w.f.run)?.health).toBe("paused");
-    // The exit explains itself by the pause: the run stays paused.
-    expect(openPause(w.f.office, w.f.run)).not.toBeNull();
-  });
-
-  it("leaves the paused time out of the minute cap", async () => {
-    track();
-    const start = w.f.t.clock.now();
-    w.f.t.clock.advance(5 * 60_000);
-    ok(await pause());
-    w.f.t.clock.advance(20 * 60_000);
-    const now = w.f.t.clock.now();
-    expect(pausedMs(w.f.office, w.f.run, now)).toBe(20 * 60_000);
-    expect(runTotals(w.f.office, w.f.run, start, now).elapsedMs).toBe(5 * 60_000);
-    // Resuming ends the pause; the time that followed counts again.
-    exitWorker();
-    ok(await resume());
-    w.f.t.clock.advance(2 * 60_000);
-    const later = w.f.t.clock.now();
-    expect(runTotals(w.f.office, w.f.run, start, later).elapsedMs).toBe(7 * 60_000);
-  });
-
-  it("holds a verify feedback that arrives after the pause until the first message after resume", async () => {
-    track();
-    const { promise: gate, resolve: open } = Promise.withResolvers<void>();
-    const { promise: entered, resolve: enter } = Promise.withResolvers<void>();
-    w.finisher = { text: "verify failed: lint", gate, entered: enter };
-    w.control.onWorkerEvents(w.f.run, [SCRIPTS["done"]?.at(-1) as WorkerEvent]);
-    await entered;
-    // The pause arrives while the engine runs verify.
-    ok(await pause());
-    w.sent.length = 0;
-    open();
-    await w.control.idle();
-    // No message reached the paused worker: the next worker turn waits for the resume.
-    expect(w.sent).toEqual([]);
-    expect(steers()).toEqual([{ state: "pending", detail: "held-feedback verify failed: lint" }]);
-
-    ok(await resume());
-    expect(w.sent).toHaveLength(1);
-    const [op] = w.sent[0] ?? [];
-    const text = (JSON.parse((op as { write: string }).write) as { message: unknown }).message;
-    expect(JSON.stringify(text)).toContain("continue");
-    expect(JSON.stringify(text)).toContain("verify failed: lint");
-    // The held item is carried by the resume message (the second steer row).
-    expect(steers().map((s) => s.state)).toEqual(["resolved", "sent"]);
-  });
-});
-
-describe("work.resume of a paused run", () => {
-  it("continues a worker that still lives with one message, steers included", async () => {
-    track();
-    ok(await pause());
-    ok(await steer("Prefer small commits."));
-    w.sent.length = 0;
-    const result = ok(await resume());
-    expect(result).toMatchObject({ to: "In Progress", run: w.f.run });
-    expect(openPause(w.f.office, w.f.run)).toBeNull();
-    expect(w.sent).toHaveLength(1);
-    expect(JSON.stringify(w.sent[0])).toContain("The maintainer says: Prefer small commits.");
-    expect(w.sessions).toEqual([]);
-    expect(workView(w.f.office, w.f.run)?.health).not.toBe("paused");
-  });
-
-  it("starts the next session with the native session once the worker exited, with the waiting steer", async () => {
-    track();
-    ok(await pause());
-    ok(await steer("Prefer small commits."));
-    exitWorker();
-    const result = ok(await resume("Carry on."));
-    expect(result).toMatchObject({ to: "In Progress", run: w.f.run });
-    expect(result["queued"]).toBeUndefined();
-    expect(w.sessions).toHaveLength(1);
-    expect(w.sessions[0]?.mode).toBe("resume");
-    expect(w.sessions[0]?.message).toContain("The maintainer says: Prefer small commits.");
-    expect(w.sessions[0]?.message).toContain("The maintainer says: Carry on.");
-    expect(openPause(w.f.office, w.f.run)).toBeNull();
-  });
-
-  it("queues the resume when the worker place is taken, and starts it once the place frees", async () => {
-    track();
-    w.f.t.clock.advance(1_000);
-    ok(await pause());
-    exitWorker();
-    const other = occupyWorkerPlace();
-    const { office } = w.f;
-
-    const result = ok(await resume());
-    expect(result).toMatchObject({ to: "In Progress", queued: true });
-    expect(w.sessions).toEqual([]);
-    expect(findRun(office, w.f.run)?.waiting).toBe("resume");
-    expect(openPause(office, w.f.run)).toBeNull();
-
-    // The other session ends: the place frees and the places start the queued resume.
-    office.immediate(() => {
-      office.run(
-        "update agents set ended_at = $at where office_id = $office_id and agent_id = 'agt_other'",
-        {
-          at: w.f.t.clock.now(),
-        },
-      );
-      endRun(office, other, w.f.t.clock.now(), "in-review");
-    });
-    const starting = new Places({
-      clock: w.f.t.clock,
-      offices: { get: () => office, config: () => undefined },
-      starters: { resume: (officeId, run) => w.resumption.startQueued(officeId, run) },
-    });
-    try {
-      expect(await starting.drain(office.officeId as OfficeId)).toBe(1);
-    } finally {
-      starting.close();
-    }
-    expect(w.sessions).toHaveLength(1);
-    expect(w.sessions[0]?.mode).toBe("resume");
-    expect(findRun(office, w.f.run)?.waiting).toBeNull();
-  });
-
-  it("leaves the wait for the worker place out of the minute cap", async () => {
-    track();
-    w.f.t.clock.advance(5 * 60_000);
-    ok(await pause());
-    // The worker exits after the 10 minutes; the pause lasts until the resume.
-    w.f.t.clock.advance(PAUSE_CLOSE_MS);
-    exitWorker();
-    const other = occupyWorkerPlace();
-    const { office } = w.f;
-
-    expect(ok(await resume())).toMatchObject({ to: "In Progress", queued: true });
-    // The queued resume resolved the pause when it was queued and now waits for the place.
-    expect(openPause(office, w.f.run)).toBeNull();
-    w.f.t.clock.advance(4 * 60_000);
-    office.immediate(() => {
-      office.run(
-        "update agents set ended_at = $at where office_id = $office_id and agent_id = 'agt_other'",
-        { at: w.f.t.clock.now() },
-      );
-      endRun(office, other, w.f.t.clock.now(), "in-review");
-    });
-    const starting = new Places({
-      clock: w.f.t.clock,
-      offices: { get: () => office, config: () => undefined },
-      starters: { resume: (officeId, run) => w.resumption.startQueued(officeId, run) },
-    });
-    try {
-      expect(await starting.drain(office.officeId as OfficeId)).toBe(1);
-    } finally {
-      starting.close();
-    }
-    expect(w.sessions).toHaveLength(1);
-
-    const now = w.f.t.clock.now();
-    const run = findRun(office, w.f.run);
-    if (run === null) throw new Error("no run");
-    expect(run.parkedMs).toBe(4 * 60_000);
-    expect(pausedMs(office, w.f.run, now)).toBe(10 * 60_000);
-    // Five minutes of work: the 10 minutes paused and the 4 minutes waiting stay out.
-    expect(runTotals(office, w.f.run, capsStartedAt(run, undefined), now).elapsedMs).toBe(
-      5 * 60_000,
-    );
-  });
-
-  it("answers story.notPausedOrParked for a story that is not paused", async () => {
-    expect(failure(await resume())).toBe("story.notPausedOrParked");
-  });
-});

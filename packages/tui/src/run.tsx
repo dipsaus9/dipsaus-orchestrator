@@ -25,7 +25,6 @@ import {
   workOutputRange,
   workPrompt,
   workRun,
-  workStop,
 } from "@dipsaus-orchestrator/contract";
 import { Box, render, Text, useInput } from "ink";
 import { useState } from "react";
@@ -244,23 +243,6 @@ export async function runTui(args: readonly string[], deps: TuiDeps): Promise<nu
                 },
               }
             : outcome;
-        } catch (error) {
-          return {
-            ok: false,
-            error: { code: "client.failed", message: errorText(error), retryable: false },
-          };
-        }
-      },
-      stopStory: async (request) => {
-        try {
-          // `work.stop` has `confirm: true`; the maintainer answered yes before this is sent.
-          const outcome = await connected.command(
-            workStop,
-            { story: request.story },
-            { office: request.office, requestId: request.requestId, confirmed: true },
-          );
-          if (!outcome.ok) return outcome;
-          return outcome.cursor === undefined ? { ok: true } : { ok: true, cursor: outcome.cursor };
         } catch (error) {
           return {
             ok: false,

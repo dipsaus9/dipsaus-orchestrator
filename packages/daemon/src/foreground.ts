@@ -831,9 +831,10 @@ async function serve(run: Run, lock: HeldLock): Promise<number> {
       holds: (office, gate, head) => mergeSlot.gateHolds(office, gate, head),
       repark: gitParkWriter({ git: (office) => engineGit.forOffice(office), cli: backlogCli }),
     });
-    // `story.hold`, `story.drop` and the on-hold resume of `work.resume` (DIPO-160): lane
+    // `story.park`, `story.drop` and the resume of a park with no run (DIPO-160, DIPO-344): lane
     // operations, the story PR closed through the same `gh` host and the claim released with the
-    // office git.
+    // office git; a story with a run parks through the run control, made below and only called once
+    // a command runs.
     const planning = new StoryPlanning(
       storyPlanningDeps(
         {
@@ -842,11 +843,12 @@ async function serve(run: Run, lock: HeldLock): Promise<number> {
           host,
           slots,
           implemented: (name) => registry.command(name) !== undefined,
+          parkRun: (ctx, args) => runs.control.parkByMaintainer(ctx, args),
         },
         systemProcessProbe(platform),
       ),
     );
-    // `work.discard` (DIPO-161): a running story is stopped as `work.stop` does, the story PR
+    // `work.discard` (DIPO-161): a running story is stopped as `story.park` does, the story PR
     // closed through the same `gh` host, the claim released with the office git, a Refined write
     // through the lane, and the box of the ended run deleted (0021 section 6). The run control is
     // made below and only called once a command runs.
@@ -856,7 +858,7 @@ async function serve(run: Run, lock: HeldLock): Promise<number> {
       host,
       slots,
       probe: systemProcessProbe(platform),
-      stop: (ctx, args) => runs.control.stop(ctx, args),
+      stop: (ctx, args) => runs.control.parkByMaintainer(ctx, args),
       finishBoxes: () => runs.finishEndedBoxes(),
       // A story the `backlog` on this PATH reads Done in `_base` gets no Refined write.
       cli: backlogCli,
@@ -954,7 +956,7 @@ async function serve(run: Run, lock: HeldLock): Promise<number> {
       cli: backlogCli,
       storyPr: storyPrs,
       holdResumer: () => planning,
-      // A resumed slot-refused park re-enters the merge slot (DIPO-150, DIPO-155's seam).
+      // A story resumed to wait In Review again re-enters the merge slot (DIPO-150).
       slotReentry: () => mergeSlot,
       ...(options.workerPort === undefined ? {} : { workerPort: options.workerPort }),
       stories: storyIndex,

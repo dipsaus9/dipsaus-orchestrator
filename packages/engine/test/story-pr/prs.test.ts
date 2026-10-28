@@ -582,15 +582,15 @@ describe("the story PR of a run with a configuration snapshot", () => {
   });
 });
 
-/** The `stopped` / `pr-closed` park of the run, resolved by a maintainer resume. */
+/** The `by-maintainer` park of the closed PR, resolved by a maintainer resume. */
 function resumedPrClosedPark(w: World): void {
   const at = w.t.clock.now();
   w.office.immediate(() =>
     w.office.run(
-      `insert into parks (office_id, park_id, key, story_id, run_id, reason, cause, from_state,
-         detail, at, resolved_at, resolved_how)
-       values ($office_id, 1, $key, 'DIPO-1', $run, 'stopped', 'pr-closed', 'In Review',
-         'PR #7 was closed on the host', $at, $at, 'resume')`,
+      `insert into parks (office_id, park_id, key, story_id, run_id, reason, from_state, detail,
+         at, resolved_at, resolved_how)
+       values ($office_id, 1, $key, 'DIPO-1', $run, 'by-maintainer', 'In Review',
+         'PR #7 closed on GitHub', $at, $at, 'resume')`,
       { key: w.key, run: w.run, at },
     ),
   );

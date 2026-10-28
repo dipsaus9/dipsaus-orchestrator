@@ -2,7 +2,7 @@
 // DIPO-308). Each key of the table in `keys.ts` starts a flow: the prompts it needs, then one
 // command with `origin: "tui"` and a fresh request id.
 //
-// - Text prompts take Enter to send and Esc to cancel: the answer, the hold, reject and discard
+// - Text prompts take Enter to send and Esc to cancel: the answer, the park, reject and discard
 //   notes, the steer text, and the resume note where the park needs one (the engine's command
 //   line for it names `--note`). A text prompt keeps its draft while offline and sends nothing.
 // - Reject asks yes or no first. A resume with a budget (the engine's line names `--budget`, which
@@ -11,7 +11,6 @@
 // - Discard, and drop with branch deletion (`irreversible`, `irreversibleWhen`), read
 //   `story.losses`, list what is lost and ask for the story id typed out (0009 open question 4).
 //   Every other action is one key or yes or no.
-// - An answer to a permission question from the detail or the overview asks allow or deny.
 //
 // An action is done only when the office stream passes its reply cursor (read-your-writes), when
 // the store read the office again after the reply, or once the maintainer switched office. An
@@ -84,14 +83,11 @@ export interface ActionTarget {
   readonly cli?: string;
   /** What the prompt names: the question's text or the permission. */
   readonly text?: string;
-  /** The kind of the question an answer is for; a permission asks allow or deny. */
-  readonly questionKind?: string;
 }
 
 type Step =
   | { readonly kind: "text"; readonly field: "text" | "note"; readonly label: string }
   | { readonly kind: "yesno"; readonly question: string }
-  | { readonly kind: "decide" }
   | { readonly kind: "drop" }
   | { readonly kind: "losses"; readonly command: "work.discard" | "story.drop" }
   | { readonly kind: "typed" };
@@ -99,7 +95,6 @@ type Step =
 interface Values {
   readonly text?: string;
   readonly note?: string;
-  readonly decision?: "allow" | "deny";
   readonly deleteBranch?: boolean;
   readonly budget?: ResumeBudget;
   /** Set once the maintainer agreed to what `confirmWhen` asks about. */
@@ -139,20 +134,16 @@ export interface ActionState {
 /** The verb of each action in its label. */
 const VERBS: Readonly<Record<ActionId, string>> = {
   answer: "answer",
-  allow: "allow",
-  deny: "deny",
   approve: "approve",
   reject: "reject",
   resume: "resume",
   discard: "discard",
   drop: "drop",
-  hold: "hold",
+  park: "park",
   test: "test",
   accept: "accept",
   dismiss: "dismiss",
-  stop: "stop",
   steer: "steer",
-  pause: "pause",
 };
 
 /** What the irreversible commands do, as the typed confirmation says it (0009 section 5). */
@@ -179,9 +170,7 @@ function stepsOf(id: ActionId, target: ActionTarget): Step[] {
   const story = target.story ?? "the story";
   switch (id) {
     case "answer":
-      return target.questionKind === "permission"
-        ? [{ kind: "decide" }]
-        : [{ kind: "text", field: "text", label: "answer" }];
+      return [{ kind: "text", field: "text", label: "answer" }];
     case "approve":
       return needsNote(target.cli)
         ? [{ kind: "text", field: "note", label: "approve note (overrides the blocked review)" }]
@@ -204,15 +193,8 @@ function stepsOf(id: ActionId, target: ActionTarget): Step[] {
       ];
     case "drop":
       return [{ kind: "drop" }];
-    case "hold":
-      return [{ kind: "text", field: "note", label: "hold note" }];
-    case "stop":
-      return [
-        {
-          kind: "yesno",
-          question: `Stop ${story}? worker ends, branch kept, story parks as stopped.`,
-        },
-      ];
+    case "park":
+      return [{ kind: "text", field: "note", label: `park note for ${story}` }];
     case "steer":
       return [{ kind: "text", field: "text", label: "steer text" }];
     default:
@@ -247,14 +229,7 @@ export function requestOf(flow: Flow, requestId: RequestId): CommandRequest {
   let args: Record<string, unknown>;
   switch (flow.id) {
     case "answer":
-      args =
-        values.decision === undefined
-          ? { question: target.question, text: values.text ?? "" }
-          : { question: target.question, text: "", decision: values.decision };
-      break;
-    case "allow":
-    case "deny":
-      args = { question: target.question, text: "", decision: flow.id };
+      args = { question: target.question, text: values.text ?? "" };
       break;
     case "approve":
     case "reject":
@@ -278,7 +253,7 @@ export function requestOf(flow: Flow, requestId: RequestId): CommandRequest {
       args = { ...story, text: values.text ?? "" };
       break;
     case "discard":
-    case "hold":
+    case "park":
       args = { ...story, ...note };
       break;
     default:
@@ -514,13 +489,6 @@ export function useActions(deps: ActionDeps) {
         if (input === "y" || input === "Y") advance(flow);
         else cancel(flow);
         return true;
-      case "decide":
-        if (input === "y" || input === "A") {
-          advance({ ...flow, values: { ...flow.values, decision: "allow" } });
-        } else if (input === "n") {
-          advance({ ...flow, values: { ...flow.values, decision: "deny" } });
-        } else cancel(flow);
-        return true;
       case "drop":
         if (input === "y" || input === "Y") {
           advance({ ...flow, values: { ...flow.values, deleteBranch: false } });
@@ -585,10 +553,6 @@ export function useActions(deps: ActionDeps) {
         return [...flow.lines, `type ${story} to confirm: ${flow.draft}_`];
       case "yesno":
         return [...flow.lines, `${step.question} [y/N]`];
-      case "decide":
-        return [
-          `${flow.label}: allow once ${flow.target.text ?? "the permission"}? [A/y] allow  [n] deny`,
-        ];
       case "drop":
         return [
           `Drop ${story}: archive it and release its claim? [y] keep its branch  [D] delete the branch too`,
@@ -610,8 +574,6 @@ export function useActions(deps: ActionDeps) {
         return "[Enter] confirm  [Esc] cancel";
       case "yesno":
         return "[y] yes  [any other key] cancel";
-      case "decide":
-        return "[A/y] allow  [n] deny  [any other key] cancel";
       case "drop":
         return "[y] drop, keep branch  [D] delete branch  [any other key] cancel";
       case "losses":

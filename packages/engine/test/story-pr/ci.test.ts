@@ -1,7 +1,7 @@
 // CI on the story PR (DIPO-147 test plan): the required checks of the pushed head are read by the
 // PR poll, a final head is not read again, a stuck head raises one ci.stuck and slows down, a
 // failed job becomes one CI item with its tail, locations and signature, the body's status block
-// lists each check, and the red head that reaches the run's CI cap parks the story with cause ci.
+// lists each check, and the red head that reaches the run's CI cap parks the story verify-failing.
 // For a box run (DIPO-299) CI is the verify: red CI takes the same loop, and a head the host
 // reports no check for at all is final with no CI after the bounded wait.
 
@@ -292,9 +292,7 @@ const notices = (office: OfficeHandle, code: string) =>
     (event) => event.type === "engine.notice" && (event.data as { code: string }).code === code,
   );
 const parked = (office: OfficeHandle) =>
-  office.all<{ reason: string; cause: string }>(
-    "select reason, cause from parks where office_id = $office_id",
-  );
+  office.all<{ reason: string }>("select reason from parks where office_id = $office_id");
 
 /** Opens the PR, then pushes a new head the way an In Review push does. */
 async function pushHead(w: World, head: string): Promise<void> {
@@ -573,7 +571,7 @@ describe("the CI watch after a restart and a failing park", () => {
         expect(parked(w.office)).toEqual([]);
 
         await w.prs.retry(id);
-        expect(parked(w.office)).toEqual([{ reason: "verify-failing", cause: "ci" }]);
+        expect(parked(w.office)).toEqual([{ reason: "verify-failing" }]);
         expect(runSteps(w.office, w.run).filter((s) => s.kind === "ci")).toHaveLength(1);
       },
       { ciCap: 1 },
@@ -582,7 +580,7 @@ describe("the CI watch after a restart and a failing park", () => {
 });
 
 describe("the run's CI cap", () => {
-  it("parks verify-failing with cause ci at the second red head with a cap of 2", async () => {
+  it("parks verify-failing at the second red head with a cap of 2", async () => {
     await inWorld(async (w) => {
       const id = w.office.officeId;
       await w.prs.sync(id, w.run);
@@ -597,7 +595,7 @@ describe("the run's CI cap", () => {
       await w.prs.retry(id);
       const steps = runSteps(w.office, w.run).filter((s) => s.kind === "ci");
       expect(steps.map((s) => s.value)).toEqual([HEAD_A, HEAD_B]);
-      expect(parked(w.office)).toEqual([{ reason: "verify-failing", cause: "ci" }]);
+      expect(parked(w.office)).toEqual([{ reason: "verify-failing" }]);
       expect(w.parks).toHaveLength(1);
       expect(w.parks[0]?.reason).toBe("verify-failing");
       // A later poll neither counts the head again nor parks again.
@@ -628,7 +626,7 @@ describe("the run's CI cap", () => {
       await pushHead(w, HEAD_C);
       await w.prs.retry(id);
       expect(runSteps(w.office, w.run).filter((s) => s.kind === "ci")).toHaveLength(3);
-      expect(parked(w.office)).toEqual([{ reason: "verify-failing", cause: "ci" }]);
+      expect(parked(w.office)).toEqual([{ reason: "verify-failing" }]);
     });
   });
 });
@@ -677,7 +675,7 @@ describe("CI as the verify of a box run", () => {
         await pushHead(w, HEAD_B);
         await w.prs.retry(id);
         expect(ciSteps(w).map((s) => s.value)).toEqual([HEAD_A, HEAD_B]);
-        expect(parked(w.office)).toEqual([{ reason: "verify-failing", cause: "ci" }]);
+        expect(parked(w.office)).toEqual([{ reason: "verify-failing" }]);
         expect(
           w.office.get<{ detail: string }>("select detail from parks where office_id = $office_id")
             ?.detail,

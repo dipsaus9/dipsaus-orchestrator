@@ -4,8 +4,10 @@
 import type { OfficeId } from "@dipsaus-orchestrator/contract";
 
 import type { FeatureModule } from "../commands/registry";
+import type { OfficeHandle } from "../db/office";
 import { workRefOf } from "../views/work";
 
+import { runIntents } from "./intents";
 import type { ExitOutcomes } from "./outcome-exits";
 import type { SessionStarts } from "./outcome-sessions";
 import type { OutcomeSupport } from "./outcome-support";
@@ -17,16 +19,27 @@ import {
   type RunOutcomesDeps,
   type RunView,
 } from "./outcome-types";
-import { openPause } from "./pauses";
-import { activeRuns, backstopSnapshotOf, capsStartedAt } from "./records";
+import { activeRuns, backstopSnapshotOf, capsStartedAt, type StoredRun } from "./records";
+
+/**
+ * The intent detail tag of a maintainer pause, which `work.pause` stored before `story.park`
+ * replaced it (DIPO-344). No code writes it any more; a run still paused by one is parked at load.
+ */
+export const LEGACY_PAUSE_TAG = "maintainer-pause";
+
+/** The detail of the park of a run that was paused when dipo was upgraded. */
+export const LEGACY_PAUSE_DETAIL =
+  "Paused by the maintainer before dipo replaced pausing with parking; resume it to continue";
 
 export class Redispatch {
+  readonly #s: OutcomeSupport;
   readonly #deps: RunOutcomesDeps;
   readonly #guard: OutcomeSupport["guard"];
   readonly #exits: ExitOutcomes;
   readonly #sessions: SessionStarts;
 
   constructor(support: OutcomeSupport, exits: ExitOutcomes, sessions: SessionStarts) {
+    this.#s = support;
     this.#deps = support.deps;
     this.#guard = support.guard;
     this.#exits = exits;
@@ -59,6 +72,47 @@ export class Redispatch {
   }
 
   /**
+   * Runs paused by the maintainer before the upgrade (an unresolved `maintainer-pause` intent,
+   * DIPO-344): with no pause left, such a run would stay active with no session, holding its
+   * worker place. Each pause is resolved `run-ended` and the run parks `by-maintainer`, its live
+   * worker stopped first, so `work.resume` continues it. Returns how many runs it parked.
+   */
+  async #parkPaused(office: OfficeHandle): Promise<number> {
+    let parked = 0;
+    for (const run of activeRuns(office)) {
+      if (run.kind !== "story" || this.#guard.busy(run.runId)) continue;
+      const pauses = runIntents(office, run.runId).filter(
+        (intent) =>
+          intent.resolvedAt === null &&
+          intent.kind === "pause" &&
+          intent.detail.startsWith(LEGACY_PAUSE_TAG),
+      );
+      if (pauses.length === 0) continue;
+      const at = this.#deps.clock.now();
+      for (const pause of pauses) this.#s.resolve(office, run.runId, pause, "run-ended", at);
+      parked += 1;
+      await this.#guard.within(`${run.runId} legacy-pause`, () => this.#parkRun(office, run));
+    }
+    return parked;
+  }
+
+  async #parkRun(office: OfficeHandle, run: StoredRun): Promise<void> {
+    const ending = { reason: "by-maintainer", detail: LEGACY_PAUSE_DETAIL, endKind: "stopped" };
+    const ender = this.#deps.ender();
+    // A worker re-attached after the restart still runs: run control stops it, then parks.
+    if (ender.live(run.runId)) {
+      ender.begin(run.runId, {
+        ...ending,
+        intent: "stop",
+        ops: this.#deps.encode({ kind: "stop" }),
+      });
+      return;
+    }
+    const work = workRefOf(office, run.runId) ?? undefined;
+    await ender.park(office, run, work, { ...ending, intent: "park", ops: [] });
+  }
+
+  /**
    * Decides the exits that were ingested but not decided before the daemon stopped: every active
    * story run whose newest agent ended with no recorded decision (`end_reason` still `exited`),
    * no open wait and no other session after it. A newest agent that ended `crashed` or
@@ -70,14 +124,13 @@ export class Redispatch {
     if (office === undefined) return 0;
     // Park resumes a restart interrupted (DIPO-75) first: their runs are skipped below.
     let count = (await this.#deps.recoverParks?.(officeId, office)) ?? 0;
+    count += await this.#parkPaused(office);
     for (const run of activeRuns(office)) {
       // A run decided here, or followed by run control (re-attached, DIPO-57), is decided there.
       const tracked = this.#deps.ender().isTracked?.(run.runId) ?? false;
       if (run.kind !== "story" || this.#guard.busy(run.runId) || tracked) continue;
       // A run reopened and waiting for its place has no exit to decide (DIPO-142).
       if (run.waiting != null) continue;
-      // A run the maintainer paused stays so until `work.resume` (DIPO-163).
-      if (openPause(office, run.runId) !== null) continue;
       const agent = office.get<{
         agent_id: string;
         end_reason: string | null;

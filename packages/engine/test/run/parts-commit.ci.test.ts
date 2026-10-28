@@ -448,7 +448,7 @@ if (process.env["DIPO_TEST_CI"] === "1") {
         inParts(async (w) => {
           write(w.work, { ...change, "src/a.ts": "export const a = 2;\n" });
           await w.parts.onPart(part("Touch a protected file"));
-          expect(w.parks.map((p) => [p.reason, p.cause])).toEqual([
+          expect(w.parks.map((p) => [p.reason, caught(p)])).toEqual([
             ["scope-violation", "protected-file"],
           ]);
           expect(await tip(w)).toBe(w.claimTip);
@@ -474,7 +474,7 @@ if (process.env["DIPO_TEST_CI"] === "1") {
           async (w) => {
             write(w.work, { ...change, "src/a.ts": "export const a = 2;\n" });
             await w.parts.onPart(part("Touch a tool's configuration"));
-            expect(w.parks.map((p) => [p.reason, p.cause])).toEqual([
+            expect(w.parks.map((p) => [p.reason, caught(p)])).toEqual([
               ["scope-violation", "protected-file"],
             ]);
             expect(await tip(w)).toBe(w.claimTip);
@@ -489,7 +489,7 @@ if (process.env["DIPO_TEST_CI"] === "1") {
         async (w) => {
           write(w.work, { "planning/config.yml": "project_name: x\n" });
           await w.parts.onPart(part("Change the named folder's configuration"));
-          expect(w.parks.map((p) => [p.reason, p.cause])).toEqual([
+          expect(w.parks.map((p) => [p.reason, caught(p)])).toEqual([
             ["scope-violation", "protected-file"],
           ]);
           expect(await tip(w)).toBe(w.claimTip);
@@ -523,7 +523,7 @@ if (process.env["DIPO_TEST_CI"] === "1") {
         async (w) => {
           rmSync(join(w.work, ".mcp.json"));
           await w.parts.onPart(part("Drop the MCP servers"));
-          expect(w.parks.map((p) => [p.reason, p.cause, p.detail])).toEqual([
+          expect(w.parks.map((p) => [p.reason, caught(p), p.detail])).toEqual([
             [
               "scope-violation",
               "protected-file",
@@ -544,7 +544,6 @@ if (process.env["DIPO_TEST_CI"] === "1") {
         expect(w.parks).toEqual([
           {
             reason: "scope-violation",
-            cause: "protected-file",
             detail:
               "The part the worker delivered changes protected files: a symlink or hard link. dipo committed and pushed nothing, and the change stays in the box. Only dipo or the maintainer writes these files.",
           },
@@ -565,7 +564,7 @@ if (process.env["DIPO_TEST_CI"] === "1") {
       inParts(async (w) => {
         write(w.work, { "src/config-loader.ts": `export const key = "${AWS_KEY}";\n` });
         await w.parts.onPart(part("Add a config"));
-        expect(w.parks.map((p) => [p.reason, p.cause])).toEqual([["scope-violation", "secret"]]);
+        expect(w.parks.map((p) => [p.reason, caught(p)])).toEqual([["scope-violation", "secret"]]);
         const detail = w.parks[0]?.detail ?? "";
         expect(detail).toContain("an AWS access key");
         expect(detail).not.toContain(AWS_KEY);
@@ -590,7 +589,7 @@ if (process.env["DIPO_TEST_CI"] === "1") {
         writeFileSync(join(w.work, "listed.json"), `ANTHROPIC_API_KEY=${value}\n`);
         write(w.work, { "src/a.ts": `export const password = "${value}";\n` });
         await w.parts.onPart(part("Hard-code the password"));
-        expect(w.parks.map((p) => [p.reason, p.cause])).toEqual([["scope-violation", "secret"]]);
+        expect(w.parks.map((p) => [p.reason, caught(p)])).toEqual([["scope-violation", "secret"]]);
         expect(w.parks[0]?.detail).toContain("a value from a listed box file");
         expect(w.parks[0]?.detail).not.toContain(value);
         expect(await tip(w)).toBe(w.claimTip);
@@ -613,7 +612,7 @@ if (process.env["DIPO_TEST_CI"] === "1") {
       inParts(async (w) => {
         write(w.work, { "src/a.ts": "export const a = 2;\n" });
         await w.parts.onPart(part(`Use ${AWS_KEY} for the client`));
-        expect(w.parks.map((p) => [p.reason, p.cause])).toEqual([["scope-violation", "secret"]]);
+        expect(w.parks.map((p) => [p.reason, caught(p)])).toEqual([["scope-violation", "secret"]]);
         expect(w.parks[0]?.detail).not.toContain(AWS_KEY);
         expect(await tip(w)).toBe(w.claimTip);
       }));
@@ -628,7 +627,6 @@ if (process.env["DIPO_TEST_CI"] === "1") {
         expect(w.parks).toEqual([
           {
             reason: "scope-violation",
-            cause: "part-refused",
             detail:
               "The part the worker delivered holds a path git does not take into a commit. dipo committed and pushed nothing.",
           },
@@ -640,7 +638,7 @@ if (process.env["DIPO_TEST_CI"] === "1") {
       inParts(async (w) => {
         write(w.work, { [`src/a${String.fromCodePoint(0x202e)}st.ts`]: "x\n" });
         await w.parts.onPart(part("A hidden name"));
-        expect(w.parks.map((p) => p.cause)).toEqual(["part-refused"]);
+        expect(w.parks.map(caught)).toEqual(["part-refused"]);
         expect(w.parks[0]?.detail).toContain("control, bidirectional or invisible");
         expect(await tip(w)).toBe(w.claimTip);
       }));
@@ -649,7 +647,7 @@ if (process.env["DIPO_TEST_CI"] === "1") {
       inParts(async (w) => {
         write(w.work, { "pkg/.gitignore": `${"x".repeat(70 * 1024)}\n` });
         await w.parts.onPart(part("A huge ignore file"));
-        expect(w.parks.map((p) => p.cause)).toEqual(["part-refused"]);
+        expect(w.parks.map(caught)).toEqual(["part-refused"]);
         expect(w.parks[0]?.detail).toContain(".gitignore larger than 65536 bytes");
       }));
 
@@ -678,7 +676,7 @@ if (process.env["DIPO_TEST_CI"] === "1") {
         });
         write(w.work, { "big.txt": "x".repeat(8192) });
         await small.onPart(part("Too big"));
-        expect(w.parks.map((p) => p.cause)).toEqual(["part-refused"]);
+        expect(w.parks.map(caught)).toEqual(["part-refused"]);
         // The worker's box is kept: only the exec client was killed.
         expect(w.calls).toContain("kill SIGKILL");
         expect(w.calls.some((call) => call.startsWith("stop "))).toBe(false);
@@ -710,7 +708,7 @@ if (process.env["DIPO_TEST_CI"] === "1") {
       inParts(async (w) => {
         write(w.work, { ".github/workflows/release.yml": "name: release\n" });
         const outcome = await w.parts.deliverLast("run_1", "Done");
-        expect(outcome).toMatchObject({ kind: "hit", cause: "protected-file" });
+        expect(outcome).toMatchObject({ kind: "hit", hit: "protected-file" });
         expect(w.parks).toEqual([]);
       }));
 
@@ -804,7 +802,7 @@ if (process.env["DIPO_TEST_CI"] === "1") {
         expect(files).toContain("config/.env.sample");
         write(w.work, { ".env": "API_URL=https://example.invalid\n" });
         await w.parts.onPart(part("Add the env"));
-        expect(w.parks.map((p) => [p.cause, p.detail.includes("a secret file name")])).toEqual([
+        expect(w.parks.map((p) => [caught(p), p.detail.includes("a secret file name")])).toEqual([
           ["secret", true],
         ]);
       }));
@@ -1118,4 +1116,13 @@ if (process.env["DIPO_TEST_CI"] === "1") {
       );
     });
   });
+}
+/**
+ * Which barrier a part's park names in its detail: protected files, what looks like a secret, or a
+ * part dipo did not take. The detail is text for the maintainer; the test reads it to tell them apart.
+ */
+function caught(park: { readonly detail: string }): string {
+  if (park.detail.includes("protected files")) return "protected-file";
+  if (park.detail.includes("looks like a secret")) return "secret";
+  return "part-refused";
 }
