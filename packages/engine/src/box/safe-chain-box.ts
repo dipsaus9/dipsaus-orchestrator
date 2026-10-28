@@ -19,7 +19,9 @@
 //    `safe-chain-test` is refused with 403.
 //
 // Fail-closed: any step that fails stops what was started (the box deleted, both listeners
-// closed) and returns the reason; the caller refuses the box's start. `stop` deletes the box, so it
+// closed) and returns the reason; the caller refuses the box's start. Once started, Safe-Chain ending or
+// its box going away makes the route send no more tunnels to it, so installs fail closed, and
+// `onRoute` hears of it. `stop` deletes the box, so it
 // lives exactly as long as the route. A Safe-Chain box a killed daemon left is deleted at the next
 // daemon start (`BoxWorkers.finishEnded`).
 
@@ -81,6 +83,8 @@ export interface SafeChainRouteDeps {
   /** The Safe-Chain image build box's id; random by default. Told before the box exists. */
   readonly buildId?: () => string;
   readonly onEvent?: BoxImageDeps["onEvent"];
+  /** What happened to a running route's Safe-Chain box that dipo must hear of (the daemon logs it). */
+  readonly onRoute?: (event: SafeChainRouteEvent) => void;
   /**
    * One HTTPS GET of the check through the web proxy at `proxyUrl`, trusting `ca` only; its status.
    * Bun's fetch by default; tests pass their own.
@@ -94,6 +98,16 @@ export interface SafeChainRouteDeps {
    */
   readonly onSafeChain?: (box: SafeChainBoxInfo) => void;
 }
+
+/** What happened to the Safe-Chain box of a route, outside its start's own result. */
+export type SafeChainRouteEvent =
+  /**
+   * Safe-Chain's start script ended, or its box went away, while the route ran: from then on the
+   * route sends no tunnel to it, so every registry install fails (fail-closed).
+   */
+  | { readonly kind: "safeChainEnded"; readonly box: string; readonly code: number | null }
+  /** The Safe-Chain box could not be deleted when the route stopped or failed to start. */
+  | { readonly kind: "safeChainDeleteFailed"; readonly box: string; readonly reason: string };
 
 /** The Safe-Chain box of a started route, for tests and the escape probe. */
 export interface SafeChainBoxInfo {
@@ -241,11 +255,19 @@ interface Started {
   upstream: RunningBoxWebProxy | null;
   box: string | null;
   process: BoxProcess | null;
+  /** Set once the route stops (or its start failed): the end of Safe-Chain is then expected. */
+  stopping: boolean;
 }
 
 async function stopStarted(deps: SafeChainRouteDeps, started: Started): Promise<void> {
+  started.stopping = true;
   started.process?.kill("SIGKILL");
-  if (started.box !== null) await deps.boxes.delete(started.box).catch(() => undefined);
+  const box = started.box;
+  if (box !== null) {
+    await deps.boxes.delete(box).catch((error: unknown) => {
+      deps.onRoute?.({ kind: "safeChainDeleteFailed", box, reason: messageOf(error) });
+    });
+  }
   await started.proxy?.stop().catch(() => undefined);
   await started.upstream?.stop().catch(() => undefined);
   await rm(deps.caFile, { force: true }).catch(() => undefined);
@@ -331,7 +353,13 @@ export async function startBoxWebRoute(
   deps: SafeChainRouteDeps,
   proxyDeps: BoxWebProxyDeps,
 ): Promise<BoxWebRouteStart> {
-  const started: Started = { proxy: null, upstream: null, box: null, process: null };
+  const started: Started = {
+    proxy: null,
+    upstream: null,
+    box: null,
+    process: null,
+    stopping: false,
+  };
   let target: SafeChainTarget | null = null;
   let source: string | null = null;
   const admissions = new BoxAdmissions();
@@ -350,6 +378,21 @@ export async function startBoxWebRoute(
       source = address;
     });
     target = box.target;
+    // Safe-Chain ending, or its box going away, ends the start script's exec: from then on no
+    // tunnel goes to the box, and no connection is taken as the box's (DIPO-343, fail-closed).
+    const watched = started.process;
+    void watched?.exited.then(
+      (exit) => {
+        if (started.stopping) return;
+        target = null;
+        source = null;
+        deps.onRoute?.({ kind: "safeChainEnded", box: started.box ?? "", code: exit.code });
+      },
+      () => {
+        target = null;
+        source = null;
+      },
+    );
     deps.onSafeChain?.({
       name: started.box ?? "",
       address: box.target.address,

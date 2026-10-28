@@ -529,6 +529,13 @@ function daemonBoxWorkers(
             step: event.step,
             reason: event.reason,
           }),
+        onRoute: (event) =>
+          options.logger.warn(
+            event.kind === "safeChainEnded"
+              ? "Safe-Chain stopped in its box; registry installs fail until the web route starts again"
+              : "the Safe-Chain box could not be deleted",
+            { ...event },
+          ),
       },
       { clock },
     );

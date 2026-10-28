@@ -1040,7 +1040,11 @@ export function startSafeChainUpstreamProxy(
       boxHostAddress: () => options.network.hostAddress,
       kind: { upstream: options.source },
       port: 0,
-      limits: options.limits ?? {},
+      // Every connection comes from the one Safe-Chain box, so its cap is the overall one.
+      limits: {
+        maxConnectionsPerSource: options.limits?.maxConnections ?? WEB_PROXY_LIMITS.maxConnections,
+        ...options.limits,
+      },
       admissions: null,
     },
     deps,

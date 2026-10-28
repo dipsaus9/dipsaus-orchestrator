@@ -21,6 +21,8 @@ import {
   SAFE_CHAIN_START_SCRIPT,
   safeChainImageTag,
 } from "../../src/box/safe-chain";
+import type { SafeChainRouteEvent } from "../../src/box/safe-chain-box";
+import type { WebProxyEvent } from "../../src/box/web-proxy";
 import {
   runSafeChainCheck,
   SAFE_CHAIN_CHECK_ALLOWED_URL,
@@ -99,6 +101,9 @@ async function route(tmp: string, setup: Setup = {}) {
     ...setup.boxes,
   });
   const caFile = join(tmp, "route", "ca.pem");
+  const routeEvents: SafeChainRouteEvent[] = [];
+  const proxyEvents: WebProxyEvent[] = [];
+  const connects: string[] = [];
   const started = await startBoxWebRoute(
     NETWORK,
     {
@@ -120,13 +125,85 @@ async function route(tmp: string, setup: Setup = {}) {
               : 0)
         );
       },
+      onRoute: (event) => routeEvents.push(event),
     },
-    { clock: new ManualClock() },
+    {
+      clock: new ManualClock(),
+      onEvent: (event) => proxyEvents.push(event),
+      // Each upstream connection is recorded and lands on a port nothing listens on.
+      connect: (address, port) => {
+        connects.push(`${address}:${port}`);
+        return connect(1, "127.0.0.1");
+      },
+    },
   );
-  return { started, boxes, caFile, downloads, tag };
+  return { started, boxes, caFile, downloads, tag, routeEvents, proxyEvents, connects };
+}
+
+/** The first line a CONNECT to `target` through the proxy on the loopback `port` gets back. */
+function connectLine(port: number, target: string): Promise<string> {
+  return new Promise((resolve) => {
+    const socket = connect(port, "127.0.0.1", () =>
+      socket.write(`CONNECT ${target} HTTP/1.1\r\nHost: ${target}\r\n\r\n`),
+    );
+    let text = "";
+    socket.on("data", (chunk) => {
+      text += chunk.toString("latin1");
+      if (text.includes("\r\n")) {
+        socket.destroy();
+        resolve(text.split("\r\n")[0] ?? "");
+      }
+    });
+    socket.on("error", () => resolve(""));
+    socket.on("close", () => resolve(text.split("\r\n")[0] ?? ""));
+  });
 }
 
 describe.skipIf(!RUNS)("the web route with Safe-Chain in its box", () => {
+  it("sends no tunnel to the Safe-Chain box once Safe-Chain ends, and says so (fail-closed)", () =>
+    withTempDir(async (tmp) => {
+      const { started, boxes, routeEvents, proxyEvents, connects } = await route(tmp);
+      if (!started.ok) throw new Error(started.reason);
+      // While it runs, a registry tunnel goes to the box (whose fake port answers nothing).
+      expect(await connectLine(started.route.port, "registry.npmjs.org:443")).toBe(
+        "HTTP/1.1 502 Bad Gateway",
+      );
+      expect(connects).toEqual([`192.168.65.9:${SAFE_CHAIN_BOX_PORTS.npm}`]);
+      // The box goes away: its start script's exec ends with it.
+      await boxes.stop(SAFE_CHAIN_BOX);
+      for (let i = 0; i < 10 && routeEvents.length === 0; i += 1) await Bun.sleep(5);
+      expect(routeEvents).toEqual([{ kind: "safeChainEnded", box: SAFE_CHAIN_BOX, code: 137 }]);
+      expect(await connectLine(started.route.port, "registry.npmjs.org:443")).toBe(
+        "HTTP/1.1 503 Service Unavailable",
+      );
+      expect(await connectLine(started.route.port, "pypi.org:443")).toBe(
+        "HTTP/1.1 503 Service Unavailable",
+      );
+      // No further connection was made, to the box or anywhere else.
+      expect(connects).toHaveLength(1);
+      expect(proxyEvents.at(-1)).toEqual({
+        kind: "refused",
+        target: "pypi.org:443",
+        reason: "Safe-Chain is not running, so no registry is reached",
+      });
+      // A stop now is no news: the route's own end is expected.
+      await started.route.stop();
+      expect(routeEvents).toHaveLength(1);
+    }));
+
+  it("reports a Safe-Chain box it could not delete", () =>
+    withTempDir(async (tmp) => {
+      const { started, boxes, routeEvents } = await route(tmp);
+      if (!started.ok) throw new Error(started.reason);
+      boxes.delete = async () => {
+        throw new BoxError("box.failed", "container delete failed");
+      };
+      await started.route.stop();
+      expect(routeEvents).toEqual([
+        { kind: "safeChainDeleteFailed", box: SAFE_CHAIN_BOX, reason: "container delete failed" },
+      ]);
+    }));
+
   it("makes the box from the Safe-Chain image behind its firewall, starts Safe-Chain and checks it", () =>
     withTempDir(async (tmp) => {
       const { started, boxes, caFile, downloads, tag } = await route(tmp);

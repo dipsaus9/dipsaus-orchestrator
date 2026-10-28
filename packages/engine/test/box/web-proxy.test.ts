@@ -1499,13 +1499,17 @@ function counted() {
 // TLS port, under the address rule. TCP only: it knows the Safe-Chain box by its source address.
 
 /** Safe-Chain's own listener (DIPO-343) whose clients count as the Safe-Chain box from `source`. */
-async function upstreamHarness(source: string | null) {
+async function upstreamHarness(source: string | null, limits?: BoxWebProxyOptions["limits"]) {
   const clock = new ManualClock();
   const events: WebProxyEvent[] = [];
   const connects: string[] = [];
   const upstream = await echoServer(TCP);
   const proxy = await startSafeChainUpstreamProxy(
-    { network: { hostAddress: LOOPBACK }, source: () => source },
+    {
+      network: { hostAddress: LOOPBACK },
+      source: () => source,
+      ...(limits === undefined ? {} : { limits }),
+    },
     {
       clock,
       publicStandIns: STAND_INS,
@@ -1526,6 +1530,18 @@ async function upstreamHarness(source: string | null) {
   );
   proxies.push(proxy);
   return { proxy, events, connects, upstream };
+}
+
+/** Opens `count` connections to the loopback `port` and keeps them open. */
+async function openConnections(port: number, count: number): Promise<Socket[]> {
+  const sockets: Socket[] = [];
+  for (let i = 0; i < count; i += 1) {
+    const socket = dial(port);
+    socket.on("error", () => {});
+    await new Promise<void>((resolve) => socket.once("connect", () => resolve()));
+    sockets.push(socket);
+  }
+  return sockets;
 }
 
 describe.skipIf(!TCP_RUNS)("the Safe-Chain upstream listener", () => {
@@ -1566,6 +1582,22 @@ describe.skipIf(!TCP_RUNS)("the Safe-Chain upstream listener", () => {
     expect(result.closed).toBe(true);
     expect(h.upstream.sockets.every((socket) => socket.bytesRead === 0)).toBe(true);
     expect(h.events.at(-1)).toMatchObject({ kind: "refused", target: "registry.npmjs.org:443" });
+  });
+
+  it("caps its connections over all, not per source: every one comes from the Safe-Chain box", async () => {
+    // More than the per-source cap of a box listener, all from one address, are taken.
+    const many = WEB_PROXY_LIMITS.maxConnectionsPerSource + 2;
+    const h = await upstreamHarness(LOOPBACK);
+    const held = await openConnections(h.proxy.port, many);
+    await Bun.sleep(50);
+    expect(h.events.filter((event) => event.kind === "refused")).toEqual([]);
+    for (const socket of held) socket.destroy();
+    // The overall cap still holds.
+    const capped = await upstreamHarness(LOOPBACK, { maxConnections: 2 });
+    const two = await openConnections(capped.proxy.port, 2);
+    const third = await exchange(capped.proxy.port, connectHead("registry.npmjs.org:443"));
+    expect(third.text).toStartWith("HTTP/1.1 503 Service Unavailable\r\n");
+    for (const socket of two) socket.destroy();
   });
 
   it("takes no client but the Safe-Chain box, and none while it has no address", async () => {
