@@ -50,6 +50,7 @@ import {
   runIntents,
   share,
   smallestShare,
+  START_KINDS,
   type UnparkBranchRequest,
 } from "../../src/run";
 import { storeFeedbackItems } from "../../src/run/feedback-items";
@@ -497,6 +498,31 @@ describe("work.resume of a reason that needs nothing more (0020)", () => {
     expect(grants()).toEqual([]);
   });
 
+  it("hands a story the maintainer parked before its review back to the reviewer place", async () => {
+    park("by-maintainer", "In Review", "after the release", "in-review");
+    const drained: string[] = [];
+    const places = new Places({
+      clock: w.f.t.clock,
+      offices: { get: () => w.f.office, config: () => undefined },
+      // The run is pending again once its park is resolved (`pendingReviews`).
+      pending: (office) =>
+        openPark(office, w.key) === null
+          ? [{ kind: START_KINDS.review, runId: w.f.run, since: w.f.t.clock.now() }]
+          : [],
+      starters: {
+        review: async (_office, run) => {
+          drained.push(run.runId);
+          return false;
+        },
+      },
+    });
+    await resume(resumption({ places: () => places }));
+    await places.idle();
+    expect(drained).toEqual([w.f.run]);
+    expect(w.sessions).toEqual([]);
+    places.close();
+  });
+
   it("returns a reviewed run that waits In Review again to the reviewed end", async () => {
     const { office, run, t } = w.f;
     office.immediate(() =>
@@ -542,6 +568,30 @@ describe("work.resume refusals", () => {
     expect(w.lifts).toEqual([]);
     expect(parkRow(parkId)?.resolved_how).toBeNull();
     expect(runIntents(w.f.office, w.f.run)).toEqual([]);
+  });
+
+  it("refuses a scope-violation park with no run (one reconcile recorded) before the planning lane", async () => {
+    const parkId = park("scope-violation");
+    w.f.office.immediate(() =>
+      w.f.office.run(
+        "update parks set run_id = null where office_id = $office_id and park_id = $park",
+        { park: parkId },
+      ),
+    );
+    const lifted: number[] = [];
+    const resuming = resumption({
+      holds: () => ({
+        resumeHold: async (_ctx, _identity, held) => {
+          lifted.push(held.parkId);
+          return "Ready";
+        },
+      }),
+    });
+    const error = await refusal(resuming);
+    expect(error.error.code).toBe("resume.notResumable");
+    expect(error.message).toContain("dipo discard DIPO-1");
+    expect(lifted).toEqual([]);
+    expect(parkRow(parkId)?.resolved_how).toBeNull();
   });
 
   for (const reason of ["review-blocked", "budget-exceeded"] as const) {

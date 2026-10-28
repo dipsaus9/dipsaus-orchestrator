@@ -395,7 +395,7 @@ class DeskBuilder {
     });
   }
 
-  /** Groups 2 and 3: merge gates and open parks other than `on-hold`. */
+  /** Groups 2 and 3: merge gates and every open park, the maintainer's own parks apart. */
   gatesAndParks(): void {
     const parks = this.#office.all<{
       park_id: number;

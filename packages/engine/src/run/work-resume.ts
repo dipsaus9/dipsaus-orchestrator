@@ -26,6 +26,8 @@ import type { StoryIdentity } from "../stories/keys";
 
 import { openWait } from "./outcome-types";
 import { openPark } from "./park";
+import { notResumable } from "./park-resume";
+import { parkResumeNeed } from "./resume-policy";
 import { activeRuns, type StoredRun } from "./records";
 
 /** `work.resume` on a story with no park and no held run (0005). */
@@ -123,6 +125,9 @@ export class WorkResumeCommand {
     if (held !== null) return await this.#resumeHeld(handle, identity, held, notHeld);
     const park = openPark(handle, identity.key);
     if (park === null) throw notHeld();
+    // The table refuses its reason whether the park has a run or not (0020).
+    if (parkResumeNeed(park.reason).kind === "refuse")
+      throw notResumable(identity.story, park.reason);
     if (park.runId === null) return await this.#resumeHold(ctx, identity, park, args.note);
     const parks = this.#parks();
     if (parks === undefined) {
