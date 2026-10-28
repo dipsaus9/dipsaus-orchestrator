@@ -36,7 +36,6 @@ import { OFFICE_DEFAULTS, type OfficeConfig } from "../../src/config/schema";
 import type { HostClient } from "../../src/host/client";
 import { EXIT_FILE, type HostExitFile, hostMarkerName, LAUNCH_FILE } from "../../src/host/protocol";
 import { type IngestAdapter, Ingestor } from "../../src/ingest/ingestor";
-import { recordTranscriptPath } from "../../src/ingest/transcript";
 import {
   type BranchPark,
   EVENT_FILE_CHANGED,
@@ -93,6 +92,7 @@ import {
   type IngestFixture,
   ingestFixture,
   loggedEvents,
+  seedTranscriptCursor,
   target,
 } from "../ingest/helpers";
 import { type HeldSession, withHeld } from "./held-session";
@@ -603,13 +603,11 @@ describe("re-attach (0006 decision 8)", () => {
     const transcript = join(w.dir, "session.jsonl");
     writeFileSync(transcript, `${message("msg-lost", 9, 11)}\n${message("msg-lost-2", 1, 2)}\n`);
     // An earlier binary's hook relay named the transcript (DIPO-134); no hook names one now.
-    w.f.office.immediate(() =>
-      recordTranscriptPath(
-        w.f.office,
-        { run: w.f.run, agent: w.f.agent },
-        { kind: "sessionStarted", transcriptPath: transcript },
-        w.f.t.clock.now(),
-      ),
+    seedTranscriptCursor(
+      w.f.office,
+      { run: w.f.run, agent: w.f.agent },
+      { path: transcript },
+      w.f.t.clock.now(),
     );
     const stored = () =>
       w.f.office.get<{ input: number; output: number; messages: number; final: number }>(
@@ -1403,13 +1401,11 @@ describe("re-attach gaps (DIPO-93)", () => {
     const transcript = join(w.dir, "session.jsonl");
     writeFileSync(transcript, `${message("msg-lost", 9, 11)}\n${message("msg-lost-2", 1, 2)}\n`);
     // An earlier binary's hook relay named the transcript (DIPO-134); no hook names one now.
-    w.f.office.immediate(() =>
-      recordTranscriptPath(
-        w.f.office,
-        { run: w.f.run, agent: w.f.agent },
-        { kind: "sessionStarted", transcriptPath: transcript },
-        w.f.t.clock.now(),
-      ),
+    seedTranscriptCursor(
+      w.f.office,
+      { run: w.f.run, agent: w.f.agent },
+      { path: transcript },
+      w.f.t.clock.now(),
     );
     endRunByHand();
     w.alive = false;

@@ -1,8 +1,9 @@
-// Worker transcripts as the second usage source (0008 section 4, DIPO-134). The hook relay named a
-// session's transcript (SessionStart) and each subagent's (SubagentStop); with no hooks (0008,
-// DIPO-347) no new path is named, so only a cursor an earlier binary stored is read. The path and
-// the byte offset read so far are kept in an `ingest_cursors` row of source kind `transcript`,
-// with the per-subagent detail in its `parse_state`. The adapter's pure parser (`readTranscript`) keeps only
+// Worker transcripts as the second usage source (0008 section 4, DIPO-134). The hook relay of an
+// earlier binary named a session's transcript and each subagent's; no session has hooks now (0008,
+// DIPO-347), so no new path is named and usage comes from the host's events only. A cursor an
+// earlier binary stored is still read: its path and the byte offset read so far are kept in an
+// `ingest_cursors` row of source kind `transcript`, with the per-subagent detail in its
+// `parse_state`. The adapter's pure parser (`readTranscript`) keeps only
 // message id, model and usage; this file stores what it returns.
 //
 // The tailer runs only when it is needed: a worker host died without `exit.json` (`mode: "lost"`:
@@ -93,43 +94,6 @@ function writeCursor(
       at,
     },
   );
-}
-
-/** A transcript a session or a subagent named, as the hook relay of an earlier binary reported it. */
-export type TranscriptNamed =
-  | { readonly kind: "sessionStarted"; readonly transcriptPath?: string }
-  | {
-      readonly kind: "subagentStopped";
-      readonly agentId?: string;
-      readonly transcriptPath?: string;
-    };
-
-/**
- * Keeps a named transcript path (inside the caller's transaction): the session's, or a
- * subagent's. No hook names one any more (0008, DIPO-347). A path that differs from the stored one is read
- * from its start; message ids keep that from counting anything twice.
- */
-export function recordTranscriptPath(
-  office: OfficeHandle,
-  scope: { readonly run: string; readonly agent: string },
-  hook: TranscriptNamed,
-  at: number,
-): void {
-  const path = hook.transcriptPath;
-  if (path === undefined) return;
-  const row = readCursor(office, scope.run, scope.agent);
-  const state = stateOf(row);
-  if (hook.kind === "sessionStarted") {
-    if (row !== null && row.path === path) return;
-    writeCursor(office, scope, { path, offset: 0, state }, at);
-    return;
-  }
-  const id = hook.agentId;
-  if (id === undefined) return;
-  const known = state.subagents[id];
-  if (known?.path === path) return;
-  state.subagents[id] = { path, offset: 0, messages: known?.messages ?? {} };
-  writeCursor(office, scope, { path: row?.path ?? "", offset: row?.read_offset ?? 0, state }, at);
 }
 
 /** What one transcript pass did. */

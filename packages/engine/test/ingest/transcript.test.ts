@@ -14,7 +14,6 @@ import { withTempDir, type Recording } from "@dipsaus-orchestrator/testkit";
 import { Ingestor, type IngestAdapter } from "../../src/ingest/ingestor";
 import {
   readSubagentUsage,
-  recordTranscriptPath,
   recoverTranscriptUsage,
   TRANSCRIPT_SOURCE,
 } from "../../src/ingest/transcript";
@@ -23,7 +22,14 @@ import { initialState, interpret } from "../../src/workers/claude-cli/interpret"
 import { readTranscript } from "../../src/workers/claude-cli/transcript";
 import type { HostLine, ParseState } from "../../src/workers/types";
 import { loadRecording, plannedModel } from "../workers/replay";
-import { appendLines, hostLines, ingestFixture, target, type IngestFixture } from "./helpers";
+import {
+  appendLines,
+  hostLines,
+  ingestFixture,
+  seedTranscriptCursor,
+  target,
+  type IngestFixture,
+} from "./helpers";
 
 const RECORDING = "success-tools-subagent";
 const FIXTURES = join(import.meta.dir, "..", "recordings", "transcripts", "host-died");
@@ -63,21 +69,12 @@ function dyingSession(f: IngestFixture, hooks: boolean = true): Ingestor {
   expect(ingestor.track(target(f, claude, state)).status).toBe("ingested");
   if (hooks) {
     const scope = { run: f.run, agent: f.agent };
-    const at = f.t.clock.now();
-    f.office.immediate(() => {
-      recordTranscriptPath(
-        f.office,
-        scope,
-        { kind: "sessionStarted", transcriptPath: SESSION_FILE },
-        at,
-      );
-      recordTranscriptPath(
-        f.office,
-        scope,
-        { kind: "subagentStopped", agentId: "a1", transcriptPath: SUBAGENT_FILE },
-        at,
-      );
-    });
+    seedTranscriptCursor(
+      f.office,
+      scope,
+      { path: SESSION_FILE, subagents: { a1: SUBAGENT_FILE } },
+      f.t.clock.now(),
+    );
   }
   return ingestor;
 }
@@ -341,13 +338,8 @@ describe("a resumed session (DIPO-134)", () => {
            values ($office_id, $agent, $run, 'developer', 'haiku', '2.1.296', $at)`,
           { agent: resumed, run: f.run, at },
         );
-        recordTranscriptPath(
-          f.office,
-          { run: f.run, agent: resumed },
-          { kind: "sessionStarted", transcriptPath: file },
-          at,
-        );
       });
+      seedTranscriptCursor(f.office, { run: f.run, agent: resumed }, { path: file }, at);
       writeFileSync(file, readFileSync(RESUMED_FILE));
       const pass = recoverTranscriptUsage({
         office: f.office,
@@ -429,13 +421,6 @@ function dyingSessionAt(f: IngestFixture, path: string): Ingestor {
   const ingestor = new Ingestor({ office: f.office, clock: f.t.clock, pricing: f.t.state.pricing });
   const state = initialState({ plannedModel: plannedModel(recording) }) as unknown as ParseState;
   ingestor.track(target(f, claude, state));
-  f.office.immediate(() =>
-    recordTranscriptPath(
-      f.office,
-      { run: f.run, agent: f.agent },
-      { kind: "sessionStarted", transcriptPath: path },
-      f.t.clock.now(),
-    ),
-  );
+  seedTranscriptCursor(f.office, { run: f.run, agent: f.agent }, { path }, f.t.clock.now());
   return ingestor;
 }

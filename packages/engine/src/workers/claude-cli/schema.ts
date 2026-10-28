@@ -194,59 +194,6 @@ export const SessionStateMessage = z.object({
   state: z.string().min(1),
 });
 
-/** A hook payload relayed by the worker host (0008 section 5); only the event name is required. */
-export const HookPayload = z.looseObject({
-  hook_event_name: z.string().min(1),
-  tool_name: z.string().optional(),
-  error: z.string().optional(),
-});
-
-/** A neutral hook event as the adapter emits it (DIPO-59; `hooks/types.ts`). */
-const HookEventSchema = z.discriminatedUnion("kind", [
-  z.strictObject({
-    kind: z.literal("sessionStarted"),
-    id: z.int().nonnegative().nullable(),
-    source: z.string().exactOptional(),
-    resumed: z.literal(true).exactOptional(),
-    transcriptPath: z.string().min(1).exactOptional(),
-  }),
-  z.strictObject({
-    kind: z.literal("permissionRequest"),
-    id: z.int().nonnegative().nullable(),
-    tool: z.string().min(1),
-    input: z.string(),
-    exact: z.string().exactOptional(),
-  }),
-  z.strictObject({
-    kind: z.literal("toolUsed"),
-    id: z.int().nonnegative().nullable(),
-    tool: z.string().min(1),
-    wrote: z.string().min(1).exactOptional(),
-  }),
-  z.strictObject({
-    kind: z.literal("webCall"),
-    id: z.int().nonnegative().nullable(),
-    tool: z.string().min(1),
-    target: z.string(),
-  }),
-  z.strictObject({ kind: z.literal("notification"), type: z.string().exactOptional() }),
-  z.strictObject({ kind: z.literal("subagentStarted"), agentId: z.string().exactOptional() }),
-  z.strictObject({
-    kind: z.literal("subagentStopped"),
-    agentId: z.string().exactOptional(),
-    transcriptPath: z.string().min(1).exactOptional(),
-  }),
-  z.strictObject({ kind: z.literal("stopped") }),
-  z.strictObject({ kind: z.literal("stopFailed"), error: z.string().exactOptional() }),
-  z.strictObject({ kind: z.literal("compacted"), trigger: z.string().exactOptional() }),
-  z.strictObject({
-    kind: z.literal("modelSwitched"),
-    from: z.string().exactOptional(),
-    to: z.string().min(1),
-  }),
-  z.strictObject({ kind: z.literal("sessionEnded"), reason: z.string().exactOptional() }),
-]);
-
 /** Top-level `type` values the adapter knows. Any other type is logged once per run and ignored. */
 export const KNOWN_TYPES = [
   "system",
@@ -418,7 +365,6 @@ export const ClaudeWorkerEventSchema = z.union([
       .union([z.literal("session"), z.literal("weekly"), z.string().regex(/^model:[a-z0-9]+$/)])
       .exactOptional(),
   }),
-  z.strictObject({ t: z.literal("hook"), hook: HookEventSchema }),
   z.strictObject({ t: z.literal("compacted"), preTokens: Count.exactOptional() }),
   z.strictObject({ t: z.literal("modelSwitched"), from: Name, to: Name }),
   z.strictObject({ t: z.literal("initRejected"), reason: Name }),

@@ -466,7 +466,7 @@ describe("interpret (0008 section 3)", () => {
         session_id: "session-1",
       }),
     };
-    expect(run([{ ...hook, end: 512 }]).events).toEqual([]);
+    expect(run([hook]).events).toEqual([]);
     const requires = out({
       type: "system",
       subtype: "session_state_changed",

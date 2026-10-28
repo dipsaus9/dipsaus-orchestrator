@@ -475,8 +475,6 @@ export interface HostLine {
   readonly t: number;
   readonly ch: string;
   readonly data: string;
-  /** The byte offset in `events.ndjson` after this line, when ingestion read it from the file. */
-  readonly end?: number;
 }
 
 /** Parser state an adapter threads through `interpret`; opaque to the engine. */
