@@ -31,7 +31,7 @@ import type { OfficeGit } from "../git/office";
 import { cleanDoorText } from "./door";
 import type { RunningForwarder, StartForwarder } from "./forwarder";
 import { type BoxPort, type BoxProcess, boxName, TEST_BOX_RUN_PREFIX } from "./port";
-import type { BoxWorkers } from "./workers";
+import { type BoxWorkers, readBoxRun } from "./workers";
 
 /** The `dev` start deadline when the office's `timeouts.scriptMinutes` names none. */
 export const TEST_DEV_START_MINUTES_DEFAULT = 5;
@@ -105,7 +105,10 @@ export interface TestBoxRunning {
 }
 
 export interface TestBoxesDeps {
-  readonly workers: Pick<BoxWorkers, "create" | "install" | "verify" | "route" | "discard">;
+  readonly workers: Pick<
+    BoxWorkers,
+    "create" | "install" | "verify" | "route" | "inbound" | "discard"
+  >;
   readonly boxes: Pick<BoxPort, "address" | "execLive" | "list" | "network">;
   readonly forward: StartForwarder;
   /** True when a connection from `source` reaches `address:port` within `timeoutMs`. */
@@ -261,7 +264,7 @@ export class TestBoxes {
       throw new TestBoxError("reach", "the test box has no address on the box network.");
     }
     // The way in: the Mac's address on the box network, on the `dev` port only.
-    await this.#deps.workers.route(request.testId, { inbound: [found.port] });
+    await this.#deps.workers.inbound(request.testId, [found.port]);
     const network = await this.#deps.boxes.network();
     const target: TestBoxTarget = { address, port: found.port };
     const source = network.hostAddress;
@@ -284,7 +287,10 @@ export class TestBoxes {
         );
       }
     }
-    const forwarder = await this.#deps.forward({ ...target, source });
+    const forwarder = await this.#deps.forward(
+      { ...target, source },
+      { avoid: readBoxRun(request.runDir)?.localPorts ?? [] },
+    );
     this.#held.set(request.testId, { ...held, forwarder });
     return {
       box,
@@ -380,6 +386,8 @@ export class TestBoxes {
     readonly testId: string;
     readonly target: TestBoxTarget | null;
     readonly port: number | null;
+    /** The folder of the test box's record, for the office's local ports. */
+    readonly runDir?: string;
   }): Promise<{ readonly port: number | null } | null> {
     const box = boxName(input.testId);
     try {
@@ -388,12 +396,15 @@ export class TestBoxes {
       if (input.target === null) return { port: null };
       const address = await this.#deps.boxes.address(box);
       if (address !== input.target.address) return null;
-      await this.#deps.workers.route(input.testId, { inbound: [input.target.port] });
+      await this.#deps.workers.inbound(input.testId, [input.target.port]);
       const network = await this.#deps.boxes.network();
-      const forwarder = await this.#deps.forward(
-        { ...input.target, source: network.hostAddress },
-        input.port === null ? {} : { port: input.port },
-      );
+      const target = { ...input.target, source: network.hostAddress };
+      // `dev` must still answer: the box may run while its product ended.
+      if (!(await this.#deps.reach(target, TEST_REACH_TIMEOUT_MS))) return null;
+      const forwarder = await this.#deps.forward(target, {
+        ...(input.port === null ? {} : { port: input.port }),
+        avoid: input.runDir === undefined ? [] : (readBoxRun(input.runDir)?.localPorts ?? []),
+      });
       this.#held.set(input.testId, { forwarder, processes: [] });
       return { port: forwarder.port };
     } catch (error) {

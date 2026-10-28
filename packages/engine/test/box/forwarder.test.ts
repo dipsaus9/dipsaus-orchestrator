@@ -161,6 +161,28 @@ describe("a dev that answers and closes at once", () => {
   });
 });
 
+describe("the office's local ports", () => {
+  it("are never the forwarder's port, also when it is asked for one", async () => {
+    const target = await echo();
+    const first = await startForwarder({
+      address: "127.0.0.1",
+      port: target.port,
+      source: "127.0.0.1",
+    });
+    const taken = first.port;
+    await first.close();
+    const again = await startForwarder(
+      { address: "127.0.0.1", port: target.port, source: "127.0.0.1" },
+      { port: taken, avoid: [taken] },
+    );
+    try {
+      expect(again.port).not.toBe(taken);
+    } finally {
+      await again.close();
+    }
+  });
+});
+
 describe("the reach check", () => {
   it("is true for a listening port and false for a closed one", async () => {
     const target = await echo();

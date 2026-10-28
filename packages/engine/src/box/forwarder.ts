@@ -45,8 +45,21 @@ export interface RunningForwarder {
 /** Starts a forwarder; see `startForwarder`. */
 export type StartForwarder = (
   target: ForwardTarget,
-  options?: { readonly port?: number },
+  options?: ForwarderOptions,
 ) => Promise<RunningForwarder>;
+
+export interface ForwarderOptions {
+  /** The port to listen on when it is free (a daemon restart keeps an open test's URL). */
+  readonly port?: number;
+  /**
+   * Ports the forwarder never takes: the office's `box.localPorts`, which boxes reach on the Mac's
+   * loopback through the web route (DIPO-282), so no box reaches a forwarder there.
+   */
+  readonly avoid?: readonly number[];
+}
+
+/** How many free ports the forwarder tries before it gives up on one outside `avoid`. */
+const FORWARDER_PORT_TRIES = 20;
 
 /**
  * The one way dipo's Mac side opens a connection to a box (DIPO-309): from the Mac's address on
@@ -117,20 +130,29 @@ export const startForwarder: StartForwarder = async (target, options = {}) => {
       socket.once("error", end);
     }
   });
-  const wanted = options.port ?? 0;
+  const avoid = new Set(options.avoid ?? []);
+  const wanted = options.port !== undefined && !avoid.has(options.port) ? options.port : 0;
   try {
     await listen(server, wanted);
   } catch (error) {
     if (wanted === 0) throw error;
     await listen(server, 0);
   }
-  const address = server.address();
-  if (address === null || typeof address === "string") {
+  const portOf = (): number | null => {
+    const address = server.address();
+    return address === null || typeof address === "string" ? null : address.port;
+  };
+  for (let tries = 0; avoid.has(portOf() ?? 0) && tries < FORWARDER_PORT_TRIES; tries++) {
+    await new Promise<void>((resolve) => server.close(() => resolve()));
+    await listen(server, 0);
+  }
+  const port = portOf();
+  if (port === null || avoid.has(port)) {
     server.close();
-    throw new Error("the test forwarder has no port");
+    throw new Error("the test forwarder found no free port outside the office's local ports");
   }
   return {
-    port: address.port,
+    port,
     connections: () => open.size,
     close: () =>
       new Promise<void>((resolve) => {

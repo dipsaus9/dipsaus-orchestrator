@@ -27,7 +27,7 @@
 // The test deletes the boxes it made; it stops or deletes nothing else, and keeps the image.
 
 import { mkdirSync, realpathSync, writeFileSync } from "node:fs";
-import { createServer, type Server } from "node:net";
+import { createServer, isIP, type Server } from "node:net";
 import { homedir } from "node:os";
 import { join } from "node:path";
 
@@ -42,7 +42,7 @@ import { readBaseBox } from "../../src/box/image";
 import { startModelProxy } from "../../src/box/model-proxy";
 import { boxName } from "../../src/box/port";
 import { type TestBoxRequest, TestBoxes } from "../../src/box/test-box";
-import { startBoxWebRoute } from "../../src/box/web-proxy";
+import { startBoxWebRoute, systemInterfaceAddresses } from "../../src/box/web-proxy";
 import { BOX_INDEX_DIR, BoxWorkers } from "../../src/box/workers";
 import { OfficeGit, spawnGitExec } from "../../src/git";
 import { systemListenHttp } from "../../src/platform/box-host";
@@ -68,6 +68,7 @@ const PAGE = "hello from the test box";
  * The page is a file, so no colon or comma of it reaches socat's address syntax.
  */
 const DEV = `#!/bin/sh
+curl -sS -m 20 -o /dev/null -w '%{http_code}' -x "$HTTPS_PROXY" https://example.com/ > /tmp/proxy.txt 2>/dev/null || true
 printf 'HTTP/1.0 200 OK\\r\\nContent-Type: text/plain\\r\\n\\r\\n${PAGE}\\n' > /tmp/page.http
 echo "  Local:   http://localhost:${DEV_PORT}/"
 exec socat TCP-LISTEN:${DEV_PORT},bind="$BIND",fork,reuseaddr SYSTEM:"cat /tmp/page.http"
@@ -202,7 +203,16 @@ if (registers) {
             const testB = `tst_B${suffix}`;
             const devRun = `test-${suffix.toLowerCase()}`;
             const boxA = boxName(testA);
+            const reviewRun = `review-${suffix.toLowerCase()}`;
             const boxD = boxName(devRun);
+            /** Stops every socat listener in `box` (dev and its relay), as the box user. */
+            const stopDev = async (box: string) => {
+              await boxes.exec(box, [
+                "/bin/sh",
+                "-c",
+                "for p in /proc/[0-9]*; do if tr '\\0' ' ' < $p/cmdline 2>/dev/null | grep -q '^socat TCP-LISTEN'; then kill ${p#/proc/}; fi; done; true",
+              ]);
+            };
             const mac = await macListener();
             const request = (testId: string, bind: string): TestBoxRequest => {
               const runDir = join(tmp, "tests", testId);
@@ -214,7 +224,13 @@ if (registers) {
                 git,
                 head,
                 install: null,
-                setup: null,
+                // A setup step, so dev's proxy password must outlive it (one admission per box).
+                setup: {
+                  commands: [["sh", "-c", "echo setup"]],
+                  cwd: ".",
+                  env: {},
+                  timeoutMs: 60_000,
+                },
                 dev: {
                   command: ["sh", "dev.sh"],
                   cwd: "/work",
@@ -235,12 +251,26 @@ if (registers) {
             try {
               const network = await boxes.network();
               const host = network.hostAddress;
+              const lan = systemInterfaceAddresses()
+                .map((entry) => entry.address)
+                .find(
+                  (candidate) =>
+                    isIP(candidate) === 4 &&
+                    (candidate.startsWith("192.168.") || candidate.startsWith("10.")) &&
+                    !candidate.startsWith("192.168.12") &&
+                    !candidate.startsWith("192.168.64.") &&
+                    candidate !== host,
+                );
 
-              // Box A: dev only on the box's loopback, so dipo starts the relay.
+              // Box A: dev only on the box's loopback, so dipo starts the relay. Its setup runs
+              // first, and dev still gets a working proxy password (one admission per test box).
               const a = await tests.start(request(testA, "127.0.0.1"));
               fact(`test box A: ${JSON.stringify(a)}`);
               expect(infos.some((info) => info.includes("starting the relay"))).toBe(true);
               expect(a.url).toMatch(/^http:\/\/localhost:\d+\/$/);
+              const proxied = await boxes.exec(boxA, ["/bin/cat", "/tmp/proxy.txt"]);
+              expect(proxied.stdout.trim()).toBe("200");
+              fact("dev reached the internet through the web route with its proxy password");
               const address = a.forward?.target.address ?? "";
               fact(`the Mac routes ${address} through ${await routeOf(address)}`);
               const url = a.url ?? "";
@@ -256,60 +286,91 @@ if (registers) {
               expect(described[0]?.configuration?.publishedPorts ?? []).toEqual([]);
               fact("no container port is published");
 
-              // Criterion 10, the test box: no new connection out, to the Mac or the internet.
+              // Box D, a developer box, and box R, a reviewer's: made as every box is, no firewall
+              // yet. D is the control below: what A cannot reach, a box without a firewall can.
+              for (const runId of [devRun, reviewRun]) {
+                mkdirSync(join(tmp, "runs", runId), { recursive: true });
+                await workers.create({
+                  office: OFFICE,
+                  runId,
+                  runDir: join(tmp, "runs", runId),
+                  git,
+                  startCommit: head,
+                });
+              }
+
+              // Criterion 10, the test box: no new connection out, to the Mac, the local network
+              // or the internet; box D reaches the Mac and its LAN address, so the rule stops A.
+              expect(await connects(boxD, host, mac.port)).toBe(true);
               expect(await connects(boxA, host, mac.port)).toBe(false);
               expect(await connects(boxA, "1.1.1.1", 443)).toBe(false);
-              expect(mac.got()).toBe(0);
-              fact("test box A opens no connection to the Mac or the internet");
+              if (lan !== undefined) {
+                expect(await connects(boxD, lan, mac.port)).toBe(true);
+                expect(await connects(boxA, lan, mac.port)).toBe(false);
+                fact(`the Mac's local network address ${lan} is not reached from the test box`);
+              }
+              fact("test box A opens no connection to the Mac, the local network or the internet");
 
-              // Criterion 11: the forwarder's Mac port, and a second port of the product.
+              // Criterion 11: the forwarder's port on the Mac. A listener on that port at the
+              // Mac's bridge address shows the firewall is what stops it: box D reaches it.
               const forwarderPort = a.forward?.port ?? 0;
-              expect(await connects(boxA, host, forwarderPort)).toBe(false);
+              const bridge = createServer((socket) => {
+                socket.on("error", () => {});
+                socket.end();
+              });
+              await new Promise<void>((resolve) =>
+                bridge.listen({ host, port: forwarderPort }, resolve),
+              );
+              try {
+                expect(await connects(boxD, host, forwarderPort)).toBe(true);
+                expect(await connects(boxA, host, forwarderPort)).toBe(false);
+              } finally {
+                await new Promise<void>((resolve) => bridge.close(() => resolve()));
+              }
+              // And a second port the product opens.
               const second = boxes.execLive(boxA, [
                 "socat",
                 `TCP-LISTEN:${SECOND_PORT},bind=0.0.0.0,fork,reuseaddr`,
                 "SYSTEM:echo second",
               ]);
               second.exited.catch(() => undefined);
-              // It listens: the box itself reaches it on its loopback.
               expect(await soon(() => connects(boxA, "127.0.0.1", SECOND_PORT))).toBe(true);
               expect(await systemReach({ address, port: SECOND_PORT, source: host }, 3_000)).toBe(
                 false,
               );
               fact("the forwarder's port and a second port of the product are not reached");
 
-              // Criterion 11: another box reaching A's dev port. Box D has no firewall yet, so only
-              // A's own rule stands between them; D does reach the Mac, which shows it could send.
-              mkdirSync(join(tmp, "runs", devRun), { recursive: true });
-              await workers.create({
-                office: OFFICE,
-                runId: devRun,
-                runDir: join(tmp, "runs", devRun),
-                git,
-                startCommit: head,
-              });
-              expect(await connects(boxD, host, mac.port)).toBe(true);
+              // Criterion 11: another box reaching A's dev port. D has no firewall yet, so only
+              // A's own rule stands between them.
               expect(await connects(boxD, address, DEV_PORT)).toBe(false);
               fact("another box does not reach the test box's dev port");
 
-              // Criterion 10, a developer box with its firewall as an install sets it: no new
-              // connection to the Mac, and no answer to the Mac.
-              await workers.route(devRun);
-              const before = mac.got();
-              expect(await connects(boxD, host, mac.port)).toBe(false);
-              expect(mac.got()).toBe(before);
-              const listener = boxes.execLive(boxD, [
-                "socat",
-                "TCP-LISTEN:7000,bind=0.0.0.0,fork,reuseaddr",
-                "SYSTEM:echo d",
-              ]);
-              listener.exited.catch(() => undefined);
-              expect(await soon(() => connects(boxD, "127.0.0.1", 7000))).toBe(true);
-              const addressD = (await boxes.address(boxD)) ?? "";
-              expect(
-                await systemReach({ address: addressD, port: 7000, source: host }, 3_000),
-              ).toBe(false);
-              fact("a developer box neither reaches nor answers the Mac");
+              // Criterion 10, a developer box and a reviewer box with their firewall as an install
+              // sets it: no new connection to the Mac, no answer to the Mac, and no way in.
+              for (const runId of [devRun, reviewRun]) {
+                const box = boxName(runId);
+                await workers.route(runId);
+                const refused = await workers.inbound(runId, [7000]).then(
+                  () => "set",
+                  (error: unknown) => (error as { code?: string }).code ?? "error",
+                );
+                expect(refused).toBe("box.refused");
+                const before = mac.got();
+                expect(await connects(box, host, mac.port)).toBe(false);
+                expect(mac.got()).toBe(before);
+                const listener = boxes.execLive(box, [
+                  "socat",
+                  "TCP-LISTEN:7000,bind=0.0.0.0,fork,reuseaddr",
+                  "SYSTEM:echo d",
+                ]);
+                listener.exited.catch(() => undefined);
+                expect(await soon(() => connects(box, "127.0.0.1", 7000))).toBe(true);
+                const boxAddress = (await boxes.address(box)) ?? "";
+                expect(
+                  await systemReach({ address: boxAddress, port: 7000, source: host }, 3_000),
+                ).toBe(false);
+              }
+              fact("a developer box and a reviewer box neither reach nor answer the Mac");
 
               // Criterion 12, fail closed: without the reply rule the URL fails, nothing opens.
               await workers.route(testA);
@@ -318,18 +379,13 @@ if (registers) {
                 false,
               );
               expect(await connects(boxA, host, mac.port)).toBe(false);
-              await workers.route(testA, { inbound: [DEV_PORT] });
+              await workers.inbound(testA, [DEV_PORT]);
               expect(await page(url)).toBe(`200 ${PAGE}`);
               fact("without the reply rule the URL fails; with it back, it works");
 
               // Criterion 11: a reply-shaped packet with no connection the Mac opened. dev and its
               // relay stop, so the box's own connection may take the dev port as its source port.
-              await boxes.exec(boxA, [
-                "/bin/sh",
-                "-c",
-                "for p in /proc/[0-9]*; do if tr '\\0' ' ' < $p/cmdline 2>/dev/null | grep -q '^socat TCP-LISTEN'; then kill ${p#/proc/}; fi; done; true",
-              ]);
-              // The box may take the dev port as a source port now: a loopback connection does.
+              await stopDev(boxA);
               const loop = boxes.execLive(boxA, [
                 "socat",
                 "TCP-LISTEN:6001,bind=127.0.0.1",
@@ -356,10 +412,32 @@ if (registers) {
               await tests.stopForwarders();
               expect(await page(b.url ?? "")).toStartWith("failed");
               fact("with the forwarder stopped the URL fails");
+
+              // A daemon restart: B's box still runs its product, so it is taken up again on the
+              // same port; once dev ended, it is not.
+              const targetB = b.forward?.target ?? null;
+              const again = await tests.reattach({
+                testId: testB,
+                target: targetB,
+                port: b.forward?.port ?? null,
+              });
+              expect(again).toEqual({ port: b.forward?.port ?? 0 });
+              expect(await page(b.url ?? "")).toBe(`200 ${PAGE}`);
+              await tests.stopForwarders();
+              await stopDev(boxName(testB));
+              expect(
+                await tests.reattach({
+                  testId: testB,
+                  target: targetB,
+                  port: b.forward?.port ?? null,
+                }),
+              ).toBeNull();
+              fact("after a restart a test is taken up again only while its dev answers");
             } finally {
               await tests.close(testA).catch(() => {});
               await tests.close(testB).catch(() => {});
               await boxes.delete(boxD).catch(() => {});
+              await boxes.delete(boxName(reviewRun)).catch(() => {});
               await workers.close();
               await new Promise<void>((resolve) => mac.server.close(() => resolve()));
             }

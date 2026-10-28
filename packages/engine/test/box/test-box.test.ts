@@ -32,7 +32,11 @@ interface World {
   readonly tests: TestBoxes;
   readonly steps: string[];
   readonly routes: { readonly runId: string; readonly inbound?: readonly number[] }[];
-  readonly forwards: { readonly target: ForwardTarget; readonly port?: number }[];
+  readonly forwards: {
+    readonly target: ForwardTarget;
+    readonly port?: number;
+    readonly avoid?: readonly number[];
+  }[];
   readonly reaches: ForwardTarget[];
   readonly closed: string[];
   readonly clock: ManualClock;
@@ -85,12 +89,14 @@ function world(options: {
           }
         : { kind: "green" as const, command: "bun run setup" };
     },
-    route: async (runId: string, route: { readonly inbound?: readonly number[] } = {}) => {
-      routes.push({ runId, ...route });
-      steps.push(
-        route.inbound === undefined ? "route" : `route inbound ${route.inbound.join(",")}`,
-      );
+    route: async (runId: string) => {
+      routes.push({ runId });
+      steps.push("route");
       return { HTTPS_PROXY: "http://box:pw@192.0.2.10:41000" };
+    },
+    inbound: async (runId: string, ports: readonly number[]) => {
+      routes.push({ runId, inbound: ports });
+      steps.push(`route inbound ${ports.join(",")}`);
     },
     discard: async (runId: string) => {
       closed.push(runId);
@@ -181,7 +187,7 @@ describe("a test box", () => {
     // dev answers at the box's address: no relay; the forwarder starts from the Mac's bridge address.
     expect(w.reaches).toEqual([{ address: BOX_ADDRESS, port: 5173, source: BOX_HOST_ADDRESS }]);
     expect(w.forwards).toEqual([
-      { target: { address: BOX_ADDRESS, port: 5173, source: BOX_HOST_ADDRESS } },
+      { target: { address: BOX_ADDRESS, port: 5173, source: BOX_HOST_ADDRESS }, avoid: [] },
     ]);
     expect(running).toEqual({
       box: BOX,
@@ -277,6 +283,7 @@ describe("a test box", () => {
     expect(w.forwards.at(-1)).toEqual({
       target: { address: BOX_ADDRESS, port: 5173, source: BOX_HOST_ADDRESS },
       port: 52731,
+      avoid: [],
     });
     await w.boxes.delete(BOX);
     expect(
@@ -286,6 +293,24 @@ describe("a test box", () => {
         port: 1,
       }),
     ).toBeNull();
+  });
+
+  it("is not taken up again when dev no longer answers in its box", async () => {
+    const w = world({
+      dev: () => ({ stdout: VITE, hang: true }),
+      reachable: (attempt) => attempt === 0,
+    });
+    await w.tests.start(request());
+    await w.tests.stopForwarders();
+    const forwards = w.forwards.length;
+    expect(
+      await w.tests.reattach({
+        testId: TEST,
+        target: { address: BOX_ADDRESS, port: 5173 },
+        port: 52731,
+      }),
+    ).toBeNull();
+    expect(w.forwards).toHaveLength(forwards);
   });
 
   it("closes its forwarder and box, and the sweep deletes test boxes no open test names", async () => {

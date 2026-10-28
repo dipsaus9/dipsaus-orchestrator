@@ -603,7 +603,12 @@ export class StoryTests {
   /** Takes the open test's box up again; false when it is gone. */
   async #reattach(office: OfficeHandle, test: StoredTest, boxes: TestBoxPort): Promise<boolean> {
     const target: TestBoxTarget | null = test.target;
-    const again = await boxes.reattach({ testId: test.testId, target, port: test.forwardPort });
+    const again = await boxes.reattach({
+      testId: test.testId,
+      target,
+      port: test.forwardPort,
+      runDir: this.#deps.testDir(test.testId),
+    });
     if (again === null) return false;
     if (again.port !== null && again.port !== test.forwardPort && test.url !== null) {
       const url = movedUrl(test.url, again.port);
