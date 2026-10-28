@@ -131,6 +131,36 @@ describe("the test forwarder", () => {
   });
 });
 
+describe("a dev that answers and closes at once", () => {
+  it("loses nothing of its answer through the forwarder", async () => {
+    const accepted: Socket[] = [];
+    const server = createServer((socket) => {
+      accepted.push(socket);
+      socket.on("error", () => {});
+      socket.end("HTTP/1.0 200 OK\r\nContent-Type: text/plain\r\n\r\nhello from the test box\n");
+    });
+    servers.push(server);
+    await new Promise<void>((resolve) => server.listen({ host: "127.0.0.1", port: 0 }, resolve));
+    const address = server.address();
+    if (address === null || typeof address === "string") throw new Error("no port");
+    const forwarder = await startForwarder({
+      address: "127.0.0.1",
+      port: address.port,
+      source: "127.0.0.1",
+    });
+    try {
+      for (let i = 0; i < 5; i++) {
+        const response = await fetch(`http://localhost:${forwarder.port}/`);
+        expect(response.status).toBe(200);
+        expect(await response.text()).toBe("hello from the test box\n");
+      }
+    } finally {
+      await forwarder.close();
+      for (const socket of accepted) socket.destroy();
+    }
+  });
+});
+
 describe("the reach check", () => {
   it("is true for a listening port and false for a closed one", async () => {
     const target = await echo();

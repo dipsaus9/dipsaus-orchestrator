@@ -449,6 +449,7 @@ export type { BoxVerifyRequest, BoxVerifyResult } from "./verify";
 // The test box of a story's pushed head and its forwarder on the Mac (DIPO-309).
 export {
   FORWARDER_HOST,
+  connectToBox,
   FORWARDER_MAX_CONNECTIONS,
   startForwarder,
   systemReach,

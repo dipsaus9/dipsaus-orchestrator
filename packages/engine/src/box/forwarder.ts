@@ -48,6 +48,20 @@ export type StartForwarder = (
   options?: { readonly port?: number },
 ) => Promise<RunningForwarder>;
 
+/**
+ * The one way dipo's Mac side opens a connection to a box (DIPO-309): from the Mac's address on
+ * the box network (`localAddress`), so macOS sends it through the box bridge even while a VPN routes
+ * the box network's range through its tunnel. `timeoutMs` is the connect's idle deadline.
+ */
+export function connectToBox(target: ForwardTarget, timeoutMs: number): Socket {
+  return connect({
+    host: target.address,
+    port: target.port,
+    localAddress: target.source,
+    timeout: timeoutMs,
+  });
+}
+
 function listen(server: Server, port: number): Promise<void> {
   return new Promise((resolve, reject) => {
     const failed = (error: Error): void => {
@@ -76,18 +90,19 @@ export const startForwarder: StartForwarder = async (target, options = {}) => {
       return;
     }
     open.add(client);
-    const upstream = connect({
-      host: target.address,
-      port: target.port,
-      localAddress: target.source,
-      timeout: FORWARDER_CONNECT_TIMEOUT_MS,
-    });
+    const upstream = connectToBox(target, FORWARDER_CONNECT_TIMEOUT_MS);
     open.add(upstream);
+    // A failure ends both sides at once; a side that closes ends the other only after what it
+    // sent was written (a `dev` that answers and closes at once loses nothing).
     const end = (): void => {
       client.destroy();
       upstream.destroy();
       open.delete(client);
       open.delete(upstream);
+    };
+    const closed = (socket: Socket, other: Socket): void => {
+      open.delete(socket);
+      if (!other.destroyed) other.end();
     };
     upstream.once("connect", () => {
       upstream.setTimeout(0);
@@ -96,9 +111,10 @@ export const startForwarder: StartForwarder = async (target, options = {}) => {
       client.resume();
     });
     upstream.once("timeout", end);
+    client.once("close", () => closed(client, upstream));
+    upstream.once("close", () => closed(upstream, client));
     for (const socket of [client, upstream]) {
       socket.once("error", end);
-      socket.once("close", end);
     }
   });
   const wanted = options.port ?? 0;
@@ -132,12 +148,7 @@ export const startForwarder: StartForwarder = async (target, options = {}) => {
  */
 export function systemReach(target: ForwardTarget, timeoutMs: number): Promise<boolean> {
   return new Promise((resolve) => {
-    const socket = connect({
-      host: target.address,
-      port: target.port,
-      localAddress: target.source,
-      timeout: timeoutMs,
-    });
+    const socket = connectToBox(target, timeoutMs);
     const done = (reached: boolean): void => {
       socket.destroy();
       resolve(reached);
