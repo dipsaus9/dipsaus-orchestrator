@@ -109,7 +109,7 @@ import { storedDoneReport } from "../run/done-report";
 import { runBudgetFacts } from "../run/budget-line";
 import { runCaps } from "../run/caps";
 import { type ParkWriter, parkStory } from "../run/park";
-import { parkedRun } from "../run/park-state";
+import { runHeldByPark } from "../run/park-state";
 import {
   appendRunStep,
   findRun,
@@ -1305,7 +1305,7 @@ function closedOutUnmerged(office: OfficeHandle, run: StoredRun): boolean {
           and exists (select 1 from claims c where c.office_id = m.office_id
             and c.run_id = $run and c.released_at is null)`,
       { key: run.key, run: run.runId },
-    ) !== null && !parkedRun(office, run.runId)
+    ) !== null && !runHeldByPark(office, run.runId)
   );
 }
 

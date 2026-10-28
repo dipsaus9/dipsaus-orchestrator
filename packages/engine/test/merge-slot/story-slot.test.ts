@@ -9,6 +9,7 @@
 
 import { afterEach, describe, expect, it } from "bun:test";
 
+import { mirrorUnpark } from "../../src/run/park-state";
 import { insertPark } from "../run/park-fixture";
 import type { OfficeLane } from "../../src/backlog/lane";
 import { insertPr, recordCheck } from "../../src/backlog/pr/records";
@@ -24,8 +25,10 @@ import {
   updateSlot,
 } from "../../src/merge-slot";
 import { recordReviewOverride, recordReviewVerdict } from "../../src/review/store";
-import { openPark, resolvePark } from "../../src/run/park";
-import { recordConfigSnapshot, REVIEWED_END, runSteps } from "../../src/run/records";
+import { openPark, PARK_NOTICES, parkStory, resolvePark } from "../../src/run/park";
+import { appendEntries } from "../../src/changelog/log";
+import { desk, PARK_NOT_WRITTEN } from "../../src/views/desk";
+import { findRun, recordConfigSnapshot, REVIEWED_END, runSteps } from "../../src/run/records";
 import { CodeHostError } from "../../src/platform/host";
 import { REPO } from "../backlog/pr/helpers";
 
@@ -57,6 +60,49 @@ async function toChecks(): Promise<void> {
   expect(await tick()).toBe("waiting");
   expect(occupant()).toMatchObject({ kind: "story", number: PR, phase: "checks", head: C1 });
 }
+
+/** An engine park of the story whose write to Backlog.md fails (`park.notWritten`, DIPO-360). */
+async function parkUnwritten(): Promise<void> {
+  const run = findRun(s.w.office, s.run)!;
+  await parkStory(
+    {
+      office: s.w.office,
+      writer: {
+        write: async () => {
+          throw new Error("the push was refused");
+        },
+      },
+      now: () => s.w.t.clock.now(),
+      write: (fn) =>
+        s.w.office.immediate(() => {
+          appendEntries(s.w.office, fn(), { at: s.w.t.clock.now() });
+        }),
+      implemented: () => true,
+    },
+    { run, reason: "review-blocked", detail: "round 3 blocked", endKind: "review-blocked" },
+  );
+}
+
+describe("a park whose write to Backlog.md failed (DIPO-360)", () => {
+  it("keeps the merge slot closed for the run while its park row is open, fail-closed", async () => {
+    s = await storyWorld();
+    s.ci.set(s.run, { kind: "green", head: C1 });
+    await parkUnwritten();
+    // Backlog.md does not hold the park, but the run's open row holds its work.
+    expect(openPark(s.w.office, s.key)).toBeNull();
+    expect(await tick()).toBe("idle");
+    expect(await tick()).toBe("idle");
+    expect(occupant()).toBeNull();
+    expect(s.host.merges).toEqual([]);
+    expect(s.git.calls).toEqual([]);
+    expect(noticeCodes(s.w.office)).toContain(PARK_NOTICES.notWritten);
+    expect(
+      desk(s.w.office, () => true)
+        .filter((item) => item.story === "DIPO-7")
+        .map((item) => item.kind),
+    ).toEqual([PARK_NOT_WRITTEN]);
+  });
+});
 
 describe("a story PR with an approved verdict and green checks", () => {
   it("goes through close-out, sync, push, checks and a squash merge with --match-head-commit", async () => {
@@ -338,6 +384,8 @@ describe("a story PR with an approved verdict and green checks", () => {
     // The resume (`ParkResumes`): the park resolved, and the run waits In Review again.
     s.w.office.immediate(() => {
       resolvePark(s.w.office, park!.parkId, "resume", s.w.t.clock.now());
+      // The lift's read-back: In Review with no park record in Backlog.md (DIPO-360).
+      mirrorUnpark(s.w.office, s.key, "In Review");
       s.w.office.run(
         "update runs set end_kind = $end where office_id = $office_id and run_id = $run",
         { run: s.run, end: REVIEWED_END },

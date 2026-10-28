@@ -22,7 +22,7 @@ import type { RunId } from "@dipsaus-orchestrator/contract";
 import type { OfficeHandle } from "../db/office";
 
 import { START_KINDS, type PlaceStart } from "./places";
-import { parkedRun } from "./park-state";
+import { runHeldByPark } from "./park-state";
 import { appendRunStep, findRun, IN_REVIEW_END, type StoredRun } from "./records";
 import { REVIEWED_END } from "./rounds";
 
@@ -145,7 +145,7 @@ export function pendingReviews(office: OfficeHandle): PlaceStart[] {
     { in_review: IN_REVIEW_END },
   );
   return rows
-    .filter((row) => !parkedRun(office, row.run_id))
+    .filter((row) => !runHeldByPark(office, row.run_id))
     .map((row): PlaceStart => ({
       kind: START_KINDS.review,
       runId: row.run_id as RunId,

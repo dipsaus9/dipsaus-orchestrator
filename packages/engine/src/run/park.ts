@@ -43,6 +43,7 @@ import { parseFieldBlock } from "../backlog/fields/block";
 import { appendImplementationNotes } from "../backlog/fields/summary";
 import { type StoryTarget, viewStory, writeFields } from "../backlog/fields/write";
 import { type BacklogCli, runBacklog, TASK_FIELD_ERROR } from "../backlog/runner";
+import { CommandError } from "../commands/errors";
 import { BOX_RUN_FILE } from "../box/workers";
 import type { NewEntry } from "../changelog/log";
 import type { OfficeHandle } from "../db/office";
@@ -70,6 +71,9 @@ import { renderParkBlock, runSummaryFacts } from "./summary";
 
 export { openParkIds, type ParkResolution, resolvePark } from "./park-resolve";
 export { type BacklogPark, backlogPark, type OpenPark, openPark } from "./park-state";
+
+/** The error of a maintainer's park whose write to Backlog.md failed (DIPO-360). */
+export const PARK_NOT_WRITTEN = "story.parkNotWritten";
 
 /** The code of the refusal that parks a story `scope-violation` (DIPO-38, 0008 section 2). */
 export const WORKTREE_TAMPERED = "git.worktreeTampered";
@@ -562,6 +566,12 @@ export interface ParkRequest {
    * unless an open question of the run carries over to it.
    */
   readonly question?: string;
+  /**
+   * The maintainer's park (DIPO-360): when the write to Backlog.md fails, nothing is recorded or
+   * emitted and `parkStory` throws `story.parkNotWritten`, so the maintainer can send it again. A
+   * tampered worktree still parks `scope-violation`, held until reconcile (`heldByPark`).
+   */
+  readonly mustWrite?: boolean;
 }
 
 export interface ParkOutcome {
@@ -650,6 +660,12 @@ export async function parkStory(deps: ParkDeps, request: ParkRequest): Promise<P
       notice(
         PARK_NOTICES.notWritten,
         `${story} parked as scope-violation, but the park was not written on ${run.branch ?? "its branch"}: its task file holds fields dipo does not know.`,
+      );
+    } else if (request.mustWrite === true) {
+      throw new CommandError(
+        PARK_NOT_WRITTEN,
+        `${story} was not parked: writing the park on ${run.branch ?? "its branch"} failed (${messageOf(error)}). dipo recorded nothing; send the park again.`,
+        { story },
       );
     } else {
       notice(

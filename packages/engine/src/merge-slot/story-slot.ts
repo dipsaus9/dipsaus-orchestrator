@@ -77,6 +77,7 @@ import {
 import { runConfigOf } from "../run/config-snapshot";
 import { catchUpsOf } from "../run/conflicts";
 import { openPark, type ParkWriter, parkStory } from "../run/park";
+import { heldByPark } from "../run/park-state";
 import type { RunStoryFacts } from "../run/resume";
 import {
   findRun,
@@ -301,7 +302,7 @@ export class StorySlot {
     if (run.branch === null || run.worktree === null || run.startSha === null) return null;
     const claim = findClaim(office, runId);
     if (claim === null || claim.releasedAt !== null) return null;
-    if (openPark(office, run.key) !== null) return null;
+    if (heldByPark(office, run.key)) return null;
     return run;
   }
 
@@ -728,7 +729,7 @@ export class StorySlot {
 
   async #prClosed(ctx: StorySlotContext, run: StoredRun, stored: StoryPrRecord): Promise<void> {
     const office = ctx.office;
-    if (run.kind !== "story" || run.key === null || openPark(office, run.key) !== null) return;
+    if (run.kind !== "story" || run.key === null || heldByPark(office, run.key)) return;
     const since = stored.closedAt ?? stored.openedAt;
     const parkedFor = office.get(
       `select 1 as found from parks where office_id = $office_id and run_id = $run
@@ -783,7 +784,7 @@ export class StorySlot {
       return "left";
     }
     const claim = findClaim(office, runId);
-    if (claim === null || claim.releasedAt !== null || openPark(office, run.key) !== null) {
+    if (claim === null || claim.releasedAt !== null || heldByPark(office, run.key)) {
       free(ctx);
       return "left";
     }

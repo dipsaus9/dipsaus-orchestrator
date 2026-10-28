@@ -18,8 +18,8 @@ import {
   type ParkWriter,
   parkStory,
 } from "../../src/run/park";
-import { parkedRun } from "../../src/run/park-state";
-import { desk } from "../../src/views/desk";
+import { heldByPark, parkedRun } from "../../src/run/park-state";
+import { desk, PARK_NOT_WRITTEN } from "../../src/views/desk";
 import { storyView } from "../../src/views/story";
 import { insertPark, mirrorParked } from "./park-fixture";
 import { type RoundsWorld, roundsWorld, type StoryRun, storyRun } from "./rounds-helpers";
@@ -149,7 +149,10 @@ describe("the current park's reason and origin (DIPO-360)", () => {
       ),
     );
     expect(openPark(w.office, s.key)).toBeNull();
-    expect(desk(w.office, () => true).filter((item) => item.story === "DIPO-7")).toEqual([]);
+    // Not a PARKED row: a park dipo could not write, which holds the story's work (fail-closed).
+    const items = desk(w.office, () => true).filter((item) => item.story === "DIPO-7");
+    expect(items.map((item) => item.kind)).toEqual([PARK_NOT_WRITTEN]);
+    expect(heldByPark(w.office, s.key)).toBe(true);
   });
 
   it("follow an open planning-lane operation before its backlog PR merges", () => {

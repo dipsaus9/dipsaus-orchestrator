@@ -51,7 +51,7 @@ import { cleanDoorText } from "../box/door";
 import type { FeatureRegistry, ReadContext, Registry } from "../commands/registry";
 import type { OfficeHandle } from "../db/office";
 import { openParkQuestions, openQuestions, type StoredQuestion } from "../hooks/questions";
-import { openPark } from "../run/park-state";
+import { openPark, unwrittenParks } from "../run/park-state";
 import { parkResumeNeed, SUGGESTED_SHARE } from "../run/resume-policy";
 import { profileDeskItems } from "../scan/profile-view";
 import { findStoryPr, latestStoryPr } from "../story-pr/records";
@@ -104,8 +104,27 @@ export interface DeskSources {
  */
 export const DESK_SOURCES: DeskSources = {
   handMergeOnly: () => false,
-  handItems: [doneElsewhereDeskItems],
+  handItems: [doneElsewhereDeskItems, unwrittenParkDeskItems],
 };
+
+/** The kind of a park dipo could not write to Backlog.md (DIPO-360). */
+export const PARK_NOT_WRITTEN = "PARK NOT WRITTEN";
+
+/**
+ * A park whose write to Backlog.md failed (`park.notWritten`, DIPO-360): Backlog.md does not hold
+ * the story as parked, but its work stays held (`heldByPark`) until a rescan's reconcile closes the
+ * park, or the story is parked again.
+ */
+export function unwrittenParkDeskItems(office: OfficeHandle): HandDeskItem[] {
+  return unwrittenParks(office).map((park) => ({
+    kind: PARK_NOT_WRITTEN,
+    key: StoryKey.parse(park.key),
+    story: park.story,
+    detail: `${park.detail} · dipo could not write this park to Backlog.md; its work is held until a rescan closes it`,
+    since: park.at,
+    actions: [{ command: "office.rescan", cli: "dipo office rescan" }],
+  }));
+}
 
 /** Whether a command is registered and shipped, so the desk may offer it. */
 export type Implemented = (command: CommandName) => boolean;

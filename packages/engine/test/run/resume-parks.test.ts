@@ -1159,11 +1159,6 @@ describe("a retry of the same request (0005 note of 2026-10-17)", () => {
     expect(w.sessions).toHaveLength(1);
   });
 
-  /** What an index pass reads after the lift is on the branch: the story In Progress, unparked. */
-  function indexAfterLift(): void {
-    w.f.office.immediate(() => mirrorStory(w.f.office, { key: w.key, story: "DIPO-1" }));
-  }
-
   it("reopens the run when an index pass reads the lift before the resume's transaction (DIPO-360)", async () => {
     const parkId = park("by-maintainer");
     const resuming = createRunOutcomesWithLift(async (request) => {
@@ -1210,6 +1205,11 @@ describe("a retry of the same request (0005 note of 2026-10-17)", () => {
     expect(parksBeingResumed(w.f.office).size).toBe(0);
   });
 });
+
+/** What an index pass reads after the lift is on the branch: the story In Progress, unparked. */
+function indexAfterLift(): void {
+  w.f.office.immediate(() => mirrorStory(w.f.office, { key: w.key, story: "DIPO-1" }));
+}
 
 /** The resumption with a lift of its own. */
 function createRunOutcomesWithLift(

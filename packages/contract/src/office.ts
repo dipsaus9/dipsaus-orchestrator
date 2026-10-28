@@ -193,7 +193,9 @@ export const workDiscard = defineCommand({
 // Parks a Refined, Ready, In Progress or In Review story with reason `by-maintainer` and the note
 // as its detail (0020). A running worker is stopped first; a story with no run is parked through
 // the planning lane. `run` names the run the park ended or kept. Parking a story parked already
-// answers `changed: false`; any other status fails `story.notParkable`.
+// answers `changed: false`; any other status fails `story.notParkable`. A park whose write to
+// Backlog.md fails records nothing and fails `story.parkNotWritten`, so it can be sent again
+// (DIPO-360).
 export const storyPark = defineCommand({
   name: "story.park",
   level: "office",

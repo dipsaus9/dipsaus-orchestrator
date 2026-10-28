@@ -205,3 +205,52 @@ export function unresolvedPark(
         at: row.at,
       };
 }
+
+/**
+ * The fail-closed guard of the work that follows a story's run (DIPO-360): true while Backlog.md
+ * holds the story as parked, and while any `parks` row of the story is unresolved, also one whose
+ * write to Backlog.md failed, until reconcile or a resume resolves it. The merge slot, the
+ * reviewer, fix rounds and the Done teardown never start on a story the engine reported as Parked.
+ */
+export function heldByPark(office: OfficeHandle, key: StoryKey | string): boolean {
+  if (backlogPark(office, key) !== null) return true;
+  return (
+    office.get(
+      `select 1 as found from parks where office_id = $office_id and key = $key
+        and resolved_at is null limit 1`,
+      { key },
+    ) !== null
+  );
+}
+
+/** `heldByPark` of the story of the run `runId`; false for a run with no story. */
+export function runHeldByPark(office: OfficeHandle, runId: string): boolean {
+  const row = office.get<{ key: string | null }>(
+    "select key from runs where office_id = $office_id and run_id = $run",
+    { run: runId },
+  );
+  return row?.key != null && heldByPark(office, row.key);
+}
+
+/**
+ * Open `parks` rows of stories Backlog.md does not hold as parked: parks whose write to Backlog.md
+ * failed (`park.notWritten`), which hold the story's work until reconcile or a resume resolves them.
+ * Newest row per story.
+ */
+export function unwrittenParks(office: OfficeHandle): {
+  readonly key: string;
+  readonly story: string;
+  readonly detail: string;
+  readonly at: number;
+}[] {
+  const rows = office.all<{ key: string; story_id: string; detail: string; at: number }>(
+    `select key, story_id, detail, at from parks p
+      where office_id = $office_id and resolved_at is null
+        and park_id = (select max(park_id) from parks q where q.office_id = p.office_id
+          and q.key = p.key and q.resolved_at is null)
+      order by at, park_id`,
+  );
+  return rows
+    .filter((row) => backlogPark(office, row.key) === null)
+    .map((row) => ({ key: row.key, story: row.story_id, detail: row.detail, at: row.at }));
+}

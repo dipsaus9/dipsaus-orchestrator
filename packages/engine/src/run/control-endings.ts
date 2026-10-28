@@ -191,6 +191,7 @@ export class RunEndings {
           reason: "by-maintainer",
           detail: note,
           endKind: "stopped",
+          mustWrite: true,
         },
       );
       await this.refresh(handle, waiting, "parked");
@@ -202,6 +203,7 @@ export class RunEndings {
       reason: "by-maintainer",
       detail: note,
       endKind: "stopped",
+      mustWrite: true,
     };
     const tracked = this.#tracked.get(run.runId);
     const work = tracked?.work ?? workRefOf(handle, run.runId) ?? undefined;
@@ -315,6 +317,7 @@ export class RunEndings {
         endKind: ending.endKind,
         ...(ending.capStep === undefined ? {} : { capStep: ending.capStep }),
         ...(ending.question === undefined ? {} : { question: ending.question }),
+        ...(ending.mustWrite === true ? { mustWrite: true } : {}),
       });
       // The run summary (DIPO-49): every run that ends here gets one.
       await this.#deps.finisher

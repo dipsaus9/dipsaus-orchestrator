@@ -89,7 +89,7 @@ import {
   type RunOutcomesPort,
   type RunView,
 } from "./outcome-types";
-import { openPark } from "./park";
+import { heldByPark } from "./park-state";
 import { claimPlace, type PlaceStart, START_KINDS, waitForPlace } from "./places";
 import { LAUNCH_NOTICES, planRefusedText } from "./launch";
 import { endRunMarked } from "./markers";
@@ -238,7 +238,7 @@ export class Reviews {
     if (office === undefined || run.worktree === null || run.story === null) return false;
     if (run.endKind === DONE_END) return false;
     // A story parked since its start was queued waits for its resume (`pendingReviews`).
-    if (run.key !== null && openPark(office, run.key) !== null) return false;
+    if (run.key !== null && heldByPark(office, run.key)) return false;
     let facts: RunStoryFacts;
     let head: string;
     let tree: string;

@@ -118,7 +118,7 @@ import { withWorkViews } from "../views/work";
 import { runCaps } from "./caps";
 import { lastReviewVerdict } from "./fix-rounds";
 import type { ConflictPrepared, ConflictResumer } from "./park-resume";
-import { parkedRun } from "./park-state";
+import { runHeldByPark } from "./park-state";
 import { appendRunStep, findRun, IN_REVIEW_END, type StoredRun } from "./records";
 import { REVIEWED_END } from "./rounds";
 import { codeTreeKeyOf } from "./story-git";
@@ -410,7 +410,7 @@ export function inReviewRunIds(office: OfficeHandle): RunId[] {
         order by r.ended_at, r.run_id`,
       { in_review: IN_REVIEW_END, reviewed: REVIEWED_END },
     )
-    .filter((row) => !parkedRun(office, row.run_id))
+    .filter((row) => !runHeldByPark(office, row.run_id))
     .map((row) => row.run_id as RunId);
 }
 

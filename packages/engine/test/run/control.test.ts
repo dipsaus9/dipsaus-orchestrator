@@ -49,7 +49,7 @@ import {
   STORY_NOT_RUNNING,
   STREAM_DRIFT_LINES,
 } from "../../src/run";
-import { reopenParkedRun } from "../../src/run/park";
+import { openPark, PARK_NOT_WRITTEN, reopenParkedRun } from "../../src/run/park";
 import { addStory } from "../../src/stories/keys";
 import { encode, STOP_MESSAGE } from "../../src/workers/claude-cli/encode";
 import { initialState, interpret } from "../../src/workers/claude-cli/interpret";
@@ -622,6 +622,22 @@ describe("story.park of a running story", () => {
       .map((definition) => definition.name);
     expect(names).not.toContain("work.stop");
     expect(names).not.toContain("work.pause");
+  });
+
+  it("fails with story.parkNotWritten and records no park when the write to Backlog.md fails, and a retry parks (DIPO-360)", async () => {
+    track();
+    w.writer = "fails";
+    const failed = await stopCommand("DIPO-1", "Not now.");
+    expect(failed.ok ? null : failed.error.code).toBe(PARK_NOT_WRITTEN);
+    expect(parks()).toEqual([]);
+    expect(parkedEvents()).toEqual([]);
+    expect(findRun(w.f.office, w.f.run)?.endedAt).toBeNull();
+    // The maintainer sends it again once the write works.
+    w.writer = "ok";
+    const retried = await stopCommand("DIPO-1", "Not now.");
+    expect(retried.ok).toBe(true);
+    expect(parks().map((p) => [p.reason, p.detail])).toEqual([["by-maintainer", "Not now."]]);
+    expect(openPark(w.f.office, w.work.key)).toMatchObject({ reason: "by-maintainer" });
   });
 
   it("records the stop intent, sends the stop sequence the fake process sees, and parks by-maintainer", async () => {
