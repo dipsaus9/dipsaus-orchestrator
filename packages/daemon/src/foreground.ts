@@ -767,6 +767,8 @@ async function serve(run: Run, lock: HeldLock): Promise<number> {
         mergeSlot.kick(office);
       },
       held: (office) => mergeSlot.holding(office),
+      // A merged hold or resume stops counting as the story's park: the base's read replaces it.
+      refreshStory: (office, key) => storyIndex.refreshStory(office, key),
     });
     // Office init (DIPO-36): `office.init` reads the base and submits its steps to the lane, whose
     // flush opens the backlog PR and kicks the merge slot. Its load step, which raises a notice
