@@ -17,8 +17,10 @@
 //    copy of the story's backlog (`gitUnparkWriter`); a lift already written commits nothing.
 // 4. One transaction: the park resolved `resume` with the note, its questions closed (an answered
 //    one as answered, the rest expired, each with its `question.closed`), the grants recorded, the
-//    run reopened, `story.state` back, the intent sent; a session whose place is taken waits for it
-//    (`waitForPlace`) and the reply says `queued`.
+//    run reopened, `story.state` back, the first message held on the one feedback path, the intent
+//    sent; a session whose place is taken waits for it (`waitForPlace`) and the reply says
+//    `queued`. A finishing step that throws after the lift reached the branch leaves the intent
+//    pending with a notice, so the park row stays held and the next recovery finishes the resume.
 // 5. The next session of the same run (`resumeSession`, from the run's facts): a new developer
 //    session in the story's box with a handoff, a fresh reviewer session of the same round on the
 //    same head when the park stopped the reviewer, a fix round with the last verdict's blocking
@@ -31,10 +33,13 @@
 // `conflict` one. Each records the caps before and after it. A resumed review needs no grant: the
 // reviewer's caps hold per session, and the fresh session starts with all of them (0002).
 //
-// The first message is code-built: the reason's part, then `feedback/maintainer-note.md` with the
-// note, so maintainer text never starts a message. A top-up of a park a reopened fix round hit
-// before its session (DIPO-205) sends that round's undelivered feedback first, then
-// `feedback/topup.md`. A reviewer never gets the note (0002).
+// The first message goes through the one feedback path (`sendFeedback`, 0002), held for the
+// developer's next session in the resume's transaction: the reason's part (source `park`, keyed on
+// the resume), then `feedback/maintainer-note.md` with the note (source `resume`), so maintainer
+// text never starts a message. Findings held before (a fix round the caps stopped before its
+// session, DIPO-205) or after (the fix round of a resumed `review-blocked` park) go before the
+// note. A reviewer never gets the note (0002). When the developer session does not start, the
+// resume's own code-built parts are dropped, since the next resume builds them again.
 //
 // An `ambiguous-spec` park resumes with its answer: the note, or the text of `work.answer` on the
 // park's question, which comes here as the note. The first message is `feedback/answer.md` with the
@@ -44,9 +49,10 @@
 // already (it came while the run was ending) resumes without a note: the held answer goes with the
 // first message.
 //
-// A `conflict` park's developer session starts with the first message `ConflictResumer.prepare`
-// builds from git (the kept merge's conflict item, or the commits only the remote branch holds),
-// and the merge it needs runs once that session started (`afterStart`), in the live run's box.
+// A `conflict` park's developer session gets the message `ConflictResumer.prepare` builds from git
+// (the kept merge's conflict item, or the commits only the remote branch holds), held as a
+// `conflict` message right before the session starts, and the merge it needs runs once that
+// session started (`afterStart`), in the live run's box.
 //
 // The one resume that needs no command (0020): when the office's starts paused lifts, dipo resumes
 // each park a plan limit made through this same path (`ResumeRequest.lifted`, `starts-paused.ts`),
@@ -75,7 +81,6 @@ import type { OfficeHandle } from "../db/office";
 import { closeQuestion, parkWorkerQuestion } from "../hooks/questions";
 import { CONTRACT_MAX_DEFAULT } from "../prompts/contract";
 import { latestVerdictOfRun } from "../review/store";
-import { fixRoundMessage } from "../prompts/feedback";
 import { capNote } from "../prompts/handoff";
 import answerTemplate from "../prompts/feedback/answer.md" with { type: "text" };
 import parkedTemplate from "../prompts/feedback/parked.md" with { type: "text" };
@@ -88,9 +93,8 @@ import type { Caps } from "../workers/types";
 
 import { type CapName, firedCap, REVIEWER_ROLE, runCaps } from "./caps";
 import { CONFLICT_CAP_DEFAULT, conflictCapOf, handOffState } from "./conflicts";
-import { sendFeedback } from "./feedback";
-import { feedbackItems, feedbackOfIntent, markFeedbackSent } from "./feedback-items";
-import { pendingFixRound } from "./fix-rounds";
+import { feedbackIntents, sendFeedback } from "./feedback";
+import { feedbackItems } from "./feedback-items";
 import { recordGrant, type RoundCap } from "./grants";
 import { markIntentSent, recordIntent, resolveIntent } from "./intents";
 import { reopen } from "./rounds";
@@ -159,7 +163,21 @@ export function notResumable(story: string, reason: string): CommandError {
 /** `engine.notice` codes of a maintainer resume. */
 export const PARK_RESUME_NOTICES = {
   resumed: "park.resumed",
+  /** The lift reached the branch but the resume did not finish: the next recovery finishes it. */
+  unfinished: "park.resumeUnfinished",
 } as const;
+
+/** A resume whose finishing step threw after its lift reached the story branch. */
+class LiftedResumeError extends Error {
+  constructor(cause: unknown) {
+    super(messageOf(cause), { cause });
+  }
+}
+
+/** What a resume's own held messages are keyed on: its intent. */
+function resumeKey(intentId: number): string {
+  return `resume-${intentId}`;
+}
 
 /** What a conflict resume prepared for the developer's next session (DIPO-324). */
 export interface ConflictPrepared {
@@ -234,13 +252,11 @@ interface ResumeIntent {
   readonly session: ResumeSession;
   /** The lifecycle the branch and the story go to. */
   readonly to: Lifecycle;
-  /** The developer session's first message; null for none. */
+  /** The reason's part of the developer session's first message; null for none. */
   readonly message: string | null;
   readonly note: string | null;
   readonly why: string;
   readonly grants: readonly PlannedGrant[];
-  /** The pending fix round whose undelivered feedback the message carries (DIPO-205). */
-  readonly fix: number | null;
   /** The developer agent whose session continues, as it was at the request. */
   readonly agent: string | null;
   readonly origin: string;
@@ -602,8 +618,6 @@ export class ParkResumes {
         : grant,
     );
     const developer = session === "developer";
-    const fix =
-      developer && park.reason === "budget-exceeded" ? pendingFixRound(office, run.runId) : null;
     const to: Lifecycle = developer ? "In Progress" : "In Review";
     const detail: ResumeIntent = {
       request: ctx.requestId,
@@ -611,14 +625,13 @@ export class ParkResumes {
       reason: park.reason,
       session,
       to,
-      message: developer ? this.#message(office, run, park, grants, legacy, fix, answer) : null,
+      message: developer ? this.#message(office, run, park, grants, legacy, answer) : null,
       note: note ?? null,
       why:
         ctx.lifted === true
           ? `dipo resumed it from ${park.reason} after the office's starts paused lifted`
           : `the maintainer resumed it from ${park.reason}`,
       grants,
-      fix: fix?.intentId ?? null,
       agent: developerAgent(office, run.runId)?.agent ?? null,
       origin: ctx.origin,
       client: ctx.client ?? null,
@@ -702,6 +715,13 @@ export class ParkResumes {
           await this.#finish(office, run, stored.intentId, stored.detail, false);
           finished += 1;
         } catch (error) {
+          if (error instanceof LiftedResumeError) {
+            // The lift is on the branch, so Backlog.md no longer holds the park: the intent stays
+            // pending and keeps the park row held, or a rescan would close it and strand the
+            // story In Progress with no session. `#finish` wrote the notice; the next recovery
+            // finishes it.
+            continue;
+          }
           // A resume that failed before its park was resolved fails, so the park row is not held
           // by it any more and reconcile can close it (DIPO-360). One that resolved its park is
           // past that point: its session is the restart's to start.
@@ -842,99 +862,109 @@ export class ParkResumes {
     } catch (error) {
       return fail(`lifting the park of ${run.story} failed: ${messageOf(error)}`);
     }
-    const notice = (code: string, text: string): NewEntry => ({
-      type: "engine.notice",
-      key: work.key,
-      run: run.runId,
-      delta: { level: "warn", code, text },
-    });
-    const liftNotices: NewEntry[] = [
-      ...(lifted.lineError == null
-        ? []
-        : [
-            notice(
-              PARK_NOTICES.summaryMissing,
-              `${run.story}: the park was lifted, but its resume line is missing from the task file's implementation notes: ${lifted.lineError}`,
-            ),
-          ]),
-      ...(lifted.pushError === null
-        ? []
-        : [
-            notice(
-              PARK_NOTICES.pushFailed,
-              `${run.story}: the park was lifted, but ${lifted.pushError}; the change is on the local branch only until a later push succeeds.`,
-            ),
-          ]),
-      ...(lifted.answerError == null
-        ? []
-        : [
-            notice(
-              PARK_NOTICES.answerNotWritten,
-              `${run.story}: the answer goes to its worker, but it was not written to the story's unknowns: ${lifted.answerError}.`,
-            ),
-          ]),
-    ];
-    const places = this.#options.places();
     const queued: { place: string | null } = { place: null };
     let wrote = false;
-    const step = async (): Promise<void> =>
-      this.#s.write(office, () => {
-        const at = clock.now();
-        const current = unresolvedPark(office, key, detail.parkId, captured);
-        if (current === null) return [];
-        wrote = true;
-        // The lift's push, on the claim like every story-branch push (DIPO-315).
-        const push = { pushed: lifted.pushed, error: lifted.pushError };
-        recordBranchPush(office, run.branch as string, push, at);
-        const entries = [
-          ...answeredQuestion(office, run, detail.answer ?? null, at),
-          ...this.#resolve(office, run, current, detail, at),
-        ];
-        // The lift read back status `to` and no park record on the branch (DIPO-360).
-        mirrorUnpark(office, key, detail.to);
-        for (const grant of detail.grants) {
-          recordGrant(office, run.runId, {
-            ...grant.amount,
-            grantId: grant.grantId,
-            note: detail.note,
-            origin: detail.origin,
-            client: detail.client ?? null,
-            at,
-          });
-        }
-        markIntentSent(office, run.runId, intentId, at, null);
-        const waits = this.#queue(office, run, detail, places, at);
-        queued.place = waits;
-        // The places, the fix rounds or the PR poll own what follows; nothing waits on the intent.
-        if (detail.session !== "developer") {
-          resolveIntent(office, run.runId, intentId, `resumed-${detail.session}`, at);
-        }
-        const story = run.story ?? run.runId;
-        const granted =
-          detail.grants.length === 0
-            ? ""
-            : ` with ${detail.grants.length} recorded grant${detail.grants.length === 1 ? "" : "s"}`;
-        const resumed: NewEntry = {
-          type: "engine.notice",
-          key: work.key,
-          run: run.runId,
-          delta: {
-            level: "info",
-            code: waits === null ? PARK_RESUME_NOTICES.resumed : PLACE_NOTICES.queued,
-            text:
-              waits === null
-                ? `${story}: ${detail.lifted === true ? "dipo resumed it after the office's starts paused lifted" : "the maintainer resumed it"} from ${current.reason}${granted}.`
-                : `${story}: resumed${granted}; its session starts when the office's ${detail.session === "review" ? "reviewer" : "worker"} place frees (${waits}).`,
-          },
-        };
-        return [...entries, ...liftNotices, resumed];
-      });
-    // The place check and the reopen are one serialized step of the office (DIPO-229).
+    // From here the lift is on the branch: a throw is a `LiftedResumeError`.
     try {
-      if (places === undefined) await step();
-      else await places.serialized(officeId, step);
-    } finally {
-      applied();
+      const notice = (code: string, text: string): NewEntry => ({
+        type: "engine.notice",
+        key: work.key,
+        run: run.runId,
+        delta: { level: "warn", code, text },
+      });
+      const liftNotices: NewEntry[] = [
+        ...(lifted.lineError == null
+          ? []
+          : [
+              notice(
+                PARK_NOTICES.summaryMissing,
+                `${run.story}: the park was lifted, but its resume line is missing from the task file's implementation notes: ${lifted.lineError}`,
+              ),
+            ]),
+        ...(lifted.pushError === null
+          ? []
+          : [
+              notice(
+                PARK_NOTICES.pushFailed,
+                `${run.story}: the park was lifted, but ${lifted.pushError}; the change is on the local branch only until a later push succeeds.`,
+              ),
+            ]),
+        ...(lifted.answerError == null
+          ? []
+          : [
+              notice(
+                PARK_NOTICES.answerNotWritten,
+                `${run.story}: the answer goes to its worker, but it was not written to the story's unknowns: ${lifted.answerError}.`,
+              ),
+            ]),
+      ];
+      const places = this.#options.places();
+      const step = async (): Promise<void> =>
+        this.#s.write(office, () => {
+          const at = clock.now();
+          const current = unresolvedPark(office, key, detail.parkId, captured);
+          if (current === null) return [];
+          wrote = true;
+          // The lift's push, on the claim like every story-branch push (DIPO-315).
+          const push = { pushed: lifted.pushed, error: lifted.pushError };
+          recordBranchPush(office, run.branch as string, push, at);
+          const entries = [
+            ...answeredQuestion(office, run, detail.answer ?? null, at),
+            ...this.#resolve(office, run, current, detail, at),
+          ];
+          // The lift read back status `to` and no park record on the branch (DIPO-360).
+          mirrorUnpark(office, key, detail.to);
+          for (const grant of detail.grants) {
+            recordGrant(office, run.runId, {
+              ...grant.amount,
+              grantId: grant.grantId,
+              note: detail.note,
+              origin: detail.origin,
+              client: detail.client ?? null,
+              at,
+            });
+          }
+          this.#hold(office, run, intentId, detail, at);
+          markIntentSent(office, run.runId, intentId, at, null);
+          const waits = this.#queue(office, run, detail, places, at);
+          queued.place = waits;
+          // The places, the fix rounds or the PR poll own what follows; nothing waits on the intent.
+          if (detail.session !== "developer") {
+            resolveIntent(office, run.runId, intentId, `resumed-${detail.session}`, at);
+          }
+          const story = run.story ?? run.runId;
+          const granted =
+            detail.grants.length === 0
+              ? ""
+              : ` with ${detail.grants.length} recorded grant${detail.grants.length === 1 ? "" : "s"}`;
+          const resumed: NewEntry = {
+            type: "engine.notice",
+            key: work.key,
+            run: run.runId,
+            delta: {
+              level: "info",
+              code: waits === null ? PARK_RESUME_NOTICES.resumed : PLACE_NOTICES.queued,
+              text:
+                waits === null
+                  ? `${story}: ${detail.lifted === true ? "dipo resumed it after the office's starts paused lifted" : "the maintainer resumed it"} from ${current.reason}${granted}.`
+                  : `${story}: resumed${granted}; its session starts when the office's ${detail.session === "review" ? "reviewer" : "worker"} place frees (${waits}).`,
+            },
+          };
+          return [...entries, ...liftNotices, resumed];
+        });
+      // The place check and the reopen are one serialized step of the office (DIPO-229).
+      try {
+        if (places === undefined) await step();
+        else await places.serialized(officeId, step);
+      } finally {
+        applied();
+      }
+    } catch (error) {
+      // Past the lift, which reached the branch: the intent stays pending, on the command path as
+      // after a restart, and the maintainer gets the notice (`recover` finishes it later).
+      if (error instanceof CommandError) throw error;
+      this.#unfinished(office, run, messageOf(error));
+      throw new LiftedResumeError(error);
     }
     if (!wrote) return gone();
     await this.#s.deps.refreshStory?.(officeId, work.key).catch((error: unknown) => {
@@ -974,15 +1004,6 @@ export class ParkResumes {
         const closed = resolvePark(office, park.parkId, "resume", at, detail.note);
         // The run waits in review again with its verdict in: the fix round decides from it.
         endedAs(office, run.runId, REVIEWED_END);
-        if (detail.note !== null) {
-          // The note goes with the fix round's first message, after its findings (0020).
-          sendFeedback(
-            office,
-            run.runId,
-            { source: "resume", text: noteText(detail.note) },
-            { at },
-          );
-        }
         return [...closed, ...stateEntries(office, run, detail.to, why)];
       }
       case "none": {
@@ -996,6 +1017,61 @@ export class ParkResumes {
         );
         return [...closed, ...stateEntries(office, run, detail.to, why)];
       }
+    }
+  }
+
+  /**
+   * Inside the resume's transaction: the developer's first message held on the one feedback path
+   * (0002): the reason's part, keyed on the resume, then the note. A fix round's session gets the
+   * note after the round's findings. A review or no session gets nothing (0002).
+   */
+  #hold(
+    office: OfficeHandle,
+    run: StoredRun,
+    intentId: number,
+    detail: ResumeIntent,
+    at: number,
+  ): void {
+    if (detail.session !== "developer" && detail.session !== "fix-round") return;
+    if (detail.message !== null && detail.message !== "") {
+      sendFeedback(
+        office,
+        run.runId,
+        { source: "park", key: resumeKey(intentId), text: detail.message },
+        { at },
+      );
+    }
+    // An answer's note is the answer, which the reason's part carries.
+    if (detail.note !== null && detail.answer == null) {
+      sendFeedback(office, run.runId, { source: "resume", text: noteText(detail.note) }, { at });
+    }
+  }
+
+  /**
+   * A resume that threw past its lift, on the command path or in a recovery: the intent stays
+   * pending, and the maintainer sees why with what follows.
+   */
+  #unfinished(office: OfficeHandle, run: StoredRun, reason: string): void {
+    const story = run.story ?? run.runId;
+    this.#s.deps.warn?.("finishing a maintainer resume failed after its lift", {
+      run: run.runId,
+      reason,
+    });
+    try {
+      this.#s.write(office, () => [
+        {
+          type: "engine.notice",
+          ...(run.key === null ? {} : { key: run.key as StoryKey }),
+          run: run.runId,
+          delta: {
+            level: "warn",
+            code: PARK_RESUME_NOTICES.unfinished,
+            text: `${story}: the park was lifted on its branch, but finishing the resume failed (${reason}); dipo keeps the resume and tries it again when the daemon restarts. If it never finishes, \`dipo drop ${story}\` or \`dipo discard ${story} --note <why>\` clears it.`,
+          },
+        },
+      ]);
+    } catch {
+      // The warning above stands; the error the caller rethrows says the rest.
     }
   }
 
@@ -1092,7 +1168,10 @@ export class ParkResumes {
     void job.finally(() => this.#inflight.delete(job));
   }
 
-  /** The developer's next session with the resume's first message; the intent resolved after. */
+  /**
+   * The developer's next session, which carries the resume's held first message; the intent
+   * resolved after. A session that did not start drops the resume's own code-built parts.
+   */
   async #startDeveloper(
     office: OfficeHandle,
     run: StoredRun,
@@ -1108,7 +1187,7 @@ export class ParkResumes {
       resolve("failed");
       return false;
     }
-    let message = detail.message;
+    const key = resumeKey(intentId);
     let afterStart: (() => Promise<void>) | undefined;
     if (detail.reason === "conflict") {
       let prepared;
@@ -1125,7 +1204,18 @@ export class ParkResumes {
         resolve(prepared === undefined ? "failed" : "parked");
         return false;
       }
-      message = [prepared.message, message].filter((part) => part !== null).join("\n\n");
+      // What git says now, held right before the session that carries it (0002); one that an
+      // earlier try of this resume held and never sent is replaced.
+      const at = clock.now();
+      office.immediate(() => {
+        dropHeld(office, run.runId, key, at, "replaced");
+        sendFeedback(
+          office,
+          run.runId,
+          { source: "conflict", key, text: prepared.message },
+          { at },
+        );
+      });
       afterStart = prepared.afterStart;
     }
     const box = this.#options.boxRun?.(officeId, run) === true;
@@ -1133,18 +1223,11 @@ export class ParkResumes {
       // A box run's developer gets a new session in its box with a handoff (0008).
       mode: box ? "handoff" : "resume",
       why: detail.why,
-      ...(message === null || message === "" ? {} : { message }),
-      // After the reason's part; an answer's note is the answer, which that part carries.
-      ...(detail.note === null || detail.answer != null ? {} : { note: detail.note }),
     });
     const at = clock.now();
     office.immediate(() => {
-      if (started && detail.fix !== null) {
-        // The round's feedback reached the worker with this session (DIPO-205).
-        markIntentSent(office, run.runId, detail.fix, at, null);
-        markFeedbackSent(office, run.runId, detail.fix, at);
-        resolveIntent(office, run.runId, detail.fix, "started", at);
-      }
+      // The next resume builds its own parts again; the maintainer's words stay held.
+      if (!started) dropHeld(office, run.runId, key, at, "notStarted");
       resolveIntent(office, run.runId, intentId, started ? "resumed" : "notStarted", at);
     });
     if (started && afterStart !== undefined) {
@@ -1301,7 +1384,6 @@ export class ParkResumes {
     park: OpenPark,
     grants: readonly PlannedGrant[],
     legacy: Caps,
-    fix: ReturnType<typeof pendingFixRound>,
     answer: ResumeAnswer | null,
   ): string | null {
     const parked = (detail: string) =>
@@ -1321,16 +1403,8 @@ export class ParkResumes {
         parts.push(parked(park.detail));
         break;
       case "topup": {
-        // The undelivered feedback of the round the caps stopped before its session, first.
-        if (fix !== null) {
-          parts.push(
-            fixRoundMessage({
-              head: fix.detail.head,
-              items: feedbackOfIntent(office, run.runId, fix.intentId),
-              advisories: fix.detail.advisories,
-            }),
-          );
-        }
+        // A round the caps stopped before its session keeps its findings held (DIPO-205): they
+        // go first.
         const budget = grants.find((grant) => grant.amount.kind === "budget")?.amount;
         if (budget?.kind === "budget") {
           const caps = withGrants(runCaps(office, run, legacy), grants);
@@ -1359,7 +1433,7 @@ export class ParkResumes {
         // Built when the session starts (`ConflictResumer.prepare`), or by the fix round.
         break;
     }
-    // The note follows the reason's part: the session start adds it (`NextSessionRequest.note`).
+    // The note follows the reason's part, held after it (`#hold`).
     return parts.length === 0 ? null : parts.join("\n\n");
   }
 }
@@ -1411,6 +1485,21 @@ function answeredQuestion(
       delta: { question: answer.question, answer: answer.answer },
     },
   ];
+}
+
+/** Inside the caller's transaction: the run's held messages keyed `key` are not sent, as `outcome`. */
+function dropHeld(
+  office: OfficeHandle,
+  runId: RunId,
+  key: string,
+  at: number,
+  outcome: string,
+): void {
+  for (const item of feedbackIntents(office, runId)) {
+    if (item.key === key && item.state === "pending") {
+      resolveIntent(office, runId, item.intentId, outcome, at);
+    }
+  }
 }
 
 /** Inside the caller's transaction: an ended run takes the end kind `kind`, its outcome row too. */

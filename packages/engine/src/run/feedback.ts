@@ -11,10 +11,14 @@
 //   and the intent is marked `sent`, or `failed` with the reason the host gave. Without a sender
 //   (a parked story, a run between two sessions, a run waiting for its place) the intent stays
 //   `pending`, and the first message of the run's next developer session carries every pending
-//   held message, oldest first (`heldFeedback`); they are marked delivered once that session
-//   started (`deliverHeld`). A `now` message left `pending` by a stop between its store and its
-//   send is never replayed: only `next` messages are held. A reviewer session never gets one
-//   (0002).
+//   held message (`heldFeedback`): the findings and the other code-built messages first, then the
+//   maintainer's own words (a resume note, a steer, a held answer), each group oldest first. They are marked
+//   delivered, with the feedback items they carry, in the transaction that records that session's
+//   agent (`deliverHeld`), so a stop after the start never sends them twice. A `now` message
+//   left `pending` by a stop between its store and its send is never replayed: only `next`
+//   messages are held. A reviewer session never gets one (0002).
+// - A fix round (0002) is one held message of the round's first source, keyed on the pushed head
+//   it answers; its feedback items point at the message's intent.
 
 import type { Clock, RunId } from "@dipsaus-orchestrator/contract";
 
@@ -23,6 +27,7 @@ import type { OfficeHandle } from "../db/office";
 import type { HostOp, SteerOp } from "../workers/types";
 
 import { CONTROL_NOTICES } from "./control-types";
+import { markFeedbackSent } from "./feedback-items";
 import { type IntentSteering, markIntentSent, recordIntent, runIntents } from "./intents";
 import type { StoredRun } from "./records";
 
@@ -53,6 +58,11 @@ export type FeedbackSource =
   | "ci"
   /** A maintainer reject (0002). */
   | "reject"
+  /**
+   * The reason's part of a resumed park's first message (0020). It carries no cap of its own: a
+   * resume is bounded by the grants it records and the run's caps.
+   */
+  | "park"
   /** A resume note (0020). */
   | "resume"
   /** A maintainer steer (0020). */
@@ -216,15 +226,35 @@ export interface HeldFeedback {
   readonly texts: readonly string[];
 }
 
-/** The run's held messages (see the file comment). */
+/**
+ * The maintainer's own words, which follow the findings in a first message (0020): a resume note,
+ * a steer, and an answer to a worker question held for the next session.
+ */
+const MAINTAINER_WORDS: ReadonlySet<string> = new Set<FeedbackSource>([
+  "resume",
+  "steer",
+  "answer",
+]);
+
+/**
+ * The run's held messages: the findings and other code-built messages first, then the
+ * maintainer's own words, each group oldest first (see the file comment).
+ */
 export function heldFeedback(office: OfficeHandle, runId: RunId | string): HeldFeedback {
-  const held = feedbackIntents(office, runId).filter(
+  const pending = feedbackIntents(office, runId).filter(
     (item) => item.via === "next" && item.state === "pending",
   );
+  const held = [
+    ...pending.filter((item) => !MAINTAINER_WORDS.has(item.source)),
+    ...pending.filter((item) => MAINTAINER_WORDS.has(item.source)),
+  ];
   return { ids: held.map((item) => item.intentId), texts: held.map((item) => item.text) };
 }
 
-/** Inside the caller's transaction: the held messages `ids` went with a session's first message. */
+/**
+ * Inside the caller's transaction, the one that records the session's agent: the held messages
+ * `ids` went with its first message, and so did the feedback items they carry.
+ */
 export function deliverHeld(
   office: OfficeHandle,
   runId: RunId | string,
@@ -238,6 +268,7 @@ export function deliverHeld(
         where office_id = $office_id and run_id = $run and intent_id = $id and state = 'pending'`,
       { run: runId, id, at },
     );
+    markFeedbackSent(office, runId, id, at);
   }
 }
 

@@ -33,6 +33,7 @@ import {
 import type { UnparkBranchRequest } from "../../src/run/park";
 import type { RunStoryFacts } from "../../src/run/resume";
 import { activeSignals } from "../../src/run/signals";
+import { heldFirstMessage } from "./held-session";
 import type { CiHeadState } from "../../src/story-pr/prs";
 import { encode } from "../../src/workers/claude-cli/encode";
 import { loggedEvents } from "../ingest/helpers";
@@ -203,12 +204,12 @@ function world(): World {
           run: run.runId,
           mode: request.mode,
           why: request.why,
-          message: request.message,
+          // The held messages, delivered with the agent's record as `RunResumer` does.
+          message: heldFirstMessage(w.office, run.runId, now(), state.starts),
           work: runView.work,
         });
         if (!state.starts) return false;
-        const agent = addAgent(w, run.runId, "developer", true);
-        write(() => request.inRecord?.(agent, now()));
+        addAgent(w, run.runId, "developer", true);
         if (s.stopAfterRecord) throw new Error("the daemon stopped");
         return true;
       },
@@ -347,8 +348,11 @@ const parksOf = () =>
     "select reason from parks where office_id = $office_id order by park_id",
   );
 
+/** The run's fix round messages: held `steer` intents of the one feedback path. */
 const fixIntentsOf = (run: RunId) =>
-  runIntents(w.office, run).filter((intent) => intent.detail.startsWith("fix-round "));
+  runIntents(w.office, run).filter((intent) =>
+    /^feedback (review|ci|reject|conflict) \S+ next /.test(intent.detail),
+  );
 
 describe("the timing of a fix round (0019 section 7)", () => {
   it("waits for both the head's verdict and its final checks, then sends one message", async () => {
@@ -389,10 +393,11 @@ describe("the timing of a fix round (0019 section 7)", () => {
     // The developer's session continues, not the reviewer's.
     expect(String(session?.work.role)).toBe("developer");
     expect(String(session?.work.agent)).not.toBe("agt-reviewer");
-    // Delivered: the intent sent and resolved, every row with its send time.
+    // Delivered: the held message resolved, keyed on the head, every row with its send time.
     expect(fixIntentsOf(s.run)).toEqual([
-      expect.objectContaining({ kind: "steer", state: "resolved", outcome: "started" }),
+      expect.objectContaining({ kind: "steer", state: "resolved", outcome: "resumed" }),
     ]);
+    expect(fixIntentsOf(s.run)[0]?.detail.startsWith(`feedback review ${H1} next `)).toBe(true);
     expect(feedbackItems(w.office, s.run).every((item) => item.sentAt !== null)).toBe(true);
     expect(events("story.state").at(-1)).toMatchObject({
       data: { story: "DIPO-1", from: "In Review", to: "In Progress" },
@@ -717,7 +722,7 @@ describe("delivery with the session's start", () => {
     await x.fix.idle();
     expect(x.started).toHaveLength(1);
     expect(fixIntentsOf(s.run)).toEqual([
-      expect.objectContaining({ state: "resolved", outcome: "started" }),
+      expect.objectContaining({ state: "resolved", outcome: "resumed" }),
     ]);
     expect(feedbackItems(w.office, s.run).every((item) => item.sentAt !== null)).toBe(true);
     // A restart: nothing of the round is sent again.
@@ -726,34 +731,6 @@ describe("delivery with the session's start", () => {
     expect(await x.fix.recover(officeId())).toBe(0);
     await x.places.drain(officeId());
     expect(x.started).toEqual([]);
-  });
-
-  it("recovers a round whose session started before a stop left its delivery unwritten", async () => {
-    const s = inReview("DIPO-1");
-    reviewed(s, H1, BLOCKED);
-    x.ci.set(s.run, { kind: "green", head: H1 });
-    // Queued but not started: the worker place is held.
-    const busy = storyRun(w, { story: "DIPO-9" });
-    addAgent(w, busy.run, "developer", true);
-    expect(await x.fix.consider(officeId(), s.run)).toBe(true);
-    await x.fix.idle();
-    // The session started, and the daemon stopped before it wrote the delivery.
-    w.t.clock.advance(MINUTE);
-    const at = now();
-    addAgent(w, s.run, "developer", true);
-    write(() =>
-      w.office.run(
-        "update runs set waiting = null, waiting_since = null where office_id = $office_id and run_id = $run",
-        { run: s.run },
-      ),
-    );
-    x.close();
-    x = world();
-    await x.fix.recover(officeId());
-    expect(fixIntentsOf(s.run)).toEqual([
-      expect.objectContaining({ state: "resolved", outcome: "started", sentAt: at }),
-    ]);
-    expect(feedbackItems(w.office, s.run).map((item) => item.sentAt)).toEqual([at, at]);
   });
 });
 

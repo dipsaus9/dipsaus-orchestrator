@@ -1,10 +1,12 @@
 ---
 id: DIPO-362
-title: Decide a run's next state in one pure function with one writer per run table
-status: Refined
+title: >-
+  Send the remaining run messages through sendFeedback and keep an unfinished
+  resume pending
+status: Done
 assignee: []
 created_date: '2026-10-28 08:45'
-updated_date: '2026-10-28 10:31'
+updated_date: '2026-10-28 12:36'
 labels:
   - 'tier:M'
   - 'slice:prune'
@@ -23,7 +25,7 @@ ordinal: 342000
 ## Description
 
 <!-- SECTION:DESCRIPTION:BEGIN -->
-Outcome: one pure function decides a run's next state from its state and an event, and each run table has exactly one writer.
+Outcome: the fix-round message, the park-resume first message and the red-verify feedback go through sendFeedback, and a resume that throws after its lift stays pending instead of stranding the story.
 
 Part of the prune toward the simplified architecture: docs/research/2026-10-24-simplification-audit.md and the Current state of 0003. Split from DIPO-345 (its criterion 2), which absorbed DIPO-319 (read backlog/archive/tasks/ for its findings; its claims part was done by DIPO-348).
 
@@ -33,16 +35,20 @@ unknowns: []
 test_plan:
   entries:
     - kind: "automated"
-      check: "(unit) the transition function covers every state and event pair of a run"
+      check: "(engine) every fix-round, resume and red-verify message arrives through sendFeedback, findings before the maintainer's words"
     - kind: "automated"
-      check: "(lint or unit) no file other than its writer writes runs, parks, agents or worker_hosts"
+      check: "(engine) a resume that throws after its lift stays pending with a notice and the next recovery finishes it"
 ```
 <!-- SECTION:DESCRIPTION:END -->
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 One pure function, with no I/O and no clock reads, decides the next state of a run from its state and an event, and every run transition goes through it
-- [ ] #2 runs, parks, agents and worker_hosts each have one writer, and the three copies of the end-agent SQL are one
-- [ ] #3 A resume whose finishing step throws after the lift reached the branch leaves its intent pending with a notice instead of failing it, so a rescan cannot close the park row and strand the story In Progress (park-resume.ts recover; from the review of DIPO-360)
-- [ ] #4 The fix-round message (review, CI, reject, conflict while In Review), the park-resume first message and DIPO-346's red-verify feedback go through sendFeedback, findings before the maintainer's note; the fix-round intent, deliverFixRound, pendingFixRound, detail.fix and the message, note and held fields of the next-session request are removed (from DIPO-361)
+- [x] #1 A resume whose finishing step throws after the lift reached the branch leaves its intent pending with a notice instead of failing it, so a rescan cannot close the park row and strand the story In Progress (park-resume.ts recover; from the review of DIPO-360)
+- [x] #2 The fix-round message (review, CI, reject, conflict while In Review), the park-resume first message and DIPO-346's red-verify feedback go through sendFeedback, findings before the maintainer's note; the fix-round intent, deliverFixRound, pendingFixRound, detail.fix and the message, note and held fields of the next-session request are removed (from DIPO-361)
 <!-- AC:END -->
+
+## Final Summary
+
+<!-- SECTION:FINAL_SUMMARY:BEGIN -->
+The fix-round message, a resumed park's reason part and note, the conflict-resume message and the red-verify feedback go through sendFeedback, held for the next session and delivered in the transaction that records its agent; findings come before the maintainer's words (resume, steer, answer). The fix-round intent, pendingFixRound, deliverFixRound, ResumeIntent.fix and the next-session request's message, note, held and inRecord fields are removed; migration 0063 rewrites stored intents through the templates without duplicating findings. A resume that throws after its lift reached the branch stays pending with a park.resumeUnfinished notice, on the command path and in recover; the desk says a restart retries it and offers drop or discard. The transition function and one writer per table moved to DIPO-364.
+<!-- SECTION:FINAL_SUMMARY:END -->

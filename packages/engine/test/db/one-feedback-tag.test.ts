@@ -99,7 +99,11 @@ describe("migration 61 (DIPO-361)", () => {
       } finally {
         old.close();
       }
-      const migrated = await open(dir);
+      // Up to 61 only: migration 63 rewrites the fix-round row (`held-fix-rounds.test.ts`).
+      const migrated = await open(
+        dir,
+        MIGRATIONS.filter((step) => step.version <= 61),
+      );
       try {
         const rows = migrated.connection.all<{ detail: string }>(
           "select detail from run_intents order by intent_id",

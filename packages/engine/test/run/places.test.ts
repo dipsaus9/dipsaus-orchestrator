@@ -30,7 +30,7 @@ import {
   waitForPlace,
   waitingStarts,
 } from "../../src/run";
-import type { NextSessionRequest } from "../../src/run/resume";
+import { type HeldSession, withHeld } from "./held-session";
 import { workView } from "../../src/views/work";
 import { encode } from "../../src/workers/claude-cli/encode";
 import { countRows } from "../commands/helpers";
@@ -161,7 +161,7 @@ describe("start order (0019 section 12)", () => {
 
 describe("a resume that finds its place taken (0020 section 1)", () => {
   const DETAIL = "the worker host was lost";
-  const sessions: NextSessionRequest[] = [];
+  const sessions: HeldSession[] = [];
   const lifting: UnparkWriter = {
     lift: async () => ({ commit: null, pushed: true, pushError: null }),
   };
@@ -209,7 +209,7 @@ describe("a resume that finds its place taken (0020 section 1)", () => {
         ender: () => ({ isTracked: () => false }) as unknown as RunEnder,
         resumer: {
           next: async (request) => {
-            sessions.push(request);
+            sessions.push(withHeld(w.office, request, w.t.clock.now()));
             started.push(request.run.story ?? "");
             return { kind: "started", agent: "agt_next" as never, resumed: true };
           },
