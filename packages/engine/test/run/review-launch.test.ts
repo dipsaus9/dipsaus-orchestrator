@@ -26,7 +26,12 @@ import { dirname, join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "bun:test";
 
 import type { OfficeId } from "@dipsaus-orchestrator/contract";
-import { ManualClock, type TempRepo, withTempRepo } from "@dipsaus-orchestrator/testkit";
+import {
+  ManualClock,
+  type TempRepo,
+  withTempDir,
+  withTempRepo,
+} from "@dipsaus-orchestrator/testkit";
 
 import {
   checkCopyComplete,
@@ -35,6 +40,7 @@ import {
   reviewBoxName,
   stageReviewCopy,
 } from "../../src/box/review-box";
+import { BoxError } from "../../src/box/port";
 import type { BoxSession } from "../../src/box/workers";
 import { BOX_RUN_FILE } from "../../src/box/workers";
 import { OFFICE_DEFAULTS, type OfficeConfig } from "../../src/config";
@@ -47,6 +53,7 @@ import {
   reviewCommitFile,
   ReviewLauncher,
   type StoredRun,
+  sweepOldReviewFolders,
 } from "../../src/run";
 import type { LaunchedHost } from "../../src/runs/worker-hosts";
 import { planInBox } from "../../src/workers/claude-cli/box-plan";
@@ -472,6 +479,37 @@ describe("the reviewer's box for each session (0002)", () => {
       expect(w.boxLog).toEqual([]);
     }));
 
+  it("starts no session when the reviewer box's firewall cannot be set (fail closed)", () =>
+    withWorld(async (w) => {
+      const ended: string[] = [];
+      const launcher = new ReviewLauncher({
+        ...w.deps,
+        boxes: {
+          review: async () => {
+            throw new BoxError(
+              "box.firewallFailed",
+              "the box firewall of the box does not show as set.",
+            );
+          },
+          endReview: async (agent) => {
+            ended.push(agent);
+          },
+        },
+      });
+      const outcome = await launcher.start({
+        office: w.rounds.office.officeId as OfficeId,
+        run: w.run,
+        taskMessage: TASK,
+        head: w.tip,
+      });
+      expect(outcome).toMatchObject({ kind: "failed" });
+      expect((outcome as { reason: string }).reason).toContain("does not show as set");
+      expect(w.prepared).toEqual([]);
+      expect(w.started).toEqual([]);
+      // The launcher ends what the box workers may have left, and forgets the head.
+      expect(ended).toHaveLength(1);
+    }));
+
   it("refuses without box workers: a reviewer runs only in a box of its own", () =>
     withWorld(async (w) => {
       const { boxes: _boxes, ...without } = w.deps;
@@ -610,5 +648,50 @@ describe("the reviewer of a running run (DIPO-150, the DIPO-303 review)", () => 
       expect(ingested.map((config) => config.review.model)).toEqual(["sonnet"]);
       expect(s.spec.model).toBe("sonnet");
       await w.launcher.finish(w.rounds.office.officeId as OfficeId, w.run.runId, s.agent);
+    }));
+});
+
+describe("the reviewer folders an earlier binary left (DIPO-347)", () => {
+  it("are removed at daemon start, read-only copy included; nothing else and nothing through a link", () =>
+    withTempDir(async (dir) => {
+      const root = realpathSync(dir);
+      /** An earlier binary's Mac reviewer folder: an empty session and a read-only copy. */
+      const old = (name: string) => {
+        const folder = join(root, name);
+        mkdirSync(join(folder, "session"), { recursive: true });
+        mkdirSync(join(folder, "dipo-box-code-abc", "code", "src"), { recursive: true });
+        writeFileSync(join(folder, "dipo-box-code-abc", "code", "src", "a.ts"), "x\n");
+        writeFileSync(join(folder, "commit"), "c\n");
+        chmodSync(join(folder, "dipo-box-code-abc", "code", "src", "a.ts"), 0o444);
+        for (const sub of [
+          "dipo-box-code-abc/code/src",
+          "dipo-box-code-abc/code",
+          "dipo-box-code-abc",
+        ]) {
+          chmodSync(join(folder, sub), 0o555);
+        }
+        return folder;
+      };
+      const first = old("dipo-review-run_01JDEAD-agt_01JDEAD");
+      const second = old("dipo-review-run_01JMORE-agt_01JMORE");
+      // Not such a folder: another name, and a link with the name.
+      mkdirSync(join(root, "dipo-review-other"));
+      const target = old("elsewhere");
+      symlinkSync(target, join(root, "dipo-review-run_01JLINK-agt_01JLINK"));
+
+      expect(await sweepOldReviewFolders(root)).toEqual([
+        "dipo-review-run_01JDEAD-agt_01JDEAD",
+        "dipo-review-run_01JMORE-agt_01JMORE",
+      ]);
+      expect(existsSync(first)).toBe(false);
+      expect(existsSync(second)).toBe(false);
+      expect(existsSync(join(root, "dipo-review-other"))).toBe(true);
+      expect(lstatSync(join(root, "dipo-review-run_01JLINK-agt_01JLINK")).isSymbolicLink()).toBe(
+        true,
+      );
+      expect(existsSync(join(target, "dipo-box-code-abc", "code", "src", "a.ts"))).toBe(true);
+      // Once: a second start finds nothing.
+      expect(await sweepOldReviewFolders(root)).toEqual([]);
+      unlock(target);
     }));
 });

@@ -20,6 +20,7 @@
 // reviewer, and the box goes.
 
 import { existsSync, readFileSync, rmSync, statSync, writeFileSync } from "node:fs";
+import { chmod, lstat, readdir, rm } from "node:fs/promises";
 import { join } from "node:path";
 
 import {
@@ -188,6 +189,53 @@ export function gitReviewOps(gitOf: (office: OfficeId) => OfficeGit | undefined)
       return sizeClassOfWorkspace(gitWorkspace({ git, location: worktreeAt(git, worktree) }));
     },
   };
+}
+
+/**
+ * The name of a reviewer session's folder an earlier binary made in dipo's temp root for its Mac
+ * reviewer (DIPO-276): `dipo-review-<run>-<agent>`, with a read-only copy (0555 folders) inside.
+ */
+const OLD_REVIEW_FOLDER = /^dipo-review-(run_[0-9A-Za-z]+)-(agt_[0-9A-Za-z]+)$/;
+
+/** Gives every folder below `dir` its owner's write bit back, never through a link. */
+async function unlockTree(dir: string): Promise<void> {
+  await chmod(dir, 0o700);
+  for (const entry of await readdir(dir, { withFileTypes: true })) {
+    if (entry.isDirectory() && !entry.isSymbolicLink()) await unlockTree(join(dir, entry.name));
+  }
+}
+
+/**
+ * Removes, at daemon start, every reviewer folder an earlier binary left in `tmpRoot` (its Mac
+ * reviewer's read-only copy; the reviewer now runs in a box, 0002): only real folders of this user
+ * with that name, never through a link, made writable first. A one-time cleanup of the move to
+ * reviewer boxes. Never rejects; resolves to the names removed.
+ */
+export async function sweepOldReviewFolders(
+  tmpRoot: string,
+  uid: number | undefined = process.getuid?.(),
+): Promise<string[]> {
+  let entries: string[];
+  try {
+    entries = await readdir(tmpRoot);
+  } catch {
+    return [];
+  }
+  const removed: string[] = [];
+  for (const name of entries.toSorted()) {
+    if (!OLD_REVIEW_FOLDER.test(name)) continue;
+    const path = join(tmpRoot, name);
+    try {
+      const stat = await lstat(path);
+      if (!stat.isDirectory() || (uid !== undefined && stat.uid !== uid)) continue;
+      await unlockTree(path);
+      await rm(path, { recursive: true, force: true });
+      removed.push(name);
+    } catch {
+      // Left for the next start.
+    }
+  }
+  return removed;
 }
 
 /** The prefix of the file in the run directory that names the head a reviewer session reviews. */

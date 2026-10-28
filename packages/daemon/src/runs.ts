@@ -74,6 +74,7 @@ import {
   readBaseBox,
   startBoxWebRoute,
   startModelProxy,
+  sweepOldReviewFolders,
   partStageRoot,
   sweepPartStages,
   sweepTokenCheckLeftovers,
@@ -296,6 +297,11 @@ export interface DaemonRuns {
    * many rounds it queued.
    */
   recoverFixRounds(): Promise<number>;
+  /**
+   * Removes the read-only reviewer folders an earlier binary left in the temp root (DIPO-347), at
+   * daemon start by the recovery step. Never rejects.
+   */
+  sweepOldReviewFolders(): Promise<string[]>;
   /**
    * The auto-merge's ports into the run services (0002): a conflict merge dipo committed is
    * recorded and goes to the worker as one fix round, a maintainer reject as another, and the
@@ -1267,6 +1273,7 @@ export function daemonRuns(options: DaemonRunsOptions): DaemonRuns {
     stopBoxPasses,
     testBoxes,
     onBoxTick: (hook) => void boxTickHooks.push(hook),
+    sweepOldReviewFolders: () => sweepOldReviewFolders(realDir(options.tmpRoot)),
     recoverFixRounds: async () => {
       let queued = 0;
       for (const office of options.offices.loadedOffices()) {

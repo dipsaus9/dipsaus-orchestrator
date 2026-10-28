@@ -1395,6 +1395,13 @@ async function serve(run: Run, lock: HeldLock): Promise<number> {
         // (DIPO-271).
         // And the reviewer boxes a stopped daemon left (0002).
         await runs.finishEndedBoxes({ listBoxes: true });
+        // And the read-only reviewer folders of an earlier binary's Mac reviewer (DIPO-347).
+        const folders = await runs.sweepOldReviewFolders();
+        if (folders.length > 0) {
+          context.logger.info("removed reviewer folders an earlier binary left", {
+            removed: folders,
+          });
+        }
       },
     });
     // Open tests (DIPO-309): each whose test box still runs gets its forwarder again; the others

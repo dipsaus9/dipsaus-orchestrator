@@ -149,6 +149,7 @@ export {
   ReviewLauncher,
   reviewerSettings,
   snapshotReviewCaps,
+  sweepOldReviewFolders,
 } from "./review-launch";
 export type {
   ReviewGit,
