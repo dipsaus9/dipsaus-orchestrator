@@ -1,9 +1,10 @@
 // The handoff block (0014 section 6): what a new session for a story with earlier work gets
 // instead of a transcript. Code gathers it: the commits on the branch since the merge base, the
 // uncommitted work (`git diff --stat HEAD` and the untracked files), the criteria status of the
-// last report, the last verify result, open feedback with the maintainer's resume note (0020
-// sections 3 and 6), and the previous worker's notes, the only model-written part (at most 1,500
-// characters). The reviewer never gets one.
+// last report, the last verify result, open feedback (0020 section 6), and the previous worker's
+// notes, the only model-written part (at most 1,500 characters). The maintainer's resume note is not
+// in the block: it is a held message of the one feedback path (0002), after the task message. The
+// reviewer never gets one.
 //
 // A box run (0021 sections 6 and 8): the next session runs in the same kept box, whose files are
 // the previous session's, while dipo's Mac worktree only follows the delivered parts with its
@@ -48,8 +49,6 @@ export interface HandoffFacts {
   readonly criteria: readonly WorkerReportCriterion[] | null;
   readonly verify: LastVerify | null;
   readonly feedback: readonly HandoffFeedback[];
-  /** The maintainer's resume note (0020 section 3), listed after the open feedback. */
-  readonly note?: string;
   /** The previous worker's notes; null when there are none. */
   readonly notes: string | null;
   /** A box run: the changes are in the kept box, not in the Mac worktree (`BOX_CHANGES`). */
@@ -69,8 +68,6 @@ export interface GatherHandoffOptions {
   readonly lastReport: { readonly criteria: readonly WorkerReportCriterion[] } | null;
   readonly lastVerify: LastVerify | null;
   readonly openFeedback: readonly HandoffFeedback[];
-  /** The maintainer's resume note, when the resume carries one. */
-  readonly note?: string;
   /** A box run: the Mac worktree's diff and untracked files are not read. */
   readonly box?: boolean;
   /** The run's caps and usage: the block ends with the budget line (DIPO-256). */
@@ -91,7 +88,6 @@ export async function gatherHandoff(options: GatherHandoffOptions): Promise<Hand
     .map((entry) => entry.slice(3))
     .toSorted();
   const notes = latestWorkerNotes(options.office, location.workTree);
-  const note = options.note?.trim() ?? "";
   return {
     commits: commits.trimEnd(),
     diffstat: diffstat.trimEnd(),
@@ -99,7 +95,6 @@ export async function gatherHandoff(options: GatherHandoffOptions): Promise<Hand
     criteria: options.lastReport?.criteria ?? null,
     verify: options.lastVerify,
     feedback: options.openFeedback,
-    ...(note === "" ? {} : { note }),
     notes: notes?.text ?? null,
     ...(box ? { box: true } : {}),
     ...(options.budget === undefined ? {} : { budget: options.budget }),
@@ -134,7 +129,7 @@ function feedbackLines(items: readonly HandoffFeedback[]): string {
   return items.map((item) => `- ${item.text.split("\n")[0] ?? ""}`).join("\n");
 }
 
-/** The most characters of the maintainer's resume note the handoff carries. */
+/** The most characters of a maintainer's note a worker gets (`capNote`). */
 export const HANDOFF_NOTE_MAX = 1_000;
 
 const noteMarker = (shown: number, total: number): string =>
@@ -142,8 +137,7 @@ const noteMarker = (shown: number, total: number): string =>
 
 /**
  * The maintainer's note with LF line endings, trimmed and capped at `HANDOFF_NOTE_MAX` characters
- * with a marker; empty without a note. Every place a note reaches a worker uses it: the handoff
- * block and the first message of a native resume or a fix round (DIPO-155).
+ * with a marker; empty without a note. Every place a note reaches a worker uses it (DIPO-155).
  */
 export function capNote(note: string | undefined): string {
   const text = (note ?? "").replace(/\r\n?/g, "\n").trim();
@@ -154,38 +148,21 @@ export function capNote(note: string | undefined): string {
   return `${shown.trimEnd()}\n${noteMarker(shown.trimEnd().length, text.length)}`;
 }
 
-/**
- * The maintainer's resume note as one block after the open feedback (0020 section 3): capped at
- * `HANDOFF_NOTE_MAX` characters with a marker, behind a fixed lead, and every further line
- * indented, so no line of it ever starts a line of its own in the message. Null without a note.
- */
-export function noteBlock(note: string | undefined): string | null {
-  const shown = capNote(note);
-  if (shown === "") return null;
-  const [first, ...rest] = shown.split("\n");
-  return [
-    `- Note from the maintainer: ${first ?? ""}`,
-    ...rest.map((line) => (line.trim() === "" ? "" : `  ${line}`)),
-  ].join("\n");
-}
-
 /** Room the handoff keeps for its headings, criteria status and verify line. */
 const HANDOFF_FRAME = 600;
 /** The smallest share a list gets, however small the budget. */
 const HANDOFF_LIST_MIN = 200;
 
 /**
- * The `handoff` section. The notes are capped at 1,500 characters and the maintainer's resume note
- * at 1,000; the four lists (commits, changes, untracked files, open feedback) share what is left
- * of `budget` after them and the frame, each cut at its head with a marker that says how to see
- * the rest, so the block stays within `budget` and its closing tag is never cut. The resume note
- * follows the open feedback list, outside its cut, so it always shows.
+ * The `handoff` section. The notes are capped at 1,500 characters; the four lists (commits,
+ * changes, untracked files, open feedback) share what is left of `budget` after them and the
+ * frame, each cut at its head with a marker that says how to see the rest, so the block stays
+ * within `budget` and its closing tag is never cut.
  */
 export function renderHandoff(facts: HandoffFacts, budget = HANDOFF_BUDGET_DEFAULT): string {
-  const note = noteBlock(facts.note);
   const listMax = Math.max(
     HANDOFF_LIST_MIN,
-    Math.floor((budget - WORKER_NOTES_MAX - (note?.length ?? 0) - HANDOFF_FRAME) / 4),
+    Math.floor((budget - WORKER_NOTES_MAX - HANDOFF_FRAME) / 4),
   );
   const list = (text: string, label: string, hint: string) =>
     text === "" ? NONE : cutHead(text, listMax, listMarker(label, hint)).text;
@@ -200,15 +177,7 @@ export function renderHandoff(facts: HandoffFacts, budget = HANDOFF_BUDGET_DEFAU
       : list(facts.untracked.join("\n"), "untracked list", "run git status for the rest."),
     criteria: criteriaLines(facts.criteria),
     verify: verifyLine(facts.verify, box),
-    feedback:
-      note === null
-        ? list(feedbackLines(facts.feedback), "feedback list", "the rest is left out.")
-        : [
-            ...(facts.feedback.length === 0
-              ? []
-              : [list(feedbackLines(facts.feedback), "feedback list", "the rest is left out.")]),
-            note,
-          ].join("\n"),
+    feedback: list(feedbackLines(facts.feedback), "feedback list", "the rest is left out."),
     budget: facts.budget === undefined ? "" : budgetLine(facts.budget),
     notes: facts.notes === null || facts.notes.trim() === "" ? NONE : capNotes(facts.notes),
   });

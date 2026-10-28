@@ -57,6 +57,7 @@ import {
   RunResumer,
   runIntents,
   runTotals,
+  noteText,
   storeBackstopSnapshot,
   STOP_AGAIN_DETAIL,
 } from "../../src/run";
@@ -93,6 +94,8 @@ import {
   loggedEvents,
   target,
 } from "../ingest/helpers";
+import { type HeldSession, withHeld } from "./held-session";
+import { sendFeedback } from "../../src/run/feedback";
 import { RECORDINGS_DIR } from "../workers/replay";
 import { memoryWorkspace } from "../context/helpers";
 import { plainTask } from "../prompts/helpers";
@@ -121,7 +124,7 @@ interface World {
   readonly f: IngestFixture;
   readonly work: WorkRef;
   readonly sent: HostOp[][];
-  readonly next: NextSessionRequest[];
+  readonly next: HeldSession[];
   nextOutcome: NextSessionOutcome;
   onNext: ((request: NextSessionRequest) => void) | null;
   /** The next session never returns, as when the daemon stops inside it. */
@@ -196,7 +199,7 @@ function daemon(
     ender: () => control,
     resumer: {
       next: async (request) => {
-        w.next.push(request);
+        w.next.push(withHeld(w.f.office, request, w.f.t.clock.now(), false));
         w.onNext?.(request);
         if (w.hang) return new Promise<NextSessionOutcome>(() => undefined);
         return w.nextOutcome;
@@ -1745,49 +1748,90 @@ describe("the prompt parts of a resume and a handoff (DIPO-177)", () => {
   });
 });
 
-describe("the maintainer's resume note in the next session (0020 section 3, DIPO-155)", () => {
-  const noted = {
-    message: "dipo parked this story as stopped (maintainer), and the maintainer resumed it.",
-    note: "/compact the tests first",
-    held: ["The maintainer says: mind the edge case."],
-  };
+/** The state and outcome of the run's intents `ids`. */
+function intentStates(ids: readonly number[]): (string | null)[][] {
+  return runIntents(w.f.office, w.f.run)
+    .filter((intent) => ids.includes(intent.intentId))
+    .map((intent) => [intent.state, intent.outcome]);
+}
 
-  it("a native resume sends the delta, then the note in its template, then what waited", async () => {
+describe("the held messages in the next session (0002, 0020)", () => {
+  const PARKED = "dipo parked this story as by-maintainer, and the maintainer resumed it.";
+  const STEER = "The maintainer says: mind the edge case.";
+  const NOTE = noteText("/compact the tests first");
+
+  /** A steer held while parked, then a resume's reason part and its note, in that order. */
+  function holdResume(): number[] {
+    const { office, run, t } = w.f;
+    return office.immediate(() => [
+      sendFeedback(
+        office,
+        run,
+        { source: "steer", key: "req_s", text: STEER },
+        { at: t.clock.now() },
+      ).intentId,
+      sendFeedback(
+        office,
+        run,
+        { source: "park", key: "resume-1", text: PARKED },
+        { at: t.clock.now() },
+      ).intentId,
+      sendFeedback(office, run, { source: "resume", text: NOTE }, { at: t.clock.now() }).intentId,
+    ]);
+  }
+
+  it("a native resume sends the delta, then the findings, then the maintainer's words oldest first", async () => {
     firstSession();
+    const ids = holdResume();
     const outcome = await realResumer(hosts, {
       probe: async () => null,
       story: async () => storyOf(),
       handoff,
       workspace,
-    }).next({ ...nextRequest(), ...noted });
+    }).next(nextRequest());
     expect(outcome).toMatchObject({ kind: "started", resumed: true });
-    expect(sentText()).toBe(
-      [noted.message, "Note from the maintainer: /compact the tests first", noted.held[0]].join(
-        "\n\n",
-      ),
-    );
+    const text = sentText();
+    expect(text.split("\n\n").slice(-3)).toEqual([PARKED, STEER, NOTE]);
+    expect(text.startsWith("dipo resumed this session")).toBe(true);
+    // Delivered in the transaction that recorded the new agent.
+    expect(intentStates(ids)).toEqual([
+      ["resolved", "resumed"],
+      ["resolved", "resumed"],
+      ["resolved", "resumed"],
+    ]);
   });
 
-  it("a handoff lists the note in its block's open feedback, once, never starting the message", async () => {
+  it("a handoff sends the task message, then the held messages once, never starting with the note", async () => {
     firstSession();
+    const ids = holdResume();
     const outcome = await realResumer(
       hosts,
-      {
-        probe: async () => null,
-        story: async () => storyOf(),
-        handoff: async (_office, _run, _report, extra) => ({
-          ...(await handoff()),
-          ...(extra?.note === undefined ? {} : { note: extra.note }),
-        }),
-        workspace,
-      },
+      { probe: async () => null, story: async () => storyOf(), handoff, workspace },
       () => ({ ok: false, reason: "the context is too full" }),
-    ).next({ ...nextRequest(), ...noted });
+    ).next(nextRequest());
     expect(outcome).toMatchObject({ kind: "started", resumed: false });
     const text = sentText();
     expect(text.split("Note from the maintainer: /compact the tests first")).toHaveLength(2);
     expect(text.startsWith("/")).toBe(false);
-    expect(text.indexOf(noted.message)).toBeLessThan(text.indexOf(noted.held[0] ?? ""));
+    expect(text.indexOf(PARKED)).toBeLessThan(text.indexOf(STEER));
+    expect(text.indexOf(STEER)).toBeLessThan(text.indexOf(NOTE));
+    expect(intentStates(ids).every(([state]) => state === "resolved")).toBe(true);
+  });
+
+  it("keeps the held messages when the session does not start", async () => {
+    firstSession();
+    const ids = holdResume();
+    const outcome = await realResumer(
+      hosts,
+      { probe: async () => null, story: async () => storyOf(), handoff, workspace },
+      () => ({ ok: false, reason: "the context is too full" }),
+    ).next({ ...nextRequest(), requireResume: true });
+    expect(outcome).toMatchObject({ kind: "notResumed" });
+    expect(intentStates(ids)).toEqual([
+      ["pending", null],
+      ["pending", null],
+      ["pending", null],
+    ]);
   });
 });
 
@@ -2078,14 +2122,13 @@ describe("the handoff of a new session: notes, open feedback and the context pac
       hosts,
       { probe: async () => null, story: async () => storyOf(), workspace, git: quietGit },
       tooFull,
-    ).next({ ...nextRequest(), note: "Use the old parser." });
+    ).next(nextRequest());
     expect(outcome).toMatchObject({ kind: "started", resumed: false });
     expect(sentText()).toContain(
       [
         "Open feedback:",
         "- Required check ci-ok failed on the pushed head.",
         "- Blocking finding: greet.ts drops the name.",
-        "- Note from the maintainer: Use the old parser.",
         "Notes from the previous session:",
         "Next: the CI fix.",
         "Budget: 0 turns used, no turns limit; 0 minutes used, no minutes limit; 0 tokens used, 1,000,000 left.",

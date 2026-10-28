@@ -26,7 +26,7 @@ import {
   type UnparkBranchRequest,
   type UnparkWriter,
 } from "../../src/run";
-import type { NextSessionRequest } from "../../src/run/resume";
+import { type HeldSession, withHeld } from "./held-session";
 import { reopen } from "../../src/run/rounds";
 import { addStory } from "../../src/stories/keys";
 import { encode } from "../../src/workers/claude-cli/encode";
@@ -42,7 +42,7 @@ interface World {
   readonly f: IngestFixture;
   readonly key: StoryKey;
   readonly lifts: UnparkBranchRequest[];
-  readonly sessions: NextSessionRequest[];
+  readonly sessions: HeldSession[];
 }
 
 let w: World;
@@ -141,7 +141,7 @@ function built(unpark: UnparkWriter): { outcomes: RunOutcomes; resumption: Resum
     ender: () => ender,
     resumer: {
       next: async (request) => {
-        w.sessions.push(request);
+        w.sessions.push(withHeld(f.office, request, f.t.clock.now()));
         return { kind: "started", agent: "agt_x" as never, resumed: true };
       },
     },

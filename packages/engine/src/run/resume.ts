@@ -6,14 +6,18 @@
 // - Resume first. When the previous session can be resumed (`canResume`: transcript present, the
 //   same Claude Code version and L1+L2 hash, under the context share, re-reading cheaper than the
 //   re-read factor times a handoff) the new agent continues it with `--resume` and the full flag
-//   set, with a short delta as first message (`prompts/feedback/resume.md`), or the message the
-//   caller gives (the report feedback). A full context always starts a new session.
+//   set, with a short delta as first message (`prompts/feedback/resume.md`). A full context always
+//   starts a new session.
 // - Otherwise a new session with an engine-made session id and a 0014 handoff: the story's task
 //   message with the handoff block of the worktree (commits since the claim's base, uncommitted
 //   changes, the last report's criteria, the last verify, the run's open feedback from
-//   `feedback_items` with the resume note, the previous worker's notes; 0020 section 6). The
-//   context pack the task message was built from is recorded for the worktree
-//   (`recordContextPack`) when the new session starts with it.
+//   `feedback_items`, the previous worker's notes; 0020 section 6). The context pack the task
+//   message was built from is recorded for the worktree (`recordContextPack`) when the new
+//   session starts with it.
+// - The one feedback path (0002): every message held for the run's next developer session
+//   (`heldFeedback`: a fix round's findings, a resumed park's reason and note, a steer) follows the
+//   delta or the task message, and is marked delivered in the transaction that records the new
+//   agent. The caller passes no text of its own.
 // - The launch checks run again before every launch or resume (`WorkerPort.prepare`), with the
 //   office's resolved verify for the verify tools check (DIPO-173); a refused check is
 //   `startFailed` with the adapter hold set, a refused verify tool `failed` with the plan's
@@ -81,6 +85,7 @@ import { hostAlive, workerHostsOf } from "../runs/worker-hosts";
 import type { BackstopSnapshot } from "./backstop";
 import { runBudgetFacts } from "./budget-line";
 import { runCaps, runTotals } from "./caps";
+import { deliverHeld, type HeldFeedback, heldFeedback } from "./feedback";
 import {
   capsOf,
   LAUNCH_NOTICES,
@@ -93,6 +98,7 @@ import {
   type TierCaps,
 } from "./launch";
 import { openFeedbackOf } from "./open-feedback";
+import { placeOfRole } from "./places";
 import { renderRunPrompts, sessionUuid } from "./prompts";
 import type { StoredRun } from "./records";
 import { clearSignals } from "./signals";
@@ -100,11 +106,22 @@ import type { RunBase } from "./work-run";
 
 /**
  * The maintainer's note as the worker reads it (`feedback/maintainer-note.md`, 0020 section 3): never
- * sent verbatim, so maintainer text never starts a message, and capped with the handoff block's
- * limit and marker (`capNote`).
+ * sent verbatim, so maintainer text never starts a message, and capped with a marker (`capNote`).
  */
 export function noteText(note: string): string {
   return renderTemplate(maintainerNoteTemplate, { text: capNote(note) });
+}
+
+/**
+ * The messages held for the run's next session (`heldFeedback`); none for a reviewer session
+ * (0002), so they wait for the developer's. The session is of the run's role, which it is
+ * recorded with, whatever phase the run's last session left: a developer resumed after a review
+ * (a CI park while In Review) gets them (DIPO-362).
+ */
+export function sessionFeedback(office: OfficeHandle, run: StoredRun): HeldFeedback {
+  return placeOfRole(run.role) === "reviewer"
+    ? { ids: [], texts: [] }
+    : heldFeedback(office, run.runId);
 }
 
 /** 0014 section 6 until `office.yaml` version 2 (0014 amendment, DIPO-51): engine constants. */
@@ -188,15 +205,14 @@ export interface RunResumerDeps {
     office: OfficeHandle,
     run: StoredRun,
     lastReport: WorkerReport | null,
-    /** A box run, and the maintainer's resume note when the resume carries one. */
+    /** A box run. */
     extra?: HandoffExtra,
   ) => Promise<HandoffFacts>;
 }
 
-/** What a handoff reads besides the run: a box run, and the maintainer's resume note. */
+/** What a handoff reads besides the run: a box run. */
 export interface HandoffExtra {
   readonly box: boolean;
-  readonly note?: string;
 }
 
 /** A new session's task message with its handoff block, and what it was built from. */
@@ -215,18 +231,6 @@ export interface NextSessionRequest {
   readonly mode: "resume" | "handoff";
   /** Why the previous session ended, for the notice and the resume message. */
   readonly why: string;
-  /** The first message instead of the resume delta, added after the handoff block otherwise. */
-  readonly message?: string;
-  /**
-   * The maintainer's resume note (0020 section 3), listed with the open feedback of a handoff. A
-   * native resume does not read it here: its first message is the caller's.
-   */
-  readonly note?: string;
-  /**
-   * Steers and feedback that waited for this session, sent after the first message and, in a native
-   * resume, after the note (DIPO-155); a caller without a note merges them into `message` instead.
-   */
-  readonly held?: readonly string[];
   /**
    * Only a resume will do (DIPO-57: a host lost while the daemon was down): when the session
    * cannot be resumed nothing starts and the outcome is `notResumed`.
@@ -237,11 +241,6 @@ export interface NextSessionRequest {
   /** When the run's first worker started, on the engine clock. */
   readonly startedAt: number;
   readonly snapshot: BackstopSnapshot | null;
-  /**
-   * Runs in the transaction that records the new agent (DIPO-148): what the caller marks as
-   * delivered with the session, so a stop between the start and a later write never sends it twice.
-   */
-  readonly inRecord?: (agent: AgentId, at: number) => void;
 }
 
 export type NextSessionOutcome =
@@ -368,7 +367,6 @@ export class RunResumer implements NextSession {
     try {
       handoff = await this.#handoffMessage(office, git, run, config, facts?.lastReport ?? null, {
         box,
-        ...(request.note === undefined ? {} : { note: request.note }),
       });
     } catch (error) {
       handoff = { error: messageOf(error) };
@@ -430,19 +428,17 @@ export class RunResumer implements NextSession {
       resume && previous.sessionId !== null
         ? { id: previous.sessionId, resume: true }
         : { id: sessionUuid(agent), resume: false };
-    // A native resume: the caller's first message, then the maintainer's note in its template
-    // (0020 section 3), then what waited; a handoff lists the note in its block's open feedback.
-    const taskMessage = resume
-      ? [
-          request.message ?? renderTemplate(FEEDBACK_TEMPLATES.resume, { reason: request.why }),
-          request.note === undefined ? undefined : noteText(request.note),
-          ...(request.held ?? []),
-        ]
-          .filter((part) => part !== undefined && part !== "")
-          .join("\n\n")
-      : [(handoff as { text: string }).text, request.message, ...(request.held ?? [])]
-          .filter((part) => part !== undefined && part !== "")
-          .join("\n\n");
+    // The messages of the one feedback path that waited for this session follow the resume delta
+    // or the task message.
+    const held = sessionFeedback(office, run);
+    const taskMessage = [
+      resume
+        ? renderTemplate(FEEDBACK_TEMPLATES.resume, { reason: request.why })
+        : (handoff as { text: string }).text,
+      ...held.texts,
+    ]
+      .filter((part) => part !== "")
+      .join("\n\n");
     const spec = runWorkerSpec(
       deps.worker,
       { runId: run.runId, agent, caps: tier, web: config.worker.web },
@@ -530,7 +526,8 @@ export class RunResumer implements NextSession {
           at: deps.clock.now(),
         },
       );
-      request.inRecord?.(agent, deps.clock.now());
+      // The held messages went with this session, in the transaction that records it.
+      deliverHeld(office, run.runId, held.ids, deps.clock.now());
       // The prompt parts this session sent (0014 section 2): a handoff sends the system file and
       // the task message; a resume sends only its task message, the system file being the
       // session's own.
@@ -769,7 +766,7 @@ export class RunResumer implements NextSession {
     run: StoredRun,
     config: OfficeConfig,
     lastReport: WorkerReport | null,
-    /** A box worker's run: the box scope section (DIPO-272) and the box handoff; the resume note. */
+    /** A box worker's run: the box scope section (DIPO-272) and the box handoff. */
     extra: HandoffExtra = { box: false },
   ): Promise<HandoffMessage> {
     const deps = this.#deps;
@@ -820,7 +817,6 @@ export class RunResumer implements NextSession {
       lastVerify: null,
       // The items no later approval answered (0020 section 6).
       openFeedback: openFeedbackOf(office, run.runId),
-      ...(extra.note === undefined ? {} : { note: extra.note }),
       ...(extra.box ? { box: true } : {}),
       budget: runBudgetFacts(office, run, this.#deps.clock.now()),
     });

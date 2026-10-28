@@ -22,7 +22,7 @@ import {
   type RunEnder,
   type UnparkBranchRequest,
 } from "../../src/run";
-import type { NextSessionRequest } from "../../src/run/resume";
+import { type HeldSession, withHeld } from "./held-session";
 import { addStory } from "../../src/stories/keys";
 import { encode } from "../../src/workers/claude-cli/encode";
 import type { Caps } from "../../src/workers/types";
@@ -36,7 +36,7 @@ interface World {
   readonly f: IngestFixture;
   readonly key: StoryKey;
   readonly lifts: UnparkBranchRequest[];
-  readonly sessions: NextSessionRequest[];
+  readonly sessions: HeldSession[];
   /** The fake planning lane's resumes of a park with no run. */
   readonly holds: { parkId: number; note: string | undefined }[];
 }
@@ -116,7 +116,7 @@ function resumption(): Resumption {
       ender: () => ender,
       resumer: {
         next: async (request) => {
-          w.sessions.push(request);
+          w.sessions.push(withHeld(f.office, request, f.t.clock.now()));
           return { kind: "started", agent: "agt_x" as never, resumed: true };
         },
       },

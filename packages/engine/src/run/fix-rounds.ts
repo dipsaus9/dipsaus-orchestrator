@@ -18,27 +18,26 @@
 //   otherwise the round waits for the CI of the verdict's head. A reject is sent at once.
 // - Queue. One round per head: in one serialized step of the office (`Places.serialized`, so it
 //   cannot race a pickup's place check), one transaction reopens the run for its fix round
-//   (`reopen`, phase `build`, waiting for the worker place), stores the round's steer
-//   intent (`fix-round {head, advisories}`) and its `feedback_items` rows, send-once per head
-//   (`planFeedback`), and raises `same-failure` when a CI or verify signature is sent twice in a
-//   row. The rows and the intent are written before the places' shared pre-start cap check
-//   (DIPO-205), so a round that check parks keeps its feedback, undelivered, for a top-up resume.
+//   (`reopen`, phase `build`, waiting for the worker place), holds the round's one message on the
+//   one feedback path (`sendFeedback`, source the round's first item's, keyed on the head) with
+//   its `feedback_items` rows, send-once per head (`planFeedback`), and raises `same-failure`
+//   when a CI or verify signature is sent twice in a row. The rows and the message are written
+//   before the places' shared pre-start cap check (DIPO-205), so a round that check parks keeps
+//   its feedback, held, for the resume's session.
 // - Start (`START_KINDS.fix`, the worker place). The story's status goes back to In Progress on
 //   its branch (`<ID>: status In Progress`, lane a, through the park lift's single write path),
-//   then the developer session continues: a resume when `canResume` holds, else a new session with
-//   the handoff. A box run's developer gets a new session in its box with the feedback as its task
-//   (0021 section 6; keeping the box from claim to merge is DIPO-240's). The intent is marked sent
-//   and its items delivered in the transaction that records the new agent; a session that did not
-//   start parks the story as any next session does, and the feedback stays undelivered with its
-//   intent. A round that cannot start and will not on its own (no feedback behind the wait, no
-//   developer session to continue, a status commit that failed `FIX_LIFT_TRIES` times in a row)
-//   parks the story `worker-failed` instead of holding the worker place.
-// - Recovery (`recover`, the daemon's recovery step). A round whose session started before a stop
-//   left its delivery unwritten is marked delivered at that session's start, and every run that
-//   ended reviewed with a live claim gets `consider`.
+//   then the developer's next session starts: a box run's developer gets a new session in its box
+//   with a handoff (0008). That session carries every held message, the round's findings first and
+//   a resume note after them, and marks them and their items delivered in the transaction that
+//   records the new agent (`RunResumer`); a session that did not start parks the story as any
+//   next session does, and the feedback stays held. A round that cannot start and will not on its
+//   own (no feedback held behind the wait, no developer session to continue, a status commit that
+//   failed `FIX_LIFT_TRIES` times in a row) parks the story `worker-failed` instead of holding the
+//   worker place.
+// - Recovery (`recover`, the daemon's recovery step): every run that ended reviewed with a live
+//   claim gets `consider`.
 
 import {
-  type AgentId,
   type Clock,
   type OfficeId,
   RoleId,
@@ -53,6 +52,7 @@ import type { OfficeConfig } from "../config";
 import type { OfficeHandle } from "../db/office";
 import {
   advisoryLines,
+  capFeedbackText,
   type FixItem,
   fixRoundMessage,
   rejectFeedbackItem,
@@ -69,16 +69,10 @@ import { REVIEWER_ROLE } from "./caps";
 import { runConfigOf } from "./config-snapshot";
 import type { RunEnding } from "./control-types";
 import type { DecidingGuard } from "./deciding";
-import {
-  feedbackOfIntent,
-  markFeedbackSent,
-  nextFixRound,
-  planFeedback,
-  sameFailureAgain,
-  storeFeedbackItems,
-} from "./feedback-items";
-import { markIntentSent, recordIntent, resolveIntent, runIntents } from "./intents";
-import { intentRest, intentTag, OUTCOME_ENDS, type RunView } from "./outcome-types";
+import { feedbackIntents, type FeedbackSource, heldFeedback, sendFeedback } from "./feedback";
+import { nextFixRound, planFeedback, sameFailureAgain, storeFeedbackItems } from "./feedback-items";
+import { resolveIntent, runIntents } from "./intents";
+import { OUTCOME_ENDS, type RunView } from "./outcome-types";
 import { type BranchUnpark, type UnparkWriter } from "./park";
 import { heldByPark } from "./park-state";
 import { recordBranchPush } from "../story-pr/records";
@@ -88,8 +82,13 @@ import type { RunStoryFacts } from "./resume";
 import { REVIEWED_END, reopen } from "./rounds";
 import { raiseSignal } from "./signals";
 
-/** The tag of a fix round's steer intent: `steer` `fix-round {"head":…,"advisories":[…]}`. */
-export const FIX_ROUND_TAG = "fix-round";
+/** The sources a fix round's message can have: the source of its first item (0002). */
+const ROUND_SOURCES: ReadonlySet<string> = new Set<FeedbackSource>([
+  "review",
+  "ci",
+  "reject",
+  "conflict",
+]);
 
 /** `engine.notice` codes of the fix rounds. */
 export const FIX_NOTICES = {
@@ -103,25 +102,13 @@ export const FIX_ROUNDS_RECOVERY_STEP = "fix-rounds-recover";
 /** How many times in a row the status commit of a fix round may fail before the story parks. */
 export const FIX_LIFT_TRIES = 3;
 
-/** What a fix round's intent detail holds after its tag. */
-interface FixIntentDetail {
-  readonly head: string;
-  readonly advisories: readonly string[];
-}
-
 /** Starts the next developer session of a run (`SessionStarts.next`). */
 export interface FixSessions {
   next(
     office: OfficeHandle,
     run: StoredRun,
     view: RunView,
-    request: {
-      readonly mode: "resume" | "handoff";
-      readonly why: string;
-      readonly message?: string;
-      /** Runs in the transaction that records the new agent. */
-      readonly inRecord?: (agent: AgentId, at: number) => void;
-    },
+    request: { readonly mode: "resume" | "handoff"; readonly why: string },
   ): Promise<boolean>;
 }
 
@@ -190,43 +177,14 @@ export function lastReviewVerdict(office: OfficeHandle, runId: RunId): StoredRev
   return row === null ? null : reviewVerdictForTree(office, runId, row.code_tree_key);
 }
 
-/** The fix round intents of the run, oldest first. */
-function fixIntents(office: OfficeHandle, runId: RunId) {
-  return runIntents(office, runId).filter(
-    (intent) => intent.kind === "steer" && intentTag(intent.detail) === FIX_ROUND_TAG,
-  );
+/** The fix rounds' messages of the run, oldest first: each keyed on the head it answers. */
+function roundMessages(office: OfficeHandle, runId: RunId) {
+  return feedbackIntents(office, runId).filter((item) => ROUND_SOURCES.has(item.source));
 }
 
-function detailOf(detail: string): FixIntentDetail | null {
-  try {
-    const parsed = JSON.parse(intentRest(detail)) as Partial<FixIntentDetail>;
-    if (typeof parsed.head !== "string") return null;
-    return {
-      head: parsed.head,
-      advisories: Array.isArray(parsed.advisories)
-        ? parsed.advisories.filter((line): line is string => typeof line === "string")
-        : [],
-    };
-  } catch {
-    return null;
-  }
-}
-
-/** True when a fix round was queued for `head` already: one round per head (section 8). */
+/** True when a fix round was queued for `head` already: one round per head (0002). */
 export function fixRoundQueued(office: OfficeHandle, runId: RunId, head: string): boolean {
-  return fixIntents(office, runId).some((intent) => detailOf(intent.detail)?.head === head);
-}
-
-/** The run's fix round intent still waiting for its session, or null. */
-export function pendingFixRound(
-  office: OfficeHandle,
-  runId: RunId,
-): { readonly intentId: number; readonly detail: FixIntentDetail } | null {
-  const intent = fixIntents(office, runId)
-    .filter((candidate) => candidate.state === "pending")
-    .at(-1);
-  const detail = intent === undefined ? null : detailOf(intent.detail);
-  return intent === undefined || detail === null ? null : { intentId: intent.intentId, detail };
+  return roundMessages(office, runId).some((item) => item.key === head);
 }
 
 export class FixRounds {
@@ -390,15 +348,17 @@ export class FixRounds {
     if (run.branch === null || run.worktree === null) return false;
     // Transient: an exit or resume of the run is being decided; the next drain tries again.
     if (this.#deps.guard?.busy(run.runId) === true) return false;
-    const pending = pendingFixRound(office, run.runId);
-    if (pending === null) {
+    // The round's message waits held on the one feedback path, with whatever else waits.
+    const head = roundMessages(office, run.runId)
+      .filter((item) => item.via === "next" && item.state === "pending")
+      .at(-1)?.key;
+    if (head === undefined || heldFeedback(office, run.runId).ids.length === 0) {
       return await this.#strand(
         office,
         run,
         "the run waited for a fix round, but dipo holds no undelivered feedback for it",
       );
     }
-    const { head, advisories } = pending.detail;
     let lifted: BranchUnpark | null = null;
     if (this.#deps.unpark !== undefined) {
       try {
@@ -451,21 +411,12 @@ export class FixRounds {
         "the fix round found no developer session of the run to continue",
       );
     }
-    const message = fixRoundMessage({
-      head,
-      items: feedbackOfIntent(office, run.runId, pending.intentId),
-      advisories,
-    });
     const box = this.#deps.boxRun?.(officeId, fresh) === true;
     const work = async (): Promise<boolean> =>
       await this.#deps.sessions.next(office, fresh, view, {
-        // A box run's developer gets a new session in its box with the feedback as its task.
+        // A box run's developer gets a new session in its box with a handoff (0008).
         mode: box ? "handoff" : "resume",
         why: `the feedback on ${head.slice(0, 12)}`,
-        message,
-        // Delivered in the transaction that records the new agent, so a stop right after the
-        // start never leaves the items to be sent again.
-        inRecord: (_agent, at) => deliverFixRound(office, run.runId, pending.intentId, at),
       });
     return this.#deps.guard === undefined
       ? await work()
@@ -473,31 +424,13 @@ export class FixRounds {
   }
 
   /**
-   * The daemon's recovery step (DIPO-148): a fix round whose session started while the daemon
-   * stopped before its delivery was written is marked delivered at that session's start, and every
-   * run that ended reviewed with a live claim gets `consider`, so a head whose verdict is in but
-   * whose CI never tells again (no story PRs, or none ran) is not left without its round. Returns
-   * how many rounds it queued.
+   * The daemon's recovery step (DIPO-148): every run that ended reviewed with a live claim gets
+   * `consider`, so a head whose verdict is in but whose CI never tells again (no story PRs, or
+   * none ran) is not left without its round. Returns how many rounds it queued.
    */
   async recover(officeId: OfficeId): Promise<number> {
     const office = this.#deps.offices.get(officeId);
     if (office === undefined) return 0;
-    const pending = office.all<{ run_id: string; intent_id: number; created_at: number }>(
-      `select run_id, intent_id, created_at from run_intents
-        where office_id = $office_id and kind = 'steer' and state = 'pending' and detail like $tag`,
-      { tag: `${FIX_ROUND_TAG} %` },
-    );
-    for (const row of pending) {
-      const started = office.get<{ started_at: number }>(
-        `select started_at from agents where office_id = $office_id and run_id = $run
-          and role <> $reviewer and started_at >= $since order by started_at, rowid limit 1`,
-        { run: row.run_id, reviewer: REVIEWER_ROLE, since: row.created_at },
-      );
-      if (started === null) continue;
-      office.immediate(() =>
-        deliverFixRound(office, row.run_id as RunId, row.intent_id, started.started_at),
-      );
-    }
     const reviewed = office.all<{ run_id: string }>(
       `select r.run_id from runs r where r.office_id = $office_id and r.kind = 'story'
         and r.ended_at is not null and r.end_kind = $reviewed
@@ -537,7 +470,7 @@ export class FixRounds {
   /**
    * A fix round that cannot start and will not on its own: the story parks `worker-failed` with
    * `detail`, so the round neither holds the worker place nor warns at every
-   * drain. Its feedback stays undelivered with its intent. Always false.
+   * drain. Its feedback stays held for the resume's session. Always false.
    */
   async #strand(office: OfficeHandle, run: StoredRun, detail: string): Promise<false> {
     const park = this.#deps.park;
@@ -631,13 +564,18 @@ export class FixRounds {
         const number = nextFixRound(office, run.runId);
         const entries = reopen(office, current, at, { kind: "fix" });
         if (findRun(office, run.runId)?.endedAt !== null) return none;
-        const detail: FixIntentDetail = { head: round.head, advisories: round.advisories };
-        const intentId = recordIntent(
+        // The round's one message, held for its session on the one feedback path (0002).
+        const message = fixRoundMessage({
+          head: round.head,
+          items: planned.map((item) => ({ ...item, text: capFeedbackText(item.text) })),
+          advisories: round.advisories,
+        });
+        const source = (planned[0] as (typeof planned)[number]).source;
+        const { intentId } = sendFeedback(
           office,
           run.runId,
-          "steer",
-          `${FIX_ROUND_TAG} ${JSON.stringify(detail)}`,
-          at,
+          { source, key: round.head, text: message },
+          { at },
         );
         storeFeedbackItems(office, run.runId, {
           intentId,
@@ -727,21 +665,6 @@ export class FixRounds {
     if (appended > 0) this.#deps.onChanged?.(office.officeId as OfficeId);
     return value;
   }
-}
-
-/**
- * Inside the caller's transaction (the one that records the new agent, or the recovery step's): the
- * fix round's intent sent and resolved and its items delivered at `at`.
- */
-export function deliverFixRound(
-  office: OfficeHandle,
-  runId: RunId,
-  intentId: number,
-  at: number,
-): void {
-  markIntentSent(office, runId, intentId, at, null);
-  markFeedbackSent(office, runId, intentId, at);
-  resolveIntent(office, runId, intentId, "started", at);
 }
 
 /** The per-item budget of the run's tier (`prompt.budgets.feedbackItem`). */

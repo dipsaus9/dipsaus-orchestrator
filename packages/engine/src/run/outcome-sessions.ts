@@ -1,9 +1,8 @@
 // Starting the next session of a run, and the start failure that cannot (DIPO-51, split out of
 // `outcomes.ts` by DIPO-128).
 
-import type { AgentId, WorkRef } from "@dipsaus-orchestrator/contract";
+import type { WorkRef } from "@dipsaus-orchestrator/contract";
 
-import { FEEDBACK_TEMPLATES, renderTemplate } from "../prompts/templates";
 import { holdMessage, type AdapterHold } from "../workers/hold";
 import { findClaim, releaseClaim } from "../worktree/records";
 
@@ -17,9 +16,7 @@ import {
   type RunOutcomesDeps,
   type RunView,
 } from "./outcome-types";
-import { deliverHeld, heldFeedback } from "./feedback";
 import { markIntentSent, recordIntent, resolveIntent } from "./intents";
-import { placeOfRun } from "./places";
 import { START_FAILED_END } from "./launch";
 import type { OfficeHandle } from "../db/office";
 import type { StoredRun } from "./records";
@@ -37,7 +34,8 @@ export class SessionStarts {
    * Starts the next session; a session that cannot start parks or releases the story. While the
    * office's starts are paused (0020) no session starts: under a plan limit the story parks
    * `worker-failed` with the pause's detail, to resume by itself when the pause lifts; under a
-   * failed adapter check it goes the start failure's way.
+   * failed adapter check it goes the start failure's way. What the session is told comes from the
+   * one feedback path (`feedback.ts`): the resumer sends every held message with its first one.
    */
   async next(
     office: OfficeHandle,
@@ -46,16 +44,8 @@ export class SessionStarts {
     request: {
       readonly mode: "resume" | "handoff";
       readonly why: string;
-      readonly message?: string;
-      /**
-       * The maintainer's resume note (0020 section 3, DIPO-155): after `message` in a native resume,
-       * in the handoff block's open feedback otherwise; the steers that waited follow it.
-       */
-      readonly note?: string;
       /** Only a resume will do; a session that cannot be resumed parks `worker-failed` (DIPO-57). */
       readonly requireResume?: boolean;
-      /** Runs in the transaction that records the new agent (`NextSessionRequest.inRecord`). */
-      readonly inRecord?: (agent: AgentId, at: number) => void;
     },
   ): Promise<boolean> {
     const paused = this.#deps.startsPaused?.()?.state(view.office) ?? null;
@@ -79,25 +69,6 @@ export class SessionStarts {
       });
       return false;
     }
-    // The messages of the one feedback path that waited for this session go with its first
-    // message (`feedback.ts`); a reviewer session gets none (0002), so they wait.
-    const held =
-      placeOfRun(office, run) === "reviewer"
-        ? { ids: [], texts: [] }
-        : heldFeedback(office, run.runId);
-    const note = request.note?.trim() === "" ? undefined : request.note;
-    const message =
-      held.texts.length === 0 || note !== undefined
-        ? request.message
-        : [
-            request.message ??
-              (request.mode === "resume"
-                ? renderTemplate(FEEDBACK_TEMPLATES.resume, { reason: request.why })
-                : undefined),
-            ...held.texts,
-          ]
-            .filter((part) => part !== undefined)
-            .join("\n\n");
     let outcome;
     try {
       outcome = await resumer.next({
@@ -106,11 +77,7 @@ export class SessionStarts {
         work: view.work,
         mode: request.mode,
         why: request.why,
-        ...(message === undefined ? {} : { message }),
-        // With a note the steers that waited go after it (`NextSessionRequest.held`).
-        ...(note === undefined ? {} : { note, held: held.texts }),
         ...(request.requireResume === true ? { requireResume: true } : {}),
-        ...(request.inRecord === undefined ? {} : { inRecord: request.inRecord }),
         caps: view.caps,
         startedAt: view.startedAt,
         snapshot: view.snapshot,
@@ -120,9 +87,6 @@ export class SessionStarts {
     }
     switch (outcome.kind) {
       case "started":
-        if (held.ids.length > 0) {
-          office.immediate(() => deliverHeld(office, run.runId, held.ids, this.#deps.clock.now()));
-        }
         return true;
       case "startFailed":
         await this.startFailed(office, run, view.work, holdMessage(outcome.hold), outcome.hold);
