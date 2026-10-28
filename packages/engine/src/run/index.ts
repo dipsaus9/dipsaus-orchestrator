@@ -239,15 +239,15 @@ export {
 } from "./caps";
 export type { CapName, FiredCap, RunCaps, RunTotals, StreamDriftFacts } from "./caps";
 export { preStartEnding, reachedCaps } from "./pre-start-caps";
-export { GRANT_KINDS, grantTotals, recordGrant } from "./grants";
+export { GRANT_KINDS, grantTotals, recordGrant, ROUND_CAPS } from "./grants";
 export type {
   BudgetGrant,
-  CountedGrantKind,
   GrantAmount,
   GrantKind,
   GrantTotals,
   NewGrant,
-  ReviewCapGrant,
+  RoundCap,
+  RoundGrant,
 } from "./grants";
 export {
   markIntentSent,
@@ -408,7 +408,7 @@ export { createRunOutcomes, NOT_PAUSED_OR_PARKED, Resumption, RUN_HOST_ALIVE } f
 export type { HeldRunResumer, ResumeWaitOutcome, ResumptionOptions } from "./resumption";
 // The resume of every parked story by the 0020 table (DIPO-155, DIPO-344).
 export { MAINTAINER_RESUME_TAG, PARK_RESUME_NOTICES, RESUME_ERRORS } from "./park-resume";
-export { HALF_SHARE, share, smallestShare, withGrants } from "./resume-caps";
+export { share, smallestShare, withGrants } from "./resume-caps";
 export { noteText } from "./resume";
 export type {
   ConflictPrepared,

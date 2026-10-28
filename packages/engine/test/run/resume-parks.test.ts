@@ -135,7 +135,7 @@ beforeEach(async () => {
       conflictCap: 2,
       reviewMaxTurns: 40,
       reviewMaxMinutes: 20,
-      reviewAllowance: 0,
+      reviewMaxTokens: 100_000,
       configHash: "h",
       overrideKeys: null,
       runProfileId: null,
@@ -757,9 +757,7 @@ describe("top-up of a budget-exceeded park (0020)", () => {
     // the 80 used; +33% adds 20, which leaves it reached.
     expect(error.error.details).toMatchObject({ cap: "maxTurns", smallestShare: 34 });
     expect(error.message).toContain("--budget +34%");
-    expect(
-      smallestShare(TIER_S, TIER_S, { budgetTokens: 0, turns: 80, elapsedMs: 0 }, "developer"),
-    ).toBe(34);
+    expect(smallestShare(TIER_S, TIER_S, { budgetTokens: 0, turns: 80, elapsedMs: 0 })).toBe(34);
   });
 
   it("sends the undelivered feedback of a fix round the caps stopped before its session first", async () => {
@@ -826,7 +824,7 @@ describe("top-up of a budget-exceeded park (0020)", () => {
 });
 
 describe("round grants: one more round of the cap that fired (0020)", () => {
-  it("records one loop grant and sends the last verify item first for verify-failing at its loop cap", async () => {
+  it("records one loops round grant with its note and the cap before and after, and sends the last verify item first for verify-failing at its loop cap", async () => {
     steps("loop", 3);
     park(
       "verify-failing",
@@ -834,14 +832,16 @@ describe("round grants: one more round of the cap that fired (0020)", () => {
       "verify failed 3 of 3 times. Verify failed at the verify step.",
     );
     await resume(resumption(), { note: "Use bun test --bail." });
-    expect(grants().map((grant) => [grant.kind, grant.amount])).toEqual([["loop", "1"]]);
+    expect(grants().map((grant) => [grant.kind, JSON.parse(grant.amount), grant.note])).toEqual([
+      ["round", { cap: "loops", count: 1, before: 3, after: 4 }, "Use bun test --bail."],
+    ]);
     const message = first(w.sessions[0]) ?? "";
     expect(message.indexOf("Verify failed at the verify step.")).toBeLessThan(
       message.indexOf("Note from the maintainer: Use bun test --bail."),
     );
   });
 
-  it("records one ciAttempt grant and sends the last stored CI item first for verify-failing at its CI cap", async () => {
+  it("records one ciAttempts round grant and sends the last stored CI item first for verify-failing at its CI cap", async () => {
     const { office, run, t } = w.f;
     office.immediate(() =>
       storeFeedbackItems(office, run, {
@@ -862,7 +862,9 @@ describe("round grants: one more round of the cap that fired (0020)", () => {
     steps("ci", 2);
     park("verify-failing", "In Review", "required checks were red on 2 pushed heads");
     await resume(resumption(), { note: "Run the linter." });
-    expect(grants().map((grant) => [grant.kind, grant.amount])).toEqual([["ciAttempt", "1"]]);
+    expect(grants().map((grant) => [grant.kind, JSON.parse(grant.amount)])).toEqual([
+      ["round", { cap: "ciAttempts", count: 1, before: 2, after: 3 }],
+    ]);
     const message = first(w.sessions[0]) ?? "";
     expect(message).toContain("Required check ci-ok failed: lint.");
     expect(message.indexOf("lint.")).toBeLessThan(message.indexOf("Note from the maintainer"));
@@ -875,14 +877,16 @@ describe("round grants: one more round of the cap that fired (0020)", () => {
     expect(grants()).toEqual([]);
   });
 
-  it("returns review-blocked to In Review and queues its fix round with one reviewRound grant", async () => {
+  it("returns review-blocked to In Review and queues its fix round with one reviewRounds round grant", async () => {
     const parkId = park("review-blocked", "In Review", "blocking: no test", "reviewed");
     const reply = await resume(resumption(), { note: "Add the test, then it passes." });
     expect(reply.result.to).toBe("In Review");
     expect(w.lifts[0]?.to).toBe("In Review");
     expect(w.sessions).toEqual([]);
     expect(w.considered).toEqual([w.f.run]);
-    expect(grants().map((grant) => [grant.kind, grant.amount])).toEqual([["reviewRound", "1"]]);
+    expect(grants().map((grant) => [grant.kind, JSON.parse(grant.amount)])).toEqual([
+      ["round", { cap: "reviewRounds", count: 1, before: 3, after: 4 }],
+    ]);
     expect(findRun(w.f.office, w.f.run)?.endKind).toBe("reviewed");
     expect(parkRow(parkId)?.resolved_note).toBe("Add the test, then it passes.");
     // The note waits for the fix round's first message, after its findings.
@@ -904,7 +908,7 @@ describe("round grants: one more round of the cap that fired (0020)", () => {
     );
   });
 
-  it("records one conflictHandoff grant when the failed hand-offs reached the conflict cap", async () => {
+  it("records one conflictAttempts round grant when the failed hand-offs reached the conflict cap", async () => {
     const { office, run, t } = w.f;
     office.immediate(() => {
       for (const value of ["start 1 a", "failed 1 markers", "start 2 b", "failed 2 markers"]) {
@@ -913,7 +917,9 @@ describe("round grants: one more round of the cap that fired (0020)", () => {
     });
     park("conflict");
     await resume(resumption());
-    expect(grants().map((grant) => [grant.kind, grant.amount])).toEqual([["conflictHandoff", "1"]]);
+    expect(grants().map((grant) => [grant.kind, JSON.parse(grant.amount)])).toEqual([
+      ["round", { cap: "conflictAttempts", count: 1, before: 2, after: 3 }],
+    ]);
   });
 
   it("answers resume.notResumable for a conflict park while no conflict hand-off exists", async () => {
@@ -967,7 +973,7 @@ describe("round grants: one more round of the cap that fired (0020)", () => {
     ).toBe("parked");
   });
 
-  it("grows the reviewer cap that fired by 50% as a reviewCap grant when a failed reviewer resumes", async () => {
+  it("grants nothing when a reviewer stopped at its own cap resumes: the fresh session has its caps in full", async () => {
     const { office, run } = w.f;
     const reviewer = reviewerAgent();
     usage(40, 10_000, reviewer);
@@ -975,10 +981,8 @@ describe("round grants: one more round of the cap that fired (0020)", () => {
     const before = runCaps(office, findRun(office, run) as never);
     await resume(resumption());
     const after = runCaps(office, findRun(office, run) as never);
-    expect(grants().map((grant) => [grant.kind, grant.amount])).toEqual([
-      ["reviewCap", JSON.stringify({ turns: 20, minutes: 0 })],
-    ]);
-    expect((after.reviewMaxTurns ?? 0) - (before.reviewMaxTurns ?? 0)).toBe(20);
+    expect(grants()).toEqual([]);
+    expect(after).toEqual(before);
     expect(w.reviews).toEqual([run]);
   });
 });
@@ -1008,10 +1012,14 @@ describe("no resume raises a cap without a recorded grant (0020, never silent)",
       expect(after.maxMinutes - before.maxMinutes).toBe(
         added.budget.minutes - grantsBefore.budget.minutes,
       );
-      expect(after.loopCap - before.loopCap).toBe(added.loop);
-      expect((after.reviewRoundCap ?? 0) - (before.reviewRoundCap ?? 0)).toBe(added.reviewRound);
-      expect((after.ciCap ?? 0) - (before.ciCap ?? 0)).toBe(added.ciAttempt);
-      expect((after.conflictCap ?? 0) - (before.conflictCap ?? 0)).toBe(added.conflictHandoff);
+      expect(after.loopCap - before.loopCap).toBe(added.rounds.loops);
+      expect((after.reviewRoundCap ?? 0) - (before.reviewRoundCap ?? 0)).toBe(
+        added.rounds.reviewRounds,
+      );
+      expect((after.ciCap ?? 0) - (before.ciCap ?? 0)).toBe(added.rounds.ciAttempts);
+      expect((after.conflictCap ?? 0) - (before.conflictCap ?? 0)).toBe(
+        added.rounds.conflictAttempts,
+      );
       // Only a top-up and the review round of review-blocked grow a cap here.
       expect(grants()).toHaveLength(budget || reason === "review-blocked" ? 1 : 0);
     });
@@ -1158,7 +1166,7 @@ describe("a retry of the same request (0005 note of 2026-10-17)", () => {
     await restarted.idle();
     expect(w.lifts).toHaveLength(1);
     expect(w.sessions).toHaveLength(1);
-    expect(grants().map((grant) => grant.kind)).toEqual(["loop"]);
+    expect(grants().map((grant) => grant.kind)).toEqual(["round"]);
     expect(await restarted.recoverParkResumes(w.f.office.officeId as OfficeId, w.f.office)).toBe(0);
     expect(w.sessions).toHaveLength(1);
   });
@@ -1236,7 +1244,7 @@ describe("work.resume on the waiting command path (0005 note of 2026-10-17, DIPO
         story: "DIPO-1",
         to: "In Progress",
         run: w.f.run,
-        grants: [{ kind: "loop", count: 1 }],
+        grants: [{ kind: "round", cap: "loops", count: 1 }],
       },
     });
     expect([w.lifts.length, w.sessions.length, grants().length]).toEqual([1, 1, 1]);
@@ -1292,7 +1300,10 @@ describe("two resumes of one park (DIPO-155 review)", () => {
     release?.();
     const done = await firstReply;
     await resuming.idle();
-    expect(done.result).toMatchObject({ to: "In Progress", grants: [{ kind: "loop", count: 1 }] });
+    expect(done.result).toMatchObject({
+      to: "In Progress",
+      grants: [{ kind: "round", cap: "loops", count: 1 }],
+    });
     expect(w.lifts).toHaveLength(1);
     expect(w.sessions).toHaveLength(1);
     expect(grants()).toHaveLength(1);

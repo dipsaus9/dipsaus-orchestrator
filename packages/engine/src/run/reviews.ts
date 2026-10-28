@@ -8,8 +8,8 @@
 //   verdict in the claim takes it without a round (commits that change only the task file never
 //   start a review). Otherwise the run reopens for the review (phase `review`, at the start time,
 //   while its wait counts from the In Review time), takes the reviewer place, starts or continues
-//   its review round (`beginReviewRound`: a new round writes its `review` step and grows the budget
-//   by the review allowance; a fresh session after a failed one adds nothing) and starts a fresh
+//   its review round (`beginReviewRound`: a new round writes its `review` step, which grows no cap;
+//   a fresh session after a failed one adds nothing) and starts a fresh
 //   reviewer session with the review task message (`ReviewSessions`).
 // - Report. A turn's report valid against the review schema is validated by code
 //   (`validateReport`). An invalid report gets one correction turn in the same session
