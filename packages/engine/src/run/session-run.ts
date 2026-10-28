@@ -38,6 +38,7 @@ import type { OfficeGit } from "../git/office";
 import { Ingestor, type IngestAdapter, type IngestedExit } from "../ingest/ingestor";
 import { ensurePrivateDir } from "../platform/paths";
 import type { PriceBook } from "../pricing/estimate";
+import { recordAgent } from "../runs/agents";
 import {
   SCAN_ROLE,
   type ScanSessionRequest,
@@ -255,21 +256,16 @@ export class SessionRuns implements ScanSessionRunner {
         officeDir: paths.officeDir,
         plan: prepared.plan,
         record: () => {
-          office.run(
-            `insert or ignore into agents (office_id, agent_id, run_id, role, model, effort,
-               session_id, system_hash, started_at)
-             values ($office_id, $agent, $run, $role, $model, $effort, $session, $hash, $at)`,
-            {
-              agent,
-              run: runId,
-              role: SCAN_ROLE,
-              model: settings.model,
-              effort: settings.effort,
-              session: spec.session.id,
-              hash: systemHashOf(request.systemFile),
-              at: deps.clock.now(),
-            },
-          );
+          recordAgent(office, {
+            agentId: agent,
+            runId,
+            role: SCAN_ROLE,
+            model: settings.model,
+            effort: settings.effort,
+            sessionId: spec.session.id,
+            systemHash: systemHashOf(request.systemFile),
+            startedAt: deps.clock.now(),
+          });
         },
       });
     } catch (error) {

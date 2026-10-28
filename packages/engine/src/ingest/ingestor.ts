@@ -35,6 +35,8 @@ import { checkCatalogGap, priceAgentUsage, recordCliCost } from "../pricing/usag
 import { STREAM_DRIFT_LINES } from "../run/caps";
 import { recordReportedCriteria } from "../run/criteria";
 import { clearSignals, LIVENESS_SIGNALS } from "../run/signals";
+import { endAgent, recordAgent, recordAgentStart, recordInitRejected } from "../runs/agents";
+import { recordExitLine, setProcessedOffset } from "../runs/worker-hosts";
 import { runProgress, withWorkViews } from "../views/work";
 import type { ExitRecord, HostLine, ParseState, WorkerEvent } from "../workers/types";
 import { readCompleteLines, readRange, statEventFile, type FileIdentity } from "./event-file";
@@ -45,7 +47,6 @@ import {
   applyTurnTotals,
   feedFinalChanges,
   recordCompaction,
-  finalizeAgentUsage,
   finalRows,
   readUsage,
   recordUsageMessage,
@@ -328,11 +329,13 @@ export class Ingestor {
       if (host === null) {
         throw new Error(`No worker host is recorded for ${target.run} agent ${target.agent}.`);
       }
-      this.#office.run(
-        `insert or ignore into agents (office_id, agent_id, run_id, role, model, started_at)
-         values ($office_id, $agent, $run, $role, $model, $now)`,
-        { agent: target.agent, run: target.run, role: target.role, model: target.model, now },
-      );
+      recordAgent(this.#office, {
+        agentId: target.agent,
+        runId: target.run,
+        role: target.role,
+        model: target.model,
+        startedAt: now,
+      });
       // A new agent's output continues the run's stored output, after what earlier agents wrote.
       const end = this.#outputEnd(target.run);
       this.#office.run(
@@ -537,17 +540,11 @@ export class Ingestor {
               break;
             case "started":
               model = event.model;
-              this.#office.run(
-                `update agents set model = $model, session_id = $session,
-                   adapter_version = $version
-                 where office_id = $office_id and agent_id = $agent`,
-                {
-                  model: event.model,
-                  session: event.sessionId,
-                  version: event.version,
-                  agent,
-                },
-              );
+              recordAgentStart(this.#office, agent, {
+                model: event.model,
+                sessionId: event.sessionId,
+                version: event.version,
+              });
               break;
             case "compacted":
               // The adapter emits one event per compaction; no preTokens when it had no count.
@@ -569,11 +566,7 @@ export class Ingestor {
               break;
             case "initRejected":
               rejected.push(event.reason);
-              this.#office.run(
-                `update agents set init_rejected = coalesce(init_rejected, $reason)
-                 where office_id = $office_id and agent_id = $agent`,
-                { reason: event.reason, agent },
-              );
+              recordInitRejected(this.#office, agent, event.reason);
               break;
             default:
               break;
@@ -627,11 +620,7 @@ export class Ingestor {
           kind: SOURCE,
         },
       );
-      this.#office.run(
-        `update worker_hosts set processed_offset = $end
-         where office_id = $office_id and run_id = $run and agent_id = $agent`,
-        { end, run, agent },
-      );
+      setProcessedOffset(this.#office, run, agent, end);
 
       // Change-log entries that are due now, output first so order stays causal.
       const entries: NewEntry[] = [];
@@ -693,27 +682,17 @@ export class Ingestor {
             at: now,
           });
         }
-        finalizeAgentUsage(this.#office, run, agent, now);
-        this.#office.run(
-          `update agents set ended_at = $now, end_reason = coalesce(end_reason, 'exited')
-           where office_id = $office_id and agent_id = $agent`,
-          { now, agent },
-        );
+        // The cursor ended with the update above; its host row ends with `exit.json`.
+        endAgent(this.#office, {
+          runId: run,
+          agentId: agent,
+          at: now,
+          reason: "exited",
+          finalizeUsage: true,
+          endHost: false,
+        });
         // The exit as the host wrote it, for a decision after a restart (DIPO-51).
-        this.#office.run(
-          `update worker_hosts set exit_code = coalesce(exit_code, $code),
-             exit_signal = coalesce(exit_signal, $signal),
-             exit_signal_inferred = case when exit_signal is null then $inferred
-               else exit_signal_inferred end
-           where office_id = $office_id and run_id = $run and agent_id = $agent`,
-          {
-            code: exit.code,
-            signal: exit.signal,
-            inferred: exit.signalInferred === true ? 1 : 0,
-            run,
-            agent,
-          },
-        );
+        recordExitLine(this.#office, run, agent, exit);
       }
       this.#append(entries, now);
     });

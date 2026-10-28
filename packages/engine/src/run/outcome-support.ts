@@ -6,6 +6,7 @@ import type { OfficeId, RunId, WorkRef } from "@dipsaus-orchestrator/contract";
 
 import { appendEntries, type NewEntry } from "../changelog/log";
 import type { OfficeHandle } from "../db/office";
+import { decideEndReason } from "../runs/agents";
 import { withWorkViews, workRefOf } from "../views/work";
 
 import { firedCap, runTotals } from "./caps";
@@ -153,12 +154,7 @@ export class OutcomeSupport {
 
   /** `#endAgent` inside the caller's transaction. */
   endAgentIn(office: OfficeHandle, agent: string, reason: string): void {
-    office.run(
-      `update agents set end_reason = $reason
-        where office_id = $office_id and agent_id = $agent
-          and (end_reason is null or end_reason = 'exited')`,
-      { reason, agent },
-    );
+    decideEndReason(office, agent, reason);
   }
 
   write(office: OfficeHandle, fn: () => readonly NewEntry[]): void {

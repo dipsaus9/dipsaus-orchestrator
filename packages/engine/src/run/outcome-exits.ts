@@ -5,6 +5,7 @@ import type { OfficeHandle } from "../db/office";
 import type { IngestedExit } from "../ingest/ingestor";
 import { recoverLostUsage } from "../ingest/transcript";
 import { finalizeAgentUsage } from "../ingest/usage";
+import { endAgent } from "../runs/agents";
 import type { HostOp } from "../workers/types";
 
 import { runCaps } from "./caps";
@@ -75,22 +76,15 @@ export class ExitOutcomes {
     // The agent ends with the signal in one transaction: a restart before the decision below
     // finds `host-lost` and decides it again.
     this.#s.write(office, () => {
-      office.run(
-        `update agents set ended_at = coalesce(ended_at, $at),
-             end_reason = coalesce(end_reason, $reason)
-           where office_id = $office_id and agent_id = $agent`,
-        { at, agent, reason: intent === null ? HOST_LOST_END : "exited" },
-      );
-      office.run(
-        `update ingest_cursors set ended_at = coalesce(ended_at, $at)
-            where office_id = $office_id and run_id = $run and agent_id = $agent`,
-        { at, run: view.runId, agent },
-      );
-      office.run(
-        `update worker_hosts set ended_at = coalesce(ended_at, $at)
-            where office_id = $office_id and run_id = $run and agent_id = $agent`,
-        { at, run: view.runId, agent },
-      );
+      // Its usage is made final only when a resume follows (`hostLost`).
+      endAgent(office, {
+        runId: view.runId,
+        agentId: agent,
+        at,
+        reason: intent === null ? HOST_LOST_END : "exited",
+        finalizeUsage: false,
+        endHost: true,
+      });
       const raised = raiseSignal(office, view.runId, "host-lost", at);
       if (raised === null) return [];
       return [

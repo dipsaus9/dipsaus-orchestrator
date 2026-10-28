@@ -56,6 +56,7 @@ import { pushBranch } from "../git/write";
 import { recordBranchPush } from "../story-pr/records";
 import { insertWorkerQuestion, questionViewOf } from "../hooks/questions";
 import { officeDirectory } from "../office/marker";
+import { presetEndReasons } from "../runs/agents";
 import { runDirectory } from "../runs/worker-hosts";
 import { deriveStoryView, storyView } from "../views/story";
 import { workRefOf } from "../views/work";
@@ -693,11 +694,7 @@ export async function parkStory(deps: ParkDeps, request: ParkRequest): Promise<P
     }
     endRunMarked(office, run.runId, at, request.endKind);
     // The agent ends when its exit is ingested; the reason it ended is known now.
-    office.run(
-      `update agents set end_reason = coalesce(end_reason, $kind)
-       where office_id = $office_id and run_id = $run and ended_at is null`,
-      { kind: request.endKind, run: run.runId },
-    );
+    presetEndReasons(office, run.runId, request.endKind);
     const current = storyView(office, key);
     const view = {
       ...deriveStoryView({
