@@ -69,7 +69,9 @@ import { appendRunStep, type StoredRun } from "./records";
 import { parkResumeNeed } from "./resume-policy";
 import { renderParkBlock, runSummaryFacts } from "./summary";
 
-export { openParkIds, type ParkResolution, resolvePark } from "./park-resolve";
+import { insertPark, reparkOpen } from "./park-records";
+
+export { openParkIds, type ParkResolution, resolvePark } from "./park-records";
 export { type BacklogPark, backlogPark, type OpenPark, openPark } from "./park-state";
 
 /** The error of a maintainer's park whose write to Backlog.md failed (DIPO-360). */
@@ -655,35 +657,24 @@ export async function parkStory(deps: ParkDeps, request: ParkRequest): Promise<P
   const at = deps.now();
   // Only the park the plan limit asked for resumes by itself, not one a tampered worktree turned
   // into `scope-violation`.
-  const resumeOnLift = request.resumeOnLift === true && reason === request.reason ? 1 : 0;
+  const resumeOnLift = request.resumeOnLift === true && reason === request.reason;
   deps.write(() => {
     const office = deps.office;
     // Run detail and history (0007): the reason is the one the park was made with, never read as
     // the current reason; Backlog.md holds that, and its read-back goes to the mirror (DIPO-360).
     if (request.parkId !== undefined) {
-      office.run(
-        `update parks set reason = $reason, detail = $detail, last_good_commit = $commit, at = $at
-          where office_id = $office_id and park_id = $park and resolved_at is null`,
-        { park: request.parkId, reason, detail, commit: lastGoodCommit, at },
-      );
+      reparkOpen(office, request.parkId, { reason, detail, lastGoodCommit, at });
     } else
-      office.run(
-        `insert into parks (office_id, park_id, key, story_id, run_id, reason, detail,
-         last_good_commit, at, resume_on_lift)
-       values ($office_id, (select coalesce(max(park_id), 0) + 1 from parks
-         where office_id = $office_id), $key, $story, $run, $reason, $detail, $commit, $at,
-         $resumeOnLift)`,
-        {
-          key,
-          story,
-          run: run.runId,
-          reason,
-          detail,
-          commit: lastGoodCommit,
-          at,
-          resumeOnLift,
-        },
-      );
+      insertPark(office, {
+        key,
+        story,
+        runId: run.runId,
+        reason,
+        detail,
+        lastGoodCommit,
+        at,
+        resumeOnLift,
+      });
     // Only a park written on the branch is a park: one that failed stays in `parks` as detail,
     // and reconcile closes it (DIPO-360).
     if (branch !== null) mirrorPark(office, key, { reason, from, note: detail }, at);

@@ -49,6 +49,7 @@ import {
 } from "../workers/hold";
 
 import type { PlanLimitHit } from "./outcome-types";
+import { keepParkedOnLift } from "./park-records";
 
 /** A plan limit with a reset time lifts this long after it (0008). */
 export const PLAN_LIMIT_RESUME_AFTER_MS = 2 * 60_000;
@@ -692,11 +693,7 @@ export class StartsPaused {
   /** A refused resume: the park no longer resumes by itself, and the maintainer is told. */
   #notResumed(handle: OfficeHandle, park: LiftedPark, why: string): void {
     handle.immediate(() => {
-      handle.run(
-        `update parks set resume_on_lift = 0
-          where office_id = $office_id and park_id = $park and resolved_at is null`,
-        { park: park.parkId },
-      );
+      keepParkedOnLift(handle, park.parkId);
       this.#append(handle, [
         {
           type: "engine.notice",

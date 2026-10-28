@@ -37,7 +37,7 @@ import type { GitSession, OfficeGit } from "../git/office";
 import { closeQuestion, openQuestions } from "../hooks/questions";
 import { CodeHostError, type CodeHost } from "../platform/host";
 import { forgetWorkerNotes } from "../prompts/notes";
-import { openParkIds, resolvePark } from "../run/park-resolve";
+import { openParkIds, resolvePark } from "../run/park-records";
 import { heldByPark } from "../run/park-state";
 import { findRun } from "../run/records";
 import { latestStoryPr, setStoryPrState } from "../story-pr/records";
