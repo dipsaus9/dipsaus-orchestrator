@@ -82,6 +82,10 @@ import {
   currentProfile,
   gitParkWriter,
   gitUnparkWriter,
+  guardedParkWriter,
+  guardedUnparkWriter,
+  type AutoMergeOff,
+  type ParkWriter,
   gitStoryOps,
   hostSocketSteering,
   type EngineGit,
@@ -209,6 +213,11 @@ export interface DaemonRunsOptions {
   readonly holdResumer?: () => HoldResumer | undefined;
   /** The auto-merge a story waiting In Review again goes back to after a resume (0002). */
   readonly mergeReentry?: () => MergeReentry | undefined;
+  /**
+   * Turns auto-merge off for a story branch's PR before a park or a lift is written to the branch
+   * (0002); the write throws when it cannot. Without it the writers are not guarded (tests).
+   */
+  readonly autoMergeOff?: AutoMergeOff;
   /** The story index, which reads a story again after its park or In Review commit (DIPO-56). */
   readonly stories?: StoryIndex;
   /** Whether a TUI is connected, for live questions (DIPO-279); none by default. */
@@ -811,6 +820,12 @@ export const BOX_PASS_TICK_MS = 60_000;
 /** The run launcher `work.run` starts workers with. */
 export function daemonRuns(options: DaemonRunsOptions): DaemonRuns {
   const { clock, platform, env, home, uid } = options;
+  // No park or lift reaches a story branch while its PR has auto-merge on (0002).
+  const off = options.autoMergeOff;
+  const guardPark = (writer: ParkWriter): ParkWriter =>
+    off === undefined ? writer : guardedParkWriter(writer, off);
+  const guardUnpark = (writer: UnparkWriter): UnparkWriter =>
+    off === undefined ? writer : guardedUnparkWriter(writer, off);
   // The watchdog (DIPO-52) writes `quiet` and `no-output` by the office's `timeouts`, and every
   // entry ingestion or the watchdog appends reaches subscribers at once.
   const watchdog = new Watchdog({
@@ -1120,11 +1135,10 @@ export function daemonRuns(options: DaemonRunsOptions): DaemonRuns {
     },
     control: {
       finisher,
-      // The park written on the story branch (DIPO-50).
-      writer: gitParkWriter({
-        git: (office) => options.engineGit.forOffice(office),
-        cli: options.cli,
-      }),
+      // The park written on the story branch (DIPO-50), after auto-merge is off (0002).
+      writer: guardPark(
+        gitParkWriter({ git: (office) => options.engineGit.forOffice(office), cli: options.cli }),
+      ),
       implemented: options.implemented,
     },
     outcomes: {
@@ -1132,11 +1146,11 @@ export function daemonRuns(options: DaemonRunsOptions): DaemonRuns {
       probe,
       holds: options.holds,
       holdsWork: storyHoldsWork(storyGit),
-      // Lifting a park on the story branch before its run resumes (DIPO-75).
-      unpark: gitUnparkWriter({
-        git: (office) => options.engineGit.forOffice(office),
-        cli: options.cli,
-      }),
+      // Lifting a park on the story branch before its run resumes (DIPO-75), and a fix round's
+      // In Progress commit, after auto-merge is off (0002).
+      unpark: guardUnpark(
+        gitUnparkWriter({ git: (office) => options.engineGit.forOffice(office), cli: options.cli }),
+      ),
       caps: capsFor,
     },
     // The office's starts paused (0020): a plan limit pauses every loaded office, and a failed
@@ -1220,10 +1234,9 @@ export function daemonRuns(options: DaemonRunsOptions): DaemonRuns {
   collisions = boxCollisions(options, boxed, control, partRun, {
     service: storyConflicts,
     isBoxRun,
-    unpark: gitUnparkWriter({
-      git: (office) => options.engineGit.forOffice(office),
-      cli: options.cli,
-    }),
+    unpark: guardUnpark(
+      gitUnparkWriter({ git: (office) => options.engineGit.forOffice(office), cli: options.cli }),
+    ),
   });
   collisions?.start();
   return {

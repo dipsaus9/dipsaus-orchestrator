@@ -106,6 +106,8 @@ export interface StoryMergeGit {
    * the file comment); the branch does not move.
    */
   conflictMerge(office: OfficeId, run: StoryMergeRun): Promise<ConflictMerge>;
+  /** The conflict item of a conflicted merge dipo made, built again from its commit. */
+  conflictItem(office: OfficeId, run: StoryMergeRun, merged: CatchUpMerged): Promise<ConflictItem>;
   /** Moves `branch` from `tip` to `commit`; false when it is not at `tip` any more. */
   moveBranch(office: OfficeId, branch: string, commit: string, tip: string): Promise<boolean>;
   /** Pushes `branch` once, never forced, when its tip differs from the remote's. */
@@ -180,6 +182,17 @@ export function gitStoryMergeOps(deps: {
 
     conflictMerge: (office, run) => conflictMergeIn(gitOf(office), run),
 
+    conflictItem: (office, run, merged) =>
+      gitOf(office).run(async (session) =>
+        conflictFeedbackItem({
+          base: merged.base,
+          onto: merged.onto,
+          conflicts: merged.conflicts,
+          hunks: await hunksOf(session, merged.commit, merged.conflicts),
+          ...(run.itemMax === undefined ? {} : { itemMax: run.itemMax }),
+        }),
+      ),
+
     moveBranch: (office, branch, commit, tip) =>
       gitOf(office).run((session) =>
         moveBranch(session, branch, commit, tip, `Merge the base into ${branch}`),
@@ -238,7 +251,7 @@ async function hunksOf(
 }
 
 /** The release paths `head` changes against the base as last fetched; null when unreadable. */
-function releasePathsOnBase(git: OfficeGit, head: string): Promise<string[] | null> {
+export function releasePathsOnBase(git: OfficeGit, head: string): Promise<string[] | null> {
   return git.run(async (session) => {
     const base = await baseRefOf(git, session);
     const onto = base === null ? null : await revParse(session, base.ref);

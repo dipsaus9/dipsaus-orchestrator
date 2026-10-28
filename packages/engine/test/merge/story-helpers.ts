@@ -7,7 +7,7 @@
 import { type OfficeId, type RunId, type StoryKey } from "@dipsaus-orchestrator/contract";
 
 import type { StoryTarget } from "../../src/backlog/fields/write";
-import type { CatchUpMerged } from "../../src/box/collisions";
+import { type CatchUpMerged, conflictFeedbackItem } from "../../src/box/collisions";
 import { OFFICE_DEFAULTS, type OfficeConfig } from "../../src/config";
 import {
   AutoMerge,
@@ -106,6 +106,16 @@ export class FakeStoryGit implements StoryMergeGit {
     return this.merges.shift() ?? { kind: "none" };
   }
 
+  async conflictItem(_office: OfficeId, _run: StoryMergeRun, merged: CatchUpMerged) {
+    this.calls.push(`conflictItem ${merged.commit}`);
+    return conflictFeedbackItem({
+      base: merged.base,
+      onto: merged.onto,
+      conflicts: merged.conflicts,
+      hunks: [],
+    });
+  }
+
   async moveBranch(
     _office: OfficeId,
     branch: string,
@@ -146,6 +156,8 @@ export interface StoryWorld {
   readonly conflicts: { run: RunId; head: string; item: FixItem }[];
   readonly merges: CatchUpMerged[];
   readonly prSyncs: RunId[];
+  /** The record of a merge dipo made fails (the fake `recordMerge` throws). */
+  failRecord: boolean;
   config: OfficeConfig;
   /** The verdict on H1. */
   readonly verdict: StoredReviewVerdict;
@@ -245,6 +257,7 @@ export async function storyWorld(
       },
       summary: async () => "summary",
       recordMerge: async (_office, stored, merged) => {
+        if (self.failRecord) throw new Error("the database is locked");
         merges.push(merged);
         w.office.immediate(() => {
           recordCatchUp(
@@ -290,6 +303,7 @@ export async function storyWorld(
     merges,
     prSyncs,
     config: OFFICE_DEFAULTS,
+    failRecord: false,
     verdict: verdict as unknown as StoredReviewVerdict,
     merge,
     tick: () => merge.tick(officeId),

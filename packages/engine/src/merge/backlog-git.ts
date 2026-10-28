@@ -9,6 +9,8 @@ import type { GitSession } from "../git/office";
 import type { GitStepOptions } from "../git/runner";
 import { deleteBranch, deleteRemoteBranch } from "../git/write";
 
+import { releasePathsOnBase } from "./story-git";
+
 const CHECKOUT: GitStepOptions = { config: BASE_CHECKOUT_CONFIG, env: BASE_CHECKOUT_ENV };
 
 /** The git a backlog PR's auto-merge needs; `laneMergeGit` is the real one, tests use fakes. */
@@ -22,6 +24,11 @@ export interface BacklogMergeGit {
    * branch may still exist, or null when it is gone.
    */
   deleteBranch(branch: string): Promise<string | null>;
+  /**
+   * The paths `head` changes that the base's CODEOWNERS gives an owner (0002), or null when git
+   * cannot tell; such a PR never gets auto-merge.
+   */
+  releasePaths(head: string): Promise<readonly string[] | null>;
 }
 
 async function revParse(git: GitSession, ref: string): Promise<string | null> {
@@ -38,6 +45,8 @@ async function revParse(git: GitSession, ref: string): Promise<string | null> {
 export function laneMergeGit(lane: OfficeLane): BacklogMergeGit {
   const officeGit = lane.git;
   return {
+    releasePaths: (head) => releasePathsOnBase(officeGit, head),
+
     head: (branch) => officeGit.run((git) => revParse(git, `refs/heads/${branch}`)),
 
     inHead: (commit, head) =>

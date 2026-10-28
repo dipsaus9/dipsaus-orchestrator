@@ -16,10 +16,23 @@ import { afterEach, describe, expect, it } from "bun:test";
 
 import { conflictFeedbackItem } from "../../src/box/collisions";
 import { OFFICE_DEFAULTS } from "../../src/config";
-import { decideMergeGate, mergeGatesOfRun, STORY_MERGE_NOTICES } from "../../src/merge";
+import {
+  decideMergeGate,
+  guardedParkWriter,
+  guardedUnparkWriter,
+  mergeGatesOfRun,
+  STORY_MERGE_NOTICES,
+} from "../../src/merge";
 import { CodeHostError } from "../../src/platform/host";
 import { recordReviewOverride, recordReviewVerdict } from "../../src/review/store";
-import { openPark } from "../../src/run/park";
+import { recordCatchUp } from "../../src/run/conflicts";
+import {
+  openPark,
+  type ParkBranchRequest,
+  type ParkWriter,
+  type UnparkBranchRequest,
+  type UnparkWriter,
+} from "../../src/run/park";
 import { recordConfigSnapshot, runSteps } from "../../src/run/records";
 import { findStoryPr } from "../../src/story-pr/records";
 
@@ -66,7 +79,8 @@ describe("an approved merge gate", () => {
   it("commits the close-out, pushes, and runs gh pr merge --auto with exactly that head", async () => {
     s = await storyWorld();
     await toArmed();
-    expect(s.git.calls).toEqual([`closeOut ${BRANCH}`, `push ${BRANCH}`]);
+    // The base is fetched before the release path is read again for the head that merges.
+    expect(s.git.calls).toEqual([`closeOut ${BRANCH}`, `push ${BRANCH}`, "fetch"]);
     expect(s.prSyncs).toEqual([s.run]);
     expect(findStoryPr(s.w.office, s.run)?.headSha).toBe(C1);
     expect(s.host.calls).toContain(`auto-merge on o/r #${PR} at ${C1}`);
@@ -80,7 +94,7 @@ describe("an approved merge gate", () => {
     await s.tick();
     expect(s.host.armedAt).toHaveLength(1);
     expect(s.host.disarmed).toEqual([]);
-    expect(s.git.calls).toHaveLength(2);
+    expect(s.git.calls).toHaveLength(3);
   });
 
   it("does not turn auto-merge on when the push failed, and says why", async () => {
@@ -380,7 +394,7 @@ describe("PRs changed on GitHub", () => {
     s.host.githubMerges(PR);
     await s.tick();
     expect(s.host.disarmed).toEqual([]);
-    expect(s.git.calls).toHaveLength(2);
+    expect(s.git.calls).toHaveLength(3);
   });
 });
 
@@ -540,5 +554,217 @@ describe("the merge gate", () => {
       decision: null,
     });
     expect(gates()[0]?.summary).toContain("criterion #2 unmet: nothing checks an empty name");
+  });
+});
+
+/** Opens a park of the story's run, as a CI-cap or a maintainer park records it. */
+function parkRun(reason: "verify-failing" | "by-maintainer"): void {
+  s.w.office.immediate(() =>
+    s.w.office.run(
+      `insert into parks (office_id, park_id, key, story_id, run_id, reason, from_state, detail, at)
+       values ($office_id, 1, $key, 'DIPO-7', $run, $reason, 'In Review', 'parked', 0)`,
+      { key: s.key, run: s.run, reason },
+    ),
+  );
+}
+
+/** A park writer and a lift writer that only record what reached the branch. */
+function branchWriters(): {
+  readonly parks: ParkBranchRequest[];
+  readonly lifts: UnparkBranchRequest[];
+  readonly park: ParkWriter;
+  readonly unpark: UnparkWriter;
+} {
+  const parks: ParkBranchRequest[] = [];
+  const lifts: UnparkBranchRequest[] = [];
+  return {
+    parks,
+    lifts,
+    park: {
+      write: async (_office, request) => {
+        parks.push(request);
+        return {
+          commit: "p".repeat(40),
+          lastGoodCommit: C1,
+          from: "In Review",
+          pushed: true,
+          pushError: null,
+        };
+      },
+    },
+    unpark: {
+      lift: async (_office, request) => {
+        lifts.push(request);
+        return { commit: "u".repeat(40), pushed: true, pushError: null };
+      },
+    },
+  };
+}
+
+describe("a story that stops waiting for its merge while auto-merge is on", () => {
+  it("gets auto-merge off at the next round when a fix round reopened its run", async () => {
+    s = await storyWorld();
+    await toArmed();
+    // The CI path reopened the run for a fix round: it no longer waits In Review.
+    s.w.office.immediate(() =>
+      s.w.office.run(
+        "update runs set ended_at = null, end_kind = null where office_id = $office_id and run_id = $run",
+        { run: s.run },
+      ),
+    );
+    await s.tick();
+    expect(s.host.disarmed).toEqual([PR]);
+    expect(noticeTexts(s.w.office, STORY_MERGE_NOTICES.autoMergeOff)[0]).toContain(
+      "its story no longer waits for its merge",
+    );
+  });
+
+  for (const reason of ["verify-failing", "by-maintainer"] as const) {
+    it(`gets auto-merge off at the next round when it parked ${reason}`, async () => {
+      s = await storyWorld();
+      await toArmed();
+      parkRun(reason);
+      await s.tick();
+      expect(s.host.disarmed).toEqual([PR]);
+      // Off for good: nothing turns it on again while the story is parked.
+      await s.tick();
+      expect(s.host.armedAt).toHaveLength(1);
+    });
+  }
+
+  it("turns auto-merge off before a CI-cap or maintainer park and before a fix round's lift is written", async () => {
+    s = await storyWorld();
+    const w = branchWriters();
+    const off = (office: Parameters<typeof s.merge.autoMergeOff>[0], branch: string) =>
+      s.merge.autoMergeOff(office, branch);
+    const park = guardedParkWriter(w.park, off);
+    const unpark = guardedUnparkWriter(w.unpark, off);
+    const request = { story: "DIPO-7", branch: BRANCH, worktree: "/w" };
+    for (const reason of ["verify-failing", "by-maintainer"] as const) {
+      await toArmedAgain();
+      await park.write(s.officeId, { ...request, reason, note: "parked" });
+      expect(s.host.prs.get(PR)?.autoMerge).toBe(false);
+    }
+    await toArmedAgain();
+    await unpark.lift(s.officeId, { ...request, to: "In Progress" });
+    expect(s.host.prs.get(PR)?.autoMerge).toBe(false);
+    expect(s.host.disarmed).toEqual([PR, PR, PR]);
+    expect(w.parks).toHaveLength(2);
+    expect(w.lifts).toHaveLength(1);
+  });
+
+  it("fails closed: nothing is written to the branch while GitHub refuses to turn auto-merge off", async () => {
+    s = await storyWorld();
+    await toArmed();
+    const w = branchWriters();
+    const off = (office: Parameters<typeof s.merge.autoMergeOff>[0], branch: string) =>
+      s.merge.autoMergeOff(office, branch);
+    s.host.disableError = new CodeHostError("failed", "network down");
+    const request = { story: "DIPO-7", branch: BRANCH, worktree: "/w" };
+    await expect(
+      guardedParkWriter(w.park, off).write(s.officeId, {
+        ...request,
+        reason: "verify-failing",
+        note: "red",
+      }),
+    ).rejects.toThrow("auto-merge is still on");
+    await expect(
+      guardedUnparkWriter(w.unpark, off).lift(s.officeId, { ...request, to: "In Progress" }),
+    ).rejects.toThrow("auto-merge is still on");
+    // GitHub cannot be read at all: no write either.
+    s.host.failWith = "failed";
+    await expect(
+      guardedParkWriter(w.park, off).write(s.officeId, {
+        ...request,
+        reason: "by-maintainer",
+        note: "stop",
+      }),
+    ).rejects.toThrow();
+    s.host.failWith = null;
+    expect(w.parks).toEqual([]);
+    expect(w.lifts).toEqual([]);
+    s.host.disableError = null;
+    await guardedParkWriter(w.park, off).write(s.officeId, {
+      ...request,
+      reason: "verify-failing",
+      note: "red",
+    });
+    expect(w.parks).toHaveLength(1);
+  });
+});
+
+/** Auto-merge on again for PR #7 at its current head, as an earlier round left it. */
+async function toArmedAgain(): Promise<void> {
+  if (s.host.armedAt.length === 0) {
+    await toArmed();
+    return;
+  }
+  s.host.set(PR, { autoMerge: true });
+}
+
+describe("a conflict hand-off a crash cut short", () => {
+  const M = "3".repeat(40);
+  const conflicts = [{ path: "src/greet.ts", kind: "content" as const }];
+
+  it("records the merge before the branch moves to it, and moves nothing when the record fails", async () => {
+    s = await storyWorld();
+    await toArmed();
+    s.git.merges = [
+      {
+        kind: "planned",
+        merged: {
+          base: "main",
+          onto: "b".repeat(40),
+          tip: C1,
+          commit: M,
+          conflicts,
+          taskFile: null,
+          outsideBox: true,
+        },
+        item: conflictFeedbackItem({ base: "main", onto: "b".repeat(40), conflicts, hunks: [] }),
+      },
+    ];
+    s.failRecord = true;
+    s.host.set(PR, { mergeable: "conflicting" });
+    await s.tick();
+    expect(s.git.calls).not.toContain(`moveBranch ${BRANCH}`);
+    expect(s.conflicts).toEqual([]);
+    expect(noticeCodes(s.w.office)).toContain(STORY_MERGE_NOTICES.unrecorded);
+  });
+
+  for (const where of ["before the branch moved", "after the branch moved"] as const) {
+    it(`finishes it at the next round when the crash came ${where}`, async () => {
+      s = await storyWorld();
+      await toArmed();
+      // The record of the merge is there; the crash left the branch at C1 or at the merge.
+      s.w.office.immediate(() =>
+        recordCatchUp(
+          s.w.office,
+          s.run,
+          { kind: "merged", base: "main", onto: "b".repeat(40), tip: C1, commit: M, conflicts },
+          s.w.t.clock.now(),
+        ),
+      );
+      if (where === "after the branch moved") s.git.heads.set(BRANCH, M);
+      s.host.set(PR, { mergeable: "conflicting" });
+      await s.tick();
+      expect(s.git.calls).not.toContain(`conflictMerge ${BRANCH}`);
+      expect(s.git.heads.get(BRANCH)).toBe(M);
+      expect(s.git.calls).toContain(`conflictItem ${M}`);
+      expect(s.git.calls.at(-1)).toBe(`push ${BRANCH}`);
+      expect(s.conflicts.map((c) => c.head)).toEqual([M]);
+    });
+  }
+});
+
+describe("the release path read again before auto-merge goes on", () => {
+  it("turns nothing on when the base cannot be fetched", async () => {
+    s = await storyWorld();
+    s.git.fetchOk = false;
+    await s.tick();
+    expect(s.host.armedAt).toEqual([]);
+    expect(noticeTexts(s.w.office, STORY_MERGE_NOTICES.releaseUnknown)[0]).toContain(
+      "the fetch of the base failed",
+    );
   });
 });

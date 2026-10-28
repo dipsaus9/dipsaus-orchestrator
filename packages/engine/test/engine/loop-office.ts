@@ -40,7 +40,14 @@ import type { OfficeHandle } from "../../src/db/office";
 import { GateStore } from "../../src/gate";
 import { EngineGit } from "../../src/git";
 import { EVENTS_FILE, EXIT_FILE, hostSocketPath } from "../../src/host/protocol";
-import { AutoMerge, MergeGates, gitStoryMergeOps, writeCloseOutSummary } from "../../src/merge";
+import {
+  AutoMerge,
+  MergeGates,
+  gitStoryMergeOps,
+  guardedParkWriter,
+  guardedUnparkWriter,
+  writeCloseOutSummary,
+} from "../../src/merge";
 import { officeStatusesReady } from "../../src/office/init";
 import { ensurePrivateDir } from "../../src/platform/paths";
 import { createSystemIds } from "../../src/platform/ids";
@@ -606,8 +613,12 @@ async function buildDaemon(
     void warnings.push(`${message} ${JSON.stringify(fields)}`);
   const holds = new AdapterHolds({ clock: officeClock, notify: () => undefined });
   const implemented = (name: string) => loaded().registry.command(name as never) !== undefined;
-  const parkWriter = gitParkWriter({ git: gitOf, cli });
-  const unparkWriter = gitUnparkWriter({ git: gitOf, cli });
+  // As the daemon wires them: no park or lift reaches a branch while its PR has auto-merge on.
+  let mergeRef: AutoMerge | null = null;
+  const autoMergeOff = async (office: OfficeId, branch: string): Promise<void> =>
+    mergeRef?.autoMergeOff(office, branch);
+  const parkWriter = guardedParkWriter(gitParkWriter({ git: gitOf, cli }), autoMergeOff);
+  const unparkWriter = guardedUnparkWriter(gitUnparkWriter({ git: gitOf, cli }), autoMergeOff);
 
   // The story PR and its CI watch (DIPO-144, DIPO-147); every run is a box run (DIPO-299).
   const storyPrs = new StoryPrs({
@@ -705,7 +716,6 @@ async function buildDaemon(
   const steering: RunSteering = {
     send: async () => ({ ok: false, reason: "the worker host has exited" }),
   };
-  let mergeRef: AutoMerge | null = null;
   const runs = composeRuns({
     clock: officeClock,
     ids: { next: (prefix: IdPrefix) => loaded().ids.next(prefix) },

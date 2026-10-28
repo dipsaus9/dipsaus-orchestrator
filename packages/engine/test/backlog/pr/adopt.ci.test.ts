@@ -22,7 +22,7 @@ import { gateContentHash, storeGateDecision } from "../../../src/gate/store";
 import { AutoMerge } from "../../../src/merge";
 import type { RequiredCheck } from "../../../src/platform/host";
 import { addStory } from "../../../src/stories/keys";
-import { GREEN } from "../../merge/helpers";
+import { GREEN, RED } from "../../merge/helpers";
 import {
   BACKLOG_FIXTURE,
   inRemote,
@@ -174,6 +174,11 @@ if (process.env["DIPO_TEST_CI"] === "1") {
         // A second look finds it known and adopts nothing.
         expect(await fresh.prs.adopt(fresh.officeId)).toEqual({ adopted: null, refused: [] });
 
+        // A round reads the PR's auto-merge state (off, and kept off by a red check), so the lane may
+        // append to its branch: until a round has read it after a start, the lane holds it.
+        host.checks = RED;
+        await fresh.merge.tick(fresh.officeId);
+        host.checks = GREEN;
         // The lane treats it as its open branch: a new operation goes onto it with a later op id,
         // and no second PR opens.
         fresh.t.clock.advance(1000);
@@ -254,6 +259,11 @@ if (process.env["DIPO_TEST_CI"] === "1") {
         });
         const fresh = await database(repo, host, "state-fresh");
         expect((await fresh.prs.adopt(fresh.officeId)).adopted).toBe(1);
+        // A round reads the PR's auto-merge state (off, and kept off by a red check), so the lane may
+        // append to its branch: until a round has read it after a start, the lane holds it.
+        host.checks = RED;
+        await fresh.merge.tick(fresh.officeId);
+        host.checks = GREEN;
         fresh.t.clock.advance(1000);
         await fresh.lane.submit({
           kind: "edit",

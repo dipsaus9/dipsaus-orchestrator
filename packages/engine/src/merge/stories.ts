@@ -32,13 +32,18 @@
 //     no approved review and gate hold for the head any more, leaves it off: the gate pass opens a
 //     hand-merge-only gate, or waits for the review.
 //   A `--disable-auto` that fails is a notice, and the next round tries again before anything else.
+// - A story that no longer waits for its merge (a fix round reopened its run, it parked, its claim
+//   ended) gets auto-merge off at the next round, and every park or lift written to its branch
+//   turns it off first (`guard.ts`, `offFor`): `--match-head-commit` is checked only when
+//   auto-merge goes on, so a later head must never meet it still on.
 // - A PR closed on GitHub without a merge parks the story `by-maintainer` with the detail "PR #n
 //   closed on GitHub" (0002); a resume opens a new PR.
 // - Stages after a run's start read the run's configuration snapshot (`runConfigOf`): `autoMerge`
 //   and `holdLabels` of the run.
 //
-// The conflict hand-off moves the branch to the merge before it records it; a crash in between
-// leaves a merge the branch holds and no record, which the next hand-off finds as the base merged.
+// The conflict hand-off records the merge before the branch moves to it. A crash after the record
+// leaves the branch at the merge's tip or at the merge; the next hand-off finds the record
+// (`#cutShort`), moves the branch when it has not moved, and pushes and hands it over then.
 
 import type {
   Clock,
@@ -69,6 +74,7 @@ import {
   type StoredReviewVerdict,
 } from "../review/store";
 import { runConfigOf } from "../run/config-snapshot";
+import { catchUpsOf } from "../run/conflicts";
 import { openPark, type ParkWriter, parkStory } from "../run/park";
 import type { RunStoryFacts } from "../run/resume";
 import {
@@ -196,7 +202,17 @@ type Stop =
   | { readonly kind: "held"; readonly labels: readonly string[] }
   | { readonly kind: "releasePath"; readonly paths: readonly string[] }
   | { readonly kind: "releaseUnknown" }
-  | { readonly kind: "unapproved" };
+  | { readonly kind: "unapproved" }
+  | { readonly kind: "notWaiting" };
+
+/** The PR auto-merge goes off for, with what its notices name. */
+interface Target {
+  readonly repo: string;
+  readonly number: number;
+  readonly story: string;
+  readonly key: StoryKey | null;
+  readonly runId: RunId;
+}
 
 function messageOf(error: unknown): string {
   return error instanceof Error ? error.message : String(error);
@@ -236,6 +252,8 @@ function stopText(stop: Stop): string {
       return "dipo could not read whether it changes the release path. dipo turns auto-merge on again once it can.";
     case "unapproved":
       return "no approved review and merge gate hold for its head any more. The review loop takes that head.";
+    case "notWaiting":
+      return "its story no longer waits for its merge (a fix round, a park or the end of its claim), so no later head merges without its merge gate.";
   }
 }
 
@@ -268,10 +286,29 @@ export class StoryMerges {
     }
   }
 
+  /**
+   * Turns auto-merge off for the open story PR of `branch` before dipo writes to that branch for a
+   * park or a fix round. Throws when GitHub cannot be read or refuses, so nothing is written to the
+   * branch until auto-merge is off: `--match-head-commit` is checked only when it goes on.
+   */
+  async offFor(ctx: StoryMergeContext, branch: string): Promise<void> {
+    const stored = openStoryPrs(ctx.office).find((pr) => pr.branch === branch);
+    const repo = stored === undefined ? null : repoOfPrUrl(stored.url);
+    if (stored === undefined || repo === null) return;
+    const view = await ctx.reads.viewPr(repo, stored.number);
+    if (view.state !== "open" || view.autoMerge !== true) return;
+    if (!(await this.#disable(ctx, this.#target(ctx, stored, repo), { kind: "notWaiting" }))) {
+      throw new Error(
+        `auto-merge is still on for PR #${stored.number}; dipo writes nothing to ${branch} until GitHub turns it off`,
+      );
+    }
+  }
+
   async #story(ctx: StoryMergeContext, stored: StoryPrRecord): Promise<void> {
     const run = this.#waitingRun(ctx.office, stored.runId);
     const repo = repoOfPrUrl(stored.url);
-    if (run === null || repo === null) return;
+    if (repo === null) return;
+    if (run === null) return this.#offWhileNotWaiting(ctx, stored, repo);
     let view: HostPr;
     try {
       view = await ctx.reads.viewPr(repo, stored.number, { head: stored.headSha });
@@ -290,6 +327,38 @@ export class StoryMerges {
     if (!(await this.#approvedGate(ctx, pr))) return;
     if (view.mergeable === "conflicting") return this.#conflict(ctx, run, stored);
     await this.#arm(ctx, pr);
+  }
+
+  /**
+   * The PR of a run that no longer waits for its merge (a fix round reopened it, it parked, its
+   * claim ended): auto-merge goes off, so a later head never merges without its gate.
+   */
+  async #offWhileNotWaiting(
+    ctx: StoryMergeContext,
+    stored: StoryPrRecord,
+    repo: string,
+  ): Promise<void> {
+    let view: HostPr;
+    try {
+      view = await ctx.reads.viewPr(repo, stored.number);
+    } catch (error) {
+      if (error instanceof CodeHostError) return;
+      throw error;
+    }
+    if (view.state !== "open" || view.autoMerge !== true) return;
+    await this.#disable(ctx, this.#target(ctx, stored, repo), { kind: "notWaiting" });
+  }
+
+  /** What the notices of a PR's auto-merge name. */
+  #target(ctx: StoryMergeContext, stored: StoryPrRecord, repo: string): Target {
+    const run = findRun(ctx.office, stored.runId);
+    return {
+      repo,
+      number: stored.number,
+      story: run?.story ?? stored.key,
+      key: stored.key,
+      runId: stored.runId,
+    };
   }
 
   /** The story run waiting In Review whose PR this is, or null. */
@@ -355,16 +424,21 @@ export class StoryMerges {
       return null;
     });
     if (paths !== null) return paths;
+    this.#releaseUnknownNotice(ctx, run, head, "the base's CODEOWNERS or the PR's diff");
+    return null;
+  }
+
+  /** The `merge.releasePathUnknown` notice, once per head: nothing turns auto-merge on for it. */
+  #releaseUnknownNotice(ctx: StoryMergeContext, run: StoredRun, head: string, what: string): void {
     ctx.once(`story:${run.runId}`, STORY_MERGE_NOTICES.releaseUnknown, head, () =>
       notice(
         "warn",
         STORY_MERGE_NOTICES.releaseUnknown,
-        `${run.story}: dipo could not read whether ${short(head)} changes the release path (the base's CODEOWNERS or the PR's diff), so it does not turn auto-merge on. It tries again at the next poll.`,
+        `${run.story}: dipo could not read whether ${short(head)} changes the release path (${what}), so it does not turn auto-merge on. It tries again at the next poll.`,
         run.key,
         run.runId,
       ),
     );
-    return null;
   }
 
   /**
@@ -646,6 +720,11 @@ export class StoryMerges {
       this.#unapproved(ctx, run, head);
       return;
     }
+    // The base as it is now: CODEOWNERS may have grown since the gate's read.
+    if (!(await git.fetch(ctx.officeId))) {
+      this.#releaseUnknownNotice(ctx, run, head, "the fetch of the base failed");
+      return;
+    }
     const release = await this.#releasePaths(ctx, run, head);
     if (release === null || release.length > 0) return;
     try {
@@ -726,8 +805,8 @@ export class StoryMerges {
   async #watch(ctx: StoryMergeContext, pr: Pr): Promise<void> {
     const stop = await this.#stopOf(ctx, pr);
     if (stop === null) return;
-    if (!(await this.#disable(ctx, pr, stop))) return;
     const { run, stored } = pr;
+    if (!(await this.#disable(ctx, this.#target(ctx, stored, pr.repo), stop))) return;
     switch (stop.kind) {
       case "conflict":
         return this.#conflict(ctx, run, stored);
@@ -767,31 +846,30 @@ export class StoryMerges {
   }
 
   /** `gh pr merge --disable-auto`; false with a notice (once per cause) when it failed. */
-  async #disable(ctx: StoryMergeContext, pr: Pr, stop: Stop): Promise<boolean> {
-    const { run, stored, repo } = pr;
+  async #disable(ctx: StoryMergeContext, pr: Target, stop: Stop): Promise<boolean> {
     try {
-      await this.#deps.host.disableAutoMerge(repo, stored.number);
+      await this.#deps.host.disableAutoMerge(pr.repo, pr.number);
     } catch (error) {
       if (!(error instanceof CodeHostError)) throw error;
-      ctx.once(`story:${run.runId}`, STORY_MERGE_NOTICES.autoMergeFailed, error.message, () =>
+      ctx.once(`story:${pr.runId}`, STORY_MERGE_NOTICES.autoMergeFailed, error.message, () =>
         notice(
           "error",
           STORY_MERGE_NOTICES.autoMergeFailed,
-          `${run.story}: dipo must turn auto-merge off for PR #${stored.number} (${stopText(stop)}), but GitHub refused: ${error.message} It tries again at the next poll.`,
-          run.key,
-          run.runId,
+          `${pr.story}: dipo must turn auto-merge off for PR #${pr.number} (${stopText(stop)}), but GitHub refused: ${error.message} It tries again at the next poll.`,
+          pr.key,
+          pr.runId,
         ),
       );
       return false;
     }
-    ctx.reads.invalidate?.(repo, stored.number);
+    ctx.reads.invalidate?.(pr.repo, pr.number);
     ctx.write(() => [
       notice(
         "warn",
         STORY_MERGE_NOTICES.autoMergeOff,
-        `dipo turned auto-merge off for PR #${stored.number} of ${run.story}: ${stopText(stop)}`,
-        run.key,
-        run.runId,
+        `dipo turned auto-merge off for PR #${pr.number} of ${pr.story}: ${stopText(stop)}`,
+        pr.key,
+        pr.runId,
       ),
     ]);
     return true;
@@ -833,10 +911,17 @@ export class StoryMerges {
 
   // ---- the conflict hand-off --------------------------------------------------------------------
 
-  /** The base merged into the branch with its markers, pushed, and one fix round with its item. */
+  /**
+   * The base merged into the branch with its markers, pushed, and one fix round with its item. The
+   * merge is recorded before the branch moves to it, so a hand-off a crash cut short is found again
+   * at the next round (`#cutShort`) and finished, never planned twice.
+   */
   async #conflict(ctx: StoryMergeContext, run: StoredRun, stored: StoryPrRecord): Promise<void> {
     const git = this.#deps.git;
     const office = ctx.officeId;
+    const branch = run.branch as string;
+    const resumed = await this.#cutShort(ctx, run);
+    if (resumed !== null) return this.#handOff(ctx, run, stored, resumed);
     if (!(await git.fetch(office))) return;
     const merge = await git.conflictMerge(office, this.#mergeRun(ctx, run));
     if (merge.kind === "none") return;
@@ -848,14 +933,58 @@ export class StoryMerges {
       return;
     }
     const { merged, item } = merge;
-    const branch = run.branch as string;
-    if (!(await git.moveBranch(office, branch, merged.commit, merged.tip))) return;
     try {
       await this.#deps.recordMerge?.(office, run, merged);
     } catch (error) {
       this.#unrecorded(ctx, run, merged.commit, messageOf(error));
       return;
     }
+    if (!(await git.moveBranch(office, branch, merged.commit, merged.tip))) return;
+    await this.#handOff(ctx, run, stored, { merged, item });
+  }
+
+  /**
+   * A conflicted merge of the base dipo recorded for the run whose hand-off a crash cut short: the
+   * branch is still at the tip it was made on, or at the merge itself. The branch is moved to it
+   * when it is not yet, and the conflict item is built again from git. Null when there is none.
+   */
+  async #cutShort(
+    ctx: StoryMergeContext,
+    run: StoredRun,
+  ): Promise<{ merged: CatchUpMerged; item: FixItem } | null> {
+    const git = this.#deps.git;
+    const branch = run.branch as string;
+    const tip = await git.head(ctx.officeId, branch);
+    const row = catchUpsOf(ctx.office, run.runId)
+      .filter((entry) => entry.kind === "merged" && entry.conflicts.length > 0)
+      .at(-1);
+    if (tip === null || row?.commit == null || (row.tip !== tip && row.commit !== tip)) return null;
+    const merged: CatchUpMerged = {
+      base: row.base,
+      onto: row.onto,
+      tip: row.tip,
+      commit: row.commit,
+      conflicts: row.conflicts,
+      taskFile: null,
+      outsideBox: true,
+    };
+    if (tip === row.tip && !(await git.moveBranch(ctx.officeId, branch, row.commit, row.tip))) {
+      return null;
+    }
+    const item = await git.conflictItem(ctx.officeId, this.#mergeRun(ctx, run), merged);
+    return { merged, item };
+  }
+
+  /** The merge on the branch pushed, the PR updated, and the conflict handed to the worker. */
+  async #handOff(
+    ctx: StoryMergeContext,
+    run: StoredRun,
+    stored: StoryPrRecord,
+    hand: { readonly merged: CatchUpMerged; readonly item: FixItem },
+  ): Promise<void> {
+    const office = ctx.officeId;
+    const branch = run.branch as string;
+    const { merged, item } = hand;
     const pushed = await this.#push(ctx, run, branch);
     ctx.write(() => [
       notice(
@@ -879,7 +1008,7 @@ export class StoryMerges {
       notice(
         "warn",
         STORY_MERGE_NOTICES.unrecorded,
-        `${run.story}: dipo merged the base into its branch at ${short(commit)} but could not record that merge (${reason}). Nothing was pushed or handed to the worker; check the branch by hand.`,
+        `${run.story}: dipo could not record its merge of the base at ${short(commit)} (${reason}), so the branch did not move to it and nothing was pushed or handed to the worker. dipo tries again at the next poll.`,
         run.key,
         run.runId,
       ),

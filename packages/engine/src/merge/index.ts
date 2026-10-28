@@ -13,6 +13,8 @@ export { gitStoryMergeOps, MODIFIED_FILES_MAX } from "./story-git";
 export type { ConflictMerge, PushOutcome, StoryMergeGit, StoryMergeRun } from "./story-git";
 export { closeOutFields, DONE_STATUS, writeCloseOutSummary } from "./close-out";
 export { MergeGates } from "./commands";
+export { guardedParkWriter, guardedUnparkWriter } from "./guard";
+export type { AutoMergeOff } from "./guard";
 export type { MergeGatesDeps } from "./commands";
 export {
   AUTORELEASE_LABEL,

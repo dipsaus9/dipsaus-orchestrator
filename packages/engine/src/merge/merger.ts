@@ -64,6 +64,11 @@ interface OfficeState {
   readonly noticed: Map<string, string>;
   /** The backlog PRs with auto-merge on, by number: the lane holds their branches. */
   readonly armed: Set<number>;
+  /**
+   * The backlog PRs whose auto-merge state a round read from GitHub. Until a PR is in it (after a
+   * daemon start) the lane holds its branch too, as auto-merge may be on.
+   */
+  readonly seen: Set<number>;
   clock: Clock;
   seconds: number;
   timer: TimerHandle | null;
@@ -98,22 +103,32 @@ export class AutoMerge {
   }
 
   /**
-   * The branch of the office's backlog PR with auto-merge on, or null: the lane holds new
-   * operations meanwhile, so the head GitHub merges is the one the structural check passed on.
+   * The branch of the office's open backlog PR with auto-merge on, or whose auto-merge state no
+   * round has read yet (after a daemon start), or null: the lane holds new operations meanwhile,
+   * so the head GitHub merges is the one the structural check passed on.
    */
   holding(office: OfficeId): string | null {
-    const state = this.#offices.get(office);
     const handle = this.#deps.offices.get(office);
-    if (state === undefined || handle === undefined) return null;
-    for (const number of state.armed) {
-      const pr = handle.get<{ branch: string }>(
-        `select branch from backlog_prs where office_id = $office_id and pr_number = $number
-           and state = 'open'`,
-        { number },
-      );
-      if (pr !== null) return pr.branch;
-    }
-    return null;
+    if (handle === undefined) return null;
+    const state = this.#stateOf(office);
+    const open = handle.all<{ pr_number: number; branch: string }>(
+      `select pr_number, branch from backlog_prs where office_id = $office_id and state = 'open'
+        order by pr_number`,
+    );
+    const held = open.find((pr) => state.armed.has(pr.pr_number) || !state.seen.has(pr.pr_number));
+    return held?.branch ?? null;
+  }
+
+  /**
+   * Turns auto-merge off for the open story PR of `branch` before dipo writes to the branch for a
+   * park or a fix round; throws when it cannot, so nothing is written to the branch meanwhile.
+   */
+  async autoMergeOff(office: OfficeId, branch: string): Promise<void> {
+    const handle = this.#deps.offices.get(office);
+    if (handle === undefined || this.#stories === null) return;
+    // The host's state now, never a round's copy.
+    const ctx = { ...this.#context(office, this.#stateOf(office), handle), reads: this.#deps.host };
+    await this.#stories.offFor(ctx, branch);
   }
 
   /**
@@ -231,6 +246,7 @@ export class AutoMerge {
         pending: 0,
         noticed: new Map(),
         armed: new Set(),
+        seen: new Set(),
         clock: this.#deps.clock,
         seconds: 0,
         timer: null,
@@ -264,6 +280,7 @@ export class AutoMerge {
           git,
           now: () => this.#deps.clock.now(),
           armed: state.armed,
+          seen: state.seen,
         });
       }
     } catch (error) {

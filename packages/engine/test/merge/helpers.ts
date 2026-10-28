@@ -107,6 +107,13 @@ export class FakeBacklogGit implements BacklogMergeGit {
   readonly notInHead = new Set<string>();
   /** What `deleteBranch` reports about the remote branch; null when it is gone. */
   deleteProblem: string | null = null;
+  /** The release paths each head changes; null: git cannot tell. None by default. */
+  readonly release = new Map<string, readonly string[] | null>();
+
+  async releasePaths(head: string): Promise<readonly string[] | null> {
+    const paths = this.release.get(head);
+    return paths === undefined ? [] : paths;
+  }
 
   async head(branch: string): Promise<string | null> {
     return this.heads.get(branch) ?? null;

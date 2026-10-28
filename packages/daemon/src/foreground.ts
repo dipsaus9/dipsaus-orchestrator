@@ -104,6 +104,9 @@ import {
   gitParkWriter,
   gitStoryMergeOps,
   gitUnparkWriter,
+  guardedParkWriter,
+  guardedUnparkWriter,
+  type AutoMergeOff,
   MergeGates,
   StoryTeardown,
   writeCloseOutSummary,
@@ -720,6 +723,9 @@ async function serve(run: Run, lock: HeldLock): Promise<number> {
       logger: logger.child({ component: "teardown" }),
     });
     held.teardown = teardown;
+    // No park or lift reaches a story branch while its PR has auto-merge on (0002). The auto-merge
+    // is made below; this is only called once a park or lift runs.
+    const autoMergeOff: AutoMergeOff = (office, branch) => autoMerge.autoMergeOff(office, branch);
     // The story PR (DIPO-144): opened or updated right after each In Review push, and retried
     // every `polling.prStateSeconds` until it exists, through the same `gh` host. Whether a run
     // is a box run comes from the runs made below (DIPO-299: CI is the verify of a box run).
@@ -740,7 +746,10 @@ async function serve(run: Run, lock: HeldLock): Promise<number> {
       // run's CI cap. The registry is built below; a park is only written after it exists.
       review: host,
       park: {
-        writer: gitParkWriter({ git: (office) => engineGit.forOffice(office), cli: backlogCli }),
+        writer: guardedParkWriter(
+          gitParkWriter({ git: (office) => engineGit.forOffice(office), cli: backlogCli }),
+          autoMergeOff,
+        ),
         implemented: (name) => registry.command(name) !== undefined,
       },
       boxRun: (office, stored) => boxRunOf?.(office, stored) === true,
@@ -813,7 +822,10 @@ async function serve(run: Run, lock: HeldLock): Promise<number> {
         recordMerge: (office, stored, merged) => runs.merge.recordMerge(office, stored, merged),
         conflict: (office, runId, input) => runs.merge.conflict(office, runId, input),
         park: {
-          writer: gitParkWriter({ git: (office) => engineGit.forOffice(office), cli: backlogCli }),
+          writer: guardedParkWriter(
+            gitParkWriter({ git: (office) => engineGit.forOffice(office), cli: backlogCli }),
+            autoMergeOff,
+          ),
           implemented: (name) => registry.command(name) !== undefined,
         },
         itemMax: (office, stored) => runs.merge.itemMax(office, stored),
@@ -826,7 +838,10 @@ async function serve(run: Run, lock: HeldLock): Promise<number> {
     // the auto-merge, a reject's note goes to the worker in a fix round.
     const mergeGates = new MergeGates({
       labels: host,
-      unpark: gitUnparkWriter({ git: (office) => engineGit.forOffice(office), cli: backlogCli }),
+      unpark: guardedUnparkWriter(
+        gitUnparkWriter({ git: (office) => engineGit.forOffice(office), cli: backlogCli }),
+        autoMergeOff,
+      ),
       reject: (office, runId, reject) => runs.merge.reject(office, runId, reject),
       kick: (office) => autoMerge.kick(office),
       view: host,
@@ -835,7 +850,10 @@ async function serve(run: Run, lock: HeldLock): Promise<number> {
       // A decision only for the head the gate holds for; the park put back when an override is not
       // recorded after its lift.
       holds: (office, gate, head) => autoMerge.gateHolds(office, gate, head),
-      repark: gitParkWriter({ git: (office) => engineGit.forOffice(office), cli: backlogCli }),
+      repark: guardedParkWriter(
+        gitParkWriter({ git: (office) => engineGit.forOffice(office), cli: backlogCli }),
+        autoMergeOff,
+      ),
     });
     // `story.park`, `story.drop` and the resume of a park with no run (DIPO-160, DIPO-344): lane
     // operations, the story PR closed through the same `gh` host and the claim released with the
@@ -989,6 +1007,7 @@ async function serve(run: Run, lock: HeldLock): Promise<number> {
       holdResumer: () => planning,
       // A story resumed to wait In Review again goes back to the auto-merge (0002).
       mergeReentry: () => autoMerge,
+      autoMergeOff,
       ...(options.workerPort === undefined ? {} : { workerPort: options.workerPort }),
       stories: storyIndex,
       // The registry is built below; parks are only written after it exists.

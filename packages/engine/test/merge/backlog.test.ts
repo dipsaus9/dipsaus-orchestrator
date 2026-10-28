@@ -215,3 +215,53 @@ describe("merged on GitHub", () => {
     expect(s.git.calls).toEqual([]);
   });
 });
+
+describe("the lane's hold", () => {
+  it("holds an open backlog PR's branch until a round has read its auto-merge state", async () => {
+    await openBacklogPr(s);
+    // After a daemon start no round has read GitHub yet: auto-merge may be on.
+    expect(s.merge.holding(s.officeId)).toBe(BRANCH);
+    s.host.checks = RED;
+    await s.merge.tick(s.officeId);
+    // Read: off, and the red check keeps it off, so the lane may append.
+    expect(s.host.armedAt).toEqual([]);
+    expect(s.merge.holding(s.officeId)).toBeNull();
+  });
+
+  it("holds the branch before auto-merge is turned on, and lets go when that failed", async () => {
+    await openBacklogPr(s);
+    let heldDuring: string | null = "unread";
+    s.host.enableError = new CodeHostError("failed", "auto-merge is not allowed.");
+    const enable = s.host.enableAutoMerge.bind(s.host);
+    s.host.enableAutoMerge = async (...args) => {
+      heldDuring = s.merge.holding(s.officeId);
+      return enable(...args);
+    };
+    await s.merge.tick(s.officeId);
+    expect(heldDuring).toBe(BRANCH);
+    expect(s.merge.holding(s.officeId)).toBeNull();
+  });
+});
+
+describe("the release path of a backlog PR", () => {
+  it("gives no auto-merge to a backlog PR that changes the release path", async () => {
+    await openBacklogPr(s);
+    s.git.release.set(HEAD, [".github/CODEOWNERS"]);
+    await s.merge.tick(s.officeId);
+    expect(s.host.armedAt).toEqual([]);
+    expect(noticeTexts(s.office, "merge.held")[0]).toContain("CODEOWNERS gives an owner");
+  });
+
+  it("gives none when git cannot tell, and turns it off when the release path shows up later", async () => {
+    await openBacklogPr(s);
+    s.git.release.set(HEAD, null);
+    await s.merge.tick(s.officeId);
+    expect(s.host.armedAt).toEqual([]);
+    s.git.release.delete(HEAD);
+    await s.merge.tick(s.officeId);
+    expect(s.host.armedAt).toEqual([{ number: 1, head: HEAD }]);
+    s.git.release.set(HEAD, ["install.sh"]);
+    await s.merge.tick(s.officeId);
+    expect(s.host.disarmed).toEqual([1]);
+  });
+});

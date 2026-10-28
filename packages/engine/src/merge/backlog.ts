@@ -3,11 +3,14 @@
 //
 // - Auto-merge on. A backlog PR whose structural check (`BacklogPrs`) passed on the branch's local
 //   head, which GitHub shows as the PR's head, with no hold label (`autorelease: pending` always, and
-//   `mergeSlot.holdLabels`), no conflict and no failed required check, gets
+//   `mergeSlot.holdLabels`), no path the base's CODEOWNERS gives an owner (the release path; when
+//   git cannot tell, none), no conflict and no failed required check, gets
 //   `gh pr merge --auto --squash --match-head-commit <head>`. GitHub merges it once its required
 //   checks pass on that head. dipo never passes `--admin`.
-// - The lane holds. While auto-merge is on for its PR, the lane leaves the branch alone (`holding`):
-//   new operations stay journaled, so the head GitHub merges is the one the check passed on.
+// - The lane holds. While auto-merge is on for its PR, or may be because no round has read it since
+//   the daemon started, and from just before it is turned on, the lane leaves the branch alone
+//   (`holding`): new operations stay journaled, so the head GitHub merges is the one the check
+//   passed on.
 // - Auto-merge off. While it is on, each round reads the PR again. A head dipo did not push, a hold
 //   label, a conflict, a failed required check or a check that no longer passes on the head turns
 //   it off (`gh pr merge --disable-auto`), with a notice; the lane then applies what it held, and a
@@ -77,6 +80,8 @@ export interface BacklogMergeContext {
   readonly config: OfficeConfig;
   /** The office's backlog PRs with auto-merge on, as the last round read them. */
   readonly armed: Set<number>;
+  /** The office's backlog PRs whose auto-merge state a round read from GitHub. */
+  readonly seen: Set<number>;
   once(subject: string, code: string, value: string, make: () => NewEntry): void;
   write(fn: () => readonly NewEntry[]): void;
   readonly logger?: Logger;
@@ -91,7 +96,14 @@ interface Pr {
 }
 
 /** Why auto-merge goes off for a backlog PR. */
-type Stop = "foreignHead" | "held" | "conflict" | "checksFailed" | "unchecked";
+type Stop =
+  | "foreignHead"
+  | "held"
+  | "conflict"
+  | "checksFailed"
+  | "unchecked"
+  | "releasePath"
+  | "releaseUnknown";
 
 const STOP_TEXT: Record<Stop, string> = {
   foreignHead: "its head on GitHub is not the one dipo pushed",
@@ -99,6 +111,9 @@ const STOP_TEXT: Record<Stop, string> = {
   conflict: "GitHub reports that the base conflicts with it; dipo rebuilds it on a new branch",
   checksFailed: "a required check failed",
   unchecked: "the structural check does not pass on its head",
+  releasePath:
+    "it changes a path the base's CODEOWNERS gives an owner, which needs the maintainer's code owner approval: merge it by hand on GitHub",
+  releaseUnknown: "dipo could not read whether it changes the release path",
 };
 
 function notice(level: "info" | "warn" | "error", code: string, text: string): NewEntry {
@@ -147,6 +162,7 @@ export class BacklogMerges {
     }
     if (view.autoMerge === true && view.state === "open") ctx.armed.add(record.number);
     else ctx.armed.delete(record.number);
+    ctx.seen.add(record.number);
     if (view.state === "merged") return this.#merged(ctx, { record, repo, head, view });
     if (view.state !== "open") return;
     const pr: Pr = { record, repo, head, view };
@@ -159,6 +175,9 @@ export class BacklogMerges {
     if ((await this.#heldBy(ctx, pr)).length > 0) return "held";
     if (pr.view.mergeable === "conflicting") return "conflict";
     if (!passedOn(pr.record, pr.head)) return "unchecked";
+    const release = await ctx.git.releasePaths(pr.head).catch(() => null);
+    if (release === null) return "releaseUnknown";
+    if (release.length > 0) return "releasePath";
     const checks = await this.#deps.host.requiredChecks(pr.repo, pr.record.number);
     if (checks.some((check) => check.bucket === "fail" || check.bucket === "cancel")) {
       return "checksFailed";
@@ -185,12 +204,15 @@ export class BacklogMerges {
     }
     if (stop !== null) return this.#keptOff(ctx, pr, stop);
     const number = pr.record.number;
+    // Held before GitHub is asked: the lane never pushes to a branch that may have auto-merge on.
+    ctx.armed.add(number);
     try {
       await this.#deps.host.enableAutoMerge(pr.repo, number, {
         headSha: pr.head,
         subject: pr.record.title,
       });
     } catch (error) {
+      ctx.armed.delete(number);
       if (!(error instanceof CodeHostError)) throw error;
       ctx.once(`${number}`, BACKLOG_MERGE_NOTICES.autoMergeFailed, error.message, () =>
         notice(
@@ -201,7 +223,6 @@ export class BacklogMerges {
       );
       return;
     }
-    ctx.armed.add(number);
     ctx.reads.invalidate?.(pr.repo, number);
     ctx.write(() => [
       notice(
@@ -225,7 +246,7 @@ export class BacklogMerges {
         : `The backlog PR #${number} carries the hold label ${held.map((label) => `"${label}"`).join(", ")}; dipo turns auto-merge on once the label is gone.`;
     }
     const code =
-      stop === "held"
+      stop === "held" || stop === "releasePath" || stop === "releaseUnknown"
         ? BACKLOG_MERGE_NOTICES.held
         : stop === "foreignHead"
           ? BACKLOG_MERGE_NOTICES.headChanged
