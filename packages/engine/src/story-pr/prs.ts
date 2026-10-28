@@ -999,8 +999,14 @@ export class StoryPrs {
       watch.states = states;
       await this.#sync(officeId, state, stored.runId);
     }
-    const verdict = evaluateChecks(reports, names);
-    const final = checksFinal(reports, names);
+    // A base that requires no check, with no check reported, has not shown its CI yet: nothing is
+    // final then, so a head is never green before CI starts. A box run's head with no check at all
+    // is decided by the no-CI wait above.
+    const unknown = names.length === 0 && reports.length === 0;
+    const verdict = unknown
+      ? ({ state: "pending", waiting: [] } as const)
+      : evaluateChecks(reports, names);
+    const final = !unknown && checksFinal(reports, names);
     const waited = now - watch.since >= config.mergeSlot.checksWaitMinutes * 60_000;
     if (!final && waited) {
       if (!watch.stuck) {
@@ -1009,7 +1015,7 @@ export class StoryPrs {
           notice(
             "warn",
             STORY_PR_NOTICES.ciStuck,
-            `The required checks of the PR for ${stored.key} are still not final after ${config.mergeSlot.checksWaitMinutes} minutes (waiting for: ${waitingFor(reports, names).join(", ")}). dipo keeps watching, now every 10 minutes.`,
+            `The required checks of the PR for ${stored.key} are still not final after ${config.mergeSlot.checksWaitMinutes} minutes (waiting for: ${waitingFor(reports, names).join(", ") || "any check to be reported"}). dipo keeps watching, now every 10 minutes.`,
             stored.key,
             stored.runId,
           ),
