@@ -24,7 +24,9 @@ import {
 import type { SafeChainRouteEvent } from "../../src/box/safe-chain-box";
 import type { WebProxyEvent } from "../../src/box/web-proxy";
 import {
+  proxiedStatus,
   runSafeChainCheck,
+  SAFE_CHAIN_CHECK_TIMEOUT_MS,
   SAFE_CHAIN_CHECK_ALLOWED_URL,
   SAFE_CHAIN_CHECK_BLOCKED_URL,
   safeChainCheckProblem,
@@ -312,6 +314,68 @@ describe.skipIf(!RUNS)("the web route with Safe-Chain in its box", () => {
         if (what !== "Safe-Chain lets its test package through") expect(downloads).toEqual([]);
       }));
   }
+});
+
+/** A stand-in web proxy on the loopback: answers each CONNECT with `answer`, or never. */
+async function standInProxy(answer: string | null) {
+  const closed: boolean[] = [];
+  const server = createServer((socket) => {
+    socket.on("error", () => {});
+    socket.once("data", () => {
+      if (answer !== null) socket.write(answer);
+    });
+    socket.once("close", () => closed.push(true));
+  });
+  const port = await new Promise<number>((resolve) =>
+    server.listen(0, "127.0.0.1", () => {
+      const address = server.address();
+      resolve(typeof address === "object" && address !== null ? address.port : 0);
+    }),
+  );
+  return { server, port, closed };
+}
+
+describe.skipIf(!RUNS)("one download of the check, as a box makes it", () => {
+  it("rejects a tunnel the web proxy refuses: its 403 never passes for Safe-Chain's", async () => {
+    const proxy = await standInProxy("HTTP/1.1 403 Forbidden\r\nContent-Length: 0\r\n\r\n");
+    const attempt = proxiedStatus(
+      { host: "127.0.0.1", port: proxy.port },
+      "127.0.0.1",
+      PEM,
+      SAFE_CHAIN_CHECK_BLOCKED_URL,
+      new ManualClock(),
+    );
+    await expect(attempt).rejects.toThrow("the web proxy refused the tunnel (403)");
+    // The check then fails: no 403 status counts.
+    expect(
+      safeChainCheckProblem({
+        allowed: 200,
+        attempts: 1,
+        blocked: "the web proxy refused the tunnel (403)",
+      }),
+    ).toContain("did not refuse its test package");
+    for (let i = 0; i < 20 && proxy.closed.length === 0; i += 1) await Bun.sleep(5);
+    expect(proxy.closed).toEqual([true]);
+    proxy.server.close();
+  });
+
+  it("closes its connection when the attempt runs out of time", async () => {
+    const proxy = await standInProxy(null);
+    const clock = new ManualClock();
+    const attempt = proxiedStatus(
+      { host: "127.0.0.1", port: proxy.port },
+      "127.0.0.1",
+      PEM,
+      SAFE_CHAIN_CHECK_ALLOWED_URL,
+      clock,
+    );
+    await Bun.sleep(20);
+    clock.advance(SAFE_CHAIN_CHECK_TIMEOUT_MS);
+    await expect(attempt).rejects.toThrow("timed out");
+    for (let i = 0; i < 20 && proxy.closed.length === 0; i += 1) await Bun.sleep(5);
+    expect(proxy.closed).toEqual([true]);
+    proxy.server.close();
+  });
 });
 
 describe("the Safe-Chain check", () => {

@@ -188,23 +188,37 @@ function statusOf(text: string): number | null {
  * The status of one HTTPS GET through the web proxy, as a box makes it: a CONNECT tunnel, then TLS
  * that trusts the CA bundle only. The connection to the proxy leaves from the box network's host
  * address (`connectToBox`), since the proxy listens there and a VPN may route the box subnet into
- * its tunnel. A refused tunnel answers with the proxy's own status.
+ * its tunnel. Only the status inside TLS counts: a tunnel the proxy refuses (any status but 200)
+ * rejects, so the proxy's own 403 can never pass for Safe-Chain's refusal. The connection is
+ * closed when the attempt ends, also when it ran out of time (`SAFE_CHAIN_CHECK_TIMEOUT_MS`).
  */
-function proxiedStatus(
+export function proxiedStatus(
   proxy: { readonly host: string; readonly port: number },
   hostAddress: string,
   ca: string,
   url: string,
+  clock: Clock,
 ): Promise<number> {
   const target = new URL(url);
   return new Promise((resolveStatus, reject) => {
     const socket = connectToBox({ address: proxy.host, port: proxy.port, hostAddress });
     let head = "";
+    const timer = clock.setTimeout(
+      () => fail(new Error(`${url} timed out`)),
+      SAFE_CHAIN_CHECK_TIMEOUT_MS,
+    );
     const fail = (error: Error) => {
+      clock.clearTimeout(timer);
       socket.destroy();
       reject(error);
     };
+    const done = (status: number) => {
+      clock.clearTimeout(timer);
+      socket.destroy();
+      resolveStatus(status);
+    };
     socket.once("error", fail);
+    socket.once("close", () => fail(new Error("the web proxy closed the connection")));
     socket.once("connect", () =>
       socket.write(
         `CONNECT ${target.hostname}:443 HTTP/1.1\r\nHost: ${target.hostname}:443\r\n\r\n`,
@@ -216,8 +230,7 @@ function proxiedStatus(
       socket.off("data", onHead);
       const tunnel = statusOf(head);
       if (tunnel !== 200) {
-        socket.destroy();
-        resolveStatus(tunnel ?? 0);
+        fail(new Error(`the web proxy refused the tunnel (${tunnel ?? "no status"})`));
         return;
       }
       const secure = tlsConnect({ socket, servername: target.hostname, ca });
@@ -233,7 +246,7 @@ function proxiedStatus(
         const status = statusOf(answer);
         if (status === null) return;
         secure.destroy();
-        resolveStatus(status);
+        done(status);
       });
     };
     socket.on("data", onHead);
@@ -453,7 +466,7 @@ export async function startBoxWebRoute(
     });
     const problem = await runSafeChainCheck(deps.clock, (url) =>
       deps.download === undefined
-        ? proxiedStatus(proxy, network.hostAddress, box.ca, url)
+        ? proxiedStatus(proxy, network.hostAddress, box.ca, url, deps.clock)
         : deps.download(proxy.url, box.ca, url),
     );
     if (problem !== null) throw new Error(`the Safe-Chain check failed: ${problem}`);
