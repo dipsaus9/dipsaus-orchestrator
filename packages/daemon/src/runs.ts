@@ -1324,7 +1324,7 @@ export function daemonRuns(options: DaemonRunsOptions): DaemonRuns {
       reject: async (office, runId, reject) =>
         (await fixRounds?.reject(office, runId, reject)) ?? false,
       testFail: async (office, runId, test) =>
-        (await fixRounds?.testFail(office, runId, test)) ?? false,
+        (await fixRounds?.testFail(office, runId, test)) ?? null,
       recordMerge: async (office, run, merged) => {
         if (storyConflicts === null || run.story === null || run.branch === null) return;
         await storyConflicts.recorded(

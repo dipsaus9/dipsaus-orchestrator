@@ -64,6 +64,7 @@ import { DISCARD_RELEASE_REASON, DROP_RELEASE_REASON } from "../worktree/release
 import { DONE_RELEASE_REASON } from "../worktree/teardown";
 import { findClaim, liveClaimOf } from "../worktree/records";
 
+import { holdTestNote } from "./fix-rounds";
 import { heldByPark } from "./park-state";
 import { findRun, IN_REVIEW_END, REVIEWED_END, type StoredRun } from "./records";
 import type { RunStoryFacts } from "./resume";
@@ -114,12 +115,15 @@ export interface StoryTestsDeps {
   readonly boxes: TestBoxPort | null;
   /** The folder of a test box's record, by test id. */
   readonly testDir: (testId: string) => string;
-  /** Sends a failed test's note to the same builder (`FixRounds.testFail`). */
+  /**
+   * Sends a failed test's note to the same builder (`FixRounds.testFail`): a round now, or held for
+   * the run's next session and round; null when the run is unknown.
+   */
   readonly testFail?: (
     office: OfficeId,
     runId: RunId,
     test: { readonly testId: string; readonly head: string; readonly note: string },
-  ) => Promise<boolean>;
+  ) => Promise<"queued" | "held" | null>;
   /** Lets the auto-merge act on a decided merge gate at once (`AutoMerge.kick`). */
   readonly kick?: (office: OfficeId) => void;
   /** Rewrites the story PR's body (`StoryPrs.sync`): its status block shows the test. */
@@ -485,6 +489,10 @@ export class StoryTests {
         throw new CommandError("test.closed", `The test ${test.testId} closed meanwhile.`, {
           test: test.testId,
         });
+      }
+      // A fail's note is held on the run in the same transaction, so it is never lost (0002).
+      if (args.result === "fail") {
+        holdTestNote(office, test.runId, { testId: test.testId, head: test.head, note }, ctx.now);
       }
       const decided =
         args.result === "pass"

@@ -58,6 +58,7 @@ import {
   rejectFeedbackItem,
   reviewFeedbackItems,
   testFeedbackItem,
+  testSignature,
 } from "../prompts/feedback";
 import type { StoredReviewVerdict } from "../review/store";
 import { reviewVerdictForTree } from "../review/store";
@@ -89,7 +90,44 @@ const ROUND_SOURCES: ReadonlySet<string> = new Set<FeedbackSource>([
   "ci",
   "reject",
   "conflict",
+  "test",
 ]);
+
+/** The key prefix of a failed test's note held while the run does not wait in review (DIPO-309). */
+export const HELD_TEST_KEY = "test:";
+
+/**
+ * Holds a failed test's note on the run (DIPO-309): one held message on the one feedback path,
+ * keyed `test:<test id>`, for the run's next developer session and its next round. Inside the
+ * caller's transaction (`test.record` holds it in the transaction that records the fail), so the
+ * note is never lost between the record and the round.
+ */
+export function holdTestNote(
+  office: OfficeHandle,
+  runId: RunId,
+  test: { readonly testId: string; readonly head: string; readonly note: string },
+  at: number,
+): void {
+  const item = testFeedbackItem(test);
+  sendFeedback(office, runId, { source: "test", key: item.signature, text: item.text }, { at });
+}
+
+/**
+ * The failed tests' notes held on the run, not yet folded into a round or delivered with a session
+ * (DIPO-309): each as its round item, with its intent.
+ */
+export function heldTestNotes(
+  office: OfficeHandle,
+  runId: RunId,
+): { readonly intentId: number; readonly item: FixItem }[] {
+  return feedbackIntents(office, runId, "test")
+    .filter((note) => note.via === "next" && note.state === "pending")
+    .filter((note) => note.key.startsWith(HELD_TEST_KEY))
+    .map((note) => ({
+      intentId: note.intentId,
+      item: { source: "test", signature: note.key, text: note.text },
+    }));
+}
 
 /** `engine.notice` codes of the fix rounds. */
 export const FIX_NOTICES = {
@@ -277,10 +315,13 @@ export class FixRounds {
       ci.kind === "red"
         ? ci.items.map((item) => ({ source: "ci", signature: item.signature, text: item.text }))
         : [];
+    // A failed test's note held while the run did not wait in review goes in this round (DIPO-309).
+    const held = heldTestNotes(office, runId);
     return await this.#queue(office, run, {
       head,
-      items: [...review, ...red],
+      items: [...review, ...red, ...held.map((note) => note.item)],
       advisories: verdict === null ? [] : advisoryLines(verdict.findings),
+      ...(held.length === 0 ? {} : { atOnce: true, folds: held.map((note) => note.intentId) }),
     });
   }
 
@@ -316,24 +357,47 @@ export class FixRounds {
 
   /**
    * A failed test (DIPO-309, 0002): the maintainer's note, keyed on the test id, goes to the same
-   * worker at once, through the same send path as a reject, with no cap. True when a round was
-   * queued.
+   * worker through the one feedback path, with no cap, and is never dropped. A run that waits in
+   * review gets it at once as a round, like a reject. Otherwise (a reviewer session or a fix round
+   * runs) it is held on the run (`HELD_TEST_KEY`): the run's next developer session carries it with
+   * every held message, and the next round once the run waits in review again takes it in
+   * (`#consider`). `queued` when a round was queued, `held` when it waits, null when the office or
+   * the run is unknown.
    */
   async testFail(
     officeId: OfficeId,
     runId: RunId,
     test: { readonly testId: string; readonly head: string; readonly note: string },
-  ): Promise<boolean> {
+  ): Promise<"queued" | "held" | null> {
     const office = this.#deps.offices.get(officeId);
-    if (office === undefined) return false;
+    if (office === undefined) return null;
     const run = findRun(office, runId);
-    if (run === null || !this.#waitsInReview(office, run, undefined)) return false;
-    return await this.#queue(office, run, {
+    if (run === null) return null;
+    // Held first, so the note waits on the run whatever happens next; once only.
+    const signature = testSignature(test.testId);
+    const known =
+      feedbackIntents(office, runId, "test").some((note) => note.key === signature) ||
+      office.get(
+        `select 1 as found from feedback_items where office_id = $office_id and run_id = $run
+          and signature = $signature limit 1`,
+        { run: runId, signature },
+      ) !== null;
+    if (!known) {
+      this.#write(office, () => {
+        holdTestNote(office, runId, test, this.#deps.clock.now());
+        return [];
+      });
+    }
+    if (!this.#waitsInReview(office, run, undefined)) return "held";
+    const held = heldTestNotes(office, runId);
+    const queued = await this.#queue(office, run, {
       head: test.head,
-      items: [testFeedbackItem(test)],
+      items: held.map((note) => note.item),
       advisories: [],
       atOnce: true,
+      folds: held.map((note) => note.intentId),
     });
+    return queued ? "queued" : "held";
   }
 
   /**
@@ -374,6 +438,7 @@ export class FixRounds {
     // The round's message waits held on the one feedback path, with whatever else waits.
     const head = roundMessages(office, run.runId)
       .filter((item) => item.via === "next" && item.state === "pending")
+      .filter((item) => !item.key.startsWith(HELD_TEST_KEY))
       .at(-1)?.key;
     if (head === undefined || heldFeedback(office, run.runId).ids.length === 0) {
       return await this.#strand(
@@ -568,6 +633,8 @@ export class FixRounds {
       readonly advisories: readonly string[];
       /** Sent at once, not held to one round per head: a reject or a conflict (section 8). */
       readonly atOnce?: boolean;
+      /** Held messages this round's message carries now, resolved with it (DIPO-309). */
+      readonly folds?: readonly number[];
     },
   ): Promise<boolean> {
     const officeId = office.officeId as OfficeId;
@@ -607,6 +674,9 @@ export class FixRounds {
           items: planned,
           at,
         });
+        for (const folded of round.folds ?? []) {
+          resolveIntent(office, run.runId, folded, "folded", at);
+        }
         const observed: NewEntry[] = [];
         const work = workRefOf(office, run.runId);
         if (same) {

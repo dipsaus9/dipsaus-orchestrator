@@ -104,6 +104,9 @@ export {
   FIX_NOTICES,
   FixRounds,
   fixRoundQueued,
+  HELD_TEST_KEY,
+  heldTestNotes,
+  holdTestNote,
   lastReviewVerdict,
 } from "./fix-rounds";
 export type { FixRoundsDeps, FixSessions } from "./fix-rounds";

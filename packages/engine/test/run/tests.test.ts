@@ -22,6 +22,7 @@ import { CommandError } from "../../src/commands/errors";
 import type { AsyncCommandContext } from "../../src/commands/registry";
 import { OFFICE_DEFAULTS, type OfficeConfig } from "../../src/config";
 import { mergeGatesOfRun } from "../../src/merge";
+import { heldTestNotes } from "../../src/run/fix-rounds";
 import { appendRunStep, endRun, REVIEWED_END } from "../../src/run/records";
 import type { RunStoryFacts } from "../../src/run/resume";
 import { findTest, openTestOf, openTestViews, testPassedFor } from "../../src/run/test-records";
@@ -159,7 +160,7 @@ async function world(
     testDir: (testId) => `${s.w.dir}/test-boxes/${testId}`,
     testFail: async (officeId, run, test) => {
       fails.push({ office: officeId, run, ...test });
-      return true;
+      return "queued";
     },
     kick: (officeId) => kicks.push(officeId),
     prSync: async (_office, run) => void syncs.push(run),
@@ -376,6 +377,10 @@ describe("test.record (DIPO-309)", () => {
       result: "fail",
       note: "Esc does not go back.",
     });
+    // Held on the run in the record's own transaction: never lost, whatever the round does.
+    expect(heldTestNotes(w.s.w.office, w.s.run).map((held) => held.item.signature)).toEqual([
+      `test:${test}`,
+    ]);
     expect(mergeGatesOfRun(w.s.w.office, w.s.run)[0]?.decision).toBeNull();
     expect(testPassedFor(w.s.w.office, w.s.key, H1)).toBe(false);
   });
