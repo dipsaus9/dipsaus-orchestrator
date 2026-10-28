@@ -282,7 +282,7 @@ export async function reconcileOffice(
     record({
       code: RECONCILE_NOTICES.branchUnread,
       key: u.key as StoryKey,
-      text: `dipo could not read ${u.story} on its branch ${u.branch} (${u.reason}); its lifecycle is shown as the base has it until the branch reads again.`,
+      text: `dipo could not read ${u.story} on its branch ${u.branch} (${u.reason}); dipo keeps its last read, its status and park included, until the branch reads again.`,
     });
   }
   const gone = goneWorktrees(facts.worktrees);

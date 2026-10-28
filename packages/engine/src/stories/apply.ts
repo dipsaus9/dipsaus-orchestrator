@@ -36,6 +36,12 @@ export interface ApplyOptions {
    * with it for the Ready gate. Absent for a read of one story, which leaves them as they are.
    */
   readonly sha?: string;
+  /**
+   * Claimed stories whose branch could not be read (DIPO-360): their mirror row, when they have
+   * one, keeps the last read of the branch instead of the base read, so an unreadable branch does
+   * not make the story's status or park disappear.
+   */
+  readonly keepMirror?: ReadonlySet<StoryKey>;
 }
 
 /** What one pass changed. */
@@ -290,7 +296,9 @@ export function applyIndex(
   // 7. The mirror, and a `story.state` for every story whose view changed.
   const changes: { view: StoryView; from: Lifecycle }[] = [];
   for (const [key, story] of matched) {
-    writeMirror(office, key, story, at, story.source ?? options.source, options.sha);
+    if (!(options.keepMirror?.has(key) === true && statusBefore.has(key))) {
+      writeMirror(office, key, story, at, story.source ?? options.source, options.sha);
+    }
     const view = storyView(office, key, work);
     if (view === null) continue;
     const previous = before.get(key);

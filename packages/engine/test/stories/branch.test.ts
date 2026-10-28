@@ -14,9 +14,21 @@ import { GitError } from "../../src/git";
 import { releaseClaim } from "../../src/worktree/records";
 import { snapshot } from "../../src/views/feature";
 import { storyView } from "../../src/views/story";
-import { claim, editWorktree, keyOf, setBranch, withReconcileOffice } from "../reconcile/helpers";
+import { backlogPark } from "../../src/run/park-state";
+import { BRANCH_UNREAD_NOTICE } from "../../src/stories/index-stories";
+import {
+  claim,
+  editWorktree,
+  keyOf,
+  noticesAfter,
+  setBranch,
+  withReconcileOffice,
+} from "../reconcile/helpers";
+import { lastSeq } from "./helpers";
 
 const PARK = 'park: { reason: "stopped", from: "In Progress", note: "Stopped by the maintainer." }';
+const PARK_NOW =
+  'park: { reason: "by-maintainer", from: "In Progress", note: "Stopped by the maintainer." }';
 
 function mirrorSource(o: { office: Parameters<typeof keyOf>[0] }, key: string): string | null {
   return (
@@ -138,5 +150,43 @@ describe("a branch task file holding fields dipo does not know (DIPO-270)", () =
       );
       expect(error).toBeInstanceOf(GitError);
       expect((error as GitError).code).toBe(TASK_FIELD_ERROR);
+    }));
+});
+
+describe("a claimed story whose branch stops reading (DIPO-360)", () => {
+  it("keeps its last branch read, its park included, with one notice until the branch reads again", () =>
+    withReconcileOffice({}, async (o) => {
+      const key = keyOf(o.office, "TASK-1");
+      const claimed = await claim(o, o.office, "TASK-1", key, {
+        task: { id: "TASK-1", status: "In Progress" },
+      });
+      await setBranch(o, claimed, { id: "TASK-1", status: "Parked", fields: [PARK_NOW] });
+      await o.index.indexStories(o.officeId);
+      expect(storyView(o.office, key)?.lifecycle).toBe("Parked");
+      expect(backlogPark(o.office, key)?.reason).toBe("by-maintainer");
+
+      // The branch's task file now holds a field dipo does not know: the branch cannot be read.
+      const path = editWorktree(claimed, { id: "TASK-1", status: "Parked", fields: [PARK_NOW] });
+      writeFileSync(
+        path,
+        readFileSync(path, "utf8").replace("\n---\n", "\nunknown_field: 1\n---\n"),
+      );
+      for (const args of [
+        ["git", "add", "--", path],
+        ["git", "commit", "--quiet", "--no-verify", "-m", "add a field"],
+      ] as const) {
+        expect((await o.repo.run(args, claimed.worktree)).exitCode).toBe(0);
+      }
+      const seq = lastSeq(o.office);
+      const pass = await o.index.indexStories(o.officeId);
+      expect(pass.branchUnread.map((unread) => unread.story)).toEqual(["TASK-1"]);
+      // Not the base's Ready: the last branch read stays, and the park with it.
+      expect(storyView(o.office, key)?.lifecycle).toBe("Parked");
+      expect(backlogPark(o.office, key)?.reason).toBe("by-maintainer");
+      expect(mirrorSource(o, key)).not.toBe("base");
+      await o.index.indexStories(o.officeId);
+      expect(
+        noticesAfter(o.office, seq).filter((notice) => notice.code === BRANCH_UNREAD_NOTICE),
+      ).toHaveLength(1);
     }));
 });
