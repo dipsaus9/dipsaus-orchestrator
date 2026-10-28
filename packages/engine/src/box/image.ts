@@ -9,7 +9,8 @@
 //   same commit.
 // - The Node.js tarball is checked against a sha256 dipo pins per version (`NODE_TARBALL_SHA256`).
 // - Every image has git from Debian's archive, for the box's own local repository (0008): the
-//   build checks that it runs.
+//   build checks that it runs. And socat, for the relay of a test box whose `dev` listens only on
+//   the box's loopback (DIPO-309, `test-box.ts`).
 // - dipo writes the build's two scripts itself (`boxBuildScripts`); a build file in the repository
 //   is never read. The image is built in a build box on the host-only box network and made by
 //   committing that box (`build-box.ts`, DIPO-281); `container build` is not used.
@@ -209,10 +210,10 @@ export function checkImageDescription(image: BoxImageDescription): BoxImageDescr
 }
 
 /**
- * The Debian packages every image gets besides the office's: curl for the build's downloads, and
- * git for the box's own local repository (0008).
+ * The Debian packages every image gets besides the office's: curl for the build's downloads, git
+ * for the box's own local repository (0008), and socat for a test box's relay (DIPO-309).
  */
-export const BASE_PACKAGES: readonly string[] = ["curl", "git"];
+export const BASE_PACKAGES: readonly string[] = ["curl", "git", "socat"];
 
 /**
  * The Debian packages a build installs: `BASE_PACKAGES`, then the office's. A base package the

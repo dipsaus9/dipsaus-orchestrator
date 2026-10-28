@@ -3,10 +3,10 @@ id: DIPO-309
 title: >-
   Test a story's pushed head in a test box and record pass or fail from the CLI
   and the TUI
-status: Refined
+status: Done
 assignee: []
 created_date: '2026-10-22 20:56'
-updated_date: '2026-10-25 09:55'
+updated_date: '2026-10-28 14:25'
 labels:
   - 'tier:L'
   - 'slice:m1b'
@@ -53,7 +53,7 @@ Reworded on 2026-10-25 for the simplified architecture: the test box has its own
 
 The maintainer answered this story's questions on 2026-10-22 by accepting the recommended answers. They are in the unknowns below and in the 0005, 0013, 0017, 0019 and 0021 amendments of that day. Accepted risk, the same as testing by hand: the page `dev` serves runs in the maintainer's browser on the Mac.
 
-First step: before building the forwarder path, check that the Mac reaches a box address on the host-only network; if it does not, stop and report the facts.
+The first step found on 2026-10-28 that the Mac does not reach a box address the normal way while the GlobalProtect VPN is on (it routes 192.168.128.0/24 through its tunnel; only connections bound to the box bridge work), and that the box firewall drops the box's replies to the Mac. The maintainer then chose a forwarder on the Mac's loopback (Q6 below). The TUI checklist view moved to DIPO-365. This story changes a firewall rule, so its criteria name what the old rule caught, the bypass forms and a fail-closed test against the real path (CLAUDE.md, R30).
 
 ```dipo
 branch: "DIPO-309/test-story-box"
@@ -63,7 +63,7 @@ unknowns:
     answer: "A new test box per test, from the story branch's pushed head (what the reviewer read and CI ran), with the office image, the listed files, install from the package cache through Safe-Chain, and dev started by dipo. It leaves the builder's box untouched. Accepted risk, the same as testing by hand: the page dev serves runs in the maintainer's browser on the Mac. (maintainer, 2026-10-22: accepted the recommended answers)"
   - q: "Q6. How the Mac reaches dev inside the box: an in-box forwarder on the box address, a published port on the Mac's loopback, or a HOST variable added to the script standard."
     status: "resolved"
-    answer: "dipo starts a small forwarder that is part of the box image inside the test box. It listens on the box's network address and forwards to the dev port on the box's loopback. The URL is the box address on the host-only network. No port is published and repositories need no change. The story's first step checks that the Mac reaches a box address on that network, and stops with the facts if it does not. (maintainer, 2026-10-22: accepted the recommended answers)"
+    answer: "dipo runs a forwarder on the Mac that listens on 127.0.0.1 on a free port and forwards to the dev port at the test box's address, connecting through the box bridge, so it works with a VPN on. The URL is http://localhost:<port>. No container port is published and repositories need no change. If dev listens only on the box's loopback, the smallest in-box relay from the box address to that port is added. The test box alone gets a firewall rule for replies to connections the Mac opened. (maintainer, 2026-10-28, replacing the in-box forwarder on the box address of 2026-10-22, which failed with the VPN on)"
   - q: "Q7. Which stories can be tested: In Review only, flagged only, or also Parked stories with a pushed head."
     status: "resolved"
     answer: "A story In Review (phase review, test or merge) with at least one manual test-plan entry, flagged or not. For an unflagged story the result is recorded and shown in the merge gate summary and the PR status block. Any other status is refused with a new code test.notInReview. (maintainer, 2026-10-22: accepted the recommended answers)"
@@ -84,7 +84,7 @@ test_plan:
     - kind: "automated"
       check: "(unit) test.start refuses a story with no manual entry, a story that is not In Review with test.notInReview, and an office with install or dev unresolved, each with its error code and the capability named"
     - kind: "automated"
-      check: "(unit, fake box) test.start creates a new test box from the pushed head with its own local git repository and only the listed files, installs, runs setup, starts dev, starts the forwarder on the box address, takes the first URL within the start timeout, publishes no port, and replies with the steps, URL, box name, shell line and test id; a nothing-to-start product gets no dev"
+      check: "(unit, fake box) test.start creates a new test box from the pushed head with its own local git repository and only the listed files, installs, runs setup, starts dev, takes the first URL within the start timeout, starts the Mac loopback forwarder to the box, publishes no container port, and replies with the steps, URL, box name, shell line and test id; a nothing-to-start product gets no dev"
     - kind: "automated"
       check: "(unit) a pass decides the test gate for its head, and a flagged story's merge gate no longer waits on the flag for that head; an unflagged story's result shows in the merge gate summary; a pass on an older head is refused with test.closed"
     - kind: "automated"
@@ -96,19 +96,29 @@ test_plan:
     - kind: "automated"
       check: "(unit, cli) dipo test prints the URL, box name, steps and test id; dipo test pass and dipo test fail send test.record; fail without --note is refused; dipo test shell opens a shell in the test box"
     - kind: "automated"
-      check: "(unit, TUI harness) view 4 shows the steps, P sends a pass, F pre-fills the note with the first unticked step and sends a fail, and Esc leaves the test open"
+      check: "(box) the test box answers the Mac forwarder's connection to its dev port, and still opens no new connection to the Mac or any address beyond dipo's proxies; each bypass form is refused"
+    - kind: "automated"
+      check: "(box) fail-closed: without the reply rule or with the forwarder stopped, the URL fails and nothing else becomes reachable"
 ```
 <!-- SECTION:DESCRIPTION:END -->
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 `test.start` and `test.record` are registered (no longer provisional); `test.start` refuses a story with no manual test-plan entry (`story.notTestable`), a story that is not In Review in phase `review`, `test` or `merge` (new code `test.notInReview`), and an office whose install or `dev` is unresolved, after the fingerprint check with scan trigger `test`, naming the capability to fix; flagged and unflagged stories can both be tested
-- [ ] #2 `test.start` creates a new test box per test from the story branch's pushed head, with the office image, its own local git repository made by `git init` like every box (0008) and only the files the office config lists, installs with the office install command through Safe-Chain and the package cache, runs `setup`, and starts `dev`; the builder's box is left untouched; a product marked as having nothing to start gets no `dev`
-- [ ] #3 dipo starts a small forwarder, part of the box image, in the test box: it listens on the box's network address and forwards to the `dev` port on the box's loopback, taken from the first URL `dev` prints within the start timeout; no port is published, and the test URL is the box address on the host-only network
-- [ ] #4 The reply carries the test id, the manual steps (check and expected result, in order), `checkout` as the test box's name, and the optional `url` and `shell` (the `dipo test shell <ID>` line); `test.started` is emitted and the test shows in `office.snapshot`
-- [ ] #5 `test.record` stores the result and note in `acceptance_tests` for the head it tested; a pass decides the story's `test` gate for the current head, after which the merge gate no longer waits on the flag for that head; an unflagged story's result shows in the merge gate summary and the PR status block; a pass on an older head than the story's current head is refused with `test.closed`
-- [ ] #6 A fail starts a fix round through the one feedback path (0002 section 5) with the note as the item, sent once and keyed on the test id with no cap, to the same builder; a fail or a new head reopens the `test` gate, and after any new head a flagged story needs a new test, which the desk and the merge gate summary say
-- [ ] #7 Each story has at most one open test, and several stories can each have one in its own box; the test's box and process stop and are deleted when the test is recorded, when a new head is pushed, when the story is dropped, discarded or merged, and when the new office timeout `timeouts.testIdleMinutes` (optional, default 240, added without a version bump; DIPO-353 keeps it in version 14) passes with no record; a daemon restart keeps open tests, and reconcile at daemon start deletes test boxes with no open test
-- [ ] #8 `dipo test <ID>` prints the URL, the test box name, the numbered steps and the test id; `dipo test pass <ID> [--note <text>]` and `dipo test fail <ID> --note <text>` record it (fail without `--note` is refused); `dipo test shell <ID>` opens an interactive shell in the test box; the desk row of a story waiting on its test offers `dipo test <ID>`
-- [ ] #9 The TUI checklist view `4` (and `t` on a desk row) shows the steps with local ticks, `P` passes, `F` fails with the note pre-filled with the first unticked step, and Esc leaves the test open
+- [x] #1 `test.start` and `test.record` are registered (no longer provisional); `test.start` refuses a story with no manual test-plan entry (`story.notTestable`), a story that is not In Review in phase `review`, `test` or `merge` (new code `test.notInReview`), and an office whose install or `dev` is unresolved, after the fingerprint check with scan trigger `test`, naming the capability to fix; flagged and unflagged stories can both be tested
+- [x] #2 `test.start` creates a new test box per test from the story branch's pushed head, with the office image, its own local git repository made by `git init` like every box (0008) and only the files the office config lists, installs with the office install command through Safe-Chain and the package cache, runs `setup`, and starts `dev`; the builder's box is left untouched; a product marked as having nothing to start gets no `dev`
+- [x] #3 dipo runs a forwarder on the Mac: it listens on 127.0.0.1 on a free port and forwards to the `dev` port at the test box's address through the box bridge, the port taken from the first URL `dev` prints within the start timeout; if `dev` listens only on the box's loopback, the smallest in-box relay from the box address to that port is added; no container port is published, the test URL is http://localhost:<port>, and it works while a VPN routes the box network's range
+- [x] #4 The reply carries the test id, the manual steps (check and expected result, in order), `checkout` as the test box's name, and the optional `url` and `shell` (the `dipo test shell <ID>` line); `test.started` is emitted and the test shows in `office.snapshot`
+- [x] #5 `test.record` stores the result and note in `acceptance_tests` for the head it tested; a pass decides the story's `test` gate for the current head, after which the merge gate no longer waits on the flag for that head; an unflagged story's result shows in the merge gate summary and the PR status block; a pass on an older head than the story's current head is refused with `test.closed`
+- [x] #6 A fail starts a fix round through the one feedback path (0002 section 5) with the note as the item, sent once and keyed on the test id with no cap, to the same builder; a fail or a new head reopens the `test` gate, and after any new head a flagged story needs a new test, which the desk and the merge gate summary say
+- [x] #7 Each story has at most one open test, and several stories can each have one in its own box; the test's box and process stop and are deleted when the test is recorded, when a new head is pushed, when the story is dropped, discarded or merged, and when the new office timeout `timeouts.testIdleMinutes` (optional, default 240, added without a version bump; DIPO-353 keeps it in version 14) passes with no record; a daemon restart keeps open tests, and reconcile at daemon start deletes test boxes with no open test
+- [x] #8 `dipo test <ID>` prints the URL, the test box name, the numbered steps and the test id; `dipo test pass <ID> [--note <text>]` and `dipo test fail <ID> --note <text>` record it (fail without `--note` is refused); `dipo test shell <ID>` opens an interactive shell in the test box; the desk row of a story waiting on its test offers `dipo test <ID>`
+- [x] #9 Only the test box gets a firewall rule that lets it answer connections the Mac's bridge address opened to its `dev` port; what the old rule caught still fails, each with a test: a test box opening a new connection to the Mac, the local network or the internet outside dipo's proxies, and a developer or reviewer box answering or reaching anything outside dipo's proxies
+- [x] #10 The bypass forms are tested: a reply-shaped packet with no connection the Mac opened, a connection from the test box to the forwarder's Mac port, another box reaching the test box's `dev` port, and a second port the product opens in the test box
+- [x] #11 A fail-closed test against the real path: with the reply rule missing, or the forwarder stopped, the test URL fails and nothing else becomes reachable; `tools/box-probe/probe.sh` runs again for a test box, and ADR 0008 is rewritten for the Mac forwarder with one line in its Replaced list
 <!-- AC:END -->
+
+## Final Summary
+
+<!-- SECTION:FINAL_SUMMARY:BEGIN -->
+dipo test <ID> starts the pushed head of a story In Review in a new test box (office image, its own local git repository, listed files only, install through Safe-Chain, setup and dev) and replies with the steps, the URL, the box name, the shell line and the test id. The URL is http://localhost:<port>: dipo's forwarder on the Mac's loopback connects to the box through the bridge (connectToBox), so it works while a VPN routes the box network; an in-box socat relay is added when dev listens only on the box's loopback. Only test boxes (and the Safe-Chain box) get an inbound firewall rule, and the test box answers only the Mac's bridge address on its dev port; the old barrier, each bypass form and a fail-closed case are tested on real boxes, and probe.sh passed. dipo test pass/fail record the result for the head; a pass decides the test gate, a fail's note is held through sendFeedback and reaches the builder on its next round or session. One open test per story; the box goes on record, new head, drop, discard, merge, leaving review or after timeouts.testIdleMinutes, and a restart keeps a test only while dev still answers. dipo test shell opens a shell in a test box only. The TUI checklist view moved to DIPO-365. Also fixes main's typecheck of scripts/check-backlog-pr.ts (GitSession.base).
+<!-- SECTION:FINAL_SUMMARY:END -->

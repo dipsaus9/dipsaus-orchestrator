@@ -118,7 +118,8 @@ import {
 import { findStoryByKey } from "../stories/keys";
 import { withWorkViews } from "../views/work";
 
-import { type PrBodyReview, storyPrBodyHash, storyPrBody } from "./body";
+import { type PrBodyReview, type PrBodyTest, storyPrBodyHash, storyPrBody } from "./body";
+import { latestRecordedTest } from "../run/test-records";
 import {
   checksFinal,
   evaluateChecks,
@@ -693,6 +694,7 @@ export class StoryPrs {
           ...(this.#deps.mergesStories === true ? { merge: "dipo" as const } : {}),
           ...(box && noCiRan(office, runId, facts.head) ? { noCi: true } : {}),
           ...(replaces === null ? {} : { replaces }),
+          ...testOfRun(office, runId),
         },
       );
       const hash = storyPrBodyHash(body);
@@ -1355,6 +1357,14 @@ function reviewKey(verdict: StoredReviewVerdict | null): string {
   return verdict === null
     ? "none"
     : `${verdict.gate}:${verdict.commit}:${verdict.override?.at ?? ""}`;
+}
+
+/** The newest test recorded for the run, for the status block (DIPO-309); none when untested. */
+function testOfRun(office: OfficeHandle, runId: RunId): { test?: PrBodyTest } {
+  const tested = latestRecordedTest(office, runId);
+  return tested === null || tested.result === null
+    ? {}
+    : { test: { result: tested.result, head: tested.head } };
 }
 
 function reviewOfVerdict(verdict: StoredReviewVerdict): PrBodyReview {

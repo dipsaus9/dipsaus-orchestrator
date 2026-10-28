@@ -45,6 +45,7 @@ export const DESK_EVENTS: ReadonlySet<string> = new Set([
   "question.closed",
   "test.started",
   "test.recorded",
+  "test.ended",
   "proposal.filed",
   "proposal.closed",
   "story.pr",

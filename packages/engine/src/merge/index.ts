@@ -21,6 +21,7 @@ export {
   autoreleasePending,
   decideMergeGate,
   decideOnHandMerge,
+  decideTestedMergeGates,
   HAND_MERGE_NOTE,
   holdLabelsOn,
   MERGE_GATE_KIND,

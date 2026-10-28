@@ -91,4 +91,9 @@ export type ContractVersion = z.infer<typeof ContractVersion>;
 // `STARTS PAUSED`, `daemon.resumeScheduling` also lifts every office's starts paused, `work.resume`
 // no longer continues a held run, and the health values `limited` and `paused`, the watchdog
 // signal `plan-limit` and the skip reason `planLimit` go, in the same, still unreleased, minor.
+// DIPO-309 ships the commands `test.start` and `test.record` (and so the capability flag
+// `test.sessions`), adds `TestStep`, the `head`, `steps`, `url` and `shell` of `TestView`, the
+// event `test.ended` and the office codes `story.notTestable`, `test.notInReview`,
+// `test.refused`, `test.startFailed` and `test.closed`, and replaces the `script` of the
+// `test.start` result with `steps`, in the same, still unreleased, minor.
 export const CONTRACT_VERSION = Object.freeze({ major: 1, minor: 1 }) satisfies ContractVersion;

@@ -23,6 +23,7 @@ import { cutHead, cutTailLines } from "./cut";
 import decisionNoteTemplate from "./feedback/decision-note.md" with { type: "text" };
 import fixRoundOptionalTemplate from "./feedback/fix-round-optional.md" with { type: "text" };
 import fixRoundTemplate from "./feedback/fix-round.md" with { type: "text" };
+import maintainerTestTemplate from "./feedback/maintainer-test.md" with { type: "text" };
 import rejectTemplate from "./feedback/reject.md" with { type: "text" };
 import reviewCriterionTemplate from "./feedback/review-criterion.md" with { type: "text" };
 import reviewEvidenceTemplate from "./feedback/review-evidence.md" with { type: "text" };
@@ -371,7 +372,7 @@ export function ciFeedback(
 // ---- review, reject and fix-round items (0019 section 8, DIPO-148) -------------------------------
 
 /** Where a fix round's feedback item came from (0019 section 8). */
-export type FeedbackSource = "verify" | "ci" | "review" | "conflict" | "reject";
+export type FeedbackSource = "verify" | "ci" | "review" | "conflict" | "reject" | "test";
 
 /** One item a fix round carries: its source, its signature and its rendered evidence. */
 export interface FixItem {
@@ -521,6 +522,29 @@ export function rejectFeedbackItem(reject: { readonly gateId: string; readonly n
     signature: rejectSignature(reject.gateId),
     text: capFeedbackText(renderTemplate(rejectTemplate, { note: reject.note })),
   } satisfies FixItem;
+}
+
+/** The signature of a failed test (DIPO-309): none of its own, keyed on the test id. */
+export function testSignature(testId: string): string {
+  return `test:${testId}`;
+}
+
+/**
+ * A failed test's item (DIPO-309, 0002): the maintainer's note verbatim, with the head it tested,
+ * keyed on the test id, so it is sent once.
+ */
+export function testFeedbackItem(test: {
+  readonly testId: string;
+  readonly head: string;
+  readonly note: string;
+}): FixItem {
+  return {
+    source: "test",
+    signature: testSignature(test.testId),
+    text: capFeedbackText(
+      renderTemplate(maintainerTestTemplate, { head: test.head.slice(0, 12), note: test.note }),
+    ),
+  };
 }
 
 /** One item of a fix round's message, as stored. */

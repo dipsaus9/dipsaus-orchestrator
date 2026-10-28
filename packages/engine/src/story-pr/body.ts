@@ -41,6 +41,13 @@ export interface PrBodyReview {
   readonly overridden: boolean;
 }
 
+/** The maintainer's newest recorded test of the story (DIPO-309). */
+export interface PrBodyTest {
+  readonly result: "pass" | "fail";
+  /** The head it tested. */
+  readonly head: string;
+}
+
 export interface PrBodyStatus {
   /** The pushed head: the commit verify passed at, or the one CI checks for a box run. */
   readonly head: string;
@@ -67,6 +74,8 @@ export interface PrBodyStatus {
    * The closed PR of the same story run this one replaces (0002, DIPO-324); the status block names it. Left out for a PR that replaces none.
    */
   readonly replaces?: number;
+  /** The maintainer's newest recorded test; the block has no test line when it is left out. */
+  readonly test?: PrBodyTest;
 }
 
 const SHORT_SHA = 8;
@@ -110,6 +119,14 @@ function reviewLine(review: PrBodyReview | null | undefined): string {
     : `- review: round ${review.round} blocked at ${at} (${counts})`;
 }
 
+function testLine(test: PrBodyTest, head: string): string {
+  const at = `\`${test.head.slice(0, SHORT_SHA)}\``;
+  const result = test.result === "pass" ? "passed" : "failed";
+  return test.head === head
+    ? `- test: the maintainer's test ${result} at ${at}`
+    : `- test: the maintainer's test ${result} at ${at}, an earlier head; none for this one yet`;
+}
+
 function mergeLine(status: PrBodyStatus): string {
   const noCi = status.noCi === true;
   if (status.merge === "dipo") {
@@ -145,6 +162,7 @@ function statusSection(status: PrBodyStatus): string {
     verify,
     reviewLine(status.review),
     ...checks,
+    ...(status.test === undefined ? [] : [testLine(status.test, status.head)]),
     mergeLine(status),
   ].join("\n");
 }

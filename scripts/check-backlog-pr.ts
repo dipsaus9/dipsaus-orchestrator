@@ -69,7 +69,7 @@ function git(cwd: string, args: readonly string[]): string {
 }
 
 /** A git session over the engine's hardened steps, as the office git queue hands one out. */
-function session(commonDir: string): GitSession {
+function session(commonDir: string, base: string): GitSession {
   const runner: GitStepRunner = {
     exec: spawnGitExec(systemSpawn),
     env: process.env,
@@ -79,6 +79,8 @@ function session(commonDir: string): GitSession {
     repository: { kind: "repository", commonDir },
     step: (location, args, options) => runGitStep(runner, location, args, options),
     ok: (location, args, options) => runGitStepOk(runner, location, args, options),
+    // The check pushes nothing; the base it reads is the one the PR targets.
+    base: async () => base,
   };
 }
 
@@ -98,7 +100,13 @@ export async function checkBacklogPrIn(options: BacklogPrCheckOptions): Promise<
       gitDir: git(workTree, ["rev-parse", "--path-format=absolute", "--git-dir"]),
       workTree,
     };
-    const diff = await collectPrDiff({ git: session(commonDir), worktree, cli, base, head });
+    const diff = await collectPrDiff({
+      git: session(commonDir, options.base),
+      worktree,
+      cli,
+      base,
+      head,
+    });
     // The worktree is back on `head`: the Ready gate decides on the content the diff shows.
     const gate = await checkReadyGate(workTree, cli);
     const passing: Record<string, string[]> = {};

@@ -22,6 +22,7 @@ import { insertWorkerQuestion } from "../../src/hooks/questions";
 import { executeRead } from "../../src/reads/execute";
 import { capabilityFlags } from "../../src/reads/hello";
 import { storeDecisionNotes, storeProposals } from "../../src/run/report-data";
+import { insertTest } from "../../src/run/test-records";
 import { StoryDiscard } from "../../src/stories/discard";
 import {
   desk,
@@ -355,6 +356,53 @@ describe("review-blocked parks and hand-merge-only gates", () => {
             { command: "gate.approve", cli: 'dipo approve DIPO-1 --note "<why>"' },
           ],
         });
+      } finally {
+        t.state.close();
+      }
+    }));
+
+  // DIPO-309: the desk row of a story waiting on its test offers `dipo test <ID>`, and the record
+  // of its open test once one runs.
+  it("offers dipo test on a gate that waits on the story's test, then pass and fail", () =>
+    withTempDir(async (dir) => {
+      const t = await openTestState(dir);
+      try {
+        const office = addOffice(t);
+        pass(t, office, [task("DIPO-1", { status: "In Review" })]);
+        const started = startRun(t, office, "DIPO-1", dir);
+        const at = t.clock.now();
+        insertStoryPr(office, { key: started.key, run: started.run, number: 7, at });
+        insertMergeGate(office, {
+          id: "gat_01J9ZK5Q8W3V4X6Y7Z8A9B0C1C",
+          key: started.key,
+          run: started.run,
+          summary: "No test is recorded for abc.",
+          at,
+        });
+        office.immediate(() =>
+          office.run(`update gates set waits = '["testBeforeMerge"]' where office_id = $office_id`),
+        );
+        const clis = () => desk(office, all, ALL_SOURCES)[0]?.actions.map((action) => action.cli);
+        expect(clis()).toEqual([
+          "dipo test DIPO-1",
+          "dipo approve DIPO-1",
+          'dipo reject DIPO-1 --note "<why>"',
+        ]);
+        office.immediate(() =>
+          insertTest(office, {
+            testId: "tst_01J9ZK5Q8W3V4X6Y7Z8A9B0C1D",
+            key: started.key,
+            runId: started.run,
+            head: "abc",
+            box: "dipo-tst_01J9ZK5Q8W3V4X6Y7Z8A9B0C1D",
+            steps: [{ check: "Open it" }],
+            at,
+          }),
+        );
+        expect(clis()?.slice(0, 2)).toEqual([
+          "dipo test pass DIPO-1",
+          'dipo test fail DIPO-1 --note "<what failed>"',
+        ]);
       } finally {
         t.state.close();
       }
