@@ -27,6 +27,8 @@ export interface GitStepOptions {
    * signing program, a credential prompt) pass `EXTERNAL_STEP_TIMEOUT_MS`.
    */
   readonly timeoutMs?: number;
+  /** Text written to git's stdin, for `--stdin` reads; git gets no stdin when absent. */
+  readonly stdin?: string;
 }
 
 /** One git process to start: the arguments after `git`, its environment and working directory. */
@@ -34,6 +36,8 @@ export interface GitCall {
   readonly args: readonly string[];
   readonly env: Readonly<Record<string, string>>;
   readonly cwd: string;
+  /** Text written to git's stdin, which is then closed; no stdin when absent. */
+  readonly stdin?: string;
   /** Aborted when the step timed out; the executor ends the process and its group. */
   readonly signal?: AbortSignal;
   /** The clock the executor's grace between SIGTERM and SIGKILL runs on; the system clock by default. */
@@ -53,8 +57,18 @@ export type GitExec = (call: GitCall) => Promise<GitResult>;
 export function spawnGitExec(spawn: Spawn, git = "git"): GitExec {
   return async (call) => {
     // Its own process group, so a step killed at its deadline takes what it started along.
-    const child = spawn({ cmd: [git, ...call.args], cwd: call.cwd, env: call.env, detached: true });
+    const child = spawn({
+      cmd: [git, ...call.args],
+      cwd: call.cwd,
+      env: call.env,
+      detached: true,
+      ...(call.stdin === undefined ? {} : { stdin: "pipe" as const }),
+    });
     trackEngineCall(child);
+    if (call.stdin !== undefined) {
+      child.stdin?.write(call.stdin);
+      child.stdin?.end();
+    }
     const end = () => void terminateChild(child, call.clock ?? systemClock);
     if (call.signal?.aborted === true) end();
     else call.signal?.addEventListener("abort", end, { once: true });
@@ -176,6 +190,7 @@ export async function runGitStep(
     args: hardenedArgs(location, args, options.config),
     env: hardenedEnv(runner.env, location, options.env),
     cwd: hardenedCwd(location),
+    ...(options.stdin === undefined ? {} : { stdin: options.stdin }),
   };
   for (let attempt = 0; ; attempt += 1) {
     const result = await execWithTimeout(runner, call, args, options.timeoutMs);

@@ -1,10 +1,9 @@
 // Where an office lives (0007 section 2): the office path is the main worktree, the first entry of
 // `git worktree list --porcelain`, so a linked worktree opens the same office; the office's own
 // directory is `<git-common-dir>/dipo/`, with the common directory from
-// `git rev-parse --path-format=absolute --git-common-dir`. Git runs through the injected `Spawn`
-// hardened as every engine git call is (`git/hardened.ts`): no hooks, no fsmonitor, no system config.
-// Each call has the deadline of every engine git step (DIPO-314, `GIT_STEP_DEADLINE_MS`) and fails
-// with `git.timedOut` past it.
+// `git rev-parse --path-format=absolute --git-common-dir`. Git runs through the injected `Spawn` as
+// a step of the git module's runner (`git/runner.ts`), hardened as every engine git call is: no
+// hooks, no fsmonitor, no system config, and the deadline of every engine git step.
 
 import { existsSync, realpathSync, statSync } from "node:fs";
 import { join } from "node:path";
@@ -17,10 +16,8 @@ import {
   type Spawn,
 } from "@dipsaus-orchestrator/contract";
 
-import { hardenedArgs, hardenedEnv } from "../git/hardened";
-import { GIT_STEP_DEADLINE_MS, gitTimedOut } from "../git/runner";
+import { clockSleep, runGitStep, spawnGitExec } from "../git/runner";
 import { systemClock } from "../platform/clock";
-import { trackEngineCall, withDeadline } from "../platform/deadline";
 import { isNetworkFsType, mountFor, type MountReader, readSystemMounts } from "../platform/sqlite";
 
 /** The Backlog.md project file that makes a repository a project (0006 decision 4). */
@@ -37,36 +34,16 @@ export interface GitRunner {
   readonly clock?: Clock;
 }
 
-interface GitResult {
-  readonly code: number | null;
-  readonly stdout: string;
-  readonly stderr: string;
-}
-
-async function runGit(runner: GitRunner, cwd: string, args: readonly string[]): Promise<GitResult> {
-  // Discovery: no recorded paths yet, so git finds the repository from `cwd`.
-  const location = { kind: "none", cwd } as const;
-  const child = runner.spawn({
-    cmd: [runner.git ?? "git", ...hardenedArgs(location, args)],
-    cwd,
-    env: hardenedEnv(runner.env ?? process.env, location),
-    detached: true,
-  });
-  trackEngineCall(child);
-  const [stdout, stderr, exit] = await withDeadline(
-    child,
-    Promise.all([
-      new Response(child.stdout).text(),
-      new Response(child.stderr).text(),
-      child.exited,
-    ]),
-    {
-      clock: runner.clock ?? systemClock,
-      deadlineMs: GIT_STEP_DEADLINE_MS,
-      timedOut: () => gitTimedOut(args, GIT_STEP_DEADLINE_MS),
-    },
-  );
-  return { code: exit.code, stdout, stderr };
+/** One discovery step: no recorded paths yet, so git finds the repository from `cwd`. */
+function runGit(runner: GitRunner, cwd: string, args: readonly string[]) {
+  const clock = runner.clock ?? systemClock;
+  const steps = {
+    exec: spawnGitExec(runner.spawn, runner.git),
+    env: runner.env ?? process.env,
+    sleep: clockSleep(clock),
+    clock,
+  };
+  return runGitStep(steps, { kind: "none", cwd }, args);
 }
 
 /** A repository as the office sees it: the main worktree (the office path) and the common dir. */

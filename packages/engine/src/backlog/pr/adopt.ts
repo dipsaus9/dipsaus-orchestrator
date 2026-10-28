@@ -8,6 +8,7 @@
 
 import type { GitSession } from "../../git/office";
 import { GitError } from "../../git/runner";
+import { createBranch, moveBranch } from "../../git/write";
 import { OP_TRAILER } from "../lane/lane";
 
 /** A lane commit on the branch, oldest first. */
@@ -179,9 +180,16 @@ export async function placeBranch(
   local: AdoptableBranch["local"],
 ): Promise<void> {
   if (local === undefined) return;
-  if (local.from === null) {
-    await git.ok(git.repository, ["branch", "--no-track", branch, tip]);
-    return;
+  const placed =
+    local.from === null
+      ? await createBranch(git, branch, tip, `dipo: adopt ${branch}`)
+      : await moveBranch(git, branch, tip, local.from, `dipo: adopt ${branch}`);
+  if (!placed) {
+    throw new GitError(
+      "git.failed",
+      `the local branch ${branch} moved while dipo adopted it; dipo leaves it as it is`,
+      false,
+      { branch, tip, from: local.from },
+    );
   }
-  await git.ok(git.repository, ["update-ref", `refs/heads/${branch}`, tip, local.from]);
 }

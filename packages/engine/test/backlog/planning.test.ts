@@ -97,6 +97,9 @@ function fakeLane(office: OfficeHandle, t: TestState, ops: LaneOp[], flushes: { 
   } as unknown as OfficeLane;
 }
 
+/** The tip `rev-parse` reports for every local branch the fake git has. */
+const BRANCH_TIP = "7".repeat(40);
+
 interface FakeGitOptions {
   /** The `sha<TAB>subject` lines `git log` lists (DIPO-228). */
   readonly commits?: readonly string[];
@@ -135,7 +138,10 @@ function fakeGit(dirty: string[], worktreeGone: boolean, options: FakeGitOptions
         ? ref.slice(11).replace(/\^\{commit\}$/, "")
         : null;
       const found = branch !== null && !(options.goneBranches ?? []).includes(branch);
-      return { code: args[0] === "rev-parse" && !found ? 1 : 0, stdout: "", stderr: "" };
+      if (args[0] !== "rev-parse") return { code: 0, stdout: "", stderr: "" };
+      return found
+        ? { code: 0, stdout: `${BRANCH_TIP}\n`, stderr: "" }
+        : { code: 1, stdout: "", stderr: "" };
     },
   };
   return {
@@ -887,7 +893,12 @@ describe("story.losses and the kept branch of a story (DIPO-228)", () => {
     keepBranch(key, "DIPO-7/work");
     const reply = await send("story.drop", { story: "DIPO-7", deleteBranch: true });
     expect(reply).toMatchObject({ ok: true, changed: true, result: { story: "DIPO-7", key } });
-    expect(w.hooks.calls).toContainEqual(["update-ref", "-d", "refs/heads/DIPO-7/work"]);
+    expect(w.hooks.calls).toContainEqual([
+      "update-ref",
+      "-d",
+      "refs/heads/DIPO-7/work",
+      BRANCH_TIP,
+    ]);
     expect(releasedBranchFor(w.office, key, "DIPO-7/work")).toBeNull();
     const row = w.office.get<{ reclaimed_at: number | null }>(
       "select reclaimed_at from released_branches where office_id = $office_id and key = $key",

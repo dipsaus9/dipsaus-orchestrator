@@ -810,7 +810,14 @@ export class MergeSlot {
     for (const key of state.noticed.keys()) {
       if (key.startsWith(`${slot.number}:`)) state.noticed.delete(key);
     }
-    await git.deleteBranch(slot.branch).catch(() => undefined);
+    const problem = await git.deleteBranch(slot.branch).catch(reasonOf);
+    if (problem !== null) {
+      this.#deps.logger?.warn("the merged backlog branch could not be deleted", {
+        office: handle.officeId,
+        branch: slot.branch,
+        reason: problem,
+      });
+    }
     // An operation left out still names the deleted branch: flush now, so the lane applies it again
     // on a new branch instead of at the next backlog change.
     await this.#release(handle, lane, leftOut);
