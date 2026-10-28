@@ -44,6 +44,7 @@ export const TEARDOWN_NOTICES = {
   unmergedCommits: "done.unmergedCommits",
   claimGone: "done.claimGone",
   statusUnknown: "teardown.statusUnknown",
+  hostUnreachable: "done.hostUnreachable",
 } as const;
 
 /** The release reason of a claim whose story reached Done. */

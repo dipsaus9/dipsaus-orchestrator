@@ -77,6 +77,12 @@ import {
 /** The load step's name in the registry. */
 export const TEARDOWN_STEP = "worktree.teardown";
 
+/**
+ * The polls in a row the code host must fail on one claim before the Done poll tells the
+ * maintainer, once per streak: a story whose PR state cannot be read is not Done meanwhile.
+ */
+export const HOST_FAILURES_NOTICED = 3;
+
 /** The Backlog.md status of a parked story (0012). */
 export const PARKED_STATUS = "Parked";
 
@@ -128,6 +134,8 @@ export interface PollReport {
 interface Checked {
   readonly facts: ClaimGitFacts;
   readonly pr: DonePr | null;
+  /** The host's error when it was asked about the claim's PR and failed, else null. */
+  readonly hostError: string | null;
   readonly base: BaseStatus;
   readonly answer: DoneAnswer;
 }
@@ -139,6 +147,8 @@ interface Polled {
   busy: Promise<unknown>;
   /** The last notice text per claim run and notice code, so a cause is reported once. */
   readonly told: Map<string, string>;
+  /** The polls in a row the host failed per claim run (`HOST_FAILURES_NOTICED`). */
+  readonly hostFailures: Map<string, number>;
   /** The reads of the PR-state round the running poll belongs to (DIPO-314), or null. */
   reads: PrStateHost | null;
 }
@@ -180,6 +190,7 @@ export class StoryTeardown {
       timer: null,
       busy: Promise.resolve(),
       told: new Map(),
+      hostFailures: new Map(),
       reads: null,
     });
   }
@@ -254,6 +265,9 @@ export class StoryTeardown {
     for (const key of state.told.keys()) {
       if (!live.has(runOfToldKey(key))) state.told.delete(key);
     }
+    for (const run of state.hostFailures.keys()) {
+      if (!live.has(run)) state.hostFailures.delete(run);
+    }
     return released.length === 0
       ? { checked, tornDown, kept }
       : { checked, tornDown, kept, released };
@@ -281,9 +295,43 @@ export class StoryTeardown {
     const host = this.#deps.host === null ? null : (state.reads ?? this.#deps.host);
     const facts = await git.run((session) => claimGitFacts(git, session, claim));
     const repo = facts.url === null ? null : repoOfRemoteUrl(facts.url);
-    const pr = await claimPr(host, repo, state.office, claim);
+    const { pr, hostError } = await claimPr(host, repo, state.office, claim);
     const base = await baseStatusOf(git, this.#deps.cli, claim.story);
-    return { facts, pr, base, answer: decideDone({ claim, pr, baseStatus: base.status }) };
+    const answer = decideDone({
+      claim,
+      pr,
+      hostFailed: hostError !== null,
+      baseStatus: base.status,
+    });
+    return { facts, pr, hostError, base, answer };
+  }
+
+  /**
+   * Counts the polls in a row the host failed on the claim, and tells the maintainer once a streak
+   * reaches `HOST_FAILURES_NOTICED`; an answer ends the streak.
+   */
+  #countHostFailure(
+    state: Polled,
+    deps: TeardownDeps,
+    claim: ClaimRecord,
+    error: string | null,
+  ): void {
+    if (error === null) {
+      state.hostFailures.delete(claim.runId);
+      state.told.delete(toldKey(claim.runId, TEARDOWN_NOTICES.hostUnreachable));
+      return;
+    }
+    const failures = (state.hostFailures.get(claim.runId) ?? 0) + 1;
+    state.hostFailures.set(claim.runId, failures);
+    if (failures !== HOST_FAILURES_NOTICED) return;
+    this.#tell(
+      state,
+      deps,
+      claim,
+      "warn",
+      TEARDOWN_NOTICES.hostUnreachable,
+      `dipo could not ask the code host whether the PR of ${claim.story} merged on ${HOST_FAILURES_NOTICED} polls in a row (${error}). Until it answers, dipo keeps the claim, its worktree and branch ${claim.branch} as they are; check \`gh auth status\` and the network.`,
+    );
   }
 
   /** Checks one claim for Done and tears it down or releases it unless something keeps it. */
@@ -293,6 +341,7 @@ export class StoryTeardown {
     claim: ClaimRecord,
   ): Promise<"open" | "kept" | "tornDown" | "released"> {
     const checked = await this.#check(state, deps.git, claim);
+    this.#countHostFailure(state, deps, claim, checked.hostError);
     if (checked.answer === "doneOnBase") {
       return this.#doneElsewhere(state, deps, claim, checked.base);
     }

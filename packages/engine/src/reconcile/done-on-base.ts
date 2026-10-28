@@ -2,7 +2,7 @@
 // finished through another branch, for example a `-finish` branch, never merges its own PR, so
 // the teardown never runs for it. Reconcile asks the one Done check (`worktree/done-check.ts`) for
 // each live claim with a claim commit, from the same facts the Done poll reads: the claim's story
-// PR (`claimPr`: the host's merged PR of its branch when reconcile has a host, else dipo's record)
+// PR (`claimPr`: dipo's record, or the host's answer for that recorded PR when reconcile has one)
 // and the story's status on `_base` as the index pass read it. Only the answer Done on the base is
 // reconcile's; a claim whose own PR merged is the Done poll's teardown (DIPO-332), and `git
 // merge-tree` is no Done signal (0010).
@@ -87,8 +87,13 @@ export async function doneAnswerOf(
   repo?: string | null,
 ): Promise<DoneAnswer> {
   const at = repo === undefined ? await repoOf(deps) : repo;
-  const pr = await claimPr(deps.prs ?? null, at, deps.office, claim);
-  return decideDone({ claim, pr, baseStatus: baseStatusIn(pass, claim) });
+  const { pr, hostError } = await claimPr(deps.prs ?? null, at, deps.office, claim);
+  return decideDone({
+    claim,
+    pr,
+    hostFailed: hostError !== null,
+    baseStatus: baseStatusIn(pass, claim),
+  });
 }
 
 function runEnded(deps: ReconcileDeps, claim: ClaimRecord): boolean {

@@ -32,6 +32,7 @@ import {
   tearDown,
 } from "../../src/worktree";
 import { insertStoryPr } from "../../src/story-pr/records";
+import { HOST_FAILURES_NOTICED } from "../../src/worktree/done";
 import { insertClaim, markTeardownStarted } from "../../src/worktree/records";
 import { notices } from "../backlog/lane/helpers";
 import { hangingSpawn, settle as letCallsRun } from "../platform/hanging";
@@ -190,6 +191,8 @@ async function withWorld(fn: (world: World) => Promise<void>): Promise<void> {
       { office: office.officeId, story: "TASK-1", worktree, takenAt: t.clock.now() },
       20,
     );
+    // The run's story PR #9, open, as the PR poll recorded it.
+    recordPr(world, "open");
     try {
       await fn(world);
     } finally {
@@ -274,15 +277,21 @@ function teardownOf(
   return teardown;
 }
 
-/** Records the claim's story PR in `state`, its head at `head`, as the PR poll records it. */
-function recordPr(world: World, state: "open" | "merged" | "closed", head = TIP): void {
+/**
+ * Records the claim's story PR `number` in `state`, its head at `head`, as the PR poll records
+ * it, in place of the one recorded before.
+ */
+function recordPr(world: World, state: "open" | "merged" | "closed", head = TIP, number = 9): void {
   const claim = world.claim();
-  world.office.immediate(() =>
+  world.office.immediate(() => {
+    world.office.run("delete from story_prs where office_id = $office_id and run_id = $run", {
+      run: claim.runId,
+    });
     insertStoryPr(world.office, {
       runId: claim.runId,
       key: claim.key,
-      number: 9,
-      url: "https://github.com/o/r/pull/9",
+      number,
+      url: `https://github.com/o/r/pull/${number}`,
       branch: BRANCH,
       base: "main",
       headSha: head,
@@ -291,8 +300,8 @@ function recordPr(world: World, state: "open" | "merged" | "closed", head = TIP)
       bodyHash: "h",
       openedAt: 1,
       closedAt: state === "open" ? null : 2,
-    }),
-  );
+    });
+  });
 }
 
 /** A worker host row of the claim's run that has not exited, so its worker is live. */
@@ -348,6 +357,54 @@ describe("detecting Done (the one Done check, DIPO-363)", () => {
         world.office.run("update story_prs set state = 'closed' where office_id = $office_id", {}),
       );
       expect(await teardownOf(world, { host: host(null) }).answer(officeId, claim)).toBe("notDone");
+      expect(world.claim().releasedAt).toBeNull();
+    }));
+
+  it("ignores an old merged PR of a reused branch: only the run's own recorded PR counts", () =>
+    withWorld(async (world) => {
+      // The story was claimed again on the same branch: this run's PR is #12, still open, while
+      // the host's newest merged PR of the branch is the earlier run's #9, at another head.
+      recordPr(world, "open", TIP, 12);
+      world.answer = (args) =>
+        args[0] === "merge-tree" ? { stdout: `${"5".repeat(40)}\n` } : undefined;
+      const officeId = world.office.officeId as OfficeId;
+      const old = host({ headSha: "6".repeat(40) });
+      const teardown = teardownOf(world, { host: old });
+      expect(await teardown.answer(officeId, world.claim())).toBe("notDone");
+      const report = await teardown.poll(officeId);
+      expect(old.calls.length).toBeGreaterThan(0);
+      expect(report).toMatchObject({ checked: 1, tornDown: [], kept: [] });
+      expect(report.released ?? []).toEqual([]);
+      expect(world.claim().releasedAt).toBeNull();
+      expect(world.steps.some((s) => s.startsWith("merge-tree"))).toBe(false);
+      expect(notices(world.office)).toEqual([]);
+    }));
+
+  it("tells the maintainer once when the host failed on a claim for 3 polls in a row", () =>
+    withWorld(async (world) => {
+      const officeId = world.office.officeId as OfficeId;
+      let failing = true;
+      const flaky: PrStateHost = {
+        findMergedPr: async () => {
+          if (failing) throw new CodeHostError("unauthenticated", "not logged in");
+          return null;
+        },
+      };
+      const teardown = teardownOf(world, { host: flaky });
+      const unreachable = () =>
+        notices(world.office).filter((n) => n.code === TEARDOWN_NOTICES.hostUnreachable);
+      for (let i = 1; i < HOST_FAILURES_NOTICED; i++) await teardown.poll(officeId);
+      expect(unreachable()).toEqual([]);
+      await teardown.poll(officeId);
+      await teardown.poll(officeId);
+      expect(unreachable()).toHaveLength(1);
+      expect(unreachable()[0]?.text).toContain("3 polls in a row (not logged in)");
+      // An answer ends the streak; a new streak is told again.
+      failing = false;
+      await teardown.poll(officeId);
+      failing = true;
+      for (let i = 0; i < HOST_FAILURES_NOTICED; i++) await teardown.poll(officeId);
+      expect(unreachable()).toHaveLength(2);
       expect(world.claim().releasedAt).toBeNull();
     }));
 

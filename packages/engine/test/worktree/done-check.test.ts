@@ -66,6 +66,24 @@ describe("the one Done check (DIPO-363)", () => {
     expect(decideDone({ claim: CLAIM, pr: pr("merged"), baseStatus: "Done" })).toBe("merged");
   });
 
+  it("is not Done while the host failed on an open PR, even when the base reads Done", () => {
+    for (const base of ["Done", "In Progress", null]) {
+      expect(decideDone({ claim: CLAIM, pr: pr("open"), hostFailed: true, baseStatus: base })).toBe(
+        "notDone",
+      );
+    }
+    // Only an open PR waits: no PR, a closed one or a recorded merge are decided as always.
+    expect(decideDone({ claim: CLAIM, pr: null, hostFailed: true, baseStatus: "Done" })).toBe(
+      "doneOnBase",
+    );
+    expect(
+      decideDone({ claim: CLAIM, pr: pr("closed"), hostFailed: true, baseStatus: "Done" }),
+    ).toBe("doneOnBase");
+    expect(
+      decideDone({ claim: CLAIM, pr: pr("merged"), hostFailed: true, baseStatus: "Done" }),
+    ).toBe("merged");
+  });
+
   it("does not look at the merged head: a branch that moved past it is still merged", () => {
     const moved = pr("merged", { headSha: "6".repeat(40) });
     expect(decideDone({ claim: CLAIM, pr: moved, baseStatus: null })).toBe("merged");

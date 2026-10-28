@@ -2,8 +2,9 @@
 // both gather the claim's story PR (dipo's record, else the code host's merged PR of its branch)
 // and the story's status on `_base`, and ask the one Done check. One claim on real git with the
 // scripted Backlog CLI of helpers.ts; the remote has a GitHub URL (rewritten to the bare remote by
-// `insteadOf`), so both ask the host. For every combination of the recorded PR, the host's answer
-// and the base status, the Done poll's answer and reconcile's are the same, and the expected one.
+// `insteadOf`), so both ask the host about the run's recorded PR. For every combination of the
+// recorded PR, the host's answer and the base status, the Done poll's answer and reconcile's are
+// the same, and the expected one.
 
 import { describe, expect, it } from "bun:test";
 
@@ -35,8 +36,8 @@ function hostOf(answer: () => HostCase, head: () => string): PrStateHost & { ask
       if (now === "unreachable") throw new CodeHostError("unauthenticated", "not logged in");
       if (now !== "merged") return null;
       return {
-        number: 41,
-        url: "https://github.com/o/r/pull/41",
+        number: 40,
+        url: "https://github.com/o/r/pull/40",
         state: "merged",
         head: branch,
         headSha: head(),
@@ -123,10 +124,13 @@ describe("the Done poll and reconcile ask the one Done check the same way (DIPO-
               pass,
               record,
             );
-            const merged = recorded === "merged" || answer === "merged";
+            // The host's merged PR counts only as the run's recorded PR; an open PR the host could
+            // not be asked about is not Done this round.
+            const merged = recorded === "merged" || (answer === "merged" && recorded !== "none");
+            const unread = answer === "unreachable" && recorded === "open";
             const expected: DoneAnswer = merged
               ? "merged"
-              : base === "Done"
+              : !unread && base === "Done"
                 ? "doneOnBase"
                 : "notDone";
             const label = `record ${recorded}, host ${answer}, base ${base}`;
