@@ -34,7 +34,7 @@ import {
 } from "../../src/run";
 import { Places } from "../../src/run/places";
 import type { NextSessionRequest } from "../../src/run/resume";
-import { reopenForRound, type RoundKind } from "../../src/run/rounds";
+import { reopen, type RoundKind } from "../../src/run/rounds";
 import { addStory } from "../../src/stories/keys";
 import { encode } from "../../src/workers/claude-cli/encode";
 import type { Caps, HostOp } from "../../src/workers/types";
@@ -87,7 +87,7 @@ beforeEach(async () => {
         if (held === null) return { kind: "continue" };
         held.entered();
         await held.gate;
-        return { kind: "feedback", text: held.text };
+        return { kind: "feedback", source: "report-gate", text: held.text };
       },
       summarize: async () => undefined,
     },
@@ -247,12 +247,12 @@ function park(endKind = "blocked"): void {
   });
 }
 
-/** Reopens the ended run for a round, as the review or the fix round does (`reopenForRound`). */
-function reopen(kind: RoundKind): void {
+/** Reopens the ended run for a round, as the review or the fix round does (`reopen`). */
+function reopenFor(kind: RoundKind): void {
   const { office, run, t } = w.f;
   const stored = findRun(office, run);
   if (stored === null) throw new Error("no run");
-  office.immediate(() => reopenForRound(office, stored, kind, t.clock.now()));
+  office.immediate(() => reopen(office, stored, t.clock.now(), { kind }));
 }
 
 describe("registration", () => {
@@ -345,7 +345,7 @@ describe("work.steer", () => {
   it("keeps a held steer out of a review session's first message (reopened for a review)", async () => {
     park("in-review");
     expect(ok(await steer("Mind the edge case.")).delivered).toBe("on-resume");
-    reopen("review");
+    reopenFor("review");
     exitWorker();
     expect(await startSession()).toBe(true);
     expect(w.sessions).toHaveLength(1);
@@ -356,7 +356,7 @@ describe("work.steer", () => {
   it("sends a held steer with the developer session's first message (reopened for a fix round)", async () => {
     park("in-review");
     expect(ok(await steer("Mind the edge case.")).delivered).toBe("on-resume");
-    reopen("fix");
+    reopenFor("fix");
     exitWorker();
     expect(await startSession()).toBe(true);
     expect(w.sessions[0]?.message).toContain("The maintainer says: Mind the edge case.");

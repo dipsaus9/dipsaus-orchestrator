@@ -28,8 +28,9 @@
 //   the tip holds a conflict marker line (git's own markers, read with `git grep -a` from git
 //   objects, a NUL byte included; a lone `=======` only beside a `<<<<<<< ` or `>>>>>>> ` line),
 //   and a binary, modify/delete or file vs folder conflict whose path is unchanged since the
-//   merge, keeps the story from In Review, so from the PR too: it goes back to the worker as a
-//   feedback turn naming the files and lines. Then the
+//   merge, keeps the story from In Review, so from the PR too: it is report gate feedback naming
+//   the files and lines (0002), counted against the tier loops like any report gate refusal
+//   (`verify-commit.ts`), and the refusal at the loop cap parks `verify-failing`. Then the
 //   fetch and the sync (`BoxCollisions.syncInTurn`): `git merge-tree --write-tree` of the tip and
 //   the base; a story of tier L or flagged test-before-merge merges the base whenever it moved,
 //   any other only on a conflict. A conflict is committed as git left it, copied into the box,
@@ -38,14 +39,12 @@
 //   cannot write parks `conflict` and merges nothing. A clean sync
 //   moves the story to review at the merged head; CI on that head is its verify (0021 amendment
 //   of 2026-10-22), so dipo runs none.
-// - Hand-offs (`run_steps` kind `conflict`, values `start <n> <commit>`, `feedback <n>`,
-//   `failed <n> <why>` and `resolved <n>`). A recorded conflicted merge starts hand-off n. At a
-//   done with markers left, the hand-off gets its one feedback turn; at the next done with
-//   markers, or at a blocked report while it is open, it fails. The failed hand-off that reaches
-//   the run's conflict cap (`mergeSlot.conflictAttempts`, snapshot as `runs.conflict_cap`) parks
-//   `conflict` with the paths, the merge kept on the branch and in
-//   the box; below the cap a new hand-off starts with the same feedback. A done without markers
-//   resolves the open hand-off. `run_outcomes.conflict_handoffs` counts the hand-offs started.
+// - Hand-offs (`run_steps` kind `conflict`, values `start <n> <commit>`, `failed <n> <why>` and
+//   `resolved <n>`). A recorded conflicted merge starts hand-off n. A blocked report while it is
+//   open fails it. The failed hand-off that reaches the run's conflict cap
+//   (`mergeSlot.conflictAttempts`, snapshot as `runs.conflict_cap`) parks `conflict` with the
+//   paths, the merge kept on the branch and in the box. A done without markers resolves the open
+//   hand-off; markers left at done are the report gate's (see above), not a failed hand-off. `run_outcomes.conflict_handoffs` counts the hand-offs started.
 // - Carried approvals (0019 section 6). After a clean merge dipo made, the run's newest verdict, if
 //   approved, carries to the new head when every commit between the approved head and the head
 //   (first parents) is a clean merge in the journal or a commit that changes only the story's task
@@ -421,8 +420,6 @@ export interface HandOffState {
   readonly current: number;
   /** True while the newest hand-off has neither failed nor been resolved. */
   readonly open: boolean;
-  /** True when the open hand-off had its one feedback turn. */
-  readonly feedback: boolean;
   /** The failed hand-offs of the run: what the conflict cap counts. */
   readonly failed: number;
 }
@@ -437,7 +434,6 @@ export function handOffStateOf(
 ): HandOffState {
   let current = 0;
   let open = false;
-  let feedback = false;
   let failed = 0;
   for (const [at, value] of values.entries()) {
     const [event = "", n = ""] = value.split(" ");
@@ -446,9 +442,7 @@ export function handOffStateOf(
     if (event === "start") {
       current = Math.max(current, number);
       open = true;
-      feedback = false;
     } else if (number === current && open) {
-      if (event === "feedback") feedback = true;
       if (event === "failed") {
         if (mine[at] !== false) failed += 1;
         open = false;
@@ -456,7 +450,7 @@ export function handOffStateOf(
       if (event === "resolved") open = false;
     }
   }
-  return { current, open, feedback, failed };
+  return { current, open, failed };
 }
 
 /**
@@ -486,8 +480,8 @@ export function appendHandOff(
   runId: RunId | string,
   event:
     | { readonly kind: "start"; readonly n: number; readonly commit: string }
-    | { readonly kind: "feedback" | "resolved"; readonly n: number }
-    | { readonly kind: "failed"; readonly n: number; readonly why: "markers" | "blocked" },
+    | { readonly kind: "resolved"; readonly n: number }
+    | { readonly kind: "failed"; readonly n: number; readonly why: "blocked" },
   at: number,
 ): void {
   const value =
@@ -628,8 +622,10 @@ export async function approvalCarries(
 export type DoneConflictDecision =
   /** On to In Review at `tip`: the last part's commit, or the clean merge on top of it. */
   | { readonly kind: "go"; readonly tip: string }
-  /** The worker's next message; the story stays In Progress. */
+  /** The worker's next message, a conflict hand-off; the story stays In Progress. */
   | { readonly kind: "feedback"; readonly text: string }
+  /** Markers left at done: report gate feedback against the tier loops (0002). */
+  | { readonly kind: "markers"; readonly text: string }
   | {
       readonly kind: "park";
       readonly reason: "conflict" | "scope-violation";
@@ -689,7 +685,7 @@ export class StoryConflicts {
     if (merges.length > 0) {
       const left = await git.run((session) => unresolvedAt(session, tip, merges));
       if (left.markers.size > 0 || left.unchanged.length > 0) {
-        return this.#markersLeft(office, run, tip, left, input.capped);
+        return { kind: "markers", text: markersLeftText(left.markers, left.unchanged) };
       }
     }
     this.#write(office, () => {
@@ -822,55 +818,6 @@ export class StoryConflicts {
       );
       return [];
     });
-  }
-
-  /** What is left unresolved at done: a feedback turn, a failed hand-off, or the park at the cap. */
-  #markersLeft(
-    office: OfficeHandle,
-    run: StoredRun,
-    tip: string,
-    left: Unresolved,
-    capped: boolean,
-  ): DoneConflictDecision {
-    const paths = [
-      ...new Set([...left.markers.keys(), ...left.unchanged.map((f) => f.path)]),
-    ].toSorted();
-    const text = markersLeftText(left.markers, left.unchanged);
-    const cap = conflictCapOf(office, run, this.#fallbackCap(office.officeId as OfficeId));
-    let decision: DoneConflictDecision = { kind: "feedback", text };
-    this.#write(office, () => {
-      const at = this.#now();
-      const state = handOffState(office, run.runId);
-      const fail = (): number => {
-        appendHandOff(office, run.runId, { kind: "failed", n: state.current, why: "markers" }, at);
-        return state.failed + 1;
-      };
-      if (capped) {
-        // A done turn that crossed a run cap has no turn left for the feedback.
-        decision = {
-          kind: "park",
-          ...capPark(paths, state.open ? fail() : state.failed, cap, true),
-        };
-        return [];
-      }
-      if (!state.open) {
-        // Markers on the tip with no open hand-off (a resolved one, edited again): a new one.
-        appendHandOff(office, run.runId, { kind: "start", n: state.current + 1, commit: tip }, at);
-        return [];
-      }
-      if (!state.feedback) {
-        appendHandOff(office, run.runId, { kind: "feedback", n: state.current }, at);
-        return [];
-      }
-      const failed = fail();
-      if (failed >= cap) {
-        decision = { kind: "park", ...capPark(paths, failed, cap) };
-        return [];
-      }
-      appendHandOff(office, run.runId, { kind: "start", n: state.current + 1, commit: tip }, at);
-      return [];
-    });
-    return decision;
   }
 
   /**

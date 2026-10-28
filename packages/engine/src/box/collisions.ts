@@ -1068,8 +1068,11 @@ export interface BoxCollisionsDeps {
   readonly parts: Pick<BoxParts, "deliverLast" | "deliverInTurn" | "inTurn">;
   /** Parks the run, stopping its worker; false when another decision came first. */
   readonly park: (runId: string, park: PartPark) => boolean;
-  /** Sends `text` to the run's worker as its next message. */
-  readonly tell: (runId: string, text: string) => Promise<unknown>;
+  /**
+   * Sends `text` to the run's worker as its next message, through the one feedback path with its
+   * source: `overlap` for another story on the same files, `conflict` for a merge of the base.
+   */
+  readonly tell: (runId: string, text: string, source: "overlap" | "conflict") => Promise<unknown>;
   /** Tells the maintainer (an `engine.notice` of the run). */
   readonly notice: (office: OfficeId, runId: string, notice: CollisionNotice) => void;
   /**
@@ -1406,13 +1409,13 @@ export class BoxCollisions {
         [overlap.a, overlap.b],
         [overlap.b, overlap.a],
       ] as const) {
-        await this.#tell(me.runId, overlapMessage(other.story, overlap.paths));
+        await this.#tell(me.runId, overlapMessage(other.story, overlap.paths), "overlap");
       }
     }
   }
 
-  async #tell(runId: string, text: string): Promise<void> {
-    await Promise.resolve(this.#deps.tell(runId, text)).catch((error: unknown) => {
+  async #tell(runId: string, text: string, source: "overlap" | "conflict"): Promise<void> {
+    await Promise.resolve(this.#deps.tell(runId, text, source)).catch((error: unknown) => {
       this.#deps.warn?.("a collision message did not reach the worker", {
         run: runId,
         reason: messageOf(error),
@@ -1443,6 +1446,7 @@ export class BoxCollisions {
     await this.#tell(
       run.runId,
       catchUpMessage({ ...outcome.facts, ...(hunks === undefined ? {} : { hunks }) }),
+      "conflict",
     );
   }
 

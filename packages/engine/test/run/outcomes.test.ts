@@ -43,6 +43,8 @@ import {
   RunOutcomes,
   StartsPaused,
 } from "../../src/run";
+import { FEEDBACK_TEMPLATES, renderTemplate } from "../../src/prompts/templates";
+import { sendFeedback } from "../../src/run/feedback";
 import {
   LEGACY_PAUSE_DETAIL,
   LEGACY_PAUSE_TAG,
@@ -372,20 +374,37 @@ function expectActive(): void {
   expect(countRows(w.f.office, "run_outcomes")).toBe(0);
 }
 
-describe("a missing or invalid report (AC #1)", () => {
-  it("gets one feedback turn; a worker that exits before it answers is resumed with it (report-invalid)", async () => {
+/** The first message of a resume that carries the held report correction `text`. */
+function resumedWith(why: string, text: string): string {
+  return `${renderTemplate(FEEDBACK_TEMPLATES.resume, { reason: why })}\n\n${text}`;
+}
+
+const EXITED = "the worker exited before it answered the report feedback";
+
+describe("a report that does not parse or match the schema (AC #1, DIPO-361)", () => {
+  it("gets one correction turn; a worker that exits before it answers is resumed with it held (report-invalid)", async () => {
     track();
     await ingestRecording("report-invalid");
     const text = reportFeedbackText("error_max_structured_output_retries");
     expect(w.sent).toEqual([encode({ kind: "steer", text })]);
     expect(text).toContain("report in the schema");
-    expect(intents()).toEqual([["steer", "report-feedback", "resumed"]]);
-    expect(w.next.map((request) => [request.mode, request.message])).toEqual([["resume", text]]);
+    // Sent to the live session through the one feedback path, then held again for the resume.
+    expect(intents()).toEqual([
+      ["steer", "feedback", "held-again"],
+      ["steer", "feedback", "resumed"],
+    ]);
+    expect(runIntents(w.f.office, w.f.run).map((intent) => intent.detail)).toEqual([
+      `feedback report ${w.f.agent} now ${text}`,
+      `feedback report ${w.f.agent} next ${text}`,
+    ]);
+    expect(w.next.map((request) => [request.mode, request.message])).toEqual([
+      ["resume", resumedWith(EXITED, text)],
+    ]);
     expect(parks()).toEqual([]);
     expectActive();
   });
 
-  it("a second turn without a valid report parks ambiguous-spec (report-invalid-missing)", async () => {
+  it("a second turn without a valid report parks worker-failed, never ambiguous-spec (report-invalid-missing)", async () => {
     track();
     w.control.onWorkerEvents(w.f.run, [
       turnWith({ kind: "report", detail: "no structured_output" }),
@@ -395,29 +414,32 @@ describe("a missing or invalid report (AC #1)", () => {
       encode({ kind: "steer", text: reportFeedbackText("no structured_output") }),
     ]);
     await ingestRecording("report-invalid-missing");
-    expect(parks()).toEqual([["ambiguous-spec", "no valid report: no structured_output"]]);
+    expect(parks()).toEqual([["worker-failed", "no valid report: no structured_output"]]);
     expect(intents()).toEqual([
-      ["steer", "report-feedback", "answered"],
+      ["steer", "feedback", "answered"],
       ["park", "no", "blocked"],
     ]);
     expectEnded("no-report", "parked");
-    expect(runOutcome(w.f.office, w.f.run)?.parkReasons).toEqual(["ambiguous-spec"]);
+    expect(runOutcome(w.f.office, w.f.run)?.parkReasons).toEqual(["worker-failed"]);
   });
 
   it("counts the feedback from facts, so a restart does not give a second one", async () => {
-    w.f.office.immediate(() =>
-      recordIntent(w.f.office, w.f.run, "steer", "report-feedback no structured_output", 0),
+    sendFeedback(
+      w.f.office,
+      w.f.run,
+      { source: "report", key: "agt_old", text: reportFeedbackText("no structured_output") },
+      { at: 0 },
     );
     track();
     w.control.onWorkerEvents(w.f.run, [
       turnWith({ kind: "report", detail: "no structured_output" }),
     ]);
     await w.control.idle();
-    expect(parks().map(([reason]) => reason)).toEqual(["ambiguous-spec"]);
+    expect(parks().map(([reason]) => reason)).toEqual(["worker-failed"]);
   });
 
-  it("a verify feedback steer (DIPO-49) is not a report feedback", async () => {
-    w.f.office.immediate(() => recordIntent(w.f.office, w.f.run, "steer", "verify feedback", 0));
+  it("feedback of another source is not a report correction", async () => {
+    sendFeedback(w.f.office, w.f.run, { source: "report-gate", text: "cover the plan" }, { at: 0 });
     track();
     w.control.onWorkerEvents(w.f.run, [
       turnWith({ kind: "report", detail: "no structured_output" }),
@@ -860,25 +882,39 @@ describe("after a restart (decision Q6)", () => {
   it("resumes with an unanswered report feedback after a stop before the resume started", async () => {
     // The feedback was sent, the worker exited, and the daemon stopped before the resume.
     await ingestRecording("report-invalid", true);
-    w.f.office.immediate(() =>
-      recordIntent(
-        w.f.office,
-        w.f.run,
-        "steer",
-        `report-feedback ${w.f.agent} error_max_structured_output_retries`,
-        0,
-      ),
+    // Sent to the live session (`now`); the host call went out before the stop.
+    const sent = sendFeedback(
+      w.f.office,
+      w.f.run,
+      {
+        source: "report",
+        key: w.f.agent,
+        text: reportFeedbackText("error_max_structured_output_retries"),
+      },
+      {
+        sender: {
+          clock: w.f.t.clock,
+          encode,
+          steering: { send: async () => ({ ok: true as const }) },
+        },
+      },
     );
+    expect(await sent.done).toBeNull();
     let openWhileStarting: (string | null)[] = [];
     w.onNext = () => {
       openWhileStarting = runIntents(w.f.office, w.f.run).map((intent) => intent.outcome);
     };
     expect(await w.outcomes.redispatch(w.f.office.officeId)).toBe(1);
     const text = reportFeedbackText("error_max_structured_output_retries");
-    expect(w.next.map((request) => [request.mode, request.message])).toEqual([["resume", text]]);
-    // Resolved only once the next session started.
-    expect(openWhileStarting).toEqual([null]);
-    expect(intents()).toEqual([["steer", "report-feedback", "resumed"]]);
+    expect(w.next.map((request) => [request.mode, request.message])).toEqual([
+      ["resume", resumedWith(EXITED, text)],
+    ]);
+    // Held again before the start, delivered only once the next session started.
+    expect(openWhileStarting).toEqual(["held-again", null]);
+    expect(intents()).toEqual([
+      ["steer", "feedback", "held-again"],
+      ["steer", "feedback", "resumed"],
+    ]);
     expect(parks()).toEqual([]);
     expectActive();
   });
@@ -892,7 +928,10 @@ describe("after a restart (decision Q6)", () => {
     await ingestRecording("report-invalid-missing", true);
     expect(await w.outcomes.redispatch(w.f.office.officeId)).toBe(1);
     expect(openWhileStarting).toEqual([null]);
-    expect(intents()).toEqual([["steer", "report-feedback", "resumed"]]);
+    expect(intents()).toEqual([["steer", "feedback", "resumed"]]);
+    expect(w.next.map((request) => request.message)).toEqual([
+      resumedWith("a turn without a valid report", reportFeedbackText("no structured_output")),
+    ]);
     expect(parks()).toEqual([]);
   });
 

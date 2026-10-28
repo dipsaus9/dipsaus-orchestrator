@@ -3,7 +3,7 @@
   "source": "derived",
   "claude_code_version": "2.1.296",
   "captured_at": "2026-10-12",
-  "expected": "No outcome yet: one feedback turn \"report in the schema\", then park ambiguous-spec (0008 section 7, 0014 section 2).",
+  "expected": "No outcome yet: one feedback turn \"report in the schema\", then park worker-failed (0008 section 7, 0014 section 2).",
   "usage_checksum": "df34c336d65efaeef65937d9dda8f72d5d6ed088fa77026e9443090e4afb0389",
   "derivedFrom": "success-single",
   "transform": "The result becomes error_max_structured_output_retries without a report.",

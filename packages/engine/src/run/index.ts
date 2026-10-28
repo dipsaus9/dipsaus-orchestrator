@@ -49,7 +49,6 @@ export {
   IN_REVIEW_END,
   PARKED_OUTCOME,
   recordGateChanges,
-  reopenRun,
   runOutcome,
   runRoundCounts,
   findRun,
@@ -87,8 +86,8 @@ export {
   waitingStarts,
 } from "./places";
 export type { Place, PlacesDeps, PlaceStart, PlaceStarter, StartKind } from "./places";
-export { endReviewPeriod, reopenForRound, REVIEWED_END } from "./rounds";
-export type { RoundKind } from "./rounds";
+export { endReviewPeriod, reopen, REVIEWED_END } from "./rounds";
+export type { ReopenFor, RoundKind } from "./rounds";
 export {
   feedbackItems,
   feedbackOfIntent,

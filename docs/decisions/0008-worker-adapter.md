@@ -142,7 +142,7 @@ The task message is the first stdin line, never on argv. The box's environment h
 | Report `done` | The report gate and the review loop (0002). A done report on the turn that crosses a cap is honoured |
 | Report `blocked` with a question or a reason | Parks `ambiguous-spec` (0020) |
 | A cap reached (tokens, turns, minutes, the CLI's turn backstop) | Parks `budget-exceeded`, naming the cap |
-| No valid report, after one correction turn | Parks `worker-failed` |
+| A report that does not parse or does not match the schema, after one correction turn | Parks `worker-failed`; only a question or a blocked report parks `ambiguous-spec` |
 | A crash while the daemon watches the session | One fresh session with a handoff, then `worker-failed` |
 | A host found dead or not answering at recovery | Parks `worker-failed` (0005) |
 | 10 stream lines that fail their schema, or usage that cannot be read | Parks `worker-failed` ("stream drift"), naming the Claude Code version |

@@ -300,7 +300,7 @@ async function keptMerge(w: World): Promise<{ tip: string; onto: string; merge: 
     office.run("update runs set conflict_cap = 1 where office_id = $office_id and run_id = $run", {
       run: w.f.run,
     });
-    appendHandOff(office, w.f.run, { kind: "failed", n: 1, why: "markers" }, 1);
+    appendHandOff(office, w.f.run, { kind: "failed", n: 1, why: "blocked" }, 1);
   });
   return { tip, onto, merge };
 }

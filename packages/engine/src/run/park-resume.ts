@@ -88,18 +88,18 @@ import type { Caps } from "../workers/types";
 
 import { type CapName, firedCap, REVIEWER_ROLE, runCaps } from "./caps";
 import { CONFLICT_CAP_DEFAULT, conflictCapOf, handOffState } from "./conflicts";
+import { sendFeedback } from "./feedback";
 import { feedbackItems, feedbackOfIntent, markFeedbackSent } from "./feedback-items";
 import { pendingFixRound } from "./fix-rounds";
 import { recordGrant, type RoundCap } from "./grants";
 import { markIntentSent, recordIntent, resolveIntent } from "./intents";
-import { markPhase } from "./markers";
+import { reopen } from "./rounds";
 import type { OutcomeParts } from "./outcomes";
 import { intentRest, intentTag, messageOf, type RunView } from "./outcome-types";
-import { openPark, PARK_NOTICES, reopenParkedRun, resolvePark } from "./park";
+import { openPark, PARK_NOTICES, resolvePark } from "./park";
 import { MAINTAINER_RESUME_TAG, mirrorUnpark, unresolvedPark } from "./park-state";
 
 export { MAINTAINER_RESUME_TAG, parksBeingResumed } from "./park-state";
-import { MAINTAINER_TAGS } from "./steers";
 import { PLACE_NOTICES, type Places, START_KINDS, waitForPlace } from "./places";
 import { findRun, IN_REVIEW_END, REVIEWED_END, runRoundCounts, type StoredRun } from "./records";
 import { recordBranchPush } from "../story-pr/records";
@@ -962,24 +962,25 @@ export class ParkResumes {
     const why = `resumed from ${park.reason}: ${park.detail}`;
     switch (detail.session) {
       case "developer":
-        return reopenParkedRun(office, park, run, detail.to, at, detail.note);
       case "review":
-        return [
-          ...reopenParkedRun(office, park, run, detail.to, at, detail.note),
-          ...markPhase(office, run.runId, "review", at),
-        ];
+        return reopen(office, run, at, {
+          kind: "resume",
+          park,
+          to: detail.to,
+          note: detail.note,
+          review: detail.session === "review",
+        });
       case "fix-round": {
         const closed = resolvePark(office, park.parkId, "resume", at, detail.note);
         // The run waits in review again with its verdict in: the fix round decides from it.
         endedAs(office, run.runId, REVIEWED_END);
         if (detail.note !== null) {
           // The note goes with the fix round's first message, after its findings (0020).
-          recordIntent(
+          sendFeedback(
             office,
             run.runId,
-            "steer",
-            `${MAINTAINER_TAGS.held} ${noteText(detail.note)}`,
-            at,
+            { source: "resume", text: noteText(detail.note) },
+            { at },
           );
         }
         return [...closed, ...stateEntries(office, run, detail.to, why)];
@@ -1343,7 +1344,7 @@ export class ParkResumes {
         break;
       }
       case "answer":
-        // An answer held already goes with the first message as it waited (`heldMessages`).
+        // An answer held already goes with the first message as it waited (`heldFeedback`).
         if (answer !== null && !answer.held) {
           parts.push(
             renderTemplate(answerTemplate, {

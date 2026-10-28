@@ -49,10 +49,11 @@ import {
   STORY_NOT_RUNNING,
   STREAM_DRIFT_LINES,
 } from "../../src/run";
-import { openPark, PARK_NOT_WRITTEN, reopenParkedRun } from "../../src/run/park";
+import { openPark, PARK_NOT_WRITTEN } from "../../src/run/park";
 import { heldByPark } from "../../src/run/park-state";
 import { activeRuns } from "../../src/run/records";
 import { placeHolders, waitingStarts } from "../../src/run/places";
+import { reopen } from "../../src/run/rounds";
 import { desk, PARK_NOT_WRITTEN as PARK_NOT_WRITTEN_DESK } from "../../src/views/desk";
 import { addStory } from "../../src/stories/keys";
 import { encode, STOP_MESSAGE } from "../../src/workers/claude-cli/encode";
@@ -1577,13 +1578,12 @@ describe("stream drift (DIPO-315)", () => {
     const run = findRun(w.f.office, w.f.run);
     if (stored === null || run === null) throw new Error("no park or run");
     w.f.office.immediate(() =>
-      reopenParkedRun(
-        w.f.office,
-        { parkId: stored.park_id, reason: stored.reason, detail: stored.detail },
-        run,
-        "In Progress",
-        w.f.t.clock.now(),
-      ),
+      reopen(w.f.office, run, w.f.t.clock.now(), {
+        kind: "resume",
+        park: { parkId: stored.park_id, reason: stored.reason, detail: stored.detail },
+        to: "In Progress",
+        note: null,
+      }),
     );
     expect(lines()).toBe(0);
   });
