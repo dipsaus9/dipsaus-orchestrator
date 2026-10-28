@@ -171,3 +171,37 @@ export function parkedRun(office: OfficeHandle, runId: string): boolean {
   );
   return row?.key != null && openPark(office, row.key) !== null;
 }
+
+/**
+ * The park `parkId` as a resume captured it, while its `parks` row is still unresolved (DIPO-360):
+ * run detail, for a resume's idempotency once its lift may already be on the branch, so not the
+ * current state. The reason is the one the resume captured from Backlog.md before the lift.
+ */
+export function unresolvedPark(
+  office: OfficeHandle,
+  key: string,
+  parkId: number,
+  captured: { readonly reason: string; readonly from: Lifecycle },
+): OpenPark | null {
+  const row = office.get<{
+    detail: string;
+    run_id: string | null;
+    last_good_commit: string | null;
+    at: number;
+  }>(
+    `select detail, run_id, last_good_commit, at from parks
+      where office_id = $office_id and park_id = $park and key = $key and resolved_at is null`,
+    { park: parkId, key },
+  );
+  return row === null
+    ? null
+    : {
+        parkId,
+        reason: captured.reason as ParkReason,
+        from: captured.from,
+        detail: row.detail,
+        runId: row.run_id,
+        lastGoodCommit: row.last_good_commit,
+        at: row.at,
+      };
+}

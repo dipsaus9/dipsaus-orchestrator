@@ -57,7 +57,8 @@ import { storeFeedbackItems } from "../../src/run/feedback-items";
 import { FIX_ROUND_TAG } from "../../src/run/fix-rounds";
 import { recordIntent } from "../../src/run/intents";
 import { openPark } from "../../src/run/park";
-import { insertPark } from "./park-fixture";
+import { insertPark, mirrorStory } from "./park-fixture";
+import { parksBeingResumed } from "../../src/run/park-resume";
 import { MAINTAINER_TAGS } from "../../src/run/steers";
 import type { NextSessionRequest } from "../../src/run/resume";
 import { addStory } from "../../src/stories/keys";
@@ -1156,6 +1157,57 @@ describe("a retry of the same request (0005 note of 2026-10-17)", () => {
     expect(grants().map((grant) => grant.kind)).toEqual(["loop"]);
     expect(await restarted.recoverParkResumes(w.f.office.officeId as OfficeId, w.f.office)).toBe(0);
     expect(w.sessions).toHaveLength(1);
+  });
+
+  /** What an index pass reads after the lift is on the branch: the story In Progress, unparked. */
+  function indexAfterLift(): void {
+    w.f.office.immediate(() => mirrorStory(w.f.office, { key: w.key, story: "DIPO-1" }));
+  }
+
+  it("reopens the run when an index pass reads the lift before the resume's transaction (DIPO-360)", async () => {
+    const parkId = park("by-maintainer");
+    const resuming = createRunOutcomesWithLift(async (request) => {
+      w.lifts.push(request);
+      indexAfterLift();
+      return { commit: "c".repeat(40), pushed: true, pushError: null };
+    });
+    const reply = await resume(resuming, { note: "go on" }, ctx(false, "req_index"));
+    expect(reply.result.to).toBe("In Progress");
+    expect(findRun(w.f.office, w.f.run)?.endedAt).toBeNull();
+    expect(w.sessions).toHaveLength(1);
+    expect(
+      w.f.office.get<{ how: string | null }>(
+        "select resolved_how as how from parks where office_id = $office_id and park_id = $park",
+        { park: parkId },
+      )?.how,
+    ).toBe("resume");
+  });
+
+  it("finishes after a restart a resume whose lift reached the branch and the index (DIPO-360)", async () => {
+    const parkId = park("by-maintainer");
+    // The first daemon lifts the park on the branch, an index pass reads it, and it stops.
+    const stopped = createRunOutcomesWithLift((request) => {
+      w.lifts.push(request);
+      indexAfterLift();
+      return new Promise(() => {});
+    });
+    void stopped.resumeCommand(ctx(false, "req_lifted"), {
+      story: StoryId.parse("DIPO-1"),
+      note: "once",
+    });
+    await Bun.sleep(0);
+    expect(openPark(w.f.office, w.key)).toBeNull();
+    // Reconcile leaves the row to the resume that is lifting it.
+    expect(parksBeingResumed(w.f.office).has(parkId)).toBe(true);
+    const restarted = createRunOutcomesWithLift(async (request) => {
+      w.lifts.push(request);
+      return { commit: null, pushed: true, pushError: null };
+    });
+    expect(await restarted.recoverParkResumes(w.f.office.officeId as OfficeId, w.f.office)).toBe(1);
+    await restarted.idle();
+    expect(findRun(w.f.office, w.f.run)?.endedAt).toBeNull();
+    expect(w.sessions).toHaveLength(1);
+    expect(parksBeingResumed(w.f.office).size).toBe(0);
   });
 });
 

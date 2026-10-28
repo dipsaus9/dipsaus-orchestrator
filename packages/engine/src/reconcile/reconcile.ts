@@ -49,6 +49,7 @@ import type { CodeHost } from "../platform/host";
 import { LAUNCH_FILE } from "../host/protocol";
 import { officeDirectory } from "../office/marker";
 import { type BacklogPark, backlogPark, openParkIds, resolvePark } from "../run/park";
+import { parksBeingResumed } from "../run/park-resume";
 import { endRunMarked } from "../run/markers";
 import { activeRuns, findRun, type StoredRun } from "../run/records";
 import { runDirectory } from "../runs/worker-hosts";
@@ -453,7 +454,10 @@ function reconcilePark(
   record: (finding: ReconcileFinding, facts?: () => readonly NewEntry[] | void) => void,
 ): void {
   const { office } = deps;
-  const open = openParkIds(office, story.key);
+  // A park an unfinished maintainer resume is lifting is the resume's to finish (DIPO-360).
+  const resuming = parksBeingResumed(office);
+  const open = openParkIds(office, story.key).filter((parkId) => !resuming.has(parkId));
+  if (open.length === 0 && openParkIds(office, story.key).length > 0) return;
   const current = backlogPark(office, story.key);
   const action = parkStateAction(story, current, open.length > 0);
   if (action === "stale" && story.park !== null) {
