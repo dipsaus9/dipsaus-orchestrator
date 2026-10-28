@@ -428,15 +428,14 @@ export interface ReviewSessionRequest {
   readonly taskMessage: string;
   /**
    * The story branch's head the round read once at its start (DIPO-276): the copy holds exactly
-   * this commit, and the session is refused when the branch's code has moved since.
+   * this commit, and the session is refused when the branch has moved since.
    */
   readonly head: string;
   /**
-   * The story's own task file. A branch that moved since `head` only by commits to it (a park,
-   * a status written by dipo while the round was being built) still has `head`'s code tree, the
-   * tree a verdict is keyed on (0002), so the session starts on `head`.
+   * True while the story is held by a park (`heldByPark`, DIPO-344, DIPO-360): asked right before
+   * the branch is read, so a park that landed while the round was built starts no reviewer.
    */
-  readonly taskFile?: string;
+  readonly held?: () => boolean;
 }
 
 export type ReviewSessionOutcome =
@@ -446,6 +445,8 @@ export type ReviewSessionOutcome =
   | {
       readonly kind: "failed";
       readonly reason: string;
+      /** The story was parked when the session was to start (`ReviewSessionRequest.held`). */
+      readonly parked?: true;
       /**
        * The copy of the head does not match its tree (`ReviewCopyMismatchError`): no session of
        * this head can start, so the maintainer is told (DIPO-276).
@@ -604,6 +605,9 @@ export class ReviewLauncher implements ReviewSessions {
       return { kind: "failed", reason: `${run.runId} is not a story run with a branch` };
     }
     const branch = run.branch;
+    if (request.held?.() === true) {
+      return { kind: "failed", reason: "the story is parked", parked: true };
+    }
     const agent = AgentId.parse(deps.ids.next("agt"));
     // A fresh read-only copy of exactly the round's head for this session (DIPO-276).
     let copy: ReviewCopy;
@@ -619,29 +623,10 @@ export class ReviewLauncher implements ReviewSessions {
         )
       ).trim();
       if (tip !== request.head) {
-        // Only the story's task file changed since the round's head: its code is the same.
-        const changed = await git.run((session) =>
-          session.ok(session.repository, [
-            "diff",
-            "--name-only",
-            "-z",
-            "--no-renames",
-            "--end-of-options",
-            request.head,
-            tip,
-          ]),
-        );
-        const paths = changed.split("\0").filter((path) => path !== "");
-        const taskFileOnly =
-          request.taskFile !== undefined &&
-          paths.length > 0 &&
-          paths.every((path) => path === request.taskFile);
-        if (!taskFileOnly) {
-          return {
-            kind: "failed",
-            reason: `the story branch moved from ${request.head} to ${tip} since the review round read it`,
-          };
-        }
+        return {
+          kind: "failed",
+          reason: `the story branch moved from ${request.head} to ${tip} since the review round read it`,
+        };
       }
       const commit = request.head;
       copy = await makeReviewCopy(

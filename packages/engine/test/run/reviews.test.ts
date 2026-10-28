@@ -203,6 +203,8 @@ interface Session {
   readonly agent: AgentId;
   readonly work: WorkRef;
   readonly message: string;
+  /** The head the session was started on. */
+  readonly head: string;
 }
 
 interface World {
@@ -217,7 +219,13 @@ interface World {
   /** What `onReviewed` heard: `<run> <agent or ->`. */
   readonly reviewedRuns: string[];
   /** What the next session start answers; `started` by default. */
-  next: (() => ReviewSessionOutcome) | null;
+  next: (() => ReviewSessionOutcome | Promise<ReviewSessionOutcome>) | null;
+  /** The story branch's head as the fake git reads it. */
+  head: string;
+  /** Run when the starter reads the head, before its round (DIPO-346). */
+  onRead: (() => Promise<void>) | null;
+  /** Run when the starter reads the diff, after its round began (DIPO-346). */
+  onDiff: (() => Promise<void>) | null;
   /** The finisher's backstop parks the next turn when set. */
   backstop: string | null;
   close(): void;
@@ -231,7 +239,13 @@ function world(): World {
   const warned: unknown[] = [];
   const finished: string[] = [];
   const reviewedRuns: string[] = [];
-  const state: { next: World["next"]; backstop: string | null } = { next: null, backstop: null };
+  const state: {
+    next: World["next"];
+    backstop: string | null;
+    head: string;
+    onRead: World["onRead"];
+    onDiff: World["onDiff"];
+  } = { next: null, backstop: null, head: "e".repeat(40), onRead: null, onDiff: null };
   let reviews: Reviews | null = null;
   const base: RunOutcomesPort = {
     onTurnProblem: async () => undefined,
@@ -280,18 +294,24 @@ function world(): World {
     ids: w.t.ids,
     offices: { get: () => w.office, config: () => setting.config },
     git: {
-      head: async () => "e".repeat(40),
+      head: async () => {
+        await state.onRead?.();
+        return state.head;
+      },
       codeTreeKey: async (_office, worktree) => {
         const run = findRunByWorktree(worktree);
         return heads.get(run ?? "") ?? "tree-?";
       },
-      diff: async () => ({ diff: DIFF, changes: [{ path: "src/greet.ts", added: 2, removed: 1 }] }),
+      diff: async () => {
+        await state.onDiff?.();
+        return { diff: DIFF, changes: [{ path: "src/greet.ts", added: 2, removed: 1 }] };
+      },
       sizeClass: async () => "S",
     },
     story: async () => setting.facts,
     sessions: {
       start: async (request: ReviewSessionRequest) => {
-        const outcome = state.next?.() ?? null;
+        const outcome = (await state.next?.()) ?? null;
         if (outcome !== null && outcome.kind !== "started") return outcome;
         const agent = addAgent(w, request.run.runId, REVIEWER_ROLE, true, "opus");
         const work: WorkRef = {
@@ -309,7 +329,13 @@ function world(): World {
           caps: { budgetTokens: BUDGET, maxTurns: 60, maxMinutes: 30 },
           startedAt: now(),
         });
-        sessions.push({ run: request.run.runId, agent, work, message: request.taskMessage });
+        sessions.push({
+          run: request.run.runId,
+          agent,
+          work,
+          message: request.taskMessage,
+          head: request.head,
+        });
         return { kind: "started", agent };
       },
       finish: async (_office, _run, agent) => {
@@ -362,6 +388,24 @@ function world(): World {
     },
     get backstop() {
       return state.backstop;
+    },
+    get head() {
+      return state.head;
+    },
+    set head(value) {
+      state.head = value;
+    },
+    get onRead() {
+      return state.onRead;
+    },
+    set onRead(value) {
+      state.onRead = value;
+    },
+    get onDiff() {
+      return state.onDiff;
+    },
+    set onDiff(value) {
+      state.onDiff = value;
     },
     set backstop(value) {
       state.backstop = value;
@@ -983,6 +1027,126 @@ describe("a story parked while it waits In Review (DIPO-344)", () => {
     });
     const session = await reviewStarts(s);
     expect(session.run).toBe(s.run);
+    expect(stepsOf(s.run, "review")).toHaveLength(1);
+  });
+});
+
+/** The CI-cap park of the story's run, as the PR poll writes it (`StoryPrs`). */
+const ciCapPark = (s: StoryRun) =>
+  parkStory(
+    {
+      office: w.office,
+      writer: {
+        write: async () => ({
+          commit: "c".repeat(40),
+          lastGoodCommit: "a".repeat(40),
+          from: "In Review",
+          pushed: true,
+          pushError: null,
+        }),
+      },
+      now,
+      write: (fn) => write(() => void appendEntries(w.office, fn(), { at: now() })),
+      implemented: () => true,
+    },
+    {
+      run: findRun(w.office, s.run)!,
+      reason: "verify-failing",
+      detail: "required checks were red on 1 pushed heads (the CI cap is 1).",
+      endKind: "verify-failing",
+    },
+  );
+
+/** The resume's lift: the park resolved and the story In Review again in Backlog.md. */
+function lift(s: StoryRun): void {
+  const parkId = openPark(w.office, s.key)!.parkId;
+  write(() => {
+    resolvePark(w.office, parkId, "resume", now());
+    mirrorUnpark(w.office, s.key, "In Review");
+  });
+}
+
+/** The launcher's refusal of a branch that moved from the fake head to `to`. */
+const moved = (to: string): ReviewSessionOutcome => ({
+  kind: "failed",
+  reason: `the story branch moved from ${"e".repeat(40)} to ${to} since the review round read it`,
+});
+
+// DIPO-346: a park can land while a review round is being built (the PR poll's CI-cap park runs
+// next to the reviewer place). It starts no reviewer; the review starts after the resume, on the
+// branch as it is then.
+describe("a park that lands while a review round is built (DIPO-346)", () => {
+  it("before the round begins: no round, the run stays at In Review, and the resume's review reads the new head", async () => {
+    const s = inReview("DIPO-1", "tree-1");
+    const inReviewAt = findRun(w.office, s.run)!.endedAt;
+    x.onRead = async () => {
+      x.onRead = null;
+      await ciCapPark(s);
+    };
+    expect(await x.places.drain(officeId())).toBe(0);
+    expect(x.sessions).toEqual([]);
+    expect(stepsOf(s.run, "review")).toEqual([]);
+    expect(findRun(w.office, s.run)).toMatchObject({
+      endedAt: inReviewAt,
+      endKind: IN_REVIEW_END,
+      waiting: null,
+    });
+    expect(pendingReviews(w.office)).toEqual([]);
+    expect(await x.places.drain(officeId())).toBe(0);
+    expect(x.sessions).toEqual([]);
+
+    lift(s);
+    x.head = "f".repeat(40);
+    const session = await reviewStarts(s);
+    expect(session.head).toBe("f".repeat(40));
+  });
+
+  it("after the round began: no reviewer; the park ends the reopened run, and nothing waits for the place", async () => {
+    const s = inReview("DIPO-1", "tree-1");
+    w.t.clock.advance(3 * MINUTE);
+    x.onDiff = async () => {
+      x.onDiff = null;
+      await ciCapPark(s);
+    };
+    expect(await x.places.drain(officeId())).toBe(0);
+    expect(x.sessions).toEqual([]);
+    expect(findRun(w.office, s.run)).toMatchObject({ endKind: "verify-failing", waiting: null });
+    expect(pendingReviews(w.office)).toEqual([]);
+    expect(await x.places.drain(officeId())).toBe(0);
+    expect(x.sessions).toEqual([]);
+  });
+
+  it("refused by the launcher after the park moved the branch: no reviewer, the round's head dropped", async () => {
+    const s = inReview("DIPO-1", "tree-1");
+    w.t.clock.advance(MINUTE);
+    // The park lands after the starter's last check, while the launcher reads the branch.
+    x.next = async () => {
+      x.next = null;
+      await ciCapPark(s);
+      return moved("c".repeat(40));
+    };
+    expect(await x.places.drain(officeId())).toBe(0);
+    expect(x.sessions).toEqual([]);
+    expect(findRun(w.office, s.run)).toMatchObject({ endKind: "verify-failing", waiting: null });
+    expect(pendingReviews(w.office)).toEqual([]);
+    expect(await x.places.drain(officeId())).toBe(0);
+    expect(x.sessions).toEqual([]);
+  });
+
+  it("on an unparked story whose branch moved, reads the branch again as a fresh round and starts", async () => {
+    const s = inReview("DIPO-1", "tree-1");
+    w.t.clock.advance(MINUTE);
+    x.next = () => {
+      x.next = null;
+      return moved("f".repeat(40));
+    };
+    expect(await x.places.drain(officeId())).toBe(0);
+    expect(x.sessions).toEqual([]);
+    // The run waits for the place again; nothing parked it.
+    expect(findRun(w.office, s.run)).toMatchObject({ endedAt: null, waiting: START_KINDS.review });
+    x.head = "f".repeat(40);
+    const session = await reviewStarts(s);
+    expect(session.head).toBe("f".repeat(40));
     expect(stepsOf(s.run, "review")).toHaveLength(1);
   });
 });
