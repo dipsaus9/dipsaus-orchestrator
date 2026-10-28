@@ -98,7 +98,7 @@ dipo records the previous values. Existing ignore files are never edited.
 | Hardened calls | Every call runs with `GIT_CONFIG_NOSYSTEM=1`, `GIT_DIR` and `GIT_COMMON_DIR` set from recorded paths, `core.hooksPath=/dev/null`, `core.fsmonitor=false` and `commit --no-verify` |
 | One queue | One serial git queue per office orders refs and pushes |
 | Base and remote | `base` in `.dipo/office.yaml`, else `refs/remotes/origin/HEAD`; else `run` is refused. The remote is `origin` |
-| Worktrees | Only dipo's own two: `_base` (detached at `origin/<base>`, for reads) and `_backlog` (the planning lane), under `worktree.root` (default `../<repo>.worktrees`), outside the main checkout |
+| Worktrees | Only dipo's own two: `_base` (detached at `origin/<base>`, for reads) and `_backlog` (the planning lane), under `worktree.root` (default `../<repo>.worktrees`), outside the main checkout. A story worktree an earlier binary left there (locked `dipo <run-id>`) is removed at office load with `git worktree remove` when it holds no change, untracked or ignored file but `node_modules`; any other is kept and listed on the desk |
 | Claim | The exact local ref is absent and `git ls-remote --heads origin <branch>` is empty. Then `git update-ref refs/heads/<branch> <start> ""` creates the branch atomically, and a `claims` row with unique indexes holds it (0007). Then come the claim commit, the push and the box (0008). A lost race is a skip |
 | Parts | Committed from git objects on the branch ref, then pushed (0008) |
 | Code tree key | The hash of `git ls-tree -r <commit>` without the story's own task file. Verdicts are keyed on it (0002) |
@@ -113,7 +113,7 @@ dipo records the previous values. Existing ignore files are never edited.
 | Case | What dipo does |
 |---|---|
 | The story's branch is already held by another story's key, or is unknown to dipo | Skip `collision`, with a notice |
-| A released branch of the same story | Reuse it. The claim merges the base into it first, and a code conflict is the worker's first feedback |
+| A released branch of the same story | Reuse it at its kept tip. A conflict with the base is found by the conflict check and settled by a base sync (0002) |
 | A fetch fails | Pickup and planning pushes wait (retryable); running work continues |
 | An `index.lock` or ref lock is held | Retry three times with backoff, then fail the step. Lock files are never deleted |
 | A branch changed outside dipo | A notice. A head dipo did not push is never merged (0002) |

@@ -42,7 +42,7 @@ Each capability resolves from the first source that yields a result. Every resol
 | Runtime version | `.node-version`, `.nvmrc`, `engines.node` |
 | `setup`, `dev`, `test`, `lint`, `typecheck`, `build` | The standard script of that name |
 | `verify` | The `verify` script; a declared verify list in `.claude/backlog-workflow.json`; composed from `lint`, `typecheck` and `test` |
-| Dev port | An explicit port in the dev server config or the script; the framework default (Vite 5173, Next 3000, wrangler 8787) |
+
 | Anything else | Unresolved, until `dipo office infer` (section 6) |
 
 - **Conflicts are findings,** never resolved silently: two lockfiles, a `packageManager` that disagrees with the lockfile, or a `verify` script next to a different declared list.
@@ -58,7 +58,7 @@ Stored per office in the database (0007):
 - each capability's command list, working directory, source, confidence and whether it is confirmed;
 - extra scripts by name;
 - env files by path only: each example file, its expected real file, and whether git ignores it. The scan never reads env contents or hashes them;
-- the dev port and where it came from;
+
 - the conformance level and its deviations, plus the previous profile so a rescan can show a diff.
 
 The profile also gives dipo the default box image for the office (0008): the toolchain and runtime the image needs. The maintainer can override it in the office config.
@@ -70,7 +70,7 @@ The profile also gives dipo the default box image for the office (0008): the too
   - the workspace manifest's package list;
   - which lockfile exists, by name only;
   - `.node-version` and `.nvmrc`;
-  - the dev server and runtime config files and the local modules they import;
+  - the dev server and runtime config files;
   - the set of env example files;
   - `.claude/backlog-workflow.json`.
 - **Not lockfile contents.** A dependency change means "install again", not "rescan".
@@ -95,7 +95,8 @@ The profile also gives dipo the default box image for the office (0008): the too
 
 ## Replaced
 
-- `PORT` required for `dev`, and fixed dev ports rated partial, so parallel worktrees would not clash (2026-10-10). Removed (2026-10-24): each box and test box has its own network (0008), so a fixed port no longer collides. The scan still records the port, for the test box's forwarder.
+- `PORT` required for `dev`, and fixed dev ports rated partial, so parallel worktrees would not clash (2026-10-10). Removed (2026-10-24): each box and test box has its own network (0008), so a fixed port no longer collides.
+- The dev port in the run profile, detected from the dev server config, the script or the framework default, with the local modules a dev server config imports in the fingerprint (2026-10-12). Removed (2026-10-28): the test box takes the URL `dev` prints (0002), and nothing else reads a dev port.
 - Install, `setup` and verify run by dipo in a Mac worktree, and the base profile's verify run next to a branch's changed verify (2026-10-10). Replaced by install and `setup` in the box, dipo's verify in the box, and CI as the final gate (0008, 0002).
 - An inference that ran by itself when a capability was unresolved (2026-10-10). Replaced by `dipo office infer` only (2026-10-22).
 - The survey of the maintainer's repositories and the fit table of 2026-10-09. They are in git history; the scan reports each repository's level itself.
