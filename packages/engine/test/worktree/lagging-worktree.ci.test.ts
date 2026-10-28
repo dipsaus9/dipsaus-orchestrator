@@ -282,7 +282,7 @@ if (process.env["DIPO_TEST_CI"] === "1") {
     it("is removed by the Done teardown after its PR squash-merged, with its branch", () =>
       withReconcileOffice({}, async (o) => {
         const record = await claimed(o);
-        await boxRun(o, record);
+        const tip = await boxRun(o, record);
         // The live gap: git lists every delivered file, and the task file differs from the claim's.
         expect(await statusOf(o, record)).toEqual([
           await taskPath(o, record),
@@ -295,6 +295,7 @@ if (process.env["DIPO_TEST_CI"] === "1") {
         await o.repo.git("push", "--quiet", "origin", record.branch);
         await squashMergeOnRemote(o.repo, record.branch);
         await o.repo.git("fetch", "--quiet", "origin");
+        mergedPr(o, record, tip);
         const seq = lastSeq(o.office);
 
         const teardown = pollOf(o);
@@ -517,11 +518,12 @@ if (process.env["DIPO_TEST_CI"] === "1") {
     it("keeps a worktree with an ignored .env, and removes one whose only ignored entry is node_modules/", () =>
       withReconcileOffice({}, async (o) => {
         const record = await claimed(o, { ".gitignore": ".env\nnode_modules/\n" });
-        await boxRun(o, record);
+        const tip = await boxRun(o, record);
         writeFileSync(join(record.worktree, ".env"), "TOKEN=local\n");
         await o.repo.git("push", "--quiet", "origin", record.branch);
         await squashMergeOnRemote(o.repo, record.branch);
         await o.repo.git("fetch", "--quiet", "origin");
+        mergedPr(o, record, tip);
         const seq = lastSeq(o.office);
         const teardown = pollOf(o);
 
@@ -639,15 +641,21 @@ if (process.env["DIPO_TEST_CI"] === "1") {
         expectLeftovers(o, record, seq);
       }));
 
-    it("is released by reconcile the same way when the base reads it Done", () =>
+    it("is left by reconcile to the Done poll when the base reads it Done: its own PR merged (DIPO-363)", () =>
       withReconcileOffice({ base: DONE }, async (o) => {
         const record = await movedPast(o);
         const seq = lastSeq(o.office);
         await reconcile(o);
+        expect(liveClaimOf(o.office, record.key)).not.toBeNull();
+        expect(findDoneElsewhere(o.office, record.runId)).toBeNull();
+        const teardown = pollOf(o);
+        const report = await teardown.poll(o.officeId as OfficeId);
+        teardown.stop();
+        expect(report.released?.map((c) => c.runId)).toEqual([record.runId]);
         expectLeftovers(o, record, seq);
       }));
 
-    it("is kept with a notice while its story has an open park, by the Done poll and by reconcile", () =>
+    it("is kept with a notice while its story has an open park, and left alone by reconcile", () =>
       withReconcileOffice({ base: DONE }, async (o) => {
         const record = await movedPast(o);
         // Parked in Backlog.md on its branch (DIPO-360), with the park's run detail row.
@@ -682,7 +690,8 @@ if (process.env["DIPO_TEST_CI"] === "1") {
         const parked = notices.find((n) => n.code === TEARDOWN_NOTICES.parked);
         expect(parked?.text).toContain("is Parked, but its PR #377 merged");
         expect(parked?.text).toContain("dipo discard TASK-1");
-        expect(notices.some((n) => n.code === "reconcile.doneOnBaseKept")).toBe(true);
+        // Its own PR merged, so the one Done check answers merged: reconcile leaves it alone.
+        expect(notices.some((n) => n.code.startsWith("reconcile.doneOnBase"))).toBe(false);
       }));
   });
 }
