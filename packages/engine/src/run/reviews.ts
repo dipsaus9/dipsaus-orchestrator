@@ -33,8 +33,9 @@
 //   `PlanError`) raises the `run.planRefused` notice with `planRefusedText`, as the worker's launch
 //   does, once per run and refusal (DIPO-247).
 // - Done on the base (DIPO-239). The starter reads the story on the office base before it reopens
-//   anything; a story Done there gets no round and no session: the run ends done (`#doneOnBase`)
-//   with one `review.doneOnBase` notice, and the claim is left to reconcile's done-on-base release.
+//   anything and asks the one Done check (`decideDone`, DIPO-363) with the run's story PR as dipo
+//   recorded it; a story Done gets no round and no session: the run ends done (`#doneOnBase`)
+//   with one `review.doneOnBase` notice, and the claim is left to the Done poll or reconcile.
 // - Caps (DIPO-247). The reviewer's turn and minute caps are the run's start snapshot; a run that
 //   has none takes the office's current ones at its first review start (`snapshotReviewCaps`).
 // - After the verdict. Once a reviewer session's exit is decided and its verdict or park ended the
@@ -58,7 +59,7 @@ import {
 } from "../review/store";
 import { evidenceProblems, type ReviewFacts, validateReport } from "../review/validate";
 import { judgeReview } from "../review/verdict";
-import { lifecycleOf } from "../views/story";
+import { findStoryPr } from "../story-pr/records";
 import { withWorkViews } from "../views/work";
 import { holdMessage, type AdapterHold, type LaunchCheckFailure } from "../workers/hold";
 import type {
@@ -69,6 +70,7 @@ import type {
   SteerOp,
   TurnProblem,
 } from "../workers/types";
+import { decideDone } from "../worktree/done-check";
 import { findClaim } from "../worktree/records";
 
 import { REVIEWER_ROLE, runCaps } from "./caps";
@@ -254,8 +256,15 @@ export class Reviews {
       });
       return false;
     }
-    // A story Done on the office base gets no review round (DIPO-239): the run ends done.
-    if (lifecycleOf("task", facts.view.status) === "Done") {
+    // A story the one Done check finds Done (0002), on the office base or through its own merged
+    // PR, gets no review round (DIPO-239): the run ends done.
+    const claim = findClaim(office, run.runId);
+    const done = decideDone({
+      claim,
+      pr: findStoryPr(office, run.runId),
+      baseStatus: facts.view.status,
+    });
+    if (done !== "notDone") {
       this.#doneOnBase(office, run);
       return false;
     }
