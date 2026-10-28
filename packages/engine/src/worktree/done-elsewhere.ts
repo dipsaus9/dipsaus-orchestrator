@@ -1,8 +1,8 @@
-// A story finished outside dipo (DIPO-161; 0020 section 10, spike answer 5; 0007 and 0010 notes of
-// 2026-10-16). A live claim whose story reads Done on the base while its own branch is not
-// detected Done was finished through another branch. The Done poll (`done.ts`) and reconcile
-// (`reconcile/done-on-base.ts`) both find it and hand it here; a Done on the base wins over the
-// status on the branch for the one terminal state.
+// A story finished outside dipo (DIPO-161; 0020). A live claim whose one Done check
+// (`done-check.ts`) answers Done on the base, not through its own merged PR, was finished through
+// another branch. The Done poll (`done.ts`) and reconcile (`reconcile/done-on-base.ts`) both find
+// it and hand it here; a Done on the base wins over the status on the branch for the one terminal
+// state.
 //
 // - A claim with a live worker (its run active, or a worker host that has not ended) is never
 //   stopped by code: `flagLiveWorker` records it once (`done_elsewhere.flagged_at`, the DONE
@@ -41,7 +41,7 @@ import { openParkIds, resolvePark } from "../run/park-resolve";
 import { heldByPark } from "../run/park-state";
 import { findRun } from "../run/records";
 import { latestStoryPr, setStoryPrState } from "../story-pr/records";
-import { lifecycleOf, storyView } from "../views/story";
+import { storyView } from "../views/story";
 
 import { notice } from "./claim";
 import {
@@ -345,29 +345,36 @@ export async function lastTaskCommit(
   return sha === "" ? null : sha;
 }
 
+/** What `_base` says of a story: its status and the commit `_base` is at. */
+export interface BaseStatus {
+  /** The story's status, or null when it cannot be read. */
+  readonly status: string | null;
+  /** The commit `_base` is at, or null when it cannot be read. */
+  readonly head: string | null;
+}
+
 /**
- * Whether `story` is Done in `_base`, which the story index's fetch keeps at `<remote>/<base>`, read
- * with the Backlog CLI, with the base commit that last changed its task file; null when it is not
- * Done there or cannot be read. Never throws.
+ * The status of `story` in `_base`, which the story index's fetch keeps at `<remote>/<base>`, read
+ * with the Backlog CLI, and the commit `_base` is at. Never throws. The base fact of the one Done
+ * check (`done-check.ts`).
  */
-export async function baseDoneOf(
+export async function baseStatusOf(
   git: OfficeGit,
   cli: BacklogCli,
   story: string,
-): Promise<{ readonly commit: string | null } | null> {
+): Promise<BaseStatus> {
   const path = git.baseWorktreePath();
-  if (git.adminDirOf(path) === null) return null;
+  if (git.adminDirOf(path) === null) return { status: null, head: null };
   try {
     return await git.run(async (session) => {
       const head = (
         await session.ok(git.worktreeLocation(path), ["rev-parse", "--verify", "HEAD"])
       ).trim();
       const view = await viewStory({ cli, cwd: path, id: story });
-      if (lifecycleOf("task", view.status) !== "Done") return null;
-      return { commit: await lastTaskCommit(session, head, story) };
+      return { status: view.status, head };
     });
   } catch {
-    return null;
+    return { status: null, head: null };
   }
 }
 

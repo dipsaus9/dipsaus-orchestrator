@@ -1,26 +1,28 @@
-// The Done poll per office (DIPO-58; 0010 section 7): every `polling.prStateSeconds` of the office
-// configuration in force, each finished live claim (its claim commit recorded) is checked for Done
-// through the code host (`platform/host.ts`) and `git merge-tree` (`teardown.ts`). A Done story is
-// torn down unless it is Parked or a worker host of its run is still live: a parked story keeps its
-// worktree, branch and slot (0010 section 7, "Teardown"). Each notice is put on the office once per
-// claim and cause, so a dirty worktree is not reported again on every poll.
+// The Done poll per office (DIPO-58, DIPO-363; 0002, 0010): every `polling.prStateSeconds` of the
+// office configuration in force, each finished live claim (its claim commit recorded) is checked
+// with the one Done check (`done-check.ts`): its story PR as the code host (`platform/host.ts`) or
+// dipo's record gives it, and its story's status in `_base`, which the story index's fetch keeps
+// at `<remote>/<base>`, read with the Backlog CLI. `git merge-tree` is no Done signal (0010).
+//
+// - Merged: the story is torn down (`teardown.ts`) unless it is Parked or a worker host of its run
+//   is still live: a parked story keeps its worktree, branch and slot. A branch that moved past the
+//   merged head with changes the base lacks (`git merge-tree` decides only that, 0010) is released
+//   as `done` with its worktree and branch as leftovers once no worker runs
+//   (`releaseMovedPastMerge`, DIPO-332), or kept with a notice while it is parked.
+// - Done on the base (DIPO-161; 0020): a claim with a live worker is flagged once and released
+//   when its run next ends; a parked or idle one is released as `done-elsewhere` and its PR,
+//   worktree and branch settled (`done-elsewhere.ts`).
+//
+// Each notice is put on the office once per claim and cause, so a dirty worktree is not reported
+// again on every poll. Each poll first settles the released rows a crash left unsettled.
 //
 // The teardown's release ends the claim's run with `done` (`DONE_END`): the run's last active
 // period ended at In Review, so that end is its final one, and its final `run_outcomes` row is
-// written in the release's transaction (`finishRun`, 0019 section 13, DIPO-142).
+// written in the release's transaction (`finishRun`, DIPO-142).
 //
 // The load step only arms the poll; it must run after `git.version` (the office's git) and after
 // the claims' load step, so the daemon registers this feature right after `StoryClaims.feature`.
 // Polls of one office run one at a time.
-//
-// A claim not detected Done on its own branch is checked on the base (DIPO-161; 0020 section 10):
-// its story's status in `_base`, which the story index's fetch keeps at `<remote>/<base>`, read
-// with the Backlog CLI. A Done there wins over the branch status: a claim with a live worker is
-// flagged once and released when its run next ends; a parked or idle one is released as
-// `done-elsewhere` and its PR, worktree and branch settled (`done-elsewhere.ts`). A claim whose own
-// story PR dipo recorded merged is never Done elsewhere (DIPO-332): it is Done through its own
-// branch, and torn down as above; one whose branch moved past the merged head with changes the base
-// lacks is released as `done` with its worktree and branch as leftovers (`releaseMovedPastMerge`). Each poll first settles the released rows a crash left unsettled.
 //
 // With the office's PR-state poll (`prState`, DIPO-314) the Done poll is part of each of its
 // rounds, after the story-PR poll, instead of a timer of its own, and that poll asks whether a
@@ -39,19 +41,22 @@ import type { GitLocation } from "../git/hardened";
 import type { OfficeGit } from "../git/office";
 import type { Logger } from "../log/logger";
 import { decideOnHandMerge } from "../merge/gates";
-import type { CodeHost, PrStateHost } from "../platform/host";
+import { type CodeHost, type PrStateHost, repoOfRemoteUrl } from "../platform/host";
 import type { PrStatePoll } from "../platform/pr-state";
 import { withWorkViews } from "../views/work";
 
 import { inStoryBacklog, notice, writeWith } from "./claim";
+import { claimPr, decideDone, type DoneAnswer, type DonePr } from "./done-check";
 import {
-  baseDoneOf,
+  type BaseStatus,
+  baseStatusOf,
   type DoneElsewhereDeps,
   findDoneElsewhere,
   flagLiveWorker,
   hasLiveWorker,
   hasOpenPark,
   hasUnexitedHost,
+  lastTaskCommit,
   movedPastParkedText,
   releaseDoneElsewhere,
   releaseMovedPastMerge,
@@ -60,10 +65,23 @@ import {
 } from "./done-elsewhere";
 import { type ClaimRecord, liveClaims } from "./records";
 import type { SlotTable } from "./slots";
-import { detectDone, ownMergedPr, tearDown, type TeardownDeps, TEARDOWN_NOTICES } from "./teardown";
+import { addsNothingTo } from "./release";
+import {
+  claimGitFacts,
+  type ClaimGitFacts,
+  tearDown,
+  type TeardownDeps,
+  TEARDOWN_NOTICES,
+} from "./teardown";
 
 /** The load step's name in the registry. */
 export const TEARDOWN_STEP = "worktree.teardown";
+
+/**
+ * The polls in a row the code host must fail on one claim before the Done poll tells the
+ * maintainer, once per streak: a story whose PR state cannot be read is not Done meanwhile.
+ */
+export const HOST_FAILURES_NOTICED = 3;
 
 /** The Backlog.md status of a parked story (0012). */
 export const PARKED_STATUS = "Parked";
@@ -73,7 +91,7 @@ type WorktreeLocation = Extract<GitLocation, { kind: "worktree" }>;
 export interface StoryTeardownDeps {
   /** The office's git, attached by the `git.version` load step (DIPO-31). */
   readonly git: (office: OfficeId) => OfficeGit | undefined;
-  /** The code host; null when the daemon has none, so only `merge-tree` detects Done. */
+  /** The code host; null when the daemon has none, so only dipo's record of a story PR says it merged. */
   readonly host: PrStateHost | null;
   /** How the Backlog CLI starts; it reads a Done story's status in dipo's copy of its backlog. */
   readonly cli: BacklogCli;
@@ -86,11 +104,6 @@ export interface StoryTeardownDeps {
   readonly slots?: SlotTable;
   /** The story's status on its branch, or null when unreadable; the Backlog CLI by default. */
   readonly statusOf?: (claim: ClaimRecord) => Promise<string | null>;
-  /**
-   * Whether the claim's story is Done on the base, with the base commit that last changed its task
-   * file; null when it is not Done there or cannot be read. Read in `_base` by default (DIPO-161).
-   */
-  readonly baseDoneOf?: (claim: ClaimRecord) => Promise<{ readonly commit: string | null } | null>;
   /** Closes dipo's open story PR of a story Done elsewhere; the `gh` host in the daemon. */
   readonly prCloser?: Pick<CodeHost, "closePr"> | null;
   /** Checks and deletes the boxes of ended runs after a release (0021 section 6). */
@@ -117,6 +130,16 @@ export interface PollReport {
   readonly released?: readonly ClaimRecord[];
 }
 
+/** The facts of one Done check and its answer. */
+interface Checked {
+  readonly facts: ClaimGitFacts;
+  readonly pr: DonePr | null;
+  /** The host's error when it was asked about the claim's PR and failed, else null. */
+  readonly hostError: string | null;
+  readonly base: BaseStatus;
+  readonly answer: DoneAnswer;
+}
+
 interface Polled {
   readonly office: OfficeHandle;
   readonly clock: Clock;
@@ -124,6 +147,8 @@ interface Polled {
   busy: Promise<unknown>;
   /** The last notice text per claim run and notice code, so a cause is reported once. */
   readonly told: Map<string, string>;
+  /** The polls in a row the host failed per claim run (`HOST_FAILURES_NOTICED`). */
+  readonly hostFailures: Map<string, number>;
   /** The reads of the PR-state round the running poll belongs to (DIPO-314), or null. */
   reads: PrStateHost | null;
 }
@@ -165,6 +190,7 @@ export class StoryTeardown {
       timer: null,
       busy: Promise.resolve(),
       told: new Map(),
+      hostFailures: new Map(),
       reads: null,
     });
   }
@@ -239,49 +265,120 @@ export class StoryTeardown {
     for (const key of state.told.keys()) {
       if (!live.has(runOfToldKey(key))) state.told.delete(key);
     }
+    for (const run of state.hostFailures.keys()) {
+      if (!live.has(run)) state.hostFailures.delete(run);
+    }
     return released.length === 0
       ? { checked, tornDown, kept }
       : { checked, tornDown, kept, released };
   }
 
-  /** Detects Done for one claim and tears it down unless something keeps it. */
+  /**
+   * The one Done check's answer for a live claim of a tracked office, from the facts a poll gathers
+   * (`#check`); reconcile gathers the same facts (`reconcile/done-on-base.ts`).
+   */
+  async answer(officeId: OfficeId, claim: ClaimRecord): Promise<DoneAnswer> {
+    const state = this.#offices.get(officeId);
+    const git = this.#deps.git(officeId);
+    if (state === undefined || git === undefined) {
+      throw new Error(`Office ${officeId} is not loaded.`);
+    }
+    return (await this.#check(state, git, claim)).answer;
+  }
+
+  /**
+   * The facts of the one Done check for a claim and its answer: the story PR through the PR-state
+   * round this poll belongs to when it does (DIPO-314), else the host, else dipo's record
+   * (`claimPr`), and the story's status in `_base`.
+   */
+  async #check(state: Polled, git: OfficeGit, claim: ClaimRecord): Promise<Checked> {
+    const host = this.#deps.host === null ? null : (state.reads ?? this.#deps.host);
+    const facts = await git.run((session) => claimGitFacts(git, session, claim));
+    const repo = facts.url === null ? null : repoOfRemoteUrl(facts.url);
+    const { pr, hostError } = await claimPr(host, repo, state.office, claim);
+    const base = await baseStatusOf(git, this.#deps.cli, claim.story);
+    const answer = decideDone({
+      claim,
+      pr,
+      hostFailed: hostError !== null,
+      baseStatus: base.status,
+    });
+    return { facts, pr, hostError, base, answer };
+  }
+
+  /**
+   * Counts the polls in a row the host failed on the claim, and tells the maintainer once a streak
+   * reaches `HOST_FAILURES_NOTICED`; an answer ends the streak.
+   */
+  #countHostFailure(
+    state: Polled,
+    deps: TeardownDeps,
+    claim: ClaimRecord,
+    error: string | null,
+  ): void {
+    if (error === null) {
+      state.hostFailures.delete(claim.runId);
+      state.told.delete(toldKey(claim.runId, TEARDOWN_NOTICES.hostUnreachable));
+      return;
+    }
+    const failures = (state.hostFailures.get(claim.runId) ?? 0) + 1;
+    state.hostFailures.set(claim.runId, failures);
+    if (failures !== HOST_FAILURES_NOTICED) return;
+    this.#tell(
+      state,
+      deps,
+      claim,
+      "warn",
+      TEARDOWN_NOTICES.hostUnreachable,
+      `dipo could not ask the code host whether the PR of ${claim.story} merged on ${HOST_FAILURES_NOTICED} polls in a row (${error}). Until it answers, dipo keeps the claim, its worktree and branch ${claim.branch} as they are; check \`gh auth status\` and the network.`,
+    );
+  }
+
+  /** Checks one claim for Done and tears it down or releases it unless something keeps it. */
   async #settle(
     state: Polled,
     deps: TeardownDeps,
     claim: ClaimRecord,
   ): Promise<"open" | "kept" | "tornDown" | "released"> {
-    // Through the PR-state round this poll belongs to, when it does (DIPO-314).
-    const host = this.#deps.host === null ? null : (state.reads ?? this.#deps.host);
-    const check = await detectDone({ git: deps.git, host, office: state.office }, claim);
-    if (!check.done) {
-      // Not Done through its own branch: a Done on the base wins (DIPO-161). A story whose own PR
-      // merged is Done through its own branch, whatever the branch did since (DIPO-332).
-      const own = ownMergedPr(state.office, claim);
-      const elsewhere = own === null ? await this.#doneElsewhere(state, deps, claim) : null;
-      if (elsewhere !== null) return elsewhere;
-      // Its PR merged, but the branch moved past the merged head with changes the base lacks: once
-      // no worker runs, those are leftovers with the `dipo discard` action, not an open claim.
-      // A parked one stays, with a notice, as a Parked story is never torn down on its own.
-      if (
-        own !== null &&
-        check.problem?.code === TEARDOWN_NOTICES.unmergedCommits &&
-        !hasLiveWorker(state.office, claim)
-      ) {
-        if (hasOpenPark(state.office, claim)) {
-          const text = movedPastParkedText(claim, own);
-          this.#tell(state, deps, claim, "warn", TEARDOWN_NOTICES.parked, text);
-          return "kept";
-        }
-        await releaseMovedPastMerge(this.#elsewhereDeps(deps), claim, own);
-        return "released";
-      }
-      if (check.problem !== undefined) {
-        this.#tell(state, deps, claim, "warn", check.problem.code, check.problem.text);
+    const checked = await this.#check(state, deps.git, claim);
+    this.#countHostFailure(state, deps, claim, checked.hostError);
+    if (checked.answer === "doneOnBase") {
+      return this.#doneElsewhere(state, deps, claim, checked.base);
+    }
+    if (checked.answer === "notDone" || checked.pr === null) {
+      if (checked.facts.tip === null && checked.facts.worktreeGone) {
+        this.#tell(
+          state,
+          deps,
+          claim,
+          "warn",
+          TEARDOWN_NOTICES.claimGone,
+          `${claim.story} is claimed, but its worktree ${claim.worktree} and branch ${claim.branch} are both gone and dipo cannot tell whether it merged. Check the story by hand.`,
+        );
       }
       return "open";
     }
-    // A merge by hand on the host closes the story's open merge gate (0019 section 11, DIPO-150).
-    if (check.evidence.by === "host") this.#handMerged(deps, claim);
+    return this.#merged(state, deps, claim, checked.pr, checked.facts);
+  }
+
+  /** A claim whose own story PR merged: torn down unless something keeps it. */
+  async #merged(
+    state: Polled,
+    deps: TeardownDeps,
+    claim: ClaimRecord,
+    pr: DonePr,
+    facts: ClaimGitFacts,
+  ): Promise<"open" | "kept" | "tornDown" | "released"> {
+    // A merge by hand on the host closes the story's open merge gate (0002, DIPO-150).
+    this.#handMerged(deps, claim);
+    const { tip } = facts;
+    if (tip !== null && tip !== pr.headSha) {
+      // The branch moved past the merged head. `git merge-tree` decides only whether the branch
+      // may go (0010): one that adds nothing to the base is torn down like any other.
+      const ref = `refs/heads/${claim.branch}`;
+      const nothing = await deps.git.run((git) => addsNothingTo(git, facts.baseRef, ref));
+      if (!nothing) return this.#movedPast(state, deps, claim, pr, tip);
+    }
     if (hasUnexitedHost(state.office, claim.runId)) {
       this.#tell(
         state,
@@ -319,7 +416,7 @@ export class StoryTeardown {
         return "kept";
       }
     }
-    const outcome = await tearDown(deps, claim, check.evidence, check.tip);
+    const outcome = await tearDown(deps, claim, pr, tip);
     if (outcome.ok) return "tornDown";
     const files =
       outcome.files.length === 0
@@ -337,31 +434,62 @@ export class StoryTeardown {
   }
 
   /**
-   * The release of a claim whose story is Done on the base (see the file comment); null when it is
-   * not Done there, so the poll goes on as before.
+   * A claim whose PR merged while its branch moved past the merged head with changes the base
+   * lacks (DIPO-332): once no worker runs, those are leftovers with the `dipo discard` action, not
+   * an open claim. A parked one stays, with a notice, as a Parked story is never torn down on its
+   * own.
+   */
+  async #movedPast(
+    state: Polled,
+    deps: TeardownDeps,
+    claim: ClaimRecord,
+    pr: DonePr,
+    tip: string,
+  ): Promise<"open" | "kept" | "released"> {
+    if (hasLiveWorker(state.office, claim)) {
+      this.#tell(
+        state,
+        deps,
+        claim,
+        "warn",
+        TEARDOWN_NOTICES.unmergedCommits,
+        `The PR #${pr.number} of ${claim.story} merged, but the local branch ${claim.branch} is at ${tip}, not at the head that merged, and holds changes the base does not have. dipo keeps the worktree and branch; check them by hand.`,
+      );
+      return "open";
+    }
+    if (hasOpenPark(state.office, claim)) {
+      const text = movedPastParkedText(claim, pr);
+      this.#tell(state, deps, claim, "warn", TEARDOWN_NOTICES.parked, text);
+      return "kept";
+    }
+    await releaseMovedPastMerge(this.#elsewhereDeps(deps), claim, pr);
+    return "released";
+  }
+
+  /**
+   * The release of a claim whose story is Done on the base, not through its own PR (see the file
+   * comment).
    */
   async #doneElsewhere(
     state: Polled,
     deps: TeardownDeps,
     claim: ClaimRecord,
-  ): Promise<"kept" | "released" | null> {
-    const base = await this.#baseDone(deps.git, claim);
-    if (base === null) return null;
+    base: BaseStatus,
+  ): Promise<"kept" | "released"> {
+    const head = base.head;
+    const commit =
+      head === null
+        ? null
+        : await deps.git.run((session) => lastTaskCommit(session, head, claim.story));
     const elsewhere = this.#elsewhereDeps(deps);
     if (hasLiveWorker(state.office, claim)) {
-      flagLiveWorker(elsewhere, claim, base.commit);
+      flagLiveWorker(elsewhere, claim, commit);
       return "kept";
     }
-    releaseDoneElsewhere(elsewhere, claim, base.commit);
+    releaseDoneElsewhere(elsewhere, claim, commit);
     const row = findDoneElsewhere(state.office, claim.runId);
     if (row !== null) await settleDoneElsewhere(elsewhere, row);
     return "released";
-  }
-
-  /** The story's Done on `_base` with the base commit of its task file, or null; never throws. */
-  async #baseDone(git: OfficeGit, claim: ClaimRecord): Promise<{ commit: string | null } | null> {
-    if (this.#deps.baseDoneOf !== undefined) return this.#deps.baseDoneOf(claim);
-    return baseDoneOf(git, this.#deps.cli, claim.story);
   }
 
   #elsewhereDeps(deps: TeardownDeps): DoneElsewhereDeps {

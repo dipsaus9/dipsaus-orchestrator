@@ -1,9 +1,9 @@
-// CI only (0017 section 1): Done detection and teardown against a real temporary repository, a
-// bare remote and the pinned Backlog CLI (DIPO-58; 0010 section 7). The story branch is
-// squash-merged on the bare remote, as the host's squash merge does; the poll detects Done with
-// `git merge-tree` and tears down the worktree, the local and the remote branch. A dirty worktree
-// is kept with a notice listing its files until it is clean. Fast versions of the same rules with a
-// fake git are in teardown.test.ts.
+// CI only (0017): the Done poll and teardown against a real temporary repository, a bare remote
+// and the pinned Backlog CLI (DIPO-58, DIPO-363; 0002, 0010). The story branch is squash-merged on
+// the bare remote, as the host's squash merge does, and its story PR recorded merged, as the PR
+// poll records it; the one Done check finds it merged and the poll tears down the worktree, the
+// local and the remote branch. A dirty worktree is kept with a notice listing its files until it
+// is clean. Fast versions of the same rules with a fake git are in teardown.test.ts.
 
 import { describe, expect, it } from "bun:test";
 import { existsSync, rmSync, writeFileSync } from "node:fs";
@@ -13,6 +13,7 @@ import type { OfficeId } from "@dipsaus-orchestrator/contract";
 import { git, type TempRepoWithRemote, withBareRemote } from "@dipsaus-orchestrator/testkit";
 
 import { OFFICE_DEFAULTS } from "../../src/config";
+import { insertStoryPr } from "../../src/story-pr/records";
 import {
   type ClaimOutcome,
   claimStory,
@@ -45,7 +46,10 @@ async function refExists(cwd: string, home: string, ref: string): Promise<boolea
   );
 }
 
-/** Claims TASK-1, commits work on its branch, pushes it and squash-merges it on the remote. */
+/**
+ * Claims TASK-1, commits work on its branch, pushes it, squash-merges it on the remote and records
+ * its story PR merged at the pushed head.
+ */
 async function claimWorkMerge(repo: TempRepoWithRemote, s: ClaimSetup) {
   const claim = claimed(await claimStory(s.deps(), s.request(s.key()))).claim;
   writeFileSync(join(claim.worktree, "work.txt"), "work\n");
@@ -53,6 +57,23 @@ async function claimWorkMerge(repo: TempRepoWithRemote, s: ClaimSetup) {
   await git(claim.worktree, repo.home, "commit", "--quiet", "-m", "work");
   await git(claim.worktree, repo.home, "push", "--quiet", "origin", BRANCH_1);
   await squashMergeOnRemote(repo, BRANCH_1);
+  const head = (await git(claim.worktree, repo.home, "rev-parse", "HEAD")).trim();
+  s.office.immediate(() =>
+    insertStoryPr(s.office, {
+      runId: claim.runId,
+      key: claim.key,
+      number: 1,
+      url: "https://github.com/o/r/pull/1",
+      branch: BRANCH_1,
+      base: "main",
+      headSha: head,
+      state: "merged",
+      title: "feat(TASK-1): x",
+      bodyHash: "h",
+      openedAt: 1,
+      closedAt: 2,
+    }),
+  );
   const fetched = await s.git.fetch();
   if (!fetched.ok) throw fetched.error;
   return claim;
@@ -72,7 +93,7 @@ function teardownOf(s: ClaimSetup, slots: SlotTable): StoryTeardown {
 
 if (process.env["DIPO_TEST_CI"] === "1") {
   describe("Done and teardown on a real repository", () => {
-    it("detects a squash merge with merge-tree and removes the worktree and both branches", async () => {
+    it("finds a squash-merged PR Done and removes the worktree and both branches", async () => {
       await withBareRemote(
         async (repo) => {
           await publish(repo);

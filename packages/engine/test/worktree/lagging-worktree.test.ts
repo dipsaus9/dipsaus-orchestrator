@@ -17,6 +17,7 @@ import { git as gitIn } from "@dipsaus-orchestrator/testkit";
 
 import { OFFICE_DEFAULTS } from "../../src/config";
 import type { OfficeGit } from "../../src/git/office";
+import { insertStoryPr } from "../../src/story-pr/records";
 import { StoryTeardown } from "../../src/worktree/done";
 import { unlaggedPaths } from "../../src/worktree/lagging";
 import { type ClaimRecord, liveClaimOf } from "../../src/worktree/records";
@@ -165,6 +166,26 @@ function pollOf(o: ReconcileOffice): StoryTeardown {
   return teardown;
 }
 
+/** The story PR of the run, recorded merged at `head` as the PR poll records it. */
+function mergedPr(o: ReconcileOffice, record: ClaimRecord, head: string): void {
+  o.office.immediate(() =>
+    insertStoryPr(o.office, {
+      runId: record.runId,
+      key: record.key,
+      number: 377,
+      url: "https://github.com/o/r/pull/377",
+      branch: record.branch,
+      base: "main",
+      headSha: head,
+      state: "merged",
+      title: "feat(TASK-1): x",
+      bodyHash: "h",
+      openedAt: 1,
+      closedAt: 2,
+    }),
+  );
+}
+
 /** A claim of TASK-1 with its run ended, on a base with code files. */
 async function claimed(
   o: ReconcileOffice,
@@ -190,6 +211,7 @@ describe("a box run's worktree that only lags its branch (DIPO-332)", () => {
       await o.repo.git("push", "--quiet", "origin", record.branch);
       await squashMergeOnRemote(o.repo, record.branch);
       await o.repo.git("fetch", "--quiet", "origin");
+      mergedPr(o, record, tip);
       const seq = lastSeq(o.office);
 
       const teardown = pollOf(o);

@@ -64,15 +64,16 @@ import type { ProcessProbe } from "../platform/process";
 import { openParkIds, resolvePark } from "../run/park";
 import { activeRuns } from "../run/records";
 import { hostAlive, workerHostsOf } from "../runs/worker-hosts";
-import { latestStoryPr, setStoryPrState } from "../story-pr/records";
+import { findStoryPr, latestStoryPr, setStoryPrState } from "../story-pr/records";
 import { deriveStoryView, storyView } from "../views/story";
+import { decideDone } from "../worktree/done-check";
 import {
-  baseDoneOf,
+  baseStatusOf,
   clearLeftovers,
   leftoverTargets,
   openLeftovers,
 } from "../worktree/done-elsewhere";
-import { type ClaimRecord, liveClaimOf } from "../worktree/records";
+import { type ClaimRecord, findClaim, liveClaimOf } from "../worktree/records";
 import {
   type DiscardBranchOutcome,
   type LeftoverTargets,
@@ -207,7 +208,7 @@ export class StoryDiscard {
 
     // A story Done on the base (its leftovers, or a claim the Done poll has not released yet) gets
     // no backlog write and keeps its state: Done is terminal (0020 section 10).
-    const doneOnBase = claim === null || (await this.#doneOnBase(git, story));
+    const doneOnBase = claim === null || (await this.#isDone(office, git, story, claim));
     const lane = doneOnBase ? null : this.#lane(office);
     const entry = lane === null ? null : await journalOnce(lane, office, discardOp(key, story));
     const withdraw = () => {
@@ -332,7 +333,9 @@ export class StoryDiscard {
         openParkOfRun(office, key, discarded.runId) ||
         openQuestions(office, discarded.runId).length > 0;
       if (stateOwed || factsOwed) {
-        const toRefined = stateOwed && !(await this.#doneOnBase(git, story));
+        const toRefined =
+          stateOwed &&
+          !(await this.#isDone(office, git, story, findClaim(office, discarded.runId)));
         this.#finishFacts(ctx, identity, discarded.runId, note, toRefined, []);
         await this.#deps.finishBoxes?.().catch(() => undefined);
         if (journaled) await flushQuietly(this.#lane(office));
@@ -357,11 +360,21 @@ export class StoryDiscard {
     );
   }
 
-  /** True when the Backlog CLI reads the story Done in `_base`; false without the CLI. */
-  async #doneOnBase(git: OfficeGit, story: string): Promise<boolean> {
+  /**
+   * True when the one Done check (`decideDone`, 0002) finds the story Done: the claim's story PR
+   * as dipo recorded it merged, or the story Done in `_base` as the Backlog CLI reads it (no base
+   * read without the CLI).
+   */
+  async #isDone(
+    office: OfficeHandle,
+    git: OfficeGit,
+    story: string,
+    claim: ClaimRecord | null,
+  ): Promise<boolean> {
     const cli = this.#deps.cli;
-    if (cli === undefined) return false;
-    return (await baseDoneOf(git, cli, story)) !== null;
+    const baseStatus = cli === undefined ? null : (await baseStatusOf(git, cli, story)).status;
+    const pr = claim === null ? null : findStoryPr(office, claim.runId);
+    return decideDone({ claim, pr, baseStatus }) !== "notDone";
   }
 
   /** Releases the claim, or removes the leftovers of a story Done on the base. */

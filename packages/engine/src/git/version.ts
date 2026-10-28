@@ -1,5 +1,6 @@
-// The minimum git version (M0 review, DIPO-15): Done detection uses `git merge-tree --write-tree`
-// (0010 section 7), which git 2.38 added. Each office load checks `git --version` once.
+// The minimum git version (M0 review, DIPO-15): the conflict check and the branch deletes use
+// `git merge-tree --write-tree` (0010), which git 2.38 added. Each office load checks
+// `git --version` once.
 
 export interface GitVersion {
   readonly major: number;
