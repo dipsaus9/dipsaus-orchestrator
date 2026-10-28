@@ -4,7 +4,7 @@ title: Give each box its own git repository and run verify in it at done
 status: Done
 assignee: []
 created_date: '2026-10-25 09:51'
-updated_date: '2026-10-28 10:10'
+updated_date: '2026-10-28 11:26'
 labels:
   - 'tier:L'
   - 'slice:prune'
@@ -57,4 +57,6 @@ test_plan:
 
 <!-- SECTION:FINAL_SUMMARY:BEGIN -->
 Each box runs a fixed git init and start commit in /work as the box user (box/box-git.ts, no system or global config, no hooks), and every image has git. Parts leave the box without .git, and the Mac side refuses any .git path (case, NFD and look-alikes folded), links, and changed git config. Real-git tests show no dipo git call uses a box or stage folder and the Mac repository's config, refs and hooks stay unchanged; each bypass form (symlinks to .git, a .git file, a nested repo, a root gitdir, core.hooksPath) is refused for its own reason, and a part carrying a changed .git/config is refused with no commit. At done dipo runs the office's verify in the box with a deadline; red becomes feedback with bounded evidence and a loop step shared with the report gate, a verify that cannot run parks worker-failed, and with no verify command CI is the only check. The tool-trail verify nudge is removed. The worker contract is one page (golden-tested, 4,200-character cap). Real-box test (DIPO_TEST_BOX=1) and probe.sh passed on 2026-10-28.
+
+Also fixed a production race the macOS CI exposed: a CI-cap park that committed to the story branch while a review round was being prepared made the launch retry a stale head forever. The review start now re-checks heldByPark when the round begins, before the launcher and in the launcher, a park drops the round, and the resume's round reads the branch again.
 <!-- SECTION:FINAL_SUMMARY:END -->
