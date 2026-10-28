@@ -9,7 +9,7 @@
 //   uncommitted files.
 // - On resume, in the unpark commit (`gitUnparkWriter`), one line: date, resumed, the grants of the
 //   resume and the first line of the note.
-// - On close, in the merge slot's close-out commit (0019 section 9 step 1, `merge-slot/close-out.ts`),
+// - On close, in the close-out commit before auto-merge goes on (0002, `merge/close-out.ts`),
 //   the final summary: criteria met, loops, review rounds, budget used of limit, runs and resumes,
 //   each park in one line, grants, web calls and proposals filed.
 //
