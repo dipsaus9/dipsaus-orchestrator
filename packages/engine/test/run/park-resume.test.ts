@@ -26,7 +26,7 @@ import {
   type UnparkWriter,
 } from "../../src/run";
 import type { NextSessionRequest } from "../../src/run/resume";
-import { reopenParkedRun } from "../../src/run/park";
+import { reopen } from "../../src/run/rounds";
 import { addStory } from "../../src/stories/keys";
 import { encode } from "../../src/workers/claude-cli/encode";
 import type { Caps } from "../../src/workers/types";
@@ -178,26 +178,24 @@ describe("parked time (runs.parked_ms)", () => {
     const first = park();
     t.clock.advance(5 * 60 * MINUTE); // parked 5 h
     office.immediate(() =>
-      reopenParkedRun(
-        office,
-        { ...first, reason: "worker-failed", detail: "x" },
-        findRun(office, run)!,
-        "In Progress",
-        t.clock.now(),
-      ),
+      reopen(office, findRun(office, run)!, t.clock.now(), {
+        kind: "resume",
+        park: { ...first, reason: "worker-failed", detail: "x" },
+        to: "In Progress",
+        note: null,
+      }),
     );
     expect(findRun(office, run)?.parkedMs).toBe(5 * 60 * MINUTE);
     t.clock.advance(7 * MINUTE); // worked 7 min
     const second = park();
     t.clock.advance(2 * 60 * MINUTE); // parked 2 h
     office.immediate(() =>
-      reopenParkedRun(
-        office,
-        { ...second, reason: "worker-failed", detail: "x" },
-        findRun(office, run)!,
-        "In Progress",
-        t.clock.now(),
-      ),
+      reopen(office, findRun(office, run)!, t.clock.now(), {
+        kind: "resume",
+        park: { ...second, reason: "worker-failed", detail: "x" },
+        to: "In Progress",
+        note: null,
+      }),
     );
     const reopened = findRun(office, run);
     expect(reopened?.parkedMs).toBe(7 * 60 * MINUTE);

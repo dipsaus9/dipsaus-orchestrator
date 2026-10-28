@@ -675,7 +675,7 @@ function boxCollisions(
     live: (runId) => control.live(runId),
     parts: boxed.parts,
     park: (runId, park) => control.parkRun(runId, park),
-    tell: (runId, text) => control.tellWorker(runId, text, "collision message"),
+    tell: (runId, text, source) => control.tellWorker(runId, text, source),
     notice: runNotice(options),
     pushed: claimPushRecorder(options),
     // Conflicts with the base (DIPO-149): the stories In Review checked, each merge recorded, a

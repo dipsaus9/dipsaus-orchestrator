@@ -9,7 +9,8 @@ import type { OfficeHandle } from "../db/office";
 import type { AdapterHold } from "../workers/hold";
 import type { HostOp, TurnProblem } from "../workers/types";
 
-import { resolveIntent, sendAsIntent } from "./intents";
+import { sendFeedback } from "./feedback";
+import { resolveIntent } from "./intents";
 import type { OutcomeSupport } from "./outcome-support";
 import {
   INTENT_TAGS,
@@ -94,30 +95,28 @@ export class TurnOutcomes {
         return;
       }
       case "report":
+        // A report that does not parse or match the schema is a broken worker, not a question
+        // (0008, 0001): after its one correction turn the story parks `worker-failed`.
         if (this.#s.reportFeedbacks(office, view.runId).length > 0) {
           ender.begin(view.runId, {
             intent: "park",
             ops: [{ closeStdin: true }],
-            reason: "ambiguous-spec",
+            reason: "worker-failed",
             detail: `no valid report: ${problem.detail}`,
             endKind: OUTCOME_ENDS.noReport,
           });
           return;
         }
-        await this.#sendReportFeedback(office, view, problem.detail);
+        // The one correction turn, keyed on the agent: a worker that exited before it read it
+        // gets it with its resume's first message (`ExitOutcomes`).
+        await sendFeedback(
+          office,
+          view.runId,
+          { source: "report", key: view.work.agent, text: reportFeedbackText(problem.detail) },
+          { sender: this.#deps },
+        ).done;
         return;
     }
-  }
-
-  /** The one feedback turn for a missing or invalid report, stored first as a `steer` intent. */
-  async #sendReportFeedback(office: OfficeHandle, view: RunView, why: string): Promise<void> {
-    await sendAsIntent(office, this.#deps.steering, view.runId, {
-      kind: "steer",
-      detail: `${INTENT_TAGS.reportFeedback} ${view.work.agent} ${why}`,
-      ops: this.#deps.encode({ kind: "steer", text: reportFeedbackText(why) }),
-      clock: this.#deps.clock,
-    }).done;
-    // A worker that exited before it read the feedback gets it as its resume's first message.
   }
 
   answered(view: RunView): void {

@@ -665,7 +665,7 @@ export const TRANSFORMS: readonly Transform[] = [
     from: "success-single",
     transform: "The result becomes error_max_structured_output_retries without a report.",
     expected:
-      'No outcome yet: one feedback turn "report in the schema", then park ambiguous-spec (0008 section 7, 0014 section 2).',
+      'No outcome yet: one feedback turn "report in the schema", then park worker-failed (0008 section 7, 0014 section 2).',
     cites: [CITE_RESULT, CITE_TERMINAL],
     apply: (lines) =>
       replaceFirstResult(
@@ -679,7 +679,7 @@ export const TRANSFORMS: readonly Transform[] = [
     from: "success-single",
     transform: "The successful result loses its structured_output.",
     expected:
-      "A turn that ends without a valid report: the same feedback turn, then park ambiguous-spec.",
+      "A turn that ends without a valid report: the same feedback turn, then park worker-failed.",
     apply: (lines) => replaceFirstResult(lines, withoutReport, 0),
   },
   {

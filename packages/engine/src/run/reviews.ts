@@ -105,7 +105,7 @@ import {
   type ReviewRound,
   takeVerdict,
 } from "./review-rounds";
-import { endReviewPeriod, reopenForRound, REVIEWED_END } from "./rounds";
+import { endReviewPeriod, reopen, REVIEWED_END } from "./rounds";
 
 /** The tags of the review rounds' intents, at the start of their detail. */
 export const REVIEW_TAGS = {
@@ -282,7 +282,7 @@ export class Reviews {
         const entries =
           current.endedAt === null
             ? []
-            : reopenForRound(office, current, "review", at, start.since);
+            : reopen(office, current, at, { kind: "review", waitingSince: start.since });
         if (findRun(office, run.runId)?.endedAt !== null) return { value: null, entries: [] };
         claimPlace(office, run.runId, at);
         // The reviewer's caps are the run's start snapshot; a run started without them takes the

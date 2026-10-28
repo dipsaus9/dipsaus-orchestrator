@@ -5,7 +5,7 @@
 // teardown or a rollback never leaves an office busy; a session run is active until it ends.
 //
 // One story run spans every round of its claim (0019 section 13, DIPO-142): its active period ends
-// at a park and at In Review, and `reopenRun` opens it again for a resume, a review, a fix round or
+// at a park and at In Review, and `reopen` (`rounds.ts`) opens it again for a resume, a review, a fix round or
 // a conflict hand-off, adding the time it stood ended to `parked_ms`. Each end rewrites its
 // provisional `run_outcomes` row; Done writes the final one.
 
@@ -408,7 +408,7 @@ export const PARKED_OUTCOME = "parked";
  * when it had ended before.
  *
  * One end is not always the last (DIPO-75, DIPO-142): a run is reopened for a resume, a review, a
- * fix round or a conflict hand-off (`reopenRun`), so each end rewrites the provisional row with
+ * fix round or a conflict hand-off (`reopen`), so each end rewrites the provisional row with
  * every park and round of the run and the minutes it worked. Done is the final end (0019 section
  * 13): a `done` end of a run whose last active period already ended (at In Review) sets its end
  * kind and writes the final row (`finishRun`); a final row is never rewritten.
@@ -451,29 +451,6 @@ export function finishRun(office: OfficeHandle, runId: RunId): boolean {
     kind: DONE_END,
   });
   writeRunOutcome(office, runId, DONE_END);
-  return true;
-}
-
-/**
- * Opens the ended story run `runId` again for a new active period (0019 section 13, DIPO-75): its
- * end is cleared and the time since it ended is added to `parked_ms`, so its caps and minutes
- * count only the time its developer worked; its provisional outcome row goes until its next end.
- * A run whose story is Done stays ended. True when this call reopened it. Inside the caller's
- * transaction.
- */
-export function reopenRun(office: OfficeHandle, runId: RunId, at: number): boolean {
-  const reopened = office.run(
-    `update runs set parked_ms = parked_ms + max(0, $at - coalesce(ended_at, $at)),
-       ended_at = null, end_kind = null
-     where office_id = $office_id and run_id = $run and ended_at is not null
-       and end_kind is not $done`,
-    { run: runId, at, done: DONE_END },
-  );
-  if (reopened.changes === 0) return false;
-  office.run(
-    "delete from run_outcomes where office_id = $office_id and run_id = $run and final = 0",
-    { run: runId },
-  );
   return true;
 }
 

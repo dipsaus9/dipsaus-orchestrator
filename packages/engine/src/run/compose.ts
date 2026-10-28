@@ -465,7 +465,7 @@ function conflictResumesOf(
         to: "In Progress",
       });
     },
-    tell: (runId, text) => control.tellWorker(runId, text, "conflict resume"),
+    tell: (runId, text) => control.tellWorker(runId, text, "conflict"),
     parkLive: (runId, park) => control.parkRun(runId, park),
     // An unwritable path that still conflicts parks again before any session (0020 section 2).
     park: async (office, run, park) => {

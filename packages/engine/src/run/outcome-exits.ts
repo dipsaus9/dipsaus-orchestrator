@@ -9,13 +9,13 @@ import type { HostOp } from "../workers/types";
 
 import { runCaps } from "./caps";
 import type { RunEnding } from "./control-types";
-import { markIntentSent, recordIntent, resolveIntent, type StoredIntent } from "./intents";
+import { sendFeedback } from "./feedback";
+import { recordIntent, resolveIntent, type StoredIntent } from "./intents";
 import type { OutcomeSupport } from "./outcome-support";
 import type { SessionStarts } from "./outcome-sessions";
 import type { TurnOutcomes } from "./outcome-turns";
 import {
   type ExitContext,
-  feedbackOf,
   HOST_LOST_END,
   HOST_LOST_WHY,
   initRejectedEnding,
@@ -189,18 +189,28 @@ export class ExitOutcomes {
       await this.#byIntent(office, run, view, agent, intent);
       return;
     }
-    // This worker exited before it answered its report feedback: resume with it. The feedback
-    // is resolved only once the next session started, so a restart in between resumes again.
+    // This worker exited before it answered its report correction: the correction is held again
+    // for the resume's first message (the one feedback path), keyed on this agent, so a restart
+    // before the resume started resumes again. It is delivered once the next session started.
     const feedback = this.#s
       .reportFeedbacks(office, view.runId)
-      .find((row) => row.resolvedAt === null && feedbackOf(row.detail).agent === agent);
+      .find((row) => row.resolvedAt === null && row.key === agent);
     if (feedback !== undefined) {
-      const started = await this.#sessions.next(office, run, view, {
+      if (feedback.state !== "pending") {
+        office.immediate(() => {
+          resolveIntent(office, view.runId, feedback.intentId, "held-again", at);
+          sendFeedback(
+            office,
+            view.runId,
+            { source: "report", key: agent, text: feedback.text },
+            { at },
+          );
+        });
+      }
+      await this.#sessions.next(office, run, view, {
         mode: "resume",
         why: "the worker exited before it answered the report feedback",
-        message: reportFeedbackText(feedbackOf(feedback.detail).why),
       });
-      if (started) this.#s.resolve(office, view.runId, feedback, "resumed", this.#deps.clock.now());
       return;
     }
     await this.#byResult(office, run, view, agent, exit.end);
@@ -326,37 +336,28 @@ export class ExitOutcomes {
             /^no valid report: /,
             "",
           );
+          // A report that does not parse or match the schema is a broken worker (0008, 0001).
           if (this.#s.reportFeedbacks(office, run.runId).length > 0) {
             await park({
               intent: "park",
-              reason: "ambiguous-spec",
+              reason: "worker-failed",
               detail: `no valid report: ${why}`,
               endKind: OUTCOME_ENDS.noReport,
             });
             return;
           }
-          // The one feedback turn, as the first message of a resume; resolved once it started.
-          const at = this.#deps.clock.now();
-          const id = office.immediate(() => {
-            const recorded = recordIntent(
-              office,
-              run.runId,
-              "steer",
-              `${INTENT_TAGS.reportFeedback} ${agent} ${why}`,
-              at,
-            );
-            markIntentSent(office, run.runId, recorded, at, null);
-            return recorded;
-          });
-          const started = await this.#sessions.next(office, run, view, {
+          // The one correction turn, held for the resume's first message and keyed on this agent,
+          // so a restart before the resume started resumes with it again (`#decideExit`).
+          sendFeedback(
+            office,
+            run.runId,
+            { source: "report", key: agent, text: reportFeedbackText(why) },
+            { at: this.#deps.clock.now() },
+          );
+          await this.#sessions.next(office, run, view, {
             mode: "resume",
             why: "a turn without a valid report",
-            message: reportFeedbackText(why),
           });
-          if (started) {
-            const now = this.#deps.clock.now();
-            office.immediate(() => resolveIntent(office, run.runId, id, "resumed", now));
-          }
           return;
         }
         await park({

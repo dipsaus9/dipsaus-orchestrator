@@ -33,9 +33,10 @@ import {
 import { findQuestion, openQuestions } from "../../src/hooks/questions";
 import { type BranchPark, insertRun, RunControl } from "../../src/run";
 import { questionWaitMs, runTotals } from "../../src/run/caps";
-import { heldMessages } from "../../src/run/steers";
+import { heldFeedback } from "../../src/run/feedback";
 import { resolvePark } from "../../src/run/park";
-import { reopenRun } from "../../src/run/records";
+import { findRun } from "../../src/run/records";
+import { reopen } from "../../src/run/rounds";
 import { activeSignals } from "../../src/run/signals";
 import { addStory } from "../../src/stories/keys";
 import { encode } from "../../src/workers/claude-cli/encode";
@@ -541,9 +542,7 @@ describe("a worker's question when its run ends while it waits (DIPO-272, DIPO-2
       closedHow: "answered",
       answer: "Hello, Ada!",
     });
-    expect(heldMessages(w.f.office, w.f.run, (text) => text).texts).toEqual([
-      workerAnswerText("Hello, Ada!"),
-    ]);
+    expect(heldFeedback(w.f.office, w.f.run).texts).toEqual([workerAnswerText("Hello, Ada!")]);
   });
 
   it("holds an answer given after a cap began, before the run's end is ingested, instead of sending it to the stopping worker (AC #7)", async () => {
@@ -561,9 +560,7 @@ describe("a worker's question when its run ends while it waits (DIPO-272, DIPO-2
     open();
     await w.control.idle();
     expect(parks().map((park) => park.reason)).toEqual(["budget-exceeded"]);
-    expect(heldMessages(w.f.office, w.f.run, (text) => text).texts).toEqual([
-      workerAnswerText("Hello, Ada!"),
-    ]);
+    expect(heldFeedback(w.f.office, w.f.run).texts).toEqual([workerAnswerText("Hello, Ada!")]);
     // The park carries it, answered: it waits for nothing more.
     expect(findQuestion(w.f.office, question?.questionId ?? "")).toMatchObject({
       closedHow: "answered",
@@ -589,9 +586,7 @@ describe("a worker's question when its run ends while it waits (DIPO-272, DIPO-2
     expect(reply).toMatchObject({ ok: true, result: { delivered: "on-resume" } });
     open();
     await w.control.idle();
-    expect(heldMessages(w.f.office, w.f.run, (text) => text).texts).toEqual([
-      workerAnswerText("Hello, Ada!"),
-    ]);
+    expect(heldFeedback(w.f.office, w.f.run).texts).toEqual([workerAnswerText("Hello, Ada!")]);
     expect(findQuestion(w.f.office, question?.questionId ?? "")?.parkId).toBe(parkIds()[0] ?? -1);
   });
 
@@ -658,7 +653,11 @@ describe("a worker's question when its run ends while it waits (DIPO-272, DIPO-2
     // A later park of the same story: the worker exited, the run works again and parks on a new
     // question.
     w.control.onEnded(w.f.run);
-    w.f.office.immediate(() => reopenRun(w.f.office, w.f.run as RunId, w.f.t.clock.now()));
+    w.f.office.immediate(() =>
+      reopen(w.f.office, findRun(w.f.office, w.f.run as RunId)!, w.f.t.clock.now(), {
+        kind: "fix",
+      }),
+    );
     track();
     await blockedQuestion("Which exit code?");
     const [, secondPark] = parkIds();

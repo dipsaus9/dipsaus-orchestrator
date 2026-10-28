@@ -48,7 +48,7 @@ import {
   STORY_NOT_RUNNING,
   STREAM_DRIFT_LINES,
 } from "../../src/run";
-import { reopenParkedRun } from "../../src/run/park";
+import { reopen } from "../../src/run/rounds";
 import { addStory } from "../../src/stories/keys";
 import { encode, STOP_MESSAGE } from "../../src/workers/claude-cli/encode";
 import { initialState, interpret } from "../../src/workers/claude-cli/interpret";
@@ -1537,13 +1537,12 @@ describe("stream drift (DIPO-315)", () => {
     const run = findRun(w.f.office, w.f.run);
     if (stored === null || run === null) throw new Error("no park or run");
     w.f.office.immediate(() =>
-      reopenParkedRun(
-        w.f.office,
-        { parkId: stored.park_id, reason: stored.reason, detail: stored.detail },
-        run,
-        "In Progress",
-        w.f.t.clock.now(),
-      ),
+      reopen(w.f.office, run, w.f.t.clock.now(), {
+        kind: "resume",
+        park: { parkId: stored.park_id, reason: stored.reason, detail: stored.detail },
+        to: "In Progress",
+        note: null,
+      }),
     );
     expect(lines()).toBe(0);
   });

@@ -3,10 +3,12 @@
 // worker's exit once the turns before it are handled. Every op is stored as a `run_intents` row
 // before it is sent; DIPO-51's intents carry a tag at the start of their detail:
 //
-// - `steer` `report-feedback <why>`: a turn without a valid report gets one feedback turn "report
-//   in the schema" (`prompts/feedback/report.md`); the next turn answers it. A second turn without
-//   one parks `ambiguous-spec` ("no valid report: <why>", end kind `no-report`). A worker that
-//   exits before it answered is resumed with the feedback as its first message.
+// - `steer` `feedback report <agent> <text>`: a turn whose report does not parse or match the
+//   schema gets one correction turn "report in the schema" (`prompts/feedback/report.md`) through
+//   the one feedback path (`feedback.ts`); the next turn answers it. A second turn without one
+//   parks `worker-failed` ("no valid report: <why>", end kind `no-report`; 0008): a bad report is
+//   a broken worker, never a question. A worker that exits before it answered is resumed with the
+//   correction held for its first message.
 // - `reassign` `new-session:context-full`: a turn ended `prompt_too_long`; stdin is closed and
 //   SIGTERM follows after 10 s. At the exit the agent ends `prompt-too-long` and one new session
 //   with a handoff starts. A second full context parks `budget-exceeded` (end kind `capped`).

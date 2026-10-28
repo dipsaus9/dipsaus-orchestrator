@@ -31,7 +31,6 @@ import type { StoryGit } from "./story-git";
 
 /** The tags DIPO-51 stores at the start of an intent's detail. */
 export const INTENT_TAGS = {
-  reportFeedback: "report-feedback",
   contextFull: "new-session:context-full",
   error: "new-session:error",
   planLimit: "plan-limit",
@@ -321,15 +320,6 @@ export interface RunOutcomesDeps {
 
 export function messageOf(error: unknown): string {
   return error instanceof Error ? error.message : String(error);
-}
-
-/** The agent a report feedback was sent to and why, from its intent detail. */
-export function feedbackOf(detail: string): { readonly agent: string; readonly why: string } {
-  const rest = intentRest(detail);
-  const space = rest.indexOf(" ");
-  return space === -1
-    ? { agent: rest, why: "" }
-    : { agent: rest.slice(0, space), why: rest.slice(space + 1) };
 }
 
 /** The one feedback turn "report in the schema" (0008 section 7, 0014 section 2). */

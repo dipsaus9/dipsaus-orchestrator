@@ -345,41 +345,6 @@ export class RunEndings {
     });
   }
 
-  /**
-   * Sends a verify feedback item as the next user message, stored first as a `steer` intent.
-   * `what` names the message in its intent and in the notice when it did not reach the worker
-   * (DIPO-277 sends the collision messages this way).
-   */
-  async sendFeedback(
-    office: OfficeHandle,
-    run: StoredRun,
-    text: string,
-    write: (fn: () => readonly NewEntry[]) => void,
-    what = "verify feedback",
-  ): Promise<void> {
-    const { done } = sendAsIntent(office, this.#deps.steering, run.runId, {
-      kind: "steer",
-      detail: what,
-      ops: this.#deps.encode({ kind: "steer", text }),
-      clock: this.#deps.clock,
-    });
-    const { error } = await done;
-    if (error !== null) {
-      write(() => [
-        {
-          type: "engine.notice",
-          ...(run.key === null ? {} : { key: run.key }),
-          run: run.runId,
-          delta: {
-            level: "warn",
-            code: CONTROL_NOTICES.feedbackNotSent,
-            text: `${run.story ?? run.runId}: dipo could not send the ${what} to its worker (${error}).`,
-          },
-        },
-      ]);
-    }
-  }
-
   /** What `parkStory` needs: an `ambiguous-spec` park asks its question with a new id. */
   #parkDeps(
     office: OfficeHandle,

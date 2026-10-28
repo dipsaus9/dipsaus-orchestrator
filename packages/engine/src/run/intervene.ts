@@ -1,17 +1,18 @@
 // The maintainer's hand on a running worker (0020, 0008, DIPO-163): `work.steer`, on the waiting
-// command path. Its facts are in `steers.ts`.
+// command path, through the one feedback path (`feedback.ts`, source `steer`, keyed by its
+// request).
 //
 // - `work.steer { story, text }`: a worker with a live session gets one next-priority user message
-//   wrapped in `feedback/steer.md`, stored first as a `steer` intent; the reply says `next-turn`.
-//   A parked story, or a run between two sessions, stores the steer once, keyed by its request,
-//   and the first message of the next session carries it; the reply says `on-resume`. A story
+//   wrapped in `feedback/steer.md`; the reply says `next-turn`. A parked story, or a run between
+//   two sessions, holds the steer once, and the first message of the next session carries it; the
+//   reply says `on-resume`. A story
 //   whose live (or next) session is its reviewer, or whose host is followed only, answers
 //   `story.notSteerable`: the reviewer gets no maintainer text (0002), and a follow-only host takes
 //   no input (0005). A story with no run and no park answers `story.notRunning`.
 //
 // A re-run is target-state: a steer finds its stored intent by its request.
 
-import { type RunId, workSteer } from "@dipsaus-orchestrator/contract";
+import { workSteer } from "@dipsaus-orchestrator/contract";
 import type { z } from "zod";
 
 import { CommandError } from "../commands/errors";
@@ -22,9 +23,8 @@ import { renderTemplate } from "../prompts/templates";
 import { workerHostsOf } from "../runs/worker-hosts";
 
 import { type RunControlDeps, STORY_NOT_RUNNING } from "./control-types";
-import { recordIntent, sendAsIntent } from "./intents";
+import { findSteer, sendFeedback } from "./feedback";
 import { openWait } from "./outcome-types";
-import { findSteer, MAINTAINER_TAGS } from "./steers";
 import { openPark } from "./park";
 import { placeOfRun } from "./places";
 import { activeRuns, type StoredRun } from "./records";
@@ -100,13 +100,12 @@ export class Interventions {
       this.#hold(ctx, run.runId, args.text);
       return { result: { run: run.runId, delivered: "on-resume" } };
     }
-    const { done } = sendAsIntent(handle, this.#deps.steering, run.runId, {
-      kind: "steer",
-      detail: `${MAINTAINER_TAGS.steer} ${ctx.requestId} ${args.text}`,
-      ops: this.#deps.encode({ kind: "steer", text: steerText(args.text) }),
-      clock: this.#deps.clock,
-    });
-    const { error } = await done;
+    const error = await sendFeedback(
+      handle,
+      run.runId,
+      { source: "steer", key: ctx.requestId, text: steerText(args.text) },
+      { sender: this.#deps },
+    ).done;
     if (error !== null) {
       throw new CommandError(
         STORY_NOT_STEERABLE,
@@ -121,12 +120,11 @@ export class Interventions {
   #hold(ctx: AsyncCommandContext, runId: string, text: string): void {
     ctx.commit(() => {
       if (findSteer(ctx.office, ctx.requestId) !== null) return;
-      recordIntent(
+      sendFeedback(
         ctx.office,
-        runId as RunId,
-        "steer",
-        `${MAINTAINER_TAGS.steer} ${ctx.requestId} ${text}`,
-        ctx.now,
+        runId,
+        { source: "steer", key: ctx.requestId, text: steerText(text) },
+        { at: ctx.now },
       );
     });
   }

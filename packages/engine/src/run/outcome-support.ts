@@ -11,6 +11,7 @@ import { withWorkViews, workRefOf } from "../views/work";
 import { firedCap, runTotals } from "./caps";
 import type { RunEnding } from "./control-types";
 import { DecidingGuard } from "./deciding";
+import { type FeedbackIntent, feedbackIntents } from "./feedback";
 import { type IntentKind, resolveIntent, runIntents, type StoredIntent } from "./intents";
 import {
   HOST_LOST_END,
@@ -129,12 +130,12 @@ export class OutcomeSupport {
     office.immediate(() => resolveIntent(office, runId, intent.intentId, outcome, at));
   }
 
-  /** The run's report feedback intents (the counter of AC #1). */
-  reportFeedbacks(office: OfficeHandle, runId: RunId): StoredIntent[] {
-    return runIntents(office, runId).filter(
-      (intent) =>
-        intent.kind === "steer" && intentTag(intent.detail) === INTENT_TAGS.reportFeedback,
-    );
+  /**
+   * The run's report corrections: its `report` messages of the one feedback path, each keyed on
+   * the agent it went to. A run gets one (0008).
+   */
+  reportFeedbacks(office: OfficeHandle, runId: RunId): FeedbackIntent[] {
+    return feedbackIntents(office, runId, "report");
   }
 
   /** True when an agent of the run other than `agent` ended for `reason`. */

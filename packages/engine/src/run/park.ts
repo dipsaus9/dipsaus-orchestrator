@@ -57,8 +57,7 @@ import { editInStoryBacklog } from "../worktree/claim";
 import { PARKED_STATUS } from "../worktree/done";
 
 import { endRunMarked } from "./markers";
-import { resolvePark } from "./park-resolve";
-import { appendRunStep, reopenRun, type StoredRun } from "./records";
+import { appendRunStep, type StoredRun } from "./records";
 import { parkResumeNeed } from "./resume-policy";
 import { renderParkBlock, runSummaryFacts } from "./summary";
 
@@ -408,59 +407,6 @@ export function gitUnparkWriter(deps: {
       });
     },
   };
-}
-
-/**
- * Inside the caller's transaction (DIPO-75): the park `parkId` is resolved `resume` and its run is
- * active again (`reopenRun`), so the resumed session continues the same run with what remains of
- * its budget (0008 section 8). The run's outcome row goes, since the run has not ended; its next
- * end writes it again with every park of the run. The time since the run ended at the park is
- * added to `runs.parked_ms`, so its caps and minutes count only the time it worked. Returns the
- * park's `question.closed` entries and the `story.state` entry back to `to`.
- */
-export function reopenParkedRun(
-  office: OfficeHandle,
-  park: { readonly parkId: number; readonly reason: string; readonly detail: string },
-  run: StoredRun,
-  to: Lifecycle,
-  at: number,
-  /** The maintainer's note on the resume (0020 section 3, DIPO-155), kept on the park row. */
-  note: string | null = null,
-): NewEntry[] {
-  const closed = resolvePark(office, park.parkId, "resume", at, note);
-  // The stream drift count starts again (DIPO-315): the resumed session gets the whole threshold,
-  // so one stray line does not park it again at once.
-  office.run(
-    `update ingest_cursors set drift_lines = 0 where office_id = $office_id and run_id = $run`,
-    { run: run.runId },
-  );
-  reopenRun(office, run.runId, at);
-  const key = run.key;
-  const story = run.story;
-  if (key === null || story === null) return closed;
-  const current = storyView(office, key);
-  const view = deriveStoryView({
-    key,
-    story: current?.story ?? StoryId.parse(story),
-    title: current?.title ?? "",
-    lifecycle: to,
-    ...(current?.tier === undefined ? {} : { tier: current.tier }),
-  });
-  return [
-    ...closed,
-    {
-      type: "story.state",
-      key,
-      delta: {
-        story,
-        key,
-        from: "Parked",
-        to,
-        detail: [`resumed from ${park.reason}: ${park.detail}`],
-      },
-      view,
-    },
-  ];
 }
 
 export interface ParkDeps {
