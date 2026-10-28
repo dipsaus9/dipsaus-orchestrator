@@ -78,6 +78,7 @@ import {
   type BoxWorkersDeps,
   readBoxRun,
 } from "../../src/box/workers";
+import { BOX_GIT_ENV, BOX_GIT_INIT_TIMEOUT_MS, boxGitInitCommand } from "../../src/box/box-git";
 import { DIPO_PART_PATH } from "../../src/box/door";
 import { partModeCommand, stageCopyCommand } from "../../src/box/user";
 import { BoxParts, type BoxPartsDeps } from "../../src/box/parts";
@@ -497,6 +498,45 @@ describe("the box of a box run (criteria 4 and 10)", () => {
       // Without the door no queue is read.
       await w.workers.session({ runId: RUN, runDir: w.runDir, systemFile: w.systemFile });
       expect(w.workers.readDoor(RUN)).toBeNull();
+    }));
+
+  // DIPO-346 (0008): the box's own local repository, made by the box user from what was copied in.
+  it("makes the box's own git repository in /work as the box user, after the code and before dipo-part", () =>
+    inBoxes(async (repo, tmp) => {
+      const w = await world(repo, tmp);
+      await created(w);
+      const init = w.boxes.execs.filter(
+        (exec) => exec.command.join(" ") === boxGitInitCommand().join(" "),
+      );
+      expect(init).toEqual([
+        {
+          box: BOX,
+          command: boxGitInitCommand(),
+          options: { cwd: "/work", env: BOX_GIT_ENV, timeoutMs: BOX_GIT_INIT_TIMEOUT_MS },
+        },
+      ]);
+      expect(init[0]?.options?.rootStep).toBeUndefined();
+      const at = w.log.indexOf(`exec ${BOX} /bin/sh`);
+      expect(at).toBeGreaterThan(w.log.indexOf(`copy in ${BOX} /work`));
+      expect(at).toBeLessThan(w.log.indexOf(`copy in ${BOX} ${DIPO_PART_PATH}`));
+    }));
+
+  it("deletes the box and fails when its git repository cannot be made", () =>
+    inBoxes(async (repo, tmp) => {
+      const w = await world(repo, tmp, {
+        boxes: {
+          exec: (_box, command) =>
+            command.join(" ") === boxGitInitCommand().join(" ")
+              ? { code: 3, stdout: "", stderr: "/work already holds .git" }
+              : undefined,
+        },
+      });
+      const error = await created(w).catch((thrown: unknown) => thrown);
+      expect(error).toBeInstanceOf(BoxError);
+      expect((error as BoxError).code).toBe("box.failed");
+      expect((error as BoxError).message).toContain("git repository could not be made (exit 3)");
+      expect(w.log).toContain(`delete ${BOX}`);
+      expect(w.log).not.toContain(`copy in ${BOX} ${DIPO_PART_PATH}`);
     }));
 
   it("copies the code into /work as the box user's copy, through a root-only stage (DIPO-334)", () =>

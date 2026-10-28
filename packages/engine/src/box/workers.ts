@@ -8,8 +8,9 @@
 //   behind the box firewall, and committed; DIPO-281), the host-only box network, the box with
 //   nothing of the Mac mounted but the office package cache and the image's box network tools
 //   (read-only, DIPO-281), started, and the code copied in (`stageBoxCode`: the start commit from git's objects plus the
-//   listed files from the office's main checkout, never `.git`), and dipo's `dipo-part` command
-//   installed (`installDipoPart`, DIPO-272).
+//   listed files from the office's main checkout, never `.git`), the box's own local repository
+//   made from it (`initBoxRepository`, DIPO-346), and dipo's `dipo-part` command installed
+//   (`installDipoPart`, DIPO-272).
 // - The package cache (DIPO-295, with `packageCache`): before the box is made, the office's cache
 //   is reused when its key (the base lockfile and the image's manager version) matches, or filled
 //   in a fill box (`ensurePackageCache`) through this daemon's web route; a reuse makes no fill
@@ -84,6 +85,7 @@ import {
   type PackageCacheRequest,
   readBaseLockfile,
 } from "./cache";
+import { initBoxRepository } from "./box-git";
 import { BOX_DIPO_DIR, BOX_WORKDIR, type BoxCodeDeps, stageBoxCode } from "./code";
 import { BoxDoor, type BoxDoorDeps, type DoorRead, installDipoPart } from "./door";
 import { BOX_IMAGE_ENV, type BaseBox, type BoxImageDescription, type BoxToolchain } from "./image";
@@ -721,6 +723,8 @@ export class BoxWorkers {
       } finally {
         await staged.remove();
       }
+      // The box's own local repository of what was copied in (0008, DIPO-346), as the box user.
+      await initBoxRepository(boxes, name);
       // The worker's one way to hand dipo a part (0021 W1, DIPO-272): dipo's own command.
       await installDipoPart({ boxes, tmpRoot: this.#deps.tmpRoot }, name);
       for (const skipped of staged.skipped) {

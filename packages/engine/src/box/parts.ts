@@ -8,7 +8,9 @@
 //    file it creates (O_CREAT|O_EXCL|O_NOFOLLOW) in a fresh folder of its own, cut at
 //    `PART_ARCHIVE_LIMITS`, the exec's stdin closed. Never container copy, which keeps symlinks as
 //    links. A failed stream kills only the exec client, so the worker's box is kept; the `tar` in
-//    the box runs under `timeout` where the box has it, as the door's read does. Paths git would
+//    the box runs under `timeout` where the box has it, as the door's read does. The box's own git
+//    repository at `/work/.git` (0008, DIPO-346) never leaves the box: every stream excludes it
+//    (`BOX_GIT_EXCLUDE`), whatever else it excludes. Paths git would
 //    ignore leave out early, inside the box, by an exclude list dipo builds from the delivered
 //    root `.gitignore` (`inBoxExcludes`: plain names such as `node_modules`, and names anchored
 //    to the root such as `/node_modules`, unless a `!` rule could re-include the name or a
@@ -75,8 +77,8 @@
 //
 // Story done (`finishLast`) holds the same one-at-a-time turn from the last part until the caller
 // has claimed the run's end, so no part or catch-up moves the branch between the last part and In
-// Review. dipo runs no verify in the box (0021 amendment of 2026-10-22, DIPO-299): CI on the story
-// PR is the verify of a box run.
+// Review. dipo runs the office's verify in the box inside that turn (0002, DIPO-346), so the
+// verify sees exactly the last part.
 
 import { createHash } from "node:crypto";
 import { appendFileSync, constants } from "node:fs";
@@ -472,8 +474,16 @@ export function inBoxExcludes(rules: IgnoreRules, view: ReadonlyMap<string, Tree
 }
 
 /**
+ * The exclude that keeps the box's own git repository (`/work/.git`, 0008) in the box: a folder, a
+ * file or a link of that name at the root of `/work`, and all it holds. A `.git` deeper down (a
+ * nested repository, a `.git` file) still leaves the box, and the Mac refuses it (`protectedKind`).
+ */
+export const BOX_GIT_EXCLUDE = "./.git";
+
+/**
  * The command that streams the part out of the box: `tar` of `BOX_WORKDIR` to its stdout, hard
- * links stored as files, the excludes first, under `timeout` where the box has it. A plain name
+ * links stored as files, the box's `.git` (`BOX_GIT_EXCLUDE`) and the excludes first, under
+ * `timeout` where the box has it. A plain name
  * excludes that name at any depth; `./<name>` only the entry at the root of `/work`, since the
  * archive's names start `./` there and nowhere below (GNU tar's unanchored matching). Either may
  * end in `/*`: then only the entries inside a folder of that name, never a file named so.
@@ -496,6 +506,7 @@ export function partArchiveCommand(excludes: readonly string[]): [string, ...str
     BOX_WORKDIR,
     "-cf",
     "-",
+    `--exclude=${BOX_GIT_EXCLUDE}`,
     ...excludes.map((name) => `--exclude=${name}`),
     ".",
   ];

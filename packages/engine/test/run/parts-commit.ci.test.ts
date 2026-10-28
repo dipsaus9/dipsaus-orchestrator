@@ -370,7 +370,7 @@ if (process.env["DIPO_TEST_CI"] === "1") {
         expect(await w.repo.git("show", `${commit}:${TASK_FILE}`)).toContain("In Progress");
         // The stream: tar through the exec with its stdin closed, never a copy out of the box.
         expect(w.calls).toEqual([
-          "exec dipo-run_1 tar --hard-dereference -C /work -cf - --exclude=node_modules/* .",
+          "exec dipo-run_1 tar --hard-dereference -C /work -cf - --exclude=./.git --exclude=node_modules/* .",
           "stdin end",
         ]);
         // The main checkout was not written.
@@ -838,8 +838,8 @@ if (process.env["DIPO_TEST_CI"] === "1") {
           expect(await filesAt(w, await tip(w))).toContain("node_modules/pkg/index.js");
           // The first stream left node_modules in the box; the second, by the part's rules, did not.
           expect(w.calls.filter((call) => call.startsWith("exec"))).toEqual([
-            "exec dipo-run_1 tar --hard-dereference -C /work -cf - --exclude=node_modules/* .",
-            "exec dipo-run_1 tar --hard-dereference -C /work -cf - .",
+            "exec dipo-run_1 tar --hard-dereference -C /work -cf - --exclude=./.git --exclude=node_modules/* .",
+            "exec dipo-run_1 tar --hard-dereference -C /work -cf - --exclude=./.git .",
           ]);
           // The next part streams once, with the delivered rules.
           write(w.work, { "src/a.ts": "export const a = 2;\n" });
@@ -879,7 +879,7 @@ if (process.env["DIPO_TEST_CI"] === "1") {
           await w.parts.onPart(part("Anchored ignore"));
           expect(w.parks).toEqual([]);
           expect(w.calls.filter((call) => call.startsWith("exec"))).toEqual([
-            "exec dipo-run_1 tar --hard-dereference -C /work -cf - --exclude=./dist/* --exclude=./node_modules .",
+            "exec dipo-run_1 tar --hard-dereference -C /work -cf - --exclude=./.git --exclude=./dist/* --exclude=./node_modules .",
           ]);
           const files = await filesAt(w, await tip(w));
           expect(files).toContain("pkg/node_modules/kept/index.js");
