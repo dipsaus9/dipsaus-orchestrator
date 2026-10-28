@@ -440,7 +440,7 @@ export class VerifyCommit implements RunFinisher {
       return {
         kind: "park",
         reason: "verify-failing",
-        detail: `the report gate refused the done report ${loops} times (the loop cap is ${cap}). ${items.join(" ")}`,
+        detail: `the report gate refused the done report ${loops} time${loops === 1 ? "" : "s"} (the loop cap is ${cap}). ${items.join(" ")}`,
         endKind: "verify-failing",
       };
     }

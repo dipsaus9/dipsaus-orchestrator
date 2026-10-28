@@ -1041,7 +1041,13 @@ describe("a box run at done (DIPO-299: CI is its verify)", () => {
   });
 
   it("never parks a box run at the tier's loop cap: done after done goes to review each time", async () => {
-    // The run's loop cap is 1; on the Mac one red verify would have parked it.
+    // A loop cap of 1: an accepted done is no loop, only a refused report is (0002).
+    w.f.office.immediate(() =>
+      w.f.office.run(
+        "update runs set loop_cap = 1 where office_id = $office_id and run_id = $run",
+        { run: w.f.run },
+      ),
+    );
     await play();
     w.f.office.immediate(() =>
       reopenForRound(w.f.office, findRun(w.f.office, w.f.run)!, "fix", w.f.t.clock.now()),
@@ -1489,6 +1495,8 @@ describe("a box run's report data at done (DIPO-186)", () => {
     expect(w.calls).toEqual([]);
     expect(findRun(w.f.office, w.f.run)?.endedAt).toBeNull();
     expect(parks()).toEqual([]);
+    // A refusal for the missing verify run alone is a loop too (0002).
+    expect(loopSteps()).toEqual([REPORT_GATE_LOOP]);
     // Once per run: the next done without a run goes on.
     await playEvents([edit, turn(DONE)]);
     expect(feedbackTexts()).toHaveLength(1);
@@ -1706,6 +1714,28 @@ describe("the report gate at done, in a box run (DIPO-186, DIPO-240)", () => {
     expect(park?.detail).toContain("- #1 (not reported)");
     expect(w.calls).toEqual([]);
     expect(loopSteps()).toEqual([REPORT_GATE_LOOP, REPORT_GATE_LOOP, REPORT_GATE_LOOP]);
+  });
+
+  it("parks verify-failing at the first refused report when the loop cap is 1", async () => {
+    w.f.office.immediate(() =>
+      w.f.office.run(
+        "update runs set loop_cap = 1 where office_id = $office_id and run_id = $run",
+        { run: w.f.run },
+      ),
+    );
+    w.fields = PLAN;
+    await play(DONE);
+    expect(feedbackTexts()).toEqual([]);
+    expect(parks()).toEqual([
+      expect.objectContaining({
+        reason: "verify-failing",
+        detail: expect.stringContaining(
+          "the report gate refused the done report 1 time (the loop cap is 1).",
+        ),
+      }),
+    ]);
+    expect(w.calls).toEqual([]);
+    expect(loopSteps()).toEqual([REPORT_GATE_LOOP]);
   });
 
   it("leaves a story without a test plan, or with only manual entries, unchanged", async () => {
