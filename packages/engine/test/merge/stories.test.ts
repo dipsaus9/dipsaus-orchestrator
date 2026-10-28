@@ -26,6 +26,7 @@ import {
 import { CodeHostError } from "../../src/platform/host";
 import { recordReviewOverride, recordReviewVerdict } from "../../src/review/store";
 import { recordCatchUp } from "../../src/run/conflicts";
+import { insertPark } from "../run/park-fixture";
 import {
   openPark,
   type ParkBranchRequest,
@@ -452,7 +453,9 @@ describe("the merge gate", () => {
       s.w.office.run(
         `insert into backlog_mirror (office_id, key, content_hash, kind, status, title, labels,
            read_at, source)
-         values ($office_id, $key, 'h', 'task', 'In Review', 'A story', $labels, 0, 'branch')`,
+         values ($office_id, $key, 'h', 'task', 'In Review', 'A story', $labels, 0, 'branch')
+         on conflict (office_id, key) do update set labels = excluded.labels,
+           source = excluded.source`,
         { key: s.key, labels: JSON.stringify(["test-before-merge"]) },
       ),
     );
@@ -537,12 +540,15 @@ describe("the merge gate", () => {
       },
     });
     s.w.office.immediate(() =>
-      s.w.office.run(
-        `insert into parks (office_id, park_id, key, story_id, run_id, reason, from_state, detail,
-           at)
-         values ($office_id, 1, $key, 'DIPO-7', $run, 'review-blocked', 'In Review', 'blocked', 0)`,
-        { key: s.key, run: s.run },
-      ),
+      insertPark(s.w.office, {
+        key: s.key,
+        story: "DIPO-7",
+        runId: s.run,
+        reason: "review-blocked",
+        from: "In Review",
+        detail: "blocked",
+        at: 0,
+      }),
     );
     await s.tick();
     await s.tick();
@@ -560,11 +566,15 @@ describe("the merge gate", () => {
 /** Opens a park of the story's run, as a CI-cap or a maintainer park records it. */
 function parkRun(reason: "verify-failing" | "by-maintainer"): void {
   s.w.office.immediate(() =>
-    s.w.office.run(
-      `insert into parks (office_id, park_id, key, story_id, run_id, reason, from_state, detail, at)
-       values ($office_id, 1, $key, 'DIPO-7', $run, $reason, 'In Review', 'parked', 0)`,
-      { key: s.key, run: s.run, reason },
-    ),
+    insertPark(s.w.office, {
+      key: s.key,
+      story: "DIPO-7",
+      runId: s.run,
+      reason,
+      from: "In Review",
+      detail: "parked",
+      at: 0,
+    }),
   );
 }
 

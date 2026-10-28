@@ -7,8 +7,10 @@
 // from the claim commit until the claim is released, its status, park record (F16), criteria and
 // tier live there, so the pass reads it again as committed at the branch tip (`branch-read.ts`;
 // never the worktree's uncommitted edits) and mirrors that read with the branch as `source`. A
-// claimed story whose branch cannot be read (the ref or its task file missing) keeps its base
-// read and is listed in `branchUnread`; reconcile reports it.
+// claimed story whose branch cannot be read (the ref or its task file missing) is listed in
+// `branchUnread`, and its mirror row keeps the last read of the branch (DIPO-360), so its status
+// and park do not fall back to the base's; the pass emits one `stories.branchUnread` notice until
+// the branch reads again, and reconcile reports it.
 // `refreshStory` reads one story the same way, right after a commit on its branch.
 //
 // The CLI does not read a story's view again in a pass when none of the Backlog files it printed
@@ -22,7 +24,7 @@ import { readFileSync } from "node:fs";
 import { join } from "node:path";
 
 import { type BacklogCli, backlogPointer } from "../backlog/runner";
-import { appendEntries } from "../changelog/log";
+import { appendEntries, type NewEntry } from "../changelog/log";
 import type { OfficeHandle } from "../db/office";
 import type { GitSession, OfficeGit } from "../git/office";
 import { type ClaimRecord, liveClaimOf, liveClaims } from "../worktree/records";
@@ -177,14 +179,65 @@ export async function indexPass(
   const { read, branchUnread, baseStatus } = await overlayClaimed(deps, git, basePath, fromBase);
   const at = deps.clock.now();
   return deps.office.immediate(() => {
+    const keepMirror = new Set(branchUnread.map((unread) => unread.key));
     const { stats, entries } = applyIndex(deps.office, deps.ids, read, {
       at,
       source: "base",
       sha,
+      keepMirror,
     });
+    entries.push(...branchUnreadNotices(deps.office, branchUnread, at));
     const cursor = appendEntries(deps.office, entries, { at });
     return { stats, sha, cursor, read, branchUnread, baseStatus };
   });
+}
+
+/** The notice code of a claimed story whose branch could not be read (DIPO-360). */
+export const BRANCH_UNREAD_NOTICE = "stories.branchUnread";
+
+/** The `once_notices` code of a claimed story whose branch could not be read (DIPO-360). */
+function unreadCode(key: string): string {
+  return `${BRANCH_UNREAD_NOTICE}:${key}`;
+}
+
+/**
+ * Inside the pass's transaction (DIPO-360): one warn notice when a claimed story's branch first
+ * cannot be read, saying its last read is kept; cleared once the branch reads again, so the next
+ * time it cannot be read gets a notice again.
+ */
+function branchUnreadNotices(
+  office: IndexDeps["office"],
+  unread: readonly BranchUnread[],
+  at: number,
+): NewEntry[] {
+  // A branch that reads again, or a claim released, clears its mark.
+  const marked = new Set(unread.map((u) => unreadCode(u.key)));
+  for (const { code } of office.all<{ code: string }>(
+    "select code from once_notices where office_id = $office_id and code like $prefix",
+    { prefix: `${BRANCH_UNREAD_NOTICE}:%` },
+  )) {
+    if (marked.has(code)) continue;
+    office.run("delete from once_notices where office_id = $office_id and code = $code", { code });
+  }
+  const entries: NewEntry[] = [];
+  for (const u of unread) {
+    const first = office.run(
+      `insert into once_notices (office_id, code, shown_at)
+       values ($office_id, $code, $at) on conflict do nothing`,
+      { code: unreadCode(u.key), at },
+    );
+    if (first.changes === 0) continue;
+    entries.push({
+      type: "engine.notice",
+      key: u.key,
+      delta: {
+        level: "warn",
+        code: BRANCH_UNREAD_NOTICE,
+        text: `dipo could not read ${u.story} on its branch ${u.branch} (${u.reason}); it keeps the story's last read, its status and park included, until the branch reads again.`,
+      },
+    });
+  }
+  return entries;
 }
 
 /** The base read with every claimed story replaced by its read on the story branch. */

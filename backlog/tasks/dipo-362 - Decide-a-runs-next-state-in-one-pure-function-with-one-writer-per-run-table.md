@@ -4,6 +4,7 @@ title: Decide a run's next state in one pure function with one writer per run ta
 status: Refined
 assignee: []
 created_date: '2026-10-28 08:45'
+updated_date: '2026-10-28 10:05'
 labels:
   - 'tier:M'
   - 'slice:prune'
@@ -42,4 +43,5 @@ test_plan:
 <!-- AC:BEGIN -->
 - [ ] #1 One pure function, with no I/O and no clock reads, decides the next state of a run from its state and an event, and every run transition goes through it
 - [ ] #2 runs, parks, agents and worker_hosts each have one writer, and the three copies of the end-agent SQL are one
+- [ ] #3 A resume whose finishing step throws after the lift reached the branch leaves its intent pending with a notice instead of failing it, so a rescan cannot close the park row and strand the story In Progress (park-resume.ts recover; from the review of DIPO-360)
 <!-- AC:END -->

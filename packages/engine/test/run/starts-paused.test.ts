@@ -9,6 +9,7 @@ import { afterEach, beforeEach, describe, expect, it } from "bun:test";
 
 import type { OfficeId } from "@dipsaus-orchestrator/contract";
 
+import { insertPark } from "./park-fixture";
 import { OFFICE_DEFAULTS } from "../../src/config";
 import type { OfficeHandle } from "../../src/db/office";
 import {
@@ -109,15 +110,23 @@ function startsPaused(): StartsPaused {
 /** A park of `story` for `reason`, made by a plan limit when `byLimit`; returns its id. */
 function park(story: string, reason: string, byLimit: boolean, office = w.office): number {
   const run = storyRun({ ...w, office }, { story });
-  office.immediate(() =>
+  office.immediate(() => {
+    const parkId = insertPark(office, {
+      key: run.key,
+      story,
+      runId: run.run,
+      reason,
+      detail: "x",
+      at: now(),
+    });
     office.run(
-      `insert into parks (office_id, park_id, key, story_id, run_id, reason, from_state, detail, at,
-         resume_on_lift)
-       values ($office_id, (select coalesce(max(park_id), 0) + 1 from parks
-         where office_id = $office_id), $key, $story, $run, $reason, 'In Progress', 'x', $at, $lift)`,
-      { key: run.key, story, run: run.run, reason, at: now(), lift: byLimit ? 1 : 0 },
-    ),
-  );
+      "update parks set resume_on_lift = $lift where office_id = $office_id and park_id = $id",
+      {
+        id: parkId,
+        lift: byLimit ? 1 : 0,
+      },
+    );
+  });
   return (
     office.get<{ id: number }>("select max(park_id) as id from parks where office_id = $office_id")
       ?.id ?? 0

@@ -104,6 +104,7 @@ import { storedDoneReport } from "../run/done-report";
 import { runBudgetFacts } from "../run/budget-line";
 import { runCaps } from "../run/caps";
 import { type ParkWriter, parkStory } from "../run/park";
+import { runHeldByPark } from "../run/park-state";
 import {
   appendRunStep,
   findRun,
@@ -1343,11 +1344,9 @@ function waitsForMerge(office: OfficeHandle, run: StoredRun): boolean {
   return (
     office.get(
       `select 1 as found from claims c where c.office_id = $office_id and c.run_id = $run
-          and c.released_at is null
-          and not exists (select 1 from parks p where p.office_id = c.office_id
-            and p.run_id = $run and p.resolved_at is null)`,
+          and c.released_at is null`,
       { run: run.runId },
-    ) !== null
+    ) !== null && !runHeldByPark(office, run.runId)
   );
 }
 

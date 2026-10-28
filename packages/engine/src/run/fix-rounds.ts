@@ -79,7 +79,8 @@ import {
 } from "./feedback-items";
 import { markIntentSent, recordIntent, resolveIntent, runIntents } from "./intents";
 import { intentRest, intentTag, OUTCOME_ENDS, type RunView } from "./outcome-types";
-import { type BranchUnpark, openPark, type UnparkWriter } from "./park";
+import { type BranchUnpark, type UnparkWriter } from "./park";
+import { heldByPark } from "./park-state";
 import { recordBranchPush } from "../story-pr/records";
 import type { Places, PlaceStart } from "./places";
 import { findRun, IN_REVIEW_END, type StoredRun } from "./records";
@@ -579,7 +580,7 @@ export class FixRounds {
     if (run.endKind !== REVIEWED_END && run.endKind !== IN_REVIEW_END) return false;
     const claim = findClaim(office, run.runId);
     if (claim === null || claim.releasedAt !== null) return false;
-    if (openPark(office, run.key) !== null) return false;
+    if (heldByPark(office, run.key)) return false;
     const live = office.get<{ found: number }>(
       `select 1 as found from agents where office_id = $office_id and run_id = $run
         and ended_at is null and agent_id is not $exited limit 1`,

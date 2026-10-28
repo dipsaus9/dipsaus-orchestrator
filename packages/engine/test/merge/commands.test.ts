@@ -16,6 +16,7 @@ import {
   type RunId,
 } from "@dipsaus-orchestrator/contract";
 
+import { insertPark } from "../run/park-fixture";
 import { appendEntries, type NewEntry } from "../../src/changelog/log";
 import { CommandError } from "../../src/commands/errors";
 import type { AsyncCommandContext } from "../../src/commands/registry";
@@ -246,12 +247,16 @@ async function blocked(): Promise<GateId> {
     },
   });
   s.w.office.immediate(() => {
-    s.w.office.run(
-      `insert into parks (office_id, park_id, key, story_id, run_id, reason, from_state, detail,
-         at)
-       values ($office_id, 1, $key, 'DIPO-7', $run, 'review-blocked', 'In Review', 'blocked', 0)`,
-      { key: s.key, run: s.run },
-    );
+    insertPark(s.w.office, {
+      parkId: 1,
+      key: s.key,
+      story: "DIPO-7",
+      runId: s.run,
+      reason: "review-blocked",
+      from: "In Review",
+      detail: "blocked",
+      at: 0,
+    });
     s.w.office.run(
       "update runs set end_kind = 'review-blocked' where office_id = $office_id and run_id = $run",
       { run: s.run },

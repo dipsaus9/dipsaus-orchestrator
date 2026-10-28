@@ -650,13 +650,24 @@ if (process.env["DIPO_TEST_CI"] === "1") {
     it("is kept with a notice while its story has an open park, by the Done poll and by reconcile", () =>
       withReconcileOffice({ base: DONE }, async (o) => {
         const record = await movedPast(o);
+        // Parked in Backlog.md on its branch (DIPO-360), with the park's run detail row.
+        await onBranch(
+          o,
+          record,
+          "TASK-1: status Parked",
+          {},
+          {
+            id: "TASK-1",
+            status: "Parked",
+            fields: ['park: {reason: "budget-exceeded", from: "In Review", note: "turn cap"}'],
+          },
+        );
         o.office.run(
-          `insert into parks (office_id, park_id, key, story_id, run_id, reason, from_state, detail,
-           last_good_commit, at)
-         values ($office_id, 1, $key, 'TASK-1', $run, 'budget-exceeded', 'In Review',
-           'turn cap', null, 1)`,
+          `insert into parks (office_id, park_id, key, story_id, run_id, reason, detail, last_good_commit, at)
+         values ($office_id, 1, $key, 'TASK-1', $run, 'budget-exceeded', 'turn cap', null, 1)`,
           { key: record.key, run: record.runId },
         );
+        await o.index.indexStories(o.officeId);
         const seq = lastSeq(o.office);
         const teardown = pollOf(o);
         const report = await teardown.poll(o.officeId as OfficeId);
