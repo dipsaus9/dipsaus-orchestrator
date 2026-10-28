@@ -21,6 +21,7 @@
 
 import { lookup } from "node:dns/promises";
 import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import { connect } from "node:net";
 import { homedir } from "node:os";
 import { join } from "node:path";
 
@@ -33,7 +34,11 @@ import { ensureBoxImage } from "../../src/box/build-box";
 import { BOX_IMAGE_ENV, describeBox } from "../../src/box/image";
 import { type BoxNetwork, boxName, isBoxTimedOut } from "../../src/box/port";
 import { SAFE_CHAIN_BOX_PORTS, SAFE_CHAIN_REGISTRY_HOSTS } from "../../src/box/safe-chain";
-import { type SafeChainBoxInfo, startBoxWebRoute } from "../../src/box/safe-chain-box";
+import {
+  type SafeChainBoxInfo,
+  type SafeChainRouteEvent,
+  startBoxWebRoute,
+} from "../../src/box/safe-chain-box";
 import { BoxWebRoute, type RunningBoxWebRoute, type WebProxyEvent } from "../../src/box/web-proxy";
 import { systemClock } from "../../src/platform/clock";
 import { systemSpawn } from "../../src/platform/process";
@@ -73,6 +78,26 @@ const TLS_NAMING_A_REGISTRY = [
   "setTimeout(() => process.exit(4), 15000);",
 ].join("\n");
 
+/** The status line a CONNECT to `target` through the proxy at `host:port` gets, from the Mac. */
+function connectLine(host: string, port: number, target: string): Promise<string> {
+  return new Promise((resolve) => {
+    const socket = connect(port, host, () =>
+      socket.write(`CONNECT ${target} HTTP/1.1\r\nHost: ${target}\r\n\r\n`),
+    );
+    let text = "";
+    const done = () => {
+      socket.destroy();
+      resolve(text.split("\r\n")[0] ?? "");
+    };
+    socket.on("data", (chunk) => {
+      text += chunk.toString("latin1");
+      if (text.includes("\r\n")) done();
+    });
+    socket.on("error", done);
+    socket.on("close", done);
+  });
+}
+
 /** An npm install as the worker runs one, with a fresh prefix and cache under /tmp. */
 function npm(spec: string, prefix: string): string {
   return `npm install --prefix /tmp/${prefix} --cache /tmp/${prefix}-cache --no-audit --no-fund ${spec}`;
@@ -97,6 +122,7 @@ if (registers) {
   });
   const events: WebProxyEvent[] = [];
   let safeChain: SafeChainBoxInfo | null = null;
+  const routeEvents: SafeChainRouteEvent[] = [];
   let network: BoxNetwork | null = null;
   const route = new BoxWebRoute<RunningBoxWebRoute>(async () => {
     const started = await startBoxWebRoute(
@@ -110,6 +136,7 @@ if (registers) {
         onSafeChain: (info) => {
           safeChain = info;
         },
+        onRoute: (event) => routeEvents.push(event),
         onEvent: (event) => fact(`Safe-Chain image build cleanup: ${JSON.stringify(event)}`),
       },
       { clock: systemClock, onEvent: (event) => events.push(event) },
@@ -151,7 +178,7 @@ if (registers) {
         const hostAddress = network.hostAddress;
         // The office image, built (or reused) through the route: its npm installs went
         // through the Safe-Chain box, which the route started for the build box. The image is
-        // this test's own (with `file`), so a rebuild never replaces one that dipo or another
+        // this test's own (with `file` and pip), so a rebuild never replaces one that dipo or another
         // test made.
         const office = await ensureBoxImage(
           {
@@ -161,7 +188,7 @@ if (registers) {
             toolsRoot,
             clock: systemClock,
           },
-          describeBox({ packages: ["file"] }, {}).image,
+          describeBox({ packages: ["file", "python3-pip"] }, {}).image,
         );
         fact(`office image ${office.tag} ${office.built ? "built" : "reused"}`);
         const runId = `test-${crypto.randomUUID().slice(0, 8)}`;
@@ -197,19 +224,35 @@ if (registers) {
           expect(blocked.code).not.toBe(0);
           expect(blocked.out).toMatch(/403|blocked by safe-chain/i);
           const registryIp = (await lookup("registry.npmjs.org", { family: 4 })).address;
-          const skips: [string, string][] = [
-            ["straight out", curl("https://registry.npmjs.org/", null)],
+          // Each with why it fails: curl's exit code where the box's firewall or its lack of a
+          // route stops it (6: no name service, 28: dropped until the timeout; 124: `timeout`
+          // ended a connect the firewall dropped), and the proxy's 403 where the proxy refuses.
+          const skips: [string, string, number, RegExp | null][] = [
+            ["straight out", curl("https://registry.npmjs.org/", null), 6, null],
             [
               "through the upstream listener",
               curl("https://registry.npmjs.org/", info.upstreamUrl),
+              28,
+              null,
             ],
-            ["to the registry's IP address", curl(`https://${registryIp}/`, proxy, "-k")],
-            ["direct to its IP address", `timeout 6 bash -c 'exec 3<>/dev/tcp/${registryIp}/443'`],
+            [
+              "to the registry's IP address",
+              curl(`https://${registryIp}/`, proxy, "-k"),
+              56,
+              /response 403/,
+            ],
+            [
+              "direct to its IP address",
+              `timeout 6 bash -c 'exec 3<>/dev/tcp/${registryIp}/443'`,
+              124,
+              null,
+            ],
           ];
-          for (const [what, line] of skips) {
+          for (const [what, line, code, answer] of skips) {
             const tried = await sh(name, line);
             fact(`a registry tunnel ${what}: exit ${tried.code} ${tried.out.trim()}`);
-            expect(tried.code).not.toBe(0);
+            expect(tried.code).toBe(code);
+            if (answer !== null) expect(tried.out).toMatch(answer);
           }
           for (const port of [SAFE_CHAIN_BOX_PORTS.npm, SAFE_CHAIN_BOX_PORTS.pypi, 22, 80]) {
             const tried = await sh(
@@ -217,8 +260,46 @@ if (registers) {
               `timeout 6 bash -c 'exec 3<>/dev/tcp/${info.address}/${port}'`,
             );
             fact(`the box to port ${port} of the Safe-Chain box: exit ${tried.code}`);
-            expect(tried.code).not.toBe(0);
+            // Dropped by the firewall (no answer, no refusal) until `timeout` ends it.
+            expect(tried.code).toBe(124);
           }
+          // The upstream listener's own source check. No developer box reaches the listener at
+          // all (its firewall drops the port, above), so the client here is the Mac, which is not
+          // the Safe-Chain box either.
+          const upstreamPort = Number(new URL(info.upstreamUrl).port);
+          const sourceRefused = await connectLine(
+            hostAddress,
+            upstreamPort,
+            "registry.npmjs.org:443",
+          );
+          fact(
+            `the upstream listener to a client that is not the Safe-Chain box: ${sourceRefused}`,
+          );
+          expect(sourceRefused).toBe("HTTP/1.1 403 Forbidden");
+          expect(events).toContainEqual({
+            kind: "refused",
+            target: "registry.npmjs.org:443",
+            reason: `${hostAddress} is not the Safe-Chain box; this listener serves only Safe-Chain`,
+          });
+
+          // PyPI through the box's PyPI port (8102): a real pip download is checked by Safe-Chain.
+          // Safe-Chain 1.5.12 has no PyPI test package (later releases add safe-chain-pi-test), so
+          // no blocked PyPI package is tried.
+          const pip = await sh(
+            name,
+            "pip download --no-deps --no-cache-dir --disable-pip-version-check -d /tmp/pip six==1.16.0 2>&1",
+            { HTTPS_PROXY: proxy, HTTP_PROXY: proxy, PIP_CERT: BOX_CA },
+          );
+          fact(
+            `pip download of six==1.16.0: exit ${pip.code} ${pip.out.trim().split("\n").at(-1)}`,
+          );
+          expect(pip.code).toBe(0);
+          expect(events).toContainEqual({ kind: "registry", host: "pypi.org", port: 443 });
+          expect(events).toContainEqual({
+            kind: "registry",
+            host: "files.pythonhosted.org",
+            port: 443,
+          });
 
           // Criterion 3: the bypass forms.
           // Each refused tunnel's own answer, as curl reports it, or how the TLS probe ended.
@@ -249,28 +330,38 @@ if (registers) {
             expect(tried.code).not.toBe(0);
             expect(tried.out).toMatch(answer);
           }
-          const bypasses: [string, string, Record<string, string>][] = [
+          // A proxy changed to an address the firewall drops hangs until `sh` gives up (exit
+          // null); with no proxy at all, npm finds no name service.
+          const bypasses: [string, string, Record<string, string>, number | null, RegExp | null][] =
             [
-              "the proxy changed to the Safe-Chain box",
-              `${npm("is-odd@3.0.1", "c")} --fetch-retries 0`,
-              { ...through, HTTPS_PROXY: `http://${info.address}:${SAFE_CHAIN_BOX_PORTS.npm}` },
-            ],
-            [
-              "the proxy changed to the upstream listener",
-              `${npm("is-odd@3.0.1", "d")} --fetch-retries 0`,
-              { ...through, HTTPS_PROXY: info.upstreamUrl },
-            ],
-            [
-              "the proxy setting removed",
-              `unset HTTPS_PROXY HTTP_PROXY https_proxy http_proxy; ${npm("is-odd@3.0.1", "e")} --fetch-retries 0`,
-              { NODE_EXTRA_CA_CERTS: BOX_CA },
-            ],
-          ];
-          for (const [what, line, extra] of bypasses) {
+              [
+                "the proxy changed to the Safe-Chain box",
+                `${npm("is-odd@3.0.1", "c")} --fetch-retries 0`,
+                { ...through, HTTPS_PROXY: `http://${info.address}:${SAFE_CHAIN_BOX_PORTS.npm}` },
+                null,
+                null,
+              ],
+              [
+                "the proxy changed to the upstream listener",
+                `${npm("is-odd@3.0.1", "d")} --fetch-retries 0`,
+                { ...through, HTTPS_PROXY: info.upstreamUrl },
+                null,
+                null,
+              ],
+              [
+                "the proxy setting removed",
+                `unset HTTPS_PROXY HTTP_PROXY https_proxy http_proxy; ${npm("is-odd@3.0.1", "e")} --fetch-retries 0`,
+                { NODE_EXTRA_CA_CERTS: BOX_CA },
+                1,
+                /EAI_AGAIN|ENOTFOUND/,
+              ],
+            ];
+          for (const [what, line, extra, code, answer] of bypasses) {
             const tried = await sh(name, `${line} --fetch-timeout 15000 2>&1`, extra);
             const tail = tried.out.trim().split("\n").slice(-2).join(" | ");
             fact(`${what}: exit ${tried.code} ${tail}`);
-            expect(tried.code).not.toBe(0);
+            expect(tried.code).toBe(code);
+            if (answer !== null) expect(tried.out).toMatch(answer);
           }
           expect(
             events.some(
@@ -282,6 +373,8 @@ if (registers) {
 
           // Criterion 4: fail-closed with the Safe-Chain box stopped.
           await boxes.stop(info.name);
+          for (let i = 0; i < 50 && routeEvents.length === 0; i += 1) await Bun.sleep(100);
+          expect(routeEvents.map((event) => event.kind)).toEqual(["safeChainEnded"]);
           const since = events.length;
           const failed = await sh(name, `${npm("is-odd@3.0.1", "f")} --fetch-retries 0`, through);
           fact(`install with the Safe-Chain box stopped: exit ${failed.code}`);
@@ -297,7 +390,7 @@ if (registers) {
           expect(after).toContainEqual({
             kind: "refused",
             target: "registry.npmjs.org:443",
-            reason: "the Safe-Chain box did not answer",
+            reason: "Safe-Chain is not running, so no registry is reached",
           });
         } finally {
           await route.release(name).catch(() => {});
