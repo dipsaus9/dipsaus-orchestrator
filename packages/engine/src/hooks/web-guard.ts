@@ -61,7 +61,7 @@ import type { OfficeHandle } from "../db/office";
 import { oneLineInput } from "../ingest/output";
 import { background } from "../platform/background";
 import type { RunSteering } from "../run/control";
-import { findRun } from "../run/records";
+import { countWebCalls, findRun } from "../run/records";
 import { type HostOp, type SteerOp, WEB_LINE_PREFIX, type WorkerEvent } from "../workers/types";
 
 import type { HookEvent } from "./types";
@@ -428,12 +428,7 @@ export class WebGuard {
     if (counts.WebSearch === 0 && counts.WebFetch === 0) return;
     try {
       office.immediate(() =>
-        office.run(
-          `update runs set web_searches = web_searches + $searches,
-             web_fetches = web_fetches + $fetches
-           where office_id = $office_id and run_id = $run`,
-          { run, searches: counts.WebSearch, fetches: counts.WebFetch },
-        ),
+        countWebCalls(office, run, { searches: counts.WebSearch, fetches: counts.WebFetch }),
       );
     } catch (error) {
       this.#warn("the web calls could not be counted", run, error);

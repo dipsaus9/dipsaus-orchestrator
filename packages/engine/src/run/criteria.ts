@@ -15,6 +15,8 @@ import type { RunId } from "@dipsaus-orchestrator/contract";
 import type { OfficeHandle } from "../db/office";
 import type { WorkerReport } from "../workers/types";
 
+import { storeReportedCriteria, storeRunCriteria } from "./records";
+
 /** The story's criteria when the run started. */
 export interface RunCriteria {
   readonly known: readonly number[];
@@ -45,15 +47,10 @@ function criteriaRow(office: OfficeHandle, runId: string): CriteriaRow | null {
 
 /** Stores the story's criteria at run start. */
 export function recordRunCriteria(office: OfficeHandle, runId: RunId, criteria: RunCriteria): void {
-  office.run(
-    `update runs set criteria_known = $known, criteria_checked = $checked
-      where office_id = $office_id and run_id = $run`,
-    {
-      run: runId,
-      known: JSON.stringify(sortedUnique(criteria.known)),
-      checked: JSON.stringify(sortedUnique(criteria.checked)),
-    },
-  );
+  storeRunCriteria(office, runId, {
+    known: JSON.stringify(sortedUnique(criteria.known)),
+    checked: JSON.stringify(sortedUnique(criteria.checked)),
+  });
 }
 
 /**
@@ -70,10 +67,7 @@ export function recordReportedCriteria(
   if (row === null || row.known === null) return;
   const met = JSON.stringify(sortedUnique(report.criteria.filter((c) => c.met).map((c) => c.n)));
   if (met === row.reported) return;
-  office.run(
-    `update runs set criteria_reported = $met where office_id = $office_id and run_id = $run`,
-    { run: runId, met },
-  );
+  storeReportedCriteria(office, runId, met);
 }
 
 /**

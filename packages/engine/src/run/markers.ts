@@ -71,16 +71,18 @@ export function markPhase(
 }
 
 /**
- * Ends the run (`endRun`) and, when this call ended it, writes the `ended <kind>` marker. Inside a
- * transaction; its `work.output` entries are appended at once. Returns what `endRun` returns.
+ * Ends the run (`endRun`, with the start of the review period it ends when given) and, when this
+ * call ended it, writes the `ended <kind>` marker. Inside a transaction; its `work.output` entries
+ * are appended at once. Returns what `endRun` returns.
  */
 export function endRunMarked(
   office: OfficeHandle,
   runId: RunId,
   at: number,
   kind: string,
+  reviewSince?: number,
 ): boolean {
-  const ended = endRun(office, runId, at, kind);
+  const ended = endRun(office, runId, at, kind, reviewSince);
   if (ended) {
     const entries = writeMarker(office, runId, "ended", kind, at);
     appendEntries(office, withWorkViews(office, entries), { at });

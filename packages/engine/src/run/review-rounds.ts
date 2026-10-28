@@ -22,7 +22,7 @@ import type { OfficeHandle } from "../db/office";
 
 import { START_KINDS, type PlaceStart } from "./places";
 import { runHeldByPark } from "./park-state";
-import { appendRunStep, findRun, IN_REVIEW_END, type StoredRun } from "./records";
+import { appendRunStep, applyRunEvent, IN_REVIEW_END, type StoredRun } from "./records";
 import { REVIEWED_END } from "./rounds";
 
 /** One started review round, from its `review` step. */
@@ -148,12 +148,12 @@ export function pendingReviews(office: OfficeHandle): PlaceStart[] {
  * pending. False when the run was not ended at In Review.
  */
 export function takeVerdict(office: OfficeHandle, runId: RunId): boolean {
-  const run = findRun(office, runId);
-  if (run === null || run.endedAt === null || run.endKind !== IN_REVIEW_END) return false;
-  office.run(`update runs set end_kind = $kind where office_id = $office_id and run_id = $run`, {
-    run: runId,
-    kind: REVIEWED_END,
+  const relabeled = applyRunEvent(office, runId, {
+    kind: "relabel",
+    endKind: REVIEWED_END,
+    from: IN_REVIEW_END,
   });
+  if (relabeled === null) return false;
   // The provisional outcome row says the same (a final row is never rewritten).
   office.run(
     `update run_outcomes set end_kind = $kind,

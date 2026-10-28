@@ -100,7 +100,7 @@ import {
   type TierCaps,
 } from "./launch";
 import { sessionUuid } from "./prompts";
-import { findRun, type StoredRun } from "./records";
+import { findRun, storeReviewCaps, type StoredRun } from "./records";
 import { codeTreeKeyOf } from "./story-git";
 import { prepareRunTempDirs } from "./temp-dirs";
 
@@ -522,18 +522,7 @@ export function snapshotReviewCaps(
   runId: RunId | string,
   config: Pick<OfficeConfig, "review">,
 ): void {
-  office.run(
-    `update runs set review_max_turns = coalesce(review_max_turns, $turns),
-       review_max_minutes = coalesce(review_max_minutes, $minutes),
-       review_max_tokens = coalesce(review_max_tokens, $tokens)
-      where office_id = $office_id and run_id = $run`,
-    {
-      run: runId,
-      turns: config.review.maxTurns,
-      minutes: config.review.maxMinutes,
-      tokens: config.review.budgetTokens,
-    },
-  );
+  storeReviewCaps(office, runId, config.review);
 }
 
 /**
