@@ -273,6 +273,12 @@ export class MergeGates {
     if (run.branch === null || run.worktree === null) {
       throw notWaiting(gate.gate, "its story run has no branch or worktree");
     }
+    // A park ends its run, so an open run here is a crash's or a hand-written park's leftover:
+    // the override would record the decision and lift the park, but the run could not wait as
+    // reviewed (`lifecycle.ts` refuses an open run).
+    if ((findRun(office, run.runId) ?? run).endedAt === null) {
+      throw notWaiting(gate.gate, "its story run is still open");
+    }
     // Still undecided right before the branch changes: a decision meanwhile lifts nothing.
     if (mergeGate(office, gate.gate)?.decision !== null) {
       throw notWaiting(gate.gate, "it was decided meanwhile");
