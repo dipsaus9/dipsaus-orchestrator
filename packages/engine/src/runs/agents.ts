@@ -3,7 +3,7 @@
 // inside the caller's transaction.
 //
 // `endAgent` is the one end of an agent: its usage made final, the agent row ended, its ingestion
-// cursor ended and its worker host row ended, in that order, inside one transaction.
+// cursors ended and its worker host row ended, in that order, inside one transaction.
 
 import type { OfficeHandle } from "../db/office";
 import { finalizeAgentUsage } from "../ingest/usage";
@@ -29,9 +29,13 @@ export interface NewAgent {
  */
 export function recordAgent(office: OfficeHandle, agent: NewAgent, ifNew = true): void {
   office.run(
-    `insert ${ifNew ? "or ignore " : ""}into agents (office_id, agent_id, run_id, role, model,
-       effort, session_id, system_hash, started_at)
-     values ($office_id, $agent, $run, $role, $model, $effort, $session, $hash, $at)`,
+    ifNew
+      ? `insert or ignore into agents (office_id, agent_id, run_id, role, model, effort,
+           session_id, system_hash, started_at)
+         values ($office_id, $agent, $run, $role, $model, $effort, $session, $hash, $at)`
+      : `insert into agents (office_id, agent_id, run_id, role, model, effort, session_id,
+           system_hash, started_at)
+         values ($office_id, $agent, $run, $role, $model, $effort, $session, $hash, $at)`,
     {
       agent: agent.agentId,
       run: agent.runId,
@@ -82,7 +86,8 @@ export interface AgentEnd {
 
 /**
  * The one end of an agent (DIPO-364): its usage final when `finalizeUsage`, the agent ended at
- * `at` with `reason` (an end time or reason it has stays), its `host-events` cursor ended, and its
+ * `at` with `reason` (an end time or reason it has stays), every ingestion cursor of the agent
+ * ended (its `host-events` and its `transcript` cursor, so retention ages both out), and its
  * worker host row ended when `endHost`. Inside the caller's transaction.
  */
 export function endAgent(office: OfficeHandle, end: AgentEnd): void {
