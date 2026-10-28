@@ -16,6 +16,7 @@ import {
   type WorkRef,
 } from "@dipsaus-orchestrator/contract";
 
+import type { AsyncCommandContext } from "../../src/commands/registry";
 import { OFFICE_DEFAULTS, type OfficeConfig } from "../../src/config";
 import { reviewVerdictForTree, reviewVerdictsOf } from "../../src/review";
 import {
@@ -24,6 +25,7 @@ import {
   findRun,
   IN_REVIEW_END,
   LAUNCH_NOTICES,
+  openPark,
   pendingReviews,
   placeHolders,
   Places,
@@ -32,6 +34,7 @@ import {
   REVIEWED_END,
   REVIEW_NOTICES,
   REVIEWER_ROLE,
+  resolvePark,
   reviewerSettings,
   Reviews,
   type ReviewSessionOutcome,
@@ -915,6 +918,42 @@ const claimLive = (run: RunId): boolean =>
     "select 1 as found from claims where office_id = $office_id and run_id = $run and released_at is null",
     { run },
   ) !== null;
+
+/** `story.park` of the story as the planning lane hands it to run control. */
+const parkIt = (s: StoryRun) =>
+  x.control.parkByMaintainer(
+    {
+      office: w.office,
+      stories: { get: () => ({ story: s.story, key: s.key }) },
+      commit: (fn: () => unknown) => write(() => void fn()),
+    } as unknown as AsyncCommandContext,
+    { story: s.story, note: "After the release." },
+  );
+
+describe("a story parked while it waits In Review (DIPO-344)", () => {
+  it("gets no review round or reviewer session until its park is resolved, then its review starts", async () => {
+    const s = inReview("DIPO-1", "tree-1");
+    const start = pendingReviews(w.office)[0]!;
+    await parkIt(s);
+    expect(parksOf()).toEqual([
+      { story_id: "DIPO-1", reason: "by-maintainer", detail: "After the release." },
+    ]);
+
+    expect(pendingReviews(w.office)).toEqual([]);
+    expect(await x.places.drain(officeId())).toBe(0);
+    // A start queued before the park waits too.
+    expect(await x.reviews.start(officeId(), findRun(w.office, s.run)!, start)).toBe(false);
+    expect(x.sessions).toEqual([]);
+    expect(stepsOf(s.run, "review")).toEqual([]);
+
+    // The resume resolves the park (`ParkResumes`); the next drain starts the review.
+    const parkId = openPark(w.office, s.key)!.parkId;
+    write(() => resolvePark(w.office, parkId, "resume", now()));
+    const session = await reviewStarts(s);
+    expect(session.run).toBe(s.run);
+    expect(stepsOf(s.run, "review")).toHaveLength(1);
+  });
+});
 
 describe("a story Done on the office base (DIPO-239)", () => {
   it("gets no review round or session for a run ended at In Review, which ends done once", async () => {

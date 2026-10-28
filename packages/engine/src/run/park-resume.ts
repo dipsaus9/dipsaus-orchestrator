@@ -124,6 +124,18 @@ export const RESUME_ERRORS = {
   capReached: "resume.capReached",
 } as const;
 
+/**
+ * The refusal of a park whose reason the resume table does not resume (`scope-violation`, 0020),
+ * with or without a run.
+ */
+export function notResumable(story: string, reason: string): CommandError {
+  return new CommandError(
+    RESUME_ERRORS.notResumable,
+    `${story} is parked as ${reason} and cannot be resumed: a part that touched a protected file or held what looks like a secret means its box can no longer be trusted. \`dipo discard ${story} --note <why>\` removes its work.`,
+    { story, reason },
+  );
+}
+
 /** `engine.notice` codes of a maintainer resume. */
 export const PARK_RESUME_NOTICES = {
   resumed: "park.resumed",
@@ -478,13 +490,7 @@ export class ParkResumes {
     const row = resumeRow(park.reason);
     const story = identity.story;
     const reason = park.reason;
-    if (row.need.kind === "refuse") {
-      throw new CommandError(
-        RESUME_ERRORS.notResumable,
-        `${story} is parked as ${reason} and cannot be resumed: a part that touched a protected file or held what looks like a secret means its box can no longer be trusted. \`dipo discard ${story} --note <why>\` removes its work.`,
-        { story, reason },
-      );
-    }
+    if (row.need.kind === "refuse") throw notResumable(story, reason);
     const run = park.runId === null ? null : findRun(office, park.runId as RunId);
     if (run === null || run.kind !== "story" || run.endedAt === null) {
       throw new CommandError(
@@ -1032,6 +1038,8 @@ export class ParkResumes {
           .slot?.()
           ?.reenter(officeId, run)
           .catch(warn("re-entering the merge slot failed"));
+        // A run with no verdict yet is a pending review again: the reviewer place takes it.
+        void places?.drain(officeId).catch(warn("starting the review of a resumed story failed"));
         return;
       case "developer":
         break;
