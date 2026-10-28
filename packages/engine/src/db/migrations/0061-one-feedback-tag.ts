@@ -1,4 +1,4 @@
-// Migration 60 (DIPO-361): every message dipo sends a developer session is one `steer` intent of
+// Migration 61 (DIPO-361): every message dipo sends a developer session is one `steer` intent of
 // the one feedback path (0002), with the detail `feedback <source> <key> <via> <text>`, where `via`
 // is `next` for a message held for the next session and `now` for one sent to a live session, and
 // `text` is the message as the worker reads it. The three tags it replaces become it:
@@ -45,7 +45,7 @@ function rewrite(detail: string, pending: boolean): string | null {
 }
 
 export const oneFeedbackTag: CodeMigration = {
-  version: 60,
+  version: 61,
   name: "one feedback tag",
   source:
     "run_intents of kind steer: maintainer-steer, held-feedback and report-feedback details " +

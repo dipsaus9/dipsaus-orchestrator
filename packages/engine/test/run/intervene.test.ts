@@ -15,6 +15,7 @@ import {
   type WorkRef,
 } from "@dipsaus-orchestrator/contract";
 
+import { insertPark } from "./park-fixture";
 import { executeCommand } from "../../src/commands/execute";
 import { CRASH, crashAfterHandler } from "../commands/crash";
 import { stateOfficeDirectory } from "../../src/commands/offices";
@@ -233,11 +234,15 @@ function park(endKind = "blocked"): void {
   const { office, run, t } = w.f;
   const at = t.clock.now();
   office.immediate(() => {
-    office.run(
-      `insert into parks (office_id, park_id, key, story_id, run_id, reason, from_state, detail, at)
-       values ($office_id, 1, $key, 'DIPO-1', $run, 'ambiguous-spec', 'In Progress', 'x', $at)`,
-      { key: w.work.key, run, at },
-    );
+    insertPark(office, {
+      parkId: 1,
+      key: w.work.key,
+      story: "DIPO-1",
+      runId: run,
+      reason: "ambiguous-spec",
+      detail: "x",
+      at,
+    });
     endRun(office, run, at, endKind);
   });
 }

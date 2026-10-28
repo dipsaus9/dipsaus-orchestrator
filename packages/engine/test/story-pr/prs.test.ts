@@ -587,10 +587,10 @@ function resumedPrClosedPark(w: World): void {
   const at = w.t.clock.now();
   w.office.immediate(() =>
     w.office.run(
-      `insert into parks (office_id, park_id, key, story_id, run_id, reason, from_state, detail,
-         at, resolved_at, resolved_how)
-       values ($office_id, 1, $key, 'DIPO-1', $run, 'by-maintainer', 'In Review',
-         'PR #7 closed on GitHub', $at, $at, 'resume')`,
+      `insert into parks (office_id, park_id, key, story_id, run_id, reason, detail, at,
+         resolved_at, resolved_how)
+       values ($office_id, 1, $key, 'DIPO-1', $run, 'by-maintainer', 'PR #7 closed on GitHub',
+         $at, $at, 'resume')`,
       { key: w.key, run: w.run, at },
     ),
   );

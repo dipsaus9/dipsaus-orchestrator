@@ -16,6 +16,7 @@ import {
   type WorkRef,
 } from "@dipsaus-orchestrator/contract";
 
+import { mirrorUnpark } from "../../src/run/park-state";
 import type { AsyncCommandContext } from "../../src/commands/registry";
 import { OFFICE_DEFAULTS, type OfficeConfig } from "../../src/config";
 import { reviewVerdictForTree, reviewVerdictsOf } from "../../src/review";
@@ -48,7 +49,9 @@ import {
   START_KINDS,
   waitingStarts,
 } from "../../src/run";
+import { parkStory } from "../../src/run/park";
 import { storeDoneReport } from "../../src/run/report-data";
+import { appendEntries } from "../../src/changelog/log";
 import type { RunStoryFacts } from "../../src/run/resume";
 import { encode } from "../../src/workers/claude-cli/encode";
 import {
@@ -973,10 +976,47 @@ describe("a story parked while it waits In Review (DIPO-344)", () => {
 
     // The resume resolves the park (`ParkResumes`); the next drain starts the review.
     const parkId = openPark(w.office, s.key)!.parkId;
-    write(() => resolvePark(w.office, parkId, "resume", now()));
+    write(() => {
+      resolvePark(w.office, parkId, "resume", now());
+      // The lift's read-back: In Review with no park record in Backlog.md (DIPO-360).
+      mirrorUnpark(w.office, s.key, "In Review");
+    });
     const session = await reviewStarts(s);
     expect(session.run).toBe(s.run);
     expect(stepsOf(s.run, "review")).toHaveLength(1);
+  });
+});
+
+describe("a story whose park could not be written to Backlog.md (DIPO-360)", () => {
+  it("gets no review round or reviewer session while its park row is open, fail-closed", async () => {
+    const s = inReview("DIPO-1", "tree-1");
+    const start = pendingReviews(w.office)[0]!;
+    await parkStory(
+      {
+        office: w.office,
+        writer: {
+          write: async () => {
+            throw new Error("the push was refused");
+          },
+        },
+        now,
+        write: (fn) => write(() => void appendEntries(w.office, fn(), { at: now() })),
+        implemented: () => true,
+      },
+      {
+        run: findRun(w.office, s.run)!,
+        reason: "review-blocked",
+        detail: "blocked",
+        endKind: "review-blocked",
+      },
+    );
+    // Backlog.md does not hold the park, and the run keeps its In Review end kind.
+    expect(openPark(w.office, s.key)).toBeNull();
+    expect(findRun(w.office, s.run)?.endKind).toBe(IN_REVIEW_END);
+    expect(pendingReviews(w.office)).toEqual([]);
+    expect(await x.places.drain(officeId())).toBe(0);
+    expect(await x.reviews.start(officeId(), findRun(w.office, s.run)!, start)).toBe(false);
+    expect(x.sessions).toEqual([]);
   });
 });
 

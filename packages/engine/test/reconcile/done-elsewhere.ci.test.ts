@@ -126,10 +126,8 @@ async function mergeOnRemote(o: ReconcileOffice, record: ClaimRecord): Promise<v
 
 function parkRow(office: OfficeHandle, key: StoryKey, runId: RunId): void {
   office.run(
-    `insert into parks (office_id, park_id, key, story_id, run_id, reason, from_state, detail,
-       last_good_commit, at)
-     values ($office_id, 1, $key, 'TASK-1', $run, 'budget-exceeded', 'In Progress',
-       'turn cap 61 of 60', null, 1)`,
+    `insert into parks (office_id, park_id, key, story_id, run_id, reason, detail, last_good_commit, at)
+     values ($office_id, 1, $key, 'TASK-1', $run, 'budget-exceeded', 'turn cap 61 of 60', null, 1)`,
     { key, run: runId },
   );
 }

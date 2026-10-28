@@ -109,6 +109,7 @@ import { storedDoneReport } from "../run/done-report";
 import { runBudgetFacts } from "../run/budget-line";
 import { runCaps } from "../run/caps";
 import { type ParkWriter, parkStory } from "../run/park";
+import { runHeldByPark } from "../run/park-state";
 import {
   appendRunStep,
   findRun,
@@ -1302,11 +1303,9 @@ function closedOutUnmerged(office: OfficeHandle, run: StoredRun): boolean {
       `select 1 as found from backlog_mirror m
         where m.office_id = $office_id and m.key = $key and m.status = 'Done'
           and exists (select 1 from claims c where c.office_id = m.office_id
-            and c.run_id = $run and c.released_at is null)
-          and not exists (select 1 from parks p where p.office_id = m.office_id
-            and p.run_id = $run and p.resolved_at is null)`,
+            and c.run_id = $run and c.released_at is null)`,
       { key: run.key, run: run.runId },
-    ) !== null
+    ) !== null && !runHeldByPark(office, run.runId)
   );
 }
 

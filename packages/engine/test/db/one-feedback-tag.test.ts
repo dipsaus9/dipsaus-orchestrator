@@ -1,4 +1,4 @@
-// Migration 60 (DIPO-361): the steer, held-feedback and report-feedback intents become the one
+// Migration 61 (DIPO-361): the steer, held-feedback and report-feedback intents become the one
 // feedback tag, `feedback <source> <key> <text>`, with the text the worker reads; every other
 // intent is left alone.
 
@@ -24,7 +24,7 @@ const open = (dir: string, migrations?: readonly Migration[]) =>
     ...(migrations === undefined ? {} : { migrations }),
   });
 
-/** Each intent before migration 60, as kind, state and detail, and the detail it becomes. */
+/** Each intent before migration 61, as kind, state and detail, and the detail it becomes. */
 const CASES: readonly (readonly [kind: string, state: string, before: string, after: string])[] = [
   [
     "steer",
@@ -74,11 +74,11 @@ const CASES: readonly (readonly [kind: string, state: string, before: string, af
   ["park", "pending", "maintainer-steer looks alike", "maintainer-steer looks alike"],
 ];
 
-describe("migration 60 (DIPO-361)", () => {
+describe("migration 61 (DIPO-361)", () => {
   it("rewrites the three old tags to the one feedback tag and leaves the rest", () =>
     withTempDir(async (dir) => {
-      const before = MIGRATIONS.filter((step) => step.version <= 59);
-      expect(before.at(-1)?.version).toBe(59);
+      const before = MIGRATIONS.filter((step) => step.version <= 60);
+      expect(before.at(-1)?.version).toBe(60);
       const old = await open(dir, before);
       try {
         const db = old.connection;

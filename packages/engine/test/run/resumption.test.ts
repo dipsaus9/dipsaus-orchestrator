@@ -10,6 +10,7 @@ import { join } from "node:path";
 
 import { type Lifecycle, StoryId, type StoryKey } from "@dipsaus-orchestrator/contract";
 
+import { insertPark } from "./park-fixture";
 import { CommandError } from "../../src/commands/errors";
 import type { AsyncCommandContext } from "../../src/commands/registry";
 import {
@@ -142,12 +143,15 @@ function resumption(): Resumption {
 function parkWithoutRun(reason: string): number {
   const { office, t } = w.f;
   office.immediate(() =>
-    office.run(
-      `insert into parks (office_id, park_id, key, story_id, run_id, reason, from_state, detail, at)
-       values ($office_id, (select coalesce(max(park_id), 0) + 1 from parks
-         where office_id = $office_id), $key, 'DIPO-1', null, $reason, 'Ready', 'after M2', $at)`,
-      { key: w.key, reason, at: t.clock.now() },
-    ),
+    insertPark(office, {
+      key: w.key,
+      story: "DIPO-1",
+      runId: null,
+      reason,
+      from: "Ready",
+      detail: "after M2",
+      at: t.clock.now(),
+    }),
   );
   return office.get<{ id: number }>(
     "select max(park_id) as id from parks where office_id = $office_id",

@@ -17,6 +17,7 @@ import {
   type StoryView,
 } from "@dipsaus-orchestrator/contract";
 
+import { insertPark } from "./park-fixture";
 import type { JournalEntry, LaneOp } from "../../src/backlog/lane/journal";
 import { insertEntry } from "../../src/backlog/lane/journal";
 import type { PlainTask } from "../../src/backlog/plain";
@@ -1133,12 +1134,14 @@ function parkedRun(id: string): { run: RunId; key: StoryKey; story: string } {
   addAgent({ dir, t, office, close: () => undefined }, started.run, "developer", false);
   const at = t.clock.now();
   office.immediate(() => {
-    office.run(
-      `insert into parks (office_id, park_id, key, story_id, run_id, reason, from_state, detail, at)
-       values ($office_id, (select coalesce(max(park_id), 0) + 1 from parks
-         where office_id = $office_id), $key, $story, $run, 'worker-failed', 'In Progress', 'x', $at)`,
-      { key: started.key, story: id, run: started.run, at },
-    );
+    insertPark(office, {
+      key: started.key,
+      story: id,
+      runId: started.run,
+      reason: "worker-failed",
+      detail: "x",
+      at,
+    });
     endRun(office, started.run, at, "interrupted");
   });
   return { run: started.run, key: started.key, story: id };

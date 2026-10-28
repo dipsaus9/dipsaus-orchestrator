@@ -21,6 +21,7 @@ import type { RunId } from "@dipsaus-orchestrator/contract";
 import type { OfficeHandle } from "../db/office";
 
 import { START_KINDS, type PlaceStart } from "./places";
+import { runHeldByPark } from "./park-state";
 import { appendRunStep, findRun, IN_REVIEW_END, type StoredRun } from "./records";
 import { REVIEWED_END } from "./rounds";
 
@@ -129,16 +130,16 @@ export function pendingReviews(office: OfficeHandle): PlaceStart[] {
         and exists (select 1 from claims c where c.office_id = r.office_id
           and c.run_id = r.run_id and c.released_at is null
           and (c.pushed_at >= r.ended_at or c.no_remote_at >= r.ended_at))
-        and not exists (select 1 from parks p where p.office_id = r.office_id and p.key = r.key
-          and p.resolved_at is null)
       order by r.ended_at, r.run_id`,
     { in_review: IN_REVIEW_END },
   );
-  return rows.map((row): PlaceStart => ({
-    kind: START_KINDS.review,
-    runId: row.run_id as RunId,
-    since: row.ended_at,
-  }));
+  return rows
+    .filter((row) => !runHeldByPark(office, row.run_id))
+    .map((row): PlaceStart => ({
+      kind: START_KINDS.review,
+      runId: row.run_id as RunId,
+      since: row.ended_at,
+    }));
 }
 
 /**

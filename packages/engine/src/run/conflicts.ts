@@ -116,6 +116,7 @@ import { withWorkViews } from "../views/work";
 import { runCaps } from "./caps";
 import { lastReviewVerdict } from "./fix-rounds";
 import type { ConflictPrepared, ConflictResumer } from "./park-resume";
+import { runHeldByPark } from "./park-state";
 import { appendRunStep, findRun, IN_REVIEW_END, type StoredRun } from "./records";
 import { REVIEWED_END } from "./rounds";
 import { codeTreeKeyOf } from "./story-git";
@@ -400,8 +401,6 @@ export function inReviewRunIds(office: OfficeHandle): RunId[] {
           and r.end_kind in ($in_review, $reviewed)
           and exists (select 1 from claims c where c.office_id = r.office_id
             and c.run_id = r.run_id and c.released_at is null)
-          and not exists (select 1 from parks p where p.office_id = r.office_id
-            and p.run_id = r.run_id and p.resolved_at is null)
           and not exists (select 1 from story_prs s where s.office_id = r.office_id
             and s.run_id = r.run_id and s.state = 'merged')
           and not exists (select 1 from backlog_mirror m where m.office_id = r.office_id
@@ -409,6 +408,7 @@ export function inReviewRunIds(office: OfficeHandle): RunId[] {
         order by r.ended_at, r.run_id`,
       { in_review: IN_REVIEW_END, reviewed: REVIEWED_END },
     )
+    .filter((row) => !runHeldByPark(office, row.run_id))
     .map((row) => row.run_id as RunId);
 }
 

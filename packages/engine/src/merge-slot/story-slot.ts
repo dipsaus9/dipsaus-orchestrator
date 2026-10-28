@@ -77,6 +77,7 @@ import {
 import { runConfigOf } from "../run/config-snapshot";
 import { catchUpsOf } from "../run/conflicts";
 import { openPark, type ParkWriter, parkStory } from "../run/park";
+import { heldByPark } from "../run/park-state";
 import type { RunStoryFacts } from "../run/resume";
 import {
   findRun,
@@ -301,7 +302,7 @@ export class StorySlot {
     if (run.branch === null || run.worktree === null || run.startSha === null) return null;
     const claim = findClaim(office, runId);
     if (claim === null || claim.releasedAt !== null) return null;
-    if (openPark(office, run.key) !== null) return null;
+    if (heldByPark(office, run.key)) return null;
     return run;
   }
 
@@ -675,14 +676,17 @@ export class StorySlot {
   /** Each story parked `review-blocked` gets its override gate (0019 section 11). */
   async #overrideGates(ctx: StorySlotContext): Promise<void> {
     const office = ctx.office;
+    // The reason is Backlog.md's (DIPO-360); the open rows only name the runs.
     const parked = office.all<{ run_id: string }>(
       `select run_id from parks where office_id = $office_id and resolved_at is null
-        and reason = 'review-blocked' and run_id is not null
+        and run_id is not null
       order by park_id`,
     );
     for (const row of parked) {
       const run = findRun(office, row.run_id as RunId);
       if (run === null || run.key === null || run.story === null) continue;
+      const park = openPark(office, run.key);
+      if (park?.runId !== run.runId || park.reason !== "review-blocked") continue;
       const verdict = latestVerdictOfRun(office, run.runId);
       if (verdict === null || verdict.verdict !== "blocked" || verdict.override !== null) continue;
       if (overrideGateOf(office, run.runId, verdict.gate) !== null) continue;
@@ -725,7 +729,7 @@ export class StorySlot {
 
   async #prClosed(ctx: StorySlotContext, run: StoredRun, stored: StoryPrRecord): Promise<void> {
     const office = ctx.office;
-    if (run.kind !== "story" || run.key === null || openPark(office, run.key) !== null) return;
+    if (run.kind !== "story" || run.key === null || heldByPark(office, run.key)) return;
     const since = stored.closedAt ?? stored.openedAt;
     const parkedFor = office.get(
       `select 1 as found from parks where office_id = $office_id and run_id = $run
@@ -780,7 +784,7 @@ export class StorySlot {
       return "left";
     }
     const claim = findClaim(office, runId);
-    if (claim === null || claim.releasedAt !== null || openPark(office, run.key) !== null) {
+    if (claim === null || claim.releasedAt !== null || heldByPark(office, run.key)) {
       free(ctx);
       return "left";
     }
