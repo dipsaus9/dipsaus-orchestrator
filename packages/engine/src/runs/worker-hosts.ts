@@ -9,6 +9,9 @@
 //
 // Liveness is PID plus start time through the DIPO-23 identity check, where a zombie is dead;
 // the socket is never asked (0006 decision 8).
+//
+// This module is the one writer of `worker_hosts` (0001): every insert, update and delete of a
+// host row goes through it, and `test/run/one-writer.test.ts` fails on one anywhere else.
 
 import { randomBytes } from "node:crypto";
 import { readdirSync, readFileSync, renameSync, rmSync, writeFileSync } from "node:fs";
@@ -45,7 +48,7 @@ import {
   type SpawnDetached,
 } from "../platform/process";
 import { systemdScopeCommand, underSystemdUnit } from "../platform/supervisor";
-import type { LaunchPlan } from "../workers/types";
+import type { ExitRecord, LaunchPlan } from "../workers/types";
 
 /** The host reads its run directory from this variable; its cwd is the run directory too. */
 export const RUN_DIR_ENV = "DIPO_RUN_DIR";
@@ -393,6 +396,69 @@ export function recordHostExit(office: OfficeHandle, agentId: string, exit: Host
         agent: agentId,
       },
     ),
+  );
+}
+
+/**
+ * Inside the caller's transaction: the exit an ingested exit line reports, on the host's row,
+ * where `exit.json` did not record one first.
+ */
+export function recordExitLine(
+  office: OfficeHandle,
+  runId: string,
+  agentId: string,
+  exit: ExitRecord,
+): void {
+  office.run(
+    `update worker_hosts set exit_code = coalesce(exit_code, $code),
+       exit_signal = coalesce(exit_signal, $signal),
+       exit_signal_inferred = case when exit_signal is null then $inferred
+         else exit_signal_inferred end
+     where office_id = $office_id and run_id = $run and agent_id = $agent`,
+    {
+      code: exit.code,
+      signal: exit.signal,
+      inferred: exit.signalInferred === true ? 1 : 0,
+      run: runId,
+      agent: agentId,
+    },
+  );
+}
+
+/** Inside the caller's transaction: the host's events are processed up to `offset`. */
+export function setProcessedOffset(
+  office: OfficeHandle,
+  runId: string,
+  agentId: string,
+  offset: number,
+): void {
+  office.run(
+    `update worker_hosts set processed_offset = $offset
+      where office_id = $office_id and run_id = $run and agent_id = $agent`,
+    { offset, run: runId, agent: agentId },
+  );
+}
+
+/** Inside the caller's transaction: dipo steers the host, or only follows its output (0006). */
+export function setHostMode(
+  office: OfficeHandle,
+  runId: string,
+  agentId: string,
+  mode: "steer" | "follow",
+): void {
+  office.run(
+    `update worker_hosts set mode = $mode
+      where office_id = $office_id and run_id = $run and agent_id = $agent`,
+    { mode, run: runId, agent: agentId },
+  );
+}
+
+/** Inside the caller's transaction: the host's row ends at `at`, unless it ended before. */
+export function endHostRow(office: OfficeHandle, runId: string, agentId: string, at: number): void {
+  office.run(
+    `update worker_hosts set ended_at = coalesce(ended_at, $at)
+      where office_id = $office_id and run_id = $run and agent_id = $agent`,
+    { at, run: runId, agent: agentId },
   );
 }
 

@@ -52,15 +52,17 @@ import { connectHost, type ConnectHostResult } from "../host/client";
 import type { HostExitFile } from "../host/protocol";
 import type { IngestAdapter, IngestedExit, IngestTarget, PassResult } from "../ingest/ingestor";
 import { recoverLostUsage } from "../ingest/transcript";
-import { finalizeAgentUsage } from "../ingest/usage";
 import type { ProcessProbe } from "../platform/process";
 import type { PriceBook } from "../pricing/estimate";
+import { endAgent } from "../runs/agents";
 import {
   exitFileOf,
   hostAlive,
   readHostExit,
   recordHostExit,
   resolvePendingHost,
+  setHostMode,
+  setProcessedOffset,
   type WorkerHostRow,
   workerHostsOf,
 } from "../runs/worker-hosts";
@@ -679,25 +681,15 @@ export class RunReattacher {
     // The exit as `exit.json` says (its own transaction), then the rest of the close-out.
     if (exit !== null) recordHostExit(office, host.agentId, exit);
     const appended = office.immediate(() => {
-      office.run(
-        `update worker_hosts set ended_at = coalesce(ended_at, $at)
-          where office_id = $office_id and run_id = $run and agent_id = $agent`,
-        { at, run: run.runId, agent: host.agentId },
-      );
-      if (!agentEnded) {
-        finalizeAgentUsage(office, run.runId, host.agentId, at);
-        office.run(
-          `update agents set ended_at = coalesce(ended_at, $at),
-             end_reason = coalesce(end_reason, $reason)
-           where office_id = $office_id and agent_id = $agent`,
-          { at, agent: host.agentId, reason: exit === null ? HOST_LOST_END : "exited" },
-        );
-      }
-      office.run(
-        `update ingest_cursors set ended_at = coalesce(ended_at, $at)
-          where office_id = $office_id and run_id = $run and agent_id = $agent`,
-        { at, run: run.runId, agent: host.agentId },
-      );
+      // An agent ingestion ended already keeps its end and its final usage.
+      endAgent(office, {
+        runId: run.runId,
+        agentId: host.agentId,
+        at,
+        reason: exit === null ? HOST_LOST_END : "exited",
+        finalizeUsage: !agentEnded,
+        endHost: true,
+      });
       const work = target.work;
       if (!newest || work === undefined) return 0;
       const entries: NewEntry[] = clearSignals(office, run.runId, ["follow-only"], at).map(
@@ -790,13 +782,7 @@ export class RunReattacher {
     if (agent !== null || previous === undefined) return;
     const from = previous.finalOffset ?? previous.processedOffset;
     if (host.processedOffset >= from) return;
-    office.immediate(() =>
-      office.run(
-        `update worker_hosts set processed_offset = $from
-          where office_id = $office_id and run_id = $run and agent_id = $agent`,
-        { from, run: host.runId, agent: host.agentId },
-      ),
-    );
+    office.immediate(() => setProcessedOffset(office, host.runId, host.agentId, from));
   }
 
   /** The parser state for an agent with no cursor yet; ignored when it has one. */
@@ -830,24 +816,14 @@ export class RunReattacher {
 
   #setMode(office: OfficeHandle, host: WorkerHostRow, mode: "steer" | "follow"): void {
     if (host.mode === mode) return;
-    office.immediate(() =>
-      office.run(
-        `update worker_hosts set mode = $mode
-          where office_id = $office_id and run_id = $run and agent_id = $agent`,
-        { mode, run: host.runId, agent: host.agentId },
-      ),
-    );
+    office.immediate(() => setHostMode(office, host.runId, host.agentId, mode));
   }
 
   /** Follow-only (0006 decision 8): the mode, the signal and a notice why, in one transaction. */
   #followOnly(office: OfficeHandle, host: WorkerHostRow, work: WorkRef, why: string): void {
     const at = this.#deps.clock.now();
     const appended = office.immediate(() => {
-      office.run(
-        `update worker_hosts set mode = 'follow'
-          where office_id = $office_id and run_id = $run and agent_id = $agent`,
-        { run: host.runId, agent: host.agentId },
-      );
+      setHostMode(office, host.runId, host.agentId, "follow");
       const entries: NewEntry[] = [];
       if (raiseSignal(office, work.run, "follow-only", at) !== null) {
         entries.push({
@@ -886,18 +862,15 @@ export class RunReattacher {
   #endAgent(office: OfficeHandle, runId: string, agent: string): ParseState {
     const at = this.#deps.clock.now();
     return office.immediate(() => {
-      finalizeAgentUsage(office, runId, agent, at);
-      office.run(
-        `update agents set ended_at = coalesce(ended_at, $at),
-           end_reason = coalesce(end_reason, 'exited')
-         where office_id = $office_id and agent_id = $agent`,
-        { at, agent },
-      );
-      office.run(
-        `update ingest_cursors set ended_at = coalesce(ended_at, $at)
-          where office_id = $office_id and run_id = $run and agent_id = $agent`,
-        { at, run: runId, agent },
-      );
+      // Its host row ended with `exit.json` (`#recordExit`).
+      endAgent(office, {
+        runId,
+        agentId: agent,
+        at,
+        reason: "exited",
+        finalizeUsage: true,
+        endHost: false,
+      });
       const cursor = office.get<{ parse_state: string }>(
         `select parse_state from ingest_cursors
           where office_id = $office_id and run_id = $run and agent_id = $agent and source_kind = 'host-events'`,

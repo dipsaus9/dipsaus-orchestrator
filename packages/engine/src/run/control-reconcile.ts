@@ -4,6 +4,7 @@
 
 import { appendEntries, type NewEntry } from "../changelog/log";
 import type { OfficeHandle } from "../db/office";
+import { presetEndReasons } from "../runs/agents";
 import { withWorkViews, workRefOf } from "../views/work";
 import type { WorkerReport } from "../workers/types";
 
@@ -105,11 +106,7 @@ export class ReconcileStops {
     at: number,
   ): number {
     endRunMarked(office, run.runId, at, endKind);
-    office.run(
-      `update agents set end_reason = coalesce(end_reason, $kind)
-       where office_id = $office_id and run_id = $run and ended_at is null`,
-      { kind: endKind, run: run.runId },
-    );
+    presetEndReasons(office, run.runId, endKind);
     const entries = withWorkViews(office, [noticeEntry(run, notice)]);
     appendEntries(office, entries, { at });
     return entries.length;

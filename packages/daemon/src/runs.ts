@@ -50,6 +50,10 @@ import {
   markBoxCopied,
   pendingBoxCopy,
   type MergeGatesDeps,
+  startForwarder,
+  type StoryTestsDeps,
+  systemReach,
+  TestBoxes,
   type StoryMergeDeps,
   StoryConflicts,
   type UnparkWriter,
@@ -282,6 +286,10 @@ export interface DaemonRuns {
   finishEndedBoxes(options?: { readonly listBoxes?: boolean }): Promise<void>;
   /** Stops the minute tick of the box passes (DIPO-278), at daemon stop. */
   stopBoxPasses(): void;
+  /** The test boxes (DIPO-309); null without a box backend. */
+  readonly testBoxes: TestBoxes | null;
+  /** Runs `hook` after each pass of the box minute tick (DIPO-309: the test sweep). */
+  onBoxTick(hook: () => Promise<void>): void;
   /**
    * The fix rounds' recovery (DIPO-148), at daemon start: a round whose session started before the
    * stop is marked delivered, and every run that ended reviewed gets its round decided. Returns how
@@ -302,6 +310,8 @@ export interface DaemonRuns {
 export interface DaemonMergePorts {
   readonly conflict: NonNullable<StoryMergeDeps["conflict"]>;
   readonly reject: NonNullable<MergeGatesDeps["reject"]>;
+  /** A failed test's note to the same builder (DIPO-309). */
+  readonly testFail: NonNullable<StoryTestsDeps["testFail"]>;
   readonly recordMerge: NonNullable<StoryMergeDeps["recordMerge"]>;
   readonly story: NonNullable<StoryMergeDeps["story"]>;
   readonly itemMax: NonNullable<StoryMergeDeps["itemMax"]>;
@@ -850,6 +860,25 @@ export function daemonRuns(options: DaemonRunsOptions): DaemonRuns {
       { ...finishOptions, runDirOf: (runId) => runDirOfRun(runId) },
     );
   };
+  // The test boxes of stories under the maintainer's test (DIPO-309): made like every box, reached
+  // through a forwarder on the Mac's loopback.
+  const testBoxes =
+    boxed === null
+      ? null
+      : new TestBoxes({
+          workers: boxed.workers,
+          boxes: boxed.boxes,
+          forward: startForwarder,
+          reach: systemReach,
+          clock,
+          warn: (message, fields) => options.logger.warn(message, fields),
+          info: (message, fields) => options.logger.info(message, fields),
+        });
+  // What else runs on the box tick: the sweep of the tests nobody records (DIPO-309).
+  const boxTickHooks: (() => Promise<void>)[] = [];
+  const afterBoxPass = async (): Promise<void> => {
+    for (const hook of boxTickHooks) await hook().catch(() => undefined);
+  };
   // A drop or a merge ends a claim with no worker exit, so a minute tick also runs the pass: the
   // box of a released claim is deleted within about a minute (DIPO-278).
   let boxTick: ReturnType<typeof clock.setTimeout> | null = null;
@@ -858,7 +887,7 @@ export function daemonRuns(options: DaemonRunsOptions): DaemonRuns {
     if (!boxTicks) return;
     boxTick = clock.setTimeout(() => {
       boxTick = null;
-      void finishEndedBoxes().finally(armBoxTick);
+      void finishEndedBoxes().then(afterBoxPass).finally(armBoxTick);
     }, BOX_PASS_TICK_MS);
   };
   armBoxTick();
@@ -1236,6 +1265,8 @@ export function daemonRuns(options: DaemonRunsOptions): DaemonRuns {
     collisions,
     finishEndedBoxes,
     stopBoxPasses,
+    testBoxes,
+    onBoxTick: (hook) => void boxTickHooks.push(hook),
     recoverFixRounds: async () => {
       let queued = 0;
       for (const office of options.offices.loadedOffices()) {
@@ -1250,6 +1281,8 @@ export function daemonRuns(options: DaemonRunsOptions): DaemonRuns {
         (await fixRounds?.conflict(office, runId, input)) ?? false,
       reject: async (office, runId, reject) =>
         (await fixRounds?.reject(office, runId, reject)) ?? false,
+      testFail: async (office, runId, test) =>
+        (await fixRounds?.testFail(office, runId, test)) ?? null,
       recordMerge: async (office, run, merged) => {
         if (storyConflicts === null || run.story === null || run.branch === null) return;
         await storyConflicts.recorded(

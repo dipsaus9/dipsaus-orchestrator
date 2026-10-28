@@ -100,6 +100,18 @@ describe("body", () => {
     expect(body).toContain("## Status");
   });
 
+  // DIPO-309: the maintainer's test shows in the status block, for a flagged story or not.
+  it("shows the maintainer's newest test in the status block", () => {
+    const head = "a".repeat(40);
+    expect(storyPrBody(STORY, { head })).not.toContain("- test:");
+    expect(storyPrBody(STORY, { head, test: { result: "pass", head } })).toContain(
+      "- test: the maintainer's test passed at `aaaaaaaa`",
+    );
+    expect(storyPrBody(STORY, { head, test: { result: "fail", head: "b".repeat(40) } })).toContain(
+      "- test: the maintainer's test failed at `bbbbbbbb`, an earlier head; none for this one yet",
+    );
+  });
+
   it("hashes the text, so an unchanged body has an unchanged hash", () => {
     const a = storyPrBody(STORY, { head: "a".repeat(40) });
     expect(storyPrBodyHash(a)).toBe(storyPrBodyHash(storyPrBody(STORY, { head: "a".repeat(40) })));

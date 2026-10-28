@@ -977,6 +977,61 @@ describe("the verify in the box at done", () => {
     }));
 });
 
+describe("a test box's web route (DIPO-309)", () => {
+  const TEST = "tst_01J9ZK5Q8W3V4X6Y7Z8A9B0C1D";
+  const TEST_BOX = boxName(TEST);
+
+  it("admits the test box once, so dev keeps the password its install and setup used", () =>
+    inBoxes(async (repo, tmp) => {
+      const w = await world(repo, tmp, { boxes: { live: () => ({ code: 0 }) } });
+      await created(w, TEST);
+      w.log.length = 0;
+      expect(
+        await w.workers.install({
+          runId: TEST,
+          commands: [["bun", "install"]],
+          env: {},
+          timeoutMs: 60_000,
+        }),
+      ).toEqual({ ok: true });
+      const env = await w.workers.route(TEST);
+      const setup = await w.workers.verify({
+        runId: TEST,
+        commands: [["bun", "run", "setup"]],
+        cwd: ".",
+        env: {},
+        timeoutMs: 60_000,
+        step: "setup",
+      });
+      expect(setup.kind).toBe("green");
+      await w.workers.inbound(TEST, [5173]);
+      expect(
+        w.log.filter((line) => line.startsWith(`web route admitted ${TEST_BOX}`)),
+      ).toHaveLength(1);
+      // The setup ran with the very proxy URL dev gets.
+      expect(w.boxes.liveExecs.at(-1)?.env?.["HTTPS_PROXY"]).toBe(env["HTTPS_PROXY"]);
+      expect(w.boxes.firewalls.at(-1)).toEqual({
+        box: TEST_BOX,
+        firewall: { hostAddress: BOX_HOST_ADDRESS, ports: [3128], inbound: [5173] },
+      });
+    }));
+
+  it("refuses the way in for any box but a test box", () =>
+    inBoxes(async (repo, tmp) => {
+      const w = await world(repo, tmp);
+      await created(w);
+      for (const runId of [RUN, "review-01J9ZK5Q8W3V4X6Y7Z8A9B0C1D"]) {
+        const refused = await w.workers.inbound(runId, [5173]).then(
+          () => null,
+          (error: unknown) => error,
+        );
+        expect(refused).toBeInstanceOf(BoxError);
+        expect((refused as BoxError).code).toBe("box.refused");
+      }
+      expect(w.boxes.firewalls.some((set) => set.firewall.inbound !== undefined)).toBe(false);
+    }));
+});
+
 describe("the install in the box before the worker (DIPO-294)", () => {
   it("runs in /work with the run environment and the web route, CA bundle and Safe-Chain a session gets", () =>
     inBoxes(async (repo, tmp) => {

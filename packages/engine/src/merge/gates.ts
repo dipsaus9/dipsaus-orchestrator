@@ -17,9 +17,14 @@
 //   is marked hand-merge only (`gates.hand_merge` `release-path`): `dipo approve` refuses it,
 //   dipo never turns auto-merge on for it and never passes `--admin`, and only the hand merge
 //   (below) or a reject decides it.
+// - The test (DIPO-309). A flagged story waits only while no test pass is recorded for the head
+//   (`testPassedFor`): a pass recorded before the gate opens keeps the flag out of its reasons, and
+//   a pass on an open gate whose only reason is the flag decides it `approved` by the maintainer
+//   (`decideTestedMergeGates`): the pass is the maintainer's merge decision. The gate keeps its
+//   reasons by kind (`gates.waits`) for that.
 // - Summary. Built by code: why the gate waits and what to do; for a flagged story the manual
-//   test-plan entries and the worktree path to test in. The gate's phase is `test` for a flagged
-//   story and `merge` otherwise.
+//   test-plan entries and the `dipo test` line, and for any story the test recorded for the head.
+//   The gate's phase is `test` for a flagged story and `merge` otherwise.
 // - A head per gate. A gate holds for its own head and for a head its approval was carried to
 //   (task-file commits such as the close-out); a new head after a fix round opens a new gate with a
 //   new id. An open gate whose head no longer holds is decided `rejected` by rule as superseded,
@@ -172,21 +177,49 @@ export interface MergeSummaryFacts {
   readonly waits: readonly MergeWait[];
   /** The manual test-plan entries of a flagged story (`check`, `expect` when given). */
   readonly manual?: readonly { readonly check: string; readonly expect?: string }[];
-  /** The story worktree, for a flagged story's tests. */
-  readonly worktree?: string | null;
+  /** The newest test recorded for the story run (DIPO-309), of any head; none when untested. */
+  readonly test?: {
+    readonly result: "pass" | "fail";
+    readonly head: string;
+    readonly note: string | null;
+  } | null;
+}
+
+/** Pure: the summary line of the test recorded for the story, or null (DIPO-309). */
+export function testLine(
+  head: string,
+  test: MergeSummaryFacts["test"],
+  flagged: boolean,
+): string | null {
+  const at = head.slice(0, 12);
+  if (test === null || test === undefined) {
+    return flagged ? `No test is recorded for ${at}.` : null;
+  }
+  if (test.head !== head) {
+    const was = `the last test, a ${test.result} at ${test.head.slice(0, 12)}, was of an earlier head`;
+    return flagged
+      ? `No test is recorded for ${at}, and ${was}: the new head needs a new test.`
+      : `No test is recorded for ${at}; ${was}.`;
+  }
+  const note = test.note === null ? "" : `: ${oneLine(test.note)}`;
+  return `The maintainer's test of ${at} ${test.result === "pass" ? "passed" : "failed"}${note}.`;
 }
 
 /** Pure: the code-built summary of a merge gate (0002). */
 export function mergeGateSummary(facts: MergeSummaryFacts): string {
   const head = facts.head.slice(0, 12);
   if (facts.waits.length === 0) {
-    return `${facts.story}: PR #${facts.pr.number} at ${head} passed review and its required checks; dipo commits the close-out and turns GitHub's auto-merge on.`;
+    const tested = testLine(facts.head, facts.test, false);
+    return `${facts.story}: PR #${facts.pr.number} at ${head} passed review and its required checks; dipo commits the close-out and turns GitHub's auto-merge on.${tested === null ? "" : ` ${tested}`}`;
   }
   const lines = [
     `${facts.story}: PR #${facts.pr.number} (${facts.pr.url}) at ${head} passed review and its required checks, and its merge waits for the maintainer:`,
     ...facts.waits.map((wait) => `- ${waitLine(wait)}`),
   ];
-  if (facts.waits.some((wait) => wait.kind === "testBeforeMerge")) {
+  const flagged = facts.waits.some((wait) => wait.kind === "testBeforeMerge");
+  const tested = testLine(facts.head, facts.test, flagged);
+  if (tested !== null) lines.push(tested);
+  if (flagged) {
     const manual = facts.manual ?? [];
     lines.push(
       manual.length === 0 ? "Manual test-plan entries: none." : "Manual test-plan entries:",
@@ -194,8 +227,8 @@ export function mergeGateSummary(facts: MergeSummaryFacts): string {
         (entry, i) =>
           `  ${i + 1}. ${entry.check}${entry.expect === undefined ? "" : ` (expect: ${entry.expect})`}`,
       ),
+      `Test the pushed head with \`dipo test ${facts.story}\`; a pass decides this gate when it waits for nothing else.`,
     );
-    if (facts.worktree != null) lines.push(`Test in the story worktree: ${facts.worktree}`);
   }
   const hand = handMergeLine(facts.story, facts.waits);
   const held = facts.waits.some((wait) => wait.kind === "holdLabel");
@@ -253,6 +286,8 @@ export interface StoredMergeGate {
   readonly overrideOf: GateId | null;
   /** Why only a merge on the host decides it (DIPO-331); null for a gate dipo may merge. */
   readonly handMerge: HandMerge | null;
+  /** The kinds of the reasons it waits for the maintainer (DIPO-309); null for an older gate. */
+  readonly waits: readonly MergeWait["kind"][] | null;
   readonly openedAt: number;
   readonly decision: {
     readonly decision: "approved" | "rejected";
@@ -271,6 +306,7 @@ interface GateRow {
   summary: string;
   override_of: string | null;
   hand_merge: string | null;
+  waits: string | null;
   opened_at: number;
   decision: "approved" | "rejected" | null;
   decided_by: "maintainer" | "rule" | null;
@@ -279,7 +315,7 @@ interface GateRow {
 }
 
 const SELECT = `select g.gate_id, g.run_id, g.key, g.head_sha, g.waiting_on, g.summary,
-    g.override_of, g.hand_merge, g.opened_at, d.decision, d.decided_by, d.note, d.decided_at
+    g.override_of, g.hand_merge, g.waits, g.opened_at, d.decision, d.decided_by, d.note, d.decided_at
   from gates g
   left join gate_decisions d on d.office_id = g.office_id and d.gate_id = g.gate_id
   where g.office_id = $office_id and g.kind = 'merge'`;
@@ -294,12 +330,26 @@ function toGate(row: GateRow): StoredMergeGate {
     summary: row.summary,
     overrideOf: row.override_of as GateId | null,
     handMerge: row.hand_merge === RELEASE_PATH_HOLD ? RELEASE_PATH_HOLD : null,
+    waits: waitKindsOf(row.waits),
     openedAt: row.opened_at,
     decision:
       row.decision === null || row.decided_by === null || row.decided_at === null
         ? null
         : { decision: row.decision, by: row.decided_by, note: row.note, at: row.decided_at },
   };
+}
+
+/** The wait kinds stored on a gate; null for a gate stored without them. */
+function waitKindsOf(text: string | null): MergeWait["kind"][] | null {
+  if (text === null) return null;
+  try {
+    const parsed = JSON.parse(text) as unknown;
+    return Array.isArray(parsed)
+      ? parsed.filter((kind): kind is MergeWait["kind"] => typeof kind === "string")
+      : null;
+  } catch {
+    return null;
+  }
 }
 
 /** The merge gate `gate`, or null when there is no merge gate of that id. */
@@ -373,11 +423,12 @@ export function openMergeGate(
   const hand = input.waits.some((wait) => wait.kind === "releasePath") ? RELEASE_PATH_HOLD : null;
   office.run(
     `insert into gates (office_id, gate_id, kind, key, run_id, opened_at, waiting_on, summary,
-       head_sha, override_of, hand_merge)
+       head_sha, override_of, hand_merge, waits)
      values ($office_id, $gate, 'merge', $key, $run, $at, $waiting, $summary, $head, $override,
-       $hand)`,
+       $hand, $waits)`,
     {
       hand,
+      waits: JSON.stringify(input.waits.map((wait) => wait.kind)),
       gate,
       key: input.key,
       run: input.runId,
@@ -457,6 +508,41 @@ export function decideMergeGate(
       },
     },
   ];
+}
+
+/**
+ * A test pass recorded for `head` (DIPO-309, 0002): each open merge gate of the story for that head
+ * that waits for the maintainer only because the story is flagged test-before-merge is decided
+ * `approved` by the maintainer, with the test in the note: the pass is the maintainer's merge
+ * decision. A gate that waits for anything else keeps waiting. Inside the caller's transaction;
+ * returns the `gate.decided` entries.
+ */
+export function decideTestedMergeGates(
+  office: OfficeHandle,
+  key: StoryKey | string,
+  head: string,
+  test: { readonly testId: string; readonly at: number },
+): NewEntry[] {
+  const open = office
+    .all<GateRow>(
+      `${SELECT} and g.key = $key and g.head_sha = $head and g.waiting_on = 'maintainer'
+        and g.override_of is null and d.gate_id is null order by g.opened_at, g.rowid`,
+      { key, head },
+    )
+    .map(toGate);
+  return open
+    .filter(
+      (gate) =>
+        gate.waits !== null && gate.waits.length === 1 && gate.waits[0] === "testBeforeMerge",
+    )
+    .flatMap((gate) =>
+      decideMergeGate(office, gate.gate, {
+        decision: "approved",
+        by: "maintainer",
+        note: `the maintainer's test ${test.testId} passed`,
+        at: test.at,
+      }),
+    );
 }
 
 /**

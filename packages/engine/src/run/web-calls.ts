@@ -14,7 +14,7 @@ import type { OfficeHandle } from "../db/office";
 import { oneLineInput } from "../ingest/output";
 import { WEB_LINE_PREFIX, type WorkerEvent } from "../workers/types";
 import { type EnvSecret, readEnvSecrets, REDACTED_TEXT, redactSecrets } from "./env-secrets";
-import { findRun } from "./records";
+import { countWebCalls, findRun } from "./records";
 
 /** Pure: the web calls among `events` by tool, from the worker's tool activity. */
 export function webCallCounts(events: readonly WorkerEvent[]): {
@@ -76,12 +76,7 @@ export class WebCalls {
     if (counts.WebSearch === 0 && counts.WebFetch === 0) return;
     try {
       office.immediate(() =>
-        office.run(
-          `update runs set web_searches = web_searches + $searches,
-             web_fetches = web_fetches + $fetches
-           where office_id = $office_id and run_id = $run`,
-          { run, searches: counts.WebSearch, fetches: counts.WebFetch },
-        ),
+        countWebCalls(office, run, { searches: counts.WebSearch, fetches: counts.WebFetch }),
       );
     } catch (error) {
       this.#warn("the web calls could not be counted", run, error);

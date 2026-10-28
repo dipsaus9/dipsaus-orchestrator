@@ -835,17 +835,35 @@
           "type": "string",
           "pattern": "^tst_[0-7][0-9A-HJKMNP-TV-Z]{25}$"
         },
+        "head": {
+          "type": "string"
+        },
         "checkout": {
           "type": "string"
         },
-        "script": {
+        "steps": {
           "type": "array",
           "items": {
-            "type": "string"
+            "type": "object",
+            "properties": {
+              "check": {
+                "type": "string"
+              },
+              "expect": {
+                "type": "string"
+              }
+            },
+            "required": ["check"]
           }
+        },
+        "url": {
+          "type": "string"
+        },
+        "shell": {
+          "type": "string"
         }
       },
-      "required": ["test", "checkout", "script"]
+      "required": ["test", "head", "checkout", "steps"]
     },
     "test.record.args": {
       "type": "object",

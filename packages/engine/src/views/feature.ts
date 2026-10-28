@@ -33,6 +33,7 @@ import { baseConflictOf } from "../run/conflicts";
 import { storedDoneReport } from "../run/done-report";
 import { storedMarker } from "../run/markers";
 import { findRun } from "../run/records";
+import { openTestViews } from "../run/test-records";
 
 import { DESK_SOURCES, type DeskSources, registerDesk } from "./desk";
 import { registerDigest } from "./digest";
@@ -56,8 +57,8 @@ export function snapshot(office: OfficeHandle): OfficeSnapshot {
     work: activeWorkViews(office),
     gates: openGateViews(office),
     questions: openQuestionViews(office),
-    // Test sessions arrive with M1.
-    tests: [],
+    // The open tests whose product runs (DIPO-309).
+    tests: openTestViews(office),
   };
 }
 

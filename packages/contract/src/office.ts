@@ -42,7 +42,9 @@ import {
   StoryRef,
   StoryRefValue,
   StoryView,
+  TestEndReason,
   TestResult,
+  TestStep,
   TestView,
   Tier,
   Usage,
@@ -289,17 +291,35 @@ export const proposalDismiss = defineCommand({
   since: 1,
 });
 
+// Since minor 1 (DIPO-309, 0002) [`test.sessions`]: runs the story's pushed head in a new test box
+// and replies once the product runs: the test id, the head, the manual steps in order, `checkout`
+// (the test box's name), and the optional `url` (http://localhost:<port> on the Mac) and `shell`
+// (the `dipo test shell <ID>` line). A story with an open test for its head gets that test back
+// unchanged. Errors: `story.notTestable` (no manual test-plan entry), `test.notInReview` (not In
+// Review in phase review, test or merge), `test.refused` (install or `dev` unresolved after the
+// fingerprint check; `details.capability` names it), `test.startFailed` (the box, install, setup
+// or `dev` failed; the message says which).
 export const testStart = defineCommand({
   name: "test.start",
   level: "office",
   args: StoryRef,
-  result: z.object({ test: TestId, checkout: z.string(), script: z.array(z.string()) }),
+  result: z.object({
+    test: TestId,
+    head: z.string(),
+    checkout: z.string(),
+    steps: z.array(TestStep),
+    url: z.string().optional(),
+    shell: z.string().optional(),
+  }),
   confirm: false,
   irreversible: false,
-  provisional: true,
+  since: 1,
 });
 
-// A fail needs a note; it sends the story back to In Progress with the note as worker input.
+// Since minor 1 (DIPO-309, 0002) [`test.sessions`]: records the open test's result for the head
+// it tested and closes its box. A pass decides the story's test gate for that head; a fail needs a
+// note and sends it to the same builder as a fix round item. Error: `test.closed` for a test that
+// is no longer open, or whose head is older than the story's current head.
 export const testRecord = defineCommand({
   name: "test.record",
   level: "office",
@@ -312,7 +332,7 @@ export const testRecord = defineCommand({
   result: z.object({ test: TestId, result: TestResult }),
   confirm: false,
   irreversible: false,
-  provisional: true,
+  since: 1,
 });
 
 // Reads
@@ -893,6 +913,16 @@ export const testRecorded = defineEvent({
   }),
 });
 
+// Since minor 1 (DIPO-309): an open test closed without a record, and its test box deleted: a new
+// head, the idle timeout, the story dropped, discarded, merged or out of review, its box lost, or
+// a start that failed. A client drops the test from its view.
+export const testEnded = defineEvent({
+  type: "test.ended",
+  stream: "office",
+  derived: false,
+  data: z.object({ test: TestId, story: StoryId, key: StoryKey, reason: TestEndReason }),
+});
+
 export const officeCommands = [
   workRun,
   workAnswer,
@@ -942,4 +972,5 @@ export const officeEvents = [
   proposalClosed,
   testStarted,
   testRecorded,
+  testEnded,
 ] as const;

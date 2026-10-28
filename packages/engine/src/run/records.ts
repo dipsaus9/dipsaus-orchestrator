@@ -1,6 +1,11 @@
 // Run facts (0007 section 4, DIPO-48): rows of `runs`, `run_steps` and `config_snapshots`, read and
 // written through the office handle. Writers run inside the caller's `office.immediate`.
 //
+// This module is the one writer of `runs` (0001): every insert and update of a run row goes
+// through it, and `test/run/one-writer.test.ts` fails on one anywhere else. A change of the run's
+// state (its end, end kind, wait and parked time) is decided by `nextRunState` (`lifecycle.ts`)
+// and written by `applyRunEvent`.
+//
 // A story run is active while it has not ended and its claim is live, so a claim released by
 // teardown or a rollback never leaves an office busy; a session run is active until it ends.
 //
@@ -17,6 +22,7 @@ import { finalizeRunAgents } from "../ingest/usage";
 
 import type { BackstopSnapshot } from "./backstop";
 import { runTotals } from "./caps";
+import { DONE_KIND, IN_REVIEW_KIND, nextRunState, type RunEvent, type RunState } from "./lifecycle";
 
 export type RunKind = "story" | "session";
 
@@ -171,14 +177,21 @@ function toRecord(row: RunRow): StoredRun {
 }
 
 export function insertRun(office: OfficeHandle, run: NewRun): void {
+  const state = nextRunState(null, { kind: "start" }) as RunState;
   office.run(
-    `insert into runs (office_id, ${INSERTED})
+    `insert into runs (office_id, ${INSERTED}, ended_at, end_kind, parked_ms, waiting,
+       waiting_since)
      values ($office_id, $run_id, $kind, $key, $story_id, $tier, $role, $model, $start_sha,
        $branch, $worktree, $slot, $budget_unit, $budget_limit, $loop_cap, $max_turns,
        $max_minutes, $review_round_cap, $ci_cap, $conflict_cap, $review_max_turns,
        $review_max_minutes, $review_max_tokens, $config_hash, $override_keys, $run_profile_id,
-       $started_at, $scope)`,
+       $started_at, $scope, $ended_at, $end_kind, $parked_ms, $waiting, $waiting_since)`,
     {
+      ended_at: state.endedAt,
+      end_kind: state.endKind,
+      parked_ms: state.parkedMs,
+      waiting: state.waiting,
+      waiting_since: state.waitingSince,
       run_id: run.runId,
       kind: run.kind,
       key: run.key,
@@ -220,6 +233,120 @@ export function recordGateChanges(
     `update runs set gate_changes = $changes where office_id = $office_id and run_id = $run`,
     { run: runId, changes: changes.length === 0 ? null : JSON.stringify(changes) },
   );
+}
+
+/** The run's web calls by tool, counted from its tool activity (0020, DIPO-164). */
+export function countWebCalls(
+  office: OfficeHandle,
+  runId: string,
+  calls: { readonly searches: number; readonly fetches: number },
+): void {
+  office.run(
+    `update runs set web_searches = web_searches + $searches,
+       web_fetches = web_fetches + $fetches
+     where office_id = $office_id and run_id = $run`,
+    { run: runId, searches: calls.searches, fetches: calls.fetches },
+  );
+}
+
+/** The story's criteria at run start, as sorted JSON lists (`criteria.ts`). */
+export function storeRunCriteria(
+  office: OfficeHandle,
+  runId: string,
+  criteria: { readonly known: string; readonly checked: string },
+): void {
+  office.run(
+    `update runs set criteria_known = $known, criteria_checked = $checked
+      where office_id = $office_id and run_id = $run`,
+    { run: runId, known: criteria.known, checked: criteria.checked },
+  );
+}
+
+/** The criteria the latest accepted report marks met, as a sorted JSON list (`criteria.ts`). */
+export function storeReportedCriteria(office: OfficeHandle, runId: string, met: string): void {
+  office.run(
+    `update runs set criteria_reported = $met where office_id = $office_id and run_id = $run`,
+    { run: runId, met },
+  );
+}
+
+/**
+ * The reviewer's turn, minute and token caps for a run that has none yet (0002); a cap the run
+ * holds is never changed.
+ */
+export function storeReviewCaps(
+  office: OfficeHandle,
+  runId: string,
+  caps: {
+    readonly maxTurns: number | null;
+    readonly maxMinutes: number | null;
+    readonly budgetTokens: number | null;
+  },
+): void {
+  office.run(
+    `update runs set review_max_turns = coalesce(review_max_turns, $turns),
+       review_max_minutes = coalesce(review_max_minutes, $minutes),
+       review_max_tokens = coalesce(review_max_tokens, $tokens)
+      where office_id = $office_id and run_id = $run`,
+    { run: runId, turns: caps.maxTurns, minutes: caps.maxMinutes, tokens: caps.budgetTokens },
+  );
+}
+
+/** The run's state as `lifecycle.ts` decides it; null for an unknown run. */
+export function runState(office: OfficeHandle, runId: string): RunState | null {
+  const row = office.get<{
+    ended_at: number | null;
+    end_kind: string | null;
+    waiting: string | null;
+    waiting_since: number | null;
+    parked_ms: number;
+  }>(
+    `select ended_at, end_kind, waiting, waiting_since, parked_ms from runs
+      where office_id = $office_id and run_id = $run`,
+    { run: runId },
+  );
+  return row === null
+    ? null
+    : {
+        endedAt: row.ended_at,
+        endKind: row.end_kind,
+        waiting: row.waiting,
+        waitingSince: row.waiting_since,
+        parkedMs: row.parked_ms,
+      };
+}
+
+/**
+ * Inside the caller's transaction: `event` happens to the run `runId`. Its next state comes from
+ * `nextRunState` and is written; a run that ends also drops its backstop snapshot (DIPO-93).
+ * Returns the state before and after, or null when the event did not apply and nothing changed.
+ */
+export function applyRunEvent(
+  office: OfficeHandle,
+  runId: string,
+  event: RunEvent,
+): { readonly before: RunState; readonly after: RunState } | null {
+  const before = runState(office, runId);
+  if (before === null) return null;
+  const after = nextRunState(before, event);
+  if (after === null) return null;
+  const ends = before.endedAt === null && after.endedAt !== null;
+  office.run(
+    `update runs set ended_at = $ended_at, end_kind = $end_kind, waiting = $waiting,
+       waiting_since = $waiting_since, parked_ms = $parked_ms,
+       backstop_snapshot = case when $ends = 1 then null else backstop_snapshot end
+     where office_id = $office_id and run_id = $run`,
+    {
+      run: runId,
+      ended_at: after.endedAt,
+      end_kind: after.endKind,
+      waiting: after.waiting,
+      waiting_since: after.waitingSince,
+      parked_ms: after.parkedMs,
+      ends: ends ? 1 : 0,
+    },
+  );
+  return { before, after };
 }
 
 export function findRun(office: OfficeHandle, runId: RunId): StoredRun | null {
@@ -367,7 +494,7 @@ export function currentProfileId(office: OfficeHandle): string | null {
 }
 
 /** The outcome of a run that ended at In Review (DIPO-49). */
-export const IN_REVIEW_END = "in-review";
+export const IN_REVIEW_END = IN_REVIEW_KIND;
 
 /** The end kind of a review period: the run waits for the verdict, CI or the merge gate. */
 export const REVIEWED_END = "reviewed";
@@ -376,7 +503,7 @@ export const REVIEWED_END = "reviewed";
  * The end kind of a run whose story is Done (0019 section 13): the release reason the Done poll's
  * teardown ends it with (`worktree/teardown.ts`).
  */
-export const DONE_END = "done";
+export const DONE_END = DONE_KIND;
 
 /**
  * When the run's caps start counting (0008 sections 6 and 9): its first worker host's start, else
@@ -413,14 +540,20 @@ export const PARKED_OUTCOME = "parked";
  * 13): a `done` end of a run whose last active period already ended (at In Review) sets its end
  * kind and writes the final row (`finishRun`); a final row is never rewritten.
  */
-export function endRun(office: OfficeHandle, runId: RunId, at: number, kind: string): boolean {
-  const ended = office.run(
-    `update runs set ended_at = $at, end_kind = $kind, backstop_snapshot = null,
-       waiting = null, waiting_since = null
-     where office_id = $office_id and run_id = $run and ended_at is null`,
-    { run: runId, at, kind },
-  );
-  if (ended.changes > 0) {
+export function endRun(
+  office: OfficeHandle,
+  runId: RunId,
+  at: number,
+  kind: string,
+  reviewSince?: number,
+): boolean {
+  const ended = applyRunEvent(office, runId, {
+    kind: "end",
+    at,
+    endKind: kind,
+    ...(reviewSince === undefined ? {} : { reviewSince }),
+  });
+  if (ended !== null) {
     // Usage of agents whose exit is not ingested yet reaches `usage_daily` now (0007 amendment of
     // 2026-10-14, DIPO-51); what ingestion adds later feeds only its change.
     finalizeRunAgents(office, runId, at);
@@ -439,17 +572,13 @@ export function endRun(office: OfficeHandle, runId: RunId, at: number, kind: str
  * Inside the caller's transaction.
  */
 export function finishRun(office: OfficeHandle, runId: RunId): boolean {
-  const run = findRun(office, runId);
-  if (run === null || run.endedAt === null) return false;
   const final = office.get<{ final: number }>(
     "select final from run_outcomes where office_id = $office_id and run_id = $run",
     { run: runId },
   );
-  if (final?.final === 1) return false;
-  office.run(`update runs set end_kind = $kind where office_id = $office_id and run_id = $run`, {
-    run: runId,
-    kind: DONE_END,
-  });
+  if (applyRunEvent(office, runId, { kind: "finish", final: final?.final === 1 }) === null) {
+    return false;
+  }
   writeRunOutcome(office, runId, DONE_END);
   return true;
 }

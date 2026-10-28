@@ -14,9 +14,9 @@ import { deriveStoryView, storyView } from "../views/story";
 import { runProgress, workRefOf } from "../views/work";
 
 import { endRunMarked, markPhase } from "./markers";
-import { resolvePark } from "./park-resolve";
+import { resolvePark } from "./park-records";
 import { START_KINDS, type StartKind, waitForPlace } from "./places";
-import { DONE_END, findRun, REVIEWED_END, type StoredRun } from "./records";
+import { applyRunEvent, findRun, REVIEWED_END, type StoredRun } from "./records";
 
 export { REVIEWED_END };
 
@@ -78,14 +78,7 @@ export function reopen(
       { run: run.runId },
     );
   }
-  const reopened =
-    office.run(
-      `update runs set parked_ms = parked_ms + max(0, $at - coalesce(ended_at, $at)),
-         ended_at = null, end_kind = null
-       where office_id = $office_id and run_id = $run and ended_at is not null
-         and end_kind is not $done`,
-      { run: run.runId, at, done: DONE_END },
-    ).changes > 0;
+  const reopened = applyRunEvent(office, run.runId, { kind: "reopen", at }) !== null;
   if (reopened) {
     office.run(
       "delete from run_outcomes where office_id = $office_id and run_id = $run and final = 0",
@@ -160,9 +153,5 @@ export function endReviewPeriod(
     { run: runId },
   );
   if (review?.value !== "review") return false;
-  office.run(
-    `update runs set parked_ms = parked_ms + $review where office_id = $office_id and run_id = $run`,
-    { run: runId, review: Math.max(0, at - review.at) },
-  );
-  return endRunMarked(office, runId, at, kind);
+  return endRunMarked(office, runId, at, kind, review.at);
 }

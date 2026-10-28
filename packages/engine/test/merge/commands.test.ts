@@ -311,6 +311,29 @@ describe("approving past a blocked review", () => {
     expect(s.host.armedAt).toEqual([{ number: PR, head: C1 }]);
   });
 
+  it("refuses the override of a story whose run is still open, before the branch changes", async () => {
+    const gate = await blocked();
+    // A crash, or a review-blocked park written by hand, left the run open beside the park.
+    s.w.office.immediate(() =>
+      s.w.office.run(
+        "update runs set ended_at = null, end_kind = null where office_id = $office_id and run_id = $run",
+        { run: s.run },
+      ),
+    );
+    const g = gatesOf(s);
+    expect(await refused(g.gates.approve(g.ctx(), { gate, note: "Merge it." }))).toBe(
+      "gate.notWaitingOnMaintainer",
+    );
+    expect(g.lifts).toEqual([]);
+    expect(mergeGate(s.w.office, gate)?.decision).toBeNull();
+    expect(runSteps(s.w.office, s.run).filter((step) => step.kind === "override")).toEqual([]);
+    const park = s.w.office.get<{ resolved_at: number | null }>(
+      "select resolved_at from parks where office_id = $office_id and park_id = 1",
+    );
+    expect(park?.resolved_at).toBeNull();
+    expect(findRun(s.w.office, s.run)).toMatchObject({ endedAt: null, endKind: null });
+  });
+
   it("leaves the story parked when the override is rejected", async () => {
     const gate = await blocked();
     const g = gatesOf(s);

@@ -234,8 +234,11 @@ describe("office commands and reads", () => {
     "gate.reject": 1,
     "proposal.accept": 1,
     "proposal.dismiss": 1,
+    "test.start": 1,
+    "test.record": 1,
   };
-  const provisional = ["test.start", "test.record"];
+  // No command or read is provisional since DIPO-309.
+  const provisional: readonly string[] = [];
 
   it("defines every command and read of this story", () => {
     expect(officeCommands.map((d): string => d.name).toSorted()).toEqual(

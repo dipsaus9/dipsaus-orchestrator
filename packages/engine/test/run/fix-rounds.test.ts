@@ -20,6 +20,7 @@ import {
   FIX_LIFT_TRIES,
   FixRounds,
   feedbackItems,
+  heldTestNotes,
   findRun,
   IN_REVIEW_END,
   Places,
@@ -41,6 +42,7 @@ import { plainTask } from "../prompts/helpers";
 import {
   addAgent,
   addUsage,
+  endAgent,
   MINUTE,
   type RoundsWorld,
   roundsWorld,
@@ -601,6 +603,79 @@ describe("a maintainer reject (0019 sections 8 and 11)", () => {
     ]);
     expect(x.started[0]?.message).toContain(note);
     expect(x.started[0]?.message).toContain("Item 1 (reject):");
+  });
+});
+
+describe("a failed test (DIPO-309, 0002)", () => {
+  it("goes to the same worker once, the note verbatim and keyed on the test id, with no cap", async () => {
+    const s = inReview("DIPO-1");
+    reviewed(s, H1, APPROVED);
+    x.ci.set(s.run, { kind: "green", head: H1 });
+    const note = "Esc does not go back to the overview.";
+    const test = { testId: "tst_01J9ZK5Q8W3V4X6Y7Z8A9B0C1D", head: H1, note };
+    expect(await x.fix.testFail(officeId(), s.run, test)).toBe("queued");
+    await x.fix.idle();
+    expect(feedbackItems(w.office, s.run)).toEqual([
+      expect.objectContaining({
+        source: "test",
+        signature: `test:${test.testId}`,
+        head: H1,
+        text: `The maintainer tested the product at ${H1.slice(0, 12)} and recorded a fail with this note:\n${note}`,
+      }),
+    ]);
+    expect(x.started).toHaveLength(1);
+    expect(x.started[0]?.message).toContain("Item 1 (test):");
+    expect(x.started[0]?.message).toContain(note);
+    // Sent once: the same test's note again holds nothing and starts no round.
+    expect(await x.fix.testFail(officeId(), s.run, test)).toBe("held");
+    expect(heldTestNotes(w.office, s.run)).toEqual([]);
+    expect(feedbackItems(w.office, s.run)).toHaveLength(1);
+  });
+
+  const NOTE = "The greeting is gone.";
+  const TEST = { testId: "tst_01J9ZK5Q8W3V4X6Y7Z8A9B0C2E", head: H1, note: NOTE };
+
+  it("is held while a reviewer session is live, and goes with the round once the run waits in review", async () => {
+    const s = inReview("DIPO-1");
+    const reviewer = addAgent(w, s.run, REVIEWER_ROLE, true, "opus");
+    expect(await x.fix.testFail(officeId(), s.run, TEST)).toBe("held");
+    await x.fix.idle();
+    expect(x.started).toEqual([]);
+    expect(heldTestNotes(w.office, s.run).map((held) => held.item.signature)).toEqual([
+      `test:${TEST.testId}`,
+    ]);
+    // The reviewer approves and ends: the run waits in review, and the round carries the note.
+    endAgent(w, reviewer);
+    reviewed(s, H1, APPROVED);
+    x.ci.set(s.run, { kind: "green", head: H1 });
+    expect(await x.fix.consider(officeId(), s.run)).toBe(true);
+    await x.fix.idle();
+    expect(x.started).toHaveLength(1);
+    expect(x.started[0]?.message).toContain(NOTE);
+    expect((x.started[0]?.message ?? "").split(NOTE)).toHaveLength(2);
+    expect(heldTestNotes(w.office, s.run)).toEqual([]);
+    expect(feedbackItems(w.office, s.run).map((item) => item.source)).toEqual(["test"]);
+  });
+
+  it("is held while a fix round runs, and goes with the run's next round", async () => {
+    const s = inReview("DIPO-1");
+    reviewed(s, H1, BLOCKED);
+    x.ci.set(s.run, { kind: "green", head: H1 });
+    expect(await x.fix.consider(officeId(), s.run)).toBe(true);
+    await x.fix.idle();
+    expect(x.started).toHaveLength(1);
+    expect(findRun(w.office, s.run)?.endedAt).toBeNull();
+    // The round's session runs: the note waits, held for the run's next session and round.
+    expect(await x.fix.testFail(officeId(), s.run, TEST)).toBe("held");
+    expect(heldTestNotes(w.office, s.run)).toHaveLength(1);
+    backInReview(s);
+    reviewed(s, H2, APPROVED);
+    x.ci.set(s.run, { kind: "green", head: H2 });
+    expect(await x.fix.consider(officeId(), s.run)).toBe(true);
+    await x.fix.idle();
+    expect(x.started).toHaveLength(2);
+    expect(x.started[1]?.message).toContain(NOTE);
+    expect(heldTestNotes(w.office, s.run)).toEqual([]);
   });
 });
 

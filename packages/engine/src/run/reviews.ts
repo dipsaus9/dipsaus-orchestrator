@@ -59,6 +59,7 @@ import {
 } from "../review/store";
 import { evidenceProblems, type ReviewFacts, validateReport } from "../review/validate";
 import { judgeReview } from "../review/verdict";
+import { recordCrashedEnd } from "../runs/agents";
 import { findStoryPr } from "../story-pr/records";
 import { withWorkViews } from "../views/work";
 import { holdMessage, type AdapterHold, type LaunchCheckFailure } from "../workers/hold";
@@ -785,11 +786,7 @@ export class Reviews {
     if (intent !== null) this.#resolve(office, view.runId, intent, "crashed", at);
     const round = openReviewRound(office, run.runId);
     const crashes = office.immediate(() => {
-      office.run(
-        `update agents set ended_at = coalesce(ended_at, $at), end_reason = $reason
-          where office_id = $office_id and agent_id = $agent`,
-        { at, agent, reason: REVIEW_CRASHED_END },
-      );
+      recordCrashedEnd(office, agent, at, REVIEW_CRASHED_END);
       return (
         office.get<{ n: number }>(
           `select count(*) as n from agents where office_id = $office_id and run_id = $run

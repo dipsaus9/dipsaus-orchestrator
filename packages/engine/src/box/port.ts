@@ -33,6 +33,11 @@ export const BOX_BUILD_CA_FILE = "safe-chain-ca.pem";
  * network, and committed from. Only a build box runs a command with all its capabilities.
  */
 export const BUILD_BOX_RUN_PREFIX = "build-";
+/**
+ * The run id prefix of a test box (DIPO-309): the box a story's pushed head runs in for the
+ * maintainer's test, named by its test id (`tst_<ulid>`).
+ */
+export const TEST_BOX_RUN_PREFIX = "tst_";
 
 /** A run id a box name may carry: what `IdSource` makes (`run_<ulid>`), and test ids. */
 const RUN_ID = /^[a-zA-Z0-9][a-zA-Z0-9_.-]*$/;

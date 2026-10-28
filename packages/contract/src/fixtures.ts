@@ -166,7 +166,11 @@ export const testView = {
   test: ids.test,
   story: "DIPO-15",
   key: ids.storyKey,
-  checkout: "/Users/me/code/dipsaus-orchestrator.worktrees/DIPO-15",
+  checkout: "dipo-tst_01J9ZK5Q8W3V4X6Y7Z8A9B0C1D",
+  head: "4b4171c2a1e3f5d7b9c0e2f4a6b8d0c2e4f6a8b0",
+  steps: [{ check: "Press o", expect: "The office switcher opens" }, { check: "Type slay" }],
+  url: "http://localhost:52731/",
+  shell: "dipo test shell DIPO-15",
   startedAt: "2026-10-12T09:03:00Z",
 };
 
@@ -238,7 +242,14 @@ const officeCommandFixtures: Record<string, { args: unknown; result: unknown }> 
   },
   "test.start": {
     args: { story: "DIPO-15" },
-    result: { test: ids.test, checkout: testView.checkout, script: ["Press o", "Type slay"] },
+    result: {
+      test: ids.test,
+      head: testView.head,
+      checkout: testView.checkout,
+      steps: testView.steps,
+      url: testView.url,
+      shell: testView.shell,
+    },
   },
   "test.record": {
     args: { test: ids.test, result: "fail", note: "Esc does not go back." },
@@ -521,6 +532,7 @@ const officeEventFixtures: Record<string, unknown> = {
     result: "fail",
     note: "Esc does not go back.",
   },
+  "test.ended": { test: ids.test, story: "DIPO-15", key: ids.storyKey, reason: "new-head" },
 };
 
 // `dipo` field blocks (0010 section 3).

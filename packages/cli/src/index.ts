@@ -42,6 +42,7 @@ import { steerCommand } from "./intervene-commands";
 import { resumeCommand } from "./resume-command";
 import { discardCommand, dropCommand, parkCommand } from "./story-commands";
 import { statsCommand } from "./stats-command";
+import { testCommand } from "./test-commands";
 import { systemTui } from "./tui-command";
 import { watchCommand } from "./watch-command";
 import {
@@ -174,6 +175,16 @@ Usage:
                     reject the story's merge that waits for you after asking:
                     your note goes to its worker in a fix round; exits 1 when
                     nothing waits
+  dipo test <id> [--office <id>]
+                    run the story's pushed head in a new test box and print the
+                    URL, the box, the numbered manual steps and the test id
+  dipo test pass <id> [--note <text>] [--office <id>]
+  dipo test fail <id> --note <text> [--office <id>]
+                    record the story's open test: a pass decides its test gate
+                    for that head; a fail sends your note to its worker
+  dipo test shell <id> [--office <id>]
+                    open a shell in the story's test box, for a product with
+                    nothing to start
   dipo discard <id> --note <text> [--office <id>]
                     throw a story's work away after listing what is lost and
                     asking for the story id typed out: stop its worker, close
@@ -416,6 +427,10 @@ export async function main(argv: readonly string[], deps: CliDeps): Promise<numb
   if (args[0] === "reject") {
     const { version } = versionInfo(deps.stamp, deps.runtime);
     return rejectCommand(args.slice(1), { ...deps, version });
+  }
+  if (args[0] === "test") {
+    const { version } = versionInfo(deps.stamp, deps.runtime);
+    return testCommand(args.slice(1), { ...deps, version });
   }
   if (args[0] === "resume") {
     const { version } = versionInfo(deps.stamp, deps.runtime);

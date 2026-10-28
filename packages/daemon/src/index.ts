@@ -13,6 +13,7 @@ import { LOGIN_USAGE, runLoginForm } from "./login";
 import { RESTORE_USAGE, runRestoreForm } from "./restore";
 import { defaultIo, type DaemonIo } from "./io";
 import { runSelfChecks } from "./self-check";
+import { runTestShellForm, TEST_SHELL_USAGE } from "./test-shell";
 import { runWaitPidForm } from "./wait-pid";
 import { runWorkerHostForm } from "./worker-host";
 
@@ -54,6 +55,8 @@ const FORMS: ReadonlyMap<string, Form> = new Map<string, Form>([
   ["restore", { usage: RESTORE_USAGE, run: (args, io) => runRestoreForm(args, io) }],
   // Sets the box login in the Keychain on the maintainer's terminal (DIPO-269), as `dipo login box`.
   ["login", { usage: LOGIN_USAGE, run: (args, io) => runLoginForm(args, io) }],
+  // A shell in a story's test box (DIPO-309), as `dipo test shell <id>`.
+  ["test-shell", { usage: TEST_SHELL_USAGE, run: (args, io) => runTestShellForm(args, io) }],
   // Hidden: the daemon side of `dipo self-check` (DIPO-17).
   [
     "self-check",
