@@ -567,11 +567,17 @@ export interface ParkRequest {
    */
   readonly question?: string;
   /**
-   * The maintainer's park (DIPO-360): when the write to Backlog.md fails, nothing is recorded or
-   * emitted and `parkStory` throws `story.parkNotWritten`, so the maintainer can send it again. A
-   * tampered worktree still parks `scope-violation`, held until reconcile (`heldByPark`).
+   * The maintainer's park of a run that waits and was not stopped (DIPO-360): when the write to
+   * Backlog.md fails, nothing is recorded or emitted and `parkStory` throws
+   * `story.parkNotWritten`, so the maintainer can send it again. A tampered worktree still parks
+   * `scope-violation`, held until reconcile (`heldByPark`).
    */
   readonly mustWrite?: boolean;
+  /**
+   * The unresolved park row of this run whose write to Backlog.md failed (DIPO-360): the park is
+   * written again on it instead of a new row, so no second open row holds the story.
+   */
+  readonly parkId?: number;
   /**
    * A park a plan limit made (0020): dipo resumes it by itself when the office's starts paused
    * lifts (`parks.resume_on_lift`, `starts-paused.ts`).
@@ -587,6 +593,10 @@ export interface ParkOutcome {
   readonly commit: string | null;
   readonly lastGoodCommit: string | null;
   readonly pushed: boolean;
+  /** True when Backlog.md holds the park (DIPO-360). */
+  readonly written: boolean;
+  /** Why the write to Backlog.md failed, or null. */
+  readonly writeError: string | null;
 }
 
 /**
@@ -617,6 +627,7 @@ export async function parkStory(deps: ParkDeps, request: ParkRequest): Promise<P
   let reason = request.reason;
   let detail = request.detail;
   let branch: BranchPark | null = null;
+  let writeError: string | null = null;
   const notices: NewEntry[] = [];
   const notice = (code: string, text: string): void => {
     notices.push({ type: "engine.notice", key, delta: { level: "warn", code, text } });
@@ -643,6 +654,7 @@ export async function parkStory(deps: ParkDeps, request: ParkRequest): Promise<P
       },
     });
   } catch (error) {
+    writeError = messageOf(error);
     if (error instanceof GitError && error.code === WORKTREE_TAMPERED) {
       // 0008 section 2: a tampered worktree parks `scope-violation` and runs no more git.
       if (reason !== "scope-violation") {
@@ -701,23 +713,30 @@ export async function parkStory(deps: ParkDeps, request: ParkRequest): Promise<P
     const office = deps.office;
     // Run detail and history (0007): the reason is the one the park was made with, never read as
     // the current reason; Backlog.md holds that, and its read-back goes to the mirror (DIPO-360).
-    office.run(
-      `insert into parks (office_id, park_id, key, story_id, run_id, reason, detail,
+    if (request.parkId !== undefined) {
+      office.run(
+        `update parks set reason = $reason, detail = $detail, last_good_commit = $commit, at = $at
+          where office_id = $office_id and park_id = $park and resolved_at is null`,
+        { park: request.parkId, reason, detail, commit: lastGoodCommit, at },
+      );
+    } else
+      office.run(
+        `insert into parks (office_id, park_id, key, story_id, run_id, reason, detail,
          last_good_commit, at, resume_on_lift)
        values ($office_id, (select coalesce(max(park_id), 0) + 1 from parks
          where office_id = $office_id), $key, $story, $run, $reason, $detail, $commit, $at,
          $resumeOnLift)`,
-      {
-        key,
-        story,
-        run: run.runId,
-        reason,
-        detail,
-        commit: lastGoodCommit,
-        at,
-        resumeOnLift,
-      },
-    );
+        {
+          key,
+          story,
+          run: run.runId,
+          reason,
+          detail,
+          commit: lastGoodCommit,
+          at,
+          resumeOnLift,
+        },
+      );
     // Only a park written on the branch is a park: one that failed stays in `parks` as detail,
     // and reconcile closes it (DIPO-360).
     if (branch !== null) mirrorPark(office, key, { reason, from, note: detail }, at);
@@ -782,5 +801,7 @@ export async function parkStory(deps: ParkDeps, request: ParkRequest): Promise<P
     commit: branch?.commit ?? null,
     lastGoodCommit,
     pushed: branch?.pushed ?? false,
+    written: branch !== null,
+    writeError,
   };
 }

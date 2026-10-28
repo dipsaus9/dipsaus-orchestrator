@@ -1216,6 +1216,26 @@ describe("a retry of the same request (0005 note of 2026-10-17)", () => {
     expect(w.sessions).toHaveLength(1);
     expect(parksBeingResumed(w.f.office).size).toBe(0);
   });
+
+  it("fails a resume whose restart errs before its park resolved, so it no longer holds the park (DIPO-360)", async () => {
+    const parkId = park("by-maintainer");
+    const stopped = createRunOutcomesWithLift(() => new Promise(() => {}));
+    void stopped.resumeCommand(ctx(false, "req_err"), {
+      story: StoryId.parse("DIPO-1"),
+      note: "once",
+    });
+    await Bun.sleep(0);
+    expect(parksBeingResumed(w.f.office).has(parkId)).toBe(true);
+    // The next daemon's lift answers nothing it can use: an error after the lift, not in it.
+    const restarted = createRunOutcomesWithLift(async () => undefined as never);
+    expect(await restarted.recoverParkResumes(w.f.office.officeId as OfficeId, w.f.office)).toBe(0);
+    const resumes = runIntents(w.f.office, w.f.run).filter((intent) =>
+      intent.detail.startsWith(`${MAINTAINER_RESUME_TAG} `),
+    );
+    expect(resumes.map((intent) => intent.outcome)).toEqual(["failed"]);
+    expect(parksBeingResumed(w.f.office).size).toBe(0);
+    expect(w.sessions).toEqual([]);
+  });
 });
 
 /** What an index pass reads after the lift is on the branch: the story In Progress, unparked. */

@@ -49,7 +49,7 @@ import type { CodeHost } from "../platform/host";
 import { LAUNCH_FILE } from "../host/protocol";
 import { officeDirectory } from "../office/marker";
 import { type BacklogPark, backlogPark, openParkIds, resolvePark } from "../run/park";
-import { parksBeingResumed } from "../run/park-resume";
+import { parksBeingResumed } from "../run/park-state";
 import { endRunMarked } from "../run/markers";
 import { activeRuns, findRun, type StoredRun } from "../run/records";
 import { runDirectory } from "../runs/worker-hosts";

@@ -18,10 +18,11 @@ import {
   type ParkWriter,
   parkStory,
 } from "../../src/run/park";
-import { heldByPark, parkedRun } from "../../src/run/park-state";
-import { desk, PARK_NOT_WRITTEN } from "../../src/views/desk";
+import { recordIntent } from "../../src/run/intents";
+import { heldByPark, MAINTAINER_RESUME_TAG, parkedRun } from "../../src/run/park-state";
+import { desk, PARK_HELD, PARK_NOT_WRITTEN } from "../../src/views/desk";
 import { storyView } from "../../src/views/story";
-import { insertPark, mirrorParked } from "./park-fixture";
+import { insertPark, mirrorParked, mirrorStory } from "./park-fixture";
 import { type RoundsWorld, roundsWorld, type StoryRun, storyRun } from "./rounds-helpers";
 
 let w: RoundsWorld;
@@ -153,6 +154,38 @@ describe("the current park's reason and origin (DIPO-360)", () => {
     const items = desk(w.office, () => true).filter((item) => item.story === "DIPO-7");
     expect(items.map((item) => item.kind)).toEqual([PARK_NOT_WRITTEN]);
     expect(heldByPark(w.office, s.key)).toBe(true);
+  });
+
+  it("shows a held park on the desk by why it is held, offering only what can act on it", () => {
+    // A park dipo wrote, then lifted by hand in Backlog.md.
+    const parkId = w.office.immediate(() =>
+      insertPark(w.office, {
+        key: s.key,
+        story: "DIPO-7",
+        runId: s.run,
+        reason: "conflict",
+        detail: "conflict in a.ts",
+        at: 1,
+        lastGoodCommit: "a".repeat(40),
+      }),
+    );
+    w.office.immediate(() => mirrorStory(w.office, { key: s.key, story: "DIPO-7" }));
+    const row = () => desk(w.office, () => true).find((item) => item.story === "DIPO-7");
+    expect(row()).toMatchObject({ kind: PARK_HELD });
+    expect(row()?.detail).toContain("Backlog.md no longer holds this park");
+    expect(row()?.actions.map((action) => action.cli)).toEqual(["dipo office rescan"]);
+    // A maintainer resume is lifting it: nothing to offer until it finishes.
+    w.office.immediate(() =>
+      recordIntent(
+        w.office,
+        s.run,
+        "answer",
+        `${MAINTAINER_RESUME_TAG} ${JSON.stringify({ parkId })}`,
+        2,
+      ),
+    );
+    expect(row()).toMatchObject({ kind: PARK_HELD, actions: [] });
+    expect(row()?.detail).toContain("a resume is lifting this park");
   });
 
   it("follow an open planning-lane operation before its backlog PR merges", () => {

@@ -3,7 +3,7 @@
 // share. The reconcile
 // stops are in `control-reconcile.ts`.
 
-import type { OfficeId, WorkRef } from "@dipsaus-orchestrator/contract";
+import type { OfficeId, StoryKey, WorkRef } from "@dipsaus-orchestrator/contract";
 
 import { appendEntries, type NewEntry } from "../changelog/log";
 import { CommandError } from "../commands/errors";
@@ -27,7 +27,15 @@ import {
 import type { CapName } from "./caps";
 import { sendAsIntent } from "./intents";
 import type { RunAct } from "./outcome-types";
-import { openPark, type ParkDeps, type ParkOutcome, type ParkWriter, parkStory } from "./park";
+import {
+  openPark,
+  openParkIds,
+  PARK_NOT_WRITTEN,
+  type ParkDeps,
+  type ParkOutcome,
+  type ParkWriter,
+  parkStory,
+} from "./park";
 import { activeRuns, findRun, IN_REVIEW_END, REVIEWED_END, type StoredRun } from "./records";
 import { liveClaimOf } from "../worktree/records";
 
@@ -166,51 +174,80 @@ export class RunEndings {
       run = find();
     }
     const note = args.note.trim();
-    if (run === undefined) {
-      const claim = liveClaimOf(handle, identity.key);
-      const waiting = claim === null ? null : findRun(handle, claim.runId);
-      if (waiting === null || waiting.kind !== "story") {
-        throw new CommandError(STORY_NOT_RUNNING, `${identity.story} has no run to park.`, {
-          story: identity.story,
-        });
-      }
-      if (openPark(handle, identity.key) !== null) {
-        return { result: { run: waiting.runId }, changed: false };
-      }
-      // Only a run that waits In Review (for its review, a gate or the merge) parks as it is.
-      if (waiting.endKind !== IN_REVIEW_END && waiting.endKind !== REVIEWED_END) {
-        throw new CommandError(STORY_NOT_RUNNING, `${identity.story} has no run to park.`, {
-          story: identity.story,
-        });
-      }
-      await parkStory(
-        this.#parkDeps(handle, (fn) => ctx.commit(() => withWorkViews(handle, fn()))),
-        {
-          run: waiting,
-          reason: "by-maintainer",
-          detail: note,
-          endKind: "stopped",
-          mustWrite: true,
-        },
-      );
-      await this.refresh(handle, waiting, "parked");
-      return { result: { run: waiting.runId } };
-    }
+    if (run === undefined) return await this.#parkWaiting(ctx, identity, note);
     const ending: Ending = {
       intent: "stop",
       ops: this.#deps.encode({ kind: "stop" }),
       reason: "by-maintainer",
       detail: note,
       endKind: "stopped",
-      mustWrite: true,
     };
     const tracked = this.#tracked.get(run.runId);
     const work = tracked?.work ?? workRefOf(handle, run.runId) ?? undefined;
     if (tracked !== undefined) disarm(this.#deps.clock, tracked);
     const done = this.end(handle, run, work, ending, (fn) => ctx.commit(fn));
     if (tracked !== undefined) tracked.ending = done;
-    await done;
+    const parked = await done;
+    // A tampered worktree turned it into a `scope-violation` park, which a retry cannot write.
+    if (!parked.written && parked.reason === ending.reason) {
+      // The worker was stopped, so the run ended and its park is recorded as held, unwritten
+      // (`heldByPark`, the desk's PARK NOT WRITTEN): the place frees, and nothing starts it again.
+      // `story.park` once more writes it on the same row (DIPO-360).
+      throw new CommandError(
+        PARK_NOT_WRITTEN,
+        `dipo stopped ${identity.story}'s worker, but could not write its park to Backlog.md (${parked.writeError ?? "unknown error"}); its work is held. Send the park again to write it.`,
+        { story: identity.story, run: run.runId },
+      );
+    }
     return { result: { run: run.runId } };
+  }
+
+  /**
+   * `story.park` of a story whose run waits (In Review, or stopped with an unwritten park): nothing
+   * runs, so nothing is stopped, and a park whose write fails records nothing (DIPO-360).
+   */
+  async #parkWaiting(
+    ctx: AsyncCommandContext,
+    identity: { readonly story: string; readonly key: StoryKey },
+    note: string,
+  ): Promise<CommandOutcome<ParkRunResult>> {
+    const handle = ctx.office;
+    const claim = liveClaimOf(handle, identity.key);
+    const waiting = claim === null ? null : findRun(handle, claim.runId);
+    if (waiting === null || waiting.kind !== "story") {
+      throw new CommandError(STORY_NOT_RUNNING, `${identity.story} has no run to park.`, {
+        story: identity.story,
+      });
+    }
+    if (openPark(handle, identity.key) !== null) {
+      return { result: { run: waiting.runId }, changed: false };
+    }
+    // A park of this run that Backlog.md does not hold (its write failed) is written again on
+    // its row (DIPO-360).
+    const unwritten = openParkIds(handle, identity.key, waiting.runId).at(-1);
+    // Only a run that waits In Review (for its review, a gate or the merge) parks as it is.
+    if (
+      unwritten === undefined &&
+      waiting.endKind !== IN_REVIEW_END &&
+      waiting.endKind !== REVIEWED_END
+    ) {
+      throw new CommandError(STORY_NOT_RUNNING, `${identity.story} has no run to park.`, {
+        story: identity.story,
+      });
+    }
+    await parkStory(
+      this.#parkDeps(handle, (fn) => ctx.commit(() => withWorkViews(handle, fn()))),
+      {
+        run: waiting,
+        reason: "by-maintainer",
+        detail: note,
+        endKind: "stopped",
+        mustWrite: true,
+        ...(unwritten === undefined ? {} : { parkId: unwritten }),
+      },
+    );
+    await this.refresh(handle, waiting, "parked");
+    return { result: { run: waiting.runId } };
   }
 
   // ---- ending a run ----------------------------------------------------------------------------

@@ -93,6 +93,33 @@ export function backlogPark(office: OfficeHandle, key: StoryKey | string): Backl
   return parkOf(JSON.parse(row.park));
 }
 
+/** The tag of a maintainer resume's `answer` intent: `maintainer-resume <ResumeIntent JSON>`. */
+export const MAINTAINER_RESUME_TAG = "maintainer-resume";
+
+/**
+ * The parks an unresolved maintainer resume is lifting (DIPO-360): its lift may be on the branch
+ * already, so Backlog.md no longer holds the park while its row stays open until `recover` finishes
+ * the resume. Reconcile leaves those rows to it.
+ */
+export function parksBeingResumed(office: OfficeHandle): ReadonlySet<number> {
+  const parks = new Set<number>();
+  for (const row of office.all<{ detail: string }>(
+    `select detail from run_intents where office_id = $office_id and kind = 'answer'
+      and resolved_at is null and detail like $tag`,
+    { tag: `${MAINTAINER_RESUME_TAG} %` },
+  )) {
+    try {
+      const parsed = JSON.parse(row.detail.slice(MAINTAINER_RESUME_TAG.length + 1)) as {
+        parkId?: unknown;
+      };
+      if (typeof parsed.parkId === "number") parks.add(parsed.parkId);
+    } catch {
+      // Not a resume intent dipo wrote: it lifts no park.
+    }
+  }
+  return parks;
+}
+
 /** The newest open `parks` row of the story: run detail only. */
 function openParkRow(office: OfficeHandle, key: string): Omit<OpenPark, "reason" | "from"> | null {
   const row = office.get<{
@@ -207,10 +234,13 @@ export function unresolvedPark(
 }
 
 /**
- * The fail-closed guard of the work that follows a story's run (DIPO-360): true while Backlog.md
- * holds the story as parked, and while any `parks` row of the story is unresolved, also one whose
- * write to Backlog.md failed, until reconcile or a resume resolves it. The merge slot, the
- * reviewer, fix rounds and the Done teardown never start on a story the engine reported as Parked.
+ * The fail-closed guard of the work that follows a story's run (DIPO-360). The rule: an open park
+ * row whose park was never written to Backlog.md keeps the guards closed, until reconcile or a
+ * resume resolves the row. It is the fail-closed counterpart of "a pending lane operation wins"
+ * (0010): what dipo has stopped but Backlog.md does not hold yet still holds the story, as a
+ * journaled park holds a story before its backlog PR merges. So the merge slot, the reviewer, fix
+ * rounds and the Done teardown start while neither Backlog.md holds a park nor a park row is open.
+ * The current reason and origin stay Backlog.md's alone (`openPark`).
  */
 export function heldByPark(office: OfficeHandle, key: StoryKey | string): boolean {
   if (backlogPark(office, key) !== null) return true;
@@ -233,24 +263,51 @@ export function runHeldByPark(office: OfficeHandle, runId: string): boolean {
 }
 
 /**
- * Open `parks` rows of stories Backlog.md does not hold as parked: parks whose write to Backlog.md
- * failed (`park.notWritten`), which hold the story's work until reconcile or a resume resolves them.
- * Newest row per story.
+ * Why an open park row holds a story Backlog.md does not hold as parked (DIPO-360): its write to
+ * Backlog.md failed (`unwritten`: a run's park with no park commit), a maintainer resume is
+ * lifting it (`resuming`), or Backlog.md no longer holds a park dipo wrote (`lifted`, by hand).
  */
-export function unwrittenParks(office: OfficeHandle): {
+export type HeldParkWhy = "unwritten" | "resuming" | "lifted";
+
+/**
+ * Open `parks` rows of stories Backlog.md does not hold as parked, newest row per story, with why
+ * (`HeldParkWhy`): each holds the story's work (`heldByPark`) until a resume, a park written again
+ * or a rescan's reconcile resolves it.
+ */
+export function heldParks(office: OfficeHandle): {
   readonly key: string;
   readonly story: string;
   readonly detail: string;
   readonly at: number;
+  readonly why: HeldParkWhy;
 }[] {
-  const rows = office.all<{ key: string; story_id: string; detail: string; at: number }>(
-    `select key, story_id, detail, at from parks p
+  const rows = office.all<{
+    park_id: number;
+    key: string;
+    story_id: string;
+    run_id: string | null;
+    last_good_commit: string | null;
+    detail: string;
+    at: number;
+  }>(
+    `select park_id, key, story_id, run_id, last_good_commit, detail, at from parks p
       where office_id = $office_id and resolved_at is null
         and park_id = (select max(park_id) from parks q where q.office_id = p.office_id
           and q.key = p.key and q.resolved_at is null)
       order by at, park_id`,
   );
+  const resuming = parksBeingResumed(office);
   return rows
     .filter((row) => backlogPark(office, row.key) === null)
-    .map((row) => ({ key: row.key, story: row.story_id, detail: row.detail, at: row.at }));
+    .map((row) => ({
+      key: row.key,
+      story: row.story_id,
+      detail: row.detail,
+      at: row.at,
+      why: resuming.has(row.park_id)
+        ? ("resuming" as const)
+        : row.run_id !== null && row.last_good_commit === null
+          ? ("unwritten" as const)
+          : ("lifted" as const),
+    }));
 }

@@ -50,6 +50,10 @@ import {
   STREAM_DRIFT_LINES,
 } from "../../src/run";
 import { openPark, PARK_NOT_WRITTEN, reopenParkedRun } from "../../src/run/park";
+import { heldByPark } from "../../src/run/park-state";
+import { activeRuns } from "../../src/run/records";
+import { placeHolders, waitingStarts } from "../../src/run/places";
+import { desk, PARK_NOT_WRITTEN as PARK_NOT_WRITTEN_DESK } from "../../src/views/desk";
 import { addStory } from "../../src/stories/keys";
 import { encode, STOP_MESSAGE } from "../../src/workers/claude-cli/encode";
 import { initialState, interpret } from "../../src/workers/claude-cli/interpret";
@@ -624,20 +628,33 @@ describe("story.park of a running story", () => {
     expect(names).not.toContain("work.pause");
   });
 
-  it("fails with story.parkNotWritten and records no park when the write to Backlog.md fails, and a retry parks (DIPO-360)", async () => {
+  it("ends the stopped run and holds its unwritten park when the write to Backlog.md fails, answers story.parkNotWritten, and a retry writes it on the same row (DIPO-360)", async () => {
     track();
     w.writer = "fails";
     const failed = await stopCommand("DIPO-1", "Not now.");
     expect(failed.ok ? null : failed.error.code).toBe(PARK_NOT_WRITTEN);
-    expect(parks()).toEqual([]);
-    expect(parkedEvents()).toEqual([]);
-    expect(findRun(w.f.office, w.f.run)?.endedAt).toBeNull();
-    // The maintainer sends it again once the write works.
+    // The stop was sent, so the run ended with its park recorded, unwritten and held.
+    expect(parks().map((p) => [p.reason, p.detail])).toEqual([["by-maintainer", "Not now."]]);
+    expect(findRun(w.f.office, w.f.run)?.endedAt).not.toBeNull();
+    expect(openPark(w.f.office, w.work.key)).toBeNull();
+    expect(heldByPark(w.f.office, w.work.key)).toBe(true);
+    // The office's worker place is free, and a restart finds nothing to start for the run.
+    expect(placeHolders(w.f.office).worker).toEqual([]);
+    expect(activeRuns(w.f.office)).toEqual([]);
+    expect(waitingStarts(w.f.office)).toEqual([]);
+    const [row] = desk(w.f.office, () => true).filter((item) => item.story === "DIPO-1");
+    expect(row).toMatchObject({ kind: PARK_NOT_WRITTEN_DESK });
+    expect(row?.actions.map((action) => action.cli)).toContain('dipo park DIPO-1 --note "<why>"');
+
+    // The maintainer sends it again once the write works: the same row, now in Backlog.md.
     w.writer = "ok";
     const retried = await stopCommand("DIPO-1", "Not now.");
     expect(retried.ok).toBe(true);
     expect(parks().map((p) => [p.reason, p.detail])).toEqual([["by-maintainer", "Not now."]]);
     expect(openPark(w.f.office, w.work.key)).toMatchObject({ reason: "by-maintainer" });
+    expect(desk(w.f.office, () => true).map((item) => item.kind)).not.toContain(
+      PARK_NOT_WRITTEN_DESK,
+    );
   });
 
   it("records the stop intent, sends the stop sequence the fake process sees, and parks by-maintainer", async () => {
