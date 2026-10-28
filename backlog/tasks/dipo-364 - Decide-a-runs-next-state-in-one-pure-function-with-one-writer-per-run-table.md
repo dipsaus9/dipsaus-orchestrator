@@ -1,9 +1,10 @@
 ---
 id: DIPO-364
 title: Decide a run's next state in one pure function with one writer per run table
-status: Refined
+status: Done
 assignee: []
 created_date: '2026-10-28 12:26'
+updated_date: '2026-10-28 14:47'
 labels:
   - 'tier:M'
   - 'slice:prune'
@@ -40,6 +41,12 @@ test_plan:
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 One pure function, with no I/O and no clock reads, decides the next state of a run from its state and an event, and every run transition goes through it
-- [ ] #2 runs, parks, agents and worker_hosts each have one writer, and the three copies of the end-agent SQL are one
+- [x] #1 One pure function, with no I/O and no clock reads, decides the next state of a run from its state and an event, and every run transition goes through it
+- [x] #2 runs, parks, agents and worker_hosts each have one writer, and the three copies of the end-agent SQL are one
 <!-- AC:END -->
+
+## Final Summary
+
+<!-- SECTION:FINAL_SUMMARY:BEGIN -->
+nextRunState (run/lifecycle.ts) is the one pure function for a run's next state: no I/O and no clock, tested over every state and event pair. Every change to a run's end, end kind, wait and parked time goes through applyRunEvent. runs, parks, agents and worker_hosts each have one writer (run/records.ts, run/park-records.ts, runs/agents.ts, runs/worker-hosts.ts), and endAgent replaces the three end-agent copies. A source scan fails on any write to those tables outside their writer, including quoted, qualified and built names, with only retention/run.ts and office/purge/rows.ts allowed. Also fixed: a lost host now makes usage final before its cursors end, and the merge override refuses an open run. Behaviour changes stated in the PR: endAgent also ends the transcript cursor, and the ingestor keeps an agent's existing end time.
+<!-- SECTION:FINAL_SUMMARY:END -->
