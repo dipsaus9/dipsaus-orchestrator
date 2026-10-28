@@ -243,9 +243,6 @@ export interface WorkerReport {
   readonly decisionNotes?: readonly WorkerDecisionNote[];
 }
 
-/** What a tool call does, adapter-neutral (DIPO-186): a file edit or a shell command. */
-export type ToolEffect = "edit" | "shell";
-
 /** The longest `ReviewReport.summary` (0019 section 5). */
 export const REVIEW_SUMMARY_MAX = 1_500;
 
@@ -313,12 +310,6 @@ export type WorkerEvent =
        * opt-in `privacy.storeCommandBodies` (0007 section 8, DIPO-83).
        */
       readonly input?: string;
-      /**
-       * `tool` only (DIPO-186): what the call does, as the adapter knows its tools: `edit` changes
-       * a file through a file tool, `shell` runs a command (its command line is `input`). Absent
-       * for any other tool. The engine reads it to see whether a check ran after the last edit.
-       */
-      readonly effect?: ToolEffect;
       /**
        * `thinking` only (DIPO-96): how long one finished thinking block took, in milliseconds, when
        * the adapter knows it. Counts only: no thinking text or signature ever travels.

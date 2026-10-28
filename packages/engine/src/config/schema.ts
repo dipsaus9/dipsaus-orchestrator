@@ -347,17 +347,11 @@ const BoxToolchain = z
   .describe(
     "The toolchain of the box image and its exact versions. A version left out is detected from the repository (.bun-version, packageManager, .node-version, .nvmrc) or takes dipo's default.",
   );
-// A Debian package name, with an optional `=version`. Never git: there is no git in a box (0021
-// decision 4).
-const DebianPackage = text()
-  .regex(
-    /^[a-z0-9][a-z0-9+.-]+(?:=[A-Za-z0-9.+~:-]+)?$/,
-    "must be a Debian package name, optionally with =<version>",
-  )
-  .refine(
-    (name) => name.split("=")[0] !== "git",
-    "git is never installed in a box (0021 decision 4)",
-  );
+// A Debian package name, with an optional `=version`. Every image has git already (0008).
+const DebianPackage = text().regex(
+  /^[a-z0-9][a-z0-9+.-]+(?:=[A-Za-z0-9.+~:-]+)?$/,
+  "must be a Debian package name, optionally with =<version>",
+);
 // 0021 decision 9: a file outside git a box may get, by its path in the repository.
 const BoxFilePath = text()
   .refine(

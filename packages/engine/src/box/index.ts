@@ -425,6 +425,8 @@ export {
   boxRebuiltText,
   boxRunState,
   boxTreeChangedText,
+  boxVerifyInput,
+  BOX_VERIFY_MINUTES_DEFAULT,
   DELIVERED_INDEX_PREFIX,
   deliveredCode,
 } from "./lifetime";
@@ -439,3 +441,5 @@ export type {
   RunBoxes,
   RunBoxRequest,
 } from "./lifetime";
+export { BOX_VERIFY_OUTPUT_TAIL, boxFolderOf, runBoxVerify } from "./verify";
+export type { BoxVerifyRequest, BoxVerifyResult } from "./verify";

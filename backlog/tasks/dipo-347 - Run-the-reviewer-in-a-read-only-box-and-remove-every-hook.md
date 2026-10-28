@@ -4,6 +4,7 @@ title: Run the reviewer in a read-only box and remove every hook
 status: Refined
 assignee: []
 created_date: '2026-10-25 09:51'
+updated_date: '2026-10-28 11:26'
 labels:
   - 'tier:M'
   - 'slice:prune'
@@ -50,4 +51,5 @@ test_plan:
 - [ ] #3 The bypass forms are tested: a symlink in the copy that points outside it, a shell or write tool asked for in the session, and a proxy setting changed in the box
 - [ ] #4 A fail-closed test against the real path: with the reviewer box's firewall missing, the review does not start
 - [ ] #5 dipo hook, the host socket hook relay, the PreToolUse web guard, hooks/web-guard.ts and every hook setting are removed
+- [ ] #6 The reviewer launch checks that the story is not parked right before it starts the session, so a park that lands after the branch read starts no reviewer (from the review of DIPO-346)
 <!-- AC:END -->

@@ -1,7 +1,8 @@
 // The code a box gets (0021 section 2 and decision 9, DIPO-271): a plain copy of the repository at
 // the story's start commit, with no `.git` and no history, plus only the files outside git the base
 // office config lists in `box.files`, each marked as holding no real secrets. dipo stages it in a
-// folder of its own and copies that folder into the box; nothing else goes in.
+// folder of its own and copies that folder into the box; nothing else goes in. In the box, dipo
+// then makes the box's own git repository of it (`box-git.ts`, 0008).
 //
 // - The tracked files come from git's objects: `git archive` of the start commit into a tar file,
 //   unpacked into the stage folder by the system `tar`, which refuses absolute names, `..` and

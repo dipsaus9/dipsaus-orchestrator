@@ -13,7 +13,7 @@
 //   the final summary: criteria met, loops, review rounds, budget used of limit, runs and resumes,
 //   each park in one line, grants, web calls and proposals filed.
 //
-// A box run (0021): CI is its verify, so its CI attempts stand next to the loops; its undelivered
+// A box run (0021): CI is its final gate, so its CI attempts stand next to the loops; its undelivered
 // work stays in the box, so the park block does not count uncommitted files from the Mac worktree
 // (whose files stay at the start commit) and says so.
 //

@@ -287,6 +287,8 @@ export class Reviews {
       (): { value: ReviewRound | null; entries: NewEntry[] } => {
         const current = findRun(office, run.runId);
         if (current === null) return { value: null, entries: [] };
+        // A park that landed while the story was read (DIPO-346): no round, the run stays as is.
+        if (run.key !== null && heldByPark(office, run.key)) return { value: null, entries: [] };
         // A pending review reopens the run ended at In Review; its wait counts from that time.
         const entries =
           current.endedAt === null
@@ -357,9 +359,17 @@ export class Reviews {
       });
       return false;
     }
+    // A park that landed while the round was built starts no reviewer (DIPO-344, DIPO-360).
+    if (this.#parkedMeanwhile(office, run)) return false;
     let outcome;
     try {
-      outcome = await this.#deps.sessions.start({ office: officeId, run, taskMessage, head });
+      outcome = await this.#deps.sessions.start({
+        office: officeId,
+        run,
+        taskMessage,
+        head,
+        held: () => run.key !== null && heldByPark(office, run.key),
+      });
     } catch (error) {
       outcome = { kind: "failed" as const, reason: messageOf(error) };
     }
@@ -370,6 +380,9 @@ export class Reviews {
         this.#startFailed(office, run, holdMessage(outcome.hold));
         return false;
       case "failed":
+        // Refused for a park, or for a branch the park's commit moved: the round's head is
+        // dropped; the resume, or the next drain of an unparked story, reads the branch again.
+        if (this.#parkedMeanwhile(office, run)) return false;
         this.#deps.warn?.("a reviewer session did not start; the review waits", {
           run: run.runId,
           reason: outcome.reason,
@@ -378,6 +391,20 @@ export class Reviews {
         if (outcome.planRefused !== undefined) this.#planRefused(office, run, outcome.planRefused);
         return false;
     }
+  }
+
+  /**
+   * True when the run's story is held by a park now (DIPO-346): a park that landed while its review
+   * round was built. The round's head is dropped and no reviewer starts. The park ended the run the
+   * round had reopened, so nothing waits for the place, and `pendingReviews` skips the story until
+   * its resume, whose round reads the branch again.
+   */
+  #parkedMeanwhile(office: OfficeHandle, run: StoredRun): boolean {
+    if (run.key === null || !heldByPark(office, run.key)) return false;
+    this.#deps.warn?.("the story parked while its review round was built; no reviewer starts", {
+      run: run.runId,
+    });
+    return true;
   }
 
   /**

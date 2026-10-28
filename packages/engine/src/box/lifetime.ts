@@ -48,6 +48,9 @@ export const BOX_LIFETIME_NOTICES = {
 /** The install deadline in a box when the office's `timeouts.scriptMinutes` names none. */
 export const BOX_INSTALL_MINUTES_DEFAULT = 15;
 
+/** The verify deadline in a box when the office's `timeouts.scriptMinutes` names none. */
+export const BOX_VERIFY_MINUTES_DEFAULT = 20;
+
 /** How many paths the reason of a box with files git does not ignore names; the rest are counted. */
 const TREE_PATHS_SHOWN = 5;
 
@@ -294,6 +297,50 @@ export function boxInstallInput(input: {
   });
   const minutes = config.timeouts.scriptMinutes["install"] ?? BOX_INSTALL_MINUTES_DEFAULT;
   return { commands: install.value.commands, env, timeoutMs: minutes * 60_000 };
+}
+
+/**
+ * The office's verify for a box at done (0002, DIPO-346): its commands, the repo-relative folder
+ * they run in, the run environment the install gets, and the deadline of
+ * `timeouts.scriptMinutes.verify`; `refused` when the run profile's verify is in conflict; null
+ * when the profile names none.
+ */
+export function boxVerifyInput(input: {
+  readonly profile: RunProfile;
+  readonly config: OfficeConfig;
+  readonly story: string;
+  readonly slot: number | null;
+}):
+  | {
+      readonly commands: readonly (readonly string[])[];
+      readonly cwd: string;
+      readonly env: Readonly<Record<string, string>>;
+      readonly timeoutMs: number;
+    }
+  | { readonly refused: string }
+  | null {
+  const verify = input.profile.capabilities.verify;
+  if (verify.status === "conflict") {
+    return { refused: "the run profile's verify is in conflict; confirm one in the office" };
+  }
+  if (verify.status !== "resolved" || verify.value.commands.length === 0) return null;
+  const { config } = input;
+  const env = buildRunEnv({
+    slot: input.slot ?? 0,
+    stride: config.worktree.ports.stride,
+    story: input.story,
+    worktree: BOX_WORKDIR,
+    named: config.worktree.ports.named,
+    devPort: devPortOf(input.profile),
+    env: config.worktree.env,
+  });
+  const minutes = config.timeouts.scriptMinutes["verify"] ?? BOX_VERIFY_MINUTES_DEFAULT;
+  return {
+    commands: verify.value.commands,
+    cwd: verify.value.cwd,
+    env,
+    timeoutMs: minutes * 60_000,
+  };
 }
 
 export class BoxLifetime {

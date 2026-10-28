@@ -431,6 +431,11 @@ export interface ReviewSessionRequest {
    * this commit, and the session is refused when the branch has moved since.
    */
   readonly head: string;
+  /**
+   * True while the story is held by a park (`heldByPark`, DIPO-344, DIPO-360): asked right before
+   * the branch is read, so a park that landed while the round was built starts no reviewer.
+   */
+  readonly held?: () => boolean;
 }
 
 export type ReviewSessionOutcome =
@@ -440,6 +445,8 @@ export type ReviewSessionOutcome =
   | {
       readonly kind: "failed";
       readonly reason: string;
+      /** The story was parked when the session was to start (`ReviewSessionRequest.held`). */
+      readonly parked?: true;
       /**
        * The copy of the head does not match its tree (`ReviewCopyMismatchError`): no session of
        * this head can start, so the maintainer is told (DIPO-276).
@@ -598,6 +605,9 @@ export class ReviewLauncher implements ReviewSessions {
       return { kind: "failed", reason: `${run.runId} is not a story run with a branch` };
     }
     const branch = run.branch;
+    if (request.held?.() === true) {
+      return { kind: "failed", reason: "the story is parked", parked: true };
+    }
     const agent = AgentId.parse(deps.ids.next("agt"));
     // A fresh read-only copy of exactly the round's head for this session (DIPO-276).
     let copy: ReviewCopy;
@@ -710,8 +720,9 @@ export class ReviewLauncher implements ReviewSessions {
     const settings = reviewerSettings(office, run, config);
     // The reviewer's working directory is the empty folder, never the worktree or the copy.
     const paths = runLaunchPaths(git, deps, copy.session, run.runId);
-    // The reviewer of a box run reads that dipo ran no verify of its own: CI is its verify
-    // (DIPO-299). The run directory says the run is a box worker's, as for its developer.
+    // The reviewer of a box run reads that dipo ran the verify in the developer's box at done and
+    // that CI runs with the review (DIPO-346). The run directory says the run is a box worker's,
+    // as for its developer.
     const box = existsSync(join(paths.runDir, BOX_RUN_FILE));
     const systemFile = renderSystemFile(box ? "review-box" : "review", "reviewer");
     const taskMessage = withReviewCommit(request.taskMessage, {

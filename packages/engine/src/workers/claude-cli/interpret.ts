@@ -25,7 +25,6 @@ import type {
   ReportKind,
   ReviewReport,
   StreamDriftKind,
-  ToolEffect,
   TurnProblem,
   UsageTotalsByModel,
   WorkerEvent,
@@ -933,18 +932,6 @@ const INPUT_FIELDS: Readonly<Record<string, string>> = {
 };
 
 /**
- * What a Claude Code tool does, adapter-neutral (DIPO-186): the file tools that change a file are
- * `edit`, Bash is `shell`. The engine reads it to see whether verify ran after the last edit.
- */
-const TOOL_EFFECTS: Readonly<Record<string, ToolEffect>> = {
-  Edit: "edit",
-  MultiEdit: "edit",
-  Write: "edit",
-  NotebookEdit: "edit",
-  Bash: "shell",
-};
-
-/**
  * The output line of a web call: `[web] WebFetch https://…`, the input as one line but whole. The
  * engine redacts env values from the whole line before it cuts the input as other tool inputs
  * (`WebGuard.redactOutput`), so a value across the cut leaves no part of itself behind.
@@ -1039,14 +1026,12 @@ function assistant(value: unknown, state: ClaudeParseState): Step {
       // A web call always shows its query or URL (0020 section 11b), whatever the privacy opt-in
       // for tool inputs: its line is an output line of its own, and the activity carries no input.
       const web = WEB_TOOLS.includes(tool.data.name);
-      const effect = TOOL_EFFECTS[tool.data.name];
       events.push({
         t: "activity",
         kind: "tool",
         tool: tool.data.name,
         ...(path === undefined ? {} : { path }),
         ...(input === undefined || web ? {} : { input }),
-        ...(effect === undefined ? {} : { effect }),
         ...scope,
       });
       if (web && agentId === undefined) {
