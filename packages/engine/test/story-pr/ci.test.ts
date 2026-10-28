@@ -664,7 +664,7 @@ describe("CI as the verify of a box run", () => {
         await w.prs.retry(id);
         const body = w.host.updates.at(-1)?.body ?? "";
         expect(body).toContain(
-          "- verify: CI on `aaaaaaaa`; dipo runs no verify of its own for a box run",
+          "- verify: CI on `aaaaaaaa`, after dipo's verify in the box at done when the office names one",
         );
         expect(body).not.toContain("verify: passed");
         expect(body).toContain("- merge: the maintainer merges; dipo does not merge story PRs yet");

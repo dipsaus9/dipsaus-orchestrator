@@ -401,6 +401,26 @@ describe("the reviewer's read-only copy of the pushed commit (DIPO-276)", () => 
       expect(await w.launcher.reviewedCommit(office, w.run.runId, s.agent)).toBeNull();
     }));
 
+  // DIPO-346: a park that landed while the round was built starts no reviewer, whatever the branch.
+  it("starts no session for a story held by a park, and makes no copy", () =>
+    withWorld(async (w) => {
+      const office = w.rounds.office.officeId as OfficeId;
+      let held = true;
+      const request = { office, run: w.run, taskMessage: TASK, head: w.tip, held: () => held };
+      expect(await w.launcher.start(request)).toEqual({
+        kind: "failed",
+        reason: "the story is parked",
+        parked: true,
+      });
+      expect(folders(w)).toEqual([]);
+      expect(w.prepared).toEqual([]);
+      held = false;
+      const started = await w.launcher.start(request);
+      expect(started.kind).toBe("started");
+      if (started.kind !== "started") throw new Error("not started");
+      await w.launcher.finish(office, w.run.runId, started.agent);
+    }));
+
   it("ignores the tree's own export-ignore and export-subst, and refuses a copy that does not match the commit", () =>
     withWorld(async (w) => {
       const s = await startSession(w);
@@ -477,7 +497,7 @@ describe("the reviewer's system file by the kind of run", () => {
       const boxText = readFileSync(box.spec.systemFile, "utf8");
       expect(boxText).toBe(renderSystemFile("review-box", "reviewer"));
       expect(boxText).not.toContain("ran verify on the change");
-      expect(boxText).toContain("The engine ran no verify of its own on this change");
+      expect(boxText).toContain("the engine ran it on this change in the developer's box");
       await w.launcher.finish(office, w.run.runId, box.agent);
     }));
 });

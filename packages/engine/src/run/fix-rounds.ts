@@ -2,8 +2,8 @@
 // DIPO-148): the feedback on a pushed head goes back to the same worker in one round.
 //
 // - Sources. A blocked review verdict (its unmet criteria and blocking findings), the red required
-//   checks of the pushed head (`StoryPrs.ciState`, DIPO-147; CI is the verify of a box run,
-//   DIPO-299) and a maintainer reject (`reject`, fed by DIPO-151's `gate.reject`, which does not
+//   checks of the pushed head (`StoryPrs.ciState`, DIPO-147; CI is the final gate of a box run,
+//   0002) and a maintainer reject (`reject`, fed by DIPO-151's `gate.reject`, which does not
 //   exist yet, so no reject item is produced until it does). A conflict hand-off of a run In
 //   Review (`conflict`, the entry for the merge slot's sync, DIPO-150) is sent at once like a
 //   reject. Advisory findings never start a round on their own; a round that starts for another

@@ -663,9 +663,15 @@ if (process.env["DIPO_TEST_CI"] === "1") {
       "the park and resume path",
       () =>
         withLoopOffice({ officeYaml: "version: 7\nmergeSlot:\n  ciAttempts: 1\n" }, async (w) => {
-          w.host.fallback = RED_CHECKS;
+          // CI turns red once the first review started, so the review runs before the CI-cap park
+          // in every order of the polls: a park that lands while a round is still being built
+          // starts no reviewer (DIPO-346), which reviews.test.ts covers.
+          w.host.fallback = PENDING_CHECKS;
           w.director = (session) => {
-            if (session.kind === "review") return reviewScript(session.n, APPROVE);
+            if (session.kind === "review") {
+              if (session.n === 1) w.host.fallback = RED_CHECKS;
+              return reviewScript(session.n, APPROVE);
+            }
             if (session.n === 2) w.host.fallback = GREEN_CHECKS;
             writeFile(session, CSV, session.n === 1 ? CSV_V1 : CSV_V2);
             return devScript(session.n);

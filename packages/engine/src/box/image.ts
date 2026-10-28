@@ -8,7 +8,8 @@
 //   change its own box; `readBaseBox` also reads the files the toolchain detection needs from that
 //   same commit.
 // - The Node.js tarball is checked against a sha256 dipo pins per version (`NODE_TARBALL_SHA256`).
-// - The build fails when git ends up in the image (0021 decision 4).
+// - Every image has git from Debian's archive, for the box's own local repository (0008): the
+//   build checks that it runs.
 // - dipo writes the build's two scripts itself (`boxBuildScripts`); a build file in the repository
 //   is never read. The image is built in a build box on the host-only box network and made by
 //   committing that box (`build-box.ts`, DIPO-281); `container build` is not used.
@@ -200,11 +201,27 @@ export function checkImageDescription(image: BoxImageDescription): BoxImageDescr
     }
   }
   for (const name of image.packages) {
-    if (!PACKAGE.test(name) || name.split("=")[0] === "git") {
+    if (!PACKAGE.test(name)) {
       refuse(`${JSON.stringify(name)} is not a Debian package a box may get.`, { name });
     }
   }
   return image;
+}
+
+/**
+ * The Debian packages every image gets besides the office's: curl for the build's downloads, and
+ * git for the box's own local repository (0008).
+ */
+export const BASE_PACKAGES: readonly string[] = ["curl", "git"];
+
+/**
+ * The Debian packages a build installs: `BASE_PACKAGES`, then the office's. A base package the
+ * office names too, with or without a version, is the office's entry alone, so apt never gets
+ * both `git` and `git=<version>`.
+ */
+export function aptPackages(packages: readonly string[]): string[] {
+  const named = new Set(packages.map((name) => name.split("=")[0]));
+  return [...new Set([...BASE_PACKAGES.filter((name) => !named.has(name)), ...packages])];
 }
 
 /** The environment variable that carries the web route's address into a build's scripts. */
@@ -268,14 +285,14 @@ export interface BoxBuildScripts {
   readonly bootstrap: string;
   /**
    * The system steps (DIPO-334), one of dipo's root steps behind the box firewall: the CA
-   * certificates, curl and the office's Debian packages from Debian's signed archive, Node.js
+   * certificates, curl, git and the office's Debian packages from Debian's signed archive, Node.js
    * checked against its pinned sha256, and the box user with its folders (`user.ts`).
    */
   readonly system: string;
   /**
    * The install steps, as the box user behind the box firewall: Claude Code and the package
-   * managers from npm through Safe-Chain into the box user's npm prefix, the version checks, and
-   * the check that git is not in the image. `buildCleanupCommand` runs after it.
+   * managers from npm through Safe-Chain into the box user's npm prefix, and the version checks,
+   * git's among them. `buildCleanupCommand` runs after it.
    */
   readonly build: string;
 }
@@ -361,7 +378,7 @@ export function boxBuildScripts(image: BoxImageDescription): BoxBuildScripts {
       `${apt(false)} update`,
       `${apt(false)} install -y --no-install-recommends ca-certificates`,
       `${apt(true)} update`,
-      `${apt(true)} install -y --no-install-recommends ${["curl", ...packages].join(" ")}`,
+      `${apt(true)} install -y --no-install-recommends ${aptPackages(packages).join(" ")}`,
       "rm -rf /var/lib/apt/lists/*",
       "# Node.js (with npm) from nodejs.org, checked against the sha256 dipo pins for the release.",
       `case "$(dpkg --print-architecture)" in ${nodeCases} *) echo "no pinned Node.js tarball for this architecture" >&2; exit 1 ;; esac`,
@@ -389,8 +406,8 @@ export function boxBuildScripts(image: BoxImageDescription): BoxBuildScripts {
       `HTTPS_PROXY="$proxy" HTTP_PROXY="$proxy" NODE_EXTRA_CA_CERTS=${CA_IN_BUILD} npm install --global --prefix=${BOX_NPM_PREFIX} --no-fund --no-audit --https-proxy="$proxy" --proxy="$proxy" ${npmPackages.join(" ")}`,
       "npm cache clean --force",
       ...checks,
-      "# No git in a box (0021 decision 4): the build fails when any package brought it in.",
-      'if command -v git >/dev/null 2>&1 || dpkg -s git >/dev/null 2>&1; then echo "git is in the box image; a package pulled it in (0021 decision 4)" >&2; exit 1; fi',
+      "# git for the box's own local repository (0008).",
+      "git --version",
       'rm -rf "$HOME/.npm"',
     ],
   );

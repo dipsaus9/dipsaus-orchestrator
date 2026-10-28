@@ -1,24 +1,17 @@
 // The pure rules of the report gate (DIPO-186 with DIPO-254): which automated test-plan entries a
-// done report leaves open, whether a decision note's section is in its file, and whether a box
-// worker's tool trail shows a verify or test run after its last edit.
+// done report leaves open, and whether a decision note's section is in its file.
 
 import { describe, expect, it } from "bun:test";
 
 import type { TestPlan } from "@dipsaus-orchestrator/contract";
 
 import {
-  emptyTrail,
-  followTool,
   hasSection,
   noteMiss,
   proposalHash,
-  ranCheckAfterEdit,
   sectionHeadings,
   testPlanGaps,
-  trailAt,
 } from "../../src/run/report-data";
-import { checkCommands, runnableCommand } from "../../src/run/verify-commit";
-import { detect } from "../../src/scan/detect";
 
 const PLAN: TestPlan = {
   entries: [
@@ -108,92 +101,6 @@ describe("decision note sections", () => {
     expect(noteMiss(note, null)).toBe("file");
     expect(noteMiss(note, TEXT)).toBeNull();
     expect(noteMiss({ ...note, section: "Context" }, TEXT)).toBe("section");
-  });
-});
-
-describe("the tool trail", () => {
-  const COMMANDS = ["bun run verify", "bun test"];
-
-  it("needs a verify or test run after the last edit, and nothing when nothing was edited", () => {
-    const trail = emptyTrail();
-    expect(ranCheckAfterEdit(trail, COMMANDS)).toBe(true);
-    followTool(trail, "shell", "bun run verify");
-    followTool(trail, "edit", undefined);
-    expect(ranCheckAfterEdit(trail, COMMANDS)).toBe(false);
-    followTool(trail, "shell", "ls src");
-    expect(ranCheckAfterEdit(trail, COMMANDS)).toBe(false);
-    followTool(trail, "shell", "PATH=/x:$PATH  bun   run verify 2>&1 | tail -40");
-    expect(ranCheckAfterEdit(trail, COMMANDS)).toBe(true);
-    const before = trailAt(trail);
-    followTool(trail, "edit", undefined);
-    expect(ranCheckAfterEdit(trail, COMMANDS)).toBe(false);
-    // A copy taken before is not changed by later calls.
-    expect(ranCheckAfterEdit(before, COMMANDS)).toBe(true);
-    followTool(trail, "shell", "bun test packages/engine/test/x.test.ts");
-    expect(ranCheckAfterEdit(trail, COMMANDS)).toBe(true);
-  });
-
-  it("asks nothing when the office has no verify or test command", () => {
-    const trail = emptyTrail();
-    followTool(trail, "edit", undefined);
-    expect(ranCheckAfterEdit(trail, [])).toBe(true);
-    expect(ranCheckAfterEdit(trail, ["  "])).toBe(true);
-  });
-
-  it("takes the office's verify and test commands from its profile, verify first", () => {
-    const profile = detect({
-      texts: {
-        "package.json": JSON.stringify({
-          name: "p",
-          packageManager: "bun@1.4.2",
-          scripts: { verify: "bun run lint && bun test", test: "bun test" },
-        }),
-      },
-      lockfiles: ["bun.lock"],
-      workspaceDirs: [],
-      configImports: {},
-      envFiles: [],
-    });
-    const commands = checkCommands(profile);
-    expect(commands[0]).toEqual({ text: "bun run verify", cwd: "." });
-    expect(commands).toContainEqual({ text: "bun run test", cwd: "." });
-    expect(checkCommands(null)).toEqual([]);
-  });
-
-  it("matches a command off the root by its bare text and names it with cd for the worker", () => {
-    const base = detect({
-      texts: { "package.json": JSON.stringify({ name: "p", packageManager: "bun@1.4.2" }) },
-      lockfiles: ["bun.lock"],
-      workspaceDirs: [],
-      configImports: {},
-      envFiles: [],
-    });
-    const profile = {
-      ...base,
-      capabilities: {
-        ...base.capabilities,
-        verify: {
-          status: "resolved",
-          value: { commands: [["bun", "test"]], cwd: "packages/app" },
-        },
-      },
-    } as unknown as typeof base;
-    const commands = checkCommands(profile);
-    expect(commands[0]).toEqual({ text: "bun test", cwd: "packages/app" });
-    expect(runnableCommand({ text: "bun test", cwd: "packages/app" })).toBe(
-      "cd packages/app && bun test",
-    );
-    expect(runnableCommand({ text: "bun test", cwd: "." })).toBe("bun test");
-    // The worker's own cd line holds the bare text, so it counts as a run.
-    const trail = emptyTrail();
-    followTool(trail, "edit", undefined);
-    followTool(trail, "shell", "cd packages/app && bun test");
-    expect(
-      ranCheckAfterEdit(
-        trail,
-        commands.map((command) => command.text),
-      ),
-    ).toBe(true);
   });
 });
 

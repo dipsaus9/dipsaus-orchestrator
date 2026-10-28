@@ -40,8 +40,9 @@
 // place. The body's status block lists each required check with its state and is rewritten when
 // one changes.
 //
-// CI is the verify of a box run (0021 amendment of 2026-10-22, DIPO-299): dipo runs no verify for
-// it, so the body's status block says CI checks the head, and red CI takes the same loop as above.
+// CI is the final gate of a box run (0002): dipo ran the office's verify in the box at done
+// (DIPO-346), so the body's status block says CI checks the head after it, and red CI takes the
+// same loop as above.
 // An office whose story PRs get no CI is not held waiting: when the host reports no check at all
 // for a box run's pushed head (neither a required one nor any other) once `NO_CI_WAIT_MS` has
 // passed since the engine first watched that head, the head is final with no CI. The wait is never
@@ -191,8 +192,8 @@ export interface StoryPrsDeps {
     readonly implemented: (name: CommandName) => boolean;
   };
   /**
-   * Whether the run's developer works in a box (DIPO-299): CI is its verify, and its head may be
-   * final with no CI. False for every run without it.
+   * Whether the run's developer works in a box (DIPO-299): CI is its final gate, and its head may
+   * be final with no CI. False for every run without it.
    */
   readonly boxRun?: (office: OfficeId, run: StoredRun) => boolean;
   /** True when dipo turns auto-merge on for story PRs: the body says dipo merges. */

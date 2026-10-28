@@ -9,9 +9,6 @@
 // - Decision notes. Each note's file must exist at the story branch and hold a section with that
 //   heading (`noteMiss`); a note that passes is stored in `decision_notes`, one that misses is sent
 //   back once and then left out.
-// - The tool trail of a box worker (`ToolTrail`, 0021 amendment of 2026-10-22): which shell
-//   commands ran after the worker's last file edit, so a done report with no run of the office's
-//   verify or test command after it is sent back once (`ranCheckAfterEdit`).
 // - Storage: every done report's test-plan entries and deviations (`done_reports`), the proposals
 //   of every report (`proposals`, deduplicated by a hash of the title and the paths) and the
 //   send-once marks (`report_sendbacks`). Storing changes nothing about the story's status, the
@@ -29,7 +26,6 @@ import {
 import { appendEntries, type NewEntry } from "../changelog/log";
 import type { OfficeHandle } from "../db/office";
 import type {
-  ToolEffect,
   WorkerDecisionNote,
   WorkerDeviation,
   WorkerProposal,
@@ -118,56 +114,6 @@ export function noteSignature(note: WorkerDecisionNote): string {
   return hashOf([note.file, normal(note.section)]);
 }
 
-// ---- the tool trail of a box worker --------------------------------------------------------------
-
-/**
- * What a worker session did since its last file edit, as its tool activity shows it: `edited` once
- * any file tool changed a file, and the shell commands run after the last such edit. Kept in memory
- * per tracked run, from the moment run control began to follow it. After a daemon restart (a
- * reattach) the trail starts empty again: an edit made before the restart is not seen, so a done
- * report after it is not sent back. The check fails open; it is a nudge, and CI is the verify.
- */
-export interface ToolTrail {
-  edited: boolean;
-  shellSinceEdit: string[];
-}
-
-/** A trail with no activity yet. */
-export function emptyTrail(): ToolTrail {
-  return { edited: false, shellSinceEdit: [] };
-}
-
-/** Adds one tool call to `trail`: an edit starts a new stretch, a shell command joins it. */
-export function followTool(trail: ToolTrail, effect: ToolEffect, input: string | undefined): void {
-  if (effect === "edit") {
-    trail.edited = true;
-    trail.shellSinceEdit = [];
-    return;
-  }
-  if (input !== undefined) trail.shellSinceEdit.push(input);
-}
-
-/** A copy of `trail` as it is now, for one turn's after-turn work. */
-export function trailAt(trail: ToolTrail): ToolTrail {
-  return { edited: trail.edited, shellSinceEdit: [...trail.shellSinceEdit] };
-}
-
-const oneLine = (text: string): string => text.replace(/\s+/g, " ").trim();
-
-/**
- * Pure: true unless the trail shows a file edit with no shell command after it that runs one of
- * `commands` (the office's verify and test commands, as shown). True when nothing was edited or
- * no command is known: then there is nothing to send back.
- */
-export function ranCheckAfterEdit(trail: ToolTrail, commands: readonly string[]): boolean {
-  const known = commands.map(oneLine).filter((command) => command !== "");
-  if (!trail.edited || known.length === 0) return true;
-  return trail.shellSinceEdit.some((line) => {
-    const shown = oneLine(line);
-    return known.some((command) => shown.includes(command));
-  });
-}
-
 // ---- storage -------------------------------------------------------------------------------------
 
 function hashOf(parts: readonly string[]): string {
@@ -245,7 +191,7 @@ export function latestDoneReport(office: OfficeHandle, runId: RunId): StoredDone
 }
 
 /** What dipo sends back to the worker at most once per run. */
-export type SendBackKind = "decision-note" | "verify-run";
+export type SendBackKind = "decision-note";
 
 /** True when `kind` with `signature` was already sent back in the run. */
 export function sentBack(

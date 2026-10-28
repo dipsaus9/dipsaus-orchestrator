@@ -15,6 +15,7 @@ import { BOX_NET_TOOLS_PATH, BOX_USER_GID, BOX_USER_UID } from "../../src/box/fi
 import {
   BOX_DEFAULTS,
   BOX_IMAGE_ENV,
+  aptPackages,
   boxBuildScripts,
   boxImageTag,
   type BoxImageDescription,
@@ -146,7 +147,6 @@ describe("the box description", () => {
     refused(() => checkImageDescription({ ...IMAGE, debian: "trixie-slim\nRUN id" }));
     refused(() => checkImageDescription({ ...IMAGE, claudeCode: "latest" }));
     refused(() => checkImageDescription({ ...IMAGE, packages: ["jq; id"] }));
-    refused(() => checkImageDescription({ ...IMAGE, packages: ["git"] }));
     refused(() => checkImageDescription({ ...IMAGE, toolchain: { node: "24" } }));
     refused(() =>
       checkImageDescription({ ...IMAGE, toolchain: { node: "24.0.0", yarn: "4.1.0" } }),
@@ -210,15 +210,24 @@ describe("the build scripts (DIPO-281)", () => {
     for (const line of apt) expect(line).toContain('-o Acquire::https::Proxy="$proxy"');
     expect(apt.filter((line) => line.includes("Verify-Peer=false"))).toHaveLength(2);
     expect(apt[1]).toContain("install -y --no-install-recommends ca-certificates");
-    expect(apt[3]).toContain("install -y --no-install-recommends curl jq ripgrep");
+    expect(apt[3]).toContain("install -y --no-install-recommends curl git jq ripgrep");
     expect(apt[3]).not.toContain("Verify-Peer=false");
   });
 
-  it("build fails when any package brought git in, and names git only there", () => {
-    expect(build).toContain(
-      'if command -v git >/dev/null 2>&1 || dpkg -s git >/dev/null 2>&1; then echo "git is in the box image; a package pulled it in (0021 decision 4)" >&2; exit 1; fi',
+  // DIPO-346: the box's own local repository (0008) needs git in every image, once.
+  it("installs git from Debian's archive in every image and checks that it runs", () => {
+    expect(build).toContain("git --version");
+    const office = boxBuildScripts({ ...IMAGE, packages: ["git", "jq"] }).system.split("\n");
+    const install = office.filter((line) =>
+      line.includes("install -y --no-install-recommends curl"),
     );
-    expect(build.filter((line) => /\bgit\b/.test(line))).toHaveLength(2);
+    expect(install).toHaveLength(1);
+    expect(install[0]).toEndWith("install -y --no-install-recommends curl git jq");
+    expect(build.join("\n")).not.toContain("git is in the box image");
+    // A versioned git of the office's replaces dipo's unversioned one; apt never gets both.
+    expect(aptPackages(["git=1:2.47.2-0.1", "jq"])).toEqual(["curl", "git=1:2.47.2-0.1", "jq"]);
+    expect(aptPackages(["curl=8.14.1-2"])).toEqual(["git", "curl=8.14.1-2"]);
+    expect(aptPackages([])).toEqual(["curl", "git"]);
   });
 
   it("system installs Node from nodejs.org at its version, checked against the sha256 dipo pins", () => {

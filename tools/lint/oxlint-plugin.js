@@ -185,6 +185,9 @@ const FUNCTIONS = new Set(["ArrowFunctionExpression", "FunctionExpression", "Fun
 // - `no-git-write`: no file outside the git module passes a git argument list that commits, moves
 //   or deletes a ref, or pushes (the verb found after the options and the values of `-c` and `-C`),
 //   to any call, in a `cmd` list, bound to a `const`, or in a `$` template.
+// Both are about git on the Mac. The box's own repository (`engine/src/box/box-git.ts`, 0008) is
+// not: dipo runs its fixed init script inside the box, as the box user, through the box
+// interface's exec, so it starts no git on the Mac and needs no exception here.
 
 const GIT_SPAWN_MESSAGE =
   "Only the git module (packages/engine/src/git) starts git (0010): run a hardened step through its runner (`runGitStep`, an office's `GitSession`).";
