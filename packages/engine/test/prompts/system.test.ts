@@ -61,7 +61,14 @@ describe("box worker system file", () => {
     expect(text).toContain(
       "Code and tests that meet every criterion and every automated entry of the test plan.",
     );
-    expect(text).toContain("Run the tests and the project's verify as you work.");
+    expect(text).toContain("Run the tests and the project's verify as you work;");
+    // CI-only tests stay CI's, and a recorded-command criterion is met by its evidence.
+    expect(text).toContain(
+      "leave tests the project runs only in CI to CI, and do not set `DIPO_TEST_CI`.",
+    );
+    expect(text).toContain(
+      "A criterion that asks for a command and its result to be recorded is met when its evidence holds them: never report blocked for it.",
+    );
     expect(text).toContain(
       "dipo handles git, the backlog, the pull request and the review, and you report to dipo instead: the box's git repository is your own.",
     );
@@ -150,8 +157,6 @@ describe("box worker system file", () => {
       "already installed in the box",
       "Linux machine",
       "start commit",
-      "DIPO_TEST_CI",
-      "CI-only",
       "size limit and a strict format",
     ]) {
       expect(text).not.toContain(gone);
