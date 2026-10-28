@@ -46,7 +46,6 @@ import { backupStamp } from "../../db/migrations";
 import {
   BASE_CHECKOUT_CONFIG,
   BASE_CHECKOUT_ENV,
-  FETCH_CONFIG,
   type GitLocation,
   WORKTREE_ADD_CONFIG,
 } from "../../git/hardened";
@@ -57,7 +56,14 @@ import {
   type GitStepOptions,
   isTimedOut,
 } from "../../git/runner";
-import { statusPaths } from "../../git/task-commit";
+import {
+  commitStaged,
+  createBranch,
+  deleteBranch,
+  pushRef,
+  resetWorktree,
+  statusPaths,
+} from "../../git/write";
 import { findStoryByKey } from "../../stories/keys";
 import type { BacklogCli } from "../runner";
 
@@ -225,9 +231,6 @@ interface RemoteState {
 function messageOf(entry: Pick<JournalEntry, "kind" | "subject">): string {
   return `backlog: ${entry.kind} ${entry.subject}`;
 }
-
-/** `git status --porcelain=v1 -z` paths; it lives with the status commit (`git/task-commit.ts`). */
-export { statusPaths };
 
 /** True when `path` lies under `backlog/` or is one of `extra`. */
 function inLane(path: string, extra: readonly string[]): boolean {
@@ -499,7 +502,15 @@ export class OfficeLane {
       }
       if (close || rebuild) {
         await this.#checkout(git, location, base.sha, true);
-        if (close && tip !== null) await git.ok(git.repository, ["branch", "-D", branch]);
+        if (close && tip !== null) {
+          const deleted = await deleteBranch(git, branch, tip);
+          if (deleted.code !== 0) {
+            throw new GitError(
+              "git.failed",
+              `deleting the backlog branch ${branch} at ${tip} failed: ${deleted.stderr.trim() || `exit ${deleted.code}`}`,
+            );
+          }
+        }
       }
       if (rebuild) {
         const old = branch;
@@ -644,7 +655,14 @@ export class OfficeLane {
       }
       if (branch === null) {
         branch = await this.#newBranchName(git);
-        await git.ok(location, ["checkout", "--quiet", "-b", branch]);
+        const head = (await git.ok(location, ["rev-parse", "--verify", "HEAD"])).trim();
+        if (!(await createBranch(git, branch, head))) {
+          throw new GitError(
+            "git.failed",
+            `the backlog branch ${branch} appeared while dipo created it`,
+          );
+        }
+        await git.ok(location, ["checkout", "--quiet", branch]);
       }
       const onto = branch;
       this.#write(() => this.#update(entry.opId, { state: "applied", branch: onto }));
@@ -683,11 +701,10 @@ export class OfficeLane {
   async #commit(git: GitSession, location: GitLocation, entry: JournalEntry): Promise<string> {
     let result;
     try {
-      result = await git.step(
-        location,
-        ["commit", "--quiet", "-m", messageOf(entry), "-m", `${OP_TRAILER}: ${entry.opId}`],
-        { timeoutMs: EXTERNAL_STEP_TIMEOUT_MS },
-      );
+      result = await commitStaged(git, location, {
+        subject: messageOf(entry),
+        body: [`${OP_TRAILER}: ${entry.opId}`],
+      });
     } catch (error) {
       if (isTimedOut(error)) throw new StuckCommitError(error.message);
       throw error;
@@ -728,25 +745,11 @@ export class OfficeLane {
       reason = "fetchFailed";
       detail = `the push waits until a fetch of ${this.#git.settings.remote} succeeds (${remote.detail})`;
     } else {
-      const result = await git
-        .step(
-          git.repository,
-          [
-            "push",
-            "--quiet",
-            "--no-verify",
-            this.#git.settings.remote,
-            `refs/heads/${branch}:refs/heads/${branch}`,
-          ],
-          { config: FETCH_CONFIG, timeoutMs: EXTERNAL_STEP_TIMEOUT_MS },
-        )
-        .catch((error: unknown) => {
-          // A push waiting on a credential prompt was killed; the commits wait for the next flush.
-          if (!isTimedOut(error)) throw error;
-          return null;
-        });
-      stuck = result === null;
-      if (result?.code === 0) {
+      // A push waiting on a credential prompt is killed (`code` null); the commits wait for the
+      // next flush.
+      const result = await pushRef(git, this.#git.settings.remote, branch);
+      stuck = result.code === null;
+      if (result.code === 0) {
         this.#write(() => {
           for (const entry of unpushed) this.#update(entry.opId, { state: "pushed" });
         });
@@ -755,7 +758,7 @@ export class OfficeLane {
       }
       reason = "pushFailed";
       detail =
-        result === null
+        result.code === null
           ? `pushing to ${this.#git.settings.remote} was killed after ${EXTERNAL_STEP_TIMEOUT_MS / 1000} s; the likely cause is ${PUSH_CAUSE}`
           : `pushing to ${this.#git.settings.remote} failed: ${result.stderr.trim() || `exit ${result.code}`}`;
       changed = true;
@@ -907,7 +910,7 @@ export class OfficeLane {
 
   /** Throws away what an operation left in the worktree. */
   async #discard(git: GitSession, location: GitLocation, to = "HEAD"): Promise<void> {
-    await git.ok(location, ["reset", "--hard", "--quiet", to], CHECKOUT);
+    await resetWorktree(git, location, to, CHECKOUT);
     await git.ok(location, ["clean", "-fdq"]);
   }
 

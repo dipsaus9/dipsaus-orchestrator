@@ -92,7 +92,7 @@ describe("a park (DIPO-360)", () => {
       detail: "round 3 blocked",
       runId: s.run,
     });
-    // `parks` is run detail and history: the reason it was made with (no origin column, 0058).
+    // `parks` is run detail and history: the reason it was made with (no origin column, migration 59).
     expect(parkRows()).toEqual([{ reason: "review-blocked", detail: "round 3 blocked" }]);
   });
 

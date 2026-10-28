@@ -27,7 +27,7 @@ import type { OfficeHandle } from "../db/office";
 
 import { runCaps, runTotals } from "./caps";
 import { runCriteriaMet } from "./criteria";
-import type { GrantAmount } from "./grants";
+import type { GrantAmount, RoundCap } from "./grants";
 import { hasTable } from "./open-feedback";
 import { capsStartedAt, findRun, runRoundCounts, type StoredRun } from "./records";
 
@@ -167,20 +167,18 @@ export function grantText(grant: GrantAmount): string {
   switch (grant.kind) {
     case "budget":
       return `budget +${formatCount(grant.amount.tokens)} tokens, +${formatCount(grant.amount.turns)} turns, +${formatCount(grant.amount.minutes)} minutes`;
-    case "reviewCap":
-      return `reviewer +${formatCount(grant.amount.turns)} turns, +${formatCount(grant.amount.minutes)} minutes`;
-    case "scope":
-      return `scope ${grant.amount.join(" ")}`;
-    case "loop":
-      return `+${grant.amount} loop`;
-    case "reviewRound":
-      return `+${grant.amount} review round`;
-    case "ciAttempt":
-      return `+${grant.amount} CI attempt`;
-    case "conflictHandoff":
-      return `+${grant.amount} conflict hand-off`;
+    case "round":
+      return `+${grant.amount.count} ${ROUND_NAMES[grant.amount.cap]}`;
   }
 }
+
+/** A counted cap as a summary names one more round of it. */
+const ROUND_NAMES: Readonly<Record<RoundCap, string>> = {
+  loops: "loop",
+  reviewRounds: "review round",
+  ciAttempts: "CI attempt",
+  conflictAttempts: "conflict hand-off",
+};
 
 export interface ResumeLineFacts {
   readonly at: number;

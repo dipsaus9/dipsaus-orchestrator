@@ -32,6 +32,7 @@ describe("the lane while the slot takes the branch", () => {
       // Every step answers "not found": no remote, no refs. A flush that went on would throw.
       const session: GitSession = {
         repository: { kind: "repository", commonDir: "/repo/.git" },
+        base: async () => "main",
         step: async () => ({ code: 1, stdout: "", stderr: "" }),
         ok: () => Promise.reject(new Error("the flush went on")),
       };

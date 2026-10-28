@@ -9,10 +9,9 @@
 //   starts the oldest In Review first. A tree with a verdict is never reviewed again: the verdict
 //   holds for every commit with the same code tree key, also after a daemon restart, since both
 //   facts are rows.
-// - Rounds. A review round starts with a `review` run step, which grows the run's budget by the
-//   snapshot `review_allowance` (`runCaps`). The step's value records the round, the allowance and
-//   the In Review time it waited from, so the allowance is never a silent raise and a session that
-//   must wait again keeps its place in line. A round is open until its verdict is stored; a fresh
+// - Rounds. A review round starts with a `review` run step. The step's value records the round and
+//   the In Review time it waited from, so a session that must wait again keeps its place in line.
+//   A round grows no cap: the reviewer has caps of its own per session (0002). A round is open until its verdict is stored; a fresh
 //   session after a failed one continues the open round and writes no step, so it adds nothing.
 // - Failed rounds. Each blocked verdict appends a `review-failed` step; their count is what the
 //   review round cap counts (section 6).
@@ -29,8 +28,6 @@ import { REVIEWED_END } from "./rounds";
 /** One started review round, from its `review` step. */
 export interface ReviewRound {
   readonly round: number;
-  /** The tokens the round added to the run's budget. */
-  readonly allowance: number;
   /** The In Review time its review waited from. */
   readonly since: number;
   /** When the round started. */
@@ -46,15 +43,14 @@ interface StepRow {
 function roundOf(row: StepRow, index: number): ReviewRound {
   try {
     const value = JSON.parse(row.value) as Partial<ReviewRound> | number;
-    if (typeof value === "number") return { round: value, allowance: 0, since: row.at, at: row.at };
+    if (typeof value === "number") return { round: value, since: row.at, at: row.at };
     return {
       round: typeof value.round === "number" ? value.round : index + 1,
-      allowance: typeof value.allowance === "number" ? value.allowance : 0,
       since: typeof value.since === "number" ? value.since : row.at,
       at: row.at,
     };
   } catch {
-    return { round: index + 1, allowance: 0, since: row.at, at: row.at };
+    return { round: index + 1, since: row.at, at: row.at };
   }
 }
 
@@ -89,7 +85,7 @@ export function openReviewRound(office: OfficeHandle, runId: RunId): ReviewRound
 /**
  * Inside the caller's transaction: the review round a reviewer session of the run starts in. The
  * open round when there is one (a fresh session after a failed one adds nothing); else a new
- * round, with its `review` step that grows the budget by the run's `review_allowance`.
+ * round, with its `review` step.
  */
 export function beginReviewRound(
   office: OfficeHandle,
@@ -101,17 +97,10 @@ export function beginReviewRound(
   if (open !== null) return { round: open, started: false };
   const round: ReviewRound = {
     round: reviewRounds(office, run.runId).length + 1,
-    allowance: run.reviewAllowance ?? 0,
     since,
     at,
   };
-  appendRunStep(
-    office,
-    run.runId,
-    "review",
-    JSON.stringify({ round: round.round, allowance: round.allowance, since }),
-    at,
-  );
+  appendRunStep(office, run.runId, "review", JSON.stringify({ round: round.round, since }), at);
   return { round, started: true };
 }
 

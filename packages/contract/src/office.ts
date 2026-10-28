@@ -132,10 +132,12 @@ export const ResumeBudget = z.union([
 ]);
 export type ResumeBudget = z.infer<typeof ResumeBudget>;
 
-// One grant a resume recorded (0020 sections 4 and 5): a budget grant names its tokens, turns and
-// minutes, a reviewer cap grant its turns and minutes, a counted grant its count.
+// One grant a resume recorded (0020): a `budget` grant names its tokens, turns and minutes, a
+// `round` grant the counted cap it grows (`loops`, `reviewRounds`, `ciAttempts` or
+// `conflictAttempts`) and its count.
 export const ResumeGrant = z.object({
   kind: z.string(),
+  cap: z.string().optional(),
   tokens: Count.optional(),
   turns: Count.optional(),
   minutes: Count.optional(),

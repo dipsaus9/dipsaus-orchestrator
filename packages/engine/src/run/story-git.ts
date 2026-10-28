@@ -14,7 +14,7 @@ import { type BacklogCli, runBacklog } from "../backlog/runner";
 import type { GitLocation } from "../git/hardened";
 import type { OfficeGit } from "../git/office";
 import { GitError } from "../git/runner";
-import { type PushResult, pushBranch, statusPaths } from "../git/task-commit";
+import { type PushResult, pushBranch, statusPaths } from "../git/write";
 import { editInStoryBacklog, inStoryBacklog, repoPath } from "../worktree/claim";
 
 import { type BackstopSnapshot, readBackstop } from "./backstop";
@@ -22,7 +22,7 @@ import { type BackstopSnapshot, readBackstop } from "./backstop";
 /** The Backlog.md status a story reaches when verify and commit pass (0012). */
 export const IN_REVIEW_STATUS = "In Review";
 
-export type { PushResult } from "../git/task-commit";
+export type { PushResult } from "../git/write";
 
 /** The story as the Backlog CLI shows it in its worktree. */
 export interface WorktreeStory {

@@ -115,8 +115,12 @@ export class FakeSlotGit implements SlotGit {
     return !this.notInHead.has(commit);
   }
 
-  async deleteBranch(branch: string): Promise<void> {
+  /** What `deleteBranch` reports about the remote branch; null when it is gone. */
+  deleteProblem: string | null = null;
+
+  async deleteBranch(branch: string): Promise<string | null> {
     this.calls.push(`deleteBranch ${branch}`);
+    return this.deleteProblem;
   }
 }
 
@@ -177,6 +181,7 @@ function journalOnlyGit(): OfficeGit {
     run: <T>(fn: (git: GitSession) => Promise<T>) =>
       fn({
         repository: { kind: "repository", commonDir: "/repo/.git" },
+        base: async () => "main",
         step: () => Promise.reject(new Error("no git in this test")),
         ok: () => Promise.reject(new Error("no git in this test")),
       }),

@@ -13,6 +13,7 @@ export * from "./fieldblock";
 export * from "./ids";
 export * from "./office";
 export * from "./profile";
+export * from "./git-hardening";
 export * from "./repository";
 export * from "./software";
 export * from "./version";

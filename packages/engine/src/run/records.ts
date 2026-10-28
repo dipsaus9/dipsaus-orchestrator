@@ -16,6 +16,7 @@ import type { OfficeHandle } from "../db/office";
 import { finalizeRunAgents } from "../ingest/usage";
 
 import type { BackstopSnapshot } from "./backstop";
+import { runTotals } from "./caps";
 
 export type RunKind = "story" | "session";
 
@@ -40,17 +41,17 @@ export interface NewRun {
   readonly maxMinutes?: number | null;
   readonly reviewRoundCap: number | null;
   /**
-   * The review loop's other caps at the start (0019 sections 4 and 8, DIPO-146): red required
-   * check heads (`mergeSlot.ciAttempts`), failed conflict hand-offs (`mergeSlot.conflictAttempts`),
-   * the reviewer's own turn and minute caps (`review.maxTurns`, `review.maxMinutes`) and the
-   * tokens added to the budget per review round started (`review.budgetTokens`). Null for a session
-   * run and for a run started before they were kept.
+   * The review loop's other caps at the start (0002): red required check heads
+   * (`mergeSlot.ciAttempts`), failed conflict hand-offs (`mergeSlot.conflictAttempts`), and the
+   * reviewer's own turn, minute and token caps per session (`review.maxTurns`, `review.maxMinutes`,
+   * `review.budgetTokens`), never the story's. Null for a session run and for a run started before
+   * they were kept.
    */
   readonly ciCap?: number | null;
   readonly conflictCap?: number | null;
   readonly reviewMaxTurns?: number | null;
   readonly reviewMaxMinutes?: number | null;
-  readonly reviewAllowance?: number | null;
+  readonly reviewMaxTokens?: number | null;
   readonly configHash: string;
   readonly overrideKeys: readonly string[] | null;
   readonly runProfileId: string | null;
@@ -101,7 +102,7 @@ interface RunRow {
   conflict_cap: number | null;
   review_max_turns: number | null;
   review_max_minutes: number | null;
-  review_allowance: number | null;
+  review_max_tokens: number | null;
   config_hash: string;
   override_keys: string | null;
   run_profile_id: string | null;
@@ -117,7 +118,7 @@ interface RunRow {
 
 const COLUMNS = `run_id, kind, key, story_id, tier, role, model, start_sha, branch, worktree, slot,
   budget_unit, budget_limit, loop_cap, max_turns, max_minutes, review_round_cap, ci_cap,
-  conflict_cap, review_max_turns, review_max_minutes, review_allowance, config_hash, override_keys,
+  conflict_cap, review_max_turns, review_max_minutes, review_max_tokens, config_hash, override_keys,
   run_profile_id, started_at, scope, gate_changes, ended_at, end_kind, parked_ms, waiting,
   waiting_since`;
 
@@ -154,7 +155,7 @@ function toRecord(row: RunRow): StoredRun {
     conflictCap: row.conflict_cap,
     reviewMaxTurns: row.review_max_turns,
     reviewMaxMinutes: row.review_max_minutes,
-    reviewAllowance: row.review_allowance,
+    reviewMaxTokens: row.review_max_tokens,
     configHash: row.config_hash,
     overrideKeys: row.override_keys === null ? null : (JSON.parse(row.override_keys) as string[]),
     runProfileId: row.run_profile_id,
@@ -175,7 +176,7 @@ export function insertRun(office: OfficeHandle, run: NewRun): void {
      values ($office_id, $run_id, $kind, $key, $story_id, $tier, $role, $model, $start_sha,
        $branch, $worktree, $slot, $budget_unit, $budget_limit, $loop_cap, $max_turns,
        $max_minutes, $review_round_cap, $ci_cap, $conflict_cap, $review_max_turns,
-       $review_max_minutes, $review_allowance, $config_hash, $override_keys, $run_profile_id,
+       $review_max_minutes, $review_max_tokens, $config_hash, $override_keys, $run_profile_id,
        $started_at, $scope)`,
     {
       run_id: run.runId,
@@ -199,7 +200,7 @@ export function insertRun(office: OfficeHandle, run: NewRun): void {
       conflict_cap: run.conflictCap ?? null,
       review_max_turns: run.reviewMaxTurns ?? null,
       review_max_minutes: run.reviewMaxMinutes ?? null,
-      review_allowance: run.reviewAllowance ?? null,
+      review_max_tokens: run.reviewMaxTokens ?? null,
       config_hash: run.configHash,
       override_keys: run.overrideKeys === null ? null : JSON.stringify(run.overrideKeys),
       run_profile_id: run.runProfileId,
@@ -530,14 +531,11 @@ function writeRunOutcome(office: OfficeHandle, runId: RunId, kind: string): void
       { run: runId },
     )
     .map((row) => row.reason);
-  const count = (sql: string): number => office.get<{ n: number }>(sql, { run: runId })?.n ?? 0;
   const rounds = runRoundCounts(office, runId);
   // dipo runs no verify of its own any more (DIPO-342): the column stays, always 0.
   const failures = 0;
-  const budget = count(
-    `select coalesce(sum(input + output + cache_create), 0) as n from usage_totals
-      where office_id = $office_id and run_id = $run`,
-  );
+  // The developer's tokens only: a reviewer counts against its own caps, never the story's (0002).
+  const budget = runTotals(office, runId, at, at).budgetTokens;
   // The run's web calls by tool, counted from its tool activity (0020 section 11b, DIPO-164).
   const web = office.get<{ searches: number; fetches: number }>(
     `select web_searches as searches, web_fetches as fetches from runs

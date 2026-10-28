@@ -48,16 +48,15 @@ export function capEnding(encode: RunControlDeps["encode"], cap: CapName, detail
 }
 
 /**
- * The ending of a reviewer session that reached a cap (0002): the story's budget used up parks
- * `budget-exceeded`; the reviewer's own turn or minute cap parks `worker-failed`, the detail naming
- * the cap, with no retry.
+ * The ending of a reviewer session that reached one of its own caps (0002): its tokens, turns or
+ * minutes per session. It parks `worker-failed`, the detail naming the cap, with no retry; the
+ * story's budget is never what a review uses up.
  */
 export function reviewCapEnding(
   encode: RunControlDeps["encode"],
   cap: CapName,
   detail: string,
 ): Ending {
-  if (cap === "budgetTokens") return capEnding(encode, cap, detail);
   return {
     intent: "cap",
     ops: encode({ kind: "stop" }),

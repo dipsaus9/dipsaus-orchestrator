@@ -54,7 +54,7 @@ export interface StoryRunOptions {
   /** The review loop's snapshot (DIPO-146); none by default. */
   readonly reviewMaxTurns?: number | null;
   readonly reviewMaxMinutes?: number | null;
-  readonly reviewAllowance?: number | null;
+  readonly reviewMaxTokens?: number | null;
 }
 
 export interface StoryRun {
@@ -95,7 +95,7 @@ export function storyRun(w: RoundsWorld, options: StoryRunOptions): StoryRun {
       reviewRoundCap: options.reviewRoundCap ?? null,
       reviewMaxTurns: options.reviewMaxTurns ?? null,
       reviewMaxMinutes: options.reviewMaxMinutes ?? null,
-      reviewAllowance: options.reviewAllowance ?? null,
+      reviewMaxTokens: options.reviewMaxTokens ?? null,
       configHash: "h",
       overrideKeys: null,
       runProfileId: null,

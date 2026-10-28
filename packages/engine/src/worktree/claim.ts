@@ -22,8 +22,10 @@
 //   then makes the claim commit and pushes.
 //
 // A new branch needs the exact local ref absent, `git ls-remote --heads <remote> <branch>` empty
-// and no worktree at the path; `git worktree add -b` is atomic, so a lost `cannot lock ref` race
-// is a skip with nothing to clean. A branch released for the same StoryKey is reused
+// and no worktree at the path. The branch is then created by the git writer (`git/write.ts`) with
+// `git update-ref refs/heads/<branch> <start> ""`: the empty old value makes the creation atomic, so
+// a claim that lost the race to another one is a skip that overwrote nothing, and the claim row
+// follows (0010). A branch released for the same StoryKey is reused
 // (`git worktree add <path> <branch>`) and `origin/<base>` is merged into it before the claim
 // commit; a code conflict is aborted and recorded as the worker's first feedback. A box run's
 // reused branch is not merged here (`baseSync: "catch-up"`, DIPO-149): dipo's catch-up merges the
@@ -67,7 +69,17 @@ import { FETCH_CONFIG, type GitLocation, WORKTREE_ADD_CONFIG } from "../git/hard
 import type { GitSession, OfficeGit } from "../git/office";
 import { EXTERNAL_STEP_TIMEOUT_MS, GitError, type GitResult, isTimedOut } from "../git/runner";
 import { changedLinks, readWorktreeSnapshot, worktreeTampered } from "../git/snapshot";
-import { pushBranch, statusPaths } from "../git/task-commit";
+import {
+  abortMerge,
+  commitTree,
+  createBranch,
+  deleteBranch,
+  mergeInWorktree,
+  moveBranch,
+  moveRef,
+  pushBranch,
+  statusPaths,
+} from "../git/write";
 import { type DiskProbe, formatGigabytes } from "../platform/disk";
 import { endRunMarked } from "../run/markers";
 import { BRANCH_READ_PREFIX } from "../stories/branch-read";
@@ -293,25 +305,15 @@ export async function claimStory<S extends ClaimSetupDone = ClaimSetupDone>(
       );
     }
 
-    // Create the worktree: a new branch from the base, or the released branch.
-    const add = await git.step(
-      git.repository,
-      released === null
-        ? ["worktree", "add", "--quiet", "-b", request.branch, path, baseSha]
-        : ["worktree", "add", "--quiet", path, request.branch],
-      { config: WORKTREE_ADD_CONFIG },
-    );
-    if (add.code !== 0) {
-      if (released === null && lostRace(add.stderr)) {
-        return skip(
-          deps,
-          request,
-          "collision",
-          CLAIM_NOTICES.lostRace,
-          `${request.story} was not claimed: another git process created ${request.branch} at the same moment (${add.stderr.trim()}). Nothing was created.`,
-        );
-      }
-      throw failed(["worktree", "add"], add);
+    // A new branch from the base, created only while no ref of that name exists.
+    if (released === null && !(await createBranch(git, request.branch, baseSha))) {
+      return skip(
+        deps,
+        request,
+        "collision",
+        CLAIM_NOTICES.lostRace,
+        `${request.story} was not claimed: another claim or git process created ${request.branch} at the same moment. Nothing was created or overwritten.`,
+      );
     }
 
     const created: Created = {
@@ -323,6 +325,18 @@ export async function claimStory<S extends ClaimSetupDone = ClaimSetupDone>(
       released,
       hasRemote,
     };
+    // The worktree of the new branch, or of the released one.
+    const add = await git.step(
+      git.repository,
+      ["worktree", "add", "--quiet", path, request.branch],
+      {
+        config: WORKTREE_ADD_CONFIG,
+      },
+    );
+    if (add.code !== 0) {
+      await rollback(deps, git, request, created, false);
+      throw failed("worktree add", add);
+    }
     if (released === null) return startClaim(deps, git, request, created);
     // A reused branch starts at what the new worktree checked out.
     let head: string;
@@ -521,21 +535,17 @@ async function mergeBase(
   created: Created,
 ): Promise<string | null> {
   const name = created.baseRef.replace(/^refs\/(?:remotes|heads)\//, "");
-  const merged = await commitStep(git, location, [
-    "merge",
-    "--quiet",
-    "--no-ff",
-    "--no-edit",
-    "-m",
-    `Merge ${name} into ${request.branch}`,
-    created.baseSha,
-  ]);
+  const merged = await mergeInWorktree(git, location, {
+    commit: created.baseSha,
+    message: `Merge ${name} into ${request.branch}`,
+  });
   if (merged.code === 0) return null;
   const unmerged = (await git.ok(location, ["diff", "--name-only", "-z", "--diff-filter=U"]))
     .split("\0")
     .filter((file) => file !== "");
-  if (merged.code !== 1 || unmerged.length === 0) throw failed(["merge"], merged);
-  await git.ok(location, ["merge", "--abort"]);
+  if (merged.code !== 1 || unmerged.length === 0) throw failed("merge", merged);
+  const aborted = await abortMerge(git, location);
+  if (aborted.code !== 0) throw failed("merge --abort", aborted);
   return `Merging ${name} into ${request.branch} conflicts in ${unmerged.join(", ")}; dipo aborted the merge. Merge ${name} into the branch and resolve the conflicts.`;
 }
 
@@ -668,15 +678,14 @@ async function rollback(
       leftBecause = `its worktree ${path} could not be removed`;
     } else if (tip === null || !made.includes(tip)) {
       leftBecause = `its tip ${tip ?? "(unreadable)"} is not a commit this claim made`;
-    } else {
-      const args =
-        released === null
-          ? ["update-ref", "-d", ref, tip]
-          : ["update-ref", ref, created.startSha, tip];
-      const result = await git.step(git.repository, args).catch(() => null);
+    } else if (released === null) {
+      const result = await deleteBranch(git, request.branch, tip).catch(() => null);
       if (result?.code !== 0) {
-        leftBecause = `\`git ${args.join(" ")}\` failed (${result?.stderr.trim() || "no result"})`;
+        leftBecause = `deleting it at ${tip} failed (${result?.stderr.trim() || "no result"})`;
       }
+    } else {
+      const moved = await moveBranch(git, request.branch, created.startSha, tip).catch(() => false);
+      if (!moved) leftBecause = `moving it back from ${tip} to ${created.startSha} failed`;
     }
     if (leftBecause !== null) {
       const text = `The claim of ${request.story} failed and dipo could not roll back the branch ${request.branch}: ${leftBecause}. It is left as it is; check it and remove or reset it by hand.`;
@@ -793,11 +802,6 @@ function assertBranchOf(request: ClaimRequest): void {
   }
 }
 
-/** stderr of a `worktree add -b` that lost the race for the branch ref (0010 fact 8). */
-function lostRace(stderr: string): boolean {
-  return /cannot lock ref|a branch named '[^']+' already exists/i.test(stderr);
-}
-
 async function remoteConfigured(git: GitSession, remote: string): Promise<boolean> {
   const result = await git.step(git.repository, ["config", "--get", `remote.${remote}.url`]);
   return result.code === 0 && result.stdout.trim() !== "";
@@ -835,21 +839,13 @@ async function lsRemote(git: GitSession, remote: string, branch: string): Promis
   return result.stdout.trim();
 }
 
-/** A step that commits (and may sign), killed after `EXTERNAL_STEP_TIMEOUT_MS`. */
-async function commitStep(
-  git: GitSession,
-  location: WorktreeLocation,
-  args: readonly string[],
-): Promise<GitResult> {
-  return git.step(location, args, { timeoutMs: EXTERNAL_STEP_TIMEOUT_MS });
-}
-
-function failed(args: readonly string[], result: GitResult): GitError {
+/** The `git.failed` error of the step `command` (`worktree add`, `merge`). */
+function failed(command: string, result: GitResult): GitError {
   return new GitError(
     "git.failed",
-    `git ${args.join(" ")} failed: ${result.stderr.trim() || `exit ${result.code}`}`,
+    `git ${command} failed: ${result.stderr.trim() || `exit ${result.code}`}`,
     false,
-    { args: [...args], code: result.code, stderr: result.stderr },
+    { args: command.split(" "), code: result.code, stderr: result.stderr },
   );
 }
 
@@ -1097,12 +1093,17 @@ async function commitFromCopy(
       temporary,
     );
     const tree = (await session.ok(location, ["write-tree"], temporary)).trim();
-    commit = (
-      await session.ok(location, ["commit-tree", tree, "-p", head, "-m", input.message], {
-        timeoutMs: EXTERNAL_STEP_TIMEOUT_MS,
-      })
-    ).trim();
-    await session.ok(location, ["update-ref", "-m", input.message, "HEAD", commit, head]);
+    commit = await commitTree(session, location, {
+      tree,
+      parents: [head],
+      message: { subject: input.message },
+    });
+    await moveRef(session, location, {
+      ref: "HEAD",
+      to: commit,
+      from: head,
+      reason: input.message,
+    });
     const moved = (await session.ok(location, ["rev-parse", "--verify", "HEAD"])).trim();
     if (moved !== commit) {
       throw new GitError(

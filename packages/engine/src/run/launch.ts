@@ -144,7 +144,7 @@ export type TierCaps = OfficeConfig["tiers"]["S"];
  */
 export type ReviewerSettings = Pick<
   OfficeConfig["review"],
-  "model" | "effort" | "maxTurns" | "maxMinutes"
+  "model" | "effort" | "maxTurns" | "maxMinutes" | "budgetTokens"
 >;
 
 /** Starts a worker host for a run and records it in `worker_hosts` (DIPO-44). */

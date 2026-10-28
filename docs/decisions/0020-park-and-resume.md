@@ -44,7 +44,7 @@ A parked run reopens on resume. The run's outcome row keeps what retro needs (00
 | `by-maintainer` | Nothing; note optional | "Resumed by the maintainer", then the note |
 | `worker-failed` | Nothing; note optional | The last error, then the note |
 
-A resume of a story whose reviewer was the one that stopped (budget or a failed reviewer session) starts a fresh review of the same head instead of a developer session (0002).
+A resume of a story whose reviewer was the one that stopped (a reviewer cap or a failed reviewer session) starts a fresh review of the same head instead of a developer session (0002).
 
 ## 3. Caps and grants
 
