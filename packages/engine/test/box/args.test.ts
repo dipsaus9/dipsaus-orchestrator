@@ -89,7 +89,15 @@ const SHAPES: Readonly<Record<string, Shape>> = {
   exportArgs: { words: ["export"], flags: { "--output": 1 }, positionals: 1 },
   execArgs: {
     words: ["exec"],
-    flags: { "--interactive": 0, "--workdir": 1, "--env": 1 },
+    // `--tty` only with `--interactive`: the test box shell (DIPO-309).
+    flags: { "--interactive": 0, "--tty": 0, "--workdir": 1, "--env": 1 },
+    positionals: 1,
+    passthrough: true,
+  },
+  // DIPO-309: `dipo test shell`, an `exec` with a terminal into a test box only.
+  testShellArgs: {
+    words: ["exec"],
+    flags: { "--interactive": 0, "--tty": 0, "--workdir": 1, "--env": 1 },
     positionals: 1,
     passthrough: true,
   },
@@ -318,17 +326,20 @@ function everyArgv(): Map<string, string[][]> {
       for (const env of ENVS)
         for (const cwd of CWDS)
           for (const interactive of [false, true])
-            add(
-              "execArgs",
-              builders.execArgs({
-                name,
-                command,
-                interactive,
-                ...(env === undefined ? {} : { env }),
-                ...(cwd === undefined ? {} : { cwd }),
-              }),
-            );
+            for (const tty of [false, true])
+              add(
+                "execArgs",
+                builders.execArgs({
+                  name,
+                  command,
+                  interactive,
+                  tty,
+                  ...(env === undefined ? {} : { env }),
+                  ...(cwd === undefined ? {} : { cwd }),
+                }),
+              );
   }
+  add("testShellArgs", builders.testShellArgs("dipo-tst_01J9ZK5Q8W3V4X6Y7Z8A9B0C7K"));
   return all;
 }
 

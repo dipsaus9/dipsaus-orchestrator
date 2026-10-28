@@ -27,6 +27,8 @@ export {
   statsArgs,
   stopArgs,
   systemStatusArgs,
+  TEST_SHELL_COMMAND,
+  testShellArgs,
   versionArgs,
 } from "./apple-args";
 export type { CreateInput, ExecInput, HostResources } from "./apple-args";

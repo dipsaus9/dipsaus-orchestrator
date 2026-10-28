@@ -30,9 +30,11 @@ import {
   BOX_PACKAGE_CACHE_PATH,
   BoxError,
   BUILD_BOX_RUN_PREFIX,
+  BOX_NAME_PREFIX,
   type BoxNetwork,
   boxName,
   runIdOfBox,
+  TEST_BOX_RUN_PREFIX,
 } from "./port";
 import { BOX_USER_ENV, isRootStep } from "./user";
 
@@ -78,6 +80,8 @@ export interface ExecInput {
   readonly env?: Readonly<Record<string, string>>;
   /** Keeps stdin open for a long-running command. */
   readonly interactive?: boolean;
+  /** Gives the command a terminal (`dipo test shell`, DIPO-309); only with `interactive`. */
+  readonly tty?: boolean;
   /**
    * Runs `command` with the box's capabilities, not contained: only for a build box, or for the
    * box firewall's own command (`isFirewallCommand`).
@@ -371,12 +375,35 @@ export function execArgs(input: ExecInput): string[] {
   return [
     "exec",
     ...(input.interactive === true ? ["--interactive"] : []),
+    ...(input.interactive === true && input.tty === true ? ["--tty"] : []),
     ...(input.cwd === undefined ? [] : ["--workdir", absolutePath(input.cwd, "working directory")]),
     // The box user's home and PATH unless the command names its own (DIPO-334).
     ...envArgs(privilege === "user" ? { ...BOX_USER_ENV, ...input.env } : input.env),
     name,
     ...command,
   ];
+}
+
+/** The test box shell (DIPO-309): bash in `/work` as the box user, with a terminal. */
+export const TEST_SHELL_COMMAND: readonly [string, ...string[]] = ["/bin/bash", "-l"];
+
+/**
+ * The `container` arguments of `dipo test shell`: an interactive shell with a terminal in the test
+ * box `name`, run contained as the box user in `/work`, like every command dipo starts in a box.
+ * Refuses a name that is not a test box's.
+ */
+export function testShellArgs(name: string): string[] {
+  const box = checkedBoxName(name);
+  if (!box.startsWith(`${BOX_NAME_PREFIX}${TEST_BOX_RUN_PREFIX}`)) {
+    refuse(`${JSON.stringify(name)} is not a test box.`, { name });
+  }
+  return execArgs({
+    name: box,
+    command: TEST_SHELL_COMMAND,
+    cwd: "/work",
+    interactive: true,
+    tty: true,
+  });
 }
 
 /** One reading of a box's resource use, as JSON. */
