@@ -4,9 +4,17 @@
 // backlog worktree `<root>/_backlog`, where the lane keeps its branch.
 
 import type { OfficeLane } from "../backlog/lane/lane";
-import { BASE_CHECKOUT_CONFIG, BASE_CHECKOUT_ENV, FETCH_CONFIG } from "../git/hardened";
+import { BASE_CHECKOUT_CONFIG, BASE_CHECKOUT_ENV } from "../git/hardened";
 import type { GitSession } from "../git/office";
 import { EXTERNAL_STEP_TIMEOUT_MS, GitError, type GitStepOptions, isTimedOut } from "../git/runner";
+import {
+  abortMerge,
+  deleteBranch,
+  deleteRemoteBranch,
+  mergeInWorktree,
+  pushRef,
+  resetWorktree,
+} from "../git/write";
 
 const CHECKOUT: GitStepOptions = { config: BASE_CHECKOUT_CONFIG, env: BASE_CHECKOUT_ENV };
 
@@ -116,17 +124,10 @@ export function laneSlotGit(lane: OfficeLane): SlotGit {
         const message = `Merge ${base.slice("refs/remotes/".length)} into ${branch}`;
         let result;
         try {
-          result = await git.step(
-            location,
-            ["merge", "--no-ff", "--no-edit", "-m", message, base],
-            {
-              ...CHECKOUT,
-              timeoutMs: EXTERNAL_STEP_TIMEOUT_MS,
-            },
-          );
+          result = await mergeInWorktree(git, location, { commit: base, message }, CHECKOUT);
         } catch (error) {
           // A merge commit waiting on a signing prompt was killed: leave the branch as it was.
-          await git.step(location, ["merge", "--abort"]);
+          await abortMerge(git, location);
           if (isTimedOut(error)) {
             throw new Error(`the merge commit on ${branch} timed out: ${error.message}`, {
               cause: error,
@@ -141,8 +142,8 @@ export function laneSlotGit(lane: OfficeLane): SlotGit {
           return { kind: "merged", head };
         }
         const unmerged = await git.ok(location, ["ls-files", "--unmerged"]);
-        await git.step(location, ["merge", "--abort"]);
-        await git.ok(location, ["reset", "--hard", "--quiet", before], CHECKOUT);
+        await abortMerge(git, location);
+        await resetWorktree(git, location, before, CHECKOUT);
         await git.ok(location, ["clean", "-fdq"]);
         if (unmerged.trim() !== "") return { kind: "conflict" };
         throw new GitError(
@@ -160,23 +161,8 @@ export function laneSlotGit(lane: OfficeLane): SlotGit {
         const tracking = await revParse(git, `refs/remotes/${remote()}/${branch}`);
         if (local === null) return { ok: false, detail: `the branch ${branch} does not exist` };
         if (local === tracking) return { ok: true, pushed: false };
-        const result = await git
-          .step(
-            git.repository,
-            [
-              "push",
-              "--quiet",
-              "--no-verify",
-              remote(),
-              `refs/heads/${branch}:refs/heads/${branch}`,
-            ],
-            { config: FETCH_CONFIG, timeoutMs: EXTERNAL_STEP_TIMEOUT_MS },
-          )
-          .catch((error: unknown) => {
-            if (!isTimedOut(error)) throw error;
-            return null;
-          });
-        if (result === null) {
+        const result = await pushRef(git, remote(), branch);
+        if (result.code === null) {
           return {
             ok: false,
             detail: `pushing to ${remote()} was killed after ${EXTERNAL_STEP_TIMEOUT_MS / 1000} s; the remote may be waiting for credentials`,
@@ -198,14 +184,13 @@ export function laneSlotGit(lane: OfficeLane): SlotGit {
         if (location.kind === "worktree") {
           await git.step(location, ["checkout", "--quiet", "--detach"], CHECKOUT);
         }
-        await git.step(git.repository, ["branch", "-D", branch]);
+        // The remote branch goes with a lease on the tip dipo pushed, the local tip the slot pushed
+        // and the host merged; without a local branch dipo knows no such tip and keeps it.
+        const tip = await revParse(git, `refs/heads/${branch}`);
+        if (tip === null) return;
+        await deleteBranch(git, branch, tip);
         // The host may have deleted it already; a missing remote branch is fine.
-        await git
-          .step(git.repository, ["push", "--quiet", "--no-verify", remote(), "--delete", branch], {
-            config: FETCH_CONFIG,
-            timeoutMs: EXTERNAL_STEP_TIMEOUT_MS,
-          })
-          .catch(() => null);
+        await deleteRemoteBranch(git, remote(), branch, tip).catch(() => null);
       }),
   };
 }

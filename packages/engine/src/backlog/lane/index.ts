@@ -20,7 +20,6 @@ export {
   LaneFlushError,
   OfficeLane,
   OP_TRAILER,
-  statusPaths,
 } from "./lane";
 export type {
   BacklogLaneDeps,

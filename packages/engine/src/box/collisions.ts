@@ -82,8 +82,8 @@ import type { OfficeId, TimerHandle } from "@dipsaus-orchestrator/contract";
 import { isTaskFileOf, TASKS_DIR } from "../backlog/runner";
 import { BASE_CHECKOUT_ENV } from "../git/hardened";
 import type { GitSession, OfficeGit } from "../git/office";
-import { EXTERNAL_STEP_TIMEOUT_MS, GitError } from "../git/runner";
-import { type PushResult, pushBranch } from "../git/task-commit";
+import { GitError } from "../git/runner";
+import { commitTree, moveBranch, type PushResult, pushBranch } from "../git/write";
 import conflictMarkersTemplate from "../prompts/feedback/conflict-markers.md" with { type: "text" };
 import conflictTemplate from "../prompts/feedback/conflict.md" with { type: "text" };
 import { neutraliseTags, renderTemplate } from "../prompts/templates";
@@ -900,13 +900,11 @@ export async function planCatchUp(
       tree = await treeWith(session, input.scratch, tree, taskFile, baseTask);
     }
     const message = catchUpCommitMessage({ ...input, onto, conflicts }, input.branch);
-    commit = (
-      await session.ok(
-        repo,
-        ["commit-tree", tree, "-p", tip, "-p", onto, "-m", message.subject, "-m", message.body],
-        { timeoutMs: EXTERNAL_STEP_TIMEOUT_MS },
-      )
-    ).trim();
+    commit = await commitTree(session, repo, {
+      tree,
+      parents: [tip, onto],
+      message: { subject: message.subject, body: [message.body] },
+    });
   }
   return { kind: "merge", tip, onto, tree, commit, overlap, conflicts, taskFile };
 }
@@ -924,25 +922,6 @@ export async function boxChangesOf(
     throw new GitError("git.failed", "the merge holds a path dipo does not copy into a box.");
   }
   return changes;
-}
-
-/** Moves `branch` from `tip` to `commit`; false when it moved meanwhile. */
-export async function moveBranch(
-  session: GitSession,
-  branch: string,
-  commit: string,
-  tip: string,
-  subject: string,
-): Promise<boolean> {
-  const moved = await session.step(session.repository, [
-    "update-ref",
-    "-m",
-    subject,
-    `refs/heads/${branch}`,
-    commit,
-    tip,
-  ]);
-  return moved.code === 0;
 }
 
 function chunks<T>(items: readonly T[]): T[][] {

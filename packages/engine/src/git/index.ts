@@ -1,4 +1,5 @@
-// Engine git (DIPO-31): hardened calls, the per-office serial queue and the `_base` worktree.
+// Engine git (DIPO-31): hardened calls, the per-office serial queue, the `_base` worktree, and the
+// one writer of commits, refs and pushes (`write.ts`, 0010).
 
 export { EngineGit, gitSettings } from "./feature";
 export type { EngineGitDeps } from "./feature";
@@ -57,6 +58,24 @@ export {
   spawnGitExec,
 } from "./runner";
 export type { GitCall, GitExec, GitResult, GitStepOptions, GitStepRunner, Sleep } from "./runner";
+export {
+  abortMerge,
+  commitStaged,
+  commitTree,
+  createBranch,
+  deleteBranch,
+  deleteRemoteBranch,
+  mergeInWorktree,
+  moveBranch,
+  moveRef,
+  pushBranch,
+  pushRef,
+  remoteRefMissing,
+  remoteUrl,
+  resetWorktree,
+  statusPaths,
+} from "./write";
+export type { CommitMessage, PushResult, RemoteDelete } from "./write";
 export {
   checkGitVersion,
   isSupportedGitVersion,

@@ -107,8 +107,8 @@ import {
 import { backlogPointer } from "../backlog/runner";
 import { BASE_CHECKOUT_ENV } from "../git/hardened";
 import type { GitSession, OfficeGit } from "../git/office";
-import { EXTERNAL_STEP_TIMEOUT_MS, GitError } from "../git/runner";
-import { type PushResult, pushBranch } from "../git/task-commit";
+import { GitError } from "../git/runner";
+import { commitTree, moveBranch, type PushResult, pushBranch } from "../git/write";
 import { yieldToEventLoop } from "../platform/clock";
 import {
   type ArchiveLink,
@@ -1038,14 +1038,14 @@ async function commitPart(
   const n = await partNumber(session, input.startSha, view.tip);
   if (tree === view.tipTree) return { commit: null, n };
   const message = partCommitMessage(input.story, n, input.message);
-  const commit = (
-    await session.ok(
-      repo,
-      ["commit-tree", tree, "-p", view.tip, "-m", message.subject, "-m", message.body],
-      { timeoutMs: EXTERNAL_STEP_TIMEOUT_MS },
-    )
-  ).trim();
-  await session.ok(repo, ["update-ref", "-m", message.subject, ref, commit, view.tip]);
+  const commit = await commitTree(session, repo, {
+    tree,
+    parents: [view.tip],
+    message: { subject: message.subject, body: [message.body] },
+  });
+  if (!(await moveBranch(session, input.branch, commit, view.tip, message.subject))) {
+    throw new GitError(PART_FAILED, `${ref} moved from ${view.tip} while the part was committed.`);
+  }
   return { commit, n };
 }
 

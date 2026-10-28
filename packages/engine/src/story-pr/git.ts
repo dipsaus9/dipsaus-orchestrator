@@ -9,7 +9,7 @@ import { parseFieldBlock } from "../backlog/fields/block";
 import { viewStory } from "../backlog/fields/write";
 import type { BacklogCli } from "../backlog/runner";
 import type { GitLocation } from "../git/hardened";
-import { type PushResult, pushBranch } from "../git/task-commit";
+import { type PushResult, pushBranch } from "../git/write";
 import type { OfficeGit } from "../git/office";
 import { promptStoryOf } from "../prompts/story";
 import { inStoryBacklog, repoPath } from "../worktree/claim";

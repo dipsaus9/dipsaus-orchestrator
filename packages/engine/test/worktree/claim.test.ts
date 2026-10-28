@@ -126,15 +126,16 @@ describe("claiming a story", () => {
   });
 
   it("lets one of two parallel claims of one branch win; the other skips and leaves nothing", async () => {
-    await withTempRepo(async (repo) => {
+    await withBareRemote(async (repo) => {
       await publish(repo);
       const s = await claimSetup(repo);
-      // Both claims wait at `git worktree add` until both reached it, then race for the ref.
+      // Both claims passed the empty `ls-remote` and wait at the branch's `update-ref` with an
+      // empty old value until both reached it, then race for the ref (0010).
       let waiting = 0;
       const bothThere = Promise.withResolvers<void>();
       const real = spawnGitExec(systemSpawn);
       const exec = async (call: GitCall): Promise<GitResult> => {
-        if (call.args.includes("worktree") && call.args.includes("add")) {
+        if (call.args.includes("update-ref") && call.args.at(-1) === "") {
           waiting += 1;
           if (waiting === 2) bothThere.resolve();
           await bothThere.promise;
@@ -164,6 +165,13 @@ describe("claiming a story", () => {
       expect(liveClaims(s.office)).toHaveLength(1);
       const list = await repo.git("worktree", "list", "--porcelain");
       expect(list).not.toContain(loserPath);
+      // The winner's branch was not overwritten: locally and on the remote it is its claim commit.
+      const winner = claimed(won[0]!);
+      expect(winner.pushed).toBe(true);
+      expect((await repo.git("rev-parse", BRANCH_1)).trim()).toBe(winner.claim.claimSha!);
+      expect(await inRemote(repo, "ls-remote", "--heads", ".")).toContain(
+        `${winner.claim.claimSha}\trefs/heads/${BRANCH_1}`,
+      );
     }, FIXTURE);
   });
 

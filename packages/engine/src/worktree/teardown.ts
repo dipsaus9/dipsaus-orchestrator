@@ -14,9 +14,9 @@
 // is recorded, the worktree unlocked (only a lock this claim holds, `dipo <run-id>`) and removed
 // with `git worktree remove <path>` without `--force` (with it only for a worktree whose every
 // listed file only lags the branch, `lagging.ts`); the local branch is deleted only while it is
-// still at the judged tip (`git update-ref -d <ref> <tip>`, the forced delete of `branch -D` without
-// its race), then `git push <remote> --delete <branch>`, a branch the remote no longer has being
-// fine. A worktree git refuses to remove (dirty) or one locked by anyone else keeps everything: the
+// still at the judged tip (`deleteBranch` of the git writer), then the remote branch with a lease on
+// the tip dipo pushed (the judged tip, else the story PR's recorded head; `deleteRemoteBranch`), a
+// branch the remote no longer has being fine. A worktree git refuses to remove (dirty) or one locked by anyone else keeps everything: the
 // lock is put back, the start record cleared, the claim stays live, and the caller gets the files
 // `git status` lists for its notice. Only after the git steps the claim is released (`done`), the
 // worktree's `worker_notes` and `context_packs` are deleted and its port slot freed. A live claim
@@ -27,13 +27,12 @@ import { existsSync } from "node:fs";
 
 import type { Clock, OfficeId, RunId } from "@dipsaus-orchestrator/contract";
 
-import { statusPaths } from "../backlog/lane/lane";
+import { statusPaths } from "../git/write";
 import { forgetContextPack } from "../context/pack";
 import type { OfficeHandle } from "../db/office";
-import { FETCH_CONFIG } from "../git/hardened";
 import type { GitSession, OfficeGit } from "../git/office";
 import { canonicalFuturePath } from "../git/paths";
-import { EXTERNAL_STEP_TIMEOUT_MS, type GitResult, isTimedOut } from "../git/runner";
+import { deleteBranch, deleteRemoteBranch, remoteUrl } from "../git/write";
 import { CodeHostError, type PrStateHost, repoOfRemoteUrl } from "../platform/host";
 import { forgetWorkerNotes } from "../prompts/notes";
 import { findStoryPr, type StoryPrRecord } from "../story-pr/records";
@@ -466,10 +465,9 @@ async function removeAll(
   if (!worktree.ok) return worktree;
 
   // The local branch, only now that Done is detected (0010 section 7), and only while it is still
-  // at the tip the detection judged (`git update-ref -d` with the old value, like `branch -D`
-  // without its race).
+  // at the tip the detection judged.
   if (tip !== null) {
-    const deleted = await git.step(git.repository, ["update-ref", "-d", ref, tip]);
+    const deleted = await deleteBranch(git, claim.branch, tip);
     if (deleted.code !== 0) {
       return {
         ok: false,
@@ -477,26 +475,22 @@ async function removeAll(
         files: [],
       };
     }
-    // `branch -D` also drops the branch's configuration (upstream, merge); `update-ref` does not.
-    // A branch without any is fine (exit 5 or 128, "no such section").
-    await git.step(git.repository, ["config", "--remove-section", `branch.${claim.branch}`]);
   }
 
-  // The remote branch (open question 8); the host's auto-delete may already have removed it.
+  // The remote branch (open question 8), with a lease on the tip dipo pushed: the tip the detection
+  // judged (the merged PR's head), else the story PR's recorded head. The host's auto-delete may
+  // already have removed it.
   const { remote } = deps.git.settings;
   if ((await remoteUrl(git, remote)) === null) return { ok: true, remoteProblem: null };
-  const pushed = await git
-    .step(git.repository, ["push", "--quiet", "--no-verify", remote, "--delete", claim.branch], {
-      config: FETCH_CONFIG,
-      timeoutMs: EXTERNAL_STEP_TIMEOUT_MS,
-    })
-    .catch((error: unknown): GitResult => {
-      if (isTimedOut(error)) return { code: null, stdout: "", stderr: error.message };
-      throw error;
-    });
-  if (pushed.code === 0 || remoteRefMissing(pushed.stderr))
-    return { ok: true, remoteProblem: null };
-  return { ok: true, remoteProblem: pushed.stderr.trim() || `exit ${pushed.code}` };
+  const pushed = tip ?? recordedHeads(deps.office, claim)[0] ?? null;
+  if (pushed === null) {
+    return {
+      ok: true,
+      remoteProblem: `dipo knows no tip it pushed for ${claim.branch}, so it does not delete the remote branch`,
+    };
+  }
+  const deleted = await deleteRemoteBranch(git, remote, claim.branch, pushed);
+  return { ok: true, remoteProblem: deleted.ok ? null : deleted.problem };
 }
 
 /**
@@ -571,17 +565,6 @@ export function lockInList(output: string, path: string): string | null {
     if (field.startsWith("locked ")) return field.slice("locked ".length);
   }
   return null;
-}
-
-/** stderr of a `push --delete` of a branch the remote does not have. */
-export function remoteRefMissing(stderr: string): boolean {
-  return stderr.includes("remote ref does not exist");
-}
-
-export async function remoteUrl(git: GitSession, remote: string): Promise<string | null> {
-  const result = await git.step(git.repository, ["config", "--get", `remote.${remote}.url`]);
-  const url = result.stdout.trim();
-  return result.code === 0 && url !== "" ? url : null;
 }
 
 async function revParse(
