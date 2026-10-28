@@ -6,7 +6,7 @@ title: >-
 status: Refined
 assignee: []
 created_date: '2026-10-22 20:56'
-updated_date: '2026-10-28 12:24'
+updated_date: '2026-10-28 13:44'
 labels:
   - 'tier:L'
   - 'slice:m1b'
@@ -53,7 +53,7 @@ Reworded on 2026-10-25 for the simplified architecture: the test box has its own
 
 The maintainer answered this story's questions on 2026-10-22 by accepting the recommended answers. They are in the unknowns below and in the 0005, 0013, 0017, 0019 and 0021 amendments of that day. Accepted risk, the same as testing by hand: the page `dev` serves runs in the maintainer's browser on the Mac.
 
-The first step found on 2026-10-28 that the Mac does not reach a box address the normal way while the GlobalProtect VPN is on (it routes 192.168.128.0/24 through its tunnel; only connections bound to the box bridge work), and that the box firewall drops the box's replies to the Mac. The maintainer then chose a forwarder on the Mac's loopback (Q6 below). This story changes a firewall rule, so its criteria name what the old rule caught, the bypass forms and a fail-closed test against the real path (CLAUDE.md, R30).
+The first step found on 2026-10-28 that the Mac does not reach a box address the normal way while the GlobalProtect VPN is on (it routes 192.168.128.0/24 through its tunnel; only connections bound to the box bridge work), and that the box firewall drops the box's replies to the Mac. The maintainer then chose a forwarder on the Mac's loopback (Q6 below). The TUI checklist view moved to DIPO-365. This story changes a firewall rule, so its criteria name what the old rule caught, the bypass forms and a fail-closed test against the real path (CLAUDE.md, R30).
 
 ```dipo
 branch: "DIPO-309/test-story-box"
@@ -96,8 +96,6 @@ test_plan:
     - kind: "automated"
       check: "(unit, cli) dipo test prints the URL, box name, steps and test id; dipo test pass and dipo test fail send test.record; fail without --note is refused; dipo test shell opens a shell in the test box"
     - kind: "automated"
-      check: "(unit, TUI harness) view 4 shows the steps, P sends a pass, F pre-fills the note with the first unticked step and sends a fail, and Esc leaves the test open"
-    - kind: "automated"
       check: "(box) the test box answers the Mac forwarder's connection to its dev port, and still opens no new connection to the Mac or any address beyond dipo's proxies; each bypass form is refused"
     - kind: "automated"
       check: "(box) fail-closed: without the reply rule or with the forwarder stopped, the URL fails and nothing else becomes reachable"
@@ -114,8 +112,7 @@ test_plan:
 - [ ] #6 A fail starts a fix round through the one feedback path (0002 section 5) with the note as the item, sent once and keyed on the test id with no cap, to the same builder; a fail or a new head reopens the `test` gate, and after any new head a flagged story needs a new test, which the desk and the merge gate summary say
 - [ ] #7 Each story has at most one open test, and several stories can each have one in its own box; the test's box and process stop and are deleted when the test is recorded, when a new head is pushed, when the story is dropped, discarded or merged, and when the new office timeout `timeouts.testIdleMinutes` (optional, default 240, added without a version bump; DIPO-353 keeps it in version 14) passes with no record; a daemon restart keeps open tests, and reconcile at daemon start deletes test boxes with no open test
 - [ ] #8 `dipo test <ID>` prints the URL, the test box name, the numbered steps and the test id; `dipo test pass <ID> [--note <text>]` and `dipo test fail <ID> --note <text>` record it (fail without `--note` is refused); `dipo test shell <ID>` opens an interactive shell in the test box; the desk row of a story waiting on its test offers `dipo test <ID>`
-- [ ] #9 The TUI checklist view `4` (and `t` on a desk row) shows the steps with local ticks, `P` passes, `F` fails with the note pre-filled with the first unticked step, and Esc leaves the test open
-- [ ] #10 Only the test box gets a firewall rule that lets it answer connections the Mac's bridge address opened to its `dev` port; what the old rule caught still fails, each with a test: a test box opening a new connection to the Mac, the local network or the internet outside dipo's proxies, and a developer or reviewer box answering or reaching anything outside dipo's proxies
-- [ ] #11 The bypass forms are tested: a reply-shaped packet with no connection the Mac opened, a connection from the test box to the forwarder's Mac port, another box reaching the test box's `dev` port, and a second port the product opens in the test box
-- [ ] #12 A fail-closed test against the real path: with the reply rule missing, or the forwarder stopped, the test URL fails and nothing else becomes reachable; `tools/box-probe/probe.sh` runs again for a test box, and ADR 0008 is rewritten for the Mac forwarder with one line in its Replaced list
+- [ ] #9 Only the test box gets a firewall rule that lets it answer connections the Mac's bridge address opened to its `dev` port; what the old rule caught still fails, each with a test: a test box opening a new connection to the Mac, the local network or the internet outside dipo's proxies, and a developer or reviewer box answering or reaching anything outside dipo's proxies
+- [ ] #10 The bypass forms are tested: a reply-shaped packet with no connection the Mac opened, a connection from the test box to the forwarder's Mac port, another box reaching the test box's `dev` port, and a second port the product opens in the test box
+- [ ] #11 A fail-closed test against the real path: with the reply rule missing, or the forwarder stopped, the test URL fails and nothing else becomes reachable; `tools/box-probe/probe.sh` runs again for a test box, and ADR 0008 is rewritten for the Mac forwarder with one line in its Replaced list
 <!-- AC:END -->
