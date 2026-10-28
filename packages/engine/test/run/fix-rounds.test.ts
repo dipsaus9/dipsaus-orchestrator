@@ -229,7 +229,7 @@ function world(): World {
   });
   places = new Places({
     clock: w.t.clock,
-    offices: { get: () => w.office, config: () => state.config },
+    offices: { get: () => w.office },
     park: (office, run, work, ending) => control.park(office, run, work, ending),
     starters: { fix: (office, run, start) => fix.start(office, run, start) },
   });
@@ -287,7 +287,7 @@ function inReview(story: string, options: { budgetLimit?: number } = {}): StoryR
     reviewRoundCap: 3,
     reviewMaxTurns: 60,
     reviewMaxMinutes: 30,
-    reviewAllowance: 200_000,
+    reviewMaxTokens: 200_000,
     budgetLimit: options.budgetLimit ?? 1_000_000,
   });
   stories.set(s.run, s);

@@ -1,5 +1,5 @@
-// Migration 58 (DIPO-350): drops `merge_slot`. GitHub's auto-merge replaced the merge slot, and
-// whether auto-merge is on is GitHub's fact, read with the PR (0002). A database at version 57
+// Migration 60 (DIPO-350): drops `merge_slot`. GitHub's auto-merge replaced the merge slot, and
+// whether auto-merge is on is GitHub's fact, read with the PR (0002). A database at version 59
 // with a slot occupant loses the table and keeps its other rows; a fresh database and the migrated
 // one have the same schema; the retention policy does not list it.
 
@@ -36,12 +36,12 @@ function schema(db: Db): { type: string; name: string; sql: string | null }[] {
 const hasSlot = (db: Db): boolean =>
   db.all<{ name: string }>(`select name from sqlite_master where name = 'merge_slot'`).length > 0;
 
-const BEFORE = MIGRATIONS.filter((step) => step.version <= 57);
+const BEFORE = MIGRATIONS.filter((step) => step.version <= 59);
 
-describe("migration 58 (DIPO-350)", () => {
-  it("drops merge_slot of a database at version 57 with an occupant, and keeps its other rows", () =>
+describe("migration 60 (DIPO-350)", () => {
+  it("drops merge_slot of a database at version 59 with an occupant, and keeps its other rows", () =>
     withTempDir(async (dir) => {
-      expect(BEFORE.at(-1)?.version).toBe(57);
+      expect(BEFORE.at(-1)?.version).toBe(59);
       const old = await open(dir, "migrated", BEFORE);
       try {
         const db = old.connection;
@@ -67,7 +67,7 @@ describe("migration 58 (DIPO-350)", () => {
         expect(
           db.all<{ version: number }>("select max(version) as version from schema_migrations")[0]
             ?.version,
-        ).toBeGreaterThanOrEqual(58);
+        ).toBeGreaterThanOrEqual(60);
         expect(db.all("select office_id from offices")).toEqual([{ office_id: "off-1" }]);
       } finally {
         migrated.close();

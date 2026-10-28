@@ -396,8 +396,7 @@
                       "dependency",
                       "collision",
                       "capacity",
-                      "pickupCheckFailed",
-                      "planLimit"
+                      "pickupCheckFailed"
                     ]
                   },
                   {
@@ -562,6 +561,9 @@
             "type": "object",
             "properties": {
               "kind": {
+                "type": "string"
+              },
+              "cap": {
                 "type": "string"
               },
               "tokens": {

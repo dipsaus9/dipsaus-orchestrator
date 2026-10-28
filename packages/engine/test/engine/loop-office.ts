@@ -729,7 +729,7 @@ async function buildDaemon(
       unpark: unparkWriter,
       caps: capsFor,
     },
-    planLimits: { holds },
+    startsPaused: { holds },
     // Re-attach after a restart (DIPO-57): no scripted host outlives its daemon.
     reattach: {
       probe: async () => null,
@@ -754,11 +754,13 @@ async function buildDaemon(
         release: () => undefined,
       }) as unknown as SetupOutcome,
   });
-  const { control, outcomes, permissions, planLimits, places, fixRounds, launcher } = runs;
+  const { control, outcomes, resumption, permissions, startsPaused, places, fixRounds, launcher } =
+    runs;
   if (
     control === null ||
     outcomes === null ||
-    planLimits === null ||
+    resumption === null ||
+    startsPaused === null ||
     places === null ||
     fixRounds === null
   ) {
@@ -829,8 +831,7 @@ async function buildDaemon(
       if (git === undefined) throw new Error("no git");
       return officeStatusesReady(git);
     },
-    adapterHeld: (adapter) => holds.adapterHeld(adapter),
-    planLimitHeld: (adapter, model) => planLimits.held(adapter, model),
+    startsPaused: (office) => startsPaused.state(office),
     claims,
     gates,
     lane: (office) => lane.forOffice(office),
@@ -853,7 +854,8 @@ async function buildDaemon(
       control.feature,
       outcomes.feature,
       permissions.feature,
-      planLimits.feature,
+      startsPaused.feature,
+      resumption.feature,
       places.feature,
     ],
   });
@@ -881,7 +883,7 @@ async function buildDaemon(
       merge.stop();
       storyPrs.stop();
       teardown.stop();
-      planLimits.close();
+      startsPaused.close();
       places.close();
       permissions.close();
       control.close();

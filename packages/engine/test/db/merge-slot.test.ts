@@ -1,5 +1,5 @@
 // Migration 48 (DIPO-150): `merge_slot` (one occupant per office, a story PR names its run; migration
-// 58 drops it again), the merge gate's head and override columns on `gates`, and `parks.resolved_how`
+// 60 drops it again), the merge gate's head and override columns on `gates`, and `parks.resolved_how`
 // gaining `override` with the park rows kept across the rebuild.
 
 import { describe, expect, it } from "bun:test";

@@ -612,12 +612,12 @@ describe("the run's CI cap", () => {
     });
   });
 
-  it("parks at the third red head with one ciAttempt grant", async () => {
+  it("parks at the third red head with one CI attempt round grant", async () => {
     await inWorld(async (w) => {
       const id = w.office.officeId;
       recordGrant(w.office, w.run, {
-        kind: "ciAttempt",
-        amount: 1,
+        kind: "round",
+        amount: { cap: "ciAttempts", count: 1 },
         grantId: "g1",
         note: null,
         origin: "test",

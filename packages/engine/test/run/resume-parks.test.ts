@@ -39,6 +39,7 @@ import {
   insertRun,
   MAINTAINER_RESUME_TAG,
   noteText,
+  PARK_RESUME_NOTICES,
   parkActions,
   parkResumeNeed,
   Places,
@@ -51,6 +52,7 @@ import {
   share,
   smallestShare,
   START_KINDS,
+  type StartsPausedState,
   type UnparkBranchRequest,
 } from "../../src/run";
 import { storeFeedbackItems } from "../../src/run/feedback-items";
@@ -61,7 +63,6 @@ import { MAINTAINER_TAGS } from "../../src/run/steers";
 import type { NextSessionRequest } from "../../src/run/resume";
 import { addStory } from "../../src/stories/keys";
 import { encode } from "../../src/workers/claude-cli/encode";
-import type { AdapterHold } from "../../src/workers/hold";
 import type { Caps } from "../../src/workers/types";
 import { insertClaim } from "../../src/worktree/records";
 import { CRASH, crashAfterHandler } from "../commands/crash";
@@ -97,7 +98,8 @@ interface World {
   readonly reviews: RunId[];
   readonly considered: RunId[];
   readonly ported: string[];
-  hold: AdapterHold | null;
+  /** The office's starts paused (0020), as the park resume reads it. */
+  paused: StartsPausedState | null;
   request: number;
   /** Why the fake lift did not write a question park's answer (DIPO-159), or null. */
   answerError: string | null;
@@ -135,7 +137,7 @@ beforeEach(async () => {
       conflictCap: 2,
       reviewMaxTurns: 40,
       reviewMaxMinutes: 20,
-      reviewAllowance: 0,
+      reviewMaxTokens: 100_000,
       configHash: "h",
       overrideKeys: null,
       runProfileId: null,
@@ -172,7 +174,7 @@ beforeEach(async () => {
     reviews: [],
     considered: [],
     ported: [],
-    hold: null,
+    paused: null,
     request: 0,
     answerError: null,
   };
@@ -202,7 +204,6 @@ function resumption(options: Partial<ResumptionOptions> = {}): Resumption {
         },
       },
       caps: () => TIER_S,
-      holds: { hold: () => w.hold as AdapterHold, adapterHeld: () => w.hold },
       unpark: {
         lift: async (_office, request) => {
           w.lifts.push(request);
@@ -217,6 +218,7 @@ function resumption(options: Partial<ResumptionOptions> = {}): Resumption {
     },
     {
       parks: {
+        startsPaused: () => w.paused,
         startReview: async (_office, run) => {
           w.reviews.push(run.runId);
           return true;
@@ -503,7 +505,7 @@ describe("work.resume of a reason that needs nothing more (0020)", () => {
     const drained: string[] = [];
     const places = new Places({
       clock: w.f.t.clock,
-      offices: { get: () => w.f.office, config: () => undefined },
+      offices: { get: () => w.f.office },
       // The run is pending again once its park is resolved (`pendingReviews`).
       pending: (office) =>
         openPark(office, w.key) === null
@@ -615,19 +617,21 @@ describe("work.resume refusals", () => {
     expect(error.message).toContain("dipo approve DIPO-1 --note");
   });
 
-  it("refuses a resume while the adapter is held, naming the hold", async () => {
+  it("refuses a resume while the office's starts are paused, naming why and what lifts it (0020)", async () => {
     park("worker-failed");
-    w.hold = {
-      adapter: "claude-cli",
-      check: "start-failed",
-      detail: "claude exited at once",
-      failures: [{ check: "start-failed", detail: "claude exited at once" }],
+    w.paused = {
+      reason: "adapter",
+      detail: "claude-cli: start-failed: claude exited at once.",
       since: 0,
+      until: null,
+      lifts: "Fix it, then name the story to repeat the launch checks.",
     };
     const error = await refusal(resumption());
     expect(error.error.code).toBe("run.refused");
+    expect(error.error.details).toEqual({ story: "DIPO-1", check: "adapter" });
     expect(error.message).toContain("claude exited at once");
-    w.hold = null;
+    expect(error.message).toContain("repeat the launch checks");
+    w.paused = null;
     await resume(resumption());
     expect(w.sessions).toHaveLength(1);
   });
@@ -757,9 +761,7 @@ describe("top-up of a budget-exceeded park (0020)", () => {
     // the 80 used; +33% adds 20, which leaves it reached.
     expect(error.error.details).toMatchObject({ cap: "maxTurns", smallestShare: 34 });
     expect(error.message).toContain("--budget +34%");
-    expect(
-      smallestShare(TIER_S, TIER_S, { budgetTokens: 0, turns: 80, elapsedMs: 0 }, "developer"),
-    ).toBe(34);
+    expect(smallestShare(TIER_S, TIER_S, { budgetTokens: 0, turns: 80, elapsedMs: 0 })).toBe(34);
   });
 
   it("sends the undelivered feedback of a fix round the caps stopped before its session first", async () => {
@@ -826,7 +828,7 @@ describe("top-up of a budget-exceeded park (0020)", () => {
 });
 
 describe("round grants: one more round of the cap that fired (0020)", () => {
-  it("records one loop grant and sends the last verify item first for verify-failing at its loop cap", async () => {
+  it("records one loops round grant with its note and the cap before and after, and sends the last verify item first for verify-failing at its loop cap", async () => {
     steps("loop", 3);
     park(
       "verify-failing",
@@ -834,14 +836,16 @@ describe("round grants: one more round of the cap that fired (0020)", () => {
       "verify failed 3 of 3 times. Verify failed at the verify step.",
     );
     await resume(resumption(), { note: "Use bun test --bail." });
-    expect(grants().map((grant) => [grant.kind, grant.amount])).toEqual([["loop", "1"]]);
+    expect(grants().map((grant) => [grant.kind, JSON.parse(grant.amount), grant.note])).toEqual([
+      ["round", { cap: "loops", count: 1, before: 3, after: 4 }, "Use bun test --bail."],
+    ]);
     const message = first(w.sessions[0]) ?? "";
     expect(message.indexOf("Verify failed at the verify step.")).toBeLessThan(
       message.indexOf("Note from the maintainer: Use bun test --bail."),
     );
   });
 
-  it("records one ciAttempt grant and sends the last stored CI item first for verify-failing at its CI cap", async () => {
+  it("records one ciAttempts round grant and sends the last stored CI item first for verify-failing at its CI cap", async () => {
     const { office, run, t } = w.f;
     office.immediate(() =>
       storeFeedbackItems(office, run, {
@@ -862,7 +866,9 @@ describe("round grants: one more round of the cap that fired (0020)", () => {
     steps("ci", 2);
     park("verify-failing", "In Review", "required checks were red on 2 pushed heads");
     await resume(resumption(), { note: "Run the linter." });
-    expect(grants().map((grant) => [grant.kind, grant.amount])).toEqual([["ciAttempt", "1"]]);
+    expect(grants().map((grant) => [grant.kind, JSON.parse(grant.amount)])).toEqual([
+      ["round", { cap: "ciAttempts", count: 1, before: 2, after: 3 }],
+    ]);
     const message = first(w.sessions[0]) ?? "";
     expect(message).toContain("Required check ci-ok failed: lint.");
     expect(message.indexOf("lint.")).toBeLessThan(message.indexOf("Note from the maintainer"));
@@ -875,14 +881,16 @@ describe("round grants: one more round of the cap that fired (0020)", () => {
     expect(grants()).toEqual([]);
   });
 
-  it("returns review-blocked to In Review and queues its fix round with one reviewRound grant", async () => {
+  it("returns review-blocked to In Review and queues its fix round with one reviewRounds round grant", async () => {
     const parkId = park("review-blocked", "In Review", "blocking: no test", "reviewed");
     const reply = await resume(resumption(), { note: "Add the test, then it passes." });
     expect(reply.result.to).toBe("In Review");
     expect(w.lifts[0]?.to).toBe("In Review");
     expect(w.sessions).toEqual([]);
     expect(w.considered).toEqual([w.f.run]);
-    expect(grants().map((grant) => [grant.kind, grant.amount])).toEqual([["reviewRound", "1"]]);
+    expect(grants().map((grant) => [grant.kind, JSON.parse(grant.amount)])).toEqual([
+      ["round", { cap: "reviewRounds", count: 1, before: 3, after: 4 }],
+    ]);
     expect(findRun(w.f.office, w.f.run)?.endKind).toBe("reviewed");
     expect(parkRow(parkId)?.resolved_note).toBe("Add the test, then it passes.");
     // The note waits for the fix round's first message, after its findings.
@@ -904,7 +912,7 @@ describe("round grants: one more round of the cap that fired (0020)", () => {
     );
   });
 
-  it("records one conflictHandoff grant when the failed hand-offs reached the conflict cap", async () => {
+  it("records one conflictAttempts round grant when the failed hand-offs reached the conflict cap", async () => {
     const { office, run, t } = w.f;
     office.immediate(() => {
       for (const value of ["start 1 a", "failed 1 markers", "start 2 b", "failed 2 markers"]) {
@@ -913,7 +921,9 @@ describe("round grants: one more round of the cap that fired (0020)", () => {
     });
     park("conflict");
     await resume(resumption());
-    expect(grants().map((grant) => [grant.kind, grant.amount])).toEqual([["conflictHandoff", "1"]]);
+    expect(grants().map((grant) => [grant.kind, JSON.parse(grant.amount)])).toEqual([
+      ["round", { cap: "conflictAttempts", count: 1, before: 2, after: 3 }],
+    ]);
   });
 
   it("answers resume.notResumable for a conflict park while no conflict hand-off exists", async () => {
@@ -967,7 +977,7 @@ describe("round grants: one more round of the cap that fired (0020)", () => {
     ).toBe("parked");
   });
 
-  it("grows the reviewer cap that fired by 50% as a reviewCap grant when a failed reviewer resumes", async () => {
+  it("grants nothing when a reviewer stopped at its own cap resumes: the fresh session has its caps in full", async () => {
     const { office, run } = w.f;
     const reviewer = reviewerAgent();
     usage(40, 10_000, reviewer);
@@ -975,10 +985,8 @@ describe("round grants: one more round of the cap that fired (0020)", () => {
     const before = runCaps(office, findRun(office, run) as never);
     await resume(resumption());
     const after = runCaps(office, findRun(office, run) as never);
-    expect(grants().map((grant) => [grant.kind, grant.amount])).toEqual([
-      ["reviewCap", JSON.stringify({ turns: 20, minutes: 0 })],
-    ]);
-    expect((after.reviewMaxTurns ?? 0) - (before.reviewMaxTurns ?? 0)).toBe(20);
+    expect(grants()).toEqual([]);
+    expect(after).toEqual(before);
     expect(w.reviews).toEqual([run]);
   });
 });
@@ -1008,10 +1016,14 @@ describe("no resume raises a cap without a recorded grant (0020, never silent)",
       expect(after.maxMinutes - before.maxMinutes).toBe(
         added.budget.minutes - grantsBefore.budget.minutes,
       );
-      expect(after.loopCap - before.loopCap).toBe(added.loop);
-      expect((after.reviewRoundCap ?? 0) - (before.reviewRoundCap ?? 0)).toBe(added.reviewRound);
-      expect((after.ciCap ?? 0) - (before.ciCap ?? 0)).toBe(added.ciAttempt);
-      expect((after.conflictCap ?? 0) - (before.conflictCap ?? 0)).toBe(added.conflictHandoff);
+      expect(after.loopCap - before.loopCap).toBe(added.rounds.loops);
+      expect((after.reviewRoundCap ?? 0) - (before.reviewRoundCap ?? 0)).toBe(
+        added.rounds.reviewRounds,
+      );
+      expect((after.ciCap ?? 0) - (before.ciCap ?? 0)).toBe(added.rounds.ciAttempts);
+      expect((after.conflictCap ?? 0) - (before.conflictCap ?? 0)).toBe(
+        added.rounds.conflictAttempts,
+      );
       // Only a top-up and the review round of review-blocked grow a cap here.
       expect(grants()).toHaveLength(budget || reason === "review-blocked" ? 1 : 0);
     });
@@ -1073,7 +1085,7 @@ describe("a resume whose place is taken (0020 section 1, 0019 section 12)", () =
     const resuming = resumption({ places: () => places });
     places = new Places({
       clock: t.clock,
-      offices: { get: () => office, config: () => undefined },
+      offices: { get: () => office },
       starters: { resume: (officeId, run) => resuming.startQueued(officeId, run) },
     });
     park("by-maintainer");
@@ -1158,7 +1170,7 @@ describe("a retry of the same request (0005 note of 2026-10-17)", () => {
     await restarted.idle();
     expect(w.lifts).toHaveLength(1);
     expect(w.sessions).toHaveLength(1);
-    expect(grants().map((grant) => grant.kind)).toEqual(["loop"]);
+    expect(grants().map((grant) => grant.kind)).toEqual(["round"]);
     expect(await restarted.recoverParkResumes(w.f.office.officeId as OfficeId, w.f.office)).toBe(0);
     expect(w.sessions).toHaveLength(1);
   });
@@ -1236,7 +1248,7 @@ describe("work.resume on the waiting command path (0005 note of 2026-10-17, DIPO
         story: "DIPO-1",
         to: "In Progress",
         run: w.f.run,
-        grants: [{ kind: "loop", count: 1 }],
+        grants: [{ kind: "round", cap: "loops", count: 1 }],
       },
     });
     expect([w.lifts.length, w.sessions.length, grants().length]).toEqual([1, 1, 1]);
@@ -1292,7 +1304,10 @@ describe("two resumes of one park (DIPO-155 review)", () => {
     release?.();
     const done = await firstReply;
     await resuming.idle();
-    expect(done.result).toMatchObject({ to: "In Progress", grants: [{ kind: "loop", count: 1 }] });
+    expect(done.result).toMatchObject({
+      to: "In Progress",
+      grants: [{ kind: "round", cap: "loops", count: 1 }],
+    });
     expect(w.lifts).toHaveLength(1);
     expect(w.sessions).toHaveLength(1);
     expect(grants()).toHaveLength(1);
@@ -1536,5 +1551,91 @@ describe("an ambiguous-spec park with no stored question (0020)", () => {
     );
     expect(session.message).toContain("The maintainer's answer: Keep the flag; the story wins.");
     expect(session.note).toBeUndefined();
+  });
+});
+
+/** A plan limit's park: `worker-failed`, marked to resume by itself when the pause lifts. */
+function planLimitPark(): number {
+  const parkId = park("worker-failed", "In Progress", "plan limit until 2026-10-28T12:00:00.000Z");
+  w.f.office.immediate(() =>
+    w.f.office.run(
+      "update parks set resume_on_lift = 1 where office_id = $office_id and park_id = $park",
+      { park: parkId },
+    ),
+  );
+  return parkId;
+}
+
+function liftedPark(parkId: number) {
+  return { parkId, key: w.key, story: "DIPO-1" };
+}
+
+describe("the resume after the office's starts paused lifted (0020)", () => {
+  it("resumes the park through the one resume path, as dipo, with no note and no grant", async () => {
+    const parkId = planLimitPark();
+    const of = resumption();
+    expect(await of.resumeLifted(w.f.office.officeId as OfficeId, liftedPark(parkId))).toEqual({
+      outcome: "resumed",
+    });
+    await of.idle();
+    expect(parkRow(parkId)).toEqual({ resolved_how: "resume", resolved_note: null });
+    expect(w.lifts).toHaveLength(1);
+    expect(w.sessions).toHaveLength(1);
+    expect(w.sessions[0]?.why).toBe(
+      "dipo resumed it from worker-failed after the office's starts paused lifted",
+    );
+    // The first message is the park's detail as the last error (0020), and no maintainer note.
+    expect(first(w.sessions[0])).toContain("plan limit until 2026-10-28T12:00:00.000Z");
+    expect(w.sessions[0]?.note).toBeUndefined();
+    expect(grants()).toEqual([]);
+    const notice = entries("engine.notice").find(
+      (data) => data["code"] === PARK_RESUME_NOTICES.resumed,
+    );
+    expect(notice?.["text"]).toContain("dipo resumed it after the office's starts paused lifted");
+  });
+
+  it("is tried again while the office's starts are paused, or while the worker has not exited", async () => {
+    const parkId = planLimitPark();
+    w.paused = {
+      reason: "plan-limit",
+      detail: "plan limit until later",
+      since: 0,
+      until: 1,
+      lifts: "It lifts by itself.",
+    };
+    const of = resumption();
+    expect(
+      (await of.resumeLifted(w.f.office.officeId as OfficeId, liftedPark(parkId))).outcome,
+    ).toBe("retry");
+    w.paused = null;
+    w.f.office.immediate(() =>
+      w.f.office.run("update agents set ended_at = null where office_id = $office_id"),
+    );
+    expect(
+      (await of.resumeLifted(w.f.office.officeId as OfficeId, liftedPark(parkId))).outcome,
+    ).toBe("retry");
+    expect(w.lifts).toEqual([]);
+    expect(parkRow(parkId)?.resolved_how).toBeNull();
+  });
+
+  it("refuses, growing no cap, a park whose caps are used up", async () => {
+    const parkId = planLimitPark();
+    usage(60, 1_000);
+    const outcome = await resumption().resumeLifted(
+      w.f.office.officeId as OfficeId,
+      liftedPark(parkId),
+    );
+    expect(outcome.outcome).toBe("refused");
+    expect(grants()).toEqual([]);
+    expect(parkRow(parkId)?.resolved_how).toBeNull();
+  });
+
+  it("leaves a park resumed or parked again meanwhile alone", async () => {
+    const parkId = planLimitPark();
+    expect(
+      await resumption().resumeLifted(w.f.office.officeId as OfficeId, liftedPark(parkId + 1)),
+    ).toEqual({ outcome: "resumed" });
+    expect(w.lifts).toEqual([]);
+    expect(parkRow(parkId)?.resolved_how).toBeNull();
   });
 });

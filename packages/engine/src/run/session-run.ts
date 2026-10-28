@@ -16,8 +16,8 @@
 //   never reports its exit is given up two minutes after the cap. At daemon stop `stopAll` sends
 //   the stop to every session still running: its host is detached and no daemon follows it after
 //   the stop, so without it the caps would no longer hold.
-// - A plan limit the session meets ends it as `plan-limit`: the fallback waits and starts a new one,
-//   never a park.
+// - A plan limit the session meets ends it as `plan-limit`: the fallback pauses the office's
+//   starts (0020) and starts a new session once they lift, never a park.
 
 import { mkdirSync, rmSync, writeFileSync } from "node:fs";
 import { realpath } from "node:fs/promises";
@@ -100,6 +100,8 @@ interface Followed {
   readonly stopped: string | null;
   /** The reset time of a plan limit it met, when it said. */
   readonly resetsAt: number | undefined;
+  /** True when the plan limit it met was `credits_required`. */
+  readonly credits: boolean;
 }
 
 /** The real `ScanSessionRunner`: one `session` run per call. */
@@ -288,6 +290,7 @@ export class SessionRuns implements ScanSessionRunner {
         kind: "plan-limit",
         runId,
         ...(followed.resetsAt === undefined ? {} : { resetsAt: followed.resetsAt }),
+        ...(followed.credits ? { credits: true } : {}),
       };
     }
     if (followed.stopped === null && result.outcome === "done" && result.answer !== undefined) {
@@ -323,6 +326,7 @@ export class SessionRuns implements ScanSessionRunner {
     let overBudget = false;
     let stopped: string | null = null;
     let resetsAt: number | undefined;
+    let credits = false;
     const timers: ReturnType<Clock["setTimeout"]>[] = [];
     const finish = (end: IngestedExit | null) => {
       if (settled) return;
@@ -331,7 +335,7 @@ export class SessionRuns implements ScanSessionRunner {
       for (const timer of timers) deps.clock.clearTimeout(timer);
       // Stopped after the exit's pass committed, outside its hooks.
       queueMicrotask(() => ingestor.close());
-      resolve({ end, stopped, resetsAt });
+      resolve({ end, stopped, resetsAt, credits });
     };
     const stop = (why: string): Promise<void> => {
       if (stopped !== null || settled) return Promise.resolve();
@@ -367,6 +371,7 @@ export class SessionRuns implements ScanSessionRunner {
         // After the pass committed: the stop is sent here.
         onWorkerEvents: (_run, _agent, events: readonly WorkerEvent[]) => {
           for (const event of events) {
+            if (event.t === "limit" && event.creditsRequired === true) credits = true;
             if (event.t === "limit" && event.resetsAt !== undefined) {
               const at = Date.parse(event.resetsAt);
               if (Number.isFinite(at)) resetsAt = at;

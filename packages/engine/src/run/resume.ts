@@ -25,8 +25,8 @@
 //   previous session's stored state (`WorkerPort.initialState(spec, previous)`), so a resume does
 //   not count restored spend twice.
 // - It records the agent (session, effort, system hash), emits `work.assigned` for the new agent
-//   and an `engine.notice` `run.resumed` or `run.handoff`. Signals the caller names (`clear`, the
-//   `plan-limit` of a held run, DIPO-61) end in the transaction that records the agent.
+//   and an `engine.notice` `run.resumed` or `run.handoff`. The old host's signals end in the
+//   transaction that records the agent.
 
 import { existsSync, statSync, writeFileSync } from "node:fs";
 import { join, relative } from "node:path";
@@ -39,7 +39,6 @@ import type {
   OfficeId,
   RetryableErrorCode,
   RunId,
-  WatchdogSignal,
   WorkRef,
 } from "@dipsaus-orchestrator/contract";
 
@@ -238,12 +237,6 @@ export interface NextSessionRequest {
   /** When the run's first worker started, on the engine clock. */
   readonly startedAt: number;
   readonly snapshot: BackstopSnapshot | null;
-  /**
-   * Signals of the run that end when the new session starts (the `plan-limit` of a held run,
-   * DIPO-61): cleared, with their `work.observed`, in the transaction that records the new agent,
-   * so a limit the new session meets raises the signal again.
-   */
-  readonly clear?: readonly WatchdogSignal[];
   /**
    * Runs in the transaction that records the new agent (DIPO-148): what the caller marks as
    * delivered with the session, so a stop between the start and a later write never sends it twice.
@@ -517,8 +510,7 @@ export class RunResumer implements NextSession {
     // The host row, its start offset and the new agent are one transaction (DIPO-57), so a daemon
     // that stops while the host starts finds the new agent at its restart and follows its host
     // instead of starting another session. The same transaction ends what the restart observed of
-    // the old host (DIPO-57) and the signals the caller names (DIPO-61), before the new session's
-    // first ingestion pass can raise any of them again.
+    // the old host (DIPO-57), before the new session's first ingestion pass can raise it again.
     const work: WorkRef = { ...request.work, agent, model: tier.model };
     let recorded = false;
     const recordAgent = () => {
@@ -569,12 +561,7 @@ export class RunResumer implements NextSession {
       if (!resume && "pack" in handoff && run.worktree !== null) {
         recordContextPack(office, run.worktree, handoff.headSha, handoff.pack, deps.clock);
       }
-      const cleared = clearSignals(
-        office,
-        run.runId,
-        [...HOST_SIGNALS, ...(request.clear ?? [])],
-        at,
-      );
+      const cleared = clearSignals(office, run.runId, HOST_SIGNALS, at);
       if (cleared.length === 0) return;
       appendEntries(
         office,

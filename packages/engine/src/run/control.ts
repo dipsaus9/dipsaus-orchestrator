@@ -12,9 +12,8 @@
 //   turn that carries a `done` report is the exception (0008 amendment of 2026-10-19, DIPO-205):
 //   it takes the normal done path (verify and commit), a `cap` run step names the crossed cap, and
 //   no cap ends the run while that path runs.
-//   A reviewer session (DIPO-219, 0019 sections 4 and 13) counts the story's budget, with its review
-//   allowances, and its own turns and minutes against the reviewer's caps: the budget parks
-//   `budget-exceeded`, the reviewer's turn or minute cap `worker-failed`. Its valid report goes to worker outcomes after the backstop (`onReview`).
+//   A reviewer session (0002) counts its own tokens, turns and minutes against the reviewer's own
+//   caps, never the story's budget; any of them reached parks `worker-failed`. Its valid report goes to worker outcomes after the backstop (`onReview`).
 // - Reports. A turn whose report is `blocked` parks the story `ambiguous-spec` with the question
 //   (a box worker has every permission, so no report names a denied call, DIPO-342). The engine
 //   records a `park` intent and closes the worker's stdin; worktree, branch and session are kept.
@@ -333,19 +332,12 @@ export class RunControl implements RunEnder {
         outcomes !== undefined &&
         (event.status === "rejected" || event.creditsRequired === true)
       ) {
+        // The office's starts pause and the story parks until the reset (0020).
         outcomes.onPlanLimit(viewOf(tracked), {
           credits: event.creditsRequired === true,
           ...(event.resetsAt === undefined ? {} : { resetsAt: event.resetsAt }),
-          ...(event.scope === undefined ? {} : { scope: event.scope }),
         });
         return;
-      }
-      // A warning lets the run go on; new runs on its scope wait for the reset (DIPO-61).
-      if (event.t === "limit" && event.status === "allowed_warning") {
-        outcomes?.onPlanWarning?.(viewOf(tracked), {
-          ...(event.resetsAt === undefined ? {} : { resetsAt: event.resetsAt }),
-          ...(event.scope === undefined ? {} : { scope: event.scope }),
-        });
       }
       if (event.t === "modelSwitched") outcomes?.onModelSwitched(viewOf(tracked), event.to);
       if (event.t === "activity" && event.kind === "tool" && event.effect !== undefined) {
@@ -703,7 +695,7 @@ export class RunControl implements RunEnder {
   }
 
   /**
-   * The first decision on a tracked run without a park (a reassign or a plan-limit hold): the
+   * The first decision on a tracked run without a park (a reassign or a start failure): the
    * intent is stored, then its ops are sent. Nothing else is decided for the run after it; the
    * worker's exit is decided from the intent. False when a decision was made already, or when
    * the intent could not be stored: then no op is sent and the failure is logged (DIPO-119).
@@ -803,9 +795,8 @@ export class RunControl implements RunEnder {
 
   /**
    * The first cap the run reached now, or null. The caps it counts against now (DIPO-143), the
-   * tracked caps serving for a legacy run. A reviewer session (0019 sections 4 and 13) counts the
-   * story's budget with its review allowances, and its own turns and minutes against the
-   * reviewer's caps; the developer's turn and minute caps never count the review.
+   * tracked caps serving for a legacy run. A reviewer session (0002) counts its own tokens, turns
+   * and minutes against the reviewer's own caps; the developer's caps never count the review.
    */
   #fired(office: OfficeHandle, tracked: Tracked): FiredCap | null {
     const run = findRun(office, tracked.runId);
@@ -815,7 +806,7 @@ export class RunControl implements RunEnder {
     if (reviewing(tracked)) {
       return firedCap(
         {
-          budgetTokens: caps.budgetTokens,
+          budgetTokens: caps.reviewMaxTokens ?? tracked.caps.budgetTokens,
           maxTurns: caps.reviewMaxTurns ?? tracked.caps.maxTurns,
           maxMinutes: caps.reviewMaxMinutes ?? tracked.caps.maxMinutes,
         },

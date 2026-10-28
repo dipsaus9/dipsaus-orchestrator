@@ -21,8 +21,6 @@ export function glyphs(ascii: boolean) {
 const HEALTH_LABEL: Readonly<Record<string, string>> = {
   lost: "LOST !!",
   asking: "ASKING ?",
-  limited: "limited %",
-  paused: "paused =",
   looping: "looping @",
   stuck: "stuck ~",
   quiet: "quiet .",

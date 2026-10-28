@@ -15,7 +15,8 @@ const RUN_CAP_COLUMNS = [
   "conflict_cap",
   "review_max_turns",
   "review_max_minutes",
-  "review_allowance",
+  // `review_allowance` until migration 58 renamed it (DIPO-345).
+  "review_max_tokens",
 ];
 
 function columns(db: { all<T>(sql: string): T[] }, table: string): string[] {
@@ -83,7 +84,7 @@ describe("migration 39", () => {
         // A run started before the caps were kept has none.
         expect(
           db.get<Record<string, unknown>>(
-            `select ci_cap, conflict_cap, review_max_turns, review_max_minutes, review_allowance
+            `select ci_cap, conflict_cap, review_max_turns, review_max_minutes, review_max_tokens
                from runs where run_id = 'run-1'`,
           ),
         ).toEqual({
@@ -91,7 +92,7 @@ describe("migration 39", () => {
           conflict_cap: null,
           review_max_turns: null,
           review_max_minutes: null,
-          review_allowance: null,
+          review_max_tokens: null,
         });
         const insert = (verdict: string, overrideNote: string | null, overrideAt: number | null) =>
           db.immediate(() =>

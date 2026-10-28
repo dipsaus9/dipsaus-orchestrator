@@ -3,6 +3,8 @@
 // stored facts; nothing asks a model, and clients never derive it (0005, 0009).
 //
 // The groups, in the order of 0020:
+// 0. the office's starts paused (DIPO-359, `starts-paused.ts`), with its reason and what lifts it,
+//    offering `dipo daemon resume-scheduling`; an office item with no story;
 // 1. a question a live worker waits on (no park took it over); it shows the time left on its wait (DIPO-159) and offers `dipo answer <question>
 //    --text "<answer>"`;
 // 2. merge gates that wait on the maintainer, with the PR from `story_prs`; a gate whose PR is
@@ -52,6 +54,7 @@ import type { FeatureRegistry, ReadContext, Registry } from "../commands/registr
 import type { OfficeHandle } from "../db/office";
 import { openParkQuestions, openQuestions, type StoredQuestion } from "../hooks/questions";
 import { parkResumeNeed, SUGGESTED_SHARE } from "../run/resume-policy";
+import { LIFT_COMMAND, type StartsPausedState } from "../run/starts-paused";
 import { profileDeskItems } from "../scan/profile-view";
 import { findStoryPr, latestStoryPr } from "../story-pr/records";
 import { doneElsewhereDeskItems } from "../worktree/done-elsewhere";
@@ -94,6 +97,8 @@ export interface DeskSources {
   readonly handMergeOnly: (office: OfficeHandle, gate: DeskGate) => boolean;
   /** Further hand-action items, in group 4. */
   readonly handItems: readonly ((office: OfficeHandle) => readonly HandDeskItem[])[];
+  /** The office's starts paused (`StartsPaused.state`, 0020); none without it. */
+  readonly startsPaused?: (office: OfficeHandle) => StartsPausedState | null;
 }
 
 /**
@@ -113,8 +118,8 @@ export function implementedIn(registry: Registry): Implemented {
   return (command) => registry.command(command)?.definition.since !== undefined;
 }
 
-// The groups of 0020, in order; the office's starts paused will come first.
-const GROUP = { live: 1, merge: 2, park: 3, byYou: 4, hand: 5, proposal: 6 } as const;
+// The groups of 0020, in order.
+const GROUP = { paused: 0, live: 1, merge: 2, park: 3, byYou: 4, hand: 5, proposal: 6 } as const;
 
 /** Group 3's order: by reason, as 0020 lists them; a reason outside the eight comes last. */
 const PARK_RANK: Readonly<Record<string, number>> = {
@@ -311,6 +316,24 @@ class DeskBuilder {
     if (question.waitUntil === null || this.#now === undefined) return "";
     const left = question.waitUntil - this.#now;
     return left <= 0 ? ", its wait is over" : `, ${Math.max(1, Math.ceil(left / 60_000))} min left`;
+  }
+
+  /** Group 0: the office's starts paused, with what lifts it; nothing else starts until then. */
+  startsPaused(): void {
+    const paused = this.#sources.startsPaused?.(this.#office) ?? null;
+    if (paused === null) return;
+    const why =
+      paused.reason === "adapter" ? `adapter check failed: ${paused.detail}` : paused.detail;
+    // The box token's hold lifts only with `dipo login box` (DIPO-271): no command lifts it here.
+    const sticky = paused.reason === "adapter" && paused.hold?.liftedBy !== undefined;
+    this.#add(GROUP.paused, 0, paused.since, {
+      kind: "STARTS PAUSED",
+      detail: `no new session starts · ${why}`,
+      since: iso(paused.since),
+      blocks: [],
+      actions: sticky ? [] : this.#action("daemon.resumeScheduling", LIFT_COMMAND),
+      hand: paused.lifts,
+    });
   }
 
   /** Group 1: questions a live worker waits on; a park's questions are on its PARKED row. */
@@ -587,6 +610,7 @@ export function desk(
   now?: number,
 ): DeskItem[] {
   const builder = new DeskBuilder(office, sources, implemented, now);
+  builder.startsPaused();
   builder.liveQuestions();
   builder.gatesAndParks();
   builder.handActions();

@@ -5,7 +5,7 @@
 //    naming `dipo discard`), the park has a run, a `budget-exceeded` park comes with its top-up
 //    (`resume.topUpRequired` naming `--budget` and the cap that fired), the answer of an
 //    `ambiguous-spec` park or the note a reason requires is given (`resume.noteRequired`), the
-//    worker adapter is not held (`run.refused` naming the hold), no session of the run is alive
+//    office's starts are not paused (`run.refused` naming why, 0020), no session of the run is alive
 //    (`run.hostAlive`), the daemon schedules work (`scheduling.off`), what remains of the caps,
 //    counting this resume's grants, is above zero (`resume.capReached` naming `--budget`; for a
 //    top-up `resume.topUpTooSmall` naming the smallest share that clears it), and a top-up was
@@ -26,9 +26,10 @@
 //    Review (it waits there again; a closed story PR is replaced, 0002).
 //
 // Grants (0020): a top-up (`--budget`) is a budget grant. A round grant is one more round of the
-// cap that fired, read from the run's counters: the CI attempts or the loops of a `verify-failing`
-// park, the review rounds of a `review-blocked` one, the failed hand-offs of a `conflict` one, and
-// the reviewer's own turn or minute cap of a resumed review.
+// counted cap that fired, read from the run's counters: the CI attempts or the loops of a
+// `verify-failing` park, the review rounds of a `review-blocked` one, the failed hand-offs of a
+// `conflict` one. Each records the caps before and after it. A resumed review needs no grant: the
+// reviewer's caps hold per session, and the fresh session starts with all of them (0002).
 //
 // The first message is code-built: the reason's part, then `feedback/maintainer-note.md` with the
 // note, so maintainer text never starts a message. A top-up of a park a reopened fix round hit
@@ -46,6 +47,11 @@
 // A `conflict` park's developer session starts with the first message `ConflictResumer.prepare`
 // builds from git (the kept merge's conflict item, or the commits only the remote branch holds),
 // and the merge it needs runs once that session started (`afterStart`), in the live run's box.
+//
+// The one resume that needs no command (0020): when the office's starts paused lifts, dipo resumes
+// each park a plan limit made through this same path (`ResumeRequest.lifted`, `starts-paused.ts`),
+// with no note. It never grows a cap: a resume that would need a grant is refused, and the park
+// waits for the maintainer.
 
 import {
   type Lifecycle,
@@ -78,14 +84,13 @@ import { renderTemplate } from "../prompts/templates";
 import type { StoryIdentity } from "../stories/keys";
 import { deriveStoryView, storyView } from "../views/story";
 import { workRefOf } from "../views/work";
-import { type AdapterHold, holdMessage } from "../workers/hold";
 import type { Caps } from "../workers/types";
 
 import { type CapName, firedCap, REVIEWER_ROLE, runCaps } from "./caps";
 import { CONFLICT_CAP_DEFAULT, conflictCapOf, handOffState } from "./conflicts";
 import { feedbackItems, feedbackOfIntent, markFeedbackSent } from "./feedback-items";
 import { pendingFixRound } from "./fix-rounds";
-import { recordGrant } from "./grants";
+import { recordGrant, type RoundCap } from "./grants";
 import { markIntentSent, recordIntent, resolveIntent } from "./intents";
 import { markPhase } from "./markers";
 import type { OutcomeParts } from "./outcomes";
@@ -106,11 +111,26 @@ import {
   withGrants,
 } from "./resume-caps";
 import { noteText } from "./resume";
+import { type StartsPausedState, startsPausedRefusal } from "./starts-paused";
 import { resumeLine } from "./summary";
 
 type ResumeArgs = z.output<typeof workResume.args>;
 type ResumeResult = z.input<typeof workResume.result>;
 type OpenPark = NonNullable<ReturnType<typeof openPark>>;
+
+/**
+ * Who asks for a resume: `work.resume`'s command context, or dipo itself when the office's starts
+ * paused lifted (`lifted`, with an engine-made request id and origin `other`).
+ */
+export type ResumeRequest = Pick<
+  AsyncCommandContext,
+  "office" | "origin" | "confirmed" | "client"
+> & {
+  /** The request id; a retry of the same request finishes its resume and repeats nothing. */
+  readonly requestId: string;
+  /** dipo resumes a park a plan limit made, after the office's starts paused lifted (0020). */
+  readonly lifted?: true;
+};
 
 /** The tag of a maintainer resume's `answer` intent: `maintainer-resume <ResumeIntent JSON>`. */
 export const MAINTAINER_RESUME_TAG = "maintainer-resume";
@@ -191,6 +211,8 @@ export interface ParkResumeOptions {
   readonly prs?: () => PrReplacement | undefined;
   /** `prompt.contractMax` of the office (R26), for a question park's answer; the default without. */
   readonly contractMax?: (office: OfficeId) => number;
+  /** The office's starts paused (0020): no resume while it holds; none without it. */
+  readonly startsPaused?: (office: OfficeId) => StartsPausedState | null;
 }
 
 /** The answer an `ambiguous-spec` park resumes with (0020, DIPO-159). */
@@ -226,6 +248,8 @@ interface ResumeIntent {
   readonly client?: string | null;
   /** The answer of an `ambiguous-spec` park (DIPO-159); absent for every other park. */
   readonly answer?: ResumeAnswer | null;
+  /** True when dipo resumed it after the office's starts paused lifted (0020). */
+  readonly lifted?: boolean;
 }
 
 interface StoredResume {
@@ -275,12 +299,8 @@ function replyGrant(grant: PlannedGrant): ResumeGrant {
         turns: amount.amount.turns,
         minutes: amount.amount.minutes,
       };
-    case "reviewCap":
-      return { kind: "reviewCap", turns: amount.amount.turns, minutes: amount.amount.minutes };
-    case "scope":
-      return { kind: "scope" };
-    default:
-      return { kind: amount.kind, count: amount.amount };
+    case "round":
+      return { kind: "round", cap: amount.amount.cap, count: amount.amount.count };
   }
 }
 
@@ -417,30 +437,6 @@ function resumeFacts(office: OfficeHandle, run: StoredRun) {
   return { waitingInReview, reviewerStopped: !waitingInReview && newest?.role === REVIEWER_ROLE };
 }
 
-/**
- * Which of the reviewer's own caps its newest session reached, read from its turns and the minutes
- * it ran; null when neither is reached.
- */
-function reviewerCapFired(
-  office: OfficeHandle,
-  run: StoredRun,
-  caps: { readonly reviewMaxTurns: number | null; readonly reviewMaxMinutes: number | null },
-): "turns" | "minutes" | null {
-  const reviewer = newestAgent(office, run.runId);
-  if (reviewer === null || reviewer.role !== REVIEWER_ROLE) return null;
-  const turns =
-    office.get<{ n: number | null }>(
-      `select sum(turns) as n from usage_totals where office_id = $office_id and run_id = $run
-        and agent_id = $agent`,
-      { run: run.runId, agent: reviewer.agent },
-    )?.n ?? 0;
-  if (caps.reviewMaxTurns !== null && turns >= caps.reviewMaxTurns) return "turns";
-  const ended = reviewer.endedAt ?? run.endedAt ?? reviewer.startedAt;
-  const minutes = (ended - reviewer.startedAt) / 60_000;
-  if (caps.reviewMaxMinutes !== null && minutes >= caps.reviewMaxMinutes) return "minutes";
-  return null;
-}
-
 export class ParkResumes {
   readonly #s: OutcomeParts["support"];
   readonly #sessions: OutcomeParts["sessions"];
@@ -478,7 +474,7 @@ export class ParkResumes {
    * request that stored its intent finishes that resume and replies with it.
    */
   async resume(
-    ctx: AsyncCommandContext,
+    ctx: ResumeRequest,
     identity: StoryIdentity,
     park: OpenPark,
     args: ResumeArgs,
@@ -527,7 +523,7 @@ export class ParkResumes {
         { story, reason },
       );
     }
-    this.#refuseWhileHeld(story);
+    this.#refuseWhilePaused(office.officeId as OfficeId, story);
     this.#refuseBusy(office, run, story);
     // Held from here (no await before it) to the resume's transaction.
     this.#resuming.add(run.runId);
@@ -541,7 +537,7 @@ export class ParkResumes {
 
   /** `resume` after the run is held for this request: the rest of step 1, then steps 2 to 5. */
   async #checkedResume(
-    ctx: AsyncCommandContext,
+    ctx: ResumeRequest,
     identity: StoryIdentity,
     park: OpenPark,
     args: ResumeArgs,
@@ -573,6 +569,15 @@ export class ParkResumes {
       throw new Error(`dipo cannot resume ${run.runId} in this office`);
     }
     const planned = this.#plan(ctx, run, park.reason, session, args.budget, legacy);
+    // The resume after starts paused lifted grows no cap (0020): one that needs a grant waits for
+    // the maintainer.
+    if (ctx.lifted === true && planned.length > 0) {
+      throw new CommandError(
+        RESUME_ERRORS.capReached,
+        `${story} would need a grant to resume, and dipo grows no cap by itself; \`dipo resume ${story}\` resumes it.`,
+        { story },
+      );
+    }
     this.#checkCaps(office, run, story, session, planned, legacy, args.budget);
     const capsBefore = runCaps(office, run, legacy);
     const before = developerCaps(capsBefore);
@@ -608,13 +613,17 @@ export class ParkResumes {
       to,
       message: developer ? this.#message(office, run, park, grants, legacy, fix, answer) : null,
       note: note ?? null,
-      why: `the maintainer resumed it from ${park.reason}`,
+      why:
+        ctx.lifted === true
+          ? `dipo resumed it from ${park.reason} after the office's starts paused lifted`
+          : `the maintainer resumed it from ${park.reason}`,
       grants,
       fix: fix?.intentId ?? null,
       agent: developerAgent(office, run.runId)?.agent ?? null,
       origin: ctx.origin,
       client: ctx.client ?? null,
       ...(answer === null ? {} : { answer }),
+      ...(ctx.lifted === true ? { lifted: true } : {}),
     };
     // 2. Stored before anything changes, so a restart or a retry finishes the resume.
     const intentId = office.immediate(() =>
@@ -890,7 +899,7 @@ export class ParkResumes {
             code: waits === null ? PARK_RESUME_NOTICES.resumed : PLACE_NOTICES.queued,
             text:
               waits === null
-                ? `${story}: the maintainer resumed it from ${current.reason}${granted}.`
+                ? `${story}: ${detail.lifted === true ? "dipo resumed it after the office's starts paused lifted" : "the maintainer resumed it"} from ${current.reason}${granted}.`
                 : `${story}: resumed${granted}; its session starts when the office's ${detail.session === "review" ? "reviewer" : "worker"} place frees (${waits}).`,
           },
         };
@@ -977,21 +986,17 @@ export class ParkResumes {
     if (detail.session === "review") {
       // A review always starts through the reviewer place's `review-resume` start.
       const blocked =
-        places?.blocked(
-          officeId,
-          { kind: START_KINDS.reviewResume, runId: run.runId, since: at },
-          places.modelOf(officeId, "reviewer", run),
-        ) ?? null;
+        places?.blocked(officeId, {
+          kind: START_KINDS.reviewResume,
+          runId: run.runId,
+          since: at,
+        }) ?? null;
       waitForPlace(office, run.runId, START_KINDS.reviewResume, at);
       return blocked;
     }
     if (detail.session !== "developer") return null;
     const blocked =
-      places?.blocked(
-        officeId,
-        { kind: START_KINDS.resume, runId: run.runId, since: at },
-        places.modelOf(officeId, "worker", run),
-      ) ?? null;
+      places?.blocked(officeId, { kind: START_KINDS.resume, runId: run.runId, since: at }) ?? null;
     if (blocked !== null) waitForPlace(office, run.runId, START_KINDS.resume, at);
     return blocked;
   }
@@ -1148,10 +1153,11 @@ export class ParkResumes {
 
   /**
    * The grants this resume records, with ids made from the request so a retry writes none twice:
-   * the top-up, and one more round of the counted cap that fired (see the file comment).
+   * the top-up, and one more round of the counted cap that fired (see the file comment). A resumed
+   * review gets none: the reviewer's caps hold per session.
    */
   #plan(
-    ctx: AsyncCommandContext,
+    ctx: ResumeRequest,
     run: StoredRun,
     reason: string,
     session: ResumeSession,
@@ -1166,51 +1172,37 @@ export class ParkResumes {
         amount: { kind: "budget", amount: share(startCaps(run, legacy), budget) },
       });
     }
+    if (session === "review") return grants;
     const office = ctx.office;
     const caps = runCaps(office, run, legacy);
     const rounds = runRoundCounts(office, run.runId);
-    const round = (kind: "loop" | "reviewRound" | "ciAttempt" | "conflictHandoff") =>
-      grants.push({ grantId: id(kind), amount: { kind, amount: 1 } });
-    if (session === "review") {
-      // The reviewer's own cap that fired grows by half of its starting value.
-      const fired = reviewerCapFired(office, run, caps);
-      if (fired !== null) {
-        grants.push({
-          grantId: id("reviewCap"),
-          amount: {
-            kind: "reviewCap",
-            amount:
-              fired === "turns"
-                ? { turns: half(run.reviewMaxTurns), minutes: 0 }
-                : { turns: 0, minutes: half(run.reviewMaxMinutes) },
-          },
-        });
-      }
-      return grants;
-    }
+    const round = (cap: RoundCap, before: number) =>
+      grants.push({
+        grantId: id(cap),
+        amount: { kind: "round", amount: { cap, count: 1, before, after: before + 1 } },
+      });
     switch (reason) {
       case "verify-failing":
-        if (caps.ciCap !== null && rounds.ciAttempts >= caps.ciCap) round("ciAttempt");
-        else if (rounds.loops >= caps.loopCap) round("loop");
+        if (caps.ciCap !== null && rounds.ciAttempts >= caps.ciCap) round("ciAttempts", caps.ciCap);
+        else if (rounds.loops >= caps.loopCap) round("loops", caps.loopCap);
         break;
       case "review-blocked":
-        round("reviewRound");
+        if (caps.reviewRoundCap !== null) round("reviewRounds", caps.reviewRoundCap);
         break;
-      case "conflict":
-        if (
-          handOffState(office, run.runId).failed >= conflictCapOf(office, run, CONFLICT_CAP_DEFAULT)
-        ) {
-          round("conflictHandoff");
-        }
+      case "conflict": {
+        const cap = conflictCapOf(office, run, CONFLICT_CAP_DEFAULT);
+        if (handOffState(office, run.runId).failed >= cap) round("conflictAttempts", cap);
         break;
+      }
     }
     return grants;
   }
 
   /**
-   * Step 1's cap check: what remains of the caps, counting this resume's grants, is above zero.
-   * A developer session counts tokens, turns and minutes; a review counts the story's budget; a
-   * fix round or no session counts nothing here.
+   * Step 1's cap check: what remains of the developer's caps, counting this resume's grants, is
+   * above zero. Only a developer session counts them: a review counts the reviewer's own caps,
+   * which a fresh session starts with in full (0002), and a fix round or no session counts nothing
+   * here.
    */
   #checkCaps(
     office: OfficeHandle,
@@ -1221,17 +1213,13 @@ export class ParkResumes {
     legacy: Caps,
     budget: ResumeBudget | undefined,
   ): void {
-    if (session === "none" || session === "fix-round") return;
+    if (session !== "developer") return;
     const before = runCaps(office, run, legacy);
     const used = usedOf(office, run);
-    const caps = withGrants(before, grants);
-    const fired =
-      session === "review"
-        ? firedCap({ ...caps, maxTurns: Infinity, maxMinutes: Infinity }, used)
-        : firedCap(caps, used);
+    const fired = firedCap(withGrants(before, grants), used);
     if (fired === null) return;
     if (budget !== undefined) {
-      const smallest = smallestShare(startCaps(run, legacy), before, used, session);
+      const smallest = smallestShare(startCaps(run, legacy), before, used);
       throw new CommandError(
         RESUME_ERRORS.topUpTooSmall,
         `${budgetText(budget)} leaves ${story}'s ${CAP_LABELS[fired.cap]} reached (${fired.detail}); the smallest top-up that clears it is +${smallest}%: \`dipo resume ${story} --budget +${smallest}% --note <why>\`.`,
@@ -1259,16 +1247,11 @@ export class ParkResumes {
     );
   }
 
-  /** `run.refused` naming the adapter hold while it is set: no session can start then. */
-  #refuseWhileHeld(story: string): void {
-    const adapter = this.#s.deps.worker.id;
-    const hold: AdapterHold | null = this.#s.deps.holds?.adapterHeld?.(adapter) ?? null;
-    if (hold === null) return;
-    throw new CommandError(
-      "run.refused",
-      `${story} cannot resume while its adapter is held: ${holdMessage(hold)}`,
-      { story, check: "adapter" },
-    );
+  /** `run.refused` while the office's starts are paused: no session can start then (0020). */
+  #refuseWhilePaused(officeId: OfficeId, story: string): void {
+    const paused = this.#options.startsPaused?.(officeId) ?? null;
+    if (paused === null) return;
+    throw startsPausedRefusal(`${story} cannot resume now`, paused, { story });
   }
 
   /** `run.hostAlive` while a session of the run still runs or is being decided. */
@@ -1403,11 +1386,6 @@ function answeredQuestion(
       delta: { question: answer.question, answer: answer.answer },
     },
   ];
-}
-
-/** Half of a starting reviewer cap, rounded up: what a `reviewCap` grant adds. */
-function half(value: number | null | undefined): number {
-  return Math.ceil((value ?? 0) / 2);
 }
 
 /** Inside the caller's transaction: an ended run takes the end kind `kind`, its outcome row too. */

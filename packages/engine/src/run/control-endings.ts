@@ -48,16 +48,15 @@ export function capEnding(encode: RunControlDeps["encode"], cap: CapName, detail
 }
 
 /**
- * The ending of a reviewer session that reached a cap (0002): the story's budget used up parks
- * `budget-exceeded`; the reviewer's own turn or minute cap parks `worker-failed`, the detail naming
- * the cap, with no retry.
+ * The ending of a reviewer session that reached one of its own caps (0002): its tokens, turns or
+ * minutes per session. It parks `worker-failed`, the detail naming the cap, with no retry; the
+ * story's budget is never what a review uses up.
  */
 export function reviewCapEnding(
   encode: RunControlDeps["encode"],
   cap: CapName,
   detail: string,
 ): Ending {
-  if (cap === "budgetTokens") return capEnding(encode, cap, detail);
   return {
     intent: "cap",
     ops: encode({ kind: "stop" }),
@@ -83,7 +82,7 @@ export class RunEndings {
   }
 
   /**
-   * The first decision on a tracked run without a park (a reassign or a plan-limit hold): the
+   * The first decision on a tracked run without a park (a reassign or a start failure): the
    * intent is stored, then its ops are sent. Nothing else is decided for the run after it; the
    * worker's exit is decided from the intent. False when a decision was made already, or when
    * the intent could not be stored: then no op is sent and the failure is logged (DIPO-119).
@@ -315,6 +314,7 @@ export class RunEndings {
         endKind: ending.endKind,
         ...(ending.capStep === undefined ? {} : { capStep: ending.capStep }),
         ...(ending.question === undefined ? {} : { question: ending.question }),
+        ...(ending.resumeOnLift === true ? { resumeOnLift: true } : {}),
       });
       // The run summary (DIPO-49): every run that ends here gets one.
       await this.#deps.finisher
@@ -327,6 +327,8 @@ export class RunEndings {
         });
       // The park commit is read again at the branch tip (DIPO-56), unless nothing was written there.
       if (writer === this.#deps.writer) await this.refresh(office, run, "parked");
+      // A park to resume when the starts paused lifts may land while they are not paused (0020).
+      if (ending.resumeOnLift === true) this.#deps.parkedToResume?.(office.officeId as OfficeId);
       return parked;
     })();
   }

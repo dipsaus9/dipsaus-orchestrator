@@ -165,8 +165,9 @@ describe("health precedence", () => {
     ["the last allowed loop", { ...base, loop: 3, loopCap: 3 }, "looping"],
     ["a loop below the cap", { ...base, loop: 2, loopCap: 3 }, "busy"],
     ["no loop cap", { ...base, loop: 0, loopCap: 0 }, "busy"],
-    ["plan-limit over looping", { ...base, signals: ["same-failure", "plan-limit"] }, "limited"],
-    ["input-wait over plan-limit", { ...base, signals: ["plan-limit", "input-wait"] }, "asking"],
+    ["input-wait over looping", { ...base, signals: ["same-failure", "input-wait"] }, "asking"],
+    // A plan limit pauses the office's starts and parks the story (0020): no health of its own.
+    ["a plan-limit signal from before 0020", { ...base, signals: ["plan-limit"] }, "busy"],
     ["host-lost over everything", { ...base, signals: ["input-wait", "host-lost"] }, "lost"],
     ["an unprocessed exit", { ...base, exitUnprocessed: true, signals: ["quiet"] }, "lost"],
   ];

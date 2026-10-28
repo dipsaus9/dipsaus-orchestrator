@@ -707,7 +707,7 @@ if (process.env["DIPO_TEST_CI"] === "1") {
               "select kind from run_grants where office_id = $office_id and run_id = $run",
               { run },
             ),
-          ).toEqual([{ kind: "ciAttempt" }]);
+          ).toEqual([{ kind: "round" }]);
           await expectMergedOnce(w, run, CSV_V2);
         }),
       120_000,

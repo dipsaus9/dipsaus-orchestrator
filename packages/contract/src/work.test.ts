@@ -82,10 +82,10 @@ describe("open enums", () => {
   const cases = [
     { name: "Tier", schema: Tier, known: KNOWN_TIERS, size: 3 },
     { name: "ParkReason", schema: ParkReason, known: KNOWN_PARK_REASONS, size: 8 },
-    { name: "SkipReason", schema: SkipReason, known: KNOWN_SKIP_REASONS, size: 8 },
+    { name: "SkipReason", schema: SkipReason, known: KNOWN_SKIP_REASONS, size: 7 },
     { name: "Phase", schema: Phase, known: KNOWN_PHASES, size: 6 },
-    { name: "WatchdogSignal", schema: WatchdogSignal, known: KNOWN_WATCHDOG_SIGNALS, size: 7 },
-    { name: "Health", schema: Health, known: KNOWN_HEALTH, size: 8 },
+    { name: "WatchdogSignal", schema: WatchdogSignal, known: KNOWN_WATCHDOG_SIGNALS, size: 6 },
+    { name: "Health", schema: Health, known: KNOWN_HEALTH, size: 6 },
   ];
 
   for (const { name, schema, known, size } of cases) {
@@ -112,16 +112,7 @@ describe("open enums", () => {
 
   it("names the phases and health states of 0009", () => {
     expect([...KNOWN_PHASES]).toEqual(["setup", "build", "verify", "review", "test", "merge"]);
-    expect([...KNOWN_HEALTH]).toEqual([
-      "lost",
-      "asking",
-      "limited",
-      "paused",
-      "looping",
-      "stuck",
-      "quiet",
-      "busy",
-    ]);
+    expect([...KNOWN_HEALTH]).toEqual(["lost", "asking", "looping", "stuck", "quiet", "busy"]);
   });
 
   it("queue columns and gate kinds are open too", () => {
@@ -320,14 +311,11 @@ describe("office commands and reads", () => {
     ).toBe(true);
   });
 
-  it("work.run reports a plan-limit hold with its own skip reason (DIPO-92)", () => {
-    expect(KNOWN_SKIP_REASONS).toContain("planLimit");
-    const run = officeCommands.find((d) => d.name === "work.run");
-    const result = {
-      started: [],
-      skipped: [{ story: "DIPO-31", key: workRef.key, reason: "planLimit" }],
-    };
-    expect(run?.result.parse(result)).toEqual(result as never);
+  it("knows no plan-limit hold: no skip reason, health or signal for it (DIPO-359, 0020)", () => {
+    expect(KNOWN_SKIP_REASONS as readonly string[]).not.toContain("planLimit");
+    expect(KNOWN_HEALTH as readonly string[]).not.toContain("limited");
+    expect(KNOWN_HEALTH as readonly string[]).not.toContain("paused");
+    expect(KNOWN_WATCHDOG_SIGNALS as readonly string[]).not.toContain("plan-limit");
   });
 
   it("work.run reports an unknown skip reason without failing", () => {
@@ -391,6 +379,7 @@ describe("the desk", () => {
     expect(DeskItem.parse(item)).toEqual(item as never);
     expect(DeskItem.safeParse({ ...item, kind: "SOMETHING NEW" }).success).toBe(true);
     expect(KNOWN_DESK_KINDS).toContain("PARKED BY YOU");
+    expect(KNOWN_DESK_KINDS[0]).toBe("STARTS PAUSED");
   });
 
   it("needs a detail, a since, blocks and actions, and a dotted command name", () => {

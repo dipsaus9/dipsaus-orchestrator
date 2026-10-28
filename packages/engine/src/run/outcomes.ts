@@ -27,13 +27,10 @@
 //   A start the adapter refuses at its first line (`startRefused`, DIPO-108: a plugin the office
 //   does not allow) stores the same intent but stops the worker at once, as a rejected init does
 //   (stdin closed, SIGTERM now, SIGKILL after 30 s), and never parks for it.
-// - `pause` `plan-limit {scope, resetsAt?, since}`: a rejected plan limit (a `rate_limit_event`
-//   `rejected`, `credits_required`, or a 429 turn) closes stdin, writes the wait fact on the run,
-//   raises the `plan-limit` signal with `work.observed plan-limit` (health `limited`), and never
-//   parks: run and claim stay. `credits` also holds the adapter with a notice. The plan-limit
-//   schedule (DIPO-61, `plan-limit.ts`) is told of the fact; it holds scheduling on the scope and
-//   calls `resumeWait` after the reset, which resumes the session with "continue" and clears the
-//   signal. An `allowed_warning` goes to the schedule too (`onPlanWarning`).
+// - A rejected plan limit (a `rate_limit_event` `rejected`, `credits_required`, a 429 turn, or an
+//   exit the adapter reads as one) pauses the office's starts (0020, `starts-paused.ts`) and parks
+//   the story `worker-failed` with the detail "plan limit until <time>" (end kind `plan-limit`),
+//   marked to resume by itself when the pause lifts. An `allowed_warning` changes nothing.
 // - A classifier switch is recorded in the session's parser state and announced once per run and
 //   model with `engine.notice` `run.modelSwitched`; it never parks.
 //
@@ -45,7 +42,7 @@
 // (at the exit), `outcome-sessions.ts` (next session, start failure), `outcome-restart.ts` (after
 // a restart), `outcome-support.ts` (shared facts) and `deciding.ts` (the one deciding guard).
 // `outcome-types.ts` holds the vocabulary; this file keeps the public class and re-exports all of
-// it. Resuming a held or parked run is not here: it is `resumption.ts` (DIPO-138), which builds on
+// it. Resuming a parked run is not here: it is `resumption.ts` (DIPO-138), which builds on
 // the `parts` this exposes.
 
 import type { OfficeId } from "@dipsaus-orchestrator/contract";
@@ -62,7 +59,6 @@ import type {
   ExitContext,
   HostLostContext,
   PlanLimitHit,
-  PlanLimitWarning,
   RunOutcomesDeps,
   RunOutcomesPort,
   RunView,
@@ -87,7 +83,7 @@ export class RunOutcomes implements RunOutcomesPort {
     this.#support = new OutcomeSupport(deps);
     const sessions = new SessionStarts(this.#support);
     this.#turns = new TurnOutcomes(this.#support);
-    this.#exits = new ExitOutcomes(this.#support, sessions, this.#turns);
+    this.#exits = new ExitOutcomes(this.#support, sessions);
     this.parts = { support: this.#support, sessions };
     this.#restart = new Redispatch(this.#support, this.#exits, sessions);
   }
@@ -102,10 +98,6 @@ export class RunOutcomes implements RunOutcomesPort {
 
   onPlanLimit(view: RunView, limit: PlanLimitHit): void {
     this.#turns.onPlanLimit(view, limit);
-  }
-
-  onPlanWarning(view: RunView, warning: PlanLimitWarning): void {
-    this.#turns.onPlanWarning(view, warning);
   }
 
   onModelSwitched(view: RunView, model: string): void {

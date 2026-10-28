@@ -333,6 +333,25 @@ describe("the desk stays current", () => {
     expect(ui.frame()).toContain("Your desk (7)");
   });
 
+  it("reads it again when the office's starts pause or lift, and not for another notice (0020)", async () => {
+    const { session } = await openDesk();
+    await until(() => deskReads(session) === 1, "the first desk read");
+    const office = session.active(STREAM)?.options;
+    await Bun.sleep(DESK_READ_INTERVAL_MS + 50);
+    office?.onEvent(event(8, "engine.notice", { level: "warn", code: "run.queued", text: "x" }));
+    await Bun.sleep(100);
+    expect(deskReads(session)).toBe(1);
+    office?.onEvent(
+      event(9, "engine.notice", { level: "warn", code: "office.startsPaused", text: "paused" }),
+    );
+    await until(() => deskReads(session) === 2, "the read after the starts paused");
+    await Bun.sleep(DESK_READ_INTERVAL_MS + 50);
+    office?.onEvent(
+      event(10, "engine.notice", { level: "info", code: "office.startsLifted", text: "lifted" }),
+    );
+    await until(() => deskReads(session) === 3, "the read after the lift");
+  });
+
   it("reads it again after a stream reset and keeps the selected story", async () => {
     const { ui, session } = await openDesk();
     await selectRow(ui, "DIPO-26");
@@ -387,6 +406,22 @@ describe("the key table on desk rows", () => {
     expect(session.commands).toEqual([]);
     // Every action of the QUESTION row has its key: no command line to type.
     expect(ui.frame()).not.toContain("type:");
+  });
+
+  it("shows the office's starts paused first, with what lifts it and its command line (0020)", async () => {
+    const paused = DeskItem.parse({
+      kind: "STARTS PAUSED",
+      detail: "no new session starts · plan limit until 2026-10-14T12:00:00.000Z",
+      since: ago(4),
+      blocks: [],
+      actions: [{ command: "daemon.resumeScheduling", cli: "dipo daemon resume-scheduling" }],
+      hand: "It lifts by itself at 2026-10-14T12:02:00.000Z, or with `dipo daemon resume-scheduling`.",
+    });
+    const { ui } = await openDesk({ desk: [paused, byYou] });
+    const frame = await ui.waitFor("type: dipo daemon resume-scheduling");
+    const rows = lines(frame).filter((line) => /^ [> ] [A-Z]/.test(line));
+    expect(rows[0]).toMatch(/^ > STARTS PAUSED +no new session starts · plan limit until/);
+    expect(frame).toContain("by hand: It lifts by itself at 2026-10-14T12:02:00.000Z");
   });
 
   it("shows the command line of an action the table does not bind", async () => {

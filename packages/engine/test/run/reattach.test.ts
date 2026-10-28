@@ -1022,7 +1022,7 @@ describe("restart windows of DIPO-51's review", () => {
     ]);
   });
 
-  it("signals the next session clears end with its agent, so a plan limit its first pass meets stays raised", async () => {
+  it("the host signals end with the next session's agent, so one its first pass raises stays raised", async () => {
     beforeRestart("terminated", 0);
     w.f.office.immediate(() => {
       w.f.office.run(
@@ -1030,8 +1030,7 @@ describe("restart windows of DIPO-51's review", () => {
           where office_id = $office_id and agent_id = $agent`,
         { agent: w.f.agent },
       );
-      // The held run: its plan limit and the restart's host signal.
-      raiseSignal(w.f.office, w.f.run, "plan-limit", 1);
+      // The restart's host signal.
       raiseSignal(w.f.office, w.f.run, "follow-only", 1);
     });
     const runDir = join(w.dir, "git", "dipo", "runs", w.f.run);
@@ -1061,23 +1060,21 @@ describe("restart windows of DIPO-51's review", () => {
       },
       {
         probe: async () => null,
-        // The new host wrote a rate-limit rejection before its ingestion started: the first pass,
-        // synchronous in `start`, raises the plan limit again.
+        // The first pass, synchronous in `start`, raises a host signal again.
         ingest: {
           start: (office) => {
-            office.immediate(() => raiseSignal(office, w.f.run, "plan-limit", 2));
+            office.immediate(() => raiseSignal(office, w.f.run, "follow-only", 2));
           },
         },
       },
     );
-    const outcome = await resumer.next({ ...nextRequest(), clear: ["plan-limit"] });
+    const outcome = await resumer.next(nextRequest());
     expect(outcome.kind).toBe("started");
-    expect(signals()).toEqual(["plan-limit"]);
+    expect(signals()).toEqual(["follow-only"]);
     const cleared = loggedEvents(w.f.office)
       .filter((event) => event.type === "work.observed")
-      .map((event) => (event.data as { signal: string }).signal)
-      .toSorted();
-    expect(cleared).toEqual(["follow-only", "plan-limit"]);
+      .map((event) => (event.data as { signal: string }).signal);
+    expect(cleared).toEqual(["follow-only"]);
   });
 
   it("the resume check gets the previous session's version from agents.adapter_version (DIPO-101)", async () => {
@@ -1127,7 +1124,7 @@ describe("restart windows of DIPO-51's review", () => {
     expect(seen).toEqual(["2.0.9"]);
   });
 
-  it("gives the CLI the developer's remaining turns, a reviewer's turns left out (DIPO-142)", async () => {
+  it("gives the CLI the developer's remaining turns and tokens, a reviewer's usage left out (0002)", async () => {
     beforeRestart("terminated", 0);
     const before = runTotals(w.f.office, w.f.run, 0, 0);
     w.f.office.immediate(() => {
@@ -1136,7 +1133,7 @@ describe("restart windows of DIPO-51's review", () => {
           where office_id = $office_id and agent_id = $agent`,
         { agent: w.f.agent },
       );
-      // A reviewer of the same run spent 40 turns and 5,000 budget tokens (0019 section 13).
+      // A reviewer of the same run spent 40 turns and 5,000 budget tokens: its own caps, not the story's.
       w.f.office.run(
         `insert into agents (office_id, agent_id, run_id, role, model, started_at, ended_at)
          values ($office_id, 'agt_reviewer', $run, 'reviewer', 'opus', 0, 0)`,
@@ -1151,7 +1148,7 @@ describe("restart windows of DIPO-51's review", () => {
     });
     const used = runTotals(w.f.office, w.f.run, 0, 0);
     expect(used.turns).toBe(before.turns);
-    expect(used.budgetTokens).toBe(before.budgetTokens + 5000);
+    expect(used.budgetTokens).toBe(before.budgetTokens);
     const runDir = join(w.dir, "git", "dipo", "runs", w.f.run);
     mkdirSync(runDir, { recursive: true });
     copyFileSync(w.f.eventFile, join(runDir, "events.ndjson"));
@@ -1182,7 +1179,7 @@ describe("restart windows of DIPO-51's review", () => {
     const outcome = await resumer.next(nextRequest());
     expect(outcome.kind).toBe("started");
     const caps = preparedSpecs.at(-1)?.caps;
-    // The tier's turns minus the developer's own; the budget minus every agent's tokens.
+    // The tier's turns and budget minus the developer's own; the reviewer's count against neither.
     expect(caps?.maxTurns).toBe(OFFICE_DEFAULTS.tiers.M.maxTurns - before.turns);
     expect(caps?.budgetTokens).toBe(ROOMY.budgetTokens - used.budgetTokens);
   });

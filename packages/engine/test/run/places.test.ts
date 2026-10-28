@@ -1,13 +1,12 @@
 // The office's worker and reviewer places (DIPO-142, 0019 section 12), fast and local: place
 // counting from open story runs and their agents' roles (session runs left out), the start order of
 // each place, a maintainer resume queued while its place is taken and started when it frees, and
-// plan-limit holds that pause the places by scope, with the waiting story limited and never parked.
+// the office's starts paused, which keeps every waiting session waiting and never parks it (0020).
 
 import { afterEach, beforeEach, describe, expect, it } from "bun:test";
 
 import { type OfficeId, type RunId, StoryId } from "@dipsaus-orchestrator/contract";
 
-import { OFFICE_DEFAULTS } from "../../src/config";
 import {
   activeRuns,
   claimPlace,
@@ -16,16 +15,10 @@ import {
   findRun,
   hasActiveRun,
   IN_REVIEW_END,
-  INTENT_TAGS,
-  pausedPlaces,
   type PlaceStart,
   placeHolders,
   Places,
   placeTaken,
-  PlanLimits,
-  raiseSignal,
-  recordConfigSnapshot,
-  recordIntent,
   reopenForRound,
   type RunEnder,
   RunControl,
@@ -224,7 +217,7 @@ describe("a resume that finds its place taken (0020 section 1)", () => {
     );
     places = new Places({
       clock: w.t.clock,
-      offices: { get: () => w.office, config: () => OFFICE_DEFAULTS },
+      offices: { get: () => w.office },
       starters: {
         resume: (office, run) => resumption.startQueued(office, run),
         fix: async (_office, run) => {
@@ -285,116 +278,16 @@ describe("a resume that finds its place taken (0020 section 1)", () => {
   });
 });
 
-describe("plan-limit holds pause the places by scope (0019 section 12)", () => {
-  const ADAPTER = OFFICE_DEFAULTS.worker.adapter;
-  let limits: PlanLimits;
-
-  beforeEach(() => {
-    limits = new PlanLimits({
-      clock: w.t.clock,
-      offices: { get: () => w.office, config: () => OFFICE_DEFAULTS },
-      resume: async () => "notHeld",
-    });
-  });
-
-  afterEach(() => limits.close());
-
-  const paused = (worker: string, reviewer = "opus") =>
-    pausedPlaces((model) => limits.held(ADAPTER, model), { worker, reviewer });
-
-  /** A run held by a rejected plan limit of `scope`: its wait fact and the schedule's hold. */
-  function holdRun(scope: "session" | "weekly" | `model:${string}`): void {
-    const held = storyRun(w, { story: "DIPO-9" });
-    const fact = { scope, since: now() };
-    write(() => {
-      raiseSignal(w.office, held.run, "plan-limit", now());
-      recordIntent(
-        w.office,
-        held.run,
-        "pause",
-        `${INTENT_TAGS.planLimit} ${JSON.stringify(fact)}`,
-        now(),
-      );
-    });
-    limits.waiting(officeId(), held.run, fact);
-  }
-
-  it("a session hold pauses both places", () => {
-    holdRun("session");
-    const both = paused("sonnet");
-    expect(both.worker).toContain("the session limit");
-    expect(both.reviewer).toContain("the session limit");
-  });
-
-  it("a weekly hold pauses both places", () => {
-    holdRun("weekly");
-    expect(Object.values(paused("haiku")).every((why) => why !== null)).toBe(true);
-  });
-
-  it("a model-family hold pauses the place whose session uses that family", () => {
-    holdRun("model:opus");
-    // An Opus hold stops reviews, not a Sonnet worker ...
-    expect(paused("sonnet")).toEqual({ worker: null, reviewer: expect.stringContaining("opus") });
-    // ... and also a worker whose tier model is Opus.
-    expect(paused("claude-opus-5").worker).toContain("opus");
-  });
-
-  it("an allowed_warning stops new sessions of its scope", () => {
-    limits.warned(officeId(), { scope: "model:sonnet" });
-    expect(paused("sonnet")).toEqual({ worker: expect.stringContaining("sonnet"), reviewer: null });
-    limits.warned(officeId(), { scope: "session" });
-    expect(paused("haiku").reviewer).toContain("warned");
-  });
-
-  /**
-   * Drains the office once with one pending review of `story`, under an office config whose
-   * `review.model` is Sonnet and no `reviewModel` dep (as the daemon wires it): the stories whose
-   * review started.
-   */
-  async function drainSonnetReview(story: string): Promise<readonly string[]> {
-    const review = inReview(story);
-    const config = { ...OFFICE_DEFAULTS, review: { ...OFFICE_DEFAULTS.review, model: "sonnet" } };
-    const started: string[] = [];
-    const places = new Places({
-      clock: w.t.clock,
-      offices: { get: () => w.office, config: () => config },
-      held: (adapter, model) => limits.held(adapter, model),
-      pending: () => [{ kind: START_KINDS.review, runId: review.run, since: now() }],
-      starters: {
-        review: async (_office, run) => {
-          started.push(run.story ?? "");
-          return true;
-        },
-      },
-    });
-    try {
-      await places.drain(officeId());
-      return started;
-    } finally {
-      places.close();
-    }
-  }
-
-  it("takes the reviewer place's model from the office's review.model: an Opus hold leaves a Sonnet reviewer running", async () => {
-    holdRun("model:opus");
-    expect(await drainSonnetReview("DIPO-8")).toEqual(["DIPO-8"]);
-  });
-
-  it("takes the reviewer place's model from the office's review.model: a Sonnet hold pauses a Sonnet reviewer", async () => {
-    holdRun("model:sonnet");
-    expect(await drainSonnetReview("DIPO-8")).toEqual([]);
-  });
-
-  it("keeps a waiting story limited, never parked, and starts it once the hold ends", async () => {
+describe("the office's starts paused keeps every waiting session waiting (0020)", () => {
+  it("starts no waiting session while paused, never parks it, and starts it once the pause lifted", async () => {
     const fix = inReview("DIPO-8");
     write(() => reopenForRound(w.office, findRun(w.office, fix.run)!, "fix", now()));
-    // The worker's model family is warned about for an hour.
-    limits.warned(officeId(), { scope: "model:sonnet" });
+    let paused: string | null = "the office's starts are paused (plan limit until later)";
     const started: string[] = [];
     const places = new Places({
       clock: w.t.clock,
-      offices: { get: () => w.office, config: () => OFFICE_DEFAULTS },
-      held: (adapter, model) => limits.held(adapter, model),
+      offices: { get: () => w.office },
+      startsPaused: () => paused,
       starters: {
         fix: async (_office, run) => {
           started.push(run.story ?? "");
@@ -402,21 +295,26 @@ describe("plan-limit holds pause the places by scope (0019 section 12)", () => {
         },
       },
     });
-    expect(await places.drain(officeId())).toBe(0);
-    expect(started).toEqual([]);
-    expect(workView(w.office, fix.run)?.health).toBe("limited");
-    expect(findRun(w.office, fix.run)).toMatchObject({ endedAt: null, waiting: "fix" });
-    expect(countRows(w.office, "parks")).toBe(0);
+    try {
+      expect(await places.drain(officeId())).toBe(0);
+      expect(started).toEqual([]);
+      expect(
+        places.blocked(officeId(), { kind: START_KINDS.fix, runId: fix.run, since: now() }),
+      ).toBe(paused);
+      expect(findRun(w.office, fix.run)).toMatchObject({ endedAt: null, waiting: "fix" });
+      expect(workView(w.office, fix.run)?.health).not.toBe("lost");
+      expect(countRows(w.office, "parks")).toBe(0);
 
-    // The hour passes: the tick drains again and the fix round takes the worker place.
-    w.t.clock.advance(61 * MINUTE);
-    await places.idle();
-    expect(started).toEqual(["DIPO-8"]);
-    const run = findRun(w.office, fix.run);
-    expect(run?.waiting).toBeNull();
-    expect(workView(w.office, fix.run)?.health).not.toBe("limited");
-    expect(countRows(w.office, "parks")).toBe(0);
-    places.close();
+      // The pause lifts: the place's tick drains again and the fix round takes the worker place.
+      paused = null;
+      w.t.clock.advance(MINUTE);
+      await places.idle();
+      expect(started).toEqual(["DIPO-8"]);
+      expect(findRun(w.office, fix.run)?.waiting).toBeNull();
+      expect(countRows(w.office, "parks")).toBe(0);
+    } finally {
+      places.close();
+    }
   });
 });
 
@@ -448,7 +346,7 @@ function world() {
   });
   const places = new Places({
     clock: w.t.clock,
-    offices: { get: () => w.office, config: () => OFFICE_DEFAULTS },
+    offices: { get: () => w.office },
     park: (office, run, work, ending) => control.park(office, run, work, ending),
     starters: {
       fix: async (_office, run) => {
@@ -510,70 +408,6 @@ describe("the pre-start cap check (DIPO-205)", () => {
       expect(parksOf()).toEqual([]);
     } finally {
       x.close();
-    }
-  });
-});
-
-describe("the reviewer place's model of a running run (DIPO-150, the DIPO-303 review)", () => {
-  it("is the review.model of the run's configuration snapshot, not the one in force", () => {
-    const s = storyRun(w, { story: "DIPO-9" });
-    const places = new Places({
-      clock: w.t.clock,
-      offices: {
-        get: () => w.office,
-        config: () => ({
-          ...OFFICE_DEFAULTS,
-          review: { ...OFFICE_DEFAULTS.review, model: "opus" },
-        }),
-      },
-      starters: {},
-    });
-    try {
-      const run = findRun(w.office, s.run)!;
-      // No snapshot: the configuration in force.
-      expect(places.modelOf(officeId(), "reviewer", run)).toBe("opus");
-      w.office.immediate(() =>
-        recordConfigSnapshot(
-          w.office,
-          "h",
-          { ...OFFICE_DEFAULTS, review: { ...OFFICE_DEFAULTS.review, model: "sonnet" } },
-          0,
-        ),
-      );
-      expect(places.modelOf(officeId(), "reviewer", run)).toBe("sonnet");
-      expect(places.modelOf(officeId(), "worker", run)).toBe(run.model);
-    } finally {
-      places.close();
-    }
-  });
-});
-
-describe("a plan-limit hold on a running run's adapter (DIPO-150, the DIPO-303 review)", () => {
-  it("is asked for the worker.adapter of the run's configuration snapshot", () => {
-    const s = storyRun(w, { story: "DIPO-9" });
-    const asked: string[] = [];
-    const places = new Places({
-      clock: w.t.clock,
-      offices: { get: () => w.office, config: () => OFFICE_DEFAULTS },
-      held: (adapter) => {
-        asked.push(adapter);
-        return null;
-      },
-      starters: {},
-    });
-    try {
-      w.office.immediate(() =>
-        recordConfigSnapshot(
-          w.office,
-          "h",
-          { ...OFFICE_DEFAULTS, worker: { ...OFFICE_DEFAULTS.worker, adapter: "adapter-started" } },
-          0,
-        ),
-      );
-      places.blocked(officeId(), { kind: START_KINDS.review, runId: s.run, since: 0 }, "opus");
-      expect(asked).toEqual(["adapter-started"]);
-    } finally {
-      places.close();
     }
   });
 });

@@ -116,8 +116,8 @@ export const workSteer = defineCommand({
 });
 
 // The one way back from a park (0020): a parked story returns to the status it had before, and a
-// story with a run gets its next session. Since minor 1 (DIPO-61) it also continues a run held by a
-// plan limit. What a park's reason requires is the 0020 table: `note` is the maintainer's note (the
+// story with a run gets its next session; it is refused while the office's starts are paused
+// (`run.refused`). What a park's reason requires is the 0020 table: `note` is the maintainer's note (the
 // answer of an `ambiguous-spec` park, the direction of a `review-blocked` one), `budget` the top-up
 // of a `budget-exceeded` park (a share of the run's starting caps, or a token amount), which needs
 // the yes/no confirmation (`confirmWhen`); the result names the grants the resume recorded and
@@ -132,10 +132,12 @@ export const ResumeBudget = z.union([
 ]);
 export type ResumeBudget = z.infer<typeof ResumeBudget>;
 
-// One grant a resume recorded (0020 sections 4 and 5): a budget grant names its tokens, turns and
-// minutes, a reviewer cap grant its turns and minutes, a counted grant its count.
+// One grant a resume recorded (0020): a `budget` grant names its tokens, turns and minutes, a
+// `round` grant the counted cap it grows (`loops`, `reviewRounds`, `ciAttempts` or
+// `conflictAttempts`) and its count.
 export const ResumeGrant = z.object({
   kind: z.string(),
+  cap: z.string().optional(),
   tokens: Count.optional(),
   turns: Count.optional(),
   minutes: Count.optional(),
@@ -610,8 +612,10 @@ export const officeStats = defineRead({
 
 // The kinds of a desk item (0020 section 12), as `dipo desk` prints them. Open: later stories add
 // kinds (DIPO-161 `DONE ELSEWHERE` and `LEFTOVERS`, 0019 `PR HEAD CHANGED`, scope requests; DIPO-310
-// `PROFILE`, a pending proposal or stale confirmation of the run profile, with no story).
+// `PROFILE`, a pending proposal or stale confirmation of the run profile, with no story; DIPO-359
+// `STARTS PAUSED`, the office's starts paused with its reason and what lifts it, with no story).
 export const KNOWN_DESK_KINDS = [
+  "STARTS PAUSED",
   "QUESTION",
   "SCOPE",
   "MERGE",
@@ -664,7 +668,8 @@ export const DeskItem = z.object({
 });
 export type DeskItem = z.infer<typeof DeskItem>;
 
-// What waits on the maintainer, in the order of 0020: questions with a waiting worker, merge
+// What waits on the maintainer, in the order of 0020: the office's starts paused (DIPO-359),
+// questions with a waiting worker, merge
 // gates, parks by reason with the stories parked by the maintainer last, hand actions and
 // proposals; within a group the items blocking the most stories first, then the oldest. Changes nothing. Since minor 1
 // (DIPO-158) [`desk`].
