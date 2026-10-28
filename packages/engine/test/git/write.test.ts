@@ -98,6 +98,29 @@ describe("the git writer", () => {
     });
   });
 
+  it("never pushes to or deletes the office's base, nor any branch while the base is unknown", async () => {
+    await withBareRemote(async (repo) => {
+      const first = await published(repo);
+      const ahead = await commitOnMain(repo, "ahead.txt");
+      const pushed = await officeGit(repo).run((s) => pushBranch(s, "origin", "main"));
+      expect(pushed).toMatchObject({ pushed: false, rejected: false });
+      expect(pushed.error).toContain("dipo never pushes to the base branch main");
+      const deleted = await officeGit(repo).run((s) =>
+        deleteRemoteBranch(s, "origin", "main", first),
+      );
+      expect(deleted).toEqual({ ok: false, problem: "dipo never deletes the base branch main" });
+      expect(await remoteTip(repo, "main")).toBe(first);
+
+      // No configured base and no `origin/HEAD`: no push at all, since none can be told from it.
+      const unknown = officeGit(repo, { base: undefined });
+      await unknown.run((s) => createBranch(s, BRANCH, ahead));
+      const refused = await unknown.run((s) => pushBranch(s, "origin", BRANCH));
+      expect(refused.pushed).toBe(false);
+      expect(refused.error).toContain("while the office's base is unknown");
+      expect(await remoteTip(repo, BRANCH)).toBeNull();
+    });
+  });
+
   it("deletes a remote branch only while it is at the tip dipo pushed", async () => {
     await withBareRemote(async (repo) => {
       const first = await published(repo);

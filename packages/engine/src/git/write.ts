@@ -2,15 +2,17 @@
 // maintainer's repository goes through these functions, inside an office git queue item the
 // caller holds, as hardened steps of `GitSession` (`hardened.ts`, `runner.ts`). No other engine
 // file passes a git verb that writes a commit or a ref, or reaches the remote to change it; the
-// `dipo/git-writes-in-module` lint rule holds that line (`tools/lint/oxlint-plugin.js`).
+// lint rules `dipo/no-git-spawn` and `dipo/no-git-write` hold that line
+// (`tools/lint/oxlint-plugin.js`).
 //
 // - Commits: `commitTree` from git objects (the story lane, parts, catch-up merges), `commitStaged`
 //   in the planning lane's own worktree, and `mergeInWorktree` for a merge git makes there.
 // - Refs: a branch is created only where none exists (`createBranch`, `update-ref` with an empty
 //   old value, so a lost race is a `false`, never an overwrite), moved only from the tip the caller
 //   read (`moveRef`), and deleted only at the tip the caller read (`deleteBranch`).
-// - Remote: a push is never forced (`pushBranch`), and a remote branch delete carries a lease on
-//   the tip dipo pushed (`deleteRemoteBranch`), so a push that landed since is never deleted.
+// - Remote: a push is never forced and never targets the office's base (`pushRef`), and a remote
+//   branch delete carries a lease on the tip dipo pushed (`deleteRemoteBranch`), so a push that
+//   landed since is never deleted; the base is never deleted either.
 
 import type { GitLocation } from "./hardened";
 import { FETCH_CONFIG } from "./hardened";
@@ -236,9 +238,26 @@ export async function remoteUrl(git: GitSession, remote: string): Promise<string
  * Pushes `refs/heads/<branch>` to the same ref on `remote`, never forced and without hooks, and
  * returns git's result; a push killed at its deadline is a result with `code` null.
  */
-export function pushRef(git: GitSession, remote: string, branch: string): Promise<GitResult> {
+export async function pushRef(git: GitSession, remote: string, branch: string): Promise<GitResult> {
+  const refused = await baseRefusal(git, branch, "pushes to");
+  if (refused !== null) return { code: 1, stdout: "", stderr: refused };
   const ref = branchRef(branch);
   return remoteStep(git, ["push", "--quiet", "--no-verify", remote, `${ref}:${ref}`]);
+}
+
+/**
+ * Why dipo refuses to change `branch` on the remote, or null: never the office's base (0010), and
+ * nothing while the base is unknown, since then no branch can be told apart from it.
+ */
+async function baseRefusal(git: GitSession, branch: string, what: string): Promise<string | null> {
+  let base: string;
+  try {
+    base = await git.base();
+  } catch (error) {
+    const why = error instanceof Error ? error.message : String(error);
+    return `dipo never ${what} a remote branch while the office's base is unknown: ${why}`;
+  }
+  return branch === base ? `dipo never ${what} the base branch ${base}` : null;
 }
 
 /**
@@ -286,6 +305,8 @@ export async function deleteRemoteBranch(
   branch: string,
   pushed: string,
 ): Promise<RemoteDelete> {
+  const refused = await baseRefusal(git, branch, "deletes");
+  if (refused !== null) return { ok: false, problem: refused };
   const result = await remoteStep(git, [
     "push",
     "--quiet",

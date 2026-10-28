@@ -40,6 +40,7 @@ function bounded(git: GitSession, timeoutMs: number): GitSession {
     repository: git.repository,
     step: (location, args, options) => git.step(location, args, { timeoutMs, ...options }),
     ok: (location, args, options) => git.ok(location, args, { timeoutMs, ...options }),
+    base: () => git.base(),
   };
 }
 

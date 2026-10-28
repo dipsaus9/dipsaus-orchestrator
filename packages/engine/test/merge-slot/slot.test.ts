@@ -241,6 +241,20 @@ describe("the merge slot", () => {
     });
   });
 
+  it("logs a merged backlog branch it could not delete instead of dropping the reason", async () => {
+    await withTempDir(async (dir) => {
+      const s = await slotSetup(dir);
+      await openBacklogPr(s);
+      s.git.syncs = [{ kind: "merged", head: MERGED_HEAD }];
+      s.git.deleteProblem = "deleting the remote branch failed (stale info)";
+      expect(await s.slot.tick(s.officeId)).toBe("waiting");
+      s.host.checks = GREEN;
+      expect(await s.slot.tick(s.officeId)).toBe("merged");
+      expect(s.git.calls.at(-1)).toBe(`deleteBranch ${BRANCH}`);
+      expect(s.logs).toContain("warn the merged backlog branch could not be deleted");
+    });
+  });
+
   it("keeps polling after a poll that failed, with a warning", async () => {
     await withTempDir(async (dir) => {
       const s = await slotSetup(dir);

@@ -603,6 +603,7 @@ if (process.env["DIPO_TEST_CI"] === "1") {
         const outcome = await git.run((session) => {
           const racing: typeof session = {
             repository: session.repository,
+            base: () => session.base(),
             step: (location, args, options) => {
               if (args[0] === "rev-list" && !edited) {
                 edited = true;

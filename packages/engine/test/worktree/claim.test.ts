@@ -175,6 +175,34 @@ describe("claiming a story", () => {
     }, FIXTURE);
   });
 
+  it("rolls back the branch it created when `git worktree add` fails after the update-ref", async () => {
+    await withTempRepo(async (repo) => {
+      await publish(repo);
+      const s = await claimSetup(repo);
+      const real = spawnGitExec(systemSpawn);
+      let created = false;
+      const exec = async (call: GitCall): Promise<GitResult> => {
+        if (call.args.includes("update-ref") && call.args.at(-1) === "") created = true;
+        if (call.args.includes("worktree") && call.args.includes("add")) {
+          // The branch exists by now: the claim made it before the worktree.
+          expect(await refExists(repo.dir, repo.home, `refs/heads/${BRANCH_1}`)).toBe(true);
+          return { code: 128, stdout: "", stderr: "fatal: simulated worktree add failure\n" };
+        }
+        return real(call);
+      };
+      const office = secondGit(repo, s, rootedAt("../wt"), exec);
+
+      const error = await caught(claimStory(s.deps({ git: office }), s.request(s.key())));
+
+      expect(created).toBe(true);
+      expect(error).toBeInstanceOf(GitError);
+      expect((error as GitError).message).toContain("simulated worktree add failure");
+      expect(await refExists(repo.dir, repo.home, `refs/heads/${BRANCH_1}`)).toBe(false);
+      expect(liveClaims(s.office)).toEqual([]);
+      expect(notices(s.office)).toEqual([]);
+    }, FIXTURE);
+  });
+
   it("skips the claim as notRunnable and creates nothing when less than 2 GB are free", async () => {
     await withBareRemote(async (repo) => {
       await publish(repo);

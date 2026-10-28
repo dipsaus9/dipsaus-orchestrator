@@ -45,8 +45,11 @@ export interface SlotGit {
   push(branch: string): Promise<PushOutcome>;
   /** True when `commit` is `head` or one of its ancestors; false when either is unknown. */
   inHead(commit: string, head: string): Promise<boolean>;
-  /** Deletes the merged `branch` locally and, best effort, on the remote. */
-  deleteBranch(branch: string): Promise<void>;
+  /**
+   * Deletes the merged `branch` locally and, best effort, on the remote. Returns why the remote
+   * branch may still exist, or null when it is gone.
+   */
+  deleteBranch(branch: string): Promise<string | null>;
 }
 
 async function revParse(git: GitSession, ref: string): Promise<string | null> {
@@ -178,7 +181,7 @@ export function laneSlotGit(lane: OfficeLane): SlotGit {
       }),
 
     deleteBranch: (branch) =>
-      officeGit.run(async (git) => {
+      officeGit.run(async (git): Promise<string | null> => {
         // `_backlog` may have the branch checked out; detach it where it is first.
         const location = officeGit.worktreeLocation(lane.worktreePath());
         if (location.kind === "worktree") {
@@ -187,10 +190,17 @@ export function laneSlotGit(lane: OfficeLane): SlotGit {
         // The remote branch goes with a lease on the tip dipo pushed, the local tip the slot pushed
         // and the host merged; without a local branch dipo knows no such tip and keeps it.
         const tip = await revParse(git, `refs/heads/${branch}`);
-        if (tip === null) return;
-        await deleteBranch(git, branch, tip);
+        if (tip === null) {
+          return `the local branch ${branch} is gone, so dipo knows no tip it pushed and does not delete the remote branch`;
+        }
+        const local = await deleteBranch(git, branch, tip);
         // The host may have deleted it already; a missing remote branch is fine.
-        await deleteRemoteBranch(git, remote(), branch, tip).catch(() => null);
+        const remoteDelete = await deleteRemoteBranch(git, remote(), branch, tip);
+        const problems = [
+          local.code === 0 ? null : `deleting the local branch failed (${local.stderr.trim()})`,
+          remoteDelete.ok ? null : `deleting the remote branch failed (${remoteDelete.problem})`,
+        ].filter((problem) => problem !== null);
+        return problems.length === 0 ? null : problems.join("; ");
       }),
   };
 }
