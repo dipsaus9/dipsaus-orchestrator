@@ -14,9 +14,11 @@ import {
   cpSync,
   existsSync,
   mkdirSync,
+  lstatSync,
   mkdtempSync,
   readdirSync,
   realpathSync,
+  renameSync,
   rmSync,
   symlinkSync,
   writeFileSync,
@@ -364,6 +366,17 @@ function initBoxRepo(w: World): void {
   expect(made.status).toBe(0);
 }
 
+/**
+ * The box's `.git` folder replaced by a `.git` file with a `gitdir` pointer. The folder is moved
+ * out of the box's folder in one rename rather than removed: a recursive removal that leaves part
+ * of it behind (seen on CI's macOS runner) would leave a folder where the file must go.
+ */
+function gitdirFile(w: World): void {
+  renameSync(join(w.work, ".git"), mkdtempSync(join(w.repo.root, "box-git-")) + "/git");
+  writeFileSync(join(w.work, ".git"), "gitdir: /home/dipo/elsewhere\n");
+  expect(lstatSync(join(w.work, ".git")).isFile()).toBe(true);
+}
+
 /** git in the box's repository, as the worker would run it there. */
 function inBox(w: World, ...args: string[]): string {
   const ran = spawnSync("git", args, { cwd: w.work, env: w.repo.env, encoding: "utf8" });
@@ -492,8 +505,7 @@ describe("the box's own git repository and the parts (DIPO-346)", () => {
     [
       "a .git file with a gitdir pointer at the root, when the box's tar keeps it",
       (w: World) => {
-        rmSync(join(w.work, ".git"), { recursive: true, force: true });
-        write(w.work, { ".git": "gitdir: /home/dipo/elsewhere\n" });
+        gitdirFile(w);
       },
       "all",
       GIT_FOLDER_PARK,
@@ -518,11 +530,8 @@ describe("the box's own git repository and the parts (DIPO-346)", () => {
     inParts(
       async (w) => {
         initBoxRepo(w);
-        rmSync(join(w.work, ".git"), { recursive: true, force: true });
-        write(w.work, {
-          ".git": "gitdir: /home/dipo/elsewhere\n",
-          "src/a.ts": "export const a = 2;\n",
-        });
+        gitdirFile(w);
+        write(w.work, { "src/a.ts": "export const a = 2;\n" });
         await w.parts.onPart(part("Change a"));
         expect(w.parks).toEqual([]);
         expect(await pathsAt(w, await tip(w))).not.toContain(".git");
