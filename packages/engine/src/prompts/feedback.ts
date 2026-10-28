@@ -29,7 +29,6 @@ import reviewEvidenceTemplate from "./feedback/review-evidence.md" with { type: 
 import reviewFindingTemplate from "./feedback/review-finding.md" with { type: "text" };
 import reviewReportTemplate from "./feedback/review-report.md" with { type: "text" };
 import testPlanTemplate from "./feedback/test-plan.md" with { type: "text" };
-import verifyRunTemplate from "./feedback/verify-run.md" with { type: "text" };
 import { FEEDBACK_TEMPLATES, neutraliseTags, rendered, renderTemplate } from "./templates";
 
 /** The longest test-plan check a test-plan feedback line quotes, in characters. */
@@ -83,14 +82,6 @@ export function decisionNoteFeedback(
       )
       .join("\n"),
   });
-}
-
-/**
- * A box worker's done report with no run of the verify or test command after its last edit
- * (DIPO-186, 0021 amendment of 2026-10-22): the command to run, as the office's profile names it.
- */
-export function verifyRunFeedback(command: string): string {
-  return renderTemplate(verifyRunTemplate, { command: `\`${command}\`` });
 }
 
 /** The reviewer's correction turn for a report missing or invalid against its schema. */

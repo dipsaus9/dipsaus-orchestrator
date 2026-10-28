@@ -25,7 +25,6 @@ import type { LiveQuestions } from "./live-question";
 import type { RunAct, RunOutcomesPort, RunView } from "./outcome-types";
 import type { ParkOutcome, ParkWriter } from "./park";
 import type { StoredRun } from "./records";
-import type { ToolTrail } from "./report-data";
 import type { RunFinisher } from "./verify-commit";
 
 /** The error of `work.steer` for a story with no worker and no park (0005). */
@@ -146,11 +145,6 @@ export interface Tracked extends TrackedRun {
    * and no cap ends it while verify and commit run.
    */
   capped: FiredCap | null;
-  /**
-   * The worker's tool trail since run control began to follow it (DIPO-186): the shell commands
-   * after its last file edit, for the box run's verify-run check at done.
-   */
-  trail?: ToolTrail;
 }
 
 /** What ending a run does: the intent, the ops it sends and the park that follows. */

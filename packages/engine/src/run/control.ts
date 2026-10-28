@@ -26,8 +26,7 @@
 //   conflict cap parks `conflict` instead.
 // - Report data (DIPO-186). The proposals of every report, done or blocked, are stored for the
 //   maintainer (`storeProposals`, deduplicated by title and paths); storing them changes nothing
-//   about the story, the run or the commit. Each tool call with an effect (a file edit, a shell
-//   command) joins the run's tool trail, which verify and commit reads at done.
+//   about the story, the run or the commit.
 // - `story.park { story, note }` of a story with a run (`parkByMaintainer`, 0020). The engine
 //   records a `stop` intent, sends the stop sequence through the host (the adapter's `encode`: a
 //   now-priority message, stdin closed, SIGTERM after 10 s, SIGKILL after 30 s) and parks the
@@ -114,7 +113,7 @@ import { outcomeOfIntent, resolveIntent } from "./intents";
 import { initRejectedEnding, type RunAct, type RunEnder, startRefusedAct } from "./outcome-types";
 import { type ParkOutcome } from "./park";
 import { findRun, type StoredRun } from "./records";
-import { emptyTrail, followTool, storeProposals } from "./report-data";
+import { storeProposals } from "./report-data";
 
 export {
   CAP_TICK_MS,
@@ -347,9 +346,6 @@ export class RunControl implements RunEnder {
         });
       }
       if (event.t === "modelSwitched") outcomes?.onModelSwitched(viewOf(tracked), event.to);
-      if (event.t === "activity" && event.kind === "tool" && event.effect !== undefined) {
-        followTool((tracked.trail ??= emptyTrail()), event.effect, event.input);
-      }
       if (event.t === "turn" && (event.report?.proposals?.length ?? 0) > 0) {
         this.#storeProposals(tracked, event.report as WorkerReport);
       }

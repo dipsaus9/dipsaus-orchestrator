@@ -1683,15 +1683,14 @@ describe("a done report on the turn that crosses a cap, in a box run (DIPO-205, 
   });
 });
 
-// DIPO-186 (gap of the DIPO-301 box run): a box worker's done report with no run of the office's
-// verify or test command after its last edit is sent back once; and DIPO-259: the proposals of
-// every report are stored, and storing them changes nothing about the story, the run or the commit.
+// DIPO-259: the proposals of every report are stored, and storing them changes nothing about the
+// story, the run or the commit; and DIPO-346: dipo reads no tool call of the worker's to see
+// whether it ran verify.
 const shell = (input: string): WorkerEvent => ({
   t: "activity",
   kind: "tool",
   tool: "Bash",
   input,
-  effect: "shell",
 });
 
 function feedbackTexts(): string[] {
@@ -1718,7 +1717,6 @@ describe("a box run's report data at done (DIPO-186)", () => {
     kind: "tool",
     tool: "Edit",
     path: "/work/src/greet.ts",
-    effect: "edit",
   };
   const inReview = [
     "last part print a greeting",
@@ -1728,80 +1726,13 @@ describe("a box run's report data at done (DIPO-186)", () => {
     "story PR sync run",
   ];
 
-  it("sends a done after an edit with no verify run back once, then takes the next done to review", async () => {
-    await playEvents([shell("bun run verify"), edit, shell("ls src"), turn(DONE)]);
-    const texts = feedbackTexts();
-    expect(texts).toHaveLength(1);
-    expect(texts[0]).toContain(
-      "Your report says done, but no run of the project's verify or test command shows after your last file change. Run `bun run verify` in the box now",
-    );
-    expect(texts[0]).toContain("the failures that only the missing git program causes");
-    // Nothing was taken out of the box or moved to review.
-    expect(w.calls).toEqual([]);
-    expect(findRun(w.f.office, w.f.run)?.endedAt).toBeNull();
-    expect(parks()).toEqual([]);
-    // A refusal for the missing verify run alone is a loop too (0002).
-    expect(loopSteps()).toEqual([REPORT_GATE_LOOP]);
-    // Once per run: the next done without a run goes on.
-    await playEvents([edit, turn(DONE)]);
-    expect(feedbackTexts()).toHaveLength(1);
-    expect(w.calls).toEqual(inReview);
-    expectNoVerify();
-  });
-
-  it("takes a done to review at once when verify or the test script ran after the last edit", async () => {
-    await playEvents([edit, shell("bun run verify 2>&1 | tail -40"), turn(DONE)]);
+  // DIPO-346: dipo runs the verify itself, so it reads none of the worker's tool calls for one.
+  it("takes a done after an edit with no verify run of the worker's to its own verify, then to review", async () => {
+    await playEvents([shell("ls src"), edit, turn(DONE)]);
     expect(feedbackTexts()).toEqual([]);
+    expect(w.verified).toHaveLength(1);
     expect(w.calls).toEqual(inReview);
-  });
-
-  it("counts the branch's own test script as a run", async () => {
-    w.branchScripts = { verify: "bun run check", test: "bun test" };
-    await playEvents([edit, shell("bun test test/greet.test.ts"), turn(DONE)]);
-    expect(feedbackTexts()).toEqual([]);
-    expect(w.calls).toEqual(inReview);
-  });
-
-  it("names an office command off the root with cd, and counts the worker's own cd line as a run", async () => {
-    const base = profileOf({});
-    w.base = {
-      ...base,
-      capabilities: {
-        ...base.capabilities,
-        verify: { status: "resolved", value: { commands: [["bun", "test"]], cwd: "packages/app" } },
-      },
-    } as unknown as RunProfile;
-    w.branchScripts = {};
-    await playEvents([edit, turn(DONE)]);
-    expect(feedbackTexts()[0]).toContain("Run `cd packages/app && bun test` in the box now");
-    expect(feedbackTexts()[0]).not.toContain("(in packages/app)");
-  });
-
-  it("takes a done whose worker ran the off-root command with cd", async () => {
-    const base = profileOf({});
-    w.base = {
-      ...base,
-      capabilities: {
-        ...base.capabilities,
-        verify: { status: "resolved", value: { commands: [["bun", "test"]], cwd: "packages/app" } },
-      },
-    } as unknown as RunProfile;
-    w.branchScripts = {};
-    await playEvents([edit, shell("cd packages/app && bun test"), turn(DONE)]);
-    expect(feedbackTexts()).toEqual([]);
-    expect(w.calls).toEqual(inReview);
-  });
-
-  it("sends it back when the worker edited again after its verify run", async () => {
-    await playEvents([edit, shell("bun run verify"), edit, turn(DONE)]);
-    expect(feedbackTexts()).toHaveLength(1);
-    expect(w.calls).toEqual([]);
-  });
-
-  it("asks nothing of a worker that edited no file", async () => {
-    await playEvents([shell("cat README.md"), turn(DONE)]);
-    expect(feedbackTexts()).toEqual([]);
-    expect(w.calls).toEqual(inReview);
+    expect(loopSteps()).toEqual([]);
   });
 
   it("asks nothing of a run without a box, which parks at done (DIPO-240)", async () => {

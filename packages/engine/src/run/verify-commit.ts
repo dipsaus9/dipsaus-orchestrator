@@ -40,20 +40,19 @@
 //   reviewer place) and CI (the PR poll's watch of the pushed head) start together on that head
 //   (0019 section 7). Red CI goes back to the worker through the CI loop of 0019 section 8.
 //
-// The report gate (DIPO-186; 0014 and 0008 notes of 2026-10-20, 0021 amendment of 2026-10-22), for
-// every done report before the steps above: the report's test-plan entries and deviations are
-// stored for the run (`done_reports`). Then code checks three things, and one feedback item that
-// names each miss goes back to the worker, with no commit and the run going on:
+// The report gate (DIPO-186; 0002, 0014), for every done report before the steps above: the
+// report's test-plan entries and deviations are stored for the run (`done_reports`). Then code
+// checks two things, and one feedback item that names each miss goes back to the worker, with no
+// commit and the run going on:
 // - an automated entry of the story's test plan (read on the office base) that the report does not
 //   mark done, or gives no entry; every such report is refused, manual entries never block, and a
 //   story without a test plan is unchanged;
 // - a decision note whose file is missing at the story branch, or holds no section with that
 //   heading; sent back once per file and section, then left out. Each note that passes is stored in
-//   `decision_notes` with its story and run, also from a report that ends the run (`summarize`);
-// - a worker that edited a file and ran no verify or test command of the office's profile after
-//   its last edit (the turn's tool trail); sent back once per run.
+//   `decision_notes` with its story and run, also from a report that ends the run (`summarize`).
+// dipo reads none of the worker's tool calls to see whether it ran verify: dipo runs it (DIPO-346).
 // A done turn that crossed a cap has no turn left: its test-plan miss parks `budget-exceeded`,
-// and the two send-once checks are skipped. Each refusal is one loop (a `loop` step), the cap 0002
+// and the send-once check is skipped. Each refusal is one loop (a `loop` step), the cap 0002
 // gives the report gate; the refusal that reaches the run's loop cap parks `verify-failing`.
 
 import {
@@ -71,12 +70,7 @@ import { TASK_FIELD_ERROR } from "../backlog/runner";
 import type { NewEntry } from "../changelog/log";
 import type { OfficeHandle } from "../db/office";
 import { GitError } from "../git/runner";
-import {
-  decisionNoteFeedback,
-  testPlanFeedback,
-  verifyFeedback,
-  verifyRunFeedback,
-} from "../prompts/feedback";
+import { decisionNoteFeedback, testPlanFeedback, verifyFeedback } from "../prompts/feedback";
 import { shownSpec } from "../scan/diff";
 import type { CapabilityName, RunProfile } from "../scan/detect";
 import { LOCKFILES, parseManifest } from "../scan/detect/manifest";
@@ -107,13 +101,11 @@ import {
   type NoteMiss,
   noteMiss,
   noteSignature,
-  ranCheckAfterEdit,
   recordSendBack,
   sentBack,
   storeDecisionNotes,
   storeDoneReport,
   testPlanGaps,
-  type ToolTrail,
 } from "./report-data";
 import type { StoryGit } from "./story-git";
 import { storeRunSummary } from "./verify-records";
@@ -259,11 +251,6 @@ export interface TurnContext {
   readonly write: (fn: () => readonly NewEntry[]) => void;
   /** Writes the worker's pending `work.output` before a state change. */
   readonly flushOutput: () => void;
-  /**
-   * The worker's tool trail as of this turn (DIPO-186): its shell commands after its last file
-   * edit. Absent or null when run control did not follow the session from its start.
-   */
-  readonly trail?: ToolTrail | null;
 }
 
 /** The story facts the report gate reads on the office base (`baseStoryFacts`, DIPO-186). */
@@ -361,8 +348,7 @@ export class VerifyCommit implements RunFinisher {
       };
     }
     const report = ctx.report;
-    // The report gate (DIPO-186): stored, then its test plan, decision notes and a verify run
-    // after the last edit.
+    // The report gate (DIPO-186): stored, then its test plan and decision notes.
     const gate = await this.#reportGate(ctx, report);
     if (gate !== null || !ctx.live()) return gate ?? { kind: "continue" };
     return this.#boxDone(ctx, report);
@@ -370,9 +356,8 @@ export class VerifyCommit implements RunFinisher {
 
   /**
    * The report gate of a done report (DIPO-186): stores its test-plan entries and deviations, then
-   * checks its test plan, its decision notes and that a verify or test command ran after the last
-   * edit (every run is a box run, DIPO-240). Null when the report goes on; else the one feedback item, or the park of
-   * a capped turn.
+   * checks its test plan and its decision notes. Null when the report goes on; else the one
+   * feedback item, or the park of a capped turn.
    */
   async #reportGate(ctx: TurnContext, report: WorkerReport): Promise<TurnDecision | null> {
     const { run } = ctx;
@@ -427,16 +412,6 @@ export class VerifyCommit implements RunFinisher {
       );
     }
 
-    // A box worker that edited after its last verify or test run gets one turn to run it.
-    const unchecked =
-      ctx.capped == null &&
-      ctx.trail != null &&
-      ctx.trail.edited &&
-      !sentBack(office, run.runId, "verify-run", VERIFY_RUN_SIGNATURE)
-        ? await this.#uncheckedCommand(ctx, ctx.trail)
-        : null;
-    if (unchecked !== null) items.push(verifyRunFeedback(unchecked));
-
     if (items.length === 0) return null;
     return this.#loop(ctx, {
       step: REPORT_GATE_LOOP,
@@ -445,9 +420,6 @@ export class VerifyCommit implements RunFinisher {
       record: () => {
         for (const miss of misses) {
           recordSendBack(office, run.runId, "decision-note", noteSignature(miss.note), at);
-        }
-        if (unchecked !== null) {
-          recordSendBack(office, run.runId, "verify-run", VERIFY_RUN_SIGNATURE, at);
         }
       },
     });
@@ -540,35 +512,6 @@ export class VerifyCommit implements RunFinisher {
       items: [text],
       feedback: "verify feedback",
     });
-  }
-
-  /**
-   * The command a box worker is sent back to run, or null when its trail shows one ran after its
-   * last edit or the office names none (DIPO-186): the profile's verify and test commands, and the
-   * root `package.json` scripts `verify` and `test` of the story branch as written there.
-   */
-  async #uncheckedCommand(ctx: TurnContext, trail: ToolTrail): Promise<string | null> {
-    const { run } = ctx;
-    const commands = checkCommands(this.#deps.profile(ctx.office));
-    if (run.branch !== null && run.worktree !== null) {
-      const scripts = scriptsOf(
-        await this.#deps.story
-          .showAt(ctx.office.officeId, run.worktree, `refs/heads/${run.branch}`, "package.json")
-          .catch(() => null),
-      );
-      for (const name of ["verify", "test"]) {
-        const script = scripts[name]?.trim();
-        if (script !== undefined && script !== "") commands.push({ text: script, cwd: "." });
-      }
-    }
-    const first = commands[0];
-    if (first === undefined) return null;
-    return ranCheckAfterEdit(
-      trail,
-      commands.map((command) => command.text),
-    )
-      ? null
-      : runnableCommand(first);
   }
 
   /**
@@ -959,41 +902,4 @@ export const VERIFY_IN_BOX_INTRO =
 function codeOf(error: unknown): string {
   const code = (error as { code?: unknown } | null)?.code;
   return typeof code === "string" ? code : "error";
-}
-
-/** The send-once signature of the verify-run check: once per run. */
-const VERIFY_RUN_SIGNATURE = "run";
-
-/** A verify or test command of the office (DIPO-186): its bare text and the folder it runs in. */
-export interface CheckCommand {
-  /** The command as typed, without its folder, for matching a shell line. */
-  readonly text: string;
-  /** Repo-relative folder; `.` for the root. */
-  readonly cwd: string;
-}
-
-/**
- * The office's verify and test commands as a worker would type them (DIPO-186), verify first; one
- * per command of each resolved capability. Empty when the profile resolves neither.
- */
-export function checkCommands(profile: RunProfile | null): CheckCommand[] {
-  const found: CheckCommand[] = [];
-  for (const name of ["verify", "test"] as const) {
-    const capability = profile?.capabilities[name];
-    if (capability?.status !== "resolved") continue;
-    for (const command of capability.value.commands) {
-      if (command.length === 0) continue;
-      const text = shownSpec({ commands: [command], cwd: "." });
-      const cwd = capability.value.cwd;
-      if (!found.some((seen) => seen.text === text && seen.cwd === cwd)) found.push({ text, cwd });
-    }
-  }
-  return found;
-}
-
-/** Pure: a check command as the worker runs it from the root: `cd <dir> && <cmd>` off the root. */
-export function runnableCommand(command: CheckCommand): string {
-  return command.cwd === "." || command.cwd === ""
-    ? command.text
-    : `cd ${command.cwd} && ${command.text}`;
 }
