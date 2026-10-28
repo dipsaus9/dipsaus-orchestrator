@@ -196,7 +196,7 @@ beforeEach(async () => {
         ? { pid, startTimeMs: HOST_START, zombie: false, command: "dipo daemon worker-host" }
         : null,
   });
-  const resume = new WorkResumeCommand(undefined, () => planning);
+  const resume = new WorkResumeCommand(() => planning);
   const registry = buildRegistry([planning.feature, resume.feature as FeatureModule]);
   w = { dir, t, office, ops, flushes, closed, planning, registry, hooks };
 });

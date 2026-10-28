@@ -24,7 +24,6 @@ import { workerHostsOf } from "../runs/worker-hosts";
 
 import { type RunControlDeps, STORY_NOT_RUNNING } from "./control-types";
 import { findSteer, sendFeedback } from "./feedback";
-import { openWait } from "./outcome-types";
 import { openPark } from "./park";
 import { placeOfRun } from "./places";
 import { activeRuns, type StoredRun } from "./records";
@@ -165,13 +164,9 @@ export function hasLiveSession(office: OfficeHandle, runId: string): boolean {
 }
 
 /**
- * True when the run has no session to send to now: it waits for its place or a plan
- * limit, or its worker exited and the next session has not started.
+ * True when the run has no session to send to now: it waits for its place, or its worker exited
+ * and the next session has not started.
  */
 function standsStill(office: OfficeHandle, run: StoredRun): boolean {
-  return (
-    run.waiting != null ||
-    openWait(office, run.runId) !== null ||
-    !hasLiveSession(office, run.runId)
-  );
+  return run.waiting != null || !hasLiveSession(office, run.runId);
 }

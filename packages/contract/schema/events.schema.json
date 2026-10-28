@@ -822,16 +822,7 @@
               "anyOf": [
                 {
                   "type": "string",
-                  "enum": [
-                    "lost",
-                    "asking",
-                    "limited",
-                    "paused",
-                    "looping",
-                    "stuck",
-                    "quiet",
-                    "busy"
-                  ]
+                  "enum": ["lost", "asking", "looping", "stuck", "quiet", "busy"]
                 },
                 {
                   "type": "string"
@@ -852,7 +843,6 @@
                           "no-output",
                           "same-failure",
                           "input-wait",
-                          "plan-limit",
                           "host-lost",
                           "follow-only"
                         ]
@@ -1228,16 +1218,7 @@
               "anyOf": [
                 {
                   "type": "string",
-                  "enum": [
-                    "lost",
-                    "asking",
-                    "limited",
-                    "paused",
-                    "looping",
-                    "stuck",
-                    "quiet",
-                    "busy"
-                  ]
+                  "enum": ["lost", "asking", "looping", "stuck", "quiet", "busy"]
                 },
                 {
                   "type": "string"
@@ -1258,7 +1239,6 @@
                           "no-output",
                           "same-failure",
                           "input-wait",
-                          "plan-limit",
                           "host-lost",
                           "follow-only"
                         ]
@@ -1623,16 +1603,7 @@
               "anyOf": [
                 {
                   "type": "string",
-                  "enum": [
-                    "lost",
-                    "asking",
-                    "limited",
-                    "paused",
-                    "looping",
-                    "stuck",
-                    "quiet",
-                    "busy"
-                  ]
+                  "enum": ["lost", "asking", "looping", "stuck", "quiet", "busy"]
                 },
                 {
                   "type": "string"
@@ -1653,7 +1624,6 @@
                           "no-output",
                           "same-failure",
                           "input-wait",
-                          "plan-limit",
                           "host-lost",
                           "follow-only"
                         ]
@@ -2029,16 +1999,7 @@
               "anyOf": [
                 {
                   "type": "string",
-                  "enum": [
-                    "lost",
-                    "asking",
-                    "limited",
-                    "paused",
-                    "looping",
-                    "stuck",
-                    "quiet",
-                    "busy"
-                  ]
+                  "enum": ["lost", "asking", "looping", "stuck", "quiet", "busy"]
                 },
                 {
                   "type": "string"
@@ -2059,7 +2020,6 @@
                           "no-output",
                           "same-failure",
                           "input-wait",
-                          "plan-limit",
                           "host-lost",
                           "follow-only"
                         ]
@@ -2156,7 +2116,6 @@
                 "no-output",
                 "same-failure",
                 "input-wait",
-                "plan-limit",
                 "host-lost",
                 "follow-only"
               ]
@@ -2408,16 +2367,7 @@
               "anyOf": [
                 {
                   "type": "string",
-                  "enum": [
-                    "lost",
-                    "asking",
-                    "limited",
-                    "paused",
-                    "looping",
-                    "stuck",
-                    "quiet",
-                    "busy"
-                  ]
+                  "enum": ["lost", "asking", "looping", "stuck", "quiet", "busy"]
                 },
                 {
                   "type": "string"
@@ -2438,7 +2388,6 @@
                           "no-output",
                           "same-failure",
                           "input-wait",
-                          "plan-limit",
                           "host-lost",
                           "follow-only"
                         ]
@@ -2880,16 +2829,7 @@
               "anyOf": [
                 {
                   "type": "string",
-                  "enum": [
-                    "lost",
-                    "asking",
-                    "limited",
-                    "paused",
-                    "looping",
-                    "stuck",
-                    "quiet",
-                    "busy"
-                  ]
+                  "enum": ["lost", "asking", "looping", "stuck", "quiet", "busy"]
                 },
                 {
                   "type": "string"
@@ -2910,7 +2850,6 @@
                           "no-output",
                           "same-failure",
                           "input-wait",
-                          "plan-limit",
                           "host-lost",
                           "follow-only"
                         ]

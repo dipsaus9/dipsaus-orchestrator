@@ -111,7 +111,7 @@ async function withRunOffice(
           if (git === undefined) throw new Error("no git");
           return officeStatusesReady(git);
         },
-        adapterHeld: () => null,
+        startsPaused: () => null,
         claims,
         gates,
         lane: (office) => lane.forOffice(office),

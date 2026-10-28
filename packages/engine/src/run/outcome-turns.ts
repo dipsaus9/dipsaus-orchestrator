@@ -2,11 +2,6 @@
 // `outcomes.ts` by DIPO-128): a turn's problem, the report feedback, a rejected plan limit and a
 // classifier switch.
 
-import type { RunId, WorkRef } from "@dipsaus-orchestrator/contract";
-
-import type { NewEntry } from "../changelog/log";
-import type { OfficeHandle } from "../db/office";
-import type { AdapterHold } from "../workers/hold";
 import type { HostOp, TurnProblem } from "../workers/types";
 
 import { sendFeedback } from "./feedback";
@@ -17,14 +12,13 @@ import {
   OUTCOME_ENDS,
   OUTCOME_NOTICES,
   type PlanLimitHit,
-  type PlanLimitWarning,
+  planLimitEnding,
   REASSIGN_SIGTERM_AFTER_MS,
   reportFeedbackText,
   type RunOutcomesDeps,
   type RunView,
-  type WaitFact,
 } from "./outcome-types";
-import { raiseSignal } from "./signals";
+import { planLimitPause } from "./starts-paused";
 
 export class TurnOutcomes {
   readonly #s: OutcomeSupport;
@@ -132,68 +126,22 @@ export class TurnOutcomes {
     });
   }
 
+  /**
+   * A rejected plan limit (0020): the office's starts pause, and the session ends with its story
+   * parked `worker-failed` ("plan limit until <time>"), which resumes by itself when the pause lifts.
+   */
   onPlanLimit(view: RunView, limit: PlanLimitHit): void {
-    const office = this.#deps.offices.get(view.office);
-    if (office === undefined) return;
-    const since = this.#deps.clock.now();
-    const fact: WaitFact = {
-      scope: limit.credits ? "credits" : (limit.scope ?? "unknown"),
-      ...(limit.resetsAt === undefined || limit.credits ? {} : { resetsAt: limit.resetsAt }),
-      since,
-    };
-    const acted = this.#deps.ender().act(view.runId, {
-      intent: "pause",
-      detail: `${INTENT_TAGS.planLimit} ${JSON.stringify(fact)}`,
-      ops: [{ closeStdin: true }],
-    });
-    if (!acted) return;
-    this.hold(office, view.runId, view.work, fact);
-  }
-
-  onPlanWarning(view: RunView, warning: PlanLimitWarning): void {
-    this.#deps.waits?.()?.warned(view.office, warning);
-  }
-
-  /** The signal, `work.observed plan-limit` and, for credits, the adapter hold and a notice. */
-  hold(office: OfficeHandle, runId: RunId, work: WorkRef, fact: WaitFact): void {
-    let held: AdapterHold | null = null;
-    if (fact.scope === "credits") {
-      held =
-        this.#deps.holds?.hold(this.#deps.worker.id, [
-          {
-            check: "credits",
-            detail:
-              "the plan reports credits_required, so no run can use it until the plan is dealt with",
-          },
-        ]) ?? null;
-    }
-    this.#s.write(office, () => {
-      const raised = raiseSignal(office, runId, "plan-limit", fact.since);
-      const entries: NewEntry[] = [];
-      if (raised !== null) {
-        entries.push({
-          type: "work.observed",
-          key: work.key,
-          run: runId,
-          delta: { work, signal: "plan-limit", since: new Date(fact.since).toISOString() },
-        });
-      }
-      if (fact.scope === "credits") {
-        entries.push({
-          type: "engine.notice",
-          key: work.key,
-          run: runId,
-          delta: {
-            level: "warn",
-            code: OUTCOME_NOTICES.planLimit,
-            text: `${work.story}: the plan needs credits; dipo holds the run with its session kept${held === null ? "" : " and holds new runs on the adapter"}. Deal with the plan, then resume the story.`,
-          },
-        });
-      }
-      return entries;
-    });
-    // The schedule holds the scope and resumes the run after the reset (DIPO-61).
-    this.#deps.waits?.()?.waiting(office.officeId, runId, fact);
+    const pause = planLimitPause(limit, this.#deps.clock.now());
+    this.#deps.startsPaused?.()?.pausePlanLimit(view.office, pause);
+    this.#deps
+      .ender()
+      .begin(
+        view.runId,
+        planLimitEnding(pause, [
+          { closeStdin: true },
+          { signal: "SIGTERM", afterMs: REASSIGN_SIGTERM_AFTER_MS },
+        ]),
+      );
   }
 
   onModelSwitched(view: RunView, model: string): void {

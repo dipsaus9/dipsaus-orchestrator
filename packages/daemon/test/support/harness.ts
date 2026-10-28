@@ -135,6 +135,8 @@ export interface HarnessOptions {
   readonly features?: readonly FeatureModule[];
   /** Office summaries from the state database (DIPO-52); none by default. */
   readonly officeSummaries?: boolean;
+  /** What `daemon.resumeScheduling` lifts of the offices' starts paused (0020); none by default. */
+  readonly liftStartsPaused?: (why: string) => number;
 }
 
 export async function startHarness(dir: string, options: HarnessOptions = {}): Promise<Harness> {
@@ -176,6 +178,9 @@ export async function startHarness(dir: string, options: HarnessOptions = {}): P
       tools: options.tools ?? {},
       upgradePending: () => upgrade.pending,
       loadedOffices: () => [],
+      ...(options.liftStartsPaused === undefined
+        ? {}
+        : { liftStartsPaused: options.liftStartsPaused }),
       requestStop: (request) => stops.push(request),
     }),
     fixtureFeature,

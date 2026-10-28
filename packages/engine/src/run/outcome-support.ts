@@ -111,9 +111,6 @@ export class OutcomeSupport {
   }
 
   outcomeOf(intent: StoredIntent): string {
-    if (intent.kind === "pause" && intentTag(intent.detail) === INTENT_TAGS.planLimit) {
-      return "plan-limit";
-    }
     if (intent.kind === "stop" && intentTag(intent.detail) === INTENT_TAGS.initRejected) {
       return "initRejected";
     }

@@ -3,7 +3,7 @@
   "source": "derived",
   "claude_code_version": "2.1.296",
   "captured_at": "2026-10-12",
-  "expected": "Outcome plan-limit: stdin closed, a wait fact { scope, resetsAt?, since } on the run, work.observed plan-limit (health limited); never a park (0008 section 7).",
+  "expected": "Outcome plan-limit: stdin closed; the engine pauses the office's starts until two minutes after resetsAt and the story waits parked as worker-failed (\"plan limit until <resetsAt>\"), resumed by itself when the pause lifts (0020).",
   "usage_checksum": "3791c798325b7e8029f923def0a32aa17c23e61ce2d4ea500a5e899da4a98a67",
   "derivedFrom": "success-single",
   "transform": "The first rate_limit_event becomes status \"rejected\" (five_hour, its resetsAt kept); the stream ends after it with exit 0, as when the engine closes stdin.",

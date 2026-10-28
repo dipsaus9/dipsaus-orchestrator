@@ -1,4 +1,4 @@
-// Migration 59 (DIPO-361): every message dipo sends a developer session is one `steer` intent of
+// Migration 60 (DIPO-361): every message dipo sends a developer session is one `steer` intent of
 // the one feedback path (0002), with the detail `feedback <source> <key> <text>`, where `text` is
 // the message as the worker reads it. The three tags it replaces become it:
 //
@@ -16,7 +16,7 @@
 import type { SqlMigration } from "../migrations";
 
 export const oneFeedbackTag: SqlMigration = {
-  version: 59,
+  version: 60,
   name: "one feedback tag",
   sql: `
 update run_intents

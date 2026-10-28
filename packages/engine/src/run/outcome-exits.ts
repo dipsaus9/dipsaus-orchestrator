@@ -10,10 +10,9 @@ import type { HostOp } from "../workers/types";
 import { runCaps } from "./caps";
 import type { RunEnding } from "./control-types";
 import { sendFeedback } from "./feedback";
-import { recordIntent, resolveIntent, type StoredIntent } from "./intents";
+import { resolveIntent, type StoredIntent } from "./intents";
 import type { OutcomeSupport } from "./outcome-support";
 import type { SessionStarts } from "./outcome-sessions";
-import type { TurnOutcomes } from "./outcome-turns";
 import {
   type ExitContext,
   HOST_LOST_END,
@@ -24,27 +23,26 @@ import {
   intentTag,
   type HostLostContext,
   OUTCOME_ENDS,
+  planLimitEnding,
   reportFeedbackText,
   type RunOutcomesDeps,
   type RunView,
-  type WaitFact,
 } from "./outcome-types";
 import { findRun, type StoredRun } from "./records";
 import { raiseSignal } from "./signals";
+import { planLimitPause } from "./starts-paused";
 
 export class ExitOutcomes {
   readonly #s: OutcomeSupport;
   readonly #deps: RunOutcomesDeps;
   readonly #guard: OutcomeSupport["guard"];
   readonly #sessions: SessionStarts;
-  readonly #turns: TurnOutcomes;
 
-  constructor(support: OutcomeSupport, sessions: SessionStarts, turns: TurnOutcomes) {
+  constructor(support: OutcomeSupport, sessions: SessionStarts) {
     this.#s = support;
     this.#deps = support.deps;
     this.#guard = support.guard;
     this.#sessions = sessions;
-    this.#turns = turns;
   }
 
   async onExit(exit: ExitContext): Promise<void> {
@@ -249,11 +247,6 @@ export class ExitOutcomes {
       });
       return;
     }
-    if (intent.kind === "pause" && tag === INTENT_TAGS.planLimit) {
-      // The run waits for the reset with its claim and session (DIPO-61 resumes it).
-      this.#s.resolve(office, view.runId, intent, "plan-limit", at);
-      return;
-    }
     if (intent.kind === "stop" && tag === INTENT_TAGS.startFailed) {
       this.#s.resolve(office, view.runId, intent, "startFailed", at);
       await this.#sessions.startFailed(office, run, view.work, intentRest(intent.detail), null);
@@ -289,20 +282,10 @@ export class ExitOutcomes {
         );
         return;
       case "plan-limit": {
-        const fact: WaitFact = { scope: "unknown", since: this.#deps.clock.now() };
-        const intentId = office.immediate(() =>
-          recordIntent(
-            office,
-            run.runId,
-            "pause",
-            `${INTENT_TAGS.planLimit} ${JSON.stringify(fact)}`,
-            fact.since,
-          ),
-        );
-        office.immediate(() =>
-          resolveIntent(office, run.runId, intentId, "plan-limit", fact.since),
-        );
-        this.#turns.hold(office, run.runId, view.work, fact);
+        // An exit the adapter reads as a plan limit, with no event that named its reset (0020).
+        const pause = planLimitPause({ credits: false }, this.#deps.clock.now());
+        this.#deps.startsPaused?.()?.pausePlanLimit(view.office, pause);
+        await park(planLimitEnding(pause, []));
         return;
       }
       case "capped":

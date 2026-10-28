@@ -51,9 +51,22 @@ export const DESK_EVENTS: ReadonlySet<string> = new Set([
   "work.phase",
 ]);
 
-/** True when `event` can change the desk: a desk event, or a story leaving Parked. */
+/** The `engine.notice` codes of the office's starts paused and its lift (0020, DIPO-359). */
+export const DESK_NOTICES: ReadonlySet<string> = new Set([
+  "office.startsPaused",
+  "office.startsLifted",
+]);
+
+/**
+ * True when `event` can change the desk: a desk event, the office's starts paused or lifted, or a
+ * story leaving Parked.
+ */
 export function changesDesk(event: Event): boolean {
   if (DESK_EVENTS.has(event.type)) return true;
+  if (event.type === "engine.notice") {
+    const code = (event.data as { code?: unknown }).code;
+    return typeof code === "string" && DESK_NOTICES.has(code);
+  }
   if (event.type !== "story.state") return false;
   const data = event.data as { from?: unknown; to?: unknown };
   return data.from === "Parked" && data.to !== "Parked";

@@ -501,6 +501,11 @@ export interface ParkRequest {
    * unless an open question of the run carries over to it.
    */
   readonly question?: string;
+  /**
+   * A park a plan limit made (0020): dipo resumes it by itself when the office's starts paused
+   * lifts (`parks.resume_on_lift`, `starts-paused.ts`).
+   */
+  readonly resumeOnLift?: boolean;
 }
 
 export interface ParkOutcome {
@@ -612,14 +617,28 @@ export async function parkStory(deps: ParkDeps, request: ParkRequest): Promise<P
   const from: Lifecycle = branch?.from ?? "In Progress";
   const lastGoodCommit = branch?.lastGoodCommit ?? null;
   const at = deps.now();
+  // Only the park the plan limit asked for resumes by itself, not one a tampered worktree turned
+  // into `scope-violation`.
+  const resumeOnLift = request.resumeOnLift === true && reason === request.reason ? 1 : 0;
   deps.write(() => {
     const office = deps.office;
     office.run(
       `insert into parks (office_id, park_id, key, story_id, run_id, reason, from_state, detail,
-         last_good_commit, at)
+         last_good_commit, at, resume_on_lift)
        values ($office_id, (select coalesce(max(park_id), 0) + 1 from parks
-         where office_id = $office_id), $key, $story, $run, $reason, $from, $detail, $commit, $at)`,
-      { key, story, run: run.runId, reason, from, detail, commit: lastGoodCommit, at },
+         where office_id = $office_id), $key, $story, $run, $reason, $from, $detail, $commit, $at,
+         $resumeOnLift)`,
+      {
+        key,
+        story,
+        run: run.runId,
+        reason,
+        from,
+        detail,
+        commit: lastGoodCommit,
+        at,
+        resumeOnLift,
+      },
     );
     if (request.capStep !== undefined) appendRunStep(office, run.runId, "cap", request.capStep, at);
     // The park commit's push, on the claim like every story-branch push (DIPO-315).

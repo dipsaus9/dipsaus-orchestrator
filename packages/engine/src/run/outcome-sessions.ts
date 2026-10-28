@@ -1,7 +1,7 @@
 // Starting the next session of a run, and the start failure that cannot (DIPO-51, split out of
 // `outcomes.ts` by DIPO-128).
 
-import type { AgentId, WatchdogSignal, WorkRef } from "@dipsaus-orchestrator/contract";
+import type { AgentId, WorkRef } from "@dipsaus-orchestrator/contract";
 
 import { FEEDBACK_TEMPLATES, renderTemplate } from "../prompts/templates";
 import { holdMessage, type AdapterHold } from "../workers/hold";
@@ -13,6 +13,7 @@ import {
   messageOf,
   OUTCOME_ENDS,
   OUTCOME_NOTICES,
+  planLimitEnding,
   type RunOutcomesDeps,
   type RunView,
 } from "./outcome-types";
@@ -32,7 +33,12 @@ export class SessionStarts {
     this.#deps = support.deps;
   }
 
-  /** Starts the next session; a session that cannot start parks or releases the story. */
+  /**
+   * Starts the next session; a session that cannot start parks or releases the story. While the
+   * office's starts are paused (0020) no session starts: under a plan limit the story parks
+   * `worker-failed` with the pause's detail, to resume by itself when the pause lifts; under a
+   * failed adapter check it goes the start failure's way.
+   */
   async next(
     office: OfficeHandle,
     run: StoredRun,
@@ -48,11 +54,20 @@ export class SessionStarts {
       readonly note?: string;
       /** Only a resume will do; a session that cannot be resumed parks `worker-failed` (DIPO-57). */
       readonly requireResume?: boolean;
-      readonly clear?: readonly WatchdogSignal[];
       /** Runs in the transaction that records the new agent (`NextSessionRequest.inRecord`). */
       readonly inRecord?: (agent: AgentId, at: number) => void;
     },
   ): Promise<boolean> {
+    const paused = this.#deps.startsPaused?.()?.state(view.office) ?? null;
+    if (paused?.reason === "plan-limit") {
+      const pause = { detail: paused.detail, since: paused.since, until: paused.until };
+      await this.#s.park(office, run, view.work, planLimitEnding(pause, []));
+      return false;
+    }
+    if (paused?.reason === "adapter" && paused.hold !== undefined) {
+      await this.startFailed(office, run, view.work, holdMessage(paused.hold), paused.hold);
+      return false;
+    }
     const resumer = this.#deps.resumer;
     if (resumer === undefined) {
       await this.#s.park(office, run, view.work, {
@@ -95,7 +110,6 @@ export class SessionStarts {
         // With a note the steers that waited go after it (`NextSessionRequest.held`).
         ...(note === undefined ? {} : { note, held: held.texts }),
         ...(request.requireResume === true ? { requireResume: true } : {}),
-        ...(request.clear === undefined ? {} : { clear: request.clear }),
         ...(request.inRecord === undefined ? {} : { inRecord: request.inRecord }),
         caps: view.caps,
         startedAt: view.startedAt,
