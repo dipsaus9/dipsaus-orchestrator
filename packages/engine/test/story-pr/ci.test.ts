@@ -1,7 +1,7 @@
 // CI on the story PR (DIPO-147 test plan): the required checks of the pushed head are read by the
 // PR poll, a final head is not read again, a stuck head raises one ci.stuck and slows down, a
 // failed job becomes one CI item with its tail, locations and signature, the body's status block
-// lists each check, and the red head that reaches the run's CI cap parks the story with cause ci.
+// lists each check, and the red head that reaches the run's CI cap parks the story verify-failing.
 // For a box run (DIPO-299) CI is the verify: red CI takes the same loop, and a head the host
 // reports no check for at all is final with no CI after the bounded wait.
 
@@ -111,7 +111,6 @@ class CiHost implements CodeHost, PrReviewHost {
     return this.pr("main", BRANCH, "t");
   }
   async closePr(): Promise<void> {}
-  async squashMerge(): Promise<void> {}
   async requiredChecks(): Promise<RequiredCheck[]> {
     this.calls.push("requiredChecks");
     return this.required;
@@ -155,6 +154,10 @@ interface World {
   prs: StoryPrs;
   /** How many more park writes fail, and what the engine logged. */
   failParks: number;
+  /** The checks the base requires on GitHub; ci-ok and pr-title by default. */
+  requiredNames: string[];
+  /** When set, reading the base's required checks fails with it. */
+  namesError: Error | null;
   readonly logged: { level: string; message: string }[];
   /** A new poller on the same database, as after a daemon restart. */
   restart(): void;
@@ -261,6 +264,13 @@ async function inWorld(
         clock: t.clock,
         logger,
         boxRun: () => setup.box === true,
+        // The base requires ci-ok and pr-title on GitHub unless a test says otherwise.
+        required: {
+          requiredCheckNames: async () => {
+            if (world.namesError !== null) throw world.namesError;
+            return [...world.requiredNames];
+          },
+        },
       });
     const world: World = {
       facts: FACTS,
@@ -272,6 +282,8 @@ async function inWorld(
       office,
       t,
       failParks: 0,
+      requiredNames: ["ci-ok", "pr-title"],
+      namesError: null,
       logged,
       restart: () => {
         world.prs.stop();
@@ -292,9 +304,7 @@ const notices = (office: OfficeHandle, code: string) =>
     (event) => event.type === "engine.notice" && (event.data as { code: string }).code === code,
   );
 const parked = (office: OfficeHandle) =>
-  office.all<{ reason: string; cause: string }>(
-    "select reason, cause from parks where office_id = $office_id",
-  );
+  office.all<{ reason: string }>("select reason from parks where office_id = $office_id");
 
 /** Opens the PR, then pushes a new head the way an In Review push does. */
 async function pushHead(w: World, head: string): Promise<void> {
@@ -339,20 +349,26 @@ describe("the story PR body status block", () => {
       await w.prs.sync(id, w.run);
       expect(w.host.updates).toHaveLength(0);
       await w.prs.retry(id);
-      // Nothing was reported: both checks stay pending, so the body is the same.
-      expect(w.host.updates).toHaveLength(0);
+      // The first poll reads the checks the base requires on GitHub: both pending.
+      expect(w.host.updates).toHaveLength(1);
+      expect(w.host.updates[0]?.body).toContain(
+        "- required checks: `ci-ok` pending, `pr-title` pending\n",
+      );
+      await w.prs.retry(id);
+      // Nothing new was reported: the body is the same.
+      expect(w.host.updates).toHaveLength(1);
 
       w.host.required = [report("ci-ok", "pass"), report("pr-title", "pending")];
       await w.prs.retry(id);
-      expect(w.host.updates).toHaveLength(1);
-      expect(w.host.updates[0]?.body).toContain(
+      expect(w.host.updates).toHaveLength(2);
+      expect(w.host.updates[1]?.body).toContain(
         "- required checks: `ci-ok` pass, `pr-title` pending\n",
       );
 
       w.host.required = [report("ci-ok", "pass"), report("pr-title", "pass")];
       await w.prs.retry(id);
-      expect(w.host.updates).toHaveLength(2);
-      expect(w.host.updates[1]?.body).toContain("`ci-ok` pass, `pr-title` pass");
+      expect(w.host.updates).toHaveLength(3);
+      expect(w.host.updates[2]?.body).toContain("`ci-ok` pass, `pr-title` pass");
     });
   });
 });
@@ -573,7 +589,7 @@ describe("the CI watch after a restart and a failing park", () => {
         expect(parked(w.office)).toEqual([]);
 
         await w.prs.retry(id);
-        expect(parked(w.office)).toEqual([{ reason: "verify-failing", cause: "ci" }]);
+        expect(parked(w.office)).toEqual([{ reason: "verify-failing" }]);
         expect(runSteps(w.office, w.run).filter((s) => s.kind === "ci")).toHaveLength(1);
       },
       { ciCap: 1 },
@@ -582,7 +598,7 @@ describe("the CI watch after a restart and a failing park", () => {
 });
 
 describe("the run's CI cap", () => {
-  it("parks verify-failing with cause ci at the second red head with a cap of 2", async () => {
+  it("parks verify-failing at the second red head with a cap of 2", async () => {
     await inWorld(async (w) => {
       const id = w.office.officeId;
       await w.prs.sync(id, w.run);
@@ -597,7 +613,7 @@ describe("the run's CI cap", () => {
       await w.prs.retry(id);
       const steps = runSteps(w.office, w.run).filter((s) => s.kind === "ci");
       expect(steps.map((s) => s.value)).toEqual([HEAD_A, HEAD_B]);
-      expect(parked(w.office)).toEqual([{ reason: "verify-failing", cause: "ci" }]);
+      expect(parked(w.office)).toEqual([{ reason: "verify-failing" }]);
       expect(w.parks).toHaveLength(1);
       expect(w.parks[0]?.reason).toBe("verify-failing");
       // A later poll neither counts the head again nor parks again.
@@ -607,12 +623,12 @@ describe("the run's CI cap", () => {
     });
   });
 
-  it("parks at the third red head with one ciAttempt grant", async () => {
+  it("parks at the third red head with one CI attempt round grant", async () => {
     await inWorld(async (w) => {
       const id = w.office.officeId;
       recordGrant(w.office, w.run, {
-        kind: "ciAttempt",
-        amount: 1,
+        kind: "round",
+        amount: { cap: "ciAttempts", count: 1 },
         grantId: "g1",
         note: null,
         origin: "test",
@@ -628,7 +644,7 @@ describe("the run's CI cap", () => {
       await pushHead(w, HEAD_C);
       await w.prs.retry(id);
       expect(runSteps(w.office, w.run).filter((s) => s.kind === "ci")).toHaveLength(3);
-      expect(parked(w.office)).toEqual([{ reason: "verify-failing", cause: "ci" }]);
+      expect(parked(w.office)).toEqual([{ reason: "verify-failing" }]);
     });
   });
 });
@@ -648,7 +664,7 @@ describe("CI as the verify of a box run", () => {
         await w.prs.retry(id);
         const body = w.host.updates.at(-1)?.body ?? "";
         expect(body).toContain(
-          "- verify: CI on `aaaaaaaa`; dipo runs no verify of its own for a box run",
+          "- verify: CI on `aaaaaaaa`, after dipo's verify in the box at done when the office names one",
         );
         expect(body).not.toContain("verify: passed");
         expect(body).toContain("- merge: the maintainer merges; dipo does not merge story PRs yet");
@@ -677,7 +693,7 @@ describe("CI as the verify of a box run", () => {
         await pushHead(w, HEAD_B);
         await w.prs.retry(id);
         expect(ciSteps(w).map((s) => s.value)).toEqual([HEAD_A, HEAD_B]);
-        expect(parked(w.office)).toEqual([{ reason: "verify-failing", cause: "ci" }]);
+        expect(parked(w.office)).toEqual([{ reason: "verify-failing" }]);
         expect(
           w.office.get<{ detail: string }>("select detail from parks where office_id = $office_id")
             ?.detail,
@@ -913,6 +929,38 @@ describe("an office whose story PRs get no CI", () => {
       expect(noneSteps(w)).toEqual([]);
       expect(notices(w.office, STORY_PR_NOTICES.ciStuck)).toHaveLength(1);
       expect(notices(w.office, STORY_PR_NOTICES.ciNone)).toHaveLength(0);
+    });
+  });
+});
+
+describe("the checks the base requires on GitHub", () => {
+  it("leaves the head pending while the required check list cannot be read, and reads it again", async () => {
+    await inWorld(async (w) => {
+      const id = w.office.officeId;
+      await w.prs.sync(id, w.run);
+      w.host.required = [report("ci-ok", "pass"), report("pr-title", "pass")];
+      w.namesError = new Error("gh api: HTTP 502");
+      await w.prs.retry(id);
+      expect(w.prs.ciState(id, w.run)?.kind).toBe("pending");
+      expect(w.logged.some((line) => line.message.includes("required checks failed"))).toBe(true);
+      w.namesError = null;
+      await w.prs.retry(id);
+      expect(w.prs.ciState(id, w.run)?.kind).toBe("green");
+    });
+  });
+
+  it("never counts a head green before CI starts when the base requires no check", async () => {
+    await inWorld(async (w) => {
+      const id = w.office.officeId;
+      w.requiredNames = [];
+      await w.prs.sync(id, w.run);
+      // Nothing reported yet: not green, not final.
+      await w.prs.retry(id);
+      expect(w.prs.ciState(id, w.run)?.kind).toBe("pending");
+      // A check shows up and passes: green.
+      w.host.required = [report("lint", "pass")];
+      await w.prs.retry(id);
+      expect(w.prs.ciState(id, w.run)?.kind).toBe("green");
     });
   });
 });

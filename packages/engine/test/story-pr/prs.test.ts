@@ -86,9 +86,6 @@ class FakeHost implements CodeHost {
   async closePr(): Promise<void> {
     this.calls.push("closePr");
   }
-  async squashMerge(): Promise<void> {
-    this.calls.push("squashMerge");
-  }
   async requiredChecks(): Promise<[]> {
     this.calls.push("requiredChecks");
     return [];
@@ -114,6 +111,8 @@ interface World {
   config: OfficeConfig;
   /** How often StoryPrs read the story's git facts. */
   gitReads: number;
+  /** The checks the base requires on GitHub; none by default. */
+  requiredNames: string[];
   readonly host: FakeHost;
   readonly prs: StoryPrs;
   readonly run: RunId;
@@ -204,6 +203,7 @@ async function inWorld(fn: (w: World) => Promise<void>, setup: WorldSetup = {}):
       facts: FACTS,
       config: OFFICE_DEFAULTS,
       gitReads: 0,
+      requiredNames: [],
       host,
       run,
       key,
@@ -222,6 +222,7 @@ async function inWorld(fn: (w: World) => Promise<void>, setup: WorldSetup = {}):
           config: () => world.config,
         },
         clock: t.clock,
+        required: { requiredCheckNames: async () => [...world.requiredNames] },
       }),
     };
     try {
@@ -564,33 +565,32 @@ describe("the story PR of a run with a configuration snapshot", () => {
     });
   });
 
-  it("lists the required checks the run started with in the body", async () => {
+  it("lists the checks the base requires on GitHub in the body, never mergeSlot.requiredChecks", async () => {
     await inWorld(async (w) => {
       snapshot(w, {
         ...OFFICE_DEFAULTS,
-        mergeSlot: { ...OFFICE_DEFAULTS.mergeSlot, requiredChecks: ["started-check"] },
+        mergeSlot: { ...OFFICE_DEFAULTS.mergeSlot, requiredChecks: ["office-check"] },
       });
-      w.config = {
-        ...OFFICE_DEFAULTS,
-        mergeSlot: { ...OFFICE_DEFAULTS.mergeSlot, requiredChecks: ["later-check"] },
-      };
+      w.requiredNames = ["base-check"];
+      w.host.hostHead = w.facts.head;
       await w.prs.sync(w.office.officeId, w.run);
-      const body = w.host.creates[0]?.body ?? "";
-      expect(body).toContain("started-check");
-      expect(body).not.toContain("later-check");
+      await w.prs.retry(w.office.officeId);
+      const bodies = [w.host.creates[0]?.body ?? "", ...w.host.updates.map((u) => u.body)];
+      expect(bodies.at(-1)).toContain("base-check");
+      expect(bodies.join("\n")).not.toContain("office-check");
     });
   });
 });
 
-/** The `stopped` / `pr-closed` park of the run, resolved by a maintainer resume. */
+/** The `by-maintainer` park of the closed PR, resolved by a maintainer resume. */
 function resumedPrClosedPark(w: World): void {
   const at = w.t.clock.now();
   w.office.immediate(() =>
     w.office.run(
-      `insert into parks (office_id, park_id, key, story_id, run_id, reason, cause, from_state,
-         detail, at, resolved_at, resolved_how)
-       values ($office_id, 1, $key, 'DIPO-1', $run, 'stopped', 'pr-closed', 'In Review',
-         'PR #7 was closed on the host', $at, $at, 'resume')`,
+      `insert into parks (office_id, park_id, key, story_id, run_id, reason, detail, at,
+         resolved_at, resolved_how)
+       values ($office_id, 1, $key, 'DIPO-1', $run, 'by-maintainer', 'PR #7 closed on GitHub',
+         $at, $at, 'resume')`,
       { key: w.key, run: w.run, at },
     ),
   );

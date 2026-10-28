@@ -1,5 +1,5 @@
 // The office overview (`1`, 0009 sections 4 and 9, as amended by DIPO-81): a board. A count line
-// at the top (running, needs you, in review, Ready, waiting, held, and today at 120 columns), then
+// at the top (running, needs you, in review, Ready, waiting, and today at 120 columns), then
 // the sections RUNNING, NEEDS YOU, IN REVIEW and READY with the story title on every row; empty
 // sections are hidden. Each running row has a `now:` line: a phase word, the newest stored worker
 // line (the newest verify line in the verify phase) as stored, and its age. With nothing running
@@ -96,7 +96,7 @@ function columnCount(state: OfficeStoreState, column: string): number {
 }
 
 /**
- * `1 running · 1 needs you · 1 in review · Ready 1 · waiting 0 · held 0 · today 1.2M of 4M tokens
+ * `1 running · 1 needs you · 1 in review · Ready 1 · waiting 0 · today 1.2M of 4M tokens
  * (30%, resets 00:00 UTC) · this month 20M of 90M tokens (22%, resets 1 Nov 00:00 UTC)`, with
  * `stores commands` before `today` while a privacy setting that stores data is on (0007 section 8).
  * The usage parts are the engine's (DIPO-311); without a limit only the tokens show.
@@ -114,7 +114,6 @@ export function countLine(
     `${columnCount(state, "review")} in review`,
     `Ready ${columnCount(state, "ready")}`,
     `waiting ${columnCount(state, "waiting")}`,
-    `held ${columnCount(state, "held")}`,
   ];
   const stored = storedLabel(officeOptIns(state));
   if (stored !== "") parts.push(stored);
@@ -122,7 +121,7 @@ export function countLine(
   return ` ${parts.join(` ${dot} `)}`;
 }
 
-/** A park reason in words: `needs-permission` reads `needs permission`. */
+/** A park reason in words: `by-maintainer` reads `by maintainer`. */
 function words(reason: string): string {
   return reason.replaceAll("-", " ");
 }
@@ -130,7 +129,7 @@ function words(reason: string): string {
 /**
  * Why nothing runs, in one line, from the stories the engine sent: Ready stories wait for `u`;
  * without them, the waiting dependencies, the first failed Ready gate rule of each Refined story,
- * the parked and held stories and the drafts.
+ * the parked stories and the drafts.
  */
 export function idleLine(state: OfficeStoreState, dot: string): string {
   const ready = columnCount(state, "ready");
@@ -152,8 +151,6 @@ export function idleLine(state: OfficeStoreState, dot: string): string {
     if (story.column === "desk") {
       const reason = story.parked === undefined ? "" : ` (${words(story.parked.reason)})`;
       reasons.push(`${story.story} is parked${reason}`);
-    } else if (story.column === "held") {
-      reasons.push(`${story.story} is on hold`);
     }
   }
   const drafts = columnCount(state, "draft");

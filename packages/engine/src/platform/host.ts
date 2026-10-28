@@ -7,8 +7,11 @@
 // flag used here; an older `gh` is refused with the version it printed. Used here:
 // `pr create --repo --base --head --title --body`, `pr list --head --state --json`, `pr list --state
 // --limit --json` (DIPO-80), `pr view --json`,
-// `pr edit --title --body`, `pr close --comment`, `pr merge --squash --match-head-commit --subject
-// --body`, and `pr checks --required --json name,state,bucket`. The review reads and comments
+// `pr edit --title --body`, `pr close --comment`, and `pr checks --required --json name,state,bucket`.
+// The auto-merge (0002) adds `pr merge --auto --squash --match-head-commit --subject --body`,
+// `pr merge --disable-auto`, `pr view --json mergeable,autoMergeRequest` and, for the base's
+// required checks, `api repos/<repo>/branches/<base>` and `api repos/<repo>/rules/branches/<base>`.
+// dipo never passes `--admin`. The review reads and comments
 // (DIPO-141) add `pr view --json labels`, `pr checks --json name,state,bucket,link,workflow`,
 // `run view --repo --job --log-failed` and `pr comment --repo --body-file -`. The newest of these is
 // `pr checks --json`, added in gh 2.50.0 (https://github.com/cli/cli/releases/tag/v2.50.0).
@@ -65,7 +68,16 @@ export interface HostPr {
   readonly title: string;
   /** The merge commit once merged (a squash, rebase or merge commit), else null. */
   readonly mergeCommit: string | null;
+  /**
+   * Whether GitHub can merge the PR: `conflicting` when the base conflicts with it, `unknown` while
+   * GitHub computes it. Read by `viewPr` only; absent where a host does not report it.
+   */
+  readonly mergeable?: Mergeable;
+  /** True while auto-merge is on for the PR. Read by `viewPr` only. */
+  readonly autoMerge?: boolean;
 }
+
+export type Mergeable = "mergeable" | "conflicting" | "unknown";
 
 export interface NewPr {
   readonly base: string;
@@ -96,12 +108,6 @@ export interface CodeHost {
   updatePr(repo: string, number: number, change: { title: string; body: string }): Promise<void>;
   viewPr(repo: string, number: number): Promise<HostPr>;
   closePr(repo: string, number: number, comment: string): Promise<void>;
-  /** Squash-merges only while the head is still `headSha`. */
-  squashMerge(
-    repo: string,
-    number: number,
-    merge: { headSha: string; subject: string },
-  ): Promise<void>;
   /** The required checks and their states; empty when the base requires none. */
   requiredChecks(repo: string, number: number): Promise<RequiredCheck[]>;
 }
@@ -113,6 +119,30 @@ export interface CodeHost {
 export interface PrStateHost {
   /** The newest merged pull request whose head is `branch`, or null. Throws `CodeHostError`. */
   findMergedPr(repo: string, branch: string): Promise<HostPr | null>;
+}
+
+/**
+ * GitHub's auto-merge and the base's required checks (0002). Kept apart from `CodeHost`, like
+ * `PrStateHost`. Nothing here bypasses a rule of the base: no `--admin`.
+ */
+export interface AutoMergeHost {
+  /**
+   * `gh pr merge --auto --squash --match-head-commit <headSha>`: GitHub squash-merges the PR, with
+   * `subject` and an empty body, once the base's required checks pass on exactly that head.
+   * Throws `CodeHostError`.
+   */
+  enableAutoMerge(
+    repo: string,
+    number: number,
+    merge: { readonly headSha: string; readonly subject: string },
+  ): Promise<void>;
+  /** `gh pr merge --disable-auto`. Throws `CodeHostError`. */
+  disableAutoMerge(repo: string, number: number): Promise<void>;
+  /**
+   * The names of the checks the base branch requires, from its branch protection and its rulesets,
+   * sorted and without duplicates; empty when it requires none. Throws `CodeHostError`.
+   */
+  requiredCheckNames(repo: string, base: string): Promise<string[]>;
 }
 
 /** How many open pull requests `listOpenPrs` reads at most. */
@@ -260,6 +290,8 @@ function ghEnv(base: Readonly<Record<string, string | undefined>>): Record<strin
 }
 
 const PR_FIELDS = "number,url,state,headRefName,headRefOid,baseRefName,title,mergeCommit";
+/** What `viewPr` reads besides `PR_FIELDS`: the merge state and auto-merge (0002). */
+const VIEW_FIELDS = `${PR_FIELDS},mergeable,autoMergeRequest`;
 
 interface PrJson {
   number?: unknown;
@@ -270,6 +302,8 @@ interface PrJson {
   baseRefName?: unknown;
   title?: unknown;
   mergeCommit?: unknown;
+  mergeable?: unknown;
+  autoMergeRequest?: unknown;
 }
 
 /** The `oid` of gh's `mergeCommit` object, or null. */
@@ -300,7 +334,49 @@ function prOf(json: PrJson): HostPr {
     base: String(json.baseRefName ?? ""),
     title: String(json.title ?? ""),
     mergeCommit: mergeOid(json.mergeCommit),
+    ...("mergeable" in json ? { mergeable: mergeableOf(json.mergeable) } : {}),
+    ...("autoMergeRequest" in json
+      ? { autoMerge: typeof json.autoMergeRequest === "object" && json.autoMergeRequest !== null }
+      : {}),
   };
+}
+
+/** gh's `mergeable` (`MERGEABLE`, `CONFLICTING`, `UNKNOWN`). */
+function mergeableOf(value: unknown): Mergeable {
+  const text = String(value ?? "").toLowerCase();
+  return text === "mergeable" || text === "conflicting" ? text : "unknown";
+}
+
+/** `--hostname` for a `[HOST/]OWNER/REPO` on another host than github.com, and the `OWNER/REPO`. */
+function apiTarget(repo: string): { readonly flags: string[]; readonly path: string } {
+  const parts = repo.split("/");
+  return parts.length === 3
+    ? { flags: ["--hostname", parts[0] as string], path: parts.slice(1).join("/") }
+    : { flags: [], path: repo };
+}
+
+/** The check names a branch's protection requires (`GET /repos/{o}/{r}/branches/{b}`). */
+function protectionChecks(json: unknown): string[] {
+  const checks = (json as { protection?: { required_status_checks?: unknown } } | null)?.protection
+    ?.required_status_checks as { contexts?: unknown; checks?: unknown } | undefined;
+  const contexts = Array.isArray(checks?.contexts) ? checks.contexts.map(String) : [];
+  const named = Array.isArray(checks?.checks)
+    ? checks.checks.map((check) => String((check as { context?: unknown }).context ?? ""))
+    : [];
+  return [...contexts, ...named];
+}
+
+/** The check names a branch's rulesets require (`GET /repos/{o}/{r}/rules/branches/{b}`). */
+function rulesetChecks(json: unknown): string[] {
+  if (!Array.isArray(json)) throw new CodeHostError("failed", "gh printed no rule list");
+  return json.flatMap((rule) => {
+    const typed = rule as { type?: unknown; parameters?: { required_status_checks?: unknown } };
+    if (typed.type !== "required_status_checks") return [];
+    const list = typed.parameters?.required_status_checks;
+    return Array.isArray(list)
+      ? list.map((check) => String((check as { context?: unknown }).context ?? ""))
+      : [];
+  });
 }
 
 function parseJson(text: string, what: string): unknown {
@@ -377,7 +453,7 @@ interface GhResult {
 }
 
 /** The `CodeHost` that runs `gh`. */
-export class GhHost implements CodeHost, PrStateHost, PrListHost, PrReviewHost {
+export class GhHost implements CodeHost, PrStateHost, PrListHost, PrReviewHost, AutoMergeHost {
   readonly #spawn: Spawn;
   readonly #gh: string;
   readonly #env: Record<string, string>;
@@ -528,7 +604,15 @@ export class GhHost implements CodeHost, PrStateHost, PrListHost, PrReviewHost {
   }
 
   async viewPr(repo: string, number: number): Promise<HostPr> {
-    const out = await this.#ok(["pr", "view", String(number), "--repo", repo, "--json", PR_FIELDS]);
+    const out = await this.#ok([
+      "pr",
+      "view",
+      String(number),
+      "--repo",
+      repo,
+      "--json",
+      VIEW_FIELDS,
+    ]);
     return prOf(parseJson(out, "a pull request") as PrJson);
   }
 
@@ -536,10 +620,10 @@ export class GhHost implements CodeHost, PrStateHost, PrListHost, PrReviewHost {
     await this.#ok(["pr", "close", String(number), "--repo", repo, "--comment", comment]);
   }
 
-  async squashMerge(
+  async enableAutoMerge(
     repo: string,
     number: number,
-    merge: { headSha: string; subject: string },
+    merge: { readonly headSha: string; readonly subject: string },
   ): Promise<void> {
     await this.#ok([
       "pr",
@@ -547,6 +631,7 @@ export class GhHost implements CodeHost, PrStateHost, PrListHost, PrReviewHost {
       String(number),
       "--repo",
       repo,
+      "--auto",
       "--squash",
       "--match-head-commit",
       merge.headSha,
@@ -555,6 +640,22 @@ export class GhHost implements CodeHost, PrStateHost, PrListHost, PrReviewHost {
       "--body",
       "",
     ]);
+  }
+
+  async disableAutoMerge(repo: string, number: number): Promise<void> {
+    await this.#ok(["pr", "merge", String(number), "--repo", repo, "--disable-auto"]);
+  }
+
+  async requiredCheckNames(repo: string, base: string): Promise<string[]> {
+    const { flags, path } = apiTarget(repo);
+    const branch = encodeURIComponent(base);
+    const protection = await this.#ok(["api", ...flags, `repos/${path}/branches/${branch}`]);
+    const rules = await this.#ok(["api", ...flags, `repos/${path}/rules/branches/${branch}`]);
+    const names = [
+      ...protectionChecks(parseJson(protection, "a branch")),
+      ...rulesetChecks(parseJson(rules, "a rule list")),
+    ].filter((name) => name !== "");
+    return [...new Set(names)].toSorted();
   }
 
   async requiredChecks(repo: string, number: number): Promise<RequiredCheck[]> {

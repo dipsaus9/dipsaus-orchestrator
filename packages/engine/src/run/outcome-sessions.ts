@@ -1,7 +1,7 @@
 // Starting the next session of a run, and the start failure that cannot (DIPO-51, split out of
 // `outcomes.ts` by DIPO-128).
 
-import type { AgentId, WatchdogSignal, WorkRef } from "@dipsaus-orchestrator/contract";
+import type { AgentId, WorkRef } from "@dipsaus-orchestrator/contract";
 
 import { FEEDBACK_TEMPLATES, renderTemplate } from "../prompts/templates";
 import { holdMessage, type AdapterHold } from "../workers/hold";
@@ -13,16 +13,15 @@ import {
   messageOf,
   OUTCOME_ENDS,
   OUTCOME_NOTICES,
+  planLimitEnding,
   type RunOutcomesDeps,
   type RunView,
 } from "./outcome-types";
-import { steerText } from "./intervene";
+import { deliverHeld, heldFeedback } from "./feedback";
 import { markIntentSent, recordIntent, resolveIntent } from "./intents";
-import { heldMessages, markHeldSent } from "./pauses";
 import { placeOfRun } from "./places";
 import { START_FAILED_END } from "./launch";
 import type { OfficeHandle } from "../db/office";
-import { PARK_CAUSES } from "./park";
 import type { StoredRun } from "./records";
 
 export class SessionStarts {
@@ -34,7 +33,12 @@ export class SessionStarts {
     this.#deps = support.deps;
   }
 
-  /** Starts the next session; a session that cannot start parks or releases the story. */
+  /**
+   * Starts the next session; a session that cannot start parks or releases the story. While the
+   * office's starts are paused (0020) no session starts: under a plan limit the story parks
+   * `worker-failed` with the pause's detail, to resume by itself when the pause lifts; under a
+   * failed adapter check it goes the start failure's way.
+   */
   async next(
     office: OfficeHandle,
     run: StoredRun,
@@ -48,31 +52,39 @@ export class SessionStarts {
        * in the handoff block's open feedback otherwise; the steers that waited follow it.
        */
       readonly note?: string;
-      /** Only a resume will do; a session that cannot be resumed parks `interrupted` (DIPO-57). */
+      /** Only a resume will do; a session that cannot be resumed parks `worker-failed` (DIPO-57). */
       readonly requireResume?: boolean;
-      readonly clear?: readonly WatchdogSignal[];
       /** Runs in the transaction that records the new agent (`NextSessionRequest.inRecord`). */
       readonly inRecord?: (agent: AgentId, at: number) => void;
     },
   ): Promise<boolean> {
+    const paused = this.#deps.startsPaused?.()?.state(view.office) ?? null;
+    if (paused?.reason === "plan-limit") {
+      const pause = { detail: paused.detail, since: paused.since, until: paused.until };
+      await this.#s.park(office, run, view.work, planLimitEnding(pause, []));
+      return false;
+    }
+    if (paused?.reason === "adapter" && paused.hold !== undefined) {
+      await this.startFailed(office, run, view.work, holdMessage(paused.hold), paused.hold);
+      return false;
+    }
     const resumer = this.#deps.resumer;
     if (resumer === undefined) {
       await this.#s.park(office, run, view.work, {
         intent: "park",
         ops: [],
         reason: "worker-failed",
-        cause: PARK_CAUSES.build,
         detail: `${request.why}; dipo cannot start another session of the run`,
         endKind: OUTCOME_ENDS.crashed,
       });
       return false;
     }
-    // The steers and feedback items that waited for this session go with its first message
-    // (0020 section 9, DIPO-163); a reviewer session gets no maintainer text (0002), so they wait.
+    // The messages of the one feedback path that waited for this session go with its first
+    // message (`feedback.ts`); a reviewer session gets none (0002), so they wait.
     const held =
       placeOfRun(office, run) === "reviewer"
         ? { ids: [], texts: [] }
-        : heldMessages(office, run.runId, steerText);
+        : heldFeedback(office, run.runId);
     const note = request.note?.trim() === "" ? undefined : request.note;
     const message =
       held.texts.length === 0 || note !== undefined
@@ -98,7 +110,6 @@ export class SessionStarts {
         // With a note the steers that waited go after it (`NextSessionRequest.held`).
         ...(note === undefined ? {} : { note, held: held.texts }),
         ...(request.requireResume === true ? { requireResume: true } : {}),
-        ...(request.clear === undefined ? {} : { clear: request.clear }),
         ...(request.inRecord === undefined ? {} : { inRecord: request.inRecord }),
         caps: view.caps,
         startedAt: view.startedAt,
@@ -110,7 +121,7 @@ export class SessionStarts {
     switch (outcome.kind) {
       case "started":
         if (held.ids.length > 0) {
-          office.immediate(() => markHeldSent(office, run.runId, held.ids, this.#deps.clock.now()));
+          office.immediate(() => deliverHeld(office, run.runId, held.ids, this.#deps.clock.now()));
         }
         return true;
       case "startFailed":
@@ -121,7 +132,6 @@ export class SessionStarts {
           intent: "park",
           ops: [],
           reason: "worker-failed",
-          cause: PARK_CAUSES.build,
           detail: `${request.why}; the next session did not start: ${outcome.reason}`,
           endKind: OUTCOME_ENDS.crashed,
         });
@@ -132,7 +142,6 @@ export class SessionStarts {
           intent: "park",
           ops: [],
           reason: "worker-failed",
-          cause: PARK_CAUSES.build,
           detail: `${request.why}; ${outcome.code}: the earlier worker host of the run (pid ${outcome.pid}) still runs, so no new session starts`,
           endKind: OUTCOME_ENDS.crashed,
         });
@@ -141,8 +150,7 @@ export class SessionStarts {
         await this.#s.park(office, run, view.work, {
           intent: "park",
           ops: [],
-          reason: "interrupted",
-          cause: PARK_CAUSES.build,
+          reason: "worker-failed",
           detail: `${request.why}; its session cannot be resumed: ${outcome.reason}`,
           endKind: OUTCOME_ENDS.interrupted,
         });
@@ -187,7 +195,6 @@ export class SessionStarts {
         intentDetail: `${INTENT_TAGS.startFailed} ${detail}`,
         ops: [],
         reason: "worker-failed",
-        cause: PARK_CAUSES.build,
         detail: message,
         endKind: START_FAILED_END,
         notice: {

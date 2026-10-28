@@ -10,10 +10,10 @@
 //   catch-up of the poll or the sync before In Review). This is dipo's ref journal for carried
 //   approvals and the list of paths the check at done reads. A conflict the poll finds while the
 //   story is In Review is recorded as `found`, told once per base commit and shown on the story
-//   detail (`baseConflictOf`); nothing is merged, and the story's next In Review or merge-slot
-//   sync handles it (0019 section 10); a later check that finds none clears it (`cleared`).
-// - Merges outside the box (DIPO-324). The merge slot merges the base into the branch in dipo's own
-//   git while the story waits In Review, with no box turn. Such a merge is recorded as one the box
+//   detail (`baseConflictOf`); nothing is merged, and the story's next In Review, or GitHub
+//   reporting the conflict at its merge, handles it (0002); a later check that finds none clears it (`cleared`).
+// - Merges outside the box (DIPO-324). The auto-merge's conflict hand-off merges the base into the
+//   branch in dipo's own git while the story waits In Review, with no box turn. Such a merge is recorded as one the box
 //   still lacks (`box_copy` `pending`, migration 52, `pendingBoxCopy`); the run's next developer
 //   session copies what the branch got since the tip of the oldest such merge into the box before
 //   the worker starts (`RunResumerDeps.boxSync`, `BoxCollisions.copyPending`), and no part is taken
@@ -28,24 +28,23 @@
 //   the tip holds a conflict marker line (git's own markers, read with `git grep -a` from git
 //   objects, a NUL byte included; a lone `=======` only beside a `<<<<<<< ` or `>>>>>>> ` line),
 //   and a binary, modify/delete or file vs folder conflict whose path is unchanged since the
-//   merge, keeps the story from In Review, so from the PR too: it goes back to the worker as a
-//   feedback turn naming the files and lines. Then the
+//   merge, keeps the story from In Review, so from the PR too: it is report gate feedback naming
+//   the files and lines (0002), counted against the tier loops like any report gate refusal
+//   (`verify-commit.ts`), and the refusal at the loop cap parks `verify-failing`. Then the
 //   fetch and the sync (`BoxCollisions.syncInTurn`): `git merge-tree --write-tree` of the tip and
 //   the base; a story of tier L or flagged test-before-merge merges the base whenever it moved,
 //   any other only on a conflict. A conflict is committed as git left it, copied into the box,
 //   recorded, and sent to the worker as one conflict item (its paths and hunks within the item
 //   budget, signed over the base commit and the sorted paths). A conflict in a path the worker
-//   cannot write parks `conflict` with cause `unwritable-path` and merges nothing. A clean sync
+//   cannot write parks `conflict` and merges nothing. A clean sync
 //   moves the story to review at the merged head; CI on that head is its verify (0021 amendment
 //   of 2026-10-22), so dipo runs none.
-// - Hand-offs (`run_steps` kind `conflict`, values `start <n> <commit>`, `feedback <n>`,
-//   `failed <n> <why>` and `resolved <n>`). A recorded conflicted merge starts hand-off n. At a
-//   done with markers left, the hand-off gets its one feedback turn; at the next done with
-//   markers, or at a blocked report while it is open, it fails. The failed hand-off that reaches
-//   the run's conflict cap (`mergeSlot.conflictAttempts`, snapshot as `runs.conflict_cap`) parks
-//   `conflict` with cause `merge-in-progress` and the paths, the merge kept on the branch and in
-//   the box; below the cap a new hand-off starts with the same feedback. A done without markers
-//   resolves the open hand-off. `run_outcomes.conflict_handoffs` counts the hand-offs started.
+// - Hand-offs (`run_steps` kind `conflict`, values `start <n> <commit>`, `failed <n> <why>` and
+//   `resolved <n>`). A recorded conflicted merge starts hand-off n. A blocked report while it is
+//   open fails it. The failed hand-off that reaches the run's conflict cap
+//   (`mergeSlot.conflictAttempts`, snapshot as `runs.conflict_cap`) parks `conflict` with the
+//   paths, the merge kept on the branch and in the box. A done without markers resolves the open
+//   hand-off; markers left at done are the report gate's (see above), not a failed hand-off. `run_outcomes.conflict_handoffs` counts the hand-offs started.
 // - Carried approvals (0019 section 6). After a clean merge dipo made, the run's newest verdict, if
 //   approved, carries to the new head when every commit between the approved head and the head
 //   (first parents) is a clean merge in the journal or a commit that changes only the story's task
@@ -54,18 +53,19 @@
 // - The resume of a `conflict` park (`ConflictResumes`, DIPO-324, 0020 section 2 and 0021). Every
 //   merge of a box run happens in dipo's own git and is copied into the box in the live run's turn
 //   of parts (`BoxCollisions.mergeOnResume`), never left in progress; so the resume prepares the
-//   first message before the new session, and any merge runs once that session is live:
-//   - `merge-in-progress`: the kept merge is committed on the branch and in the box. A new
-//     hand-off starts (the resume's `conflictHandoff` grant raised the cap), and the first message
-//     is the conflict item rebuilt from git: what of dipo's conflicted merges the tip has not
-//     resolved, with its hunks at the tip. When the base moved since, the committed merge cannot
+//   first message before the new session, and any merge runs once that session is live. Git and the
+//   run's hand-offs decide which case it is, never the park's detail:
+//   - A kept merge (its failed hand-offs reached the cap): the merge is committed on the branch
+//     and in the box. A new hand-off starts (the resume's `conflictHandoff` grant raised the
+//     cap), and the first message is the conflict item rebuilt from git: what of dipo's
+//     conflicted merges the tip has not resolved, with its hunks at the tip. When the base moved since, the committed merge cannot
 //     be undone without a forced push, so in place of 0019's abort dipo merges the base again on
 //     top of it once the session runs and hands the worker what conflicts then.
-//   - `unwritable-path`: the merge of the base is planned again first; a path the worker cannot
+//   - Otherwise the merge of the base is planned again first; a path the worker cannot
 //     write that still conflicts parks the story again at once, otherwise the base is merged once
 //     the session runs and a conflict is handed over as a hand-off.
-//   - `push-rejected`: the remote is fetched, and before the session dipo merges the commits only
-//     the remote branch holds into the branch in its own git (git's result, markers and all, as a
+//   - The remote branch holds commits the branch lacks (a rejected push): before the session dipo
+//     merges those commits into the branch in its own git (git's result, markers and all, as a
 //     catch-up commits it) and pushes, never forced. The merge waits as one the box lacks
 //     (`box_copy`), so the session's start copies it into the box before the worker runs, and no
 //     part is ever taken against the old tip: a part handed early cannot meet the rejected push
@@ -90,7 +90,6 @@ import {
   fileHunks,
   markersAt,
   markersLeftText,
-  moveBranch,
   planCatchUp,
   SHOWN_PATHS_MAX,
   shownPaths,
@@ -103,7 +102,7 @@ import { appendEntries, type NewEntry } from "../changelog/log";
 import type { OfficeConfig } from "../config";
 import type { OfficeHandle } from "../db/office";
 import type { GitSession, OfficeGit } from "../git/office";
-import { pushBranch } from "../git/task-commit";
+import { moveBranch, pushBranch } from "../git/write";
 import parkedTemplate from "../prompts/feedback/parked.md" with { type: "text" };
 import { neutraliseTags, renderTemplate } from "../prompts/templates";
 import {
@@ -116,8 +115,8 @@ import { withWorkViews } from "../views/work";
 
 import { runCaps } from "./caps";
 import { lastReviewVerdict } from "./fix-rounds";
-import { PARK_CAUSES } from "./park";
 import type { ConflictPrepared, ConflictResumer } from "./park-resume";
+import { runHeldByPark } from "./park-state";
 import { appendRunStep, findRun, IN_REVIEW_END, type StoredRun } from "./records";
 import { REVIEWED_END } from "./rounds";
 import { codeTreeKeyOf } from "./story-git";
@@ -391,7 +390,7 @@ export function baseConflictOf(
  * The story runs of the office waiting In Review: ended at In Review or after their review, with a
  * live claim and no open park. The poll checks their tips against the base (0019 section 10). A
  * story that is Done is left out (DIPO-332): its own PR merged into the base, or its status reads
- * Done (the merge slot's close-out commit on its branch, or the base's after a release). Its claim
+ * Done (the close-out commit on its branch, or the base's after a release). Its claim
  * may stay live while its teardown waits, but it is not In Review, and the base holds its work.
  */
 export function inReviewRunIds(office: OfficeHandle): RunId[] {
@@ -402,8 +401,6 @@ export function inReviewRunIds(office: OfficeHandle): RunId[] {
           and r.end_kind in ($in_review, $reviewed)
           and exists (select 1 from claims c where c.office_id = r.office_id
             and c.run_id = r.run_id and c.released_at is null)
-          and not exists (select 1 from parks p where p.office_id = r.office_id
-            and p.run_id = r.run_id and p.resolved_at is null)
           and not exists (select 1 from story_prs s where s.office_id = r.office_id
             and s.run_id = r.run_id and s.state = 'merged')
           and not exists (select 1 from backlog_mirror m where m.office_id = r.office_id
@@ -411,6 +408,7 @@ export function inReviewRunIds(office: OfficeHandle): RunId[] {
         order by r.ended_at, r.run_id`,
       { in_review: IN_REVIEW_END, reviewed: REVIEWED_END },
     )
+    .filter((row) => !runHeldByPark(office, row.run_id))
     .map((row) => row.run_id as RunId);
 }
 
@@ -422,8 +420,6 @@ export interface HandOffState {
   readonly current: number;
   /** True while the newest hand-off has neither failed nor been resolved. */
   readonly open: boolean;
-  /** True when the open hand-off had its one feedback turn. */
-  readonly feedback: boolean;
   /** The failed hand-offs of the run: what the conflict cap counts. */
   readonly failed: number;
 }
@@ -438,7 +434,6 @@ export function handOffStateOf(
 ): HandOffState {
   let current = 0;
   let open = false;
-  let feedback = false;
   let failed = 0;
   for (const [at, value] of values.entries()) {
     const [event = "", n = ""] = value.split(" ");
@@ -447,9 +442,7 @@ export function handOffStateOf(
     if (event === "start") {
       current = Math.max(current, number);
       open = true;
-      feedback = false;
     } else if (number === current && open) {
-      if (event === "feedback") feedback = true;
       if (event === "failed") {
         if (mine[at] !== false) failed += 1;
         open = false;
@@ -457,7 +450,7 @@ export function handOffStateOf(
       if (event === "resolved") open = false;
     }
   }
-  return { current, open, feedback, failed };
+  return { current, open, failed };
 }
 
 /**
@@ -487,8 +480,8 @@ export function appendHandOff(
   runId: RunId | string,
   event:
     | { readonly kind: "start"; readonly n: number; readonly commit: string }
-    | { readonly kind: "feedback" | "resolved"; readonly n: number }
-    | { readonly kind: "failed"; readonly n: number; readonly why: "markers" | "blocked" },
+    | { readonly kind: "resolved"; readonly n: number }
+    | { readonly kind: "failed"; readonly n: number; readonly why: "blocked" },
   at: number,
 ): void {
   const value =
@@ -514,7 +507,6 @@ function capPark(paths: readonly string[], failed: number, cap: number, capped =
     "dipo's merge of the base stays on the branch and in the box for the worker to finish.";
   return {
     reason: "conflict" as const,
-    cause: PARK_CAUSES.mergeInProgress,
     detail: capped
       ? `the done turn crossed a run cap before the conflict could be handed over to the worker; conflict markers or unresolved paths remain in ${shownPaths(paths)}. ${kept}`
       : `${failed} conflict hand-off${failed === 1 ? "" : "s"} failed (the conflict cap is ${cap}); conflict markers or unresolved paths remain in ${shownPaths(paths)}. ${kept}`,
@@ -630,12 +622,13 @@ export async function approvalCarries(
 export type DoneConflictDecision =
   /** On to In Review at `tip`: the last part's commit, or the clean merge on top of it. */
   | { readonly kind: "go"; readonly tip: string }
-  /** The worker's next message; the story stays In Progress. */
+  /** The worker's next message, a conflict hand-off; the story stays In Progress. */
   | { readonly kind: "feedback"; readonly text: string }
+  /** Markers left at done: report gate feedback against the tier loops (0002). */
+  | { readonly kind: "markers"; readonly text: string }
   | {
       readonly kind: "park";
       readonly reason: "conflict" | "scope-violation";
-      readonly cause: string;
       readonly detail: string;
     }
   /** The run stopped going on meanwhile; that decision stands. */
@@ -692,7 +685,7 @@ export class StoryConflicts {
     if (merges.length > 0) {
       const left = await git.run((session) => unresolvedAt(session, tip, merges));
       if (left.markers.size > 0 || left.unchanged.length > 0) {
-        return this.#markersLeft(office, run, tip, left, input.capped);
+        return { kind: "markers", text: markersLeftText(left.markers, left.unchanged) };
       }
     }
     this.#write(office, () => {
@@ -740,16 +733,11 @@ export class StoryConflicts {
   }
 
   /**
-   * A merge dipo made into the run's branch (`BoxCollisions` `recorded`): recorded, a conflicted
-   * one starts a hand-off, and a clean one may carry the run's approval to the new head. With
-   * `strict` (the merge slot, DIPO-150) a carry that fails throws instead of being only logged, so
-   * no merge goes ahead on a head whose approval was not carried.
+   * A merge dipo made into the run's branch (`BoxCollisions` `recorded`, and the auto-merge's
+   * conflict hand-off): recorded, a conflicted one starts a hand-off, and a clean one may carry the
+   * run's approval to the new head.
    */
-  async recorded(
-    run: PartRun,
-    merged: CatchUpMerged,
-    options: { readonly strict?: boolean } = {},
-  ): Promise<void> {
+  async recorded(run: PartRun, merged: CatchUpMerged): Promise<void> {
     const office = this.#deps.offices.get(run.office);
     if (office === undefined) return;
     this.#write(office, () => {
@@ -764,7 +752,7 @@ export class StoryConflicts {
           tip: merged.tip,
           commit: merged.commit,
           conflicts: merged.conflicts,
-          // A merge the merge slot made outside the box waits to be copied into it (DIPO-324).
+          // A merge dipo made outside the box waits to be copied into it (DIPO-324).
           ...(merged.outsideBox === true ? { boxCopy: "pending" as const } : {}),
         },
         at,
@@ -775,9 +763,7 @@ export class StoryConflicts {
       }
       return [];
     });
-    if (merged.conflicts.length === 0 && options.strict === true) {
-      await this.#carry(office, run);
-    } else if (merged.conflicts.length === 0) {
+    if (merged.conflicts.length === 0) {
       await this.#carry(office, run).catch((error: unknown) => {
         this.#deps.warn?.(
           "carrying an approval over a clean merge failed; the head gets a review",
@@ -811,7 +797,7 @@ export class StoryConflicts {
           delta: {
             level: "warn",
             code: CONFLICT_NOTICES.inReview,
-            text: `${run.story} is In Review, and ${found.base} at ${found.onto.slice(0, 12)} conflicts with its branch in ${shownPaths(paths)}. dipo merges the base at the story's next In Review or merge-slot sync and hands the conflict to its worker then.`,
+            text: `${run.story} is In Review, and ${found.base} at ${found.onto.slice(0, 12)} conflicts with its branch in ${shownPaths(paths)}. dipo merges the base at the story's next In Review, or when GitHub reports the conflict at its merge, and hands the conflict to its worker then.`,
           },
         },
       ];
@@ -832,55 +818,6 @@ export class StoryConflicts {
       );
       return [];
     });
-  }
-
-  /** What is left unresolved at done: a feedback turn, a failed hand-off, or the park at the cap. */
-  #markersLeft(
-    office: OfficeHandle,
-    run: StoredRun,
-    tip: string,
-    left: Unresolved,
-    capped: boolean,
-  ): DoneConflictDecision {
-    const paths = [
-      ...new Set([...left.markers.keys(), ...left.unchanged.map((f) => f.path)]),
-    ].toSorted();
-    const text = markersLeftText(left.markers, left.unchanged);
-    const cap = conflictCapOf(office, run, this.#fallbackCap(office.officeId as OfficeId));
-    let decision: DoneConflictDecision = { kind: "feedback", text };
-    this.#write(office, () => {
-      const at = this.#now();
-      const state = handOffState(office, run.runId);
-      const fail = (): number => {
-        appendHandOff(office, run.runId, { kind: "failed", n: state.current, why: "markers" }, at);
-        return state.failed + 1;
-      };
-      if (capped) {
-        // A done turn that crossed a run cap has no turn left for the feedback.
-        decision = {
-          kind: "park",
-          ...capPark(paths, state.open ? fail() : state.failed, cap, true),
-        };
-        return [];
-      }
-      if (!state.open) {
-        // Markers on the tip with no open hand-off (a resolved one, edited again): a new one.
-        appendHandOff(office, run.runId, { kind: "start", n: state.current + 1, commit: tip }, at);
-        return [];
-      }
-      if (!state.feedback) {
-        appendHandOff(office, run.runId, { kind: "feedback", n: state.current }, at);
-        return [];
-      }
-      const failed = fail();
-      if (failed >= cap) {
-        decision = { kind: "park", ...capPark(paths, failed, cap) };
-        return [];
-      }
-      appendHandOff(office, run.runId, { kind: "start", n: state.current + 1, commit: tip }, at);
-      return [];
-    });
-    return decision;
   }
 
   /**
@@ -1036,7 +973,7 @@ export interface ConflictResumesDeps {
   readonly park: (
     office: OfficeHandle,
     run: StoredRun,
-    park: { readonly reason: "conflict"; readonly cause: string; readonly detail: string },
+    park: { readonly reason: "conflict"; readonly detail: string },
   ) => Promise<unknown>;
   /** The conflict item's character budget of the run (`prompt.budgets.feedbackItem`). */
   readonly itemMax?: (office: OfficeId, run: StoredRun) => number;
@@ -1119,7 +1056,6 @@ export class ConflictResumes implements ConflictResumer {
   async prepare(
     officeId: OfficeId,
     run: StoredRun,
-    park: { readonly cause: string | null },
   ): Promise<ConflictPrepared | { readonly parked: true }> {
     const office = this.#deps.offices.get(officeId);
     const git = this.#deps.git(officeId);
@@ -1133,18 +1069,36 @@ export class ConflictResumes implements ConflictResumer {
         reason: fetched.error.message,
       });
     }
-    switch (park.cause) {
-      case PARK_CAUSES.mergeInProgress:
-        return this.#kept(office, git, run);
-      case PARK_CAUSES.pushRejected:
-        return this.#remote(office, git, run);
-      default:
-        // `unwritable-path`, `catch-up-failed` and any other conflict park: the base again.
-        return this.#again(office, git, run, park.cause ?? PARK_CAUSES.unwritablePath);
+    // What git and the run's hand-offs say decides, never the park's detail: commits only the
+    // remote branch holds (a rejected push), a kept merge whose hand-offs reached the cap, or else
+    // the base merged again.
+    if (await this.#remoteAhead(git, run.branch)) return this.#remote(office, git, run);
+    const failed = handOffState(office, run.runId).failed;
+    if (failed > 0 && failed >= conflictCapOf(office, run, CONFLICT_CAP_DEFAULT)) {
+      return this.#kept(office, git, run);
     }
+    return this.#again(office, git, run);
   }
 
-  /** `merge-in-progress`: the kept merge's conflict item, and a merge again when the base moved. */
+  /** True when the remote branch holds commits the local branch lacks. */
+  async #remoteAhead(git: OfficeGit, branch: string): Promise<boolean> {
+    return git.run(async (session) => {
+      const tip = await revParseAt(session, `refs/heads/${branch}^{commit}`);
+      const theirs = await revParseAt(
+        session,
+        `refs/remotes/${git.settings.remote}/${branch}^{commit}`,
+      );
+      if (tip === null || theirs === null || tip === theirs) return false;
+      const ahead = await session.step(session.repository, [
+        "rev-list",
+        "--count",
+        `${tip}..${theirs}`,
+      ]);
+      return ahead.code === 0 && Number(ahead.stdout.trim()) > 0;
+    });
+  }
+
+  /** A kept merge: its conflict item, and a merge again when the base moved. */
   async #kept(office: OfficeHandle, git: OfficeGit, run: StoredRun): Promise<ConflictPrepared> {
     const officeId = office.officeId as OfficeId;
     const merges = storyMerges(office, run.runId).filter(
@@ -1196,27 +1150,25 @@ export class ConflictResumes implements ConflictResumer {
       return [];
     });
     const parts = [item.text];
-    if (!read.moved) return { message: this.#parked("merge-in-progress", parts) };
+    if (!read.moved) return { message: this.#parked(parts) };
     parts.push(
       `${read.base} moved since dipo's merge, to ${(read.onto ?? "").slice(0, 12)}. dipo's merge is committed on your branch and in your box, so dipo does not undo it: once this session runs, dipo merges ${read.base} into your branch and your box again on top of it and tells you what conflicts then.`,
     );
     return {
-      message: this.#parked("merge-in-progress", parts),
+      message: this.#parked(parts),
       afterStart: () => this.#merge(officeId, run),
     };
   }
 
   /**
-   * `unwritable-path` (and `catch-up-failed`): parks again at once while a path the worker
-   * cannot write still conflicts, else merges the base again once the session runs.
+   * Any other conflict park: parks again at once while a path the worker cannot write still
+   * conflicts, else merges the base again once the session runs.
    */
   async #again(
     office: OfficeHandle,
     git: OfficeGit,
     run: StoredRun,
-    cause: string,
   ): Promise<ConflictPrepared | { readonly parked: true }> {
-    const unwritable = cause === PARK_CAUSES.unwritablePath;
     const officeId = office.officeId as OfficeId;
     const plan = await git.run(async (session) => {
       const ref = await baseRefOf(git, session);
@@ -1235,17 +1187,14 @@ export class ConflictResumes implements ConflictResumer {
     if (plan?.kind === "unwritable") {
       await this.#deps.park(office, run, {
         reason: "conflict",
-        cause: PARK_CAUSES.unwritablePath,
         detail: `git still cannot merge ${plan.base} at ${plan.onto.slice(0, 12)} cleanly in paths the worker cannot write: ${shownPaths(plan.paths)}`,
       });
       return { parked: true };
     }
     if (plan === null || plan.kind !== "merge") {
       return {
-        message: this.#parked(cause, [
-          unwritable
-            ? "The base no longer conflicts with your branch where you cannot write, and your branch needs no merge of it now."
-            : "Your branch holds the base, and your box holds every merge dipo made on it; nothing needs merging now.",
+        message: this.#parked([
+          "Your branch holds the base, and your box holds every merge dipo made on it; nothing needs merging now.",
         ]),
       };
     }
@@ -1254,8 +1203,8 @@ export class ConflictResumes implements ConflictResumer {
         ? "git merges it cleanly"
         : `git cannot merge ${shownPaths(plan.conflicts.map((file) => file.path))} cleanly, so you get those conflicts to resolve`;
     return {
-      message: this.#parked(cause, [
-        `${unwritable ? `The maintainer resolved the paths you cannot write on ${plan.base}. ` : ""}Once this session runs, dipo merges ${plan.base} at ${plan.onto.slice(0, 12)} into your branch and your box again; ${what}.`,
+      message: this.#parked([
+        `Once this session runs, dipo merges ${plan.base} at ${plan.onto.slice(0, 12)} into your branch and your box again; ${what}.`,
       ]),
       afterStart: () => this.#merge(officeId, run),
     };
@@ -1313,7 +1262,7 @@ export class ConflictResumes implements ConflictResumer {
     });
     if (found === null || found.total === 0 || run.story === null || run.startSha === null) {
       return {
-        message: this.#parked(PARK_CAUSES.pushRejected, [
+        message: this.#parked([
           `${name} holds no commit your branch lacks now, so nothing needs merging; dipo pushes your branch with your next part.`,
         ]),
       };
@@ -1358,14 +1307,13 @@ export class ConflictResumes implements ConflictResumer {
     if (plan.kind === "unwritable") {
       await this.#deps.park(office, run, {
         reason: "conflict",
-        cause: PARK_CAUSES.unwritablePath,
         detail: `git cannot merge ${name} at ${plan.onto.slice(0, 12)} cleanly in paths the worker cannot write: ${shownPaths(plan.paths)}`,
       });
       return { parked: true };
     }
     if (plan.kind !== "merge" || plan.commit === null) {
       return {
-        message: this.#parked(PARK_CAUSES.pushRejected, [
+        message: this.#parked([
           `Your branch holds ${name} already, so nothing needs merging; dipo pushes your branch with your next part.`,
         ]),
       };
@@ -1404,7 +1352,6 @@ export class ConflictResumes implements ConflictResumer {
     if (push.rejected) {
       await this.#deps.park(office, run, {
         reason: "conflict",
-        cause: PARK_CAUSES.pushRejected,
         detail: `${push.error ?? "the push was rejected"} again after dipo merged ${name}; the remote branch moved meanwhile`,
       });
       return { parked: true };
@@ -1429,7 +1376,7 @@ export class ConflictResumes implements ConflictResumer {
     } else {
       parts.push("git merged it cleanly.");
     }
-    return { message: this.#parked(PARK_CAUSES.pushRejected, parts) };
+    return { message: this.#parked(parts) };
   }
 
   /** Once the session runs: the merge, then the worker told, or the park it asks for. */
@@ -1457,13 +1404,9 @@ export class ConflictResumes implements ConflictResumer {
     }
   }
 
-  /** The first message: `feedback/parked.md` with the cause and the resume's own text. */
-  #parked(cause: string, parts: readonly string[]): string {
-    return renderTemplate(parkedTemplate, {
-      reason: "conflict",
-      cause,
-      detail: parts.join("\n\n"),
-    });
+  /** The first message: `feedback/parked.md` with the resume's own text. */
+  #parked(parts: readonly string[]): string {
+    return renderTemplate(parkedTemplate, { reason: "conflict", detail: parts.join("\n\n") });
   }
 
   #itemMax(officeId: OfficeId, run: StoredRun): { itemMax?: number } {

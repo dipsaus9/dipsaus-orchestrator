@@ -17,6 +17,7 @@ import {
   type StoryView,
 } from "@dipsaus-orchestrator/contract";
 
+import { insertPark } from "./park-fixture";
 import type { JournalEntry, LaneOp } from "../../src/backlog/lane/journal";
 import { insertEntry } from "../../src/backlog/lane/journal";
 import type { PlainTask } from "../../src/backlog/plain";
@@ -29,7 +30,6 @@ import { buildRegistry, type Registry } from "../../src/commands/registry";
 import { MemoryRequestTable } from "../../src/commands/requests";
 import { OFFICE_DEFAULTS, type OfficeConfig } from "../../src/config";
 import type { OfficeHandle } from "../../src/db/office";
-import { insertParkQuestion } from "../../src/hooks/questions";
 import { storeGateDecision } from "../../src/gate/store/decisions";
 import type { GateMode, GateResult } from "../../src/gate/types";
 import { executeRead } from "../../src/reads/execute";
@@ -48,10 +48,12 @@ import {
   placeHolders,
   Places,
   PLACE_NOTICES,
+  planLimitPause,
   type Resumption,
   type RunEnder,
   runSteps,
   START_KINDS,
+  StartsPaused,
   type BaseRead,
   type NewRun,
   waitForPlace,
@@ -132,8 +134,8 @@ interface World {
   verify: string | null;
   fetchError: Error | null;
   gate: (key: StoryKey, mode: GateMode) => GateResult;
-  /** The plan-limit hold (DIPO-61): why a run on the model must wait, or null. */
-  planLimit: (adapter: string, model: string | null) => string | null;
+  /** The office's starts paused (0020): a plan limit, or the adapter holds above. */
+  readonly startsPaused: StartsPaused;
   /** The live port slot entries (DIPO-197). */
   slots: SlotEntry[];
   /** Thrown by the slot read instead of returning `slots`, when set. */
@@ -177,7 +179,7 @@ beforeEach(async () => {
   const resumeStarts: string[] = [];
   const places = new Places({
     clock: t.clock,
-    offices: { get: () => office, config: () => OFFICE_DEFAULTS },
+    offices: { get: () => office },
     starters: {
       resume: async (target, started) => {
         resumeStarts.push(started.story ?? "");
@@ -203,7 +205,11 @@ beforeEach(async () => {
     verify: null,
     fetchError: null,
     gate: (_key, mode) => passed(mode),
-    planLimit: () => null,
+    startsPaused: new StartsPaused({
+      clock: t.clock,
+      offices: { get: () => office, config: () => w.config },
+      holds,
+    }),
     slots: [],
     slotsError: null,
     places,
@@ -243,8 +249,7 @@ beforeEach(async () => {
     stories: { indexStories: async () => w.indexStories?.() },
     profiles: { ensureFreshProfile: async () => undefined, verifyResolved: () => w.verify },
     statuses: async () => w.statuses,
-    adapterHeld: (adapter) => holds.adapterHeld(adapter),
-    planLimitHeld: (adapter, model) => w.planLimit(adapter, model),
+    startsPaused: (id) => w.startsPaused.state(id),
     liveSlots: () => {
       if (w.slotsError !== null) throw w.slotsError;
       return w.slots;
@@ -510,13 +515,13 @@ describe("work.run picks and claims one Ready story", () => {
       conflictCap: 3,
       reviewMaxTurns: 70,
       reviewMaxMinutes: 25,
-      reviewAllowance: 150_000,
+      reviewMaxTokens: 150_000,
     };
     expect(findRun(world.office, runId)).toMatchObject(expected);
     expect(
       world.office.get<Record<string, unknown>>(
         `select review_round_cap, ci_cap, conflict_cap, review_max_turns, review_max_minutes,
-           review_allowance from runs where office_id = $office_id and run_id = $run`,
+           review_max_tokens from runs where office_id = $office_id and run_id = $run`,
         { run: runId },
       ),
     ).toEqual({
@@ -525,7 +530,7 @@ describe("work.run picks and claims one Ready story", () => {
       conflict_cap: 3,
       review_max_turns: 70,
       review_max_minutes: 25,
-      review_allowance: 150_000,
+      review_max_tokens: 150_000,
     });
 
     // A config edit after the start never changes the running story's limits.
@@ -708,7 +713,7 @@ describe("work.run refusals", () => {
     const held = await codeOf();
     expect(held).toMatchObject({ code: "run.refused", details: { check: "adapter" } });
     expect(held.message).toStartWith(
-      "New runs on claude-cli are held in every office: probe: claude is not logged in.",
+      "New runs are refused: the office's starts are paused (claude-cli: probe: claude is not logged in.).",
     );
     world.holds.lift("claude-cli");
 
@@ -742,46 +747,24 @@ describe("work.run refusals", () => {
     expect(resultOf(await run()).started).toHaveLength(1);
   });
 
-  it("refuses every run while a plan limit of every model holds, and skips a held model as planLimit (DIPO-61, DIPO-92)", async () => {
+  it("refuses every run, named or not, while a plan limit pauses the office's starts, until it lifts (0020)", async () => {
     story("TASK-1", "Ready");
-    const asked: (string | null)[] = [];
-    world.planLimit = (_adapter, model) => {
-      asked.push(model);
-      return model === null ? "New runs wait for the session limit." : null;
-    };
+    const now = world.t.clock.now();
+    world.startsPaused.pausePlanLimit(
+      world.officeId,
+      planLimitPause({ credits: false, resetsAt: new Date(now + 3_600_000).toISOString() }, now),
+    );
     // Named stories too: a plan limit is not lifted by the launch checks.
     for (const args of [{}, { stories: ["TASK-1"] }]) {
-      expect(await codeOf(args)).toMatchObject({
-        code: "run.refused",
-        details: { check: "plan-limit" },
-        message: "New runs wait for the session limit.",
-      });
+      const refused = await codeOf(args);
+      expect(refused).toMatchObject({ code: "run.refused", details: { check: "plan-limit" } });
+      expect(refused.message).toStartWith(
+        `New runs are refused: the office's starts are paused (plan limit until ${new Date(now + 3_600_000).toISOString()}).`,
+      );
     }
-    expect(asked).toEqual([null, null]);
-
-    // A model-family limit: only stories whose tier runs that model are skipped, with their own
-    // reason, not capacity (DIPO-92).
-    const model = world.config.tiers.S.model;
-    world.planLimit = (_adapter, asking) => (asking === model ? "the opus limit" : null);
-    expect(resultOf(await run())).toMatchObject({
-      started: [],
-      skipped: [{ story: "TASK-1", reason: "planLimit" }],
-    });
-    world.planLimit = () => null;
     expect(world.claims).toEqual([]);
+    world.startsPaused.lift(world.officeId, "a test");
     expect(resultOf(await run()).started).toHaveLength(1);
-  });
-
-  it("skips as capacity, not planLimit, when the office is full and a model-family hold also applies (DIPO-92)", async () => {
-    story("TASK-1", "Ready", { priority: "high" });
-    story("TASK-2", "Ready", { priority: "low" });
-    expect(resultOf(await run()).started.map((s) => s.story)).toEqual(["TASK-1"]);
-    const model = world.config.tiers.S.model;
-    world.planLimit = (_adapter, asking) => (asking === model ? "the opus limit" : null);
-    expect(resultOf(await run()).skipped.map((s) => [s.story, s.reason])).toEqual([
-      ["TASK-1", "notRunnable"],
-      ["TASK-2", "capacity"],
-    ]);
   });
 
   it("answers engine.recovering for from while the state database is not open", async () => {
@@ -1030,11 +1013,11 @@ describe("the pickup's serialized step ends at its claim row (DIPO-314)", () => 
     world.office.immediate(() => waitForPlace(world.office, resume.run, START_KINDS.resume, 0));
     expect(world.places.pickupStarting(world.officeId)).toBe("TASK-1");
     expect(
-      world.places.blocked(
-        world.officeId,
-        { kind: START_KINDS.resume, runId: resume.run, since: 0 },
-        null,
-      ),
+      world.places.blocked(world.officeId, {
+        kind: START_KINDS.resume,
+        runId: resume.run,
+        since: 0,
+      }),
     ).toBe("the office's worker place is held by TASK-1, which is starting");
     // A drain inside the window starts nothing.
     expect(await world.places.drain(world.officeId)).toBe(0);
@@ -1141,45 +1124,27 @@ describe("the pickup's serialized step ends at its claim row (DIPO-314)", () => 
   });
 });
 
-/** A story run parked `needs-permission`, ended, with its permission question open (DIPO-229). */
-function parkedRun(id: string): { run: RunId; parkId: number; question: string } {
+/** A story run parked `worker-failed`, ended (DIPO-229). */
+function parkedRun(id: string): { run: RunId; key: StoryKey; story: string } {
   const started = storyRun(
     { dir, t: world.t, office: world.office, close: () => undefined },
     { story: id },
   );
   const { office, t } = world;
-  const agent = addAgent(
-    { dir, t, office, close: () => undefined },
-    started.run,
-    "developer",
-    false,
-  );
+  addAgent({ dir, t, office, close: () => undefined }, started.run, "developer", false);
   const at = t.clock.now();
-  const question = t.ids.next("qst");
-  let parkId = 0;
   office.immediate(() => {
-    office.run(
-      `insert into parks (office_id, park_id, key, story_id, run_id, reason, from_state, detail, at)
-       values ($office_id, (select coalesce(max(park_id), 0) + 1 from parks
-         where office_id = $office_id), $key, $story, $run, 'needs-permission', 'In Progress', 'x', $at)`,
-      { key: started.key, story: id, run: started.run, at },
-    );
-    parkId = office.get<{ id: number }>(
-      "select max(park_id) as id from parks where office_id = $office_id",
-    )?.id as number;
-    endRun(office, started.run, at, "blocked");
-    insertParkQuestion(office, {
-      questionId: question,
+    insertPark(office, {
+      key: started.key,
+      story: id,
       runId: started.run,
-      agentId: agent,
-      parkId,
-      tool: "Bash",
-      action: "docker ps",
-      text: "Bash(docker ps)",
+      reason: "worker-failed",
+      detail: "x",
       at,
     });
+    endRun(office, started.run, at, "interrupted");
   });
-  return { run: started.run, parkId, question };
+  return { run: started.run, key: started.key, story: id };
 }
 
 /** The park resumption; a resume's session start counts into `sessions` (DIPO-229). */
@@ -1212,13 +1177,26 @@ function resumption(sessions: { count: number }): Resumption {
   ).resumption;
 }
 
-function answer(of: Resumption, parked: { run: RunId; parkId: number; question: string }) {
-  return of.resumePark(world.officeId, parked.run, {
-    parkId: parked.parkId,
-    question: parked.question,
-    decision: "allow",
-    text: "",
-  });
+/** `work.resume` of the parked story; `started`, and `queued` when it waits for its place. */
+async function answer(
+  of: Resumption,
+  parked: { run: RunId; key: StoryKey; story: string },
+): Promise<{ kind: "started"; queued?: true }> {
+  const reply = await of.resumeCommand(
+    {
+      office: world.office,
+      clock: world.t.clock,
+      ids: world.t.ids,
+      requestId: "req_resume",
+      origin: "cli",
+      confirmed: false,
+      now: world.t.clock.now(),
+      stories: { get: () => ({ story: parked.story, key: parked.key }) },
+      commit: () => {},
+    } as never,
+    { story: StoryId.parse(parked.story) },
+  );
+  return reply.result.queued === true ? { kind: "started", queued: true } : { kind: "started" };
 }
 
 function noticeCodes(): string[] {
@@ -1242,7 +1220,7 @@ async function waitUntil(condition: () => boolean): Promise<void> {
  */
 async function pickupWithAnswerInClaim(
   of: Resumption,
-  parked: { run: RunId; parkId: number; question: string },
+  parked: { run: RunId; key: StoryKey; story: string },
 ) {
   const entered = Promise.withResolvers<void>();
   const opened = Promise.withResolvers<void>();

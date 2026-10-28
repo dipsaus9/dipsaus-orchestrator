@@ -24,8 +24,8 @@
 // to it as usual. When it needs a rebuild, its adopted operations cannot be applied again and are
 // dropped with a notice; a branch holding nothing else is let go of (`abandoned`), never closed.
 //
-// While the office's merge slot holds the open branch (DIPO-73, `held`), a flush does nothing: new
-// operations stay journaled and go to the next backlog PR, or onto the branch after the slot.
+// While the open branch's PR has GitHub's auto-merge on (`held`, 0002), a flush does nothing: new
+// operations stay journaled and go to the next backlog PR, or onto the branch once auto-merge is off.
 //
 // Each commit carries the trailer `Dipo-Op: <op id>`, so after a crash between a commit and its
 // journal update the commit is found again instead of applied twice.
@@ -46,7 +46,6 @@ import { backupStamp } from "../../db/migrations";
 import {
   BASE_CHECKOUT_CONFIG,
   BASE_CHECKOUT_ENV,
-  FETCH_CONFIG,
   type GitLocation,
   WORKTREE_ADD_CONFIG,
 } from "../../git/hardened";
@@ -57,12 +56,20 @@ import {
   type GitStepOptions,
   isTimedOut,
 } from "../../git/runner";
-import { statusPaths } from "../../git/task-commit";
+import {
+  commitStaged,
+  createBranch,
+  deleteBranch,
+  pushRef,
+  resetWorktree,
+  statusPaths,
+} from "../../git/write";
 import { findStoryByKey } from "../../stories/keys";
 import type { BacklogCli } from "../runner";
 
 import {
   type EntryChange,
+  findEntry,
   insertEntry,
   isAdoptedTarget,
   type JournalEntry,
@@ -169,8 +176,8 @@ export interface FlushReport {
   /** What waits for a remote, a fetch or a push; null when nothing does. */
   readonly waiting: Waiting | null;
   /**
-   * True when the flush did nothing because the open branch is in the merge slot (DIPO-73): new
-   * operations stay journaled and go to the next backlog PR, or onto the branch after the slot.
+   * True when the flush did nothing because the open branch's PR has auto-merge on (0002): new
+   * operations stay journaled and go to the next backlog PR, or onto the branch once it is off.
    */
   readonly held?: boolean;
   /**
@@ -198,10 +205,16 @@ export interface OfficeLaneOptions {
    */
   readonly onFlushed?: (office: OfficeId, report: FlushReport) => Promise<void>;
   /**
-   * The engine branch the office's merge slot holds, or null (DIPO-73; 0016 rule 2). While a branch
-   * is held, a flush applies nothing: operations are journaled and wait for the slot to let go.
+   * The engine branch whose PR has auto-merge on, or null (0002). While a branch is held, a flush
+   * applies nothing: operations are journaled and wait until auto-merge is off or the PR merged.
    */
   readonly held?: (office: OfficeId) => string | null;
+  /**
+   * Reads a story again on the base (the story index's `refreshStory`), for each story whose
+   * operation the flush found merged (DIPO-360): the operation stops counting as the story's
+   * pending state then (`backlogPark`), so the mirror must hold the base's read at once.
+   */
+  readonly refreshStory?: (office: OfficeId, key: StoryKey) => Promise<unknown>;
 }
 
 export interface BaseRef {
@@ -219,9 +232,6 @@ function messageOf(entry: Pick<JournalEntry, "kind" | "subject">): string {
   return `backlog: ${entry.kind} ${entry.subject}`;
 }
 
-/** `git status --porcelain=v1 -z` paths; it lives with the status commit (`git/task-commit.ts`). */
-export { statusPaths };
-
 /** True when `path` lies under `backlog/` or is one of `extra`. */
 function inLane(path: string, extra: readonly string[]): boolean {
   return path.startsWith("backlog/") || extra.includes(path);
@@ -238,6 +248,7 @@ export class OfficeLane {
   readonly #onChanged: (office: OfficeId) => void;
   readonly #onFlushed: ((office: OfficeId, report: FlushReport) => Promise<void>) | undefined;
   readonly #held: (office: OfficeId) => string | null;
+  readonly #refreshStory: ((office: OfficeId, key: StoryKey) => Promise<unknown>) | undefined;
   #waiting: Waiting | null = null;
 
   constructor(options: OfficeLaneOptions) {
@@ -251,6 +262,7 @@ export class OfficeLane {
     this.#onChanged = options.onChanged ?? (() => {});
     this.#onFlushed = options.onFlushed;
     this.#held = options.held ?? (() => null);
+    this.#refreshStory = options.refreshStory;
   }
 
   get git(): OfficeGit {
@@ -289,7 +301,7 @@ export class OfficeLane {
         ) {
           throw new LaneError(
             "backlog.lane.liveClaim",
-            `${op.subject} has a live claim, so its changes travel in its story PR; stop it with \`work.stop\` first.`,
+            `${op.subject} has a live claim, so its changes travel in its story PR; park it with \`story.park\` first.`,
             { key: op.key, subject: op.subject },
           );
         }
@@ -321,10 +333,10 @@ export class OfficeLane {
   /**
    * Brings the open branch up to date and applies every open operation: fetch (when the office
    * has a remote), drop merged operations, rebuild when needed, apply, commit, push. `rebuild`
-   * names a branch the merge slot found conflicting with the base (DIPO-73): when it is still the
-   * open branch, it is rebuilt from the journal. While the merge slot holds a branch, the flush
-   * does nothing and reports `held`; the hold is read again inside the flush item, so a flush that
-   * started before the slot took the branch applies nothing once it has.
+   * names a branch GitHub found conflicting with the base: when it is still the open branch, it is
+   * rebuilt from the journal. While a branch is held, the flush does nothing and reports `held`;
+   * the hold is read again inside the flush item, so a flush that started before auto-merge went
+   * on applies nothing once it has.
    */
   async flush(
     options: { readonly replay?: boolean; readonly rebuild?: string } = {},
@@ -348,9 +360,26 @@ export class OfficeLane {
       throw this.#failed(error, options.replay === true);
     }
     if (report.held === true) return report;
+    await this.#refreshMerged(report.merged);
     // The hook reports its own failures as notices; a failure there is no failed flush.
     await this.#onFlushed?.(this.officeId, report).catch(() => undefined);
     return report;
+  }
+
+  /**
+   * The stories of the operations a flush found merged, read again on the base (DIPO-360). A read
+   * that fails (a dropped story is archived) leaves the next index pass to it.
+   */
+  async #refreshMerged(merged: readonly number[]): Promise<void> {
+    if (this.#refreshStory === undefined) return;
+    const keys = new Set<StoryKey>();
+    for (const opId of merged) {
+      const key = findEntry(this.#office, opId)?.key;
+      if (key != null) keys.add(key);
+    }
+    for (const key of keys) {
+      await this.#refreshStory(this.officeId, key).catch(() => undefined);
+    }
   }
 
   /**
@@ -399,7 +428,7 @@ export class OfficeLane {
     });
   }
 
-  /** The report of a flush that did nothing because the merge slot holds the branch, or null. */
+  /** The report of a flush that did nothing because the branch is held, or null. */
   #heldReport(): FlushReport | null {
     const held = this.#held(this.officeId);
     if (held === null) return null;
@@ -473,7 +502,15 @@ export class OfficeLane {
       }
       if (close || rebuild) {
         await this.#checkout(git, location, base.sha, true);
-        if (close && tip !== null) await git.ok(git.repository, ["branch", "-D", branch]);
+        if (close && tip !== null) {
+          const deleted = await deleteBranch(git, branch, tip);
+          if (deleted.code !== 0) {
+            throw new GitError(
+              "git.failed",
+              `deleting the backlog branch ${branch} at ${tip} failed: ${deleted.stderr.trim() || `exit ${deleted.code}`}`,
+            );
+          }
+        }
       }
       if (rebuild) {
         const old = branch;
@@ -618,7 +655,14 @@ export class OfficeLane {
       }
       if (branch === null) {
         branch = await this.#newBranchName(git);
-        await git.ok(location, ["checkout", "--quiet", "-b", branch]);
+        const head = (await git.ok(location, ["rev-parse", "--verify", "HEAD"])).trim();
+        if (!(await createBranch(git, branch, head))) {
+          throw new GitError(
+            "git.failed",
+            `the backlog branch ${branch} appeared while dipo created it`,
+          );
+        }
+        await git.ok(location, ["checkout", "--quiet", branch]);
       }
       const onto = branch;
       this.#write(() => this.#update(entry.opId, { state: "applied", branch: onto }));
@@ -657,11 +701,10 @@ export class OfficeLane {
   async #commit(git: GitSession, location: GitLocation, entry: JournalEntry): Promise<string> {
     let result;
     try {
-      result = await git.step(
-        location,
-        ["commit", "--quiet", "-m", messageOf(entry), "-m", `${OP_TRAILER}: ${entry.opId}`],
-        { timeoutMs: EXTERNAL_STEP_TIMEOUT_MS },
-      );
+      result = await commitStaged(git, location, {
+        subject: messageOf(entry),
+        body: [`${OP_TRAILER}: ${entry.opId}`],
+      });
     } catch (error) {
       if (isTimedOut(error)) throw new StuckCommitError(error.message);
       throw error;
@@ -702,25 +745,11 @@ export class OfficeLane {
       reason = "fetchFailed";
       detail = `the push waits until a fetch of ${this.#git.settings.remote} succeeds (${remote.detail})`;
     } else {
-      const result = await git
-        .step(
-          git.repository,
-          [
-            "push",
-            "--quiet",
-            "--no-verify",
-            this.#git.settings.remote,
-            `refs/heads/${branch}:refs/heads/${branch}`,
-          ],
-          { config: FETCH_CONFIG, timeoutMs: EXTERNAL_STEP_TIMEOUT_MS },
-        )
-        .catch((error: unknown) => {
-          // A push waiting on a credential prompt was killed; the commits wait for the next flush.
-          if (!isTimedOut(error)) throw error;
-          return null;
-        });
-      stuck = result === null;
-      if (result?.code === 0) {
+      // A push waiting on a credential prompt is killed (`code` null); the commits wait for the
+      // next flush.
+      const result = await pushRef(git, this.#git.settings.remote, branch);
+      stuck = result.code === null;
+      if (result.code === 0) {
         this.#write(() => {
           for (const entry of unpushed) this.#update(entry.opId, { state: "pushed" });
         });
@@ -729,7 +758,7 @@ export class OfficeLane {
       }
       reason = "pushFailed";
       detail =
-        result === null
+        result.code === null
           ? `pushing to ${this.#git.settings.remote} was killed after ${EXTERNAL_STEP_TIMEOUT_MS / 1000} s; the likely cause is ${PUSH_CAUSE}`
           : `pushing to ${this.#git.settings.remote} failed: ${result.stderr.trim() || `exit ${result.code}`}`;
       changed = true;
@@ -881,7 +910,7 @@ export class OfficeLane {
 
   /** Throws away what an operation left in the worktree. */
   async #discard(git: GitSession, location: GitLocation, to = "HEAD"): Promise<void> {
-    await git.ok(location, ["reset", "--hard", "--quiet", to], CHECKOUT);
+    await resetWorktree(git, location, to, CHECKOUT);
     await git.ok(location, ["clean", "-fdq"]);
   }
 
@@ -1022,8 +1051,10 @@ export interface BacklogLaneDeps {
   readonly onChanged?: (office: OfficeId) => void;
   /** Called after each successful flush (DIPO-35, the backlog PR). */
   readonly onFlushed?: (office: OfficeId, report: FlushReport) => Promise<void>;
-  /** The branch the office's merge slot holds (DIPO-73). */
+  /** The branch whose PR has auto-merge on (0002). */
   readonly held?: (office: OfficeId) => string | null;
+  /** Reads a story whose operation merged again on the base (DIPO-360). */
+  readonly refreshStory?: (office: OfficeId, key: StoryKey) => Promise<unknown>;
 }
 
 /** The load step that replays open journal entries (0007 section 6 step 2). */

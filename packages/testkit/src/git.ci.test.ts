@@ -36,7 +36,7 @@ if (process.env["DIPO_TEST_CI"] === "1") {
           expect(na.stdout).toContain("not_applicable:");
           const held = await repo.run([BACKLOG_CLI, "task", "view", "TASK-3", "--plain"]);
           expect(held.stdout).toMatch(/^Status: .*Parked$/m);
-          expect(held.stdout).toContain('reason: "on-hold"');
+          expect(held.stdout).toContain('reason: "by-maintainer"');
 
           // The CLI never touched the checked-in fixture.
           expect((await repo.git("status", "--porcelain")).trim()).toBe("?? backlog/");

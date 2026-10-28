@@ -1,8 +1,8 @@
 // Adopting an open backlog PR after a lost database (DIPO-80), against real temporary repositories,
 // the pinned Backlog CLI and an in-memory code host, in CI only (0017). One database opens the PR;
 // a second, fresh database on the same repository stands for the database after the loss. The
-// fresh one adopts the PR into `backlog_prs` and the lane, appends to it and merges it through the
-// merge slot; a new Ready whose gate decision was lost keeps it unmerged until the gate passes
+// fresh one adopts the PR into `backlog_prs` and the lane, appends to it and merges it through
+// GitHub's auto-merge; a new Ready whose gate decision was lost keeps it unmerged until the gate passes
 // again; two unknown PRs, or one whose branch holds a commit the lane did not make, are noticed and
 // left alone. No test reaches GitHub.
 
@@ -19,10 +19,10 @@ import { insertEntry, updateEntry } from "../../../src/backlog/lane/journal";
 import { BacklogPrs, findPr, PR_NOTICES } from "../../../src/backlog/pr";
 import { gateStoryFromView } from "../../../src/gate/input";
 import { gateContentHash, storeGateDecision } from "../../../src/gate/store";
-import { MergeSlot } from "../../../src/merge-slot";
+import { AutoMerge } from "../../../src/merge";
 import type { RequiredCheck } from "../../../src/platform/host";
 import { addStory } from "../../../src/stories/keys";
-import { GREEN } from "../../merge-slot/helpers";
+import { GREEN, RED } from "../../merge/helpers";
 import {
   BACKLOG_FIXTURE,
   inRemote,
@@ -43,10 +43,12 @@ setDefaultTimeout(30_000);
 
 const FIXTURE = { fixture: BACKLOG_FIXTURE };
 
-/** A host whose squash merge squashes the branch onto the remote's `main`. */
+/** A host whose auto-merge squashes the branch onto the remote's `main` once GitHub merges. */
 class RemoteHost extends FakeHost {
   checks: RequiredCheck[] = GREEN;
   merges = 0;
+  /** The heads auto-merge was turned on at, by PR. */
+  readonly armed = new Map<number, string>();
 
   constructor(readonly repo: TempRepoWithRemote) {
     super();
@@ -56,21 +58,34 @@ class RemoteHost extends FakeHost {
     return this.checks;
   }
 
-  override async squashMerge(
+  override async enableAutoMerge(
     repo: string,
     number: number,
-    merge?: { headSha: string; subject: string },
+    merge: { readonly headSha: string; readonly subject: string },
   ): Promise<void> {
-    this.calls.push(`merge ${repo} #${number} at ${merge?.headSha}`);
-    this.merges += 1;
+    await super.enableAutoMerge(repo, number, merge);
+    this.armed.set(number, merge.headSha);
+  }
+
+  /** GitHub merges the PR whose auto-merge is on, its checks green, at the head it was given. */
+  async githubMerges(number: number): Promise<void> {
     const pr = this.prs.get(number);
-    if (pr === undefined) throw new Error(`no PR #${number}`);
+    const head = this.armed.get(number);
+    if (pr?.autoMerge !== true || head === undefined) throw new Error(`#${number} is not armed`);
+    this.calls.push(`merge #${number} at ${head}`);
+    this.merges += 1;
     await squashMergeOnRemote(this.repo, pr.head);
-    this.prs.set(number, { ...pr, state: "merged", headSha: merge?.headSha ?? "" });
+    this.prs.set(number, { ...pr, state: "merged", headSha: head, autoMerge: false });
+  }
+
+  /** GitHub reports that the base conflicts with the PR. */
+  conflicting(number: number): void {
+    const pr = this.prs.get(number);
+    if (pr !== undefined) this.prs.set(number, { ...pr, mergeable: "conflicting" });
   }
 }
 
-/** One database on the repository: its lane, backlog PRs and merge slot, sharing `host`. */
+/** One database on the repository: its lane, backlog PRs and auto-merge, sharing `host`. */
 async function database(repo: TempRepoWithRemote, host: RemoteHost, stateDir: string) {
   const base = await laneSetup(repo, undefined, stateDir);
   const officeId = base.office.officeId as OfficeId;
@@ -83,9 +98,8 @@ async function database(repo: TempRepoWithRemote, host: RemoteHost, stateDir: st
     offices: { get: () => base.office },
     clock: base.t.clock,
   });
-  const slot = new MergeSlot({
+  const merge = new AutoMerge({
     host,
-    prs,
     lane: () => lane,
     offices: { get: () => base.office },
     clock: base.t.clock,
@@ -98,14 +112,14 @@ async function database(repo: TempRepoWithRemote, host: RemoteHost, stateDir: st
     clock: base.t.clock,
     kinds: base.kinds,
     onFlushed: (office, report) => prs.afterFlush(office, report),
-    held: (office) => slot.holding(office),
+    held: (office) => merge.holding(office),
   });
   const made = lane;
   const keys = {
     one: addStory(base.office, base.t.ids, { story: StoryId.parse("TASK-1") }, 0).key,
     two: addStory(base.office, base.t.ids, { story: StoryId.parse("TASK-2") }, 0).key,
   };
-  return { ...base, officeId, prs, slot, lane: made, keys };
+  return { ...base, officeId, prs, merge, lane: made, keys };
 }
 
 async function start(repo: TempRepoWithRemote) {
@@ -119,7 +133,7 @@ async function start(repo: TempRepoWithRemote) {
 
 /** The host calls that would change a PR: dipo never closes, edits or merges one it left alone. */
 function changing(host: FakeHost): string[] {
-  return host.calls.filter((call) => /^(close|update|merge|create) /.test(call));
+  return host.calls.filter((call) => /^(close|update|merge|create|auto-merge) /.test(call));
 }
 
 if (process.env["DIPO_TEST_CI"] === "1") {
@@ -160,6 +174,11 @@ if (process.env["DIPO_TEST_CI"] === "1") {
         // A second look finds it known and adopts nothing.
         expect(await fresh.prs.adopt(fresh.officeId)).toEqual({ adopted: null, refused: [] });
 
+        // A round reads the PR's auto-merge state (off, and kept off by a red check), so the lane may
+        // append to its branch: until a round has read it after a start, the lane holds it.
+        host.checks = RED;
+        await fresh.merge.tick(fresh.officeId);
+        host.checks = GREEN;
         // The lane treats it as its open branch: a new operation goes onto it with a later op id,
         // and no second PR opens.
         fresh.t.clock.advance(1000);
@@ -176,8 +195,11 @@ if (process.env["DIPO_TEST_CI"] === "1") {
           (await inRemote(repo, "log", "--format=%s", branch, "^main")).trim().split("\n"),
         ).toEqual(["backlog: edit TASK-2", "backlog: edit TASK-1"]);
 
-        // The merge slot merges it once its checks pass, and the lane closes the operations.
-        expect(await fresh.slot.tick(fresh.officeId)).toBe("merged");
+        // Auto-merge goes on, GitHub merges it once its checks pass, and the lane closes the
+        // operations.
+        await fresh.merge.tick(fresh.officeId);
+        await host.githubMerges(1);
+        await fresh.merge.tick(fresh.officeId);
         expect(host.prs.get(1)?.state).toBe("merged");
         expect(findPr(fresh.office, 1)?.state).toBe("merged");
         expect(allEntries(fresh.office).map((entry) => entry.state)).toEqual(["merged", "merged"]);
@@ -202,11 +224,11 @@ if (process.env["DIPO_TEST_CI"] === "1") {
         const failed = notices(fresh.office).filter((n) => n.code === PR_NOTICES.checkFailed);
         expect(failed.map((n) => n.key)).toEqual([fresh.keys.two]);
         expect(failed[0]?.text).toContain("[ready-decision] on TASK-2");
-        expect(await fresh.slot.tick(fresh.officeId)).toBe("idle");
-        expect(host.merges).toBe(0);
+        await fresh.merge.tick(fresh.officeId);
+        expect(host.armed.size).toBe(0);
 
         // The Ready gate passes again for TASK-2's content; the next sync checks the PR again and
-        // the merge slot merges it.
+        // auto-merge goes on and GitHub merges it.
         fresh.t.clock.advance(1000);
         const view = await viewStory({ cli: fresh.cli, cwd: repo.dir, id: "TASK-2", kind: "task" });
         fresh.office.immediate(() =>
@@ -219,7 +241,9 @@ if (process.env["DIPO_TEST_CI"] === "1") {
         );
         await fresh.prs.sync(fresh.officeId);
         expect(findPr(fresh.office, 1)).toMatchObject({ check: "passed", failures: [] });
-        expect(await fresh.slot.tick(fresh.officeId)).toBe("merged");
+        await fresh.merge.tick(fresh.officeId);
+        await host.githubMerges(1);
+        await fresh.merge.tick(fresh.officeId);
         expect(host.prs.get(1)?.state).toBe("merged");
       }, FIXTURE);
     });
@@ -235,6 +259,11 @@ if (process.env["DIPO_TEST_CI"] === "1") {
         });
         const fresh = await database(repo, host, "state-fresh");
         expect((await fresh.prs.adopt(fresh.officeId)).adopted).toBe(1);
+        // A round reads the PR's auto-merge state (off, and kept off by a red check), so the lane may
+        // append to its branch: until a round has read it after a start, the lane holds it.
+        host.checks = RED;
+        await fresh.merge.tick(fresh.officeId);
+        host.checks = GREEN;
         fresh.t.clock.advance(1000);
         await fresh.lane.submit({
           kind: "edit",
@@ -246,7 +275,8 @@ if (process.env["DIPO_TEST_CI"] === "1") {
         // TASK-1 changed on main: the branch is rebuilt (0010 section 2) with TASK-2 only, and the
         // adopted PR is closed as for any rebuild.
         await pushStatusChange(repo, { "TASK-1": "In Progress" });
-        expect(await fresh.slot.tick(fresh.officeId)).toBe("rebuilt");
+        host.conflicting(1);
+        await fresh.merge.tick(fresh.officeId);
         expect(host.prs.get(1)?.state).toBe("closed");
         expect(host.prs.get(2)?.state).toBe("open");
         const entries = allEntries(fresh.office);
@@ -278,7 +308,8 @@ if (process.env["DIPO_TEST_CI"] === "1") {
         // TASK-1 changed on main meanwhile: the branch conflicts, and its operation's target state
         // was lost, so the lane cannot rebuild it on a new branch.
         await pushStatusChange(repo, { "TASK-1": "In Progress" });
-        expect(await fresh.slot.tick(fresh.officeId)).toBe("rebuilt");
+        host.conflicting(1);
+        await fresh.merge.tick(fresh.officeId);
         const codes = notices(fresh.office).map((n) => n.code);
         expect(codes).toContain(LANE_NOTICES.adoptedAbandoned);
         expect(codes).toContain(LANE_NOTICES.dropped);
@@ -288,9 +319,9 @@ if (process.env["DIPO_TEST_CI"] === "1") {
         // The record lets go; the PR and its branch stay as they are for the maintainer.
         expect(findPr(fresh.office, 1)?.state).toBe("closed");
         expect(host.prs.get(1)?.state).toBe("open");
-        expect(host.calls.filter((call) => /^(close|merge|create) /.test(call))).toEqual([
-          `create o/r ${branch} -> main: ${host.prs.get(1)?.title}`,
-        ]);
+        expect(host.calls.filter((call) => /^(close|merge|create|auto-merge) /.test(call))).toEqual(
+          [`create o/r ${branch} -> main: ${host.prs.get(1)?.title}`],
+        );
         expect((await inRemote(repo, "log", "--format=%s", "-1", branch)).trim()).toBe(
           "backlog: edit TASK-1",
         );
@@ -382,7 +413,7 @@ if (process.env["DIPO_TEST_CI"] === "1") {
         expect(hand2.refused[0]?.reason).toContain("is not a dipo backlog commit");
         expect(findPr(fresh.office, 2)).toBeNull();
         expect(allEntries(fresh.office)).toEqual([]);
-        expect(await fresh.slot.tick(fresh.officeId)).toBe("idle");
+        await fresh.merge.tick(fresh.officeId);
         expect(host.prs.get(2)?.state).toBe("open");
         expect(changing(host)).toEqual(before);
       }, FIXTURE);

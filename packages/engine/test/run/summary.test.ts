@@ -105,7 +105,6 @@ describe("the park block", () => {
     const block = renderParkBlock({
       at: AT,
       reason: "budget-exceeded",
-      cause: "build",
       detail: "turn cap (--max-turns) after 61 turns\nmore detail on a second line",
       runId: f.run,
       ...runSummaryFacts(f.office, run, AT),
@@ -113,7 +112,7 @@ describe("the park block", () => {
       uncommitted: 7,
     });
     expect(block.split("\n")).toEqual([
-      "Parked 2026-10-22 14:05 UTC: budget-exceeded (build)",
+      "Parked 2026-10-22 14:05 UTC: budget-exceeded",
       "- Detail: turn cap (--max-turns) after 61 turns",
       `- Run: ${f.run}`,
       "- Criteria met: 3 of 8 (as the worker reported them)",
@@ -142,7 +141,6 @@ describe("the park block", () => {
     const block = renderParkBlock({
       at: AT,
       reason: "verify-failing",
-      cause: "ci",
       detail: "",
       runId: f.run,
       ...runSummaryFacts(f.office, run, AT),
@@ -164,7 +162,6 @@ describe("the park block", () => {
     const block = renderParkBlock({
       at: AT,
       reason: "ambiguous-spec",
-      cause: "question",
       detail: `${SECTION_RULE}\nWhich greeting?`,
       runId: f.run,
       ...runSummaryFacts(f.office, run, AT),
@@ -188,7 +185,7 @@ describe("the resume line", () => {
         at: AT,
         grants: [
           { kind: "budget", amount: { tokens: 150_000, turns: 30, minutes: 45 } },
-          { kind: "loop", amount: 1 },
+          { kind: "round", amount: { cap: "loops", count: 1 } },
         ],
         note: "Try the other parser.\nIt handles the edge case.",
       }),
@@ -206,9 +203,9 @@ describe("the final summary", () => {
     const { office, run, work } = f;
     office.immediate(() => {
       office.run(
-        `insert into parks (office_id, park_id, key, story_id, run_id, reason, cause, from_state,
-           detail, last_good_commit, at, resolved_at, resolved_how)
-         values ($office_id, 1, $key, 'DIPO-1', $run, 'budget-exceeded', 'build', 'In Progress',
+        `insert into parks (office_id, park_id, key, story_id, run_id, reason, detail,
+           last_good_commit, at, resolved_at, resolved_how)
+         values ($office_id, 1, $key, 'DIPO-1', $run, 'budget-exceeded',
            'turn cap (--max-turns) after 61 turns', null, $at, $resolved, 'resume')`,
         { key: work.key, run, at: AT - 5 * 60_000, resolved: AT - 4 * 60_000 },
       );
@@ -239,7 +236,7 @@ describe("the final summary", () => {
     ]);
     expect(lines).toContain("- Parks: 1");
     expect(lines).toContain(
-      "  - 2026-10-22 14:00 UTC budget-exceeded (build): turn cap (--max-turns) after 61 turns",
+      "  - 2026-10-22 14:00 UTC budget-exceeded: turn cap (--max-turns) after 61 turns",
     );
     expect(lines).toContain("- Grants: 1");
     expect(lines).toContain(

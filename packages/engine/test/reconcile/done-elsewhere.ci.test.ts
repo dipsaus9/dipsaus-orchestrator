@@ -126,10 +126,8 @@ async function mergeOnRemote(o: ReconcileOffice, record: ClaimRecord): Promise<v
 
 function parkRow(office: OfficeHandle, key: StoryKey, runId: RunId): void {
   office.run(
-    `insert into parks (office_id, park_id, key, story_id, run_id, reason, from_state, detail,
-       last_good_commit, at, cause)
-     values ($office_id, 1, $key, 'TASK-1', $run, 'budget-exceeded', 'In Progress',
-       'turn cap 61 of 60', null, 1, 'build')`,
+    `insert into parks (office_id, park_id, key, story_id, run_id, reason, detail, last_good_commit, at)
+     values ($office_id, 1, $key, 'TASK-1', $run, 'budget-exceeded', 'turn cap 61 of 60', null, 1)`,
     { key, run: runId },
   );
 }
@@ -289,9 +287,13 @@ if (process.env["DIPO_TEST_CI"] === "1") {
           (n) => n.code === DONE_ELSEWHERE_NOTICES.live,
         );
         expect(live).toHaveLength(1);
-        expect(live[0]?.text).toContain("dipo stop TASK-1");
+        expect(live[0]?.text).toContain("dipo park TASK-1");
         expect(doneElsewhereDeskItems(o.office)).toMatchObject([
-          { kind: DONE_ELSEWHERE_DESK.live, key, actions: [{ cli: "dipo stop TASK-1" }] },
+          {
+            kind: DONE_ELSEWHERE_DESK.live,
+            key,
+            actions: [{ cli: 'dipo park TASK-1 --note "<why>"' }],
+          },
         ]);
 
         // The run ends (a park, In Review or a stop): the next reconcile releases the claim.

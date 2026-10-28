@@ -489,12 +489,15 @@ describe("version 9 key paths", () => {
     expect(boxV9({ toolchain: { nodeSha256: { riscv64: "a".repeat(64) } } })).toBe(false);
   });
 
-  it("refuse a package name that could break the build file, and git", () => {
-    for (const name of ["jq; curl evil", "-y", "Jq", "a b", "$(id)", "git", "git=1:2.47.2-0.1"]) {
+  it("refuse a package name that could break the build file; git is a package like any other", () => {
+    for (const name of ["jq; curl evil", "-y", "Jq", "a b", "$(id)"]) {
       expect(boxV9({ packages: [name] })).toBe(false);
     }
     expect(boxV9({ packages: ["jq", "jq"] })).toBe(false);
-    expect(boxV9({ packages: ["git-lfs"] })).toBe(true);
+    // DIPO-346: every image has git for the box's own repository (0008); naming it is harmless.
+    for (const name of ["git-lfs", "git", "git=1:2.47.2-0.1"]) {
+      expect(boxV9({ packages: [name] })).toBe(true);
+    }
   });
 
   it("refuse a Debian release that is not a release name, and unknown box keys", () => {

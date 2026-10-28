@@ -145,13 +145,12 @@ function turn(box: boolean | undefined) {
 }
 
 describe("a run without a box at done (DIPO-240)", () => {
-  it("parks interrupted with the reason, and runs no verify, scope check or git", async () => {
+  it("parks worker-failed with the reason, and runs no verify, scope check or git", async () => {
     for (const box of [false, undefined]) {
       const { finisher, ctx, calls } = turn(box);
       expect(await finisher.afterTurn(ctx)).toEqual({
         kind: "park",
-        reason: "interrupted",
-        cause: "build",
+        reason: "worker-failed",
         detail: NO_BOX_AT_DONE,
         endKind: "interrupted",
       });

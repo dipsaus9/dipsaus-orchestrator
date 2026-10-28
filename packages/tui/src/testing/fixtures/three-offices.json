@@ -242,10 +242,10 @@
           "provisional": false,
           "title": "Web client shell",
           "lifecycle": "Parked",
-          "column": "held",
+          "column": "desk",
           "tier": "L",
           "parked": {
-            "reason": "on-hold",
+            "reason": "by-maintainer",
             "detail": "after M2",
             "from": "Ready",
             "since": "2026-10-11T10:00:00.000Z"

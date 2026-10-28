@@ -8,7 +8,9 @@
 //    file it creates (O_CREAT|O_EXCL|O_NOFOLLOW) in a fresh folder of its own, cut at
 //    `PART_ARCHIVE_LIMITS`, the exec's stdin closed. Never container copy, which keeps symlinks as
 //    links. A failed stream kills only the exec client, so the worker's box is kept; the `tar` in
-//    the box runs under `timeout` where the box has it, as the door's read does. Paths git would
+//    the box runs under `timeout` where the box has it, as the door's read does. The box's own git
+//    repository at `/work/.git` (0008, DIPO-346) never leaves the box: every stream excludes it
+//    (`BOX_GIT_EXCLUDE`), whatever else it excludes. Paths git would
 //    ignore leave out early, inside the box, by an exclude list dipo builds from the delivered
 //    root `.gitignore` (`inBoxExcludes`: plain names such as `node_modules`, and names anchored
 //    to the root such as `/node_modules`, unless a `!` rule could re-include the name or a
@@ -75,8 +77,8 @@
 //
 // Story done (`finishLast`) holds the same one-at-a-time turn from the last part until the caller
 // has claimed the run's end, so no part or catch-up moves the branch between the last part and In
-// Review. dipo runs no verify in the box (0021 amendment of 2026-10-22, DIPO-299): CI on the story
-// PR is the verify of a box run.
+// Review. dipo runs the office's verify in the box inside that turn (0002, DIPO-346), so the
+// verify sees exactly the last part.
 
 import { createHash } from "node:crypto";
 import { appendFileSync, constants } from "node:fs";
@@ -107,8 +109,8 @@ import {
 import { backlogPointer } from "../backlog/runner";
 import { BASE_CHECKOUT_ENV } from "../git/hardened";
 import type { GitSession, OfficeGit } from "../git/office";
-import { EXTERNAL_STEP_TIMEOUT_MS, GitError } from "../git/runner";
-import { type PushResult, pushBranch } from "../git/task-commit";
+import { GitError } from "../git/runner";
+import { commitTree, moveBranch, type PushResult, pushBranch } from "../git/write";
 import { yieldToEventLoop } from "../platform/clock";
 import {
   type ArchiveLink,
@@ -207,14 +209,10 @@ export const PART_NOTICES = {
   unstuck: "box.partUnstuck",
 } as const;
 
-/** The park causes of a part (`run/park.ts` holds the same strings). */
-export const PART_CAUSES = {
+/** What a scan hit found, as the run directory's record names it (the park's detail says it too). */
+export const PART_HITS = {
   protectedFile: "protected-file",
   secret: "secret",
-  refused: "part-refused",
-  pushRejected: "push-rejected",
-  /** The box lacks a merge dipo made on the branch outside it (DIPO-324): `catch-up-failed`. */
-  behind: "catch-up-failed",
 } as const;
 
 // ---- the message ---------------------------------------------------------------------------------
@@ -476,8 +474,16 @@ export function inBoxExcludes(rules: IgnoreRules, view: ReadonlyMap<string, Tree
 }
 
 /**
+ * The exclude that keeps the box's own git repository (`/work/.git`, 0008) in the box: a folder, a
+ * file or a link of that name at the root of `/work`, and all it holds. A `.git` deeper down (a
+ * nested repository, a `.git` file) still leaves the box, and the Mac refuses it (`protectedKind`).
+ */
+export const BOX_GIT_EXCLUDE = "./.git";
+
+/**
  * The command that streams the part out of the box: `tar` of `BOX_WORKDIR` to its stdout, hard
- * links stored as files, the excludes first, under `timeout` where the box has it. A plain name
+ * links stored as files, the box's `.git` (`BOX_GIT_EXCLUDE`) and the excludes first, under
+ * `timeout` where the box has it. A plain name
  * excludes that name at any depth; `./<name>` only the entry at the root of `/work`, since the
  * archive's names start `./` there and nowhere below (GNU tar's unanchored matching). Either may
  * end in `/*`: then only the entries inside a folder of that name, never a file named so.
@@ -500,6 +506,7 @@ export function partArchiveCommand(excludes: readonly string[]): [string, ...str
     BOX_WORKDIR,
     "-cf",
     "-",
+    `--exclude=${BOX_GIT_EXCLUDE}`,
     ...excludes.map((name) => `--exclude=${name}`),
     ".",
   ];
@@ -1038,14 +1045,14 @@ async function commitPart(
   const n = await partNumber(session, input.startSha, view.tip);
   if (tree === view.tipTree) return { commit: null, n };
   const message = partCommitMessage(input.story, n, input.message);
-  const commit = (
-    await session.ok(
-      repo,
-      ["commit-tree", tree, "-p", view.tip, "-m", message.subject, "-m", message.body],
-      { timeoutMs: EXTERNAL_STEP_TIMEOUT_MS },
-    )
-  ).trim();
-  await session.ok(repo, ["update-ref", "-m", message.subject, ref, commit, view.tip]);
+  const commit = await commitTree(session, repo, {
+    tree,
+    parents: [view.tip],
+    message: { subject: message.subject, body: [message.body] },
+  });
+  if (!(await moveBranch(session, input.branch, commit, view.tip, message.subject))) {
+    throw new GitError(PART_FAILED, `${ref} moved from ${view.tip} while the part was committed.`);
+  }
   return { commit, n };
 }
 
@@ -1111,10 +1118,10 @@ export type PartOutcome =
     }
   /** Nothing changed since the last part. */
   | { readonly kind: "empty" }
-  /** A scan hit: nothing committed or pushed; the story parks `scope-violation` with `cause`. */
+  /** A scan hit: nothing committed or pushed; the story parks `scope-violation`. */
   | {
       readonly kind: "hit";
-      readonly cause: typeof PART_CAUSES.protectedFile | typeof PART_CAUSES.secret;
+      readonly hit: (typeof PART_HITS)[keyof typeof PART_HITS];
       readonly detail: string;
     }
   /** The part could not be taken (too big, a hostile archive): the story parks. */
@@ -1144,7 +1151,6 @@ export interface LastPartFinish<T> {
 /** A park a part asks for. */
 export interface PartPark {
   readonly reason: "scope-violation" | "conflict";
-  readonly cause: string;
   readonly detail: string;
 }
 
@@ -1152,16 +1158,15 @@ export interface PartPark {
 export function partPark(outcome: PartOutcome): PartPark | null {
   switch (outcome.kind) {
     case "hit":
-      return { reason: "scope-violation", cause: outcome.cause, detail: outcome.detail };
+      return { reason: "scope-violation", detail: outcome.detail };
     case "refused":
-      return { reason: "scope-violation", cause: PART_CAUSES.refused, detail: outcome.detail };
+      return { reason: "scope-violation", detail: outcome.detail };
     case "behind":
-      return { reason: "conflict", cause: PART_CAUSES.behind, detail: outcome.detail };
+      return { reason: "conflict", detail: outcome.detail };
     case "committed":
       return outcome.push.rejected
         ? {
             reason: "conflict",
-            cause: PART_CAUSES.pushRejected,
             detail: `${outcome.push.error ?? "the push was rejected"}; the remote branch has commits the story branch lacks`,
           }
         : null;
@@ -1798,10 +1803,10 @@ export class BoxParts {
       const folder = await git.run((session) => namedBacklogFolder(session, view.entries));
       const guarded = protectedHits(changes, linkHits, folder);
       if (guarded.kinds.length > 0) {
-        this.#hitRecord(run, PART_CAUSES.protectedFile, guarded.paths);
+        this.#hitRecord(run, PART_HITS.protectedFile, guarded.paths);
         return {
           kind: "hit",
-          cause: PART_CAUSES.protectedFile,
+          hit: PART_HITS.protectedFile,
           detail: protectedDetail(guarded.kinds),
         };
       }
@@ -1818,10 +1823,10 @@ export class BoxParts {
       });
       if (secrets === "tooBig") return refused("bigFile");
       if (secrets.kinds.length > 0) {
-        this.#hitRecord(run, PART_CAUSES.secret, secrets.paths);
+        this.#hitRecord(run, PART_HITS.secret, secrets.paths);
         return {
           kind: "hit",
-          cause: PART_CAUSES.secret,
+          hit: PART_HITS.secret,
           detail: secretDetail(secrets.kinds, secrets.paths.length),
         };
       }
@@ -1865,11 +1870,11 @@ export class BoxParts {
   }
 
   /** The paths of a hit, cleaned, in the run directory's record only; never in the park detail. */
-  #hitRecord(run: PartRun, cause: string, paths: readonly string[]): void {
+  #hitRecord(run: PartRun, hit: string, paths: readonly string[]): void {
     this.#append(run, {
       kind: "hit",
       at: this.#deps.clock.now(),
-      cause,
+      hit,
       paths: paths.slice(0, 50).map((path) => cleanDoorText(path).slice(0, 300)),
     });
   }

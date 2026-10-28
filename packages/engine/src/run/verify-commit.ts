@@ -3,25 +3,28 @@
 // (DIPO-50) calls `afterTurn` once per worker turn, one at a time per run, unless the turn already
 // ended the run (a cap or a blocked report). Only a turn whose report is `done` goes on.
 //
-// Every developer works in its story's box (DIPO-240), so dipo runs no verify of its own, no
-// backstop and no scope check: the worker runs the office's verify in its box before it reports
-// done, CI on the story PR is the verify, and the only check of what a part changes is the
-// protected-file and secret scan of each part (`box/parts.ts`). The Mac verify runner, the backstop
-// after each turn and the scope check at done went with the Mac sandbox worker path. A run without
-// a box (none starts any more; one parked before the change has its box made at its next session,
-// `box/lifetime.ts`) that reports done parks `interrupted`.
+// Every developer works in its story's box (DIPO-240): dipo runs no backstop and no scope check,
+// and the only check of what a part changes is the protected-file and secret scan of each part
+// (`box/parts.ts`). dipo runs the office's verify in the box at done (0002, DIPO-346), and CI on
+// the story PR is the final gate. A run without a box (none starts any more; one parked before
+// the change has its box made at its next session, `box/lifetime.ts`) that reports done parks
+// `worker-failed`.
 //
 // At done, in one held turn of the run's parts (`BoxParts.finishLast`), so no part moves the branch
 // meanwhile: the last part is delivered (a hit, a refused part or a rejected push parks; one dipo
 // cannot take out is tried again at the door's pace, `DOOR_POLL_MS`, for up to `PART_STUCK_MIN_MS`
-// before the story parks `interrupted`, DIPO-290), the gate changes of the branch are recorded for
+// before the story parks `worker-failed`, DIPO-290), the office's verify runs in the box as the box
+// user with its deadline (`VerifyCommitDeps.verify`, DIPO-346): red is one feedback item with its
+// command, exit and output tail as evidence (`verifyFeedback`), counted as one loop as a report
+// gate refusal is, and the refusal that reaches the run's loop cap parks `verify-failing` (0002); a
+// verify dipo cannot run parks `worker-failed`. Then the gate changes of the branch are recorded for
 // the review, and the run's end is claimed while the parts are still held, so a part or catch-up
 // queued meanwhile finds the run not live and stays in the box. Before the end is claimed, in the
 // same held turn, the conflict check (DIPO-149, `run/conflicts.ts`): what dipo's conflicted merges
-// left unresolved (markers, untouched binary or delete conflicts) goes back to the worker as a
-// feedback turn (or parks at the conflict cap), then the fetch and the sync with the base: a
-// riskier story merges the base, any other only on a conflict, which goes to the worker as one
-// conflict item; a clean merge moves the commit In Review is written at. Just before In Review the
+// left unresolved (markers, untouched binary or delete conflicts) is a report gate refusal (0002,
+// see below), then the fetch and the sync with the base: a riskier story merges the base, any
+// other only on a conflict, which goes to the worker as one `conflict` message of the one feedback
+// path (`feedback.ts`); a clean merge moves the commit In Review is written at. Just before In Review the
 // branch must still be at that commit, else the story parks (`BOX_TIP_MOVED`). Then:
 //
 // - The code tree key is recorded, the Backlog CLI checks off the criteria the report marks met and
@@ -30,27 +33,29 @@
 //   summary, a push that reached the remote is recorded on the claim (`claims.pushed_at`), and
 //   `story.state` moves the story to In Review. A non-fast-forward push rejection parks `conflict`
 //   (0010); any other push failure is a notice and the story stays In Review with the branch local.
-//   A failure in the commit steps parks `interrupted` with the error. Dependency files the parts
+//   A failure in the commit steps parks `worker-failed` with the error. Dependency files the parts
 //   changed (manifests, lockfiles, `requirements*.txt`) raise `verify.dependenciesChanged`.
 // - The story PR (DIPO-144; 0019 section 3): after a push that reached the remote, `storyPr.sync`
 //   opens the story's ready PR, or updates the one it has; the review (a pending review of the
 //   reviewer place) and CI (the PR poll's watch of the pushed head) start together on that head
 //   (0019 section 7). Red CI goes back to the worker through the CI loop of 0019 section 8.
 //
-// The report gate (DIPO-186; 0014 and 0008 notes of 2026-10-20, 0021 amendment of 2026-10-22), for
-// every done report before the steps above: the report's test-plan entries and deviations are
-// stored for the run (`done_reports`). Then code checks three things, and one feedback item that
-// names each miss goes back to the worker, with no commit and the run going on:
+// The report gate (DIPO-186; 0002, 0014), for every done report before the steps above: the
+// report's test-plan entries and deviations are stored for the run (`done_reports`). The report is
+// valid already: one that does not parse or match the schema never gets here (0008, worker
+// outcomes). Then code checks two things, and one `report-gate` message of the one feedback path
+// (`feedback.ts`) that names each miss goes back to the worker, with no commit and the run going on:
 // - an automated entry of the story's test plan (read on the office base) that the report does not
 //   mark done, or gives no entry; every such report is refused, manual entries never block, and a
 //   story without a test plan is unchanged;
 // - a decision note whose file is missing at the story branch, or holds no section with that
 //   heading; sent back once per file and section, then left out. Each note that passes is stored in
-//   `decision_notes` with its story and run, also from a report that ends the run (`summarize`);
-// - a worker that edited a file and ran no verify or test command of the office's profile after
-//   its last edit (the turn's tool trail); sent back once per run.
-// A done turn that crossed a cap has no turn left: its test-plan miss parks `verify-failing` with
-// cause `capped`, and the two send-once checks are skipped.
+//   `decision_notes` with its story and run, also from a report that ends the run (`summarize`).
+// dipo reads none of the worker's tool calls to see whether it ran verify: dipo runs it (DIPO-346).
+// Conflict markers left at done (`conflicts.ts`) are a refusal of the same gate (0002). A done turn
+// that crossed a cap has no turn left: its test-plan miss or its markers park `budget-exceeded`,
+// and the send-once check is skipped. Each refusal is one loop (a `loop` step), the cap 0002
+// gives the report gate; the refusal that reaches the run's loop cap parks `verify-failing`.
 
 import {
   type Clock,
@@ -67,7 +72,12 @@ import { TASK_FIELD_ERROR } from "../backlog/runner";
 import type { NewEntry } from "../changelog/log";
 import type { OfficeHandle } from "../db/office";
 import { GitError } from "../git/runner";
-import { decisionNoteFeedback, testPlanFeedback, verifyRunFeedback } from "../prompts/feedback";
+import {
+  decisionNoteFeedback,
+  FEEDBACK_LOG_LINES_DEFAULT,
+  testPlanFeedback,
+  verifyFeedback,
+} from "../prompts/feedback";
 import { shownSpec } from "../scan/diff";
 import type { CapabilityName, RunProfile } from "../scan/detect";
 import { LOCKFILES, parseManifest } from "../scan/detect/manifest";
@@ -84,27 +94,34 @@ import {
   refusedDetail,
 } from "../box/parts";
 import { BoxError } from "../box/port";
+import { BOX_WORKDIR } from "../box/code";
+import type { BoxVerifyResult } from "../box/verify";
 import { recordBranchPush } from "../story-pr/records";
 import { findClaim } from "../worktree/records";
 
 import type { BackstopSnapshot } from "./backstop";
+import { runBudgetFacts } from "./budget-line";
+import { runConfigOf } from "./config-snapshot";
+import type { FeedbackSource } from "./feedback";
 import type { DoneConflictDecision } from "./conflicts";
 import { endRunMarked } from "./markers";
-import type { FiredCap } from "./caps";
-import { PARK_CAUSES } from "./park";
-import { appendRunStep, IN_REVIEW_END, recordGateChanges, type StoredRun } from "./records";
+import { type FiredCap, runCaps } from "./caps";
 import {
-  doneReports,
+  appendRunStep,
+  IN_REVIEW_END,
+  recordGateChanges,
+  type StoredRun,
+  VERIFY_LOOP,
+} from "./records";
+import {
   type NoteMiss,
   noteMiss,
   noteSignature,
-  ranCheckAfterEdit,
   recordSendBack,
   sentBack,
   storeDecisionNotes,
   storeDoneReport,
   testPlanGaps,
-  type ToolTrail,
 } from "./report-data";
 import type { StoryGit } from "./story-git";
 import { storeRunSummary } from "./verify-records";
@@ -217,17 +234,11 @@ export type TurnDecision =
   | {
       readonly kind: "park";
       readonly reason: ParkReason;
-      /** Which of the reason's causes parks it (`PARK_CAUSES`, 0020 section 2). */
-      readonly cause: string;
       readonly detail: string;
       readonly endKind: string;
     }
-  | {
-      readonly kind: "feedback";
-      readonly text: string;
-      /** What the feedback is, for the notice when it cannot be sent; verify feedback by default. */
-      readonly what?: string;
-    }
+  /** One message to the live worker through the one feedback path (`feedback.ts`). */
+  | { readonly kind: "feedback"; readonly source: FeedbackSource; readonly text: string }
   /** The run ended at In Review; run control closes the worker's stdin. */
   | { readonly kind: "ended" };
 
@@ -252,11 +263,6 @@ export interface TurnContext {
   readonly write: (fn: () => readonly NewEntry[]) => void;
   /** Writes the worker's pending `work.output` before a state change. */
   readonly flushOutput: () => void;
-  /**
-   * The worker's tool trail as of this turn (DIPO-186): its shell commands after its last file
-   * edit. Absent or null when run control did not follow the session from its start.
-   */
-  readonly trail?: ToolTrail | null;
 }
 
 /** The story facts the report gate reads on the office base (`baseStoryFacts`, DIPO-186). */
@@ -316,6 +322,11 @@ export interface VerifyCommitDeps {
    * it the test plan is not checked.
    */
   readonly storyFacts?: (office: OfficeId, run: StoredRun) => Promise<ReportGateFacts>;
+  /**
+   * The office's verify in the run's box at done (0002, DIPO-346), run in the held turn after the
+   * last part. Without it a box run goes to In Review with CI as its only check.
+   */
+  readonly verify?: (office: OfficeHandle, run: StoredRun) => Promise<BoxVerifyResult>;
   readonly warn?: (message: string, fields: Readonly<Record<string, unknown>>) => void;
 }
 
@@ -343,15 +354,13 @@ export class VerifyCommit implements RunFinisher {
     if (this.#deps.parts?.isBoxRun(ctx.office.officeId, run) !== true) {
       return {
         kind: "park",
-        reason: "interrupted",
-        cause: PARK_CAUSES.build,
+        reason: "worker-failed",
         detail: NO_BOX_AT_DONE,
         endKind: "interrupted",
       };
     }
     const report = ctx.report;
-    // The report gate (DIPO-186): stored, then its test plan, decision notes and a verify run
-    // after the last edit.
+    // The report gate (DIPO-186): stored, then its test plan and decision notes.
     const gate = await this.#reportGate(ctx, report);
     if (gate !== null || !ctx.live()) return gate ?? { kind: "continue" };
     return this.#boxDone(ctx, report);
@@ -359,9 +368,8 @@ export class VerifyCommit implements RunFinisher {
 
   /**
    * The report gate of a done report (DIPO-186): stores its test-plan entries and deviations, then
-   * checks its test plan, its decision notes and that a verify or test command ran after the last
-   * edit (every run is a box run, DIPO-240). Null when the report goes on; else the one feedback item, or the park of
-   * a capped turn.
+   * checks its test plan and its decision notes. Null when the report goes on; else the one
+   * feedback item, or the park of a capped turn.
    */
   async #reportGate(ctx: TurnContext, report: WorkerReport): Promise<TurnDecision | null> {
     const { run } = ctx;
@@ -390,27 +398,8 @@ export class VerifyCommit implements RunFinisher {
     if (gaps.length > 0) {
       const text = testPlanFeedback(gaps);
       if (ctx.capped != null) {
-        return {
-          kind: "park",
-          reason: "verify-failing",
-          cause: PARK_CAUSES.capped,
-          detail: text,
-          endKind: "verify-failing",
-        };
-      }
-      // Every stored done report of the run that left an automated entry open was refused; this
-      // one is stored too. At the cap the story parks instead of another refusal turn.
-      const refusals = doneReports(office, run.runId).filter(
-        (stored) => testPlanGaps(plan, stored.testPlan, type).length > 0,
-      ).length;
-      if (refusals >= TEST_PLAN_REFUSALS_MAX) {
-        return {
-          kind: "park",
-          reason: "verify-failing",
-          cause: PARK_CAUSES.loops,
-          detail: `the done report was refused for its test plan ${refusals} of ${TEST_PLAN_REFUSALS_MAX} times. ${text}`,
-          endKind: "verify-failing",
-        };
+        // The done turn crossed a cap, so no turn is left for the feedback: only a top-up resumes.
+        return { kind: "park", reason: "budget-exceeded", detail: text, endKind: "capped" };
       }
       items.push(text);
     }
@@ -435,56 +424,100 @@ export class VerifyCommit implements RunFinisher {
       );
     }
 
-    // A box worker that edited after its last verify or test run gets one turn to run it.
-    const unchecked =
-      ctx.capped == null &&
-      ctx.trail != null &&
-      ctx.trail.edited &&
-      !sentBack(office, run.runId, "verify-run", VERIFY_RUN_SIGNATURE)
-        ? await this.#uncheckedCommand(ctx, ctx.trail)
-        : null;
-    if (unchecked !== null) items.push(verifyRunFeedback(unchecked));
-
     if (items.length === 0) return null;
-    office.immediate(() => {
+    return this.#refuse(ctx, items, at, () => {
       for (const miss of misses) {
         recordSendBack(office, run.runId, "decision-note", noteSignature(miss.note), at);
       }
-      if (unchecked !== null) {
-        recordSendBack(office, run.runId, "verify-run", VERIFY_RUN_SIGNATURE, at);
-      }
     });
-    if (!ctx.live()) return { kind: "continue" };
-    return { kind: "feedback", text: items.join("\n\n") };
   }
 
   /**
-   * The command a box worker is sent back to run, or null when its trail shows one ran after its
-   * last edit or the office names none (DIPO-186): the profile's verify and test commands, and the
-   * root `package.json` scripts `verify` and `test` of the story branch as written there.
+   * A refusal of a valid done report (0002), by the report gate or by a red verify in the box
+   * (`refusal`): one loop, the cap both share. The refusal that reaches the run's loop cap parks
+   * `verify-failing` instead of another turn; below it the items go back as one message of the
+   * refusal's source. `also` runs in the transaction that records the loop.
    */
-  async #uncheckedCommand(ctx: TurnContext, trail: ToolTrail): Promise<string | null> {
-    const { run } = ctx;
-    const commands = checkCommands(this.#deps.profile(ctx.office));
-    if (run.branch !== null && run.worktree !== null) {
-      const scripts = scriptsOf(
-        await this.#deps.story
-          .showAt(ctx.office.officeId, run.worktree, `refs/heads/${run.branch}`, "package.json")
-          .catch(() => null),
-      );
-      for (const name of ["verify", "test"]) {
-        const script = scripts[name]?.trim();
-        if (script !== undefined && script !== "") commands.push({ text: script, cwd: "." });
-      }
+  #refuse(
+    ctx: TurnContext,
+    items: readonly string[],
+    at: number,
+    also: () => void = () => undefined,
+    refusal: Refusal = REPORT_GATE_REFUSAL,
+  ): TurnDecision {
+    const { office, run } = ctx;
+    const cap = runCaps(office, run).loopCap;
+    const loops = loopsOf(office, run.runId) + 1;
+    office.immediate(() => {
+      appendRunStep(office, run.runId, "loop", refusal.step, at);
+      also();
+    });
+    if (loops >= cap) {
+      return {
+        kind: "park",
+        reason: "verify-failing",
+        detail: `${refusal.what} ${loops} time${loops === 1 ? "" : "s"} (the loop cap is ${cap}). ${items.join(" ")}`,
+        endKind: "verify-failing",
+      };
     }
-    const first = commands[0];
-    if (first === undefined) return null;
-    return ranCheckAfterEdit(
-      trail,
-      commands.map((command) => command.text),
-    )
-      ? null
-      : runnableCommand(first);
+    if (!ctx.live()) return { kind: "continue" };
+    return { kind: "feedback", source: refusal.source, text: items.join("\n\n") };
+  }
+
+  /**
+   * The office's verify in the box at done (0002, DIPO-346): null when it is green or the office
+   * names none; else what the turn decides: a red verify is one loop with its evidence (a park at
+   * a capped turn, which has no turn left), a verify dipo could not run parks `worker-failed`.
+   */
+  async #verifyInBox(ctx: TurnContext): Promise<TurnDecision | null> {
+    const verify = this.#deps.verify;
+    if (verify === undefined) return null;
+    const { run } = ctx;
+    const result = await verify(ctx.office, run).catch((error: unknown): BoxVerifyResult => ({
+      kind: "failed",
+      reason: `dipo could not run the verify in the box (${codeOf(error)})`,
+    }));
+    switch (result.kind) {
+      case "none":
+      case "green":
+        return null;
+      case "failed":
+        return {
+          kind: "park",
+          reason: "worker-failed",
+          detail: `${result.reason}; the story did not move to review.`,
+          endKind: "interrupted",
+        };
+      default:
+        break;
+    }
+    const exit =
+      result.timedOutMinutes !== null
+        ? `none: dipo stopped it at its ${result.timedOutMinutes}-minute deadline`
+        : result.exitCode === null
+          ? `none: it ended by ${result.signal ?? "a signal"}`
+          : String(result.exitCode);
+    // The tier's item budget and the budget line, as a CI item gets them (`StoryPrs`), less the
+    // intro line before it.
+    const budgets = runConfigOf(ctx.office, run).prompt.budgets.feedbackItem as Readonly<
+      Record<string, number>
+    >;
+    const itemMax = (run.tier === null ? undefined : budgets[run.tier]) ?? budgets["M"] ?? 3_000;
+    const item = verifyFeedback(
+      { step: "verify", command: result.command, exitCode: exit, output: result.output },
+      {
+        root: BOX_WORKDIR,
+        itemMax: itemMax - VERIFY_IN_BOX_INTRO.length - 2,
+        logLines: FEEDBACK_LOG_LINES_DEFAULT,
+        budget: runBudgetFacts(ctx.office, run, this.#deps.clock.now()),
+      },
+    ).text;
+    const text = `${VERIFY_IN_BOX_INTRO}\n\n${item}`;
+    if (ctx.capped != null) {
+      // The done turn crossed a cap, so no turn is left for the feedback: only a top-up resumes.
+      return { kind: "park", reason: "budget-exceeded", detail: text, endKind: "capped" };
+    }
+    return this.#refuse(ctx, [text], this.#deps.clock.now(), undefined, VERIFY_REFUSAL);
   }
 
   /**
@@ -522,14 +555,14 @@ export class VerifyCommit implements RunFinisher {
   }
 
   /**
-   * A box run at done (DIPO-273 and DIPO-299; 0021 section 8 and its amendment of 2026-10-22). In
-   * one held turn of the run's parts (`parts.finishLast`): the parts still queued and then what
-   * changed since are delivered as the last part; then the branch's gate changes are recorded and
-   * the run's end is claimed while the parts are still held. A hit, a refused part or a rejected
-   * push parks. dipo runs no verify: the story moves to review at the last part's commit, and the
-   * push starts the review and CI on it. A failure to take the last part is tried again every
+   * A box run at done (DIPO-273, DIPO-346; 0002, 0008). In one held turn of the run's parts
+   * (`parts.finishLast`): the parts still queued and then what changed since are delivered as the
+   * last part; the office's verify runs in the box (`#verifyInBox`), and a red one is the turn's
+   * decision; then the branch's gate changes are recorded and the run's end is claimed while the
+   * parts are still held. A hit, a refused part or a rejected push parks. The story moves to review
+   * at the last part's commit, and the push starts the review and CI on it. A failure to take the last part is tried again every
    * `DOOR_POLL_MS` while the run goes on, for up to `PART_STUCK_MIN_MS` from the first failure
-   * (DIPO-290); then it parks `interrupted` with a fixed text and the error's code: its message may
+   * (DIPO-290); then it parks `worker-failed` with a fixed text and the error's code: its message may
    * quote the box's output. A part dipo refuses (`PART_REFUSED`) parks `part-refused` at once, and
    * a run that parked or stopped during the tries keeps that decision.
    */
@@ -540,6 +573,8 @@ export class VerifyCommit implements RunFinisher {
     let thrown: { readonly error: unknown } | null = null;
     // What the conflict check decided instead of In Review (DIPO-149).
     const conflict: { decided: DoneConflictDecision | null } = { decided: null };
+    // What the verify in the box decided instead of In Review (DIPO-346).
+    const verified: { decided: TurnDecision | null } = { decided: null };
     let done: LastPartFinish<LastPartAccess | null>;
     const clock = this.#deps.clock;
     let firstFailure: number | null = null;
@@ -548,6 +583,9 @@ export class VerifyCommit implements RunFinisher {
         done = await parts.finishLast(run.runId, report.commitSubject, async (last) => {
           try {
             if (!ctx.live()) return null;
+            // The office's verify in the box, on exactly the last part (0002, DIPO-346).
+            verified.decided = await this.#verifyInBox(ctx);
+            if (verified.decided !== null || !ctx.live()) return null;
             await this.#boxGateChanges(ctx, this.#deps.profile(ctx.office));
             // Markers left from a catch-up, then the sync with the base (DIPO-149): a clean
             // merge moves the tip In Review is written at; anything else decides the turn.
@@ -604,24 +642,36 @@ export class VerifyCommit implements RunFinisher {
         const code = (error as { code?: unknown } | null)?.code;
         return {
           kind: "park",
-          reason: "interrupted",
-          cause: PARK_CAUSES.build,
+          reason: "worker-failed",
           detail: `dipo could not take the last part out of the box (${typeof code === "string" ? code : "error"}); nothing of it was committed.`,
           endKind: "interrupted",
         };
       }
     }
     if (thrown !== null) throw (thrown as { readonly error: unknown }).error;
+    const red = verified.decided as TurnDecision | null;
+    if (red !== null) return red;
     const decided = conflict.decided as DoneConflictDecision | null;
     if (decided !== null) {
       switch (decided.kind) {
         case "feedback":
-          return { kind: "feedback", text: decided.text, what: "conflict feedback" };
+          return { kind: "feedback", source: "conflict", text: decided.text };
+        case "markers":
+          // Markers left are the report gate's (0002). A done turn that crossed a cap has no turn
+          // left for the feedback, as for a test-plan miss: only a top-up resumes it.
+          if (ctx.capped != null) {
+            return {
+              kind: "park",
+              reason: "budget-exceeded",
+              detail: decided.text,
+              endKind: "capped",
+            };
+          }
+          return this.#refuse(ctx, [decided.text], this.#deps.clock.now());
         case "park":
           return {
             kind: "park",
             reason: decided.reason,
-            cause: decided.cause,
             detail: decided.detail,
             endKind: decided.reason,
           };
@@ -638,7 +688,7 @@ export class VerifyCommit implements RunFinisher {
     try {
       view = await this.#deps.story.story(ctx.office.officeId, run.worktree as string, run.story!);
     } catch (error) {
-      if (isTaskFieldError(error)) return scopePark(PARK_CAUSES.taskFile, error.message);
+      if (isTaskFieldError(error)) return scopePark(error.message);
       throw error;
     }
     // A second layer: the branch must still be at the last part's commit. Run control sends no
@@ -647,8 +697,7 @@ export class VerifyCommit implements RunFinisher {
     if (now !== last.tip) {
       return {
         kind: "park",
-        reason: "interrupted",
-        cause: PARK_CAUSES.build,
+        reason: "worker-failed",
         detail: BOX_TIP_MOVED,
         endKind: "interrupted",
       };
@@ -747,11 +796,10 @@ export class VerifyCommit implements RunFinisher {
         criteria: met,
       });
     } catch (error) {
-      if (isTaskFieldError(error)) return scopePark(PARK_CAUSES.taskFile, error.message);
+      if (isTaskFieldError(error)) return scopePark(error.message);
       return {
         kind: "park",
-        reason: "interrupted",
-        cause: PARK_CAUSES.build,
+        reason: "worker-failed",
         detail: `dipo could not commit the verified work: ${messageOf(error)}`,
         endKind: "interrupted",
       };
@@ -763,7 +811,6 @@ export class VerifyCommit implements RunFinisher {
       return {
         kind: "park",
         reason: "conflict",
-        cause: PARK_CAUSES.pushRejected,
         detail: `${push.error ?? "the push was rejected"}; the remote branch has commits the story branch lacks`,
         endKind: "conflict",
       };
@@ -845,8 +892,8 @@ function isTaskFieldError(error: unknown): error is GitError {
   return error instanceof GitError && error.code === TASK_FIELD_ERROR;
 }
 
-function scopePark(cause: string, detail: string): TurnDecision {
-  return { kind: "park", reason: "scope-violation", cause, detail, endKind: "scope-violation" };
+function scopePark(detail: string): TurnDecision {
+  return { kind: "park", reason: "scope-violation", detail, endKind: "scope-violation" };
 }
 
 /** Loops started so far in the run (0-based index of the current verify pass). */
@@ -860,46 +907,40 @@ function loopsOf(office: OfficeHandle, runId: RunId): number {
   );
 }
 
-/**
- * The done reports a run may have refused for its test plan (DIPO-186): the one that reaches it
- * parks `verify-failing` with cause `loops` instead of another refusal turn, so a worker that
- * cannot finish an automated entry does not loop until a budget cap.
- */
-export const TEST_PLAN_REFUSALS_MAX = 3;
+/** The value of the `loop` step a report gate refusal writes (0002). */
+export const REPORT_GATE_LOOP = "report-gate";
 
-/** The send-once signature of the verify-run check: once per run. */
-const VERIFY_RUN_SIGNATURE = "run";
+export { VERIFY_LOOP };
 
-/** A verify or test command of the office (DIPO-186): its bare text and the folder it runs in. */
-export interface CheckCommand {
-  /** The command as typed, without its folder, for matching a shell line. */
-  readonly text: string;
-  /** Repo-relative folder; `.` for the root. */
-  readonly cwd: string;
+/** What one refusal of a done report writes and sends (`#refuse`, 0002). */
+interface Refusal {
+  /** The value of its `loop` step. */
+  readonly step: string;
+  /** What refused, at the start of the park detail at the loop cap. */
+  readonly what: string;
+  /** The source of its feedback message. */
+  readonly source: FeedbackSource;
 }
 
-/**
- * The office's verify and test commands as a worker would type them (DIPO-186), verify first; one
- * per command of each resolved capability. Empty when the profile resolves neither.
- */
-export function checkCommands(profile: RunProfile | null): CheckCommand[] {
-  const found: CheckCommand[] = [];
-  for (const name of ["verify", "test"] as const) {
-    const capability = profile?.capabilities[name];
-    if (capability?.status !== "resolved") continue;
-    for (const command of capability.value.commands) {
-      if (command.length === 0) continue;
-      const text = shownSpec({ commands: [command], cwd: "." });
-      const cwd = capability.value.cwd;
-      if (!found.some((seen) => seen.text === text && seen.cwd === cwd)) found.push({ text, cwd });
-    }
-  }
-  return found;
-}
+/** A report gate refusal. */
+const REPORT_GATE_REFUSAL: Refusal = {
+  step: REPORT_GATE_LOOP,
+  what: "the report gate refused the done report",
+  source: "report-gate",
+};
 
-/** Pure: a check command as the worker runs it from the root: `cd <dir> && <cmd>` off the root. */
-export function runnableCommand(command: CheckCommand): string {
-  return command.cwd === "." || command.cwd === ""
-    ? command.text
-    : `cd ${command.cwd} && ${command.text}`;
+/** A red verify in the box (DIPO-346). */
+const VERIFY_REFUSAL: Refusal = {
+  step: VERIFY_LOOP,
+  what: "dipo's verify in the box was red",
+  source: "verify",
+};
+
+/** The line before a red verify's evidence. */
+export const VERIFY_IN_BOX_INTRO =
+  "dipo ran the project's verify in your box after your done report, and it failed. Fix what it shows, then report done again.";
+
+function codeOf(error: unknown): string {
+  const code = (error as { code?: unknown } | null)?.code;
+  return typeof code === "string" ? code : "error";
 }

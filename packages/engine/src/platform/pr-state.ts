@@ -1,20 +1,19 @@
 // One PR-state poll per office (DIPO-314). Every `polling.prStateSeconds` of the office
 // configuration in force, one timer runs one round: the story-PR poll (`story-pr/prs.ts`) first,
-// then a merge slot tick (`merge-slot/slot.ts`) and the Done poll (`worktree/done.ts`) side by
-// side, so a slow slot tick does not hold the Done poll back. Each consumer gets its own reads
+// then an auto-merge round (`merge/merger.ts`) and the Done poll (`worktree/done.ts`) side by
+// side, so a slow auto-merge round does not hold the Done poll back. Each consumer gets its own reads
 // object for the round (`PrStateReads`), which asks the host about each PR once: the first read
 // of a PR is shared with every later read of it in the same round, and the Done poll's "did this
 // branch merge" question is answered from a PR of that branch the round already read. So each
-// open PR is read once per interval, and its state passes from the story-PR poll to the merge slot
+// open PR is read once per interval, and its state passes from the story-PR poll to the auto-merge
 // and the Done poll.
 //
-// Only the reads object a round hands out uses the round: a merge slot tick after a flush or a
+// Only the reads object a round hands out uses the round: an auto-merge round after a flush or a
 // maintainer's decision, a sync after an In Review push, and a read after the round ended go to
 // the host. A read that names the head the caller expects (`head`) is read again from the host
 // when the round's copy shows another head, so a head dipo pushed during the round is never taken
-// for a hand change. A PR the slot merged in the round is dropped from it (`invalidate`), so the
-// Done poll asks the host about its branch. Reads that must see the host's state after a step of
-// their own (after a merge attempt) go to the host directly.
+// for a hand change. A PR whose auto-merge the round turned on or off is dropped from it
+// (`invalidate`), so a later read in the round asks the host.
 //
 // A consumer that fails is logged, and the round goes on with the others. A round that is due
 // while the last one still runs is skipped, and the next timer is armed once a round ends. Each
@@ -32,7 +31,7 @@ import type { CodeHost, HostPr, PrStateHost } from "./host";
 export const PR_STATE_STEP = "prState.poll";
 
 /** The consumers of the poll, in the order each round runs them. */
-export const PR_STATE_CONSUMERS = ["story-pr", "merge-slot", "done"] as const;
+export const PR_STATE_CONSUMERS = ["story-pr", "merge", "done"] as const;
 
 export type PrStateConsumer = (typeof PR_STATE_CONSUMERS)[number];
 
@@ -135,7 +134,7 @@ export class PrStatePoll {
       // The story-PR poll first, so its reads pass to the others; those two side by side.
       await this.#part(office, state, round, "story-pr");
       await Promise.all([
-        this.#part(office, state, round, "merge-slot"),
+        this.#part(office, state, round, "merge"),
         this.#part(office, state, round, "done"),
       ]);
     } finally {

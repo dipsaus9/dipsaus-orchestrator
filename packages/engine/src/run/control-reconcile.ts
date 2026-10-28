@@ -19,7 +19,7 @@ import {
 } from "./control-types";
 import { sendAsIntent } from "./intents";
 import { endRunMarked } from "./markers";
-import { PARK_CAUSES, type ParkOutcome } from "./park";
+import { type ParkOutcome } from "./park";
 import type { StoredRun } from "./records";
 
 export class ReconcileStops {
@@ -151,7 +151,6 @@ export class ReconcileStops {
         intent: "stop",
         ops: this.#deps.encode({ kind: "stop" }),
         reason: "scope-violation",
-        cause: PARK_CAUSES.handChange,
         detail,
         endKind: RECONCILED_END,
       },

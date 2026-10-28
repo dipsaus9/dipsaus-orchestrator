@@ -2,25 +2,27 @@
 // and `dipo desk` prints it. Code builds every item, its order and the command line it offers from
 // stored facts; nothing asks a model, and clients never derive it (0005, 0009).
 //
-// The six groups, in order:
-// 1. a question, permission or scope request a live worker waits on (no park took it over); a
-//    worker question shows the time left on its wait (DIPO-159) and offers `dipo answer <question>
+// The groups, in the order of 0020:
+// 0. the office's starts paused (DIPO-359, `starts-paused.ts`), with its reason and what lifts it,
+//    offering `dipo daemon resume-scheduling`; an office item with no story;
+// 1. a question a live worker waits on (no park took it over); it shows the time left on its wait (DIPO-159) and offers `dipo answer <question>
 //    --text "<answer>"`;
 // 2. merge gates that wait on the maintainer, with the PR from `story_prs`; a gate whose PR is
 //    labelled `autorelease: pending` offers a hand merge and no `dipo approve`; a gate marked
 //    hand-merge only because its PR changes the release path (DIPO-331, `gates.hand_merge`) names
 //    the PR, says the maintainer merges it by hand on GitHub, and offers only `dipo reject`;
-// 3. open parks: needing a decision, then a direction or grant, then a restart. A `review-blocked`
+// 3. open parks, by reason: `ambiguous-spec`, `review-blocked`, `budget-exceeded`,
+//    `verify-failing`, `conflict`, `scope-violation`, `worker-failed`. A `review-blocked`
 //    park whose merge gate is open is one row with both `dipo resume --note` and `dipo approve
 //    --note` (or the hand merge when its PR is labelled `autorelease: pending` or its gate is
 //    marked hand-merge only for the release path), and that gate gets
 //    no MERGE row of its own;
-// 4. hand actions: a backlog PR whose structural check failed or could not run, the items of
+// 4. the stories parked `by-maintainer`, listed apart as "Parked by you";
+// 5. hand actions: a backlog PR whose structural check failed or could not run, the items of
 //    `DeskSources.handItems` (DIPO-161's DONE ELSEWHERE and LEFTOVERS), and the run profile's rows
 //    (DIPO-310): each pending proposal of the scan fallback and each stale confirmation, an office
 //    item with no story, offering its `dipo office confirm` lines (no TUI keys yet);
-// 5. proposals and decision notes of worker reports (`proposals.ts`), spike before follow-up;
-// 6. the stories parked `on-hold`, "Held by you".
+// 6. proposals and decision notes of worker reports (`proposals.ts`), spike before follow-up.
 // Within a group the items whose story blocks the most active stories come first, then the oldest.
 //
 // Every stored free text an item shows (questions, park details, gate summaries, PR titles, check
@@ -30,7 +32,7 @@
 //
 // An action is listed only when this engine registers its command as shipped, so the desk never
 // offers a command the daemon would answer with `capability.missing`. Seams for stories not built
-// yet are `DeskSources`: the resume needs of a park (DIPO-155's resume matrix), the hand-merge-only
+// yet are `DeskSources`: the resume needs of a park (the 0020 table), the hand-merge-only
 // label of a gate's PR (DIPO-150) and further hand items (DIPO-161's are in `DESK_SOURCES`).
 
 import {
@@ -51,28 +53,15 @@ import { cleanDoorText } from "../box/door";
 import type { FeatureRegistry, ReadContext, Registry } from "../commands/registry";
 import type { OfficeHandle } from "../db/office";
 import { openParkQuestions, openQuestions, type StoredQuestion } from "../hooks/questions";
-import { parkResumeRow } from "../run/resume-policy";
+import { heldParks, openPark } from "../run/park-state";
+import { parkResumeNeed, SUGGESTED_SHARE } from "../run/resume-policy";
+import { LIFT_COMMAND, type StartsPausedState } from "../run/starts-paused";
 import { profileDeskItems } from "../scan/profile-view";
 import { findStoryPr, latestStoryPr } from "../story-pr/records";
 import { doneElsewhereDeskItems } from "../worktree/done-elsewhere";
 
 import { proposalItems, type ProposalItem } from "./proposals";
 import { lifecycleOf } from "./story";
-
-/**
- * What `work.resume` needs for a park's reason and cause: a resume with a required or optional
- * note (and a budget top-up), or a refusal (never resumable, or resumed by a decision); null when
- * this engine cannot resume it. DIPO-155's `parkResumeRow` has this shape.
- */
-export type ResumeNeed =
-  | {
-      readonly kind: "resume";
-      readonly note: "required" | "optional";
-      readonly topUp?: true;
-    }
-  | { readonly kind: "refuse"; readonly code: string };
-
-export type ResumeNeeds = (reason: string, cause: string | null) => ResumeNeed | null;
 
 /** An item another module puts on the desk's hand-action group, such as DIPO-161's LEFTOVERS. */
 export interface HandDeskItem {
@@ -105,20 +94,13 @@ interface OpenMergeGate {
 
 /** The desk's seams for facts other stories add. */
 export interface DeskSources {
-  readonly resumeNeeds: ResumeNeeds;
   /** True when the gate's PR is labelled `autorelease: pending` (0016 rule 12, DIPO-150). */
   readonly handMergeOnly: (office: OfficeHandle, gate: DeskGate) => boolean;
   /** Further hand-action items, in group 4. */
   readonly handItems: readonly ((office: OfficeHandle) => readonly HandDeskItem[])[];
+  /** The office's starts paused (`StartsPaused.state`, 0020); none without it. */
+  readonly startsPaused?: (office: OfficeHandle) => StartsPausedState | null;
 }
-
-/**
- * The resume needs `work.resume` meets (`resume-policy.ts`, DIPO-155): an `on-hold` park resumes
- * with an optional note through the planning lane, every other park as its row of the 0020 matrix
- * says (`parkResumeRow`), refusals included; a reason and cause with no row offer no resume.
- */
-export const policyResumeNeeds: ResumeNeeds = (reason, cause) =>
-  reason === "on-hold" ? { kind: "resume", note: "optional" } : parkResumeRow(reason, cause);
 
 /**
  * The sources of this engine: no stored PR labels yet; the hand items are DIPO-161's DONE ELSEWHERE
@@ -126,10 +108,56 @@ export const policyResumeNeeds: ResumeNeeds = (reason, cause) =>
  * `dipo discard <id> --note "<why>"`).
  */
 export const DESK_SOURCES: DeskSources = {
-  resumeNeeds: policyResumeNeeds,
   handMergeOnly: () => false,
-  handItems: [doneElsewhereDeskItems],
+  handItems: [doneElsewhereDeskItems, heldParkDeskItems],
 };
+
+/** The kind of a park dipo could not write to Backlog.md (DIPO-360). */
+export const PARK_NOT_WRITTEN = "PARK NOT WRITTEN";
+
+/** The kind of an open park Backlog.md no longer holds, or a resume is lifting (DIPO-360). */
+export const PARK_HELD = "PARK HELD";
+
+const RESCAN = { command: "office.rescan", cli: "dipo office rescan" } as const;
+
+/**
+ * An open park of a story Backlog.md does not hold as parked (DIPO-360), which keeps holding the
+ * story's work (`heldByPark`):
+ * - its write to Backlog.md failed: `dipo park` writes it again, or a rescan's reconcile closes it;
+ * - a maintainer resume is lifting it: it is held until the resume finishes, so it offers nothing;
+ * - Backlog.md no longer holds it (lifted by hand): a rescan's reconcile closes it.
+ */
+export function heldParkDeskItems(office: OfficeHandle): HandDeskItem[] {
+  return heldParks(office).map((park) => {
+    const base = { key: StoryKey.parse(park.key), story: park.story, since: park.at };
+    switch (park.why) {
+      case "unwritten":
+        return {
+          ...base,
+          kind: PARK_NOT_WRITTEN,
+          detail: `${park.detail} · dipo could not write this park to Backlog.md; its work is held until the park is sent again or a rescan closes it`,
+          actions: [
+            { command: "story.park", cli: `dipo park ${park.story} --note "<why>"` },
+            RESCAN,
+          ],
+        };
+      case "resuming":
+        return {
+          ...base,
+          kind: PARK_HELD,
+          detail: `${park.detail} · a resume is lifting this park; its work is held until the resume finishes`,
+          actions: [],
+        };
+      case "lifted":
+        return {
+          ...base,
+          kind: PARK_HELD,
+          detail: `${park.detail} · Backlog.md no longer holds this park; its work is held until a rescan closes it`,
+          actions: [RESCAN],
+        };
+    }
+  });
+}
 
 /** Whether a command is registered and shipped, so the desk may offer it. */
 export type Implemented = (command: CommandName) => boolean;
@@ -138,24 +166,20 @@ export function implementedIn(registry: Registry): Implemented {
   return (command) => registry.command(command)?.definition.since !== undefined;
 }
 
-// Groups 1 to 6 of 0020 section 12.
-const GROUP = { live: 1, merge: 2, park: 3, hand: 4, proposal: 5, held: 6 } as const;
+// The groups of 0020, in order.
+const GROUP = { paused: 0, live: 1, merge: 2, park: 3, byYou: 4, hand: 5, proposal: 6 } as const;
 
-/** Group 3's order: a decision, then a direction or grant, then a restart, then anything else. */
+/** Group 3's order: by reason, as 0020 lists them; a reason outside the eight comes last. */
 const PARK_RANK: Readonly<Record<string, number>> = {
-  "needs-permission": 0,
-  "needs-scope": 0,
   "ambiguous-spec": 0,
   "review-blocked": 1,
-  conflict: 1,
-  "verify-failing": 1,
-  "scope-violation": 1,
-  "budget-exceeded": 1,
-  "worker-failed": 2,
-  interrupted: 2,
-  stopped: 2,
+  "budget-exceeded": 2,
+  "verify-failing": 3,
+  conflict: 4,
+  "scope-violation": 5,
+  "worker-failed": 6,
 };
-const OTHER_PARK_RANK = 3;
+const OTHER_PARK_RANK = 7;
 
 /** Group 5's order: spike before follow-up (0020 section 12), then tools, then decision notes. */
 const PROPOSAL_RANK: Readonly<Record<ProposalItem["kind"], number>> = {
@@ -303,7 +327,6 @@ class DeskBuilder {
       ...item,
       detail: deskLine(item.detail),
       ...(item.hand === undefined ? {} : { hand: deskLine(item.hand) }),
-      ...(item.cause === undefined ? {} : { cause: deskText(item.cause) }),
       ...(item.proposal === undefined
         ? {}
         : { proposal: { ...item.proposal, title: deskText(item.proposal.title) } }),
@@ -329,14 +352,8 @@ class DeskBuilder {
   /** The answer actions of a question: allow and deny for a permission, a text for a question. */
   #answerActions(question: StoredQuestion): DeskAction[] {
     const id = question.questionId;
-    if (question.kind === "question") {
-      // A worker question's answer is a flag, never read as a decision (0020 section 7).
-      return this.#action("work.answer", `dipo answer ${id} --text "<answer>"`);
-    }
-    return [
-      ...this.#action("work.answer", `dipo answer ${id} allow`),
-      ...this.#action("work.answer", `dipo answer ${id} deny "<reason>"`),
-    ];
+    // An answer is always text, never read as a decision (0020).
+    return this.#action("work.answer", `dipo answer ${id} --text "<answer>"`);
   }
 
   /**
@@ -349,6 +366,24 @@ class DeskBuilder {
     return left <= 0 ? ", its wait is over" : `, ${Math.max(1, Math.ceil(left / 60_000))} min left`;
   }
 
+  /** Group 0: the office's starts paused, with what lifts it; nothing else starts until then. */
+  startsPaused(): void {
+    const paused = this.#sources.startsPaused?.(this.#office) ?? null;
+    if (paused === null) return;
+    const why =
+      paused.reason === "adapter" ? `adapter check failed: ${paused.detail}` : paused.detail;
+    // The box token's hold lifts only with `dipo login box` (DIPO-271): no command lifts it here.
+    const sticky = paused.reason === "adapter" && paused.hold?.liftedBy !== undefined;
+    this.#add(GROUP.paused, 0, paused.since, {
+      kind: "STARTS PAUSED",
+      detail: `no new session starts · ${why}`,
+      since: iso(paused.since),
+      blocks: [],
+      actions: sticky ? [] : this.#action("daemon.resumeScheduling", LIFT_COMMAND),
+      hand: paused.lifts,
+    });
+  }
+
   /** Group 1: questions a live worker waits on; a park's questions are on its PARKED row. */
   liveQuestions(): void {
     for (const question of openQuestions(this.#office)) {
@@ -359,22 +394,16 @@ class DeskBuilder {
       );
       const key = run?.key ?? null;
       const story = key === null ? null : storyIdOf(this.#office, key);
-      const kind =
-        question.kind === "permission"
-          ? "PERMISSION"
-          : question.kind === "question"
-            ? "QUESTION"
-            : "SCOPE";
-      // The time left on a worker question's live wait (0020 section 7, DIPO-159), kept whole when
-      // a long question is cut.
+      // The time left on a worker question's live wait (0020, DIPO-159), kept whole when a long
+      // question is cut.
       const waiting = ` · worker waiting${this.#timeLeft(question)}`;
-      const room = DESK_DETAIL_MAX - Array.from(waiting).length - (kind === "QUESTION" ? 2 : 0);
+      const room = DESK_DETAIL_MAX - Array.from(waiting).length - 2;
       const text = cut(deskText(question.text), room);
       this.#add(GROUP.live, 0, question.askedAt, {
-        kind,
+        kind: "QUESTION",
         ...(story === null || key === null ? {} : { story, key: StoryKey.parse(key) }),
         question: QuestionId.parse(question.questionId),
-        detail: `${kind === "QUESTION" ? JSON.stringify(text) : text}${waiting}`,
+        detail: `${JSON.stringify(text)}${waiting}`,
         since: iso(question.askedAt),
         blocks: this.#blocks(story),
         actions: this.#answerActions(question),
@@ -437,21 +466,28 @@ class DeskBuilder {
     });
   }
 
-  /** Groups 2 and 3: merge gates and open parks other than `on-hold`. */
+  /** Groups 2 and 3: merge gates and every open park, the maintainer's own parks apart. */
   gatesAndParks(): void {
-    const parks = this.#office.all<{
-      park_id: number;
-      key: string;
-      story_id: string;
-      reason: string;
-      cause: string | null;
-      detail: string;
-      at: number;
-    }>(
-      `select park_id, key, story_id, reason, cause, detail, at from parks
-        where office_id = $office_id and resolved_at is null
-        order by at, park_id`,
+    // Every parked story (DIPO-360): the reason from Backlog.md, the rest from the open park row.
+    const keys = this.#office.all<{ key: string; story_id: string }>(
+      `select key, story_id from parks where office_id = $office_id and resolved_at is null
+        group by key order by min(at), min(park_id)`,
     );
+    const parks = keys.flatMap(({ key, story_id }) => {
+      const open = openPark(this.#office, key);
+      return open === null
+        ? []
+        : [
+            {
+              park_id: open.parkId,
+              key,
+              story_id,
+              reason: open.reason as string,
+              detail: open.detail,
+              at: open.at,
+            },
+          ];
+    });
     const gates = this.#openMergeGates();
     const reviewBlocked = new Set(
       parks.filter((park) => park.reason === "review-blocked").map((park) => park.key),
@@ -462,13 +498,13 @@ class DeskBuilder {
     }
     for (const park of parks) {
       const story = storyIdOf(this.#office, park.key) ?? StoryId.parse(park.story_id);
-      const held = park.reason === "on-hold";
+      const byYou = park.reason === "by-maintainer";
       const actions: DeskAction[] = [];
       for (const question of openParkQuestions(this.#office, park.park_id)) {
         actions.push(...this.#answerActions(question));
       }
-      actions.push(...this.#resumeActions(story, park.reason, park.cause));
-      const record = held ? null : latestStoryPr(this.#office, park.key);
+      actions.push(...this.#resumeActions(story, park.reason));
+      const record = latestStoryPr(this.#office, park.key);
       let gate: string | null = null;
       let hand: string | null = null;
       const open =
@@ -488,17 +524,16 @@ class DeskBuilder {
         }
       }
       this.#add(
-        held ? GROUP.held : GROUP.park,
-        held ? 0 : (PARK_RANK[park.reason] ?? OTHER_PARK_RANK),
+        byYou ? GROUP.byYou : GROUP.park,
+        byYou ? 0 : (PARK_RANK[park.reason] ?? OTHER_PARK_RANK),
         park.at,
         {
-          kind: held ? "HELD" : "PARKED",
+          kind: byYou ? "PARKED BY YOU" : "PARKED",
           story,
           key: StoryKey.parse(park.key),
           ...(gate === null ? {} : { gate: GateId.parse(gate) }),
           ...prOf(record),
           reason: park.reason,
-          ...(park.cause === null ? {} : { cause: park.cause }),
           detail: deskText(park.detail),
           since: iso(park.at),
           blocks: this.#blocks(story),
@@ -509,22 +544,20 @@ class DeskBuilder {
     }
   }
 
-  /** The resume (or discard) a park offers, from its reason's resume needs. */
-  #resumeActions(story: StoryId, reason: string, cause: string | null): DeskAction[] {
-    const need = this.#sources.resumeNeeds(reason, cause);
-    if (need === null) return [];
+  /** The resume (or discard) a park offers, from the 0020 table of its reason. */
+  #resumeActions(story: StoryId, reason: string): DeskAction[] {
+    const need = parkResumeNeed(reason);
     if (need.kind === "refuse") {
-      return need.code === "resume.notResumable"
-        ? this.#action("work.discard", `dipo discard ${story} --note "<why>"`)
-        : [];
+      return this.#action("work.discard", `dipo discard ${story} --note "<why>"`);
     }
-    const placeholder = reason === "ambiguous-spec" ? "<answer>" : "<why>";
-    const budget = need.topUp === true ? " --budget +50%" : "";
-    const note = need.note === "required" || need.topUp === true ? ` --note "${placeholder}"` : "";
+    const placeholder =
+      need.note === "answer" ? "<answer>" : reason === "review-blocked" ? "<direction>" : "<why>";
+    const budget = need.budget === true ? ` --budget +${SUGGESTED_SHARE}%` : "";
+    const note = need.note === "optional" ? "" : ` --note "${placeholder}"`;
     return this.#action("work.resume", `dipo resume ${story}${budget}${note}`);
   }
 
-  /** Group 4: backlog PRs whose check failed or could not run, then the sources' hand items. */
+  /** Group 5: backlog PRs whose check failed or could not run, then the sources' hand items. */
   handActions(): void {
     for (const pr of openPrs(this.#office)) {
       const failed = pr.check === "failed";
@@ -570,7 +603,7 @@ class DeskBuilder {
     }
   }
 
-  /** Group 5: open proposals and decision notes of worker reports. */
+  /** Group 6: open proposals and decision notes of worker reports. */
   proposals(): void {
     for (const proposal of proposalItems(this.#office)) {
       const story =
@@ -633,6 +666,7 @@ export function desk(
   now?: number,
 ): DeskItem[] {
   const builder = new DeskBuilder(office, sources, implemented, now);
+  builder.startsPaused();
   builder.liveQuestions();
   builder.gatesAndParks();
   builder.handActions();

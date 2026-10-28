@@ -128,9 +128,6 @@ export const MAX_QUESTIONS = 3;
 /** The opt-in that puts tool inputs into the worker output (0007 section 8). */
 const COMMAND_BODIES = "privacy.storeCommandBodies";
 
-/** The confirmation `X` asks before `work.stop` (0009 section 5). */
-export const STOP_PROMPT = "worker ends, branch kept, story parks as stopped";
-
 /** A follow-only run (host alive, socket gone) cannot be steered (0006 decision 8). */
 function signalFollowOnly(view: WorkView): boolean {
   return view.signals.some((signal) => signal.signal === "follow-only");

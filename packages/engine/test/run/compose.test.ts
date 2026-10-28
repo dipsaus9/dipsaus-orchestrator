@@ -22,7 +22,7 @@ import {
   insertRun,
   pendingReviews,
   OfficeIngest,
-  PlanLimits,
+  StartsPaused,
   RunControl,
   RunLauncher,
   RunOutcomes,
@@ -113,7 +113,7 @@ const REATTACH: NonNullable<RunPorts["reattach"]> = {
 function compose(extra: Partial<RunPorts> = {}) {
   const composed = composeRuns(portsOf(extra));
   closers.push(() => {
-    composed.planLimits?.close();
+    composed.startsPaused?.close();
     composed.permissions.close();
     composed.control?.close();
     composed.ingest.close();
@@ -170,16 +170,16 @@ async function loseHost(composed: ReturnType<typeof compose>): Promise<void> {
 
 describe("composeRuns", () => {
   test("without control builds only ingestion, the permission wait, the nudges and the launcher", () => {
-    const composed = compose({ outcomes: {}, planLimits: {}, reattach: REATTACH });
+    const composed = compose({ outcomes: {}, startsPaused: {}, reattach: REATTACH });
     expect(composed.ingest).toBeInstanceOf(OfficeIngest);
     expect(composed.permissions).toBeInstanceOf(PermissionAsks);
     expect(composed.nudges).toBeInstanceOf(Nudges);
     expect(composed.launcher).toBeInstanceOf(RunLauncher);
-    // Outcomes, the plan-limit schedule and re-attach need run control.
+    // Outcomes, the office's starts paused and re-attach need run control.
     expect(composed.control).toBeNull();
     expect(composed.outcomes).toBeNull();
     expect(composed.resumer).toBeNull();
-    expect(composed.planLimits).toBeNull();
+    expect(composed.startsPaused).toBeNull();
     expect(composed.reattacher).toBeNull();
   });
 
@@ -194,12 +194,12 @@ describe("composeRuns", () => {
     const noSchedule = compose({ control: CONTROL, outcomes: {} });
     expect(noSchedule.outcomes).toBeInstanceOf(RunOutcomes);
     expect(noSchedule.resumer).toBeInstanceOf(RunResumer);
-    expect(noSchedule.planLimits).toBeNull();
+    expect(noSchedule.startsPaused).toBeNull();
     // The fix rounds continue a developer session through worker outcomes (DIPO-148).
     expect(noSchedule.fixRounds).toBeInstanceOf(FixRounds);
 
-    const all = compose({ control: CONTROL, outcomes: {}, planLimits: {}, reattach: REATTACH });
-    expect(all.planLimits).toBeInstanceOf(PlanLimits);
+    const all = compose({ control: CONTROL, outcomes: {}, startsPaused: {}, reattach: REATTACH });
+    expect(all.startsPaused).toBeInstanceOf(StartsPaused);
     expect(all.reattacher).toBeInstanceOf(RunReattacher);
   });
 

@@ -28,7 +28,8 @@ import { EngineGit } from "../../src/git";
 import { WorkerHost } from "../../src/host/main";
 import { EVENTS_FILE, hostSocketPath, HOSTS_DIR, LAUNCH_FILE } from "../../src/host/protocol";
 import { officeStatusesReady } from "../../src/office/init";
-import { ensurePrivateDir } from "../../src/platform/paths";
+import { currentPlatform, ensurePrivateDir } from "../../src/platform/paths";
+import { systemProcessProbe } from "../../src/platform/process";
 import {
   capsOf,
   cliRunBase,
@@ -38,7 +39,7 @@ import {
   VerifyCommit,
   type HostStarter,
   OfficeIngest,
-  type PlanLimits,
+  StartsPaused,
   type Resumption,
   RunControl,
   type RunSteering,
@@ -56,6 +57,7 @@ import { type LaunchedHost, recordWorkerHost, runDirectory } from "../../src/run
 import { standInPlan } from "./stand-in-plan";
 import type { RunProfile } from "../../src/scan/detect";
 import { StoryIndex } from "../../src/stories/feature";
+import { StoryPlanning } from "../../src/stories/planning";
 import {
   claudeCliAdapter,
   claudeLaunchContext,
@@ -127,8 +129,8 @@ export interface Running {
   readonly resumption: Resumption | null;
   /** Each ingestion start with the host row's `processed_offset` at that moment. */
   readonly starts: { agent: string; processedOffset: number }[];
-  /** The plan-limit schedule, when the office was set up with it (DIPO-61). */
-  readonly planLimits: PlanLimits | null;
+  /** The office's starts paused, when the office was set up with it (0020). */
+  readonly startsPaused: StartsPaused | null;
   /** The run temp directories' root (`<root>/tmp`). */
   readonly tmpRoot: string;
   /**
@@ -169,10 +171,10 @@ export interface RunOfficeOptions {
    */
   readonly outcomes?: boolean;
   /**
-   * Wires the plan-limit schedule (DIPO-61) into worker outcomes (which `outcomes` must also ask
-   * for), with the tier caps a held run is resumed with.
+   * Wires the office's starts paused (0020) into worker outcomes (which `outcomes` must also ask
+   * for), with the tier caps a lifted park is resumed with.
    */
-  readonly planLimits?: boolean;
+  readonly startsPaused?: boolean;
   /** The live port slot entries `work.run` and `work.preview` check (DIPO-197). */
   readonly liveSlots?: () => readonly SlotEntry[];
   /**
@@ -493,7 +495,7 @@ export async function withRunOffice(
                 ),
                 caps: (office: OfficeId, run: StoredRun) => {
                   if (
-                    (options.planLimits !== true && options.resumeParks !== true) ||
+                    (options.startsPaused !== true && options.resumeParks !== true) ||
                     run.tier === null
                   ) {
                     return null;
@@ -512,7 +514,7 @@ export async function withRunOffice(
               },
             }
           : {}),
-        ...(options.planLimits === true ? { planLimits: { holds } } : {}),
+        ...(options.startsPaused === true ? { startsPaused: { holds } } : {}),
         // Setup is stubbed: no install step runs (DIPO-39's own tests cover the real one).
         setup: async (): Promise<SetupOutcome> =>
           ({
@@ -524,7 +526,19 @@ export async function withRunOffice(
             release: () => undefined,
           }) as unknown as SetupOutcome,
       });
-      const { ingest, permissions, control, outcomes, resumption, planLimits, launcher } = composed;
+      const { ingest, permissions, control, outcomes, resumption, startsPaused, launcher } =
+        composed;
+      // `work.run` refuses while the office's starts are paused: a plan limit, or the adapter holds.
+      const paused =
+        startsPaused ??
+        new StartsPaused({
+          clock: new ManualClock(),
+          offices: {
+            get: (office) => loaded().manager.get(office),
+            config: (office) => loaded().manager.config(office),
+          },
+          holds,
+        });
       const workRun = new WorkRun({
         offices: {
           get: (office) => loaded().manager.get(office),
@@ -540,7 +554,7 @@ export async function withRunOffice(
           if (git === undefined) throw new Error("no git");
           return officeStatusesReady(git);
         },
-        adapterHeld: (adapter) => holds.adapterHeld(adapter),
+        startsPaused: (office) => paused.state(office),
         claims,
         gates,
         lane: (office) => lane.forOffice(office),
@@ -555,7 +569,21 @@ export async function withRunOffice(
           index.feature,
           gates.feature,
           workRun.feature,
-          ...(control === null ? [] : [control.feature]),
+          ...(control === null
+            ? []
+            : [
+                control.feature,
+                // `story.park` (0020): the planning lane parks a story with no run, run control one
+                // with a run.
+                new StoryPlanning({
+                  lane: (office) => lane.forOffice(office),
+                  git: (office) => engineGit.forOffice(office),
+                  host: { closePr: async () => undefined },
+                  implemented: () => true,
+                  probe: systemProcessProbe(currentPlatform()),
+                  parkRun: (ctx, args) => control.parkByMaintainer(ctx, args),
+                }).feature,
+              ]),
         ],
       });
       setup = s;
@@ -579,7 +607,7 @@ export async function withRunOffice(
           outcomes,
           resumption,
           starts,
-          planLimits,
+          startsPaused,
           tmpRoot,
           tempDirs:
             tempDirs === null
@@ -595,7 +623,7 @@ export async function withRunOffice(
                 },
         });
       } finally {
-        planLimits?.close();
+        startsPaused?.close();
         permissions.close();
         control?.close();
         ingest.close();

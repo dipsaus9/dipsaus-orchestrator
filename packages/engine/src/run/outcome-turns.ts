@@ -2,29 +2,23 @@
 // `outcomes.ts` by DIPO-128): a turn's problem, the report feedback, a rejected plan limit and a
 // classifier switch.
 
-import type { RunId, WorkRef } from "@dipsaus-orchestrator/contract";
-
-import type { NewEntry } from "../changelog/log";
-import type { OfficeHandle } from "../db/office";
-import type { AdapterHold } from "../workers/hold";
 import type { HostOp, TurnProblem } from "../workers/types";
 
-import { resolveIntent, sendAsIntent } from "./intents";
+import { sendFeedback } from "./feedback";
+import { resolveIntent } from "./intents";
 import type { OutcomeSupport } from "./outcome-support";
 import {
   INTENT_TAGS,
   OUTCOME_ENDS,
   OUTCOME_NOTICES,
   type PlanLimitHit,
-  type PlanLimitWarning,
+  planLimitEnding,
   REASSIGN_SIGTERM_AFTER_MS,
   reportFeedbackText,
   type RunOutcomesDeps,
   type RunView,
-  type WaitFact,
 } from "./outcome-types";
-import { PARK_CAUSES } from "./park";
-import { raiseSignal } from "./signals";
+import { planLimitPause } from "./starts-paused";
 
 export class TurnOutcomes {
   readonly #s: OutcomeSupport;
@@ -62,7 +56,6 @@ export class TurnOutcomes {
             intent: "cap",
             ops: close,
             reason: "budget-exceeded",
-            cause: PARK_CAUSES.build,
             detail: "prompt_too_long: the context is full again after a handoff",
             endKind: OUTCOME_ENDS.capped,
           });
@@ -82,7 +75,6 @@ export class TurnOutcomes {
             intent: "park",
             ops: close,
             reason: "worker-failed",
-            cause: PARK_CAUSES.build,
             detail: `${problem.detail}${refused}`,
             endKind: OUTCOME_ENDS.crashed,
           });
@@ -97,31 +89,28 @@ export class TurnOutcomes {
         return;
       }
       case "report":
+        // A report that does not parse or match the schema is a broken worker, not a question
+        // (0008, 0001): after its one correction turn the story parks `worker-failed`.
         if (this.#s.reportFeedbacks(office, view.runId).length > 0) {
           ender.begin(view.runId, {
             intent: "park",
             ops: [{ closeStdin: true }],
-            reason: "ambiguous-spec",
-            cause: PARK_CAUSES.noReport,
+            reason: "worker-failed",
             detail: `no valid report: ${problem.detail}`,
             endKind: OUTCOME_ENDS.noReport,
           });
           return;
         }
-        await this.#sendReportFeedback(office, view, problem.detail);
+        // The one correction turn, keyed on the agent: a worker that exited before it read it
+        // gets it with its resume's first message (`ExitOutcomes`).
+        await sendFeedback(
+          office,
+          view.runId,
+          { source: "report", key: view.work.agent, text: reportFeedbackText(problem.detail) },
+          { sender: this.#deps },
+        ).done;
         return;
     }
-  }
-
-  /** The one feedback turn for a missing or invalid report, stored first as a `steer` intent. */
-  async #sendReportFeedback(office: OfficeHandle, view: RunView, why: string): Promise<void> {
-    await sendAsIntent(office, this.#deps.steering, view.runId, {
-      kind: "steer",
-      detail: `${INTENT_TAGS.reportFeedback} ${view.work.agent} ${why}`,
-      ops: this.#deps.encode({ kind: "steer", text: reportFeedbackText(why) }),
-      clock: this.#deps.clock,
-    }).done;
-    // A worker that exited before it read the feedback gets it as its resume's first message.
   }
 
   answered(view: RunView): void {
@@ -137,68 +126,22 @@ export class TurnOutcomes {
     });
   }
 
+  /**
+   * A rejected plan limit (0020): the office's starts pause, and the session ends with its story
+   * parked `worker-failed` ("plan limit until <time>"), which resumes by itself when the pause lifts.
+   */
   onPlanLimit(view: RunView, limit: PlanLimitHit): void {
-    const office = this.#deps.offices.get(view.office);
-    if (office === undefined) return;
-    const since = this.#deps.clock.now();
-    const fact: WaitFact = {
-      scope: limit.credits ? "credits" : (limit.scope ?? "unknown"),
-      ...(limit.resetsAt === undefined || limit.credits ? {} : { resetsAt: limit.resetsAt }),
-      since,
-    };
-    const acted = this.#deps.ender().act(view.runId, {
-      intent: "pause",
-      detail: `${INTENT_TAGS.planLimit} ${JSON.stringify(fact)}`,
-      ops: [{ closeStdin: true }],
-    });
-    if (!acted) return;
-    this.hold(office, view.runId, view.work, fact);
-  }
-
-  onPlanWarning(view: RunView, warning: PlanLimitWarning): void {
-    this.#deps.waits?.()?.warned(view.office, warning);
-  }
-
-  /** The signal, `work.observed plan-limit` and, for credits, the adapter hold and a notice. */
-  hold(office: OfficeHandle, runId: RunId, work: WorkRef, fact: WaitFact): void {
-    let held: AdapterHold | null = null;
-    if (fact.scope === "credits") {
-      held =
-        this.#deps.holds?.hold(this.#deps.worker.id, [
-          {
-            check: "credits",
-            detail:
-              "the plan reports credits_required, so no run can use it until the plan is dealt with",
-          },
-        ]) ?? null;
-    }
-    this.#s.write(office, () => {
-      const raised = raiseSignal(office, runId, "plan-limit", fact.since);
-      const entries: NewEntry[] = [];
-      if (raised !== null) {
-        entries.push({
-          type: "work.observed",
-          key: work.key,
-          run: runId,
-          delta: { work, signal: "plan-limit", since: new Date(fact.since).toISOString() },
-        });
-      }
-      if (fact.scope === "credits") {
-        entries.push({
-          type: "engine.notice",
-          key: work.key,
-          run: runId,
-          delta: {
-            level: "warn",
-            code: OUTCOME_NOTICES.planLimit,
-            text: `${work.story}: the plan needs credits; dipo holds the run with its session kept${held === null ? "" : " and holds new runs on the adapter"}. Deal with the plan, then resume the story.`,
-          },
-        });
-      }
-      return entries;
-    });
-    // The schedule holds the scope and resumes the run after the reset (DIPO-61).
-    this.#deps.waits?.()?.waiting(office.officeId, runId, fact);
+    const pause = planLimitPause(limit, this.#deps.clock.now());
+    this.#deps.startsPaused?.()?.pausePlanLimit(view.office, pause);
+    this.#deps
+      .ender()
+      .begin(
+        view.runId,
+        planLimitEnding(pause, [
+          { closeStdin: true },
+          { signal: "SIGTERM", afterMs: REASSIGN_SIGTERM_AFTER_MS },
+        ]),
+      );
   }
 
   onModelSwitched(view: RunView, model: string): void {

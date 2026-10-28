@@ -51,7 +51,7 @@
 //   (`protectedKind`: the rest of `backlog/`, `.dipo/`, `.github/`, the Claude settings, git's
 //   attribute files, and the configuration of the Backlog CLI, Bun and Claude Code's MCP servers),
 //   or a task-file conflict other than in its content, merges nothing, into neither the branch nor
-//   the box, and parks `conflict` with cause `unwritable-path`.
+//   the box, and parks `conflict`.
 // - The sync before In Review (`syncInTurn`, DIPO-149): verify and commit runs the same catch-up
 //   at done, in the run's held turn, for a riskier story whenever the base moved and for any other
 //   on a conflict; the caller tells the worker. Both are planned on git's merge alone, never on the
@@ -82,8 +82,8 @@ import type { OfficeId, TimerHandle } from "@dipsaus-orchestrator/contract";
 import { isTaskFileOf, TASKS_DIR } from "../backlog/runner";
 import { BASE_CHECKOUT_ENV } from "../git/hardened";
 import type { GitSession, OfficeGit } from "../git/office";
-import { EXTERNAL_STEP_TIMEOUT_MS, GitError } from "../git/runner";
-import { type PushResult, pushBranch } from "../git/task-commit";
+import { GitError } from "../git/runner";
+import { commitTree, moveBranch, type PushResult, pushBranch } from "../git/write";
 import conflictMarkersTemplate from "../prompts/feedback/conflict-markers.md" with { type: "text" };
 import conflictTemplate from "../prompts/feedback/conflict.md" with { type: "text" };
 import { neutraliseTags, renderTemplate } from "../prompts/templates";
@@ -134,14 +134,6 @@ export const COLLISION_NOTICES = {
   failed: "box.catchUpFailed",
   /** The story's own task file conflicted and dipo could not write its status back (DIPO-149). */
   taskFile: "box.catchUpTaskFile",
-} as const;
-
-/** The park causes of a catch-up. */
-export const CATCH_UP_CAUSES = {
-  failed: "catch-up-failed",
-  pushRejected: "push-rejected",
-  /** 0019 section 10: a conflict in a path the worker cannot write (`PARK_CAUSES.unwritablePath`). */
-  unwritablePath: "unwritable-path",
 } as const;
 
 /** The most bytes of one conflicted file read for its hunks; a larger file is named only. */
@@ -900,13 +892,11 @@ export async function planCatchUp(
       tree = await treeWith(session, input.scratch, tree, taskFile, baseTask);
     }
     const message = catchUpCommitMessage({ ...input, onto, conflicts }, input.branch);
-    commit = (
-      await session.ok(
-        repo,
-        ["commit-tree", tree, "-p", tip, "-p", onto, "-m", message.subject, "-m", message.body],
-        { timeoutMs: EXTERNAL_STEP_TIMEOUT_MS },
-      )
-    ).trim();
+    commit = await commitTree(session, repo, {
+      tree,
+      parents: [tip, onto],
+      message: { subject: message.subject, body: [message.body] },
+    });
   }
   return { kind: "merge", tip, onto, tree, commit, overlap, conflicts, taskFile };
 }
@@ -924,25 +914,6 @@ export async function boxChangesOf(
     throw new GitError("git.failed", "the merge holds a path dipo does not copy into a box.");
   }
   return changes;
-}
-
-/** Moves `branch` from `tip` to `commit`; false when it moved meanwhile. */
-export async function moveBranch(
-  session: GitSession,
-  branch: string,
-  commit: string,
-  tip: string,
-  subject: string,
-): Promise<boolean> {
-  const moved = await session.step(session.repository, [
-    "update-ref",
-    "-m",
-    subject,
-    `refs/heads/${branch}`,
-    commit,
-    tip,
-  ]);
-  return moved.code === 0;
 }
 
 function chunks<T>(items: readonly T[]): T[][] {
@@ -1038,8 +1009,8 @@ export interface CatchUpMerged {
   /** The story's own task file when dipo resolved a conflict in it, else null. */
   readonly taskFile: string | null;
   /**
-   * True for a merge dipo committed on the branch outside the box (the merge slot's sync,
-   * DIPO-324): the box gets it only before the run's next developer session (`copyPending`).
+   * True for a merge dipo committed on the branch outside the box (the auto-merge's conflict
+   * hand-off, DIPO-324): the box gets it only before the run's next developer session (`copyPending`).
    */
   readonly outsideBox?: true;
 }
@@ -1097,8 +1068,11 @@ export interface BoxCollisionsDeps {
   readonly parts: Pick<BoxParts, "deliverLast" | "deliverInTurn" | "inTurn">;
   /** Parks the run, stopping its worker; false when another decision came first. */
   readonly park: (runId: string, park: PartPark) => boolean;
-  /** Sends `text` to the run's worker as its next message. */
-  readonly tell: (runId: string, text: string) => Promise<unknown>;
+  /**
+   * Sends `text` to the run's worker as its next message, through the one feedback path with its
+   * source: `overlap` for another story on the same files, `conflict` for a merge of the base.
+   */
+  readonly tell: (runId: string, text: string, source: "overlap" | "conflict") => Promise<unknown>;
   /** Tells the maintainer (an `engine.notice` of the run). */
   readonly notice: (office: OfficeId, runId: string, notice: CollisionNotice) => void;
   /**
@@ -1341,7 +1315,7 @@ export class BoxCollisions {
   /**
    * Copies into the run's box what the story branch's tip holds outside `backlog/` and the tip
    * `from` did not (DIPO-324): the merges dipo committed on the branch outside the box since
-   * `from` (the merge slot's sync), staged and checked as a catch-up's are, then removed and
+   * `from` (the auto-merge's conflict hand-off), staged and checked as a catch-up's are, then removed and
    * written in the box. The box must run, and no part is taken meanwhile: the run's session has
    * not started. Throws when a stage or the copy fails; the branch is never moved here.
    */
@@ -1435,13 +1409,13 @@ export class BoxCollisions {
         [overlap.a, overlap.b],
         [overlap.b, overlap.a],
       ] as const) {
-        await this.#tell(me.runId, overlapMessage(other.story, overlap.paths));
+        await this.#tell(me.runId, overlapMessage(other.story, overlap.paths), "overlap");
       }
     }
   }
 
-  async #tell(runId: string, text: string): Promise<void> {
-    await Promise.resolve(this.#deps.tell(runId, text)).catch((error: unknown) => {
+  async #tell(runId: string, text: string, source: "overlap" | "conflict"): Promise<void> {
+    await Promise.resolve(this.#deps.tell(runId, text, source)).catch((error: unknown) => {
       this.#deps.warn?.("a collision message did not reach the worker", {
         run: runId,
         reason: messageOf(error),
@@ -1472,6 +1446,7 @@ export class BoxCollisions {
     await this.#tell(
       run.runId,
       catchUpMessage({ ...outcome.facts, ...(hunks === undefined ? {} : { hunks }) }),
+      "conflict",
     );
   }
 
@@ -1532,7 +1507,6 @@ export class BoxCollisions {
     });
     return {
       reason: "conflict",
-      cause: CATCH_UP_CAUSES.unwritablePath,
       detail: `git could not merge ${plan.base} at ${plan.onto.slice(0, 12)} cleanly in paths the worker cannot write: ${shownPaths(plan.paths)}`,
     };
   }
@@ -1568,7 +1542,7 @@ export class BoxCollisions {
       code: COLLISION_NOTICES.failed,
       text: `${run.story}: ${detail}`,
     });
-    return { kind: "park", park: { reason: "conflict", cause: CATCH_UP_CAUSES.failed, detail } };
+    return { kind: "park", park: { reason: "conflict", detail } };
   }
 
   /** The catch-up itself, in the run's turn (see the file comment). */
@@ -1712,7 +1686,6 @@ export class BoxCollisions {
         kind: "park",
         park: {
           reason: "conflict",
-          cause: CATCH_UP_CAUSES.pushRejected,
           detail: `${push.error ?? "the push was rejected"}; the remote branch has commits the story branch lacks`,
         },
       };

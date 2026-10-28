@@ -11,6 +11,10 @@ import type { Migration } from "../../src/db/migrations";
 import { MIGRATIONS } from "../../src/db/schema";
 import { localMounts, memoryLogger } from "./helpers";
 
+// Migration 57 (DIPO-344) drops `parks.cause` and the question trigger, so these steps are read as
+// they left the schema.
+const BEFORE_57 = MIGRATIONS.filter((step) => step.version <= 56);
+
 const open = (dir: string, migrations?: readonly Migration[]) =>
   openStateDatabase({
     stateDir: join(dir, "state"),
@@ -70,11 +74,11 @@ describe("migration 34 on a database at version 33", () => {
         old.close();
       }
 
-      const state = await open(dir);
+      const state = await open(dir, BEFORE_57);
       try {
         const db = state.connection;
         expect(db.get<{ user_version: number }>("pragma user_version")?.user_version).toBe(
-          MIGRATIONS.at(-1)?.version,
+          BEFORE_57.at(-1)?.version,
         );
         expect(
           db.all(
@@ -252,7 +256,7 @@ describe("migration 34: run rounds, places and park causes", () => {
       expect(MIGRATIONS.find((migration) => migration.version === 34)?.name).toBe(
         "run rounds, places and park causes",
       );
-      const state = await open(dir);
+      const state = await open(dir, BEFORE_57);
       try {
         const columns = (table: string) =>
           state.connection
@@ -287,7 +291,7 @@ describe("migration 34: run rounds, places and park causes", () => {
 
   it("lets run_steps hold the review loop's kinds and nothing else", () =>
     withTempDir(async (dir) => {
-      const state = await open(dir);
+      const state = await open(dir, BEFORE_57);
       const db = state.connection;
       try {
         db.immediate(() => {

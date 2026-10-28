@@ -6,21 +6,16 @@
 // - Counting. A place is held by an open story run (not ended, its claim live) with a live or
 //   starting session: every such run that does not wait for its place. Its place comes from the
 //   role of its newest agent while that agent runs, else from the role its active period is for
-//   (the reviewer's in a `review` phase). A run held by a plan limit keeps its place: it resumes
-//   into it after the reset. Session runs hold no place (the 2026-10-16 review finding), while
-//   `activeRuns` and `hasActiveRun` still count them for `office.forget` and `dipo daemon status`.
-//   A run the maintainer paused keeps its place while its process lives; once stdin closed and the
-//   process exited it holds none, and `work.resume` waits for the place (DIPO-163).
+//   (the reviewer's in a `review` phase). Session runs hold no place (the 2026-10-16 review
+//   finding), while `activeRuns` and `hasActiveRun` still count them for `office.forget` and `dipo
+//   daemon status`.
 // - Start order. A reopened run whose place is taken waits for it (`runs.waiting`, `waitForPlace`):
 //   the worker place starts maintainer resumes first, then conflict hand-offs and fix rounds, then
 //   new pickups by `work.run`; the reviewer place starts maintainer resumes of a review first,
 //   then pending reviews, oldest In Review first. Within a rank the oldest wait goes first. A story
 //   that waits for CI, for the maintainer or in the merge slot has an ended run and holds no place.
-// - Plan limits pause places by scope (0008 section 7): a session or weekly hold pauses both places
-//   in every office, a model-family hold pauses the place whose session uses that family, and an
-//   `allowed_warning` stops new sessions of its scope. The hold is `PlanLimits.held` asked with the
-//   model of the session the place would start. A run waiting under a hold carries the `plan-limit`
-//   signal, so it shows health `limited`; it never parks.
+// - Starts paused (0020, `starts-paused.ts`): while the office's starts are paused, no waiting
+//   session starts in either place; it keeps waiting and starts once the pause lifted.
 // - Caps. A fix round or conflict hand-off whose run already reached its caps (a done path that
 //   crossed one, DIPO-205) is not started: `Places.drain` parks the story `budget-exceeded`
 //   (`pre-start-caps.ts`) before the starter is called.
@@ -35,21 +30,15 @@
 
 import type { Clock, OfficeId, RunId, TimerHandle, WorkRef } from "@dipsaus-orchestrator/contract";
 
-import { appendEntries, type NewEntry } from "../changelog/log";
 import type { FeatureModule } from "../commands/registry";
-import { OFFICE_DEFAULTS, type OfficeConfig } from "../config";
 import type { OfficeHandle } from "../db/office";
 import { background } from "../platform/background";
-import { withWorkViews, workRefOf } from "../views/work";
+import { workRefOf } from "../views/work";
 
 import { REVIEWER_ROLE } from "./caps";
-import { runConfigOf } from "./config-snapshot";
 import type { RunEnding } from "./control-types";
-import { openWait } from "./outcome-types";
-import { pausedWithoutSession } from "./pauses";
 import { preStartEnding, reachedCaps, resolvePreStartIntent } from "./pre-start-caps";
 import { activeRuns, findRun, type StoredRun } from "./records";
-import { clearSignals, raiseSignal, type StoredSignal } from "./signals";
 
 /** The two session places of an office. */
 export type Place = "worker" | "reviewer";
@@ -83,9 +72,6 @@ const ORDER: Readonly<Record<StartKind, { readonly place: Place; readonly rank: 
   "review-resume": { place: "reviewer", rank: 0 },
   review: { place: "reviewer", rank: 1 },
 };
-
-/** The reviewer's model when the office names none (0019 section 4: `review.model` is opus). */
-export const DEFAULT_REVIEW_MODEL = "opus";
 
 /** While anything waits for a place, the office is drained again this often. */
 export const PLACE_TICK_MS = 60_000;
@@ -165,8 +151,6 @@ export function placeHolders(office: OfficeHandle): Record<Place, StoredRun[]> {
   const holders: Record<Place, StoredRun[]> = { worker: [], reviewer: [] };
   for (const run of activeRuns(office)) {
     if (run.kind !== "story" || run.waiting != null) continue;
-    // A paused run whose process exited after the 10 minutes holds no place (0020 section 9).
-    if (pausedWithoutSession(office, run.runId)) continue;
     holders[placeOfRun(office, run)].push(run);
   }
   return holders;
@@ -183,7 +167,7 @@ export function waitingStarts(office: OfficeHandle): PlaceStart[] {
 
 /**
  * Why `start` cannot take its place now, or null: another run holds the place, or a start that
- * goes before it in the place's start order waits already. Plan-limit holds are not asked here.
+ * goes before it in the place's start order waits already. Starts paused is not asked here.
  */
 export function placeTaken(
   office: OfficeHandle,
@@ -204,18 +188,6 @@ export function placeTaken(
   if (ahead === undefined) return null;
   const run = ahead.runId === null ? null : findRun(office, ahead.runId);
   return `${run?.story ?? ahead.runId ?? "another story"} waits for the office's ${place} place first`;
-}
-
-/**
- * Which places a plan-limit hold pauses now (0019 section 12): each place asked with the model its
- * next session uses; null for a place no hold pauses. `held` is `PlanLimits.held` on the office's
- * adapter: with a model it answers the holds of every model and of that model's family.
- */
-export function pausedPlaces(
-  held: (model: string | null) => string | null,
-  models: Readonly<Record<Place, string | null>>,
-): Record<Place, string | null> {
-  return { worker: held(models.worker), reviewer: held(models.reviewer) };
 }
 
 /**
@@ -265,16 +237,11 @@ export type PlaceStarter = (
 
 export interface PlacesDeps {
   readonly clock: Clock;
-  readonly offices: {
-    get(office: OfficeId): OfficeHandle | undefined;
-    config(office: OfficeId): OfficeConfig | undefined;
-  };
-  /** `PlanLimits.held`: why a new session on the adapter and model must wait, or null. */
-  readonly held?: (adapter: string, model: string | null) => string | null;
+  readonly offices: { get(office: OfficeId): OfficeHandle | undefined };
+  /** Why no new session starts in the office now (its starts paused, 0020), or null. */
+  readonly startsPaused?: (office: OfficeId) => string | null;
   /** False while the daemon schedules no work (`safe`); true by default. */
   readonly scheduling?: () => boolean;
-  /** The reviewer's model in the office; by default the office config's `review.model`. */
-  readonly reviewModel?: (office: OfficeId) => string;
   /**
    * Pending reviews of the office, oldest In Review first: stories at In Review whose code tree has
    * no verdict (`pendingReviews`, DIPO-219, as `composeRuns` wires it); none by default.
@@ -318,17 +285,17 @@ export class Places {
   }
 
   /**
-   * Why a new session of `start` must wait now, or null: its place is taken (`placeTaken`), or a
-   * plan-limit hold pauses the place for `model`, the model the session would use.
+   * Why a new session of `start` must wait now, or null: its place is taken (`placeTaken`), or the
+   * office's starts are paused.
    */
-  blocked(officeId: OfficeId, start: PlaceStart, model: string | null): string | null {
+  blocked(officeId: OfficeId, start: PlaceStart): string | null {
     const office = this.#deps.offices.get(officeId);
     if (office === undefined) return null;
-    const run = start.runId === null ? null : findRun(office, start.runId);
     return (
       placeTaken(office, start) ??
       this.#startingHolder(officeId, start) ??
-      this.#paused(officeId, model, run)
+      this.#deps.startsPaused?.(officeId) ??
+      null
     );
   }
 
@@ -364,23 +331,6 @@ export class Places {
         return `the office's worker place is held by ${story}, which is starting`;
     }
     return null;
-  }
-
-  /**
-   * The model the next session of `place` uses for `run`: the reviewer's is `reviewModel`, else
-   * the `review.model` of the run's configuration snapshot (laid on the configuration in force,
-   * DIPO-150), else `DEFAULT_REVIEW_MODEL`.
-   */
-  modelOf(officeId: OfficeId, place: Place, run: StoredRun): string {
-    if (place !== "reviewer") return run.model;
-    const given = this.#deps.reviewModel?.(officeId);
-    if (given !== undefined) return given;
-    const office = this.#deps.offices.get(officeId);
-    const inForce = this.#deps.offices.config(officeId);
-    if (office === undefined) return inForce?.review.model ?? DEFAULT_REVIEW_MODEL;
-    return (
-      runConfigOf(office, run, inForce ?? OFFICE_DEFAULTS).review.model ?? DEFAULT_REVIEW_MODEL
-    );
   }
 
   /** Starts what waits for a free place in the office, once any drain under way finished. */
@@ -448,21 +398,6 @@ export class Places {
     return state;
   }
 
-  /**
-   * Why a plan-limit hold pauses a new session of `model` now, or null. The adapter is the one the
-   * run started with (its configuration snapshot, DIPO-150), else the office's in force.
-   */
-  #paused(officeId: OfficeId, model: string | null, run: StoredRun | null = null): string | null {
-    const inForce = this.#deps.offices.config(officeId);
-    const office = this.#deps.offices.get(officeId);
-    const adapter =
-      run === null || office === undefined || inForce === undefined
-        ? inForce?.worker.adapter
-        : runConfigOf(office, run, inForce).worker.adapter;
-    if (adapter === undefined || this.#deps.held === undefined) return null;
-    return this.#deps.held(adapter, model);
-  }
-
   async #drain(officeId: OfficeId, state: Drained): Promise<number> {
     const office = this.#deps.offices.get(officeId);
     if (office === undefined) {
@@ -490,19 +425,10 @@ export class Places {
       const starter = this.#deps.starters[first.kind];
       if (starter === undefined) continue;
       if (await this.#parkedForCaps(office, run, first)) continue;
-      const paused = this.#paused(officeId, this.modelOf(officeId, place, run), run);
-      if (paused !== null) {
-        this.#limited(office, run, paused);
-        continue;
-      }
+      // The office's starts paused: the session keeps waiting (0020).
+      if (this.#deps.startsPaused?.(officeId) != null) continue;
       const claimedAt = this.#deps.clock.now();
-      this.#write(office, () => {
-        const at = claimedAt;
-        claimPlace(office, run.runId, at);
-        // The hold that paused its place is over; a run held by its own wait keeps its signal.
-        if (openWait(office, run.runId) !== null) return [];
-        return observed(office, run, clearSignals(office, run.runId, ["plan-limit"], at), at);
-      });
+      office.immediate(() => claimPlace(office, run.runId, claimedAt));
       let ok = false;
       try {
         ok = await starter(officeId, findRun(office, run.runId) ?? run, first);
@@ -571,30 +497,6 @@ export class Places {
     );
   }
 
-  /** A waiting run whose place a plan limit pauses shows `limited` (the `plan-limit` signal). */
-  #limited(office: OfficeHandle, run: StoredRun, why: string): void {
-    this.#write(office, () => {
-      const at = this.#deps.clock.now();
-      const raised = raiseSignal(office, run.runId, "plan-limit", at);
-      if (raised === null) return [];
-      this.#deps.warn?.("a session waits for its place under a plan limit", {
-        run: run.runId,
-        why,
-      });
-      return observed(office, run, [raised], at);
-    });
-  }
-
-  #write(office: OfficeHandle, fn: () => readonly NewEntry[]): void {
-    const at = this.#deps.clock.now();
-    const appended = office.immediate(() => {
-      const entries = withWorkViews(office, fn());
-      appendEntries(office, entries, { at });
-      return entries.length;
-    });
-    if (appended > 0) this.#deps.onChanged?.(office.officeId as OfficeId);
-  }
-
   #arm(officeId: OfficeId, state: Drained): void {
     if (this.#closed || state.timer !== null) return;
     state.timer = this.#deps.clock.setTimeout(() => {
@@ -607,26 +509,4 @@ export class Places {
     if (state.timer !== null) this.#deps.clock.clearTimeout(state.timer);
     state.timer = null;
   }
-}
-
-/** The `work.observed` entries of signals raised or cleared on a story run. */
-function observed(
-  office: OfficeHandle,
-  run: StoredRun,
-  signals: readonly StoredSignal[],
-  at: number,
-): NewEntry[] {
-  const work: WorkRef | null = workRefOf(office, run.runId);
-  if (work === null || signals.length === 0) return [];
-  return signals.map((signal) => ({
-    type: "work.observed",
-    key: work.key,
-    run: run.runId,
-    delta: {
-      work,
-      signal: signal.signal,
-      since: new Date(signal.since).toISOString(),
-      ...(signal.clearedAt === null ? {} : { clearedAt: new Date(at).toISOString() }),
-    },
-  }));
 }

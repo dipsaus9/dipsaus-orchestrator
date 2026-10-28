@@ -1,5 +1,5 @@
 // `dipo desk [--office <id>] [--json]` (DIPO-158; 0020 section 12): reads `office.desk` and prints a
-// count line, one line per item with an indented command line, and the held stories apart; an
+// count line, one line per item with an indented command line, and the stories parked by you apart; an
 // empty desk prints `Nothing waits on you.`; `--json` prints the read's result; the exit code is 0.
 
 import { describe, expect, it } from "bun:test";
@@ -96,7 +96,6 @@ const EXAMPLE: DeskItem[] = officeDesk.result.parse([
     story: "DIPO-105",
     key: "sto_01J9ZK5Q8W3V4X6Y7Z8A9B0C1B",
     reason: "budget-exceeded",
-    cause: "build",
     detail: "turn cap 61 of 60 · 7 files uncommitted",
     since: ago(9 * 60),
     blocks: [],
@@ -125,10 +124,10 @@ const EXAMPLE: DeskItem[] = officeDesk.result.parse([
     ],
   },
   {
-    kind: "HELD",
+    kind: "PARKED BY YOU",
     story: "DIPO-129",
     key: "sto_01J9ZK5Q8W3V4X6Y7Z8A9B0C1F",
-    reason: "on-hold",
+    reason: "by-maintainer",
     detail: "after M2",
     since: ago(3 * 24 * 60),
     blocks: [],
@@ -136,26 +135,26 @@ const EXAMPLE: DeskItem[] = officeDesk.result.parse([
   },
 ]);
 
-/** A held story with no note, like the example's. */
-function held(story: string): DeskItem {
+/** A story the maintainer parked with no note, like the example's. */
+function byYou(story: string): DeskItem {
   return DeskItem.parse({ ...EXAMPLE[4], story, detail: "" });
 }
 
 const EXAMPLE_LINES = [
-  "dipsaus-orchestrator · desk 4 · held 1",
+  "dipsaus-orchestrator · desk 4 · parked by you 1",
   'QUESTION  DIPO-140  "Keep the old flag?" · worker waiting  6m',
   '          dipo answer qst_01J9ZK5Q8W3V4X6Y7Z8A9B0C1A "<answer>"',
-  "PARKED    DIPO-105  budget-exceeded/build · turn cap 61 of 60 · 7 files uncommitted  9h",
+  "PARKED    DIPO-105  budget-exceeded · turn cap 61 of 60 · 7 files uncommitted  9h",
   '          dipo resume DIPO-105 --budget +50% --note "<why>"',
   "LEFTOVERS DIPO-98   Done on main (a1b2c3d) · branch has 3 commits not on main  1d",
   '          dipo discard DIPO-98 --note "<why>"',
   'PROPOSAL  DIPO-122  follow-up "Split RunOutcomes" · from run_01J9ZK5Q8W3V4X6Y7Z8A9B0C1E  2d',
   "          dipo propose accept prp1 | dipo propose dismiss prp1",
-  'Held by you (1)  DIPO-129 "after M2"   dipo resume DIPO-129',
+  'Parked by you (1)  DIPO-129 "after M2"   dipo resume DIPO-129',
 ];
 
 describe("formatDesk", () => {
-  it("prints the section 12 example: a count line, each item with its command, held apart", () => {
+  it("prints the 0020 example: a count line, each item with its command, parked by you apart", () => {
     expect(formatDesk("dipsaus-orchestrator", EXAMPLE, NOW)).toEqual(EXAMPLE_LINES);
   });
 
@@ -165,7 +164,7 @@ describe("formatDesk", () => {
       "this month 3k tokens",
     ]);
     expect(lines[0]).toBe(
-      "demo · desk 4 · held 1 · today 1.2M of 4.0M tokens (30%, resets 00:00 UTC) · this month 3k tokens",
+      "demo · desk 4 · parked by you 1 · today 1.2M of 4.0M tokens (30%, resets 00:00 UTC) · this month 3k tokens",
     );
     expect(lines.slice(1)).toEqual(EXAMPLE_LINES.slice(1));
   });
@@ -175,7 +174,7 @@ describe("formatDesk", () => {
     expect(EMPTY_DESK).toBe("Nothing waits on you.");
   });
 
-  it("prints a hand action, an item with no command, and more held stories below", () => {
+  it("prints a hand action, an item with no command, and more stories parked by you below", () => {
     const merge = DeskItem.parse({
       kind: "MERGE",
       story: "DIPO-7",
@@ -187,14 +186,31 @@ describe("formatDesk", () => {
     });
     const { hand: _, ...withoutHand } = merge;
     const bare = DeskItem.parse({ ...withoutHand, story: "DIPO-8" });
-    expect(formatDesk("demo", [merge, bare, held("DIPO-1"), held("DIPO-22")], NOW)).toEqual([
-      "demo · desk 2 · held 2",
+    expect(formatDesk("demo", [merge, bare, byYou("DIPO-1"), byYou("DIPO-22")], NOW)).toEqual([
+      "demo · desk 2 · parked by you 2",
       "MERGE DIPO-7  release PR  0m",
       "      merge PR #7 by hand on GitHub",
       "MERGE DIPO-8  release PR  0m",
       "      (no command in this dipo yet)",
-      "Held by you (2)  DIPO-1  dipo resume DIPO-129",
-      "                 DIPO-22 dipo resume DIPO-129",
+      "Parked by you (2)  DIPO-1  dipo resume DIPO-129",
+      "                   DIPO-22 dipo resume DIPO-129",
+    ]);
+  });
+
+  it("prints the office's starts paused first, with no story, its command and what lifts it (0020)", () => {
+    const paused = DeskItem.parse({
+      kind: "STARTS PAUSED",
+      detail: "no new session starts · plan limit until 2026-10-23T14:00:00.000Z",
+      since: ago(5),
+      blocks: [],
+      actions: [{ command: "daemon.resumeScheduling", cli: "dipo daemon resume-scheduling" }],
+      hand: "It lifts by itself at 2026-10-23T14:02:00.000Z.",
+    });
+    expect(formatDesk("demo", [paused, byYou("DIPO-1")], NOW)).toEqual([
+      "demo · desk 1 · parked by you 1",
+      "STARTS PAUSED   no new session starts · plan limit until 2026-10-23T14:00:00.000Z  5m",
+      "              dipo daemon resume-scheduling | It lifts by itself at 2026-10-23T14:02:00.000Z.",
+      "Parked by you (1)  DIPO-1 dipo resume DIPO-129",
     ]);
   });
 
@@ -225,7 +241,7 @@ describe("dipo desk", () => {
   it("names the office by its id with --office", async () => {
     const ctx = fake(() => ({ ok: true, result: EXAMPLE.slice(0, 1) }));
     expect(await main(["desk", "--office", OFFICE], ctx.deps)).toBe(0);
-    expect(ctx.out[0]).toBe(`${OFFICE} · desk 1 · held 0`);
+    expect(ctx.out[0]).toBe(`${OFFICE} · desk 1 · parked by you 0`);
   });
 
   it("prints the read's result with --json", async () => {

@@ -29,7 +29,6 @@ import reviewEvidenceTemplate from "./feedback/review-evidence.md" with { type: 
 import reviewFindingTemplate from "./feedback/review-finding.md" with { type: "text" };
 import reviewReportTemplate from "./feedback/review-report.md" with { type: "text" };
 import testPlanTemplate from "./feedback/test-plan.md" with { type: "text" };
-import verifyRunTemplate from "./feedback/verify-run.md" with { type: "text" };
 import { FEEDBACK_TEMPLATES, neutraliseTags, rendered, renderTemplate } from "./templates";
 
 /** The longest test-plan check a test-plan feedback line quotes, in characters. */
@@ -85,14 +84,6 @@ export function decisionNoteFeedback(
   });
 }
 
-/**
- * A box worker's done report with no run of the verify or test command after its last edit
- * (DIPO-186, 0021 amendment of 2026-10-22): the command to run, as the office's profile names it.
- */
-export function verifyRunFeedback(command: string): string {
-  return renderTemplate(verifyRunTemplate, { command: `\`${command}\`` });
-}
-
 /** The reviewer's correction turn for a report missing or invalid against its schema. */
 export function reviewReportFeedback(why: string): string {
   return renderTemplate(reviewReportTemplate, { why });
@@ -123,7 +114,8 @@ export interface VerifyFailure {
   readonly step: string;
   /** The command as the run profile names it. */
   readonly command: string;
-  readonly exitCode: number;
+  /** The exit code, or why there is none (a deadline, a signal). */
+  readonly exitCode: number | string;
   /** The step's combined output. */
   readonly output: string;
 }
@@ -140,7 +132,7 @@ export interface VerifyFeedbackItem extends FeedbackItem {
   readonly kind: "verify";
   readonly step: string;
   readonly command: string;
-  readonly exitCode: number;
+  readonly exitCode: number | string;
   /** The last output lines, at most the log-line budget. */
   readonly tail: string;
   readonly locations: readonly SourceLocation[];

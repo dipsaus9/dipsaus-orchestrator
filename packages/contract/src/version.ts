@@ -83,4 +83,12 @@ export type ContractVersion = z.infer<typeof ContractVersion>;
 // DIPO-308 ships the read `office.digest`, with `since` made optional (the engine then counts from
 // when the office's last TUI client disconnected), and so its capability flag `digest`, in the same,
 // still unreleased, minor.
+// DIPO-344 replaces `work.stop`, `work.pause` and `story.hold` with `story.park`, cuts the park
+// reasons to the eight of 0001, and removes `cause` from `story.parked` and the desk item,
+// `decision` from `work.answer`, the `held` column and the office code `resume.decisionRequired`,
+// in the same, still unreleased, minor.
+// DIPO-359 replaces the plan-limit hold with the office's starts paused: it adds the desk kind
+// `STARTS PAUSED`, `daemon.resumeScheduling` also lifts every office's starts paused, `work.resume`
+// no longer continues a held run, and the health values `limited` and `paused`, the watchdog
+// signal `plan-limit` and the skip reason `planLimit` go, in the same, still unreleased, minor.
 export const CONTRACT_VERSION = Object.freeze({ major: 1, minor: 1 }) satisfies ContractVersion;

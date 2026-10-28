@@ -15,7 +15,7 @@ import type { FeatureModule } from "../../src/commands/registry";
 import { OFFICE_DEFAULTS, type OfficeConfig } from "../../src/config";
 import type { OfficeHandle } from "../../src/db/office";
 import { type GitCall, type GitResult, OfficeGit } from "../../src/git";
-import { HAND_MERGE_NOTE, mergeGate } from "../../src/merge-slot";
+import { HAND_MERGE_NOTE, mergeGate } from "../../src/merge";
 import type { OfficeLoadContext } from "../../src/office/steps";
 import { GIT_STEP_DEADLINE_MS } from "../../src/git/runner";
 import { CALL_DEADLINE_MS, KILL_GRACE_MS } from "../../src/platform/deadline";
@@ -388,9 +388,10 @@ describe("tearing down", () => {
         `worktree remove ${world.worktree}`,
         `update-ref -d refs/heads/${BRANCH} ${TIP}`,
         `config --remove-section branch.${BRANCH}`,
-        `push --quiet --no-verify origin --delete ${BRANCH}`,
+        `push --quiet --no-verify --force-with-lease=refs/heads/${BRANCH}:${TIP} origin --delete ${BRANCH}`,
       ]);
-      expect(world.steps.some((s) => s.includes("--force"))).toBe(false);
+      // No forced step: only the remote delete's lease.
+      expect(world.steps.some((s) => /--force(?!-with-lease=)/.test(s))).toBe(false);
       const after = world.claim();
       expect(after.releasedAt).not.toBeNull();
       expect(after.releaseReason).toBe(DONE_RELEASE_REASON);

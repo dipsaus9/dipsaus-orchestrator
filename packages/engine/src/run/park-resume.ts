@@ -1,53 +1,57 @@
-// `work.resume` of a parked story (ADR 0020 sections 1 to 5, DIPO-155): one path for every park
-// with a resuming row in the matrix (`resume-policy.ts`).
+// `work.resume` of a parked story with a run (0020): the one resume path, for every reason the
+// resume table resumes (`resume-policy.ts`).
 //
-// 1. Check, with no writes: the park has a run, its row resumes, a `budget-exceeded` park comes
-//    with its top-up (`resume.topUpRequired` naming `--budget` and the cap that fired), a required
-//    note is given (`resume.noteRequired`), the adapter hold of a `worker-failed` park is lifted
-//    (`run.refused` naming it), no session of the run is alive (`run.hostAlive`), the daemon
-//    schedules work (`scheduling.off`), what remains of the caps, counting this resume's grants,
-//    is above zero (`resume.capReached` naming `--budget`; for a top-up `resume.topUpTooSmall`
-//    naming the smallest share that clears it), a top-up was confirmed (`confirmation.required`
-//    with the caps before and after), and for a git-state park the worktree's git links still
-//    match the claim (else `resume.notResumable` naming `dipo discard`) while a new backstop
-//    snapshot is read.
+// 1. Check, with no writes: the reason resumes (`scope-violation` answers `resume.notResumable`
+//    naming `dipo discard`), the park has a run, a `budget-exceeded` park comes with its top-up
+//    (`resume.topUpRequired` naming `--budget` and the cap that fired), the answer of an
+//    `ambiguous-spec` park or the note a reason requires is given (`resume.noteRequired`), the
+//    office's starts are not paused (`run.refused` naming why, 0020), no session of the run is alive
+//    (`run.hostAlive`), the daemon schedules work (`scheduling.off`), what remains of the caps,
+//    counting this resume's grants, is above zero (`resume.capReached` naming `--budget`; for a
+//    top-up `resume.topUpTooSmall` naming the smallest share that clears it), and a top-up was
+//    confirmed (`confirmation.required` with the caps before and after).
 // 2. Intent first: an `answer` intent tagged `maintainer-resume` with the request id, the first
-//    message, the grants and the snapshot, so a restart or a retry of the same request finishes the
-//    resume and repeats nothing (the grants have ids made from the request).
+//    message and the grants, so a restart or a retry of the same request finishes the resume and
+//    repeats nothing (the grants have ids made from the request).
 // 3. The park is lifted on the story branch (the F16 block removed, the status set), in dipo's own
 //    copy of the story's backlog (`gitUnparkWriter`); a lift already written commits nothing.
-// 4. One transaction: the park resolved `resume` with the note (`parks.resolved_note`), the grants
-//    recorded (`run_grants`), the run reopened, the new snapshot stored, `story.state` back, the
-//    intent sent; a session whose place is taken waits for it (`waitForPlace`) and the reply says
-//    `queued`.
-// 5. The next session of the same run, by the row's session: the developer's (a native resume when
-//    the 0014 section 6 checks pass, else a handoff; a box run always gets a new session in its box,
-//    0021 section 6), a fresh reviewer session of the same round on the same head (the reviewer
-//    place's `review-resume` start), a fix round with the last verdict's blocking findings (the fix
-//    rounds, which set the story In Progress), or none.
+// 4. One transaction: the park resolved `resume` with the note, its questions closed (an answered
+//    one as answered, the rest expired, each with its `question.closed`), the grants recorded, the
+//    run reopened, `story.state` back, the intent sent; a session whose place is taken waits for it
+//    (`waitForPlace`) and the reply says `queued`.
+// 5. The next session of the same run (`resumeSession`, from the run's facts): a new developer
+//    session in the story's box with a handoff, a fresh reviewer session of the same round on the
+//    same head when the park stopped the reviewer, a fix round with the last verdict's blocking
+//    findings for `review-blocked`, or none for a story the maintainer parked while it waited In
+//    Review (it waits there again; a closed story PR is replaced, 0002).
 //
-// The first message is code-built (0020 section 3): the reason's delta, then
-// `feedback/maintainer-note.md` with the note, so maintainer text never starts a message. A top-up
-// of a park a reopened fix round hit before its session (DIPO-205) sends that round's undelivered
-// feedback first, then `feedback/topup.md`. A reviewer never gets the note (0002).
+// Grants (0020): a top-up (`--budget`) is a budget grant. A round grant is one more round of the
+// counted cap that fired, read from the run's counters: the CI attempts or the loops of a
+// `verify-failing` park, the review rounds of a `review-blocked` one, the failed hand-offs of a
+// `conflict` one. Each records the caps before and after it. A resumed review needs no grant: the
+// reviewer's caps hold per session, and the fresh session starts with all of them (0002).
 //
-// A question park (`ambiguous-spec` with cause `question`, 0020 section 7, DIPO-159) resumes with
-// its answer: the note, or the text of `work.answer` on the park's question, which comes here as
-// the note. The first message is `feedback/answer.md` with the question and the answer, and the
-// note is not sent again. The lift adds the answer to the story's unknowns as a resolved unknown
-// in the same task-file commit, or, when that would break R26, leaves it out with an
-// `engine.notice`. The transaction closes the park's question as answered. A park that carries a
-// worker question whose answer is held already (it came while the run was ending) resumes without
-// a note: the held answer goes with the first message. Every other open question of the park
-// closes as expired with the resume.
+// The first message is code-built: the reason's part, then `feedback/maintainer-note.md` with the
+// note, so maintainer text never starts a message. A top-up of a park a reopened fix round hit
+// before its session (DIPO-205) sends that round's undelivered feedback first, then
+// `feedback/topup.md`. A reviewer never gets the note (0002).
 //
-// The parks another part of dipo finishes (DIPO-324): a `conflict` park's developer session starts
-// with the first message `ConflictResumer.prepare` builds (the kept merge's conflict item, or the
-// commits only the remote branch holds), and the merge it needs runs once that session started
-// (`afterStart`), in the live run's box. A `slot-refused` or `pr-closed` park starts no session:
-// its run waits In Review again (end kind `in-review`, or `reviewed` once a verdict exists), and
-// the merge slot takes it in again (`SlotReentry`) or a new story PR opens in place of the closed
-// one (`PrReplacement`).
+// An `ambiguous-spec` park resumes with its answer: the note, or the text of `work.answer` on the
+// park's question, which comes here as the note. The first message is `feedback/answer.md` with the
+// question and the answer, and the note is not sent again. The lift adds the answer to the story's
+// unknowns as a resolved unknown in the same task-file commit, or, when that would break R26,
+// leaves it out with an `engine.notice`. A park that carries a worker question whose answer is held
+// already (it came while the run was ending) resumes without a note: the held answer goes with the
+// first message.
+//
+// A `conflict` park's developer session starts with the first message `ConflictResumer.prepare`
+// builds from git (the kept merge's conflict item, or the commits only the remote branch holds),
+// and the merge it needs runs once that session started (`afterStart`), in the live run's box.
+//
+// The one resume that needs no command (0020): when the office's starts paused lifts, dipo resumes
+// each park a plan limit made through this same path (`ResumeRequest.lifted`, `starts-paused.ts`),
+// with no note. It never grows a cap: a resume that would need a grant is refused, and the park
+// waits for the maintainer.
 
 import {
   type Lifecycle,
@@ -68,13 +72,7 @@ import type { NewEntry } from "../changelog/log";
 import { CommandError } from "../commands/errors";
 import type { AsyncCommandContext, CommandOutcome } from "../commands/registry";
 import type { OfficeHandle } from "../db/office";
-import { GitError } from "../git/runner";
-import {
-  closeQuestion,
-  openParkQuestions,
-  parkWorkerQuestion,
-  type StoredQuestion,
-} from "../hooks/questions";
+import { closeQuestion, parkWorkerQuestion } from "../hooks/questions";
 import { CONTRACT_MAX_DEFAULT } from "../prompts/contract";
 import { latestVerdictOfRun } from "../review/store";
 import { fixRoundMessage } from "../prompts/feedback";
@@ -82,42 +80,32 @@ import { capNote } from "../prompts/handoff";
 import answerTemplate from "../prompts/feedback/answer.md" with { type: "text" };
 import parkedTemplate from "../prompts/feedback/parked.md" with { type: "text" };
 import topupTemplate from "../prompts/feedback/topup.md" with { type: "text" };
-import { FEEDBACK_TEMPLATES, renderTemplate } from "../prompts/templates";
+import { renderTemplate } from "../prompts/templates";
 import type { StoryIdentity } from "../stories/keys";
 import { deriveStoryView, storyView } from "../views/story";
 import { workRefOf } from "../views/work";
-import { type AdapterHold, holdMessage } from "../workers/hold";
 import type { Caps } from "../workers/types";
 
-import type { BackstopSnapshot } from "./backstop";
 import { type CapName, firedCap, REVIEWER_ROLE, runCaps } from "./caps";
+import { CONFLICT_CAP_DEFAULT, conflictCapOf, handOffState } from "./conflicts";
+import { sendFeedback } from "./feedback";
 import { feedbackItems, feedbackOfIntent, markFeedbackSent } from "./feedback-items";
 import { pendingFixRound } from "./fix-rounds";
-import { recordGrant } from "./grants";
+import { recordGrant, type RoundCap } from "./grants";
 import { markIntentSent, recordIntent, resolveIntent } from "./intents";
-import { markPhase } from "./markers";
+import { reopen } from "./rounds";
 import type { OutcomeParts } from "./outcomes";
 import { intentRest, intentTag, messageOf, type RunView } from "./outcome-types";
-import {
-  openPark,
-  PARK_NOTICES,
-  reopenParkedRun,
-  resolveParkResumed,
-  WORKTREE_TAMPERED,
-} from "./park";
-import { MAINTAINER_TAGS } from "./pauses";
+import { openPark, PARK_NOTICES, resolvePark } from "./park";
+import { MAINTAINER_RESUME_TAG, mirrorUnpark, unresolvedPark } from "./park-state";
+
+export { MAINTAINER_RESUME_TAG, parksBeingResumed } from "./park-state";
 import { PLACE_NOTICES, type Places, START_KINDS, waitForPlace } from "./places";
-import { findRun, IN_REVIEW_END, storeBackstopSnapshot, type StoredRun } from "./records";
+import { findRun, IN_REVIEW_END, REVIEWED_END, runRoundCounts, type StoredRun } from "./records";
 import { recordBranchPush } from "../story-pr/records";
-import {
-  type ParkRefusalRow,
-  type ParkResumeRow,
-  parkResumeRow,
-  type ResumeSession,
-} from "./resume-policy";
+import { resumeRow, resumeSession, type ResumeSession, SUGGESTED_SHARE } from "./resume-policy";
 import {
   budgetText,
-  HALF_SHARE,
   type PlannedGrant,
   share,
   smallestShare,
@@ -126,25 +114,47 @@ import {
   withGrants,
 } from "./resume-caps";
 import { noteText } from "./resume";
-import { REVIEWED_END } from "./rounds";
+import { type StartsPausedState, startsPausedRefusal } from "./starts-paused";
 import { resumeLine } from "./summary";
 
 type ResumeArgs = z.output<typeof workResume.args>;
 type ResumeResult = z.input<typeof workResume.result>;
 type OpenPark = NonNullable<ReturnType<typeof openPark>>;
 
-/** The tag of a maintainer resume's `answer` intent: `maintainer-resume <ResumeIntent JSON>`. */
-export const MAINTAINER_RESUME_TAG = "maintainer-resume";
+/**
+ * Who asks for a resume: `work.resume`'s command context, or dipo itself when the office's starts
+ * paused lifted (`lifted`, with an engine-made request id and origin `other`).
+ */
+export type ResumeRequest = Pick<
+  AsyncCommandContext,
+  "office" | "origin" | "confirmed" | "client"
+> & {
+  /** The request id; a retry of the same request finishes its resume and repeats nothing. */
+  readonly requestId: string;
+  /** dipo resumes a park a plan limit made, after the office's starts paused lifted (0020). */
+  readonly lifted?: true;
+};
 
-/** `work.resume` error codes of a parked story (0020 section 14). */
+/** `work.resume` error codes of a parked story (0020). */
 export const RESUME_ERRORS = {
   topUpRequired: "resume.topUpRequired",
   topUpTooSmall: "resume.topUpTooSmall",
   noteRequired: "resume.noteRequired",
   notResumable: "resume.notResumable",
   capReached: "resume.capReached",
-  decisionRequired: "resume.decisionRequired",
 } as const;
+
+/**
+ * The refusal of a park whose reason the resume table does not resume (`scope-violation`, 0020),
+ * with or without a run.
+ */
+export function notResumable(story: string, reason: string): CommandError {
+  return new CommandError(
+    RESUME_ERRORS.notResumable,
+    `${story} is parked as ${reason} and cannot be resumed: a part that touched a protected file or held what looks like a secret means its box can no longer be trusted. \`dipo discard ${story} --note <why>\` removes its work.`,
+    { story, reason },
+  );
+}
 
 /** `engine.notice` codes of a maintainer resume. */
 export const PARK_RESUME_NOTICES = {
@@ -165,25 +175,20 @@ export interface ConflictPrepared {
 /** The 0019 conflict hand-off a `conflict` park resumes through (`ConflictResumes`, DIPO-324). */
 export interface ConflictResumer {
   /**
-   * After the park is lifted, before the session: the kept merge's conflict item, or the commits
-   * only the remote branch holds after a rejected push (merged into the branch already, the box
-   * copy left for the session's start), and the merge of the base the session needs once it runs,
-   * through the 0019 hand-off; or `parked` when it parked the story again (an unwritable path
-   * still conflicts, or the push is rejected again).
+   * After the park is lifted, before the session: what git says the developer needs (the kept
+   * merge's conflict item, the commits only the remote branch holds after a rejected push, or the
+   * base merged again), and the merge the session needs once it runs; or `parked` when it parked
+   * the story again (a path the worker cannot write still conflicts).
    */
-  prepare(
-    office: OfficeId,
-    run: StoredRun,
-    park: { readonly cause: string | null },
-  ): Promise<ConflictPrepared | { readonly parked: true }>;
+  prepare(office: OfficeId, run: StoredRun): Promise<ConflictPrepared | { readonly parked: true }>;
 }
 
-/** The merge slot a `slot-refused` park re-enters with a fresh per-stay count (DIPO-150's). */
-export interface SlotReentry {
+/** The auto-merge a story waiting In Review again goes back to (0002). */
+export interface MergeReentry {
   reenter(office: OfficeId, run: StoredRun): Promise<void>;
 }
 
-/** A new story PR for the same head, its body naming the closed one (a `pr-closed` park). */
+/** A new story PR for the same head when the old one was closed on the host (0002). */
 export interface PrReplacement {
   replace(office: OfficeId, run: StoredRun): Promise<void>;
 }
@@ -193,8 +198,6 @@ export interface ParkResumeOptions {
   readonly places: () => Places | undefined;
   /** False while the daemon schedules no work; true by default. */
   readonly scheduling?: () => boolean;
-  /** Reads a worktree's backstop snapshot (`readBackstop`); without it no git-state park resumes. */
-  readonly snapshot?: (office: OfficeId, worktree: string) => Promise<BackstopSnapshot>;
   /** Whether the run's developer works in a box (DIPO-271); false without it. */
   readonly boxRun?: (office: OfficeId, run: StoredRun) => boolean;
   /** The fix rounds, which queue the round of a resumed `review-blocked` park (DIPO-148). */
@@ -204,13 +207,15 @@ export interface ParkResumeOptions {
   /** Starts a fresh review at once when the office has no places (a test's wiring). */
   readonly startReview?: (office: OfficeId, run: StoredRun) => Promise<boolean>;
   readonly conflicts?: () => ConflictResumer | undefined;
-  readonly slot?: () => SlotReentry | undefined;
+  readonly merge?: () => MergeReentry | undefined;
   readonly prs?: () => PrReplacement | undefined;
   /** `prompt.contractMax` of the office (R26), for a question park's answer; the default without. */
   readonly contractMax?: (office: OfficeId) => number;
+  /** The office's starts paused (0020): no resume while it holds; none without it. */
+  readonly startsPaused?: (office: OfficeId) => StartsPausedState | null;
 }
 
-/** The answer a question park resumes with (0020 section 7, DIPO-159). */
+/** The answer an `ambiguous-spec` park resumes with (0020, DIPO-159). */
 interface ResumeAnswer {
   /** The park's worker question, or null when the park carries none (its detail is the question). */
   readonly question: string | null;
@@ -226,16 +231,14 @@ interface ResumeIntent {
   readonly request: string;
   readonly parkId: number;
   readonly reason: string;
-  readonly cause: string | null;
   readonly session: ResumeSession;
   /** The lifecycle the branch and the story go to. */
   readonly to: Lifecycle;
-  /** The developer session's first message; null for none (the resume template then). */
+  /** The developer session's first message; null for none. */
   readonly message: string | null;
   readonly note: string | null;
   readonly why: string;
   readonly grants: readonly PlannedGrant[];
-  readonly snapshot: BackstopSnapshot | null;
   /** The pending fix round whose undelivered feedback the message carries (DIPO-205). */
   readonly fix: number | null;
   /** The developer agent whose session continues, as it was at the request. */
@@ -243,8 +246,10 @@ interface ResumeIntent {
   readonly origin: string;
   /** The client name the request's connection gave in `engine.hello`; null without one. */
   readonly client?: string | null;
-  /** A question park's answer (DIPO-159); absent for every other park. */
+  /** The answer of an `ambiguous-spec` park (DIPO-159); absent for every other park. */
   readonly answer?: ResumeAnswer | null;
+  /** True when dipo resumed it after the office's starts paused lifted (0020). */
+  readonly lifted?: boolean;
 }
 
 interface StoredResume {
@@ -274,10 +279,6 @@ function count(value: number): string {
   return Math.round(value).toLocaleString("en-US");
 }
 
-function isDeveloper(session: ResumeSession): boolean {
-  return session === "developer" || session === "handoff";
-}
-
 /** The developer caps as the contract names them, each whole. */
 function developerCaps(caps: Pick<Caps, "budgetTokens" | "maxTurns" | "maxMinutes">): ResumeCaps {
   return {
@@ -298,12 +299,8 @@ function replyGrant(grant: PlannedGrant): ResumeGrant {
         turns: amount.amount.turns,
         minutes: amount.amount.minutes,
       };
-    case "reviewCap":
-      return { kind: "reviewCap", turns: amount.amount.turns, minutes: amount.amount.minutes };
-    case "scope":
-      return { kind: "scope" };
-    default:
-      return { kind: amount.kind, count: amount.amount };
+    case "round":
+      return { kind: "round", cap: amount.amount.cap, count: amount.amount.count };
   }
 }
 
@@ -402,21 +399,42 @@ function developerAgent(
   return row === null ? null : { agent: row.agent_id, model: row.model };
 }
 
-/** The turns of the run's newest reviewer agent; null without one. */
-function reviewerTurns(office: OfficeHandle, runId: RunId): number | null {
-  const row = office.get<{ agent_id: string }>(
-    `select agent_id from agents where office_id = $office_id and run_id = $run
-      and role = $reviewer order by started_at desc, rowid desc limit 1`,
-    { run: runId, reviewer: REVIEWER_ROLE },
+/** The run's newest agent, any role; null without one. */
+function newestAgent(
+  office: OfficeHandle,
+  runId: RunId,
+): {
+  readonly agent: string;
+  readonly role: string;
+  readonly startedAt: number;
+  readonly endedAt: number | null;
+} | null {
+  const row = office.get<{
+    agent_id: string;
+    role: string;
+    started_at: number;
+    ended_at: number | null;
+  }>(
+    `select agent_id, role, started_at, ended_at from agents
+      where office_id = $office_id and run_id = $run
+      order by started_at desc, rowid desc limit 1`,
+    { run: runId },
   );
-  if (row === null) return null;
-  return (
-    office.get<{ n: number | null }>(
-      `select sum(turns) as n from usage_totals where office_id = $office_id and run_id = $run
-        and agent_id = $agent`,
-      { run: runId, agent: row.agent_id },
-    )?.n ?? 0
-  );
+  return row === null
+    ? null
+    : { agent: row.agent_id, role: row.role, startedAt: row.started_at, endedAt: row.ended_at };
+}
+
+/**
+ * The facts the resume's session follows from (`resumeSession`): whether the run waited In Review
+ * when it parked (its end kind is still that of a run waiting for review or merge, since a park
+ * never ends a run that ended already), and whether the park stopped its reviewer (its newest
+ * session is the reviewer's, and the park ended the run).
+ */
+function resumeFacts(office: OfficeHandle, run: StoredRun) {
+  const waitingInReview = run.endKind === IN_REVIEW_END || run.endKind === REVIEWED_END;
+  const newest = newestAgent(office, run.runId);
+  return { waitingInReview, reviewerStopped: !waitingInReview && newest?.role === REVIEWER_ROLE };
 }
 
 export class ParkResumes {
@@ -456,7 +474,7 @@ export class ParkResumes {
    * request that stored its intent finishes that resume and replies with it.
    */
   async resume(
-    ctx: AsyncCommandContext,
+    ctx: ResumeRequest,
     identity: StoryIdentity,
     park: OpenPark,
     args: ResumeArgs,
@@ -465,73 +483,53 @@ export class ParkResumes {
     const stored = resumeOfRequest(office, ctx.requestId);
     if (stored !== null) return await this.#retried(office, identity, stored);
 
-    const row = parkResumeRow(park.reason, park.cause);
+    const row = resumeRow(park.reason);
     const story = identity.story;
-    const label = park.cause === null ? park.reason : `${park.reason} (${park.cause})`;
-    if (row === null) {
-      throw new CommandError(
-        "story.notPausedOrParked",
-        `${story} is parked as ${label}, which work.resume does not resume yet.`,
-        { story },
-      );
-    }
-    if (row.kind === "refuse") throw refusal(row, story, label, park);
+    const reason = park.reason;
+    if (row.need.kind === "refuse") throw notResumable(story, reason);
     const run = park.runId === null ? null : findRun(office, park.runId as RunId);
     if (run === null || run.kind !== "story" || run.endedAt === null) {
       throw new CommandError(
         RESUME_ERRORS.notResumable,
-        `${story} is parked as ${label} without a run to resume; \`dipo drop ${story}\` or \`dipo discard ${story} --note <why>\` clears it.`,
-        { story, reason: park.reason },
+        `${story} is parked as ${reason} without a run to resume; \`dipo drop ${story}\` or \`dipo discard ${story} --note <why>\` clears it.`,
+        { story, reason },
       );
     }
+    const need = row.need;
     const trimmed = args.note?.trim();
     const note = trimmed === undefined || trimmed === "" ? undefined : trimmed;
-    if (row.topUp === true && args.budget === undefined) {
-      throw this.#topUpRequired(office, run, story, row, label);
+    if (need.budget === true && args.budget === undefined) {
+      throw this.#topUpRequired(office, run, story);
     }
-    // A question park resumes with its answer, or with one held already (DIPO-159).
-    const answer = row.delta === "answer" ? questionAnswer(office, park, note) : null;
-    if (row.delta === "answer" && answer === null) {
+    // An `ambiguous-spec` park resumes with its answer, or with one held already (DIPO-159).
+    const answer = need.note === "answer" ? questionAnswer(office, park, note) : null;
+    if (need.note === "answer" && answer === null) {
       const asked = parkWorkerQuestion(office, park.parkId);
       const by = asked === null ? "" : `\`dipo answer ${asked.questionId} --text <answer>\` or `;
       throw new CommandError(
         RESUME_ERRORS.noteRequired,
         `${story} is parked on its worker's question and resumes with the answer: ${by}\`dipo resume ${story} --note <answer>\`.`,
-        { story, reason: park.reason },
+        { story, reason },
       );
     }
-    if (row.note === "required" && note === undefined && answer === null) {
+    if (need.note === "required" && note === undefined) {
+      const what =
+        reason === "review-blocked"
+          ? `\`dipo resume ${story} --note <direction>\`, or \`dipo approve ${story} --note <why>\` to override the verdict`
+          : `\`dipo resume ${story} --budget +${SUGGESTED_SHARE}% --note <why>\``;
       throw new CommandError(
         RESUME_ERRORS.noteRequired,
-        `${story} is parked as ${label}; its resume needs a note: \`dipo resume ${story} --note <text>\`.`,
-        { story, reason: park.reason },
+        `${story} is parked as ${reason}; its resume needs a note: ${what}.`,
+        { story, reason },
       );
     }
-    if (args.budget !== undefined && row.topUp !== true && row.grant !== "budgetHalf") {
-      throw new CommandError(
-        "args.invalid",
-        `--budget tops up a budget-exceeded or capped park only; ${story} is parked as ${label}.`,
-        { story, issues: [] },
-      );
-    }
-    if (row.holdCheck === true) this.#refuseWhileHeld(story);
+    this.#refuseWhilePaused(office.officeId as OfficeId, story);
     this.#refuseBusy(office, run, story);
     // Held from here (no await before it) to the resume's transaction.
     this.#resuming.add(run.runId);
     const release = () => this.#resuming.delete(run.runId);
     try {
-      return await this.#checkedResume(
-        ctx,
-        identity,
-        park,
-        args,
-        row,
-        run,
-        note,
-        label,
-        release,
-        answer,
-      );
+      return await this.#checkedResume(ctx, identity, park, args, run, note, release, answer);
     } finally {
       release();
     }
@@ -539,14 +537,12 @@ export class ParkResumes {
 
   /** `resume` after the run is held for this request: the rest of step 1, then steps 2 to 5. */
   async #checkedResume(
-    ctx: AsyncCommandContext,
+    ctx: ResumeRequest,
     identity: StoryIdentity,
     park: OpenPark,
     args: ResumeArgs,
-    row: ParkResumeRow,
     run: StoredRun,
     note: string | undefined,
-    label: string,
     release: () => void,
     answer: ResumeAnswer | null,
   ): Promise<CommandOutcome<ResumeResult>> {
@@ -560,17 +556,29 @@ export class ParkResumes {
         { story },
       );
     }
-    this.#refuseWithoutPort(row, story, label);
-
-    // A git-state park raised during a review returns to a fresh review (0020 section 2).
-    const session: ResumeSession =
-      row.gitCheck === true && park.from === "In Review" ? "review" : row.session;
+    const session = resumeSession(park.reason, resumeFacts(office, run));
+    if (session === "developer" && park.reason === "conflict" && !this.#options.conflicts?.()) {
+      throw new CommandError(
+        RESUME_ERRORS.notResumable,
+        `${story} is parked as conflict, and this dipo has no conflict hand-off to resume it with; \`dipo discard ${story} --note <why>\` removes its work.`,
+        { story, reason: park.reason },
+      );
+    }
     const legacy = this.#s.deps.caps?.(officeId, run) ?? null;
     if (legacy === null || workRefOf(office, run.runId) === null) {
       throw new Error(`dipo cannot resume ${run.runId} in this office`);
     }
-    const planned = this.#plan(ctx, run, row, args.budget, legacy);
-    this.#checkCaps(office, run, story, row, session, planned, legacy, args.budget);
+    const planned = this.#plan(ctx, run, park.reason, session, args.budget, legacy);
+    // The resume after starts paused lifted grows no cap (0020): one that needs a grant waits for
+    // the maintainer.
+    if (ctx.lifted === true && planned.length > 0) {
+      throw new CommandError(
+        RESUME_ERRORS.capReached,
+        `${story} would need a grant to resume, and dipo grows no cap by itself; \`dipo resume ${story}\` resumes it.`,
+        { story },
+      );
+    }
+    this.#checkCaps(office, run, story, session, planned, legacy, args.budget);
     const capsBefore = runCaps(office, run, legacy);
     const before = developerCaps(capsBefore);
     const afterCaps = developerCaps(withGrants(capsBefore, planned));
@@ -581,7 +589,7 @@ export class ParkResumes {
         { before, after: afterCaps },
       );
     }
-    // A budget grant records the caps before and after it (0020 section 4).
+    // A budget grant records the caps before and after it (0020).
     const grants = planned.map((grant): PlannedGrant =>
       grant.amount.kind === "budget"
         ? {
@@ -593,29 +601,29 @@ export class ParkResumes {
           }
         : grant,
     );
-    const snapshot = row.gitCheck === true ? await this.#snapshot(officeId, run, story) : null;
-
-    const fix = row.delta === "topup" ? pendingFixRound(office, run.runId) : null;
-    const to: Lifecycle = isDeveloper(session) ? "In Progress" : "In Review";
+    const developer = session === "developer";
+    const fix =
+      developer && park.reason === "budget-exceeded" ? pendingFixRound(office, run.runId) : null;
+    const to: Lifecycle = developer ? "In Progress" : "In Review";
     const detail: ResumeIntent = {
       request: ctx.requestId,
       parkId: park.parkId,
       reason: park.reason,
-      cause: park.cause,
       session,
       to,
-      message: isDeveloper(session)
-        ? this.#message(office, run, park, row, grants, legacy, fix, answer)
-        : null,
+      message: developer ? this.#message(office, run, park, grants, legacy, fix, answer) : null,
       note: note ?? null,
-      why: row.why ?? `the maintainer resumed it from ${label}`,
+      why:
+        ctx.lifted === true
+          ? `dipo resumed it from ${park.reason} after the office's starts paused lifted`
+          : `the maintainer resumed it from ${park.reason}`,
       grants,
-      snapshot,
       fix: fix?.intentId ?? null,
       agent: developerAgent(office, run.runId)?.agent ?? null,
       origin: ctx.origin,
       client: ctx.client ?? null,
       ...(answer === null ? {} : { answer }),
+      ...(ctx.lifted === true ? { lifted: true } : {}),
     };
     // 2. Stored before anything changes, so a restart or a retry finishes the resume.
     const intentId = office.immediate(() =>
@@ -642,7 +650,7 @@ export class ParkResumes {
       (candidate) =>
         candidate.runId === run.runId &&
         candidate.state === "sent" &&
-        isDeveloper(candidate.detail.session),
+        candidate.detail.session === "developer",
     );
     if (stored === undefined) return null;
     if (this.#s.guard.busy(run.runId)) return false;
@@ -665,14 +673,28 @@ export class ParkResumes {
     let finished = 0;
     for (const stored of openResumes(office)) {
       const run = findRun(office, stored.runId);
-      if (run === null || this.#s.guard.busy(stored.runId)) continue;
+      if (run === null) {
+        // Its run is gone: the resume fails, so its park row no longer waits on it (DIPO-360).
+        office.immediate(() =>
+          resolveIntent(office, stored.runId, stored.intentId, "failed", this.#s.deps.clock.now()),
+        );
+        continue;
+      }
+      if (this.#s.guard.busy(stored.runId)) continue;
       const resolve = (outcome: string) =>
         office.immediate(() =>
           resolveIntent(office, run.runId, stored.intentId, outcome, this.#s.deps.clock.now()),
         );
       if (stored.state === "pending") {
-        const park = run.key === null ? null : openPark(office, run.key);
-        if (park?.parkId !== stored.detail.parkId || run.endedAt === null) {
+        // Run detail, not the current state: the lift may be on the branch already (DIPO-360).
+        const park =
+          run.key === null
+            ? null
+            : unresolvedPark(office, run.key, stored.detail.parkId, {
+                reason: stored.detail.reason,
+                from: stored.detail.to,
+              });
+        if (park === null || run.endedAt === null) {
           resolve("abandoned");
           continue;
         }
@@ -680,6 +702,11 @@ export class ParkResumes {
           await this.#finish(office, run, stored.intentId, stored.detail, false);
           finished += 1;
         } catch (error) {
+          // A resume that failed before its park was resolved fails, so the park row is not held
+          // by it any more and reconcile can close it (DIPO-360). One that resolved its park is
+          // past that point: its session is the restart's to start.
+          const row = run.key === null ? null : unresolvedPark(office, run.key, park.parkId, park);
+          if (row !== null) resolve("failed");
           this.#s.deps.warn?.("finishing a maintainer resume after a restart failed", {
             run: run.runId,
             reason: messageOf(error),
@@ -687,7 +714,7 @@ export class ParkResumes {
         }
         continue;
       }
-      if (!isDeveloper(stored.detail.session) || run.endedAt !== null || run.waiting != null) {
+      if (stored.detail.session !== "developer" || run.endedAt !== null || run.waiting != null) {
         continue;
       }
       // A session started after the intent: the resume is done.
@@ -737,8 +764,8 @@ export class ParkResumes {
 
   /**
    * Steps 3 to 5 after the intent `intentId` is stored: the lift on the branch (idempotent), the
-   * transaction, then the session by the row. `background` starts a developer session after
-   * returning (the command), else waits for it (a restart).
+   * transaction, then the session. `background` starts a developer session after returning (the
+   * command), else waits for it (a restart).
    */
   async #finish(
     office: OfficeHandle,
@@ -783,8 +810,11 @@ export class ParkResumes {
     ) {
       return fail(`dipo cannot resume ${run.runId} in this office`);
     }
-    const park = openPark(office, key);
-    if (park === null || park.parkId !== detail.parkId) return gone();
+    // The park the resume captured, while its row is unresolved: after a crash the lift may be on
+    // the branch already, and an index pass then reads the story unparked (DIPO-360).
+    const captured = { reason: detail.reason, from: detail.to };
+    const park = unresolvedPark(office, key, detail.parkId, captured);
+    if (park === null) return gone();
     let lifted;
     try {
       lifted = await unpark.lift(officeId, {
@@ -792,13 +822,13 @@ export class ParkResumes {
         branch: run.branch,
         worktree: run.worktree,
         to: detail.to,
-        // The resume's line in the implementation notes (0020 section 13), in the same commit.
+        // The resume's line in the implementation notes (0020), in the same commit.
         line: resumeLine({
           at: clock.now(),
           grants: detail.grants.map((grant) => grant.amount),
           ...(detail.note === null ? {} : { note: detail.note }),
         }),
-        // A question park's answer becomes a resolved unknown in the same commit (0020 section 7).
+        // An answer becomes a resolved unknown in the same commit (0020).
         ...(detail.answer == null
           ? {}
           : {
@@ -812,64 +842,56 @@ export class ParkResumes {
     } catch (error) {
       return fail(`lifting the park of ${run.story} failed: ${messageOf(error)}`);
     }
-    const answerNotice: NewEntry[] =
-      lifted.answerError == null
+    const notice = (code: string, text: string): NewEntry => ({
+      type: "engine.notice",
+      key: work.key,
+      run: run.runId,
+      delta: { level: "warn", code, text },
+    });
+    const liftNotices: NewEntry[] = [
+      ...(lifted.lineError == null
         ? []
         : [
-            {
-              type: "engine.notice",
-              key: work.key,
-              run: run.runId,
-              delta: {
-                level: "warn",
-                code: PARK_NOTICES.answerNotWritten,
-                text: `${run.story}: the answer goes to its worker, but it was not written to the story's unknowns: ${lifted.answerError}.`,
-              },
-            },
-          ];
-    const lineNotice: NewEntry[] =
-      lifted.lineError == null
+            notice(
+              PARK_NOTICES.summaryMissing,
+              `${run.story}: the park was lifted, but its resume line is missing from the task file's implementation notes: ${lifted.lineError}`,
+            ),
+          ]),
+      ...(lifted.pushError === null
         ? []
         : [
-            {
-              type: "engine.notice",
-              key: work.key,
-              run: run.runId,
-              delta: {
-                level: "warn",
-                code: PARK_NOTICES.summaryMissing,
-                text: `${run.story}: the park was lifted, but its resume line is missing from the task file's implementation notes: ${lifted.lineError}`,
-              },
-            },
-          ];
-    const pushNotice: NewEntry[] =
-      lifted.pushError === null
+            notice(
+              PARK_NOTICES.pushFailed,
+              `${run.story}: the park was lifted, but ${lifted.pushError}; the change is on the local branch only until a later push succeeds.`,
+            ),
+          ]),
+      ...(lifted.answerError == null
         ? []
         : [
-            {
-              type: "engine.notice",
-              key: work.key,
-              run: run.runId,
-              delta: {
-                level: "warn",
-                code: PARK_NOTICES.pushFailed,
-                text: `${run.story}: the park was lifted, but ${lifted.pushError}; the change is on the local branch only until a later push succeeds.`,
-              },
-            },
-          ];
+            notice(
+              PARK_NOTICES.answerNotWritten,
+              `${run.story}: the answer goes to its worker, but it was not written to the story's unknowns: ${lifted.answerError}.`,
+            ),
+          ]),
+    ];
     const places = this.#options.places();
     const queued: { place: string | null } = { place: null };
     let wrote = false;
     const step = async (): Promise<void> =>
       this.#s.write(office, () => {
         const at = clock.now();
-        const current = openPark(office, key);
-        if (current?.parkId !== detail.parkId) return [];
+        const current = unresolvedPark(office, key, detail.parkId, captured);
+        if (current === null) return [];
         wrote = true;
         // The lift's push, on the claim like every story-branch push (DIPO-315).
         const push = { pushed: lifted.pushed, error: lifted.pushError };
         recordBranchPush(office, run.branch as string, push, at);
-        const entries = this.#apply(office, run, current, detail, at);
+        const entries = [
+          ...answeredQuestion(office, run, detail.answer ?? null, at),
+          ...this.#resolve(office, run, current, detail, at),
+        ];
+        // The lift read back status `to` and no park record on the branch (DIPO-360).
+        mirrorUnpark(office, key, detail.to);
         for (const grant of detail.grants) {
           recordGrant(office, run.runId, {
             ...grant.amount,
@@ -880,12 +902,11 @@ export class ParkResumes {
             at,
           });
         }
-        if (detail.snapshot !== null) storeBackstopSnapshot(office, run.runId, detail.snapshot);
         markIntentSent(office, run.runId, intentId, at, null);
         const waits = this.#queue(office, run, detail, places, at);
         queued.place = waits;
-        // The places, the fix rounds or a port own what follows; nothing waits on the intent.
-        if (!isDeveloper(detail.session)) {
+        // The places, the fix rounds or the PR poll own what follows; nothing waits on the intent.
+        if (detail.session !== "developer") {
           resolveIntent(office, run.runId, intentId, `resumed-${detail.session}`, at);
         }
         const story = run.story ?? run.runId;
@@ -893,7 +914,7 @@ export class ParkResumes {
           detail.grants.length === 0
             ? ""
             : ` with ${detail.grants.length} recorded grant${detail.grants.length === 1 ? "" : "s"}`;
-        const notice: NewEntry = {
+        const resumed: NewEntry = {
           type: "engine.notice",
           key: work.key,
           run: run.runId,
@@ -902,11 +923,11 @@ export class ParkResumes {
             code: waits === null ? PARK_RESUME_NOTICES.resumed : PLACE_NOTICES.queued,
             text:
               waits === null
-                ? `${story}: the maintainer resumed it from ${current.reason}${granted}.`
+                ? `${story}: ${detail.lifted === true ? "dipo resumed it after the office's starts paused lifted" : "the maintainer resumed it"} from ${current.reason}${granted}.`
                 : `${story}: resumed${granted}; its session starts when the office's ${detail.session === "review" ? "reviewer" : "worker"} place frees (${waits}).`,
           },
         };
-        return [...entries, ...lineNotice, ...pushNotice, ...answerNotice, notice];
+        return [...entries, ...liftNotices, resumed];
       });
     // The place check and the reopen are one serialized step of the office (DIPO-229).
     try {
@@ -928,23 +949,9 @@ export class ParkResumes {
   }
 
   /**
-   * Inside the resume's transaction: the park's questions closed (DIPO-159), the park resolved and
-   * the run as its session needs it.
+   * Inside the resume's transaction: the park resolved, with its questions, and the run as its
+   * session needs it.
    */
-  #apply(
-    office: OfficeHandle,
-    run: StoredRun,
-    park: OpenPark,
-    detail: ResumeIntent,
-    at: number,
-  ): NewEntry[] {
-    return [
-      ...closeParkQuestions(office, run, park.parkId, detail.answer ?? null, at),
-      ...this.#resolve(office, run, park, detail, at),
-    ];
-  }
-
-  /** Inside the resume's transaction: the park resolved and the run as its session needs it. */
   #resolve(
     office: OfficeHandle,
     run: StoredRun,
@@ -955,40 +962,40 @@ export class ParkResumes {
     const why = `resumed from ${park.reason}: ${park.detail}`;
     switch (detail.session) {
       case "developer":
-      case "handoff":
-        return reopenParkedRun(office, park, run, detail.to, at, detail.note);
       case "review":
-        return [
-          ...reopenParkedRun(office, park, run, detail.to, at, detail.note),
-          ...markPhase(office, run.runId, "review", at),
-        ];
-      case "fix-round":
-        resolveParkResumed(office, park.parkId, at, detail.note);
+        return reopen(office, run, at, {
+          kind: "resume",
+          park,
+          to: detail.to,
+          note: detail.note,
+          review: detail.session === "review",
+        });
+      case "fix-round": {
+        const closed = resolvePark(office, park.parkId, "resume", at, detail.note);
         // The run waits in review again with its verdict in: the fix round decides from it.
         endedAs(office, run.runId, REVIEWED_END);
         if (detail.note !== null) {
-          // The note goes with the fix round's first message, after its findings (0020 section 3).
-          recordIntent(
+          // The note goes with the fix round's first message, after its findings (0020).
+          sendFeedback(
             office,
             run.runId,
-            "steer",
-            `${MAINTAINER_TAGS.held} ${noteText(detail.note)}`,
-            at,
+            { source: "resume", text: noteText(detail.note) },
+            { at },
           );
         }
-        return stateEntries(office, run, detail.to, why);
-      case "none":
-        resolveParkResumed(office, park.parkId, at, detail.note);
-        // The run waits In Review again (DIPO-324): the merge slot and the PR poll take only a run
-        // ended at In Review or after its review, so a re-entry or a new story PR takes effect.
-        if (detail.to === "In Review") {
-          endedAs(
-            office,
-            run.runId,
-            latestVerdictOfRun(office, run.runId) === null ? IN_REVIEW_END : REVIEWED_END,
-          );
-        }
-        return stateEntries(office, run, detail.to, why);
+        return [...closed, ...stateEntries(office, run, detail.to, why)];
+      }
+      case "none": {
+        const closed = resolvePark(office, park.parkId, "resume", at, detail.note);
+        // The run waits In Review again: the auto-merge and the PR poll take only a run ended at
+        // In Review or after its review.
+        endedAs(
+          office,
+          run.runId,
+          latestVerdictOfRun(office, run.runId) === null ? IN_REVIEW_END : REVIEWED_END,
+        );
+        return [...closed, ...stateEntries(office, run, detail.to, why)];
+      }
     }
   }
 
@@ -1004,26 +1011,22 @@ export class ParkResumes {
     if (detail.session === "review") {
       // A review always starts through the reviewer place's `review-resume` start.
       const blocked =
-        places?.blocked(
-          officeId,
-          { kind: START_KINDS.reviewResume, runId: run.runId, since: at },
-          places.modelOf(officeId, "reviewer", run),
-        ) ?? null;
+        places?.blocked(officeId, {
+          kind: START_KINDS.reviewResume,
+          runId: run.runId,
+          since: at,
+        }) ?? null;
       waitForPlace(office, run.runId, START_KINDS.reviewResume, at);
       return blocked;
     }
-    if (!isDeveloper(detail.session)) return null;
+    if (detail.session !== "developer") return null;
     const blocked =
-      places?.blocked(
-        officeId,
-        { kind: START_KINDS.resume, runId: run.runId, since: at },
-        places.modelOf(officeId, "worker", run),
-      ) ?? null;
+      places?.blocked(officeId, { kind: START_KINDS.resume, runId: run.runId, since: at }) ?? null;
     if (blocked !== null) waitForPlace(office, run.runId, START_KINDS.resume, at);
     return blocked;
   }
 
-  /** Step 5: the session the row asks for, after the transaction. */
+  /** Step 5: the session the resume starts, after the transaction. */
   async #after(
     office: OfficeHandle,
     run: StoredRun,
@@ -1055,20 +1058,20 @@ export class ParkResumes {
           .catch(warn("queueing the fix round of a resumed story failed"));
         return;
       case "none":
-        if (detail.reason === "conflict") {
-          await this.#options
-            .slot?.()
-            ?.reenter(officeId, run)
-            .catch(warn("re-entering the merge slot failed"));
-        } else {
-          await this.#options
-            .prs?.()
-            ?.replace(officeId, run)
-            .catch(warn("opening a new story PR failed"));
-        }
+        // A PR closed on the host is replaced (0002); one still open is only updated. Then the
+        // auto-merge takes the story in again.
+        await this.#options
+          .prs?.()
+          ?.replace(officeId, run)
+          .catch(warn("opening a new story PR failed"));
+        await this.#options
+          .merge?.()
+          ?.reenter(officeId, run)
+          .catch(warn("handing the story back to the auto-merge failed"));
+        // A run with no verdict yet is a pending review again: the reviewer place takes it.
+        void places?.drain(officeId).catch(warn("starting the review of a resumed story failed"));
         return;
       case "developer":
-      case "handoff":
         break;
     }
     if (queued !== null) {
@@ -1110,9 +1113,7 @@ export class ParkResumes {
     if (detail.reason === "conflict") {
       let prepared;
       try {
-        prepared = await this.#options
-          .conflicts?.()
-          ?.prepare(officeId, run, { cause: detail.cause });
+        prepared = await this.#options.conflicts?.()?.prepare(officeId, run);
       } catch (error) {
         this.#s.deps.warn?.("preparing the conflict of a resumed park failed", {
           run: run.runId,
@@ -1129,12 +1130,11 @@ export class ParkResumes {
     }
     const box = this.#options.boxRun?.(officeId, run) === true;
     const started = await this.#sessions.next(office, run, view, {
-      // A box run's developer gets a new session in its box (0021 section 6).
-      mode: box || detail.session === "handoff" ? "handoff" : "resume",
+      // A box run's developer gets a new session in its box with a handoff (0008).
+      mode: box ? "handoff" : "resume",
       why: detail.why,
       ...(message === null || message === "" ? {} : { message }),
-      // After the delta in a native resume, in the handoff's open feedback otherwise (section 3).
-      // A question park's note is its answer, which the delta carries already (DIPO-159).
+      // After the reason's part; an answer's note is the answer, which that part carries.
       ...(detail.note === null || detail.answer != null ? {} : { note: detail.note }),
     });
     const at = clock.now();
@@ -1176,125 +1176,107 @@ export class ParkResumes {
     return { ...view, work };
   }
 
-  /** The grants this resume records, with ids made from the request so a retry writes none twice. */
+  /**
+   * The grants this resume records, with ids made from the request so a retry writes none twice:
+   * the top-up, and one more round of the counted cap that fired (see the file comment). A resumed
+   * review gets none: the reviewer's caps hold per session.
+   */
   #plan(
-    ctx: AsyncCommandContext,
+    ctx: ResumeRequest,
     run: StoredRun,
-    row: ParkResumeRow,
+    reason: string,
+    session: ResumeSession,
     budget: ResumeBudget | undefined,
     legacy: Caps,
   ): PlannedGrant[] {
     const id = (kind: string) => `${ctx.requestId}:${kind}`;
-    const start = startCaps(run, legacy);
-    if (row.topUp === true || (row.grant === "budgetHalf" && budget !== undefined)) {
-      return [{ grantId: id("budget"), amount: { kind: "budget", amount: share(start, budget) } }];
+    const grants: PlannedGrant[] = [];
+    if (budget !== undefined) {
+      grants.push({
+        grantId: id("budget"),
+        amount: { kind: "budget", amount: share(startCaps(run, legacy), budget) },
+      });
     }
-    switch (row.grant) {
-      case undefined:
-        return [];
-      case "budgetHalf":
-        return [
-          {
-            grantId: id("budget"),
-            amount: { kind: "budget", amount: share(start, { share: HALF_SHARE }) },
-          },
-        ];
-      case "reviewCap": {
-        // The reviewer's cap that fired grows by half of its starting value.
-        const turns = reviewerTurns(ctx.office, run.runId);
-        const caps = runCaps(ctx.office, run, legacy);
-        const turnsFired =
-          turns !== null && caps.reviewMaxTurns !== null && turns >= caps.reviewMaxTurns;
-        return [
-          {
-            grantId: id("reviewCap"),
-            amount: {
-              kind: "reviewCap",
-              amount: turnsFired
-                ? { turns: half(run.reviewMaxTurns), minutes: 0 }
-                : { turns: 0, minutes: half(run.reviewMaxMinutes) },
-            },
-          },
-        ];
+    if (session === "review") return grants;
+    const office = ctx.office;
+    const caps = runCaps(office, run, legacy);
+    const rounds = runRoundCounts(office, run.runId);
+    const round = (cap: RoundCap, before: number) =>
+      grants.push({
+        grantId: id(cap),
+        amount: { kind: "round", amount: { cap, count: 1, before, after: before + 1 } },
+      });
+    switch (reason) {
+      case "verify-failing":
+        if (caps.ciCap !== null && rounds.ciAttempts >= caps.ciCap) round("ciAttempts", caps.ciCap);
+        else if (rounds.loops >= caps.loopCap) round("loops", caps.loopCap);
+        break;
+      case "review-blocked":
+        if (caps.reviewRoundCap !== null) round("reviewRounds", caps.reviewRoundCap);
+        break;
+      case "conflict": {
+        const cap = conflictCapOf(office, run, CONFLICT_CAP_DEFAULT);
+        if (handOffState(office, run.runId).failed >= cap) round("conflictAttempts", cap);
+        break;
       }
-      default:
-        return [{ grantId: id(row.grant), amount: { kind: row.grant, amount: 1 } }];
     }
+    return grants;
   }
 
   /**
-   * Step 1's cap check: what remains of the caps, counting this resume's grants, is above zero.
-   * A developer session and a fix round count tokens, turns and minutes; a review counts the
-   * story's budget; a resume with no session counts nothing.
+   * Step 1's cap check: what remains of the developer's caps, counting this resume's grants, is
+   * above zero. Only a developer session counts them: a review counts the reviewer's own caps,
+   * which a fresh session starts with in full (0002), and a fix round or no session counts nothing
+   * here.
    */
   #checkCaps(
     office: OfficeHandle,
     run: StoredRun,
     story: string,
-    row: ParkResumeRow,
     session: ResumeSession,
     grants: readonly PlannedGrant[],
     legacy: Caps,
     budget: ResumeBudget | undefined,
   ): void {
-    if (session === "none") return;
+    if (session !== "developer") return;
     const before = runCaps(office, run, legacy);
     const used = usedOf(office, run);
-    const caps = withGrants(before, grants);
-    const fired =
-      session === "review"
-        ? firedCap({ ...caps, maxTurns: Infinity, maxMinutes: Infinity }, used)
-        : firedCap(caps, used);
+    const fired = firedCap(withGrants(before, grants), used);
     if (fired === null) return;
-    if (grants.some((grant) => grant.amount.kind === "budget")) {
-      const smallest = smallestShare(startCaps(run, legacy), before, used, session);
-      const given = budget === undefined ? `+${HALF_SHARE}%` : budgetText(budget);
+    if (budget !== undefined) {
+      const smallest = smallestShare(startCaps(run, legacy), before, used);
       throw new CommandError(
         RESUME_ERRORS.topUpTooSmall,
-        `${given} leaves ${story}'s ${CAP_LABELS[fired.cap]} reached (${fired.detail}); the smallest top-up that clears it is +${smallest}%: \`dipo resume ${story} --budget +${smallest}% --note <why>\`.`,
+        `${budgetText(budget)} leaves ${story}'s ${CAP_LABELS[fired.cap]} reached (${fired.detail}); the smallest top-up that clears it is +${smallest}%: \`dipo resume ${story} --budget +${smallest}% --note <why>\`.`,
         { story, cap: fired.cap, smallestShare: smallest },
       );
     }
     throw new CommandError(
       RESUME_ERRORS.capReached,
-      `${story} has used its ${CAP_LABELS[fired.cap]} (${fired.detail}); resume it with a top-up: \`dipo resume ${story} --budget +${HALF_SHARE}% --note <why>\`.`,
+      `${story} has used its ${CAP_LABELS[fired.cap]} (${fired.detail}); resume it with a top-up: \`dipo resume ${story} --budget +${SUGGESTED_SHARE}% --note <why>\`.`,
       { story, cap: fired.cap },
     );
   }
 
   /** `resume.topUpRequired`, naming `--budget` and the cap that fired. */
-  #topUpRequired(
-    office: OfficeHandle,
-    run: StoredRun,
-    story: string,
-    row: ParkResumeRow,
-    label: string,
-  ): CommandError {
+  #topUpRequired(office: OfficeHandle, run: StoredRun, story: string): CommandError {
     const legacy = this.#s.deps.caps?.(office.officeId as OfficeId, run) ?? undefined;
     const used = usedOf(office, run);
     const caps = runCaps(office, run, legacy);
-    const fired =
-      row.session === "review"
-        ? firedCap({ ...caps, maxTurns: Infinity, maxMinutes: Infinity }, used)
-        : firedCap(caps, used);
+    const fired = firedCap(caps, used);
     const cap = fired === null ? "" : ` on its ${CAP_LABELS[fired.cap]} (${fired.detail})`;
     return new CommandError(
       RESUME_ERRORS.topUpRequired,
-      `${story} parked as ${label}${cap}. Resume with \`dipo resume ${story} --budget +${HALF_SHARE}% --note <why>\`.`,
+      `${story} parked as budget-exceeded${cap}. Resume with \`dipo resume ${story} --budget +${SUGGESTED_SHARE}% --note <why>\`.`,
       { story, ...(fired === null ? {} : { cap: fired.cap }) },
     );
   }
 
-  /** `run.refused` naming the adapter hold while it is set (0020 section 2, `worker-failed`). */
-  #refuseWhileHeld(story: string): void {
-    const adapter = this.#s.deps.worker.id;
-    const hold: AdapterHold | null = this.#s.deps.holds?.adapterHeld?.(adapter) ?? null;
-    if (hold === null) return;
-    throw new CommandError(
-      "run.refused",
-      `${story} cannot resume while its adapter is held: ${holdMessage(hold)}`,
-      { story, check: "adapter" },
-    );
+  /** `run.refused` while the office's starts are paused: no session can start then (0020). */
+  #refuseWhilePaused(officeId: OfficeId, story: string): void {
+    const paused = this.#options.startsPaused?.(officeId) ?? null;
+    if (paused === null) return;
+    throw startsPausedRefusal(`${story} cannot resume now`, paused, { story });
   }
 
   /** `run.hostAlive` while a session of the run still runs or is being decided. */
@@ -1312,80 +1294,31 @@ export class ParkResumes {
     );
   }
 
-  /** A row whose resume needs another story's port answers `resume.notResumable` without it. */
-  #refuseWithoutPort(row: ParkResumeRow, story: string, label: string): void {
-    const missing =
-      (row.port === "conflict" && this.#options.conflicts?.() === undefined) ||
-      (row.port === "slot" && this.#options.slot?.() === undefined) ||
-      (row.port === "pr" && this.#options.prs?.() === undefined);
-    if (!missing) return;
-    const what =
-      row.port === "pr"
-        ? "story PR replacement"
-        : row.port === "slot"
-          ? "story merge slot"
-          : "conflict hand-off";
-    throw new CommandError(
-      RESUME_ERRORS.notResumable,
-      `${story} is parked as ${label}, and this dipo has no ${what} to resume it with yet; \`dipo discard ${story} --note <why>\` removes its work.`,
-      { story, port: row.port },
-    );
-  }
-
-  /** The new backstop snapshot of a git-state park; tampered git links refuse the resume. */
-  async #snapshot(officeId: OfficeId, run: StoredRun, story: string): Promise<BackstopSnapshot> {
-    const read = this.#options.snapshot;
-    if (read === undefined || run.worktree === null) {
-      throw new Error(`dipo cannot read ${story}'s worktree in this office`);
-    }
-    try {
-      return await read(officeId, run.worktree);
-    } catch (error) {
-      if (error instanceof GitError && error.code === WORKTREE_TAMPERED) {
-        throw new CommandError(
-          RESUME_ERRORS.notResumable,
-          `${story}'s worktree git links changed since the claim, so it cannot be resumed; \`dipo discard ${story} --note <why>\` removes its work.`,
-          { story, cause: "tampered" },
-        );
-      }
-      throw error;
-    }
-  }
-
-  /** The developer session's first message: the reason's delta, then the note (section 3). */
+  /** The developer session's first message: the reason's part, then the note (0020). */
   #message(
     office: OfficeHandle,
     run: StoredRun,
     park: OpenPark,
-    row: ParkResumeRow,
     grants: readonly PlannedGrant[],
     legacy: Caps,
     fix: ReturnType<typeof pendingFixRound>,
     answer: ResumeAnswer | null,
   ): string | null {
     const parked = (detail: string) =>
-      renderTemplate(parkedTemplate, {
-        reason: park.reason,
-        cause: park.cause ?? park.reason,
-        detail,
-      });
-    const lastItem = (source: "verify" | "ci") =>
-      feedbackItems(office, run.runId)
-        .filter((item) => item.source === source)
-        .at(-1)?.text ?? park.detail;
+      renderTemplate(parkedTemplate, { reason: park.reason, detail });
     const parts: string[] = [];
-    switch (row.delta) {
-      case "resume":
-        parts.push(renderTemplate(FEEDBACK_TEMPLATES.resume, { reason: row.why ?? park.detail }));
+    switch (resumeRow(park.reason).delta) {
+      case "check": {
+        // The last red check or verify output the run stored; the park's detail without one.
+        const item = feedbackItems(office, run.runId)
+          .filter((candidate) => candidate.source === "verify" || candidate.source === "ci")
+          .at(-1);
+        parts.push(parked(item?.text ?? park.detail));
         break;
+      }
+      case "maintainer":
       case "detail":
         parts.push(parked(park.detail));
-        break;
-      case "verify-item":
-        parts.push(parked(lastItem("verify")));
-        break;
-      case "ci-item":
-        parts.push(parked(lastItem("ci")));
         break;
       case "topup": {
         // The undelivered feedback of the round the caps stopped before its session, first.
@@ -1411,7 +1344,7 @@ export class ParkResumes {
         break;
       }
       case "answer":
-        // An answer held already goes with the first message as it waited (`heldMessages`).
+        // An answer held already goes with the first message as it waited (`heldFeedback`).
         if (answer !== null && !answer.held) {
           parts.push(
             renderTemplate(answerTemplate, {
@@ -1421,18 +1354,20 @@ export class ParkResumes {
           );
         }
         break;
-      case "none":
+      case "conflict":
+      case "findings":
+        // Built when the session starts (`ConflictResumer.prepare`), or by the fix round.
         break;
     }
-    // The note follows the delta: the session start adds it (`NextSessionRequest.note`).
+    // The note follows the reason's part: the session start adds it (`NextSessionRequest.note`).
     return parts.length === 0 ? null : parts.join("\n\n");
   }
 }
 
 /**
- * The answer a question park resumes with (DIPO-159): the note, or the answer already held for the
- * park's worker question; null when there is neither. The question is the park's worker question,
- * or the park's detail when it carries none (a park from before questions were stored).
+ * The answer an `ambiguous-spec` park resumes with (DIPO-159): the note, or the answer already
+ * held for the park's worker question; null when there is neither. The question is the park's
+ * worker question, or the park's detail when it carries none.
  */
 function questionAnswer(
   office: OfficeHandle,
@@ -1451,71 +1386,31 @@ function questionAnswer(
 }
 
 /**
- * Inside the resume's transaction (DIPO-159): the park's worker question answered by this resume
- * closes as `answered` (delivered `on-resume`), and every other open question of the park as
- * `expired`, each with its `question.closed`. The trigger of migration 50 then finds none open.
+ * Inside the resume's transaction, before the park is resolved (DIPO-159): the park's worker
+ * question this resume answers closes as `answered` (delivered `on-resume`) with its
+ * `question.closed`; resolving the park then expires every other question it holds open.
  */
-function closeParkQuestions(
+function answeredQuestion(
   office: OfficeHandle,
   run: StoredRun,
-  parkId: number,
   answer: ResumeAnswer | null,
   at: number,
 ): NewEntry[] {
-  const entries: NewEntry[] = [];
-  const closed = (question: StoredQuestion, text?: string) => {
-    entries.push({
+  if (answer === null || answer.held || answer.question === null) return [];
+  const closed = closeQuestion(office, answer.question, "answered", at, {
+    text: answer.answer,
+    decision: null,
+    delivered: "on-resume",
+  });
+  if (!closed) return [];
+  return [
+    {
       type: "question.closed",
       ...(run.key === null ? {} : { key: run.key as StoryKey }),
       run: run.runId,
-      delta: { question: question.questionId, ...(text === undefined ? {} : { answer: text }) },
-    });
-  };
-  for (const question of openParkQuestions(office, parkId)) {
-    if (answer !== null && !answer.held && question.questionId === answer.question) {
-      const text = answer.answer;
-      if (
-        closeQuestion(office, question.questionId, "answered", at, {
-          text,
-          decision: null,
-          delivered: "on-resume",
-        })
-      ) {
-        closed(question, text);
-      }
-      continue;
-    }
-    if (closeQuestion(office, question.questionId, "expired", at)) closed(question);
-  }
-  return entries;
-}
-
-/** Half of a starting reviewer cap, rounded up: what a `reviewCap` grant adds. */
-function half(value: number | null | undefined): number {
-  return Math.ceil((value ?? 0) * (HALF_SHARE / 100));
-}
-
-/** The refusal of a matrix row that does not resume. */
-function refusal(row: ParkRefusalRow, story: string, label: string, park: OpenPark): CommandError {
-  const { code } = row;
-  if (row.box === true) {
-    return new CommandError(
-      code,
-      `${story} is parked as ${label}: a box part that touched a protected file, held what looks like a secret or was refused, or a task file with fields dipo does not know, is never resumed (the maintainer's decision); \`dipo discard ${story} --note <why>\` removes its work.`,
-      { story, reason: park.reason, ...(park.cause === null ? {} : { cause: park.cause }) },
-    );
-  }
-  return code === "resume.decisionRequired"
-    ? new CommandError(
-        code,
-        `${story} is parked as ${label} and waits for a decision: answer its question with \`dipo answer <question> allow|deny\`.`,
-        { story, reason: park.reason },
-      )
-    : new CommandError(
-        code,
-        `${story} is parked as ${label} and cannot be resumed; \`dipo discard ${story} --note <why>\` removes its work.`,
-        { story, reason: park.reason, ...(park.cause === null ? {} : { cause: park.cause }) },
-      );
+      delta: { question: answer.question, answer: answer.answer },
+    },
+  ];
 }
 
 /** Inside the caller's transaction: an ended run takes the end kind `kind`, its outcome row too. */

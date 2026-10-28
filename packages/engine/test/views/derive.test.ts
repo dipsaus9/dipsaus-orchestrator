@@ -24,8 +24,7 @@ import { pass, task } from "../stories/helpers";
 import { keyOf, startRun } from "./helpers";
 
 const KEY = StoryKey.parse("sto_01J9ZK5Q8W3V4X6Y7Z8A9B0C1D");
-const ON_HOLD = { reason: "on-hold", from: "Ready" as const, note: "after M2", since: 0 };
-const STOPPED = { reason: "stopped", from: "In Progress" as const, note: "by hand", since: 0 };
+const BY_YOU = { reason: "by-maintainer", from: "Ready" as const, note: "after M2", since: 0 };
 
 describe("column table", () => {
   const cases: [Lifecycle, Parameters<typeof deriveColumn>[0], QueueColumn][] = [
@@ -37,8 +36,6 @@ describe("column table", () => {
     ["In Progress", { lifecycle: "In Progress" }, "running"],
     ["In Review", { lifecycle: "In Review" }, "review"],
     ["Parked", { lifecycle: "Parked" }, "desk"],
-    ["Parked", { lifecycle: "Parked", park: STOPPED }, "desk"],
-    ["Parked", { lifecycle: "Parked", park: ON_HOLD }, "held"],
     ["Done", { lifecycle: "Done" }, "done"],
     // Waiting-on only counts for Ready: a Refined story with open dependencies stays refined.
     ["Refined", { lifecycle: "Refined", waitingOn: ["DIPO-1"] }, "refined"],
@@ -49,35 +46,25 @@ describe("column table", () => {
     });
   }
 
-  it("covers the nine 0009 columns", () => {
+  it("covers the eight 0009 columns", () => {
     const columns = new Set(cases.map(([, , column]) => column));
     expect([...columns].toSorted()).toEqual(
-      [
-        "desk",
-        "done",
-        "draft",
-        "held",
-        "ready",
-        "refined",
-        "review",
-        "running",
-        "waiting",
-      ].toSorted(),
+      ["desk", "done", "draft", "ready", "refined", "review", "running", "waiting"].toSorted(),
     );
   });
 });
 
 describe("story view", () => {
-  it("names what a waiting story waits on, the park of a held one, and Refined gate messages", () => {
+  it("names what a waiting story waits on, the park of a parked one, and Refined gate messages", () => {
     const base = { key: KEY, story: StoryId.parse("DIPO-7"), title: "Seven" };
     const waiting = deriveStoryView({ ...base, lifecycle: "Ready", waitingOn: ["DIPO-1"] });
     expect(waiting).toMatchObject({ column: "waiting", waitingOn: ["DIPO-1"] });
     expect(StoryView.parse(waiting)).toEqual(waiting);
-    const held = deriveStoryView({ ...base, lifecycle: "Parked", park: ON_HOLD });
-    expect(held).toMatchObject({
-      column: "held",
+    const parked = deriveStoryView({ ...base, lifecycle: "Parked", park: BY_YOU });
+    expect(parked).toMatchObject({
+      column: "desk",
       parked: {
-        reason: "on-hold",
+        reason: "by-maintainer",
         detail: "after M2",
         from: "Ready",
         since: new Date(0).toISOString(),
@@ -111,7 +98,7 @@ describe("story view", () => {
           task("TASK-1", { status: "Ready", waitingOn: ["TASK-9"] }),
           task("TASK-2", {
             status: "Parked",
-            park: { reason: "on-hold", from: "Ready", note: "later" },
+            park: { reason: "by-maintainer", from: "Ready", note: "later" },
           }),
           task("TASK-3"),
         ]);
@@ -134,8 +121,8 @@ describe("story view", () => {
           waitingOn: ["TASK-9"],
         });
         expect(views.get(StoryId.parse("TASK-2"))).toMatchObject({
-          column: "held",
-          parked: { reason: "on-hold", detail: "later", from: "Ready" },
+          column: "desk",
+          parked: { reason: "by-maintainer", detail: "later", from: "Ready" },
         });
         expect(views.get(StoryId.parse("TASK-3"))?.gateMessages).toEqual([
           "ready TASK-3 failed R07: milestone is missing",
@@ -155,7 +142,7 @@ describe("story view", () => {
           task("TASK-1", { status: "Ready", waitingOn: [] }),
           task("TASK-2", {
             status: "Parked",
-            park: { reason: "on-hold", from: "Ready", note: "later" },
+            park: { reason: "by-maintainer", from: "Ready", note: "later" },
           }),
           task("TASK-3"),
         ]);
@@ -178,9 +165,9 @@ describe("health precedence", () => {
     ["the last allowed loop", { ...base, loop: 3, loopCap: 3 }, "looping"],
     ["a loop below the cap", { ...base, loop: 2, loopCap: 3 }, "busy"],
     ["no loop cap", { ...base, loop: 0, loopCap: 0 }, "busy"],
-    ["paused over looping", { ...base, paused: true, signals: ["same-failure"] }, "paused"],
-    ["plan-limit over looping", { ...base, signals: ["same-failure", "plan-limit"] }, "limited"],
-    ["input-wait over plan-limit", { ...base, signals: ["plan-limit", "input-wait"] }, "asking"],
+    ["input-wait over looping", { ...base, signals: ["same-failure", "input-wait"] }, "asking"],
+    // A plan limit pauses the office's starts and parks the story (0020): no health of its own.
+    ["a plan-limit signal from before 0020", { ...base, signals: ["plan-limit"] }, "busy"],
     ["host-lost over everything", { ...base, signals: ["input-wait", "host-lost"] }, "lost"],
     ["an unprocessed exit", { ...base, exitUnprocessed: true, signals: ["quiet"] }, "lost"],
   ];

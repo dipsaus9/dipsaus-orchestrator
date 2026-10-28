@@ -8,9 +8,8 @@ import type { ReviewReport, TurnProblem, WorkerReport } from "../workers/types";
 import type { FiredCap } from "./caps";
 import { capEnding, type RunEndings } from "./control-endings";
 import { disarm, messageOf, type RunControlDeps, type Tracked, viewOf } from "./control-types";
+import { notSentNotice, sendFeedback } from "./feedback";
 import type { ParkOutcome } from "./park";
-import { type ToolTrail, trailAt } from "./report-data";
-import { openPause } from "./pauses";
 import { findRun } from "./records";
 import type { RunFinisher } from "./verify-commit";
 
@@ -36,11 +35,8 @@ export class AfterTurns {
     capped: FiredCap | null = null,
     review?: ReviewReport,
   ): void {
-    // The tool trail as of this turn (DIPO-186), before a later pass can add to it.
-    const trail = tracked.trail === undefined ? null : trailAt(tracked.trail);
     tracked.turns = background(
-      () =>
-        tracked.turns.then(() => this.#runTurn(tracked, report, problem, capped, review, trail)),
+      () => tracked.turns.then(() => this.#runTurn(tracked, report, problem, capped, review)),
       {
         failed: "verify and commit after a turn failed",
         fields: { run: tracked.runId },
@@ -56,14 +52,13 @@ export class AfterTurns {
     problem: TurnProblem | undefined,
     capped: FiredCap | null,
     review: ReviewReport | undefined,
-    trail: ToolTrail | null,
   ): Promise<void> {
     if (tracked.ending !== null) return;
     const finisher = this.#deps.finisher;
     let decided: "continue" | "decided" = "continue";
     if (finisher !== undefined) {
       try {
-        decided = await this.#finishTurn(tracked, finisher, report, capped, trail);
+        decided = await this.#finishTurn(tracked, finisher, report, capped);
       } catch (thrown: unknown) {
         // A capped done turn must still end at its cap when the finisher throws (DIPO-235): the
         // run has no other ending yet, so the cap ending goes in its place.
@@ -94,11 +89,7 @@ export class AfterTurns {
       return;
     }
     if (decided === "continue" && problem !== undefined && outcomes !== undefined) {
-      // The worker's reply to a pause carries no report; it is no problem to feed back (DIPO-163).
-      const office = this.#deps.offices.get(tracked.office);
-      const paused = office !== undefined && openPause(office, tracked.runId) !== null;
-      if (tracked.ending === null && !paused)
-        await outcomes.onTurnProblem(viewOf(tracked), problem);
+      if (tracked.ending === null) await outcomes.onTurnProblem(viewOf(tracked), problem);
     }
   }
 
@@ -108,7 +99,6 @@ export class AfterTurns {
     finisher: RunFinisher,
     report: WorkerReport | null,
     capped: FiredCap | null,
-    trail: ToolTrail | null,
   ): Promise<"continue" | "decided"> {
     const office = this.#deps.offices.get(tracked.office);
     if (office === undefined) return "decided";
@@ -134,7 +124,6 @@ export class AfterTurns {
         claimEnd: claim,
         write: (fn) => write(() => withWorkViews(office, fn())),
         flushOutput: () => this.#deps.flushOutput?.(office.officeId, run.runId),
-        trail,
       });
       switch (decision.kind) {
         case "continue":
@@ -149,7 +138,6 @@ export class AfterTurns {
               intent: "park",
               ops: [{ closeStdin: true }],
               reason: decision.reason,
-              cause: decision.cause,
               detail: decision.detail,
               endKind: decision.endKind,
               report,
@@ -160,10 +148,17 @@ export class AfterTurns {
           settle(outcome);
           return "decided";
         }
-        case "feedback":
+        case "feedback": {
           if (tracked.ending !== null) return "decided";
-          await this.#endings.sendFeedback(office, run, decision.text, write, decision.what);
+          const error = await sendFeedback(
+            office,
+            run.runId,
+            { source: decision.source, text: decision.text },
+            { sender: this.#deps },
+          ).done;
+          if (error !== null) write(() => [notSentNotice(run, decision.source, error)]);
           return "decided";
+        }
         case "ended":
           // The In Review commit is read again at the branch tip (DIPO-56).
           await this.#endings.refresh(office, run, "In Review");

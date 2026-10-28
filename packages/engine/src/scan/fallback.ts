@@ -6,8 +6,9 @@
 //   and never for a capability code resolved or the maintainer confirmed (`requestItems`).
 // - One session run per office at a time, outside the worker and reviewer places: a second infer
 //   waits for the running one and then builds its own request (0019 amendment of 2026-10-22).
-// - A plan-limit hold on the session's model makes it wait, never park: before the session starts,
-//   and again when the session itself meets the limit (0008 section 7).
+// - The office's starts paused (0020) makes it wait, never park: the session starts once the pause
+//   lifted. A session that meets the plan limit itself pauses the office's starts with the limit's
+//   reset time, then waits for the lift the same way and starts a new session.
 // - The evidence is built by code from dipo's base copy (`readBase`, `buildEvidence`); the session
 //   runs on the Mac with no box and every tool off, through the worker adapter only (the
 //   `ScanSessionRunner` port; the Claude one is `run/session-run.ts`).
@@ -37,10 +38,8 @@ import { currentProfile, type StoredProfile } from "./store";
 export const SCAN_ROLE = "scanner";
 /** One turn plus one schema retry (0013 amendment of 2026-10-22). */
 export const SCAN_MAX_TURNS = 2;
-/** How often a session held by a plan limit looks again, when no reset time is known. */
-export const SCAN_PLAN_LIMIT_POLL_MS = 60_000;
-/** A session that met a plan limit with a reset time starts this long after it (0008 section 7). */
-export const SCAN_RESUME_AFTER_MS = 2 * 60_000;
+/** How often a session waiting for the office's starts paused to lift looks again. */
+export const SCAN_STARTS_PAUSED_POLL_MS = 60_000;
 
 /** The end kind of a session run no daemon follows any more (a restart during the session). */
 export const SCAN_SESSION_LOST = "lost";
@@ -95,12 +94,14 @@ export interface ScanSessionRequest {
 /** How one fallback session ended. */
 export type ScanSessionResult =
   | { readonly kind: "answered"; readonly runId: string; readonly answer: unknown }
-  /** The session met a plan limit: the fallback waits and starts a new one (never parks). */
+  /** The session met a plan limit: the office's starts pause, then a new session (never parks). */
   | {
       readonly kind: "plan-limit";
       readonly runId: string | null;
       /** When the limit resets (engine clock, ms), when the session said. */
       readonly resetsAt?: number;
+      /** True for `credits_required`, which only a lift by hand ends. */
+      readonly credits?: true;
     }
   | { readonly kind: "failed"; readonly runId: string | null; readonly reason: string };
 
@@ -116,14 +117,19 @@ export interface ScanFallbackDeps {
   readonly runner?: () => ScanSessionRunner | undefined;
   /** The office's `scan` settings in force. */
   readonly settings: (office: OfficeId) => Omit<ScanSessionSettings, "maxTurns">;
-  /** Why new sessions of `model` are held by a plan limit now; null when they are not. */
-  readonly planLimitHeld?: (office: OfficeId, model: string) => string | null;
+  /** Why no new session starts in the office now (its starts paused, 0020); null when it may. */
+  readonly startsPaused?: (office: OfficeId) => string | null;
+  /** A session met the plan limit: the office's starts pause until `resetsAt` (ms) or a lift. */
+  readonly pausePlanLimit?: (
+    office: OfficeId,
+    limit: { readonly resetsAt?: number; readonly credits: boolean },
+  ) => void;
   /** dipo's base copy of the office: its files and evidence texts, read in one git queue item. */
   readonly readBase: (office: OfficeId) => Promise<BaseEvidence>;
   /** Change-log entries were appended outside a command; subscribers catch up. */
   readonly onOfficeChanged?: (office: OfficeId) => void;
   readonly logger?: Logger;
-  /** How long a held session waits before it looks again; `SCAN_PLAN_LIMIT_POLL_MS` by default. */
+  /** How long a waiting session waits before it looks again; `SCAN_STARTS_PAUSED_POLL_MS` by default. */
   readonly pollMs?: number;
 }
 
@@ -235,24 +241,24 @@ export class ScanFallback {
     return { ...this.#deps.settings(office), maxTurns: SCAN_MAX_TURNS };
   }
 
-  /** Waits while a plan limit holds sessions of `model`; one notice when the wait begins. */
-  async #waitForPlan(office: OfficeId, state: Tracked, model: string): Promise<void> {
+  /** Waits while the office's starts are paused; one notice when the wait begins. */
+  async #waitForStarts(office: OfficeId, state: Tracked): Promise<void> {
     let told = false;
     for (;;) {
       if (this.#closed) return;
-      const held = this.#deps.planLimitHeld?.(office, model) ?? null;
-      if (held === null) return;
+      const paused = this.#deps.startsPaused?.(office) ?? null;
+      if (paused === null) return;
       if (!told) {
         this.#append(office, state, [
           notice(
             "info",
             SCAN_NOTICES.waiting,
-            `The scan fallback waits for a plan limit before its session starts: ${held}`,
+            `The scan fallback waits before its session starts: ${paused}`,
           ),
         ]);
         told = true;
       }
-      await this.#sleep(state.clock, this.#deps.pollMs ?? SCAN_PLAN_LIMIT_POLL_MS);
+      await this.#sleep(state.clock, this.#deps.pollMs ?? SCAN_STARTS_PAUSED_POLL_MS);
     }
   }
 
@@ -262,7 +268,7 @@ export class ScanFallback {
     for (;;) {
       if (this.#closed) return;
       const settings = this.#settings(office);
-      await this.#waitForPlan(office, state, settings.model);
+      await this.#waitForStarts(office, state);
       if (this.#closed) return;
       const runner = this.#deps.runner?.();
       if (runner === undefined) {
@@ -305,20 +311,23 @@ export class ScanFallback {
         return;
       }
       if (result.kind === "plan-limit") {
-        // Plan limits are not the office's fault: wait for the reset, then a new session.
-        const now = state.clock.now();
-        const wait =
-          result.resetsAt === undefined
-            ? (this.#deps.pollMs ?? SCAN_PLAN_LIMIT_POLL_MS)
-            : Math.max(0, result.resetsAt - now) + SCAN_RESUME_AFTER_MS;
+        // A plan limit is not the office's fault: the office's starts pause, and a new session
+        // starts once the pause lifted (`#waitForStarts`).
+        this.#deps.pausePlanLimit?.(office, {
+          ...(result.resetsAt === undefined ? {} : { resetsAt: result.resetsAt }),
+          credits: result.credits === true,
+        });
         this.#append(office, state, [
           notice(
             "info",
             SCAN_NOTICES.waiting,
-            "The scan fallback's session met a plan limit; it waits for the reset and starts again.",
+            "The scan fallback's session met a plan limit; it starts again once the office's starts paused lifts.",
           ),
         ]);
-        await this.#sleep(state.clock, wait);
+        // Without a pause to wait on, the next session waits one poll.
+        if (this.#deps.startsPaused?.(office) == null) {
+          await this.#sleep(state.clock, this.#deps.pollMs ?? SCAN_STARTS_PAUSED_POLL_MS);
+        }
         continue;
       }
       if (result.kind === "failed") {

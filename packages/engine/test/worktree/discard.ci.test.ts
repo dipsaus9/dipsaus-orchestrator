@@ -183,10 +183,8 @@ async function remoteTip(o: ReconcileOffice, branch: string): Promise<string> {
 
 function parkRow(office: OfficeHandle, key: StoryKey, runId: RunId): void {
   office.run(
-    `insert into parks (office_id, park_id, key, story_id, run_id, reason, from_state, detail,
-       last_good_commit, at, cause)
-     values ($office_id, 1, $key, 'TASK-1', $run, 'stopped', 'In Progress', 'stopped', null, 1,
-       'maintainer')`,
+    `insert into parks (office_id, park_id, key, story_id, run_id, reason, detail, last_good_commit, at)
+     values ($office_id, 1, $key, 'TASK-1', $run, 'by-maintainer', 'stopped', null, 1)`,
     { key, run: runId },
   );
 }
@@ -397,7 +395,7 @@ if (process.env["DIPO_TEST_CI"] === "1") {
         const busy = await discard(o, "TASK-1");
         expect(errorCode(busy)).toBe("run.hostAlive");
         expect(busy.ok === false && busy.error.retryable).toBe(true);
-        // `work.stop` gets the story as the command resolved it.
+        // The maintainer park gets the story as the command resolved it.
         expect(seen.stops).toEqual([key]);
         expect(existsSync(record.worktree)).toBe(true);
         expect(seen.ops).toEqual([]);
@@ -633,8 +631,8 @@ if (process.env["DIPO_TEST_CI"] === "1") {
         expect(await discard(o, "TASK-1")).toMatchObject({ ok: true, changed: true });
         // Later the story is held: a park without a run.
         o.office.run(
-          `insert into parks (office_id, park_id, key, story_id, run_id, reason, from_state, detail, at)
-         values ($office_id, 2, $key, 'TASK-1', null, 'on-hold', 'Refined', 'after M2', 9)`,
+          `insert into parks (office_id, park_id, key, story_id, run_id, reason, detail, at)
+         values ($office_id, 2, $key, 'TASK-1', null, 'by-maintainer', 'after M2', 9)`,
           { key },
         );
 

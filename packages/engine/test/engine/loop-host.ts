@@ -1,7 +1,8 @@
 // The code host of the review loop test (DIPO-153): an in-memory GitHub whose PRs read their head
-// from the bare remote's branch, whose squash merge really merges on the remote at exactly the head
-// it was given (`--match-head-commit`), and whose required checks, labels, failed job logs and
-// comments a scenario scripts. Every call is logged. No `gh` runs.
+// from the bare remote's branch, whose auto-merge really squash-merges on the remote at exactly the
+// head it was given (`--match-head-commit`) once that head's checks are green and the base does not
+// conflict, and whose required checks, labels, failed job logs and comments a scenario scripts.
+// Whether the base conflicts is `git merge-tree` on the remote, read while auto-merge is on. Every call is logged. No `gh` runs.
 
 import { existsSync } from "node:fs";
 import { join } from "node:path";
@@ -9,6 +10,7 @@ import { join } from "node:path";
 import { git, type TempRepoWithRemote } from "@dipsaus-orchestrator/testkit";
 
 import {
+  type AutoMergeHost,
   type CodeHost,
   CodeHostError,
   type HostPr,
@@ -24,7 +26,7 @@ export const REMOTE_URL = `https://github.com/${REPO}.git`;
 /** The Actions job link of a failed `ci-ok` check, as `gh pr checks` reports it. */
 export const JOB_LINK = `https://github.com/${REPO}/actions/runs/41/job/42`;
 
-/** The checks the office requires by default (`mergeSlot.requiredChecks`), green. */
+/** The checks the base requires, green. */
 export const GREEN_CHECKS: readonly PrCheck[] = [
   { name: "ci-ok", state: "SUCCESS", bucket: "pass", link: JOB_LINK, workflow: "ci" },
   { name: "pr-title", state: "SUCCESS", bucket: "pass", link: "", workflow: "pr-title" },
@@ -56,9 +58,11 @@ interface StoredPr {
   mergeCommit: string | null;
   /** The head when the PR merged or closed; GitHub keeps it as the PR's head commit. */
   lastHead: string | null;
+  /** The head auto-merge is on for, or null while it is off. */
+  autoMergeAt: string | null;
 }
 
-export class LoopHost implements CodeHost, PrStateHost, PrReviewHost {
+export class LoopHost implements CodeHost, PrStateHost, PrReviewHost, AutoMergeHost {
   readonly calls: string[] = [];
   readonly prs = new Map<number, StoredPr>();
   /** Every comment posted, in order. */
@@ -90,16 +94,46 @@ export class LoopHost implements CodeHost, PrStateHost, PrReviewHost {
   }
 
   async #view(pr: StoredPr): Promise<HostPr> {
+    await this.#autoMerge(pr);
+    const open = pr.state === "open";
+    const headSha = open ? await this.tip(pr.head) : (pr.lastHead ?? "");
     return {
       number: pr.number,
       url: `https://github.com/${REPO}/pull/${pr.number}`,
       state: pr.state,
       head: pr.head,
-      headSha: pr.state === "open" ? await this.tip(pr.head) : (pr.lastHead ?? ""),
+      headSha,
       base: pr.base,
       title: pr.title,
       mergeCommit: pr.mergeCommit,
+      // Computed only while auto-merge is on, so the other reads stay as fast as before.
+      mergeable:
+        open && pr.autoMergeAt !== null && (await this.#conflicts(headSha))
+          ? "conflicting"
+          : "mergeable",
+      autoMerge: open && pr.autoMergeAt !== null,
     };
+  }
+
+  /** True when the remote's main conflicts with `head` (`git merge-tree` exits 1). */
+  async #conflicts(head: string): Promise<boolean> {
+    if (head === "") return false;
+    try {
+      await git(this.repo.remote, this.repo.home, "merge-tree", "--write-tree", "main", head);
+      return false;
+    } catch {
+      return true;
+    }
+  }
+
+  /** GitHub's side of auto-merge: the PR merges once the armed head's checks are all green. */
+  async #autoMerge(pr: StoredPr): Promise<void> {
+    if (pr.state !== "open" || pr.autoMergeAt === null) return;
+    const head = await this.tip(pr.head);
+    if (head !== pr.autoMergeAt || (await this.#conflicts(head))) return;
+    const checks = this.checksOf.get(head) ?? this.fallback;
+    if (!checks.every((check) => check.bucket === "pass")) return;
+    await this.#squash(pr, head);
   }
 
   #pr(number: number): StoredPr {
@@ -126,6 +160,7 @@ export class LoopHost implements CodeHost, PrStateHost, PrReviewHost {
   }
 
   async findMergedPr(_repo: string, branch: string): Promise<HostPr | null> {
+    for (const open of this.prs.values()) if (open.head === branch) await this.#autoMerge(open);
     const pr = [...this.prs.values()]
       .filter((p) => p.head === branch && p.state === "merged")
       .at(-1);
@@ -144,6 +179,7 @@ export class LoopHost implements CodeHost, PrStateHost, PrReviewHost {
       state: "open",
       mergeCommit: null,
       lastHead: null,
+      autoMergeAt: null,
     };
     this.prs.set(number, stored);
     return this.#view(stored);
@@ -171,18 +207,38 @@ export class LoopHost implements CodeHost, PrStateHost, PrReviewHost {
     pr.state = "closed";
   }
 
-  async squashMerge(
+  async enableAutoMerge(
     _repo: string,
     number: number,
-    merge: { headSha: string; subject: string },
+    merge: { readonly headSha: string; readonly subject: string },
   ): Promise<void> {
-    this.calls.push(`merge #${number} ${merge.headSha}`);
+    this.calls.push(`auto-merge on #${number} ${merge.headSha}`);
     const pr = this.#pr(number);
     if (pr.state !== "open") throw new CodeHostError("failed", `PR #${number} is ${pr.state}`);
     if ((await this.tip(pr.head)) !== merge.headSha) {
       throw new CodeHostError("failed", "Head branch was modified.");
     }
-    // The squash of the head onto the remote's main, as GitHub's squash merge makes it.
+    pr.autoMergeAt = merge.headSha;
+    this.subjects.set(number, merge.subject);
+  }
+
+  async disableAutoMerge(_repo: string, number: number): Promise<void> {
+    this.calls.push(`auto-merge off #${number}`);
+    this.#pr(number).autoMergeAt = null;
+  }
+
+  async requiredCheckNames(): Promise<string[]> {
+    return GREEN_CHECKS.map((check) => check.name);
+  }
+
+  /** The squash subject auto-merge was turned on with, by PR. */
+  readonly subjects = new Map<number, string>();
+
+  /** The squash of the head onto the remote's main, as GitHub's squash merge makes it. */
+  async #squash(pr: StoredPr, headSha: string): Promise<void> {
+    const subject = this.subjects.get(pr.number) ?? pr.title;
+    const number = pr.number;
+    const merge = { headSha, subject };
     const other = join(this.repo.root, "host-merge");
     if (!existsSync(other)) {
       await git(this.repo.root, this.repo.home, "clone", "--quiet", this.repo.remote, other);
@@ -195,6 +251,8 @@ export class LoopHost implements CodeHost, PrStateHost, PrReviewHost {
     pr.mergeCommit = (await git(other, this.repo.home, "rev-parse", "HEAD")).trim();
     pr.lastHead = merge.headSha;
     pr.state = "merged";
+    pr.autoMergeAt = null;
+    this.calls.push(`merge #${number} ${merge.headSha}`);
     this.merges.push({ number, headSha: merge.headSha, subject: merge.subject });
   }
 

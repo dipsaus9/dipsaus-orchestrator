@@ -53,7 +53,6 @@ describe("command and read definitions", () => {
         "office.purge",
         "office.setPrivacy",
         "gate.reject",
-        "work.stop",
         "work.discard",
         "story.drop",
       ].toSorted(),
@@ -98,7 +97,7 @@ describe("commands.describe", () => {
     expect(args?.required).toEqual(["office"]);
   });
 
-  it("lists story.hold and story.drop since minor 1; drop is irreversible when deleteBranch is set (DIPO-160)", () => {
+  it("lists story.park and story.drop since minor 1; drop is irreversible when deleteBranch is set (DIPO-160, DIPO-344)", () => {
     const commands = describeContract().commands;
     const drop = commands.find((command) => command.name === "story.drop");
     expect(drop).toMatchObject({
@@ -108,10 +107,12 @@ describe("commands.describe", () => {
       irreversible: false,
       irreversibleWhen: ["deleteBranch"],
     });
-    const hold = commands.find((command) => command.name === "story.hold");
-    expect(hold).toMatchObject({ since: 1, confirm: false, irreversible: false });
+    const park = commands.find((command) => command.name === "story.park");
+    expect(park).toMatchObject({ since: 1, confirm: false, irreversible: false });
+    const args = park?.args as { required?: string[] } | undefined;
+    expect(args?.required?.toSorted()).toEqual(["note", "story"]);
     // Only a command that declares it carries the key.
-    expect(hold).not.toHaveProperty("irreversibleWhen");
+    expect(park).not.toHaveProperty("irreversibleWhen");
   });
 
   it("lists work.resume as needing confirmation when budget is set (DIPO-155)", () => {

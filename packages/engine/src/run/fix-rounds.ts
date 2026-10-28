@@ -2,8 +2,8 @@
 // DIPO-148): the feedback on a pushed head goes back to the same worker in one round.
 //
 // - Sources. A blocked review verdict (its unmet criteria and blocking findings), the red required
-//   checks of the pushed head (`StoryPrs.ciState`, DIPO-147; CI is the verify of a box run,
-//   DIPO-299) and a maintainer reject (`reject`, fed by DIPO-151's `gate.reject`, which does not
+//   checks of the pushed head (`StoryPrs.ciState`, DIPO-147; CI is the final gate of a box run,
+//   0002) and a maintainer reject (`reject`, fed by DIPO-151's `gate.reject`, which does not
 //   exist yet, so no reject item is produced until it does). A conflict hand-off of a run In
 //   Review (`conflict`, the entry for the merge slot's sync, DIPO-150) is sent at once like a
 //   reject. Advisory findings never start a round on their own; a round that starts for another
@@ -18,7 +18,7 @@
 //   otherwise the round waits for the CI of the verdict's head. A reject is sent at once.
 // - Queue. One round per head: in one serialized step of the office (`Places.serialized`, so it
 //   cannot race a pickup's place check), one transaction reopens the run for its fix round
-//   (`reopenForRound`, phase `build`, waiting for the worker place), stores the round's steer
+//   (`reopen`, phase `build`, waiting for the worker place), stores the round's steer
 //   intent (`fix-round {head, advisories}`) and its `feedback_items` rows, send-once per head
 //   (`planFeedback`), and raises `same-failure` when a CI or verify signature is sent twice in a
 //   row. The rows and the intent are written before the places' shared pre-start cap check
@@ -32,7 +32,7 @@
 //   start parks the story as any next session does, and the feedback stays undelivered with its
 //   intent. A round that cannot start and will not on its own (no feedback behind the wait, no
 //   developer session to continue, a status commit that failed `FIX_LIFT_TRIES` times in a row)
-//   parks the story `worker-failed` with cause `build` instead of holding the worker place.
+//   parks the story `worker-failed` instead of holding the worker place.
 // - Recovery (`recover`, the daemon's recovery step). A round whose session started before a stop
 //   left its delivery unwritten is marked delivered at that session's start, and every run that
 //   ended reviewed with a live claim gets `consider`.
@@ -79,12 +79,13 @@ import {
 } from "./feedback-items";
 import { markIntentSent, recordIntent, resolveIntent, runIntents } from "./intents";
 import { intentRest, intentTag, OUTCOME_ENDS, type RunView } from "./outcome-types";
-import { type BranchUnpark, openPark, PARK_CAUSES, type UnparkWriter } from "./park";
+import { type BranchUnpark, type UnparkWriter } from "./park";
+import { heldByPark } from "./park-state";
 import { recordBranchPush } from "../story-pr/records";
 import type { Places, PlaceStart } from "./places";
 import { findRun, IN_REVIEW_END, type StoredRun } from "./records";
 import type { RunStoryFacts } from "./resume";
-import { REVIEWED_END, reopenForRound } from "./rounds";
+import { REVIEWED_END, reopen } from "./rounds";
 import { raiseSignal } from "./signals";
 
 /** The tag of a fix round's steer intent: `steer` `fix-round {"head":…,"advisories":[…]}`. */
@@ -535,7 +536,7 @@ export class FixRounds {
 
   /**
    * A fix round that cannot start and will not on its own: the story parks `worker-failed` with
-   * cause `build` and `detail`, so the round neither holds the worker place nor warns at every
+   * `detail`, so the round neither holds the worker place nor warns at every
    * drain. Its feedback stays undelivered with its intent. Always false.
    */
   async #strand(office: OfficeHandle, run: StoredRun, detail: string): Promise<false> {
@@ -549,7 +550,6 @@ export class FixRounds {
         intent: "park",
         ops: [],
         reason: "worker-failed",
-        cause: PARK_CAUSES.build,
         detail,
         endKind: OUTCOME_ENDS.crashed,
       });
@@ -580,7 +580,7 @@ export class FixRounds {
     if (run.endKind !== REVIEWED_END && run.endKind !== IN_REVIEW_END) return false;
     const claim = findClaim(office, run.runId);
     if (claim === null || claim.releasedAt !== null) return false;
-    if (openPark(office, run.key) !== null) return false;
+    if (heldByPark(office, run.key)) return false;
     const live = office.get<{ found: number }>(
       `select 1 as found from agents where office_id = $office_id and run_id = $run
         and ended_at is null and agent_id is not $exited limit 1`,
@@ -629,7 +629,7 @@ export class FixRounds {
         const at = this.#deps.clock.now();
         const same = sameFailureAgain(office, run.runId, planned);
         const number = nextFixRound(office, run.runId);
-        const entries = reopenForRound(office, current, "fix", at);
+        const entries = reopen(office, current, at, { kind: "fix" });
         if (findRun(office, run.runId)?.endedAt !== null) return none;
         const detail: FixIntentDetail = { head: round.head, advisories: round.advisories };
         const intentId = recordIntent(

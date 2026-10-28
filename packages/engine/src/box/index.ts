@@ -375,7 +375,7 @@ export {
   EXCLUDE_TAKES,
   inBoxExcludes,
   PART_ARCHIVE_LIMITS,
-  PART_CAUSES,
+  PART_HITS,
   PART_FAILED,
   PART_NOTICES,
   PART_RECORD_FILE,
@@ -418,7 +418,6 @@ export { ignoreFileDir, IgnoreRules } from "./ignore";
 export type { IgnoreFile } from "./ignore";
 export {
   BoxCollisions,
-  CATCH_UP_CAUSES,
   COLLISION_NOTICES,
   COLLISION_POLL_MS,
   CONFLICT_MARKER,
@@ -450,6 +449,8 @@ export {
   boxRebuiltText,
   boxRunState,
   boxTreeChangedText,
+  boxVerifyInput,
+  BOX_VERIFY_MINUTES_DEFAULT,
   DELIVERED_INDEX_PREFIX,
   deliveredCode,
 } from "./lifetime";
@@ -464,3 +465,5 @@ export type {
   RunBoxes,
   RunBoxRequest,
 } from "./lifetime";
+export { BOX_VERIFY_OUTPUT_TAIL, boxFolderOf, runBoxVerify } from "./verify";
+export type { BoxVerifyRequest, BoxVerifyResult } from "./verify";

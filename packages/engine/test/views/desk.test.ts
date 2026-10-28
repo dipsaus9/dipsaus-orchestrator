@@ -18,7 +18,7 @@ import { insertPr, recordCheck } from "../../src/backlog/pr/records";
 import type { OfficeDirectory } from "../../src/commands/offices";
 import { buildRegistry } from "../../src/commands/registry";
 import type { OfficeHandle } from "../../src/db/office";
-import { insertParkQuestion, insertWorkerQuestion } from "../../src/hooks/questions";
+import { insertWorkerQuestion } from "../../src/hooks/questions";
 import { executeRead } from "../../src/reads/execute";
 import { capabilityFlags } from "../../src/reads/hello";
 import { storeDecisionNotes, storeProposals } from "../../src/run/report-data";
@@ -30,61 +30,34 @@ import {
   deskText,
   type DeskSources,
   DESK_SOURCES,
-  policyResumeNeeds,
-  type ResumeNeeds,
 } from "../../src/views/desk";
 import { viewsFeature } from "../../src/views/feature";
 import { addOffice, openTestState, type TestState } from "../commands/helpers";
 import { pass, task } from "../stories/helpers";
+import { insertPark as insertParkRow } from "../run/park-fixture";
 import { keyOf, startRun } from "./helpers";
 
 const HOUR = 3_600_000;
 const all = () => true;
 
-/** The ADR 0020 section 2 needs of the parks these tests build (DIPO-155's matrix in short). */
-const matrixNeeds: ResumeNeeds = (reason, cause) => {
-  if (reason === "needs-permission") return { kind: "refuse", code: "resume.decisionRequired" };
-  if (reason === "scope-violation" && cause === "tampered") {
-    return { kind: "refuse", code: "resume.notResumable" };
-  }
-  if (reason === "budget-exceeded") return { kind: "resume", note: "required", topUp: true };
-  if (["stopped", "interrupted", "worker-failed", "on-hold"].includes(reason)) {
-    return { kind: "resume", note: "optional" };
-  }
-  return { kind: "resume", note: "required" };
-};
-
-const ALL_SOURCES: DeskSources = { ...DESK_SOURCES, resumeNeeds: matrixNeeds };
+const ALL_SOURCES: DeskSources = DESK_SOURCES;
 
 function insertPark(
   office: OfficeHandle,
   story: string,
-  park: { reason: string; cause?: string; detail: string; at: number; run?: string },
+  park: { reason: string; detail: string; at: number; run?: string },
 ): number {
   const key = keyOf(office, story);
-  return office.immediate(() => {
-    office.run(
-      `insert into parks (office_id, park_id, key, story_id, run_id, reason, cause, from_state,
-         detail, at)
-       values ($office_id, (select coalesce(max(park_id), 0) + 1 from parks
-         where office_id = $office_id), $key, $story, $run, $reason, $cause, 'In Progress',
-         $detail, $at)`,
-      {
-        key,
-        story,
-        run: park.run ?? null,
-        reason: park.reason,
-        cause: park.cause ?? null,
-        detail: park.detail,
-        at: park.at,
-      },
-    );
-    return (
-      office.get<{ id: number }>(
-        "select max(park_id) as id from parks where office_id = $office_id",
-      )?.id ?? 0
-    );
-  });
+  return office.immediate(() =>
+    insertParkRow(office, {
+      key,
+      story,
+      runId: park.run ?? null,
+      reason: park.reason,
+      detail: park.detail,
+      at: park.at,
+    }),
+  );
 }
 
 function insertMergeGate(
@@ -146,7 +119,7 @@ describe("the desk order (0020 section 12)", () => {
         const q1 = startRun(t, office, "DIPO-1", dir);
         const q2 = startRun(t, office, "DIPO-2", dir);
         const merge = startRun(t, office, "DIPO-3", dir);
-        const permissionRun = startRun(t, office, "DIPO-4", dir);
+        const questionRun = startRun(t, office, "DIPO-4", dir);
         office.immediate(() => {
           insertWorkerQuestion(office, {
             questionId: "qst_01J9ZK5Q8W3V4X6Y7Z8A9B0C1A",
@@ -171,51 +144,41 @@ describe("the desk order (0020 section 12)", () => {
           summary: "mergeSlot.autoMerge is off: approve or reject the merge",
           at: base + HOUR,
         });
-        // Group 3: a decision (oldest restart first by time, but decisions lead), directions with
-        // dependents breaking the tie before age, then a restart.
-        insertPark(office, "DIPO-5", {
-          reason: "stopped",
-          cause: "maintainer",
-          detail: "stopped",
-          at: base,
-        });
+        // Group 3: by reason as 0020 lists them, whatever their age; group 4: the stories the
+        // maintainer parked.
+        insertPark(office, "DIPO-5", { reason: "by-maintainer", detail: "stopped", at: base });
         insertPark(office, "DIPO-6", {
           reason: "verify-failing",
-          cause: "loops",
           detail: "verify red three times",
           at: base + HOUR,
         });
         insertPark(office, "DIPO-7", {
           reason: "budget-exceeded",
-          cause: "build",
           detail: "turn cap 61 of 60",
           at: base + 4 * HOUR,
         });
         insertPark(office, "DIPO-8", {
           reason: "conflict",
-          cause: "merge-in-progress",
           detail: "conflicted: a.ts",
           at: base + 2 * HOUR,
         });
-        const permissionPark = insertPark(office, "DIPO-4", {
-          reason: "needs-permission",
-          detail: "Bash(curl)",
+        const questionPark = insertPark(office, "DIPO-4", {
+          reason: "ambiguous-spec",
+          detail: "Which flag?",
           at: base + 5 * HOUR,
-          run: permissionRun.run,
+          run: questionRun.run,
         });
         office.immediate(() =>
-          insertParkQuestion(office, {
+          insertWorkerQuestion(office, {
             questionId: "qst_01J9ZK5Q8W3V4X6Y7Z8A9B0C1D",
-            runId: permissionRun.run,
-            agentId: permissionRun.agent,
-            parkId: permissionPark,
-            tool: "Bash",
-            action: "curl",
-            text: "Bash(curl)",
+            runId: questionRun.run,
+            agentId: questionRun.agent,
+            text: "Which flag?",
             at: base + 5 * HOUR,
+            parkId: questionPark,
           }),
         );
-        insertPark(office, "DIPO-9", { reason: "on-hold", detail: "after M2", at: base });
+        insertPark(office, "DIPO-9", { reason: "by-maintainer", detail: "after M2", at: base });
         // Group 4: a backlog PR whose check failed, and a hand item from a source.
         office.immediate(() => {
           insertPr(
@@ -289,13 +252,13 @@ describe("the desk order (0020 section 12)", () => {
           "PARKED DIPO-7",
           "PARKED DIPO-6",
           "PARKED DIPO-8",
-          "PARKED DIPO-5",
+          "PARKED BY YOU DIPO-5",
+          "PARKED BY YOU DIPO-9",
           "LEFTOVERS DIPO-10",
           "BACKLOG PR -",
           "PROPOSAL DIPO-11",
           "PROPOSAL DIPO-11",
           "PROPOSAL DIPO-11",
-          "HELD DIPO-9",
         ]);
         const byStory = (story: string, kind = "PARKED") =>
           items.find((item) => item.story === story && item.kind === kind);
@@ -326,17 +289,16 @@ describe("the desk order (0020 section 12)", () => {
           ],
         });
         expect(byStory("DIPO-4")?.actions.map((action) => action.cli)).toEqual([
-          "dipo answer qst_01J9ZK5Q8W3V4X6Y7Z8A9B0C1D allow",
-          'dipo answer qst_01J9ZK5Q8W3V4X6Y7Z8A9B0C1D deny "<reason>"',
+          'dipo answer qst_01J9ZK5Q8W3V4X6Y7Z8A9B0C1D --text "<answer>"',
+          'dipo resume DIPO-4 --note "<answer>"',
         ]);
         expect(byStory("DIPO-7")).toMatchObject({
           reason: "budget-exceeded",
-          cause: "build",
           actions: [
             { command: "work.resume", cli: 'dipo resume DIPO-7 --budget +50% --note "<why>"' },
           ],
         });
-        expect(byStory("DIPO-5")?.actions).toEqual([
+        expect(byStory("DIPO-5", "PARKED BY YOU")?.actions).toEqual([
           { command: "work.resume", cli: "dipo resume DIPO-5" },
         ]);
         expect(items.find((item) => item.kind === "BACKLOG PR")).toMatchObject({
@@ -348,8 +310,8 @@ describe("the desk order (0020 section 12)", () => {
         expect(
           items.filter((item) => item.kind === "PROPOSAL").map((item) => item.proposal?.kind),
         ).toEqual(["spike", "follow-up", "decision-note"]);
-        expect(byStory("DIPO-9", "HELD")).toMatchObject({
-          reason: "on-hold",
+        expect(byStory("DIPO-9", "PARKED BY YOU")).toMatchObject({
+          reason: "by-maintainer",
           detail: "after M2",
           actions: [{ command: "work.resume", cli: "dipo resume DIPO-9" }],
         });
@@ -370,7 +332,6 @@ describe("review-blocked parks and hand-merge-only gates", () => {
         const at = t.clock.now();
         insertPark(office, "DIPO-1", {
           reason: "review-blocked",
-          cause: "rounds",
           detail: "round 3 blocked: scope finding in a.ts",
           at,
           run: started.run,
@@ -390,7 +351,7 @@ describe("review-blocked parks and hand-merge-only gates", () => {
           reason: "review-blocked",
           gate: "gat_01J9ZK5Q8W3V4X6Y7Z8A9B0C1C",
           actions: [
-            { command: "work.resume", cli: 'dipo resume DIPO-1 --note "<why>"' },
+            { command: "work.resume", cli: 'dipo resume DIPO-1 --note "<direction>"' },
             { command: "gate.approve", cli: 'dipo approve DIPO-1 --note "<why>"' },
           ],
         });
@@ -436,7 +397,7 @@ describe("review-blocked parks and hand-merge-only gates", () => {
       }
     }));
 
-  it("offers discard for a park that is never resumable, and the resume the matrix allows", () =>
+  it("offers discard for a park that is never resumable, and the resume the 0020 table allows", () =>
     withTempDir(async (dir) => {
       const t = await openTestState(dir);
       try {
@@ -448,24 +409,18 @@ describe("review-blocked parks and hand-merge-only gates", () => {
         const at = t.clock.now();
         insertPark(office, "DIPO-1", {
           reason: "scope-violation",
-          cause: "tampered",
           detail: "links",
           at,
         });
         insertPark(office, "DIPO-2", {
           reason: "verify-failing",
-          cause: "loops",
           detail: "red",
           at,
         });
-        expect(desk(office, all, ALL_SOURCES).map((item) => item.actions)).toEqual([
-          [{ command: "work.discard", cli: 'dipo discard DIPO-1 --note "<why>"' }],
-          [{ command: "work.resume", cli: 'dipo resume DIPO-2 --note "<why>"' }],
-        ]);
-        // This engine's sources are the 0020 matrix (DIPO-155): the same actions.
+        // verify-failing ranks before scope-violation (0020), and resumes with nothing more.
         expect(desk(office, all).map((item) => item.actions)).toEqual([
+          [{ command: "work.resume", cli: "dipo resume DIPO-2" }],
           [{ command: "work.discard", cli: 'dipo discard DIPO-1 --note "<why>"' }],
-          [{ command: "work.resume", cli: 'dipo resume DIPO-2 --note "<why>"' }],
         ]);
       } finally {
         t.state.close();
@@ -506,15 +461,18 @@ describe("stored text on the desk", () => {
           ),
         );
         insertPark(office, "DIPO-2", {
-          reason: "stopped",
-          cause: "maintainer",
+          reason: "worker-failed",
           detail: `stopped${ESC_CLEAR} by${OSC_LINK} the\r\nmaintainer\u009b2J`,
           at,
         });
-        insertPark(office, "DIPO-3", { reason: "stopped", detail: "x".repeat(1000), at: at + 1 });
+        insertPark(office, "DIPO-3", {
+          reason: "worker-failed",
+          detail: "x".repeat(1000),
+          at: at + 1,
+        });
         const items = desk(office, all, ALL_SOURCES);
         expect(items.map((item) => item.detail)).toEqual([
-          "Bash(curl example.com) · worker waiting",
+          '"Bash(curl example.com)" · worker waiting',
           "stopped by the maintainer",
           `${"x".repeat(DESK_DETAIL_MAX - 1)}…`,
         ]);
@@ -535,18 +493,15 @@ describe("stored text on the desk", () => {
   });
 });
 
-describe("the conflict, merge slot and closed-PR parks (DIPO-324)", () => {
-  it("offer dipo resume now that work.resume resumes them: a note for a conflict, none for a closed PR", () =>
+describe("the parks the merge slot makes (DIPO-324, DIPO-344)", () => {
+  it("offer dipo resume with nothing more for a conflict and a closed PR", () =>
     withTempDir(async (dir) => {
       const t = await openTestState(dir);
       try {
         const office = addOffice(t);
         const parks = [
-          ["DIPO-1", "conflict", "merge-in-progress"],
-          ["DIPO-2", "conflict", "unwritable-path"],
-          ["DIPO-3", "conflict", "push-rejected"],
-          ["DIPO-4", "conflict", "slot-refused"],
-          ["DIPO-5", "stopped", "pr-closed"],
+          ["DIPO-1", "conflict", "git cannot merge main cleanly in .github/ci.yml"],
+          ["DIPO-2", "by-maintainer", "PR #7 closed on GitHub"],
         ] as const;
         pass(
           t,
@@ -554,58 +509,23 @@ describe("the conflict, merge slot and closed-PR parks (DIPO-324)", () => {
           parks.map(([story]) => task(story, { status: "Parked" })),
         );
         const at = t.clock.now();
-        for (const [story, reason, cause] of parks) {
-          insertPark(office, story, { reason, cause, detail: `${cause} detail`, at });
-        }
+        for (const [story, reason, detail] of parks)
+          insertPark(office, story, { reason, detail, at });
         const items = desk(office, all);
-        const actionsOf = (story: string) =>
-          items.find((item) => "story" in item && item.story === story)?.actions;
-        for (const story of ["DIPO-1", "DIPO-2", "DIPO-3", "DIPO-4"]) {
-          expect(actionsOf(story)).toEqual([
-            { command: "work.resume", cli: `dipo resume ${story} --note "<why>"` },
-          ]);
-        }
-        expect(actionsOf("DIPO-5")).toEqual([
-          { command: "work.resume", cli: "dipo resume DIPO-5" },
-        ]);
-        // The desk shows the paths an unwritable-path park names (0020 section 2).
-        expect(items.find((item) => "story" in item && item.story === "DIPO-2")).toMatchObject({
-          detail: "unwritable-path detail",
+        const itemOf = (story: string) => items.find((item) => item.story === story);
+        expect(itemOf("DIPO-1")).toMatchObject({
+          kind: "PARKED",
+          detail: "git cannot merge main cleanly in .github/ci.yml",
+          actions: [{ command: "work.resume", cli: "dipo resume DIPO-1" }],
+        });
+        expect(itemOf("DIPO-2")).toMatchObject({
+          kind: "PARKED BY YOU",
+          actions: [{ command: "work.resume", cli: "dipo resume DIPO-2" }],
         });
       } finally {
         t.state.close();
       }
     }));
-});
-
-describe("the resume needs of this engine", () => {
-  it("follow work.resume's policy: on-hold resumes, the 0020 matrix decides every other park (DIPO-155)", () => {
-    expect(policyResumeNeeds("on-hold", null)).toEqual({ kind: "resume", note: "optional" });
-    expect(policyResumeNeeds("needs-permission", null)).toEqual({
-      kind: "refuse",
-      code: "resume.decisionRequired",
-    });
-    expect(policyResumeNeeds("verify-failing", "loops")).toMatchObject({
-      kind: "resume",
-      note: "required",
-    });
-    expect(policyResumeNeeds("budget-exceeded", "build")).toMatchObject({
-      kind: "resume",
-      note: "required",
-      topUp: true,
-    });
-    expect(policyResumeNeeds("stopped", "maintainer")).toMatchObject({ note: "optional" });
-    expect(policyResumeNeeds("scope-violation", "secret")).toMatchObject({
-      kind: "refuse",
-      code: "resume.notResumable",
-    });
-    // A question park resumes with its answer, the note (DIPO-159).
-    expect(policyResumeNeeds("ambiguous-spec", "question")).toMatchObject({
-      kind: "resume",
-      note: "required",
-    });
-    expect(policyResumeNeeds("plan-limit", null)).toBeNull();
-  });
 });
 
 function directory(office: OfficeHandle): OfficeDirectory {
@@ -727,7 +647,6 @@ describe("a review-blocked park whose PR is labelled autorelease: pending", () =
         const at = t.clock.now();
         insertPark(office, "DIPO-1", {
           reason: "review-blocked",
-          cause: "rounds",
           detail: "round 3 blocked",
           at,
           run: started.run,
@@ -754,7 +673,7 @@ describe("a review-blocked park whose PR is labelled autorelease: pending", () =
           kind: "PARKED",
           reason: "review-blocked",
           gate: "gat_01J9ZK5Q8W3V4X6Y7Z8A9B0C1C",
-          actions: [{ command: "work.resume", cli: 'dipo resume DIPO-1 --note "<why>"' }],
+          actions: [{ command: "work.resume", cli: 'dipo resume DIPO-1 --note "<direction>"' }],
           hand: "merge PR #9 (https://github.com/o/r/pull/9) by hand on GitHub: it is labelled autorelease: pending, so dipo never approves it",
         });
       } finally {
@@ -910,7 +829,6 @@ describe("a worker question waiting on the desk (DIPO-159; 0020 section 7)", () 
         const at = t.clock.now();
         const parkId = insertPark(office, "DIPO-2", {
           reason: "ambiguous-spec",
-          cause: "question",
           detail: "Which port?",
           at,
           run: started.run,
@@ -938,6 +856,82 @@ describe("a worker question waiting on the desk (DIPO-159; 0020 section 7)", () 
             { command: "work.resume", cli: 'dipo resume DIPO-2 --note "<answer>"' },
           ],
         });
+      } finally {
+        t.state.close();
+      }
+    }));
+});
+
+describe("the office's starts paused on the desk (0020, DIPO-359)", () => {
+  it("comes first, with its reason, what lifts it and dipo daemon resume-scheduling", () =>
+    withTempDir(async (dir) => {
+      const t = await openTestState(dir);
+      try {
+        const office = addOffice(t);
+        pass(t, office, [task("DIPO-1", { status: "Parked" })]);
+        const at = t.clock.now();
+        insertPark(office, "DIPO-1", { reason: "worker-failed", detail: "plan limit until X", at });
+        t.clock.advance(HOUR);
+        const sources: DeskSources = {
+          ...DESK_SOURCES,
+          startsPaused: () => ({
+            reason: "plan-limit",
+            detail: "plan limit until 2026-10-28T12:00:00.000Z",
+            since: at,
+            until: at + 2 * HOUR,
+            lifts:
+              "It lifts by itself at 2026-10-28T12:02:00.000Z, or with `dipo daemon resume-scheduling`.",
+          }),
+        };
+        const items = desk(office, all, sources);
+        expect(items.map((item) => item.kind)).toEqual(["STARTS PAUSED", "PARKED"]);
+        expect(items[0]).toEqual({
+          kind: "STARTS PAUSED",
+          detail: "no new session starts · plan limit until 2026-10-28T12:00:00.000Z",
+          since: new Date(at).toISOString(),
+          blocks: [],
+          actions: [{ command: "daemon.resumeScheduling", cli: "dipo daemon resume-scheduling" }],
+          hand: "It lifts by itself at 2026-10-28T12:02:00.000Z, or with `dipo daemon resume-scheduling`.",
+        });
+
+        const adapter = desk(office, all, {
+          ...DESK_SOURCES,
+          startsPaused: () => ({
+            reason: "adapter",
+            detail: "claude-cli: probe: claude is not logged in.",
+            since: at,
+            until: null,
+            lifts: "Fix it, then name the story to repeat the launch checks (`dipo run <ID>`).",
+          }),
+        });
+        expect(adapter[0]?.detail).toBe(
+          "no new session starts · adapter check failed: claude-cli: probe: claude is not logged in.",
+        );
+        // The box token's hold: no command lifts it, so the row offers none (DIPO-271).
+        const sticky = desk(office, all, {
+          ...DESK_SOURCES,
+          startsPaused: () => ({
+            reason: "adapter",
+            detail: "claude-cli: box-token: the token was found in a box.",
+            since: at,
+            until: null,
+            lifts: "Replace the box login with dipo login box.",
+            hold: {
+              adapter: "claude-cli",
+              check: "box-token",
+              detail: "the token was found in a box",
+              failures: [{ check: "box-token", detail: "the token was found in a box" }],
+              since: at,
+              liftedBy: "Replace the box login with dipo login box.",
+            },
+          }),
+        });
+        expect(sticky[0]).toMatchObject({
+          actions: [],
+          hand: "Replace the box login with dipo login box.",
+        });
+        // Nothing paused: no such item.
+        expect(desk(office, all, DESK_SOURCES).map((item) => item.kind)).toEqual(["PARKED"]);
       } finally {
         t.state.close();
       }

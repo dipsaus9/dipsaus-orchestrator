@@ -1,4 +1,4 @@
-// `story.hold`, `story.drop` and the on-hold `work.resume` (DIPO-160; 0020 section 8), fast and
+// `story.park`, `story.drop` and the `work.resume` of a park with no run (DIPO-160, DIPO-344; 0020), fast and
 // local: a migrated state database with stories mirrored from a pretend base, a lane that journals
 // into the real journal and records its flushes, a code host that records its PR closes and, for
 // the dirty-worktree check, a git whose one call lists the porcelain status. The real lane, git and
@@ -23,6 +23,7 @@ import {
   type OfficeLane,
   pendingLaneOp,
 } from "../../src/backlog/lane";
+import { insertPark, mirrorParked } from "../run/park-fixture";
 import { insertEntry } from "../../src/backlog/lane/journal";
 import { executeCommand } from "../../src/commands/execute";
 import { CRASH, crashAfterHandler } from "../commands/crash";
@@ -66,6 +67,8 @@ interface World {
     lockedBy: string | undefined;
     calls: string[][];
     goneBranches: string[];
+    /** The `story.park` calls handed to run control for a story with a run. */
+    parkedRuns: { story: string; note: string }[];
   };
 }
 
@@ -94,6 +97,9 @@ function fakeLane(office: OfficeHandle, t: TestState, ops: LaneOp[], flushes: { 
     },
   } as unknown as OfficeLane;
 }
+
+/** The tip `rev-parse` reports for every local branch the fake git has. */
+const BRANCH_TIP = "7".repeat(40);
 
 interface FakeGitOptions {
   /** The `sha<TAB>subject` lines `git log` lists (DIPO-228). */
@@ -133,7 +139,10 @@ function fakeGit(dirty: string[], worktreeGone: boolean, options: FakeGitOptions
         ? ref.slice(11).replace(/\^\{commit\}$/, "")
         : null;
       const found = branch !== null && !(options.goneBranches ?? []).includes(branch);
-      return { code: args[0] === "rev-parse" && !found ? 1 : 0, stdout: "", stderr: "" };
+      if (args[0] !== "rev-parse") return { code: 0, stdout: "", stderr: "" };
+      return found
+        ? { code: 0, stdout: `${BRANCH_TIP}\n`, stderr: "" }
+        : { code: 1, stdout: "", stderr: "" };
     },
   };
   return {
@@ -161,8 +170,13 @@ beforeEach(async () => {
     lockedBy: undefined as string | undefined,
     calls: [] as string[][],
     goneBranches: [] as string[],
+    parkedRuns: [] as { story: string; note: string }[],
   };
   const planning = new StoryPlanning({
+    parkRun: async (_ctx, args) => {
+      hooks.parkedRuns.push({ story: args.story, note: args.note });
+      return { result: { run: "run_01J9ZK5Q8W3V4X6Y7Z8A9B0C5H" as RunId } };
+    },
     lane: () => fakeLane(office, t, ops, flushes),
     git: () =>
       fakeGit(hooks.dirty, hooks.worktreeGone, {
@@ -183,7 +197,7 @@ beforeEach(async () => {
         ? { pid, startTimeMs: HOST_START, zombie: false, command: "dipo daemon worker-host" }
         : null,
   });
-  const resume = new WorkResumeCommand(undefined, () => planning);
+  const resume = new WorkResumeCommand(() => planning);
   const registry = buildRegistry([planning.feature, resume.feature as FeatureModule]);
   w = { dir, t, office, ops, flushes, closed, planning, registry, hooks };
 });
@@ -284,12 +298,15 @@ function claim(key: StoryKey, id: string, runId: RunId): void {
 function park(key: StoryKey, id: string, reason: string, from: string, runId: RunId | null): void {
   const { office, t } = w;
   office.immediate(() =>
-    office.run(
-      `insert into parks (office_id, park_id, key, story_id, run_id, reason, from_state, detail, at)
-       values ($office_id, (select coalesce(max(park_id), 0) + 1 from parks
-         where office_id = $office_id), $key, $story, $run, $reason, $from, 'detail', $at)`,
-      { key, story: id, run: runId, reason, from, at: t.clock.now() },
-    ),
+    insertPark(office, {
+      key,
+      story: id,
+      runId,
+      reason,
+      from,
+      detail: "detail",
+      at: t.clock.now(),
+    }),
   );
 }
 
@@ -327,11 +344,11 @@ async function send(
 function parkedClaim(id: string): StoryKey {
   const key = story(id, {
     status: "Parked",
-    park: { reason: "stopped", from: "In Progress", note: "stopped" },
+    park: { reason: "by-maintainer", from: "In Progress", note: "stopped" },
   });
   const runId = w.t.ids.next("run") as RunId;
   claim(key, id, runId);
-  park(key, id, "stopped", "In Progress", null);
+  park(key, id, "by-maintainer", "In Progress", null);
   w.office.immediate(() =>
     w.office.run(
       `insert into worker_hosts (office_id, run_id, agent_id, pid, start_time_ms, socket_path,
@@ -358,11 +375,11 @@ function entries(type: string): { key: string | null; delta: Record<string, unkn
     .map((row) => ({ key: row.key, delta: JSON.parse(row.delta) as Record<string, unknown> }));
 }
 
-describe("story.hold", () => {
+describe("story.park", () => {
   for (const status of ["Refined", "Ready"]) {
-    it(`journals a lane-b hold writing F16 and status Parked for a ${status} story`, async () => {
+    it(`journals a lane-b park writing F16 by-maintainer and status Parked for a ${status} story`, async () => {
       const key = story("DIPO-7", { status });
-      const reply = await send("story.hold", { story: "DIPO-7", note: "after M2" });
+      const reply = await send("story.park", { story: "DIPO-7", note: "after M2" });
       expect(reply).toMatchObject({ ok: true, changed: true, result: { story: "DIPO-7", key } });
 
       expect(w.ops).toEqual([
@@ -373,7 +390,7 @@ describe("story.hold", () => {
           target: {
             from: ["Refined", "Ready", "To Do"],
             status: "Parked",
-            fields: { park: { reason: "on-hold", from: status, note: "after M2" } },
+            fields: { park: { reason: "by-maintainer", from: status, note: "after M2" } },
           },
         },
       ]);
@@ -381,7 +398,7 @@ describe("story.hold", () => {
       expect(pendingLaneOp(w.office, key)).not.toBeNull();
       expect(w.flushes.n).toBe(1);
       expect(openPark(w.office, key)).toMatchObject({
-        reason: "on-hold",
+        reason: "by-maintainer",
         from: status,
         detail: "after M2",
         runId: null,
@@ -391,36 +408,37 @@ describe("story.hold", () => {
         to: "Parked",
       });
       expect(entries("story.parked").at(-1)?.delta).toMatchObject({
-        reason: "on-hold",
+        reason: "by-maintainer",
         detail: "after M2",
         from: status,
         actions: ["work.resume", "work.discard", "story.drop"],
       });
+      expect(w.hooks.parkedRuns).toEqual([]);
     });
   }
 
-  it("answers a re-run of the same hold with the same result and journals nothing again", async () => {
+  it("answers a park of a parked story as the target state and journals nothing again", async () => {
     story("DIPO-7", { status: "Ready" });
-    await send("story.hold", { story: "DIPO-7", note: "later" });
-    const again = await send("story.hold", { story: "DIPO-7", note: "later" });
-    expect(again).toMatchObject({ ok: true });
+    await send("story.park", { story: "DIPO-7", note: "later" });
+    const again = await send("story.park", { story: "DIPO-7", note: "later" });
+    expect(again).toMatchObject({ ok: true, changed: false });
+    const other = await send("story.park", { story: "DIPO-7", note: "other" });
+    expect(other).toMatchObject({ ok: true, changed: false });
     expect(w.ops).toHaveLength(1);
-    const other = errorOf(await send("story.hold", { story: "DIPO-7", note: "other" }));
-    expect(other.code).toBe("story.notHoldable");
   });
 
-  it("journals one hold when a crash before the requests row makes the retry run the handler again (DIPO-168)", async () => {
+  it("journals one park when a crash before the requests row makes the retry run the handler again (DIPO-168)", async () => {
     story("DIPO-7", { status: "Ready" });
     const id = "01J9ZK5Q8W3V4X6Y7Z90000001";
     const crashed = await send(
-      "story.hold",
+      "story.park",
       { story: "DIPO-7", note: "later" },
       { id, crash: true },
     );
     expect(crashed.ok ? null : crashed.error.message).toContain(CRASH);
     expect(w.ops).toHaveLength(1);
     const retried = await send(
-      "story.hold",
+      "story.park",
       { story: "DIPO-7", note: "later" },
       { id, crash: false },
     );
@@ -429,55 +447,73 @@ describe("story.hold", () => {
     expect(entries("story.state")).toHaveLength(1);
   });
 
-  it("refuses a running story, naming dipo stop, and journals nothing", async () => {
+  it("hands a running story to run control, which stops its worker, and journals nothing", async () => {
     const key = story("DIPO-7", { status: "In Progress" });
     claim(key, "DIPO-7", activeRun(key, "DIPO-7"));
-    const error = errorOf(await send("story.hold", { story: "DIPO-7", note: "x" }));
-    expect(error.code).toBe("story.notHoldable");
-    expect(error.message).toContain("dipo stop");
+    const reply = await send("story.park", { story: "DIPO-7", note: "wrong approach" });
+    expect(reply).toMatchObject({
+      ok: true,
+      result: { story: "DIPO-7", key, run: "run_01J9ZK5Q8W3V4X6Y7Z8A9B0C5H" },
+    });
+    expect(w.hooks.parkedRuns).toEqual([{ story: key, note: "wrong approach" }]);
     expect(w.ops).toEqual([]);
     expect(allEntries(w.office)).toEqual([]);
   });
 
-  it("refuses a parked story with a claim, naming resume and discard", async () => {
+  it("hands a story In Review with its claim to run control", async () => {
+    const key = story("DIPO-7", { status: "In Review" });
+    claim(key, "DIPO-7", w.t.ids.next("run") as RunId);
+    await send("story.park", { story: "DIPO-7", note: "after the release" });
+    expect(w.hooks.parkedRuns).toEqual([{ story: key, note: "after the release" }]);
+    expect(w.ops).toEqual([]);
+  });
+
+  it("answers a parked story with a claim as parked already, changing nothing", async () => {
     const key = story("DIPO-7", {
       status: "Parked",
-      park: { reason: "stopped", from: "In Progress", note: "stopped" },
+      park: { reason: "by-maintainer", from: "In Progress", note: "stopped" },
     });
     claim(key, "DIPO-7", w.t.ids.next("run") as RunId);
-    park(key, "DIPO-7", "stopped", "In Progress", null);
-    const error = errorOf(await send("story.hold", { story: "DIPO-7", note: "x" }));
-    expect(error.code).toBe("story.notHoldable");
-    expect(error.message).toContain("resume");
-    expect(error.message).toContain("discard");
+    park(key, "DIPO-7", "by-maintainer", "In Progress", null);
+    const reply = await send("story.park", { story: "DIPO-7", note: "x" });
+    expect(reply).toMatchObject({ ok: true, changed: false });
     expect(w.ops).toEqual([]);
+    expect(w.hooks.parkedRuns).toEqual([]);
   });
 
   it("refuses a draft and a Done story", async () => {
     story("DRAFT-1", { status: "Draft", kind: "draft" });
     story("DIPO-8", { status: "Done" });
-    expect(errorOf(await send("story.hold", { story: "DRAFT-1", note: "x" })).code).toBe(
-      "story.notHoldable",
+    expect(errorOf(await send("story.park", { story: "DRAFT-1", note: "x" })).code).toBe(
+      "story.notParkable",
     );
-    expect(errorOf(await send("story.hold", { story: "DIPO-8", note: "x" })).code).toBe(
-      "story.notHoldable",
+    expect(errorOf(await send("story.park", { story: "DIPO-8", note: "x" })).code).toBe(
+      "story.notParkable",
     );
   });
 });
 
-describe("work.resume of an on-hold story", () => {
+describe("work.resume of a story parked with no run", () => {
   it("lifts F16 in lane b, sets park.from, and a story back at Ready is not picked yet", async () => {
     const key = story("DIPO-7", { status: "Ready" });
-    await send("story.hold", { story: "DIPO-7", note: "later" });
+    await send("story.park", { story: "DIPO-7", note: "later" });
     w.ops.length = 0;
-    // Merged: the base now says Parked with the hold's F16, as the index would read it.
+    // Merged: the base now says Parked with the park's F16, as the index would read it.
     const entry = allEntries(w.office)[0];
-    w.office.immediate(() =>
+    w.office.immediate(() => {
       w.office.run(
         "update backlog_journal set state = 'merged' where office_id = $office_id and op_id = $op",
         { op: entry?.opId ?? 0 },
-      ),
-    );
+      );
+      mirrorParked(w.office, {
+        key,
+        story: "DIPO-7",
+        reason: "by-maintainer",
+        from: "Ready",
+        detail: "later",
+        at: w.t.clock.now(),
+      });
+    });
     expect(pendingLaneOp(w.office, key)).toBeNull();
 
     const reply = await send("work.resume", { story: "DIPO-7", note: "M2 is done" });
@@ -506,14 +542,14 @@ describe("work.resume of an on-hold story", () => {
     expect(entries("story.state").at(-1)?.delta).toMatchObject({ from: "Parked", to: "Ready" });
   });
 
-  it("returns a story held at Refined to Refined", async () => {
+  it("returns a story parked at Refined to Refined", async () => {
     story("DIPO-7", { status: "Refined" });
-    await send("story.hold", { story: "DIPO-7", note: "later" });
+    await send("story.park", { story: "DIPO-7", note: "later" });
     const reply = await send("work.resume", { story: "DIPO-7" });
     expect(reply).toMatchObject({ ok: true, result: { to: "Refined" } });
   });
 
-  it("still answers story.notPausedOrParked for a story that is not held", async () => {
+  it("still answers story.notPausedOrParked for a story that is not parked", async () => {
     story("DIPO-7", { status: "Ready" });
     expect(errorOf(await send("work.resume", { story: "DIPO-7" })).code).toBe(
       "story.notPausedOrParked",
@@ -560,9 +596,9 @@ describe("story.drop", () => {
   it("resolves the open park of a Parked story with resolved_how drop", async () => {
     const key = story("DIPO-7", {
       status: "Parked",
-      park: { reason: "on-hold", from: "Ready", note: "later" },
+      park: { reason: "by-maintainer", from: "Ready", note: "later" },
     });
-    park(key, "DIPO-7", "on-hold", "Ready", null);
+    park(key, "DIPO-7", "by-maintainer", "Ready", null);
     expect(openPark(w.office, key)).not.toBeNull();
     const reply = await send("story.drop", { story: "DIPO-7", deleteBranch: false });
     expect(reply).toMatchObject({ ok: true });
@@ -577,11 +613,11 @@ describe("story.drop", () => {
   });
 
   for (const status of ["In Progress", "In Review"]) {
-    it(`refuses a story that is ${status}, naming dipo stop`, async () => {
+    it(`refuses a story that is ${status}, naming dipo park`, async () => {
       story("DIPO-7", { status });
       const error = errorOf(await send("story.drop", { story: "DIPO-7", deleteBranch: false }));
       expect(error.code).toBe("story.active");
-      expect(error.message).toContain("dipo stop");
+      expect(error.message).toContain("dipo park");
       expect(w.ops).toEqual([]);
     });
   }
@@ -615,10 +651,10 @@ describe("story.drop", () => {
   it("refuses a dirty worktree listing the files unless --delete-branch is given", async () => {
     const key = story("DIPO-7", {
       status: "Parked",
-      park: { reason: "stopped", from: "In Progress", note: "stopped" },
+      park: { reason: "by-maintainer", from: "In Progress", note: "stopped" },
     });
     claim(key, "DIPO-7", w.t.ids.next("run") as RunId);
-    park(key, "DIPO-7", "stopped", "In Progress", null);
+    park(key, "DIPO-7", "by-maintainer", "In Progress", null);
     w.hooks.dirty.push("src/new.ts", "notes.txt");
     const error = errorOf(await send("story.drop", { story: "DIPO-7", deleteBranch: false }));
     expect(error.code).toBe("story.dirtyWorktree");
@@ -869,7 +905,12 @@ describe("story.losses and the kept branch of a story (DIPO-228)", () => {
     keepBranch(key, "DIPO-7/work");
     const reply = await send("story.drop", { story: "DIPO-7", deleteBranch: true });
     expect(reply).toMatchObject({ ok: true, changed: true, result: { story: "DIPO-7", key } });
-    expect(w.hooks.calls).toContainEqual(["update-ref", "-d", "refs/heads/DIPO-7/work"]);
+    expect(w.hooks.calls).toContainEqual([
+      "update-ref",
+      "-d",
+      "refs/heads/DIPO-7/work",
+      BRANCH_TIP,
+    ]);
     expect(releasedBranchFor(w.office, key, "DIPO-7/work")).toBeNull();
     const row = w.office.get<{ reclaimed_at: number | null }>(
       "select reclaimed_at from released_branches where office_id = $office_id and key = $key",

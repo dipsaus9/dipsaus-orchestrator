@@ -9,13 +9,12 @@ import type { HostOp } from "../workers/types";
 
 import { runCaps } from "./caps";
 import type { RunEnding } from "./control-types";
-import { markIntentSent, recordIntent, resolveIntent, type StoredIntent } from "./intents";
+import { sendFeedback } from "./feedback";
+import { resolveIntent, type StoredIntent } from "./intents";
 import type { OutcomeSupport } from "./outcome-support";
 import type { SessionStarts } from "./outcome-sessions";
-import type { TurnOutcomes } from "./outcome-turns";
 import {
   type ExitContext,
-  feedbackOf,
   HOST_LOST_END,
   HOST_LOST_WHY,
   initRejectedEnding,
@@ -24,29 +23,26 @@ import {
   intentTag,
   type HostLostContext,
   OUTCOME_ENDS,
+  planLimitEnding,
   reportFeedbackText,
   type RunOutcomesDeps,
   type RunView,
-  type WaitFact,
 } from "./outcome-types";
-import { PARK_CAUSES } from "./park";
-import { MAINTAINER_TAGS } from "./pauses";
 import { findRun, type StoredRun } from "./records";
 import { raiseSignal } from "./signals";
+import { planLimitPause } from "./starts-paused";
 
 export class ExitOutcomes {
   readonly #s: OutcomeSupport;
   readonly #deps: RunOutcomesDeps;
   readonly #guard: OutcomeSupport["guard"];
   readonly #sessions: SessionStarts;
-  readonly #turns: TurnOutcomes;
 
-  constructor(support: OutcomeSupport, sessions: SessionStarts, turns: TurnOutcomes) {
+  constructor(support: OutcomeSupport, sessions: SessionStarts) {
     this.#s = support;
     this.#deps = support.deps;
     this.#guard = support.guard;
     this.#sessions = sessions;
-    this.#turns = turns;
   }
 
   async onExit(exit: ExitContext): Promise<void> {
@@ -60,7 +56,7 @@ export class ExitOutcomes {
    * 0008 section 7): `work.observed host-lost` (health `lost`) and the agent ends `host-lost`;
    * then as a crash row, except that only a resume will do: the session is resumed once when
    * budget remains and `canResume` holds (the dead agent's usage finalized first), else the story
-   * parks `interrupted`. An intent from before the stop that explains an exit decides it instead.
+   * parks `worker-failed`. An intent from before the stop that explains an exit decides it instead.
    */
   async onHostLost(lost: HostLostContext): Promise<void> {
     const key = `${lost.view.runId} ${lost.agent}`;
@@ -144,7 +140,7 @@ export class ExitOutcomes {
     });
   }
 
-  /** The decision on an agent that ended `host-lost`: one resume, else park `interrupted`. */
+  /** The decision on an agent that ended `host-lost`: one resume, else park `worker-failed`. */
   async hostLost(
     office: OfficeHandle,
     run: StoredRun,
@@ -157,8 +153,7 @@ export class ExitOutcomes {
       await this.#s.park(office, run, view.work, {
         intent: "park",
         ops: [],
-        reason: "interrupted",
-        cause: PARK_CAUSES.build,
+        reason: "worker-failed",
         detail: `${HOST_LOST_WHY}${suffix}`,
         endKind: OUTCOME_ENDS.interrupted,
       });
@@ -192,18 +187,28 @@ export class ExitOutcomes {
       await this.#byIntent(office, run, view, agent, intent);
       return;
     }
-    // This worker exited before it answered its report feedback: resume with it. The feedback
-    // is resolved only once the next session started, so a restart in between resumes again.
+    // This worker exited before it answered its report correction: the correction is held again
+    // for the resume's first message (the one feedback path), keyed on this agent, so a restart
+    // before the resume started resumes again. It is delivered once the next session started.
     const feedback = this.#s
       .reportFeedbacks(office, view.runId)
-      .find((row) => row.resolvedAt === null && feedbackOf(row.detail).agent === agent);
+      .find((row) => row.resolvedAt === null && row.key === agent);
     if (feedback !== undefined) {
-      const started = await this.#sessions.next(office, run, view, {
+      if (feedback.via === "now") {
+        office.immediate(() => {
+          resolveIntent(office, view.runId, feedback.intentId, "held-again", at);
+          sendFeedback(
+            office,
+            view.runId,
+            { source: "report", key: agent, text: feedback.text },
+            { at },
+          );
+        });
+      }
+      await this.#sessions.next(office, run, view, {
         mode: "resume",
         why: "the worker exited before it answered the report feedback",
-        message: reportFeedbackText(feedbackOf(feedback.detail).why),
       });
-      if (started) this.#s.resolve(office, view.runId, feedback, "resumed", this.#deps.clock.now());
       return;
     }
     await this.#byResult(office, run, view, agent, exit.end);
@@ -242,16 +247,6 @@ export class ExitOutcomes {
       });
       return;
     }
-    if (intent.kind === "pause" && tag === MAINTAINER_TAGS.pause) {
-      // The maintainer's pause: the process exited after the 10 minutes. The run stays paused,
-      // without a session and a place, until `work.resume` (DIPO-163).
-      return;
-    }
-    if (intent.kind === "pause" && tag === INTENT_TAGS.planLimit) {
-      // The run waits for the reset with its claim and session (DIPO-61 resumes it).
-      this.#s.resolve(office, view.runId, intent, "plan-limit", at);
-      return;
-    }
     if (intent.kind === "stop" && tag === INTENT_TAGS.startFailed) {
       this.#s.resolve(office, view.runId, intent, "startFailed", at);
       await this.#sessions.startFailed(office, run, view.work, intentRest(intent.detail), null);
@@ -287,20 +282,10 @@ export class ExitOutcomes {
         );
         return;
       case "plan-limit": {
-        const fact: WaitFact = { scope: "unknown", since: this.#deps.clock.now() };
-        const intentId = office.immediate(() =>
-          recordIntent(
-            office,
-            run.runId,
-            "pause",
-            `${INTENT_TAGS.planLimit} ${JSON.stringify(fact)}`,
-            fact.since,
-          ),
-        );
-        office.immediate(() =>
-          resolveIntent(office, run.runId, intentId, "plan-limit", fact.since),
-        );
-        this.#turns.hold(office, run.runId, view.work, fact);
+        // An exit the adapter reads as a plan limit, with no event that named its reset (0020).
+        const pause = planLimitPause({ credits: false }, this.#deps.clock.now());
+        this.#deps.startsPaused?.()?.pausePlanLimit(view.office, pause);
+        await park(planLimitEnding(pause, []));
         return;
       }
       case "capped":
@@ -309,7 +294,6 @@ export class ExitOutcomes {
             await park({
               intent: "cap",
               reason: "budget-exceeded",
-              cause: PARK_CAUSES.build,
               detail: "prompt_too_long: the context is full again after a handoff",
               endKind: OUTCOME_ENDS.capped,
             });
@@ -325,7 +309,6 @@ export class ExitOutcomes {
         await park({
           intent: "cap",
           reason: result.park?.reason ?? "budget-exceeded",
-          cause: PARK_CAUSES.build,
           detail: result.park?.detail ?? "the worker stopped at a cap",
           endKind: OUTCOME_ENDS.capped,
         });
@@ -336,46 +319,33 @@ export class ExitOutcomes {
             /^no valid report: /,
             "",
           );
+          // A report that does not parse or match the schema is a broken worker (0008, 0001).
           if (this.#s.reportFeedbacks(office, run.runId).length > 0) {
             await park({
               intent: "park",
-              reason: "ambiguous-spec",
-              cause: PARK_CAUSES.noReport,
+              reason: "worker-failed",
               detail: `no valid report: ${why}`,
               endKind: OUTCOME_ENDS.noReport,
             });
             return;
           }
-          // The one feedback turn, as the first message of a resume; resolved once it started.
-          const at = this.#deps.clock.now();
-          const id = office.immediate(() => {
-            const recorded = recordIntent(
-              office,
-              run.runId,
-              "steer",
-              `${INTENT_TAGS.reportFeedback} ${agent} ${why}`,
-              at,
-            );
-            markIntentSent(office, run.runId, recorded, at, null);
-            return recorded;
-          });
-          const started = await this.#sessions.next(office, run, view, {
+          // The one correction turn, held for the resume's first message and keyed on this agent,
+          // so a restart before the resume started resumes with it again (`#decideExit`).
+          sendFeedback(
+            office,
+            run.runId,
+            { source: "report", key: agent, text: reportFeedbackText(why) },
+            { at: this.#deps.clock.now() },
+          );
+          await this.#sessions.next(office, run, view, {
             mode: "resume",
             why: "a turn without a valid report",
-            message: reportFeedbackText(why),
           });
-          if (started) {
-            const now = this.#deps.clock.now();
-            office.immediate(() => resolveIntent(office, run.runId, id, "resumed", now));
-          }
           return;
         }
         await park({
           intent: "park",
           reason: result.park?.reason ?? "ambiguous-spec",
-          // A permission the worker was denied parks its session; anything else is a question.
-          cause:
-            result.park?.reason === "needs-permission" ? PARK_CAUSES.build : PARK_CAUSES.question,
           detail: result.park?.detail ?? "the worker is blocked",
           endKind: OUTCOME_ENDS.blocked,
           report: result.report,
@@ -404,7 +374,6 @@ export class ExitOutcomes {
         intent: "park",
         ops: [],
         reason: "worker-failed",
-        cause: PARK_CAUSES.build,
         detail: `${detail}${refused}`,
         endKind: OUTCOME_ENDS.crashed,
       });

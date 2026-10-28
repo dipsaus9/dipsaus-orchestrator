@@ -4,17 +4,23 @@
 // check is what keeps `node_modules` out; the DIPO-290 cases use a box that honours it, as GNU tar
 // does.
 //
-// Only the guard that runs no hook and no filter stays local; the other cases are in
-// parts-commit.ci.test.ts (CI only, DIPO-225), and the rules as data are in box/parts.test.ts.
+// Only the guard that runs no hook and no filter, and the barriers around the box's own git
+// repository (DIPO-346, 0008), stay local; the other cases are in parts-commit.ci.test.ts (CI only,
+// DIPO-225), and the rules as data are in box/parts.test.ts. The box's repository here is made by
+// dipo's own init script (`boxGitInitCommand`), run on the fake box's folder.
 
 import { spawnSync } from "node:child_process";
 import {
   cpSync,
   existsSync,
   mkdirSync,
+  lstatSync,
   mkdtempSync,
+  readdirSync,
   realpathSync,
+  renameSync,
   rmSync,
+  symlinkSync,
   writeFileSync,
 } from "node:fs";
 import { basename, dirname, join, relative } from "node:path";
@@ -36,9 +42,12 @@ import {
   type PartRun,
   partStageRoot,
 } from "../../src/box/parts";
+import { BOX_GIT_ENV, boxGitInitCommand } from "../../src/box/box-git";
+import { BOX_WORKDIR } from "../../src/box/code";
 import { BOX_RUN_FILE } from "../../src/box/workers";
 import { type BoxPort } from "../../src/box/port";
 import { OfficeGit, spawnGitExec } from "../../src/git";
+import type { GitCall } from "../../src/git/runner";
 import { systemSpawn } from "../../src/platform/process";
 
 const OFFICE = "office-parts" as OfficeId;
@@ -200,6 +209,8 @@ interface WorldOptions {
   /** Called on every exec in the box, before it packs `/work` (`ExecHook`). */
   readonly onExec?: (w: World) => ReturnType<ExecHook>;
   readonly deps?: Partial<BoxPartsDeps>;
+  /** Every git call dipo makes on the Mac, recorded (DIPO-346). */
+  readonly gitCalls?: GitCall[];
 }
 
 async function world(repo: TempRepoWithRemote, options: WorldOptions = {}): Promise<World> {
@@ -238,7 +249,14 @@ async function world(repo: TempRepoWithRemote, options: WorldOptions = {}): Prom
     mainWorktree: real,
     commonDir: join(real, ".git"),
     settings: { remote: "origin", base: "main" },
-    runner: { exec: spawnGitExec(systemSpawn), env: repo.env, sleep: async () => {} },
+    runner: {
+      exec: (call) => {
+        options.gitCalls?.push(call);
+        return spawnGitExec(systemSpawn)(call);
+      },
+      env: repo.env,
+      sleep: async () => {},
+    },
     clock: new ManualClock(),
   });
   const calls: string[] = [];
@@ -333,4 +351,244 @@ describe("a part on real git", () => {
       expect(await w.repo.git("show", `${await tip(w)}:src/a.ts`)).toBe("export const a = 3;\n");
       expect(existsSync(marker)).toBe(false);
     }));
+});
+
+// ---- the box's own git repository (DIPO-346) -----------------------------------------------------
+
+/** Runs dipo's init script of the box's repository on the fake box's folder, as the box does. */
+function initBoxRepo(w: World): void {
+  const [shell, flag, script] = boxGitInitCommand();
+  const made = spawnSync(shell, [flag, script.replaceAll(`'${BOX_WORKDIR}'`, `'${w.work}'`)], {
+    env: { ...w.repo.env, ...BOX_GIT_ENV },
+    encoding: "utf8",
+  });
+  expect(made.stderr).toBe("");
+  expect(made.status).toBe(0);
+}
+
+/**
+ * The box's `.git` folder replaced by a `.git` file with a `gitdir` pointer. The folder is moved
+ * out of the box's folder in one rename rather than removed: a recursive removal that leaves part
+ * of it behind (seen on CI's macOS runner) would leave a folder where the file must go.
+ */
+function gitdirFile(w: World): void {
+  renameSync(join(w.work, ".git"), mkdtempSync(join(w.repo.root, "box-git-")) + "/git");
+  writeFileSync(join(w.work, ".git"), "gitdir: /home/dipo/elsewhere\n");
+  expect(lstatSync(join(w.work, ".git")).isFile()).toBe(true);
+}
+
+/** git in the box's repository, as the worker would run it there. */
+function inBox(w: World, ...args: string[]): string {
+  const ran = spawnSync("git", args, { cwd: w.work, env: w.repo.env, encoding: "utf8" });
+  expect(ran.status).toBe(0);
+  return ran.stdout;
+}
+
+/** What the Mac repository holds that the box must never reach: its config, refs and hooks. */
+async function macState(w: World): Promise<string> {
+  const config = await w.repo.git("config", "--local", "--list");
+  const refs = (await w.repo.git("for-each-ref", "--format=%(refname) %(objectname)"))
+    .split("\n")
+    .filter(
+      (line) =>
+        !line.startsWith(`refs/heads/${BRANCH} `) &&
+        !line.startsWith(`refs/remotes/origin/${BRANCH} `),
+    )
+    .join("\n");
+  const hooks = readdirSync(join(w.repo.dir, ".git", "hooks"))
+    .toSorted()
+    .join(",");
+  return [config, refs, hooks].join("\n--\n");
+}
+
+/** Every path a commit holds. */
+async function pathsAt(w: World, commit: string): Promise<string[]> {
+  return (await w.repo.git("ls-tree", "-r", "--name-only", commit))
+    .split("\n")
+    .filter((line) => line !== "");
+}
+
+/** The kind a park names. */
+function parkedFor(w: World): string[] {
+  return w.parks.map((park) => `${park.reason}: ${park.detail}`);
+}
+
+const GIT_FOLDER_PARK =
+  "scope-violation: The part the worker delivered changes protected files: git's own folder (.git). dipo committed and pushed nothing, and the change stays in the box. Only dipo or the maintainer writes these files.";
+const LINK_PARK =
+  "scope-violation: The part the worker delivered changes protected files: a symlink or hard link. dipo committed and pushed nothing, and the change stays in the box. Only dipo or the maintainer writes these files.";
+
+describe("the box's own git repository and the parts (DIPO-346)", () => {
+  it("delivers a part without the box's .git: the box's commits, config and hooks stay in the box", () =>
+    inParts(
+      async (w) => {
+        const before = await macState(w);
+        initBoxRepo(w);
+        // The worker uses its repository as it likes: commits, a hook, a hooks path, a remote.
+        write(w.work, { "src/a.ts": "export const a = 2;\n" });
+        inBox(w, "commit", "-qam", "Work in the box");
+        writeFileSync(join(w.work, ".git", "hooks-marker"), "box\n");
+        inBox(w, "config", "core.hooksPath", "/tmp/box-hooks");
+        inBox(w, "remote", "add", "evil", "https://example.com/evil.git");
+        await w.parts.onPart(part("Change a"));
+        expect(w.parks).toEqual([]);
+        const commit = await tip(w);
+        expect(await pathsAt(w, commit)).not.toContain(".git");
+        expect((await pathsAt(w, commit)).some((path) => path.split("/").includes(".git"))).toBe(
+          false,
+        );
+        expect(await w.repo.git("show", `${commit}:src/a.ts`)).toBe("export const a = 2;\n");
+        // One commit on the claim tip, dipo's: the box's own commit and history never come along.
+        expect((await w.repo.git("rev-parse", `${commit}^`)).trim()).toBe(w.claimTip);
+        expect(await w.repo.git("log", "--format=%s", `${w.claimTip}..${commit}`)).toBe(
+          "Change a\n",
+        );
+        // The Mac repository's config, refs (but the story branch) and hooks are as they were.
+        expect(await macState(w)).toBe(before);
+        // The stream asked the box to keep its .git, on every take.
+        expect(
+          w.calls
+            .filter((call) => call.startsWith("exec "))
+            .every((call) => call.includes("--exclude=./.git ")),
+        ).toBe(true);
+      },
+      { tar: "excludes" },
+    ));
+
+  // The fail-closed case on the real part path: a box whose tar does not keep its .git in (as if
+  // the in-box filter were undone) hands the Mac a changed .git/config.
+  it("refuses a part that carries a changed .git/config, and commits and pushes nothing", () =>
+    inParts(async (w) => {
+      initBoxRepo(w);
+      inBox(w, "config", "core.hooksPath", "hooks");
+      write(w.work, { "src/a.ts": "export const a = 2;\n" });
+      const before = await macState(w);
+      await w.parts.onPart(part("Carry the box's git config"));
+      expect(parkedFor(w)).toEqual([GIT_FOLDER_PARK]);
+      expect(await tip(w)).toBe(w.claimTip);
+      expect(await tip(w, "remote")).toBe(w.claimTip);
+      expect(await macState(w)).toBe(before);
+      expect(await w.repo.git("config", "--get-all", "core.hooksPath").catch(() => "")).toBe("");
+    }));
+
+  for (const [what, plant, tar, refusal] of [
+    [
+      "a symlink in a part that points at .git",
+      (w: World) => symlinkSync("../.git", join(w.work, "src", "repo")),
+      "excludes",
+      LINK_PARK,
+    ],
+    [
+      "a symlink in a part that points at a file in .git",
+      (w: World) => symlinkSync("../.git/config", join(w.work, "src", "config")),
+      "excludes",
+      LINK_PARK,
+    ],
+    [
+      "a .git file instead of a folder, below the root",
+      (w: World) => write(w.work, { "vendor/lib/.git": "gitdir: ../../.git\n" }),
+      "excludes",
+      GIT_FOLDER_PARK,
+    ],
+    [
+      "a nested repository",
+      (w: World) => {
+        write(w.work, { "vendor/nested/README.md": "# nested\n" });
+        const made = spawnSync("git", ["init", "-q", join(w.work, "vendor", "nested")], {
+          env: w.repo.env,
+        });
+        expect(made.status).toBe(0);
+      },
+      "excludes",
+      GIT_FOLDER_PARK,
+    ],
+    [
+      "a .git file with a gitdir pointer at the root, when the box's tar keeps it",
+      (w: World) => {
+        gitdirFile(w);
+      },
+      "all",
+      GIT_FOLDER_PARK,
+    ],
+  ] as const) {
+    it(`refuses ${what}, and commits nothing`, () =>
+      inParts(
+        async (w) => {
+          initBoxRepo(w);
+          write(w.work, { "src/a.ts": "export const a = 2;\n" });
+          plant(w);
+          await w.parts.onPart(part("Plant something of git"));
+          expect(parkedFor(w)).toEqual([refusal]);
+          expect(await tip(w)).toBe(w.claimTip);
+          expect(await tip(w, "remote")).toBe(w.claimTip);
+        },
+        { tar },
+      ));
+  }
+
+  it("keeps a root .git file with a gitdir pointer in the box: nothing of it reaches the Mac", () =>
+    inParts(
+      async (w) => {
+        initBoxRepo(w);
+        gitdirFile(w);
+        write(w.work, { "src/a.ts": "export const a = 2;\n" });
+        await w.parts.onPart(part("Change a"));
+        expect(w.parks).toEqual([]);
+        expect(await pathsAt(w, await tip(w))).not.toContain(".git");
+      },
+      { tar: "excludes" },
+    ));
+
+  it("runs no hook of the box's repository on the Mac, whatever core.hooksPath the box sets", () =>
+    inParts(
+      async (w) => {
+        const marker = join(w.repo.root, "HOOK-RAN");
+        initBoxRepo(w);
+        // Hooks in the tree, named by the box's own config: delivered as plain files, never run.
+        for (const hook of ["pre-commit", "post-commit", "reference-transaction", "pre-push"]) {
+          write(w.work, { [`box-hooks/${hook}`]: `#!/bin/sh\ntouch ${marker}\n` });
+        }
+        inBox(w, "config", "core.hooksPath", join(w.work, "box-hooks"));
+        await w.parts.onPart(part("Add hook scripts"));
+        expect(w.parks).toEqual([]);
+        expect(await pathsAt(w, await tip(w))).toContain("box-hooks/pre-commit");
+        expect(existsSync(marker)).toBe(false);
+        expect(await w.repo.git("config", "--get-all", "core.hooksPath").catch(() => "")).toBe("");
+      },
+      { tar: "excludes" },
+    ));
+
+  it("runs no git command on the Mac in a box folder: never there as its folder, git dir or work tree", () => {
+    const gitCalls: GitCall[] = [];
+    return inParts(
+      async (w) => {
+        initBoxRepo(w);
+        write(w.work, { "src/a.ts": "export const a = 2;\n" });
+        await w.parts.onPart(part("Change a"));
+        expect(w.parks).toEqual([]);
+        expect(gitCalls.length).toBeGreaterThan(0);
+        const boxFolders = [realpathSync(w.work), realpathSync(w.stageRoot)];
+        const inBoxFolder = (path: string | undefined) =>
+          path !== undefined &&
+          boxFolders.some((folder) => path === folder || path.startsWith(`${folder}/`));
+        for (const call of gitCalls) {
+          expect(inBoxFolder(realpathSync(call.cwd))).toBe(false);
+          for (const key of ["GIT_DIR", "GIT_WORK_TREE", "GIT_COMMON_DIR"]) {
+            expect(inBoxFolder(call.env[key])).toBe(false);
+          }
+          // No work tree at all, and no git dir or folder in a box folder, in either option form.
+          expect(call.args.some((arg) => arg.startsWith("--work-tree"))).toBe(false);
+          call.args.forEach((arg, at) => {
+            if (arg === "-C" || arg === "--git-dir") {
+              expect(inBoxFolder(call.args[at + 1])).toBe(false);
+            }
+            if (arg.startsWith("--git-dir=")) {
+              expect(inBoxFolder(arg.slice("--git-dir=".length))).toBe(false);
+            }
+          });
+        }
+      },
+      { tar: "excludes", gitCalls },
+    );
+  });
 });

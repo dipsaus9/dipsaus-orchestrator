@@ -10,6 +10,7 @@ import type { OfficeId, RunId, WorkRef } from "@dipsaus-orchestrator/contract";
 
 import { conflictFeedbackItem } from "../../src/box/collisions";
 import { OFFICE_DEFAULTS, type OfficeConfig } from "../../src/config";
+import { type AutoMergeGuard, guardedUnparkWriter } from "../../src/merge/guard";
 import { ciFeedback, type CiFeedbackItem } from "../../src/prompts/feedback";
 import { recordReviewOverride, recordReviewVerdict } from "../../src/review";
 import type { JudgedReview } from "../../src/review/verdict";
@@ -145,6 +146,8 @@ interface Knobs {
   liftFails: number;
   /** The daemon stops right after the session's agent is recorded: the start never returns. */
   stopAfterRecord: boolean;
+  /** The auto-merge guard the daemon puts around the lift (0002); none by default. */
+  guard: AutoMergeGuard | null;
 }
 
 let x: World;
@@ -169,6 +172,7 @@ function world(): World {
     viewNull: false,
     liftFails: 0,
     stopAfterRecord: false,
+    guard: null,
   };
   const warned: unknown[] = [];
   const state = { config: OFFICE_DEFAULTS as OfficeConfig, facts: FACTS, starts: true };
@@ -210,16 +214,20 @@ function world(): World {
       },
     },
     view: (office, handle, run) => (s.viewNull ? null : view(office, handle, run)),
-    unpark: {
-      lift: async (_office, request) => {
-        if (s.liftFails > 0) {
-          s.liftFails -= 1;
-          throw new Error("the push was refused");
-        }
-        lifts.push(request);
-        return { commit: "f".repeat(40), pushed: true, pushError: null };
+    // As the daemon composes it: the lift through the auto-merge guard (0002).
+    unpark: guardedUnparkWriter(
+      {
+        lift: async (_office, request) => {
+          if (s.liftFails > 0) {
+            s.liftFails -= 1;
+            throw new Error("the push was refused");
+          }
+          lifts.push(request);
+          return { commit: "f".repeat(40), pushed: true, pushError: null };
+        },
       },
-    },
+      (office, branch, run) => (s.guard === null ? run() : s.guard(office, branch, run)),
+    ),
     boxRun: (_office, run) => box.has(run.runId),
     places: () => places ?? undefined,
     park: (office, run, work, ending) => control.park(office, run, work, ending),
@@ -229,7 +237,7 @@ function world(): World {
   });
   places = new Places({
     clock: w.t.clock,
-    offices: { get: () => w.office, config: () => state.config },
+    offices: { get: () => w.office },
     park: (office, run, work, ending) => control.park(office, run, work, ending),
     starters: { fix: (office, run, start) => fix.start(office, run, start) },
   });
@@ -287,7 +295,7 @@ function inReview(story: string, options: { budgetLimit?: number } = {}): StoryR
     reviewRoundCap: 3,
     reviewMaxTurns: 60,
     reviewMaxMinutes: 30,
-    reviewAllowance: 200_000,
+    reviewMaxTokens: 200_000,
     budgetLimit: options.budgetLimit ?? 1_000_000,
   });
   stories.set(s.run, s);
@@ -335,8 +343,8 @@ function backInReview(s: StoryRun): void {
 const events = (type: string) => loggedEvents(w.office).filter((event) => event.type === type);
 
 const parksOf = () =>
-  w.office.all<{ reason: string; cause: string }>(
-    "select reason, cause from parks where office_id = $office_id order by park_id",
+  w.office.all<{ reason: string }>(
+    "select reason from parks where office_id = $office_id order by park_id",
   );
 
 const fixIntentsOf = (run: RunId) =>
@@ -555,7 +563,7 @@ describe("the pre-start cap check (DIPO-205)", () => {
     await x.fix.idle();
     expect(x.started).toEqual([]);
     expect(x.lifts).toEqual([]);
-    expect(parksOf()).toEqual([{ reason: "budget-exceeded", cause: "build" }]);
+    expect(parksOf()).toEqual([{ reason: "budget-exceeded" }]);
     const rows = feedbackItems(w.office, s.run);
     expect(rows.map((row) => row.source)).toEqual(["review", "review", "ci"]);
     expect(rows.every((row) => row.sentAt === null)).toBe(true);
@@ -644,7 +652,7 @@ const waitingFix = (story: string): StoryRun => {
 };
 
 describe("a fix round that cannot start", () => {
-  it("parks worker-failed with cause build when it has no feedback, instead of holding the place", async () => {
+  it("parks worker-failed when it has no feedback, instead of holding the place", async () => {
     const s = inReview("DIPO-1");
     // A wait for a fix round with no intent behind it.
     write(() =>
@@ -655,7 +663,7 @@ describe("a fix round that cannot start", () => {
       ),
     );
     await x.places.drain(officeId());
-    expect(parksOf()).toEqual([{ reason: "worker-failed", cause: "build" }]);
+    expect(parksOf()).toEqual([{ reason: "worker-failed" }]);
     expect(findRun(w.office, s.run)?.endedAt).not.toBeNull();
     expect(x.started).toEqual([]);
     expect(runIntents(w.office, s.run).filter((i) => i.kind === "park")).toEqual([
@@ -668,7 +676,7 @@ describe("a fix round that cannot start", () => {
     x.s.viewNull = true;
     expect(await x.fix.consider(officeId(), s.run)).toBe(true);
     await x.fix.idle();
-    expect(parksOf()).toEqual([{ reason: "worker-failed", cause: "build" }]);
+    expect(parksOf()).toEqual([{ reason: "worker-failed" }]);
     expect(x.started).toEqual([]);
     expect(feedbackItems(w.office, s.run).every((item) => item.sentAt === null)).toBe(true);
   });
@@ -683,7 +691,7 @@ describe("a fix round that cannot start", () => {
       expect(findRun(w.office, s.run)).toMatchObject({ endedAt: null, waiting: START_KINDS.fix });
       await x.places.drain(officeId());
     }
-    expect(parksOf()).toEqual([{ reason: "worker-failed", cause: "build" }]);
+    expect(parksOf()).toEqual([{ reason: "worker-failed" }]);
     expect(x.started).toEqual([]);
   });
 
@@ -765,5 +773,31 @@ describe("the recovery step", () => {
     expect(feedbackItems(w.office, ok.run)).toEqual([]);
     // A second recovery queues nothing new.
     expect(await x.fix.recover(officeId())).toBe(0);
+  });
+});
+
+describe("the fix round's lift through the auto-merge guard (0002)", () => {
+  it("turns auto-merge off before the In Progress commit, and starts nothing when it cannot", async () => {
+    const s = inReview("DIPO-1");
+    reviewed(s, H1, APPROVED);
+    x.ci.set(s.run, { kind: "green", head: H1 });
+    const order: string[] = [];
+    let refuse = true;
+    x.s.guard = async (_office, branch, lift) => {
+      order.push(`off ${branch}`);
+      if (refuse) throw new Error("turning auto-merge off for PR #7 failed (GitHub refused)");
+      return lift();
+    };
+    expect(await x.fix.reject(officeId(), s.run, { gateId: "gat-7", note: "Fix it." })).toBe(true);
+    await x.fix.idle();
+    // Auto-merge could not go off: no commit reached the branch and no session started.
+    expect(x.lifts).toEqual([]);
+    expect(x.started).toEqual([]);
+    refuse = false;
+    await x.places.drain(officeId());
+    await x.fix.idle();
+    expect(order.length).toBeGreaterThanOrEqual(2);
+    expect(x.lifts.map((lift) => lift.to)).toEqual(["In Progress"]);
+    expect(x.started).toHaveLength(1);
   });
 });

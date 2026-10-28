@@ -351,7 +351,6 @@
                     "running",
                     "review",
                     "desk",
-                    "held",
                     "done"
                   ]
                 },
@@ -414,10 +413,7 @@
                         "scope-violation",
                         "review-blocked",
                         "budget-exceeded",
-                        "on-hold",
-                        "stopped",
-                        "interrupted",
-                        "needs-permission",
+                        "by-maintainer",
                         "worker-failed"
                       ]
                     },
@@ -826,16 +822,7 @@
               "anyOf": [
                 {
                   "type": "string",
-                  "enum": [
-                    "lost",
-                    "asking",
-                    "limited",
-                    "paused",
-                    "looping",
-                    "stuck",
-                    "quiet",
-                    "busy"
-                  ]
+                  "enum": ["lost", "asking", "looping", "stuck", "quiet", "busy"]
                 },
                 {
                   "type": "string"
@@ -856,7 +843,6 @@
                           "no-output",
                           "same-failure",
                           "input-wait",
-                          "plan-limit",
                           "host-lost",
                           "follow-only"
                         ]
@@ -1232,16 +1218,7 @@
               "anyOf": [
                 {
                   "type": "string",
-                  "enum": [
-                    "lost",
-                    "asking",
-                    "limited",
-                    "paused",
-                    "looping",
-                    "stuck",
-                    "quiet",
-                    "busy"
-                  ]
+                  "enum": ["lost", "asking", "looping", "stuck", "quiet", "busy"]
                 },
                 {
                   "type": "string"
@@ -1262,7 +1239,6 @@
                           "no-output",
                           "same-failure",
                           "input-wait",
-                          "plan-limit",
                           "host-lost",
                           "follow-only"
                         ]
@@ -1627,16 +1603,7 @@
               "anyOf": [
                 {
                   "type": "string",
-                  "enum": [
-                    "lost",
-                    "asking",
-                    "limited",
-                    "paused",
-                    "looping",
-                    "stuck",
-                    "quiet",
-                    "busy"
-                  ]
+                  "enum": ["lost", "asking", "looping", "stuck", "quiet", "busy"]
                 },
                 {
                   "type": "string"
@@ -1657,7 +1624,6 @@
                           "no-output",
                           "same-failure",
                           "input-wait",
-                          "plan-limit",
                           "host-lost",
                           "follow-only"
                         ]
@@ -2033,16 +1999,7 @@
               "anyOf": [
                 {
                   "type": "string",
-                  "enum": [
-                    "lost",
-                    "asking",
-                    "limited",
-                    "paused",
-                    "looping",
-                    "stuck",
-                    "quiet",
-                    "busy"
-                  ]
+                  "enum": ["lost", "asking", "looping", "stuck", "quiet", "busy"]
                 },
                 {
                   "type": "string"
@@ -2063,7 +2020,6 @@
                           "no-output",
                           "same-failure",
                           "input-wait",
-                          "plan-limit",
                           "host-lost",
                           "follow-only"
                         ]
@@ -2160,7 +2116,6 @@
                 "no-output",
                 "same-failure",
                 "input-wait",
-                "plan-limit",
                 "host-lost",
                 "follow-only"
               ]
@@ -2412,16 +2367,7 @@
               "anyOf": [
                 {
                   "type": "string",
-                  "enum": [
-                    "lost",
-                    "asking",
-                    "limited",
-                    "paused",
-                    "looping",
-                    "stuck",
-                    "quiet",
-                    "busy"
-                  ]
+                  "enum": ["lost", "asking", "looping", "stuck", "quiet", "busy"]
                 },
                 {
                   "type": "string"
@@ -2442,7 +2388,6 @@
                           "no-output",
                           "same-failure",
                           "input-wait",
-                          "plan-limit",
                           "host-lost",
                           "follow-only"
                         ]
@@ -2884,16 +2829,7 @@
               "anyOf": [
                 {
                   "type": "string",
-                  "enum": [
-                    "lost",
-                    "asking",
-                    "limited",
-                    "paused",
-                    "looping",
-                    "stuck",
-                    "quiet",
-                    "busy"
-                  ]
+                  "enum": ["lost", "asking", "looping", "stuck", "quiet", "busy"]
                 },
                 {
                   "type": "string"
@@ -2914,7 +2850,6 @@
                           "no-output",
                           "same-failure",
                           "input-wait",
-                          "plan-limit",
                           "host-lost",
                           "follow-only"
                         ]
@@ -3218,10 +3153,7 @@
                 "scope-violation",
                 "review-blocked",
                 "budget-exceeded",
-                "on-hold",
-                "stopped",
-                "interrupted",
-                "needs-permission",
+                "by-maintainer",
                 "worker-failed"
               ]
             },
@@ -3229,9 +3161,6 @@
               "type": "string"
             }
           ]
-        },
-        "cause": {
-          "type": "string"
         },
         "detail": {
           "type": "string"

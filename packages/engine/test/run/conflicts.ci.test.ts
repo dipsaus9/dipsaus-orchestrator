@@ -311,7 +311,7 @@ function reclaim(w: World): RunId {
 
 if (process.env["DIPO_TEST_CI"] === "1") {
   describe("the markers left at done (DIPO-291) and the hand-offs", () => {
-    it("records a conflicted merge as a hand-off, keeps the story from review while markers remain, and parks at the cap", () =>
+    it("records a conflicted merge as a hand-off and keeps the story from review while markers remain, as report gate feedback", () =>
       inWorld(async (w) => {
         const tip = await onBranch(w, { "src/shared.ts": MARKED }, "Merge main");
         await w.conflicts.recorded(
@@ -327,32 +327,17 @@ if (process.env["DIPO_TEST_CI"] === "1") {
           ["merged", [{ path: "src/shared.ts", kind: "content" }]],
         ]);
         expect(handOffState(w.f.office, w.f.run)).toMatchObject({ current: 1, open: true });
-        // The hand-off's one feedback turn names the file and its marker lines; no sync runs.
-        const first = await atDone(w, tip);
-        expect(first).toEqual({
-          kind: "feedback",
-          text: expect.stringContaining("- src/shared.ts: lines 2, 4, 6"),
-        });
-        expect(w.modes).toEqual([]);
-        // Still there: the hand-off fails and, below the cap, a new one starts with the same feedback.
-        expect((await atDone(w, tip)).kind).toBe("feedback");
-        expect(handOffState(w.f.office, w.f.run)).toEqual({
-          current: 2,
-          open: true,
-          feedback: false,
-          failed: 1,
-        });
-        expect((await atDone(w, tip)).kind).toBe("feedback");
-        // The failed hand-off that reaches the cap parks with the paths, the merge kept.
-        const parked = await atDone(w, tip);
-        expect(parked).toEqual({
-          kind: "park",
-          reason: "conflict",
-          cause: "merge-in-progress",
-          detail: expect.stringContaining("2 conflict hand-offs failed (the conflict cap is 2)"),
-        });
-        if (parked.kind === "park") expect(parked.detail).toContain("src/shared.ts");
-        expect(runRoundCounts(w.f.office, w.f.run).conflictHandoffs).toBe(2);
+        // Markers left are the report gate's (0002): the file and its marker lines, at every done
+        // that still has them; the loops count them (verify-commit), never the conflict cap. No
+        // sync runs.
+        for (let done = 0; done < 3; done++) {
+          expect(await atDone(w, tip)).toEqual({
+            kind: "markers",
+            text: expect.stringContaining("- src/shared.ts: lines 2, 4, 6"),
+          });
+        }
+        expect(handOffState(w.f.office, w.f.run)).toEqual({ current: 1, open: true, failed: 0 });
+        expect(runRoundCounts(w.f.office, w.f.run).conflictHandoffs).toBe(1);
         expect(w.modes).toEqual([]);
       }));
 
@@ -379,7 +364,7 @@ if (process.env["DIPO_TEST_CI"] === "1") {
         expect(runRoundCounts(w.f.office, w.f.run).conflictHandoffs).toBe(1);
       }));
 
-    it("fails an open hand-off on a blocked report, parking at the cap, and parks a capped done", () =>
+    it("fails an open hand-off on a blocked report, parking at the cap", () =>
       inWorld(async (w) => {
         const tip = await onBranch(w, { "src/shared.ts": MARKED }, "Merge main");
         const conflicted = merged(w, {
@@ -396,14 +381,11 @@ if (process.env["DIPO_TEST_CI"] === "1") {
         await w.conflicts.recorded(w.part, conflicted);
         expect(office.immediate(() => blockedHandOff(office, w.f.run, 2))).toMatchObject({
           reason: "conflict",
-          cause: "merge-in-progress",
         });
-        // A done turn that crossed a cap has no turn left for the feedback.
+        // Markers left at a done turn that crossed a cap are the report gate's too: verify and
+        // commit parks it `budget-exceeded`.
         await w.conflicts.recorded(w.part, conflicted);
-        expect(await atDone(w, tip, true)).toMatchObject({
-          kind: "park",
-          cause: "merge-in-progress",
-        });
+        expect(await atDone(w, tip, true)).toMatchObject({ kind: "markers" });
       }));
   });
 
@@ -446,14 +428,12 @@ if (process.env["DIPO_TEST_CI"] === "1") {
           kind: "park",
           park: {
             reason: "conflict",
-            cause: "unwritable-path",
             detail: ".github/workflows/ci.yml",
           },
         };
         expect(await atDone(w, tip)).toEqual({
           kind: "park",
           reason: "conflict",
-          cause: "unwritable-path",
           detail: ".github/workflows/ci.yml",
         });
       }));
@@ -534,7 +514,7 @@ if (process.env["DIPO_TEST_CI"] === "1") {
         office.immediate(() => recordReviewOverride(office, blocked.gate, { note: "ok", at: 5 }));
         const onto = await onBase(w, { "README.md": "# Conflicts, moved\n" });
         const merge = await engineMerge(w, onto);
-        await w.conflicts.recorded(w.part, merged(w, { ...merge, onto }), { strict: true });
+        await w.conflicts.recorded(w.part, merged(w, { ...merge, onto }));
         expect(
           reviewVerdictForTree(w.f.office, w.f.run, await keyOf(w, merge.commit)),
         ).toMatchObject({
@@ -542,20 +522,6 @@ if (process.env["DIPO_TEST_CI"] === "1") {
           carriedFrom: reviewed,
           override: { note: "ok", at: 5 },
         });
-      }));
-
-    it("throws from a strict record when the carry fails, instead of only logging it", () =>
-      inWorld(async (w) => {
-        const approved = await onBranch(w, { "src/a.ts": "a\n" }, "DIPO-1: add a");
-        approve(w, approved, await keyOf(w, approved));
-        const onto = await onBase(w, { "README.md": "# Conflicts, moved\n" });
-        const merge = await engineMerge(w, onto);
-        // The branch is gone when the carry reads its head.
-        await w.repo.git("branch", "--quiet", "-D", BRANCH);
-        await expect(
-          w.conflicts.recorded(w.part, merged(w, { ...merge, onto }), { strict: true }),
-        ).rejects.toThrow();
-        expect(catchUpsOf(w.f.office, w.f.run)).toHaveLength(1);
       }));
 
     it("carries nothing over a merge when the code changed after the approval", () =>
@@ -639,7 +605,7 @@ if (process.env["DIPO_TEST_CI"] === "1") {
         const told = notices(w).filter((n) => n.code === CONFLICT_NOTICES.inReview);
         expect(told).toHaveLength(1);
         expect(told[0]!.text).toBe(
-          `DIPO-1 is In Review, and main at ${"d".repeat(12)} conflicts with its branch in src/shared.ts. dipo merges the base at the story's next In Review or merge-slot sync and hands the conflict to its worker then.`,
+          `DIPO-1 is In Review, and main at ${"d".repeat(12)} conflicts with its branch in src/shared.ts. dipo merges the base at the story's next In Review, or when GitHub reports the conflict at its merge, and hands the conflict to its worker then.`,
         );
         expect(baseConflictOf(office, w.key)).toMatchObject({
           base: "main",
@@ -676,9 +642,9 @@ if (process.env["DIPO_TEST_CI"] === "1") {
             conflicts: [{ path: "src/shared.ts", kind: "content" }],
           }),
         );
-        for (let turn = 0; turn < 3; turn += 1)
-          expect((await atDone(w, tip)).kind).toBe("feedback");
-        expect((await atDone(w, tip)).kind).toBe("park");
+        // Markers left are report gate feedback (0002); the loops, counted by verify and commit,
+        // park the run at their cap.
+        for (let turn = 0; turn < 3; turn += 1) expect((await atDone(w, tip)).kind).toBe("markers");
         // Dropped with the branch kept, then claimed again: a new run on the same branch.
         const again = reclaim(w);
         const decided = await w.conflicts.atDone({
@@ -688,10 +654,10 @@ if (process.env["DIPO_TEST_CI"] === "1") {
           capped: false,
         });
         expect(decided).toEqual({
-          kind: "feedback",
+          kind: "markers",
           text: expect.stringContaining("- src/shared.ts: lines 2, 4, 6"),
         });
-        // The new run's own cap counts: the earlier run's failures are not its.
+        // The earlier run's hand-off is still open for the new run, with no failure counted.
         expect(handOffState(w.f.office, again)).toMatchObject({ open: true, failed: 0 });
         expect(w.modes).toEqual([]);
       }));
@@ -720,8 +686,8 @@ if (process.env["DIPO_TEST_CI"] === "1") {
         const moved = await w.repo.commitAll("Move the file");
         await w.repo.git("checkout", "--quiet", "main");
         const first = await atDone(w, moved);
-        expect(first.kind).toBe("feedback");
-        if (first.kind === "feedback") {
+        expect(first.kind).toBe("markers");
+        if (first.kind === "markers") {
           expect(first.text).toContain("- logo.png: the binary conflict is still as git left it");
           expect(first.text).toContain("- src/moved.ts: lines 2, 4, 6");
         }
@@ -732,27 +698,6 @@ if (process.env["DIPO_TEST_CI"] === "1") {
           "Resolve",
         );
         expect(await atDone(w, fixed)).toEqual({ kind: "go", tip: fixed });
-      }));
-
-    it("says that a capped done turn had no turn left to hand the conflict over", () =>
-      inWorld(async (w) => {
-        const tip = await onBranch(w, { "src/shared.ts": MARKED }, "Merge main");
-        await w.conflicts.recorded(
-          w.part,
-          merged(w, {
-            tip: w.startSha,
-            commit: tip,
-            onto: w.startSha,
-            conflicts: [{ path: "src/shared.ts", kind: "content" }],
-          }),
-        );
-        const parked = await atDone(w, tip, true);
-        expect(parked).toMatchObject({ kind: "park", cause: "merge-in-progress" });
-        if (parked.kind === "park") {
-          expect(parked.detail).toStartWith(
-            "the done turn crossed a run cap before the conflict could be handed over to the worker",
-          );
-        }
       }));
 
     it("clears a conflict found In Review once a later check finds none", () =>

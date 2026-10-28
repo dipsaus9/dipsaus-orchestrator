@@ -81,11 +81,11 @@ describe("closed enums", () => {
 describe("open enums", () => {
   const cases = [
     { name: "Tier", schema: Tier, known: KNOWN_TIERS, size: 3 },
-    { name: "ParkReason", schema: ParkReason, known: KNOWN_PARK_REASONS, size: 11 },
-    { name: "SkipReason", schema: SkipReason, known: KNOWN_SKIP_REASONS, size: 8 },
+    { name: "ParkReason", schema: ParkReason, known: KNOWN_PARK_REASONS, size: 8 },
+    { name: "SkipReason", schema: SkipReason, known: KNOWN_SKIP_REASONS, size: 7 },
     { name: "Phase", schema: Phase, known: KNOWN_PHASES, size: 6 },
-    { name: "WatchdogSignal", schema: WatchdogSignal, known: KNOWN_WATCHDOG_SIGNALS, size: 7 },
-    { name: "Health", schema: Health, known: KNOWN_HEALTH, size: 8 },
+    { name: "WatchdogSignal", schema: WatchdogSignal, known: KNOWN_WATCHDOG_SIGNALS, size: 6 },
+    { name: "Health", schema: Health, known: KNOWN_HEALTH, size: 6 },
   ];
 
   for (const { name, schema, known, size } of cases) {
@@ -97,36 +97,22 @@ describe("open enums", () => {
     });
   }
 
-  it("names the eleven park reasons of 0001, 0005 and 0008", () => {
-    expect(([...KNOWN_PARK_REASONS] as string[]).toSorted()).toEqual(
-      [
-        "ambiguous-spec",
-        "verify-failing",
-        "conflict",
-        "scope-violation",
-        "review-blocked",
-        "budget-exceeded",
-        "on-hold",
-        "stopped",
-        "interrupted",
-        "needs-permission",
-        "worker-failed",
-      ].toSorted(),
-    );
+  it("names the eight park reasons of 0001", () => {
+    expect([...KNOWN_PARK_REASONS]).toEqual([
+      "ambiguous-spec",
+      "verify-failing",
+      "conflict",
+      "scope-violation",
+      "review-blocked",
+      "budget-exceeded",
+      "by-maintainer",
+      "worker-failed",
+    ]);
   });
 
   it("names the phases and health states of 0009", () => {
     expect([...KNOWN_PHASES]).toEqual(["setup", "build", "verify", "review", "test", "merge"]);
-    expect([...KNOWN_HEALTH]).toEqual([
-      "lost",
-      "asking",
-      "limited",
-      "paused",
-      "looping",
-      "stuck",
-      "quiet",
-      "busy",
-    ]);
+    expect([...KNOWN_HEALTH]).toEqual(["lost", "asking", "looping", "stuck", "quiet", "busy"]);
   });
 
   it("queue columns and gate kinds are open too", () => {
@@ -241,8 +227,7 @@ describe("office commands and reads", () => {
     "office.switch": 1,
     "work.resume": 1,
     "work.steer": 1,
-    "work.pause": 1,
-    "story.hold": 1,
+    "story.park": 1,
     "story.drop": 1,
     "work.discard": 1,
     "gate.approve": 1,
@@ -258,11 +243,9 @@ describe("office commands and reads", () => {
         "work.run",
         "work.answer",
         "work.steer",
-        "work.pause",
         "work.resume",
-        "work.stop",
         "work.discard",
-        "story.hold",
+        "story.park",
         "story.drop",
         "gate.approve",
         "gate.reject",
@@ -328,14 +311,11 @@ describe("office commands and reads", () => {
     ).toBe(true);
   });
 
-  it("work.run reports a plan-limit hold with its own skip reason (DIPO-92)", () => {
-    expect(KNOWN_SKIP_REASONS).toContain("planLimit");
-    const run = officeCommands.find((d) => d.name === "work.run");
-    const result = {
-      started: [],
-      skipped: [{ story: "DIPO-31", key: workRef.key, reason: "planLimit" }],
-    };
-    expect(run?.result.parse(result)).toEqual(result as never);
+  it("knows no plan-limit hold: no skip reason, health or signal for it (DIPO-359, 0020)", () => {
+    expect(KNOWN_SKIP_REASONS as readonly string[]).not.toContain("planLimit");
+    expect(KNOWN_HEALTH as readonly string[]).not.toContain("limited");
+    expect(KNOWN_HEALTH as readonly string[]).not.toContain("paused");
+    expect(KNOWN_WATCHDOG_SIGNALS as readonly string[]).not.toContain("plan-limit");
   });
 
   it("work.run reports an unknown skip reason without failing", () => {
@@ -386,7 +366,6 @@ describe("the desk", () => {
     key: "sto_01J9ZK5Q8W3V4X6Y7Z8A9B0C1D",
     pr: { number: 7, url: "https://github.com/o/r/pull/7", state: "open" },
     reason: "review-blocked",
-    cause: "rounds",
     detail: "round 3 blocked",
     since: "2026-10-23T10:00:00.000Z",
     blocks: ["DIPO-106"],
@@ -399,7 +378,8 @@ describe("the desk", () => {
   it("parses an item with its actions, and a kind a later minor adds", () => {
     expect(DeskItem.parse(item)).toEqual(item as never);
     expect(DeskItem.safeParse({ ...item, kind: "SOMETHING NEW" }).success).toBe(true);
-    expect(KNOWN_DESK_KINDS).toContain("HELD");
+    expect(KNOWN_DESK_KINDS).toContain("PARKED BY YOU");
+    expect(KNOWN_DESK_KINDS[0]).toBe("STARTS PAUSED");
   });
 
   it("needs a detail, a since, blocks and actions, and a dotted command name", () => {

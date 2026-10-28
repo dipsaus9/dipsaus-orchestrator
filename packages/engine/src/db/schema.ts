@@ -57,6 +57,12 @@ import { mergeGateHandMerge } from "./migrations/0053-merge-gate-hand-merge";
 import { scanConfirmations } from "./migrations/0054-scan-confirmations";
 import { tuiLeft } from "./migrations/0055-tui-left";
 import { dropVerifyNudgeTables } from "./migrations/0056-drop-verify-nudge-tables";
+import { eightParkReasons } from "./migrations/0057-eight-park-reasons";
+import { twoGrantKinds } from "./migrations/0058-two-grant-kinds";
+import { startsPaused } from "./migrations/0059-starts-paused";
+import { parkOriginInBacklog } from "./migrations/0060-park-origin-in-backlog";
+import { oneFeedbackTag } from "./migrations/0061-one-feedback-tag";
+import { dropMergeSlot } from "./migrations/0062-drop-merge-slot";
 
 /**
  * Software-wide tables (0007 section 3). Every other table is office-scoped and has `office_id`
@@ -149,4 +155,10 @@ create table offices (
   scanConfirmations,
   tuiLeft,
   dropVerifyNudgeTables,
+  eightParkReasons,
+  twoGrantKinds,
+  startsPaused,
+  parkOriginInBacklog,
+  oneFeedbackTag,
+  dropMergeSlot,
 ];

@@ -1,8 +1,8 @@
 // The run across review rounds (DIPO-142, 0019 section 13), fast and local: one story run ends its
 // active period at In Review and reopens on the same run for a review, a fix round and a conflict
 // hand-off. The developer's minute cap leaves out the idle and review time, the reviewer's turns
-// stay out of the developer's turn cap while its tokens count toward the story budget, each end
-// rewrites the provisional outcome row and Done writes the final one.
+// and tokens stay out of the developer's caps and the story's budget (0002), each end rewrites
+// the provisional outcome row and Done writes the final one.
 
 import { afterEach, beforeEach, describe, expect, it } from "bun:test";
 
@@ -17,8 +17,7 @@ import {
   findRun,
   firedCap,
   IN_REVIEW_END,
-  reopenForRound,
-  reopenRun,
+  reopen,
   REVIEWED_END,
   runOutcome,
   runTotals,
@@ -82,7 +81,7 @@ describe("a run reopened after In Review (0019 section 13)", () => {
     // for 20.
     advance(30);
     const entries = write(() =>
-      reopenForRound(w.office, findRun(w.office, s.run)!, "review", now()),
+      reopen(w.office, findRun(w.office, s.run)!, now(), { kind: "review" }),
     );
     expect(entries.map((entry) => entry.type)).toContain("work.phase");
     expect(findRun(w.office, s.run)).toMatchObject({ endedAt: null, waiting: "review" });
@@ -110,7 +109,7 @@ describe("a run reopened after In Review (0019 section 13)", () => {
 
     // 10 minutes idle, then the fix round waits 3 minutes for the worker place; 7 minutes of work.
     advance(10);
-    write(() => reopenForRound(w.office, findRun(w.office, s.run)!, "fix", now()));
+    write(() => reopen(w.office, findRun(w.office, s.run)!, now(), { kind: "fix" }));
     expect(findRun(w.office, s.run)?.waiting).toBe("fix");
     advance(3);
     write(() => claimPlace(w.office, s.run, now()));
@@ -133,35 +132,43 @@ describe("a run reopened after In Review (0019 section 13)", () => {
   it("never reopens a run whose story is Done", () => {
     workToInReview();
     write(() => endRun(w.office, s.run, now(), DONE_END));
-    expect(write(() => reopenRun(w.office, s.run, now()))).toBe(false);
-    expect(write(() => reopenForRound(w.office, findRun(w.office, s.run)!, "fix", now()))).toEqual(
-      [],
-    );
+    expect(
+      write(() => reopen(w.office, findRun(w.office, s.run)!, now(), { kind: "fix" })),
+    ).toEqual([]);
     expect(findRun(w.office, s.run)?.endKind).toBe(DONE_END);
   });
 
   it("ends a review period only for a run open in a review", () => {
     workToInReview();
     expect(write(() => endReviewPeriod(w.office, s.run, now()))).toBe(false);
-    write(() => reopenForRound(w.office, findRun(w.office, s.run)!, "conflict", now()));
+    write(() => reopen(w.office, findRun(w.office, s.run)!, now(), { kind: "conflict" }));
     expect(findRun(w.office, s.run)?.waiting).toBe("conflict");
     expect(write(() => endReviewPeriod(w.office, s.run, now()))).toBe(false);
   });
 });
 
-describe("the reviewer's turns and tokens (0019 sections 4 and 13)", () => {
-  it("count toward the run's budget, never toward the developer's turn cap", () => {
+describe("the reviewer's turns and tokens (0002)", () => {
+  it("count toward neither the story's budget nor the developer's turn cap", () => {
     const developer = addAgent(w, s.run, "developer", false);
     const reviewer = addAgent(w, s.run, "reviewer", false, "opus");
     addUsage(w, s.run, developer, "developer", { turns: 20, tokens: 6_000 });
     addUsage(w, s.run, reviewer, "reviewer", { turns: 40, tokens: 5_000 });
     const totals = runTotals(w.office, s.run, now(), now());
-    expect(totals).toEqual({ budgetTokens: 11_000, turns: 20, elapsedMs: 0 });
-    // 60 turns in all, but the developer's cap of 30 has 10 left; the budget counts both agents.
-    expect(firedCap({ budgetTokens: 20_000, maxTurns: 30, maxMinutes: 60 }, totals)).toBeNull();
-    expect(firedCap({ budgetTokens: 10_000, maxTurns: 30, maxMinutes: 60 }, totals)?.cap).toBe(
+    expect(totals).toEqual({ budgetTokens: 6_000, turns: 20, elapsedMs: 0 });
+    // 60 turns and 11,000 tokens in all, but the developer's caps count only its own 20 and 6,000.
+    expect(firedCap({ budgetTokens: 10_000, maxTurns: 30, maxMinutes: 60 }, totals)).toBeNull();
+    expect(firedCap({ budgetTokens: 6_000, maxTurns: 30, maxMinutes: 60 }, totals)?.cap).toBe(
       "budgetTokens",
     );
+  });
+
+  it("stay out of the budget tokens of the run's outcome row", () => {
+    const developer = addAgent(w, s.run, "developer", false);
+    const reviewer = addAgent(w, s.run, "reviewer", false, "opus");
+    addUsage(w, s.run, developer, "developer", { turns: 20, tokens: 6_000 });
+    addUsage(w, s.run, reviewer, "reviewer", { turns: 40, tokens: 5_000 });
+    write(() => endRunMarked(w.office, s.run, now(), IN_REVIEW_END));
+    expect(runOutcome(w.office, s.run)).toMatchObject({ budgetTokens: 6_000 });
   });
 });
 
@@ -169,7 +176,7 @@ describe("the outcome row (0019 section 13)", () => {
   it("is rewritten at each end and made final at Done with the round counts", () => {
     workToInReview();
     advance(5);
-    write(() => reopenForRound(w.office, findRun(w.office, s.run)!, "fix", now()));
+    write(() => reopen(w.office, findRun(w.office, s.run)!, now(), { kind: "fix" }));
     write(() => claimPlace(w.office, s.run, now()));
     const developer = addAgent(w, s.run, "developer", true);
     advance(4);
@@ -221,10 +228,9 @@ describe("the outcome row (0019 section 13)", () => {
     workToInReview();
     write(() =>
       w.office.run(
-        `insert into parks (office_id, park_id, key, story_id, run_id, reason, cause, from_state,
-           detail, at, resolved_at, resolved_how)
-         values ($office_id, 1, $key, 'DIPO-7', $run, 'needs-permission', 'build', 'In Progress',
-           'Bash: x', 0, 1, 'resume')`,
+        `insert into parks (office_id, park_id, key, story_id, run_id, reason, detail, at,
+           resolved_at, resolved_how)
+         values ($office_id, 1, $key, 'DIPO-7', $run, 'worker-failed', 'Bash: x', 0, 1, 'resume')`,
         { key: s.key, run: s.run },
       ),
     );
@@ -232,7 +238,7 @@ describe("the outcome row (0019 section 13)", () => {
     expect(runOutcome(w.office, s.run)).toMatchObject({
       outcome: DONE_END,
       final: true,
-      parkReasons: ["needs-permission"],
+      parkReasons: ["worker-failed"],
     });
   });
 });

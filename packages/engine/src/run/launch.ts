@@ -144,7 +144,7 @@ export type TierCaps = OfficeConfig["tiers"]["S"];
  */
 export type ReviewerSettings = Pick<
   OfficeConfig["review"],
-  "model" | "effort" | "maxTurns" | "maxMinutes"
+  "model" | "effort" | "maxTurns" | "maxMinutes" | "budgetTokens"
 >;
 
 /** Starts a worker host for a run and records it in `worker_hosts` (DIPO-44). */
@@ -190,7 +190,7 @@ export interface RunLauncherDeps {
   readonly hosts: HostStarter;
   readonly ingest: RunIngest;
   /**
-   * Caps, report parks and `work.stop` of started runs (DIPO-50); told about each run before its
+   * Caps, report parks and `story.park` of started runs (DIPO-50); told about each run before its
    * ingestion starts, so no event is missed.
    */
   readonly control?: {

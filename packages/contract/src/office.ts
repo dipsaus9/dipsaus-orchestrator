@@ -55,7 +55,6 @@ const Count = z.int().nonnegative();
 const Timestamp = z.iso.datetime();
 const Offset = z.int().nonnegative(); // byte offset in stored output
 const StoryResult = z.object({ story: StoryId, key: StoryKey });
-const RunResult = z.object({ run: RunId });
 
 // Commands
 
@@ -83,16 +82,15 @@ export const workRun = defineCommand({
   since: 0,
 });
 
-// `decision` answers a permission question (0008 section 5): allow once or deny.
+// The answer to a worker's question is always text, so an answer that reads "allow" is never a
+// decision (0020). `run` names the run an answer to an `ambiguous-spec` park resumed.
 export const workAnswer = defineCommand({
   name: "work.answer",
   level: "office",
   args: z.object({
     question: QuestionId,
     text: z.string(),
-    decision: z.enum(["allow", "deny"]).optional(),
   }),
-  // `run` names the run an answer to a `needs-permission` park resumed (DIPO-75, minor 1).
   result: z.object({
     question: QuestionId,
     delivered: z.enum(["now", "on-resume"]),
@@ -103,9 +101,9 @@ export const workAnswer = defineCommand({
   since: 0,
 });
 
-// Since minor 1 (DIPO-163, 0020 section 9): a running worker gets the text as its next user message
-// (`next-turn`); a steer to a paused or parked story is stored once and sent with the first message
-// on resume (`on-resume`). A story whose live session is its reviewer, or whose host is followed
+// Since minor 1 (DIPO-163, 0020): a running worker gets the text as its next user message
+// (`next-turn`); a steer to a parked story is stored once and sent with the first message on
+// resume (`on-resume`). A story whose live session is its reviewer, or whose host is followed
 // only, answers `story.notSteerable`.
 export const workSteer = defineCommand({
   name: "work.steer",
@@ -117,30 +115,16 @@ export const workSteer = defineCommand({
   since: 1,
 });
 
-// Since minor 1 (DIPO-163, 0020 section 9): the worker is held; the run stays In Progress with
-// health `paused` and keeps its claim, slot and session place until stdin closes after 10 minutes.
-export const workPause = defineCommand({
-  name: "work.pause",
-  level: "office",
-  args: StoryRef,
-  result: RunResult,
-  confirm: false,
-  irreversible: false,
-  since: 1,
-});
-
-// A paused run continues (DIPO-163: at once while its worker lives, else with `--resume`, queued when
-// the worker place is taken); a parked story returns to `park.from`, and to In Progress or In Review
-// it starts or re-attaches a run. Since minor 1 (DIPO-61) the engine implements it for runs held
-// by a plan limit: the held session continues at once and a `credits` hold is lifted. Since minor 1
-// (DIPO-155, 0020 sections 1 to 4) it resumes a parked story as the 0020 resume matrix says: `note`
-// is the maintainer's note (required for some reasons, `resume.noteRequired`), `budget` the top-up
+// The one way back from a park (0020): a parked story returns to the status it had before, and a
+// story with a run gets its next session; it is refused while the office's starts are paused
+// (`run.refused`). What a park's reason requires is the 0020 table: `note` is the maintainer's note (the
+// answer of an `ambiguous-spec` park, the direction of a `review-blocked` one), `budget` the top-up
 // of a `budget-exceeded` park (a share of the run's starting caps, or a token amount), which needs
 // the yes/no confirmation (`confirmWhen`); the result names the grants the resume recorded and
 // says `queued` when the session waits for its place. Errors: `resume.topUpRequired`,
-// `resume.topUpTooSmall`, `resume.noteRequired`, `resume.notResumable`, `resume.capReached`,
-// `resume.decisionRequired`, and `confirmation.required` with the caps before and after
-// (`ResumeConfirmDetails`) for a top-up sent without `confirmed`.
+// `resume.topUpTooSmall`, `resume.noteRequired`, `resume.notResumable`, `resume.capReached`, and
+// `confirmation.required` with the caps before and after (`ResumeConfirmDetails`) for a top-up
+// sent without `confirmed`.
 // A top-up: `share` is a percent of the run's starting caps (`50` is +50%), `tokens` a token amount.
 export const ResumeBudget = z.union([
   z.object({ share: z.number().positive() }),
@@ -148,10 +132,12 @@ export const ResumeBudget = z.union([
 ]);
 export type ResumeBudget = z.infer<typeof ResumeBudget>;
 
-// One grant a resume recorded (0020 sections 4 and 5): a budget grant names its tokens, turns and
-// minutes, a reviewer cap grant its turns and minutes, a counted grant its count.
+// One grant a resume recorded (0020): a `budget` grant names its tokens, turns and minutes, a
+// `round` grant the counted cap it grows (`loops`, `reviewRounds`, `ciAttempts` or
+// `conflictAttempts`) and its count.
 export const ResumeGrant = z.object({
   kind: z.string(),
+  cap: z.string().optional(),
   tokens: Count.optional(),
   turns: Count.optional(),
   minutes: Count.optional(),
@@ -190,17 +176,6 @@ export const workResume = defineCommand({
   since: 1,
 });
 
-// The worker ends, branch and worktree are kept, and the story parks as `stopped`.
-export const workStop = defineCommand({
-  name: "work.stop",
-  level: "office",
-  args: z.object({ ...StoryRef.shape, note: z.string().optional() }),
-  result: RunResult,
-  confirm: true,
-  irreversible: false,
-  since: 0,
-});
-
 // Ends the run, removes the worktree, deletes the story branch and returns the story to Refined
 // (0020 section 8). Since minor 1 (DIPO-161), on the waiting command path. Clients list what is
 // lost (`story.losses`) and ask for the story id typed out. Also discards the leftovers of a story
@@ -217,14 +192,17 @@ export const workDiscard = defineCommand({
   since: 1,
 });
 
-// Parks a Refined or Ready story with reason `on-hold` through the planning lane (0020 section 8).
-// Since minor 1 (DIPO-160). A running story fails `story.notHoldable` naming `dipo stop`; a parked
-// story with a claim fails it naming resume and discard.
-export const storyHold = defineCommand({
-  name: "story.hold",
+// Parks a Refined, Ready, In Progress or In Review story with reason `by-maintainer` and the note
+// as its detail (0020). A running worker is stopped first; a story with no run is parked through
+// the planning lane. `run` names the run the park ended or kept. Parking a story parked already
+// answers `changed: false`; any other status fails `story.notParkable`. A park whose write to
+// Backlog.md fails records nothing and fails `story.parkNotWritten`, so it can be sent again
+// (DIPO-360).
+export const storyPark = defineCommand({
+  name: "story.park",
   level: "office",
   args: z.object({ ...StoryRef.shape, note: z.string().min(1) }),
-  result: StoryResult,
+  result: z.object({ story: StoryId, key: StoryKey, run: RunId.optional() }),
   confirm: false,
   irreversible: false,
   since: 1,
@@ -636,10 +614,11 @@ export const officeStats = defineRead({
 
 // The kinds of a desk item (0020 section 12), as `dipo desk` prints them. Open: later stories add
 // kinds (DIPO-161 `DONE ELSEWHERE` and `LEFTOVERS`, 0019 `PR HEAD CHANGED`, scope requests; DIPO-310
-// `PROFILE`, a pending proposal or stale confirmation of the run profile, with no story).
+// `PROFILE`, a pending proposal or stale confirmation of the run profile, with no story; DIPO-359
+// `STARTS PAUSED`, the office's starts paused with its reason and what lifts it, with no story).
 export const KNOWN_DESK_KINDS = [
+  "STARTS PAUSED",
   "QUESTION",
-  "PERMISSION",
   "SCOPE",
   "MERGE",
   "PARKED",
@@ -649,7 +628,7 @@ export const KNOWN_DESK_KINDS = [
   "BACKLOG PR",
   "NOTICE",
   "PROPOSAL",
-  "HELD",
+  "PARKED BY YOU",
   "PROFILE",
 ] as const;
 export const DeskKind = openEnum(KNOWN_DESK_KINDS);
@@ -683,7 +662,6 @@ export const DeskItem = z.object({
   pr: StoryPr.optional(),
   proposal: DeskProposal.optional(),
   reason: ParkReason.optional(),
-  cause: z.string().optional(),
   detail: z.string(),
   since: Timestamp,
   blocks: z.array(StoryId),
@@ -692,10 +670,10 @@ export const DeskItem = z.object({
 });
 export type DeskItem = z.infer<typeof DeskItem>;
 
-// What waits on the maintainer, ordered by the engine in the six groups of 0020 section 12:
-// questions with a waiting worker, merge gates, parks (a decision, then a direction, then a
-// restart), hand actions, proposals, and the stories held by the maintainer; within a group the
-// items blocking the most stories first, then the oldest. Changes nothing. Since minor 1
+// What waits on the maintainer, in the order of 0020: the office's starts paused (DIPO-359),
+// questions with a waiting worker, merge
+// gates, parks by reason with the stories parked by the maintainer last, hand actions and
+// proposals; within a group the items blocking the most stories first, then the oldest. Changes nothing. Since minor 1
 // (DIPO-158) [`desk`].
 export const officeDesk = defineRead({
   name: "office.desk",
@@ -837,10 +815,9 @@ export const questionClosed = defineEvent({
   data: z.object({ question: QuestionId, answer: z.string().optional() }),
 });
 
-// Sent with `story.state` to Parked. `work` is absent for `on-hold`, where `detail` is the hold
-// note. `actions` lists the commands a client may offer, such as `work.resume`, `work.discard`
-// and `story.drop`. `cause` (since minor 1, DIPO-142) says which of a reason's causes parked it
-// (0020 section 2), an open string such as `loops` or `review`.
+// Sent with `story.state` to Parked. `work` is absent for a story parked with no run, where
+// `detail` is the maintainer's note. `actions` lists the commands a client may offer, such as
+// `work.resume`, `work.discard` and `story.drop`.
 export const storyParked = defineEvent({
   type: "story.parked",
   stream: "office",
@@ -850,7 +827,6 @@ export const storyParked = defineEvent({
     key: StoryKey,
     work: WorkRef.optional(),
     reason: ParkReason,
-    cause: z.string().optional(),
     detail: z.string(),
     from: Lifecycle,
     lastGoodCommit: z.string().optional(),
@@ -921,11 +897,9 @@ export const officeCommands = [
   workRun,
   workAnswer,
   workSteer,
-  workPause,
   workResume,
-  workStop,
   workDiscard,
-  storyHold,
+  storyPark,
   storyDrop,
   gateApprove,
   gateReject,

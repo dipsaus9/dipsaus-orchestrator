@@ -1,10 +1,10 @@
 // `dipo desk [--office <id>] [--json]` (0020 section 12, DIPO-158): reads `office.desk` for the office
 // from `--office` or the current directory and prints what waits on the maintainer in plain text: a
 // count line, then one line per item in the engine's order with an indented line holding the
-// command to type, and the stories held by the maintainer apart at the end. `--json` prints the
-// read's result. An empty desk prints `Nothing waits on you.`. The order, the details and the
-// command lines all come from the engine; this file only lays them out. Read only: it never starts
-// the daemon, and never offers to open a folder that is not an office.
+// command to type, and the stories the maintainer parked listed apart at the end, "Parked by you".
+// `--json` prints the read's result. An empty desk prints `Nothing waits on you.`. The order, the
+// details and the command lines all come from the engine; this file only lays them out. Read only:
+// it never starts the daemon, and never offers to open a folder that is not an office.
 
 import { basename } from "node:path";
 
@@ -15,6 +15,9 @@ import { engineFailure, usage } from "./daemon-commands";
 import { type OfficeCommandDeps, parseOptions, withOffice } from "./office-commands";
 
 export const EMPTY_DESK = "Nothing waits on you.";
+
+/** The kind of a desk item for a story the maintainer parked, listed apart (0020). */
+const BY_YOU = "PARKED BY YOU";
 
 const MINUTE = 60_000;
 const HOUR = 60 * MINUTE;
@@ -48,31 +51,28 @@ export function formatDesk(
   usageText: readonly string[] = [],
 ): string[] {
   if (items.length === 0) return [EMPTY_DESK];
-  const held = items.filter((item) => item.kind === "HELD");
-  const open = items.filter((item) => item.kind !== "HELD");
+  const byYou = items.filter((item) => item.kind === BY_YOU);
+  const open = items.filter((item) => item.kind !== BY_YOU);
   const lines = [
-    [`${label} · desk ${open.length} · held ${held.length}`, ...usageText].join(" · "),
+    [`${label} · desk ${open.length} · parked by you ${byYou.length}`, ...usageText].join(" · "),
   ];
   const kindWidth = Math.max(0, ...open.map((item) => item.kind.length));
   const storyWidth = Math.max(0, ...open.map((item) => (item.story ?? "").length));
+  const byYouHead = `Parked by you (${byYou.length})`;
+  const byYouStoryWidth = Math.max(0, ...byYou.map((item) => (item.story ?? "").length));
   for (const item of open) {
     const since = age(Date.parse(item.since), nowMs);
     const story = (item.story ?? "").padEnd(storyWidth);
-    const reason =
-      item.reason === undefined
-        ? ""
-        : `${item.reason}${item.cause === undefined ? "" : `/${item.cause}`} · `;
+    const reason = item.reason === undefined ? "" : `${item.reason} · `;
     lines.push(`${item.kind.padEnd(kindWidth)} ${story}  ${reason}${item.detail}  ${since}`);
     lines.push(`${" ".repeat(kindWidth + 1)}${commandLine(item)}`);
   }
-  const heldStoryWidth = Math.max(0, ...held.map((item) => (item.story ?? "").length));
-  held.forEach((item, at) => {
-    const head = at === 0 ? `Held by you (${held.length})` : "";
+  // The stories parked by the maintainer, listed apart at the end (0020).
+  byYou.forEach((item, at) => {
+    const head = at === 0 ? byYouHead : "";
     const note = item.detail === "" ? "" : `${JSON.stringify(item.detail)}   `;
-    const story = (item.story ?? "").padEnd(heldStoryWidth);
-    lines.push(
-      `${head.padEnd(`Held by you (${held.length})`.length)}  ${story} ${note}${commandLine(item)}`.trimEnd(),
-    );
+    const story = (item.story ?? "").padEnd(byYouStoryWidth);
+    lines.push(`${head.padEnd(byYouHead.length)}  ${story} ${note}${commandLine(item)}`.trimEnd());
   });
   return lines;
 }

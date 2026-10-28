@@ -212,8 +212,8 @@ describe("migration 43", () => {
           expect(storeDecisionNotes(office, { key, runId: RUN, notes: [note], at: at + 1 })).toBe(
             0,
           );
-          recordSendBack(office, RUN, "verify-run", "run", at);
-          recordSendBack(office, RUN, "verify-run", "run", at + 1);
+          recordSendBack(office, RUN, "decision-note", "note", at);
+          recordSendBack(office, RUN, "decision-note", "note", at + 1);
         });
       } finally {
         t.state.close();
@@ -235,7 +235,7 @@ describe("migration 43", () => {
           deviations: [{ where: "criterion #1", what: "w", why: "y" }],
           at: expect.any(Number),
         });
-        expect(sentBack(office, RUN, "verify-run", "run")).toBe(true);
+        expect(sentBack(office, RUN, "decision-note", "note")).toBe(true);
         expect(sentBack(office, RUN, "decision-note", "run")).toBe(false);
         expect(openProposals(office).map((item) => [item.kind, item.title, item.story])).toEqual([
           ["follow-up", "Split it", "DIPO-7"],

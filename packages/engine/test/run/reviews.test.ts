@@ -16,6 +16,8 @@ import {
   type WorkRef,
 } from "@dipsaus-orchestrator/contract";
 
+import { mirrorUnpark } from "../../src/run/park-state";
+import type { AsyncCommandContext } from "../../src/commands/registry";
 import { OFFICE_DEFAULTS, type OfficeConfig } from "../../src/config";
 import { reviewVerdictForTree, reviewVerdictsOf } from "../../src/review";
 import {
@@ -24,6 +26,7 @@ import {
   findRun,
   IN_REVIEW_END,
   LAUNCH_NOTICES,
+  openPark,
   pendingReviews,
   placeHolders,
   Places,
@@ -32,6 +35,7 @@ import {
   REVIEWED_END,
   REVIEW_NOTICES,
   REVIEWER_ROLE,
+  resolvePark,
   reviewerSettings,
   Reviews,
   type ReviewSessionOutcome,
@@ -45,7 +49,9 @@ import {
   START_KINDS,
   waitingStarts,
 } from "../../src/run";
+import { parkStory } from "../../src/run/park";
 import { storeDoneReport } from "../../src/run/report-data";
+import { appendEntries } from "../../src/changelog/log";
 import type { RunStoryFacts } from "../../src/run/resume";
 import { encode } from "../../src/workers/claude-cli/encode";
 import {
@@ -81,7 +87,8 @@ const officeId = (): OfficeId => w.office.officeId as OfficeId;
 
 const TASK_FILE = "backlog/tasks/shop-12 - Add-a-greeting.md";
 const BUDGET = 1_000_000;
-const ALLOWANCE = 200_000;
+/** The reviewer's own token cap per session (0002). */
+const REVIEW_TOKENS = 200_000;
 
 /** The story's diff: line 2 of src/greet.ts is new. */
 const DIFF = [
@@ -158,7 +165,7 @@ function inReview(
     // A run started before the reviewer's caps were kept has none in its snapshot.
     reviewMaxTurns: options.reviewCaps === false ? null : 60,
     reviewMaxMinutes: options.reviewCaps === false ? null : 30,
-    reviewAllowance: ALLOWANCE,
+    reviewMaxTokens: REVIEW_TOKENS,
     budgetLimit: BUDGET,
   });
   addAgent(w, s.run, "developer", false);
@@ -196,6 +203,8 @@ interface Session {
   readonly agent: AgentId;
   readonly work: WorkRef;
   readonly message: string;
+  /** The head the session was started on. */
+  readonly head: string;
 }
 
 interface World {
@@ -210,7 +219,13 @@ interface World {
   /** What `onReviewed` heard: `<run> <agent or ->`. */
   readonly reviewedRuns: string[];
   /** What the next session start answers; `started` by default. */
-  next: (() => ReviewSessionOutcome) | null;
+  next: (() => ReviewSessionOutcome | Promise<ReviewSessionOutcome>) | null;
+  /** The story branch's head as the fake git reads it. */
+  head: string;
+  /** Run when the starter reads the head, before its round (DIPO-346). */
+  onRead: (() => Promise<void>) | null;
+  /** Run when the starter reads the diff, after its round began (DIPO-346). */
+  onDiff: (() => Promise<void>) | null;
   /** The finisher's backstop parks the next turn when set. */
   backstop: string | null;
   close(): void;
@@ -224,7 +239,13 @@ function world(): World {
   const warned: unknown[] = [];
   const finished: string[] = [];
   const reviewedRuns: string[] = [];
-  const state: { next: World["next"]; backstop: string | null } = { next: null, backstop: null };
+  const state: {
+    next: World["next"];
+    backstop: string | null;
+    head: string;
+    onRead: World["onRead"];
+    onDiff: World["onDiff"];
+  } = { next: null, backstop: null, head: "e".repeat(40), onRead: null, onDiff: null };
   let reviews: Reviews | null = null;
   const base: RunOutcomesPort = {
     onTurnProblem: async () => undefined,
@@ -241,7 +262,6 @@ function world(): World {
         : {
             kind: "park",
             reason: "scope-violation",
-            cause: "backstop",
             detail: state.backstop,
             endKind: "scope-violation",
           },
@@ -274,18 +294,24 @@ function world(): World {
     ids: w.t.ids,
     offices: { get: () => w.office, config: () => setting.config },
     git: {
-      head: async () => "e".repeat(40),
+      head: async () => {
+        await state.onRead?.();
+        return state.head;
+      },
       codeTreeKey: async (_office, worktree) => {
         const run = findRunByWorktree(worktree);
         return heads.get(run ?? "") ?? "tree-?";
       },
-      diff: async () => ({ diff: DIFF, changes: [{ path: "src/greet.ts", added: 2, removed: 1 }] }),
+      diff: async () => {
+        await state.onDiff?.();
+        return { diff: DIFF, changes: [{ path: "src/greet.ts", added: 2, removed: 1 }] };
+      },
       sizeClass: async () => "S",
     },
     story: async () => setting.facts,
     sessions: {
       start: async (request: ReviewSessionRequest) => {
-        const outcome = state.next?.() ?? null;
+        const outcome = (await state.next?.()) ?? null;
         if (outcome !== null && outcome.kind !== "started") return outcome;
         const agent = addAgent(w, request.run.runId, REVIEWER_ROLE, true, "opus");
         const work: WorkRef = {
@@ -303,7 +329,13 @@ function world(): World {
           caps: { budgetTokens: BUDGET, maxTurns: 60, maxMinutes: 30 },
           startedAt: now(),
         });
-        sessions.push({ run: request.run.runId, agent, work, message: request.taskMessage });
+        sessions.push({
+          run: request.run.runId,
+          agent,
+          work,
+          message: request.taskMessage,
+          head: request.head,
+        });
         return { kind: "started", agent };
       },
       finish: async (_office, _run, agent) => {
@@ -335,7 +367,7 @@ function world(): World {
   // As `composeRuns` wires them: pending reviews and the review starter in the reviewer place.
   const places = new Places({
     clock: w.t.clock,
-    offices: { get: () => w.office, config: () => OFFICE_DEFAULTS },
+    offices: { get: () => w.office },
     pending: (office) => built.pending(office),
     starters: { review: (office, run, start) => built.start(office, run, start) },
   });
@@ -356,6 +388,24 @@ function world(): World {
     },
     get backstop() {
       return state.backstop;
+    },
+    get head() {
+      return state.head;
+    },
+    set head(value) {
+      state.head = value;
+    },
+    get onRead() {
+      return state.onRead;
+    },
+    set onRead(value) {
+      state.onRead = value;
+    },
+    get onDiff() {
+      return state.onDiff;
+    },
+    set onDiff(value) {
+      state.onDiff = value;
     },
     set backstop(value) {
       state.backstop = value;
@@ -432,8 +482,8 @@ async function exits(session: Session, code = 0): Promise<void> {
 }
 
 const parksOf = () =>
-  w.office.all<{ story_id: string; reason: string; cause: string; detail: string }>(
-    "select story_id, reason, cause, detail from parks where office_id = $office_id order by park_id",
+  w.office.all<{ story_id: string; reason: string; detail: string }>(
+    "select story_id, reason, detail from parks where office_id = $office_id order by park_id",
   );
 
 const stepsOf = (run: RunId, kind: string) =>
@@ -672,8 +722,8 @@ describe("a code tree key with a verdict (0019 section 6)", () => {
   });
 });
 
-describe("the review allowance (0019 section 4)", () => {
-  it("grows the budget limit per round started and adds nothing for a retried session", async () => {
+describe("review rounds grow no cap (0002, 0020)", () => {
+  it("leaves the story's budget as it started for every round and every retried session", async () => {
     const s = inReview("DIPO-1", "tree-1");
     heads.set(s.run, "tree-1");
     expect(runCaps(w.office, findRun(w.office, s.run)!).budgetTokens).toBe(BUDGET);
@@ -681,27 +731,27 @@ describe("the review allowance (0019 section 4)", () => {
     const first = await reviewStarts(s);
     const rounds = stepsOf(s.run, "review");
     expect(rounds).toHaveLength(1);
-    expect(JSON.parse(rounds[0]?.value ?? "")).toMatchObject({ round: 1, allowance: ALLOWANCE });
-    expect(runCaps(w.office, findRun(w.office, s.run)!).budgetTokens).toBe(BUDGET + ALLOWANCE);
+    expect(JSON.parse(rounds[0]?.value ?? "")).toEqual({ round: 1, since: expect.any(Number) });
+    expect(runCaps(w.office, findRun(w.office, s.run)!).budgetTokens).toBe(BUDGET);
 
     // The session crashes: one fresh session for the same round, which adds nothing.
     await exits(first, 1);
     expect(x.sessions).toHaveLength(2);
     expect(stepsOf(s.run, "review")).toHaveLength(1);
-    expect(runCaps(w.office, findRun(w.office, s.run)!).budgetTokens).toBe(BUDGET + ALLOWANCE);
+    expect(runCaps(w.office, findRun(w.office, s.run)!).budgetTokens).toBe(BUDGET);
 
-    // A blocked verdict, a fix and a second round: the budget grows again.
+    // A blocked verdict, a fix and a second round: the budget still stands where it started.
     await turn(x.sessions[1]!, UNMET);
     await exits(x.sessions[1]!);
     fixedTo(s, "tree-2");
     await reviewStarts(s);
     expect(stepsOf(s.run, "review").map((step) => JSON.parse(step.value).round)).toEqual([1, 2]);
-    expect(runCaps(w.office, findRun(w.office, s.run)!).budgetTokens).toBe(BUDGET + 2 * ALLOWANCE);
+    expect(runCaps(w.office, findRun(w.office, s.run)!).budgetTokens).toBe(BUDGET);
   });
 });
 
 describe("the failure table (0019 section 4)", () => {
-  it("parks review-blocked with cause rounds at the third failed round, a review-failed row per failed round", async () => {
+  it("parks review-blocked at the third failed round, a review-failed row per failed round", async () => {
     const s = inReview("DIPO-1", "tree-1");
     heads.set(s.run, "tree-1");
     for (const [round, tree] of [
@@ -722,7 +772,7 @@ describe("the failure table (0019 section 4)", () => {
     expect(stepsOf(s.run, "review-failed").map((step) => step.value)).toEqual(["1", "2", "3"]);
     const parks = parksOf();
     expect(parks).toHaveLength(1);
-    expect(parks[0]).toMatchObject({ reason: "review-blocked", cause: "rounds" });
+    expect(parks[0]).toMatchObject({ reason: "review-blocked" });
     expect(parks[0]?.detail).toContain("the 3 of 3 failed rounds");
     expect(parks[0]?.detail).toContain(
       "- blocking correctness at src/greet.ts:2: total subtracts instead of adding.",
@@ -734,7 +784,7 @@ describe("the failure table (0019 section 4)", () => {
     ]);
   });
 
-  it("gives an invalid report one correction turn, then ends the session as a crash; a second crash parks worker-failed with cause review", async () => {
+  it("gives an invalid report one correction turn, then ends the session as a crash; a second crash parks worker-failed", async () => {
     const s = inReview("DIPO-1", "tree-1");
     heads.set(s.run, "tree-1");
     const first = await reviewStarts(s);
@@ -752,13 +802,12 @@ describe("the failure table (0019 section 4)", () => {
     expect(stepsOf(s.run, "review")).toHaveLength(1);
     expect(JSON.stringify(events("engine.notice"))).toContain("review.failed");
 
-    // The fresh session crashes too: worker-failed, cause review, with its last error.
+    // The fresh session crashes too: worker-failed, with its last error.
     await exits(x.sessions[1]!, 1);
     expect(parksOf()).toEqual([
       {
         story_id: "DIPO-1",
         reason: "worker-failed",
-        cause: "review",
         detail: "the reviewer failed twice in review round 1: the reviewer exited with code 1",
       },
     ]);
@@ -786,7 +835,7 @@ describe("the failure table (0019 section 4)", () => {
     expect(stepsOf(s.run, "review-failed")).toEqual([]);
   });
 
-  it("parks worker-failed with cause review-cap at the reviewer's own turn cap, naming the cap", async () => {
+  it("parks worker-failed at the reviewer's own turn cap, naming the cap", async () => {
     const s = inReview("DIPO-1", "tree-1");
     heads.set(s.run, "tree-1");
     const session = await reviewStarts(s);
@@ -798,7 +847,6 @@ describe("the failure table (0019 section 4)", () => {
       {
         story_id: "DIPO-1",
         reason: "worker-failed",
-        cause: "review-cap",
         detail: "the reviewer's turn cap reached: 60 of 60 turns",
       },
     ]);
@@ -806,19 +854,41 @@ describe("the failure table (0019 section 4)", () => {
     expect(x.sessions).toHaveLength(1);
   });
 
-  it("parks budget-exceeded with cause review when the story's budget runs out in a review", async () => {
+  it("counts the review against the reviewer's own token cap, never the story's budget", async () => {
+    const s = inReview("DIPO-1", "tree-1");
+    heads.set(s.run, "tree-1");
+    const developer = w.office.get<{ agent_id: string }>(
+      `select agent_id from agents where office_id = $office_id and run_id = $run
+        and role = 'developer'`,
+      { run: s.run },
+    )?.agent_id as AgentId;
+    // The developer used all but one token of the story's budget before In Review.
+    addUsage(w, s.run, developer, "developer", { turns: 3, tokens: BUDGET - 1 });
+    const session = await reviewStarts(s);
+    // The review alone takes the story past its budget, but stays under its own cap.
+    addUsage(w, s.run, session.agent, REVIEWER_ROLE, { turns: 3, tokens: REVIEW_TOKENS - 1 });
+    expect(x.control.checkCaps(s.run)).toBe(false);
+    expect(parksOf()).toEqual([]);
+  });
+
+  it("parks worker-failed at the reviewer's own token cap, naming the cap", async () => {
     const s = inReview("DIPO-1", "tree-1");
     heads.set(s.run, "tree-1");
     const session = await reviewStarts(s);
-    addUsage(w, s.run, session.agent, REVIEWER_ROLE, { turns: 3, tokens: BUDGET + ALLOWANCE });
+    addUsage(w, s.run, session.agent, REVIEWER_ROLE, { turns: 3, tokens: REVIEW_TOKENS });
     expect(x.control.checkCaps(s.run)).toBe(true);
     await x.control.idle();
     expect(parksOf()).toEqual([
-      expect.objectContaining({ reason: "budget-exceeded", cause: "review" }),
+      {
+        story_id: "DIPO-1",
+        reason: "worker-failed",
+        detail:
+          "the reviewer's token budget reached: 200,000 of 200,000 budget tokens (input, output and cache creation)",
+      },
     ]);
   });
 
-  it("parks scope-violation with cause backstop when the review changed the worktree", async () => {
+  it("parks scope-violation when the review changed the worktree", async () => {
     const s = inReview("DIPO-1", "tree-1");
     heads.set(s.run, "tree-1");
     const session = await reviewStarts(s);
@@ -828,33 +898,32 @@ describe("the failure table (0019 section 4)", () => {
       {
         story_id: "DIPO-1",
         reason: "scope-violation",
-        cause: "backstop",
         detail: "HEAD moved: e1 to f2",
       },
     ]);
     expect(reviewVerdictsOf(w.office, s.key)).toEqual([]);
   });
 
-  it("stops the session at a plan limit, never parks, and waits for a fresh review from the In Review time", async () => {
+  it("parks worker-failed at a plan limit, to resume by itself when the office's starts paused lifts (0020)", async () => {
     const s = inReview("DIPO-1", "tree-1");
     heads.set(s.run, "tree-1");
-    const inReviewAt = now();
     w.t.clock.advance(MINUTE);
     const session = await reviewStarts(s);
-    x.control.onWorkerEvents(s.run, [{ t: "limit", status: "rejected", scope: "session" }]);
+    const reset = new Date(now() + 3_600_000).toISOString();
+    x.control.onWorkerEvents(s.run, [{ t: "limit", status: "rejected", resetsAt: reset }]);
     await x.control.idle();
-    expect(runIntents(w.office, s.run).at(-1)).toMatchObject({ kind: "stop" });
     await exits(session, 0);
-    expect(parksOf()).toEqual([]);
-    expect(findRun(w.office, s.run)).toMatchObject({
-      endedAt: null,
-      waiting: START_KINDS.review,
-      waitingSince: inReviewAt,
-    });
-    // After the reset a fresh session starts in the same round.
-    await reviewStarts(s);
-    expect(x.sessions).toHaveLength(2);
-    expect(stepsOf(s.run, "review")).toHaveLength(1);
+    expect(parksOf()).toEqual([
+      { story_id: "DIPO-1", reason: "worker-failed", detail: `plan limit until ${reset}` },
+    ]);
+    expect(
+      w.office.get<{ resume_on_lift: number }>(
+        "select resume_on_lift from parks where office_id = $office_id",
+      )?.resume_on_lift,
+    ).toBe(1);
+    expect(findRun(w.office, s.run)).toMatchObject({ endKind: "plan-limit", waiting: null });
+    expect(findRun(w.office, s.run)?.endedAt).not.toBeNull();
+    expect(x.sessions).toHaveLength(1);
   });
 
   it("keeps the story In Review with a notice when the reviewer's launch check is refused, and the review waits", async () => {
@@ -921,6 +990,199 @@ const claimLive = (run: RunId): boolean =>
     "select 1 as found from claims where office_id = $office_id and run_id = $run and released_at is null",
     { run },
   ) !== null;
+
+/** `story.park` of the story as the planning lane hands it to run control. */
+const parkIt = (s: StoryRun) =>
+  x.control.parkByMaintainer(
+    {
+      office: w.office,
+      stories: { get: () => ({ story: s.story, key: s.key }) },
+      commit: (fn: () => unknown) => write(() => void fn()),
+    } as unknown as AsyncCommandContext,
+    { story: s.story, note: "After the release." },
+  );
+
+describe("a story parked while it waits In Review (DIPO-344)", () => {
+  it("gets no review round or reviewer session until its park is resolved, then its review starts", async () => {
+    const s = inReview("DIPO-1", "tree-1");
+    const start = pendingReviews(w.office)[0]!;
+    await parkIt(s);
+    expect(parksOf()).toEqual([
+      { story_id: "DIPO-1", reason: "by-maintainer", detail: "After the release." },
+    ]);
+
+    expect(pendingReviews(w.office)).toEqual([]);
+    expect(await x.places.drain(officeId())).toBe(0);
+    // A start queued before the park waits too.
+    expect(await x.reviews.start(officeId(), findRun(w.office, s.run)!, start)).toBe(false);
+    expect(x.sessions).toEqual([]);
+    expect(stepsOf(s.run, "review")).toEqual([]);
+
+    // The resume resolves the park (`ParkResumes`); the next drain starts the review.
+    const parkId = openPark(w.office, s.key)!.parkId;
+    write(() => {
+      resolvePark(w.office, parkId, "resume", now());
+      // The lift's read-back: In Review with no park record in Backlog.md (DIPO-360).
+      mirrorUnpark(w.office, s.key, "In Review");
+    });
+    const session = await reviewStarts(s);
+    expect(session.run).toBe(s.run);
+    expect(stepsOf(s.run, "review")).toHaveLength(1);
+  });
+});
+
+/** The CI-cap park of the story's run, as the PR poll writes it (`StoryPrs`). */
+const ciCapPark = (s: StoryRun) =>
+  parkStory(
+    {
+      office: w.office,
+      writer: {
+        write: async () => ({
+          commit: "c".repeat(40),
+          lastGoodCommit: "a".repeat(40),
+          from: "In Review",
+          pushed: true,
+          pushError: null,
+        }),
+      },
+      now,
+      write: (fn) => write(() => void appendEntries(w.office, fn(), { at: now() })),
+      implemented: () => true,
+    },
+    {
+      run: findRun(w.office, s.run)!,
+      reason: "verify-failing",
+      detail: "required checks were red on 1 pushed heads (the CI cap is 1).",
+      endKind: "verify-failing",
+    },
+  );
+
+/** The resume's lift: the park resolved and the story In Review again in Backlog.md. */
+function lift(s: StoryRun): void {
+  const parkId = openPark(w.office, s.key)!.parkId;
+  write(() => {
+    resolvePark(w.office, parkId, "resume", now());
+    mirrorUnpark(w.office, s.key, "In Review");
+  });
+}
+
+/** The launcher's refusal of a branch that moved from the fake head to `to`. */
+const moved = (to: string): ReviewSessionOutcome => ({
+  kind: "failed",
+  reason: `the story branch moved from ${"e".repeat(40)} to ${to} since the review round read it`,
+});
+
+// DIPO-346: a park can land while a review round is being built (the PR poll's CI-cap park runs
+// next to the reviewer place). It starts no reviewer; the review starts after the resume, on the
+// branch as it is then.
+describe("a park that lands while a review round is built (DIPO-346)", () => {
+  it("before the round begins: no round, the run stays at In Review, and the resume's review reads the new head", async () => {
+    const s = inReview("DIPO-1", "tree-1");
+    const inReviewAt = findRun(w.office, s.run)!.endedAt;
+    x.onRead = async () => {
+      x.onRead = null;
+      await ciCapPark(s);
+    };
+    expect(await x.places.drain(officeId())).toBe(0);
+    expect(x.sessions).toEqual([]);
+    expect(stepsOf(s.run, "review")).toEqual([]);
+    expect(findRun(w.office, s.run)).toMatchObject({
+      endedAt: inReviewAt,
+      endKind: IN_REVIEW_END,
+      waiting: null,
+    });
+    expect(pendingReviews(w.office)).toEqual([]);
+    expect(await x.places.drain(officeId())).toBe(0);
+    expect(x.sessions).toEqual([]);
+
+    lift(s);
+    x.head = "f".repeat(40);
+    const session = await reviewStarts(s);
+    expect(session.head).toBe("f".repeat(40));
+  });
+
+  it("after the round began: no reviewer; the park ends the reopened run, and nothing waits for the place", async () => {
+    const s = inReview("DIPO-1", "tree-1");
+    w.t.clock.advance(3 * MINUTE);
+    x.onDiff = async () => {
+      x.onDiff = null;
+      await ciCapPark(s);
+    };
+    expect(await x.places.drain(officeId())).toBe(0);
+    expect(x.sessions).toEqual([]);
+    expect(findRun(w.office, s.run)).toMatchObject({ endKind: "verify-failing", waiting: null });
+    expect(pendingReviews(w.office)).toEqual([]);
+    expect(await x.places.drain(officeId())).toBe(0);
+    expect(x.sessions).toEqual([]);
+  });
+
+  it("refused by the launcher after the park moved the branch: no reviewer, the round's head dropped", async () => {
+    const s = inReview("DIPO-1", "tree-1");
+    w.t.clock.advance(MINUTE);
+    // The park lands after the starter's last check, while the launcher reads the branch.
+    x.next = async () => {
+      x.next = null;
+      await ciCapPark(s);
+      return moved("c".repeat(40));
+    };
+    expect(await x.places.drain(officeId())).toBe(0);
+    expect(x.sessions).toEqual([]);
+    expect(findRun(w.office, s.run)).toMatchObject({ endKind: "verify-failing", waiting: null });
+    expect(pendingReviews(w.office)).toEqual([]);
+    expect(await x.places.drain(officeId())).toBe(0);
+    expect(x.sessions).toEqual([]);
+  });
+
+  it("on an unparked story whose branch moved, reads the branch again as a fresh round and starts", async () => {
+    const s = inReview("DIPO-1", "tree-1");
+    w.t.clock.advance(MINUTE);
+    x.next = () => {
+      x.next = null;
+      return moved("f".repeat(40));
+    };
+    expect(await x.places.drain(officeId())).toBe(0);
+    expect(x.sessions).toEqual([]);
+    // The run waits for the place again; nothing parked it.
+    expect(findRun(w.office, s.run)).toMatchObject({ endedAt: null, waiting: START_KINDS.review });
+    x.head = "f".repeat(40);
+    const session = await reviewStarts(s);
+    expect(session.head).toBe("f".repeat(40));
+    expect(stepsOf(s.run, "review")).toHaveLength(1);
+  });
+});
+
+describe("a story whose park could not be written to Backlog.md (DIPO-360)", () => {
+  it("gets no review round or reviewer session while its park row is open, fail-closed", async () => {
+    const s = inReview("DIPO-1", "tree-1");
+    const start = pendingReviews(w.office)[0]!;
+    await parkStory(
+      {
+        office: w.office,
+        writer: {
+          write: async () => {
+            throw new Error("the push was refused");
+          },
+        },
+        now,
+        write: (fn) => write(() => void appendEntries(w.office, fn(), { at: now() })),
+        implemented: () => true,
+      },
+      {
+        run: findRun(w.office, s.run)!,
+        reason: "review-blocked",
+        detail: "blocked",
+        endKind: "review-blocked",
+      },
+    );
+    // Backlog.md does not hold the park, and the run keeps its In Review end kind.
+    expect(openPark(w.office, s.key)).toBeNull();
+    expect(findRun(w.office, s.run)?.endKind).toBe(IN_REVIEW_END);
+    expect(pendingReviews(w.office)).toEqual([]);
+    expect(await x.places.drain(officeId())).toBe(0);
+    expect(await x.reviews.start(officeId(), findRun(w.office, s.run)!, start)).toBe(false);
+    expect(x.sessions).toEqual([]);
+  });
+});
 
 describe("a story Done on the office base (DIPO-239)", () => {
   it("gets no review round or session for a run ended at In Review, which ends done once", async () => {
@@ -1067,7 +1329,7 @@ describe("a refused reviewer launch plan (DIPO-247)", () => {
 });
 
 describe("a reviewer that ends without a verdict (0019 section 4)", () => {
-  it("parks worker-failed with cause review when its host is lost twice in the round, with no review-failed step", async () => {
+  it("parks worker-failed when its host is lost twice in the round, with no review-failed step", async () => {
     const s = inReview("DIPO-1", "tree-1");
     heads.set(s.run, "tree-1");
     const first = await reviewStarts(s);
@@ -1083,7 +1345,6 @@ describe("a reviewer that ends without a verdict (0019 section 4)", () => {
       {
         story_id: "DIPO-1",
         reason: "worker-failed",
-        cause: "review",
         detail:
           "the reviewer failed twice in review round 1: the reviewer host died while the daemon was down",
       },
@@ -1095,7 +1356,7 @@ describe("a reviewer that ends without a verdict (0019 section 4)", () => {
     });
   });
 
-  it("parks worker-failed with cause review-cap past the reviewer's minute cap, with no review-failed step", async () => {
+  it("parks worker-failed past the reviewer's minute cap, with no review-failed step", async () => {
     const s = inReview("DIPO-1", "tree-1");
     heads.set(s.run, "tree-1");
     const session = await reviewStarts(s);
@@ -1107,7 +1368,7 @@ describe("a reviewer that ends without a verdict (0019 section 4)", () => {
     await x.control.idle();
     const parks = parksOf();
     expect(parks).toEqual([
-      expect.objectContaining({ story_id: "DIPO-1", reason: "worker-failed", cause: "review-cap" }),
+      expect.objectContaining({ story_id: "DIPO-1", reason: "worker-failed" }),
     ]);
     expect(parks[0]?.detail).toBe(
       "the reviewer's time cap reached: 30 of 30 minutes since the worker started",

@@ -4,8 +4,8 @@
 // title, tier, open dependencies, the field block's park record), the latest Ready gate decision,
 // and the story's active run.
 //
-// Column (one of the nine 0009 columns): a Ready story whose dependency is not Done is `waiting`
-// with `waitingOn`; a Parked story is `held` when parked `on-hold`, else `desk`; every other
+// Column (one of the eight 0009 columns): a Ready story whose dependency is not Done is `waiting`
+// with `waitingOn`; a Parked story is `desk`, whatever its reason; every other
 // lifecycle maps one to one. A removed story is in no queue column: its view says `removed`, an
 // open-enum value clients show generically, and they drop the story.
 
@@ -82,11 +82,8 @@ export interface StoryFacts {
 }
 
 /** The column a story shows in (0009 section 3). */
-export function deriveColumn(
-  facts: Pick<StoryFacts, "lifecycle" | "waitingOn" | "park">,
-): QueueColumn {
+export function deriveColumn(facts: Pick<StoryFacts, "lifecycle" | "waitingOn">): QueueColumn {
   if (facts.lifecycle === "Ready" && (facts.waitingOn?.length ?? 0) > 0) return "waiting";
-  if (facts.lifecycle === "Parked" && facts.park?.reason === "on-hold") return "held";
   return columnOf(facts.lifecycle);
 }
 

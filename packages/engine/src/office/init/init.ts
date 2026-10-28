@@ -3,7 +3,7 @@
 // in the engine's backlog worktree, records the settings it is about to change in
 // `backlog_config_previous`, journals one `init` operation per step that differs on the base, and
 // flushes the lane: the steps become commits on one engine branch and one backlog PR, which DIPO-35
-// opens and checks and the merge slot (DIPO-73) merges once its checks pass.
+// opens and checks and GitHub's auto-merge merges once its checks pass (0002).
 //
 // Init is target-state: a step already true on the base is not journaled, and a step already open
 // in the journal with the same target is not journaled again, so a second run adds no commits. It
@@ -317,12 +317,12 @@ export class OfficeInit {
       return {
         office: officeId,
         branch,
-        waiting: `the merge slot holds the backlog branch ${branch}; the init steps stay journaled and go to the next backlog PR`,
+        waiting: `the backlog branch ${branch} has auto-merge on; the init steps stay journaled and go to the next backlog PR`,
         ...leftAlone,
       };
     }
     if (branch === null) {
-      // Nothing waits: every step is on the base, or held for the merge slot without a branch.
+      // Nothing waits: every step is on the base, or held without a branch.
       return { office: officeId, ...leftAlone };
     }
     const pr = openPrs(office).find((record) => record.branch === branch);

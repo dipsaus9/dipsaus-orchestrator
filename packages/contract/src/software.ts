@@ -49,9 +49,9 @@ export const OfficeSummary = z.object({
   name: z.string(),
   path: z.string(),
   running: Count,
-  parked: Count, // includes on-hold
-  onHold: Count, // subset of parked
-  waitingOnMaintainer: Count, // open gates, questions, tests, parked other than on-hold
+  parked: Count, // includes the stories parked by the maintainer
+  onHold: Count, // subset of parked: parked `by-maintainer`
+  waitingOnMaintainer: Count, // open gates, questions, tests, parked other than by-maintainer
   // Since minor 1 (DIPO-81): the stories in the `ready` column, engine-derived, so the office
   // switcher shows Ready for offices that are not open. A minor-1 engine always sends it.
   ready: Count.optional(),
@@ -124,7 +124,7 @@ export const officeForget = defineCommand({
 // Since minor 1 (DIPO-36): runs office init (0010 section 6) through one backlog PR. `changed` in
 // the reply is false when every step was already on the base or on the open backlog branch. `pr`
 // is the open backlog PR of the init steps; without one, `branch` is the engine branch waiting for
-// it and `waiting` says why (no remote, `gh` unusable, the merge slot holds it, a failed apply).
+// it and `waiting` says why (no remote, `gh` unusable, its PR has auto-merge on, a failed apply).
 // `leftAlone` lists the `To Do` stories init did not migrate because each is in progress on its
 // own branch.
 export const officeInit = defineCommand({
@@ -241,7 +241,7 @@ export const daemonResumeScheduling = defineCommand({
   name: "daemon.resumeScheduling",
   level: "software",
   args: z.object({}),
-  result: z.object({ state: DaemonState }), // leaves safe
+  result: z.object({ state: DaemonState }), // leaves safe, and lifts every office's starts paused (0020)
   confirm: false,
   irreversible: false,
   since: 0,

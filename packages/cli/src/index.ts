@@ -38,10 +38,9 @@ import { OFFICE_SUBCOMMANDS } from "./office-commands";
 import { PROFILE_SUBCOMMANDS } from "./profile-commands";
 import { proposeCommand } from "./propose-command";
 import { runCommand } from "./run-command";
-import { stopCommand } from "./stop-command";
-import { pauseCommand, steerCommand } from "./intervene-commands";
+import { steerCommand } from "./intervene-commands";
 import { resumeCommand } from "./resume-command";
-import { discardCommand, dropCommand, holdCommand } from "./story-commands";
+import { discardCommand, dropCommand, parkCommand } from "./story-commands";
 import { statsCommand } from "./stats-command";
 import { systemTui } from "./tui-command";
 import { watchCommand } from "./watch-command";
@@ -114,7 +113,8 @@ Usage:
                     set the running daemon's log level until it restarts
                     (error, warn, info, debug or trace)
   dipo daemon resume-scheduling
-                    leave safe mode so the daemon schedules work again
+                    leave safe mode and lift every office's starts paused, so
+                    the daemon schedules work again
   dipo office open [path]
                     register the git repository with Backlog.md at path (default:
                     the current directory) as an office
@@ -148,19 +148,17 @@ Usage:
                     arguments, model, effort, caps, run settings, variable
                     names) and the system file and task message the worker
                     would get; claims, creates and starts nothing
-  dipo stop <id> [--note <text>] [--office <id>] [--yes]
-                    stop the story's worker after asking; the story parks as
-                    stopped with branch and worktree kept
+  dipo park <id> --note <text> [--office <id>]
+                    park a Refined, Ready, In Progress or In Review story as
+                    by-maintainer with your note: a running worker is stopped
+                    first, and branch and box are kept; nothing picks it up
+                    until you resume it
   dipo resume <id> [--note <text>] [--budget +<n>%|+<tokens>] [--yes] [--office <id>]
-                    resume a paused run or a parked story as its park reason
-                    says; some reasons need a note, and a budget-exceeded story
-                    needs --budget with a note: dipo shows its caps before and
-                    after and asks first (--yes answers for a script); for a
-                    story parked on its worker's question the note is the answer
-  dipo hold <id> --note <text> [--office <id>]
-                    set a Refined or Ready story aside: it parks on-hold through
-                    the backlog PR and no run picks it until it is resumed; a
-                    running or claimed story is refused
+                    resume a parked story as its park reason says: a question
+                    needs its answer as the note, review-blocked a note with a
+                    direction, budget-exceeded --budget with a note (dipo shows
+                    the caps before and after and asks first; --yes answers for
+                    a script); scope-violation is not resumable
   dipo drop <id> [--delete-branch] [--yes] [--office <id>]
                     archive a Draft, Refined, Ready or Parked story after asking,
                     close its open PR and remove its worktree; its branch is
@@ -168,8 +166,8 @@ Usage:
                     and deletes the branch locally and on the remote after you
                     type the story id
   dipo approve <id> [--note <text>] [--office <id>]
-                    approve the story's merge that waits for you: it goes
-                    through the merge slot; past a blocked review the note is
+                    approve the story's merge that waits for you: dipo turns
+                    GitHub's auto-merge on; past a blocked review the note is
                     required and recorded as your override; exits 1 when
                     nothing waits
   dipo reject <id> --note <text> [--yes] [--office <id>]
@@ -184,20 +182,13 @@ Usage:
                     story Done on the base it removes the leftovers only
   dipo steer <id> <text> [--office <id>]
                     send the story's worker your text as its next message; a
-                    paused or parked story gets it with the first message on
-                    resume; a reviewer session cannot be steered
-  dipo pause <id> [--office <id>]
-                    hold the story's worker: it stays In Progress, shown as
-                    paused, and its process exits after 10 minutes; the paused
-                    time does not count toward its minute cap
+                    parked story gets it with the first message on resume; a
+                    reviewer session cannot be steered
   dipo answer <question> --text <answer> [--office <id>]
                     answer a worker's question: a worker waiting on it gets the
                     answer now; a story parked on it resumes with it, and dipo
                     writes that answer to the story as a resolved unknown; put
                     the whole answer in quotes after --text
-  dipo answer <question> allow|deny [reason] [--office <id>]
-                    answer a permission or scope question: allow lets the call
-                    run once, deny refuses it and tells the worker the reason
   dipo desk [--office <id>] [--json]
                     list what waits on you, in the order to handle it: questions
                     a worker waits on, merges, parked stories, hand actions,
@@ -413,13 +404,9 @@ export async function main(argv: readonly string[], deps: CliDeps): Promise<numb
     const { version } = versionInfo(deps.stamp, deps.runtime);
     return runCommand(args.slice(1), { ...deps, version });
   }
-  if (args[0] === "stop") {
+  if (args[0] === "park") {
     const { version } = versionInfo(deps.stamp, deps.runtime);
-    return stopCommand(args.slice(1), { ...deps, version });
-  }
-  if (args[0] === "hold") {
-    const { version } = versionInfo(deps.stamp, deps.runtime);
-    return holdCommand(args.slice(1), { ...deps, version });
+    return parkCommand(args.slice(1), { ...deps, version });
   }
   if (args[0] === "drop") {
     const { version } = versionInfo(deps.stamp, deps.runtime);
@@ -444,10 +431,6 @@ export async function main(argv: readonly string[], deps: CliDeps): Promise<numb
   if (args[0] === "steer") {
     const { version } = versionInfo(deps.stamp, deps.runtime);
     return steerCommand(args.slice(1), { ...deps, version });
-  }
-  if (args[0] === "pause") {
-    const { version } = versionInfo(deps.stamp, deps.runtime);
-    return pauseCommand(args.slice(1), { ...deps, version });
   }
   if (args[0] === "answer") {
     const { version } = versionInfo(deps.stamp, deps.runtime);

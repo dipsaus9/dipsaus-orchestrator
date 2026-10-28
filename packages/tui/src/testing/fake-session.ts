@@ -79,12 +79,6 @@ export class FakeSession implements TuiSession {
     },
     changed: true,
   });
-  /** Answers `work.stop`; by default the run stops with no reply cursor. */
-  stopReply: (args: { story?: string }) => unknown = () => ({
-    ok: true,
-    result: { run: "run_01J9ZK5Q8W3V4X6Y7Z8A9B0C24" },
-    changed: true,
-  });
   readonly subscriptions: RecordedSubscription[] = [];
   /** Replies to `office.open` by path; a missing path answers `office.notFound`. */
   readonly opened = new Map<string, OfficeId>();
@@ -129,7 +123,7 @@ export class FakeSession implements TuiSession {
   digest: unknown = null;
   /** The decided gates `story.detail` answers, by story key (0019 section 14). */
   readonly verdicts = new Map<string, unknown[]>();
-  /** Answers every command `runReply`, `stopReply` and `office.open` do not; undefined falls through. */
+  /** Answers every command `runReply` and `office.open` do not; undefined falls through. */
   commandReply: (name: string, args: unknown, options: unknown) => unknown = () => undefined;
 
   read = (async (
@@ -231,7 +225,6 @@ export class FakeSession implements TuiSession {
     const reply = this.commandReply(definition.name, args, options);
     if (reply !== undefined) return reply;
     if (definition.name === "work.run") return this.runReply(args);
-    if (definition.name === "work.stop") return this.stopReply(args);
     if (definition.name === "office.open") {
       const office = this.opened.get(args.path ?? "");
       if (office === undefined) {

@@ -4,6 +4,7 @@ title: Cut the run vocabulary to five health states and three run endings
 status: Refined
 assignee: []
 created_date: '2026-10-25 09:51'
+updated_date: '2026-10-28 07:24'
 labels:
   - 'tier:M'
   - 'slice:prune'
@@ -45,4 +46,5 @@ test_plan:
 - [ ] #2 The phases are setup, build, review, test and merge
 - [ ] #3 A run ends done, parked with its reason, or dropped; endKind strings, worker outcomes and park causes no longer describe an ending
 - [ ] #4 The TUI, dipo watch and dipo desk show the new values
+- [ ] #5 dipo resume of a story that already runs answers changed: false (0005), the error story.notPausedOrParked is renamed now that pause is gone, and the always-zero onHold count of views/summary.ts is removed (from the review of DIPO-344)
 <!-- AC:END -->

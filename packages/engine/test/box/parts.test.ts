@@ -26,6 +26,7 @@ import {
   PART_SUBJECT_MAX,
   type PartChange,
   type PartFile,
+  BOX_GIT_EXCLUDE,
   partArchiveCommand,
   partCommitMessage,
   partPark,
@@ -577,7 +578,7 @@ describe("the in-box exclude list", () => {
     expect(inBoxExcludes(rules, new Map())).toEqual(["dist", "./out", "./tmp/*"]);
   });
 
-  it("streams tar of the work folder with the excludes before the folder, under timeout", () => {
+  it("streams tar of the work folder with the box's .git and the excludes before the folder, under timeout", () => {
     const command = partArchiveCommand(["node_modules", ".cache"]);
     expect(command.slice(0, 2)).toEqual(["/bin/sh", "-c"]);
     expect(command[2]).toContain('exec timeout 540 "$@"');
@@ -589,10 +590,15 @@ describe("the in-box exclude list", () => {
       "/work",
       "-cf",
       "-",
+      "--exclude=./.git",
       "--exclude=node_modules",
       "--exclude=.cache",
       ".",
     ]);
+    // The box's own git repository stays in the box on every take, also the one with no excludes
+    // (DIPO-346).
+    expect(partArchiveCommand([]).slice(-2)).toEqual([`--exclude=${BOX_GIT_EXCLUDE}`, "."]);
+    expect(BOX_GIT_EXCLUDE).toBe("./.git");
     expect(() => partArchiveCommand(["a b"])).toThrow("not a plain name");
     expect(partArchiveCommand(["./node_modules"]).at(-2)).toBe("--exclude=./node_modules");
     expect(partArchiveCommand(["node_modules/*", "./dist/*"]).slice(-3)).toEqual([
@@ -670,13 +676,12 @@ describe("blob ids and parks", () => {
   });
 
   it("parks scope-violation on a hit or a refused part, conflict on a rejected push", () => {
-    expect(partPark({ kind: "hit", cause: "secret", detail: "d" })).toEqual({
+    expect(partPark({ kind: "hit", hit: "secret", detail: "d" })).toEqual({
       reason: "scope-violation",
-      cause: "secret",
       detail: "d",
     });
-    expect(partPark({ kind: "refused", detail: refusedDetail("cap", 10) })?.cause).toBe(
-      "part-refused",
+    expect(partPark({ kind: "refused", detail: refusedDetail("cap", 10) })?.reason).toBe(
+      "scope-violation",
     );
     expect(refusedDetail("cap", 10)).toContain("larger than 10 bytes");
     const push = { pushed: false, rejected: true, error: "rejected" };

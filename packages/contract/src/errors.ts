@@ -64,22 +64,21 @@ export const SOFTWARE_ERROR_CODES = [
 // when the office has no valid configuration, so the command or read cannot run, and
 // `backlog.unreadable` when the Backlog CLI could not read the story or the backlog on the office's
 // base branch. Since minor 1 (DIPO-48): `run.refused` when an office check refuses `work.run`;
-// `details.check` names it (`adapter`, `statuses` or `verify`; `plan-limit` since DIPO-61; `slots` since DIPO-197: every port
+// `details.check` names it (`adapter` or `plan-limit` while the office's starts are paused (0020), `statuses` or `verify`; `slots` since DIPO-197: every port
 // slot is held by another live worktree, the message lists each holder).
 // Since minor 1 (DIPO-59): `question.closed` when `work.answer` names a question that is not waiting.
 // Since minor 1 (DIPO-140, 0019 section 15), all not retryable: `gate.notWaitingOnMaintainer` when
 // `gate.approve` or `gate.reject` names a gate that waits for no maintainer, `gate.handMergeOnly`
 // when the gate is a merge the maintainer merges by hand, and `gate.noteRequired` when a decision
 // that needs a note has none. Since minor 1 (DIPO-163, 0020 section 9), not retryable:
-// `story.notSteerable` when `work.steer` or `work.pause` names a story whose live session is its
-// reviewer, or whose worker host is followed only. Since minor 1 (DIPO-155, 0020 sections 1, 2 and
-// 4), not retryable, from `work.resume` of a parked story: `resume.topUpRequired` (a
-// `budget-exceeded` park resumed without `budget`, naming the cap that fired), `resume.topUpTooSmall`
-// (a top-up after which that cap is still reached, naming the smallest share that clears it),
-// `resume.noteRequired` (a reason whose resume needs a note), `resume.notResumable` (a park with no
-// way back, such as tampered git links, naming `dipo discard`), `resume.capReached` (what remains
-// of the run's caps is zero, naming `--budget`) and `resume.decisionRequired` (a park resumed by
-// its question's answer, naming `dipo answer`).
+// `story.notSteerable` when `work.steer` names a story whose live session is its reviewer, or
+// whose worker host is followed only. Since minor 1 (DIPO-155, 0020), not retryable, from
+// `work.resume` of a parked story: `resume.topUpRequired` (a `budget-exceeded` park resumed without
+// `budget`, naming the cap that fired), `resume.topUpTooSmall` (a top-up after which that cap is
+// still reached, naming the smallest share that clears it), `resume.noteRequired` (a reason whose
+// resume needs a note), `resume.notResumable` (a park with no way back, `scope-violation`, naming
+// `dipo discard`) and `resume.capReached` (what remains of the run's caps is zero, naming
+// `--budget`).
 // Since minor 1 (DIPO-310, 0013 section 6), not retryable, from `office.infer` and `office.confirm`:
 // `scan.noProfile` (the office has no run profile yet), `scan.noProposal` (no pending proposal to
 // accept, edit or reject), `scan.resolvedByCode` (code resolves the capability: change the script
@@ -101,7 +100,6 @@ export const OFFICE_ERROR_CODES = [
   "resume.noteRequired",
   "resume.notResumable",
   "resume.capReached",
-  "resume.decisionRequired",
   "scan.noProfile",
   "scan.noProposal",
   "scan.resolvedByCode",

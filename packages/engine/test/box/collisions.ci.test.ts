@@ -31,7 +31,6 @@ import {
   BoxCollisions,
   type CatchUpFound,
   type CatchUpMerged,
-  CATCH_UP_CAUSES,
   CATCH_UP_PART_MESSAGE,
   COLLISION_NOTICES,
   conflictSignature,
@@ -591,7 +590,7 @@ if (process.env["DIPO_TEST_CI"] === "1") {
         expect(w.parks).toEqual([
           {
             runId: "run_2",
-            park: expect.objectContaining({ reason: "conflict", cause: CATCH_UP_CAUSES.failed }),
+            park: expect.objectContaining({ reason: "conflict" }),
           },
         ]);
         expect(w.notices.at(-1)).toMatchObject({ code: COLLISION_NOTICES.failed });
@@ -609,7 +608,7 @@ if (process.env["DIPO_TEST_CI"] === "1") {
         await w.collisions.check();
         expect(await tipOf(w, w.b)).toBe(before);
         expect(w.parks).toEqual([
-          { runId: "run_2", park: expect.objectContaining({ cause: CATCH_UP_CAUSES.failed }) },
+          { runId: "run_2", park: expect.objectContaining({ reason: "conflict" }) },
         ]);
         // Checked on the Mac before the box was touched.
         expect(w.copies).toEqual([]);
@@ -658,7 +657,7 @@ if (process.env["DIPO_TEST_CI"] === "1") {
         };
         await w.collisions.check();
         expect(w.parks).toEqual([
-          { runId: "run_2", park: expect.objectContaining({ cause: CATCH_UP_CAUSES.failed }) },
+          { runId: "run_2", park: expect.objectContaining({ reason: "conflict" }) },
         ]);
         expect(w.notices.at(-1)!.text).toContain("the worker kept changing files");
         // Nothing of the base reached the box or the branch.
@@ -714,7 +713,6 @@ if (process.env["DIPO_TEST_CI"] === "1") {
             runId: "run_2",
             park: expect.objectContaining({
               reason: "conflict",
-              cause: CATCH_UP_CAUSES.unwritablePath,
             }),
           },
         ]);
@@ -746,7 +744,6 @@ if (process.env["DIPO_TEST_CI"] === "1") {
             runId: "run_2",
             park: expect.objectContaining({
               reason: "conflict",
-              cause: CATCH_UP_CAUSES.pushRejected,
             }),
           },
         ]);
@@ -765,7 +762,7 @@ if (process.env["DIPO_TEST_CI"] === "1") {
         await w.collisions.check();
         expect(await tipOf(w, w.b)).toBe(elsewhere);
         expect(w.parks).toEqual([
-          { runId: "run_2", park: expect.objectContaining({ cause: CATCH_UP_CAUSES.failed }) },
+          { runId: "run_2", park: expect.objectContaining({ reason: "conflict" }) },
         ]);
         expect(w.notices.at(-1)!.text).toContain(`the branch ${w.b.run.branch} moved`);
       }));
@@ -983,7 +980,9 @@ if (process.env["DIPO_TEST_CI"] === "1") {
         // A part on top of the old tip: its push is rejected, as the park recorded.
         write(w.b.work, { "src/b2.ts": "b2\n" });
         await handPart(w, w.b, "B adds b2");
-        expect(w.parks.at(-1)?.park.cause).toBe("push-rejected");
+        expect(w.parks.at(-1)?.park.detail).toContain(
+          "the remote branch has commits the story branch lacks",
+        );
         w.parks.length = 0;
         const local = await tipOf(w, w.b);
         // The resume (`ConflictResumes`): the remote merged into the branch in dipo's git and
@@ -1000,7 +999,7 @@ if (process.env["DIPO_TEST_CI"] === "1") {
         // A part handed before the box got the merge is refused, never taken against the merge.
         write(w.b.work, { "src/early.ts": "early\n" });
         await handPart(w, w.b, "An early part");
-        expect(w.parks.map((p) => p.park.cause)).toEqual(["catch-up-failed"]);
+        expect(w.parks.map((p) => p.park.reason)).toEqual(["conflict"]);
         expect(await tipOf(w, w.b)).toBe(merge);
         w.parks.length = 0;
         // The session's start copies the merge in; then the part commits on it and pushes.
@@ -1122,7 +1121,6 @@ if (process.env["DIPO_TEST_CI"] === "1") {
             runId: w.b.run.runId,
             park: {
               reason: "conflict",
-              cause: "catch-up-failed",
               detail: "the box lacks dipo's merge",
             },
           },

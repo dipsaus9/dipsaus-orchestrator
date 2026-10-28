@@ -38,7 +38,7 @@ import type { OfficeHandle } from "../db/office";
 import type { GitLocation } from "../git/hardened";
 import type { OfficeGit } from "../git/office";
 import type { Logger } from "../log/logger";
-import { decideOnHandMerge } from "../merge-slot/gates";
+import { decideOnHandMerge } from "../merge/gates";
 import type { CodeHost, PrStateHost } from "../platform/host";
 import type { PrStatePoll } from "../platform/pr-state";
 import { withWorkViews } from "../views/work";
@@ -400,9 +400,9 @@ export class StoryTeardown {
   }
 
   /**
-   * The story's PR merged on the host while a merge gate stood open (a hand merge, 0019 section
-   * 11): in one transaction the open gate is decided approved by the maintainer with the note
-   * "merged on the host". A gate the merge slot's merge already decided is left as it is.
+   * The story's PR merged on the host while a merge gate stood open (a hand merge, 0002): in one
+   * transaction the open gate is decided approved by the maintainer with the note "merged on the
+   * host". A gate already decided is left as it is.
    */
   #handMerged(deps: TeardownDeps, claim: ClaimRecord): void {
     const at = deps.clock.now();

@@ -4,18 +4,20 @@
 // tested in test/box/collisions.test.ts), telling the worker and parking are fakes that record
 // what they were asked:
 //
-// - `merge-in-progress` with the base where the kept merge left it: the first message is the
-//   conflict item rebuilt from git (what is left unresolved, with its hunks at the tip), a new
-//   hand-off starts, and nothing is merged;
-// - `merge-in-progress` with a moved base: the same item, and once the session runs the base is
-//   merged again and the worker gets the new conflict item;
-// - `push-rejected`: the remote is fetched, the first message names the commits only the remote
-//   branch holds (subject, author, files), and they are merged before the session and pushed, never
-//   forced, with the box copy left for the session's start;
-// - `unwritable-path`: a path the worker cannot write that still conflicts parks again at once,
-//   and once the maintainer fixed it on the base the base is merged again.
+// What git and the run's hand-offs say decides which case a resume is, never the park's detail:
 //
-// Three cases stay local: a push-rejected resume that merges nothing, the shown-commit cap, and the
+// - a kept merge (its hand-offs failed at the conflict cap), with the base where it left it: the
+//   first message is the conflict item rebuilt from git (what is left unresolved, with its hunks at
+//   the tip), a new hand-off starts, and nothing is merged;
+// - a kept merge with a moved base: the same item, and once the session runs the base is merged
+//   again and the worker gets the new conflict item;
+// - commits only the remote branch holds (a rejected push): the remote is fetched, the first
+//   message names those commits (subject, author, files), and they are merged before the session
+//   and pushed, never forced, with the box copy left for the session's start;
+// - otherwise the base again: a path the worker cannot write that still conflicts parks again at
+//   once, and once the maintainer fixed it on the base the base is merged again.
+//
+// Three cases stay local: a resume with nothing to merge, the shown-commit cap, and the
 // pending box copy of a slot merge. The rest is in conflict-resume.ci.test.ts (CI only, DIPO-225).
 
 import { mkdirSync, realpathSync, writeFileSync } from "node:fs";
@@ -67,7 +69,7 @@ interface World {
   readonly restored: number[];
   readonly told: string[];
   readonly livePark: PartPark[];
-  readonly parked: { reason: string; cause: string; detail: string }[];
+  readonly parked: { reason: string; detail: string }[];
 }
 
 function write(dir: string, files: Readonly<Record<string, string>>): void {
@@ -233,14 +235,12 @@ function prepared(outcome: ConflictPrepared | { readonly parked: true }): Confli
   return outcome;
 }
 
-describe("conflict / push-rejected", () => {
-  it("merges nothing when the remote branch holds no commit the branch lacks", () =>
+describe("a conflict resume, from git's facts", () => {
+  it("merges nothing when neither the remote branch nor the base holds anything the branch lacks", () =>
     inWorld(async (w) => {
       await onBranch(w, { "src/mine.ts": "mine\n" }, "Mine");
-      const out = prepared(
-        await w.resumes.prepare(w.part.office, runOf(w), { cause: "push-rejected" }),
-      );
-      expect(out.message).toContain("holds no commit your branch lacks now");
+      const out = prepared(await w.resumes.prepare(w.part.office, runOf(w)));
+      expect(out.message).toContain("nothing needs merging now");
       expect(out.afterStart).toBeUndefined();
     }));
 
@@ -276,10 +276,8 @@ describe("a merge the merge slot made outside the box (DIPO-324)", () => {
       // A catch-up in the run's turn of parts: the box got it with it.
       await w.conflicts.recorded(w.part, merged(w.startSha, "a".repeat(40), false));
       expect(pendingBoxCopy(office, w.f.run)).toBeNull();
-      // Two merges of the slot: the box is behind from the tip the first was made on.
-      await w.conflicts.recorded(w.part, merged("a".repeat(40), "b".repeat(40), true), {
-        strict: true,
-      });
+      // Two merges outside the box: it is behind from the tip the first was made on.
+      await w.conflicts.recorded(w.part, merged("a".repeat(40), "b".repeat(40), true));
       await w.conflicts.recorded(w.part, merged("b".repeat(40), "c".repeat(40), true));
       const pending = pendingBoxCopy(office, w.f.run);
       expect(pending).toEqual({ from: "a".repeat(40), ids: [2, 3] });

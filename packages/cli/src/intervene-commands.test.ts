@@ -1,5 +1,5 @@
-// `dipo steer <ID> <text>` and `dipo pause <ID>` (DIPO-163): neither asks for confirmation; the
-// steer text is the words after the story id.
+// `dipo steer <ID> <text>` (DIPO-163): it asks for no confirmation; the steer text is the words
+// after the story id. `dipo pause` is gone (0020): `dipo park` replaced it.
 
 import { describe, expect, it } from "bun:test";
 
@@ -113,23 +113,9 @@ describe("dipo steer", () => {
 });
 
 describe("dipo pause", () => {
-  it("sends work.pause without asking", async () => {
-    const ctx = fake(() => ({ ok: true, changed: true, result: { run: RUN_ID } }));
-    expect(await main(["pause", "DIPO-7"], ctx.deps)).toBe(0);
-    expect(ctx.sent).toEqual([{ name: "work.pause", args: { story: "DIPO-7" }, office: OFFICE }]);
-    expect(ctx.ws.questions).toEqual([]);
-    expect(ctx.out[0]).toContain("paused DIPO-7");
-  });
-
-  it("says so when the story is paused already", async () => {
-    const ctx = fake(() => ({ ok: true, changed: false, result: { run: RUN_ID } }));
-    expect(await main(["pause", "DIPO-7"], ctx.deps)).toBe(0);
-    expect(ctx.out).toEqual(["DIPO-7 is already paused"]);
-  });
-
-  it("takes one story id", async () => {
+  it("is gone: dipo park replaced it (0020)", async () => {
     const ctx = fake(() => ({}));
-    expect(await main(["pause"], ctx.deps)).toBe(2);
-    expect(await main(["pause", "DIPO-7", "DIPO-8"], ctx.deps)).toBe(2);
+    expect(await main(["pause", "DIPO-7"], ctx.deps)).toBe(2);
+    expect(ctx.sent).toEqual([]);
   });
 });

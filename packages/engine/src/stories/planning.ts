@@ -1,13 +1,15 @@
-// `story.hold` and `story.drop` (DIPO-160; 0020 section 8, 0005 section 4 and the waiting command
-// path of the amendment of 2026-10-17). Both change a story that no run owns through the planning
-// lane (0010 section 2, lane b): the operation is journaled first, so the pending-op skip covers
-// the story at once, then the facts are written and the lane flushes.
+// `story.park` and `story.drop` (DIPO-160, DIPO-344; 0020, 0005). A story that no run owns
+// changes through the planning lane (0010, lane b): the operation is journaled first, so the
+// pending-op skip covers the story at once, then the facts are written and the lane flushes.
 //
-// - `story.hold { story, note }`: a Refined or Ready story becomes Parked `on-hold`. A running
-//   story fails `story.notHoldable` naming `dipo stop`, a parked story with a claim fails it naming
-//   resume and discard. The lane's `hold` writes F16 (`park: {reason: on-hold, from, note}`) and
-//   status Parked; an open `parks` row without a run is the park's history, and `story.parked`
-//   follows `story.state`. `work.resume` of the park is `resumeHold` below.
+// - `story.park { story, note }` (0020): the one way the maintainer stops a story, with reason
+//   `by-maintainer` and the note as detail. A story with a run (In Progress or In Review, its claim
+//   live) parks through run control (`parkRun`, `RunControl.parkByMaintainer`), which stops a
+//   running worker first. A Refined or Ready story with no run parks through the lane: its `hold`
+//   operation writes F16 (`park: {reason: by-maintainer, from, note}`) and status Parked; an open
+//   `parks` row without a run is the park's run detail, and `story.parked` follows
+//   `story.state`. A Parked story answers `changed: false`; any other status fails
+//   `story.notParkable`. `work.resume` of a park with no run is `resumeHold` below.
 // - `story.drop { story, deleteBranch }`: a Draft, Refined, Ready or Parked story is archived.
 //   In Progress or In Review fails `story.active`, a story another active story depends on fails
 //   `story.hasDependents`, and a worktree with uncommitted or untracked files fails
@@ -33,7 +35,7 @@ import {
   StoryId,
   type StoryKey,
   storyDrop,
-  storyHold,
+  storyPark,
   storyLosses,
   type StoryView,
 } from "@dipsaus-orchestrator/contract";
@@ -65,7 +67,7 @@ import type { OfficeHandle } from "../db/office";
 import type { GitSession, OfficeGit } from "../git/office";
 import { type CodeHost, CodeHostError } from "../platform/host";
 import type { ProcessProbe } from "../platform/process";
-import { parkActions, openPark } from "../run/park";
+import { openPark, openParkIds, parkActions, resolvePark } from "../run/park";
 import { activeRuns } from "../run/records";
 import { hostAlive, workerHostsOf } from "../runs/worker-hosts";
 import { latestStoryPr, setStoryPrState } from "../story-pr/records";
@@ -88,7 +90,7 @@ import type { SlotTable } from "../worktree/slots";
 
 import type { StoryIdentity } from "./keys";
 
-/** `engine.notice` codes of hold and drop. */
+/** `engine.notice` codes of park and drop. */
 export const PLANNING_NOTICES = {
   remoteBranch: "drop.remoteBranch",
 } as const;
@@ -103,10 +105,16 @@ export interface StoryPlanningDeps {
   readonly implemented: (name: CommandName) => boolean;
   /** Reads whether a worker host of the claim's run still runs (0020 section 8). */
   readonly probe: ProcessProbe;
+  /** Parks a story with a run (`RunControl.parkByMaintainer`); without it such a story is refused. */
+  readonly parkRun?: (
+    ctx: AsyncCommandContext,
+    args: { readonly story: string; readonly note: string },
+  ) => Promise<CommandOutcome<{ run: RunId }>>;
 }
 
 type StoryResult = { story: StoryId; key: StoryKey };
-type HoldArgs = z.output<typeof storyHold.args>;
+type ParkArgs = z.output<typeof storyPark.args>;
+type ParkResult = z.input<typeof storyPark.result>;
 type DropArgs = z.output<typeof storyDrop.args>;
 type LossesArgs = z.output<typeof storyLosses.args>;
 type LossesResult = {
@@ -117,10 +125,11 @@ type LossesResult = {
   kept?: string[];
 };
 
-/** The Backlog.md statuses a hold applies from; `To Do` is what office init migrates to Refined. */
-const HOLDABLE_STATUSES = ["Refined", "Ready", "To Do"];
+/** The Backlog.md statuses a park with no run applies from; `To Do` is what office init migrates to Refined. */
+const PARKABLE_STATUSES = ["Refined", "Ready", "To Do"];
 
-export const NOT_HOLDABLE = "story.notHoldable";
+/** `story.park` of a story that is neither Refined, Ready, In Progress, In Review nor Parked. */
+export const NOT_PARKABLE = "story.notParkable";
 export const STORY_ACTIVE = "story.active";
 export const HAS_DEPENDENTS = "story.hasDependents";
 export const DIRTY_WORKTREE = "story.dirtyWorktree";
@@ -136,14 +145,14 @@ export class StoryPlanning {
     this.#deps = deps;
   }
 
-  /** `story.hold` and `story.drop` on the waiting command path. */
+  /** `story.park` and `story.drop` on the waiting command path. */
   get feature(): FeatureModule {
     return {
       name: "stories/planning",
       register: (registry: FeatureRegistry) => {
         registry.addAsyncOfficeCommand({
-          definition: storyHold,
-          handle: (ctx, args) => this.hold(ctx, args),
+          definition: storyPark,
+          handle: (ctx, args) => this.park(ctx, args),
         });
         registry.addAsyncOfficeCommand({
           definition: storyDrop,
@@ -232,52 +241,39 @@ export class StoryPlanning {
     return { story, key, commits, files, ...(kept.length === 0 ? {} : { kept }) };
   }
 
-  // ---- hold ----------------------------------------------------------------------------------
+  // ---- park ----------------------------------------------------------------------------------
 
-  async hold(ctx: AsyncCommandContext, args: HoldArgs): Promise<CommandOutcome<StoryResult>> {
+  /** `story.park`: see the file comment. */
+  async park(ctx: AsyncCommandContext, args: ParkArgs): Promise<CommandOutcome<ParkResult>> {
     const office = ctx.office;
     const identity = identityOf(ctx, args.story);
     const { key, story } = identity;
     const result = { story, key };
     const view = storyView(office, key);
-    const open = openPark(office, key);
-    if (open !== null && open.reason === "on-hold") {
-      // A re-run of the same hold finds its own park; another note is another hold.
-      if (open.detail === args.note) return { result, changed: false };
-      throw new CommandError(
-        NOT_HOLDABLE,
-        `${story} is already on hold; resume it with \`dipo resume ${story}\` first.`,
-        { story },
-      );
-    }
+    const lifecycle = view?.lifecycle;
+    // Parked already: the target state (0005).
+    if (lifecycle === "Parked" || openPark(office, key) !== null) return { result, changed: false };
     const claim = liveClaimOf(office, key);
     const running = activeRuns(office).some((run) => run.kind === "story" && run.key === key);
-    const lifecycle = view?.lifecycle;
-    if (running || lifecycle === "In Progress") {
-      throw new CommandError(
-        NOT_HOLDABLE,
-        `${story} is running; stop it with \`dipo stop ${story}\` first.`,
-        { story },
-      );
-    }
-    if (lifecycle === "In Review") {
-      throw new CommandError(
-        NOT_HOLDABLE,
-        `${story} is In Review and keeps its claim and PR; only a Refined or Ready story can be held.`,
-        { story },
-      );
-    }
-    if (lifecycle === "Parked" && claim !== null) {
-      throw new CommandError(
-        NOT_HOLDABLE,
-        `${story} is parked with its claim; resume it with \`dipo resume ${story}\` or discard it with \`dipo discard ${story}\`.`,
-        { story },
-      );
+    if (running || (claim !== null && (lifecycle === "In Progress" || lifecycle === "In Review"))) {
+      // A story with a run parks through run control, which stops a running worker first.
+      if (this.#deps.parkRun === undefined) {
+        throw new CommandError(
+          NOT_PARKABLE,
+          `${story} has a run, and this dipo cannot park a run.`,
+          { story },
+        );
+      }
+      const parked = await this.#deps.parkRun(ctx, { story: args.story, note: args.note });
+      return {
+        result: { ...result, run: parked.result.run },
+        ...(parked.changed === undefined ? {} : { changed: parked.changed }),
+      };
     }
     if (view === null || (lifecycle !== "Refined" && lifecycle !== "Ready")) {
       throw new CommandError(
-        NOT_HOLDABLE,
-        `${story} is ${lifecycle ?? "unknown"}; only a Refined or Ready story can be held.`,
+        NOT_PARKABLE,
+        `${story} is ${lifecycle ?? "unknown"}; only a Refined, Ready, In Progress or In Review story can be parked.`,
         { story },
       );
     }
@@ -288,9 +284,9 @@ export class StoryPlanning {
       key,
       subject: story,
       target: {
-        from: HOLDABLE_STATUSES,
+        from: PARKABLE_STATUSES,
         status: "Parked",
-        fields: { park: { reason: "on-hold", from, note: args.note } },
+        fields: { park: { reason: "by-maintainer", from, note: args.note } },
       },
     };
     try {
@@ -298,8 +294,8 @@ export class StoryPlanning {
     } catch (error) {
       if (error instanceof LaneError && error.code === "backlog.lane.liveClaim") {
         throw new CommandError(
-          NOT_HOLDABLE,
-          `${story} has a live claim; stop it with \`dipo stop ${story}\` first.`,
+          NOT_PARKABLE,
+          `${story} was claimed meanwhile; send story.park again to park its run.`,
           { story },
         );
       }
@@ -308,21 +304,21 @@ export class StoryPlanning {
     const at = ctx.clock.now();
     ctx.commit((): NewEntry[] => {
       office.run(
-        `insert into parks (office_id, park_id, key, story_id, run_id, reason, from_state, detail, at)
+        `insert into parks (office_id, park_id, key, story_id, run_id, reason, detail, at)
          values ($office_id, (select coalesce(max(park_id), 0) + 1 from parks
-           where office_id = $office_id), $key, $story, null, 'on-hold', $from, $note, $at)`,
-        { key, story, from, note: args.note, at },
+           where office_id = $office_id), $key, $story, null, 'by-maintainer', $note, $at)`,
+        { key, story, note: args.note, at },
       );
       const parked = deriveStoryView({
         ...factsOf(view),
         lifecycle: "Parked",
-        park: { reason: "on-hold", from, note: args.note, since: at },
+        park: { reason: "by-maintainer", from, note: args.note, since: at },
       });
       return [
         {
           type: "story.state",
           key,
-          delta: { story, key, from, to: "Parked", detail: [`on-hold: ${args.note}`] },
+          delta: { story, key, from, to: "Parked", detail: [`by-maintainer: ${args.note}`] },
           view: parked,
         },
         {
@@ -331,10 +327,10 @@ export class StoryPlanning {
           delta: {
             story,
             key,
-            reason: "on-hold",
+            reason: "by-maintainer",
             detail: args.note,
             from,
-            actions: parkActions("on-hold", this.#deps.implemented),
+            actions: parkActions("by-maintainer", this.#deps.implemented),
           },
         },
       ];
@@ -344,9 +340,9 @@ export class StoryPlanning {
   }
 
   /**
-   * `work.resume` of an on-hold park (0020 section 8): the lane removes F16 and sets the status
-   * back to `park.from`; the story is covered by the pending-op skip until that merges, and a
-   * story returned to Ready goes through the pickup re-check at the next `work.run`.
+   * `work.resume` of a park with no run (0020): the lane removes F16 and sets the status back to
+   * `park.from`; the story is covered by the pending-op skip until that merges, and a story
+   * returned to Ready goes through the pickup re-check at the next `work.run`.
    */
   async resumeHold(
     ctx: AsyncCommandContext,
@@ -366,17 +362,14 @@ export class StoryPlanning {
     });
     const at = ctx.clock.now();
     ctx.commit((): NewEntry[] => {
-      office.run(
-        `update parks set resolved_at = $at, resolved_how = 'resume'
-         where office_id = $office_id and park_id = $park and resolved_at is null`,
-        { at, park: park.parkId },
-      );
+      const closed = resolvePark(office, park.parkId, "resume", at, note ?? null);
       const current = storyView(office, key);
       const view = deriveStoryView({
         ...(current === null ? { key, story: identity.story, title: "" } : factsOf(current)),
         lifecycle: to,
       });
       return [
+        ...closed,
         {
           type: "story.state",
           key,
@@ -385,7 +378,10 @@ export class StoryPlanning {
             key,
             from: "Parked",
             to,
-            detail: [`resumed from on-hold: ${park.detail}`, ...(note === undefined ? [] : [note])],
+            detail: [
+              `resumed from by-maintainer: ${park.detail}`,
+              ...(note === undefined ? [] : [note]),
+            ],
           },
           view,
         },
@@ -416,7 +412,7 @@ export class StoryPlanning {
     if (running || lifecycle === "In Progress" || lifecycle === "In Review") {
       throw new CommandError(
         STORY_ACTIVE,
-        `${story} is ${lifecycle}; stop it with \`dipo stop ${story}\` first, then drop it.`,
+        `${story} is ${lifecycle}; park it with \`dipo park ${story} --note <why>\` first, then drop it.`,
         { story, lifecycle },
       );
     }
@@ -488,19 +484,16 @@ export class StoryPlanning {
     }
     const at = ctx.clock.now();
     ctx.commit((): NewEntry[] => {
-      const open = openPark(office, key);
-      if (open !== null) {
-        office.run(
-          `update parks set resolved_at = $at, resolved_how = 'drop'
-           where office_id = $office_id and park_id = $park and resolved_at is null`,
-          { at, park: open.parkId },
-        );
-      }
+      // Every open park row of the story is run detail the drop ends, whatever Backlog.md says.
+      const closed = openParkIds(office, key).flatMap((park) =>
+        resolvePark(office, park, "drop", at),
+      );
       const removed = deriveStoryView({
         ...(view === null ? { key, story, title: "" } : factsOf(view)),
         lifecycle: "Removed",
       });
       return [
+        ...closed,
         {
           type: "story.state",
           key,
@@ -526,7 +519,7 @@ export class StoryPlanning {
     const journaled = allEntries(office).some(
       (entry) => entry.key === key && entry.kind === DROP_KIND && OPEN_STATES.includes(entry.state),
     );
-    if (!journaled || liveClaimOf(office, key) !== null || openPark(office, key) !== null) {
+    if (!journaled || liveClaimOf(office, key) !== null || openParkIds(office, key).length > 0) {
       return false;
     }
     return latestStoryPr(office, key)?.state !== "open";

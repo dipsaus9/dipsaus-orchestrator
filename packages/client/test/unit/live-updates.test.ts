@@ -16,7 +16,7 @@ import {
   StoryView,
   WorkView,
   workRun,
-  workStop,
+  storyPark,
 } from "@dipsaus-orchestrator/contract";
 import { ManualClock } from "@dipsaus-orchestrator/testkit";
 
@@ -157,7 +157,7 @@ async function setup() {
         result: { started: [{ story: "DIPO-1", key: KEY, run: RUN }], skipped: [] },
       };
     }
-    return { write: ENDED, result: { run: RUN } };
+    return { write: ENDED, result: { story: "DIPO-1", key: KEY, run: RUN } };
   };
   const tui = await connected(daemon, clock, "tui");
   const store = new OfficeStore({ client: tui, clock, clientInfo: CLIENT });
@@ -200,7 +200,7 @@ describe("an office store follows runs another client starts, moves and ends", (
     expect(shown(store)).toEqual({ lifecycle: "In Progress", column: "running", run: "build 1/3" });
     expect(output).toEqual([{ run: RUN, source: "worker", from: 0, to: 6, text: "hello\n" }]);
 
-    await cli.command(workStop, { story: "DIPO-1" }, { office: OFFICE, confirmed: true });
+    await cli.command(storyPark, { story: "DIPO-1", note: "later" }, { office: OFFICE });
     await flush();
     expect(shown(store)).toEqual({ lifecycle: "In Review", column: "review", run: null });
     expect(store.state.cursor).toEqual(daemon.officeHead);
@@ -258,7 +258,7 @@ describe("after a daemon restart", () => {
 
     // The other client's CLI reconnected too; it ends the run and the open view follows.
     expect(cli.state).toBe("open");
-    await cli.command(workStop, { story: "DIPO-1" }, { office: OFFICE, confirmed: true });
+    await cli.command(storyPark, { story: "DIPO-1", note: "later" }, { office: OFFICE });
     await flush();
     expect(shown(store)).toEqual({ lifecycle: "In Review", column: "review", run: null });
     expect(store.state.cursor).toEqual(daemon.officeHead);

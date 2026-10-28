@@ -127,7 +127,7 @@ describe("dipo resume", () => {
   });
 
   it("prints the recorded grants", async () => {
-    const ctx = fake(() => resumed({ grants: [{ kind: "loop", count: 1 }] }));
+    const ctx = fake(() => resumed({ grants: [{ kind: "round", cap: "loops", count: 1 }] }));
     expect(await main(["resume", "DIPO-7", "--note", "Try once more."], ctx.deps)).toBe(0);
     expect(ctx.out[1]).toBe("granted: one more verify loop");
   });

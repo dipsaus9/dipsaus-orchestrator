@@ -131,9 +131,7 @@ describe("the sticky box-token hold", () => {
       warn: (message) => warnings.push(message),
     });
     expect(holds.hold(ADAPTER, [FOUND]).check).toBe(BOX_TOKEN_CHECK);
-    expect(warnings).toEqual([
-      "the sticky hold record could not be written; the hold stays in memory",
-    ]);
+    expect(warnings).toEqual(["the sticky hold record could not be written; the hold stays"]);
     // No record does not mean "lifted" here: the launch is still refused.
     expect(holds.adapterHeld(ADAPTER)?.check).toBe(BOX_TOKEN_CHECK);
     expect((await gateLaunch(ADAPTER, holds, async () => ({ ok: true }))).ok).toBe(false);

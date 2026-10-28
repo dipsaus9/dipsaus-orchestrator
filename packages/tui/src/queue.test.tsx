@@ -60,7 +60,7 @@ describe("queue view", () => {
       "   RUNNING (3) DIPO-21 M  Stream worker events to the TUI",
       "               DIPO-24 S  Add verify retry",
       "               DIPO-19 L  Review the merge slot",
-      '   HELD (1)    DIPO-29 L  Web client shell                 "after M2" (held 3d)',
+      '   DESK (1)    DIPO-29 L  Web client shell                 "after M2" (parked by you 3d)',
       " [Enter] detail  r[u]n selected  [j/k] move  [.] show done  [1] overview  [3] desk  [o] offices  [q] quit",
     ]);
   });

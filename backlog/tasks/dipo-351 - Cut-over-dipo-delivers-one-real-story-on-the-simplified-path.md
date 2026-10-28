@@ -4,6 +4,7 @@ title: 'Cut over: dipo delivers one real story on the simplified path'
 status: Refined
 assignee: []
 created_date: '2026-10-25 09:51'
+updated_date: '2026-10-28 10:01'
 labels:
   - 'tier:S'
   - 'slice:prune'
@@ -14,13 +15,18 @@ dependencies:
   - DIPO-342
   - DIPO-343
   - DIPO-344
+  - DIPO-359
+  - DIPO-360
   - DIPO-345
+  - DIPO-361
+  - DIPO-362
   - DIPO-346
   - DIPO-347
   - DIPO-348
   - DIPO-309
   - DIPO-349
   - DIPO-350
+  - DIPO-363
 references:
   - docs/research/2026-10-24-simplification-audit.md
 priority: high

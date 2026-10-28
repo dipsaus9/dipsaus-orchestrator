@@ -80,6 +80,7 @@ import {
   readBoxRun,
   type RouteBoxIds,
 } from "../../src/box/workers";
+import { BOX_GIT_ENV, BOX_GIT_INIT_TIMEOUT_MS, boxGitInitCommand } from "../../src/box/box-git";
 import { DIPO_PART_PATH } from "../../src/box/door";
 import { partModeCommand, stageCopyCommand } from "../../src/box/user";
 import { BoxParts, type BoxPartsDeps } from "../../src/box/parts";
@@ -512,6 +513,45 @@ describe("the box of a box run (criteria 4 and 10)", () => {
       expect(w.workers.readDoor(RUN)).toBeNull();
     }));
 
+  // DIPO-346 (0008): the box's own local repository, made by the box user from what was copied in.
+  it("makes the box's own git repository in /work as the box user, after the code and before dipo-part", () =>
+    inBoxes(async (repo, tmp) => {
+      const w = await world(repo, tmp);
+      await created(w);
+      const init = w.boxes.execs.filter(
+        (exec) => exec.command.join(" ") === boxGitInitCommand().join(" "),
+      );
+      expect(init).toEqual([
+        {
+          box: BOX,
+          command: boxGitInitCommand(),
+          options: { cwd: "/work", env: BOX_GIT_ENV, timeoutMs: BOX_GIT_INIT_TIMEOUT_MS },
+        },
+      ]);
+      expect(init[0]?.options?.rootStep).toBeUndefined();
+      const at = w.log.indexOf(`exec ${BOX} /bin/sh`);
+      expect(at).toBeGreaterThan(w.log.indexOf(`copy in ${BOX} /work`));
+      expect(at).toBeLessThan(w.log.indexOf(`copy in ${BOX} ${DIPO_PART_PATH}`));
+    }));
+
+  it("deletes the box and fails when its git repository cannot be made", () =>
+    inBoxes(async (repo, tmp) => {
+      const w = await world(repo, tmp, {
+        boxes: {
+          exec: (_box, command) =>
+            command.join(" ") === boxGitInitCommand().join(" ")
+              ? { code: 3, stdout: "", stderr: "/work already holds .git" }
+              : undefined,
+        },
+      });
+      const error = await created(w).catch((thrown: unknown) => thrown);
+      expect(error).toBeInstanceOf(BoxError);
+      expect((error as BoxError).code).toBe("box.failed");
+      expect((error as BoxError).message).toContain("git repository could not be made (exit 3)");
+      expect(w.log).toContain(`delete ${BOX}`);
+      expect(w.log).not.toContain(`copy in ${BOX} ${DIPO_PART_PATH}`);
+    }));
+
   it("copies the code into /work as the box user's copy, through a root-only stage (DIPO-334)", () =>
     inBoxes(async (repo, tmp) => {
       const w = await world(repo, tmp);
@@ -884,6 +924,52 @@ function installIn(w: World, timeoutMs = 15 * 60_000) {
 
 const INSTALL = ["bun", "install", "--frozen-lockfile"];
 const isInstall = (command: readonly string[]) => command.join(" ") === INSTALL.join(" ");
+
+// DIPO-346 (0002): the office's verify in the box at done, while the developer's session runs.
+describe("the verify in the box at done", () => {
+  it("runs as a session's commands do, with the web route and CA bundle, and leaves the session's firewall", () =>
+    inBoxes(async (repo, tmp) => {
+      const w = await world(repo, tmp, {
+        boxes: {
+          live: (_box, command) =>
+            command[0] === "bun" ? { stdout: "src/a.ts(1,1): error\n", code: 1 } : {},
+        },
+      });
+      await created(w);
+      const session = await w.workers.session({
+        runId: RUN,
+        runDir: w.runDir,
+        systemFile: w.systemFile,
+      });
+      w.log.length = 0;
+      const firewalls = w.boxes.firewalls.length;
+      const result = await w.workers.verify({
+        runId: RUN,
+        commands: [["bun", "run", "verify"]],
+        cwd: "packages/app",
+        env: { DIPO_STORY: "DIPO-1" },
+        timeoutMs: 60_000,
+      });
+      expect(result).toEqual({
+        kind: "red",
+        command: "bun run verify",
+        exitCode: 1,
+        signal: null,
+        timedOutMinutes: null,
+        output: "src/a.ts(1,1): error\n",
+      });
+      expect(w.boxes.firewalls).toHaveLength(firewalls);
+      expect(w.log).not.toContain(`stop ${BOX}`);
+      const exec = w.boxes.liveExecs.at(-1);
+      expect(exec?.cwd).toBe("/work/packages/app");
+      expect(exec?.command).toEqual(["bun", "run", "verify"]);
+      for (const name of ["HTTPS_PROXY", "HTTP_PROXY", "NODE_EXTRA_CA_CERTS"]) {
+        expect(exec?.env?.[name]).toBe(session.env[name] as string);
+      }
+      expect(exec?.env?.["DIPO_STORY"]).toBe("DIPO-1");
+      expect(w.warnings.map((x) => x.message)).toContain("the verify in the box is red");
+    }));
+});
 
 describe("the install in the box before the worker (DIPO-294)", () => {
   it("runs in /work with the run environment and the web route, CA bundle and Safe-Chain a session gets", () =>

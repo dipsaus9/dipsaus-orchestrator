@@ -396,8 +396,7 @@
                       "dependency",
                       "collision",
                       "capacity",
-                      "pickupCheckFailed",
-                      "planLimit"
+                      "pickupCheckFailed"
                     ]
                   },
                   {
@@ -421,10 +420,6 @@
         },
         "text": {
           "type": "string"
-        },
-        "decision": {
-          "type": "string",
-          "enum": ["allow", "deny"]
         }
       },
       "required": ["question", "text"]
@@ -482,34 +477,6 @@
         }
       },
       "required": ["run", "delivered"]
-    },
-    "work.pause.args": {
-      "type": "object",
-      "properties": {
-        "story": {
-          "anyOf": [
-            {
-              "type": "string",
-              "pattern": "^sto_[0-7][0-9A-HJKMNP-TV-Z]{25}$"
-            },
-            {
-              "type": "string",
-              "pattern": "^[A-Za-z][A-Za-z0-9]*-[0-9]+(\\.[0-9]+)*$"
-            }
-          ]
-        }
-      },
-      "required": ["story"]
-    },
-    "work.pause.result": {
-      "type": "object",
-      "properties": {
-        "run": {
-          "type": "string",
-          "pattern": "^run_[0-7][0-9A-HJKMNP-TV-Z]{25}$"
-        }
-      },
-      "required": ["run"]
     },
     "work.resume.args": {
       "type": "object",
@@ -596,6 +563,9 @@
               "kind": {
                 "type": "string"
               },
+              "cap": {
+                "type": "string"
+              },
               "tokens": {
                 "type": "integer",
                 "minimum": 0,
@@ -622,37 +592,6 @@
         }
       },
       "required": ["story", "key", "to"]
-    },
-    "work.stop.args": {
-      "type": "object",
-      "properties": {
-        "story": {
-          "anyOf": [
-            {
-              "type": "string",
-              "pattern": "^sto_[0-7][0-9A-HJKMNP-TV-Z]{25}$"
-            },
-            {
-              "type": "string",
-              "pattern": "^[A-Za-z][A-Za-z0-9]*-[0-9]+(\\.[0-9]+)*$"
-            }
-          ]
-        },
-        "note": {
-          "type": "string"
-        }
-      },
-      "required": ["story"]
-    },
-    "work.stop.result": {
-      "type": "object",
-      "properties": {
-        "run": {
-          "type": "string",
-          "pattern": "^run_[0-7][0-9A-HJKMNP-TV-Z]{25}$"
-        }
-      },
-      "required": ["run"]
     },
     "work.discard.args": {
       "type": "object",
@@ -690,7 +629,7 @@
       },
       "required": ["story", "key"]
     },
-    "story.hold.args": {
+    "story.park.args": {
       "type": "object",
       "properties": {
         "story": {
@@ -712,7 +651,7 @@
       },
       "required": ["story", "note"]
     },
-    "story.hold.result": {
+    "story.park.result": {
       "type": "object",
       "properties": {
         "story": {
@@ -722,6 +661,10 @@
         "key": {
           "type": "string",
           "pattern": "^sto_[0-7][0-9A-HJKMNP-TV-Z]{25}$"
+        },
+        "run": {
+          "type": "string",
+          "pattern": "^run_[0-7][0-9A-HJKMNP-TV-Z]{25}$"
         }
       },
       "required": ["story", "key"]

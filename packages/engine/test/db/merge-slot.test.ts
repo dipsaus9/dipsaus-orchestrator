@@ -1,6 +1,6 @@
-// Migration 48 (DIPO-150): `merge_slot` (retention tier P, one occupant per office, a story PR names
-// its run), the merge gate's head and override columns on `gates`, and `parks.resolved_how` gaining
-// `override` with the park rows kept across the rebuild.
+// Migration 48 (DIPO-150): `merge_slot` (one occupant per office, a story PR names its run; migration
+// 62 drops it again), the merge gate's head and override columns on `gates`, and `parks.resolved_how`
+// gaining `override` with the park rows kept across the rebuild.
 
 import { describe, expect, it } from "bun:test";
 import { join } from "node:path";
@@ -10,8 +10,11 @@ import { ManualClock, withTempDir } from "@dipsaus-orchestrator/testkit";
 import { openStateDatabase } from "../../src/db/database";
 import type { Migration } from "../../src/db/migrations";
 import { MIGRATIONS } from "../../src/db/schema";
-import { TABLE_RETENTION } from "../../src/retention/policy";
 import { localMounts, memoryLogger } from "./helpers";
+
+// Migration 57 (DIPO-344) drops `parks.cause` and the question trigger, so these steps are read as
+// they left the schema.
+const BEFORE_57 = MIGRATIONS.filter((step) => step.version <= 56);
 
 const open = (dir: string, migrations?: readonly Migration[]) =>
   openStateDatabase({
@@ -54,11 +57,10 @@ describe("migration 48 on a database at version 47", () => {
         old.close();
       }
 
-      const state = await open(dir);
+      const state = await open(dir, BEFORE_57);
       try {
         const db = state.connection;
         expect(MIGRATIONS.find((step) => step.version === 48)?.name).toBe("merge slot");
-        expect(TABLE_RETENTION["merge_slot"]?.tier).toBe("P");
         // The park survived the rebuild, cause and all, and may now be resolved as an override.
         expect(db.all("select park_id, reason, cause from parks")).toEqual([
           { park_id: 1, reason: "review-blocked", cause: "rounds" },

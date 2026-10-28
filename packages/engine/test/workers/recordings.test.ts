@@ -32,15 +32,16 @@ const EXPECTED: Readonly<Record<string, Expectation>> = {
   "model-switch": ["done", null],
   "pause-now": ["blocked", "ambiguous-spec"],
   // Captured before DIPO-342: the report still holds the permission field the report no
-  // longer has, so it is invalid: one feedback turn, then ambiguous-spec (as report-invalid).
-  "permission-denied": ["blocked", "ambiguous-spec"],
+  // longer has, so it is invalid: one correction turn, then worker-failed (as report-invalid).
+  "permission-denied": ["blocked", "worker-failed"],
   // The worker reports the fixture question after the denied wait.
   "permission-wait": ["blocked", "ambiguous-spec"],
   "plan-limit-429": ["plan-limit", null],
   "plan-limit-rejected": ["plan-limit", null],
   "prompt-too-long": ["capped", "budget-exceeded"],
-  "report-invalid": ["blocked", "ambiguous-spec"],
-  "report-invalid-missing": ["blocked", "ambiguous-spec"],
+  // A report that does not parse or match the schema: one correction turn, then worker-failed.
+  "report-invalid": ["blocked", "worker-failed"],
+  "report-invalid-missing": ["blocked", "worker-failed"],
   resume: ["done", null],
   // DIPO-145: reviewer sessions (0019 sections 4 and 5), derived and live.
   "review-approved": ["done", null],
@@ -50,7 +51,7 @@ const EXPECTED: Readonly<Record<string, Expectation>> = {
   "review-blocked-live": ["done", null],
   // Asked not to report, Haiku returned a valid approval anyway; review-invalid covers the case.
   "review-invalid-live": ["done", null],
-  "safety-bash-prompts-none": ["blocked", "ambiguous-spec"],
+  "safety-bash-prompts-none": ["blocked", "worker-failed"],
   "safety-gh-token": ["done", null],
   "safety-gitdir-write": ["done", null],
   "safety-main-git": ["done", null],

@@ -1,5 +1,5 @@
-// CI only (0017 section 1): `story.hold`, the on-hold `work.resume` and `story.drop` on real
-// temporary repositories, a bare remote and the pinned Backlog CLI (DIPO-160; 0020 section 8). The
+// CI only (0017): `story.park` of a story with no run, its `work.resume` and `story.drop` on real
+// temporary repositories, a bare remote and the pinned Backlog CLI (DIPO-160, DIPO-344; 0020). The
 // lane writes F16 and the archive on its engine branch; a drop with `deleteBranch` removes a dirty
 // worktree and deletes the branch locally and on the remote; a drop without it refuses the dirty
 // worktree, then keeps the branch and records it as released. Fast versions of the command rules
@@ -89,10 +89,7 @@ function world(s: ClaimSetup) {
     implemented: () => true,
     probe: systemProcessProbe(currentPlatform()),
   });
-  const registry = buildRegistry([
-    planning.feature,
-    new WorkResumeCommand(undefined, () => planning).feature,
-  ]);
+  const registry = buildRegistry([planning.feature, new WorkResumeCommand(() => planning).feature]);
   let n = 0;
   const send = (name: string, args: Record<string, unknown>) => {
     n += 1;
@@ -157,7 +154,7 @@ async function branchExists(cwd: string, home: string, ref: string): Promise<boo
 }
 
 if (process.env["DIPO_TEST_CI"] === "1") {
-  describe("hold and resume through the real planning lane", () => {
+  describe("park and resume through the real planning lane", () => {
     it("writes F16 and status Parked on the engine branch, then lifts it", async () => {
       await withBareRemote(async (repo) => {
         await publish(repo);
@@ -165,14 +162,14 @@ if (process.env["DIPO_TEST_CI"] === "1") {
         const { send } = world(s);
         const key = indexed(s, "TASK-2", "Refined");
 
-        const held = await send("story.hold", { story: "TASK-2", note: "after M2" });
+        const held = await send("story.park", { story: "TASK-2", note: "after M2" });
         expect(held).toMatchObject({ ok: true, changed: true });
         const [entry] = allEntries(s.office);
         expect(entry).toMatchObject({ kind: "hold", state: "pushed" });
         const branch = entry?.branch as string;
         const onBranch = await inRemote(repo, "show", `${branch}:${TASK_2_FILE}`);
         expect(onBranch).toContain("status: Parked");
-        expect(onBranch).toContain('reason: "on-hold"');
+        expect(onBranch).toContain('reason: "by-maintainer"');
         expect(onBranch).toContain('from: "Refined"');
         expect(onBranch).toContain('note: "after M2"');
 
@@ -187,7 +184,7 @@ if (process.env["DIPO_TEST_CI"] === "1") {
         ]);
         const lifted = await inRemote(repo, "show", `${branch}:${TASK_2_FILE}`);
         expect(lifted).toContain("status: Refined");
-        expect(lifted).not.toContain("on-hold");
+        expect(lifted).not.toContain("by-maintainer");
         expect(openPark(s.office, key)).toBeNull();
       }, FIXTURE);
     });
@@ -200,7 +197,7 @@ if (process.env["DIPO_TEST_CI"] === "1") {
         const s = await claimSetup(repo);
         const { send, closed } = world(s);
         const key = indexed(s, TASK_1, "Parked", {
-          reason: "stopped",
+          reason: "by-maintainer",
           from: "In Progress",
           note: "n",
         });
@@ -209,8 +206,8 @@ if (process.env["DIPO_TEST_CI"] === "1") {
         const { claim } = outcome;
         s.office.immediate(() => {
           s.office.run(
-            `insert into parks (office_id, park_id, key, story_id, run_id, reason, from_state, detail, at)
-           values ($office_id, 1, $key, $story, $run, 'stopped', 'In Progress', 'stopped', $at)`,
+            `insert into parks (office_id, park_id, key, story_id, run_id, reason, detail, at)
+           values ($office_id, 1, $key, $story, $run, 'by-maintainer', 'stopped', $at)`,
             { key, story: TASK_1, run: claim.runId, at: s.t.clock.now() },
           );
           insertStoryPr(s.office, {
@@ -271,7 +268,7 @@ if (process.env["DIPO_TEST_CI"] === "1") {
         const s = await claimSetup(repo);
         const { send } = world(s);
         const key = indexed(s, TASK_1, "Parked", {
-          reason: "stopped",
+          reason: "by-maintainer",
           from: "In Progress",
           note: "n",
         });
@@ -295,7 +292,7 @@ if (process.env["DIPO_TEST_CI"] === "1") {
         const s = await claimSetup(repo);
         const { read } = world(s);
         const key = indexed(s, TASK_1, "Parked", {
-          reason: "stopped",
+          reason: "by-maintainer",
           from: "In Progress",
           note: "n",
         });
@@ -336,7 +333,7 @@ if (process.env["DIPO_TEST_CI"] === "1") {
         const s = await claimSetup(repo);
         const { send, read } = world(s);
         const key = indexed(s, TASK_1, "Parked", {
-          reason: "stopped",
+          reason: "by-maintainer",
           from: "In Progress",
           note: "n",
         });
@@ -347,7 +344,7 @@ if (process.env["DIPO_TEST_CI"] === "1") {
         s.office.immediate(() =>
           releaseClaim(s.office, claim.runId, {
             at: s.t.clock.now(),
-            reason: "stopped",
+            reason: "by-maintainer",
             keepBranch: true,
           }),
         );

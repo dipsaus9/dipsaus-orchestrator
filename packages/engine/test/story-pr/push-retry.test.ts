@@ -10,7 +10,7 @@ import { RunId, type StoryKey } from "@dipsaus-orchestrator/contract";
 
 import { OFFICE_DEFAULTS, type OfficeConfig } from "../../src/config";
 import type { OfficeHandle } from "../../src/db/office";
-import type { PushResult } from "../../src/git/task-commit";
+import type { PushResult } from "../../src/git/write";
 import type { CodeHost, HostPr, NewPr } from "../../src/platform/host";
 import { endRun, IN_REVIEW_END, insertRun, pendingReviews, REVIEWED_END } from "../../src/run";
 import {
@@ -57,7 +57,6 @@ class FakeHost implements CodeHost {
     return { ...(this.open as HostPr), number };
   }
   async closePr(): Promise<void> {}
-  async squashMerge(): Promise<void> {}
   async requiredChecks(): Promise<[]> {
     return [];
   }

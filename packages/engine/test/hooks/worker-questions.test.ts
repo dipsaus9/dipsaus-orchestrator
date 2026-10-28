@@ -20,6 +20,7 @@ import {
   type WorkRef,
 } from "@dipsaus-orchestrator/contract";
 
+import { mirrorStory } from "../run/park-fixture";
 import { executeCommand } from "../../src/commands/execute";
 import { stateOfficeDirectory } from "../../src/commands/offices";
 import { buildRegistry } from "../../src/commands/registry";
@@ -33,8 +34,10 @@ import {
 import { findQuestion, openQuestions } from "../../src/hooks/questions";
 import { type BranchPark, insertRun, RunControl } from "../../src/run";
 import { questionWaitMs, runTotals } from "../../src/run/caps";
-import { heldMessages } from "../../src/run/pauses";
-import { reopenRun } from "../../src/run/records";
+import { heldFeedback } from "../../src/run/feedback";
+import { resolvePark } from "../../src/run/park";
+import { findRun } from "../../src/run/records";
+import { reopen } from "../../src/run/rounds";
 import { activeSignals } from "../../src/run/signals";
 import { addStory } from "../../src/stories/keys";
 import { encode } from "../../src/workers/claude-cli/encode";
@@ -150,6 +153,8 @@ beforeEach(async () => {
     addStory(office, f.t.ids, { story: StoryId.parse("DIPO-1") }, f.t.clock.now()),
   );
   (world as { work: WorkRef }).work = { ...f.work, key };
+  // The story as the index read it, so a park reaches the mirror (DIPO-360).
+  office.immediate(() => mirrorStory(office, { key, story: "DIPO-1" }));
   office.immediate(() => {
     insertRun(office, {
       runId: run,
@@ -232,9 +237,9 @@ async function blockedQuestion(question = QUESTION): Promise<void> {
   await w.control.idle();
 }
 
-function parks(): { reason: string; cause: string | null; detail: string }[] {
+function parks(): { reason: string; detail: string }[] {
   return w.f.office.all(
-    "select reason, cause, detail from parks where office_id = $office_id order by rowid",
+    "select reason, detail from parks where office_id = $office_id order by rowid",
   );
 }
 
@@ -358,13 +363,10 @@ describe("a worker's question with a TUI connected (AC #1 and #2)", () => {
     expect(runTotals(w.f.office, w.f.run as RunId, start, later).elapsedMs).toBe(5 * MINUTE);
   });
 
-  it("refuses an answer with a decision or without text, and keeps waiting", async () => {
+  it("refuses an answer without text, and keeps waiting", async () => {
     await blockedQuestion();
     const [question] = openQuestions(w.f.office, w.f.run);
-    for (const args of [
-      { question: question?.questionId, text: "yes", decision: "allow" },
-      { question: question?.questionId, text: "   " },
-    ]) {
+    for (const args of [{ question: question?.questionId, text: "   " }]) {
       const reply = await answer(args);
       expect(reply.ok).toBe(false);
       if (!reply.ok) expect(reply.error.code).toBe("args.invalid");
@@ -406,7 +408,7 @@ describe("a worker's question nobody answers in time (AC #2 and #3)", () => {
     await pass(WAIT_MINUTES * MINUTE - 1);
     expect(parks()).toEqual([]);
     await pass(1);
-    expect(parks()).toEqual([{ reason: "ambiguous-spec", cause: "question", detail: QUESTION }]);
+    expect(parks()).toEqual([{ reason: "ambiguous-spec", detail: QUESTION }]);
     expect(w.sent).toEqual([[{ closeStdin: true }]]);
     const parked = findQuestion(w.f.office, question?.questionId ?? "");
     expect(parked?.closedAt).toBeNull();
@@ -445,7 +447,7 @@ describe("a worker's question nobody answers in time (AC #2 and #3)", () => {
     w.tui = false;
     w.asks.presenceChanged();
     await w.control.idle();
-    expect(parks()).toEqual([{ reason: "ambiguous-spec", cause: "question", detail: QUESTION }]);
+    expect(parks()).toEqual([{ reason: "ambiguous-spec", detail: QUESTION }]);
     expect(w.sent).toEqual([[{ closeStdin: true }]]);
     // The question stays open as the park's, and its answer resumes the park.
     expect(findQuestion(w.f.office, question?.questionId ?? "")).toMatchObject({
@@ -466,7 +468,7 @@ describe("a worker's question nobody answers in time (AC #2 and #3)", () => {
       timeouts: { ...OFFICE_DEFAULTS.timeouts, questionWaitMinutes: 0 },
     };
     await blockedQuestion();
-    expect(parks()).toEqual([{ reason: "ambiguous-spec", cause: "question", detail: QUESTION }]);
+    expect(parks()).toEqual([{ reason: "ambiguous-spec", detail: QUESTION }]);
   });
 });
 
@@ -474,7 +476,7 @@ describe("a worker's question without a TUI (AC #1)", () => {
   it("parks ambiguous-spec at once, the park asking the question: linked to the run and the park, question.asked emitted", async () => {
     w.tui = false;
     await blockedQuestion();
-    expect(parks()).toEqual([{ reason: "ambiguous-spec", cause: "question", detail: QUESTION }]);
+    expect(parks()).toEqual([{ reason: "ambiguous-spec", detail: QUESTION }]);
     expect(w.sent).toEqual([[{ closeStdin: true }]]);
     const [question] = openQuestions(w.f.office, w.f.run);
     expect(question).toMatchObject({
@@ -502,9 +504,7 @@ describe("a worker's question without a TUI (AC #1)", () => {
       w.f.agent,
     );
     await w.control.idle();
-    expect(parks()).toEqual([
-      { reason: "ambiguous-spec", cause: "question", detail: "The box has no jq." },
-    ]);
+    expect(parks()).toEqual([{ reason: "ambiguous-spec", detail: "The box has no jq." }]);
     expect(openQuestions(w.f.office, w.f.run)).toEqual([]);
   });
 });
@@ -545,9 +545,7 @@ describe("a worker's question when its run ends while it waits (DIPO-272, DIPO-2
       closedHow: "answered",
       answer: "Hello, Ada!",
     });
-    expect(heldMessages(w.f.office, w.f.run, (text) => text).texts).toEqual([
-      workerAnswerText("Hello, Ada!"),
-    ]);
+    expect(heldFeedback(w.f.office, w.f.run).texts).toEqual([workerAnswerText("Hello, Ada!")]);
   });
 
   it("holds an answer given after a cap began, before the run's end is ingested, instead of sending it to the stopping worker (AC #7)", async () => {
@@ -565,9 +563,7 @@ describe("a worker's question when its run ends while it waits (DIPO-272, DIPO-2
     open();
     await w.control.idle();
     expect(parks().map((park) => park.reason)).toEqual(["budget-exceeded"]);
-    expect(heldMessages(w.f.office, w.f.run, (text) => text).texts).toEqual([
-      workerAnswerText("Hello, Ada!"),
-    ]);
+    expect(heldFeedback(w.f.office, w.f.run).texts).toEqual([workerAnswerText("Hello, Ada!")]);
     // The park carries it, answered: it waits for nothing more.
     expect(findQuestion(w.f.office, question?.questionId ?? "")).toMatchObject({
       closedHow: "answered",
@@ -593,9 +589,7 @@ describe("a worker's question when its run ends while it waits (DIPO-272, DIPO-2
     expect(reply).toMatchObject({ ok: true, result: { delivered: "on-resume" } });
     open();
     await w.control.idle();
-    expect(heldMessages(w.f.office, w.f.run, (text) => text).texts).toEqual([
-      workerAnswerText("Hello, Ada!"),
-    ]);
+    expect(heldFeedback(w.f.office, w.f.run).texts).toEqual([workerAnswerText("Hello, Ada!")]);
     expect(findQuestion(w.f.office, question?.questionId ?? "")?.parkId).toBe(parkIds()[0] ?? -1);
   });
 
@@ -613,7 +607,6 @@ describe("a worker's question when its run ends while it waits (DIPO-272, DIPO-2
       intent: "park",
       ops: [],
       reason: "worker-failed",
-      cause: "build",
       detail: "the worker crashed",
       endKind: "crashed",
     });
@@ -645,14 +638,17 @@ describe("a worker's question when its run ends while it waits (DIPO-272, DIPO-2
     await blockedQuestion();
     const [first] = openQuestions(w.f.office, w.f.run);
     const [firstPark] = parkIds();
-    // The maintainer drops or reconcile resolves the park: its question waits for nothing.
-    w.f.office.immediate(() =>
-      w.f.office.run(
-        `update parks set resolved_at = $at, resolved_how = 'drop'
-          where office_id = $office_id and park_id = $park`,
-        { at: w.f.t.clock.now(), park: firstPark ?? -1 },
-      ),
+    // The maintainer drops or reconcile resolves the park: its question waits for nothing, and
+    // the resolution says so with its question.closed (DIPO-344).
+    const closed = w.f.office.immediate(() =>
+      resolvePark(w.f.office, firstPark ?? -1, "drop", w.f.t.clock.now()),
     );
+    expect(closed).toEqual([
+      expect.objectContaining({
+        type: "question.closed",
+        delta: { question: first?.questionId },
+      }),
+    ]);
     expect(findQuestion(w.f.office, first?.questionId ?? "")?.closedHow).toBe("expired");
     const stale = await answer({ question: first?.questionId, text: "Too late" });
     expect(stale).toMatchObject({ ok: false, error: { code: "question.closed" } });
@@ -660,7 +656,11 @@ describe("a worker's question when its run ends while it waits (DIPO-272, DIPO-2
     // A later park of the same story: the worker exited, the run works again and parks on a new
     // question.
     w.control.onEnded(w.f.run);
-    w.f.office.immediate(() => reopenRun(w.f.office, w.f.run as RunId, w.f.t.clock.now()));
+    w.f.office.immediate(() =>
+      reopen(w.f.office, findRun(w.f.office, w.f.run as RunId)!, w.f.t.clock.now(), {
+        kind: "fix",
+      }),
+    );
     track();
     await blockedQuestion("Which exit code?");
     const [, secondPark] = parkIds();

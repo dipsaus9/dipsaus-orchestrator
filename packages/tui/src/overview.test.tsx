@@ -90,14 +90,15 @@ function boardSnapshot(): OfficeSnapshot {
   } as OfficeSnapshot;
 }
 
-/** Nothing runs: DIPO-31 waits on DIPO-21, DIPO-33 fails R15, DIPO-29 is on hold, one draft. */
+/** Nothing runs: DIPO-31 waits on DIPO-21, DIPO-33 fails R15, DIPO-29 is parked by you, one draft. */
 function idleSnapshot(): OfficeSnapshot {
   const base = golden();
   return {
     ...base,
     work: [],
-    stories: base.stories.filter((story) =>
-      ["waiting", "refined", "held", "draft", "done"].includes(story.column),
+    stories: base.stories.filter(
+      (story) =>
+        ["waiting", "refined", "draft", "done"].includes(story.column) || story.story === "DIPO-29",
     ),
   };
 }
@@ -146,7 +147,7 @@ describe("office overview board", () => {
     const frame = await ui.waitFor("running verify · expected 3, received 4");
     expect(lines(frame)).toEqual([
       " dipsaus-orchestrator · daemon running · live",
-      " 3 running · 2 needs you · 1 in review · Ready 2 · waiting 1 · held 1",
+      " 3 running · 2 needs you · 1 in review · Ready 2 · waiting 1",
       " RUNNING (3)",
       ">DIPO-21 Stream worker events to th… developer M  build   busy >     AC 4/7  loop 2/5  [####----] 52% 38m  claude-sonnet",
       "     now: building · no output yet",
@@ -154,7 +155,8 @@ describe("office overview board", () => {
       "     now: running verify · expected 3, received 4 · 12s ago",
       " DIPO-19 Review the merge slot       reviewer L   review  ASKING ?   AC 9/9  loop 1/8  [#-------] 18% 1h05 claude-opus",
       "     now: asking you · Keep the old merge slot?",
-      " NEEDS YOU (1)",
+      " NEEDS YOU (2)",
+      " DIPO-29 Web client shell             parked 3d · by maintainer: after M2",
       " DIPO-26 Compose dev stack            parked 40m · needs permission: Bash(docker compose up)",
       " IN REVIEW (1)",
       " DIPO-28 Show the merge queue         L  in review · no worker running",
@@ -170,7 +172,7 @@ describe("office overview board", () => {
     const frame = await ui.waitFor("running verify · expected 3, received 4");
     expect(lines(frame)).toEqual([
       " dipsaus-orchestrator · daemon running · live",
-      " 3 running · 2 needs you · 1 in review · Ready 2 · waiting 1 · held 1",
+      " 3 running · 2 needs you · 1 in review · Ready 2 · waiting 1",
       " RUNNING (3)",
       ">DIPO-21 Stream worker events … build  busy >    AC 4/7 [####----] 52% 38m",
       "     now: building · no output yet",
@@ -178,7 +180,8 @@ describe("office overview board", () => {
       "     now: running verify · expected 3, received 4 · 12s ago",
       " DIPO-19 Review the merge slot  review ASKING ?  AC 9/9 [#-------] 18% 1h05",
       "     now: asking you · Keep the old merge slot?",
-      " NEEDS YOU (1)",
+      " NEEDS YOU (2)",
+      " DIPO-29 Web client shell        parked 3d · by maintainer: after M2",
       " DIPO-26 Compose dev stack       parked 40m · needs permission: Bash(docker com…",
       " IN REVIEW (1)",
       " DIPO-28 Show the merge queue    in review · no worker running",
@@ -195,7 +198,7 @@ describe("office overview board", () => {
     expect(frame).toContain(
       " DIPO-24  looping @  verify  AC 2/3  loop 2/3  [######--] 78%  Add ve…\n   now: running verify · expected 3, received 4 · 12s ago",
     );
-    expect(frame).toContain(" NEEDS YOU (1)");
+    expect(frame).toContain(" NEEDS YOU (2)");
     expect(frame).not.toContain("STORY");
   });
 
@@ -203,9 +206,11 @@ describe("office overview board", () => {
     const { ui } = await open(120, 30, idleSnapshot());
     expect(lines(ui.frame())).toEqual([
       " dipsaus-orchestrator · daemon running · live",
-      " 0 running · 2 needs you · 0 in review · Ready 0 · waiting 1 · held 1",
-      " Nothing is running and nothing is Ready: DIPO-31 waits on DIPO-21, DIPO-33 is Refined (R15), DIPO-29 is on hold, 1 dra…",
-      " [2] queue  [3] desk  [p] privacy  [o] offices  [q] quit",
+      " 0 running · 2 needs you · 0 in review · Ready 0 · waiting 1",
+      " Nothing is running and nothing is Ready: DIPO-31 waits on DIPO-21, DIPO-33 is Refined (R15), DIPO-29 is parked (by mai…",
+      " NEEDS YOU (1)",
+      ">DIPO-29 Web client shell  parked 3d · by maintainer: after M2",
+      " [Enter] detail  [j/k] move  [2] queue  [3] desk  [p] privacy  [o] offices  [q] quit",
     ]);
   });
 
@@ -385,19 +390,27 @@ function record28(endedAt = "2026-10-14T08:04:00.000Z"): RunRecord {
   } as RunRecord;
 }
 
-/** Selects DIPO-28 (In Review) from the top: three running rows and DIPO-26 come first. */
+/** Selects DIPO-28 (In Review) from the top: three running rows, DIPO-29 and DIPO-26 come first. */
 async function selectReview(ui: {
   press(key: string): Promise<void>;
   waitFor(text: string): Promise<string>;
 }) {
-  for (let i = 0; i < 4; i++) await ui.press("j");
+  for (let i = 0; i < 5; i++) await ui.press("j");
   return ui.waitFor(">DIPO-28");
 }
 
 describe("opening any board row (DIPO-81)", () => {
   it("j and k move over every section, running first", async () => {
     const { ui } = await open(120, 30, boardSnapshot());
-    for (const story of ["DIPO-24", "DIPO-19", "DIPO-26", "DIPO-28", "DIPO-30", "DIPO-32"]) {
+    for (const story of [
+      "DIPO-24",
+      "DIPO-19",
+      "DIPO-29",
+      "DIPO-26",
+      "DIPO-28",
+      "DIPO-30",
+      "DIPO-32",
+    ]) {
       await ui.press("j");
       await ui.waitFor(`>${story}`);
     }
@@ -437,9 +450,9 @@ describe("opening any board row (DIPO-81)", () => {
     });
     await ui.press("v");
     frame = await ui.waitFor("│ all green");
-    // X does nothing on an ended run.
-    await ui.press("X");
-    await ui.waitFor("this run has ended; there is no worker to stop");
+    // P parks nothing from an ended run's detail.
+    await ui.press("P");
+    await ui.waitFor("this run has ended; park its story from the queue or the desk");
     expect(session.commands).toEqual([]);
     await ui.press("escape");
     frame = await ui.waitFor("RUNNING (3)");
@@ -491,7 +504,7 @@ describe("opening any board row (DIPO-81)", () => {
 
   it("Enter on a Ready row that never ran says so in the footer", async () => {
     const { ui } = await open(120, 30, boardSnapshot());
-    for (let i = 0; i < 5; i++) await ui.press("j");
+    for (let i = 0; i < 6; i++) await ui.press("j");
     await ui.waitFor(">DIPO-30");
     await ui.press("enter");
     const frame = await ui.waitFor("DIPO-30 Add park reasons to digest · Ready, not run yet");
@@ -524,7 +537,7 @@ describe("opening any board row (DIPO-81)", () => {
       data: { ...summary, optIns: ["privacy.storeCommandBodies"] },
     } as Event);
     const frame = await ui.waitFor("stores commands");
-    expect(frame).toMatch(/ · held \d+ · stores commands/);
+    expect(frame).toMatch(/ · waiting \d+ · stores commands/);
     expect(frame).not.toContain("opt-in");
   });
 });

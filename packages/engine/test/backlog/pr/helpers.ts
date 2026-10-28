@@ -8,6 +8,7 @@ import { git, type TempRepoWithRemote } from "@dipsaus-orchestrator/testkit";
 import { OfficeLane } from "../../../src/backlog/lane";
 import { BacklogPrs } from "../../../src/backlog/pr";
 import {
+  type AutoMergeHost,
   type CodeHost,
   CodeHostError,
   type CodeHostErrorCode,
@@ -22,7 +23,7 @@ export const REPO = "o/r";
 export const REMOTE_URL = `https://github.com/${REPO}.git`;
 
 /** A code host that keeps its PRs in memory and records every call. */
-export class FakeHost implements CodeHost, PrListHost {
+export class FakeHost implements CodeHost, PrListHost, AutoMergeHost {
   readonly prs = new Map<number, HostPr>();
   readonly calls: string[] = [];
   /** When set, every call fails with this code. */
@@ -87,8 +88,27 @@ export class FakeHost implements CodeHost, PrListHost {
     if (pr !== undefined) this.prs.set(number, { ...pr, state: "closed" });
   }
 
-  async squashMerge(repo: string, number: number): Promise<void> {
-    this.#enter(`merge ${repo} #${number}`);
+  async enableAutoMerge(
+    repo: string,
+    number: number,
+    merge: { readonly headSha: string; readonly subject: string },
+  ): Promise<void> {
+    this.#enter(`auto-merge on ${repo} #${number} at ${merge.headSha}`);
+    const pr = this.prs.get(number);
+    if (pr !== undefined) this.prs.set(number, { ...pr, autoMerge: true });
+  }
+
+  async disableAutoMerge(repo: string, number: number): Promise<void> {
+    this.#enter(`auto-merge off ${repo} #${number}`);
+    const pr = this.prs.get(number);
+    if (pr !== undefined) this.prs.set(number, { ...pr, autoMerge: false });
+  }
+
+  /** The names the base requires; none by default. */
+  requiredNames: string[] = [];
+
+  async requiredCheckNames(): Promise<string[]> {
+    return [...this.requiredNames];
   }
 
   async requiredChecks(): Promise<RequiredCheck[]> {

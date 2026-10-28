@@ -1,8 +1,7 @@
 // The live agent detail (DIPO-55 test plan): the detail frame from the golden event log and the
 // golden output log, live `work.output`, `w` and `v`, scrolling back through `work.outputRange`
-// and End back to the tail, `X` then `y` sending `work.stop` with the story id, `X` then no, the
-// follow-only tag, the `now` line, a run that ends, and Esc back to the view it came from. Frames
-// are asserted with ANSI stripped.
+// and End back to the tail, the follow-only tag, the `now` line, a run that ends, and Esc back to
+// the view it came from. Frames are asserted with ANSI stripped.
 
 import { afterEach, describe, expect, it } from "bun:test";
 
@@ -104,7 +103,7 @@ describe("live agent detail", () => {
       "                                     │ [tool] Bash",
       "                                     │ [tool] Edit src/retry.ts (live)",
       "                                     │ following the tail",
-      " [w]orker [v]erify [i] prompt  [k/j PgUp/PgDn] scroll  [End] follow tail  [X] stop  [Esc] back  [q] quit",
+      " [P]ark  [w]orker [v]erify [i] prompt  [k/j PgUp/PgDn] scroll  [End] follow tail  [Esc] back  [q] quit",
     ]);
     // The tail came from work.outputRange reads to the end; the live text came from the stream.
     expect(rangeReads(session).filter((read) => read.source === "worker")).toEqual([
@@ -247,49 +246,45 @@ describe("live agent detail", () => {
     expect(rangeReads(session).slice(before)[0]).toMatchObject({ source: "worker", from: 1705 });
   });
 
-  it("X then y sends work.stop with the story id", async () => {
+  it("P asks for a note and sends story.park with the story id", async () => {
     const { ui, session } = await openDetail();
-    await ui.press("X");
-    const prompt = await ui.waitFor("Stop DIPO-24?");
-    expect(prompt).toContain(
-      " Stop DIPO-24? worker ends, branch kept, story parks as stopped. [y/N]",
-    );
-    expect(prompt).toContain("[y] stop the worker");
+    await ui.press("P");
+    await ui.waitFor("park note for DIPO-24: _");
     expect(session.commands).toEqual([]);
-    await ui.press("y");
-    await ui.waitFor("stop DIPO-24: done");
-    expect(session.commands).toEqual([
-      {
-        name: "work.stop",
-        args: { story: "DIPO-24" },
-        options: {
-          office: OFFICES.dipsaus,
-          requestId: "01J9ZK5Q8W3V4X6Y7Z8A9B0R01",
-          confirmed: true,
-        },
-      },
+    await ui.press("after the release");
+    await ui.press("enter");
+    await ui.waitFor("park DIPO-24: ");
+    expect(session.commands.map((command) => [command.name, command.args])).toEqual([
+      ["story.park", { story: "DIPO-24", note: "after the release" }],
     ]);
   });
 
-  it("X then any other key keeps the run going", async () => {
+  it("P then Esc sends nothing", async () => {
     const { ui, session } = await openDetail();
-    await ui.press("X");
-    await ui.waitFor("Stop DIPO-24?");
-    await ui.press("n");
-    const frame = await ui.waitFor("DIPO-24 keeps running");
-    expect(frame).not.toContain("Stop DIPO-24?");
+    await ui.press("P");
+    await ui.waitFor("park note for DIPO-24: _");
+    await ui.press("escape");
+    await ui.waitFor("park DIPO-24: nothing sent");
     expect(session.commands).toEqual([]);
   });
 
-  it("shows a stop the engine refused in the footer", async () => {
+  it("shows a park the engine refused in the footer", async () => {
     const { ui, session } = await openDetail();
-    session.stopReply = () => ({
-      ok: false,
-      error: { code: "story.notRunning", message: "DIPO-24 has no active run", retryable: false },
-    });
-    await ui.press("X");
-    await ui.press("y");
-    await ui.waitFor("stop DIPO-24: story.notRunning: DIPO-24 has no active run");
+    session.commandReply = (name) =>
+      name === "story.park"
+        ? {
+            ok: false,
+            error: {
+              code: "story.notParkable",
+              message: "DIPO-24 is Done",
+              retryable: false,
+            },
+          }
+        : undefined;
+    await ui.press("P");
+    await ui.press("later");
+    await ui.press("enter");
+    await ui.waitFor("park DIPO-24: story.notParkable: DIPO-24 is Done");
   });
 
   it("tags a follow-only run with [follow]", async () => {
@@ -313,8 +308,8 @@ describe("live agent detail", () => {
       lifecycle: "Parked",
       column: "desk",
       parked: {
-        reason: "stopped",
-        detail: "stopped",
+        reason: "by-maintainer",
+        detail: "after the release",
         from: "In Progress",
         since: "2026-10-14T10:04:00Z",
       },
@@ -330,10 +325,10 @@ describe("live agent detail", () => {
       }),
     );
     const frame = await ui.waitFor("run ended");
-    expect(frame).toContain(" run ended · DIPO-24 is Parked (stopped)");
+    expect(frame).toContain(" run ended · DIPO-24 is Parked (by-maintainer)");
     expect(frame).toContain("Step 39: retries now stop at the cap");
-    await ui.press("X");
-    await ui.waitFor("this run has ended; there is no worker to stop");
+    await ui.press("P");
+    await ui.waitFor("this run has ended; park its story from the queue or the desk");
     expect(session.commands).toEqual([]);
   });
 

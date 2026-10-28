@@ -3,17 +3,17 @@
 // facts; no model is asked. `backlog/fields/summary.ts` writes it through the Backlog CLI:
 //
 // - On park, in the task-file commit that writes F16 (`gitParkWriter`), one implementation-notes
-//   block: date, reason and cause, the detail on one line, run id, criteria met of total (as the
+//   block: date, reason, the detail on one line, run id, criteria met of total (as the
 //   worker reported them), loops of cap and CI attempts of cap, review rounds and failed rounds,
 //   budget used of limit per cap (tokens, turns, minutes), the last good commit and the number of
 //   uncommitted files.
 // - On resume, in the unpark commit (`gitUnparkWriter`), one line: date, resumed, the grants of the
 //   resume and the first line of the note.
-// - On close, in the merge slot's close-out commit (0019 section 9 step 1, `merge-slot/close-out.ts`),
+// - On close, in the close-out commit before auto-merge goes on (0002, `merge/close-out.ts`),
 //   the final summary: criteria met, loops, review rounds, budget used of limit, runs and resumes,
 //   each park in one line, grants, web calls and proposals filed.
 //
-// A box run (0021): CI is its verify, so its CI attempts stand next to the loops; its undelivered
+// A box run (0021): CI is its final gate, so its CI attempts stand next to the loops; its undelivered
 // work stays in the box, so the park block does not count uncommitted files from the Mac worktree
 // (whose files stay at the start commit) and says so.
 //
@@ -27,7 +27,7 @@ import type { OfficeHandle } from "../db/office";
 
 import { runCaps, runTotals } from "./caps";
 import { runCriteriaMet } from "./criteria";
-import type { GrantAmount } from "./grants";
+import type { GrantAmount, RoundCap } from "./grants";
 import { hasTable } from "./open-feedback";
 import { capsStartedAt, findRun, runRoundCounts, type StoredRun } from "./records";
 
@@ -79,7 +79,6 @@ function usedOf(value: UsedOf, unit?: string): string {
 export interface ParkBlockFacts {
   readonly at: number;
   readonly reason: string;
-  readonly cause: string;
   readonly detail: string;
   readonly runId: string;
   /** Criteria met as the worker reported them, of the story's criteria; null when not recorded. */
@@ -151,7 +150,7 @@ export function renderParkBlock(facts: ParkBlockFacts): string {
   const rounds = facts.reviewRounds;
   const detail = oneLine(facts.detail);
   return [
-    `Parked ${summaryDate(facts.at)}: ${facts.reason} (${facts.cause})`,
+    `Parked ${summaryDate(facts.at)}: ${facts.reason}`,
     `- Detail: ${detail === "" ? "none" : detail}`,
     `- Run: ${facts.runId}`,
     `- Criteria met: ${criteriaText(facts.criteria)}`,
@@ -168,20 +167,18 @@ export function grantText(grant: GrantAmount): string {
   switch (grant.kind) {
     case "budget":
       return `budget +${formatCount(grant.amount.tokens)} tokens, +${formatCount(grant.amount.turns)} turns, +${formatCount(grant.amount.minutes)} minutes`;
-    case "reviewCap":
-      return `reviewer +${formatCount(grant.amount.turns)} turns, +${formatCount(grant.amount.minutes)} minutes`;
-    case "scope":
-      return `scope ${grant.amount.join(" ")}`;
-    case "loop":
-      return `+${grant.amount} loop`;
-    case "reviewRound":
-      return `+${grant.amount} review round`;
-    case "ciAttempt":
-      return `+${grant.amount} CI attempt`;
-    case "conflictHandoff":
-      return `+${grant.amount} conflict hand-off`;
+    case "round":
+      return `+${grant.amount.count} ${ROUND_NAMES[grant.amount.cap]}`;
   }
 }
+
+/** A counted cap as a summary names one more round of it. */
+const ROUND_NAMES: Readonly<Record<RoundCap, string>> = {
+  loops: "loop",
+  reviewRounds: "review round",
+  ciAttempts: "CI attempt",
+  conflictAttempts: "conflict hand-off",
+};
 
 export interface ResumeLineFacts {
   readonly at: number;
@@ -219,7 +216,6 @@ export interface FinalSummaryFacts {
   readonly parks: readonly {
     readonly at: number;
     readonly reason: string;
-    readonly cause: string | null;
     readonly detail: string;
   }[];
   readonly grants: readonly { readonly at: number; readonly grant: GrantAmount }[];
@@ -263,13 +259,14 @@ export function finalSummaryFacts(
     limit += runCaps(office, run).budgetTokens;
   }
   const last = runs.at(-1);
+  // History (0007): each park with the reason it was made with, not the current park (DIPO-360).
   const parks = office
-    .all<{ at: number; reason: string; cause: string | null; detail: string }>(
-      `select at, reason, cause, detail from parks where office_id = $office_id and key = $key
+    .all<{ at: number; reason: string; detail: string }>(
+      `select at, reason, detail from parks where office_id = $office_id and key = $key
         order by park_id`,
       { key },
     )
-    .map((row) => ({ at: row.at, reason: row.reason, cause: row.cause, detail: row.detail }));
+    .map((row) => ({ at: row.at, reason: row.reason, detail: row.detail }));
   const resumes =
     office.get<{ n: number }>(
       `select count(*) as n from parks where office_id = $office_id and key = $key
@@ -319,7 +316,7 @@ export function finalSummaryFacts(
 export function renderFinalSummary(facts: FinalSummaryFacts): string {
   const parks = facts.parks.map((park) => {
     const detail = oneLine(park.detail);
-    return `  - ${summaryDate(park.at)} ${park.reason}${park.cause === null ? "" : ` (${park.cause})`}${detail === "" ? "" : `: ${detail}`}`;
+    return `  - ${summaryDate(park.at)} ${park.reason}${detail === "" ? "" : `: ${detail}`}`;
   });
   const grants = facts.grants.map(
     (entry) => `  - ${summaryDate(entry.at)} ${grantText(entry.grant)}`,

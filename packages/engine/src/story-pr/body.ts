@@ -8,7 +8,7 @@ import { createHash } from "node:crypto";
 
 import type { DoneReport, TestPlan } from "@dipsaus-orchestrator/contract";
 
-import type { RequiredCheckState } from "../merge-slot/checks";
+import type { RequiredCheckState } from "./checks";
 
 /** GitHub allows 65,536 characters; dipo keeps its bodies well under (0019 section 3). */
 export const STORY_PR_MAX_BODY = 20_000;
@@ -59,13 +59,12 @@ export interface PrBodyStatus {
   /** The run's latest stored verdict; the review line says pending when it is left out. */
   readonly review?: PrBodyReview | null;
   /**
-   * Who merges. `maintainer` (the default) until the merge slot (DIPO-150) merges story PRs;
+   * Who merges. `maintainer` (the default) until dipo turns auto-merge on for story PRs (0002);
    * `dipo` after it.
    */
   readonly merge?: "maintainer" | "dipo";
   /**
-   * The closed PR of the same story run this one replaces (0020 section 2, `stopped` /
-   * `pr-closed`, DIPO-324); the status block names it. Left out for a PR that replaces none.
+   * The closed PR of the same story run this one replaces (0002, DIPO-324); the status block names it. Left out for a PR that replaces none.
    */
   readonly replaces?: number;
 }
@@ -127,7 +126,7 @@ function statusSection(status: PrBodyStatus): string {
   const head = `\`${status.head.slice(0, SHORT_SHA)}\``;
   const verify =
     status.verify === "ci"
-      ? `- verify: CI on ${head}; dipo runs no verify of its own for a box run`
+      ? `- verify: CI on ${head}, after dipo's verify in the box at done when the office names one`
       : `- verify: passed at ${head}`;
   const checks =
     status.noCi === true

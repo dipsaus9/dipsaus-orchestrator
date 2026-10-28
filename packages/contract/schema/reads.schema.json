@@ -540,7 +540,6 @@
                       "running",
                       "review",
                       "desk",
-                      "held",
                       "done"
                     ]
                   },
@@ -603,10 +602,7 @@
                           "scope-violation",
                           "review-blocked",
                           "budget-exceeded",
-                          "on-hold",
-                          "stopped",
-                          "interrupted",
-                          "needs-permission",
+                          "by-maintainer",
                           "worker-failed"
                         ]
                       },
@@ -944,16 +940,7 @@
                 "anyOf": [
                   {
                     "type": "string",
-                    "enum": [
-                      "lost",
-                      "asking",
-                      "limited",
-                      "paused",
-                      "looping",
-                      "stuck",
-                      "quiet",
-                      "busy"
-                    ]
+                    "enum": ["lost", "asking", "looping", "stuck", "quiet", "busy"]
                   },
                   {
                     "type": "string"
@@ -974,7 +961,6 @@
                             "no-output",
                             "same-failure",
                             "input-wait",
-                            "plan-limit",
                             "host-lost",
                             "follow-only"
                           ]
@@ -1272,7 +1258,6 @@
                       "running",
                       "review",
                       "desk",
-                      "held",
                       "done"
                     ]
                   },
@@ -1335,10 +1320,7 @@
                           "scope-violation",
                           "review-blocked",
                           "budget-exceeded",
-                          "on-hold",
-                          "stopped",
-                          "interrupted",
-                          "needs-permission",
+                          "by-maintainer",
                           "worker-failed"
                         ]
                       },
@@ -1676,16 +1658,7 @@
                 "anyOf": [
                   {
                     "type": "string",
-                    "enum": [
-                      "lost",
-                      "asking",
-                      "limited",
-                      "paused",
-                      "looping",
-                      "stuck",
-                      "quiet",
-                      "busy"
-                    ]
+                    "enum": ["lost", "asking", "looping", "stuck", "quiet", "busy"]
                   },
                   {
                     "type": "string"
@@ -1706,7 +1679,6 @@
                             "no-output",
                             "same-failure",
                             "input-wait",
-                            "plan-limit",
                             "host-lost",
                             "follow-only"
                           ]
@@ -1995,7 +1967,6 @@
                     "running",
                     "review",
                     "desk",
-                    "held",
                     "done"
                   ]
                 },
@@ -2058,10 +2029,7 @@
                         "scope-violation",
                         "review-blocked",
                         "budget-exceeded",
-                        "on-hold",
-                        "stopped",
-                        "interrupted",
-                        "needs-permission",
+                        "by-maintainer",
                         "worker-failed"
                       ]
                     },
@@ -2396,16 +2364,7 @@
               "anyOf": [
                 {
                   "type": "string",
-                  "enum": [
-                    "lost",
-                    "asking",
-                    "limited",
-                    "paused",
-                    "looping",
-                    "stuck",
-                    "quiet",
-                    "busy"
-                  ]
+                  "enum": ["lost", "asking", "looping", "stuck", "quiet", "busy"]
                 },
                 {
                   "type": "string"
@@ -2426,7 +2385,6 @@
                           "no-output",
                           "same-failure",
                           "input-wait",
-                          "plan-limit",
                           "host-lost",
                           "follow-only"
                         ]
@@ -3434,8 +3392,7 @@
                       "dependency",
                       "collision",
                       "capacity",
-                      "pickupCheckFailed",
-                      "planLimit"
+                      "pickupCheckFailed"
                     ]
                   },
                   {
@@ -3644,8 +3601,8 @@
               {
                 "type": "string",
                 "enum": [
+                  "STARTS PAUSED",
                   "QUESTION",
-                  "PERMISSION",
                   "SCOPE",
                   "MERGE",
                   "PARKED",
@@ -3655,7 +3612,7 @@
                   "BACKLOG PR",
                   "NOTICE",
                   "PROPOSAL",
-                  "HELD",
+                  "PARKED BY YOU",
                   "PROFILE"
                 ]
               },
@@ -3736,10 +3693,7 @@
                   "scope-violation",
                   "review-blocked",
                   "budget-exceeded",
-                  "on-hold",
-                  "stopped",
-                  "interrupted",
-                  "needs-permission",
+                  "by-maintainer",
                   "worker-failed"
                 ]
               },
@@ -3747,9 +3701,6 @@
                 "type": "string"
               }
             ]
-          },
-          "cause": {
-            "type": "string"
           },
           "detail": {
             "type": "string"

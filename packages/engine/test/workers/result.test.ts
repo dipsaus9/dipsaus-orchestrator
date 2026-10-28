@@ -103,7 +103,7 @@ describe("result rows without a recording (0008 section 7)", () => {
     expect(res.park).toBeUndefined();
   });
 
-  it("error_max_structured_output_retries: blocked, no report, report feedback before ambiguous-spec", () => {
+  it("error_max_structured_output_retries: blocked, no report, one correction turn before worker-failed", () => {
     const state = feed([
       resultLine({
         subtype: "error_max_structured_output_retries",
@@ -115,7 +115,7 @@ describe("result rows without a recording (0008 section 7)", () => {
     const res = result(state, { code: 1, signal: null });
     expect(res.outcome).toBe("blocked");
     expect(res.report).toBeNull();
-    expect(res.park?.reason).toBe("ambiguous-spec");
+    expect(res.park?.reason).toBe("worker-failed");
     expect(res.retry).toBe("report-feedback");
   });
 

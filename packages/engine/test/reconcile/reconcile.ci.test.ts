@@ -25,7 +25,9 @@ import {
   RECORDED_BY_HAND,
 } from "../../src/reconcile";
 import { endRun, findRun } from "../../src/run/records";
+import { openPark } from "../../src/run/park";
 import { desk } from "../../src/views/desk";
+import { storyView } from "../../src/views/story";
 import { runDirectory } from "../../src/runs/worker-hosts";
 import { addStory } from "../../src/stories/keys";
 import { RunProfiles } from "../../src/scan";
@@ -33,6 +35,7 @@ import { type ClaimRecord, liveClaimOf, releaseClaim } from "../../src/worktree/
 import { resultOf, send } from "../office/helpers";
 import { lastSeq } from "../stories/helpers";
 import {
+  BASE,
   claim,
   type FakeTask,
   keyOf,
@@ -42,7 +45,7 @@ import {
   withReconcileOffice,
 } from "./helpers";
 
-const ON_HOLD = 'park: { reason: "on-hold", from: "Ready", note: "Waiting for the export" }';
+const BY_YOU = 'park: { reason: "by-maintainer", from: "Ready", note: "Waiting for the export" }';
 const AMBIGUOUS = 'park: { reason: "ambiguous-spec", from: "In Progress", note: "Which flag?" }';
 
 interface RunCall {
@@ -206,32 +209,40 @@ if (process.env["DIPO_TEST_CI"] === "1") {
   });
 
   describe("current park state (row 5)", () => {
-    it("closes an open park with no F16 record as resolved by reconcile", () =>
+    it("closes an open park with no F16 record as resolved by reconcile, and keeps Backlog.md's status", () =>
       withWorld(undefined, async (w) => {
         const key = keyOf(w.o.office, "TASK-1");
+        const status = storyView(w.o.office, key)?.lifecycle;
+        expect(status).not.toBe("Parked");
         w.o.office.immediate(() =>
           w.o.office.run(
-            `insert into parks (office_id, park_id, key, story_id, run_id, reason, from_state, detail, at)
-           values ($office_id, 1, $key, 'TASK-1', null, 'stopped', 'In Progress', 'old', 0)`,
+            `insert into parks (office_id, park_id, key, story_id, run_id, reason, detail, at)
+           values ($office_id, 1, $key, 'TASK-1', null, 'by-maintainer', 'old', 0)`,
             { key },
           ),
         );
         const seq = lastSeq(w.o.office);
         await w.rescan();
-        expect(parks(w.o.office)).toEqual([{ reason: "stopped", detail: "old", how: "reconcile" }]);
+        expect(parks(w.o.office)).toEqual([
+          { reason: "by-maintainer", detail: "old", how: "reconcile" },
+        ]);
         expect(codes(w.o.office, seq)).toContain(RECONCILE_NOTICES.parkClosed);
+        // Backlog.md wins (DIPO-360): the story keeps the status it has there, and is not parked.
+        expect(storyView(w.o.office, key)?.lifecycle).toBe(status);
+        expect(w.o.tables.get(BASE)?.get("TASK-1")?.status).toBe(status);
+        expect(openPark(w.o.office, key)).toBeNull();
       }));
 
     it("records an F16 park with no park row as recorded by hand", () =>
       withWorld(
         [
           { id: "TASK-1", status: "Ready" },
-          { id: "TASK-3", status: "Parked", fields: [ON_HOLD] },
+          { id: "TASK-3", status: "Parked", fields: [BY_YOU] },
         ],
         async (w) => {
           // The load already reconciled once: the park is recorded exactly once.
           expect(parks(w.o.office)).toEqual([
-            { reason: "on-hold", detail: RECORDED_BY_HAND, how: null },
+            { reason: "by-maintainer", detail: RECORDED_BY_HAND, how: null },
           ]);
           const seq = lastSeq(w.o.office);
           await w.rescan();

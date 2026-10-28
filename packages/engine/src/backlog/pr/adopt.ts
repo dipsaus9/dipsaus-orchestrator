@@ -3,11 +3,12 @@
 // a lane commit (`backlog: <kind> <subject>` with one `Dipo-Op` trailer), when the local branch and
 // the PR's head do not diverge, and when the branch still merges into the base: the target states
 // of its operations were journaled in the lost database, so the lane could not rebuild it. Merge
-// commits (the merge slot's base syncs) are allowed. Everything here runs inside one item of the
+// commits (base syncs of earlier dipo versions) are allowed. Everything here runs inside one item of the
 // office git queue and only reads, except `placeBranch`.
 
 import type { GitSession } from "../../git/office";
 import { GitError } from "../../git/runner";
+import { createBranch, moveBranch } from "../../git/write";
 import { OP_TRAILER } from "../lane/lane";
 
 /** A lane commit on the branch, oldest first. */
@@ -179,9 +180,16 @@ export async function placeBranch(
   local: AdoptableBranch["local"],
 ): Promise<void> {
   if (local === undefined) return;
-  if (local.from === null) {
-    await git.ok(git.repository, ["branch", "--no-track", branch, tip]);
-    return;
+  const placed =
+    local.from === null
+      ? await createBranch(git, branch, tip, `dipo: adopt ${branch}`)
+      : await moveBranch(git, branch, tip, local.from, `dipo: adopt ${branch}`);
+  if (!placed) {
+    throw new GitError(
+      "git.failed",
+      `the local branch ${branch} moved while dipo adopted it; dipo leaves it as it is`,
+      false,
+      { branch, tip, from: local.from },
+    );
   }
-  await git.ok(git.repository, ["update-ref", `refs/heads/${branch}`, tip, local.from]);
 }

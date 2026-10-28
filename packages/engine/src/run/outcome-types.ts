@@ -1,5 +1,5 @@
 // The shared vocabulary of worker outcomes (DIPO-51, split out of `outcomes.ts` by DIPO-128): the
-// intent tags, end kinds, notices, the wait fact and the ports between run control and the
+// intent tags, end kinds, notices and the ports between run control and the
 // outcome units. `outcomes.ts` re-exports all of it.
 
 import type { Clock, OfficeId, RunId, StoryKey, WorkRef } from "@dipsaus-orchestrator/contract";
@@ -10,33 +10,22 @@ import type { PriceBook } from "../pricing/estimate";
 import { FEEDBACK_TEMPLATES, renderTemplate } from "../prompts/templates";
 import { type AdapterHold, type LaunchCheckFailure } from "../workers/hold";
 import type { WorkerPort } from "../workers/port";
-import type {
-  Caps,
-  HostOp,
-  PlanLimitScope,
-  ReviewReport,
-  SteerOp,
-  TurnProblem,
-} from "../workers/types";
+import type { Caps, HostOp, ReviewReport, SteerOp, TurnProblem } from "../workers/types";
 import type { ClaimRecord } from "../worktree/records";
 
 import type { BackstopSnapshot } from "./backstop";
 import type { RunEnding, RunSteering } from "./control-types";
-import { type IntentKind, runIntents } from "./intents";
-import { PARK_CAUSES, type ParkOutcome, type UnparkWriter } from "./park";
+import type { IntentKind } from "./intents";
+import { type ParkOutcome, type UnparkWriter } from "./park";
 import type { StoredRun } from "./records";
 import type { NextSession } from "./resume";
-import { activeSignals } from "./signals";
+import type { PlanLimitPause, StartsPausedState } from "./starts-paused";
 import type { StoryGit } from "./story-git";
 
 /** The tags DIPO-51 stores at the start of an intent's detail. */
 export const INTENT_TAGS = {
-  reportFeedback: "report-feedback",
-  /** `answer` `park-resume <request JSON>`: an answer resuming a `needs-permission` park. */
-  parkResume: "park-resume",
   contextFull: "new-session:context-full",
   error: "new-session:error",
-  planLimit: "plan-limit",
   initRejected: "init-rejected",
   startFailed: "start-failed",
 } as const;
@@ -46,7 +35,6 @@ export const OUTCOME_NOTICES = {
   initRejected: "run.initRejected",
   modelSwitched: "run.modelSwitched",
   startFailed: "run.startFailed",
-  planLimit: "run.planLimit",
   feedbackNotSent: "run.feedbackNotSent",
 } as const;
 
@@ -58,6 +46,8 @@ export const OUTCOME_ENDS = {
   capped: "capped",
   blocked: "blocked",
   interrupted: "interrupted",
+  /** A plan limit stopped the session: the story parks `worker-failed` until starts resume. */
+  planLimit: "plan-limit",
 } as const;
 
 /** `agents.end_reason` of an agent whose host died without an exit file (DIPO-57). */
@@ -88,9 +78,6 @@ export function startRefusedAct(reason: string): RunAct {
   };
 }
 
-/** The first message of a session resumed after a plan-limit reset (0008 section 7). */
-export const PLAN_LIMIT_CONTINUE = "continue";
-
 /** The office load step that decides exits a restart left undecided (maintainer decision Q6). */
 export const REDISPATCH_STEP = "run-outcomes/redispatch";
 
@@ -119,39 +106,6 @@ export function intentTag(detail: string): string {
 export function intentRest(detail: string): string {
   const space = detail.indexOf(" ");
   return space === -1 ? "" : detail.slice(space + 1);
-}
-
-/**
- * The scope of a wait fact (0008 section 7): what the adapter named, `credits` for
- * `credits_required`, or `unknown` (treated as `session`).
- */
-export type WaitScope = PlanLimitScope | "credits" | "unknown";
-
-/** The wait fact of a plan-limit hold (0008 section 7, maintainer decision Q3a). */
-export interface WaitFact {
-  readonly scope: WaitScope;
-  /** ISO time the limit resets, when the event said. */
-  readonly resetsAt?: string;
-  /** When the wait began, on the engine clock. */
-  readonly since: number;
-}
-
-/**
- * The run's open plan-limit wait, or null: the newest `pause` `plan-limit` intent while the
- * `plan-limit` signal is in effect (DIPO-61 reads it to resume after the reset and clears the
- * signal when it does).
- */
-export function openWait(office: OfficeHandle, runId: string): WaitFact | null {
-  if (!activeSignals(office, runId).some((signal) => signal.signal === "plan-limit")) return null;
-  const intent = runIntents(office, runId as RunId)
-    .filter((row) => row.kind === "pause" && intentTag(row.detail) === INTENT_TAGS.planLimit)
-    .at(-1);
-  if (intent === undefined) return null;
-  try {
-    return JSON.parse(intentRest(intent.detail)) as WaitFact;
-  } catch {
-    return null;
-  }
 }
 
 /** A tracked run as run control hands it over. */
@@ -208,30 +162,41 @@ export interface ExitContext {
 export interface PlanLimitHit {
   readonly credits: boolean;
   readonly resetsAt?: string;
-  readonly scope?: PlanLimitScope;
 }
 
-/** An `allowed_warning` as run control hands it over (DIPO-61). */
-export interface PlanLimitWarning {
-  readonly resetsAt?: string;
-  readonly scope?: PlanLimitScope;
+/** The office's starts paused as worker outcomes and the review rounds tell it of a plan limit. */
+export interface PlanLimitPauses {
+  pausePlanLimit(office: OfficeId, pause: PlanLimitPause): void;
 }
 
 /**
- * The plan-limit schedule (DIPO-61, `plan-limit.ts`): told of every wait fact written and every
- * `allowed_warning`, it holds scheduling on the scope and resumes the run after the reset.
+ * The office's starts paused as worker outcomes use it (0020): a plan limit pauses it, a run's
+ * next session asks it first, and a load that parked runs a plan limit held resumes them.
  */
-export interface PlanLimitWaits {
-  waiting(office: OfficeId, runId: RunId, fact: WaitFact): void;
-  warned(office: OfficeId, warning: PlanLimitWarning): void;
+export interface StartsPausedPort extends PlanLimitPauses {
+  state(office: OfficeId): StartsPausedState | null;
+  resumeLifted(office: OfficeId): void;
+}
+
+/**
+ * The park of a session that met a plan limit (0020): `worker-failed` with the limit's detail,
+ * resumed by itself when the office's starts paused lifts.
+ */
+export function planLimitEnding(pause: PlanLimitPause, ops: readonly HostOp[]): RunEnding {
+  return {
+    intent: "park",
+    ops,
+    reason: "worker-failed",
+    detail: pause.detail,
+    endKind: OUTCOME_ENDS.planLimit,
+    resumeOnLift: true,
+  };
 }
 
 /** What run control calls. */
 export interface RunOutcomesPort {
   onTurnProblem(view: RunView, problem: TurnProblem): Promise<void>;
   onPlanLimit(view: RunView, limit: PlanLimitHit): void;
-  /** An `allowed_warning`: new runs on the scope wait for the reset (DIPO-61). */
-  onPlanWarning?(view: RunView, warning: PlanLimitWarning): void;
   onModelSwitched(view: RunView, model: string): void;
   /** A turn arrived: an open report feedback is answered. */
   answered(view: RunView): void;
@@ -257,11 +222,7 @@ export interface HostLostContext {
  * The ending of a rejected init (0008 sections 2 and 7); `cause` is the session's, the
  * reviewer's `review` for a reviewer session (0019 section 4).
  */
-export function initRejectedEnding(
-  story: string,
-  reason: string,
-  cause: string = PARK_CAUSES.build,
-): RunEnding {
+export function initRejectedEnding(story: string, reason: string): RunEnding {
   return {
     intent: "stop",
     intentDetail: `${INTENT_TAGS.initRejected} ${reason}`,
@@ -271,7 +232,6 @@ export function initRejectedEnding(
       { signal: "SIGKILL", afterMs: INIT_REJECTED_SIGKILL_AFTER_MS },
     ],
     reason: "worker-failed",
-    cause,
     detail: `the worker failed its start checks: ${reason}`,
     endKind: OUTCOME_ENDS.initRejected,
     notice: {
@@ -298,11 +258,9 @@ export interface RunOutcomesDeps {
   readonly ender: () => RunEnder;
   /** Starts the run's next session; without it every crash parks `worker-failed`. */
   readonly resumer?: NextSession;
-  /** DIPO-43's adapter hold, set for start failures and credit limits. */
+  /** DIPO-43's adapter hold, set for start failures: the office's starts paused (0020). */
   readonly holds?: {
     hold(adapter: string, failures: readonly LaunchCheckFailure[]): AdapterHold;
-    /** The hold set on the adapter now, or null: a `worker-failed` resume waits for its lift. */
-    adapterHeld?(adapter: string): AdapterHold | null;
   };
   /** Releases a live claim whose worker did not start (DIPO-74's release). */
   readonly release?: (office: OfficeId, claim: ClaimRecord, reason: string) => Promise<void>;
@@ -314,8 +272,8 @@ export interface RunOutcomesDeps {
   ) => Promise<boolean>;
   /** The caps of a run that is no longer tracked (after a restart). */
   readonly caps?: (office: OfficeId, run: StoredRun) => Caps | null;
-  /** The plan-limit schedule (DIPO-61); read when needed, since it is built after this. */
-  readonly waits?: () => PlanLimitWaits | undefined;
+  /** The office's starts paused (0020), which a plan limit pauses; read when needed. */
+  readonly startsPaused?: () => StartsPausedPort | undefined;
   /** Lifts a park on the story branch (DIPO-75); without it no parked run resumes. */
   readonly unpark?: UnparkWriter;
   /** Finishes the park resumes a restart interrupted (`Resumption`); the number it finished. */
@@ -326,45 +284,8 @@ export interface RunOutcomesDeps {
   readonly warn?: (message: string, fields: Readonly<Record<string, unknown>>) => void;
 }
 
-/** What resuming a parked run asks for (DIPO-75, `Resumption.resumePark`). */
-export interface ResumeParkRequest {
-  /** The open park the answer belongs to. */
-  readonly parkId: number;
-  /** The park's open permission question being answered. */
-  readonly question: string;
-  readonly decision: "allow" | "deny";
-  /** The maintainer's text with the decision; empty for none. */
-  readonly text: string;
-}
-
-/** What resuming a parked run did (DIPO-75). */
-export type ResumeParkOutcome =
-  /**
-   * The run is active again and the answer recorded; from `Resumption.resumePark` its next session is
-   * starting in the background (a failed start parks or releases the story with its notice), or,
-   * `queued`, waits for the office's worker place and starts when it frees (DIPO-142).
-   */
-  | { readonly kind: "started"; readonly queued?: boolean }
-  /** The park was lifted but the next session did not start; the story parked or released again. */
-  | { readonly kind: "notStarted" }
-  /** The run has no open park `parkId`, or it was not this run's. */
-  | { readonly kind: "notParked" }
-  /** The parked worker's exit is not ingested yet (retryable). */
-  | { readonly kind: "busy" }
-  /** Nothing changed: the park could not be lifted. */
-  | { readonly kind: "failed"; readonly reason: string };
-
 export function messageOf(error: unknown): string {
   return error instanceof Error ? error.message : String(error);
-}
-
-/** The agent a report feedback was sent to and why, from its intent detail. */
-export function feedbackOf(detail: string): { readonly agent: string; readonly why: string } {
-  const rest = intentRest(detail);
-  const space = rest.indexOf(" ");
-  return space === -1
-    ? { agent: rest, why: "" }
-    : { agent: rest.slice(0, space), why: rest.slice(space + 1) };
 }
 
 /** The one feedback turn "report in the schema" (0008 section 7, 0014 section 2). */

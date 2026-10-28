@@ -1,5 +1,5 @@
 // The one wiring of the run services (DIPO-129): ingestion with the permission wait and the
-// nudges, run control, worker outcomes, the resumer, the plan-limit schedule, the office's session
+// nudges, run control, worker outcomes, the resumer, the office's starts paused, the office's session
 // places (DIPO-142) with the pending reviews and their starter (DIPO-219), the fix rounds and
 // their starter (DIPO-148), the launcher and re-attach, built from injected ports. The daemon and
 // the engine's run tests both build them here, so a test exercises the wiring the daemon runs.
@@ -12,7 +12,6 @@ import type { Clock, IdSource, OfficeId } from "@dipsaus-orchestrator/contract";
 
 import { BOX_RUN_FILE } from "../box/workers";
 
-import { readBackstop } from "./backstop";
 import { Nudges } from "../hooks/nudges";
 import { ABSENT, PermissionAsks, type Presence } from "../hooks/permissions";
 import { type FetchAddressDeps, SYSTEM_FETCH_ADDRESSES, WebGuard } from "../hooks/web-guard";
@@ -25,7 +24,6 @@ import { OfficeIngest, type OfficeIngestOptions, type OfficeRunListener } from "
 import { RunLauncher, type HostStarter, type RunIngest, type RunLauncherDeps } from "./launch";
 import type { RunOutcomes, RunOutcomesDeps, RunOutcomesPort } from "./outcomes";
 import { Places, type PlacesDeps } from "./places";
-import { PlanLimits, type PlanLimitsDeps } from "./plan-limit";
 import { RunReattacher, type RunReattacherDeps } from "./reattach";
 import { baseStoryFacts, RunResumer, type RunResumerDeps } from "./resume";
 import { gitReviewOps, ReviewLauncher } from "./review-launch";
@@ -33,10 +31,11 @@ import { FixRounds, type FixRoundsDeps } from "./fix-rounds";
 import { Reviews } from "./reviews";
 import { createRunOutcomes, type Resumption } from "./resumption";
 import { SessionRuns } from "./session-run";
+import { StartsPaused, type StartsPausedDeps } from "./starts-paused";
 import { afterRunExits } from "./temp-dirs";
 import { ConflictResumes, type ConflictResumesDeps } from "./conflicts";
 import { resolveIntent, runIntents } from "./intents";
-import type { PrReplacement, SlotReentry } from "./park-resume";
+import type { MergeReentry, PrReplacement } from "./park-resume";
 import { workRefOf } from "../views/work";
 import type { HoldResumer } from "./work-resume";
 import type { RunBase } from "./work-run";
@@ -66,7 +65,7 @@ export interface RunPorts {
   readonly afterExit?: () => void;
   /** Whether the maintainer is at a client, for the permission wait (DIPO-59); absent by default. */
   readonly presence?: Presence;
-  /** False while no work is scheduled: the permission wait and the plan-limit schedule (DIPO-61). */
+  /** False while no work is scheduled: the permission wait and the office's starts paused. */
   readonly scheduling?: () => boolean;
   /** Ingestion; every entry it appends reaches `onChanged` at once. */
   readonly ingest: Pick<OfficeIngestOptions, "pricing" | "watchdog"> & {
@@ -80,21 +79,24 @@ export interface RunPorts {
     /** The liveness of earlier hosts a next session waits for (DIPO-57). */
     readonly probe?: RunResumerDeps["probe"];
   };
-  /** The planning lane's resume of an on-hold park (DIPO-160), read when `work.resume` runs. */
+  /** The planning lane's resume of a park with no run (DIPO-160), read when `work.resume` runs. */
   readonly holdResumer?: () => HoldResumer | undefined;
-  /** The merge slot a resumed `slot-refused` park re-enters (DIPO-150, DIPO-155's seam). */
-  readonly slotReentry?: () => SlotReentry | undefined;
+  /** The auto-merge a story resumed to wait In Review goes back to (0002). */
+  readonly mergeReentry?: () => MergeReentry | undefined;
   /**
    * The merge a resumed `conflict` park needs in its live run's box (`BoxCollisions.mergeOnResume`,
    * DIPO-324). Without it no conflict park resumes (`resume.notResumable`).
    */
   readonly conflictMerge?: ConflictResumesDeps["merge"];
-  /** The new story PR of a resumed `stopped` / `pr-closed` park (`StoryPrs.replace`, DIPO-324). */
+  /** The new story PR of a story resumed with its PR closed (`StoryPrs.replace`, 0002). */
   readonly prReplacement?: () => PrReplacement | undefined;
-  /** The plan-limit schedule (DIPO-61) worker outcomes report waits to; needs `outcomes`. */
-  readonly planLimits?: Pick<PlanLimitsDeps, "holds" | "notify">;
-  /** The office's session places (DIPO-142): the reviewer's model and pending reviews. */
-  readonly places?: Pick<PlacesDeps, "reviewModel" | "pending">;
+  /**
+   * The office's starts paused (0020): the loaded offices a plan limit pauses together and the
+   * adapter holds of a failed adapter check; needs `outcomes`.
+   */
+  readonly startsPaused?: Pick<StartsPausedDeps, "loaded" | "holds">;
+  /** The office's session places (DIPO-142): its pending reviews. */
+  readonly places?: Pick<PlacesDeps, "pending">;
   /**
    * Where the CI of a run's pushed head stands (`StoryPrs.ciState`, DIPO-147): a fix round waits
    * for its checks (DIPO-148). Without it no CI is waited for.
@@ -142,7 +144,8 @@ export interface ComposedRuns {
   /** Park resume and `work.resume` (DIPO-138), sharing the outcomes' facts. */
   readonly resumption: Resumption | null;
   readonly resumer: RunResumer | null;
-  readonly planLimits: PlanLimits | null;
+  /** The office's starts paused (0020); needs `outcomes` and the `startsPaused` port. */
+  readonly startsPaused: StartsPaused | null;
   /** The worker and reviewer places with their start orders (DIPO-142); needs `outcomes`. */
   readonly places: Places | null;
   /** The review rounds (DIPO-219): pending reviews, their starter and the reviewer's outcomes. */
@@ -184,7 +187,7 @@ interface Late {
   outcomes: RunOutcomes | null;
   resumption: Resumption | null;
   exitPort: RunOutcomesPort | null;
-  planLimits: PlanLimits | null;
+  startsPaused: StartsPaused | null;
   places: Places | null;
 }
 
@@ -203,6 +206,8 @@ function buildControl(ports: RunPorts, late: Late): RunControl | null {
     outcomes: () => late.exitPort ?? undefined,
     // A blocked report's question goes through the live-question rule (DIPO-272).
     questions: () => late.permissions ?? undefined,
+    // A park to resume on lift that lands while the office is not paused resumes then (0020).
+    parkedToResume: (office) => late.startsPaused?.resumeLifted(office),
     ...given("onChanged", ports.onChanged),
     ...given("refreshStory", ports.refreshStory),
     ...given("warn", ports.warn),
@@ -235,12 +240,6 @@ function buildHookListeners(
     // DIPO-284, DIPO-159).
     parkQuestion: (_office, run, question) => {
       control?.parkOnQuestion(run, question);
-    },
-    // An answer to a `needs-permission` park resumes its run (DIPO-75).
-    parks: {
-      resume: (office, run, request) =>
-        late.resumption?.resumePark(office, run, request) ??
-        Promise.resolve({ kind: "failed", reason: "worker outcomes are not ready" }),
     },
     // An answer to a question park resumes it through work.resume's park path (DIPO-159).
     questionParks: () => late.resumption?.questionParks,
@@ -312,14 +311,14 @@ interface Outcomes {
   readonly resumer: RunResumer;
   readonly outcomes: RunOutcomes;
   readonly resumption: Resumption;
-  readonly planLimits: PlanLimits | null;
+  readonly startsPaused: StartsPaused | null;
   readonly places: Places;
   readonly reviews: Reviews;
   readonly fixRounds: FixRounds;
 }
 
 /**
- * The resumer, worker outcomes, the plan-limit schedule and the places; null without control or
+ * The resumer, worker outcomes, the office's starts paused and the places; null without control or
  * outcomes.
  */
 function buildOutcomes(
@@ -353,7 +352,7 @@ function buildOutcomes(
   const { outcomes, resumption } = createRunOutcomes(
     {
       ...outcomePorts,
-      waits: () => late.planLimits ?? undefined,
+      startsPaused: () => late.startsPaused ?? undefined,
       clock: ports.clock,
       offices: ports.offices,
       steering: ports.steering,
@@ -368,39 +367,37 @@ function buildOutcomes(
       ...given("warn", ports.warn),
     },
     {
-      planLimits: () => late.planLimits ?? undefined,
       places: () => late.places ?? undefined,
       ...given("holds", ports.holdResumer),
       parks: {
         ...given("scheduling", ports.scheduling),
-        // A git-state park reads its new backstop snapshot on the office git (decision 7).
-        snapshot: (office, worktree) => {
-          const git = ports.git(office);
-          if (git === undefined) throw new Error(`Office ${office} has no git attached.`);
-          return readBackstop(git, worktree);
-        },
         ...given("boxRun", ports.boxRun),
         fixRounds: () => fixRounds ?? undefined,
-        ...given("slot", ports.slotReentry),
+        ...given("merge", ports.mergeReentry),
         // A conflict park resumes through the hand-off of its box run (DIPO-324).
         ...given("conflicts", conflictResumesOf(ports, control)),
         ...given("prs", ports.prReplacement),
         // A question park's answer is a resolved unknown while the contract stays within R26.
         contractMax: (office) =>
           ports.offices.config(office)?.prompt.contractMax ?? CONTRACT_MAX_DEFAULT,
+        // No resume while the office's starts are paused (0020).
+        startsPaused: (office) => late.startsPaused?.state(office) ?? null,
       },
     },
   );
-  const planLimits =
-    ports.planLimits === undefined
+  // A plan limit pauses the office's starts; its lift resumes the parks it made through the
+  // resumption and starts what waited for a place (0020).
+  const startsPaused =
+    ports.startsPaused === undefined
       ? null
-      : new PlanLimits({
-          ...ports.planLimits,
+      : new StartsPaused({
+          ...ports.startsPaused,
           clock: ports.clock,
           offices: ports.offices,
-          resume: (office, run, why) => resumption.resumeWait(office, run, why),
-          commands: resumption.feature,
+          resume: (office, park) => resumption.resumeLifted(office, park),
+          onLifted: (office) => void late.places?.drain(office),
           ...given("scheduling", ports.scheduling),
+          ...given("onChanged", ports.onChanged),
           ...given("warn", ports.warn),
         });
   // A fix round continues the developer's session through worker outcomes (DIPO-148).
@@ -424,17 +421,22 @@ function buildOutcomes(
     ...given("onChanged", ports.onChanged),
     ...given("warn", ports.warn),
   });
-  const reviews = buildReviews(ports, control, ingest, planLimits, fixRounds);
-  // The places pause by the plan-limit holds, start a queued resume through the resumption and a
-  // pending review through the review rounds (0019 section 12).
+  const reviews = buildReviews(ports, control, ingest, startsPaused, fixRounds);
+  // The places wait while the office's starts are paused, start a queued resume through the
+  // resumption and a pending review through the review rounds (0019 section 12).
   const places = new Places({
     ...ports.places,
     clock: ports.clock,
     offices: ports.offices,
     pending: ports.places?.pending ?? ((office) => reviews.pending(office)),
-    ...(planLimits === null
+    ...(startsPaused === null
       ? {}
-      : { held: (adapter: string, model: string | null) => planLimits.held(adapter, model) }),
+      : {
+          startsPaused: (office: OfficeId) => {
+            const paused = startsPaused.state(office);
+            return paused === null ? null : `the office's starts are paused (${paused.detail})`;
+          },
+        }),
     park: (office, run, work, ending) => control.park(office, run, work, ending),
     starters: {
       resume: (office, run) => resumption.startQueued(office, run),
@@ -447,7 +449,7 @@ function buildOutcomes(
     ...given("onChanged", ports.onChanged),
     ...given("warn", ports.warn),
   });
-  return { resumer, outcomes, resumption, planLimits, places, reviews, fixRounds };
+  return { resumer, outcomes, resumption, startsPaused, places, reviews, fixRounds };
 }
 
 /**
@@ -478,7 +480,7 @@ function conflictResumesOf(
         to: "In Progress",
       });
     },
-    tell: (runId, text) => control.tellWorker(runId, text, "conflict resume"),
+    tell: (runId, text) => control.tellWorker(runId, text, "conflict"),
     parkLive: (runId, park) => control.parkRun(runId, park),
     // An unwritable path that still conflicts parks again before any session (0020 section 2).
     park: async (office, run, park) => {
@@ -486,7 +488,6 @@ function conflictResumesOf(
         intent: "park",
         ops: [],
         reason: park.reason,
-        cause: park.cause,
         detail: park.detail,
         endKind: park.reason,
       });
@@ -515,7 +516,7 @@ function buildReviews(
   ports: RunPorts,
   control: RunControl,
   ingest: OfficeIngest,
-  planLimits: PlanLimits | null,
+  startsPaused: StartsPaused | null,
   fixRounds: FixRounds,
 ): Reviews {
   const sessions = new ReviewLauncher({
@@ -546,7 +547,7 @@ function buildReviews(
     ender: () => control,
     adapter: ports.worker.id,
     ...given("holds", ports.outcomes?.holds),
-    waits: () => planLimits ?? undefined,
+    startsPaused: () => startsPaused ?? undefined,
     // Once the reviewer exited after its verdict, the head's fix round may decide (DIPO-148).
     onReviewed: (office, runId, agent) => {
       void fixRounds.consider(office, runId, agent === undefined ? {} : { exited: agent });
@@ -618,7 +619,7 @@ export function composeRuns(ports: RunPorts): ComposedRuns {
     outcomes: null,
     resumption: null,
     exitPort: null,
-    planLimits: null,
+    startsPaused: null,
     places: null,
   };
   const control = buildControl(ports, late);
@@ -631,7 +632,7 @@ export function composeRuns(ports: RunPorts): ComposedRuns {
   const outcomes = built?.outcomes ?? null;
   late.outcomes = outcomes;
   late.resumption = built?.resumption ?? null;
-  late.planLimits = built?.planLimits ?? null;
+  late.startsPaused = built?.startsPaused ?? null;
   late.places = built?.places ?? null;
   // Each exit decision of worker outcomes, then the run's worker questions no park carried
   // (DIPO-159), the places (a session ended, so its place may be free) and `afterExit` (the run
@@ -657,7 +658,7 @@ export function composeRuns(ports: RunPorts): ComposedRuns {
     outcomes,
     resumption: late.resumption,
     resumer: built?.resumer ?? null,
-    planLimits: late.planLimits,
+    startsPaused: late.startsPaused,
     places: late.places,
     reviews: built?.reviews ?? null,
     fixRounds: built?.fixRounds ?? null,

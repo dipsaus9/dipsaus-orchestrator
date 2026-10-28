@@ -95,8 +95,13 @@ export const parkedStoryView = {
   title: "Web client shell",
   lifecycle: "Parked",
   tier: "L",
-  column: "held",
-  parked: { reason: "on-hold", detail: "after M2", from: "Ready", since: "2026-10-09T10:00:00Z" },
+  column: "desk",
+  parked: {
+    reason: "by-maintainer",
+    detail: "after M2",
+    from: "Ready",
+    since: "2026-10-09T10:00:00Z",
+  },
 };
 
 export const waitingStoryView = {
@@ -195,26 +200,24 @@ const officeCommandFixtures: Record<string, { args: unknown; result: unknown }> 
     },
   },
   "work.answer": {
-    args: { question: ids.question, text: "", decision: "allow" },
+    args: { question: ids.question, text: "Yes, a 404 is fine." },
     result: { question: ids.question, delivered: "on-resume", run: ids.run },
   },
   "work.steer": {
     args: { story: "DIPO-21", text: "Keep the old flag." },
     result: { run: ids.run, delivered: "next-turn" },
   },
-  "work.pause": { args: { story: ids.storyKey }, result: { run: ids.run } },
   "work.resume": {
     args: { story: "DIPO-21", note: "Dependency merged." },
     result: { story: "DIPO-21", key: ids.storyKey, to: "In Progress", run: ids.run },
   },
-  "work.stop": { args: { story: "DIPO-21" }, result: { run: ids.run } },
   "work.discard": {
     args: { story: "DIPO-21", note: "Wrong approach." },
     result: { story: "DIPO-21", key: ids.storyKey },
   },
-  "story.hold": {
-    args: { story: "DIPO-29", note: "after M2" },
-    result: { story: "DIPO-29", key: ids.storyKey },
+  "story.park": {
+    args: { story: "DIPO-21", note: "after M2" },
+    result: { story: "DIPO-21", key: ids.storyKey, run: ids.run },
   },
   "story.drop": {
     args: { story: "DRAFT-3", deleteBranch: false },
@@ -490,9 +493,8 @@ const officeEventFixtures: Record<string, unknown> = {
     story: "DIPO-26",
     key: ids.storyKey,
     work: workRef,
-    reason: "needs-permission",
-    cause: "build",
-    detail: "Bash(docker compose up)",
+    reason: "ambiguous-spec",
+    detail: "May the migration drop the old column?",
     from: "In Progress",
     lastGoodCommit: "4f2a9c1",
     actions: ["work.answer", "work.resume", "work.discard", "story.drop"],
@@ -540,7 +542,7 @@ export const validFieldBlock = {
       },
     ],
   },
-  park: { reason: "on-hold", from: "Ready", note: "Waiting for Bun 1.4.3" },
+  park: { reason: "by-maintainer", from: "Ready", note: "Waiting for Bun 1.4.3" },
 };
 
 export const invalidFieldBlocks: Record<string, unknown> = {
@@ -553,7 +555,7 @@ export const invalidFieldBlocks: Record<string, unknown> = {
     test_plan: { entries: [], not_applicable: "Docs only, nothing to run." },
   },
   "test_plan with neither": { test_plan: {} },
-  "unknown lifecycle in park": { park: { reason: "on-hold", from: "Waiting", note: "n" } },
+  "unknown lifecycle in park": { park: { reason: "by-maintainer", from: "Waiting", note: "n" } },
   "branch with uppercase slug": { branch: "DIPO-12/Daemon" },
   "branch slug over 40 characters": { branch: `DIPO-12/${"a".repeat(41)}` },
 };
