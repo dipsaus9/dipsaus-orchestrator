@@ -35,6 +35,7 @@ import {
   runOutcome,
   RunOutcomes,
 } from "../../src/run";
+import { LEGACY_PAUSE_DETAIL, LEGACY_PAUSE_TAG } from "../../src/run/outcome-restart";
 import { recordWorkerHost } from "../../src/runs/worker-hosts";
 import { addStory } from "../../src/stories/keys";
 import { workView } from "../../src/views/work";
@@ -683,6 +684,22 @@ describe("after a restart (decision Q6)", () => {
     expect(endReason()).toBe("crashed");
     // Decided once: the next session is the newest agent now.
     expect(await w.outcomes.redispatch(w.f.office.officeId)).toBe(0);
+  });
+
+  it("parks by-maintainer a run the maintainer paused before the upgrade, once (DIPO-344)", async () => {
+    // The paused worker exited after its stdin closed; the pause intent is still open.
+    await ingestRecording("terminated", true);
+    setEndReason("paused");
+    w.f.office.immediate(() =>
+      recordIntent(w.f.office, w.f.run, "pause", `${LEGACY_PAUSE_TAG} req_1`, 0),
+    );
+    expect(await w.outcomes.redispatch(w.f.office.officeId)).toBe(1);
+    expect(parks()).toEqual([["by-maintainer", LEGACY_PAUSE_DETAIL]]);
+    expect(intents()).toContainEqual(["pause", LEGACY_PAUSE_TAG, "run-ended"]);
+    expect(findRun(w.f.office, w.f.run)?.endedAt).not.toBeNull();
+    expect(w.next).toEqual([]);
+    expect(await w.outcomes.redispatch(w.f.office.officeId)).toBe(0);
+    expect(parks()).toHaveLength(1);
   });
 
   it("starts the resume of a crash decided before the stop", async () => {
