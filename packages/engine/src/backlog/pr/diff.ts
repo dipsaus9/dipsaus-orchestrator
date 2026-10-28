@@ -12,7 +12,13 @@ import { mapLimited, VIEW_CONCURRENCY } from "../../stories/read";
 import { BacklogParseError, parseView } from "../plain";
 import { type BacklogCli, BacklogCommandError, runBacklog } from "../runner";
 
-import type { ParsedView, PrDiff, TaskChange, TaskSide } from "./check";
+import {
+  type ParsedView,
+  type PrDiff,
+  REGULAR_MODES,
+  type TaskChange,
+  type TaskSide,
+} from "./check";
 
 const CHECKOUT: GitStepOptions = { config: BASE_CHECKOUT_CONFIG, env: BASE_CHECKOUT_ENV };
 
@@ -44,6 +50,33 @@ export function taskOfPath(
 
 function nulSplit(output: string): string[] {
   return output.split("\0").filter((part) => part !== "");
+}
+
+/** One entry of `git diff --raw -z --no-renames`: its path, both file modes and its status letter. */
+export interface RawDiffEntry {
+  readonly path: string;
+  readonly from: string;
+  readonly to: string;
+  readonly status: string;
+}
+
+/**
+ * The entries of `git diff --raw -z --no-renames`: `:<from> <to> <sha> <sha> <status>` and the
+ * path, each ended by a NUL, so a path may hold spaces and newlines. Throws on any other shape.
+ */
+export function parseRawDiff(output: string): RawDiffEntry[] {
+  const parts = output.split("\0");
+  if (parts.at(-1) === "") parts.pop();
+  const entries: RawDiffEntry[] = [];
+  for (let at = 0; at < parts.length; at += 2) {
+    const meta = /^:(\d{6}) (\d{6}) [0-9a-f]+ [0-9a-f]+ ([A-Z])$/.exec(parts[at] ?? "");
+    const path = parts[at + 1];
+    if (meta === null || path === undefined || path === "") {
+      throw new Error(`unexpected git diff --raw output: ${JSON.stringify(parts[at])}`);
+    }
+    entries.push({ path, from: meta[1] ?? "", to: meta[2] ?? "", status: meta[3] ?? "" });
+  }
+  return entries;
 }
 
 export interface CollectOptions {
@@ -163,20 +196,14 @@ export class RestoreError extends Error {
 /** The PR diff between `base` and `head`; the worktree is back on its own checkout afterwards. */
 export async function collectPrDiff(options: CollectOptions): Promise<PrDiff> {
   const { git, worktree, base, head } = options;
-  const paths = nulSplit(
-    await git.ok(git.repository, ["diff", "--name-only", "-z", "--no-renames", base, head]),
+  const entries = parseRawDiff(
+    await git.ok(git.repository, ["diff", "--raw", "-z", "--no-renames", base, head]),
   );
-  const added = nulSplit(
-    await git.ok(git.repository, [
-      "diff",
-      "--name-only",
-      "-z",
-      "--no-renames",
-      "--diff-filter=A",
-      base,
-      head,
-    ]),
-  );
+  const paths = entries.map((entry) => entry.path);
+  const added = entries.filter((entry) => entry.status === "A").map((entry) => entry.path);
+  const irregular = entries
+    .filter((entry) => !REGULAR_MODES.includes(entry.from) || !REGULAR_MODES.includes(entry.to))
+    .map((entry) => entry.path);
   const ids = [
     ...new Set(paths.map((path) => taskOfPath(path)?.id).filter((id) => id !== undefined)),
   ].toSorted();
@@ -209,7 +236,7 @@ export async function collectPrDiff(options: CollectOptions): Promise<PrDiff> {
       before: before.get(id) ?? { where: "absent" },
       after: after.get(id) ?? { where: "absent" },
     }));
-    diff = { paths, added, tasks };
+    diff = { paths, added, irregular, tasks };
   } catch (error) {
     await restore().catch((restoreError: unknown) => {
       throw new RestoreError(restoreError, error);

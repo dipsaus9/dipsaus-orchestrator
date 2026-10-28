@@ -392,61 +392,12 @@ const CASES: readonly Case[] = [
     expected: [`${prefix("R26")}story contract is 12001 characters; the limit is 12000`],
   },
   {
-    name: "R27 criterion names a maintainer step",
-    input: input({
-      acceptanceCriteria: [
-        { index: 1, checked: false, text: "Writes the record in the task notes" },
-      ],
-    }),
-    expected: [
-      `${prefix("R27")}criterion #1 names a step the worker cannot take ("task notes"); move it to a manual test plan entry`,
-    ],
-  },
-  {
-    name: "R28 labelled dropped in ready mode",
-    input: input({ labels: ["tier:M", "dropped"] }),
-    expected: [
-      `${prefix("R28")}labelled dropped: the maintainer set it aside; remove the label to make it Ready`,
-    ],
-  },
-  {
-    name: "R28 labelled on-hold in ready mode",
-    input: input({ labels: ["tier:M", "on-hold"] }),
-    expected: [
-      `${prefix("R28")}labelled on-hold: the maintainer set it aside; remove the label to make it Ready`,
-    ],
-  },
-  {
-    name: "R28 labelled dropped in pickup mode",
-    input: input({ status: "Ready", labels: ["tier:M", "dropped"] }),
-    mode: "pickup",
-    expected: [
-      `${prefix("R28")}labelled dropped: the maintainer set it aside; remove the label to make it Ready`,
-    ],
-  },
-  {
-    name: "R28 labelled on-hold in pickup mode",
-    input: input({ status: "Ready", labels: ["tier:M", "on-hold"] }),
-    mode: "pickup",
-    expected: [
-      `${prefix("R28")}labelled on-hold: the maintainer set it aside; remove the label to make it Ready`,
-    ],
-  },
-  {
     name: "R30 security story without the criteria parts",
     input: input({ title: "Replace the deny rule for gh" }),
     expected: [
       barrier("deny rule", R30_OLD),
       barrier("deny rule", R30_BYPASS),
       barrier("deny rule", R30_CLOSED),
-    ],
-  },
-  {
-    name: "R28 labelled dropped and on-hold, one failure each",
-    input: input({ labels: ["tier:M", "dropped", "on-hold"] }),
-    expected: [
-      `${prefix("R28")}labelled dropped: the maintainer set it aside; remove the label to make it Ready`,
-      `${prefix("R28")}labelled on-hold: the maintainer set it aside; remove the label to make it Ready`,
     ],
   },
 ];
@@ -488,22 +439,15 @@ describe("evaluateGate", () => {
     });
   }
 
-  it("passes a story labelled neither dropped nor on-hold, in both modes (DIPO-238)", () => {
-    expect(messages(evaluateGate(input({ labels: ["tier:M"] }), "ready"))).toEqual([]);
-    expect(
-      messages(evaluateGate(input({ status: "Ready", labels: ["tier:M"] }), "pickup")),
-    ).toEqual([]);
-  });
-
-  it("runs R28 after R27 and keeps both failures (DIPO-238)", () => {
-    const story = input({
-      labels: ["tier:M", "dropped"],
-      acceptanceCriteria: [{ index: 1, checked: false, text: "Writes the task notes" }],
-    });
-    expect(messages(evaluateGate(story, "ready"))).toEqual([
-      `${prefix("R27")}criterion #1 names a step the worker cannot take ("task notes"); move it to a manual test plan entry`,
-      `${prefix("R28")}labelled dropped: the maintainer set it aside; remove the label to make it Ready`,
-    ]);
+  it("passes a story labelled dropped whose criterion names the task notes: R27 and R28 are removed (0012)", () => {
+    const story = {
+      labels: ["tier:M", "dropped", "on-hold"],
+      acceptanceCriteria: [
+        { index: 1, checked: false, text: "Writes the task notes by the maintainer" },
+      ],
+    };
+    expect(messages(evaluateGate(input(story), "ready"))).toEqual([]);
+    expect(messages(evaluateGate(input({ ...story, status: "Ready" }), "pickup"))).toEqual([]);
   });
 
   it("passes a story contract of exactly prompt.contractMax characters", () => {
@@ -854,84 +798,6 @@ describe("gateText (DIPO-97)", () => {
   });
 });
 
-// R27 (DIPO-188): a criterion that names a step only the maintainer or the engine can take. The
-// text of DIPO-176 criterion 4 as it stood, word for word.
-const DIPO_176_CRITERION_4 =
-  "A sandboxed run of the full bun run verify with the worker's filesystem read fence passes on macOS, recorded in the task notes with the command, the dipo commit and the result";
-
-const stepHits = (text: string) =>
-  evaluateGate(criterion(text), "ready").failures.filter((failure) => failure.rule === "R27");
-
-describe("R27 maintainer steps", () => {
-  it("fails DIPO-176 criterion 4 with the criterion number and the phrase", () => {
-    expect(messages(evaluateGate(criterion(DIPO_176_CRITERION_4), "ready"))).toEqual([
-      `${prefix("R27")}criterion #1 names a step the worker cannot take ("task notes"); move it to a manual test plan entry`,
-    ]);
-  });
-
-  it("passes a criterion without a listed phrase", () => {
-    expect(stepHits("A sandboxed `bun run verify` run passes and its output is kept")).toEqual([]);
-  });
-
-  it("matches a phrase inside a slash run that does not look like a path (DIPO-218)", () => {
-    expect(stepHits("Write the task notes/later")).toHaveLength(1);
-    expect(stepHits("Write the task notes/x.md")).toEqual([]);
-  });
-
-  it("matches a phrase glued before a code span that holds a path (DIPO-221)", () => {
-    expect(stepHits("Write the task notes`notes/x.md`")).toHaveLength(1);
-  });
-
-  it.each([
-    ["live recording", "Captures a live recording of the session"],
-    ["live capture", "Keeps the live capture of the worker"],
-    ["run outside the sandbox", "Passes the macOS check in a run outside the sandbox"],
-    ["the PR states", "The PR states the cause of the failure"],
-    ["the PR description", "Names the change in the PR description"],
-  ])("fails a criterion that asks for the phrase %s (DIPO-213)", (phrase, text) => {
-    expect(messages(evaluateGate(criterion(text), "ready"))).toEqual([
-      `${prefix("R27")}criterion #1 names a step the worker cannot take ("${phrase}"); move it to a manual test plan entry`,
-    ]);
-    expect(stepHits(`Checks it in the code span \`${phrase}\` only`)).toEqual([]);
-  });
-
-  it("allows the bare phrase outside the sandbox, which sandbox checks use (DIPO-213 answer)", () => {
-    expect(stepHits("A write outside the sandbox is refused")).toEqual([]);
-    expect(stepHits("A path outside the worker sandbox stays unreadable")).toEqual([]);
-  });
-
-  it("gives one failure per criterion and phrase, in both modes", () => {
-    const story = input({
-      acceptanceCriteria: [
-        { index: 1, checked: false, text: "Writes the task notes by the maintainer" },
-        { index: 2, checked: false, text: "Runs backlog task edit, then records the task notes" },
-      ],
-    });
-    const failures = (mode: GateMode) =>
-      messages(evaluateGate(story, mode)).filter((message) => message.includes(" failed R27: "));
-    expect(failures("ready")).toEqual([
-      `${prefix("R27")}criterion #1 names a step the worker cannot take ("task notes"); move it to a manual test plan entry`,
-      `${prefix("R27")}criterion #1 names a step the worker cannot take ("by the maintainer"); move it to a manual test plan entry`,
-      `${prefix("R27")}criterion #2 names a step the worker cannot take ("task notes"); move it to a manual test plan entry`,
-      `${prefix("R27")}criterion #2 names a step the worker cannot take ("backlog task edit"); move it to a manual test plan entry`,
-    ]);
-    expect(failures("pickup")).toHaveLength(4);
-  });
-
-  it("reads the phrases from the office configuration", () => {
-    const story = criterion(DIPO_176_CRITERION_4);
-    expect(
-      evaluateGate(
-        { ...story, config: config({ maintainerStepPhrases: ["sandboxed"] }) },
-        "ready",
-      ).failures.filter((failure) => failure.rule === "R27"),
-    ).toHaveLength(1);
-    expect(
-      evaluateGate({ ...story, config: config({ maintainerStepPhrases: [] }) }, "ready").failures,
-    ).toEqual(evaluateGate(story, "ready").failures.filter((failure) => failure.rule !== "R27"));
-  });
-});
-
 // R29 (DIPO-251): every path and bare test file name of an automated test plan entry is covered by
 // a Reference. Three M1 runs on 2026-10-20 had plans their References could not deliver. R29 only
 // warns (maintainer decision of 2026-10-22): References are a forecast (0021 section 13).
@@ -1066,10 +932,10 @@ describe("R29 test plan files inside the References", () => {
     });
 
     // A failing story keeps its failures; the warning never adds one.
-    const story = input({ labels: ["tier:M", "dropped"], description: daemonPlan });
+    const story = input({ labels: ["tier:S", "tier:M"], description: daemonPlan });
     const result = evaluateGate(story, "ready");
     expect(messages(result)).toEqual([
-      `${prefix("R28")}labelled dropped: the maintainer set it aside; remove the label to make it Ready`,
+      `${prefix("R16")}needs exactly one tier from S, M, L, found S, M`,
     ]);
     expect(warnings(result)).toEqual([uncovered(1, DAEMON_TEST)]);
     expect(gateText("R29", uncovered(1, DAEMON_TEST))).toBe(

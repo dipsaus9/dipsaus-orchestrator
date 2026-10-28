@@ -282,7 +282,7 @@ const officeShapeV6 = {
     maintainerStepPhrases: z
       .array(text())
       .describe(
-        "Phrases that name a step only the maintainer or the engine can take, such as writing task notes. A criterion that contains one fails the Ready gate (R27) and moves that step to a manual test plan entry (0012 section 3, DIPO-188).",
+        "Not read: the Ready gate rule R27 that read these phrases is removed (0012). The key is still accepted until the office configuration drops it.",
       ),
   }),
 };
@@ -436,7 +436,7 @@ const SecurityCriteriaPhrases = z
       .describe("Phrases of a criterion that asks for a fail-closed test against the real path."),
   })
   .describe(
-    "Per part of R30, the phrases a criterion must contain (word match, as R27). A story whose title or Outcome names a security barrier fails once for each part no criterion matches (0012 section 3, DIPO-251).",
+    "Per part of R30, the phrases a criterion must contain (word match, as R10). A story whose title or Outcome names a security barrier fails once for each part no criterion matches (0012 section 3, DIPO-251).",
   );
 const StoryV11 = z.strictObject({
   ...officeShapeV6.story.shape,
@@ -1170,7 +1170,7 @@ export const OFFICE_DEFAULTS: OfficeConfig = {
       "if possible",
       "should be fine",
     ],
-    // 0012 section 3 (R27, DIPO-188): steps the worker cannot take; they go to a manual test plan.
+    // Not read since R27 was removed (0012); kept until the office configuration drops the key.
     maintainerStepPhrases: [
       "task notes",
       "implementation notes",

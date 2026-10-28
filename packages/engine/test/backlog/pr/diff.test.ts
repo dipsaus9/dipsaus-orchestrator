@@ -27,7 +27,8 @@ function fakeGit(failRestore: boolean): { git: GitSession; calls: string[] } {
     },
     ok: async (_location, args) => {
       calls.push(args.join(" "));
-      if (args[0] === "diff") return "backlog/tasks/task-1 - A.md\0";
+      if (args[0] === "diff")
+        return `:100644 100644 ${"a".repeat(40)} ${"b".repeat(40)} M\0backlog/tasks/task-1 - A.md\0`;
       if (args[0] === "ls-tree") throw new Error("ls-tree broke");
       if (args[0] === "checkout" && args.includes("dipo/backlog-x") && failRestore) {
         throw new Error("checkout broke");

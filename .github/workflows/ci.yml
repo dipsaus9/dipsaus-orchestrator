@@ -13,8 +13,94 @@ concurrency:
   cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 jobs:
+  # 0016: a PR that changes only backlog/ takes the light path. This job decides it; on that path the
+  # heavy jobs below skip by design, and ready-gate and pr-title still run. Every push to main and
+  # every other PR runs every job.
+  changes:
+    name: changes
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: read
+    outputs:
+      scope: ${{ steps.scope.outputs.scope }}
+    steps:
+      # Depth 2: on a PR the checkout is GitHub's merge commit, whose first parent is the base and
+      # whose second is the PR head, so HEAD^1...HEAD is exactly what the PR changes.
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+          fetch-depth: 2
+      # The scope is decided here with git and the shell, never by code from the PR's checkout, so
+      # a PR cannot change the decision without a change under .github/ (code-owner review). Light
+      # only when every changed entry is a regular file on both sides (mode 100644, or 000000 where
+      # it is absent) whose path is a .md file under backlog/ or backlog/config.yml. A symlink, a
+      # submodule, an executable, any other path and an empty diff are full. -z keeps paths with
+      # spaces or newlines whole; output that does not end in a whole entry is full.
+      - name: Classify the changed paths
+        id: scope
+        env:
+          EVENT: ${{ github.event_name }}
+          PR_HEAD: ${{ github.event.pull_request.head.sha }}
+        run: |
+          if [ "$EVENT" != "pull_request" ]; then
+            echo "scope=full" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          if [ "$(git rev-parse HEAD^2)" != "$PR_HEAD" ]; then
+            echo "The checkout is not the merge commit of the PR head $PR_HEAD"
+            exit 1
+          fi
+          diff="$RUNNER_TEMP/changes.raw"
+          git diff --raw -z --no-renames HEAD^1 HEAD > "$diff"
+          scope=backlog-only
+          count=0
+          meta=""
+          while IFS= read -r -d '' meta && IFS= read -r -d '' path; do
+            count=$((count + 1))
+            read -r from to _ <<< "${meta#:}"
+            case "$from" in 100644 | 000000) ;; *) scope=full ;; esac
+            case "$to" in 100644 | 000000) ;; *) scope=full ;; esac
+            case "$path" in backlog/config.yml | backlog/*.md) ;; *) scope=full ;; esac
+            meta=""
+          done < "$diff"
+          if [ "$count" -eq 0 ] || [ -n "$meta" ]; then
+            scope=full
+          fi
+          echo "$count changed entries: $scope"
+          echo "scope=$scope" >> "$GITHUB_OUTPUT"
+
+  # 0016: the Ready gate on every Ready story, on every PR and push, and on a backlog-only PR the
+  # structural check of 0010 on every story the PR changes.
+  ready-gate:
+    name: ready-gate
+    needs: changes
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+          fetch-depth: 2
+      - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2.2.0
+        with:
+          bun-version-file: .bun-version
+      - uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: ~/.bun/install/cache
+          key: bun-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('bun.lock') }}
+      - run: bun install --frozen-lockfile
+      - name: The Ready gate on every Ready story
+        run: bun scripts/check-ready-gate.ts
+      # The changes job checked that the checkout is the PR's merge commit, so HEAD^1 is the base.
+      - name: The structural check on the stories the PR changes (0010)
+        if: needs.changes.outputs.scope == 'backlog-only'
+        run: bun scripts/check-backlog-pr.ts HEAD^1 HEAD
+
   verify:
     name: verify
+    needs: changes
+    if: needs.changes.outputs.scope != 'backlog-only'
     runs-on: ubuntu-24.04
     permissions:
       contents: read
@@ -49,6 +135,8 @@ jobs:
   # tests start srt in.
   verify-macos:
     name: verify-macos
+    needs: changes
+    if: needs.changes.outputs.scope != 'backlog-only'
     runs-on: macos-26
     permissions:
       contents: read
@@ -73,7 +161,8 @@ jobs:
 
   dependency-review:
     name: dependency-review
-    if: github.event_name == 'pull_request'
+    needs: changes
+    if: github.event_name == 'pull_request' && needs.changes.outputs.scope != 'backlog-only'
     runs-on: ubuntu-24.04
     permissions:
       contents: read
@@ -89,6 +178,8 @@ jobs:
   # 0016 rule 1: build with the release script and smoke-test the binary natively on each target.
   smoke:
     name: smoke (${{ matrix.target }})
+    needs: changes
+    if: needs.changes.outputs.scope != 'backlog-only'
     strategy:
       fail-fast: false
       matrix:
@@ -132,6 +223,8 @@ jobs:
   # 0016 rule 1: install.sh and any other shell script in the repository (rule 7).
   shellcheck:
     name: shellcheck
+    needs: changes
+    if: needs.changes.outputs.scope != 'backlog-only'
     runs-on: ubuntu-24.04
     permissions:
       contents: read
@@ -152,6 +245,8 @@ jobs:
   # SHA-256, copied from actionlint_<version>_checksums.txt on the actionlint release page.
   actionlint:
     name: actionlint
+    needs: changes
+    if: needs.changes.outputs.scope != 'backlog-only'
     runs-on: ubuntu-24.04
     permissions:
       contents: read
@@ -177,7 +272,8 @@ jobs:
 
   ci-ok:
     name: ci-ok
-    needs: [verify, verify-macos, shellcheck, actionlint, dependency-review, smoke]
+    needs:
+      [changes, ready-gate, verify, verify-macos, shellcheck, actionlint, dependency-review, smoke]
     if: always()
     runs-on: ubuntu-24.04
     permissions: {}
@@ -188,11 +284,20 @@ jobs:
           NEEDS: ${{ toJSON(needs) }}
         run: |
           echo "$NEEDS" | jq -r 'to_entries[] | "\(.key): \(.value.result)"'
-          # dependency-review is skipped by design outside pull requests; nothing else may be skipped.
+          # Skipped by design, and nothing else: dependency-review outside pull requests, and the
+          # heavy jobs on a pull request that the changes job (which itself succeeded) found changes
+          # only backlog/ (0016). changes and ready-gate must always succeed.
           failed=$(echo "$NEEDS" | jq -r --arg event "$EVENT" '
-            to_entries[]
+            (.changes.result == "success" and .changes.outputs.scope == "backlog-only") as $light
+            | to_entries[]
             | select(.value.result != "success")
-            | select(.key != "dependency-review" or $event == "pull_request" or .value.result != "skipped")
+            | select(
+                .value.result != "skipped"
+                or (
+                  (.key == "dependency-review" and $event != "pull_request")
+                  or ($event == "pull_request" and $light
+                    and (.key | IN("verify", "verify-macos", "shellcheck", "actionlint", "dependency-review", "smoke")))
+                  | not))
             | .key')
           if [ -n "$failed" ]; then
             echo "Not green: $failed"
