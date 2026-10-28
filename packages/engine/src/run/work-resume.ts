@@ -26,6 +26,7 @@ import type { StoryIdentity } from "../stories/keys";
 
 import { openWait } from "./outcome-types";
 import { openPark } from "./park";
+import { parkedRun } from "./park-state";
 import { notResumable } from "./park-resume";
 import { parkResumeNeed } from "./resume-policy";
 import { activeRuns, type StoredRun } from "./records";
@@ -209,9 +210,5 @@ function heldRunOf(handle: OfficeHandle, key: string): StoredRun | null {
 
 /** Where the story is after a resume that did not start: parked, else released to Ready. */
 export function afterFailure(handle: OfficeHandle, runId: RunId): Lifecycle {
-  const parked = handle.get(
-    "select 1 as found from parks where office_id = $office_id and run_id = $run",
-    { run: runId },
-  );
-  return parked === null ? "Ready" : "Parked";
+  return parkedRun(handle, runId) ? "Parked" : "Ready";
 }

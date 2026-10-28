@@ -51,6 +51,7 @@ import { cleanDoorText } from "../box/door";
 import type { FeatureRegistry, ReadContext, Registry } from "../commands/registry";
 import type { OfficeHandle } from "../db/office";
 import { openParkQuestions, openQuestions, type StoredQuestion } from "../hooks/questions";
+import { openPark } from "../run/park-state";
 import { parkResumeNeed, SUGGESTED_SHARE } from "../run/resume-policy";
 import { profileDeskItems } from "../scan/profile-view";
 import { findStoryPr, latestStoryPr } from "../story-pr/records";
@@ -397,18 +398,26 @@ class DeskBuilder {
 
   /** Groups 2 and 3: merge gates and every open park, the maintainer's own parks apart. */
   gatesAndParks(): void {
-    const parks = this.#office.all<{
-      park_id: number;
-      key: string;
-      story_id: string;
-      reason: string;
-      detail: string;
-      at: number;
-    }>(
-      `select park_id, key, story_id, reason, detail, at from parks
-        where office_id = $office_id and resolved_at is null
-        order by at, park_id`,
+    // Every parked story (DIPO-360): the reason from Backlog.md, the rest from the open park row.
+    const keys = this.#office.all<{ key: string; story_id: string }>(
+      `select key, story_id from parks where office_id = $office_id and resolved_at is null
+        group by key order by min(at), min(park_id)`,
     );
+    const parks = keys.flatMap(({ key, story_id }) => {
+      const open = openPark(this.#office, key);
+      return open === null
+        ? []
+        : [
+            {
+              park_id: open.parkId,
+              key,
+              story_id,
+              reason: open.reason as string,
+              detail: open.detail,
+              at: open.at,
+            },
+          ];
+    });
     const gates = this.#openMergeGates();
     const reviewBlocked = new Set(
       parks.filter((park) => park.reason === "review-blocked").map((park) => park.key),

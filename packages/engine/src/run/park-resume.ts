@@ -91,6 +91,7 @@ import { markPhase } from "./markers";
 import type { OutcomeParts } from "./outcomes";
 import { intentRest, intentTag, messageOf, type RunView } from "./outcome-types";
 import { openPark, PARK_NOTICES, reopenParkedRun, resolvePark } from "./park";
+import { mirrorUnpark } from "./park-state";
 import { MAINTAINER_TAGS } from "./steers";
 import { PLACE_NOTICES, type Places, START_KINDS, waitForPlace } from "./places";
 import { findRun, IN_REVIEW_END, REVIEWED_END, runRoundCounts, type StoredRun } from "./records";
@@ -859,6 +860,8 @@ export class ParkResumes {
           ...answeredQuestion(office, run, detail.answer ?? null, at),
           ...this.#resolve(office, run, current, detail, at),
         ];
+        // The lift read back status `to` and no park record on the branch (DIPO-360).
+        mirrorUnpark(office, key, detail.to);
         for (const grant of detail.grants) {
           recordGrant(office, run.runId, {
             ...grant.amount,

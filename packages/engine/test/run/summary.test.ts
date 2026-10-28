@@ -203,9 +203,9 @@ describe("the final summary", () => {
     const { office, run, work } = f;
     office.immediate(() => {
       office.run(
-        `insert into parks (office_id, park_id, key, story_id, run_id, reason, from_state, detail,
+        `insert into parks (office_id, park_id, key, story_id, run_id, reason, detail,
            last_good_commit, at, resolved_at, resolved_how)
-         values ($office_id, 1, $key, 'DIPO-1', $run, 'budget-exceeded', 'In Progress',
+         values ($office_id, 1, $key, 'DIPO-1', $run, 'budget-exceeded',
            'turn cap (--max-turns) after 61 turns', null, $at, $resolved, 'resume')`,
         { key: work.key, run, at: AT - 5 * 60_000, resolved: AT - 4 * 60_000 },
       );

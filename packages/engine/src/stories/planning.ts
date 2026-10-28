@@ -67,7 +67,7 @@ import type { OfficeHandle } from "../db/office";
 import type { GitSession, OfficeGit } from "../git/office";
 import { type CodeHost, CodeHostError } from "../platform/host";
 import type { ProcessProbe } from "../platform/process";
-import { openPark, parkActions, resolvePark } from "../run/park";
+import { openPark, openParkIds, parkActions, resolvePark } from "../run/park";
 import { activeRuns } from "../run/records";
 import { hostAlive, workerHostsOf } from "../runs/worker-hosts";
 import { latestStoryPr, setStoryPrState } from "../story-pr/records";
@@ -304,10 +304,10 @@ export class StoryPlanning {
     const at = ctx.clock.now();
     ctx.commit((): NewEntry[] => {
       office.run(
-        `insert into parks (office_id, park_id, key, story_id, run_id, reason, from_state, detail, at)
+        `insert into parks (office_id, park_id, key, story_id, run_id, reason, detail, at)
          values ($office_id, (select coalesce(max(park_id), 0) + 1 from parks
-           where office_id = $office_id), $key, $story, null, 'by-maintainer', $from, $note, $at)`,
-        { key, story, from, note: args.note, at },
+           where office_id = $office_id), $key, $story, null, 'by-maintainer', $note, $at)`,
+        { key, story, note: args.note, at },
       );
       const parked = deriveStoryView({
         ...factsOf(view),
@@ -484,8 +484,10 @@ export class StoryPlanning {
     }
     const at = ctx.clock.now();
     ctx.commit((): NewEntry[] => {
-      const open = openPark(office, key);
-      const closed = open === null ? [] : resolvePark(office, open.parkId, "drop", at);
+      // Every open park row of the story is run detail the drop ends, whatever Backlog.md says.
+      const closed = openParkIds(office, key).flatMap((park) =>
+        resolvePark(office, park, "drop", at),
+      );
       const removed = deriveStoryView({
         ...(view === null ? { key, story, title: "" } : factsOf(view)),
         lifecycle: "Removed",
@@ -517,7 +519,7 @@ export class StoryPlanning {
     const journaled = allEntries(office).some(
       (entry) => entry.key === key && entry.kind === DROP_KIND && OPEN_STATES.includes(entry.state),
     );
-    if (!journaled || liveClaimOf(office, key) !== null || openPark(office, key) !== null) {
+    if (!journaled || liveClaimOf(office, key) !== null || openParkIds(office, key).length > 0) {
       return false;
     }
     return latestStoryPr(office, key)?.state !== "open";

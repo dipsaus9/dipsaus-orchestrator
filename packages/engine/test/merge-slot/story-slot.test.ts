@@ -9,6 +9,7 @@
 
 import { afterEach, describe, expect, it } from "bun:test";
 
+import { insertPark } from "../run/park-fixture";
 import type { OfficeLane } from "../../src/backlog/lane";
 import { insertPr, recordCheck } from "../../src/backlog/pr/records";
 import { conflictFeedbackItem } from "../../src/box/collisions";
@@ -533,7 +534,9 @@ describe("the merge gate", () => {
       s.w.office.run(
         `insert into backlog_mirror (office_id, key, content_hash, kind, status, title, labels,
            read_at, source)
-         values ($office_id, $key, 'h', 'task', 'In Review', 'A story', $labels, 0, 'branch')`,
+         values ($office_id, $key, 'h', 'task', 'In Review', 'A story', $labels, 0, 'branch')
+         on conflict (office_id, key) do update set labels = excluded.labels,
+           source = excluded.source`,
         { key: s.key, labels: JSON.stringify(["test-before-merge"]) },
       ),
     );
@@ -619,12 +622,16 @@ describe("the merge gate", () => {
       },
     });
     s.w.office.immediate(() =>
-      s.w.office.run(
-        `insert into parks (office_id, park_id, key, story_id, run_id, reason, from_state, detail,
-           at)
-         values ($office_id, 1, $key, 'DIPO-7', $run, 'review-blocked', 'In Review', 'blocked', 0)`,
-        { key: s.key, run: s.run },
-      ),
+      insertPark(s.w.office, {
+        parkId: 1,
+        key: s.key,
+        story: "DIPO-7",
+        runId: s.run,
+        reason: "review-blocked",
+        from: "In Review",
+        detail: "blocked",
+        at: 0,
+      }),
     );
     expect(await tick()).toBe("idle");
     expect(gates()).toHaveLength(1);

@@ -675,14 +675,17 @@ export class StorySlot {
   /** Each story parked `review-blocked` gets its override gate (0019 section 11). */
   async #overrideGates(ctx: StorySlotContext): Promise<void> {
     const office = ctx.office;
+    // The reason is Backlog.md's (DIPO-360); the open rows only name the runs.
     const parked = office.all<{ run_id: string }>(
       `select run_id from parks where office_id = $office_id and resolved_at is null
-        and reason = 'review-blocked' and run_id is not null
+        and run_id is not null
       order by park_id`,
     );
     for (const row of parked) {
       const run = findRun(office, row.run_id as RunId);
       if (run === null || run.key === null || run.story === null) continue;
+      const park = openPark(office, run.key);
+      if (park?.runId !== run.runId || park.reason !== "review-blocked") continue;
       const verdict = latestVerdictOfRun(office, run.runId);
       if (verdict === null || verdict.verdict !== "blocked" || verdict.override !== null) continue;
       if (overrideGateOf(office, run.runId, verdict.gate) !== null) continue;

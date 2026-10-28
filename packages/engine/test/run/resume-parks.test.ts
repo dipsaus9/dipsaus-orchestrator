@@ -57,6 +57,7 @@ import { storeFeedbackItems } from "../../src/run/feedback-items";
 import { FIX_ROUND_TAG } from "../../src/run/fix-rounds";
 import { recordIntent } from "../../src/run/intents";
 import { openPark } from "../../src/run/park";
+import { insertPark } from "./park-fixture";
 import { MAINTAINER_TAGS } from "../../src/run/steers";
 import type { NextSessionRequest } from "../../src/run/resume";
 import { addStory } from "../../src/stories/keys";
@@ -257,13 +258,7 @@ function park(reason: string, from = "In Progress", detail = "x", endKind = "par
   const { office, run, t } = w.f;
   const at = t.clock.now();
   office.immediate(() => {
-    office.run(
-      `insert into parks (office_id, park_id, key, story_id, run_id, reason, from_state, detail,
-         at)
-       values ($office_id, (select coalesce(max(park_id), 0) + 1 from parks
-         where office_id = $office_id), $key, 'DIPO-1', $run, $reason, $from, $detail, $at)`,
-      { key: w.key, run, reason, from, detail, at },
-    );
+    insertPark(office, { key: w.key, story: "DIPO-1", runId: run, reason, from, detail, at });
     endRun(office, run, at, endKind);
   });
   return office.get<{ id: number }>(

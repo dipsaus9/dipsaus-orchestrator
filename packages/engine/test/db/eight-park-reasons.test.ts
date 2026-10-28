@@ -147,10 +147,8 @@ describe("migration 57 (DIPO-344)", () => {
             insert into runs (office_id, run_id, kind, role, model, budget_unit, budget_limit,
               loop_cap, config_hash, started_at)
               values ('off-1', 'run-1', 'session', 'developer', 'haiku', 'tokens', 1, 3, 'h', 0);
-            insert into parks (office_id, park_id, key, story_id, run_id, reason, from_state,
-              detail, at)
-              values ('off-1', 1, 'stk_1', 'DIPO-1', 'run-1', 'ambiguous-spec', 'In Progress',
-                'Which?', 1);
+            insert into parks (office_id, park_id, key, story_id, run_id, reason, detail, at)
+              values ('off-1', 1, 'stk_1', 'DIPO-1', 'run-1', 'ambiguous-spec', 'Which?', 1);
             insert into questions (office_id, question_id, run_id, agent_id, kind, text, asked_at,
               park_id) values ('off-1', 'qst-1', 'run-1', 'agt-1', 'question', 'Which?', 1, 1);
             update parks set resolved_at = 5, resolved_how = 'drop' where park_id = 1;`),

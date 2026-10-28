@@ -8,9 +8,12 @@
 // park's structured summary block to the implementation notes (0020 section 13, `summary.ts`; a
 // lift appends the resume line the same way); only the task file is committed, as
 // `<ID>: status Parked`, and the branch is pushed without force. Then,
-// in one transaction, it records the park's run detail in `parks` (reason, the lifecycle it left,
-// detail, last good commit, time), ends the run with its end kind and emits `story.state` to Parked
-// and `story.parked` with the actions the engine implements.
+// in one transaction, it records the park's run detail and history in `parks` (the reason it was
+// made with, detail, last good commit, time), sets the story index's read of the story to what the
+// branch write read back (status Parked and the F16 record, `mirrorPark`), ends the run with its
+// end kind and emits `story.state` to Parked and `story.parked` with the actions the engine
+// implements. The current reason and origin are Backlog.md's: every reader asks `openPark`, never
+// `parks` (DIPO-360, 0001, 0007).
 //
 // A park has one of the eight reasons of 0001 and a one-line detail. The detail is text: no code
 // decides anything from it (0020).
@@ -18,8 +21,10 @@
 // A `git.worktreeTampered` refusal (the worktree's git links changed since the claim) parks the
 // story `scope-violation` instead, with the refusal as detail, and nothing
 // more runs in that worktree: the office git keeps the claim's pin, so every later engine git call
-// there is refused. A park that could not be written on the branch, or a push that failed, is still recorded and
-// emitted, with an `engine.notice` saying what is missing.
+// there is refused. A park that could not be written on the branch, or a push that failed, is still
+// recorded in `parks` and emitted, with an `engine.notice` saying what is missing. One not written
+// on the branch is no park while Backlog.md does not hold it: `openPark` answers null and reconcile
+// closes its row with a notice.
 
 import { existsSync } from "node:fs";
 import { join } from "node:path";
@@ -58,11 +63,13 @@ import { PARKED_STATUS } from "../worktree/done";
 
 import { endRunMarked } from "./markers";
 import { resolvePark } from "./park-resolve";
+import { mirrorPark } from "./park-state";
 import { appendRunStep, reopenRun, type StoredRun } from "./records";
 import { parkResumeNeed } from "./resume-policy";
 import { renderParkBlock, runSummaryFacts } from "./summary";
 
 export { openParkIds, type ParkResolution, resolvePark } from "./park-resolve";
+export { type BacklogPark, backlogPark, type OpenPark, openPark } from "./park-state";
 
 /** The code of the refusal that parks a story `scope-violation` (DIPO-38, 0008 section 2). */
 export const WORKTREE_TAMPERED = "git.worktreeTampered";
@@ -668,13 +675,18 @@ export async function parkStory(deps: ParkDeps, request: ParkRequest): Promise<P
   const at = deps.now();
   deps.write(() => {
     const office = deps.office;
+    // Run detail and history (0007): the reason is the one the park was made with, never read as
+    // the current reason; Backlog.md holds that, and its read-back goes to the mirror (DIPO-360).
     office.run(
-      `insert into parks (office_id, park_id, key, story_id, run_id, reason, from_state, detail,
+      `insert into parks (office_id, park_id, key, story_id, run_id, reason, detail,
          last_good_commit, at)
        values ($office_id, (select coalesce(max(park_id), 0) + 1 from parks
-         where office_id = $office_id), $key, $story, $run, $reason, $from, $detail, $commit, $at)`,
-      { key, story, run: run.runId, reason, from, detail, commit: lastGoodCommit, at },
+         where office_id = $office_id), $key, $story, $run, $reason, $detail, $commit, $at)`,
+      { key, story, run: run.runId, reason, detail, commit: lastGoodCommit, at },
     );
+    // Only a park written on the branch is a park: one that failed stays in `parks` as detail,
+    // and reconcile closes it (DIPO-360).
+    if (branch !== null) mirrorPark(office, key, { reason, from, note: detail }, at);
     if (request.capStep !== undefined) appendRunStep(office, run.runId, "cap", request.capStep, at);
     // The park commit's push, on the claim like every story-branch push (DIPO-315).
     if (branch !== null && run.branch !== null) {
@@ -737,44 +749,4 @@ export async function parkStory(deps: ParkDeps, request: ParkRequest): Promise<P
     lastGoodCommit,
     pushed: branch?.pushed ?? false,
   };
-}
-
-/** The open park of a story, newest first; null when it has none. */
-export function openPark(
-  office: OfficeHandle,
-  key: string,
-): {
-  readonly parkId: number;
-  readonly reason: string;
-  readonly from: string;
-  readonly detail: string;
-  readonly runId: string | null;
-  readonly lastGoodCommit: string | null;
-  readonly at: number;
-} | null {
-  const row = office.get<{
-    park_id: number;
-    reason: string;
-    from_state: string;
-    detail: string;
-    run_id: string | null;
-    last_good_commit: string | null;
-    at: number;
-  }>(
-    `select park_id, reason, from_state, detail, run_id, last_good_commit, at from parks
-     where office_id = $office_id and key = $key and resolved_at is null
-     order by park_id desc limit 1`,
-    { key },
-  );
-  return row === null
-    ? null
-    : {
-        parkId: row.park_id,
-        reason: row.reason,
-        from: row.from_state,
-        detail: row.detail,
-        runId: row.run_id,
-        lastGoodCommit: row.last_good_commit,
-        at: row.at,
-      };
 }

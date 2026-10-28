@@ -34,6 +34,7 @@ import {
 import { viewsFeature } from "../../src/views/feature";
 import { addOffice, openTestState, type TestState } from "../commands/helpers";
 import { pass, task } from "../stories/helpers";
+import { insertPark as insertParkRow } from "../run/park-fixture";
 import { keyOf, startRun } from "./helpers";
 
 const HOUR = 3_600_000;
@@ -47,27 +48,16 @@ function insertPark(
   park: { reason: string; detail: string; at: number; run?: string },
 ): number {
   const key = keyOf(office, story);
-  return office.immediate(() => {
-    office.run(
-      `insert into parks (office_id, park_id, key, story_id, run_id, reason, from_state, detail,
-         at)
-       values ($office_id, (select coalesce(max(park_id), 0) + 1 from parks
-         where office_id = $office_id), $key, $story, $run, $reason, 'In Progress', $detail, $at)`,
-      {
-        key,
-        story,
-        run: park.run ?? null,
-        reason: park.reason,
-        detail: park.detail,
-        at: park.at,
-      },
-    );
-    return (
-      office.get<{ id: number }>(
-        "select max(park_id) as id from parks where office_id = $office_id",
-      )?.id ?? 0
-    );
-  });
+  return office.immediate(() =>
+    insertParkRow(office, {
+      key,
+      story,
+      runId: park.run ?? null,
+      reason: park.reason,
+      detail: park.detail,
+      at: park.at,
+    }),
+  );
 }
 
 function insertMergeGate(

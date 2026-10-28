@@ -7,6 +7,7 @@ import { afterEach, beforeEach, describe, expect, it } from "bun:test";
 
 import { type OfficeId, type RunId, StoryId } from "@dipsaus-orchestrator/contract";
 
+import { insertPark } from "./park-fixture";
 import { OFFICE_DEFAULTS } from "../../src/config";
 import {
   activeRuns,
@@ -178,12 +179,15 @@ describe("a resume that finds its place taken (0020 section 1)", () => {
     addAgent(w, s.run, "developer", false);
     const at = now();
     write(() => {
-      w.office.run(
-        `insert into parks (office_id, park_id, key, story_id, run_id, reason, from_state, detail,
-           at)
-         values ($office_id, 1, $key, 'DIPO-5', $run, 'worker-failed', 'In Progress', $detail, $at)`,
-        { key: s.key, run: s.run, detail: DETAIL, at },
-      );
+      insertPark(w.office, {
+        parkId: 1,
+        key: s.key,
+        story: "DIPO-5",
+        runId: s.run,
+        reason: "worker-failed",
+        detail: DETAIL,
+        at,
+      });
       endRun(w.office, s.run, at, "interrupted");
     });
     return { s };

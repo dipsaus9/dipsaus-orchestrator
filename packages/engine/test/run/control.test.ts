@@ -21,6 +21,7 @@ import {
 } from "@dipsaus-orchestrator/contract";
 import { FakeProcess, readRecording } from "@dipsaus-orchestrator/testkit";
 
+import { mirrorStory } from "./park-fixture";
 import { executeCommand } from "../../src/commands/execute";
 import { CRASH, crashAfterHandler } from "../commands/crash";
 import { stateOfficeDirectory } from "../../src/commands/offices";
@@ -171,6 +172,8 @@ beforeEach(async () => {
     addStory(office, f.t.ids, { story: StoryId.parse("DIPO-1") }, f.t.clock.now()),
   );
   (world as { work: WorkRef }).work = { ...f.work, key };
+  // The story as the index read it, so a park reaches the mirror (DIPO-360).
+  office.immediate(() => mirrorStory(office, { key, story: "DIPO-1" }));
   const work = world.work;
   office.immediate(() => {
     insertRun(office, {
@@ -256,10 +259,14 @@ function parks(): {
   detail: string;
   last_good_commit: string;
 }[] {
-  return w.f.office.all(
-    `select reason, from_state, detail, last_good_commit from parks
-      where office_id = $office_id`,
-  );
+  // The origin is Backlog.md's (DIPO-360): each park's `from` as its `story.parked` carried it.
+  const events = parkedEvents();
+  return w.f.office
+    .all<{ reason: string; detail: string; last_good_commit: string }>(
+      `select reason, detail, last_good_commit from parks
+        where office_id = $office_id order by park_id`,
+    )
+    .map((row, index) => ({ ...row, from_state: String(events[index]?.["from"]) }));
 }
 
 /** True when no `story.parked` carries a cause: a park has a reason and a text detail (0020). */

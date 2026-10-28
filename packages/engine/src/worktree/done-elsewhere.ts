@@ -38,6 +38,7 @@ import { closeQuestion, openQuestions } from "../hooks/questions";
 import { CodeHostError, type CodeHost } from "../platform/host";
 import { forgetWorkerNotes } from "../prompts/notes";
 import { openParkIds, resolvePark } from "../run/park-resolve";
+import { openPark } from "../run/park-state";
 import { findRun } from "../run/records";
 import { latestStoryPr, setStoryPrState } from "../story-pr/records";
 import { lifecycleOf, storyView } from "../views/story";
@@ -473,15 +474,9 @@ export function releaseDoneElsewhere(
   deps.slots?.free(claim.worktree);
 }
 
-/** True when the story of the claim has an open park (DIPO-332). */
+/** True when the story of the claim is parked (DIPO-332; Backlog.md says so, DIPO-360). */
 export function hasOpenPark(office: OfficeHandle, claim: Pick<ClaimRecord, "key">): boolean {
-  return (
-    office.get<{ n: number }>(
-      `select 1 as n from parks where office_id = $office_id and key = $key and resolved_at is null
-        limit 1`,
-      { key: claim.key },
-    ) !== null
-  );
+  return openPark(office, claim.key) !== null;
 }
 
 /**

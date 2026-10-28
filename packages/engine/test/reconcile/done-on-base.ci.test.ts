@@ -375,9 +375,8 @@ if (process.env["DIPO_TEST_CI"] === "1") {
         const key = keyOf(o.office, "TASK-1");
         const one = await claim(o, o.office, "TASK-1", key, { active: false });
         o.office.run(
-          `insert into parks (office_id, park_id, key, story_id, run_id, reason, from_state, detail,
-           last_good_commit, at)
-         values ($office_id, 1, $key, 'TASK-1', $run, 'stopped', 'In Progress', 'x', null, 1)`,
+          `insert into parks (office_id, park_id, key, story_id, run_id, reason, detail, last_good_commit, at)
+         values ($office_id, 1, $key, 'TASK-1', $run, 'stopped', 'x', null, 1)`,
           { key, run: one.runId },
         );
         const s = setupOf(o);

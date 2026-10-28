@@ -137,7 +137,8 @@ export function replaceStoryPr(office: OfficeHandle, record: StoryPrRecord): voi
 /**
  * Runs whose story PR was closed on the host and that the maintainer resumed from a `by-maintainer`
  * park made after the PR opened, with a live claim: a new PR is still to open for them (DIPO-324), so a
- * create that failed is tried again by the PR poll. Oldest first.
+ * create that failed is tried again by the PR poll. Oldest first. It reads a resolved park's reason,
+ * which is history (0007), never the current reason (DIPO-360).
  */
 export function pendingPrReplacements(office: OfficeHandle): RunId[] {
   return office

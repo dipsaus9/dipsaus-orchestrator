@@ -20,10 +20,13 @@
 // 3. Lifecycle (branch while claimed, base otherwise): an active run whose story is no longer
 //    In Progress or In Review, or was removed, is stopped. A story In Progress with no claim is an
 //    unknown run: a notice, and it is never started.
-// 4. Park state: an open `parks` row with no F16 record is closed `reconcile`; an F16 record with
-//    no open park is recorded with detail "recorded by hand" only while the story is Parked. An F16
-//    record on any other status is a stale fact, not a park (0012 F16 and 0010 section 3 allow it
-//    only while Parked; the 0007 section 6 note of 2026-10-20, DIPO-190): no park row, and one warn
+// 4. Park state, Backlog.md's (DIPO-360, 0001, 0007): whether a story is parked, why and from
+//    where is what Backlog.md holds (`backlogPark`: status Parked with an F16 record, or an open
+//    planning-lane operation's), never the `parks` table, which is run detail and history. An
+//    open `parks` row of a story Backlog.md does not hold as Parked is closed `reconcile`, with a
+//    notice; Backlog.md is not touched. A park Backlog.md holds with no open row is recorded with
+//    detail "recorded by hand". An F16 record on any other status is a stale fact, not a park
+//    (0012 F16 and 0010 section 3 allow it only while Parked; DIPO-190): no park row, and one warn
 //    `reconcile.parkStale` notice per pass naming the story, its status and the park reason.
 // 5. Ready: a Ready story with no passing gate decision for its current content gets a notice;
 //    the pickup re-check decides.
@@ -45,7 +48,7 @@ import type { OfficeGit } from "../git/office";
 import type { CodeHost } from "../platform/host";
 import { LAUNCH_FILE } from "../host/protocol";
 import { officeDirectory } from "../office/marker";
-import { openPark, resolvePark } from "../run/park";
+import { type BacklogPark, backlogPark, openParkIds, resolvePark } from "../run/park";
 import { endRunMarked } from "../run/markers";
 import { activeRuns, findRun, type StoredRun } from "../run/records";
 import { runDirectory } from "../runs/worker-hosts";
@@ -426,20 +429,22 @@ function endWithNotice(
   });
 }
 
-/** What reconcile does about a story's park state (step 4): pure, from the mirror and the open park. */
+/** What reconcile does about a story's park state (step 4). */
 export type ParkStateAction = "close" | "record" | "stale" | null;
 
 /**
- * Step 4 decided: an open park with no F16 record is closed; an F16 record with no open park is
- * recorded by hand when the story is Parked, and stale on any other status (DIPO-190); else none.
+ * Step 4 decided, pure: an open park row of a story Backlog.md does not hold as Parked is closed;
+ * a park Backlog.md holds with no open row is recorded by hand; an F16 record the mirror holds on a
+ * story that is not Parked is stale (DIPO-190); else nothing. `current` is `backlogPark`'s answer.
  */
 export function parkStateAction(
-  story: { readonly lifecycle: string | null; readonly park: FieldBlockPark | null },
+  story: { readonly park: FieldBlockPark | null },
+  current: BacklogPark | null,
   hasOpenPark: boolean,
 ): ParkStateAction {
-  if (hasOpenPark && story.park === null) return "close";
-  if (hasOpenPark || story.park === null) return null;
-  return story.lifecycle === "Parked" ? "record" : "stale";
+  if (hasOpenPark) return current === null ? "close" : null;
+  if (current !== null) return "record";
+  return story.park === null ? null : "stale";
 }
 
 function reconcilePark(
@@ -448,8 +453,9 @@ function reconcilePark(
   record: (finding: ReconcileFinding, facts?: () => readonly NewEntry[] | void) => void,
 ): void {
   const { office } = deps;
-  const open = openPark(office, story.key);
-  const action = parkStateAction(story, open !== null);
+  const open = openParkIds(office, story.key);
+  const current = backlogPark(office, story.key);
+  const action = parkStateAction(story, current, open.length > 0);
   if (action === "stale" && story.park !== null) {
     record({
       code: RECONCILE_NOTICES.parkStale,
@@ -458,36 +464,35 @@ function reconcilePark(
     });
     return;
   }
-  if (open !== null && action === "close") {
+  if (action === "close") {
     record(
       {
         code: RECONCILE_NOTICES.parkClosed,
         key: story.key,
-        text: `${story.story} has an open park (${open.reason}) in dipo's database, but no park record in Backlog.md; dipo closed it.`,
+        text: `${story.story} has an open park in dipo's database, but Backlog.md holds it as ${story.lifecycle ?? "unknown"} with no park record; Backlog.md wins, so dipo closed its park.`,
       },
-      () => resolvePark(office, open.parkId, "reconcile", deps.clock.now()),
+      () => open.flatMap((parkId) => resolvePark(office, parkId, "reconcile", deps.clock.now())),
     );
     return;
   }
-  if (action === "record" && story.park !== null) {
-    const park = story.park;
+  if (action === "record" && current !== null) {
     record(
       {
         code: RECONCILE_NOTICES.parkRecorded,
         key: story.key,
-        text: `${story.story} has a park record (${park.reason}) in Backlog.md that dipo did not write; dipo recorded the park as ${RECORDED_BY_HAND}.`,
+        text: `${story.story} has a park record (${current.reason}) in Backlog.md that dipo did not write; dipo recorded the park as ${RECORDED_BY_HAND}.`,
       },
       () => {
+        // The park's history row: the reason it was recorded with (0007), never read as current.
         office.run(
-          `insert into parks (office_id, park_id, key, story_id, run_id, reason, from_state, detail,
+          `insert into parks (office_id, park_id, key, story_id, run_id, reason, detail,
              last_good_commit, at)
            values ($office_id, (select coalesce(max(park_id), 0) + 1 from parks
-             where office_id = $office_id), $key, $story, null, $reason, $from, $detail, null, $at)`,
+             where office_id = $office_id), $key, $story, null, $reason, $detail, null, $at)`,
           {
             key: story.key,
             story: story.story,
-            reason: park.reason,
-            from: park.from,
+            reason: current.reason,
             detail: RECORDED_BY_HAND,
             at: deps.clock.now(),
           },
