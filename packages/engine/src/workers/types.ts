@@ -5,8 +5,6 @@
 
 import type { OpenEnum, ParkReason } from "@dipsaus-orchestrator/contract";
 
-import type { HookEvent, HookReply } from "../hooks/types";
-
 /** Run kinds an adapter may know (0008 amendment of 2026-10-12, D12). M0 plans only `implement`. */
 export const KNOWN_WORKER_KINDS = ["implement", "review", "session"] as const;
 /** An open string: a later kind needs no contract change; an adapter refuses kinds it cannot plan. */
@@ -22,8 +20,7 @@ export type SchemaKind = Exclude<ReportKind, "session">;
 
 /**
  * The web tools `worker.web` adds to the developer role (0020 section 11b, DIPO-164). The one list:
- * the run spec's tools, the adapter's run settings, its `PreToolUse` matcher and its output lines
- * all read it.
+ * the run spec's tools and the adapter's output lines read it.
  */
 export const WEB_TOOLS: readonly string[] = ["WebSearch", "WebFetch"];
 
@@ -48,22 +45,11 @@ export interface WorkerSpec {
   readonly agent: string;
   readonly kind: WorkerKind;
   /**
-   * Absolute working directory: the story worktree for `implement`; for `review` an empty folder
-   * dipo made, outside the copy it reads (0021 section 14, DIPO-276); for `session` an empty folder
-   * dipo made, with nothing of any repository in it (DIPO-310).
+   * Absolute working directory on the Mac: the story worktree for `implement` and `review`, whose
+   * sessions run in a box (0008); for `session` an empty folder dipo made, with nothing of any
+   * repository in it (DIPO-310).
    */
   readonly workdir: string;
-  /**
-   * `review` only, and required there: the read-only copy of the pushed commit dipo made for this
-   * session (0021 section 10, DIPO-276). The reviewer reads it with its read tools, never as its
-   * working directory, so no settings, hooks or instruction files load from it.
-   */
-  readonly readOnlyDir?: string;
-  /**
-   * `review` only, and required there with a web tool: the URL of the web proxy dipo listens on
-   * for this session (DIPO-292). The session's web fetches tunnel through it; the model API does not.
-   */
-  readonly webProxy?: string;
   readonly model: string;
   readonly effort: string;
   readonly caps: Caps;
@@ -77,8 +63,6 @@ export interface WorkerSpec {
   readonly session: { readonly id: string; readonly resume: boolean };
   /** The schema the worker's report must follow (`WorkerReport`, or `ReviewReport` for `review`). */
   readonly reportSchema: JsonSchema;
-  /** Relay the adapter's hooks to the worker host (0008 section 5). */
-  readonly hookRelay: boolean;
 }
 
 /** A file the worker host writes into the run directory before it starts the worker. */
@@ -125,29 +109,7 @@ export interface LineScrub {
 /** What the engine asks of a running worker (0008 section 6). */
 export type SteerOp =
   | { readonly kind: "steer" | "answer"; readonly text: string }
-  | { readonly kind: "pause" | "stop" | "kill" }
-  /** The engine's reply to a waiting hook call (0008 section 5), adapter-neutral. */
-  | { readonly kind: "hookReply"; readonly reply: HookReply }
-  /**
-   * The engine's answer to a waiting `PreToolUse` gate call (0020 section 11b, DIPO-164): a deny
-   * refuses the tool call, any other reply lets it proceed.
-   */
-  | { readonly kind: "toolGate"; readonly reply: HookReply }
-  | NudgeOp;
-
-/**
- * A 0014 section 8 nudge (0008 amendment of 2026-10-12, DIPO-60): `text` for the worker, added to
- * the reply of the pending hook call `hook`, a tool use or a session start. The adapter decides how
- * its CLI shows it (Claude: `additionalContext`).
- */
-export interface NudgeOp {
-  readonly kind: "nudge";
-  readonly text: string;
-  /** The waiting hook call (`HookCall.id`). */
-  readonly hook: number;
-  /** The neutral hook event the call relayed. */
-  readonly on: Extract<HookEvent["kind"], "toolUsed" | "sessionStarted">;
-}
+  | { readonly kind: "pause" | "stop" | "kill" };
 
 export type HostSignal = "SIGINT" | "SIGTERM" | "SIGKILL";
 
@@ -159,9 +121,7 @@ export type HostSignal = "SIGINT" | "SIGTERM" | "SIGKILL";
 export type HostOp =
   | { readonly write: string }
   | { readonly signal: HostSignal; readonly afterMs?: number }
-  | { readonly closeStdin: true }
-  /** Answers the waiting hook call `hookReply` with `output`, which the hook prints (DIPO-59). */
-  | { readonly hookReply: number; readonly output: string };
+  | { readonly closeStdin: true };
 
 /** Tokens of one model, cumulative over the run. */
 export interface ModelUsageTotals {
@@ -401,8 +361,6 @@ export type WorkerEvent =
        */
       readonly scope?: PlanLimitScope;
     }
-  /** A relayed hook, adapter-neutral (0008 section 5, DIPO-59). */
-  | { readonly t: "hook"; readonly hook: HookEvent }
   /**
    * One context compaction. `preTokens` is the context size before it; absent when the adapter
    * had no count for it (DIPO-106).
@@ -517,11 +475,6 @@ export interface HostLine {
   readonly t: number;
   readonly ch: string;
   readonly data: string;
-  /**
-   * The byte offset in `events.ndjson` after this line, when ingestion read it from the file. A
-   * hook line's offset is the id the worker host holds a waiting hook call under (DIPO-59).
-   */
-  readonly end?: number;
 }
 
 /** Parser state an adapter threads through `interpret`; opaque to the engine. */

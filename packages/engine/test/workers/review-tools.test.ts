@@ -1,268 +1,180 @@
-// The reviewer's tools and run settings (0021 sections 10 and 14, DIPO-276): read-only on dipo's
-// copy of the pushed commit plus web search and fetch; no shell, no write, no gh. The copy is an
-// added directory of the run settings, never the working directory, so no project settings, hooks
-// or CLAUDE.md load from it. Its web fetches tunnel through its own listener of dipo's web proxy
-// (DIPO-292): HTTPS_PROXY and HTTP_PROXY name it, NO_PROXY only the model API.
+// The reviewer's session in its read-only box (0002, 0008, DIPO-347): read, glob, grep, web search
+// and web fetch, and no shell, no write and no gh; the tool list refuses anything else. Claude Code
+// runs in the box's empty session folder beside the copy, reaches the copy as an added directory,
+// and loads only the box user's settings, so no settings, hooks or MCP servers of the copy load.
+// Its environment is the box session's: the model proxy and the box web proxy, nothing of the Mac.
+// The adapter plans it only in the box its caller made; on the Mac it is refused.
 
 import { describe, expect, it } from "bun:test";
 
+import { ManualClock } from "@dipsaus-orchestrator/testkit";
+
 import { OFFICE_DEFAULTS } from "../../src/config";
+import { uncontained } from "../../src/box/firewall";
+import { REVIEW_CODE_DIR, REVIEW_SESSION_DIR } from "../../src/box/review-box";
+import type { BoxSession } from "../../src/box/workers";
 import { REVIEWER_TOOLS } from "../../src/run/launch";
-import {
-  DEVELOPER_ON_MAC_REFUSED,
-  EMPTY_MCP_CONFIG_FILE,
-  MODEL_API_HOST,
-  plan,
-  SETTINGS_FILE,
-} from "../../src/workers/claude-cli/plan";
+import { claudeWorkerPort } from "../../src/workers/claude-cli/adapter";
+import { BOX_CLAUDE, planInBox } from "../../src/workers/claude-cli/box-plan";
+import { plan, REVIEWER_ON_MAC_REFUSED } from "../../src/workers/claude-cli/plan";
 import { REVIEW_REPORT_JSON_SCHEMA } from "../../src/workers/claude-cli/report-schema";
+import { AdapterHolds } from "../../src/workers/hold";
+import type { RunLaunchPaths } from "../../src/workers/port";
 import { PlanError } from "../../src/workers/types";
-import type { LaunchPlan } from "../../src/workers/types";
+import { FAKE_CONTAINER, FakeBoxes } from "../box/fake-boxes";
 import {
+  context,
   HOME,
   MAIN,
-  REVIEW_COPY,
-  REVIEW_FOLDER,
-  REVIEW_SESSION,
-  REVIEW_WEB_PROXY,
-  reviewContext,
   reviewSpec,
   RUN_DIR,
   SHORT_TMP_DIR,
-  spec,
   TMP_DIR,
   WORKDIR,
 } from "./launch-fixtures";
 
-interface ReviewSettings {
-  claudeMdExcludes?: string[];
-  permissions: {
-    allow: string[];
-    deny: string[];
-    additionalDirectories?: string[];
-    blockReadsOutsideWorkingDirectories?: boolean;
+const BOX = "dipo-review-agt-0001";
+const ROUTES = {
+  ANTHROPIC_API_KEY: "placeholder",
+  ANTHROPIC_BASE_URL: "http://192.0.2.10:4000",
+  NO_PROXY: "192.0.2.10",
+  HTTPS_PROXY: "http://dipo:pw@192.0.2.10:3128",
+  HTTP_PROXY: "http://dipo:pw@192.0.2.10:3128",
+  NODE_EXTRA_CA_CERTS: "/dipo/safe-chain-ca.pem",
+};
+const PATHS: RunLaunchPaths = {
+  workdir: WORKDIR,
+  mainCheckout: MAIN,
+  runDir: RUN_DIR,
+  hostSocket: `${RUN_DIR}/host.sock`,
+  tmpDir: TMP_DIR,
+  shortTmpDir: SHORT_TMP_DIR,
+};
+
+/** The reviewer box's session, as `BoxWorkers.review` returns it. */
+function reviewBox(): BoxSession {
+  const boxes = new FakeBoxes();
+  return {
+    box: BOX,
+    workdir: REVIEW_SESSION_DIR,
+    env: ROUTES,
+    systemFile: "/dipo/system.md",
+    exec: (command, env) => boxes.execLiveCommand(BOX, command, { cwd: REVIEW_SESSION_DIR, env }),
+    stop: boxes.stopCommand(BOX),
   };
-  sandbox: {
-    filesystem: { allowWrite: string[]; denyWrite: string[] };
-    network: Record<string, unknown>;
-  };
-  hooks?: Record<string, Array<{ matcher?: string; hooks: Array<{ command: string }> }>>;
-  enabledPlugins?: Record<string, boolean>;
 }
 
-function settingsOf(launch: LaunchPlan): ReviewSettings {
-  const file = launch.files.find((entry) => entry.name === SETTINGS_FILE);
-  if (file === undefined) throw new Error("no settings file");
-  return JSON.parse(file.content) as ReviewSettings;
+/** The command that runs in the box, uncontained. */
+function inBox(argv: readonly string[]): string[] {
+  const inner = uncontained(argv.slice(argv.indexOf(BOX) + 1));
+  if (inner === null) throw new Error(`the box command is not contained: ${argv.join(" ")}`);
+  return [...inner];
 }
 
-function flag(launch: LaunchPlan, name: string): string | undefined {
-  const index = launch.argv.indexOf(name);
-  return index === -1 ? undefined : launch.argv[index + 1];
+function flag(argv: readonly string[], name: string): string | undefined {
+  const at = argv.indexOf(name);
+  return at === -1 ? undefined : argv[at + 1];
 }
 
-describe("the reviewer's tool set (DIPO-276)", () => {
+describe("the reviewer's tool set (0002)", () => {
   it("is Read, Glob, Grep, WebSearch and WebFetch for the reviewer role", () => {
-    expect([...REVIEWER_TOOLS]).toEqual(["Read", "Glob", "Grep", "WebSearch", "WebFetch"]);
+    expect(REVIEWER_TOOLS).toEqual(["Read", "Glob", "Grep", "WebSearch", "WebFetch"]);
   });
 
   it("passes only those tools, the review model and effort and the ReviewReport schema", () => {
-    const launch = plan(reviewSpec(), reviewContext());
-    expect(flag(launch, "--tools")).toBe("Read,Glob,Grep,WebSearch,WebFetch");
-    expect(flag(launch, "--model")).toBe("opus");
-    expect(flag(launch, "--effort")).toBe("high");
-    expect(JSON.parse(flag(launch, "--json-schema") ?? "null")).toEqual(REVIEW_REPORT_JSON_SCHEMA);
-    const tools = (flag(launch, "--tools") ?? "").split(",");
-    for (const tool of ["Bash", "Edit", "Write", "NotebookEdit", "Agent"]) {
-      expect(tools).not.toContain(tool);
+    const argv = inBox(planInBox(reviewSpec(), reviewBox(), RUN_DIR).argv);
+    expect(argv[0]).toBe(BOX_CLAUDE);
+    expect(flag(argv, "--tools")).toBe("Read,Glob,Grep,WebSearch,WebFetch");
+    expect(flag(argv, "--model")).toBe("opus");
+    expect(flag(argv, "--effort")).toBe("high");
+    expect(flag(argv, "--json-schema")).toBe(JSON.stringify(REVIEW_REPORT_JSON_SCHEMA));
+    expect(argv).toContain("--session-id");
+    expect(argv).not.toContain("--resume");
+  });
+
+  it("refuses a shell, a write tool or any other tool in a review spec (bypass: a tool asked for)", () => {
+    for (const tool of ["Bash", "Edit", "Write", "MultiEdit", "NotebookEdit", "Task", "Agent"]) {
+      const asked = reviewSpec({ tools: { allow: [...REVIEWER_TOOLS, tool], deny: [] } });
+      expect(() => planInBox(asked, reviewBox(), RUN_DIR)).toThrow(PlanError);
+      expect(() => planInBox(asked, reviewBox(), RUN_DIR)).toThrow(`not ${tool}`);
     }
   });
+});
 
-  it("refuses a shell, a write tool or any other tool in a review spec", () => {
-    for (const tool of ["Bash", "Edit", "Write", "NotebookEdit", "Agent", "Task"]) {
-      const extra = reviewSpec({ tools: { allow: [...REVIEWER_TOOLS, tool], deny: [] } });
-      expect(() => plan(extra, reviewContext())).toThrow(PlanError);
-      expect(() => plan(extra, reviewContext())).toThrow(`not ${tool}`);
-    }
+describe("the reviewer's box session (0002, 0008)", () => {
+  it("runs in its empty session folder, reaches the copy as an added directory and loads only the box user's settings", () => {
+    const launch = planInBox(reviewSpec(), reviewBox(), RUN_DIR);
+    expect(flag(launch.argv, "--workdir")).toBe(REVIEW_SESSION_DIR);
+    const argv = inBox(launch.argv);
+    expect(flag(argv, "--add-dir")).toBe(REVIEW_CODE_DIR);
+    expect(flag(argv, "--setting-sources")).toBe("user");
+    expect(argv).toContain("--strict-mcp-config");
+    expect(argv).toContain("--disable-slash-commands");
+    expect(flag(argv, "--append-system-prompt-file")).toBe("/dipo/system.md");
   });
 
-  it("allows reads only on the copy, plus the two web tools, and nothing else", () => {
-    const { permissions } = settingsOf(plan(reviewSpec(), reviewContext()));
-    expect(permissions.allow).toEqual([`Read(/${REVIEW_COPY}/**)`, "WebSearch", "WebFetch"]);
-    expect(permissions.blockReadsOutsideWorkingDirectories).toBe(true);
-    // No Bash rule and no rule on the story worktree or the main checkout.
-    expect(JSON.stringify(permissions.allow)).not.toContain(WORKDIR);
-    expect(JSON.stringify(permissions.allow)).not.toContain(MAIN);
-    for (const rule of [
-      `Edit(/${REVIEW_COPY}/**)`,
-      `Write(/${REVIEW_COPY}/**)`,
-      `Edit(/${REVIEW_SESSION}/**)`,
-      `Write(/${REVIEW_SESSION}/**)`,
-      `Read(/${REVIEW_COPY}/**/.env*)`,
-      "Read(~/.ssh/**)",
-      "Read(~/.config/gh/**)",
-    ]) {
-      expect(permissions.deny).toContain(rule);
-    }
+  it("plans no settings file, hooks or socket of dipo's, and nothing of the Mac", () => {
+    const launch = planInBox(reviewSpec(), reviewBox(), RUN_DIR);
+    expect(launch.files).toEqual([]);
+    const text = JSON.stringify(launch);
+    expect(text).not.toContain("DIPO_HOST_SOCKET");
+    expect(text).not.toContain("hooks");
+    expect(text).not.toContain(" hook ");
+    expect(JSON.stringify(launch.argv)).not.toContain(HOME);
+    expect(launch.argv[0]).toBe(FAKE_CONTAINER);
+    expect(launch.stopCommand).toEqual([FAKE_CONTAINER, "stop", BOX]);
   });
 
-  it("checks every web call with the hook relay's gate", () => {
-    const settings = settingsOf(plan(reviewSpec(), reviewContext()));
-    const gate = settings.hooks?.["PreToolUse"]?.[0];
-    expect(gate?.matcher).toBe("WebFetch|WebSearch");
-    expect(() => plan(reviewSpec({ hookRelay: false }), reviewContext())).toThrow(/hook relay/);
+  it("goes out only through the box session's proxies", () => {
+    const argv = planInBox(reviewSpec(), reviewBox(), RUN_DIR).argv;
+    const env = Object.fromEntries(
+      argv.flatMap((part, at) => {
+        if (argv[at - 1] !== "--env") return [];
+        const [key, ...value] = part.split("=");
+        return [[key ?? "", value.join("=")]];
+      }),
+    );
+    expect(env["HTTPS_PROXY"]).toBe(ROUTES.HTTPS_PROXY);
+    expect(env["HTTP_PROXY"]).toBe(ROUTES.HTTP_PROXY);
+    expect(env["ANTHROPIC_BASE_URL"]).toBe(ROUTES.ANTHROPIC_BASE_URL);
   });
+});
 
-  it("closes the sandbox network and writes, whatever the office allows its workers", () => {
-    const open = reviewContext({
-      sandbox: {
-        ...OFFICE_DEFAULTS.sandbox,
-        allowedDomains: ["example.com"],
-        allowLocalBinding: true,
+describe("the adapter's reviewer launch (DIPO-347)", () => {
+  const clock = new ManualClock();
+  const port = (holds: AdapterHolds) =>
+    claudeWorkerPort({
+      claudePath: `${HOME}/.local/bin/claude`,
+      home: HOME,
+      env: { PATH: "/usr/bin:/bin", HOME },
+      spawn: () => {
+        throw new Error("no Mac launch check may run for a reviewer");
       },
+      clock,
+      holds,
+      pluginFiles: { read: () => undefined, dirs: () => [] },
     });
-    const { sandbox } = settingsOf(plan(reviewSpec(), open));
-    expect(sandbox.network).toEqual({
-      allowedDomains: [],
-      strictAllowlist: true,
-      allowLocalBinding: false,
-    });
-    expect(sandbox.filesystem.allowWrite).toEqual([TMP_DIR, SHORT_TMP_DIR]);
-    expect(sandbox.filesystem.denyWrite).toContain(REVIEW_SESSION);
-    expect(sandbox.filesystem.denyWrite).toContain(REVIEW_COPY);
-  });
 
-  it("loads no MCP server, skill, slash command or plugin", () => {
-    const plugins = { installed: ["warp@claude-code-warp"], allowed: ["warp@claude-code-warp"] };
-    const launch = plan(reviewSpec(), reviewContext({ plugins }));
-    expect(launch.argv).toContain("--strict-mcp-config");
-    expect(flag(launch, "--mcp-config")).toBe(`${RUN_DIR}/${EMPTY_MCP_CONFIG_FILE}`);
-    expect(launch.argv).toContain("--disable-slash-commands");
-    expect(settingsOf(launch).enabledPlugins).toEqual({ "warp@claude-code-warp": false });
-  });
-});
-
-/** The proxy variables of a plan's environment, in either case. */
-function proxyVariables(launch: LaunchPlan): Record<string, string> {
-  return Object.fromEntries(Object.entries(launch.env).filter(([name]) => /_proxy$/i.test(name)));
-}
-
-describe("the reviewer's web proxy (DIPO-292)", () => {
-  it("names the session's web proxy in HTTPS_PROXY and HTTP_PROXY, and only the model API in NO_PROXY", () => {
-    const launch = plan(reviewSpec(), reviewContext());
-    expect(MODEL_API_HOST).toBe("api.anthropic.com");
-    expect(proxyVariables(launch)).toEqual({
-      HTTPS_PROXY: REVIEW_WEB_PROXY,
-      HTTP_PROXY: REVIEW_WEB_PROXY,
-      NO_PROXY: MODEL_API_HOST,
-    });
-  });
-
-  it("drops every other proxy variable an office passes as a tool variable", () => {
-    const names = ["https_proxy", "http_proxy", "no_proxy", "all_proxy", "ALL_PROXY", "NO_PROXY"];
-    const env = {
-      PATH: "/usr/bin:/bin",
-      HOME,
-      ...Object.fromEntries(names.map((name) => [name, "*"])),
-    };
-    const launch = plan(reviewSpec(), reviewContext({ env, toolVariables: names }));
-    expect(proxyVariables(launch)).toEqual({
-      HTTPS_PROXY: REVIEW_WEB_PROXY,
-      HTTP_PROXY: REVIEW_WEB_PROXY,
-      NO_PROXY: MODEL_API_HOST,
-    });
-  });
-
-  it("refuses a review with a web tool and no web proxy, and one with a proxy that is not a loopback port", () => {
-    const { webProxy: _dropped, ...without } = reviewSpec();
-    expect(() => plan(without, reviewContext())).toThrow(/needs dipo's web proxy/);
-    for (const webProxy of [
-      "http://example.com:1",
-      "https://127.0.0.1:1",
-      "http://127.0.0.1",
-      "http://127.0.0.1:0",
-      "http://127.0.0.1:65536",
-      "http://127.0.0.1:1/path",
-      "http://user@127.0.0.1:1",
-      "http://192.0.2.10:1",
-    ]) {
-      expect(() => plan(reviewSpec({ webProxy }), reviewContext())).toThrow(/loopback port/);
-    }
-    // A review without a web tool needs none.
-    const readOnly = reviewSpec({ tools: { allow: ["Read", "Glob", "Grep"], deny: [] } });
-    const { webProxy: _none, ...noWeb } = readOnly;
-    expect(proxyVariables(plan(noWeb, reviewContext()))).toEqual({});
-  });
-
-  it("keeps the web guard's check as the first layer next to the proxy", () => {
-    const launch = plan(reviewSpec(), reviewContext());
-    expect(settingsOf(launch).hooks?.["PreToolUse"]?.[0]?.matcher).toBe("WebFetch|WebSearch");
-    expect(launch.env["HTTPS_PROXY"]).toBe(REVIEW_WEB_PROXY);
-  });
-
-  it("refuses a web proxy in a worker's spec", () => {
-    expect(() => plan(spec({ webProxy: REVIEW_WEB_PROXY }), reviewContext())).toThrow(
-      /only a review session/,
+  it("plans it only in the box its caller made, with no Mac launch check", async () => {
+    const holds = new AdapterHolds({ clock, notify: () => {} });
+    const id = "7d1c2b3a-4e5f-4a6b-8c7d-9e0f1a2b3c4d";
+    const prepared = await port(holds).prepare(
+      reviewSpec(),
+      PATHS,
+      OFFICE_DEFAULTS,
+      id,
+      reviewBox(),
     );
-  });
-});
-
-describe("the reviewer's working directory and copy (DIPO-276)", () => {
-  it("runs in its empty folder and reaches the copy only as an added directory of the run settings", () => {
-    const launch = plan(reviewSpec(), reviewContext());
-    expect(launch.cwd).toBe(REVIEW_SESSION);
-    const settings = settingsOf(launch);
-    expect(settings.permissions.additionalDirectories).toEqual([REVIEW_COPY]);
-    // `--add-dir` would load skills, commands, agents and plugin settings from the copy.
-    expect(launch.argv).not.toContain("--add-dir");
-    expect(launch.argv.some((arg) => arg.startsWith(REVIEW_FOLDER))).toBe(false);
-    expect(flag(launch, "--setting-sources")).toBe("project,local");
-    // Claude Code loads CLAUDE.md of an added directory only with this variable; it never gets it.
-    expect(launch.env["CLAUDE_CODE_ADDITIONAL_DIRECTORIES_CLAUDE_MD"]).toBeUndefined();
+    expect(prepared.ok).toBe(true);
+    if (prepared.ok) expect(inBox(prepared.plan.argv)[0]).toBe(BOX_CLAUDE);
+    const refused = await port(holds)
+      .prepare(reviewSpec(), PATHS, OFFICE_DEFAULTS, id)
+      .catch((error: unknown) => error);
+    expect(refused).toBeInstanceOf(PlanError);
+    expect(String(refused)).toContain(REVIEWER_ON_MAC_REFUSED);
   });
 
-  it("excludes every CLAUDE.md of the copy by path", () => {
-    expect(settingsOf(plan(reviewSpec(), reviewContext())).claudeMdExcludes).toEqual([
-      `${REVIEW_COPY}/**`,
-    ]);
-  });
-
-  it("refuses a copy that is, holds or lies in its working directory, the main checkout or home", () => {
-    const cases = [
-      { readOnlyDir: REVIEW_SESSION },
-      { readOnlyDir: `${REVIEW_SESSION}/copy` },
-      { workdir: `${REVIEW_COPY}/inside`, readOnlyDir: REVIEW_COPY },
-      { readOnlyDir: `${MAIN}/copy` },
-      { readOnlyDir: `${HOME}/copy` },
-      { readOnlyDir: `${TMP_DIR}/copy` },
-      { readOnlyDir: "relative/copy" },
-    ];
-    for (const overrides of cases) {
-      expect(() => plan(reviewSpec(overrides), reviewContext())).toThrow(PlanError);
-    }
-  });
-
-  it("refuses a run directory, system file or hook command inside the copy", () => {
-    expect(() => plan(reviewSpec(), reviewContext({ runDir: `${REVIEW_COPY}/run` }))).toThrow(
-      PlanError,
-    );
-    expect(() =>
-      plan(reviewSpec({ systemFile: `${REVIEW_COPY}/system.md` }), reviewContext()),
-    ).toThrow(PlanError);
-    expect(() =>
-      plan(reviewSpec(), reviewContext({ hookCommand: [`${REVIEW_COPY}/bin/dipo`] })),
-    ).toThrow(/outside the review copy/);
-  });
-
-  it("refuses a review spec without its copy, and a worker spec with one", () => {
-    const { readOnlyDir: _dropped, ...without } = reviewSpec();
-    expect(() => plan(without, reviewContext())).toThrow(/read-only copy/);
-    expect(() => plan(spec({ readOnlyDir: REVIEW_COPY }), reviewContext())).toThrow(
-      /only a review session/,
-    );
-  });
-
-  it("plans no developer session on the Mac at all: it runs only in its box (DIPO-240)", () => {
-    expect(() => plan(spec(), reviewContext())).toThrow(DEVELOPER_ON_MAC_REFUSED);
+  it("is never planned on the Mac", () => {
+    expect(() => plan(reviewSpec(), context())).toThrow(REVIEWER_ON_MAC_REFUSED);
   });
 });

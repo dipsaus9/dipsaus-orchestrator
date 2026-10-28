@@ -8,10 +8,6 @@
 // design (none of them explains an exit, so no intent would be read):
 // - closeStdin after a turn whose report ended the run: the report explains the exit (section 7's
 //   table), not an engine decision.
-// - 0014 nudges: each answers a pending `PostToolUse` or `SessionStart` hook call (section 5) and is
-//   counted as a prompt part.
-// - `PermissionRequest` hook replies: each answers a pending hook call (section 5) and is recorded
-//   as the permission question's close.
 // More on `sendAsIntent`. A new intent kind needs a migration (`run_intents.kind` has a CHECK
 // constraint) and a row in `INTENT_OUTCOMES` with its test.
 
@@ -146,10 +142,6 @@ export interface IntentSent<R> {
  * - closeStdin after a turn that ended the run (`run/control-turns.ts`, report-driven `ended`):
  *   the exit is explained by the worker's own report, not by an engine decision; an intent kind
  *   would give an outcome the adapter's `result` already gives.
- * - nudges (`hooks/nudges.ts`): one text per tool call, answering a hook call the worker is waiting
- *   on; they are counted as prompt parts (`nudges`) and never explain an exit.
- * - hook replies (`hooks/permissions.ts`): the allow or deny a waiting `PermissionRequest` hook
- *   call gets, recorded as the question's close; it never explains an exit.
  * Record-only sites send no op to a running worker and call `recordIntent` (and `markIntentSent`
  * or `resolveIntent`) directly:
  * - the plan-limit `pause` (`run/outcome-exits.ts`): stored, then resolved `plan-limit` in a second

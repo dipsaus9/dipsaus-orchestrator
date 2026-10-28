@@ -83,7 +83,7 @@ import { ClaudeWorkerEventSchema } from "../../src/workers/claude-cli/schema";
 import { CLAUDE_LOCAL_SETTINGS } from "../../src/workers/claude-cli/settings-check";
 import { AdapterHolds } from "../../src/workers/hold";
 import type { WorkerPort } from "../../src/workers/port";
-import { sweepReviewFolders } from "../../src/run/review-launch";
+import { stubReviewBoxes } from "../run/review-boxes";
 import { scriptProblems } from "../../src/workers/scripted";
 import type {
   ExitRecord,
@@ -493,8 +493,6 @@ export async function withLoopOffice(
         await fn(world);
       } finally {
         world.d.close();
-        // A reviewer's read-only copy that a failed scenario left behind (made read-only).
-        await sweepReviewFolders(join(repo.root, "tmp"), () => false);
       }
     },
     { fixture: BACKLOG_FIXTURE },
@@ -752,6 +750,8 @@ async function buildDaemon(
     },
     ci: (office, runId) => storyPrs.ciState(office, runId),
     boxRun: () => true,
+    // Each review session's box is a stand-in: the scripted reviewer needs none (0002).
+    reviewBoxes: stubReviewBoxes(),
     // The merges the auto-merge's conflict hand-off made on the branch reach the stand-in box before the worker's
     // next session (DIPO-324), as `BoxCollisions.copyPending` copies them into a real box.
     boxSync: (office, run) => copyIntoWorktree(office, run),

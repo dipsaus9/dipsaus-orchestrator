@@ -13,7 +13,8 @@ import {
 import type { OfficeHandle } from "../db/office";
 import { workRefOf } from "../views/work";
 
-import type { PermissionDecision } from "./types";
+/** The decision stored on a permission question of an earlier binary (migration 22). */
+type PermissionDecision = "allow" | "deny" | null;
 
 /** How a question stopped waiting (migration 22). */
 export type QuestionClose = "answered" | "timeout" | "ended" | "expired";

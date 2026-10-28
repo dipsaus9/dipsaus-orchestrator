@@ -89,7 +89,7 @@ import {
 } from "../platform/host";
 import { type CiFeedbackItem, ciFeedback, FEEDBACK_LOG_LINES_DEFAULT } from "../prompts/feedback";
 import { cutHead } from "../prompts/cut";
-import { type EnvSecret, readEnvSecrets } from "../hooks/web-guard";
+import { type EnvSecret, readEnvSecrets } from "../run/env-secrets";
 import {
   findingCounts,
   latestVerdictOfRun,

@@ -30,8 +30,7 @@ import {
   context,
   HOME,
   MAIN,
-  reviewContext,
-  reviewSpec,
+  sessionSpec,
   RUN_DIR,
   scriptedClaude,
   SHORT_TMP_DIR,
@@ -82,7 +81,6 @@ describe("the worker port seam (DIPO-113)", () => {
       claudePath: `${HOME}/.local/bin/claude`,
       home: HOME,
       env: { PATH: "/usr/bin:/bin", HOME },
-      dipoCommand: ["/opt/dipo/bin/dipo"],
       spawn: neverSpawn,
       clock,
       holds: new AdapterHolds({ clock, notify: () => undefined }),
@@ -192,11 +190,11 @@ describe("the worker port seam (DIPO-113)", () => {
 
 describe("the Claude CLI adapter of one run", () => {
   it("binds plan(spec) to the run's launch context", () => {
-    const ctx = reviewContext();
+    const ctx = context();
     const adapter = claudeCliAdapter(ctx, { spawn: neverSpawn, clock });
     expect(adapter.id).toBe("claude-cli");
-    expect(adapter.plan(reviewSpec())).toEqual({
-      ...plan(reviewSpec(), ctx),
+    expect(adapter.plan(sessionSpec())).toEqual({
+      ...plan(sessionSpec(), ctx),
       lineScrub: CLAUDE_LINE_SCRUB,
     });
     // A developer session is never planned on the Mac (DIPO-240).
@@ -208,7 +206,6 @@ describe("the Claude CLI adapter of one run", () => {
       claudePath: `${HOME}/.local/bin/claude`,
       home: HOME,
       env: { PATH: "/usr/bin:/bin", HOME },
-      dipoCommand: ["/opt/dipo/bin/dipo"] as [string],
       pluginFiles: { read: () => undefined, dirs: () => [] },
     };
     const ctx = claudeLaunchContext(deps, PATHS, OFFICE_DEFAULTS);
@@ -219,12 +216,10 @@ describe("the Claude CLI adapter of one run", () => {
       toolVariables: [],
       mainCheckout: MAIN,
       runDir: RUN_DIR,
-      hostSocket: `${RUN_DIR}/host.sock`,
       tmpDir: TMP_DIR,
       shortTmpDir: SHORT_TMP_DIR,
       sandbox: OFFICE_DEFAULTS.sandbox,
       plugins: { installed: [], allowed: [] },
-      hookCommand: ["/opt/dipo/bin/dipo"],
     });
     const port = claudeWorkerPort({
       ...deps,
@@ -232,40 +227,38 @@ describe("the Claude CLI adapter of one run", () => {
       clock,
       holds: new AdapterHolds({ clock, notify: () => undefined }),
     });
-    expect(port.adapter(PATHS, OFFICE_DEFAULTS).plan(reviewSpec())).toEqual({
-      ...plan(reviewSpec(), ctx),
+    expect(port.adapter(PATHS, OFFICE_DEFAULTS).plan(sessionSpec())).toEqual({
+      ...plan(sessionSpec(), ctx),
       lineScrub: CLAUDE_LINE_SCRUB,
     });
   });
 
-  it("gives the plan that prepare returns for a review the line scrub (DIPO-105)", async () => {
+  it("gives the plan that prepare returns for a session the line scrub (DIPO-105)", async () => {
     // Production launches take their plan from prepare, not from adapter.plan.
     const claude = scriptedClaude(clock, {});
     const port = claudeWorkerPort({
       claudePath: `${HOME}/.local/bin/claude`,
       home: HOME,
       env: { PATH: "/usr/bin:/bin", HOME },
-      dipoCommand: ["/opt/dipo/bin/dipo"],
       spawn: claude.spawn,
       clock,
       holds: new AdapterHolds({ clock, notify: () => undefined }),
       pluginFiles: { read: () => undefined, dirs: () => [] },
       launchCheckSeams: { readText: async () => undefined },
     });
-    const prepared = await port.prepare(reviewSpec(), PATHS, OFFICE_DEFAULTS, "check");
+    const prepared = await port.prepare(sessionSpec(), PATHS, OFFICE_DEFAULTS, "check");
     if (!prepared.ok) throw new Error(`prepare refused: ${JSON.stringify(prepared)}`);
     expect(prepared.plan.argv).toContain("--session-id");
     expect(prepared.plan.lineScrub).toEqual(CLAUDE_LINE_SCRUB);
   });
 
-  it("switches off every installed plugin for a reviewer, whatever worker.plugins says, reading the list per launch (DIPO-108)", () => {
+  it("switches off every installed plugin for a session, whatever worker.plugins says, reading the list per launch (DIPO-108)", () => {
     const read: string[] = [];
     let installed = ["warp@claude-code-warp"];
     const deps = {
       claudePath: `${HOME}/.local/bin/claude`,
       home: HOME,
       env: { PATH: "/usr/bin:/bin", HOME },
-      dipoCommand: ["/opt/dipo/bin/dipo"] as [string],
       pluginFiles: {
         read: (path: string) => {
           read.push(path);
@@ -286,7 +279,7 @@ describe("the Claude CLI adapter of one run", () => {
       const files = claudeCliAdapter(claudeLaunchContext(deps, PATHS, config), {
         spawn: neverSpawn,
         clock,
-      }).plan(reviewSpec()).files;
+      }).plan(sessionSpec()).files;
       return JSON.parse(
         files.find((file) => file.name === "claude-settings.json")?.content ?? "{}",
       );
@@ -311,15 +304,14 @@ describe("the Claude CLI adapter of one run", () => {
         claudePath: `${HOME}/.local/bin/claude`,
         home: HOME,
         env: {},
-        dipoCommand: ["/opt/dipo/bin/dipo"],
         pluginFiles: { read: () => "{ not json", dirs: () => [] },
       },
       PATHS,
       OFFICE_DEFAULTS,
     );
     const adapter = claudeCliAdapter(ctx, { spawn: neverSpawn, clock });
-    expect(() => adapter.plan(reviewSpec())).toThrow(/installed_plugins\.json/);
-    expect(() => adapter.plan(reviewSpec())).toThrow(PlanError);
+    expect(() => adapter.plan(sessionSpec())).toThrow(/installed_plugins\.json/);
+    expect(() => adapter.plan(sessionSpec())).toThrow(PlanError);
     const step = adapter.interpret(
       { t: 1, ch: "stdout", data: "" },
       initialState() as unknown as ParseState,
@@ -454,10 +446,10 @@ describe("the Claude CLI adapter of one run", () => {
 
 describe("a path the plan refuses", () => {
   it("names the path and the character, and suggests moving the checkout or the worktree root", () => {
-    const workdir = "/tmp/dipo-review (copy)/session";
+    const workdir = "/tmp/dipo-scan (copy)/session";
     let error: unknown;
     try {
-      plan(reviewSpec({ workdir }), reviewContext());
+      plan(sessionSpec({ workdir }), context());
     } catch (thrown) {
       error = thrown;
     }
@@ -472,7 +464,7 @@ describe("a path the plan refuses", () => {
   it("names a worktree that holds the home directory, without a character", () => {
     let error: unknown;
     try {
-      plan(reviewSpec({ workdir: "/home" }), reviewContext({ mainCheckout: "/srv/shop" }));
+      plan(sessionSpec({ workdir: "/home" }), context({ mainCheckout: "/srv/shop" }));
     } catch (thrown) {
       error = thrown;
     }

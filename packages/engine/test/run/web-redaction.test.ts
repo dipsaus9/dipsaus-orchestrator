@@ -1,8 +1,8 @@
 // No env value reaches stored web lines (DIPO-164 review; 0020 section 11b): the `[web] <tool>
 // <query or URL>` line of a call whose URL holds a value of the copied env files is stored with
 // `[redacted]` in its place, in `output_chunks` and in the `work.output` change-log entries read
-// from it, as 0008 redacts review comments. The refusal still names the file and key. The derived
-// `web-calls` recording runs through the real ingestion and the real web check.
+// from it, as 0008 redacts review comments. The derived `web-calls` recording runs through the real
+// ingestion and the real web calls module (`run/web-calls.ts`).
 
 import { describe, expect, it } from "bun:test";
 import { join } from "node:path";
@@ -12,20 +12,17 @@ import { withTempDir } from "@dipsaus-orchestrator/testkit";
 
 import { OFFICE_DEFAULTS } from "../../src/config";
 import {
-  cutWebLine,
   type EnvSecret,
   MIN_SECRET_CHARS,
   REDACTED_TEXT,
   redactSecrets,
-  redactWebTarget,
-  WebGuard,
-} from "../../src/hooks/web-guard";
+} from "../../src/run/env-secrets";
+import { cutWebLine, redactWebTarget, WebCalls } from "../../src/run/web-calls";
 import type { IngestAdapter } from "../../src/ingest/ingestor";
 import { INPUT_MAX_CHARS } from "../../src/ingest/output";
 import { insertRun } from "../../src/run";
 import { OfficeIngest } from "../../src/run/hosts";
 import { addStory } from "../../src/stories/keys";
-import { encode } from "../../src/workers/claude-cli/encode";
 import { initialState, interpret } from "../../src/workers/claude-cli/interpret";
 import type { ParseState } from "../../src/workers/types";
 import {
@@ -123,11 +120,8 @@ async function ingestWebCalls(
     }),
   );
   const warnings: string[] = [];
-  const guard = new WebGuard({
-    clock: f.t.clock,
+  const guard = new WebCalls({
     offices: { config: () => OFFICE_DEFAULTS },
-    steering: { send: async () => ({ ok: true }) },
-    encode,
     secrets,
     warn: (message) => warnings.push(message),
   });

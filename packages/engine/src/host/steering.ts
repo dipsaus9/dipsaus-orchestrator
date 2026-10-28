@@ -17,8 +17,8 @@ function failed(code: HostError["code"], message: string): SteerResult {
 }
 
 /**
- * The host op a steering frame carries; null for `status`, `watch`, `hook` and `hookReply`, which
- * are not steering: the host handles them itself.
+ * The host op a steering frame carries; null for `status` and `watch`, which are not steering: the
+ * host handles them itself.
  */
 export function hostOpOf(frame: OpFrame): HostOp | null {
   switch (frame.op) {
@@ -32,8 +32,6 @@ export function hostOpOf(frame: OpFrame): HostOp | null {
       return { closeStdin: true };
     case "status":
     case "watch":
-    case "hook":
-    case "hookReply":
       return null;
   }
 }
@@ -76,8 +74,6 @@ export class Steering {
     if (this.#exited) return failed("worker.exited", "The worker has exited.");
     if ("write" in op) return this.#write(op.write);
     if ("closeStdin" in op) return this.#closeStdin();
-    // A hook reply goes to the waiting hook call, never to the worker; the host routes it.
-    if ("hookReply" in op) return failed("op.unknown", "A hook reply is not a steering op.");
     if (op.afterMs === undefined || op.afterMs <= 0) {
       this.#kill(op.signal);
       return OK;

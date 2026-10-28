@@ -247,11 +247,6 @@ describe("worker host in-process", () => {
         error: { code: "op.unknown", message: 'Unknown op "kill".' },
       });
 
-      host.relayHook({ hook_event_name: "Stop" });
-      // Frames arrive in order, so the reply to a later request follows the `advanced` frame.
-      const after = (await client.status()) as HostStatus;
-      expect(advanced).toEqual([after.offset]);
-
       expect(await client.request({ op: "closeStdin" })).toEqual({ ok: true });
       expect(child.stdinClosed).toBe(true);
       expect(await client.request({ op: "write", data: "late\n" })).toMatchObject({
@@ -272,7 +267,6 @@ describe("worker host in-process", () => {
       expect(child.signals).toEqual(["SIGTERM"]);
 
       const { lines } = readLines(runDir);
-      expect(lines[0]).toEqual({ t: 0, ch: "hook", data: '{"hook_event_name":"Stop"}' });
       expect(lines.at(-1)).toMatchObject({
         ch: "exit",
         data: '{"code":143,"signal":"SIGTERM","signalInferred":true}',

@@ -1393,11 +1393,14 @@ async function serve(run: Run, lock: HeldLock): Promise<number> {
         }
         // The boxes of box runs that ended while no daemon ran are checked and deleted too
         // (DIPO-271).
+        // And the reviewer boxes a stopped daemon left (0002).
         await runs.finishEndedBoxes({ listBoxes: true });
-        // And the read-only copies of reviewer sessions whose host no longer runs (DIPO-276).
-        const copies = await runs.sweepReviewFolders();
-        if (copies.length > 0) {
-          context.logger.info("removed reviewer copies a stopped daemon left", { removed: copies });
+        // And the read-only reviewer folders of an earlier binary's Mac reviewer (DIPO-347).
+        const folders = await runs.sweepOldReviewFolders();
+        if (folders.length > 0) {
+          context.logger.info("removed reviewer folders an earlier binary left", {
+            removed: folders,
+          });
         }
       },
     });

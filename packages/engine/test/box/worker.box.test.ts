@@ -216,7 +216,6 @@ if (registers) {
                   tools: { allow: ["Read"], deny: [] },
                   session: { id: crypto.randomUUID(), resume: false },
                   reportSchema: REPORT_JSON_SCHEMAS.implement,
-                  hookRelay: false,
                 },
                 session,
                 runDir,

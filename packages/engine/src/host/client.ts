@@ -19,9 +19,7 @@ export type HostRequest =
   | { readonly op: "signal"; readonly signal: HostSignalName; readonly afterMs?: number }
   | { readonly op: "closeStdin" }
   | { readonly op: "status" }
-  | { readonly op: "watch" }
-  | { readonly op: "hook"; readonly payload: string; readonly waitMs?: number }
-  | { readonly op: "hookReply"; readonly hook: number; readonly output: string };
+  | { readonly op: "watch" };
 
 export type HostReply =
   | { readonly ok: true; readonly result?: unknown }
@@ -33,7 +31,7 @@ export interface HostClient {
   readonly hostPid: number;
   /**
    * Sends one op; null when the connection closed or the reply did not come in time. `timeoutMs`
-   * replaces the connection's timeout for this op (a waiting hook call).
+   * replaces the connection's timeout for this op.
    */
   request(request: HostRequest, timeoutMs?: number): Promise<HostReply | null>;
   status(): Promise<HostStatus | null>;

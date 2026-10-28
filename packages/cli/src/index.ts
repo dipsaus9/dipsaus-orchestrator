@@ -354,9 +354,6 @@ export function defaultDeps(): CliDeps {
 /** Runs the command line and resolves to the process exit code. */
 export async function main(argv: readonly string[], deps: CliDeps): Promise<number> {
   const args = [...argv];
-  // Hidden: a worker's command hook (DIPO-59). First, so nothing else runs before it and no flag in
-  // its arguments is read as a CLI option.
-  if (args[0] === "hook") return deps.runDaemon(args);
   if (args.length === 0 || args.includes("--help") || args.includes("-h")) {
     deps.writeLine(HELP);
     return 0;

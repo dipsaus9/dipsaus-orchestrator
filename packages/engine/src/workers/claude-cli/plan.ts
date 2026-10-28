@@ -1,27 +1,19 @@
-// The Claude Code CLI launch plan of a reviewer session on the Mac (0008 section 2, 0019 section 4,
-// 0021 section 10). `plan` is pure: it turns a review WorkerSpec and the run's launch context into
-// argv, an allowlisted environment, the run settings file and the first stdin line, and refuses
-// anything it cannot launch safely.
+// The Claude Code CLI launch plan of a `session` on the Mac (DIPO-310: the scan fallback). `plan`
+// is pure: it turns a session's WorkerSpec and the launch context into argv, an allowlisted
+// environment, the run settings file and the first stdin line, and refuses anything it cannot
+// launch safely: an empty working directory dipo made, every tool off (`--tools ""` and a deny rule
+// for each tool by name), no hooks, no MCP server, every plugin off, a closed sandbox and network,
+// and its structured-output schema.
 //
-// A developer session is never planned here (DIPO-240, 0021): it runs only in its story's box
-// (`box-plan.ts`), with no run settings file, Bash sandbox, permission rules or hooks. What stays
-// is the reviewer's: read-only tools on dipo's copy of the pushed commit, the web tools through
-// dipo's web proxy (DIPO-292) with the fail-closed web gate hook (DIPO-164), and the relay of its
-// other hooks to the worker host. `checkSpec` is shared with the box plan.
-//
-// A `session` (DIPO-310: the scan fallback, 0021 amendment of 2026-10-22) is planned here too, on
-// the Mac with no box: an empty working directory dipo made, every tool off (`--tools ""` and a
-// deny rule for each tool by name), no hooks, no MCP server, every plugin off, the closed sandbox
-// and network of a reviewer, and its structured-output schema.
+// A developer or reviewer session is never planned here (DIPO-240, DIPO-347): each runs only in a
+// box (`box-plan.ts`, 0008). `checkSpec` is shared with the box plan.
 
 import { posix } from "node:path";
 
-import { MODEL_UPSTREAM } from "../../box/model-proxy";
 import type { OfficeConfig } from "../../config";
 import { PlanError } from "../types";
 import type { LaunchPlan, WorkerKind, WorkerSpec } from "../types";
 import { userMessageLine } from "./encode";
-import { HOOK_BUNFIG_FILE, hookSettings, WEB_TOOLS } from "./hooks";
 import { enabledPluginsSetting, type WorkerPlugins } from "./plugins";
 import { DISABLE_SLASH_COMMANDS } from "./skills";
 
@@ -82,8 +74,8 @@ export function closedWritePaths(home: string): ClosedWritePath[] {
 }
 
 /**
- * Kinds this adapter plans: `implement` (D12, DIPO-15), only in a box (`box-plan.ts`), `review`
- * (0019 section 4, DIPO-145) and `session` (DIPO-310), on the Mac with `plan`.
+ * Kinds this adapter plans: `implement` (D12, DIPO-15) and `review` (0002), only in a box
+ * (`box-plan.ts`), and `session` (DIPO-310), on the Mac with `plan`.
  */
 export const PLANNED_KINDS: readonly WorkerKind[] = ["implement", "review", "session"];
 
@@ -114,40 +106,30 @@ export const SESSION_DENIED_TOOLS: readonly string[] = [
   "ExitPlanMode",
 ];
 
-/** Why `plan` refuses a developer session (DIPO-240, 0021). */
+/** Why `plan` refuses a developer session (DIPO-240, 0008). */
 export const DEVELOPER_ON_MAC_REFUSED =
-  "a developer session runs only in its story's box (0021); dipo plans no developer on the Mac";
+  "a developer session runs only in its story's box (0008); dipo plans no developer on the Mac";
+
+/** Why `plan` refuses a reviewer session (DIPO-347, 0002). */
+export const REVIEWER_ON_MAC_REFUSED =
+  "a reviewer session runs only in a read-only box of its own (0002); dipo plans no reviewer on the Mac";
 
 /**
- * The only tools a `review` session may have (0021 section 10, DIPO-276): it reads the read-only
- * copy of the pushed commit and may search the web. No shell, no Edit or Write, and so no git or gh.
+ * The only tools a `review` session may have (0002): it reads the read-only copy of the pushed
+ * commit and may search the web. No shell, no Edit or Write, and so no git or gh.
  */
 export const REVIEW_TOOLS: readonly string[] = ["Read", "Glob", "Grep", "WebSearch", "WebFetch"];
 
 /**
- * The one host a reviewer reaches without its web proxy (DIPO-292): the model API the session
- * already uses, the only name in its `NO_PROXY`. Its Claude Code reaches the default model API
- * (the plan passes no base URL), the host of `MODEL_UPSTREAM`.
- */
-export const MODEL_API_HOST = new URL(MODEL_UPSTREAM).hostname;
-
-/** The proxy variables HTTP clients read, in either case. */
-const PROXY_VARIABLE = /^(?:https?|no|all|ftp)_proxy$/i;
-
-/** A reviewer's web proxy URL: plain http to a loopback port, nothing else (DIPO-292). */
-const REVIEW_WEB_PROXY_URL = /^http:\/\/(127\.0\.0\.1|\[::1\]):([1-9][0-9]{0,4})$/;
-
-/**
- * The MCP config file of a `review` session, in the run directory: no server. With
- * `--strict-mcp-config` the reviewer loads no MCP server, not even the office's (0019 section 4).
+ * The MCP config file of a `session`, in the run directory: no server. With `--strict-mcp-config`
+ * the session loads no MCP server, not even the office's.
  */
 export const EMPTY_MCP_CONFIG_FILE = "mcp-empty.json";
 export const EMPTY_MCP_CONFIG = { mcpServers: {} } as const;
 
 /**
- * The launch context a review `spec` is planned with (0019 section 4): no plugin the office allows
- * its workers, since `worker.plugins` does not apply to a reviewer, so every installed plugin is
- * switched off.
+ * The launch context a `session` spec is planned with: no plugin the office allows its workers,
+ * since `worker.plugins` does not apply to it, so every installed plugin is switched off.
  */
 export function kindContext(
   spec: Pick<WorkerSpec, "kind">,
@@ -174,40 +156,6 @@ const REFUSED_TOOL_VARIABLES = new Set([
 ]);
 const VARIABLE_NAME = /^[A-Za-z_][A-Za-z0-9_]*$/;
 
-// Git verbs that write or reach the network (0014 section 3): the engine handles every one of them.
-// The reviewer has no Bash, so these deny rules only keep its settings closed should a tool list
-// ever grow one.
-export const GIT_WRITE_VERBS = [
-  "add",
-  "am",
-  "apply",
-  "branch",
-  "checkout",
-  "cherry-pick",
-  "clean",
-  "commit",
-  "commit-tree",
-  "config",
-  "fetch",
-  "merge",
-  "mv",
-  "notes",
-  "pull",
-  "push",
-  "rebase",
-  "reset",
-  "restore",
-  "revert",
-  "rm",
-  "stash",
-  "submodule",
-  "switch",
-  "symbolic-ref",
-  "tag",
-  "update-ref",
-  "worktree",
-] as const;
-
 // Credential files under home and variables masked for sandboxed commands (0008 section 2).
 const CREDENTIAL_FILES = [".ssh", ".aws", ".config/gh", ".gnupg", ".netrc"] as const;
 const CREDENTIAL_VARIABLES = ["GH_TOKEN", "GITHUB_TOKEN", "NPM_TOKEN"] as const;
@@ -229,8 +177,6 @@ export interface ClaudeLaunchContext {
   readonly mainCheckout: string;
   /** The run directory the host writes the plan's files into. */
   readonly runDir: string;
-  /** The worker host's socket, given to hooks as `DIPO_HOST_SOCKET`. */
-  readonly hostSocket: string;
   /** The sandbox temp directory sandboxed commands may write. */
   readonly tmpDir: string;
   /**
@@ -239,12 +185,6 @@ export interface ClaudeLaunchContext {
    * session gets no `DIPO_TMP` and the sandbox no extra write path.
    */
   readonly shortTmpDir?: string;
-  /**
-   * How to run this `dipo` (`selfCommand()`): the binary's `process.execPath`, or Bun with the
-   * entry script when run from source. The hooks of the run settings file run `<it> hook <event>`
-   * (0008 section 5), so they need no `PATH`. Required when the spec asks for the hook relay.
-   */
-  readonly hookCommand?: readonly [string, ...string[]];
   readonly sandbox: Pick<
     OfficeConfig["sandbox"],
     "toolchainReadPaths" | "allowRead" | "allowedDomains" | "allowLocalBinding"
@@ -262,12 +202,6 @@ function absolute(label: string, path: string): string {
   if (!posix.isAbsolute(path)) throw new PlanError(`${label} must be an absolute path: ${path}`);
   const normal = posix.normalize(path);
   return normal.length > 1 && normal.endsWith("/") ? normal.slice(0, -1) : normal;
-}
-
-function expandHome(label: string, path: string, home: string): string {
-  if (path === "~") return home;
-  if (path.startsWith("~/")) return absolute(label, `${home}/${path.slice(2)}`);
-  return absolute(label, path);
 }
 
 // Characters with a meaning in permission rules or globs. Claude Code documents no escaping for
@@ -325,7 +259,6 @@ export function checkSpec(spec: WorkerSpec): void {
         `a session runs with every tool off, not with ${spec.tools.allow.join(", ")} (DIPO-310)`,
       );
     }
-    if (spec.hookRelay) throw new PlanError("a session runs with no hooks (DIPO-310)");
   } else if (spec.tools.allow.length === 0) {
     throw new PlanError("the role must allow at least one tool");
   }
@@ -333,48 +266,11 @@ export function checkSpec(spec: WorkerSpec): void {
     if (!TOOL_NAME.test(tool)) throw new PlanError(`not a tool name: ${tool}`);
     if (spec.kind === "review" && !REVIEW_TOOLS.includes(tool)) {
       throw new PlanError(
-        `a review session may use only ${REVIEW_TOOLS.join(", ")}, not ${tool} (0019 section 4)`,
+        `a review session may use only ${REVIEW_TOOLS.join(", ")}, not ${tool} (0002)`,
       );
     }
-  }
-  // A web tool without the hook that checks its URL or query for env values is never planned
-  // (0020 section 11b): the check fails closed, and so does its absence.
-  if (webTools(spec) && !spec.hookRelay) {
-    throw new PlanError(
-      `${WEB_TOOLS.join(" and ")} need the hook relay, which checks each URL and query for env values (0020 section 11b)`,
-    );
   }
   if (spec.taskMessage.length === 0) throw new PlanError("the task message is empty");
-  // A reviewer reads only dipo's read-only copy of the pushed commit (DIPO-276); a worker has none.
-  if (spec.kind === "review" && spec.readOnlyDir === undefined) {
-    throw new PlanError("a review session needs the read-only copy of the pushed commit");
-  }
-  if (spec.kind !== "review" && spec.readOnlyDir !== undefined) {
-    throw new PlanError("only a review session reads a read-only copy");
-  }
-  // A reviewer's web fetches tunnel through dipo's web proxy, which checks the address at connect
-  // time (DIPO-292): a review with a web tool and no proxy is never planned.
-  if (spec.kind === "review" && webTools(spec) && spec.webProxy === undefined) {
-    throw new PlanError(
-      `a review session with ${WEB_TOOLS.join(" or ")} needs dipo's web proxy for its fetches (DIPO-292)`,
-    );
-  }
-  if (spec.webProxy !== undefined) {
-    if (spec.kind !== "review") {
-      throw new PlanError("only a review session gets a web proxy of its own");
-    }
-    const port = REVIEW_WEB_PROXY_URL.exec(spec.webProxy)?.[2];
-    if (port === undefined || Number(port) > 65_535) {
-      throw new PlanError(
-        `the reviewer's web proxy must be a plain http URL of a loopback port: ${spec.webProxy}`,
-      );
-    }
-  }
-}
-
-/** True when the session has a web tool (`worker.web`, 0020 section 11b). */
-function webTools(spec: Pick<WorkerSpec, "tools">): boolean {
-  return spec.tools.allow.some((tool) => WEB_TOOLS.includes(tool));
 }
 
 /** Where npm writes its debug logs in a session: the run temp directory (DIPO-98). */
@@ -404,183 +300,29 @@ function environment(spec: WorkerSpec, ctx: ClaudeLaunchContext, paths: Paths) {
   env.CLAUDE_CODE_EMIT_SESSION_STATE_EVENTS = "1";
   env.CLAUDE_CODE_SUBPROCESS_ENV_SCRUB = "1";
   env.DIPO_RUN = spec.run;
-  env.DIPO_HOST_SOCKET = absolute("hostSocket", ctx.hostSocket);
   // Set by the engine, never taken from the daemon's environment (DIPO_ is not allowlisted and
   // not an office tool variable).
   if (paths.shortTmp !== undefined) env.DIPO_TMP = paths.shortTmp;
   // Claude Code runs `npm root --global` at start, outside the sandbox, and npm would write a
   // debug log into <home>/.npm/_logs (DIPO-98).
   env.npm_config_logs_dir = `${tmp}/${NPM_LOGS_SUBDIR}`;
-  // A reviewer's fetches, and every redirect they follow, tunnel through its web proxy; only the
-  // model API goes direct (DIPO-292). Any other proxy variable, in either case, is dropped first:
-  // an office tool variable such as `no_proxy` would otherwise send fetches around it.
-  if (spec.webProxy !== undefined) {
-    for (const name of Object.keys(env)) {
-      if (PROXY_VARIABLE.test(name)) delete env[name];
-    }
-    env.HTTPS_PROXY = spec.webProxy;
-    env.HTTP_PROXY = spec.webProxy;
-    env.NO_PROXY = MODEL_API_HOST;
-  }
   return env;
-}
-
-// A command with and without arguments.
-function commands(command: string): string[] {
-  return [`Bash(${command})`, `Bash(${command} *)`];
-}
-
-// Git global options that can come before the verb (`git -C <path> commit`, DIPO-204). Each
-// takes a value, so the rule writes it as a wildcard.
-const GIT_GLOBAL_OPTIONS = ["-C *", "-c *"];
-
-// Each git write verb, bare and with arguments, plain and after each global option.
-function gitWriteVerbRules(verb: string): string[] {
-  return [
-    ...commands(`git ${verb}`),
-    ...GIT_GLOBAL_OPTIONS.flatMap((option) => commands(`git ${option} ${verb}`)),
-  ];
 }
 
 interface Paths {
   readonly home: string;
   readonly workdir: string;
-  /** The reviewer's read-only copy of the pushed commit (DIPO-276). */
-  readonly copy: string;
   readonly main: string;
   readonly tmp: string;
   readonly shortTmp: string | undefined;
   readonly runDir: string;
 }
 
-/**
- * A reviewer's permission rules (0021 section 10): its tool list has no Edit, Write or Bash, and
- * the rules deny writes on its folder and on the copy as well. It reads only the copy, outside its
- * working directory, so the copy is an added directory of the run settings (DIPO-276). That is
- * never its project root: no project settings, hooks or MCP servers of the copy load. Claude Code
- * can still find a few things in an added directory, so these guards keep them inert rather than
- * the setting itself: skills and commands, by `--disable-slash-commands`; subagents, by no Agent
- * or Task tool; plugin keys of the copy's settings, by `enabledPlugins` false for every installed
- * plugin in the run settings and the refusal of any plugin `system/init` lists; its CLAUDE.md and
- * rules files, by `claudeMdExcludes` and the variable that would load them never being set.
- */
-function permissions(spec: WorkerSpec, paths: Paths) {
-  const { copy } = paths;
-  const fileRules = (tool: "Edit" | "Write") => [
-    // `//` anchors at the root (DIPO-193).
-    `${tool}(/${paths.workdir}/.git)`,
-    `${tool}(/${paths.workdir}/.git/**)`,
-    `${tool}(/${paths.workdir}/backlog/**)`,
-    `${tool}(/${paths.workdir}/.dipo/**)`,
-    `${tool}(/${paths.workdir}/.claude/settings.json)`,
-    `${tool}(/${paths.workdir}/.claude/settings.local.json)`,
-    // These name the main checkout absolutely.
-    `${tool}(/${paths.main}/.git/**)`,
-    `${tool}(/${paths.main}/**)`,
-  ];
-  const deny = [
-    ...fileRules("Edit"),
-    ...fileRules("Write"),
-    `Read(/${paths.workdir}/**/.env*)`,
-    "Read(~/.ssh/**)",
-    "Read(~/.aws/**)",
-    "Read(~/.config/gh/**)",
-    "Read(~/.gnupg/**)",
-    "Read(~/.netrc)",
-    ...GIT_WRITE_VERBS.flatMap(gitWriteVerbRules),
-    ...commands("backlog"),
-    ...commands("gh"),
-    ...spec.tools.deny,
-    `Edit(/${paths.workdir}/**)`,
-    `Write(/${paths.workdir}/**)`,
-    `Edit(/${copy}/**)`,
-    `Write(/${copy}/**)`,
-    `Read(/${copy}/**/.env*)`,
-  ];
-  return {
-    allow: [`Read(/${copy}/**)`, ...WEB_TOOLS.filter((tool) => spec.tools.allow.includes(tool))],
-    deny: unique(deny),
-    additionalDirectories: [copy],
-    blockReadsOutsideWorkingDirectories: true,
-  };
-}
+/** A session's network: closed, whatever the office allows, with no local binding. */
+const SESSION_NETWORK = { allowedDomains: [], strictAllowlist: true, allowLocalBinding: false };
 
 /**
- * A reviewer's network (0019 section 4): closed, whatever the office allows, with no local
- * binding, since a reviewer installs and serves nothing; its web tools run outside the Bash
- * sandbox, through dipo's web proxy.
- */
-const REVIEW_NETWORK = { allowedDomains: [], strictAllowlist: true, allowLocalBinding: false };
-
-function sandbox(ctx: ClaudeLaunchContext, paths: Paths) {
-  const { home, workdir, main, tmp, shortTmp, copy } = paths;
-  const allowRead = unique([
-    ...ctx.sandbox.toolchainReadPaths.map((path) =>
-      expandHome("sandbox.toolchainReadPaths", path, home),
-    ),
-    ...ctx.sandbox.allowRead.map((path) => expandHome("sandbox.allowRead", path, home)),
-  ]);
-  return {
-    enabled: true,
-    failIfUnavailable: true,
-    allowUnsandboxedCommands: false,
-    filesystem: {
-      // A reviewer writes only the two temp roots, never the worktree or the copy.
-      allowWrite: [tmp, ...(shortTmp === undefined ? [] : [shortTmp])],
-      // The Keychain files stay closed even where an allowRead toolchain path re-opens part of home
-      // (0008 amendment of 2026-10-13); a sandbox deny only, never a permission rule.
-      denyRead: [`${home}/Library/Keychains`],
-      denyWrite: [
-        `${main}/.git`,
-        `${workdir}/.git`,
-        // The reviewer's own folder and its copy of the pushed commit (DIPO-276).
-        workdir,
-        copy,
-        `${workdir}/backlog`,
-        `${workdir}/.dipo`,
-        `${workdir}/.claude/settings.json`,
-        `${workdir}/.claude/settings.local.json`,
-        // srt's default write paths (DIPO-98).
-        ...closedWritePaths(home).map((closed) => closed.path),
-      ],
-      allowRead,
-    },
-    network: REVIEW_NETWORK,
-    credentials: {
-      files: CREDENTIAL_FILES.map((file) => ({ path: `${home}/${file}`, mode: "deny" })),
-      envVars: CREDENTIAL_VARIABLES.map((name) => ({ name, mode: "deny" })),
-    },
-  };
-}
-
-/** The `hooks` block when the spec asks for the hook relay (0008 section 5), else none. */
-function hooks(
-  spec: WorkerSpec,
-  ctx: ClaudeLaunchContext,
-  paths: Paths,
-): Record<string, unknown> | undefined {
-  const { workdir, runDir } = paths;
-  if (!spec.hookRelay) return undefined;
-  const command = ctx.hookCommand;
-  if (command === undefined) {
-    throw new PlanError("the hook relay needs the dipo command the hooks run");
-  }
-  // Hooks run outside any sandbox: a command in a folder the session could reach is refused.
-  for (const part of command) {
-    const path = absolute("hookCommand", part);
-    if (isInside(path, workdir)) {
-      throw new PlanError(`the hook command ${path} must lie outside the worktree ${workdir}`, {
-        path,
-      });
-    }
-    if (isInside(path, paths.copy)) {
-      throw new PlanError(`the hook command ${path} must lie outside the review copy`, { path });
-    }
-  }
-  return hookSettings(command, runDir, webTools(spec));
-}
-
-/**
+ * `enabledPlugins` false/**
  * `enabledPlugins` false for every installed plugin the office does not name (DIPO-108). A plugin
  * hook runs outside any sandbox with the maintainer's credentials, and a SessionStart hook runs
  * before `system/init` could be checked, so the switch-off is in the settings, not only the parser.
@@ -595,25 +337,6 @@ function plugins(ctx: ClaudeLaunchContext): Record<string, false> | undefined {
     );
   }
   return enabledPluginsSetting(installed, allowed);
-}
-
-/** The run settings file: rules, sandbox, hooks and git instruction switches (0008 section 2). */
-function settings(spec: WorkerSpec, ctx: ClaudeLaunchContext, paths: Paths) {
-  const hookBlock = hooks(spec, ctx, paths);
-  const enabledPlugins = plugins(ctx);
-  return {
-    includeGitInstructions: false,
-    // No CLAUDE.md, CLAUDE.local.md or rules file of the copy is meant to load (DIPO-276): the copy
-    // is neither the working directory nor its parent, Claude Code loads those of an added directory
-    // only with CLAUDE_CODE_ADDITIONAL_DIRECTORIES_CLAUDE_MD (never passed), and they are excluded by
-    // path here too.
-    claudeMdExcludes: [`${paths.copy}/**`],
-    attribution: { commit: "", pr: "" },
-    permissions: permissions(spec, paths),
-    sandbox: sandbox(ctx, paths),
-    ...(hookBlock === undefined ? {} : { hooks: hookBlock }),
-    ...(enabledPlugins === undefined ? {} : { enabledPlugins }),
-  };
 }
 
 /**
@@ -684,7 +407,7 @@ function sessionSettings(ctx: ClaudeLaunchContext, paths: Paths) {
         ],
         allowRead: [],
       },
-      network: REVIEW_NETWORK,
+      network: SESSION_NETWORK,
       credentials: {
         files: CREDENTIAL_FILES.map((file) => ({ path: `${home}/${file}`, mode: "deny" })),
         envVars: CREDENTIAL_VARIABLES.map((name) => ({ name, mode: "deny" })),
@@ -740,7 +463,7 @@ function planSession(spec: WorkerSpec, launch: ClaudeLaunchContext): LaunchPlan 
       throw new PlanError(`${label} ${path} must lie outside the session's folder ${workdir}`);
     }
   }
-  const paths: Paths = { home, workdir, copy: workdir, main, tmp, shortTmp, runDir };
+  const paths: Paths = { home, workdir, main, tmp, shortTmp, runDir };
   const argv: [string, ...string[]] = [
     claude,
     "-p",
@@ -800,133 +523,11 @@ function planSession(spec: WorkerSpec, launch: ClaudeLaunchContext): LaunchPlan 
 }
 
 /**
- * Pure: the launch plan of one Claude Code reviewer session or `session` on the Mac. Throws
- * `PlanError` when it cannot, and for a developer session, which runs only in its box
- * (`planInBox`).
+ * Pure: the launch plan of one Claude Code `session` on the Mac. Throws `PlanError` when it
+ * cannot, and for a developer or reviewer session, which runs only in a box (`planInBox`).
  */
 export function plan(spec: WorkerSpec, launch: ClaudeLaunchContext): LaunchPlan {
   checkSpec(spec);
   if (spec.kind === "session") return planSession(spec, launch);
-  if (spec.kind !== "review" || spec.readOnlyDir === undefined) {
-    throw new PlanError(DEVELOPER_ON_MAC_REFUSED);
-  }
-  const ctx = kindContext(spec, launch);
-  const claude = absolute("claudePath", ctx.claudePath);
-  const home = absolute("home", ctx.home);
-  const workdir = ruleSafe("workdir", absolute("workdir", spec.workdir));
-  const main = ruleSafe("mainCheckout", absolute("mainCheckout", ctx.mainCheckout));
-  const runDir = absolute("runDir", ctx.runDir);
-  const tmp = absolute("tmpDir", ctx.tmpDir);
-  const shortTmp =
-    ctx.shortTmpDir === undefined ? undefined : absolute("shortTmpDir", ctx.shortTmpDir);
-  const systemFile = absolute("systemFile", spec.systemFile);
-  if (isInside(workdir, main) || isInside(main, workdir)) {
-    throw new PlanError(`the worktree ${workdir} must lie outside the main checkout ${main}`, {
-      path: workdir,
-    });
-  }
-  const copy = ruleSafe("readOnlyDir", absolute("readOnlyDir", spec.readOnlyDir));
-  // A reviewer's working directory is outside its copy and holds no part of it, so Claude Code
-  // finds no project settings, hooks or CLAUDE.md of the commit there or in its parents (0021
-  // section 14); the copy is no checkout and no home either.
-  for (const [label, other] of [
-    ["working directory", workdir],
-    ["main checkout", main],
-    ["home directory", home],
-    ["sandbox temp directory", tmp],
-    ...(shortTmp === undefined ? [] : [["short temp root", shortTmp] as const]),
-  ] as const) {
-    if (isInside(copy, other) || isInside(other, copy)) {
-      throw new PlanError(`the review copy ${copy} must lie outside the ${label} ${other}`, {
-        path: copy,
-      });
-    }
-  }
-  const closed = checkWritableDirs(
-    [
-      ["workdir", workdir],
-      ["tmpDir", tmp],
-      ...(shortTmp === undefined ? [] : [["shortTmpDir", shortTmp] as const]),
-    ],
-    home,
-  );
-  // A reviewer gets the empty MCP config, never the office's (0019 section 4).
-  const mcpConfig = `${runDir}/${EMPTY_MCP_CONFIG_FILE}`;
-  for (const [label, path] of [
-    ["runDir", runDir],
-    ["systemFile", systemFile],
-    ["mcpConfig", mcpConfig],
-  ] as const) {
-    if (isInside(path, workdir)) {
-      throw new PlanError(`${label} ${path} must lie outside the worktree ${workdir}`);
-    }
-    if (isInside(path, copy)) {
-      throw new PlanError(`${label} ${path} must lie outside the review copy ${copy}`);
-    }
-  }
-  const paths: Paths = { home, workdir, copy, main, tmp, shortTmp, runDir };
-  const reportSchema = JSON.stringify(spec.reportSchema);
-
-  const argv: [string, ...string[]] = [
-    claude,
-    "-p",
-    "--input-format",
-    "stream-json",
-    "--output-format",
-    "stream-json",
-    "--verbose",
-    // The `message_delta` stream events carry each message's real output count, which the live
-    // view counts during a session (DIPO-296); recordings are captured with it (0017 section 2).
-    INCLUDE_PARTIAL_MESSAGES,
-    spec.session.resume ? "--resume" : "--session-id",
-    spec.session.id,
-    "--model",
-    flagValue("model", spec.model),
-    "--effort",
-    flagValue("effort", spec.effort),
-    "--max-turns",
-    String(spec.caps.maxTurns),
-    "--permission-mode",
-    "default",
-    "--permission-prompts",
-    "none",
-    "--tools",
-    spec.tools.allow.join(","),
-    "--settings",
-    `${runDir}/${SETTINGS_FILE}`,
-    "--setting-sources",
-    "project,local",
-    "--strict-mcp-config",
-    "--mcp-config",
-    mcpConfig,
-    "--append-system-prompt-file",
-    systemFile,
-    "--exclude-dynamic-system-prompt-sections",
-    // No session has skill grants yet (DIPO-116), so none loads a skill and no `/` message expands
-    // one (DIPO-130).
-    DISABLE_SLASH_COMMANDS,
-    "--json-schema",
-    reportSchema,
-  ];
-
-  return {
-    argv,
-    env: environment(spec, ctx, paths),
-    cwd: workdir,
-    files: [
-      { name: SETTINGS_FILE, content: `${JSON.stringify(settings(spec, ctx, paths), null, 2)}\n` },
-      { name: REPORT_SCHEMA_FILE, content: `${JSON.stringify(spec.reportSchema, null, 2)}\n` },
-      { name: EMPTY_MCP_CONFIG_FILE, content: `${JSON.stringify(EMPTY_MCP_CONFIG)}\n` },
-      // For people: which default write paths the settings close, and why.
-      {
-        name: CLOSED_WRITES_FILE,
-        content: `${JSON.stringify({ reason: CLOSED_WRITES_REASON, denyWrite: closed }, null, 2)}\n`,
-      },
-      // Run from source, the hooks start Bun with this empty config (`hookCommandLine`).
-      ...(spec.hookRelay && (ctx.hookCommand?.length ?? 0) > 1
-        ? [{ name: HOOK_BUNFIG_FILE, content: "" }]
-        : []),
-    ],
-    stdin: [userMessageLine(spec.taskMessage)],
-  };
+  throw new PlanError(spec.kind === "review" ? REVIEWER_ON_MAC_REFUSED : DEVELOPER_ON_MAC_REFUSED);
 }

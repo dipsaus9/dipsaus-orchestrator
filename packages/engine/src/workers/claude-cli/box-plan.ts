@@ -14,8 +14,15 @@
 // environment; the `container` client on the Mac gets only the backend's client environment.
 // The host runs the session's stop command when it signals the worker and after the worker
 // exits, since a killed `container exec` client leaves claude running in the box.
+//
+// A reviewer session (0002, 0008) runs the same way in its own read-only box (`BoxWorkers.review`),
+// with only the reviewer's tools (`--tools`, refused by `checkSpec` for anything else), its empty
+// working directory beside the copy and the copy added as a directory (`--add-dir`), and only the
+// box user's settings (`--setting-sources user`): no settings, hooks or MCP servers of the copy
+// load.
 
 import { BOX_NPM_PREFIX } from "../../box/firewall";
+import { REVIEW_CODE_DIR } from "../../box/review-box";
 import type { BoxSession } from "../../box/workers";
 import type { LaunchPlan, WorkerSpec } from "../types";
 import { PlanError } from "../types";
@@ -58,6 +65,9 @@ export function boxClaudeArgv(spec: WorkerSpec, session: BoxSession): [string, .
     "bypassPermissions",
     "--tools",
     spec.tools.allow.join(","),
+    // A reviewer loads nothing of the copy it reviews: only the box user's settings, and the copy
+    // as a directory its read tools reach, never its working directory.
+    ...(spec.kind === "review" ? ["--setting-sources", "user", "--add-dir", REVIEW_CODE_DIR] : []),
     "--strict-mcp-config",
     "--append-system-prompt-file",
     session.systemFile,
@@ -69,13 +79,19 @@ export function boxClaudeArgv(spec: WorkerSpec, session: BoxSession): [string, .
 }
 
 /**
- * Pure: the launch plan of a developer session in `session`'s box. `runDir` is the host's working
- * directory on the Mac (the run directory); nothing of it reaches the box.
+ * Pure: the launch plan of a developer session in `session`'s box, or of a reviewer session in its
+ * reviewer box. `runDir` is the host's working directory on the Mac (the run directory); nothing
+ * of it reaches the box.
  */
 export function planInBox(spec: WorkerSpec, session: BoxSession, runDir: string): LaunchPlan {
   checkSpec(spec);
-  if (spec.kind !== "implement") {
-    throw new PlanError(`only a developer session runs in a box, not a ${spec.kind} session`);
+  if (spec.kind !== "implement" && spec.kind !== "review") {
+    throw new PlanError(
+      `only a developer or reviewer session runs in a box, not a ${spec.kind} session`,
+    );
+  }
+  if (spec.kind === "review" && spec.session.resume) {
+    throw new PlanError("a reviewer session is never resumed (0002)");
   }
   if (!runDir.startsWith("/")) throw new PlanError(`runDir must be an absolute path: ${runDir}`);
   const env = { ...session.env, ...BOX_CLAUDE_ENV };

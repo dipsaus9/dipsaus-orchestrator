@@ -42,7 +42,7 @@ import type { ExitRecord, HostLine, ParseState, WorkerEvent } from "../workers/t
 import { readCompleteLines, readRange, statEventFile, type FileIdentity } from "./event-file";
 import { byteLength, DEFAULT_OUTPUT_PRIVACY, type OutputPrivacy, outputText } from "./output";
 import { HOST_EVENTS_SOURCE, pendingWorkerOutput } from "./pending";
-import { recordTranscriptPath, recoverTranscriptUsage, type TranscriptReader } from "./transcript";
+import { recoverTranscriptUsage, type TranscriptReader } from "./transcript";
 import {
   applyTurnTotals,
   feedFinalChanges,
@@ -493,8 +493,7 @@ export class Ingestor {
           exited = true;
           exit = exitRecordOf(hostLine.data);
         }
-        // The line's end offset is the id of a waiting hook call (DIPO-59).
-        const step = target.adapter.interpret({ ...hostLine, end: line.end }, state);
+        const step = target.adapter.interpret(hostLine, state);
         state = step.state;
         for (const event of step.events) {
           events.push(event);
@@ -549,9 +548,6 @@ export class Ingestor {
             case "compacted":
               // The adapter emits one event per compaction; no preTokens when it had no count.
               recordCompaction(this.#office, target, event.preTokens ?? null, now);
-              break;
-            case "hook":
-              recordTranscriptPath(this.#office, target, event.hook, now);
               break;
             case "streamDrift": {
               if (event.kind !== "usage") driftAdded += 1;

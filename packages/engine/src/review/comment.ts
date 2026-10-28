@@ -10,7 +10,7 @@
 
 import type { ReviewCriterionResult, ReviewFinding } from "@dipsaus-orchestrator/contract";
 
-import { type EnvSecret, redactSecrets } from "../hooks/web-guard";
+import { type EnvSecret, redactSecrets } from "../run/env-secrets";
 
 import type { StoredReviewVerdict } from "./store";
 

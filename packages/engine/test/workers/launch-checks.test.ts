@@ -1,8 +1,8 @@
 // The launch checks and the adapter hold (DIPO-43 AC #5 to #7, 0008 sections 2 and 7): a refusal
 // is `startFailed`, holds the adapter for every office and emits an `engine.notice`; a later pass
-// lifts it. Only a reviewer launches on the Mac now (DIPO-240): its checks are the tools, the probe
-// and the project settings, with no self-test session, credential check or Safe-Chain proxy, and a
-// developer session is refused as a plan, since it runs only in its box.
+// lifts it. Only a `session` launches on the Mac now (DIPO-240, DIPO-347): its checks are the tools,
+// the probe and the project settings, with no self-test session, credential check or Safe-Chain
+// proxy, and a developer or reviewer session is refused as a plan, since each runs only in a box.
 //
 // DIPO-257's two hold scopes rested on the self-test's could-not-run verdict; with the self-test
 // gone every launch-check failure is one kind again and holds the adapter in every office, as an
@@ -21,6 +21,7 @@ import {
   CLAUDE_CLI_ADAPTER_ID,
   DEVELOPER_ON_MAC_REFUSED,
   plan,
+  REVIEWER_ON_MAC_REFUSED,
 } from "../../src/workers/claude-cli/plan";
 import {
   AdapterHolds,
@@ -29,7 +30,7 @@ import {
   RELEASE_NOTICE_CODE,
 } from "../../src/workers/hold";
 import { PlanError } from "../../src/workers/types";
-import { context, reviewContext, reviewSpec, scriptedClaude, spec } from "./launch-fixtures";
+import { context, reviewSpec, scriptedClaude, sessionSpec, spec } from "./launch-fixtures";
 
 function setup() {
   const clock = new ManualClock();
@@ -43,7 +44,7 @@ function setup() {
   return { clock, holds, notices };
 }
 
-/** Launch check deps for a review: a scripted claude and no project settings. */
+/** Launch check deps for a session: a scripted claude and no project settings. */
 function reviewDeps(clock: ManualClock, auth?: string) {
   const fake = scriptedClaude(clock, auth === undefined ? {} : { auth });
   return {
@@ -82,27 +83,25 @@ describe("(engine) adapter hold", () => {
   });
 });
 
-describe("(engine) the reviewer's launch checks (DIPO-145, DIPO-276, DIPO-240)", () => {
-  // The reviewer has no Bash (0021 section 10), so no credential check or sandbox self-test runs
-  // for it: both proved what sandboxed commands can reach, and a reviewer runs none.
-  it("runs the probe and the settings check only, with no session, and returns the review plan", async () => {
+describe("(engine) a session's launch checks (DIPO-145, DIPO-240, DIPO-310)", () => {
+  // A session has no tool at all, so no credential check or sandbox self-test runs for it: both
+  // proved what sandboxed commands can reach, and a session runs none.
+  it("runs the probe and the settings check only, with no session, and returns the plan", async () => {
     const { clock, holds } = setup();
     const { fake, deps } = reviewDeps(clock);
-    const result = await prepareLaunch(reviewSpec(), reviewContext(), holds, deps);
+    const result = await prepareLaunch(sessionSpec(), context(), holds, deps);
     if (!result.ok) throw new Error(`refused: ${JSON.stringify(result)}`);
-    expect(result.plan.argv[result.plan.argv.indexOf("--tools") + 1]).toBe(
-      "Read,Glob,Grep,WebSearch,WebFetch",
-    );
+    expect(result.plan.argv[result.plan.argv.indexOf("--tools") + 1]).toBe("");
     expect(fake.calls.map((call) => call.cmd[1])).toEqual(["--version", "auth"]);
     expect(holds.adapterHeld(CLAUDE_CLI_ADAPTER_ID)).toBeNull();
-    // No Safe-Chain shell in the reviewer's plan.
+    // No Safe-Chain shell in the session's plan.
     expect(result.plan.env["CLAUDE_CODE_SHELL"]).toBeUndefined();
   });
 
   it("holds on a refused probe in every office, with its reason, and a later pass lifts it", async () => {
     const { clock, holds, notices } = setup();
     const refused = reviewDeps(clock, '{"loggedIn":true,"authMethod":"api-key"}');
-    const result = await prepareLaunch(reviewSpec(), reviewContext(), holds, refused.deps);
+    const result = await prepareLaunch(sessionSpec(), context(), holds, refused.deps);
     expect(result).toMatchObject({ ok: false, outcome: "startFailed" });
     expect(holds.adapterHeld(CLAUDE_CLI_ADAPTER_ID)).toMatchObject({ check: "probe" });
     expect(holds.adapterHeld(CLAUDE_CLI_ADAPTER_ID)?.detail).toContain("api-key");
@@ -112,25 +111,20 @@ describe("(engine) the reviewer's launch checks (DIPO-145, DIPO-276, DIPO-240)",
     expect(notices.map((event) => (event.data as { code: string }).code)).toEqual([
       HOLD_NOTICE_CODE,
     ]);
-    const passed = await prepareLaunch(
-      reviewSpec(),
-      reviewContext(),
-      holds,
-      reviewDeps(clock).deps,
-    );
+    const passed = await prepareLaunch(sessionSpec(), context(), holds, reviewDeps(clock).deps);
     expect(passed.ok).toBe(true);
     expect(holds.adapterHeld(CLAUDE_CLI_ADAPTER_ID)).toBeNull();
   });
 
   it('holds when the session folder\'s .claude/settings.json holds {"hooks":{}}, naming the key and the file', async () => {
     await withTempDir(async (root) => {
-      const workdir = join(root, "dipo-review-run-0001-agt-0001", "session");
+      const workdir = join(root, "dipo-scan-run-0001-agt-0001", "session");
       mkdirSync(join(workdir, ".claude"), { recursive: true });
       const file = join(workdir, ".claude", "settings.json");
       writeFileSync(file, '{"hooks":{}}');
       const { clock, holds, notices } = setup();
       const { fake } = reviewDeps(clock);
-      const result = await prepareLaunch(reviewSpec({ workdir }), reviewContext(), holds, {
+      const result = await prepareLaunch(sessionSpec({ workdir }), context(), holds, {
         spawn: fake.spawn,
         clock,
         allowProjectSettings: [],
@@ -149,7 +143,7 @@ describe("(engine) the reviewer's launch checks (DIPO-145, DIPO-276, DIPO-240)",
   });
 });
 
-describe("(engine) a developer session is never planned on the Mac (DIPO-240)", () => {
+describe("(engine) a developer or reviewer session is never planned on the Mac (DIPO-240, DIPO-347)", () => {
   it("refuses it as a plan, holding nothing and running no check", async () => {
     const { clock, holds } = setup();
     const { fake, deps } = reviewDeps(clock);
@@ -160,9 +154,15 @@ describe("(engine) a developer session is never planned on the Mac (DIPO-240)", 
     expect(fake.calls).toEqual([]);
   });
 
-  it("refuses a review spec without its read-only copy as a plan too", () => {
-    const { readOnlyDir: _copy, ...withoutCopy } = reviewSpec();
-    expect(() => plan(withoutCopy, reviewContext())).toThrow(PlanError);
+  it("refuses a reviewer as a plan too: it runs only in a read-only box of its own", async () => {
+    const { clock, holds } = setup();
+    const { fake, deps } = reviewDeps(clock);
+    const refused = await prepareLaunch(reviewSpec(), context(), holds, deps).catch(
+      (e: unknown) => e,
+    );
+    expect((refused as PlanError).message).toBe(REVIEWER_ON_MAC_REFUSED);
+    expect(holds.adapterHeld(CLAUDE_CLI_ADAPTER_ID)).toBeNull();
+    expect(fake.calls).toEqual([]);
   });
 });
 
@@ -172,9 +172,9 @@ describe("(engine) roles with unchecked tools", () => {
     async (tool) => {
       const { clock } = setup();
       const { fake, deps } = reviewDeps(clock);
-      const launch = plan(reviewSpec(), reviewContext());
+      const launch = plan(sessionSpec(), context());
       const outcome = await claudeLaunchChecks(
-        reviewSpec({ tools: { allow: ["Read", tool], deny: [] } }),
+        spec({ tools: { allow: ["Read", tool], deny: [] } }),
         launch,
         deps,
       );

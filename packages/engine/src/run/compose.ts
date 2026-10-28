@@ -1,5 +1,5 @@
-// The one wiring of the run services (DIPO-129): ingestion with the permission wait and the
-// nudges, run control, worker outcomes, the resumer, the office's starts paused, the office's session
+// The one wiring of the run services (DIPO-129): ingestion with the live question rule and the web
+// call counts, run control, worker outcomes, the resumer, the office's starts paused, the office's session
 // places (DIPO-142) with the pending reviews and their starter (DIPO-219), the fix rounds and
 // their starter (DIPO-148), the launcher and re-attach, built from injected ports. The daemon and
 // the engine's run tests both build them here, so a test exercises the wiring the daemon runs.
@@ -11,10 +11,9 @@ import { join } from "node:path";
 import type { Clock, IdSource, OfficeId } from "@dipsaus-orchestrator/contract";
 
 import { BOX_RUN_FILE } from "../box/workers";
+import type { BoxWorkers } from "../box/workers";
 
-import { Nudges } from "../hooks/nudges";
 import { ABSENT, PermissionAsks, type Presence } from "../hooks/permissions";
-import { type FetchAddressDeps, SYSTEM_FETCH_ADDRESSES, WebGuard } from "../hooks/web-guard";
 import { CONTRACT_MAX_DEFAULT } from "../prompts/contract";
 import { currentProfile } from "../scan/store";
 import type { RunProfile } from "../scan/detect";
@@ -33,6 +32,7 @@ import { createRunOutcomes, type Resumption } from "./resumption";
 import { SessionRuns } from "./session-run";
 import { StartsPaused, type StartsPausedDeps } from "./starts-paused";
 import { afterRunExits } from "./temp-dirs";
+import { WebCalls } from "./web-calls";
 import { ConflictResumes, type ConflictResumesDeps } from "./conflicts";
 import { resolveIntent, runIntents } from "./intents";
 import type { MergeReentry, PrReplacement } from "./park-resume";
@@ -69,7 +69,7 @@ export interface RunPorts {
   readonly scheduling?: () => boolean;
   /** Ingestion; every entry it appends reaches `onChanged` at once. */
   readonly ingest: Pick<OfficeIngestOptions, "pricing" | "watchdog"> & {
-    /** Hears each run's worker exit after the permission wait and the nudges did. */
+    /** Hears each run's worker exit after the live question rule did. */
     readonly onEnded?: OfficeRunListener["onEnded"];
   };
   /** Run control; without it nothing is tracked, ended or decided (and no outcomes follow). */
@@ -115,12 +115,8 @@ export interface RunPorts {
    * launch and made again before a later session when it was lost. No box runs without them.
    */
   readonly boxes?: RunLauncherDeps["boxes"];
-  /**
-   * The box network's host address while this daemon knows one, else null (DIPO-281): the live
-   * source the web guard's WebFetch check and each reviewer's web proxy read for every check, so
-   * they refuse the box network. Without it they know none (`SYSTEM_FETCH_ADDRESSES`).
-   */
-  readonly boxHostAddress?: () => string | null;
+  /** The reviewer boxes (0002): each review session runs in one. No reviewer runs without them. */
+  readonly reviewBoxes?: Pick<BoxWorkers, "review" | "endReview">;
   /**
    * Copies into a run's box the merges dipo committed on its branch outside the box, before its
    * next developer session (DIPO-324); a failure parks the story instead of starting the worker.
@@ -137,8 +133,6 @@ export interface ComposedRuns {
   readonly ingest: OfficeIngest;
   /** The permission wait (DIPO-59), on every run's ingestion. */
   readonly permissions: PermissionAsks;
-  /** The 0014 section 8 nudges (DIPO-60), on every run's ingestion. */
-  readonly nudges: Nudges;
   readonly control: RunControl | null;
   readonly outcomes: RunOutcomes | null;
   /** Park resume and `work.resume` (DIPO-138), sharing the outcomes' facts. */
@@ -162,17 +156,6 @@ export interface ComposedRuns {
    * worker port, hosts and steering as the story runs, outside the worker and reviewer places.
    */
   readonly sessions: SessionRuns;
-}
-
-/**
- * What the web guard's WebFetch check reads (DIPO-281): the system's resolver and interfaces with
- * the daemon's live box network address, read for each check; undefined without one, so the guard
- * keeps its system default.
- */
-export function fetchAddressesOf(
-  boxHostAddress: (() => string | null) | undefined,
-): FetchAddressDeps | undefined {
-  return boxHostAddress === undefined ? undefined : { ...SYSTEM_FETCH_ADDRESSES, boxHostAddress };
 }
 
 /** `{ [key]: value }`, or `{}` when `value` is undefined (an optional port left out). */
@@ -214,19 +197,14 @@ function buildControl(ports: RunPorts, late: Late): RunControl | null {
   });
 }
 
-interface HookListeners {
+interface RunListeners {
   readonly permissions: PermissionAsks;
-  readonly nudges: Nudges;
-  readonly webGuard: WebGuard;
-  readonly hookEvents: OfficeRunListener;
+  readonly webCalls: WebCalls;
+  readonly runEvents: OfficeRunListener;
 }
 
-/** The permission wait and the nudges, and the one listener per ingestion pass that hears both. */
-function buildHookListeners(
-  ports: RunPorts,
-  control: RunControl | null,
-  late: Late,
-): HookListeners {
+/** The live question rule and the web calls, and the one listener per ingestion pass. */
+function buildRunListeners(ports: RunPorts, control: RunControl | null, late: Late): RunListeners {
   const ending = (run: string) => control?.isEnding(run) ?? false;
   const permissions = new PermissionAsks({
     clock: ports.clock,
@@ -249,49 +227,36 @@ function buildHookListeners(
     ...given("onChanged", ports.onChanged),
     ...given("warn", ports.warn),
   });
-  const nudges = new Nudges({
-    clock: ports.clock,
-    steering: ports.steering,
-    encode: (op) => ports.worker.encode(op),
-    ending,
-    ...given("warn", ports.warn),
-  });
-  const webGuard = new WebGuard({
-    clock: ports.clock,
+  const webCalls = new WebCalls({
     offices: ports.offices,
-    steering: ports.steering,
-    encode: (op) => ports.worker.encode(op),
-    ...given("fetchAddresses", fetchAddressesOf(ports.boxHostAddress)),
     ...given("warn", ports.warn),
   });
   const onEnded = ports.ingest.onEnded;
-  const hookEvents: OfficeRunListener = {
+  const runEvents: OfficeRunListener = {
     onWorkerEvents: (office, run, agent, events) => {
-      nudges.onWorkerEvents(office, run, agent, events);
-      webGuard.onWorkerEvents(office, run, agent, events);
+      webCalls.onWorkerEvents(office, run, agent, events);
     },
     onEnded: (office, run) => {
       permissions.onEnded(office, run);
-      nudges.onEnded(office, run);
       onEnded?.(office, run);
     },
   };
-  return { permissions, nudges, webGuard, hookEvents };
+  return { permissions, webCalls, runEvents };
 }
 
 function buildIngest(
   ports: RunPorts,
   control: RunControl | null,
-  listeners: Pick<HookListeners, "hookEvents" | "webGuard">,
+  listeners: Pick<RunListeners, "runEvents" | "webCalls">,
 ): OfficeIngest {
-  const { hookEvents, webGuard } = listeners;
+  const { runEvents, webCalls } = listeners;
   return new OfficeIngest({
     clock: ports.clock,
     pricing: ports.ingest.pricing,
     ...(control === null ? {} : { hooks: control.hooks }),
-    hookEvents,
+    runEvents,
     // No env value of the worktree reaches the stored web lines (0020 section 11b, DIPO-164).
-    redactOutput: (office, run, text) => webGuard.redactOutput(office, run, text),
+    redactOutput: (office, run, text) => webCalls.redactOutput(office, run, text),
     ...given("watchdog", ports.ingest.watchdog),
     ...given("onAppended", ports.onChanged),
     // `privacy.storeCommandBodies` of the configuration in force (0007 section 8, DIPO-83).
@@ -531,7 +496,7 @@ function buildReviews(
     hosts: ports.hosts,
     ingest: ports.resumeIngest?.(ingest) ?? ingest,
     control: trackerOf(ports, control),
-    ...given("boxHostAddress", ports.boxHostAddress),
+    ...given("boxes", ports.reviewBoxes),
     ...given("onChanged", ports.onChanged),
     ...given("warn", ports.warn),
   });
@@ -623,8 +588,8 @@ export function composeRuns(ports: RunPorts): ComposedRuns {
     places: null,
   };
   const control = buildControl(ports, late);
-  const listeners = buildHookListeners(ports, control, late);
-  const { permissions, nudges } = listeners;
+  const listeners = buildRunListeners(ports, control, late);
+  const { permissions } = listeners;
   late.permissions = permissions;
   const ingest = buildIngest(ports, control, listeners);
   late.ingest = ingest;
@@ -653,7 +618,6 @@ export function composeRuns(ports: RunPorts): ComposedRuns {
   return {
     ingest,
     permissions,
-    nudges,
     control,
     outcomes,
     resumption: late.resumption,

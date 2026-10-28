@@ -48,8 +48,12 @@
 //   finish at most `BOX_FINISH_WAIT_MS`, so a finish that hangs cannot hold the passes after it
 //   (the daemon-start sweep among them); the finish goes on, and a later pass waits for it again. At daemon start it also
 //   deletes the fill, build and Safe-Chain boxes (`dipo-fill-*`, `dipo-build-*`,
-//   `dipo-safe-chain-*`, DIPO-343) a stopped daemon left, never one this daemon uses now; the index folder is made before the first fill, so the backend is asked
-//   after a crash in the first box run's fill too.
+//   `dipo-safe-chain-*`, DIPO-343) and reviewer boxes (`dipo-review-*`) a stopped daemon left,
+//   never one this daemon uses now; the index folder is made before the first fill or reviewer
+//   box, so the backend is asked after a crash in the first one too.
+// - `review` and `endReview` (0002): a new box for each review session, from the office image,
+//   with a read-only copy of the pushed head and no `box.files` (`review-box.ts`), deleted when the
+//   session ends; `close` deletes the ones left at daemon stop.
 // - Before the worker's first session (the launch, after `create`; DIPO-294): `install` runs the
 //   office's install in the box at the start commit with the box's web route and the Safe-Chain CA
 //   bundle, as a session gets them (`runBoxInstall`); with a mounted cache first with
@@ -88,6 +92,13 @@ import {
 import { initBoxRepository } from "./box-git";
 import { BOX_DIPO_DIR, BOX_WORKDIR, type BoxCodeDeps, stageBoxCode } from "./code";
 import { BoxDoor, type BoxDoorDeps, type DoorRead, installDipoPart } from "./door";
+import {
+  REVIEW_BOX_RUN_PREFIX,
+  REVIEW_ROOT,
+  REVIEW_SESSION_DIR,
+  reviewBoxName,
+  stageReviewCopy,
+} from "./review-box";
 import { BOX_IMAGE_ENV, type BaseBox, type BoxImageDescription, type BoxToolchain } from "./image";
 import { boxModelEnvironment, type RunningModelProxy } from "./model-proxy";
 import {
@@ -447,6 +458,8 @@ export class BoxWorkers {
   readonly #cached = new Map<string, CacheManager>();
   /** The fill boxes and build boxes (DIPO-281) of the fills and builds in flight here, by name. */
   readonly #filling = new Set<string>();
+  /** The reviewer boxes made here and not deleted yet, by name (0002). */
+  readonly #reviews = new Set<string>();
   /** The one admission of each test box on the web route (DIPO-309, `#admit`). */
   readonly #admitted = new Map<
     string,
@@ -557,16 +570,6 @@ export class BoxWorkers {
   async #networkOf(): Promise<BoxNetwork> {
     this.#network ??= await this.#deps.boxes.network();
     return this.#network;
-  }
-
-  /**
-   * The box network's host address once this daemon prepared the network, else null (DIPO-281):
-   * the live source the web guard and the reviewer's web proxy read, for each check, to refuse the
-   * box network. The address exists on the Mac only while a box on it runs, and every box here
-   * runs only after the network was prepared, so null while no box ran here is no gap.
-   */
-  get hostAddress(): string | null {
-    return this.#network?.hostAddress ?? null;
   }
 
   /** The local ports of the Mac the box of `runDir`'s record may reach (DIPO-282); none without. */
@@ -853,6 +856,108 @@ export class BoxWorkers {
         `the box of run ${runId} is still being checked and stopped after ${waitText(waitMs)}; the session did not start. Name the story again later.`,
       );
     }
+  }
+
+  /**
+   * A new box for one review session (0002, 0008, `review-box.ts`): the office image of the base
+   * branch, the box network and the image's box network tools, nothing else mounted, and a
+   * read-only copy of `commit` at `REVIEW_ROOT`. Then, as a developer session gets them, dipo's web
+   * route and model proxy, the box firewall set to exactly their two ports and checked, and dipo's
+   * files (the system file and the Safe-Chain CA bundle). The web route admits the box with no
+   * local port of the Mac. Throws a `BoxError` when any of it fails; the box is deleted then.
+   * `endReview` deletes it when the session ends.
+   */
+  async review(input: {
+    readonly agent: string;
+    readonly git: OfficeGit;
+    readonly commit: string;
+    readonly systemFile: string;
+  }): Promise<BoxSession> {
+    const { boxes } = this.#deps;
+    const held = this.#deps.holds.adapterHeld(this.#deps.adapter);
+    if (held?.liftedBy !== undefined) throw new BoxError("box.held", holdMessage(held));
+    const check = await boxes.check();
+    if (!check.ok) throw new BoxError("box.unavailable", `boxes cannot run here: ${check.reason}`);
+    const base = await this.#deps.readBaseBox(input.git);
+    if (!base.ok) {
+      const why = base.errors.map((error) => `${error.path}: ${error.message}`).join("; ");
+      throw new BoxError("box.refused", `the base branch's box block cannot be read: ${why}`);
+    }
+    const runId = `${REVIEW_BOX_RUN_PREFIX}${input.agent}`;
+    const name = reviewBoxName(input.agent);
+    const image = await this.#image(runId, base.description.image);
+    const network = await this.#networkOf();
+    // Before the box exists: a daemon that crashes now asks the backend at its next start, and the
+    // sweep of this daemon leaves the box alone while it is here.
+    ensurePrivateDir(this.#index);
+    this.#reviews.add(name);
+    try {
+      await boxes.create({ runId, image: image.tag, network, netTools: image.netTools });
+      await boxes.start(name);
+      const staged = await stageReviewCopy(this.#deps.code, {
+        git: input.git,
+        commit: input.commit,
+        tmpRoot: this.#deps.tmpRoot,
+      });
+      try {
+        await boxes.copyIn(name, `${staged.root}/.`, REVIEW_ROOT);
+      } finally {
+        await staged.remove();
+      }
+      const web = await this.#web.acquire(name);
+      const model = await this.#model.acquire(name);
+      // Before the session: the box reaches these two ports on the Mac, no more.
+      await boxes.firewall(name, {
+        hostAddress: network.hostAddress,
+        ports: [portOf(web.url), model.port],
+      });
+      await this.#copyDipoFiles(name, input.systemFile, web.caFile);
+      // No local port of the Mac: a reviewer reaches no service of the Mac.
+      const proxy = web.admit(name, []);
+      const env = {
+        ...BOX_IMAGE_ENV,
+        ...boxModelEnvironment(model),
+        HTTPS_PROXY: proxy,
+        HTTP_PROXY: proxy,
+        NODE_EXTRA_CA_CERTS: BOX_CA_FILE,
+      };
+      this.#deps.info?.("reviewer box ready", { box: name, image: image.tag });
+      return {
+        box: name,
+        workdir: REVIEW_SESSION_DIR,
+        env,
+        systemFile: BOX_SYSTEM_FILE,
+        exec: (command, commandEnv) =>
+          boxes.execLiveCommand(name, command, { cwd: REVIEW_SESSION_DIR, env: commandEnv }),
+        stop: boxes.stopCommand(name),
+      };
+    } catch (error) {
+      await this.endReview(input.agent);
+      if (error instanceof BoxError) throw error;
+      throw new BoxError("box.failed", `the reviewer's box could not be made: ${messageOf(error)}`);
+    }
+  }
+
+  /**
+   * Deletes the box of the review session of `agent` and releases its routes (0002): when the
+   * session ends, or its start failed. Never rejects; a box that cannot be deleted now is deleted
+   * at the next daemon start.
+   */
+  async endReview(agent: string): Promise<void> {
+    let name: string;
+    try {
+      name = reviewBoxName(agent);
+    } catch {
+      return;
+    }
+    try {
+      const listed = await this.#deps.boxes.list();
+      if (listed.some((box) => box.name === name)) await this.#deps.boxes.delete(name);
+    } catch (error) {
+      this.#deps.warn?.("deleting a reviewer box failed", { box: name, reason: messageOf(error) });
+    }
+    await this.#release(name);
+    this.#reviews.delete(name);
   }
 
   /**
@@ -1460,7 +1565,8 @@ export class BoxWorkers {
           if (
             box.runId.startsWith(FILL_BOX_RUN_PREFIX) ||
             box.runId.startsWith(BUILD_BOX_RUN_PREFIX) ||
-            box.runId.startsWith(SAFE_CHAIN_BOX_RUN_PREFIX)
+            box.runId.startsWith(SAFE_CHAIN_BOX_RUN_PREFIX) ||
+            box.runId.startsWith(REVIEW_BOX_RUN_PREFIX)
           ) {
             fills.push(box.name);
           } else {
@@ -1545,12 +1651,12 @@ export class BoxWorkers {
   }
 
   /**
-   * Deletes the listed fill boxes and build boxes no fill or build here uses: a stopped daemon
-   * left them mid-fill or mid-build.
+   * Deletes the listed fill, build, Safe-Chain and reviewer boxes nothing here uses: a stopped
+   * daemon left them mid-fill, mid-build or mid-review.
    */
   async #deleteLeftFills(fills: readonly string[]): Promise<void> {
     for (const name of fills) {
-      if (this.#filling.has(name)) continue;
+      if (this.#filling.has(name) || this.#reviews.has(name)) continue;
       try {
         await this.#deps.boxes.delete(name);
         this.#deps.info?.("deleted a fill box a stopped daemon left", { box: name });
@@ -1564,13 +1670,25 @@ export class BoxWorkers {
   }
 
   /**
-   * Daemon stop: stops every indexed box that runs, which ends the worker inside it (its host
-   * then records the exit), and stops the routes. The boxes keep their files for the run's next
-   * session. A test box keeps running (DIPO-309): its product serves the open test, which the next
-   * daemon takes up again. Never rejects.
+   * Daemon stop: deletes every reviewer box, stops every indexed box that runs, which ends the
+   * worker inside it (its host then records the exit), and stops the routes. The boxes keep their
+   * files for the run's next session. A test box keeps running (DIPO-309): its product serves the
+   * open test, which the next daemon takes up again. Never rejects.
    */
   async close(): Promise<void> {
     this.#door?.close();
+    // A reviewer box lives only as long as its session, which ends with this daemon's routes.
+    for (const name of this.#reviews) {
+      try {
+        await this.#deps.boxes.delete(name);
+      } catch (error) {
+        this.#deps.warn?.("deleting a reviewer box at stop failed", {
+          box: name,
+          reason: messageOf(error),
+        });
+      }
+      this.#reviews.delete(name);
+    }
     const pending = new Set(
       this.pending()
         .filter((runId) => !runId.startsWith(TEST_BOX_RUN_PREFIX))

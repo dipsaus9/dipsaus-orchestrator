@@ -20,7 +20,8 @@
 // - After the catch-up the run's caps are checked once, so a run over its caps is stopped at once.
 // - A living developer host of a run with no box record (an earlier binary's Mac session, from
 //   before every run was a box run; DIPO-240) is stopped with an error notice, and its story parks
-//   `worker-failed`; its next session runs in a box. A reviewer stays on the Mac and is followed.
+//   `worker-failed`; its next session runs in a box. A reviewer's host is followed: its box went at
+//   the daemon stop (0002), so it exits, and its review round decides that as a crash.
 // - A run whose host event file changed (DIPO-45's `ingest.fileChanged`, also one reported before
 //   the stop) parks `worker-failed` with the detail "event file changed".
 //

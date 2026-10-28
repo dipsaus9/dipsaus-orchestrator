@@ -20,12 +20,11 @@ export const MIN_CLAUDE_VERSION = "2.1.285";
 export const CHECKED_CLAUDE_VERSION = "2.1.303";
 /** The only login a worker may run on (0008 section 2). */
 export const REQUIRED_AUTH_METHOD = "claude.ai";
-/** What this adapter offers (0008 section 11); `hooks` since the hook relay (DIPO-59). */
+/** What this adapter offers (0008 section 11). No session has hooks (0008, DIPO-347). */
 export const CLAUDE_CLI_CAPABILITIES: readonly string[] = [
   "steer",
   "pause",
   "resume",
-  "hooks",
   "structuredReport",
   "planLimitEvents",
   "costEstimate",

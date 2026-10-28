@@ -125,7 +125,6 @@ function world(t: TestState, dir: string): World {
     toolVariables: [],
     mainCheckout: paths.mainCheckout,
     runDir: paths.runDir,
-    hostSocket: paths.hostSocket,
     tmpDir: paths.tmpDir,
     shortTmpDir: paths.shortTmpDir,
     sandbox: OFFICE_DEFAULTS.sandbox,

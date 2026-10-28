@@ -3,7 +3,6 @@
 // running turn: `next` once the running tool calls finish, `now` interrupts the turn.
 
 import type { HostOp, SteerOp } from "../types";
-import { nudgeOutput, permissionOutput, preToolUseOutput } from "./hooks";
 
 export type MessagePriority = "now" | "next" | "later";
 
@@ -44,16 +43,6 @@ export function encode(op: SteerOp): HostOp[] {
       ];
     case "kill":
       return [{ signal: "SIGKILL" }];
-    case "hookReply":
-      // The waiting `PermissionRequest` hook prints this (0008 section 5); empty is no decision.
-      return [{ hookReply: op.reply.hook, output: permissionOutput(op.reply) }];
-    case "toolGate":
-      // The waiting `PreToolUse` hook prints Claude's deny, or nothing to let the call proceed.
-      return [{ hookReply: op.reply.hook, output: preToolUseOutput(op.reply) }];
-    case "nudge":
-      // The pending `PostToolUse` or `SessionStart` hook prints the text as `additionalContext`
-      // (0014 section 8, 0008 amendment of 2026-10-12).
-      return [{ hookReply: op.hook, output: nudgeOutput(op) }];
     default: {
       const unknown: never = op;
       throw new Error(`unknown steer op ${JSON.stringify(unknown)}`);

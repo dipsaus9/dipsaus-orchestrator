@@ -358,6 +358,17 @@ export {
 export type { SafeChainEcosystem } from "./safe-chain";
 export { runSafeChainCheck, safeChainCheckProblem, startBoxWebRoute } from "./safe-chain-box";
 export { connectToBox } from "./box-connect";
+export {
+  checkCopyComplete,
+  REVIEW_BOX_RUN_PREFIX,
+  REVIEW_CODE_DIR,
+  REVIEW_ROOT,
+  REVIEW_SESSION_DIR,
+  reviewBoxName,
+  ReviewCopyMismatchError,
+  stageReviewCopy,
+} from "./review-box";
+export type { StagedReviewCopy } from "./review-box";
 export type { BoxConnectTarget, BoxConnector } from "./box-connect";
 export type {
   SafeChainBoxes,

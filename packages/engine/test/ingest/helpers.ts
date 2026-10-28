@@ -172,3 +172,39 @@ export function storedOutput(office: OfficeHandle, run: string): string {
     .map((row) => row.text)
     .join("");
 }
+
+/**
+ * Stores the transcript cursor of `scope` as an earlier binary's hook relay left it (DIPO-134): the
+ * session's transcript at `path`, read from its start, and each subagent's at its own path. No
+ * session names one any more (DIPO-347); the tailer still reads such a cursor.
+ */
+export function seedTranscriptCursor(
+  office: OfficeHandle,
+  scope: { readonly run: string; readonly agent: string },
+  transcripts: { readonly path: string; readonly subagents?: Readonly<Record<string, string>> },
+  at: number,
+): void {
+  const subagents = Object.fromEntries(
+    Object.entries(transcripts.subagents ?? {}).map(([id, path]) => [
+      id,
+      { path, offset: 0, messages: {} },
+    ]),
+  );
+  office.immediate(() =>
+    office.run(
+      `insert into ingest_cursors (office_id, run_id, agent_id, source_kind, path, read_offset,
+         parse_state, updated_at)
+       values ($office_id, $run, $agent, 'transcript', $path, 0, $state, $at)
+       on conflict (office_id, run_id, agent_id, source_kind) do update set
+         path = excluded.path, read_offset = 0, parse_state = excluded.parse_state,
+         updated_at = excluded.updated_at`,
+      {
+        run: scope.run,
+        agent: scope.agent,
+        path: transcripts.path,
+        state: JSON.stringify({ subagents }),
+        at,
+      },
+    ),
+  );
+}

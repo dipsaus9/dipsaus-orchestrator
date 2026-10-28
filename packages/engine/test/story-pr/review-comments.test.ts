@@ -13,7 +13,7 @@ import {
 
 import { OFFICE_DEFAULTS, type OfficeConfig } from "../../src/config";
 import type { OfficeHandle } from "../../src/db/office";
-import type { EnvSecret } from "../../src/hooks/web-guard";
+import type { EnvSecret } from "../../src/run/env-secrets";
 import { yieldToEventLoop } from "../../src/platform/clock";
 import {
   type CodeHost,

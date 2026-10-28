@@ -2,8 +2,8 @@
 // story's box as a long-running `container exec`, with the stream-json input and output it reads
 // from a Mac worker; inside the box claude runs with all permissions, and none of the Mac worker's
 // sandbox settings, hooks or permission relay is planned. A run is a box run when its run
-// directory records a box; a reviewer of that run stays on the Mac. The box's placeholder key is
-// accepted at `system/init`, only for the box's developer.
+// directory records a box; its reviewer runs in a read-only box of its own (`review-tools.test.ts`).
+// The box's placeholder key is accepted at `system/init` for a box run's sessions.
 
 import { describe, expect, it } from "bun:test";
 
@@ -33,6 +33,7 @@ import {
   context,
   HOME,
   MAIN,
+  reviewSpec,
   RUN_DIR,
   SHORT_TMP_DIR,
   spec,
@@ -140,7 +141,7 @@ describe("the box worker's plan (criteria 1 and 2)", () => {
   });
 
   it("plans no sandbox settings, hooks, permission relay or dipo socket for the box", () => {
-    const plan = planInBox(spec({ hookRelay: true }), session(), RUN_DIR);
+    const plan = planInBox(spec(), session(), RUN_DIR);
     const text = JSON.stringify(plan);
     expect(plan.files).toEqual([]);
     for (const flag of [
@@ -166,8 +167,17 @@ describe("the box worker's plan (criteria 1 and 2)", () => {
     expect(plan.stopCommand).toEqual([FAKE_CONTAINER, "stop", BOX]);
   });
 
-  it("plans only a developer session in a box", () => {
-    expect(() => planInBox(spec({ kind: "review" }), session(), RUN_DIR)).toThrow(PlanError);
+  it("plans a developer or reviewer session in a box, never a `session`", () => {
+    expect(() =>
+      planInBox(spec({ kind: "session", tools: { allow: [], deny: [] } }), session(), RUN_DIR),
+    ).toThrow(PlanError);
+    expect(() =>
+      planInBox(
+        reviewSpec({ session: { id: spec().session.id, resume: true } }),
+        session(),
+        RUN_DIR,
+      ),
+    ).toThrow(/never resumed/);
   });
 });
 
@@ -181,7 +191,6 @@ function port(boxes: ClaudeBoxWorkers, holds: AdapterHolds) {
     claudePath: `${HOME}/.local/bin/claude`,
     home: HOME,
     env: { PATH: "/usr/bin:/bin", HOME },
-    dipoCommand: ["/opt/dipo/bin/dipo"],
     spawn: neverSpawn,
     clock,
     holds,
@@ -368,9 +377,25 @@ function rejected(boxWorker: boolean, reportKind: "implement" | "review"): boole
 }
 
 describe("the box's placeholder key at system/init", () => {
-  it("is accepted for the box's developer, and refused on the Mac and for a reviewer", () => {
+  it("is accepted for the box's developer, and refused for a developer off a box run", () => {
     expect(rejected(true, "implement")).toBe(false);
     expect(rejected(false, "implement")).toBe(true);
-    expect(rejected(true, "review")).toBe(true);
+  });
+
+  it("is accepted for every reviewer, whose session runs in its box, with or without the run's box record (DIPO-347)", () => {
+    const holds = new AdapterHolds({ clock, notify: () => {} });
+    for (const boxRun of [true, false]) {
+      const claude = port({ isBoxRun: () => boxRun, session: async () => session() }, holds);
+      const adapter = claude.adapter(PATHS, OFFICE_DEFAULTS);
+      const state = claude.initialState(reviewSpec({ model: "sonnet" }));
+      const events = adapter.interpret(init("ANTHROPIC_API_KEY"), state).events;
+      expect(events.some((event) => event.t === "initRejected")).toBe(false);
+    }
+    // A developer's state from its spec carries no exemption of its own.
+    const developer = port({ isBoxRun: () => false, session: async () => session() }, holds);
+    const events = developer
+      .adapter(PATHS, OFFICE_DEFAULTS)
+      .interpret(init("ANTHROPIC_API_KEY"), developer.initialState(spec())).events;
+    expect(events.some((event) => event.t === "initRejected")).toBe(true);
   });
 });

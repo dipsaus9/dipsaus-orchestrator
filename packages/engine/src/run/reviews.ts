@@ -735,10 +735,10 @@ export class Reviews {
     await this.#decide(lost.view, lost.agent, null);
   }
 
-  /** The ended session's read-only copy goes (DIPO-276); a failure is left for the start sweep. */
+  /** The ended session's reviewer box goes (0002); a failure is left for the daemon-start sweep. */
   async #finish(view: RunView, agent: string): Promise<void> {
     await this.#deps.sessions.finish?.(view.office, view.runId, agent).catch((error: unknown) => {
-      this.#deps.warn?.("a reviewer's read-only copy could not be removed", {
+      this.#deps.warn?.("a reviewer's box could not be deleted", {
         run: view.runId,
         reason: messageOf(error),
       });

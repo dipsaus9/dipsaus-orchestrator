@@ -1,52 +1,26 @@
-// Starting a reviewer session of a story run (0019 sections 4 and 13, DIPO-219), and the git reads
-// a review needs. The reviewer is a new agent of the run with role `reviewer`, always a fresh
-// session (0008 section 8): the `review` system file (L1+L2; `review-box` for a box run, whose
-// verify is CI, DIPO-299) in its own file of the run directory, the review task message as its
-// first message, the reviewer's tools, model, effort and its own
-// turn and minute caps (`runWorkerSpec` with the review settings), and what remains of the story's
-// budget. The launch checks run first (`WorkerPort.prepare`); a refused check is `startFailed`
-// with the adapter hold set. No backstop snapshot is taken: the reviewer reads a read-only copy,
-// and the Mac backstop went with the Mac worker path (DIPO-240).
-// Ingestion starts after what earlier hosts wrote to the run's event file, and run control tracks
-// the session with the reviewer's caps.
+// Starting a reviewer session of a story run (0002, DIPO-219), and the git reads a review needs.
+// The reviewer is a new agent of the run with role `reviewer`, always a fresh session (0008): the
+// `review` system file (L1+L2; `review-box` for a box run, whose verify ran in the developer's box)
+// in its own file of the run directory, the review task message as its first message, the
+// reviewer's tools, model, effort and its own turn, minute and token caps (`runWorkerSpec` with the
+// review settings). Ingestion starts after what earlier hosts wrote to the run's event file, and
+// run control tracks the session with the reviewer's caps.
 //
-// The reviewer has no box and reads a read-only copy of the pushed commit (0021 sections 10 and
-// 14, DIPO-276). For each session dipo makes a folder of its own in its temp root,
-// `dipo-review-<run>-<agent>`, private to the daemon's user, outside every worktree:
+// Each review session runs in a read-only box of its own (0002, 0008, `BoxWorkers.review`): a new
+// box from the office image with a copy of exactly the head the review round read
+// (`ReviewSessionRequest.head`), refused when the story branch has moved since, no `box.files`, and
+// the firewall, the box user and the proxies of any box. Its web traffic goes through the box web
+// proxy. No session has hooks. The box is deleted when the start fails, when the session's exit or
+// lost host is decided (`finish`), at daemon stop, and at daemon start for one a stopped daemon
+// left. The head the session reviews is kept in the run directory (`REVIEW_COMMIT_PREFIX`), read
+// back for the verdict (`reviewedCommit`) and removed with the box.
 //
-// - `session/`, empty: the reviewer's working directory. Claude Code reads project settings, hooks
-//   and CLAUDE.md from its working directory and that folder's parents, so the copy is neither.
-// - The copy: exactly the head the review round read (`ReviewSessionRequest.head`), refused when
-//   the story branch has moved since, from git's objects alone (`stageBoxCode`: `git archive` on
-//   the repository without a work tree, the hardened config with every filter driver off, no
-//   `.gitattributes` of the archived tree or the index applied, so `export-ignore` and
-//   `export-subst` hide or rewrite nothing, and the system `tar`). It has no `.git`, its symbolic
-//   links are left out, and every file and folder is made read-only. It is then compared with
-//   `git ls-tree` of the commit: a file of the commit that is missing, or a file the commit does
-//   not hold, refuses it.
-//   The run settings add it as a directory the read tools may read and exclude its CLAUDE.md files
-//   by path; `--disable-slash-commands`, `enabledPlugins` false for every installed plugin and the
-//   `system/init` plugin refusal keep the skills and plugin keys it may hold inert (`plan`).
-// - `commit`: the head the copy holds, read back for the verdict (`reviewedCommit`).
-//
-// The folder goes when the session's start fails, when its exit or lost host is decided
-// (`finish`), and at daemon start for every folder whose reviewer host no longer runs
-// (`sweepReviewFolders`).
-//
-// The reviewer fetches from the Mac, so each session gets a web proxy listener of its own
-// (DIPO-292, `startReviewWebProxy`): the box web proxy's address rule, on the loopback interface
-// only, on a port the system picks, refusing the box network by the host address the web guard
-// reads (`boxHostAddress`). The session's HTTPS_PROXY and HTTP_PROXY name it and its
-// NO_PROXY names only the model API (`plan`), so every web fetch, and each redirect it follows,
-// is checked at connect time on the address actually used. The web guard's check of the URL before
-// the fetch stays as the first layer. The listener starts before the launch checks and stops with
-// the folder: when the start fails and when the session's exit or lost host is decided (a crash
-// or a stop included). A listener that cannot start fails the review start: no reviewer runs
-// without it. It lives in the daemon, so a daemon that stops takes it along; a reviewer host that
-// outlives the daemon then reaches no web at all.
+// Right before the session starts, the launcher asks again whether the story is held by a park
+// (`ReviewSessionRequest.held`, DIPO-346): a park that landed while the box was made starts no
+// reviewer, and the box goes.
 
-import { existsSync, readFileSync, statSync, writeFileSync } from "node:fs";
-import { chmod, lstat, mkdir, readdir, realpath, rm, unlink } from "node:fs/promises";
+import { existsSync, readFileSync, rmSync, statSync, writeFileSync } from "node:fs";
+import { chmod, lstat, readdir, rm } from "node:fs/promises";
 import { join } from "node:path";
 
 import {
@@ -61,9 +35,8 @@ import {
   type WorkRef,
 } from "@dipsaus-orchestrator/contract";
 
-import { type BoxCodeDeps, stageBoxCode } from "../box/code";
-import { startReviewWebProxy } from "../box/web-proxy";
-import { BOX_RUN_FILE } from "../box/workers";
+import { REVIEW_CODE_DIR, ReviewCopyMismatchError } from "../box/review-box";
+import { BOX_RUN_FILE, type BoxWorkers } from "../box/workers";
 import { appendEntries } from "../changelog/log";
 import type { OfficeConfig } from "../config";
 import { sizeClassOfWorkspace } from "../context/size";
@@ -72,11 +45,9 @@ import { gitWorkspace } from "../context/workspace";
 import type { OfficeHandle } from "../db/office";
 import type { GitLocation } from "../git/hardened";
 import type { OfficeGit } from "../git/office";
-import { type FetchAddressDeps, SYSTEM_FETCH_ADDRESSES } from "../hooks/web-guard";
 import { EVENTS_FILE } from "../host/protocol";
 import type { IngestAdapter } from "../ingest/ingestor";
 import { ensurePrivateDir } from "../platform/paths";
-import { systemSpawn } from "../platform/process";
 import { promptParts, recordPromptParts, recordPromptTexts } from "../prompts/parts";
 import { type ReviewChangedPath, withReviewCommit } from "../prompts/review";
 import { renderSystemFile } from "../prompts/system";
@@ -102,7 +73,6 @@ import {
 import { sessionUuid } from "./prompts";
 import { findRun, storeReviewCaps, type StoredRun } from "./records";
 import { codeTreeKeyOf } from "./story-git";
-import { prepareRunTempDirs } from "./temp-dirs";
 
 /** The git reads of a review, in the story worktree. */
 export interface ReviewGit {
@@ -221,178 +191,28 @@ export function gitReviewOps(gitOf: (office: OfficeId) => OfficeGit | undefined)
   };
 }
 
-/** The name prefix of a reviewer session's folder in dipo's temp root (DIPO-276). */
-export const REVIEW_FOLDER_PREFIX = "dipo-review-";
-/** The reviewer's working directory in its folder: empty, made by dipo. */
-export const REVIEW_SESSION_DIR = "session";
-/** The file in a reviewer's folder that names the commit its copy holds. */
-export const REVIEW_COMMIT_FILE = "commit";
-
-const COMMIT_ID = /^[0-9a-f]{40}([0-9a-f]{24})?$/;
-/** Git's modes of a regular file; links (120000) and submodules (160000) have no file in the copy. */
-const FILE_MODES: ReadonlySet<string> = new Set(["100644", "100755"]);
-
-const REVIEW_FOLDER = /^dipo-review-(run_[0-9A-Za-z]+)-(agt_[0-9A-Za-z]+)$/;
-
-/** The folder of one reviewer session: its empty working directory and the copy. */
-export function reviewFolder(tmpRoot: string, runId: string, agent: string): string {
-  return join(tmpRoot, `${REVIEW_FOLDER_PREFIX}${runId}-${agent}`);
-}
-
-/** A reviewer session's read-only copy of the pushed commit and its empty working directory. */
-export interface ReviewCopy {
-  /** The session's folder in dipo's temp root; removing it removes everything below. */
-  readonly root: string;
-  /** The reviewer's working directory: empty, outside the copy. */
-  readonly session: string;
-  /** The read-only copy of `commit`. */
-  readonly copy: string;
-  readonly commit: string;
-}
-
-function errorCodeOf(error: unknown): string {
-  const code = (error as { code?: unknown } | null)?.code;
-  return typeof code === "string" ? code : "error";
-}
-
 /**
- * Makes everything below `dir` read-only: files 0444 (0555 when executable), folders 0555. A
- * symbolic link is removed: the read tools would follow it out of the copy; the diff shows it. So
- * is anything that is neither a file nor a folder.
+ * The name of a reviewer session's folder an earlier binary made in dipo's temp root for its Mac
+ * reviewer (DIPO-276): `dipo-review-<run>-<agent>`, with a read-only copy (0555 folders) inside.
  */
-async function lockReadOnly(dir: string): Promise<void> {
-  for (const entry of await readdir(dir, { withFileTypes: true })) {
-    const path = join(dir, entry.name);
-    const stat = await lstat(path);
-    if (stat.isDirectory()) {
-      await lockReadOnly(path);
-    } else if (stat.isFile()) {
-      await chmod(path, (stat.mode & 0o111) === 0 ? 0o444 : 0o555);
-    } else {
-      await unlink(path);
-    }
-  }
-  await chmod(dir, 0o555);
-}
+const OLD_REVIEW_FOLDER = /^dipo-review-(run_[0-9A-Za-z]+)-(agt_[0-9A-Za-z]+)$/;
 
-/** The paths of every regular file below `dir`, relative to it. */
-async function filesBelow(dir: string, prefix = ""): Promise<string[]> {
-  const out: string[] = [];
-  for (const entry of await readdir(dir, { withFileTypes: true })) {
-    const rel = prefix === "" ? entry.name : `${prefix}/${entry.name}`;
-    if (entry.isDirectory()) out.push(...(await filesBelow(join(dir, entry.name), rel)));
-    else if (entry.isFile()) out.push(rel);
-  }
-  return out;
-}
-
-/**
- * Compares the copy with the commit's own file list (`git ls-tree -r -z`, links and submodules
- * left out): throws when a file of the commit is missing from it or it holds a file the commit
- * does not, for example one an `export-ignore` attribute left out.
- */
-export async function checkCopyComplete(
-  git: OfficeGit,
-  commit: string,
-  dir: string,
-): Promise<void> {
-  const listed = await git.run((session) =>
-    session.ok(session.repository, ["ls-tree", "-r", "-z", "--full-tree", commit]),
-  );
-  const expected = new Set(
-    listed.split("\0").flatMap((record) => {
-      const tab = record.indexOf("\t");
-      if (tab === -1) return [];
-      const mode = record.slice(0, record.indexOf(" "));
-      return FILE_MODES.has(mode) ? [record.slice(tab + 1)] : [];
-    }),
-  );
-  const present = new Set(await filesBelow(dir));
-  const missing = [...expected].filter((path) => !present.has(path));
-  const extra = [...present].filter((path) => !expected.has(path));
-  if (missing.length > 0 || extra.length > 0) {
-    throw new ReviewCopyMismatchError(
-      `the copy of ${commit} does not match the commit: ${missing.length} of its files missing, ${extra.length} files it does not hold`,
-    );
-  }
-}
-
-/** The copy does not hold exactly the commit's files: the review of that head cannot start. */
-export class ReviewCopyMismatchError extends Error {}
-
-/** Gives every folder below `dir` its owner's write bit back, so the tree can be removed. */
-async function unlock(dir: string): Promise<void> {
+/** Gives every folder below `dir` its owner's write bit back, never through a link. */
+async function unlockTree(dir: string): Promise<void> {
   await chmod(dir, 0o700);
   for (const entry of await readdir(dir, { withFileTypes: true })) {
-    if (entry.isDirectory() && !entry.isSymbolicLink()) await unlock(join(dir, entry.name));
-  }
-}
-
-/** Removes a reviewer session's folder, read-only copy included; nothing when it is not there. */
-export async function removeReviewFolder(root: string): Promise<void> {
-  let stat;
-  try {
-    stat = await lstat(root);
-  } catch (error) {
-    if (errorCodeOf(error) === "ENOENT") return;
-    throw error;
-  }
-  // Never through a link: only the folder dipo made.
-  if (stat.isDirectory()) await unlock(root);
-  await rm(root, { recursive: true, force: true });
-}
-
-/**
- * Makes the folder of one reviewer session: its empty working directory and a read-only copy of
- * `commit` from git's objects (`stageBoxCode` with the tree's attributes off, no file of any
- * worktree read), checked against the commit's file list. A failure leaves no folder behind.
- */
-export async function makeReviewCopy(
-  deps: BoxCodeDeps,
-  request: {
-    readonly git: OfficeGit;
-    readonly commit: string;
-    readonly tmpRoot: string;
-    readonly runId: string;
-    readonly agent: string;
-  },
-): Promise<ReviewCopy> {
-  if (!COMMIT_ID.test(request.commit)) {
-    throw new Error(`${JSON.stringify(request.commit)} is not a commit id`);
-  }
-  const root = reviewFolder(await realpath(request.tmpRoot), request.runId, request.agent);
-  await removeReviewFolder(root);
-  await mkdir(root, { mode: 0o700 });
-  try {
-    const session = join(root, REVIEW_SESSION_DIR);
-    await mkdir(session, { mode: 0o700 });
-    const staged = await stageBoxCode(deps, {
-      git: request.git,
-      commit: request.commit,
-      files: [],
-      source: root,
-      tmpRoot: root,
-      ignoreTreeAttributes: true,
-    });
-    await lockReadOnly(staged.dir);
-    await checkCopyComplete(request.git, request.commit, staged.dir);
-    writeFileSync(join(root, REVIEW_COMMIT_FILE), `${request.commit}\n`, { mode: 0o400 });
-    return { root, session, copy: staged.dir, commit: request.commit };
-  } catch (error) {
-    await removeReviewFolder(root).catch(() => undefined);
-    throw error;
+    if (entry.isDirectory() && !entry.isSymbolicLink()) await unlockTree(join(dir, entry.name));
   }
 }
 
 /**
- * Removes every reviewer session folder in `tmpRoot` whose session `live` does not name (a
- * crash, a daemon stopped mid-review), at daemon start. Only real folders of this user with a
- * reviewer folder's name are touched; nothing through a symlink. Never rejects; resolves to the
- * names removed.
+ * Removes, at daemon start, every reviewer folder an earlier binary left in `tmpRoot` (its Mac
+ * reviewer's read-only copy; the reviewer now runs in a box, 0002): only real folders of this user
+ * with that name, never through a link, made writable first. A one-time cleanup of the move to
+ * reviewer boxes. Never rejects; resolves to the names removed.
  */
-export async function sweepReviewFolders(
+export async function sweepOldReviewFolders(
   tmpRoot: string,
-  live: (runId: string, agent: string) => boolean,
   uid: number | undefined = process.getuid?.(),
 ): Promise<string[]> {
   let entries: string[];
@@ -403,20 +223,29 @@ export async function sweepReviewFolders(
   }
   const removed: string[] = [];
   for (const name of entries.toSorted()) {
-    const match = REVIEW_FOLDER.exec(name);
-    if (match === null) continue;
+    if (!OLD_REVIEW_FOLDER.test(name)) continue;
     const path = join(tmpRoot, name);
     try {
       const stat = await lstat(path);
       if (!stat.isDirectory() || (uid !== undefined && stat.uid !== uid)) continue;
-      if (live(match[1] ?? "", match[2] ?? "")) continue;
-      await removeReviewFolder(path);
+      await unlockTree(path);
+      await rm(path, { recursive: true, force: true });
       removed.push(name);
     } catch {
-      // Left for the next sweep.
+      // Left for the next start.
     }
   }
   return removed;
+}
+
+/** The prefix of the file in the run directory that names the head a reviewer session reviews. */
+export const REVIEW_COMMIT_PREFIX = "review-commit-";
+
+const COMMIT_ID = /^[0-9a-f]{40}([0-9a-f]{24})?$/;
+
+/** The file in `runDir` that names the head the review session of `agent` reviews. */
+export function reviewCommitFile(runDir: string, agent: string): string {
+  return join(runDir, `${REVIEW_COMMIT_PREFIX}${agent}`);
 }
 
 /** What one reviewer session starts with. */
@@ -425,7 +254,7 @@ export interface ReviewSessionRequest {
   readonly run: StoredRun;
   /**
    * The review task message (L4), the session's first message; the launcher adds its `commit`
-   * section, which names the read-only copy (DIPO-276).
+   * section, which names the read-only copy in the reviewer's box.
    */
   readonly taskMessage: string;
   /**
@@ -434,8 +263,9 @@ export interface ReviewSessionRequest {
    */
   readonly head: string;
   /**
-   * True while the story is held by a park (`heldByPark`, DIPO-344, DIPO-360): asked right before
-   * the branch is read, so a park that landed while the round was built starts no reviewer.
+   * True while the story is held by a park (`heldByPark`, DIPO-344, DIPO-360): asked before the
+   * branch is read and again right before the session starts, so a park that landed while the
+   * round was built or the box was made starts no reviewer.
    */
   readonly held?: () => boolean;
 }
@@ -451,7 +281,7 @@ export type ReviewSessionOutcome =
       readonly parked?: true;
       /**
        * The copy of the head does not match its tree (`ReviewCopyMismatchError`): no session of
-       * this head can start, so the maintainer is told (DIPO-276).
+       * this head can start, so the maintainer is told.
        */
       readonly copyMismatch?: true;
       /**
@@ -464,12 +294,9 @@ export type ReviewSessionOutcome =
 /** Starts a reviewer session (the real one is `ReviewLauncher`). */
 export interface ReviewSessions {
   start(request: ReviewSessionRequest): Promise<ReviewSessionOutcome>;
-  /**
-   * Removes what the session of `agent` read and stops its web proxy (DIPO-292), once its exit or
-   * lost host is decided.
-   */
+  /** Deletes the box of the session of `agent`, once its exit or lost host is decided. */
   finish?(office: OfficeId, runId: string, agent: string): Promise<void>;
-  /** The head the session of `agent` was given and reviews, while its copy exists; else null. */
+  /** The head the session of `agent` was given and reviews, until it finished; else null. */
   reviewedCommit?(office: OfficeId, runId: string, agent: string): Promise<string | null>;
 }
 
@@ -483,26 +310,17 @@ export interface ReviewLauncherDeps {
   readonly worker: WorkerPort;
   readonly git: (office: OfficeId) => OfficeGit | undefined;
   readonly runtimeDir: string;
-  /** dipo's temp root: the run temp directories and each reviewer session's folder. */
+  /** dipo's temp root: the run temp directories. */
   readonly tmpRoot: string;
   readonly tempOwner?: () => string | undefined;
-  /** Runs the system `tar` that unpacks the copy; the system spawn by default. */
-  readonly code?: Pick<BoxCodeDeps, "spawn" | "tar">;
+  /**
+   * The reviewer boxes (`BoxWorkers`, 0002): each session gets one. Without them no reviewer runs.
+   */
+  readonly boxes?: Pick<BoxWorkers, "review" | "endReview">;
   readonly hosts: HostStarter;
   readonly ingest: RunIngest;
   /** Run control: the session is tracked before its ingestion starts. */
   readonly control: { track(office: OfficeId, run: TrackedRun): void };
-  /**
-   * Starts the web proxy listener of one reviewer session (DIPO-292); `startReviewWebProxy` on the
-   * loopback interface by default. The launcher stops it when the session ends.
-   */
-  readonly webProxy?: () => Promise<ReviewWebProxy>;
-  /**
-   * The box network's host address for the default listener's address rule, when a box network
-   * exists: the source the web guard reads (`FetchAddressDeps.boxHostAddress`), its system one by
-   * default.
-   */
-  readonly boxHostAddress?: FetchAddressDeps["boxHostAddress"];
   readonly onChanged?: (office: OfficeId) => void;
   readonly warn?: (message: string, fields: Readonly<Record<string, unknown>>) => void;
 }
@@ -554,35 +372,18 @@ export function reviewerSettings(
   };
 }
 
-/** A reviewer session's web proxy listener (DIPO-292): its URL, and how to stop it. */
-export interface ReviewWebProxy {
-  readonly url: string;
-  stop(): Promise<void>;
-}
-
 /** The real `ReviewSessions`. */
 export class ReviewLauncher implements ReviewSessions {
   readonly #deps: ReviewLauncherDeps;
-  /** The web proxy of each session that started and has not finished, by run and agent. */
-  readonly #proxies = new Map<string, ReviewWebProxy>();
 
   constructor(deps: ReviewLauncherDeps) {
     this.#deps = deps;
   }
 
-  /** Stops the web proxy of the session of `agent`; nothing when it has none. Never rejects. */
-  async #stopProxy(runId: string, agent: string): Promise<void> {
-    const key = `${runId}/${agent}`;
-    const proxy = this.#proxies.get(key);
-    if (proxy === undefined) return;
-    this.#proxies.delete(key);
-    await proxy.stop().catch((error: unknown) => {
-      this.#deps.warn?.("a reviewer's web proxy could not be stopped", {
-        run: runId,
-        agent,
-        reason: messageOf(error),
-      });
-    });
+  /** The run directory of `runId` in `office`; null when the office has no git attached. */
+  #runDir(office: OfficeId, runId: string): string | null {
+    const git = this.#deps.git(office);
+    return git === undefined ? null : runLaunchPaths(git, this.#deps, "/", runId).runDir;
   }
 
   async start(request: ReviewSessionRequest): Promise<ReviewSessionOutcome> {
@@ -595,15 +396,20 @@ export class ReviewLauncher implements ReviewSessions {
     if (run.branch === null) {
       return { kind: "failed", reason: `${run.runId} is not a story run with a branch` };
     }
-    const branch = run.branch;
+    if (deps.boxes === undefined) {
+      return {
+        kind: "failed",
+        reason:
+          "this daemon has no box backend, and a reviewer runs only in a box of its own (0002)",
+      };
+    }
     if (request.held?.() === true) {
       return { kind: "failed", reason: "the story is parked", parked: true };
     }
-    const agent = AgentId.parse(deps.ids.next("agt"));
-    // A fresh read-only copy of exactly the round's head for this session (DIPO-276).
-    let copy: ReviewCopy;
+    const branch = run.branch;
+    let tip: string;
     try {
-      const tip = (
+      tip = (
         await git.run((session) =>
           session.ok(session.repository, [
             "rev-parse",
@@ -613,72 +419,40 @@ export class ReviewLauncher implements ReviewSessions {
           ]),
         )
       ).trim();
-      if (tip !== request.head) {
-        return {
-          kind: "failed",
-          reason: `the story branch moved from ${request.head} to ${tip} since the review round read it`,
-        };
-      }
-      const commit = request.head;
-      copy = await makeReviewCopy(
-        {
-          spawn: deps.code?.spawn ?? systemSpawn,
-          clock: deps.clock,
-          ...(deps.code?.tar === undefined ? {} : { tar: deps.code.tar }),
-        },
-        { git, commit, tmpRoot: deps.tmpRoot, runId: run.runId, agent },
-      );
     } catch (error) {
+      return { kind: "failed", reason: `the story branch cannot be read: ${messageOf(error)}` };
+    }
+    if (tip !== request.head) {
       return {
         kind: "failed",
-        reason: `the read-only copy of the pushed commit could not be made: ${messageOf(error)}`,
-        ...(error instanceof ReviewCopyMismatchError ? { copyMismatch: true as const } : {}),
+        reason: `the story branch moved from ${request.head} to ${tip} since the review round read it`,
       };
     }
-    // The session's own web proxy (DIPO-292): no reviewer runs without it.
-    let proxy: ReviewWebProxy;
-    try {
-      const boxHostAddress = deps.boxHostAddress ?? SYSTEM_FETCH_ADDRESSES.boxHostAddress;
-      proxy = await (
-        deps.webProxy ?? (() => startReviewWebProxy({ clock: deps.clock }, { boxHostAddress }))
-      )();
-    } catch (error) {
-      await removeReviewFolder(copy.root).catch(() => undefined);
-      return {
-        kind: "failed",
-        reason: `the reviewer's web proxy did not start, and a reviewer never fetches without it: ${messageOf(error)}`,
-      };
-    }
-    this.#proxies.set(`${run.runId}/${agent}`, proxy);
+    const agent = AgentId.parse(deps.ids.next("agt"));
     let outcome: ReviewSessionOutcome;
     try {
-      outcome = await this.#launch(request, agent, copy, proxy.url);
+      outcome = await this.#launch(request, agent, deps.boxes);
     } catch (error) {
-      await this.#stopProxy(run.runId, agent);
-      await removeReviewFolder(copy.root).catch(() => undefined);
+      await this.finish(request.office, run.runId, agent);
       throw error;
     }
-    if (outcome.kind !== "started") {
-      await this.#stopProxy(run.runId, agent);
-      await removeReviewFolder(copy.root).catch(() => undefined);
-    }
+    if (outcome.kind !== "started") await this.finish(request.office, run.runId, agent);
     return outcome;
   }
 
-  /**
-   * Stops the web proxy of the session of `agent` and removes its folder: its copy and its working
-   * directory.
-   */
-  async finish(_office: OfficeId, runId: string, agent: string): Promise<void> {
-    await this.#stopProxy(runId, agent);
-    await removeReviewFolder(reviewFolder(await realpath(this.#deps.tmpRoot), runId, agent));
+  /** Deletes the reviewer box of the session of `agent` and forgets the head it reviewed. */
+  async finish(office: OfficeId, runId: string, agent: string): Promise<void> {
+    await this.#deps.boxes?.endReview(agent);
+    const runDir = this.#runDir(office, runId);
+    if (runDir !== null) rmSync(reviewCommitFile(runDir, agent), { force: true });
   }
 
-  /** The commit the copy of the session of `agent` holds, from its folder; null without one. */
-  async reviewedCommit(_office: OfficeId, runId: string, agent: string): Promise<string | null> {
-    const root = reviewFolder(await realpath(this.#deps.tmpRoot), runId, agent);
+  /** The head the session of `agent` reviews, from the run directory; null without one. */
+  async reviewedCommit(office: OfficeId, runId: string, agent: string): Promise<string | null> {
+    const runDir = this.#runDir(office, runId);
+    if (runDir === null) return null;
     try {
-      const commit = readFileSync(join(root, REVIEW_COMMIT_FILE), "utf8").trim();
+      const commit = readFileSync(reviewCommitFile(runDir, agent), "utf8").trim();
       return COMMIT_ID.test(commit) ? commit : null;
     } catch {
       return null;
@@ -688,8 +462,7 @@ export class ReviewLauncher implements ReviewSessions {
   async #launch(
     request: ReviewSessionRequest,
     agent: AgentId,
-    copy: ReviewCopy,
-    webProxy: string,
+    boxes: NonNullable<ReviewLauncherDeps["boxes"]>,
   ): Promise<ReviewSessionOutcome> {
     const deps = this.#deps;
     const { run } = request;
@@ -709,16 +482,15 @@ export class ReviewLauncher implements ReviewSessions {
     const tier =
       (config.tiers as Readonly<Record<string, TierCaps>>)[run.tier ?? ""] ?? config.tiers.M;
     const settings = reviewerSettings(office, run, config);
-    // The reviewer's working directory is the empty folder, never the worktree or the copy.
-    const paths = runLaunchPaths(git, deps, copy.session, run.runId);
+    const paths = runLaunchPaths(git, deps, run.worktree, run.runId);
     // The reviewer of a box run reads that dipo ran the verify in the developer's box at done and
     // that CI runs with the review (DIPO-346). The run directory says the run is a box worker's,
     // as for its developer.
-    const box = existsSync(join(paths.runDir, BOX_RUN_FILE));
-    const systemFile = renderSystemFile(box ? "review-box" : "review", "reviewer");
+    const boxRun = existsSync(join(paths.runDir, BOX_RUN_FILE));
+    const systemFile = renderSystemFile(boxRun ? "review-box" : "review", "reviewer");
     const taskMessage = withReviewCommit(request.taskMessage, {
-      commit: copy.commit,
-      dir: copy.copy,
+      commit: request.head,
+      dir: REVIEW_CODE_DIR,
     });
     // The reviewer's tokens, turns and minutes are its own caps per session, never the story's
     // budget (0002).
@@ -727,29 +499,35 @@ export class ReviewLauncher implements ReviewSessions {
       maxTurns: settings.maxTurns,
       maxMinutes: settings.maxMinutes,
     };
-    const spec = {
-      ...runWorkerSpec(
-        deps.worker,
-        { runId: run.runId, agent, caps: tier, reviewer: settings },
-        paths,
-        taskMessage,
-        { id: sessionUuid(agent), resume: false },
-        caps,
-      ),
-      readOnlyDir: copy.copy,
-      webProxy,
-    };
+    const spec = runWorkerSpec(
+      deps.worker,
+      { runId: run.runId, agent, caps: tier, reviewer: settings },
+      paths,
+      taskMessage,
+      { id: sessionUuid(agent), resume: false },
+      caps,
+    );
     try {
       ensurePrivateDir(paths.runDir);
-      prepareRunTempDirs(paths, run.runId, deps.tempOwner?.());
       writeFileSync(spec.systemFile, systemFile, { mode: 0o600 });
+      writeFileSync(reviewCommitFile(paths.runDir, agent), `${request.head}\n`, { mode: 0o600 });
     } catch (error) {
       return {
         kind: "failed",
         reason: `the run directory could not be prepared: ${messageOf(error)}`,
       };
     }
-    // The launch checks run before every launch (0008 section 2).
+    // The session's own read-only box (0002): the copy of the head, the firewall and the proxies.
+    let place;
+    try {
+      place = await boxes.review({ agent, git, commit: request.head, systemFile: spec.systemFile });
+    } catch (error) {
+      return {
+        kind: "failed",
+        reason: `the reviewer's box could not be made: ${messageOf(error)}`,
+        ...(error instanceof ReviewCopyMismatchError ? { copyMismatch: true as const } : {}),
+      };
+    }
     let prepared;
     try {
       prepared = await deps.worker.prepare(
@@ -757,10 +535,11 @@ export class ReviewLauncher implements ReviewSessions {
         paths,
         config,
         sessionUuid(`${agent}:launch-check`),
+        place,
       );
     } catch (error) {
       if (!(error instanceof PlanError)) return { kind: "failed", reason: messageOf(error) };
-      // A path the plan refuses is the maintainer's to fix, as for the worker's launch: the review
+      // A spec the plan refuses is the maintainer's to fix, as for the worker's launch: the review
       // rounds raise its notice (DIPO-247).
       return {
         kind: "failed",
@@ -769,6 +548,11 @@ export class ReviewLauncher implements ReviewSessions {
       };
     }
     if (!prepared.ok) return { kind: "startFailed", hold: prepared.hold };
+    // Right before the session (DIPO-346 review): a park that landed while the box was made starts
+    // no reviewer.
+    if (request.held?.() === true) {
+      return { kind: "failed", reason: "the story is parked", parked: true };
+    }
 
     // The new host appends to the run's event file: its ingestion starts after what is there.
     let offset = 0;

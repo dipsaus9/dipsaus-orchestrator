@@ -229,7 +229,7 @@ describe("an unusable DIPO_HOME or DIPO_RUNTIME_DIR", () => {
   });
 
   it("still prints help and the version, and leaves the daemon's own forms to the daemon", async () => {
-    for (const argv of [["--help"], ["--version"], ["daemon", "--foreground"], ["hook", "x"]]) {
+    for (const argv of [["--help"], ["--version"], ["daemon", "--foreground"]]) {
       const { deps, captured } = fakeDeps();
       expect(await main(argv, { ...deps, dirRefusal: () => refusal })).toBe(0);
       expect(captured.err).toEqual([]);

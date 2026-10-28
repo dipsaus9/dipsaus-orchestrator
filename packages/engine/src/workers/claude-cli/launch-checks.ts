@@ -1,15 +1,11 @@
-// The Claude CLI launch checks of a reviewer session on the Mac (0008 section 2 and its
-// amendments, 0019 section 4): the tools check, the probe and the project settings check, run
-// before every review launch. `prepareLaunch` is the one way to get a reviewer's launch plan the
-// host may start: it plans, runs the checks through the adapter hold's gate and returns the plan
-// only when they pass; a refusal is `startFailed` with the hold set.
+// The Claude CLI launch checks of a `session` on the Mac (0008, DIPO-310): the tools check, the
+// probe and the project settings check, run before every launch of one. `prepareLaunch` is the one
+// way to get such a plan the host may start: it plans, runs the checks through the adapter hold's
+// gate and returns the plan only when they pass; a refusal is `startFailed` with the hold set.
 //
-// The checks that proved the developer's Bash sandbox on the Mac are gone with that sandbox
-// (DIPO-240, 0021): the session self-test and its approval probe, the engine-side credential check
-// under srt, the Safe-Chain checking proxy of a worker's installs, the npm token check and the
-// verify tools check. A developer runs only in its box, where the box is the boundary and dipo's
-// post-run token check (`box/token-check.ts`) and the box checks of `adapter.ts` hold the adapter.
-// A reviewer runs no command (no Bash, DIPO-276), so no sandbox probe applies to it.
+// A developer and a reviewer run only in a box (DIPO-240, DIPO-347): the box is the boundary, and
+// dipo's post-run token check (`box/token-check.ts`) and the box checks of `adapter.ts` hold the
+// adapter. The checks that proved the developer's Bash sandbox on the Mac went with that sandbox.
 
 import type { Clock, Spawn } from "@dipsaus-orchestrator/contract";
 
@@ -82,8 +78,8 @@ export type PreparedLaunch =
   | { readonly ok: false; readonly outcome: "startFailed"; readonly hold: AdapterHold };
 
 /**
- * Plans a reviewer's launch and runs the launch checks first. Throws `PlanError` when the spec
- * cannot be planned, a developer's included (it runs only in its box). A failed check holds the
+ * Plans a session's launch and runs the launch checks first. Throws `PlanError` when the spec
+ * cannot be planned, a developer's or reviewer's included (each runs only in a box). A failed check holds the
  * adapter in every office; a pass lifts the hold.
  */
 export async function prepareLaunch(
@@ -92,7 +88,7 @@ export async function prepareLaunch(
   holds: AdapterHolds,
   deps: ClaudeLaunchCheckDeps,
 ): Promise<PreparedLaunch> {
-  // A review session allows no plugin (0019 section 4); its checks run with its plan's context.
+  // A session allows no plugin; its checks run with its plan's context.
   const ctx = kindContext(spec, launchContext);
   const launch = plan(spec, ctx);
   const gate = await gateLaunch(CLAUDE_CLI_ADAPTER_ID, holds, () =>

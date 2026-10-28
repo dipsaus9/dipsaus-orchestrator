@@ -31,7 +31,6 @@ import { contextPackOf } from "../../src/context/pack";
 import type { Workspace } from "../../src/context/types";
 import type { OfficeHandle } from "../../src/db/office";
 import type { GateResult } from "../../src/gate/types";
-import { nudgeCount } from "../../src/hooks/nudges";
 import type { OfficeGit } from "../../src/git/office";
 import type { IngestTarget } from "../../src/ingest/ingestor";
 import { promptPartsOf, promptTextsOf } from "../../src/prompts/parts";
@@ -126,7 +125,6 @@ const ctxOf = (paths: RunLaunchPaths, config: OfficeConfig) =>
       claudePath: CLAUDE,
       home: HOME,
       env: { PATH: "/usr/bin:/bin", GH_TOKEN: "not-a-token" },
-      dipoCommand: ["/opt/dipo/bin/dipo"],
       pluginFiles: { read: () => undefined, dirs: () => [] },
     },
     paths,
@@ -568,8 +566,6 @@ describe("work.run starts the worker of a claimed run", () => {
     expect(flag("--session-id")).toBe(agent?.session_id);
     expect(agent).toMatchObject({ effort: caps.effort, model: caps.model });
 
-    // No nudge yet (DIPO-60).
-    expect(nudgeCount(world.office, runId)).toBe(0);
     // The task message's context pack is recorded for the worktree with the head it read and the
     // blob ids of its files (0020 section 6).
     const pack = contextPackOf(world.office, join(world.worktreeRoot, "TASK-1"));

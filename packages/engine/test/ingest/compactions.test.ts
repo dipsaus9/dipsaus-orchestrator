@@ -179,24 +179,6 @@ describe("a compaction of a replayed session (DIPO-106)", () => {
   );
 
   it(
-    "stores a compaction only the PostCompact hook reported with no pre-compaction tokens",
-    withIngest((f) => {
-      ingestRecording(
-        f,
-        withLinesBeforeResult((t) => [postCompact(t)]),
-      );
-
-      expect(compactionsOf(f)).toEqual([
-        { run_id: f.run, agent_id: f.agent, pre_tokens: null, at: f.t.clock.now() },
-      ]);
-      expect(readCompactions(f.office, scopeOf(f))).toEqual({
-        agent: { count: 1, latestPreTokens: null },
-        run: { count: 1, latestPreTokens: null },
-      });
-    }),
-  );
-
-  it(
     "stores nothing more when the fully ingested file is passed or tracked again",
     withIngest((f) => {
       const recording = withLinesBeforeResult((t) => [boundary(t, 150_000)]);

@@ -18,14 +18,7 @@ import { result } from "../../src/workers/claude-cli/result";
 import { DISABLE_SLASH_COMMANDS, skillRefusal } from "../../src/workers/claude-cli/skills";
 import type { ParseState } from "../../src/workers/types";
 import { hostLines } from "../ingest/helpers";
-import {
-  context,
-  initPlugin,
-  reviewContext,
-  reviewSpec,
-  spec,
-  withoutSkills,
-} from "./launch-fixtures";
+import { context, initPlugin, sessionSpec, spec, withoutSkills } from "./launch-fixtures";
 import { loadRecording, replay } from "./replay";
 
 /**
@@ -69,14 +62,9 @@ const BOX_DEVELOPER_ARGV = boxClaudeArgv(spec(), { systemFile: "/dipo/system.md"
 const checking = () => initialState({ plannedModel: "haiku", refuseSkills: true });
 
 describe("(unit) the plan disables slash commands and skills", () => {
-  it("passes --disable-slash-commands once, on a launch and on a resume", () => {
-    for (const resume of [false, true]) {
-      const launch = plan(
-        reviewSpec({ session: { id: reviewSpec().session.id, resume } }),
-        reviewContext({ plugins: { installed: [], allowed: [] } }),
-      );
-      expect(launch.argv.filter((flag) => flag === DISABLE_SLASH_COMMANDS)).toHaveLength(1);
-    }
+  it("passes --disable-slash-commands once in a session on the Mac", () => {
+    const launch = plan(sessionSpec(), context({ plugins: { installed: [], allowed: [] } }));
+    expect(launch.argv.filter((flag) => flag === DISABLE_SLASH_COMMANDS)).toHaveLength(1);
   });
 
   it("passes it in a box developer's session too (DIPO-240)", () => {
@@ -155,7 +143,6 @@ describe("(engine) the live recording safety-slash-skill", () => {
       event.t === "activity" && event.kind === "tool" ? [event.tool] : [],
     );
     expect(tools).toEqual([]);
-    expect(run.events.some((event) => event.t === "hook")).toBe(false);
     expect(run.result.outcome).toBe("done");
   });
 
