@@ -81,7 +81,7 @@ describe("dipo daemon log-level and resume-scheduling", () => {
     );
     expect(await main(["daemon", "resume-scheduling"], ctx.deps)).toBe(0);
     expect(ctx.sent).toEqual([{ name: "daemon.resumeScheduling", args: {} }]);
-    expect(ctx.out).toEqual(["scheduling resumed; daemon state: running"]);
+    expect(ctx.out).toEqual(["scheduling resumed and starts unpaused; daemon state: running"]);
   });
 
   it("prints an engine error's code and message and exits 1", async () => {

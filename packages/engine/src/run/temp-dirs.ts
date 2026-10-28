@@ -460,9 +460,6 @@ export function afterRunExits(
   };
   return {
     ...wrapped,
-    ...(port.onPlanWarning === undefined
-      ? {}
-      : { onPlanWarning: (view, warning) => port.onPlanWarning?.(view, warning) }),
     ...(port.onReview === undefined
       ? {}
       : { onReview: (view, report) => port.onReview?.(view, report) ?? Promise.resolve() }),

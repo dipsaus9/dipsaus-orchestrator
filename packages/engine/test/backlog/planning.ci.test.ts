@@ -89,10 +89,7 @@ function world(s: ClaimSetup) {
     implemented: () => true,
     probe: systemProcessProbe(currentPlatform()),
   });
-  const registry = buildRegistry([
-    planning.feature,
-    new WorkResumeCommand(undefined, () => planning).feature,
-  ]);
+  const registry = buildRegistry([planning.feature, new WorkResumeCommand(() => planning).feature]);
   let n = 0;
   const send = (name: string, args: Record<string, unknown>) => {
     n += 1;

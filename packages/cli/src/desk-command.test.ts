@@ -197,6 +197,23 @@ describe("formatDesk", () => {
     ]);
   });
 
+  it("prints the office's starts paused first, with no story, its command and what lifts it (0020)", () => {
+    const paused = DeskItem.parse({
+      kind: "STARTS PAUSED",
+      detail: "no new session starts · plan limit until 2026-10-23T14:00:00.000Z",
+      since: ago(5),
+      blocks: [],
+      actions: [{ command: "daemon.resumeScheduling", cli: "dipo daemon resume-scheduling" }],
+      hand: "It lifts by itself at 2026-10-23T14:02:00.000Z.",
+    });
+    expect(formatDesk("demo", [paused, byYou("DIPO-1")], NOW)).toEqual([
+      "demo · desk 1 · parked by you 1",
+      "STARTS PAUSED   no new session starts · plan limit until 2026-10-23T14:00:00.000Z  5m",
+      "              dipo daemon resume-scheduling | It lifts by itself at 2026-10-23T14:02:00.000Z.",
+      "Parked by you (1)  DIPO-1 dipo resume DIPO-129",
+    ]);
+  });
+
   it("shows the age in minutes, hours, then days", () => {
     expect(age(NOW - 59 * MINUTE, NOW)).toBe("59m");
     expect(age(NOW - 60 * MINUTE, NOW)).toBe("1h");

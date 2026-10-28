@@ -47,6 +47,7 @@ import {
   RunLauncher,
   runSteps,
   START_FAILED_END,
+  StartsPaused,
   WorkRun,
 } from "../../src/run";
 import { shortTempDir } from "../../src/run/temp-dirs";
@@ -396,7 +397,12 @@ beforeEach(async () => {
     },
     profiles: { ensureFreshProfile: async () => undefined, verifyResolved: () => null },
     statuses: async () => null,
-    adapterHeld: (adapter) => holds.adapterHeld(adapter),
+    startsPaused: (id) =>
+      new StartsPaused({
+        clock: t.clock,
+        offices: { get: () => office, config: () => w.config },
+        holds,
+      }).state(id),
     // As `claimStory`: the re-check, the claim record, setup (a failure rolls back), the claim.
     claims: {
       claim: async (_office, request): Promise<ClaimOutcome> => {

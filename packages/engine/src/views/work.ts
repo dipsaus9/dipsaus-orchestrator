@@ -4,8 +4,7 @@
 // mirror's acceptance criteria, with the run's own criteria facts from its worker reports, DIPO-85)
 // whenever it is needed, and written as the `view` of each work change-log entry; never stored as
 // truth. A run reopened for a round shows its newest agent, a reviewer with its own role, and a
-// run waiting for its place is not lost: it shows `limited` while a plan limit pauses the place
-// (DIPO-142).
+// run waiting for its place is not lost (DIPO-142).
 
 import {
   AgentId,
@@ -45,14 +44,13 @@ export interface HealthFacts {
 }
 
 /**
- * Health in the 0009 precedence: `lost`, `asking`, `limited`, `looping`, `stuck`, `quiet`,
- * `busy`. The first rule that holds wins.
+ * Health in the 0009 precedence: `lost`, `asking`, `looping`, `stuck`, `quiet`, `busy`. The
+ * first rule that holds wins.
  */
 export function deriveHealth(facts: HealthFacts): Health {
   const has = (signal: WatchdogSignal) => facts.signals.includes(signal);
   if (has("host-lost") || facts.exitUnprocessed) return "lost";
   if (facts.asking === true || has("input-wait")) return "asking";
-  if (has("plan-limit")) return "limited";
   if (has("same-failure") || (facts.loopCap > 0 && facts.loop >= facts.loopCap)) return "looping";
   if (has("no-output")) return "stuck";
   if (has("quiet")) return "quiet";
@@ -180,10 +178,9 @@ function viewOf(office: OfficeHandle, run: StoredRun): WorkView | null {
   if (work === null) return null;
   const progress = progressOf(office, run);
   const signals = activeSignals(office, run.runId);
-  // A run held for a plan limit (DIPO-51) has an exited worker on purpose: it waits for the
-  // reset, so it shows `limited`, not `lost`. A run reopened for a round waits for its place
-  // with the last session's agent ended (DIPO-142): not lost either.
-  const waiting = signals.some((signal) => signal.signal === "plan-limit") || run.waiting != null;
+  // A run reopened for a round waits for its place with the last session's agent ended
+  // (DIPO-142): not lost.
+  const waiting = run.waiting != null;
   const health = deriveHealth({
     signals: signals.map((signal) => signal.signal),
     exitUnprocessed: agent.ended_at !== null && run.endedAt === null && !waiting,

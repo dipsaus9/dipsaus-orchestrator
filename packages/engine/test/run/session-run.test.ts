@@ -236,7 +236,22 @@ async function until(done: () => boolean): Promise<void> {
   if (!done()) throw new Error("the condition never held");
 }
 
+const limit = (info: Record<string, unknown>) =>
+  line({ type: "rate_limit_event", rate_limit_info: info, session_id: "session-s" });
+
 describe("a scan session run", () => {
+  it("reports a plan limit with its reset time, and whether it is credits_required (0020)", () =>
+    withWorld(async (w) => {
+      w.lines = init + limit({ status: "rejected", resetsAt: 1_791_827_400 }) + exitLine(0);
+      expect(await w.runs.run(request(w))).toMatchObject({
+        kind: "plan-limit",
+        resetsAt: 1_791_827_400_000,
+      });
+      w.lines = init + limit({ status: "rejected", errorCode: "credits_required" }) + exitLine(0);
+      const credits = await w.runs.run(request(w));
+      expect(credits).toMatchObject({ kind: "plan-limit", credits: true });
+    }));
+
   it("is a session run of the office with its usage, its answer and no place held", () =>
     withWorld(async (w, dir) => {
       w.lines = init + resultLine + exitLine(0);
