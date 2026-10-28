@@ -6,7 +6,7 @@
 //   0002) and a maintainer reject (`reject`, fed by DIPO-151's `gate.reject`, which does not
 //   exist yet, so no reject item is produced until it does). A conflict hand-off of a run In
 //   Review (`conflict`, the entry for the merge slot's sync, DIPO-150) is sent at once like a
-//   reject. Advisory findings never start a round on their own; a round that starts for another
+//   reject, and so is a failed test's note (`testFail`, DIPO-309), keyed on the test id. Advisory findings never start a round on their own; a round that starts for another
 //   reason lists them as optional.
 // - Timing (section 7). `consider` runs when a run ends reviewed (a reviewer session's exit after
 //   its verdict, or a head that took its tree's verdict without a round), when the CI of a head
