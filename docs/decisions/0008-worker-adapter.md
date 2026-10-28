@@ -68,7 +68,7 @@ The adapter reports facts. The engine decides phase, feedback, commits and parks
 - A lost box is rebuilt from the start commit plus the delivered parts; only undelivered work is lost, and the maintainer is told.
 - There are no CPU, memory or disk limits per box (Apple's 1 GiB default memory limit is raised). The budget caps stop the worker.
 
-**The escape probe.** `tools/box-probe/probe.sh` tries, as root inside a developer box and inside the Safe-Chain box, to read the home folder, reach the Mac, the local network and a registry directly, switch off the network rules, and find the token or host settings. Each of these must fail, while an install through Safe-Chain and a request to the internet must work. It passed on Apple `container` 1.6.0 on 2026-10-21, and with the Safe-Chain box on 2026-10-27. Any change to the box's network, user, mounts or image build runs it again, and fails if any line fails (CLAUDE.md, R30).
+**The escape probe.** `tools/box-probe/probe.sh` tries, as root inside a developer box and inside the Safe-Chain box, to read the home folder, reach the Mac, the local network and a registry directly, and find the token or host settings. Each of these must fail, while an install through Safe-Chain and a request to the internet must work. Switching off the network rules as root must not open the internet, the local network or the registries. The Mac's own address then relies on workers running as the box user with no capabilities (the accepted risk of 2026-10-21, `tools/box-probe/RESULTS.md`). It passed on Apple `container` 1.6.0 on 2026-10-21, and with the Safe-Chain box on 2026-10-27. Any change to the box's network, user, mounts or image build runs it again, and fails if any line fails (CLAUDE.md, R30).
 
 ## 3. What dipo never does
 
@@ -176,6 +176,7 @@ An adapter implements section 1. An Agent SDK adapter would share `interpret`, b
 
 - Claude Code's Bash sandbox with permission rules, deny lists, a `PermissionRequest` relay, allow-once answers, a Bash `PreToolUse` hook with `gh` and temp guards, Keychain denies, a launch self-test and the project-settings allowlist (2026-10-10 to 2026-10-20). Replaced by the box (2026-10-21), because only Bash was sandboxed and the rest ran on the Mac.
 - `srt` around engine install and verify steps, and later around Safe-Chain (2026-10-12). Replaced by the box (2026-10-22), and Safe-Chain in a box (2026-10-24).
+- Switching off the network rules as root must fail for every target (2026-10-24). Replaced by: it must not open the internet, the local network or the registries (2026-10-28), because root in a box keeps the capability its firewall needs.
 - Safe-Chain box from the office image (2026-10-24). Replaced by one machine-wide Safe-Chain image (2026-10-27), because building an office image needs Safe-Chain.
 - Verify run by dipo in the box at done (2026-10-21), replaced by CI as the only verify (2026-10-22) because the box had no git and many test suites need it. Reinstated (2026-10-24) once the box got its own local git repository, with CI as the final gate (0002).
 - `bypassPermissions` ruled out as "no guard at all" (2026-10-10). Inside a box it is the documented pattern, and the box is the guard (2026-10-21).
