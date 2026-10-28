@@ -24,6 +24,7 @@ import {
   STORY_SLOT_NOTICES,
   slotOccupant,
 } from "../../src/merge-slot";
+import { insertPark } from "../run/park-fixture";
 import { desk } from "../../src/views/desk";
 
 import {
@@ -111,13 +112,16 @@ describe("a story PR whose diff changes the release path", () => {
     const gate = gates()[0]!.gate;
     // A review-blocked park of the story while that gate is open: the desk makes one PARKED row.
     s.w.office.immediate(() =>
-      s.w.office.run(
-        `insert into parks (office_id, park_id, key, story_id, run_id, reason, from_state, detail,
-           at)
-         values ($office_id, 1, $key, 'DIPO-7', $run, 'review-blocked', 'In Review',
-           'round 3 blocked', $at)`,
-        { key: s.key, run: s.run, at: s.w.t.clock.now() },
-      ),
+      insertPark(s.w.office, {
+        parkId: 1,
+        key: s.key,
+        story: "DIPO-7",
+        runId: s.run,
+        reason: "review-blocked",
+        from: "In Review",
+        detail: "round 3 blocked",
+        at: s.w.t.clock.now(),
+      }),
     );
     const items = desk(s.w.office, () => true);
     expect(items.filter((item) => item.kind === "MERGE")).toEqual([]);

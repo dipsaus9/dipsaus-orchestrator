@@ -74,7 +74,7 @@ const REPLAY_PAGE = 100;
 
 /**
  * Commands that would schedule work and so fail with `scheduling.off` in `safe` (0006 decision 7):
- * `work.run`, and `work.resume`, which resumes a held run (DIPO-61).
+ * `work.run`, and `work.resume`, which resumes a parked run (0020).
  */
 export const SCHEDULING_COMMANDS: ReadonlySet<string> = new Set(["work.run", "work.resume"]);
 

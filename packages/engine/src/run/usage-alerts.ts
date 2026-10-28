@@ -3,8 +3,8 @@
 // `engine.notice` on the software stream when the all-office total crosses the alert level (warn)
 // or the limit (error) of the UTC day or month. Each notice is recorded in `once_notices` under the
 // window it is for, so a daemon restart never repeats it and the next window raises a new one. It
-// only alerts: no pickup is held and no story parks; per-story budgets and plan-limit holds stay
-// the only stops.
+// only alerts: no pickup is held and no story parks; per-story budgets and the office's starts
+// paused stay the only stops.
 
 import type { Clock, OfficeId, TimerHandle } from "@dipsaus-orchestrator/contract";
 

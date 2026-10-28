@@ -39,6 +39,7 @@ import {
   insertRun,
   MAINTAINER_RESUME_TAG,
   noteText,
+  PARK_RESUME_NOTICES,
   parkActions,
   parkResumeNeed,
   Places,
@@ -51,17 +52,19 @@ import {
   share,
   smallestShare,
   START_KINDS,
+  type StartsPausedState,
   type UnparkBranchRequest,
 } from "../../src/run";
 import { storeFeedbackItems } from "../../src/run/feedback-items";
 import { FIX_ROUND_TAG } from "../../src/run/fix-rounds";
 import { recordIntent } from "../../src/run/intents";
 import { openPark } from "../../src/run/park";
+import { insertPark, mirrorStory } from "./park-fixture";
+import { parksBeingResumed } from "../../src/run/park-resume";
 import { MAINTAINER_TAGS } from "../../src/run/steers";
 import type { NextSessionRequest } from "../../src/run/resume";
 import { addStory } from "../../src/stories/keys";
 import { encode } from "../../src/workers/claude-cli/encode";
-import type { AdapterHold } from "../../src/workers/hold";
 import type { Caps } from "../../src/workers/types";
 import { insertClaim } from "../../src/worktree/records";
 import { CRASH, crashAfterHandler } from "../commands/crash";
@@ -97,7 +100,8 @@ interface World {
   readonly reviews: RunId[];
   readonly considered: RunId[];
   readonly ported: string[];
-  hold: AdapterHold | null;
+  /** The office's starts paused (0020), as the park resume reads it. */
+  paused: StartsPausedState | null;
   request: number;
   /** Why the fake lift did not write a question park's answer (DIPO-159), or null. */
   answerError: string | null;
@@ -172,7 +176,7 @@ beforeEach(async () => {
     reviews: [],
     considered: [],
     ported: [],
-    hold: null,
+    paused: null,
     request: 0,
     answerError: null,
   };
@@ -202,7 +206,6 @@ function resumption(options: Partial<ResumptionOptions> = {}): Resumption {
         },
       },
       caps: () => TIER_S,
-      holds: { hold: () => w.hold as AdapterHold, adapterHeld: () => w.hold },
       unpark: {
         lift: async (_office, request) => {
           w.lifts.push(request);
@@ -217,6 +220,7 @@ function resumption(options: Partial<ResumptionOptions> = {}): Resumption {
     },
     {
       parks: {
+        startsPaused: () => w.paused,
         startReview: async (_office, run) => {
           w.reviews.push(run.runId);
           return true;
@@ -257,13 +261,7 @@ function park(reason: string, from = "In Progress", detail = "x", endKind = "par
   const { office, run, t } = w.f;
   const at = t.clock.now();
   office.immediate(() => {
-    office.run(
-      `insert into parks (office_id, park_id, key, story_id, run_id, reason, from_state, detail,
-         at)
-       values ($office_id, (select coalesce(max(park_id), 0) + 1 from parks
-         where office_id = $office_id), $key, 'DIPO-1', $run, $reason, $from, $detail, $at)`,
-      { key: w.key, run, reason, from, detail, at },
-    );
+    insertPark(office, { key: w.key, story: "DIPO-1", runId: run, reason, from, detail, at });
     endRun(office, run, at, endKind);
   });
   return office.get<{ id: number }>(
@@ -503,7 +501,7 @@ describe("work.resume of a reason that needs nothing more (0020)", () => {
     const drained: string[] = [];
     const places = new Places({
       clock: w.f.t.clock,
-      offices: { get: () => w.f.office, config: () => undefined },
+      offices: { get: () => w.f.office },
       // The run is pending again once its park is resolved (`pendingReviews`).
       pending: (office) =>
         openPark(office, w.key) === null
@@ -615,19 +613,21 @@ describe("work.resume refusals", () => {
     expect(error.message).toContain("dipo approve DIPO-1 --note");
   });
 
-  it("refuses a resume while the adapter is held, naming the hold", async () => {
+  it("refuses a resume while the office's starts are paused, naming why and what lifts it (0020)", async () => {
     park("worker-failed");
-    w.hold = {
-      adapter: "claude-cli",
-      check: "start-failed",
-      detail: "claude exited at once",
-      failures: [{ check: "start-failed", detail: "claude exited at once" }],
+    w.paused = {
+      reason: "adapter",
+      detail: "claude-cli: start-failed: claude exited at once.",
       since: 0,
+      until: null,
+      lifts: "Fix it, then name the story to repeat the launch checks.",
     };
     const error = await refusal(resumption());
     expect(error.error.code).toBe("run.refused");
+    expect(error.error.details).toEqual({ story: "DIPO-1", check: "adapter" });
     expect(error.message).toContain("claude exited at once");
-    w.hold = null;
+    expect(error.message).toContain("repeat the launch checks");
+    w.paused = null;
     await resume(resumption());
     expect(w.sessions).toHaveLength(1);
   });
@@ -1081,7 +1081,7 @@ describe("a resume whose place is taken (0020 section 1, 0019 section 12)", () =
     const resuming = resumption({ places: () => places });
     places = new Places({
       clock: t.clock,
-      offices: { get: () => office, config: () => undefined },
+      offices: { get: () => office },
       starters: { resume: (officeId, run) => resuming.startQueued(officeId, run) },
     });
     park("by-maintainer");
@@ -1170,7 +1170,78 @@ describe("a retry of the same request (0005 note of 2026-10-17)", () => {
     expect(await restarted.recoverParkResumes(w.f.office.officeId as OfficeId, w.f.office)).toBe(0);
     expect(w.sessions).toHaveLength(1);
   });
+
+  it("reopens the run when an index pass reads the lift before the resume's transaction (DIPO-360)", async () => {
+    const parkId = park("by-maintainer");
+    const resuming = createRunOutcomesWithLift(async (request) => {
+      w.lifts.push(request);
+      indexAfterLift();
+      return { commit: "c".repeat(40), pushed: true, pushError: null };
+    });
+    const reply = await resume(resuming, { note: "go on" }, ctx(false, "req_index"));
+    expect(reply.result.to).toBe("In Progress");
+    expect(findRun(w.f.office, w.f.run)?.endedAt).toBeNull();
+    expect(w.sessions).toHaveLength(1);
+    expect(
+      w.f.office.get<{ how: string | null }>(
+        "select resolved_how as how from parks where office_id = $office_id and park_id = $park",
+        { park: parkId },
+      )?.how,
+    ).toBe("resume");
+  });
+
+  it("finishes after a restart a resume whose lift reached the branch and the index (DIPO-360)", async () => {
+    const parkId = park("by-maintainer");
+    // The first daemon lifts the park on the branch, an index pass reads it, and it stops.
+    const stopped = createRunOutcomesWithLift((request) => {
+      w.lifts.push(request);
+      indexAfterLift();
+      return new Promise(() => {});
+    });
+    void stopped.resumeCommand(ctx(false, "req_lifted"), {
+      story: StoryId.parse("DIPO-1"),
+      note: "once",
+    });
+    await Bun.sleep(0);
+    expect(openPark(w.f.office, w.key)).toBeNull();
+    // Reconcile leaves the row to the resume that is lifting it.
+    expect(parksBeingResumed(w.f.office).has(parkId)).toBe(true);
+    const restarted = createRunOutcomesWithLift(async (request) => {
+      w.lifts.push(request);
+      return { commit: null, pushed: true, pushError: null };
+    });
+    expect(await restarted.recoverParkResumes(w.f.office.officeId as OfficeId, w.f.office)).toBe(1);
+    await restarted.idle();
+    expect(findRun(w.f.office, w.f.run)?.endedAt).toBeNull();
+    expect(w.sessions).toHaveLength(1);
+    expect(parksBeingResumed(w.f.office).size).toBe(0);
+  });
+
+  it("fails a resume whose restart errs before its park resolved, so it no longer holds the park (DIPO-360)", async () => {
+    const parkId = park("by-maintainer");
+    const stopped = createRunOutcomesWithLift(() => new Promise(() => {}));
+    void stopped.resumeCommand(ctx(false, "req_err"), {
+      story: StoryId.parse("DIPO-1"),
+      note: "once",
+    });
+    await Bun.sleep(0);
+    expect(parksBeingResumed(w.f.office).has(parkId)).toBe(true);
+    // The next daemon's lift answers nothing it can use: an error after the lift, not in it.
+    const restarted = createRunOutcomesWithLift(async () => undefined as never);
+    expect(await restarted.recoverParkResumes(w.f.office.officeId as OfficeId, w.f.office)).toBe(0);
+    const resumes = runIntents(w.f.office, w.f.run).filter((intent) =>
+      intent.detail.startsWith(`${MAINTAINER_RESUME_TAG} `),
+    );
+    expect(resumes.map((intent) => intent.outcome)).toEqual(["failed"]);
+    expect(parksBeingResumed(w.f.office).size).toBe(0);
+    expect(w.sessions).toEqual([]);
+  });
 });
+
+/** What an index pass reads after the lift is on the branch: the story In Progress, unparked. */
+function indexAfterLift(): void {
+  w.f.office.immediate(() => mirrorStory(w.f.office, { key: w.key, story: "DIPO-1" }));
+}
 
 /** The resumption with a lift of its own. */
 function createRunOutcomesWithLift(
@@ -1547,5 +1618,91 @@ describe("an ambiguous-spec park with no stored question (0020)", () => {
     );
     expect(session.message).toContain("The maintainer's answer: Keep the flag; the story wins.");
     expect(session.note).toBeUndefined();
+  });
+});
+
+/** A plan limit's park: `worker-failed`, marked to resume by itself when the pause lifts. */
+function planLimitPark(): number {
+  const parkId = park("worker-failed", "In Progress", "plan limit until 2026-10-28T12:00:00.000Z");
+  w.f.office.immediate(() =>
+    w.f.office.run(
+      "update parks set resume_on_lift = 1 where office_id = $office_id and park_id = $park",
+      { park: parkId },
+    ),
+  );
+  return parkId;
+}
+
+function liftedPark(parkId: number) {
+  return { parkId, key: w.key, story: "DIPO-1" };
+}
+
+describe("the resume after the office's starts paused lifted (0020)", () => {
+  it("resumes the park through the one resume path, as dipo, with no note and no grant", async () => {
+    const parkId = planLimitPark();
+    const of = resumption();
+    expect(await of.resumeLifted(w.f.office.officeId as OfficeId, liftedPark(parkId))).toEqual({
+      outcome: "resumed",
+    });
+    await of.idle();
+    expect(parkRow(parkId)).toEqual({ resolved_how: "resume", resolved_note: null });
+    expect(w.lifts).toHaveLength(1);
+    expect(w.sessions).toHaveLength(1);
+    expect(w.sessions[0]?.why).toBe(
+      "dipo resumed it from worker-failed after the office's starts paused lifted",
+    );
+    // The first message is the park's detail as the last error (0020), and no maintainer note.
+    expect(first(w.sessions[0])).toContain("plan limit until 2026-10-28T12:00:00.000Z");
+    expect(w.sessions[0]?.note).toBeUndefined();
+    expect(grants()).toEqual([]);
+    const notice = entries("engine.notice").find(
+      (data) => data["code"] === PARK_RESUME_NOTICES.resumed,
+    );
+    expect(notice?.["text"]).toContain("dipo resumed it after the office's starts paused lifted");
+  });
+
+  it("is tried again while the office's starts are paused, or while the worker has not exited", async () => {
+    const parkId = planLimitPark();
+    w.paused = {
+      reason: "plan-limit",
+      detail: "plan limit until later",
+      since: 0,
+      until: 1,
+      lifts: "It lifts by itself.",
+    };
+    const of = resumption();
+    expect(
+      (await of.resumeLifted(w.f.office.officeId as OfficeId, liftedPark(parkId))).outcome,
+    ).toBe("retry");
+    w.paused = null;
+    w.f.office.immediate(() =>
+      w.f.office.run("update agents set ended_at = null where office_id = $office_id"),
+    );
+    expect(
+      (await of.resumeLifted(w.f.office.officeId as OfficeId, liftedPark(parkId))).outcome,
+    ).toBe("retry");
+    expect(w.lifts).toEqual([]);
+    expect(parkRow(parkId)?.resolved_how).toBeNull();
+  });
+
+  it("refuses, growing no cap, a park whose caps are used up", async () => {
+    const parkId = planLimitPark();
+    usage(60, 1_000);
+    const outcome = await resumption().resumeLifted(
+      w.f.office.officeId as OfficeId,
+      liftedPark(parkId),
+    );
+    expect(outcome.outcome).toBe("refused");
+    expect(grants()).toEqual([]);
+    expect(parkRow(parkId)?.resolved_how).toBeNull();
+  });
+
+  it("leaves a park resumed or parked again meanwhile alone", async () => {
+    const parkId = planLimitPark();
+    expect(
+      await resumption().resumeLifted(w.f.office.officeId as OfficeId, liftedPark(parkId + 1)),
+    ).toEqual({ outcome: "resumed" });
+    expect(w.lifts).toEqual([]);
+    expect(parkRow(parkId)?.resolved_how).toBeNull();
   });
 });

@@ -86,7 +86,6 @@ import {
   gitStoryOps,
   hostSocketSteering,
   type EngineGit,
-  type HoldNotice,
   type CiHeadState,
   type Logger,
   OfficeIngest,
@@ -97,7 +96,7 @@ import {
   PermissionAsks,
   type Places,
   type Presence,
-  PlanLimits,
+  type StartsPaused,
   type Resumption,
   type RunBase,
   RunControl,
@@ -215,9 +214,7 @@ export interface DaemonRunsOptions {
   readonly stories?: StoryIndex;
   /** Whether a TUI is connected, for live questions (DIPO-279); none by default. */
   readonly presence?: Presence;
-  /** Raises an `engine.notice` on the software stream (a plan-limit warning, DIPO-61). */
-  readonly notify?: (notice: HoldNotice) => void;
-  /** False while the daemon schedules no work (`safe`): held runs resume later (DIPO-61). */
+  /** False while the daemon schedules no work (`safe`): a starts paused lifts later (0020). */
   readonly scheduling?: () => boolean;
   /** The Safe-Chain proxies' private parent; `/tmp/dipo-p` by default (DIPO-84). */
   readonly safeChainRoot?: string;
@@ -242,7 +239,7 @@ export interface DaemonRuns {
   readonly outcomes: RunOutcomes;
   /**
    * Park resume and `work.resume` (DIPO-138): `work.answer` on an `ambiguous-spec` park resumes
-   * through it, and its feature rides on the plan-limit schedule's.
+   * through it, and its feature registers `work.resume`.
    */
   readonly resumption: Resumption;
   /** The permission wait and `work.answer` (DIPO-59). */
@@ -252,10 +249,10 @@ export interface DaemonRuns {
   /** Re-attach of worker hosts after a restart (DIPO-57), a recovery step after reconcile. */
   readonly reattacher: RunReattacher;
   /**
-   * The plan-limit schedule (DIPO-61): holds scheduling while a plan limit is open, resumes held
-   * runs after the reset, recovers waits at load and implements `work.resume` for held runs.
+   * The office's starts paused (0020): a plan limit pauses every loaded office until its reset,
+   * then resumes the parks it made; a failed adapter check pauses through the adapter's hold.
    */
-  readonly planLimits: PlanLimits;
+  readonly startsPaused: StartsPaused;
   /**
    * The office's worker and reviewer places (DIPO-142): a resume whose place is taken waits and
    * starts when it frees; its feature starts what waited across a restart at load.
@@ -1160,11 +1157,11 @@ export function daemonRuns(options: DaemonRunsOptions): DaemonRuns {
       }),
       caps: capsFor,
     },
-    // The plan-limit schedule (DIPO-61): holds scheduling while a plan limit is open, resumes held
-    // runs after the reset, recovers waits at load and implements `work.resume` for held runs.
-    planLimits: {
+    // The office's starts paused (0020): a plan limit pauses every loaded office, and a failed
+    // adapter check pauses through the adapter's hold.
+    startsPaused: {
+      loaded: () => options.offices.loadedOffices(),
       holds: options.holds,
-      ...(options.notify === undefined ? {} : { notify: options.notify }),
     },
     // DIPO-39's worktree setup of a claimed story (slot, run environment, files), before its box.
     setup: async (office, claim) => {
@@ -1218,7 +1215,7 @@ export function daemonRuns(options: DaemonRunsOptions): DaemonRuns {
     permissions,
     nudges,
     reattacher,
-    planLimits,
+    startsPaused,
     places,
     launcher,
   } = composed;
@@ -1227,7 +1224,7 @@ export function daemonRuns(options: DaemonRunsOptions): DaemonRuns {
     outcomes === null ||
     resumption === null ||
     reattacher === null ||
-    planLimits === null ||
+    startsPaused === null ||
     places === null
   ) {
     throw new Error("the daemon's run services are not all wired");
@@ -1257,7 +1254,7 @@ export function daemonRuns(options: DaemonRunsOptions): DaemonRuns {
     permissions,
     nudges,
     reattacher,
-    planLimits,
+    startsPaused,
     places,
     tempDirs,
     boxes: boxWorkers,

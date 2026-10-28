@@ -129,7 +129,7 @@ export class DaemonLifecycle {
     if (this.#state !== "safe") {
       throw new CommandError(
         "daemon.notSafe",
-        `Scheduling is not off: the daemon is ${this.#state}, not safe.`,
+        `Scheduling is not off: the daemon is ${this.#state}, not safe, and no office's starts are paused.`,
         { state: this.#state },
       );
     }

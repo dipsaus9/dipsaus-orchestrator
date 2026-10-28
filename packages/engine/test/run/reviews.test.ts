@@ -16,6 +16,7 @@ import {
   type WorkRef,
 } from "@dipsaus-orchestrator/contract";
 
+import { mirrorUnpark } from "../../src/run/park-state";
 import type { AsyncCommandContext } from "../../src/commands/registry";
 import { OFFICE_DEFAULTS, type OfficeConfig } from "../../src/config";
 import { reviewVerdictForTree, reviewVerdictsOf } from "../../src/review";
@@ -48,7 +49,9 @@ import {
   START_KINDS,
   waitingStarts,
 } from "../../src/run";
+import { parkStory } from "../../src/run/park";
 import { storeDoneReport } from "../../src/run/report-data";
+import { appendEntries } from "../../src/changelog/log";
 import type { RunStoryFacts } from "../../src/run/resume";
 import { encode } from "../../src/workers/claude-cli/encode";
 import {
@@ -338,7 +341,7 @@ function world(): World {
   // As `composeRuns` wires them: pending reviews and the review starter in the reviewer place.
   const places = new Places({
     clock: w.t.clock,
-    offices: { get: () => w.office, config: () => OFFICE_DEFAULTS },
+    offices: { get: () => w.office },
     pending: (office) => built.pending(office),
     starters: { review: (office, run, start) => built.start(office, run, start) },
   });
@@ -857,26 +860,26 @@ describe("the failure table (0019 section 4)", () => {
     expect(reviewVerdictsOf(w.office, s.key)).toEqual([]);
   });
 
-  it("stops the session at a plan limit, never parks, and waits for a fresh review from the In Review time", async () => {
+  it("parks worker-failed at a plan limit, to resume by itself when the office's starts paused lifts (0020)", async () => {
     const s = inReview("DIPO-1", "tree-1");
     heads.set(s.run, "tree-1");
-    const inReviewAt = now();
     w.t.clock.advance(MINUTE);
     const session = await reviewStarts(s);
-    x.control.onWorkerEvents(s.run, [{ t: "limit", status: "rejected", scope: "session" }]);
+    const reset = new Date(now() + 3_600_000).toISOString();
+    x.control.onWorkerEvents(s.run, [{ t: "limit", status: "rejected", resetsAt: reset }]);
     await x.control.idle();
-    expect(runIntents(w.office, s.run).at(-1)).toMatchObject({ kind: "stop" });
     await exits(session, 0);
-    expect(parksOf()).toEqual([]);
-    expect(findRun(w.office, s.run)).toMatchObject({
-      endedAt: null,
-      waiting: START_KINDS.review,
-      waitingSince: inReviewAt,
-    });
-    // After the reset a fresh session starts in the same round.
-    await reviewStarts(s);
-    expect(x.sessions).toHaveLength(2);
-    expect(stepsOf(s.run, "review")).toHaveLength(1);
+    expect(parksOf()).toEqual([
+      { story_id: "DIPO-1", reason: "worker-failed", detail: `plan limit until ${reset}` },
+    ]);
+    expect(
+      w.office.get<{ resume_on_lift: number }>(
+        "select resume_on_lift from parks where office_id = $office_id",
+      )?.resume_on_lift,
+    ).toBe(1);
+    expect(findRun(w.office, s.run)).toMatchObject({ endKind: "plan-limit", waiting: null });
+    expect(findRun(w.office, s.run)?.endedAt).not.toBeNull();
+    expect(x.sessions).toHaveLength(1);
   });
 
   it("keeps the story In Review with a notice when the reviewer's launch check is refused, and the review waits", async () => {
@@ -973,10 +976,47 @@ describe("a story parked while it waits In Review (DIPO-344)", () => {
 
     // The resume resolves the park (`ParkResumes`); the next drain starts the review.
     const parkId = openPark(w.office, s.key)!.parkId;
-    write(() => resolvePark(w.office, parkId, "resume", now()));
+    write(() => {
+      resolvePark(w.office, parkId, "resume", now());
+      // The lift's read-back: In Review with no park record in Backlog.md (DIPO-360).
+      mirrorUnpark(w.office, s.key, "In Review");
+    });
     const session = await reviewStarts(s);
     expect(session.run).toBe(s.run);
     expect(stepsOf(s.run, "review")).toHaveLength(1);
+  });
+});
+
+describe("a story whose park could not be written to Backlog.md (DIPO-360)", () => {
+  it("gets no review round or reviewer session while its park row is open, fail-closed", async () => {
+    const s = inReview("DIPO-1", "tree-1");
+    const start = pendingReviews(w.office)[0]!;
+    await parkStory(
+      {
+        office: w.office,
+        writer: {
+          write: async () => {
+            throw new Error("the push was refused");
+          },
+        },
+        now,
+        write: (fn) => write(() => void appendEntries(w.office, fn(), { at: now() })),
+        implemented: () => true,
+      },
+      {
+        run: findRun(w.office, s.run)!,
+        reason: "review-blocked",
+        detail: "blocked",
+        endKind: "review-blocked",
+      },
+    );
+    // Backlog.md does not hold the park, and the run keeps its In Review end kind.
+    expect(openPark(w.office, s.key)).toBeNull();
+    expect(findRun(w.office, s.run)?.endKind).toBe(IN_REVIEW_END);
+    expect(pendingReviews(w.office)).toEqual([]);
+    expect(await x.places.drain(officeId())).toBe(0);
+    expect(await x.reviews.start(officeId(), findRun(w.office, s.run)!, start)).toBe(false);
+    expect(x.sessions).toEqual([]);
   });
 });
 

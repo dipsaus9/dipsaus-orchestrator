@@ -19,6 +19,7 @@ import { type CommandReply, RequestId } from "@dipsaus-orchestrator/contract";
 import { executeCommand } from "../../src/commands/execute";
 import { createSystemIds } from "../../src/platform/ids";
 import { runIntents } from "../../src/run";
+import { openPark } from "../../src/run/park";
 import { CLI } from "../gate/gated-office";
 import { resultOf } from "../office/helpers";
 import { loadRecording } from "../workers/replay";
@@ -59,8 +60,16 @@ async function viewIn(r: Running, cwd: string): Promise<string> {
   return view.stdout;
 }
 
-function parks(r: Running): { reason: string; from_state: string; detail: string }[] {
-  return r.office.all("select reason, from_state, detail from parks where office_id = $office_id");
+function parks(r: Running): { reason: string; detail: string }[] {
+  return r.office.all("select reason, detail from parks where office_id = $office_id");
+}
+
+/** The engine's current park of TASK-1: Backlog.md's reason and origin (DIPO-360). */
+function currentPark(r: Running): ReturnType<typeof openPark> {
+  const key = r.office.get<{ key: string }>(
+    "select key from stories where office_id = $office_id and story_id = 'TASK-1'",
+  )?.key;
+  return key === undefined ? null : openPark(r.office, key);
 }
 
 async function tip(r: Running, ref: string): Promise<string> {
@@ -81,9 +90,9 @@ if (process.env["DIPO_TEST_CI"] === "1") {
         async (r) => {
           const run = await startRun(r);
           await r.control?.idle();
-          expect(parks(r).map((p) => [p.reason, p.from_state])).toEqual([
-            ["budget-exceeded", "In Progress"],
-          ]);
+          expect(parks(r).map((p) => p.reason)).toEqual(["budget-exceeded"]);
+          // The current reason and origin are the task file's, as the engine reads them.
+          expect(currentPark(r)).toMatchObject({ reason: "budget-exceeded", from: "In Progress" });
           expect(parks(r)[0]?.detail).toContain("token budget reached");
           // One park commit on top of the claim commit, on the branch and on origin.
           expect((await r.repo.git("log", "--format=%s", "-n", "2", BRANCH)).trim()).toBe(

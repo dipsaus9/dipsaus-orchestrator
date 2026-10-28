@@ -20,6 +20,7 @@ import {
   type WorkRef,
 } from "@dipsaus-orchestrator/contract";
 
+import { mirrorStory } from "../run/park-fixture";
 import { executeCommand } from "../../src/commands/execute";
 import { stateOfficeDirectory } from "../../src/commands/offices";
 import { buildRegistry } from "../../src/commands/registry";
@@ -151,6 +152,8 @@ beforeEach(async () => {
     addStory(office, f.t.ids, { story: StoryId.parse("DIPO-1") }, f.t.clock.now()),
   );
   (world as { work: WorkRef }).work = { ...f.work, key };
+  // The story as the index read it, so a park reaches the mirror (DIPO-360).
+  office.immediate(() => mirrorStory(office, { key, story: "DIPO-1" }));
   office.immediate(() => {
     insertRun(office, {
       runId: run,

@@ -331,19 +331,12 @@ export class RunControl implements RunEnder {
         outcomes !== undefined &&
         (event.status === "rejected" || event.creditsRequired === true)
       ) {
+        // The office's starts pause and the story parks until the reset (0020).
         outcomes.onPlanLimit(viewOf(tracked), {
           credits: event.creditsRequired === true,
           ...(event.resetsAt === undefined ? {} : { resetsAt: event.resetsAt }),
-          ...(event.scope === undefined ? {} : { scope: event.scope }),
         });
         return;
-      }
-      // A warning lets the run go on; new runs on its scope wait for the reset (DIPO-61).
-      if (event.t === "limit" && event.status === "allowed_warning") {
-        outcomes?.onPlanWarning?.(viewOf(tracked), {
-          ...(event.resetsAt === undefined ? {} : { resetsAt: event.resetsAt }),
-          ...(event.scope === undefined ? {} : { scope: event.scope }),
-        });
       }
       if (event.t === "modelSwitched") outcomes?.onModelSwitched(viewOf(tracked), event.to);
       if (event.t === "turn" && (event.report?.proposals?.length ?? 0) > 0) {
@@ -698,7 +691,7 @@ export class RunControl implements RunEnder {
   }
 
   /**
-   * The first decision on a tracked run without a park (a reassign or a plan-limit hold): the
+   * The first decision on a tracked run without a park (a reassign or a start failure): the
    * intent is stored, then its ops are sent. Nothing else is decided for the run after it; the
    * worker's exit is decided from the intent. False when a decision was made already, or when
    * the intent could not be stored: then no op is sent and the failure is logged (DIPO-119).

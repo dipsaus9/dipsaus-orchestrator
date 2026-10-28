@@ -527,6 +527,7 @@ function writeRunOutcome(office: OfficeHandle, runId: RunId, kind: string): void
   if (run === null || run.endedAt === null) return;
   const at = run.endedAt;
   const final = kind === DONE_END;
+  // History for retro (0007, 0020): the reasons the run's parks were made with (DIPO-360).
   const parks = office
     .all<{ reason: string }>(
       `select reason from parks where office_id = $office_id and run_id = $run order by park_id`,

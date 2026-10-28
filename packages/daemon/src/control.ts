@@ -51,6 +51,11 @@ export interface ControlDeps {
   readonly activeRuns?: () => number;
   /** `daemon.status.keepAwake` (0006 decision 12, DIPO-63); not held when absent. */
   readonly keepAwake?: () => { readonly held: boolean; readonly reason?: string };
+  /**
+   * Lifts every loaded office's starts paused (0020, `StartsPaused.liftAll`); answers how many
+   * offices had something lifted. None without it.
+   */
+  readonly liftStartsPaused?: (why: string) => number;
   /** Starts the drain; the first request wins (`foreground.ts`). */
   readonly requestStop: (request: DrainRequest) => void;
 }
@@ -127,7 +132,16 @@ export function controlFeature(deps: ControlDeps): FeatureModule {
       registry.addSoftwareCommand({
         definition: daemonResumeScheduling,
         handle: () => {
-          lifecycle.resumeScheduling();
+          // Every office's starts paused lifts too (0020), after `safe` is left, so the parks the
+          // lift resumes find scheduling on. Outside `safe` the lift is all it does, and with
+          // nothing paused either it answers `daemon.notSafe`.
+          const why = "the maintainer ran dipo daemon resume-scheduling";
+          if (lifecycle.state === "safe") {
+            lifecycle.resumeScheduling();
+            deps.liftStartsPaused?.(why);
+            return { result: { state: lifecycle.state }, changed: true };
+          }
+          if ((deps.liftStartsPaused?.(why) ?? 0) === 0) lifecycle.resumeScheduling();
           return { result: { state: lifecycle.state }, changed: true };
         },
       });

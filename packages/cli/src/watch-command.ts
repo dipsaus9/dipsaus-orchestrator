@@ -84,8 +84,6 @@ const HEALTH_MEANING: Readonly<Record<string, string>> = {
   quiet: "no output for a few minutes (timeouts.workerQuietMinutes)",
   stuck: "no output for a long time (timeouts.workerStallMinutes); the worker may hang",
   looping: "the same failure repeats, or the worker is on its last allowed loop",
-  paused: "paused by you",
-  limited: "waiting for the plan limit to reset",
   asking: "waiting for your answer",
   lost: "the worker exited or its host is gone, and dipo has not processed that yet",
 };
@@ -96,7 +94,6 @@ const SIGNAL_MEANING: Readonly<Record<string, string>> = {
   "no-output": "no output line for timeouts.workerStallMinutes",
   "same-failure": "the same failure twice in a row",
   "input-wait": "the worker waits for a permission or input",
-  "plan-limit": "the plan limit was hit; the run waits for the reset",
   "host-lost": "the worker host died without an exit file",
   "follow-only": "the worker can be followed but not steered",
 };

@@ -259,6 +259,7 @@ export function finalSummaryFacts(
     limit += runCaps(office, run).budgetTokens;
   }
   const last = runs.at(-1);
+  // History (0007): each park with the reason it was made with, not the current park (DIPO-360).
   const parks = office
     .all<{ at: number; reason: string; detail: string }>(
       `select at, reason, detail from parks where office_id = $office_id and key = $key

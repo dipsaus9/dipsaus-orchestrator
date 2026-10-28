@@ -59,6 +59,8 @@ import { tuiLeft } from "./migrations/0055-tui-left";
 import { dropVerifyNudgeTables } from "./migrations/0056-drop-verify-nudge-tables";
 import { eightParkReasons } from "./migrations/0057-eight-park-reasons";
 import { twoGrantKinds } from "./migrations/0058-two-grant-kinds";
+import { startsPaused } from "./migrations/0059-starts-paused";
+import { parkOriginInBacklog } from "./migrations/0060-park-origin-in-backlog";
 
 /**
  * Software-wide tables (0007 section 3). Every other table is office-scoped and has `office_id`
@@ -153,4 +155,6 @@ create table offices (
   dropVerifyNudgeTables,
   eightParkReasons,
   twoGrantKinds,
+  startsPaused,
+  parkOriginInBacklog,
 ];

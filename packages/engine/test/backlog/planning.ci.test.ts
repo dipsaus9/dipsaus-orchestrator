@@ -89,10 +89,7 @@ function world(s: ClaimSetup) {
     implemented: () => true,
     probe: systemProcessProbe(currentPlatform()),
   });
-  const registry = buildRegistry([
-    planning.feature,
-    new WorkResumeCommand(undefined, () => planning).feature,
-  ]);
+  const registry = buildRegistry([planning.feature, new WorkResumeCommand(() => planning).feature]);
   let n = 0;
   const send = (name: string, args: Record<string, unknown>) => {
     n += 1;
@@ -209,8 +206,8 @@ if (process.env["DIPO_TEST_CI"] === "1") {
         const { claim } = outcome;
         s.office.immediate(() => {
           s.office.run(
-            `insert into parks (office_id, park_id, key, story_id, run_id, reason, from_state, detail, at)
-           values ($office_id, 1, $key, $story, $run, 'by-maintainer', 'In Progress', 'stopped', $at)`,
+            `insert into parks (office_id, park_id, key, story_id, run_id, reason, detail, at)
+           values ($office_id, 1, $key, $story, $run, 'by-maintainer', 'stopped', $at)`,
             { key, story: TASK_1, run: claim.runId, at: s.t.clock.now() },
           );
           insertStoryPr(s.office, {

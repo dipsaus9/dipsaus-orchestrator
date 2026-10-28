@@ -26,9 +26,9 @@
 //   lost, or a report still invalid after its correction turn ends the agent `review-crashed` and
 //   starts one fresh session for the same round; a second failure in the round parks
 //   `worker-failed` with the reviewer's last error. The story's budget used up parks
-//   `budget-exceeded` (run control). A plan limit stops the session and never parks: the review
-//   waits for its place again, which the hold pauses until the reset, and a fresh session starts
-//   then. A start failure or a refused launch check holds the adapter with an `engine.notice`; the
+//   `budget-exceeded` (run control). A plan limit pauses the office's starts and parks
+//   `worker-failed` as a developer session's does (0020); its resume when the pause lifts starts a
+//   fresh review. A start failure or a refused launch check holds the adapter with an `engine.notice`; the
 //   story stays In Review and the review waits. A launch plan that refuses the session (a
 //   `PlanError`) raises the `run.planRefused` notice with `planRefusedText`, as the worker's launch
 //   does, once per run and refusal (DIPO-247).
@@ -84,12 +84,13 @@ import {
   OUTCOME_ENDS,
   OUTCOME_NOTICES,
   type PlanLimitHit,
-  type PlanLimitWaits,
+  planLimitEnding,
+  type PlanLimitPauses,
   type RunEnder,
   type RunOutcomesPort,
   type RunView,
 } from "./outcome-types";
-import { openPark } from "./park";
+import { heldByPark } from "./park-state";
 import { claimPlace, type PlaceStart, START_KINDS, waitForPlace } from "./places";
 import { LAUNCH_NOTICES, planRefusedText } from "./launch";
 import { endRunMarked } from "./markers";
@@ -106,6 +107,7 @@ import {
   takeVerdict,
 } from "./review-rounds";
 import { endReviewPeriod, reopenForRound, REVIEWED_END } from "./rounds";
+import { planLimitPause } from "./starts-paused";
 
 /** The tags of the review rounds' intents, at the start of their detail. */
 export const REVIEW_TAGS = {
@@ -115,8 +117,6 @@ export const REVIEW_TAGS = {
   evidence: "review-evidence",
   /** `stop` `review-retry <why>`: a failed turn ends the session as a crash. */
   retry: "review-retry",
-  /** `stop` `review-plan-limit <fact>`: a plan limit stopped the session; never a park. */
-  planLimit: "review-plan-limit",
 } as const;
 
 /** `agents.end_reason` of a reviewer session that failed (section 4: crash, host lost, no report). */
@@ -153,12 +153,12 @@ export interface ReviewsDeps {
   readonly ender: () => RunEnder | undefined;
   /** The adapter's id, for its hold. */
   readonly adapter: string;
-  /** DIPO-43's adapter hold, set for a start failure or a credits limit. */
+  /** DIPO-43's adapter hold, set for a start failure: the office's starts paused (0020). */
   readonly holds?: {
     hold(adapter: string, failures: readonly LaunchCheckFailure[]): AdapterHold;
   };
-  /** The plan-limit schedule: a review's limit holds new sessions on its scope until the reset. */
-  readonly waits?: () => PlanLimitWaits | undefined;
+  /** The office's starts paused, which a review's plan limit pauses (0020). */
+  readonly startsPaused?: () => PlanLimitPauses | undefined;
   /**
    * Hears a run that ended reviewed: a reviewer session's exit once its verdict or park ended the
    * review period, with the agent that exited, or a head that took its tree's verdict without a
@@ -238,7 +238,7 @@ export class Reviews {
     if (office === undefined || run.worktree === null || run.story === null) return false;
     if (run.endKind === DONE_END) return false;
     // A story parked since its start was queued waits for its resume (`pendingReviews`).
-    if (run.key !== null && openPark(office, run.key) !== null) return false;
+    if (run.key !== null && heldByPark(office, run.key)) return false;
     let facts: RunStoryFacts;
     let head: string;
     let tree: string;
@@ -666,31 +666,19 @@ export class Reviews {
   }
 
   /**
-   * A plan limit in a review (sections 4 and 12): the session stops and never parks. New sessions
-   * on its scope wait for the reset (a credits limit holds the adapter); at the exit the review
-   * waits for its place again, and a fresh session starts after the reset.
+   * A plan limit in a review (0020): the office's starts pause, and the session ends with its
+   * story parked `worker-failed`, as a developer session's does. The park resumes by itself when
+   * the pause lifts, and that resume starts a fresh review of the same head (0002).
    */
   onPlanLimit(view: RunView, limit: PlanLimitHit): void {
-    const acted = this.#deps.ender()?.act(view.runId, {
-      intent: "stop",
-      detail: `${REVIEW_TAGS.planLimit} ${JSON.stringify(limit)}`,
-      ops: [{ closeStdin: true }],
-    });
-    if (acted !== true) return;
-    if (limit.credits) {
-      this.#deps.holds?.hold(this.#deps.adapter, [
-        {
-          check: "credits",
-          detail:
-            "the plan reports credits_required, so no run can use it until the plan is dealt with",
-        },
-      ]);
-      return;
-    }
-    this.#deps.waits?.()?.warned(view.office, {
-      ...(limit.resetsAt === undefined ? {} : { resetsAt: limit.resetsAt }),
-      ...(limit.scope === undefined ? {} : { scope: limit.scope }),
-    });
+    const pause = planLimitPause(limit, this.#deps.clock.now());
+    this.#deps.startsPaused?.()?.pausePlanLimit(view.office, pause);
+    this.#deps
+      .ender()
+      ?.begin(
+        view.runId,
+        planLimitEnding(pause, [{ closeStdin: true }, { signal: "SIGTERM", afterMs: 10_000 }]),
+      );
   }
 
   // ---- the session's exit ----------------------------------------------------------------------
@@ -743,11 +731,6 @@ export class Reviews {
       if (intent !== null) this.#resolve(office, view.runId, intent, intent.kind, at);
       // No reviewer runs any more: the fix round of this head may decide now (DIPO-148).
       this.#deps.onReviewed?.(view.office, view.runId, agent);
-      return;
-    }
-    if (tag === REVIEW_TAGS.planLimit && intent !== null) {
-      this.#resolve(office, view.runId, intent, "plan-limit", at);
-      this.#waitAgain(office, run);
       return;
     }
     if (tag === INTENT_TAGS.startFailed && intent !== null) {
@@ -868,9 +851,6 @@ export class Reviews {
         reviewerView(view) ? this.onTurnProblem(view, problem) : base.onTurnProblem(view, problem),
       onPlanLimit: (view, limit) =>
         reviewerView(view) ? this.onPlanLimit(view, limit) : base.onPlanLimit(view, limit),
-      ...(base.onPlanWarning === undefined
-        ? {}
-        : { onPlanWarning: (view, warning) => base.onPlanWarning?.(view, warning) }),
       onModelSwitched: (view, model) => base.onModelSwitched(view, model),
       // A reviewer answers no report feedback of the developer's.
       answered: (view) => {

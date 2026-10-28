@@ -69,6 +69,7 @@ import type { BacklogCli } from "../runner";
 
 import {
   type EntryChange,
+  findEntry,
   insertEntry,
   isAdoptedTarget,
   type JournalEntry,
@@ -208,6 +209,12 @@ export interface OfficeLaneOptions {
    * is held, a flush applies nothing: operations are journaled and wait for the slot to let go.
    */
   readonly held?: (office: OfficeId) => string | null;
+  /**
+   * Reads a story again on the base (the story index's `refreshStory`), for each story whose
+   * operation the flush found merged (DIPO-360): the operation stops counting as the story's
+   * pending state then (`backlogPark`), so the mirror must hold the base's read at once.
+   */
+  readonly refreshStory?: (office: OfficeId, key: StoryKey) => Promise<unknown>;
 }
 
 export interface BaseRef {
@@ -241,6 +248,7 @@ export class OfficeLane {
   readonly #onChanged: (office: OfficeId) => void;
   readonly #onFlushed: ((office: OfficeId, report: FlushReport) => Promise<void>) | undefined;
   readonly #held: (office: OfficeId) => string | null;
+  readonly #refreshStory: ((office: OfficeId, key: StoryKey) => Promise<unknown>) | undefined;
   #waiting: Waiting | null = null;
 
   constructor(options: OfficeLaneOptions) {
@@ -254,6 +262,7 @@ export class OfficeLane {
     this.#onChanged = options.onChanged ?? (() => {});
     this.#onFlushed = options.onFlushed;
     this.#held = options.held ?? (() => null);
+    this.#refreshStory = options.refreshStory;
   }
 
   get git(): OfficeGit {
@@ -351,9 +360,26 @@ export class OfficeLane {
       throw this.#failed(error, options.replay === true);
     }
     if (report.held === true) return report;
+    await this.#refreshMerged(report.merged);
     // The hook reports its own failures as notices; a failure there is no failed flush.
     await this.#onFlushed?.(this.officeId, report).catch(() => undefined);
     return report;
+  }
+
+  /**
+   * The stories of the operations a flush found merged, read again on the base (DIPO-360). A read
+   * that fails (a dropped story is archived) leaves the next index pass to it.
+   */
+  async #refreshMerged(merged: readonly number[]): Promise<void> {
+    if (this.#refreshStory === undefined) return;
+    const keys = new Set<StoryKey>();
+    for (const opId of merged) {
+      const key = findEntry(this.#office, opId)?.key;
+      if (key != null) keys.add(key);
+    }
+    for (const key of keys) {
+      await this.#refreshStory(this.officeId, key).catch(() => undefined);
+    }
   }
 
   /**
@@ -1027,6 +1053,8 @@ export interface BacklogLaneDeps {
   readonly onFlushed?: (office: OfficeId, report: FlushReport) => Promise<void>;
   /** The branch the office's merge slot holds (DIPO-73). */
   readonly held?: (office: OfficeId) => string | null;
+  /** Reads a story whose operation merged again on the base (DIPO-360). */
+  readonly refreshStory?: (office: OfficeId, key: StoryKey) => Promise<unknown>;
 }
 
 /** The load step that replays open journal entries (0007 section 6 step 2). */

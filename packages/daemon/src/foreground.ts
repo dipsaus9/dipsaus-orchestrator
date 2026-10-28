@@ -70,7 +70,9 @@ import {
   UsageMeter,
   openLogFile,
   openStateDatabase,
+  officeHoldStore,
   passwdHome,
+  planLimitPause,
   readEngineCommitsAfter,
   readRuntimeRecord,
   readWorkActivity,
@@ -85,6 +87,7 @@ import {
   FIX_ROUNDS_RECOVERY_STEP,
   RECONCILE_STEP,
   Reconciler,
+  RELEASE_NOTICE_CODE,
   Retention,
   runtimeCandidates,
   selfCommand,
@@ -128,6 +131,7 @@ import {
   type StoryPlanningDeps,
   type StateDatabase,
   type ScanSessionRunner,
+  type StartsPaused,
   type StoredRun,
   type WorkerPort,
 } from "@dipsaus-orchestrator/engine";
@@ -720,9 +724,10 @@ async function serve(run: Run, lock: HeldLock): Promise<number> {
     // every `polling.prStateSeconds` until it exists, through the same `gh` host. Whether a run
     // is a box run comes from the runs made below (DIPO-299: its head may be final with no CI).
     let boxRunOf: ((office: OfficeId, stored: StoredRun) => boolean) | null = null;
-    // The scan fallback's session runner and the plan-limit check, set once the run services exist.
+    // The scan fallback's session runner and the office's starts paused, set once the run services
+    // exist.
     let sessionRuns: ScanSessionRunner | undefined;
-    let planLimitHeldOf: ((adapter: string, model: string) => string | null) | undefined;
+    let startsPausedOf: StartsPaused | undefined;
     const storyPrs = new StoryPrs({
       host,
       prState,
@@ -767,6 +772,8 @@ async function serve(run: Run, lock: HeldLock): Promise<number> {
         mergeSlot.kick(office);
       },
       held: (office) => mergeSlot.holding(office),
+      // A merged hold or resume stops counting as the story's park: the base's read replaces it.
+      refreshStory: (office, key) => storyIndex.refreshStory(office, key),
     });
     // Office init (DIPO-36): `office.init` reads the base and submits its steps to the lane, whose
     // flush opens the backlog PR and kicks the merge slot. Its load step, which raises a notice
@@ -904,12 +911,27 @@ async function serve(run: Run, lock: HeldLock): Promise<number> {
     const runProfiles = new RunProfiles({
       git: engineGit,
       // The scan fallback (DIPO-310): its session runs through the run services made below, only
-      // when the maintainer asks (`office.infer`); a plan-limit hold makes it wait.
+      // when the maintainer asks (`office.infer`); the office's starts paused makes it wait, and a
+      // plan limit its session meets pauses them (0020).
       fallback: () => sessionRuns,
       scanSettings: (office) => offices.config(office)?.scan,
-      planLimitHeld: (office, model) =>
-        planLimitHeldOf?.(offices.config(office)?.worker.adapter ?? CLAUDE_CLI_ADAPTER_ID, model) ??
-        null,
+      startsPaused: (office) => {
+        const paused = startsPausedOf?.state(office) ?? null;
+        return paused === null ? null : `the office's starts are paused (${paused.detail})`;
+      },
+      pausePlanLimit: (office, limit) =>
+        startsPausedOf?.pausePlanLimit(
+          office,
+          planLimitPause(
+            {
+              credits: limit.credits,
+              ...(limit.resetsAt === undefined
+                ? {}
+                : { resetsAt: new Date(limit.resetsAt).toISOString() }),
+            },
+            clock.now(),
+          ),
+        ),
       stories: storyIndex,
       reconcile: (office) => reconciler.reconcile(office),
       reloadConfig: (office) => offices.reloadIfChanged(office, engineGit.forOffice(office)),
@@ -917,13 +939,23 @@ async function serve(run: Run, lock: HeldLock): Promise<number> {
       logger: logger.child({ component: "scan" }),
     });
     // Adapter holds (DIPO-43): a failed launch check holds new runs on that adapter in every
-    // office, with a notice on the software stream. `work.run` refuses while its adapter is held;
-    // the run launcher below runs the launch checks that set and lift a hold.
+    // office, with a notice on the software stream: the office's starts paused (0020). `work.run`
+    // refuses while its adapter is held; the run launcher below runs the launch checks that set and
+    // lift a hold, and a lift resumes the parks a plan limit left in an office no longer paused.
     // The box-token hold (DIPO-271) is sticky: kept in the state directory over a restart, and
     // lifted only when `dipo login box` replaces the token and removes its record.
     const holds = new AdapterHolds({
       clock,
-      notify: (notice) => software.append("engine.notice", notice),
+      notify: (notice) => {
+        software.append("engine.notice", notice);
+        if (notice.code === RELEASE_NOTICE_CODE) startsPausedOf?.adapterReleased();
+      },
+      // One record: the loaded offices' starts paused, reason adapter (0020).
+      store: officeHoldStore(clock, {
+        get: (office) => offices.get(office),
+        config: (office) => offices.config(office),
+        loaded: () => offices.loadedOffices(),
+      }),
       sticky: boxTokenStickyHolds(boxTokenHoldPath(stateDir), CLAUDE_CLI_ADAPTER_ID),
       warn: (message, fields) => logger.warn(message, fields),
     });
@@ -965,9 +997,8 @@ async function serve(run: Run, lock: HeldLock): Promise<number> {
       // A question is live only while a TUI is connected at that moment (0021 section 11,
       // DIPO-279); the server is made below.
       presence: { tuiConnected: () => server?.presence.tuiConnected() ?? false },
-      // Plan limits (DIPO-61): a warning's notice goes to the software stream, and a held run
-      // resumes only while the daemon schedules work.
-      notify: (notice) => software.append("engine.notice", notice),
+      // The office's starts paused lifts, and its parks resume, only while the daemon schedules
+      // work (0020).
       scheduling: () => lifecycle.state === "running",
     });
     // Reconcile (DIPO-56, 0007 section 6): the last office load step, so every office the daemon
@@ -988,11 +1019,11 @@ async function serve(run: Run, lock: HeldLock): Promise<number> {
       onOfficeChanged: (office) => server?.notifyOffice(office),
       logger: logger.child({ component: "reconcile" }),
     });
-    // Ingestion, the cap ticks of run control (DIPO-50), the plan-limit timers (DIPO-61) and the
+    // Ingestion, the cap ticks of run control (DIPO-50), the starts paused timers (0020) and the
     // places' tick (DIPO-142) stop together.
     held.ingest = {
       close: () => {
-        runs.planLimits.close();
+        runs.startsPaused.close();
         runs.places.close();
         runs.control.close();
         runs.permissions.close();
@@ -1001,13 +1032,13 @@ async function serve(run: Run, lock: HeldLock): Promise<number> {
         runs.stopBoxPasses();
       },
     };
-    // A scan fallback session waiting for a plan limit starts no more, and a running one gets the
+    // A scan fallback session waiting for the office's starts starts no more, and a running one gets the
     // stop, so its caps hold after the daemon is gone (DIPO-310).
     held.scanSessions = { close: () => runProfiles.close() };
     // Daemon stop ends every box worker inside its box, and its routes (DIPO-271).
     held.boxes = runs.boxes;
     sessionRuns = runs.sessions;
-    planLimitHeldOf = (adapter, model) => runs.planLimits.held(adapter, model);
+    startsPausedOf = runs.startsPaused;
     boxRunOf = (office, stored) => runs.isBoxRun(office, stored);
     held.collisions = runs.collisions;
     // `work.run` (DIPO-48): picks and claims one Ready story and records the run, through the
@@ -1019,8 +1050,7 @@ async function serve(run: Run, lock: HeldLock): Promise<number> {
       stories: storyIndex,
       profiles: runProfiles,
       statuses: (office) => officeInit.officeStatusesReady(office),
-      adapterHeld: (adapter) => holds.adapterHeld(adapter),
-      planLimitHeld: (adapter, model) => runs.planLimits.held(adapter, model),
+      startsPaused: (office) => runs.startsPaused.state(office),
       claims,
       gates,
       lane: (office) => lane.forOffice(office),
@@ -1069,7 +1099,11 @@ async function serve(run: Run, lock: HeldLock): Promise<number> {
     };
     const summaries = officeSummarySource(() => held.database, settingsOf);
     const registry: Registry = engineRegistry([
-      ...engineFeatures({ backlog: backlogCli }),
+      // The desk shows the office's starts paused first (0020).
+      ...engineFeatures({
+        backlog: backlogCli,
+        desk: { startsPaused: (office) => runs.startsPaused.state(office.officeId as OfficeId) },
+      }),
       engineGit.feature,
       claims.feature,
       teardown.feature,
@@ -1090,7 +1124,9 @@ async function serve(run: Run, lock: HeldLock): Promise<number> {
       runs.control.feature,
       runs.outcomes.feature,
       runs.permissions.feature,
-      runs.planLimits.feature,
+      // The office's starts paused, armed again at load, and `work.resume` (0020).
+      runs.startsPaused.feature,
+      runs.resumption.feature,
       // After the outcomes' load step: what waited for a place starts once exits are decided.
       runs.places.feature,
       retention.feature,
@@ -1134,6 +1170,8 @@ async function serve(run: Run, lock: HeldLock): Promise<number> {
         upgradePending: () => watcher.pending,
         keepAwake: () => keepAwake.status(),
         loadedOffices: () => offices.loadedOffices(),
+        // `daemon.resumeScheduling` lifts every office's starts paused too (0020).
+        liftStartsPaused: (why) => runs.startsPaused.liftAll(why),
         activeRuns: () =>
           sumActiveRuns(offices.loadedOffices(), (office) => {
             const handle = offices.get(office);

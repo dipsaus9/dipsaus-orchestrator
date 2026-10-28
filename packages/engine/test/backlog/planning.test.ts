@@ -23,6 +23,7 @@ import {
   type OfficeLane,
   pendingLaneOp,
 } from "../../src/backlog/lane";
+import { insertPark, mirrorParked } from "../run/park-fixture";
 import { insertEntry } from "../../src/backlog/lane/journal";
 import { executeCommand } from "../../src/commands/execute";
 import { CRASH, crashAfterHandler } from "../commands/crash";
@@ -196,7 +197,7 @@ beforeEach(async () => {
         ? { pid, startTimeMs: HOST_START, zombie: false, command: "dipo daemon worker-host" }
         : null,
   });
-  const resume = new WorkResumeCommand(undefined, () => planning);
+  const resume = new WorkResumeCommand(() => planning);
   const registry = buildRegistry([planning.feature, resume.feature as FeatureModule]);
   w = { dir, t, office, ops, flushes, closed, planning, registry, hooks };
 });
@@ -297,12 +298,15 @@ function claim(key: StoryKey, id: string, runId: RunId): void {
 function park(key: StoryKey, id: string, reason: string, from: string, runId: RunId | null): void {
   const { office, t } = w;
   office.immediate(() =>
-    office.run(
-      `insert into parks (office_id, park_id, key, story_id, run_id, reason, from_state, detail, at)
-       values ($office_id, (select coalesce(max(park_id), 0) + 1 from parks
-         where office_id = $office_id), $key, $story, $run, $reason, $from, 'detail', $at)`,
-      { key, story: id, run: runId, reason, from, at: t.clock.now() },
-    ),
+    insertPark(office, {
+      key,
+      story: id,
+      runId,
+      reason,
+      from,
+      detail: "detail",
+      at: t.clock.now(),
+    }),
   );
 }
 
@@ -496,12 +500,20 @@ describe("work.resume of a story parked with no run", () => {
     w.ops.length = 0;
     // Merged: the base now says Parked with the park's F16, as the index would read it.
     const entry = allEntries(w.office)[0];
-    w.office.immediate(() =>
+    w.office.immediate(() => {
       w.office.run(
         "update backlog_journal set state = 'merged' where office_id = $office_id and op_id = $op",
         { op: entry?.opId ?? 0 },
-      ),
-    );
+      );
+      mirrorParked(w.office, {
+        key,
+        story: "DIPO-7",
+        reason: "by-maintainer",
+        from: "Ready",
+        detail: "later",
+        at: w.t.clock.now(),
+      });
+    });
     expect(pendingLaneOp(w.office, key)).toBeNull();
 
     const reply = await send("work.resume", { story: "DIPO-7", note: "M2 is done" });

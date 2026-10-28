@@ -34,6 +34,7 @@ import {
 import { viewsFeature } from "../../src/views/feature";
 import { addOffice, openTestState, type TestState } from "../commands/helpers";
 import { pass, task } from "../stories/helpers";
+import { insertPark as insertParkRow } from "../run/park-fixture";
 import { keyOf, startRun } from "./helpers";
 
 const HOUR = 3_600_000;
@@ -47,27 +48,16 @@ function insertPark(
   park: { reason: string; detail: string; at: number; run?: string },
 ): number {
   const key = keyOf(office, story);
-  return office.immediate(() => {
-    office.run(
-      `insert into parks (office_id, park_id, key, story_id, run_id, reason, from_state, detail,
-         at)
-       values ($office_id, (select coalesce(max(park_id), 0) + 1 from parks
-         where office_id = $office_id), $key, $story, $run, $reason, 'In Progress', $detail, $at)`,
-      {
-        key,
-        story,
-        run: park.run ?? null,
-        reason: park.reason,
-        detail: park.detail,
-        at: park.at,
-      },
-    );
-    return (
-      office.get<{ id: number }>(
-        "select max(park_id) as id from parks where office_id = $office_id",
-      )?.id ?? 0
-    );
-  });
+  return office.immediate(() =>
+    insertParkRow(office, {
+      key,
+      story,
+      runId: park.run ?? null,
+      reason: park.reason,
+      detail: park.detail,
+      at: park.at,
+    }),
+  );
 }
 
 function insertMergeGate(
@@ -866,6 +856,82 @@ describe("a worker question waiting on the desk (DIPO-159; 0020 section 7)", () 
             { command: "work.resume", cli: 'dipo resume DIPO-2 --note "<answer>"' },
           ],
         });
+      } finally {
+        t.state.close();
+      }
+    }));
+});
+
+describe("the office's starts paused on the desk (0020, DIPO-359)", () => {
+  it("comes first, with its reason, what lifts it and dipo daemon resume-scheduling", () =>
+    withTempDir(async (dir) => {
+      const t = await openTestState(dir);
+      try {
+        const office = addOffice(t);
+        pass(t, office, [task("DIPO-1", { status: "Parked" })]);
+        const at = t.clock.now();
+        insertPark(office, "DIPO-1", { reason: "worker-failed", detail: "plan limit until X", at });
+        t.clock.advance(HOUR);
+        const sources: DeskSources = {
+          ...DESK_SOURCES,
+          startsPaused: () => ({
+            reason: "plan-limit",
+            detail: "plan limit until 2026-10-28T12:00:00.000Z",
+            since: at,
+            until: at + 2 * HOUR,
+            lifts:
+              "It lifts by itself at 2026-10-28T12:02:00.000Z, or with `dipo daemon resume-scheduling`.",
+          }),
+        };
+        const items = desk(office, all, sources);
+        expect(items.map((item) => item.kind)).toEqual(["STARTS PAUSED", "PARKED"]);
+        expect(items[0]).toEqual({
+          kind: "STARTS PAUSED",
+          detail: "no new session starts · plan limit until 2026-10-28T12:00:00.000Z",
+          since: new Date(at).toISOString(),
+          blocks: [],
+          actions: [{ command: "daemon.resumeScheduling", cli: "dipo daemon resume-scheduling" }],
+          hand: "It lifts by itself at 2026-10-28T12:02:00.000Z, or with `dipo daemon resume-scheduling`.",
+        });
+
+        const adapter = desk(office, all, {
+          ...DESK_SOURCES,
+          startsPaused: () => ({
+            reason: "adapter",
+            detail: "claude-cli: probe: claude is not logged in.",
+            since: at,
+            until: null,
+            lifts: "Fix it, then name the story to repeat the launch checks (`dipo run <ID>`).",
+          }),
+        });
+        expect(adapter[0]?.detail).toBe(
+          "no new session starts · adapter check failed: claude-cli: probe: claude is not logged in.",
+        );
+        // The box token's hold: no command lifts it, so the row offers none (DIPO-271).
+        const sticky = desk(office, all, {
+          ...DESK_SOURCES,
+          startsPaused: () => ({
+            reason: "adapter",
+            detail: "claude-cli: box-token: the token was found in a box.",
+            since: at,
+            until: null,
+            lifts: "Replace the box login with dipo login box.",
+            hold: {
+              adapter: "claude-cli",
+              check: "box-token",
+              detail: "the token was found in a box",
+              failures: [{ check: "box-token", detail: "the token was found in a box" }],
+              since: at,
+              liftedBy: "Replace the box login with dipo login box.",
+            },
+          }),
+        });
+        expect(sticky[0]).toMatchObject({
+          actions: [],
+          hand: "Replace the box login with dipo login box.",
+        });
+        // Nothing paused: no such item.
+        expect(desk(office, all, DESK_SOURCES).map((item) => item.kind)).toEqual(["PARKED"]);
       } finally {
         t.state.close();
       }
