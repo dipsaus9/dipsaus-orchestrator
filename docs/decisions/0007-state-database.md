@@ -56,7 +56,7 @@ Run detail, grouped by subject. The prune plan maps every table in the code to o
 | Runs | Runs, agents, steps, intents, the caps snapshot and grants (0020), and one outcome row per ended run with what retro needs |
 | Process | Worker hosts and their processed offsets (0005) |
 | Usage | Usage per message (deduplicated by message id), totals per run, agent and model, including the cost the CLI reported (0008), and a daily rollup |
-| Review and merge | Gates and their decisions, reviewer verdicts keyed on the code tree, story PRs, feedback items with their signatures (0002) |
+| Review and merge | Gates and their decisions, reviewer verdicts keyed on the code tree, story PRs, feedback items with their signatures, and the maintainer's tests (`acceptance_tests`) with their result per head (0002) |
 | Parks and questions | Park detail and history, questions and answers. The current park state is Backlog.md's (section 6) |
 | Claims | One live claim per story and per branch, enforced by unique indexes, plus released branches |
 | Backlog lane | The journal of planning operations and backlog PRs (0010) |

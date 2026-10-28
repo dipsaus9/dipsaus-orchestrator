@@ -49,7 +49,7 @@ The adapter reports facts. The engine decides phase, feedback, commits and parks
 - Its only way out is dipo's **web proxy** on the Mac. The proxy tunnels to public internet addresses only. It refuses the Mac's own addresses, the local network, private, reserved and box-network ranges, and bare IP addresses. It resolves each name once and connects to the checked address, so DNS rebinding has no gap.
 - **Package registries are reachable only through Safe-Chain**, which checks packages for malware. The web proxy refuses known registry aliases, CDN names and mirrors, and checks that a TLS handshake names the host it tunnels to. Safe-Chain itself runs in a box.
 - The Mac's own ports listed in `box.localPorts` are reached only through the web proxy, by a box dipo admitted.
-- **An in-box firewall** allows output only to loopback and to dipo's proxies. dipo sets it before the first install and checks it at every session.
+- **An in-box firewall** allows output only to loopback and to dipo's proxies. dipo sets it before the first install and checks it at every session. A test box's firewall (below) also answers connections that the Mac's address on the box network opened to its dev port, and lets nothing else in.
 - **Every command dipo starts in a box runs as the box user** (uid 1000, no capabilities, no new privileges), so a worker cannot undo the firewall. Only fixed dipo steps run as root, from an allow list without network capabilities.
 
 **The login.** Claude Code in the box sends model requests to dipo's **model proxy** on the Mac. The proxy passes only the model endpoints and adds the maintainer's subscription login on the way out. The token never enters the box.
@@ -67,6 +67,8 @@ The adapter reports facts. The engine decides phase, feedback, commits and parks
 - It runs while a developer session runs, and is stopped, with its files kept, while the story waits (review, CI, an answer, a park, the maintainer).
 - A lost box is rebuilt from the start commit plus the delivered parts; only undelivered work is lost, and the maintainer is told.
 - There are no CPU, memory or disk limits per box (Apple's 1 GiB default memory limit is raised). The budget caps stop the worker.
+
+**The test box** (0002). Each `dipo test` makes a new box from the story branch's pushed head, like a developer's box: the office image, its own local git repository, only the listed `box.files`, the office's install through Safe-Chain, then `setup` and `dev`. The builder's box is not touched. The Mac reaches `dev` through a forwarder that dipo runs on the Mac: it listens on 127.0.0.1 and connects to the dev port at the test box's address from the Mac's address on the box network, so it works while a VPN routes the box network's range. When `dev` listens only on the box's loopback, a socat relay in the box passes the box's address to it. No port is published. The box is deleted when the test is recorded or closed.
 
 **The escape probe.** `tools/box-probe/probe.sh` tries, as root inside a box, to read the home folder, reach the Mac, the local network and a registry directly, switch off the network rules, and find the token or host settings. Each of these must fail, while an install through Safe-Chain and a request to the internet must work. It passed on Apple `container` 1.6.0 on 2026-10-21. Any change to the box's network, user, mounts or image build runs it again, and fails if any line fails (CLAUDE.md, R30).
 
@@ -184,4 +186,5 @@ An adapter implements section 1. An Agent SDK adapter would share `interpret`, b
 - `needs-permission` and `scopeRequest` in the report. A box worker has every permission, and references are a forecast (2026-10-21).
 - Plan-limit waits that held a run In Progress for days, and adapter holds per launch kind. Replaced by the office's starts paused (0020, 2026-10-24).
 - No git in the box at all (2026-10-21). Replaced by a box-local repository that shares nothing with yours (2026-10-24), because many test suites need git.
+- A test box reached through a forwarder inside it on the box's address (2026-10-22). Replaced by a forwarder on the Mac's loopback (2026-10-28), because a VPN on the Mac routes the box network's range away from the box bridge.
 - The reviewer on the Mac with a `PreToolUse` web-gate hook and its relay through the worker host (2026-10-17). Replaced by a read-only reviewer box (2026-10-24); no session has hooks.

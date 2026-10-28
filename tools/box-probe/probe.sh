@@ -60,6 +60,17 @@ container stats --no-stream probe-box
 container stop probe-box && container start probe-box
 container exec probe-box sh -c '[ -f /work/package.json ] && echo "files kept after restart"'
 
+# A test box's way in (DIPO-309): a listener in the box on the dev port, reached from the Mac the
+# way dipo's forwarder connects, from the box network's host address; a plain connection is printed
+# too (a VPN that routes the box network's range takes it elsewhere). The test box's firewall rule
+# itself is checked on boxes of the office image by test-box.box.test.ts (DIPO_TEST_BOX=1).
+BOX_IP=$(container exec probe-box sh -c 'ip -4 addr show eth0' | sed -n 's/.*inet \([0-9.]*\).*/\1/p')
+container exec -d probe-box sh -c 'while true; do printf "HTTP/1.0 200 OK\r\n\r\ntest box\n" | nc -l -p 5173; done'
+sleep 2
+curl -sS -m 5 -o /dev/null -w 'from the box network host: %{http_code}\n' --interface "$HOST_IP" "http://$BOX_IP:5173/" || true
+curl -sS -m 5 -o /dev/null -w 'plain: %{http_code}\n' "http://$BOX_IP:5173/" || true
+route -n get "$BOX_IP" | sed -n 's/ *interface: /route to the box: /p'
+
 # The login (decision 11) is a separate, manual step: the maintainer starts model-proxy.ts serve in
 # their own terminal with the token, one request runs from the box with ANTHROPIC_BASE_URL on the
 # model proxy, a placeholder key and NO_PROXY for HOST_IP, and model-proxy.ts check reports whether

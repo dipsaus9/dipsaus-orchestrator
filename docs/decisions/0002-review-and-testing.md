@@ -120,7 +120,7 @@ The repository setting "Allow auto-merge" must be on; the maintainer sets it by 
 
 ## 9. Testing a story
 
-`dipo test <id>` runs the story's pushed head in a test box. It installs and starts the product, and shows the test plan's manual entries and the URL. A forwarder in the test box listens on the box's address on the host-only network and forwards to the dev port, so no port is published on the Mac. `dipo test pass <id>` records a pass for that head and decides the story's test gate. `dipo test fail <id> --note <what>` starts a fix round with the note as its item. A new head needs a new test.
+`dipo test <id>` runs the story's pushed head in a new test box (0008), for a story In Review with a manual test-plan entry, flagged or not. It installs and starts the product, and shows the test plan's manual entries and the URL. A forwarder on the Mac listens on 127.0.0.1 and passes connections to the dev port at the test box's address, starting them from the Mac's address on the box network, so no port is published and the URL works while a VPN routes the box network's range. `dipo test pass <id>` records a pass for that head and decides the story's test gate; a merge gate that waited only for that test is then decided by the pass. `dipo test fail <id> --note <what>` starts a fix round with the note as its item. A new head needs a new test. A test stays open until it is recorded, a new head is pushed, the story is dropped, discarded or merged, or `timeouts.testIdleMinutes` passes; then its box is deleted.
 
 ## 10. Capacity
 
@@ -143,4 +143,5 @@ An office runs at most one developer session per story, at most one developer se
 - A building-time sync for tier L and flagged stories. Removed (2026-10-24); a merge without a conflict is not needed.
 - `storyPr.open` to switch story PRs off (2026-10-19). Removed (2026-10-24): every story needs its PR, because CI on the PR is the final gate.
 - A PR closed on GitHub parked as `stopped` with cause `pr-closed`. Replaced by `by-maintainer` with a detail (2026-10-24).
+- A forwarder inside the test box on the box's address, with that address as the test URL (2026-10-22). Replaced by a forwarder on the Mac's loopback (2026-10-28): the Mac does not reach a box address while a VPN routes the box network's range.
 - Schema validity in the report gate, a bad report parked `ambiguous-spec`, and markers left at done failing the hand-off (2026-10-24). Replaced by one correction turn and then `worker-failed` for a report that does not parse or match the schema (0008), and by markers as report gate feedback against the tier `loops` (2026-10-28).
