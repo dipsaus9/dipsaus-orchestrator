@@ -56,13 +56,12 @@ import {
   type UnparkBranchRequest,
 } from "../../src/run";
 import { storeFeedbackItems } from "../../src/run/feedback-items";
-import { FIX_ROUND_TAG } from "../../src/run/fix-rounds";
 import { recordIntent } from "../../src/run/intents";
 import { openPark } from "../../src/run/park";
 import { sendFeedback } from "../../src/run/feedback";
 import { insertPark, mirrorStory } from "./park-fixture";
 import { parksBeingResumed } from "../../src/run/park-resume";
-import type { NextSessionRequest } from "../../src/run/resume";
+import { type HeldSession, withHeld } from "./held-session";
 import { addStory } from "../../src/stories/keys";
 import { encode } from "../../src/workers/claude-cli/encode";
 import type { Caps } from "../../src/workers/types";
@@ -71,18 +70,11 @@ import { CRASH, crashAfterHandler } from "../commands/crash";
 import { type IngestFixture, ingestFixture } from "../ingest/helpers";
 
 /**
- * The first message a native resume of `request` sends (`RunResumer`): the caller's message, the
- * note in its template, then what waited. A handoff lists the note in its block instead.
+ * The first message the session of `request` got (`RunResumer`): the resume delta of a native
+ * resume, then every held message, the findings before the maintainer's words.
  */
-function first(request: NextSessionRequest | undefined): string {
-  if (request === undefined) return "";
-  return [
-    request.message,
-    request.note === undefined ? undefined : noteText(request.note),
-    ...(request.held ?? []),
-  ]
-    .filter((part) => part !== undefined && part !== "")
-    .join("\n\n");
+function first(request: HeldSession | undefined): string {
+  return request?.message ?? "";
 }
 
 /** Every command counts as implemented. */
@@ -96,7 +88,7 @@ interface World {
   readonly f: IngestFixture;
   readonly key: StoryKey;
   readonly lifts: UnparkBranchRequest[];
-  readonly sessions: NextSessionRequest[];
+  readonly sessions: HeldSession[];
   readonly reviews: RunId[];
   readonly considered: RunId[];
   readonly ported: string[];
@@ -201,7 +193,7 @@ function resumption(options: Partial<ResumptionOptions> = {}): Resumption {
       ender: () => ender,
       resumer: {
         next: async (request) => {
-          w.sessions.push(request);
+          w.sessions.push(withHeld(f.office, request, f.t.clock.now()));
           return { kind: "started", agent: f.t.ids.next("agt") as AgentId, resumed: true };
         },
       },
@@ -465,10 +457,14 @@ describe("work.resume of a reason that needs nothing more (0020)", () => {
         },
       ]);
       expect(w.sessions).toHaveLength(1);
-      const session = w.sessions[0] as NextSessionRequest;
-      // The note goes to the session start apart from the reason's part (0020).
-      expect(session.note).toBe(row.note);
+      const session = w.sessions[0] as HeldSession;
+      // The note follows the reason's part (0020).
       for (const part of row.first) expect(first(session)).toContain(part);
+      if (row.note !== undefined) {
+        expect(first(session).indexOf(noteText(row.note))).toBeGreaterThan(
+          first(session).indexOf(row.first[0] ?? ""),
+        );
+      }
       // Maintainer text never starts a message (0020).
       expect(first(session)?.startsWith(row.note ?? "\0")).toBe(false);
       // The note is a fact on the resolved park; the run is active again.
@@ -764,12 +760,11 @@ describe("top-up of a budget-exceeded park (0020)", () => {
     // A fix round was queued with its items, then the pre-start cap check parked it (DIPO-205).
     const { office, run, t } = w.f;
     office.immediate(() => {
-      const intentId = recordIntent(
+      const { intentId } = sendFeedback(
         office,
         run,
-        "steer",
-        `${FIX_ROUND_TAG} ${JSON.stringify({ head: "e".repeat(40), advisories: [] })}`,
-        t.clock.now(),
+        { source: "ci", key: "e".repeat(40), text: "Required check ci-ok failed." },
+        { at: t.clock.now() },
       );
       storeFeedbackItems(office, run, {
         intentId,
@@ -799,8 +794,8 @@ describe("top-up of a budget-exceeded park (0020)", () => {
       { run },
     );
     expect(delivered?.sent_at).not.toBeNull();
-    const fix = runIntents(office, run).find((intent) => intent.detail.startsWith(FIX_ROUND_TAG));
-    expect(fix?.outcome).toBe("started");
+    const fix = runIntents(office, run).find((intent) => intent.detail.startsWith("feedback ci "));
+    expect(fix?.outcome).toBe("resumed");
   });
 
   it("starts a fresh review, not a developer session, when the budget ran out in a review", async () => {
@@ -845,7 +840,7 @@ describe("round grants: one more round of the cap that fired (0020)", () => {
     const { office, run, t } = w.f;
     office.immediate(() =>
       storeFeedbackItems(office, run, {
-        intentId: recordIntent(office, run, "steer", "fix-round {}", t.clock.now()),
+        intentId: recordIntent(office, run, "steer", "an earlier round", t.clock.now()),
         head: "e".repeat(40),
         round: 1,
         items: [
@@ -1217,7 +1212,7 @@ describe("a retry of the same request (0005 note of 2026-10-17)", () => {
     expect(parksBeingResumed(w.f.office).size).toBe(0);
   });
 
-  it("fails a resume whose restart errs before its park resolved, so it no longer holds the park (DIPO-360)", async () => {
+  it("keeps a resume pending with a notice when its restart throws after the lift reached the branch, so a rescan cannot close the park (DIPO-362)", async () => {
     const parkId = park("by-maintainer");
     const stopped = createRunOutcomesWithLift(() => new Promise(() => {}));
     void stopped.resumeCommand(ctx(false, "req_err"), {
@@ -1226,8 +1221,54 @@ describe("a retry of the same request (0005 note of 2026-10-17)", () => {
     });
     await Bun.sleep(0);
     expect(parksBeingResumed(w.f.office).has(parkId)).toBe(true);
-    // The next daemon's lift answers nothing it can use: an error after the lift, not in it.
-    const restarted = createRunOutcomesWithLift(async () => undefined as never);
+    // The next daemon's lift reaches the branch and answers nothing it can use: the finishing step
+    // throws after the lift, not in it.
+    const restarted = createRunOutcomesWithLift(async (request) => {
+      w.lifts.push(request);
+      indexAfterLift();
+      return undefined as never;
+    });
+    expect(await restarted.recoverParkResumes(w.f.office.officeId as OfficeId, w.f.office)).toBe(0);
+    const resumes = () =>
+      runIntents(w.f.office, w.f.run).filter((intent) =>
+        intent.detail.startsWith(`${MAINTAINER_RESUME_TAG} `),
+      );
+    // Pending, not failed: the park row stays held, so reconcile leaves it open.
+    expect(resumes().map((intent) => [intent.state, intent.outcome])).toEqual([["pending", null]]);
+    expect(parksBeingResumed(w.f.office).has(parkId)).toBe(true);
+    expect(openPark(w.f.office, w.key)).toBeNull();
+    expect(w.sessions).toEqual([]);
+    const notice = entries("engine.notice").find(
+      (data) => data["code"] === PARK_RESUME_NOTICES.unfinished,
+    );
+    expect(notice?.["text"]).toContain(
+      "the park was lifted on its branch, but finishing the resume failed",
+    );
+    // The next recovery finishes it: the run reopens and its session starts, once.
+    const again = createRunOutcomesWithLift(async (request) => {
+      w.lifts.push(request);
+      return { commit: null, pushed: true, pushError: null };
+    });
+    expect(await again.recoverParkResumes(w.f.office.officeId as OfficeId, w.f.office)).toBe(1);
+    await again.idle();
+    expect(findRun(w.f.office, w.f.run)?.endedAt).toBeNull();
+    expect(w.sessions).toHaveLength(1);
+    expect(resumes().map((intent) => intent.outcome)).toEqual(["resumed"]);
+    expect(parksBeingResumed(w.f.office).size).toBe(0);
+  });
+
+  it("fails a resume whose restart's lift fails, so it no longer holds the park (DIPO-360)", async () => {
+    const parkId = park("by-maintainer");
+    const stopped = createRunOutcomesWithLift(() => new Promise(() => {}));
+    void stopped.resumeCommand(ctx(false, "req_err"), {
+      story: StoryId.parse("DIPO-1"),
+      note: "once",
+    });
+    await Bun.sleep(0);
+    expect(parksBeingResumed(w.f.office).has(parkId)).toBe(true);
+    const restarted = createRunOutcomesWithLift(async () => {
+      throw new Error("the remote refused the push");
+    });
     expect(await restarted.recoverParkResumes(w.f.office.officeId as OfficeId, w.f.office)).toBe(0);
     const resumes = runIntents(w.f.office, w.f.run).filter((intent) =>
       intent.detail.startsWith(`${MAINTAINER_RESUME_TAG} `),
@@ -1262,7 +1303,7 @@ function createRunOutcomesWithLift(
     ender: () => ender,
     resumer: {
       next: async (request) => {
-        w.sessions.push(request);
+        w.sessions.push(withHeld(f.office, request, f.t.clock.now()));
         return { kind: "started", agent: f.t.ids.next("agt") as AgentId, resumed: true };
       },
     },
@@ -1505,10 +1546,10 @@ describe("an ambiguous-spec park resumed with its answer (DIPO-159; 0020)", () =
       contractMax: 9_000,
     });
     // The first message: feedback/answer.md with the question and the answer, no second note.
-    const session = w.sessions[0] as NextSessionRequest;
+    const session = w.sessions[0] as HeldSession;
     expect(session.message).toContain(`Your question: ${QUESTION}`);
     expect(session.message).toContain("The maintainer's answer: Print Hello, Ada!");
-    expect(session.note).toBeUndefined();
+    expect(session.message).not.toContain("Note from the maintainer");
     expect(first(session).startsWith("Print Hello")).toBe(false);
     // The question closed answered with the resume; the park keeps the answer as its note.
     expect(findQuestion(w.f.office, question)).toMatchObject({
@@ -1611,12 +1652,12 @@ describe("an ambiguous-spec park with no stored question (0020)", () => {
     const refused = await refusal(resumption());
     expect(refused.error.code).toBe("resume.noteRequired");
     await resume(resumption(), { note: "Keep the flag; the story wins." });
-    const session = w.sessions[0] as NextSessionRequest;
+    const session = w.sessions[0] as HeldSession;
     expect(session.message).toContain(
       "Your question: CLAUDE.md forbids the flag the story asks for",
     );
     expect(session.message).toContain("The maintainer's answer: Keep the flag; the story wins.");
-    expect(session.note).toBeUndefined();
+    expect(session.message).not.toContain("Note from the maintainer");
   });
 });
 
@@ -1652,7 +1693,7 @@ describe("the resume after the office's starts paused lifted (0020)", () => {
     );
     // The first message is the park's detail as the last error (0020), and no maintainer note.
     expect(first(w.sessions[0])).toContain("plan limit until 2026-10-28T12:00:00.000Z");
-    expect(w.sessions[0]?.note).toBeUndefined();
+    expect(first(w.sessions[0])).not.toContain("Note from the maintainer");
     expect(grants()).toEqual([]);
     const notice = entries("engine.notice").find(
       (data) => data["code"] === PARK_RESUME_NOTICES.resumed,

@@ -33,13 +33,13 @@ import {
   type RunEnder,
 } from "../../src/run";
 import { Places } from "../../src/run/places";
-import type { NextSessionRequest } from "../../src/run/resume";
 import { reopen, type RoundKind } from "../../src/run/rounds";
 import { addStory } from "../../src/stories/keys";
 import { encode } from "../../src/workers/claude-cli/encode";
 import type { Caps, HostOp } from "../../src/workers/types";
 import { insertClaim } from "../../src/worktree/records";
 import { ingestFixture, type IngestFixture } from "../ingest/helpers";
+import { type HeldSession, withHeld } from "./held-session";
 
 const CAPS: Caps = { budgetTokens: 1_000_000, maxTurns: 100, maxMinutes: 30 };
 
@@ -52,7 +52,7 @@ interface World {
   readonly places: Places;
   readonly work: WorkRef;
   readonly sent: HostOp[][];
-  readonly sessions: NextSessionRequest[];
+  readonly sessions: HeldSession[];
   /** The state of the newest intent when ops went out. */
   readonly stateAtSend: (string | undefined)[];
   finisher: { text: string; gate: Promise<void>; entered: () => void } | null;
@@ -66,7 +66,7 @@ beforeEach(async () => {
   const f = await ingestFixture(dir);
   const sent: HostOp[][] = [];
   const stateAtSend: (string | undefined)[] = [];
-  const sessions: NextSessionRequest[] = [];
+  const sessions: HeldSession[] = [];
   const world = { dir, f, sent, sessions, stateAtSend, finisher: null } as unknown as World;
   const steering = {
     send: async (_office: unknown, runId: string, ops: readonly HostOp[]) => {
@@ -108,7 +108,7 @@ beforeEach(async () => {
       ender: () => ender,
       resumer: {
         next: async (request) => {
-          sessions.push(request);
+          sessions.push(withHeld(f.office, request, f.t.clock.now()));
           return { kind: "started", agent: "agt_x" as never, resumed: true };
         },
       },

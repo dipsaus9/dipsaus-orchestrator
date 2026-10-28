@@ -36,10 +36,14 @@ const SOURCES: readonly (readonly [FeedbackSource, string])[] = [
   ["review", "The review blocked criterion #2."],
   ["ci", "The required check test failed."],
   ["reject", "The maintainer rejected it."],
+  ["park", "dipo parked this story as conflict, and the maintainer resumed it."],
   ["resume", "Note from the maintainer: go on."],
   ["steer", "The maintainer says: use bun."],
   ["answer", "The maintainer answered: yes."],
 ];
+
+/** The maintainer's own words, which a first message carries after the rest (0020). */
+const WORDS: readonly FeedbackSource[] = ["resume", "steer"];
 
 let dir: string;
 let f: IngestFixture;
@@ -129,7 +133,7 @@ describe("a live developer session (0002)", () => {
 });
 
 describe("no live developer session (0020)", () => {
-  it("holds every source, oldest first, for the next session's first message, delivered once", async () => {
+  it("holds every source for the next session's first message, findings before the maintainer's words, each oldest first, delivered once", async () => {
     for (const [source, text] of SOURCES) {
       const out = sendFeedback(f.office, f.run, { source, text }, { at: 5 });
       expect(out.delivered).toBe("next-session");
@@ -137,7 +141,10 @@ describe("no live developer session (0020)", () => {
     }
     expect(sent).toEqual([]);
     const held = heldFeedback(f.office, f.run);
-    expect(held.texts).toEqual(SOURCES.map(([, text]) => text));
+    expect(held.texts).toEqual([
+      ...SOURCES.filter(([source]) => !WORDS.includes(source)).map(([, text]) => text),
+      ...SOURCES.filter(([source]) => WORDS.includes(source)).map(([, text]) => text),
+    ]);
     f.office.immediate(() => deliverHeld(f.office, f.run, held.ids, 9));
     expect(heldFeedback(f.office, f.run).texts).toEqual([]);
     expect(

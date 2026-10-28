@@ -73,6 +73,7 @@ import {
   loggedEvents,
   target,
 } from "../ingest/helpers";
+import { type HeldSession, heldFirstMessage, withHeld } from "./held-session";
 import { context, withInitPlugins } from "../workers/launch-fixtures";
 import { RECORDINGS_DIR } from "../workers/replay";
 
@@ -93,7 +94,7 @@ interface World {
   readonly control: RunControl;
   readonly outcomes: RunOutcomes;
   readonly sent: HostOp[][];
-  readonly next: NextSessionRequest[];
+  readonly next: HeldSession[];
   readonly holds: { adapter: string; failures: readonly LaunchCheckFailure[] }[];
   /** The office's starts paused for a plan limit (0020), as worker outcomes told it. */
   readonly paused: { office: string; pause: PlanLimitPause }[];
@@ -177,8 +178,12 @@ beforeEach(async () => {
     ender: () => control,
     resumer: {
       next: async (request) => {
-        world.next.push(request);
+        // What the session got, delivered once it started, as `RunResumer` does.
+        world.next.push(withHeld(f.office, request, f.t.clock.now(), false));
         await world.onNext?.(request);
+        if (world.nextOutcome.kind === "started") {
+          heldFirstMessage(f.office, request.run.runId, f.t.clock.now());
+        }
         return world.nextOutcome;
       },
     },

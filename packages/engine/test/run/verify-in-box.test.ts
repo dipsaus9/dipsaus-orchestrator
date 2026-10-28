@@ -1233,6 +1233,8 @@ describe("dipo's verify in the box at done (DIPO-346, 0002)", () => {
     const texts = feedbackTexts();
     expect(texts).toHaveLength(1);
     expect(texts[0]).toStartWith(VERIFY_IN_BOX_INTRO);
+    // Through the one feedback path, to the live session, as source `verify` (DIPO-362).
+    expect(feedbackDetails()).toEqual([`feedback verify - now ${texts[0]}`]);
     for (const line of [
       "Command: bun run verify",
       "Exit code: 1",
