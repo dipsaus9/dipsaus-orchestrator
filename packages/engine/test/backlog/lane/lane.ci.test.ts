@@ -8,7 +8,7 @@ import { describe, expect, it } from "bun:test";
 
 import { withBareRemote } from "@dipsaus-orchestrator/testkit";
 
-import { allEntries, LANE_NOTICES, pendingLaneOp } from "../../../src/backlog/lane";
+import { allEntries, LANE_NOTICES, OfficeLane, pendingLaneOp } from "../../../src/backlog/lane";
 import {
   BACKLOG_FIXTURE,
   inRemote,
@@ -25,6 +25,37 @@ const FIXTURE = { fixture: BACKLOG_FIXTURE };
 
 if (process.env["DIPO_TEST_CI"] === "1") {
   describe("the planning lane with a remote", () => {
+    it("reads each story of an operation it finds merged again on the base (DIPO-360)", async () => {
+      await withBareRemote(async (repo) => {
+        await publish(repo);
+        const s = await laneSetup(repo);
+        const refreshed: string[] = [];
+        const lane = new OfficeLane({
+          officeId: s.office.officeId,
+          office: s.office,
+          git: s.git,
+          cli: s.cli,
+          clock: s.t.clock,
+          kinds: s.kinds,
+          refreshStory: async (_office, key) => {
+            refreshed.push(key);
+          },
+        });
+        const key = storyKey(s);
+        const entry = await lane.journal({
+          kind: "edit",
+          key,
+          subject: "TASK-1",
+          target: { status: "Refined" },
+        });
+        const report = await lane.flush();
+        expect(refreshed).toEqual([]);
+        await squashMergeOnRemote(repo, report.branch as string);
+        expect(await lane.flush()).toMatchObject({ merged: [entry.opId] });
+        expect(refreshed).toEqual([key]);
+      }, FIXTURE);
+    });
+
     it("drops operations once the branch merged on the remote, and pendingLaneOp clears", async () => {
       await withBareRemote(async (repo) => {
         await publish(repo);

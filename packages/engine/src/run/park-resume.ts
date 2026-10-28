@@ -96,6 +96,9 @@ import { markPhase } from "./markers";
 import type { OutcomeParts } from "./outcomes";
 import { intentRest, intentTag, messageOf, type RunView } from "./outcome-types";
 import { openPark, PARK_NOTICES, reopenParkedRun, resolvePark } from "./park";
+import { MAINTAINER_RESUME_TAG, mirrorUnpark, unresolvedPark } from "./park-state";
+
+export { MAINTAINER_RESUME_TAG, parksBeingResumed } from "./park-state";
 import { MAINTAINER_TAGS } from "./steers";
 import { PLACE_NOTICES, type Places, START_KINDS, waitForPlace } from "./places";
 import { findRun, IN_REVIEW_END, REVIEWED_END, runRoundCounts, type StoredRun } from "./records";
@@ -131,9 +134,6 @@ export type ResumeRequest = Pick<
   /** dipo resumes a park a plan limit made, after the office's starts paused lifted (0020). */
   readonly lifted?: true;
 };
-
-/** The tag of a maintainer resume's `answer` intent: `maintainer-resume <ResumeIntent JSON>`. */
-export const MAINTAINER_RESUME_TAG = "maintainer-resume";
 
 /** `work.resume` error codes of a parked story (0020). */
 export const RESUME_ERRORS = {
@@ -673,14 +673,28 @@ export class ParkResumes {
     let finished = 0;
     for (const stored of openResumes(office)) {
       const run = findRun(office, stored.runId);
-      if (run === null || this.#s.guard.busy(stored.runId)) continue;
+      if (run === null) {
+        // Its run is gone: the resume fails, so its park row no longer waits on it (DIPO-360).
+        office.immediate(() =>
+          resolveIntent(office, stored.runId, stored.intentId, "failed", this.#s.deps.clock.now()),
+        );
+        continue;
+      }
+      if (this.#s.guard.busy(stored.runId)) continue;
       const resolve = (outcome: string) =>
         office.immediate(() =>
           resolveIntent(office, run.runId, stored.intentId, outcome, this.#s.deps.clock.now()),
         );
       if (stored.state === "pending") {
-        const park = run.key === null ? null : openPark(office, run.key);
-        if (park?.parkId !== stored.detail.parkId || run.endedAt === null) {
+        // Run detail, not the current state: the lift may be on the branch already (DIPO-360).
+        const park =
+          run.key === null
+            ? null
+            : unresolvedPark(office, run.key, stored.detail.parkId, {
+                reason: stored.detail.reason,
+                from: stored.detail.to,
+              });
+        if (park === null || run.endedAt === null) {
           resolve("abandoned");
           continue;
         }
@@ -688,6 +702,11 @@ export class ParkResumes {
           await this.#finish(office, run, stored.intentId, stored.detail, false);
           finished += 1;
         } catch (error) {
+          // A resume that failed before its park was resolved fails, so the park row is not held
+          // by it any more and reconcile can close it (DIPO-360). One that resolved its park is
+          // past that point: its session is the restart's to start.
+          const row = run.key === null ? null : unresolvedPark(office, run.key, park.parkId, park);
+          if (row !== null) resolve("failed");
           this.#s.deps.warn?.("finishing a maintainer resume after a restart failed", {
             run: run.runId,
             reason: messageOf(error),
@@ -791,8 +810,11 @@ export class ParkResumes {
     ) {
       return fail(`dipo cannot resume ${run.runId} in this office`);
     }
-    const park = openPark(office, key);
-    if (park === null || park.parkId !== detail.parkId) return gone();
+    // The park the resume captured, while its row is unresolved: after a crash the lift may be on
+    // the branch already, and an index pass then reads the story unparked (DIPO-360).
+    const captured = { reason: detail.reason, from: detail.to };
+    const park = unresolvedPark(office, key, detail.parkId, captured);
+    if (park === null) return gone();
     let lifted;
     try {
       lifted = await unpark.lift(officeId, {
@@ -858,8 +880,8 @@ export class ParkResumes {
     const step = async (): Promise<void> =>
       this.#s.write(office, () => {
         const at = clock.now();
-        const current = openPark(office, key);
-        if (current?.parkId !== detail.parkId) return [];
+        const current = unresolvedPark(office, key, detail.parkId, captured);
+        if (current === null) return [];
         wrote = true;
         // The lift's push, on the claim like every story-branch push (DIPO-315).
         const push = { pushed: lifted.pushed, error: lifted.pushError };
@@ -868,6 +890,8 @@ export class ParkResumes {
           ...answeredQuestion(office, run, detail.answer ?? null, at),
           ...this.#resolve(office, run, current, detail, at),
         ];
+        // The lift read back status `to` and no park record on the branch (DIPO-360).
+        mirrorUnpark(office, key, detail.to);
         for (const grant of detail.grants) {
           recordGrant(office, run.runId, {
             ...grant.amount,

@@ -183,10 +183,8 @@ async function remoteTip(o: ReconcileOffice, branch: string): Promise<string> {
 
 function parkRow(office: OfficeHandle, key: StoryKey, runId: RunId): void {
   office.run(
-    `insert into parks (office_id, park_id, key, story_id, run_id, reason, from_state, detail,
-       last_good_commit, at)
-     values ($office_id, 1, $key, 'TASK-1', $run, 'by-maintainer', 'In Progress', 'stopped', null,
-       1)`,
+    `insert into parks (office_id, park_id, key, story_id, run_id, reason, detail, last_good_commit, at)
+     values ($office_id, 1, $key, 'TASK-1', $run, 'by-maintainer', 'stopped', null, 1)`,
     { key, run: runId },
   );
 }
@@ -633,8 +631,8 @@ if (process.env["DIPO_TEST_CI"] === "1") {
         expect(await discard(o, "TASK-1")).toMatchObject({ ok: true, changed: true });
         // Later the story is held: a park without a run.
         o.office.run(
-          `insert into parks (office_id, park_id, key, story_id, run_id, reason, from_state, detail, at)
-         values ($office_id, 2, $key, 'TASK-1', null, 'by-maintainer', 'Refined', 'after M2', 9)`,
+          `insert into parks (office_id, park_id, key, story_id, run_id, reason, detail, at)
+         values ($office_id, 2, $key, 'TASK-1', null, 'by-maintainer', 'after M2', 9)`,
           { key },
         );
 

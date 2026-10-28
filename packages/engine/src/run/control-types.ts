@@ -175,6 +175,11 @@ export interface RunEnding {
    * over to it (DIPO-159): the question of a blocked report with no TUI connected.
    */
   readonly question?: string;
+  /**
+   * True for the maintainer's `story.park` (DIPO-360): a park whose write to Backlog.md fails is
+   * not recorded and the command fails, so the maintainer can send it again.
+   */
+  readonly mustWrite?: boolean;
   /** A plan limit's park, which resumes by itself when the office's starts paused lifts (0020). */
   readonly resumeOnLift?: boolean;
   /** An `engine.notice` written before the park (DIPO-51). */
