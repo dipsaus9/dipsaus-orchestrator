@@ -123,7 +123,8 @@ export interface VerifyFailure {
   readonly step: string;
   /** The command as the run profile names it. */
   readonly command: string;
-  readonly exitCode: number;
+  /** The exit code, or why there is none (a deadline, a signal). */
+  readonly exitCode: number | string;
   /** The step's combined output. */
   readonly output: string;
 }
@@ -140,7 +141,7 @@ export interface VerifyFeedbackItem extends FeedbackItem {
   readonly kind: "verify";
   readonly step: string;
   readonly command: string;
-  readonly exitCode: number;
+  readonly exitCode: number | string;
   /** The last output lines, at most the log-line budget. */
   readonly tail: string;
   readonly locations: readonly SourceLocation[];

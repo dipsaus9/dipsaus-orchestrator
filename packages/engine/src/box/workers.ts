@@ -102,7 +102,7 @@ import {
 import type { PartRun, StartTreeCheck } from "./parts";
 import { type BoxTokenCheck, checkBoxAfterRun, tokenCheckFailure } from "./token-check";
 import { copyInAsUser } from "./user";
-import { type BoxInstallResult, runBoxInstall } from "./verify";
+import { type BoxInstallResult, type BoxVerifyResult, runBoxInstall, runBoxVerify } from "./verify";
 import { BoxWebRoute, type BoxWebRouteStart, type RunningBoxWebRoute } from "./web-proxy";
 
 /** The run directory's record that the run's developer works in a box. */
@@ -1166,6 +1166,62 @@ export class BoxWorkers {
         ended: result.ended,
         output: result.output,
       });
+    }
+    return result;
+  }
+
+  /**
+   * The office's verify in the run's box at done (0002, DIPO-346): each command list as the box
+   * user, in `/work` or the folder below it `cwd` names, with `env` plus the box's web route and
+   * the CA bundle, as a session gets them, within `timeoutMs` each (`runBoxVerify`). The
+   * developer's session runs, so its box firewall and dipo's files are in place and stay as they
+   * are. Never throws; a box that cannot run it is a `failed` result.
+   */
+  async verify(input: {
+    readonly runId: string;
+    readonly commands: readonly (readonly string[])[];
+    readonly cwd: string;
+    readonly env: Readonly<Record<string, string>>;
+    readonly timeoutMs: number;
+  }): Promise<BoxVerifyResult> {
+    const box = boxName(input.runId);
+    let proxy: string;
+    try {
+      const web = await this.#web.acquire(box);
+      proxy = web.admit(box, this.#localPorts(this.#runDirOf(input.runId)));
+    } catch (error) {
+      return { kind: "failed", reason: `the box's web route is not there (${codeOf(error)})` };
+    }
+    const result = await runBoxVerify(
+      {
+        boxes: this.#deps.boxes,
+        clock: this.#deps.code.clock,
+        ...(this.#deps.warn === undefined ? {} : { warn: this.#deps.warn }),
+      },
+      {
+        box,
+        commands: input.commands,
+        cwd: input.cwd,
+        env: {
+          ...BOX_IMAGE_ENV,
+          ...input.env,
+          HTTPS_PROXY: proxy,
+          HTTP_PROXY: proxy,
+          NODE_EXTRA_CA_CERTS: BOX_CA_FILE,
+        },
+        timeoutMs: input.timeoutMs,
+      },
+    );
+    const fields = { run: input.runId, box, kind: result.kind };
+    if (result.kind === "red") {
+      this.#deps.warn?.("the verify in the box is red", { ...fields, command: result.command });
+    } else if (result.kind === "failed") {
+      this.#deps.warn?.("the verify in the box could not run", {
+        ...fields,
+        reason: result.reason,
+      });
+    } else {
+      this.#deps.info?.("the verify in the box ran", fields);
     }
     return result;
   }

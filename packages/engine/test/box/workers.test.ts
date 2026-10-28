@@ -912,6 +912,52 @@ function installIn(w: World, timeoutMs = 15 * 60_000) {
 const INSTALL = ["bun", "install", "--frozen-lockfile"];
 const isInstall = (command: readonly string[]) => command.join(" ") === INSTALL.join(" ");
 
+// DIPO-346 (0002): the office's verify in the box at done, while the developer's session runs.
+describe("the verify in the box at done", () => {
+  it("runs as a session's commands do, with the web route and CA bundle, and leaves the session's firewall", () =>
+    inBoxes(async (repo, tmp) => {
+      const w = await world(repo, tmp, {
+        boxes: {
+          live: (_box, command) =>
+            command[0] === "bun" ? { stdout: "src/a.ts(1,1): error\n", code: 1 } : {},
+        },
+      });
+      await created(w);
+      const session = await w.workers.session({
+        runId: RUN,
+        runDir: w.runDir,
+        systemFile: w.systemFile,
+      });
+      w.log.length = 0;
+      const firewalls = w.boxes.firewalls.length;
+      const result = await w.workers.verify({
+        runId: RUN,
+        commands: [["bun", "run", "verify"]],
+        cwd: "packages/app",
+        env: { DIPO_STORY: "DIPO-1" },
+        timeoutMs: 60_000,
+      });
+      expect(result).toEqual({
+        kind: "red",
+        command: "bun run verify",
+        exitCode: 1,
+        signal: null,
+        timedOutMinutes: null,
+        output: "src/a.ts(1,1): error\n",
+      });
+      expect(w.boxes.firewalls).toHaveLength(firewalls);
+      expect(w.log).not.toContain(`stop ${BOX}`);
+      const exec = w.boxes.liveExecs.at(-1);
+      expect(exec?.cwd).toBe("/work/packages/app");
+      expect(exec?.command).toEqual(["bun", "run", "verify"]);
+      for (const name of ["HTTPS_PROXY", "HTTP_PROXY", "NODE_EXTRA_CA_CERTS"]) {
+        expect(exec?.env?.[name]).toBe(session.env[name] as string);
+      }
+      expect(exec?.env?.["DIPO_STORY"]).toBe("DIPO-1");
+      expect(w.warnings.map((x) => x.message)).toContain("the verify in the box is red");
+    }));
+});
+
 describe("the install in the box before the worker (DIPO-294)", () => {
   it("runs in /work with the run environment and the web route, CA bundle and Safe-Chain a session gets", () =>
     inBoxes(async (repo, tmp) => {

@@ -46,6 +46,7 @@ import {
   baseStoryFacts,
   BoxCollisions,
   boxInstallInput,
+  boxVerifyInput,
   inReviewRunIds,
   markBoxCopied,
   pendingBoxCopy,
@@ -952,7 +953,8 @@ export function daemonRuns(options: DaemonRunsOptions): DaemonRuns {
           onChanged: options.onChanged,
           warn: (message, fields) => options.logger.warn(message, fields),
         });
-  // In Review at a box run's done (DIPO-49, DIPO-273): no verify, backstop or scope check of dipo's.
+  // In Review at a box run's done (DIPO-49, DIPO-273): the office's verify in the box (DIPO-346),
+  // no backstop or scope check.
   const finisher = new VerifyCommit({
     clock,
     story: storyGit,
@@ -960,14 +962,29 @@ export function daemonRuns(options: DaemonRunsOptions): DaemonRuns {
     ...(options.storyPr === undefined ? {} : { storyPr: options.storyPr }),
     // The report gate reads the story's test plan on the office base (DIPO-186).
     storyFacts: baseStoryFacts(options.base),
-    // A box run has no backstop, scope check or verify of dipo's (DIPO-273, DIPO-299): its last
-    // part is taken at done and its end claimed while its parts are held; CI is its verify.
+    // A box run has no backstop or scope check (DIPO-273): its last part is taken at done, the
+    // office's verify runs in its box (DIPO-346), and its end is claimed while its parts are held;
+    // CI on the story PR is the final gate.
     ...(boxed === null
       ? {}
       : {
           parts: {
             isBoxRun,
             finishLast: (runId, message, finish) => boxed.parts.finishLast(runId, message, finish),
+          },
+          verify: async (office, run) => {
+            const config = options.offices.config(office.officeId);
+            const profile = currentProfile(office)?.profile ?? null;
+            if (config === undefined || profile === null || run.story === null) {
+              return {
+                kind: "failed",
+                reason: "dipo could not read the office's run profile to verify in the box",
+              };
+            }
+            const verify = boxVerifyInput({ profile, config, story: run.story, slot: run.slot });
+            if (verify === null) return { kind: "none" };
+            if ("refused" in verify) return { kind: "failed", reason: verify.refused };
+            return boxed.workers.verify({ runId: run.runId, ...verify });
           },
           ...(storyConflicts === null ? {} : { conflicts: storyConflicts }),
         }),

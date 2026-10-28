@@ -1,8 +1,9 @@
-// The commands dipo runs in a box (DIPO-274, DIPO-294): one command of dipo's in the box's
-// `/work` through the box interface's exec, without AI, to its end within dipo's deadline
-// (`runBoxCommand`), and the office's install before the worker starts (`runBoxInstall`), which
-// runs through it. dipo runs no verify in the box at done (0021 amendment of 2026-10-22,
-// DIPO-299): the worker runs the office's verify itself, and CI on the story PR is the verify.
+// The commands dipo runs in a box (DIPO-274, DIPO-294, DIPO-346): one command of dipo's in the
+// box's `/work` through the box interface's exec, without AI, to its end within dipo's deadline
+// (`runBoxCommand`), the office's install before the worker starts (`runBoxInstall`), and the
+// office's verify when a done report passed the report gate (`runBoxVerify`, 0002), both of
+// which run through it. The box has its own local git repository (0008), so a verify that needs git
+// runs there.
 //
 // - The command runs under a small wrapper dipo writes (`boxCommand`): it records its own
 //   pid in `BOX_COMMAND_PID_FILE` and becomes `timeout`, where the box has it. GNU `timeout` makes
@@ -104,6 +105,8 @@ export interface BoxCommandRequest {
   readonly env: Readonly<Record<string, string>>;
   /** dipo's deadline. */
   readonly timeoutMs: number;
+  /** The folder it runs in, `BOX_WORKDIR` or one below it; `BOX_WORKDIR` by default. */
+  readonly cwd?: string;
   /** Each cleaned piece of output as it arrives, at most `maxOutputBytes` in all. */
   readonly onOutput?: (text: string) => void;
   readonly maxOutputBytes?: number;
@@ -233,7 +236,7 @@ export async function runBoxCommand(
   const child = deps.boxes.execLive(
     request.box,
     boxCommand(request.command, request.timeoutMs / 1000 + BOX_COMMAND_GRACE_SECONDS),
-    { cwd: BOX_WORKDIR, env: request.env },
+    { cwd: request.cwd ?? BOX_WORKDIR, env: request.env },
   );
   child.stdin.end();
   const output = new BoxOutput(request.maxOutputBytes ?? BOX_COMMAND_OUTPUT_MAX, request.onOutput);
@@ -437,4 +440,106 @@ export async function runBoxInstall(
     }
   }
   return { ok: true };
+}
+
+// ---- the verify at done (DIPO-346) ---------------------------------------------------------------
+//
+// When a done report passes the report gate, dipo runs the office's verify in the story's box
+// (0002), in the held turn of the run's parts (`BoxParts.finishLast`), so the verify sees exactly
+// the last part. Each command of the run profile's verify runs through `runBoxCommand` as the box
+// user, in `/work` or the folder below it the profile names, with the environment a session
+// gets (the web route and the CA bundle), until one fails. Its exit, deadline and the cleaned tail
+// of its output are the result; dipo turns a red result into a fix round with the output as
+// evidence (`run/verify-commit.ts`).
+
+/** The most characters of a red verify's output kept for its feedback (which cuts it again). */
+export const BOX_VERIFY_OUTPUT_TAIL = 64 * 1024;
+
+/** What dipo's verify in the box found. */
+export type BoxVerifyResult =
+  /** The office names no verify command: CI on the story PR is the only check. */
+  | { readonly kind: "none" }
+  | { readonly kind: "green"; readonly command: string }
+  | {
+      readonly kind: "red";
+      /** The command that failed, as the run profile names it. */
+      readonly command: string;
+      /** Its exit code; null when it ended by a signal or at the deadline. */
+      readonly exitCode: number | null;
+      readonly signal: string | null;
+      /** The deadline it passed, in minutes; null when it ended on its own. */
+      readonly timedOutMinutes: number | null;
+      /** The cleaned tail of its output. */
+      readonly output: string;
+    }
+  /** dipo could not run it: the reason, with no box output in it. */
+  | { readonly kind: "failed"; readonly reason: string };
+
+export interface BoxVerifyRequest {
+  readonly box: string;
+  /** The verify command lists of the run profile, run in order until one fails. */
+  readonly commands: readonly (readonly string[])[];
+  /** The repo-relative folder they run in; `.` for the root of `/work`. */
+  readonly cwd: string;
+  /** The environment set in the box: the run environment, the web route and the CA bundle. */
+  readonly env: Readonly<Record<string, string>>;
+  /** The office's verify deadline, for each command list. */
+  readonly timeoutMs: number;
+}
+
+/** The folder in the box of the repo-relative `cwd`; null for one that leaves `/work`. */
+export function boxFolderOf(cwd: string): string | null {
+  if (cwd === "." || cwd === "") return BOX_WORKDIR;
+  const parts = cwd.split("/").filter((part) => part !== "" && part !== ".");
+  if (cwd.startsWith("/") || parts.some((part) => part === "..") || parts.length === 0) return null;
+  return `${BOX_WORKDIR}/${parts.join("/")}`;
+}
+
+/** Runs the office's verify in the box (see the section comment). Never throws. */
+export async function runBoxVerify(
+  deps: BoxCommandDeps,
+  request: BoxVerifyRequest,
+): Promise<BoxVerifyResult> {
+  const cwd = boxFolderOf(request.cwd);
+  if (cwd === null) {
+    return {
+      kind: "failed",
+      reason: `the verify's folder ${JSON.stringify(request.cwd)} is not in /work`,
+    };
+  }
+  let shown = "";
+  for (const command of request.commands) {
+    const [program, ...args] = command;
+    if (program === undefined) continue;
+    shown = command.join(" ");
+    let result: BoxCommandResult;
+    try {
+      result = await runBoxCommand(deps, {
+        box: request.box,
+        command: [program, ...args],
+        env: request.env,
+        timeoutMs: request.timeoutMs,
+        cwd,
+        maxOutputBytes: BOX_VERIFY_OUTPUT_TAIL,
+      });
+    } catch (error) {
+      // Only the code: the message may quote the box.
+      const code = (error as { code?: unknown } | null)?.code;
+      return {
+        kind: "failed",
+        reason: `the verify (${shown}) could not start in the box (${typeof code === "string" ? code : "error"})`,
+      };
+    }
+    if (result.timedOut || result.code !== 0) {
+      return {
+        kind: "red",
+        command: shown,
+        exitCode: result.timedOut ? null : result.code,
+        signal: result.timedOut ? null : result.signal,
+        timedOutMinutes: result.timedOut ? Number(minutesOf(request.timeoutMs)) : null,
+        output: result.output.slice(-BOX_VERIFY_OUTPUT_TAIL),
+      };
+    }
+  }
+  return shown === "" ? { kind: "none" } : { kind: "green", command: shown };
 }

@@ -30,6 +30,8 @@ import {
   boxEndedOf,
   boxRebuiltText,
   boxRunState,
+  boxVerifyInput,
+  BOX_VERIFY_MINUTES_DEFAULT,
   deliveredCode,
   type RunBoxes,
   type RunBoxRequest,
@@ -681,5 +683,61 @@ describe("a lost box (BoxLifetime.ensure)", () => {
       "TASK-1's run had no box (it started before every run ran in a box)",
     );
     expect(boxRebuiltText("TASK-1", { had: "none", parts: 1 })).toContain("the 1 delivered part ");
+  });
+});
+
+/** `PROFILE` with `verify` as its verify capability. */
+function verifying(verify: unknown): RunProfile {
+  return { ...PROFILE, capabilities: { ...PROFILE.capabilities, verify } } as unknown as RunProfile;
+}
+
+/** The verify input of a profile with `verify`, on the default config. */
+function verifyInputOf(verify: unknown): ReturnType<typeof boxVerifyInput> {
+  return boxVerifyInput({
+    profile: verifying(verify),
+    config: OFFICE_DEFAULTS,
+    story: "DIPO-1",
+    slot: 1,
+  });
+}
+
+// DIPO-346 (0002): what dipo's verify in the box at done runs, from the run profile and config.
+describe("the verify input of a box", () => {
+  it("takes the profile's verify commands and folder, the run environment and the verify deadline", () => {
+    const input = boxVerifyInput({
+      profile: verifying({
+        status: "resolved",
+        value: { commands: [["bun", "run", "verify"]], cwd: "packages/app" },
+      }),
+      config: OFFICE_DEFAULTS,
+      story: "DIPO-1",
+      slot: 1,
+    });
+    expect(input).toMatchObject({
+      commands: [["bun", "run", "verify"]],
+      cwd: "packages/app",
+      timeoutMs: (OFFICE_DEFAULTS.timeouts.scriptMinutes["verify"] ?? 0) * 60_000,
+      env: expect.objectContaining({ DIPO_STORY: "DIPO-1", DIPO_WORKTREE: "/work" }),
+    });
+    const config = {
+      ...OFFICE_DEFAULTS,
+      timeouts: { ...OFFICE_DEFAULTS.timeouts, scriptMinutes: {} },
+    };
+    expect(
+      boxVerifyInput({
+        profile: verifying({ status: "resolved", value: { commands: [["make"]], cwd: "." } }),
+        config,
+        story: "DIPO-1",
+        slot: null,
+      }),
+    ).toMatchObject({ timeoutMs: BOX_VERIFY_MINUTES_DEFAULT * 60_000 });
+  });
+
+  it("is null without a verify, and refused while the profile's verify is in conflict", () => {
+    expect(verifyInputOf({ status: "missing" })).toBeNull();
+    expect(verifyInputOf({ status: "resolved", value: { commands: [], cwd: "." } })).toBeNull();
+    expect(verifyInputOf({ status: "conflict" })).toEqual({
+      refused: "the run profile's verify is in conflict; confirm one in the office",
+    });
   });
 });
