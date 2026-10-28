@@ -235,12 +235,29 @@ if (process.env["DIPO_TEST_CI"] === "1") {
         expect(doneElsewhereDeskItems(o.office)).toHaveLength(1);
       }));
 
-    it("leaves a story merged through its own branch to the Done poll, which tears it down as done (DIPO-332)", () =>
+    it("leaves a story whose own PR merged to the Done poll, which tears it down as done (DIPO-332, DIPO-363)", () =>
       withReconcileOffice({ base: DONE }, async (o) => {
         const key = keyOf(o.office, "TASK-1");
         const record = await claim(o, o.office, "TASK-1", key, { active: false });
         await o.repo.git("push", "--quiet", "origin", record.branch);
         await mergeOnRemote(o, record);
+        // Its story PR recorded merged at the pushed head, as the PR poll records it.
+        o.office.immediate(() =>
+          insertStoryPr(o.office, {
+            runId: record.runId,
+            key,
+            number: 106,
+            url: "https://github.com/o/r/pull/106",
+            branch: record.branch,
+            base: "main",
+            headSha: record.claimSha ?? "",
+            state: "merged",
+            title: "feat(TASK-1): x",
+            bodyHash: "h",
+            openedAt: 1,
+            closedAt: 2,
+          }),
+        );
         const seq = lastSeq(o.office);
 
         await reconcile(o);

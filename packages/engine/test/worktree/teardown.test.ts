@@ -1,5 +1,5 @@
-// Done detection and teardown (DIPO-58; 0010 section 7 "Merge and Done", "Teardown", the
-// dirty-worktree failure case and open question 8; 0007 section 7 tier T), fast: a fake git
+// The Done poll's one Done check (DIPO-363; 0002) and teardown (DIPO-58; 0010, the dirty-worktree
+// failure case; 0007 tier T), fast: a fake git
 // executor that answers each git step by its arguments, a fake code host, a real state database
 // and a minimal worktree layout on disk so the office git can name the worktree. The same rules
 // against real repositories and a bare remote are in teardown.ci.test.ts.
@@ -22,7 +22,6 @@ import { CALL_DEADLINE_MS, KILL_GRACE_MS } from "../../src/platform/deadline";
 import { CodeHostError, GhHost, type HostPr, type PrStateHost } from "../../src/platform/host";
 import {
   type ClaimRecord,
-  detectDone,
   DONE_RELEASE_REASON,
   findClaim,
   lockInList,
@@ -32,6 +31,7 @@ import {
   TEARDOWN_STEP,
   tearDown,
 } from "../../src/worktree";
+import { insertStoryPr } from "../../src/story-pr/records";
 import { insertClaim, markTeardownStarted } from "../../src/worktree/records";
 import { notices } from "../backlog/lane/helpers";
 import { hangingSpawn, settle as letCallsRun } from "../platform/hanging";
@@ -40,6 +40,8 @@ import { addOffice, openTestState, type TestState } from "../commands/helpers";
 const START = "1".repeat(40);
 const TIP = "2".repeat(40);
 const BASE_TREE = "3".repeat(40);
+/** The merged story PR a teardown names. */
+const PR9 = { number: 9, url: "https://github.com/o/r/pull/9" } as const;
 const BRANCH = "TASK-1/add-csv";
 const REMOTE_URL = "https://github.com/o/r.git";
 
@@ -272,98 +274,141 @@ function teardownOf(
   return teardown;
 }
 
-describe("detecting Done", () => {
+/** Records the claim's story PR in `state`, its head at `head`, as the PR poll records it. */
+function recordPr(world: World, state: "open" | "merged" | "closed", head = TIP): void {
+  const claim = world.claim();
+  world.office.immediate(() =>
+    insertStoryPr(world.office, {
+      runId: claim.runId,
+      key: claim.key,
+      number: 9,
+      url: "https://github.com/o/r/pull/9",
+      branch: BRANCH,
+      base: "main",
+      headSha: head,
+      state,
+      title: "feat(TASK-1): x",
+      bodyHash: "h",
+      openedAt: 1,
+      closedAt: state === "open" ? null : 2,
+    }),
+  );
+}
+
+/** A worker host row of the claim's run that has not exited, so its worker is live. */
+function liveHost(world: World): void {
+  world.office.immediate(() =>
+    world.office.run(
+      `insert into worker_hosts (office_id, run_id, agent_id, pid, start_time_ms, socket_path,
+         protocol_version, run_dir, event_file, started_at)
+       values ($office_id, $run, 'agt_1', 1, 1, '/s', 1, '/r', '/e', 1)`,
+      { run: world.claim().runId },
+    ),
+  );
+}
+
+describe("detecting Done (the one Done check, DIPO-363)", () => {
   it("is Done when the host reports the branch's PR merged at the local tip", () =>
     withWorld(async (world) => {
-      const check = await detectDone({ git: world.git, host: host({}) }, world.claim());
-      expect(check).toEqual({
-        done: true,
-        evidence: { by: "host", number: 9, url: "https://github.com/o/r/pull/9" },
-        tip: TIP,
-      });
+      const officeId = world.office.officeId as OfficeId;
+      const teardown = teardownOf(world);
+      expect(await teardown.answer(officeId, world.claim())).toBe("merged");
+      const report = await teardown.poll(officeId);
+      expect(report.tornDown).toHaveLength(1);
+      expect(world.claim().releaseReason).toBe(DONE_RELEASE_REASON);
       // The host decided; merge-tree did not run.
       expect(world.steps.some((s) => s.startsWith("merge-tree"))).toBe(false);
     }));
 
-  it("is Done when merge-tree returns the base tree, and not by ancestry", () =>
+  it("is not Done when merge-tree returns the base tree: merge-tree is no Done signal (0010)", () =>
     withWorld(async (world) => {
       world.answer = (args) =>
         args[0] === "merge-tree" ? { stdout: `${BASE_TREE}\n` } : undefined;
-      const check = await detectDone({ git: world.git, host: null }, world.claim());
-      expect(check).toEqual({
-        done: true,
-        evidence: { by: "merge-tree", tree: BASE_TREE },
-        tip: TIP,
-      });
-      expect(world.steps).toContain(
-        `merge-tree --write-tree refs/remotes/origin/main refs/heads/${BRANCH}`,
-      );
-      expect(world.steps.some((s) => s.startsWith("merge-base"))).toBe(false);
-    }));
-
-  it("is not Done on another tree, a conflict, a closed PR or a branch with nothing of its own", () =>
-    withWorld(async (world) => {
-      const claim = world.claim();
-      world.answer = (args) =>
-        args[0] === "merge-tree" ? { stdout: `${"5".repeat(40)}\n` } : undefined;
-      expect(await detectDone({ git: world.git, host: host(null) }, claim)).toEqual({
-        done: false,
-      });
-      world.answer = (args) =>
-        args[0] === "merge-tree" ? { code: 1, stdout: `${"5".repeat(40)}\nCONFLICT` } : undefined;
-      expect(await detectDone({ git: world.git, host: null }, claim)).toEqual({ done: false });
-      // A PR into another base does not count.
-      world.answer = (args) =>
-        args[0] === "merge-tree" ? { stdout: `${"5".repeat(40)}\n` } : undefined;
-      expect(await detectDone({ git: world.git, host: host({ base: "release" }) }, claim)).toEqual({
-        done: false,
-      });
-      // A branch still at its start has nothing of its own: merge-tree is not asked.
-      world.steps.length = 0;
-      expect(await detectDone({ git: world.git, host: null }, { ...claim, startSha: TIP })).toEqual(
-        { done: false },
-      );
+      const officeId = world.office.officeId as OfficeId;
+      const teardown = teardownOf(world, { host: host(null) });
+      expect(await teardown.answer(officeId, world.claim())).toBe("notDone");
+      const report = await teardown.poll(officeId);
+      expect(report).toMatchObject({ checked: 1, tornDown: [], kept: [] });
+      expect(world.claim().releasedAt).toBeNull();
       expect(world.steps.some((s) => s.startsWith("merge-tree"))).toBe(false);
+      expect(world.steps.some((s) => s.startsWith("merge-base"))).toBe(false);
+      expect(notices(world.office)).toEqual([]);
     }));
 
-  it("falls back to merge-tree when the host fails, and reports a merge-tree error", () =>
+  it("is not Done for a PR into another base, an open or a closed PR", () =>
     withWorld(async (world) => {
-      world.answer = (args) =>
-        args[0] === "merge-tree" ? { code: 128, stderr: "fatal: bad object" } : undefined;
-      const check = await detectDone({ git: world.git, host: host({}, true) }, world.claim());
-      expect(check.done).toBe(false);
-      expect(!check.done && check.problem?.code).toBe(TEARDOWN_NOTICES.checkFailed);
-      expect(!check.done && check.problem?.text).toContain("fatal: bad object");
+      const officeId = world.office.officeId as OfficeId;
+      const claim = world.claim();
+      expect(
+        await teardownOf(world, { host: host({ base: "release" }) }).answer(officeId, claim),
+      ).toBe("notDone");
+      recordPr(world, "open");
+      expect(await teardownOf(world, { host: null }).answer(officeId, claim)).toBe("notDone");
+      world.office.immediate(() =>
+        world.office.run("update story_prs set state = 'closed' where office_id = $office_id", {}),
+      );
+      expect(await teardownOf(world, { host: host(null) }).answer(officeId, claim)).toBe("notDone");
+      expect(world.claim().releasedAt).toBeNull();
     }));
 
-  it("falls back to merge-tree when gh never answers and is killed at its deadline (DIPO-314)", () =>
+  it("takes the PR dipo recorded merged when the host fails, and without it is not Done", () =>
     withWorld(async (world) => {
-      world.answer = (args) =>
-        args[0] === "merge-tree" ? { code: 128, stderr: "fatal: bad object" } : undefined;
+      const officeId = world.office.officeId as OfficeId;
+      const failing = host({}, true);
+      expect(await teardownOf(world, { host: failing }).answer(officeId, world.claim())).toBe(
+        "notDone",
+      );
+      recordPr(world, "merged");
+      const teardown = teardownOf(world, { host: failing });
+      expect(await teardown.answer(officeId, world.claim())).toBe("merged");
+      // A recorded merge is final: the host is not asked again.
+      const asked = failing.calls.length;
+      expect((await teardown.poll(officeId)).tornDown).toHaveLength(1);
+      expect(failing.calls).toHaveLength(asked);
+    }));
+
+  it("falls back to dipo's record when gh never answers and is killed at its deadline (DIPO-314)", () =>
+    withWorld(async (world) => {
       const clock = new ManualClock();
       const gh = new GhHost({ spawn: hangingSpawn().spawn, env: {}, clock });
       let settled = false;
-      const checked = detectDone({ git: world.git, host: gh }, world.claim()).finally(
-        () => (settled = true),
-      );
+      const officeId = world.office.officeId as OfficeId;
+      const checked = teardownOf(world, { host: gh })
+        .answer(officeId, world.claim())
+        .finally(() => (settled = true));
       for (let i = 0; i < 50 && clock.pendingTimers === 0; i += 1) await letCallsRun();
       expect(settled).toBe(false);
       clock.advance(CALL_DEADLINE_MS + KILL_GRACE_MS);
-      const check = await checked;
-      // The timed-out host call is the failure the Done poll already handles: merge-tree decides.
-      expect(world.steps.some((step) => step.startsWith("merge-tree"))).toBe(true);
-      expect(!check.done && check.problem?.code).toBe(TEARDOWN_NOTICES.checkFailed);
+      // The timed-out host call is the failure the Done poll already handles: the record decides.
+      expect(await checked).toBe("notDone");
     }));
 
-  it("reports a merged PR whose head is not the local tip while the branch adds changes", () =>
+  it("tears down a merged PR whose head is not the local tip when the branch adds nothing", () =>
+    withWorld(async (world) => {
+      world.answer = (args) =>
+        args[0] === "merge-tree" ? { stdout: `${BASE_TREE}\n` } : undefined;
+      const report = await teardownOf(world, { host: host({ headSha: "6".repeat(40) }) }).poll(
+        world.office.officeId as OfficeId,
+      );
+      expect(report.tornDown).toHaveLength(1);
+      // merge-tree decided only that the branch may go (0010).
+      expect(world.steps).toContain(
+        `merge-tree --write-tree refs/remotes/origin/main refs/heads/${BRANCH}`,
+      );
+      expect(world.steps).toContain(`update-ref -d refs/heads/${BRANCH} ${TIP}`);
+    }));
+
+  it("keeps a merged branch that moved past the merged head with changes while its worker runs", () =>
     withWorld(async (world) => {
       world.answer = (args) =>
         args[0] === "merge-tree" ? { stdout: `${"5".repeat(40)}\n` } : undefined;
-      const check = await detectDone(
-        { git: world.git, host: host({ headSha: "6".repeat(40) }) },
-        world.claim(),
+      liveHost(world);
+      const report = await teardownOf(world, { host: host({ headSha: "6".repeat(40) }) }).poll(
+        world.office.officeId as OfficeId,
       );
-      expect(!check.done && check.problem?.code).toBe(TEARDOWN_NOTICES.unmergedCommits);
+      expect(report).toMatchObject({ checked: 1, tornDown: [], kept: [] });
+      expect(world.claim().releasedAt).toBeNull();
+      expect(notices(world.office).map((n) => n.code)).toEqual([TEARDOWN_NOTICES.unmergedCommits]);
     }));
 });
 
@@ -371,12 +416,7 @@ describe("tearing down", () => {
   it("unlocks, removes without --force, deletes the branch locally then remotely, and frees state", () =>
     withWorld(async (world) => {
       const claim = world.claim();
-      const outcome = await tearDown(
-        deps(world),
-        claim,
-        { by: "host", number: 9, url: "https://github.com/o/r/pull/9" },
-        TIP,
-      );
+      const outcome = await tearDown(deps(world), claim, PR9, TIP);
       expect(outcome).toEqual({ ok: true, remoteProblem: null });
       const git = world.steps.filter((s) =>
         /^(worktree (un)?lock|worktree remove|update-ref|branch|config --remove-section|push)/.test(
@@ -407,12 +447,7 @@ describe("tearing down", () => {
         args[0] === "config" && args[1] === "--remove-section"
           ? { code: 128, stderr: "fatal: no such section: branch.x" }
           : undefined;
-      const outcome = await tearDown(
-        deps(world),
-        world.claim(),
-        { by: "merge-tree", tree: BASE_TREE },
-        TIP,
-      );
+      const outcome = await tearDown(deps(world), world.claim(), PR9, TIP);
       expect(outcome).toEqual({ ok: true, remoteProblem: null });
       expect(world.steps).toContain(`config --remove-section branch.${BRANCH}`);
       expect(world.claim().releaseReason).toBe(DONE_RELEASE_REASON);
@@ -427,8 +462,7 @@ describe("tearing down", () => {
               stderr: `error: unable to delete '${BRANCH}': remote ref does not exist\n`,
             }
           : undefined;
-      const evidence = { by: "merge-tree", tree: BASE_TREE } as const;
-      expect(await tearDown(deps(world), world.claim(), evidence, TIP)).toEqual({
+      expect(await tearDown(deps(world), world.claim(), PR9, TIP)).toEqual({
         ok: true,
         remoteProblem: null,
       });
@@ -439,15 +473,7 @@ describe("tearing down", () => {
     withWorld(async (world) => {
       world.answer = (args) =>
         args[0] === "push" ? { code: 128, stderr: "fatal: unable to access" } : undefined;
-      const outcome = await tearDown(
-        deps(world),
-        world.claim(),
-        {
-          by: "merge-tree",
-          tree: BASE_TREE,
-        },
-        TIP,
-      );
+      const outcome = await tearDown(deps(world), world.claim(), PR9, TIP);
       expect(outcome).toEqual({ ok: true, remoteProblem: "fatal: unable to access" });
       expect(notices(world.office).map((n) => n.code)).toEqual([
         TEARDOWN_NOTICES.done,
@@ -519,15 +545,7 @@ describe("tearing down", () => {
         args.join(" ") === "worktree list --porcelain -z"
           ? { stdout: `worktree ${world.worktree}\0HEAD ${TIP}\0locked on a USB disk\0\0` }
           : undefined;
-      const outcome = await tearDown(
-        deps(world),
-        world.claim(),
-        {
-          by: "merge-tree",
-          tree: BASE_TREE,
-        },
-        TIP,
-      );
+      const outcome = await tearDown(deps(world), world.claim(), PR9, TIP);
       expect(outcome.ok).toBe(false);
       expect(!outcome.ok && outcome.why).toContain("on a USB disk");
       expect(world.steps.some((s) => s.startsWith("worktree unlock"))).toBe(false);
@@ -541,7 +559,9 @@ describe("tearing down", () => {
       world.office.immediate(() =>
         markTeardownStarted(world.office, world.claim().runId, world.t.clock.now()),
       );
-      // No code host: the recorded start alone resumes it, without merge-tree or a status read.
+      // No code host: the PR dipo recorded merged still answers the one Done check, and the
+      // recorded start skips the status read.
+      recordPr(world, "merged");
       const report = await teardownOf(world, { host: null, status: null }).poll(
         world.office.officeId as OfficeId,
       );
@@ -573,7 +593,7 @@ describe("tearing down", () => {
         }
         return undefined;
       };
-      await tearDown(deps(world), world.claim(), { by: "merge-tree", tree: BASE_TREE }, TIP);
+      await tearDown(deps(world), world.claim(), PR9, TIP);
       expect(startedDuringRemove).not.toBeNull();
       expect(world.claim().teardownStartedAt).toBeNull();
     }));
@@ -690,14 +710,7 @@ describe("the Done poll", () => {
 
   it("waits while a worker host of the run is live", () =>
     withWorld(async (world) => {
-      world.office.immediate(() =>
-        world.office.run(
-          `insert into worker_hosts (office_id, run_id, agent_id, pid, start_time_ms, socket_path,
-             protocol_version, run_dir, event_file, started_at)
-           values ($office_id, $run, 'agt_1', 1, 1, '/s', 1, '/r', '/e', 1)`,
-          { run: world.claim().runId },
-        ),
-      );
+      liveHost(world);
       const report = await teardownOf(world).poll(world.office.officeId as OfficeId);
       expect(report.kept).toHaveLength(1);
       expect(world.claim().releasedAt).toBeNull();
@@ -759,8 +772,6 @@ describe("the Done poll", () => {
     withWorld(async (world) => {
       const officeId = world.office.officeId as OfficeId;
       const reader = host(null);
-      world.answer = (args) =>
-        args[0] === "merge-tree" ? { stdout: `${"5".repeat(40)}\n` } : undefined;
       const config: OfficeConfig = {
         ...OFFICE_DEFAULTS,
         polling: { ...OFFICE_DEFAULTS.polling, prStateSeconds: 30 },

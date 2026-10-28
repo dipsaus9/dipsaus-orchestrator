@@ -71,7 +71,7 @@ function deps(s: ClaimSetup) {
   };
 }
 
-const MERGED = { by: "merge-tree", tree: "t" } as const;
+const MERGED = { number: 9, url: "https://github.com/o/r/pull/9" } as const;
 
 describe("remote branch deletes with a lease on the tip dipo pushed", () => {
   it("teardown: a remote branch that moved after dipo's push is kept and reported", async () => {

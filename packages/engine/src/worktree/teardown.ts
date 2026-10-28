@@ -1,16 +1,9 @@
-// Done detection and teardown of a claimed story (DIPO-58; 0010 section 7, "Merge and Done",
-// "Teardown" and the dirty-worktree failure case, open question 8; 0007 section 7, tier T).
-//
-// Done is detected in one of two ways, never by ancestry:
-// - the host reports a merged PR whose head is the story branch, into the claim's base, and whose
-//   head commit is the local branch tip (or the local branch is already gone); without the host's
-//   answer, the claim's own story PR that dipo recorded merged counts the same (DIPO-332);
-// - `git merge-tree --write-tree origin/<base> <branch>` exits 0 and prints the tree of
-//   `origin/<base>`: the branch adds nothing new. A branch still at the commit it started from has
-//   nothing of its own and is never Done this way.
+// Teardown of a claimed story that is Done (DIPO-58; 0010 "Teardown" and the dirty-worktree failure
+// case; 0007 tier T). Whether it is Done is the one Done check (`done-check.ts`, 0002); the Done
+// poll (`done.ts`) calls the teardown once its own PR merged.
 //
 // Teardown runs as one item of the office git queue. The branch must still be at the tip the
-// detection judged; a branch that moved since keeps everything. Then `claims.teardown_started_at`
+// Done poll judged; a branch that moved since keeps everything. Then `claims.teardown_started_at`
 // is recorded, the worktree unlocked (only a lock this claim holds, `dipo <run-id>`) and removed
 // with `git worktree remove <path>` without `--force` (with it only for a worktree whose every
 // listed file only lags the branch, `lagging.ts`); the local branch is deleted only while it is
@@ -19,9 +12,9 @@
 // branch the remote no longer has being fine. A worktree git refuses to remove (dirty) or one locked by anyone else keeps everything: the
 // lock is put back, the start record cleared, the claim stays live, and the caller gets the files
 // `git status` lists for its notice. Only after the git steps the claim is released (`done`), the
-// worktree's `worker_notes` and `context_packs` are deleted and its port slot freed. A live claim
-// with a recorded start whose worktree and branch are both gone is a teardown a crash interrupted:
-// the next poll finishes its release without the host. Every step is idempotent.
+// worktree's `worker_notes` and `context_packs` are deleted and its port slot freed. A teardown a
+// crash interrupted is finished by the next poll, whose Done check still reads the merged PR. Every
+// step is idempotent.
 
 import { existsSync } from "node:fs";
 
@@ -33,9 +26,8 @@ import type { OfficeHandle } from "../db/office";
 import type { GitSession, OfficeGit } from "../git/office";
 import { canonicalFuturePath } from "../git/paths";
 import { deleteBranch, deleteRemoteBranch, remoteUrl } from "../git/write";
-import { CodeHostError, type PrStateHost, repoOfRemoteUrl } from "../platform/host";
 import { forgetWorkerNotes } from "../prompts/notes";
-import { findStoryPr, type StoryPrRecord } from "../story-pr/records";
+import { findStoryPr } from "../story-pr/records";
 
 import { notice, writeWith } from "./claim";
 import { keptIgnored, type LagClaim, unlaggedPaths } from "./lagging";
@@ -57,61 +49,14 @@ export const TEARDOWN_NOTICES = {
 /** The release reason of a claim whose story reached Done. */
 export const DONE_RELEASE_REASON = "done";
 
-/** How Done was detected. `resumed` is a teardown a crash interrupted after its git steps. */
-export type DoneEvidence =
-  | { readonly by: "host"; readonly number: number; readonly url: string }
-  | { readonly by: "merge-tree"; readonly tree: string }
-  | { readonly by: "resumed"; readonly startedAt: number };
-
-/** A problem the detection reports as a notice; the story stays where it is. */
-export interface DoneProblem {
-  readonly code: string;
-  readonly text: string;
+/** The PR a teardown names: the claim's story PR that merged. */
+export interface MergedPr {
+  readonly number: number;
+  readonly url: string;
 }
 
-export type DoneCheck =
-  | {
-      readonly done: true;
-      readonly evidence: DoneEvidence;
-      /**
-       * The local branch tip the detection judged, or null when the branch was already gone. The
-       * teardown deletes the branch only while it is still at this commit.
-       */
-      readonly tip: string | null;
-    }
-  | { readonly done: false; readonly problem?: DoneProblem };
-
-export interface DetectDeps {
-  readonly git: OfficeGit;
-  /** The code host; null where the office has none, so only `merge-tree` decides. */
-  readonly host: PrStateHost | null;
-  /**
-   * The office, for the claim's own story PR as dipo recorded it (DIPO-332): a PR the PR poll
-   * recorded merged counts like the host's answer when the host gives none (no host, unreachable,
-   * or no merged PR found).
-   */
-  readonly office?: OfficeHandle;
-}
-
-/**
- * The claim's own story PR when dipo recorded it merged into the claim's base from the claim's
- * branch (DIPO-332): the story is Done on the base through its own branch, never elsewhere.
- */
-export function ownMergedPr(
-  office: OfficeHandle,
-  claim: Pick<ClaimRecord, "runId" | "branch" | "base">,
-): StoryPrRecord | null {
-  const pr = findStoryPr(office, claim.runId);
-  return pr !== null &&
-    pr.state === "merged" &&
-    pr.branch === claim.branch &&
-    pr.base === claim.base
-    ? pr
-    : null;
-}
-
-/** What the detection reads from git in one queue item. */
-interface BranchFacts {
+/** What the Done poll reads from git about a claim, in one queue item. */
+export interface ClaimGitFacts {
   /** The remote's URL, or null without a remote. */
   readonly url: string | null;
   /** `refs/remotes/<remote>/<base>`, or `refs/heads/<base>` without a remote. */
@@ -122,70 +67,12 @@ interface BranchFacts {
   readonly worktreeGone: boolean;
 }
 
-/** Detects whether the claimed story is Done; see the file comment for the two ways. */
-export async function detectDone(deps: DetectDeps, claim: ClaimRecord): Promise<DoneCheck> {
-  const facts = await deps.git.run((git) => branchFacts(deps.git, git, claim));
-  const gone = facts.tip === null && facts.worktreeGone;
-  // A teardown this engine started and a crash interrupted: its git steps already ran.
-  if (gone && claim.teardownStartedAt !== null) {
-    return {
-      done: true,
-      evidence: { by: "resumed", startedAt: claim.teardownStartedAt },
-      tip: null,
-    };
-  }
-
-  let mergedElsewhere: number | null = null;
-  const repo = facts.url === null ? null : repoOfRemoteUrl(facts.url);
-  let merged: Pick<StoryPrRecord, "number" | "url" | "headSha" | "base"> | null = null;
-  if (deps.host !== null && repo !== null) {
-    try {
-      merged = await deps.host.findMergedPr(repo, claim.branch);
-    } catch (error) {
-      // The host is unreachable or gh is unusable: merge-tree still decides, the next poll asks again.
-      if (!(error instanceof CodeHostError)) throw error;
-    }
-  }
-  // Without the host's answer, the PR dipo recorded merged (DIPO-332): after the base moved on, a
-  // squash-merged branch can conflict with it, so merge-tree alone no longer sees it Done.
-  if (merged === null && deps.office !== undefined) merged = ownMergedPr(deps.office, claim);
-  if (merged !== null && merged.base === claim.base) {
-    if (facts.tip === null || merged.headSha === facts.tip) {
-      return {
-        done: true,
-        evidence: { by: "host", number: merged.number, url: merged.url },
-        tip: facts.tip,
-      };
-    }
-    mergedElsewhere = merged.number;
-  }
-
-  if (gone) {
-    return {
-      done: false,
-      problem: {
-        code: TEARDOWN_NOTICES.claimGone,
-        text: `${claim.story} is claimed, but its worktree ${claim.worktree} and branch ${claim.branch} are both gone and dipo cannot tell whether it merged. Check the story by hand.`,
-      },
-    };
-  }
-  const tree = await deps.git.run((git) => mergeTreeDone(git, facts, claim));
-  if (tree.done || tree.problem !== undefined || mergedElsewhere === null) return tree;
-  return {
-    done: false,
-    problem: {
-      code: TEARDOWN_NOTICES.unmergedCommits,
-      text: `The PR #${mergedElsewhere} of ${claim.story} merged, but the local branch ${claim.branch} is at ${facts.tip ?? "(gone)"}, not at the head that merged, and holds changes the base does not have. dipo keeps the worktree and branch; check them by hand.`,
-    },
-  };
-}
-
-/** What the detection reads from git, inside the caller's queue item. */
-async function branchFacts(
+/** What the Done poll reads from git about a claim, inside the caller's queue item. */
+export async function claimGitFacts(
   officeGit: OfficeGit,
   git: GitSession,
   claim: ClaimRecord,
-): Promise<BranchFacts> {
+): Promise<ClaimGitFacts> {
   const { remote } = officeGit.settings;
   const url = await remoteUrl(git, remote);
   return {
@@ -194,61 +81,6 @@ async function branchFacts(
     tip: await revParse(git, `refs/heads/${claim.branch}`),
     worktreeGone: officeGit.adminDirOf(claim.worktree) === null && !existsSync(claim.worktree),
   };
-}
-
-/**
- * Whether the claim's story is Done through its own branch, without asking the host, inside the
- * caller's queue item (DIPO-332): `done` when its own story PR is recorded merged at the local tip
- * (or the branch is gone), or the `merge-tree` rule finds it Done, or that rule cannot run while
- * the PR is recorded merged (the Done poll reports it); `movedPast` when the PR is recorded merged
- * but the branch moved past that head with changes the base does not have; `no` otherwise.
- */
-export async function doneOnOwnBranchIn(
-  office: OfficeHandle,
-  officeGit: OfficeGit,
-  git: GitSession,
-  claim: ClaimRecord,
-): Promise<"done" | "movedPast" | "no"> {
-  const own = ownMergedPr(office, claim);
-  const facts = await branchFacts(officeGit, git, claim);
-  if (own !== null && (facts.tip === null || facts.tip === own.headSha)) return "done";
-  const tree = await mergeTreeDone(git, facts, claim);
-  if (tree.done) return "done";
-  if (own === null) return "no";
-  return tree.problem === undefined ? "movedPast" : "done";
-}
-
-/** The `merge-tree` rule (0010 section 7 "Conflict check" and "Merge and Done"). */
-async function mergeTreeDone(
-  git: GitSession,
-  facts: BranchFacts,
-  claim: ClaimRecord,
-): Promise<DoneCheck> {
-  if (facts.tip === null || facts.tip === claim.startSha) return { done: false };
-  const failed = (detail: string): DoneCheck => ({
-    done: false,
-    problem: {
-      code: TEARDOWN_NOTICES.checkFailed,
-      text: `dipo could not check whether ${claim.story} is merged: ${detail}. The story stays where it is.`,
-    },
-  });
-  const baseTree = await revParse(git, `${facts.baseRef}^{tree}`, "tree");
-  if (baseTree === null) return failed(`${facts.baseRef} does not exist`);
-  const result = await git.step(git.repository, [
-    "merge-tree",
-    "--write-tree",
-    facts.baseRef,
-    `refs/heads/${claim.branch}`,
-  ]);
-  if (result.code === 1) return { done: false };
-  if (result.code !== 0) {
-    return failed(
-      `\`git merge-tree --write-tree\` failed (${result.stderr.trim() || `exit ${result.code}`})`,
-    );
-  }
-  return firstLine(result.stdout) === baseTree
-    ? { done: true, evidence: { by: "merge-tree", tree: baseTree }, tip: facts.tip }
-    : { done: false };
 }
 
 // ---- teardown --------------------------------------------------------------------------------
@@ -283,25 +115,20 @@ export function claimLockReason(runId: RunId): string {
 }
 
 /**
- * Tears down the worktree and branch of a claim whose story is Done, then releases the claim,
- * deletes its tier T rows and frees its slot. `tip` is the branch tip the detection judged (null
+ * Tears down the worktree and branch of a claim whose story PR `pr` merged, then releases the
+ * claim, deletes its tier T rows and frees its slot. `tip` is the branch tip the Done poll judged (null
  * when the branch was gone): a branch that moved since keeps everything. A dirty or foreign-locked
  * worktree keeps everything too. The caller puts the notices on the office.
  */
 export async function tearDown(
   deps: TeardownDeps,
   claim: ClaimRecord,
-  evidence: DoneEvidence,
+  pr: MergedPr,
   tip: string | null,
 ): Promise<TeardownOutcome> {
   const outcome = await deps.git.run((git) => removeAll(deps, git, claim, tip));
   if (!outcome.ok) return outcome;
-  const how =
-    evidence.by === "host"
-      ? `its PR #${evidence.number} merged (${evidence.url})`
-      : evidence.by === "merge-tree"
-        ? "its branch adds nothing to the base"
-        : "dipo finishes the teardown it started earlier";
+  const how = `its PR #${pr.number} merged (${pr.url})`;
   writeWith(deps, () => {
     releaseClaim(deps.office, claim.runId, {
       at: deps.clock.now(),
@@ -567,17 +394,12 @@ export function lockInList(output: string, path: string): string | null {
   return null;
 }
 
-async function revParse(
-  git: GitSession,
-  ref: string,
-  kind: "commit" | "tree" = "commit",
-): Promise<string | null> {
-  const name = kind === "commit" ? `${ref}^{commit}` : ref;
-  const result = await git.step(git.repository, ["rev-parse", "--verify", "--quiet", name]);
+async function revParse(git: GitSession, ref: string): Promise<string | null> {
+  const result = await git.step(git.repository, [
+    "rev-parse",
+    "--verify",
+    "--quiet",
+    `${ref}^{commit}`,
+  ]);
   return result.code === 0 ? result.stdout.trim() : null;
-}
-
-function firstLine(text: string): string {
-  const end = text.indexOf("\n");
-  return (end === -1 ? text : text.slice(0, end)).trim();
 }

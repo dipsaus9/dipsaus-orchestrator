@@ -1,26 +1,23 @@
-// A claimed story that is Done on `_base` (DIPO-216, the minimal release; DIPO-161, 0020 section
-// 10): a story finished through another branch, for example a `-finish` branch, never reaches Done
-// through its own, so the Done poll never tears it down. Reconcile finds each live claim with a
-// claim commit whose story the index pass read as Done on `_base`:
+// A claimed story that is Done on `_base` (DIPO-216, DIPO-161, DIPO-363; 0002, 0020): a story
+// finished through another branch, for example a `-finish` branch, never merges its own PR, so
+// the teardown never runs for it. Reconcile asks the one Done check (`worktree/done-check.ts`) for
+// each live claim with a claim commit, from the same facts the Done poll reads: the claim's story
+// PR (`claimPr`: the host's merged PR of its branch when reconcile has a host, else dipo's record)
+// and the story's status on `_base` as the index pass read it. Only the answer Done on the base is
+// reconcile's; a claim whose own PR merged is the Done poll's teardown (DIPO-332), and `git
+// merge-tree` is no Done signal (0010).
 //
 // - A claim whose worker is live (its run active, or a worker host not ended) is not stopped: it is
 //   flagged once (a DONE ELSEWHERE desk item and a notice) and released when the run next ends.
-// - A claim Done through its own branch (its story PR recorded merged, or `git merge-tree` finding
-//   nothing new on it) is left to the Done poll, which tears it down as `done` (DIPO-332): after
-//   GitHub merged a PR, the next index pass reads the story Done on `_base` too. One whose
-//   branch moved past its merged PR's head with changes the base lacks is released as `done` and
-//   its worktree and branch settled as leftovers (`releaseMovedPastMerge`); with an open park it
-//   is kept, with a notice.
 // - A parked or idle claim is checked again in one item of the office git queue (still live, its
-//   run ended, `_base` still at the pass's commit, else it is retried after a reindex, DIPO-226),
-//   which also reads the base commit that last changed the task file. Then it is released as
-//   `done-elsewhere` in one transaction and its PR, worktree and branch are settled
-//   (`worktree/done-elsewhere.ts`): a clean worktree is removed and a dirty one kept as leftovers
-//   while the claim is released; a branch that adds nothing to the base is deleted locally and on
-//   the remote, else kept in `released_branches`. This replaces DIPO-216's interim release (reason
-//   `done`, park resolved `reconcile`, a dirty worktree keeping its claim live) for these claims.
-// - A claim with `teardown_started_at` whose worktree is already gone (an own-branch teardown a
-//   crash interrupted between the removal and the release) is released as `done` without git, as
+//   run ended, `_base` still at the pass's commit, else it is retried after a reindex, DIPO-226,
+//   and its own PR still not recorded merged), which also reads the base commit that last changed
+//   the task file. Then it is released as `done-elsewhere` in one transaction and its PR, worktree
+//   and branch are settled (`worktree/done-elsewhere.ts`): a clean worktree is removed and a dirty
+//   one kept as leftovers while the claim is released; a branch that adds nothing to the base is
+//   deleted locally and on the remote, else kept in `released_branches`.
+// - A claim with `teardown_started_at` whose worktree is already gone (a teardown a crash
+//   interrupted between the removal and the release) is released as `done` without git, as
 //   DIPO-216 does; its branch is then settled like the leftovers above.
 // - A claim DIPO-216 released that way before this story, whose local branch is still there, gets
 //   the same branch handling (`sweepCrashedTeardowns`).
@@ -28,25 +25,25 @@
 
 import { existsSync } from "node:fs";
 
+import { remoteUrl } from "../git/write";
+import { repoOfRemoteUrl } from "../platform/host";
 import { findRun } from "../run/records";
+import { findStoryPr } from "../story-pr/records";
 import type { IndexResult } from "../stories/index-stories";
-import { lifecycleOf } from "../views/story";
+import { claimPr, decideDone, type DoneAnswer } from "../worktree/done-check";
 import {
   adoptReleased,
   type DoneElsewhereDeps,
   findDoneElsewhere,
   flagLiveWorker,
   hasLiveWorker,
-  hasOpenPark,
   lastTaskCommit,
-  movedPastParkedText,
   releaseDoneElsewhere,
-  releaseMovedPastMerge,
   settleDoneElsewhere,
   settlePending,
 } from "../worktree/done-elsewhere";
 import { type ClaimRecord, findClaim, liveClaimOf, liveClaims } from "../worktree/records";
-import { DONE_RELEASE_REASON, doneOnOwnBranchIn, ownMergedPr } from "../worktree/teardown";
+import { DONE_RELEASE_REASON } from "../worktree/teardown";
 
 import type { ReconcileDeps, ReconcileFinding } from "./reconcile";
 
@@ -58,19 +55,40 @@ export const DONE_ON_BASE_NOTICES = {
 
 type Recorder = (finding: ReconcileFinding, facts?: () => void, level?: "info" | "warn") => void;
 
-/** The status of the claim's story on `_base` in `pass`, or undefined when the pass has none. */
-function baseStatusOf(
-  pass: IndexResult,
-  claim: Pick<ClaimRecord, "key" | "story">,
-): string | undefined {
+/** The status of the claim's story on `_base` in `pass`, or null when the pass has none. */
+function baseStatusIn(pass: IndexResult, claim: Pick<ClaimRecord, "key" | "story">): string | null {
   const onBranch = pass.baseStatus.get(claim.key);
   if (onBranch !== undefined) return onBranch;
   // A claim whose teardown started, or a released one, is read on `_base` like an unclaimed story.
-  return pass.read.find((story) => story.story === claim.story && story.kind === "task")?.status;
+  return (
+    pass.read.find((story) => story.story === claim.story && story.kind === "task")?.status ?? null
+  );
 }
 
-function isDoneOnBase(status: string | undefined): boolean {
-  return status !== undefined && lifecycleOf("task", status) === "Done";
+/**
+ * The repository of the office's remote, or null without one; read only when reconcile has a host
+ * to ask, so reconcile without one queues no git item for it.
+ */
+async function repoOf(deps: ReconcileDeps): Promise<string | null> {
+  if (deps.prs === undefined || deps.prs === null) return null;
+  const url = await deps.git.run((session) => remoteUrl(session, deps.git.settings.remote));
+  return url === null ? null : repoOfRemoteUrl(url);
+}
+
+/**
+ * The one Done check's answer for a live claim from reconcile's facts (see the file comment); the
+ * Done poll gathers the same facts (`StoryTeardown.answer`). `repo` is the remote's repository,
+ * read when it is not given.
+ */
+export async function doneAnswerOf(
+  deps: ReconcileDeps,
+  pass: IndexResult,
+  claim: ClaimRecord,
+  repo?: string | null,
+): Promise<DoneAnswer> {
+  const at = repo === undefined ? await repoOf(deps) : repo;
+  const pr = await claimPr(deps.prs ?? null, at, deps.office, claim);
+  return decideDone({ claim, pr, baseStatus: baseStatusIn(pass, claim) });
 }
 
 function runEnded(deps: ReconcileDeps, claim: ClaimRecord): boolean {
@@ -135,12 +153,14 @@ export async function releaseDoneOnBase(
   const skippedRuns: string[] = [];
   const elsewhere = elsewhereDeps(deps, found);
   if (only === undefined) await settlePending(elsewhere);
-  for (const claim of liveClaims(deps.office)) {
-    if (only !== undefined && !only.has(claim.runId)) continue;
-    if (claim.claimSha === null) continue;
-    if (!isDoneOnBase(baseStatusOf(pass, claim))) continue;
+  const claims = liveClaims(deps.office).filter(
+    (claim) => (only === undefined || only.has(claim.runId)) && claim.claimSha !== null,
+  );
+  const repo = claims.length === 0 ? null : await repoOf(deps);
+  for (const claim of claims) {
     try {
-      const outcome = await releaseOne(deps, elsewhere, pass, claim, record);
+      if ((await doneAnswerOf(deps, pass, claim, repo)) !== "doneOnBase") continue;
+      const outcome = await releaseOne(deps, elsewhere, pass, claim);
       if (outcome === "released") released += 1;
       if (outcome === "baseMoved") skippedRuns.push(claim.runId);
     } catch (error) {
@@ -160,12 +180,11 @@ async function releaseOne(
   elsewhere: DoneElsewhereDeps,
   pass: IndexResult,
   claim: ClaimRecord,
-  record: Recorder,
 ): Promise<ClaimOutcome> {
   const { git, office } = deps;
   if (hasLiveWorker(office, claim)) {
-    // The worker is not stopped by code (0020 section 10): a desk item, once, and the release
-    // follows at the run's next end.
+    // The worker is not stopped by code (0020): a desk item, once, and the release follows at the
+    // run's next end.
     if (findDoneElsewhere(office, claim.runId) !== null) return "none";
     const commit = await git.run((session) => lastTaskCommit(session, pass.sha, claim.story));
     flagLiveWorker(elsewhere, claim, commit);
@@ -192,31 +211,15 @@ async function releaseOne(
         .then((out) => out.trim())
         .catch(() => null);
       if (head !== pass.sha) return "baseMoved" as const;
-      // Done through its own branch (its PR merged, or merge-tree finds nothing new on it) is the
-      // Done poll's to tear down as `done`, never a release as done elsewhere (DIPO-332). A branch
-      // that moved past its merged PR's head with changes the base lacks becomes leftovers.
-      const own = await doneOnOwnBranchIn(office, git, session, claim);
-      if (own === "done") return "skipped" as const;
-      if (own === "movedPast") return "movedPast" as const;
+      // A merge the PR poll recorded since is the Done poll's teardown, never a release as done
+      // elsewhere (DIPO-332).
+      const pr = findStoryPr(office, claim.runId);
+      const again = decideDone({ claim, pr, baseStatus: baseStatusIn(pass, claim) });
+      if (again !== "doneOnBase") return "skipped" as const;
       return { commit: await lastTaskCommit(session, pass.sha, claim.story) };
     });
     if (checked === "skipped") return "none";
     if (checked === "baseMoved") return "baseMoved";
-    if (checked === "movedPast") {
-      const pr = ownMergedPr(office, claim);
-      if (pr === null) return "none";
-      if (hasOpenPark(office, claim)) {
-        // A Parked story is never torn down on its own: the maintainer is told instead.
-        record({
-          code: DONE_ON_BASE_NOTICES.kept,
-          key: claim.key,
-          text: movedPastParkedText(claim, pr),
-        });
-        return "none";
-      }
-      await releaseMovedPastMerge(elsewhere, claim, pr);
-      return "released";
-    }
     releaseDoneElsewhere(elsewhere, claim, checked.commit);
   }
   const row = findDoneElsewhere(office, claim.runId);
@@ -226,8 +229,8 @@ async function releaseOne(
 
 /**
  * Own-branch teardowns a crash interrupted after removing the worktree and that DIPO-216 released
- * as `done` while their local branch stayed (AC10): each such claim, whose story is Done on the
- * base and which has no row yet, gets one and its branch settled. Returns how many it settled.
+ * as `done` while their local branch stayed: each such claim, whose story the one Done check finds
+ * Done and which has no row yet, gets one and its branch settled. Returns how many it settled.
  */
 async function sweepCrashedTeardowns(
   deps: ReconcileDeps,
@@ -248,7 +251,14 @@ async function sweepCrashedTeardowns(
     .map((row) => findClaim(deps.office, row.run_id as ClaimRecord["runId"]))
     .filter((claim): claim is ClaimRecord => claim !== null)
     .filter((claim) => liveClaimOf(deps.office, claim.key) === null)
-    .filter((claim) => isDoneOnBase(baseStatusOf(pass, claim)));
+    .filter(
+      (claim) =>
+        decideDone({
+          claim,
+          pr: findStoryPr(deps.office, claim.runId),
+          baseStatus: baseStatusIn(pass, claim),
+        }) !== "notDone",
+    );
   if (candidates.length === 0) return 0;
   const branches = await deps.git.run(async (session) => {
     const out = await session.ok(session.repository, [
