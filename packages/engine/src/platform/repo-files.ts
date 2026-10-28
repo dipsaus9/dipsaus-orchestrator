@@ -1,21 +1,18 @@
 // Read-only file facts of a repository checkout for the scan (0013 section 3). It lists files
-// and asks git which paths it ignores. It never runs a repository script: the git calls disable
-// `core.fsmonitor` and `core.hooksPath`, so git runs no repository-chosen command. Each git call
-// has the deadline of every engine git step (DIPO-314, `GIT_STEP_DEADLINE_MS`): git runs in its
-// own process group, and past the deadline the group is killed and the call fails with
-// `git.timedOut`, so a scan never holds the office git queue item it runs in.
+// and asks git which paths it ignores. It never runs a repository script: every git call is a step
+// of the git module's runner (`git/runner.ts`), hardened as every engine git call is (no hooks, no
+// fsmonitor), with the deadline of every engine git step, so a scan never holds the office git
+// queue item it runs in.
 
 import { readFile, stat } from "node:fs/promises";
 import { isAbsolute, join, normalize } from "node:path";
 
-import type { Clock, Signal } from "@dipsaus-orchestrator/contract";
+import type { Clock, Spawn } from "@dipsaus-orchestrator/contract";
 
-import { hardenedArgs, hardenedEnv } from "../git/hardened";
-import { GIT_STEP_DEADLINE_MS, gitTimedOut } from "../git/runner";
+import { clockSleep, runGitStep, spawnGitExec } from "../git/runner";
 
 import { systemClock } from "./clock";
-import { trackEngineCall, withDeadline } from "./deadline";
-import { signalGroup } from "./process";
+import { systemSpawn } from "./process";
 
 export interface RepoFiles {
   /** Repo-relative POSIX paths of tracked and untracked, not ignored files. */
@@ -33,10 +30,12 @@ export type RepoFilesOptions = {
   env?: Record<string, string | undefined>;
   /** The clock each git call's deadline runs on; the system clock by default. */
   clock?: Clock;
+  /** How git starts; the system's spawn by default. */
+  spawn?: Spawn;
 };
 
-// Every scan git call is hardened like any engine git call (0008 section 2, DIPO-31). The scan finds
-// the repository from its root, so it runs without recorded paths (location `none`).
+// The scan finds the repository from its root, so its git runs without recorded paths (location
+// `none`).
 
 function inside(root: string, path: string): string {
   const clean = normalize(path);
@@ -46,44 +45,39 @@ function inside(root: string, path: string): string {
   return join(root, clean);
 }
 
+interface Steps {
+  readonly exec: ReturnType<typeof spawnGitExec>;
+  readonly env: Record<string, string | undefined>;
+  readonly sleep: ReturnType<typeof clockSleep>;
+  readonly clock: Clock;
+}
+
 async function runGit(
   root: string,
   args: string[],
-  options: { readonly env: Record<string, string | undefined>; readonly clock: Clock },
+  steps: Steps,
   stdin?: string,
-): Promise<{ exitCode: number; stdout: string; stderr: string }> {
-  const location = { kind: "none", cwd: root } as const;
-  const proc = Bun.spawn(["git", ...hardenedArgs(location, args)], {
-    cwd: root,
-    env: hardenedEnv(options.env, location),
-    stdin: stdin === undefined ? "ignore" : new TextEncoder().encode(stdin),
-    stdout: "pipe",
-    stderr: "pipe",
-    detached: true,
-  });
-  const child = {
-    kill: (signal?: Signal) => proc.kill(signal),
-    killGroup: (signal: Signal) => void signalGroup(proc.pid, signal),
-    exited: proc.exited.then((code) => ({ code, signal: null })),
-  };
-  trackEngineCall(child);
-  const [stdout, stderr, exitCode] = await withDeadline(
-    child,
-    Promise.all([new Response(proc.stdout).text(), new Response(proc.stderr).text(), proc.exited]),
-    {
-      clock: options.clock,
-      deadlineMs: GIT_STEP_DEADLINE_MS,
-      timedOut: () => gitTimedOut(args, GIT_STEP_DEADLINE_MS),
-    },
+): Promise<{ exitCode: number | null; stdout: string; stderr: string }> {
+  const result = await runGitStep(
+    steps,
+    { kind: "none", cwd: root },
+    args,
+    stdin === undefined ? {} : { stdin },
   );
-  return { exitCode, stdout, stderr };
+  return { exitCode: result.code, stdout: result.stdout, stderr: result.stderr };
 }
 
 const splitZ = (text: string) => text.split("\0").filter((entry) => entry !== "");
 
 /** File facts of the git work tree at `root`. */
 export function createRepoFiles(root: string, options: RepoFilesOptions = {}): RepoFiles {
-  const git = { env: options.env ?? process.env, clock: options.clock ?? systemClock };
+  const clock = options.clock ?? systemClock;
+  const git: Steps = {
+    exec: spawnGitExec(options.spawn ?? systemSpawn),
+    env: options.env ?? process.env,
+    sleep: clockSleep(clock),
+    clock,
+  };
   return {
     async listFiles() {
       const result = await runGit(
