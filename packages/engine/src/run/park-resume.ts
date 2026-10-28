@@ -105,7 +105,14 @@ import { MAINTAINER_RESUME_TAG, mirrorUnpark, unresolvedPark } from "./park-stat
 
 export { MAINTAINER_RESUME_TAG, parksBeingResumed } from "./park-state";
 import { PLACE_NOTICES, type Places, START_KINDS, waitForPlace } from "./places";
-import { findRun, IN_REVIEW_END, REVIEWED_END, runRoundCounts, type StoredRun } from "./records";
+import {
+  applyRunEvent,
+  findRun,
+  IN_REVIEW_END,
+  REVIEWED_END,
+  runRoundCounts,
+  type StoredRun,
+} from "./records";
 import { recordBranchPush } from "../story-pr/records";
 import { resumeRow, resumeSession, type ResumeSession, SUGGESTED_SHARE } from "./resume-policy";
 import {
@@ -1504,11 +1511,7 @@ function dropHeld(
 
 /** Inside the caller's transaction: an ended run takes the end kind `kind`, its outcome row too. */
 function endedAs(office: OfficeHandle, runId: RunId, kind: string): void {
-  office.run(
-    `update runs set end_kind = $kind where office_id = $office_id and run_id = $run
-      and ended_at is not null`,
-    { run: runId, kind },
-  );
+  applyRunEvent(office, runId, { kind: "relabel", endKind: kind });
   office.run(
     `update run_outcomes set end_kind = $kind, outcome = $kind
       where office_id = $office_id and run_id = $run and final = 0`,

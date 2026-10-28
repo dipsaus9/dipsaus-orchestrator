@@ -80,7 +80,8 @@ import type { AdapterHold } from "../workers/hold";
 import type { WorkerPort } from "../workers/port";
 import { PlanError, type Caps, type ParseState, type WorkerReport } from "../workers/types";
 import { findClaim } from "../worktree/records";
-import { hostAlive, workerHostsOf } from "../runs/worker-hosts";
+import { recordAgent } from "../runs/agents";
+import { hostAlive, setProcessedOffset, workerHostsOf } from "../runs/worker-hosts";
 
 import type { BackstopSnapshot } from "./backstop";
 import { runBudgetFacts } from "./budget-line";
@@ -509,23 +510,18 @@ export class RunResumer implements NextSession {
     // the old host (DIPO-57), before the new session's first ingestion pass can raise it again.
     const work: WorkRef = { ...request.work, agent, model: tier.model };
     let recorded = false;
-    const recordAgent = () => {
-      office.run(
-        `insert or ignore into agents (office_id, agent_id, run_id, role, model, effort,
-           session_id, system_hash, started_at)
-         values ($office_id, $agent, $run, $role, $model, $effort, $session, $hash, $at)`,
-        {
-          agent,
-          run: run.runId,
-          role: run.role,
-          model: tier.model,
-          effort: tier.effort,
-          session: session.id,
-          // A resume keeps the system file the session started with.
-          hash: resume ? previous.systemHash : systemHash,
-          at: deps.clock.now(),
-        },
-      );
+    const recordSession = () => {
+      recordAgent(office, {
+        agentId: agent,
+        runId: run.runId,
+        role: run.role,
+        model: tier.model,
+        effort: tier.effort,
+        sessionId: session.id,
+        // A resume keeps the system file the session started with.
+        systemHash: resume ? previous.systemHash : systemHash,
+        startedAt: deps.clock.now(),
+      });
       // The held messages went with this session, in the transaction that records it.
       deliverHeld(office, run.runId, held.ids, deps.clock.now());
       // The prompt parts this session sent (0014 section 2): a handoff sends the system file and
@@ -588,7 +584,7 @@ export class RunResumer implements NextSession {
         plan: prepared.plan,
         processedOffset: offset,
         record: () => {
-          recordAgent();
+          recordSession();
           recorded = true;
         },
       });
@@ -598,12 +594,8 @@ export class RunResumer implements NextSession {
     if (!recorded) {
       // A host starter that does not take the extras: the same writes, after the start.
       office.immediate(() => {
-        office.run(
-          `update worker_hosts set processed_offset = $offset
-            where office_id = $office_id and run_id = $run and agent_id = $agent`,
-          { offset, run: run.runId, agent },
-        );
-        recordAgent();
+        setProcessedOffset(office, run.runId, agent, offset);
+        recordSession();
       });
     }
     deps.control.track(request.office, {

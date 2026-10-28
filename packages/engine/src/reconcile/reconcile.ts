@@ -49,6 +49,7 @@ import type { CodeHost, PrStateHost } from "../platform/host";
 import { LAUNCH_FILE } from "../host/protocol";
 import { officeDirectory } from "../office/marker";
 import { type BacklogPark, backlogPark, openParkIds, resolvePark } from "../run/park";
+import { insertPark } from "../run/park-records";
 import { parksBeingResumed } from "../run/park-state";
 import { endRunMarked } from "../run/markers";
 import { activeRuns, findRun, type StoredRun } from "../run/records";
@@ -493,19 +494,14 @@ function reconcilePark(
       },
       () => {
         // The park's history row: the reason it was recorded with (0007), never read as current.
-        office.run(
-          `insert into parks (office_id, park_id, key, story_id, run_id, reason, detail,
-             last_good_commit, at)
-           values ($office_id, (select coalesce(max(park_id), 0) + 1 from parks
-             where office_id = $office_id), $key, $story, null, $reason, $detail, null, $at)`,
-          {
-            key: story.key,
-            story: story.story,
-            reason: current.reason,
-            detail: RECORDED_BY_HAND,
-            at: deps.clock.now(),
-          },
-        );
+        insertPark(office, {
+          key: story.key,
+          story: story.story,
+          runId: null,
+          reason: current.reason,
+          detail: RECORDED_BY_HAND,
+          at: deps.clock.now(),
+        });
       },
     );
   }

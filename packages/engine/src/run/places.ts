@@ -38,7 +38,7 @@ import { workRefOf } from "../views/work";
 import { REVIEWER_ROLE } from "./caps";
 import type { RunEnding } from "./control-types";
 import { preStartEnding, reachedCaps, resolvePreStartIntent } from "./pre-start-caps";
-import { activeRuns, findRun, type StoredRun } from "./records";
+import { activeRuns, applyRunEvent, findRun, type StoredRun } from "./records";
 
 /** The two session places of an office. */
 export type Place = "worker" | "reviewer";
@@ -200,11 +200,7 @@ export function waitForPlace(
   kind: StartKind,
   at: number,
 ): void {
-  office.run(
-    `update runs set waiting = $kind, waiting_since = $at
-      where office_id = $office_id and run_id = $run and ended_at is null`,
-    { run: runId, kind, at },
-  );
+  applyRunEvent(office, runId, { kind: "wait", as: kind, since: at });
 }
 
 /**
@@ -217,12 +213,7 @@ export function claimPlace(office: OfficeHandle, runId: RunId, at: number): bool
   const run = findRun(office, runId);
   if (run === null || run.waiting == null) return false;
   const worker = isStartKind(run.waiting) ? placeOfStart(run.waiting) === "worker" : true;
-  office.run(
-    `update runs set parked_ms = parked_ms + $waited, waiting = null, waiting_since = null
-      where office_id = $office_id and run_id = $run`,
-    { run: runId, waited: worker ? Math.max(0, at - (run.waitingSince ?? at)) : 0 },
-  );
-  return true;
+  return applyRunEvent(office, runId, { kind: "take-place", at, counted: worker }) !== null;
 }
 
 /**
@@ -488,12 +479,12 @@ export class Places {
     const counted =
       placeOfStart(start.kind) === "worker" ? Math.max(0, claimedAt - start.since) : 0;
     office.immediate(() =>
-      office.run(
-        `update runs set waiting = $kind, waiting_since = $since,
-           parked_ms = max(0, parked_ms - $counted)
-          where office_id = $office_id and run_id = $run and ended_at is null`,
-        { run: runId, kind: start.kind, since: start.since, counted },
-      ),
+      applyRunEvent(office, runId, {
+        kind: "requeue",
+        as: start.kind,
+        since: start.since,
+        counted,
+      }),
     );
   }
 

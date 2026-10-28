@@ -80,6 +80,8 @@ import { systemSpawn } from "../platform/process";
 import { promptParts, recordPromptParts, recordPromptTexts } from "../prompts/parts";
 import { type ReviewChangedPath, withReviewCommit } from "../prompts/review";
 import { renderSystemFile } from "../prompts/system";
+import { recordAgent } from "../runs/agents";
+import { setProcessedOffset } from "../runs/worker-hosts";
 import { withWorkViews } from "../views/work";
 import type { AdapterHold } from "../workers/hold";
 import type { WorkerPort } from "../workers/port";
@@ -98,7 +100,7 @@ import {
   type TierCaps,
 } from "./launch";
 import { sessionUuid } from "./prompts";
-import { findRun, type StoredRun } from "./records";
+import { findRun, storeReviewCaps, type StoredRun } from "./records";
 import { codeTreeKeyOf } from "./story-git";
 import { prepareRunTempDirs } from "./temp-dirs";
 
@@ -520,18 +522,7 @@ export function snapshotReviewCaps(
   runId: RunId | string,
   config: Pick<OfficeConfig, "review">,
 ): void {
-  office.run(
-    `update runs set review_max_turns = coalesce(review_max_turns, $turns),
-       review_max_minutes = coalesce(review_max_minutes, $minutes),
-       review_max_tokens = coalesce(review_max_tokens, $tokens)
-      where office_id = $office_id and run_id = $run`,
-    {
-      run: runId,
-      turns: config.review.maxTurns,
-      minutes: config.review.maxMinutes,
-      tokens: config.review.budgetTokens,
-    },
-  );
+  storeReviewCaps(office, runId, config.review);
 }
 
 /**
@@ -795,23 +786,18 @@ export class ReviewLauncher implements ReviewSessions {
       tier: run.tier ?? "",
       model: settings.model,
     };
-    const recordAgent = (): void => {
+    const recordSession = (): void => {
       const at = deps.clock.now();
-      office.run(
-        `insert or ignore into agents (office_id, agent_id, run_id, role, model, effort,
-           session_id, system_hash, started_at)
-         values ($office_id, $agent, $run, $role, $model, $effort, $session, $hash, $at)`,
-        {
-          agent,
-          run: run.runId,
-          role: REVIEWER_ROLE,
-          model: settings.model,
-          effort: settings.effort,
-          session: spec.session.id,
-          hash: systemHashOf(systemFile),
-          at,
-        },
-      );
+      recordAgent(office, {
+        agentId: agent,
+        runId: run.runId,
+        role: REVIEWER_ROLE,
+        model: settings.model,
+        effort: settings.effort,
+        sessionId: spec.session.id,
+        systemHash: systemHashOf(systemFile),
+        startedAt: at,
+      });
       recordPromptParts(
         office,
         run.runId,
@@ -841,7 +827,7 @@ export class ReviewLauncher implements ReviewSessions {
         plan: prepared.plan,
         processedOffset: offset,
         record: () => {
-          recordAgent();
+          recordSession();
           recorded = true;
         },
       });
@@ -851,12 +837,8 @@ export class ReviewLauncher implements ReviewSessions {
     if (!recorded) {
       // A host starter that does not take the extras: the same writes, after the start.
       office.immediate(() => {
-        office.run(
-          `update worker_hosts set processed_offset = $offset
-            where office_id = $office_id and run_id = $run and agent_id = $agent`,
-          { offset, run: run.runId, agent },
-        );
-        recordAgent();
+        setProcessedOffset(office, run.runId, agent, offset);
+        recordSession();
       });
     }
     deps.control.track(request.office, {

@@ -4,7 +4,7 @@
 import type { OfficeHandle } from "../db/office";
 import type { IngestedExit } from "../ingest/ingestor";
 import { recoverLostUsage } from "../ingest/transcript";
-import { finalizeAgentUsage } from "../ingest/usage";
+import { endAgent } from "../runs/agents";
 import type { HostOp } from "../workers/types";
 
 import { runCaps } from "./caps";
@@ -75,22 +75,16 @@ export class ExitOutcomes {
     // The agent ends with the signal in one transaction: a restart before the decision below
     // finds `host-lost` and decides it again.
     this.#s.write(office, () => {
-      office.run(
-        `update agents set ended_at = coalesce(ended_at, $at),
-             end_reason = coalesce(end_reason, $reason)
-           where office_id = $office_id and agent_id = $agent`,
-        { at, agent, reason: intent === null ? HOST_LOST_END : "exited" },
-      );
-      office.run(
-        `update ingest_cursors set ended_at = coalesce(ended_at, $at)
-            where office_id = $office_id and run_id = $run and agent_id = $agent`,
-        { at, run: view.runId, agent },
-      );
-      office.run(
-        `update worker_hosts set ended_at = coalesce(ended_at, $at)
-            where office_id = $office_id and run_id = $run and agent_id = $agent`,
-        { at, run: view.runId, agent },
-      );
+      // Its usage, the transcript's included, is final before its cursors end, so every decision
+      // below (a resume, a park, an intent, a run that ended already) finds it final.
+      endAgent(office, {
+        runId: view.runId,
+        agentId: agent,
+        at,
+        reason: intent === null ? HOST_LOST_END : "exited",
+        finalizeUsage: true,
+        endHost: true,
+      });
       const raised = raiseSignal(office, view.runId, "host-lost", at);
       if (raised === null) return [];
       return [
@@ -159,8 +153,8 @@ export class ExitOutcomes {
       });
       return;
     }
-    // The dead agent's usage is final before the resumed session adds its own (AC #9).
-    office.immediate(() => finalizeAgentUsage(office, run.runId, agent, this.#deps.clock.now()));
+    // The dead agent's usage was made final when it ended `host-lost` (`endAgent`, here and in
+    // `reattach.ts`), before the resumed session adds its own (AC #9).
     await this.#sessions.next(office, run, view, {
       mode: "resume",
       why: HOST_LOST_WHY,

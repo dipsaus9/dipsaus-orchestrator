@@ -68,6 +68,7 @@ import type { GitSession, OfficeGit } from "../git/office";
 import { type CodeHost, CodeHostError } from "../platform/host";
 import type { ProcessProbe } from "../platform/process";
 import { openPark, openParkIds, parkActions, resolvePark } from "../run/park";
+import { insertPark } from "../run/park-records";
 import { activeRuns } from "../run/records";
 import { hostAlive, workerHostsOf } from "../runs/worker-hosts";
 import { latestStoryPr, setStoryPrState } from "../story-pr/records";
@@ -303,12 +304,14 @@ export class StoryPlanning {
     }
     const at = ctx.clock.now();
     ctx.commit((): NewEntry[] => {
-      office.run(
-        `insert into parks (office_id, park_id, key, story_id, run_id, reason, detail, at)
-         values ($office_id, (select coalesce(max(park_id), 0) + 1 from parks
-           where office_id = $office_id), $key, $story, null, 'by-maintainer', $note, $at)`,
-        { key, story, note: args.note, at },
-      );
+      insertPark(office, {
+        key,
+        story,
+        runId: null,
+        reason: "by-maintainer",
+        detail: args.note,
+        at,
+      });
       const parked = deriveStoryView({
         ...factsOf(view),
         lifecycle: "Parked",

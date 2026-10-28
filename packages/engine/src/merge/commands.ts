@@ -40,7 +40,13 @@ import type { CodeHost, PrReviewHost } from "../platform/host";
 import { recordReviewOverride } from "../review/store";
 import { openPark, type ParkWriter, resolvePark, type UnparkWriter } from "../run/park";
 import { mirrorUnpark } from "../run/park-state";
-import { appendRunStep, findRun, REVIEWED_END, type StoredRun } from "../run/records";
+import {
+  appendRunStep,
+  applyRunEvent,
+  findRun,
+  REVIEWED_END,
+  type StoredRun,
+} from "../run/records";
 import { type BranchPush, findStoryPr, recordBranchPush } from "../story-pr/records";
 import { deriveStoryView, storyView } from "../views/story";
 import { withWorkViews } from "../views/work";
@@ -267,6 +273,12 @@ export class MergeGates {
     if (run.branch === null || run.worktree === null) {
       throw notWaiting(gate.gate, "its story run has no branch or worktree");
     }
+    // A park ends its run, so an open run here is a crash's or a hand-written park's leftover:
+    // the override would record the decision and lift the park, but the run could not wait as
+    // reviewed (`lifecycle.ts` refuses an open run).
+    if ((findRun(office, run.runId) ?? run).endedAt === null) {
+      throw notWaiting(gate.gate, "its story run is still open");
+    }
     // Still undecided right before the branch changes: a decision meanwhile lifts nothing.
     if (mergeGate(office, gate.gate)?.decision !== null) {
       throw notWaiting(gate.gate, "it was decided meanwhile");
@@ -333,10 +345,7 @@ export class MergeGates {
       // The lift read back In Review and no park record on the branch (DIPO-360).
       mirrorUnpark(office, run.key as string, "In Review");
       // In Review with no session: the run waits as reviewed, for its checks and the auto-merge.
-      office.run(
-        `update runs set end_kind = $reviewed where office_id = $office_id and run_id = $run`,
-        { reviewed: REVIEWED_END, run: run.runId },
-      );
+      applyRunEvent(office, run.runId, { kind: "relabel", endKind: REVIEWED_END });
       return withWorkViews(office, [...decided, ...closed, ...inReviewEntries(office, run, note)]);
     });
   }

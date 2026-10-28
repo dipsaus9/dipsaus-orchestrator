@@ -87,6 +87,7 @@ import { GitError } from "../git/runner";
 import { assembleContract, ContractTooLargeError } from "../prompts/contract";
 import { recordPromptParts, recordPromptTexts } from "../prompts/parts";
 import { promptStoryOf } from "../prompts/story";
+import { recordAgent } from "../runs/agents";
 import { resolveStoryRef } from "../stories/keys";
 import { mapLimited, VIEW_CONCURRENCY } from "../stories/read";
 import { deriveStoryView, type GateFailureFact, storyView } from "../views/story";
@@ -243,7 +244,7 @@ interface StartInput {
 }
 
 /** Inside the run's transaction: the developer agent with the engine-made session id (0007 section 4). */
-function recordAgent(
+function recordDeveloper(
   handle: OfficeHandle,
   input: {
     readonly runId: RunId;
@@ -254,21 +255,20 @@ function recordAgent(
   },
 ): void {
   const { prepared, caps } = input;
-  handle.run(
-    `insert into agents (office_id, agent_id, run_id, role, model, effort, session_id,
-       system_hash, started_at)
-     values ($office_id, $agent, $run, $role, $model, $effort, $session, $hash, $at)`,
+  recordAgent(
+    handle,
     {
-      agent: input.agent,
-      run: input.runId,
+      agentId: input.agent,
+      runId: input.runId,
       role: DEVELOPER_ROLE,
       model: caps.model,
       effort: prepared === null ? null : caps.effort,
-      session: prepared === null ? null : prepared.spec.session.id,
+      sessionId: prepared === null ? null : prepared.spec.session.id,
       // The L1+L2 hash a resume compares (DIPO-51).
-      hash: prepared?.systemHash ?? null,
-      at: input.at,
+      systemHash: prepared?.systemHash ?? null,
+      startedAt: input.at,
     },
+    false,
   );
 }
 
@@ -757,7 +757,7 @@ export class WorkRun {
           .filter((criterion) => criterion.checked)
           .map((criterion) => criterion.index),
       });
-      recordAgent(handle, { runId, agent, caps, prepared, at });
+      recordDeveloper(handle, { runId, agent, caps, prepared, at });
       // The context pack and the prompt records of the first session.
       if (prepared !== null) {
         recordPrepared(handle, {
