@@ -1,9 +1,10 @@
 ---
 id: DIPO-363
 title: Decide Done in one function from the PR state and the base
-status: Refined
+status: Done
 assignee: []
 created_date: '2026-10-28 10:01'
+updated_date: '2026-10-28 12:45'
 labels:
   - 'tier:M'
   - 'slice:prune'
@@ -41,6 +42,12 @@ test_plan:
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 One pure function decides Done from the PR state and the base, and the PR poll and reconcile both call it
-- [ ] #2 git merge-tree is no longer a Done signal (0010), and detectDone, worktree/done.ts and reconcile/done-on-base.ts use the one function or are removed
+- [x] #1 One pure function decides Done from the PR state and the base, and the PR poll and reconcile both call it
+- [x] #2 git merge-tree is no longer a Done signal (0010), and detectDone, worktree/done.ts and reconcile/done-on-base.ts use the one function or are removed
 <!-- AC:END -->
+
+## Final Summary
+
+<!-- SECTION:FINAL_SUMMARY:BEGIN -->
+decideDone (worktree/done-check.ts) is the one pure Done function: from the run's recorded story PR, the host's answer for that same PR number, and the story's status on _base it answers merged, doneOnBase or notDone. The Done poll and reconcile both call it with facts gathered the same way (claimPr), and review start and discard use it too. git merge-tree is no longer a Done signal and only decides whether a merged branch that moved past the merged head may be deleted. A merged PR from an earlier claim of the same branch never counts, a host failure on an open PR answers notDone for that round, and three host failures in a row on a claim raise a done.hostUnreachable notice. detectDone, doneOnOwnBranchIn, ownMergedPr and the merge-tree Done rule are removed.
+<!-- SECTION:FINAL_SUMMARY:END -->
