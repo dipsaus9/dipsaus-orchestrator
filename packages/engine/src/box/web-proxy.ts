@@ -73,6 +73,7 @@ import { networkInterfaces } from "node:os";
 
 import type { Clock, TimerHandle } from "@dipsaus-orchestrator/contract";
 
+import { type BoxConnector, connectToBox } from "./box-connect";
 import type { BoxNetwork } from "./port";
 import {
   ecosystemOf,
@@ -826,6 +827,11 @@ export interface BoxWebProxyDeps {
   readonly resolve?: (host: string) => Promise<readonly string[]>;
   /** Opens an upstream connection to an IP literal. */
   readonly connect?: (address: string, port: number) => Socket;
+  /**
+   * Opens a connection into the box network, to the Safe-Chain box (DIPO-343), from the box
+   * network's host address (`connectToBox`); by default `connect` above, or the system's.
+   */
+  readonly connectBox?: BoxConnector;
   /** The Mac's interface addresses, read for each check. */
   readonly interfaces?: () => readonly HostInterfaceAddress[];
   /**
@@ -1141,18 +1147,38 @@ async function startWebProxy(
     client.end(answer(status, status === 405 ? "Allow: CONNECT\r\n" : ""));
   };
 
+  /** Opens a connection into the box network from its host address (`connectToBox`). */
+  const openBox = (address: string, port: number): Socket =>
+    connectToBox(
+      { address, port, hostAddress: options.boxHostAddress() },
+      deps.connectBox ??
+        (deps.connect === undefined
+          ? undefined
+          : (target) =>
+              (deps.connect as NonNullable<typeof deps.connect>)(target.host, target.port)),
+    );
+
   /** Opens an upstream to the first of `addresses` that answers, within the deadline each. */
   const connectFirst = (
     addresses: readonly string[],
     port: number,
     done: (upstream: Socket | null, address: string | null) => void,
+    opener: (address: string, port: number) => Socket = open,
   ) => {
     const [address, ...rest] = addresses;
     if (address === undefined || stopped) {
       done(null, null);
       return;
     }
-    const upstream = track(open(address, port));
+    let opened: Socket;
+    try {
+      opened = opener(address, port);
+    } catch {
+      // Fail-closed: a connection that cannot leave the right way is not opened at all.
+      done(null, null);
+      return;
+    }
+    const upstream = track(opened);
     let timer: TimerHandle | null = deps.clock.setTimeout(
       () => upstream.destroy(),
       WEB_PROXY_CONNECT_TIMEOUT_MS,
@@ -1166,7 +1192,7 @@ async function startWebProxy(
         done(upstream, address);
       } else {
         upstream.destroy();
-        connectFirst(rest, port, done);
+        connectFirst(rest, port, done, opener);
       }
     };
     const onConnect = () => settle(true);
@@ -1254,20 +1280,28 @@ async function startWebProxy(
       Buffer.from(`CONNECT ${target} HTTP/1.1\r\nHost: ${target}\r\n\r\n`, "latin1"),
       rest,
     ]);
-    connectFirst([box.address], box.ports[ecosystem], (upstream) => {
-      if (client.destroyed) {
-        upstream?.destroy();
-        return;
-      }
-      if (upstream === null) {
-        emit({ kind: "refused", target, reason: "the Safe-Chain box did not answer" });
-        client.end(answer(502));
-        return;
-      }
-      // Only once the Safe-Chain box took it: a registry tunnel never goes anywhere else.
-      emit({ kind: "registry", host, port });
-      pipeSockets(client, upstream, forwarded, { clock: deps.clock, idleMs: limits.idleTimeoutMs });
-    });
+    connectFirst(
+      [box.address],
+      box.ports[ecosystem],
+      (upstream) => {
+        if (client.destroyed) {
+          upstream?.destroy();
+          return;
+        }
+        if (upstream === null) {
+          emit({ kind: "refused", target, reason: "the Safe-Chain box did not answer" });
+          client.end(answer(502));
+          return;
+        }
+        // Only once the Safe-Chain box took it: a registry tunnel never goes anywhere else.
+        emit({ kind: "registry", host, port });
+        pipeSockets(client, upstream, forwarded, {
+          clock: deps.clock,
+          idleMs: limits.idleTimeoutMs,
+        });
+      },
+      openBox,
+    );
   };
 
   const tunnel = (client: Socket, head: Buffer, end: number) => {

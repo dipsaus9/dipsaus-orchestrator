@@ -26,11 +26,13 @@
 // daemon start (`BoxWorkers.finishEnded`).
 
 import { mkdir, rm, writeFile } from "node:fs/promises";
+import { connect as tlsConnect } from "node:tls";
 import { dirname } from "node:path";
 
 import type { Clock } from "@dipsaus-orchestrator/contract";
 
 import { ignoreRejection } from "../platform/background";
+import { connectToBox } from "./box-connect";
 import { type BoxImageDeps, ensureSafeChainImage } from "./build-box";
 import { type BoxNetwork, type BoxPort, type BoxProcess, boxName } from "./port";
 import {
@@ -87,7 +89,7 @@ export interface SafeChainRouteDeps {
   readonly onRoute?: (event: SafeChainRouteEvent) => void;
   /**
    * One HTTPS GET of the check through the web proxy at `proxyUrl`, trusting `ca` only; its status.
-   * Bun's fetch by default; tests pass their own.
+   * A CONNECT and TLS from the box network's host address by default; tests pass their own.
    */
   readonly download?: (proxyUrl: string, ca: string, url: string) => Promise<number>;
   /** Overrides `SAFE_CHAIN_READY_TIMEOUT_MS`. */
@@ -176,15 +178,66 @@ function drain(stream: ReadableStream<Uint8Array>, into?: (text: string) => void
   );
 }
 
-/** The status of one HTTPS GET through the web proxy; the TLS trust is the CA bundle only. */
-async function fetchStatus(proxyUrl: string, ca: string, url: string): Promise<number> {
-  const response = await fetch(url, {
-    proxy: proxyUrl,
-    tls: { ca },
-    redirect: "manual",
-  } as RequestInit);
-  await response.arrayBuffer().catch(() => undefined);
-  return response.status;
+/** The status code of the first HTTP status line in `text`, or null before it is whole. */
+function statusOf(text: string): number | null {
+  const line = /^HTTP\/1\.[01] (\d{3})[^\r\n]*\r\n/.exec(text);
+  return line === null ? null : Number(line[1]);
+}
+
+/**
+ * The status of one HTTPS GET through the web proxy, as a box makes it: a CONNECT tunnel, then TLS
+ * that trusts the CA bundle only. The connection to the proxy leaves from the box network's host
+ * address (`connectToBox`), since the proxy listens there and a VPN may route the box subnet into
+ * its tunnel. A refused tunnel answers with the proxy's own status.
+ */
+function proxiedStatus(
+  proxy: { readonly host: string; readonly port: number },
+  hostAddress: string,
+  ca: string,
+  url: string,
+): Promise<number> {
+  const target = new URL(url);
+  return new Promise((resolveStatus, reject) => {
+    const socket = connectToBox({ address: proxy.host, port: proxy.port, hostAddress });
+    let head = "";
+    const fail = (error: Error) => {
+      socket.destroy();
+      reject(error);
+    };
+    socket.once("error", fail);
+    socket.once("connect", () =>
+      socket.write(
+        `CONNECT ${target.hostname}:443 HTTP/1.1\r\nHost: ${target.hostname}:443\r\n\r\n`,
+      ),
+    );
+    const onHead = (chunk: Buffer) => {
+      head += chunk.toString("latin1");
+      if (!head.includes("\r\n\r\n")) return;
+      socket.off("data", onHead);
+      const tunnel = statusOf(head);
+      if (tunnel !== 200) {
+        socket.destroy();
+        resolveStatus(tunnel ?? 0);
+        return;
+      }
+      const secure = tlsConnect({ socket, servername: target.hostname, ca });
+      let answer = "";
+      secure.once("error", fail);
+      secure.once("secureConnect", () =>
+        secure.write(
+          `GET ${target.pathname} HTTP/1.1\r\nHost: ${target.hostname}\r\nConnection: close\r\n\r\n`,
+        ),
+      );
+      secure.on("data", (data: Buffer) => {
+        answer += data.toString("latin1");
+        const status = statusOf(answer);
+        if (status === null) return;
+        secure.destroy();
+        resolveStatus(status);
+      });
+    };
+    socket.on("data", onHead);
+  });
 }
 
 /**
@@ -399,7 +452,9 @@ export async function startBoxWebRoute(
       upstreamUrl: upstream.url,
     });
     const problem = await runSafeChainCheck(deps.clock, (url) =>
-      (deps.download ?? fetchStatus)(proxy.url, box.ca, url),
+      deps.download === undefined
+        ? proxiedStatus(proxy, network.hostAddress, box.ca, url)
+        : deps.download(proxy.url, box.ca, url),
     );
     if (problem !== null) throw new Error(`the Safe-Chain check failed: ${problem}`);
   } catch (error) {

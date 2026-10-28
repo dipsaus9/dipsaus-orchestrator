@@ -353,6 +353,8 @@ export {
 } from "./safe-chain";
 export type { SafeChainEcosystem } from "./safe-chain";
 export { runSafeChainCheck, safeChainCheckProblem, startBoxWebRoute } from "./safe-chain-box";
+export { connectToBox } from "./box-connect";
+export type { BoxConnectTarget, BoxConnector } from "./box-connect";
 export type {
   SafeChainBoxes,
   SafeChainBoxInfo,

@@ -1532,6 +1532,36 @@ async function upstreamHarness(source: string | null, limits?: BoxWebProxyOption
   return { proxy, events, connects, upstream };
 }
 
+describe.skipIf(!TCP_RUNS)("the web proxy's connection into the box network (DIPO-343)", () => {
+  it("connects to the Safe-Chain box from the box network's host address, never unbound", async () => {
+    const fake = await fakeSafeChain(TCP);
+    const seen: unknown[] = [];
+    const proxy = await startBoxWebProxy(
+      { network: { hostAddress: LOOPBACK }, safeChain: () => SAFE_CHAIN_TARGET },
+      {
+        clock: new ManualClock(),
+        connectBox: (options) => {
+          seen.push(options);
+          return dial(fake.endpoint);
+        },
+      },
+    );
+    proxies.push(proxy);
+    const result = await exchange(proxy.port, connectHead("pypi.org:443"), {
+      payload: "x",
+      until: (text) => text.includes("safe-chain:x"),
+    });
+    result.socket.destroy();
+    expect(seen).toEqual([
+      {
+        host: SAFE_CHAIN_TARGET.address,
+        port: SAFE_CHAIN_TARGET.ports.pypi,
+        localAddress: LOOPBACK,
+      },
+    ]);
+  });
+});
+
 /** Opens `count` connections to the loopback `port` and keeps them open. */
 async function openConnections(port: number, count: number): Promise<Socket[]> {
   const sockets: Socket[] = [];
