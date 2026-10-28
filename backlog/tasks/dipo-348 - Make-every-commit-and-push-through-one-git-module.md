@@ -1,9 +1,10 @@
 ---
 id: DIPO-348
 title: Make every commit and push through one git module
-status: Refined
+status: Done
 assignee: []
 created_date: '2026-10-25 09:51'
+updated_date: '2026-10-28 08:44'
 labels:
   - 'tier:L'
   - 'slice:prune'
@@ -45,8 +46,14 @@ test_plan:
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 One git module makes every commit, push and branch delete; the commit paths of claim, parts, collisions, the backlog lane, the merge slot, a reused branch and backlog PR adoption call it
-- [ ] #2 A claim creates the branch with git update-ref refs/heads/<branch> <start> and an empty old value after an empty ls-remote, and a lost race is a skip
-- [ ] #3 Every git call runs hardened, including the ones in platform/repo-files.ts and office/repository.ts that spawned git directly
-- [ ] #4 Pushes are never forced, and a remote branch delete carries a lease on the tip dipo pushed
+- [x] #1 One git module makes every commit, push and branch delete; the commit paths of claim, parts, collisions, the backlog lane, the merge slot, a reused branch and backlog PR adoption call it
+- [x] #2 A claim creates the branch with git update-ref refs/heads/<branch> <start> and an empty old value after an empty ls-remote, and a lost race is a skip
+- [x] #3 Every git call runs hardened, including the ones in platform/repo-files.ts and office/repository.ts that spawned git directly
+- [x] #4 Pushes are never forced, and a remote branch delete carries a lease on the tip dipo pushed
 <!-- AC:END -->
+
+## Final Summary
+
+<!-- SECTION:FINAL_SUMMARY:BEGIN -->
+One git writer (packages/engine/src/git/write.ts) makes every commit, ref move, push and branch delete; claim, parts, collisions, the backlog lane, the merge slot, a reused branch, adoption, teardown and release call it. A claim creates its branch with update-ref and an empty old value after an empty ls-remote, and a lost race is a claim.lostRace skip (real-git race test). No push is forced; every remote delete carries a lease on the tip dipo pushed, a moved remote keeps the branch and reports it, and pushes to the base are refused. office/repository.ts, platform/repo-files.ts and the CLI's repository lookup run hardened, from one definition in contract/git-hardening.ts. Lint rules dipo/no-git-spawn and dipo/no-git-write keep git out of every other file. The read helpers of the two story-git.ts files stay where they are, so the git module does not depend on the backlog CLI.
+<!-- SECTION:FINAL_SUMMARY:END -->
