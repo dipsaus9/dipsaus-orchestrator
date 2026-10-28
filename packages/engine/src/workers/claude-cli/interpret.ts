@@ -136,10 +136,11 @@ export interface ClaudeParseState {
    */
   readonly reportKind?: ReportKind;
   /**
-   * True for a session of a box run (DIPO-271): the developer in its box and the reviewer in its
-   * reviewer box (0002) have only the placeholder key of `boxModelEnvironment`, which dipo's model
-   * proxy outside the box replaces, so the `system/init` key source is the placeholder's and is
-   * not refused. The run's adapter sets it on every line.
+   * True for a session in a box: the developer of a box run (DIPO-271; the run's adapter sets it on
+   * every line) and every reviewer, whose session runs only in its reviewer box (0002; set from the
+   * session's spec at its start). Each has only the placeholder key of `boxModelEnvironment`, which
+   * dipo's model proxy outside the box replaces, so the `system/init` key source is the
+   * placeholder's and is not refused.
    */
   readonly placeholderKey?: boolean;
   /** Message ids already counted. */
@@ -218,6 +219,11 @@ export interface ClaudeParseState {
 }
 
 export interface InitialStateOptions {
+  /**
+   * The session runs in a box with only the placeholder key (`ClaudeParseState.placeholderKey`):
+   * every reviewer session, which runs only in its reviewer box (0002, DIPO-347).
+   */
+  readonly placeholderKey?: boolean;
   /** The planned `--model`, alias or full id; when set, `system/init` must match it. */
   readonly plannedModel?: string;
   /** `worker.plugins`; when set, `system/init` may list no other plugin (DIPO-108). */
@@ -280,6 +286,7 @@ export function initialState(options: InitialStateOptions = {}): ClaudeParseStat
       ? {}
       : { reportKind: options.reportKind }),
     ...(options.costFloor === undefined ? {} : { costFloor: options.costFloor }),
+    ...(options.placeholderKey === true ? { placeholderKey: true } : {}),
     pending: "",
     truncated: false,
     sessionId: null,

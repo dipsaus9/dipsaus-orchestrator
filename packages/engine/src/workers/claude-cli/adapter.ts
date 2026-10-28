@@ -321,8 +321,9 @@ export function claudeWorkerPort(deps: ClaudeWorkerPortDeps): WorkerPort {
               spec.model,
             )),
         // A reviewer's result carries a `ReviewReport` (0019 section 5); a session's its
-        // structured output (DIPO-310).
-        ...(spec.kind === "review" ? { reportKind: "review" as const } : {}),
+        // structured output (DIPO-310). A reviewer runs only in its reviewer box, with the
+        // placeholder key, whatever its run's directory holds (0002).
+        ...(spec.kind === "review" ? { reportKind: "review" as const, placeholderKey: true } : {}),
         ...(spec.kind === "session" ? { reportKind: "session" as const } : {}),
       }) as unknown as ParseState,
     encode,

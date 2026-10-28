@@ -377,10 +377,25 @@ function rejected(boxWorker: boolean, reportKind: "implement" | "review"): boole
 }
 
 describe("the box's placeholder key at system/init", () => {
-  it("is accepted for the box's developer and its reviewer, and refused off a box run", () => {
+  it("is accepted for the box's developer, and refused for a developer off a box run", () => {
     expect(rejected(true, "implement")).toBe(false);
-    expect(rejected(true, "review")).toBe(false);
     expect(rejected(false, "implement")).toBe(true);
-    expect(rejected(false, "review")).toBe(true);
+  });
+
+  it("is accepted for every reviewer, whose session runs in its box, with or without the run's box record (DIPO-347)", () => {
+    const holds = new AdapterHolds({ clock, notify: () => {} });
+    for (const boxRun of [true, false]) {
+      const claude = port({ isBoxRun: () => boxRun, session: async () => session() }, holds);
+      const adapter = claude.adapter(PATHS, OFFICE_DEFAULTS);
+      const state = claude.initialState(reviewSpec({ model: "sonnet" }));
+      const events = adapter.interpret(init("ANTHROPIC_API_KEY"), state).events;
+      expect(events.some((event) => event.t === "initRejected")).toBe(false);
+    }
+    // A developer's state from its spec carries no exemption of its own.
+    const developer = port({ isBoxRun: () => false, session: async () => session() }, holds);
+    const events = developer
+      .adapter(PATHS, OFFICE_DEFAULTS)
+      .interpret(init("ANTHROPIC_API_KEY"), developer.initialState(spec())).events;
+    expect(events.some((event) => event.t === "initRejected")).toBe(true);
   });
 });
