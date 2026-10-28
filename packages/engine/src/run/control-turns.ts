@@ -8,6 +8,7 @@ import type { ReviewReport, TurnProblem, WorkerReport } from "../workers/types";
 import type { FiredCap } from "./caps";
 import { capEnding, type RunEndings } from "./control-endings";
 import { disarm, messageOf, type RunControlDeps, type Tracked, viewOf } from "./control-types";
+import { notSentNotice, sendFeedback } from "./feedback";
 import type { ParkOutcome } from "./park";
 import { findRun } from "./records";
 import type { RunFinisher } from "./verify-commit";
@@ -147,10 +148,17 @@ export class AfterTurns {
           settle(outcome);
           return "decided";
         }
-        case "feedback":
+        case "feedback": {
           if (tracked.ending !== null) return "decided";
-          await this.#endings.sendFeedback(office, run, decision.text, write, decision.what);
+          const error = await sendFeedback(
+            office,
+            run.runId,
+            { source: decision.source, text: decision.text },
+            { sender: this.#deps },
+          ).done;
+          if (error !== null) write(() => [notSentNotice(run, decision.source, error)]);
           return "decided";
+        }
         case "ended":
           // The In Review commit is read again at the branch tip (DIPO-56).
           await this.#endings.refresh(office, run, "In Review");

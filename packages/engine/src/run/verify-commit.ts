@@ -21,10 +21,10 @@
 // the review, and the run's end is claimed while the parts are still held, so a part or catch-up
 // queued meanwhile finds the run not live and stays in the box. Before the end is claimed, in the
 // same held turn, the conflict check (DIPO-149, `run/conflicts.ts`): what dipo's conflicted merges
-// left unresolved (markers, untouched binary or delete conflicts) goes back to the worker as a
-// feedback turn (or parks at the conflict cap), then the fetch and the sync with the base: a
-// riskier story merges the base, any other only on a conflict, which goes to the worker as one
-// conflict item; a clean merge moves the commit In Review is written at. Just before In Review the
+// left unresolved (markers, untouched binary or delete conflicts) is a report gate refusal (0002,
+// see below), then the fetch and the sync with the base: a riskier story merges the base, any
+// other only on a conflict, which goes to the worker as one `conflict` message of the one feedback
+// path (`feedback.ts`); a clean merge moves the commit In Review is written at. Just before In Review the
 // branch must still be at that commit, else the story parks (`BOX_TIP_MOVED`). Then:
 //
 // - The code tree key is recorded, the Backlog CLI checks off the criteria the report marks met and
@@ -41,9 +41,10 @@
 //   (0019 section 7). Red CI goes back to the worker through the CI loop of 0019 section 8.
 //
 // The report gate (DIPO-186; 0002, 0014), for every done report before the steps above: the
-// report's test-plan entries and deviations are stored for the run (`done_reports`). Then code
-// checks two things, and one feedback item that names each miss goes back to the worker, with no
-// commit and the run going on:
+// report's test-plan entries and deviations are stored for the run (`done_reports`). The report is
+// valid already: one that does not parse or match the schema never gets here (0008, worker
+// outcomes). Then code checks two things, and one `report-gate` message of the one feedback path
+// (`feedback.ts`) that names each miss goes back to the worker, with no commit and the run going on:
 // - an automated entry of the story's test plan (read on the office base) that the report does not
 //   mark done, or gives no entry; every such report is refused, manual entries never block, and a
 //   story without a test plan is unchanged;
@@ -51,7 +52,8 @@
 //   heading; sent back once per file and section, then left out. Each note that passes is stored in
 //   `decision_notes` with its story and run, also from a report that ends the run (`summarize`).
 // dipo reads none of the worker's tool calls to see whether it ran verify: dipo runs it (DIPO-346).
-// A done turn that crossed a cap has no turn left: its test-plan miss parks `budget-exceeded`,
+// Conflict markers left at done (`conflicts.ts`) are a refusal of the same gate (0002). A done turn
+// that crossed a cap has no turn left: its test-plan miss or its markers park `budget-exceeded`,
 // and the send-once check is skipped. Each refusal is one loop (a `loop` step), the cap 0002
 // gives the report gate; the refusal that reaches the run's loop cap parks `verify-failing`.
 
@@ -100,6 +102,7 @@ import { findClaim } from "../worktree/records";
 import type { BackstopSnapshot } from "./backstop";
 import { runBudgetFacts } from "./budget-line";
 import { runConfigOf } from "./config-snapshot";
+import type { FeedbackSource } from "./feedback";
 import type { DoneConflictDecision } from "./conflicts";
 import { endRunMarked } from "./markers";
 import { type FiredCap, runCaps } from "./caps";
@@ -234,12 +237,8 @@ export type TurnDecision =
       readonly detail: string;
       readonly endKind: string;
     }
-  | {
-      readonly kind: "feedback";
-      readonly text: string;
-      /** What the feedback is, for the notice when it cannot be sent; verify feedback by default. */
-      readonly what?: string;
-    }
+  /** One message to the live worker through the one feedback path (`feedback.ts`). */
+  | { readonly kind: "feedback"; readonly source: FeedbackSource; readonly text: string }
   /** The run ended at In Review; run control closes the worker's stdin. */
   | { readonly kind: "ended" };
 
@@ -426,55 +425,43 @@ export class VerifyCommit implements RunFinisher {
     }
 
     if (items.length === 0) return null;
-    return this.#loop(ctx, {
-      step: REPORT_GATE_LOOP,
-      what: "the report gate refused the done report",
-      items,
-      record: () => {
-        for (const miss of misses) {
-          recordSendBack(office, run.runId, "decision-note", noteSignature(miss.note), at);
-        }
-      },
+    return this.#refuse(ctx, items, at, () => {
+      for (const miss of misses) {
+        recordSendBack(office, run.runId, "decision-note", noteSignature(miss.note), at);
+      }
     });
   }
 
   /**
-   * One refusal of a done report, by the report gate or a red verify in the box: one loop (a
-   * `loop` step), the cap 0002 gives both. The refusal that reaches the run's loop cap parks
-   * `verify-failing` instead of another turn; any other goes back as one feedback item.
+   * A refusal of a valid done report (0002), by the report gate or by a red verify in the box
+   * (`refusal`): one loop, the cap both share. The refusal that reaches the run's loop cap parks
+   * `verify-failing` instead of another turn; below it the items go back as one message of the
+   * refusal's source. `also` runs in the transaction that records the loop.
    */
-  #loop(
+  #refuse(
     ctx: TurnContext,
-    input: {
-      readonly step: string;
-      readonly what: string;
-      readonly items: readonly string[];
-      readonly record?: () => void;
-      readonly feedback?: string;
-    },
+    items: readonly string[],
+    at: number,
+    also: () => void = () => undefined,
+    refusal: Refusal = REPORT_GATE_REFUSAL,
   ): TurnDecision {
     const { office, run } = ctx;
-    const at = this.#deps.clock.now();
     const cap = runCaps(office, run).loopCap;
     const loops = loopsOf(office, run.runId) + 1;
     office.immediate(() => {
-      appendRunStep(office, run.runId, "loop", input.step, at);
-      input.record?.();
+      appendRunStep(office, run.runId, "loop", refusal.step, at);
+      also();
     });
     if (loops >= cap) {
       return {
         kind: "park",
         reason: "verify-failing",
-        detail: `${input.what} ${loops} time${loops === 1 ? "" : "s"} (the loop cap is ${cap}). ${input.items.join(" ")}`,
+        detail: `${refusal.what} ${loops} time${loops === 1 ? "" : "s"} (the loop cap is ${cap}). ${items.join(" ")}`,
         endKind: "verify-failing",
       };
     }
     if (!ctx.live()) return { kind: "continue" };
-    return {
-      kind: "feedback",
-      text: input.items.join("\n\n"),
-      ...(input.feedback === undefined ? {} : { what: input.feedback }),
-    };
+    return { kind: "feedback", source: refusal.source, text: items.join("\n\n") };
   }
 
   /**
@@ -530,12 +517,7 @@ export class VerifyCommit implements RunFinisher {
       // The done turn crossed a cap, so no turn is left for the feedback: only a top-up resumes.
       return { kind: "park", reason: "budget-exceeded", detail: text, endKind: "capped" };
     }
-    return this.#loop(ctx, {
-      step: VERIFY_LOOP,
-      what: "dipo's verify in the box was red",
-      items: [text],
-      feedback: "verify feedback",
-    });
+    return this.#refuse(ctx, [text], this.#deps.clock.now(), undefined, VERIFY_REFUSAL);
   }
 
   /**
@@ -673,7 +655,19 @@ export class VerifyCommit implements RunFinisher {
     if (decided !== null) {
       switch (decided.kind) {
         case "feedback":
-          return { kind: "feedback", text: decided.text, what: "conflict feedback" };
+          return { kind: "feedback", source: "conflict", text: decided.text };
+        case "markers":
+          // Markers left are the report gate's (0002). A done turn that crossed a cap has no turn
+          // left for the feedback, as for a test-plan miss: only a top-up resumes it.
+          if (ctx.capped != null) {
+            return {
+              kind: "park",
+              reason: "budget-exceeded",
+              detail: decided.text,
+              endKind: "capped",
+            };
+          }
+          return this.#refuse(ctx, [decided.text], this.#deps.clock.now());
         case "park":
           return {
             kind: "park",
@@ -917,6 +911,30 @@ function loopsOf(office: OfficeHandle, runId: RunId): number {
 export const REPORT_GATE_LOOP = "report-gate";
 
 export { VERIFY_LOOP };
+
+/** What one refusal of a done report writes and sends (`#refuse`, 0002). */
+interface Refusal {
+  /** The value of its `loop` step. */
+  readonly step: string;
+  /** What refused, at the start of the park detail at the loop cap. */
+  readonly what: string;
+  /** The source of its feedback message. */
+  readonly source: FeedbackSource;
+}
+
+/** A report gate refusal. */
+const REPORT_GATE_REFUSAL: Refusal = {
+  step: REPORT_GATE_LOOP,
+  what: "the report gate refused the done report",
+  source: "report-gate",
+};
+
+/** A red verify in the box (DIPO-346). */
+const VERIFY_REFUSAL: Refusal = {
+  step: VERIFY_LOOP,
+  what: "dipo's verify in the box was red",
+  source: "verify",
+};
 
 /** The line before a red verify's evidence. */
 export const VERIFY_IN_BOX_INTRO =

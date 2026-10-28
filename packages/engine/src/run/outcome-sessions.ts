@@ -17,9 +17,8 @@ import {
   type RunOutcomesDeps,
   type RunView,
 } from "./outcome-types";
-import { steerText } from "./intervene";
+import { deliverHeld, heldFeedback } from "./feedback";
 import { markIntentSent, recordIntent, resolveIntent } from "./intents";
-import { heldMessages, markHeldSent } from "./steers";
 import { placeOfRun } from "./places";
 import { START_FAILED_END } from "./launch";
 import type { OfficeHandle } from "../db/office";
@@ -80,12 +79,12 @@ export class SessionStarts {
       });
       return false;
     }
-    // The steers and feedback items that waited for this session go with its first message
-    // (0020 section 9, DIPO-163); a reviewer session gets no maintainer text (0002), so they wait.
+    // The messages of the one feedback path that waited for this session go with its first
+    // message (`feedback.ts`); a reviewer session gets none (0002), so they wait.
     const held =
       placeOfRun(office, run) === "reviewer"
         ? { ids: [], texts: [] }
-        : heldMessages(office, run.runId, steerText);
+        : heldFeedback(office, run.runId);
     const note = request.note?.trim() === "" ? undefined : request.note;
     const message =
       held.texts.length === 0 || note !== undefined
@@ -122,7 +121,7 @@ export class SessionStarts {
     switch (outcome.kind) {
       case "started":
         if (held.ids.length > 0) {
-          office.immediate(() => markHeldSent(office, run.runId, held.ids, this.#deps.clock.now()));
+          office.immediate(() => deliverHeld(office, run.runId, held.ids, this.#deps.clock.now()));
         }
         return true;
       case "startFailed":

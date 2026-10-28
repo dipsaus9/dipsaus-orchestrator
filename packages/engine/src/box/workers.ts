@@ -757,7 +757,7 @@ export class BoxWorkers {
    * copied in. Throws a `BoxError`: `box.gone` when the run has no box any more.
    *
    * Every caller opens the run first (DIPO-278): the launcher starts a new run, and each
-   * `RunResumer.next` follows a `reopenRun` (a resume, a review or fix round) or runs inside a run
+   * `RunResumer.next` follows a `reopen` (a resume, a review or fix round) or runs inside a run
    * that never ended (a restart), so a pass sees the run working, never waiting, while its session
    * starts. A rest already in flight is waited for, at most `BOX_SESSION_REST_WAIT_MS`; past it
    * the session is refused with `BOX_REST_WAIT_CODE`.

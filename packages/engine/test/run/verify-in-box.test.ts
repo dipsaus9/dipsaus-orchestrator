@@ -68,7 +68,7 @@ import {
   findRun,
   insertRun,
   pendingReviews,
-  reopenForRound,
+  reopen,
   RunControl,
   runIntents,
   runOutcome,
@@ -1148,7 +1148,7 @@ describe("a box run at done (DIPO-346: a green verify in the box, then In Review
     expect(events("story.state").map((e) => e["to"])).toEqual(["In Review"]);
     // A fix round or resume reopens the run in the same box; the worker hands a new last part.
     w.f.office.immediate(() =>
-      reopenForRound(w.f.office, findRun(w.f.office, w.f.run)!, "fix", w.f.t.clock.now()),
+      reopen(w.f.office, findRun(w.f.office, w.f.run)!, w.f.t.clock.now(), { kind: "fix" }),
     );
     // The first session ended at In Review; the next one is tracked afresh.
     w.control.close();
@@ -1179,7 +1179,7 @@ describe("a box run at done (DIPO-346: a green verify in the box, then In Review
     );
     await play();
     w.f.office.immediate(() =>
-      reopenForRound(w.f.office, findRun(w.f.office, w.f.run)!, "fix", w.f.t.clock.now()),
+      reopen(w.f.office, findRun(w.f.office, w.f.run)!, w.f.t.clock.now(), { kind: "fix" }),
     );
     // The first session ended at In Review; the next one is tracked afresh.
     w.control.close();
@@ -1350,11 +1350,8 @@ describe("the conflict check at done (DIPO-149, DIPO-291)", () => {
     expect(events("story.state").map((e) => e["to"])).toEqual(["In Review"]);
   });
 
-  it("keeps the story from review and the PR while conflict markers remain: a feedback turn", async () => {
-    w.conflictCheck = () => ({
-      kind: "feedback",
-      text: "Conflict markers are still in files of dipo's merge of the base",
-    });
+  it("hands a conflict of the sync to the worker as conflict feedback, keeping the story from review", async () => {
+    w.conflictCheck = () => ({ kind: "feedback", text: "git could not merge main cleanly" });
     await play();
     // The run goes on: no end claimed, no In Review, no push, no PR.
     expect(w.calls).toEqual(["last part print a greeting", "parts released (live true)"]);
@@ -1362,9 +1359,47 @@ describe("the conflict check at done (DIPO-149, DIPO-291)", () => {
     expect(events("story.state")).toEqual([]);
     expect(findRun(w.f.office, w.f.run)?.endedAt).toBeNull();
     expect(parks()).toEqual([]);
-    expect(w.sent).toHaveLength(1);
-    expect(JSON.stringify(w.sent[0])).toContain("Conflict markers are still in files");
+    expect(feedbackTexts()).toEqual(["git could not merge main cleanly"]);
+    expect(feedbackDetails()).toEqual(["feedback conflict - now git could not merge main cleanly"]);
+    // A conflict hand-off is no loop: its cap is the conflict cap (0002).
+    expect(loopSteps()).toEqual([]);
     expectNoVerify();
+  });
+
+  it("sends markers left back as report gate feedback, one loop each, and parks verify-failing at the loop cap (DIPO-361)", async () => {
+    const markers = "Conflict markers are still in files of dipo's merge of the base";
+    w.conflictCheck = () => ({ kind: "markers", text: markers });
+    await play();
+    await play();
+    // Kept from review and the PR; each done is one report gate refusal against the tier loops.
+    expect(w.inReviewTip).toBeNull();
+    expect(events("story.state")).toEqual([]);
+    expect(feedbackTexts()).toEqual([markers, markers]);
+    expect(feedbackDetails()).toEqual([
+      `feedback report-gate - now ${markers}`,
+      `feedback report-gate - now ${markers}`,
+    ]);
+    expect(parks()).toEqual([]);
+    await play();
+    expect(feedbackTexts()).toHaveLength(2);
+    expect(parks()).toEqual([
+      {
+        reason: "verify-failing",
+        detail: `the report gate refused the done report 3 times (the loop cap is 3). ${markers}`,
+      },
+    ]);
+    expect(loopSteps()).toEqual([REPORT_GATE_LOOP, REPORT_GATE_LOOP, REPORT_GATE_LOOP]);
+    expect(w.calls).not.toContain("story PR sync run");
+  });
+
+  it("parks markers left at a done turn that crossed a cap budget-exceeded, as a test-plan miss (DIPO-361)", async () => {
+    const markers = "Conflict markers are still in files of dipo's merge of the base";
+    w.conflictCheck = () => ({ kind: "markers", text: markers });
+    setRun("max_turns", 1);
+    await capPass([turn(DONE)], { turns: 1, tokens: 10 });
+    expect(parks()).toEqual([{ reason: "budget-exceeded", detail: markers }]);
+    expect(feedbackTexts()).toEqual([]);
+    expect(loopSteps()).toEqual([]);
   });
 
   it("writes In Review at the merged head of a clean sync", async () => {
@@ -1401,7 +1436,7 @@ describe("the conflict check at done (DIPO-149, DIPO-291)", () => {
     office.immediate(() => {
       const at = w.f.t.clock.now();
       appendHandOff(office, w.f.run, { kind: "start", n: 1, commit: "c".repeat(40) }, at);
-      appendHandOff(office, w.f.run, { kind: "failed", n: 1, why: "markers" }, at);
+      appendHandOff(office, w.f.run, { kind: "failed", n: 1, why: "blocked" }, at);
       appendHandOff(office, w.f.run, { kind: "start", n: 2, commit: "c".repeat(40) }, at);
     });
     await play({ ...DONE, status: "blocked", question: "Which side wins?" });
@@ -2014,3 +2049,10 @@ describe("the report gate at done, in a box run (DIPO-186, DIPO-240)", () => {
     expect(notes().map((note) => note.section)).toEqual(["1. The port"]);
   });
 });
+
+/** The details of the run's feedback intents (the one feedback path), oldest first. */
+function feedbackDetails(): string[] {
+  return runIntents(w.f.office, w.f.run)
+    .map((intent) => intent.detail)
+    .filter((detail) => detail.startsWith("feedback "));
+}

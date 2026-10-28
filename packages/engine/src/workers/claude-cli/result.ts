@@ -147,8 +147,9 @@ function decide(state: ClaudeParseState, exit: ExitRecord): Decision {
 }
 
 /**
- * No valid report after a turn: one feedback turn first (engine), then `ambiguous-spec`. A
- * reviewer's is handled as a crash after that turn (0019 section 4): `worker-failed`.
+ * No valid report after a turn (it does not parse or does not match the schema): one correction
+ * turn first (engine), then `worker-failed` (0008), for a developer and a reviewer alike. Only a
+ * worker that asks or reports it is blocked parks `ambiguous-spec` (0001).
  */
 function noReport(why: string, kind?: ReportKind): Decision {
   if (kind === "review") {
@@ -163,7 +164,7 @@ function noReport(why: string, kind?: ReportKind): Decision {
   return {
     outcome: "blocked",
     report: null,
-    park: { reason: "ambiguous-spec", detail: `no valid report: ${why}` },
+    park: { reason: "worker-failed", detail: `no valid report: ${why}` },
     resumable: true,
     retry: "report-feedback",
   };

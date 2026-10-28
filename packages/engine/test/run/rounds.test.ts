@@ -17,8 +17,7 @@ import {
   findRun,
   firedCap,
   IN_REVIEW_END,
-  reopenForRound,
-  reopenRun,
+  reopen,
   REVIEWED_END,
   runOutcome,
   runTotals,
@@ -82,7 +81,7 @@ describe("a run reopened after In Review (0019 section 13)", () => {
     // for 20.
     advance(30);
     const entries = write(() =>
-      reopenForRound(w.office, findRun(w.office, s.run)!, "review", now()),
+      reopen(w.office, findRun(w.office, s.run)!, now(), { kind: "review" }),
     );
     expect(entries.map((entry) => entry.type)).toContain("work.phase");
     expect(findRun(w.office, s.run)).toMatchObject({ endedAt: null, waiting: "review" });
@@ -110,7 +109,7 @@ describe("a run reopened after In Review (0019 section 13)", () => {
 
     // 10 minutes idle, then the fix round waits 3 minutes for the worker place; 7 minutes of work.
     advance(10);
-    write(() => reopenForRound(w.office, findRun(w.office, s.run)!, "fix", now()));
+    write(() => reopen(w.office, findRun(w.office, s.run)!, now(), { kind: "fix" }));
     expect(findRun(w.office, s.run)?.waiting).toBe("fix");
     advance(3);
     write(() => claimPlace(w.office, s.run, now()));
@@ -133,17 +132,16 @@ describe("a run reopened after In Review (0019 section 13)", () => {
   it("never reopens a run whose story is Done", () => {
     workToInReview();
     write(() => endRun(w.office, s.run, now(), DONE_END));
-    expect(write(() => reopenRun(w.office, s.run, now()))).toBe(false);
-    expect(write(() => reopenForRound(w.office, findRun(w.office, s.run)!, "fix", now()))).toEqual(
-      [],
-    );
+    expect(
+      write(() => reopen(w.office, findRun(w.office, s.run)!, now(), { kind: "fix" })),
+    ).toEqual([]);
     expect(findRun(w.office, s.run)?.endKind).toBe(DONE_END);
   });
 
   it("ends a review period only for a run open in a review", () => {
     workToInReview();
     expect(write(() => endReviewPeriod(w.office, s.run, now()))).toBe(false);
-    write(() => reopenForRound(w.office, findRun(w.office, s.run)!, "conflict", now()));
+    write(() => reopen(w.office, findRun(w.office, s.run)!, now(), { kind: "conflict" }));
     expect(findRun(w.office, s.run)?.waiting).toBe("conflict");
     expect(write(() => endReviewPeriod(w.office, s.run, now()))).toBe(false);
   });
@@ -178,7 +176,7 @@ describe("the outcome row (0019 section 13)", () => {
   it("is rewritten at each end and made final at Done with the round counts", () => {
     workToInReview();
     advance(5);
-    write(() => reopenForRound(w.office, findRun(w.office, s.run)!, "fix", now()));
+    write(() => reopen(w.office, findRun(w.office, s.run)!, now(), { kind: "fix" }));
     write(() => claimPlace(w.office, s.run, now()));
     const developer = addAgent(w, s.run, "developer", true);
     advance(4);
