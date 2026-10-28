@@ -6,7 +6,6 @@
 import type { RunId, StoryKey } from "@dipsaus-orchestrator/contract";
 
 import type { OfficeHandle } from "../db/office";
-import type { WorktreeSnapshot } from "../git/snapshot";
 import { endRunMarked } from "../run/markers";
 
 export interface ClaimRecord {
@@ -15,12 +14,11 @@ export interface ClaimRecord {
   /** The story id at the claim. */
   readonly story: string;
   readonly branch: string;
-  readonly worktree: string;
   /** The base branch name, for example `main`. */
   readonly base: string;
   /** `origin/<base>` (local `<base>` without a remote) at the claim. */
   readonly baseSha: string;
-  /** The commit the worktree started from: `baseSha` for a new branch, the kept tip when reused. */
+  /** The commit the branch started from: `baseSha` for a new branch, the kept tip when reused. */
   readonly startSha: string;
   /**
    * The claim commit (the branch tip after the claim when the status was already In Progress), or
@@ -29,9 +27,6 @@ export interface ClaimRecord {
   readonly claimSha: string | null;
   /** True when a branch released for this story was reused (0010 section 2a). */
   readonly reused: boolean;
-  readonly snapshot: WorktreeSnapshot;
-  /** The worker's first feedback, such as a code conflict from merging the base; null when none. */
-  readonly firstFeedback: string | null;
   readonly claimedAt: number;
   readonly pushedAt: number | null;
   readonly releasedAt: number | null;
@@ -45,17 +40,11 @@ interface ClaimRow {
   key: string;
   story_id: string;
   branch: string;
-  worktree: string;
   base: string;
   base_sha: string;
   start_sha: string;
   claim_sha: string | null;
   reused: number;
-  admin_dir: string;
-  snap_commondir: string;
-  snap_gitdir: string;
-  snap_pointer: string;
-  first_feedback: string | null;
   claimed_at: number;
   pushed_at: number | null;
   released_at: number | null;
@@ -63,9 +52,8 @@ interface ClaimRow {
   teardown_started_at: number | null;
 }
 
-const COLUMNS = `run_id, key, story_id, branch, worktree, base, base_sha, start_sha, claim_sha, reused,
-  admin_dir, snap_commondir, snap_gitdir, snap_pointer, first_feedback, claimed_at, pushed_at,
-  released_at, release_reason`;
+const COLUMNS = `run_id, key, story_id, branch, base, base_sha, start_sha, claim_sha, reused, claimed_at,
+  pushed_at, released_at, release_reason`;
 
 /** The columns a read selects: the inserted ones and those set later. */
 const READ_COLUMNS = `${COLUMNS}, teardown_started_at`;
@@ -76,20 +64,11 @@ function toRecord(row: ClaimRow): ClaimRecord {
     key: row.key as StoryKey,
     story: row.story_id,
     branch: row.branch,
-    worktree: row.worktree,
     base: row.base,
     baseSha: row.base_sha,
     startSha: row.start_sha,
     claimSha: row.claim_sha,
     reused: row.reused === 1,
-    snapshot: {
-      path: row.worktree,
-      adminDir: row.admin_dir,
-      commondir: row.snap_commondir,
-      gitdir: row.snap_gitdir,
-      pointer: row.snap_pointer,
-    },
-    firstFeedback: row.first_feedback,
     claimedAt: row.claimed_at,
     pushedAt: row.pushed_at,
     releasedAt: row.released_at,
@@ -107,25 +86,18 @@ export type NewClaim = Omit<
 export function insertClaim(office: OfficeHandle, claim: NewClaim): void {
   office.run(
     `insert into claims (office_id, ${COLUMNS})
-     values ($office_id, $run, $key, $story, $branch, $worktree, $base, $base_sha, $start_sha,
-       $claim_sha, $reused, $admin_dir, $commondir, $gitdir, $pointer, $feedback, $at, null, null,
-       null)`,
+     values ($office_id, $run, $key, $story, $branch, $base, $base_sha, $start_sha, $claim_sha,
+       $reused, $at, null, null, null)`,
     {
       run: claim.runId,
       key: claim.key,
       story: claim.story,
       branch: claim.branch,
-      worktree: claim.worktree,
       base: claim.base,
       base_sha: claim.baseSha,
       start_sha: claim.startSha,
       claim_sha: claim.claimSha,
       reused: claim.reused ? 1 : 0,
-      admin_dir: claim.snapshot.adminDir,
-      commondir: claim.snapshot.commondir,
-      gitdir: claim.snapshot.gitdir,
-      pointer: claim.snapshot.pointer,
-      feedback: claim.firstFeedback,
       at: claim.claimedAt,
     },
   );
@@ -133,7 +105,6 @@ export function insertClaim(office: OfficeHandle, claim: NewClaim): void {
 
 export interface ClaimChange {
   readonly claimSha?: string;
-  readonly firstFeedback?: string;
   readonly pushedAt?: number;
 }
 
@@ -142,13 +113,11 @@ export function updateClaim(office: OfficeHandle, runId: RunId, change: ClaimCha
   office.run(
     `update claims set
        claim_sha = coalesce($claim_sha, claim_sha),
-       first_feedback = coalesce($feedback, first_feedback),
        pushed_at = coalesce($pushed_at, pushed_at)
      where office_id = $office_id and run_id = $run`,
     {
       run: runId,
       claim_sha: change.claimSha ?? null,
-      feedback: change.firstFeedback ?? null,
       pushed_at: change.pushedAt ?? null,
     },
   );

@@ -1,7 +1,6 @@
 // The next session of a run (DIPO-51; 0008 sections 7 and 8, 0014 section 6). After a crash, a
 // full context or a missing report the engine starts one more session of the same run, never a
-// new run: a new agent of the run with its own `worker_hosts` row, on the same worktree and
-// branch.
+// new run: a new agent of the run with its own `worker_hosts` row, on the same branch and box.
 //
 // - Resume first. When the previous session can be resumed (`canResume`: transcript present, the
 //   same Claude Code version and L1+L2 hash, under the context share, re-reading cheaper than the
@@ -9,11 +8,11 @@
 //   set, with a short delta as first message (`prompts/feedback/resume.md`). A full context always
 //   starts a new session.
 // - Otherwise a new session with an engine-made session id and a 0014 handoff: the story's task
-//   message with the handoff block of the worktree (commits since the claim's base, uncommitted
-//   changes, the last report's criteria, the last verify, the run's open feedback from
-//   `feedback_items`, the previous worker's notes; 0020 section 6). The context pack the task
-//   message was built from is recorded for the worktree (`recordContextPack`) when the new
-//   session starts with it.
+//   message with the handoff block of the branch (commits since the claim's base, the last
+//   report's criteria, the last verify, the run's open feedback from `feedback_items`, the previous
+//   worker's notes; 0020 section 6), and the context pack read from the branch tip's git objects.
+//   The context pack the task message was built from is recorded for the branch
+//   (`recordContextPack`) when the new session starts with it.
 // - The one feedback path (0002): every message held for the run's next developer session
 //   (`heldFeedback`: a fix round's findings, a resumed park's reason and note, a steer) follows the
 //   delta or the task message, and is marked delivered in the transaction that records the new
@@ -52,9 +51,8 @@ import { appendEntries, type NewEntry } from "../changelog/log";
 import type { OfficeConfig } from "../config";
 import { recordContextPack } from "../context/pack";
 import type { ContextPack, Workspace } from "../context/types";
-import { gitWorkspace } from "../context/workspace";
 import type { OfficeHandle } from "../db/office";
-import type { GitLocation } from "../git/hardened";
+
 import type { OfficeGit } from "../git/office";
 import { EVENTS_FILE } from "../host/protocol";
 import type { IngestAdapter } from "../ingest/ingestor";
@@ -79,16 +77,17 @@ import { withWorkViews } from "../views/work";
 import type { AdapterHold } from "../workers/hold";
 import type { WorkerPort } from "../workers/port";
 import { PlanError, type Caps, type ParseState, type WorkerReport } from "../workers/types";
+import { branchTip } from "../stories/story-copy";
 import { findClaim } from "../worktree/records";
 import { recordAgent } from "../runs/agents";
 import { hostAlive, setProcessedOffset, workerHostsOf } from "../runs/worker-hosts";
 
-import type { BackstopSnapshot } from "./backstop";
 import { runBudgetFacts } from "./budget-line";
 import { runCaps, runTotals } from "./caps";
 import { deliverHeld, type HeldFeedback, heldFeedback } from "./feedback";
 import {
   capsOf,
+  defaultWorkspace,
   LAUNCH_NOTICES,
   packageCacheSkippedText,
   runLaunchPaths,
@@ -97,6 +96,7 @@ import {
   type HostStarter,
   type RunIngest,
   type TierCaps,
+  type WorkspaceAt,
 } from "./launch";
 import { openFeedbackOf } from "./open-feedback";
 import { placeOfRole } from "./places";
@@ -173,7 +173,6 @@ export interface RunResumerDeps {
         work: WorkRef;
         caps: Caps;
         startedAt: number;
-        snapshot?: BackstopSnapshot | null;
       },
     ): void;
   };
@@ -185,8 +184,8 @@ export interface RunResumerDeps {
   readonly probe?: ProcessProbe;
   /** How long the next session waits for an earlier host to end; `HOST_EXIT_WAIT_MS` by default. */
   readonly hostExitWaitMs?: number;
-  /** The checkout the context pack reads; `gitWorkspace` on the office git by default. */
-  readonly workspace?: (git: OfficeGit, path: string) => Workspace;
+  /** The code the context pack reads: the branch tip from git objects by default. */
+  readonly workspace?: (git: OfficeGit, at: WorkspaceAt) => Workspace;
   /**
    * The box workers (DIPO-278, DIPO-240): every developer session of a run with them runs in the
    * run's box, which is rebuilt from the start commit and the delivered parts when it was lost
@@ -241,7 +240,6 @@ export interface NextSessionRequest {
   readonly caps: Caps;
   /** When the run's first worker started, on the engine clock. */
   readonly startedAt: number;
-  readonly snapshot: BackstopSnapshot | null;
 }
 
 export type NextSessionOutcome =
@@ -352,9 +350,9 @@ export class RunResumer implements NextSession {
         reason: `office ${request.office} is not loaded with a valid configuration`,
       };
     }
-    if (run.worktree === null) return { kind: "failed", reason: `${run.runId} has no worktree` };
+    if (run.branch === null) return { kind: "failed", reason: `${run.runId} has no branch` };
     const tier = startTierOf(office, run, inForce);
-    const paths = runLaunchPaths(git, deps, run.worktree, run.runId);
+    const paths = runLaunchPaths(git, deps, run.runId);
     const previous = previousAgent(office, run.runId, request.work.agent);
     const facts = previous.state === undefined ? null : deps.worker.sessionFacts(previous.state);
     // Every developer session reads the box contract (DIPO-272, DIPO-342); with box workers every
@@ -551,8 +549,8 @@ export class RunResumer implements NextSession {
       );
       const at = deps.clock.now();
       // The pack a new session's task message was built from (0020 section 6); a resume sends none.
-      if (!resume && "pack" in handoff && run.worktree !== null) {
-        recordContextPack(office, run.worktree, handoff.headSha, handoff.pack, deps.clock);
+      if (!resume && "pack" in handoff && run.branch !== null) {
+        recordContextPack(office, run.branch, handoff.headSha, handoff.pack, deps.clock);
       }
       const cleared = clearSignals(office, run.runId, HOST_SIGNALS, at);
       if (cleared.length === 0) return;
@@ -603,7 +601,6 @@ export class RunResumer implements NextSession {
       work,
       caps: request.caps,
       startedAt: request.startedAt,
-      snapshot: request.snapshot,
     });
     deps.ingest.start(office, host, {
       run: run.runId,
@@ -675,7 +672,6 @@ export class RunResumer implements NextSession {
         story,
         branch: run.branch,
         startSha: run.startSha,
-        slot: run.slot,
         git,
         config,
       },
@@ -762,11 +758,11 @@ export class RunResumer implements NextSession {
     extra: HandoffExtra = { box: false },
   ): Promise<HandoffMessage> {
     const deps = this.#deps;
-    const worktree = run.worktree ?? "";
     const box = extra.box;
     const story = await deps.story(office.officeId, run);
     const handoff = await (deps.handoff ?? this.#gather.bind(this))(office, run, lastReport, extra);
-    const workspace = (deps.workspace ?? defaultWorkspace)(git, worktree);
+    const tip = await git.run((session) => branchTip(session, run.branch ?? ""));
+    const workspace = (deps.workspace ?? defaultWorkspace)(git, { commit: tip });
     const claim = findClaim(office, run.runId);
     const baseSha = claim?.baseSha ?? run.startSha ?? (await workspace.headSha());
     const prompts = await renderRunPrompts({
@@ -798,10 +794,7 @@ export class RunResumer implements NextSession {
     const claim = findClaim(office, run.runId);
     return gatherHandoff({
       git,
-      location: git.worktreeLocation(run.worktree ?? "") as Extract<
-        GitLocation,
-        { kind: "worktree" }
-      >,
+      branch: run.branch ?? "",
       base: claim?.baseSha ?? run.startSha ?? "HEAD",
       office,
       lastReport,
@@ -823,13 +816,6 @@ export class RunResumer implements NextSession {
     });
     if (appended > 0) this.#deps.onChanged?.(officeId);
   }
-}
-
-function defaultWorkspace(git: OfficeGit, path: string): Workspace {
-  return gitWorkspace({
-    git,
-    location: git.worktreeLocation(path) as Extract<GitLocation, { kind: "worktree" }>,
-  });
 }
 
 /**

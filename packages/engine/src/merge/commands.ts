@@ -270,8 +270,8 @@ export class MergeGates {
     if (park === null || park.reason !== "review-blocked") {
       throw notWaiting(gate.gate, "its story is no longer parked review-blocked");
     }
-    if (run.branch === null || run.worktree === null) {
-      throw notWaiting(gate.gate, "its story run has no branch or worktree");
+    if (run.branch === null) {
+      throw notWaiting(gate.gate, "its story run has no branch");
     }
     // A park ends its run, so an open run here is a crash's or a hand-written park's leftover:
     // the override would record the decision and lift the park, but the run could not wait as
@@ -283,7 +283,7 @@ export class MergeGates {
     if (mergeGate(office, gate.gate)?.decision !== null) {
       throw notWaiting(gate.gate, "it was decided meanwhile");
     }
-    const branch = { story: run.story as string, branch: run.branch, worktree: run.worktree };
+    const branch = { story: run.story as string, branch: run.branch };
     // The branch first: the park lifted and the status back to In Review, pushed.
     const lifted = await this.#deps.unpark.lift(officeId, { ...branch, to: "In Review" });
     try {

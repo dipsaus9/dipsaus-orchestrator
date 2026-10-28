@@ -1,8 +1,8 @@
 // A run's web calls (0020): counted by tool from the worker's own tool activity, as
 // `runs.web_searches` and `runs.web_fetches` (the run's outcome row copies them), and shown in the
 // worker output as `[web] <tool> <query or URL>`. Before such a line is stored (`output_chunks`, and
-// the `work.output` change-log entries read from it), every value of the env files dipo copied for
-// the run is replaced by `[redacted]` (`env-secrets.ts`). The adapter's line holds the query or URL
+// the `work.output` change-log entries read from it), every value of the office's env files is
+// replaced by `[redacted]` (`env-secrets.ts`). The adapter's line holds the query or URL
 // whole; it is cut to `INPUT_MAX_CHARS`, as other tool inputs, only after the redaction, so a value
 // across the cut leaves no prefix. The raw `events.ndjson` of the run keeps the call as the worker
 // wrote it, as it keeps every tool input (0007).
@@ -13,7 +13,13 @@ import type { OfficeConfig } from "../config";
 import type { OfficeHandle } from "../db/office";
 import { oneLineInput } from "../ingest/output";
 import { WEB_LINE_PREFIX, type WorkerEvent } from "../workers/types";
-import { type EnvSecret, readEnvSecrets, REDACTED_TEXT, redactSecrets } from "./env-secrets";
+import {
+  type EnvSecret,
+  type EnvSecretsReader,
+  officeEnvSecrets,
+  REDACTED_TEXT,
+  redactSecrets,
+} from "./env-secrets";
 import { countWebCalls, findRun } from "./records";
 
 /** Pure: the web calls among `events` by tool, from the worker's tool activity. */
@@ -53,8 +59,10 @@ export function cutWebLine(line: string): string {
 export interface WebCallsDeps {
   readonly offices: { config(office: OfficeId): OfficeConfig | undefined };
   readonly warn?: (message: string, fields: Readonly<Record<string, unknown>>) => void;
-  /** Reads the secrets of a worktree; the env files by default. Tests replace it. */
-  readonly secrets?: (worktree: string, files: OfficeConfig["worktree"]["files"]) => EnvSecret[];
+  /** The office's main checkout, where its env files are read; unknown without it. */
+  readonly checkout?: (office: OfficeId) => string | undefined;
+  /** Reads the secrets of a checkout; the env files by default. Tests replace it. */
+  readonly secrets?: EnvSecretsReader;
 }
 
 /** Counts the run's web calls and redacts its stored web lines (file comment). */
@@ -109,15 +117,18 @@ export class WebCalls {
       .join("\n");
   }
 
-  /** The env values of the run's worktree. Throws when they cannot be read. */
+  /** The env values of the run's office. Throws when they cannot be read. */
   #secrets(office: OfficeHandle, run: string): EnvSecret[] {
     const stored = findRun(office, run as RunId);
     const config = this.#deps.offices.config(office.officeId);
-    if (stored === null || config === undefined || stored.worktree === null) {
-      throw new Error("the run's worktree or the office configuration is not known");
+    if (stored === null || config === undefined) {
+      throw new Error("the run or the office configuration is not known");
     }
-    const read = this.#deps.secrets ?? readEnvSecrets;
-    return read(stored.worktree, config.worktree.files);
+    return officeEnvSecrets(
+      this.#deps.checkout?.(office.officeId),
+      config.worktree.files,
+      this.#deps.secrets,
+    );
   }
 
   #warn(message: string, run: string, error: unknown): void {

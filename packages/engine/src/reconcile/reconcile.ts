@@ -9,14 +9,15 @@
 //    launch file may have a host that started without its row: it only gets a notice.
 // 1b. A live claim whose story is Done on `_base` (finished through another branch, DIPO-161): one
 //    with a live worker is flagged and released at its run's next end; a parked or idle one is
-//    released as `done-elsewhere`, its PR closed, a clean worktree removed and a dirty one kept as
-//    leftovers, its branch deleted when it adds nothing to the base, else kept (`done-on-base.ts`).
+//    released as `done-elsewhere`, its PR closed, its branch deleted when it adds nothing to the
+//    base, else kept as a leftover (`done-on-base.ts`).
 //    The stories are indexed again after a release; a claim skipped because `_base` moved is
 //    retried once after a reindex.
-// 2. Git: `git worktree list` and the claimed branches. A running story whose worktree or branch
-//    changed by hand parks `scope-violation` with the evidence; a claimed story that is not running
-//    gets a notice. Prunable worktrees get a notice; `git worktree prune` runs only after the
-//    maintainer confirms it by running it.
+// 2. Git: `git worktree list` and the claimed branches. A running story whose branch changed by
+//    hand (gone, or no longer holding the commits dipo recorded, `git-facts.ts`) parks
+//    `scope-violation` with the evidence; a claimed story that is not running gets a notice.
+//    Prunable worktrees get a notice; `git worktree prune` runs only after the maintainer confirms
+//    it by running it.
 // 3. Lifecycle (branch while claimed, base otherwise): an active run whose story is no longer
 //    In Progress or In Review, or was removed, is stopped. A story In Progress with no claim is an
 //    unknown run: a notice, and it is never started.
@@ -58,7 +59,6 @@ import type { IndexResult } from "../stories/index-stories";
 import { readsOnBranch } from "../stories/index-stories";
 import { lifecycleOf } from "../views/story";
 import { type ClaimRecord, liveClaims } from "../worktree/records";
-import type { SlotTable } from "../worktree/slots";
 
 import { releaseDoneOnBase } from "./done-on-base";
 import { clearCommands, goneWorktrees, readGitFacts } from "./git-facts";
@@ -123,8 +123,7 @@ export interface ReconcileDeps {
   readonly runs?: ReconcileRuns;
   /** Releases an orphaned claim (`StoryClaims.releaseUnstarted`); without it none is released. */
   readonly releaseClaim?: (claim: ClaimRecord, reason: string) => Promise<void>;
-  /** The machine-wide port slot table; the slot of a released Done claim is freed there. */
-  readonly slots?: SlotTable;
+
   /** Closes dipo's open story PR of a story Done elsewhere (DIPO-161); without it a notice says so. */
   readonly host?: Pick<CodeHost, "closePr"> | null;
   /**
@@ -248,12 +247,12 @@ export async function reconcileOffice(
       const run = findRun(office, claim.runId);
       if (run === null || run.endedAt !== null || hasHost(office, claim.runId)) continue;
       // A launch file means the host may have started just before the daemon stopped, without
-      // its row: its worktree is left alone, so a worker that may run keeps it.
+      // its row: its claim is left alone, so a worker that may run keeps it.
       if (existsSync(launchFileOf(deps.git, claim.runId))) {
         record({
           code: RECONCILE_NOTICES.orphanClaim,
           key: claim.key,
-          text: `${claim.story} was claimed and its worker host may have started just before the daemon stopped, but dipo has no record of it; dipo leaves the claim and its worktree alone. Park it with \`dipo park ${claim.story} --note <why>\` if no worker runs.`,
+          text: `${claim.story} was claimed and its worker host may have started just before the daemon stopped, but dipo has no record of it; dipo leaves the claim alone. Park it with \`dipo park ${claim.story} --note <why>\` if no worker runs.`,
         });
         continue;
       }
@@ -262,7 +261,7 @@ export async function reconcileOffice(
       record({
         code: RECONCILE_NOTICES.orphanClaim,
         key: claim.key,
-        text: `${claim.story} was claimed, but its worker never started (the daemon stopped first); dipo released the claim, removed its worktree and kept ${claim.branch} for the next run.`,
+        text: `${claim.story} was claimed, but its worker never started (the daemon stopped first); dipo released the claim and kept ${claim.branch} for the next run.`,
       });
     }
     if (released > 0) pass = await input.reindex();
@@ -281,7 +280,7 @@ export async function reconcileOffice(
 
   // 2. Git facts of the live claims.
   const claims = liveClaims(office).filter(readsOnBranch);
-  const facts = await readGitFacts(deps.git, claims);
+  const facts = await readGitFacts(deps.git, office, claims);
   const unread = new Set<string>(pass.branchUnread.map((u) => u.key));
   for (const u of pass.branchUnread) {
     if (facts.changed.has(claimOfKey(claims, u.key)?.runId ?? "")) continue;

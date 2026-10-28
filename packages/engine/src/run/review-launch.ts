@@ -41,9 +41,8 @@ import { appendEntries } from "../changelog/log";
 import type { OfficeConfig } from "../config";
 import { sizeClassOfWorkspace } from "../context/size";
 import type { SizeClass } from "../context/types";
-import { gitWorkspace } from "../context/workspace";
+import { commitWorkspace } from "../context/workspace";
 import type { OfficeHandle } from "../db/office";
-import type { GitLocation } from "../git/hardened";
 import type { OfficeGit } from "../git/office";
 import { EVENTS_FILE } from "../host/protocol";
 import type { IngestAdapter } from "../ingest/ingestor";
@@ -53,6 +52,7 @@ import { type ReviewChangedPath, withReviewCommit } from "../prompts/review";
 import { renderSystemFile } from "../prompts/system";
 import { recordAgent } from "../runs/agents";
 import { setProcessedOffset } from "../runs/worker-hosts";
+import { branchTip } from "../stories/story-copy";
 import { withWorkViews } from "../views/work";
 import type { AdapterHold } from "../workers/hold";
 import type { WorkerPort } from "../workers/port";
@@ -74,29 +74,20 @@ import { sessionUuid } from "./prompts";
 import { findRun, storeReviewCaps, type StoredRun } from "./records";
 import { codeTreeKeyOf } from "./story-git";
 
-/** The git reads of a review, in the story worktree. */
+/** The git reads of a review, from git objects in the repository: a story has no worktree. */
 export interface ReviewGit {
-  /** The commit the worktree's HEAD names. */
-  head(office: OfficeId, worktree: string): Promise<string>;
-  /**
-   * sha256 of `git ls-tree -r <commit>` without the story's own task file (0010 section 7);
-   * `commit` is the worktree's HEAD unless given.
-   */
-  codeTreeKey(
-    office: OfficeId,
-    worktree: string,
-    taskFile: string,
-    commit?: string,
-  ): Promise<string>;
-  /** `git diff <base>...<commit>` (HEAD unless given), unified, and its changed paths with counts. */
+  /** The tip of the story branch. */
+  head(office: OfficeId, branch: string): Promise<string>;
+  /** sha256 of `git ls-tree -r <commit>` without the story's own task file (0010). */
+  codeTreeKey(office: OfficeId, taskFile: string, commit: string): Promise<string>;
+  /** `git diff <base>...<commit>`, unified, and its changed paths with counts. */
   diff(
     office: OfficeId,
-    worktree: string,
     base: string,
-    commit?: string,
+    commit: string,
   ): Promise<{ readonly diff: string; readonly changes: readonly ReviewChangedPath[] }>;
-  /** The project's size class at the worktree, for the diff budget (0014 section 4). */
-  sizeClass(office: OfficeId, worktree: string): Promise<SizeClass>;
+  /** The project's size class at `commit`, for the diff budget (0014 section 4). */
+  sizeClass(office: OfficeId, commit: string): Promise<SizeClass>;
 }
 
 /** Pure: `git diff --numstat -z --no-renames` output as changed paths; `-` counts are binary. */
@@ -115,15 +106,10 @@ export function parseNumstat(output: string): ReviewChangedPath[] {
   });
 }
 
-/** A commit id, or HEAD by default; anything else is refused before it reaches git. */
-function revision(commit: string | undefined): string {
-  if (commit === undefined) return "HEAD";
+/** A commit id; anything else is refused before it reaches git. */
+function revision(commit: string): string {
   if (!COMMIT_ID.test(commit)) throw new Error(`${JSON.stringify(commit)} is not a commit id`);
   return commit;
-}
-
-function worktreeAt(git: OfficeGit, worktree: string): Extract<GitLocation, { kind: "worktree" }> {
-  return git.worktreeLocation(worktree) as Extract<GitLocation, { kind: "worktree" }>;
 }
 
 /**
@@ -151,27 +137,22 @@ export function gitReviewOps(gitOf: (office: OfficeId) => OfficeGit | undefined)
     return git;
   };
   return {
-    head: (office, worktree) => {
+    head: (office, branch) => {
       const git = attached(office);
-      return git.run(async (session) =>
-        (await session.ok(worktreeAt(git, worktree), ["rev-parse", "--verify", "HEAD"])).trim(),
-      );
+      return git.run((session) => branchTip(session, branch));
     },
-    codeTreeKey: (office, worktree, taskFile, commit) => {
+    codeTreeKey: (office, taskFile, commit) => {
       const git = attached(office);
       const rev = revision(commit);
       return git.run(async (session) =>
-        codeTreeKeyOf(
-          await session.ok(worktreeAt(git, worktree), ["ls-tree", "-r", "-z", rev]),
-          taskFile,
-        ),
+        codeTreeKeyOf(await session.ok(session.repository, ["ls-tree", "-r", "-z", rev]), taskFile),
       );
     },
-    diff: (office, worktree, base, commit) => {
+    diff: (office, base, commit) => {
       const git = attached(office);
       const rev = revision(commit);
       return git.run(async (session) => {
-        const location = worktreeAt(git, worktree);
+        const location = session.repository;
         const range = `${base}...${rev}`;
         const diff = await session.ok(location, storyDiffArgs(range));
         const numstat = await session.ok(location, [
@@ -184,10 +165,8 @@ export function gitReviewOps(gitOf: (office: OfficeId) => OfficeGit | undefined)
         return { diff, changes: parseNumstat(numstat) };
       });
     },
-    sizeClass: (office, worktree) => {
-      const git = attached(office);
-      return sizeClassOfWorkspace(gitWorkspace({ git, location: worktreeAt(git, worktree) }));
-    },
+    sizeClass: (office, commit) =>
+      sizeClassOfWorkspace(commitWorkspace({ git: attached(office), commit: revision(commit) })),
   };
 }
 
@@ -383,7 +362,7 @@ export class ReviewLauncher implements ReviewSessions {
   /** The run directory of `runId` in `office`; null when the office has no git attached. */
   #runDir(office: OfficeId, runId: string): string | null {
     const git = this.#deps.git(office);
-    return git === undefined ? null : runLaunchPaths(git, this.#deps, "/", runId).runDir;
+    return git === undefined ? null : runLaunchPaths(git, this.#deps, runId).runDir;
   }
 
   async start(request: ReviewSessionRequest): Promise<ReviewSessionOutcome> {
@@ -476,13 +455,13 @@ export class ReviewLauncher implements ReviewSessions {
     // reloaded the configuration in force never reaches a running run's reviewer, its launch plan
     // or its ingest adapter.
     const config = runConfigOf(office, run, inForce);
-    if (run.worktree === null || run.key === null || run.story === null) {
-      return { kind: "failed", reason: `${run.runId} is not a story run with a worktree` };
+    if (run.branch === null || run.key === null || run.story === null) {
+      return { kind: "failed", reason: `${run.runId} is not a story run with a branch` };
     }
     const tier =
       (config.tiers as Readonly<Record<string, TierCaps>>)[run.tier ?? ""] ?? config.tiers.M;
     const settings = reviewerSettings(office, run, config);
-    const paths = runLaunchPaths(git, deps, run.worktree, run.runId);
+    const paths = runLaunchPaths(git, deps, run.runId);
     // The reviewer of a box run reads that dipo ran the verify in the developer's box at done and
     // that CI runs with the review (DIPO-346). The run directory says the run is a box worker's,
     // as for its developer.
@@ -630,7 +609,6 @@ export class ReviewLauncher implements ReviewSessions {
       work,
       caps,
       startedAt: deps.clock.now(),
-      snapshot: null,
     });
     deps.ingest.start(office, host, {
       run: run.runId,

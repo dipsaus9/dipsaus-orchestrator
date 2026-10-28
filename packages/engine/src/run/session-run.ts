@@ -167,7 +167,7 @@ export class SessionRuns implements ScanSessionRunner {
     const deps = this.#deps;
     const office = request.handle;
     const { settings } = request;
-    const paths = runLaunchPaths(git, deps, workdir, runId);
+    const paths = runLaunchPaths(git, deps, runId, workdir);
     const spec: WorkerSpec = {
       run: runId,
       agent,
@@ -234,8 +234,6 @@ export class SessionRuns implements ScanSessionRunner {
         model: settings.model,
         startSha: null,
         branch: null,
-        worktree: null,
-        slot: null,
         budgetUnit: "tokens",
         budgetLimit: settings.budgetTokens,
         loopCap: 0,

@@ -8,16 +8,14 @@ export interface Probe {
   /**
    * Contents of the files the scan reads: each `package.json` (root and workspace packages),
    * `pnpm-workspace.yaml`, `.node-version`, `.nvmrc`, `.bun-version`,
-   * `.claude/backlog-workflow.json`, the dev server and runtime config files, and the modules
-   * those configs import. Never an env file.
+   * `.claude/backlog-workflow.json`, and the dev server and runtime config files. Never an env
+   * file.
    */
   readonly texts: Readonly<Record<string, string>>;
   /** Lockfile names present at the root. Their contents are never read. */
   readonly lockfiles: readonly string[];
   /** Workspace package directories, expanded from the workspace patterns. */
   readonly workspaceDirs: readonly string[];
-  /** For each dev server config file, the repo files it imports that were read into `texts`. */
-  readonly configImports: Readonly<Record<string, readonly string[]>>;
   /** Env files by path, with presence and ignore status. Their contents are never read. */
   readonly envFiles: readonly EnvFile[];
 }
@@ -90,16 +88,6 @@ export type Toolchain = {
   readonly workspaces: readonly WorkspacePackage[];
 };
 
-export type DevPort = Origin & {
-  readonly port: number;
-  /** The package directory whose `dev` serves on this port; `"."` is the root. */
-  readonly dir: string;
-  /** True when the port is written in a script or config file. */
-  readonly fixedInCode: boolean;
-  /** True when the `PORT` environment variable overrides it. */
-  readonly honoursPort: boolean;
-};
-
 export type ConformanceLevel = "conforming" | "partial" | "non-standard";
 
 export type Deviation = {
@@ -117,7 +105,6 @@ export type RunProfile = {
   /** Root scripts outside the capabilities, by name and command, for reference. */
   readonly extraScripts: readonly { readonly name: string; readonly command: string }[];
   readonly envFiles: readonly EnvFile[];
-  readonly devPorts: readonly DevPort[];
   readonly conformance: {
     readonly level: ConformanceLevel;
     readonly deviations: readonly Deviation[];

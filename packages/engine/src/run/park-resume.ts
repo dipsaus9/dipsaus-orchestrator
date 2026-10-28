@@ -832,7 +832,6 @@ export class ParkResumes {
       work === null ||
       run.story === null ||
       run.branch === null ||
-      run.worktree === null ||
       key === null
     ) {
       return fail(`dipo cannot resume ${run.runId} in this office`);
@@ -847,7 +846,6 @@ export class ParkResumes {
       lifted = await unpark.lift(officeId, {
         story: run.story,
         branch: run.branch,
-        worktree: run.worktree,
         to: detail.to,
         // The resume's line in the implementation notes (0020), in the same commit.
         line: resumeLine({

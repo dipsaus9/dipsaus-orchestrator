@@ -14,7 +14,6 @@ function probeOf(
     texts: { "package.json": JSON.stringify({ name: "repo", ...manifest }), ...texts },
     lockfiles,
     workspaceDirs: [],
-    configImports: {},
     envFiles: [],
   };
 }

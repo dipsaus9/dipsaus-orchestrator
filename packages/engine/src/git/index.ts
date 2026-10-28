@@ -43,8 +43,7 @@ export {
   resolveWorktreeRoot,
 } from "./paths";
 export { GitQueue } from "./queue";
-export { changedLinks, readWorktreeSnapshot, worktreeTampered } from "./snapshot";
-export type { SnapshotLink, WorktreeSnapshot } from "./snapshot";
+
 export {
   clockSleep,
   EXTERNAL_STEP_TIMEOUT_MS,
@@ -59,19 +58,18 @@ export {
 } from "./runner";
 export type { GitCall, GitExec, GitResult, GitStepOptions, GitStepRunner, Sleep } from "./runner";
 export {
-  abortMerge,
   commitStaged,
   commitTree,
   createBranch,
   deleteBranch,
   deleteRemoteBranch,
-  mergeInWorktree,
   moveBranch,
   moveRef,
   pushBranch,
   pushRef,
   remoteRefMissing,
   remoteUrl,
+  removeLeftoverWorktree,
   resetWorktree,
   statusPaths,
 } from "./write";

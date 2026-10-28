@@ -1,5 +1,7 @@
-// The values of the env files dipo copied for a run (0002, 0008), and their redaction: a PR comment
-// built from a reviewer's verdict and a web call's line in the stored worker output never show one.
+// The values of the office's env files (0002, 0008), and their redaction: a PR comment built from a
+// reviewer's verdict and a web call's line in the stored worker output never show one. The files
+// are the `copy` entries of `worktree.files`, read from the office's main checkout, where a story's
+// box files come from; a story has no worktree of its own (0010).
 // A value is looked for as written and percent-encoded, in either hex case, and in the text after
 // lenient percent-decoding. A value under `MIN_SECRET_CHARS` characters is not compared: "1" or
 // "true" would match everywhere.
@@ -15,9 +17,9 @@ export const MIN_SECRET_CHARS = 4;
 export const MAX_ENV_FILES = 200;
 export const MAX_ENV_FILE_BYTES = 256 * 1024;
 
-/** One value of a copied env file, with where it came from. */
+/** One value of an env file, with where it came from. */
 export interface EnvSecret {
-  /** The file, relative to the worktree. */
+  /** The file, relative to the checkout it was read from. */
   readonly file: string;
   readonly key: string;
   readonly value: string;
@@ -150,8 +152,8 @@ export function redactSecrets(line: string, secrets: readonly EnvSecret[]): stri
   return findSecret(out, live) === null ? out : REDACTED_TEXT;
 }
 
-/** Files of a `worktree.files` entry that exists in `worktree`: a file, or those under a directory. */
-function filesOf(worktree: string, path: string): string[] {
+/** Files of a `worktree.files` entry that exists in `folder`: a file, or those under a directory. */
+function filesOf(folder: string, path: string): string[] {
   const out: string[] = [];
   const walk = (absolute: string): void => {
     if (out.length >= MAX_ENV_FILES) return;
@@ -165,18 +167,36 @@ function filesOf(worktree: string, path: string): string[] {
       for (const name of readdirSync(absolute).toSorted()) walk(join(absolute, name));
     }
   };
-  walk(join(worktree, path));
+  walk(join(folder, path));
   return out;
 }
 
+/** Reads the env secrets of `files` in a checkout (`readEnvSecrets` by default; tests replace it). */
+export type EnvSecretsReader = (
+  checkout: string,
+  files: OfficeConfig["worktree"]["files"],
+) => EnvSecret[];
+
 /**
- * The values of the env files dipo copied into `worktree`: the `copy` entries of `worktree.files`
- * (a directory entry contributes the files under it), read as `KEY=value` lines. An entry that is
- * absent from the worktree (an optional file) contributes nothing; any other failure throws, so the
- * caller denies.
+ * The env secrets of the office whose main checkout is `checkout`, through `read`; throws when the
+ * checkout is not known, so the caller redacts or holds back as for a file it cannot read.
+ */
+export function officeEnvSecrets(
+  checkout: string | undefined,
+  files: OfficeConfig["worktree"]["files"],
+  read: EnvSecretsReader = readEnvSecrets,
+): EnvSecret[] {
+  if (checkout === undefined) throw new Error("the office's main checkout is not known");
+  return read(checkout, files);
+}
+
+/**
+ * The values of the env files in `checkout`: the `copy` entries of `worktree.files` (a directory
+ * entry contributes the files under it), read as `KEY=value` lines. An entry that is absent (an
+ * optional file) contributes nothing; any other failure throws, so the caller denies.
  */
 export function readEnvSecrets(
-  worktree: string,
+  checkout: string,
   files: OfficeConfig["worktree"]["files"],
 ): EnvSecret[] {
   const secrets: EnvSecret[] = [];
@@ -184,7 +204,7 @@ export function readEnvSecrets(
     if (entry.mode !== "copy") continue;
     let found: string[];
     try {
-      found = filesOf(worktree, entry.path.replace(/\/$/, ""));
+      found = filesOf(checkout, entry.path.replace(/\/$/, ""));
     } catch (error) {
       if ((error as { code?: string }).code === "ENOENT") continue;
       throw error;
@@ -192,7 +212,7 @@ export function readEnvSecrets(
     for (const absolute of found) {
       const text = readFileSync(absolute, "utf8");
       for (const { key, value } of parseEnvText(text)) {
-        secrets.push({ file: relative(worktree, absolute), key, value });
+        secrets.push({ file: relative(checkout, absolute), key, value });
       }
     }
   }

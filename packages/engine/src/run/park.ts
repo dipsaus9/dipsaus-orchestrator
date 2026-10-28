@@ -2,8 +2,7 @@
 // sections 2 and 3, 0005 section 5, 0007 section 4, 0008 section 2).
 //
 // `parkStory` writes the park on the story branch first, through a `ParkWriter`: in dipo's own
-// copy of the story's backlog (`editInStoryBacklog`, 0021 section 14; never in the story worktree),
-// inside the office's git queue, the Backlog CLI writes the F16 `park` block
+// copy of the story's backlog (`editInStoryBacklog`), inside the office's git queue, the Backlog CLI writes the F16 `park` block
 // (`{reason, from, note}`) through the single field write path, sets status `Parked` and appends the
 // park's structured summary block to the implementation notes (0020 section 13, `summary.ts`; a
 // lift appends the resume line the same way); only the task file is committed, as
@@ -18,16 +17,11 @@
 // A park has one of the eight reasons of 0001 and a one-line detail. The detail is text: no code
 // decides anything from it (0020).
 //
-// A `git.worktreeTampered` refusal (the worktree's git links changed since the claim) parks the
-// story `scope-violation` instead, with the refusal as detail, and nothing
-// more runs in that worktree: the office git keeps the claim's pin, so every later engine git call
-// there is refused. A park that could not be written on the branch, or a push that failed, is still
+// A task file holding fields dipo does not know parks the story `scope-violation` instead, with the
+// refusal as detail. A park that could not be written on the branch, or a push that failed, is still
 // recorded in `parks` and emitted, with an `engine.notice` saying what is missing. One not written
 // on the branch is no park while Backlog.md does not hold it: `openPark` answers null and reconcile
 // closes its row with a notice.
-
-import { existsSync } from "node:fs";
-import { join } from "node:path";
 
 import {
   type CommandName,
@@ -44,23 +38,19 @@ import { appendImplementationNotes } from "../backlog/fields/summary";
 import { type StoryTarget, viewStory, writeFields } from "../backlog/fields/write";
 import { type BacklogCli, runBacklog, TASK_FIELD_ERROR } from "../backlog/runner";
 import { CommandError } from "../commands/errors";
-import { BOX_RUN_FILE } from "../box/workers";
 import type { NewEntry } from "../changelog/log";
 import type { OfficeHandle } from "../db/office";
 import { gateStoryFromView } from "../gate/input";
 import { contractCharacters } from "../gate/rules";
-import type { GitLocation } from "../git/hardened";
 import type { OfficeGit } from "../git/office";
 import { GitError } from "../git/runner";
 import { pushBranch } from "../git/write";
 import { recordBranchPush } from "../story-pr/records";
 import { insertWorkerQuestion, questionViewOf } from "../hooks/questions";
-import { officeDirectory } from "../office/marker";
 import { presetEndReasons } from "../runs/agents";
-import { runDirectory } from "../runs/worker-hosts";
+import { branchTip, editInStoryBacklog } from "../stories/story-copy";
 import { deriveStoryView, storyView } from "../views/story";
 import { workRefOf } from "../views/work";
-import { editInStoryBacklog } from "../worktree/claim";
 import { PARKED_STATUS } from "../worktree/done";
 
 import { endRunMarked } from "./markers";
@@ -76,9 +66,6 @@ export { type BacklogPark, backlogPark, type OpenPark, openPark } from "./park-s
 
 /** The error of a maintainer's park whose write to Backlog.md failed (DIPO-360). */
 export const PARK_NOT_WRITTEN = "story.parkNotWritten";
-
-/** The code of the refusal that parks a story `scope-violation` (DIPO-38, 0008 section 2). */
-export const WORKTREE_TAMPERED = "git.worktreeTampered";
 
 /** `engine.notice` codes of a park. */
 export const PARK_NOTICES = {
@@ -105,11 +92,8 @@ const PARK_ACTIONS: readonly CommandName[] = [
 export interface ParkBranchRequest {
   readonly story: string;
   readonly branch: string;
-  readonly worktree: string;
   readonly reason: ParkReason;
   readonly note: string;
-  /** The parking run: a box run's worktree has no uncommitted files of its own to count. */
-  readonly runId?: string;
   /**
    * The implementation-notes block of the park (0020 section 13), built from what the branch
    * write reads; appended in the same task-file commit as F16 when the park is new on the branch.
@@ -121,8 +105,6 @@ export interface ParkBranchRequest {
 export interface ParkBranchFacts {
   /** The branch tip before the park commit. */
   readonly lastGoodCommit: string;
-  /** Uncommitted and untracked files in the worktree; null for a box run (its work is in the box). */
-  readonly uncommitted: number | null;
 }
 
 /** What the branch write did. */
@@ -149,29 +131,8 @@ export interface ParkWriter {
   write(office: OfficeId, request: ParkBranchRequest): Promise<BranchPark>;
 }
 
-type WorktreeLocation = Extract<GitLocation, { kind: "worktree" }>;
-
 function messageOf(error: unknown): string {
   return error instanceof Error ? error.message : String(error);
-}
-
-/** True when `runId` is a box worker's run: its run directory holds the box record (DIPO-271). */
-function boxRunOf(git: OfficeGit, runId: string | undefined): boolean {
-  if (runId === undefined) return false;
-  return existsSync(join(runDirectory(officeDirectory(git.commonDir), runId), BOX_RUN_FILE));
-}
-
-/** The entries of `git status --porcelain=v1 -z` output; a rename's second path is not one. */
-function statusEntries(status: string): number {
-  const fields = status.split("\0");
-  let count = 0;
-  for (let i = 0; i < fields.length; i++) {
-    const entry = fields[i] ?? "";
-    if (entry === "") continue;
-    count += 1;
-    if (entry.startsWith("R") || entry.startsWith("C")) i += 1;
-  }
-  return count;
 }
 
 /**
@@ -197,41 +158,23 @@ export function gitParkWriter(deps: {
       const git = deps.git(office);
       if (git === undefined) throw new Error(`Office ${office} has no git attached.`);
       return git.run(async (session) => {
-        // A pinned worktree whose links changed throws `git.worktreeTampered` here, before any
-        // CLI or git call runs in it.
-        const location = git.worktreeLocation(request.worktree) as WorktreeLocation;
-        const lastGoodCommit = (
-          await session.ok(location, ["rev-parse", "--verify", "HEAD"])
-        ).trim();
+        const lastGoodCommit = await branchTip(session, request.branch);
         // The summary block is built before the CLI writes anything, and a failure building or
         // appending it only leaves it out (`summaryError`): the park itself is always written.
         let block: string | null = null;
         let summaryError: string | null = null;
         if (request.summary !== undefined) {
           try {
-            // A box run's Mac worktree keeps the start commit's files while its branch follows
-            // the delivered parts (DIPO-302), so its status counts nothing of the worker's.
-            const uncommitted = boxRunOf(git, request.runId)
-              ? null
-              : statusEntries(
-                  await session.ok(location, [
-                    "status",
-                    "--porcelain=v1",
-                    "-z",
-                    "--untracked-files=all",
-                  ]),
-                );
-            block = request.summary({ lastGoodCommit, uncommitted });
+            block = request.summary({ lastGoodCommit });
           } catch (error) {
             summaryError = `building it failed: ${messageOf(error)}`;
           }
         }
-        // Only the task file: anything else staged stays out of the park commit.
+        // Only the task file.
         const { value: from, commit } = await editInStoryBacklog(
           git,
           session,
-          location,
-          request.story,
+          request,
           `${request.story}: status ${PARKED_STATUS}`,
           async (backlog) => {
             const target = { cli: deps.cli, cwd: backlog.cwd, id: request.story };
@@ -283,7 +226,6 @@ export function gitParkWriter(deps: {
 export interface UnparkBranchRequest {
   readonly story: string;
   readonly branch: string;
-  readonly worktree: string;
   /** The lifecycle the story returns to (the park's `from`). */
   readonly to: Lifecycle;
   /**
@@ -344,10 +286,9 @@ export interface UnparkWriter {
 
 /**
  * The park lifted on the story branch with the Backlog CLI and the office git (DIPO-75): in dipo's
- * own copy of the story's backlog (`editInStoryBacklog`), never the worktree, the F16 `park` block is
- * removed through the single field write path and the status set back to the park's `from`; only
- * the task file is committed, as `<ID>: status <to>`,
- * and the branch is pushed without force. A tampered worktree throws `git.worktreeTampered`. The
+ * own copy of the story's backlog (`editInStoryBacklog`), the F16 `park` block is removed through
+ * the single field write path and the status set back to the park's `from`; only the task file is
+ * committed on the branch, as `<ID>: status <to>`, and the branch is pushed without force. The
  * answer of a question park goes into the same field write as a resolved unknown, unless the
  * story contract would then break R26 (`answerError`).
  */
@@ -360,16 +301,14 @@ export function gitUnparkWriter(deps: {
       const git = deps.git(office);
       if (git === undefined) throw new Error(`Office ${office} has no git attached.`);
       return git.run(async (session) => {
-        const location = git.worktreeLocation(request.worktree) as WorktreeLocation;
         let lineError: string | null = null;
         let answerError: string | null = null;
         const answer = request.answer;
-        // Only the task file: anything else staged stays out of the commit.
+        // Only the task file.
         const { commit } = await editInStoryBacklog(
           git,
           session,
-          location,
-          request.story,
+          request,
           `${request.story}: status ${request.to}`,
           async (backlog) => {
             const target = { cli: deps.cli, cwd: backlog.cwd, id: request.story };
@@ -501,7 +440,7 @@ function askWorkerQuestionOfPark(
 }
 
 export interface ParkRequest {
-  /** The story run that parks; its story, branch and worktree are set. */
+  /** The story run that parks; its story and branch are set. */
   readonly run: StoredRun;
   readonly work?: WorkRef;
   readonly reason: ParkReason;
@@ -518,8 +457,8 @@ export interface ParkRequest {
   /**
    * The maintainer's park of a run that waits and was not stopped (DIPO-360): when the write to
    * Backlog.md fails, nothing is recorded or emitted and `parkStory` throws
-   * `story.parkNotWritten`, so the maintainer can send it again. A tampered worktree still parks
-   * `scope-violation`, held until reconcile (`heldByPark`).
+   * `story.parkNotWritten`, so the maintainer can send it again. A task file holding fields dipo
+   * does not know still parks `scope-violation`, held until reconcile (`heldByPark`).
    */
   readonly mustWrite?: boolean;
   /**
@@ -586,10 +525,8 @@ export async function parkStory(deps: ParkDeps, request: ParkRequest): Promise<P
     branch = await deps.writer.write(deps.office.officeId, {
       story,
       branch: run.branch ?? "",
-      worktree: run.worktree ?? "",
       reason,
       note: detail,
-      runId: run.runId,
       // The implementation-notes block, from the stored facts as of the park (0020 section 13).
       summary: (facts) => {
         const at = deps.now();
@@ -604,19 +541,7 @@ export async function parkStory(deps: ParkDeps, request: ParkRequest): Promise<P
     });
   } catch (error) {
     writeError = messageOf(error);
-    if (error instanceof GitError && error.code === WORKTREE_TAMPERED) {
-      // 0008 section 2: a tampered worktree parks `scope-violation` and runs no more git.
-      if (reason !== "scope-violation") {
-        detail = `${error.message} (dipo was parking it as ${reason}: ${detail})`;
-      } else {
-        detail = `${error.message} ${detail}`;
-      }
-      reason = "scope-violation";
-      notice(
-        PARK_NOTICES.notWritten,
-        `${story} parked as scope-violation, but the park was not written on ${run.branch ?? "its branch"}: dipo runs no git in ${run.worktree ?? "its worktree"} since its git links changed.`,
-      );
-    } else if (error instanceof GitError && error.code === TASK_FIELD_ERROR) {
+    if (error instanceof GitError && error.code === TASK_FIELD_ERROR) {
       // 0021 section 14: a task file holding fields dipo does not know never reaches the CLI.
       detail =
         reason === "scope-violation"
@@ -655,7 +580,7 @@ export async function parkStory(deps: ParkDeps, request: ParkRequest): Promise<P
   const from: Lifecycle = branch?.from ?? "In Progress";
   const lastGoodCommit = branch?.lastGoodCommit ?? null;
   const at = deps.now();
-  // Only the park the plan limit asked for resumes by itself, not one a tampered worktree turned
+  // Only the park the plan limit asked for resumes by itself, not one a refused task file turned
   // into `scope-violation`.
   const resumeOnLift = request.resumeOnLift === true && reason === request.reason;
   deps.write(() => {

@@ -80,7 +80,6 @@ export class SessionStarts {
         ...(request.requireResume === true ? { requireResume: true } : {}),
         caps: view.caps,
         startedAt: view.startedAt,
-        snapshot: view.snapshot,
       });
     } catch (error) {
       outcome = { kind: "failed" as const, reason: messageOf(error) };
@@ -124,7 +123,7 @@ export class SessionStarts {
 
   /**
    * A start failure (0008 section 7 and its 2026-10-14 amendment): the adapter is held and
-   * `run.startFailed` raised. A worktree with work parks `worker-failed` and keeps everything;
+   * `run.startFailed` raised. A branch with work parks `worker-failed` and keeps everything;
    * otherwise the claim is released as DIPO-74 does and the story stays Ready.
    */
   async startFailed(
@@ -147,7 +146,7 @@ export class SessionStarts {
           ? false
           : ((await this.#deps.holdsWork?.(office.officeId, run, claim)) ?? true);
     } catch (error) {
-      this.#deps.warn?.("reading the worktree's work after a start failure failed", {
+      this.#deps.warn?.("reading the branch's work after a start failure failed", {
         run: run.runId,
         reason: messageOf(error),
       });
@@ -164,7 +163,7 @@ export class SessionStarts {
         notice: {
           level: "error",
           code: OUTCOME_NOTICES.startFailed,
-          text: `${story}: the worker did not start (${detail}). Its worktree holds work, so dipo parked the story as worker-failed and kept worktree, branch and session.`,
+          text: `${story}: the worker did not start (${detail}). Its branch holds work, so dipo parked the story as worker-failed and kept branch and session.`,
         },
       });
       return;
@@ -181,7 +180,7 @@ export class SessionStarts {
       markIntentSent(office, run.runId, id, at, null);
       resolveIntent(office, run.runId, id, "startFailed", at);
     });
-    let released = `dipo removed the worktree and kept the branch ${claim.branch} for the next run`;
+    let released = `dipo released the claim and kept the branch ${claim.branch} for the next run`;
     try {
       if (this.#deps.release === undefined) {
         office.immediate(() =>
@@ -192,7 +191,7 @@ export class SessionStarts {
         await this.#deps.release(office.officeId, claim, START_FAILED_END);
       }
     } catch (error) {
-      released = `releasing its claim failed (${messageOf(error)}), so the worktree ${claim.worktree} and the claim may still be there; check them`;
+      released = `releasing its claim failed (${messageOf(error)}), so the claim may still be there; check it`;
     }
     this.#s.write(office, () => [
       {

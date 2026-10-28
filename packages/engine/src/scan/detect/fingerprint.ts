@@ -16,7 +16,6 @@ import {
   RUNTIME_FILES,
   WORKFLOW_FILE,
 } from "./manifest";
-import { portModules } from "./ports";
 import type { Probe } from "./types";
 
 /** JSON with object keys sorted, so equal inputs hash equally whatever their key order. */
@@ -47,8 +46,7 @@ export function fingerprintInputs(probe: Probe): Record<string, unknown> {
   for (const [path, content] of Object.entries(probe.texts)) {
     if (packageDirs.has(dirOf(path)) && isConfigFile(baseName(path))) configs[path] = content;
   }
-  // The config modules the scan reads ports from (0013 amendment of 2026-10-12).
-  for (const path of portModules(probe)) configs[path] = probe.texts[path] ?? "";
+
   const pnpm = probe.texts[PNPM_WORKSPACE];
   return {
     manifests,

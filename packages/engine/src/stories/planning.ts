@@ -11,21 +11,19 @@
 //   `story.state`. A Parked story answers `changed: false`; any other status fails
 //   `story.notParkable`. `work.resume` of a park with no run is `resumeHold` below.
 // - `story.drop { story, deleteBranch }`: a Draft, Refined, Ready or Parked story is archived.
-//   In Progress or In Review fails `story.active`, a story another active story depends on fails
-//   `story.hasDependents`, and a worktree with uncommitted or untracked files fails
-//   `story.dirtyWorktree` listing them, unless `deleteBranch` is set (the client asked for the
-//   typed story id). The order is 0010 section 2a: journal, close the story PR with a comment,
-//   release the claim (worktree removed; branch kept and recorded as released, or deleted locally
-//   and on the remote), then the park is resolved `drop`, `story.state` says Removed and the lane
+//   In Progress or In Review fails `story.active`, and a story another active story depends on
+//   fails `story.hasDependents`. `deleteBranch` needs the typed story id from the client. The order
+//   is 0010 section 2a: journal, close the story PR with a comment, release the claim (branch kept
+//   and recorded as released, or deleted locally and on the remote; a story has no worktree), then
+//   the park is resolved `drop`, `story.state` says Removed and the lane
 //   flushes. A failure before the facts are written withdraws the journal entry, so the story is
 //   not archived later behind the maintainer's back. Every step is target-state under a re-run: an
 //   open journal entry is reused, a closed PR and a released claim are not touched again.
 // - `story.losses { story }` (DIPO-228): what `deleteBranch` loses, read before the typed id: the
-//   commits not on the base of the claim's branch (or the kept branches without a claim) and the
-//   files of the claim's worktree; without a claim, the files of the worktrees a story Done
-//   elsewhere kept as leftovers (DIPO-161), which `work.discard` lists too. A drop without a live
-//   claim and with `deleteBranch` deletes the kept branches of the story and reclaims their rows; a
-//   failure after the PR closed says so.
+//   commits not on the base of the claim's branch (or the kept branches without a claim; with
+//   `work.discard`, the branches a story Done elsewhere kept as leftovers, DIPO-161). A drop
+//   without a live claim and with `deleteBranch` deletes the kept branches of the story and
+//   reclaims their rows; a failure after the PR closed says so.
 
 import {
   type CommandName,
@@ -75,7 +73,6 @@ import { latestStoryPr, setStoryPrState } from "../story-pr/records";
 import { deriveStoryView, lifecycleOf, storyView } from "../views/story";
 import {
   deleteKeptBranches,
-  dirtyFilesOf,
   leftoverBranchNames,
   releaseForDrop,
   repoOfPrUrl,
@@ -87,7 +84,6 @@ import {
   type ClaimRecord,
   type ReleasedBranch,
 } from "../worktree/records";
-import type { SlotTable } from "../worktree/slots";
 
 import type { StoryIdentity } from "./keys";
 
@@ -101,7 +97,6 @@ export interface StoryPlanningDeps {
   readonly git: (office: OfficeHandle["officeId"]) => OfficeGit | undefined;
   /** The code host the open story PR is closed on. */
   readonly host: Pick<CodeHost, "closePr">;
-  readonly slots?: SlotTable;
   /** The commands the engine registered, for the `actions` of `story.parked`. */
   readonly implemented: (name: CommandName) => boolean;
   /** Reads whether a worker host of the claim's run still runs (0020 section 8). */
@@ -122,8 +117,6 @@ type LossesResult = {
   story: StoryId;
   key: StoryKey;
   commits: LostCommit[];
-  files: string[];
-  kept?: string[];
 };
 
 /** The Backlog.md statuses a park with no run applies from; `To Do` is what office init migrates to Refined. */
@@ -133,7 +126,6 @@ const PARKABLE_STATUSES = ["Refined", "Ready", "To Do"];
 export const NOT_PARKABLE = "story.notParkable";
 export const STORY_ACTIVE = "story.active";
 export const HAS_DEPENDENTS = "story.hasDependents";
-export const DIRTY_WORKTREE = "story.dirtyWorktree";
 export const PR_NOT_CLOSED = "story.prNotClosed";
 export const NOT_DROPPABLE = "story.notDroppable";
 /** 0005's retryable code: a worker host of the parked run still runs (0020 section 8). */
@@ -171,14 +163,12 @@ export class StoryPlanning {
 
   /**
    * `story.losses` (DIPO-228): what `story.drop` with `deleteBranch` loses. The commits of the live
-   * claim's branch, else of the open released branches, that are not on the base as last fetched,
-   * and the uncommitted and untracked files of the claim's worktree. Reads git only.
+   * claim's branch, else of the open released branches, that are not on the base as last fetched.
+   * Reads git only.
    *
    * With `command: work.discard` (DIPO-161) and no live claim it lists exactly what the discard of
    * the story's leftovers removes (`leftoverTargets`): the commits of the open released branches
-   * and of the leftovers' own branches (settled or not), and the files of the leftover worktrees,
-   * read at their own paths, so a claim row retention removed loses nothing from the list. For
-   * `story.drop`, which never removes those worktrees, `kept` names them instead.
+   * and of the leftovers' own branches (settled or not).
    */
   async losses(ctx: ReadContext, args: LossesArgs): Promise<LossesResult> {
     const office = ctx.office;
@@ -196,12 +186,7 @@ export class StoryPlanning {
         : discard && leftovers !== null
           ? leftoverBranchNames(leftovers)
           : openReleasedBranches(office, key).map((release) => release.branch);
-    const trees =
-      claim !== null ? [claim] : discard && leftovers !== null ? leftovers.worktrees : [];
-    const keptTrees = !discard && leftovers !== null ? leftovers.worktrees : [];
-    if (branches.length === 0 && trees.length === 0 && keptTrees.length === 0) {
-      return { story, key, commits: [], files: [] };
-    }
+    if (branches.length === 0) return { story, key, commits: [] };
     const git = this.#deps.git(office.officeId);
     if (git === undefined) throw new Error(`The office ${office.officeId} has no git attached.`);
     const commits = await git.run(async (session) => {
@@ -230,16 +215,7 @@ export class StoryPlanning {
       }
       return [...found.values()];
     });
-    const files: string[] = [];
-    for (const tree of trees) {
-      for (const file of await dirtyFilesOf({ git }, tree)) {
-        if (!files.includes(file)) files.push(file);
-      }
-    }
-    const kept = keptTrees
-      .map((tree) => tree.worktree)
-      .filter((path) => git.adminDirOf(path) !== null);
-    return { story, key, commits, files, ...(kept.length === 0 ? {} : { kept }) };
+    return { story, key, commits };
   }
 
   // ---- park ----------------------------------------------------------------------------------
@@ -439,25 +415,15 @@ export class StoryPlanning {
     if ((claim !== null || kept.length > 0) && git === undefined) {
       throw new Error(`The office ${office.officeId} has no git attached.`);
     }
-    // A worker host of the parked run that still runs owns the worktree: refuse before anything
+    // A worker host of the parked run that still runs owns the story's box: refuse before anything
     // is journaled, closed or removed, with or without deleteBranch (0020 section 8).
     if (claim !== null) {
       const pid = await this.#liveHostPid(office, claim.runId);
       if (pid !== null) {
         throw new CommandError(
           RUN_HOST_ALIVE,
-          `A worker host of ${story} still runs (pid ${pid}), so its worktree is in use. Drop it again in a moment, once the host has exited.`,
+          `A worker host of ${story} still runs (pid ${pid}), so its box is in use. Drop it again in a moment, once the host has exited.`,
           { story, pid },
-        );
-      }
-    }
-    if (claim !== null && git !== undefined && !args.deleteBranch) {
-      const files = await dirtyFilesOf({ git }, claim);
-      if (files.length > 0) {
-        throw new CommandError(
-          DIRTY_WORKTREE,
-          `The worktree of ${story} has uncommitted or untracked files: ${files.join(", ")}. Commit or remove them, or drop with \`--delete-branch\` to remove the worktree and the branch with them.`,
-          { story, files },
         );
       }
     }
@@ -571,7 +537,7 @@ export class StoryPlanning {
     return pr.number;
   }
 
-  /** Releases the claim: the worktree goes, the branch is kept or deleted as the drop asked. */
+  /** Releases the claim: the branch is kept or deleted as the drop asked. */
   async #release(
     ctx: AsyncCommandContext,
     identity: StoryIdentity,
@@ -588,12 +554,11 @@ export class StoryPlanning {
         office: ctx.office,
         git,
         clock: ctx.clock,
-        ...(this.#deps.slots === undefined ? {} : { slots: this.#deps.slots }),
       },
       claim,
       { deleteBranch: args.deleteBranch },
     );
-    if (!outcome.ok) throw notDropped(identity.story, closedPr, outcome.why, outcome.files);
+    if (!outcome.ok) throw notDropped(identity.story, closedPr, outcome.why);
     if (outcome.remoteProblem !== null) {
       const remote = git.settings.remote;
       const text = `dipo could not delete the remote branch ${claim.branch}: ${outcome.remoteProblem}. Delete it by hand (\`git push ${remote} --delete ${claim.branch}\`).`;
@@ -622,7 +587,7 @@ export class StoryPlanning {
       { officeId: ctx.office.officeId, office: ctx.office, git, clock: ctx.clock },
       released,
     );
-    if (!outcome.ok) throw notDropped(identity.story, closedPr, outcome.why, outcome.files);
+    if (!outcome.ok) throw notDropped(identity.story, closedPr, outcome.why);
     if (outcome.remoteProblem !== null) {
       const remote = git.settings.remote;
       const text = `dipo could not delete a remote branch of ${identity.story}: ${outcome.remoteProblem}. Delete it by hand (\`git push ${remote} --delete <branch>\`).`;
@@ -647,19 +612,10 @@ export class StoryPlanning {
  * The error of a drop whose release or branch deletion failed. After the drop closed the story's PR
  * the error says so, since that PR stays closed while the story is not archived (DIPO-228).
  */
-function notDropped(
-  story: StoryId,
-  closedPr: number | null,
-  why: string,
-  files: readonly string[],
-): CommandError {
+function notDropped(story: StoryId, closedPr: number | null, why: string): CommandError {
   const closed =
     closedPr === null ? "" : `PR #${closedPr} was closed and the story was not archived: `;
-  return new CommandError(
-    files.length > 0 ? DIRTY_WORKTREE : NOT_DROPPABLE,
-    `${story} was not dropped: ${closed}${why}.${files.length > 0 ? ` Files: ${files.join(", ")}.` : ""}`,
-    { story, files: [...files] },
-  );
+  return new CommandError(NOT_DROPPABLE, `${story} was not dropped: ${closed}${why}.`, { story });
 }
 
 /** The base as last fetched: `refs/remotes/<remote>/<base>`, else the local `<base>` branch. */

@@ -2,7 +2,6 @@ import { describe, expect, it } from "bun:test";
 
 import {
   expandWorkspaces,
-  importSpecifiers,
   parseManifest,
   parsePnpmWorkspacePackages,
   parseWorkflow,
@@ -75,24 +74,5 @@ describe("parseWorkflow", () => {
       verify: ["bun test"],
       includeGitignored: [".env"],
     });
-  });
-});
-
-describe("importSpecifiers", () => {
-  it("lists static, re-export and dynamic imports", () => {
-    const text = [
-      'import vue from "@vitejs/plugin-vue";',
-      'import { devPorts, defineAppConfig } from "@couchcade/config/vite";',
-      'export { x } from "./x";',
-      'const y = await import("../y.ts");',
-      'import type { Plugin } from "vite";',
-    ].join("\n");
-    expect(importSpecifiers(text)).toEqual([
-      "@vitejs/plugin-vue",
-      "@couchcade/config/vite",
-      "./x",
-      "../y.ts",
-      "vite",
-    ]);
   });
 });

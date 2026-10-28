@@ -1,9 +1,8 @@
-// The git and Backlog CLI steps of verify and commit in a story worktree (DIPO-49; 0010 section 7,
-// 0014 section 3). `gitStoryOps` is the real one: every step is an office git queue item through
-// the hardened runner, so a worktree whose git links changed is refused (`git.worktreeTampered`).
-// Tests of the flow use a fake; story-git.ci.test.ts runs this one on real git. Every Backlog CLI
-// call runs in dipo's own copy of the story's backlog, never in the worktree (`inStoryBacklog`,
-// 0021 section 14).
+// The git and Backlog CLI steps of a story run at done (DIPO-49; 0010, 0014 section 3), on the
+// story branch in the repository: a story has no worktree. `gitStoryOps` is the real one: every
+// step is an office git queue item through the hardened runner. Tests of the flow use a fake;
+// story-git.ci.test.ts runs this one on real git. Every Backlog CLI call runs in dipo's own copy of
+// the story's backlog (`stories/story-copy.ts`).
 
 import { createHash } from "node:crypto";
 
@@ -11,21 +10,18 @@ import type { OfficeId } from "@dipsaus-orchestrator/contract";
 
 import { viewStory } from "../backlog/fields/write";
 import { type BacklogCli, runBacklog } from "../backlog/runner";
-import type { GitLocation } from "../git/hardened";
 import type { OfficeGit } from "../git/office";
 import { GitError } from "../git/runner";
-import { type PushResult, pushBranch, statusPaths } from "../git/write";
-import { editInStoryBacklog, inStoryBacklog, repoPath } from "../worktree/claim";
-
-import { type BackstopSnapshot, readBackstop } from "./backstop";
+import { type PushResult, pushBranch } from "../git/write";
+import { editInStoryBacklog, inStoryBacklog, repoPath } from "../stories/story-copy";
 
 /** The Backlog.md status a story reaches when verify and commit pass (0012). */
 export const IN_REVIEW_STATUS = "In Review";
 
 export type { PushResult } from "../git/write";
 
-/** The story as the Backlog CLI shows it in its worktree. */
-export interface WorktreeStory {
+/** The story as the Backlog CLI shows it at the tip of its branch. */
+export interface BranchStory {
   /** Repo-relative path of the task file. */
   readonly taskFile: string;
   readonly title: string;
@@ -34,22 +30,22 @@ export interface WorktreeStory {
   readonly criteria: readonly number[];
 }
 
-/** The git steps of a story run on dipo's own copy: the worktree and the branch. */
+/** The git steps of a story run on its branch. */
 export interface StoryGit {
-  snapshot(office: OfficeId, worktree: string): Promise<BackstopSnapshot>;
-  /** Every modified, staged and untracked path (`git status --porcelain=v1 -z --untracked-files=all`). */
-  changedPaths(office: OfficeId, worktree: string): Promise<string[]>;
-  story(office: OfficeId, worktree: string, id: string): Promise<WorktreeStory>;
+  /** The tip of `branch`, or null when it is gone. */
+  tip(office: OfficeId, branch: string): Promise<string | null>;
+  story(office: OfficeId, branch: string, id: string): Promise<BranchStory>;
   /** A file's text at `sha`, or null when the commit has no such file. */
-  showAt(office: OfficeId, worktree: string, sha: string, path: string): Promise<string | null>;
+  showAt(office: OfficeId, sha: string, path: string): Promise<string | null>;
   /**
    * Checks off `criteria` and sets status In Review through the Backlog CLI, then commits the task
-   * file alone as `<ID>: status In Review`. Returns the commit, or null when nothing changed.
+   * file alone on the branch as `<ID>: status In Review`. Returns the commit, or null when nothing
+   * changed.
    */
   markInReview(
     office: OfficeId,
     input: {
-      readonly worktree: string;
+      readonly branch: string;
       readonly story: string;
       readonly taskFile: string;
       readonly criteria: readonly number[];
@@ -57,16 +53,11 @@ export interface StoryGit {
   ): Promise<string | null>;
   /** Pushes the branch without force. */
   push(office: OfficeId, branch: string): Promise<PushResult>;
-  /**
-   * `git diff --stat <from>` of the worktree, uncommitted changes included; with `branch` (a box
-   * run, DIPO-273) the branch tip against `from`, on the repository without a work tree.
-   */
-  diffstat(office: OfficeId, worktree: string, from: string, branch?: string): Promise<string>;
+  /** `git diff --stat <from> <branch tip>`, on the repository. */
+  diffstat(office: OfficeId, branch: string, from: string): Promise<string>;
   /** The paths that differ between `from` and the tip of `branch`, on the repository (DIPO-273). */
   changedFiles(office: OfficeId, branch: string, from: string): Promise<string[]>;
 }
-
-type WorktreeLocation = Extract<GitLocation, { kind: "worktree" }>;
 
 /**
  * Pure: the code tree key (0010 section 7) of `git ls-tree -r -z HEAD` output: sha256 of its
@@ -77,10 +68,6 @@ export function codeTreeKeyOf(tree: string, taskFile: string): string {
     .split("\0")
     .filter((entry) => entry !== "" && entry.slice(entry.indexOf("\t") + 1) !== taskFile);
   return createHash("sha256").update(kept.join("\0")).digest("hex");
-}
-
-function at(git: OfficeGit, worktree: string): WorktreeLocation {
-  return git.worktreeLocation(worktree) as WorktreeLocation;
 }
 
 /** Steps on the office git and the Backlog CLI. */
@@ -94,24 +81,22 @@ export function gitStoryOps(deps: {
     return git;
   };
   return {
-    snapshot: (office, worktree) => readBackstop(gitOf(office), worktree),
-    changedPaths: (office, worktree) => {
+    tip: (office, branch) => {
       const git = gitOf(office);
-      return git.run(async (session) =>
-        statusPaths(
-          await session.ok(at(git, worktree), [
-            "status",
-            "--porcelain=v1",
-            "-z",
-            "--untracked-files=all",
-          ]),
-        ),
-      );
+      return git.run(async (session) => {
+        const found = await session.step(session.repository, [
+          "rev-parse",
+          "--verify",
+          "--quiet",
+          `refs/heads/${branch}^{commit}`,
+        ]);
+        return found.code === 0 ? found.stdout.trim() : null;
+      });
     },
-    story: (office, worktree, id) => {
+    story: (office, branch, id) => {
       const git = gitOf(office);
       return git.run((session) =>
-        inStoryBacklog(git, session, at(git, worktree), id, async (backlog) => {
+        inStoryBacklog(git, session, { branch, story: id }, async (backlog) => {
           const view = await viewStory({ cli: deps.cli, cwd: backlog.cwd, id });
           return {
             taskFile: repoPath(backlog.cwd, view.file),
@@ -122,23 +107,21 @@ export function gitStoryOps(deps: {
         }),
       );
     },
-    showAt: (office, worktree, sha, path) => {
+    showAt: (office, sha, path) => {
       const git = gitOf(office);
       return git.run(async (session) => {
-        const shown = await session.step(at(git, worktree), ["show", `${sha}:${path}`]);
+        const shown = await session.step(session.repository, ["show", `${sha}:${path}`]);
         return shown.code === 0 ? shown.stdout : null;
       });
     },
     markInReview: (office, input) => {
       const git = gitOf(office);
       return git.run(async (session) => {
-        const location = at(git, input.worktree);
-        // Only the task file: anything else staged stays out of this commit.
+        // Only the task file.
         const edit = await editInStoryBacklog(
           git,
           session,
-          location,
-          input.story,
+          input,
           `${input.story}: status ${IN_REVIEW_STATUS}`,
           async (backlog) => {
             await runBacklog(deps.cli, backlog.cwd, [
@@ -165,12 +148,11 @@ export function gitStoryOps(deps: {
       const git = gitOf(office);
       return git.run((session) => pushBranch(session, git.settings.remote, branch));
     },
-    diffstat: (office, worktree, from, branch) => {
+    diffstat: (office, branch, from) => {
       const git = gitOf(office);
       return git.run(async (session) =>
-        (branch === undefined
-          ? await session.ok(at(git, worktree), ["diff", "--stat", from])
-          : await session.ok(session.repository, ["diff", "--stat", from, `refs/heads/${branch}`])
+        (
+          await session.ok(session.repository, ["diff", "--stat", from, `refs/heads/${branch}`])
         ).trimEnd(),
       );
     },

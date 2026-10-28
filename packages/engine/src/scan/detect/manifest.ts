@@ -27,7 +27,6 @@ const CONFIG_FILE =
   /^(?:vite\.config|next\.config|react-router\.config|playwright\.config)\.[^/]+$|^wrangler\.[^/]+$/;
 
 export const isConfigFile = (name: string) => CONFIG_FILE.test(name);
-export const isViteConfig = (name: string) => /^vite\.config\.[^/]+$/.test(name);
 
 export type Manifest = {
   readonly name: string | null;
@@ -81,16 +80,6 @@ export function parseManifest(text: string): Manifest | null {
       engines: parsed["engines"] ?? null,
     },
   };
-}
-
-/** `exports` of a package.json, for resolving a config module import into a workspace package. */
-export function parseExports(text: string): unknown {
-  try {
-    const parsed: unknown = JSON.parse(text);
-    return isRecord(parsed) ? (parsed["exports"] ?? null) : null;
-  } catch {
-    return null;
-  }
 }
 
 const unquote = (value: string) => value.replace(/^(["'])(.*)\1$/, "$2");
@@ -162,18 +151,6 @@ export function parseWorkflow(text: string): Workflow | null {
       .filter((entry) => entry !== ""),
     includeGitignored: strings(worktree["includeGitignored"]),
   };
-}
-
-/** Import and re-export specifiers of a JavaScript or TypeScript module. */
-export function importSpecifiers(text: string): string[] {
-  const out = new Set<string>();
-  const pattern =
-    /\b(?:import|export)\b[^"';]*?\bfrom\s*["']([^"']+)["']|\bimport\s*\(\s*["']([^"']+)["']\s*\)/g;
-  for (const match of text.matchAll(pattern)) {
-    const specifier = match[1] ?? match[2];
-    if (specifier !== undefined) out.add(specifier);
-  }
-  return [...out];
 }
 
 /** Converts a workspace glob (`apps/*`, `packages/**`, `e2e`) to a matcher for directories. */

@@ -21,8 +21,7 @@
 //   session's stdin is closed. The failed round that reaches the run's review round cap parks
 //   `review-blocked` with the blocking findings as detail instead.
 // - Failures (section 4). The reviewer's own turn or minute cap parks `worker-failed` (run
-//   control), and a worktree the review changed `scope-violation` (the finisher's backstop after
-//   each turn). A resume of a park that stopped the reviewer starts a fresh review. A crash, a host
+//   control). A resume of a park that stopped the reviewer starts a fresh review. A crash, a host
 //   lost, or a report still invalid after its correction turn ends the agent `review-crashed` and
 //   starts one fresh session for the same round; a second failure in the round parks
 //   `worker-failed` with the reviewer's last error. The story's budget used up parks
@@ -238,7 +237,7 @@ export class Reviews {
    */
   async start(officeId: OfficeId, run: StoredRun, start: PlaceStart): Promise<boolean> {
     const office = this.#deps.offices.get(officeId);
-    if (office === undefined || run.worktree === null || run.story === null) return false;
+    if (office === undefined || run.branch === null || run.story === null) return false;
     if (run.endKind === DONE_END) return false;
     // A story parked since its start was queued waits for its resume (`pendingReviews`).
     if (run.key !== null && heldByPark(office, run.key)) return false;
@@ -248,8 +247,8 @@ export class Reviews {
     try {
       facts = await this.#deps.story(officeId, run);
       // The head is read once for the round: its tree key, diff, copy and verdict all use it.
-      head = await this.#deps.git.head(officeId, run.worktree);
-      tree = await this.#deps.git.codeTreeKey(officeId, run.worktree, facts.taskFile, head);
+      head = await this.#deps.git.head(officeId, run.branch);
+      tree = await this.#deps.git.codeTreeKey(officeId, facts.taskFile, head);
     } catch (error) {
       this.#deps.warn?.("reading a story before its review failed; the review waits", {
         run: run.runId,
@@ -320,16 +319,16 @@ export class Reviews {
   ): Promise<boolean> {
     const officeId = office.officeId as OfficeId;
     const inForce = this.#deps.offices.config(officeId);
-    if (inForce === undefined || run.worktree === null) return false;
+    if (inForce === undefined || run.branch === null) return false;
     // The prompt budgets the run started with (its configuration snapshot, DIPO-150).
     const config = runConfigOf(office, run, inForce);
     let taskMessage: string;
     let head: string;
     try {
-      head = given ?? (await this.#deps.git.head(officeId, run.worktree));
-      const base = findClaim(office, run.runId)?.baseSha ?? run.startSha ?? "HEAD";
-      const { diff, changes } = await this.#deps.git.diff(officeId, run.worktree, base, head);
-      const size = await this.#deps.git.sizeClass(officeId, run.worktree);
+      head = given ?? (await this.#deps.git.head(officeId, run.branch));
+      const base = findClaim(office, run.runId)?.baseSha ?? run.startSha ?? head;
+      const { diff, changes } = await this.#deps.git.diff(officeId, base, head);
+      const size = await this.#deps.git.sizeClass(officeId, head);
       const previous = this.#lastVerdict(office, run.runId);
       // The worker's test-plan statuses and deviations of its last done report (DIPO-254).
       const done = latestDoneReport(office, run.runId);
@@ -435,7 +434,7 @@ export class Reviews {
           delta: {
             level: "info",
             code: REVIEW_NOTICES.doneOnBase,
-            text: `${story} is Done on the office base, so dipo starts no review for run ${run.runId} and ends the run as done. Reconcile releases its claim once the worktree can go.`,
+            text: `${story} is Done on the office base, so dipo starts no review for run ${run.runId} and ends the run as done. Reconcile releases its claim.`,
           },
         },
       ];
@@ -523,7 +522,7 @@ export class Reviews {
     const office = this.#deps.offices.get(view.office);
     if (office === undefined) return;
     const run = findRun(office, view.runId);
-    if (run === null || run.endedAt !== null || run.worktree === null) return;
+    if (run === null || run.endedAt !== null || run.branch === null) return;
     const agent = view.work.agent;
     let reviewed: { facts: ReviewFacts; commit: string; tree: string };
     try {
@@ -590,7 +589,7 @@ export class Reviews {
 
   /**
    * The facts a report is judged against, at the reviewed commit: the head the session was given
-   * (its copy's, `reviewedCommit`), else the worktree's HEAD. A branch that moved since the session
+   * (its copy's, `reviewedCommit`), else the branch tip. A branch that moved since the session
    * started throws, so the session ends as a crash and a fresh one reviews the new head.
    */
   async #reviewed(
@@ -599,19 +598,17 @@ export class Reviews {
     agent: string,
   ): Promise<{ facts: ReviewFacts; commit: string; tree: string }> {
     const office = this.#deps.offices.get(officeId);
-    const worktree = run.worktree as string;
+    const branch = run.branch as string;
     const story = await this.#deps.story(officeId, run);
+    const now = await this.#deps.git.head(officeId, branch);
     const base =
-      (office === undefined ? null : findClaim(office, run.runId)?.baseSha) ??
-      run.startSha ??
-      "HEAD";
-    const now = await this.#deps.git.head(officeId, worktree);
+      (office === undefined ? null : findClaim(office, run.runId)?.baseSha) ?? run.startSha ?? now;
     const commit = (await this.#deps.sessions.reviewedCommit?.(officeId, run.runId, agent)) ?? now;
     if (commit !== now) {
       throw new Error(`the story branch moved from ${commit} to ${now} during the review`);
     }
-    const tree = await this.#deps.git.codeTreeKey(officeId, worktree, story.taskFile, commit);
-    const { diff } = await this.#deps.git.diff(officeId, worktree, base, commit);
+    const tree = await this.#deps.git.codeTreeKey(officeId, story.taskFile, commit);
+    const { diff } = await this.#deps.git.diff(officeId, base, commit);
     const parsed = parseStoryDiff(diff);
     const files: StoryDiff = {
       files: new Map([...parsed.files].filter(([path]) => path !== story.taskFile)),

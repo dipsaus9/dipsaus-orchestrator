@@ -213,7 +213,7 @@ export function runsWithoutPr(office: OfficeHandle): { runId: RunId; key: StoryK
       `select r.run_id as run_id, r.key as key from runs r
         where r.office_id = $office_id and r.kind = 'story'
           and r.end_kind in ($end, $reviewed)
-          and r.key is not null and r.branch is not null and r.worktree is not null
+          and r.key is not null and r.branch is not null
           and not exists (select 1 from story_prs p
             where p.office_id = r.office_id and p.run_id = r.run_id)
           and exists (select 1 from stories s
@@ -320,7 +320,7 @@ export function runsToPush(office: OfficeHandle): UnpushedRun[] {
           and c.released_at is null
         where r.office_id = $office_id and r.kind = 'story'
           and r.end_kind = $end and r.ended_at is not null
-          and r.key is not null and r.branch is not null and r.worktree is not null
+          and r.key is not null and r.branch is not null
           and (c.pushed_at is null or c.pushed_at < r.ended_at)
           and (c.no_remote_at is null or c.no_remote_at < r.ended_at)
           and exists (select 1 from stories s

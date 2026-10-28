@@ -99,7 +99,6 @@ import type { BoxVerifyResult } from "../box/verify";
 import { recordBranchPush } from "../story-pr/records";
 import { findClaim } from "../worktree/records";
 
-import type { BackstopSnapshot } from "./backstop";
 import { runBudgetFacts } from "./budget-line";
 import { runConfigOf } from "./config-snapshot";
 import type { FeedbackSource } from "./feedback";
@@ -253,8 +252,6 @@ export interface TurnContext {
    * with the run's end.
    */
   readonly capped?: FiredCap | null;
-  /** The run-start snapshot run control tracks; a box run is checked by its parts instead. */
-  readonly snapshot: BackstopSnapshot | null;
   /** True while no other decision (a cap, a stop) ended the run. */
   readonly live: () => boolean;
   /** Claims the run's end before the commit steps; false when another decision came first. */
@@ -347,7 +344,7 @@ export class VerifyCommit implements RunFinisher {
 
   async afterTurn(ctx: TurnContext): Promise<TurnDecision> {
     const { run } = ctx;
-    if (run.kind !== "story" || run.worktree === null || run.story === null) {
+    if (run.kind !== "story" || run.branch === null || run.story === null) {
       return { kind: "continue" };
     }
     if (ctx.report?.status !== "done" || !ctx.live()) return { kind: "continue" };
@@ -530,16 +527,14 @@ export class VerifyCommit implements RunFinisher {
     notes: readonly WorkerDecisionNote[],
   ): Promise<{ misses: { note: WorkerDecisionNote; miss: NoteMiss }[] }> {
     const misses: { note: WorkerDecisionNote; miss: NoteMiss }[] = [];
-    if (notes.length === 0 || run.key === null || run.worktree === null) return { misses };
+    if (notes.length === 0 || run.key === null) return { misses };
     const ref = run.branch !== null ? `refs/heads/${run.branch}` : run.startSha;
     const passed: WorkerDecisionNote[] = [];
     for (const note of notes) {
       const text =
         ref === null
           ? null
-          : await this.#deps.story
-              .showAt(office.officeId, run.worktree, ref, note.file)
-              .catch(() => null);
+          : await this.#deps.story.showAt(office.officeId, ref, note.file).catch(() => null);
       const miss = noteMiss(note, text);
       if (miss === null) passed.push(note);
       else misses.push({ note, miss });
@@ -686,7 +681,7 @@ export class VerifyCommit implements RunFinisher {
 
     let view: Awaited<ReturnType<StoryGit["story"]>>;
     try {
-      view = await this.#deps.story.story(ctx.office.officeId, run.worktree as string, run.story!);
+      view = await this.#deps.story.story(ctx.office.officeId, run.branch as string, run.story!);
     } catch (error) {
       if (isTaskFieldError(error)) return scopePark(error.message);
       throw error;
@@ -718,10 +713,9 @@ export class VerifyCommit implements RunFinisher {
     const { run } = ctx;
     if (base === null || run.branch === null) return;
     const officeId = ctx.office.officeId;
-    const worktree = run.worktree as string;
     const baseSha = findClaim(ctx.office, run.runId)?.baseSha ?? run.startSha;
     const show = (sha: string) =>
-      this.#deps.story.showAt(officeId, worktree, sha, "package.json").catch(() => null);
+      this.#deps.story.showAt(officeId, sha, "package.json").catch(() => null);
     const baseScripts = baseSha === null ? {} : scriptsOf(await show(baseSha));
     const branchScripts = scriptsOf(await show(`refs/heads/${run.branch}`));
     const changes = gateChanges({ baseScripts, branchScripts, base, branch: base });
@@ -752,15 +746,10 @@ export class VerifyCommit implements RunFinisher {
   }
 
   async #diffstat(office: OfficeId, run: StoredRun): Promise<string> {
-    if (run.worktree === null || run.startSha === null) return "";
+    if (run.branch === null || run.startSha === null) return "";
     try {
-      // The run's changes are its part commits on the branch; its Mac worktree holds none of them.
-      return await this.#deps.story.diffstat(
-        office,
-        run.worktree,
-        run.startSha,
-        run.branch ?? undefined,
-      );
+      // The run's changes are its part commits on the branch.
+      return await this.#deps.story.diffstat(office, run.branch, run.startSha);
     } catch (error) {
       this.#deps.warn?.("the run diffstat could not be read", {
         run: run.runId,
@@ -781,7 +770,7 @@ export class VerifyCommit implements RunFinisher {
   ): Promise<TurnDecision> {
     const { run } = ctx;
     const officeId = ctx.office.officeId;
-    const worktree = run.worktree as string;
+    const branch = run.branch as string;
     const story = run.story as string;
     const git = this.#deps.story;
     try {
@@ -790,7 +779,7 @@ export class VerifyCommit implements RunFinisher {
         ...new Set(input.report.criteria.filter((c) => c.met && known.has(c.n)).map((c) => c.n)),
       ].toSorted((a, b) => a - b);
       await git.markInReview(officeId, {
-        worktree,
+        branch,
         story,
         taskFile: input.view.taskFile,
         criteria: met,

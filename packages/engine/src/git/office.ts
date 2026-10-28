@@ -29,7 +29,6 @@ import {
   runGitStepOk,
   type GitStepRunner,
 } from "./runner";
-import { changedLinks, type WorktreeSnapshot, worktreeTampered } from "./snapshot";
 
 const BASE_CHECKOUT: GitStepOptions = { config: BASE_CHECKOUT_CONFIG, env: BASE_CHECKOUT_ENV };
 
@@ -104,8 +103,6 @@ export class OfficeGit {
   readonly #clock: Clock;
   #settings: GitSettings;
   #fetch: FetchState | null = null;
-  /** Story worktrees with a run-start snapshot, by canonical path (0008 section 2). */
-  readonly #pins = new Map<string, WorktreeSnapshot>();
 
   constructor(options: OfficeGitOptions) {
     this.officeId = options.officeId;
@@ -145,54 +142,11 @@ export class OfficeGit {
   run<T>(item: (git: GitSession) => Promise<T>): Promise<T> {
     const session: GitSession = {
       repository: this.repository,
-      step: async (location, args, options) => {
-        this.#assertUntampered(location);
-        return runGitStep(this.#runner, location, args, options);
-      },
-      ok: async (location, args, options) => {
-        this.#assertUntampered(location);
-        return runGitStepOk(this.#runner, location, args, options);
-      },
+      step: (location, args, options) => runGitStep(this.#runner, location, args, options),
+      ok: (location, args, options) => runGitStepOk(this.#runner, location, args, options),
       base: () => this.resolveBaseIn(session),
     };
     return this.queue.run(() => item(session));
-  }
-
-  // Run-start snapshots of story worktrees (0008 section 2, "Engine git calls")
-
-  /**
-   * Records the snapshot of a story worktree's git links. From now on every engine git call in
-   * that worktree first compares the links with it and refuses with `git.worktreeTampered` when
-   * one differs.
-   */
-  pinWorktree(snapshot: WorktreeSnapshot): void {
-    this.#pins.set(canonicalFuturePath(snapshot.path), snapshot);
-  }
-
-  /** Forgets the snapshot of the worktree at `path`, when its claim ends. */
-  unpinWorktree(path: string): void {
-    this.#pins.delete(canonicalFuturePath(path));
-  }
-
-  /** The snapshot recorded for the worktree at `path`, or null. */
-  pinnedWorktree(path: string): WorktreeSnapshot | null {
-    return this.#pins.get(canonicalFuturePath(path)) ?? null;
-  }
-
-  /** Throws `git.worktreeTampered` when `location` is a pinned worktree whose links changed. */
-  #assertUntampered(location: GitLocation): void {
-    if (location.kind !== "worktree" || this.#pins.size === 0) return;
-    const pin = this.pinnedWorktree(location.workTree);
-    if (pin === null) return;
-    const changed = changedLinks(pin);
-    // A location whose GIT_DIR is not the recorded admin dir is refused like a changed link.
-    if (
-      !changed.includes("gitdir") &&
-      canonicalFuturePath(location.gitDir) !== canonicalFuturePath(pin.adminDir)
-    ) {
-      changed.push("gitdir");
-    }
-    if (changed.length > 0) throw worktreeTampered(pin, changed);
   }
 
   // Base and remote
@@ -374,13 +328,6 @@ export class OfficeGit {
    * changed runs no git and throws `git.worktreeChanged`.
    */
   worktreeLocation(path: string): GitLocation {
-    const pin = this.pinnedWorktree(path);
-    if (pin !== null) {
-      // A pinned worktree's GIT_DIR comes from its snapshot, never from its current links.
-      const changed = changedLinks(pin);
-      if (changed.length > 0) throw worktreeTampered(pin, changed);
-      return { kind: "worktree", commonDir: this.commonDir, gitDir: pin.adminDir, workTree: path };
-    }
     const gitDir = this.adminDirOf(path);
     if (gitDir === null) {
       throw new GitError(

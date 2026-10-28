@@ -22,10 +22,9 @@
 //   worker at once (stdin closed, SIGTERM now, SIGKILL after 30 s) and parks `worker-failed` with
 //   an `engine.notice` `run.initRejected` (end kind `init-rejected`).
 // - `stop` `start-failed`: a start failure (startup failure, authentication, billing, account on
-//   hold) holds the adapter (DIPO-43's hold) and raises `run.startFailed`. When the worktree holds
-//   no work the claim is released as DIPO-74 does (worktree removed, branch kept, story Ready);
-//   when it holds commits past the claim or a dirty tree, the story parks `worker-failed` and
-//   everything is kept (0008 amendment of 2026-10-14).
+//   hold) holds the adapter (DIPO-43's hold) and raises `run.startFailed`. When the branch holds
+//   no work the claim is released as DIPO-74 does (branch kept, story Ready); when it holds
+//   commits past the claim, the story parks `worker-failed` and everything is kept (0008).
 //   A start the adapter refuses at its first line (`startRefused`, DIPO-108: a plugin the office
 //   does not allow) stores the same intent but stops the worker at once, as a rejected init does
 //   (stdin closed, SIGTERM now, SIGKILL after 30 s), and never parks for it.

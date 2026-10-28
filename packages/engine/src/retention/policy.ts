@@ -3,7 +3,7 @@
 // without a decision on how long its rows are kept.
 //
 // D 24 hours, R the short tier (`retention.shortDays`), S the state tier (`retention.stateDays`),
-// T until worktree teardown (deleted by the teardown, not by age), P until `office purge`.
+// T until the claim ends (deleted by its release, not by age), P until `office purge`.
 
 export type RetentionTier = "D" | "R" | "S" | "T" | "P";
 
@@ -37,8 +37,9 @@ export const TABLE_RETENTION: Readonly<Record<string, TablePolicy>> = {
   stories: { tier: "P", rule: "kept until purge" },
   story_aliases: { tier: "P", rule: "kept until purge" },
   backlog_mirror: { tier: "P", rule: "overwritten in place, kept until purge" },
-  context_packs: { tier: "T", rule: "removed at worktree teardown" },
-  worker_notes: { tier: "T", rule: "removed at worktree teardown" },
+  leftover_worktrees: { tier: "P", rule: "written again at each office load" },
+  context_packs: { tier: "T", rule: "removed when the claim ends" },
+  worker_notes: { tier: "T", rule: "removed when the claim ends" },
   prompt_parts: {
     tier: "S",
     rule: "recorded more than stateDays ago, once no agent of the run is running",
@@ -53,7 +54,6 @@ export const TABLE_RETENTION: Readonly<Record<string, TablePolicy>> = {
   },
   run_capabilities: { tier: "P", rule: "with its profile" },
   run_env_files: { tier: "P", rule: "with its profile" },
-  run_ports: { tier: "P", rule: "with its profile" },
   run_extra_scripts: { tier: "P", rule: "with its profile" },
   // DIPO-310: the maintainer's confirmations and the pending proposals lay over every profile.
   capability_confirmations: { tier: "P", rule: "kept until purge: the maintainer's confirmations" },

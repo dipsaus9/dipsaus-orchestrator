@@ -1,14 +1,14 @@
 // Starting the worker of a claimed run (DIPO-74; 0010 sections 7 and 8, 0008 sections 2, 7 and 9,
 // 0014 section 1, 0006 decision 8). `work.run` (DIPO-48) claims; this file does the rest:
 //
-// 1. `prepare` is the claim's setup (`ClaimRequest.setup`), so it runs after the worktree, its lock
-//    and the claim record and before the claim commit. It runs DIPO-39's setup (files, port slot,
-//    install), renders the system file and the task message (DIPO-47) into the run directory,
-//    builds the `WorkerSpec` from the tier (model, effort, caps) with an engine-made session id,
-//    and plans the launch through the adapter's launch checks (DIPO-43). A failed setup, a
-//    refused launch check (the adapter hold stays) or a plan that refuses a path fails the setup,
-//    so the claim is rolled back as for a setup failure: worktree removed, a new branch deleted at
-//    its start, the story still Ready, a `pickupCheckFailed` skip. A refused path also puts a
+// 1. `prepare` is the claim's setup (`ClaimRequest.setup`), so it runs after the branch and the
+//    claim record and before the claim commit. It renders the system file and the task message
+//    (DIPO-47) into the run directory, from the claim's start commit read from git objects (a story
+//    has no worktree, 0010), builds the `WorkerSpec` from the tier (model, effort, caps) with an
+//    engine-made session id, makes the box, and plans the launch through the adapter's launch
+//    checks (DIPO-43). A refused launch check (the adapter hold stays) or a plan that refuses a
+//    path fails the setup, so the claim is rolled back as for a setup failure: a new branch deleted
+//    at its start, the story still Ready, a `pickupCheckFailed` skip. A refused path also puts a
 //    `run.planRefused` notice on the office that names the path and the character.
 // 2. `start` runs after the claim commit and the run row: it starts the worker host with the plan,
 //    starts ingestion of the host's events (DIPO-45) and records the `build` phase with
@@ -19,8 +19,8 @@
 // Every developer runs in its story's box (DIPO-240, 0021): with box workers (`RunLauncherDeps.boxes`)
 // `prepare` makes the run's box after the prompts and before the worker's launch checks, and
 // prepares it with the office's packages (`BoxLifetime.make`, `box/lifetime.ts`): the image, the box
-// and the code at the claim's start commit, the run profile's install in the box with the run
-// environment for `/work` and the box's web route through Safe-Chain, then `/work` compared with the
+// and the code at the claim's start commit, the run profile's install in the box with the box's web
+// route through Safe-Chain, then `/work` compared with the
 // start commit on dipo's own copy. The run directory then records the box, so the worker port plans
 // every developer session of the run inside it. A failed step, or a setup that fails after the box
 // exists, deletes the box and rolls the claim back with the reason in its notice. Without box
@@ -52,7 +52,7 @@ import type { NewEntry } from "../changelog/log";
 import type { AsyncCommandContext } from "../commands/registry";
 import type { OfficeConfig } from "../config";
 import type { Workspace } from "../context/types";
-import { gitWorkspace } from "../context/workspace";
+import { commitWorkspace, gitWorkspace } from "../context/workspace";
 import type { OfficeHandle } from "../db/office";
 import type { GitLocation } from "../git/hardened";
 import type { OfficeGit } from "../git/office";
@@ -76,11 +76,9 @@ import { BoxLifetime, type RunBoxes } from "../box/lifetime";
 import type { RunProfile } from "../scan/detect";
 import type { ClaimSetupDone, ClaimSetupFailed } from "../worktree/claim";
 import type { ClaimRecord } from "../worktree/records";
-import type { SetupOutcome } from "../worktree/setup";
 
 import { withWorkViews } from "../views/work";
 
-import type { BackstopSnapshot } from "./backstop";
 import { markPhase } from "./markers";
 import { type RunPrompts, renderRunPrompts, sessionUuid, SYSTEM_FILE } from "./prompts";
 import { runTempDir, SHORT_TEMP_PREFIX, shortTempDir } from "./temp-dirs";
@@ -176,8 +174,6 @@ export interface RunLauncherDeps {
   readonly worker: WorkerPort;
   /** The office's git, attached by its load step. */
   readonly git: (office: OfficeId) => OfficeGit | undefined;
-  /** DIPO-39's setup of a claimed worktree, with the daemon's slots, step runner and profile. */
-  readonly setup: (office: OfficeId, claim: ClaimRecord) => Promise<SetupOutcome>;
   /** The views of `ids` on the office's base, in that order; ids it cannot read are left out. */
   readonly dependencies: (
     office: OfficeId,
@@ -201,16 +197,18 @@ export interface RunLauncherDeps {
         work: WorkRef;
         caps: Caps;
         startedAt: number;
-        snapshot?: BackstopSnapshot | null;
       },
     ): void;
   };
-  /** Ends a live claim whose worker did not start: worktree removed, branch kept as released. */
+  /** Ends a live claim whose worker did not start: the branch kept as released. */
   readonly release: (office: OfficeId, claim: ClaimRecord, reason: string) => Promise<void>;
   /** Logs what the launcher could not do (the daemon's logger); nothing by default. */
   readonly warn?: (message: string, fields: Readonly<Record<string, unknown>>) => void;
-  /** The checkout the context pack reads; `gitWorkspace` on the office git by default. */
-  readonly workspace?: (git: OfficeGit, path: string) => Workspace;
+  /**
+   * The code the context pack reads: the claim's start commit (`commitWorkspace`) for a run, the
+   * `_base` checkout (`gitWorkspace`) for the dry run; read from the office git by default.
+   */
+  readonly workspace?: (git: OfficeGit, at: WorkspaceAt) => Workspace;
   /**
    * The box workers (DIPO-271, DIPO-240): with them every run's developer works in its own box,
    * made and prepared here (`BoxLifetime.make`). Without them no box is made.
@@ -223,11 +221,15 @@ export interface RunLauncherDeps {
   readonly profile?: (office: OfficeId) => RunProfile | null;
 }
 
-/** A `Workspace` over an engine worktree (the story worktree or `_base`). */
-function defaultWorkspace(git: OfficeGit, path: string): Workspace {
+/** Where a context pack reads the code: a commit, or the `_base` checkout at `path`. */
+export type WorkspaceAt = { readonly commit: string } | { readonly checkout: string };
+
+/** A `Workspace` over a commit's git objects, or over the `_base` checkout. */
+export function defaultWorkspace(git: OfficeGit, at: WorkspaceAt): Workspace {
+  if ("commit" in at) return commitWorkspace({ git, commit: at.commit });
   return gitWorkspace({
     git,
-    location: git.worktreeLocation(path) as Extract<GitLocation, { kind: "worktree" }>,
+    location: git.worktreeLocation(at.checkout) as Extract<GitLocation, { kind: "worktree" }>,
   });
 }
 
@@ -247,8 +249,6 @@ export interface RunFacts {
 /** A setup that passed with a launch plan the host may start. */
 export interface PreparedRun extends ClaimSetupDone {
   readonly ok: true;
-  /** The port slot setup took; null when setup takes none. */
-  readonly slot: number | null;
   readonly spec: WorkerSpec;
   readonly plan: LaunchPlan;
   readonly paths: RunLaunchPaths;
@@ -273,18 +273,23 @@ export function systemHashOf(text: string): string {
   return createHash("sha256").update(text).digest("hex");
 }
 
-/** The paths of a run; the run directory sits in `<git-common-dir>/dipo/runs`. */
+/**
+ * The paths of a run; the run directory sits in `<git-common-dir>/dipo/runs`. A story run's session
+ * folder on the Mac is its run directory: its code is in the box (0008). A scan session passes its
+ * own `workdir`.
+ */
 export function runLaunchPaths(
   git: OfficeGit,
   dirs: { readonly runtimeDir: string; readonly tmpRoot: string },
-  worktree: string,
   runId: string,
+  workdir?: string,
 ): RunLaunchPaths & { officeDir: string } {
   const officeDir = officeDirectory(git.commonDir);
+  const runDir = runDirectory(officeDir, runId);
   return {
-    workdir: worktree,
+    workdir: workdir ?? runDir,
     mainCheckout: git.mainWorktree,
-    runDir: runDirectory(officeDir, runId),
+    runDir,
     hostSocket: hostSocketPath(dirs.runtimeDir, runId),
     tmpDir: runTempDir(dirs.tmpRoot, runId),
     shortTmpDir: shortTempDir(dirs.tmpRoot, runId),
@@ -367,7 +372,7 @@ export function planRefusedText(story: string, error: PlanError): string {
     refused.character === undefined
       ? `${error.message}`
       : `it holds the character ${JSON.stringify(refused.character)}, which has a meaning in Claude Code permission rules`;
-  return `${story} was not started: the launch plan refused the path ${refused.path}: ${why}. Move the checkout, or set worktree.root in .dipo/office.yaml, to a path without it, outside the home directory itself and not at /.`;
+  return `${story} was not started: the launch plan refused the path ${refused.path}: ${why}. Move the checkout to a path without it, outside the home directory itself and not at /.`;
 }
 
 export class RunLauncher {
@@ -381,8 +386,8 @@ export class RunLauncher {
     return this.#deps.worker.id;
   }
 
-  #workspace(git: OfficeGit, path: string): Workspace {
-    return (this.#deps.workspace ?? defaultWorkspace)(git, path);
+  #workspace(git: OfficeGit, at: WorkspaceAt): Workspace {
+    return (this.#deps.workspace ?? defaultWorkspace)(git, at);
   }
 
   #git(office: OfficeId): OfficeGit {
@@ -392,8 +397,8 @@ export class RunLauncher {
   }
 
   /** The run's paths; the run directory sits in `<git-common-dir>/dipo/runs`. */
-  #paths(git: OfficeGit, worktree: string, runId: string): RunLaunchPaths & { officeDir: string } {
-    return runLaunchPaths(git, this.#deps, worktree, runId);
+  #paths(git: OfficeGit, runId: string): RunLaunchPaths & { officeDir: string } {
+    return runLaunchPaths(git, this.#deps, runId);
   }
 
   #spec(
@@ -414,18 +419,16 @@ export class RunLauncher {
   }
 
   /**
-   * The claim's setup: DIPO-39's setup, the prompts and the launch checks. Never throws for a
-   * setup or launch failure; it returns `ClaimSetupFailed`, and `claimStory` rolls back.
+   * The claim's setup: the prompts, the box and the launch checks. Never throws for a setup or
+   * launch failure; it returns `ClaimSetupFailed`, and `claimStory` rolls back.
    */
   async prepare(
     facts: RunFacts,
     claim: ClaimRecord,
     notify: (entry: NewEntry) => void,
   ): Promise<PreparedRun | ClaimSetupFailed> {
-    const setup = await this.#deps.setup(facts.office, claim);
-    if (!setup.ok) return setup;
     const git = this.#git(facts.office);
-    const paths = this.#paths(git, claim.worktree, facts.runId);
+    const paths = this.#paths(git, facts.runId);
     const cleanup = (): void => {
       rmSync(paths.runDir, { recursive: true, force: true });
     };
@@ -444,10 +447,9 @@ export class RunLauncher {
       if (boxMade) await boxes?.discard(facts.runId);
     };
     const fail = async (reason: string): Promise<ClaimSetupFailed> => {
-      setup.release();
       await discardBox();
       cleanup();
-      return { ok: false, reason, log: [...setup.log, `launch: ${reason}`].join("\n") };
+      return { ok: false, reason, log: `launch: ${reason}` };
     };
     let spec: WorkerSpec;
     let systemHash: string;
@@ -464,7 +466,7 @@ export class RunLauncher {
         fields: facts.fields,
         dependencies,
         taskFile: facts.taskFile,
-        workspace: this.#workspace(git, claim.worktree),
+        workspace: this.#workspace(git, { commit: claim.startSha }),
         baseSha: claim.baseSha,
         config: facts.config,
         // A box worker reads the box contract (DIPO-272).
@@ -513,7 +515,6 @@ export class RunLauncher {
           story: claim.story,
           branch: claim.branch,
           startSha: claim.startSha,
-          slot: setup.slot,
           git,
           config: facts.config,
         },
@@ -548,7 +549,6 @@ export class RunLauncher {
     if (!prepared.ok) return fail(`the launch checks refused it: ${holdMessage(prepared.hold)}`);
     return {
       ok: true,
-      slot: setup.slot,
       spec,
       plan: prepared.plan,
       paths,
@@ -558,7 +558,6 @@ export class RunLauncher {
       parts,
       texts,
       release: () => {
-        setup.release();
         void discardBox().finally(cleanup);
       },
     };
@@ -581,8 +580,6 @@ export class RunLauncher {
   ): Promise<StartOutcome> {
     const { facts, prepared, claim, work } = run;
     const handle = ctx.office;
-    // No backstop snapshot: the developer works in its box, never in the story's Mac worktree, and
-    // each part is scanned instead (DIPO-240, 0021 section 8).
     let host: LaunchedHost;
     try {
       host = await this.#deps.hosts.start(handle, {
@@ -593,7 +590,7 @@ export class RunLauncher {
       });
     } catch (error) {
       const reason = `the worker host did not start: ${messageOf(error)}`;
-      let released = `dipo removed the worktree and kept the branch ${claim.branch} for the next run`;
+      let released = `dipo kept the branch ${claim.branch} for the next run`;
       try {
         await this.#deps.release(facts.office, claim, START_FAILED_END);
       } catch (releaseError) {
@@ -603,7 +600,7 @@ export class RunLauncher {
           story: claim.story,
           reason: why,
         });
-        released = `releasing its claim also failed (${why}), so the worktree ${claim.worktree} and the claim may still be there; check them`;
+        released = `releasing its claim also failed (${why}), so the claim may still be there; check it`;
       }
       prepared.release();
       ctx.commit((): NewEntry[] => [
@@ -624,7 +621,6 @@ export class RunLauncher {
       work,
       caps: capsOf(facts.caps),
       startedAt: ctx.clock.now(),
-      snapshot: null,
     });
     const adapter = this.#deps.worker.adapter(prepared.paths, facts.config);
     this.#deps.ingest.start(handle, host, {
@@ -655,8 +651,8 @@ export class RunLauncher {
   }
 
   /**
-   * The dry run's launch for a story on `_base`: branch, worktree, the plan with placeholders for
-   * the run, and the prompts. Writes nothing; throws `PlanError` when the plan refuses.
+   * The dry run's launch for a story on `_base`: branch, the plan with placeholders for the run,
+   * and the prompts. Writes nothing; throws `PlanError` when the plan refuses.
    */
   async preview(input: {
     readonly office: OfficeId;
@@ -670,9 +666,8 @@ export class RunLauncher {
     readonly base: { readonly path: string };
   }): Promise<WorkerLaunchPreview> {
     const git = this.#git(input.office);
-    const worktree = join(git.worktreeRoot(), input.story);
     // The short temp root's name is a hash of the run id, so the dry run shows a placeholder.
-    const runPaths = this.#paths(git, worktree, PREVIEW_RUN);
+    const runPaths = this.#paths(git, PREVIEW_RUN);
     const paths = {
       ...runPaths,
       shortTmpDir: join(dirname(runPaths.shortTmpDir), `${SHORT_TEMP_PREFIX}<hash>`),
@@ -682,7 +677,7 @@ export class RunLauncher {
       input.office,
       input.view.dependencies.map((dependency) => dependency.id),
     );
-    const workspace = this.#workspace(git, input.base.path);
+    const workspace = this.#workspace(git, { checkout: input.base.path });
     const prompts = await renderRunPrompts({
       view: input.view,
       fields: input.fields,
@@ -713,7 +708,6 @@ export class RunLauncher {
     return {
       adapter: this.#deps.worker.id,
       branch: input.branch,
-      worktree,
       runDir: paths.runDir,
       cwd: plan.cwd,
       argv: [...plan.argv],

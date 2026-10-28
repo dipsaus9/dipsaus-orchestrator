@@ -33,8 +33,7 @@ import type { OfficeConfig } from "../config";
 import { BASE_CHECKOUT_ENV } from "../git/hardened";
 import type { OfficeGit } from "../git/office";
 import type { RunProfile } from "../scan/detect";
-import { buildRunEnv } from "../worktree/run-env";
-import { BOX_WORKDIR } from "./code";
+
 import { cleanDoorText } from "./door";
 import { partNumber } from "./parts";
 import { BoxError } from "./port";
@@ -222,8 +221,6 @@ export interface RunBoxRequest {
   readonly story: string;
   readonly branch: string;
   readonly startSha: string;
-  /** The run's port slot, for the run environment of the install; 0 when it has none. */
-  readonly slot: number | null;
   readonly git: OfficeGit;
   readonly config: OfficeConfig;
 }
@@ -251,26 +248,17 @@ export type BoxEnsured =
   | { readonly kind: "rebuilt"; readonly had: "gone" | "none"; readonly parts: number }
   | { readonly kind: "failed"; readonly reason: string };
 
-/** The dev port of the root package, else the first the scan found; null when none. */
-function devPortOf(profile: RunProfile | null): number | null {
-  const ports = profile?.devPorts ?? [];
-  return (ports.find((port) => port.dir === ".") ?? ports[0])?.port ?? null;
-}
-
 /**
  * The office's install for a box (DIPO-294), also run again after a catch-up changed a lockfile
- * (DIPO-149): its commands, environment and deadline; `refused` with why it cannot run; null when
+ * (DIPO-149): its commands and deadline; `refused` with why it cannot run; null when
  * the run profile has no install.
  */
 export function boxInstallInput(input: {
   readonly profile: RunProfile;
   readonly config: OfficeConfig;
-  readonly story: string;
-  readonly slot: number | null;
 }):
   | {
       readonly commands: readonly (readonly string[])[];
-      readonly env: Readonly<Record<string, string>>;
       readonly timeoutMs: number;
     }
   | { readonly refused: string }
@@ -285,36 +273,23 @@ export function boxInstallInput(input: {
       refused: `install runs in ${install.value.cwd}, but the box runs it only at the root of /work`,
     };
   }
-  const { config } = input;
-  const env = buildRunEnv({
-    slot: input.slot ?? 0,
-    stride: config.worktree.ports.stride,
-    story: input.story,
-    worktree: BOX_WORKDIR,
-    named: config.worktree.ports.named,
-    devPort: devPortOf(input.profile),
-    env: config.worktree.env,
-  });
-  const minutes = config.timeouts.scriptMinutes["install"] ?? BOX_INSTALL_MINUTES_DEFAULT;
-  return { commands: install.value.commands, env, timeoutMs: minutes * 60_000 };
+  const minutes = input.config.timeouts.scriptMinutes["install"] ?? BOX_INSTALL_MINUTES_DEFAULT;
+  return { commands: install.value.commands, timeoutMs: minutes * 60_000 };
 }
 
 /**
  * The office's verify for a box at done (0002, DIPO-346): its commands, the repo-relative folder
- * they run in, the run environment the install gets, and the deadline of
+ * they run in, and the deadline of
  * `timeouts.scriptMinutes.verify`; `refused` when the run profile's verify is in conflict; null
  * when the profile names none.
  */
 export function boxVerifyInput(input: {
   readonly profile: RunProfile;
   readonly config: OfficeConfig;
-  readonly story: string;
-  readonly slot: number | null;
 }):
   | {
       readonly commands: readonly (readonly string[])[];
       readonly cwd: string;
-      readonly env: Readonly<Record<string, string>>;
       readonly timeoutMs: number;
     }
   | { readonly refused: string }
@@ -324,23 +299,8 @@ export function boxVerifyInput(input: {
     return { refused: "the run profile's verify is in conflict; confirm one in the office" };
   }
   if (verify.status !== "resolved" || verify.value.commands.length === 0) return null;
-  const { config } = input;
-  const env = buildRunEnv({
-    slot: input.slot ?? 0,
-    stride: config.worktree.ports.stride,
-    story: input.story,
-    worktree: BOX_WORKDIR,
-    named: config.worktree.ports.named,
-    devPort: devPortOf(input.profile),
-    env: config.worktree.env,
-  });
-  const minutes = config.timeouts.scriptMinutes["verify"] ?? BOX_VERIFY_MINUTES_DEFAULT;
-  return {
-    commands: verify.value.commands,
-    cwd: verify.value.cwd,
-    env,
-    timeoutMs: minutes * 60_000,
-  };
+  const minutes = input.config.timeouts.scriptMinutes["verify"] ?? BOX_VERIFY_MINUTES_DEFAULT;
+  return { commands: verify.value.commands, cwd: verify.value.cwd, timeoutMs: minutes * 60_000 };
 }
 
 export class BoxLifetime {
@@ -439,12 +399,7 @@ export class BoxLifetime {
     }
     const profile = this.#deps.profile(request.office);
     if (profile === null) return "the office has no run profile yet; rescan the office";
-    const install = boxInstallInput({
-      profile,
-      config: request.config,
-      story: request.story,
-      slot: request.slot,
-    });
+    const install = boxInstallInput({ profile, config: request.config });
     if (install !== null && "refused" in install) return install.refused;
     if (install !== null) {
       const installed = await boxes.install({ runId: request.runId, ...install });

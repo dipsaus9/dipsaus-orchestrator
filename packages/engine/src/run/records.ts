@@ -20,7 +20,6 @@ import { canonicalJson } from "../config/merge";
 import type { OfficeHandle } from "../db/office";
 import { finalizeRunAgents } from "../ingest/usage";
 
-import type { BackstopSnapshot } from "./backstop";
 import { runTotals } from "./caps";
 import { DONE_KIND, IN_REVIEW_KIND, nextRunState, type RunEvent, type RunState } from "./lifecycle";
 
@@ -37,8 +36,6 @@ export interface NewRun {
   readonly model: string;
   readonly startSha: string | null;
   readonly branch: string | null;
-  readonly worktree: string | null;
-  readonly slot: number | null;
   readonly budgetUnit: string;
   readonly budgetLimit: number;
   readonly loopCap: number;
@@ -96,8 +93,6 @@ interface RunRow {
   model: string;
   start_sha: string | null;
   branch: string | null;
-  worktree: string | null;
-  slot: number | null;
   budget_unit: string;
   budget_limit: number;
   loop_cap: number;
@@ -122,8 +117,7 @@ interface RunRow {
   waiting_since: number | null;
 }
 
-const COLUMNS = `run_id, kind, key, story_id, tier, role, model, start_sha, branch, worktree, slot,
-  budget_unit, budget_limit, loop_cap, max_turns, max_minutes, review_round_cap, ci_cap,
+const COLUMNS = `run_id, kind, key, story_id, tier, role, model, start_sha, branch, budget_unit, budget_limit, loop_cap, max_turns, max_minutes, review_round_cap, ci_cap,
   conflict_cap, review_max_turns, review_max_minutes, review_max_tokens, config_hash, override_keys,
   run_profile_id, started_at, scope, gate_changes, ended_at, end_kind, parked_ms, waiting,
   waiting_since`;
@@ -149,8 +143,6 @@ function toRecord(row: RunRow): StoredRun {
     model: row.model,
     startSha: row.start_sha,
     branch: row.branch,
-    worktree: row.worktree,
-    slot: row.slot,
     budgetUnit: row.budget_unit,
     budgetLimit: row.budget_limit,
     loopCap: row.loop_cap,
@@ -182,7 +174,7 @@ export function insertRun(office: OfficeHandle, run: NewRun): void {
     `insert into runs (office_id, ${INSERTED}, ended_at, end_kind, parked_ms, waiting,
        waiting_since)
      values ($office_id, $run_id, $kind, $key, $story_id, $tier, $role, $model, $start_sha,
-       $branch, $worktree, $slot, $budget_unit, $budget_limit, $loop_cap, $max_turns,
+       $branch, $budget_unit, $budget_limit, $loop_cap, $max_turns,
        $max_minutes, $review_round_cap, $ci_cap, $conflict_cap, $review_max_turns,
        $review_max_minutes, $review_max_tokens, $config_hash, $override_keys, $run_profile_id,
        $started_at, $scope, $ended_at, $end_kind, $parked_ms, $waiting, $waiting_since)`,
@@ -201,8 +193,6 @@ export function insertRun(office: OfficeHandle, run: NewRun): void {
       model: run.model,
       start_sha: run.startSha,
       branch: run.branch,
-      worktree: run.worktree,
-      slot: run.slot,
       budget_unit: run.budgetUnit,
       budget_limit: run.budgetLimit,
       loop_cap: run.loopCap,
@@ -318,7 +308,7 @@ export function runState(office: OfficeHandle, runId: string): RunState | null {
 
 /**
  * Inside the caller's transaction: `event` happens to the run `runId`. Its next state comes from
- * `nextRunState` and is written; a run that ends also drops its backstop snapshot (DIPO-93).
+ * `nextRunState` and is written.
  * Returns the state before and after, or null when the event did not apply and nothing changed.
  */
 export function applyRunEvent(
@@ -330,11 +320,9 @@ export function applyRunEvent(
   if (before === null) return null;
   const after = nextRunState(before, event);
   if (after === null) return null;
-  const ends = before.endedAt === null && after.endedAt !== null;
   office.run(
     `update runs set ended_at = $ended_at, end_kind = $end_kind, waiting = $waiting,
-       waiting_since = $waiting_since, parked_ms = $parked_ms,
-       backstop_snapshot = case when $ends = 1 then null else backstop_snapshot end
+       waiting_since = $waiting_since, parked_ms = $parked_ms
      where office_id = $office_id and run_id = $run`,
     {
       run: runId,
@@ -343,7 +331,6 @@ export function applyRunEvent(
       waiting: after.waiting,
       waiting_since: after.waitingSince,
       parked_ms: after.parkedMs,
-      ends: ends ? 1 : 0,
     },
   );
   return { before, after };
@@ -355,50 +342,6 @@ export function findRun(office: OfficeHandle, runId: RunId): StoredRun | null {
     { run: runId },
   );
   return row === null ? null : toRecord(row);
-}
-
-/**
- * Stores the DIPO-49 backstop's run-start snapshot with the run (DIPO-93), so a run re-attached
- * after a restart keeps its backstop. Null clears it. Call it inside a write transaction.
- */
-export function storeBackstopSnapshot(
-  office: OfficeHandle,
-  runId: string,
-  snapshot: BackstopSnapshot | null,
-): void {
-  office.run(
-    `update runs set backstop_snapshot = $snapshot
-      where office_id = $office_id and run_id = $run`,
-    { snapshot: snapshot === null ? null : JSON.stringify(snapshot), run: runId },
-  );
-}
-
-/**
- * The run's stored backstop snapshot (DIPO-93); null when none was taken, or the run ended since
- * (`endRun` clears it: the engine's own commit at the end moves what it compares).
- */
-export function backstopSnapshotOf(office: OfficeHandle, runId: string): BackstopSnapshot | null {
-  const row = office.get<{ backstop_snapshot: string | null }>(
-    "select backstop_snapshot from runs where office_id = $office_id and run_id = $run",
-    { run: runId },
-  );
-  if (row?.backstop_snapshot == null) return null;
-  try {
-    const value = JSON.parse(row.backstop_snapshot) as Partial<BackstopSnapshot>;
-    return typeof value.head === "string" &&
-      typeof value.branch === "string" &&
-      typeof value.stash === "string" &&
-      typeof value.backlogStatus === "string"
-      ? {
-          head: value.head,
-          branch: value.branch,
-          stash: value.stash,
-          backlogStatus: value.backlogStatus,
-        }
-      : null;
-  } catch {
-    return null;
-  }
 }
 
 /**

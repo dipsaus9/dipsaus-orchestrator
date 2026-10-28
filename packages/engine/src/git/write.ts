@@ -5,14 +5,16 @@
 // lint rules `dipo/no-git-spawn` and `dipo/no-git-write` hold that line
 // (`tools/lint/oxlint-plugin.js`).
 //
-// - Commits: `commitTree` from git objects (the story lane, parts, catch-up merges), `commitStaged`
-//   in the planning lane's own worktree, and `mergeInWorktree` for a merge git makes there.
+// - Commits: `commitTree` from git objects (the story lane, parts, catch-up merges) and
+//   `commitStaged` in the planning lane's own worktree.
 // - Refs: a branch is created only where none exists (`createBranch`, `update-ref` with an empty
 //   old value, so a lost race is a `false`, never an overwrite), moved only from the tip the caller
 //   read (`moveRef`), and deleted only at the tip the caller read (`deleteBranch`).
 // - Remote: a push is never forced and never targets the office's base (`pushRef`), and a remote
 //   branch delete carries a lease on the tip dipo pushed (`deleteRemoteBranch`), so a push that
 //   landed since is never deleted; the base is never deleted either.
+// - Worktrees: a story worktree an earlier binary left is removed only without `--force`
+//   (`removeLeftoverWorktree`), so git itself refuses one with changes.
 
 import type { GitLocation } from "./hardened";
 import { FETCH_CONFIG } from "./hardened";
@@ -97,29 +99,6 @@ export function commitStaged(
 }
 
 /**
- * Merges `commit` into the branch checked out in a worktree dipo owns, never a fast-forward
- * (`git merge --no-ff --no-edit`), with the external deadline. Returns git's result: exit 1 with
- * unmerged paths is a conflict the caller aborts with `abortMerge`.
- */
-export function mergeInWorktree(
-  git: GitSession,
-  location: GitLocation,
-  input: { readonly commit: string; readonly message: string },
-  options: GitStepOptions = {},
-): Promise<GitResult> {
-  return git.step(
-    location,
-    ["merge", "--quiet", "--no-ff", "--no-edit", "-m", input.message, input.commit],
-    { ...options, timeoutMs: EXTERNAL_STEP_TIMEOUT_MS },
-  );
-}
-
-/** `git merge --abort` in a worktree dipo owns. */
-export function abortMerge(git: GitSession, location: GitLocation): Promise<GitResult> {
-  return git.step(location, ["merge", "--abort"]);
-}
-
-/**
  * Resets a worktree dipo owns to `to` (`git reset --hard`): its checked-out branch, if any, moves
  * there, and its files follow.
  */
@@ -130,6 +109,27 @@ export async function resetWorktree(
   options: GitStepOptions = {},
 ): Promise<void> {
   await git.ok(location, ["reset", "--hard", "--quiet", to], options);
+}
+
+// ---- worktrees -----------------------------------------------------------------------------------
+
+/**
+ * Removes the worktree at `path` that an earlier binary made for a story (0010: a story has no
+ * worktree any more): its lock `lock` is lifted, then `git worktree remove` runs without `--force`,
+ * so git refuses a worktree with changes or untracked files. A refusal locks it again with the same
+ * reason and returns git's result; the branch it had checked out is never touched.
+ */
+export async function removeLeftoverWorktree(
+  git: GitSession,
+  path: string,
+  lock: string | null,
+): Promise<GitResult> {
+  if (lock !== null) await git.ok(git.repository, ["worktree", "unlock", path]);
+  const removed = await git.step(git.repository, ["worktree", "remove", path]);
+  if (removed.code !== 0 && lock !== null) {
+    await git.step(git.repository, ["worktree", "lock", "--reason", lock, path]);
+  }
+  return removed;
 }
 
 // ---- refs ----------------------------------------------------------------------------------------

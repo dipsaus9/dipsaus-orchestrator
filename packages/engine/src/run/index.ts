@@ -39,7 +39,6 @@ export { renderRunPrompts, sessionUuid, SYSTEM_FILE } from "./prompts";
 export type { RunPrompts, RunPromptsInput } from "./prompts";
 export {
   activeRuns,
-  backstopSnapshotOf,
   capsStartedAt,
   appendRunStep,
   currentProfileId,
@@ -55,7 +54,6 @@ export {
   hasActiveRun,
   insertRun,
   recordConfigSnapshot,
-  storeBackstopSnapshot,
   runSteps,
 } from "./records";
 export type {
@@ -254,7 +252,6 @@ export {
   PARK_NOTICES,
   parkActions,
   parkStory,
-  WORKTREE_TAMPERED,
 } from "./park";
 export type {
   BranchPark,
@@ -289,11 +286,9 @@ export {
   storedFeedbackOf,
 } from "./open-feedback";
 export type { AnswerKind, RunAnswers, StoredFeedback } from "./open-feedback";
-// In Review at a box run's done, the worktree's git state and run outcomes (DIPO-49, DIPO-240).
-export { readBackstop } from "./backstop";
-export type { BackstopSnapshot } from "./backstop";
+// In Review at a box run's done and run outcomes (DIPO-49, DIPO-240).
 export { gitStoryOps, IN_REVIEW_STATUS } from "./story-git";
-export type { PushResult, StoryGit, WorktreeStory } from "./story-git";
+export type { BranchStory, PushResult, StoryGit } from "./story-git";
 export {
   BOX_TIP_MOVED,
   DEFAULT_LOCKFILES,
@@ -364,7 +359,6 @@ export type {
 // `story.park` of a story with no run and `story.drop` through the planning lane (DIPO-160), and
 // the resume of such a park that `work.resume` hands them.
 export {
-  DIRTY_WORKTREE,
   HAS_DEPENDENTS,
   NOT_DROPPABLE,
   NOT_PARKABLE,

@@ -1,16 +1,15 @@
-// Claims per office (DIPO-38), and their office load step (DIPO-27 seam): when an office loads,
-// the run-start snapshot of every live claim's worktree is pinned on the office's git again, so
-// the refusal of git calls in a tampered worktree (0008 section 2) survives a daemon restart. The
-// step must run after `git.version`, which attaches the office's git, so the daemon registers
-// this feature right after `EngineGit.feature`. `work.run` (DIPO-48) calls `claim`.
+// Claims per office (DIPO-38), and their office load step (DIPO-27 seam). The step must run after
+// `git.version`, which attaches the office's git, so the daemon registers this feature right after
+// `EngineGit.feature`. `work.run` (DIPO-48) calls `claim`.
 //
-// The same step rolls back every live claim whose setup never finished (no recorded claim commit),
-// for example because the daemon stopped during setup (DIPO-39): its worktree is removed, its
-// branch restored, its row ended as `setup-failed` and its port slot freed.
+// The step rolls back every live claim whose setup never finished (no recorded claim commit), for
+// example because the daemon stopped during setup (DIPO-39): its branch is restored and its row
+// ended as `setup-failed`.
 //
 // Before the rollback, the step sweeps the `_branch-read-*` scratch directories a killed or
-// crashed daemon left under the worktree root (DIPO-90, see `sweep.ts`). The story index's load
-// step, which runs branch reads, follows this one.
+// crashed daemon left under the worktree root (DIPO-90, see `sweep.ts`), and removes the clean
+// story worktrees an earlier binary left there, listing the others on the desk (DIPO-349,
+// `leftovers.ts`). The story index's load step, which runs branch reads, follows this one.
 
 import type { Clock, OfficeId } from "@dipsaus-orchestrator/contract";
 
@@ -19,7 +18,6 @@ import type { FeatureModule } from "../commands/registry";
 import type { OfficeHandle } from "../db/office";
 import type { OfficeGit } from "../git/office";
 import type { OfficeLoadContext } from "../office/steps";
-import { type DiskProbe, systemDiskProbe } from "../platform/disk";
 
 import {
   claimStory,
@@ -29,8 +27,8 @@ import {
   releaseUnstarted,
   rollBackInterruptedSetup,
 } from "./claim";
+import { recordKeptWorktrees, sweepLeftoverWorktrees } from "./leftovers";
 import { type ClaimRecord, liveClaims } from "./records";
-import type { SlotTable } from "./slots";
 import { sweepBranchReads } from "./sweep";
 
 /** The load step's name in the registry. */
@@ -39,12 +37,8 @@ export const CLAIMS_STEP = "worktree.claims";
 export interface StoryClaimsDeps {
   /** The office's git, attached by the `git.version` load step (DIPO-31). */
   readonly git: (office: OfficeId) => OfficeGit | undefined;
-  /** How the Backlog CLI starts in a story worktree. */
+  /** How the Backlog CLI starts, in dipo's own copy of a story's backlog. */
   readonly cli: BacklogCli;
-  /** The free-space probe; the real `statfs` by default. */
-  readonly disk?: DiskProbe;
-  /** The machine-wide port slot table; a rolled-back interrupted setup frees its slot there. */
-  readonly slots?: SlotTable;
   readonly onChanged?: (office: OfficeId) => void;
   /** Logs a release step that failed (the daemon's logger); nothing by default. */
   readonly warn?: (message: string, fields: Readonly<Record<string, unknown>>) => void;
@@ -107,22 +101,44 @@ export class StoryClaims {
   }
 
   /**
-   * Pins the snapshot of every live claim's worktree on the office's git. Returns the reason the
-   * office is refused, or null.
+   * Removes the clean story worktrees an earlier binary left and lists the others on the desk
+   * (`leftovers.ts`), and logs what it did. Never refuses the office: a failure is logged and the
+   * load goes on.
    */
+  async sweepLeftovers(ctx: OfficeLoadContext): Promise<void> {
+    const git = this.#deps.git(ctx.officeId);
+    if (git === undefined) return;
+    try {
+      const swept = await sweepLeftoverWorktrees(git);
+      recordKeptWorktrees(ctx.office, swept.kept, ctx.clock);
+      if (swept.removed.length > 0 || swept.kept.length > 0) {
+        this.#deps.info?.("leftover story worktrees swept", {
+          office: ctx.officeId,
+          removed: swept.removed,
+          kept: swept.kept.map((worktree) => worktree.path),
+        });
+      }
+    } catch (error) {
+      this.#deps.warn?.("leftover worktree sweep failed", {
+        office: ctx.officeId,
+        error: error instanceof Error ? error.message : String(error),
+      });
+    }
+  }
+
+  /** Attaches a loaded office. Returns the reason the office is refused, or null. */
   attach(ctx: OfficeLoadContext): string | null {
     const git = this.#deps.git(ctx.officeId);
     if (git === undefined) {
       return "the office's git is not attached; the git.version load step must run before the claims";
     }
-    for (const claim of liveClaims(ctx.office)) git.pinWorktree(claim.snapshot);
     this.#offices.set(ctx.officeId, { office: ctx.office, clock: ctx.clock });
     return null;
   }
 
   /**
    * Rolls back every live claim of a loaded office whose setup never finished (its claim commit
-   * is not recorded), and frees its slot.
+   * is not recorded).
    */
   async recover(officeId: OfficeId): Promise<void> {
     const loaded = this.#offices.get(officeId);
@@ -138,20 +154,17 @@ export class StoryClaims {
     for (const claim of liveClaims(loaded.office)) {
       if (claim.claimSha !== null) continue;
       await rollBackInterruptedSetup(deps, claim);
-      this.#deps.slots?.free(claim.worktree);
     }
   }
 
-  /**
-   * Releases a live claim whose worker did not start (see `releaseUnstarted`) and frees its slot.
-   */
-  async releaseUnstarted(officeId: OfficeId, claim: ClaimRecord, reason: string): Promise<void> {
+  /** Releases a live claim whose worker did not start (see `releaseUnstarted`). */
+  releaseUnstarted(officeId: OfficeId, claim: ClaimRecord, reason: string): Promise<void> {
     const loaded = this.#offices.get(officeId);
     const git = this.#deps.git(officeId);
     if (loaded === undefined || git === undefined) {
-      throw new Error(`The office ${officeId} is not loaded.`);
+      return Promise.reject(new Error(`The office ${officeId} is not loaded.`));
     }
-    await releaseUnstarted(
+    releaseUnstarted(
       {
         officeId,
         office: loaded.office,
@@ -161,9 +174,8 @@ export class StoryClaims {
       },
       claim,
       reason,
-      this.#deps.warn,
     );
-    this.#deps.slots?.free(claim.worktree);
+    return Promise.resolve();
   }
 
   /** Claims a story of a loaded office (see `claimStory`). */
@@ -183,14 +195,13 @@ export class StoryClaims {
         git,
         cli: this.#deps.cli,
         clock: loaded.clock,
-        disk: this.#deps.disk ?? systemDiskProbe,
         ...(this.#deps.onChanged === undefined ? {} : { onChanged: this.#deps.onChanged }),
       },
       request,
     );
   }
 
-  /** The feature module that adds the snapshot load step. */
+  /** The feature module that adds the claims load step. */
   get feature(): FeatureModule {
     return {
       name: "worktree/claims",
@@ -199,6 +210,7 @@ export class StoryClaims {
           const reason = this.attach(ctx);
           if (reason !== null) return { ok: false, reason };
           this.sweepScratch(ctx);
+          await this.sweepLeftovers(ctx);
           await this.recover(ctx.officeId);
           return { ok: true };
         });

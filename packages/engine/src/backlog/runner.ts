@@ -13,7 +13,7 @@
 // Every call gets a minimal, explicit environment (`backlogEnv`), never the daemon's whole one
 // (0021 section 14). The caller picks the working folder: for a story it is a folder that holds
 // only dipo's own copy of the backlog, never the worktree a worker's files land in
-// (`inStoryBacklog` in `worktree/claim.ts`).
+// (`inStoryBacklog` in `stories/story-copy.ts`).
 //
 // Before every call, in whatever folder it runs (dipo's own copy, a checkout of the base, the
 // backlog lane's worktree), dipo checks the Backlog files the CLI could read there

@@ -22,7 +22,7 @@ import {
   type RunView,
 } from "./outcome-types";
 import type { ParkOutcome } from "./park";
-import { backstopSnapshotOf, capsStartedAt, type StoredRun } from "./records";
+import { capsStartedAt, type StoredRun } from "./records";
 
 /** Kinds of intent that explain a worker's exit. */
 const EXPLAINING: readonly IntentKind[] = ["stop", "cap", "park", "reassign", "pause"];
@@ -61,7 +61,6 @@ export class OutcomeSupport {
       work,
       caps,
       startedAt: capsStartedAt(run, host?.started_at),
-      snapshot: backstopSnapshotOf(office, run.runId),
     };
   }
 

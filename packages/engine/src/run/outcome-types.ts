@@ -13,7 +13,6 @@ import type { WorkerPort } from "../workers/port";
 import type { Caps, HostOp, ReviewReport, SteerOp, TurnProblem } from "../workers/types";
 import type { ClaimRecord } from "../worktree/records";
 
-import type { BackstopSnapshot } from "./backstop";
 import type { RunEnding, RunSteering } from "./control-types";
 import type { IntentKind } from "./intents";
 import { type ParkOutcome, type UnparkWriter } from "./park";
@@ -82,17 +81,16 @@ export function startRefusedAct(reason: string): RunAct {
 export const REDISPATCH_STEP = "run-outcomes/redispatch";
 
 /**
- * The real `RunOutcomesDeps.holdsWork`: the worktree holds work when HEAD moved past the claim
- * commit or the tree is dirty (0008 amendment of 2026-10-14).
+ * The real `RunOutcomesDeps.holdsWork`: the story holds work when its branch moved past the claim
+ * commit, or is gone (0008). Its delivered parts are commits on the branch; a story has no
+ * worktree.
  */
 export function storyHoldsWork(
-  story: Pick<StoryGit, "snapshot" | "changedPaths">,
+  story: Pick<StoryGit, "tip">,
 ): NonNullable<RunOutcomesDeps["holdsWork"]> {
   return async (office, run, claim) => {
-    if (run.worktree === null || claim === null) return false;
-    const now = await story.snapshot(office, run.worktree);
-    if (now.head !== (claim.claimSha ?? claim.startSha)) return true;
-    return (await story.changedPaths(office, run.worktree)).length > 0;
+    if (run.branch === null || claim === null) return false;
+    return (await story.tip(office, run.branch)) !== (claim.claimSha ?? claim.startSha);
   };
 }
 
@@ -116,7 +114,6 @@ export interface RunView {
   readonly caps: Caps;
   /** When the run's first worker started, on the engine clock. */
   readonly startedAt: number;
-  readonly snapshot: BackstopSnapshot | null;
 }
 
 /** An op stored as an intent and sent without a park. */
@@ -264,7 +261,7 @@ export interface RunOutcomesDeps {
   };
   /** Releases a live claim whose worker did not start (DIPO-74's release). */
   readonly release?: (office: OfficeId, claim: ClaimRecord, reason: string) => Promise<void>;
-  /** True when the run's worktree has commits past the claim commit or a dirty tree. */
+  /** True when the run's branch has commits past the claim commit. */
   readonly holdsWork?: (
     office: OfficeId,
     run: StoredRun,
