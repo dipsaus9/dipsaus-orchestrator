@@ -917,6 +917,29 @@ describe("the office's starts paused on the desk (0020, DIPO-359)", () => {
         expect(adapter[0]?.detail).toBe(
           "no new session starts · adapter check failed: claude-cli: probe: claude is not logged in.",
         );
+        // The box token's hold: no command lifts it, so the row offers none (DIPO-271).
+        const sticky = desk(office, all, {
+          ...DESK_SOURCES,
+          startsPaused: () => ({
+            reason: "adapter",
+            detail: "claude-cli: box-token: the token was found in a box.",
+            since: at,
+            until: null,
+            lifts: "Replace the box login with dipo login box.",
+            hold: {
+              adapter: "claude-cli",
+              check: "box-token",
+              detail: "the token was found in a box",
+              failures: [{ check: "box-token", detail: "the token was found in a box" }],
+              since: at,
+              liftedBy: "Replace the box login with dipo login box.",
+            },
+          }),
+        });
+        expect(sticky[0]).toMatchObject({
+          actions: [],
+          hand: "Replace the box login with dipo login box.",
+        });
         // Nothing paused: no such item.
         expect(desk(office, all, DESK_SOURCES).map((item) => item.kind)).toEqual(["PARKED"]);
       } finally {

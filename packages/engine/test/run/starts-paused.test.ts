@@ -1,8 +1,9 @@
 // The office's starts paused (0020, DIPO-359), fast and local on the manual clock: a plan limit
 // pauses every loaded office with its reason and time and lifts by itself after the reset, a lift
 // resumes exactly the parks a plan limit made and no other `worker-failed` park, a restart pauses
-// again or lifts what came due, and a failed adapter check pauses through the adapter's hold until
-// a passing check lifts it. Driven on a migrated state database with fake resumes.
+// again or lifts what came due, an office loaded meanwhile takes the pause over, and a failed
+// adapter check pauses, as a `starts_paused` row that survives a restart, until a passing check
+// lifts it. Driven on a migrated state database with fake resumes.
 
 import { afterEach, beforeEach, describe, expect, it } from "bun:test";
 
@@ -13,6 +14,7 @@ import type { OfficeHandle } from "../../src/db/office";
 import {
   type LiftedPark,
   type LiftedResume,
+  officeHoldStore,
   PLAN_LIMIT_RESUME_AFTER_MS,
   PLAN_LIMIT_UNKNOWN_RESET_MS,
   planLimitPause,
@@ -20,7 +22,12 @@ import {
   STARTS_PAUSED_RETRY_MS,
   StartsPaused,
 } from "../../src/run";
-import { AdapterHolds, gateLaunch, RELEASE_NOTICE_CODE } from "../../src/workers/hold";
+import {
+  AdapterHolds,
+  gateLaunch,
+  type HoldNotice,
+  RELEASE_NOTICE_CODE,
+} from "../../src/workers/hold";
 import { addOffice } from "../commands/helpers";
 import { entriesAfter } from "../stories/helpers";
 import { type RoundsWorld, roundsWorld, storyRun } from "./rounds-helpers";
@@ -38,6 +45,10 @@ let answer: LiftedResume;
 let scheduling: boolean;
 let lifted: OfficeId[];
 let paused: StartsPaused;
+/** The loaded offices, by id. */
+let offices: Map<OfficeId, OfficeHandle>;
+/** The adapter holds' notices, as the software stream gets them. */
+let holdNotices: HoldNotice[];
 
 const id = (office: OfficeHandle) => office.officeId as OfficeId;
 const now = () => w.t.clock.now();
@@ -49,18 +60,31 @@ beforeEach(async () => {
   answer = { outcome: "resumed" };
   scheduling = true;
   lifted = [];
-  holds = new AdapterHolds({
+  holdNotices = [];
+  offices = new Map([w.office, other].map((office) => [id(office), office]));
+  holds = adapterHolds();
+  paused = startsPaused();
+});
+
+/** The adapter holds on the offices' starts paused rows, as the daemon builds them. */
+function adapterHolds(): AdapterHolds {
+  return new AdapterHolds({
     clock: w.t.clock,
     notify: (notice) => {
+      holdNotices.push(notice);
       if (notice.code === RELEASE_NOTICE_CODE) paused.adapterReleased();
     },
+    store: officeHoldStore(w.t.clock, {
+      get: (office) => offices.get(office),
+      config: () => OFFICE_DEFAULTS,
+      loaded: () => [...offices.keys()],
+    }),
     sticky: {
       checks: new Set(["box-token"]),
       liftedBy: "Replace the box login with dipo login box.",
     },
   });
-  paused = startsPaused();
-});
+}
 
 afterEach(() => {
   paused.close();
@@ -68,7 +92,6 @@ afterEach(() => {
 });
 
 function startsPaused(): StartsPaused {
-  const offices = new Map([w.office, other].map((office) => [id(office), office]));
   return new StartsPaused({
     clock: w.t.clock,
     offices: { get: (office) => offices.get(office), config: () => OFFICE_DEFAULTS },
@@ -295,5 +318,63 @@ describe("a failed adapter check (0020, 0008)", () => {
     expect(paused.state(id(w.office))?.lifts).toContain("dipo login box");
     holds.liftSticky(ADAPTER);
     expect(paused.state(id(w.office))).toBeNull();
+  });
+});
+
+describe("one record that survives a restart (0020, DIPO-359)", () => {
+  it("keeps a failed adapter check as a starts_paused row in each office, read again after a restart", () => {
+    holds.hold(ADAPTER, [{ check: "probe", detail: "claude is not logged in" }]);
+    for (const office of [w.office, other]) {
+      expect(
+        office.get<{ reason: string; adapter: string; detail: string }>(
+          "select reason, adapter, detail from starts_paused where office_id = $office_id",
+        ),
+      ).toEqual({ reason: "adapter", adapter: ADAPTER, detail: "probe: claude is not logged in" });
+    }
+    // A restart: new holds and a new starts paused read the same rows.
+    paused.close();
+    holds = adapterHolds();
+    paused = startsPaused();
+    expect(paused.state(id(w.office))?.reason).toBe("adapter");
+    expect(holds.adapterHeld(ADAPTER)?.check).toBe("probe");
+    holds.lift(ADAPTER);
+    expect(
+      w.office.get("select 1 as x from starts_paused where office_id = $office_id"),
+    ).toBeNull();
+    expect(noticesOf(w.office).map((notice) => notice.code)).toEqual([
+      STARTS_PAUSED_NOTICES.paused,
+      STARTS_PAUSED_NOTICES.lifted,
+    ]);
+  });
+
+  it("pauses an office loaded during a live plan limit or adapter hold, as the others are", () => {
+    const reset = new Date(now() + HOUR).toISOString();
+    paused.pausePlanLimit(id(w.office), planLimitPause({ credits: false, resetsAt: reset }, now()));
+    holds.hold(ADAPTER, [{ check: "probe", detail: "claude is not logged in" }]);
+    const late = addOffice(w.t, "late");
+    offices.set(id(late), late);
+    paused.recover(id(late), late);
+    expect(paused.state(id(late))).toMatchObject({
+      reason: "plan-limit",
+      detail: `plan limit until ${reset}`,
+      until: Date.parse(reset) + PLAN_LIMIT_RESUME_AFTER_MS,
+    });
+    expect(
+      late.get<{ adapter: string }>(
+        "select adapter from starts_paused where office_id = $office_id and reason = 'adapter'",
+      )?.adapter,
+    ).toBe(ADAPTER);
+  });
+
+  it("names what lifts a pause truly: never the command for the box token, never a check for the command", () => {
+    holds.hold(ADAPTER, [{ check: "box-token", detail: "the token was found in a box" }]);
+    expect(paused.state(id(w.office))?.lifts).toBe("Replace the box login with dipo login box.");
+    holds.liftSticky(ADAPTER);
+    holds.hold(ADAPTER, [{ check: "probe", detail: "claude is not logged in" }]);
+    holdNotices = [];
+    paused.lift(id(w.office), "the maintainer ran dipo daemon resume-scheduling");
+    expect(holdNotices.map((notice) => notice.text)).toEqual([
+      `The maintainer ran dipo daemon resume-scheduling; new runs on ${ADAPTER} are no longer held.`,
+    ]);
   });
 });

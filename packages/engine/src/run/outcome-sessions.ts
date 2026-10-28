@@ -13,6 +13,7 @@ import {
   messageOf,
   OUTCOME_ENDS,
   OUTCOME_NOTICES,
+  planLimitEnding,
   type RunOutcomesDeps,
   type RunView,
 } from "./outcome-types";
@@ -33,7 +34,12 @@ export class SessionStarts {
     this.#deps = support.deps;
   }
 
-  /** Starts the next session; a session that cannot start parks or releases the story. */
+  /**
+   * Starts the next session; a session that cannot start parks or releases the story. While the
+   * office's starts are paused (0020) no session starts: under a plan limit the story parks
+   * `worker-failed` with the pause's detail, to resume by itself when the pause lifts; under a
+   * failed adapter check it goes the start failure's way.
+   */
   async next(
     office: OfficeHandle,
     run: StoredRun,
@@ -53,6 +59,16 @@ export class SessionStarts {
       readonly inRecord?: (agent: AgentId, at: number) => void;
     },
   ): Promise<boolean> {
+    const paused = this.#deps.startsPaused?.()?.state(view.office) ?? null;
+    if (paused?.reason === "plan-limit") {
+      const pause = { detail: paused.detail, since: paused.since, until: paused.until };
+      await this.#s.park(office, run, view.work, planLimitEnding(pause, []));
+      return false;
+    }
+    if (paused?.reason === "adapter" && paused.hold !== undefined) {
+      await this.startFailed(office, run, view.work, holdMessage(paused.hold), paused.hold);
+      return false;
+    }
     const resumer = this.#deps.resumer;
     if (resumer === undefined) {
       await this.#s.park(office, run, view.work, {

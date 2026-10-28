@@ -8,7 +8,7 @@ import { afterEach, beforeEach, describe, expect, it } from "bun:test";
 import { mkdtempSync, rmSync, statSync } from "node:fs";
 import { join } from "node:path";
 
-import { StoryId, type WorkRef } from "@dipsaus-orchestrator/contract";
+import { type OfficeId, StoryId, type WorkRef } from "@dipsaus-orchestrator/contract";
 import {
   type FakeProcess,
   fakeSpawn,
@@ -17,6 +17,7 @@ import {
 } from "@dipsaus-orchestrator/testkit";
 
 import { appendEntries } from "../../src/changelog/log";
+import { OFFICE_DEFAULTS } from "../../src/config";
 import { type IngestAdapter, Ingestor } from "../../src/ingest/ingestor";
 import {
   activeSignals,
@@ -26,10 +27,12 @@ import {
   findRun,
   insertRun,
   intentTag,
+  type LiftedPark,
   type NextSessionOutcome,
   type NextSessionRequest,
   PLAN_LIMIT_RESUME_AFTER_MS,
   type PlanLimitPause,
+  planLimitPause,
   raiseSignal,
   recordIntent,
   reportFeedbackText,
@@ -38,6 +41,7 @@ import {
   runIntents,
   runOutcome,
   RunOutcomes,
+  StartsPaused,
 } from "../../src/run";
 import {
   LEGACY_PAUSE_DETAIL,
@@ -55,7 +59,7 @@ import {
   nextSessionOptions,
 } from "../../src/workers/claude-cli/interpret";
 import { result as claudeResult } from "../../src/workers/claude-cli/result";
-import type { LaunchCheckFailure } from "../../src/workers/hold";
+import { AdapterHolds, type LaunchCheckFailure } from "../../src/workers/hold";
 import type { Caps, HostOp, ParseState, TurnProblem, WorkerEvent } from "../../src/workers/types";
 import { insertClaim, releaseClaim } from "../../src/worktree/records";
 import { countRows } from "../commands/helpers";
@@ -91,6 +95,11 @@ interface World {
   readonly holds: { adapter: string; failures: readonly LaunchCheckFailure[] }[];
   /** The office's starts paused for a plan limit (0020), as worker outcomes told it. */
   readonly paused: { office: string; pause: PlanLimitPause }[];
+  /** The office's starts paused itself (0020), on a memory adapter hold store. */
+  readonly starts: StartsPaused;
+  readonly adapterHolds: AdapterHolds;
+  /** The parks the starts paused resumed after a lift. */
+  readonly lifted: LiftedPark[];
   readonly released: string[];
   readonly work: WorkRef;
   nextOutcome: NextSessionOutcome;
@@ -112,6 +121,7 @@ beforeEach(async () => {
     next: [],
     holds: [],
     paused: [],
+    lifted: [],
     released: [],
     nextOutcome: { kind: "started", agent: "agt_next", resumed: true },
     holdsWork: false,
@@ -125,9 +135,21 @@ beforeEach(async () => {
     },
   };
   let outcomes: RunOutcomes | null = null;
+  const adapterHolds = new AdapterHolds({ clock: f.t.clock, notify: () => undefined });
+  const starts = new StartsPaused({
+    clock: f.t.clock,
+    offices: { get: () => f.office, config: () => OFFICE_DEFAULTS },
+    holds: adapterHolds,
+    resume: async (_office, park) => {
+      world.lifted.push(park);
+      return { outcome: "resumed" };
+    },
+  });
+  Object.assign(world, { starts, adapterHolds });
   const control = new RunControl({
     clock: f.t.clock,
     offices: { get: () => f.office },
+    parkedToResume: (office) => starts.resumeLifted(office),
     writer: {
       write: async (): Promise<BranchPark> => ({
         commit: "c".repeat(40),
@@ -179,7 +201,12 @@ beforeEach(async () => {
     holdsWork: async () => world.holdsWork,
     caps: () => ROOMY,
     startsPaused: () => ({
-      pausePlanLimit: (office, pause) => world.paused.push({ office, pause }),
+      pausePlanLimit: (office, pause) => {
+        world.paused.push({ office, pause });
+        starts.pausePlanLimit(office, pause);
+      },
+      state: (office) => starts.state(office),
+      resumeLifted: (office) => starts.resumeLifted(office),
     }),
   });
   Object.assign(world, { control, outcomes });
@@ -726,6 +753,62 @@ describe("a plan limit (0020)", () => {
   });
 });
 
+/** Pauses the office's starts for a plan limit, as another session's limit would. */
+function pauseForLimit(): string {
+  const pause = planLimitPause({ credits: false }, w.f.t.clock.now());
+  w.starts.pausePlanLimit(w.f.office.officeId as OfficeId, pause);
+  return pause.detail;
+}
+
+/** The park of the run, with its flag, once the next session was refused. */
+function expectParkedToResume(detail: string): void {
+  expect(w.next).toEqual([]);
+  expect(parks()).toEqual([["worker-failed", detail]]);
+  expect(resumeOnLift()).toEqual([1]);
+  expectEnded("plan-limit", "parked");
+}
+
+describe("no next session while the office's starts are paused (0020)", () => {
+  it("a crash retry parks worker-failed with the pause's detail, to resume on lift", async () => {
+    track();
+    const detail = pauseForLimit();
+    await ingestRecording("terminated");
+    expectParkedToResume(detail);
+  });
+
+  it("the report feedback's resume parks the same way", async () => {
+    track();
+    const detail = pauseForLimit();
+    await ingestRecording("report-invalid");
+    expectParkedToResume(detail);
+  });
+
+  it("the handoff after a full context parks the same way", async () => {
+    track();
+    const detail = pauseForLimit();
+    await ingestRecording("prompt-too-long");
+    expectParkedToResume(detail);
+  });
+
+  it("the session after a restart parks the same way", async () => {
+    await ingestRecording("terminated", true);
+    setEndReason("crashed");
+    const detail = pauseForLimit();
+    expect(await w.outcomes.redispatch(w.f.office.officeId)).toBe(1);
+    expectParkedToResume(detail);
+  });
+
+  it("a failed adapter check takes the start failure's way: no session, no park to resume", async () => {
+    track();
+    w.adapterHolds.hold("claude-cli", [{ check: "probe", detail: "claude is not logged in" }]);
+    await ingestRecording("terminated");
+    expect(w.next).toEqual([]);
+    // The worktree holds no work here: the claim is released and the story stays Ready.
+    expect(w.released).toHaveLength(1);
+    expect(resumeOnLift()).toEqual([]);
+  });
+});
+
 describe("after a restart (decision Q6)", () => {
   it("decides an exit that was ingested but not decided", async () => {
     w.onNext = startedAgent;
@@ -830,6 +913,9 @@ describe("after a restart (decision Q6)", () => {
       )?.resume_on_lift,
     ).toBe(1);
     expect(activeSignals(w.f.office, w.f.run)).toEqual([]);
+    // No pause row: dipo resumes it at once, through the one resume path.
+    await w.starts.idle();
+    expect(w.lifted.map((park) => park.story)).toEqual(["DIPO-1"]);
     // Decided once.
     expect(await w.outcomes.redispatch(w.f.office.officeId)).toBe(0);
   });

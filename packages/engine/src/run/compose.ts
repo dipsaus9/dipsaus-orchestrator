@@ -206,6 +206,8 @@ function buildControl(ports: RunPorts, late: Late): RunControl | null {
     outcomes: () => late.exitPort ?? undefined,
     // A blocked report's question goes through the live-question rule (DIPO-272).
     questions: () => late.permissions ?? undefined,
+    // A park to resume on lift that lands while the office is not paused resumes then (0020).
+    parkedToResume: (office) => late.startsPaused?.resumeLifted(office),
     ...given("onChanged", ports.onChanged),
     ...given("refreshStory", ports.refreshStory),
     ...given("warn", ports.warn),

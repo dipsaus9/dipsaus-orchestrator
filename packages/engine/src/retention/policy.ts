@@ -106,7 +106,7 @@ export const TABLE_RETENTION: Readonly<Record<string, TablePolicy>> = {
   run_outcomes: { tier: "P", rule: "kept until purge, for retro and tier tuning" },
   starts_paused: {
     tier: "P",
-    rule: "one row per office, deleted when the office's starts paused lifts",
+    rule: "one row per office and reason, deleted when that pause lifts",
   },
   config_snapshots: {
     tier: "S",

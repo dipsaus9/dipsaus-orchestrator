@@ -70,6 +70,7 @@ import {
   UsageMeter,
   openLogFile,
   openStateDatabase,
+  officeHoldStore,
   passwdHome,
   planLimitPause,
   readEngineCommitsAfter,
@@ -916,13 +917,15 @@ async function serve(run: Run, lock: HeldLock): Promise<number> {
         const paused = startsPausedOf?.state(office) ?? null;
         return paused === null ? null : `the office's starts are paused (${paused.detail})`;
       },
-      pausePlanLimit: (office, resetsAt) =>
+      pausePlanLimit: (office, limit) =>
         startsPausedOf?.pausePlanLimit(
           office,
           planLimitPause(
             {
-              credits: false,
-              ...(resetsAt === undefined ? {} : { resetsAt: new Date(resetsAt).toISOString() }),
+              credits: limit.credits,
+              ...(limit.resetsAt === undefined
+                ? {}
+                : { resetsAt: new Date(limit.resetsAt).toISOString() }),
             },
             clock.now(),
           ),
@@ -945,6 +948,12 @@ async function serve(run: Run, lock: HeldLock): Promise<number> {
         software.append("engine.notice", notice);
         if (notice.code === RELEASE_NOTICE_CODE) startsPausedOf?.adapterReleased();
       },
+      // One record: the loaded offices' starts paused, reason adapter (0020).
+      store: officeHoldStore(clock, {
+        get: (office) => offices.get(office),
+        config: (office) => offices.config(office),
+        loaded: () => offices.loadedOffices(),
+      }),
       sticky: boxTokenStickyHolds(boxTokenHoldPath(stateDir), CLAUDE_CLI_ADAPTER_ID),
       warn: (message, fields) => logger.warn(message, fields),
     });

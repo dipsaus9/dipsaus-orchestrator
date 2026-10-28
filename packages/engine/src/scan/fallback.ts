@@ -100,6 +100,8 @@ export type ScanSessionResult =
       readonly runId: string | null;
       /** When the limit resets (engine clock, ms), when the session said. */
       readonly resetsAt?: number;
+      /** True for `credits_required`, which only a lift by hand ends. */
+      readonly credits?: true;
     }
   | { readonly kind: "failed"; readonly runId: string | null; readonly reason: string };
 
@@ -118,7 +120,10 @@ export interface ScanFallbackDeps {
   /** Why no new session starts in the office now (its starts paused, 0020); null when it may. */
   readonly startsPaused?: (office: OfficeId) => string | null;
   /** A session met the plan limit: the office's starts pause until `resetsAt` (ms) or a lift. */
-  readonly pausePlanLimit?: (office: OfficeId, resetsAt: number | undefined) => void;
+  readonly pausePlanLimit?: (
+    office: OfficeId,
+    limit: { readonly resetsAt?: number; readonly credits: boolean },
+  ) => void;
   /** dipo's base copy of the office: its files and evidence texts, read in one git queue item. */
   readonly readBase: (office: OfficeId) => Promise<BaseEvidence>;
   /** Change-log entries were appended outside a command; subscribers catch up. */
@@ -308,7 +313,10 @@ export class ScanFallback {
       if (result.kind === "plan-limit") {
         // A plan limit is not the office's fault: the office's starts pause, and a new session
         // starts once the pause lifted (`#waitForStarts`).
-        this.#deps.pausePlanLimit?.(office, result.resetsAt);
+        this.#deps.pausePlanLimit?.(office, {
+          ...(result.resetsAt === undefined ? {} : { resetsAt: result.resetsAt }),
+          credits: result.credits === true,
+        });
         this.#append(office, state, [
           notice(
             "info",

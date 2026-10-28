@@ -324,12 +324,14 @@ class DeskBuilder {
     if (paused === null) return;
     const why =
       paused.reason === "adapter" ? `adapter check failed: ${paused.detail}` : paused.detail;
+    // The box token's hold lifts only with `dipo login box` (DIPO-271): no command lifts it here.
+    const sticky = paused.reason === "adapter" && paused.hold?.liftedBy !== undefined;
     this.#add(GROUP.paused, 0, paused.since, {
       kind: "STARTS PAUSED",
       detail: `no new session starts · ${why}`,
       since: iso(paused.since),
       blocks: [],
-      actions: this.#action("daemon.resumeScheduling", LIFT_COMMAND),
+      actions: sticky ? [] : this.#action("daemon.resumeScheduling", LIFT_COMMAND),
       hand: paused.lifts,
     });
   }

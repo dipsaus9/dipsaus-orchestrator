@@ -1,10 +1,11 @@
-// The adapter hold (0008, 0020; owned by DIPO-43, M0 review DIPO-15): the record of a failed
-// adapter check, which pauses the starts of every office on that adapter (`run/starts-paused.ts`
-// reads it as the `adapter` reason of the office's starts paused). A failed launch check (probe,
-// box, self-test) or a `startFailed` outcome from the CLI holds the adapter and raises an
-// `engine.notice`. It is not a park: the story stays where it was. An explicit `work.run` repeats
-// the launch checks through `gateLaunch`, which lifts the hold when they pass, and `dipo daemon
-// resume-scheduling` lifts it by hand. Adapter-neutral: nothing here names a CLI.
+// The adapter hold (0008, 0020; owned by DIPO-43, M0 review DIPO-15): the rules of a failed
+// adapter check, which pauses the starts of every office on that adapter. Its one record is the
+// offices' starts paused with reason `adapter` (the daemon's store, `run/starts-paused.ts`), so it
+// survives a restart. A failed launch check (probe, box, self-test) or a `startFailed` outcome from
+// the CLI holds the adapter and raises an `engine.notice`. It is not a park: the story stays where
+// it was. An explicit `work.run` repeats the launch checks through `gateLaunch`, which lifts the
+// hold when they pass, and `dipo daemon resume-scheduling` lifts it by hand. Adapter-neutral:
+// nothing here names a CLI.
 //
 // A sticky check (DIPO-271: the post-run box-token check of DIPO-269) is the exception. Its hold
 // is not about something a launch check can see again, so a passing launch check never lifts it:
@@ -108,10 +109,43 @@ export interface StickyHolds {
   readonly store?: StickyHoldStore;
 }
 
+/** A hold as its store keeps it: the adapter, every failure and when the hold began. */
+export interface AdapterHoldRecord {
+  readonly adapter: string;
+  readonly failures: readonly LaunchCheckFailure[];
+  readonly since: number;
+}
+
+/**
+ * Where the holds live, read again on every look. The daemon's is the offices' starts paused
+ * (`starts_paused` rows with reason `adapter`, `run/starts-paused.ts`), so a hold is one record
+ * that survives a restart (0020); `memoryHoldStore` keeps them in memory for a test or a tool.
+ */
+export interface AdapterHoldStore {
+  read(adapter: string): AdapterHoldRecord | null;
+  write(record: AdapterHoldRecord): void;
+  clear(adapter: string): void;
+  /** The adapters with a hold. */
+  adapters(): readonly string[];
+}
+
+/** A store in memory: holds last as long as the process. */
+export function memoryHoldStore(): AdapterHoldStore {
+  const holds = new Map<string, AdapterHoldRecord>();
+  return {
+    read: (adapter) => holds.get(adapter) ?? null,
+    write: (record) => void holds.set(record.adapter, record),
+    clear: (adapter) => void holds.delete(adapter),
+    adapters: () => [...holds.keys()],
+  };
+}
+
 export interface AdapterHoldsOptions {
   readonly clock: Clock;
   /** Raises an `engine.notice`; the daemon appends it to the software stream. */
   readonly notify: (notice: HoldNotice) => void;
+  /** Where the holds live; in memory by default. */
+  readonly store?: AdapterHoldStore;
   /** The sticky checks (DIPO-271); none by default. */
   readonly sticky?: StickyHolds;
   /** Logs what the holds could not do (a sticky record that could not be written). */
@@ -119,12 +153,12 @@ export interface AdapterHoldsOptions {
 }
 
 /**
- * The holds of one daemon, shared by every office. In memory: after a restart the launch checks
- * run again before the next launch (they run before every launch and resume), so a lost hold
- * cannot let an unsafe run start. A sticky hold is the exception: its store restores it.
+ * The holds of one daemon, shared by every office, kept in their store. The sticky store of a
+ * sticky check is the box token's own record, which `dipo login box` clears from another process;
+ * every look brings the hold in line with it.
  */
 export class AdapterHolds {
-  readonly #holds = new Map<string, AdapterHold>();
+  readonly #store: AdapterHoldStore;
   readonly #clock: Clock;
   readonly #notify: (notice: HoldNotice) => void;
   readonly #sticky: StickyHolds | undefined;
@@ -133,6 +167,7 @@ export class AdapterHolds {
   readonly #unrecorded = new Set<string>();
 
   constructor(options: AdapterHoldsOptions) {
+    this.#store = options.store ?? memoryHoldStore();
     this.#clock = options.clock;
     this.#notify = options.notify;
     this.#sticky = options.sticky;
@@ -159,10 +194,34 @@ export class AdapterHolds {
     };
   }
 
+  /** The stored hold of `adapter`, or null. */
+  #get(adapter: string): AdapterHold | null {
+    const record = this.#store.read(adapter);
+    return record === null || record.failures.length === 0
+      ? null
+      : this.#make(adapter, record.failures, record.since);
+  }
+
+  /** Stores `hold`; a store that cannot write is logged, and the hold this call returns refuses. */
+  #set(hold: AdapterHold): void {
+    try {
+      this.#store.write({ adapter: hold.adapter, failures: hold.failures, since: hold.since });
+    } catch (error) {
+      this.#warn?.("the adapter hold could not be stored", {
+        adapter: hold.adapter,
+        reason: error instanceof Error ? error.message : String(error),
+      });
+    }
+  }
+
+  #delete(adapter: string): void {
+    this.#store.clear(adapter);
+  }
+
   /**
-   * Holds `adapter` with the failures and raises the notice. Replaces an earlier hold. Fail-closed:
-   * the hold is in memory first; a sticky record that cannot be written is logged and the hold
-   * stays in memory, where a missing record does not lift it (`liftSticky` or a restart does).
+   * Holds `adapter` with the failures and raises the notice. Replaces an earlier hold. A sticky
+   * record that cannot be written is logged and tried again at the next look; a missing record
+   * does not lift the hold then (`liftSticky` does).
    */
   hold(adapter: string, failures: readonly LaunchCheckFailure[]): AdapterHold {
     const sticky = failures.filter((failure) => this.#isSticky(failure));
@@ -171,9 +230,9 @@ export class AdapterHolds {
     const carried =
       sticky.length > 0
         ? []
-        : (this.#holds.get(adapter)?.failures ?? []).filter((failure) => this.#isSticky(failure));
+        : (this.#get(adapter)?.failures ?? []).filter((failure) => this.#isSticky(failure));
     const hold = this.#make(adapter, [...carried, ...failures], this.#clock.now());
-    this.#holds.set(adapter, hold);
+    this.#set(hold);
     if (sticky.length > 0) this.#record(adapter, sticky, hold.since);
     this.#notify({ level: "error", code: HOLD_NOTICE_CODE, text: holdMessage(hold) });
     return hold;
@@ -186,7 +245,7 @@ export class AdapterHolds {
       this.#unrecorded.delete(adapter);
     } catch (error) {
       this.#unrecorded.add(adapter);
-      this.#warn?.("the sticky hold record could not be written; the hold stays in memory", {
+      this.#warn?.("the sticky hold record could not be written; the hold stays", {
         adapter,
         reason: error instanceof Error ? error.message : String(error),
       });
@@ -194,22 +253,21 @@ export class AdapterHolds {
   }
 
   /**
-   * Lifts the hold on `adapter`; true when there was one and it is gone. A sticky failure stays:
-   * the hold is kept with only the sticky failures, and the call returns false.
+   * Lifts the hold on `adapter`; true when there was one and it is gone. `why` starts the release
+   * notice: a passing launch check by default. A sticky failure stays: the hold is kept with only
+   * the sticky failures, and the call returns false.
    */
-  lift(adapter: string): boolean {
+  lift(adapter: string, why = `The launch checks for ${adapter} passed`): boolean {
     this.#sync();
-    const hold = this.#holds.get(adapter);
-    if (hold === undefined) return false;
+    const hold = this.#get(adapter);
+    if (hold === null) return false;
     const sticky = hold.failures.filter((failure) => this.#isSticky(failure));
     if (sticky.length > 0) {
-      if (sticky.length < hold.failures.length) {
-        this.#holds.set(adapter, this.#make(adapter, sticky, hold.since));
-      }
+      if (sticky.length < hold.failures.length) this.#set(this.#make(adapter, sticky, hold.since));
       return false;
     }
-    this.#holds.delete(adapter);
-    this.#released(adapter, `The launch checks for ${adapter} passed`);
+    this.#delete(adapter);
+    this.#released(adapter, why);
     return true;
   }
 
@@ -227,7 +285,7 @@ export class AdapterHolds {
   /** The predicate DIPO-48 and DIPO-74 consume: the hold on `adapter`, or null. */
   adapterHeld(adapter: string): AdapterHold | null {
     this.#sync();
-    return this.#holds.get(adapter) ?? null;
+    return this.#get(adapter);
   }
 
   #released(adapter: string, why: string): void {
@@ -240,49 +298,48 @@ export class AdapterHolds {
 
   /** Drops the sticky failures of `adapter`'s hold; true when it changed. */
   #dropSticky(adapter: string, why: string): boolean {
-    const hold = this.#holds.get(adapter);
-    if (hold === undefined) return false;
+    const hold = this.#get(adapter);
+    if (hold === null) return false;
     const rest = hold.failures.filter((failure) => !this.#isSticky(failure));
     if (rest.length === hold.failures.length) return false;
     if (rest.length === 0) {
-      this.#holds.delete(adapter);
+      this.#delete(adapter);
       this.#released(adapter, why);
     } else {
-      this.#holds.set(adapter, this.#make(adapter, rest, hold.since));
+      this.#set(this.#make(adapter, rest, hold.since));
     }
     return true;
   }
 
   /**
-   * Brings memory in line with the sticky store: a recorded hold that memory lacks (a restart) is
-   * held again, and a sticky failure whose record is gone (cleared by `dipo login box`) is lifted.
+   * Brings the stored holds in line with the sticky store: a recorded hold the store lacks is held
+   * again, and a sticky failure whose record is gone (cleared by `dipo login box`) is lifted.
    */
   #sync(): void {
     const store = this.#sticky?.store;
     if (store === undefined) return;
     // A record that could not be written is tried again first.
     for (const adapter of this.#unrecorded) {
-      const held = this.#holds.get(adapter);
+      const held = this.#get(adapter);
       const sticky = held?.failures.filter((failure) => this.#isSticky(failure)) ?? [];
-      if (held === undefined || sticky.length === 0) this.#unrecorded.delete(adapter);
+      if (held === null || sticky.length === 0) this.#unrecorded.delete(adapter);
       else this.#record(adapter, sticky, held.since);
     }
     const record = store.read();
-    // A Map iterates safely while an entry is replaced or deleted.
-    for (const adapter of this.#holds.keys()) {
+    for (const adapter of this.#store.adapters()) {
       if (record?.adapter !== adapter && !this.#unrecorded.has(adapter)) {
         this.#dropSticky(adapter, "The box login was replaced");
       }
     }
     if (record === null || record.failures.length === 0) return;
-    const held = this.#holds.get(record.adapter);
+    const held = this.#get(record.adapter);
     if (held?.failures.some((failure) => this.#isSticky(failure)) === true) return;
     const hold = this.#make(
       record.adapter,
       [...record.failures, ...(held?.failures ?? [])],
       record.since,
     );
-    this.#holds.set(record.adapter, hold);
+    this.#set(hold);
     this.#notify({ level: "error", code: HOLD_NOTICE_CODE, text: holdMessage(hold) });
   }
 }

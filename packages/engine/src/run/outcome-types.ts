@@ -19,7 +19,7 @@ import type { IntentKind } from "./intents";
 import { type ParkOutcome, type UnparkWriter } from "./park";
 import type { StoredRun } from "./records";
 import type { NextSession } from "./resume";
-import type { PlanLimitPause } from "./starts-paused";
+import type { PlanLimitPause, StartsPausedState } from "./starts-paused";
 import type { StoryGit } from "./story-git";
 
 /** The tags DIPO-51 stores at the start of an intent's detail. */
@@ -171,6 +171,15 @@ export interface PlanLimitPauses {
 }
 
 /**
+ * The office's starts paused as worker outcomes use it (0020): a plan limit pauses it, a run's
+ * next session asks it first, and a load that parked runs a plan limit held resumes them.
+ */
+export interface StartsPausedPort extends PlanLimitPauses {
+  state(office: OfficeId): StartsPausedState | null;
+  resumeLifted(office: OfficeId): void;
+}
+
+/**
  * The park of a session that met a plan limit (0020): `worker-failed` with the limit's detail,
  * resumed by itself when the office's starts paused lifts.
  */
@@ -265,7 +274,7 @@ export interface RunOutcomesDeps {
   /** The caps of a run that is no longer tracked (after a restart). */
   readonly caps?: (office: OfficeId, run: StoredRun) => Caps | null;
   /** The office's starts paused (0020), which a plan limit pauses; read when needed. */
-  readonly startsPaused?: () => PlanLimitPauses | undefined;
+  readonly startsPaused?: () => StartsPausedPort | undefined;
   /** Lifts a park on the story branch (DIPO-75); without it no parked run resumes. */
   readonly unpark?: UnparkWriter;
   /** Finishes the park resumes a restart interrupted (`Resumption`); the number it finished. */

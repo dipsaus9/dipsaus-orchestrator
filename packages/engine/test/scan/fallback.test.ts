@@ -97,7 +97,7 @@ interface Harness {
   /** The office's starts paused, as the fallback reads it; null when not paused. */
   held: string | null;
   /** The plan limits the fallback paused the office's starts for, with their reset (ms). */
-  readonly pauses: (number | undefined)[];
+  readonly pauses: { resetsAt?: number; credits: boolean }[];
 }
 
 function harness(t: TestState, profile: RunProfile = MAKE_REPO): Harness {
@@ -126,8 +126,8 @@ function harness(t: TestState, profile: RunProfile = MAKE_REPO): Harness {
     }),
     settings: () => SETTINGS,
     startsPaused: () => h.held,
-    pausePlanLimit: (_office, resetsAt) => {
-      h.pauses.push(resetsAt);
+    pausePlanLimit: (_office, limit) => {
+      h.pauses.push(limit);
       h.held = "the office's starts are paused (plan limit)";
     },
     readBase: async () => BASE,
@@ -323,6 +323,17 @@ describe("office.infer", () => {
       expect(h.office.get("select 1 as x from parks where office_id = $office_id")).toBeNull();
     }));
 
+  it("passes credits_required on to the pause, so only a lift by hand ends it", () =>
+    withHarness(async (h) => {
+      h.results.push({ kind: "plan-limit", runId: "run_c", credits: true });
+      h.fallback.infer(h.officeId, h.office, h.t.clock);
+      await settle();
+      expect(h.pauses).toEqual([{ credits: true }]);
+      h.held = null;
+      h.t.clock.advance(1_000);
+      await h.fallback.whenIdle(h.officeId);
+    }));
+
   it("pauses the office's starts when its session meets a plan limit, then starts a new session once they lift", () =>
     withHarness(async (h) => {
       const reset = h.t.clock.now() + 60_000;
@@ -330,7 +341,7 @@ describe("office.infer", () => {
       h.fallback.infer(h.officeId, h.office, h.t.clock);
       await settle();
       expect(h.requests).toHaveLength(1);
-      expect(h.pauses).toEqual([reset]);
+      expect(h.pauses).toEqual([{ resetsAt: reset, credits: false }]);
       h.t.clock.advance(60_000);
       await settle();
       expect(h.requests).toHaveLength(1);

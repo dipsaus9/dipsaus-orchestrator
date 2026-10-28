@@ -328,6 +328,8 @@ export class RunEndings {
         });
       // The park commit is read again at the branch tip (DIPO-56), unless nothing was written there.
       if (writer === this.#deps.writer) await this.refresh(office, run, "parked");
+      // A park to resume when the starts paused lifts may land while they are not paused (0020).
+      if (ending.resumeOnLift === true) this.#deps.parkedToResume?.(office.officeId as OfficeId);
       return parked;
     })();
   }

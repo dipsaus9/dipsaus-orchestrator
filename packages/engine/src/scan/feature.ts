@@ -49,6 +49,7 @@ import { readBaseEvidence } from "./evidence-read";
 import {
   endLostScanSessions,
   ScanFallback,
+  type ScanFallbackDeps,
   type ScanSessionRunner,
   type ScanSessionSettings,
 } from "./fallback";
@@ -98,7 +99,7 @@ export interface RunProfilesDeps {
   /** Why no new session starts in the office now (its starts paused, 0020); null when it may. */
   readonly startsPaused?: (office: OfficeId) => string | null;
   /** A fallback session met the plan limit: the office's starts pause until `resetsAt` (ms). */
-  readonly pausePlanLimit?: (office: OfficeId, resetsAt: number | undefined) => void;
+  readonly pausePlanLimit?: ScanFallbackDeps["pausePlanLimit"];
   /** How long a waiting fallback session waits before it looks again; a test seam. */
   readonly fallbackPollMs?: number;
   /** A scan outside a command appended entries; subscribers catch up. */

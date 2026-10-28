@@ -15,13 +15,16 @@
 //   (`planLimitPause` builds both). When the office's starts paused lifts, dipo resumes exactly
 //   those parks through the one resume path (`ParkResumes`), and no other park.
 // - `adapter`: a failed adapter check (a launch check, a start failure, the box token check). The
-//   adapter's hold (`workers/hold.ts`) keeps the failures, daemon-wide; an office whose adapter is
-//   held has its starts paused with the hold's detail and time. It lifts when the check passes
-//   again (`dipo run <ID>` repeats the launch checks), or for the box token when `dipo login box`
-//   replaces it. The story stays where it was, so no park resumes for it.
+//   adapter's hold rules (`workers/hold.ts`) keep their one record here: a `starts_paused` row with
+//   reason `adapter`, the adapter and its failures, in every loaded office on that adapter
+//   (`officeHoldStore`), so it survives a restart. It lifts when the check passes again (`dipo run
+//   <ID>` repeats the launch checks), or for the box token only when `dipo login box` replaces it.
+//   The story stays where it was, so no park resumes for it.
 //
-// `dipo daemon resume-scheduling` lifts both, in every office. The timers run on the injected
-// clock; a lift that comes due while the daemon schedules no work is tried again a minute later.
+// `dipo daemon resume-scheduling` lifts both, in every office, but never the box token's hold. An
+// office loaded while another office is paused takes that pause over. The timers run on the
+// injected clock; a lift that comes due while the daemon schedules no work is tried again a minute
+// later.
 
 import {
   type Clock,
@@ -36,7 +39,14 @@ import type { FeatureModule } from "../commands/registry";
 import type { OfficeConfig } from "../config";
 import type { OfficeHandle } from "../db/office";
 import { background } from "../platform/background";
-import { type AdapterHold, holdFailures, holdLift } from "../workers/hold";
+import {
+  type AdapterHold,
+  type AdapterHoldRecord,
+  type AdapterHoldStore,
+  holdFailures,
+  holdLift,
+  type LaunchCheckFailure,
+} from "../workers/hold";
 
 import type { PlanLimitHit } from "./outcome-types";
 
@@ -165,7 +175,7 @@ export interface StartsPausedDeps {
   /** The adapter holds of a failed adapter check (`AdapterHolds`); no `adapter` pause without them. */
   readonly holds?: {
     adapterHeld(adapter: string): AdapterHold | null;
-    lift(adapter: string): boolean;
+    lift(adapter: string, why?: string): boolean;
   };
   /** Resumes one park a plan limit made, through the one resume path (`Resumption.resumeLifted`). */
   readonly resume?: (office: OfficeId, park: LiftedPark) => Promise<LiftedResume>;
@@ -175,6 +185,121 @@ export interface StartsPausedDeps {
   readonly scheduling?: () => boolean;
   readonly onChanged?: (office: OfficeId) => void;
   readonly warn?: (message: string, fields: Readonly<Record<string, unknown>>) => void;
+}
+
+interface AdapterRow {
+  readonly adapter: string;
+  readonly failures: string;
+  readonly since: number;
+}
+
+/** The offices the adapter hold store reaches: every loaded one, with its handle and config. */
+export interface HoldStoreOffices {
+  get(office: OfficeId): OfficeHandle | undefined;
+  config(office: OfficeId): OfficeConfig | undefined;
+  loaded(): readonly OfficeId[];
+}
+
+/** The office's adapter pause row, or null. */
+function rowOf(handle: OfficeHandle): AdapterRow | null {
+  return handle.get<AdapterRow>(
+    `select adapter, failures, since from starts_paused
+      where office_id = $office_id and reason = 'adapter'`,
+  );
+}
+
+/** The first line of a hold's failures, as the row's detail. */
+function failureLine(failures: readonly LaunchCheckFailure[]): string {
+  const [first] = failures;
+  return first === undefined ? "" : `${first.check}: ${first.detail}`;
+}
+
+/**
+ * The adapter holds' one record (0020): a `starts_paused` row with reason `adapter` in every loaded
+ * office on that adapter. A hold is read from the first loaded office that has it, written to each
+ * office on the adapter with a `office.startsPaused` notice when it is new there, and cleared from
+ * all of them with `office.startsLifted`. With no office loaded nothing is stored: nothing starts.
+ */
+export function officeHoldStore(clock: Clock, offices: HoldStoreOffices): AdapterHoldStore {
+  const handles = (): [OfficeId, OfficeHandle][] =>
+    offices.loaded().flatMap((id): [OfficeId, OfficeHandle][] => {
+      const handle = offices.get(id);
+      return handle === undefined ? [] : [[id, handle]];
+    });
+  const notice = (handle: OfficeHandle, code: string, text: string): void => {
+    appendEntries(handle, [{ type: "engine.notice", delta: { level: "warn", code, text } }], {
+      at: clock.now(),
+    });
+  };
+  return {
+    read: (adapter) => {
+      for (const [, handle] of handles()) {
+        const row = rowOf(handle);
+        if (row === null || row.adapter !== adapter) continue;
+        return {
+          adapter,
+          failures: JSON.parse(row.failures) as LaunchCheckFailure[],
+          since: row.since,
+        };
+      }
+      return null;
+    },
+    write: (record) => {
+      for (const [id, handle] of handles()) {
+        if (offices.config(id)?.worker.adapter !== record.adapter) continue;
+        writeHoldRow(handle, record, notice);
+      }
+    },
+    clear: (adapter) => {
+      for (const [, handle] of handles()) {
+        handle.immediate(() => {
+          const row = rowOf(handle);
+          if (row === null || row.adapter !== adapter) return;
+          handle.run(
+            "delete from starts_paused where office_id = $office_id and reason = 'adapter'",
+          );
+          notice(
+            handle,
+            STARTS_PAUSED_NOTICES.lifted,
+            `The office's starts paused (adapter check failed: ${failureLine(JSON.parse(row.failures) as LaunchCheckFailure[])}) lifted.`,
+          );
+        });
+      }
+    },
+    adapters: () => [...new Set(handles().flatMap(([, handle]) => rowOf(handle)?.adapter ?? []))],
+  };
+}
+
+/** Writes `record` as the office's adapter pause, with a notice when it is new there. */
+function writeHoldRow(
+  handle: OfficeHandle,
+  record: AdapterHoldRecord,
+  notice: (handle: OfficeHandle, code: string, text: string) => void,
+): void {
+  handle.immediate(() => {
+    const before = handle.get<{ found: number }>(
+      "select 1 as found from starts_paused where office_id = $office_id and reason = 'adapter'",
+    );
+    handle.run(
+      `insert into starts_paused (office_id, reason, detail, since, adapter, failures)
+       values ($office_id, 'adapter', $detail, $since, $adapter, $failures)
+       on conflict (office_id, reason) do update set detail = excluded.detail,
+         since = excluded.since, adapter = excluded.adapter, failures = excluded.failures`,
+      {
+        detail: failureLine(record.failures),
+        since: record.since,
+        adapter: record.adapter,
+        failures: JSON.stringify(record.failures),
+      },
+    );
+    if (before === null) {
+      notice(
+        handle,
+        STARTS_PAUSED_NOTICES.paused,
+        `The office's starts are paused: adapter check failed: ${failureLine(record.failures)}. No new session starts until it lifts.`,
+      );
+    }
+  });
 }
 
 interface PausedRow {
@@ -228,7 +353,11 @@ export class StartsPaused {
       detail: `${hold.adapter}: ${holdFailures(hold)}`,
       since: hold.since,
       until: null,
-      lifts: `${holdLift(hold)} \`${LIFT_COMMAND}\` lifts it by hand.`,
+      // The box token's hold lifts only with `dipo login box` (DIPO-271), never by the command.
+      lifts:
+        hold.liftedBy === undefined
+          ? `${holdLift(hold)} \`${LIFT_COMMAND}\` lifts it by hand.`
+          : holdLift(hold),
       hold,
     };
   }
@@ -260,9 +389,18 @@ export class StartsPaused {
   lift(officeId: OfficeId, why: string): boolean {
     let lifted = this.#liftRow(officeId, why);
     const adapter = this.#deps.offices.config(officeId)?.worker.adapter;
-    if (adapter !== undefined && this.#deps.holds?.lift(adapter) === true) lifted = true;
+    const by = `${why.charAt(0).toUpperCase()}${why.slice(1)}`;
+    if (adapter !== undefined && this.#deps.holds?.lift(adapter, by) === true) lifted = true;
     this.#resumeLifted(officeId);
     return lifted;
+  }
+
+  /**
+   * Resumes the parks a plan limit made in the office while its starts are not paused: after a
+   * load parked runs a plan limit held before the upgrade (`outcome-restart.ts`).
+   */
+  resumeLifted(officeId: OfficeId): void {
+    this.#resumeLifted(officeId);
   }
 
   /** `lift` in every loaded office; returns how many offices had something lifted. */
@@ -288,6 +426,7 @@ export class StartsPaused {
    * after the load on the clock, so the office can be reached by id.
    */
   recover(officeId: OfficeId, handle: OfficeHandle): void {
+    this.#takeOver(officeId, handle);
     const row = this.#row(handle);
     if (row === null) {
       this.#deps.clock.setTimeout(() => this.#resumeLifted(officeId), 0);
@@ -328,8 +467,56 @@ export class StartsPaused {
 
   #row(handle: OfficeHandle): PausedRow | null {
     return handle.get<PausedRow>(
-      "select detail, since, until_at from starts_paused where office_id = $office_id",
+      `select detail, since, until_at from starts_paused
+        where office_id = $office_id and reason = 'plan-limit'`,
     );
+  }
+
+  /**
+   * An office loaded while another is paused takes the pause over (0001: one subscription, one
+   * adapter): the live plan-limit pause that lifts last, and its adapter's hold.
+   */
+  #takeOver(officeId: OfficeId, handle: OfficeHandle): void {
+    const now = this.#deps.clock.now();
+    let live: PausedRow | null = null;
+    let hold: AdapterHoldRecord | null = null;
+    const adapter = this.#deps.offices.config(officeId)?.worker.adapter;
+    for (const other of this.#deps.loaded?.() ?? []) {
+      if (other === officeId) continue;
+      const otherHandle = this.#deps.offices.get(other);
+      if (otherHandle === undefined) continue;
+      const row = this.#row(otherHandle);
+      if (row !== null && (row.until_at === null || row.until_at > now)) {
+        const later =
+          live === null ||
+          row.until_at === null ||
+          (live.until_at !== null && row.until_at > live.until_at);
+        if (later) live = row;
+      }
+      const otherHold = otherHandle.get<AdapterRow>(
+        `select adapter, failures, since from starts_paused
+          where office_id = $office_id and reason = 'adapter'`,
+      );
+      if (hold === null && otherHold !== null && otherHold.adapter === adapter) {
+        hold = {
+          adapter: otherHold.adapter,
+          failures: JSON.parse(otherHold.failures) as LaunchCheckFailure[],
+          since: otherHold.since,
+        };
+      }
+    }
+    if (live !== null && this.#row(handle) === null) {
+      this.#pause(officeId, handle, {
+        detail: live.detail,
+        since: live.since,
+        until: live.until_at,
+      });
+    }
+    if (hold !== null) {
+      const notice = (target: OfficeHandle, code: string, text: string): void =>
+        this.#append(target, [{ type: "engine.notice", delta: { level: "warn", code, text } }]);
+      writeHoldRow(handle, hold, notice);
+    }
   }
 
   #pause(officeId: OfficeId, handle: OfficeHandle, pause: PlanLimitPause): void {
@@ -345,7 +532,8 @@ export class StartsPaused {
       handle.run(
         `insert into starts_paused (office_id, reason, detail, since, until_at)
          values ($office_id, 'plan-limit', $detail, $since, $until)
-         on conflict (office_id) do update set detail = excluded.detail, until_at = excluded.until_at`,
+         on conflict (office_id, reason) do update set detail = excluded.detail,
+           until_at = excluded.until_at`,
         { detail: pause.detail, since: pause.since, until: lift },
       );
       if (before === null) {
@@ -379,7 +567,9 @@ export class StartsPaused {
     const lifted = handle.immediate(() => {
       const before = this.#row(handle);
       if (before === null) return false;
-      handle.run("delete from starts_paused where office_id = $office_id");
+      handle.run(
+        "delete from starts_paused where office_id = $office_id and reason = 'plan-limit'",
+      );
       this.#append(handle, [
         {
           type: "engine.notice",
