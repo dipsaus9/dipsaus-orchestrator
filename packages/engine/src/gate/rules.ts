@@ -8,7 +8,7 @@
 
 import type { FieldBlock } from "@dipsaus-orchestrator/contract";
 
-import { SET_ASIDE_LABELS, type StoryLabels } from "../backlog/fields/labels";
+import type { StoryLabels } from "../backlog/fields/labels";
 import { characters, clean, looksLikePath, runCores, wordMatch } from "./text";
 import type {
   GateFailure,
@@ -472,34 +472,6 @@ export const r26: RuleCheck = (context) => {
     : fail(context, "R26", `story contract is ${size} characters; the limit is ${max}`);
 };
 
-/** R27: no criterion names a step the worker cannot take (`story.maintainerStepPhrases`); one failure per criterion and phrase. */
-export const r27: RuleCheck = (context) => {
-  const phrases = context.input.config.story.maintainerStepPhrases;
-  return context.story.acceptanceCriteria.flatMap((criterion) =>
-    phrases
-      .filter((phrase) => wordMatch(criterion.text, phrase))
-      .flatMap((phrase) =>
-        fail(
-          context,
-          "R27",
-          `criterion #${criterion.index} names a step the worker cannot take ("${phrase}"); move it to a manual test plan entry`,
-        ),
-      ),
-  );
-};
-
-/** R28 (DIPO-238): a story labelled `dropped` or `on-hold` is set aside; one failure per such label. */
-export const r28: RuleCheck = (context) =>
-  context.labels.other
-    .filter((label) => SET_ASIDE_LABELS.includes(label))
-    .flatMap((label) =>
-      fail(
-        context,
-        "R28",
-        `labelled ${label}: the maintainer set it aside; remove the label to make it Ready`,
-      ),
-    );
-
 /** A path without a leading `./` and a trailing `/`, for comparing paths segment by segment. */
 function trimmed(path: string): string {
   return path.replace(/^(\.\/)+/, "").replace(/\/+$/, "");
@@ -629,7 +601,7 @@ const SECURITY_PARTS = [
 
 /**
  * R30 (DIPO-251, from DIPO-260): a story whose title or Outcome names a security barrier (a phrase
- * of `story.securityPhrases`, word match as R27) has, for each part of
+ * of `story.securityPhrases`, word match as R10) has, for each part of
  * `story.securityCriteriaPhrases`, a criterion that contains one of its phrases. One failure per
  * missing part, naming the first listed phrase the story matched. A spike ships no behavior, so it
  * adds no barrier and is exempt.
@@ -684,8 +656,6 @@ export const SHARED_RULES: readonly RuleCheck[] = [
   r24,
   r25,
   r26,
-  r27,
-  r28,
   r30,
 ];
 

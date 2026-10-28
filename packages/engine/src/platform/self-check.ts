@@ -6,8 +6,6 @@ import { Database } from "bun:sqlite";
 import { mkdir, mkdtemp, rm } from "node:fs/promises";
 import { join } from "node:path";
 
-import { SandboxManager, type SandboxRuntimeConfig } from "@anthropic-ai/sandbox-runtime";
-
 import { parseYamlDocument } from "./yaml";
 
 /** One probe of the hidden `dipo self-check`; it throws when the feature does not work. */
@@ -24,7 +22,6 @@ export function platformSelfChecks(tmpRoot: string): SelfCheck[] {
     { name: "worker", run: () => withTempDir(tmpRoot, checkWorker) },
     { name: "unix-websocket", run: () => withTempDir(tmpRoot, checkUnixWebSocket) },
     { name: "yaml", run: checkYaml },
-    { name: "sandbox-runtime", run: checkSandboxRuntime },
   ];
 }
 
@@ -147,25 +144,6 @@ function checkYaml(): void {
   const expected = { version: 1, tiers: ["small", "large"], answer: "no" };
   if (JSON.stringify(parsed) !== JSON.stringify(expected)) {
     throw new Error(`parsed ${JSON.stringify(parsed)}`);
-  }
-}
-
-// No network, no writes. Initialising starts the in-process proxies and checks the platform
-// dependencies (bubblewrap, socat and ripgrep on Linux); running a command is DIPO-37's
-// `dipo daemon sandbox-exec`.
-const DENY_ALL: SandboxRuntimeConfig = {
-  network: { allowedDomains: [], deniedDomains: [] },
-  filesystem: { denyRead: [], allowWrite: [], denyWrite: [] },
-};
-
-async function checkSandboxRuntime(): Promise<void> {
-  try {
-    await SandboxManager.initialize(DENY_ALL);
-    if (!SandboxManager.isSandboxingEnabled()) {
-      throw new Error("sandboxing is not enabled after initialize");
-    }
-  } finally {
-    await SandboxManager.reset();
   }
 }
 

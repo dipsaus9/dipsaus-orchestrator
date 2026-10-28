@@ -47,8 +47,8 @@
 //   (DIPO-307); a run whose finish failed is not reported as finished. A pass waits for one run's
 //   finish at most `BOX_FINISH_WAIT_MS`, so a finish that hangs cannot hold the passes after it
 //   (the daemon-start sweep among them); the finish goes on, and a later pass waits for it again. At daemon start it also
-//   deletes the fill boxes (`dipo-fill-*`) a stopped daemon left during a fill, never one this
-//   daemon fills now; the index folder is made before the first fill, so the backend is asked
+//   deletes the fill, build and Safe-Chain boxes (`dipo-fill-*`, `dipo-build-*`,
+//   `dipo-safe-chain-*`, DIPO-343) a stopped daemon left, never one this daemon uses now; the index folder is made before the first fill, so the backend is asked
 //   after a crash in the first box run's fill too.
 // - Before the worker's first session (the launch, after `create`; DIPO-294): `install` runs the
 //   office's install in the box at the start commit with the box's web route and the Safe-Chain CA
@@ -103,6 +103,7 @@ import {
 import type { PartRun, StartTreeCheck } from "./parts";
 import { type BoxTokenCheck, checkBoxAfterRun, tokenCheckFailure } from "./token-check";
 import { copyInAsUser } from "./user";
+import { SAFE_CHAIN_BOX_RUN_PREFIX } from "./safe-chain";
 import { type BoxInstallResult, type BoxVerifyResult, runBoxInstall, runBoxVerify } from "./verify";
 import { BoxWebRoute, type BoxWebRouteStart, type RunningBoxWebRoute } from "./web-proxy";
 
@@ -262,8 +263,12 @@ export type BoxWorkerInstall = BoxInstallResult & {
 
 export interface BoxWorkersDeps {
   readonly boxes: BoxPort;
-  /** Starts dipo's web route (Safe-Chain and the web proxy) on the box network's host address. */
-  readonly startWebRoute: (network: Pick<BoxNetwork, "hostAddress">) => Promise<BoxWebRouteStart>;
+  /**
+   * Starts dipo's web route (the web proxy, and Safe-Chain in its own box behind it, DIPO-343) on
+   * the box network. `ids` names the Safe-Chain box and its image's build box before they exist,
+   * so a daemon-start sweep leaves them alone (`startBoxWebRoute`'s `boxId` and `buildId`).
+   */
+  readonly startWebRoute: (network: BoxNetwork, ids: RouteBoxIds) => Promise<BoxWebRouteStart>;
   /** Starts the model proxy on the box network's host address; it reads the token at start. */
   readonly startModelProxy: (
     network: Pick<BoxNetwork, "hostAddress">,
@@ -315,6 +320,12 @@ export interface BoxWorkersDeps {
   readonly sessionRestWaitMs?: number;
   readonly warn?: Log;
   readonly info?: Log;
+}
+
+/** The ids of the boxes a web route start makes (DIPO-343), each told before its box exists. */
+export interface RouteBoxIds {
+  readonly boxId: () => string;
+  readonly buildId: () => string;
 }
 
 /** `finishEnded`'s answer for a run that waits with its claim live: stop its box, keep it. */
@@ -447,13 +458,7 @@ export class BoxWorkers {
   constructor(deps: BoxWorkersDeps) {
     this.#deps = deps;
     this.#index = deps.indexDir;
-    this.#web = new BoxWebRoute(async () => {
-      const started = await deps.startWebRoute(await this.#networkOf());
-      if (!started.ok) {
-        throw new BoxError("box.routeFailed", `the box web route did not start: ${started.reason}`);
-      }
-      return started.route;
-    });
+    this.#web = new BoxWebRoute(() => this.#startWebRoute());
     this.#model = new BoxWebRoute(async () => deps.startModelProxy(await this.#networkOf()));
     this.#door =
       deps.door === undefined
@@ -465,6 +470,52 @@ export class BoxWorkers {
             ...(deps.warn === undefined ? {} : { warn: deps.warn }),
             ...(deps.info === undefined ? {} : { info: deps.info }),
           });
+  }
+
+  /**
+   * Starts the web route with the Safe-Chain box behind it (DIPO-343). The index folder is made
+   * first, so a daemon that crashes with a Safe-Chain box running asks the backend at its next
+   * start; the route's boxes are known by name before they exist, so that sweep leaves a running
+   * route's alone, and the Safe-Chain box is forgotten again when the route stops.
+   */
+  async #startWebRoute(): Promise<RunningBoxWebRoute> {
+    ensurePrivateDir(this.#index);
+    const named: string[] = [];
+    const id = (prefix: string) => () => {
+      const value = randomUUID().replaceAll("-", "").slice(0, 16);
+      const name = boxName(`${prefix}${value}`);
+      named.push(name);
+      this.#filling.add(name);
+      return value;
+    };
+    const forget = () => {
+      for (const name of named) this.#filling.delete(name);
+    };
+    let started: BoxWebRouteStart;
+    try {
+      started = await this.#deps.startWebRoute(await this.#networkOf(), {
+        boxId: id(SAFE_CHAIN_BOX_RUN_PREFIX),
+        buildId: id(BUILD_BOX_RUN_PREFIX),
+      });
+    } catch (error) {
+      forget();
+      throw error;
+    }
+    if (!started.ok) {
+      forget();
+      throw new BoxError("box.routeFailed", `the box web route did not start: ${started.reason}`);
+    }
+    const route = started.route;
+    return {
+      ...route,
+      stop: async () => {
+        try {
+          await route.stop();
+        } finally {
+          forget();
+        }
+      },
+    };
   }
 
   /** True when the run of `runDir` runs its developer in a box. */
@@ -1408,7 +1459,8 @@ export class BoxWorkers {
         for (const box of await this.#deps.boxes.list()) {
           if (
             box.runId.startsWith(FILL_BOX_RUN_PREFIX) ||
-            box.runId.startsWith(BUILD_BOX_RUN_PREFIX)
+            box.runId.startsWith(BUILD_BOX_RUN_PREFIX) ||
+            box.runId.startsWith(SAFE_CHAIN_BOX_RUN_PREFIX)
           ) {
             fills.push(box.name);
           } else {

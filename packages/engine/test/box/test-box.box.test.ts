@@ -1,8 +1,8 @@
-// The test box on real boxes (DIPO-309, criteria 3 and 10 to 12; 0002, 0008), opt-in: it registers
+// The test box on real boxes (DIPO-309, criteria 3 and 9 to 11; 0002, 0008), opt-in: it registers
 // only with DIPO_TEST_BOX=1 and never in CI. It needs macOS with Apple container 1.6.0 or newer and
-// its service running, the official Safe-Chain install (`~/.safe-chain`) for the web route, and the
-// internet: the office image (now with socat) is built in a build box on its first run, which takes
-// minutes. No model session runs. The maintainer runs it by hand:
+// its service running, and the internet (the web route builds its Safe-Chain box from the pinned
+// release, DIPO-343): the office image (now with socat) is built in a build box on its first run,
+// which takes minutes. No model session runs. The maintainer runs it by hand:
 //
 //   DIPO_TEST_BOX=1 bun test packages/engine/test/box/test-box.box.test.ts
 //
@@ -15,14 +15,14 @@
 // - The way in (criterion 3): the URL is http://localhost:<port> on the Mac and serves the page,
 //   also while a VPN routes the box network's range (the route the Mac takes to the box is printed);
 //   no container port is published.
-// - What the old rule caught still fails (criterion 10): from test box A, a new connection to the
+// - What the old rule caught still fails (criterion 9): from test box A, a new connection to the
 //   Mac (a listener on all interfaces), and the internet directly; from developer box D with its
 //   firewall set as an install sets it, a new connection to the Mac, and an answer to the Mac.
-// - The bypass forms (criterion 11): from test box A, a reply-shaped connection (its source port
+// - The bypass forms (criterion 10): from test box A, a reply-shaped connection (its source port
 //   is the `dev` port) to the Mac with no connection the Mac opened, a connection to the
 //   forwarder's port on the Mac, and a second port the product opens there; from box D (before its
 //   own firewall, so only A's rule can stop it) a connection to A's `dev` port.
-// - Fail closed against the real path (criterion 12): A's firewall set without the reply rule
+// - Fail closed against the real path (criterion 11): A's firewall set without the reply rule
 //   makes the URL fail and opens nothing else; with the forwarder stopped the URL fails too.
 // The test deletes the boxes it made; it stops or deletes nothing else, and keeps the image.
 
@@ -42,12 +42,12 @@ import { readBaseBox } from "../../src/box/image";
 import { startModelProxy } from "../../src/box/model-proxy";
 import { boxName } from "../../src/box/port";
 import { type TestBoxRequest, TestBoxes } from "../../src/box/test-box";
-import { startBoxWebRoute, systemInterfaceAddresses } from "../../src/box/web-proxy";
+import { startBoxWebRoute } from "../../src/box/safe-chain-box";
+import { systemInterfaceAddresses } from "../../src/box/web-proxy";
 import { BOX_INDEX_DIR, BoxWorkers } from "../../src/box/workers";
 import { OfficeGit, spawnGitExec } from "../../src/git";
 import { systemListenHttp } from "../../src/platform/box-host";
 import { systemClock } from "../../src/platform/clock";
-import { currentPlatform } from "../../src/platform/paths";
 import { systemSpawn } from "../../src/platform/process";
 import { AdapterHolds } from "../../src/workers/hold";
 
@@ -58,7 +58,6 @@ const registers =
 
 /** The image build on a cold builder and the boxes. */
 const TIMEOUT_MS = 45 * 60_000;
-const SAFE_CHAIN_INSTALL = join(homedir(), ".safe-chain");
 const OFFICE = "off_01J9ZK5Q8W3V4X6Y7Z0000TST1" as OfficeId;
 const DEV_PORT = 5173;
 const SECOND_PORT = 6000;
@@ -156,18 +155,17 @@ if (registers) {
             expect(await boxes.check()).toMatchObject({ ok: true });
             const workers = new BoxWorkers({
               boxes,
-              startWebRoute: (network) =>
+              startWebRoute: (network, ids) =>
                 startBoxWebRoute(
                   network,
                   {
-                    request: {
-                      installRoot: SAFE_CHAIN_INSTALL,
-                      caFile: join(tmp, "route", "ca.pem"),
-                      home,
-                      uid: process.getuid?.() ?? 0,
-                      env: process.env,
-                    },
-                    deps: { platform: currentPlatform(), clock: systemClock, root: join(tmp, "p") },
+                    boxes,
+                    clock: systemClock,
+                    scratchRoot: tmp,
+                    toolsRoot: join(tmp, "state", "box-net-tools"),
+                    caFile: join(tmp, "route", "ca.pem"),
+                    boxId: ids.boxId,
+                    buildId: ids.buildId,
                   },
                   { clock: systemClock },
                 ),
@@ -299,7 +297,7 @@ if (registers) {
                 });
               }
 
-              // Criterion 10, the test box: no new connection out, to the Mac, the local network
+              // Criterion 9, the test box: no new connection out, to the Mac, the local network
               // or the internet; box D reaches the Mac and its LAN address, so the rule stops A.
               expect(await connects(boxD, host, mac.port)).toBe(true);
               expect(await connects(boxA, host, mac.port)).toBe(false);
@@ -311,7 +309,7 @@ if (registers) {
               }
               fact("test box A opens no connection to the Mac, the local network or the internet");
 
-              // Criterion 11: the forwarder's port on the Mac. A listener on that port at the
+              // Criterion 10: the forwarder's port on the Mac. A listener on that port at the
               // Mac's bridge address shows the firewall is what stops it: box D reaches it.
               const forwarderPort = a.forward?.port ?? 0;
               const bridge = createServer((socket) => {
@@ -340,12 +338,12 @@ if (registers) {
               );
               fact("the forwarder's port and a second port of the product are not reached");
 
-              // Criterion 11: another box reaching A's dev port. D has no firewall yet, so only
+              // Criterion 10: another box reaching A's dev port. D has no firewall yet, so only
               // A's own rule stands between them.
               expect(await connects(boxD, address, DEV_PORT)).toBe(false);
               fact("another box does not reach the test box's dev port");
 
-              // Criterion 10, a developer box and a reviewer box with their firewall as an install
+              // Criterion 9, a developer box and a reviewer box with their firewall as an install
               // sets it: no new connection to the Mac, no answer to the Mac, and no way in.
               for (const runId of [devRun, reviewRun]) {
                 const box = boxName(runId);
@@ -372,7 +370,7 @@ if (registers) {
               }
               fact("a developer box and a reviewer box neither reach nor answer the Mac");
 
-              // Criterion 12, fail closed: without the reply rule the URL fails, nothing opens.
+              // Criterion 11, fail closed: without the reply rule the URL fails, nothing opens.
               await workers.route(testA);
               expect(await page(url)).toStartWith("failed");
               expect(await systemReach({ address, port: DEV_PORT, source: host }, 3_000)).toBe(
@@ -383,7 +381,7 @@ if (registers) {
               expect(await page(url)).toBe(`200 ${PAGE}`);
               fact("without the reply rule the URL fails; with it back, it works");
 
-              // Criterion 11: a reply-shaped packet with no connection the Mac opened. dev and its
+              // Criterion 10: a reply-shaped packet with no connection the Mac opened. dev and its
               // relay stop, so the box's own connection may take the dev port as its source port.
               await stopDev(boxA);
               const loop = boxes.execLive(boxA, [

@@ -12,7 +12,9 @@
 // closes both sides of a connection when either side ends or fails. `close` stops it and ends every
 // connection it holds.
 
-import { connect, createServer, type Server, type Socket } from "node:net";
+import { createServer, type Server, type Socket } from "node:net";
+
+import { connectToBox } from "./box-connect";
 
 /** The only address the forwarder listens on. */
 export const FORWARDER_HOST = "127.0.0.1";
@@ -62,17 +64,19 @@ export interface ForwarderOptions {
 const FORWARDER_PORT_TRIES = 20;
 
 /**
- * The one way dipo's Mac side opens a connection to a box (DIPO-309): from the Mac's address on
- * the box network (`localAddress`), so macOS sends it through the box bridge even while a VPN routes
- * the box network's range through its tunnel. `timeoutMs` is the connect's idle deadline.
+ * A connection to the box through dipo's one way into the box network (`connectToBox`, DIPO-343):
+ * from the Mac's address on the box bridge, so it works while a VPN routes the box network's range.
+ * `timeoutMs` is its idle deadline. Throws `box.refused` when the source is no address of the box's
+ * family.
  */
-export function connectToBox(target: ForwardTarget, timeoutMs: number): Socket {
-  return connect({
-    host: target.address,
+function toBox(target: ForwardTarget, timeoutMs: number): Socket {
+  const socket = connectToBox({
+    address: target.address,
     port: target.port,
-    localAddress: target.source,
-    timeout: timeoutMs,
+    hostAddress: target.source,
   });
+  socket.setTimeout(timeoutMs);
+  return socket;
 }
 
 function listen(server: Server, port: number): Promise<void> {
@@ -103,7 +107,14 @@ export const startForwarder: StartForwarder = async (target, options = {}) => {
       return;
     }
     open.add(client);
-    const upstream = connectToBox(target, FORWARDER_CONNECT_TIMEOUT_MS);
+    let upstream: Socket;
+    try {
+      upstream = toBox(target, FORWARDER_CONNECT_TIMEOUT_MS);
+    } catch {
+      open.delete(client);
+      client.destroy();
+      return;
+    }
     open.add(upstream);
     // A failure ends both sides at once; a side that closes ends the other only after what it
     // sent was written (a `dev` that answers and closes at once loses nothing).
@@ -170,7 +181,13 @@ export const startForwarder: StartForwarder = async (target, options = {}) => {
  */
 export function systemReach(target: ForwardTarget, timeoutMs: number): Promise<boolean> {
   return new Promise((resolve) => {
-    const socket = connectToBox(target, timeoutMs);
+    let socket: Socket;
+    try {
+      socket = toBox(target, timeoutMs);
+    } catch {
+      resolve(false);
+      return;
+    }
     const done = (reached: boolean): void => {
       socket.destroy();
       resolve(reached);

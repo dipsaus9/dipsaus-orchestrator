@@ -350,7 +350,7 @@
             "type": "string",
             "minLength": 1
           },
-          "description": "Phrases that name a step only the maintainer or the engine can take, such as writing task notes. A criterion that contains one fails the Ready gate (R27) and moves that step to a manual test plan entry (0012 section 3, DIPO-188)."
+          "description": "Not read: the Ready gate rule R27 that read these phrases is removed (0012). The key is still accepted until the office configuration drops it."
         },
         "securityPhrases": {
           "type": "array",
@@ -389,7 +389,7 @@
             }
           },
           "additionalProperties": false,
-          "description": "Per part of R30, the phrases a criterion must contain (word match, as R27). A story whose title or Outcome names a security barrier fails once for each part no criterion matches (0012 section 3, DIPO-251)."
+          "description": "Per part of R30, the phrases a criterion must contain (word match, as R10). A story whose title or Outcome names a security barrier fails once for each part no criterion matches (0012 section 3, DIPO-251)."
         }
       },
       "additionalProperties": false

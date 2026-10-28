@@ -25,7 +25,7 @@ import {
   registryRefusal,
   TunnelInspector,
 } from "../../src/box/web-proxy";
-import { SAFE_CHAIN_REGISTRY_HOSTS } from "../../src/sandbox/safe-chain-proxy";
+import { SAFE_CHAIN_REGISTRY_HOSTS } from "../../src/box/safe-chain";
 
 import { extension, hello, helloMessage, records, serverName, u16 } from "./tls-hello";
 

@@ -287,12 +287,17 @@ describe(".gitignore (AC #7)", () => {
 describe("audit.yml advisory ignores (AC #8)", () => {
   it("names the tracking story and the ending dependency version of every ignore", async () => {
     const source = await text(".github/workflows/audit.yml");
-    expect(ignores(source).ids.length).toBeGreaterThan(0);
     expect(untracked(source)).toEqual([]);
   });
 
-  it("fails for an ignore without a tracked end", async () => {
-    const source = await text(".github/workflows/audit.yml");
+  it("fails for an ignore without a tracked end", () => {
+    // A stand-in entry, since audit.yml may ignore nothing (DIPO-343).
+    const source = [
+      "      # - GHSA-zzzz-yyyy-xxxx: some-package <=1.0.0.",
+      "      #   Tracking story: DIPO-1. Ends with: some-package >1.0.0 in bun.lock.",
+      "      run: bun audit --audit-level=high --ignore=GHSA-zzzz-yyyy-xxxx",
+    ].join("\n");
+    expect(untracked(source)).toEqual([]);
     const added = source.replace("--ignore=", "--ignore=GHSA-aaaa-bbbb-cccc --ignore=");
     expect(untracked(added)).toEqual(["GHSA-aaaa-bbbb-cccc"]);
     const noStory = source.replace(/Tracking story: DIPO-\d+/, "Tracking story: none");

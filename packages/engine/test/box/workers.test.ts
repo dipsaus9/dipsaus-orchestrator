@@ -62,7 +62,8 @@ import {
   PACKAGE_CACHE_DIR,
   readBaseLockfile,
 } from "../../src/box/cache";
-import { BOX_PACKAGE_CACHE_PATH, BoxError, boxName } from "../../src/box/port";
+import { BOX_PACKAGE_CACHE_PATH, BoxError, type BoxNetwork, boxName } from "../../src/box/port";
+import { SAFE_CHAIN_BOX_RUN_PREFIX } from "../../src/box/safe-chain";
 import { SecretToken } from "../../src/box/token";
 import { BOX_TOKEN_CHECK } from "../../src/box/token-check";
 import { boxTokenHoldPath, boxTokenStickyHolds } from "../../src/box/token-hold";
@@ -77,6 +78,7 @@ import {
   type BoxPackageCacheDeps,
   type BoxWorkersDeps,
   readBoxRun,
+  type RouteBoxIds,
 } from "../../src/box/workers";
 import { BOX_GIT_ENV, BOX_GIT_INIT_TIMEOUT_MS, boxGitInitCommand } from "../../src/box/box-git";
 import { DIPO_PART_PATH } from "../../src/box/door";
@@ -168,6 +170,8 @@ interface WorldOptions {
    * and its box network tools exist already, so no build runs.
    */
   readonly build?: boolean;
+  /** The web route makes its Safe-Chain box, by the id the workers tell it (DIPO-343). */
+  readonly safeChainBox?: boolean;
 }
 
 /**
@@ -222,8 +226,16 @@ async function world(repo: TempRepo, tmp: string, options: WorldOptions = {}): P
   writeFileSync(caFile, CA);
   const route =
     (what: string) =>
-    async (network: { hostAddress: string }): Promise<BoxWebRouteStart> => {
+    async (network: BoxNetwork, ids?: RouteBoxIds): Promise<BoxWebRouteStart> => {
       log.push(`${what} started on ${network.hostAddress}`);
+      const safeChain =
+        options.safeChainBox === true && ids !== undefined
+          ? await boxes.create({
+              runId: `${SAFE_CHAIN_BOX_RUN_PREFIX}${ids.boxId()}`,
+              image: tag,
+              network,
+            })
+          : null;
       return {
         ok: true,
         route: {
@@ -238,6 +250,7 @@ async function world(repo: TempRepo, tmp: string, options: WorldOptions = {}): P
           },
           stop: async () => {
             log.push(`${what} stopped`);
+            if (safeChain !== null) await boxes.delete(safeChain);
           },
         },
       };
@@ -1793,6 +1806,29 @@ describe("the box firewall, the listed local ports and the box network's address
       expect(w.log).toContain("web route stopped");
       expect(w.log.some((line) => line.startsWith(`create ${BOX}`))).toBe(false);
       expect(w.boxes.commits).toEqual([]);
+    }));
+
+  it("deletes, at daemon start, a Safe-Chain box a stopped daemon left, never its running route's (DIPO-343)", () =>
+    inBoxes(async (repo, tmp) => {
+      const w = await world(repo, tmp, { safeChainBox: true });
+      await created(w);
+      await w.workers.awake({ runId: RUN, runDir: w.runDir });
+      const running = [...w.boxes.boxes.keys()].filter((name) =>
+        name.startsWith(`dipo-${SAFE_CHAIN_BOX_RUN_PREFIX}`),
+      );
+      expect(running).toHaveLength(1);
+      const left = boxName(`${SAFE_CHAIN_BOX_RUN_PREFIX}0123456789abcdef`);
+      await w.boxes.create({
+        runId: `${SAFE_CHAIN_BOX_RUN_PREFIX}0123456789abcdef`,
+        image: "dipo-box:x",
+        network: { name: "dipo-boxes", mode: "hostOnly", hostAddress: BOX_HOST_ADDRESS },
+      });
+      await w.workers.finishEnded(() => false, { listBoxes: true });
+      expect(w.boxes.boxes.has(left)).toBe(false);
+      expect(w.boxes.boxes.has(running[0] ?? "")).toBe(true);
+      // The route's box goes with the route, and a later sweep has nothing of it to keep.
+      await w.workers.close();
+      expect(w.boxes.boxes.has(running[0] ?? "")).toBe(false);
     }));
 
   it("deletes, at daemon start, a build box a stopped daemon left, as a fill box", () =>
