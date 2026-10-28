@@ -58,11 +58,7 @@ export type CommandOutcome =
 export type LossesOutcome =
   | {
       readonly ok: true;
-      readonly result: {
-        readonly commits: readonly LostCommit[];
-        readonly files: readonly string[];
-        readonly kept?: readonly string[] | undefined;
-      };
+      readonly result: { readonly commits: readonly LostCommit[] };
     }
   | { readonly ok: false; readonly error: EngineError };
 
@@ -149,7 +145,7 @@ const VERBS: Readonly<Record<ActionId, string>> = {
 /** What the irreversible commands do, as the typed confirmation says it (0009 section 5). */
 const LOSES: Readonly<Record<"work.discard" | "story.drop", string>> = {
   "work.discard":
-    "ends the run, deletes the worktree and branch, closes the PR and returns the story to Refined",
+    "ends the run, deletes the box and branch, closes the PR and returns the story to Refined",
   "story.drop": "archives it, releases its claim and deletes its branch",
 };
 
@@ -275,14 +271,12 @@ export function lossLines(
   losses: Extract<LossesOutcome, { ok: true }>["result"],
 ): string[] {
   const lines = [`${command === "work.discard" ? "Discard" : "Drop"} ${story}: ${LOSES[command]}.`];
-  if (losses.commits.length === 0 && losses.files.length === 0) {
-    lines.push("  lost: nothing (no commits off the base, no uncommitted files)");
+  if (losses.commits.length === 0) {
+    lines.push("  lost: nothing (no commits off the base)");
   } else {
     lines.push("  lost:");
     for (const commit of losses.commits) lines.push(`    commit ${commit.sha} ${commit.subject}`);
-    for (const file of losses.files) lines.push(`    file ${file}`);
   }
-  for (const kept of losses.kept ?? []) lines.push(`  kept: ${kept}`);
   return lines;
 }
 

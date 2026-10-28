@@ -162,10 +162,9 @@ Usage:
                     a script); scope-violation is not resumable
   dipo drop <id> [--delete-branch] [--yes] [--office <id>]
                     archive a Draft, Refined, Ready or Parked story after asking,
-                    close its open PR and remove its worktree; its branch is
-                    kept unless --delete-branch, which also removes dirty files
-                    and deletes the branch locally and on the remote after you
-                    type the story id
+                    and close its open PR; its branch is kept unless
+                    --delete-branch, which deletes the branch locally and on
+                    the remote after you type the story id
   dipo approve <id> [--note <text>] [--office <id>]
                     approve the story's merge that waits for you: dipo turns
                     GitHub's auto-merge on; past a blocked review the note is
@@ -188,8 +187,8 @@ Usage:
   dipo discard <id> --note <text> [--office <id>]
                     throw a story's work away after listing what is lost and
                     asking for the story id typed out: stop its worker, close
-                    its open PR, remove its worktree and delete its branch
-                    locally and on the remote, and return it to Refined; for a
+                    its open PR, delete its box and its branch locally and on
+                    the remote, and return it to Refined; for a
                     story Done on the base it removes the leftovers only
   dipo steer <id> <text> [--office <id>]
                     send the story's worker your text as its next message; a

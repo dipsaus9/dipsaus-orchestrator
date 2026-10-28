@@ -3288,21 +3288,9 @@
             },
             "required": ["sha", "subject"]
           }
-        },
-        "files": {
-          "type": "array",
-          "items": {
-            "type": "string"
-          }
-        },
-        "kept": {
-          "type": "array",
-          "items": {
-            "type": "string"
-          }
         }
       },
-      "required": ["story", "key", "commits", "files"]
+      "required": ["story", "key", "commits"]
     },
     "office.stats.args": {
       "type": "object",
@@ -3469,9 +3457,6 @@
                 "branch": {
                   "type": "string"
                 },
-                "worktree": {
-                  "type": "string"
-                },
                 "runDir": {
                   "type": "string"
                 },
@@ -3557,7 +3542,6 @@
               "required": [
                 "adapter",
                 "branch",
-                "worktree",
                 "runDir",
                 "cwd",
                 "argv",
@@ -3661,7 +3645,8 @@
                   "NOTICE",
                   "PROPOSAL",
                   "PARKED BY YOU",
-                  "PROFILE"
+                  "PROFILE",
+                  "LEFTOVER WORKTREE"
                 ]
               },
               {

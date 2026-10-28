@@ -123,10 +123,8 @@ import {
   recordBranchPush,
   type StoredRun,
   selfCommand,
-  setupWorktree,
   type HoldResumer,
   type MergeReentry,
-  type SlotTable,
   type TierCaps,
   type WorkerPort,
   type StateDatabase,
@@ -192,7 +190,6 @@ export interface DaemonRunsOptions {
   readonly engineGit: EngineGit;
   readonly claims: StoryClaims;
   readonly offices: OfficeManager;
-  readonly slots: SlotTable;
   readonly base: RunBase;
   readonly database: () => StateDatabase | null;
   readonly onChanged: (office: OfficeId) => void;
@@ -709,26 +706,16 @@ function boxCollisions(
       if (stored === null || config === undefined || profile === null) {
         throw new Error(`run ${run.runId} has no run profile to install with`);
       }
-      const install = boxInstallInput({
-        profile,
-        config,
-        story: run.story,
-        slot: stored.slot,
-      });
+      const install = boxInstallInput({ profile, config });
       if (install === null) return;
       if ("refused" in install) throw new Error(install.refused);
       const installed = await boxed.workers.install({ runId: run.runId, ...install });
       if (!installed.ok) throw new Error(installed.reason);
     },
     taskStatus: async (run, status) => {
-      const stored = storedRun(run);
-      if (stored === null || stored.worktree === null) {
-        throw new Error(`run ${run.runId} has no worktree to write its task file from`);
-      }
       const lifted = await conflicts.unpark.lift(run.office, {
         story: run.story,
         branch: run.branch,
-        worktree: stored.worktree,
         to: Lifecycle.parse(status),
       });
       claimPushRecorder(options)(run, { pushed: lifted.pushed, error: lifted.pushError });
@@ -991,7 +978,7 @@ export function daemonRuns(options: DaemonRunsOptions): DaemonRuns {
                 reason: "dipo could not read the office's run profile to verify in the box",
               };
             }
-            const verify = boxVerifyInput({ profile, config, story: run.story, slot: run.slot });
+            const verify = boxVerifyInput({ profile, config });
             if (verify === null) return { kind: "none" };
             if ("refused" in verify) return { kind: "failed", reason: verify.refused };
             return boxed.workers.verify({ runId: run.runId, ...verify });
@@ -1015,11 +1002,10 @@ export function daemonRuns(options: DaemonRunsOptions): DaemonRuns {
   ) => options.claims.releaseUnstarted(office, claim, reason);
   const runPaths = (office: OfficeId, run: StoredRun) => {
     const git = options.engineGit.forOffice(office);
-    if (git === undefined || run.worktree === null) return null;
+    if (git === undefined) return null;
     return runLaunchPaths(
       git,
       { runtimeDir: options.runtimeDir, tmpRoot: realDir(options.tmpRoot) },
-      run.worktree,
       run.runId,
     );
   };
@@ -1175,28 +1161,7 @@ export function daemonRuns(options: DaemonRunsOptions): DaemonRuns {
       loaded: () => options.offices.loadedOffices(),
       holds: options.holds,
     },
-    // DIPO-39's worktree setup of a claimed story (slot, run environment, files), before its box.
-    setup: async (office, claim) => {
-      const handle = options.offices.get(office);
-      const config = options.offices.config(office);
-      const git = options.engineGit.forOffice(office);
-      if (handle === undefined || config === undefined || git === undefined) {
-        const reason = `office ${office} is not loaded with a valid configuration`;
-        return { ok: false, reason, log: `setup: ${reason}` };
-      }
-      return setupWorktree(
-        {
-          officeId: office,
-          office: handle,
-          git,
-          clock,
-          onChanged: options.onChanged,
-          slots: options.slots,
-          localSettings: worker.localSettings,
-        },
-        { claim, config, profile: currentProfile(handle)?.profile ?? null },
-      );
-    },
+
     // Re-attach after a restart (DIPO-57): every active run's newest worker host is followed again.
     reattach: {
       probe,
