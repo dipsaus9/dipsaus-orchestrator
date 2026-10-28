@@ -428,9 +428,15 @@ export interface ReviewSessionRequest {
   readonly taskMessage: string;
   /**
    * The story branch's head the round read once at its start (DIPO-276): the copy holds exactly
-   * this commit, and the session is refused when the branch has moved since.
+   * this commit, and the session is refused when the branch's code has moved since.
    */
   readonly head: string;
+  /**
+   * The story's own task file. A branch that moved since `head` only by commits to it (a park,
+   * a status written by dipo while the round was being built) still has `head`'s code tree, the
+   * tree a verdict is keyed on (0002), so the session starts on `head`.
+   */
+  readonly taskFile?: string;
 }
 
 export type ReviewSessionOutcome =
@@ -613,10 +619,29 @@ export class ReviewLauncher implements ReviewSessions {
         )
       ).trim();
       if (tip !== request.head) {
-        return {
-          kind: "failed",
-          reason: `the story branch moved from ${request.head} to ${tip} since the review round read it`,
-        };
+        // Only the story's task file changed since the round's head: its code is the same.
+        const changed = await git.run((session) =>
+          session.ok(session.repository, [
+            "diff",
+            "--name-only",
+            "-z",
+            "--no-renames",
+            "--end-of-options",
+            request.head,
+            tip,
+          ]),
+        );
+        const paths = changed.split("\0").filter((path) => path !== "");
+        const taskFileOnly =
+          request.taskFile !== undefined &&
+          paths.length > 0 &&
+          paths.every((path) => path === request.taskFile);
+        if (!taskFileOnly) {
+          return {
+            kind: "failed",
+            reason: `the story branch moved from ${request.head} to ${tip} since the review round read it`,
+          };
+        }
       }
       const commit = request.head;
       copy = await makeReviewCopy(

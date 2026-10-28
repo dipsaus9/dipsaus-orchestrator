@@ -401,6 +401,43 @@ describe("the reviewer's read-only copy of the pushed commit (DIPO-276)", () => 
       expect(await w.launcher.reviewedCommit(office, w.run.runId, s.agent)).toBeNull();
     }));
 
+  // A park or status commit of dipo's that lands while the round is built moves the branch by the
+  // story's task file alone: the code the round read is the same, so the session starts on it.
+  it("starts on the round's head when the branch moved only by the story's task file, not by code", () =>
+    withWorld(async (w) => {
+      const office = w.rounds.office.officeId as OfficeId;
+      const taskFile = "backlog/tasks/dipo-1 - Greet.md";
+      await w.repo.git("checkout", "--quiet", w.run.branch!);
+      write(w.repo.dir, { [taskFile]: "---\nid: DIPO-1\nstatus: Parked\n---\n" });
+      // Only the named file: the main checkout's work tree holds a file outside git too.
+      await w.repo.git("add", "--", taskFile);
+      await w.repo.git("commit", "--quiet", "-m", "DIPO-1: status Parked");
+      const parked = (await w.repo.git("rev-parse", "HEAD")).trim();
+      await w.repo.git("checkout", "--quiet", "main");
+      const request = { office, run: w.run, taskMessage: TASK, head: w.tip };
+      const started = await w.launcher.start({ ...request, taskFile });
+      expect(started.kind).toBe("started");
+      if (started.kind !== "started") throw new Error("not started");
+      const agent = started.agent;
+      expect(await w.launcher.reviewedCommit(office, w.run.runId, agent)).toBe(w.tip);
+      await w.launcher.finish(office, w.run.runId, agent);
+      // Without the task file named, or with a code change after it, the branch moved.
+      expect(await w.launcher.start(request)).toMatchObject({
+        kind: "failed",
+        reason: `the story branch moved from ${w.tip} to ${parked} since the review round read it`,
+      });
+      await w.repo.git("checkout", "--quiet", w.run.branch!);
+      write(w.repo.dir, { "src/greet.ts": "export const greet = () => 'changed';\n" });
+      await w.repo.git("add", "--", "src/greet.ts");
+      await w.repo.git("commit", "--quiet", "-m", "DIPO-1: change the code");
+      const coded = (await w.repo.git("rev-parse", "HEAD")).trim();
+      await w.repo.git("checkout", "--quiet", "main");
+      expect(await w.launcher.start({ ...request, taskFile })).toMatchObject({
+        kind: "failed",
+        reason: `the story branch moved from ${w.tip} to ${coded} since the review round read it`,
+      });
+    }));
+
   it("ignores the tree's own export-ignore and export-subst, and refuses a copy that does not match the commit", () =>
     withWorld(async (w) => {
       const s = await startSession(w);

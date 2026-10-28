@@ -350,7 +350,13 @@ export class Reviews {
     }
     let outcome;
     try {
-      outcome = await this.#deps.sessions.start({ office: officeId, run, taskMessage, head });
+      outcome = await this.#deps.sessions.start({
+        office: officeId,
+        run,
+        taskMessage,
+        head,
+        taskFile: facts.taskFile,
+      });
     } catch (error) {
       outcome = { kind: "failed" as const, reason: messageOf(error) };
     }
