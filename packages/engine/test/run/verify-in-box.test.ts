@@ -74,7 +74,7 @@ import {
   VerifyCommit,
 } from "../../src/run";
 import { appendHandOff, type DoneConflictDecision, handOffState } from "../../src/run/conflicts";
-import { BOX_TIP_MOVED, NO_BOX_AT_DONE, TEST_PLAN_REFUSALS_MAX } from "../../src/run/verify-commit";
+import { BOX_TIP_MOVED, NO_BOX_AT_DONE, REPORT_GATE_LOOP } from "../../src/run/verify-commit";
 import { detect, type RunProfile } from "../../src/scan/detect";
 import { addStory } from "../../src/stories/keys";
 import { encode } from "../../src/workers/claude-cli/encode";
@@ -851,7 +851,8 @@ beforeEach(async () => {
       slot: 1,
       budgetUnit: "tokens",
       budgetLimit: 300_000,
-      loopCap: 1,
+      // Tier S: three loops (0002), so the third refused report parks.
+      loopCap: 3,
       reviewRoundCap: 3,
       ciCap: 2,
       configHash: "h",
@@ -930,11 +931,18 @@ function parks(): { reason: string; detail: string }[] {
   return w.f.office.all("select reason, detail from parks where office_id = $office_id");
 }
 
+/** The values of the run's `loop` steps, oldest first. */
+function loopSteps(): string[] {
+  return runSteps(w.f.office, w.f.run)
+    .filter((step) => step.kind === "loop")
+    .map((step) => step.value);
+}
+
 /** What a box run's done must never do: a verify of dipo's, in the box or on the Mac. */
 function expectNoVerify(): void {
   expect(events("work.phase").map((e) => e["phase"])).not.toContain("verify");
   expect(events("work.output").filter((e) => e["source"] === "verify")).toEqual([]);
-  expect(runSteps(w.f.office, w.f.run).filter((s) => s.kind === "loop")).toEqual([]);
+  expect(loopSteps().filter((value) => value !== REPORT_GATE_LOOP)).toEqual([]);
 }
 
 describe("a box run at done (DIPO-299: CI is its verify)", () => {
@@ -1033,7 +1041,13 @@ describe("a box run at done (DIPO-299: CI is its verify)", () => {
   });
 
   it("never parks a box run at the tier's loop cap: done after done goes to review each time", async () => {
-    // The run's loop cap is 1; on the Mac one red verify would have parked it.
+    // A loop cap of 1: an accepted done is no loop, only a refused report is (0002).
+    w.f.office.immediate(() =>
+      w.f.office.run(
+        "update runs set loop_cap = 1 where office_id = $office_id and run_id = $run",
+        { run: w.f.run },
+      ),
+    );
     await play();
     w.f.office.immediate(() =>
       reopenForRound(w.f.office, findRun(w.f.office, w.f.run)!, "fix", w.f.t.clock.now()),
@@ -1481,6 +1495,8 @@ describe("a box run's report data at done (DIPO-186)", () => {
     expect(w.calls).toEqual([]);
     expect(findRun(w.f.office, w.f.run)?.endedAt).toBeNull();
     expect(parks()).toEqual([]);
+    // A refusal for the missing verify run alone is a loop too (0002).
+    expect(loopSteps()).toEqual([REPORT_GATE_LOOP]);
     // Once per run: the next done without a run goes on.
     await playEvents([edit, turn(DONE)]);
     expect(feedbackTexts()).toHaveLength(1);
@@ -1682,8 +1698,7 @@ describe("the report gate at done, in a box run (DIPO-186, DIPO-240)", () => {
     );
   });
 
-  it(`parks verify-failing at the ${TEST_PLAN_REFUSALS_MAX}rd refused report instead of another refusal turn`, async () => {
-    expect(TEST_PLAN_REFUSALS_MAX).toBe(3);
+  it("counts each refused report as a loop and parks verify-failing at the loop cap instead of another turn", async () => {
     w.fields = PLAN;
     await play(DONE);
     await play({ ...DONE, testPlan: [{ n: 1, status: "done", evidence: "x" }] });
@@ -1693,9 +1708,34 @@ describe("the report gate at done, in a box run (DIPO-186, DIPO-240)", () => {
     expect(feedbackTexts()).toHaveLength(2);
     const [park] = parks();
     expect(park?.reason).toBe("verify-failing");
-    expect(park?.detail).toStartWith("the done report was refused for its test plan 3 of 3 times.");
+    expect(park?.detail).toStartWith(
+      "the report gate refused the done report 3 times (the loop cap is 3).",
+    );
     expect(park?.detail).toContain("- #1 (not reported)");
     expect(w.calls).toEqual([]);
+    expect(loopSteps()).toEqual([REPORT_GATE_LOOP, REPORT_GATE_LOOP, REPORT_GATE_LOOP]);
+  });
+
+  it("parks verify-failing at the first refused report when the loop cap is 1", async () => {
+    w.f.office.immediate(() =>
+      w.f.office.run(
+        "update runs set loop_cap = 1 where office_id = $office_id and run_id = $run",
+        { run: w.f.run },
+      ),
+    );
+    w.fields = PLAN;
+    await play(DONE);
+    expect(feedbackTexts()).toEqual([]);
+    expect(parks()).toEqual([
+      expect.objectContaining({
+        reason: "verify-failing",
+        detail: expect.stringContaining(
+          "the report gate refused the done report 1 time (the loop cap is 1).",
+        ),
+      }),
+    ]);
+    expect(w.calls).toEqual([]);
+    expect(loopSteps()).toEqual([REPORT_GATE_LOOP]);
   });
 
   it("leaves a story without a test plan, or with only manual entries, unchanged", async () => {

@@ -55,6 +55,11 @@ export interface GitSession {
   ): Promise<GitResult>;
   /** Runs one hardened step; a non-zero exit throws `git.failed`. Returns stdout. */
   ok(location: GitLocation, args: readonly string[], options?: GitStepOptions): Promise<string>;
+  /**
+   * The office's base branch (`resolveBaseIn`), which no push may target (0010); throws
+   * `git.baseUnknown` when neither configuration nor `<remote>/HEAD` names one.
+   */
+  base(): Promise<string>;
 }
 
 export type FetchState =
@@ -148,6 +153,7 @@ export class OfficeGit {
         this.#assertUntampered(location);
         return runGitStepOk(this.#runner, location, args, options);
       },
+      base: () => this.resolveBaseIn(session),
     };
     return this.queue.run(() => item(session));
   }

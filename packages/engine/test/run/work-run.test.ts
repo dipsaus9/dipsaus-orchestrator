@@ -514,13 +514,13 @@ describe("work.run picks and claims one Ready story", () => {
       conflictCap: 3,
       reviewMaxTurns: 70,
       reviewMaxMinutes: 25,
-      reviewAllowance: 150_000,
+      reviewMaxTokens: 150_000,
     };
     expect(findRun(world.office, runId)).toMatchObject(expected);
     expect(
       world.office.get<Record<string, unknown>>(
         `select review_round_cap, ci_cap, conflict_cap, review_max_turns, review_max_minutes,
-           review_allowance from runs where office_id = $office_id and run_id = $run`,
+           review_max_tokens from runs where office_id = $office_id and run_id = $run`,
         { run: runId },
       ),
     ).toEqual({
@@ -529,7 +529,7 @@ describe("work.run picks and claims one Ready story", () => {
       conflict_cap: 3,
       review_max_turns: 70,
       review_max_minutes: 25,
-      review_allowance: 150_000,
+      review_max_tokens: 150_000,
     });
 
     // A config edit after the start never changes the running story's limits.

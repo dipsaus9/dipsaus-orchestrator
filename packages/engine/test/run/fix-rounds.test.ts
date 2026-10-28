@@ -287,7 +287,7 @@ function inReview(story: string, options: { budgetLimit?: number } = {}): StoryR
     reviewRoundCap: 3,
     reviewMaxTurns: 60,
     reviewMaxMinutes: 30,
-    reviewAllowance: 200_000,
+    reviewMaxTokens: 200_000,
     budgetLimit: options.budgetLimit ?? 1_000_000,
   });
   stories.set(s.run, s);

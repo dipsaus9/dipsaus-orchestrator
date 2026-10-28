@@ -54,21 +54,21 @@ function count(value: number): string {
   return value.toLocaleString("en-US");
 }
 
+/** What one more round of each counted cap is called (0002). */
+const ROUND_NAMES: Readonly<Record<string, string>> = {
+  loops: "verify loop",
+  reviewRounds: "review round",
+  ciAttempts: "CI attempt",
+  conflictAttempts: "conflict hand-off",
+};
+
 /** One grant as the reply line names it. */
 function grantText(grant: ResumeGrant): string {
   switch (grant.kind) {
     case "budget":
       return `+${count(grant.tokens ?? 0)} tokens, +${count(grant.turns ?? 0)} turns and +${count(grant.minutes ?? 0)} minutes`;
-    case "reviewCap":
-      return `the reviewer's cap +${count(grant.turns ?? 0)} turns and +${count(grant.minutes ?? 0)} minutes`;
-    case "loop":
-      return "one more verify loop";
-    case "ciAttempt":
-      return "one more CI attempt";
-    case "conflictHandoff":
-      return "one more conflict hand-off";
-    case "reviewRound":
-      return "one more review round";
+    case "round":
+      return `one more ${ROUND_NAMES[grant.cap ?? ""] ?? "round"}`;
     default:
       return grant.kind;
   }

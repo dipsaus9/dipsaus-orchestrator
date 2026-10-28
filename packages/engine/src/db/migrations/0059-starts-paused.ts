@@ -1,4 +1,4 @@
-// Migration 58 (DIPO-359): the office's starts paused (0020) replaces the plan-limit hold and the
+// Migration 59 (DIPO-359): the office's starts paused (0020) replaces the plan-limit hold and the
 // adapter hold's own record.
 //
 // - `starts_paused`: the office's starts paused, at most one row per office and reason.
@@ -16,7 +16,7 @@
 import type { SqlMigration } from "../migrations";
 
 export const startsPaused: SqlMigration = {
-  version: 58,
+  version: 59,
   name: "starts_paused and parks.resume_on_lift",
   sql: `
 create table starts_paused (

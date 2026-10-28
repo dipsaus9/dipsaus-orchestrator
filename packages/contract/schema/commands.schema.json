@@ -563,6 +563,9 @@
               "kind": {
                 "type": "string"
               },
+              "cap": {
+                "type": "string"
+              },
               "tokens": {
                 "type": "integer",
                 "minimum": 0,

@@ -1,39 +1,26 @@
-// The grants of a run (ADR 0020 sections 5 and 15, DIPO-143): what the maintainer or the engine
-// added to a run's caps after it started, one `run_grants` row each. A run's start snapshot is
-// never changed; `runCaps` (`run/caps.ts`) adds the grants to it.
+// The grants of a run (0020): the only way a cap grows after the run started, one `run_grants` row
+// each, recorded with the note, the maintainer (origin and client), the time and the caps before
+// and after. A run's start snapshot is never changed; `runCaps` (`run/caps.ts`) adds the grants to
+// it. Nothing grows a cap by itself.
 //
-// The `amount` JSON per kind (0020 section 5): a budget grant carries tokens, turns and minutes;
-// `loop`, `reviewRound`, `ciAttempt` and `conflictHandoff` carry a count; `reviewCap` carries the
-// reviewer's turns and minutes; `scope` carries the granted paths.
+// Two kinds (0020):
+// - `budget`: a `--budget` top-up. It grows tokens, turns and minutes by the same share of the
+//   run's starting caps; its amount is `{ tokens, turns, minutes, before, after }`.
+// - `round`: one more round of the counted cap that fired; its amount is `{ cap, count, before,
+//   after }`, with `cap` one of `ROUND_CAPS`.
 
 import type { RunId } from "@dipsaus-orchestrator/contract";
 
 import type { OfficeHandle } from "../db/office";
 
-export const GRANT_KINDS = [
-  "budget",
-  "loop",
-  "reviewRound",
-  "ciAttempt",
-  "conflictHandoff",
-  "reviewCap",
-  "scope",
-] as const;
+export const GRANT_KINDS = ["budget", "round"] as const;
 
 export type GrantKind = (typeof GRANT_KINDS)[number];
 
-/** A budget grant: what it adds to the developer's token, turn and minute caps. */
-export interface BudgetGrant {
-  readonly tokens: number;
-  readonly turns: number;
-  readonly minutes: number;
-  /**
-   * The run's developer caps before and after the grant (0020 section 4, DIPO-155); a maintainer
-   * top-up records them, a grant written before them has none.
-   */
-  readonly before?: GrantCaps;
-  readonly after?: GrantCaps;
-}
+/** The counted caps of a run a `round` grant grows (0002, one cap per feedback source). */
+export const ROUND_CAPS = ["loops", "reviewRounds", "ciAttempts", "conflictAttempts"] as const;
+
+export type RoundCap = (typeof ROUND_CAPS)[number];
 
 /** A run's developer caps as a budget grant records them. */
 export interface GrantCaps {
@@ -42,21 +29,29 @@ export interface GrantCaps {
   readonly maxMinutes: number;
 }
 
-/** A reviewer cap grant: what it adds to the reviewer's own turn and minute caps. */
-export interface ReviewCapGrant {
+/** A budget grant: what it adds to the developer's token, turn and minute caps. */
+export interface BudgetGrant {
+  readonly tokens: number;
   readonly turns: number;
   readonly minutes: number;
+  /** The run's developer caps before and after the grant; a grant written before them has none. */
+  readonly before?: GrantCaps;
+  readonly after?: GrantCaps;
 }
 
-/** The kinds whose amount is a count of extra rounds, hand-offs or attempts. */
-export type CountedGrantKind = "loop" | "reviewRound" | "ciAttempt" | "conflictHandoff";
+/** A round grant: more rounds of one counted cap. */
+export interface RoundGrant {
+  readonly cap: RoundCap;
+  readonly count: number;
+  /** That cap before and after the grant; a grant written before them has none. */
+  readonly before?: number;
+  readonly after?: number;
+}
 
 /** A grant's kind with the amount of that kind. */
 export type GrantAmount =
   | { readonly kind: "budget"; readonly amount: BudgetGrant }
-  | { readonly kind: CountedGrantKind; readonly amount: number }
-  | { readonly kind: "reviewCap"; readonly amount: ReviewCapGrant }
-  | { readonly kind: "scope"; readonly amount: readonly string[] };
+  | { readonly kind: "round"; readonly amount: RoundGrant };
 
 /** One grant to write (a `run_grants` row). */
 export type NewGrant = GrantAmount & {
@@ -85,14 +80,10 @@ export function recordGrant(office: OfficeHandle, runId: RunId, grant: NewGrant)
   );
 }
 
-/** The sum of a run's grants of each kind; scope grants hold paths and are not summed. */
+/** The sum of a run's grants of each kind. */
 export interface GrantTotals {
-  readonly budget: BudgetGrant;
-  readonly loop: number;
-  readonly reviewRound: number;
-  readonly ciAttempt: number;
-  readonly conflictHandoff: number;
-  readonly reviewCap: ReviewCapGrant;
+  readonly budget: { readonly tokens: number; readonly turns: number; readonly minutes: number };
+  readonly rounds: Readonly<Record<RoundCap, number>>;
 }
 
 /** A finite number field of a JSON object amount; zero when absent or not a number. */
@@ -102,15 +93,18 @@ function numberAt(value: unknown, key: string): number {
   return typeof field === "number" && Number.isFinite(field) ? field : 0;
 }
 
+function isRoundCap(value: unknown): value is RoundCap {
+  return typeof value === "string" && (ROUND_CAPS as readonly string[]).includes(value);
+}
+
 /** The sum of a run's grants by kind; a kind with no grant sums to zero. */
 export function grantTotals(office: OfficeHandle, runId: RunId): GrantTotals {
   const budget = { tokens: 0, turns: 0, minutes: 0 };
-  const reviewCap = { turns: 0, minutes: 0 };
-  const counted: Record<CountedGrantKind, number> = {
-    loop: 0,
-    reviewRound: 0,
-    ciAttempt: 0,
-    conflictHandoff: 0,
+  const rounds: Record<RoundCap, number> = {
+    loops: 0,
+    reviewRounds: 0,
+    ciAttempts: 0,
+    conflictAttempts: 0,
   };
   for (const row of office.all<{ kind: GrantKind; amount: string }>(
     `select kind, amount from run_grants where office_id = $office_id and run_id = $run
@@ -118,21 +112,14 @@ export function grantTotals(office: OfficeHandle, runId: RunId): GrantTotals {
     { run: runId },
   )) {
     const amount: unknown = JSON.parse(row.amount);
-    switch (row.kind) {
-      case "budget":
-        budget.tokens += numberAt(amount, "tokens");
-        budget.turns += numberAt(amount, "turns");
-        budget.minutes += numberAt(amount, "minutes");
-        break;
-      case "reviewCap":
-        reviewCap.turns += numberAt(amount, "turns");
-        reviewCap.minutes += numberAt(amount, "minutes");
-        break;
-      case "scope":
-        break;
-      default:
-        if (typeof amount === "number" && Number.isFinite(amount)) counted[row.kind] += amount;
+    if (row.kind === "budget") {
+      budget.tokens += numberAt(amount, "tokens");
+      budget.turns += numberAt(amount, "turns");
+      budget.minutes += numberAt(amount, "minutes");
+      continue;
     }
+    const cap = (amount as { cap?: unknown } | null)?.cap;
+    if (isRoundCap(cap)) rounds[cap] += numberAt(amount, "count");
   }
-  return { budget, reviewCap, ...counted };
+  return { budget, rounds };
 }

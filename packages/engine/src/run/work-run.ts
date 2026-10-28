@@ -743,7 +743,7 @@ export class WorkRun {
         conflictCap: c.config.mergeSlot.conflictAttempts,
         reviewMaxTurns: c.config.review.maxTurns,
         reviewMaxMinutes: c.config.review.maxMinutes,
-        reviewAllowance: c.config.review.budgetTokens,
+        reviewMaxTokens: c.config.review.budgetTokens,
         configHash: c.configHash,
         overrideKeys: null,
         runProfileId: currentProfileId(handle),

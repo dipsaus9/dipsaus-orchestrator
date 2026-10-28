@@ -1,14 +1,15 @@
-// The caps of a run (ADR 0020 section 5, DIPO-143): its start snapshot plus its grants, read by
-// `runCaps`. A tier edit reaches new runs only, so a parked run keeps the caps it started with.
+// The caps of a run (0020, 0002): its start snapshot plus its `budget` and `round` grants, read by
+// `runCaps`, and nothing else. A tier edit reaches new runs only, so a parked run keeps the caps it
+// started with. The reviewer's tokens, turns and minutes count against its own caps only.
 
 import { describe, expect, it } from "bun:test";
 
 import { RunId } from "@dipsaus-orchestrator/contract";
 import { withTempDir } from "@dipsaus-orchestrator/testkit";
 
-import { runCaps } from "../../src/run/caps";
+import { REVIEWER_ROLE, reviewTotals, runCaps, runTotals } from "../../src/run/caps";
 import { type GrantAmount, recordGrant } from "../../src/run/grants";
-import { findRun, insertRun, type NewRun } from "../../src/run/records";
+import { appendRunStep, findRun, insertRun, type NewRun } from "../../src/run/records";
 import { type IngestFixture, ingestFixture } from "../ingest/helpers";
 
 const T0 = Date.parse("2026-10-18T09:00:00.000Z");
@@ -23,7 +24,7 @@ interface Start {
   readonly conflictCap?: number | null;
   readonly reviewMaxTurns?: number | null;
   readonly reviewMaxMinutes?: number | null;
-  readonly reviewAllowance?: number | null;
+  readonly reviewMaxTokens?: number | null;
 }
 
 /** The review loop caps of a run that has none (a session run, DIPO-146). */
@@ -32,7 +33,7 @@ const NO_REVIEW_CAPS = {
   conflictCap: null,
   reviewMaxTurns: null,
   reviewMaxMinutes: null,
-  reviewAllowance: null,
+  reviewMaxTokens: null,
 };
 
 /** A session run (no story, so no claim or branch) started with the given caps. */
@@ -60,7 +61,7 @@ function startRun(f: IngestFixture, start: Start): RunId {
     conflictCap: start.conflictCap ?? null,
     reviewMaxTurns: start.reviewMaxTurns ?? null,
     reviewMaxMinutes: start.reviewMaxMinutes ?? null,
-    reviewAllowance: start.reviewAllowance ?? null,
+    reviewMaxTokens: start.reviewMaxTokens ?? null,
     configHash: "h",
     overrideKeys: null,
     runProfileId: null,
@@ -91,7 +92,7 @@ function grant(f: IngestFixture, runId: RunId, grantId: string, amount: GrantAmo
 }
 
 describe("runCaps", () => {
-  it("adds the budget, loop, review round, CI, conflict and reviewer cap grants to the start snapshot", () =>
+  it("adds the budget grants and the round grant of each counted cap to the start snapshot", () =>
     withTempDir(async (dir) => {
       const f = await ingestFixture(dir);
       try {
@@ -105,20 +106,17 @@ describe("runCaps", () => {
           conflictCap: 2,
           reviewMaxTurns: 60,
           reviewMaxMinutes: 30,
-          reviewAllowance: 200_000,
+          reviewMaxTokens: 200_000,
         });
         grant(f, runId, "grt_1", {
           kind: "budget",
           amount: { tokens: 500, turns: 10, minutes: 6 },
         });
         grant(f, runId, "grt_2", { kind: "budget", amount: { tokens: 250, turns: 5, minutes: 3 } });
-        grant(f, runId, "grt_3", { kind: "loop", amount: 2 });
-        grant(f, runId, "grt_4", { kind: "reviewRound", amount: 1 });
-        // The reviewer's own caps (DIPO-146); a scope grant counts toward no cap.
-        grant(f, runId, "grt_5", { kind: "reviewCap", amount: { turns: 4, minutes: 4 } });
-        grant(f, runId, "grt_6", { kind: "ciAttempt", amount: 3 });
-        grant(f, runId, "grt_7", { kind: "scope", amount: ["src/"] });
-        grant(f, runId, "grt_8", { kind: "conflictHandoff", amount: 1 });
+        grant(f, runId, "grt_3", { kind: "round", amount: { cap: "loops", count: 2 } });
+        grant(f, runId, "grt_4", { kind: "round", amount: { cap: "reviewRounds", count: 1 } });
+        grant(f, runId, "grt_6", { kind: "round", amount: { cap: "ciAttempts", count: 3 } });
+        grant(f, runId, "grt_8", { kind: "round", amount: { cap: "conflictAttempts", count: 1 } });
 
         const caps = runCaps(f.office, storedRun(f, runId));
         expect(caps).toEqual({
@@ -129,10 +127,75 @@ describe("runCaps", () => {
           reviewRoundCap: 3,
           ciCap: 5,
           conflictCap: 3,
-          reviewMaxTurns: 64,
-          reviewMaxMinutes: 34,
-          // The allowance per round is configuration; no grant raises it.
-          reviewAllowance: 200_000,
+          // The reviewer's caps hold per session; no grant raises them.
+          reviewMaxTurns: 60,
+          reviewMaxMinutes: 30,
+          reviewMaxTokens: 200_000,
+        });
+      } finally {
+        f.t.state.close();
+      }
+    }));
+
+  it("grows no cap by itself: review rounds started add nothing to the budget", () =>
+    withTempDir(async (dir) => {
+      const f = await ingestFixture(dir);
+      try {
+        const runId = startRun(f, {
+          budget: 1000,
+          loopCap: 3,
+          reviewRoundCap: 3,
+          maxTurns: 50,
+          maxMinutes: 30,
+          reviewMaxTokens: 200_000,
+        });
+        const before = runCaps(f.office, storedRun(f, runId));
+        f.office.immediate(() => {
+          for (const round of [1, 2, 3]) {
+            appendRunStep(f.office, runId, "review", JSON.stringify({ round, since: T0 }), T0);
+          }
+        });
+        expect(runCaps(f.office, storedRun(f, runId))).toEqual(before);
+        expect(before.budgetTokens).toBe(1000);
+      } finally {
+        f.t.state.close();
+      }
+    }));
+
+  it("counts the reviewer's tokens and turns only against the reviewer's own caps", () =>
+    withTempDir(async (dir) => {
+      const f = await ingestFixture(dir);
+      try {
+        const runId = startRun(f, { budget: 1000, loopCap: 3, reviewRoundCap: 3 });
+        const usage = (agent: string, role: string, input: number, turns: number) => {
+          f.office.run(
+            `insert into agents (office_id, agent_id, run_id, role, model, started_at)
+             values ($office_id, $agent, $run, $role, 'haiku', 0)`,
+            { run: runId, agent, role },
+          );
+          f.office.run(
+            `insert into usage_totals (office_id, run_id, agent_id, model, role, tier, input,
+               turns, final, updated_at)
+             values ($office_id, $run, $agent, 'haiku', $role, 'M', $input, $turns, 0, 0)`,
+            { run: runId, agent, role, input, turns },
+          );
+        };
+        f.office.immediate(() => {
+          usage("agt-dev", "developer", 400, 7);
+          usage("agt-rev-1", REVIEWER_ROLE, 900, 20);
+          usage("agt-rev-2", REVIEWER_ROLE, 300, 5);
+        });
+        // The story's budget and turns leave every reviewer session out.
+        expect(runTotals(f.office, runId, T0, T0)).toEqual({
+          budgetTokens: 400,
+          turns: 7,
+          elapsedMs: 0,
+        });
+        // One reviewer session counts its own tokens and turns, not the developer's or another's.
+        expect(reviewTotals(f.office, runId, "agt-rev-2", T0, T0 + 60_000)).toEqual({
+          budgetTokens: 300,
+          turns: 5,
+          elapsedMs: 60_000,
         });
       } finally {
         f.t.state.close();

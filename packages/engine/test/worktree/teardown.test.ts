@@ -388,9 +388,10 @@ describe("tearing down", () => {
         `worktree remove ${world.worktree}`,
         `update-ref -d refs/heads/${BRANCH} ${TIP}`,
         `config --remove-section branch.${BRANCH}`,
-        `push --quiet --no-verify origin --delete ${BRANCH}`,
+        `push --quiet --no-verify --force-with-lease=refs/heads/${BRANCH}:${TIP} origin --delete ${BRANCH}`,
       ]);
-      expect(world.steps.some((s) => s.includes("--force"))).toBe(false);
+      // No forced step: only the remote delete's lease.
+      expect(world.steps.some((s) => /--force(?!-with-lease=)/.test(s))).toBe(false);
       const after = world.claim();
       expect(after.releasedAt).not.toBeNull();
       expect(after.releaseReason).toBe(DONE_RELEASE_REASON);

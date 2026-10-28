@@ -185,7 +185,7 @@ describe("the resume line", () => {
         at: AT,
         grants: [
           { kind: "budget", amount: { tokens: 150_000, turns: 30, minutes: 45 } },
-          { kind: "loop", amount: 1 },
+          { kind: "round", amount: { cap: "loops", count: 1 } },
         ],
         note: "Try the other parser.\nIt handles the edge case.",
       }),

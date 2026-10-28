@@ -7,13 +7,8 @@ import { describe, expect, it } from "bun:test";
 import { StoryKey } from "@dipsaus-orchestrator/contract";
 import { withTempDir } from "@dipsaus-orchestrator/testkit";
 
-import {
-  allEntries,
-  findEntry,
-  pendingLaneOp,
-  recordPrRef,
-  statusPaths,
-} from "../../../src/backlog/lane";
+import { allEntries, findEntry, pendingLaneOp, recordPrRef } from "../../../src/backlog/lane";
+import { statusPaths } from "../../../src/git/write";
 import { insertEntry, updateEntry } from "../../../src/backlog/lane/journal";
 import { addOffice, openTestState } from "../../commands/helpers";
 

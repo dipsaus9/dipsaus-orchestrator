@@ -50,7 +50,8 @@
 // - a worker that edited a file and ran no verify or test command of the office's profile after
 //   its last edit (the turn's tool trail); sent back once per run.
 // A done turn that crossed a cap has no turn left: its test-plan miss parks `budget-exceeded`,
-// and the two send-once checks are skipped.
+// and the two send-once checks are skipped. Each refusal is one loop (a `loop` step), the cap 0002
+// gives the report gate; the refusal that reaches the run's loop cap parks `verify-failing`.
 
 import {
   type Clock,
@@ -90,10 +91,9 @@ import { findClaim } from "../worktree/records";
 import type { BackstopSnapshot } from "./backstop";
 import type { DoneConflictDecision } from "./conflicts";
 import { endRunMarked } from "./markers";
-import type { FiredCap } from "./caps";
+import { type FiredCap, runCaps } from "./caps";
 import { appendRunStep, IN_REVIEW_END, recordGateChanges, type StoredRun } from "./records";
 import {
-  doneReports,
   type NoteMiss,
   noteMiss,
   noteSignature,
@@ -389,19 +389,6 @@ export class VerifyCommit implements RunFinisher {
         // The done turn crossed a cap, so no turn is left for the feedback: only a top-up resumes.
         return { kind: "park", reason: "budget-exceeded", detail: text, endKind: "capped" };
       }
-      // Every stored done report of the run that left an automated entry open was refused; this
-      // one is stored too. At the cap the story parks instead of another refusal turn.
-      const refusals = doneReports(office, run.runId).filter(
-        (stored) => testPlanGaps(plan, stored.testPlan, type).length > 0,
-      ).length;
-      if (refusals >= TEST_PLAN_REFUSALS_MAX) {
-        return {
-          kind: "park",
-          reason: "verify-failing",
-          detail: `the done report was refused for its test plan ${refusals} of ${TEST_PLAN_REFUSALS_MAX} times. ${text}`,
-          endKind: "verify-failing",
-        };
-      }
       items.push(text);
     }
 
@@ -436,7 +423,12 @@ export class VerifyCommit implements RunFinisher {
     if (unchecked !== null) items.push(verifyRunFeedback(unchecked));
 
     if (items.length === 0) return null;
+    // Each refusal is one loop, the cap of the report gate and the verify in the box (0002). The
+    // refusal that reaches the run's loop cap parks `verify-failing` instead of another turn.
+    const cap = runCaps(office, run).loopCap;
+    const loops = loopsOf(office, run.runId) + 1;
     office.immediate(() => {
+      appendRunStep(office, run.runId, "loop", REPORT_GATE_LOOP, at);
       for (const miss of misses) {
         recordSendBack(office, run.runId, "decision-note", noteSignature(miss.note), at);
       }
@@ -444,6 +436,14 @@ export class VerifyCommit implements RunFinisher {
         recordSendBack(office, run.runId, "verify-run", VERIFY_RUN_SIGNATURE, at);
       }
     });
+    if (loops >= cap) {
+      return {
+        kind: "park",
+        reason: "verify-failing",
+        detail: `the report gate refused the done report ${loops} time${loops === 1 ? "" : "s"} (the loop cap is ${cap}). ${items.join(" ")}`,
+        endKind: "verify-failing",
+      };
+    }
     if (!ctx.live()) return { kind: "continue" };
     return { kind: "feedback", text: items.join("\n\n") };
   }
@@ -845,12 +845,8 @@ function loopsOf(office: OfficeHandle, runId: RunId): number {
   );
 }
 
-/**
- * The done reports a run may have refused for its test plan (DIPO-186): the one that reaches it
- * parks `verify-failing` instead of another refusal turn, so a worker that
- * cannot finish an automated entry does not loop until a budget cap.
- */
-export const TEST_PLAN_REFUSALS_MAX = 3;
+/** The value of the `loop` step a report gate refusal writes (0002). */
+export const REPORT_GATE_LOOP = "report-gate";
 
 /** The send-once signature of the verify-run check: once per run. */
 const VERIFY_RUN_SIGNATURE = "run";

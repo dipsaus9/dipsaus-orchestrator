@@ -21,6 +21,7 @@ const SHA = "a".repeat(40);
 function failingLane(): OfficeLane {
   const session: GitSession = {
     repository: { kind: "repository", commonDir: "/repo/.git" },
+    base: async () => "main",
     step: async () => ({ code: 0, stdout: `${SHA}\n`, stderr: "" }),
     ok: async (_location, args) => {
       if (args[0] === "merge-base") throw new Error("merge-base broke");

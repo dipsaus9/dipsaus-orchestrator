@@ -5,13 +5,23 @@
 // registered path (`from`), so an unopened copy carrying the original's marker is not that office.
 // The repository is resolved with the contract's `resolveRepositoryWith`, the same logic as the
 // engine's.
+//
+// This lookup is the one git call outside the engine's git module (0010): the CLI never imports the
+// engine (0004). It only reads (`rev-parse`, `worktree list`), and it is hardened with the same
+// definition as every engine git call (the contract's `git-hardening.ts`: no system config, hooks
+// and fsmonitor off, no pager, no prompt, the inherited config and location variables dropped),
+// with a deadline: past `LOOKUP_DEADLINE_MS` git is killed and the lookup fails.
 
 import { existsSync, readFileSync, realpathSync, statSync } from "node:fs";
 import { join, resolve } from "node:path";
 import { createInterface } from "node:readline/promises";
 
+import { systemClock } from "@dipsaus-orchestrator/client/node";
 import {
+  type Clock,
   type GitOutput,
+  hardenedGitEnv,
+  hardenedGitOptions,
   OfficeId,
   type RepositoryLocation,
   resolveRepositoryWith,
@@ -33,27 +43,49 @@ export interface Workspace {
   isBacklogProject(mainWorktree: string): boolean;
 }
 
+/** How long one git call of the lookup may take before it is killed. */
+export const LOOKUP_DEADLINE_MS = 10_000;
+
+/** The command line of one lookup call: the hardened options, then the read. */
+export function lookupGitCommand(args: readonly string[]): [string, ...string[]] {
+  return ["git", ...hardenedGitOptions(), ...args];
+}
+
 async function git(
   cwd: string,
   args: readonly string[],
-  env: Readonly<Record<string, string>> | undefined,
+  env: Readonly<Record<string, string | undefined>>,
+  clock: Clock,
 ): Promise<GitOutput> {
-  const child = Bun.spawn(
-    ["git", "-c", "core.fsmonitor=false", "-c", "core.quotepath=off", ...args],
-    {
-      cwd,
-      ...(env === undefined ? {} : { env: { ...env } }),
-      stdin: "ignore",
-      stdout: "pipe",
-      stderr: "pipe",
-    },
-  );
-  const [stdout, stderr, code] = await Promise.all([
-    new Response(child.stdout).text(),
-    new Response(child.stderr).text(),
-    child.exited,
-  ]);
-  return { ok: code === 0, stdout, stderr };
+  const child = Bun.spawn(lookupGitCommand(args), {
+    cwd,
+    env: hardenedGitEnv(env),
+    stdin: "ignore",
+    stdout: "pipe",
+    stderr: "pipe",
+  });
+  let timedOut = false;
+  const timer = clock.setTimeout(() => {
+    timedOut = true;
+    child.kill("SIGKILL");
+  }, LOOKUP_DEADLINE_MS);
+  try {
+    const [stdout, stderr, code] = await Promise.all([
+      new Response(child.stdout).text(),
+      new Response(child.stderr).text(),
+      child.exited,
+    ]);
+    if (timedOut) {
+      return {
+        ok: false,
+        stdout: "",
+        stderr: `git ${args.join(" ")} was killed after ${LOOKUP_DEADLINE_MS / 1000} s`,
+      };
+    }
+    return { ok: code === 0, stdout, stderr };
+  } finally {
+    clock.clearTimeout(timer);
+  }
 }
 
 export function canonicalPath(path: string): string {
@@ -64,14 +96,18 @@ export function canonicalPath(path: string): string {
   }
 }
 
-/** The repository around `path`; `env` replaces the environment git runs with (tests). */
+/**
+ * The repository around `path`. `env` is the environment git starts from (the process's by
+ * default) before it is hardened; `clock` runs the deadline (tests).
+ */
 export async function locateRepository(
   path: string,
-  env?: Readonly<Record<string, string>>,
+  env: Readonly<Record<string, string | undefined>> = process.env,
+  clock: Clock = systemClock,
 ): Promise<RepositoryLocation | null> {
   if (!existsSync(path) || !statSync(path).isDirectory()) return null;
   const resolved = await resolveRepositoryWith({
-    git: (args) => git(path, args, env),
+    git: (args) => git(path, args, env, clock),
     canonical: canonicalPath,
   });
   return resolved.ok ? resolved.location : null;

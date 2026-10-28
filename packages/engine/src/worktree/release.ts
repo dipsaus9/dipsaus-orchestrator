@@ -22,17 +22,11 @@ import type { OfficeHandle } from "../db/office";
 import { FETCH_CONFIG } from "../git/hardened";
 import type { GitSession, OfficeGit } from "../git/office";
 import { EXTERNAL_STEP_TIMEOUT_MS, type GitResult, isTimedOut } from "../git/runner";
+import { deleteBranch, deleteRemoteBranch, remoteUrl } from "../git/write";
 import { repoOfRemoteUrl } from "../platform/host";
 import { forgetWorkerNotes } from "../prompts/notes";
 
-import {
-  claimLockReason,
-  dirtyFiles,
-  lockOf,
-  remoteRefMissing,
-  removeWorktree,
-  remoteUrl,
-} from "./teardown";
+import { claimLockReason, dirtyFiles, lockOf, removeWorktree } from "./teardown";
 import { type ClaimRecord, markReclaimed, type ReleasedBranch, releaseClaim } from "./records";
 import type { SlotTable } from "./slots";
 
@@ -318,7 +312,7 @@ export async function deleteOwnBranch(
   // Judged before the local branch goes: the ancestor check needs its tip.
   const found = await remoteBranchOf(deps, git, branch, local, base);
   if (local !== null) {
-    const deleted = await git.step(git.repository, ["update-ref", "-d", ref, local]);
+    const deleted = await deleteBranch(git, branch, local);
     if (deleted.code !== 0) {
       return {
         ok: false,
@@ -326,28 +320,12 @@ export async function deleteOwnBranch(
         files: [],
       };
     }
-    await git.step(git.repository, ["config", "--remove-section", `branch.${branch}`]);
   }
   if (found.kind === "none") return { ok: true, remoteProblem: null, remoteKept: null };
   if (found.kind === "unread") return { ok: true, remoteProblem: found.problem, remoteKept: null };
   if (!found.covered) return { ok: true, remoteProblem: null, remoteKept: found.tip };
-  const pushed = await external(git, [
-    "push",
-    "--quiet",
-    "--no-verify",
-    `--force-with-lease=${ref}:${found.tip}`,
-    deps.git.settings.remote,
-    "--delete",
-    branch,
-  ]);
-  if (pushed.code === 0 || remoteRefMissing(pushed.stderr)) {
-    return { ok: true, remoteProblem: null, remoteKept: null };
-  }
-  return {
-    ok: true,
-    remoteProblem: pushed.stderr.trim() || `exit ${pushed.code}`,
-    remoteKept: null,
-  };
+  const deleted = await deleteRemoteBranch(git, deps.git.settings.remote, branch, found.tip);
+  return { ok: true, remoteProblem: deleted.ok ? null : deleted.problem, remoteKept: null };
 }
 
 /** See `remoteBranchOf`. */
@@ -426,36 +404,39 @@ export function repoOfPrUrl(url: string): string | null {
     : repoOfRemoteUrl(url.slice(0, at));
 }
 
-/** The local branch, then the remote's; a branch already gone is fine. */
+/**
+ * The remote branch, with a lease on the local tip (the tip dipo pushes), then the local branch at
+ * that tip; a branch already gone is fine. Without a local branch dipo knows no tip it pushed, so
+ * a remote branch is left and reported.
+ */
 async function deleteBranches(
   deps: DropReleaseDeps,
   git: GitSession,
   claim: Pick<ClaimRecord, "branch">,
 ): Promise<DropReleaseOutcome> {
-  const ref = `refs/heads/${claim.branch}`;
-  const deleted = await git.step(git.repository, ["update-ref", "-d", ref]);
-  if (deleted.code !== 0) {
-    return {
-      ok: false,
-      why: `deleting the branch ${claim.branch} failed (${deleted.stderr.trim() || `exit ${deleted.code}`}); the worktree is gone`,
-      files: [],
-    };
-  }
-  // `branch -D` also drops the branch's configuration; `update-ref` does not.
-  await git.step(git.repository, ["config", "--remove-section", `branch.${claim.branch}`]);
+  const local = await revParseCommit(git, `refs/heads/${claim.branch}`);
   const { remote } = deps.git.settings;
-  if ((await remoteUrl(git, remote)) === null) return { ok: true, remoteProblem: null };
-  const pushed = await git
-    .step(git.repository, ["push", "--quiet", "--no-verify", remote, "--delete", claim.branch], {
-      config: FETCH_CONFIG,
-      timeoutMs: EXTERNAL_STEP_TIMEOUT_MS,
-    })
-    .catch((error: unknown): GitResult => {
-      if (isTimedOut(error)) return { code: null, stdout: "", stderr: error.message };
-      throw error;
-    });
-  if (pushed.code === 0 || remoteRefMissing(pushed.stderr)) {
-    return { ok: true, remoteProblem: null };
+  let remoteProblem: string | null = null;
+  if ((await remoteUrl(git, remote)) !== null) {
+    if (local === null) {
+      const listed = await external(git, ["ls-remote", remote, `refs/heads/${claim.branch}`]);
+      if (listed.code !== 0 || listed.stdout.trim() !== "") {
+        remoteProblem = `dipo knows no tip it pushed for ${claim.branch}, so it does not delete the remote branch`;
+      }
+    } else {
+      const deleted = await deleteRemoteBranch(git, remote, claim.branch, local);
+      remoteProblem = deleted.ok ? null : deleted.problem;
+    }
   }
-  return { ok: true, remoteProblem: pushed.stderr.trim() || `exit ${pushed.code}` };
+  if (local !== null) {
+    const deleted = await deleteBranch(git, claim.branch, local);
+    if (deleted.code !== 0) {
+      return {
+        ok: false,
+        why: `deleting the branch ${claim.branch} failed (${deleted.stderr.trim() || `exit ${deleted.code}`}); the worktree is gone`,
+        files: [],
+      };
+    }
+  }
+  return { ok: true, remoteProblem };
 }

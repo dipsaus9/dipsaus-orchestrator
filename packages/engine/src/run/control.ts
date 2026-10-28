@@ -12,9 +12,8 @@
 //   turn that carries a `done` report is the exception (0008 amendment of 2026-10-19, DIPO-205):
 //   it takes the normal done path (verify and commit), a `cap` run step names the crossed cap, and
 //   no cap ends the run while that path runs.
-//   A reviewer session (DIPO-219, 0019 sections 4 and 13) counts the story's budget, with its review
-//   allowances, and its own turns and minutes against the reviewer's caps: the budget parks
-//   `budget-exceeded`, the reviewer's turn or minute cap `worker-failed`. Its valid report goes to worker outcomes after the backstop (`onReview`).
+//   A reviewer session (0002) counts its own tokens, turns and minutes against the reviewer's own
+//   caps, never the story's budget; any of them reached parks `worker-failed`. Its valid report goes to worker outcomes after the backstop (`onReview`).
 // - Reports. A turn whose report is `blocked` parks the story `ambiguous-spec` with the question
 //   (a box worker has every permission, so no report names a denied call, DIPO-342). The engine
 //   records a `park` intent and closes the worker's stdin; worktree, branch and session are kept.
@@ -796,9 +795,8 @@ export class RunControl implements RunEnder {
 
   /**
    * The first cap the run reached now, or null. The caps it counts against now (DIPO-143), the
-   * tracked caps serving for a legacy run. A reviewer session (0019 sections 4 and 13) counts the
-   * story's budget with its review allowances, and its own turns and minutes against the
-   * reviewer's caps; the developer's turn and minute caps never count the review.
+   * tracked caps serving for a legacy run. A reviewer session (0002) counts its own tokens, turns
+   * and minutes against the reviewer's own caps; the developer's caps never count the review.
    */
   #fired(office: OfficeHandle, tracked: Tracked): FiredCap | null {
     const run = findRun(office, tracked.runId);
@@ -808,7 +806,7 @@ export class RunControl implements RunEnder {
     if (reviewing(tracked)) {
       return firedCap(
         {
-          budgetTokens: caps.budgetTokens,
+          budgetTokens: caps.reviewMaxTokens ?? tracked.caps.budgetTokens,
           maxTurns: caps.reviewMaxTurns ?? tracked.caps.maxTurns,
           maxMinutes: caps.reviewMaxMinutes ?? tracked.caps.maxMinutes,
         },

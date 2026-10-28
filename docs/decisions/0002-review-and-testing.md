@@ -46,7 +46,7 @@ The run is one run per claim. Its active period ends at In Review and reopens fo
 
   The verdict is `blocked` when a criterion is `unmet` or a validated blocking finding exists, and `approved` otherwise. A criterion marked `maintainer` does not block, but it makes the merge wait for the maintainer. A blocking finding whose evidence does not check out gets one correction turn, after which it counts as advisory. Advisory findings never block.
 - **Rounds.** A round is one reviewer session that returns a valid report. The cap counts failed rounds only: after the third blocked round the story parks `review-blocked`. A verdict is keyed on the code tree, which is the tree without the story's own task file. A head whose tree already has a verdict in this claim gets no new review, so commits that change only the task file never start one.
-- **Failures.** An invalid report gets one correction turn. A crash gets one fresh session for the same round, which is not counted. A second crash, or a reviewer cap, parks the story `worker-failed`. The story's budget running out during a review parks it `budget-exceeded`.
+- **Failures.** An invalid report gets one correction turn. A crash gets one fresh session for the same round, which is not counted. A second crash, or a reviewer cap, parks the story `worker-failed`. A review never uses the story's budget.
 
 ## 4. Verify in the box, CI as the final gate
 

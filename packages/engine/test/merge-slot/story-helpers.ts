@@ -168,7 +168,7 @@ export const NO_BACKLOG_GIT: SlotGit = {
   syncBase: (): Promise<BaseSync> => Promise.reject(new Error("no backlog git")),
   push: () => Promise.reject(new Error("no backlog git")),
   inHead: async () => false,
-  deleteBranch: async () => {},
+  deleteBranch: async () => null,
 };
 
 export interface StoryWorld {

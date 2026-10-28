@@ -18,6 +18,7 @@ function fakeGit(failRestore: boolean): { git: GitSession; calls: string[] } {
   const calls: string[] = [];
   const git: GitSession = {
     repository: { kind: "repository", commonDir: "/repo/.git" },
+    base: async () => "main",
     step: async (_location, args) => {
       calls.push(args.join(" "));
       return args[0] === "symbolic-ref"

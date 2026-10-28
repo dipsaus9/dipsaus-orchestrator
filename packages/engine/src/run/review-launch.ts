@@ -85,7 +85,7 @@ import type { AdapterHold } from "../workers/hold";
 import type { WorkerPort } from "../workers/port";
 import { PlanError, type Caps } from "../workers/types";
 
-import { REVIEWER_ROLE, runCaps, runTotals } from "./caps";
+import { REVIEWER_ROLE, runCaps } from "./caps";
 import { runConfigOf } from "./config-snapshot";
 import type { TrackedRun } from "./control-types";
 import {
@@ -503,10 +503,10 @@ function messageOf(error: unknown): string {
 }
 
 /**
- * Inside the caller's transaction: the run's snapshot of the reviewer's turn and minute caps, from
- * the office's `review` block in force, for a run that has none (one started before they were
+ * Inside the caller's transaction: the run's snapshot of the reviewer's turn, minute and token caps,
+ * from the office's `review` block in force, for a run that has none (one started before they were
  * kept). A cap the snapshot holds is never changed, so a later config change reaches new runs only
- * (0020 section 5, DIPO-247).
+ * (0020).
  */
 export function snapshotReviewCaps(
   office: OfficeHandle,
@@ -515,17 +515,23 @@ export function snapshotReviewCaps(
 ): void {
   office.run(
     `update runs set review_max_turns = coalesce(review_max_turns, $turns),
-       review_max_minutes = coalesce(review_max_minutes, $minutes)
+       review_max_minutes = coalesce(review_max_minutes, $minutes),
+       review_max_tokens = coalesce(review_max_tokens, $tokens)
       where office_id = $office_id and run_id = $run`,
-    { run: runId, turns: config.review.maxTurns, minutes: config.review.maxMinutes },
+    {
+      run: runId,
+      turns: config.review.maxTurns,
+      minutes: config.review.maxMinutes,
+      tokens: config.review.budgetTokens,
+    },
   );
 }
 
 /**
- * The reviewer's settings for the run (0019 sections 4 and 16): model and effort from the office's
- * `review` block, its turn and minute caps only from the run's start snapshot with their grants. A
- * run whose snapshot has none gets the office's current caps written into it first
- * (`snapshotReviewCaps`), and keeps them.
+ * The reviewer's settings for the run (0002): model and effort from the office's `review` block,
+ * its turn, minute and token caps per session only from the run's start snapshot. A run whose
+ * snapshot has none gets the office's current caps written into it first (`snapshotReviewCaps`),
+ * and keeps them.
  */
 export function reviewerSettings(
   office: OfficeHandle,
@@ -533,7 +539,7 @@ export function reviewerSettings(
   config: OfficeConfig,
 ): ReviewerSettings {
   let current = run;
-  if (run.reviewMaxTurns == null || run.reviewMaxMinutes == null) {
+  if (run.reviewMaxTurns == null || run.reviewMaxMinutes == null || run.reviewMaxTokens == null) {
     office.immediate(() => snapshotReviewCaps(office, run.runId, config));
     current = findRun(office, run.runId) ?? run;
   }
@@ -546,6 +552,7 @@ export function reviewerSettings(
     // Null only for a run with no row: the snapshot was written above.
     maxTurns: caps.reviewMaxTurns ?? config.review.maxTurns,
     maxMinutes: caps.reviewMaxMinutes ?? config.review.maxMinutes,
+    budgetTokens: caps.reviewMaxTokens ?? config.review.budgetTokens,
   };
 }
 
@@ -711,13 +718,10 @@ export class ReviewLauncher implements ReviewSessions {
       commit: copy.commit,
       dir: copy.copy,
     });
-    // The CLI's own budget is what remains of the story's; the reviewer's turns and minutes are
-    // its own caps (0019 section 13).
-    const now = deps.clock.now();
-    const budget =
-      runCaps(office, run).budgetTokens - runTotals(office, run.runId, now, now).budgetTokens;
+    // The reviewer's tokens, turns and minutes are its own caps per session, never the story's
+    // budget (0002).
     const caps: Caps = {
-      budgetTokens: Math.max(1, budget),
+      budgetTokens: settings.budgetTokens,
       maxTurns: settings.maxTurns,
       maxMinutes: settings.maxMinutes,
     };
@@ -856,7 +860,8 @@ export class ReviewLauncher implements ReviewSessions {
       agent,
       role: REVIEWER_ROLE,
       tier: run.tier ?? "",
-      budgetLimit: runCaps(office, run).budgetTokens,
+      // The reviewer's own token cap per session (0002), never the story's budget.
+      budgetLimit: settings.budgetTokens,
       model: settings.model,
       work,
       adapter: deps.worker.adapter(paths, config) as IngestAdapter,

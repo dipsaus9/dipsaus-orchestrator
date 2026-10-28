@@ -91,7 +91,6 @@ import {
   fileHunks,
   markersAt,
   markersLeftText,
-  moveBranch,
   planCatchUp,
   SHOWN_PATHS_MAX,
   shownPaths,
@@ -104,7 +103,7 @@ import { appendEntries, type NewEntry } from "../changelog/log";
 import type { OfficeConfig } from "../config";
 import type { OfficeHandle } from "../db/office";
 import type { GitSession, OfficeGit } from "../git/office";
-import { pushBranch } from "../git/task-commit";
+import { moveBranch, pushBranch } from "../git/write";
 import parkedTemplate from "../prompts/feedback/parked.md" with { type: "text" };
 import { neutraliseTags, renderTemplate } from "../prompts/templates";
 import {
