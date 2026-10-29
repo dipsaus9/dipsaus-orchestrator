@@ -33,9 +33,9 @@ describe("processRunning and groupRunning", () => {
 
   it.skipIf(!PROC_RUNS)("count a zombie as gone, alone and in its group", async () => {
     // The shell's background child exits at once and is never reaped: `exec` makes the shell a
-    // `sleep` that waits for no child. The zombie leads a group of its own (`set -m`).
+    // `sleep` that waits for no child. `setsid` makes the child lead a group of its own.
     const parent = Bun.spawn({
-      cmd: ["/bin/sh", "-c", "set -m; /bin/sleep 0 & echo $!; exec /bin/sleep 30"],
+      cmd: ["/bin/sh", "-c", "setsid /bin/sleep 0 & echo $!; exec /bin/sleep 30"],
       stdout: "pipe",
       stderr: "ignore",
     });
