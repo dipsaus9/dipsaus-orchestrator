@@ -34,11 +34,12 @@ describe("migration 37 on a database at version 36", () => {
           old.connection.exec(`insert into offices (office_id, path, display_name, added_at, epoch,
             next_seq, replay_floor_seq) values ('off-1', '/repo', 'repo', 0, 'e', 1, 0)`);
           old.connection.exec(`insert into runs (office_id, run_id, kind, role, model, budget_unit,
-            budget_limit, loop_cap, config_hash, started_at)
-            values ('off-1', 'r1', 'session', 'developer', 'haiku', 'tokens', 100, 1, 'cfg', 1)`);
+            budget_limit, loop_cap, config_hash, started_at, ended_at, end_kind)
+            values ('off-1', 'r1', 'session', 'developer', 'haiku', 'tokens', 100, 1, 'cfg', 1, 2,
+              'answered')`);
           old.connection.exec(`insert into run_outcomes (office_id, run_id, role, model, outcome,
             park_reasons, loops, review_rounds, verify_failures, budget_tokens, minutes, ended_at)
-            values ('off-1', 'r1', 'developer', 'haiku', 'in-review', '[]', 0, 0, 0, 0, 1, 2)`);
+            values ('off-1', 'r1', 'developer', 'haiku', 'answered', '[]', 0, 0, 0, 0, 1, 2)`);
         });
       } finally {
         old.close();
