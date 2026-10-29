@@ -1043,12 +1043,18 @@ describe("this repository's .dipo/office.yaml", () => {
   // dipo opens the story PR here again (0019 amendment of 2026-10-22): CI on it is the verify of a
   // box run. Worker web tools are on (the default) since the live web capture of 2026-10-19 showed
   // the fail-closed gate working against Claude Code (DIPO-164).
-  it("is version 8, opens story PRs and leaves worker web tools on", () => {
+  it("is version 13, opens story PRs and leaves worker web tools on", () => {
     const result = ok(resolveOfficeConfig({ office }));
-    expect(office.startsWith("version: 8\n")).toBe(true);
+    expect(office.startsWith("version: 13\n")).toBe(true);
     expect(result.config.storyPr.open).toBe(true);
     expect(result.config.worker.web).toBe(true);
     expect(office).toContain("the verify of a box run");
+  });
+
+  // The ci-ok light-path tests run ci.yml's ci-ok step, which needs jq, so the box image has it
+  // and bun run verify passes in the box (DIPO-372).
+  it("gives the box image jq", () => {
+    expect(ok(resolveOfficeConfig({ office })).config.box.packages).toEqual(["jq"]);
   });
 
   it("does not list ~/.nvm/versions/node", () => {
