@@ -319,6 +319,7 @@ if (process.env["DIPO_TEST_CI"] === "1") {
           releaseClaim(s.office, claim.runId, {
             at: s.t.clock.now(),
             reason: "by-maintainer",
+            ending: "dropped",
             keepBranch: true,
           }),
         );

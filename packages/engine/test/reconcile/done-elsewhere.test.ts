@@ -78,7 +78,12 @@ describe("a story Done on the base through another branch (DIPO-161)", () => {
           "update claims set teardown_started_at = 5 where office_id = $office_id and run_id = $run",
           { run: record.runId },
         );
-        releaseClaim(o.office, record.runId, { at: 6, reason: "done", keepBranch: false });
+        releaseClaim(o.office, record.runId, {
+          at: 6,
+          reason: "done",
+          ending: "done",
+          keepBranch: false,
+        });
       });
       const tip = await tipOf(o, `refs/heads/${record.branch}`);
 

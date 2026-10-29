@@ -112,6 +112,7 @@ export async function tearDown(
     releaseClaim(deps.office, claim.runId, {
       at: deps.clock.now(),
       reason: DONE_RELEASE_REASON,
+      ending: "done",
       keepBranch: false,
     });
     forgetWorkerNotes(deps.office, claim.branch);

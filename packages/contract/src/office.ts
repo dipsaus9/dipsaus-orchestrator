@@ -393,7 +393,10 @@ export const RunRecord = z.object({
   model: z.string(),
   startedAt: Timestamp,
   endedAt: Timestamp.optional(),
-  outcome: z.string().optional(), // how the run ended, absent while it runs
+  outcome: z.string().optional(), // how the run ended (done, parked, dropped), absent while open
+  // Since minor 1 (DIPO-373): a run open at In Review, with no session, since its active period
+  // ended; absent once it ended or while a session works.
+  inReviewSince: Timestamp.optional(),
   usage: UsageTotals,
   // Since minor 1 (DIPO-152): the notes and proposals of the done report that ended the run.
   doneReport: DoneReport.optional(),

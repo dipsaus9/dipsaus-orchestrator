@@ -409,7 +409,7 @@ export const OutputMarkerKind = openEnum(KNOWN_OUTPUT_MARKER_KINDS);
 export type OutputMarkerKind = z.infer<typeof OutputMarkerKind>;
 
 // An engine-written marker in the stored worker output (DIPO-83), flagged as such since minor 1
-// (DIPO-95): the byte range of its line, what it marks (`phase build`, `ended in-review`) and
+// (DIPO-95): the byte range of its line, what it marks (`phase build`, `ended parked`) and
 // when. Only the engine sets it; worker text that reads like a marker carries no flag, so clients
 // show it as text.
 export const OutputMarker = z.object({

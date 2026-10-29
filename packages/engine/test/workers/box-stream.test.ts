@@ -400,7 +400,7 @@ describe("the caps on a box worker's stream (criterion 3)", () => {
     expect(parks().map((park) => park.reason)).toEqual(["budget-exceeded"]);
     expect(parks()[0]?.detail).toContain("token budget reached");
     expect(sent).toEqual([encode({ kind: "stop" })]);
-    expect(findRun(f.office, RunId.parse(f.run))?.endKind).toBe("capped");
+    expect(findRun(f.office, RunId.parse(f.run))?.ending).toBe("parked");
   });
 
   it("parks at the CLI's turn cap", async () => {

@@ -9,8 +9,8 @@
 // `<ID>: status Parked`, and the branch is pushed without force. Then,
 // in one transaction, it records the park's run detail and history in `parks` (the reason it was
 // made with, detail, last good commit, time), sets the story index's read of the story to what the
-// branch write read back (status Parked and the F16 record, `mirrorPark`), ends the run with its
-// end kind and emits `story.state` to Parked and `story.parked` with the actions the engine
+// branch write read back (status Parked and the F16 record, `mirrorPark`), ends the run parked
+// (0020) and emits `story.state` to Parked and `story.parked` with the actions the engine
 // implements. The current reason and origin are Backlog.md's: every reader asks `openPark`, never
 // `parks` (DIPO-360, 0001, 0007).
 //
@@ -53,7 +53,7 @@ import { PARKED_STATUS } from "../worktree/done";
 
 import { endRunMarked } from "./markers";
 import { mirrorPark } from "./park-state";
-import { appendRunStep, type StoredRun } from "./records";
+import { appendRunStep, findRun, type StoredRun } from "./records";
 import { parkResumeNeed } from "./resume-policy";
 import { renderParkBlock, runSummaryFacts } from "./summary";
 
@@ -425,8 +425,6 @@ export interface ParkRequest {
   readonly work?: WorkRef;
   readonly reason: ParkReason;
   readonly detail: string;
-  /** How the run ends (`runs.end_kind`), for example `stopped` or `capped`. */
-  readonly endKind: string;
   /** The `cap` run step value of a done turn that crossed a cap, written with the run's end (DIPO-222). */
   readonly capStep?: string;
   /**
@@ -568,7 +566,7 @@ export async function parkStory(deps: ParkDeps, request: ParkRequest): Promise<P
     // Run detail and history (0007): the reason is the one the park was made with, never read as
     // the current reason; Backlog.md holds that, and its read-back goes to the mirror (DIPO-360).
     if (request.parkId !== undefined) {
-      reparkOpen(office, request.parkId, { reason, detail, lastGoodCommit, at });
+      reparkOpen(office, request.parkId, { reason, detail, lastGoodCommit });
     } else
       insertPark(office, {
         key,
@@ -588,9 +586,14 @@ export async function parkStory(deps: ParkDeps, request: ParkRequest): Promise<P
     if (branch !== null && run.branch !== null) {
       recordBranchPush(office, run.branch, { pushed: branch.pushed, error: branch.pushError }, at);
     }
-    endRunMarked(office, run.runId, at, request.endKind);
-    // The agent ends when its exit is ingested; the reason it ended is known now.
-    presetEndReasons(office, run.runId, request.endKind);
+    // The run ends parked (0020); a run open at In Review keeps the end of its last active period.
+    // A park Backlog.md does not hold ends no run that stands open at In Review: nothing was
+    // stopped, the park row holds it until reconcile closes it or the park is written again.
+    if (branch !== null || findRun(office, run.runId)?.endedAt == null) {
+      endRunMarked(office, run.runId, at, "parked");
+    }
+    // The agent ends when its exit is ingested; the reason it ended is known now: the park's.
+    presetEndReasons(office, run.runId, reason);
     const current = storyView(office, key);
     const view = {
       ...deriveStoryView({

@@ -16,7 +16,6 @@ import {
   HOST_LOST_END,
   intentTag,
   messageOf,
-  OUTCOME_ENDS,
   REDISPATCH_STEP,
   type RunOutcomesDeps,
   type RunView,
@@ -112,11 +111,10 @@ export class Redispatch {
       if (held) office.immediate(() => clearSignals(office, run.runId, ["plan-limit"], at));
       parked += 1;
       const ending: Omit<RunEnding, "intent" | "ops"> = byMaintainer
-        ? { reason: "by-maintainer", detail: LEGACY_PAUSE_DETAIL, endKind: "stopped" }
+        ? { reason: "by-maintainer", detail: LEGACY_PAUSE_DETAIL }
         : {
             reason: "worker-failed",
             detail: LEGACY_PLAN_LIMIT_DETAIL,
-            endKind: OUTCOME_ENDS.planLimit,
             resumeOnLift: true,
           };
       await this.#guard.within(`${run.runId} legacy-pause`, () =>

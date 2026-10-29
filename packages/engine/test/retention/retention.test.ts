@@ -246,6 +246,41 @@ describe("retention of run rows", () => {
       expect(ids("backlog_journal", "op_id")).toEqual([2, 3]);
     }));
 
+  it("deletes the rows of a run that ended and keeps a run open at In Review (DIPO-373)", () =>
+    withOffice(async (t, office) => {
+      const day = (n: number) => t.clock.now() + n * DAY_MS;
+      office.immediate(() => {
+        for (const [run, ending] of [
+          ["run-done", "done"],
+          ["run-at-review", null],
+        ] as const) {
+          office.run(
+            `insert into runs (office_id, run_id, kind, key, story_id, role, model, start_sha, branch,
+               budget_unit, budget_limit, loop_cap, config_hash, started_at, ended_at, end_kind)
+             values ($office_id, $run, 'story', $run, $run, 'developer', 'm', 'a', 'b', 'tokens', 1,
+               3, 'h', $at, $at, $ending)`,
+            { run, at: day(0), ending },
+          );
+          office.run(
+            `insert into run_steps (office_id, run_id, step, kind, value, at)
+             values ($office_id, $run, 1, 'phase', 'review', $at)`,
+            { run, at: day(0) },
+          );
+        }
+      });
+      t.clock.advanceTo(day(400));
+
+      await runRetention({ office, clock: t.clock, periods: DEFAULTS, pause: noPause });
+
+      const ids = (table: string) =>
+        office
+          .all<{ id: string }>(`select run_id as id from ${table} where office_id = $office_id`)
+          .map((row) => row.id);
+      // A run at In Review has not ended (0020): its run and its phase stay, however old.
+      expect(ids("runs")).toEqual(["run-at-review"]);
+      expect(ids("run_steps")).toEqual(["run-at-review"]);
+    }));
+
   it("deletes released claims, scans, prompt parts and nudge sources after the state tier", () =>
     withOffice(async (t, office) => {
       const day = (n: number) => t.clock.now() + n * DAY_MS;

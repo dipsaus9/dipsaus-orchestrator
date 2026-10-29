@@ -30,7 +30,7 @@ import {
 } from "../../src/merge";
 import { reviewVerdictOfGate } from "../../src/review/store";
 import type { ParkBranchRequest, UnparkBranchRequest } from "../../src/run/park";
-import { findRun, REVIEWED_END, runSteps } from "../../src/run/records";
+import { findRun, runPhase, runSteps } from "../../src/run/records";
 import { CAPABILITY_FLAGS } from "../../src/reads/hello";
 
 import { APPROVED, C1, H1, PR, type StoryWorld, storyWorld } from "./story-helpers";
@@ -258,7 +258,7 @@ async function blocked(): Promise<GateId> {
       at: 0,
     });
     s.w.office.run(
-      "update runs set end_kind = 'review-blocked' where office_id = $office_id and run_id = $run",
+      "update runs set end_kind = 'parked' where office_id = $office_id and run_id = $run",
       { run: s.run },
     );
   });
@@ -296,8 +296,10 @@ describe("approving past a blocked review", () => {
       "select resolved_how from parks where office_id = $office_id and park_id = 1",
     );
     expect(park?.resolved_how).toBe("override");
-    // In Review with no session: the run waits as reviewed.
-    expect(findRun(s.w.office, s.run)).toMatchObject({ endKind: REVIEWED_END });
+    // In Review with no session: the run stands open again, in phase merge.
+    expect(findRun(s.w.office, s.run)).toMatchObject({ ending: null });
+    expect(findRun(s.w.office, s.run)?.endedAt).not.toBeNull();
+    expect(runPhase(s.w.office, s.run)).toBe("merge");
     expect(
       s.w.office.get("select 1 from agents where office_id = $office_id and ended_at is null"),
     ).toBeNull();
@@ -331,7 +333,7 @@ describe("approving past a blocked review", () => {
       "select resolved_at from parks where office_id = $office_id and park_id = 1",
     );
     expect(park?.resolved_at).toBeNull();
-    expect(findRun(s.w.office, s.run)).toMatchObject({ endedAt: null, endKind: null });
+    expect(findRun(s.w.office, s.run)).toMatchObject({ endedAt: null, ending: null });
   });
 
   it("leaves the story parked when the override is rejected", async () => {

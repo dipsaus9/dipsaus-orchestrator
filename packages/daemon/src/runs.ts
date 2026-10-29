@@ -291,7 +291,7 @@ export interface DaemonRuns {
   onBoxTick(hook: () => Promise<void>): void;
   /**
    * The fix rounds' recovery (DIPO-148), at daemon start: a round whose session started before the
-   * stop is marked delivered, and every run that ended reviewed gets its round decided. Returns how
+   * stop is marked delivered, and every run open at In Review past its review gets its round decided. Returns how
    * many rounds it queued.
    */
   recoverFixRounds(): Promise<number>;

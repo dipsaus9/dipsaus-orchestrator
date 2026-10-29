@@ -31,7 +31,7 @@ import { workRefOf } from "../views/work";
 export const TEST_GATE_KIND = "test";
 
 /** The `end_reason` of a test that was recorded. */
-export const RECORDED_END = "recorded";
+export const TEST_RECORDED = "recorded";
 
 /** One stored test. */
 export interface StoredTest {
@@ -369,7 +369,7 @@ export function recordTestResult(
       result: record.result,
       note: record.note,
       at: record.at,
-      reason: RECORDED_END,
+      reason: TEST_RECORDED,
       gate,
     },
   );

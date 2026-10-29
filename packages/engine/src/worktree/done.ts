@@ -16,9 +16,9 @@
 // Each notice is put on the office once per claim and cause, so a kept claim is not reported again
 // on every poll. Each poll first settles the released rows a crash left unsettled.
 //
-// The teardown's release ends the claim's run with `done` (`DONE_END`): the run's last active
-// period ended at In Review, so that end is its final one, and its final `run_outcomes` row is
-// written in the release's transaction (`finishRun`, DIPO-142).
+// The teardown's release ends the claim's run done (0020): the run stood open at In Review, its
+// last active period's end is kept, and its final `run_outcomes` row is written in the release's
+// transaction (`endRun`, DIPO-142).
 //
 // The load step only arms the poll; it must run after `git.version` (the office's git) and after
 // the claims' load step, so the daemon registers this feature right after `StoryClaims.feature`.

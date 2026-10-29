@@ -387,6 +387,7 @@ export function releaseDoneElsewhere(
     releaseClaim(office, claim.runId, {
       at,
       reason: options.reason ?? DONE_ELSEWHERE_REASON,
+      ending: "done",
       keepBranch: false,
     });
     const entries: NewEntry[] = [];

@@ -11,7 +11,7 @@ import { OFFICE_DEFAULTS, type OfficeConfig } from "../../src/config";
 import type { OfficeHandle } from "../../src/db/office";
 import type { PushResult } from "../../src/git/write";
 import type { CodeHost, HostPr, NewPr } from "../../src/platform/host";
-import { endRun, IN_REVIEW_END, insertRun, pendingReviews, REVIEWED_END } from "../../src/run";
+import { appendRunStep, insertRun, pendingReviews, stopAtInReview } from "../../src/run";
 import {
   findStoryPr,
   recordBranchPush,
@@ -98,7 +98,7 @@ const FAILED: PushResult = {
   error: "pushing DIPO-1/push-again to origin failed (could not resolve host)",
 };
 
-/** A story run that ended at In Review whose In Review push did not reach the remote. */
+/** A story run open at In Review whose In Review push did not reach the remote. */
 async function inWorld(fn: (w: World) => Promise<void>): Promise<void> {
   await withOffice(async (t, office) => {
     pass(t, office, [task("DIPO-1", { status: "In Review" })]);
@@ -140,7 +140,7 @@ async function inWorld(fn: (w: World) => Promise<void>): Promise<void> {
       // The claim push reached the remote; the In Review push at the end did not.
       updateClaim(office, run, { pushedAt: t.clock.now() });
       t.clock.advance(60_000);
-      endRun(office, run, t.clock.now(), IN_REVIEW_END);
+      stopAtInReview(office, run, t.clock.now());
     });
     const host = new FakeHost();
     const world: World = {
@@ -265,14 +265,14 @@ describe("what the push retry leaves alone (DIPO-315 review)", () => {
   it("never pushes a reviewed run whose In Review push reached the remote, after its review period", async () => {
     await inWorld(async (w) => {
       // The In Review push reached the remote at the run's end; the review period then reopened
-      // the run and ended it later as reviewed, with no push of its own.
+      // the run and ended it later, past its review (phase merge), with no push of its own.
       w.office.immediate(() => {
         updateClaim(w.office, w.run, { pushedAt: w.t.clock.now() });
         w.office.run(
-          `update runs set end_kind = $kind, ended_at = $at
-            where office_id = $office_id and run_id = $run`,
-          { kind: REVIEWED_END, at: w.t.clock.now() + 5 * 60_000, run: w.run },
+          `update runs set ended_at = $at where office_id = $office_id and run_id = $run`,
+          { at: w.t.clock.now() + 5 * 60_000, run: w.run },
         );
+        appendRunStep(w.office, w.run, "phase", "merge", w.t.clock.now() + 5 * 60_000);
       });
       w.t.clock.advance(10 * 60_000);
       expect(runsToPush(w.office)).toEqual([]);

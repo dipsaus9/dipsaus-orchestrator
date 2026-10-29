@@ -13,7 +13,8 @@
 //   (`gate.noteRequired` without one) and records a maintainer override of the blocked verdict: the
 //   gate decided by the maintainer with the note, the verdict marked overridden, an `override` run
 //   step, the park resolved as `override` (0020), and the story back In Review with no session: the
-//   park is lifted on the branch (`<ID>: status In Review`) and the run waits as reviewed. Its PR
+//   park is lifted on the branch (`<ID>: status In Review`) and the run stands open at In Review
+//   again, in phase merge (DIPO-373). Its PR
 //   then goes through its required checks and the auto-merge; the override gate is its merge
 //   decision. The gate is checked undecided right before the lift; when the record fails after the
 //   lift, the park is put back on the branch (or the failure says it could not be).
@@ -40,13 +41,8 @@ import type { CodeHost, PrReviewHost } from "../platform/host";
 import { recordReviewOverride } from "../review/store";
 import { openPark, type ParkWriter, resolvePark, type UnparkWriter } from "../run/park";
 import { mirrorUnpark } from "../run/park-state";
-import {
-  appendRunStep,
-  applyRunEvent,
-  findRun,
-  REVIEWED_END,
-  type StoredRun,
-} from "../run/records";
+import { appendRunStep, findRun, type StoredRun, unparkRun } from "../run/records";
+import { enterPhase } from "../run/rounds";
 import { type BranchPush, findStoryPr, recordBranchPush } from "../story-pr/records";
 import { deriveStoryView, storyView } from "../views/story";
 import { withWorkViews } from "../views/work";
@@ -344,9 +340,16 @@ export class MergeGates {
       const closed = resolvePark(office, parkId, "override", ctx.now);
       // The lift read back In Review and no park record on the branch (DIPO-360).
       mirrorUnpark(office, run.key as string, "In Review");
-      // In Review with no session: the run waits as reviewed, for its checks and the auto-merge.
-      applyRunEvent(office, run.runId, { kind: "relabel", endKind: REVIEWED_END });
-      return withWorkViews(office, [...decided, ...closed, ...inReviewEntries(office, run, note)]);
+      // In Review with no session: the run stands open again, in phase merge, for its checks and
+      // the auto-merge.
+      unparkRun(office, run.runId);
+      const phase = enterPhase(office, run.runId, "merge", ctx.now);
+      return withWorkViews(office, [
+        ...decided,
+        ...closed,
+        ...inReviewEntries(office, run, note),
+        ...phase,
+      ]);
     });
   }
 }

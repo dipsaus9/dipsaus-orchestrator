@@ -23,7 +23,8 @@ import type { AsyncCommandContext } from "../../src/commands/registry";
 import { OFFICE_DEFAULTS, type OfficeConfig } from "../../src/config";
 import { mergeGatesOfRun } from "../../src/merge";
 import { heldTestNotes } from "../../src/run/fix-rounds";
-import { appendRunStep, endRun, REVIEWED_END } from "../../src/run/records";
+import { appendRunStep } from "../../src/run/records";
+import { stopAtInReview } from "../../src/run/rounds";
 import type { RunStoryFacts } from "../../src/run/resume";
 import { findTest, openTestOf, openTestViews, testPassedFor } from "../../src/run/test-records";
 import { StoryTests, type TestBoxPort } from "../../src/run/tests";
@@ -404,7 +405,7 @@ describe("the test sweep (DIPO-309)", () => {
     const office = w.s.w.office;
     const now = w.s.w.t.clock.now();
     office.immediate(() => {
-      endRun(office, other.run, now, REVIEWED_END);
+      stopAtInReview(office, other.run, now);
       appendRunStep(office, other.run, "phase", "test", now);
       insertStoryPr(office, {
         runId: other.run,
@@ -469,6 +470,7 @@ describe("the test sweep (DIPO-309)", () => {
         releaseClaim(w.s.w.office, w.s.run, {
           at: w.s.w.t.clock.now(),
           reason,
+          ending: reason === "done" ? "done" : "dropped",
           keepBranch: false,
         }),
       );

@@ -27,7 +27,6 @@ import {
   endLostScanSessions,
   SCAN_MAX_TURNS,
   SCAN_NOTICES,
-  SCAN_SESSION_LOST,
   ScanFallback,
   type ScanSessionRequest,
   type ScanSessionResult,
@@ -567,7 +566,7 @@ describe("endLostScanSessions", () => {
         h.office.get<{ end_kind: string }>(
           "select end_kind from runs where office_id = $office_id and run_id = 'run_scan'",
         )?.end_kind,
-      ).toBe(SCAN_SESSION_LOST);
+      ).toBe("dropped");
       expect(endLostScanSessions(h.office, h.t.clock.now())).toEqual([]);
     }));
 });

@@ -99,8 +99,8 @@ export interface ResumeFacts {
   /** The run's last session was the reviewer, and the park stopped it (0020, 0002). */
   readonly reviewerStopped: boolean;
   /**
-   * The run waited In Review when it parked (no session was live): the park did not end it, so its
-   * end kind is still the one of a run waiting for its review or merge.
+   * The run stood open at In Review when it parked (no session was live): the park kept the end of
+   * its last active period, so a resume with no session lifts it back to In Review.
    */
   readonly waitingInReview: boolean;
 }

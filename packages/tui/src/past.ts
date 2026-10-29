@@ -20,6 +20,10 @@ export function recordHeaderLine(
 }
 
 function ended(record: RunRecord, now: number): string {
+  // A run open at In Review has not ended (0020): it waits for its review, test or merge.
+  if (record.inReviewSince !== undefined) {
+    return `at In Review since ${age(now - Date.parse(record.inReviewSince))} ago`;
+  }
   if (record.endedAt === undefined) return "ended";
   const outcome = record.outcome === undefined ? "" : ` (${record.outcome})`;
   return `ended ${age(now - Date.parse(record.endedAt))} ago${outcome}`;

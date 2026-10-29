@@ -13,12 +13,13 @@ import {
   disarm,
   messageOf,
   noticeEntry,
-  RECONCILED_END,
+  RECONCILE_STOP_REASON,
   type ReconcileNotice,
   type RunControlDeps,
   type Tracked,
 } from "./control-types";
 import { sendAsIntent } from "./intents";
+import type { RunEnd } from "./lifecycle";
 import { endRunMarked } from "./markers";
 import { type ParkOutcome } from "./park";
 import type { StoredRun } from "./records";
@@ -38,8 +39,8 @@ export class ReconcileStops {
    * Reconcile (DIPO-56, 0007 section 6): the run is active in the database, but its story's
    * status is no longer In Progress or In Review, or the story was removed. The engine records a
    * `stop` intent, sends the stop sequence to its worker host if one still answers, and ends the
-   * run with `endKind`, together with `notice`, in one transaction. Nothing is parked: the
-   * story's status already says where it is.
+   * run as `ending` (its story's status decides, `reconciledEnding`), together with `notice`, in
+   * one transaction. dipo writes no park: the story's status already says where it is.
    *
    * The decision is claimed first, before any await: no after-turn work (verify and commit, an
    * In Review commit, a second run summary) starts or commits once reconcile decided, since it
@@ -50,7 +51,7 @@ export class ReconcileStops {
     office: OfficeHandle,
     run: StoredRun,
     notice: ReconcileNotice,
-    endKind = RECONCILED_END,
+    ending: RunEnd,
   ): Promise<void> {
     const tracked = this.#tracked.get(run.runId);
     if (tracked?.ending != null) {
@@ -63,7 +64,7 @@ export class ReconcileStops {
       tracked.ending = mine;
     }
     try {
-      await this.#stopForReconcile(office, run, notice, endKind, tracked?.lastReport ?? null);
+      await this.#stopForReconcile(office, run, notice, ending, tracked?.lastReport ?? null);
     } finally {
       resolve(null);
       if (tracked !== undefined && this.#tracked.get(run.runId) === tracked) {
@@ -76,7 +77,7 @@ export class ReconcileStops {
     office: OfficeHandle,
     run: StoredRun,
     notice: ReconcileNotice,
-    endKind: string,
+    ending: RunEnd,
     lastReport: WorkerReport | null,
   ): Promise<void> {
     const { done } = sendAsIntent(office, this.#deps.steering, run.runId, {
@@ -84,7 +85,7 @@ export class ReconcileStops {
       detail: notice.text,
       ops: this.#deps.encode({ kind: "stop" }),
       clock: this.#deps.clock,
-      inMark: (_error, at) => this.#endReconciled(office, run, notice, endKind, at),
+      inMark: (_error, at) => this.#endReconciled(office, run, notice, ending, at),
     });
     const appended = (await done).marked ?? 0;
     if (appended > 0) this.#deps.onChanged?.(office.officeId);
@@ -102,11 +103,11 @@ export class ReconcileStops {
     office: OfficeHandle,
     run: StoredRun,
     notice: ReconcileNotice,
-    endKind: string,
+    ending: RunEnd,
     at: number,
   ): number {
-    endRunMarked(office, run.runId, at, endKind);
-    presetEndReasons(office, run.runId, endKind);
+    endRunMarked(office, run.runId, at, ending);
+    presetEndReasons(office, run.runId, RECONCILE_STOP_REASON);
     const entries = withWorkViews(office, [noticeEntry(run, notice)]);
     appendEntries(office, entries, { at });
     return entries.length;
@@ -149,7 +150,6 @@ export class ReconcileStops {
         ops: this.#deps.encode({ kind: "stop" }),
         reason: "scope-violation",
         detail,
-        endKind: RECONCILED_END,
       },
       write,
       {

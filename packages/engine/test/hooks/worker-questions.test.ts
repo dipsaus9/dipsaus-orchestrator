@@ -602,7 +602,6 @@ describe("a worker's question when its run ends while it waits (DIPO-272, DIPO-2
       ops: [],
       reason: "worker-failed",
       detail: "the worker crashed",
-      endKind: "crashed",
     });
     await w.control.idle();
     asks.afterExit(w.f.office.officeId as OfficeId, w.f.run);

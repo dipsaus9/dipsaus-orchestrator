@@ -32,14 +32,11 @@ export const STORY_NOT_RUNNING = "story.notRunning";
 /** How often the caps are rechecked without new events (DIPO-15 M0 review): one minute. */
 export const CAP_TICK_MS = 60_000;
 
-/** The end kind of a run reconcile stopped or parked (DIPO-56). */
-export const RECONCILED_END = "reconciled";
+/** `agents.end_reason` of a session reconcile stopped (DIPO-56): its story left In Progress. */
+export const RECONCILE_STOP_REASON = "reconciled";
 
 /** The park detail of a run whose host event file changed (0007 section 5, DIPO-57). */
 export const EVENT_FILE_CHANGED = "event file changed";
-
-/** The end kind of a run whose worker failed or was lost (DIPO-57). */
-export const INTERRUPTED_END = "interrupted";
 
 /** The park detail of a worker `daemon.stop { stopWorkers: true }` stopped (DIPO-315). */
 export const DAEMON_STOPPED_DETAIL =
@@ -158,7 +155,6 @@ export interface RunEnding {
   readonly ops: readonly HostOp[];
   readonly reason: ParkReason;
   readonly detail: string;
-  readonly endKind: string;
   /** The report that led to the end, when a turn decided it. */
   readonly report?: WorkerReport | null;
   /**

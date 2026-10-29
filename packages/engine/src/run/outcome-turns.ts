@@ -9,7 +9,6 @@ import { resolveIntent } from "./intents";
 import type { OutcomeSupport } from "./outcome-support";
 import {
   INTENT_TAGS,
-  OUTCOME_ENDS,
   OUTCOME_NOTICES,
   type PlanLimitHit,
   planLimitEnding,
@@ -57,7 +56,6 @@ export class TurnOutcomes {
             ops: close,
             reason: "budget-exceeded",
             detail: "prompt_too_long: the context is full again after a handoff",
-            endKind: OUTCOME_ENDS.capped,
           });
           return;
         }
@@ -76,7 +74,6 @@ export class TurnOutcomes {
             ops: close,
             reason: "worker-failed",
             detail: `${problem.detail}${refused}`,
-            endKind: OUTCOME_ENDS.crashed,
           });
           return;
         }
@@ -97,7 +94,6 @@ export class TurnOutcomes {
             ops: [{ closeStdin: true }],
             reason: "worker-failed",
             detail: `no valid report: ${problem.detail}`,
-            endKind: OUTCOME_ENDS.noReport,
           });
           return;
         }

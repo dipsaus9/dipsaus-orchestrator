@@ -51,6 +51,7 @@ import { PlanError, type WorkerEvent, type WorkerSpec } from "../workers/types";
 import type { RunSteering } from "./control-types";
 import { type HostStarter, runLaunchPaths, systemHashOf } from "./launch";
 import { sessionUuid } from "./prompts";
+import type { RunEnd } from "./lifecycle";
 import { currentProfileId, endRun, insertRun, recordConfigSnapshot } from "./records";
 import { prepareRunTempDirs } from "./temp-dirs";
 
@@ -60,14 +61,6 @@ export const SESSION_FOLDER_PREFIX = "dipo-scan-";
 export const SESSION_SYSTEM_FILE = "system-scan.md";
 /** How long after its minute cap dipo waits for a stopped session's exit before it gives up. */
 export const SESSION_EXIT_GRACE_MS = 2 * 60_000;
-
-/** The end kinds of a session run. */
-export const SESSION_ENDS = {
-  answered: "answered",
-  failed: "failed",
-  planLimit: "plan-limit",
-  stopped: "stopped",
-} as const;
 
 export interface SessionRunsDeps {
   readonly clock: Clock;
@@ -266,19 +259,19 @@ export class SessionRuns implements ScanSessionRunner {
         },
       });
     } catch (error) {
-      this.#end(request.office, office, runId, SESSION_ENDS.failed);
+      this.#end(request.office, office, runId, "dropped");
       return { kind: "failed", runId, reason: `its host did not start: ${messageOf(error)}` };
     }
     deps.onChanged?.(request.office);
 
     const followed = await this.#follow(request, spec, paths, config);
     if (followed.end === null) {
-      this.#end(request.office, office, runId, SESSION_ENDS.stopped);
+      this.#end(request.office, office, runId, "dropped");
       return { kind: "failed", runId, reason: "its host never reported an exit" };
     }
     const result = deps.worker.result(followed.end.state, followed.end.exit);
     if (result.outcome === "plan-limit") {
-      this.#end(request.office, office, runId, SESSION_ENDS.planLimit);
+      this.#end(request.office, office, runId, "dropped");
       return {
         kind: "plan-limit",
         runId,
@@ -287,15 +280,10 @@ export class SessionRuns implements ScanSessionRunner {
       };
     }
     if (followed.stopped === null && result.outcome === "done" && result.answer !== undefined) {
-      this.#end(request.office, office, runId, SESSION_ENDS.answered);
+      this.#end(request.office, office, runId, "done");
       return { kind: "answered", runId, answer: result.answer };
     }
-    this.#end(
-      request.office,
-      office,
-      runId,
-      followed.stopped === null ? SESSION_ENDS.failed : SESSION_ENDS.stopped,
-    );
+    this.#end(request.office, office, runId, "dropped");
     const why =
       followed.stopped === null
         ? (result.detail ?? result.park?.detail ?? `the session ended ${result.outcome}`)
@@ -405,9 +393,10 @@ export class SessionRuns implements ScanSessionRunner {
     return promise;
   }
 
-  #end(officeId: OfficeId, office: OfficeHandle, runId: RunId, kind: string): void {
+  /** A session run ends done with its answer, else dropped (0020): nothing waits on it. */
+  #end(officeId: OfficeId, office: OfficeHandle, runId: RunId, ending: RunEnd): void {
     const at = this.#deps.clock.now();
-    office.immediate(() => endRun(office, runId, at, kind));
+    office.immediate(() => endRun(office, runId, at, ending));
     this.#deps.onChanged?.(officeId);
   }
 }

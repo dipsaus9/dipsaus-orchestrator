@@ -383,7 +383,7 @@ if (process.env["DIPO_TEST_CI"] === "1") {
         seen.alive = [4242];
         seen.onStop = () =>
           o.office.run(
-            "update runs set ended_at = 2, end_kind = 'stopped' where office_id = $office_id and run_id = $run",
+            "update runs set ended_at = 2, end_kind = 'parked' where office_id = $office_id and run_id = $run",
             { run: record.runId },
           );
 
@@ -458,6 +458,7 @@ if (process.env["DIPO_TEST_CI"] === "1") {
             releaseClaim(o.office, record.runId, {
               at: 5,
               reason: "done-elsewhere",
+              ending: "done",
               keepBranch: false,
             });
             o.office.run(

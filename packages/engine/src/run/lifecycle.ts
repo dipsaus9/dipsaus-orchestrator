@@ -1,54 +1,65 @@
-// A run's state and its transitions (0002, 0020; DIPO-364): one pure function decides a run's
-// next state from its state and an event. It does no I/O and reads no clock: every time it uses
-// comes with the event. The runs writer (`records.ts`) reads the state, asks `nextRunState` and
-// writes what it returns, so every change of `ended_at`, `end_kind`, `waiting`, `waiting_since`
-// and `parked_ms` goes through here.
+// A run's state and its transitions (0002, 0020; DIPO-364, DIPO-373): one pure function decides a
+// run's next state from its state and an event. It does no I/O and reads no clock: every time it
+// uses comes with the event. The runs writer (`records.ts`) reads the state, asks `nextRunState`
+// and writes what it returns, so every change of `ended_at`, `end_kind`, `waiting`,
+// `waiting_since` and `parked_ms` goes through here.
 //
-// A run is open while `endedAt` is null and ended otherwise. An open run may wait for its place
-// (`waiting`, `places.ts`). An ended run's end kind says what it waits for: `in-review` for its
-// review, `reviewed` for its checks and merge, a park's or a release's kind, or `done`, which
-// never opens again. `parkedMs` is the time the run stood ended, in review or waiting, which its
-// minute cap leaves out.
+// A run ends in one of three ways (0020): `done` (its story is Done), `parked` (with one of the
+// eight reasons, kept on its park) or `dropped` (its story was dropped or discarded, or its start
+// failed). Until then it is open. An open run is active while a session works or waits for its
+// place (`waiting`, `places.ts`). At In Review its active period ends (`endedAt`), but the run
+// stays open, in phase review, test or merge (its `phase` run steps), until its story is Done; a
+// review, a fix round or a conflict hand-off makes it active again. `done` and `dropped` are
+// final; a parked run reopens on resume, or stands open at In Review again when the maintainer's
+// override or a resume with no session lifts the park. `parkedMs` is the time the run stood ended,
+// at In Review or waiting, which its minute cap leaves out.
+
+/** How a run ends (0020). */
+export const RUN_ENDS = ["done", "parked", "dropped"] as const;
+export type RunEnd = (typeof RUN_ENDS)[number];
 
 /** The fields of a `runs` row the transitions change. */
 export interface RunState {
+  /**
+   * When the run's last active period ended: at its end, or at In Review while it stays open.
+   * Null while a session works or the run waits for its place.
+   */
   readonly endedAt: number | null;
-  readonly endKind: string | null;
+  /** How the run ended; null while it is open. */
+  readonly ending: RunEnd | null;
   readonly waiting: string | null;
   readonly waitingSince: number | null;
   readonly parkedMs: number;
 }
-
-/** The end kind of a run whose story is Done; such a run never opens again. */
-export const DONE_KIND = "done";
-
-/** The end kind of a run ended at In Review that has no verdict yet. */
-export const IN_REVIEW_KIND = "in-review";
 
 /** What happens to a run. */
 export type RunEvent =
   /** The run row is created. */
   | { readonly kind: "start" }
   /**
-   * The run's active period ends at `at` as `endKind`. `reviewSince`, when given, is when the
-   * review period that ends began; its time joins `parkedMs`.
+   * The active run's active period ends at `at` at In Review; the run stays open. `reviewSince`,
+   * when given, is when the review period that ends began; its time joins `parkedMs`.
+   */
+  | { readonly kind: "in-review"; readonly at: number; readonly reviewSince?: number }
+  /**
+   * The run ends as `ending`. An active run's active period ends at `at` (with `reviewSince` as
+   * for `in-review`); a run open at In Review keeps the end of its last one. A parked run ends
+   * again only as done or dropped; a run done or dropped never ends again.
    */
   | {
       readonly kind: "end";
       readonly at: number;
-      readonly endKind: string;
+      readonly ending: RunEnd;
       readonly reviewSince?: number;
     }
-  /** The story is Done: an ended run whose outcome row is not final yet takes the end kind done. */
-  | { readonly kind: "finish"; readonly final: boolean }
-  /** An ended run opens again at `at`; the time it stood ended joins `parkedMs`. */
-  | { readonly kind: "reopen"; readonly at: number }
   /**
-   * An ended run takes the end kind `endKind` and stays ended; only from the end kind `from` when
-   * given.
+   * A parked run, or one open at In Review, is active again at `at`; the time since its active
+   * period ended joins `parkedMs`.
    */
-  | { readonly kind: "relabel"; readonly endKind: string; readonly from?: string }
-  /** An open run waits for its place as `as` from `since`. */
+  | { readonly kind: "reopen"; readonly at: number }
+  /** A parked run's park is lifted with no session: it stands open at In Review again. */
+  | { readonly kind: "unpark" }
+  /** An active run waits for its place as `as` from `since`. */
   | { readonly kind: "wait"; readonly as: string; readonly since: number }
   /**
    * A waiting run takes its place at `at`. The time it waited joins `parkedMs` when `counted`
@@ -56,7 +67,7 @@ export type RunEvent =
    */
   | { readonly kind: "take-place"; readonly at: number; readonly counted: boolean }
   /**
-   * An open run whose start did not happen waits again as `as` from `since`, and the `counted`
+   * An active run whose start did not happen waits again as `as` from `since`, and the `counted`
    * milliseconds its taken place added to `parkedMs` are taken back.
    */
   | {
@@ -69,11 +80,16 @@ export type RunEvent =
 /** The state of a new run. */
 const STARTED: RunState = {
   endedAt: null,
-  endKind: null,
+  ending: null,
   waiting: null,
   waitingSince: null,
   parkedMs: 0,
 };
+
+/** True when the run is open and active: a session works or it waits for its place. */
+function active(state: RunState): boolean {
+  return state.endedAt === null && state.ending === null;
+}
 
 /**
  * The next state of a run in `state` (null: no run yet) after `event`, or null when the event does
@@ -84,24 +100,22 @@ export function nextRunState(state: RunState | null, event: RunEvent): RunState 
   switch (event.kind) {
     case "start":
       return null;
+    case "in-review":
+      return active(state) ? periodEnded(state, event.at, event.reviewSince) : null;
     case "end":
       return ended(state, event);
-    case "finish":
-      return state.endedAt !== null && !event.final ? { ...state, endKind: DONE_KIND } : null;
     case "reopen":
       return reopened(state, event.at);
-    case "relabel":
-      return state.endedAt !== null && (event.from === undefined || state.endKind === event.from)
-        ? { ...state, endKind: event.endKind }
+    case "unpark":
+      return state.ending === "parked" && state.endedAt !== null
+        ? { ...state, ending: null }
         : null;
     case "wait":
-      return state.endedAt === null
-        ? { ...state, waiting: event.as, waitingSince: event.since }
-        : null;
+      return active(state) ? { ...state, waiting: event.as, waitingSince: event.since } : null;
     case "take-place":
       return tookPlace(state, event.at, event.counted);
     case "requeue":
-      return state.endedAt === null && state.waiting === null
+      return active(state) && state.waiting === null
         ? {
             ...state,
             waiting: event.as,
@@ -112,24 +126,35 @@ export function nextRunState(state: RunState | null, event: RunEvent): RunState 
   }
 }
 
-function ended(state: RunState, event: Extract<RunEvent, { kind: "end" }>): RunState | null {
-  if (state.endedAt !== null) return null;
-  const review = event.reviewSince === undefined ? 0 : Math.max(0, event.at - event.reviewSince);
+/** The active run's active period ended at `at`; a review period's time joins `parkedMs`. */
+function periodEnded(state: RunState, at: number, reviewSince: number | undefined): RunState {
+  const review = reviewSince === undefined ? 0 : Math.max(0, at - reviewSince);
   return {
-    endedAt: event.at,
-    endKind: event.endKind,
+    ...state,
+    endedAt: at,
     waiting: null,
     waitingSince: null,
     parkedMs: state.parkedMs + review,
   };
 }
 
+function ended(state: RunState, event: Extract<RunEvent, { kind: "end" }>): RunState | null {
+  if (active(state)) {
+    return { ...periodEnded(state, event.at, event.reviewSince), ending: event.ending };
+  }
+  if (state.ending === null) return { ...state, ending: event.ending };
+  if (state.ending === "parked" && event.ending !== "parked") {
+    return { ...state, ending: event.ending };
+  }
+  return null;
+}
+
 function reopened(state: RunState, at: number): RunState | null {
-  if (state.endedAt === null || state.endKind === DONE_KIND) return null;
+  if (state.endedAt === null || (state.ending !== null && state.ending !== "parked")) return null;
   return {
     ...state,
     endedAt: null,
-    endKind: null,
+    ending: null,
     parkedMs: state.parkedMs + Math.max(0, at - state.endedAt),
   };
 }

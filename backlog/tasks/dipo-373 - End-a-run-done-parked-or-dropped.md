@@ -1,10 +1,10 @@
 ---
 id: DIPO-373
 title: 'End a run done, parked or dropped'
-status: Refined
+status: Done
 assignee: []
 created_date: '2026-10-29 09:28'
-updated_date: '2026-10-29 09:33'
+updated_date: '2026-10-29 14:22'
 labels:
   - 'tier:M'
   - 'slice:prune'
@@ -41,8 +41,14 @@ test_plan:
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 A run ends done, parked with one of the eight reasons, or dropped, decided in nextRunState (run/lifecycle.ts), and a run at In Review stays open in phase review, test or merge until its story is Done
-- [ ] #2 start-failed ends dropped and returns the story to Ready; reconciled and recorded end done
-- [ ] #3 Merge, PR, fix-round, test and conflict code decide from the run's phase and the story's status; the end kinds in-review, reviewed, start-failed, reconciled and recorded are removed, and no worker outcome or park cause names an ending
-- [ ] #4 run_outcomes rows are migrated to the three endings by a migration tested on a database with rows, and fresh equals migrated
+- [x] #1 A run ends done, parked with one of the eight reasons, or dropped, decided in nextRunState (run/lifecycle.ts), and a run at In Review stays open in phase review, test or merge until its story is Done
+- [x] #2 start-failed ends dropped and returns the story to Ready; a run stopped by reconcile ends by its story status as 0020 decides (Done gives done, removed or moved back gives dropped, Parked gives parked)
+- [x] #3 Merge, PR, fix-round, test and conflict code decide from the run's phase and the story's status; the end kinds in-review, reviewed, start-failed, reconciled and recorded are removed, and no worker outcome or park cause names an ending
+- [x] #4 run_outcomes rows are migrated to the three endings by a migration tested on a database with rows, and fresh equals migrated
 <!-- AC:END -->
+
+## Final Summary
+
+<!-- SECTION:FINAL_SUMMARY:BEGIN -->
+A run ends done, parked or dropped, decided in nextRunState; a run at In Review stays open (ending null) in phase review, test or merge until its story is Done. A failed start ends dropped; reconcile ends a run by its story status as 0020 decides. Merge, PR, fix-round, test, conflict and pending-review code read the phase and story status; removed the end kinds in-review, reviewed, start-failed and reconciled, OUTCOME_ENDS, SESSION_ENDS, finishRun, the endKind on park requests and run_outcomes.end_kind. Migration 0067 maps old rows, tested on fixtures. Review fixes: a park lifted by hand in Backlog.md returns an In Review run to In Review, a re-park keeps its first time, retention keeps open In Review runs, and the TUI and dipo watch show a run as at In Review.
+<!-- SECTION:FINAL_SUMMARY:END -->

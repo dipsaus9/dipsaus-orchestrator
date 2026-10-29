@@ -472,7 +472,7 @@ describe("re-attach (0006 decision 8)", () => {
     await d.reattacher.reattach(w.f.office.officeId);
     await d.control.idle();
     expect(findRun(w.f.office, w.f.run)?.endedAt).not.toBeNull();
-    expect(agentRow()).toEqual({ end_reason: "capped", ended_at: null });
+    expect(agentRow()).toEqual({ end_reason: "budget-exceeded", ended_at: null });
     // Still alive at the first check after the park: nothing is closed yet.
     w.f.t.clock.advance(FOLLOW_CHECK_MS);
     await Bun.sleep(1);
@@ -483,7 +483,7 @@ describe("re-attach (0006 decision 8)", () => {
     w.f.t.clock.advance(FOLLOW_CHECK_MS);
     for (let i = 0; i < 50 && hostRow().endedAt === null; i += 1) await Bun.sleep(1);
     expect(hostRow().endedAt).not.toBeNull();
-    expect(agentRow()?.end_reason).toBe("capped");
+    expect(agentRow()?.end_reason).toBe("budget-exceeded");
     expect(agentRow()?.ended_at).not.toBeNull();
     expect(signals()).toEqual([]);
     expect(observed()).toEqual(["follow-only", "follow-only"]);
@@ -512,7 +512,7 @@ describe("re-attach (0006 decision 8)", () => {
     expect(hostRow().processedOffset).toBe(statSync(w.f.eventFile).size);
     expect(hostRow().exitCode).toBe(0);
     expect(hostRow().endedAt).not.toBeNull();
-    expect(agentRow()?.end_reason).toBe("capped");
+    expect(agentRow()?.end_reason).toBe("budget-exceeded");
     expect(agentRow()?.ended_at).not.toBeNull();
     expect(signals()).toEqual([]);
   });
@@ -670,7 +670,7 @@ describe("re-attach (0006 decision 8)", () => {
     expect(parks()).toEqual([
       ["worker-failed", `${HOST_LOST_WHY}; its session cannot be resumed: the transcript is gone`],
     ]);
-    expect(findRun(w.f.office, w.f.run)?.endKind).toBe("interrupted");
+    expect(findRun(w.f.office, w.f.run)?.ending).toBe("parked");
   });
 
   it("a dead host after the run's one resume parks worker-failed without another (AC #4)", async () => {
@@ -1359,7 +1359,7 @@ function makePending(): void {
 function endRunByHand(): void {
   w.f.office.immediate(() =>
     w.f.office.run(
-      "update runs set ended_at = $at, end_kind = 'stopped' where office_id = $office_id",
+      "update runs set ended_at = $at, end_kind = 'parked' where office_id = $office_id",
       { at: w.f.t.clock.now() },
     ),
   );

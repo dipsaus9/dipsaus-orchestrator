@@ -44,7 +44,7 @@ import {
   packageCacheSkippedText,
   RunLauncher,
   runSteps,
-  START_FAILED_END,
+  START_FAILED_RELEASE,
   StartsPaused,
   WorkRun,
 } from "../../src/run";
@@ -323,7 +323,12 @@ beforeEach(async () => {
       if (w.releaseFails) throw new Error("the database is busy");
       w.released.push({ claim, reason });
       office.immediate(() =>
-        releaseClaim(office, claim.runId, { at: t.clock.now(), reason, keepBranch: true }),
+        releaseClaim(office, claim.runId, {
+          at: t.clock.now(),
+          reason,
+          ending: "dropped",
+          keepBranch: true,
+        }),
       );
     },
     workspace: (_git, at) => memoryWorkspace("commit" in at ? "" : at.checkout),
@@ -720,9 +725,9 @@ describe("work.run starts the worker of a claimed run", () => {
     const result = resultOf<RunResult>(await run());
     expect(result.started).toEqual([]);
     expect(result.skipped.map((s) => s.reason)).toEqual(["pickupCheckFailed"]);
-    expect(world.released.map((r) => r.reason)).toEqual([START_FAILED_END]);
+    expect(world.released.map((r) => r.reason)).toEqual([START_FAILED_RELEASE]);
     const runId = world.released[0]?.claim.runId as RunId;
-    expect(findRun(world.office, runId)).toMatchObject({ endKind: START_FAILED_END });
+    expect(findRun(world.office, runId)).toMatchObject({ ending: "dropped" });
     expect(findRun(world.office, runId)?.endedAt).not.toBeNull();
     const notice = entries().find((e) => e.delta["code"] === LAUNCH_NOTICES.startFailed);
     expect(String(notice?.delta["text"])).toContain("spawn failed: no such file");

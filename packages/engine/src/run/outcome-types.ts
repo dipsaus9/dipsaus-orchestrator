@@ -1,5 +1,5 @@
 // The shared vocabulary of worker outcomes (DIPO-51, split out of `outcomes.ts` by DIPO-128): the
-// intent tags, end kinds, notices and the ports between run control and the
+// intent tags, notices and the ports between run control and the
 // outcome units. `outcomes.ts` re-exports all of it.
 
 import type { Clock, OfficeId, RunId, StoryKey, WorkRef } from "@dipsaus-orchestrator/contract";
@@ -35,18 +35,6 @@ export const OUTCOME_NOTICES = {
   modelSwitched: "run.modelSwitched",
   startFailed: "run.startFailed",
   feedbackNotSent: "run.feedbackNotSent",
-} as const;
-
-/** End kinds of worker outcomes (`runs.end_kind`). */
-export const OUTCOME_ENDS = {
-  noReport: "no-report",
-  initRejected: "init-rejected",
-  crashed: "crashed",
-  capped: "capped",
-  blocked: "blocked",
-  interrupted: "interrupted",
-  /** A plan limit stopped the session: the story parks `worker-failed` until starts resume. */
-  planLimit: "plan-limit",
 } as const;
 
 /** `agents.end_reason` of an agent whose host died without an exit file (DIPO-57). */
@@ -185,7 +173,6 @@ export function planLimitEnding(pause: PlanLimitPause, ops: readonly HostOp[]): 
     ops,
     reason: "worker-failed",
     detail: pause.detail,
-    endKind: OUTCOME_ENDS.planLimit,
     resumeOnLift: true,
   };
 }
@@ -230,7 +217,6 @@ export function initRejectedEnding(story: string, reason: string): RunEnding {
     ],
     reason: "worker-failed",
     detail: `the worker failed its start checks: ${reason}`,
-    endKind: OUTCOME_ENDS.initRejected,
     notice: {
       level: "error",
       code: OUTCOME_NOTICES.initRejected,

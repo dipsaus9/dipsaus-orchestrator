@@ -41,9 +41,6 @@ export const SCAN_MAX_TURNS = 2;
 /** How often a session waiting for the office's starts paused to lift looks again. */
 export const SCAN_STARTS_PAUSED_POLL_MS = 60_000;
 
-/** The end kind of a session run no daemon follows any more (a restart during the session). */
-export const SCAN_SESSION_LOST = "lost";
-
 /**
  * Ends every scan session run of the office that has not ended, inside its own transaction: at
  * office load no fallback session runs yet, so such a run was left by a daemon that stopped during
@@ -56,7 +53,8 @@ export function endLostScanSessions(office: OfficeHandle, at: number): string[] 
          and ended_at is null order by started_at`,
       { role: SCAN_ROLE },
     );
-    for (const row of open) endRun(office, row.run_id as RunId, at, SCAN_SESSION_LOST);
+    // Nothing waits on such a session any more: it ends dropped (0020).
+    for (const row of open) endRun(office, row.run_id as RunId, at, "dropped");
     return open.map((row) => row.run_id);
   });
 }

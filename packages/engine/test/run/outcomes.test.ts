@@ -202,7 +202,12 @@ beforeEach(async () => {
     release: async (_office, claim, reason) => {
       world.released.push(reason);
       f.office.immediate(() =>
-        releaseClaim(f.office, claim.runId, { at: f.t.clock.now(), reason, keepBranch: true }),
+        releaseClaim(f.office, claim.runId, {
+          at: f.t.clock.now(),
+          reason,
+          ending: "dropped",
+          keepBranch: true,
+        }),
       );
     },
     holdsWork: async () => world.holdsWork,
@@ -360,13 +365,13 @@ function endReason(agent: string = w.f.agent): string | null {
   );
 }
 
-/** The run ended once, through `endRun`, with its outcome row. */
-function expectEnded(endKind: string, outcome: string): void {
+/** The run ended once as `ending` (0020), through `endRun`, with its outcome row. */
+function expectEnded(ending: "parked" | "dropped"): void {
   const run = findRun(w.f.office, w.f.run);
-  expect(run?.endKind).toBe(endKind);
+  expect(run?.ending).toBe(ending);
   expect(run?.endedAt).not.toBeNull();
   expect(countRows(w.f.office, "run_outcomes")).toBe(1);
-  expect(runOutcome(w.f.office, w.f.run)?.outcome).toBe(outcome);
+  expect(runOutcome(w.f.office, w.f.run)?.outcome).toBe(ending);
 }
 
 function expectActive(): void {
@@ -419,7 +424,7 @@ describe("a report that does not parse or match the schema (AC #1, DIPO-361)", (
       ["steer", "feedback", "answered"],
       ["park", "no", "blocked"],
     ]);
-    expectEnded("no-report", "parked");
+    expectEnded("parked");
     expect(runOutcome(w.f.office, w.f.run)?.parkReasons).toEqual(["worker-failed"]);
   });
 
@@ -470,7 +475,7 @@ describe("a full context (AC #2)", () => {
       ["budget-exceeded", "prompt_too_long: the context is full again after a handoff"],
     ]);
     expect(w.next).toEqual([]);
-    expectEnded("capped", "parked");
+    expectEnded("parked");
   });
 });
 
@@ -518,7 +523,7 @@ describe("a crash (AC #3)", () => {
     expect(park?.[1]).toContain("exit 143");
     expect(park?.[1]).toContain("one resume after a crash was used");
     expect(w.next).toEqual([]);
-    expectEnded("crashed", "parked");
+    expectEnded("parked");
   });
 
   it("a second execution error parks at the turn", async () => {
@@ -526,7 +531,7 @@ describe("a crash (AC #3)", () => {
     track();
     await ingestRecording("crash-zeroed");
     expect(parks().map(([reason]) => reason)).toEqual(["worker-failed"]);
-    expectEnded("crashed", "parked");
+    expectEnded("parked");
   });
 
   it("a resumed session that crashes again at once parks worker-failed", async () => {
@@ -575,7 +580,7 @@ describe("a crash (AC #3)", () => {
     expect(w.next).toHaveLength(1);
     expect(parks().map(([reason]) => reason)).toEqual(["worker-failed"]);
     expect(parks()[0]?.[1]).toContain("one resume after a crash was used");
-    expectEnded("crashed", "parked");
+    expectEnded("parked");
   });
 
   it("a next session that does not start parks worker-failed", async () => {
@@ -583,7 +588,7 @@ describe("a crash (AC #3)", () => {
     track();
     await ingestRecording("terminated");
     expect(parks()[0]?.[1]).toContain("the next session did not start: the worker host");
-    expectEnded("crashed", "parked");
+    expectEnded("parked");
   });
 });
 
@@ -603,7 +608,7 @@ describe("a rejected init (AC #4)", () => {
       const notice = notices().find((n) => n.code === "run.initRejected");
       expect(notice?.level).toBe("error");
       expect(w.next).toEqual([]);
-      expectEnded("init-rejected", "parked");
+      expectEnded("parked");
     });
   }
 
@@ -658,7 +663,7 @@ describe("a start failure (AC #6)", () => {
         "start-failed",
         "startFailed",
       ]);
-      expectEnded("start-failed", "start-failed");
+      expectEnded("dropped");
     });
   }
 
@@ -672,7 +677,7 @@ describe("a start failure (AC #6)", () => {
       "select released_at from claims where office_id = $office_id",
     );
     expect(claim?.released_at).toBeNull();
-    expectEnded("start-failed", "parked");
+    expectEnded("parked");
   });
 
   it("a launch check refused before a resume holds the adapter and parks when work exists", async () => {
@@ -692,7 +697,7 @@ describe("a start failure (AC #6)", () => {
     expect(parks()[0]?.[0]).toBe("worker-failed");
     expect(parks()[0]?.[1]).toContain("claude is not logged in");
     expect(w.holds).toEqual([]);
-    expectEnded("start-failed", "parked");
+    expectEnded("parked");
   });
 });
 
@@ -730,7 +735,7 @@ describe("a plan limit (0020)", () => {
       "plan-limit",
     );
     expect(w.next).toEqual([]);
-    expectEnded("plan-limit", "parked");
+    expectEnded("parked");
   });
 
   it("plan-limit-429: a 429 turn pauses for an hour and parks the same way, without a reset time", async () => {
@@ -742,7 +747,7 @@ describe("a plan limit (0020)", () => {
     ]);
     expect(parks()).toEqual([["worker-failed", "plan limit (no reset time given)"]]);
     expect(resumeOnLift()).toEqual([1]);
-    expectEnded("plan-limit", "parked");
+    expectEnded("parked");
   });
 
   it("credits_required pauses with no lift time, holds no adapter, and parks", async () => {
@@ -787,7 +792,7 @@ function expectParkedToResume(detail: string): void {
   expect(w.next).toEqual([]);
   expect(parks()).toEqual([["worker-failed", detail]]);
   expect(resumeOnLift()).toEqual([1]);
-  expectEnded("plan-limit", "parked");
+  expectEnded("parked");
 }
 
 describe("no next session while the office's starts are paused (0020)", () => {
@@ -1054,7 +1059,7 @@ describe("a lost host finalizes usage (DIPO-364)", () => {
     await w.control.idle();
     expect(parks().map(([reason]) => reason)).toEqual(["worker-failed"]);
     expect(endReason()).toBe("host-lost");
-    expectEnded("interrupted", "parked");
+    expectEnded("parked");
     // Final, so the park's `endRun` did not skip it for its ended cursor.
     expect(open()).toBe(0);
     const daily = w.f.office.get<{ input: number | null }>(
@@ -1089,7 +1094,7 @@ describe("endRun finalizes usage (AC #10)", () => {
     expect(daily()?.input ?? null).toBeNull();
     // The run ends (a park, a stop) with no exit line ingested.
     w.f.office.immediate(() => {
-      endRun(w.f.office, w.f.run, w.f.t.clock.now(), "stopped");
+      endRun(w.f.office, w.f.run, w.f.t.clock.now(), "parked");
       appendEntries(w.f.office, [], { at: w.f.t.clock.now() });
     });
     expect(daily()).toEqual({ ...finals(), runs: 1 } as never);
@@ -1189,7 +1194,7 @@ describe("a start the adapter refuses at system/init (DIPO-108)", () => {
     expect(notice?.text).toContain("the story stays Ready");
     expect(notices().some((n) => n.code === "run.initRejected")).toBe(false);
     expect(w.next).toEqual([]);
-    expectEnded("start-failed", "start-failed");
+    expectEnded("dropped");
   });
 });
 

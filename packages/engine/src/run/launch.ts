@@ -105,8 +105,8 @@ export const LAUNCH_NOTICES = {
   packageCacheSkipped: "run.packageCacheSkipped",
 } as const;
 
-/** The end kind of a run whose worker host did not start. */
-export const START_FAILED_END = "start-failed";
+/** The release reason of a claim whose worker host did not start: its run ends dropped (0020). */
+export const START_FAILED_RELEASE = "start-failed";
 
 // Kept here for the callers that read them from the launch; they live with the box's life now.
 export {
@@ -592,7 +592,7 @@ export class RunLauncher {
       const reason = `the worker host did not start: ${messageOf(error)}`;
       let released = `dipo kept the branch ${claim.branch} for the next run`;
       try {
-        await this.#deps.release(facts.office, claim, START_FAILED_END);
+        await this.#deps.release(facts.office, claim, START_FAILED_RELEASE);
       } catch (releaseError) {
         const why = messageOf(releaseError);
         this.#deps.warn?.("releasing the claim after a failed host start failed", {

@@ -108,8 +108,13 @@ export function storyRuns(office: OfficeHandle, key: StoryKey): RunRecord[] {
       tier: row.tier ?? "",
       model: last?.model ?? row.model,
       startedAt: iso(row.started_at),
-      ...(row.ended_at === null ? {} : { endedAt: iso(row.ended_at) }),
-      ...(row.end_kind === null ? {} : { outcome: row.end_kind }),
+      // A run ended done, parked or dropped (0020); one open at In Review has not ended, and says
+      // since when it stands there.
+      ...(row.ended_at === null
+        ? {}
+        : row.end_kind === null
+          ? { inReviewSince: iso(row.ended_at) }
+          : { endedAt: iso(row.ended_at), outcome: row.end_kind }),
       usage: usage.run,
       ...(row.ended_at === null ? {} : doneReportField(office, row.run_id)),
     };

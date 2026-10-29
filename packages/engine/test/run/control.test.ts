@@ -51,7 +51,7 @@ import {
 } from "../../src/run";
 import { openPark, PARK_NOT_WRITTEN } from "../../src/run/park";
 import { heldByPark } from "../../src/run/park-state";
-import { activeRuns } from "../../src/run/records";
+import { activeRuns, openAtInReview } from "../../src/run/records";
 import { placeHolders, waitingStarts } from "../../src/run/places";
 import { reopen } from "../../src/run/rounds";
 import { desk, PARK_NOT_WRITTEN as PARK_NOT_WRITTEN_DESK } from "../../src/views/desk";
@@ -302,7 +302,7 @@ describe("caps", () => {
     expect(intents[0]?.outcome).toBe("capped");
     expect(w.sent).toEqual([encode({ kind: "stop" })]);
     const run = findRun(w.f.office, w.f.run);
-    expect(run?.endKind).toBe("capped");
+    expect(run?.ending).toBe("parked");
     expect(run?.endedAt).not.toBeNull();
     expect(run?.budgetLimit).toBe(budget);
     expect(w.writes.map((r) => [r.reason, r.story, r.branch])).toEqual([
@@ -355,7 +355,7 @@ describe("caps", () => {
     expect(parks().map((p) => p.reason)).toEqual(["budget-exceeded"]);
     expect(parks()[0]?.detail).toBe("turn cap (--max-turns) after 2 turns");
     expect(runIntents(w.f.office, w.f.run).map((i) => i.kind)).toEqual(["cap"]);
-    expect(findRun(w.f.office, w.f.run)?.endKind).toBe("capped");
+    expect(findRun(w.f.office, w.f.run)?.ending).toBe("parked");
     expect(w.writes).toHaveLength(1);
   });
 
@@ -512,7 +512,7 @@ describe("reports", () => {
       "select session_id, end_reason from agents where office_id = $office_id and agent_id = $agent",
       { agent: w.f.agent },
     );
-    expect(agent).toEqual({ session_id: "session-1", end_reason: "blocked" });
+    expect(agent).toEqual({ session_id: "session-1", end_reason: "ambiguous-spec" });
     expect(w.writes[0]?.branch).toBe("DIPO-1/add-a-greeting");
   });
 });
@@ -660,7 +660,7 @@ describe("story.park of a running story", () => {
     ]);
     expect(noCause()).toBe(true);
     const run = findRun(w.f.office, w.f.run);
-    expect(run?.endKind).toBe("stopped");
+    expect(run?.ending).toBe("parked");
     expect(run?.endedAt).not.toBeNull();
     expect(runIntents(w.f.office, w.f.run).map((i) => [i.kind, i.state])).toEqual([
       ["stop", "sent"],
@@ -779,7 +779,7 @@ describe("story.park of a run on a follow-only host (DIPO-93)", () => {
       ["stop", "sent"],
     ]);
     expect(noticeCodes()).toEqual(["run.stopSignalled"]);
-    expect(findRun(w.f.office, w.f.run)?.endKind).toBe("stopped");
+    expect(findRun(w.f.office, w.f.run)?.ending).toBe("parked");
   });
 
   it("never signals a PID it cannot verify; the story still parks with the reason", async () => {
@@ -846,12 +846,17 @@ describe("story views and reconcile (DIPO-56)", () => {
   it("stopForReconcile sends the stop sequence and ends the run with its notice, parking nothing", async () => {
     const run = findRun(w.f.office, w.f.run);
     if (run === null) throw new Error("no run");
-    await w.control.stopForReconcile(w.f.office, run, {
-      code: "reconcile.runStopped",
-      text: "DIPO-1 is Done in Backlog.md",
-    });
+    await w.control.stopForReconcile(
+      w.f.office,
+      run,
+      {
+        code: "reconcile.runStopped",
+        text: "DIPO-1 is Done in Backlog.md",
+      },
+      "done",
+    );
     expect(w.sent).toEqual([encode({ kind: "stop" })]);
-    expect(findRun(w.f.office, w.f.run)?.endKind).toBe("reconciled");
+    expect(findRun(w.f.office, w.f.run)?.ending).toBe("done");
     // The run ended through endRun (DIPO-49): one outcome row.
     expect(countRows(w.f.office, "run_outcomes")).toBe(1);
     expect(parks()).toEqual([]);
@@ -876,7 +881,7 @@ describe("story views and reconcile (DIPO-56)", () => {
     expect(parks().map((p) => [p.reason, p.detail])).toEqual([
       ["scope-violation", "Changed by hand: the branch is gone."],
     ]);
-    expect(findRun(w.f.office, w.f.run)?.endKind).toBe("reconciled");
+    expect(findRun(w.f.office, w.f.run)?.ending).toBe("parked");
     // Nothing is read on a branch that cannot be trusted.
     expect(w.refreshed).toEqual([]);
     const codes = loggedEvents(w.f.office)
@@ -966,15 +971,20 @@ describe("reconcile against after-turn work (DIPO-56)", () => {
       await entered;
       const run = findRun(w.f.office, w.f.run);
       if (run === null) throw new Error("no run");
-      const stopped = control.stopForReconcile(w.f.office, run, {
-        code: "reconcile.runStopped",
-        text: "DIPO-1 is Done in Backlog.md",
-      });
+      const stopped = control.stopForReconcile(
+        w.f.office,
+        run,
+        {
+          code: "reconcile.runStopped",
+          text: "DIPO-1 is Done in Backlog.md",
+        },
+        "done",
+      );
       open();
       await stopped;
       await control.idle();
       expect(claimed).toBe(false);
-      expect(findRun(w.f.office, w.f.run)?.endKind).toBe("reconciled");
+      expect(findRun(w.f.office, w.f.run)?.ending).toBe("done");
       expect(summaries).toEqual([w.f.run]);
       expect(countRows(w.f.office, "run_outcomes")).toBe(1);
     } finally {
@@ -1240,7 +1250,7 @@ describe("a capped done turn whose finisher throws (DIPO-235)", () => {
       expect(parks().map((p) => [p.reason, p.detail])).toEqual([
         ["budget-exceeded", "turn cap (--max-turns) after 61 turns"],
       ]);
-      expect(findRun(w.f.office, w.f.run)?.endKind).toBe("capped");
+      expect(findRun(w.f.office, w.f.run)?.ending).toBe("parked");
       expect(w.warnings).toEqual([
         {
           message: "verify and commit after a capped turn failed; ending at the cap",
@@ -1284,7 +1294,7 @@ describe("a capped done turn the finisher lets continue (DIPO-222)", () => {
         ["budget-exceeded", "turn cap (--max-turns) after 61 turns"],
       ]);
       expect(runIntents(w.f.office, w.f.run).map((i) => i.kind)).toEqual(["cap"]);
-      expect(findRun(w.f.office, w.f.run)?.endKind).toBe("capped");
+      expect(findRun(w.f.office, w.f.run)?.ending).toBe("parked");
       expect(capSteps()).toEqual([]);
     } finally {
       control.close();
@@ -1321,7 +1331,7 @@ describe("a capped done turn the finisher lets continue (DIPO-222)", () => {
       expect(parks().map((p) => [p.reason, p.detail])).toEqual([
         ["budget-exceeded", "turn cap reached: 1 of 1 turns"],
       ]);
-      expect(findRun(w.f.office, w.f.run)?.endKind).toBe("capped");
+      expect(findRun(w.f.office, w.f.run)?.ending).toBe("parked");
       expect(capSteps()).toEqual([]);
     } finally {
       control.close();
@@ -1341,7 +1351,7 @@ describe("a capped done turn the finisher lets continue (DIPO-222)", () => {
       await control.idle();
       expect(runIntents(w.f.office, w.f.run).map((i) => i.kind)).toEqual(["cap"]);
       expect(w.sent).toEqual([encode({ kind: "stop" })]);
-      expect(findRun(w.f.office, w.f.run)?.endKind).not.toBe("in-review");
+      expect(openAtInReview(findRun(w.f.office, w.f.run)!)).toBe(false);
       expect(capSteps()).toEqual([]);
     } finally {
       control.close();
@@ -1527,7 +1537,7 @@ describe("stream drift (DIPO-315)", () => {
     // The stop sequence, after its intent.
     expect(w.sent).toEqual([encode({ kind: "stop" })]);
     expect(runIntents(w.f.office, w.f.run).map((i) => i.kind)).toEqual(["park"]);
-    expect(findRun(w.f.office, w.f.run)?.endKind).toBe("worker-failed");
+    expect(findRun(w.f.office, w.f.run)?.ending).toBe("parked");
   });
 
   it("starts the drift count again when the stream-drift park is resumed, and says so", async () => {
@@ -1585,7 +1595,7 @@ describe("stream drift (DIPO-315)", () => {
     expect(park?.detail).toContain("reports no token usage");
     expect(park?.detail).toContain("Claude Code 2.1.296");
     expect(park?.detail).toContain("0 unreadable stream lines");
-    expect(findRun(w.f.office, w.f.run)?.endKind).toBe("worker-failed");
+    expect(findRun(w.f.office, w.f.run)?.ending).toBe("parked");
   });
 
   it("parks at once on a result line whose usage cannot be read", async () => {

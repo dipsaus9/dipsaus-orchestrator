@@ -50,10 +50,11 @@ import type { CodeHost, PrStateHost } from "../platform/host";
 import { LAUNCH_FILE } from "../host/protocol";
 import { officeDirectory } from "../office/marker";
 import { type BacklogPark, backlogPark, openParkIds, resolvePark } from "../run/park";
-import { insertPark } from "../run/park-records";
+import { insertPark, parkedRunOf } from "../run/park-records";
 import { parksBeingResumed } from "../run/park-state";
+import type { RunEnd } from "../run/lifecycle";
 import { endRunMarked } from "../run/markers";
-import { activeRuns, findRun, type StoredRun } from "../run/records";
+import { activeRuns, findRun, parkedFromInReview, type StoredRun, unparkRun } from "../run/records";
 import { runDirectory } from "../runs/worker-hosts";
 import type { IndexResult } from "../stories/index-stories";
 import { readsOnBranch } from "../stories/index-stories";
@@ -105,6 +106,7 @@ export interface ReconcileRuns {
     office: OfficeHandle,
     run: StoredRun,
     notice: { readonly code: string; readonly text: string },
+    ending: RunEnd,
   ): Promise<void>;
   parkForReconcile(
     office: OfficeHandle,
@@ -331,7 +333,7 @@ export async function reconcileOffice(
       text: `${claim.story} is running, but ${what}; dipo stopped its worker and parked it as scope-violation.`,
     });
     if (deps.runs === undefined) {
-      endWithNotice(deps, run, notice);
+      endWithNotice(deps, run, notice, "parked");
     } else {
       await deps.runs.parkForReconcile(office, run, detail, notice);
     }
@@ -355,8 +357,9 @@ export async function reconcileOffice(
       key: run.key,
       text: `${why}, but its run ${run.runId} was still active; dipo stopped the run.`,
     });
-    if (deps.runs === undefined) endWithNotice(deps, run, notice);
-    else await deps.runs.stopForReconcile(office, run, notice);
+    const ending = reconciledEnding(story);
+    if (deps.runs === undefined) endWithNotice(deps, run, notice, ending);
+    else await deps.runs.stopForReconcile(office, run, notice, ending);
   }
 
   stories = storiesOf(office);
@@ -411,15 +414,30 @@ function claimOfKey(claims: readonly ClaimRecord[], key: string): ClaimRecord | 
   return claims.find((claim) => claim.key === key);
 }
 
+/**
+ * How a run ends that reconcile stops because its story left In Progress and In Review (0020): its
+ * story's status decides. Done (finished outside dipo, also when completed and so removed) ends it
+ * done, Parked parked, and a story removed otherwise or moved back before In Progress dropped.
+ */
+export function reconciledEnding(story: {
+  readonly removed: boolean;
+  readonly lifecycle: string | null;
+}): RunEnd {
+  if (story.lifecycle === "Done") return "done";
+  if (story.removed) return "dropped";
+  return story.lifecycle === "Parked" ? "parked" : "dropped";
+}
+
 /** Ends a run in the database only, with its notice, when no run control is wired. */
 function endWithNotice(
   deps: ReconcileDeps,
   run: StoredRun,
   notice: { readonly code: string; readonly text: string },
+  ending: RunEnd,
 ): void {
   const at = deps.clock.now();
   deps.office.immediate(() => {
-    endRunMarked(deps.office, run.runId, at, "reconciled");
+    endRunMarked(deps.office, run.runId, at, ending);
     appendEntries(
       deps.office,
       [
@@ -433,6 +451,26 @@ function endWithNotice(
       { at },
     );
   });
+}
+
+/**
+ * Inside the caller's transaction: reconcile closes the open park `parkId` that Backlog.md no
+ * longer holds. When the story is In Review again and the park's run stood open at In Review when
+ * it parked, the run stands open at In Review again (0020, DIPO-373), so the review, the PR poll
+ * and the merge take it up as before the park.
+ */
+export function closePark(
+  office: OfficeHandle,
+  story: Pick<Story, "lifecycle">,
+  parkId: number,
+  at: number,
+): NewEntry[] {
+  const parked = parkedRunOf(office, parkId);
+  const entries = resolvePark(office, parkId, "reconcile", at);
+  if (parked === null || story.lifecycle !== "In Review") return entries;
+  const run = findRun(office, parked.runId as StoredRun["runId"]);
+  if (run !== null && parkedFromInReview(run, parked.at)) unparkRun(office, run.runId);
+  return entries;
 }
 
 /** What reconcile does about a story's park state (step 4). */
@@ -480,7 +518,7 @@ function reconcilePark(
         key: story.key,
         text: `${story.story} has an open park in dipo's database, but Backlog.md holds it as ${story.lifecycle ?? "unknown"} with no park record; Backlog.md wins, so dipo closed its park.`,
       },
-      () => open.flatMap((parkId) => resolvePark(office, parkId, "reconcile", deps.clock.now())),
+      () => open.flatMap((parkId) => closePark(office, story, parkId, deps.clock.now())),
     );
     return;
   }

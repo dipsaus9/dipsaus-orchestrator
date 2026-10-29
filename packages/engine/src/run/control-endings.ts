@@ -36,7 +36,7 @@ import {
   type ParkWriter,
   parkStory,
 } from "./park";
-import { activeRuns, findRun, IN_REVIEW_END, REVIEWED_END, type StoredRun } from "./records";
+import { activeRuns, findRun, openAtInReview, type StoredRun } from "./records";
 import { liveClaimOf } from "../worktree/records";
 
 /** The detail a cap is named with; the CLI backstop's own detail gets the turn cap prefix. */
@@ -51,7 +51,6 @@ export function capEnding(encode: RunControlDeps["encode"], cap: CapName, detail
     ops: encode({ kind: "stop" }),
     reason: "budget-exceeded",
     detail: capDetail(cap, detail),
-    endKind: "capped",
   };
 }
 
@@ -70,7 +69,6 @@ export function reviewCapEnding(
     ops: encode({ kind: "stop" }),
     reason: "worker-failed",
     detail: `the reviewer's ${capDetail(cap, detail)}`,
-    endKind: "capped",
   };
 }
 
@@ -154,8 +152,8 @@ export class RunEndings {
    * stop sequence through the host); a decision already under way (a cap or a report) finishes
    * first, and when it parked the story already the reply says so (`changed: false`). A run that
    * waits In Review with no live session (for its review, a gate or the merge) parks as it is: the
-   * park is written on the branch and recorded, and the run keeps its end kind, so its resume
-   * returns it to In Review. A story with no run fails `story.notRunning`.
+   * park is written on the branch and recorded, and the run ends parked with the end of its last
+   * active period kept, so its resume returns it to In Review. A story with no run fails `story.notRunning`.
    */
   async parkByMaintainer(
     ctx: AsyncCommandContext,
@@ -180,7 +178,6 @@ export class RunEndings {
       ops: this.#deps.encode({ kind: "stop" }),
       reason: "by-maintainer",
       detail: note,
-      endKind: "stopped",
     };
     const tracked = this.#tracked.get(run.runId);
     const work = tracked?.work ?? workRefOf(handle, run.runId) ?? undefined;
@@ -226,11 +223,7 @@ export class RunEndings {
     // its row (DIPO-360).
     const unwritten = openParkIds(handle, identity.key, waiting.runId).at(-1);
     // Only a run that waits In Review (for its review, a gate or the merge) parks as it is.
-    if (
-      unwritten === undefined &&
-      waiting.endKind !== IN_REVIEW_END &&
-      waiting.endKind !== REVIEWED_END
-    ) {
+    if (unwritten === undefined && !openAtInReview(waiting)) {
       throw new CommandError(STORY_NOT_RUNNING, `${identity.story} has no run to park.`, {
         story: identity.story,
       });
@@ -241,7 +234,6 @@ export class RunEndings {
         run: waiting,
         reason: "by-maintainer",
         detail: note,
-        endKind: "stopped",
         mustWrite: true,
         ...(unwritten === undefined ? {} : { parkId: unwritten }),
       },
@@ -350,7 +342,6 @@ export class RunEndings {
         ...(work === undefined ? {} : { work }),
         reason: ending.reason,
         detail: ending.detail,
-        endKind: ending.endKind,
         ...(ending.capStep === undefined ? {} : { capStep: ending.capStep }),
         ...(ending.question === undefined ? {} : { question: ending.question }),
         ...(ending.mustWrite === true ? { mustWrite: true } : {}),

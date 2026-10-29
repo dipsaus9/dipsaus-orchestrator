@@ -66,7 +66,7 @@ import { findClaim, liveClaimOf } from "../worktree/records";
 
 import { holdTestNote } from "./fix-rounds";
 import { heldByPark } from "./park-state";
-import { findRun, IN_REVIEW_END, REVIEWED_END, type StoredRun } from "./records";
+import { findRun, openAtInReview, runPhase, type StoredRun } from "./records";
 import type { RunStoryFacts } from "./resume";
 import {
   endTest,
@@ -145,17 +145,6 @@ function notInReview(story: string, why: string): CommandError {
   );
 }
 
-/** The phase the run's last phase step names, or null. */
-function phaseOf(office: OfficeHandle, runId: string): string | null {
-  return (
-    office.get<{ value: string }>(
-      `select value from run_steps where office_id = $office_id and run_id = $run
-        and kind = 'phase' order by step desc limit 1`,
-      { run: runId },
-    )?.value ?? null
-  );
-}
-
 /**
  * The story's run and pushed head when it may be tested now (In Review, phase review, test or
  * merge, claim live, not parked, a pushed head); otherwise why not.
@@ -169,11 +158,9 @@ export function testableRun(
   const claim = liveClaimOf(office, key as StoryKey);
   const run = claim === null ? null : findRun(office, claim.runId);
   if (run === null || run.kind !== "story") return { why: "it has no live claim" };
-  if (run.endedAt === null || (run.endKind !== IN_REVIEW_END && run.endKind !== REVIEWED_END)) {
-    return { why: "its run is working" };
-  }
-  if (heldByPark(office, key)) return { why: "it is parked" };
-  const phase = phaseOf(office, run.runId);
+  if (heldByPark(office, key) || run.ending === "parked") return { why: "it is parked" };
+  if (!openAtInReview(run)) return { why: "its run is working" };
+  const phase = runPhase(office, run.runId);
   if (phase === null || !TESTABLE_PHASES.includes(phase)) {
     return { why: `its run is in phase ${phase ?? "none"}` };
   }

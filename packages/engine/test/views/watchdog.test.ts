@@ -181,7 +181,7 @@ describe("watchdog", () => {
         watchdog.track(office, started.run);
         office.immediate(() =>
           office.run(
-            "update runs set ended_at = 1, end_kind = 'stopped' where office_id = $office_id",
+            "update runs set ended_at = 1, end_kind = 'parked' where office_id = $office_id",
             {},
           ),
         );

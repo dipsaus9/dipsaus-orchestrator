@@ -47,7 +47,7 @@ describe("claim records", () => {
       expect(() => office.immediate(() => insertClaim(office, newClaim(other, run2)))).toThrow();
 
       office.immediate(() =>
-        releaseClaim(office, run1, { at: 5, reason: "amend", keepBranch: true }),
+        releaseClaim(office, run1, { at: 5, reason: "amend", ending: "dropped", keepBranch: true }),
       );
       expect(hasLiveClaim(office, key)).toBe(false);
       expect(liveClaims(office)).toEqual([]);

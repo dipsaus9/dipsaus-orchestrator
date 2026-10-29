@@ -21,10 +21,8 @@ import type { AsyncCommandContext } from "../../src/commands/registry";
 import { OFFICE_DEFAULTS, type OfficeConfig } from "../../src/config";
 import { reviewVerdictForTree, reviewVerdictsOf } from "../../src/review";
 import {
-  DONE_END,
-  endRun,
+  appendRunStep,
   findRun,
-  IN_REVIEW_END,
   LAUNCH_NOTICES,
   openPark,
   pendingReviews,
@@ -32,7 +30,6 @@ import {
   Places,
   planRefusedText,
   recordConfigSnapshot,
-  REVIEWED_END,
   REVIEW_NOTICES,
   REVIEWER_ROLE,
   resolvePark,
@@ -46,7 +43,10 @@ import {
   runCaps,
   runIntents,
   runSteps,
+  reviewedInReview,
   START_KINDS,
+  stopAtInReview,
+  unparkRun,
   waitingStarts,
 } from "../../src/run";
 import { parkStory } from "../../src/run/park";
@@ -153,7 +153,7 @@ function correctness(line: number): ReviewReport {
   };
 }
 
-/** A story run that worked, whose HEAD is on the code tree `tree`, ended at In Review now. */
+/** A story run that worked, whose HEAD is on the code tree `tree`, open at In Review now. */
 function inReview(
   story: string,
   tree: string,
@@ -170,7 +170,7 @@ function inReview(
   });
   addAgent(w, s.run, "developer", false);
   write(() => {
-    endRun(w.office, s.run, now(), IN_REVIEW_END);
+    stopAtInReview(w.office, s.run, now());
     // The In Review push reached the remote, at the run's end: the review may start (DIPO-315).
     updateClaim(w.office, s.run, { pushedAt: now() });
   });
@@ -180,12 +180,7 @@ function inReview(
 
 /** A fix round's In Review again (story I's part, written by hand here): a new tree, ended. */
 function fixedTo(s: StoryRun, tree: string): void {
-  write(() =>
-    w.office.run(
-      `update runs set end_kind = $kind where office_id = $office_id and run_id = $run`,
-      { run: s.run, kind: IN_REVIEW_END },
-    ),
-  );
+  write(() => appendRunStep(w.office, s.run, "phase", "review", now()));
   heads.set(s.run, tree);
 }
 
@@ -263,7 +258,6 @@ function world(): World {
             kind: "park",
             reason: "scope-violation",
             detail: state.backstop,
-            endKind: "scope-violation",
           },
     summarize: async () => undefined,
   };
@@ -549,7 +543,7 @@ describe("a pending review (0019 sections 6 and 12)", () => {
         { at: now(), agent: holder },
       ),
     );
-    write(() => endRun(w.office, busy.run, now(), "reviewed"));
+    write(() => stopAtInReview(w.office, busy.run, now()));
     w.t.clock.advance(5 * MINUTE);
     const reopenedAt = now();
     const session = await reviewStarts(older);
@@ -569,7 +563,7 @@ describe("a pending review (0019 sections 6 and 12)", () => {
       codeTreeKey: "tree-1",
       agent: session.agent,
     });
-    expect(findRun(w.office, older.run)).toMatchObject({ endKind: REVIEWED_END });
+    expect(reviewedInReview(w.office, findRun(w.office, older.run)!)).toBe(true);
     expect(events("gate.decided")).toHaveLength(1);
     // The verdict explains the exit: stdin closes with no intent.
     expect(x.sent.at(-1)).toEqual({ run: older.run, ops: [{ closeStdin: true }] });
@@ -687,12 +681,7 @@ describe("a code tree key with a verdict (0019 section 6)", () => {
     // tree (a park and resume commit only the task file).
     x.close();
     x = world();
-    write(() =>
-      w.office.run(
-        `update runs set end_kind = $kind where office_id = $office_id and run_id = $run`,
-        { run: s.run, kind: IN_REVIEW_END },
-      ),
-    );
+    write(() => appendRunStep(w.office, s.run, "phase", "review", now()));
     // It looks pending (dipo records no tree at In Review), and the drain takes its verdict: its
     // HEAD's code tree, read at the start, is the reviewed one.
     expect(pendingReviews(w.office)).toHaveLength(1);
@@ -712,15 +701,12 @@ describe("a code tree key with a verdict (0019 section 6)", () => {
     // dipo records no tree for the new In Review head, so it looks pending; its HEAD's code tree,
     // read at the start, is the reviewed one.
     write(() => {
-      w.office.run(
-        `update runs set end_kind = $kind where office_id = $office_id and run_id = $run`,
-        { run: s.run, kind: IN_REVIEW_END },
-      );
+      appendRunStep(w.office, s.run, "phase", "review", now());
     });
     expect(pendingReviews(w.office)).toHaveLength(1);
     expect(await x.places.drain(officeId())).toBe(0);
     expect(x.sessions).toHaveLength(1);
-    expect(findRun(w.office, s.run)).toMatchObject({ endKind: REVIEWED_END });
+    expect(reviewedInReview(w.office, findRun(w.office, s.run)!)).toBe(true);
     expect(stepsOf(s.run, "review")).toHaveLength(1);
     expect(pendingReviews(w.office)).toEqual([]);
   });
@@ -766,7 +752,7 @@ describe("the failure table (0019 section 4)", () => {
       const session = await reviewStarts(s);
       await turn(session, UNMET);
       await exits(session);
-      expect(findRun(w.office, s.run)).toMatchObject({ endKind: REVIEWED_END });
+      expect(reviewedInReview(w.office, findRun(w.office, s.run)!)).toBe(true);
       expect(stepsOf(s.run, "review-failed")).toHaveLength(round);
       expect(parksOf()).toEqual([]);
     }
@@ -925,7 +911,7 @@ describe("the failure table (0019 section 4)", () => {
         "select resume_on_lift from parks where office_id = $office_id",
       )?.resume_on_lift,
     ).toBe(1);
-    expect(findRun(w.office, s.run)).toMatchObject({ endKind: "plan-limit", waiting: null });
+    expect(findRun(w.office, s.run)).toMatchObject({ ending: "parked", waiting: null });
     expect(findRun(w.office, s.run)?.endedAt).not.toBeNull();
     expect(x.sessions).toHaveLength(1);
   });
@@ -1022,12 +1008,14 @@ describe("a story parked while it waits In Review (DIPO-344)", () => {
     expect(x.sessions).toEqual([]);
     expect(stepsOf(s.run, "review")).toEqual([]);
 
-    // The resume resolves the park (`ParkResumes`); the next drain starts the review.
+    // The resume resolves the park and the run stands open at In Review again (`ParkResumes`);
+    // the next drain starts the review.
     const parkId = openPark(w.office, s.key)!.parkId;
     write(() => {
       resolvePark(w.office, parkId, "resume", now());
       // The lift's read-back: In Review with no park record in Backlog.md (DIPO-360).
       mirrorUnpark(w.office, s.key, "In Review");
+      unparkRun(w.office, s.run);
     });
     const session = await reviewStarts(s);
     expect(session.run).toBe(s.run);
@@ -1057,7 +1045,6 @@ const ciCapPark = (s: StoryRun) =>
       run: findRun(w.office, s.run)!,
       reason: "verify-failing",
       detail: "required checks were red on 1 pushed heads (the CI cap is 1).",
-      endKind: "verify-failing",
     },
   );
 
@@ -1067,6 +1054,7 @@ function lift(s: StoryRun): void {
   write(() => {
     resolvePark(w.office, parkId, "resume", now());
     mirrorUnpark(w.office, s.key, "In Review");
+    unparkRun(w.office, s.run);
   });
 }
 
@@ -1090,9 +1078,10 @@ describe("a park that lands while a review round is built (DIPO-346)", () => {
     expect(await x.places.drain(officeId())).toBe(0);
     expect(x.sessions).toEqual([]);
     expect(stepsOf(s.run, "review")).toEqual([]);
+    // The park ends the run open at In Review parked, with the end of its last active period.
     expect(findRun(w.office, s.run)).toMatchObject({
       endedAt: inReviewAt,
-      endKind: IN_REVIEW_END,
+      ending: "parked",
       waiting: null,
     });
     expect(pendingReviews(w.office)).toEqual([]);
@@ -1114,7 +1103,7 @@ describe("a park that lands while a review round is built (DIPO-346)", () => {
     };
     expect(await x.places.drain(officeId())).toBe(0);
     expect(x.sessions).toEqual([]);
-    expect(findRun(w.office, s.run)).toMatchObject({ endKind: "verify-failing", waiting: null });
+    expect(findRun(w.office, s.run)).toMatchObject({ ending: "parked", waiting: null });
     expect(pendingReviews(w.office)).toEqual([]);
     expect(await x.places.drain(officeId())).toBe(0);
     expect(x.sessions).toEqual([]);
@@ -1131,7 +1120,7 @@ describe("a park that lands while a review round is built (DIPO-346)", () => {
     };
     expect(await x.places.drain(officeId())).toBe(0);
     expect(x.sessions).toEqual([]);
-    expect(findRun(w.office, s.run)).toMatchObject({ endKind: "verify-failing", waiting: null });
+    expect(findRun(w.office, s.run)).toMatchObject({ ending: "parked", waiting: null });
     expect(pendingReviews(w.office)).toEqual([]);
     expect(await x.places.drain(officeId())).toBe(0);
     expect(x.sessions).toEqual([]);
@@ -1175,12 +1164,11 @@ describe("a story whose park could not be written to Backlog.md (DIPO-360)", () 
         run: findRun(w.office, s.run)!,
         reason: "review-blocked",
         detail: "blocked",
-        endKind: "review-blocked",
       },
     );
-    // Backlog.md does not hold the park, and the run keeps its In Review end kind.
+    // Backlog.md does not hold the park, and the run stays open at In Review.
     expect(openPark(w.office, s.key)).toBeNull();
-    expect(findRun(w.office, s.run)?.endKind).toBe(IN_REVIEW_END);
+    expect(findRun(w.office, s.run)?.ending).toBeNull();
     expect(pendingReviews(w.office)).toEqual([]);
     expect(await x.places.drain(officeId())).toBe(0);
     expect(await x.reviews.start(officeId(), findRun(w.office, s.run)!, start)).toBe(false);
@@ -1189,7 +1177,7 @@ describe("a story whose park could not be written to Backlog.md (DIPO-360)", () 
 });
 
 describe("a story Done on the office base (DIPO-239)", () => {
-  it("gets no review round or session for a run ended at In Review, which ends done once", async () => {
+  it("gets no review round or session for a run open at In Review, which ends done once", async () => {
     const s = inReview("DIPO-1", "tree-1");
     heads.set(s.run, "tree-1");
     setting.facts = onBase("Done");
@@ -1198,7 +1186,7 @@ describe("a story Done on the office base (DIPO-239)", () => {
     expect(await x.reviews.start(officeId(), run, start)).toBe(false);
     expect(x.sessions).toEqual([]);
     expect(stepsOf(s.run, "review")).toEqual([]);
-    expect(findRun(w.office, s.run)).toMatchObject({ endKind: DONE_END });
+    expect(findRun(w.office, s.run)).toMatchObject({ ending: "done" });
     expect(pendingReviews(w.office)).toEqual([]);
     const notices = noticesOf(REVIEW_NOTICES.doneOnBase);
     expect(notices).toHaveLength(1);
@@ -1227,7 +1215,7 @@ describe("a story Done on the office base (DIPO-239)", () => {
     expect(await x.places.drain(officeId())).toBe(0);
     expect(x.sessions).toEqual([]);
     expect(findRun(w.office, s.run)).toMatchObject({
-      endKind: DONE_END,
+      ending: "done",
       waiting: null,
       waitingSince: null,
     });
@@ -1386,7 +1374,7 @@ describe("a reviewer that ends without a verdict (0019 section 4)", () => {
   });
 });
 
-describe("a run that ends reviewed hands its head to the fix rounds (DIPO-148)", () => {
+describe("a run past its review hands its head to the fix rounds (DIPO-148)", () => {
   it("after the reviewer's exit, and when a new head takes its tree's blocked verdict without a round", async () => {
     const s = inReview("DIPO-1", "tree-1");
     heads.set(s.run, "tree-1");
@@ -1398,14 +1386,11 @@ describe("a run that ends reviewed hands its head to the fix rounds (DIPO-148)",
 
     // A head that changed only the task file: In Review again on the blocked tree.
     write(() => {
-      w.office.run(
-        `update runs set end_kind = $kind where office_id = $office_id and run_id = $run`,
-        { run: s.run, kind: IN_REVIEW_END },
-      );
+      appendRunStep(w.office, s.run, "phase", "review", now());
     });
     expect(await x.places.drain(officeId())).toBe(0);
     expect(x.sessions).toHaveLength(1);
-    expect(findRun(w.office, s.run)).toMatchObject({ endKind: REVIEWED_END });
+    expect(reviewedInReview(w.office, findRun(w.office, s.run)!)).toBe(true);
     expect(x.reviewedRuns).toEqual([`${s.run} ${session.agent}`, `${s.run} -`]);
   });
 });

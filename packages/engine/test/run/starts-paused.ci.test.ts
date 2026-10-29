@@ -70,7 +70,7 @@ if (process.env["DIPO_TEST_CI"] === "1") {
             expect(parks()).toEqual([
               { reason: "worker-failed", detail: `plan limit until ${reset}`, resume_on_lift: 1 },
             ]);
-            expect(findRun(r.office, run)?.endKind).toBe("plan-limit");
+            expect(findRun(r.office, run)?.ending).toBe("parked");
 
             // No new session starts while it holds: work.run is refused, named or not.
             const refused = await command(r, "work.run", { from: r.repo.dir });

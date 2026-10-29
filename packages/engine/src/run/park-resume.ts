@@ -80,7 +80,6 @@ import type { AsyncCommandContext, CommandOutcome } from "../commands/registry";
 import type { OfficeHandle } from "../db/office";
 import { closeQuestion, parkWorkerQuestion } from "../hooks/questions";
 import { CONTRACT_MAX_DEFAULT } from "../prompts/contract";
-import { latestVerdictOfRun } from "../review/store";
 import { capNote } from "../prompts/handoff";
 import answerTemplate from "../prompts/feedback/answer.md" with { type: "text" };
 import parkedTemplate from "../prompts/feedback/parked.md" with { type: "text" };
@@ -97,7 +96,7 @@ import { feedbackIntents, sendFeedback } from "./feedback";
 import { feedbackItems } from "./feedback-items";
 import { recordGrant, type RoundCap } from "./grants";
 import { markIntentSent, recordIntent, resolveIntent } from "./intents";
-import { reopen } from "./rounds";
+import { enterPhase, reopen } from "./rounds";
 import type { OutcomeParts } from "./outcomes";
 import { intentRest, intentTag, messageOf, type RunView } from "./outcome-types";
 import { openPark, PARK_NOTICES, resolvePark } from "./park";
@@ -105,14 +104,7 @@ import { MAINTAINER_RESUME_TAG, mirrorUnpark, unresolvedPark } from "./park-stat
 
 export { MAINTAINER_RESUME_TAG, parksBeingResumed } from "./park-state";
 import { PLACE_NOTICES, type Places, START_KINDS, waitForPlace } from "./places";
-import {
-  applyRunEvent,
-  findRun,
-  IN_REVIEW_END,
-  REVIEWED_END,
-  runRoundCounts,
-  type StoredRun,
-} from "./records";
+import { findRun, parkedFromInReview, runRoundCounts, type StoredRun, unparkRun } from "./records";
 import { recordBranchPush } from "../story-pr/records";
 import { resumeRow, resumeSession, type ResumeSession, SUGGESTED_SHARE } from "./resume-policy";
 import {
@@ -449,13 +441,14 @@ function newestAgent(
 }
 
 /**
- * The facts the resume's session follows from (`resumeSession`): whether the run waited In Review
- * when it parked (its end kind is still that of a run waiting for review or merge, since a park
- * never ends a run that ended already), and whether the park stopped its reviewer (its newest
- * session is the reviewer's, and the park ended the run).
+ * The facts the resume's session follows from (`resumeSession`): whether the run stood open at In
+ * Review with no session when it parked (the story parked from In Review, and the run's active
+ * period ended before the park, since a park keeps the end of a run that was not active), and
+ * whether the park stopped its reviewer (its newest session is the reviewer's, and the park ended
+ * the run's active period).
  */
-function resumeFacts(office: OfficeHandle, run: StoredRun) {
-  const waitingInReview = run.endKind === IN_REVIEW_END || run.endKind === REVIEWED_END;
+function resumeFacts(office: OfficeHandle, run: StoredRun, park: OpenPark) {
+  const waitingInReview = park.from === "In Review" && parkedFromInReview(run, park.at);
   const newest = newestAgent(office, run.runId);
   return { waitingInReview, reviewerStopped: !waitingInReview && newest?.role === REVIEWER_ROLE };
 }
@@ -579,7 +572,7 @@ export class ParkResumes {
         { story },
       );
     }
-    const session = resumeSession(park.reason, resumeFacts(office, run));
+    const session = resumeSession(park.reason, resumeFacts(office, run, park));
     if (session === "developer" && park.reason === "conflict" && !this.#options.conflicts?.()) {
       throw new CommandError(
         RESUME_ERRORS.notResumable,
@@ -1007,19 +1000,17 @@ export class ParkResumes {
         });
       case "fix-round": {
         const closed = resolvePark(office, park.parkId, "resume", at, detail.note);
-        // The run waits in review again with its verdict in: the fix round decides from it.
-        endedAs(office, run.runId, REVIEWED_END);
-        return [...closed, ...stateEntries(office, run, detail.to, why)];
+        // The run stands open at In Review again with its blocked verdict in, in phase build: the
+        // fix round decides from it.
+        unparkRun(office, run.runId);
+        const phase = enterPhase(office, run.runId, "build", at);
+        return [...closed, ...stateEntries(office, run, detail.to, why), ...phase];
       }
       case "none": {
         const closed = resolvePark(office, park.parkId, "resume", at, detail.note);
-        // The run waits In Review again: the auto-merge and the PR poll take only a run ended at
-        // In Review or after its review.
-        endedAs(
-          office,
-          run.runId,
-          latestVerdictOfRun(office, run.runId) === null ? IN_REVIEW_END : REVIEWED_END,
-        );
+        // The run stands open at In Review again, in the phase it parked in: the auto-merge and
+        // the PR poll take a run open at In Review.
+        unparkRun(office, run.runId);
         return [...closed, ...stateEntries(office, run, detail.to, why)];
       }
     }
@@ -1505,14 +1496,4 @@ function dropHeld(
       resolveIntent(office, runId, item.intentId, outcome, at);
     }
   }
-}
-
-/** Inside the caller's transaction: an ended run takes the end kind `kind`, its outcome row too. */
-function endedAs(office: OfficeHandle, runId: RunId, kind: string): void {
-  applyRunEvent(office, runId, { kind: "relabel", endKind: kind });
-  office.run(
-    `update run_outcomes set end_kind = $kind, outcome = $kind
-      where office_id = $office_id and run_id = $run and final = 0`,
-    { run: runId, kind },
-  );
 }

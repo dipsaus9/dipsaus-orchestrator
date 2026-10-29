@@ -138,7 +138,6 @@ export class AfterTurns {
               ops: [{ closeStdin: true }],
               reason: decision.reason,
               detail: decision.detail,
-              endKind: decision.endKind,
               report,
               ...(capped === null ? {} : { capStep: `${capped.cap}: ${capped.detail}` }),
             },

@@ -1,8 +1,9 @@
 // Shared setup for the auto-merge tests of story PRs (0002): a migrated state database built from
-// fixtures under DIPO_TMP with one office and one story run waiting In Review (ended as reviewed,
-// live claim, a developer agent), its open story PR #7, an approved verdict on its pushed head, an
-// in-memory code host with auto-merge and labels, a scripted story merge git, the CI state of the
-// PR poll as a map, and a fake park writer. No test here runs git, the Backlog CLI or `gh`.
+// fixtures under DIPO_TMP with one office and one story run open at In Review in phase merge
+// (past its review, live claim, a developer agent), its open story PR #7, an approved verdict on
+// its pushed head, an in-memory code host with auto-merge and labels, a scripted story merge git,
+// the CI state of the PR poll as a map, and a fake park writer. No test here runs git, the Backlog
+// CLI or `gh`.
 
 import { type OfficeId, type RunId, type StoryKey } from "@dipsaus-orchestrator/contract";
 
@@ -21,7 +22,7 @@ import { recordReviewVerdict, type StoredReviewVerdict } from "../../src/review/
 import type { JudgedReview } from "../../src/review/verdict";
 import { recordCatchUp } from "../../src/run/conflicts";
 import type { ParkBranchRequest } from "../../src/run/park";
-import { endRun, REVIEWED_END } from "../../src/run/records";
+import { reviewedAt } from "../run/in-review";
 import type { CiHeadState } from "../../src/story-pr/prs";
 import { insertStoryPr, updateStoryPr } from "../../src/story-pr/records";
 import type { StoryEditor } from "../../src/story-store/store";
@@ -206,7 +207,7 @@ export async function storyWorld(
   const now = w.t.clock.now();
   let verdict: StoredReviewVerdict | null = null;
   w.office.immediate(() => {
-    endRun(w.office, story.run, now, REVIEWED_END);
+    reviewedAt(w.office, story.run, now);
     insertStoryPr(w.office, {
       runId: story.run,
       key: story.key,

@@ -78,7 +78,6 @@ describe("a park (DIPO-360)", () => {
       run,
       reason: "review-blocked",
       detail: "round 3 blocked",
-      endKind: "review-blocked",
     });
     // Backlog.md's record, as the index holds it now: status Parked with reason and origin.
     expect(backlogPark(w.office, s.key)).toEqual({
@@ -103,7 +102,6 @@ describe("a park (DIPO-360)", () => {
       run,
       reason: "conflict",
       detail: "conflict in a.ts",
-      endKind: "conflict",
     });
     expect(parkRows()).toEqual([{ reason: "conflict", detail: "conflict in a.ts" }]);
     expect(backlogPark(w.office, s.key)).toBeNull();

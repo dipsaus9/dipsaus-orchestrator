@@ -476,7 +476,7 @@ export function Detail(props: DetailProps) {
   const ended = current ? undefined : (story ?? null);
   const now =
     view === undefined
-      ? endedLine(ended ?? null, dot)
+      ? endedLine(ended ?? null, dot, record)
       : nowLine({
           view,
           ended,
@@ -509,7 +509,7 @@ export function Detail(props: DetailProps) {
       ? [
           ended === undefined
             ? `no ${source} output yet`
-            : noOutputLine(record?.endedAt, clock.now(), retentionDays),
+            : noOutputLine(record?.endedAt ?? record?.inReviewSince, clock.now(), retentionDays),
         ]
       : [];
   let rows: string[] = [...empty, ...visible];

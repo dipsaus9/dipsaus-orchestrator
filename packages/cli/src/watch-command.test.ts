@@ -82,6 +82,8 @@ const cursor = { stream: `office:${OFFICE}`, epoch: "e1", seq: 4 };
 function fake(options: {
   readonly running: boolean;
   readonly ended?: () => boolean;
+  /** The run stands open at In Review (DIPO-373). */
+  readonly inReview?: () => boolean;
   readonly interactive?: boolean;
   readonly title?: string;
   /** The office summary `engine.hello` carried. */
@@ -108,7 +110,8 @@ function fake(options: {
     tier: "S",
     model: "haiku",
     startedAt: AT,
-    ...(options.ended?.() === true ? { endedAt: AT, outcome: "start-failed" } : {}),
+    ...(options.ended?.() === true ? { endedAt: AT, outcome: "dropped" } : {}),
+    ...(options.inReview?.() === true ? { inReviewSince: AT } : {}),
     usage: totals,
   });
   const session: DaemonSession = {
@@ -187,6 +190,23 @@ describe("dipo watch without a daemon (DIPO-187)", () => {
 });
 
 describe("dipo watch", () => {
+  it("tells once that a run reached In Review, which has not ended it (DIPO-373)", async () => {
+    let inReview = false;
+    const ctx = fake({ running: true, inReview: () => inReview });
+    const done = main(["watch", "task-1"], ctx.deps);
+    await until(() => ctx.subscriptions.length === 1);
+    ctx.out.length = 0;
+    inReview = true;
+    ctx.emit("stream.mark", {});
+    await until(() => ctx.out.length > 0);
+    expect(ctx.out).toEqual([`${T} TASK-1 end    run ${RUN} at In Review · 2 turns`]);
+    ctx.emit("stream.mark", {});
+    await tick();
+    expect(ctx.out).toHaveLength(1);
+    ctx.end({ code: "office.unknown", message: "gone", retryable: false });
+    expect(await done).toBe(1);
+  });
+
   it("prints the running story's state, then output, usage, health with its evidence, notices, parks and the run's end", async () => {
     let ended = false;
     const ctx = fake({ running: true, ended: () => ended });
@@ -258,7 +278,7 @@ describe("dipo watch", () => {
     ended = true;
     ctx.emit("stream.mark", {});
     await until(() => ctx.out.length > 0);
-    expect(ctx.out).toEqual([`${T} TASK-1 end    run ${RUN} ended: start-failed · 2 turns`]);
+    expect(ctx.out).toEqual([`${T} TASK-1 end    run ${RUN} ended: dropped · 2 turns`]);
     ctx.emit("stream.mark", {});
     await tick();
     expect(ctx.out).toHaveLength(1);
@@ -351,7 +371,7 @@ describe("dipo watch", () => {
       await until(() => ctx.subscriptions.length === 1);
       ctx.out.length = 0;
       const phase = `[dipo] ${iso} phase verify\n`;
-      const ended = `[dipo] ${iso} ended in-review\n`;
+      const ended = `[dipo] ${iso} ended done\n`;
       // Worker text, a partial line cut by a flagged marker, a forged marker line, the run's end.
       ctx.emit("work.output", {
         work,
@@ -372,7 +392,7 @@ describe("dipo watch", () => {
       ctx.emit("work.output", {
         work,
         source: "worker",
-        ...marker("ended", "in-review", ended, end),
+        ...marker("ended", "done", ended, end),
       });
       return ctx.out;
     }
@@ -384,7 +404,7 @@ describe("dipo watch", () => {
         `${T} TASK-1 out    half a `,
         `${T} TASK-1 out    -- ${at} phase: verify --`,
         `${T} TASK-1 out    ${forged}`,
-        `${T} TASK-1 out    -- ${at} run ended: in-review --`,
+        `${T} TASK-1 out    -- ${at} run ended: done --`,
       ]);
     });
 
@@ -393,7 +413,7 @@ describe("dipo watch", () => {
       const out = await watched(true);
       expect(out[2]).toBe(`${T} TASK-1 out    ── ${at} phase: verify ──`);
       expect(out[3]).toBe(`${T} TASK-1 out    ${forged}`);
-      expect(out[4]).toBe(`${T} TASK-1 out    ── ${at} run ended: in-review ──`);
+      expect(out[4]).toBe(`${T} TASK-1 out    ── ${at} run ended: done ──`);
     });
 
     it("prints worker text around a marker inside one range, without the marker's raw line", async () => {

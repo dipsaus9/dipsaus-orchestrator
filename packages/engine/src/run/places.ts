@@ -38,7 +38,7 @@ import { workRefOf } from "../views/work";
 import { REVIEWER_ROLE } from "./caps";
 import type { RunEnding } from "./control-types";
 import { preStartEnding, reachedCaps, resolvePreStartIntent } from "./pre-start-caps";
-import { activeRuns, applyRunEvent, findRun, type StoredRun } from "./records";
+import { activeRuns, applyRunEvent, findRun, runPhase, type StoredRun } from "./records";
 
 /** The two session places of an office. */
 export type Place = "worker" | "reviewer";
@@ -125,16 +125,6 @@ interface LatestAgent {
   readonly ended_at: number | null;
 }
 
-function phaseOf(office: OfficeHandle, runId: string): string | null {
-  return (
-    office.get<{ value: string }>(
-      `select value from run_steps where office_id = $office_id and run_id = $run
-        and kind = 'phase' order by step desc limit 1`,
-      { run: runId },
-    )?.value ?? null
-  );
-}
-
 /** The place an open story run holds: its running agent's role, else its active period's. */
 export function placeOfRun(office: OfficeHandle, run: StoredRun): Place {
   const agent = office.get<LatestAgent>(
@@ -143,7 +133,7 @@ export function placeOfRun(office: OfficeHandle, run: StoredRun): Place {
     { run: run.runId },
   );
   if (agent !== null && agent.ended_at === null) return placeOfRole(agent.role);
-  return phaseOf(office, run.runId) === "review" ? "reviewer" : placeOfRole(run.role);
+  return runPhase(office, run.runId) === "review" ? "reviewer" : placeOfRole(run.role);
 }
 
 /** The open story runs holding each place: a live or starting session, not waiting. */

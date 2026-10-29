@@ -23,12 +23,11 @@ import {
 } from "../../src/platform/host";
 import {
   appendRunStep,
-  endRun,
-  IN_REVIEW_END,
   insertRun,
   recordGrant,
   runRoundCounts,
   runSteps,
+  stopAtInReview,
 } from "../../src/run";
 import type { BranchPark, ParkBranchRequest, ParkWriter } from "../../src/run/park";
 import {
@@ -211,7 +210,7 @@ async function inWorld(
       });
       t.clock.advance(60_000);
       updateClaim(office, run, { pushedAt: t.clock.now() });
-      endRun(office, run, t.clock.now(), IN_REVIEW_END);
+      stopAtInReview(office, run, t.clock.now());
     });
     const host = new CiHost();
     const parks: ParkBranchRequest[] = [];

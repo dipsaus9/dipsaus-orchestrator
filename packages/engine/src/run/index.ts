@@ -21,7 +21,7 @@ export {
   RunLauncher,
   runLaunchPaths,
   runWorkerSpec,
-  START_FAILED_END,
+  START_FAILED_RELEASE,
   systemHashOf,
 } from "./launch";
 export type {
@@ -33,7 +33,7 @@ export type {
   StartOutcome,
   TierCaps,
 } from "./launch";
-export { SESSION_ENDS, SESSION_FOLDER_PREFIX, SessionRuns } from "./session-run";
+export { SESSION_FOLDER_PREFIX, SessionRuns } from "./session-run";
 export type { SessionRunsDeps } from "./session-run";
 export { renderRunPrompts, sessionUuid, SYSTEM_FILE } from "./prompts";
 export type { RunPrompts, RunPromptsInput } from "./prompts";
@@ -42,12 +42,12 @@ export {
   capsStartedAt,
   appendRunStep,
   currentProfileId,
-  DONE_END,
   endRun,
-  finishRun,
-  IN_REVIEW_END,
-  PARKED_OUTCOME,
+  openAtInReview,
   recordGateChanges,
+  reopenRun,
+  runPhase,
+  unparkRun,
   runOutcome,
   runRoundCounts,
   findRun,
@@ -84,7 +84,17 @@ export {
   waitingStarts,
 } from "./places";
 export type { Place, PlacesDeps, PlaceStart, PlaceStarter, StartKind } from "./places";
-export { endReviewPeriod, reopen, REVIEWED_END } from "./rounds";
+export {
+  endReviewPeriod,
+  enterPhase,
+  phaseAfterVerdict,
+  reopen,
+  reviewedInReview,
+  stopAtInReview,
+  waitsForReview,
+} from "./rounds";
+export { RUN_ENDS, nextRunState } from "./lifecycle";
+export type { RunEnd, RunEvent, RunState } from "./lifecycle";
 export type { ReopenFor, RoundKind } from "./rounds";
 export {
   feedbackItems,
@@ -158,7 +168,6 @@ export type {
 } from "./review-launch";
 export {
   blockingDetail,
-  REVIEW_BLOCKED_END,
   REVIEW_CRASHED_END,
   REVIEW_NOTICES,
   REVIEW_TAGS,
@@ -202,8 +211,6 @@ export {
   CONTROL_NOTICES,
   DAEMON_STOPPED_DETAIL,
   EVENT_FILE_CHANGED,
-  INTERRUPTED_END,
-  RECONCILED_END,
   RunControl,
   STOP_ALL_EXIT_WAIT_MS,
   STORY_NOT_RUNNING,
@@ -313,7 +320,6 @@ export {
   HOST_LOST_WHY,
   INTENT_TAGS,
   intentTag,
-  OUTCOME_ENDS,
   planLimitEnding,
   OUTCOME_NOTICES,
   REASSIGN_SIGTERM_AFTER_MS,
@@ -460,7 +466,7 @@ export {
   openTests,
   openTestViews,
   recordTestResult,
-  RECORDED_END,
+  TEST_RECORDED,
   shellLine,
   TEST_GATE_KIND,
   testPassedFor,

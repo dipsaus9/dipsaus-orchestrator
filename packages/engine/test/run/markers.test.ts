@@ -96,7 +96,7 @@ describe("phase markers (DIPO-83)", () => {
       appendLines(f.eventFile, lines.slice(2, 3));
       ingestor.pass(f.run, f.agent);
       f.t.clock.advance(1_000);
-      f.office.immediate(() => endRunMarked(f.office, f.run, T0 + 4_000, "in-review"));
+      f.office.immediate(() => endRunMarked(f.office, f.run, T0 + 4_000, "parked"));
       f.t.clock.advance(1_000);
 
       const stored = storedOutput(f.office, f.run);
@@ -109,7 +109,7 @@ describe("phase markers (DIPO-83)", () => {
           markerLine("phase", "verify", T0 + 2_000),
           markerLine("phase", "build", T0 + 3_000),
           "fixing the failure\n",
-          markerLine("ended", "in-review", T0 + 4_000),
+          markerLine("ended", "parked", T0 + 4_000),
         ].join(""),
       );
       expect(markerLine("phase", "verify", T0)).toBe(
@@ -143,11 +143,11 @@ describe("phase markers (DIPO-83)", () => {
       phase(f, "setup", T0);
       expect(workView(f.office, f.run)?.lastOutputAt).toBeUndefined();
       f.office.immediate(() => {
-        expect(endRunMarked(f.office, f.run, T0 + 1, "stopped")).toBe(true);
-        expect(endRunMarked(f.office, f.run, T0 + 2, "stopped")).toBe(false);
+        expect(endRunMarked(f.office, f.run, T0 + 1, "parked")).toBe(true);
+        expect(endRunMarked(f.office, f.run, T0 + 2, "parked")).toBe(false);
       });
       expect(storedOutput(f.office, f.run)).toBe(
-        markerLine("phase", "setup", T0) + markerLine("ended", "stopped", T0 + 1),
+        markerLine("phase", "setup", T0) + markerLine("ended", "parked", T0 + 1),
       );
     }));
 });
@@ -178,10 +178,10 @@ describe("marker flags (DIPO-95)", () => {
       ingestor.track(target(f, scriptedWorker({ script }), { events: [] }));
       appendLines(f.eventFile, scriptedWorker({ script }).lines());
       f.t.clock.advance(1_000);
-      f.office.immediate(() => endRunMarked(f.office, f.run, T0 + 9_000, "in-review"));
+      f.office.immediate(() => endRunMarked(f.office, f.run, T0 + 9_000, "parked"));
 
       const build = markerLine("phase", "build", T0);
-      const ended = markerLine("ended", "in-review", T0 + 9_000);
+      const ended = markerLine("ended", "parked", T0 + 9_000);
       const stored = storedOutput(f.office, f.run);
       expect(stored).toBe(`${build}building\n${forged}\n${ended}`);
       const endedFrom = bytes(stored) - bytes(ended);
@@ -196,7 +196,7 @@ describe("marker flags (DIPO-95)", () => {
         from: endedFrom,
         to: bytes(stored),
         kind: "ended",
-        value: "in-review",
+        value: "parked",
         at: new Date(T0 + 9_000).toISOString(),
       };
 
@@ -224,7 +224,7 @@ describe("storedMarker (DIPO-95)", () => {
   const times = [T0, T0 + 123, Date.parse("2026-01-02T03:04:05.000Z")];
   const values: Record<(typeof KNOWN_OUTPUT_MARKER_KINDS)[number], string[]> = {
     phase: [...KNOWN_PHASES],
-    ended: ["in-review", "stopped", "start-failed", "plan-limit", "by you"],
+    ended: ["done", "parked", "dropped", "by you"],
   };
 
   it("reads back every marker line markerLine writes, for every kind and value shape", () => {
