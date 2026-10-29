@@ -49,6 +49,7 @@ import { CODE_STAGE_PREFIX, filtersOffConfig } from "../../src/box/code";
 import { BASE_CHECKOUT_CONFIG } from "../../src/git/hardened";
 import type { GitSession } from "../../src/git/office";
 import {
+  BOX_DEFAULTS,
   BOX_IMAGE_ENV,
   boxImageTag,
   type BaseBox,
@@ -106,6 +107,7 @@ const CA =
   "-----BEGIN CERTIFICATE-----\nMIIBszCCAVmgAwIBAgIBATAKBggqhkjOPQQDAjA=\n-----END CERTIFICATE-----\n";
 const IMAGE: BoxImageDescription = {
   debian: "trixie",
+  debianSha256: BOX_DEFAULTS.debianSha256,
   toolchain: { node: "24.22.1" },
   nodeSha256: NODE_TARBALL_SHA256["24.22.1"]!,
   packages: [],

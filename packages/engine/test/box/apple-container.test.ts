@@ -761,6 +761,21 @@ describe("a build box's image (DIPO-281)", () => {
     expect((await rejection(port.pullImage("alpine"))).code).toBe("box.refused");
   });
 
+  it("pulls a base pinned by its digest as one argument (DIPO-367)", async () => {
+    const { port, fake } = boxes(() => ({}));
+    const pinned = `docker.io/library/debian:trixie-slim@sha256:${"f".repeat(64)}`;
+    await port.pullImage(pinned);
+    expect(fake.args()).toEqual([["image", "pull", "--progress", "none", pinned]]);
+    for (const reference of [
+      `docker.io/library/debian@sha256:${"f".repeat(64)}`,
+      `docker.io/library/debian:trixie-slim@sha256:${"F".repeat(64)}`,
+      `docker.io/library/debian:trixie-slim@sha256:${"f".repeat(63)}`,
+    ]) {
+      expect((await rejection(port.pullImage(reference))).code).toBe("box.refused");
+    }
+    expect(fake.args()).toHaveLength(1);
+  });
+
   it("runs only a build box's command with its capabilities", async () => {
     const { port, fake } = boxes(() => ({}));
     await port.exec(BUILD_BOX, ["/bin/sh", "/dipo-build/bootstrap.sh"], { fullPrivilege: true });

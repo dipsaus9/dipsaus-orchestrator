@@ -23,6 +23,7 @@ import {
   BUILD_PROXY_ENV,
   buildCleanupCommand,
   checkImageDescription,
+  debianBase,
   describeBox,
   NODE_TARBALL_SHA256,
   readBaseBox,
@@ -35,6 +36,7 @@ import { systemSpawn } from "../../src/platform/process";
 
 const IMAGE: BoxImageDescription = {
   debian: "trixie",
+  debianSha256: BOX_DEFAULTS.debianSha256,
   toolchain: { node: "24.22.1", bun: "1.4.2" },
   nodeSha256: NODE_TARBALL_SHA256["24.22.1"]!,
   packages: ["jq", "ripgrep"],
@@ -64,6 +66,7 @@ describe("the box description", () => {
     expect(describeBox(undefined, detected)).toEqual({
       image: {
         debian: BOX_DEFAULTS.debian,
+        debianSha256: BOX_DEFAULTS.debianSha256,
         toolchain: { node: "22.12.0", bun: "1.3.0", pnpm: BOX_DEFAULTS.toolchain.pnpm },
         // dipo pins no sum for 22.12.0: the build file refuses it unless the block gives one.
         nodeSha256: {},
@@ -88,6 +91,8 @@ describe("the box description", () => {
     ).toEqual({
       image: {
         debian: "bookworm",
+        // dipo pins no digest for bookworm: its base is the tag alone (DIPO-367).
+        debianSha256: null,
         toolchain: {
           node: "22.12.0",
           bun: "1.4.2",
@@ -145,6 +150,15 @@ describe("the box description", () => {
 
   it("refuses values that could break out of the build file", () => {
     refused(() => checkImageDescription({ ...IMAGE, debian: "trixie-slim\nRUN id" }));
+    for (const debianSha256 of [
+      `sha256:${ARM64_SUM}`,
+      ARM64_SUM.toUpperCase(),
+      ARM64_SUM.slice(1),
+      `${ARM64_SUM}\nRUN id`,
+      "",
+    ]) {
+      refused(() => checkImageDescription({ ...IMAGE, debianSha256 }));
+    }
     refused(() => checkImageDescription({ ...IMAGE, claudeCode: "latest" }));
     refused(() => checkImageDescription({ ...IMAGE, packages: ["jq; id"] }));
     refused(() => checkImageDescription({ ...IMAGE, toolchain: { node: "24" } }));
@@ -161,6 +175,32 @@ describe("the box description", () => {
   });
 });
 
+describe("the Debian base (DIPO-367)", () => {
+  it("is dipo's default release pinned by the digest dipo keeps in one place", () => {
+    expect(BOX_DEFAULTS.debianSha256).toMatch(/^[0-9a-f]{64}$/);
+    for (const section of [undefined, {}, { debian: BOX_DEFAULTS.debian }]) {
+      const { image } = describeBox(section, {});
+      expect(image.debian).toBe(BOX_DEFAULTS.debian);
+      expect(image.debianSha256).toBe(BOX_DEFAULTS.debianSha256);
+      expect(boxBuildScripts(image).base).toBe(
+        debianBase(BOX_DEFAULTS.debian, BOX_DEFAULTS.debianSha256),
+      );
+    }
+    expect(debianBase("trixie", ARM64_SUM)).toBe(
+      `docker.io/library/debian:trixie-slim@sha256:${ARM64_SUM}`,
+    );
+  });
+
+  it("is the tag alone for a release the office sets and dipo pins no digest for, and that still builds", () => {
+    const { image } = describeBox({ debian: "bookworm" }, {});
+    expect(image.debianSha256).toBeNull();
+    const scripts = boxBuildScripts(image);
+    expect(scripts.base).toBe("docker.io/library/debian:bookworm-slim");
+    expect(debianBase("bookworm", null)).toBe(scripts.base);
+    expect(boxImageTag(image)).not.toBe(boxImageTag(describeBox({}, {}).image));
+  });
+});
+
 describe("the build scripts (DIPO-281)", () => {
   const scripts = boxBuildScripts(IMAGE);
   const bootstrap = scripts.bootstrap.split("\n");
@@ -168,7 +208,9 @@ describe("the build scripts (DIPO-281)", () => {
   const build = scripts.build.split("\n");
 
   it("start from the Debian slim image of the release, and take the route's address from the environment", () => {
-    expect(scripts.base).toBe("docker.io/library/debian:trixie-slim");
+    expect(scripts.base).toBe(
+      `docker.io/library/debian:trixie-slim@sha256:${BOX_DEFAULTS.debianSha256}`,
+    );
     for (const lines of [bootstrap, system, build]) {
       expect(lines[0]).toBe("#!/bin/sh");
       expect(lines).toContain("set -eu");
@@ -324,6 +366,8 @@ describe("the image tag", () => {
     expect(boxImageTag({ ...IMAGE, toolchain: { ...IMAGE.toolchain } })).toBe(tag);
     const changed: BoxImageDescription[] = [
       { ...IMAGE, debian: "bookworm" },
+      { ...IMAGE, debianSha256: null },
+      { ...IMAGE, debianSha256: ARM64_SUM },
       { ...IMAGE, toolchain: { ...IMAGE.toolchain, node: "24.22.0" } },
       { ...IMAGE, toolchain: { ...IMAGE.toolchain, bun: "1.4.3" } },
       { ...IMAGE, toolchain: { node: "24.22.1" } },
@@ -467,6 +511,7 @@ box:
       expect(read.detected.pnpm).toBeUndefined();
       expect(read.description.image).toEqual({
         debian: BOX_DEFAULTS.debian,
+        debianSha256: BOX_DEFAULTS.debianSha256,
         toolchain: { node: BOX_DEFAULTS.toolchain.node, bun: "1.4.2" },
         nodeSha256: NODE_TARBALL_SHA256[BOX_DEFAULTS.toolchain.node]!,
         packages: ["jq"],

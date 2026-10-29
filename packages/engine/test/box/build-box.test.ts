@@ -23,6 +23,7 @@ import { ManualClock, withTempDir } from "@dipsaus-orchestrator/testkit";
 import { ensureBoxImage, type BoxImageDeps } from "../../src/box/build-box";
 import { NET_TOOLS_FILES, netToolsDir } from "../../src/box/firewall";
 import {
+  BOX_DEFAULTS,
   BUILD_BOOTSTRAP_SCRIPT,
   BUILD_DIR_IN_BOX,
   BUILD_PROXY_ENV,
@@ -48,6 +49,7 @@ const CA =
   "-----BEGIN CERTIFICATE-----\nMIIBszCCAVmgAwIBAgIBATAKBggqhkjOPQQDAjA=\n-----END CERTIFICATE-----\n";
 const IMAGE: BoxImageDescription = {
   debian: "trixie",
+  debianSha256: BOX_DEFAULTS.debianSha256,
   toolchain: { node: "24.22.1", bun: "1.4.2" },
   nodeSha256: NODE_TARBALL_SHA256["24.22.1"]!,
   packages: ["jq"],
@@ -112,7 +114,7 @@ describe("building the office image in a build box (DIPO-281)", () => {
       expect(result).toEqual({ tag: TAG, built: true, netTools: tools });
       expect(b.log).toEqual([
         `has image ${TAG.slice(0, 16)}`,
-        "pull docker.io/library/debian:trixie-slim",
+        `pull docker.io/library/debian:trixie-slim@sha256:${BOX_DEFAULTS.debianSha256}`,
         "network",
         `create ${BUILD}`,
         `start ${BUILD}`,

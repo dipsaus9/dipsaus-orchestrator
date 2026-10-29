@@ -6,10 +6,13 @@
 import { describe, expect, it } from "bun:test";
 
 import {
+  BOX_DEFAULTS,
   BUILD_BOOTSTRAP_SCRIPT,
   BUILD_STEPS_SCRIPT,
   BUILD_SYSTEM_SCRIPT,
   bootstrapLines,
+  boxBuildScripts,
+  describeBox,
 } from "../../src/box/image";
 import {
   ecosystemOf,
@@ -54,7 +57,11 @@ describe("the Safe-Chain image", () => {
   const build = plan.files[BUILD_STEPS_SCRIPT] ?? "";
 
   it("is built from Debian's slim image and the box network tools, as every box image is", () => {
-    expect(plan.base).toMatch(/^docker\.io\/library\/debian:[a-z]+-slim$/);
+    // The default release pinned by its digest (DIPO-367): the same base as a default office image.
+    expect(plan.base).toBe(
+      `docker.io/library/debian:${BOX_DEFAULTS.debian}-slim@sha256:${BOX_DEFAULTS.debianSha256}`,
+    );
+    expect(plan.base).toBe(boxBuildScripts(describeBox({}, {}).image).base);
     expect(plan.files[BUILD_BOOTSTRAP_SCRIPT]).toContain(bootstrapLines().join("\n"));
     expect(Object.keys(plan.files).toSorted()).toEqual(
       [
@@ -100,6 +107,13 @@ describe("the Safe-Chain image", () => {
       files: { ...plan.files, [SAFE_CHAIN_BUILD_FILES.start]: "#!/bin/sh\n" },
     };
     expect(safeChainImageTag(changed)).not.toBe(safeChainImageTag(plan));
+    // The base's digest is part of the tag (DIPO-367).
+    const moved = {
+      ...plan,
+      base: plan.base.replace(/@sha256:[0-9a-f]{64}$/, `@sha256:${"a".repeat(64)}`),
+    };
+    expect(moved.base).not.toBe(plan.base);
+    expect(safeChainImageTag(moved)).not.toBe(safeChainImageTag(plan));
   });
 });
 

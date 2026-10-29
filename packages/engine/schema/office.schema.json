@@ -925,7 +925,7 @@
           "type": "string",
           "minLength": 1,
           "pattern": "^[a-z0-9][a-z0-9.]*$",
-          "description": "The Debian release of the box image. dipo builds on its slim image, docker.io/library/debian:<release>-slim."
+          "description": "The Debian release of the box image. dipo builds on its slim image, docker.io/library/debian:<release>-slim, pinned by digest for trixie, dipo's default; another release is pulled by its tag alone."
         },
         "toolchain": {
           "type": "object",
