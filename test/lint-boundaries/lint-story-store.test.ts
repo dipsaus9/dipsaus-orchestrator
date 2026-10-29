@@ -2,8 +2,9 @@
 // `dipo/no-backlog-import` reports an import of `packages/engine/src/backlog` from any other engine
 // file, in every form (static, type-only, re-export, `export *`, `import()`, `require`,
 // `import x = require(...)` and `typeof import(...)`), by a relative path at any depth or by a deep
-// package path. The Backlog.md implementation itself, the composition root (the engine entry and
-// its feature list), tests, and a module that is only named `backlog` may import it; no other
+// package path. The Backlog.md implementation itself, the composition root (the engine entry, its
+// feature list and the wiring files of createEngine), tests, and a module that is only named
+// `backlog` may import it; no other
 // engine file, also none of those that reached the planning lane or the task-file layout before
 // DIPO-356 moved them behind the store (AC #2).
 
@@ -47,6 +48,12 @@ const violations: Case[] = [
     target: `${ENGINE}/story-store/leak.ts`,
     rules: Array(FORMS).fill(RULE),
   },
+  // In create/, only the wiring files of createEngine are the composition root (DIPO-318).
+  {
+    fixture: "backlog-import.ts",
+    target: `${ENGINE}/create/lifecycle.ts`,
+    rules: Array(FORMS).fill(RULE),
+  },
   ...FORMER_IMPORTERS.map((file) => ({
     fixture: "backlog-import.ts",
     target: `${ENGINE}/${file}`,
@@ -70,6 +77,7 @@ const allowed: Omit<Case, "rules">[] = [
   { fixture: "backlog-import-nested.ts", target: `${ENGINE}/backlog/lane/inside-nested.ts` },
   { fixture: "entry-imports-backlog.ts", target: `${ENGINE}/index.ts` },
   { fixture: "entry-imports-backlog.ts", target: `${ENGINE}/features.ts` },
+  { fixture: "backlog-import.ts", target: `${ENGINE}/create/core.ts` },
   { fixture: "story-store-import.ts", target: `${ENGINE}/merge/merger.ts` },
   { fixture: "backlog-import.ts", target: "packages/engine/test/run/uses-backlog.test.ts" },
 ];

@@ -25,6 +25,12 @@ type Case = { fixture: string; target: string; rules: string[] };
 
 const violations: Case[] = [
   { fixture: "engine-imports-claude-cli.ts", target: `${ENGINE}/run/leak.ts`, rules: [CLAUDE_CLI] },
+  // In create/, only the wiring files of createEngine import the adapter (DIPO-318).
+  {
+    fixture: "engine-imports-claude-cli.ts",
+    target: `${ENGINE}/create/surface.ts`,
+    rules: [CLAUDE_CLI],
+  },
   {
     fixture: "engine-imports-claude-cli.ts",
     target: `${ENGINE}/worktree/leak.ts`,
@@ -64,6 +70,7 @@ const violations: Case[] = [
 const allowed: Omit<Case, "rules">[] = [
   { fixture: "claude-cli-internal.ts", target: `${ENGINE}/workers/claude-cli/internal.ts` },
   { fixture: "entry-exports-claude-cli.ts", target: `${ENGINE}/index.ts` },
+  { fixture: "engine-imports-claude-cli.ts", target: `${ENGINE}/create/runs.ts` },
   { fixture: "engine-imports-claude-cli.ts", target: "packages/engine/test/run/uses-adapter.ts" },
   { fixture: "engine-imports-bun.ts", target: `${ENGINE}/platform/bun.ts` },
   { fixture: "engine-imports-sqlite.ts", target: `${ENGINE}/platform/sqlite.ts` },

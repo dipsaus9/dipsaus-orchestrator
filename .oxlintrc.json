@@ -660,7 +660,8 @@
         "packages/engine/src/workers/claude-cli/**",
         "packages/engine/src/index.ts",
         "packages/engine/src/index.test.ts",
-        "packages/engine/src/create/**"
+        "packages/engine/src/create/runs.ts",
+        "packages/engine/src/create/stories.ts"
       ],
       "rules": {
         "dipo/no-claude-cli-import": "off"
@@ -669,7 +670,8 @@
     // The StoryStore seam (0010): the engine reads and writes stories only through
     // packages/engine/src/story-store. Only the Backlog.md implementation in packages/engine/src/backlog
     // (the CLI runner, the story lane and the planning lane) and the composition root (the engine
-    // entry, its feature list and createEngine in packages/engine/src/create) import backlog/.
+    // entry, its feature list and the wiring files of createEngine in packages/engine/src/create)
+    // import backlog/.
     {
       "files": ["packages/engine/src/**"],
       "rules": {
@@ -681,7 +683,11 @@
         "packages/engine/src/backlog/**",
         "packages/engine/src/index.ts",
         "packages/engine/src/features.ts",
-        "packages/engine/src/create/**"
+        "packages/engine/src/create/commands.ts",
+        "packages/engine/src/create/core.ts",
+        "packages/engine/src/create/partners.ts",
+        "packages/engine/src/create/runs.ts",
+        "packages/engine/src/create/stories.ts"
       ],
       "rules": {
         "dipo/no-backlog-import": "off"

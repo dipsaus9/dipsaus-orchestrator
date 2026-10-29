@@ -629,4 +629,4 @@ export {
 } from "./create/drain";
 export { MIGRATIONS_STEP, type RecoveryContext, type RecoveryStep } from "./create/recovery";
 export { controlFeature, emitDaemonStates, STOP_REASON, type ControlDeps } from "./create/control";
-export { containerOnPath } from "./create/runs";
+export { containerOnPath } from "./run/box-runs";

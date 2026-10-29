@@ -12,7 +12,8 @@ import type { StoredRun } from "../../src/run/records";
 import type { ParseState, WorkerSpec } from "../../src/workers/types";
 import { FakeProcess, ManualClock, SequentialIds } from "@dipsaus-orchestrator/testkit";
 
-import { backlogCliFor, startedSessionState, type StartedSession } from "../../src/create/runs";
+import { backlogCliFor } from "../../src/create/runs";
+import { startedSessionState, type StartedSession } from "../../src/run/started-session";
 
 const BACKLOG = "/opt/tools/bin/backlog";
 
