@@ -6,6 +6,7 @@
 // links.
 
 import { describe, expect, it } from "bun:test";
+import { join } from "node:path";
 
 import * as clientFiles from "../../packages/client/src/node/lifecycle/files";
 import * as clientProcess from "../../packages/client/src/node/lifecycle/process";
@@ -13,6 +14,7 @@ import * as clientSpawn from "../../packages/client/src/node/lifecycle/spawn";
 import { logsDir } from "../../packages/client/src/node/runtime";
 import * as engineLock from "../../packages/engine/src/platform/lock";
 import { resolveSoftwareDirs } from "../../packages/engine/src/platform/paths";
+import { withTempDir } from "../../packages/testkit/src/temp";
 import * as engineProcess from "../../packages/engine/src/platform/process";
 
 const PID_RECORDS = [
@@ -189,13 +191,16 @@ describe("client lifecycle and engine agree", () => {
     expect(clientSpawn.daemonEnv(env)).toEqual(engineProcess.detachedEnv(env));
   });
 
-  it("find the same logs directory", () => {
-    for (const [env, home] of [
-      [{ DIPO_HOME: "/tmp/x/state" }, "/Users/me"],
-      [{}, "/Users/me"],
-      [{}, "/home/me"],
-    ] as const) {
-      expect(logsDir(env, home)).toBe(resolveSoftwareDirs({ env, home }).logs);
-    }
+  it("find the same logs directory", async () => {
+    // The DIPO_HOME lives in a fresh temp folder, so no fixed path outside DIPO_TMP is touched (0017).
+    await withTempDir((dir) => {
+      for (const [env, home] of [
+        [{ DIPO_HOME: join(dir, "state") }, "/Users/me"],
+        [{}, "/Users/me"],
+        [{}, "/home/me"],
+      ] as const) {
+        expect(logsDir(env, home)).toBe(resolveSoftwareDirs({ env, home }).logs);
+      }
+    });
   });
 });
