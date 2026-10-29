@@ -4,7 +4,7 @@ title: Build the engine in one createEngine factory and shrink its public surfac
 status: In Progress
 assignee: []
 created_date: '2026-10-22 21:00'
-updated_date: '2026-10-29 16:21'
+updated_date: '2026-10-29 16:55'
 labels:
   - 'tier:L'
   - 'slice:prune'
@@ -69,7 +69,7 @@ test_plan:
 - [x] #4 An engine test starts `createEngine` with fakes, opens an office, runs a command and a read, and drains, without the daemon package.
 - [ ] #5 The `dipo` CLI loads the TUI and daemon packages with a dynamic import, only in the subcommands that use them. A test shows that `dipo --version` and `dipo watch` load neither.
 - [x] #6 A test records the order of the load and recovery steps and shows it is unchanged. Every existing test passes.
-- [ ] #7 A `dipo/engine-layers` rule in `tools/lint/oxlint-plugin.js`, on in `.oxlintrc.json`, refuses a value import from a higher engine layer into a lower one. The layer of each sub-directory is listed in one place, a fixture in `test/lint-boundaries/` proves the rule fires, and no back-edge left after the prune needs an exception
+- [ ] #7 A `dipo/engine-layers` rule in `tools/lint/oxlint-plugin.js`, on in `.oxlintrc.json`, refuses a value import from a higher engine layer into a lower one in coarse layers (base directories, one domain layer holding the measured cycle, then create/), listed in one place, with a fixture in `test/lint-boundaries/` that proves it fires; the fine layers and the moves that remove the back-edges are DIPO-381
 - [ ] #8 Claude's tool names and model aliases appear only in `workers/claude-cli/`, and a lint rule or test shows it
 - [ ] #9 The package bans for tui, client, engine and daemon also catch `import()` and `require`, and contract purity is checked over every contract source file, each proven by a fixture
 - [ ] #10 `ScriptedWorker` and the other fakes move into testkit or test folders, the engine entry no longer exports them, and the binary build passes
@@ -81,4 +81,6 @@ test_plan:
 Part 1 in PR #435 (2026-10-29): createEngine builds every service in one written order (create/create-engine.ts, create/steps.ts); real cycles are closed in explicit connect steps through Partner, which throws before it is connected; lifecycle, recovery, drain and control moved into the engine; serve() is 50 lines. Criteria 1, 4 and 6 met. ADR 0005 'One factory' rewritten with the maintainer's approval: the daemon passes the shared clock, spawn and the start-time probe. Part 2: criterion 2's import restriction (the daemon still imports about 30 helpers from the engine entry), criterion 3 (shrink the engine entry), worker-host, restore, login and test-shell; deps fields for worker hosts, test-box forwarders and the model-proxy listener. Part 3: criteria 5 and 7 to 10.
 
 Part 2 in PR #436 (2026-10-29): the engine entry exports only createEngine, the surface and the port types (pinned by test/entries.test.ts); the daemon imports only that and @dipsaus-orchestrator/engine/platform, enforced by dipo/daemon-engine-imports (12 import forms, relative paths included); worker hosts, test-box forwarders and the model-proxy listener are deps; daemon socket tests run on a FakeSurface and the stored-state cases moved to engine tests on createEngine. Criteria 2 and 3 met. ADR 0004 and 0005 edits approved by the maintainer. Part 3: criteria 5 and 7 to 10; its deep-import rule must cover tools/recordings and test/office-rescan, which import engine modules by relative path.
+
+Criterion 7 narrowed on 2026-10-29 to a coarse layer rule: the engine directories form one 20-directory import cycle with 31 back-edges, so the fine layer order is design work, split into spike DIPO-381.
 <!-- SECTION:NOTES:END -->
