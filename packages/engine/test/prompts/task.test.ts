@@ -19,8 +19,7 @@ import { BUDGETS_M, expectGolden, fixturePack, fixtureStory } from "./helpers";
 
 const HANDOFF: HandoffFacts = {
   commits: "",
-  diffstat: " src/greet.ts | 4 ++--\n 1 file changed, 2 insertions(+), 2 deletions(-)",
-  untracked: ["src/greet.test.ts"],
+  box: true,
   criteria: [
     { n: 2, met: false, evidence: "not started" },
     { n: 1, met: true, evidence: "greet.test.ts passes" },
@@ -152,7 +151,7 @@ describe("task message", () => {
     expect(text).toContain("Criteria status from the last report:\n#1 met\n#2 not met");
     expect(text).toContain("Last verify result:\nfailed at the test step with exit code 1");
     expect(text).toContain("Commits on this branch:\nnone");
-    expect(text).toContain("Untracked files:\nsrc/greet.test.ts");
+    expect(text).toContain("Changes not delivered yet:\nin your box");
     expect(text).toContain("Notes from the previous session:\nThe CLI entry still lacks");
   });
 

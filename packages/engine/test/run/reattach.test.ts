@@ -1667,8 +1667,6 @@ const storyOf = () => {
 };
 const handoff = async () => ({
   commits: "",
-  diffstat: "",
-  untracked: [],
   criteria: null,
   verify: null,
   feedback: [],
@@ -2212,7 +2210,7 @@ describe("the handoff of a new session: notes, open feedback and the context pac
     // The branch's commits, then its tip for the context pack: nothing of a worktree (DIPO-349).
     expect(asked.map((args) => args[0])).toEqual(["log", "rev-parse"]);
     expect(sentText()).toContain("Commits on this branch:\nabc1234 the first part\n");
-    expect(sentText()).toContain(`Uncommitted changes:\n${BOX_CHANGES}\n`);
+    expect(sentText()).toContain(`Changes not delivered yet:\n${BOX_CHANGES}\n`);
     expect(sentText()).toContain(`Last verify result:\n${BOX_VERIFY}\n`);
   });
 });

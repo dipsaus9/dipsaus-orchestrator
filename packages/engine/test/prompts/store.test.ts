@@ -188,8 +188,6 @@ describe("handoff block", () => {
             openFeedback: [feedback],
           });
           expect(facts.commits).toMatch(/^[0-9a-f]{7,} Add the greet function$/);
-          expect(facts.diffstat).toBe("");
-          expect(facts.untracked).toEqual([]);
           expect(facts.notes?.length).toBeLessThanOrEqual(WORKER_NOTES_MAX);
 
           const block = renderHandoff(facts);
@@ -197,7 +195,7 @@ describe("handoff block", () => {
           expect(block).toEndWith("\n</handoff>");
           expect(block).toContain("Add the greet function");
           expect(block).not.toContain("src/new.ts");
-          expect(block).toContain("Untracked files:\nnone\n");
+          expect(block).toContain("Changes not delivered yet:\nnone\n");
           expect(block).toContain("Criteria status from the last report:\n#1 met\n");
           expect(block).toContain("Last verify result:\nfailed at the test step with exit code 1");
           expect(block).toContain("Open feedback:\n- Verify failed at the test step.\n");
@@ -217,8 +215,6 @@ describe("handoff block", () => {
   it("says none for a fresh branch with nothing to hand off", () => {
     const block = renderHandoff({
       commits: "",
-      diffstat: "",
-      untracked: [],
       criteria: null,
       verify: null,
       feedback: [],
@@ -230,9 +226,7 @@ describe("handoff block", () => {
         "An earlier session worked on this story. This is the state it left behind.",
         "Commits on this branch:",
         "none",
-        "Uncommitted changes:",
-        "none",
-        "Untracked files:",
+        "Changes not delivered yet:",
         "none",
         "Criteria status from the last report:",
         "none",
@@ -249,11 +243,8 @@ describe("handoff block", () => {
 
   it("cuts long git lists with a marker and stays within the budget", () => {
     const commits = Array.from({ length: 300 }, (_, i) => `abc${i} Commit ${i}`).join("\n");
-    const untracked = Array.from({ length: 300 }, (_, i) => `src/file-${i}.ts`);
     const block = renderHandoff({
       commits,
-      diffstat: commits,
-      untracked,
       criteria: null,
       verify: { passed: true },
       feedback: [],
@@ -261,7 +252,6 @@ describe("handoff block", () => {
     });
     expect(block.length).toBeLessThanOrEqual(6_000);
     expect(block).toContain("run git log for the rest.]");
-    expect(block).toContain("run git status for the rest.]");
     expect(block).toContain("Last verify result:\npassed");
   });
 });

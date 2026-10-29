@@ -37,17 +37,13 @@ export type LastVerify =
 export interface HandoffFacts {
   /** `git log --oneline <base>..<branch>`, oldest last as git prints it. */
   readonly commits: string;
-  /** Uncommitted changes as `git diff --stat` shows them; empty, since they are in the box. */
-  readonly diffstat: string;
-  /** Untracked, not ignored, repo-relative paths, sorted; empty, since they are in the box. */
-  readonly untracked: readonly string[];
   /** Criteria status from the last worker report; null when there is none. */
   readonly criteria: readonly WorkerReportCriterion[] | null;
   readonly verify: LastVerify | null;
   readonly feedback: readonly HandoffFeedback[];
   /** The previous worker's notes; null when there are none. */
   readonly notes: string | null;
-  /** A box run: the changes are in the kept box, not in the Mac worktree (`BOX_CHANGES`). */
+  /** A box run: its undelivered changes are in the kept box (`BOX_CHANGES`). */
   readonly box?: boolean;
   /** The run's caps and usage: the block ends with the budget line (DIPO-256). */
   readonly budget?: BudgetFacts;
@@ -87,8 +83,6 @@ export async function gatherHandoff(options: GatherHandoffOptions): Promise<Hand
   const notes = latestWorkerNotes(options.office, options.branch);
   return {
     commits: commits.trimEnd(),
-    diffstat: "",
-    untracked: [],
     criteria: options.lastReport?.criteria ?? null,
     verify: options.lastVerify,
     feedback: options.openFeedback,
@@ -151,27 +145,23 @@ const HANDOFF_FRAME = 600;
 const HANDOFF_LIST_MIN = 200;
 
 /**
- * The `handoff` section. The notes are capped at 1,500 characters; the four lists (commits,
- * changes, untracked files, open feedback) share what is left of `budget` after them and the
- * frame, each cut at its head with a marker that says how to see the rest, so the block stays
- * within `budget` and its closing tag is never cut.
+ * The `handoff` section. The notes are capped at 1,500 characters; the two lists (commits and
+ * open feedback) share what is left of `budget` after them and the frame, each cut at its head
+ * with a marker that says how to see the rest, so the block stays within `budget` and its closing
+ * tag is never cut. A story has no worktree (0010), so its undelivered changes are only named as
+ * in the box.
  */
 export function renderHandoff(facts: HandoffFacts, budget = HANDOFF_BUDGET_DEFAULT): string {
   const listMax = Math.max(
     HANDOFF_LIST_MIN,
-    Math.floor((budget - WORKER_NOTES_MAX - HANDOFF_FRAME) / 4),
+    Math.floor((budget - WORKER_NOTES_MAX - HANDOFF_FRAME) / 2),
   );
   const list = (text: string, label: string, hint: string) =>
     text === "" ? NONE : cutHead(text, listMax, listMarker(label, hint)).text;
   const box = facts.box === true;
   return renderTemplate(TASK_TEMPLATES.handoff, {
     commits: list(facts.commits, "commit list", "run git log for the rest."),
-    diffstat: box
-      ? BOX_CHANGES
-      : list(facts.diffstat, "change list", "run git diff --stat for the rest."),
-    untracked: box
-      ? BOX_CHANGES
-      : list(facts.untracked.join("\n"), "untracked list", "run git status for the rest."),
+    undelivered: box ? BOX_CHANGES : NONE,
     criteria: criteriaLines(facts.criteria),
     verify: verifyLine(facts.verify, box),
     feedback: list(feedbackLines(facts.feedback), "feedback list", "the rest is left out."),
