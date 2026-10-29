@@ -26,8 +26,6 @@ export interface UpgradeWatcherOptions {
   readonly readStamp: ReadExecutableStamp;
   /** `daemon.autoRestartOnUpgrade` from `<state>/config.yaml`. */
   readonly autoRestart: boolean;
-  /** True while an engine step (setup, install, verify, commit) runs; the restart waits for it. */
-  readonly busy: () => boolean;
   /** Starts the drain that ends in starting the new binary; called at most once. */
   readonly restart: () => void;
   readonly intervalMs?: number;
@@ -40,6 +38,7 @@ export class UpgradeWatcher {
   #pending = false;
   #restarting = false;
   #stopped = false;
+  #busy: () => boolean = () => false;
 
   constructor(options: UpgradeWatcherOptions) {
     this.#options = options;
@@ -61,7 +60,12 @@ export class UpgradeWatcher {
     return this.#restarting;
   }
 
-  start(): void {
+  /**
+   * Checks every interval from now on. `busy` is true while an engine step (setup, install, verify,
+   * commit) runs; an automatic restart waits for it.
+   */
+  start(busy: () => boolean): void {
+    this.#busy = busy;
     if (this.#initial === null || this.#stopped) return;
     this.#arm();
   }
@@ -87,7 +91,7 @@ export class UpgradeWatcher {
       });
     }
     if (!this.#options.autoRestart) return;
-    if (this.#options.busy()) {
+    if (this.#busy()) {
       logger.info("upgrade waits for the running engine steps to finish");
       return;
     }

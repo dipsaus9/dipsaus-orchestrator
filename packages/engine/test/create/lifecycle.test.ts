@@ -6,7 +6,7 @@
 import { describe, expect, it } from "bun:test";
 
 import { DaemonState } from "@dipsaus-orchestrator/contract";
-import { CommandError } from "@dipsaus-orchestrator/engine";
+import { CommandError } from "../../src/commands/errors";
 
 import {
   CRASH_LOOP_REASON,
@@ -14,7 +14,7 @@ import {
   DaemonLifecycle,
   TransitionError,
   type StateChange,
-} from "../../src/lifecycle";
+} from "../../src/create/lifecycle";
 
 const STATES = DaemonState.options;
 

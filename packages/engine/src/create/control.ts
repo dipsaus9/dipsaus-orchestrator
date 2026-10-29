@@ -13,7 +13,9 @@ import {
   type OfficeId,
   type ToolPaths,
 } from "@dipsaus-orchestrator/contract";
-import type { FeatureModule, Logger, SoftwareStream } from "@dipsaus-orchestrator/engine";
+import type { FeatureModule } from "../commands/registry";
+import type { Logger } from "../log/logger";
+import type { SoftwareStream } from "../software-stream/stream";
 
 import type { DrainRequest } from "./drain";
 import type { DaemonLifecycle } from "./lifecycle";

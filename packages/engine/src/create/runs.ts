@@ -1,4 +1,4 @@
-// The worker start of claimed runs in the daemon (DIPO-74): the run launcher with the Claude CLI
+// The worker start of claimed runs in the engine (DIPO-74): the run launcher with the Claude CLI
 // worker port, DIPO-39's setup, detached worker hosts and ingestion, all with the tools this
 // daemon resolved on its PATH at start. `claude` and `backlog` are absolute paths, never looked up
 // again; a missing `claude` refuses each launch with a notice instead of stopping the daemon.
@@ -31,116 +31,92 @@ import type {
   ToolPaths,
 } from "@dipsaus-orchestrator/contract";
 import { Lifecycle } from "@dipsaus-orchestrator/contract";
+import type { BacklogCli } from "../backlog/runner";
+import { AppleContainerBoxes } from "../box/apple-container";
+import { officePackageCacheRoot, PACKAGE_CACHE_DIR } from "../box/cache";
+import { BoxCollisions, type SyncOutcome } from "../box/collisions";
+import type { DoorPart } from "../box/door";
+import { BOX_NET_TOOLS_DIR } from "../box/firewall";
+import { startForwarder, systemReach } from "../box/forwarder";
+import { readBaseBox } from "../box/image";
+import { boxEndedOf, boxRunState, boxInstallInput, boxVerifyInput } from "../box/lifetime";
+import { startModelProxy } from "../box/model-proxy";
 import {
-  type AdapterHolds,
-  type BoxEnded,
-  type BoxPassOptions,
-  boxEndedOf,
-  boxRunState,
-  findClaim,
-  AppleContainerBoxes,
-  appendEntries,
-  BOX_INDEX_DIR,
-  BOX_NET_TOOLS_DIR,
-  baseStoryFacts,
-  BoxCollisions,
-  boxInstallInput,
-  boxVerifyInput,
-  inReviewRunIds,
-  markBoxCopied,
-  pendingBoxCopy,
-  type MergeGatesDeps,
-  startForwarder,
-  type StoryTestsDeps,
-  systemReach,
-  TestBoxes,
-  type StoryMergeDeps,
-  StoryConflicts,
-  type UnparkWriter,
-  type BoxNetwork,
-  type BoxPort,
   BoxParts,
-  type BoxPartsDeps,
-  BoxWorkers,
-  type BoxPackageCacheDeps,
-  type RouteBoxIds,
-  type DoorPart,
-  boxName,
-  CLAUDE_CLI_ADAPTER_ID,
-  ensurePrivateDir,
-  findRun,
-  officePackageCacheRoot,
-  PACKAGE_CACHE_DIR,
-  readBaseBox,
-  startBoxWebRoute,
-  startModelProxy,
-  sweepOldReviewFolders,
   partStageRoot,
   sweepPartStages,
-  sweepTokenCheckLeftovers,
-  systemIsExecutable,
-  systemListenHttp,
-  workerHostsOf,
-  type BacklogCli,
-  type StoryStore,
-  capsOf,
-  claudeWorkerPort,
-  currentProfile,
-  gitParkWriter,
-  gitUnparkWriter,
-  guardedParkWriter,
-  guardedUnparkWriter,
-  type AutoMergeGuard,
-  type ParkWriter,
-  gitStoryOps,
-  hostSocketSteering,
-  type EngineGit,
-  type CiHeadState,
-  type Logger,
-  OfficeIngest,
-  type OfficeHandle,
-  type OfficeManager,
-  type ParseState,
-  type ScanSessionRunner,
-  PermissionAsks,
-  type Places,
-  type Presence,
-  type StartsPaused,
-  type Resumption,
-  type RunBase,
-  RunControl,
-  RunLauncher,
-  composeRuns,
-  RunOutcomes,
-  RunTempDirs,
-  RunReattacher,
-  runCaps,
-  runLaunchPaths,
-  runWorkerSpec,
-  type IngestAdapter,
+  type BoxPartsDeps,
   type PartRun,
-  type SyncOutcome,
-  type BranchPush,
-  recordBranchPush,
-  type StoredRun,
-  selfCommand,
-  type HoldResumer,
-  type MergeReentry,
-  type TierCaps,
-  type WorkerPort,
-  type StateDatabase,
-  type StoryClaims,
-  type StoryIndex,
-  systemHostStarter,
-  signalProcess,
-  startTierOf,
-  systemProcessProbe,
-  storyHoldsWork,
-  systemSpawn,
-  type currentPlatform,
-  VerifyCommit,
-  Watchdog,
-} from "@dipsaus-orchestrator/engine";
+} from "../box/parts";
+import { boxName, type BoxNetwork, type BoxPort } from "../box/port";
+import { startBoxWebRoute } from "../box/safe-chain-box";
+import { TestBoxes } from "../box/test-box";
+import { sweepTokenCheckLeftovers } from "../box/token-check";
+import {
+  BOX_INDEX_DIR,
+  BoxWorkers,
+  type BoxEnded,
+  type BoxPassOptions,
+  type BoxPackageCacheDeps,
+  type RouteBoxIds,
+} from "../box/workers";
+import { appendEntries } from "../changelog/log";
+import type { StateDatabase } from "../db/database";
+import type { OfficeHandle } from "../db/office";
+import type { EngineGit } from "../git/feature";
+import { PermissionAsks } from "../hooks/permissions";
+import type { IngestAdapter } from "../ingest/ingestor";
+import type { Logger } from "../log/logger";
+import type { MergeGatesDeps } from "../merge/commands";
+import { guardedParkWriter, guardedUnparkWriter, type AutoMergeGuard } from "../merge/guard";
+import type { StoryMergeDeps } from "../merge/stories";
+import type { OfficeManager } from "../office/manager";
+import { systemListenHttp } from "../platform/box-host";
+import { ensurePrivateDir } from "../platform/paths";
+import { selfCommand, signalProcess, systemSpawn, type ProcessProbe } from "../platform/process";
+import { systemIsExecutable } from "../platform/tools";
+import { runCaps } from "../run/caps";
+import { composeRuns, type ComposedRuns, type RunPorts } from "../run/compose";
+import type { RunSteering } from "../run/control";
+import { Partner } from "../wiring/partner";
+import type { Caps } from "../workers/types";
+import { inReviewRunIds, markBoxCopied, pendingBoxCopy, StoryConflicts } from "../run/conflicts";
+import { RunControl } from "../run/control";
+import { hostSocketSteering, OfficeIngest, systemHostStarter } from "../run/hosts";
+import { capsOf, RunLauncher, runLaunchPaths, runWorkerSpec, type TierCaps } from "../run/launch";
+import type { Presence } from "../run/live-question";
+import { storyHoldsWork } from "../run/outcome-types";
+import { RunOutcomes } from "../run/outcomes";
+import { gitParkWriter, gitUnparkWriter, type UnparkWriter, type ParkWriter } from "../run/park";
+import type { MergeReentry } from "../run/park-resume";
+import type { Places } from "../run/places";
+import { RunReattacher } from "../run/reattach";
+import { findRun, type StoredRun } from "../run/records";
+import { baseStoryFacts, startTierOf } from "../run/resume";
+import type { Resumption } from "../run/resumption";
+import { sweepOldReviewFolders } from "../run/review-launch";
+import type { StartsPaused } from "../run/starts-paused";
+import { gitStoryOps } from "../run/story-git";
+import { RunTempDirs } from "../run/temp-dirs";
+import type { StoryTestsDeps } from "../run/tests";
+import { VerifyCommit } from "../run/verify-commit";
+import { Watchdog } from "../run/watchdog";
+import type { HoldResumer } from "../run/work-resume";
+import type { RunBase } from "../run/work-run";
+import { workerHostsOf } from "../runs/worker-hosts";
+import type { ScanSessionRunner } from "../scan/fallback";
+import { currentProfile } from "../scan/store";
+import type { StoryIndex } from "../stories/feature";
+import type { CiHeadState } from "../story-pr/prs";
+import { recordBranchPush, type BranchPush } from "../story-pr/records";
+import type { StoryStore } from "../story-store/store";
+import { claudeWorkerPort } from "../workers/claude-cli/adapter";
+import { CLAUDE_CLI_ADAPTER_ID } from "../workers/claude-cli/plan";
+import type { AdapterHolds } from "../workers/hold";
+import type { WorkerPort } from "../workers/port";
+import type { ParseState } from "../workers/types";
+import type { StoryClaims } from "../worktree/feature";
+import { findClaim } from "../worktree/records";
 
 /**
  * The Backlog CLI at the absolute path the daemon resolved, else `backlog` on `PATH` (AC #8). The
@@ -155,16 +131,22 @@ export function backlogCliFor(tools: ToolPaths, spawn: Spawn = systemSpawn): Bac
  * A re-attached session's initial state, built with the model and effort its run started with, not
  * the office tier in force (DIPO-207).
  */
+export interface StartedSession {
+  readonly handle: OfficeHandle;
+  readonly run: StoredRun;
+  readonly agent: string;
+  /** The office's tier caps in force now. */
+  readonly inForce: TierCaps;
+  readonly paths: Parameters<typeof runWorkerSpec>[2];
+  readonly resume: boolean;
+  readonly previous?: ParseState;
+}
+
 export function startedSessionState(
   worker: Pick<WorkerPort, "reportSchema" | "initialState">,
-  handle: OfficeHandle,
-  run: StoredRun,
-  agent: string,
-  inForce: TierCaps,
-  paths: Parameters<typeof runWorkerSpec>[2],
-  resume: boolean,
-  previous?: ParseState,
+  session: StartedSession,
 ): ParseState {
+  const { handle, run, agent, inForce, paths, resume, previous } = session;
   const tier = startTierOf(handle, run, inForce);
   const spec = runWorkerSpec(worker, { runId: run.runId, agent, caps: tier }, paths, "", {
     id: "",
@@ -173,9 +155,12 @@ export function startedSessionState(
   return worker.initialState(spec, previous);
 }
 
-export interface DaemonRunsOptions {
+export interface RunsOptions {
   readonly tools: ToolPaths;
-  readonly platform: ReturnType<typeof currentPlatform>;
+  /** Reads a process's start time: whether a worker host still runs (DIPO-57). */
+  readonly probe: ProcessProbe;
+  /** Starts the processes of the runs: boxes, the Keychain, the worker. */
+  readonly spawn: Spawn;
   readonly clock: Clock;
   /** Ids of the agents a run's next session makes (DIPO-51). */
   readonly ids: IdSource;
@@ -237,7 +222,7 @@ export interface DaemonRunsOptions {
   readonly workerPort?: (port: WorkerPort) => WorkerPort;
 }
 
-export interface DaemonRuns {
+export interface EngineRuns {
   readonly launcher: RunLauncher;
   readonly ingest: OfficeIngest;
   /** Caps, report parks and `story.park` of a story with a run (DIPO-50). */
@@ -305,13 +290,13 @@ export interface DaemonRuns {
    * recorded and goes to the worker as one fix round, a maintainer reject as another, and the
    * story's facts on the base are read as the review loop reads them.
    */
-  readonly merge: DaemonMergePorts;
+  readonly merge: RunMergePorts;
   /** The scan fallback's `session` runs (DIPO-310), which `office.infer` starts. */
   readonly sessions: ScanSessionRunner;
 }
 
 /** What the auto-merge and the merge gates use of the run services (0002). */
-export interface DaemonMergePorts {
+export interface RunMergePorts {
   readonly conflict: NonNullable<StoryMergeDeps["conflict"]>;
   readonly reject: NonNullable<MergeGatesDeps["reject"]>;
   /** A failed test's note to the same builder (DIPO-309). */
@@ -346,7 +331,7 @@ function hostExited(host: ReturnType<typeof workerHostsOf>[number]): boolean {
  * start, null when no loaded office knows the run.
  */
 export function boxRunEnded(
-  offices: Pick<DaemonRunsOptions["offices"], "loadedOffices" | "get">,
+  offices: Pick<RunsOptions["offices"], "loadedOffices" | "get">,
   runId: string,
   read: {
     readonly run: (
@@ -449,7 +434,7 @@ export function boxPackageCache(stateDir: string): BoxPackageCacheDeps {
  * Records a push of a box run's story branch on its live claim in the run's office (DIPO-315):
  * every story-branch push dipo makes sets `claims.pushed_at` once it reaches the remote.
  */
-function claimPushRecorder(options: DaemonRunsOptions): (run: PartRun, push: BranchPush) => void {
+function claimPushRecorder(options: RunsOptions): (run: PartRun, push: BranchPush) => void {
   return (run, push) => {
     const handle = options.offices.get(run.office);
     if (handle === undefined) return;
@@ -458,46 +443,57 @@ function claimPushRecorder(options: DaemonRunsOptions): (run: PartRun, push: Bra
 }
 
 /**
- * The box workers of the daemon (DIPO-271) and the delivery of their parts (DIPO-273), or null
- * without a box backend. `parts` gives the run facts and run control the delivery needs.
+ * The run services that call a service built after them (DIPO-318), connected once in
+ * `connectRunsPartners`; a call before that throws.
  */
-function daemonBoxWorkers(
-  options: DaemonRunsOptions,
-  tmpRoot: string,
-  parts: Pick<BoxPartsDeps, "run" | "live" | "park" | "notice" | "behind">,
-  afterPart: () => void = () => {},
-): {
+interface RunsPartners {
+  readonly control: Partner<RunControl>;
+  readonly collisions: Partner<BoxCollisions | null>;
+  readonly workers: Partner<BoxWorkers>;
+}
+
+/** The box workers, the delivery of their parts and the backend, or null without a backend. */
+interface BoxedRuns {
   readonly workers: BoxWorkers;
   readonly parts: BoxParts;
   readonly boxes: BoxPort;
-} | null {
-  const { clock, env, home, uid } = options;
-  let boxes = options.boxes;
-  if (boxes === undefined) {
-    const cli = containerOnPath(env["PATH"]);
-    boxes =
-      cli === undefined
-        ? null
-        : new AppleContainerBoxes({
-            spawn: systemSpawn,
-            clock,
-            cli,
-            // The `container` client's own environment; a box never inherits it.
-            env: { PATH: env["PATH"] ?? "/usr/bin:/bin", HOME: home },
-            // A box mounts only a package cache under dipo's own folder of caches (DIPO-295).
-            packageCacheRoot: join(options.stateDir, PACKAGE_CACHE_DIR),
-            // A box mounts only box network tools under dipo's own folder of them (DIPO-281).
-            netToolsRoot: join(options.stateDir, BOX_NET_TOOLS_DIR),
-          });
-  }
-  if (boxes === null) return null;
-  const backend = boxes;
+}
+
+/**
+ * The box backend (DIPO-271): the one given, else Apple `container` when the daemon's PATH has it,
+ * else none.
+ */
+function boxBackend(options: RunsOptions): BoxPort | null {
+  if (options.boxes !== undefined) return options.boxes;
+  const cli = containerOnPath(options.env["PATH"]);
+  if (cli === undefined) return null;
+  return new AppleContainerBoxes({
+    spawn: options.spawn,
+    clock: options.clock,
+    cli,
+    // The `container` client's own environment; a box never inherits it.
+    env: { PATH: options.env["PATH"] ?? "/usr/bin:/bin", HOME: options.home },
+    // A box mounts only a package cache under dipo's own folder of caches (DIPO-295).
+    packageCacheRoot: join(options.stateDir, PACKAGE_CACHE_DIR),
+    // A box mounts only box network tools under dipo's own folder of them (DIPO-281).
+    netToolsRoot: join(options.stateDir, BOX_NET_TOOLS_DIR),
+  });
+}
+
+/**
+ * dipo's web route on the box network's host address, with Safe-Chain in a box of its own behind
+ * it (DIPO-343), for the boxes, the build boxes and the fill boxes alike (DIPO-281).
+ */
+function boxRouteStarter(
+  options: RunsOptions,
+  tmpRoot: string,
+  backend: BoxPort,
+): ConstructorParameters<typeof BoxWorkers>[0]["startWebRoute"] {
+  const { clock } = options;
   const routeRoot = join(tmpRoot, "dipo-box-routes");
   const scratchRoot = join(tmpRoot, "dipo-box-builds");
   let routes = 0;
-  // dipo's web route on the box network's host address, with Safe-Chain in a box of its own behind
-  // it (DIPO-343), for the boxes, the build boxes and the fill boxes alike (DIPO-281).
-  const startRoute = async (network: BoxNetwork, ids: RouteBoxIds) => {
+  return async (network: BoxNetwork, ids: RouteBoxIds) => {
     ensurePrivateDir(routeRoot);
     ensurePrivateDir(scratchRoot);
     routes += 1;
@@ -533,54 +529,76 @@ function daemonBoxWorkers(
       return started;
     }
     const route = started.route;
-    return {
-      ok: true as const,
-      route: {
-        ...route,
-        stop: async () => {
-          try {
-            await route.stop();
-          } finally {
-            rmSync(dir, { recursive: true, force: true });
-          }
-        },
-      },
+    const stop = async () => {
+      try {
+        await route.stop();
+      } finally {
+        rmSync(dir, { recursive: true, force: true });
+      }
     };
+    return { ok: true as const, route: { ...route, stop } };
   };
-  // Each part the door takes is delivered: taken out of the box, scanned, committed and pushed
-  // (DIPO-273). The delivery reads the door before a story done, so `workers` is bound once made.
-  let workers: BoxWorkers | null = null;
-  const delivery = new BoxParts({
-    boxes,
-    clock,
+}
+
+/**
+ * The delivery of the parts the door takes (DIPO-273): taken out of the box, scanned, committed and
+ * pushed. It reads the door before a story's done through the box workers, its partner.
+ */
+function boxPartsOf(
+  options: RunsOptions,
+  backend: BoxPort,
+  parts: Pick<BoxPartsDeps, "run" | "live" | "park" | "notice" | "behind">,
+  workers: Partner<BoxWorkers>,
+): BoxParts {
+  return new BoxParts({
+    boxes: backend,
+    clock: options.clock,
     stories: options.storyStore,
     // This daemon's own folder of part stages, in its state folder, so no other daemon or user
     // shares it and a daemon start sweeps only its own (DIPO-290).
     stageRoot: partStageRoot(options.stateDir),
-    ...(uid >= 0 ? { uid } : {}),
+    ...(options.uid >= 0 ? { uid: options.uid } : {}),
     ...parts,
     git: (office) => options.engineGit.forOffice(office),
     listedFiles: async (git) => {
       const base = await readBaseBox(git);
       return base.ok ? base.description.files.map((file) => file.path) : [];
     },
-    readDoor: (runId) => workers?.readDoor(runId) ?? null,
+    readDoor: (runId) => workers.get().readDoor(runId),
     pushed: claimPushRecorder(options),
     warn: (message, fields) => options.logger.warn(message, fields),
     info: (message, fields) => options.logger.info(message, fields),
   });
-  workers = new BoxWorkers({
-    boxes,
-    startWebRoute: startRoute,
+}
+
+/**
+ * The box workers of the engine (DIPO-271) and the delivery of their parts (DIPO-273), or null
+ * without a box backend. `parts` gives the run facts and run control the delivery needs; after each
+ * delivered part the box collisions, a partner, run their check (DIPO-277).
+ */
+function engineBoxWorkers(
+  options: RunsOptions,
+  tmpRoot: string,
+  parts: Pick<BoxPartsDeps, "run" | "live" | "park" | "notice" | "behind">,
+  partners: RunsPartners,
+): BoxedRuns | null {
+  const backend = boxBackend(options);
+  if (backend === null) return null;
+  const { clock, home } = options;
+  const scratchRoot = join(tmpRoot, "dipo-box-builds");
+  const delivery = boxPartsOf(options, backend, parts, partners.workers);
+  const workers = new BoxWorkers({
+    boxes: backend,
+    startWebRoute: boxRouteStarter(options, tmpRoot, backend),
     startModelProxy: (network) =>
       startModelProxy({
         network,
-        keychain: { spawn: systemSpawn, clock, env: { PATH: "/usr/bin:/bin", HOME: home } },
+        keychain: { spawn: options.spawn, clock, env: { PATH: "/usr/bin:/bin", HOME: home } },
         listen: systemListenHttp,
         log: (line) => options.logger.debug("model proxy", { line }),
       }),
     readBaseBox: (git) => readBaseBox(git),
-    code: { spawn: systemSpawn, clock },
+    code: { spawn: options.spawn, clock },
     holds: options.holds,
     adapter: CLAUDE_CLI_ADAPTER_ID,
     tmpRoot,
@@ -588,7 +606,10 @@ function daemonBoxWorkers(
     // The part queue of each box is read while its session runs (DIPO-272), and each part is
     // delivered (DIPO-273). No read starts once the run ended (DIPO-297).
     door: {
-      onPart: deliverThenCheck((part) => delivery.onPart(part), afterPart),
+      onPart: deliverThenCheck(
+        (part) => delivery.onPart(part),
+        () => void partners.collisions.get()?.check(),
+      ),
       live: (runId) => parts.live(runId),
     },
     // After the install in a new box, its /work is compared with the start commit on dipo's own
@@ -604,12 +625,12 @@ function daemonBoxWorkers(
     warn: (message, fields) => options.logger.warn(message, fields),
     info: (message, fields) => options.logger.info(message, fields),
   });
-  return { workers, parts: delivery, boxes };
+  return { workers, parts: delivery, boxes: backend };
 }
 
 /** Raises an `engine.notice` of a box run for the maintainer (DIPO-277, DIPO-290). */
 function runNotice(
-  options: DaemonRunsOptions,
+  options: RunsOptions,
 ): (
   office: OfficeId,
   runId: string,
@@ -644,8 +665,8 @@ function runNotice(
  * caught up once the first merged. Null without a box backend.
  */
 function boxCollisions(
-  options: DaemonRunsOptions,
-  boxed: ReturnType<typeof daemonBoxWorkers>,
+  options: RunsOptions,
+  boxed: BoxedRuns | null,
   control: RunControl,
   partRun: ((runId: string) => PartRun | null) | null,
   conflicts: {
@@ -664,7 +685,7 @@ function boxCollisions(
   return new BoxCollisions({
     boxes: boxed.boxes,
     stories: options.storyStore,
-    code: { spawn: systemSpawn, clock },
+    code: { spawn: options.spawn, clock },
     tmpRoot: realDir(options.tmpRoot),
     runs: () =>
       boxed.workers.pending().flatMap((runId) => {
@@ -799,51 +820,73 @@ export function conflictMergeOf(deps: {
   };
 }
 
-/** How often the daemon passes over the boxes besides each exit decision (DIPO-278). */
+/** How often the engine passes over the boxes besides each exit decision (DIPO-278). */
 export const BOX_PASS_TICK_MS = 60_000;
 
-/** The run launcher `work.run` starts workers with. */
-export function daemonRuns(options: DaemonRunsOptions): DaemonRuns {
-  const { clock, platform, env, home, uid } = options;
-  // No park or lift reaches a story branch while its PR has auto-merge on (0002).
-  const off = options.autoMergeGuard;
-  const guardPark = (writer: ParkWriter): ParkWriter =>
-    off === undefined ? writer : guardedParkWriter(writer, off);
-  const guardUnpark = (writer: UnparkWriter): UnparkWriter =>
-    off === undefined ? writer : guardedUnparkWriter(writer, off);
-  // The watchdog (DIPO-52) writes `quiet` and `no-output` by the office's `timeouts`, and every
-  // entry ingestion or the watchdog appends reaches subscribers at once.
-  const watchdog = new Watchdog({
-    clock,
-    timeouts: (office) => options.offices.config(office)?.timeouts,
-    onAppended: options.onChanged,
-  });
-  const probe = systemProcessProbe(platform);
-  // Run temp directories (DIPO-102): removed once their run ended and its worker hosts exited,
-  // swept after each exit and its decision, and at daemon start (`sweepTempDirs`).
-  // Box workers (DIPO-271); their token check exports a stopped daemon left go first.
-  // A part needs the run's facts and run control, both made further down (DIPO-273).
-  let runControl: RunControl | null = null;
-  let partRun: ((runId: string) => PartRun | null) | null = null;
-  // The changed files of the box runs in progress, compared after each part (DIPO-277).
-  let collisions: BoxCollisions | null = null;
-  const boxed = daemonBoxWorkers(
-    options,
-    realDir(options.tmpRoot),
-    {
-      run: (runId) => partRun?.(runId) ?? null,
-      live: (runId) => runControl?.live(runId) === true,
-      park: (runId, park) => runControl?.parkRun(runId, park) === true,
-      // A part dipo keeps failing to take out of the box is told, never parked (DIPO-290).
-      notice: (run, notice) => runNotice(options)(run.office, run.runId, notice),
-      // No part is taken while the box lacks a merge dipo made outside it (DIPO-324).
-      behind: boxBehind(options.offices),
+/** Where a run's files are, and the facts of a box run its parts need (DIPO-273). */
+interface RunPaths {
+  readonly runPaths: (office: OfficeId, run: StoredRun) => ReturnType<typeof runLaunchPaths> | null;
+  /** The run directory of a run a loaded office knows (DIPO-278: an index entry written again). */
+  readonly runDirOfRun: (runId: string) => string | null;
+  /** The facts of a box run a part needs (DIPO-273), from the loaded office that knows the run. */
+  readonly partRun: (runId: string) => PartRun | null;
+}
+
+/** The loaded office that knows `runId`, with the run; null when none does. */
+function loadedRun(
+  options: RunsOptions,
+  runId: string,
+): { readonly office: OfficeId; readonly run: StoredRun } | null {
+  for (const office of options.offices.loadedOffices()) {
+    const handle = options.offices.get(office);
+    const run = handle === undefined ? null : findRun(handle, runId as RunId);
+    if (run !== null) return { office, run };
+  }
+  return null;
+}
+
+function runPathsOf(options: RunsOptions, tmpRoot: string): RunPaths {
+  const runPaths = (office: OfficeId, run: StoredRun) => {
+    const git = options.engineGit.forOffice(office);
+    if (git === undefined) return null;
+    return runLaunchPaths(git, { runtimeDir: options.runtimeDir, tmpRoot }, run.runId);
+  };
+  return {
+    runPaths,
+    runDirOfRun: (runId) => {
+      const found = loadedRun(options, runId);
+      return found === null ? null : (runPaths(found.office, found.run)?.runDir ?? null);
     },
-    () => void collisions?.check(),
-  );
+    partRun: (runId) => {
+      const found = loadedRun(options, runId);
+      if (found === null) return null;
+      const { office, run } = found;
+      if (run.story === null || run.branch === null || run.startSha === null) return null;
+      const paths = runPaths(office, run);
+      return {
+        runId,
+        office,
+        story: run.story,
+        branch: run.branch,
+        startSha: run.startSha,
+        box: boxName(runId),
+        ...(paths === null ? {} : { runDir: paths.runDir }),
+      };
+    },
+  };
+}
+
+/** The passes over the boxes (DIPO-278), the test boxes (DIPO-309) and their tick. */
+interface BoxPasses {
+  readonly finishEndedBoxes: (finishOptions?: { readonly listBoxes?: boolean }) => Promise<void>;
+  readonly stopBoxPasses: () => void;
+  readonly testBoxes: TestBoxes | null;
+  readonly onBoxTick: (hook: () => Promise<void>) => void;
+}
+
+function boxPassesOf(options: RunsOptions, boxed: BoxedRuns | null, paths: RunPaths): BoxPasses {
+  const { clock } = options;
   const boxWorkers = boxed?.workers ?? null;
-  void sweepBoxTokenChecks(realDir(options.tmpRoot), options.logger).catch(() => {});
-  void sweepBoxPartStages(partStageRoot(options.stateDir), boxed?.parts ?? null, options.logger);
   const finishEndedBoxes = async (
     finishOptions: { readonly listBoxes?: boolean } = {},
   ): Promise<void> => {
@@ -853,7 +896,7 @@ export function daemonRuns(options: DaemonRunsOptions): DaemonRuns {
       (runId) => boxRunEnded(options.offices, runId),
       options.logger,
       // A listed box the index lost gets its entry again from the office that knows its run.
-      { ...finishOptions, runDirOf: (runId) => runDirOfRun(runId) },
+      { ...finishOptions, runDirOf: (runId) => paths.runDirOfRun(runId) },
     );
   };
   // The test boxes of stories under the maintainer's test (DIPO-309): made like every box, reached
@@ -871,39 +914,55 @@ export function daemonRuns(options: DaemonRunsOptions): DaemonRuns {
           info: (message, fields) => options.logger.info(message, fields),
         });
   // What else runs on the box tick: the sweep of the tests nobody records (DIPO-309).
-  const boxTickHooks: (() => Promise<void>)[] = [];
+  const hooks: (() => Promise<void>)[] = [];
   const afterBoxPass = async (): Promise<void> => {
-    for (const hook of boxTickHooks) await hook().catch(() => undefined);
+    for (const hook of hooks) await hook().catch(() => undefined);
   };
   // A drop or a merge ends a claim with no worker exit, so a minute tick also runs the pass: the
   // box of a released claim is deleted within about a minute (DIPO-278).
   let boxTick: ReturnType<typeof clock.setTimeout> | null = null;
-  let boxTicks = boxWorkers !== null;
+  let ticking = boxWorkers !== null;
   const armBoxTick = (): void => {
-    if (!boxTicks) return;
+    if (!ticking) return;
     boxTick = clock.setTimeout(() => {
       boxTick = null;
       void finishEndedBoxes().then(afterBoxPass).finally(armBoxTick);
     }, BOX_PASS_TICK_MS);
   };
   armBoxTick();
-  const stopBoxPasses = (): void => {
-    boxTicks = false;
-    if (boxTick !== null) clock.clearTimeout(boxTick);
-    boxTick = null;
+  return {
+    finishEndedBoxes,
+    stopBoxPasses: () => {
+      ticking = false;
+      if (boxTick !== null) clock.clearTimeout(boxTick);
+      boxTick = null;
+    },
+    testBoxes,
+    onBoxTick: (hook) => void hooks.push(hook),
   };
+}
+
+/**
+ * Run temp directories (DIPO-102): removed once their run ended and its worker hosts exited, swept
+ * after each exit and its decision, and at daemon start (`sweep("recovery")`).
+ */
+function tempDirsOf(
+  options: RunsOptions,
+  tmpRoot: string,
+): { readonly tempDirs: RunTempDirs; readonly sweepTempDirs: () => void } {
   const tempDirs = new RunTempDirs({
-    tmpRoot: realDir(options.tmpRoot),
+    tmpRoot,
     database: options.database,
-    probe,
-    ...(uid >= 0 ? { uid } : {}),
+    probe: options.probe,
+    ...(options.uid >= 0 ? { uid: options.uid } : {}),
     warn: (message, fields) => options.logger.warn(message, fields),
   });
   const sweepTempDirs = (): void => {
     void tempDirs.sweep("ended").then(
       (removed) => {
-        if (removed.length > 0)
+        if (removed.length > 0) {
           options.logger.info("removed ended runs' temp directories", { removed });
+        }
       },
       (error: unknown) =>
         options.logger.warn("sweeping run temp directories failed", {
@@ -911,61 +970,90 @@ export function daemonRuns(options: DaemonRunsOptions): DaemonRuns {
         }),
     );
   };
+  return { tempDirs, sweepTempDirs };
+}
+
+/** The worker port: the Claude CLI's, with the box workers, wrapped when a test asks (DIPO-316). */
+function workerOf(options: RunsOptions, boxWorkers: BoxWorkers | null): WorkerPort {
   const claude = claudeWorkerPort({
-    spawn: systemSpawn,
-    clock,
+    spawn: options.spawn,
+    clock: options.clock,
     claudePath: options.tools.claude,
-    home,
-    env,
+    home: options.home,
+    env: options.env,
     holds: options.holds,
     ...(boxWorkers === null ? {} : { boxes: boxWorkers }),
   });
-  const worker = options.workerPort === undefined ? claude : options.workerPort(claude);
-  const tierOf = (office: OfficeId, run: StoredRun) =>
-    run.tier === null
-      ? undefined
-      : options.offices.config(office)?.tiers[run.tier as "S" | "M" | "L"];
-  const storyGit = gitStoryOps({
-    git: (office) => options.engineGit.forOffice(office),
+  return options.workerPort === undefined ? claude : options.workerPort(claude);
+}
+
+/**
+ * Conflicts with the base before In Review and the conflict hand-off of box runs (DIPO-149): the
+ * sync runs in the run's held turn through the box collisions, a partner.
+ */
+function storyConflictsOf(
+  options: RunsOptions,
+  boxed: BoxedRuns | null,
+  paths: RunPaths,
+  collisions: Partner<BoxCollisions | null>,
+): StoryConflicts | null {
+  if (boxed === null) return null;
+  return new StoryConflicts({
     stories: options.storyStore,
+    clock: options.clock,
+    ids: options.ids,
+    offices: options.offices,
+    git: (office) => options.engineGit.forOffice(office),
+    sync: async (runId, mode) => {
+      const run = paths.partRun(runId);
+      const service = collisions.get();
+      if (run === null || service === null) return { kind: "none" };
+      return service.syncInTurn(run, mode);
+    },
+    onChanged: options.onChanged,
+    warn: (message, fields) => options.logger.warn(message, fields),
   });
-  // Whether a run's developer works in a box: its run directory says so (DIPO-271).
-  // It reads `runPaths` only when asked, after the launcher's wiring below exists.
-  const isBoxRun = (office: OfficeId, run: StoredRun): boolean => {
-    const paths = boxed === null ? null : runPaths(office, run);
-    return paths !== null && boxed !== null && boxed.workers.isBoxRun(paths.runDir);
+}
+
+/** The office's verify in a box run's box (DIPO-346). */
+function boxVerifyOf(
+  options: RunsOptions,
+  boxed: BoxedRuns,
+): NonNullable<ConstructorParameters<typeof VerifyCommit>[0]["verify"]> {
+  return async (office, run) => {
+    const config = options.offices.config(office.officeId);
+    const profile = currentProfile(office)?.profile ?? null;
+    if (config === undefined || profile === null || run.story === null) {
+      return {
+        kind: "failed",
+        reason: "dipo could not read the office's run profile to verify in the box",
+      };
+    }
+    const verify = boxVerifyInput({ profile, config });
+    if (verify === null) return { kind: "none" };
+    if ("refused" in verify) return { kind: "failed", reason: verify.refused };
+    return boxed.workers.verify({ runId: run.runId, ...verify });
   };
-  // Conflicts with the base before In Review and the conflict hand-off of box runs (DIPO-149): the
-  // sync runs in the run's held turn through the collision service made below.
-  const storyConflicts =
-    boxed === null
-      ? null
-      : new StoryConflicts({
-          stories: options.storyStore,
-          clock,
-          ids: options.ids,
-          offices: options.offices,
-          git: (office) => options.engineGit.forOffice(office),
-          sync: async (runId, mode) => {
-            const run = partRun?.(runId) ?? null;
-            if (run === null || collisions === null) return { kind: "none" };
-            return collisions.syncInTurn(run, mode);
-          },
-          onChanged: options.onChanged,
-          warn: (message, fields) => options.logger.warn(message, fields),
-        });
-  // In Review at a box run's done (DIPO-49, DIPO-273): the office's verify in the box (DIPO-346),
-  // no backstop or scope check.
-  const finisher = new VerifyCommit({
-    clock,
-    story: storyGit,
+}
+
+/**
+ * In Review at a box run's done (DIPO-49, DIPO-273): its last part is taken at done, the office's
+ * verify runs in its box (DIPO-346), and its end is claimed while its parts are held; CI on the
+ * story PR is the final gate. No backstop or scope check.
+ */
+function finisherOf(
+  options: RunsOptions,
+  boxed: BoxedRuns | null,
+  isBoxRun: (office: OfficeId, run: StoredRun) => boolean,
+  storyConflicts: StoryConflicts | null,
+): VerifyCommit {
+  return new VerifyCommit({
+    clock: options.clock,
+    story: storyGitOf(options),
     profile: (office) => currentProfile(office)?.profile ?? null,
     ...(options.storyPr === undefined ? {} : { storyPr: options.storyPr }),
     // The report gate reads the story's test plan on the office base (DIPO-186).
     storyFacts: baseStoryFacts(options.base),
-    // A box run has no backstop or scope check (DIPO-273): its last part is taken at done, the
-    // office's verify runs in its box (DIPO-346), and its end is claimed while its parts are held;
-    // CI on the story PR is the final gate.
     ...(boxed === null
       ? {}
       : {
@@ -973,118 +1061,105 @@ export function daemonRuns(options: DaemonRunsOptions): DaemonRuns {
             isBoxRun,
             finishLast: (runId, message, finish) => boxed.parts.finishLast(runId, message, finish),
           },
-          verify: async (office, run) => {
-            const config = options.offices.config(office.officeId);
-            const profile = currentProfile(office)?.profile ?? null;
-            if (config === undefined || profile === null || run.story === null) {
-              return {
-                kind: "failed",
-                reason: "dipo could not read the office's run profile to verify in the box",
-              };
-            }
-            const verify = boxVerifyInput({ profile, config });
-            if (verify === null) return { kind: "none" };
-            if ("refused" in verify) return { kind: "failed", reason: verify.refused };
-            return boxed.workers.verify({ runId: run.runId, ...verify });
-          },
+          verify: boxVerifyOf(options, boxed),
           ...(storyConflicts === null ? {} : { conflicts: storyConflicts }),
         }),
     warn: (message, fields) => options.logger.warn(message, fields),
   });
-  const started = systemHostStarter({
-    clock,
-    runtimeDir: options.runtimeDir,
-    dipoCommand: selfCommand(),
-    env,
-    probe,
+}
+
+function storyGitOf(options: RunsOptions): ReturnType<typeof gitStoryOps> {
+  return gitStoryOps({
+    git: (office) => options.engineGit.forOffice(office),
+    stories: options.storyStore,
   });
-  const hosts = started;
-  const release = (
-    office: OfficeId,
-    claim: Parameters<StoryClaims["releaseUnstarted"]>[1],
-    reason: string,
-  ) => options.claims.releaseUnstarted(office, claim, reason);
-  const runPaths = (office: OfficeId, run: StoredRun) => {
-    const git = options.engineGit.forOffice(office);
-    if (git === undefined) return null;
-    return runLaunchPaths(
-      git,
-      { runtimeDir: options.runtimeDir, tmpRoot: realDir(options.tmpRoot) },
-      run.runId,
-    );
-  };
-  // The run directory of a run a loaded office knows (DIPO-278: an index entry written again).
-  const runDirOfRun = (runId: string): string | null => {
-    for (const office of options.offices.loadedOffices()) {
-      const handle = options.offices.get(office);
-      const run = handle === undefined ? null : findRun(handle, runId as RunId);
-      if (run === null) continue;
-      return runPaths(office, run)?.runDir ?? null;
-    }
-    return null;
-  };
-  // The facts of a box run a part needs (DIPO-273), from the loaded office that knows the run.
-  partRun = (runId) => {
-    for (const office of options.offices.loadedOffices()) {
-      const handle = options.offices.get(office);
-      const run = handle === undefined ? null : findRun(handle, runId as RunId);
-      if (run === null) continue;
-      if (run.story === null || run.branch === null || run.startSha === null) return null;
-      const paths = runPaths(office, run);
-      return {
-        runId,
-        office,
-        story: run.story,
-        branch: run.branch,
-        startSha: run.startSha,
-        box: boxName(runId),
-        ...(paths === null ? {} : { runDir: paths.runDir }),
-      };
-    }
-    return null;
-  };
-  const capsFor = (office: OfficeId, run: StoredRun) => {
-    const tier = tierOf(office, run);
+}
+
+/** The park and lift writers on a story branch, after auto-merge is off (0002). */
+function branchWriters(options: RunsOptions): {
+  readonly park: ParkWriter;
+  readonly unpark: UnparkWriter;
+} {
+  const git = (office: OfficeId) => options.engineGit.forOffice(office);
+  const park = gitParkWriter({ git, stories: options.storyStore });
+  const unpark = gitUnparkWriter({ git, stories: options.storyStore });
+  const off = options.autoMergeGuard;
+  if (off === undefined) return { park, unpark };
+  return { park: guardedParkWriter(park, off), unpark: guardedUnparkWriter(unpark, off) };
+}
+
+/** What the run ports are built from, besides the options. */
+interface RunPortParts {
+  readonly tmpRoot: string;
+  readonly paths: RunPaths;
+  readonly boxed: BoxedRuns | null;
+  readonly worker: WorkerPort;
+  readonly steering: RunSteering;
+  readonly isBoxRun: (office: OfficeId, run: StoredRun) => boolean;
+  readonly finisher: VerifyCommit;
+  readonly sweeps: { readonly temp: () => void; readonly boxes: () => Promise<void> };
+  readonly tempOwner: () => string | undefined;
+  readonly collisions: Partner<BoxCollisions | null>;
+}
+
+/** The tier caps of the office in force for a run's tier. */
+function tierOf(options: RunsOptions, office: OfficeId, run: StoredRun): TierCaps | undefined {
+  return run.tier === null
+    ? undefined
+    : options.offices.config(office)?.tiers[run.tier as "S" | "M" | "L"];
+}
+
+function capsFor(options: RunsOptions): (office: OfficeId, run: StoredRun) => Caps | null {
+  return (office, run) => {
+    const tier = tierOf(options, office, run);
     const handle = options.offices.get(office);
     return tier === undefined || handle === undefined ? null : runCaps(handle, run, capsOf(tier));
   };
+}
+
+/** The merges dipo made on a box run's branch outside the box reach its box (DIPO-324). */
+function boxSyncOf(options: RunsOptions, parts: RunPortParts): NonNullable<RunPorts["boxSync"]> {
+  return async (office, run) => {
+    const handle = options.offices.get(office);
+    const pending = handle === undefined ? null : pendingBoxCopy(handle, run.runId);
+    if (handle === undefined || pending === null) return;
+    const part = parts.paths.partRun(run.runId);
+    const boxWorkers = parts.boxed?.workers ?? null;
+    const collisions = parts.collisions.get();
+    if (part === null || part.runDir === undefined || boxWorkers === null || collisions === null) {
+      throw new Error(`run ${run.runId} has no box dipo can copy into here`);
+    }
+    await boxWorkers.awake({ runId: run.runId, runDir: part.runDir });
+    await collisions.copyPending(part, pending.from);
+    handle.immediate(() => markBoxCopied(handle, run.runId, pending.ids));
+  };
+}
+
+/** The run ports that come straight from the options (DIPO-129). */
+function baseRunPorts(options: RunsOptions, parts: RunPortParts): Omit<RunPorts, "ingest"> {
   const refreshStory = options.stories;
-  // One steering for every run service: it keeps no state between sends.
-  const steering = hostSocketSteering({ clock, probe, signal: signalProcess });
-  const composed = composeRuns({
-    clock,
+  return {
+    clock: options.clock,
     ids: options.ids,
     offices: options.offices,
-    worker,
-    steering,
-    hosts,
+    worker: parts.worker,
+    steering: parts.steering,
+    hosts: systemHostStarter({
+      clock: options.clock,
+      runtimeDir: options.runtimeDir,
+      dipoCommand: selfCommand(),
+      env: options.env,
+      probe: options.probe,
+    }),
     git: (office) => options.engineGit.forOffice(office),
     // A launch's dependencies and a run's next session read the stories on the base (DIPO-51).
     base: options.base,
     runtimeDir: options.runtimeDir,
-    tmpRoot: realDir(options.tmpRoot),
+    tmpRoot: parts.tmpRoot,
     // The daemon-start sweep removes a run it does not know only when this daemon made it.
-    tempOwner: () => tempDirs.owner(),
+    tempOwner: parts.tempOwner,
     ...(options.holdResumer === undefined ? {} : { holdResumer: options.holdResumer }),
     ...(options.mergeReentry === undefined ? {} : { mergeReentry: options.mergeReentry }),
-    // A resumed conflict park merges in its live run's box (DIPO-324), and a story resumed to wait
-    // In Review again gets a new story PR when its PR was closed (0002).
-    conflictResume: {
-      merge: conflictMergeOf({
-        run: (runId) => partRun?.(runId) ?? null,
-        collisions: () => collisions,
-        warn: (message, fields) => options.logger.warn(message, fields),
-      }),
-      stories: options.storyStore,
-    },
-    ...(options.storyPr?.replace === undefined
-      ? {}
-      : {
-          prReplacement: () => ({
-            replace: (office: OfficeId, run: StoredRun) =>
-              options.storyPr?.replace?.(office, run.runId) ?? Promise.resolve(),
-          }),
-        }),
     onChanged: options.onChanged,
     warn: (message, fields) => options.logger.warn(message, fields),
     ...(refreshStory === undefined
@@ -1093,121 +1168,152 @@ export function daemonRuns(options: DaemonRunsOptions): DaemonRuns {
           refreshStory: (office: OfficeId, key: StoryKey) =>
             refreshStory.refreshStory(office, key, { quiet: true }),
         }),
-    release,
+    release: (office, claim, reason) => options.claims.releaseUnstarted(office, claim, reason),
+    // The permission wait (DIPO-59) asks the maintainer when present, and holds while `safe`.
+    ...(options.presence === undefined ? {} : { presence: options.presence }),
+    ...(options.scheduling === undefined ? {} : { scheduling: options.scheduling }),
+  };
+}
+
+/** The run ports of the boxes, the story PR and the conflicts (DIPO-271, DIPO-324, 0002). */
+function boxRunPorts(options: RunsOptions, parts: RunPortParts): Partial<RunPorts> {
+  const boxWorkers = parts.boxed?.workers ?? null;
+  const storyPr = options.storyPr;
+  return {
+    // A resumed conflict park merges in its live run's box (DIPO-324), and a story resumed to wait
+    // In Review again gets a new story PR when its PR was closed (0002).
+    conflictResume: {
+      merge: conflictMergeOf({
+        run: (runId) => parts.paths.partRun(runId),
+        collisions: () => parts.collisions.get(),
+        warn: (message, fields) => options.logger.warn(message, fields),
+      }),
+      stories: options.storyStore,
+    },
+    ...(storyPr?.replace === undefined
+      ? {}
+      : {
+          prReplacement: () => ({
+            replace: (office: OfficeId, run: StoredRun) =>
+              storyPr.replace?.(office, run.runId) ?? Promise.resolve(),
+          }),
+        }),
     // Each exit decision may end the run after its worker exited: its temp directory goes then,
     // and a box run's box is checked and deleted (DIPO-271).
     afterExit: () => {
-      sweepTempDirs();
-      void finishEndedBoxes();
+      parts.sweeps.temp();
+      void parts.sweeps.boxes();
     },
     ...(boxWorkers === null ? {} : { boxes: boxWorkers }),
     // Each review session runs in a read-only box of its own (0002).
     ...(boxWorkers === null ? {} : { reviewBoxes: boxWorkers }),
-    // The merges dipo made on a box run's branch outside the box reach its box before the worker's next
-    // session (DIPO-324): the box is started, the files copied in as a catch-up's are.
-    boxSync: async (office, run) => {
-      const handle = options.offices.get(office);
-      const pending = handle === undefined ? null : pendingBoxCopy(handle, run.runId);
-      if (handle === undefined || pending === null) return;
-      const part = partRun?.(run.runId) ?? null;
-      if (
-        part === null ||
-        part.runDir === undefined ||
-        boxWorkers === null ||
-        collisions === null
-      ) {
-        throw new Error(`run ${run.runId} has no box dipo can copy into here`);
-      }
-      await boxWorkers.awake({ runId: run.runId, runDir: part.runDir });
-      await collisions.copyPending(part, pending.from);
-      handle.immediate(() => markBoxCopied(handle, run.runId, pending.ids));
-    },
+    // The merges dipo made on a box run's branch outside the box reach its box before the worker's
+    // next session (DIPO-324): the box is started, the files copied in as a catch-up's are.
+    boxSync: boxSyncOf(options, parts),
     // A fix round waits for the CI of the pushed head and carries its red items (DIPO-148); a box
     // run's developer gets a new session in its box (0021 section 6).
-    ...(options.storyPr?.ciState === undefined
+    ...(storyPr?.ciState === undefined
       ? {}
-      : {
-          ci: (office: OfficeId, runId: RunId) => options.storyPr?.ciState?.(office, runId) ?? null,
-        }),
-    boxRun: isBoxRun,
-    // The permission wait (DIPO-59) asks the maintainer when present, and holds while `safe`.
-    ...(options.presence === undefined ? {} : { presence: options.presence }),
-    ...(options.scheduling === undefined ? {} : { scheduling: options.scheduling }),
+      : { ci: (office: OfficeId, runId: RunId) => storyPr.ciState?.(office, runId) ?? null }),
+    boxRun: parts.isBoxRun,
+  };
+}
+
+/** The run ports of ingestion, run control, worker outcomes and the starts paused. */
+function controlRunPorts(
+  options: RunsOptions,
+  parts: RunPortParts,
+): Pick<RunPorts, "ingest" | "control" | "outcomes" | "startsPaused"> {
+  const writers = branchWriters(options);
+  return {
     ingest: {
       pricing: () => options.database()?.pricing ?? null,
-      watchdog,
+      // The watchdog (DIPO-52) writes `quiet` and `no-output` by the office's `timeouts`, and every
+      // entry ingestion or the watchdog appends reaches subscribers at once.
+      watchdog: new Watchdog({
+        clock: options.clock,
+        timeouts: (office) => options.offices.config(office)?.timeouts,
+        onAppended: options.onChanged,
+      }),
       onEnded: () => {
         // A run that ended before its worker exited loses its temp directory now (DIPO-102).
-        sweepTempDirs();
-        void finishEndedBoxes();
+        parts.sweeps.temp();
+        void parts.sweeps.boxes();
       },
     },
-    control: {
-      finisher,
-      // The park written on the story branch (DIPO-50), after auto-merge is off (0002).
-      writer: guardPark(
-        gitParkWriter({
-          git: (office) => options.engineGit.forOffice(office),
-          stories: options.storyStore,
-        }),
-      ),
-      implemented: options.implemented,
-    },
+    // The park written on the story branch (DIPO-50), after auto-merge is off (0002).
+    control: { finisher: parts.finisher, writer: writers.park, implemented: options.implemented },
     outcomes: {
       // No new host while an earlier host of the run still runs (DIPO-57, 0006 decision 8).
-      probe,
+      probe: options.probe,
       holds: options.holds,
-      holdsWork: storyHoldsWork(storyGit),
+      holdsWork: storyHoldsWork(storyGitOf(options)),
       // Lifting a park on the story branch before its run resumes (DIPO-75), and a fix round's
       // In Progress commit, after auto-merge is off (0002).
-      unpark: guardUnpark(
-        gitUnparkWriter({
-          git: (office) => options.engineGit.forOffice(office),
-          stories: options.storyStore,
-        }),
-      ),
-      caps: capsFor,
+      unpark: writers.unpark,
+      caps: capsFor(options),
     },
     // The office's starts paused (0020): a plan limit pauses every loaded office, and a failed
     // adapter check pauses through the adapter's hold.
-    startsPaused: {
-      loaded: () => options.offices.loadedOffices(),
-      holds: options.holds,
-    },
+    startsPaused: { loaded: () => options.offices.loadedOffices(), holds: options.holds },
+  };
+}
 
-    // Re-attach after a restart (DIPO-57): every active run's newest worker host is followed again.
+/** Re-attach after a restart (DIPO-57): every active run's newest worker host is followed again. */
+function reattachRunPorts(options: RunsOptions, parts: RunPortParts): Partial<RunPorts> {
+  const { worker, paths } = parts;
+  return {
     reattach: {
-      probe,
+      probe: options.probe,
       // A living host of an ended run whose stop did not reach it is stopped again (DIPO-93).
-      steering,
+      steering: parts.steering,
       adapter: (office, run) => {
-        const paths = runPaths(office, run);
+        const runPaths = paths.runPaths(office, run);
         const config = options.offices.config(office);
-        return paths === null || config === undefined
+        return runPaths === null || config === undefined
           ? null
-          : (worker.adapter(paths, config) as IngestAdapter);
+          : (worker.adapter(runPaths, config) as IngestAdapter);
       },
       initialState: ({ office, run, agent, resume, previous }) => {
-        const paths = runPaths(office, run);
-        const inForce = tierOf(office, run);
+        const runPaths = paths.runPaths(office, run);
+        const inForce = tierOf(options, office, run);
         const handle = options.offices.get(office);
-        if (paths === null || inForce === undefined || handle === undefined) return {};
-        return startedSessionState(worker, handle, run, agent, inForce, paths, resume, previous);
+        if (runPaths === null || inForce === undefined || handle === undefined) return {};
+        return startedSessionState(worker, {
+          handle,
+          run,
+          agent,
+          inForce,
+          paths: runPaths,
+          resume,
+          ...(previous === undefined ? {} : { previous }),
+        });
       },
-      caps: capsFor,
+      caps: capsFor(options),
     },
-  });
-  const {
-    ingest,
-    control,
-    outcomes,
-    resumption,
-    permissions,
-    reattacher,
-    startsPaused,
-    places,
-    launcher,
-  } = composed;
+  };
+}
+
+/** Every run port (DIPO-129) the engine's run services are composed from. */
+function runPortsOf(options: RunsOptions, parts: RunPortParts): RunPorts {
+  return {
+    ...baseRunPorts(options, parts),
+    ...boxRunPorts(options, parts),
+    ...controlRunPorts(options, parts),
+    ...reattachRunPorts(options, parts),
+  };
+}
+
+/** The composed run services the engine needs, each present; throws when one is not wired. */
+function requireComposed(composed: ComposedRuns): ComposedRuns & {
+  readonly control: RunControl;
+  readonly outcomes: RunOutcomes;
+  readonly resumption: Resumption;
+  readonly reattacher: RunReattacher;
+  readonly startsPaused: StartsPaused;
+  readonly places: Places;
+} {
+  const { control, outcomes, resumption, reattacher, startsPaused, places } = composed;
   if (
     control === null ||
     outcomes === null ||
@@ -1216,44 +1322,148 @@ export function daemonRuns(options: DaemonRunsOptions): DaemonRuns {
     startsPaused === null ||
     places === null
   ) {
-    throw new Error("the daemon's run services are not all wired");
+    throw new Error("the engine's run services are not all wired");
   }
-  runControl = control;
+  return { ...composed, control, outcomes, resumption, reattacher, startsPaused, places };
+}
+
+/**
+ * The one connect step of the engine's run services (DIPO-318): each partner a service calls but
+ * was built before is connected here, once every service exists.
+ */
+function connectRunsPartners(
+  partners: RunsPartners,
+  services: {
+    readonly control: RunControl;
+    readonly collisions: BoxCollisions | null;
+    readonly workers: BoxWorkers | null;
+  },
+): void {
+  // Box parts <-> run control: a part is taken only while its run is live, and a part that keeps
+  // failing parks the run; run control is composed from ports that include the box workers.
+  partners.control.connect(services.control);
+  // Box workers, story conflicts and the box sync <-> box collisions: the collisions compare the
+  // parts the box workers deliver, park and tell through run control, and are built last.
+  partners.collisions.connect(services.collisions);
+  // Box parts <-> box workers: the parts read each box's door, and the box workers deliver each
+  // part the door takes through the parts. No box workers without a box backend: nothing reads
+  // the door then.
+  if (services.workers !== null) partners.workers.connect(services.workers);
+}
+
+/** The run services of the engine's offices, from claim to merge. */
+export function buildRuns(options: RunsOptions): EngineRuns {
+  const partners: RunsPartners = {
+    control: new Partner("run control"),
+    collisions: new Partner("the box collisions"),
+    workers: new Partner("the box workers"),
+  };
+  const tmpRoot = realDir(options.tmpRoot);
+  const paths = runPathsOf(options, tmpRoot);
+  const boxed = engineBoxWorkers(
+    options,
+    tmpRoot,
+    {
+      run: (runId) => paths.partRun(runId),
+      live: (runId) => partners.control.get().live(runId),
+      park: (runId, park) => partners.control.get().parkRun(runId, park),
+      // A part dipo keeps failing to take out of the box is told, never parked (DIPO-290).
+      notice: (run, notice) => runNotice(options)(run.office, run.runId, notice),
+      // No part is taken while the box lacks a merge dipo made outside it (DIPO-324).
+      behind: boxBehind(options.offices),
+    },
+    partners,
+  );
+  // The token check's export folders and the part stages a stopped daemon left go first.
+  void sweepBoxTokenChecks(tmpRoot, options.logger).catch(() => {});
+  void sweepBoxPartStages(partStageRoot(options.stateDir), boxed?.parts ?? null, options.logger);
+  const passes = boxPassesOf(options, boxed, paths);
+  const { tempDirs, sweepTempDirs } = tempDirsOf(options, tmpRoot);
+  // Whether a run's developer works in a box: its run directory says so (DIPO-271).
+  const isBoxRun = (office: OfficeId, run: StoredRun): boolean => {
+    const runPaths = boxed === null ? null : paths.runPaths(office, run);
+    return runPaths !== null && boxed !== null && boxed.workers.isBoxRun(runPaths.runDir);
+  };
+  const storyConflicts = storyConflictsOf(options, boxed, paths, partners.collisions);
+  const parts: RunPortParts = {
+    tmpRoot,
+    paths,
+    boxed,
+    worker: workerOf(options, boxed?.workers ?? null),
+    // One steering for every run service: it keeps no state between sends.
+    steering: hostSocketSteering({
+      clock: options.clock,
+      probe: options.probe,
+      signal: signalProcess,
+    }),
+    isBoxRun,
+    finisher: finisherOf(options, boxed, isBoxRun, storyConflicts),
+    sweeps: { temp: sweepTempDirs, boxes: () => passes.finishEndedBoxes() },
+    tempOwner: () => tempDirs.owner(),
+    collisions: partners.collisions,
+  };
+  const composed = requireComposed(composeRuns(runPortsOf(options, parts)));
   // Each head whose CI stops being pending may start its fix round (DIPO-148).
   const fixRounds = composed.fixRounds;
   options.storyPr?.onCiFinal?.((office, runId) => {
     void fixRounds?.consider(office, runId);
   });
-  collisions = boxCollisions(options, boxed, control, partRun, {
+  const collisions = boxCollisions(options, boxed, composed.control, paths.partRun, {
     service: storyConflicts,
     isBoxRun,
-    unpark: guardUnpark(
-      gitUnparkWriter({
-        git: (office) => options.engineGit.forOffice(office),
-        stories: options.storyStore,
-      }),
-    ),
+    unpark: branchWriters(options).unpark,
+  });
+  connectRunsPartners(partners, {
+    control: composed.control,
+    collisions,
+    workers: boxed?.workers ?? null,
   });
   collisions?.start();
-  return {
-    sessions: composed.sessions,
-    launcher,
-    ingest,
-    control,
-    outcomes,
-    resumption,
-    permissions,
-    reattacher,
-    startsPaused,
-    places,
+  return engineRunsOf(options, {
+    composed,
+    passes,
     tempDirs,
-    boxes: boxWorkers,
+    boxed,
     isBoxRun,
     collisions,
-    finishEndedBoxes,
-    stopBoxPasses,
-    testBoxes,
-    onBoxTick: (hook) => void boxTickHooks.push(hook),
+    storyConflicts,
+  });
+}
+
+/** What `buildRuns` hands back, from the services it built. */
+function engineRunsOf(
+  options: RunsOptions,
+  built: {
+    readonly composed: ReturnType<typeof requireComposed>;
+    readonly passes: BoxPasses;
+    readonly tempDirs: RunTempDirs;
+    readonly boxed: BoxedRuns | null;
+    readonly isBoxRun: (office: OfficeId, run: StoredRun) => boolean;
+    readonly collisions: BoxCollisions | null;
+    readonly storyConflicts: StoryConflicts | null;
+  },
+): EngineRuns {
+  const { composed, passes } = built;
+  const fixRounds = composed.fixRounds;
+  return {
+    sessions: composed.sessions,
+    launcher: composed.launcher,
+    ingest: composed.ingest,
+    control: composed.control,
+    outcomes: composed.outcomes,
+    resumption: composed.resumption,
+    permissions: composed.permissions,
+    reattacher: composed.reattacher,
+    startsPaused: composed.startsPaused,
+    places: composed.places,
+    tempDirs: built.tempDirs,
+    boxes: built.boxed?.workers ?? null,
+    isBoxRun: built.isBoxRun,
+    collisions: built.collisions,
+    finishEndedBoxes: passes.finishEndedBoxes,
+    stopBoxPasses: passes.stopBoxPasses,
+    testBoxes: passes.testBoxes,
+    onBoxTick: passes.onBoxTick,
     sweepOldReviewFolders: () => sweepOldReviewFolders(realDir(options.tmpRoot)),
     recoverFixRounds: async () => {
       let queued = 0;
@@ -1262,39 +1472,48 @@ export function daemonRuns(options: DaemonRunsOptions): DaemonRuns {
       }
       return queued;
     },
-    // The auto-merge's ports (0002): its conflicts and the maintainer's rejects go through the fix
-    // rounds, and its conflict merges are recorded as DIPO-149's catch-ups are.
-    merge: {
-      conflict: async (office, runId, input) =>
-        (await fixRounds?.conflict(office, runId, input)) ?? false,
-      reject: async (office, runId, reject) =>
-        (await fixRounds?.reject(office, runId, reject)) ?? false,
-      testFail: async (office, runId, test) =>
-        (await fixRounds?.testFail(office, runId, test)) ?? null,
-      recordMerge: async (office, run, merged) => {
-        if (storyConflicts === null || run.story === null || run.branch === null) return;
-        await storyConflicts.recorded(
-          {
-            runId: run.runId,
-            office,
-            story: run.story,
-            branch: run.branch,
-            startSha: run.startSha ?? "",
-            box: boxName(run.runId),
-          },
-          merged,
-        );
-      },
-      story: baseStoryFacts(options.base),
-      itemMax: (office, run) => {
-        const config = options.offices.config(office);
-        if (config === undefined) return 3_000;
-        const budgets = config.prompt.budgets.feedbackItem as Readonly<Record<string, number>>;
-        return (
-          (run.tier === null ? undefined : budgets[run.tier]) ??
-          config.prompt.budgets.feedbackItem.M
-        );
-      },
+    merge: mergePortsOf(options, fixRounds, built.storyConflicts),
+  };
+}
+
+/**
+ * The auto-merge's ports (0002): its conflicts and the maintainer's rejects go through the fix
+ * rounds, and its conflict merges are recorded as DIPO-149's catch-ups are.
+ */
+function mergePortsOf(
+  options: RunsOptions,
+  fixRounds: ComposedRuns["fixRounds"],
+  storyConflicts: StoryConflicts | null,
+): RunMergePorts {
+  return {
+    conflict: async (office, runId, input) =>
+      (await fixRounds?.conflict(office, runId, input)) ?? false,
+    reject: async (office, runId, reject) =>
+      (await fixRounds?.reject(office, runId, reject)) ?? false,
+    testFail: async (office, runId, test) =>
+      (await fixRounds?.testFail(office, runId, test)) ?? null,
+    recordMerge: async (office, run, merged) => {
+      if (storyConflicts === null || run.story === null || run.branch === null) return;
+      await storyConflicts.recorded(
+        {
+          runId: run.runId,
+          office,
+          story: run.story,
+          branch: run.branch,
+          startSha: run.startSha ?? "",
+          box: boxName(run.runId),
+        },
+        merged,
+      );
+    },
+    story: baseStoryFacts(options.base),
+    itemMax: (office, run) => {
+      const config = options.offices.config(office);
+      if (config === undefined) return 3_000;
+      const budgets = config.prompt.budgets.feedbackItem as Readonly<Record<string, number>>;
+      return (
+        (run.tier === null ? undefined : budgets[run.tier]) ?? config.prompt.budgets.feedbackItem.M
+      );
     },
   };
 }

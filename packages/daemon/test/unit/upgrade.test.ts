@@ -22,10 +22,9 @@ function setup(options: { autoRestart: boolean; busy?: () => boolean }) {
     executable: "/usr/local/bin/dipo",
     readStamp: () => stamp,
     autoRestart: options.autoRestart,
-    busy: options.busy ?? (() => false),
     restart: () => void (restarts += 1),
   });
-  watcher.start();
+  watcher.start(options.busy ?? (() => false));
   return {
     clock,
     watcher,
@@ -90,12 +89,11 @@ describe("UpgradeWatcher", () => {
       executable: "/gone",
       readStamp: () => null,
       autoRestart: true,
-      busy: () => false,
       restart: () => {
         throw new Error("must not restart");
       },
     });
-    blind.start();
+    blind.start(() => false);
     clock.advance(UPGRADE_CHECK_MS * 2);
     expect(blind.pending).toBe(false);
   });

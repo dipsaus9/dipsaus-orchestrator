@@ -63,7 +63,7 @@ const STORY = {
       { kind: "manual" as const, check: "look at the PR" },
     ],
   },
-  scope: ["packages/engine/src/story-pr/", "packages/daemon/src/"],
+  scope: ["packages/engine/src/story-pr/", "packages/engine/src/create/"],
   taskFile: "backlog/tasks/dipo-144 - Open.md",
 };
 

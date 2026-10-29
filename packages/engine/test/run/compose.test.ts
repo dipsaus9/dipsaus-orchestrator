@@ -1,7 +1,8 @@
 // The run services have one wiring (DIPO-129): `composeRuns` builds them from injected ports. These
 // tests call it with fake ports on a migrated state database and check the wiring itself: which
 // services exist for which ports, and that a worker's lost host reaches worker outcomes and then
-// `afterExit`. A source check keeps the daemon and the run tests from constructing them by hand.
+// `afterExit`. A source check keeps the engine factory and the run tests from constructing them by
+// hand.
 
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 import { mkdtempSync, readFileSync, rmSync } from "node:fs";
@@ -256,10 +257,10 @@ describe("composeRuns", () => {
   });
 });
 
-// The daemon and the run tests build the run services only through `composeRuns`.
+// The engine factory and the run tests build the run services only through `composeRuns`.
 const ROOT = join(import.meta.dir, "..", "..", "..");
 const SITES = [
-  join(ROOT, "daemon", "src", "runs.ts"),
+  join(ROOT, "engine", "src", "create", "runs.ts"),
   join(ROOT, "engine", "test", "run", "run-office.ts"),
 ];
 const BUILT_BY_COMPOSE = [
@@ -287,10 +288,10 @@ describe("the run service wiring sites", () => {
 });
 
 describe("the reviewer boxes (0002, DIPO-347)", () => {
-  test("reach each review session through the daemon's box workers", () => {
+  test("reach each review session through the engine's box workers", () => {
     const source = readFileSync(join(ROOT, "engine", "src", "run", "compose.ts"), "utf8");
     expect(source).toContain('...given("boxes", ports.reviewBoxes),');
-    const daemon = readFileSync(join(ROOT, "daemon", "src", "runs.ts"), "utf8");
-    expect(daemon).toContain("reviewBoxes: boxWorkers");
+    const factory = readFileSync(join(ROOT, "engine", "src", "create", "runs.ts"), "utf8");
+    expect(factory).toContain("reviewBoxes: boxWorkers");
   });
 });

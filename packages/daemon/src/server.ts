@@ -1,8 +1,8 @@
 // The contract on `dipo.sock` (0005 sections 3, 7, 8 and 11; 0006 decision 9). Each WebSocket text
 // frame holds one `ClientFrame` or `ServerFrame`. A connection starts with the `engine.hello` read;
 // a client of another contract major may then use only the frozen surface (`engine.hello`,
-// `daemon.status`, `daemon.stop`). Commands and reads go through the DIPO-22 executors after the
-// lifecycle checks of 0006 decision 7. `subscribe` replays the software ring buffer or an office
+// `daemon.status`, `daemon.stop`). Commands and reads go to the engine's surface, which runs the
+// lifecycle checks of 0006 decision 7 (DIPO-318). `subscribe` replays the software ring buffer or an office
 // change log after the client's cursor, marks the end of catch-up, then sends live events, with a
 // `stream.mark` heartbeat on an idle subscription. The engine keeps no per-connection state beyond
 // the subscriptions and the handshake. When the last TUI that follows an office stops following it
@@ -15,12 +15,9 @@ import {
   type CommandReply,
   type Cursor,
   ClientFrame as ClientFrameSchema,
-  type EngineError,
   engineError,
   type Event,
-  type IdSource,
   OfficeId,
-  type OfficeSummary,
   type ReadReply,
   RequestId,
   type ServerFrame,
@@ -32,24 +29,13 @@ import {
   CLOSE_INVALID_PAYLOAD,
   CLOSE_POLICY_VIOLATION,
   contractUnsupported,
-  executeCommand,
-  executeRead,
-  headCursor,
+  type EngineSurface,
   type Logger,
-  type MemoryRequestTable,
   type Presence,
-  type OfficeDirectory,
-  type OfficeSummarySource,
-  Renderer,
-  replay,
-  type Registry,
   SOFTWARE_STREAM,
   type ConnectionSession,
   type SocketConnection,
-  type SoftwareStream,
 } from "@dipsaus-orchestrator/engine";
-
-import type { DaemonLifecycle } from "./lifecycle";
 
 /** An idle subscription gets a `stream.mark` this often (0005 section 8). */
 export const HEARTBEAT_MS = 15_000;
@@ -72,62 +58,23 @@ export const EVENTS_PER_FRAME = 500;
  */
 const REPLAY_PAGE = 100;
 
-/**
- * Commands that would schedule work and so fail with `scheduling.off` in `safe` (0006 decision 7):
- * `work.run`, and `work.resume`, which resumes a parked run (0020).
- */
-export const SCHEDULING_COMMANDS: ReadonlySet<string> = new Set(["work.run", "work.resume"]);
-
-/** Names any connection may use in every daemon state (0006 decision 7: `starting`). */
-const ALWAYS_ALLOWED: ReadonlySet<string> = new Set(["engine.hello", "commands.describe"]);
-
 /** The frozen surface a client of another contract major may use (0005 section 11). */
 const FROZEN_READS: ReadonlySet<string> = new Set(["engine.hello", "daemon.status"]);
 const FROZEN_COMMANDS: ReadonlySet<string> = new Set(["daemon.stop"]);
 
 export interface ContractServerDeps {
-  readonly registry: Registry;
-  readonly offices: OfficeDirectory;
+  /** The engine's surface: commands, reads and the streams (DIPO-318). */
+  readonly engine: EngineSurface;
   readonly clock: Clock;
-  readonly ids: IdSource;
-  readonly softwareRequests: MemoryRequestTable;
-  readonly lifecycle: DaemonLifecycle;
-  readonly software: SoftwareStream;
-  readonly officeSummaries: OfficeSummarySource;
-  /** The summary of one office; the debounced `office.summary` derives only the changed office. */
-  readonly officeSummary?: (office: OfficeId) => OfficeSummary | undefined;
-  readonly engineVersion: string;
   readonly logger: Logger;
-  readonly renderer?: Renderer;
   /**
    * Called when the last TUI client of `office` disconnected, at `at` (DIPO-308): its last TUI
-   * subscription to the office stream ended. The daemon stores the time for `office.digest`.
+   * subscription to the office stream ended. The engine stores the time for `office.digest`.
    */
   readonly tuiLeft?: (office: OfficeId, at: number) => void;
   readonly heartbeatMs?: number;
   /** Office catch-up pauses while more than this many bytes wait to be written. */
   readonly pumpHighWaterBytes?: number;
-}
-
-/**
- * The lifecycle check for one request (0006 decision 7), null when it may run: office commands and
- * reads get `engine.recovering` in `starting` and `recovering`; commands that schedule work get
- * `scheduling.off` in `safe`; in `draining` no command but `daemon.*` starts, also with the
- * retryable `scheduling.off`, so a client retries it against the next daemon. `engine.hello`,
- * `commands.describe` and `daemon.*` always run.
- */
-export function lifecycleGate(
-  lifecycle: DaemonLifecycle,
-  kind: "command" | "read",
-  name: string,
-): EngineError | null {
-  if (ALWAYS_ALLOWED.has(name) || name.startsWith("daemon.")) return null;
-  const access = lifecycle.officeAccess();
-  if (access !== null) return access;
-  if (kind === "command" && (lifecycle.state === "draining" || SCHEDULING_COMMANDS.has(name))) {
-    return lifecycle.scheduling();
-  }
-  return null;
 }
 
 interface Subscription {
@@ -151,7 +98,6 @@ function requestIdOf(raw: unknown): RequestId | null {
 
 export class ContractServer {
   readonly #deps: ContractServerDeps;
-  readonly #renderer: Renderer;
   readonly #heartbeatMs: number;
   readonly #connections = new Set<Connection>();
   /** Offices whose summary is due, with the debounce timer that sends it. */
@@ -160,23 +106,24 @@ export class ContractServer {
   readonly #lastSummaries = new Map<OfficeId, string>();
   /** `presence` as the listeners last heard it. */
   #tuiPresent = false;
+  readonly #stopListening: readonly (() => void)[];
   readonly #presenceListeners = new Set<() => void>();
 
   constructor(deps: ContractServerDeps) {
     this.#deps = deps;
-    this.#renderer = deps.renderer ?? new Renderer();
     this.#heartbeatMs = deps.heartbeatMs ?? HEARTBEAT_MS;
-    deps.software.onAppend((event) => {
-      for (const connection of this.#connections) connection.softwareEvent(event);
-    });
+    this.#stopListening = [
+      deps.engine.onSoftwareEvent((event) => {
+        for (const connection of this.#connections) connection.softwareEvent(event);
+      }),
+      // New entries in an office's change log, from a command or from a writer outside commands
+      // (ingestion, reconcile): every subscriber of that office catches up.
+      deps.engine.onOfficeChanged((office) => this.notifyOffice(office)),
+    ];
   }
 
   get deps(): ContractServerDeps {
     return this.#deps;
-  }
-
-  get renderer(): Renderer {
-    return this.#renderer;
   }
 
   get heartbeatMs(): number {
@@ -262,8 +209,7 @@ export class ContractServer {
 
   /**
    * New entries in `office`'s change log: every subscriber of that office catches up from its
-   * position. Called after each command that wrote entries; later writers outside commands
-   * (ingestion, reconcile) call it after their transaction too.
+   * position. The engine tells it after each transaction that wrote entries.
    */
   notifyOffice(office: OfficeId): void {
     for (const connection of this.#connections) connection.officeChanged(office);
@@ -281,10 +227,7 @@ export class ContractServer {
       this.#summaryTimers.delete(office);
       let summary;
       try {
-        summary =
-          this.#deps.officeSummary === undefined
-            ? this.#deps.officeSummaries().find((candidate) => candidate.office === office)
-            : this.#deps.officeSummary(office);
+        summary = this.#deps.engine.officeSummary(office);
       } catch (error) {
         this.#deps.logger.warn("office summary failed", { office, error });
         return;
@@ -299,8 +242,9 @@ export class ContractServer {
     this.#summaryTimers.set(office, timer);
   }
 
-  /** Stops pending summary timers; a closing daemon sends no more. */
+  /** Stops pending summary timers and the engine's events; a closing daemon sends no more. */
   close(): void {
+    for (const stop of this.#stopListening) stop();
     for (const timer of this.#summaryTimers.values()) this.#deps.clock.clearTimeout(timer);
     this.#summaryTimers.clear();
   }
@@ -477,7 +421,7 @@ class Connection implements ConnectionSession {
     this.#reply({
       ok: false,
       requestId: frame.requestId,
-      error: contractUnsupported(this.#deps.engineVersion).error,
+      error: contractUnsupported(this.#deps.engine.version).error,
     });
   }
 
@@ -506,53 +450,15 @@ class Connection implements ConnectionSession {
 
   async #read(frame: Extract<ClientFrame, { kind: "read" }>): Promise<ReadReply> {
     const { requestId, name, args } = frame;
-    const gate = lifecycleGate(this.#deps.lifecycle, "read", name);
-    if (gate !== null) return { ok: false, requestId, error: gate };
-    const deps = this.#deps;
-    return executeRead(
-      { registry: deps.registry, offices: deps.offices, clock: deps.clock },
-      { requestId, name, args },
-    );
+    return this.#deps.engine.executeRead({ requestId, name, args });
   }
 
   /** Runs one command alongside later frames; its reply may come after theirs (0005 section 3). */
   #command(frame: Extract<ClientFrame, { kind: "command" }>): void {
     const { kind: _kind, ...request } = frame;
-    const deps = this.#deps;
-    const gate = lifecycleGate(deps.lifecycle, "command", request.name);
-    if (gate !== null) {
-      this.#reply({ ok: false, requestId: request.requestId, error: gate });
-      return;
-    }
-    const end = deps.lifecycle.beginWork();
-    executeCommand(
-      {
-        registry: deps.registry,
-        offices: deps.offices,
-        clock: deps.clock,
-        ids: deps.ids,
-        softwareRequests: deps.softwareRequests,
-      },
-      request,
-      this.#client === undefined ? {} : { client: this.#client },
-    )
-      .then(
-        (reply: CommandReply) => {
-          this.#reply(reply);
-          if (reply.ok && reply.cursor !== undefined && request.office !== undefined) {
-            this.#server.notifyOffice(request.office);
-          }
-        },
-        (error: unknown) => {
-          deps.logger.error("command failed", { command: request.name, error });
-          this.#reply({
-            ok: false,
-            requestId: request.requestId,
-            error: engineError("internal", "The engine failed while handling this command."),
-          });
-        },
-      )
-      .finally(() => end?.());
+    void this.#deps.engine
+      .executeCommand(request, this.#client === undefined ? {} : { client: this.#client })
+      .then((reply: CommandReply) => this.#reply(reply));
   }
 
   // Streams
@@ -564,20 +470,18 @@ class Connection implements ConnectionSession {
     // Subscribing again to the same stream does not leave it.
     if (previous !== undefined) this.#dropSubscription(previous, false);
 
-    if (stream === SOFTWARE_STREAM) {
-      const software = this.#deps.software;
-      const after = frame.after ?? software.head();
-      const replayed = software.since(after);
-      if (!replayed.ok) {
-        this.#reply({ ok: false, requestId, error: replayed.error });
-        return;
-      }
-      this.#reply({ ok: true, requestId, result: { stream, from: after } });
-      const subscription = this.#addSubscription(stream, null, filter, after);
-      this.#deliver(subscription, replayed.events, replayed.head);
+    const subscribed = await this.#deps.engine.subscribe(stream, frame.after);
+    if (!subscribed.ok) {
+      this.#reply({ ok: false, requestId, error: subscribed.error });
+      return;
+    }
+    this.#reply({ ok: true, requestId, result: { stream, from: subscribed.from } });
+    const subscription = this.#addSubscription(stream, subscribed.office, filter, subscribed.from);
+    if (subscribed.office === null) {
+      this.#deliver(subscription, subscribed.events, subscribed.head);
       this.#mark(subscription, true);
       // Derived: the current summary of every office after catch-up (0005 section 5).
-      const summaries = this.#deps.officeSummaries().map((summary) => ({
+      const summaries = this.#deps.engine.officeSummaries().map((summary) => ({
         cursor: subscription.position,
         at: this.#now(),
         type: "office.summary",
@@ -586,40 +490,6 @@ class Connection implements ConnectionSession {
       this.#sendEvents(subscription, summaries);
       return;
     }
-
-    const gate = this.#deps.lifecycle.officeAccess();
-    if (gate !== null) {
-      this.#reply({ ok: false, requestId, error: gate });
-      return;
-    }
-    const office = OfficeId.parse(stream.slice("office:".length));
-    // Subscribing loads the office's engine instance on first use (DIPO-27).
-    const access = await this.#deps.offices.load(office);
-    if (!access.ok) {
-      this.#reply({ ok: false, requestId, error: access.error });
-      return;
-    }
-    const handle = access.office;
-    let after: Cursor;
-    try {
-      after = frame.after ?? headCursor(handle);
-      // Checks the cursor; the entries are sent page by page below.
-      const checked = replay(handle, after, { limit: 1 });
-      if (!checked.ok) {
-        this.#reply({ ok: false, requestId, error: checked.error });
-        return;
-      }
-    } catch (error) {
-      this.#deps.logger.error("office replay failed", { office, error });
-      this.#reply({
-        ok: false,
-        requestId,
-        error: engineError("internal", "The engine could not replay this office stream."),
-      });
-      return;
-    }
-    this.#reply({ ok: true, requestId, result: { stream, from: after } });
-    const subscription = this.#addSubscription(stream, office, filter, after);
     subscription.catchingUp = true;
     this.#pumpOffice(subscription);
   }
@@ -636,30 +506,17 @@ class Connection implements ConnectionSession {
   #pumpOffice(subscription: Subscription): void {
     const office = subscription.office;
     if (office === null) return;
-    const handle = this.#deps.offices.get(office);
-    if (handle === undefined) {
-      this.#dropSubscription(subscription);
-      return;
-    }
     try {
       while (!this.#closed && this.#socket.buffered() < this.#server.pumpHighWaterBytes) {
-        const replayed = replay(handle, subscription.position, { limit: REPLAY_PAGE });
-        if (!replayed.ok) throw new Error(replayed.error.message);
-        const events = this.#server.renderer.renderForStream(
-          office,
-          replayed.head.epoch,
-          replayed.entries,
-          (error, entry) =>
-            this.#deps.logger.error("office change-log entry does not render", {
-              office,
-              seq: entry.seq,
-              type: entry.type,
-              error,
-            }),
-        );
+        const page = this.#deps.engine.officePage(office, subscription.position, REPLAY_PAGE);
+        if (page.kind === "gone") {
+          this.#dropSubscription(subscription);
+          return;
+        }
+        const events = page.events;
         const last = events.at(-1);
         if (last !== undefined) this.#deliver(subscription, events, last.cursor);
-        if (replayed.entries.length < REPLAY_PAGE) {
+        if (page.last) {
           if (subscription.catchingUp && !this.#closed) {
             subscription.catchingUp = false;
             this.#mark(subscription, true);

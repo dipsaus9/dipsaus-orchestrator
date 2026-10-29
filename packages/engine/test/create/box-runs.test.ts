@@ -11,23 +11,16 @@ import { join } from "node:path";
 import { describe, expect, it } from "bun:test";
 
 import type { OfficeId, RunId } from "@dipsaus-orchestrator/contract";
-import {
-  AdapterHolds,
-  BOX_INDEX_DIR,
-  BOX_WAITING,
-  BoxCollisions,
-  type BoxPort,
-  BoxWorkers,
-  boxName,
-  currentPlatform,
-  type DoorPart,
-  PACKAGE_CACHE_DIR,
-  TOKEN_CHECK_DIR_PREFIX,
-  type OfficeHandle,
-  PART_STAGE_PREFIX,
-  partStageRoot,
-  type WorkerHostRow,
-} from "@dipsaus-orchestrator/engine";
+import { PACKAGE_CACHE_DIR } from "../../src/box/cache";
+import { BoxCollisions } from "../../src/box/collisions";
+import type { DoorPart } from "../../src/box/door";
+import { PART_STAGE_PREFIX, partStageRoot } from "../../src/box/parts";
+import { boxName, type BoxPort } from "../../src/box/port";
+import { TOKEN_CHECK_DIR_PREFIX } from "../../src/box/token-check";
+import { BOX_INDEX_DIR, BOX_WAITING, BoxWorkers } from "../../src/box/workers";
+import type { OfficeHandle } from "../../src/db/office";
+import type { WorkerHostRow } from "../../src/runs/worker-hosts";
+import { AdapterHolds } from "../../src/workers/hold";
 import { ManualClock, withTempDir } from "@dipsaus-orchestrator/testkit";
 
 import {
@@ -37,13 +30,13 @@ import {
   conflictMergeOf,
   boxRunEnded,
   containerOnPath,
-  daemonRuns,
-  type DaemonRunsOptions,
+  buildRuns,
+  type RunsOptions,
   deliverThenCheck,
   finishEndedBoxRuns,
   sweepBoxPartStages,
   sweepBoxTokenChecks,
-} from "../../src/runs";
+} from "../../src/create/runs";
 
 function leftovers(dir: string): void {
   mkdirSync(join(dir, `${TOKEN_CHECK_DIR_PREFIX}a1`));
@@ -95,7 +88,10 @@ describe("the daemon's box workers", () => {
       const clock = new ManualClock();
       const options = {
         tools: {},
-        platform: currentPlatform(),
+        probe: async () => null,
+        spawn: () => {
+          throw new Error("nothing spawns here");
+        },
         clock,
         ids: { next: () => "x" },
         env: { PATH: "/usr/bin:/bin" },
@@ -117,8 +113,8 @@ describe("the daemon's box workers", () => {
         implemented: () => false,
         // No box backend: the sweep still runs, since a crash may have left an export behind.
         boxes: null,
-      } as unknown as DaemonRunsOptions;
-      const runs = daemonRuns(options);
+      } as unknown as RunsOptions;
+      const runs = buildRuns(options);
       expect(runs.boxes).toBeNull();
       for (
         let i = 0;

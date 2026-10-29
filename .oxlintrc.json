@@ -659,7 +659,8 @@
       "files": [
         "packages/engine/src/workers/claude-cli/**",
         "packages/engine/src/index.ts",
-        "packages/engine/src/index.test.ts"
+        "packages/engine/src/index.test.ts",
+        "packages/engine/src/create/**"
       ],
       "rules": {
         "dipo/no-claude-cli-import": "off"
@@ -668,7 +669,7 @@
     // The StoryStore seam (0010): the engine reads and writes stories only through
     // packages/engine/src/story-store. Only the Backlog.md implementation in packages/engine/src/backlog
     // (the CLI runner, the story lane and the planning lane) and the composition root (the engine
-    // entry and its feature list) import backlog/.
+    // entry, its feature list and createEngine in packages/engine/src/create) import backlog/.
     {
       "files": ["packages/engine/src/**"],
       "rules": {
@@ -679,7 +680,8 @@
       "files": [
         "packages/engine/src/backlog/**",
         "packages/engine/src/index.ts",
-        "packages/engine/src/features.ts"
+        "packages/engine/src/features.ts",
+        "packages/engine/src/create/**"
       ],
       "rules": {
         "dipo/no-backlog-import": "off"
@@ -888,8 +890,6 @@
         "packages/cli/src/index.ts",
         "packages/cli/src/watch-command.ts",
         "packages/client/src/recovery.ts",
-        "packages/daemon/src/foreground.ts",
-        "packages/daemon/src/runs.ts",
         "packages/engine/src/backlog/lane/lane.ts",
         "packages/engine/src/backlog/plain.ts",
         "packages/engine/src/backlog/pr/feature.ts",
@@ -948,8 +948,6 @@
         "packages/cli/src/profile-commands.ts",
         "packages/cli/src/watch-command.ts",
         "packages/client/src/store/office-store.ts",
-        "packages/daemon/src/foreground.ts",
-        "packages/daemon/src/runs.ts",
         "packages/engine/src/backlog/lane/lane.ts",
         "packages/engine/src/backlog/lane/ops.ts",
         "packages/engine/src/backlog/plain.ts",
@@ -1009,7 +1007,6 @@
     {
       "files": [
         "packages/cli/src/office-commands.ts",
-        "packages/daemon/src/runs.ts",
         "packages/engine/src/backlog/branch-read.ts",
         "packages/engine/src/backlog/init/init.ts",
         "packages/engine/src/backlog/pr/feature.ts",

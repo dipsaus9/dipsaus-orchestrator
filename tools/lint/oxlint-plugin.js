@@ -77,7 +77,7 @@ function importRule(description, messageFor) {
 }
 
 const CLAUDE_CLI_MESSAGE =
-  "Claude specifics stay in packages/engine/src/workers/claude-cli (0004, CLAUDE.md). Reach the adapter through the WorkerPort (0008 section 1); only workers/claude-cli/** and the engine entry import it, type-only imports included.";
+  "Claude specifics stay in packages/engine/src/workers/claude-cli (0004, CLAUDE.md). Reach the adapter through the WorkerPort (0008 section 1); only workers/claude-cli/** and the composition root (the engine entry and packages/engine/src/create) import it, type-only imports included.";
 const ENGINE_ENTRY_MESSAGE =
   "Engine code does not import the engine entry, which re-exports the Claude CLI adapter for the daemon (0004). Import the module itself; reach the adapter through the WorkerPort (0008 section 1).";
 

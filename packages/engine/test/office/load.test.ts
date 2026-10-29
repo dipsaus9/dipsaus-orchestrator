@@ -251,7 +251,7 @@ function withPolledOffice(fn: (o: Polled) => Promise<void>): Promise<void> {
 
       const engineGit = new EngineGit({ spawn: systemSpawn, env: repo.env });
       let setup: OfficeSetup | undefined;
-      // Wired as the daemon wires it (packages/daemon/src/foreground.ts).
+      // Wired as createEngine wires it (packages/engine/src/create/stories.ts).
       const index = new StoryIndex({
         git: engineGit,
         stories: backlogStoryStore({ spawn: systemSpawn, command: BACKLOG_CLI, env: repo.env }),

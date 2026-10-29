@@ -596,3 +596,37 @@ export {
   type ReviewChangedPath,
   type ReviewTaskInput,
 } from "./prompts";
+export { createEngine } from "./create/create-engine";
+export type { DaemonFacts, DatabaseCheck, Engine, EngineDeps, EnginePaths } from "./create/deps";
+export {
+  engineSurface,
+  lifecycleGate,
+  SCHEDULING_COMMANDS,
+  type EngineSurface,
+  type OfficePage,
+  type Subscribed,
+  type SurfaceParts,
+} from "./create/surface";
+export { OfficeChanges, TuiPresence } from "./create/notify";
+export {
+  CRASH_LOOP_REASON,
+  DaemonLifecycle,
+  DATABASE_UNAVAILABLE,
+  TRANSITIONS,
+  TransitionError,
+  type DatabaseFailure,
+  type StateChange,
+  type StateListener,
+} from "./create/lifecycle";
+export {
+  DEFAULT_DRAIN_CAPS,
+  DRAIN_CAP_MS,
+  DRAIN_CAP_STOP_WORKERS_MS,
+  KILL_GRACE_MS,
+  type DrainCaps,
+  type DrainRequest,
+  type DrainResult,
+} from "./create/drain";
+export { MIGRATIONS_STEP, type RecoveryContext, type RecoveryStep } from "./create/recovery";
+export { controlFeature, emitDaemonStates, STOP_REASON, type ControlDeps } from "./create/control";
+export { containerOnPath } from "./create/runs";

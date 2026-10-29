@@ -5,18 +5,14 @@
 import { describe, expect, it } from "bun:test";
 
 import type { OfficeId, SpawnOptions } from "@dipsaus-orchestrator/contract";
-import {
-  engineFeatures,
-  engineRegistry,
-  OFFICE_DEFAULTS,
-  type OfficeHandle,
-  type ParseState,
-  type StoredRun,
-  type WorkerSpec,
-} from "@dipsaus-orchestrator/engine";
+import { OFFICE_DEFAULTS } from "../../src/config/schema";
+import type { OfficeHandle } from "../../src/db/office";
+import { engineFeatures, engineRegistry } from "../../src/features";
+import type { StoredRun } from "../../src/run/records";
+import type { ParseState, WorkerSpec } from "../../src/workers/types";
 import { FakeProcess, ManualClock, SequentialIds } from "@dipsaus-orchestrator/testkit";
 
-import { backlogCliFor, startedSessionState } from "../../src/runs";
+import { backlogCliFor, startedSessionState, type StartedSession } from "../../src/create/runs";
 
 const BACKLOG = "/opt/tools/bin/backlog";
 
@@ -68,9 +64,7 @@ describe("a re-attached session's initial state (DIPO-207)", () => {
   const run = { runId: "run_1", model: "haiku", tier: "M" } as unknown as StoredRun;
   // The office's tier M was edited after the run started: another model, effort high.
   const edited = { ...OFFICE_DEFAULTS.tiers.M, model: "opus", effort: "high" };
-  const paths = { runDir: "/run", workdir: "/work" } as unknown as Parameters<
-    typeof startedSessionState
-  >[5];
+  const paths = { runDir: "/run", workdir: "/work" } as unknown as StartedSession["paths"];
 
   function stateWith(startEffort: string | null) {
     const specs: WorkerSpec[] = [];
@@ -84,7 +78,14 @@ describe("a re-attached session's initial state (DIPO-207)", () => {
         return {} as ParseState;
       },
     } as unknown as Parameters<typeof startedSessionState>[0];
-    startedSessionState(worker, handle, run, "agt_2", edited, paths, true);
+    startedSessionState(worker, {
+      handle,
+      run,
+      agent: "agt_2",
+      inForce: edited,
+      paths,
+      resume: true,
+    });
     return specs[0];
   }
 

@@ -4,7 +4,8 @@
 
 import { describe, expect, it } from "bun:test";
 
-import { ChildProcesses, createLogger } from "@dipsaus-orchestrator/engine";
+import { createLogger } from "../../src/log/logger";
+import { ChildProcesses } from "../../src/platform/process";
 import { ManualClock } from "@dipsaus-orchestrator/testkit";
 
 import {
@@ -14,8 +15,8 @@ import {
   type DrainOptions,
   type DrainResult,
   type StoppedWorkers,
-} from "../../src/drain";
-import { DaemonLifecycle } from "../../src/lifecycle";
+} from "../../src/create/drain";
+import { DaemonLifecycle } from "../../src/create/lifecycle";
 
 /** A child process stand-in: `kill` records the signal and ends it, so nothing real is signalled. */
 class FakeChildren {
