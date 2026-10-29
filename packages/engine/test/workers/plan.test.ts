@@ -6,7 +6,6 @@
 // closed default write paths (DIPO-98) and the path checks.
 
 import { describe, expect, it } from "bun:test";
-import { OFFICE_DEFAULTS } from "../../src/config";
 import {
   CLOSED_WRITES_FILE,
   closedWritePaths,
@@ -78,7 +77,6 @@ function context(overrides: Partial<ClaudeLaunchContext> = {}): ClaudeLaunchCont
     runDir: RUN_DIR,
     tmpDir: "/tmp/claude-501",
     shortTmpDir: SHORT_TMP,
-    sandbox: OFFICE_DEFAULTS.sandbox,
     ...overrides,
   };
 }

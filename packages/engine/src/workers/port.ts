@@ -64,7 +64,7 @@ export interface LocalSettingsCopy {
 }
 
 export interface WorkerPort {
-  /** The adapter id, as `worker.adapter` names it (for example `claude-cli`). */
+  /** The adapter id (for example `claude-cli`): the daemon's one adapter (0001). */
   readonly id: string;
   /**
    * The JSON Schema a run puts in `WorkerSpec.reportSchema`, per kind (0008 section 1 and its

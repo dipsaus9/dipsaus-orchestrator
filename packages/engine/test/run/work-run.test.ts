@@ -206,6 +206,7 @@ beforeEach(async () => {
       clock: t.clock,
       offices: { get: () => office, config: () => w.config },
       holds,
+      adapter: "claude-cli",
     }),
     places,
     resumeStarts,
@@ -490,7 +491,7 @@ describe("work.run picks and claims one Ready story", () => {
         maxMinutes: 25,
         budgetTokens: 150_000,
       },
-      mergeSlot: { ...OFFICE_DEFAULTS.mergeSlot, ciAttempts: 5, conflictAttempts: 3 },
+      caps: { ciAttempts: 5, conflictAttempts: 3 },
     };
     story("TASK-1", "Ready");
     const runId = RunId.parse(resultOf(await run()).started[0]?.run);

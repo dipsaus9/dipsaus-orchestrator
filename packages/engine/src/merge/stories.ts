@@ -25,7 +25,7 @@
 //     hands the conflict to the worker as one fix round (`FixRounds.conflict`); a conflict in a path
 //     the worker cannot write parks the story `conflict`;
 //   - on red required checks, leaves the fix round to the CI path (`StoryPrs`, `FixRounds.consider`);
-//   - on a hold label (`autorelease: pending` always, and `mergeSlot.holdLabels`), reopens the gate:
+//   - on a hold label (`autorelease: pending` always, and `merge.holdLabels`), reopens the gate:
 //     a new merge gate for the head waits for the maintainer;
 //   - on a head dipo did not push, reopens the gate as one only a hand merge or a discard decides;
 //   - when the head changes the release path now (the base's CODEOWNERS grew), git cannot tell, or
@@ -407,7 +407,7 @@ export class StoryMerges {
   async #held(ctx: StoryMergeContext, pr: Pr): Promise<string[]> {
     const config = runConfigOf(ctx.office, pr.run, ctx.config);
     const labels = await this.#deps.labels.prLabels(pr.repo, pr.stored.number);
-    return holdLabelsOn(labels, config.mergeSlot.holdLabels);
+    return holdLabelsOn(labels, config.merge.holdLabels);
   }
 
   /**
@@ -597,7 +597,7 @@ export class StoryMerges {
     const config = runConfigOf(ctx.office, run, ctx.config);
     const key = run.key as StoryKey;
     return mergeWaits({
-      autoMerge: config.mergeSlot.autoMerge,
+      autoMerge: config.merge.autoMerge,
       testBeforeMerge:
         mirrorFlagged(ctx.office, key) && !testPassedFor(ctx.office, key, input.head),
       verdict: input.verdict,

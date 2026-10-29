@@ -107,7 +107,7 @@ export interface ClaudeParseState {
   /** Why `system/init` failed its checks (0008 section 2), or null. */
   readonly initRejected: string | null;
   /**
-   * `worker.plugins` of the office (DIPO-108): a `system/init` that lists another plugin is a
+   * The plugins a session may load (DIPO-108; none in a run, 0008): a `system/init` that lists another plugin is a
    * start failure. Absent or null skips the check (states stored before it existed, tests). The
    * run's adapter sets it from the configuration of its launch on every line.
    */
@@ -132,7 +132,7 @@ export interface ClaudeParseState {
   readonly skills?: readonly string[];
   /**
    * `review` when the session is a reviewer's (0019 sections 4 and 5): its result carries a
-   * `ReviewReport`, and `worker.plugins` does not apply, so `system/init` may list no plugin but the
+   * `ReviewReport`, and `system/init` may list no plugin but the
    * builtin ones. Absent means `implement`, as in states stored before it existed.
    */
   readonly reportKind?: ReportKind;
@@ -227,7 +227,7 @@ export interface InitialStateOptions {
   readonly placeholderKey?: boolean;
   /** The planned `--model`, alias or full id; when set, `system/init` must match it. */
   readonly plannedModel?: string;
-  /** `worker.plugins`; when set, `system/init` may list no other plugin (DIPO-108). */
+  /** The plugins a session may load; when set, `system/init` may list no other (DIPO-108). */
   readonly allowedPlugins?: readonly string[];
   /** The installed and synced plugin ids of the launch (DIPO-108). */
   readonly knownPlugins?: readonly string[];
@@ -817,8 +817,7 @@ function init(value: unknown, state: ClaudeParseState): Step {
   // start failure, not a rejected init, so the story stays Ready. Plugin hooks may already have
   // run (SessionStart runs before `system/init`); the run settings are the guard, this the backstop.
   // Checked only when the key source and the model passed: a session that fails those as well
-  // stays a rejected init. `worker.plugins` does not apply to a reviewer (0019 section 4): it may
-  // load no plugin but Claude Code's builtin ones.
+  // stays a rejected init. A reviewer loads no plugin but Claude Code's builtin ones (0002).
   const allowed = next.allowedPlugins;
   if (
     allowed !== undefined &&

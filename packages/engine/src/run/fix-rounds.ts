@@ -68,7 +68,6 @@ import { withWorkViews, workRefOf } from "../views/work";
 import { findClaim } from "../worktree/records";
 
 import { REVIEWER_ROLE } from "./caps";
-import { runConfigOf } from "./config-snapshot";
 import type { RunEnding } from "./control-types";
 import type { DecidingGuard } from "./deciding";
 import { feedbackIntents, type FeedbackSource, heldFeedback, sendFeedback } from "./feedback";
@@ -278,8 +277,7 @@ export class FixRounds {
     const reviewed = run.reviewRoundCap != null;
     // The head's verdict is in: the review period ended with it (section 7).
     if (reviewed && !reviewedInReview(office, run)) return false;
-    // Whether the run has story PRs comes from its configuration snapshot (DIPO-303 review).
-    const ci = this.#ciOf(officeId, runConfigOf(office, run, config), run);
+    const ci = this.#ciOf(officeId, run);
     if (ci.kind === "pending") return false;
     const verdict = reviewed ? lastReviewVerdict(office, runId) : null;
     const head = ci.head ?? verdict?.commit ?? null;
@@ -608,15 +606,14 @@ export class FixRounds {
   }
 
   /**
-   * The CI of the run's pushed head: from the PR poll; `none` without a CI port or when the office
-   * opens no story PRs; `pending` while the poll has not watched a head yet.
+   * The CI of the run's pushed head: from the PR poll; `none` without a CI port; `pending` while
+   * the poll has not watched a head yet.
    */
   #ciOf(
     officeId: OfficeId,
-    config: OfficeConfig,
     run: StoredRun,
   ): CiHeadState | { readonly kind: "none" | "pending"; readonly head: null } {
-    if (this.#deps.ci === undefined || !config.storyPr.open) return { kind: "none", head: null };
+    if (this.#deps.ci === undefined) return { kind: "none", head: null };
     return this.#deps.ci(officeId, run.runId) ?? { kind: "pending", head: null };
   }
 

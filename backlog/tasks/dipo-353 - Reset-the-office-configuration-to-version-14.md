@@ -1,10 +1,10 @@
 ---
 id: DIPO-353
 title: Reset the office configuration to version 14
-status: Refined
+status: Done
 assignee: []
 created_date: '2026-10-25 09:51'
-updated_date: '2026-10-25 09:55'
+updated_date: '2026-10-29 20:58'
 labels:
   - 'tier:M'
   - 'slice:prune'
@@ -41,8 +41,14 @@ test_plan:
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 Version 14 has the sections of the 0017 sample, each key optional with a default (timeouts.testIdleMinutes from DIPO-309 included), and every key that code does not read is gone
-- [ ] #2 One migration takes a file of any earlier version to version 14, drops retired keys with a warning naming them, and dipo config migrate rewrites the file keeping its comments
-- [ ] #3 An unknown key is an error that names the key and says it may need a newer dipo
-- [ ] #4 This repository's .dipo/office.yaml is migrated to version 14
+- [x] #1 Version 14 has the sections of the 0017 sample, each key optional with a default (timeouts.testIdleMinutes from DIPO-309 included), and every key that code does not read is gone
+- [x] #2 One migration takes a file of any earlier version to version 14, drops retired keys with a warning naming them, and dipo config migrate rewrites the file keeping its comments
+- [x] #3 An unknown key is an error that names the key and says it may need a newer dipo
+- [x] #4 This repository's .dipo/office.yaml is migrated to version 14
 <!-- AC:END -->
+
+## Final Summary
+
+<!-- SECTION:FINAL_SUMMARY:BEGIN -->
+The office configuration is one version 14 schema with the 0017 sample's sections, every key optional with a default. One migration takes versions 1 to 13 to 14, dropping each retired key with a warning that names it and its reason. dipo config migrate rewrites .dipo/office.yaml and the local file at version 14, keeping comments, through the engine's platform entry (0005). An unknown key is an error naming the file and key path and saying it may need a newer dipo. This repository's .dipo/office.yaml is at version 14 and keeps box.packages [jq]. Removed: the 13 versioned schemas and the code behind storyPr.open, worker.web/plugins/allowProjectSettings/adapter, remote, sandbox, permissions and the retired worktree, mergeSlot, story, timeouts and prompt keys.
+<!-- SECTION:FINAL_SUMMARY:END -->

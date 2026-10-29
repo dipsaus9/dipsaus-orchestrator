@@ -112,6 +112,12 @@ export function parseSingleYamlDocument(parse: YamlParser, text: string): YamlPa
 // Validation
 
 /**
+ * The end of the problem of an unknown key in any configuration file (0017): a key a newer dipo
+ * added with a default needs no version bump, so an older dipo cannot tell it from a typo.
+ */
+export const NEWER_DIPO = "this key may need a newer dipo";
+
+/**
  * Words the problem of an unknown key. `parent` is the path of the mapping that holds the key and
  * `expected` the default wording's expected keys. Undefined keeps the default wording.
  */
@@ -134,7 +140,8 @@ export function configIssueErrors(
       const known = knownKeysAt(schema, issue.path);
       const expected = known.length > 0 ? `one of the keys ${known.join(", ")}` : "no other keys";
       const problem =
-        options.unknownKeyProblem?.(issue.path, expected) ?? `unknown key; expected ${expected}`;
+        options.unknownKeyProblem?.(issue.path, expected) ??
+        `unknown key; expected ${expected}; ${NEWER_DIPO}`;
       for (const key of issue.keys) {
         errors.push(configError(file, formatPath([...issue.path, key]), expected, problem));
       }

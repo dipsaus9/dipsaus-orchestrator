@@ -26,11 +26,11 @@ export interface EngineGitDeps {
   readonly sleep?: (clock: Clock) => Sleep;
 }
 
-/** The git part of the office configuration. */
+/** The git part of the office configuration. The remote is always `origin` (0010). */
 export function gitSettings(config: OfficeConfig | undefined): GitSettings {
   if (config === undefined) return { remote: "origin" };
   return {
-    remote: config.remote,
+    remote: "origin",
     worktreeRoot: config.worktree.root,
     ...(config.base === undefined ? {} : { base: config.base }),
   };

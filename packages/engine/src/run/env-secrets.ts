@@ -1,15 +1,13 @@
 // The values of the office's env files (0002, 0008), and their redaction: a PR comment built from a
 // reviewer's verdict and a web call's line in the stored worker output never show one. The files
-// are the `copy` entries of `worktree.files`, read from the office's main checkout, where a story's
-// box files come from; a story has no worktree of its own (0010).
+// are the ones `box.files` lists, read from the office's main checkout, where a story's box files
+// come from (0008).
 // A value is looked for as written and percent-encoded, in either hex case, and in the text after
 // lenient percent-decoding. A value under `MIN_SECRET_CHARS` characters is not compared: "1" or
 // "true" would match everywhere.
 
 import { lstatSync, readdirSync, readFileSync } from "node:fs";
 import { join, relative } from "node:path";
-
-import type { OfficeConfig } from "../config";
 
 /** Values shorter than this are not compared (see the file comment). */
 export const MIN_SECRET_CHARS = 4;
@@ -152,7 +150,7 @@ export function redactSecrets(line: string, secrets: readonly EnvSecret[]): stri
   return findSecret(out, live) === null ? out : REDACTED_TEXT;
 }
 
-/** Files of a `worktree.files` entry that exists in `folder`: a file, or those under a directory. */
+/** Files of a `box.files` entry that exists in `folder`: a file, or those under a directory. */
 function filesOf(folder: string, path: string): string[] {
   const out: string[] = [];
   const walk = (absolute: string): void => {
@@ -172,10 +170,12 @@ function filesOf(folder: string, path: string): string[] {
 }
 
 /** Reads the env secrets of `files` in a checkout (`readEnvSecrets` by default; tests replace it). */
-export type EnvSecretsReader = (
-  checkout: string,
-  files: OfficeConfig["worktree"]["files"],
-) => EnvSecret[];
+export type EnvSecretsReader = (checkout: string, files: readonly BoxFileEntry[]) => EnvSecret[];
+
+/** One entry of `box.files`: only its path is read here. */
+export interface BoxFileEntry {
+  readonly path: string;
+}
 
 /**
  * The env secrets of the office whose main checkout is `checkout`, through `read`; throws when the
@@ -183,7 +183,7 @@ export type EnvSecretsReader = (
  */
 export function officeEnvSecrets(
   checkout: string | undefined,
-  files: OfficeConfig["worktree"]["files"],
+  files: readonly BoxFileEntry[],
   read: EnvSecretsReader = readEnvSecrets,
 ): EnvSecret[] {
   if (checkout === undefined) throw new Error("the office's main checkout is not known");
@@ -191,17 +191,13 @@ export function officeEnvSecrets(
 }
 
 /**
- * The values of the env files in `checkout`: the `copy` entries of `worktree.files` (a directory
- * entry contributes the files under it), read as `KEY=value` lines. An entry that is absent (an
+ * The values of the env files in `checkout`: the entries of `box.files` (a directory entry
+ * contributes the files under it), read as `KEY=value` lines. An entry that is absent (an
  * optional file) contributes nothing; any other failure throws, so the caller denies.
  */
-export function readEnvSecrets(
-  checkout: string,
-  files: OfficeConfig["worktree"]["files"],
-): EnvSecret[] {
+export function readEnvSecrets(checkout: string, files: readonly BoxFileEntry[]): EnvSecret[] {
   const secrets: EnvSecret[] = [];
   for (const entry of files) {
-    if (entry.mode !== "copy") continue;
     let found: string[];
     try {
       found = filesOf(checkout, entry.path.replace(/\/$/, ""));

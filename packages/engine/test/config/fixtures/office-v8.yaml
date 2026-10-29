@@ -1,0 +1,4 @@
+# A version 8 office file: version 8 adds worker.web (DIPO-164).
+version: 8
+worker: { web: false }
+timeouts: { workerQuietMinutes: 4 }

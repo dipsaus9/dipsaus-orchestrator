@@ -46,7 +46,7 @@ export interface NewRun {
   readonly reviewRoundCap: number | null;
   /**
    * The review loop's other caps at the start (0002): red required check heads
-   * (`mergeSlot.ciAttempts`), failed conflict hand-offs (`mergeSlot.conflictAttempts`), and the
+   * (`caps.ciAttempts`), failed conflict hand-offs (`caps.conflictAttempts`), and the
    * reviewer's own turn, minute and token caps per session (`review.maxTurns`, `review.maxMinutes`,
    * `review.budgetTokens`), never the story's. Null for a session run and for a run started before
    * they were kept.

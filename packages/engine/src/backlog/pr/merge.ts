@@ -4,7 +4,7 @@
 //
 // - Auto-merge on. A backlog PR whose structural check (`BacklogPrs`) passed on the branch's local
 //   head, which GitHub shows as the PR's head, with no hold label (`autorelease: pending` always, and
-//   `mergeSlot.holdLabels`), no path the base's CODEOWNERS gives an owner (the release path; when
+//   `merge.holdLabels`), no path the base's CODEOWNERS gives an owner (the release path; when
 //   git cannot tell, none), no conflict and no failed required check, gets
 //   `gh pr merge --auto --squash --match-head-commit <head>`. GitHub merges it once its required
 //   checks pass on that head. dipo never passes `--admin`.
@@ -199,7 +199,7 @@ export class BacklogMerges implements BacklogAutoMerge {
     const host = this.#deps.labels;
     if (host === undefined) return [];
     const labels = await host.prLabels(pr.repo, pr.record.number);
-    return holdLabelsOn(labels, ctx.config.mergeSlot.holdLabels);
+    return holdLabelsOn(labels, ctx.config.merge.holdLabels);
   }
 
   /** Auto-merge on for a PR whose check passed on its head, unless something stops it. */

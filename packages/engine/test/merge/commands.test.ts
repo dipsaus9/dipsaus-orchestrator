@@ -135,10 +135,10 @@ async function refused(promise: Promise<unknown>): Promise<string> {
   throw new Error("expected a refusal");
 }
 
-/** A world whose merge gate waits for the maintainer (`mergeSlot.autoMerge` off). */
+/** A world whose merge gate waits for the maintainer (`merge.autoMerge` off). */
 async function waiting(): Promise<GateId> {
   s = await storyWorld();
-  s.config = { ...OFFICE_DEFAULTS, mergeSlot: { ...OFFICE_DEFAULTS.mergeSlot, autoMerge: false } };
+  s.config = { ...OFFICE_DEFAULTS, merge: { ...OFFICE_DEFAULTS.merge, autoMerge: false } };
   await s.tick();
   const gate = mergeGatesOfRun(s.w.office, s.run)[0];
   if (gate === undefined) throw new Error("no gate opened");

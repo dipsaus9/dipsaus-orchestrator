@@ -4,10 +4,10 @@
 // dipo turns GitHub's auto-merge on for a story PR only once its gate for the head is approved.
 //
 // - Waiting. The gate waits for the maintainer when the run's configuration snapshot sets
-//   `mergeSlot.autoMerge` false, the story is flagged test-before-merge, the reviewer marked a
+//   `merge.autoMerge` false, the story is flagged test-before-merge, the reviewer marked a
 //   criterion `maintainer`, the story passed review only by a maintainer override, or a hold label
 //   is on the PR (`autorelease: pending` always, which no setting removes, and every label of
-//   `mergeSlot.holdLabels`). Otherwise it is decided `approved` by `rule` when it opens, and
+//   `merge.holdLabels`). Otherwise it is decided `approved` by `rule` when it opens, and
 //   recorded, so the audit trail shows every merge decision. `mergeWaits` decides this as data.
 //   A gate reopened because a hold label appeared or a head dipo did not push showed up while
 //   auto-merge was on waits too.
@@ -95,7 +95,7 @@ export function autoreleasePending(labels: readonly string[]): boolean {
 
 /** What `mergeWaits` decides from. */
 export interface MergeWaitFacts {
-  /** `mergeSlot.autoMerge` of the run's configuration snapshot. */
+  /** `merge.autoMerge` of the run's configuration snapshot. */
   readonly autoMerge: boolean;
   readonly testBeforeMerge: boolean;
   /** The verdict that holds for the head. */
@@ -126,7 +126,7 @@ export function mergeWaits(facts: MergeWaitFacts): MergeWait[] {
 export function waitLine(wait: MergeWait): string {
   switch (wait.kind) {
     case "autoMergeOff":
-      return "mergeSlot.autoMerge is off for this office, so every story merge waits for the maintainer";
+      return "merge.autoMerge is off for this office, so every story merge waits for the maintainer";
     case "testBeforeMerge":
       return `the story is flagged ${TEST_BEFORE_MERGE}`;
     case "maintainerCriteria":

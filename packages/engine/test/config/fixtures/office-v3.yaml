@@ -1,10 +1,4 @@
-# The same office file in version 3, plus a non-default mergeSlot.requiredChecks (DIPO-133).
+# A version 3 office file: version 3 adds mergeSlot.requiredChecks (DIPO-133).
 version: 3
-tiers:
-  S: { model: haiku, effort: low, budgetTokens: 250000, maxTurns: 50, maxMinutes: 25, loops: 2 }
-worker: { adapter: claude-cli, allowProjectSettings: [model] }
-remote: upstream
-sandbox: { toolchainReadPaths: [~/.bun] }
-scripts:
-  verify: bun run verify
 mergeSlot: { requiredChecks: [build, Lint (ubuntu)] }
+story: { slugMax: 30 }

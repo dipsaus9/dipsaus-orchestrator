@@ -31,25 +31,34 @@ describe("runConfigOf", () => {
     const run = findRun(w.office, story.run)!;
     const inForce: OfficeConfig = {
       ...OFFICE_DEFAULTS,
-      mergeSlot: { ...OFFICE_DEFAULTS.mergeSlot, autoMerge: true, holdLabels: ["later"] },
+      merge: { ...OFFICE_DEFAULTS.merge, autoMerge: true, holdLabels: ["later"] },
     };
     // No snapshot: the configuration in force.
     expect(runConfigOf(w.office, run, inForce)).toBe(inForce);
-    // A snapshot of an older version, without `holdLabels` and without `storyPr`.
-    const { storyPr: _storyPr, ...older } = OFFICE_DEFAULTS;
-    const { holdLabels: _holdLabels, ...olderSlot } = OFFICE_DEFAULTS.mergeSlot;
+    // A version 13 snapshot: `mergeSlot` without `holdLabels`, and keys version 14 retired.
+    const { merge: _merge, caps: _caps, ...rest } = OFFICE_DEFAULTS;
     w.office.immediate(() =>
       recordConfigSnapshot(
         w.office,
         "h",
-        { ...older, mergeSlot: { ...olderSlot, autoMerge: false } },
+        {
+          ...rest,
+          version: 13,
+          mergeSlot: { autoMerge: false, ciAttempts: 7, requiredChecks: ["ci-ok"] },
+          storyPr: { open: true },
+          worker: { adapter: "claude-cli", web: true },
+        },
         0,
       ),
     );
     const started = runConfigOf(w.office, run, inForce);
-    expect(started.mergeSlot.autoMerge).toBe(false);
-    expect(started.mergeSlot.holdLabels).toEqual(["later"]);
-    expect(started.storyPr).toEqual(inForce.storyPr);
+    // The moved keys are read at their new place (the migration of 0017).
+    expect(started.merge).toEqual({ ...inForce.merge, autoMerge: false });
+    expect(started.caps).toEqual({ ...inForce.caps, ciAttempts: 7 });
+    expect(started.version).toBe(14);
+    expect(Object.keys(started)).not.toContain("mergeSlot");
+    expect(Object.keys(started)).not.toContain("storyPr");
+    expect(Object.keys(started)).not.toContain("worker");
   });
 
   it("gives the reviewer the model and effort the run started with", async () => {

@@ -10,7 +10,6 @@
 
 import { posix } from "node:path";
 
-import type { OfficeConfig } from "../../config";
 import { PlanError } from "../types";
 import type { LaunchPlan, WorkerKind, WorkerSpec } from "../types";
 import { userMessageLine } from "./encode";
@@ -122,8 +121,7 @@ export const EMPTY_MCP_CONFIG_FILE = "mcp-empty.json";
 export const EMPTY_MCP_CONFIG = { mcpServers: {} } as const;
 
 /**
- * The launch context a `session` spec is planned with: no plugin the office allows its workers,
- * since `worker.plugins` does not apply to it, so every installed plugin is switched off.
+ * The launch context a `session` spec is planned with: every installed plugin is switched off.
  */
 export function kindContext(
   spec: Pick<WorkerSpec, "kind">,
@@ -178,13 +176,9 @@ export interface ClaudeLaunchContext {
    * session gets no `DIPO_TMP` and the sandbox no extra write path.
    */
   readonly shortTmpDir?: string;
-  readonly sandbox: Pick<
-    OfficeConfig["sandbox"],
-    "toolchainReadPaths" | "allowRead" | "allowedDomains" | "allowLocalBinding"
-  >;
   /**
-   * The installed Claude Code plugins and `worker.plugins` (DIPO-108, 0008 amendment of
-   * 2026-10-12): the run settings switch off every installed plugin the office does not name.
+   * The installed Claude Code plugins and the ones a session may load, none in a run (DIPO-108,
+   * 0008): the run settings switch off every installed plugin not allowed.
    * `claudeLaunchContext` always sets it; without it (the recordings capture) the run settings
    * carry no `enabledPlugins`.
    */
@@ -245,8 +239,8 @@ export function checkSpec(spec: WorkerSpec): void {
   if (!Number.isInteger(spec.caps.maxTurns) || spec.caps.maxTurns <= 0) {
     throw new PlanError(`maxTurns must be a positive integer: ${spec.caps.maxTurns}`);
   }
-  // `web` is the developer's switch (0020 section 11b). A session runs with every tool off (DIPO-310)
-  // and the reviewer has its own tool set (0002), so neither takes it.
+  // `web` is the developer's alone: the developer always has the web (0008). A session runs with
+  // every tool off (DIPO-310) and the reviewer has its own tool set (0002), so neither takes it.
   if (spec.kind === "session" && spec.web === true) {
     throw new PlanError("a session runs with every tool off, the web too (DIPO-310)");
   }

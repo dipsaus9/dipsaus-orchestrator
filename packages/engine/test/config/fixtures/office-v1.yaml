@@ -1,9 +1,28 @@
-# A version 1 office file as offices wrote it before DIPO-108.
+# A version 1 office file with a key of every version 1 section, the retired ones included.
 version: 1
 tiers:
   S: { model: haiku, effort: low, budgetTokens: 250000, maxTurns: 50, maxMinutes: 25, loops: 2 }
 worker: { adapter: claude-cli, allowProjectSettings: [model] }
+permissions: { ask: when-present, presentMinutes: 10 }
+timeouts: { workerStallMinutes: 25, permissionWaitSeconds: 300 }
+base: main
 remote: upstream
+worktree:
+  root: "../{repo}.trees"
+  files: [{ path: .env, mode: copy }]
+  ports: { stride: 10, named: { PORT: 5173 } }
+  env: { HMR: "{port:24678}" }
+  post_create: [[bun, run, seed]]
+  maxSlots: 4
+scripts: { verify: bun run verify }
+story: { titleMax: 90 }
+prompt:
+  contractMax: 11000
+  budgets:
+    context: { S: 1000, M: 2000, L: 3000, XL: 4000 }
+    contextItem: { S: 1, M: 1, L: 1, XL: 1 }
+    inputsFile: { S: 1, M: 1, L: 1, XL: 1 }
+    feedbackLogLines: { S: 1, M: 1, L: 1, XL: 1 }
+    nudge: { S: 1, M: 1, L: 1, XL: 1 }
 sandbox: { toolchainReadPaths: [~/.bun] }
-scripts:
-  verify: bun run verify
+polling: { fetchSeconds: 120 }

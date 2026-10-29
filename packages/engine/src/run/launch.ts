@@ -297,8 +297,6 @@ export function runWorkerSpec(
     readonly agent: string;
     readonly caps: TierCaps;
     readonly reviewer?: ReviewerSettings;
-    /** `worker.web`: the developer role also gets the web tools (0020 section 11b, DIPO-164). */
-    readonly web?: boolean;
   },
   paths: RunLaunchPaths,
   taskMessage: string,
@@ -335,7 +333,8 @@ export function runWorkerSpec(
     model: facts.caps.model,
     effort: facts.caps.effort,
     caps,
-    web: facts.web === true,
+    // A developer in its box always has the web (0008).
+    web: true,
     session,
     reportSchema: worker.reportSchema.implement,
   };
@@ -368,10 +367,6 @@ export class RunLauncher {
     this.#deps = deps;
   }
 
-  get adapterId(): string {
-    return this.#deps.worker.id;
-  }
-
   #workspace(git: OfficeGit, at: WorkspaceAt): Workspace {
     return (this.#deps.workspace ?? defaultWorkspace)(git, at);
   }
@@ -388,7 +383,7 @@ export class RunLauncher {
   }
 
   #spec(
-    facts: Pick<RunFacts, "runId" | "agent" | "caps"> & { readonly web: boolean },
+    facts: Pick<RunFacts, "runId" | "agent" | "caps">,
     paths: RunLaunchPaths,
     taskMessage: string,
     session: string,
@@ -461,12 +456,7 @@ export class RunLauncher {
       // No run temp directory in the shared temp folder: the developer's temp files live in its box
       // (DIPO-240, 0021 section 2); a reviewer's are made with its own session (`review-launch.ts`).
       ensurePrivateDir(paths.runDir);
-      spec = this.#spec(
-        { ...facts, web: facts.config.worker.web },
-        paths,
-        prompts.taskMessage,
-        RunLauncher.sessionOf(facts.agent),
-      );
+      spec = this.#spec(facts, paths, prompts.taskMessage, RunLauncher.sessionOf(facts.agent));
       writeFileSync(spec.systemFile, prompts.systemFile, { mode: 0o600 });
       systemHash = systemHashOf(prompts.systemFile);
       promptSources = {
@@ -679,7 +669,6 @@ export class RunLauncher {
         runId: PREVIEW_RUN as RunId,
         agent: "<agent-id>" as AgentId,
         caps: input.caps,
-        web: input.config.worker.web,
       },
       paths,
       prompts.taskMessage,

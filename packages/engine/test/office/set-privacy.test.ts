@@ -77,14 +77,14 @@ describe("office.setPrivacy", () => {
       async (repo) => {
         mkdirSync(join(repo.dir, ".dipo"), { recursive: true });
         const file = join(repo.dir, ".dipo", "office.local.yaml");
-        writeFileSync(file, "# note\nversion: 4\nretention:\n  shortDays: 3\n");
+        writeFileSync(file, "# note\nversion: 14\nretention:\n  shortDays: 3\n");
         const s = await officeSetup(repo.root);
         const office = resultOf<{ office: OfficeId }>(
           await send(s, "office.open", { path: repo.dir }),
         ).office;
         resultOf(await send(s, "office.setPrivacy", { office, key: "keepRawEvents", value: true }));
         const text = readFileSync(file, "utf8");
-        expect(text).toContain("version: 4");
+        expect(text).toContain("version: 14");
         expect(text).toContain("shortDays: 3");
         expect(text).not.toContain("# note");
         expect(s.manager.config(office)?.retention.shortDays).toBe(3);
@@ -115,7 +115,7 @@ describe("office.setPrivacy", () => {
         expect(!bad.ok && bad.error.message).toContain("privacy.storePrompts");
         expect(existsSync(file)).toBe(false);
 
-        const invalid = "version: 4\ntimeouts:\n  workerStallMinutes: soon\n";
+        const invalid = "version: 14\ntimeouts:\n  workerStallMinutes: soon\n";
         writeFileSync(file, invalid);
         const refused = await send(s, "office.setPrivacy", {
           office,

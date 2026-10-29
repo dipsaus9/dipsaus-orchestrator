@@ -1,0 +1,3 @@
+# A version 6 office file: version 6 adds story.maintainerStepPhrases (DIPO-188).
+version: 6
+story: { outcomeMin: 30, maintainerStepPhrases: [by hand] }

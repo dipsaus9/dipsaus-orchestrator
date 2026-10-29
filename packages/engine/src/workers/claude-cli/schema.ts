@@ -24,7 +24,7 @@ export const InitMessage = z.object({
   apiKeySource: z.string(),
   /**
    * The plugins the session loaded (DIPO-108). `source` is `<plugin>@<marketplace>`, the form
-   * `enabledPlugins` and `worker.plugins` use (live run, Claude Code 2.1.301); `name` is the
+   * `enabledPlugins` uses (live run, Claude Code 2.1.301); `name` is the
    * plugin alone. Recordings redact both.
    */
   plugins: z

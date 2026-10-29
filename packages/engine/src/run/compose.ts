@@ -96,7 +96,7 @@ export interface RunPorts {
    * The office's starts paused (0020): the loaded offices a plan limit pauses together and the
    * adapter holds of a failed adapter check; needs `outcomes`.
    */
-  readonly startsPaused?: Pick<StartsPausedDeps, "loaded" | "holds">;
+  readonly startsPaused?: Pick<StartsPausedDeps, "loaded" | "holds" | "adapter">;
   /** The office's session places (DIPO-142): its pending reviews. */
   readonly places?: Pick<PlacesDeps, "pending">;
   /**

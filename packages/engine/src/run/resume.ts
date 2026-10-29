@@ -394,7 +394,7 @@ export class RunResumer implements NextSession {
         },
         runWorkerSpec(
           deps.worker,
-          { runId: run.runId, agent: request.work.agent, caps: tier, web: config.worker.web },
+          { runId: run.runId, agent: request.work.agent, caps: tier },
           paths,
           "",
           {
@@ -443,7 +443,7 @@ export class RunResumer implements NextSession {
       .join("\n\n");
     const spec = runWorkerSpec(
       deps.worker,
-      { runId: run.runId, agent, caps: tier, web: config.worker.web },
+      { runId: run.runId, agent, caps: tier },
       paths,
       taskMessage,
       session,

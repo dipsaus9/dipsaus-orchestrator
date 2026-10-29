@@ -118,7 +118,7 @@ function memoryWorkspace(root: string): Workspace {
   };
 }
 
-const ctxOf = (paths: RunLaunchPaths, config: OfficeConfig) =>
+const ctxOf = (paths: RunLaunchPaths) =>
   claudeLaunchContext(
     {
       claudePath: CLAUDE,
@@ -127,7 +127,6 @@ const ctxOf = (paths: RunLaunchPaths, config: OfficeConfig) =>
       pluginFiles: { read: () => undefined, dirs: () => [] },
     },
     paths,
-    config,
   );
 
 function neverSpawn(): never {
@@ -278,8 +277,8 @@ beforeEach(async () => {
     localSettings: CLAUDE_LOCAL_SETTINGS,
     // The Claude parser with a stand-in plan: the Claude CLI plans no developer on the Mac, and
     // these tests launch without box workers (DIPO-240).
-    adapter: (paths, config) => ({
-      ...claudeCliAdapter(ctxOf(paths, config), { spawn: neverSpawn, clock: t.clock }),
+    adapter: (paths) => ({
+      ...claudeCliAdapter(ctxOf(paths), { spawn: neverSpawn, clock: t.clock }),
       plan: (spec) => standInPlan(spec, paths, CLAUDE),
     }),
     prepare: async (spec, paths) => {
@@ -392,6 +391,7 @@ beforeEach(async () => {
         clock: t.clock,
         offices: { get: () => office, config: () => w.config },
         holds,
+        adapter: "claude-cli",
       }).state(id),
     // As `claimStory`: the re-check, the claim record, setup (a failure rolls back), the claim.
     claims: {
@@ -613,15 +613,6 @@ describe("work.run starts the worker of a claimed run", () => {
       { part: "system", text: systemFile },
       { part: "message", text: sent },
     ]);
-  });
-
-  it("plans the M0 developer tools with worker.web false (DIPO-164)", async () => {
-    world.config = { ...OFFICE_DEFAULTS, worker: { ...OFFICE_DEFAULTS.worker, web: false } };
-    story("TASK-1", "Ready");
-    expect(resultOf<RunResult>(await run()).started).toHaveLength(1);
-    const [host] = world.hosts;
-    const argv: readonly string[] = host?.plan.argv ?? [];
-    expect(argv[argv.indexOf("--tools") + 1]).toBe("Read,Edit,Write,Glob,Grep,Bash");
   });
 
   it("stores no prompt text with storePrompts off (DIPO-137)", async () => {

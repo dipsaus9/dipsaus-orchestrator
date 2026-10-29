@@ -473,14 +473,11 @@ describe("posting the review comment", () => {
 });
 
 describe("the review comment with the daemon's checkout wiring (DIPO-371)", () => {
-  // The office copies `.env`; the env files are read from the main checkout the office's git
-  // recorded at its load, as the daemon passes it to StoryPrs.
+  // The office lists `config/.env` in `box.files`; the env files are read from the main checkout
+  // the office's git recorded at its load, as the daemon passes it to StoryPrs.
   const copying: OfficeConfig = {
     ...OFFICE_DEFAULTS,
-    worktree: {
-      ...OFFICE_DEFAULTS.worktree,
-      files: [{ path: "config/.env", mode: "copy", required: false }],
-    },
+    box: { files: [{ path: "config/.env", noRealSecrets: true }] },
   };
   const daemonWiring = (checkout: string) => {
     const engineGit = new EngineGit({
@@ -558,21 +555,18 @@ describe("the review comment with the daemon's checkout wiring (DIPO-371)", () =
 });
 
 describe("a story In Review without a story PR", () => {
-  it("gets its PR at the next poll after story PRs were switched on, also when its run is past its review", async () => {
-    const off = { ...OFFICE_DEFAULTS, storyPr: { open: false } } as OfficeConfig;
+  it("gets its PR at the next poll, also when its run is past its review", async () => {
     await inWorld(
       async (w) => {
         const id = w.office.officeId;
-        expect(await w.prs.retry(id)).toEqual([]);
         expect(findStoryPr(w.office, w.run)).toBeNull();
-        w.config = OFFICE_DEFAULTS;
         expect(await w.prs.retry(id)).toEqual([w.run]);
         expect(findStoryPr(w.office, w.run)).toMatchObject({ number: 7, state: "open" });
         // The stored verdict is in the status block of the PR it opened.
         expect(w.host.creates[0]?.body).toContain("- review: round 1 approved at `a1b2c3d4`");
         await yieldToEventLoop();
       },
-      { ended: "reviewed", config: off },
+      { ended: "reviewed" },
     );
   });
 });

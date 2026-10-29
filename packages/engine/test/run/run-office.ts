@@ -21,7 +21,6 @@ import {
 } from "@dipsaus-orchestrator/testkit";
 
 import { BacklogLane } from "../../src/backlog/lane";
-import type { OfficeConfig } from "../../src/config";
 import type { OfficeHandle } from "../../src/db/office";
 import { GateStore } from "../../src/gate";
 import { EngineGit } from "../../src/git";
@@ -97,7 +96,7 @@ function neverSpawn(): never {
   throw new Error("no claude process may start in this test");
 }
 
-const ctxOf = (paths: RunLaunchPaths, config: OfficeConfig) =>
+const ctxOf = (paths: RunLaunchPaths) =>
   claudeLaunchContext(
     {
       claudePath: CLAUDE,
@@ -106,7 +105,6 @@ const ctxOf = (paths: RunLaunchPaths, config: OfficeConfig) =>
       pluginFiles: { read: () => undefined, dirs: () => [] },
     },
     paths,
-    config,
   );
 
 export interface Running {
@@ -268,8 +266,8 @@ export async function withRunOffice(
         id: "claude-cli",
         reportSchema: REPORT_JSON_SCHEMAS,
         localSettings: CLAUDE_LOCAL_SETTINGS,
-        adapter: (paths, config) => ({
-          ...claudeCliAdapter(ctxOf(paths, config), { spawn: neverSpawn, clock }),
+        adapter: (paths) => ({
+          ...claudeCliAdapter(ctxOf(paths), { spawn: neverSpawn, clock }),
           plan: (spec) => standInPlan(spec, paths, CLAUDE),
         }),
         prepare: async (spec, paths) => {
@@ -543,7 +541,9 @@ export async function withRunOffice(
               },
             }
           : {}),
-        ...(options.startsPaused === true ? { startsPaused: { holds } } : {}),
+        ...(options.startsPaused === true
+          ? { startsPaused: { holds, adapter: "claude-cli" } }
+          : {}),
       });
       const { ingest, permissions, control, outcomes, resumption, startsPaused, launcher } =
         composed;
@@ -557,6 +557,7 @@ export async function withRunOffice(
             config: (office) => loaded().manager.config(office),
           },
           holds,
+          adapter: "claude-cli",
         });
       const workRun = new WorkRun({
         offices: {

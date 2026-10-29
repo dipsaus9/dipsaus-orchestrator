@@ -130,6 +130,11 @@ Usage:
   dipo office reload-config [--office <id>]
                     read the office configuration again; an invalid file keeps
                     the previous one and refuses new runs
+  dipo config migrate
+                    rewrite .dipo/office.yaml and .dipo/office.local.yaml of
+                    this repository at the newest configuration version,
+                    keeping their comments, and name each key it moved or
+                    deleted
   dipo gate <id> [--office <id>]
                     check a story against the Ready gate on the office's base
                     branch without storing anything; prints "ready <ID> passed"
@@ -350,6 +355,20 @@ export function defaultDeps(): CliDeps {
   };
 }
 
+/** `dipo config migrate`: the main worktree of the repository around the current directory. */
+async function configMigrate(args: readonly string[], deps: CliDeps): Promise<number> {
+  if (args.length !== 1 || args[0] !== "migrate") {
+    deps.writeError("dipo: config has one subcommand\nusage: dipo config migrate");
+    return 2;
+  }
+  const location = await deps.workspace.locate(deps.workspace.cwd);
+  if (location === null) {
+    deps.writeError(`dipo: ${deps.workspace.cwd} is not inside a git repository`);
+    return 2;
+  }
+  return deps.runDaemon(["config-migrate", location.mainWorktree]);
+}
+
 /** Runs the command line and resolves to the process exit code. */
 export async function main(argv: readonly string[], deps: CliDeps): Promise<number> {
   const args = [...argv];
@@ -381,6 +400,8 @@ export async function main(argv: readonly string[], deps: CliDeps): Promise<numb
   }
   // The box login in the Keychain (DIPO-269): daemon-side code on this terminal, no daemon needed.
   if (args[0] === "login") return deps.runDaemon(args);
+  // Rewrites the office files of this repository at version 14 (0017): daemon-side code, no daemon.
+  if (args[0] === "config") return configMigrate(args.slice(1), deps);
   // Offline maintenance outside the contract (0006 amendment of 2026-10-12): daemon-side code.
   if (args[0] === "restore") {
     const [file, ...rest] = args.slice(1);

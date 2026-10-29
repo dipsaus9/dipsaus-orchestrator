@@ -144,7 +144,7 @@ describe("the desk order (0020 section 12)", () => {
           id: "gat_01J9ZK5Q8W3V4X6Y7Z8A9B0C1C",
           key: merge.key,
           run: merge.run,
-          summary: "mergeSlot.autoMerge is off: approve or reject the merge",
+          summary: "merge.autoMerge is off: approve or reject the merge",
           at: base + HOUR,
         });
         // Group 3: by reason as 0020 lists them, whatever their age; group 4: the stories the
@@ -285,7 +285,7 @@ describe("the desk order (0020 section 12)", () => {
         expect(byStory("DIPO-3", "MERGE")).toMatchObject({
           gate: "gat_01J9ZK5Q8W3V4X6Y7Z8A9B0C1C",
           pr: { number: 12, url: "https://github.com/o/r/pull/12", state: "open" },
-          detail: "mergeSlot.autoMerge is off: approve or reject the merge",
+          detail: "merge.autoMerge is off: approve or reject the merge",
           actions: [
             { command: "gate.approve", cli: "dipo approve DIPO-3" },
             { command: "gate.reject", cli: 'dipo reject DIPO-3 --note "<why>"' },

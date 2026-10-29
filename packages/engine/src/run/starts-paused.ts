@@ -173,6 +173,11 @@ export interface StartsPausedDeps {
   };
   /** The loaded offices, which a plan limit pauses together (0001); only the hit office without it. */
   readonly loaded?: () => readonly OfficeId[];
+  /**
+   * The daemon's worker adapter: every office runs on it (0001: one subscription, one adapter). No
+   * `adapter` pause without it.
+   */
+  readonly adapter?: string;
   /** The adapter holds of a failed adapter check (`AdapterHolds`); no `adapter` pause without them. */
   readonly holds?: {
     adapterHeld(adapter: string): AdapterHold | null;
@@ -247,7 +252,8 @@ export function officeHoldStore(clock: Clock, offices: HoldStoreOffices): Adapte
     },
     write: (record) => {
       for (const [id, handle] of handles()) {
-        if (offices.config(id)?.worker.adapter !== record.adapter) continue;
+        // Every office with a configuration runs on the daemon's one adapter (0001).
+        if (offices.config(id) === undefined) continue;
         writeHoldRow(handle, record, notice);
       }
     },
@@ -346,7 +352,7 @@ export class StartsPaused {
         lifts: planLimitLifts(row.until_at),
       };
     }
-    const adapter = this.#deps.offices.config(officeId)?.worker.adapter;
+    const adapter = this.#adapterOf(officeId);
     const hold = adapter === undefined ? null : (this.#deps.holds?.adapterHeld(adapter) ?? null);
     if (hold === null) return null;
     return {
@@ -389,7 +395,7 @@ export class StartsPaused {
    */
   lift(officeId: OfficeId, why: string): boolean {
     let lifted = this.#liftRow(officeId, why);
-    const adapter = this.#deps.offices.config(officeId)?.worker.adapter;
+    const adapter = this.#adapterOf(officeId);
     const by = `${why.charAt(0).toUpperCase()}${why.slice(1)}`;
     if (adapter !== undefined && this.#deps.holds?.lift(adapter, by) === true) lifted = true;
     this.#resumeLifted(officeId);
@@ -464,6 +470,11 @@ export class StartsPaused {
     };
   }
 
+  /** The adapter of an office with a configuration: the daemon's one adapter. */
+  #adapterOf(officeId: OfficeId): string | undefined {
+    return this.#deps.offices.config(officeId) === undefined ? undefined : this.#deps.adapter;
+  }
+
   // ---- the plan-limit pause --------------------------------------------------------------------
 
   #row(handle: OfficeHandle): PausedRow | null {
@@ -481,7 +492,7 @@ export class StartsPaused {
     const now = this.#deps.clock.now();
     let live: PausedRow | null = null;
     let hold: AdapterHoldRecord | null = null;
-    const adapter = this.#deps.offices.config(officeId)?.worker.adapter;
+    const adapter = this.#adapterOf(officeId);
     for (const other of this.#deps.loaded?.() ?? []) {
       if (other === officeId) continue;
       const otherHandle = this.#deps.offices.get(other);

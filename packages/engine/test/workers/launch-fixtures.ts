@@ -11,7 +11,6 @@ import {
   type Recording,
 } from "@dipsaus-orchestrator/testkit";
 
-import { OFFICE_DEFAULTS } from "../../src/config";
 import type { ClaudeLaunchContext } from "../../src/workers/claude-cli/plan";
 import {
   REVIEW_REPORT_JSON_SCHEMA,
@@ -85,7 +84,6 @@ export function context(overrides: Partial<ClaudeLaunchContext> = {}): ClaudeLau
     runDir: RUN_DIR,
     tmpDir: TMP_DIR,
     shortTmpDir: SHORT_TMP_DIR,
-    sandbox: OFFICE_DEFAULTS.sandbox,
     ...overrides,
   };
 }

@@ -1,0 +1,4 @@
+# A version 7 office file: version 7 adds storyPr.open (DIPO-210).
+version: 7
+storyPr: { open: false }
+polling: { prStateSeconds: 90 }

@@ -39,11 +39,11 @@ describe("updateLocalPrivacy", () => {
 
   it("keeps the other keys and the version of an existing file and drops its comments", () => {
     const before =
-      "# my note\nversion: 4\ntimeouts:\n  workerStallMinutes: 9\nretention:\n  shortDays: 3\nprivacy:\n  keepRawEvents: true\n";
+      "# my note\nversion: 14\ntimeouts:\n  workerStallMinutes: 9\nretention:\n  shortDays: 3\nprivacy:\n  keepRawEvents: true\n";
     const text = written(before, "storePrompts", false);
     expect(text).not.toContain("my note");
     expect(parsed(text)).toEqual({
-      version: 4,
+      version: 14,
       timeouts: { workerStallMinutes: 9 },
       retention: { shortDays: 3 },
       privacy: { keepRawEvents: true, storePrompts: false },
@@ -71,9 +71,27 @@ describe("updateLocalPrivacy", () => {
     }
   });
 
+  it("refuses an older file and says to run dipo config migrate first (0017)", () => {
+    const update = updateLocalPrivacy(
+      "version: 4\nprivacy:\n  keepRawEvents: true\n",
+      "storePrompts",
+      true,
+    );
+    expect(update.ok).toBe(false);
+    if (update.ok) return;
+    expect(update.errors).toEqual([
+      {
+        file: OFFICE_LOCAL_FILE,
+        path: "version",
+        expected: "14",
+        message: `${OFFICE_LOCAL_FILE}: version: the file is version 4; run dipo config migrate, then change the setting`,
+      },
+    ]);
+  });
+
   it("refuses a file that does not validate", () => {
     const update = updateLocalPrivacy(
-      "version: 4\ntimeouts:\n  workerStallMinutes: soon\n",
+      "version: 14\ntimeouts:\n  workerStallMinutes: soon\n",
       "storePrompts",
       true,
     );

@@ -108,7 +108,7 @@ describe("resolveSoftwareConfig", () => {
         file: FILE,
         path: "daemon.autoStart",
         expected: "one of the keys autostart, autoRestartOnUpgrade",
-        message: `${FILE}: daemon.autoStart: unknown key; expected one of the keys autostart, autoRestartOnUpgrade`,
+        message: `${FILE}: daemon.autoStart: unknown key; expected one of the keys autostart, autoRestartOnUpgrade; this key may need a newer dipo`,
       },
     ]);
     expect(errorsOf("version: 1\nweb:\n  enabled: true\n")).toMatchObject([
@@ -253,7 +253,7 @@ describe("configIssueErrors", () => {
     });
     expect(errors.map((error) => error.message).toSorted()).toEqual([
       "f.yaml: extra: unknown key; only one of the keys version, inner",
-      "f.yaml: inner.b: unknown key; expected one of the keys a",
+      "f.yaml: inner.b: unknown key; expected one of the keys a; this key may need a newer dipo",
     ]);
   });
 });

@@ -2,47 +2,11 @@ import { describe, expect, it } from "bun:test";
 
 import {
   migrateOfficeDocument,
-  OFFICE_CONFIG_VERSION,
+  MOVED_KEYS,
   OFFICE_DEFAULTS,
-  OfficeConfigV1,
-  OfficeConfigV2,
-  OfficeConfigV3,
-  OfficeConfigV4,
-  OfficeConfigV5,
-  OfficeConfigV6,
-  OfficeConfigV7,
-  OfficeConfigV8,
-  OfficeConfigV9,
-  OfficeConfigV10,
-  OfficeConfigV11,
-  OfficeConfigV12,
-  OfficeConfigV13,
-  OfficeFileV1,
-  OfficeFileV2,
-  OfficeFileV3,
-  OfficeFileV4,
-  OfficeFileV5,
-  OfficeFileV6,
-  OfficeFileV7,
-  OfficeFileV8,
-  OfficeFileV9,
-  OfficeFileV10,
-  OfficeFileV11,
-  OfficeFileV12,
-  OfficeFileV13,
-  OfficeLocalFileV1,
-  OfficeLocalFileV2,
-  OfficeLocalFileV3,
-  OfficeLocalFileV4,
-  OfficeLocalFileV5,
-  OfficeLocalFileV6,
-  OfficeLocalFileV7,
-  OfficeLocalFileV8,
-  OfficeLocalFileV9,
-  OfficeLocalFileV10,
-  OfficeLocalFileV11,
-  OfficeLocalFileV12,
-  OfficeLocalFileV13,
+  OfficeConfigSchema,
+  OfficeFileSchema,
+  OfficeLocalFileSchema,
   privacyOptIns,
   RETIRED_KEYS,
   schemaKeyPaths,
@@ -53,64 +17,65 @@ const tier = (name: string) =>
   ["model", "effort", "budgetTokens", "maxTurns", "maxMinutes", "loops"].map(
     (key) => `tiers.${name}.${key}`,
   );
+const box = (name: string) => `box.${name}`;
 
-// The M0 key paths of version 1, as listed in DIPO-26. `*` is any name under a record. A key
-// added here needs a version 2 schema with a migration (0017 amendment of 2026-10-12), not an
-// edit of version 1.
-const VERSION_1_KEY_PATHS = [
+// Version 14 (0017): only keys code reads. A key added later with a default needs no version bump,
+// so a new key is added here and to the schema in the same change.
+const VERSION_14_KEY_PATHS = [
   "version",
   ...tier("S"),
   ...tier("M"),
   ...tier("L"),
-  "worker.adapter",
-  "worker.allowProjectSettings",
-  "permissions.ask",
-  "permissions.presentMinutes",
-  "timeouts.workerStallMinutes",
-  "timeouts.workerQuietMinutes",
-  "timeouts.questionWaitMinutes",
-  "timeouts.permissionWaitSeconds",
-  "timeouts.scriptMinutes.*",
-  "timeouts.testIdleMinutes",
-  "base",
-  "remote",
-  "worktree.root",
-  "worktree.files",
-  "worktree.ports.stride",
-  "worktree.ports.named.*",
-  "worktree.env.*",
-  "worktree.post_create",
-  "worktree.maxSlots",
-  "scripts.*",
+  "review.model",
+  "review.effort",
+  "review.maxRounds",
+  "review.maxTurns",
+  "review.maxMinutes",
+  "review.budgetTokens",
+  "caps.ciAttempts",
+  "caps.conflictAttempts",
+  "merge.autoMerge",
+  "merge.holdLabels",
+  "merge.checksWaitMinutes",
+  ...["debian", "packages", "claudeCode", "files", "localPorts"].map(box),
+  ...["node", "bun", "pnpm", "yarn", "nodeSha256.arm64", "nodeSha256.x64"].map((tool) =>
+    box(`toolchain.${tool}`),
+  ),
+  "scan.model",
+  "scan.effort",
+  "scan.budgetTokens",
+  "scan.maxMinutes",
   "story.types",
   "story.tiers",
   "story.bannedPhrases",
+  "story.securityPhrases",
+  "story.securityCriteriaPhrases.oldBarrier",
+  "story.securityCriteriaPhrases.bypassForms",
+  "story.securityCriteriaPhrases.failClosed",
   "story.titleMax",
   "story.outcomeMin",
   "story.criterionMin",
   "story.slugMax",
   ...[
     "context",
-    "contextItem",
     "inputs",
-    "inputsFile",
     "dependencies",
     "background",
     "handoff",
     "feedbackItem",
     "feedbackTotal",
-    "feedbackLogLines",
     "diff",
-    "nudge",
     "taskMessage",
   ].flatMap((section) => sizes(`prompt.budgets.${section}`)),
   "prompt.contractMax",
-  "sandbox.toolchainReadPaths",
-  "sandbox.installCachePaths",
-  "sandbox.registryHosts",
-  "sandbox.allowRead",
-  "sandbox.allowedDomains",
-  "sandbox.allowLocalBinding",
+  "base",
+  "worktree.root",
+  "scripts.*",
+  "timeouts.workerStallMinutes",
+  "timeouts.workerQuietMinutes",
+  "timeouts.questionWaitMinutes",
+  "timeouts.scriptMinutes.*",
+  "timeouts.testIdleMinutes",
   "polling.prStateSeconds",
   "polling.fetchSeconds",
   "privacy.storePrompts",
@@ -124,761 +89,147 @@ const localOnly = (path: string) => /^(privacy|retention)\./.test(path);
 const localAllowed = (path: string) =>
   path === "version" || /^(timeouts|privacy|retention)\./.test(path);
 
-describe("version 1 key paths", () => {
-  it("equal the DIPO-26 list; adding a key needs a new version", () => {
-    expect(schemaKeyPaths(OfficeConfigV1)).toEqual(VERSION_1_KEY_PATHS.toSorted());
+function boxFile(section: object): boolean {
+  return OfficeFileSchema.safeParse({ version: 14, box: section }).success;
+}
+
+describe("version 14 key paths", () => {
+  it("are the keys code reads", () => {
+    expect(schemaKeyPaths(OfficeConfigSchema)).toEqual(VERSION_14_KEY_PATHS.toSorted());
   });
 
   it("office.yaml accepts every key except privacy.* and retention.*", () => {
-    expect(schemaKeyPaths(OfficeFileV1)).toEqual(
-      VERSION_1_KEY_PATHS.filter((path) => !localOnly(path)).toSorted(),
+    expect(schemaKeyPaths(OfficeFileSchema)).toEqual(
+      VERSION_14_KEY_PATHS.filter((path) => !localOnly(path)).toSorted(),
     );
   });
 
   it("office.local.yaml accepts only version, timeouts.*, privacy.* and retention.*", () => {
-    expect(schemaKeyPaths(OfficeLocalFileV1)).toEqual(
-      VERSION_1_KEY_PATHS.filter(localAllowed).toSorted(),
-    );
-  });
-});
-
-// Version 2 (DIPO-108): version 1 plus worker.plugins (0008 amendment of 2026-10-12).
-const VERSION_2_KEY_PATHS = [...VERSION_1_KEY_PATHS, "worker.plugins"];
-
-/** Whether `.dipo/office.yaml` version 2 accepts `worker.plugins`. */
-function file(plugins: unknown): boolean {
-  return OfficeFileV2.safeParse({ version: 2, worker: { plugins } }).success;
-}
-
-describe("version 2 key paths", () => {
-  it("are the version 1 paths plus worker.plugins", () => {
-    expect(schemaKeyPaths(OfficeConfigV2)).toEqual(VERSION_2_KEY_PATHS.toSorted());
-    expect(schemaKeyPaths(OfficeFileV2)).toEqual(
-      VERSION_2_KEY_PATHS.filter((path) => !localOnly(path)).toSorted(),
-    );
-    expect(schemaKeyPaths(OfficeLocalFileV2)).toEqual(
-      VERSION_2_KEY_PATHS.filter(localAllowed).toSorted(),
+    expect(schemaKeyPaths(OfficeLocalFileSchema)).toEqual(
+      VERSION_14_KEY_PATHS.filter(localAllowed).toSorted(),
     );
   });
 
-  it("take worker.plugins only in the <plugin>@<marketplace> form", () => {
-    expect(file([])).toBe(true);
-    expect(file(["warp@claude-code-warp", "learning-output-style@claude-plugins-official"])).toBe(
-      true,
-    );
-    for (const bad of ["warp", "@market", "warp@", "a@b@c", "warp @x", ""]) {
-      expect(file([bad])).toBe(false);
+  it("hold no retired key and no moved key's old place", () => {
+    const paths = schemaKeyPaths(OfficeConfigSchema);
+    for (const { path } of RETIRED_KEYS) {
+      expect(paths.filter((key) => key === path || key.startsWith(`${path}.`))).toEqual([]);
+    }
+    for (const { from, to } of MOVED_KEYS) {
+      expect(paths).not.toContain(from);
+      expect(paths).toContain(to);
     }
   });
-
-  it("keep version 1 without worker.plugins", () => {
-    expect(OfficeFileV1.safeParse({ version: 1, worker: { plugins: [] } }).success).toBe(false);
-    expect(OfficeFileV1.safeParse({ version: 2 }).success).toBe(false);
-  });
 });
 
-// Version 3 (DIPO-133): version 2 plus mergeSlot.requiredChecks (0016 rule 2).
-const VERSION_3_KEY_PATHS = [...VERSION_2_KEY_PATHS, "mergeSlot.requiredChecks"];
-
-/** Whether `.dipo/office.yaml` version 3 accepts `mergeSlot.requiredChecks` as `names`. */
-function checks(names: unknown): boolean {
-  return OfficeFileV3.safeParse({ version: 3, mergeSlot: { requiredChecks: names } }).success;
-}
-
-describe("version 3 key paths", () => {
-  it("are the version 2 paths plus mergeSlot.requiredChecks", () => {
-    expect(schemaKeyPaths(OfficeConfigV3)).toEqual(VERSION_3_KEY_PATHS.toSorted());
-    expect(schemaKeyPaths(OfficeFileV3)).toEqual(
-      VERSION_3_KEY_PATHS.filter((path) => !localOnly(path)).toSorted(),
-    );
-    expect(schemaKeyPaths(OfficeLocalFileV3)).toEqual(
-      VERSION_3_KEY_PATHS.filter(localAllowed).toSorted(),
-    );
-  });
-
-  it("take mergeSlot.requiredChecks as a list of distinct, non-empty check names", () => {
-    expect(checks(["ci-ok", "pr-title"])).toBe(true);
-    expect(checks(["Build (ubuntu)"])).toBe(true);
-    expect(checks([])).toBe(false);
-    expect(checks(["ci-ok", "ci-ok"])).toBe(false);
-    expect(checks([""])).toBe(false);
-  });
-
-  it("keep version 2 without mergeSlot", () => {
+describe("the box block", () => {
+  it("accepts a full box block, and any part of it", () => {
     expect(
-      OfficeFileV2.safeParse({ version: 2, mergeSlot: { requiredChecks: ["a"] } }).success,
-    ).toBe(false);
-    expect(OfficeLocalFileV2.safeParse({ version: 2, mergeSlot: {} }).success).toBe(false);
-  });
-});
-
-// Version 4 (DIPO-172): the office keys of version 3; office.local.yaml adds
-// sandbox.toolchainReadPaths and no other sandbox key (0017 amendment of 2026-10-18).
-const VERSION_4_KEY_PATHS = VERSION_3_KEY_PATHS;
-const localAllowedV4 = (path: string) =>
-  localAllowed(path) || path === "sandbox.toolchainReadPaths";
-
-/** Whether `.dipo/office.local.yaml` of `version` (3 or 4) accepts `sandbox` as given. */
-function localSandbox(version: 3 | 4, sandbox: unknown): boolean {
-  const schema = version === 4 ? OfficeLocalFileV4 : OfficeLocalFileV3;
-  return schema.safeParse({ version, sandbox }).success;
-}
-
-describe("version 4 key paths", () => {
-  it("are the version 3 paths; office.local.yaml also takes sandbox.toolchainReadPaths", () => {
-    expect(schemaKeyPaths(OfficeConfigV4)).toEqual(VERSION_4_KEY_PATHS.toSorted());
-    expect(schemaKeyPaths(OfficeFileV4)).toEqual(
-      VERSION_4_KEY_PATHS.filter((path) => !localOnly(path)).toSorted(),
-    );
-    expect(schemaKeyPaths(OfficeLocalFileV4)).toEqual(
-      VERSION_4_KEY_PATHS.filter(localAllowedV4).toSorted(),
-    );
-  });
-
-  it("take only toolchainReadPaths under sandbox in office.local.yaml, as ~/ or absolute paths", () => {
-    expect(localSandbox(4, { toolchainReadPaths: ["~/.nvm/versions/node", "/opt/node"] })).toBe(
-      true,
-    );
-    expect(localSandbox(4, {})).toBe(true);
-    expect(localSandbox(4, { toolchainReadPaths: ["relative/node"] })).toBe(false);
-    for (const key of ["allowRead", "installCachePaths", "registryHosts", "allowLocalBinding"]) {
-      expect(localSandbox(4, { [key]: [] })).toBe(false);
-    }
-  });
-
-  it("keep version 3 office.local.yaml without sandbox", () => {
-    expect(localSandbox(3, { toolchainReadPaths: ["~/.nvm/versions/node"] })).toBe(false);
-    expect(OfficeFileV3.safeParse({ version: 4 }).success).toBe(false);
-    expect(
-      OfficeFileV4.safeParse({ version: 4, mergeSlot: { requiredChecks: ["a"] } }).success,
-    ).toBe(true);
-  });
-});
-
-// Version 5 (DIPO-139): the review block and the rest of mergeSlot.
-const VERSION_5_KEY_PATHS = [
-  ...VERSION_4_KEY_PATHS,
-  "review.model",
-  "review.effort",
-  "review.maxRounds",
-  "review.maxTurns",
-  "review.maxMinutes",
-  "review.budgetTokens",
-  "mergeSlot.autoMerge",
-  "mergeSlot.conflictAttempts",
-  "mergeSlot.ciAttempts",
-  "mergeSlot.holdLabels",
-  "mergeSlot.checksWaitMinutes",
-];
-
-/** Whether `.dipo/office.yaml` version 5 accepts `body` as given. */
-function officeFileV5(body: object): boolean {
-  return OfficeFileV5.safeParse({ version: 5, ...body }).success;
-}
-
-describe("version 5 key paths", () => {
-  it("are the version 4 paths plus review and the rest of mergeSlot", () => {
-    expect(schemaKeyPaths(OfficeConfigV5)).toEqual(VERSION_5_KEY_PATHS.toSorted());
-    expect(schemaKeyPaths(OfficeFileV5)).toEqual(
-      VERSION_5_KEY_PATHS.filter((path) => !localOnly(path)).toSorted(),
-    );
-    expect(schemaKeyPaths(OfficeLocalFileV5)).toEqual(
-      VERSION_5_KEY_PATHS.filter(localAllowedV4).toSorted(),
-    );
-  });
-
-  it("refuse a count below 1 and a duplicate hold label", () => {
-    expect(officeFileV5({ review: { maxRounds: 0 } })).toBe(false);
-    expect(officeFileV5({ mergeSlot: { ciAttempts: 0 } })).toBe(false);
-    expect(officeFileV5({ mergeSlot: { holdLabels: ["hold", "hold"] } })).toBe(false);
-    expect(officeFileV5({ mergeSlot: { holdLabels: ["hold", "wip"] } })).toBe(true);
-  });
-});
-
-// Version 6 (DIPO-188): story.maintainerStepPhrases, the phrases of R27.
-const VERSION_6_KEY_PATHS = [...VERSION_5_KEY_PATHS, "story.maintainerStepPhrases"];
-
-/** Whether `.dipo/office.yaml` version 6 accepts `body` as given. */
-function officeFileV6(body: object): boolean {
-  return OfficeFileV6.safeParse({ version: 6, ...body }).success;
-}
-
-describe("version 6 key paths", () => {
-  it("are the version 5 paths plus story.maintainerStepPhrases", () => {
-    expect(schemaKeyPaths(OfficeConfigV6)).toEqual(VERSION_6_KEY_PATHS.toSorted());
-    expect(schemaKeyPaths(OfficeFileV6)).toEqual(
-      VERSION_6_KEY_PATHS.filter((path) => !localOnly(path)).toSorted(),
-    );
-    expect(schemaKeyPaths(OfficeLocalFileV6)).toEqual(
-      VERSION_6_KEY_PATHS.filter(localAllowedV4).toSorted(),
-    );
-  });
-
-  it("accept a list of phrases and refuse a non-string or empty entry", () => {
-    expect(officeFileV6({ story: { maintainerStepPhrases: ["task notes"] } })).toBe(true);
-    expect(officeFileV6({ story: { maintainerStepPhrases: [3] } })).toBe(false);
-    expect(officeFileV6({ story: { maintainerStepPhrases: [""] } })).toBe(false);
-  });
-
-  it("keep version 5 without story.maintainerStepPhrases", () => {
-    expect(
-      OfficeFileV5.safeParse({ version: 5, story: { maintainerStepPhrases: [] } }).success,
-    ).toBe(false);
-  });
-});
-
-// Version 7 (DIPO-210): storyPr.open, the office switch for the story PR. office.local.yaml
-// gains no key.
-const VERSION_7_KEY_PATHS = [...VERSION_6_KEY_PATHS, "storyPr.open"];
-
-/** Whether `.dipo/office.yaml` version 7 accepts `body` as given. */
-function officeFileV7(body: object): boolean {
-  return OfficeFileV7.safeParse({ version: 7, ...body }).success;
-}
-
-describe("version 7 key paths", () => {
-  it("are the version 6 paths plus storyPr.open, which office.local.yaml does not take", () => {
-    expect(schemaKeyPaths(OfficeConfigV7)).toEqual(VERSION_7_KEY_PATHS.toSorted());
-    expect(schemaKeyPaths(OfficeFileV7)).toEqual(
-      VERSION_7_KEY_PATHS.filter((path) => !localOnly(path)).toSorted(),
-    );
-    expect(schemaKeyPaths(OfficeLocalFileV7)).toEqual(
-      VERSION_7_KEY_PATHS.filter(localAllowedV4).toSorted(),
-    );
-    expect(OfficeLocalFileV7.safeParse({ version: 7, storyPr: { open: false } }).success).toBe(
-      false,
-    );
-  });
-
-  it("accept a boolean storyPr.open and refuse anything else", () => {
-    expect(officeFileV7({ storyPr: { open: false } })).toBe(true);
-    expect(officeFileV7({ storyPr: {} })).toBe(true);
-    expect(officeFileV7({ storyPr: { open: "no" } })).toBe(false);
-    expect(officeFileV7({ storyPr: { open: false, draft: true } })).toBe(false);
-  });
-
-  it("keep version 6 without storyPr", () => {
-    expect(OfficeFileV6.safeParse({ version: 6, storyPr: { open: false } }).success).toBe(false);
-  });
-});
-
-// Version 8 (DIPO-164): worker.web, the office switch for the developer role's web tools. It is
-// committed with the repository: office.local.yaml does not take it.
-const VERSION_8_KEY_PATHS = [...VERSION_7_KEY_PATHS, "worker.web"];
-
-/** Whether `.dipo/office.yaml` version 8 accepts `body` as given. */
-function officeFileV8(body: object): boolean {
-  return OfficeFileV8.safeParse({ version: 8, ...body }).success;
-}
-
-describe("version 8 key paths", () => {
-  it("are the version 7 paths plus worker.web, which office.local.yaml does not take", () => {
-    expect(schemaKeyPaths(OfficeConfigV8)).toEqual(VERSION_8_KEY_PATHS.toSorted());
-    expect(schemaKeyPaths(OfficeFileV8)).toEqual(
-      VERSION_8_KEY_PATHS.filter((path) => !localOnly(path)).toSorted(),
-    );
-    expect(schemaKeyPaths(OfficeLocalFileV8)).toEqual(
-      VERSION_8_KEY_PATHS.filter(localAllowedV4).toSorted(),
-    );
-    expect(OfficeLocalFileV8.safeParse({ version: 8, worker: { web: false } }).success).toBe(false);
-  });
-
-  it("accept a boolean worker.web and refuse anything else", () => {
-    expect(officeFileV8({ worker: { web: false } })).toBe(true);
-    expect(officeFileV8({ worker: {} })).toBe(true);
-    expect(officeFileV8({ worker: { web: "no" } })).toBe(false);
-  });
-
-  it("keep version 7 without worker.web", () => {
-    expect(OfficeFileV7.safeParse({ version: 7, worker: { web: false } }).success).toBe(false);
-  });
-});
-
-// Version 9 (DIPO-266): the box block. office.local.yaml does not take it: dipo reads the box from
-// the base branch only.
-const VERSION_9_KEY_PATHS = [
-  ...VERSION_8_KEY_PATHS,
-  "box.debian",
-  "box.toolchain.node",
-  "box.toolchain.bun",
-  "box.toolchain.pnpm",
-  "box.toolchain.yarn",
-  "box.toolchain.nodeSha256.arm64",
-  "box.toolchain.nodeSha256.x64",
-  "box.packages",
-  "box.claudeCode",
-  "box.files",
-];
-
-/** Whether `.dipo/office.yaml` version 9 accepts `box` as given. */
-function boxV9(box: object): boolean {
-  return OfficeFileV9.safeParse({ version: 9, box }).success;
-}
-
-describe("version 9 key paths", () => {
-  it("are the version 8 paths plus the box block, which office.local.yaml does not take", () => {
-    expect(schemaKeyPaths(OfficeConfigV9)).toEqual(VERSION_9_KEY_PATHS.toSorted());
-    expect(schemaKeyPaths(OfficeFileV9)).toEqual(
-      VERSION_9_KEY_PATHS.filter((path) => !localOnly(path)).toSorted(),
-    );
-    expect(schemaKeyPaths(OfficeLocalFileV9)).toEqual(
-      VERSION_9_KEY_PATHS.filter(localAllowedV4).toSorted(),
-    );
-    expect(OfficeLocalFileV9.safeParse({ version: 9, box: {} }).success).toBe(false);
-  });
-
-  it("accept a full box block, and any part of it", () => {
-    expect(
-      boxV9({
+      boxFile({
         debian: "trixie",
         toolchain: { node: "24.22.1", bun: "1.4.2", pnpm: "12.14.0", yarn: "1.22.22" },
         packages: ["jq", "libssl-dev=3.5.1-1", "g++"],
         claudeCode: "2.1.303",
         files: [{ path: "config/dev.env.example", noRealSecrets: true }],
+        localPorts: [5432],
       }),
     ).toBe(true);
-    expect(boxV9({})).toBe(true);
-    expect(boxV9({ toolchain: { bun: "1.4.2" } })).toBe(true);
-    expect(boxV9({ debian: "13" })).toBe(true);
+    expect(boxFile({})).toBe(true);
+    expect(boxFile({ toolchain: { bun: "1.4.2" } })).toBe(true);
   });
 
-  it("refuse a file outside git that is not marked as holding no real secrets", () => {
-    expect(boxV9({ files: [{ path: ".env.local" }] })).toBe(false);
-    expect(boxV9({ files: [{ path: ".env.local", noRealSecrets: false }] })).toBe(false);
-    expect(boxV9({ files: [{ path: ".env.local", noRealSecrets: "yes" }] })).toBe(false);
-    expect(boxV9({ files: [".env.local"] })).toBe(false);
+  it("refuses a file outside git that is not marked as holding no real secrets", () => {
+    expect(boxFile({ files: [{ path: ".env.local" }] })).toBe(false);
+    expect(boxFile({ files: [{ path: ".env.local", noRealSecrets: false }] })).toBe(false);
+    expect(boxFile({ files: [".env.local"] })).toBe(false);
   });
 
-  it("refuse a file path that leaves the repository or names git's folder", () => {
-    for (const path of [
-      "/etc/passwd",
-      "../secrets.env",
-      "a/../../b",
-      "./a",
-      "a//b",
-      "a/",
-      ".git/config",
-      "sub/.git/hooks/pre-commit",
-      ".GIT/config",
-      "sub/.Git/hooks/pre-commit",
-      "a:b",
-      "a\\b",
-      "a\nb",
-      "",
-    ]) {
-      expect(boxV9({ files: [{ path, noRealSecrets: true }] })).toBe(false);
-    }
-    expect(
-      boxV9({
-        files: [
-          { path: "a.env", noRealSecrets: true },
-          { path: "a.env", noRealSecrets: true },
-        ],
-      }),
-    ).toBe(false);
-  });
-
-  it("refuse versions that are not exact, Yarn 2+, and unknown tools", () => {
-    for (const version of ["1.4", "^1.4.2", "latest", "v1.4.2", "1.4.2-canary"]) {
-      expect(boxV9({ toolchain: { bun: version } })).toBe(false);
-      expect(boxV9({ claudeCode: version })).toBe(false);
-    }
-    expect(boxV9({ toolchain: { yarn: "4.5.0" } })).toBe(false);
-    expect(boxV9({ toolchain: { deno: "2.0.0" } })).toBe(false);
-    expect(boxV9({ toolchain: { nodeSha256: { arm64: "a".repeat(64) } } })).toBe(true);
-    expect(boxV9({ toolchain: { nodeSha256: { arm64: "A".repeat(64) } } })).toBe(false);
-    expect(boxV9({ toolchain: { nodeSha256: { riscv64: "a".repeat(64) } } })).toBe(false);
-  });
-
-  it("refuse a package name that could break the build file; git is a package like any other", () => {
-    for (const name of ["jq; curl evil", "-y", "Jq", "a b", "$(id)"]) {
-      expect(boxV9({ packages: [name] })).toBe(false);
-    }
-    expect(boxV9({ packages: ["jq", "jq"] })).toBe(false);
-    // DIPO-346: every image has git for the box's own repository (0008); naming it is harmless.
-    for (const name of ["git-lfs", "git", "git=1:2.47.2-0.1"]) {
-      expect(boxV9({ packages: [name] })).toBe(true);
+  it("refuses a file path that leaves the repository or names git's folder", () => {
+    for (const path of ["/etc/passwd", "../secrets.env", "a//b", ".git/config", ".GIT/x", "a:b"]) {
+      expect(boxFile({ files: [{ path, noRealSecrets: true }] })).toBe(false);
     }
   });
 
-  it("refuse a Debian release that is not a release name, and unknown box keys", () => {
-    for (const debian of ["trixie-slim:latest", "Trixie", "../x", "a b", ""]) {
-      expect(boxV9({ debian })).toBe(false);
+  it("refuses versions that are not exact, Yarn 2+, unknown tools and bad package names", () => {
+    expect(boxFile({ toolchain: { bun: "^1.4.2" } })).toBe(false);
+    expect(boxFile({ claudeCode: "latest" })).toBe(false);
+    expect(boxFile({ toolchain: { yarn: "4.5.0" } })).toBe(false);
+    expect(boxFile({ toolchain: { deno: "2.0.0" } })).toBe(false);
+    expect(boxFile({ packages: ["jq; curl evil"] })).toBe(false);
+    expect(boxFile({ packages: ["git"] })).toBe(true);
+    expect(boxFile({ debian: "Trixie" })).toBe(false);
+  });
+
+  it("refuses a local port out of range or named twice", () => {
+    for (const localPorts of [[0], [65_536], [80.5], ["5432"], [5432, 5432]]) {
+      expect(boxFile({ localPorts })).toBe(false);
     }
-    expect(boxV9({ image: "alpine" })).toBe(false);
-    expect(boxV9({ buildFile: "Containerfile" })).toBe(false);
-  });
-
-  it("keep version 8 without box", () => {
-    expect(OfficeFileV8.safeParse({ version: 8, box: {} }).success).toBe(false);
-  });
-});
-
-// Version 10 (DIPO-285): version 9 without permissions.presentMinutes, which nothing reads since
-// DIPO-279.
-const VERSION_10_KEY_PATHS = VERSION_9_KEY_PATHS.filter(
-  (path) => path !== "permissions.presentMinutes",
-);
-
-describe("version 10 key paths", () => {
-  it("are the version 9 paths without permissions.presentMinutes", () => {
-    expect(VERSION_10_KEY_PATHS).toHaveLength(VERSION_9_KEY_PATHS.length - 1);
-    expect(schemaKeyPaths(OfficeConfigV10)).toEqual(VERSION_10_KEY_PATHS.toSorted());
-    expect(schemaKeyPaths(OfficeFileV10)).toEqual(
-      VERSION_10_KEY_PATHS.filter((path) => !localOnly(path)).toSorted(),
-    );
-    expect(schemaKeyPaths(OfficeLocalFileV10)).toEqual(
-      VERSION_10_KEY_PATHS.filter(localAllowedV4).toSorted(),
-    );
-  });
-
-  it("refuse permissions.presentMinutes, which version 9 still takes", () => {
-    const permissions = { ask: "when-present", presentMinutes: 10 };
-    expect(OfficeFileV10.safeParse({ version: 10, permissions }).success).toBe(false);
-    expect(OfficeFileV10.safeParse({ version: 10, permissions: { ask: "never" } }).success).toBe(
-      true,
-    );
-    expect(OfficeFileV9.safeParse({ version: 9, permissions }).success).toBe(true);
-  });
-
-  it("list permissions.presentMinutes as retired in version 10", () => {
-    expect(RETIRED_KEYS.map((key) => [key.path, key.version])).toEqual([
-      ["permissions.presentMinutes", 10],
-    ]);
-  });
-});
-
-// Version 11 (DIPO-251, from DIPO-260): the R30 phrase lists of the story block.
-const VERSION_11_KEY_PATHS = [
-  ...VERSION_10_KEY_PATHS,
-  "story.securityPhrases",
-  "story.securityCriteriaPhrases.oldBarrier",
-  "story.securityCriteriaPhrases.bypassForms",
-  "story.securityCriteriaPhrases.failClosed",
-];
-
-/** Whether `.dipo/office.yaml` version 11 accepts `body` as given. */
-function officeFileV11(body: object): boolean {
-  return OfficeFileV11.safeParse({ version: 11, ...body }).success;
-}
-
-describe("version 11 key paths", () => {
-  it("are the version 10 paths plus the security phrase lists", () => {
-    expect(schemaKeyPaths(OfficeConfigV11)).toEqual(VERSION_11_KEY_PATHS.toSorted());
-    expect(schemaKeyPaths(OfficeFileV11)).toEqual(
-      VERSION_11_KEY_PATHS.filter((path) => !localOnly(path)).toSorted(),
-    );
-    expect(schemaKeyPaths(OfficeLocalFileV11)).toEqual(
-      VERSION_11_KEY_PATHS.filter(localAllowedV4).toSorted(),
-    );
-  });
-
-  it("accept phrase lists, one part alone, and refuse a non-string, an empty entry or another part", () => {
-    expect(officeFileV11({ story: { securityPhrases: ["firewall rule"] } })).toBe(true);
-    expect(
-      officeFileV11({ story: { securityCriteriaPhrases: { failClosed: ["real path"] } } }),
-    ).toBe(true);
-    expect(officeFileV11({ story: { securityPhrases: [3] } })).toBe(false);
-    expect(officeFileV11({ story: { securityPhrases: [""] } })).toBe(false);
-    expect(officeFileV11({ story: { securityCriteriaPhrases: { other: ["x"] } } })).toBe(false);
-  });
-
-  it("keep version 10 without the security phrase lists", () => {
-    expect(OfficeFileV10.safeParse({ version: 10, story: { securityPhrases: [] } }).success).toBe(
-      false,
-    );
-    expect(
-      OfficeFileV10.safeParse({ version: 10, story: { securityCriteriaPhrases: {} } }).success,
-    ).toBe(false);
-  });
-});
-
-// Version 12 (DIPO-282): the box's listed local ports of the Mac.
-const VERSION_12_KEY_PATHS = [...VERSION_11_KEY_PATHS, "box.localPorts"];
-
-/** Whether `.dipo/office.yaml` version 12 accepts `body` as given. */
-function officeFileV12(body: object): boolean {
-  return OfficeFileV12.safeParse({ version: 12, ...body }).success;
-}
-
-describe("version 12 key paths", () => {
-  it("are the version 11 paths plus box.localPorts", () => {
-    expect(schemaKeyPaths(OfficeConfigV12)).toEqual(VERSION_12_KEY_PATHS.toSorted());
-    expect(schemaKeyPaths(OfficeFileV12)).toEqual(
-      VERSION_12_KEY_PATHS.filter((path) => !localOnly(path)).toSorted(),
-    );
-    // The box is read from the base branch only: office.local.yaml gains nothing.
-    expect(schemaKeyPaths(OfficeLocalFileV12)).toEqual(
-      VERSION_12_KEY_PATHS.filter(localAllowedV4).toSorted(),
-    );
-    expect(schemaKeyPaths(OfficeConfigV11)).toEqual(VERSION_11_KEY_PATHS.toSorted());
-  });
-
-  it("accept a list of ports and refuse a port out of range, a fraction, text or a repeat", () => {
-    expect(officeFileV12({ box: { localPorts: [5432, 8080] } })).toBe(true);
-    expect(officeFileV12({ box: { localPorts: [] } })).toBe(true);
-    expect(officeFileV12({ box: { localPorts: [1, 65_535] } })).toBe(true);
-    for (const bad of [[0], [65_536], [-1], [80.5], ["5432"], [5432, 5432]]) {
-      expect(officeFileV12({ box: { localPorts: bad } })).toBe(false);
-    }
-    expect(OfficeLocalFileV12.safeParse({ version: 12, box: { localPorts: [1] } }).success).toBe(
-      false,
-    );
-  });
-
-  it("keep version 11 without box.localPorts", () => {
-    expect(officeFileV11({ box: { localPorts: [5432] } })).toBe(false);
-  });
-});
-
-// Version 13 (DIPO-310): the scan fallback session block.
-const VERSION_13_KEY_PATHS = [
-  ...VERSION_12_KEY_PATHS,
-  "scan.model",
-  "scan.effort",
-  "scan.budgetTokens",
-  "scan.maxMinutes",
-];
-
-/** Whether `.dipo/office.yaml` version 13 accepts `body` as given. */
-function officeFileV13(body: object): boolean {
-  return OfficeFileV13.safeParse({ version: 13, ...body }).success;
-}
-
-describe("version 13 key paths", () => {
-  it("are the version 12 paths plus the scan block", () => {
-    expect(OFFICE_CONFIG_VERSION).toBe(13);
-    expect(schemaKeyPaths(OfficeConfigV13)).toEqual(VERSION_13_KEY_PATHS.toSorted());
-    expect(schemaKeyPaths(OfficeFileV13)).toEqual(
-      VERSION_13_KEY_PATHS.filter((path) => !localOnly(path)).toSorted(),
-    );
-    expect(schemaKeyPaths(OfficeLocalFileV13)).toEqual(
-      VERSION_13_KEY_PATHS.filter(localAllowedV4).toSorted(),
-    );
-  });
-
-  it("accept the scan block, one key alone, and refuse a zero budget or another key", () => {
-    expect(officeFileV13({ scan: { model: "haiku" } })).toBe(true);
-    expect(officeFileV13({ scan: { budgetTokens: 50_000, maxMinutes: 3 } })).toBe(true);
-    expect(officeFileV13({ scan: { budgetTokens: 0 } })).toBe(false);
-    expect(officeFileV13({ scan: { maxTurns: 4 } })).toBe(false);
-    expect(officeFileV12({ scan: { model: "haiku" } })).toBe(false);
-  });
-
-  it("default to sonnet, low effort, 100000 budget tokens and 5 minutes", () => {
-    expect(OFFICE_DEFAULTS.scan).toEqual({
-      model: "sonnet",
-      effort: "low",
-      budgetTokens: 100_000,
-      maxMinutes: 5,
-    });
   });
 });
 
 describe("migrateOfficeDocument", () => {
-  it("migrates version 1 to 13 as the identity", () => {
-    const v1 = { version: 1, worker: { adapter: "claude-cli" }, remote: "up" };
-    expect(migrateOfficeDocument(1, v1)).toEqual({ ...v1, version: 13 });
-    expect(v1.version).toBe(1);
+  it("leaves a version 14 document as it is", () => {
+    const document = { version: 14, sandbox: {} };
+    expect(migrateOfficeDocument(14, document)).toEqual({ document, steps: [] });
   });
 
-  it("migrates version 2 to 13 as the identity", () => {
-    const v2 = { version: 2, worker: { plugins: ["warp@claude-code-warp"] } };
-    expect(migrateOfficeDocument(2, v2)).toEqual({ ...v2, version: 13 });
-  });
-
-  it("migrates version 3 to 13 as the identity", () => {
-    const v3 = { version: 3, mergeSlot: { requiredChecks: ["build"] } };
-    expect(migrateOfficeDocument(3, v3)).toEqual({ ...v3, version: 13 });
-  });
-
-  it("migrates version 4 to 13 as the identity", () => {
-    const v4 = { version: 4, sandbox: { toolchainReadPaths: ["~/.nvm/versions/node"] } };
-    expect(migrateOfficeDocument(4, v4)).toEqual({ ...v4, version: 13 });
-  });
-
-  it("migrates version 5 to 13 as the identity", () => {
-    const v5 = { version: 5, review: { maxRounds: 2 } };
-    expect(migrateOfficeDocument(5, v5)).toEqual({ ...v5, version: 13 });
-  });
-
-  it("migrates version 6 to 13 as the identity", () => {
-    const v6 = { version: 6, story: { maintainerStepPhrases: ["task notes"] } };
-    expect(migrateOfficeDocument(6, v6)).toEqual({ ...v6, version: 13 });
-  });
-
-  it("migrates version 7 to 13 as the identity", () => {
-    const v7 = { version: 7, storyPr: { open: false } };
-    expect(migrateOfficeDocument(7, v7)).toEqual({ ...v7, version: 13 });
-  });
-
-  it("migrates version 8 to 13 as the identity", () => {
-    const v8 = { version: 8, worker: { web: false } };
-    expect(migrateOfficeDocument(8, v8)).toEqual({ ...v8, version: 13 });
-  });
-
-  it("migrates version 9 to 13 as the identity when permissions.presentMinutes is not set", () => {
-    const v9 = { version: 9, box: { debian: "trixie" }, permissions: { ask: "never" } };
-    expect(migrateOfficeDocument(9, v9)).toEqual({ ...v9, version: 13 });
-  });
-
-  it("drops permissions.presentMinutes from version 9 and older, and keeps the input", () => {
-    const v9 = { version: 9, permissions: { ask: "never", presentMinutes: 10 }, remote: "up" };
-    expect(migrateOfficeDocument(9, v9)).toEqual({
-      version: 13,
-      permissions: { ask: "never" },
-      remote: "up",
+  it("raises an older document to version 14 with no step when it sets no retired key", () => {
+    expect(migrateOfficeDocument(3, { version: 3, base: "main" })).toEqual({
+      document: { version: 14, base: "main" },
+      steps: [],
     });
-    expect(v9.permissions.presentMinutes).toBe(10);
-    const v1 = { version: 1, permissions: { presentMinutes: 5 } };
-    expect(migrateOfficeDocument(1, v1)).toEqual({ version: 13, permissions: {} });
   });
 
-  it("migrates version 10 to 13 as the identity", () => {
-    const v10 = { version: 10, box: { debian: "trixie" } };
-    expect(migrateOfficeDocument(10, v10)).toEqual({ ...v10, version: 13 });
+  it("moves mergeSlot into caps and merge and drops the rest, leaving no empty section", () => {
+    const before = {
+      version: 5,
+      mergeSlot: { requiredChecks: ["ci-ok"], autoMerge: false, ciAttempts: 3 },
+      merge: { holdLabels: ["hold"] },
+    };
+    const migrated = migrateOfficeDocument(5, before);
+    expect(migrated.document).toEqual({
+      version: 14,
+      caps: { ciAttempts: 3 },
+      merge: { holdLabels: ["hold"], autoMerge: false },
+    });
+    expect(migrated.steps).toEqual([
+      { kind: "move", from: ["mergeSlot", "ciAttempts"], to: ["caps", "ciAttempts"] },
+      { kind: "move", from: ["mergeSlot", "autoMerge"], to: ["merge", "autoMerge"] },
+      {
+        kind: "drop",
+        path: ["mergeSlot", "requiredChecks"],
+        reason: "the required checks are the ones GitHub requires on the base (0002)",
+      },
+    ]);
+    expect(before.mergeSlot.ciAttempts).toBe(3);
   });
 
-  it("migrates version 11 to 13 as the identity", () => {
-    const v11 = { version: 11, story: { securityPhrases: ["firewall rule"] } };
-    expect(migrateOfficeDocument(11, v11)).toEqual({ ...v11, version: 13 });
+  it("drops whole retired sections and single retired keys, keeping their neighbours", () => {
+    const migrated = migrateOfficeDocument(9, {
+      version: 9,
+      worker: { adapter: "claude-cli", web: true },
+      worktree: { root: "../x", maxSlots: 3 },
+      prompt: { budgets: { nudge: { S: 1, M: 1, L: 1, XL: 1 } }, contractMax: 9 },
+      sandbox: { allowLocalBinding: true },
+    });
+    expect(migrated.document).toEqual({
+      version: 14,
+      worktree: { root: "../x" },
+      prompt: { contractMax: 9 },
+    });
+    expect(migrated.steps.map((step) => (step.kind === "drop" ? step.path.join(".") : ""))).toEqual(
+      ["worker.adapter", "worker.web", "sandbox", "worktree.maxSlots", "prompt.budgets.nudge"],
+    );
   });
 
-  it("migrates version 12 to 13 as the identity", () => {
-    const v12 = { version: 12, box: { localPorts: [5432] } };
-    expect(migrateOfficeDocument(12, v12)).toEqual({ ...v12, version: 13 });
-  });
-
-  it("leaves a version 13 document as it is", () => {
-    const v13 = { version: 13, scan: { model: "haiku" } };
-    expect(migrateOfficeDocument(13, v13)).toEqual(v13);
-  });
-
-  it("turns the version 1 defaults into the version 13 defaults but worker.plugins, worker.web, mergeSlot, review, the story phrases, storyPr, box and scan", () => {
-    const { plugins: _plugins, web: _web, ...worker } = OFFICE_DEFAULTS.worker;
-    const {
-      maintainerStepPhrases: _phrases,
-      securityPhrases: _security,
-      securityCriteriaPhrases: _criteria,
-      ...story
-    } = OFFICE_DEFAULTS.story;
-    const {
-      mergeSlot: _mergeSlot,
-      review: _review,
-      storyPr: _storyPr,
-      box: _box,
-      scan: _scan,
-      ...rest
-    } = OFFICE_DEFAULTS;
-    // Version 1 needs permissions.presentMinutes, which the migration to version 13 drops.
-    const permissions = { ...OFFICE_DEFAULTS.permissions, presentMinutes: 10 };
-    const v1 = OfficeConfigV1.parse({ ...rest, permissions, story, version: 1, worker });
-    expect(
-      OfficeConfigV13.parse({
-        ...migrateOfficeDocument(1, v1),
-        worker: OFFICE_DEFAULTS.worker,
-        mergeSlot: OFFICE_DEFAULTS.mergeSlot,
-        review: OFFICE_DEFAULTS.review,
-        story: OFFICE_DEFAULTS.story,
-        storyPr: OFFICE_DEFAULTS.storyPr,
-        box: OFFICE_DEFAULTS.box,
-        scan: OFFICE_DEFAULTS.scan,
-      }),
-    ).toEqual(OFFICE_DEFAULTS);
+  it("gives every retired key a reason that cites an ADR", () => {
+    for (const { reason } of RETIRED_KEYS) expect(reason).toMatch(/\(00\d\d(, 00\d\d)*\)$/);
   });
 });
 
 describe("defaults", () => {
-  it("are a complete version 13 configuration", () => {
-    expect(OfficeConfigV13.parse(OFFICE_DEFAULTS)).toEqual(OFFICE_DEFAULTS);
-  });
-
-  it("give R30 the security phrases and a phrase list for each criteria part (DIPO-251)", () => {
-    expect(OFFICE_DEFAULTS.story.securityPhrases).toEqual([
-      "deny rule",
-      "deny rules",
-      "guard",
-      "guards",
-      "sandbox setting",
-      "sandbox settings",
-      "permission check",
-      "permission checks",
-    ]);
-    expect(OFFICE_DEFAULTS.story.securityCriteriaPhrases).toEqual({
-      oldBarrier: [
-        "old barrier",
-        "old rule",
-        "old guard",
-        "old check",
-        "previous rule",
-        "previously caught",
-        "still catches",
-      ],
-      bypassForms: [
-        "bypass",
-        "bypasses",
-        "wrapper",
-        "wrappers",
-        "quoting",
-        "quoted",
-        "indirection",
-        "chaining",
-        "chained",
-      ],
-      failClosed: ["fail-closed", "fails closed", "fail closed", "real path"],
-    });
-  });
-
-  it("ask permissions when present and set no presentMinutes (DIPO-285)", () => {
-    expect(OFFICE_DEFAULTS.permissions).toEqual({ ask: "when-present" });
-  });
-
-  it("open the story PR (0019 section 3)", () => {
-    expect(OFFICE_DEFAULTS.storyPr).toEqual({ open: true });
-  });
-
-  it("keep the step phrases R27 read, until the key is dropped", () => {
-    expect(OFFICE_DEFAULTS.story.maintainerStepPhrases).toEqual([
-      "task notes",
-      "implementation notes",
-      "by the maintainer",
-      "backlog task edit",
-      "live recording",
-      "live capture",
-      "run outside the sandbox",
-      "the PR states",
-      "the PR description",
-    ]);
-  });
-
-  it("give the review loop opus, high effort and the ADR 0019 limits", () => {
-    expect(OFFICE_DEFAULTS.review).toEqual({
-      model: "opus",
-      effort: "high",
-      maxRounds: 3,
-      maxTurns: 60,
-      maxMinutes: 30,
-      budgetTokens: 200_000,
-    });
-  });
-
-  it("give the merge slot its ADR 0019 keys", () => {
-    expect(OFFICE_DEFAULTS.mergeSlot).toEqual({
-      requiredChecks: ["ci-ok", "pr-title"],
-      autoMerge: true,
-      conflictAttempts: 2,
-      ciAttempts: 2,
-      holdLabels: [],
-      checksWaitMinutes: 30,
-    });
-  });
-
-  it("let no plugin into a worker session", () => {
-    expect(OFFICE_DEFAULTS.worker.plugins).toEqual([]);
-  });
-
-  it("wait for ci-ok and pr-title in the merge slot (0016 rule 2)", () => {
-    expect(OFFICE_DEFAULTS.mergeSlot.requiredChecks).toEqual(["ci-ok", "pr-title"]);
+  it("are a complete version 14 configuration", () => {
+    expect(OfficeConfigSchema.parse(OFFICE_DEFAULTS)).toEqual(OFFICE_DEFAULTS);
   });
 
   it("carry the ADR values", () => {
@@ -890,35 +241,45 @@ describe("defaults", () => {
       maxMinutes: 90,
       loops: 5,
     });
+    expect(OFFICE_DEFAULTS.review).toEqual({
+      model: "opus",
+      effort: "high",
+      maxRounds: 3,
+      maxTurns: 60,
+      maxMinutes: 30,
+      budgetTokens: 200_000,
+    });
+    expect(OFFICE_DEFAULTS.scan).toEqual({
+      model: "sonnet",
+      effort: "low",
+      budgetTokens: 100_000,
+      maxMinutes: 5,
+    });
     expect(OFFICE_DEFAULTS.timeouts).toEqual({
       workerStallMinutes: 20,
       workerQuietMinutes: 3,
       questionWaitMinutes: 15,
-      permissionWaitSeconds: 300,
-      scriptMinutes: { install: 15, setup: 10, post_create: 10, verify: 20 },
+      scriptMinutes: { install: 15, setup: 10, verify: 20 },
       testIdleMinutes: 240,
     });
-    expect(OFFICE_DEFAULTS.base).toBeUndefined();
-    expect(OFFICE_DEFAULTS.remote).toBe("origin");
-    expect(OFFICE_DEFAULTS.worktree.root).toBe("../{repo}.worktrees");
-    expect(OFFICE_DEFAULTS.worktree.maxSlots).toBe(20);
-    expect(OFFICE_DEFAULTS.worktree.ports).toEqual({ stride: 10, named: {} });
-    expect(OFFICE_DEFAULTS.sandbox.toolchainReadPaths).toEqual(["~/.bun", "~/.npm", "~/.cache"]);
-    // ~/.cache is read but not written by default (0008 amendment of 2026-10-12).
-    expect(OFFICE_DEFAULTS.sandbox.installCachePaths).toEqual([
-      "~/.bun/install/cache",
-      "~/.npm/_cacache",
-    ]);
-    expect(OFFICE_DEFAULTS.story.tiers).toEqual(["S", "M", "L"]);
+    expect(OFFICE_DEFAULTS.box).toEqual({});
     expect(OFFICE_DEFAULTS.prompt.contractMax).toBe(12_000);
     expect(OFFICE_DEFAULTS.polling).toEqual({ prStateSeconds: 60, fetchSeconds: 300 });
-    // Commands and prompts are stored by default (DIPO-135, DIPO-137); raw events stay off.
     expect(OFFICE_DEFAULTS.privacy).toEqual({
       storePrompts: true,
       storeCommandBodies: true,
       keepRawEvents: false,
     });
     expect(OFFICE_DEFAULTS.retention).toEqual({ shortDays: 7, stateDays: 365 });
+  });
+
+  it("give R30 a phrase list for each criteria part (DIPO-251)", () => {
+    expect(OFFICE_DEFAULTS.story.securityPhrases).toContain("deny rule");
+    expect(Object.keys(OFFICE_DEFAULTS.story.securityCriteriaPhrases)).toEqual([
+      "oldBarrier",
+      "bypassForms",
+      "failClosed",
+    ]);
   });
 });
 
@@ -934,24 +295,5 @@ describe("privacyOptIns (DIPO-83)", () => {
         privacy: { storePrompts: false, storeCommandBodies: true, keepRawEvents: true },
       }),
     ).toEqual(["privacy.storeCommandBodies", "privacy.keepRawEvents"]);
-  });
-});
-
-// DIPO-256 (maintainer decision D4 of 2026-10-20): the raised tier caps; tokens and review caps stay.
-const capsOf = (name: "S" | "M" | "L") => {
-  const { budgetTokens, maxTurns, maxMinutes } = OFFICE_DEFAULTS.tiers[name];
-  return { budgetTokens, maxTurns, maxMinutes };
-};
-
-describe("tier cap defaults (DIPO-256)", () => {
-  it("are S 90 turns and 45 minutes, M 200 and 90, L 300 and 180, with the budgets unchanged", () => {
-    expect(capsOf("S")).toEqual({ budgetTokens: 300_000, maxTurns: 90, maxMinutes: 45 });
-    expect(capsOf("M")).toEqual({ budgetTokens: 800_000, maxTurns: 200, maxMinutes: 90 });
-    expect(capsOf("L")).toEqual({ budgetTokens: 2_000_000, maxTurns: 300, maxMinutes: 180 });
-  });
-
-  it("leave the review caps at 60 turns and 30 minutes", () => {
-    expect(OFFICE_DEFAULTS.review.maxTurns).toBe(60);
-    expect(OFFICE_DEFAULTS.review.maxMinutes).toBe(30);
   });
 });

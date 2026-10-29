@@ -1,9 +1,4 @@
-# The same office file in version 2: only the version changes (identity migration).
+# A version 2 office file: version 2 adds worker.plugins (DIPO-108).
 version: 2
-tiers:
-  S: { model: haiku, effort: low, budgetTokens: 250000, maxTurns: 50, maxMinutes: 25, loops: 2 }
-worker: { adapter: claude-cli, allowProjectSettings: [model] }
-remote: upstream
-sandbox: { toolchainReadPaths: [~/.bun] }
-scripts:
-  verify: bun run verify
+worker: { plugins: [tool@market] }
+scripts: { test: bun test }

@@ -78,7 +78,7 @@ describe("lazy office loading", () => {
           path: repo.dir,
           commonDir: join(repo.dir, ".git"),
         });
-        expect(seen[0]?.config?.version).toBe(13);
+        expect(seen[0]?.config?.version).toBe(14);
       },
       { fixture: BACKLOG_FIXTURE },
     );
@@ -211,10 +211,9 @@ describe("office load steps", () => {
 });
 
 const OFFICE_YAML = join(".dipo", "office.yaml");
-const CLOSED = "version: 10\nstoryPr:\n  open: false\n";
-// Version 11 (DIPO-251) adds the R30 story phrases; the version 10 files take their defaults.
-const OPEN = "version: 11\nstoryPr:\n  open: true\nstory:\n  securityPhrases: [firewall rule]\n";
-const INVALID = "version: 10\ntimeouts:\n  workerStallMinutes: soon\n";
+const CLOSED = "version: 14\nreview:\n  maxRounds: 2\n";
+const OPEN = "version: 14\nreview:\n  maxRounds: 4\nstory:\n  securityPhrases: [firewall rule]\n";
+const INVALID = "version: 14\ntimeouts:\n  workerStallMinutes: soon\n";
 
 interface Polled {
   readonly repo: TempRepoWithRemote;
@@ -299,7 +298,7 @@ function officeNotices(s: OfficeSetup, office: OfficeId, code: string): unknown[
 describe("a changed office.yaml on the base (DIPO-303)", () => {
   it("is in force after the next poll, while the checkout still has the old file", () =>
     withPolledOffice(async ({ repo, s, officeId, poll }) => {
-      expect(s.manager.config(officeId)?.storyPr.open).toBe(false);
+      expect(s.manager.config(officeId)?.review.maxRounds).toBe(2);
       expect(s.manager.config(officeId)?.story.securityPhrases).toEqual(
         OFFICE_DEFAULTS.story.securityPhrases,
       );
@@ -307,9 +306,9 @@ describe("a changed office.yaml on the base (DIPO-303)", () => {
 
       await pushToBaseOnly(repo, OPEN);
       expect(readFileSync(join(repo.dir, OFFICE_YAML), "utf8")).toBe(CLOSED);
-      expect(s.manager.config(officeId)?.storyPr.open).toBe(false);
+      expect(s.manager.config(officeId)?.review.maxRounds).toBe(2);
       await poll();
-      expect(s.manager.config(officeId)?.storyPr.open).toBe(true);
+      expect(s.manager.config(officeId)?.review.maxRounds).toBe(4);
       expect(s.manager.config(officeId)?.story.securityPhrases).toEqual(["firewall rule"]);
       expect(s.manager.config(officeId)?.story.securityCriteriaPhrases).toEqual(
         OFFICE_DEFAULTS.story.securityCriteriaPhrases,
@@ -329,7 +328,7 @@ describe("a changed office.yaml on the base (DIPO-303)", () => {
       await pushToBaseOnly(repo, INVALID);
       await poll();
       expect(s.manager.configHash(officeId)).toBe(hash);
-      expect(s.manager.config(officeId)?.storyPr.open).toBe(false);
+      expect(s.manager.config(officeId)?.review.maxRounds).toBe(2);
       expect(s.manager.configBlocksRuns(officeId).map((error) => error.path)).toEqual([
         "timeouts.workerStallMinutes",
       ]);
@@ -348,6 +347,6 @@ describe("a changed office.yaml on the base (DIPO-303)", () => {
       await pushToBaseOnly(repo, OPEN);
       await poll();
       expect(s.manager.configBlocksRuns(officeId)).toEqual([]);
-      expect(s.manager.config(officeId)?.storyPr.open).toBe(true);
+      expect(s.manager.config(officeId)?.review.maxRounds).toBe(4);
     }));
 });
