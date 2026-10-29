@@ -49,7 +49,7 @@ How dipo is built during the prune (maintainer, 2026-10-24):
 
 1. **Track 1, the run path,** is built by builder agents from the maintainer's orchestrating Claude session. These are the stories dipo needs to deliver one story the new way: the claim without a worktree, verify in the box, the reviewer box, one feedback path, GitHub auto-merge, one git module. A separate agent reviews each PR, and a scratch-repository run checks each story.
 2. **The cutover gate:** dipo delivers one real story of this repository end to end on the simplified path, and the maintainer confirms it.
-3. **Track 2, everything else,** is built by dipo itself, one story at a time. The orchestrating Claude starts the runs, answers worker questions and files every gap a run shows as a story.
+3. **Track 2, everything else,** is built in two lanes (maintainer, 2026-10-29). dipo builds the small stories itself, one at a time: the orchestrating Claude starts the runs, answers worker questions and files every gap a run shows as a story. Builder agents build the medium and large stories in parallel, as in Track 1, ordered so that stories touching the same code do not run at once. A story that needs a real box test by hand goes to a builder.
 
 The prune stories sit in M1 with the labels `slice:prune` and `track:1` or `track:2`. The cutover gate is DIPO-351, and every Track 2 story depends on it.
 
@@ -64,4 +64,5 @@ The riskiest unknowns were in the execution engine: the daemon, the worker adapt
 - "Nothing planned for M0 is deferred" (2026-10-12). It pulled pricing catalogs, restore and purge, and an autostart supervisor into the walking skeleton. Replaced by "build at the milestone, not before".
 - An amendment log in every ADR. Replaced by rewriting the body plus a "Replaced" list (2026-10-24), because the bodies had stopped describing what runs.
 - M1 items that are now implementation details or later work: send-once feedback signatures, evidence on feedback, affected-files test selection and the codegraph backend (moved to Later).
+- Track 2 built only by dipo, one story at a time (2026-10-24). Replaced by two lanes, dipo for small stories and builders for the rest, to finish the prune sooner (2026-10-29).
 - M2 items for Mac worktrees (worktree locking, push serialisation, worktrees prepared during batch confirmation). The box replaced the Mac worktree.
