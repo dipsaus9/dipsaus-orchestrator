@@ -6,6 +6,7 @@ import type { OfficeId } from "@dipsaus-orchestrator/contract";
 
 import type { FeatureModule } from "../commands/registry";
 import { openStateDatabase } from "../db/database";
+import { MIGRATIONS } from "../db/schema";
 import { engineFeatures } from "../features";
 import { officeFeature } from "../office/feature";
 import { helloFeature } from "../reads/hello";
@@ -166,7 +167,17 @@ function migrationsStep(core: Core): RecoveryStep {
             clock: deps.clock,
             engineVersion: deps.daemon.version,
             checkIntegrity,
-            ...(deps.migrations === undefined ? {} : { migrations: deps.migrations }),
+            ...(deps.extraMigrations === undefined
+              ? {}
+              : {
+                  migrations: [
+                    ...MIGRATIONS,
+                    ...deps.extraMigrations.map((step, i) => ({
+                      ...step,
+                      version: MIGRATIONS.length + i + 1,
+                    })),
+                  ],
+                }),
           }),
         );
         // The check passed: nothing is pending any more.

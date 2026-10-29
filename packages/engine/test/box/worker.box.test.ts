@@ -213,7 +213,7 @@ if (registers) {
                   caps: { budgetTokens: 100_000, maxTurns: 2, maxMinutes: 5 },
                   systemFile,
                   taskMessage: "Reply in one word, OK, and report status done with no criteria.",
-                  tools: { allow: ["Read"], deny: [] },
+                  web: false,
                   session: { id: crypto.randomUUID(), resume: false },
                   reportSchema: REPORT_JSON_SCHEMAS.implement,
                 },

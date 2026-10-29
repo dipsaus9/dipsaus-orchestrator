@@ -27,12 +27,13 @@ import {
 
 import { appendEntries, type NewEntry } from "../changelog/log";
 import { CommandError } from "../commands/errors";
+import { OFFICE_DEFAULTS } from "../config";
 import type { FeatureModule } from "../commands/registry";
 import type { OfficeHandle } from "../db/office";
 import type { OfficeGit } from "../git/office";
 import type { Logger } from "../log/logger";
 import { background } from "../platform/background";
-import { createRepoFiles, type RepoFiles } from "../platform/repo-files";
+import { createRepoFiles, type RepoFiles } from "../git/repo-files";
 
 import { applyConfirm } from "./confirm-command";
 import { effectiveProfile, mootProposals, staleLines, supersededConfirmations } from "./confirm";
@@ -69,12 +70,7 @@ import {
 export const SCAN_STEP = "scan.profile";
 
 /** The `scan` block's defaults (0013 amendment of 2026-10-22), for an office without a config. */
-export const SCAN_DEFAULTS: Omit<ScanSessionSettings, "maxTurns"> = {
-  model: "sonnet",
-  effort: "low",
-  budgetTokens: 100_000,
-  maxMinutes: 5,
-};
+export const SCAN_DEFAULTS: Omit<ScanSessionSettings, "maxTurns"> = OFFICE_DEFAULTS.scan;
 
 export interface RunProfilesDeps {
   /** The office's git once the git load step attached it. */

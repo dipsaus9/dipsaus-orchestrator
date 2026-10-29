@@ -7,7 +7,7 @@ import { join } from "node:path";
 
 import { withTempRepo, type TempRepo } from "@dipsaus-orchestrator/testkit";
 
-import { createRepoFiles, type RepoFiles } from "../../src/platform/repo-files";
+import { createRepoFiles, type RepoFiles } from "../../src/git/repo-files";
 import { detect, fingerprint, readProbe } from "../../src/scan/detect";
 
 const json = (value: unknown) => `${JSON.stringify(value, null, 2)}\n`;

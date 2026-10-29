@@ -168,9 +168,9 @@ describe("the box worker's plan (criteria 1 and 2)", () => {
   });
 
   it("plans a developer or reviewer session in a box, never a `session`", () => {
-    expect(() =>
-      planInBox(spec({ kind: "session", tools: { allow: [], deny: [] } }), session(), RUN_DIR),
-    ).toThrow(PlanError);
+    expect(() => planInBox(spec({ kind: "session", web: false }), session(), RUN_DIR)).toThrow(
+      PlanError,
+    );
     expect(() =>
       planInBox(
         reviewSpec({ session: { id: spec().session.id, resume: true } }),

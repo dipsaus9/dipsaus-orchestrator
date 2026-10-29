@@ -3,7 +3,7 @@
 // `pricing_catalogs` and `pricing_rates` are software-wide (0007 section 3) and kept forever. A
 // catalog version is imported once from the binary and never edited: triggers refuse updates and
 // deletes. Rates are micro-USD per million tokens; `prompt_over` is 0 for the base rates and the
-// prompt length above which a long-prompt row applies (Claude Haiku 5.5).
+// prompt length above which a long-prompt row applies (a model with a long-prompt rate).
 //
 // `usage_totals.cli_cost_micros` keeps the CLI's own `costUSD` per run, agent and model beside
 // the estimate (0008 section 4). `pricing_checks` records the one stale-catalog notice per run.

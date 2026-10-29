@@ -8,7 +8,7 @@ import { ManualClock } from "@dipsaus-orchestrator/testkit";
 
 import { OFFICE_DEFAULTS } from "../../src/config";
 import { planRefusedText, runWorkerSpec, sessionUuid } from "../../src/run";
-import { REVIEWER_TOOLS, REVIEW_SYSTEM_FILE } from "../../src/run/launch";
+import { REVIEW_SYSTEM_FILE } from "../../src/run/launch";
 import {
   CLAUDE_LINE_SCRUB,
   claudeCliAdapter,
@@ -118,12 +118,12 @@ describe("the worker port seam (DIPO-113)", () => {
         "task",
         { id: "s-1", resume: false },
       );
-    const m0 = ["Read", "Edit", "Write", "Glob", "Grep", "Bash"];
-    expect(specOf({ web: true }).tools.allow).toEqual([...m0, "WebSearch", "WebFetch"]);
-    expect(specOf({ web: false }).tools.allow).toEqual(m0);
-    const reviewer = specOf({ web: true, reviewer: OFFICE_DEFAULTS.review });
+    // The engine says only whether the web is on; the adapter names the tools (DIPO-318).
+    expect(specOf({ web: true }).web).toBe(true);
+    expect(specOf({ web: false }).web).toBe(false);
+    const reviewer = specOf({ web: false, reviewer: OFFICE_DEFAULTS.review });
     expect(reviewer.kind).toBe("review");
-    expect(reviewer.tools).toEqual({ allow: [...REVIEWER_TOOLS], deny: [] });
+    expect(reviewer.web).toBe(false);
   });
 
   it("builds a reviewer's WorkerSpec: kind review, the review model and effort, the ReviewReport schema (DIPO-145)", () => {
@@ -146,11 +146,7 @@ describe("the worker port seam (DIPO-113)", () => {
       maxTurns: 40,
       maxMinutes: OFFICE_DEFAULTS.review.maxMinutes,
     });
-    expect(built.tools).toEqual({
-      allow: ["Read", "Glob", "Grep", "WebSearch", "WebFetch"],
-      deny: [],
-    });
-    expect(built.tools.allow).toEqual([...REVIEWER_TOOLS]);
+    expect(built.web).toBe(false);
     expect(built.session).toEqual({ id: "s-2", resume: false });
     expect(built.systemFile).toBe(`${RUN_DIR}/${REVIEW_SYSTEM_FILE}`);
     expect(built.reportSchema).toBe(REVIEW_REPORT_JSON_SCHEMA);

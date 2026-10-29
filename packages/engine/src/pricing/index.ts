@@ -10,7 +10,7 @@
 //   so the estimate can be slightly low for sessions that write mostly to the 1 hour cache.
 // - Rates are applied per message (DIPO-78). A message whose prompt (input plus 5 minute and
 //   1 hour cache writes plus cache reads) is over a long-prompt threshold (`pricing_rates.
-//   prompt_over`, Claude Haiku 5.5 over 100,000 tokens) is priced at that set's rates; a prompt
+//   prompt_over`, for example over 100,000 tokens) is priced at that set's rates; a prompt
 //   of exactly the threshold is not over it. A totals row's estimate is the sum of its messages'
 //   estimates, not a re-pricing of its aggregated tokens.
 // - Tokens the totals hold beyond the sum of their messages have no message, so no prompt size,

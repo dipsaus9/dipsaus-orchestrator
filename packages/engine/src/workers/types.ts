@@ -18,12 +18,6 @@ export type ReportKind = "implement" | "review" | "session";
 /** The kinds whose report schema the worker port carries (`WorkerPort.reportSchema`). */
 export type SchemaKind = Exclude<ReportKind, "session">;
 
-/**
- * The web tools `worker.web` adds to the developer role (0020 section 11b, DIPO-164). The one list:
- * the run spec's tools and the adapter's output lines read it.
- */
-export const WEB_TOOLS: readonly string[] = ["WebSearch", "WebFetch"];
-
 /** The start of the output line a web call shows as: `[web] <tool> <query or URL>`. */
 export const WEB_LINE_PREFIX = "[web] ";
 
@@ -57,8 +51,12 @@ export interface WorkerSpec {
   readonly systemFile: string;
   /** The L4 task message (0014 section 1); the first user message, never on argv. */
   readonly taskMessage: string;
-  /** `allow`: the role's tool names (none for `session`); `deny`: extra deny rules of the role. */
-  readonly tools: { readonly allow: readonly string[]; readonly deny: readonly string[] };
+  /**
+   * Whether the developer may search and fetch the web (0020 section 11b); false for every other
+   * kind, which the adapter refuses otherwise. The reviewer's web tools come with its kind. The
+   * adapter names the tools of each kind; the engine names none (DIPO-318).
+   */
+  readonly web: boolean;
   /** Engine-made session id; `resume` continues that session instead of starting it. */
   readonly session: { readonly id: string; readonly resume: boolean };
   /** The schema the worker's report must follow (`WorkerReport`, or `ReviewReport` for `review`). */
@@ -270,6 +268,8 @@ export type WorkerEvent =
        * opt-in `privacy.storeCommandBodies` (0007 section 8, DIPO-83).
        */
       readonly input?: string;
+      /** `tool` only: the web call the tool makes, which the run counts (DIPO-164). */
+      readonly web?: "search" | "fetch";
       /**
        * `thinking` only (DIPO-96): how long one finished thinking block took, in milliseconds, when
        * the adapter knows it. Counts only: no thinking text or signature ever travels.

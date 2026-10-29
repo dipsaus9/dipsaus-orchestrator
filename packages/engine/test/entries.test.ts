@@ -57,7 +57,6 @@ const ENGINE_ENTRY = [
   "type ListenHttp",
   "type LogFields",
   "type Logger",
-  "type Migration",
   "type OfficePage",
   "packageName",
   "type PreparedWorker",

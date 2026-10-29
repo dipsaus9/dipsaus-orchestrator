@@ -67,9 +67,7 @@ function importRule(description, messageFor) {
         TSExternalModuleReference: (node) => check(node.expression),
         TSImportType: (node) => check(node.source ?? node.argument),
         CallExpression(node) {
-          if (node.callee.type === "Identifier" && node.callee.name === "require") {
-            check(node.arguments[0]);
-          }
+          if (isRequire(node.callee)) check(node.arguments[0]);
         },
       };
     },
@@ -538,6 +536,261 @@ const gitWriteRule = gitRule(
   },
 );
 
+/** True when every one of `specifiers` is type-only. */
+function allTypes(specifiers, kindOf) {
+  return specifiers.length > 0 && specifiers.every((specifier) => kindOf(specifier) === "type");
+}
+
+/**
+ * Calls `check(source, typeOnly)` for every module a file names: a static import or re-export, a
+ * side-effect import, `export *`, a dynamic import, `require`, `import.meta.require`,
+ * `import x = require(...)` and `typeof import(...)`. `typeOnly` is true when the form carries
+ * only types, so it loads nothing at run time.
+ */
+function importVisitors(check) {
+  return {
+    ImportDeclaration: (node) =>
+      check(
+        node.source,
+        node.importKind === "type" || allTypes(node.specifiers, (s) => s.importKind),
+      ),
+    ExportNamedDeclaration(node) {
+      if (node.source === null || node.source === undefined) return;
+      check(
+        node.source,
+        node.exportKind === "type" || allTypes(node.specifiers, (s) => s.exportKind),
+      );
+    },
+    ExportAllDeclaration: (node) => check(node.source, node.exportKind === "type"),
+    ImportExpression: (node) => check(node.source, false),
+    TSExternalModuleReference: (node) => check(node.expression, false),
+    TSImportType: (node) => check(node.source ?? node.argument, true),
+    CallExpression(node) {
+      if (isRequire(node.callee)) check(node.arguments[0], false);
+    },
+  };
+}
+
+/**
+ * What each package may import of the others (0004), the one list: `imports` for every file,
+ * `tests` on top for its test files. The contract imports nothing but zod.
+ */
+const PACKAGE_IMPORTS = {
+  contract: { imports: [], tests: [] },
+  engine: { imports: ["contract"], tests: ["testkit"] },
+  daemon: { imports: ["contract", "engine"], tests: ["testkit"] },
+  client: { imports: ["contract"], tests: ["testkit"] },
+  tui: { imports: ["contract", "client"], tests: [] },
+  cli: { imports: ["contract", "client", "tui", "daemon"], tests: ["testkit"] },
+  testkit: { imports: ["contract"], tests: [] },
+};
+
+const WORKSPACE = /^@dipsaus-orchestrator\/([^/]+)(?:\/(.*))?$/;
+/** A file in a package: the package folder (the last `packages/<name>/` of the path) and the rest. */
+const PACKAGE_FILE = /^(.*\/packages\/([^/]+)\/)(.*)$/;
+/** A package's test file: under its `test/` folder, or a `*.test.ts(x)` file anywhere in it. */
+const TEST_FILE = /^test\/|\.test\.tsx?$/;
+
+/** The package a file is in, the path inside it and whether it is a test file; null outside one. */
+function packageOf(filename) {
+  const match = PACKAGE_FILE.exec(filename.replaceAll("\\", "/"));
+  if (match === null) return null;
+  const [, root, name, inside] = match;
+  return {
+    name,
+    root,
+    source: inside.startsWith("src/") && !TEST_FILE.test(inside),
+    test: TEST_FILE.test(inside),
+  };
+}
+
+/** Why `specifier`, named by a file of `own`, breaks a package boundary (0004); null if it does not. */
+function packageImportMessage(specifier, filename, own) {
+  const workspace = WORKSPACE.exec(specifier);
+  if (workspace !== null) {
+    const [, target, rest] = workspace;
+    if (rest !== undefined && (rest === "src" || rest.startsWith("src/"))) {
+      return "Deep imports are banned (0004). Import the package entry instead.";
+    }
+    if (target === own.name) return null;
+    const rules = PACKAGE_IMPORTS[own.name];
+    const allowed = rules === undefined ? [] : [...rules.imports, ...(own.test ? rules.tests : [])];
+    if (allowed.includes(target)) return null;
+    const list = allowed.length === 0 ? "no other package" : allowed.join(", ");
+    return `${own.name} imports only ${list} (0004); it never imports ${target}.`;
+  }
+  if (specifier.startsWith(".")) {
+    const target = resolve(dirname(filename), specifier).replaceAll("\\", "/");
+    if (!`${target}/`.startsWith(own.root)) {
+      return "No package reaches into another package's files by relative path (0004). Import its entry instead.";
+    }
+    return null;
+  }
+  if (own.name === "contract" && own.source && specifier !== "zod") {
+    return "The contract imports nothing but zod and its own files (0004, 0005): no I/O and no other module.";
+  }
+  return null;
+}
+
+/**
+ * The root folders whose files may read package files by relative path (0004): the cross-package
+ * tests, the tools and the CI scripts. None of them is shipped.
+ */
+const BY_PATH_ROOTS = ["test/", "tools/", "scripts/"];
+
+/**
+ * Why `specifier`, named by a file outside `packages/`, breaks a boundary (0004); null if it does
+ * not. Such a file is no package: it may import any package's entry, never its `src` by package
+ * specifier, and only the files of `BY_PATH_ROOTS` may read package files by relative path.
+ */
+function outsideImportMessage(specifier, filename, cwd) {
+  const workspace = WORKSPACE.exec(specifier);
+  if (workspace !== null) {
+    const rest = workspace[2];
+    return rest !== undefined && (rest === "src" || rest.startsWith("src/"))
+      ? "Deep imports are banned (0004). Import the package entry instead."
+      : null;
+  }
+  if (!specifier.startsWith(".")) return null;
+  const target = resolve(dirname(filename), specifier).replaceAll("\\", "/");
+  if (!target.startsWith(`${cwd}/packages/`)) return null;
+  const inside = filename.replaceAll("\\", "/").slice(cwd.length + 1);
+  if (BY_PATH_ROOTS.some((root) => inside.startsWith(root))) return null;
+  return "Only the cross-package tests in test/, the tools in tools/ and the CI scripts in scripts/ read package files by relative path (0004). Import the package entry instead.";
+}
+
+/**
+ * The package bans of 0004 over every import form, also a dynamic import and `require`. A file
+ * outside `packages/` is no package: `outsideImportMessage` keeps it from package internals, but
+ * for the written exception of 0004 (`test/`, `tools/` and `scripts/` read package files by path).
+ */
+const packageImports = {
+  meta: {
+    type: "problem",
+    docs: { description: "Let each package import only the packages 0004 allows." },
+  },
+  create(context) {
+    const own = packageOf(context.filename);
+    const cwd = (context.cwd ?? process.cwd()).replaceAll("\\", "/");
+    return importVisitors((source) => {
+      const specifier = specifierOf(source);
+      if (specifier === null) return;
+      const message =
+        own === null
+          ? outsideImportMessage(specifier, context.filename, cwd)
+          : packageImportMessage(specifier, context.filename, own);
+      if (message !== null) context.report({ node: source, message });
+    });
+  },
+};
+
+/**
+ * The engine's layers, lowest first (0004), the one list: every directory of `packages/engine/src`
+ * and every file at its top. A file imports a value only from its own layer or a lower one;
+ * types may cross. Until the layering spike sets finer layers, all the engine's orchestration is
+ * one domain layer between the base and the composition root.
+ */
+const ENGINE_LAYERS = [
+  {
+    name: "base",
+    entries: [
+      "changelog",
+      "config",
+      "context",
+      "git",
+      "host",
+      "keepawake",
+      "log",
+      "platform",
+      "software-stream",
+      "story-store",
+      "wiring",
+    ],
+  },
+  {
+    name: "domain",
+    entries: [
+      "backlog",
+      "backup",
+      "box",
+      "commands",
+      "db",
+      "gate",
+      "hooks",
+      "ingest",
+      "merge",
+      "office",
+      "pricing",
+      "prompts",
+      "reads",
+      "reconcile",
+      "retention",
+      "review",
+      "run",
+      "runs",
+      "scan",
+      "stories",
+      "story-pr",
+      "views",
+      "workers",
+      "worktree",
+    ],
+  },
+  {
+    name: "composition",
+    entries: ["create", "features.ts", "index.ts", "platform-entry.ts"],
+  },
+];
+
+const ENGINE_SRC = /\/packages\/engine\/src\/(.+)$/;
+
+/** The layer index of a path inside `packages/engine/src`, -1 for an unlisted entry, null outside. */
+function engineLayer(path) {
+  const match = ENGINE_SRC.exec(path.replaceAll("\\", "/"));
+  if (match === null) return null;
+  const inside = match[1];
+  const entry = inside.includes("/") ? inside.slice(0, inside.indexOf("/")) : inside;
+  const candidates = [entry, `${entry}.ts`, entry.replace(/\.[cm]?[jt]sx?$/, ".ts")];
+  const index = ENGINE_LAYERS.findIndex((layer) =>
+    layer.entries.some((name) => candidates.includes(name)),
+  );
+  return { index, entry };
+}
+
+/** No value import from a higher engine layer into a lower one (0004). */
+const engineLayers = {
+  meta: {
+    type: "problem",
+    docs: { description: "Refuse a value import from a higher engine layer into a lower one." },
+  },
+  create(context) {
+    const own = engineLayer(context.filename);
+    if (own === null || context.filename.endsWith(".test.ts")) return {};
+    if (own.index === -1) {
+      return {
+        Program(node) {
+          context.report({
+            node,
+            message: `packages/engine/src/${own.entry} is in no engine layer; add it to ENGINE_LAYERS in tools/lint/oxlint-plugin.js (0004).`,
+          });
+        },
+      };
+    }
+    return importVisitors((source, typeOnly) => {
+      const specifier = specifierOf(source);
+      if (typeOnly || specifier === null || !specifier.startsWith(".")) return;
+      const target = engineLayer(resolve(dirname(context.filename), specifier));
+      if (target === null || target.index <= own.index) return;
+      const from = ENGINE_LAYERS[own.index].name;
+      const to = target.index === -1 ? "no layer" : ENGINE_LAYERS[target.index].name;
+      context.report({
+        node: source,
+        message: `The ${from} layer of the engine imports no value from the ${to} layer (0004): ${own.entry} may not import ${target.entry}.`,
+      });
+    });
+  },
+};
+
 export default {
   meta: { name: "dipo" },
   rules: {
@@ -618,6 +871,8 @@ export default {
       },
     },
     "daemon-engine-imports": daemonEngineImports,
+    "package-imports": packageImports,
+    "engine-layers": engineLayers,
     "no-claude-cli-import": importRule(
       "Ban imports of the Claude CLI adapter, directly or through the engine entry, outside it and the entry.",
       claudeCliMessage,

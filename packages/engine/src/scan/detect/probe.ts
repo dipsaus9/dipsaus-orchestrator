@@ -4,7 +4,7 @@
 
 import { posix } from "node:path";
 
-import { createRepoFiles, type RepoFiles } from "../../platform/repo-files";
+import { createRepoFiles, type RepoFiles } from "../../git/repo-files";
 import {
   baseName,
   BUN_VERSION_FILE,

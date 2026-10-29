@@ -98,7 +98,7 @@ function cases(): Case[] {
     out.push({
       name: `${fixture} at the cap passes`,
       fixture,
-      target: `packages/engine/src/${fixture}`,
+      target: `packages/engine/src/run/${fixture}`,
       expected: [],
     }),
   );

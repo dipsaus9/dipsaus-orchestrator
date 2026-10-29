@@ -39,7 +39,7 @@ import type { OfficeGit } from "../git/office";
 import type { Logger } from "../log/logger";
 import { decideOnHandMerge } from "../merge/gates";
 import { type CodeHost, type PrStateHost, repoOfRemoteUrl } from "../platform/host";
-import type { PrStatePoll } from "../platform/pr-state";
+import type { PrStatePoll } from "../story-pr/pr-state";
 import type { StoryStore } from "../story-store/store";
 import { withWorkViews } from "../views/work";
 

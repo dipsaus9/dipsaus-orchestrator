@@ -17,7 +17,7 @@ import type { Spawn, SpawnOptions } from "@dipsaus-orchestrator/contract";
 
 import { EngineGit, OfficeGit, spawnGitExec } from "../../src/git";
 import { systemSpawn } from "../../src/platform/process";
-import { createRepoFiles } from "../../src/platform/repo-files";
+import { createRepoFiles } from "../../src/git/repo-files";
 
 const OFFICE = "off_01J9ZK5Q8W3V4X6Y7Z00000001" as OfficeId;
 

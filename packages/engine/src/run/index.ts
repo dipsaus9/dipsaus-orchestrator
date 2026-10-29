@@ -12,7 +12,6 @@ export {
 } from "./work-run";
 export type { BaseRead, RunBase, RunLane, RunOffices, WorkRunDeps } from "./work-run";
 export {
-  DEVELOPER_TOOLS,
   LAUNCH_NOTICES,
   packageCacheSkippedText,
   planRefusedText,

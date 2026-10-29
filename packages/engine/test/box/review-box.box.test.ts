@@ -13,10 +13,10 @@
 //   exported from the Mac, does not hold the marker of a listed file the developer's box gets); a
 //   write to the copy fails in every form; no service of the Mac is reached, directly or through
 //   the web proxy;
-// - the bypass forms: a symlink of the commit that points outside the copy is not in it; a shell or
-//   a write tool asked for in a reviewer's spec is refused before any session (`checkSpec`), and the
-//   planned session names only the reviewer's tools; a proxy setting changed in the box (no proxy,
-//   another port of the Mac) reaches nothing;
+// - the bypass forms: a symlink of the commit that points outside the copy is not in it; a spec
+//   carrying a shell or a write tool still plans only the reviewer's tools, and the web switch on a
+//   review spec is refused before any session (`checkSpec`); a proxy setting changed in the box (no
+//   proxy, another port of the Mac) reaches nothing;
 // - fail closed against the real path: with the reviewer box's firewall missing (the backend's set
 //   step left out, its real check kept), the review does not start and the box is deleted;
 // - the box is deleted when the session ends.
@@ -58,7 +58,7 @@ import { OfficeGit, spawnGitExec } from "../../src/git";
 import { systemListenHttp } from "../../src/platform/box-host";
 import { systemClock } from "../../src/platform/clock";
 import { systemSpawn } from "../../src/platform/process";
-import { REVIEWER_TOOLS } from "../../src/run/launch";
+import { REVIEW_TOOLS } from "../../src/workers/claude-cli/tools";
 import { planInBox } from "../../src/workers/claude-cli/box-plan";
 import { REPORT_JSON_SCHEMAS } from "../../src/workers/claude-cli/report-schema";
 import { AdapterHolds } from "../../src/workers/hold";
@@ -316,7 +316,7 @@ function reviewerSpec(systemFile: string, overrides: Partial<WorkerSpec> = {}): 
     caps: { budgetTokens: 100_000, maxTurns: 4, maxMinutes: 5 },
     systemFile,
     taskMessage: `Read ${REVIEW_CODE_DIR}/README.md, then report every criterion as none and the summary "ok".`,
-    tools: { allow: [...REVIEWER_TOOLS], deny: [] },
+    web: false,
     session: { id: crypto.randomUUID(), resume: false },
     reportSchema: REPORT_JSON_SCHEMAS.review,
     ...overrides,
@@ -436,17 +436,20 @@ if (registers) {
               expect(noProxy).toBe("closed");
               expect(otherPort).toBe("closed");
 
-              // Bypass: a shell or a write tool asked for is refused before any session.
-              for (const tool of ["Bash", "Edit", "Write"]) {
-                const asked = reviewerSpec(s.systemFile, {
-                  tools: { allow: [...REVIEWER_TOOLS, tool], deny: [] },
-                });
-                expect(() => planInBox(asked, session, tmp)).toThrow(PlanError);
-              }
-              const planned = planInBox(reviewerSpec(s.systemFile), session, tmp);
+              // Bypass: a spec names no tools (DIPO-318); one carrying a tool list as an older
+              // caller would still gets exactly the review set, and the web switch on a review
+              // spec is refused before any session.
+              const asked = {
+                ...reviewerSpec(s.systemFile),
+                tools: { allow: ["Bash", "Edit", "Write"], deny: [] },
+              };
+              const planned = planInBox(asked, session, tmp);
               expect(planned.argv[planned.argv.indexOf("--tools") + 1]).toBe(
-                REVIEWER_TOOLS.join(","),
+                REVIEW_TOOLS.join(","),
               );
+              expect(() =>
+                planInBox(reviewerSpec(s.systemFile, { web: true }), session, tmp),
+              ).toThrow(PlanError);
 
               // What the old barrier caught: no value of box.files anywhere in the box.
               const exported = join(tmp, "review-box.tar");
@@ -535,7 +538,7 @@ if (registers) {
               // The reviewer's tools, and the CLI's own tool for the structured report.
               const tools = (init?.["tools"] as string[] | undefined) ?? [];
               expect(tools.filter((tool) => tool !== "StructuredOutput").toSorted()).toEqual(
-                [...REVIEWER_TOOLS].toSorted(),
+                [...REVIEW_TOOLS].toSorted(),
               );
               const result = lines.find((line) => line["type"] === "result");
               fact(

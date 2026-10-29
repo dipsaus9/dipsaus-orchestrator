@@ -22,17 +22,16 @@ import {
 } from "./env-secrets";
 import { countWebCalls, findRun } from "./records";
 
-/** Pure: the web calls among `events` by tool, from the worker's tool activity. */
+/** Pure: the web calls among `events`, from the web call the adapter names on each tool activity. */
 export function webCallCounts(events: readonly WorkerEvent[]): {
-  readonly WebSearch: number;
-  readonly WebFetch: number;
+  readonly searches: number;
+  readonly fetches: number;
 } {
-  const counts = { WebSearch: 0, WebFetch: 0 };
+  const counts = { searches: 0, fetches: 0 };
   for (const event of events) {
-    if (event.t === "activity" && event.kind === "tool" && event.tool !== undefined) {
-      if (event.tool === "WebSearch") counts.WebSearch += 1;
-      else if (event.tool === "WebFetch") counts.WebFetch += 1;
-    }
+    if (event.t !== "activity" || event.kind !== "tool") continue;
+    if (event.web === "search") counts.searches += 1;
+    else if (event.web === "fetch") counts.fetches += 1;
   }
   return counts;
 }
@@ -81,11 +80,9 @@ export class WebCalls {
     events: readonly WorkerEvent[],
   ): void {
     const counts = webCallCounts(events);
-    if (counts.WebSearch === 0 && counts.WebFetch === 0) return;
+    if (counts.searches === 0 && counts.fetches === 0) return;
     try {
-      office.immediate(() =>
-        countWebCalls(office, run, { searches: counts.WebSearch, fetches: counts.WebFetch }),
-      );
+      office.immediate(() => countWebCalls(office, run, counts));
     } catch (error) {
       this.#warn("the web calls could not be counted", run, error);
     }

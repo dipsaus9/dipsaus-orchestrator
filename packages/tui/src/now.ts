@@ -72,7 +72,7 @@ export function nowLine(options: {
 }
 
 /**
- * The overview's `now:` text of a running row: `building · [tool] Edit src/app.ts · 12s ago`. A
+ * The overview's `now:` text of a running row: `building · [tool] <tool> src/app.ts · 12s ago`. A
  * run with an open question says `asking you` with the question.
  */
 export function boardNow(options: {

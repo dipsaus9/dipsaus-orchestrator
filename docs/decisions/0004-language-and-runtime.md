@@ -41,18 +41,20 @@ The daemon-side forms of the binary are `dipo daemon --foreground` and `dipo dae
 
 These are lint rules in `.oxlintrc.json` and `tools/lint/`, proven by `test/lint-boundaries/`. `bun run verify` fails on any of them.
 
-- `tui`, `client` and `cli` never import `engine`. `cli` reaches the daemon only through `runDaemon`.
-- No package imports another package's internals (`@dipsaus-orchestrator/*/src/*`), by package specifier or by relative path.
-- `contract` imports nothing but zod.
+- Each package imports only the packages the table above allows, and `testkit` only from tests. The bans hold for every import form: static, type-only, a dynamic `import()`, `require` and `import.meta.require`. One rule holds the list.
+- `tui`, `client` and `cli` never import `engine`. `cli` reaches the daemon only through `runDaemon`, and loads `daemon` and `tui` only in the subcommands that use them.
+- No file imports a package's internals by package specifier (`@dipsaus-orchestrator/*/src/*`), and no package reaches another package's files by relative path. Outside the packages, only the cross-package tests in `test/`, the tools in `tools/` and the CI scripts in `scripts/` read package files by relative path; none of them is shipped.
+- `contract` imports nothing but zod, in every source file.
 - `engine` never imports `daemon`, `client`, `tui` or `cli`, and finds no file of theirs by path.
+- Inside `engine`, a file imports values only from its own layer or a lower one: the base (platform, git, config, log and the other directories nothing in the engine sits below), the domain, and the composition root (`create/` and the entries). The layers are listed once, in the lint plugin.
 - Inside `engine` and `daemon`, only `engine/src/platform/**` touches `bun`, `bun:*` (except `bun:test`) or the global `Bun`.
-- Inside `engine`, only `workers/claude-cli/**` imports the Claude adapter.
+- Inside `engine`, only `workers/claude-cli/**` imports the Claude adapter. No other source file of any package names Claude's tools or model aliases, in code or in prose; the office configuration's model defaults are the one exception.
 - `daemon` imports from `engine` only `createEngine`, types and the engine's platform entry (0005).
 - `client`'s main entry uses no Bun or Node API.
 - No runtime import cycles (`import/no-cycle`, type-only cycles allowed).
 - Function size caps: at most 100 lines, complexity 20 and 5 parameters per function.
 
-Three of these rules are not in place yet (2026-10-29): `contract` importing nothing but zod, `engine` never importing the other packages, and the ban on deep imports by relative path. The prune plan adds them.
+The domain is one engine layer for now (2026-10-29): its directories still import each other both ways. A layering spike sets the finer layers and the moves they need.
 
 ## Tooling
 

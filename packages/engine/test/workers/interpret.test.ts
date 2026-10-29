@@ -201,8 +201,9 @@ describe("interpret (0008 section 3)", () => {
       { t: "activity", kind: "tool", tool: "Grep", path: "${WORKDIR}/src", input: "TODO" },
       { t: "activity", kind: "tool", tool: "Glob", input: "**/*.ts" },
       // A web call carries no input on its activity: its query or URL is an output line (below).
-      { t: "activity", kind: "tool", tool: "WebFetch" },
-      { t: "activity", kind: "tool", tool: "WebSearch" },
+      // The adapter names the web call it makes, which the run counts (DIPO-318).
+      { t: "activity", kind: "tool", tool: "WebFetch", web: "fetch" },
+      { t: "activity", kind: "tool", tool: "WebSearch", web: "search" },
       // File contents and edits never travel as input; the path says what was touched.
       { t: "activity", kind: "tool", tool: "Write", path: "${WORKDIR}/a.ts" },
       { t: "activity", kind: "tool", tool: "Bash" },

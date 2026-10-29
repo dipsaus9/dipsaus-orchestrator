@@ -10,29 +10,30 @@ import { LINT_TIMEOUT_MS, lintTree, type Diagnostic } from "./lint-tree";
 const GLOBALS = "eslint(no-restricted-globals)";
 const PROPERTIES = "eslint(no-restricted-properties)";
 const IMPORTS = "eslint(no-restricted-imports)";
+const PACKAGES = "dipo(package-imports)";
 const ARGLESS_DATE = "dipo(no-argless-date)";
 
 type Case = { fixture: string; dir: string; rule: string };
 
 const violations: Case[] = [
   // Time: banned everywhere outside packages/engine/src/platform/ and packages/testkit/.
-  { fixture: "date-now.ts", dir: "packages/engine/src", rule: PROPERTIES },
+  { fixture: "date-now.ts", dir: "packages/engine/src/run", rule: PROPERTIES },
   { fixture: "date-now.ts", dir: "packages/daemon/src", rule: PROPERTIES },
   { fixture: "date-now.ts", dir: "packages/client/src", rule: PROPERTIES },
-  { fixture: "argless-date.ts", dir: "packages/engine/src", rule: ARGLESS_DATE },
+  { fixture: "argless-date.ts", dir: "packages/engine/src/run", rule: ARGLESS_DATE },
   { fixture: "argless-date.ts", dir: "packages/tui/src", rule: ARGLESS_DATE },
-  { fixture: "global-timer.ts", dir: "packages/engine/src", rule: GLOBALS },
+  { fixture: "global-timer.ts", dir: "packages/engine/src/run", rule: GLOBALS },
   { fixture: "global-timer.ts", dir: "packages/cli/src", rule: GLOBALS },
   { fixture: "global-this-timer.ts", dir: "packages/daemon/src", rule: PROPERTIES },
   // Synchronous process calls: banned anywhere in engine/src (platform too) and daemon/src.
   { fixture: "bun-spawn-sync.ts", dir: "packages/daemon/src", rule: PROPERTIES },
-  { fixture: "bun-spawn-sync.ts", dir: "packages/engine/src", rule: PROPERTIES },
+  { fixture: "bun-spawn-sync.ts", dir: "packages/engine/src/run", rule: PROPERTIES },
   { fixture: "bun-spawn-sync.ts", dir: "packages/engine/src/platform", rule: PROPERTIES },
   { fixture: "node-exec-sync.ts", dir: "packages/daemon/src", rule: IMPORTS },
   { fixture: "node-exec-sync.ts", dir: "packages/engine/src/platform", rule: IMPORTS },
   { fixture: "namespace-spawn-sync.ts", dir: "packages/daemon/src", rule: PROPERTIES },
   // testkit never imports engine or daemon.
-  { fixture: "testkit-imports-engine.ts", dir: "packages/testkit/src", rule: IMPORTS },
+  { fixture: "testkit-imports-engine.ts", dir: "packages/testkit/src", rule: PACKAGES },
 ];
 
 const allowed: Omit<Case, "rule">[] = [
@@ -43,7 +44,7 @@ const allowed: Omit<Case, "rule">[] = [
   { fixture: "date-now.ts", dir: "packages/testkit/src" },
   { fixture: "argless-date.ts", dir: "packages/testkit/src" },
   { fixture: "global-timer.ts", dir: "packages/testkit/src" },
-  { fixture: "dated-date.ts", dir: "packages/engine/src" },
+  { fixture: "dated-date.ts", dir: "packages/engine/src/run" },
   // Outside engine and daemon a synchronous call is not banned by this rule.
   { fixture: "bun-spawn-sync.ts", dir: "packages/cli/src" },
 ];

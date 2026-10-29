@@ -51,7 +51,7 @@ function spec(overrides: Partial<WorkerSpec> = {}): WorkerSpec {
     },
     systemFile: `${RUN_DIR}/system-scan.md`,
     taskMessage: "<scan_request>\n- verify: unresolved\n</scan_request>",
-    tools: { allow: [], deny: [] },
+    web: false,
     session: { id: "1e6f3f4c-5b8d-4c1e-9a2b-3c4d5e6f7a8b", resume: false },
     reportSchema: SCAN_ANSWER_JSON_SCHEMA,
     ...overrides,
@@ -138,9 +138,7 @@ describe("the scan session's launch plan", () => {
   });
 
   it("refuses a session with a tool, a resume or a folder in the checkout", () => {
-    expect(() => plan(spec({ tools: { allow: ["Read"], deny: [] } }), context())).toThrow(
-      /every tool off/,
-    );
+    expect(() => plan(spec({ web: true }), context())).toThrow(/every tool off/);
     expect(() => plan(spec({ session: { ...spec().session, resume: true } }), context())).toThrow(
       PlanError,
     );

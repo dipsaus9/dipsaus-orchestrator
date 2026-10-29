@@ -20,7 +20,7 @@ import {
 
 import { OfficeHandle } from "../../src/db/office";
 import { EngineGit } from "../../src/git";
-import { createRepoFiles } from "../../src/platform/repo-files";
+import { createRepoFiles } from "../../src/git/repo-files";
 import { systemSpawn } from "../../src/platform/process";
 import { detect, type Probe, type RunProfile } from "../../src/scan/detect";
 import { RunProfiles } from "../../src/scan/feature";

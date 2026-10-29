@@ -5,7 +5,7 @@ import { describe, expect, it } from "bun:test";
 
 import { LINT_TIMEOUT_MS, lintTree, type Placement } from "./lint-tree";
 
-const RULE = "eslint(no-restricted-imports)";
+const RULE = "dipo(package-imports)";
 
 const violations: Placement[] = [
   { fixture: "tui-imports-engine.ts", target: "packages/tui/src/fixture.ts" },
@@ -16,7 +16,7 @@ const violations: Placement[] = [
   { fixture: "client-imports-daemon.ts", target: "packages/client/src/fixture.ts" },
   { fixture: "cli-imports-engine.ts", target: "packages/cli/src/fixture.ts" },
   // The deep-import ban holds in every package, including the ones with their own override.
-  { fixture: "deep-import.ts", target: "packages/engine/src/fixture.ts" },
+  { fixture: "deep-import.ts", target: "packages/engine/src/run/fixture.ts" },
   { fixture: "deep-import.ts", target: "packages/tui/src/fixture.ts" },
   { fixture: "deep-import.ts", target: "packages/client/src/fixture.ts" },
   { fixture: "deep-import.ts", target: "packages/cli/src/fixture.ts" },

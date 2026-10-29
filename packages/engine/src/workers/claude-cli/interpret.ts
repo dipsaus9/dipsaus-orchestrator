@@ -30,7 +30,8 @@ import type {
   WorkerEvent,
   WorkerReport,
 } from "../types";
-import { WEB_LINE_PREFIX, WEB_TOOLS } from "../types";
+import { WEB_LINE_PREFIX } from "../types";
+import { WEB_TOOLS, webCallOf } from "./tools";
 import { flatInput } from "../../ingest/output";
 import { pluginRefusal, refusedPlugins } from "./plugins";
 import { CHECKED_CLAUDE_VERSION, compareVersions } from "./probe";
@@ -998,12 +999,14 @@ function assistant(value: unknown, state: ClaudeParseState): Step {
       // A web call always shows its query or URL (0020 section 11b), whatever the privacy opt-in
       // for tool inputs: its line is an output line of its own, and the activity carries no input.
       const web = WEB_TOOLS.includes(tool.data.name);
+      const call = webCallOf(tool.data.name);
       events.push({
         t: "activity",
         kind: "tool",
         tool: tool.data.name,
         ...(path === undefined ? {} : { path }),
         ...(input === undefined || web ? {} : { input }),
+        ...(call === undefined ? {} : { web: call }),
         ...scope,
       });
       if (web && agentId === undefined) {

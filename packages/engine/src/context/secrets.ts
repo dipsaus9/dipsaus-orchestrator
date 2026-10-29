@@ -1,6 +1,7 @@
-// Secret paths (0008: `Read(./**/.env*)` and the secret paths an engine step cannot read). The
-// context provider never reads a file whose path matches, and the workspace refuses to: such a
-// file is listed by path only, so a secret cannot reach a prompt through the context pack.
+// Secret paths (0008: the `.env*` files at any depth and the secret paths an engine step cannot
+// read). The context provider never reads a file whose path matches, and the workspace refuses
+// to: such a file is listed by path only, so a secret cannot reach a prompt through the context
+// pack.
 // Matching ignores case.
 
 import { constants } from "node:fs";

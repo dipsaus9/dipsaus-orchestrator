@@ -298,6 +298,7 @@ export const ClaudeWorkerEventSchema = z.union([
     tool: Name,
     path: z.string().exactOptional(),
     input: z.string().exactOptional(),
+    web: z.enum(["search", "fetch"]).exactOptional(),
     agentId: Name.exactOptional(),
   }),
   z.strictObject({
