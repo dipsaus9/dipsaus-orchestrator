@@ -13,9 +13,9 @@
 // the notice.
 //
 // A failed In Review push (DIPO-315). Each poll first pushes again, never forced, the branch of
-// every run open at In Review waiting for its review whose claim's `pushed_at` is null or earlier than the run's
-// end (`runsToPush`), since the review waits for the head on the
-// remote (`pendingReviews`). A push that reaches the remote records `pushed_at` and syncs the PR
+// every run open at In Review waiting for its review whose claim's `pushed_at` is null or earlier
+// than the run's end (`runsToPush`), since the review waits for the head on the remote
+// (`pendingReviews`). A push that reaches the remote records `pushed_at` and syncs the PR
 // at once (the PR is opened below when it has none); one that finds no remote records
 // `no_remote_at`; a failure is a `pr.pushFailed` notice, once per cause, and is tried again.
 // With the poll off (`polling.prStateSeconds` 0) nothing pushes again: each held run gets one
