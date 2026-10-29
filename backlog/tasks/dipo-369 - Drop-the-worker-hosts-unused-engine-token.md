@@ -1,10 +1,10 @@
 ---
 id: DIPO-369
 title: Drop the worker host's unused engine token
-status: In Progress
+status: In Review
 assignee: []
 created_date: '2026-10-29 08:06'
-updated_date: '2026-10-29 21:31'
+updated_date: '2026-10-29 21:36'
 labels:
   - 'tier:S'
   - 'slice:prune'
@@ -40,7 +40,7 @@ test_plan:
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 The engine token is no longer created, stored, written to launch.json or sent in the hello; the builder confirms the host never read it and removes its type from host/client.ts
-- [ ] #2 The worker_hosts.engine_token column is dropped by a migration tested on a database with rows, fresh equals migrated, and the one-writer test stays green
-- [ ] #3 A host started by an earlier binary that still sends the token in its hello is reattached, the token ignored, with a test
+- [x] #1 The engine token is no longer created, stored, written to launch.json or sent in the hello; the builder confirms the host never read it and removes its type from host/client.ts
+- [x] #2 The worker_hosts.engine_token column is dropped by a migration tested on a database with rows, fresh equals migrated, and the one-writer test stays green
+- [x] #3 A host started by an earlier binary that still sends the token in its hello is reattached, the token ignored, with a test
 <!-- AC:END -->
