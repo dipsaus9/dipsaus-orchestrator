@@ -8,7 +8,7 @@ Until `v0.1.0`, `release.yml` is a dry run (0016 rule 3):
 
 - It starts only by hand, with `workflow_dispatch` on `main`.
 - release-please runs as the CLI with `--dry-run`. It reports the release PR it would open (title, version, changelog) and the release it would tag, and writes nothing.
-- The build matrix builds and smoke-tests `dipo` on the four native runners and keeps `dipo-<os>-<arch>.tar.gz` as workflow artifacts.
+- The build job builds and smoke-tests `dipo` on a macOS arm64 runner, the one target (0004), and keeps `dipo-darwin-arm64.tar.gz` as a workflow artifact.
 - `publish` and `post-release` are skipped. No tag, release, upload or attestation is made.
 
 The dry run cannot test the tag ruleset, immutable releases or the `release` environment. The first real release is the first time they run, so `v0.1.0` is cut with that in mind.
@@ -59,7 +59,7 @@ gh workflow run release.yml --ref main
 gh run list --workflow release.yml --limit 1        # note the run id
 gh run watch <run-id>
 gh run view <run-id>                                # jobs and summary
-gh run download <run-id> --dir /tmp/dipo-dry-run    # the four archives
+gh run download <run-id> --dir /tmp/dipo-dry-run    # the darwin-arm64 archive
 ls /tmp/dipo-dry-run/*/
 tar -tzf /tmp/dipo-dry-run/dipo-darwin-arm64/dipo-darwin-arm64.tar.gz
 gh release list --repo dipsaus9/dipsaus-orchestrator
@@ -70,8 +70,8 @@ gh pr list --repo dipsaus9/dipsaus-orchestrator --label "autorelease: pending"
 Expect:
 
 - The run summary has a "release-please dry run" section with the proposed release PR title (`chore(main): release 0.1.0` while the manifest says `0.0.0` and `main` has `feat` commits) and the changelog in the collapsed `release-pr --dry-run` output.
-- Jobs `release-please` and the four `build (*)` jobs are green; `publish` and `post-release` are skipped.
-- Four artifacts, `dipo-darwin-arm64`, `dipo-darwin-x64`, `dipo-linux-x64` and `dipo-linux-arm64`, each holding `dipo-<os>-<arch>.tar.gz` with `dipo`, `LICENSE` and `README.md`.
+- Jobs `release-please` and `build (darwin-arm64)` are green; `publish` and `post-release` are skipped.
+- One artifact, `dipo-darwin-arm64`, holding `dipo-darwin-arm64.tar.gz` with `dipo`, `LICENSE` and `README.md`.
 - `gh release list` and `git ls-remote --tags` show no release and no tag, and no PR carries `autorelease: pending`.
 
 ## Switch to real releases (`v0.1.0`)
@@ -89,9 +89,9 @@ Steps 1 to 7 of the one-time list must be done first.
 2. A reviewer agent checks the version bump and changelog against the merged PRs (0016 rule 11).
 3. **Live smoke run (0017 section 1).** The maintainer builds `dipo` from the release PR's head with `bun scripts/build.ts`, does one live run (a story taken end to end against real Claude) and confirms the result on the release PR. Without that confirmation the release PR is not merged. This run is never automated.
 4. **Gate 1:** the maintainer merges the release PR. release-please tags `vX.Y.Z` and creates a draft release.
-5. The four builds run at the tag. Each downloads the Bun of `.bun-version` from Bun's release, checks it against the SHA-256 pinned in `release.yml` and restores no cache. A Bun update changes `BUN_VERSION` and the four `bun-sha256` values in `release.yml` together with `.bun-version`, copied from that Bun release's `SHASUMS256.txt`; `scripts/release-path.test.ts` fails while they differ.
+5. The darwin-arm64 build runs at the tag. It downloads the Bun of `.bun-version` from Bun's release, checks it against the SHA-256 pinned in `release.yml` and restores no cache. A Bun update changes `BUN_VERSION` and the `bun-sha256` value in `release.yml` together with `.bun-version`, copied from that Bun release's `SHASUMS256.txt`; `scripts/release-path.test.ts` fails while they differ.
 6. **Gate 2:** the maintainer approves the `publish` deployment in the `release` environment. `publish` writes `SHA256SUMS`, attests every archive, `SHA256SUMS` and `install.sh`, uploads them to the draft and publishes it.
-7. `post-release` installs the published release with `install.sh` on macOS arm64 and Linux x64 and runs `dipo --version`. A failure opens an issue; immutable releases are fixed forward with a patch release.
+7. `post-release` installs the published release with `install.sh` on macOS arm64 and runs `dipo --version`. A failure opens an issue; immutable releases are fixed forward with a patch release.
 
 Agents and the orchestrator never merge a PR labelled `autorelease: pending` and never approve a deployment (0016 rule 12).
 

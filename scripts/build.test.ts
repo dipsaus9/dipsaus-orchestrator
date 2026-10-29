@@ -9,6 +9,7 @@ import {
   ENTRYPOINTS,
   EXTERNALS,
   hostTarget,
+  isTarget,
   ROOT,
   TARGETS,
 } from "./build";
@@ -48,14 +49,14 @@ describe("buildDefines", () => {
 
 describe("buildCommand", () => {
   const command = buildCommand({
-    target: "bun-linux-arm64",
+    target: "bun-darwin-arm64",
     outfile: "dist/dipo",
     defines: buildDefines("0.0.0", false, clean),
     bun: "bun",
   });
 
   it("compiles packages/cli for the target with the defines", () => {
-    expect(command.slice(0, 4)).toEqual(["bun", "build", "--compile", "--target=bun-linux-arm64"]);
+    expect(command.slice(0, 4)).toEqual(["bun", "build", "--compile", "--target=bun-darwin-arm64"]);
     expect(command).toContain("--outfile=dist/dipo");
     expect(command).toContain('--define=DIPO_VERSION="0.0.0-dev"');
     expect(command).toContain('--define=DIPO_COMMIT="3f2a9c1e7b20"');
@@ -89,14 +90,25 @@ describe("buildCommand", () => {
   });
 });
 
+describe("TARGETS (0004)", () => {
+  it("knows only the darwin-arm64 target", () => {
+    expect(TARGETS).toEqual(["bun-darwin-arm64"]);
+    expect(isTarget("bun-darwin-arm64")).toBe(true);
+    for (const other of ["bun-darwin-x64", "bun-linux-x64", "bun-linux-arm64"]) {
+      expect(isTarget(other)).toBe(false);
+    }
+  });
+});
+
 describe("hostTarget", () => {
-  it("maps supported hosts to the four targets", () => {
+  it("maps macOS on Apple silicon to darwin-arm64", () => {
     expect(hostTarget("darwin", "arm64")).toBe("bun-darwin-arm64");
-    expect(hostTarget("linux", "x64")).toBe("bun-linux-x64");
-    expect(TARGETS).toHaveLength(4);
   });
 
-  it("refuses an unsupported host", () => {
+  it("refuses every other host", () => {
+    expect(() => hostTarget("darwin", "x64")).toThrow("no dipo target");
+    expect(() => hostTarget("linux", "x64")).toThrow("no dipo target");
+    expect(() => hostTarget("linux", "arm64")).toThrow("no dipo target");
     expect(() => hostTarget("win32", "x64")).toThrow("no dipo target");
   });
 });

@@ -139,12 +139,13 @@ jobs:
           } >> "$GITHUB_OUTPUT"
           cat "$GITHUB_OUTPUT"
 
-  # Same build script and smoke test as CI (0016 rule 1), on the four native runners. No cache of
+  # Same build script and smoke test as CI (0016 rule 1), for the one target, darwin-arm64 (0004),
+  # on its native runner. No cache of
   # any kind: a release build installs from bun.lock alone, and it does not use setup-bun, whose
   # Bun executable cache a release could restore. It downloads the Bun of `.bun-version` from
   # Bun's release and checks it against the SHA-256 pinned below before it runs (DIPO-321).
   #
-  # A Bun update changes BUN_VERSION and the four bun-sha256 values together, copied from
+  # A Bun update changes BUN_VERSION and the bun-sha256 value together, copied from
   # https://github.com/oven-sh/bun/releases/download/bun-v<version>/SHASUMS256.txt.
   # scripts/release-path.test.ts fails while BUN_VERSION and .bun-version differ.
   build:
@@ -160,21 +161,6 @@ jobs:
             file: "Mach-O 64-bit executable arm64"
             bun-asset: bun-darwin-aarch64
             bun-sha256: 90987a3a16d7db556d886ac3d551e7b6d3edf0a1cf43acaed622e8676be1d12f
-          - target: darwin-x64
-            runner: macos-26-intel
-            file: "Mach-O 64-bit executable x86_64"
-            bun-asset: bun-darwin-x64
-            bun-sha256: 80520d7e17526308c9185d261679ac6d27798d3803a0e9f7ff9121ab8affb012
-          - target: linux-x64
-            runner: ubuntu-24.04
-            file: "ELF 64-bit LSB executable, x86-64"
-            bun-asset: bun-linux-x64
-            bun-sha256: 36368faef7527875d5ffa52e53cd48021741f2a83eb6208a8dd64068d422a913
-          - target: linux-arm64
-            runner: ubuntu-24.04-arm
-            file: "ELF 64-bit LSB executable, ARM aarch64"
-            bun-asset: bun-linux-aarch64
-            bun-sha256: 54328bbc2d9c8e0c9f892c544d66c57a83b84139e34909e5ee81758f1ac8fda7
     runs-on: ${{ matrix.runner }}
     permissions:
       contents: read
@@ -271,7 +257,7 @@ jobs:
           cp install.sh assets/install.sh
           cd assets
           set -- dipo-*.tar.gz
-          if [ "$#" -ne 4 ]; then echo "expected 4 archives, got: $*"; exit 1; fi
+          if [ "$#" -ne 1 ]; then echo "expected 1 archive, got: $*"; exit 1; fi
           sha256sum dipo-*.tar.gz > SHA256SUMS
           cat SHA256SUMS
       - uses: actions/attest-build-provenance@4d101475d8b20a2381f78447822ac1eab6504dd8 # v4.2.2
@@ -297,7 +283,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        runner: [macos-26, ubuntu-24.04]
+        runner: [macos-26]
     runs-on: ${{ matrix.runner }}
     permissions:
       contents: read
