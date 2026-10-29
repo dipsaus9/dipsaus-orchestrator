@@ -28,6 +28,13 @@ const MIGRATIONS = "packages/engine/src/db/migrations/";
 /** Retention's age-out deletes of tables it names in a variable (0007). */
 const RETENTION = "packages/engine/src/retention/run.ts";
 
+/** A call of retention's unnamed delete with one of the four tables as its literal table. */
+const RETENTION_ROWS = /\brows\(\s*["'`](runs|parks|agents|worker_hosts)["'`]/g;
+
+/** The four tables retention names as a literal table of its unnamed delete. */
+const literal = (text: string): string[] =>
+  [...text.matchAll(RETENTION_ROWS)].map((match) => match[1] as string);
+
 /** The only files that may write a table whose name the source does not spell out. */
 const DYNAMIC_ALLOWED = [RETENTION];
 
@@ -96,6 +103,15 @@ describe("one writer per run table", () => {
 
   it("finds no write outside the table's writer, and no unnamed table outside the short list", () => {
     expect(writes.filter(stray).map(describeWrite)).toEqual([]);
+  });
+
+  it("finds retention passing none of the four tables to its unnamed delete", () => {
+    expect(literal(readFileSync(join(REPO, RETENTION), "utf8"))).toEqual([]);
+    // The scan sees each quoting form.
+    expect(
+      literal(`await rows("runs", "x"); rows('parks', y); rows(\`agents\`); rows( "worker_hosts")`),
+    ).toEqual(["runs", "parks", "agents", "worker_hosts"]);
+    expect(literal(`await rows("run_steps", "x"); batches("runs", (n) => n)`)).toEqual([]);
   });
 
   it("sees each writer's own writes and the allowed unnamed ones, so the scan works", () => {

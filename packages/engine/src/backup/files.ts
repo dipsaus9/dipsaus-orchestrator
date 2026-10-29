@@ -10,6 +10,8 @@ import { BACKUPS_DIR } from "../platform/sqlite";
 export const PRE_MIGRATION_KEPT = 2;
 
 const PRE_MIGRATION = /^pre-v(\d+)-(\d{8}T\d{6})(?:-(\d+))?\.db$/;
+/** A daily copy an earlier dipo wrote, with its `.partial` while it was written. */
+const DAILY = /^dipo-\d{8}\.db(?:\.partial)?$/;
 
 /** `<state>/backups` for the database at `dbPath`. */
 export function backupsDirectory(dbPath: string): string {
@@ -46,6 +48,17 @@ export function preMigrationBackups(dir: string): string[] {
       if (x.n !== y.n) return y.n - x.n;
       return y.version - x.version;
     });
+}
+
+/**
+ * Deletes the daily copies an earlier dipo wrote (`dipo-<yyyymmdd>.db`): they hold prompts and
+ * commands, which 0007 keeps no longer than the retention period, and the pre-migration copy is
+ * the only backup now. Returns the names it deleted.
+ */
+export function removeDailyBackups(dir: string): string[] {
+  const removed = list(dir).filter((name) => DAILY.test(name));
+  for (const name of removed) rmSync(join(dir, name), { force: true });
+  return removed;
 }
 
 /**

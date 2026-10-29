@@ -6,14 +6,16 @@ import { describe, expect, it } from "bun:test";
 import { mkdirSync, readdirSync, statSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 
-import { withTempDir } from "@dipsaus-orchestrator/testkit";
+import { ManualClock, withTempDir } from "@dipsaus-orchestrator/testkit";
 
 import { backupsDirectory, prunePreMigrationBackups } from "../../src/backup/files";
+import { openStateDatabase } from "../../src/db/database";
 import { runMaintenance } from "../../src/backup/maintenance";
 import { MaintenanceScheduler } from "../../src/backup/scheduler";
 import { yieldToEventLoop } from "../../src/platform/clock";
 import { DAY_MS } from "../../src/retention/run";
 import { addOffice, openTestState, type TestState } from "../commands/helpers";
+import { localMounts, memoryLogger } from "../db/helpers";
 import { watchRejections } from "../platform/rejections";
 import { insertRequests } from "../retention/helpers";
 
@@ -39,6 +41,32 @@ function seed(dir: string, names: readonly string[]): void {
 }
 
 const files = (dir: string) => readdirSync(dir).toSorted();
+
+describe("daily copies of an earlier dipo", () => {
+  it("are deleted when the state database opens, and the pre-migration copies stay", () =>
+    withTempDir(async (dir) => {
+      const stateDir = join(dir, "state");
+      const backups = join(stateDir, "backups");
+      seed(backups, [
+        "dipo-20251230.db",
+        "dipo-20251231.db",
+        "dipo-20260101.db.partial",
+        "pre-v7-20251215T120000.db",
+        "notes.txt",
+      ]);
+      const logger = memoryLogger();
+      const state = await openStateDatabase({
+        stateDir,
+        logger,
+        readMounts: localMounts,
+        clock: new ManualClock(),
+        engineVersion: "0.0.0-test",
+      });
+      state.close();
+      expect(files(backups)).toEqual(["notes.txt", "pre-v7-20251215T120000.db"]);
+      expect(logger.lines.map((line) => line.message)).toContain("removed daily backups");
+    }));
+});
 
 describe("pre-migration backups", () => {
   it("keeps the two newest and leaves other files alone", () =>

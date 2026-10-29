@@ -15,7 +15,7 @@ import {
   type SqliteConnection,
   type SqlRunner,
 } from "../platform/sqlite";
-import { prunePreMigrationBackups } from "../backup/files";
+import { prunePreMigrationBackups, removeDailyBackups } from "../backup/files";
 
 /** What a TypeScript step may use: statements and multi-statement SQL, inside its transaction. */
 export interface MigrationContext extends SqlRunner {
@@ -227,6 +227,9 @@ export async function migrate(
 ): Promise<MigrateResult> {
   const { migrations, logger } = options;
   assertMigrationOrder(migrations);
+  // The daily copies of an earlier dipo go at the first open of this one (0007).
+  const daily = removeDailyBackups(join(dirname(db.path), BACKUPS_DIR));
+  if (daily.length > 0) logger.info("removed daily backups", { removed: daily });
   const head = migrations.length;
   const from = userVersion(db);
   if (from > head) throw new DatabaseTooNewError(from, head);

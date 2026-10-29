@@ -620,9 +620,9 @@ describe("a command against a recovering daemon", () => {
     const unavailable = {
       code: "database.unavailable",
       message:
-        "The state database is damaged. No office is loaded. Run `dipo daemon stop`, then `dipo restore /s/backups/dipo-20261015.db`.",
+        "The state database is damaged. No office is loaded. Run `dipo daemon stop`, move /s/dipo.db away or copy /s/backups/pre-v3-20261015T090000.db over it, then start the daemon again.",
       retryable: false,
-      details: { reason: "damaged", backup: "/s/backups/dipo-20261015.db" },
+      details: { reason: "damaged", backup: "/s/backups/pre-v3-20261015T090000.db" },
     };
     const ctx = recovering(2, ["recovering"], { ok: false, error: unavailable }, undefined, true);
     const code = main(["office", "open"], ctx.deps);
