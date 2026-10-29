@@ -1,4 +1,4 @@
-// Retention as a feature (0007 section 7, DIPO-27 seam): a load step runs a pass when an office
+// Retention as a feature (0007, DIPO-27 seam): a load step runs a pass when an office
 // loads, then a timer runs one every hour while the office stays loaded. An office that is not
 // loaded is cleaned at its next load. Passes of one office run one at a time; a failed pass is
 // logged and never refuses the office.
@@ -17,7 +17,7 @@ import { type RetentionReport, runRetention } from "./run";
 /** The load step's name in the registry. */
 export const RETENTION_STEP = "retention";
 
-/** How often a loaded office runs retention (0007 section 7). */
+/** How often a loaded office runs retention (0007). */
 export const RETENTION_INTERVAL_MS = 60 * 60 * 1000;
 
 export interface RetentionDeps {
@@ -120,7 +120,7 @@ export class Retention {
       const report = await runRetention({
         office: state.office,
         clock: state.clock,
-        periods: config.retention,
+        days: config.retention.days,
         runFiles: {
           commonDir: state.commonDir,
           keepRawEvents: config.privacy.keepRawEvents,

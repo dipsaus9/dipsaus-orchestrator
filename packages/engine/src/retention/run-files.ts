@@ -1,9 +1,9 @@
-// Run directories (0007 sections 2, 7 and 8). `events.ndjson` holds tool inputs, so it exists only
-// while the run needs it: it is deleted once every worker host of the run has ended, the engine has
-// processed it up to each host's final offset and the run summary exists. Fallback: once the run
-// ended longer ago than the short tier, the whole run directory (`events.ndjson`, `host.log`,
-// `exit.json`) is deleted in every case, with an `engine.notice` when the stream was never fully
-// processed. With `privacy.keepRawEvents` the stream is kept for the short tier too.
+// Run directories (0007). `events.ndjson` holds tool inputs, so it exists only while the run needs
+// it: it is deleted once every worker host of the run has ended, the engine has processed it up to
+// each host's final offset and the run summary exists. Once the run ended more than
+// `retention.days` ago, the whole run directory (`events.ndjson`, `host.log`, `exit.json`) is
+// deleted in every case, with an `engine.notice` when the stream was never fully processed. With
+// `privacy.keepRawEvents` the stream is kept for the retention period too.
 
 import { existsSync, rmSync } from "node:fs";
 import { join } from "node:path";
@@ -40,8 +40,8 @@ export interface RunFilesOptions {
   readonly office: OfficeHandle;
   /** `<git-common-dir>` of the office; run directories live in `<git-common-dir>/dipo/runs/`. */
   readonly commonDir: string;
-  /** Runs that ended before this time are past the short tier. */
-  readonly shortCutoff: number;
+  /** Runs that ended before this time are past `retention.days`. */
+  readonly cutoff: number;
   readonly keepRawEvents: boolean;
   readonly summarised: SummaryCheck;
 }
@@ -97,7 +97,7 @@ export function cleanRunDirectories(options: RunFilesOptions): RunFilesReport {
     );
     const endedAt = Math.max(...hosts.map((host) => host.ended_at ?? 0));
 
-    if (endedAt < options.shortCutoff) {
+    if (endedAt < options.cutoff) {
       if (!existsSync(dir)) continue;
       const hadEvents = existsSync(events);
       rmSync(dir, { recursive: true, force: true });

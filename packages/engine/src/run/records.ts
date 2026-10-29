@@ -768,3 +768,15 @@ export function runOutcome(office: OfficeHandle, runId: RunId): RunOutcome | nul
         webFetches: row.web_fetches,
       };
 }
+
+/**
+ * Retention (0007): deletes at most `limit` runs that ended before `cutoff`, inside the caller's
+ * transaction; returns how many it deleted. An active run is kept. Its outcome row is kept too.
+ */
+export function deleteRunsEndedBefore(office: OfficeHandle, cutoff: number, limit: number): number {
+  return office.run(
+    `delete from runs where rowid in (select rowid from runs
+       where office_id = $office_id and ended_at < $cutoff limit $limit)`,
+    { cutoff, limit },
+  ).changes;
+}

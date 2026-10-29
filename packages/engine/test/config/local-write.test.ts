@@ -39,13 +39,13 @@ describe("updateLocalPrivacy", () => {
 
   it("keeps the other keys and the version of an existing file and drops its comments", () => {
     const before =
-      "# my note\nversion: 14\ntimeouts:\n  workerStallMinutes: 9\nretention:\n  shortDays: 3\nprivacy:\n  keepRawEvents: true\n";
+      "# my note\nversion: 14\ntimeouts:\n  workerStallMinutes: 9\nretention:\n  days: 3\nprivacy:\n  keepRawEvents: true\n";
     const text = written(before, "storePrompts", false);
     expect(text).not.toContain("my note");
     expect(parsed(text)).toEqual({
       version: 14,
       timeouts: { workerStallMinutes: 9 },
-      retention: { shortDays: 3 },
+      retention: { days: 3 },
       privacy: { keepRawEvents: true, storePrompts: false },
     });
     const config = resolveOfficeConfig({ local: text });

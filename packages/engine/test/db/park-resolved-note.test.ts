@@ -52,7 +52,7 @@ describe("migration 47 on a database at version 46", () => {
       try {
         const db = state.connection;
         expect(MIGRATIONS.find((step) => step.version === 47)?.name).toBe("park resolved note");
-        expect(TABLE_RETENTION["parks"]?.tier).toBe("S");
+        expect(TABLE_RETENTION["parks"]?.aged).toBe(true);
         expect(db.all("select park_id, resolved_note from parks")).toEqual([
           { park_id: 1, resolved_note: null },
         ]);

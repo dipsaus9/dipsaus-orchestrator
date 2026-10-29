@@ -81,8 +81,7 @@ const VERSION_14_KEY_PATHS = [
   "privacy.storePrompts",
   "privacy.storeCommandBodies",
   "privacy.keepRawEvents",
-  "retention.shortDays",
-  "retention.stateDays",
+  "retention.days",
 ];
 
 const localOnly = (path: string) => /^(privacy|retention)\./.test(path);
@@ -270,7 +269,8 @@ describe("defaults", () => {
       storeCommandBodies: true,
       keepRawEvents: false,
     });
-    expect(OFFICE_DEFAULTS.retention).toEqual({ shortDays: 7, stateDays: 365 });
+    // One retention rule (0007).
+    expect(OFFICE_DEFAULTS.retention).toEqual({ days: 30 });
   });
 
   it("give R30 a phrase list for each criteria part (DIPO-251)", () => {

@@ -1,7 +1,13 @@
-// One retention pass over one office's rows (0007 section 7). Each delete is a batch of at most
+// The one retention rule (0007): one pass over one office's rows deletes everything about a run
+// that ended more than `retention.days` ago, and every other row of run detail older than that:
+// change-log entries, output, usage messages, steps, verdicts, feedback and the rest. The run's
+// outcome row and the daily usage rollup are kept, and so are the office's own facts (story
+// identity, the backlog cache, run profiles, confirmations). Each delete is a batch of at most
 // 5,000 rows in its own immediate transaction, sized to the 50 ms budget, with the event loop
-// running between batches. Deleting change-log entries moves `offices.replay_floor_seq` in the
-// same transaction, so a later subscribe below it gets `stream.resetRequired` (0005 section 8).
+// running between batches. A subscriber whose cursor is older than the oldest change-log row left
+// gets `stream.resetRequired` (0005).
+//
+// `runs`, `parks`, `agents` and `worker_hosts` are deleted through their one writer (0001).
 
 import type { Clock } from "@dipsaus-orchestrator/contract";
 
@@ -9,22 +15,21 @@ import { appendEntries } from "../changelog/log";
 import { REQUEST_TTL_MS } from "../commands/requests";
 import type { OfficeHandle } from "../db/office";
 import type { SqlParams } from "../platform/sqlite";
+import { deleteParksResolvedBefore } from "../run/park-records";
+import { deleteRunsEndedBefore } from "../run/records";
+import { deleteAgentsEndedBefore } from "../runs/agents";
+import { deleteHostsEndedBefore } from "../runs/worker-hosts";
 
 import { cleanRunDirectories, runSummaryExists, type SummaryCheck } from "./run-files";
 import { Slicer, type SliceOptions } from "./slices";
 
 export const DAY_MS = 24 * 60 * 60 * 1000;
 
-/** `retention.shortDays` and `retention.stateDays` from `office.local.yaml` or their defaults. */
-export interface RetentionPeriods {
-  readonly shortDays: number;
-  readonly stateDays: number;
-}
-
 export interface RetentionOptions extends Omit<SliceOptions, "clock"> {
   readonly office: OfficeHandle;
   readonly clock: Clock;
-  readonly periods: RetentionPeriods;
+  /** `retention.days` from `office.local.yaml` or its default. */
+  readonly days: number;
   /** Run directories to clean; left out, only rows are deleted. */
   readonly runFiles?: {
     readonly commonDir: string;
@@ -36,7 +41,6 @@ export interface RetentionOptions extends Omit<SliceOptions, "clock"> {
 export interface RetentionReport {
   /** Rows deleted per table; tables with none are left out. */
   readonly deleted: Readonly<Record<string, number>>;
-  readonly replayFloorSeq: number;
   readonly eventFiles: number;
   readonly runDirectories: number;
   /** Engine notices appended to the office's change log. */
@@ -48,6 +52,25 @@ export interface RetentionReport {
 const CLOSED_JOURNAL = "state in ('merged', 'dropped', 'withdrawn')";
 const ENDED_AGENT =
   "agent_id in (select agent_id from agents where office_id = $office_id and ended_at < $cutoff)";
+
+/** The rows of `table` whose run ended before the cutoff. */
+const endedRun = (table: string): string =>
+  `exists (select 1 from runs r where r.office_id = $office_id and r.run_id = ${table}.run_id
+     and r.ended_at < $cutoff)`;
+
+/** Tables whose rows go with their run. */
+const RUN_DETAIL = [
+  "run_steps",
+  "run_grants",
+  "run_signals",
+  "run_intents",
+  "feedback_items",
+  "catch_ups",
+  "questions",
+  "run_summaries",
+  "done_reports",
+  "report_sendbacks",
+] as const;
 
 const PROFILE_CHILDREN = ["run_capabilities", "run_env_files", "run_extra_scripts"] as const;
 
@@ -74,212 +97,33 @@ function keptProfiles(office: OfficeHandle): number[] | null {
 
 /** Runs one pass; the caller keeps passes of one office from overlapping. */
 export async function runRetention(options: RetentionOptions): Promise<RetentionReport> {
-  const { office, clock, periods } = options;
+  const { office, clock, days } = options;
   const now = clock.now();
-  const requestCutoff = now - REQUEST_TTL_MS;
-  const shortCutoff = now - periods.shortDays * DAY_MS;
-  const stateCutoff = now - periods.stateDays * DAY_MS;
+  const cutoff = now - days * DAY_MS;
   const slicer = new Slicer({ ...options, clock });
   const deleted: Record<string, number> = {};
-  const count = (table: string, n: number) => {
-    if (n > 0) deleted[table] = (deleted[table] ?? 0) + n;
-  };
 
-  const rows = async (table: string, where: string, params: SqlParams) => {
+  /** Deletes in batches until a batch comes back short. */
+  const batches = async (table: string, batch: (limit: number) => number) => {
     for (;;) {
-      const { result, limit } = await slicer.slice((batch) =>
-        office.immediate(
-          () =>
-            office.run(
-              `delete from ${table} where rowid in (
-                 select rowid from ${table} where office_id = $office_id and ${where} limit $limit)`,
-              { ...params, limit: batch },
-            ).changes,
-        ),
-      );
-      count(table, result);
+      const { result, limit } = await slicer.slice((size) => office.immediate(() => batch(size)));
+      if (result > 0) deleted[table] = (deleted[table] ?? 0) + result;
       if (result < limit) return;
     }
   };
-
-  const log = async (tier: "R" | "S", cutoff: number) => {
-    for (;;) {
-      const { result, limit } = await slicer.slice((batch) =>
-        office.immediate(() => {
-          const seqs = office
-            .all<{ seq: number }>(
-              `select seq from change_log where office_id = $office_id and tier = $tier and at < $cutoff
-                order by at, seq limit $limit`,
-              { tier, cutoff, limit: batch },
-            )
-            .map((row) => row.seq);
-          if (seqs.length === 0) return 0;
-          office.run(
-            "delete from change_log where office_id = $office_id and seq in (select value from json_each($seqs))",
-            { seqs: JSON.stringify(seqs) },
-          );
-          // Replay after any cursor at or above the newest deleted seq is still complete.
-          office.run(
-            "update offices set replay_floor_seq = max(replay_floor_seq, $floor) where office_id = $office_id",
-            { floor: seqs.reduce((a, b) => Math.max(a, b)) },
-          );
-          return seqs.length;
-        }),
-      );
-      count("change_log", result);
-      if (result < limit) return;
-    }
-  };
-
-  // D: idempotency records.
-  await rows("requests", "at <= $cutoff", { cutoff: requestCutoff });
-  // R: short-tier entries, stored output, per-message usage and cursors of ended runs.
-  await log("R", shortCutoff);
-  await rows("output_chunks", "at < $cutoff", { cutoff: shortCutoff });
-  await rows("prompt_texts", "recorded_at < $cutoff", { cutoff: shortCutoff });
-  await rows("usage_messages", "at < $cutoff", { cutoff: shortCutoff });
-  await rows("ingest_cursors", "ended_at < $cutoff", { cutoff: shortCutoff });
-  // S: state entries and the rows of runs that ended before the cutoff. Rows that reference an
-  // agent go before the agent.
-  await log("S", stateCutoff);
-  await rows("usage_messages", ENDED_AGENT, { cutoff: stateCutoff });
-  await rows("ingest_cursors", ENDED_AGENT, { cutoff: stateCutoff });
-  await rows("usage_totals", ENDED_AGENT, { cutoff: stateCutoff });
-  await rows("compactions", ENDED_AGENT, { cutoff: stateCutoff });
-  // Prompt part hashes of a run with no agent still running.
-  await rows(
-    "prompt_parts",
-    `recorded_at < $cutoff and not exists (select 1 from agents a where a.office_id = $office_id
-       and a.run_id = prompt_parts.run_id and a.ended_at is null)`,
-    { cutoff: stateCutoff },
-  );
-  await rows("agents", "ended_at < $cutoff", { cutoff: stateCutoff });
-  // Runs that ended (done, parked or dropped, 0020) before the cutoff, their steps first; a run open
-  // at In Review has not ended and keeps its rows (DIPO-373). Then the configuration snapshots no
-  // remaining run names.
-  await rows(
-    "run_steps",
-    `exists (select 1 from runs r where r.office_id = $office_id and r.run_id = run_steps.run_id
-       and r.ended_at < $cutoff
-       and r.end_kind is not null)`,
-    { cutoff: stateCutoff },
-  );
-  await rows(
-    "run_grants",
-    `exists (select 1 from runs r where r.office_id = $office_id and r.run_id = run_grants.run_id
-       and r.ended_at < $cutoff
-       and r.end_kind is not null)`,
-    { cutoff: stateCutoff },
-  );
-  await rows(
-    "run_signals",
-    `exists (select 1 from runs r where r.office_id = $office_id and r.run_id = run_signals.run_id
-       and r.ended_at < $cutoff
-       and r.end_kind is not null)`,
-    { cutoff: stateCutoff },
-  );
-  await rows(
-    "feedback_items",
-    `exists (select 1 from runs r where r.office_id = $office_id
-       and r.run_id = feedback_items.run_id and r.ended_at < $cutoff
-       and r.end_kind is not null)`,
-    { cutoff: stateCutoff },
-  );
-  await rows(
-    "acceptance_tests",
-    `ended_at is not null and exists (select 1 from runs r where r.office_id = $office_id
-       and r.run_id = acceptance_tests.run_id and r.ended_at < $cutoff
-       and r.end_kind is not null)`,
-    { cutoff: stateCutoff },
-  );
-  await rows(
-    "catch_ups",
-    `exists (select 1 from runs r where r.office_id = $office_id and r.run_id = catch_ups.run_id
-       and r.ended_at < $cutoff
-       and r.end_kind is not null)`,
-    { cutoff: stateCutoff },
-  );
-  await rows(
-    "run_intents",
-    `exists (select 1 from runs r where r.office_id = $office_id and r.run_id = run_intents.run_id
-       and r.ended_at < $cutoff
-       and r.end_kind is not null)`,
-    { cutoff: stateCutoff },
-  );
-  await rows(
-    "questions",
-    `exists (select 1 from runs r where r.office_id = $office_id and r.run_id = questions.run_id
-       and r.ended_at < $cutoff
-       and r.end_kind is not null)`,
-    { cutoff: stateCutoff },
-  );
-  await rows(
-    "run_summaries",
-    `exists (select 1 from runs r where r.office_id = $office_id
-       and r.run_id = run_summaries.run_id and r.ended_at < $cutoff
-       and r.end_kind is not null)`,
-    { cutoff: stateCutoff },
-  );
-  // A run's done reports and its send-once marks (DIPO-186).
-  for (const table of ["done_reports", "report_sendbacks"]) {
-    await rows(
+  const rows = (table: string, where: string, params: SqlParams = { cutoff }) =>
+    batches(
       table,
-      `exists (select 1 from runs r where r.office_id = $office_id
-         and r.run_id = ${table}.run_id and r.ended_at < $cutoff
-       and r.end_kind is not null)`,
-      { cutoff: stateCutoff },
+      (limit) =>
+        office.run(
+          `delete from ${table} where rowid in (
+             select rowid from ${table} where office_id = $office_id and ${where} limit $limit)`,
+          { ...params, limit },
+        ).changes,
     );
-  }
-  await rows("runs", "ended_at < $cutoff and end_kind is not null", { cutoff: stateCutoff });
-  // Decision notes and proposals the maintainer decided; an open one is kept (DIPO-186).
-  await rows("decision_notes", "state <> 'open' and updated_at < $cutoff", { cutoff: stateCutoff });
-  await rows("proposals", "state <> 'open' and updated_at < $cutoff", { cutoff: stateCutoff });
-  // Parks resolved before the cutoff; an open park is the history of a story still Parked.
-  await rows("parks", "resolved_at < $cutoff", { cutoff: stateCutoff });
-  // Leftovers of a story Done elsewhere stay until `dipo discard` cleared them (DIPO-161).
-  await rows("done_elsewhere", "cleared_at < $cutoff", { cutoff: stateCutoff });
-  await rows(
-    "config_snapshots",
-    `first_seen < $cutoff and not exists (select 1 from runs r where r.office_id = $office_id
-       and r.config_hash = config_snapshots.config_hash)`,
-    { cutoff: stateCutoff },
-  );
-  // Released claims; a live claim has no release time.
-  await rows("claims", "released_at < $cutoff", { cutoff: stateCutoff });
-  await rows("scans", "finished_at < $cutoff", { cutoff: stateCutoff });
-  // A released branch stays until reclaimed (0010 section 2a); the reclaim record is history.
-  await rows("released_branches", "reclaimed_at < $cutoff", { cutoff: stateCutoff });
-  await rows("pricing_checks", "raised_at < $cutoff", { cutoff: stateCutoff });
-  // Gate decisions, then the gates they leave without a decision; a gate still waiting is kept.
-  await rows("gate_decisions", "decided_at < $cutoff", { cutoff: stateCutoff });
-  // A review verdict goes with its gate decision (DIPO-146).
-  await rows("review_verdicts", "decided_at < $cutoff", { cutoff: stateCutoff });
-  await rows(
-    "gates",
-    `opened_at < $cutoff and waiting_on is null and not exists (select 1 from gate_decisions d
-       where d.office_id = $office_id and d.gate_id = gates.gate_id)`,
-    { cutoff: stateCutoff },
-  );
 
-  // P: only the current run profile and its previous one are kept (0007 section 4); older
-  // profiles go with their capability, env-file, port and extra-script rows. Scans keep tier S.
-  const profiles = keptProfiles(office);
-  if (profiles !== null) {
-    const kept = { kept: JSON.stringify(profiles) };
-    const older = "profile_id not in (select value from json_each($kept))";
-    for (const table of PROFILE_CHILDREN) await rows(table, older, kept);
-    await rows("run_profiles", older, kept);
-  }
-  await rows("worker_hosts", "ended_at < $cutoff", { cutoff: stateCutoff });
-  await rows("backlog_journal", `${CLOSED_JOURNAL} and closed_at < $cutoff`, {
-    cutoff: stateCutoff,
-  });
-  // Backlog PRs merged or closed, and blocks a later backlog PR cleared (DIPO-35).
-  await rows("backlog_prs", "closed_at < $cutoff", { cutoff: stateCutoff });
-  // Story PRs merged or closed (DIPO-144); an open PR has no close time and is kept.
-  await rows("story_prs", "closed_at < $cutoff", { cutoff: stateCutoff });
-  await rows("backlog_pr_blocks", "cleared_at < $cutoff", { cutoff: stateCutoff });
-
+  // Run directories first: which runs ended, and when, is read from their worker host rows,
+  // which this pass deletes below.
   let eventFiles = 0;
   let runDirectories = 0;
   let notices = 0;
@@ -287,7 +131,7 @@ export async function runRetention(options: RetentionOptions): Promise<Retention
     const files = cleanRunDirectories({
       office,
       commonDir: options.runFiles.commonDir,
-      shortCutoff,
+      cutoff,
       keepRawEvents: options.runFiles.keepRawEvents,
       summarised: options.runFiles.summarised ?? runSummaryExists,
     });
@@ -303,7 +147,7 @@ export async function runRetention(options: RetentionOptions): Promise<Retention
             delta: {
               level: "warn",
               code: "retention.eventsUnprocessed",
-              text: `The raw event file of run ${run.run} was deleted ${periods.shortDays} days after the run ended, before it was fully processed (offset ${run.processed} of ${run.final ?? "unknown"}); usage and output after that offset were not recorded.`,
+              text: `The raw event file of run ${run.run} was deleted ${days} days after the run ended, before it was fully processed (offset ${run.processed} of ${run.final ?? "unknown"}); usage and output after that offset were not recorded.`,
             },
           })),
           { at },
@@ -313,16 +157,71 @@ export async function runRetention(options: RetentionOptions): Promise<Retention
     }
   }
 
-  const floor =
-    office.get<{ floor: number }>(
-      "select replay_floor_seq as floor from offices where office_id = $office_id",
-    )?.floor ?? 0;
-  return {
-    deleted,
-    replayFloorSeq: floor,
-    eventFiles,
-    runDirectories,
-    notices,
-    slowestMs: slicer.slowestMs,
-  };
+  // Stored replies of commands, after a day.
+  await rows("requests", "at <= $cutoff", { cutoff: now - REQUEST_TTL_MS });
+  // Detail with its own time.
+  await rows("change_log", "at < $cutoff");
+  await rows("output_chunks", "at < $cutoff");
+  await rows("prompt_texts", "recorded_at < $cutoff");
+  await rows("usage_messages", "at < $cutoff");
+  await rows("ingest_cursors", "ended_at < $cutoff");
+  // The agents that ended before the cutoff, their rows first.
+  await rows("usage_messages", ENDED_AGENT);
+  await rows("ingest_cursors", ENDED_AGENT);
+  await rows("usage_totals", ENDED_AGENT);
+  await rows("compactions", ENDED_AGENT);
+  // Prompt part hashes of a run with no agent still running.
+  await rows(
+    "prompt_parts",
+    `recorded_at < $cutoff and not exists (select 1 from agents a where a.office_id = $office_id
+       and a.run_id = prompt_parts.run_id and a.ended_at is null)`,
+  );
+  await batches("agents", (limit) => deleteAgentsEndedBefore(office, cutoff, limit));
+  // The runs that ended before the cutoff, their rows first; their outcome rows stay.
+  for (const table of RUN_DETAIL) await rows(table, endedRun(table));
+  await rows("acceptance_tests", `ended_at is not null and ${endedRun("acceptance_tests")}`);
+  await batches("runs", (limit) => deleteRunsEndedBefore(office, cutoff, limit));
+  // What the maintainer decided; an open note, proposal or park is kept.
+  await rows("decision_notes", "state <> 'open' and updated_at < $cutoff");
+  await rows("proposals", "state <> 'open' and updated_at < $cutoff");
+  await batches("parks", (limit) => deleteParksResolvedBefore(office, cutoff, limit));
+  // Leftovers of a story Done elsewhere stay until `dipo discard` cleared them (DIPO-161).
+  await rows("done_elsewhere", "cleared_at < $cutoff");
+  await rows(
+    "config_snapshots",
+    `first_seen < $cutoff and not exists (select 1 from runs r where r.office_id = $office_id
+       and r.config_hash = config_snapshots.config_hash)`,
+  );
+  // Released claims; a live claim has no release time.
+  await rows("claims", "released_at < $cutoff");
+  await rows("scans", "finished_at < $cutoff");
+  // A released branch stays until reclaimed (0010); the reclaim record is history.
+  await rows("released_branches", "reclaimed_at < $cutoff");
+  // Gate decisions and review verdicts, then the gates they leave without a decision; a gate
+  // still waiting is kept.
+  await rows("gate_decisions", "decided_at < $cutoff");
+  await rows("review_verdicts", "decided_at < $cutoff");
+  await rows(
+    "gates",
+    `opened_at < $cutoff and waiting_on is null and not exists (select 1 from gate_decisions d
+       where d.office_id = $office_id and d.gate_id = gates.gate_id)`,
+  );
+  // Only the current run profile and its previous one are kept (0007); older profiles go with
+  // their capability, env-file and extra-script rows.
+  const profiles = keptProfiles(office);
+  if (profiles !== null) {
+    const kept = { kept: JSON.stringify(profiles) };
+    const older = "profile_id not in (select value from json_each($kept))";
+    for (const table of PROFILE_CHILDREN) await rows(table, older, kept);
+    await rows("run_profiles", older, kept);
+  }
+  await batches("worker_hosts", (limit) => deleteHostsEndedBefore(office, cutoff, limit));
+  await rows("backlog_journal", `${CLOSED_JOURNAL} and closed_at < $cutoff`);
+  // Backlog and story PRs merged or closed, and blocks a later backlog PR cleared; an open PR or
+  // a block in force is kept.
+  await rows("backlog_prs", "closed_at < $cutoff");
+  await rows("story_prs", "closed_at < $cutoff");
+  await rows("backlog_pr_blocks", "cleared_at < $cutoff");
+
+  return { deleted, eventFiles, runDirectories, notices, slowestMs: slicer.slowestMs };
 }

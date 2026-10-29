@@ -1,5 +1,7 @@
-// Retention (DIPO-65; 0007 section 7): tiered deletes in batches of at most 5,000 rows, the replay
-// floor, run directories, and the load step that runs at load and hourly.
+// The one retention rule (DIPO-65, DIPO-354; 0007): run detail older than retention.days goes in
+// batches of at most 5,000 rows, the outcome rows and the daily rollup stay, a replay below the
+// oldest change-log entry left must reset, run directories go, and the load step runs at load and
+// hourly.
 
 import { existsSync, mkdirSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
@@ -29,7 +31,7 @@ import {
   insertClaim,
   insertHost,
   insertJournal,
-  insertPricingCheck,
+  insertRun,
   insertProfile,
   insertPromptPart,
   insertReleasedBranch,
@@ -40,7 +42,7 @@ import {
 } from "./helpers";
 
 const noPause = async () => {};
-const DEFAULTS = { shortDays: 7, stateDays: 365 };
+const DAYS = 30;
 
 async function withOffice(fn: (t: TestState, office: OfficeHandle, dir: string) => Promise<void>) {
   return withTempDir(async (dir) => {
@@ -85,66 +87,41 @@ function append(office: OfficeHandle, at: number, entries: { type: string; delta
   office.immediate(() => appendEntries(office, entries, { at }));
 }
 
-function seqs(office: OfficeHandle): { seq: number; tier: string }[] {
-  return office.all("select seq, tier from change_log where office_id = $office_id order by seq");
+function seqs(office: OfficeHandle): number[] {
+  return office
+    .all<{ seq: number }>("select seq from change_log where office_id = $office_id order by seq")
+    .map((row) => row.seq);
 }
 
 describe("retention of the change log", () => {
-  it("deletes R entries past the short tier, moves the floor, and a replay below it must reset", () =>
+  it("deletes entries older than retention.days, and a replay below the oldest left must reset", () =>
     withOffice(async (t, office) => {
       const start = t.clock.now();
-      append(office, start, [progress(1), notice("kept"), progress(2)]); // seqs 1-3
-      t.clock.advance(8 * DAY_MS);
+      append(office, start, [progress(1), notice("old"), progress(2)]); // seqs 1-3
+      t.clock.advance(31 * DAY_MS);
       append(office, t.clock.now(), [progress(3), notice("new")]); // seqs 4-5
-      const before = readLogState(office);
-      expect(before.replayFloorSeq).toBe(0);
 
-      const report = await runRetention({
-        office,
-        clock: t.clock,
-        periods: DEFAULTS,
-        pause: noPause,
-      });
+      const report = await runRetention({ office, clock: t.clock, days: DAYS, pause: noPause });
 
-      expect(report.deleted).toEqual({ change_log: 2 });
-      expect(seqs(office)).toEqual([
-        { seq: 2, tier: "S" },
-        { seq: 4, tier: "R" },
-        { seq: 5, tier: "S" },
-      ]);
-      expect(report.replayFloorSeq).toBe(3);
-      expect(readLogState(office).replayFloorSeq).toBe(3);
-
-      const below = replay(office, cursorAt(office.officeId, before.epoch, 1));
+      expect(report.deleted).toEqual({ change_log: 3 });
+      expect(seqs(office)).toEqual([4, 5]);
+      const below = replay(office, cursorAt(office.officeId, 2));
       expect(below.ok).toBe(false);
       if (!below.ok) {
         expect(below.error.code).toBe("stream.resetRequired");
-        expect(below.error.details).toEqual({
-          oldest: cursorAt(office.officeId, before.epoch, 3),
-        });
+        expect(below.error.details).toEqual({ oldest: cursorAt(office.officeId, 3) });
       }
-      const atFloor = replay(office, cursorAt(office.officeId, before.epoch, 3));
-      expect(atFloor.ok && atFloor.entries.map((entry) => entry.seq)).toEqual([4, 5]);
-    }));
+      const atOldest = replay(office, cursorAt(office.officeId, 3));
+      expect(atOldest.ok && atOldest.entries.map((entry) => entry.seq)).toEqual([4, 5]);
 
-  it("deletes S entries after the state tier and never moves the floor back", () =>
-    withOffice(async (t, office) => {
-      append(office, t.clock.now(), [notice("old"), progress(1)]);
-      t.clock.advance(30 * DAY_MS);
-      append(office, t.clock.now(), [progress(2), notice("young")]);
-      await runRetention({ office, clock: t.clock, periods: DEFAULTS, pause: noPause });
-      expect(readLogState(office).replayFloorSeq).toBe(2);
-
-      t.clock.advance(400 * DAY_MS);
-      const report = await runRetention({
-        office,
-        clock: t.clock,
-        periods: DEFAULTS,
-        pause: noPause,
-      });
-      expect(report.deleted).toEqual({ change_log: 3 });
+      t.clock.advance(31 * DAY_MS);
+      const again = await runRetention({ office, clock: t.clock, days: DAYS, pause: noPause });
+      expect(again.deleted).toEqual({ change_log: 2 });
       expect(seqs(office)).toEqual([]);
-      expect(report.replayFloorSeq).toBe(4);
+      // Nothing left: only the head can be replayed, and the next entry keeps the seq order.
+      expect(replay(office, cursorAt(office.officeId, 4)).ok).toBe(false);
+      expect(replay(office, cursorAt(office.officeId, 5)).ok).toBe(true);
+      expect(readLogState(office).nextSeq).toBe(6);
     }));
 });
 
@@ -159,7 +136,7 @@ describe("retention batches", () => {
       const report = await runRetention({
         office: recorder,
         clock: t.clock,
-        periods: DEFAULTS,
+        days: DAYS,
         pause: noPause,
       });
 
@@ -182,26 +159,26 @@ describe("retention batches", () => {
         t.clock.advance(80);
         return result;
       };
-      await runRetention({ office: recorder, clock: t.clock, periods: DEFAULTS, pause: noPause });
+      await runRetention({ office: recorder, clock: t.clock, days: DAYS, pause: noPause });
       expect(recorder.batches.filter((n) => n > 0)).toEqual([5_000, 2_500, 1_250, 250]);
     }));
 });
 
 describe("retention of run rows", () => {
-  it("keeps the short tier and state tier apart and deletes rows of runs ended a year ago", () =>
+  it("deletes what is older than retention.days and keeps younger and live rows", () =>
     withOffice(async (t, office) => {
       const day = (n: number) => t.clock.now() + n * DAY_MS;
       insertAgent(office, { run: "run-old", agent: "agt-old", startedAt: day(0), endedAt: day(0) });
       insertAgent(office, {
         run: "run-mid",
         agent: "agt-mid",
-        startedAt: day(300),
-        endedAt: day(300),
+        startedAt: day(25),
+        endedAt: day(25),
       });
       insertAgent(office, {
         run: "run-live",
         agent: "agt-live",
-        startedAt: day(300),
+        startedAt: day(25),
         endedAt: null,
       });
       insertHost(office, {
@@ -214,20 +191,20 @@ describe("retention of run rows", () => {
       });
       insertJournal(office, 1, "merged", day(0));
       insertJournal(office, 2, "pending", null);
-      insertJournal(office, 3, "dropped", day(300));
-      t.clock.advanceTo(day(400));
+      insertJournal(office, 3, "dropped", day(25));
+      t.clock.advanceTo(day(40));
 
       const report = await runRetention({
         office,
         clock: t.clock,
-        periods: DEFAULTS,
+        days: DAYS,
         pause: noPause,
       });
 
       expect(report.deleted).toEqual({
-        output_chunks: 3,
-        usage_messages: 3,
-        ingest_cursors: 2,
+        output_chunks: 1,
+        usage_messages: 1,
+        ingest_cursors: 1,
         usage_totals: 1,
         agents: 1,
         worker_hosts: 1,
@@ -242,52 +219,18 @@ describe("retention of run rows", () => {
       expect(ids("agents", "agent_id")).toEqual(["agt-live", "agt-mid"]);
       expect(ids("usage_totals", "agent_id")).toEqual(["agt-live", "agt-mid"]);
       // The live run's cursor stays: its run has not ended.
-      expect(ids("ingest_cursors", "agent_id")).toEqual(["agt-live"]);
+      expect(ids("ingest_cursors", "agent_id")).toEqual(["agt-live", "agt-mid"]);
+      expect(ids("output_chunks", "agent_id")).toEqual(["agt-live", "agt-mid"]);
       expect(ids("backlog_journal", "op_id")).toEqual([2, 3]);
     }));
 
-  it("deletes the rows of a run that ended and keeps a run open at In Review (DIPO-373)", () =>
-    withOffice(async (t, office) => {
-      const day = (n: number) => t.clock.now() + n * DAY_MS;
-      office.immediate(() => {
-        for (const [run, ending] of [
-          ["run-done", "done"],
-          ["run-at-review", null],
-        ] as const) {
-          office.run(
-            `insert into runs (office_id, run_id, kind, key, story_id, role, model, start_sha, branch,
-               budget_unit, budget_limit, loop_cap, config_hash, started_at, ended_at, end_kind)
-             values ($office_id, $run, 'story', $run, $run, 'developer', 'm', 'a', 'b', 'tokens', 1,
-               3, 'h', $at, $at, $ending)`,
-            { run, at: day(0), ending },
-          );
-          office.run(
-            `insert into run_steps (office_id, run_id, step, kind, value, at)
-             values ($office_id, $run, 1, 'phase', 'review', $at)`,
-            { run, at: day(0) },
-          );
-        }
-      });
-      t.clock.advanceTo(day(400));
-
-      await runRetention({ office, clock: t.clock, periods: DEFAULTS, pause: noPause });
-
-      const ids = (table: string) =>
-        office
-          .all<{ id: string }>(`select run_id as id from ${table} where office_id = $office_id`)
-          .map((row) => row.id);
-      // A run at In Review has not ended (0020): its run and its phase stay, however old.
-      expect(ids("runs")).toEqual(["run-at-review"]);
-      expect(ids("run_steps")).toEqual(["run-at-review"]);
-    }));
-
-  it("deletes released claims, scans, prompt parts and nudge sources after the state tier", () =>
+  it("deletes released claims, scans and prompt parts after retention.days", () =>
     withOffice(async (t, office) => {
       const day = (n: number) => t.clock.now() + n * DAY_MS;
       insertClaim(office, "run-released", day(0));
       insertClaim(office, "run-live", null);
       insertScan(office, 1, day(0));
-      insertScan(office, 2, day(300));
+      insertScan(office, 2, day(25));
       insertAgent(office, {
         run: "run-done",
         agent: "agt-done",
@@ -297,12 +240,12 @@ describe("retention of run rows", () => {
       insertAgent(office, { run: "run-long", agent: "agt-long", startedAt: day(0), endedAt: null });
       insertPromptPart(office, "run-done", "agt-done", day(0));
       insertPromptPart(office, "run-long", "agt-long", day(0));
-      t.clock.advanceTo(day(400));
+      t.clock.advanceTo(day(40));
 
       const report = await runRetention({
         office,
         clock: t.clock,
-        periods: DEFAULTS,
+        days: DAYS,
         pause: noPause,
       });
 
@@ -322,7 +265,7 @@ describe("retention of run rows", () => {
       ]);
     }));
 
-  it("deletes prompt texts recorded more than shortDays ago and keeps newer ones (DIPO-137)", () =>
+  it("deletes prompt texts recorded more than retention.days ago and keeps newer ones (DIPO-137)", () =>
     withOffice(async (t, office) => {
       const day = (n: number) => t.clock.now() + n * DAY_MS;
       const insert = (agent: string, at: number) =>
@@ -334,13 +277,13 @@ describe("retention of run rows", () => {
           ),
         );
       insert("agt-old", day(0));
-      insert("agt-new", day(6));
-      t.clock.advanceTo(day(8));
+      insert("agt-new", day(25));
+      t.clock.advanceTo(day(40));
 
       const report = await runRetention({
         office,
         clock: t.clock,
-        periods: DEFAULTS,
+        days: DAYS,
         pause: noPause,
       });
 
@@ -354,7 +297,7 @@ describe("retention of run rows", () => {
       ).toEqual(["agt-new"]);
     }));
 
-  it("deletes gate decisions and their decided gates after the state tier (DIPO-71)", () =>
+  it("deletes gate decisions and their decided gates after retention.days (DIPO-71)", () =>
     withOffice(async (t, office) => {
       const day = (n: number) => t.clock.now() + n * DAY_MS;
       const story = office.immediate(() =>
@@ -371,7 +314,7 @@ describe("retention of run rows", () => {
             }).gate,
         );
       decide(day(0));
-      const recent = decide(day(300));
+      const recent = decide(day(25));
       office.immediate(() =>
         office.run(
           `insert into gates (office_id, gate_id, kind, key, opened_at, waiting_on, summary)
@@ -379,12 +322,12 @@ describe("retention of run rows", () => {
           { key: story.key, at: day(0) },
         ),
       );
-      t.clock.advanceTo(day(400));
+      t.clock.advanceTo(day(40));
 
       const report = await runRetention({
         office,
         clock: t.clock,
-        periods: DEFAULTS,
+        days: DAYS,
         pause: noPause,
       });
 
@@ -398,19 +341,19 @@ describe("retention of run rows", () => {
       ).toEqual([recent, "gat-waiting"]);
     }));
 
-  it("deletes story PRs closed before the state tier and keeps open and recently closed ones", () =>
+  it("deletes story PRs closed before retention.days and keeps open and recently closed ones", () =>
     withOffice(async (t, office) => {
       const day = (n: number) => t.clock.now() + n * DAY_MS;
       insertStoryPr(office, "run-old", day(0));
       insertStoryPr(office, "run-old-unmerged", day(0), "closed");
-      insertStoryPr(office, "run-recent", day(300));
+      insertStoryPr(office, "run-recent", day(25));
       insertStoryPr(office, "run-open", null);
-      t.clock.advanceTo(day(400));
+      t.clock.advanceTo(day(40));
 
       const report = await runRetention({
         office,
         clock: t.clock,
-        periods: DEFAULTS,
+        days: DAYS,
         pause: noPause,
       });
 
@@ -424,12 +367,12 @@ describe("retention of run rows", () => {
       ).toEqual(["run-open", "run-recent"]);
     }));
 
-  it("deletes review verdicts decided before the state tier and keeps recent ones (DIPO-146)", () =>
+  it("deletes review verdicts decided before retention.days and keeps recent ones (DIPO-146)", () =>
     withOffice(async (t, office) => {
       const day = (n: number) => t.clock.now() + n * DAY_MS;
       for (const [gate, at] of [
         ["gate-old", day(0)],
-        ["gate-recent", day(300)],
+        ["gate-recent", day(25)],
       ] as const) {
         office.immediate(() =>
           office.run(
@@ -441,12 +384,12 @@ describe("retention of run rows", () => {
           ),
         );
       }
-      t.clock.advanceTo(day(400));
+      t.clock.advanceTo(day(40));
 
       const report = await runRetention({
         office,
         clock: t.clock,
-        periods: DEFAULTS,
+        days: DAYS,
         pause: noPause,
       });
 
@@ -460,31 +403,26 @@ describe("retention of run rows", () => {
       ).toEqual(["gate-recent"]);
     }));
 
-  it("deletes reclaimed released branches and pricing checks after the state tier", () =>
+  it("deletes reclaimed released branches after retention.days", () =>
     withOffice(async (t, office) => {
       const day = (n: number) => t.clock.now() + n * DAY_MS;
       insertReleasedBranch(office, "DIPO-1/old", day(0));
-      insertReleasedBranch(office, "DIPO-2/recent", day(300));
+      insertReleasedBranch(office, "DIPO-2/recent", day(25));
       insertReleasedBranch(office, "DIPO-3/open", null);
-      insertPricingCheck(office, "run-old", day(0));
-      insertPricingCheck(office, "run-new", day(300));
-      t.clock.advanceTo(day(400));
+      t.clock.advanceTo(day(40));
 
       const report = await runRetention({
         office,
         clock: t.clock,
-        periods: DEFAULTS,
+        days: DAYS,
         pause: noPause,
       });
 
-      expect(report.deleted).toEqual({ released_branches: 1, pricing_checks: 1 });
+      expect(report.deleted).toEqual({ released_branches: 1 });
       const ids = (sql: string) => office.all<{ id: unknown }>(sql).map((row) => row.id);
       expect(
         ids("select branch as id from released_branches where office_id = $office_id order by 1"),
       ).toEqual(["DIPO-2/recent", "DIPO-3/open"]);
-      expect(ids("select run_id as id from pricing_checks where office_id = $office_id")).toEqual([
-        "run-new",
-      ]);
     }));
 
   it("keeps the current run profile and its previous one and prunes older ones with their rows", () =>
@@ -498,7 +436,7 @@ describe("retention of run rows", () => {
       const report = await runRetention({
         office,
         clock: t.clock,
-        periods: DEFAULTS,
+        days: DAYS,
         pause: noPause,
       });
 
@@ -531,7 +469,7 @@ describe("retention of run rows", () => {
       insertProfile(office, 1, null, false);
       insertProfile(office, 2, 1, false);
       insertProfile(office, 3, 2, false);
-      await runRetention({ office, clock: t.clock, periods: DEFAULTS, pause: noPause });
+      await runRetention({ office, clock: t.clock, days: DAYS, pause: noPause });
       expect(
         office
           .all<{ id: number }>(
@@ -541,7 +479,7 @@ describe("retention of run rows", () => {
       ).toEqual([2, 3]);
     }));
 
-  it("uses retention.shortDays and retention.stateDays", () =>
+  it("uses retention.days", () =>
     withOffice(async (t, office) => {
       insertAgent(office, {
         run: "run-a",
@@ -553,14 +491,14 @@ describe("retention of run rows", () => {
       const kept = await runRetention({
         office,
         clock: t.clock,
-        periods: DEFAULTS,
+        days: DAYS,
         pause: noPause,
       });
       expect(kept.deleted).toEqual({});
       const short = await runRetention({
         office,
         clock: t.clock,
-        periods: { shortDays: 1, stateDays: 2 },
+        days: 2,
         pause: noPause,
       });
       expect(short.deleted).toEqual({
@@ -570,6 +508,59 @@ describe("retention of run rows", () => {
         usage_totals: 1,
         agents: 1,
       });
+    }));
+
+  it("deletes an old run's detail and keeps its outcome row and the daily rollup", () =>
+    withOffice(async (t, office) => {
+      const day = (n: number) => t.clock.now() + n * DAY_MS;
+      for (const [run, ended] of [
+        ["run-old", day(0)],
+        ["run-new", day(25)],
+      ] as const) {
+        insertRun(office, run, ended);
+        insertAgent(office, { run, agent: `agt-${run}`, startedAt: ended, endedAt: ended });
+        insertHost(office, {
+          run,
+          agent: `agt-${run}`,
+          runDir: "/nowhere",
+          processed: 5,
+          final: 5,
+          endedAt: ended,
+        });
+        office.immediate(() =>
+          appendEntries(office, [{ ...notice(run), run: run as never }], { at: ended }),
+        );
+      }
+      insertRun(office, "run-active", null);
+      t.clock.advanceTo(day(40));
+
+      const report = await runRetention({ office, clock: t.clock, days: DAYS, pause: noPause });
+
+      expect(report.deleted).toEqual({
+        change_log: 1,
+        output_chunks: 1,
+        usage_messages: 1,
+        ingest_cursors: 1,
+        usage_totals: 1,
+        agents: 1,
+        run_steps: 1,
+        runs: 1,
+        worker_hosts: 1,
+      });
+      const runs = (table: string) =>
+        office
+          .all<{ id: string }>(
+            `select distinct run_id as id from ${table} where office_id = $office_id order by 1`,
+          )
+          .map((row) => row.id);
+      expect(runs("runs")).toEqual(["run-active", "run-new"]);
+      expect(runs("run_steps")).toEqual(["run-active", "run-new"]);
+      expect(runs("agents")).toEqual(["run-new"]);
+      expect(runs("worker_hosts")).toEqual(["run-new"]);
+      expect(runs("change_log")).toEqual(["run-new"]);
+      // Kept for retro and trends.
+      expect(runs("run_outcomes")).toEqual(["run-new", "run-old"]);
+      expect(countRows(office, "usage_daily")).toBe(2);
     }));
 });
 
@@ -630,7 +621,7 @@ describe("run directories", () => {
       const report = await runRetention({
         office,
         clock: t.clock,
-        periods: DEFAULTS,
+        days: DAYS,
         pause: noPause,
         runFiles: {
           commonDir,
@@ -649,7 +640,7 @@ describe("run directories", () => {
       }
     }));
 
-  it("deletes the run directory after the short tier, with a notice when never fully processed", () =>
+  it("deletes the run directory after retention.days, with a notice when never fully processed", () =>
     withOffice(async (t, office, tmp) => {
       const commonDir = join(tmp, "repo", ".git");
       const processed = t.ids.next("run");
@@ -680,15 +671,15 @@ describe("run directories", () => {
         final: 9,
         endedAt: now + 5 * DAY_MS,
       });
-      t.clock.advance(8 * DAY_MS);
+      t.clock.advance(31 * DAY_MS);
       const head = readLogState(office).nextSeq;
 
       const report = await runRetention({
         office,
         clock: t.clock,
-        periods: DEFAULTS,
+        days: DAYS,
         pause: noPause,
-        // keepRawEvents keeps the stream for the short tier; the fallback still deletes it.
+        // keepRawEvents keeps the stream for retention.days; then it goes with the directory.
         runFiles: { commonDir, keepRawEvents: true, summarised: () => true },
       });
 
@@ -711,7 +702,7 @@ describe("run directories", () => {
       expect(delta.text).toContain(partial);
     }));
 
-  it("keeps the raw stream for the short tier with privacy.keepRawEvents", () =>
+  it("keeps the raw stream for retention.days with privacy.keepRawEvents", () =>
     withOffice(async (t, office, tmp) => {
       const commonDir = join(tmp, "repo", ".git");
       const run = t.ids.next("run");
@@ -727,7 +718,7 @@ describe("run directories", () => {
       await runRetention({
         office,
         clock: t.clock,
-        periods: DEFAULTS,
+        days: DAYS,
         pause: noPause,
         runFiles: { commonDir, keepRawEvents: true, summarised: () => true },
       });
@@ -738,7 +729,7 @@ describe("run directories", () => {
 function setup(t: TestState, office: OfficeHandle, commonDir: string) {
   let config: OfficeConfig = {
     ...OFFICE_DEFAULTS,
-    retention: { shortDays: 1, stateDays: 30 },
+    retention: { days: 1, shortDays: 7, stateDays: 365 },
   };
   const loaded = new Map<string, OfficeHandle>([[office.officeId, office]]);
   const changed: string[] = [];
@@ -784,7 +775,7 @@ describe("the retention load step", () => {
       expect(countRows(office, "change_log")).toBe(0);
 
       append(office, t.clock.now(), [progress(2)]);
-      s.setConfig({ ...OFFICE_DEFAULTS, retention: { shortDays: 0, stateDays: 30 } });
+      s.setConfig({ ...OFFICE_DEFAULTS, retention: { days: 0, shortDays: 7, stateDays: 365 } });
       t.clock.advance(RETENTION_INTERVAL_MS - 1);
       await s.retention.whenIdle(office.officeId);
       expect(countRows(office, "change_log")).toBe(1);

@@ -267,9 +267,9 @@ const privacyShape = {
 /** The keys under `privacy` (`storePrompts`, `storeCommandBodies`, `keepRawEvents`). */
 export const PRIVACY_KEYS = Object.keys(privacyShape) as ReadonlyArray<keyof typeof privacyShape>;
 
+// 0007: one retention rule, run detail older than `days` goes.
 const retentionShape = {
-  shortDays: count(),
-  stateDays: count(),
+  days: count(),
 };
 
 // The keys of `.dipo/office.yaml`, in the order of the 0017 sample.
@@ -383,6 +383,7 @@ export interface RetiredKey {
 const NO_MAC_WORKTREE =
   "a story has no Mac worktree but a box, and a file outside git goes into it through box.files (0008, 0010)";
 const NO_MAC_SANDBOX = "the Mac sandbox is gone: the box is the boundary (0008)";
+const RETENTION_DAYS = "one retention rule, retention.days, replaced the two tiers (0007)";
 
 /**
  * Keys of versions 1 to 13 that version 14 retired (0017). The migration drops each one a file
@@ -418,6 +419,8 @@ export const RETIRED_KEYS: readonly RetiredKey[] = [
   { path: "prompt.budgets.inputsFile", reason: "the per-file cap is fixed in code (0014)" },
   { path: "prompt.budgets.feedbackLogLines", reason: "the log line cap is fixed in code (0014)" },
   { path: "prompt.budgets.nudge", reason: "nudges are gone with the developer's hooks (0008)" },
+  { path: "retention.shortDays", reason: RETENTION_DAYS },
+  { path: "retention.stateDays", reason: RETENTION_DAYS },
 ];
 
 /** A key that moved to another section in version 14. */
@@ -660,7 +663,7 @@ export const OFFICE_DEFAULTS: OfficeConfig = {
   polling: { prStateSeconds: 60, fetchSeconds: 300 },
   // 0007; commands and prompts are stored by default, and raw events stay off.
   privacy: { storePrompts: true, storeCommandBodies: true, keepRawEvents: false },
-  retention: { shortDays: 7, stateDays: 365 },
+  retention: { days: 30 },
 };
 
 /**

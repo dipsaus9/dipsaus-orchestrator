@@ -3,8 +3,8 @@
 // table's writer module, whether the table is named plainly, quoted or with its schema. A write
 // whose table is not written out (an interpolated name, a quoted name, a string joined with `+`) is
 // refused anywhere outside a short list, since the scan cannot tell which table it writes.
-// Migrations are exempt; retention's age-out deletes are too until DIPO-354 cuts housekeeping to
-// one rule, and so are `office purge`'s deletes of a forgotten office's rows.
+// Migrations are exempt. Retention deletes these tables through their writers too (DIPO-354); its
+// other deletes name their table in a variable, so it stays on the short list.
 
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
@@ -25,11 +25,11 @@ const WRITERS: Readonly<Record<string, string>> = {
 
 const MIGRATIONS = "packages/engine/src/db/migrations/";
 
-/** Retention's age-out deletes (until DIPO-354). */
+/** Retention's age-out deletes of tables it names in a variable (0007). */
 const RETENTION = "packages/engine/src/retention/run.ts";
 
 /** The only files that may write a table whose name the source does not spell out. */
-const DYNAMIC_ALLOWED = [RETENTION, "packages/engine/src/office/purge/rows.ts"];
+const DYNAMIC_ALLOWED = [RETENTION];
 
 const VERB = String.raw`\b(?:insert(?:\s+or\s+\w+)?\s+into|replace\s+into|update(?:\s+or\s+\w+)?|delete\s+from)`;
 
@@ -85,7 +85,7 @@ function productWrites(): Write[] {
 /** A write that breaks the rule: a table written outside its writer, or a table not named. */
 function stray(write: Write): boolean {
   if (write.table === null) return !DYNAMIC_ALLOWED.includes(write.file);
-  return WRITERS[write.table] !== write.file && write.file !== RETENTION;
+  return WRITERS[write.table] !== write.file;
 }
 
 const describeWrite = (write: Write): string =>
@@ -146,12 +146,13 @@ describe("one writer per run table", () => {
     expect(stray({ file: "packages/engine/src/run/places.ts", line: 1, table: "runs" })).toBe(true);
     expect(stray({ file: WRITERS.runs as string, line: 1, table: "runs" })).toBe(false);
     expect(stray({ file: WRITERS.runs as string, line: 1, table: "parks" })).toBe(true);
-    expect(stray({ file: RETENTION, line: 1, table: "runs" })).toBe(false);
+    expect(stray({ file: RETENTION, line: 1, table: "runs" })).toBe(true);
+    expect(stray({ file: RETENTION, line: 1, table: null })).toBe(false);
     expect(
       stray({ file: "packages/engine/src/retention/feature.ts", line: 1, table: "runs" }),
     ).toBe(true);
     expect(stray({ file: "packages/engine/src/office/purge/rows.ts", line: 1, table: null })).toBe(
-      false,
+      true,
     );
     expect(stray({ file: WRITERS.runs as string, line: 1, table: null })).toBe(true);
   });

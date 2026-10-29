@@ -45,7 +45,7 @@ describe("migration 49 on a database at version 48", () => {
       try {
         const db = state.connection;
         expect(MIGRATIONS.find((step) => step.version === 49)?.name).toBe("proposal decisions");
-        expect(TABLE_RETENTION["proposals"]?.tier).toBe("S");
+        expect(TABLE_RETENTION["proposals"]?.aged).toBe(true);
         expect(
           db.all("select hash, state, decided_by, draft_id from proposals order by hash"),
         ).toEqual([{ hash: "h1", state: "open", decided_by: null, draft_id: null }]);

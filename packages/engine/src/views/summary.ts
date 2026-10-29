@@ -97,7 +97,7 @@ export type SummarySettingsOf = (office: OfficeId) => SummarySettings;
 const noSettings: SummarySettingsOf = () => ({ optIns: [] });
 
 /**
- * The summary settings of a configuration: `privacyOptIns`, `retention.shortDays` and each privacy
+ * The summary settings of a configuration: `privacyOptIns`, `retention.days` and each privacy
  * setting with its source, `office.local.yaml` when `localOverrideKeys` names it, else `default`.
  */
 export function summarySettings(
@@ -109,7 +109,7 @@ export function summarySettings(
     ...(config === undefined
       ? {}
       : {
-          outputRetentionDays: config.retention.shortDays,
+          outputRetentionDays: config.retention.days,
           privacy: PRIVACY_KEYS.map((name) => ({
             key: `privacy.${name}`,
             value: config.privacy[name],

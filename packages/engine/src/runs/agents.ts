@@ -148,3 +148,19 @@ export function recordCrashedEnd(
     { at, agent: agentId, reason },
   );
 }
+
+/**
+ * Retention (0007): deletes at most `limit` agents that ended before `cutoff`, inside the caller's
+ * transaction; returns how many it deleted.
+ */
+export function deleteAgentsEndedBefore(
+  office: OfficeHandle,
+  cutoff: number,
+  limit: number,
+): number {
+  return office.run(
+    `delete from agents where rowid in (select rowid from agents
+       where office_id = $office_id and ended_at < $cutoff limit $limit)`,
+    { cutoff, limit },
+  ).changes;
+}

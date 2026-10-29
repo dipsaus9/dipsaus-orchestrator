@@ -225,10 +225,10 @@ describe("validation", () => {
   it("points privacy.* and retention.* in office.yaml to the local file", () => {
     const result = errors(
       resolveOfficeConfig({
-        office: "version: 14\nprivacy: { x: true }\nretention: { shortDays: 3 }\n",
+        office: "version: 14\nprivacy: { x: true }\nretention: { days: 3 }\n",
       }),
     );
-    expect(result.map((error) => error.path)).toEqual(["privacy.x", "retention.shortDays"]);
+    expect(result.map((error) => error.path)).toEqual(["privacy.x", "retention.days"]);
     for (const error of result) {
       expect(error.message).toContain("accepted only in .dipo/office.local.yaml");
     }
@@ -320,11 +320,11 @@ describe("precedence and merge", () => {
   it("takes privacy.* and retention.* from the local file only", () => {
     const result = ok(
       resolveOfficeConfig({
-        local: "version: 14\nprivacy: { keepRawEvents: true }\nretention: { stateDays: 30 }\n",
+        local: "version: 14\nprivacy: { keepRawEvents: true }\nretention: { days: 10 }\n",
       }),
     );
     expect(result.config.privacy).toEqual({ ...OFFICE_DEFAULTS.privacy, keepRawEvents: true });
-    expect(result.config.retention).toEqual({ shortDays: 7, stateDays: 30 });
+    expect(result.config.retention).toEqual({ days: 10 });
     expect(resolveOfficeConfig({ flags: { privacy: { keepRawEvents: true } } }).ok).toBe(false);
   });
 
@@ -398,7 +398,7 @@ describe("configHash", () => {
     );
     expect(a.configHash).toBe(b.configHash);
     const changed = ok(
-      resolveOfficeConfig({ local: "version: 14\nretention: { shortDays: 8 }\n" }),
+      resolveOfficeConfig({ local: "version: 14\nretention: { days: 8 }\n" }),
     ).configHash;
     expect(changed).not.toBe(ok(resolveOfficeConfig({})).configHash);
     expect(configHash({ list: [1, 2] })).not.toBe(configHash({ list: [2, 1] }));
@@ -608,7 +608,7 @@ describe("the migration from every earlier version", () => {
     expect(error?.path).toBe("timeouts.workerQuietMinutes");
   });
 
-  it("migrates an older local file, drops its sandbox key and names it", () => {
+  it("migrates an older local file, drops its sandbox and retention tier keys and names them", () => {
     const result = ok(
       resolveOfficeConfig({
         office: fixture("office-v13.yaml"),
@@ -619,13 +619,14 @@ describe("the migration from every earlier version", () => {
     expect(local.map((warning) => warning.path)).toEqual([
       "sandbox",
       "timeouts.permissionWaitSeconds",
+      "retention.shortDays",
     ]);
     expect(result.config.timeouts.workerStallMinutes).toBe(25);
     expect(result.config.privacy.keepRawEvents).toBe(true);
-    expect(result.config.retention.shortDays).toBe(3);
+    // One retention rule (0007): the tier periods go and retention.days keeps its default.
+    expect(result.config.retention).toEqual({ days: 30 });
     expect(result.localOverrideKeys).toEqual([
       "privacy.keepRawEvents",
-      "retention.shortDays",
       "timeouts.workerStallMinutes",
     ]);
   });
