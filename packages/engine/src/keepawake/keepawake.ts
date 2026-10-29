@@ -10,7 +10,6 @@ import type { Clock, TimerHandle } from "@dipsaus-orchestrator/contract";
 
 import type { Logger } from "../log/logger";
 import { background } from "../platform/background";
-import type { DipoPlatform } from "../platform/paths";
 import type { KeepAwakeHolder, KeepAwakeStatus } from "./holder";
 
 /** Active work across all offices. */
@@ -55,7 +54,6 @@ export function describeWork(activity: WorkActivity): string {
 export const DARWIN_LID_NOTE = "closing the lid on battery still sleeps the Mac";
 
 export interface KeepAwakeDeps {
-  readonly platform: DipoPlatform;
   readonly holder: KeepAwakeHolder;
   /** Reads the current activity across all offices. */
   readonly read: () => Promise<WorkActivity>;
@@ -128,8 +126,8 @@ export class KeepAwake {
         this.#releaseTimer = null;
       }
       if (!holder.running && !this.#refused) {
-        const status = await holder.acquire(describeWork(activity));
-        this.#refused = !status.held && !holder.running;
+        await holder.acquire(describeWork(activity));
+        this.#refused = !holder.running;
       }
       return;
     }
@@ -150,10 +148,7 @@ export class KeepAwake {
       workCount(this.#activity) > 0
         ? describeWork(this.#activity)
         : "work ended, releasing within 2 minutes";
-    return {
-      held: true,
-      reason: this.#deps.platform === "darwin" ? `${work}; ${DARWIN_LID_NOTE}` : work,
-    };
+    return { held: true, reason: `${work}; ${DARWIN_LID_NOTE}` };
   }
 
   /** Stops polling and releases the assertion (daemon exit). */

@@ -11,7 +11,6 @@ import {
   DaemonNotRunningError,
   DaemonStartError,
   describeStartFailure,
-  lingerWarning,
   logsDir,
   SoftwareConfigError,
   versionHint,
@@ -65,7 +64,7 @@ export interface DaemonControl {
   /** `dipo daemon install|uninstall` (0006 decision 15, DIPO-63). */
   install?(): Promise<InstallResult>;
   uninstall?(): Promise<UninstallResult>;
-  /** Autostart for `status`: installed or not, the binary it runs, lingering on Linux. */
+  /** Autostart for `status`: installed or not, and the binary it runs. */
   autostart?(): Promise<AutostartReport | null>;
   /** `<state>/config.yaml` problems, which make the daemon refuse to start (exit 78). */
   configErrors?(): readonly ConfigError[] | null;
@@ -217,7 +216,7 @@ function printAutostart(deps: DaemonCommandDeps, report: AutostartReport | null)
   if (report === null) return;
   deps.writeLine(
     report.installed
-      ? `  autostart:  ${report.supervisor} (${report.file})`
+      ? `  autostart:  launchd (${report.file})`
       : "  autostart:  not installed (`dipo daemon install`)",
   );
   if (report.programMissing) {
@@ -225,10 +224,6 @@ function printAutostart(deps: DaemonCommandDeps, report: AutostartReport | null)
       `dipo: the installed autostart runs ${report.program}, which no longer exists; run \`dipo daemon install\` again from the binary you use now.`,
     );
   }
-}
-
-function warnLingering(deps: DaemonCommandDeps, report: AutostartReport | null) {
-  if (report?.lingering === false) deps.writeError(`dipo: ${lingerWarning(report.user)}`);
 }
 
 function statusJson(observed: DaemonObservation): Record<string, unknown> {
@@ -306,14 +301,13 @@ async function statusCommand(args: readonly string[], deps: DaemonCommandDeps): 
       }
   }
   printAutostart(deps, autostart);
-  warnLingering(deps, autostart);
   return code;
 }
 
 function printInstall(deps: DaemonCommandDeps, result: InstallResult): number {
   switch (result.kind) {
     case "unsupported":
-      deps.writeError("dipo: autostart needs launchd (macOS) or systemd (Linux).");
+      deps.writeError("dipo: autostart needs launchd (macOS).");
       return 1;
     case "config":
       for (const error of result.errors) deps.writeError(`dipo: ${error.message}`);
@@ -329,12 +323,7 @@ function printInstall(deps: DaemonCommandDeps, result: InstallResult): number {
       if (result.stopped !== null) deps.writeLine(`dipo daemon stopped (pid ${result.stopped})`);
       deps.writeLine(`installed ${result.file}`);
       for (const command of result.commands) deps.writeLine(`  ran: ${command}`);
-      deps.writeLine(
-        result.supervisor === "launchd"
-          ? "launchd starts the daemon at login and restarts it after a crash."
-          : "systemd starts the daemon with your user manager and restarts it after a crash.",
-      );
-      if (result.lingering === false) deps.writeError(`dipo: ${lingerWarning(result.user)}`);
+      deps.writeLine("launchd starts the daemon at login and restarts it after a crash.");
       return printStart(deps, result.start);
     }
   }
@@ -343,7 +332,7 @@ function printInstall(deps: DaemonCommandDeps, result: InstallResult): number {
 function printUninstall(deps: DaemonCommandDeps, result: UninstallResult): number {
   switch (result.kind) {
     case "unsupported":
-      deps.writeError("dipo: autostart needs launchd (macOS) or systemd (Linux).");
+      deps.writeError("dipo: autostart needs launchd (macOS).");
       return 1;
     case "not installed":
       deps.writeLine(`autostart is not installed (${result.file} does not exist)`);

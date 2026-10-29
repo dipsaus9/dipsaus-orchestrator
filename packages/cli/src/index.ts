@@ -98,12 +98,11 @@ Usage:
                     running (exit 0), unresponsive (exit 1), not running or
                     stale (exit 3); also whether autostart is installed
   dipo daemon install
-                    run the daemon under launchd (macOS) or a systemd user unit
-                    (Linux): started at login, restarted after a crash; start,
-                    stop and restart then go through the supervisor
+                    run the daemon under launchd: started at login, restarted
+                    after a crash; start, stop and restart then go through
+                    launchd
   dipo daemon uninstall
-                    stop the supervised daemon and remove the launchd agent or
-                    systemd unit
+                    stop the supervised daemon and remove the launchd agent
   dipo daemon --foreground [--log-level <level>]
                     run the daemon in this terminal; logs also go to stderr
   dipo daemon logs [-f] [--office <id>] [--run <id>] [--level <level>]
@@ -263,11 +262,7 @@ Options:
   -h, --help        print this help`;
 
 /** `dipo daemon` forms that run daemon-side code; the lifecycle subcommands go through `client`. */
-export const DAEMON_FORMS: ReadonlySet<string> = new Set([
-  "--foreground",
-  "worker-host",
-  "wait-pid",
-]);
+export const DAEMON_FORMS: ReadonlySet<string> = new Set(["--foreground", "worker-host"]);
 
 /** The two ways to reach the daemon: only a running one, or one started when none runs. */
 export interface ConnectWays<S extends { readonly hello?: { readonly engine: string } | null }> {

@@ -1,8 +1,8 @@
 // External tools and the daemon's own executable (DIPO-70, 0006 decisions 5 and 14).
 //
 // At start the daemon resolves the absolute paths of the tools it runs from its own `PATH`, which
-// the starting client kept, so a launchd, systemd or SSH start uses the same tools as the
-// maintainer's shell. A tool that is not found is reported as missing; it does not stop the start.
+// the starting client kept, so a launchd or SSH start uses the same tools as the maintainer's
+// shell. A tool that is not found is reported as missing; it does not stop the start.
 //
 // Every 60 s the daemon compares a stamp of its executable with the one taken at start; a
 // different stamp means the binary on disk was replaced (`upgrade pending`).

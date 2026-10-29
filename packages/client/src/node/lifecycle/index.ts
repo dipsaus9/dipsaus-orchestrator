@@ -52,14 +52,10 @@ export {
   isInstalled,
   launchdDomain,
   launchdPlist,
-  lingeringOn,
-  lingerWarning,
   supervisorFile,
-  supervisorKind,
   supervisorStart,
   supervisorStop,
   SUPERVISOR_STOP_TIMEOUT_S,
-  systemdUnit,
   systemSupervisorExec,
 } from "./supervisor";
 export type {
@@ -67,7 +63,6 @@ export type {
   ExecResult,
   SupervisorDeps,
   SupervisorExec,
-  SupervisorKind,
   SupervisorStepResult,
   UnitOptions,
 } from "./supervisor";

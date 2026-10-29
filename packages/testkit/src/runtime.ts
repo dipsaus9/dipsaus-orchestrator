@@ -1,9 +1,8 @@
 // The runtime directory of a test daemon (DIPO-109). A daemon takes the first usable candidate of
-// `DIPO_RUNTIME_DIR`, `$XDG_RUNTIME_DIR/dipo` (Linux), `$TMPDIR/dipo` (macOS) and
-// `/tmp/dipo-<uid>`, and removes the `dipo.sock` it finds there (0006 decision 3). A test daemon
-// whose candidates under its temp directory are too long for a socket path would fall back to the
-// maintainer's real runtime directory and remove a live daemon's socket. So a test daemon gets all
-// three variables under its temp directory, `tempRoot()` refuses a `DIPO_TMP` too long for them,
+// `DIPO_RUNTIME_DIR`, `$TMPDIR/dipo` and `/tmp/dipo-<uid>`, and removes the `dipo.sock` it finds
+// there (0006 decision 3). A test daemon whose candidates under its temp directory are too long for
+// a socket path would fall back to the maintainer's real runtime directory and remove a live
+// daemon's socket. So a test daemon gets both variables under its temp directory, `tempRoot()` refuses a `DIPO_TMP` too long for them,
 // and a test fails when the daemon logs any other runtime directory.
 //
 // testkit may not import engine (0004), so the two limits below are copies of
@@ -35,7 +34,7 @@ export function testRuntimeDir(dir: string): string {
   return join(dir, "run");
 }
 
-/** `TMPDIR` and `XDG_RUNTIME_DIR` of a test daemon: `<dir>/tmp`, where it finds `<dir>/tmp/dipo`. */
+/** `TMPDIR` of a test daemon: `<dir>/tmp`, where it finds `<dir>/tmp/dipo`. */
 export function testTmpDir(dir: string): string {
   return join(dir, "tmp");
 }
@@ -68,7 +67,7 @@ export const MAX_TEMP_ROOT_BYTES =
 
 /**
  * The state, runtime and temp variables of a test daemon in `dir`, all under `dir`: `DIPO_HOME`,
- * `DIPO_RUNTIME_DIR`, `TMPDIR`, `XDG_RUNTIME_DIR` and `DIPO_TMP`, with the test marker. Creates
+ * `DIPO_RUNTIME_DIR`, `TMPDIR` and `DIPO_TMP`, with the test marker. Creates
  * `<dir>/tmp` (mode 0700). A `DIPO_RUNTIME_DIR` the daemon cannot use stops it (DIPO-316).
  */
 export function isolatedDaemonEnv(dir: string): {
@@ -76,7 +75,6 @@ export function isolatedDaemonEnv(dir: string): {
   DIPO_HOME: string;
   DIPO_RUNTIME_DIR: string;
   TMPDIR: string;
-  XDG_RUNTIME_DIR: string;
   DIPO_TMP: string;
 } {
   const tmp = testTmpDir(dir);
@@ -86,7 +84,6 @@ export function isolatedDaemonEnv(dir: string): {
     DIPO_HOME: testStateDir(dir),
     DIPO_RUNTIME_DIR: testRuntimeDir(dir),
     TMPDIR: tmp,
-    XDG_RUNTIME_DIR: tmp,
     DIPO_TMP: dir,
   };
 }

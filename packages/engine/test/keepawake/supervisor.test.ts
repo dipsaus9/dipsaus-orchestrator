@@ -1,7 +1,7 @@
-// The daemon's side of autostart (DIPO-63): worker hosts start in their own `systemd-run --user
-// --scope` unit under systemd (AC #5), the launchd bootout after a refused `config.yaml` names
-// `gui/<uid>` or, without it, `user/<uid>` (AC #6, #7), and `wait-pid` returns once the PID is gone.
-// Every process is a fake; nothing touches launchctl or systemd.
+// The daemon's side of autostart (DIPO-63): worker hosts start as the plain `dipo daemon
+// worker-host` command, with no systemd scope (0004), and the launchd bootout after a refused
+// `config.yaml` names `gui/<uid>` or, without it, `user/<uid>` (AC #6, #7). Every process is a
+// fake; nothing touches launchctl.
 
 import { describe, expect, it } from "bun:test";
 import { join } from "node:path";
@@ -9,14 +9,11 @@ import { join } from "node:path";
 import type { ChildProcess, Spawn, SpawnOptions } from "@dipsaus-orchestrator/contract";
 import { ManualClock, withTempDir } from "@dipsaus-orchestrator/testkit";
 
-import { waitForPidExit } from "../../src/platform/keepawake";
 import { detachedEnv, type DetachedSpawnOptions } from "../../src/platform/process";
 import {
   bootoutOwnLaunchdJob,
   launchdJobPid,
-  systemdScopeCommand,
   underLaunchdJob,
-  underSystemdUnit,
 } from "../../src/platform/supervisor";
 import { launchWorkerHost } from "../../src/runs/worker-hosts";
 
@@ -57,18 +54,8 @@ const printed = (pid: number) => ({
   stdout: `gui/501/dipo.daemon = {\n\tactive count = 1\n\tstate = running\n\tpid = ${pid}\n}\n`,
 });
 
-describe("systemd scope for worker hosts", () => {
-  it("detects the dipo.service cgroup", () => {
-    expect(
-      underSystemdUnit(
-        () => "0::/user.slice/user-1000.slice/user@1000.service/app.slice/dipo.service\n",
-      ),
-    ).toBe(true);
-    expect(underSystemdUnit(() => "0::/user.slice/user-1000.slice/session-3.scope\n")).toBe(false);
-    expect(underSystemdUnit(() => null)).toBe(false);
-  });
-
-  it("starts the host inside systemd-run --user --scope when asked", () =>
+describe("worker host command", () => {
+  it("starts the host as dipo daemon worker-host, never wrapped in systemd-run", () =>
     withTempDir(async (dir) => {
       const calls: DetachedSpawnOptions[] = [];
       await launchWorkerHost({
@@ -84,20 +71,8 @@ describe("systemd scope for worker hosts", () => {
           calls.push(options);
           return { pid: 77 };
         },
-        systemdScope: true,
       });
-      expect(calls[0]?.cmd).toEqual([
-        "systemd-run",
-        "--user",
-        "--scope",
-        "--quiet",
-        `--unit=dipo-run-${RUN}`,
-        "/opt/dipo",
-        "daemon",
-        "worker-host",
-        RUN,
-      ]);
-      expect(systemdScopeCommand(RUN, ["x"]).slice(0, 5)).toEqual(calls[0]?.cmd.slice(0, 5) ?? []);
+      expect(calls[0]?.cmd).toEqual(["/opt/dipo", "daemon", "worker-host", RUN]);
     }));
 });
 
@@ -173,23 +148,5 @@ describe("launchd bootout after a refused config.yaml", () => {
     expect(detachedEnv({ XPC_SERVICE_NAME: "dipo.daemon", PATH: "/usr/bin" })).toEqual({
       PATH: "/usr/bin",
     });
-  });
-});
-
-describe("waitForPidExit", () => {
-  it("resolves once the PID is gone, looking every second", async () => {
-    const clock = new ManualClock();
-    let alive = true;
-    let done = false;
-    void waitForPidExit(42, clock, () => alive).then(() => {
-      done = true;
-    });
-    clock.advance(5000);
-    await Promise.resolve();
-    expect(done).toBe(false);
-    alive = false;
-    clock.advance(1000);
-    await Promise.resolve();
-    expect(done).toBe(true);
   });
 });

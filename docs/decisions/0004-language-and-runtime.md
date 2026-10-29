@@ -35,7 +35,7 @@ Bun workspaces. Every package is TypeScript ESM, scoped `@dipsaus-orchestrator/*
 | `cli` | The binary. `dipo daemon` forms call `runDaemon`; everything else goes through `client` | `contract`, `client`, `tui`, `daemon` |
 | `testkit` | Private test helpers: clock, ids, temporary repositories, fake process | Used by tests only |
 
-The daemon-side forms of the binary are `dipo daemon --foreground`, `dipo daemon worker-host <run>`, and `dipo daemon wait-pid <pid>`. All of them call `runDaemon(argv)`.
+The daemon-side forms of the binary are `dipo daemon --foreground` and `dipo daemon worker-host <run>`. Both call `runDaemon(argv)`.
 
 ## Boundaries enforced in code
 

@@ -314,13 +314,10 @@ describe("dipo daemon restart", () => {
 });
 
 const LAUNCHD: AutostartReport = {
-  supervisor: "launchd",
   installed: true,
   file: "/Users/m/Library/LaunchAgents/dipo.daemon.plist",
   program: "/usr/local/bin/dipo",
   programMissing: false,
-  lingering: null,
-  user: "m",
 };
 
 describe("keep-awake and autostart in dipo daemon status (DIPO-63)", () => {
@@ -338,11 +335,11 @@ describe("keep-awake and autostart in dipo daemon status (DIPO-63)", () => {
       inspect: {
         kind: "running",
         record: RECORD,
-        status: { ...STATUS, keepAwake: { held: false, reason: "systemd-inhibit not found" } },
+        status: { ...STATUS, keepAwake: { held: false, reason: "caffeinate not found" } },
       },
     });
     await main(["daemon", "status"], refused.deps);
-    expect(refused.out).toContain("  keep-awake: not held: systemd-inhibit not found");
+    expect(refused.out).toContain("  keep-awake: not held: caffeinate not found");
   });
 
   it("shows whether autostart is installed and warns about a moved binary", async () => {
@@ -357,21 +354,14 @@ describe("keep-awake and autostart in dipo daemon status (DIPO-63)", () => {
     expect(ctx.err.join("\n")).toContain("/usr/local/bin/dipo, which no longer exists");
   });
 
-  it("warns on Linux when lingering is off, and explains loginctl enable-linger", async () => {
+  it("says when autostart is not installed", async () => {
     const ctx = fake({
       inspect: { kind: "not running", cleaned: [] },
-      autostart: {
-        ...LAUNCHD,
-        supervisor: "systemd",
-        installed: false,
-        file: "/home/m/.config/systemd/user/dipo.service",
-        program: null,
-        lingering: false,
-      },
+      autostart: { ...LAUNCHD, installed: false, program: null },
     });
     expect(await main(["daemon", "status"], ctx.deps)).toBe(3);
     expect(ctx.out).toContain("  autostart:  not installed (`dipo daemon install`)");
-    expect(ctx.err.join("\n")).toContain("loginctl enable-linger m");
+    expect(ctx.err).toEqual([]);
   });
 
   it("says why a stopped daemon refuses to start, from config.yaml", async () => {
@@ -391,13 +381,10 @@ describe("dipo daemon install and uninstall (DIPO-63)", () => {
     const ctx = fake({
       install: {
         kind: "installed",
-        supervisor: "launchd",
         file: LAUNCHD.file,
         commands: [`launchctl bootstrap gui/501 ${LAUNCHD.file}`],
         stopped: 77,
         start: { kind: "started", pid: 4242, version: VERSION },
-        lingering: null,
-        user: "m",
       },
     });
     expect(await main(["daemon", "install"], ctx.deps)).toBe(0);
@@ -411,21 +398,10 @@ describe("dipo daemon install and uninstall (DIPO-63)", () => {
     expect(ctx.err).toEqual([]);
   });
 
-  it("warns about lingering after a Linux install", async () => {
-    const ctx = fake({
-      install: {
-        kind: "installed",
-        supervisor: "systemd",
-        file: "/home/m/.config/systemd/user/dipo.service",
-        commands: ["systemctl --user enable --now dipo.service"],
-        stopped: null,
-        start: { kind: "started", pid: 4242, version: VERSION },
-        lingering: false,
-        user: "m",
-      },
-    });
-    expect(await main(["daemon", "install"], ctx.deps)).toBe(0);
-    expect(ctx.err.join("\n")).toContain("`loginctl enable-linger m` (dipo does not run it");
+  it("says autostart needs launchd where there is none", async () => {
+    const ctx = fake({ install: { kind: "unsupported" } });
+    expect(await main(["daemon", "install"], ctx.deps)).toBe(1);
+    expect(ctx.err).toEqual(["dipo: autostart needs launchd (macOS)."]);
   });
 
   it("refuses an invalid config.yaml and a failed supervisor command", async () => {
@@ -449,7 +425,6 @@ describe("dipo daemon install and uninstall (DIPO-63)", () => {
     const done = fake({
       uninstall: {
         kind: "uninstalled",
-        supervisor: "launchd",
         file: LAUNCHD.file,
         commands: ["launchctl bootout gui/501/dipo.daemon"],
         stopped: 4242,

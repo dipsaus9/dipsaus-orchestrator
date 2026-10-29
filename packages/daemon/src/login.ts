@@ -11,7 +11,6 @@
 import {
   boxTokenHoldPath,
   clearBoxTokenHold,
-  currentPlatform,
   passwdHome,
   resolveSoftwareDirs,
   storeBoxToken,
@@ -70,9 +69,7 @@ export async function runLoginForm(
   io.writeLine(
     `dipo: stored the box login in the Keychain (service ${TOKEN_KEYCHAIN_SERVICE}, account ${TOKEN_KEYCHAIN_ACCOUNT}).`,
   );
-  const stateDir =
-    options.stateDir?.() ??
-    resolveSoftwareDirs({ platform: currentPlatform(), env: io.env, home }).state;
+  const stateDir = options.stateDir?.() ?? resolveSoftwareDirs({ env: io.env, home }).state;
   try {
     if (clearBoxTokenHold(boxTokenHoldPath(stateDir))) {
       io.writeLine("dipo: the box-token hold is lifted; new runs may start again.");

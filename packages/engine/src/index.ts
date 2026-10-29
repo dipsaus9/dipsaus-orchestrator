@@ -22,7 +22,6 @@ export {
   DIR_ERROR_CODES,
   ensurePrivateDir,
   isTestRun,
-  lingeringEnabled,
   passwdHome,
   readRuntimeRecord,
   realRuntimeDirReason,
@@ -580,10 +579,6 @@ export {
   keepAwakeCommand,
   KeepAwakeMissingError,
   systemSpawnKeepAwake,
-  WAIT_PID_POLL_MS,
-  waitForPidExit,
-  type InhibitMode,
-  type KeepAwakeCommandOptions,
   type KeepAwakeExit,
   type KeepAwakeProcess,
   type SpawnKeepAwake,
@@ -591,12 +586,8 @@ export {
 export {
   bootoutOwnLaunchdJob,
   launchdJobPid,
-  systemdScopeCommand,
-  systemReadCgroup,
   underLaunchdJob,
-  underSystemdUnit,
   type BootoutOptions,
-  type ReadCgroup,
 } from "./platform/supervisor";
 export {
   assembleReviewTaskMessage,

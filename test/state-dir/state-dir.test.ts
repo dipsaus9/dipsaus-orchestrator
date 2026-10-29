@@ -16,36 +16,19 @@ import { resolveSoftwareDirs } from "../../packages/engine/src/platform/paths";
 type Case = {
   name: string;
   env: Record<string, string>;
-  platform: "darwin" | "linux";
   home: string;
 };
 
 const cases: Case[] = [
-  {
-    name: "DIPO_HOME on macOS",
-    env: { DIPO_HOME: "/tmp/dipo-a/state" },
-    platform: "darwin",
-    home: "/Users/me",
-  },
-  {
-    name: "DIPO_HOME on Linux",
-    env: { DIPO_HOME: "/tmp/dipo-b/state" },
-    platform: "linux",
-    home: "/home/me",
-  },
-  {
-    name: "empty DIPO_HOME on macOS",
-    env: { DIPO_HOME: "" },
-    platform: "darwin",
-    home: "/Users/me",
-  },
-  { name: "macOS default", env: {}, platform: "darwin", home: "/Users/me" },
-  { name: "Linux default", env: {}, platform: "linux", home: "/home/me" },
+  { name: "DIPO_HOME", env: { DIPO_HOME: "/tmp/dipo-a/state" }, home: "/Users/me" },
+  { name: "empty DIPO_HOME", env: { DIPO_HOME: "" }, home: "/Users/me" },
+  { name: "the default", env: {}, home: "/Users/me" },
+  // There is no Linux folder (0004): a Linux-style home gets the same Library path on both sides.
+  { name: "a home outside /Users", env: {}, home: "/home/me" },
   {
     name: "$HOME differing from the passwd home",
     env: { HOME: "/elsewhere", XDG_STATE_HOME: "/xdg", TMPDIR: "/t" },
-    platform: "linux",
-    home: "/home/me",
+    home: "/Users/me",
   },
 ];
 
@@ -62,29 +45,24 @@ function codeOf(fn: () => unknown): string {
 /** Both sides refuse the same inputs with the same code (DIPO-316). */
 function expectBothRefuse(c: Omit<Case, "name">, code: string): void {
   const daemon = codeOf(() => resolveSoftwareDirs(c));
-  const client = codeOf(() => stateDir(c.env, c.platform, c.home));
+  const client = codeOf(() => stateDir(c.env, c.home));
   expect([daemon, client]).toEqual([code, code]);
 }
 
 describe("client and daemon agree on <state>", () => {
   for (const c of cases) {
     it(c.name, () => {
-      const daemon = resolveSoftwareDirs({ platform: c.platform, env: c.env, home: c.home }).state;
-      expect(stateDir(c.env, c.platform, c.home)).toBe(daemon);
+      const daemon = resolveSoftwareDirs({ env: c.env, home: c.home }).state;
+      expect(stateDir(c.env, c.home)).toBe(daemon);
     });
   }
 
   // The test runner's setup file sets the test marker, so this machine's real folders are refused
-  // on both sides, on both platforms, by default and through DIPO_HOME.
+  // on both sides, by default and through DIPO_HOME.
   it("refuses this machine's passwd home on both sides under the test marker", () => {
-    for (const platform of ["darwin", "linux"] as const) {
-      expectBothRefuse({ env: {}, platform, home: userInfo().homedir }, "paths.realStateInTest");
-    }
+    expectBothRefuse({ env: {}, home: userInfo().homedir }, "paths.realStateInTest");
     const real = join(userInfo().homedir, "Library", "Application Support", "dipo");
-    expectBothRefuse(
-      { env: { DIPO_HOME: real }, platform: "linux", home: "/home/me" },
-      "paths.realStateInTest",
-    );
+    expectBothRefuse({ env: { DIPO_HOME: real }, home: "/Users/me" }, "paths.realStateInTest");
   });
 
   it("refuses a DIPO_HOME dipo cannot use on both sides", () =>
@@ -92,10 +70,7 @@ describe("client and daemon agree on <state>", () => {
       const file = join(dir, "file");
       writeFileSync(file, "");
       for (const home of ["relative/state", file, join(file, "state")]) {
-        expectBothRefuse(
-          { env: { DIPO_HOME: home }, platform: "darwin", home: "/Users/me" },
-          "paths.stateDirUnusable",
-        );
+        expectBothRefuse({ env: { DIPO_HOME: home }, home: "/Users/me" }, "paths.stateDirUnusable");
       }
     }));
 });

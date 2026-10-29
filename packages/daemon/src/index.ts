@@ -14,7 +14,6 @@ import { RESTORE_USAGE, runRestoreForm } from "./restore";
 import { defaultIo, type DaemonIo } from "./io";
 import { runSelfChecks } from "./self-check";
 import { runTestShellForm, TEST_SHELL_USAGE } from "./test-shell";
-import { runWaitPidForm } from "./wait-pid";
 import { runWorkerHostForm } from "./worker-host";
 
 type Form = {
@@ -35,19 +34,6 @@ const FORMS: ReadonlyMap<string, Form> = new Map<string, Form>([
           return usageError(io, "worker-host needs one run id (run_<ulid>)");
         }
         return runWorkerHostForm(runId, io);
-      },
-    },
-  ],
-  [
-    "wait-pid",
-    {
-      usage: "dipo daemon wait-pid <pid>",
-      run: async (args, io) => {
-        const [pid, ...rest] = args;
-        if (pid === undefined || !/^[1-9]\d*$/.test(pid) || rest.length > 0) {
-          return usageError(io, "wait-pid needs one process id");
-        }
-        return runWaitPidForm(Number(pid), io);
       },
     },
   ],

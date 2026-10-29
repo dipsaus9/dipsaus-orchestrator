@@ -90,7 +90,6 @@ if (process.env["DIPO_TEST_CI"] === "1") {
                 dipoCommand: [process.execPath, CLI_MAIN],
                 env: { ...env, DIPO_HOME: join(dir, "state"), DIPO_TMP: dir },
                 probe,
-                systemdScope: false,
               });
               hosts.push(host);
               workers.push(

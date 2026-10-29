@@ -50,7 +50,6 @@ import {
   isLogLevel,
   KeepAwake,
   KeepAwakeHolder,
-  lingeringEnabled,
   loadSoftwareConfig,
   LOG_LEVELS,
   MaintenanceScheduler,
@@ -331,7 +330,7 @@ export async function runForeground(
   const platform = currentPlatform();
   let dirs: ReturnType<typeof resolveSoftwareDirs>;
   try {
-    dirs = resolveSoftwareDirs({ platform, env: io.env, home: passwdHome() });
+    dirs = resolveSoftwareDirs({ env: io.env, home: passwdHome() });
   } catch (error) {
     // A `DIPO_HOME` dipo cannot use, or the real state folder in a test, stops the start before
     // anything is written (DIPO-316); like an invalid configuration, a restart would not help.
@@ -362,8 +361,7 @@ export async function runForeground(
         io.writeError(`dipo: ${error.message}`);
       }
       // Under launchd, exit 78 alone would be restarted (KeepAlive.SuccessfulExit = false): the
-      // daemon boots its own job out first, so the refusal is not a restart loop (DIPO-63). The
-      // systemd unit stops on 78 by itself (RestartPreventExitStatus=78).
+      // daemon boots its own job out first, so the refusal is not a restart loop (DIPO-63).
       if (underLaunchdJob(io.env)) {
         const target = await bootoutOwnLaunchdJob({
           spawn: options.supervisorSpawn ?? systemSpawn,
@@ -538,11 +536,8 @@ async function serve(run: Run, lock: HeldLock): Promise<number> {
   // the state database once recovery opened it.
   const work = new WorkTracker();
   const keepAwake = new KeepAwake({
-    platform,
     holder: new KeepAwakeHolder({
-      platform,
       daemonPid: process.pid,
-      dipoCommand: selfCommand(),
       env: detachedEnv(io.env),
       spawn: options.spawnKeepAwake ?? systemSpawnKeepAwake,
       clock,
@@ -573,12 +568,7 @@ async function serve(run: Run, lock: HeldLock): Promise<number> {
     const uid = process.getuid?.() ?? -1;
     const tmpBase = io.env["DIPO_TMP"] || "/tmp";
     const choice = chooseRuntimeDir({
-      candidates: runtimeCandidates({
-        platform,
-        env: io.env,
-        uid,
-        lingering: platform === "linux" && lingeringEnabled(),
-      }),
+      candidates: runtimeCandidates({ env: io.env, uid }),
       uid,
       tmpBase,
       env: io.env,

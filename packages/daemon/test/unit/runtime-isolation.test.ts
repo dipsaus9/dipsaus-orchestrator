@@ -138,30 +138,23 @@ describe("testkit's runtime path limits", () => {
 });
 
 describe("a test daemon's runtime directory", () => {
-  for (const platform of ["darwin", "linux"] as const) {
-    it.skipIf(!LONGEST_ROOT_FITS)(
-      `is its DIPO_RUNTIME_DIR on ${platform} for the longest temp root testkit accepts`,
-      () =>
-        withLongestTempDir((dir) => {
-          const candidates = runtimeCandidates({
-            platform,
-            env: isolatedDaemonEnv(dir),
-            uid,
-            lingering: true,
-          });
-          // Everything but the engine's fixed last resort is under the test's temp directory.
-          expect(candidates.slice(0, -1).every((c) => c.path.startsWith(`${dir}/`))).toBe(true);
-          expect(candidates.at(-1)).toEqual({ path: `/tmp/dipo-${uid}`, source: "tmp" });
+  it.skipIf(!LONGEST_ROOT_FITS)(
+    "is its DIPO_RUNTIME_DIR for the longest temp root testkit accepts",
+    () =>
+      withLongestTempDir((dir) => {
+        const candidates = runtimeCandidates({ env: isolatedDaemonEnv(dir), uid });
+        // Everything but the engine's fixed last resort is under the test's temp directory.
+        expect(candidates.slice(0, -1).every((c) => c.path.startsWith(`${dir}/`))).toBe(true);
+        expect(candidates.at(-1)).toEqual({ path: `/tmp/dipo-${uid}`, source: "tmp" });
 
-          const choice = chooseRuntimeDir({ candidates, uid, tmpBase: dir, fs: confinedTo(dir) });
-          expect(choice).toMatchObject({
-            path: testRuntimeDir(dir),
-            source: "DIPO_RUNTIME_DIR",
-            rejected: [],
-          });
-        }),
-    );
-  }
+        const choice = chooseRuntimeDir({ candidates, uid, tmpBase: dir, fs: confinedTo(dir) });
+        expect(choice).toMatchObject({
+          path: testRuntimeDir(dir),
+          source: "DIPO_RUNTIME_DIR",
+          rejected: [],
+        });
+      }),
+  );
 
   // DIPO-316: an unusable DIPO_RUNTIME_DIR stops the daemon; it never falls through to another
   // candidate, which outside a test can be the live daemon's runtime directory.
@@ -172,21 +165,19 @@ describe("a test daemon's runtime directory", () => {
         mkdirSync(testRuntimeDir(dir), { mode: 0o700 });
         chmodSync(testRuntimeDir(dir), 0o755);
         const env = isolatedDaemonEnv(dir);
-        for (const platform of ["darwin", "linux"] as const) {
-          const candidates = runtimeCandidates({ platform, env, uid, lingering: true });
-          let error: unknown;
-          try {
-            chooseRuntimeDir({ candidates, uid, tmpBase: dir, fs: confinedTo(dir), env });
-          } catch (thrown) {
-            error = thrown;
-          }
-          expect(error).toBeInstanceOf(RuntimeDirError);
-          expect((error as RuntimeDirError).code).toBe("paths.runtimeDirUnusable");
-          expect((error as RuntimeDirError).rejected).toEqual([
-            { path: testRuntimeDir(dir), reason: "its mode is 0755, not 0700" },
-          ]);
-          expect(existsSync(join(dir, "tmp", "dipo"))).toBe(false);
+        const candidates = runtimeCandidates({ env, uid });
+        let error: unknown;
+        try {
+          chooseRuntimeDir({ candidates, uid, tmpBase: dir, fs: confinedTo(dir), env });
+        } catch (thrown) {
+          error = thrown;
         }
+        expect(error).toBeInstanceOf(RuntimeDirError);
+        expect((error as RuntimeDirError).code).toBe("paths.runtimeDirUnusable");
+        expect((error as RuntimeDirError).rejected).toEqual([
+          { path: testRuntimeDir(dir), reason: "its mode is 0755, not 0700" },
+        ]);
+        expect(existsSync(join(dir, "tmp", "dipo"))).toBe(false);
       }),
   );
 
@@ -195,20 +186,14 @@ describe("a test daemon's runtime directory", () => {
     // so it runs under any DIPO_TMP, the worker's 30-byte one too.
     const dir = join(`/${"c".repeat(MAX_TEMP_ROOT_BYTES - 1)}`, TEMP_DIR_TEMPLATE);
     expect(longestTestSocketBytes(dir)).toBe(RUNTIME_PATH_LIMIT);
-    for (const platform of ["darwin", "linux"] as const) {
-      const env = {
-        DIPO_RUNTIME_DIR: testRuntimeDir(dir),
-        TMPDIR: testTmpDir(dir),
-        XDG_RUNTIME_DIR: testTmpDir(dir),
-      };
-      const candidates = runtimeCandidates({ platform, env, uid, lingering: true });
-      const choice = chooseRuntimeDir({ candidates, uid, tmpBase: dir, fs: usableEverywhere });
-      expect(choice).toMatchObject({
-        path: testRuntimeDir(dir),
-        source: "DIPO_RUNTIME_DIR",
-        rejected: [],
-      });
-    }
+    const env = { DIPO_RUNTIME_DIR: testRuntimeDir(dir), TMPDIR: testTmpDir(dir) };
+    const candidates = runtimeCandidates({ env, uid });
+    const choice = chooseRuntimeDir({ candidates, uid, tmpBase: dir, fs: usableEverywhere });
+    expect(choice).toMatchObject({
+      path: testRuntimeDir(dir),
+      source: "DIPO_RUNTIME_DIR",
+      rejected: [],
+    });
   });
 });
 

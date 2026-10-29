@@ -89,7 +89,6 @@ describe("cli", () => {
     for (const argv of [
       ["daemon", "--foreground", "--log-level", "debug"],
       ["daemon", "worker-host", "run_01"],
-      ["daemon", "wait-pid", "42"],
     ]) {
       const { deps, captured } = fakeDeps({ daemonCode: 3 });
       expect(await main(argv, deps)).toBe(3);

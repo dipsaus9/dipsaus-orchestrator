@@ -54,7 +54,7 @@ A daemon removes the `dipo.sock` it finds in the runtime directory it chooses, a
 
 - The test runner's setup file (`src/test-env.ts`, DIPO-316) gives every test process the test marker `DIPO_TEST=1` and fresh `DIPO_HOME` and `DIPO_RUNTIME_DIR` folders under `DIPO_TMP`. With the marker, dipo refuses the real home's state and runtime folders, and an override it cannot use stops it instead of falling through to another folder.
 
-- Start it with `daemonTestEnv(dir)` for a process, or `isolatedDaemonEnv(dir)` in process. Both put `DIPO_HOME`, `DIPO_RUNTIME_DIR`, `TMPDIR`, `XDG_RUNTIME_DIR` and `DIPO_TMP` under the test's temp directory.
+- Start it with `daemonTestEnv(dir)` for a process, or `isolatedDaemonEnv(dir)` in process. Both put `DIPO_HOME`, `DIPO_RUNTIME_DIR`, `TMPDIR` and `DIPO_TMP` under the test's temp directory.
 - Wrap the test in `withDaemonTempDir`, or call `assertTestRuntimeDir(dir)`: the test fails when the daemon log names a runtime directory other than `<dir>/run` from `DIPO_RUNTIME_DIR`.
 - `DIPO_TMP` may be at most 37 bytes after symlinks (`MAX_TEMP_ROOT_BYTES`). `tempRoot()`, and so every testkit temp directory, refuses a longer one, because a test daemon's socket paths under it would pass the 100-byte limit and the daemon would refuse to start. A path such as `/tmp/dt` is fine; macOS `$TMPDIR` is too long.
 

@@ -1,52 +1,12 @@
-// The daemon's view of its supervisor (0006 decisions 8 and 15). `dipo daemon install` writes a
-// launchd agent labelled `dipo.daemon` or a systemd user unit `dipo.service` (client `lifecycle`).
-// Inside the daemon two things depend on it:
-//
-// - Under systemd, each worker host starts in its own transient scope (`systemd-run --user --scope
-//   --unit=dipo-run-<run-id>`), so stopping the daemon's unit, with the default
-//   `KillMode=control-group`, does not kill the hosts. `systemd-run --scope` execs the command
-//   after creating the scope, so the host keeps the PID the engine records.
-// - Under launchd, a daemon that refuses its `config.yaml` (exit 78) boots its own job out before
-//   it exits, so launchd does not restart it in a loop (the systemd unit has
-//   `RestartPreventExitStatus=78` instead). `XPC_SERVICE_NAME` is inherited, and every detached
-//   spawn strips it, but it is only a hint: the bootout also needs launchd as the parent and
-//   `launchctl print` naming this very PID as the job's, so a `dipo daemon --foreground` started
-//   by anything else can never boot out the maintainer's real job.
+// The daemon's view of its supervisor (0005, 0006 decision 15). `dipo daemon install` writes a
+// launchd agent labelled `dipo.daemon` (client `lifecycle`); launchd is the only supervisor (0004).
+// A daemon that refuses its `config.yaml` (exit 78) boots its own job out before it exits, so
+// launchd does not restart it in a loop. `XPC_SERVICE_NAME` is inherited, and every detached spawn
+// strips it, but it is only a hint: the bootout also needs launchd as the parent and
+// `launchctl print` naming this very PID as the job's, so a `dipo daemon --foreground` started by
+// anything else can never boot out the maintainer's real job.
 
-import { readFileSync } from "node:fs";
-
-import {
-  type Clock,
-  LAUNCHD_LABEL,
-  type Spawn,
-  SYSTEMD_UNIT,
-} from "@dipsaus-orchestrator/contract";
-
-/** Reads this process's cgroup file; injectable for tests. */
-export type ReadCgroup = () => string | null;
-
-export const systemReadCgroup: ReadCgroup = () => {
-  try {
-    return readFileSync("/proc/self/cgroup", "utf8");
-  } catch {
-    return null;
-  }
-};
-
-/** True when this process runs inside the `dipo.service` user unit. */
-export function underSystemdUnit(readCgroup: ReadCgroup = systemReadCgroup): boolean {
-  const text = readCgroup();
-  if (text === null) return false;
-  return text.split("\n").some((line) => line.trim().split("/").includes(SYSTEMD_UNIT));
-}
-
-/** `cmd` wrapped in its own transient systemd scope `dipo-run-<run-id>.scope`. */
-export function systemdScopeCommand(
-  runId: string,
-  cmd: readonly [string, ...string[]],
-): [string, ...string[]] {
-  return ["systemd-run", "--user", "--scope", "--quiet", `--unit=dipo-run-${runId}`, ...cmd];
-}
+import { type Clock, LAUNCHD_LABEL, type Spawn } from "@dipsaus-orchestrator/contract";
 
 /**
  * A hint that launchd started this process as the installed agent: launchd sets `XPC_SERVICE_NAME`
