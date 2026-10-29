@@ -1,8 +1,9 @@
 // Asserts the daemon's one door into the engine (0004, 0005; DIPO-318 AC #2):
 // `dipo/daemon-engine-imports` reports, in `packages/daemon/src`, every import of the engine entry
-// but `createEngine` and types (a value, a namespace, a default, a value re-export, `export *`,
-// `import x = require`, a dynamic import, `require`), and lets the platform entry, type-only
-// imports and `typeof import(...)` pass. The daemon's tests and the engine itself are not its
+// but `createEngine` and types (a value, a side effect, a namespace, a default, a value re-export,
+// `export *`, `import x = require`, a dynamic import, `require`, `import.meta.require`) and any
+// relative path into the engine package, and lets the platform entry, type-only imports of the
+// entry and `typeof import(...)` of it pass. The daemon's tests and the engine itself are not its
 // concern.
 
 import { describe, expect, it } from "bun:test";
@@ -13,7 +14,7 @@ const RULE = "dipo(daemon-engine-imports)";
 const DAEMON = "packages/daemon/src";
 
 /** One diagnostic per form in `daemon-engine-values.ts`. */
-const FORMS = 8;
+const FORMS = 12;
 
 describe("the daemon's imports of the engine", () => {
   it(

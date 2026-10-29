@@ -90,16 +90,38 @@ function specifierName(node) {
   return name?.type === "Identifier" ? name.name : specifierOf(name);
 }
 
+/** The engine package's folder, as an absolute path a relative import resolves to. */
+const ENGINE_DIR = /\/packages\/engine(\/|$)/;
+
 /** True when `source` names the engine entry. */
 function fromEngine(source) {
   return specifierOf(source) === ENGINE_PACKAGE;
 }
 
+/** True when `source` is a relative path into the engine package, resolved from `filename`. */
+function intoEngine(source, filename) {
+  const specifier = specifierOf(source);
+  if (specifier === null || !specifier.startsWith(".")) return false;
+  return ENGINE_DIR.test(resolve(dirname(filename), specifier).replaceAll("\\", "/"));
+}
+
+/** True when `callee` is `require` or `import.meta.require`. */
+function isRequire(callee) {
+  if (callee.type === "Identifier") return callee.name === "require";
+  return (
+    callee.type === "MemberExpression" &&
+    callee.object.type === "MetaProperty" &&
+    callee.property.type === "Identifier" &&
+    callee.property.name === "require"
+  );
+}
+
 /**
- * The daemon's imports of the engine entry (0004): `createEngine` and type-only imports pass; any
- * other value, a namespace or default import, a re-export of a value, `export *`, a dynamic
- * import, `require` or `import x = require(...)` of the entry is reported. The platform entry is
- * another specifier, so it passes.
+ * The daemon's imports of the engine (0004): from the entry, `createEngine` and type-only imports
+ * pass; any other value, a side-effect, namespace or default import, a re-export of a value,
+ * `export *`, a dynamic import, `require`, `import.meta.require` or `import x = require(...)` of
+ * the entry is reported, and so is any form of a relative path into the engine package. The
+ * platform entry is another specifier, so it passes.
  */
 const daemonEngineImports = {
   meta: {
@@ -108,6 +130,7 @@ const daemonEngineImports = {
   },
   create(context) {
     const report = (node) => context.report({ node, message: DAEMON_ENGINE_MESSAGE });
+    const deep = (source) => intoEngine(source, context.filename);
     const checkSpecifiers = (node, kindOf) => {
       if (node.specifiers.length === 0) report(node);
       for (const specifier of node.specifiers) {
@@ -119,26 +142,32 @@ const daemonEngineImports = {
     };
     return {
       ImportDeclaration(node) {
+        if (deep(node.source)) report(node);
         if (!fromEngine(node.source) || node.importKind === "type") return;
         checkSpecifiers(node, (specifier) => specifier.importKind);
       },
       ExportNamedDeclaration(node) {
+        if (deep(node.source)) report(node);
         if (!fromEngine(node.source) || node.exportKind === "type") return;
         checkSpecifiers(node, (specifier) => specifier.exportKind);
       },
       ExportAllDeclaration(node) {
-        if (fromEngine(node.source) && node.exportKind !== "type") report(node);
+        if (deep(node.source) || (fromEngine(node.source) && node.exportKind !== "type")) {
+          report(node);
+        }
       },
       ImportExpression(node) {
-        if (fromEngine(node.source)) report(node);
+        if (fromEngine(node.source) || deep(node.source)) report(node);
       },
       TSExternalModuleReference(node) {
-        if (fromEngine(node.expression)) report(node);
+        if (fromEngine(node.expression) || deep(node.expression)) report(node);
+      },
+      TSImportType(node) {
+        if (deep(node.source ?? node.argument)) report(node);
       },
       CallExpression(node) {
-        if (node.callee.type === "Identifier" && node.callee.name === "require") {
-          if (fromEngine(node.arguments[0])) report(node);
-        }
+        if (!isRequire(node.callee)) return;
+        if (fromEngine(node.arguments[0]) || deep(node.arguments[0])) report(node);
       },
     };
   },
