@@ -1,10 +1,10 @@
 ---
 id: DIPO-370
 title: Rename engine/src/hooks to questions
-status: In Progress
+status: In Review
 assignee: []
 created_date: '2026-10-29 08:06'
-updated_date: '2026-10-29 20:38'
+updated_date: '2026-10-29 20:43'
 labels:
   - 'tier:S'
   - 'slice:prune'
@@ -38,6 +38,6 @@ test_plan:
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 packages/engine/src/hooks/ is renamed to packages/engine/src/questions/ with every import updated, and no behaviour changes
-- [ ] #2 No source name or comment outside db/migrations still calls the questions code a hook; migration history and the questions table's hook column stay as they are
+- [x] #1 packages/engine/src/hooks/ is renamed to packages/engine/src/questions/ with every import updated, and no behaviour changes
+- [x] #2 No source name or comment outside db/migrations still calls the questions code a hook; migration history and the questions table's hook column stay as they are
 <!-- AC:END -->
