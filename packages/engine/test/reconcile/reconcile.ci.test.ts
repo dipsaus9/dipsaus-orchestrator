@@ -324,6 +324,24 @@ if (process.env["DIPO_TEST_CI"] === "1") {
         );
       }));
 
+    it("parks a running story, without failing, when a recorded commit no longer exists", () =>
+      withWorld(undefined, async (w) => {
+        const key = keyOf(w.o.office, "TASK-1");
+        const claimed = await claim(w.o, w.o.office, "TASK-1", key);
+        // A recorded SHA git does not have (a gc after a forced update, or a wrong record).
+        const missing = "e".repeat(40);
+        w.o.office.run(
+          "update claims set claim_sha = $sha where office_id = $office_id and run_id = $run",
+          { sha: missing, run: claimed.runId },
+        );
+        const report = await w.rescan();
+        expect(report).not.toBeNull();
+        expect(w.calls.map((c) => [c.kind, c.code])).toEqual([
+          ["park", RECONCILE_NOTICES.handChanged],
+        ]);
+        expect(w.calls[0]?.detail).toContain(`does not hold the claim commit ${missing}`);
+      }));
+
     it("parks a running story whose branch was deleted by hand", () =>
       withWorld(undefined, async (w) => {
         const key = keyOf(w.o.office, "TASK-1");
