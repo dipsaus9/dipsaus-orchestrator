@@ -6,6 +6,9 @@
 //
 //   DIPO_TEST_BOX=1 bun test packages/engine/test/box/root-step.box.test.ts
 //
+// Run it with no dipo daemon running: it rebuilds the shared `dipo-box:<hash>` image tag and the
+// Safe-Chain image tag in place, and a daemon that starts meanwhile deletes its build box.
+//
 // The fixed root steps outside a build box (`isRootStep`) keep only chown, dac_override and
 // fowner (`ROOT_STEP_CAPABILITIES`); a build box's root steps keep the build box's own list
 // (`BUILD_ROOT_CAPABILITIES`). On the real boxes it checks:
@@ -242,14 +245,25 @@ if (registers) {
     expect((await boxes.list()).map((box) => box.name)).not.toContain(name);
   };
 
-  /** The `container exec` argvs of root steps that dipo's path ran in `box`, and their lists. */
-  const rootStepLists = (box: string): string[] =>
-    spawned
+  /**
+   * The lists of the root steps dipo's path ran in `box`, a box that is no build box. Every
+   * `exec` there runs through setpriv: contained as the box user (`--reuid=`), or as a root step
+   * with the fixed list; anything else fails the test.
+   */
+  const rootStepLists = (box: string): string[] => {
+    const commands = spawned
       .filter((cmd) => cmd[1] === "exec" && cmd.includes(box))
-      .map((cmd) => cmd.slice(cmd.indexOf(box) + 1))
-      .filter((command) => command[0] === netToolCommand("setpriv", [])[0])
+      .map((cmd) => cmd.slice(cmd.indexOf(box) + 1));
+    const setpriv = netToolCommand("setpriv", []);
+    for (const command of commands) {
+      expect(command.slice(0, setpriv.length)).toEqual(setpriv);
+      const contained = command.some((part) => part.startsWith("--reuid="));
+      if (!contained) expect(command).toContain(boundingSet(ROOT_STEP_CAPABILITIES));
+    }
+    return commands
       .filter((command) => !command.some((part) => part.startsWith("--reuid=")))
       .map((command) => command.find((part) => part.startsWith("--bounding-set=")) ?? "");
+  };
 
   describe("dipo's root steps on real boxes (DIPO-336)", () => {
     it(
