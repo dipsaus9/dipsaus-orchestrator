@@ -49,7 +49,7 @@ How dipo is built during the prune (maintainer, 2026-10-24):
 
 1. **Track 1, the run path,** is built by builder agents from the maintainer's orchestrating Claude session. These are the stories dipo needs to deliver one story the new way: the claim without a worktree, verify in the box, the reviewer box, one feedback path, GitHub auto-merge, one git module. A separate agent reviews each PR, and a scratch-repository run checks each story.
 2. **The cutover gate:** dipo delivers one real story of this repository end to end on the simplified path, and the maintainer confirms it.
-3. **Track 2, everything else,** is built in two lanes (maintainer, 2026-10-29). dipo builds the small stories itself, one at a time: the orchestrating Claude starts the runs, answers worker questions and files every gap a run shows as a story. Builder agents build the medium and large stories in parallel, as in Track 1, ordered so that stories touching the same code do not run at once. A story that needs a real box test by hand goes to a builder.
+3. **Track 2, everything else,** is built in two lanes (maintainer, 2026-10-29). dipo builds the small stories (`tier:S`) itself, one at a time: the orchestrating Claude starts the runs, answers worker questions and files every gap a run shows as a story. Builder agents build the medium and large ones (`tier:M`, `tier:L`) in parallel, as in Track 1, from the stories already filed, ordered so that stories touching the same code do not run at once. A story that needs a real box test by hand goes to a builder.
 
 The prune stories sit in M1 with the labels `slice:prune` and `track:1` or `track:2`. The cutover gate is DIPO-351, and every Track 2 story depends on it.
 
