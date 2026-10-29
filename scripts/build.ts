@@ -1,9 +1,9 @@
 // Builds the single `dipo` binary (0004 "Tooling", 0016 rules 1, 5 and 6). CI smoke jobs and the
 // release build run this same script.
 //
-// Usage: bun scripts/build.ts --target bun-<os>-<arch> [--release] [--outfile <path>]
+// Usage: bun scripts/build.ts [--target bun-darwin-arm64] [--release] [--outfile <path>]
 //
-//   --target   one of TARGETS; defaults to the host
+//   --target   one of TARGETS; defaults to the host, which must be a target
 //   --release  print the root package.json version as is; without it `-dev` is appended
 //   --outfile  defaults to dist/dipo
 
@@ -11,12 +11,8 @@ import { mkdirSync, writeFileSync } from "node:fs";
 import { dirname, join, resolve } from "node:path";
 import { parseArgs } from "node:util";
 
-export const TARGETS = [
-  "bun-darwin-arm64",
-  "bun-darwin-x64",
-  "bun-linux-x64",
-  "bun-linux-arm64",
-] as const;
+/** dipo runs on macOS on Apple silicon only (0004). */
+export const TARGETS = ["bun-darwin-arm64"] as const;
 
 export type Target = (typeof TARGETS)[number];
 
@@ -170,12 +166,10 @@ async function build(argv: string[]): Promise<void> {
   const defines = buildDefines(packageJson.version, values.release, readGitState());
   run(buildCommand({ target, outfile, defines }));
 
-  if (target.startsWith("bun-darwin-")) {
-    if (process.platform === "darwin") {
-      ensureSigned(outfile);
-    } else {
-      console.warn(`not on macOS: ${outfile} is not checked or signed with codesign`);
-    }
+  if (process.platform === "darwin") {
+    ensureSigned(outfile);
+  } else {
+    console.warn(`not on macOS: ${outfile} is not checked or signed with codesign`);
   }
   console.log(`built ${outfile} for ${target}`);
 }

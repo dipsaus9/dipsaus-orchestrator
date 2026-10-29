@@ -190,13 +190,12 @@ describe("client lifecycle and engine agree", () => {
   });
 
   it("find the same logs directory", () => {
-    for (const [env, platform, home] of [
-      [{ DIPO_HOME: "/tmp/x/state" }, "darwin", "/Users/me"],
-      [{ DIPO_HOME: "/tmp/x/state" }, "linux", "/home/me"],
-      [{}, "darwin", "/Users/me"],
-      [{}, "linux", "/home/me"],
+    for (const [env, home] of [
+      [{ DIPO_HOME: "/tmp/x/state" }, "/Users/me"],
+      [{}, "/Users/me"],
+      [{}, "/home/me"],
     ] as const) {
-      expect(logsDir(env, platform, home)).toBe(resolveSoftwareDirs({ platform, env, home }).logs);
+      expect(logsDir(env, home)).toBe(resolveSoftwareDirs({ env, home }).logs);
     }
   });
 });

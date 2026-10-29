@@ -23,13 +23,14 @@ const RECORD = {
 };
 
 describe("stateDir", () => {
-  it("uses DIPO_HOME when set, else the platform path under the passwd home", () => {
-    expect(stateDir({ DIPO_HOME: "/x/state" }, "darwin", "/Users/me")).toBe("/x/state");
-    expect(stateDir({ DIPO_HOME: "" }, "darwin", "/Users/me")).toBe(
+  it("uses DIPO_HOME when set, else the Library path under the passwd home", () => {
+    expect(stateDir({ DIPO_HOME: "/x/state" }, "/Users/me")).toBe("/x/state");
+    expect(stateDir({ DIPO_HOME: "" }, "/Users/me")).toBe(
       "/Users/me/Library/Application Support/dipo",
     );
-    expect(stateDir({ HOME: "/elsewhere" }, "linux", "/home/me")).toBe(
-      "/home/me/.local/state/dipo",
+    // There is no Linux folder (0004): any home gets the Library path.
+    expect(stateDir({ HOME: "/elsewhere" }, "/home/me")).toBe(
+      "/home/me/Library/Application Support/dipo",
     );
   });
 });
@@ -56,7 +57,7 @@ describe("readRuntimeInfo", () => {
     }));
 });
 
-const code = (env: Record<string, string>) => dirRefusal(env, "darwin", "/Users/me")?.code;
+const code = (env: Record<string, string>) => dirRefusal(env, "/Users/me")?.code;
 
 // DIPO-316: the client refuses what the daemon refuses, with the same codes.
 describe("dirRefusal", () => {
@@ -77,13 +78,11 @@ describe("dirRefusal", () => {
       const file = join(dir, "file");
       writeFileSync(file, "");
       for (const home of ["state", file, join(file, "state")]) {
-        const refusal = dirRefusal({ DIPO_HOME: home }, "darwin", "/Users/me");
+        const refusal = dirRefusal({ DIPO_HOME: home }, "/Users/me");
         expect(refusal).toBeInstanceOf(DirRefusedError);
         expect(refusal?.code).toBe("paths.stateDirUnusable");
         expect(refusal?.message).toContain(home);
-        expect(() => stateDir({ DIPO_HOME: home }, "darwin", "/Users/me")).toThrow(
-          "paths.stateDirUnusable",
-        );
+        expect(() => stateDir({ DIPO_HOME: home }, "/Users/me")).toThrow("paths.stateDirUnusable");
       }
     }));
 
@@ -102,7 +101,7 @@ describe("dirRefusal", () => {
         [open, "its mode is 0755, not 0700"],
       ];
       for (const [path, reason] of cases) {
-        const refusal = dirRefusal({ DIPO_RUNTIME_DIR: path }, "darwin", "/Users/me");
+        const refusal = dirRefusal({ DIPO_RUNTIME_DIR: path }, "/Users/me");
         expect(refusal?.code).toBe("paths.runtimeDirUnusable");
         expect(refusal?.path).toBe(path);
         expect(refusal?.message).toContain(reason);
@@ -111,8 +110,6 @@ describe("dirRefusal", () => {
 
   it("refuses the real home's state folder under the test marker", () => {
     expect(process.env[TEST_MARKER]).toBe("1");
-    expect(dirRefusal({}, process.platform, userInfo().homedir)?.code).toBe(
-      "paths.realStateInTest",
-    );
+    expect(dirRefusal({}, userInfo().homedir)?.code).toBe("paths.realStateInTest");
   });
 });

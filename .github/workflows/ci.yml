@@ -162,7 +162,8 @@ jobs:
           fail-on-severity: high
           allow-licenses: MIT, ISC, BSD-2-Clause, BSD-3-Clause, Apache-2.0, 0BSD, CC0-1.0, BlueOak-1.0.0
 
-  # 0016 rule 1: build with the release script and smoke-test the binary natively on each target.
+  # 0016: build with the release script and smoke-test the binary natively on its one
+  # target, darwin-arm64 (0004).
   smoke:
     name: smoke (${{ matrix.target }})
     needs: changes
@@ -174,15 +175,6 @@ jobs:
           - target: darwin-arm64
             runner: macos-26
             file: "Mach-O 64-bit executable arm64"
-          - target: darwin-x64
-            runner: macos-26-intel
-            file: "Mach-O 64-bit executable x86_64"
-          - target: linux-x64
-            runner: ubuntu-24.04
-            file: "ELF 64-bit LSB executable, x86-64"
-          - target: linux-arm64
-            runner: ubuntu-24.04-arm
-            file: "ELF 64-bit LSB executable, ARM aarch64"
     runs-on: ${{ matrix.runner }}
     permissions:
       contents: read

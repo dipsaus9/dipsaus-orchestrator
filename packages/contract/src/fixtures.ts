@@ -680,7 +680,7 @@ export const readFixtures: Record<string, { args: unknown; result: unknown }> = 
       pid: 4242,
       version: "0.1.0",
       uptimeMs: 60_000,
-      socket: "/Users/me/.local/state/dipo/run/dipo.sock",
+      socket: "/var/folders/xy/abc123/T/dipo/dipo.sock",
       loadedOffices: [ids.office],
       activeRuns: 1,
       keepAwake: { held: true, reason: "1 active run" },

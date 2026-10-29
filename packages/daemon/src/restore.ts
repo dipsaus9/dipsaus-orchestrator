@@ -69,11 +69,7 @@ export async function runRestoreForm(
     return 2;
   }
   const file = resolve(given);
-  const dirs = resolveSoftwareDirs({
-    platform: currentPlatform(),
-    env: io.env,
-    home: passwdHome(),
-  });
+  const dirs = resolveSoftwareDirs({ env: io.env, home: passwdHome() });
   ensurePrivateDir(dirs.state);
   const logFile = openLogFile(dirs.logs);
   const logger = createLogger({ clock: io.clock, sinks: [logFile.sink], component: "restore" });

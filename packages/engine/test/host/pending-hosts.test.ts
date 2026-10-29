@@ -82,7 +82,6 @@ function launchOptions(spawn: (options: DetachedSpawnOptions) => { pid: number }
     env: {},
     probe: probeOf({}),
     spawnDetached: spawn,
-    systemdScope: false,
   };
 }
 

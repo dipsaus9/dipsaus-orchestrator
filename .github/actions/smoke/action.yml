@@ -1,6 +1,6 @@
 # Decision 0016 rules 1 and 4: the smoke test of a built `dist/dipo`, shared by the CI `smoke`
-# jobs and the release `build` jobs so both check a binary the same way. Runs after checkout and
-# `bun scripts/build.ts`, on the native runner of the target.
+# job and the release `build` job so both check a binary the same way. Runs after checkout and
+# `bun scripts/build.ts`, on a macOS arm64 runner: darwin-arm64 is the one target (0004).
 name: smoke
 description: Smoke-test dist/dipo on its native runner.
 
@@ -53,21 +53,8 @@ runs:
           *) echo "expected: $EXPECTED_FILE"; exit 1 ;;
         esac
     - name: codesign -v
-      if: runner.os == 'macOS'
       shell: bash
       run: codesign -v dist/dipo
-    - name: Record the glibc floor
-      if: runner.os == 'Linux'
-      shell: bash
-      env:
-        TARGET: ${{ inputs.target }}
-      run: |
-        floor="$(objdump -T dist/dipo | grep -o 'GLIBC_[0-9.]*' | sort -u -V | tail -n 1)"
-        if [ -z "$floor" ]; then
-          echo "no GLIBC_ symbol versions found"
-          exit 1
-        fi
-        echo "Highest GLIBC_ symbol version of dipo ($TARGET): \`$floor\`" >> "$GITHUB_STEP_SUMMARY"
     - name: dipo self-check
       shell: bash
       env:

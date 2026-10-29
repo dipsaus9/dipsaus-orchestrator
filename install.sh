@@ -1,5 +1,5 @@
 #!/bin/sh
-# Installs dipo from a GitHub Release (decision 0016 rule 7).
+# Installs dipo from a GitHub Release (0016) on macOS on Apple silicon (0004).
 #
 #   curl -fsSL https://github.com/dipsaus9/dipsaus-orchestrator/releases/latest/download/install.sh | sh
 #
@@ -9,13 +9,13 @@
 #   DIPO_SKIP_ATTESTATION  set to 1 to install without checking the build provenance attestation;
 #                          the SHA-256 checksum is always checked
 #
-# Steps: detect OS and architecture; with gh, resolve the release tag and the commit it points at;
-# download dipo-<os>-<arch>.tar.gz and SHA256SUMS from that release; verify the checksum; verify
-# the build provenance attestation with the pinned `gh attestation verify`, including the tag's
-# commit as the source digest; then install. Without gh the script stops before downloading
-# anything, unless DIPO_SKIP_ATTESTATION=1 (DIPO-321). The binary is written to a temporary file in
-# the install directory and renamed over any existing dipo, so a running daemon keeps its open file
-# and no half-written binary is ever on the PATH (decision 0006 section 14).
+# Steps: check that this is macOS on Apple silicon; with gh, resolve the release tag and the commit
+# it points at; download dipo-darwin-arm64.tar.gz and SHA256SUMS from that release; verify the
+# checksum; verify the build provenance attestation with the pinned `gh attestation verify`,
+# including the tag's commit as the source digest; then install. Without gh the script stops
+# before downloading anything, unless DIPO_SKIP_ATTESTATION=1 (DIPO-321). The binary is written to
+# a temporary file in the install directory and renamed over any existing dipo, so a running daemon
+# keeps its open file and no half-written binary is ever on the PATH (0006).
 #
 # Everything runs inside main, called on the last line, so a partly downloaded script does nothing.
 
@@ -34,40 +34,18 @@ fail() {
   exit 1
 }
 
-detect_os() {
+# Fails unless this is macOS on Apple silicon, the only platform dipo runs on (0004).
+check_platform() {
   kernel=$(uname -s)
-  case "$kernel" in
-    Darwin) echo darwin ;;
-    Linux) echo linux ;;
-    MINGW* | MSYS* | CYGWIN* | Windows_NT)
-      fail "Windows is not supported. dipo runs on macOS and Linux; on Windows use WSL." ;;
-    *) fail "unsupported operating system: $kernel. dipo runs on macOS and Linux." ;;
-  esac
-}
-
-detect_arch() {
   machine=$(uname -m)
-  case "$machine" in
-    x86_64 | amd64) arch=x64 ;;
-    arm64 | aarch64) arch=arm64 ;;
-    *) fail "unsupported architecture: $machine. dipo is built for x64 and arm64." ;;
-  esac
-  # An x64 shell under Rosetta 2 on Apple silicon still gets the native arm64 build.
-  if [ "$1" = darwin ] && [ "$arch" = x64 ] &&
+  # An x86_64 shell under Rosetta 2 on Apple silicon still runs on Apple silicon.
+  if [ "$kernel" = Darwin ] && [ "$machine" = x86_64 ] &&
     [ "$(sysctl -n sysctl.proc_translated 2> /dev/null || true)" = 1 ]; then
-    arch=arm64
+    machine=arm64
   fi
-  echo "$arch"
-}
-
-is_musl() {
-  if command -v ldd > /dev/null 2>&1 && ldd --version 2>&1 | grep -qi musl; then
-    return 0
+  if [ "$kernel" != Darwin ] || [ "$machine" != arm64 ]; then
+    fail "dipo runs only on macOS on Apple silicon (darwin-arm64), and this is $kernel $machine. There is no dipo build for other platforms; nothing was downloaded or installed."
   fi
-  for loader in /lib/ld-musl-*; do
-    [ -e "$loader" ] && return 0
-  done
-  return 1
 }
 
 sha256_of() {
@@ -108,11 +86,7 @@ fail_without_gh() {
 }
 
 main() {
-  os=$(detect_os)
-  arch=$(detect_arch "$os")
-  if [ "$os" = linux ] && is_musl; then
-    fail "musl-based Linux (for example Alpine) is not supported; dipo is built for glibc only."
-  fi
+  check_platform
 
   version="${DIPO_VERSION:-}"
   case "$version" in
@@ -131,7 +105,7 @@ main() {
   esac
 
   install_dir="${DIPO_INSTALL_DIR:-${HOME:?HOME is not set}/.local/bin}"
-  asset="dipo-$os-$arch.tar.gz"
+  asset="dipo-darwin-arm64.tar.gz"
 
   command -v curl > /dev/null 2>&1 || fail "curl is required."
   command -v tar > /dev/null 2>&1 || fail "tar is required."

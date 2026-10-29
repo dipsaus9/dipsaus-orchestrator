@@ -50,8 +50,11 @@ function alive(pid: number): boolean {
   }
 }
 
+// The binary builds only for darwin-arm64 (0004), so this test runs in the macOS CI job only.
+const DARWIN_ARM64 = process.platform === "darwin" && process.arch === "arm64";
+
 if (process.env["DIPO_TEST_CI"] === "1") {
-  describe("dipo daemon lifecycle on the compiled binary", () => {
+  describe.if(DARWIN_ARM64)("dipo daemon lifecycle on the compiled binary", () => {
     it(
       "starts, reports, restarts and stops the daemon, and autostarts it for a command",
       async () => {

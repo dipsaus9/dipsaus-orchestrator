@@ -203,19 +203,18 @@ export function checkConfigDocument(
 
 /**
  * The exit code of a daemon that refuses to start because `config.yaml` is invalid or newer than
- * it knows: `EX_CONFIG` from sysexits. A supervisor must not restart on it (launchd, systemd
- * `RestartPreventExitStatus=78`, DIPO-63), and a client that would autostart the daemon shows the
- * configuration error instead (DIPO-70), because a restart cannot fix the file.
+ * it knows: `EX_CONFIG` from sysexits. launchd must not restart on it (the daemon boots its own job
+ * out first, DIPO-63), and a client that would autostart the daemon shows the configuration error
+ * instead (DIPO-70), because a restart cannot fix the file.
  */
 export const EXIT_CONFIG = 78;
 
 /**
- * The installed autostart (0006 decision 15, DIPO-63): the launchd agent's label and the systemd
- * user unit. The client writes them (`dipo daemon install`); the daemon recognises its supervisor
- * by them. Shared here because `client` may not import `engine` (0004).
+ * The installed autostart (0006, DIPO-63): the launchd agent's label. The client
+ * writes the agent (`dipo daemon install`); the daemon recognises its supervisor by it. Shared here
+ * because `client` may not import `engine` (0004).
  */
 export const LAUNCHD_LABEL = "dipo.daemon";
-export const SYSTEMD_UNIT = "dipo.service";
 
 /** The file name under `<state>`. */
 export const SOFTWARE_CONFIG_FILE = "config.yaml";

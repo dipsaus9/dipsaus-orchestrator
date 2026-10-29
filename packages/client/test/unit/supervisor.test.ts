@@ -1,9 +1,8 @@
-// Autostart (DIPO-63, 0006 decision 15) with a fake `launchctl`, `systemctl` and `loginctl` and a
-// temp home directory, so nothing reaches the real supervisor or `~/Library/LaunchAgents`:
-// the generated plist and unit match the golden files and carry the caller's `PATH` (AC #3, #7);
-// `launchctl` uses `user/<uid>` where `gui/<uid>` is missing (AC #6); `install` warns when
-// lingering is off (AC #4); when installed, start, stop and restart go through the supervisor
-// (AC #6).
+// Autostart (DIPO-63, 0006) with a fake `launchctl` and a temp home directory, so
+// nothing reaches the real launchd or `~/Library/LaunchAgents`: the generated plist matches the
+// golden file and carries the caller's `PATH` (AC #3, #7); `launchctl` uses `user/<uid>` where
+// `gui/<uid>` is missing (AC #6); when installed, start, stop and restart go through launchd
+// (AC #6). launchd is the only supervisor (0004).
 
 import { describe, expect, it } from "bun:test";
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
@@ -29,7 +28,6 @@ import {
   stopDaemon,
   type SupervisorDeps,
   systemClock,
-  systemdUnit,
   uninstallDaemon,
 } from "../../src/node/index";
 
@@ -104,14 +102,10 @@ interface Machine {
 }
 
 /**
- * A fake machine: `launchctl`/`systemctl` start the daemon (writing its lock and runtime file) or
- * stop it; `gui` says whether the GUI launchd domain exists; `linger` is loginctl's answer.
+ * A fake machine: `launchctl` starts the daemon (writing its lock and runtime file) or stops it;
+ * `gui` says whether the GUI launchd domain exists.
  */
-function machine(
-  dir: string,
-  platform: "darwin" | "linux",
-  options: { gui?: boolean; linger?: "yes" | "no"; loaded?: boolean } = {},
-): Machine {
+function machine(dir: string, options: { gui?: boolean; loaded?: boolean } = {}): Machine {
   const state = join(dir, "state");
   const home = join(dir, "home");
   mkdirSync(state, { recursive: true });
@@ -145,10 +139,8 @@ function machine(
     m.running = false;
   };
   const supervisor: SupervisorDeps = {
-    platform,
     home,
     uid: UID,
-    user: "maintainer",
     selfCommand: ["/usr/local/bin/dipo"],
     env: { PATH, DIPO_HOME: state },
     exec: async (cmd) => {
@@ -173,13 +165,6 @@ function machine(
         }
         return ok;
       }
-      if (tool === "systemctl") {
-        if (args.includes("--now") && args.includes("enable")) start();
-        if (args[1] === "start") start();
-        if (args[1] === "stop" || (args.includes("disable") && args.includes("--now"))) stop();
-        return ok;
-      }
-      if (tool === "loginctl") return { ...ok, stdout: `Linger=${options.linger ?? "yes"}\n` };
       return { code: 127, stdout: "", stderr: "not found" };
     },
   };
@@ -211,50 +196,47 @@ function machine(
   return m;
 }
 
-describe("generated plist and unit", () => {
-  it("match the golden files, with the binary's absolute path and the caller's PATH", () => {
+describe("generated plist", () => {
+  it("matches the golden file, with the binary's absolute path and the caller's PATH", () => {
     const options = { program: PROGRAM, path: PATH };
     expect(launchdPlist(options)).toBe(readFileSync(join(FIXTURES, "dipo.daemon.plist"), "utf8"));
-    expect(systemdUnit(options)).toBe(readFileSync(join(FIXTURES, "dipo.service"), "utf8"));
   });
 
-  it("escapes paths with spaces, quotes, % and $, and reads the binary back", () => {
+  it("escapes paths with spaces and XML characters, and reads the binary back", () => {
     const program: [string, ...string[]] = ["/Users/a b/bin/dipo&co", "daemon", "--foreground"];
     const plist = launchdPlist({ program, path: "/a b/<x>:/usr/bin" });
     expect(plist).toContain("<string>/Users/a b/bin/dipo&amp;co</string>");
     expect(plist).toContain("<string>/a b/&lt;x&gt;:/usr/bin</string>");
     expect(installedProgram(plist)).toBe("/Users/a b/bin/dipo&co");
-
-    const unit = systemdUnit({ program: ["/opt/my dipo/100%/$bin", "daemon"], path: "/x y:/z%" });
-    expect(unit).toContain('ExecStart="/opt/my dipo/100%%/$$bin" daemon');
-    expect(unit).toContain('Environment="PATH=/x y:/z%%"');
-    expect(installedProgram(unit)).toBe("/opt/my dipo/100%/$bin");
-    expect(installedProgram(systemdUnit({ program: PROGRAM, path: PATH }))).toBe(PROGRAM[0]);
+    expect(installedProgram("[Service]\nExecStart=/usr/local/bin/dipo daemon\n")).toBeNull();
   });
 });
 
 describe("dipo daemon install", () => {
   it("writes the launch agent, bootstraps it in gui/<uid> and waits for the daemon", () =>
     withTempDir(async (dir) => {
-      const m = machine(dir, "darwin");
+      const m = machine(dir);
       const result = await installDaemon(m.deps);
       const file = join(dir, "home", "Library", "LaunchAgents", "dipo.daemon.plist");
       expect(result).toMatchObject({
         kind: "installed",
-        supervisor: "launchd",
         file,
         stopped: null,
         start: { kind: "started", pid: DAEMON_PID },
-        lingering: null,
       });
       expect(readFileSync(file, "utf8")).toBe(launchdPlist({ program: PROGRAM, path: PATH }));
       expect(m.commands).toContain(`launchctl bootstrap gui/${UID} ${file}`);
       expect(m.spawns).toEqual([]);
+      expect(await autostartReport(m.supervisor)).toMatchObject({
+        installed: true,
+        file,
+        program: "/usr/local/bin/dipo",
+      });
     }));
 
   it("uses user/<uid> over SSH, where the gui domain is missing", () =>
     withTempDir(async (dir) => {
-      const m = machine(dir, "darwin", { gui: false });
+      const m = machine(dir, { gui: false });
       const result = await installDaemon(m.deps);
       expect(result.kind).toBe("installed");
       expect(m.commands.filter((c) => c.startsWith("launchctl bootstrap"))).toEqual([
@@ -262,34 +244,9 @@ describe("dipo daemon install", () => {
       ]);
     }));
 
-  it("writes the user unit, enables it with --now, and reports lingering off", () =>
-    withTempDir(async (dir) => {
-      const m = machine(dir, "linux", { linger: "no" });
-      const result = await installDaemon(m.deps);
-      const file = join(dir, "home", ".config", "systemd", "user", "dipo.service");
-      expect(result).toMatchObject({
-        kind: "installed",
-        supervisor: "systemd",
-        file,
-        lingering: false,
-        user: "maintainer",
-      });
-      expect(readFileSync(file, "utf8")).toBe(systemdUnit({ program: PROGRAM, path: PATH }));
-      expect(m.commands).toEqual([
-        "systemctl --user daemon-reload",
-        "systemctl --user enable --now dipo.service",
-        "loginctl show-user maintainer --property=Linger",
-      ]);
-      expect(await autostartReport(m.supervisor)).toMatchObject({
-        installed: true,
-        program: "/usr/local/bin/dipo",
-        lingering: false,
-      });
-    }));
-
   it("stops a daemon running outside the supervisor first", () =>
     withTempDir(async (dir) => {
-      const m = machine(dir, "darwin");
+      const m = machine(dir);
       // A daemon from `dipo daemon start`: it drains on daemon.stop.
       m.running = true;
       writeFileSync(
@@ -333,7 +290,7 @@ describe("dipo daemon install", () => {
 describe("start, stop and restart when installed", () => {
   it("go through launchctl: kickstart a loaded job, bootout to stop, bootstrap again", () =>
     withTempDir(async (dir) => {
-      const m = machine(dir, "darwin");
+      const m = machine(dir);
       expect((await installDaemon(m.deps)).kind).toBe("installed");
       m.commands.length = 0;
 
@@ -354,28 +311,16 @@ describe("start, stop and restart when installed", () => {
 
   it("kickstarts a loaded job that is not running", () =>
     withTempDir(async (dir) => {
-      const m = machine(dir, "darwin", { loaded: true });
+      const m = machine(dir, { loaded: true });
       mkdirSync(join(dir, "home", "Library", "LaunchAgents"), { recursive: true });
       writeFileSync(join(dir, "home", "Library", "LaunchAgents", "dipo.daemon.plist"), "x");
       expect(await startDaemon(m.deps)).toMatchObject({ kind: "started" });
       expect(m.commands.at(-1)).toBe(`launchctl kickstart gui/${UID}/dipo.daemon`);
     }));
 
-  it("go through systemctl --user", () =>
-    withTempDir(async (dir) => {
-      const m = machine(dir, "linux");
-      expect((await installDaemon(m.deps)).kind).toBe("installed");
-      m.commands.length = 0;
-      expect((await stopDaemon(m.deps)).kind).toBe("stopped");
-      expect(m.commands).toEqual(["systemctl --user stop dipo.service"]);
-      m.commands.length = 0;
-      expect((await startDaemon(m.deps)).kind).toBe("started");
-      expect(m.commands).toEqual(["systemctl --user start dipo.service"]);
-    }));
-
   it("start spawns the daemon directly when nothing is installed", () =>
     withTempDir(async (dir) => {
-      const m = machine(dir, "darwin");
+      const m = machine(dir);
       await startDaemon(m.deps);
       expect(m.spawns).toHaveLength(1);
       expect(m.commands).toEqual([]);
@@ -393,7 +338,7 @@ describe("daemonEnv", () => {
 describe("dipo daemon uninstall", () => {
   it("boots the job out, removes the plist and reports the stopped daemon", () =>
     withTempDir(async (dir) => {
-      const m = machine(dir, "darwin");
+      const m = machine(dir);
       await installDaemon(m.deps);
       const result = await uninstallDaemon(m.deps);
       expect(result).toMatchObject({ kind: "uninstalled", stopped: DAEMON_PID });
@@ -401,17 +346,5 @@ describe("dipo daemon uninstall", () => {
         false,
       );
       expect(await uninstallDaemon(m.deps)).toMatchObject({ kind: "not installed" });
-    }));
-
-  it("disables the unit and reloads systemd", () =>
-    withTempDir(async (dir) => {
-      const m = machine(dir, "linux");
-      await installDaemon(m.deps);
-      m.commands.length = 0;
-      expect((await uninstallDaemon(m.deps)).kind).toBe("uninstalled");
-      expect(m.commands).toEqual([
-        "systemctl --user disable --now dipo.service",
-        "systemctl --user daemon-reload",
-      ]);
     }));
 });

@@ -1,6 +1,6 @@
 // install.sh (0016 rule 7) run with /bin/sh against local fake releases. PATH holds only a sandbox
 // bin directory: links to the few real tools the script needs, plus stubs for `uname`, `curl`,
-// `ldd`, `sysctl` and, when a test wants it, `gh`. Nothing touches the network or ~/.local/bin;
+// `sysctl` and, when a test wants it, `gh`. Nothing touches the network or ~/.local/bin;
 // every file lives under a temp directory below DIPO_TMP (0017).
 
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it } from "bun:test";
@@ -72,15 +72,15 @@ path="\${url#${RELEASES}}"
 [ -f "$FAKE_RELEASES/$path" ] || exit 22
 cp "$FAKE_RELEASES/$path" "$out"
 `,
-  ldd: `#!/bin/sh
-echo "$FAKE_LDD"
-`,
   sysctl: `#!/bin/sh
 [ "$1 $2" = "-n sysctl.proc_translated" ] || exit 1
 [ -n "$FAKE_TRANSLATED" ] || exit 1
 echo "$FAKE_TRANSLATED"
 `,
 };
+
+/** The start of the refusal on any platform but macOS on Apple silicon (0004). */
+const ONLY_MAC = "dipo runs only on macOS on Apple silicon (darwin-arm64), and this is";
 
 /** The release tag and commit the gh stub reports, unless a test overrides them. */
 const TAG = "v0.4.1";
@@ -106,7 +106,8 @@ function writeExecutable(path: string, content: string): void {
   chmodSync(path, 0o755);
 }
 
-const ASSETS = ["dipo-linux-arm64.tar.gz", "dipo-linux-x64.tar.gz", "dipo-darwin-arm64.tar.gz"];
+const ASSET = "dipo-darwin-arm64.tar.gz";
+const ASSETS = [ASSET];
 
 // Shared by every test: the sandbox bin directories and one fake archive per asset, built once.
 let shared = "";
@@ -196,9 +197,8 @@ function install(env: Record<string, string>, options: { gh?: boolean; path?: st
       TMPDIR: join(dir, "tmp"),
       FAKE_RELEASES: releases,
       FAKE_LOG: log,
-      FAKE_UNAME_S: "Linux",
-      FAKE_UNAME_M: "x86_64",
-      FAKE_LDD: "ldd (GNU libc) 2.39",
+      FAKE_UNAME_S: "Darwin",
+      FAKE_UNAME_M: "arm64",
       FAKE_GH_TAG: TAG,
       FAKE_GH_SHA: COMMIT,
       ...env,
@@ -219,14 +219,14 @@ function onlyDipoIn(path: string): boolean {
 
 describe("install.sh", () => {
   it("stops without gh before downloading anything and says how to verify the download", () => {
-    publish("latest/download", "dipo-linux-arm64.tar.gz");
-    const result = install({ FAKE_UNAME_M: "aarch64" });
+    publish("latest/download", ASSET);
+    const result = install({});
     expect(result.code).not.toBe(0);
     expect(result.log).toBe("");
     expect(result.stderr).toContain("gh is not installed");
     expect(result.stderr).toContain("install gh (https://cli.github.com)");
     expect(result.stderr).toContain(
-      `gh attestation verify dipo-linux-arm64.tar.gz ${PINNED_VERIFY.slice(1).join(" ")} --source-digest`,
+      `gh attestation verify dipo-darwin-arm64.tar.gz ${PINNED_VERIFY.slice(1).join(" ")} --source-digest`,
     );
     expect(result.stderr).toContain("DIPO_SKIP_ATTESTATION=1");
     expect(existsSync(installDir)).toBe(false);
@@ -234,16 +234,16 @@ describe("install.sh", () => {
   });
 
   it("installs the latest release to ~/.local/bin without gh when DIPO_SKIP_ATTESTATION=1", () => {
-    publish("latest/download", "dipo-linux-arm64.tar.gz");
-    const result = install({ FAKE_UNAME_M: "aarch64", DIPO_SKIP_ATTESTATION: "1" });
+    publish("latest/download", ASSET);
+    const result = install({ DIPO_SKIP_ATTESTATION: "1" });
     expect(result.stderr).toBe("");
     expect(result.code).toBe(0);
     expect(result.log).toBe(
-      `${RELEASES}latest/download/dipo-linux-arm64.tar.gz\n${RELEASES}latest/download/SHA256SUMS\n`,
+      `${RELEASES}latest/download/dipo-darwin-arm64.tar.gz\n${RELEASES}latest/download/SHA256SUMS\n`,
     );
     expect(result.stdout).toContain("the build provenance attestation is not checked");
     expect(result.stdout).toContain("checksum ok");
-    expect(result.stdout).toContain("dipo fake dipo-linux-arm64.tar.gz");
+    expect(result.stdout).toContain("dipo fake dipo-darwin-arm64.tar.gz");
     expect(result.stdout).toContain("is not on your PATH");
     expect(statSync(join(installDir, "dipo")).mode & 0o777).toBe(0o755);
     expect(onlyDipoIn(installDir)).toBe(true);
@@ -251,7 +251,7 @@ describe("install.sh", () => {
   });
 
   it("still checks the checksum with DIPO_SKIP_ATTESTATION=1, and never calls gh", () => {
-    publish("latest/download", "dipo-linux-x64.tar.gz", { badSum: true });
+    publish("latest/download", ASSET, { badSum: true });
     const result = install({ DIPO_SKIP_ATTESTATION: "1" }, { gh: true });
     expect(result.code).not.toBe(0);
     expect(result.stderr).toContain("checksum mismatch");
@@ -260,7 +260,7 @@ describe("install.sh", () => {
   });
 
   it("with gh, resolves the latest tag and its commit, downloads that tag and pins the commit", () => {
-    publish(`download/${TAG}`, "dipo-linux-x64.tar.gz");
+    publish(`download/${TAG}`, ASSET);
     const result = install({}, { gh: true });
     expect(result.stderr).toBe("");
     expect(result.code).toBe(0);
@@ -268,7 +268,7 @@ describe("install.sh", () => {
     expect(lines.slice(0, 4)).toEqual([
       "gh api repos/dipsaus9/dipsaus-orchestrator/releases/latest --jq .tag_name",
       `gh api repos/dipsaus9/dipsaus-orchestrator/commits/${TAG} --jq .sha`,
-      `${RELEASES}download/${TAG}/dipo-linux-x64.tar.gz`,
+      `${RELEASES}download/${TAG}/dipo-darwin-arm64.tar.gz`,
       `${RELEASES}download/${TAG}/SHA256SUMS`,
     ]);
     const verify = lines[4] ?? "";
@@ -292,7 +292,7 @@ describe("install.sh", () => {
     ["gh reports a non-hex commit", { FAKE_GH_SHA: "z".repeat(40) }, "gh returned no commit"],
     ["gh reports no commit", { FAKE_GH_SHA: "" }, "gh returned no commit"],
   ])("stops before downloading when %s", (_name, env, message) => {
-    publish(`download/${TAG}`, "dipo-linux-x64.tar.gz");
+    publish(`download/${TAG}`, ASSET);
     const result = install(env, { gh: true });
     expect(result.code).not.toBe(0);
     expect(result.stderr).toContain(message);
@@ -301,7 +301,7 @@ describe("install.sh", () => {
   });
 
   it("stops when gh cannot read the commit of a given DIPO_VERSION", () => {
-    publish("download/v0.3.0", "dipo-linux-x64.tar.gz");
+    publish("download/v0.3.0", ASSET);
     const result = install({ DIPO_VERSION: "v0.3.0", FAKE_GH_API_EXIT: "1" }, { gh: true });
     expect(result.code).not.toBe(0);
     expect(result.stderr).toContain("gh could not read the commit of v0.3.0");
@@ -346,7 +346,7 @@ describe("install.sh", () => {
   });
 
   it("stops without installing when the attestation does not verify", () => {
-    publish(`download/${TAG}`, "dipo-linux-x64.tar.gz");
+    publish(`download/${TAG}`, ASSET);
     const result = install({ FAKE_GH_EXIT: "1" }, { gh: true });
     expect(result.code).not.toBe(0);
     expect(result.stderr).toContain("attestation verification failed");
@@ -354,7 +354,7 @@ describe("install.sh", () => {
   });
 
   it("stops without installing on a checksum mismatch", () => {
-    publish(`download/${TAG}`, "dipo-linux-x64.tar.gz", { badSum: true });
+    publish(`download/${TAG}`, ASSET, { badSum: true });
     const result = install({}, { gh: true });
     expect(result.code).not.toBe(0);
     expect(result.stderr).toContain("checksum mismatch");
@@ -363,18 +363,29 @@ describe("install.sh", () => {
   });
 
   it("stops when SHA256SUMS has no entry for the archive", () => {
-    publish("latest/download", "dipo-linux-x64.tar.gz");
+    publish("latest/download", ASSET);
     writeFileSync(join(releases, "latest/download/SHA256SUMS"), `${"1".repeat(64)}  other\n`);
     const result = install({ DIPO_SKIP_ATTESTATION: "1" });
     expect(result.code).not.toBe(0);
-    expect(result.stderr).toContain("SHA256SUMS has no entry for dipo-linux-x64.tar.gz");
+    expect(result.stderr).toContain("SHA256SUMS has no entry for dipo-darwin-arm64.tar.gz");
     expect(existsSync(installDir)).toBe(false);
   });
 
   it.each([
-    ["Windows", { FAKE_UNAME_S: "MINGW64_NT-10.0" }, "Windows is not supported"],
-    ["musl", { FAKE_LDD: "musl libc (x86_64)" }, "musl-based Linux"],
-    ["an unknown architecture", { FAKE_UNAME_M: "riscv64" }, "unsupported architecture: riscv64"],
+    ["Linux x64", { FAKE_UNAME_S: "Linux", FAKE_UNAME_M: "x86_64" }, `${ONLY_MAC} Linux x86_64`],
+    [
+      "Linux arm64",
+      { FAKE_UNAME_S: "Linux", FAKE_UNAME_M: "aarch64" },
+      `${ONLY_MAC} Linux aarch64`,
+    ],
+    ["an Intel Mac", { FAKE_UNAME_M: "x86_64" }, `${ONLY_MAC} Darwin x86_64`],
+    [
+      "an Intel Mac whose sysctl says it is not translated",
+      { FAKE_UNAME_M: "x86_64", FAKE_TRANSLATED: "0" },
+      `${ONLY_MAC} Darwin x86_64`,
+    ],
+    ["Windows", { FAKE_UNAME_S: "MINGW64_NT-10.0", FAKE_UNAME_M: "x86_64" }, ONLY_MAC],
+    ["an unknown architecture", { FAKE_UNAME_M: "riscv64" }, `${ONLY_MAC} Darwin riscv64`],
     ["a malformed DIPO_VERSION", { DIPO_VERSION: "v1/../x" }, "DIPO_VERSION must be a release tag"],
     ["a DIPO_VERSION that is not a tag", { DIPO_VERSION: "latest" }, "DIPO_VERSION must be a"],
     [
@@ -383,9 +394,11 @@ describe("install.sh", () => {
       "DIPO_SKIP_ATTESTATION must be 1 or unset",
     ],
   ])("refuses %s before downloading anything", (_name, env, message) => {
-    const result = install(env);
+    publish("latest/download", ASSET);
+    const result = install(env, { gh: true });
     expect(result.code).not.toBe(0);
     expect(result.stderr).toContain(message);
     expect(result.log).toBe("");
+    expect(existsSync(installDir)).toBe(false);
   });
 });

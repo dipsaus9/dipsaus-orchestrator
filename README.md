@@ -8,7 +8,7 @@ License: MIT.
 
 ## Install
 
-dipo runs on macOS (arm64, x64) and Linux (x64, arm64, glibc only). Windows and musl-based Linux such as Alpine are not supported. There is no release yet: the first is `v0.1.0`, and until then the release workflow is a dry run ([docs/release.md](docs/release.md)).
+dipo runs on macOS on Apple silicon (`darwin-arm64`) only, because every worker runs in an Apple `container` box. Intel Macs, Linux and Windows are not supported, and the install script refuses them. There is no release yet: the first is `v0.1.0`, and until then the release workflow is a dry run ([docs/release.md](docs/release.md)).
 
 ### Install script
 
@@ -26,7 +26,7 @@ gh attestation verify install.sh --repo dipsaus9/dipsaus-orchestrator \
 sh install.sh
 ```
 
-The script picks the archive for your OS and architecture, downloads it with `SHA256SUMS` from the same release, stops on a checksum mismatch, and, when `gh` is installed, verifies the archive's attestation with the command above and stops on failure. It installs `dipo` to `$HOME/.local/bin` without sudo, by writing a temporary file next to it and renaming it over the old binary, so a running daemon keeps working until `dipo daemon restart`. Rerun it to upgrade.
+The script checks that it runs on macOS on Apple silicon, downloads `dipo-darwin-arm64.tar.gz` with `SHA256SUMS` from the same release, stops on a checksum mismatch, and, when `gh` is installed, verifies the archive's attestation with the command above and stops on failure. It installs `dipo` to `$HOME/.local/bin` without sudo, by writing a temporary file next to it and renaming it over the old binary, so a running daemon keeps working until `dipo daemon restart`. Rerun it to upgrade.
 
 - `DIPO_VERSION=v0.3.0` installs that release instead of the latest.
 - `DIPO_INSTALL_DIR=/some/dir` installs there instead of `$HOME/.local/bin`.
@@ -38,13 +38,10 @@ Each release has these assets. Their names carry no version, so `https://github.
 | Asset | Contents |
 |---|---|
 | `dipo-darwin-arm64.tar.gz` | macOS, Apple silicon |
-| `dipo-darwin-x64.tar.gz` | macOS, Intel |
-| `dipo-linux-x64.tar.gz` | Linux x64, glibc |
-| `dipo-linux-arm64.tar.gz` | Linux arm64, glibc |
-| `SHA256SUMS` | SHA-256 checksums of the four archives |
+| `SHA256SUMS` | SHA-256 checksum of the archive |
 | `install.sh` | the install script |
 
-Each archive holds `dipo`, `LICENSE` and `README.md`. The lowest glibc version a Linux build needs is recorded in the release build's job summary (highest `GLIBC_` symbol version).
+The archive holds `dipo`, `LICENSE` and `README.md`.
 
 ```sh
 asset=dipo-darwin-arm64.tar.gz

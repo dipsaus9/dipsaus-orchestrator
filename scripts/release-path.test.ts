@@ -20,7 +20,7 @@ interface Step {
 interface Job {
   needs?: string | string[];
   env?: Record<string, unknown>;
-  strategy?: { matrix?: { include?: Array<Record<string, unknown>> } };
+  strategy?: { matrix?: { include?: Array<Record<string, unknown>>; runner?: unknown } };
   steps?: Step[];
 }
 
@@ -113,12 +113,38 @@ function untracked(source: string): string[] {
   });
 }
 
+describe("darwin-arm64 only (0004, DIPO-358)", () => {
+  const DARWIN_ARM64 = {
+    target: "darwin-arm64",
+    runner: "macos-26",
+    file: "Mach-O 64-bit executable arm64",
+  };
+
+  it("builds and smoke-tests darwin-arm64 alone in CI and in the release", async () => {
+    const ci = job(await workflow("ci.yml"), "smoke").strategy?.matrix?.include ?? [];
+    expect(ci).toEqual([DARWIN_ARM64]);
+    const release = job(await workflow("release.yml"), "build").strategy?.matrix?.include ?? [];
+    expect(release).toHaveLength(1);
+    expect(release[0]).toMatchObject(DARWIN_ARM64);
+  });
+
+  it("publishes one archive and checks the published install.sh on macOS only", async () => {
+    const flow = await workflow("release.yml");
+    const sums = steps(flow, "publish").find((step) => step.name === "Write SHA256SUMS");
+    expect(sums?.run).toContain(`if [ "$#" -ne 1 ]`);
+    expect(job(flow, "post-release").strategy?.matrix?.runner).toEqual(["macos-26"]);
+  });
+
+  it("has no Linux-only step left in the smoke action", async () => {
+    const action = await text(".github/actions/smoke/action.yml");
+    expect(action).not.toContain("GLIBC");
+    expect(action).not.toContain("runner.os == 'Linux'");
+  });
+});
+
 describe("release.yml build (AC #1)", () => {
   const BUN_ASSETS: Record<string, string> = {
     "darwin-arm64": "bun-darwin-aarch64",
-    "darwin-x64": "bun-darwin-x64",
-    "linux-x64": "bun-linux-x64",
-    "linux-arm64": "bun-linux-aarch64",
   };
 
   it("uses neither setup-bun nor a cache anywhere in the release workflow", async () => {
@@ -131,7 +157,7 @@ describe("release.yml build (AC #1)", () => {
     }
   });
 
-  it("pins the Bun of .bun-version with a SHA-256 for each of the four targets", async () => {
+  it("pins the Bun of .bun-version with a SHA-256 for the darwin-arm64 target", async () => {
     const flow = await workflow("release.yml");
     const build = job(flow, "build");
     expect(String(build.env?.["BUN_VERSION"])).toBe((await text(".bun-version")).trim());

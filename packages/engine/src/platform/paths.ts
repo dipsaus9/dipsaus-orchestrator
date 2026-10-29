@@ -5,7 +5,6 @@
 
 import {
   chmodSync,
-  existsSync,
   lstatSync,
   mkdirSync,
   mkdtempSync,
@@ -16,7 +15,10 @@ import {
 import { userInfo } from "node:os";
 import { isAbsolute, join } from "node:path";
 
-/** The platforms dipo runs on (0004). */
+/**
+ * The platforms dipo's process code knows: macOS, the one product platform (0004), and Linux, only
+ * as the CI host for tests that need no box. The folders below are the same on both.
+ */
 export type DipoPlatform = "darwin" | "linux";
 
 export interface SoftwareDirs {
@@ -34,7 +36,7 @@ export type Env = Readonly<Record<string, string | undefined>>;
 
 export function currentPlatform(platform: string = process.platform): DipoPlatform {
   if (platform === "darwin" || platform === "linux") return platform;
-  throw new Error(`dipo runs on macOS and Linux only, not on ${platform}`);
+  throw new Error(`dipo runs on macOS only, not on ${platform}`);
 }
 
 /** The home directory from the passwd entry for this uid, never from `$HOME`. */
@@ -81,12 +83,11 @@ export class SoftwareDirError extends Error {
   }
 }
 
-/** The default state and logs folders of `home` on both platforms. */
+/** The default state and logs folders of `home`. */
 function defaultDirsOf(home: string): string[] {
   return [
     join(home, "Library", "Application Support", "dipo"),
     join(home, "Library", "Logs", "dipo"),
-    join(home, ".local", "state", "dipo"),
   ];
 }
 
@@ -118,16 +119,15 @@ export function checkStateDir(path: string, uid: number = process.getuid?.() ?? 
 }
 
 /**
- * Resolves `<state>` and `<logs>` (0006 decision 3). `DIPO_HOME` replaces the anchor, for tests
- * only; its logs go to `<DIPO_HOME>/logs` on both platforms. `XDG_STATE_HOME`, `TMPDIR` and
- * `XDG_RUNTIME_DIR` are never read: they differ between a shell, launchd, systemd and SSH.
+ * Resolves `<state>` and `<logs>` (0005, 0006): `~/Library/Application Support/dipo` and
+ * `~/Library/Logs/dipo`. `DIPO_HOME` replaces the anchor, for tests only; its logs go to
+ * `<DIPO_HOME>/logs`. `TMPDIR` is never read here: it differs between a shell, launchd and SSH.
  *
  * A `DIPO_HOME` dipo cannot use (`checkStateDir`) throws `SoftwareDirError`; dipo never falls back
  * to the real folders then (DIPO-316). With the test marker, the real home's state and logs folders
  * (of the passwd home of this process, whatever `home` says) throw too.
  */
 export function resolveSoftwareDirs(options: {
-  readonly platform: DipoPlatform;
   readonly env: Env;
   readonly home: string;
 }): SoftwareDirs {
@@ -148,12 +148,8 @@ export function resolveSoftwareDirs(options: {
   return dirs;
 }
 
-function softwareDirsOf(options: {
-  readonly platform: DipoPlatform;
-  readonly env: Env;
-  readonly home: string;
-}): SoftwareDirs {
-  const { platform, env, home } = options;
+function softwareDirsOf(options: { readonly env: Env; readonly home: string }): SoftwareDirs {
+  const { env, home } = options;
   const envHome = env["HOME"];
   const homeMismatch =
     envHome !== undefined && envHome !== "" && stripSlash(envHome) !== stripSlash(home)
@@ -172,16 +168,12 @@ function softwareDirsOf(options: {
     }
     return { state: override, logs: join(override, "logs"), home, homeMismatch };
   }
-  if (platform === "darwin") {
-    return {
-      state: join(home, "Library", "Application Support", "dipo"),
-      logs: join(home, "Library", "Logs", "dipo"),
-      home,
-      homeMismatch,
-    };
-  }
-  const state = join(home, ".local", "state", "dipo");
-  return { state, logs: join(state, "logs"), home, homeMismatch };
+  return {
+    state: join(home, "Library", "Application Support", "dipo"),
+    logs: join(home, "Library", "Logs", "dipo"),
+    home,
+    homeMismatch,
+  };
 }
 
 function stripSlash(path: string): string {
@@ -195,7 +187,7 @@ export const LONGEST_RUNTIME_ENTRY = `hosts/run_${"0".repeat(26)}.sock`;
 export const SOCKET_FILE = "dipo.sock";
 export const RUNTIME_FILE = "runtime.json";
 
-export type RuntimeCandidateSource = "DIPO_RUNTIME_DIR" | "XDG_RUNTIME_DIR" | "TMPDIR" | "tmp";
+export type RuntimeCandidateSource = "DIPO_RUNTIME_DIR" | "TMPDIR" | "tmp";
 
 export interface RuntimeCandidate {
   readonly path: string;
@@ -203,18 +195,14 @@ export interface RuntimeCandidate {
 }
 
 /**
- * The runtime directory candidates in order (0006 decision 3): `DIPO_RUNTIME_DIR`; on Linux
- * `$XDG_RUNTIME_DIR/dipo` when lingering is on, else `/tmp/dipo-<uid>`; on macOS `$TMPDIR/dipo`,
- * else `/tmp/dipo-<uid>`.
+ * The runtime directory candidates in order (0005, 0006): `DIPO_RUNTIME_DIR`, then
+ * `$TMPDIR/dipo`, else `/tmp/dipo-<uid>`.
  */
 export function runtimeCandidates(options: {
-  readonly platform: DipoPlatform;
   readonly env: Env;
   readonly uid: number;
-  /** Linux only: whether the user has lingering on (the user manager outlives logout). */
-  readonly lingering: boolean;
 }): RuntimeCandidate[] {
-  const { platform, env, uid } = options;
+  const { env, uid } = options;
   const candidates: RuntimeCandidate[] = [];
   const set = (name: string) => {
     const value = env[name];
@@ -222,22 +210,10 @@ export function runtimeCandidates(options: {
   };
   const override = set("DIPO_RUNTIME_DIR");
   if (override !== undefined) candidates.push({ path: override, source: "DIPO_RUNTIME_DIR" });
-  if (platform === "linux") {
-    const xdg = set("XDG_RUNTIME_DIR");
-    if (xdg !== undefined && options.lingering) {
-      candidates.push({ path: join(xdg, "dipo"), source: "XDG_RUNTIME_DIR" });
-    }
-  } else {
-    const tmp = set("TMPDIR");
-    if (tmp !== undefined) candidates.push({ path: join(tmp, "dipo"), source: "TMPDIR" });
-  }
+  const tmp = set("TMPDIR");
+  if (tmp !== undefined) candidates.push({ path: join(tmp, "dipo"), source: "TMPDIR" });
   candidates.push({ path: `/tmp/dipo-${uid}`, source: "tmp" });
   return candidates;
-}
-
-/** True when the user has lingering on: systemd records it as `/var/lib/systemd/linger/<user>`. */
-export function lingeringEnabled(username: string = userInfo().username): boolean {
-  return existsSync(join("/var/lib/systemd/linger", username));
 }
 
 /** Byte length of the longest path the runtime directory must hold. */

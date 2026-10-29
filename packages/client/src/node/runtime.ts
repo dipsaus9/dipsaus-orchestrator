@@ -111,23 +111,17 @@ function runtimeDirReason(path: string): string | null {
   return null;
 }
 
-function defaultStateDir(platform: string, home: string): string {
-  if (platform === "darwin") return join(home, "Library", "Application Support", "dipo");
-  return join(home, ".local", "state", "dipo");
-}
-
-/** The real home's dipo folders on both platforms (of the passwd home of this process). */
+/** The real home's dipo folders (of the passwd home of this process). */
 function realDirs(): string[] {
   const home = userInfo().homedir;
   return [
     join(home, "Library", "Application Support", "dipo"),
     join(home, "Library", "Logs", "dipo"),
-    join(home, ".local", "state", "dipo"),
   ];
 }
 
 /** The state anchor, or the refusal of an override dipo cannot use, or of the real one in a test. */
-function resolveState(env: Env, platform: string, home: string): string | DirRefusedError {
+function resolveState(env: Env, home: string): string | DirRefusedError {
   const override = env["DIPO_HOME"];
   let state: string;
   if (override !== undefined && override !== "") {
@@ -142,7 +136,7 @@ function resolveState(env: Env, platform: string, home: string): string | DirRef
     }
     state = override;
   } else {
-    state = defaultStateDir(platform, home);
+    state = join(home, "Library", "Application Support", "dipo");
   }
   if (isTestRun(env)) {
     for (const path of [state, join(state, "logs")]) {
@@ -166,10 +160,9 @@ function resolveState(env: Env, platform: string, home: string): string | DirRef
  */
 export function dirRefusal(
   env: Env = process.env,
-  platform: string = process.platform,
   home: string = userInfo().homedir,
 ): DirRefusedError | null {
-  const state = resolveState(env, platform, home);
+  const state = resolveState(env, home);
   if (state instanceof DirRefusedError) return state;
   const runtime = env["DIPO_RUNTIME_DIR"];
   if (runtime !== undefined && runtime !== "") {
@@ -187,27 +180,18 @@ export function dirRefusal(
 }
 
 /** `<state>` for this user (0006 decision 3); throws `DirRefusedError` for a refused folder. */
-export function stateDir(
-  env: Env = process.env,
-  platform: string = process.platform,
-  home: string = userInfo().homedir,
-): string {
-  const state = resolveState(env, platform, home);
+export function stateDir(env: Env = process.env, home: string = userInfo().homedir): string {
+  const state = resolveState(env, home);
   if (state instanceof DirRefusedError) throw state;
   return state;
 }
 
 /** `<logs>`, where `daemon.log` is (0006 decision 3); `DIPO_HOME` puts it in `<DIPO_HOME>/logs`. */
-export function logsDir(
-  env: Env = process.env,
-  platform: string = process.platform,
-  home: string = userInfo().homedir,
-): string {
-  const state = stateDir(env, platform, home);
+export function logsDir(env: Env = process.env, home: string = userInfo().homedir): string {
+  const state = stateDir(env, home);
   const override = env["DIPO_HOME"];
-  if (override !== undefined && override !== "") return join(override, "logs");
-  if (platform === "darwin") return join(home, "Library", "Logs", "dipo");
-  return join(state, "logs");
+  if (override !== undefined && override !== "") return join(state, "logs");
+  return join(home, "Library", "Logs", "dipo");
 }
 
 /** The fields of `<state>/runtime.json` a client uses. */

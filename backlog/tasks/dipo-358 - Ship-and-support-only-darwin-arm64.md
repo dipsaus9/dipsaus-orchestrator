@@ -1,9 +1,10 @@
 ---
 id: DIPO-358
 title: Ship and support only darwin-arm64
-status: Refined
+status: Done
 assignee: []
 created_date: '2026-10-25 09:52'
+updated_date: '2026-10-29 09:05'
 labels:
   - 'tier:M'
   - 'slice:prune'
@@ -47,7 +48,13 @@ test_plan:
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 release.yml and the smoke jobs build and test darwin-arm64 only
-- [ ] #2 install.sh refuses anything but macOS on Apple silicon with a clear message
-- [ ] #3 The systemd and Linux code paths of the client lifecycle, keep-awake and platform modules are removed, and the Linux CI verify job still passes
+- [x] #1 release.yml and the smoke jobs build and test darwin-arm64 only
+- [x] #2 install.sh refuses anything but macOS on Apple silicon with a clear message
+- [x] #3 The systemd and Linux code paths of the client lifecycle, keep-awake and platform modules are removed, and the Linux CI verify job still passes
 <!-- AC:END -->
+
+## Final Summary
+
+<!-- SECTION:FINAL_SUMMARY:BEGIN -->
+Releases and CI smoke build and test darwin-arm64 only (scripts/build.ts, release.yml, the smoke action); release.yml stays a workflow_dispatch dry run. install.sh refuses anything but macOS on Apple silicon before any download, allowing a Rosetta shell on Apple silicon. The systemd unit, lingering checks, systemd-inhibit, systemd scopes, dipo daemon wait-pid and the Linux state and runtime folders are removed; Linux stays a CI host, keeping the process probe and mountinfo reader, and the compiled-binary lifecycle test runs on macOS only. No default path changes on macOS. ADR 0004, CLAUDE.md, README and docs/release.md updated.
+<!-- SECTION:FINAL_SUMMARY:END -->

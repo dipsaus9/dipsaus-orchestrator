@@ -27,7 +27,7 @@ import {
 const uid = process.getuid?.() ?? 0;
 const mode = (path: string) => statSync(path).mode & 0o777;
 
-// Variables that differ between a shell, launchd, systemd and SSH; the anchor ignores them.
+// Variables that differ between a shell, launchd and SSH; the anchor ignores them.
 const NOISY_ENV = {
   XDG_STATE_HOME: "/elsewhere/state",
   TMPDIR: "/var/folders/xy/T/",
@@ -35,9 +35,8 @@ const NOISY_ENV = {
 };
 
 describe("resolveSoftwareDirs", () => {
-  it("anchors macOS state and logs in the passwd home", () => {
+  it("anchors state and logs in the passwd home's Library", () => {
     const dirs = resolveSoftwareDirs({
-      platform: "darwin",
       env: { ...NOISY_ENV, HOME: "/Users/dennis" },
       home: "/Users/dennis",
     });
@@ -46,47 +45,40 @@ describe("resolveSoftwareDirs", () => {
     expect(dirs.homeMismatch).toBeNull();
   });
 
-  it("anchors Linux state in ~/.local/state/dipo with logs inside it", () => {
+  it("has no Linux folders: the same Library paths whatever the home (0004)", () => {
     const dirs = resolveSoftwareDirs({
-      platform: "linux",
       env: { ...NOISY_ENV, HOME: "/home/dennis/" },
       home: "/home/dennis",
     });
-    expect(dirs.state).toBe("/home/dennis/.local/state/dipo");
-    expect(dirs.logs).toBe("/home/dennis/.local/state/dipo/logs");
+    expect(dirs.state).toBe("/home/dennis/Library/Application Support/dipo");
+    expect(dirs.logs).toBe("/home/dennis/Library/Logs/dipo");
     expect(dirs.homeMismatch).toBeNull();
   });
 
   it("reports a $HOME that differs from the passwd home and still uses the passwd home", () => {
     const dirs = resolveSoftwareDirs({
-      platform: "linux",
       env: { HOME: "/tmp/fake-home" },
-      home: "/home/dennis",
+      home: "/Users/dennis",
     });
-    expect(dirs.state).toBe("/home/dennis/.local/state/dipo");
-    expect(dirs.homeMismatch).toEqual({ env: "/tmp/fake-home", passwd: "/home/dennis" });
+    expect(dirs.state).toBe("/Users/dennis/Library/Application Support/dipo");
+    expect(dirs.homeMismatch).toEqual({ env: "/tmp/fake-home", passwd: "/Users/dennis" });
   });
 
-  it("lets DIPO_HOME replace the anchor on both platforms", () => {
-    for (const platform of ["darwin", "linux"] as const) {
-      const dirs = resolveSoftwareDirs({
-        platform,
-        env: { ...NOISY_ENV, DIPO_HOME: "/tmp/dipo-test/state" },
-        home: "/home/dennis",
-      });
-      expect(dirs.state).toBe("/tmp/dipo-test/state");
-      expect(dirs.logs).toBe("/tmp/dipo-test/state/logs");
-    }
+  it("lets DIPO_HOME replace the anchor", () => {
+    const dirs = resolveSoftwareDirs({
+      env: { ...NOISY_ENV, DIPO_HOME: "/tmp/dipo-test/state" },
+      home: "/Users/dennis",
+    });
+    expect(dirs.state).toBe("/tmp/dipo-test/state");
+    expect(dirs.logs).toBe("/tmp/dipo-test/state/logs");
   });
 });
 
 describe("runtimeCandidates", () => {
-  it("orders macOS candidates: DIPO_RUNTIME_DIR, $TMPDIR/dipo, /tmp/dipo-<uid>", () => {
+  it("orders the candidates: DIPO_RUNTIME_DIR, $TMPDIR/dipo, /tmp/dipo-<uid>", () => {
     const candidates = runtimeCandidates({
-      platform: "darwin",
       env: { DIPO_RUNTIME_DIR: "/tmp/t/run", TMPDIR: "/var/folders/xy/T/" },
       uid: 501,
-      lingering: false,
     });
     expect(candidates).toEqual([
       { path: "/tmp/t/run", source: "DIPO_RUNTIME_DIR" },
@@ -95,23 +87,14 @@ describe("runtimeCandidates", () => {
     ]);
   });
 
-  it("skips $TMPDIR on macOS when it is unset", () => {
-    const candidates = runtimeCandidates({
-      platform: "darwin",
-      env: {},
-      uid: 501,
-      lingering: false,
-    });
+  it("skips $TMPDIR when it is unset", () => {
+    const candidates = runtimeCandidates({ env: {}, uid: 501 });
     expect(candidates).toEqual([{ path: "/tmp/dipo-501", source: "tmp" }]);
   });
 
-  it("uses $XDG_RUNTIME_DIR/dipo on Linux only when lingering is on", () => {
-    const env = { XDG_RUNTIME_DIR: "/run/user/1000", TMPDIR: "/var/tmp" };
-    expect(runtimeCandidates({ platform: "linux", env, uid: 1000, lingering: true })).toEqual([
-      { path: "/run/user/1000/dipo", source: "XDG_RUNTIME_DIR" },
-      { path: "/tmp/dipo-1000", source: "tmp" },
-    ]);
-    expect(runtimeCandidates({ platform: "linux", env, uid: 1000, lingering: false })).toEqual([
+  it("never reads $XDG_RUNTIME_DIR: there is no Linux runtime folder (0004)", () => {
+    const env = { XDG_RUNTIME_DIR: "/run/user/1000" };
+    expect(runtimeCandidates({ env, uid: 1000 })).toEqual([
       { path: "/tmp/dipo-1000", source: "tmp" },
     ]);
   });
@@ -122,10 +105,8 @@ describe("chooseRuntimeDir", () => {
     await withTempDir((dir) => {
       const override = join(dir, "run");
       const candidates = runtimeCandidates({
-        platform: process.platform === "linux" ? "linux" : "darwin",
-        env: { DIPO_RUNTIME_DIR: override, TMPDIR: dir, XDG_RUNTIME_DIR: dir },
+        env: { DIPO_RUNTIME_DIR: override, TMPDIR: dir },
         uid,
-        lingering: true,
       });
       const choice = chooseRuntimeDir({ candidates, uid, tmpBase: dir });
       expect(choice).toEqual({ path: override, source: "DIPO_RUNTIME_DIR", rejected: [] });
@@ -195,7 +176,7 @@ describe("chooseRuntimeDir", () => {
 
       const choice = chooseRuntimeDir({
         candidates: [
-          { path: symlinked, source: "XDG_RUNTIME_DIR" },
+          { path: symlinked, source: "TMPDIR" },
           { path: open, source: "TMPDIR" },
           { path: file, source: "tmp" },
         ],
@@ -297,7 +278,7 @@ describe("an unusable override", () => {
       ];
       for (const [home, reason] of cases) {
         const error = thrown(() =>
-          resolveSoftwareDirs({ platform: "linux", env: { DIPO_HOME: home }, home: "/home/me" }),
+          resolveSoftwareDirs({ env: { DIPO_HOME: home }, home: "/Users/me" }),
         );
         expect(error).toBeInstanceOf(SoftwareDirError);
         expect(error).toMatchObject({ code: DIR_ERROR_CODES.stateUnusable, path: home, reason });
@@ -310,11 +291,7 @@ describe("an unusable override", () => {
   it("accepts a DIPO_HOME that is missing or a directory of this user", async () => {
     await withTempDir((dir) => {
       for (const home of [join(dir, "missing", "state"), dir]) {
-        const dirs = resolveSoftwareDirs({
-          platform: "darwin",
-          env: { DIPO_HOME: home },
-          home: "/Users/me",
-        });
+        const dirs = resolveSoftwareDirs({ env: { DIPO_HOME: home }, home: "/Users/me" });
         expect(dirs.state).toBe(home);
       }
     });
@@ -372,25 +349,22 @@ describe("the test marker", () => {
     const home = userInfo().homedir;
     const real = [
       join(home, "Library", "Application Support", "dipo"),
-      join(home, ".local", "state", "dipo"),
       join(home, "Library", "Logs", "dipo"),
-      join(home, ".local", "state", "dipo", "offices"),
+      join(home, "Library", "Application Support", "dipo", "offices"),
     ];
-    for (const platform of ["darwin", "linux"] as const) {
-      const error = thrown(() => resolveSoftwareDirs({ platform, env: {}, home }));
-      expect(error).toMatchObject({ code: DIR_ERROR_CODES.realStateInTest });
-    }
+    const byDefault = thrown(() => resolveSoftwareDirs({ env: {}, home }));
+    expect(byDefault).toMatchObject({ code: DIR_ERROR_CODES.realStateInTest });
     for (const path of real) {
       const error = thrown(() =>
-        resolveSoftwareDirs({ platform: "linux", env: { DIPO_HOME: path }, home: "/home/me" }),
+        resolveSoftwareDirs({ env: { DIPO_HOME: path }, home: "/Users/me" }),
       );
       expect(error).toBeInstanceOf(SoftwareDirError);
       expect(error).toMatchObject({ code: DIR_ERROR_CODES.realStateInTest, path });
     }
     // Another home's folders are not this machine's: the default paths stay testable.
-    expect(
-      resolveSoftwareDirs({ platform: "linux", env: {}, home: "/home/someone-else" }).state,
-    ).toBe("/home/someone-else/.local/state/dipo");
+    expect(resolveSoftwareDirs({ env: {}, home: "/Users/someone-else" }).state).toBe(
+      "/Users/someone-else/Library/Application Support/dipo",
+    );
   });
 
   it("refuses the real runtime folders before touching them, wherever they are in the order", () => {
@@ -429,11 +403,7 @@ describe("the test marker", () => {
       );
       expect((error as RuntimeDirError).code).toBe(DIR_ERROR_CODES.realRuntimeInTest);
       const state = thrown(() =>
-        resolveSoftwareDirs({
-          platform: "darwin",
-          env: { [TEST_MARKER]: "1" },
-          home: userInfo().homedir,
-        }),
+        resolveSoftwareDirs({ env: { [TEST_MARKER]: "1" }, home: userInfo().homedir }),
       );
       expect((state as SoftwareDirError).code).toBe(DIR_ERROR_CODES.realStateInTest);
     } finally {

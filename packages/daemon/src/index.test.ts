@@ -46,7 +46,8 @@ describe("runDaemon", () => {
     expect(message).toContain("no-such-form");
     expect(message).toContain("dipo daemon --foreground");
     expect(message).toContain("dipo daemon worker-host <run-id>");
-    expect(message).toContain("dipo daemon wait-pid <pid>");
+    // `wait-pid` only served systemd-inhibit on Linux, which dipo no longer supports (0004).
+    expect(message).not.toContain("wait-pid");
     expect(message).not.toContain("self-check");
   });
 
@@ -56,13 +57,8 @@ describe("runDaemon", () => {
     expect(err.join("\n")).toContain("usage:");
   });
 
-  it("checks the worker-host and wait-pid arguments", async () => {
-    for (const argv of [
-      ["worker-host"],
-      ["worker-host", "nope"],
-      ["wait-pid", "-1"],
-      ["wait-pid"],
-    ]) {
+  it("checks the worker-host arguments", async () => {
+    for (const argv of [["worker-host"], ["worker-host", "nope"]]) {
       const { io, err } = capture();
       expect(await runDaemon(argv, io)).toBe(2);
       expect(err.join("\n")).toContain("usage:");
@@ -83,14 +79,9 @@ describe("runDaemon", () => {
     expect(err.join("\n")).toContain("--no-orphans");
   });
 
-  it("dispatches wait-pid, which exits 0 at once for a process already gone (DIPO-63)", async () => {
-    // A process that has exited stands in for the daemon. The wait on a live process, which polls
-    // once a second, is in index.ci.test.ts (DIPO-79).
-    const gone = Bun.spawn({ cmd: ["true"], stdin: "ignore", stdout: "ignore" });
-    await gone.exited;
-    const wait = capture();
-    expect(await runDaemon(["wait-pid", String(gone.pid)], wait.io)).toBe(0);
-    expect(wait.err).toEqual([]);
+  it("has no wait-pid form any more (0004)", async () => {
+    const { io } = capture();
+    expect(await runDaemon(["wait-pid", "42"], io)).toBe(2);
   });
 
   // The --foreground cases get state, runtime and temp directories under a temp directory

@@ -24,7 +24,6 @@ describe("isolatedDaemonEnv", () => {
         DIPO_HOME: join(dir, "state"),
         DIPO_RUNTIME_DIR: join(dir, "run"),
         TMPDIR: join(dir, "tmp"),
-        XDG_RUNTIME_DIR: join(dir, "tmp"),
         DIPO_TMP: dir,
       });
       // `$TMPDIR/dipo` must be creatable, or the daemon would pass on to `/tmp/dipo-<uid>`.

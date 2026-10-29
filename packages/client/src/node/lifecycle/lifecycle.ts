@@ -11,8 +11,8 @@
 //   verified PID (every version drains on it); `--force` adds SIGKILL after 10 s. Code never
 //   signals a PID whose start time or command does not match the record.
 // - Installed autostart (0006 decision 15, DIPO-63): start, stop and restart go through
-//   `launchctl` or `systemctl --user` (`supervisor.ts`), so the supervisor and the CLI never
-//   fight; `install` and `uninstall` write and remove the plist or unit.
+//   `launchctl` (`supervisor.ts`), so launchd and the CLI never fight; `install` and `uninstall`
+//   write and remove the plist.
 
 import {
   type Clock,
@@ -46,13 +46,10 @@ import {
   isInstalled,
   supervisorEnable,
   supervisorFile,
-  supervisorKind,
   supervisorRemove,
   supervisorStart,
   supervisorStop,
-  lingeringOn,
   type SupervisorDeps,
-  type SupervisorKind,
   systemSupervisorExec,
   writeSupervisorFile,
 } from "./supervisor";
@@ -97,7 +94,7 @@ export interface LifecycleDeps {
   /** Connects and completes `engine.hello`; throws `DaemonNotRunningError` or `ClientError`. */
   readonly connect: (timeoutMs?: number) => Promise<DaemonSession>;
   readonly timings: LifecycleTimings;
-  /** `launchctl` or `systemctl --user` for an installed autostart; absent, nothing is installed. */
+  /** `launchctl` for an installed autostart; absent off macOS, where there is no launchd (0004). */
   readonly supervisor?: SupervisorDeps;
 }
 
@@ -114,12 +111,10 @@ export function systemLifecycleDeps(options: SystemLifecycleOptions): LifecycleD
   const clock = options.clock ?? systemClock;
   const self = selfCommand();
   const supervisor: SupervisorDeps | undefined =
-    process.platform === "darwin" || process.platform === "linux"
+    process.platform === "darwin"
       ? {
-          platform: process.platform,
           home: userInfo().homedir,
           uid: process.getuid?.() ?? -1,
-          user: userInfo().username,
           exec: systemSupervisorExec,
           selfCommand: self,
           env,
@@ -417,7 +412,7 @@ export async function startDaemon(
 
 /**
  * Starts the installed daemon through its supervisor and waits for it. `--log-level` does not
- * apply: the plist or unit fixes the command line (`dipo daemon log-level` changes it at runtime).
+ * apply: the plist fixes the command line (`dipo daemon log-level` changes it at runtime).
  */
 async function supervisedStart(
   deps: LifecycleDeps,
@@ -647,19 +642,15 @@ export type InstallResult =
   | { readonly kind: "failed"; readonly file: string; readonly message: string }
   | {
       readonly kind: "installed";
-      readonly supervisor: SupervisorKind;
       readonly file: string;
       readonly commands: readonly string[];
       /** The daemon stopped first so the supervisor owns the next one. */
       readonly stopped: number | null;
       readonly start: StartResult;
-      /** Linux: lingering for this user; null on macOS or when unknown. */
-      readonly lingering: boolean | null;
-      readonly user: string;
     };
 
 /**
- * `dipo daemon install` (0006 decision 15): stops a running daemon, writes the plist or unit with
+ * `dipo daemon install` (0006): stops a running daemon, writes the plist with
  * this binary's absolute path and the caller's `PATH`, loads it, and waits for the supervised
  * daemon. Running it again after moving the binary rewrites the file.
  */
@@ -685,13 +676,10 @@ export async function installDaemon(deps: LifecycleDeps): Promise<InstallResult>
   const start = await waitForStart(deps, null, logsDir(deps.env));
   return {
     kind: "installed",
-    supervisor: supervisorKind(supervisor),
     file,
     commands: enabled.commands,
     stopped: stop.kind === "stopped" ? stop.pid : null,
     start,
-    lingering: supervisor.platform === "linux" ? await lingeringOn(supervisor) : null,
-    user: supervisor.user,
   };
 }
 
@@ -701,7 +689,6 @@ export type UninstallResult =
   | { readonly kind: "failed"; readonly file: string; readonly message: string }
   | {
       readonly kind: "uninstalled";
-      readonly supervisor: SupervisorKind;
       readonly file: string;
       readonly commands: readonly string[];
       /** The daemon the supervisor stopped, if one ran. */
@@ -727,7 +714,6 @@ export async function uninstallDaemon(deps: LifecycleDeps): Promise<UninstallRes
   }
   return {
     kind: "uninstalled",
-    supervisor: supervisorKind(supervisor),
     file,
     commands: removed.commands,
     stopped,
