@@ -1,9 +1,10 @@
 ---
 id: DIPO-371
 title: Wire the office's main checkout into the story PR and web-call redaction
-status: Ready
+status: Done
 assignee: []
 created_date: '2026-10-29 08:16'
+updated_date: '2026-10-29 08:55'
 labels:
   - 'tier:S'
   - 'slice:prune'
@@ -38,7 +39,13 @@ test_plan:
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 The daemon gives StoryPrs the office's main checkout, and a review comment is posted with the copied env files' values redacted
-- [ ] #2 The checkout dependency of StoryPrs and WebCalls is required, so a composition that leaves it out fails the typecheck
-- [ ] #3 A test proves a review comment is posted, not held back, for an office whose main checkout is known, and still held back when the env files cannot be read
+- [x] #1 The daemon gives StoryPrs the office's main checkout, and a review comment is posted with the copied env files' values redacted
+- [x] #2 The checkout dependency of StoryPrs and WebCalls is required, so a composition that leaves it out fails the typecheck
+- [x] #3 A test proves a review comment is posted, not held back, for an office whose main checkout is known, and still held back when the env files cannot be read
 <!-- AC:END -->
+
+## Final Summary
+
+<!-- SECTION:FINAL_SUMMARY:BEGIN -->
+The daemon gives StoryPrs the office main checkout (engineGit.forOffice(office)?.mainWorktree), so review comments post again with the copied env values redacted. checkout is required in the StoryPrs and WebCalls deps, so a composition that leaves it out fails the typecheck. Tests with a real EngineGit cover a posted redacted comment and a held-back one when the env files cannot be read. Found by the cutover smoke run on 2026-10-29.
+<!-- SECTION:FINAL_SUMMARY:END -->
