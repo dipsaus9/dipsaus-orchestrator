@@ -499,6 +499,8 @@ export class OfficeStore {
       },
       onCaughtUp: () => {
         if (!current()) return;
+        // The daemon serves the stream again: the next retry waits the shortest time (DIPO-327).
+        this.#retries = 0;
         const cleared = endedError !== null && this.#state.error === endedError;
         this.#update({ live: true, offlineSince: null, ...(cleared ? { error: null } : {}) });
       },
@@ -571,7 +573,7 @@ export class OfficeStore {
     const softwareEnded = this.#softwareEnded;
     if (softwareEnded !== null && due(softwareEnded) && this.#software === null) {
       this.#softwareEnded = null;
-      this.#subscribeSoftware(this.#last.get(SOFTWARE), softwareEnded);
+      this.#subscribeSoftware(this.#last.get(SOFTWARE), true);
     }
     const ended = this.#ended;
     if (ended !== null && due(ended.error) && this.#officeSub === null) {
@@ -604,14 +606,21 @@ export class OfficeStore {
 
   // The software stream
 
-  /** `ended` is the error the ended subscription left; it is cleared once this one caught up. */
-  #subscribeSoftware(after: Cursor | undefined, ended: EngineError | null = null): void {
+  /**
+   * `resumed` is true when the software stream itself ended before: the error the state shows
+   * now, which that end left, is cleared once this subscription caught up. A first subscribe or
+   * one after a history gap clears nothing, so another stream's error stays.
+   */
+  #subscribeSoftware(after: Cursor | undefined, resumed = false): void {
     if (after !== undefined) this.#last.set(SOFTWARE, after);
+    const endedError = resumed ? this.#state.error : null;
     this.#software = this.#client.subscribe(SOFTWARE, {
       ...(after === undefined ? {} : { after }),
       onEvent: (event) => this.apply(event),
       onCaughtUp: () => {
-        const cleared = ended !== null && this.#state.error === ended;
+        // The daemon serves the stream again: the next retry waits the shortest time (DIPO-327).
+        this.#retries = 0;
+        const cleared = endedError !== null && this.#state.error === endedError;
         if (this.#state.office === null) {
           this.#update({ live: true, offlineSince: null, ...(cleared ? { error: null } : {}) });
         } else if (cleared) this.#update({ error: null });

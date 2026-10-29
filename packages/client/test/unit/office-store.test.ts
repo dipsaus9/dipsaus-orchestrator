@@ -661,7 +661,8 @@ describe("OfficeStore stream retry backoff (DIPO-327)", () => {
     const waited: number[] = [];
     for (let i = 0; i < times; i++) {
       const before = subscribes(client, stream);
-      client.end(stream, error);
+      // A fresh object each time, as the client parses every refusal on its own.
+      client.end(stream, { ...error });
       let ms = 0;
       while (subscribes(client, stream) === before) {
         if (ms > 60_000) throw new Error(`${stream} was not subscribed again`);
@@ -726,6 +727,16 @@ describe("OfficeStore stream retry backoff (DIPO-327)", () => {
     expect(store.state.error?.code).toBe("engine.recovering");
     client.active("software").options.onCaughtUp?.(cursor("software", 12));
     expect(store.state.error).toBeNull();
+  });
+
+  it("starts over at 250 ms once a subscription caught up", async () => {
+    const { client, clock } = await setup();
+    expect(delays(client, clock, OFFICE_STREAM, 4)).toEqual([250, 500, 1_000, 2_000]);
+    client.active(OFFICE_STREAM).options.onCaughtUp?.(cursor(OFFICE_STREAM, 5));
+    expect(delays(client, clock, OFFICE_STREAM, 2)).toEqual([250, 500]);
+    expect(delays(client, clock, "software", 3)).toEqual([1_000, 2_000, 4_000]);
+    client.active("software").options.onCaughtUp?.(cursor("software", 10));
+    expect(delays(client, clock, "software", 1)).toEqual([250]);
   });
 
   it("subscribes both streams again on one timer when they end together", async () => {
