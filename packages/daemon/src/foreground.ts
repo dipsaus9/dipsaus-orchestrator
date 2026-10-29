@@ -753,6 +753,8 @@ async function serve(run: Run, lock: HeldLock): Promise<number> {
       // The auto-merge below merges story PRs, with the base's required checks from GitHub (0002).
       mergesStories: true,
       required: host,
+      // The review comments redact the env files of the office's main checkout (0008).
+      checkout: (office) => engineGit.forOffice(office)?.mainWorktree,
     });
     held.storyPrs = storyPrs;
     // The backlog PR (DIPO-35): opened or updated after each lane flush through `gh` on this

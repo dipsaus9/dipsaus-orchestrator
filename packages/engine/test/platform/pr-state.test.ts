@@ -347,6 +347,7 @@ describe("the consumers", () => {
       git: {} as StoryPrGit,
       offices,
       clock,
+      checkout: () => undefined,
       prState: watched,
     });
     const merge = new AutoMerge({
@@ -374,7 +375,13 @@ describe("the consumers", () => {
       cli: {} as BacklogCli,
       offices,
     });
-    const storyPrs = new StoryPrs({ host: host as never, git: {} as StoryPrGit, offices, clock });
+    const storyPrs = new StoryPrs({
+      host: host as never,
+      git: {} as StoryPrGit,
+      offices,
+      clock,
+      checkout: () => undefined,
+    });
     const merge = new AutoMerge({
       host: host as never,
       lane: () => undefined,

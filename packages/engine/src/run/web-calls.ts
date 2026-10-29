@@ -59,8 +59,8 @@ export function cutWebLine(line: string): string {
 export interface WebCallsDeps {
   readonly offices: { config(office: OfficeId): OfficeConfig | undefined };
   readonly warn?: (message: string, fields: Readonly<Record<string, unknown>>) => void;
-  /** The office's main checkout, where its env files are read; unknown without it. */
-  readonly checkout?: (office: OfficeId) => string | undefined;
+  /** The office's main checkout, where its env files are read; undefined when it is not known. */
+  readonly checkout: (office: OfficeId) => string | undefined;
   /** Reads the secrets of a checkout; the env files by default. Tests replace it. */
   readonly secrets?: EnvSecretsReader;
 }
@@ -125,7 +125,7 @@ export class WebCalls {
       throw new Error("the run or the office configuration is not known");
     }
     return officeEnvSecrets(
-      this.#deps.checkout?.(office.officeId),
+      this.#deps.checkout(office.officeId),
       config.worktree.files,
       this.#deps.secrets,
     );

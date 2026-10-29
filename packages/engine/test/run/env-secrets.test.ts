@@ -161,7 +161,10 @@ async function withWorld(fn: (w: World) => Promise<void> | void): Promise<void> 
           scope: null,
         }),
       );
-      const calls = new WebCalls({ offices: { config: () => OFFICE_DEFAULTS } });
+      const calls = new WebCalls({
+        offices: { config: () => OFFICE_DEFAULTS },
+        checkout: () => undefined,
+      });
       await fn({ t, office, calls });
     } finally {
       t.state.close();
