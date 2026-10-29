@@ -500,6 +500,26 @@ describe("office streams", () => {
     expect(events[3]?.causedBy).toBe(live.requestId);
   });
 
+  it("sends a command's reply before the office events it wrote (DIPO-318)", async () => {
+    const h = await start();
+    const office = h.addOffice();
+    const stream = `office:${office}`;
+    const client = await connect(h);
+    okResult(await client.subscribe(stream));
+    await client.waitForEvent(stream, (e) => e.type === "stream.mark", "catch-up mark");
+    const reply = await client.command("fixture.scan", {}, { office });
+    expect(reply).toMatchObject({ ok: true });
+    await client.waitForEvent(stream, (e) => e.type === "scan.finished", "the written entry");
+    const replyAt = client.frames.findIndex(
+      (frame) => frame.kind === "reply" && frame.reply.requestId === reply.requestId,
+    );
+    const eventAt = client.frames.findIndex(
+      (frame) => frame.kind === "events" && frame.events.some((e) => e.type === "scan.finished"),
+    );
+    expect(replyAt).toBeGreaterThanOrEqual(0);
+    expect(replyAt).toBeLessThan(eventAt);
+  });
+
   it("drops filtered event types but still marks catch-up", async () => {
     const h = await start();
     const office = h.addOffice();

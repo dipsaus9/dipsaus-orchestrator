@@ -456,9 +456,12 @@ class Connection implements ConnectionSession {
   /** Runs one command alongside later frames; its reply may come after theirs (0005 section 3). */
   #command(frame: Extract<ClientFrame, { kind: "command" }>): void {
     const { kind: _kind, ...request } = frame;
-    void this.#deps.engine
-      .executeCommand(request, this.#client === undefined ? {} : { client: this.#client })
-      .then((reply: CommandReply) => this.#reply(reply));
+    // The engine sends the reply here before the office's subscribers hear the new entries.
+    void this.#deps.engine.executeCommand(
+      request,
+      this.#client === undefined ? {} : { client: this.#client },
+      (reply: CommandReply) => this.#reply(reply),
+    );
   }
 
   // Streams

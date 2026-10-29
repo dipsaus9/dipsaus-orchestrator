@@ -91,8 +91,16 @@ export type OfficePage =
 /** What a socket server uses of the engine. */
 export interface EngineSurface {
   readonly version: string;
-  /** Runs one command after the lifecycle checks; its office's subscribers hear new entries. */
-  executeCommand(request: CommandRequest, connection?: Connection): Promise<CommandReply>;
+  /**
+   * Runs one command after the lifecycle checks. Its reply goes to `send` first; only then do its
+   * office's subscribers hear the new entries, so a connection that closes on a failed delivery
+   * still got the reply of a command that committed.
+   */
+  executeCommand(
+    request: CommandRequest,
+    connection?: Connection,
+    send?: (reply: CommandReply) => void,
+  ): Promise<CommandReply>;
   /** Runs one read after the lifecycle checks. */
   executeRead(request: ReadRequest): Promise<ReadReply>;
   /** Opens a stream at `after`, or at its head; an office stream loads its office (DIPO-27). */
@@ -126,20 +134,13 @@ export interface SurfaceParts {
   readonly renderer?: Renderer;
 }
 
-async function runCommand(
+async function commandReply(
   parts: SurfaceParts,
   request: CommandRequest,
   connection: Connection,
 ): Promise<CommandReply> {
-  const gate = lifecycleGate(parts.lifecycle, "command", request.name);
-  if (gate !== null) return { ok: false, requestId: request.requestId, error: gate };
-  const end = parts.lifecycle.beginWork();
   try {
-    const reply = await executeCommand(parts, request, connection);
-    if (reply.ok && reply.cursor !== undefined && request.office !== undefined) {
-      parts.changes.notify(request.office);
-    }
-    return reply;
+    return await executeCommand(parts, request, connection);
   } catch (error) {
     parts.logger.error("command failed", { command: request.name, error });
     return {
@@ -147,6 +148,30 @@ async function runCommand(
       requestId: request.requestId,
       error: engineError("internal", "The engine failed while handling this command."),
     };
+  }
+}
+
+async function runCommand(
+  parts: SurfaceParts,
+  request: CommandRequest,
+  connection: Connection,
+  send: (reply: CommandReply) => void,
+): Promise<CommandReply> {
+  const gate = lifecycleGate(parts.lifecycle, "command", request.name);
+  if (gate !== null) {
+    const refused: CommandReply = { ok: false, requestId: request.requestId, error: gate };
+    send(refused);
+    return refused;
+  }
+  const end = parts.lifecycle.beginWork();
+  try {
+    const reply = await commandReply(parts, request, connection);
+    // The reply first, then the office's subscribers (0005 section 3).
+    send(reply);
+    if (reply.ok && reply.cursor !== undefined && request.office !== undefined) {
+      parts.changes.notify(request.office);
+    }
+    return reply;
   } finally {
     end?.();
   }
@@ -222,7 +247,8 @@ export function engineSurface(parts: SurfaceParts): EngineSurface {
   const renderer = parts.renderer ?? new Renderer();
   return {
     version: parts.version,
-    executeCommand: (request, connection = {}) => runCommand(parts, request, connection),
+    executeCommand: (request, connection = {}, send = () => {}) =>
+      runCommand(parts, request, connection, send),
     executeRead: async (request) => {
       const gate = lifecycleGate(parts.lifecycle, "read", request.name);
       if (gate !== null) return { ok: false, requestId: request.requestId, error: gate };
