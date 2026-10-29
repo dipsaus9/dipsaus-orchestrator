@@ -463,10 +463,7 @@ export async function withRunOffice(
         // Each review session's box is a stand-in: the replayed reviewer needs none (0002).
         reviewBoxes: stubReviewBoxes(),
         ...(tempDirs === null ? {} : { afterExit: sweep }),
-        ingest: {
-          pricing: () => null,
-          ...(tempDirs === null ? {} : { onEnded: () => sweep() }),
-        },
+        ingest: tempDirs === null ? {} : { onEnded: () => sweep() },
         ...(options.control === undefined
           ? {}
           : {

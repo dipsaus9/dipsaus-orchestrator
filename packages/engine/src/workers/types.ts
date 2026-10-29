@@ -323,9 +323,8 @@ export type WorkerEvent =
       readonly answer?: unknown;
       readonly totals: UsageTotalsByModel;
       /**
-       * The adapter's own cost estimate in USD per model, run totals as of this turn end, when
-       * the adapter reports one; the engine checks its pricing catalog against it (0008
-       * section 4).
+       * The cost the worker CLI reports in USD per model, run totals as of this turn end, when it
+       * reports one; the engine stores it as reported (0008).
        */
       readonly costUsd?: Readonly<Record<string, number>>;
       readonly numTurns: number;

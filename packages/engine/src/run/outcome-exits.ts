@@ -127,7 +127,6 @@ export class ExitOutcomes {
         budgetLimit: run === null ? view.caps.budgetTokens : runCaps(office, run).budgetTokens,
       },
       read: this.#deps.worker.readTranscript,
-      pricing: this.#deps.pricing?.() ?? null,
       at,
       warn: this.#deps.warn,
     });

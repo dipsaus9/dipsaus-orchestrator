@@ -286,7 +286,6 @@ async function ingestRecording(name: string, quiet = false): Promise<void> {
   const ingestor = new Ingestor({
     office: w.f.office,
     clock: w.f.t.clock,
-    pricing: null,
     ...(quiet ? {} : { hooks: w.control.hooks }),
   });
   w.ingestor = ingestor;
@@ -972,7 +971,7 @@ describe("usage on resume (AC #9)", () => {
     const lines = hostLines(recording);
     const cut = lines.findIndex((line) => line.ch === "exit") + 1;
     appendLines(w.f.eventFile, lines.slice(0, cut));
-    const ingestor = new Ingestor({ office: w.f.office, clock: w.f.t.clock, pricing: null });
+    const ingestor = new Ingestor({ office: w.f.office, clock: w.f.t.clock });
     w.ingestor = ingestor;
     const first = initialState({ plannedModel: "haiku" });
     ingestor.track(target(w.f, claude, first as unknown as ParseState));
@@ -1044,7 +1043,7 @@ describe("a lost host finalizes usage (DIPO-364)", () => {
       (line) => line.ch === "stdout" && line.data.includes('"type":"result"'),
     );
     appendLines(w.f.eventFile, lines.slice(0, result));
-    const ingestor = new Ingestor({ office: w.f.office, clock: w.f.t.clock, pricing: null });
+    const ingestor = new Ingestor({ office: w.f.office, clock: w.f.t.clock });
     w.ingestor = ingestor;
     ingestor.track(
       target(w.f, claude, initialState({ plannedModel: "haiku" }) as unknown as ParseState),
@@ -1077,7 +1076,7 @@ describe("endRun finalizes usage (AC #10)", () => {
       (line) => line.ch === "stdout" && line.data.includes('"type":"result"'),
     );
     appendLines(w.f.eventFile, lines.slice(0, result));
-    const ingestor = new Ingestor({ office: w.f.office, clock: w.f.t.clock, pricing: null });
+    const ingestor = new Ingestor({ office: w.f.office, clock: w.f.t.clock });
     w.ingestor = ingestor;
     ingestor.track(
       target(w.f, claude, initialState({ plannedModel: "haiku" }) as unknown as ParseState),
@@ -1129,7 +1128,6 @@ describe("a start the adapter refuses at system/init (DIPO-108)", () => {
     const ingestor = new Ingestor({
       office: w.f.office,
       clock: w.f.t.clock,
-      pricing: null,
       hooks: w.control.hooks,
     });
     w.ingestor = ingestor;

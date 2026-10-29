@@ -25,6 +25,8 @@ import type { HostLine, ParseState, UsageTotalsByModel } from "../../src/workers
 import { loadRecording, plannedModel } from "../workers/replay";
 import { SCRIPTS, scriptedWorker } from "../workers/scripts";
 import { countRows } from "../commands/helpers";
+import { readWorkActivity, WorkTracker } from "../../src/keepawake/index";
+import type { ProcessProbe } from "../../src/platform/process";
 import {
   appendLines,
   eventFileText,
@@ -109,7 +111,6 @@ describe("replaying success-tools-subagent", () => {
       const ingestor = new Ingestor({
         office: f.office,
         clock: f.t.clock,
-        pricing: f.t.state.pricing,
       });
       const result = ingestor.track(target(f, claude, claudeState(NAME)));
       expect(result.status).toBe("ended");
@@ -155,11 +156,32 @@ describe("replaying success-tools-subagent", () => {
       ingestor.close();
     }));
 
+  it("stores the cost the CLI reports on the usage rows and in the daily rollup (DIPO-354)", () =>
+    withTempDir(async (dir) => {
+      const f = await ingestFixture(dir);
+      writeFileSync(f.eventFile, eventFileText(loadRecording(NAME)));
+      new Ingestor({ office: f.office, clock: f.t.clock }).track(
+        target(f, claude, claudeState(NAME)),
+      );
+      // The last result's costUSD for claude-haiku-5-5 is 0.0034681100000000004.
+      expect(
+        f.office.all<{ model: string; cost_micros: number | null }>(
+          `select model, cost_micros from usage_totals where office_id = $office_id and run_id = $run`,
+          { run: f.run },
+        ),
+      ).toEqual([{ model: "claude-haiku-5-5", cost_micros: 3468 }]);
+      expect(
+        f.office.get<{ cost_micros: number }>(
+          "select cost_micros from usage_daily where office_id = $office_id",
+        )?.cost_micros,
+      ).toBe(3468);
+    }));
+
   it("stores assistant text and one line per tool call, never tool inputs or results", () =>
     withTempDir(async (dir) => {
       const f = await ingestFixture(dir);
       writeFileSync(f.eventFile, eventFileText(loadRecording(NAME)));
-      new Ingestor({ office: f.office, clock: f.t.clock, pricing: f.t.state.pricing }).track(
+      new Ingestor({ office: f.office, clock: f.t.clock }).track(
         target(f, claude, claudeState(NAME)),
       );
       const stored = storedOutput(f.office, f.run);
@@ -209,7 +231,7 @@ describe("replaying success-tools-subagent", () => {
     withTempDir(async (dir) => {
       const f = await ingestFixture(dir);
       writeFileSync(f.eventFile, eventFileText(loadRecording(NAME)));
-      new Ingestor({ office: f.office, clock: f.t.clock, pricing: f.t.state.pricing }).track(
+      new Ingestor({ office: f.office, clock: f.t.clock }).track(
         target(f, claude, claudeState(NAME)),
       );
       // The first line per message id is the one counted (0008 section 4).
@@ -260,7 +282,7 @@ describe("cache-creation parts add up to the total", () => {
         const f = await ingestFixture(dir);
         writeFileSync(f.eventFile, eventFileText(loadRecording(name)));
         expect(
-          new Ingestor({ office: f.office, clock: f.t.clock, pricing: f.t.state.pricing }).track(
+          new Ingestor({ office: f.office, clock: f.t.clock }).track(
             target(f, claude, claudeState(name)),
           ).status,
         ).toBe("ended");
@@ -290,7 +312,7 @@ describe("cache-creation parts add up to the total", () => {
     withTempDir(async (dir) => {
       const f = await ingestFixture(dir);
       writeFileSync(f.eventFile, eventFileText(loadRecording("success-single")));
-      new Ingestor({ office: f.office, clock: f.t.clock, pricing: f.t.state.pricing }).track(
+      new Ingestor({ office: f.office, clock: f.t.clock }).track(
         target(f, claude, claudeState("success-single")),
       );
       expect(() =>
@@ -315,7 +337,6 @@ describe("offsets", () => {
       const first = new Ingestor({
         office: f.office,
         clock: f.t.clock,
-        pricing: f.t.state.pricing,
       });
       const partial = first.track(target(f, claude, claudeState(NAME)));
       expect(partial.status).toBe("ingested");
@@ -327,7 +348,6 @@ describe("offsets", () => {
       const second = new Ingestor({
         office: f.office,
         clock: f.t.clock,
-        pricing: f.t.state.pricing,
       });
       expect(second.track(target(f, claude, claudeState(NAME))).status).toBe("ended");
       expectTotalsMatch(f, NAME);
@@ -358,7 +378,6 @@ describe("offsets", () => {
       const ingestor = new Ingestor({
         office: f.office,
         clock: f.t.clock,
-        pricing: f.t.state.pricing,
       });
       expect(() => ingestor.track(target(f, crashing, claudeState(NAME)))).toThrow("daemon died");
       expect(countRows(f.office, "usage_messages")).toBe(0);
@@ -386,7 +405,6 @@ describe("debounce on the manual clock", () => {
       const ingestor = new Ingestor({
         office: f.office,
         clock: f.t.clock,
-        pricing: f.t.state.pricing,
       });
       appendLines(f.eventFile, all.slice(0, 3)); // started, text activity, small output
       ingestor.track(target(f, scripted(), { events: [] }));
@@ -433,7 +451,6 @@ describe("debounce on the manual clock", () => {
       const ingestor = new Ingestor({
         office: f.office,
         clock: f.t.clock,
-        pricing: f.t.state.pricing,
       });
       appendLines(f.eventFile, all.slice(0, 4));
       ingestor.track(target(f, scripted(), { events: [] }));
@@ -466,7 +483,6 @@ describe("debounce on the manual clock", () => {
       const ingestor = new Ingestor({
         office: f.office,
         clock: f.t.clock,
-        pricing: f.t.state.pricing,
       });
       appendLines(f.eventFile, lines().slice(0, 3));
       ingestor.track(target(f, scripted(), { events: [] }));
@@ -486,7 +502,6 @@ describe("debounce on the manual clock", () => {
       const ingestor = new Ingestor({
         office: f.office,
         clock: f.t.clock,
-        pricing: f.t.state.pricing,
       });
       expect(ingestor.track(target(f, scripted(), { events: [] }, { work: false })).status).toBe(
         "ended",
@@ -505,7 +520,6 @@ describe("triggers", () => {
       const ingestor = new Ingestor({
         office: f.office,
         clock: f.t.clock,
-        pricing: f.t.state.pricing,
       });
       ingestor.track(target(f, scriptedWorker({ script: SCRIPTS["done"] ?? [] }), { events: [] }));
       appendLines(f.eventFile, all.slice(0, 3));
@@ -530,7 +544,6 @@ describe("triggers", () => {
       const ingestor = new Ingestor({
         office: f.office,
         clock: f.t.clock,
-        pricing: f.t.state.pricing,
       });
       ingestor.track(target(f, scriptedWorker({ script: SCRIPTS["done"] ?? [] }), { events: [] }));
       const listeners: ((offset: number) => void)[] = [];
@@ -554,7 +567,6 @@ async function ingestHalf(dir: string) {
   const ingestor = new Ingestor({
     office: f.office,
     clock: f.t.clock,
-    pricing: f.t.state.pricing,
     hooks: { onFileChanged: (report) => reports.push(report) },
   });
   appendLines(f.eventFile, all.slice(0, 4));
@@ -595,7 +607,6 @@ describe("a changed host event file", () => {
       const again = new Ingestor({
         office: f.office,
         clock: f.t.clock,
-        pricing: f.t.state.pricing,
       });
       expect(
         again.track(target(f, scriptedWorker({ script: SCRIPTS["done"] ?? [] }), { events: [] }))
@@ -635,7 +646,6 @@ describe("a changed host event file", () => {
       const ingestor = new Ingestor({
         office: f.office,
         clock: f.t.clock,
-        pricing: f.t.state.pricing,
         hooks: { onFileChanged: (report) => reports.push(report) },
       });
       const worker = scriptedWorker({ script: SCRIPTS["done"] ?? [] });
@@ -660,7 +670,6 @@ describe("init rejection", () => {
       const ingestor = new Ingestor({
         office: f.office,
         clock: f.t.clock,
-        pricing: f.t.state.pricing,
         hooks: { onInitRejected: (_run, _agent, reason) => rejected.push(reason) },
       });
       ingestor.track(target(f, claude, claudeState(NAME)));
@@ -672,6 +681,14 @@ describe("init rejection", () => {
       ).toBe(rejected[0] ?? "");
       expect(hostLines(loadRecording(NAME)).length).toBeGreaterThan(0);
     }));
+});
+
+/** A probe for which every PID is a live process that started at 0. */
+const alive: ProcessProbe = async (pid) => ({
+  pid,
+  startTimeMs: 0,
+  zombie: false,
+  command: "dipo",
 });
 
 /** The exit columns of the fixture host's row (DIPO-88). */
@@ -700,7 +717,6 @@ describe("exit signal (DIPO-88)", () => {
       const ingestor = new Ingestor({
         office: f.office,
         clock: f.t.clock,
-        pricing: f.t.state.pricing,
         hooks: { onEnded: (_run, _agent, end) => ended.push(end) },
       });
       expect(ingestor.track(target(f, worker, { events: [] })).status).toBe("ended");
@@ -714,6 +730,31 @@ describe("exit signal (DIPO-88)", () => {
       ]);
     }));
 
+  it("ends the host row at the ingested exit line with its final offset (DIPO-330)", () =>
+    withTempDir(async (dir) => {
+      const f = await ingestFixture(dir);
+      const worker = scriptedWorker({ script: SCRIPTS["done"] ?? [] });
+      appendLines(f.eventFile, worker.lines());
+      const ingestor = new Ingestor({ office: f.office, clock: f.t.clock });
+      f.t.clock.advance(5_000);
+      expect(ingestor.track(target(f, worker, { events: [] })).status).toBe("ended");
+      expect(
+        f.office.get<{ ended_at: number | null; final_offset: number | null }>(
+          `select ended_at, final_offset from worker_hosts
+            where office_id = $office_id and run_id = $run`,
+          { run: f.run },
+        ),
+      ).toEqual({ ended_at: f.t.clock.now(), final_offset: readFileSync(f.eventFile).length });
+      // Keep-awake no longer counts the exited host, even though its PID still answers.
+      const activity = await readWorkActivity(
+        f.t.state.connection,
+        alive,
+        new WorkTracker(),
+        f.t.clock.now(),
+      );
+      expect(activity.runs).toBe(0);
+    }));
+
   it("keeps exit_signal null for a worker that exits on its own", () =>
     withTempDir(async (dir) => {
       const f = await ingestFixture(dir);
@@ -722,7 +763,6 @@ describe("exit signal (DIPO-88)", () => {
       const ingestor = new Ingestor({
         office: f.office,
         clock: f.t.clock,
-        pricing: f.t.state.pricing,
       });
       expect(ingestor.track(target(f, worker, { events: [] })).status).toBe("ended");
       expect(hostExit(f)).toEqual({ exit_code: 0, exit_signal: null, exit_signal_inferred: 0 });

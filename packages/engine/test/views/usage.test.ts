@@ -11,7 +11,7 @@ import { SoftwareStream } from "../../src/software-stream";
 import { UsageAlerts, USAGE_NOTICES } from "../../src/run/usage-alerts";
 import { deriveOfficeSummary, summarySettings } from "../../src/views";
 import { UsageMeter, sumUsage, summaryUsage, windowUsage } from "../../src/views/usage";
-import { addOffice, countingFill, openTestState, type TestState } from "../commands/helpers";
+import { addOffice, openTestState, type TestState } from "../commands/helpers";
 import type { OfficeHandle } from "../../src/db/office";
 
 const JAN_15 = Date.UTC(2026, 0, 15, 12);
@@ -25,7 +25,7 @@ function daily(
   office.immediate(() =>
     office.run(
       `insert into usage_daily (office_id, day, role, tier, model, input, output, cache_create,
-         cache_create_5m, cache_create_1h, cache_read, est_cost_micros)
+         cache_create_5m, cache_create_1h, cache_read, cost_micros)
        values ($office_id, $day, $role, 'M', 'sonnet', $input, $output, $create, $create, 0,
          $read, $cost)
        on conflict (office_id, day, role, tier, model) do update set
@@ -56,7 +56,7 @@ function live(
   office.immediate(() =>
     office.run(
       `insert into usage_totals (office_id, run_id, agent_id, model, role, tier, input,
-         live_output, est_cost_micros, final, updated_at)
+         live_output, cost_micros, final, updated_at)
        values ($office_id, $run, $agent, 'sonnet', 'developer', 'M', $input, $liveOutput, 1000, 0, 1)`,
       { run, agent: `agt-${run}`, input, liveOutput },
     ),
@@ -175,7 +175,7 @@ describe("usage in the office summary", () => {
 });
 
 function alerts(t: TestState, limits: { dayTokens?: number; monthTokens?: number }) {
-  const software = new SoftwareStream({ clock: t.clock, fill: countingFill() });
+  const software = new SoftwareStream({ clock: t.clock });
   const events: Event[] = [];
   software.onAppend((event) => events.push(event));
   const changed: string[] = [];

@@ -17,7 +17,6 @@
 import type { Usage, UsageTotals } from "@dipsaus-orchestrator/contract";
 
 import type { OfficeHandle } from "../db/office";
-import { canonicalModel } from "../pricing/estimate";
 import { REVIEWER_ROLE } from "../run/caps";
 import type { ModelUsageTotals, UsageTotalsByModel } from "../workers/types";
 
@@ -29,6 +28,18 @@ export interface UsageScope {
   readonly tier: string;
   /** The run's budget limit in tokens (0008 section 9). */
   readonly budgetLimit: number;
+}
+
+const DATE_SUFFIX = /-\d{8}$/;
+const CONTEXT_SUFFIX = /\[[^\]]*\]$/;
+
+/**
+ * The canonical id of a reported model id: a context-window marker (`[1m]`) and a snapshot date
+ * suffix (`-20250929`) are dropped, so turn totals keyed `claude-opus-5-5[1m]` match the messages
+ * the API answered as `claude-opus-5-5`.
+ */
+export function canonicalModel(model: string): string {
+  return model.trim().toLowerCase().replace(CONTEXT_SUFFIX, "").replace(DATE_SUFFIX, "");
 }
 
 /** Budget tokens of one set of numbers (0008 section 4). */
@@ -333,6 +344,29 @@ export function applyTurnTotals(
   setBudget(office, scope);
 }
 
+/**
+ * The cost the worker CLI reported at a turn end (0008): its run-cumulative USD per model, stored
+ * on the agent's rows in micro-USD as reported. A model the turn end leaves out keeps its cost.
+ * Returns the models whose cost matched no usage row, for the caller to warn about.
+ */
+export function recordReportedCost(
+  office: OfficeHandle,
+  run: string,
+  agent: string,
+  costUsd: Readonly<Record<string, number>>,
+): string[] {
+  const missing: string[] = [];
+  for (const [model, dollars] of Object.entries(costUsd)) {
+    const updated = office.run(
+      `update usage_totals set cost_micros = $micros
+       where office_id = $office_id and run_id = $run and agent_id = $agent and model = $model`,
+      { micros: Math.round(dollars * 1_000_000), run, agent, model },
+    );
+    if (updated.changes === 0) missing.push(model);
+  }
+  return missing;
+}
+
 /** Wall time of the agent, kept on its main model row. */
 export function setElapsed(
   office: OfficeHandle,
@@ -365,7 +399,7 @@ export interface TotalsRow {
   elapsed_ms: number;
   budget_used: number;
   budget_limit: number;
-  est_cost_micros: number | null;
+  cost_micros: number | null;
 }
 
 /** `yyyy-mm-dd` in UTC. */
@@ -387,7 +421,7 @@ export function finalizeAgentUsage(
   const rows = office.all<TotalsRow>(
     `select run_id, model, role, tier, input, output, cache_create, cache_create_5m,
        cache_create_1h, cache_read, turns, elapsed_ms,
-       budget_used, budget_limit, est_cost_micros
+       budget_used, budget_limit, cost_micros
      from usage_totals
      where office_id = $office_id and run_id = $run and agent_id = $agent and final = 0`,
     { run, agent },
@@ -411,7 +445,7 @@ export function finalizeAgentUsage(
     );
     office.run(
       `insert into usage_daily (office_id, day, role, tier, model, input, output, cache_create,
-         cache_create_5m, cache_create_1h, cache_read, turns, runs, est_cost_micros, budget_used,
+         cache_create_5m, cache_create_1h, cache_read, turns, runs, cost_micros, budget_used,
          budget_limit_sum)
        values ($office_id, $day, $role, $tier, $model, $input, $output, $create, $create5m,
          $create1h, $read, $turns,
@@ -425,9 +459,9 @@ export function finalizeAgentUsage(
          cache_read = cache_read + excluded.cache_read,
          turns = turns + excluded.turns,
          runs = runs + excluded.runs,
-         est_cost_micros = case
-           when excluded.est_cost_micros is null then est_cost_micros
-           else coalesce(est_cost_micros, 0) + excluded.est_cost_micros end,
+         cost_micros = case
+           when excluded.cost_micros is null then cost_micros
+           else coalesce(cost_micros, 0) + excluded.cost_micros end,
          budget_used = budget_used + excluded.budget_used,
          budget_limit_sum = budget_limit_sum + excluded.budget_limit_sum`,
       {
@@ -443,7 +477,7 @@ export function finalizeAgentUsage(
         read: row.cache_read,
         turns: row.turns,
         runs: newRun,
-        cost: row.est_cost_micros,
+        cost: row.cost_micros,
         used: row.budget_used,
         limit: newRun === 1 ? row.budget_limit : 0,
       },
@@ -576,7 +610,7 @@ export function finalRows(office: OfficeHandle, run: string, agent: string): Fin
   const rows = office.all<TotalsRow>(
     `select run_id, model, role, tier, input, output, cache_create, cache_create_5m,
        cache_create_1h, cache_read, turns, elapsed_ms,
-       budget_used, budget_limit, est_cost_micros
+       budget_used, budget_limit, cost_micros
      from usage_totals
      where office_id = $office_id and run_id = $run and agent_id = $agent and final = 1`,
     { run, agent },
@@ -612,13 +646,13 @@ export function feedFinalChanges(
       read: row.cache_read - old.cache_read,
       turns: row.turns - old.turns,
       used: row.budget_used - old.budget_used,
-      cost: row.est_cost_micros === null ? null : row.est_cost_micros - (old.est_cost_micros ?? 0),
+      cost: row.cost_micros === null ? null : row.cost_micros - (old.cost_micros ?? 0),
     };
     const moved = Object.values(change).some((value) => value !== null && value !== 0);
     if (!moved) continue;
     office.run(
       `insert into usage_daily (office_id, day, role, tier, model, input, output, cache_create,
-         cache_create_5m, cache_create_1h, cache_read, turns, runs, est_cost_micros, budget_used,
+         cache_create_5m, cache_create_1h, cache_read, turns, runs, cost_micros, budget_used,
          budget_limit_sum)
        values ($office_id, $day, $role, $tier, $model, $input, $output, $create, $create5m,
          $create1h, $read, $turns, 0, $cost, $used, 0)
@@ -630,9 +664,9 @@ export function feedFinalChanges(
          cache_create_1h = cache_create_1h + excluded.cache_create_1h,
          cache_read = cache_read + excluded.cache_read,
          turns = turns + excluded.turns,
-         est_cost_micros = case
-           when excluded.est_cost_micros is null then est_cost_micros
-           else coalesce(est_cost_micros, 0) + excluded.est_cost_micros end,
+         cost_micros = case
+           when excluded.cost_micros is null then cost_micros
+           else coalesce(cost_micros, 0) + excluded.cost_micros end,
          budget_used = budget_used + excluded.budget_used`,
       { day, role: row.role, tier: row.tier, model, ...change },
     );
