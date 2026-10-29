@@ -632,7 +632,7 @@
       }
     },
     {
-      "files": ["packages/engine/src/hooks/**"],
+      "files": ["packages/engine/src/questions/**"],
       "rules": {
         "no-restricted-imports": [
           "error",
@@ -657,7 +657,7 @@
             "patterns": [
               {
                 "group": ["**/workers/claude-cli", "**/workers/claude-cli/**"],
-                "message": "engine/src/hooks stays adapter-neutral (0008 amendment of 2026-10-12): Claude hook payloads and replies are mapped inside the adapter."
+                "message": "engine/src/questions stays adapter-neutral (0008 amendment of 2026-10-12): Claude hook payloads and replies are mapped inside the adapter."
               }
             ]
           }
@@ -791,9 +791,9 @@
         "packages/engine/src/box/web-proxy.ts",
         "packages/engine/src/context/default-provider.ts",
         "packages/engine/src/context/workspace.ts",
-        "packages/engine/src/hooks/permissions.ts",
         "packages/engine/src/host/main.ts",
         "packages/engine/src/ingest/ingestor.ts",
+        "packages/engine/src/questions/permissions.ts",
         "packages/engine/src/reconcile/reconcile.ts",
         "packages/engine/src/run/control-turns.ts",
         "packages/engine/src/run/control.ts",

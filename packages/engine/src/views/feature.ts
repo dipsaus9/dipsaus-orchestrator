@@ -24,7 +24,7 @@ import type { z } from "zod";
 import { headCursor } from "../changelog/log";
 import type { FeatureModule, ReadContext } from "../commands/registry";
 import type { OfficeHandle } from "../db/office";
-import { openQuestionViews, storyQuestionViews } from "../hooks/questions";
+import { openQuestionViews, storyQuestionViews } from "../questions/questions";
 import { readUsage } from "../ingest/usage";
 import { promptTextsOf } from "../prompts/parts";
 import { reviewVerdictOfGate, reviewVerdictView } from "../review/store";

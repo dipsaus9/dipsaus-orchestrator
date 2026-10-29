@@ -54,7 +54,7 @@ import {
 import { cleanDoorText } from "../box/door";
 import type { FeatureRegistry, ReadContext, Registry } from "../commands/registry";
 import type { OfficeHandle } from "../db/office";
-import { openParkQuestions, openQuestions, type StoredQuestion } from "../hooks/questions";
+import { openParkQuestions, openQuestions, type StoredQuestion } from "../questions/questions";
 import { heldParks, openPark } from "../run/park-state";
 import { openTestOf } from "../run/test-records";
 import { parkResumeNeed, SUGGESTED_SHARE } from "../run/resume-policy";

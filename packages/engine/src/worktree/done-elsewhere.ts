@@ -30,7 +30,7 @@ import { appendEntries, type NewEntry } from "../changelog/log";
 import { forgetContextPack } from "../context/pack";
 import type { OfficeHandle } from "../db/office";
 import type { GitSession, OfficeGit } from "../git/office";
-import { closeQuestion, openQuestions } from "../hooks/questions";
+import { closeQuestion, openQuestions } from "../questions/questions";
 import { CodeHostError, type CodeHost } from "../platform/host";
 import { forgetWorkerNotes } from "../prompts/notes";
 import { openParkIds, resolvePark } from "../run/park-records";

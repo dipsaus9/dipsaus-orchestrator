@@ -16,7 +16,7 @@ import {
 import { type OfficeConfig, PRIVACY_KEYS, privacyOptIns } from "../config";
 import type { StateDatabase } from "../db/database";
 import type { OfficeHandle } from "../db/office";
-import { openQuestions } from "../hooks/questions";
+import { openQuestions } from "../questions/questions";
 import { activeRuns } from "../run/records";
 
 import { activeStoryViews } from "./story";

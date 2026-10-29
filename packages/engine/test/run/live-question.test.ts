@@ -1,6 +1,6 @@
 // The live-question rule (DIPO-279, 0021 section 11): live only while a TUI is connected at the
 // moment of the question, otherwise park. The permission wait's own replay tests are in
-// `test/hooks/permissions.test.ts` and `test/hooks/park-answers.test.ts`.
+// `test/questions/permissions.test.ts` and `test/questions/park-answers.test.ts`.
 
 import { describe, expect, it } from "bun:test";
 

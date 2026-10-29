@@ -5,7 +5,7 @@
 // other client never counts.
 //
 // Every question source decides through `questionRoute`: the permission hook
-// (`hooks/permissions.ts`) and the question of a worker's report, the door's message W3
+// (`questions/permissions.ts`) and the question of a worker's report, the door's message W3
 // (DIPO-272): run control hands it to `LiveQuestions.askWorker`, which asks it live or leaves the
 // park to run control. The engine does not know what a TUI is; the daemon supplies `Presence`,
 // read once per question. A question that is live when the last TUI closes parks at once too

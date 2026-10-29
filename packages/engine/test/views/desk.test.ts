@@ -19,7 +19,7 @@ import { insertPr, recordCheck } from "../../src/backlog/pr/records";
 import type { OfficeDirectory } from "../../src/commands/offices";
 import { buildRegistry } from "../../src/commands/registry";
 import type { OfficeHandle } from "../../src/db/office";
-import { insertWorkerQuestion } from "../../src/hooks/questions";
+import { insertWorkerQuestion } from "../../src/questions/questions";
 import { executeRead } from "../../src/reads/execute";
 import { capabilityFlags } from "../../src/reads/hello";
 import { storeDecisionNotes, storeProposals } from "../../src/run/report-data";
