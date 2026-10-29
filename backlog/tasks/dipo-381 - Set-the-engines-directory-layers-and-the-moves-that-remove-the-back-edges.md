@@ -4,6 +4,7 @@ title: Set the engine's directory layers and the moves that remove the back-edge
 status: To Do
 assignee: []
 created_date: '2026-10-29 16:54'
+updated_date: '2026-10-29 16:55'
 labels:
   - 'tier:M'
   - 'slice:prune'
@@ -39,7 +40,8 @@ test_plan:
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 0004 names a layer for every engine directory and the order between them, with the reason for each placement, approved by the maintainer
-- [ ] #2 Each of the 31 measured back-edges is resolved in the plan by a named move, split or port (for example splitting run/ or moving the shared view types down), filed as implementation stories
-- [ ] #3 The last of those stories turns the fine dipo/engine-layers rule on with no exception and removes the coarse domain layer
+- [ ] #1 The import graph of packages/engine/src is measured again by a script kept in the repository, so the numbers can be re-checked (the 2026-10-29 count was the DIPO-318 builder's: 31 back-edges, 94 import statements)
+- [ ] #2 0004 is rewritten to name a layer for every engine directory and the order between them, with the reason for each placement, plus one line in its Replaced list; the maintainer approves the ADR change before merge
+- [ ] #3 Each measured back-edge, and the git/platform cycle, is resolved in the plan by a named move, split or port (for example splitting run/ or moving the shared view types down), filed as implementation stories
+- [ ] #4 The last of those stories turns the fine dipo/engine-layers rule on with no exception, removes the coarse domain layer, and adds a test/lint-boundaries/ fixture per layer boundary
 <!-- AC:END -->
