@@ -4,6 +4,7 @@ title: Answer dipo desk while an office is loading
 status: Refined
 assignee: []
 created_date: '2026-10-29 12:45'
+updated_date: '2026-10-29 12:47'
 labels:
   - 'tier:S'
   - 'slice:prune'
@@ -42,3 +43,9 @@ test_plan:
 - [ ] #1 The desk read does not wait for an office's load; an office that is still loading appears on the desk as loading
 - [ ] #2 A test opens an office whose load is held, and `desk` answers within the read deadline with that office marked loading
 <!-- AC:END -->
+
+## Implementation Notes
+
+<!-- SECTION:NOTES:BEGIN -->
+Mechanism to replace: a read for an office awaits `deps.offices.load(officeId)` (engine/src/reads/execute.ts), so the desk read waits for the whole office load (leftover sweep, image check) before it answers. That wait is removed for the desk: it answers from what is loaded and marks a loading office as loading. DIPO-320 adds read deadlines, which would turn this hang into a coded timedOut, not an answer, so the two stories are separate.
+<!-- SECTION:NOTES:END -->

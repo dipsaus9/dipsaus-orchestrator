@@ -4,6 +4,7 @@ title: Reap orphaned processes in every box
 status: Refined
 assignee: []
 created_date: '2026-10-29 12:45'
+updated_date: '2026-10-29 12:47'
 labels:
   - 'tier:S'
   - 'slice:prune'
@@ -43,7 +44,8 @@ test_plan:
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 Every box dipo starts (run, fill, build, Safe-Chain, review and test boxes) runs with an init process that reaps orphans, set in one place in the box argument builder
-- [ ] #2 A test with a real box (DIPO_TEST_BOX=1) starts an orphan that exits and shows it is reaped, not left as a zombie
-- [ ] #3 The keepalive, the box firewall and the box user are unchanged, shown by the existing box tests
+- [ ] #1 Every box dipo starts (run, fill, build, Safe-Chain, review and test boxes) is created with `--init`, added once in `createArgs` (box/apple-args.ts), and the header rule list there names it
+- [ ] #2 The box argument list gains nothing else: no new mount, network, capability or user, shown by the existing argument tests; the firewall, the box user and the keepalive are unchanged
+- [ ] #3 A test with a real box (DIPO_TEST_BOX=1) starts an orphan that exits and shows it is reaped, not left as a zombie, and that the keepalive still runs
+- [ ] #4 The zombie-aware checks in testkit running.ts are removed, or the PR says why a case still needs them
 <!-- AC:END -->
