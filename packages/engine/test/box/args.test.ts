@@ -658,6 +658,21 @@ describe("the Apple container argument builder", () => {
       refused(() =>
         execArgs({ name, command: partModeCommand(), rootStep: true, fullPrivilege: true }),
       );
+      // A fixed step with an environment or a working directory: the tools' loader would read
+      // LD_PRELOAD as the box's root before setpriv drops anything.
+      for (const command of steps) {
+        for (const env of [
+          { LD_PRELOAD: "/work/x.so" },
+          { LD_LIBRARY_PATH: "/work" },
+          { PATH: "/work" },
+          {},
+        ]) {
+          refused(() => execArgs({ name, command, rootStep: true, env }));
+        }
+        for (const cwd of ["/work", "/"]) {
+          refused(() => execArgs({ name, command, rootStep: true, cwd }));
+        }
+      }
     }
     // A build box keeps its own list, for any root step, the fixed ones among them.
     for (const command of [

@@ -351,6 +351,14 @@ function privilegeOf(input: ExecInput, name: string): "full" | "buildRoot" | "ro
         command: input.command[0],
       });
     }
+    // The tools' loader runs as the box's root before setpriv drops anything, so no variable
+    // (`LD_PRELOAD`, `LD_LIBRARY_PATH`) and no working directory of the caller's reaches it.
+    if (input.env !== undefined || input.cwd !== undefined) {
+      refuse("a fixed root step takes no environment and no working directory.", {
+        name,
+        command: input.command[0],
+      });
+    }
     return "root";
   }
   return "user";
