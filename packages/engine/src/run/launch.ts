@@ -322,7 +322,8 @@ export function runWorkerSpec(
       // The reviewer's turns and minutes count only toward its own caps (0019 section 13); the
       // tokens are the story's budget.
       caps: { ...caps, maxTurns: reviewer.maxTurns, maxMinutes: reviewer.maxMinutes },
-      web: true,
+      // The reviewer's tools, web search and fetch among them, come with its kind (0002).
+      web: false,
       // The reviewer never resumes (0008 section 8).
       session: { id: session.id, resume: false },
       reportSchema: worker.reportSchema.review,

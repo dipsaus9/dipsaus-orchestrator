@@ -7,7 +7,6 @@
 // dipo's post-run token check (`box/token-check.ts`) and the box checks of `adapter.ts` hold the
 // adapter. The checks that proved the developer's Bash sandbox on the Mac went with that sandbox.
 
-import { allowedTools } from "./tools";
 import type { Clock, Spawn } from "@dipsaus-orchestrator/contract";
 
 import { gateLaunch, type AdapterHold, type AdapterHolds, type LaunchCheckOutcome } from "../hold";
@@ -26,38 +25,15 @@ export interface ClaudeLaunchCheckDeps {
 }
 
 /**
- * Tools that load project agents or skills. 0008 section 2 asks for a frontmatter check of
- * `.claude/agents/*.md` and the skills for such roles; until it exists they are refused.
- */
-export const UNCHECKED_TOOLS: readonly string[] = ["Agent", "Task", "Skill"];
-
-/** The tools among `tools` that would load project agents or skills; none passes the checks. */
-export function uncheckedTools(tools: readonly string[]): string[] {
-  return tools.filter((tool) => UNCHECKED_TOOLS.includes(tool));
-}
-
-/**
- * The checks in order; a later one runs only when the earlier ones pass: the tools, the probe
- * (version and login), then the project settings of the session's folder.
+ * The checks in order; a later one runs only when the earlier ones pass: the probe (version and
+ * login), then the project settings of the session's folder. No kind's tools load project agents
+ * or skills (`allowedTools`, DIPO-318), so no tools check is left to run.
  */
 export async function claudeLaunchChecks(
   spec: WorkerSpec,
   launch: LaunchPlan,
   deps: ClaudeLaunchCheckDeps,
 ): Promise<LaunchCheckOutcome> {
-  const unchecked = uncheckedTools(allowedTools(spec));
-  if (unchecked.length > 0) {
-    return {
-      ok: false,
-      failures: unchecked.map((tool) => ({
-        check: "tools",
-        key: tool,
-        detail:
-          "a role with this tool loads .claude/agents and skills, whose frontmatter can set permissionMode and hooks, and that check does not exist yet (0008 section 2)",
-        fix: "Remove the tool from the role until the agents and skills check is built.",
-      })),
-    };
-  }
   const status = await probe({
     spawn: deps.spawn,
     clock: deps.clock,

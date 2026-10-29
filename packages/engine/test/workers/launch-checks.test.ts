@@ -16,7 +16,7 @@ import type { Event } from "@dipsaus-orchestrator/contract";
 import { ManualClock, withTempDir } from "@dipsaus-orchestrator/testkit";
 
 import { SoftwareStream } from "../../src/software-stream/stream";
-import { prepareLaunch, uncheckedTools } from "../../src/workers/claude-cli/launch-checks";
+import { prepareLaunch } from "../../src/workers/claude-cli/launch-checks";
 import { allowedTools } from "../../src/workers/claude-cli/tools";
 import {
   CLAUDE_CLI_ADAPTER_ID,
@@ -166,15 +166,12 @@ describe("(engine) a developer or reviewer session is never planned on the Mac (
   });
 });
 
-describe("(engine) roles with unchecked tools", () => {
-  it.each(["Agent", "Task", "Skill"])("finds %s among a role's tools as unchecked", (tool) => {
-    expect(uncheckedTools(["Read", tool])).toEqual([tool]);
-  });
-
-  it("gives no kind of session a tool that loads project agents or skills (DIPO-318)", () => {
+describe("(engine) the tools that load project agents or skills (0008 section 2)", () => {
+  it("are in no kind's tools, so no role loads .claude/agents or skills (DIPO-318)", () => {
     for (const kind of ["implement", "review", "session"] as const) {
       for (const web of [true, false]) {
-        expect(uncheckedTools(allowedTools({ kind, web }))).toEqual([]);
+        const tools = allowedTools({ kind, web });
+        expect(tools.filter((tool) => ["Agent", "Task", "Skill"].includes(tool))).toEqual([]);
       }
     }
   });

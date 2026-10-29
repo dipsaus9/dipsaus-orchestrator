@@ -16,7 +16,7 @@
 // exits, since a killed `container exec` client leaves claude running in the box.
 //
 // A reviewer session (0002, 0008) runs the same way in its own read-only box (`BoxWorkers.review`),
-// with only the reviewer's tools (`--tools`, refused by `checkSpec` for anything else), its empty
+// with only the reviewer's tools (`--tools`, named by `allowedTools` from its kind), its empty
 // working directory beside the copy and the copy added as a directory (`--add-dir`), and only the
 // box user's settings (`--setting-sources user`): no settings, hooks or MCP servers of the copy
 // load.

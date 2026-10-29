@@ -52,9 +52,9 @@ export interface WorkerSpec {
   /** The L4 task message (0014 section 1); the first user message, never on argv. */
   readonly taskMessage: string;
   /**
-   * Whether the worker may search and fetch the web (0020 section 11b): the reviewer always, the
-   * developer when the office allows it, a `session` never. The adapter names the tools of each
-   * kind; the engine names none (DIPO-318).
+   * Whether the developer may search and fetch the web (0020 section 11b); false for every other
+   * kind, which the adapter refuses otherwise. The reviewer's web tools come with its kind. The
+   * adapter names the tools of each kind; the engine names none (DIPO-318).
    */
   readonly web: boolean;
   /** Engine-made session id; `resume` continues that session instead of starting it. */

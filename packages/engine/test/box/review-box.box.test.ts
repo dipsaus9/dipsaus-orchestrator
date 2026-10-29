@@ -13,10 +13,10 @@
 //   exported from the Mac, does not hold the marker of a listed file the developer's box gets); a
 //   write to the copy fails in every form; no service of the Mac is reached, directly or through
 //   the web proxy;
-// - the bypass forms: a symlink of the commit that points outside the copy is not in it; a shell or
-//   a write tool asked for in a reviewer's spec is refused before any session (`checkSpec`), and the
-//   planned session names only the reviewer's tools; a proxy setting changed in the box (no proxy,
-//   another port of the Mac) reaches nothing;
+// - the bypass forms: a symlink of the commit that points outside the copy is not in it; a spec
+//   carrying a shell or a write tool still plans only the reviewer's tools, and the web switch on a
+//   review spec is refused before any session (`checkSpec`); a proxy setting changed in the box (no
+//   proxy, another port of the Mac) reaches nothing;
 // - fail closed against the real path: with the reviewer box's firewall missing (the backend's set
 //   step left out, its real check kept), the review does not start and the box is deleted;
 // - the box is deleted when the session ends.
@@ -62,7 +62,7 @@ import { REVIEW_TOOLS } from "../../src/workers/claude-cli/tools";
 import { planInBox } from "../../src/workers/claude-cli/box-plan";
 import { REPORT_JSON_SCHEMAS } from "../../src/workers/claude-cli/report-schema";
 import { AdapterHolds } from "../../src/workers/hold";
-import type { WorkerSpec } from "../../src/workers/types";
+import { PlanError, type WorkerSpec } from "../../src/workers/types";
 
 const registers =
   process.env["DIPO_TEST_BOX"] === "1" &&
@@ -316,7 +316,7 @@ function reviewerSpec(systemFile: string, overrides: Partial<WorkerSpec> = {}): 
     caps: { budgetTokens: 100_000, maxTurns: 4, maxMinutes: 5 },
     systemFile,
     taskMessage: `Read ${REVIEW_CODE_DIR}/README.md, then report every criterion as none and the summary "ok".`,
-    web: true,
+    web: false,
     session: { id: crypto.randomUUID(), resume: false },
     reportSchema: REPORT_JSON_SCHEMAS.review,
     ...overrides,
@@ -436,20 +436,20 @@ if (registers) {
               expect(noProxy).toBe("closed");
               expect(otherPort).toBe("closed");
 
-              // Bypass: a spec names no tools (DIPO-318); one with the web off, or carrying a
-              // tool list as an older caller would, still gets exactly the review set.
-              for (const asked of [
-                reviewerSpec(s.systemFile, { web: false }),
-                {
-                  ...reviewerSpec(s.systemFile),
-                  tools: { allow: ["Bash", "Edit", "Write"], deny: [] },
-                },
-              ]) {
-                const planned = planInBox(asked, session, tmp);
-                expect(planned.argv[planned.argv.indexOf("--tools") + 1]).toBe(
-                  REVIEW_TOOLS.join(","),
-                );
-              }
+              // Bypass: a spec names no tools (DIPO-318); one carrying a tool list as an older
+              // caller would still gets exactly the review set, and the web switch on a review
+              // spec is refused before any session.
+              const asked = {
+                ...reviewerSpec(s.systemFile),
+                tools: { allow: ["Bash", "Edit", "Write"], deny: [] },
+              };
+              const planned = planInBox(asked, session, tmp);
+              expect(planned.argv[planned.argv.indexOf("--tools") + 1]).toBe(
+                REVIEW_TOOLS.join(","),
+              );
+              expect(() =>
+                planInBox(reviewerSpec(s.systemFile, { web: true }), session, tmp),
+              ).toThrow(PlanError);
 
               // What the old barrier caught: no value of box.files anywhere in the box.
               const exported = join(tmp, "review-box.tar");

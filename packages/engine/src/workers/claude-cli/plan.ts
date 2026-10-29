@@ -245,9 +245,13 @@ export function checkSpec(spec: WorkerSpec): void {
   if (!Number.isInteger(spec.caps.maxTurns) || spec.caps.maxTurns <= 0) {
     throw new PlanError(`maxTurns must be a positive integer: ${spec.caps.maxTurns}`);
   }
-  // Every tool off (0021 amendment of 2026-10-22, DIPO-310): no read, shell or web.
-  if (spec.kind === "session" && spec.web) {
+  // `web` is the developer's switch (0020 section 11b). A session runs with every tool off (DIPO-310)
+  // and the reviewer has its own tool set (0002), so neither takes it.
+  if (spec.kind === "session" && spec.web === true) {
     throw new PlanError("a session runs with every tool off, the web too (DIPO-310)");
+  }
+  if (spec.kind === "review" && spec.web === true) {
+    throw new PlanError("a review session has its own tools (0002); web is the developer's switch");
   }
   if (spec.taskMessage.length === 0) throw new PlanError("the task message is empty");
 }

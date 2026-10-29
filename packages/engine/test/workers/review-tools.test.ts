@@ -17,10 +17,10 @@ import { claudeWorkerPort } from "../../src/workers/claude-cli/adapter";
 import { BOX_CLAUDE, planInBox } from "../../src/workers/claude-cli/box-plan";
 import { plan, REVIEWER_ON_MAC_REFUSED } from "../../src/workers/claude-cli/plan";
 import { REVIEW_REPORT_JSON_SCHEMA } from "../../src/workers/claude-cli/report-schema";
-import { REVIEW_TOOLS } from "../../src/workers/claude-cli/tools";
+import { allowedTools, REVIEW_TOOLS } from "../../src/workers/claude-cli/tools";
 import { AdapterHolds } from "../../src/workers/hold";
 import type { RunLaunchPaths } from "../../src/workers/port";
-import { PlanError } from "../../src/workers/types";
+import { PlanError, type WorkerSpec } from "../../src/workers/types";
 import { FAKE_CONTAINER, FakeBoxes } from "../box/fake-boxes";
 import {
   context,
@@ -92,17 +92,34 @@ describe("the reviewer's tool set (0002)", () => {
     expect(argv).not.toContain("--resume");
   });
 
-  it("gives a review session only those tools, whatever its spec says (bypass: a tool asked for)", () => {
+  it("gives a review session only those tools, whatever its spec carries (bypass: a tool asked for)", () => {
     // A spec names no tools (DIPO-318): the adapter takes the review set from the kind. A spec
-    // with the web off, or one carrying a tool list as an older caller would, still gets exactly
-    // the review set: no shell, no write tool, nothing else.
-    for (const asked of [
-      reviewSpec({ web: false }),
-      { ...reviewSpec(), tools: { allow: ["Bash", "Edit", "Write", "Task", "Agent"], deny: [] } },
-    ]) {
-      const argv = inBox(planInBox(asked, reviewBox(), RUN_DIR).argv);
+    // carrying a tool list as an older caller would, as its own field or on its prototype, still
+    // gets exactly the review set: no shell, no write tool, nothing else.
+    const asked = ["Bash", "Edit", "Write", "Task", "Agent"];
+    const polluted = Object.assign(
+      Object.create({ tools: { allow: asked, deny: [] } }) as WorkerSpec,
+      reviewSpec(),
+    );
+    for (const spec of [{ ...reviewSpec(), tools: { allow: asked, deny: [] } }, polluted]) {
+      const argv = inBox(planInBox(spec, reviewBox(), RUN_DIR).argv);
       expect(flag(argv, "--tools")).toBe(REVIEW_TOOLS.join(","));
     }
+  });
+
+  it("refuses the web switch on a review spec, also when it comes from the prototype", () => {
+    // `web` is the developer's switch (0020 section 11b); the reviewer's web tools come with its kind.
+    expect(() => planInBox(reviewSpec({ web: true }), reviewBox(), RUN_DIR)).toThrow(PlanError);
+    const { web: _web, ...own } = reviewSpec();
+    const inherited = Object.assign(Object.create({ web: true }) as WorkerSpec, own);
+    expect(inherited.web).toBe(true);
+    expect(() => planInBox(inherited, reviewBox(), RUN_DIR)).toThrow(/developer's switch/);
+  });
+
+  it("refuses a kind it names no tools for, never giving it the developer's", () => {
+    const unknown = reviewSpec({ kind: "plan" });
+    expect(() => planInBox(unknown, reviewBox(), RUN_DIR)).toThrow(PlanError);
+    expect(() => allowedTools(unknown)).toThrow(/no tools are named for worker kind "plan"/);
   });
 });
 

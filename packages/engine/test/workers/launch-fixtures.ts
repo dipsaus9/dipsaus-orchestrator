@@ -69,7 +69,7 @@ export function reviewSpec(overrides: Partial<WorkerSpec> = {}): WorkerSpec {
     effort: "high",
     caps: { budgetTokens: 200_000, maxTurns: 60, maxMinutes: 30 },
     systemFile: `${RUN_DIR}/system-review.md`,
-    web: true,
+    web: false,
     reportSchema: REVIEW_REPORT_JSON_SCHEMA,
     ...overrides,
   });

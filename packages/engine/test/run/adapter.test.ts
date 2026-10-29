@@ -123,7 +123,7 @@ describe("the worker port seam (DIPO-113)", () => {
     expect(specOf({ web: false }).web).toBe(false);
     const reviewer = specOf({ web: false, reviewer: OFFICE_DEFAULTS.review });
     expect(reviewer.kind).toBe("review");
-    expect(reviewer.web).toBe(true);
+    expect(reviewer.web).toBe(false);
   });
 
   it("builds a reviewer's WorkerSpec: kind review, the review model and effort, the ReviewReport schema (DIPO-145)", () => {
@@ -146,7 +146,7 @@ describe("the worker port seam (DIPO-113)", () => {
       maxTurns: 40,
       maxMinutes: OFFICE_DEFAULTS.review.maxMinutes,
     });
-    expect(built.web).toBe(true);
+    expect(built.web).toBe(false);
     expect(built.session).toEqual({ id: "s-2", resume: false });
     expect(built.systemFile).toBe(`${RUN_DIR}/${REVIEW_SYSTEM_FILE}`);
     expect(built.reportSchema).toBe(REVIEW_REPORT_JSON_SCHEMA);

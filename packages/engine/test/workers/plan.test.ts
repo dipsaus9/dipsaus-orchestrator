@@ -126,7 +126,7 @@ describe("a developer or reviewer session on the Mac (DIPO-240, DIPO-347)", () =
     const reviewer = spec({
       kind: "review",
       workdir: "/home/maintainer/code/shop.worktrees/DIPO-999",
-      web: true,
+      web: false,
     });
     expect(() => plan(reviewer, context())).toThrow(REVIEWER_ON_MAC_REFUSED);
   });
