@@ -20,7 +20,7 @@ import {
   PrStatePoll,
   type PrStatePollConsumer,
   type PrStateReads,
-} from "../../src/platform/pr-state";
+} from "../../src/story-pr/pr-state";
 import type { StoryPrGit } from "../../src/story-pr/git";
 import { StoryPrs } from "../../src/story-pr/prs";
 import { StoryTeardown } from "../../src/worktree/done";

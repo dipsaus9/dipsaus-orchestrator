@@ -65,7 +65,7 @@ import {
   type HostPr,
   type PrReviewHost,
 } from "../platform/host";
-import type { PrStateReads } from "../platform/pr-state";
+import type { PrStateReads } from "../story-pr/pr-state";
 import type { FixItem } from "../prompts/feedback";
 import {
   latestVerdictOfRun,

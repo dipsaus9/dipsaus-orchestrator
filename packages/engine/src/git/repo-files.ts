@@ -9,10 +9,10 @@ import { isAbsolute, join, normalize } from "node:path";
 
 import type { Clock, Spawn } from "@dipsaus-orchestrator/contract";
 
-import { clockSleep, runGitStep, spawnGitExec } from "../git/runner";
+import { clockSleep, runGitStep, spawnGitExec } from "./runner";
 
-import { systemClock } from "./clock";
-import { systemSpawn } from "./process";
+import { systemClock } from "../platform/clock";
+import { systemSpawn } from "../platform/process";
 
 export interface RepoFiles {
   /** Repo-relative POSIX paths of tracked and untracked, not ignored files. */

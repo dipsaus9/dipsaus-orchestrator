@@ -25,7 +25,7 @@ import type { FeatureModule } from "../commands/registry";
 import { OFFICE_DEFAULTS, type OfficeConfig } from "../config";
 import type { Logger } from "../log/logger";
 
-import type { CodeHost, HostPr, PrStateHost } from "./host";
+import type { CodeHost, HostPr, PrStateHost } from "../platform/host";
 
 /** The load step that arms the office's PR-state poll. */
 export const PR_STATE_STEP = "prState.poll";

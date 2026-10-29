@@ -1,6 +1,6 @@
 // Deadlines of the external calls the engine waits on (DIPO-314): the Backlog CLI
 // (`backlog/runner.ts`), `gh` (`platform/host.ts`) and every git step (`git/runner.ts`,
-// `platform/repo-files.ts`, `office/repository.ts`). Each call starts its child in its own process
+// `git/repo-files.ts`, `office/repository.ts`). Each call starts its child in its own process
 // group (`detached`). Past its deadline on the engine clock the group gets SIGTERM, so git can
 // remove the lock files it holds; a child that has not exited `KILL_GRACE_MS` later gets SIGKILL
 // with its group. The call then fails with a coded `timedOut` error that names the command and the

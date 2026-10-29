@@ -17,7 +17,7 @@ import { OfficeManager } from "../office/manager";
 import { trackEngineCalls } from "../platform/deadline";
 import { GhHost } from "../platform/host";
 import { createSystemIds } from "../platform/ids";
-import { PrStatePoll } from "../platform/pr-state";
+import { PrStatePoll } from "../story-pr/pr-state";
 import { ChildProcesses } from "../platform/process";
 import { SoftwareStream } from "../software-stream";
 import type { StoryStore } from "../story-store/store";

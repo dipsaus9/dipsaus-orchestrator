@@ -10,7 +10,7 @@ import { join } from "node:path";
 
 import { withTempDir } from "@dipsaus-orchestrator/testkit";
 
-import type { RepoFiles } from "../../src/platform/repo-files";
+import type { RepoFiles } from "../../src/git/repo-files";
 import { detect, type Probe } from "../../src/scan/detect";
 import {
   buildEvidence,

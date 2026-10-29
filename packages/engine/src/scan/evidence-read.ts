@@ -7,7 +7,7 @@
 import { lstat, readFile, realpath } from "node:fs/promises";
 import { join, sep } from "node:path";
 
-import type { RepoFiles } from "../platform/repo-files";
+import type { RepoFiles } from "../git/repo-files";
 
 import { EVIDENCE_FILE_BYTES, evidenceFiles, isEnvName } from "./evidence";
 

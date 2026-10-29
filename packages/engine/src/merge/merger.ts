@@ -19,7 +19,7 @@ import { OFFICE_DEFAULTS, type OfficeConfig } from "../config";
 import type { OfficeHandle } from "../db/office";
 import type { Logger } from "../log/logger";
 import type { AutoMergeHost, CodeHost } from "../platform/host";
-import type { PrStatePoll, PrStateReads } from "../platform/pr-state";
+import type { PrStatePoll, PrStateReads } from "../story-pr/pr-state";
 
 import type { StoredMergeGate } from "./gates";
 import { type StoryMergeContext, type StoryMergeDeps, StoryMerges } from "./stories";

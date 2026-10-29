@@ -76,7 +76,7 @@ import type { FeatureModule } from "../commands/registry";
 import { OFFICE_DEFAULTS, type OfficeConfig } from "../config";
 import type { OfficeHandle } from "../db/office";
 import type { Logger } from "../log/logger";
-import type { PrStatePoll, PrStateReads } from "../platform/pr-state";
+import type { PrStatePoll, PrStateReads } from "./pr-state";
 import {
   type AutoMergeHost,
   type CodeHost,
