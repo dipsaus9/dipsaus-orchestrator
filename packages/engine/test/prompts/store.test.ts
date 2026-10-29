@@ -82,37 +82,37 @@ describe("prompt_parts", () => {
 });
 
 describe("worker_notes", () => {
-  it("stores the notes of a report per worktree and returns the newest", () =>
+  it("stores the notes of a report per branch and returns the newest", () =>
     withOffice((t, office) => {
-      expect(latestWorkerNotes(office, "/w/a")).toBeNull();
+      expect(latestWorkerNotes(office, "T-1/a")).toBeNull();
       expect(
         recordWorkerNotes(
           office,
-          { worktree: "/w/a", run: "run-1", agent: "agt-1", role: "developer", notes: "   " },
+          { branch: "T-1/a", run: "run-1", agent: "agt-1", role: "developer", notes: "   " },
           t.clock,
         ),
       ).toBeNull();
       recordWorkerNotes(
         office,
-        { worktree: "/w/a", run: "run-1", agent: "agt-1", role: "developer", notes: "first" },
+        { branch: "T-1/a", run: "run-1", agent: "agt-1", role: "developer", notes: "first" },
         t.clock,
       );
       t.clock.advance(1_000);
       recordWorkerNotes(
         office,
-        { worktree: "/w/a", run: "run-1", agent: "agt-2", role: "developer", notes: "second" },
+        { branch: "T-1/a", run: "run-1", agent: "agt-2", role: "developer", notes: "second" },
         t.clock,
       );
       recordWorkerNotes(
         office,
-        { worktree: "/w/b", run: "run-2", agent: "agt-3", role: "developer", notes: "other" },
+        { branch: "T-2/b", run: "run-2", agent: "agt-3", role: "developer", notes: "other" },
         t.clock,
       );
-      expect(latestWorkerNotes(office, "/w/a")?.text).toBe("second");
-      expect(latestWorkerNotes(office, "/w/a")?.agent).toBe("agt-2");
-      forgetWorkerNotes(office, "/w/a");
-      expect(latestWorkerNotes(office, "/w/a")).toBeNull();
-      expect(latestWorkerNotes(office, "/w/b")?.text).toBe("other");
+      expect(latestWorkerNotes(office, "T-1/a")?.text).toBe("second");
+      expect(latestWorkerNotes(office, "T-1/a")?.agent).toBe("agt-2");
+      forgetWorkerNotes(office, "T-1/a");
+      expect(latestWorkerNotes(office, "T-1/a")).toBeNull();
+      expect(latestWorkerNotes(office, "T-2/b")?.text).toBe("other");
     }));
 
   it("cuts notes over 1,500 characters with a marker", () =>
@@ -122,7 +122,7 @@ describe("worker_notes", () => {
       );
       const record = recordWorkerNotes(
         office,
-        { worktree: "/w/a", run: "run-1", agent: "agt-1", role: "developer", notes },
+        { branch: "T-1/a", run: "run-1", agent: "agt-1", role: "developer", notes },
         t.clock,
       );
       expect(record?.text.length).toBeLessThanOrEqual(WORKER_NOTES_MAX);
@@ -131,7 +131,7 @@ describe("worker_notes", () => {
       const oneLine = recordWorkerNotes(
         office,
         {
-          worktree: "/w/b",
+          branch: "T-1/a",
           run: "run-1",
           agent: "agt-1",
           role: "developer",
@@ -145,7 +145,7 @@ describe("worker_notes", () => {
 });
 
 describe("handoff block", () => {
-  it("holds git state, criteria, verify, feedback and the stored notes, cut at 1,500", () =>
+  it("holds the branch's commits, criteria, verify, feedback and the stored notes, cut at 1,500", () =>
     withOffice((t, office) =>
       withTempRepo(
         async (repo) => {
@@ -153,13 +153,13 @@ describe("handoff block", () => {
           const base = await repo.commitAll("base");
           writeFileSync(join(dir, "src/greet.ts"), "export const greet = () => 'hello';\n");
           await repo.commitAll("Add the greet function");
-          writeFileSync(join(dir, "src/greet.ts"), "export const greet = () => 'hello!';\n");
+          // A file left in the checkout is not the story's: a story has no worktree (DIPO-349).
           writeFileSync(join(dir, "src/new.ts"), "export {};\n");
 
           const notes = `Next: wire the usage line.\n${"z".repeat(2_000)}`;
           recordWorkerNotes(
             office,
-            { worktree: dir, run: "run-1", agent: "agt-1", role: "developer", notes },
+            { branch: "main", run: "run-1", agent: "agt-1", role: "developer", notes },
             t.clock,
           );
 
@@ -180,7 +180,7 @@ describe("handoff block", () => {
           });
           const facts = await gatherHandoff({
             git,
-            location: { kind: "worktree", commonDir, gitDir: commonDir, workTree: dir },
+            branch: "main",
             base,
             office,
             lastReport: { criteria: [{ n: 1, met: true, evidence: "test passes" }] },
@@ -188,16 +188,14 @@ describe("handoff block", () => {
             openFeedback: [feedback],
           });
           expect(facts.commits).toMatch(/^[0-9a-f]{7,} Add the greet function$/);
-          expect(facts.diffstat).toContain("src/greet.ts | 2 +-");
-          expect(facts.untracked).toEqual(["src/new.ts"]);
           expect(facts.notes?.length).toBeLessThanOrEqual(WORKER_NOTES_MAX);
 
           const block = renderHandoff(facts);
           expect(block).toStartWith("<handoff>\n");
           expect(block).toEndWith("\n</handoff>");
           expect(block).toContain("Add the greet function");
-          expect(block).toContain("src/greet.ts | 2 +-");
-          expect(block).toContain("Untracked files:\nsrc/new.ts\n");
+          expect(block).not.toContain("src/new.ts");
+          expect(block).toContain("Changes not delivered yet:\nnone\n");
           expect(block).toContain("Criteria status from the last report:\n#1 met\n");
           expect(block).toContain("Last verify result:\nfailed at the test step with exit code 1");
           expect(block).toContain("Open feedback:\n- Verify failed at the test step.\n");
@@ -217,8 +215,6 @@ describe("handoff block", () => {
   it("says none for a fresh branch with nothing to hand off", () => {
     const block = renderHandoff({
       commits: "",
-      diffstat: "",
-      untracked: [],
       criteria: null,
       verify: null,
       feedback: [],
@@ -230,9 +226,7 @@ describe("handoff block", () => {
         "An earlier session worked on this story. This is the state it left behind.",
         "Commits on this branch:",
         "none",
-        "Uncommitted changes:",
-        "none",
-        "Untracked files:",
+        "Changes not delivered yet:",
         "none",
         "Criteria status from the last report:",
         "none",
@@ -249,11 +243,8 @@ describe("handoff block", () => {
 
   it("cuts long git lists with a marker and stays within the budget", () => {
     const commits = Array.from({ length: 300 }, (_, i) => `abc${i} Commit ${i}`).join("\n");
-    const untracked = Array.from({ length: 300 }, (_, i) => `src/file-${i}.ts`);
     const block = renderHandoff({
       commits,
-      diffstat: commits,
-      untracked,
       criteria: null,
       verify: { passed: true },
       feedback: [],
@@ -261,7 +252,6 @@ describe("handoff block", () => {
     });
     expect(block.length).toBeLessThanOrEqual(6_000);
     expect(block).toContain("run git log for the rest.]");
-    expect(block).toContain("run git status for the rest.]");
     expect(block).toContain("Last verify result:\npassed");
   });
 });

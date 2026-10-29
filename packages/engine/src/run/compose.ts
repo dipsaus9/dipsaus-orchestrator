@@ -108,8 +108,7 @@ export interface RunPorts {
   readonly tracker?: (control: RunControl) => NonNullable<RunLauncherDeps["control"]>;
   /** Replaces ingestion as the resumer's (a test recording each start). */
   readonly resumeIngest?: (ingest: OfficeIngest) => RunIngest;
-  /** DIPO-39's worktree setup of a claimed story, before its worker starts. */
-  readonly setup: RunLauncherDeps["setup"];
+
   /**
    * The box workers (DIPO-271, DIPO-278): every developer works in its story's box, made at the
    * launch and made again before a later session when it was lost. No box runs without them.
@@ -229,6 +228,7 @@ function buildRunListeners(ports: RunPorts, control: RunControl | null, late: La
   });
   const webCalls = new WebCalls({
     offices: ports.offices,
+    checkout: (office) => ports.git(office)?.mainWorktree,
     ...given("warn", ports.warn),
   });
   const onEnded = ports.ingest.onEnded;
@@ -255,7 +255,7 @@ function buildIngest(
     pricing: ports.ingest.pricing,
     ...(control === null ? {} : { hooks: control.hooks }),
     runEvents,
-    // No env value of the worktree reaches the stored web lines (0020 section 11b, DIPO-164).
+    // No env value of the listed files reaches the stored web lines (0020 section 11b, DIPO-164).
     redactOutput: (office, run, text) => webCalls.redactOutput(office, run, text),
     ...given("watchdog", ports.ingest.watchdog),
     ...given("onAppended", ports.onChanged),
@@ -381,7 +381,7 @@ function buildOutcomes(
     park: (office, run, work, ending) => control.park(office, run, work, ending),
     // A verdict on another commit holds for a head with the same code tree (0019 section 6).
     treeKey: (office, run, taskFile, head) =>
-      gitReviewOps(ports.git).codeTreeKey(office, run.worktree ?? "", taskFile, head),
+      gitReviewOps(ports.git).codeTreeKey(office, taskFile, head),
     ...given("refreshStory", ports.refreshStory),
     ...given("onChanged", ports.onChanged),
     ...given("warn", ports.warn),
@@ -437,11 +437,9 @@ function conflictResumesOf(
     restoreStatus: async (office, run) => {
       const unpark = ports.outcomes?.unpark;
       if (unpark === undefined || run.story === null || run.branch === null) return;
-      if (run.worktree === null) return;
       await unpark.lift(office, {
         story: run.story,
         branch: run.branch,
-        worktree: run.worktree,
         to: "In Progress",
       });
     },
@@ -552,7 +550,6 @@ function buildLauncher(
   return new RunLauncher({
     worker: ports.worker,
     git: ports.git,
-    setup: ports.setup,
     dependencies: async (office, ids) =>
       ids.length === 0 ? [] : (await ports.base.read(office, ids)).views,
     runtimeDir: ports.runtimeDir,

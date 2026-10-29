@@ -1,12 +1,11 @@
 // CI only (0017): `story.park` of a story with no run, its `work.resume` and `story.drop` on real
 // temporary repositories, a bare remote and the pinned Backlog CLI (DIPO-160, DIPO-344; 0020). The
-// lane writes F16 and the archive on its engine branch; a drop with `deleteBranch` removes a dirty
-// worktree and deletes the branch locally and on the remote; a drop without it refuses the dirty
-// worktree, then keeps the branch and records it as released. Fast versions of the command rules
-// are in planning.test.ts.
+// lane writes F16 and the archive on its engine branch; a drop with `deleteBranch` deletes the
+// branch locally and on the remote; a drop without it keeps the branch and records it as released.
+// A claim has no worktree (DIPO-349). Fast versions of the command rules are in planning.test.ts.
 
 import { describe, expect, it } from "bun:test";
-import { existsSync, writeFileSync } from "node:fs";
+import { writeFileSync } from "node:fs";
 import { join } from "node:path";
 
 import { type OfficeId, RequestId, StoryId, type StoryKey } from "@dipsaus-orchestrator/contract";
@@ -45,6 +44,7 @@ import {
 import {
   BACKLOG_FIXTURE,
   BRANCH_1,
+  byHandOn,
   claimSetup,
   type ClaimSetup,
   inRemote,
@@ -191,7 +191,7 @@ if (process.env["DIPO_TEST_CI"] === "1") {
   });
 
   describe("drop through the real planning lane", () => {
-    it("removes a dirty worktree and deletes the branch locally and on the remote with deleteBranch", async () => {
+    it("deletes the branch locally and on the remote with deleteBranch", async () => {
       await withBareRemote(async (repo) => {
         await publish(repo);
         const s = await claimSetup(repo);
@@ -225,25 +225,13 @@ if (process.env["DIPO_TEST_CI"] === "1") {
             closedAt: null,
           });
         });
-        // The branch is on the remote after the claim, and the worktree is dirty two ways.
+        // The branch is on the remote after the claim.
         expect(await branchExists(repo.remote, repo.home, BRANCH_1)).toBe(true);
-        writeFileSync(join(claim.worktree, "scratch.txt"), "untracked\n");
-        writeFileSync(join(claim.worktree, "README.md"), "changed\n");
-
-        // Without the flag the dirty worktree is refused with its files, and nothing changed.
-        const refused = await send("story.drop", { story: TASK_1, deleteBranch: false });
-        expect(refused).toMatchObject({ ok: false, error: { code: "story.dirtyWorktree" } });
-        const message = refused.ok ? "" : refused.error.message;
-        expect(message).toContain("scratch.txt");
-        expect(message).toContain("README.md");
-        expect(existsSync(claim.worktree)).toBe(true);
         expect(liveClaimOf(s.office, key)).not.toBeNull();
-        expect(allEntries(s.office)).toEqual([]);
         expect(closed).toEqual([]);
 
         const dropped = await send("story.drop", { story: TASK_1, deleteBranch: true });
         expect(dropped).toMatchObject({ ok: true, changed: true, result: { story: TASK_1, key } });
-        expect(existsSync(claim.worktree)).toBe(false);
         expect(await branchExists(repo.dir, repo.home, `refs/heads/${BRANCH_1}`)).toBe(false);
         expect(await branchExists(repo.remote, repo.home, `refs/heads/${BRANCH_1}`)).toBe(false);
         expect(liveClaimOf(s.office, key)).toBeNull();
@@ -274,11 +262,9 @@ if (process.env["DIPO_TEST_CI"] === "1") {
         });
         const outcome = await claimStory(s.deps(), s.request(key));
         if (!outcome.ok) throw new Error(`no claim: ${outcome.notice}`);
-        const { claim } = outcome;
 
         const dropped = await send("story.drop", { story: TASK_1, deleteBranch: false });
         expect(dropped).toMatchObject({ ok: true, changed: true });
-        expect(existsSync(claim.worktree)).toBe(false);
         expect(await branchExists(repo.dir, repo.home, `refs/heads/${BRANCH_1}`)).toBe(true);
         expect(await branchExists(repo.remote, repo.home, `refs/heads/${BRANCH_1}`)).toBe(true);
         expect(liveClaimOf(s.office, key)).toBeNull();
@@ -286,7 +272,7 @@ if (process.env["DIPO_TEST_CI"] === "1") {
       }, FIXTURE);
     });
 
-    it("lists the commit and the untracked file a deleteBranch drop loses (DIPO-228)", async () => {
+    it("lists the commit a deleteBranch drop loses (DIPO-228)", async () => {
       await withBareRemote(async (repo) => {
         await publish(repo);
         const s = await claimSetup(repo);
@@ -298,27 +284,14 @@ if (process.env["DIPO_TEST_CI"] === "1") {
         });
         const outcome = await claimStory(s.deps(), s.request(key));
         if (!outcome.ok) throw new Error(`no claim: ${outcome.notice}`);
-        const { claim } = outcome;
-        writeFileSync(join(claim.worktree, "work.txt"), "work\n");
-        await git(claim.worktree, repo.home, "add", "work.txt");
-        await git(
-          claim.worktree,
-          repo.home,
-          "-c",
-          "user.name=dipo",
-          "-c",
-          "user.email=dipo@example.test",
-          "commit",
-          "-m",
-          "feat(TASK-1): add work",
-        );
-        writeFileSync(join(claim.worktree, "scratch.txt"), "untracked\n");
+        await byHandOn(repo, BRANCH_1, async (dir) => {
+          writeFileSync(join(dir, "work.txt"), "work\n");
+          await git(dir, repo.home, "add", "work.txt");
+          await git(dir, repo.home, "commit", "--quiet", "-m", "feat(TASK-1): add work");
+        });
 
         const reply = await read({ story: TASK_1 });
-        expect(reply).toMatchObject({
-          ok: true,
-          result: { story: TASK_1, key, files: ["scratch.txt"] },
-        });
+        expect(reply).toMatchObject({ ok: true, result: { story: TASK_1, key } });
         const commits = reply.ok
           ? (reply.result as { commits: { subject: string }[] }).commits
           : [];
@@ -340,7 +313,7 @@ if (process.env["DIPO_TEST_CI"] === "1") {
         const outcome = await claimStory(s.deps(), s.request(key));
         if (!outcome.ok) throw new Error(`no claim: ${outcome.notice}`);
         const { claim } = outcome;
-        // A release that keeps the branch, its worktree removed as the release does.
+        // A release that keeps the branch.
         s.office.immediate(() =>
           releaseClaim(s.office, claim.runId, {
             at: s.t.clock.now(),
@@ -348,13 +321,10 @@ if (process.env["DIPO_TEST_CI"] === "1") {
             keepBranch: true,
           }),
         );
-        // The claim locked its worktree; the release unlocks and removes it.
-        await git(repo.dir, repo.home, "worktree", "unlock", claim.worktree);
-        await git(repo.dir, repo.home, "worktree", "remove", "--force", claim.worktree);
 
         expect(await read({ story: TASK_1 })).toMatchObject({
           ok: true,
-          result: { commits: expect.any(Array), files: [] },
+          result: { commits: expect.any(Array) },
         });
         expect(await branchExists(repo.dir, repo.home, `refs/heads/${BRANCH_1}`)).toBe(true);
 

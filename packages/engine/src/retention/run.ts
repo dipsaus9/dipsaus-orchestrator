@@ -49,12 +49,7 @@ const CLOSED_JOURNAL = "state in ('merged', 'dropped', 'withdrawn')";
 const ENDED_AGENT =
   "agent_id in (select agent_id from agents where office_id = $office_id and ended_at < $cutoff)";
 
-const PROFILE_CHILDREN = [
-  "run_capabilities",
-  "run_env_files",
-  "run_ports",
-  "run_extra_scripts",
-] as const;
+const PROFILE_CHILDREN = ["run_capabilities", "run_env_files", "run_extra_scripts"] as const;
 
 /**
  * The run profiles to keep: the current one and its previous one, or the two newest when none is

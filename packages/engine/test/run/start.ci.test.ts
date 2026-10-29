@@ -2,12 +2,12 @@
 // the pinned Backlog CLI (DIPO-74 test plan, AC #9 and #10). Setup is stubbed (DIPO-39 has its own
 // tests) and the launch checks are DIPO-43's hold gate with scripted outcomes, so no `claude`
 // process ever starts:
-// - with the worker start stubbed, `work.run` creates the branch named in the field block, the
-//   locked worktree at `<root>/<ID>` and the claim commit, and stops before any worker starts;
+// - with the worker start stubbed, `work.run` creates the branch named in the field block and the
+//   claim commit, and no worktree (DIPO-349), and stops before any worker starts;
 // - with the `success-single` recording replayed through FakeProcess in an in-process worker host,
 //   the story is claimed with one claim commit, the run emits `work.assigned`, `work.phase setup`
 //   and `work.phase build`, and the replay's usage is ingested;
-// - a failed sandbox self-test removes the worktree, deletes the new branch, keeps the story Ready
+// - a failed sandbox self-test deletes the new branch, keeps the story Ready
 //   and holds the adapter;
 // - `work.preview` changes no fact, branch, worktree or run.
 // Each case needs several CLI calls, an office load, a fetch and a claim, well over the local
@@ -79,7 +79,7 @@ const READY: LaunchCheckOutcome = { ok: true };
 if (process.env["DIPO_TEST_CI"] === "1") {
   describe("the worker start on real git and the Backlog CLI", () => {
     it(
-      "creates the branch, the locked worktree and the claim commit, and stops before any worker starts",
+      "creates the branch and the claim commit, no worktree, and stops before any worker starts",
       () =>
         withRunOffice({ host: "stub", checks: READY }, async (r) => {
           const result = resultOf<{ started: { story: string; run: string }[] }>(
@@ -93,9 +93,8 @@ if (process.env["DIPO_TEST_CI"] === "1") {
           const main = await r.repo.git("rev-parse", "origin/main");
           expect((await r.repo.git("rev-parse", `${BRANCH}~1`)).trim()).toBe(main.trim());
           const worktrees = await r.repo.git("worktree", "list", "--porcelain");
-          const block = worktrees.split("\n\n").find((entry) => entry.includes(`/TASK-1\n`));
-          expect(block).toContain(`branch refs/heads/${BRANCH}`);
-          expect(block).toContain(`locked dipo ${runId}`);
+          expect(worktrees).not.toContain(`/TASK-1\n`);
+          expect(worktrees).not.toContain(`locked dipo ${runId}`);
           // The worker start was stubbed: it got the plan and nothing ran.
           expect(r.hosts.map((h) => h.runId)).toEqual([runId]);
           expect(r.hosts[0]?.plan.argv[0]).toBe(CLAUDE);
@@ -127,7 +126,7 @@ if (process.env["DIPO_TEST_CI"] === "1") {
     );
 
     it(
-      "rolls back a failed sandbox self-test: worktree removed, branch deleted, story Ready, adapter held",
+      "rolls back a failed sandbox self-test: branch deleted, story Ready, adapter held",
       () =>
         withRunOffice(
           {
@@ -170,11 +169,10 @@ if (process.env["DIPO_TEST_CI"] === "1") {
           if (!reply.ok) throw new Error(`${reply.error.code}: ${reply.error.message}`);
           const preview = reply.result as {
             story: { story: string } | null;
-            launch: { branch: string; worktree: string; argv: string[] } | null;
+            launch: { branch: string; argv: string[] } | null;
           };
           expect(preview.story?.story).toBe("TASK-1");
           expect(preview.launch?.branch).toBe(BRANCH);
-          expect(preview.launch?.worktree.endsWith("/TASK-1")).toBe(true);
           expect(preview.launch?.argv[0]).toBe(CLAUDE);
           expect(rows()).toEqual(factsBefore);
           expect(await gitState(r)).toBe(gitBefore);

@@ -62,7 +62,6 @@ export class TestBoxError extends Error {
 /** One command list step's input, as the office's run profile gives it. */
 export interface TestBoxScript {
   readonly commands: readonly (readonly string[])[];
-  readonly env: Readonly<Record<string, string>>;
   readonly timeoutMs: number;
 }
 
@@ -84,7 +83,6 @@ export interface TestBoxRequest {
   readonly dev: {
     readonly command: readonly [string, ...string[]];
     readonly cwd: string;
-    readonly env: Readonly<Record<string, string>>;
     readonly startTimeoutMs: number;
   } | null;
 }
@@ -221,7 +219,6 @@ export class TestBoxes {
           runId: request.testId,
           commands: request.setup.commands,
           cwd: request.setup.cwd,
-          env: { ...request.setup.env, ...env },
           timeoutMs: request.setup.timeoutMs,
           step: "setup",
         });
@@ -255,7 +252,7 @@ export class TestBoxes {
     const box = boxName(request.testId);
     const process = this.#deps.boxes.execLive(box, dev.command, {
       cwd: dev.cwd,
-      env: { ...dev.env, ...env },
+      env,
     });
     held.processes.push(process);
     const found = await this.#devUrl(process, dev.startTimeoutMs);

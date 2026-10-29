@@ -1,12 +1,13 @@
 // CI only (0017 section 1, DIPO-225): the CLI calls of the claim, In Review, park, unpark and lane
 // paths on real git; the task file checks stay in clean-folder.test.ts.
 // Every Backlog CLI call dipo makes for a story runs in a folder that holds no file a worker wrote,
-// with a minimal, explicit environment (DIPO-270; 0021 section 14). Arbitrary files are put into
-// the story's worktree, at its root and in its `backlog/` folders, the way a worker could deliver
-// them. Then the claim, In Review, park, unpark and lane paths run on real git and the pinned
-// Backlog CLI through a recording `Spawn`, and every call is checked: its working folder is not the
-// worktree, holds only dipo's own copy of the backlog and none of those files, and its environment
-// holds only the explicit keys, not a variable of the caller's environment.
+// with a minimal, explicit environment (DIPO-270; 0021 section 14). Arbitrary files are committed
+// on the story branch, at its root and in its `backlog/` folders, the way a worker's pushed work
+// could hold them (a story has no worktree, DIPO-349). Then the claim, In Review, park, unpark and
+// lane paths run on real git and the pinned Backlog CLI through a recording `Spawn`, and every call
+// is checked: its working folder is not the main checkout, holds only dipo's own copy of the
+// backlog and none of those files, and its environment holds only the explicit keys, not a
+// variable of the caller's environment.
 
 import { describe, expect, it, setDefaultTimeout } from "bun:test";
 import {
@@ -17,14 +18,13 @@ import {
   readdirSync,
   readFileSync,
   realpathSync,
-  renameSync,
   symlinkSync,
   writeFileSync,
 } from "node:fs";
 import { basename, isAbsolute, join, relative } from "node:path";
 
 import type { Spawn } from "@dipsaus-orchestrator/contract";
-import { git, withTempRepo } from "@dipsaus-orchestrator/testkit";
+import { git, type TempRepo, withTempRepo } from "@dipsaus-orchestrator/testkit";
 
 import { EDIT_KIND, editKind, OfficeLane } from "../../src/backlog/lane";
 import {
@@ -42,6 +42,7 @@ import { claimStory, type ClaimOutcome } from "../../src/worktree";
 import {
   BACKLOG_FIXTURE,
   BRANCH_1,
+  byHandOn,
   claimSetup,
   publish,
   TASK_1,
@@ -56,7 +57,7 @@ setDefaultTimeout(30_000);
 
 const FIXTURE = { fixture: BACKLOG_FIXTURE };
 
-/** Files a worker could write into its worktree: dotfiles and config-looking files. */
+/** Files a worker could commit on its branch: dotfiles and config-looking files. */
 const DELIVERED = [
   ".worker-rc",
   "worker.config.json",
@@ -113,19 +114,23 @@ function inside(path: string, dir: string): boolean {
   return rel === "" || (!rel.startsWith("..") && !isAbsolute(rel));
 }
 
-/** Puts the delivered files into the worktree. */
-function deliver(worktree: string): void {
-  for (const path of DELIVERED) {
-    mkdirSync(join(worktree, path, ".."), { recursive: true });
-    writeFileSync(join(worktree, path), "written by the worker\n");
-  }
+/** Commits the delivered files on the story branch, as a worker's pushed work could hold them. */
+async function deliver(repo: TempRepo): Promise<void> {
+  await byHandOn(repo, BRANCH_1, async (dir) => {
+    for (const path of DELIVERED) {
+      mkdirSync(join(dir, path, ".."), { recursive: true });
+      writeFileSync(join(dir, path), "written by the worker\n");
+    }
+    await git(dir, repo.home, "add", "--force", "--", ...DELIVERED);
+    await git(dir, repo.home, "commit", "--quiet", "-m", "the worker's files");
+  });
 }
 
-/** Each call ran outside the worktree, on dipo's copy only, with only the explicit keys. */
-function expectClean(calls: readonly CliCall[], worktree: string, only?: readonly string[]): void {
+/** Each call ran outside the main checkout, on dipo's copy only, with only the explicit keys. */
+function expectClean(calls: readonly CliCall[], checkout: string, only?: readonly string[]): void {
   expect(calls.length).toBeGreaterThan(0);
   for (const call of calls) {
-    expect(inside(call.cwd, worktree)).toBe(false);
+    expect(inside(call.cwd, checkout)).toBe(false);
     for (const path of DELIVERED) expect(call.files).not.toContain(path);
     if (only !== undefined) expect(call.files).toEqual(only);
     expect(Object.keys(call.env ?? {}).toSorted()).toEqual([...BACKLOG_ENV_KEYS].toSorted());
@@ -146,46 +151,34 @@ async function statusAt(dir: string, home: string, ref: string): Promise<string>
 
 if (process.env["DIPO_TEST_CI"] === "1") {
   describe("the Backlog CLI for a story runs in a folder without worker-written files", () => {
-    it("claims, marks In Review, parks and unparks with files a worker delivered in the worktree", async () => {
+    it("claims, marks In Review, parks and unparks with files a worker committed on the branch", async () => {
       await withTempRepo(async (repo) => {
-        // Git ignores the delivered files, so the claim's own scope check passes with them there.
-        appendFileSync(join(repo.dir, ".git", "info", "exclude"), ".worker-rc\nworker.config.*\n");
         await publish(repo);
         const s = await claimSetup(repo);
         const { cli, calls } = recordingCli(repo.env);
         const copy = ["backlog/config.yml", TASK_FILE_1];
 
-        // The claim: the files are delivered during setup, before the claim commit.
-        let worktree = "";
-        const outcome = claimed(
-          await claimStory(s.deps({ cli }), {
-            ...s.request(s.key()),
-            setup: async (claim) => {
-              worktree = claim.worktree;
-              deliver(claim.worktree);
-              return { ok: true, release: () => {} };
-            },
-          }),
-        );
-        expect(outcome.claim.worktree).toBe(worktree);
-        expectClean(calls, worktree, copy);
+        // The claim: dipo's copy of the backlog, never the main checkout.
+        claimed(await claimStory(s.deps({ cli }), s.request(s.key())));
+        expectClean(calls, repo.dir, copy);
         expect(await statusAt(repo.dir, repo.home, BRANCH_1)).toBe("In Progress");
+        await deliver(repo);
 
         // In Review: the story's view and the criteria and status edit.
         calls.length = 0;
         const ops = gitStoryOps({ git: () => s.git, cli });
-        const story = await ops.story(s.office.officeId, worktree, TASK_1);
+        const story = await ops.story(s.office.officeId, BRANCH_1, TASK_1);
         expect(story.taskFile).toBe(TASK_FILE_1);
         const review = await ops.markInReview(s.office.officeId, {
-          worktree,
+          branch: BRANCH_1,
           story: TASK_1,
           taskFile: TASK_FILE_1,
           criteria: story.criteria,
         });
         expect(review).not.toBeNull();
-        expectClean(calls, worktree, copy);
+        expectClean(calls, repo.dir, copy);
         expect(await statusAt(repo.dir, repo.home, BRANCH_1)).toBe("In Review");
-        expect(readFileSync(join(worktree, TASK_FILE_1), "utf8")).toContain("- [x] #1");
+        expect(await repo.git("show", `${BRANCH_1}:${TASK_FILE_1}`)).toContain("- [x] #1");
 
         // The park and its lift.
         calls.length = 0;
@@ -193,7 +186,6 @@ if (process.env["DIPO_TEST_CI"] === "1") {
         const park = await gitParkWriter(deps).write(s.office.officeId, {
           story: TASK_1,
           branch: BRANCH_1,
-          worktree,
           reason: "stopped",
           note: "Not now.",
         });
@@ -202,48 +194,52 @@ if (process.env["DIPO_TEST_CI"] === "1") {
         await gitUnparkWriter(deps).lift(s.office.officeId, {
           story: TASK_1,
           branch: BRANCH_1,
-          worktree,
           to: park.from,
         });
-        expectClean(calls, worktree, copy);
+        expectClean(calls, repo.dir, copy);
         expect(await statusAt(repo.dir, repo.home, BRANCH_1)).toBe("In Review");
 
         // The story PR's read.
         calls.length = 0;
         const facts = await gitStoryPrOps(deps).read(s.office.officeId, {
-          worktree,
+          branch: BRANCH_1,
           story: TASK_1,
         });
         expect(facts.story.taskFile).toBe(TASK_FILE_1);
-        expectClean(calls, worktree, copy);
+        expectClean(calls, repo.dir, copy);
 
-        // The delivered files are still where the worker put them, and no copy is left behind.
+        // The delivered files are still on the branch, and no copy is left behind.
         for (const path of DELIVERED)
-          expect(readFileSync(join(worktree, path), "utf8")).toBeTruthy();
+          expect(await repo.git("show", `${BRANCH_1}:${path}`)).toBeTruthy();
         const root = s.git.worktreeRoot();
         for (const name of readdirSync(root)) expect(name).not.toStartWith("_branch-read-");
         for (const call of calls) expect(() => readdirSync(call.cwd)).toThrow();
       }, FIXTURE);
     });
 
-    it("does not write the task file through a folder of the worktree that leads elsewhere", async () => {
+    it("does not write the task file through a tasks folder on the branch that leads elsewhere", async () => {
       await withTempRepo(async (repo) => {
         await publish(repo);
         const s = await claimSetup(repo);
         const { cli } = recordingCli(repo.env);
-        const { worktree } = claimed(await claimStory(s.deps({ cli }), s.request(s.key()))).claim;
+        claimed(await claimStory(s.deps({ cli }), s.request(s.key())));
 
-        // The worktree's tasks folder now leads to a folder outside it.
+        // The branch's tasks folder is now a symbolic link to a folder outside the repository.
         const outside = join(repo.root, "outside-tasks");
-        cpSync(join(worktree, "backlog", "tasks"), outside, { recursive: true });
-        renameSync(join(worktree, "backlog", "tasks"), join(worktree, "backlog", "tasks-moved"));
-        symlinkSync(outside, join(worktree, "backlog", "tasks"));
-        const before = readFileSync(join(repo.root, "outside-tasks", basename(TASK_FILE_1)));
+        await byHandOn(repo, BRANCH_1, async (dir) => {
+          cpSync(join(dir, "backlog", "tasks"), outside, { recursive: true });
+          await git(dir, repo.home, "rm", "-r", "--quiet", "backlog/tasks");
+          symlinkSync(outside, join(dir, "backlog", "tasks"));
+          await git(dir, repo.home, "add", "backlog/tasks");
+          await git(dir, repo.home, "commit", "--quiet", "-m", "link the tasks folder");
+        });
+        const before = readFileSync(join(outside, basename(TASK_FILE_1)));
+        const tip = await repo.git("rev-parse", BRANCH_1);
 
         const ops = gitStoryOps({ git: () => s.git, cli });
         const error = await ops
           .markInReview(s.office.officeId, {
-            worktree,
+            branch: BRANCH_1,
             story: TASK_1,
             taskFile: TASK_FILE_1,
             criteria: [1],
@@ -254,19 +250,17 @@ if (process.env["DIPO_TEST_CI"] === "1") {
           );
         expect(error).toBeInstanceOf(GitError);
         expect((error as GitError).code).toBe(BACKLOG_FOLDER_ERROR);
-        expect(readFileSync(join(repo.root, "outside-tasks", basename(TASK_FILE_1)))).toEqual(
-          before,
-        );
-        expect(await statusAt(repo.dir, repo.home, BRANCH_1)).toBe("In Progress");
+        expect(readFileSync(join(outside, basename(TASK_FILE_1)))).toEqual(before);
+        expect(await repo.git("rev-parse", BRANCH_1)).toBe(tip);
       }, FIXTURE);
     });
 
-    it("runs the lane's calls in dipo's backlog worktree, never a story worktree, with only the explicit keys", async () => {
+    it("runs the lane's calls in dipo's backlog worktree, never the main checkout, with only the explicit keys", async () => {
       await withTempRepo(async (repo) => {
         await publish(repo);
         const s = await claimSetup(repo);
-        const { worktree } = claimed(await claimStory(s.deps(), s.request(s.key()))).claim;
-        deliver(worktree);
+        claimed(await claimStory(s.deps(), s.request(s.key())));
+        await deliver(repo);
         const { cli, calls } = recordingCli(repo.env);
         const lane = new OfficeLane({
           officeId: s.office.officeId,
@@ -282,7 +276,7 @@ if (process.env["DIPO_TEST_CI"] === "1") {
           subject: "TASK-2",
           target: { status: "Refined" },
         });
-        expectClean(calls, worktree);
+        expectClean(calls, repo.dir);
         for (const call of calls) expect(call.cwd).toBe(realpathSync(lane.worktreePath()));
       }, FIXTURE);
     });
@@ -293,15 +287,17 @@ if (process.env["DIPO_TEST_CI"] === "1") {
         const base = await repo.git("show", "main:backlog/config.yml");
         const s = await claimSetup(repo);
         const { cli, calls } = recordingCli(repo.env);
-        const { worktree } = claimed(await claimStory(s.deps({ cli }), s.request(s.key()))).claim;
+        claimed(await claimStory(s.deps({ cli }), s.request(s.key())));
 
         // A commit on the story branch changes the configuration.
-        appendFileSync(join(worktree, "backlog", "config.yml"), "# changed on the story branch\n");
-        await git(worktree, repo.home, "commit", "--quiet", "-am", "change the configuration");
+        await byHandOn(repo, BRANCH_1, async (dir) => {
+          appendFileSync(join(dir, "backlog", "config.yml"), "# changed on the story branch\n");
+          await git(dir, repo.home, "commit", "--quiet", "-am", "change the configuration");
+        });
 
         calls.length = 0;
-        await gitStoryOps({ git: () => s.git, cli }).story(s.office.officeId, worktree, TASK_1);
-        expectClean(calls, worktree);
+        await gitStoryOps({ git: () => s.git, cli }).story(s.office.officeId, BRANCH_1, TASK_1);
+        expectClean(calls, repo.dir);
         for (const call of calls) expect(call.config).toBe(base);
       }, FIXTURE);
     });
@@ -311,23 +307,25 @@ if (process.env["DIPO_TEST_CI"] === "1") {
         await publish(repo);
         const s = await claimSetup(repo);
         const { cli, calls } = recordingCli(repo.env);
-        const { worktree } = claimed(await claimStory(s.deps({ cli }), s.request(s.key()))).claim;
-        const path = join(worktree, TASK_FILE_1);
-        writeFileSync(
-          path,
-          readFileSync(path, "utf8").replace("\n---\n", "\nunknown_field: 1\n---\n"),
-        );
-        await git(worktree, repo.home, "commit", "--quiet", "-am", "add a field");
+        claimed(await claimStory(s.deps({ cli }), s.request(s.key())));
+        await byHandOn(repo, BRANCH_1, async (dir) => {
+          const path = join(dir, TASK_FILE_1);
+          writeFileSync(
+            path,
+            readFileSync(path, "utf8").replace("\n---\n", "\nunknown_field: 1\n---\n"),
+          );
+          await git(dir, repo.home, "commit", "--quiet", "-am", "add a field");
+        });
         const tip = await repo.git("rev-parse", BRANCH_1);
 
         calls.length = 0;
         const ops = gitStoryOps({ git: () => s.git, cli });
         const deps = { git: () => s.git, cli };
         const attempts: (() => Promise<unknown>)[] = [
-          () => ops.story(s.office.officeId, worktree, TASK_1),
+          () => ops.story(s.office.officeId, BRANCH_1, TASK_1),
           () =>
             ops.markInReview(s.office.officeId, {
-              worktree,
+              branch: BRANCH_1,
               story: TASK_1,
               taskFile: TASK_FILE_1,
               criteria: [1],
@@ -336,7 +334,6 @@ if (process.env["DIPO_TEST_CI"] === "1") {
             gitParkWriter(deps).write(s.office.officeId, {
               story: TASK_1,
               branch: BRANCH_1,
-              worktree,
               reason: "stopped",
               note: "Not now.",
             }),
@@ -344,10 +341,9 @@ if (process.env["DIPO_TEST_CI"] === "1") {
             gitUnparkWriter(deps).lift(s.office.officeId, {
               story: TASK_1,
               branch: BRANCH_1,
-              worktree,
               to: "In Progress",
             }),
-          () => gitStoryPrOps(deps).read(s.office.officeId, { worktree, story: TASK_1 }),
+          () => gitStoryPrOps(deps).read(s.office.officeId, { branch: BRANCH_1, story: TASK_1 }),
         ];
         for (const attempt of attempts) {
           const error = await attempt().then(

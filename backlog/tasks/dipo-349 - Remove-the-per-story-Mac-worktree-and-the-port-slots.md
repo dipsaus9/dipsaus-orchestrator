@@ -1,10 +1,10 @@
 ---
 id: DIPO-349
 title: Remove the per-story Mac worktree and the port slots
-status: Refined
+status: Done
 assignee: []
 created_date: '2026-10-25 09:51'
-updated_date: '2026-10-25 10:01'
+updated_date: '2026-10-29 07:29'
 labels:
   - 'tier:L'
   - 'slice:prune'
@@ -48,8 +48,14 @@ test_plan:
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 A claim runs no git worktree add, and nothing reads or writes files of a per-story worktree
-- [ ] #2 Reconcile finds hand changes from the branch refs and recorded SHAs instead of a worktree
-- [ ] #3 Port slots, slots.json and the run_ports table are removed, and teardown deletes only the branch and the box
-- [ ] #4 At daemon start, a clean leftover worktree of an earlier binary is removed and a dirty one is listed on the desk
+- [x] #1 A claim runs no git worktree add, and nothing reads or writes files of a per-story worktree
+- [x] #2 Reconcile finds hand changes from the branch refs and recorded SHAs instead of a worktree
+- [x] #3 Port slots, slots.json and the run_ports table are removed, and teardown deletes only the branch and the box
+- [x] #4 At daemon start, a clean leftover worktree of an earlier binary is removed and a dirty one is listed on the desk
 <!-- AC:END -->
+
+## Final Summary
+
+<!-- SECTION:FINAL_SUMMARY:BEGIN -->
+A claim is update-ref plus its claims row; no story has a Mac worktree. Task-file edits run the Backlog CLI in a clean folder and commit the file from git objects on the branch ref with the old SHA as lease. Reconcile reads hand changes from branch refs against the claim commit and pushed head. Port slots, slots.json, dev-port detection and run_ports (migration 65) are gone; teardown deletes the branch and the box. At office load a leftover locked dipo worktree is removed when clean or when every changed path is held by git, else listed on the desk. 0010 and 0013 updated (maintainer approved the reused-branch and dev-port changes).
+<!-- SECTION:FINAL_SUMMARY:END -->

@@ -96,4 +96,7 @@ export type ContractVersion = z.infer<typeof ContractVersion>;
 // event `test.ended` and the office codes `story.notTestable`, `test.notInReview`,
 // `test.refused`, `test.startFailed` and `test.closed`, and replaces the `script` of the
 // `test.start` result with `steps`, in the same, still unreleased, minor.
+// DIPO-349 removes the story worktree: `worktree` of `WorkerLaunchPreview`, `files` and `kept` of
+// the `story.losses` result, the office code `story.dirtyWorktree` and the `run.refused` check
+// `slots` go, and the desk kind `LEFTOVER WORKTREE` is added, in the same, still unreleased, minor.
 export const CONTRACT_VERSION = Object.freeze({ major: 1, minor: 1 }) satisfies ContractVersion;

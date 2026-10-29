@@ -378,7 +378,7 @@ export class StoryMerges {
       return null;
     }
     if (run.endKind !== REVIEWED_END && run.endKind !== IN_REVIEW_END) return null;
-    if (run.branch === null || run.worktree === null || run.startSha === null) return null;
+    if (run.branch === null || run.startSha === null) return null;
     const claim = findClaim(office, runId);
     if (claim === null || claim.releasedAt !== null) return null;
     if (heldByPark(office, run.key)) return null;
@@ -798,7 +798,6 @@ export class StoryMerges {
       runId: run.runId,
       story: run.story as string,
       branch: run.branch as string,
-      worktree: run.worktree as string,
       startSha: run.startSha as string,
       ...(this.#deps.itemMax === undefined
         ? {}

@@ -87,10 +87,10 @@ async function fixture(dir: string): Promise<Fixture> {
       office.immediate(() =>
         office.run(
           `insert into runs (office_id, run_id, kind, key, story_id, tier, role, model, start_sha,
-             branch, worktree, budget_unit, budget_limit, loop_cap, config_hash, started_at,
-             ended_at, end_kind)
+             branch, budget_unit, budget_limit, loop_cap, config_hash, started_at, ended_at,
+             end_kind)
            values ($office_id, $run, 'story', $key, 'DIPO-1', 'M', 'developer', 'haiku', 'a',
-             'DIPO-1/x', '/trees/DIPO-1', 'tokens', 1, 3, 'h', 0, $ended, $kind)`,
+             'DIPO-1/x', 'tokens', 1, 3, 'h', 0, $ended, $kind)`,
           {
             run,
             key: `sto-${run}`,
@@ -129,11 +129,9 @@ async function fixture(dir: string): Promise<Fixture> {
     claim: (run, released) =>
       office.immediate(() =>
         office.run(
-          `insert into claims (office_id, run_id, key, story_id, branch, worktree, base, base_sha,
-             start_sha, reused, admin_dir, snap_commondir, snap_gitdir, snap_pointer, claimed_at,
-             released_at)
-           values ($office_id, $run, $key, 'DIPO-1', $branch, '/w', 'main', 'a', 'a', 0, '/a', '/c',
-             '/g', '/p', 0, $released)`,
+          `insert into claims (office_id, run_id, key, story_id, branch, base, base_sha,
+             start_sha, reused, claimed_at, released_at)
+           values ($office_id, $run, $key, 'DIPO-1', $branch, 'main', 'a', 'a', 0, 0, $released)`,
           { run, key: `sto-${run}`, branch: `DIPO-1/${run}`, released: released ? 1 : null },
         ),
       ),

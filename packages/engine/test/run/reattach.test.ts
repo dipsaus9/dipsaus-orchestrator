@@ -58,7 +58,6 @@ import {
   runIntents,
   runTotals,
   noteText,
-  storeBackstopSnapshot,
   STOP_AGAIN_DETAIL,
 } from "../../src/run";
 import { markIntentSent, recordIntent } from "../../src/run/intents";
@@ -273,8 +272,6 @@ beforeEach(async () => {
       model: "haiku",
       startSha: "b".repeat(40),
       branch: "DIPO-1/add-a-greeting",
-      worktree: join(dir, "trees", "DIPO-1"),
-      slot: 1,
       budgetUnit: "tokens",
       budgetLimit: ROOMY.budgetTokens,
       loopCap: 3,
@@ -289,14 +286,11 @@ beforeEach(async () => {
       key,
       story: "DIPO-1",
       branch: "DIPO-1/add-a-greeting",
-      worktree: join(dir, "trees", "DIPO-1"),
       base: "main",
       baseSha: "b".repeat(40),
       startSha: "b".repeat(40),
       claimSha: "d".repeat(40),
       reused: false,
-      snapshot: { path: "/x", adminDir: "/x", commondir: "/x", gitdir: "/x", pointer: "/x" },
-      firstFeedback: null,
       claimedAt: f.t.clock.now(),
     });
   });
@@ -926,10 +920,14 @@ function realResumer(
       config: () => config,
     },
     worker,
+    // The branch tip a new session's workspace is read at; the workspace itself is a fake.
     git: () =>
-      ({ commonDir: join(w.dir, "git"), mainWorktree: w.dir }) as unknown as ReturnType<
-        NonNullable<ConstructorParameters<typeof RunResumer>[0]["git"]>
-      >,
+      ({
+        commonDir: join(w.dir, "git"),
+        mainWorktree: w.dir,
+        run: async <T>(fn: (session: unknown) => Promise<T>) =>
+          fn({ repository: {}, ok: async () => `${"f".repeat(40)}\n` }),
+      }) as unknown as ReturnType<NonNullable<ConstructorParameters<typeof RunResumer>[0]["git"]>>,
     story: async () => {
       throw new Error("no story read in this test");
     },
@@ -954,7 +952,6 @@ function nextRequest(): NextSessionRequest {
     why: "a crash",
     caps: ROOMY,
     startedAt: 0,
-    snapshot: null,
   };
 }
 
@@ -1324,13 +1321,6 @@ function stopDaemon(d: Daemon): void {
 }
 
 describe("re-attach gaps (DIPO-93)", () => {
-  const SNAPSHOT = {
-    head: "a".repeat(40),
-    branch: "refs/heads/DIPO-1/add-a-greeting",
-    stash: "",
-    backlogStatus: "",
-  };
-
   it("settles a pending host row by the host's PID marker and follows it; no second host starts (AC #3)", async () => {
     beforeRestart("success-single", 6, 20);
     makePending();
@@ -1484,20 +1474,6 @@ describe("re-attach gaps (DIPO-93)", () => {
     expect(hostRow().exitCode).toBe(0);
     expect(agentRow()?.end_reason).toBe("exited");
     expect(w.next).toEqual([]);
-  });
-
-  it("restores the backstop snapshot stored with the run on re-attach (AC #4)", async () => {
-    beforeRestart("success-single", 6, 20);
-    w.f.office.immediate(() => storeBackstopSnapshot(w.f.office, w.f.run, SNAPSHOT));
-    const d = daemon();
-    const tracked: unknown[] = [];
-    const track = d.control.track.bind(d.control);
-    d.control.track = (office, run) => {
-      tracked.push(run.snapshot);
-      track(office, run);
-    };
-    await d.reattacher.reattach(w.f.office.officeId);
-    expect(tracked).toEqual([SNAPSHOT]);
   });
 
   it("a follow-only host after the restart is stopped by one verified SIGTERM (AC #1)", async () => {
@@ -1691,8 +1667,6 @@ const storyOf = () => {
 };
 const handoff = async () => ({
   commits: "",
-  diffstat: "",
-  untracked: [],
   criteria: null,
   verify: null,
   feedback: [],
@@ -2070,7 +2044,7 @@ const quietGit = () =>
     run: async <T>(fn: (session: { ok: () => Promise<string> }) => Promise<T>) =>
       fn({ ok: async () => "" }),
   }) as unknown as ReturnType<NonNullable<ConstructorParameters<typeof RunResumer>[0]["git"]>>;
-const worktreeOf = () => findRun(w.f.office, w.f.run)?.worktree ?? "";
+const branchOf = () => findRun(w.f.office, w.f.run)?.branch ?? "";
 
 /** 0019's `feedback_items` as DIPO-148's migration 43 makes it, when this database lacks it. */
 function feedbackTable(): void {
@@ -2103,7 +2077,7 @@ describe("the handoff of a new session: notes, open feedback and the context pac
     recordWorkerNotes(
       office,
       {
-        worktree: worktreeOf(),
+        branch: branchOf(),
         run,
         agent: w.f.agent,
         role: "developer",
@@ -2196,11 +2170,11 @@ describe("the handoff of a new session: notes, open feedback and the context pac
     const facts = { probe: async () => null, story: async () => storyOf(), handoff, workspace };
     const resumed = await realResumer(hosts, facts).next(nextRequest());
     expect(resumed).toMatchObject({ kind: "started", resumed: true });
-    expect(contextPackOf(w.f.office, worktreeOf())).toBeNull();
+    expect(contextPackOf(w.f.office, branchOf())).toBeNull();
 
     const fresh = await realResumer(hosts, facts, tooFull).next(nextRequest());
     expect(fresh).toMatchObject({ kind: "started", resumed: false });
-    const pack = contextPackOf(w.f.office, worktreeOf());
+    const pack = contextPackOf(w.f.office, branchOf());
     // The head the pack read and the blob id of the scope file it holds (0014 section 10).
     expect(pack?.headSha).toBe("0".repeat(40));
     expect(pack?.blobIds).toEqual({
@@ -2233,9 +2207,10 @@ describe("the handoff of a new session: notes, open feedback and the context pac
       tooFull,
     ).next(nextRequest());
     expect(outcome).toMatchObject({ kind: "started", resumed: false });
-    expect(asked.map((args) => args[0])).toEqual(["log"]);
+    // The branch's commits, then its tip for the context pack: nothing of a worktree (DIPO-349).
+    expect(asked.map((args) => args[0])).toEqual(["log", "rev-parse"]);
     expect(sentText()).toContain("Commits on this branch:\nabc1234 the first part\n");
-    expect(sentText()).toContain(`Uncommitted changes:\n${BOX_CHANGES}\n`);
+    expect(sentText()).toContain(`Changes not delivered yet:\n${BOX_CHANGES}\n`);
     expect(sentText()).toContain(`Last verify result:\n${BOX_VERIFY}\n`);
   });
 });

@@ -21,7 +21,8 @@
 //    no MERGE row of its own;
 // 4. the stories parked `by-maintainer`, listed apart as "Parked by you";
 // 5. hand actions: a backlog PR whose structural check failed or could not run, the items of
-//    `DeskSources.handItems` (DIPO-161's DONE ELSEWHERE and LEFTOVERS), and the run profile's rows
+//    `DeskSources.handItems` (DIPO-161's DONE ELSEWHERE and LEFTOVERS), the story worktrees of an
+//    earlier binary that hold changes (DIPO-349's LEFTOVER WORKTREE), and the run profile's rows
 //    (DIPO-310): each pending proposal of the scan fallback and each stale confirmation, an office
 //    item with no story, offering its `dipo office confirm` lines (no TUI keys yet);
 // 6. proposals and decision notes of worker reports (`proposals.ts`), spike before follow-up.
@@ -62,6 +63,7 @@ import { LIFT_COMMAND, type StartsPausedState } from "../run/starts-paused";
 import { profileDeskItems } from "../scan/profile-view";
 import { findStoryPr, latestStoryPr } from "../story-pr/records";
 import { doneElsewhereDeskItems } from "../worktree/done-elsewhere";
+import { leftoverWorktreeDeskItems } from "../worktree/leftovers";
 
 import { proposalItems, type ProposalItem } from "./proposals";
 import { lifecycleOf } from "./story";
@@ -622,6 +624,17 @@ class DeskBuilder {
           actions: hand.actions.flatMap((action) => this.#action(action.command, action.cli)),
         });
       }
+    }
+    // The story worktrees of an earlier binary dipo kept because they hold changes (DIPO-349).
+    for (const item of leftoverWorktreeDeskItems(this.#office)) {
+      this.#add(GROUP.hand, 1, item.since, {
+        kind: item.kind,
+        detail: deskText(item.detail),
+        since: iso(item.since),
+        blocks: [],
+        actions: [],
+        hand: item.hand,
+      });
     }
     // The run profile's rows (DIPO-310): what the maintainer confirms by `dipo office confirm`.
     for (const item of profileDeskItems(this.#office)) {

@@ -27,7 +27,6 @@ import { hasLiveClaim, StoryClaims } from "../../src/worktree";
 import { countRows } from "../commands/helpers";
 import { backlog, CLI, publish } from "../gate/gated-office";
 import { BACKLOG_FIXTURE, type OfficeSetup, officeSetup, resultOf, send } from "../office/helpers";
-import { ROOMY } from "../worktree/helpers";
 
 interface Running {
   readonly repo: TempRepoWithRemote;
@@ -88,7 +87,6 @@ async function withRunOffice(
       const claims = new StoryClaims({
         cli: CLI(repo),
         git: (office) => engineGit.forOffice(office),
-        disk: ROOMY,
       });
       const lane = new BacklogLane({
         cli: CLI(repo),

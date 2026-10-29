@@ -21,7 +21,7 @@ import {
   type RunOutcomesDeps,
   type RunView,
 } from "./outcome-types";
-import { activeRuns, backstopSnapshotOf, capsStartedAt, type StoredRun } from "./records";
+import { activeRuns, capsStartedAt, type StoredRun } from "./records";
 import { activeSignals, clearSignals } from "./signals";
 
 /**
@@ -218,8 +218,6 @@ export class Redispatch {
         work,
         caps,
         startedAt: capsStartedAt(run, host?.started_at),
-        // The run-start snapshot, stored with the run, keeps the backstop on (DIPO-93).
-        snapshot: backstopSnapshotOf(office, run.runId),
       };
       if (decided !== null) {
         const key = `${run.runId} ${agent.agent_id}`;

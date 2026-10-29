@@ -429,9 +429,8 @@ const officeReadFixtures: Record<string, { args: unknown; result: unknown }> = {
       launch: {
         adapter: "claude-cli",
         branch: "DIPO-21/add-retry",
-        worktree: "/home/me/code/shop.worktrees/DIPO-21",
         runDir: "/home/me/code/shop/.git/dipo/runs/<run-id>",
-        cwd: "/home/me/code/shop.worktrees/DIPO-21",
+        cwd: "/home/me/code/shop/.git/dipo/runs/<run-id>",
         argv: ["/home/me/.local/bin/claude", "-p", "--model", "sonnet"],
         model: "sonnet",
         effort: "medium",

@@ -49,8 +49,6 @@ function startRun(f: IngestFixture, start: Start): RunId {
     model: "haiku",
     startSha: null,
     branch: null,
-    worktree: null,
-    slot: null,
     budgetUnit: "tokens",
     budgetLimit: start.budget,
     loopCap: start.loopCap,

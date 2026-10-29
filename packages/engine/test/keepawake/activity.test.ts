@@ -51,11 +51,9 @@ function claim(
   claimedAt: number = NOW,
 ) {
   db.run(
-    `insert into claims (office_id, run_id, key, story_id, branch, worktree, base, base_sha,
-       start_sha, reused, admin_dir, snap_commondir, snap_gitdir, snap_pointer, claimed_at,
-       released_at)
-     values ($office, $run, $key, 'X-1', $key, '/w', 'main', 'a', 'a', 0, '/a', 'c', 'g',
-       'p', $at, $released)`,
+    `insert into claims (office_id, run_id, key, story_id, branch, base, base_sha, start_sha,
+       reused, claimed_at, released_at)
+     values ($office, $run, $key, 'X-1', $key, 'main', 'a', 'a', 0, $at, $released)`,
     { office, run, key, at: claimedAt, released: released ? 1 : null },
   );
 }

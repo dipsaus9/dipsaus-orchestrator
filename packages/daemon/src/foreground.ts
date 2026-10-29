@@ -94,7 +94,6 @@ import {
   recordTuiLeft,
   serveUnixSocket,
   SOCKET_FILE,
-  SlotTable,
   SoftwareStream,
   StoryClaims,
   StoryDiscard,
@@ -609,10 +608,6 @@ async function serve(run: Run, lock: HeldLock): Promise<number> {
       notify: (notice: { level: "error"; code: string; text: string }) =>
         software.append("engine.notice", notice),
     };
-    // The machine-wide port slot table (DIPO-39): setup takes a slot, teardown and a rolled-back
-    // setup free it.
-    const slots = SlotTable.inState(stateDir);
-
     // Upgrades (0006 decision 14): checked every minute; an engine step is a child the daemon
     // started or a command still writing, and an automatic restart waits for both. Once any stop
     // is requested (`daemon.stop`, a signal, a restart, a lost lock) the watcher counts as busy
@@ -680,7 +675,6 @@ async function serve(run: Run, lock: HeldLock): Promise<number> {
     const claims = new StoryClaims({
       cli: backlogCli,
       git: (office) => engineGit.forOffice(office),
-      slots,
       warn: (message, fields) => logger.warn(message, { component: "claims", ...fields }),
       info: (message, fields) => logger.info(message, { component: "claims", ...fields }),
       // Leftover `_branch-read-*` scratch directories older than this start are swept (DIPO-90).
@@ -721,7 +715,6 @@ async function serve(run: Run, lock: HeldLock): Promise<number> {
       finishBoxes: () => runs.finishEndedBoxes(),
       cli: backlogCli,
       offices,
-      slots,
       onChanged: (office) => server?.notifyOffice(office),
       logger: logger.child({ component: "teardown" }),
     });
@@ -869,7 +862,6 @@ async function serve(run: Run, lock: HeldLock): Promise<number> {
           lane: (office) => lane.forOffice(office),
           git: (office) => engineGit.forOffice(office),
           host,
-          slots,
           implemented: (name) => registry.command(name) !== undefined,
           parkRun: (ctx, args) => runs.control.parkByMaintainer(ctx, args),
         },
@@ -884,7 +876,6 @@ async function serve(run: Run, lock: HeldLock): Promise<number> {
       lane: (office) => lane.forOffice(office),
       git: (office) => engineGit.forOffice(office),
       host,
-      slots,
       probe: systemProcessProbe(platform),
       stop: (ctx, args) => runs.control.parkByMaintainer(ctx, args),
       finishBoxes: () => runs.finishEndedBoxes(),
@@ -1001,7 +992,6 @@ async function serve(run: Run, lock: HeldLock): Promise<number> {
       engineGit,
       claims,
       offices,
-      slots,
       base: runBase,
       database: () => held.database,
       onChanged: (office) => server?.notifyOffice(office),
@@ -1031,7 +1021,6 @@ async function serve(run: Run, lock: HeldLock): Promise<number> {
       stories: storyIndex,
       runs: runs.control,
       releaseClaim: (office, claim, reason) => claims.releaseUnstarted(office, claim, reason),
-      slots,
       // A story Done on the base through another branch has its open story PR closed and the box
       // of its ended run deleted (DIPO-161).
       host,
@@ -1103,7 +1092,6 @@ async function serve(run: Run, lock: HeldLock): Promise<number> {
       gates,
       lane: (office) => lane.forOffice(office),
       launcher: runs.launcher,
-      liveSlots: () => slots.live(),
       // The worker place is decided and taken in the places' serialized steps (DIPO-208).
       places: runs.places,
     });

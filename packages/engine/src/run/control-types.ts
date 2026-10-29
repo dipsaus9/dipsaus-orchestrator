@@ -18,7 +18,6 @@ import type { OfficeConfig } from "../config";
 import type { OfficeHandle } from "../db/office";
 import type { Caps, HostOp, SteerOp, WorkerReport } from "../workers/types";
 
-import type { BackstopSnapshot } from "./backstop";
 import type { FiredCap } from "./caps";
 import type { IntentKind } from "./intents";
 import type { LiveQuestions } from "./live-question";
@@ -131,8 +130,6 @@ export interface TrackedRun {
   readonly caps: Caps;
   /** When the worker started (its host start), on the engine clock. */
   readonly startedAt: number;
-  /** The backstop snapshot taken before the worker started (DIPO-49); null without one. */
-  readonly snapshot?: BackstopSnapshot | null;
 }
 
 export interface Tracked extends TrackedRun {
@@ -223,6 +220,5 @@ export function viewOf(tracked: Tracked): RunView {
     work: tracked.work,
     caps: tracked.caps,
     startedAt: tracked.startedAt,
-    snapshot: tracked.snapshot ?? null,
   };
 }

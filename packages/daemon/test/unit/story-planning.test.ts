@@ -20,6 +20,5 @@ describe("storyPlanningDeps (DIPO-227)", () => {
     expect(deps.lane).toBe(lane);
     expect(deps.host).toBe(host);
     expect(deps.implemented).toBe(implemented);
-    expect(deps.slots).toBeUndefined();
   });
 });

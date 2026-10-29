@@ -27,55 +27,29 @@ import { type OfficeCommandDeps, parseOptions, withOffice } from "./office-comma
 
 const YES = /^\s*y(es)?\s*$/i;
 
-/** How many commits and files `drop --delete-branch` lists before the typed id (DIPO-228). */
+/** How many commits `drop --delete-branch` lists before the typed id (DIPO-228). */
 const LISTED_COMMITS = 20;
-const LISTED_FILES = 50;
 
-/** What `story.losses` answers: the commits not on the base and the files of the worktree. */
+/** What `story.losses` answers: the commits not on the base. */
 interface StoryLosses {
   readonly commits: readonly LostCommit[];
-  readonly files: readonly string[];
-  /** Worktrees the command keeps (`story.drop` of a story with leftovers, DIPO-161). */
-  readonly kept?: readonly string[] | undefined;
 }
 
-/**
- * Lists what the command loses, each list cut to its cap with a count of the rest, then the
- * worktrees it keeps (DIPO-161: `story.drop` never removes the leftovers of a story Done elsewhere).
- */
+/** Lists what the command loses, cut to its cap with a count of the rest. */
 function printLosses(deps: OfficeCommandDeps, losses: StoryLosses): void {
-  printLost(deps, losses);
-  const kept = losses.kept ?? [];
-  if (kept.length > 0) {
-    deps.writeLine(
-      `worktrees kept with their files, not removed by this command (${kept.length}):`,
-    );
-    for (const path of kept) deps.writeLine(`  ${path}`);
-  }
-}
-
-function printLost(deps: OfficeCommandDeps, losses: StoryLosses): void {
-  if (losses.commits.length === 0 && losses.files.length === 0) {
-    deps.writeLine("no commits or files are lost");
+  if (losses.commits.length === 0) {
+    deps.writeLine("no commits are lost");
     return;
   }
-  if (losses.commits.length > 0) {
-    deps.writeLine(`commits not on the base (${losses.commits.length}):`);
-    for (const commit of losses.commits.slice(0, LISTED_COMMITS)) {
-      deps.writeLine(`  ${commit.sha} ${commit.subject}`);
-    }
-    const rest = losses.commits.length - LISTED_COMMITS;
-    if (rest > 0) deps.writeLine(`  and ${rest} more`);
+  deps.writeLine(`commits not on the base (${losses.commits.length}):`);
+  for (const commit of losses.commits.slice(0, LISTED_COMMITS)) {
+    deps.writeLine(`  ${commit.sha} ${commit.subject}`);
   }
-  if (losses.files.length > 0) {
-    deps.writeLine(`uncommitted or untracked files (${losses.files.length}):`);
-    for (const file of losses.files.slice(0, LISTED_FILES)) deps.writeLine(`  ${file}`);
-    const rest = losses.files.length - LISTED_FILES;
-    if (rest > 0) deps.writeLine(`  and ${rest} more`);
-  }
+  const rest = losses.commits.length - LISTED_COMMITS;
+  if (rest > 0) deps.writeLine(`  and ${rest} more`);
 }
 
-/** How long these commands wait: the lane's flush, the PR close and the worktree removal. */
+/** How long these commands wait: the lane's flush, the PR close and the branch deletion. */
 export const STORY_COMMAND_TIMEOUT_MS = 180_000;
 
 function storyRef(text: string): StoryRefValue | null {
@@ -181,7 +155,7 @@ export async function dropCommand(
         return false;
       }
       const typed = await deps.workspace.ask(
-        `Dropping ${story} archives it, closes its open PR, and removes its worktree with --force and deletes its branch locally and on the remote: uncommitted and untracked files and commits not on the base are lost. This cannot be undone. Type ${story} to confirm: `,
+        `Dropping ${story} archives it, closes its open PR, and deletes its branch locally and on the remote: commits not on the base are lost. This cannot be undone. Type ${story} to confirm: `,
       );
       if (typed.trim().toUpperCase() === String(story).toUpperCase()) return true;
       deps.writeLine("nothing dropped");
@@ -195,7 +169,7 @@ export async function dropCommand(
       return false;
     }
     const answer = await deps.workspace.ask(
-      `Drop ${story}? It is archived, its open PR is closed and its worktree is removed; its branch is kept. [y/N] `,
+      `Drop ${story}? It is archived and its open PR is closed; its branch is kept. [y/N] `,
     );
     if (YES.test(answer)) return true;
     deps.writeLine("nothing dropped");
@@ -236,7 +210,7 @@ export async function dropCommand(
       }
       deps.writeLine(
         outcome.changed
-          ? `dropped ${story}; it is archived${deleteBranch ? ", its worktree and branch are removed" : ", its branch is kept"}`
+          ? `dropped ${story}; it is archived${deleteBranch ? ", its branch is deleted" : ", its branch is kept"}`
           : `${story} was already dropped`,
       );
       return 0;
@@ -292,7 +266,7 @@ export async function discardCommand(
   printLosses(deps, read.losses);
   const confirm = async (): Promise<boolean> => {
     const typed = await deps.workspace.ask(
-      `Discarding ${story} stops its worker, closes its open PR, removes its worktree with --force and deletes its branch locally and on the remote, and returns it to Refined: uncommitted and untracked files and commits not on the base are lost. A running worker is stopped only after this list was read, so anything it writes or commits in between is lost too. This cannot be undone. Type ${story} to confirm: `,
+      `Discarding ${story} stops its worker, closes its open PR, deletes its box and its branch locally and on the remote, and returns it to Refined: commits not on the base and work left in the box are lost. A running worker is stopped only after this list was read, so anything it delivers in between is lost too. This cannot be undone. Type ${story} to confirm: `,
     );
     if (typed.trim().toUpperCase() === String(story).toUpperCase()) return true;
     deps.writeLine("nothing discarded");
@@ -310,7 +284,7 @@ export async function discardCommand(
       }
       deps.writeLine(
         outcome.changed
-          ? `discarded ${story}; its worktree and branch are removed`
+          ? `discarded ${story}; its box and branch are deleted`
           : `${story} was already discarded`,
       );
       return 0;

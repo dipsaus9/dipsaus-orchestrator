@@ -226,13 +226,13 @@ if (registers) {
                 setup: {
                   commands: [["sh", "-c", "echo setup"]],
                   cwd: ".",
-                  env: {},
                   timeoutMs: 60_000,
                 },
                 dev: {
-                  command: ["sh", "dev.sh"],
+                  // The box run gets no environment of its own (DIPO-349): the bind address goes
+                  // through `env` on the command line.
+                  command: ["/usr/bin/env", `BIND=${bind}`, "sh", "dev.sh"],
                   cwd: "/work",
-                  env: { BIND: bind },
                   startTimeoutMs: 120_000,
                 },
               };

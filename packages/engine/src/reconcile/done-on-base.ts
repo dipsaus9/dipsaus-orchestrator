@@ -12,18 +12,15 @@
 // - A parked or idle claim is checked again in one item of the office git queue (still live, its
 //   run ended, `_base` still at the pass's commit, else it is retried after a reindex, DIPO-226,
 //   and its own PR still not recorded merged), which also reads the base commit that last changed
-//   the task file. Then it is released as `done-elsewhere` in one transaction and its PR, worktree
-//   and branch are settled (`worktree/done-elsewhere.ts`): a clean worktree is removed and a dirty
-//   one kept as leftovers while the claim is released; a branch that adds nothing to the base is
+//   the task file. Then it is released as `done-elsewhere` in one transaction and its PR and
+//   branch are settled (`worktree/done-elsewhere.ts`): a branch that adds nothing to the base is
 //   deleted locally and on the remote, else kept in `released_branches`.
-// - A claim with `teardown_started_at` whose worktree is already gone (a teardown a crash
-//   interrupted between the removal and the release) is released as `done` without git, as
-//   DIPO-216 does; its branch is then settled like the leftovers above.
+// - A claim with `teardown_started_at` (a teardown a crash interrupted before its release) is
+//   released as `done` without git, as DIPO-216 does; its branch is then settled like the
+//   leftovers above.
 // - A claim DIPO-216 released that way before this story, whose local branch is still there, gets
 //   the same branch handling (`sweepCrashedTeardowns`).
 // Released rows a crash left unsettled are settled first (`settlePending`).
-
-import { existsSync } from "node:fs";
 
 import { remoteUrl } from "../git/write";
 import { repoOfRemoteUrl } from "../platform/host";
@@ -135,7 +132,6 @@ function elsewhereDeps(
     office: deps.office,
     git: deps.git,
     clock: deps.clock,
-    ...(deps.slots === undefined ? {} : { slots: deps.slots }),
     ...(deps.host === undefined ? {} : { host: deps.host }),
     ...(deps.finishBoxes === undefined ? {} : { finishBoxes: deps.finishBoxes }),
   };
@@ -195,16 +191,12 @@ async function releaseOne(
     flagLiveWorker(elsewhere, claim, commit);
     return "none";
   }
-  const gone =
-    claim.teardownStartedAt !== null &&
-    git.adminDirOf(claim.worktree) === null &&
-    !existsSync(claim.worktree);
-  if (gone) {
+  if (claim.teardownStartedAt !== null) {
     if (!stillEligible(deps, claim)) return "none";
     // DIPO-216: released as `done` without git; the branch is settled after the release.
     releaseDoneElsewhere(elsewhere, claim, null, {
       reason: DONE_RELEASE_REASON,
-      text: `${claim.story} is Done on ${claim.base}, but not through its own branch ${claim.branch}; dipo released its claim, whose worktree ${claim.worktree} was already removed.`,
+      text: `${claim.story} is Done on ${claim.base}, but not through its own branch ${claim.branch}; dipo released its claim, whose teardown had already started.`,
     });
   } else {
     const checked = await git.run(async (session) => {
@@ -233,7 +225,7 @@ async function releaseOne(
 }
 
 /**
- * Own-branch teardowns a crash interrupted after removing the worktree and that DIPO-216 released
+ * Own-branch teardowns a crash interrupted and that DIPO-216 released
  * as `done` while their local branch stayed: each such claim, whose story the one Done check finds
  * Done and which has no row yet, gets one and its branch settled. Returns how many it settled.
  */

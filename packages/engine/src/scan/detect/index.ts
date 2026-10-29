@@ -13,7 +13,6 @@ export type {
   ConformanceLevel,
   Confidence,
   DetectOptions,
-  DevPort,
   Deviation,
   EnvFile,
   PackageManager,

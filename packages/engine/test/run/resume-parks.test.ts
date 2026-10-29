@@ -119,8 +119,6 @@ beforeEach(async () => {
       model: "haiku",
       startSha: "b".repeat(40),
       branch: "DIPO-1/add-a-greeting",
-      worktree: join(dir, "trees", "DIPO-1"),
-      slot: 1,
       budgetUnit: "tokens",
       budgetLimit: TIER_S.budgetTokens,
       loopCap: 3,
@@ -142,14 +140,11 @@ beforeEach(async () => {
       key,
       story: "DIPO-1",
       branch: "DIPO-1/add-a-greeting",
-      worktree: join(dir, "trees", "DIPO-1"),
       base: "main",
       baseSha: "b".repeat(40),
       startSha: "b".repeat(40),
       claimSha: "d".repeat(40),
       reused: false,
-      snapshot: { path: "/x", adminDir: "/x", commondir: "/x", gitdir: "/x", pointer: "/x" },
-      firstFeedback: null,
       claimedAt: f.t.clock.now(),
     });
     office.run(
@@ -450,7 +445,6 @@ describe("work.resume of a reason that needs nothing more (0020)", () => {
         {
           story: "DIPO-1",
           branch: "DIPO-1/add-a-greeting",
-          worktree: join(w.dir, "trees", "DIPO-1"),
           to: "In Progress",
           // The resume's line in the implementation notes (0020, DIPO-154).
           line: `Resumed 2026-01-01 00:00 UTC; grants: none; note: ${row.note ?? "none"}`,
@@ -1040,8 +1034,6 @@ describe("a resume whose place is taken (0020 section 1, 0019 section 12)", () =
         model: "haiku",
         startSha: "b".repeat(40),
         branch: "DIPO-2/x",
-        worktree: join(w.dir, "trees", "DIPO-2"),
-        slot: 2,
         budgetUnit: "tokens",
         budgetLimit: 1,
         loopCap: 3,
@@ -1056,14 +1048,11 @@ describe("a resume whose place is taken (0020 section 1, 0019 section 12)", () =
         key: otherKey,
         story: "DIPO-2",
         branch: "DIPO-2/x",
-        worktree: join(w.dir, "trees", "DIPO-2"),
         base: "main",
         baseSha: "b".repeat(40),
         startSha: "b".repeat(40),
         claimSha: "d".repeat(40),
         reused: false,
-        snapshot: { path: "/x", adminDir: "/x", commondir: "/x", gitdir: "/x", pointer: "/x" },
-        firstFeedback: null,
         claimedAt: t.clock.now(),
       });
       office.run(

@@ -71,7 +71,6 @@ export function storyRun(w: RoundsWorld, options: StoryRunOptions): StoryRun {
     addStory(office, t.ids, { story: StoryId.parse(options.story) }, t.clock.now()),
   );
   const branch = `${options.story}/a-story`;
-  const worktree = join(w.dir, "trees", options.story);
   office.immediate(() => {
     // The story as the index read it, so a park reaches the mirror (DIPO-360).
     mirrorStory(office, { key, story: options.story, status: "In Review" }, t.clock.now());
@@ -85,8 +84,6 @@ export function storyRun(w: RoundsWorld, options: StoryRunOptions): StoryRun {
       model: options.model ?? "sonnet",
       startSha: "b".repeat(40),
       branch,
-      worktree,
-      slot: null,
       budgetUnit: "tokens",
       budgetLimit: options.budgetLimit ?? 1_000_000,
       loopCap: options.loopCap ?? 3,
@@ -106,14 +103,11 @@ export function storyRun(w: RoundsWorld, options: StoryRunOptions): StoryRun {
       key,
       story: options.story,
       branch,
-      worktree,
       base: "main",
       baseSha: "b".repeat(40),
       startSha: "b".repeat(40),
       claimSha: "d".repeat(40),
       reused: false,
-      snapshot: { path: "/x", adminDir: "/x", commondir: "/x", gitdir: "/x", pointer: "/x" },
-      firstFeedback: null,
       claimedAt: t.clock.now(),
     });
   });
@@ -134,8 +128,6 @@ export function sessionRun(w: RoundsWorld): RunId {
       model: "haiku",
       startSha: null,
       branch: null,
-      worktree: null,
-      slot: null,
       budgetUnit: "tokens",
       budgetLimit: 1,
       loopCap: 1,

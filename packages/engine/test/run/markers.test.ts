@@ -30,9 +30,9 @@ function addStoryRun(f: IngestFixture): void {
   f.office.immediate(() => {
     f.office.run(
       `insert into runs (office_id, run_id, kind, key, story_id, tier, role, model, start_sha,
-         branch, worktree, budget_unit, budget_limit, loop_cap, config_hash, started_at)
+         branch, budget_unit, budget_limit, loop_cap, config_hash, started_at)
        values ($office_id, $run, 'story', $key, 'DIPO-1', 'M', 'developer', 'haiku', $sha,
-         'DIPO-1/x', '/trees/DIPO-1', 'tokens', 400000, 3, 'h', 0)`,
+         'DIPO-1/x', 'tokens', 400000, 3, 'h', 0)`,
       { run: f.run, key: f.work.key, sha: "a".repeat(40) },
     );
     f.office.run(

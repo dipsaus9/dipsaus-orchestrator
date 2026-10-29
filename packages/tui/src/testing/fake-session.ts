@@ -118,7 +118,7 @@ export class FakeSession implements TuiSession {
   /** What `office.desk` answers (DIPO-308); a function answers each read on its own. */
   desk: unknown[] | (() => unknown) = [];
   /** What `story.losses` answers, by story id. */
-  readonly losses = new Map<string, { commits: unknown[]; files: string[]; kept?: string[] }>();
+  readonly losses = new Map<string, { commits: unknown[] }>();
   /** What `office.digest` answers; null answers with no digest read. */
   digest: unknown = null;
   /** The decided gates `story.detail` answers, by story key (0019 section 14). */
@@ -164,7 +164,7 @@ export class FakeSession implements TuiSession {
       return { ok: true, result: typeof this.desk === "function" ? this.desk() : this.desk };
     }
     if (definition.name === "story.losses") {
-      const losses = this.losses.get(args.story ?? "") ?? { commits: [], files: [] };
+      const losses = this.losses.get(args.story ?? "") ?? { commits: [] };
       return { ok: true, result: { story: args.story, key: args.story, ...losses } };
     }
     if (definition.name === "office.digest") {

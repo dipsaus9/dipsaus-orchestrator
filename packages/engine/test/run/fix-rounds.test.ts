@@ -162,7 +162,6 @@ const view = (_office: OfficeId, _handle: unknown, run: { runId: RunId }): RunVi
   work: { ...workOf(storyOf(run.runId), "agt-reviewer" as never, REVIEWER_ROLE) },
   caps: { budgetTokens: 1_000_000, maxTurns: 100, maxMinutes: 60 },
   startedAt: 0,
-  snapshot: null,
 });
 
 function world(): World {

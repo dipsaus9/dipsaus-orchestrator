@@ -7,7 +7,7 @@
 import { describe, expect, it } from "bun:test";
 
 import type { OfficeId } from "@dipsaus-orchestrator/contract";
-import { git, type TempRepoWithRemote, withBareRemote } from "@dipsaus-orchestrator/testkit";
+import { type TempRepoWithRemote, withBareRemote } from "@dipsaus-orchestrator/testkit";
 
 import {
   type ClaimOutcome,
@@ -55,10 +55,8 @@ async function moveRemote(repo: TempRepoWithRemote, from: string): Promise<strin
   return theirs;
 }
 
-/** Removes the claim's worktree and its local branch by hand, as a crash or the maintainer may. */
-async function dropLocal(repo: TempRepoWithRemote, claim: ClaimRecord): Promise<void> {
-  await git(repo.dir, repo.home, "worktree", "unlock", claim.worktree);
-  await git(repo.dir, repo.home, "worktree", "remove", "--force", claim.worktree);
+/** Deletes the claim's local branch by hand, as a crash or the maintainer may. */
+async function dropLocal(repo: TempRepoWithRemote, _claim: ClaimRecord): Promise<void> {
   await repo.git("update-ref", "-d", `refs/heads/${BRANCH_1}`);
 }
 

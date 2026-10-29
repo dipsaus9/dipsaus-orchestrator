@@ -59,7 +59,6 @@ export interface BranchUnread {
   readonly key: StoryKey;
   readonly story: string;
   readonly branch: string;
-  readonly worktree: string;
   readonly reason: string;
 }
 
@@ -279,7 +278,6 @@ async function overlayClaimed(
         key: claim.key,
         story: id,
         branch: claim.branch,
-        worktree: claim.worktree,
         reason: messageOf(error),
       });
     }

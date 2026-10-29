@@ -214,18 +214,12 @@ export function testBoxScripts(input: {
   readonly story: string;
 }): Pick<TestBoxRequest, "install" | "setup" | "dev"> {
   const { profile, config } = input;
-  const install = boxInstallInput({
-    profile: profile.profile,
-    config,
-    story: input.story,
-    slot: null,
-  });
+  const install = boxInstallInput({ profile: profile.profile, config });
   if (install !== null && "refused" in install) {
     throw new CommandError("test.refused", `${input.story} cannot be tested: ${install.refused}.`, {
       capability: "install",
     });
   }
-  const env = install?.env ?? {};
   const minutes = (name: string, fallback: number) =>
     (config.timeouts.scriptMinutes[name] ?? fallback) * 60_000;
   const setup = resolved(profile, "setup");
@@ -233,14 +227,13 @@ export function testBoxScripts(input: {
   const devCommand = dev?.commands[0];
   return {
     install,
-    setup: setup === null ? null : { ...setup, env, timeoutMs: minutes("setup", 10) },
+    setup: setup === null ? null : { ...setup, timeoutMs: minutes("setup", 10) },
     dev:
       dev === null || devCommand === undefined || devCommand.length === 0
         ? null
         : {
             command: devCommand as [string, ...string[]],
             cwd: boxDir(dev.cwd),
-            env,
             startTimeoutMs: minutes("dev", TEST_DEV_START_MINUTES_DEFAULT),
           },
   };

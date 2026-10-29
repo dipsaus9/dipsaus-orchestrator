@@ -145,7 +145,7 @@ describe("dipo run explains its skips", () => {
       ctx.emit("engine.notice", {
         level: "warn",
         code: "setup.failed",
-        text: "DIPO-7 was not started: setup failed (install (bun install --frozen-lockfile) failed: exit 1: mktemp: mkstemp failed: Operation not permitted). The worktree was removed and the story stays Ready.",
+        text: "DIPO-7 was not started: setup failed (install (bun install --frozen-lockfile) failed: exit 1: mktemp: mkstemp failed: Operation not permitted). The claim was rolled back and the story stays Ready.",
       });
       ctx.emit("story.state", {
         story: "DIPO-8",
@@ -168,7 +168,7 @@ describe("dipo run explains its skips", () => {
     expect(ctx.listeners.size).toBe(0);
     expect(ctx.out).toEqual([
       "skipped DIPO-7: it failed its pickup check (it goes back to Refined) or its setup, launch checks or worker start (it stays Ready)",
-      "  DIPO-7 was not started: setup failed (install (bun install --frozen-lockfile) failed: exit 1: mktemp: mkstemp failed: Operation not permitted). The worktree was removed and the story stays Ready.",
+      "  DIPO-7 was not started: setup failed (install (bun install --frozen-lockfile) failed: exit 1: mktemp: mkstemp failed: Operation not permitted). The claim was rolled back and the story stays Ready.",
       "skipped DIPO-8: it failed its pickup check (it goes back to Refined) or its setup, launch checks or worker start (it stays Ready)",
       "  ready DIPO-8 failed R15: unknown is open",
     ]);
@@ -184,7 +184,7 @@ describe("dipo run explains its skips", () => {
     await Bun.sleep(0);
     (ctx.deps.clock as ManualClock).advance(EXPLAIN_WAIT_MS);
     expect(await running).toBe(1);
-    expect(ctx.out).toEqual(["skipped DIPO-7: its branch or worktree path is taken"]);
+    expect(ctx.out).toEqual(["skipped DIPO-7: its branch is taken"]);
   });
 });
 
@@ -292,9 +292,8 @@ describe("dipo run", () => {
 const LAUNCH = {
   adapter: "claude-cli",
   branch: "DIPO-7/add-a-greeting",
-  worktree: "/work/app.worktrees/DIPO-7",
   runDir: "/work/app/.git/dipo/runs/<run-id>",
-  cwd: "/work/app.worktrees/DIPO-7",
+  cwd: "/work/app/.git/dipo/runs/<run-id>",
   argv: [
     "/opt/claude/bin/claude",
     "-p",
@@ -430,7 +429,7 @@ describe("dipo run --dry-run", () => {
     for (const header of [
       "== Office checks ==",
       "== Story ==",
-      "== Branch and worktree it would create ==",
+      "== Branch it would create ==",
       "== Worker launch (claude-cli) ==",
       "== Run directory file claude-settings.json (permissions and sandbox settings) ==",
       "== Run directory file report-schema.json ==",
@@ -442,7 +441,7 @@ describe("dipo run --dry-run", () => {
     expect(out).toContain("would start DIPO-7");
     expect(out).toContain("skipped DIPO-8: the office already runs a story");
     expect(out).toContain("branch:        DIPO-7/add-a-greeting");
-    expect(out).toContain("worktree:      /work/app.worktrees/DIPO-7 (locked)");
+    expect(out).not.toContain("worktree");
     expect(out).toContain("program:           /opt/claude/bin/claude");
     expect(out).toContain("caps:              800,000 tokens, 120 turns, 60 minutes, 4 loops");
     expect(out).toContain("  --model sonnet");
@@ -481,9 +480,8 @@ describe("dipo run --dry-run", () => {
     expect(out).not.toContain("== Worker launch");
   });
 
-  it("prints the slots refusal with each holder and not would start", async () => {
-    const message =
-      "every port slot from 1 to 1 is taken by another worktree: slot 1: office off_a, story DIPO-3, worktree /work/app.worktrees/DIPO-3. dipo discard <id> frees a story's slot.";
+  it("prints an office refusal without a story and not would start", async () => {
+    const message = "the office base is not known: set base in .dipo/office.yaml";
     const ctx = fake(
       () => {
         throw new Error("work.run must not be sent");
@@ -492,7 +490,7 @@ describe("dipo run --dry-run", () => {
       () => ({
         ok: true,
         result: {
-          refusals: [{ check: "slots", message }],
+          refusals: [{ check: "base", message }],
           story: null,
           skipped: [],
           launch: null,
@@ -502,7 +500,7 @@ describe("dipo run --dry-run", () => {
     );
     expect(await main(["run", "--dry-run"], ctx.deps)).toBe(1);
     const out = ctx.out.join("\n");
-    expect(out).toContain(`refused (slots): ${message}`);
+    expect(out).toContain(`refused (base): ${message}`);
     expect(out).toContain("no story would start");
     expect(out).not.toContain("would start DIPO");
   });

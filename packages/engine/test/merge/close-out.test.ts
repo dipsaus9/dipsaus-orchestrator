@@ -4,7 +4,7 @@
 
 import { describe, expect, it } from "bun:test";
 
-import { git, withTempRepo } from "@dipsaus-orchestrator/testkit";
+import { withTempRepo } from "@dipsaus-orchestrator/testkit";
 
 import { gitStoryMergeOps } from "../../src/merge/story-git";
 import { gitParkWriter } from "../../src/run/park";
@@ -42,18 +42,16 @@ describe("the close-out commit", () => {
         await gitParkWriter(deps).write(s.office.officeId, {
           story: TASK_1,
           branch: BRANCH_1,
-          worktree: claim.worktree,
           reason: "ambiguous-spec",
           note: "Which flag?",
         });
-        const parked = await git(claim.worktree, repo.home, "show", `HEAD:${TASK_FILE_1}`);
+        const parked = await repo.git("show", `${BRANCH_1}:${TASK_FILE_1}`);
         expect(dipoBlock(parked)).toContain(`reason: "ambiguous-spec"`);
 
         const run = {
           runId: claim.runId,
           story: TASK_1,
           branch: BRANCH_1,
-          worktree: claim.worktree,
           startSha: claim.startSha,
         };
         const summaries: string[] = [];
@@ -65,10 +63,10 @@ describe("the close-out commit", () => {
 
         expect(done.commit).not.toBeNull();
         expect(summaries).toEqual([TASK_1]);
-        const subject = await git(claim.worktree, repo.home, "log", "-1", "--format=%s");
+        const subject = await repo.git("log", "-1", "--format=%s", BRANCH_1);
         expect(subject.trim()).toBe(`${TASK_1}: status Done`);
         expect(await filesOf(repo.dir, repo.home, done.commit as string)).toEqual([TASK_FILE_1]);
-        const closed = await git(claim.worktree, repo.home, "show", `HEAD:${TASK_FILE_1}`);
+        const closed = await repo.git("show", `${BRANCH_1}:${TASK_FILE_1}`);
         expect(closed).toMatch(/^status: Done$/m);
         expect(dipoBlock(closed)).not.toMatch(/^park:/m);
         // The rest of the field block stays.

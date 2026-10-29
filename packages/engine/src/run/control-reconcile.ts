@@ -154,9 +154,7 @@ export class ReconcileStops {
       write,
       {
         write: () =>
-          Promise.reject(
-            new Error("its worktree or branch changed by hand, so dipo writes nothing there"),
-          ),
+          Promise.reject(new Error("its branch changed by hand, so dipo writes nothing there")),
       },
     );
     if (tracked !== undefined) tracked.ending = done;

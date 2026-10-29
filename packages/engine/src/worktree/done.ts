@@ -5,16 +5,16 @@
 // at `<remote>/<base>`, read with the Backlog CLI. `git merge-tree` is no Done signal (0010).
 //
 // - Merged: the story is torn down (`teardown.ts`) unless it is Parked or a worker host of its run
-//   is still live: a parked story keeps its worktree, branch and slot. A branch that moved past the
-//   merged head with changes the base lacks (`git merge-tree` decides only that, 0010) is released
-//   as `done` with its worktree and branch as leftovers once no worker runs
-//   (`releaseMovedPastMerge`, DIPO-332), or kept with a notice while it is parked.
+//   is still live: a parked story keeps its branch. A branch that moved past the merged head with
+//   changes the base lacks (`git merge-tree` decides only that, 0010) is released as `done` with its
+//   branch as a leftover once no worker runs (`releaseMovedPastMerge`, DIPO-332), or kept with a
+//   notice while it is parked.
 // - Done on the base (DIPO-161; 0020): a claim with a live worker is flagged once and released
-//   when its run next ends; a parked or idle one is released as `done-elsewhere` and its PR,
-//   worktree and branch settled (`done-elsewhere.ts`).
+//   when its run next ends; a parked or idle one is released as `done-elsewhere` and its PR and
+//   branch settled (`done-elsewhere.ts`).
 //
-// Each notice is put on the office once per claim and cause, so a dirty worktree is not reported
-// again on every poll. Each poll first settles the released rows a crash left unsettled.
+// Each notice is put on the office once per claim and cause, so a kept claim is not reported again
+// on every poll. Each poll first settles the released rows a crash left unsettled.
 //
 // The teardown's release ends the claim's run with `done` (`DONE_END`): the run's last active
 // period ended at In Review, so that end is its final one, and its final `run_outcomes` row is
@@ -37,15 +37,15 @@ import { appendEntries } from "../changelog/log";
 import type { FeatureModule } from "../commands/registry";
 import { OFFICE_DEFAULTS, type OfficeConfig } from "../config";
 import type { OfficeHandle } from "../db/office";
-import type { GitLocation } from "../git/hardened";
 import type { OfficeGit } from "../git/office";
 import type { Logger } from "../log/logger";
 import { decideOnHandMerge } from "../merge/gates";
 import { type CodeHost, type PrStateHost, repoOfRemoteUrl } from "../platform/host";
 import type { PrStatePoll } from "../platform/pr-state";
+import { inStoryBacklog } from "../stories/story-copy";
 import { withWorkViews } from "../views/work";
 
-import { inStoryBacklog, notice, writeWith } from "./claim";
+import { notice, writeWith } from "./claim";
 import { claimPr, decideDone, type DoneAnswer, type DonePr } from "./done-check";
 import {
   type BaseStatus,
@@ -64,7 +64,6 @@ import {
   settlePending,
 } from "./done-elsewhere";
 import { type ClaimRecord, liveClaims } from "./records";
-import type { SlotTable } from "./slots";
 import { addsNothingTo } from "./release";
 import {
   claimGitFacts,
@@ -86,8 +85,6 @@ export const HOST_FAILURES_NOTICED = 3;
 /** The Backlog.md status of a parked story (0012). */
 export const PARKED_STATUS = "Parked";
 
-type WorktreeLocation = Extract<GitLocation, { kind: "worktree" }>;
-
 export interface StoryTeardownDeps {
   /** The office's git, attached by the `git.version` load step (DIPO-31). */
   readonly git: (office: OfficeId) => OfficeGit | undefined;
@@ -100,8 +97,6 @@ export interface StoryTeardownDeps {
     get(office: OfficeId): OfficeHandle | undefined;
     config(office: OfficeId): OfficeConfig | undefined;
   };
-  /** The machine-wide port slot table; teardown frees the worktree's slot there. */
-  readonly slots?: SlotTable;
   /** The story's status on its branch, or null when unreadable; the Backlog CLI by default. */
   readonly statusOf?: (claim: ClaimRecord) => Promise<string | null>;
   /** Closes dipo's open story PR of a story Done elsewhere; the `gh` host in the daemon. */
@@ -124,7 +119,7 @@ export interface PollReport {
   readonly checked: number;
   /** Claims torn down. */
   readonly tornDown: readonly ClaimRecord[];
-  /** Done claims that kept everything (parked, dirty, locked, live worker). */
+  /** Done claims that kept everything (parked, a moved branch, a live worker). */
   readonly kept: readonly ClaimRecord[];
   /** Claims released because their story is Done on the base through another branch. */
   readonly released?: readonly ClaimRecord[];
@@ -235,7 +230,6 @@ export class StoryTeardown {
       office: state.office,
       git,
       clock: state.clock,
-      ...(this.#deps.slots === undefined ? {} : { slots: this.#deps.slots }),
       ...(this.#deps.onChanged === undefined ? {} : { onChanged: this.#deps.onChanged }),
     };
     await settlePending(this.#elsewhereDeps(deps));
@@ -249,7 +243,7 @@ export class StoryTeardown {
         else if (result === "kept") kept.push(claim);
         else if (result === "released") released.push(claim);
       } catch (error) {
-        // One claim's git error (a tampered worktree, a held lock) does not stop the others.
+        // One claim's git error (a held lock) does not stop the others.
         this.#tell(
           state,
           deps,
@@ -330,7 +324,7 @@ export class StoryTeardown {
       claim,
       "warn",
       TEARDOWN_NOTICES.hostUnreachable,
-      `dipo could not ask the code host whether the PR of ${claim.story} merged on ${HOST_FAILURES_NOTICED} polls in a row (${error}). Until it answers, dipo keeps the claim, its worktree and branch ${claim.branch} as they are; check \`gh auth status\` and the network.`,
+      `dipo could not ask the code host whether the PR of ${claim.story} merged on ${HOST_FAILURES_NOTICED} polls in a row (${error}). Until it answers, dipo keeps the claim and its branch ${claim.branch} as they are; check \`gh auth status\` and the network.`,
     );
   }
 
@@ -346,14 +340,14 @@ export class StoryTeardown {
       return this.#doneElsewhere(state, deps, claim, checked.base);
     }
     if (checked.answer === "notDone" || checked.pr === null) {
-      if (checked.facts.tip === null && checked.facts.worktreeGone) {
+      if (checked.facts.tip === null) {
         this.#tell(
           state,
           deps,
           claim,
           "warn",
           TEARDOWN_NOTICES.claimGone,
-          `${claim.story} is claimed, but its worktree ${claim.worktree} and branch ${claim.branch} are both gone and dipo cannot tell whether it merged. Check the story by hand.`,
+          `${claim.story} is claimed, but its branch ${claim.branch} is gone and dipo cannot tell whether it merged. Check the story by hand.`,
         );
       }
       return "open";
@@ -386,7 +380,7 @@ export class StoryTeardown {
         claim,
         "info",
         TEARDOWN_NOTICES.kept,
-        `${claim.story} is Done, but a worker of its run is still running; dipo tears down its worktree once the worker has ended.`,
+        `${claim.story} is Done, but a worker of its run is still running; dipo deletes its branch once the worker has ended.`,
       );
       return "kept";
     }
@@ -400,7 +394,7 @@ export class StoryTeardown {
           claim,
           "warn",
           TEARDOWN_NOTICES.statusUnknown,
-          `${claim.story} looks merged, but dipo could not read its status in ${claim.worktree}, so it cannot rule out a park and keeps the worktree, branch ${claim.branch} and port slot this time. dipo tries again on its next poll.`,
+          `${claim.story} looks merged, but dipo could not read its status on ${claim.branch}, so it cannot rule out a park and keeps the branch this time. dipo tries again on its next poll.`,
         );
         return "kept";
       }
@@ -411,24 +405,20 @@ export class StoryTeardown {
           claim,
           "warn",
           TEARDOWN_NOTICES.parked,
-          `${claim.story} looks merged, but it is Parked, so dipo keeps its worktree, branch ${claim.branch} and port slot. Resolve the park to finish it.`,
+          `${claim.story} looks merged, but it is Parked, so dipo keeps its branch ${claim.branch}. Resolve the park to finish it.`,
         );
         return "kept";
       }
     }
     const outcome = await tearDown(deps, claim, pr, tip);
     if (outcome.ok) return "tornDown";
-    const files =
-      outcome.files.length === 0
-        ? ""
-        : ` Files git lists there: ${outcome.files.join(", ")}. Commit, move or remove those changes.`;
     this.#tell(
       state,
       deps,
       claim,
       "warn",
       TEARDOWN_NOTICES.kept,
-      `${claim.story} is Done, but dipo kept its worktree, branch ${claim.branch} and port slot: ${outcome.why}.${files} dipo tries again on its next poll.`,
+      `${claim.story} is Done, but dipo kept its branch ${claim.branch}: ${outcome.why}. dipo tries again on its next poll.`,
     );
     return "kept";
   }
@@ -453,7 +443,7 @@ export class StoryTeardown {
         claim,
         "warn",
         TEARDOWN_NOTICES.unmergedCommits,
-        `The PR #${pr.number} of ${claim.story} merged, but the local branch ${claim.branch} is at ${tip}, not at the head that merged, and holds changes the base does not have. dipo keeps the worktree and branch; check them by hand.`,
+        `The PR #${pr.number} of ${claim.story} merged, but the local branch ${claim.branch} is at ${tip}, not at the head that merged, and holds changes the base does not have. dipo keeps the branch; check it by hand.`,
       );
       return "open";
     }
@@ -498,7 +488,6 @@ export class StoryTeardown {
       office: deps.office,
       git: deps.git,
       clock: deps.clock,
-      ...(deps.slots === undefined ? {} : { slots: deps.slots }),
       ...(deps.onChanged === undefined ? {} : { onChanged: deps.onChanged }),
       ...(this.#deps.prCloser === undefined ? {} : { host: this.#deps.prCloser }),
       ...(this.#deps.finishBoxes === undefined ? {} : { finishBoxes: this.#deps.finishBoxes }),
@@ -507,7 +496,7 @@ export class StoryTeardown {
 
   /**
    * The story's status as committed on its branch, read with the Backlog CLI in dipo's own copy of
-   * its backlog, never in the worktree (`inStoryBacklog`, 0021 section 14); null when unreadable.
+   * its backlog (`inStoryBacklog`); null when unreadable.
    */
   async #statusOf(git: OfficeGit, claim: ClaimRecord): Promise<string | null> {
     if (this.#deps.statusOf !== undefined) return this.#deps.statusOf(claim);
@@ -516,8 +505,7 @@ export class StoryTeardown {
         inStoryBacklog(
           git,
           session,
-          git.worktreeLocation(claim.worktree) as WorktreeLocation,
-          claim.story,
+          claim,
           async (backlog) =>
             (await viewStory({ cli: this.#deps.cli, cwd: backlog.cwd, id: claim.story })).status,
         ),

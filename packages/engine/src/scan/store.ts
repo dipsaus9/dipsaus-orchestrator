@@ -138,36 +138,13 @@ function codeProfileOf(office: OfficeHandle, row: ProfileRow): RunProfile {
       present: f.present === 1,
       ignored: f.ignored === 1,
     }));
-  const devPorts = office
-    .all<{
-      dir: string;
-      port: number;
-      source: string;
-      confidence: string;
-      evidence: string;
-      fixed_in_code: number;
-      honours_port: number;
-    }>(
-      `select dir, port, source, confidence, evidence, fixed_in_code, honours_port from run_ports
-         where office_id = $office_id and profile_id = $profile order by rowid`,
-      params,
-    )
-    .map((p) => ({
-      port: p.port,
-      dir: p.dir,
-      source: p.source as Source,
-      confidence: p.confidence as Confidence,
-      evidence: p.evidence,
-      fixedInCode: p.fixed_in_code === 1,
-      honoursPort: p.honours_port === 1,
-    }));
+
   return {
     fingerprint: row.fingerprint,
     toolchain: JSON.parse(row.toolchain) as Toolchain,
     capabilities,
     extraScripts,
     envFiles,
-    devPorts,
     conformance: {
       level: row.conformance as ConformanceLevel,
       deviations: JSON.parse(row.deviations) as Deviation[],
@@ -288,23 +265,7 @@ export function insertProfile(
       },
     );
   }
-  for (const port of profile.devPorts) {
-    office.run(
-      `insert into run_ports (office_id, profile_id, dir, port, source, confidence, evidence,
-         fixed_in_code, honours_port)
-       values ($office_id, $profile, $dir, $port, $source, $confidence, $evidence, $fixed, $honours)`,
-      {
-        profile: profileId,
-        dir: port.dir,
-        port: port.port,
-        source: port.source,
-        confidence: port.confidence,
-        evidence: port.evidence,
-        fixed: bit(port.fixedInCode),
-        honours: bit(port.honoursPort),
-      },
-    );
-  }
+
   for (const script of profile.extraScripts) {
     office.run(
       `insert into run_extra_scripts (office_id, profile_id, name, command)

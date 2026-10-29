@@ -117,8 +117,7 @@ export function levelOf(profile: RunProfile, nothingToStart: boolean): Conforman
     toolchain.packageManager.status === "resolved" &&
     capabilities.test.status === "resolved" &&
     (capabilities.dev.status === "resolved" || nothingToStart) &&
-    capabilities.verify.status === "resolved" &&
-    !deviations.some((d) => d.code.startsWith("fixed-port:"));
+    capabilities.verify.status === "resolved";
   return conforming ? "conforming" : "partial";
 }
 
@@ -252,7 +251,7 @@ export function deviationFix(deviation: Deviation): string | null {
   }
   if (code === "format-writes") return 'move the writing variant to "format:fix"';
   if (code === "no-lockfile") return "commit the package manager's lockfile";
-  if (code.startsWith("fixed-port:")) return "let the PORT environment variable override the port";
+
   if (code === "no-package-json")
     return 'add a package.json with the standard scripts ("test", "verify", "dev")';
   return null;

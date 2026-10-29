@@ -507,7 +507,6 @@ export function readBaseBox(git: OfficeGit): Promise<BaseBox> {
       texts,
       lockfiles: lockfiles.filter((name) => files.get(name)?.text !== undefined),
       workspaceDirs: [],
-      configImports: {},
       envFiles: [],
     };
     const detected = detectBoxToolchain(probe, detect(probe).toolchain);

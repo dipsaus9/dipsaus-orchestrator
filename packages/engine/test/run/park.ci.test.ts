@@ -3,24 +3,18 @@
 // - replays `budget-engine-cap` through FakeProcess with the tier budget from its meta: run control
 //   stops the worker and parks `budget-exceeded` naming the token cap, with one park commit
 //   `TASK-1: status Parked` holding the F16 block, pushed to `origin`;
-// - with no worker events, `story.park` parks `by-maintainer` the same way, branch and worktree
-//   kept;
-// - with the worktree's `.git` pointer changed after the claim, `story.park` parks `scope-violation`
-//   and no git runs in that worktree: the branch tip stays the claim commit.
+// - with no worker events, `story.park` parks `by-maintainer` the same way, the branch kept.
+// A story has no worktree (DIPO-349): the park commit is read from the branch ref.
 // Each case needs several CLI calls, an office load, a fetch, a claim and a push, well over the
 // local per-test budget; the same rules run locally against fakes in control.test.ts.
 
 import { describe, expect, it } from "bun:test";
-import { readFileSync, writeFileSync } from "node:fs";
-import { join } from "node:path";
-
 import { type CommandReply, RequestId } from "@dipsaus-orchestrator/contract";
 
 import { executeCommand } from "../../src/commands/execute";
 import { createSystemIds } from "../../src/platform/ids";
 import { runIntents } from "../../src/run";
 import { openPark } from "../../src/run/park";
-import { CLI } from "../gate/gated-office";
 import { resultOf } from "../office/helpers";
 import { loadRecording } from "../workers/replay";
 import { BRANCH, type Running, withRunOffice } from "./run-office";
@@ -46,18 +40,12 @@ async function startRun(r: Running): Promise<string> {
   return result.started[0]?.run as string;
 }
 
-function worktreeOf(r: Running, run: string): string {
-  const row = r.office.get<{ worktree: string }>(
-    "select worktree from runs where office_id = $office_id and run_id = $run",
-    { run },
-  );
-  if (row === null) throw new Error(`no run ${run}`);
-  return row.worktree;
-}
-
-async function viewIn(r: Running, cwd: string): Promise<string> {
-  const view = await r.repo.run([...CLI(r.repo).command, "task", "view", "TASK-1", "--plain"], cwd);
-  return view.stdout;
+/** TASK-1's task file as committed at the tip of the story branch. */
+async function taskOnBranch(r: Running): Promise<string> {
+  const listed = await r.repo.git("ls-tree", "--name-only", `${BRANCH}:backlog/tasks`);
+  const name = listed.split("\n").find((file) => file.startsWith("task-1 "));
+  if (name === undefined) throw new Error(`no task file of TASK-1 on ${BRANCH}`);
+  return r.repo.git("show", `${BRANCH}:backlog/tasks/${name}`);
 }
 
 function parks(r: Running): { reason: string; detail: string }[] {
@@ -103,8 +91,8 @@ if (process.env["DIPO_TEST_CI"] === "1") {
           const changed = await r.repo.git("diff", "--name-only", `${BRANCH}~1`, BRANCH);
           expect(changed.trim().split("\n")).toHaveLength(1);
           expect(changed).toContain("backlog/tasks/");
-          const view = await viewIn(r, worktreeOf(r, run));
-          expect(view).toMatch(/^Status: \S+ Parked$/m);
+          const view = await taskOnBranch(r);
+          expect(view).toMatch(/^status: Parked$/m);
           expect(view).toContain('reason: "budget-exceeded"');
           expect(view).toContain('from: "In Progress"');
           expect(r.sent[0]?.length).toBe(4);
@@ -114,10 +102,10 @@ if (process.env["DIPO_TEST_CI"] === "1") {
     }, 30_000);
 
     it(
-      "story.park parks by-maintainer with the note, keeping branch and worktree",
+      "story.park parks by-maintainer with the note, keeping the branch",
       () =>
         withRunOffice({ host: "stub", checks: { ok: true }, control: {} }, async (r) => {
-          const run = await startRun(r);
+          await startRun(r);
           const reply = await command(r, "story.park", { story: "TASK-1", note: "Not now." });
           if (!reply.ok) throw new Error(`${reply.error.code}: ${reply.error.message}`);
           expect(parks(r).map((p) => [p.reason, p.detail])).toEqual([
@@ -126,30 +114,10 @@ if (process.env["DIPO_TEST_CI"] === "1") {
           expect((await r.repo.git("log", "--format=%s", "-n", "1", BRANCH)).trim()).toBe(
             "TASK-1: status Parked",
           );
-          const worktree = worktreeOf(r, run);
-          expect(await viewIn(r, worktree)).toContain('reason: "by-maintainer"');
-          const worktrees = await r.repo.git("worktree", "list", "--porcelain");
-          expect(worktrees).toContain(`branch refs/heads/${BRANCH}`);
+          expect(await taskOnBranch(r)).toContain('reason: "by-maintainer"');
           // A second park finds the story parked already.
           const again = await command(r, "story.park", { story: "TASK-1", note: "Again." });
           expect(again).toMatchObject({ ok: true, changed: false });
-        }),
-      30_000,
-    );
-
-    it(
-      "a changed .git pointer parks scope-violation and runs no git in the worktree",
-      () =>
-        withRunOffice({ host: "stub", checks: { ok: true }, control: {} }, async (r) => {
-          const run = await startRun(r);
-          const before = await tip(r, BRANCH);
-          const pointer = join(worktreeOf(r, run), ".git");
-          writeFileSync(pointer, `${readFileSync(pointer, "utf8").trim()}/../x\n`);
-          const reply = await command(r, "story.park", { story: "TASK-1", note: "Moved." });
-          expect(reply.ok).toBe(true);
-          expect(parks(r).map((p) => p.reason)).toEqual(["scope-violation"]);
-          expect(parks(r)[0]?.detail).toContain("dipo runs no git in that worktree");
-          expect(await tip(r, BRANCH)).toBe(before);
         }),
       30_000,
     );

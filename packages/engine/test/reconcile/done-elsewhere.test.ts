@@ -6,13 +6,11 @@
 // done-elsewhere.ci.test.ts (CI only, DIPO-225).
 
 import { describe, expect, it } from "bun:test";
-import { join } from "node:path";
 
 import type { OfficeGit } from "../../src/git/office";
 import { reconcileOffice, type ReconcileReport } from "../../src/reconcile";
 import { DONE_ELSEWHERE_DESK, doneElsewhereDeskItems } from "../../src/worktree/done-elsewhere";
 import { openReleasedBranches, releaseClaim } from "../../src/worktree/records";
-import { SlotTable } from "../../src/worktree/slots";
 import { claim, type FakeTask, keyOf, type ReconcileOffice, withReconcileOffice } from "./helpers";
 
 const DONE: readonly FakeTask[] = [{ id: "TASK-1", status: "Done" }];
@@ -48,7 +46,6 @@ async function reconcile(
   host = hostOf(),
   boxes = { n: 0 },
 ): Promise<{ report: ReconcileReport; host: ReturnType<typeof hostOf> }> {
-  const slots = new SlotTable(join(o.repo.root, "slots.json"));
   const pass = await o.index.indexStories(o.officeId);
   const report = await reconcileOffice(
     {
@@ -56,7 +53,6 @@ async function reconcile(
       office: o.office,
       git: gitOf(o),
       clock: o.s.clock,
-      slots,
       host,
       finishBoxes: async () => {
         boxes.n += 1;
@@ -77,9 +73,6 @@ describe("a story Done on the base through another branch (DIPO-161)", () => {
     withReconcileOffice({ base: DONE }, async (o) => {
       const key = keyOf(o.office, "TASK-1");
       const record = await claim(o, o.office, "TASK-1", key, { active: false });
-      await o.repo.git("worktree", "unlock", record.worktree);
-      await o.repo.git("worktree", "remove", "--force", record.worktree);
-      gitOf(o).unpinWorktree(record.worktree);
       o.office.immediate(() => {
         o.office.run(
           "update claims set teardown_started_at = 5 where office_id = $office_id and run_id = $run",

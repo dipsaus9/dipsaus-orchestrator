@@ -10,7 +10,7 @@ type Shape = {
   workflow?: Record<string, unknown>;
   texts?: Record<string, string>;
   workspaces?: Record<string, Record<string, unknown>>;
-  configImports?: Record<string, string[]>;
+
   envFiles?: EnvFile[];
 };
 
@@ -34,7 +34,7 @@ function probeOf(shape: Shape): Probe {
     texts,
     lockfiles: shape.lockfiles ?? [],
     workspaceDirs: Object.keys(shape.workspaces ?? {}),
-    configImports: shape.configImports ?? {},
+
     envFiles: shape.envFiles ?? [],
   };
 }
@@ -89,11 +89,7 @@ const survey = {
       },
       "packages/config": { name: "@couchcade/config", exports: { "./*": "./*/index.ts" } },
     },
-    configImports: {
-      "apps/host/vite.config.ts": ["packages/config/vite/index.ts"],
-      "apps/controller/vite.config.ts": ["packages/config/vite/index.ts"],
-      "apps/server/vite.config.ts": ["packages/config/vite/index.ts"],
-    },
+
     workflow: {
       worktree: {
         install: "pnpm install --frozen-lockfile",
@@ -198,9 +194,9 @@ describe("detect over the 0013 survey", () => {
       Object.entries(survey).map(([name, probe]) => [name, detect(probe).conformance.level]),
     );
     expect(levels).toEqual({
-      // The fit table says "Conforming, with deviations", but open question 5 (answered the same
-      // day) makes fixed dev ports level Partial, and couchcade fixes three ports in code.
-      couchcade: "partial",
+      // The fit table says "Conforming, with deviations". Fixed dev ports no longer count: a
+      // box has its own network (DIPO-349).
+      couchcade: "conforming",
       slaydoku: "partial",
       cadeauko: "partial",
       "kompanen/borrel-35": "conforming",
@@ -220,7 +216,7 @@ describe("detect over the 0013 survey", () => {
     expect(codes(profile)).not.toContain("missing-dev");
   });
 
-  it("reads couchcade's toolchain, composed verify, declared install and fixed ports", () => {
+  it("reads couchcade's toolchain, composed verify and declared install", () => {
     const profile = detect(survey.couchcade);
     expect(profile.toolchain.packageManager).toMatchObject({
       status: "resolved",
@@ -256,21 +252,16 @@ describe("detect over the 0013 survey", () => {
       },
     });
     expect(profile.capabilities.typecheck).toEqual({ status: "unresolved" });
-    expect(profile.devPorts.map((p) => [p.dir, p.port, p.fixedInCode, p.source])).toEqual([
-      ["apps/controller", 5175, true, "declared"],
-      ["apps/host", 5174, true, "declared"],
-      ["apps/server", 5173, false, "default"],
-    ]);
     expect(codes(profile)).toEqual(
       expect.arrayContaining([
         "verify-composed",
         "relies-on-workflow",
         "missing-typecheck",
         "format-writes",
-        "fixed-port:apps/controller:5175",
-        "fixed-port:apps/host:5174",
       ]),
     );
+    // Dev ports are not detected: a box has its own network (DIPO-349).
+    expect(codes(profile).some((code) => code.startsWith("fixed-port:"))).toBe(false);
     expect(profile.extraScripts.map((s) => s.name)).toEqual(["check", "e2e", "format"]);
     expect(profile.envFiles).toEqual(survey.couchcade.envFiles);
     expect(profile.runRefusal).toBeNull();
@@ -283,14 +274,6 @@ describe("detect over the 0013 survey", () => {
     expect(conflict?.conflict).toBe(true);
     expect(profile.runRefusal).toContain('"verify" script');
     expect(profile.runRefusal).toContain("verify:puzzle");
-    expect(profile.devPorts).toEqual([
-      expect.objectContaining({
-        port: 5173,
-        source: "default",
-        confidence: "low",
-        fixedInCode: false,
-      }),
-    ]);
   });
 
   it("resolves borrel-35's declared verify and reports what composing would add", () => {
@@ -308,9 +291,6 @@ describe("detect over the 0013 survey", () => {
     expect(codes(profile)).toEqual(
       expect.arrayContaining(["verify-declared-differs", "relies-on-workflow", "format-writes"]),
     );
-    expect(profile.devPorts).toEqual([
-      expect.objectContaining({ port: 3000, honoursPort: true, fixedInCode: false }),
-    ]);
   });
 
   it("names the missing test script for valentine-2026, borrel-34 and romy-blij-maken", () => {
@@ -326,7 +306,6 @@ const install = (lockfile: string) =>
 const runtime = (shape: Shape) => detect(probeOf(shape)).toolchain.runtimeVersion;
 const verify = (shape: Shape) =>
   detect(probeOf({ lockfiles: ["bun.lock"], ...shape })).capabilities.verify;
-const ports = (shape: Shape) => detect(probeOf({ lockfiles: ["bun.lock"], ...shape })).devPorts;
 
 describe("detection order", () => {
   it("takes the package manager from packageManager, then the lockfile, else npm with low confidence", () => {
@@ -408,50 +387,6 @@ describe("detection order", () => {
     );
     expect(profile.capabilities.verify).toMatchObject({ status: "resolved", source: "standard" });
     expect(codes(profile)).not.toContain("verify-conflict");
-  });
-
-  it("takes an explicit port from the dev script or a vite config, and sees PORT", () => {
-    expect(ports({ scripts: { dev: "vite --port 4000" } })).toEqual([
-      expect.objectContaining({
-        port: 4000,
-        source: "declared",
-        confidence: "medium",
-        fixedInCode: true,
-        honoursPort: false,
-      }),
-    ]);
-    expect(
-      ports({
-        scripts: { dev: "vite" },
-        texts: {
-          "vite.config.ts":
-            "export default { server: { port: Number(process.env.PORT) || 4100, strictPort: true } };",
-        },
-      }),
-    ).toEqual([
-      expect.objectContaining({
-        port: 5173,
-        source: "default",
-        fixedInCode: false,
-        honoursPort: true,
-      }),
-    ]);
-    expect(
-      ports({
-        scripts: { dev: "vite" },
-        texts: { "vite.config.ts": "export default { server: { port: 4100 } };" },
-      }),
-    ).toEqual([
-      expect.objectContaining({
-        port: 4100,
-        evidence: "vite.config.ts",
-        fixedInCode: true,
-        honoursPort: false,
-      }),
-    ]);
-    expect(ports({ scripts: { dev: "wrangler dev" } })).toEqual([
-      expect.objectContaining({ port: 8787, source: "default" }),
-    ]);
   });
 });
 
@@ -539,7 +474,6 @@ describe("run refusal", () => {
       texts: {},
       lockfiles: [],
       workspaceDirs: [],
-      configImports: {},
       envFiles: [],
     });
     expect(profile.conformance.level).toBe("non-standard");

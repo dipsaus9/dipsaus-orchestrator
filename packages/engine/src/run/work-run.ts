@@ -59,7 +59,6 @@ import {
 } from "@dipsaus-orchestrator/contract";
 import type { z } from "zod";
 
-import { allSlotsHeld, type SlotEntry, SlotTableError, slotsTakenMessage } from "../worktree/slots";
 import { parseFieldBlock } from "../backlog/fields/block";
 import { readLabels } from "../backlog/fields/labels";
 import { EDIT_KIND } from "../backlog/lane/ops";
@@ -193,11 +192,7 @@ export interface WorkRunDeps {
    * it a claimed run stops at the `setup` phase with no worker, as DIPO-48 left it.
    */
   readonly launcher?: RunLauncher;
-  /**
-   * The live entries of the machine-wide port slot table (`SlotTable.live`, DIPO-197), read without
-   * writing. Without it no slots refusal is made; setup still fails when every slot is taken.
-   */
-  readonly liveSlots?: () => readonly SlotEntry[];
+
   /**
    * The office's serialized steps (`Places.serialized`, DIPO-208): each candidate's worker-place
    * check, claim and run record run in one of them, so a queued start cannot take the place between
@@ -276,7 +271,7 @@ function recordDeveloper(
 function recordPrepared(
   handle: OfficeHandle,
   input: {
-    readonly worktree: string;
+    readonly branch: string;
     readonly runId: RunId;
     readonly agent: AgentId;
     readonly prepared: PreparedRun;
@@ -288,7 +283,7 @@ function recordPrepared(
   const { runId, agent, prepared, clock } = input;
   const { pack, headSha } = prepared.promptSources;
   // The pack the task message was built from, with its head and blob ids (0020 section 6).
-  recordContextPack(handle, input.worktree, headSha, pack, clock);
+  recordContextPack(handle, input.branch, headSha, pack, clock);
   // The prompt parts of the session's text, measured for the run (0014 section 2).
   recordPromptParts(handle, runId, agent, prepared.parts, clock);
   // The prompt text itself, with `privacy.storePrompts` on (DIPO-137).
@@ -329,33 +324,6 @@ function repeatsChecks(
 
 function refused(office: OfficeId, check: string, message: string): CommandError {
   return new CommandError(RUN_REFUSED, message, { office, check });
-}
-
-/** The check name of the slots refusal. */
-const SLOTS_CHECK = "slots";
-
-/**
- * Why `story` cannot get a port slot, or null: every slot from 1 to `maxSlots` is held by a live
- * worktree and none of them is the story's own (a story that holds a slot keeps it). A slot table
- * that cannot be read refuses too, with its reason, since setup could not take a slot from it.
- */
-function slotsRefusal(
-  liveSlots: (() => readonly SlotEntry[]) | undefined,
-  office: OfficeId,
-  story: StoryId,
-  maxSlots: number,
-): string | null {
-  if (liveSlots === undefined) return null;
-  let live: readonly SlotEntry[];
-  try {
-    live = liveSlots();
-  } catch (error) {
-    if (error instanceof SlotTableError) return error.message;
-    throw error;
-  }
-  if (!allSlotsHeld(live, maxSlots)) return null;
-  if (live.some((entry) => entry.office === office && entry.story === story)) return null;
-  return slotsTakenMessage(live, maxSlots);
 }
 
 export class WorkRun {
@@ -597,10 +565,6 @@ export class WorkRun {
       await this.#toRefined(ctx, c.candidate, [{ message: checked.tooLarge }]);
       return "pickupCheckFailed";
     }
-    const { story } = c.candidate;
-    const noSlot = slotsRefusal(this.#deps.liveSlots, office, story, c.config.worktree.maxSlots);
-    if (noSlot !== null) throw refused(office, SLOTS_CHECK, noSlot);
-
     const runId = RunId.parse(ctx.ids.next("run"));
     const agent = ctx.ids.next("agt") as AgentId;
     const facts: RunFacts = {
@@ -617,7 +581,7 @@ export class WorkRun {
     let release: (() => void) | null = null;
     try {
       const outcome = await this.#claim(ctx, c, checked, facts, () => {
-        release = this.#deps.places?.reservePickup?.(office, runId, story) ?? null;
+        release = this.#deps.places?.reservePickup?.(office, runId, c.candidate.story) ?? null;
         claimed();
       });
       if (!outcome.ok) return outcome.reason;
@@ -652,9 +616,6 @@ export class WorkRun {
         story,
         branch: checked.branch,
         runId: facts.runId,
-        // Every run is a box run (DIPO-240): a reused branch takes the base through dipo's catch-up
-        // (DIPO-149).
-        baseSync: "catch-up",
         recheck: async (git) => {
           const decision = await this.#deps.gates.recordGateDecision(
             office,
@@ -730,8 +691,6 @@ export class WorkRun {
         model: caps.model,
         startSha: outcome.claim.startSha,
         branch: outcome.claim.branch,
-        worktree: outcome.claim.worktree,
-        slot: prepared?.slot ?? null,
         budgetUnit: "tokens",
         budgetLimit: caps.budgetTokens,
         loopCap: caps.loops,
@@ -761,7 +720,7 @@ export class WorkRun {
       // The context pack and the prompt records of the first session.
       if (prepared !== null) {
         recordPrepared(handle, {
-          worktree: outcome.claim.worktree,
+          branch: outcome.claim.branch,
           runId,
           agent,
           prepared,
@@ -1009,11 +968,6 @@ export class WorkRun {
 
     const { candidate, startable } = chosen;
     const story = { story: candidate.story, key: candidate.key };
-    const noSlot = slotsRefusal(deps.liveSlots, office, candidate.story, config.worktree.maxSlots);
-    if (noSlot !== null) {
-      refusals.push({ check: SLOTS_CHECK, message: noSlot });
-      return { ...info(), story: null, skipped, launch: null, problem: null };
-    }
     const launcher = deps.launcher;
     if (launcher === undefined) {
       return { ...info(), story, skipped, launch: null, problem: "this daemon starts no workers" };

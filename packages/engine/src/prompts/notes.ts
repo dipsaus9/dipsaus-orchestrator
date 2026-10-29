@@ -1,6 +1,6 @@
 // Worker notes for a next session (0014 sections 2 and 6, 0007 section 4): the `notes` of a
-// worker report, the only model-written part of a handoff, stored per worktree and agent at most
-// 1,500 characters. The newest notes of a worktree go into the next handoff block. Teardown
+// worker report, the only model-written part of a handoff, stored per story branch and agent at most
+// 1,500 characters. The newest notes of a branch go into the next handoff block. Teardown
 // (DIPO-58) deletes them with `forgetWorkerNotes`.
 
 import type { Clock } from "@dipsaus-orchestrator/contract";
@@ -32,8 +32,8 @@ export function capNotes(notes: string): string {
 }
 
 export interface WorkerNotes {
-  /** Absolute worktree path. */
-  readonly worktree: string;
+  /** The story branch (`<ID>/<slug>`) the record belongs to. */
+  readonly branch: string;
   readonly run: string;
   readonly agent: string;
   readonly role: string;
@@ -45,7 +45,7 @@ export interface WorkerNotes {
 }
 
 export interface RecordWorkerNotesInput {
-  readonly worktree: string;
+  readonly branch: string;
   readonly run: string;
   readonly agent: string;
   readonly role: string;
@@ -54,7 +54,7 @@ export interface RecordWorkerNotesInput {
   readonly notes: string | undefined;
 }
 
-/** Stores a report's notes for the worktree, replacing the agent's earlier notes. */
+/** Stores a report's notes for the branch, replacing the agent's earlier notes. */
 export function recordWorkerNotes(
   office: OfficeHandle,
   input: RecordWorkerNotesInput,
@@ -63,7 +63,7 @@ export function recordWorkerNotes(
   const notes = input.notes?.trim() ?? "";
   if (notes === "") return null;
   const record: WorkerNotes = {
-    worktree: input.worktree,
+    branch: input.branch,
     run: input.run,
     agent: input.agent,
     role: input.role,
@@ -73,13 +73,13 @@ export function recordWorkerNotes(
   };
   office.immediate(() =>
     office.run(
-      `insert into worker_notes (office_id, worktree, agent_id, run_id, story_key, role, text, recorded_at)
-       values ($office_id, $worktree, $agent, $run, $key, $role, $text, $at)
-       on conflict (office_id, worktree, agent_id) do update set
+      `insert into worker_notes (office_id, branch, agent_id, run_id, story_key, role, text, recorded_at)
+       values ($office_id, $branch, $agent, $run, $key, $role, $text, $at)
+       on conflict (office_id, branch, agent_id) do update set
          run_id = excluded.run_id, story_key = excluded.story_key, role = excluded.role,
          text = excluded.text, recorded_at = excluded.recorded_at`,
       {
-        worktree: record.worktree,
+        branch: record.branch,
         agent: record.agent,
         run: record.run,
         key: record.storyKey ?? null,
@@ -93,7 +93,7 @@ export function recordWorkerNotes(
 }
 
 interface WorkerNotesRow {
-  readonly worktree: string;
+  readonly branch: string;
   readonly agent_id: string;
   readonly run_id: string;
   readonly story_key: string | null;
@@ -102,16 +102,16 @@ interface WorkerNotesRow {
   readonly recorded_at: number;
 }
 
-/** The newest notes stored for `worktree`, or null. */
-export function latestWorkerNotes(office: OfficeHandle, worktree: string): WorkerNotes | null {
+/** The newest notes stored for `branch`, or null. */
+export function latestWorkerNotes(office: OfficeHandle, branch: string): WorkerNotes | null {
   const row = office.get<WorkerNotesRow>(
-    `select * from worker_notes where office_id = $office_id and worktree = $worktree
+    `select * from worker_notes where office_id = $office_id and branch = $branch
      order by recorded_at desc, agent_id desc limit 1`,
-    { worktree },
+    { branch },
   );
   if (row === null) return null;
   return {
-    worktree: row.worktree,
+    branch: row.branch,
     run: row.run_id,
     agent: row.agent_id,
     role: row.role,
@@ -121,11 +121,11 @@ export function latestWorkerNotes(office: OfficeHandle, worktree: string): Worke
   };
 }
 
-/** Deletes the worktree's notes at teardown (0007 retention tier T). */
-export function forgetWorkerNotes(office: OfficeHandle, worktree: string): void {
+/** Deletes the branch's notes when the claim ends (0007 retention tier T). */
+export function forgetWorkerNotes(office: OfficeHandle, branch: string): void {
   office.immediate(() =>
-    office.run("delete from worker_notes where office_id = $office_id and worktree = $worktree", {
-      worktree,
+    office.run("delete from worker_notes where office_id = $office_id and branch = $branch", {
+      branch,
     }),
   );
 }

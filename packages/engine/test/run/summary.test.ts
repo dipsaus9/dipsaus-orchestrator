@@ -44,8 +44,6 @@ beforeEach(async () => {
       model: "haiku",
       startSha: "b".repeat(40),
       branch: "DIPO-1/add-a-greeting",
-      worktree: join(dir, "trees", "DIPO-1"),
-      slot: 1,
       budgetUnit: "tokens",
       budgetLimit: 300_000,
       loopCap: 3,
@@ -109,7 +107,6 @@ describe("the park block", () => {
       runId: f.run,
       ...runSummaryFacts(f.office, run, AT),
       lastGoodCommit: "a".repeat(40),
-      uncommitted: 7,
     });
     expect(block.split("\n")).toEqual([
       "Parked 2026-10-22 14:05 UTC: budget-exceeded",
@@ -120,11 +117,10 @@ describe("the park block", () => {
       "- Review rounds: 1, failed 1 of 3",
       "- Budget used: 412,000 of 300,000 tokens; 61 of 60 turns; 34 of 90 minutes",
       `- Last good commit: ${"a".repeat(40)}`,
-      "- Uncommitted files: 7",
     ]);
   });
 
-  it("counts a budget grant in the limits and says a box run's files are in the box", () => {
+  it("counts a budget grant in the limits", () => {
     f.office.immediate(() =>
       recordGrant(f.office, f.run, {
         kind: "budget",
@@ -145,15 +141,12 @@ describe("the park block", () => {
       runId: f.run,
       ...runSummaryFacts(f.office, run, AT),
       lastGoodCommit: "a".repeat(40),
-      uncommitted: null,
     });
     expect(block).toContain("- Detail: none");
     expect(block).toContain(
       "- Budget used: 412,000 of 450,000 tokens; 61 of 90 turns; 34 of 135 minutes",
     );
-    expect(block).toContain(
-      "- Uncommitted files: not counted (a box run: undelivered work stays in the box)",
-    );
+    expect(block).not.toContain("Uncommitted");
   });
 
   it("never writes a line of 50 dashes, whatever the detail holds", () => {
@@ -166,7 +159,6 @@ describe("the park block", () => {
       runId: f.run,
       ...runSummaryFacts(f.office, run, AT),
       lastGoodCommit: null,
-      uncommitted: 0,
     });
     expect(block.split("\n").some((line) => line.trimEnd() === SECTION_RULE)).toBe(false);
     expect(block).toContain("- Detail: (a line of dashes)");

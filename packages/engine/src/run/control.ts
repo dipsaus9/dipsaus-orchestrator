@@ -44,7 +44,7 @@
 // - `work.steer` (DIPO-163, `intervene.ts`): the maintainer's message to a live worker.
 //
 // - Notes (0020 section 6, DIPO-154). The `notes` of every turn report are stored for the next
-//   session's handoff (`recordWorkerNotes`), keyed by the run's worktree and the agent, replacing
+//   session's handoff (`recordWorkerNotes`), keyed by the run's branch and the agent, replacing
 //   that agent's earlier notes. A park keeps them, so a cap that fires mid-turn still leaves the
 //   previous turn's notes; teardown deletes them.
 //
@@ -526,19 +526,19 @@ export class RunControl implements RunEnder {
 
   /**
    * Stores the notes of a developer's turn report for the next session's handoff (0020 section 6),
-   * replacing that agent's earlier notes in the run's worktree. A report without notes changes
+   * replacing that agent's earlier notes on the run's branch. A report without notes changes
    * nothing, so the previous turn's notes stay. A failed write is logged; the turn goes on.
    */
   #keepNotes(tracked: Tracked, report: WorkerReport, agent: string | undefined): void {
     if (report.notes === undefined || tracked.work.role === REVIEWER_ROLE) return;
     const office = this.#deps.offices.get(tracked.office);
-    const worktree = office === undefined ? null : findRun(office, tracked.runId)?.worktree;
-    if (office === undefined || worktree == null) return;
+    const branch = office === undefined ? null : findRun(office, tracked.runId)?.branch;
+    if (office === undefined || branch == null) return;
     try {
       recordWorkerNotes(
         office,
         {
-          worktree,
+          branch,
           run: tracked.runId,
           agent: agent ?? tracked.work.agent,
           role: tracked.work.role,

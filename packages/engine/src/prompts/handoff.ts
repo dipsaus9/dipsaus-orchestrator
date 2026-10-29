@@ -1,20 +1,16 @@
 // The handoff block (0014 section 6): what a new session for a story with earlier work gets
 // instead of a transcript. Code gathers it: the commits on the branch since the merge base, the
-// uncommitted work (`git diff --stat HEAD` and the untracked files), the criteria status of the
-// last report, the last verify result, open feedback (0020 section 6), and the previous worker's
-// notes, the only model-written part (at most 1,500 characters). The maintainer's resume note is not
-// in the block: it is a held message of the one feedback path (0002), after the task message. The
-// reviewer never gets one.
+// criteria status of the last report, the last verify result, open feedback (0020 section 6), and
+// the previous worker's notes, the only model-written part (at most 1,500 characters). The
+// maintainer's resume note is not in the block: it is a held message of the one feedback path
+// (0002), after the task message. The reviewer never gets one.
 //
-// A box run (0021 sections 6 and 8): the next session runs in the same kept box, whose files are
-// the previous session's, while dipo's Mac worktree only follows the delivered parts with its
-// branch (its files stay at the start commit, DIPO-302). So the commits are the delivered parts,
-// and the uncommitted changes and untracked files are not read from the Mac worktree: the block
-// says they are in the box.
+// The next session runs in the same kept box, whose files are the previous session's (0008). A
+// story has no worktree (0010): the commits are the delivered parts on the branch, read from the
+// branch ref, and the uncommitted changes are in the box, which the block says for a box run.
 
 import { formatCount } from "../context/truncate";
 import type { OfficeHandle } from "../db/office";
-import type { GitLocation } from "../git/hardened";
 import type { OfficeGit } from "../git/office";
 import type { WorkerReportCriterion } from "../workers/types";
 import { budgetLine, type BudgetFacts } from "./budget";
@@ -39,59 +35,54 @@ export type LastVerify =
   | { readonly passed: false; readonly step: string; readonly exitCode: number };
 
 export interface HandoffFacts {
-  /** `git log --oneline <base>..HEAD`, oldest last as git prints it. */
+  /** `git log --oneline <base>..<branch>`, oldest last as git prints it. */
   readonly commits: string;
-  /** `git diff --stat HEAD`. */
-  readonly diffstat: string;
-  /** Untracked, not ignored, repo-relative paths, sorted. */
-  readonly untracked: readonly string[];
   /** Criteria status from the last worker report; null when there is none. */
   readonly criteria: readonly WorkerReportCriterion[] | null;
   readonly verify: LastVerify | null;
   readonly feedback: readonly HandoffFeedback[];
   /** The previous worker's notes; null when there are none. */
   readonly notes: string | null;
-  /** A box run: the changes are in the kept box, not in the Mac worktree (`BOX_CHANGES`). */
+  /** A box run: its undelivered changes are in the kept box (`BOX_CHANGES`). */
   readonly box?: boolean;
   /** The run's caps and usage: the block ends with the budget line (DIPO-256). */
   readonly budget?: BudgetFacts;
 }
 
-type WorktreeLocation = Extract<GitLocation, { kind: "worktree" }>;
-
 export interface GatherHandoffOptions {
   readonly git: OfficeGit;
-  readonly location: WorktreeLocation;
+  /** The story branch. */
+  readonly branch: string;
   /** The merge base or base ref the branch started from. */
   readonly base: string;
   readonly office: OfficeHandle;
   readonly lastReport: { readonly criteria: readonly WorkerReportCriterion[] } | null;
   readonly lastVerify: LastVerify | null;
   readonly openFeedback: readonly HandoffFeedback[];
-  /** A box run: the Mac worktree's diff and untracked files are not read. */
+  /** A box run: the block says the changes are in the box. */
   readonly box?: boolean;
   /** The run's caps and usage: the block ends with the budget line (DIPO-256). */
   readonly budget?: BudgetFacts;
 }
 
-/** Reads the handoff facts of a worktree: git through the office queue, notes from the database. */
+/**
+ * Reads the handoff facts of a story: its branch's commits through the office queue, notes from
+ * the database.
+ */
 export async function gatherHandoff(options: GatherHandoffOptions): Promise<HandoffFacts> {
-  const { git, location } = options;
+  const { git } = options;
   const box = options.box === true;
-  const run = (args: readonly string[]) => git.run((session) => session.ok(location, args));
-  const commits = await run(["log", "--oneline", "--no-decorate", `${options.base}..HEAD`]);
-  const diffstat = box ? "" : await run(["diff", "--stat=120", "HEAD"]);
-  const status = box ? "" : await run(["status", "--porcelain=v1", "-z", "--untracked-files=all"]);
-  const untracked = status
-    .split("\0")
-    .filter((entry) => entry.startsWith("?? "))
-    .map((entry) => entry.slice(3))
-    .toSorted();
-  const notes = latestWorkerNotes(options.office, location.workTree);
+  const commits = await git.run((session) =>
+    session.ok(session.repository, [
+      "log",
+      "--oneline",
+      "--no-decorate",
+      `${options.base}..refs/heads/${options.branch}`,
+    ]),
+  );
+  const notes = latestWorkerNotes(options.office, options.branch);
   return {
     commits: commits.trimEnd(),
-    diffstat: diffstat.trimEnd(),
-    untracked,
     criteria: options.lastReport?.criteria ?? null,
     verify: options.lastVerify,
     feedback: options.openFeedback,
@@ -154,27 +145,23 @@ const HANDOFF_FRAME = 600;
 const HANDOFF_LIST_MIN = 200;
 
 /**
- * The `handoff` section. The notes are capped at 1,500 characters; the four lists (commits,
- * changes, untracked files, open feedback) share what is left of `budget` after them and the
- * frame, each cut at its head with a marker that says how to see the rest, so the block stays
- * within `budget` and its closing tag is never cut.
+ * The `handoff` section. The notes are capped at 1,500 characters; the two lists (commits and
+ * open feedback) share what is left of `budget` after them and the frame, each cut at its head
+ * with a marker that says how to see the rest, so the block stays within `budget` and its closing
+ * tag is never cut. A story has no worktree (0010), so its undelivered changes are only named as
+ * in the box.
  */
 export function renderHandoff(facts: HandoffFacts, budget = HANDOFF_BUDGET_DEFAULT): string {
   const listMax = Math.max(
     HANDOFF_LIST_MIN,
-    Math.floor((budget - WORKER_NOTES_MAX - HANDOFF_FRAME) / 4),
+    Math.floor((budget - WORKER_NOTES_MAX - HANDOFF_FRAME) / 2),
   );
   const list = (text: string, label: string, hint: string) =>
     text === "" ? NONE : cutHead(text, listMax, listMarker(label, hint)).text;
   const box = facts.box === true;
   return renderTemplate(TASK_TEMPLATES.handoff, {
     commits: list(facts.commits, "commit list", "run git log for the rest."),
-    diffstat: box
-      ? BOX_CHANGES
-      : list(facts.diffstat, "change list", "run git diff --stat for the rest."),
-    untracked: box
-      ? BOX_CHANGES
-      : list(facts.untracked.join("\n"), "untracked list", "run git status for the rest."),
+    undelivered: box ? BOX_CHANGES : NONE,
     criteria: criteriaLines(facts.criteria),
     verify: verifyLine(facts.verify, box),
     feedback: list(feedbackLines(facts.feedback), "feedback list", "the rest is left out."),

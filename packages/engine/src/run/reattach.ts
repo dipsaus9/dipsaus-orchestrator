@@ -30,8 +30,7 @@
 //
 // DIPO-93 adds three steps. First, `worker_hosts` rows left pending (written before their spawn)
 // are settled by the host's claimed launch or PID marker, or their launch is revoked; a run whose
-// only host never started parks `worker-failed`. Then the active runs, as above, with the backstop
-// snapshot stored with the run. Last, the open hosts of runs that have ended are closed out when
+// only host never started parks `worker-failed`. Then the active runs, as above. Last, the open hosts of runs that have ended are closed out when
 // dead, or followed until they exit, at every restart until their row ends.
 
 import {
@@ -75,7 +74,7 @@ import { HOST_CONNECT_TIMEOUT_MS } from "./hosts";
 import { runIntents, sendAsIntent } from "./intents";
 import { HOST_LOST_END } from "./outcomes";
 import type { ParkOutcome } from "./park";
-import { activeRuns, backstopSnapshotOf, capsStartedAt, findRun, type StoredRun } from "./records";
+import { activeRuns, capsStartedAt, findRun, type StoredRun } from "./records";
 import { clearSignals, raiseSignal } from "./signals";
 
 /** The daemon's recovery step that re-attaches worker hosts (0006 decision 7). */
@@ -501,8 +500,6 @@ export class RunReattacher {
       },
       // The run's caps count from its first host, as worker outcomes count them.
       startedAt: capsStartedAt(run, hosts[0]?.startedAt),
-      // The backstop goes on from the run-start snapshot stored with the run (DIPO-93).
-      snapshot: backstopSnapshotOf(office, run.runId),
     });
 
     if (alive) {

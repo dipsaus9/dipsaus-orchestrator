@@ -458,7 +458,7 @@ describe("a path the plan refuses", () => {
     const text = planRefusedText("DIPO-999", error as PlanError);
     expect(text).toContain(workdir);
     expect(text).toContain('"("');
-    expect(text).toContain("Move the checkout, or set worktree.root in .dipo/office.yaml");
+    expect(text).toContain("Move the checkout to a path without it");
   });
 
   it("names a worktree that holds the home directory, without a character", () => {

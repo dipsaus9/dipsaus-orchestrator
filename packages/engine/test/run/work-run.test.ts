@@ -33,7 +33,6 @@ import type { OfficeHandle } from "../../src/db/office";
 import { storeGateDecision } from "../../src/gate/store/decisions";
 import type { GateMode, GateResult } from "../../src/gate/types";
 import { executeRead } from "../../src/reads/execute";
-import { type SlotEntry, SlotTableError } from "../../src/worktree/slots";
 import { GitError } from "../../src/git/runner";
 import { createLogger } from "../../src/log/logger";
 import { OfficeManager } from "../../src/office/manager";
@@ -136,10 +135,6 @@ interface World {
   gate: (key: StoryKey, mode: GateMode) => GateResult;
   /** The office's starts paused (0020): a plan limit, or the adapter holds above. */
   readonly startsPaused: StartsPaused;
-  /** The live port slot entries (DIPO-197). */
-  slots: SlotEntry[];
-  /** Thrown by the slot read instead of returning `slots`, when set. */
-  slotsError: SlotTableError | null;
   /** The office's places: the serialized steps of `work.run` and the drains (DIPO-208). */
   readonly places: Places;
   /** The stories the places started as a resume, in order. */
@@ -210,8 +205,6 @@ beforeEach(async () => {
       offices: { get: () => office, config: () => w.config },
       holds,
     }),
-    slots: [],
-    slotsError: null,
     places,
     resumeStarts,
     claimGate: null,
@@ -250,10 +243,6 @@ beforeEach(async () => {
     profiles: { ensureFreshProfile: async () => undefined, verifyResolved: () => w.verify },
     statuses: async () => w.statuses,
     startsPaused: (id) => w.startsPaused.state(id),
-    liveSlots: () => {
-      if (w.slotsError !== null) throw w.slotsError;
-      return w.slots;
-    },
     claims: {
       claim: async (_office, request): Promise<ClaimOutcome> => {
         claims.push(request);
@@ -268,20 +257,11 @@ beforeEach(async () => {
           key: request.key,
           story: request.story,
           branch: request.branch,
-          worktree: `/trees/${request.story}`,
           base: "main",
           baseSha: "b".repeat(40),
           startSha: "a".repeat(40),
           claimSha: "c".repeat(40),
           reused: false,
-          snapshot: {
-            path: `/trees/${request.story}`,
-            adminDir: "/x",
-            commondir: "/x",
-            gitdir: "/x",
-            pointer: "/x",
-          },
-          firstFeedback: null,
           claimedAt: t.clock.now(),
         };
         office.immediate(() => insertClaim(office, claim));
@@ -439,7 +419,6 @@ describe("work.run picks and claims one Ready story", () => {
       model: OFFICE_DEFAULTS.tiers.S.model,
       startSha: "a".repeat(40),
       branch: "TASK-3/a-story",
-      worktree: "/trees/TASK-3",
       budgetUnit: "tokens",
       budgetLimit: OFFICE_DEFAULTS.tiers.S.budgetTokens,
       loopCap: OFFICE_DEFAULTS.tiers.S.loops,
@@ -551,8 +530,6 @@ describe("work.run picks and claims one Ready story", () => {
         model: "haiku",
         startSha: null,
         branch: null,
-        worktree: null,
-        slot: null,
         budgetUnit: "tokens",
         budgetLimit: 1,
         loopCap: 1,
@@ -816,8 +793,6 @@ describe("the runs table", () => {
     model: "sonnet",
     startSha: null,
     branch: null,
-    worktree: null,
-    slot: null,
     budgetUnit: "tokens",
     budgetLimit: 1000,
     loopCap: 0,
@@ -828,7 +803,7 @@ describe("the runs table", () => {
     startedAt: 0,
   };
 
-  it("takes a session run with no key, worktree or branch, and keeps its usage under the office", () => {
+  it("takes a session run with no key or branch, and keeps its usage under the office", () => {
     const { office } = world;
     office.immediate(() => {
       insertRun(office, base);
@@ -851,7 +826,7 @@ describe("the runs table", () => {
     ).toBe(42);
     // A session run is active until it ends, without a claim.
     expect(hasActiveRun(office)).toBe(true);
-    // A story run needs its key, branch, worktree and start SHA.
+    // A story run needs its key, branch and start SHA.
     expect(() =>
       office.immediate(() =>
         insertRun(office, {
@@ -864,18 +839,6 @@ describe("the runs table", () => {
   });
 });
 
-const heldSlot = (slot: number, owner: string, office = "off_other"): SlotEntry => ({
-  slot,
-  office,
-  story: owner,
-  worktree: `/trees/${owner}`,
-  takenAt: 1,
-});
-
-function twoSlots(): void {
-  world.config = { ...OFFICE_DEFAULTS, worktree: { ...OFFICE_DEFAULTS.worktree, maxSlots: 2 } };
-}
-
 function previewRun(): Promise<Awaited<ReturnType<typeof executeRead>>> {
   return executeRead(
     { registry: world.registry, offices: world.deps.offices, clock: world.t.clock },
@@ -886,70 +849,6 @@ function previewRun(): Promise<Awaited<ReturnType<typeof executeRead>>> {
     },
   );
 }
-
-describe("port slots (DIPO-197)", () => {
-  it("refuses work.run and work.preview with check slots when every slot is held by other worktrees", async () => {
-    twoSlots();
-    story("TASK-1", "Ready");
-    world.slots = [heldSlot(1, "TASK-8"), heldSlot(2, "TASK-9")];
-
-    const refusal = await codeOf();
-    expect(refusal).toMatchObject({ code: "run.refused", details: { check: "slots" } });
-    expect(refusal.message).toContain(
-      "slot 1: office off_other, story TASK-8, worktree /trees/TASK-8",
-    );
-    expect(refusal.message).toContain(
-      "slot 2: office off_other, story TASK-9, worktree /trees/TASK-9. dipo discard <id> frees a story's slot.",
-    );
-    expect(world.claims).toEqual([]);
-
-    const dry = await previewRun();
-    if (!dry.ok) throw new Error(dry.error.message);
-    const result = dry.result as { refusals: { check: string; message: string }[]; story: unknown };
-    expect(result.refusals.map((r) => r.check)).toEqual(["slots"]);
-    expect(result.refusals[0]?.message).toBe(refusal.message);
-    expect(result.story).toBeNull();
-  });
-
-  it("does not refuse with one slot free, and names the story the preview would start", async () => {
-    twoSlots();
-    story("TASK-1", "Ready");
-    world.slots = [heldSlot(1, "TASK-8")];
-    const dry = await previewRun();
-    if (!dry.ok) throw new Error(dry.error.message);
-    const result = dry.result as { refusals: unknown[]; story: { story: string } | null };
-    expect(result.refusals).toEqual([]);
-    expect(result.story?.story).toBe("TASK-1");
-    expect(resultOf(await run()).started).toHaveLength(1);
-  });
-
-  it("does not refuse a story whose own worktree already holds a slot", async () => {
-    twoSlots();
-    story("TASK-1", "Ready");
-    world.slots = [heldSlot(1, "TASK-8"), heldSlot(2, "TASK-1", world.officeId)];
-    const dry = await previewRun();
-    if (!dry.ok) throw new Error(dry.error.message);
-    expect((dry.result as { refusals: unknown[] }).refusals).toEqual([]);
-    expect(resultOf(await run()).started).toHaveLength(1);
-  });
-
-  it("refuses with check slots and the table's reason when the slot table cannot be read", async () => {
-    story("TASK-1", "Ready");
-    const reason = "The port slot table /home/slots.json cannot be read: SyntaxError: bad json";
-    world.slotsError = new SlotTableError(reason);
-
-    const refusal = await codeOf();
-    expect(refusal).toMatchObject({ code: "run.refused", details: { check: "slots" } });
-    expect(refusal.message).toContain(reason);
-    expect(world.claims).toEqual([]);
-
-    const dry = await previewRun();
-    if (!dry.ok) throw new Error(dry.error.message);
-    const result = dry.result as { refusals: { check: string; message: string }[]; story: unknown };
-    expect(result.refusals).toEqual([{ check: "slots", message: reason }]);
-    expect(result.story).toBeNull();
-  });
-});
 
 describe("a queued resume and a pickup never take the worker place together (DIPO-208)", () => {
   it("drains a resume queued inside the pickup's claim only after the pickup's run is recorded", async () => {

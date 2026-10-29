@@ -56,11 +56,10 @@ export function startRun(
   const at = t.clock.now();
   office.immediate(() => {
     office.run(
-      `insert into claims (office_id, run_id, key, story_id, branch, worktree, base, base_sha,
-         start_sha, reused, admin_dir, snap_commondir, snap_gitdir, snap_pointer, claimed_at)
-       values ($office_id, $run, $key, $story, $branch, $worktree, 'main', 'b', 's', 0, '/a',
-         '/c', '/g', '/p', $at)`,
-      { run, key, story, branch: `${story}/work`, worktree: join(dir, story), at },
+      `insert into claims (office_id, run_id, key, story_id, branch, base, base_sha, start_sha,
+         reused, claimed_at)
+       values ($office_id, $run, $key, $story, $branch, 'main', 'b', 's', 0, $at)`,
+      { run, key, story, branch: `${story}/work`, at },
     );
     insertRun(office, {
       runId: run,
@@ -72,8 +71,6 @@ export function startRun(
       model: "haiku",
       startSha: "s",
       branch: `${story}/work`,
-      worktree: join(dir, story),
-      slot: null,
       budgetUnit: "tokens",
       budgetLimit: options.budget ?? 400_000,
       loopCap: options.loopCap ?? 3,

@@ -63,8 +63,6 @@ if (process.env["DIPO_TEST_CI"] === "1") {
             model: "haiku",
             startSha: sha,
             branch,
-            worktree: "/nowhere",
-            slot: 1,
             budgetUnit: "tokens",
             budgetLimit: 1,
             loopCap: 3,
@@ -79,14 +77,11 @@ if (process.env["DIPO_TEST_CI"] === "1") {
             key: storyKey,
             story: "TASK-1",
             branch,
-            worktree: "/nowhere",
             base: "main",
             baseSha: sha,
             startSha: sha,
             claimSha: sha,
             reused: false,
-            snapshot: { path: "/x", adminDir: "/x", commondir: "/x", gitdir: "/x", pointer: "/x" },
-            firstFeedback: null,
             claimedAt: s.clock.now(),
           });
         });

@@ -918,12 +918,11 @@ describe("daemon stop (criterion 6)", () => {
     }));
 });
 
-/** The install of the run in its box, with a run environment for /work. */
+/** The install of the run in its box. */
 function installIn(w: World, timeoutMs = 15 * 60_000) {
   return w.workers.install({
     runId: RUN,
     commands: [["bun", "install", "--frozen-lockfile"]],
-    env: { DIPO_STORY: "DIPO-1", DIPO_WORKTREE: "/work" },
     timeoutMs,
   });
 }
@@ -953,7 +952,6 @@ describe("the verify in the box at done", () => {
         runId: RUN,
         commands: [["bun", "run", "verify"]],
         cwd: "packages/app",
-        env: { DIPO_STORY: "DIPO-1" },
         timeoutMs: 60_000,
       });
       expect(result).toEqual({
@@ -972,7 +970,8 @@ describe("the verify in the box at done", () => {
       for (const name of ["HTTPS_PROXY", "HTTP_PROXY", "NODE_EXTRA_CA_CERTS"]) {
         expect(exec?.env?.[name]).toBe(session.env[name] as string);
       }
-      expect(exec?.env?.["DIPO_STORY"]).toBe("DIPO-1");
+      // No run environment of dipo's own: no port slot, no story worktree (DIPO-349).
+      expect(Object.keys(exec?.env ?? {}).filter((name) => name.startsWith("DIPO_"))).toEqual([]);
       expect(w.warnings.map((x) => x.message)).toContain("the verify in the box is red");
     }));
 });
@@ -990,7 +989,6 @@ describe("a test box's web route (DIPO-309)", () => {
         await w.workers.install({
           runId: TEST,
           commands: [["bun", "install"]],
-          env: {},
           timeoutMs: 60_000,
         }),
       ).toEqual({ ok: true });
@@ -999,7 +997,6 @@ describe("a test box's web route (DIPO-309)", () => {
         runId: TEST,
         commands: [["bun", "run", "setup"]],
         cwd: ".",
-        env: {},
         timeoutMs: 60_000,
         step: "setup",
       });
@@ -1058,8 +1055,6 @@ describe("the install in the box before the worker (DIPO-294)", () => {
           cwd: "/work",
           env: {
             ...BOX_IMAGE_ENV,
-            DIPO_STORY: "DIPO-1",
-            DIPO_WORKTREE: "/work",
             HTTPS_PROXY: `http://dipo:pw-${BOX}@${BOX_HOST_ADDRESS}:3128`,
             HTTP_PROXY: `http://dipo:pw-${BOX}@${BOX_HOST_ADDRESS}:3128`,
             NODE_EXTRA_CA_CERTS: BOX_CA_FILE,
@@ -1116,7 +1111,6 @@ describe("the install in the box before the worker (DIPO-294)", () => {
       const result = await w.workers.install({
         runId: RUN,
         commands: [["first"], ["second", "x"], ["third"]],
-        env: {},
         timeoutMs: 60_000,
       });
       expect(result.ok ? "" : result.reason).toBe("the install (second x) exited 2 in the box");
@@ -1663,7 +1657,6 @@ describe("the package cache of a box run (DIPO-295)", () => {
       expect(install[0]?.env).toMatchObject({
         ...boxCacheEnv("bun"),
         BUN_INSTALL_CACHE_DIR: `${BOX_PACKAGE_CACHE_PATH}/bun`,
-        DIPO_STORY: "DIPO-1",
       });
       // The worker's session never names the cache.
       const session = await w.workers.session({

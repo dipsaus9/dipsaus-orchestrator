@@ -1,5 +1,5 @@
 // Pack bytes and the `context_packs` record (0014 sections 5 and 10, 0007 section 4). The same
-// pack always encodes to the same bytes: object keys sorted, no timestamps. Per worktree the
+// pack always encodes to the same bytes: object keys sorted, no timestamps. Per story branch the
 // engine keeps the head sha and the git blob ids of the scope and input files the last pack read,
 // so a restart can tell which packs are stale.
 
@@ -43,8 +43,8 @@ export function packDigest(pack: ContextPack): string {
 }
 
 export interface ContextPackRecord {
-  /** Absolute worktree path. */
-  readonly worktree: string;
+  /** The story branch (`<ID>/<slug>`) the record belongs to. */
+  readonly branch: string;
   readonly headSha: string;
   /** Blob id per repo-relative path. */
   readonly blobIds: Readonly<Record<string, string>>;
@@ -53,16 +53,16 @@ export interface ContextPackRecord {
   readonly builtAt: number;
 }
 
-/** Stores the pack just built for `worktree`, replacing the previous one. */
+/** Stores the pack just built for `branch`, replacing the previous one. */
 export function recordContextPack(
   office: OfficeHandle,
-  worktree: string,
+  branch: string,
   headSha: string,
   pack: ContextPack,
   clock: Clock,
 ): ContextPackRecord {
   const record: ContextPackRecord = {
-    worktree,
+    branch,
     headSha,
     blobIds: pack.blobIds,
     provider: pack.provenance.provider,
@@ -71,13 +71,13 @@ export function recordContextPack(
   };
   office.immediate(() =>
     office.run(
-      `insert into context_packs (office_id, worktree, head_sha, blob_ids, provider, pack_sha256, built_at)
-       values ($office_id, $worktree, $head, $blobs, $provider, $digest, $at)
-       on conflict (office_id, worktree) do update set
+      `insert into context_packs (office_id, branch, head_sha, blob_ids, provider, pack_sha256, built_at)
+       values ($office_id, $branch, $head, $blobs, $provider, $digest, $at)
+       on conflict (office_id, branch) do update set
          head_sha = excluded.head_sha, blob_ids = excluded.blob_ids, provider = excluded.provider,
          pack_sha256 = excluded.pack_sha256, built_at = excluded.built_at`,
       {
-        worktree,
+        branch,
         head: headSha,
         blobs: JSON.stringify(canonical(record.blobIds)),
         provider: record.provider,
@@ -90,7 +90,7 @@ export function recordContextPack(
 }
 
 interface ContextPackRow {
-  readonly worktree: string;
+  readonly branch: string;
   readonly head_sha: string;
   readonly blob_ids: string;
   readonly provider: string;
@@ -98,15 +98,15 @@ interface ContextPackRow {
   readonly built_at: number;
 }
 
-/** The last pack recorded for `worktree`, or null. */
-export function contextPackOf(office: OfficeHandle, worktree: string): ContextPackRecord | null {
+/** The last pack recorded for `branch`, or null. */
+export function contextPackOf(office: OfficeHandle, branch: string): ContextPackRecord | null {
   const row = office.get<ContextPackRow>(
-    "select * from context_packs where office_id = $office_id and worktree = $worktree",
-    { worktree },
+    "select * from context_packs where office_id = $office_id and branch = $branch",
+    { branch },
   );
   if (row === null) return null;
   return {
-    worktree: row.worktree,
+    branch: row.branch,
     headSha: row.head_sha,
     blobIds: JSON.parse(row.blob_ids) as Record<string, string>,
     provider: row.provider,
@@ -115,11 +115,11 @@ export function contextPackOf(office: OfficeHandle, worktree: string): ContextPa
   };
 }
 
-/** Removes the record at worktree teardown (0007 retention tier T). */
-export function forgetContextPack(office: OfficeHandle, worktree: string): void {
+/** Removes the record when the claim ends (0007 retention tier T). */
+export function forgetContextPack(office: OfficeHandle, branch: string): void {
   office.immediate(() =>
-    office.run("delete from context_packs where office_id = $office_id and worktree = $worktree", {
-      worktree,
+    office.run("delete from context_packs where office_id = $office_id and branch = $branch", {
+      branch,
     }),
   );
 }

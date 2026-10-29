@@ -1,21 +1,17 @@
-// Releasing a claim for `story.drop` (DIPO-160; 0020 section 8, 0010 section 2a). The claim's
-// worktree is removed and its release written:
-// - without `deleteBranch` the worktree goes with `git worktree remove` (a dirty one is refused,
-//   and the caller listed its files first), the branch is kept and recorded as released for the
-//   story;
-// - with `deleteBranch` the worktree goes with `--force`, the branch is deleted locally and on the
-//   remote, and nothing is recorded as released. Clients ask for the typed story id first
-//   (`irreversibleWhen: ["deleteBranch"]`).
-// Both are one item of the office git queue; the claim row is released after the git steps, and
-// every step is idempotent, so a re-run finishes what a crash left.
+// Releasing a claim for `story.drop` (DIPO-160; 0020 section 8, 0010 section 2a). A claim has no
+// worktree, so a release is its row and, at most, its branch:
+// - without `deleteBranch` the branch is kept and recorded as released for the story;
+// - with `deleteBranch` the branch is deleted locally and on the remote, and nothing is recorded as
+//   released. Clients ask for the typed story id first (`irreversibleWhen: ["deleteBranch"]`).
+// The git steps are one item of the office git queue; the claim row is released after them, and
+// every step is idempotent, so a re-run finishes what a crash left. The box goes with the claim
+// (`box/lifetime.ts`).
 //
-// `work.discard` (DIPO-161) releases the same way with `--force`, and deletes the remote branch only
-// when every commit on its tip is on the local branch or on the base (`deleteOwnBranch`), so no
-// remote commit goes unlisted; `removeLeftovers` removes what a story Done elsewhere left behind.
+// `work.discard` (DIPO-161) deletes the remote branch only when every commit on its tip is on the
+// local branch or on the base (`deleteOwnBranch`), so no remote commit goes unlisted;
+// `removeLeftovers` removes the branches a story Done elsewhere left behind.
 
-import { existsSync } from "node:fs";
-
-import type { Clock, OfficeId } from "@dipsaus-orchestrator/contract";
+import type { Clock, OfficeId, RunId } from "@dipsaus-orchestrator/contract";
 
 import { forgetContextPack } from "../context/pack";
 import type { OfficeHandle } from "../db/office";
@@ -26,9 +22,7 @@ import { deleteBranch, deleteRemoteBranch, remoteUrl } from "../git/write";
 import { repoOfRemoteUrl } from "../platform/host";
 import { forgetWorkerNotes } from "../prompts/notes";
 
-import { claimLockReason, dirtyFiles, lockOf, removeWorktree } from "./teardown";
 import { type ClaimRecord, markReclaimed, type ReleasedBranch, releaseClaim } from "./records";
-import type { SlotTable } from "./slots";
 
 /** The release reason of a claim `story.drop` released. */
 export const DROP_RELEASE_REASON = "drop";
@@ -38,7 +32,6 @@ export interface DropReleaseDeps {
   readonly office: OfficeHandle;
   readonly git: OfficeGit;
   readonly clock: Clock;
-  readonly slots?: SlotTable;
 }
 
 export type DropReleaseOutcome =
@@ -47,21 +40,7 @@ export type DropReleaseOutcome =
       /** Why the remote branch may still exist after `deleteBranch`, or null. */
       readonly remoteProblem: string | null;
     }
-  | { readonly ok: false; readonly why: string; readonly files: readonly string[] };
-
-/**
- * The files `git status` lists in the claim's worktree (uncommitted and untracked); empty when it
- * is clean, gone or unreadable. Its own queue item.
- */
-export function dirtyFilesOf(
-  deps: Pick<DropReleaseDeps, "git">,
-  claim: Pick<ClaimRecord, "worktree" | "branch" | "startSha">,
-): Promise<string[]> {
-  return deps.git.run(async (git) => {
-    if (deps.git.adminDirOf(claim.worktree) === null) return [];
-    return dirtyFiles(deps, git, claim);
-  });
-}
+  | { readonly ok: false; readonly why: string };
 
 /** Releases the claim as `story.drop` does; see the file comment. */
 export async function releaseForDrop(
@@ -69,14 +48,9 @@ export async function releaseForDrop(
   claim: ClaimRecord,
   options: { readonly deleteBranch: boolean },
 ): Promise<DropReleaseOutcome> {
-  const outcome = await deps.git.run(async (git): Promise<DropReleaseOutcome> => {
-    const worktree = options.deleteBranch
-      ? await forceRemoveWorktree(deps, git, claim)
-      : await removeWorktree(deps, git, claim);
-    if (!worktree.ok) return worktree;
-    if (!options.deleteBranch) return { ok: true, remoteProblem: null };
-    return deleteBranches(deps, git, claim);
-  });
+  const outcome = options.deleteBranch
+    ? await deps.git.run((git) => deleteBranches(deps, git, claim))
+    : ({ ok: true, remoteProblem: null } as const);
   if (!outcome.ok) return outcome;
   deps.office.immediate(() => {
     releaseClaim(deps.office, claim.runId, {
@@ -84,52 +58,10 @@ export async function releaseForDrop(
       reason: DROP_RELEASE_REASON,
       keepBranch: !options.deleteBranch,
     });
-    forgetWorkerNotes(deps.office, claim.worktree);
-    forgetContextPack(deps.office, claim.worktree);
+    forgetWorkerNotes(deps.office, claim.branch);
+    forgetContextPack(deps.office, claim.branch);
   });
-  deps.slots?.free(claim.worktree);
   return outcome;
-}
-
-/** `git worktree remove --force`: what is lost is the caller's confirmed loss list. */
-async function forceRemoveWorktree(
-  deps: DropReleaseDeps,
-  git: GitSession,
-  claim: Pick<ClaimRecord, "runId" | "worktree">,
-): Promise<{ readonly ok: true } | { readonly ok: false; why: string; files: string[] }> {
-  const path = claim.worktree;
-  if (deps.git.adminDirOf(path) === null) {
-    if (existsSync(path)) {
-      return {
-        ok: false,
-        why: `${path} exists but is no longer a worktree of this repository, so dipo leaves it alone`,
-        files: [],
-      };
-    }
-    deps.git.unpinWorktree(path);
-    return { ok: true };
-  }
-  const ours = claimLockReason(claim.runId);
-  const lock = await lockOf(git, path);
-  if (lock !== null && lock !== ours) {
-    return {
-      ok: false,
-      why: `the worktree ${path} is locked by someone else (${lock === "" ? "no reason given" : lock})`,
-      files: [],
-    };
-  }
-  if (lock === ours) await git.ok(git.repository, ["worktree", "unlock", path]);
-  const removed = await git.step(git.repository, ["worktree", "remove", "--force", path]);
-  if (removed.code !== 0) {
-    if (lock === ours) await git.step(git.repository, ["worktree", "lock", "--reason", ours, path]);
-    return {
-      ok: false,
-      why: `git refused to remove the worktree ${path} (${removed.stderr.trim() || `exit ${removed.code}`})`,
-      files: [],
-    };
-  }
-  deps.git.unpinWorktree(path);
-  return { ok: true };
 }
 
 /**
@@ -171,25 +103,22 @@ export type DiscardBranchOutcome =
        */
       readonly remoteKept: string | null;
     }
-  | { readonly ok: false; readonly why: string; readonly files: readonly string[] };
+  | { readonly ok: false; readonly why: string };
 
 /**
- * Releases the claim as `work.discard` does (0020 section 8): the worktree goes with `--force` (the
- * client listed what is lost and asked for the typed story id first), the branch is deleted locally
- * and on the remote when nothing there is missing from the local branch or the base
- * (`deleteOwnBranch`); nothing is recorded as released. The claim is released as `discard`, its
- * tier T rows are forgotten and its port slot is freed. One queue item for the git steps; every
- * step is idempotent.
+ * Releases the claim as `work.discard` does (0020 section 8): the branch is deleted locally and on
+ * the remote when nothing there is missing from the local branch or the base (`deleteOwnBranch`;
+ * the client listed what is lost and asked for the typed story id first); nothing is recorded as
+ * released. The claim is released as `discard` and its tier T rows are forgotten. One queue item
+ * for the git steps; every step is idempotent.
  */
 export async function releaseForDiscard(
   deps: DropReleaseDeps,
   claim: ClaimRecord,
 ): Promise<DiscardBranchOutcome> {
-  const outcome = await deps.git.run(async (git): Promise<DiscardBranchOutcome> => {
-    const worktree = await forceRemoveWorktree(deps, git, claim);
-    if (!worktree.ok) return worktree;
-    return deleteOwnBranch(deps, git, claim.branch, claim.base);
-  });
+  const outcome = await deps.git.run((git): Promise<DiscardBranchOutcome> =>
+    deleteOwnBranch(deps, git, claim.branch, claim.base),
+  );
   if (!outcome.ok) return outcome;
   deps.office.immediate(() => {
     releaseClaim(deps.office, claim.runId, {
@@ -197,17 +126,16 @@ export async function releaseForDiscard(
       reason: DISCARD_RELEASE_REASON,
       keepBranch: false,
     });
-    forgetWorkerNotes(deps.office, claim.worktree);
-    forgetContextPack(deps.office, claim.worktree);
+    forgetWorkerNotes(deps.office, claim.branch);
+    forgetContextPack(deps.office, claim.branch);
   });
-  deps.slots?.free(claim.worktree);
   return outcome;
 }
 
 /** What `work.discard` removes of the leftovers of a story Done elsewhere (0020 section 10). */
 export interface LeftoverTargets {
-  /** The worktrees kept as leftovers (a removed one is fine), by the run that claimed them. */
-  readonly worktrees: readonly Pick<ClaimRecord, "runId" | "worktree" | "branch" | "startSha">[];
+  /** The runs whose leftovers these are; their rows are cleared once the branches are gone. */
+  readonly runs: readonly RunId[];
   /** The open releases of the story; each is marked reclaimed once its branch is deleted. */
   readonly branches: readonly ReleasedBranch[];
   /** Branches without a release row: those of leftovers not yet settled, or of a crashed teardown. */
@@ -225,19 +153,14 @@ export function leftoverBranchNames(
 
 /**
  * `work.discard` of what released claims left behind (the leftovers of a story Done elsewhere,
- * 0020 section 10): each kept worktree goes with `--force`, and each branch of
- * `leftoverBranchNames` is deleted locally and, under `deleteOwnBranch`'s rule, on the remote; each
- * release row is marked reclaimed.
+ * 0020 section 10): each branch of `leftoverBranchNames` is deleted locally and, under
+ * `deleteOwnBranch`'s rule, on the remote; each release row is marked reclaimed.
  */
 export async function removeLeftovers(
   deps: DropReleaseDeps,
   targets: LeftoverTargets,
 ): Promise<DiscardBranchOutcome> {
   return deps.git.run(async (git): Promise<DiscardBranchOutcome> => {
-    for (const worktree of targets.worktrees) {
-      const removed = await forceRemoveWorktree(deps, git, worktree);
-      if (!removed.ok) return removed;
-    }
     const problems: string[] = [];
     const kept: string[] = [];
     for (const branch of leftoverBranchNames(targets)) {
@@ -317,7 +240,6 @@ export async function deleteOwnBranch(
       return {
         ok: false,
         why: `deleting the branch ${branch} failed (${deleted.stderr.trim() || `exit ${deleted.code}`})`,
-        files: [],
       };
     }
   }
@@ -433,8 +355,7 @@ async function deleteBranches(
     if (deleted.code !== 0) {
       return {
         ok: false,
-        why: `deleting the branch ${claim.branch} failed (${deleted.stderr.trim() || `exit ${deleted.code}`}); the worktree is gone`,
-        files: [],
+        why: `deleting the branch ${claim.branch} failed (${deleted.stderr.trim() || `exit ${deleted.code}`})`,
       };
     }
   }

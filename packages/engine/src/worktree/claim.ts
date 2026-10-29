@@ -1,88 +1,44 @@
-// Claiming a story (0010 sections 2, 2a and 7): the engine creates the story's frozen branch and a
-// locked worktree at `<root>/<ID>` from `origin/<base>`, commits `<ID>: status In Progress` there
-// through the Backlog CLI, pushes the branch and records the claim. Between the worktree and the
-// claim commit the caller's `setup` runs (DIPO-39, `setup.ts`: files, port slot, install), as 0010
-// section 7 orders: setup, then the claim commit, then the push. The Backlog CLI runs in dipo's
-// own copy of the story's backlog, never in the worktree (`inStoryBacklog`, 0021 section 14).
+// Claiming a story (0010 sections 2, 2a and 5): a claim is the story's frozen branch plus a row in
+// `claims`. It creates no worktree: the developer works in the story's box (0008), and every later
+// git read or write of the story runs on the branch ref in the repository. The engine creates the
+// branch from `origin/<base>` (or reuses a branch released for the same story), records the claim,
+// runs the caller's `setup` (the box and the launch checks), commits `<ID>: status In Progress`
+// on the branch from dipo's own copy of the story's backlog (`stories/story-copy.ts`), and pushes.
 //
 // Order and atomicity:
-// - Before anything is created, the free space on the worktree root's filesystem is checked
-//   (`platform/disk.ts`); below `MIN_FREE_BYTES` the story is skipped as `notRunnable`.
 // - When the office has a remote, `OfficeGit.fetch` runs first as its own queue item.
 // - Queue item A holds the pickup re-check (the caller's `recheck`, the live-claim check and the
-//   pending lane-b check) together with the claim checks, `git worktree add`, the lock, the live
-//   claim record and, for a reused branch, the merge of the base. A lane-b operation is journaled
-//   in its own queue item with its live-claim check, so it lands either before this item (the
-//   re-check skips the story) or after it (the lane refuses the story, which now has a live claim).
-// - `setup` runs outside the git queue, so a long install does not hold it. A failed setup rolls
-//   the claim back: nothing was committed or pushed, so a new branch is deleted only while it still
-//   points at its start and a reused branch goes back to exactly where it was released; the story
-//   stays Ready and the caller gets a `pickupCheckFailed` skip with the setup log.
-// - Queue item C re-checks that the claim is still live and the worktree's git links unchanged,
-//   then makes the claim commit and pushes.
+//   pending lane-b check) together with the claim checks, the branch and the live claim record. A
+//   lane-b operation is journaled in its own queue item with its live-claim check, so it lands
+//   either before this item (the re-check skips the story) or after it (the lane refuses the
+//   story, which now has a live claim).
+// - `setup` runs outside the git queue, so a long box preparation does not hold it. A failed setup
+//   rolls the claim back: nothing was committed or pushed, so a new branch is deleted only while it
+//   still points at its start and a reused branch stays where it was released; the story stays
+//   Ready and the caller gets a `pickupCheckFailed` skip with the setup log.
+// - Queue item C re-checks that the claim is still live, then makes the claim commit and pushes.
 //
-// A new branch needs the exact local ref absent, `git ls-remote --heads <remote> <branch>` empty
-// and no worktree at the path. The branch is then created by the git writer (`git/write.ts`) with
-// `git update-ref refs/heads/<branch> <start> ""`: the empty old value makes the creation atomic, so
-// a claim that lost the race to another one is a skip that overwrote nothing, and the claim row
-// follows (0010). A branch released for the same StoryKey is reused
-// (`git worktree add <path> <branch>`) and `origin/<base>` is merged into it before the claim
-// commit; a code conflict is aborted and recorded as the worker's first feedback. A box run's
-// reused branch is not merged here (`baseSync: "catch-up"`, DIPO-149): dipo's catch-up merges the
-// base into its branch and box, and a conflict becomes a recorded conflict hand-off. A ref tracked
-// for another story or unknown to the engine is a `collision` skip and is never deleted; an
-// existing worktree path is a skip and is not touched.
-//
-// At the claim the engine records the snapshot of the worktree's git links (0008 section 2) and
-// pins it on the office git, so every later engine git call in that worktree is refused with
-// `git.worktreeTampered` once one of them changed.
-
-import {
-  existsSync,
-  lstatSync,
-  mkdirSync,
-  mkdtempSync,
-  readdirSync,
-  realpathSync,
-  rmSync,
-  writeFileSync,
-} from "node:fs";
-import { basename, dirname, isAbsolute, join, relative, sep } from "node:path";
+// A new branch needs the exact local ref absent and `git ls-remote --heads <remote> <branch>`
+// empty. It is created by the git writer (`git/write.ts`) with `git update-ref refs/heads/<branch>
+// <start> ""`: the empty old value makes the creation atomic, so a claim that lost the race to
+// another one is a skip that overwrote nothing. A branch released for the same StoryKey is reused
+// at its kept tip: dipo's catch-up merges the base into it and the box later, and a conflict is a
+// recorded hand-off (0002). A ref tracked for another story or unknown to the engine is a
+// `collision` skip and is never deleted.
 
 import type { Clock, OfficeId, RunId, SkipReason, StoryKey } from "@dipsaus-orchestrator/contract";
 
 import { viewStory } from "../backlog/fields/write";
 import { PENDING_LANE_NOTICE, pendingLaneOp } from "../backlog/lane/journal";
-import {
-  BACKLOG_FOLDER_ERROR,
-  type BacklogCli,
-  isTaskFileOf,
-  runBacklog,
-  TASK_FIELD_ERROR,
-  taskFieldRefusal,
-  taskFilePathRefusal,
-  TASKS_DIR,
-} from "../backlog/runner";
+import { type BacklogCli, runBacklog } from "../backlog/runner";
 import { appendEntries } from "../changelog/log";
 import type { OfficeHandle } from "../db/office";
-import { FETCH_CONFIG, type GitLocation, WORKTREE_ADD_CONFIG } from "../git/hardened";
+import { FETCH_CONFIG } from "../git/hardened";
 import type { GitSession, OfficeGit } from "../git/office";
 import { EXTERNAL_STEP_TIMEOUT_MS, GitError, type GitResult, isTimedOut } from "../git/runner";
-import { changedLinks, readWorktreeSnapshot, worktreeTampered } from "../git/snapshot";
-import {
-  abortMerge,
-  commitTree,
-  createBranch,
-  deleteBranch,
-  mergeInWorktree,
-  moveBranch,
-  moveRef,
-  pushBranch,
-  statusPaths,
-} from "../git/write";
-import { type DiskProbe, formatGigabytes } from "../platform/disk";
+import { createBranch, deleteBranch, moveBranch, pushBranch } from "../git/write";
 import { endRunMarked } from "../run/markers";
-import { BRANCH_READ_PREFIX } from "../stories/branch-read";
+import { branchTip, editInStoryBacklog } from "../stories/story-copy";
 
 import {
   type ClaimRecord,
@@ -100,20 +56,14 @@ import {
   updateClaim,
 } from "./records";
 
-/** The free space a claim needs on the worktree root's filesystem (M0 review, DIPO-15): 2 GB. */
-export const MIN_FREE_BYTES = 2_000_000_000;
-
 /** The status the claim commit writes (0012). */
 export const CLAIM_STATUS = "In Progress";
 
 /** `engine.notice` codes of the claim. */
 export const CLAIM_NOTICES = {
-  lowDisk: "claim.lowDisk",
   pendingLaneOp: "claim.pendingLaneOp",
   collision: "claim.collision",
-  pathExists: "claim.pathExists",
   lostRace: "claim.lostRace",
-  mergeConflict: "claim.mergeConflict",
   pushFailed: "claim.pushFailed",
   leftover: "claim.leftover",
   setupFailed: "setup.failed",
@@ -160,16 +110,16 @@ export type ClaimOutcome<S extends ClaimSetupDone = ClaimSetupDone> = Claimed<S>
 
 export interface ClaimRequest<S extends ClaimSetupDone = ClaimSetupDone> {
   /**
-   * Sets up the claimed worktree (DIPO-39), after the worktree, lock and claim record and before
-   * the claim commit, outside the git queue. A failure rolls the claim back.
+   * Prepares the claimed run (the launch: box and launch checks), after the branch and the claim
+   * record and before the claim commit, outside the git queue. A failure rolls the claim back.
    */
   readonly setup?: (claim: ClaimRecord) => Promise<S | ClaimSetupFailed>;
   readonly key: StoryKey;
-  /** The story's current id; the worktree is `<root>/<ID>`. */
+  /** The story's current id. */
   readonly story: string;
   /** The story's frozen branch (F15), `<ID>/<slug>`. */
   readonly branch: string;
-  /** The run that claims; the worktree lock reason is `dipo <run-id>`. */
+  /** The run that claims. */
   readonly runId: RunId;
   /**
    * The pickup re-check (DIPO-48), run first inside the claim's queue item; a skip it returns
@@ -181,13 +131,6 @@ export interface ClaimRequest<S extends ClaimSetupDone = ClaimSetupDone> {
    * on no other claim of the story can start, so the caller's own serialized step may end here.
    */
   readonly onClaimed?: () => void;
-  /**
-   * How a reused branch takes the base (DIPO-149): `merge` (the default) merges it in the worktree
-   * here, aborting a conflict as first feedback; `catch-up`, for a box run, leaves the branch at
-   * its kept tip, so the box is made from it, and dipo's catch-up merges the base into branch and
-   * box later, a conflict as a recorded hand-off (0019 section 10, 0021 section 12).
-   */
-  readonly baseSync?: "merge" | "catch-up";
 }
 
 export interface ClaimDeps {
@@ -197,34 +140,16 @@ export interface ClaimDeps {
   /** How the Backlog CLI starts; it runs in dipo's own copy of the story's backlog. */
   readonly cli: BacklogCli;
   readonly clock: Clock;
-  readonly disk: DiskProbe;
   /** Called after the claim appended change-log entries outside a command. */
   readonly onChanged?: (office: OfficeId) => void;
 }
-
-/** A worktree location (the claim only ever builds this kind). */
-type WorktreeLocation = Extract<GitLocation, { kind: "worktree" }>;
 
 /** Claims `request.story`; see the file comment for the order of steps. */
 export async function claimStory<S extends ClaimSetupDone = ClaimSetupDone>(
   deps: ClaimDeps,
   request: ClaimRequest<S>,
 ): Promise<ClaimOutcome<S>> {
-  const root = deps.git.worktreeRoot();
-  const path = join(root, request.story);
   assertBranchOf(request);
-
-  const free = await deps.disk.freeBytes(root);
-  if (free < MIN_FREE_BYTES) {
-    return skip(
-      deps,
-      request,
-      "notRunnable",
-      CLAIM_NOTICES.lowDisk,
-      `${request.story} was not claimed: the filesystem holding the worktree root ${root} has ${formatGigabytes(free)} free, less than the ${formatGigabytes(MIN_FREE_BYTES)} a claim needs.`,
-    );
-  }
-
   const { remote } = deps.git.settings;
   const hasRemote = await deps.git.run((git) => remoteConfigured(git, remote));
   if (hasRemote) {
@@ -233,126 +158,9 @@ export async function claimStory<S extends ClaimSetupDone = ClaimSetupDone>(
   }
   const base = await deps.git.resolveBase();
 
-  const started = await deps.git.run(async (git): Promise<ClaimSkip | Started> => {
-    // The pickup re-check: the caller's checks, then the story's own claim and lane b.
-    const rechecked = request.recheck === undefined ? null : await request.recheck(git);
-    if (rechecked !== null) return rechecked;
-    if (liveClaimOf(deps.office, request.key) !== null) {
-      return { ok: false, reason: "notRunnable", notice: null, code: null };
-    }
-    if (pendingLaneOp(deps.office, request.key) !== null) {
-      return skip(
-        deps,
-        request,
-        "notRunnable",
-        CLAIM_NOTICES.pendingLaneOp,
-        `${request.story} was not claimed: ${PENDING_LANE_NOTICE}.`,
-      );
-    }
-
-    const baseRef = hasRemote ? `refs/remotes/${remote}/${base}` : `refs/heads/${base}`;
-    const baseSha = await revParse(git, baseRef);
-    if (baseSha === null) {
-      throw new GitError(
-        "git.baseMissing",
-        `${baseRef} does not exist, so ${request.story} has no start point.`,
-        false,
-        { ref: baseRef },
-      );
-    }
-
-    const released = releasedBranchFor(deps.office, request.key, request.branch);
-    const local = await revParse(git, `refs/heads/${request.branch}`);
-    const remoteHeads = hasRemote ? await lsRemote(git, remote, request.branch) : "";
-
-    if (released === null && (local !== null || remoteHeads !== "")) {
-      const where = [local === null ? null : "locally", remoteHeads === "" ? null : `on ${remote}`]
-        .filter((part) => part !== null)
-        .join(" and ");
-      const others = keysTrackingBranch(deps.office, request.branch).filter(
-        (key) => key !== request.key,
-      );
-      const why =
-        others.length > 0
-          ? `it is tracked for another story (${others.join(", ")})`
-          : failedClaimOf(deps.office, request.key, request.branch) !== null
-            ? "it is left over from an earlier failed claim of this story that dipo could not roll back"
-            : "dipo did not create it";
-      return skip(
-        deps,
-        request,
-        "collision",
-        CLAIM_NOTICES.collision,
-        `${request.story} was not claimed: the branch ${request.branch} already exists ${where} and ${why}. dipo never deletes it; remove or rename it by hand if it is stale.`,
-      );
-    }
-    if (released !== null && local === null) {
-      return skip(
-        deps,
-        request,
-        "collision",
-        CLAIM_NOTICES.collision,
-        `${request.story} was not claimed: its released branch ${request.branch} is missing locally. Restore it (for example \`git branch ${request.branch} ${remote}/${request.branch}\`) or forget the release.`,
-      );
-    }
-    if (existsSync(path)) {
-      return skip(
-        deps,
-        request,
-        "collision",
-        CLAIM_NOTICES.pathExists,
-        `${request.story} was not claimed: the worktree path ${path} already exists. dipo leaves it alone; move it away to claim the story.`,
-      );
-    }
-
-    // A new branch from the base, created only while no ref of that name exists.
-    if (released === null && !(await createBranch(git, request.branch, baseSha))) {
-      return skip(
-        deps,
-        request,
-        "collision",
-        CLAIM_NOTICES.lostRace,
-        `${request.story} was not claimed: another claim or git process created ${request.branch} at the same moment. Nothing was created or overwritten.`,
-      );
-    }
-
-    const created: Created = {
-      path,
-      base,
-      baseRef,
-      baseSha,
-      startSha: released === null ? baseSha : (local as string),
-      released,
-      hasRemote,
-    };
-    // The worktree of the new branch, or of the released one.
-    const add = await git.step(
-      git.repository,
-      ["worktree", "add", "--quiet", path, request.branch],
-      {
-        config: WORKTREE_ADD_CONFIG,
-      },
-    );
-    if (add.code !== 0) {
-      await rollback(deps, git, request, created, false);
-      throw failed("worktree add", add);
-    }
-    if (released === null) return startClaim(deps, git, request, created);
-    // A reused branch starts at what the new worktree checked out.
-    let head: string;
-    try {
-      head = (
-        await git.ok(deps.git.worktreeLocation(path), ["rev-parse", "--verify", "HEAD"])
-      ).trim();
-    } catch (error) {
-      await rollback(deps, git, request, created, false);
-      throw error;
-    }
-    return startClaim(deps, git, request, {
-      ...created,
-      startSha: head,
-    });
-  });
+  const started = await deps.git.run(async (git): Promise<ClaimSkip | Started> =>
+    startClaim(deps, git, request, { base, hasRemote }),
+  );
   if (!started.ok) return started;
   request.onClaimed?.();
 
@@ -369,14 +177,14 @@ export async function claimStory<S extends ClaimSetupDone = ClaimSetupDone>(
     if (!result.ok) {
       const failure = result;
       await deps.git.run((git) =>
-        rollback(deps, git, request, started.created, true, started.made, "setup-failed"),
+        rollback(deps, git, request, started.created, true, [...started.made], "setup-failed"),
       );
       return skip(
         deps,
         request,
         "pickupCheckFailed",
         CLAIM_NOTICES.setupFailed,
-        `${request.story} was not started: setup failed (${failure.reason}). The worktree was removed and the story stays Ready. To read the step's output, run \`dipo daemon log-level debug\`, start the story again, then run \`dipo daemon logs --level debug\`.`,
+        `${request.story} was not started: setup failed (${failure.reason}). The claim was rolled back and the story stays Ready. To read the step's output, run \`dipo daemon log-level debug\`, start the story again, then run \`dipo daemon logs --level debug\`.`,
         failure.log,
       );
     }
@@ -393,7 +201,7 @@ function claimOf(deps: ClaimDeps, request: ClaimRequest<ClaimSetupDone>): ClaimR
   return claim;
 }
 
-/** What queue item A created: the worktree and the commits the claim made so far. */
+/** What queue item A created: the branch and the commits the claim made so far. */
 interface Started {
   readonly ok: true;
   readonly created: Created;
@@ -401,9 +209,7 @@ interface Started {
 }
 
 interface Created {
-  readonly path: string;
   readonly base: string;
-  readonly baseRef: string;
   readonly baseSha: string;
   readonly startSha: string;
   readonly released: ReleasedBranch | null;
@@ -411,74 +217,141 @@ interface Created {
 }
 
 /**
- * The rest of queue item A after `git worktree add`: lock, snapshot, live claim record, and the
- * base merge of a reused branch. A failure rolls the claim back and rethrows.
+ * Queue item A: the pickup re-check, the claim checks, the branch and the live claim record. A
+ * failure after the branch was created rolls the claim back and rethrows.
  */
 async function startClaim(
   deps: ClaimDeps,
   git: GitSession,
-  request: ClaimRequest,
-  created: Created,
-): Promise<Started> {
-  const { path, released } = created;
-  const now = deps.clock.now();
-  let recorded = false;
-  // The commits this claim made on the branch, collected as they are made; rollback moves only a
-  // ref whose tip is one of them.
-  const made: string[] = [created.startSha];
+  request: ClaimRequest<ClaimSetupDone>,
+  where: { readonly base: string; readonly hasRemote: boolean },
+): Promise<ClaimSkip | Started> {
+  const { base, hasRemote } = where;
+  const { remote } = deps.git.settings;
+  // The pickup re-check: the caller's checks, then the story's own claim and lane b.
+  const rechecked = request.recheck === undefined ? null : await request.recheck(git);
+  if (rechecked !== null) return rechecked;
+  if (liveClaimOf(deps.office, request.key) !== null) {
+    return { ok: false, reason: "notRunnable", notice: null, code: null };
+  }
+  if (pendingLaneOp(deps.office, request.key) !== null) {
+    return skip(
+      deps,
+      request,
+      "notRunnable",
+      CLAIM_NOTICES.pendingLaneOp,
+      `${request.story} was not claimed: ${PENDING_LANE_NOTICE}.`,
+    );
+  }
+
+  const baseRef = hasRemote ? `refs/remotes/${remote}/${base}` : `refs/heads/${base}`;
+  const baseSha = await revParse(git, baseRef);
+  if (baseSha === null) {
+    throw new GitError(
+      "git.baseMissing",
+      `${baseRef} does not exist, so ${request.story} has no start point.`,
+      false,
+      { ref: baseRef },
+    );
+  }
+
+  const released = releasedBranchFor(deps.office, request.key, request.branch);
+  const local = await revParse(git, `refs/heads/${request.branch}`);
+  const remoteHeads = hasRemote ? await lsRemote(git, remote, request.branch) : "";
+  const refused = collision(deps, request, { released, local, remoteHeads });
+  if (refused !== null) return refused;
+
+  // A new branch from the base, created only while no ref of that name exists.
+  if (released === null && !(await createBranch(git, request.branch, baseSha))) {
+    return skip(
+      deps,
+      request,
+      "collision",
+      CLAIM_NOTICES.lostRace,
+      `${request.story} was not claimed: another claim or git process created ${request.branch} at the same moment. Nothing was created or overwritten.`,
+    );
+  }
+  const created: Created = {
+    base,
+    baseSha,
+    // A reused branch starts at its kept tip.
+    startSha: released === null ? baseSha : (local as string),
+    released,
+    hasRemote,
+  };
   try {
-    await git.ok(git.repository, ["worktree", "lock", "--reason", `dipo ${request.runId}`, path]);
-    const adminDir = deps.git.adminDirOf(path);
-    if (adminDir === null) {
-      throw new GitError("git.failed", `${path} is not registered after \`git worktree add\`.`);
-    }
-    const snapshot = readWorktreeSnapshot(path, adminDir);
-    deps.git.pinWorktree(snapshot);
+    const now = deps.clock.now();
     deps.office.immediate(() => {
       insertClaim(deps.office, {
         runId: request.runId,
         key: request.key,
         story: request.story,
         branch: request.branch,
-        worktree: path,
-        base: created.base,
-        baseSha: created.baseSha,
+        base,
+        baseSha,
         startSha: created.startSha,
         claimSha: null,
         reused: released !== null,
-        snapshot,
-        firstFeedback: null,
         claimedAt: now,
       });
       if (released !== null) markReclaimed(deps.office, released, now, request.runId);
     });
-    recorded = true;
-
-    const location = deps.git.worktreeLocation(path) as WorktreeLocation;
-    if (released !== null && request.baseSync !== "catch-up") {
-      const feedback = await mergeBase(git, location, request, created);
-      if (feedback !== null) {
-        writeWith(deps, () => {
-          updateClaim(deps.office, request.runId, { firstFeedback: feedback });
-          return [notice("warn", CLAIM_NOTICES.mergeConflict, feedback, request.key)];
-        });
-      }
-      // The merge commit (or the start again, when the branch was up to date).
-      made.push((await git.ok(location, ["rev-parse", "--verify", "HEAD"])).trim());
-    }
   } catch (error) {
-    await rollback(deps, git, request, created, recorded, made);
+    await rollback(deps, git, request, created, false);
     throw error;
   }
-  return { ok: true, created, made };
+  return { ok: true, created, made: [created.startSha] };
+}
+
+/** The collision skip of a branch the claim may not create or reuse, or null. */
+function collision(
+  deps: ClaimDeps,
+  request: ClaimRequest<ClaimSetupDone>,
+  found: {
+    readonly released: ReleasedBranch | null;
+    readonly local: string | null;
+    readonly remoteHeads: string;
+  },
+): ClaimSkip | null {
+  const { released, local, remoteHeads } = found;
+  const { remote } = deps.git.settings;
+  if (released === null && (local !== null || remoteHeads !== "")) {
+    const where = [local === null ? null : "locally", remoteHeads === "" ? null : `on ${remote}`]
+      .filter((part) => part !== null)
+      .join(" and ");
+    const others = keysTrackingBranch(deps.office, request.branch).filter(
+      (key) => key !== request.key,
+    );
+    const why =
+      others.length > 0
+        ? `it is tracked for another story (${others.join(", ")})`
+        : failedClaimOf(deps.office, request.key, request.branch) !== null
+          ? "it is left over from an earlier failed claim of this story that dipo could not roll back"
+          : "dipo did not create it";
+    return skip(
+      deps,
+      request,
+      "collision",
+      CLAIM_NOTICES.collision,
+      `${request.story} was not claimed: the branch ${request.branch} already exists ${where} and ${why}. dipo never deletes it; remove or rename it by hand if it is stale.`,
+    );
+  }
+  if (released !== null && local === null) {
+    return skip(
+      deps,
+      request,
+      "collision",
+      CLAIM_NOTICES.collision,
+      `${request.story} was not claimed: its released branch ${request.branch} is missing locally. Restore it (for example \`git branch ${request.branch} ${remote}/${request.branch}\`) or forget the release.`,
+    );
+  }
+  return null;
 }
 
 /**
- * Queue item C, after setup: re-checks that the claim is still live and the worktree's git links
- * unchanged, then makes the claim commit and pushes. A claim released meanwhile (by whatever
- * released it) is undone without touching its row; a changed link refuses with
- * `git.worktreeTampered` and leaves everything for the maintainer; a failed claim commit rolls
- * the claim back. Each undo also releases what setup holds.
+ * Queue item C, after setup: re-checks that the claim is still live, then makes the claim commit
+ * and pushes. A claim released meanwhile (by whatever released it) is undone without touching its
+ * row; a failed claim commit rolls the claim back. Each undo also releases what setup holds.
  */
 async function finishClaim<S extends ClaimSetupDone>(
   deps: ClaimDeps,
@@ -492,26 +365,21 @@ async function finishClaim<S extends ClaimSetupDone>(
   const live = findClaim(deps.office, request.runId);
   if (live === null || live.releasedAt !== null) {
     // Released meanwhile: that release keeps its row, its release and the branch.
-    await rollback(deps, git, request, created, true, made);
     setup?.release();
     return skip(
       deps,
       request,
       "notRunnable",
       CLAIM_NOTICES.releasedDuringSetup,
-      `${request.story} was not claimed: its claim was released while setup ran, so dipo removed the worktree.`,
+      `${request.story} was not claimed: its claim was released while setup ran.`,
     );
   }
-  const changed = changedLinks(live.snapshot);
-  if (changed.length > 0) throw worktreeTampered(live.snapshot, changed);
 
   try {
-    const location = deps.git.worktreeLocation(created.path) as WorktreeLocation;
     // The claim commit, or the tip when the status was already In Progress; recorded either way,
     // so a live claim without `claim_sha` is one whose setup never finished.
     const claimSha =
-      (await claimCommit(deps, git, location, request)) ??
-      (await git.ok(location, ["rev-parse", "--verify", "HEAD"])).trim();
+      (await claimCommit(deps, git, request)) ?? (await branchTip(git, request.branch));
     made.push(claimSha);
     deps.office.immediate(() => updateClaim(deps.office, request.runId, { claimSha }));
   } catch (error) {
@@ -525,61 +393,19 @@ async function finishClaim<S extends ClaimSetupDone>(
 }
 
 /**
- * Merges `origin/<base>` into a reused branch (0010 section 2a). Returns the worker's first
- * feedback when the merge conflicts (the merge is aborted), else null.
- */
-async function mergeBase(
-  git: GitSession,
-  location: WorktreeLocation,
-  request: ClaimRequest,
-  created: Created,
-): Promise<string | null> {
-  const name = created.baseRef.replace(/^refs\/(?:remotes|heads)\//, "");
-  const merged = await mergeInWorktree(git, location, {
-    commit: created.baseSha,
-    message: `Merge ${name} into ${request.branch}`,
-  });
-  if (merged.code === 0) return null;
-  const unmerged = (await git.ok(location, ["diff", "--name-only", "-z", "--diff-filter=U"]))
-    .split("\0")
-    .filter((file) => file !== "");
-  if (merged.code !== 1 || unmerged.length === 0) throw failed("merge", merged);
-  const aborted = await abortMerge(git, location);
-  if (aborted.code !== 0) throw failed("merge --abort", aborted);
-  return `Merging ${name} into ${request.branch} conflicts in ${unmerged.join(", ")}; dipo aborted the merge. Merge ${name} into the branch and resolve the conflicts.`;
-}
-
-/**
- * Sets the story's status to In Progress through the Backlog CLI in dipo's own copy of the
- * story's backlog (`editInStoryBacklog`), never in the worktree, and commits only its task file as
+ * Sets the story's status to In Progress through the Backlog CLI in dipo's own copy of the story's
+ * backlog (`editInStoryBacklog`) and commits only its task file on the branch as
  * `<ID>: status In Progress`. Returns the commit, or null when the status was already In Progress.
- * Setup may leave nothing the claim commit would leave behind, other than the story's task file.
  */
 async function claimCommit(
   deps: ClaimDeps,
   git: GitSession,
-  location: WorktreeLocation,
   request: ClaimRequest,
 ): Promise<string | null> {
-  const changed = statusPaths(
-    await git.ok(location, ["status", "--porcelain=v1", "-z", "--untracked-files=all"]),
-  );
-  const others = changed.filter(
-    (file) => dirname(file) !== TASKS_DIR || !isTaskFileOf(basename(file), request.story),
-  );
-  if (others.length > 0) {
-    throw new GitError(
-      "claim.scope",
-      `The claim of ${request.story} changed more than its task file: ${others.join(", ")}.`,
-      false,
-      { others },
-    );
-  }
   const { commit } = await editInStoryBacklog(
     deps.git,
     git,
-    location,
-    request.story,
+    request,
     `${request.story}: status ${CLAIM_STATUS}`,
     async (backlog) => {
       const target = { cli: deps.cli, cwd: backlog.cwd, id: request.story };
@@ -635,62 +461,33 @@ export type RollbackDeps = Pick<ClaimDeps, "officeId" | "office" | "git" | "cloc
 /** The story, branch and run a rollback undoes. */
 type ClaimIdentity = Pick<ClaimRequest, "key" | "story" | "branch" | "runId">;
 
-/** What the claim created: the worktree, the branch start, a reused release. */
-type CreatedWorktree = Pick<Created, "path" | "startSha" | "released">;
+/** What the claim created: the branch start and a reused release. */
+type CreatedBranch = Pick<Created, "startSha" | "released">;
 
 /**
- * Undoes a claim that failed after `git worktree add`: unpin, unlock and remove the worktree,
- * delete a new branch (or move a reused one back to its start) when the worktree is gone and the
- * tip is one of the commits this claim made, else leave the ref and put a `claim.leftover` notice
- * on the office; end the claim record with `reason` and reopen a reused release. A claim that was
- * released by something else meanwhile (its row has `released_at`) keeps its row, its release
- * and its branch: that release owns them, and only the worktree is removed. Each step is best
- * effort, so the original error is what the caller sees. Runs inside a git queue item.
+ * Undoes a claim that failed after its branch was created or taken: a new branch is deleted when
+ * its tip is one of the commits this claim made, a reused branch must be back at its start; else
+ * the ref is left and a `claim.leftover` notice goes on the office. The claim record ends with
+ * `reason` and a reused release opens again. A claim released by something else meanwhile (its row
+ * has `released_at`) keeps its row, its release and its branch: that release owns them. Each step
+ * is best effort, so the original error is what the caller sees. Runs inside a git queue item.
  */
 async function rollback(
   deps: RollbackDeps,
   git: GitSession,
   request: ClaimIdentity,
-  created: CreatedWorktree,
+  created: CreatedBranch,
   recorded: boolean,
   made: readonly string[] = [created.startSha],
   reason: (typeof FAILED_CLAIM_REASONS)[number] = "claim-failed",
 ): Promise<void> {
-  const { path, released } = created;
+  const { released } = created;
   const current = recorded ? findClaim(deps.office, request.runId) : null;
-  const releasedElsewhere = current !== null && current.releasedAt !== null;
-  deps.git.unpinWorktree(path);
-  const quiet = async (args: readonly string[]): Promise<void> => {
-    await git.step(git.repository, args).catch(() => undefined);
-  };
-  await quiet(["worktree", "unlock", path]);
-  await quiet(["worktree", "remove", "--force", path]);
-  if (releasedElsewhere) return;
-  // A new branch is deleted, a reused one goes back to its start, only when the worktree is gone
-  // and the tip is a commit this claim made (`made`); each ref change is guarded by the tip read
-  // here. Anything else is left as it is and reported.
-  const ref = `refs/heads/${request.branch}`;
-  const tip = await revParse(git, ref).catch(() => null);
-  const restored = released === null ? tip === null : tip === created.startSha;
-  if (!restored) {
-    let leftBecause: string | null = null;
-    if (deps.git.adminDirOf(path) !== null) {
-      leftBecause = `its worktree ${path} could not be removed`;
-    } else if (tip === null || !made.includes(tip)) {
-      leftBecause = `its tip ${tip ?? "(unreadable)"} is not a commit this claim made`;
-    } else if (released === null) {
-      const result = await deleteBranch(git, request.branch, tip).catch(() => null);
-      if (result?.code !== 0) {
-        leftBecause = `deleting it at ${tip} failed (${result?.stderr.trim() || "no result"})`;
-      }
-    } else {
-      const moved = await moveBranch(git, request.branch, created.startSha, tip).catch(() => false);
-      if (!moved) leftBecause = `moving it back from ${tip} to ${created.startSha} failed`;
-    }
-    if (leftBecause !== null) {
-      const text = `The claim of ${request.story} failed and dipo could not roll back the branch ${request.branch}: ${leftBecause}. It is left as it is; check it and remove or reset it by hand.`;
-      writeWith(deps, () => [notice("warn", CLAIM_NOTICES.leftover, text, request.key)]);
-    }
+  if (current !== null && current.releasedAt !== null) return;
+  const leftBecause = await restoreBranch(git, request.branch, created, made);
+  if (leftBecause !== null) {
+    const text = `The claim of ${request.story} failed and dipo could not roll back the branch ${request.branch}: ${leftBecause}. It is left as it is; check it and remove or reset it by hand.`;
+    writeWith(deps, () => [notice("warn", CLAIM_NOTICES.leftover, text, request.key)]);
   }
   if (!recorded) return;
   const at = deps.clock.now();
@@ -708,11 +505,38 @@ async function rollback(
 }
 
 /**
+ * Deletes a new branch, or moves a reused one back to its start, when its tip is a commit of
+ * `made`. Returns why the branch is left as it is, or null.
+ */
+async function restoreBranch(
+  git: GitSession,
+  branch: string,
+  created: CreatedBranch,
+  made: readonly string[],
+): Promise<string | null> {
+  const tip = await revParse(git, `refs/heads/${branch}`).catch(() => null);
+  if (created.released !== null) {
+    if (tip === created.startSha) return null;
+    if (tip === null || !made.includes(tip)) {
+      return `its tip ${tip ?? "(unreadable)"} is not a commit this claim made`;
+    }
+    // A reused branch goes back to where it was released.
+    const moved = await moveBranch(git, branch, created.startSha, tip).catch(() => false);
+    return moved ? null : `moving it back from ${tip} to ${created.startSha} failed`;
+  }
+  if (tip === null) return null;
+  if (!made.includes(tip)) return `its tip ${tip} is not a commit this claim made`;
+  const result = await deleteBranch(git, branch, tip).catch(() => null);
+  return result?.code === 0
+    ? null
+    : `deleting it at ${tip} failed (${result?.stderr.trim() || "no result"})`;
+}
+
+/**
  * Rolls back a live claim whose setup never finished (no recorded claim commit), for example
- * because the daemon stopped during setup: the worktree is removed, a new branch deleted while it
- * still points at its start, a reused branch moved back to its start (also from the base merge
- * the claim made) and its release reopened, the row ended as `setup-failed`, and a
- * `claim.setupInterrupted` notice put on the office. Runs as its own git queue item.
+ * because the daemon stopped during setup: a new branch is deleted while it still points at its
+ * start, a reused branch's release opens again, the row ends as `setup-failed`, and a
+ * `claim.setupInterrupted` notice goes on the office. Runs as its own git queue item.
  */
 export async function rollBackInterruptedSetup(
   deps: RollbackDeps,
@@ -720,23 +544,13 @@ export async function rollBackInterruptedSetup(
 ): Promise<void> {
   await deps.git.run(async (git) => {
     const released = claim.reused ? releaseReclaimedBy(deps.office, claim.runId) : null;
-    const made = [claim.startSha];
-    const tip = await revParse(git, `refs/heads/${claim.branch}`).catch(() => null);
-    if (released !== null && tip !== null && tip !== claim.startSha) {
-      // The base merge of a reused branch: first parent the start, second parent the base.
-      const parents = await git
-        .step(git.repository, ["rev-list", "--parents", "-n", "1", tip])
-        .catch(() => null);
-      const [, first, second] = parents?.stdout.trim().split(" ") ?? [];
-      if (first === claim.startSha && second === claim.baseSha) made.push(tip);
-    }
     await rollback(
       deps,
       git,
       claim,
-      { path: claim.worktree, startSha: claim.startSha, released },
+      { startSha: claim.startSha, released },
       true,
-      made,
+      [claim.startSha],
       "setup-failed",
     );
   });
@@ -744,45 +558,18 @@ export async function rollBackInterruptedSetup(
     notice(
       "warn",
       CLAIM_NOTICES.setupInterrupted,
-      `${claim.story} was claimed but its setup did not finish (the daemon stopped during setup); dipo removed the worktree and the story stays Ready.`,
+      `${claim.story} was claimed but its setup did not finish (the daemon stopped during setup); dipo rolled the claim back and the story stays Ready.`,
       claim.key,
     ),
   ]);
 }
 
 /**
- * Releases a live claim whose worker did not start after the claim commit (DIPO-74): the worktree
- * is unpinned, unlocked and removed; the branch, which may already be pushed with the claim
- * commit, stays and is recorded as released for the story (0010 section 2a), so the next claim
- * reuses it; the claim and its run end with `reason`. The removal is its own git queue item.
+ * Releases a live claim whose worker did not start after the claim commit (DIPO-74): the branch,
+ * which may already be pushed with the claim commit, stays and is recorded as released for the
+ * story (0010 section 2a), so the next claim reuses it; the claim and its run end with `reason`.
  */
-export async function releaseUnstarted(
-  deps: RollbackDeps,
-  claim: ClaimRecord,
-  reason: string,
-  warn?: (message: string, fields: Readonly<Record<string, unknown>>) => void,
-): Promise<void> {
-  await deps.git.run(async (git) => {
-    deps.git.unpinWorktree(claim.worktree);
-    for (const args of [
-      ["worktree", "unlock", claim.worktree],
-      ["worktree", "remove", "--force", claim.worktree],
-    ]) {
-      // Best effort: the release goes on, and a failed step is logged.
-      const result = await git.step(git.repository, args).catch((error: unknown) => ({
-        code: null,
-        stderr: error instanceof Error ? error.message : String(error),
-      }));
-      if (result.code !== 0) {
-        warn?.("a worktree step of the release failed", {
-          run: claim.runId,
-          args: args.join(" "),
-          code: result.code,
-          stderr: result.stderr.trim(),
-        });
-      }
-    }
-  });
+export function releaseUnstarted(deps: RollbackDeps, claim: ClaimRecord, reason: string): void {
   const at = deps.clock.now();
   deps.office.immediate(() =>
     releaseClaim(deps.office, claim.runId, { at, reason, keepBranch: true }),
@@ -837,326 +624,6 @@ async function lsRemote(git: GitSession, remote: string, branch: string): Promis
     );
   }
   return result.stdout.trim();
-}
-
-/** The `git.failed` error of the step `command` (`worktree add`, `merge`). */
-function failed(command: string, result: GitResult): GitError {
-  return new GitError(
-    "git.failed",
-    `git ${command} failed: ${result.stderr.trim() || `exit ${result.code}`}`,
-    false,
-    { args: command.split(" "), code: result.code, stderr: result.stderr },
-  );
-}
-
-/** The real path of `path`, or `path` itself when it cannot be resolved. */
-function realOr(path: string): string {
-  try {
-    return realpathSync(path);
-  } catch {
-    return path;
-  }
-}
-
-// ---- the story's backlog folder (0021 section 14) ----------------------------------------------
-
-/** The Backlog configuration, relative to the repository root. */
-const BACKLOG_CONFIG = "backlog/config.yml";
-
-/** dipo's own copy of a story's backlog, where every Backlog CLI call for the story runs. */
-export interface StoryBacklog {
-  /** The folder the CLI runs in: it holds only the Backlog configuration and the task file. */
-  readonly cwd: string;
-  /** Repo-relative path of the story's task file. */
-  readonly taskFile: string;
-}
-
-/** What a story backlog edit did: the callback's value and the task file commit. */
-export interface StoryBacklogEdit<T> {
-  readonly value: T;
-  /** The commit of the task file the CLI left, or null when it equals the committed one. */
-  readonly commit: string | null;
-}
-
-/** The task file mode dipo commits; a task file of any other mode is refused. */
-const TASK_FILE_MODE = "100644";
-
-/**
- * The commit of the office's base branch: `<remote>/<base>`, else the local `<base>` (an office
- * without a fetched remote). Runs inside a queue item of `git`.
- */
-async function baseCommit(git: OfficeGit, session: GitSession): Promise<string> {
-  const base = await git.resolveBaseIn(session);
-  const refs = [`refs/remotes/${git.settings.remote}/${base}`, `refs/heads/${base}`];
-  for (const ref of refs) {
-    const found = await session.step(session.repository, [
-      "rev-parse",
-      "--verify",
-      "--quiet",
-      `${ref}^{commit}`,
-    ]);
-    if (found.code === 0) return found.stdout.trim();
-  }
-  throw new GitError(
-    "git.baseMissing",
-    `Neither ${refs.join(" nor ")} exists, so dipo has no Backlog configuration to run the CLI with.`,
-    false,
-    { refs },
-  );
-}
-
-/**
- * Reads the story with the Backlog CLI in dipo's own copy of its backlog (0021 section 14); see
- * `inStoryBacklogCopy`. Nothing is written back.
- */
-export async function inStoryBacklog<T>(
-  git: OfficeGit,
-  session: GitSession,
-  location: WorktreeLocation,
-  story: string,
-  fn: (backlog: StoryBacklog) => Promise<T>,
-): Promise<T> {
-  return (await inStoryBacklogCopy(git, session, location, story, null, fn)).value;
-}
-
-/**
- * Edits the story with the Backlog CLI in dipo's own copy of its backlog, then commits the task
- * file the CLI left as `message` alone on the story branch (see `inStoryBacklogCopy`).
- */
-export function editInStoryBacklog<T>(
-  git: OfficeGit,
-  session: GitSession,
-  location: WorktreeLocation,
-  story: string,
-  message: string,
-  fn: (backlog: StoryBacklog) => Promise<T>,
-): Promise<StoryBacklogEdit<T>> {
-  return inStoryBacklogCopy(git, session, location, story, message, fn);
-}
-
-/**
- * Runs `fn` with dipo's own copy of the backlog of `story` (0021 section 14): a fresh folder under
- * the worktree root, outside any git repository and outside the story's worktree, holding only
- * two files read from git objects, never from the worktree's files: the Backlog configuration
- * from the office's base branch, so a commit on a story branch never changes how the CLI behaves,
- * and the story's task file as committed at the worktree's `HEAD`. The task file must sit directly
- * in `backlog/tasks` (`taskFilePathRefusal`) and hold only fields dipo knows (`taskFieldRefusal`),
- * else the operation is refused before the CLI runs. No file a worker wrote, in the worktree or in
- * its `backlog/` folder, reaches the folder the CLI runs in.
- *
- * With `message`, the task file the CLI left in the copy is committed without being written
- * through the worktree's folders: its blob is stored with `git hash-object -w`, put into a
- * temporary index built from `HEAD` (`git update-index --cacheinfo`), and committed alone with
- * `git commit-tree`; `HEAD` moves only from the commit read at the start. Anything staged in the
- * worktree stays staged and out of the commit. The worktree's index entry is then set to the
- * blob and its copy written by `git checkout-index`, which never writes beyond a link. The
- * folder shares the branch reads' prefix, so the claims load step sweeps one a killed daemon left
- * behind (`worktree/sweep.ts`). Runs inside a queue item of `git`.
- */
-async function inStoryBacklogCopy<T>(
-  git: OfficeGit,
-  session: GitSession,
-  location: WorktreeLocation,
-  story: string,
-  message: string | null,
-  fn: (backlog: StoryBacklog) => Promise<T>,
-): Promise<StoryBacklogEdit<T>> {
-  const head = (await session.ok(location, ["rev-parse", "--verify", "HEAD"])).trim();
-  const taskFile = await storyTaskFileAt(session, head, story);
-  const committed = await session.ok(session.repository, ["show", `${head}:${taskFile}`]);
-  const refused = taskFieldRefusal(committed);
-  if (refused !== null) {
-    throw new GitError(
-      TASK_FIELD_ERROR,
-      `dipo refuses ${story}'s task file ${taskFile} at ${head}: ${refused}.`,
-      false,
-      { story, taskFile, head },
-    );
-  }
-  const base = await baseCommit(git, session);
-  const config = await session.ok(session.repository, ["show", `${base}:${BACKLOG_CONFIG}`]);
-  const root = git.worktreeRoot();
-  mkdirSync(root, { recursive: true });
-  const scratch = mkdtempSync(join(root, BRANCH_READ_PREFIX));
-  try {
-    // The CLI's folder is a child of the scratch folder, which also holds the temporary index.
-    const cwd = join(scratch, "copy");
-    for (const [path, text] of [
-      [BACKLOG_CONFIG, config],
-      [taskFile, committed],
-    ] as const) {
-      mkdirSync(dirname(join(cwd, path)), { recursive: true });
-      writeFileSync(join(cwd, path), text, { flag: "wx" });
-    }
-    const value = await fn({ cwd, taskFile });
-    if (message === null) return { value, commit: null };
-    const left = readdirSync(join(cwd, dirname(taskFile))).filter((name) =>
-      isTaskFileOf(name, story),
-    );
-    if (left.length !== 1 || left[0] !== basename(taskFile)) {
-      throw new GitError(
-        BACKLOG_FOLDER_ERROR,
-        `The Backlog CLI left ${left.join(", ") || "no task file"} for ${story}, not ${taskFile}.`,
-        false,
-        { story, taskFile, left },
-      );
-    }
-    assertPlainFolder(location.workTree, taskFile);
-    const commit = await commitFromCopy(session, location, {
-      head,
-      taskFile,
-      file: join(cwd, taskFile),
-      index: join(scratch, "index"),
-      message,
-    });
-    return { value, commit };
-  } finally {
-    rmSync(scratch, { recursive: true, force: true });
-  }
-}
-
-/** The story's task file at `head`: exactly one, directly in `backlog/tasks`. */
-async function storyTaskFileAt(session: GitSession, head: string, story: string): Promise<string> {
-  const listed = await session.ok(session.repository, [
-    "ls-tree",
-    "-r",
-    "-z",
-    "--name-only",
-    head,
-    "--",
-    TASKS_DIR,
-  ]);
-  const files = listed.split("\0").filter((path) => isTaskFileOf(basename(path), story));
-  const [taskFile] = files;
-  if (taskFile === undefined || files.length > 1) {
-    throw new GitError(
-      BACKLOG_FOLDER_ERROR,
-      `${head} holds ${files.length === 0 ? "no" : "more than one"} task file for ${story} under ${TASKS_DIR}.`,
-      false,
-      { story, files },
-    );
-  }
-  const badPath = taskFilePathRefusal(taskFile);
-  if (badPath !== null) {
-    throw new GitError(
-      BACKLOG_FOLDER_ERROR,
-      `${story}'s task file at ${head}: ${badPath}.`,
-      false,
-      {
-        story,
-        taskFile,
-      },
-    );
-  }
-  return taskFile;
-}
-
-/**
- * Commits the blob of `file` as `taskFile` alone on top of `head` and brings the worktree's index
- * entry and copy up to date (see `inStoryBacklogCopy`). Returns the commit, or null when the blob
- * equals the committed one.
- */
-async function commitFromCopy(
-  session: GitSession,
-  location: WorktreeLocation,
-  input: {
-    readonly head: string;
-    readonly taskFile: string;
-    readonly file: string;
-    readonly index: string;
-    readonly message: string;
-  },
-): Promise<string | null> {
-  const { head, taskFile } = input;
-  const entry = (await session.ok(location, ["ls-tree", "-z", head, "--", taskFile])).split(
-    "\t",
-  )[0];
-  const [mode, type, before] = entry?.split(" ") ?? [];
-  if (mode !== TASK_FILE_MODE || type !== "blob" || before === undefined) {
-    throw new GitError(
-      BACKLOG_FOLDER_ERROR,
-      `${taskFile} at ${head} is not a plain file (mode ${mode ?? "none"}), so dipo does not commit it.`,
-      false,
-      { taskFile, mode },
-    );
-  }
-  const blob = (
-    await session.ok(location, ["hash-object", "-w", "--no-filters", "--", input.file])
-  ).trim();
-  let commit: string | null = null;
-  if (blob !== before) {
-    const temporary = { env: { GIT_INDEX_FILE: input.index } };
-    await session.ok(location, ["read-tree", head], temporary);
-    await session.ok(
-      location,
-      ["update-index", "--cacheinfo", `${TASK_FILE_MODE},${blob},${taskFile}`],
-      temporary,
-    );
-    const tree = (await session.ok(location, ["write-tree"], temporary)).trim();
-    commit = await commitTree(session, location, {
-      tree,
-      parents: [head],
-      message: { subject: input.message },
-    });
-    await moveRef(session, location, {
-      ref: "HEAD",
-      to: commit,
-      from: head,
-      reason: input.message,
-    });
-    const moved = (await session.ok(location, ["rev-parse", "--verify", "HEAD"])).trim();
-    if (moved !== commit) {
-      throw new GitError(
-        "git.failed",
-        `HEAD of ${location.workTree} is ${moved}, not the task file commit ${commit}.`,
-      );
-    }
-  }
-  // The worktree's index entry and copy follow the commit; nothing else in the index changes.
-  await session.ok(location, [
-    "update-index",
-    "--cacheinfo",
-    `${TASK_FILE_MODE},${blob},${taskFile}`,
-  ]);
-  await session.ok(location, ["checkout-index", "--force", "--", taskFile]);
-  return commit;
-}
-
-/**
- * Refuses, before anything is committed, a worktree whose folders on the way to `path` are not its
- * own plain folders (a link to elsewhere, or missing).
- */
-function assertPlainFolder(worktree: string, path: string): void {
-  const dir = dirname(join(worktree, path));
-  const expected = join(realpathSync(worktree), dirname(path));
-  let real: string | null;
-  try {
-    real = realpathSync(dir);
-  } catch {
-    real = null;
-  }
-  if (real !== expected || !lstatSync(dir).isDirectory()) {
-    throw new GitError(
-      BACKLOG_FOLDER_ERROR,
-      `${dirname(path)} in ${worktree} is not a plain folder of the worktree, so dipo does not commit ${path} there.`,
-      false,
-      { path },
-    );
-  }
-}
-
-/** `file` (absolute, as the CLI printed it) relative to the worktree, with `/` separators. */
-export function repoPath(worktree: string, file: string): string {
-  const rel = relative(realOr(worktree), realOr(file));
-  if (rel === "" || isAbsolute(rel) || rel.startsWith("..") || !rel.startsWith(`backlog${sep}`)) {
-    throw new GitError(
-      "claim.scope",
-      `The Backlog CLI named ${file} as the task file, which is not under ${worktree}/backlog.`,
-      false,
-      { file },
-    );
-  }
-  return rel.split(sep).join("/");
 }
 
 export function notice(

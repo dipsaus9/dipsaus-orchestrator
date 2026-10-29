@@ -89,7 +89,7 @@ import {
 } from "../platform/host";
 import { type CiFeedbackItem, ciFeedback, FEEDBACK_LOG_LINES_DEFAULT } from "../prompts/feedback";
 import { cutHead } from "../prompts/cut";
-import { type EnvSecret, readEnvSecrets } from "../run/env-secrets";
+import { type EnvSecretsReader, officeEnvSecrets } from "../run/env-secrets";
 import {
   findingCounts,
   latestVerdictOfRun,
@@ -204,11 +204,13 @@ export interface StoryPrsDeps {
    * the host reports as required count (tests).
    */
   readonly required?: Pick<AutoMergeHost, "requiredCheckNames">;
+  /** The office's main checkout, where its env files are read; unknown without it. */
+  readonly checkout?: (office: OfficeId) => string | undefined;
   /**
-   * The values of the env files dipo copied into a worktree, for the review comments (DIPO-152);
-   * the files of `readEnvSecrets` by default. It throws when a file cannot be read.
+   * Reads the values of the office's env files for the review comments (DIPO-152); the files of
+   * `readEnvSecrets` by default. It throws when a file cannot be read.
    */
-  readonly secrets?: (worktree: string, files: OfficeConfig["worktree"]["files"]) => EnvSecret[];
+  readonly secrets?: EnvSecretsReader;
   /**
    * The office's one PR-state poll (DIPO-314): the PR poll runs as the first part of its rounds,
    * not on a timer of its own, and reads each open PR through it. Without it the PR poll keeps its
@@ -470,9 +472,10 @@ export class StoryPrs {
       const told = `comment:${verdict.gate}`;
       let body: string;
       try {
-        const secrets = (this.#deps.secrets ?? readEnvSecrets)(
-          run.worktree ?? "",
+        const secrets = officeEnvSecrets(
+          this.#deps.checkout?.(officeId),
           this.#config(officeId).worktree.files,
+          this.#deps.secrets,
         );
         body = redactComment(
           reviewComment(verdict, { effort: reviewerEffort(office, verdict.agent) }),
@@ -659,12 +662,12 @@ export class StoryPrs {
   ): Promise<void> {
     const office = state.office;
     const run = findRun(office, runId);
-    if (run === null || run.key === null || run.worktree === null || run.branch === null) return;
+    if (run === null || run.key === null || run.branch === null) return;
     if (!this.#opensPrs(officeId, run)) return;
     const key = run.key;
     try {
       const facts = await this.#deps.git.read(officeId, {
-        worktree: run.worktree,
+        branch: run.branch,
         story: run.story as string,
       });
       const repo = facts.remoteUrl === null ? null : repoOfRemoteUrl(facts.remoteUrl);

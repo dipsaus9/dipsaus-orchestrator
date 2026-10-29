@@ -67,5 +67,5 @@ export type {
   SizeClass,
   Workspace,
 } from "./types";
-export { gitWorkspace } from "./workspace";
+export { commitWorkspace, gitWorkspace } from "./workspace";
 export type { GitWorkspaceOptions } from "./workspace";

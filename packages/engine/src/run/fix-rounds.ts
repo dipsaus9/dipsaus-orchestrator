@@ -432,7 +432,7 @@ export class FixRounds {
   async start(officeId: OfficeId, run: StoredRun, _start: PlaceStart): Promise<boolean> {
     const office = this.#deps.offices.get(officeId);
     if (office === undefined || run.story === null || run.key === null) return false;
-    if (run.branch === null || run.worktree === null) return false;
+    if (run.branch === null) return false;
     // Transient: an exit or resume of the run is being decided; the next drain tries again.
     if (this.#deps.guard?.busy(run.runId) === true) return false;
     // The round's message waits held on the one feedback path, with whatever else waits.
@@ -453,7 +453,6 @@ export class FixRounds {
         lifted = await this.#deps.unpark.lift(officeId, {
           story: run.story,
           branch: run.branch,
-          worktree: run.worktree,
           to: "In Progress",
         });
         this.#liftFailures.delete(run.runId);
@@ -596,7 +595,7 @@ export class FixRounds {
    * open park and no session still running other than `exited`.
    */
   #waitsInReview(office: OfficeHandle, run: StoredRun, exited: string | undefined): boolean {
-    if (run.kind !== "story" || run.key === null || run.worktree === null) return false;
+    if (run.kind !== "story" || run.key === null || run.branch === null) return false;
     if (run.endedAt === null) return false;
     if (run.endKind !== REVIEWED_END && run.endKind !== IN_REVIEW_END) return false;
     const claim = findClaim(office, run.runId);

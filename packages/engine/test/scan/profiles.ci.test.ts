@@ -187,7 +187,7 @@ if (process.env["DIPO_TEST_CI"] === "1") {
       }));
   });
 
-  describe("ports read from a config module (0013 amendment of 2026-10-12)", () => {
+  describe("a config module a dev server config imports (DIPO-349)", () => {
     const CONFIG_MODULE = "packages/config/vite/index.ts";
     const workspace = (port: number): Record<string, string> => ({
       "package.json": json({
@@ -207,12 +207,11 @@ if (process.env["DIPO_TEST_CI"] === "1") {
       [CONFIG_MODULE]: `export const devPorts = { host: ${port} } as const;\n`,
     });
 
-    it("changes the fingerprint and triggers a rescan when the port changes in the module", () =>
+    it("leaves the fingerprint as it is when the port changes in the module: dev ports are not detected", () =>
       withScannedOffice(
         workspace(5174),
         async ({ repo, engineGit, profiles, officeId, office, detections }) => {
           const before = currentProfile(office);
-          expect(before?.profile.devPorts.map((p) => p.port)).toEqual([5174]);
 
           await publish(
             repo,
@@ -221,16 +220,9 @@ if (process.env["DIPO_TEST_CI"] === "1") {
           );
           await engineGit.forOffice(officeId)?.fetch();
           const outcome = await profiles.ensureFreshProfile(officeId);
-          expect(detections()).toBe(2);
-          expect(outcome.detected).toBe(true);
-          expect(outcome.profile.profile.fingerprint).not.toBe(before?.profile.fingerprint);
-          expect(outcome.profile.profile.devPorts.map((p) => p.port)).toEqual([6100]);
-          expect(outcome.diff).toEqual(
-            expect.arrayContaining([
-              expect.stringMatching(/^\+ port apps\/host:6100: /),
-              expect.stringMatching(/^- port apps\/host:5174: /),
-            ]),
-          );
+          expect(detections()).toBe(1);
+          expect(outcome.detected).toBe(false);
+          expect(outcome.profile.profile.fingerprint).toBe(before?.profile.fingerprint ?? "");
         },
       ));
   });

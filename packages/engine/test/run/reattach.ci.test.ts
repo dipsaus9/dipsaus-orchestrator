@@ -185,8 +185,6 @@ beforeEach(async () => {
       model: "haiku",
       startSha: "b".repeat(40),
       branch: "DIPO-1/add-a-greeting",
-      worktree: join(dir, "trees", "DIPO-1"),
-      slot: 1,
       budgetUnit: "tokens",
       budgetLimit: CAPS.budgetTokens,
       loopCap: 3,
@@ -201,14 +199,11 @@ beforeEach(async () => {
       key,
       story: "DIPO-1",
       branch: "DIPO-1/add-a-greeting",
-      worktree: join(dir, "trees", "DIPO-1"),
       base: "main",
       baseSha: "b".repeat(40),
       startSha: "b".repeat(40),
       claimSha: "d".repeat(40),
       reused: false,
-      snapshot: { path: "/x", adminDir: "/x", commondir: "/x", gitdir: "/x", pointer: "/x" },
-      firstFeedback: null,
       claimedAt: f.t.clock.now(),
     });
   });

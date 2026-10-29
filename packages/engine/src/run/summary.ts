@@ -5,17 +5,14 @@
 // - On park, in the task-file commit that writes F16 (`gitParkWriter`), one implementation-notes
 //   block: date, reason, the detail on one line, run id, criteria met of total (as the
 //   worker reported them), loops of cap and CI attempts of cap, review rounds and failed rounds,
-//   budget used of limit per cap (tokens, turns, minutes), the last good commit and the number of
-//   uncommitted files.
+//   budget used of limit per cap (tokens, turns, minutes) and the last good commit.
 // - On resume, in the unpark commit (`gitUnparkWriter`), one line: date, resumed, the grants of the
 //   resume and the first line of the note.
 // - On close, in the close-out commit before auto-merge goes on (0002, `merge/close-out.ts`),
 //   the final summary: criteria met, loops, review rounds, budget used of limit, runs and resumes,
 //   each park in one line, grants, web calls and proposals filed.
 //
-// A box run (0021): CI is its final gate, so its CI attempts stand next to the loops; its undelivered
-// work stays in the box, so the park block does not count uncommitted files from the Mac worktree
-// (whose files stay at the start commit) and says so.
+// A box run (0021): CI is its final gate, so its CI attempts stand next to the loops.
 //
 // No written line is a line of dashes: free text (a park detail, a note) is cut to one line, and a
 // line of only `-` is replaced, so the runner's 50-dash refusal (0010) never fires on a summary.
@@ -93,8 +90,6 @@ export interface ParkBlockFacts {
   readonly budget: { readonly tokens: UsedOf; readonly turns: UsedOf; readonly minutes: UsedOf };
   /** The branch tip before the park commit; null when it was not read. */
   readonly lastGoodCommit: string | null;
-  /** Uncommitted and untracked files of the worktree; null for a box run, whose work is in the box. */
-  readonly uncommitted: number | null;
 }
 
 /** The first host start of the run, for the time its caps count from. */
@@ -158,7 +153,6 @@ export function renderParkBlock(facts: ParkBlockFacts): string {
     `- Review rounds: ${rounds.started}, failed ${rounds.failed}${rounds.cap === null ? "" : ` of ${rounds.cap}`}`,
     `- Budget used: ${usedOf(facts.budget.tokens, "tokens")}; ${usedOf(facts.budget.turns, "turns")}; ${usedOf(facts.budget.minutes, "minutes")}`,
     `- Last good commit: ${facts.lastGoodCommit ?? "not read"}`,
-    `- Uncommitted files: ${facts.uncommitted === null ? "not counted (a box run: undelivered work stays in the box)" : facts.uncommitted}`,
   ].join("\n");
 }
 

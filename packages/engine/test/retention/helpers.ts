@@ -127,11 +127,9 @@ export function insertJournal(
 export function insertClaim(office: OfficeHandle, run: string, releasedAt: number | null): void {
   office.immediate(() =>
     office.run(
-      `insert into claims (office_id, run_id, key, story_id, branch, worktree, base, base_sha,
-         start_sha, reused, admin_dir, snap_commondir, snap_gitdir, snap_pointer, claimed_at,
-         released_at)
-       values ($office_id, $run, $key, 'DIPO-1', $branch, '/w', 'main', 'a', 'a', 0, '/a', '/c',
-         '/g', '/p', 0, $released)`,
+      `insert into claims (office_id, run_id, key, story_id, branch, base, base_sha, start_sha,
+         reused, claimed_at, released_at)
+       values ($office_id, $run, $key, 'DIPO-1', $branch, 'main', 'a', 'a', 0, 0, $released)`,
       { run, key: `sto-${run}`, branch: `DIPO-1/${run}`, released: releasedAt },
     ),
   );
@@ -235,12 +233,7 @@ export function insertProfile(
        values ($office_id, $id, '.env', 1, 1)`,
       { id },
     );
-    office.run(
-      `insert into run_ports (office_id, profile_id, dir, port, source, confidence, evidence,
-         fixed_in_code, honours_port)
-       values ($office_id, $id, '.', 3000, 'code', 'high', 'x', 0, 1)`,
-      { id },
-    );
+
     office.run(
       `insert into run_extra_scripts (office_id, profile_id, name, command)
        values ($office_id, $id, 'lint', 'bun lint')`,

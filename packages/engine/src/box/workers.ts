@@ -1251,7 +1251,7 @@ export class BoxWorkers {
    * The office's install at the start commit in the run's box (DIPO-294), after `create` and
    * before the worker's first session: dipo's web route acquired for the box (the box runs, so
    * the box network's address exists on the Mac), the Safe-Chain CA bundle copied in, and each
-   * command list run in `/work` with `env` plus the route's HTTPS_PROXY, HTTP_PROXY and
+   * command list run in `/work` with the image's environment plus the route's HTTPS_PROXY, HTTP_PROXY and
    * NODE_EXTRA_CA_CERTS, exactly as a session gets them, within `timeoutMs` (`runBoxInstall`).
    * With a package cache mounted (DIPO-295), the install first gets `boxCacheEnv`, so it takes the
    * cached packages; when that install fails, but not at its deadline or with the box stopped, it
@@ -1263,7 +1263,6 @@ export class BoxWorkers {
   async install(input: {
     readonly runId: string;
     readonly commands: readonly (readonly string[])[];
-    readonly env: Readonly<Record<string, string>>;
     readonly timeoutMs: number;
   }): Promise<BoxWorkerInstall> {
     const box = boxName(input.runId);
@@ -1288,7 +1287,6 @@ export class BoxWorkers {
           commands: input.commands,
           env: {
             ...BOX_IMAGE_ENV,
-            ...input.env,
             ...cacheEnv,
             HTTPS_PROXY: proxy,
             HTTP_PROXY: proxy,
@@ -1390,7 +1388,7 @@ export class BoxWorkers {
 
   /**
    * The office's verify in the run's box at done (0002, DIPO-346): each command list as the box
-   * user, in `/work` or the folder below it `cwd` names, with `env` plus the box's web route and
+   * user, in `/work` or the folder below it `cwd` names, with the image's environment plus the box's web route and
    * the CA bundle, as a session gets them, within `timeoutMs` each (`runBoxVerify`). The
    * developer's session runs, so its box firewall and dipo's files are in place and stay as they
    * are. Never throws; a box that cannot run it is a `failed` result. A test box's `setup`
@@ -1400,7 +1398,6 @@ export class BoxWorkers {
     readonly runId: string;
     readonly commands: readonly (readonly string[])[];
     readonly cwd: string;
-    readonly env: Readonly<Record<string, string>>;
     readonly timeoutMs: number;
     readonly step?: "verify" | "setup";
   }): Promise<BoxVerifyResult> {
@@ -1424,7 +1421,6 @@ export class BoxWorkers {
         cwd: input.cwd,
         env: {
           ...BOX_IMAGE_ENV,
-          ...input.env,
           HTTPS_PROXY: proxy,
           HTTP_PROXY: proxy,
           NODE_EXTRA_CA_CERTS: BOX_CA_FILE,

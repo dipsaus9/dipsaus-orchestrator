@@ -11,16 +11,14 @@
 // - `releaseDoneElsewhere`, for a parked or idle claim, in one transaction: the claim released as
 //   `done-elsewhere` with its run ended, an open park of the story resolved `done-elsewhere`, the
 //   run's open questions closed `ended`, the story Done in the mirror with its `story.state`, the
-//   worktree's tier T rows forgotten, the row recorded as released, and a notice naming the base
-//   commit that last changed the task file. The port slot is freed after it.
+//   branch's tier T rows forgotten, the row recorded as released, and a notice naming the base
+//   commit that last changed the task file.
 // - `settleDoneElsewhere`, after the release (and again after a crash, for a released row not yet
-//   settled): dipo's open story PR is closed with a comment naming that commit; the worktree is
-//   removed when clean or when it only lags its branch (`lagging.ts`, DIPO-332) and kept when it
-//   holds changes of its own; the branch is deleted locally and remotely when `git merge-tree`
-//   shows it adds nothing to the base and its worktree is gone, else kept, and recorded in
-//   `released_branches` with reason `done-elsewhere` when it adds commits. Anything kept is the row's
-//   leftovers: the commits not on the base and the dirty files, one LEFTOVERS desk item with the
-//   action `dipo discard <id>`, and a notice. Leftovers are never deleted automatically.
+//   settled): dipo's open story PR is closed with a comment naming that commit; the branch is
+//   deleted locally and remotely when `git merge-tree` shows it adds nothing to the base, else kept,
+//   and recorded in `released_branches` with reason `done-elsewhere`. A kept branch is the row's
+//   leftovers: the commits not on the base, one LEFTOVERS desk item with the action
+//   `dipo discard <id>`, and a notice. Leftovers are never deleted automatically.
 //
 // The desk read (`office.desk`, DIPO-158) is not built yet: `doneElsewhereDeskItems` is the seam it
 // reads; until then the notices carry the same text. Nothing writes to the backlog: the base
@@ -44,13 +42,7 @@ import { latestStoryPr, setStoryPrState } from "../story-pr/records";
 import { storyView } from "../views/story";
 
 import { notice } from "./claim";
-import {
-  type ClaimRecord,
-  findClaim,
-  openReleasedBranches,
-  releaseClaim,
-  releasedBranchFor,
-} from "./records";
+import { type ClaimRecord, openReleasedBranches, releaseClaim, releasedBranchFor } from "./records";
 import {
   addsNothingTo,
   baseRefIn,
@@ -59,8 +51,7 @@ import {
   remoteBranchOf,
   repoOfPrUrl,
 } from "./release";
-import type { SlotTable } from "./slots";
-import { DONE_RELEASE_REASON, dirtyFiles, recordedHeads, removeWorktree } from "./teardown";
+import { DONE_RELEASE_REASON } from "./teardown";
 
 /** The release reason of a claim whose story is Done on the base through another branch. */
 export const DONE_ELSEWHERE_REASON = "done-elsewhere";
@@ -83,18 +74,15 @@ export interface DoneElsewhereRecord {
   readonly key: StoryKey;
   readonly story: string;
   readonly branch: string;
-  readonly worktree: string;
-  /** The commit the claim's worktree started from. */
+  /** The commit the claim's branch started from. */
   readonly startSha: string;
   readonly base: string;
   readonly baseCommit: string | null;
   readonly flaggedAt: number | null;
   readonly releasedAt: number | null;
   readonly settledAt: number | null;
-  readonly worktreeKept: boolean;
   readonly branchKept: boolean;
   readonly commits: readonly LostCommit[];
-  readonly files: readonly string[];
   readonly clearedAt: number | null;
 }
 
@@ -103,22 +91,19 @@ interface Row {
   key: string;
   story_id: string;
   branch: string;
-  worktree: string;
   start_sha: string;
   base: string;
   base_commit: string | null;
   flagged_at: number | null;
   released_at: number | null;
   settled_at: number | null;
-  worktree_kept: number;
   branch_kept: number;
   commits: string;
-  files: string;
   cleared_at: number | null;
 }
 
-const COLUMNS = `run_id, key, story_id, branch, worktree, start_sha, base, base_commit, flagged_at, released_at,
-  settled_at, worktree_kept, branch_kept, commits, files, cleared_at`;
+const COLUMNS = `run_id, key, story_id, branch, start_sha, base, base_commit, flagged_at, released_at,
+  settled_at, branch_kept, commits, cleared_at`;
 
 function toRecord(row: Row): DoneElsewhereRecord {
   return {
@@ -126,17 +111,14 @@ function toRecord(row: Row): DoneElsewhereRecord {
     key: row.key as StoryKey,
     story: row.story_id,
     branch: row.branch,
-    worktree: row.worktree,
     startSha: row.start_sha,
     base: row.base,
     baseCommit: row.base_commit,
     flaggedAt: row.flagged_at,
     releasedAt: row.released_at,
     settledAt: row.settled_at,
-    worktreeKept: row.worktree_kept === 1,
     branchKept: row.branch_kept === 1,
     commits: JSON.parse(row.commits) as LostCommit[],
-    files: JSON.parse(row.files) as string[],
     clearedAt: row.cleared_at,
   };
 }
@@ -149,7 +131,7 @@ export function findDoneElsewhere(office: OfficeHandle, runId: RunId): DoneElsew
   return row === null ? null : toRecord(row);
 }
 
-/** The released rows whose PR, worktree and branch were not handled yet (a crash), oldest first. */
+/** The released rows whose PR and branch were not handled yet (a crash), oldest first. */
 export function unsettledDoneElsewhere(office: OfficeHandle): DoneElsewhereRecord[] {
   return office
     .all<Row>(
@@ -160,13 +142,13 @@ export function unsettledDoneElsewhere(office: OfficeHandle): DoneElsewhereRecor
     .map(toRecord);
 }
 
-/** The story's leftovers not yet cleared: settled rows that kept a worktree or a branch. */
+/** The story's leftovers not yet cleared: settled rows that kept a branch, and unsettled ones. */
 export function openLeftovers(office: OfficeHandle, key: StoryKey): DoneElsewhereRecord[] {
   return office
     .all<Row>(
       `select ${COLUMNS} from done_elsewhere where office_id = $office_id and key = $key
          and released_at is not null and cleared_at is null
-         and (worktree_kept = 1 or branch_kept = 1 or settled_at is null)
+         and (branch_kept = 1 or settled_at is null)
        order by released_at, run_id`,
       { key },
     )
@@ -193,18 +175,12 @@ export function clearLeftovers(
 
 /**
  * What `work.discard` removes of the story's leftovers, and so what its loss list shows: the
- * worktrees of the open leftovers (settled or not), the story's open releases and the leftovers'
- * own branches.
+ * story's open releases and the leftovers' own branches.
  */
 export function leftoverTargets(office: OfficeHandle, key: StoryKey): LeftoverTargets {
   const rows = openLeftovers(office, key);
   return {
-    worktrees: rows.map((row) => ({
-      runId: row.runId,
-      worktree: row.worktree,
-      branch: row.branch,
-      startSha: row.startSha,
-    })),
+    runs: rows.map((row) => row.runId),
     branches: openReleasedBranches(office, key),
     loose: rows.map((row) => row.branch),
     base: rows[0]?.base ?? "",
@@ -219,14 +195,13 @@ export interface DoneElsewhereDeskItem {
   readonly detail: string;
   readonly since: number;
   readonly commits: readonly LostCommit[];
-  readonly files: readonly string[];
   readonly actions: readonly { readonly command: string; readonly cli: string }[];
 }
 
 /**
  * The DONE ELSEWHERE items (a live worker, release pending) and the LEFTOVERS items (one per story,
- * with the commits not on the base and the dirty files) of the office, oldest first: the seam the
- * desk read of DIPO-158 reads.
+ * with the commits not on the base) of the office, oldest first: the seam the desk read of DIPO-158
+ * reads.
  */
 export function doneElsewhereDeskItems(office: OfficeHandle): DoneElsewhereDeskItem[] {
   const rows = office
@@ -246,10 +221,9 @@ export function doneElsewhereDeskItems(office: OfficeHandle): DoneElsewhereDeskI
         detail: `Done on ${row.base}${commitText(row.baseCommit)} · worker still running`,
         since: row.flaggedAt,
         commits: [],
-        files: [],
         actions: [{ command: "story.park", cli: `dipo park ${row.story} --note "<why>"` }],
       });
-    } else if (row.settledAt !== null && (row.worktreeKept || row.branchKept)) {
+    } else if (row.settledAt !== null && row.branchKept) {
       leftovers.set(row.key, [...(leftovers.get(row.key) ?? []), row]);
     }
   }
@@ -260,18 +234,13 @@ export function doneElsewhereDeskItems(office: OfficeHandle): DoneElsewhereDeskI
       group.flatMap((row) => row.commits),
       (c) => c.sha,
     );
-    const files = unique(
-      group.flatMap((row) => row.files),
-      (f) => f,
-    );
     items.push({
       kind: DONE_ELSEWHERE_DESK.leftovers,
       key: first.key,
       story: first.story,
-      detail: leftoversDetail(first, commits.length, files.length),
+      detail: leftoversDetail(first, commits.length),
       since: first.settledAt ?? first.releasedAt ?? 0,
       commits,
-      files,
       actions: [{ command: "work.discard", cli: discardCli(first.story) }],
     });
   }
@@ -283,7 +252,6 @@ export interface DoneElsewhereDeps {
   readonly office: OfficeHandle;
   readonly git: OfficeGit;
   readonly clock: Clock;
-  readonly slots?: SlotTable;
   /** Closes dipo's open story PR; without it the PR is left open with a notice. */
   readonly host?: Pick<CodeHost, "closePr"> | null;
   readonly onChanged?: (office: OfficeId) => void;
@@ -405,7 +373,7 @@ export function flagLiveWorker(
 /**
  * Releases the parked or idle claim in one transaction (see the file comment); the caller checked
  * that no worker of its run is live. `reason` is `done` only for an own-branch teardown a crash
- * interrupted after its worktree removal (DIPO-216 keeps that reason). Returns the entries it wrote.
+ * interrupted (DIPO-216 keeps that reason). Returns the entries it wrote.
  */
 export function releaseDoneElsewhere(
   deps: DoneElsewhereDeps,
@@ -456,8 +424,8 @@ export function releaseDoneElsewhere(
         view,
       });
     }
-    forgetWorkerNotes(office, claim.worktree);
-    forgetContextPack(office, claim.worktree);
+    forgetWorkerNotes(office, claim.branch);
+    forgetContextPack(office, claim.branch);
     if (findDoneElsewhere(office, claim.runId) === null) {
       insertRow(office, claim, baseCommit, { releasedAt: at });
     } else {
@@ -478,7 +446,6 @@ export function releaseDoneElsewhere(
     );
     return entries;
   });
-  deps.slots?.free(claim.worktree);
 }
 
 /** True while the story of the claim is held by a park (DIPO-332; `heldByPark`, DIPO-360). */
@@ -494,13 +461,13 @@ export function movedPastParkedText(
   claim: Pick<ClaimRecord, "story" | "branch" | "base">,
   pr: { readonly number: number; readonly url: string },
 ): string {
-  return `${claim.story} is Parked, but its PR #${pr.number} merged (${pr.url}) and its branch ${claim.branch} moved past the merged head with changes ${claim.base} does not have. dipo keeps its claim, worktree and branch; resolve the park, or remove them with \`dipo discard ${claim.story} --note "<why>"\`.`;
+  return `${claim.story} is Parked, but its PR #${pr.number} merged (${pr.url}) and its branch ${claim.branch} moved past the merged head with changes ${claim.base} does not have. dipo keeps its claim and branch; resolve the park, or remove them with \`dipo discard ${claim.story} --note "<why>"\`.`;
 }
 
 /**
  * Releases an idle claim with no open park whose own story PR merged, but whose branch moved past the merged
  * head with changes the base does not have (DIPO-332): released as `done` in one transaction, as
- * `releaseDoneElsewhere` does, then its worktree and branch settled, so what the base lacks is one
+ * `releaseDoneElsewhere` does, then its branch settled, so what the base lacks is one
  * LEFTOVERS desk item with the `dipo discard` action instead of a claim that stays open.
  */
 export async function releaseMovedPastMerge(
@@ -531,56 +498,33 @@ export function adoptReleased(
   });
 }
 
-/** What `settleDoneElsewhere` did with the worktree and the branch. */
+/** What `settleDoneElsewhere` did with the branch. */
 export interface SettleOutcome {
-  readonly worktreeKept: boolean;
   readonly branchKept: boolean;
   readonly commits: readonly LostCommit[];
-  readonly files: readonly string[];
 }
 
 /**
- * Handles the story PR, the worktree and the branch of a released row (see the file comment) and
- * records what was kept. Each step is idempotent, so a row a crash left unsettled is settled again.
+ * Handles the story PR and the branch of a released row (see the file comment) and records what
+ * was kept. Each step is idempotent, so a row a crash left unsettled is settled again.
  */
 export async function settleDoneElsewhere(
   deps: DoneElsewhereDeps,
   row: DoneElsewhereRecord,
 ): Promise<SettleOutcome> {
   const prProblem = await closePr(deps, row);
-  const claim = findClaim(deps.office, row.runId) ?? claimOfRow(row);
-  const outcome = await deps.git.run(async (git) => {
-    let worktreeKept = false;
-    let files: string[] = [];
-    if (deps.git.adminDirOf(row.worktree) !== null) {
-      const removed = await removeWorktree(deps, git, claim);
-      if (!removed.ok) {
-        worktreeKept = true;
-        files = [...removed.files];
-        if (files.length === 0) {
-          files = await dirtyFiles(deps, git, claim, recordedHeads(deps.office, claim));
-        }
-      }
-    }
-    // A kept worktree keeps its branch too (DIPO-332): deleting it would leave the worktree on a
-    // branch that no longer exists, every file listed as added.
-    const branch = await settleBranch(deps, git, row, { mayDelete: !worktreeKept });
-    return { worktreeKept, files, ...branch };
-  });
+  const outcome = await deps.git.run((git) => settleBranch(deps, git, row));
   const at = deps.clock.now();
   write(deps, () => {
     const { office } = deps;
     office.run(
-      `update done_elsewhere set settled_at = $at, worktree_kept = $worktree, branch_kept = $branch,
-         commits = $commits, files = $files
+      `update done_elsewhere set settled_at = $at, branch_kept = $branch, commits = $commits
         where office_id = $office_id and run_id = $run`,
       {
         run: row.runId,
         at,
-        worktree: outcome.worktreeKept ? 1 : 0,
         branch: outcome.branchKept ? 1 : 0,
         commits: JSON.stringify(outcome.commits),
-        files: JSON.stringify(outcome.files),
       },
     );
     if (outcome.branchKept && releasedBranchFor(office, row.key, row.branch) === null) {
@@ -604,7 +548,7 @@ export async function settleDoneElsewhere(
         ),
       );
     }
-    if (outcome.worktreeKept || outcome.branchKept) {
+    if (outcome.branchKept) {
       entries.push(
         notice("warn", DONE_ELSEWHERE_NOTICES.leftovers, leftoversText(row, outcome), row.key),
       );
@@ -613,7 +557,7 @@ export async function settleDoneElsewhere(
         notice(
           "info",
           DONE_ELSEWHERE_NOTICES.cleaned,
-          `${row.story} is Done on ${row.base}; dipo removed its worktree and its branch ${row.branch}, which held nothing the base does not have.`,
+          `${row.story} is Done on ${row.base}; dipo removed its branch ${row.branch}, which held nothing the base does not have.`,
           row.key,
         ),
       );
@@ -622,7 +566,7 @@ export async function settleDoneElsewhere(
   });
   // The released run's box goes too (0021 section 6).
   await deps.finishBoxes?.().catch(() => undefined);
-  return outcome;
+  return { branchKept: outcome.branchKept, commits: outcome.commits };
 }
 
 /** Settles every released row a crash left unsettled; a failure is left for the next pass. */
@@ -679,15 +623,12 @@ async function closePr(deps: DoneElsewhereDeps, row: DoneElsewhereRecord): Promi
  * The branch: deleted locally and on the remote when `merge-tree` shows it adds nothing to the
  * base, else kept with its commits not on the base. A remote tip with commits that are neither on
  * the local branch nor on the base keeps both, with the remote's commits not on the base listed,
- * so no remote commit is deleted unlisted. A branch already gone is nothing kept. Without
- * `mayDelete` (its worktree is kept) a branch that adds nothing stays where it is, not recorded as
- * kept: `dipo discard` removes it with the worktree.
+ * so no remote commit is deleted unlisted. A branch already gone is nothing kept.
  */
 async function settleBranch(
   deps: DoneElsewhereDeps,
   git: GitSession,
   row: DoneElsewhereRecord,
-  options: { readonly mayDelete: boolean },
 ): Promise<{
   readonly branchKept: boolean;
   readonly commits: LostCommit[];
@@ -704,7 +645,6 @@ async function settleBranch(
       remoteProblem: null,
     };
   }
-  if (!options.mayDelete) return { branchKept: false, commits: [], remoteProblem: null };
   const remote = await remoteBranchOf(deps, git, row.branch, tip, row.base);
   if (remote.kind === "tip" && !remote.covered) {
     return {
@@ -759,16 +699,14 @@ function insertRow(
   times: { readonly flaggedAt?: number; readonly releasedAt?: number },
 ): void {
   office.run(
-    `insert into done_elsewhere (office_id, run_id, key, story_id, branch, worktree, start_sha,
-       base, base_commit, flagged_at, released_at)
-     values ($office_id, $run, $key, $story, $branch, $worktree, $start, $base, $commit,
-       $flagged, $released)`,
+    `insert into done_elsewhere (office_id, run_id, key, story_id, branch, start_sha, base,
+       base_commit, flagged_at, released_at)
+     values ($office_id, $run, $key, $story, $branch, $start, $base, $commit, $flagged, $released)`,
     {
       run: claim.runId,
       key: claim.key,
       story: claim.story,
       branch: claim.branch,
-      worktree: claim.worktree,
       start: claim.startSha,
       base: claim.base,
       commit: baseCommit,
@@ -776,29 +714,6 @@ function insertRow(
       released: times.releasedAt ?? null,
     },
   );
-}
-
-/** A claim record for a row whose claim row retention already removed. */
-function claimOfRow(row: DoneElsewhereRecord): ClaimRecord {
-  return {
-    runId: row.runId,
-    key: row.key,
-    story: row.story,
-    branch: row.branch,
-    worktree: row.worktree,
-    base: row.base,
-    baseSha: "",
-    startSha: row.startSha,
-    claimSha: null,
-    reused: false,
-    snapshot: { path: row.worktree, adminDir: "", commondir: "", gitdir: "", pointer: "" },
-    firstFeedback: null,
-    claimedAt: 0,
-    pushedAt: null,
-    releasedAt: row.releasedAt,
-    releaseReason: null,
-    teardownStartedAt: null,
-  };
 }
 
 function write(
@@ -831,11 +746,10 @@ function discardCli(story: string): string {
   return `dipo discard ${story} --note "<why>"`;
 }
 
-function leftoversDetail(row: DoneElsewhereRecord, commits: number, files: number): string {
+function leftoversDetail(row: DoneElsewhereRecord, commits: number): string {
   const parts = [`Done on ${row.base}${commitText(row.baseCommit)}`];
   if (commits > 0)
     parts.push(`branch has ${commits} commit${commits === 1 ? "" : "s"} not on ${row.base}`);
-  if (files > 0) parts.push(`${files} file${files === 1 ? "" : "s"} uncommitted`);
   return parts.join(" · ");
 }
 
@@ -845,11 +759,6 @@ function leftoversText(row: DoneElsewhereRecord, outcome: SettleOutcome): string
     const subjects = outcome.commits.slice(0, 5).map((c) => `${c.sha} ${c.subject}`);
     kept.push(
       `the branch ${row.branch} with ${outcome.commits.length} commit${outcome.commits.length === 1 ? "" : "s"} not on ${row.base}${subjects.length === 0 ? "" : ` (${subjects.join("; ")})`}`,
-    );
-  }
-  if (outcome.worktreeKept) {
-    kept.push(
-      `the worktree ${row.worktree}${outcome.files.length === 0 ? "" : ` with uncommitted or untracked files: ${outcome.files.slice(0, 10).join(", ")}${outcome.files.length > 10 ? ` and ${outcome.files.length - 10} more` : ""}`}`,
     );
   }
   return `${row.story} is Done on ${row.base}${commitText(row.baseCommit)}, but dipo kept what is not there: ${kept.join("; and ")}. dipo never deletes these on its own; \`${discardCli(row.story)}\` removes them after listing what is lost.`;

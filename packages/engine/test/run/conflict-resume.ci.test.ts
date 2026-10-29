@@ -124,8 +124,6 @@ async function world(repo: TempRepoWithRemote): Promise<World> {
       model: "haiku",
       startSha,
       branch: BRANCH,
-      worktree: join(repo.root, "trees", "DIPO-1"),
-      slot: 1,
       budgetUnit: "tokens",
       budgetLimit: 300_000,
       loopCap: 3,
@@ -143,14 +141,11 @@ async function world(repo: TempRepoWithRemote): Promise<World> {
       key,
       story: "DIPO-1",
       branch: BRANCH,
-      worktree: join(repo.root, "trees", "DIPO-1"),
       base: "main",
       baseSha: startSha,
       startSha,
       claimSha: startSha,
       reused: false,
-      snapshot: { path: "/x", adminDir: "/x", commondir: "/x", gitdir: "/x", pointer: "/x" },
-      firstFeedback: null,
       claimedAt: f.t.clock.now(),
     });
   });

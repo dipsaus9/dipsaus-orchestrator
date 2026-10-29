@@ -304,34 +304,78 @@ if (process.env["DIPO_TEST_CI"] === "1") {
       }));
   });
 
-  describe("branch, worktree and HEAD (row 7)", () => {
-    it("parks a running story whose worktree was removed by hand, and only reports prunable worktrees", () =>
+  // A claim has no worktree (DIPO-349): reconcile finds hand changes from the branch ref and the
+  // commits dipo recorded for it.
+  describe("branch and recorded commits (row 7)", () => {
+    it("parks a running story whose branch was reset by hand past its claim commit", () =>
       withWorld(undefined, async (w) => {
         const key = keyOf(w.o.office, "TASK-1");
         const claimed = await claim(w.o, w.o.office, "TASK-1", key);
-        rmSync(claimed.worktree, { recursive: true, force: true });
-        const report = await w.rescan();
+        await w.o.repo.run(
+          ["git", "reset", "--quiet", "--hard", claimed.startSha],
+          claimed.worktree,
+        );
+        await w.rescan();
         expect(w.calls.map((c) => [c.kind, c.code])).toEqual([
           ["park", RECONCILE_NOTICES.handChanged],
         ]);
-        expect(w.calls[0]?.detail).toContain("is gone");
-        const found = report?.findings.map((f) => f.code) ?? [];
-        expect(found).toContain(RECONCILE_NOTICES.prunable);
-        // The claim's worktree is locked, so git never marks it prunable; the notice names the
-        // unlock and the prune for the maintainer, and dipo runs neither.
-        const text = report?.findings.find((f) => f.code === RECONCILE_NOTICES.prunable)?.text;
-        expect(text).toContain(`git worktree unlock ${claimed.worktree} && git worktree prune`);
-        expect(await w.o.repo.git("worktree", "list", "--porcelain")).toContain("locked dipo");
+        expect(w.calls[0]?.detail).toContain(
+          `which does not hold the claim commit ${claimed.claimSha}`,
+        );
       }));
 
-    it("parks a running story whose worktree has another branch checked out", () =>
+    it("parks a running story, without failing, when a recorded commit no longer exists", () =>
       withWorld(undefined, async (w) => {
         const key = keyOf(w.o.office, "TASK-1");
         const claimed = await claim(w.o, w.o.office, "TASK-1", key);
-        await w.o.repo.run(["git", "checkout", "--quiet", "-b", "elsewhere"], claimed.worktree);
+        // A recorded SHA git does not have (a gc after a forced update, or a wrong record).
+        const missing = "e".repeat(40);
+        w.o.office.run(
+          "update claims set claim_sha = $sha where office_id = $office_id and run_id = $run",
+          { sha: missing, run: claimed.runId },
+        );
+        const report = await w.rescan();
+        expect(report).not.toBeNull();
+        expect(w.calls.map((c) => [c.kind, c.code])).toEqual([
+          ["park", RECONCILE_NOTICES.handChanged],
+        ]);
+        expect(w.calls[0]?.detail).toContain(`does not hold the claim commit ${missing}`);
+      }));
+
+    it("parks a running story whose branch was deleted by hand", () =>
+      withWorld(undefined, async (w) => {
+        const key = keyOf(w.o.office, "TASK-1");
+        const claimed = await claim(w.o, w.o.office, "TASK-1", key);
+        await w.o.repo.git("worktree", "remove", "--force", claimed.worktree);
+        await w.o.repo.git("branch", "-D", claimed.branch);
         await w.rescan();
         expect(w.calls.map((c) => c.kind)).toEqual(["park"]);
-        expect(w.calls[0]?.detail).toContain("has the branch elsewhere checked out");
+        expect(w.calls[0]?.detail).toContain(`the branch ${claimed.branch} no longer exists`);
+      }));
+
+    it("leaves a running story alone whose branch moved on from its claim commit", () =>
+      withWorld(undefined, async (w) => {
+        const key = keyOf(w.o.office, "TASK-1");
+        const claimed = await claim(w.o, w.o.office, "TASK-1", key);
+        writeFileSync(join(claimed.worktree, "part.txt"), "a delivered part\n");
+        await w.o.repo.run(["git", "add", "part.txt"], claimed.worktree);
+        await w.o.repo.run(["git", "commit", "--quiet", "-m", "a part"], claimed.worktree);
+        const after = lastSeq(w.o.office);
+        await w.rescan();
+        expect(w.calls).toEqual([]);
+        expect(codes(w.o.office, after)).not.toContain(RECONCILE_NOTICES.handChanged);
+      }));
+
+    it("reports a locked dipo worktree of an earlier binary whose folder is gone, and runs neither the unlock nor the prune", () =>
+      withWorld(undefined, async (w) => {
+        const tree = join(w.o.repo.root, "trees", "TASK-9");
+        await w.o.repo.git("worktree", "add", "--quiet", "-b", "TASK-9/old", tree, "origin/main");
+        await w.o.repo.git("worktree", "lock", "--reason", "dipo run_1", tree);
+        rmSync(tree, { recursive: true, force: true });
+        const report = await w.rescan();
+        const text = report?.findings.find((f) => f.code === RECONCILE_NOTICES.prunable)?.text;
+        expect(text).toContain(`git worktree unlock ${tree} && git worktree prune`);
+        expect(await w.o.repo.git("worktree", "list", "--porcelain")).toContain("locked dipo");
       }));
 
     it("only reports a hand change under a claimed story that is not running", () =>
@@ -341,8 +385,8 @@ if (process.env["DIPO_TEST_CI"] === "1") {
           active: false,
           task: { id: "TASK-1", status: "Parked" },
         });
-        await w.o.repo.git("branch", "-D", "--force", claimed.branch).catch(() => undefined);
-        rmSync(claimed.worktree, { recursive: true, force: true });
+        await w.o.repo.git("worktree", "remove", "--force", claimed.worktree);
+        await w.o.repo.git("branch", "-D", claimed.branch);
         const report = await w.rescan();
         expect(w.calls).toEqual([]);
         expect(report?.findings.map((f) => f.code)).toContain(RECONCILE_NOTICES.handChanged);

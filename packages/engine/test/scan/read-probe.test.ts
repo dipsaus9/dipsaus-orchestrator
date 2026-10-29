@@ -202,23 +202,16 @@ describe("readProbe runs no repository script", () => {
 });
 
 describe("readProbe and dev server configs", () => {
-  it("follows a vite config import into a workspace config module to find fixed ports", async () => {
+  it("reads a workspace's vite config, and no module it imports: dev ports are not detected (DIPO-349)", async () => {
     await withTempRepo(
       async (repo) => {
         const probe = await readProbe(repo.dir, filesFor(repo));
-        expect(probe.configImports).toEqual({
-          "apps/host/vite.config.ts": ["packages/config/vite/index.ts"],
-        });
+        expect(probe.texts["apps/host/vite.config.ts"]).toContain("devPorts.host");
+        expect(probe.texts["packages/config/vite/index.ts"]).toBeUndefined();
         const profile = detect(probe);
-        expect(profile.devPorts).toEqual([
-          expect.objectContaining({
-            dir: "apps/host",
-            port: 5174,
-            fixedInCode: true,
-            evidence: "apps/host/vite.config.ts (devPorts.host from packages/config/vite/index.ts)",
-          }),
-        ]);
-        expect(profile.conformance.level).toBe("partial");
+        expect(profile.conformance.deviations.map((d) => d.code)).not.toContain(
+          "fixed-port:apps/host:5174",
+        );
       },
       {
         fixture: {

@@ -178,7 +178,7 @@ export const workResume = defineCommand({
   since: 1,
 });
 
-// Ends the run, removes the worktree, deletes the story branch and returns the story to Refined
+// Ends the run, deletes the story branch and returns the story to Refined
 // (0020 section 8). Since minor 1 (DIPO-161), on the waiting command path. Clients list what is
 // lost (`story.losses`) and ask for the story id typed out. Also discards the leftovers of a story
 // Done on the base through another branch, with no backlog write. Errors: `story.prMerged`,
@@ -213,8 +213,7 @@ export const storyPark = defineCommand({
 // Archives the story through the planning lane and releases its claim; deletes its branch only
 // when asked (0020 section 8). Since minor 1 (DIPO-160). Clients ask for typed confirmation when
 // `deleteBranch` is true (0009 section 5); `irreversibleWhen` says so in `commands.describe`.
-// Errors: `story.active` (In Progress or In Review), `story.hasDependents`, `story.dirtyWorktree`,
-// and `run.hostAlive` while a worker host of the parked run still runs (0020 section 8, DIPO-227).
+// Errors: `story.active` (In Progress or In Review), `story.hasDependents`, and `run.hostAlive` while a worker host of the parked run still runs (0020 section 8, DIPO-227).
 export const storyDrop = defineCommand({
   name: "story.drop",
   level: "office",
@@ -517,14 +516,13 @@ export const LostCommit = z.object({ sha: z.string(), subject: z.string() });
 export type LostCommit = z.infer<typeof LostCommit>;
 
 // What `story.drop` with `deleteBranch` loses (DIPO-228; 0020 section 8): the commits on the
-// story's branch that are not on the base, and the uncommitted and untracked files of its worktree.
-// The branch is the live claim's, else the open released branches of the story; the files are the
-// live claim's only. Both are empty for a story with neither. Changes nothing.
+// story's branch that are not on the base. The branch is the live claim's, else the open released
+// branches of the story; empty for a story with neither. Changes nothing. A story has no worktree,
+// so no uncommitted files are lost (DIPO-349).
 // `command` (DIPO-161) names the command the list is for, `story.drop` by default. For
 // `work.discard` of a story without a live claim it lists exactly what the discard removes: the
 // commits of the open released branches and of the branches of its leftovers (a story Done on the
-// base through another branch), and the files of the worktrees kept as leftovers. For `story.drop`
-// those worktrees are not removed: `kept` names them.
+// base through another branch).
 export const storyLosses = defineRead({
   name: "story.losses",
   args: z.object({
@@ -536,21 +534,18 @@ export const storyLosses = defineRead({
     story: StoryId,
     key: StoryKey,
     commits: z.array(LostCommit),
-    files: z.array(z.string()),
-    kept: z.array(z.string()).optional(),
   }),
   since: 1,
 });
 
-// The worker launch `work.run` would make for the story it would pick (DIPO-74): the branch and
-// worktree it would create, the launch (absolute program path first in `argv`, the environment
+// The worker launch `work.run` would make for the story it would pick (DIPO-74): the branch it
+// would create, the launch (absolute program path first in `argv`, the environment
 // variable names without their values, the files written into the run directory, such as the run
 // settings with the sandbox), and the system file and task message the worker would get. The run
 // id, the session id and the run directory are placeholders until a real run makes them.
 export const WorkerLaunchPreview = z.object({
   adapter: z.string(),
   branch: z.string(),
-  worktree: z.string(),
   runDir: z.string(),
   cwd: z.string(),
   argv: z.array(z.string()).min(1),
@@ -635,7 +630,9 @@ export const officeStats = defineRead({
 // The kinds of a desk item (0020 section 12), as `dipo desk` prints them. Open: later stories add
 // kinds (DIPO-161 `DONE ELSEWHERE` and `LEFTOVERS`, 0019 `PR HEAD CHANGED`, scope requests; DIPO-310
 // `PROFILE`, a pending proposal or stale confirmation of the run profile, with no story; DIPO-359
-// `STARTS PAUSED`, the office's starts paused with its reason and what lifts it, with no story).
+// `STARTS PAUSED`, the office's starts paused with its reason and what lifts it, with no story;
+// DIPO-349 `LEFTOVER WORKTREE`, a story worktree of an earlier binary that holds changes, with no
+// story).
 export const KNOWN_DESK_KINDS = [
   "STARTS PAUSED",
   "QUESTION",
@@ -650,6 +647,7 @@ export const KNOWN_DESK_KINDS = [
   "PROPOSAL",
   "PARKED BY YOU",
   "PROFILE",
+  "LEFTOVER WORKTREE",
 ] as const;
 export const DeskKind = openEnum(KNOWN_DESK_KINDS);
 export type DeskKind = z.infer<typeof DeskKind>;

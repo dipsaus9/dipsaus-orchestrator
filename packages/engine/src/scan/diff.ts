@@ -55,11 +55,7 @@ export function profileFacts(profile: RunProfile): Map<string, string> {
   for (const deviation of profile.conformance.deviations) {
     facts.set(`deviation ${deviation.code}`, deviation.message);
   }
-  for (const port of profile.devPorts) {
-    const kind = port.fixedInCode ? "fixed in code" : port.source;
-    const override = port.honoursPort ? "PORT overrides it" : "PORT does not override it";
-    facts.set(`port ${port.dir}:${port.port}`, `${kind}, ${override} (${port.evidence})`);
-  }
+
   for (const file of profile.envFiles) {
     const from = file.example === null ? "declared" : `from ${file.example}`;
     const present = file.present ? "present" : "absent";

@@ -119,7 +119,6 @@ export class AfterTurns {
         work: tracked.work,
         report,
         capped,
-        snapshot: tracked.snapshot ?? null,
         live: () => tracked.ending === null || tracked.ending === mine,
         claimEnd: claim,
         write: (fn) => write(() => withWorkViews(office, fn())),

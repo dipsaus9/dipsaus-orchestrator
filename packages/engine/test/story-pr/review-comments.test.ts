@@ -2,7 +2,6 @@
 // DIPO-152, with a fake code host and a fake story git on a migrated state database.
 
 import { describe, expect, it } from "bun:test";
-import { join } from "node:path";
 
 import {
   type ReviewFinding,
@@ -187,8 +186,6 @@ async function inWorld(
         model: "haiku",
         startSha: "b".repeat(40),
         branch: BRANCH,
-        worktree: join("/wt", "DIPO-1"),
-        slot: 1,
         budgetUnit: "tokens",
         budgetLimit: 300_000,
         loopCap: 2,
@@ -204,14 +201,11 @@ async function inWorld(
         key,
         story: "DIPO-1",
         branch: BRANCH,
-        worktree: join("/wt", "DIPO-1"),
         base: "main",
         baseSha: "b".repeat(40),
         startSha: "b".repeat(40),
         claimSha: "c".repeat(40),
         reused: false,
-        snapshot: { path: "/x", adminDir: "/x", commondir: "/x", gitdir: "/x", pointer: "/x" },
-        firstFeedback: null,
         claimedAt: t.clock.now(),
       });
       t.clock.advance(60_000);
@@ -258,6 +252,7 @@ async function inWorld(
         git: { read: async () => FACTS } satisfies StoryPrGit,
         offices: { get: () => office, config: () => world.config },
         clock: t.clock,
+        checkout: () => "/office",
         secrets: () => world.secrets(),
       }),
     };

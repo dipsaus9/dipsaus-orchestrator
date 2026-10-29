@@ -1,22 +1,20 @@
 // Fast local cases of the claim rules whose full versions run in CI only (claim.ci.test.ts,
-// DIPO-77): the reuse of a released branch with the base merged in, a code conflict aborted and
-// recorded as first feedback, a reused branch moved back to its kept tip when the claim fails, and
-// a foreign commit on the claim commit left over with a notice (DIPO-38; 0010 sections 2 and 2a).
-// No remote: the base is the local `main`, so nothing is cloned, pushed or fetched, and the
-// released branch is made by hand instead of by a first claim.
+// DIPO-77): the reuse of a released branch at its kept tip, a reused branch moved back to its kept
+// tip when the claim fails after its claim commit, and a foreign commit on the claim commit left
+// over with a notice (DIPO-38, DIPO-349; 0010 sections 2 and 2a). No remote: the base is the local
+// `main`, so nothing is cloned, pushed or fetched, and the released branch is made by hand instead
+// of by a first claim.
 
 import { describe, expect, it } from "bun:test";
 import { execFileSync } from "node:child_process";
-import { existsSync, readFileSync, writeFileSync } from "node:fs";
+import { writeFileSync } from "node:fs";
 import { join } from "node:path";
 
 import type { StoryKey } from "@dipsaus-orchestrator/contract";
-import { git, type TempRepo, withTempRepo } from "@dipsaus-orchestrator/testkit";
+import { type TempRepo, withTempRepo } from "@dipsaus-orchestrator/testkit";
 
 import { OfficeHandle } from "../../src/db/office";
-import { type GitCall, type GitResult, spawnGitExec } from "../../src/git";
 import type { RunResult, SqlParams } from "../../src/platform/sqlite";
-import { systemSpawn } from "../../src/platform/process";
 import {
   CLAIM_NOTICES,
   claimStory,
@@ -32,7 +30,6 @@ import {
   filesOf,
   notices,
   publish,
-  secondGit,
   subjects,
   TASK_1,
   TASK_FILE_1,
@@ -57,8 +54,7 @@ async function caught(promise: Promise<unknown>): Promise<unknown> {
 
 /**
  * A branch released for `key` as 0010 section 2a leaves it, made without a first claim: `BRANCH_1`
- * holds one work commit on the base (the task file as on the base) and the release is recorded.
- * Returns the kept tip.
+ * holds one work commit on the base and the release is recorded. Returns the kept tip.
  */
 async function releasedBranch(
   repo: TempRepo,
@@ -91,18 +87,9 @@ async function commitOnBase(repo: TempRepo, file: string, content: string): Prom
   return (await repo.git("rev-parse", "HEAD")).trim();
 }
 
-/** An executor that fails the calls `fail` picks (with `seen`, the earlier calls' arguments). */
-function failing(
-  fail: (args: readonly string[], seen: readonly (readonly string[])[]) => boolean,
-): (call: GitCall) => Promise<GitResult> {
-  const real = spawnGitExec(systemSpawn);
-  const seen: (readonly string[])[] = [];
-  return async (call) => {
-    const injected = fail(call.args, seen);
-    seen.push(call.args);
-    if (injected) return { code: 128, stdout: "", stderr: "fatal: injected failure" };
-    return real(call);
-  };
+/** Runs git in the repository synchronously, as a hook inside a database write must. */
+function gitSync(repo: TempRepo, ...args: string[]): string {
+  return execFileSync("git", args, { cwd: repo.dir, env: repo.env, encoding: "utf8" }).trim();
 }
 
 /** An office handle whose write of the claim commit fails, after running `before`. */
@@ -124,113 +111,64 @@ class FailingOffice extends OfficeHandle {
 }
 
 describe("reusing a released branch against the local base", () => {
-  it("aborts a code conflict, completes the claim and records the conflict as first feedback", async () => {
-    await withTempRepo(async (repo) => {
-      await publish(repo);
-      const s = await claimSetup(repo);
-      const key = s.key();
-      await releasedBranch(repo, s, key, "shared.txt", "branch\n");
-      await commitOnBase(repo, "shared.txt", "base\n");
-
-      const claim = claimed(await claimStory(s.deps(), s.request(key))).claim;
-
-      expect(claim.reused).toBe(true);
-      expect(claim.firstFeedback).toContain("shared.txt");
-      expect(claim.firstFeedback).toContain("conflicts");
-      const mergeHead = git(
-        claim.worktree,
-        repo.home,
-        "rev-parse",
-        "--verify",
-        "--quiet",
-        "MERGE_HEAD",
-      );
-      expect(
-        await mergeHead.then(
-          () => true,
-          () => false,
-        ),
-      ).toBe(false);
-      expect(readFileSync(join(claim.worktree, "shared.txt"), "utf8")).toBe("branch\n");
-      expect(notices(s.office).map((n) => n.code)).toEqual([CLAIM_NOTICES.mergeConflict]);
-      expect(findClaim(s.office, claim.runId)?.firstFeedback).toBe(claim.firstFeedback);
-    }, FIXTURE);
-  });
-
-  it("leaves a box run's reused branch at its kept tip, for dipo's catch-up to merge the base", async () => {
+  it("reuses it at its kept tip, for dipo's catch-up to merge the base later", async () => {
     await withTempRepo(async (repo) => {
       await publish(repo);
       const s = await claimSetup(repo);
       const key = s.key();
       const kept = await releasedBranch(repo, s, key, "shared.txt", "branch\n");
-      await commitOnBase(repo, "shared.txt", "base\n");
+      const base = await commitOnBase(repo, "shared.txt", "base\n");
 
-      const claim = claimed(
-        await claimStory(s.deps(), { ...s.request(key), baseSync: "catch-up" }),
-      ).claim;
+      const claim = claimed(await claimStory(s.deps(), s.request(key))).claim;
 
       expect(claim.reused).toBe(true);
       expect(claim.startSha).toBe(kept);
-      expect(claim.firstFeedback).toBeNull();
-      // Only the claim commit lies on the kept tip: no merge of the base, no conflict aborted.
+      expect(claim.baseSha).toBe(base);
+      expect(releasedBranchFor(s.office, key, BRANCH_1)).toBeNull();
+      // Only the claim commit lies on the kept tip: no merge of the base, no conflict to abort.
       expect((await repo.git("rev-parse", `${BRANCH_1}^`)).trim()).toBe(kept);
-      expect(readFileSync(join(claim.worktree, "shared.txt"), "utf8")).toBe("branch\n");
-      expect(notices(s.office).map((n) => n.code)).not.toContain(CLAIM_NOTICES.mergeConflict);
+      expect(await subjects(repo.dir, repo.home, BRANCH_1, kept)).toEqual([
+        `${TASK_1}: status In Progress`,
+      ]);
+      expect(await filesOf(repo.dir, repo.home, claim.claimSha as string)).toEqual([TASK_FILE_1]);
+      expect(await repo.git("show", `${BRANCH_1}:shared.txt`)).toBe("branch\n");
+      expect(notices(s.office)).toEqual([]);
     }, FIXTURE);
   });
 
-  it("moves a reused branch back to its kept tip after the base merge and reopens the release, then reuses it with the base merged in", async () => {
+  it("moves a reused branch back to its kept tip when the claim fails after its claim commit, and reopens the release", async () => {
     await withTempRepo(async (repo) => {
       await publish(repo);
       const s = await claimSetup(repo);
       const key = s.key();
       const kept = await releasedBranch(repo, s, key, "work.txt", "work\n");
-      const base = await commitOnBase(repo, "other.txt", "other\n");
-      // Fails the status check of the claim commit, after the merge of the base.
-      const broken = secondGit(
-        repo,
-        s,
-        { remote: "origin", base: "main", worktreeRoot: "../repo.worktrees" },
-        failing((args, seen) => args.includes("status") && seen.some((a) => a.includes("merge"))),
-      );
+      const request = s.request(key);
 
-      await caught(claimStory(s.deps({ git: broken }), s.request(key)));
+      await caught(claimStory(s.deps({ office: new FailingOffice(s, () => {}) }), request));
 
       expect((await repo.git("rev-parse", BRANCH_1)).trim()).toBe(kept);
       expect(releasedBranchFor(s.office, key, BRANCH_1)).not.toBeNull();
+      expect(findClaim(s.office, request.runId)?.releaseReason).toBe("claim-failed");
+      expect(notices(s.office)).toEqual([]);
 
-      // The next claim reuses the kept tip and merges the base in before the claim commit.
-      const outcome = claimed(await claimStory(s.deps(), s.request(key)));
-      const claim = outcome.claim;
-      expect(claim.reused).toBe(true);
-      expect(claim.startSha).toBe(kept);
-      expect(claim.baseSha).toBe(base);
-      expect(claim.firstFeedback).toBeNull();
-      expect(outcome.pushed).toBe(false);
-      expect(releasedBranchFor(s.office, key, BRANCH_1)).toBeNull();
-      expect((await subjects(repo.dir, repo.home, BRANCH_1, kept)).at(-1)).toBe(
-        `${TASK_1}: status In Progress`,
-      );
-      expect(existsSync(join(claim.worktree, "work.txt"))).toBe(true);
-      expect(existsSync(join(claim.worktree, "other.txt"))).toBe(true);
-      expect(await filesOf(repo.dir, repo.home, claim.claimSha as string)).toEqual([TASK_FILE_1]);
+      const again = claimed(await claimStory(s.deps(), s.request(key))).claim;
+      expect(again.reused).toBe(true);
+      expect(again.startSha).toBe(kept);
     }, FIXTURE);
   });
 });
 
-describe("a claim that fails after the worktree exists", () => {
+describe("a claim that fails after its claim commit", () => {
   it("leaves a foreign commit on top of the claim commit and reports the branch, which the next claim keeps as left over", async () => {
     await withTempRepo(async (repo) => {
       await publish(repo);
       const s = await claimSetup(repo);
       const key = s.key();
-      const path = join(s.git.worktreeRoot(), TASK_1);
       // Someone commits on the branch right after the claim commit, then the claim fails.
       const office = new FailingOffice(s, () => {
-        execFileSync("git", ["commit", "--quiet", "--allow-empty", "-m", "foreign"], {
-          cwd: path,
-          env: repo.env,
-        });
+        const tip = gitSync(repo, "rev-parse", BRANCH_1);
+        const foreign = gitSync(repo, "commit-tree", `${tip}^{tree}`, "-p", tip, "-m", "foreign");
+        gitSync(repo, "update-ref", `refs/heads/${BRANCH_1}`, foreign, tip);
       });
 
       await caught(claimStory(s.deps({ office }), s.request(key)));

@@ -36,17 +36,14 @@ import {
   fileHunks,
   planCatchUp,
 } from "../box/collisions";
-import type { GitLocation } from "../git/hardened";
 import type { GitSession, OfficeGit } from "../git/office";
 import { moveBranch, pushBranch } from "../git/write";
 import { codeTreeKeyOf } from "../run/story-git";
 import { BRANCH_READ_PREFIX } from "../stories/branch-read";
-import { editInStoryBacklog } from "../worktree/claim";
+import { editInStoryBacklog } from "../stories/story-copy";
 
 import { closeOutFields, DONE_STATUS } from "./close-out";
 import { CODEOWNERS_LOCATIONS, parseCodeowners, releasePathsOf } from "./release-path";
-
-type WorktreeLocation = Extract<GitLocation, { kind: "worktree" }>;
 
 /** The most modified files the close-out writes; the rest are left out. */
 export const MODIFIED_FILES_MAX = 200;
@@ -61,7 +58,6 @@ export interface StoryMergeRun {
   readonly runId: string;
   readonly story: string;
   readonly branch: string;
-  readonly worktree: string;
   readonly startSha: string;
   /** The conflict item's character budget (`prompt.budgets.feedbackItem` of its tier). */
   readonly itemMax?: number;
@@ -320,13 +316,11 @@ function closeOutIn(
       0,
       MODIFIED_FILES_MAX,
     );
-    const location = git.worktreeLocation(run.worktree) as WorktreeLocation;
-    // Only the task file: anything else staged stays out of the close-out commit.
+    // Only the task file.
     const { commit } = await editInStoryBacklog(
       git,
       session,
-      location,
-      run.story,
+      run,
       `${run.story}: status ${DONE_STATUS}`,
       async (backlog) => {
         const target = { cli, cwd: backlog.cwd, id: run.story };

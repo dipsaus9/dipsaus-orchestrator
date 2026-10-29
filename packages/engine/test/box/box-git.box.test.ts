@@ -195,7 +195,6 @@ if (registers) {
               const installed = await workers.install({
                 runId,
                 commands: [],
-                env: {},
                 timeoutMs: 60_000,
               });
               expect(installed).toEqual({ ok: true });
@@ -203,7 +202,6 @@ if (registers) {
                 runId,
                 commands: [["sh", "git-test.sh"]],
                 cwd: ".",
-                env: {},
                 timeoutMs: 120_000,
               });
               fact(`the verify of a git test in the box: ${JSON.stringify(green)}`);
@@ -214,7 +212,6 @@ if (registers) {
                   ["sh", "-c", "git rev-parse HEAD; echo 'src/a.ts:1:1: error: red'; exit 3"],
                 ],
                 cwd: ".",
-                env: {},
                 timeoutMs: 120_000,
               });
               expect(red).toMatchObject({ kind: "red", exitCode: 3, timedOutMinutes: null });

@@ -20,8 +20,6 @@ const LINE =
 
 const HANDOFF: HandoffFacts = {
   commits: "abc123 first part",
-  diffstat: "",
-  untracked: [],
   criteria: null,
   verify: null,
   feedback: [],

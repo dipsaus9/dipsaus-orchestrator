@@ -36,7 +36,14 @@ import { addStory } from "../../src/stories/keys";
 import { claimStory } from "../../src/worktree";
 import { publish, squashMergeOnRemote } from "../backlog/lane/helpers";
 import { FakeHost } from "../backlog/pr/helpers";
-import { BACKLOG_FIXTURE, BRANCH_1, claimSetup, TASK_1, TASK_FILE_1 } from "../worktree/helpers";
+import {
+  BACKLOG_FIXTURE,
+  BRANCH_1,
+  byHandOn,
+  claimSetup,
+  TASK_1,
+  TASK_FILE_1,
+} from "../worktree/helpers";
 
 import { APPROVED, TITLE } from "./story-helpers";
 
@@ -109,8 +116,8 @@ async function scenario(
     readonly s: Awaited<ReturnType<typeof claimSetup>>;
     readonly mergeGit: ReturnType<typeof gitStoryMergeOps>;
   }) => Promise<void>,
-  /** The worker's change in the story worktree, staged; by default a new export.txt. */
-  change: (worktree: string, repo: TempRepoWithRemote) => Promise<void> = writeExport,
+  /** The worker's change in a checkout of the story branch, staged; by default a new export.txt. */
+  change: (checkout: string, repo: TempRepoWithRemote) => Promise<void> = writeExport,
 ): Promise<void> {
   await publish(repo);
   const s = await claimSetup(repo);
@@ -124,10 +131,12 @@ async function scenario(
   if (!outcome.ok) throw new Error(`the claim was skipped: ${outcome.reason}`);
   const claim = outcome.claim;
   // The worker's code, committed on the story branch (as a part would be).
-  await change(claim.worktree, repo);
-  await git(claim.worktree, repo.home, "commit", "--quiet", "-m", "feat: export as CSV");
-  await git(claim.worktree, repo.home, "push", "--quiet", "origin", BRANCH_1);
-  const head = (await git(claim.worktree, repo.home, "rev-parse", "HEAD")).trim();
+  const head = await byHandOn(repo, BRANCH_1, async (dir) => {
+    await change(dir, repo);
+    await git(dir, repo.home, "commit", "--quiet", "-m", "feat: export as CSV");
+    await git(dir, repo.home, "push", "--quiet", "origin", BRANCH_1);
+    return (await git(dir, repo.home, "rev-parse", "HEAD")).trim();
+  });
   const mergeGit = gitStoryMergeOps({ git: () => s.git, cli: s.cli });
   const tree = (at: string) => mergeGit.treeKey(officeId, TASK_1, at);
   const run = request.runId;
@@ -144,8 +153,6 @@ async function scenario(
       model: "sonnet",
       startSha: claim.startSha,
       branch: BRANCH_1,
-      worktree: claim.worktree,
-      slot: null,
       budgetUnit: "tokens",
       budgetLimit: 1_000_000,
       loopCap: 3,
@@ -215,9 +222,9 @@ async function scenario(
 }
 
 /** The default worker change: a new export.txt. */
-async function writeExport(worktree: string, repo: TempRepoWithRemote): Promise<void> {
-  writeFileSync(join(worktree, "export.txt"), "csv\n");
-  await git(worktree, repo.home, "add", "export.txt");
+async function writeExport(checkout: string, repo: TempRepoWithRemote): Promise<void> {
+  writeFileSync(join(checkout, "export.txt"), "csv\n");
+  await git(checkout, repo.home, "add", "export.txt");
 }
 
 // The release path on real git: CODEOWNERS read from the base as last fetched, the PR's diff from
@@ -282,12 +289,10 @@ if (process.env["DIPO_TEST_CI"] === "1") {
         async (repo) =>
           scenario(repo, async ({ officeId, run, s }) => {
             const stored = findRun(s.office, run)!;
-            const worktree = stored.worktree as string;
             // A park whose record stayed on the branch (DIPO-129's stale block).
             await gitParkWriter({ git: () => s.git, cli: s.cli }).write(officeId, {
               story: TASK_1,
               branch: BRANCH_1,
-              worktree,
               reason: "conflict",
               note: "base moved during merge 3 times",
             });
@@ -305,7 +310,6 @@ if (process.env["DIPO_TEST_CI"] === "1") {
                 runId: run,
                 story: TASK_1,
                 branch: BRANCH_1,
-                worktree,
                 startSha: stored.startSha as string,
               },
               (target) => setFinalSummary(target, "Done by the close-out."),
@@ -342,7 +346,6 @@ if (process.env["DIPO_TEST_CI"] === "1") {
               runId: run,
               story: TASK_1,
               branch: BRANCH_1,
-              worktree: stored.worktree as string,
               startSha: stored.startSha as string,
             };
             const mergeGit = gitStoryMergeOps({ git: () => s.git, cli: s.cli });
@@ -351,10 +354,11 @@ if (process.env["DIPO_TEST_CI"] === "1") {
             const first = await mergeGit.closeOut(officeId, mergeRun, write);
             expect(first).not.toBeNull();
             // A fix round added code since; the next close-out writes again.
-            await git(mergeRun.worktree, repo.home, "checkout", "--quiet", "--", ".");
-            writeFileSync(join(mergeRun.worktree, "later.txt"), "later\n");
-            await git(mergeRun.worktree, repo.home, "add", "later.txt");
-            await git(mergeRun.worktree, repo.home, "commit", "--quiet", "-m", "feat: later");
+            await byHandOn(repo, BRANCH_1, async (dir) => {
+              writeFileSync(join(dir, "later.txt"), "later\n");
+              await git(dir, repo.home, "add", "later.txt");
+              await git(dir, repo.home, "commit", "--quiet", "-m", "feat: later");
+            });
             summary = "second stay";
             const second = await mergeGit.closeOut(officeId, mergeRun, write);
             expect(second).not.toBeNull();
@@ -406,10 +410,10 @@ if (process.env["DIPO_TEST_CI"] === "1") {
               );
               expect(main).toBe("name: ci\n");
             },
-            async (worktree) => {
-              writeFileSync(join(worktree, ".github/workflows/ci.yml"), "name: ci\non: push\n");
-              writeFileSync(join(worktree, ".github/CODEOWNERS"), "# nobody owns anything\n");
-              await git(worktree, repo.home, "add", ".github");
+            async (checkout) => {
+              writeFileSync(join(checkout, ".github/workflows/ci.yml"), "name: ci\non: push\n");
+              writeFileSync(join(checkout, ".github/CODEOWNERS"), "# nobody owns anything\n");
+              await git(checkout, repo.home, "add", ".github");
             },
           );
         },
@@ -428,9 +432,9 @@ if (process.env["DIPO_TEST_CI"] === "1") {
               await merge.tick(officeId);
               expect(host.merges).toEqual([]);
             },
-            async (worktree) => {
-              mkdirSync(join(worktree, "scripts"), { recursive: true });
-              await git(worktree, repo.home, "mv", "install.sh", "scripts/install.sh");
+            async (checkout) => {
+              mkdirSync(join(checkout, "scripts"), { recursive: true });
+              await git(checkout, repo.home, "mv", "install.sh", "scripts/install.sh");
             },
           );
         },
@@ -449,9 +453,9 @@ if (process.env["DIPO_TEST_CI"] === "1") {
               await merge.tick(officeId);
               expect(host.merges).toEqual([]);
             },
-            async (worktree) => {
-              chmodSync(join(worktree, "install.sh"), 0o755);
-              await git(worktree, repo.home, "update-index", "--chmod=+x", "install.sh");
+            async (checkout) => {
+              chmodSync(join(checkout, "install.sh"), 0o755);
+              await git(checkout, repo.home, "update-index", "--chmod=+x", "install.sh");
             },
           );
         },
@@ -472,8 +476,8 @@ if (process.env["DIPO_TEST_CI"] === "1") {
               await merge.tick(officeId);
               expect(host.merges).toEqual([]);
             },
-            async (worktree) => {
-              await git(worktree, repo.home, "rm", "--quiet", ".github/workflows/ci.yml");
+            async (checkout) => {
+              await git(checkout, repo.home, "rm", "--quiet", ".github/workflows/ci.yml");
             },
           );
         },

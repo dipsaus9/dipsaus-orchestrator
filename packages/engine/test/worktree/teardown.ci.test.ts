@@ -1,12 +1,12 @@
 // CI only (0017): the Done poll and teardown against a real temporary repository, a bare remote
-// and the pinned Backlog CLI (DIPO-58, DIPO-363; 0002, 0010). The story branch is squash-merged on
-// the bare remote, as the host's squash merge does, and its story PR recorded merged, as the PR
-// poll records it; the one Done check finds it merged and the poll tears down the worktree, the
-// local and the remote branch. A dirty worktree is kept with a notice listing its files until it
-// is clean. Fast versions of the same rules with a fake git are in teardown.test.ts.
+// and the pinned Backlog CLI (DIPO-58, DIPO-363, DIPO-349; 0002, 0010). The story branch is
+// squash-merged on the bare remote, as the host's squash merge does, and its story PR recorded
+// merged, as the PR poll records it; the one Done check finds it merged and the poll deletes the
+// local and the remote branch. A claim has no worktree, so nothing else is removed. Fast versions
+// of the same rules with a fake git are in teardown.test.ts.
 
 import { describe, expect, it } from "bun:test";
-import { existsSync, rmSync, writeFileSync } from "node:fs";
+import { writeFileSync } from "node:fs";
 import { join } from "node:path";
 
 import type { OfficeId } from "@dipsaus-orchestrator/contract";
@@ -19,7 +19,6 @@ import {
   claimStory,
   DONE_RELEASE_REASON,
   findClaim,
-  SlotTable,
   StoryTeardown,
   TEARDOWN_NOTICES,
 } from "../../src/worktree";
@@ -27,6 +26,7 @@ import { squashMergeOnRemote } from "../backlog/lane/helpers";
 import {
   BACKLOG_FIXTURE,
   BRANCH_1,
+  byHandOn,
   claimSetup,
   type ClaimSetup,
   inRemote,
@@ -47,17 +47,19 @@ async function refExists(cwd: string, home: string, ref: string): Promise<boolea
 }
 
 /**
- * Claims TASK-1, commits work on its branch, pushes it, squash-merges it on the remote and records
- * its story PR merged at the pushed head.
+ * Claims TASK-1, commits work on its branch by hand, pushes it, squash-merges it on the remote and
+ * records its story PR merged at the pushed head.
  */
 async function claimWorkMerge(repo: TempRepoWithRemote, s: ClaimSetup) {
   const claim = claimed(await claimStory(s.deps(), s.request(s.key()))).claim;
-  writeFileSync(join(claim.worktree, "work.txt"), "work\n");
-  await git(claim.worktree, repo.home, "add", "work.txt");
-  await git(claim.worktree, repo.home, "commit", "--quiet", "-m", "work");
-  await git(claim.worktree, repo.home, "push", "--quiet", "origin", BRANCH_1);
+  const head = await byHandOn(repo, BRANCH_1, async (dir) => {
+    writeFileSync(join(dir, "work.txt"), "work\n");
+    await git(dir, repo.home, "add", "work.txt");
+    await git(dir, repo.home, "commit", "--quiet", "-m", "work");
+    await git(dir, repo.home, "push", "--quiet", "origin", BRANCH_1);
+    return (await git(dir, repo.home, "rev-parse", "HEAD")).trim();
+  });
   await squashMergeOnRemote(repo, BRANCH_1);
-  const head = (await git(claim.worktree, repo.home, "rev-parse", "HEAD")).trim();
   s.office.immediate(() =>
     insertStoryPr(s.office, {
       runId: claim.runId,
@@ -79,13 +81,12 @@ async function claimWorkMerge(repo: TempRepoWithRemote, s: ClaimSetup) {
   return claim;
 }
 
-function teardownOf(s: ClaimSetup, slots: SlotTable): StoryTeardown {
+function teardownOf(s: ClaimSetup): StoryTeardown {
   const teardown = new StoryTeardown({
     git: () => s.git,
     host: null,
     cli: s.cli,
     offices: { get: () => s.office, config: () => OFFICE_DEFAULTS },
-    slots,
   });
   teardown.track(s.office.officeId as OfficeId, s.office, s.t.clock);
   return teardown;
@@ -93,14 +94,12 @@ function teardownOf(s: ClaimSetup, slots: SlotTable): StoryTeardown {
 
 if (process.env["DIPO_TEST_CI"] === "1") {
   describe("Done and teardown on a real repository", () => {
-    it("finds a squash-merged PR Done and removes the worktree and both branches", async () => {
+    it("finds a squash-merged PR Done and deletes both branches", async () => {
       await withBareRemote(
         async (repo) => {
           await publish(repo);
           const s = await claimSetup(repo);
           const claim = await claimWorkMerge(repo, s);
-          const slots = SlotTable.inState(join(repo.root, "slots"));
-          slots.take({ office: "o", story: "TASK-1", worktree: claim.worktree, takenAt: 1 }, 20);
           // The branch is not an ancestor of the base after a squash merge.
           const ancestor = await repo.run([
             "git",
@@ -111,50 +110,16 @@ if (process.env["DIPO_TEST_CI"] === "1") {
           ]);
           expect(ancestor.exitCode).toBe(1);
 
-          const report = await teardownOf(s, slots).poll(s.office.officeId as OfficeId);
+          const report = await teardownOf(s).poll(s.office.officeId as OfficeId);
 
           expect(report.tornDown.map((c) => c.runId)).toEqual([claim.runId]);
-          expect(existsSync(claim.worktree)).toBe(false);
           expect(await refExists(repo.dir, repo.home, `refs/heads/${BRANCH_1}`)).toBe(false);
           expect(await inRemote(repo, "branch", "--list", BRANCH_1).then((out) => out.trim())).toBe(
             "",
           );
           expect(findClaim(s.office, claim.runId)?.releaseReason).toBe(DONE_RELEASE_REASON);
-          expect(slots.slotOf(claim.worktree)).toBeNull();
           expect(notices(s.office).map((n) => n.code)).toContain(TEARDOWN_NOTICES.done);
-        },
-        { fixture: BACKLOG_FIXTURE },
-      );
-    });
-
-    it("keeps a dirty worktree with a notice, then tears it down once it is clean", async () => {
-      await withBareRemote(
-        async (repo) => {
-          await publish(repo);
-          const s = await claimSetup(repo);
-          const claim = await claimWorkMerge(repo, s);
-          writeFileSync(join(claim.worktree, "scratch.txt"), "left behind\n");
-          const slots = SlotTable.inState(join(repo.root, "slots"));
-          const teardown = teardownOf(s, slots);
-          const officeId = s.office.officeId as OfficeId;
-
-          const kept = await teardown.poll(officeId);
-          expect(kept.kept.map((c) => c.runId)).toEqual([claim.runId]);
-          expect(existsSync(join(claim.worktree, "scratch.txt"))).toBe(true);
-          expect(await refExists(repo.dir, repo.home, `refs/heads/${BRANCH_1}`)).toBe(true);
-          expect((await inRemote(repo, "branch", "--list", BRANCH_1)).trim()).not.toBe("");
-          expect(findClaim(s.office, claim.runId)?.releasedAt).toBeNull();
-          const list = await repo.git("worktree", "list", "--porcelain");
-          expect(list).toContain(`locked dipo ${claim.runId}`);
-          const told = notices(s.office).filter((n) => n.code === TEARDOWN_NOTICES.kept);
-          expect(told).toHaveLength(1);
-          expect(told[0]?.text).toContain("scratch.txt");
-
-          rmSync(join(claim.worktree, "scratch.txt"));
-          const done = await teardown.poll(officeId);
-          expect(done.tornDown.map((c) => c.runId)).toEqual([claim.runId]);
-          expect(existsSync(claim.worktree)).toBe(false);
-          expect(await refExists(repo.dir, repo.home, `refs/heads/${BRANCH_1}`)).toBe(false);
+          expect(await repo.git("worktree", "list", "--porcelain")).not.toContain(BRANCH_1);
         },
         { fixture: BACKLOG_FIXTURE },
       );

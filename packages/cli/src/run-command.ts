@@ -47,7 +47,7 @@ const REASONS: Readonly<Record<string, string>> = {
   notRunnable:
     "not runnable (not on the base, already claimed or past Ready, or a backlog change for it is pending)",
   dependency: "a dependency is not Done",
-  collision: "its branch or worktree path is taken",
+  collision: "its branch is taken",
   capacity: "the office already runs a story",
   pickupCheckFailed:
     "it failed its pickup check (it goes back to Refined) or its setup, launch checks or worker start (it stays Ready)",
@@ -193,9 +193,8 @@ function argumentLines(launch: WorkerLaunchPreview): string[] {
 function launchLines(launch: WorkerLaunchPreview): string[] {
   const [program] = launch.argv;
   return [
-    section("Branch and worktree it would create"),
+    section("Branch it would create"),
     `branch:        ${launch.branch}`,
-    `worktree:      ${launch.worktree} (locked)`,
     `run directory: ${launch.runDir}`,
     section(`Worker launch (${launch.adapter})`),
     `program:           ${program ?? ""}`,

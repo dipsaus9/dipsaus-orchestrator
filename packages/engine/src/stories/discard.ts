@@ -1,4 +1,4 @@
-// `work.discard { story, note }` (DIPO-161; 0020 section 8 and its dirty-worktree option, 0005
+// `work.discard { story, note }` (DIPO-161; 0020 section 8, 0005
 // amendment of 2026-10-17: the waiting command path). It throws a story's work away and returns the
 // story to Refined, so it must pass the Ready gate again. The client listed what is lost first
 // (`story.losses` with `command: work.discard`) and asked for the story id typed out: the command
@@ -11,15 +11,15 @@
 //    covers the story at once. It applies only while the base status is not Done: lane b never
 //    writes over a Done story, and a story the Backlog CLI reads Done in `_base` gets no op at all.
 // 3. dipo's open story PR is closed with a comment naming the discard.
-// 4. The claim is released (`discard`): the worktree removed with `--force`, the branch deleted
-//    locally and on the remote when every commit on the remote tip is on the local branch or on the
-//    base; a remote tip with other commits (someone pushed to it) keeps the remote branch with a
-//    notice and the other steps go on. The port slot is freed.
+// 4. The claim is released (`discard`): the branch deleted locally and on the remote when every
+//    commit on the remote tip is on the local branch or on the base; a remote tip with other
+//    commits (someone pushed to it) keeps the remote branch with a notice and the other steps go
+//    on.
 // 5. One transaction: the run's open questions closed `ended`, an open park resolved `discard`, and
 //    `story.state` to Refined unless the base says Done. The boxes of ended runs are deleted (0021
 //    section 6), and the lane flushes.
 // The leftovers of a story Done on the base through another branch (0020 section 10) are discarded
-// the same way without a claim and with no lane-b write: their kept worktrees and branches go
+// the same way without a claim and with no lane-b write: their kept branches go
 // (`leftoverTargets`, exactly what the loss list shows) and the leftovers are cleared. A story whose
 // PR head changed outside dipo (0019 section 9) is discarded like any other.
 // Refused: a story whose PR in `story_prs` merged (`story.prMerged`), and a story with neither a
@@ -81,7 +81,6 @@ import {
   removeLeftovers,
   repoOfPrUrl,
 } from "../worktree/release";
-import type { SlotTable } from "../worktree/slots";
 
 import type { StoryIdentity } from "./keys";
 
@@ -119,7 +118,6 @@ export interface StoryDiscardDeps {
   readonly git: (office: OfficeHandle["officeId"]) => OfficeGit | undefined;
   /** The code host the open story PR is closed on. */
   readonly host: Pick<CodeHost, "closePr">;
-  readonly slots?: SlotTable;
   /** Reads whether a worker host of the claim's run still runs. */
   readonly probe: ProcessProbe;
   /** Stops an active run as `story.park` does; without it a running story is refused. */
@@ -200,7 +198,7 @@ export class StoryDiscard {
       if (pid !== null) {
         throw new CommandError(
           DISCARD_HOST_ALIVE,
-          `A worker host of ${story} still runs (pid ${pid}), so its worktree is in use. Discard it again in a moment, once the host has exited.`,
+          `A worker host of ${story} still runs (pid ${pid}), so its box is in use. Discard it again in a moment, once the host has exited.`,
           { story, pid },
         );
       }
@@ -228,8 +226,8 @@ export class StoryDiscard {
         const closedText = closed === null ? "" : `PR #${closed} was closed, but `;
         throw new CommandError(
           NOT_DISCARDABLE,
-          `${story} was not discarded: ${closedText}${released.why}.${released.files.length > 0 ? ` Files: ${released.files.join(", ")}.` : ""}`,
-          { story, files: [...released.files] },
+          `${story} was not discarded: ${closedText}${released.why}.`,
+          { story },
         );
       }
     } catch (error) {
@@ -243,7 +241,7 @@ export class StoryDiscard {
       claim?.runId ?? null,
       args.note,
       !doneOnBase,
-      targets?.worktrees.map((tree) => tree.runId) ?? [],
+      targets?.runs ?? [],
     );
     await this.#deps.finishBoxes?.().catch(() => undefined);
     if (lane !== null) await flushQuietly(lane);
@@ -389,7 +387,6 @@ export class StoryDiscard {
       office: ctx.office,
       git,
       clock: ctx.clock,
-      ...(this.#deps.slots === undefined ? {} : { slots: this.#deps.slots }),
     };
     if (claim !== null) return releaseForDiscard(deps, claim);
     // Exactly what `story.losses` listed for `work.discard` (`leftoverTargets`).

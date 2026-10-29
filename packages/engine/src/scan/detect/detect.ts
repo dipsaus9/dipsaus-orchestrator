@@ -12,7 +12,7 @@ import {
   type Manifest,
   type Workflow,
 } from "./manifest";
-import { detectPorts } from "./ports";
+
 import {
   CAPABILITIES,
   type Candidate,
@@ -342,7 +342,6 @@ function nonStandard(probe: Probe, deviation: Deviation): RunProfile {
     capabilities,
     extraScripts: [],
     envFiles: probe.envFiles,
-    devPorts: [],
     conformance: { level: "non-standard", deviations: [deviation] },
     runRefusal: refusal(capabilities.verify, false, []),
   };
@@ -481,16 +480,6 @@ export function detect(probe: Probe, options: DetectOptions = {}): RunProfile {
     }
   }
 
-  const devPorts = detectPorts(probe, root, workspaces);
-  const fixed = devPorts.filter((port) => port.fixedInCode && !port.honoursPort);
-  for (const port of fixed) {
-    deviations.push({
-      code: `fixed-port:${port.dir}:${port.port}`,
-      conflict: false,
-      message: `dev in ${port.dir} uses fixed port ${port.port} (${port.evidence}); let PORT override it so parallel worktrees do not collide.`,
-    });
-  }
-
   const extraScripts = Object.entries(root.scripts)
     .filter(([name]) => !(CAPABILITIES as readonly string[]).includes(name))
     .map(([name, command]) => ({ name, command }));
@@ -505,8 +494,7 @@ export function detect(probe: Probe, options: DetectOptions = {}): RunProfile {
     packageManager.status === "resolved" &&
     capabilities.test.status === "resolved" &&
     (capabilities.dev.status === "resolved" || options.nothingToStart === true) &&
-    capabilities.verify.status === "resolved" &&
-    fixed.length === 0
+    capabilities.verify.status === "resolved"
   ) {
     level = "conforming";
   }
@@ -521,7 +509,6 @@ export function detect(probe: Probe, options: DetectOptions = {}): RunProfile {
     capabilities,
     extraScripts,
     envFiles: probe.envFiles,
-    devPorts,
     conformance: { level, deviations },
     runRefusal: refusal(capabilities.verify, true, deviations),
   };

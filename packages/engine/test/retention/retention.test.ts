@@ -470,7 +470,6 @@ describe("retention of run rows", () => {
       expect(report.deleted).toEqual({
         run_capabilities: 2,
         run_env_files: 2,
-        run_ports: 2,
         run_extra_scripts: 2,
         run_profiles: 2,
       });
@@ -484,7 +483,6 @@ describe("retention of run rows", () => {
         "run_profiles",
         "run_capabilities",
         "run_env_files",
-        "run_ports",
         "run_extra_scripts",
       ]) {
         expect(profileIds(table)).toEqual([3, 4]);

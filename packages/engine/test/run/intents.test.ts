@@ -44,8 +44,6 @@ beforeEach(async () => {
       model: "haiku",
       startSha: "b".repeat(40),
       branch: "DIPO-1/add-a-greeting",
-      worktree: join(dir, "trees", "DIPO-1"),
-      slot: 1,
       budgetUnit: "tokens",
       budgetLimit: 1_000_000,
       loopCap: 3,

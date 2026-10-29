@@ -3,7 +3,6 @@
 // host, the failed-create notice and its retry, StoryView.pr and the story.pr events.
 
 import { describe, expect, it } from "bun:test";
-import { join } from "node:path";
 
 import { RunId, type StoryKey } from "@dipsaus-orchestrator/contract";
 
@@ -164,8 +163,6 @@ async function inWorld(fn: (w: World) => Promise<void>, setup: WorldSetup = {}):
         model: "haiku",
         startSha: "b".repeat(40),
         branch: BRANCH,
-        worktree: join("/wt", "DIPO-1"),
-        slot: 1,
         budgetUnit: "tokens",
         budgetLimit: 300_000,
         loopCap: 2,
@@ -181,14 +178,11 @@ async function inWorld(fn: (w: World) => Promise<void>, setup: WorldSetup = {}):
         key,
         story: "DIPO-1",
         branch: BRANCH,
-        worktree: join("/wt", "DIPO-1"),
         base: "main",
         baseSha: "b".repeat(40),
         startSha: "b".repeat(40),
         claimSha: "c".repeat(40),
         reused: false,
-        snapshot: { path: "/x", adminDir: "/x", commondir: "/x", gitdir: "/x", pointer: "/x" },
-        firstFeedback: null,
         claimedAt: t.clock.now(),
       });
       const pushed = setup.pushed ?? "in-review";
