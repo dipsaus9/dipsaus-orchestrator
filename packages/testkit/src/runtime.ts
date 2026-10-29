@@ -1,9 +1,9 @@
 // The runtime directory of a test daemon (DIPO-109). A daemon takes the first usable candidate of
 // `DIPO_RUNTIME_DIR`, `$TMPDIR/dipo` and `/tmp/dipo-<uid>`, and removes the `dipo.sock` it finds
-// there (0006 decision 3). A test daemon whose candidates under its temp directory are too long for
-// a socket path would fall back to the maintainer's real runtime directory and remove a live
-// daemon's socket. So a test daemon gets both variables under its temp directory, `tempRoot()` refuses a `DIPO_TMP` too long for them,
-// and a test fails when the daemon logs any other runtime directory.
+// there (0006). A test daemon whose candidates under its temp directory are too long for a socket
+// path would fall back to the maintainer's real runtime directory and remove a live daemon's
+// socket. So a test daemon gets both variables under its temp directory, `tempRoot()` refuses a
+// `DIPO_TMP` too long for them, and a test fails when the daemon logs any other runtime directory.
 //
 // testkit may not import engine (0004), so the two limits below are copies of
 // `RUNTIME_PATH_LIMIT` and `LONGEST_RUNTIME_ENTRY` in packages/engine/src/platform/paths.ts;

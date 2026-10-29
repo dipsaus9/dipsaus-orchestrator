@@ -210,7 +210,7 @@ export function checkConfigDocument(
 export const EXIT_CONFIG = 78;
 
 /**
- * The installed autostart (0006 decision 15, DIPO-63): the launchd agent's label. The client
+ * The installed autostart (0006, DIPO-63): the launchd agent's label. The client
  * writes the agent (`dipo daemon install`); the daemon recognises its supervisor by it. Shared here
  * because `client` may not import `engine` (0004).
  */

@@ -1,4 +1,4 @@
-// Optional autostart (0005, 0006 decision 15): `dipo daemon install` writes a launchd agent that
+// Optional autostart (0005, 0006): `dipo daemon install` writes a launchd agent that
 // runs `dipo daemon --foreground` and restarts it after a crash, and `uninstall` removes it. When
 // installed, `dipo daemon start|stop|restart` go through `launchctl`, so launchd and the CLI never
 // fight. `install` is a named offline

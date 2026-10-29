@@ -1,5 +1,5 @@
 #!/bin/sh
-# Installs dipo from a GitHub Release (decision 0016 rule 7) on macOS on Apple silicon (0004).
+# Installs dipo from a GitHub Release (0016) on macOS on Apple silicon (0004).
 #
 #   curl -fsSL https://github.com/dipsaus9/dipsaus-orchestrator/releases/latest/download/install.sh | sh
 #
@@ -12,10 +12,10 @@
 # Steps: check that this is macOS on Apple silicon; with gh, resolve the release tag and the commit
 # it points at; download dipo-darwin-arm64.tar.gz and SHA256SUMS from that release; verify the
 # checksum; verify the build provenance attestation with the pinned `gh attestation verify`,
-# including the tag's commit as the source digest; then install. Without gh the script stops before downloading
-# anything, unless DIPO_SKIP_ATTESTATION=1 (DIPO-321). The binary is written to a temporary file in
-# the install directory and renamed over any existing dipo, so a running daemon keeps its open file
-# and no half-written binary is ever on the PATH (decision 0006 section 14).
+# including the tag's commit as the source digest; then install. Without gh the script stops
+# before downloading anything, unless DIPO_SKIP_ATTESTATION=1 (DIPO-321). The binary is written to
+# a temporary file in the install directory and renamed over any existing dipo, so a running daemon
+# keeps its open file and no half-written binary is ever on the PATH (0006).
 #
 # Everything runs inside main, called on the last line, so a partly downloaded script does nothing.
 

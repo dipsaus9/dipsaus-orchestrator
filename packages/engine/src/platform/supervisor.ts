@@ -1,4 +1,4 @@
-// The daemon's view of its supervisor (0005, 0006 decision 15). `dipo daemon install` writes a
+// The daemon's view of its supervisor (0005, 0006). `dipo daemon install` writes a
 // launchd agent labelled `dipo.daemon` (client `lifecycle`); launchd is the only supervisor (0004).
 // A daemon that refuses its `config.yaml` (exit 78) boots its own job out before it exits, so
 // launchd does not restart it in a loop. `XPC_SERVICE_NAME` is inherited, and every detached spawn

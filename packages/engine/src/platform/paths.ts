@@ -119,7 +119,7 @@ export function checkStateDir(path: string, uid: number = process.getuid?.() ?? 
 }
 
 /**
- * Resolves `<state>` and `<logs>` (0005, 0006 decision 3): `~/Library/Application Support/dipo` and
+ * Resolves `<state>` and `<logs>` (0005, 0006): `~/Library/Application Support/dipo` and
  * `~/Library/Logs/dipo`. `DIPO_HOME` replaces the anchor, for tests only; its logs go to
  * `<DIPO_HOME>/logs`. `TMPDIR` is never read here: it differs between a shell, launchd and SSH.
  *
@@ -195,7 +195,7 @@ export interface RuntimeCandidate {
 }
 
 /**
- * The runtime directory candidates in order (0005, 0006 decision 3): `DIPO_RUNTIME_DIR`, then
+ * The runtime directory candidates in order (0005, 0006): `DIPO_RUNTIME_DIR`, then
  * `$TMPDIR/dipo`, else `/tmp/dipo-<uid>`.
  */
 export function runtimeCandidates(options: {

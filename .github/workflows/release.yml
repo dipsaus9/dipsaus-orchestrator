@@ -139,7 +139,7 @@ jobs:
           } >> "$GITHUB_OUTPUT"
           cat "$GITHUB_OUTPUT"
 
-  # Same build script and smoke test as CI (0016 rule 1), for the one target, darwin-arm64 (0004),
+  # Same build script and smoke test as CI (0016), for the one target, darwin-arm64 (0004),
   # on its native runner. No cache of
   # any kind: a release build installs from bun.lock alone, and it does not use setup-bun, whose
   # Bun executable cache a release could restore. It downloads the Bun of `.bun-version` from

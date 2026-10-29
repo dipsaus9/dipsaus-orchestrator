@@ -1,5 +1,5 @@
-// Keep-awake processes (0005, 0006 decision 12): no FFI, so the assertion is a child process whose
-// lifetime is the lock: `caffeinate -i -w <daemon-pid>`. `-i` prevents idle system sleep, `-w`
+// Keep-awake processes (0005, 0006): no FFI, so the assertion is a child process whose lifetime is
+// the lock: `caffeinate -i -w <daemon-pid>`. `-i` prevents idle system sleep, `-w`
 // ends the assertion when the daemon dies, so a crash cannot leak it. dipo runs on macOS only
 // (0004); where `caffeinate` is missing (the Linux CI test host) the assertion is not held.
 //

@@ -650,7 +650,7 @@ export type InstallResult =
     };
 
 /**
- * `dipo daemon install` (0006 decision 15): stops a running daemon, writes the plist with
+ * `dipo daemon install` (0006): stops a running daemon, writes the plist with
  * this binary's absolute path and the caller's `PATH`, loads it, and waits for the supervised
  * daemon. Running it again after moving the binary rewrites the file.
  */

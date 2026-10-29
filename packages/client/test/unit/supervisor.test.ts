@@ -1,4 +1,4 @@
-// Autostart (DIPO-63, 0006 decision 15) with a fake `launchctl` and a temp home directory, so
+// Autostart (DIPO-63, 0006) with a fake `launchctl` and a temp home directory, so
 // nothing reaches the real launchd or `~/Library/LaunchAgents`: the generated plist matches the
 // golden file and carries the caller's `PATH` (AC #3, #7); `launchctl` uses `user/<uid>` where
 // `gui/<uid>` is missing (AC #6); when installed, start, stop and restart go through launchd
