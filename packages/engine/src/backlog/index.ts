@@ -1,6 +1,8 @@
 // The Backlog.md integration (0010): the StoryStore's one implementation, with the CLI runner and
 // its never-run list, the version load step, the `--plain` parser, the field write path, the story
-// lane's copies of a story's backlog, the planning lane and the branch slug.
+// lane's copies of a story's backlog, the task-file layout, the planning lane (with office init,
+// `init/`, and the backlog PR and its auto-merge, `pr/`) and the branch slug. No other engine
+// directory imports it; the composition root does (DIPO-356).
 
 import type { FeatureModule } from "../commands/registry";
 

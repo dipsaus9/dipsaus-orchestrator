@@ -88,6 +88,8 @@ export interface RunPorts {
    * DIPO-324). Without it no conflict park resumes (`resume.notResumable`).
    */
   readonly conflictMerge?: ConflictResumesDeps["merge"];
+  /** The story store a conflict resume finds the story's own file with; needed with `conflictMerge`. */
+  readonly stories?: ConflictResumesDeps["stories"];
   /** The new story PR of a story resumed with its PR closed (`StoryPrs.replace`, 0002). */
   readonly prReplacement?: () => PrReplacement | undefined;
   /**
@@ -426,8 +428,10 @@ function conflictResumesOf(
   control: RunControl,
 ): (() => ConflictResumes) | undefined {
   const merge = ports.conflictMerge;
-  if (merge === undefined) return undefined;
+  const stories = ports.stories;
+  if (merge === undefined || stories === undefined) return undefined;
   const resumes = new ConflictResumes({
+    stories,
     clock: ports.clock,
     offices: ports.offices,
     git: ports.git,

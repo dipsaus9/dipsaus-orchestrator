@@ -73,6 +73,7 @@ import { BoxError } from "../../src/box/port";
 import type { BoxCacheUse, BoxWorkerInstall } from "../../src/box/workers";
 import type { RunProfile } from "../../src/scan/detect";
 import { addOffice, countRows, openTestState, type TestState } from "../commands/helpers";
+import { backlogLayout } from "../story-store/backlog";
 
 const CLAUDE = "/opt/claude/bin/claude";
 const HOME = "/home/maintainer";
@@ -368,7 +369,11 @@ beforeEach(async () => {
       configHash: () => "hash-1",
       configBlocksRuns: () => [],
     },
-    base: { fetch: async () => undefined, read: async (_office, ids) => read(ids) },
+    base: {
+      fetch: async () => undefined,
+      read: async (_office, ids) => read(ids),
+      planningHold: (handle, key) => backlogLayout.planningHold(handle, key),
+    },
     stories: {
       indexStories: async () => undefined,
       refreshStory: async (_office, key) => {

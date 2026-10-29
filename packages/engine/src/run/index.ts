@@ -369,14 +369,7 @@ export {
 } from "../stories/planning";
 export type { StoryPlanningDeps } from "../stories/planning";
 // `work.discard` (DIPO-161): a story's work thrown away through the backlog lane.
-export {
-  DISCARD_NOTICES,
-  DISCARDABLE_STATUSES,
-  discardOp,
-  NOT_DISCARDABLE,
-  PR_MERGED,
-  StoryDiscard,
-} from "../stories/discard";
+export { DISCARD_NOTICES, NOT_DISCARDABLE, PR_MERGED, StoryDiscard } from "../stories/discard";
 export type { DiscardStop, StoryDiscardDeps } from "../stories/discard";
 // `proposal.accept` and `proposal.dismiss` (DIPO-166): a worker's proposal filed as a Backlog draft
 // through the planning lane, or dismissed.

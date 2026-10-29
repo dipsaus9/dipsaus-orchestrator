@@ -90,6 +90,7 @@ import { encode } from "../../src/workers/claude-cli/encode";
 import type { HostOp, WorkerEvent, WorkerReport } from "../../src/workers/types";
 import { findClaim, insertClaim } from "../../src/worktree/records";
 import { type IngestFixture, ingestFixture, loggedEvents } from "../ingest/helpers";
+import { backlogLayout } from "../story-store/backlog";
 
 const TMP = process.env["DIPO_TMP"] || "/tmp";
 const encoder = new TextEncoder();
@@ -580,6 +581,7 @@ async function partsWorld(repo: TempRepoWithRemote): Promise<PartsWorld> {
   };
   const w = { repo, work, calls, live: true } as PartsWorld;
   (w as { parts: BoxParts }).parts = new BoxParts({
+    stories: backlogLayout,
     boxes: workBox(work, calls),
     clock: new ManualClock(),
     stageRoot: join(realpathSync(tmp), "box-parts"),

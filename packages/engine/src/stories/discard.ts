@@ -37,16 +37,6 @@ import {
 } from "@dipsaus-orchestrator/contract";
 import type { z } from "zod";
 
-import {
-  allEntries,
-  DISCARD_KIND,
-  type JournalEntry,
-  LaneFlushError,
-  type LaneOp,
-  OPEN_STATES,
-  type OfficeLane,
-} from "../backlog/lane";
-import { updateEntry } from "../backlog/lane/journal";
 import type { NewEntry } from "../changelog/log";
 import { CommandError } from "../commands/errors";
 import type {
@@ -64,6 +54,7 @@ import { openParkIds, resolvePark } from "../run/park";
 import { activeRuns } from "../run/records";
 import { hostAlive, workerHostsOf } from "../runs/worker-hosts";
 import { findStoryPr, latestStoryPr, setStoryPrState } from "../story-pr/records";
+import { DISCARD_KIND, type PlanningLane } from "../story-store/planning";
 import type { StoryStore } from "../story-store/store";
 import { deriveStoryView, storyView } from "../views/story";
 import { decideDone } from "../worktree/done-check";
@@ -83,16 +74,6 @@ import {
 } from "../worktree/release";
 
 import type { StoryIdentity } from "./keys";
-
-/** The statuses a discard's lane-b write applies from; never from Done. */
-export const DISCARDABLE_STATUSES = [
-  "In Progress",
-  "In Review",
-  "Parked",
-  "Ready",
-  "Refined",
-  "To Do",
-];
 
 export const NOT_DISCARDABLE = "story.notDiscardable";
 export const PR_MERGED = "story.prMerged";
@@ -114,7 +95,8 @@ export type DiscardStop = (
 ) => Promise<unknown>;
 
 export interface StoryDiscardDeps {
-  readonly lane: (office: OfficeHandle["officeId"]) => OfficeLane | undefined;
+  /** The office's planning lane (0010), through the StoryStore seam. */
+  readonly lane: (office: OfficeHandle["officeId"]) => PlanningLane | undefined;
   readonly git: (office: OfficeHandle["officeId"]) => OfficeGit | undefined;
   /** The code host the open story PR is closed on. */
   readonly host: Pick<CodeHost, "closePr">;
@@ -208,13 +190,9 @@ export class StoryDiscard {
     // no backlog write and keeps its state: Done is terminal (0020 section 10).
     const doneOnBase = claim === null || (await this.#isDone(office, git, story, claim));
     const lane = doneOnBase ? null : this.#lane(office);
-    const entry = lane === null ? null : await journalOnce(lane, office, discardOp(key, story));
+    const entry = lane === null ? null : await lane.discard({ key, story });
     const withdraw = () => {
-      if (entry !== null) {
-        office.immediate(() =>
-          updateEntry(office, entry.opId, { state: "withdrawn" }, ctx.clock.now()),
-        );
-      }
+      if (lane !== null && entry !== null) lane.withdraw(entry);
     };
     // What the release removes: the claim, or exactly the leftovers the loss list showed.
     const targets = claim === null ? leftoverTargets(office, key) : null;
@@ -244,7 +222,7 @@ export class StoryDiscard {
       targets?.runs ?? [],
     );
     await this.#deps.finishBoxes?.().catch(() => undefined);
-    if (lane !== null) await flushQuietly(lane);
+    if (lane !== null) await lane.flush();
     return { result, changed: true };
   }
 
@@ -320,10 +298,7 @@ export class StoryDiscard {
     const { key, story } = identity;
     const result = { story, key };
     const discarded = lastDiscardedClaim(office, key);
-    const journaled = allEntries(office).some(
-      (entry) =>
-        entry.key === key && entry.kind === DISCARD_KIND && OPEN_STATES.includes(entry.state),
-    );
+    const journaled = this.#deps.lane(office.officeId)?.isOpen(key, DISCARD_KIND) ?? false;
     if (discarded !== null) {
       const stateOwed = journaled && !refinedWrittenSince(office, key, discarded.releasedAt ?? 0);
       // Only what the discarded run left open: a later park, such as a hold, is not owed.
@@ -336,7 +311,7 @@ export class StoryDiscard {
           !(await this.#isDone(office, git, story, findClaim(office, discarded.runId)));
         this.#finishFacts(ctx, identity, discarded.runId, note, toRefined, []);
         await this.#deps.finishBoxes?.().catch(() => undefined);
-        if (journaled) await flushQuietly(this.#lane(office));
+        if (journaled) await this.#lane(office).flush();
         return { result, changed: true };
       }
     }
@@ -348,7 +323,7 @@ export class StoryDiscard {
       ) !== null;
     // The target state already: the work was discarded and nothing is owed.
     if (journaled || cleared || discarded !== null) {
-      if (journaled) await flushQuietly(this.#lane(office));
+      if (journaled) await this.#lane(office).flush();
       return { result, changed: false };
     }
     throw new CommandError(
@@ -488,7 +463,7 @@ export class StoryDiscard {
     return null;
   }
 
-  #lane(office: OfficeHandle): OfficeLane {
+  #lane(office: OfficeHandle): PlanningLane {
     const lane = this.#deps.lane(office.officeId);
     if (lane === undefined) throw new Error(`The office ${office.officeId} has no backlog lane.`);
     return lane;
@@ -533,17 +508,6 @@ function refinedWrittenSince(office: OfficeHandle, key: StoryKey, since: number)
   );
 }
 
-/** The lane-b op of a discard: status Refined, the park record removed, never over Done. */
-export function discardOp(key: StoryKey, story: string): LaneOp {
-  return {
-    kind: DISCARD_KIND,
-    key,
-    subject: story,
-    target: { from: DISCARDABLE_STATUSES, status: "Refined", unset: ["park"] },
-    releasesClaim: true,
-  };
-}
-
 function factsOf(view: StoryView): {
   key: StoryKey;
   story: StoryId;
@@ -556,22 +520,4 @@ function factsOf(view: StoryView): {
     title: view.title,
     ...(view.tier === undefined ? {} : { tier: view.tier }),
   };
-}
-
-async function journalOnce(
-  lane: OfficeLane,
-  office: OfficeHandle,
-  op: LaneOp,
-): Promise<JournalEntry> {
-  const open = allEntries(office).find(
-    (entry) =>
-      entry.key === (op.key ?? null) && entry.kind === op.kind && OPEN_STATES.includes(entry.state),
-  );
-  return open ?? lane.journal(op);
-}
-
-async function flushQuietly(lane: OfficeLane): Promise<void> {
-  await lane.flush().catch((error: unknown) => {
-    if (!(error instanceof LaneFlushError)) throw error;
-  });
 }

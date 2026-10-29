@@ -19,6 +19,7 @@ import {
   PROPOSAL_MARKER,
   PROPOSE_KIND,
   proposeKind,
+  proposeTarget,
   type ProposeTarget,
 } from "../../src/backlog/lane";
 import { checkBacklogPr } from "../../src/backlog/pr/check";
@@ -71,7 +72,7 @@ describe("the propose kind with the pinned Backlog CLI", () => {
           storeProposals(s.office, { key, runId: RUN, proposals: [PROPOSAL], at: 0 }),
         );
         const hash = proposalHash(PROPOSAL);
-        const target: ProposeTarget = {
+        const target: ProposeTarget = proposeTarget({
           proposal: hash,
           ...proposalDraft({
             hash,
@@ -86,7 +87,7 @@ describe("the propose kind with the pinned Backlog CLI", () => {
             state: "accepted",
             draft: null,
           }),
-        };
+        });
 
         const first = await lane.submit({ kind: PROPOSE_KIND, subject: "DIPO-186", target });
         const branch = first.report.branch as string;

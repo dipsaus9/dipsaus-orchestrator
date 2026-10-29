@@ -51,7 +51,6 @@ import {
   type StoryPr,
 } from "@dipsaus-orchestrator/contract";
 
-import { openPrs } from "../backlog/pr/records";
 import { cleanDoorText } from "../box/door";
 import type { FeatureRegistry, ReadContext, Registry } from "../commands/registry";
 import type { OfficeHandle } from "../db/office";
@@ -77,6 +76,19 @@ export interface HandDeskItem {
   /** When it began to wait, in ms. */
   readonly since: number;
   readonly actions: readonly { readonly command: string; readonly cli: string }[];
+}
+
+/**
+ * A hand-action item of a pull request no story owns, such as the office's backlog PR whose check
+ * failed (0010): the planning lane puts it on the desk through `DeskSources.prItems`.
+ */
+export interface PrHandItem {
+  readonly kind: string;
+  readonly pr: NonNullable<DeskItem["pr"]>;
+  readonly detail: string;
+  /** When it began to wait, in ms. */
+  readonly since: number;
+  readonly hand: string;
 }
 
 /** An open merge gate, as `DeskSources.handMergeOnly` sees it. */
@@ -105,6 +117,8 @@ export interface DeskSources {
   readonly handMergeOnly: (office: OfficeHandle, gate: DeskGate) => boolean;
   /** Further hand-action items, in group 4. */
   readonly handItems: readonly ((office: OfficeHandle) => readonly HandDeskItem[])[];
+  /** Hand-action items of PRs no story owns, first in group 4; none without it. */
+  readonly prItems?: (office: OfficeHandle) => readonly PrHandItem[];
   /** The office's starts paused (`StartsPaused.state`, 0020); none without it. */
   readonly startsPaused?: (office: OfficeHandle) => StartsPausedState | null;
 }
@@ -591,24 +605,17 @@ class DeskBuilder {
     return this.#action("work.resume", `dipo resume ${story}${budget}${note}`);
   }
 
-  /** Group 5: backlog PRs whose check failed or could not run, then the sources' hand items. */
+  /** Group 5: PRs no story owns (backlog PRs whose check failed), then the sources' hand items. */
   handActions(): void {
-    for (const pr of openPrs(this.#office)) {
-      const failed = pr.check === "failed";
-      if (!failed && pr.checkError === null) continue;
-      const why =
-        pr.checkError !== null
-          ? `its check cannot run: ${deskText(pr.checkError)}`
-          : `its check failed: ${pr.failures.map((failure) => deskText(failure.message)).join("; ")}`;
-      const since = pr.checkedAt ?? pr.updatedAt;
-      this.#add(GROUP.hand, 0, since, {
-        kind: "BACKLOG PR",
-        pr: { number: pr.number, url: pr.url, state: pr.state },
-        detail: `#${pr.number} ${JSON.stringify(deskText(pr.title))} · ${why}`,
-        since: iso(since),
+    for (const item of this.#sources.prItems?.(this.#office) ?? []) {
+      this.#add(GROUP.hand, 0, item.since, {
+        kind: item.kind,
+        pr: item.pr,
+        detail: item.detail,
+        since: iso(item.since),
         blocks: [],
         actions: [],
-        hand: `fix the branch ${deskText(pr.branch)} of PR #${pr.number} by hand on GitHub (${pr.url})`,
+        hand: item.hand,
       });
     }
     for (const source of this.#sources.handItems) {

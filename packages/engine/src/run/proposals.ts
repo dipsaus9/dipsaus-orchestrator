@@ -25,17 +25,6 @@ import {
 } from "@dipsaus-orchestrator/contract";
 import type { z } from "zod";
 
-import {
-  allEntries,
-  type JournalEntry,
-  LaneFlushError,
-  type LaneOp,
-  OPEN_STATES,
-  type OfficeLane,
-  PROPOSAL_MARKER,
-  PROPOSE_KIND,
-  type ProposeTarget,
-} from "../backlog/lane";
 import { CommandError } from "../commands/errors";
 import type {
   AsyncCommandContext,
@@ -44,6 +33,7 @@ import type {
   FeatureRegistry,
 } from "../commands/registry";
 import type { OfficeHandle } from "../db/office";
+import type { PlanningLane, ProposedDraft } from "../story-store/planning";
 
 export const PROPOSAL_UNKNOWN = "proposal.unknown";
 export const PROPOSAL_AMBIGUOUS = "proposal.ambiguous";
@@ -188,10 +178,10 @@ const KIND_WORDS: Readonly<Record<string, string>> = {
 
 /**
  * Pure: the draft an accepted proposal becomes (0020 section 11c): its title, a description with
- * the outcome line, the why and the source story, each worker text marked as the worker's words,
- * and the proposal's marker line last; its paths as references.
+ * the outcome line, the why and the source story, each worker text marked as the worker's words;
+ * its paths as references. The store marks the draft as the proposal's when it files it.
  */
-export function proposalDraft(proposal: StoredProposal): Omit<ProposeTarget, "proposal"> {
+export function proposalDraft(proposal: StoredProposal): Omit<ProposedDraft, "proposal"> {
   const source = proposal.story ?? `an unknown story (key ${proposal.key})`;
   const title = titleOf(workerWords(proposal.title, DRAFT_CAPS.title)) || `Proposal from ${source}`;
   const what = KIND_WORDS[proposal.kind] ?? "A proposal";
@@ -203,7 +193,6 @@ export function proposalDraft(proposal: StoredProposal): Omit<ProposeTarget, "pr
     `Why (the worker's words): ${workerWords(proposal.why, DRAFT_CAPS.why)}`,
     "",
     `Source story: ${source}`,
-    `${PROPOSAL_MARKER}${proposal.hash}`,
   ].join("\n");
   const references: string[] = [];
   for (const path of proposal.paths.slice(0, DRAFT_CAPS.paths)) {
@@ -211,16 +200,6 @@ export function proposalDraft(proposal: StoredProposal): Omit<ProposeTarget, "pr
     if (reference !== null && !references.includes(reference)) references.push(reference);
   }
   return { title, description, references };
-}
-
-/** The journal entry of `proposal`'s draft that is open or merged, if any. */
-function draftEntry(office: OfficeHandle, proposal: string): JournalEntry | undefined {
-  return allEntries(office).find(
-    (entry) =>
-      entry.kind === PROPOSE_KIND &&
-      (OPEN_STATES.includes(entry.state) || entry.state === "merged") &&
-      (entry.target as { proposal?: unknown } | null)?.proposal === proposal,
-  );
 }
 
 function draftIdOf(office: OfficeHandle, proposal: string): string | null {
@@ -232,15 +211,9 @@ function draftIdOf(office: OfficeHandle, proposal: string): string | null {
   );
 }
 
-/** Flushes the lane; a failed flush put its own notice on the office and leaves the op journaled. */
-async function flushQuietly(lane: OfficeLane): Promise<void> {
-  await lane.flush().catch((error: unknown) => {
-    if (!(error instanceof LaneFlushError)) throw error;
-  });
-}
-
 export interface ProposalCommandsDeps {
-  readonly lane: (office: OfficeId) => OfficeLane | undefined;
+  /** The office's planning lane (0010), through the StoryStore seam. */
+  readonly lane: (office: OfficeId) => PlanningLane | undefined;
 }
 
 type ProposalArgs = z.output<typeof proposalAccept.args>;
@@ -286,17 +259,16 @@ export class ProposalCommands {
     }
     const lane = this.#deps.lane(office.officeId);
     if (lane === undefined) throw new Error(`The office ${office.officeId} has no backlog lane.`);
-    let entry = draftEntry(office, proposal.hash);
+    let entry = lane.draftOf(proposal.hash);
     // An accepted proposal whose draft the lane recorded is filed: its journal entry may be pruned
     // and the draft archived since, and it is never filed twice.
     const filed = proposal.state === "accepted" && proposal.draft !== null;
     if (entry === undefined && !filed) {
-      const op: LaneOp = {
-        kind: PROPOSE_KIND,
-        subject: proposal.story ?? "proposal",
-        target: { proposal: proposal.hash, ...proposalDraft(proposal) } satisfies ProposeTarget,
-      };
-      entry = await lane.journal(op);
+      const filing = await lane.fileDraft(proposal.story ?? "proposal", {
+        proposal: proposal.hash,
+        ...proposalDraft(proposal),
+      });
+      entry = { ...filing, open: true };
     }
     let changed = false;
     if (proposal.state === "open") {
@@ -318,7 +290,7 @@ export class ProposalCommands {
             ];
       });
     }
-    if (entry !== undefined && OPEN_STATES.includes(entry.state)) await flushQuietly(lane);
+    if (entry?.open === true) await lane.flush();
     const draft = draftIdOf(office, proposal.hash);
     return {
       result: {

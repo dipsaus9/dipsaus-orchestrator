@@ -52,14 +52,15 @@ import {
   pathsOverlap,
   SHOWN_PATHS_MAX,
   shownPaths,
-  taskFileStatus,
   unwritableNotice,
 } from "../../src/box/collisions";
+import { taskFileStatus } from "../../src/backlog/task-file";
 import { BoxParts, type PartPark, type PartRun } from "../../src/box/parts";
 import type { BoxPort } from "../../src/box/port";
 import { BOX_STAGE_ROOT } from "../../src/box/user";
 import { OfficeGit, spawnGitExec } from "../../src/git";
 import { systemSpawn } from "../../src/platform/process";
+import { backlogLayout } from "../story-store/backlog";
 
 const TREE = "a".repeat(40);
 
@@ -249,6 +250,7 @@ async function world(repo: TempRepoWithRemote): Promise<World> {
   let self: World | null = null;
   const boxes = folderBoxes(folders, () => self!);
   const parts = new BoxParts({
+    stories: backlogLayout,
     boxes,
     clock,
     stageRoot: join(realpathSync(tmp), "box-parts"),
@@ -262,6 +264,7 @@ async function world(repo: TempRepoWithRemote): Promise<World> {
     },
   });
   const collisions = new BoxCollisions({
+    stories: backlogLayout,
     boxes,
     code: { spawn: systemSpawn, clock },
     tmpRoot: realpathSync(tmp),

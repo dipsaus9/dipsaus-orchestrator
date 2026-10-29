@@ -3,13 +3,12 @@
 // deletion. Each method is its own item of the office git queue, in the engine's backlog worktree
 // `<root>/_backlog`, where the lane keeps its branch.
 
-import type { OfficeLane } from "../backlog/lane/lane";
-import { BASE_CHECKOUT_CONFIG, BASE_CHECKOUT_ENV } from "../git/hardened";
-import type { GitSession } from "../git/office";
-import type { GitStepOptions } from "../git/runner";
-import { deleteBranch, deleteRemoteBranch } from "../git/write";
-
-import { releasePathsOnBase } from "./story-git";
+import { BASE_CHECKOUT_CONFIG, BASE_CHECKOUT_ENV } from "../../git/hardened";
+import type { GitSession } from "../../git/office";
+import type { GitStepOptions } from "../../git/runner";
+import { deleteBranch, deleteRemoteBranch } from "../../git/write";
+import { releasePathsOnBase } from "../../merge/story-git";
+import type { OfficeLane } from "../lane/lane";
 
 const CHECKOUT: GitStepOptions = { config: BASE_CHECKOUT_CONFIG, env: BASE_CHECKOUT_ENV };
 

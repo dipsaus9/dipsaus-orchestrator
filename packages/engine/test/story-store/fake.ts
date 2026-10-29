@@ -11,6 +11,7 @@ import {
   parseFieldBlock,
   spliceFieldBlock,
 } from "../../src/story-store/fields/block";
+import type { PlanningHold } from "../../src/story-store/planning";
 import type {
   ListedStory,
   StoryEditor,
@@ -57,6 +58,8 @@ export class FakeStoryStore implements StoryStore {
   /** Each branch's copy of its story, by branch name. */
   readonly branches = new Map<string, PlainTask>();
   readonly milestoneNames: string[] = [];
+  /** Why the planning lane holds a story from pickup, by key; none by default. */
+  readonly holds = new Map<string, PlanningHold>();
   /** Every story lane commit, in order. */
   readonly commits: { readonly branch: string; readonly message: string }[] = [];
   readonly #unparsed = new Map<string, ListedStory>();
@@ -198,5 +201,23 @@ export class FakeStoryStore implements StoryStore {
   isStoryFile(path: string, id: string): boolean {
     const held = this.base.get(id)?.story;
     return held !== undefined && held.file === path;
+  }
+
+  /** The story's file as the base holds it; the commit is ignored, as the checkout is. */
+  async fileAt(_session: unknown, _commit: string, id: string): Promise<string | null> {
+    return this.base.get(id)?.story?.file ?? null;
+  }
+
+  /** The value of the text's first `status:` line; the fake keeps no files of its own. */
+  statusIn(text: string): string | null {
+    return /^status:[ \t]*(.+?)[ \t]*$/m.exec(text)?.[1] ?? null;
+  }
+
+  configuredFolder(): string | null {
+    return null;
+  }
+
+  planningHold(_office: unknown, key: string): PlanningHold | null {
+    return this.holds.get(key) ?? null;
   }
 }

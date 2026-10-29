@@ -241,7 +241,7 @@ export * from "./backlog/lane";
 export * from "./backlog/pr";
 export * from "./merge";
 export * from "./story-pr";
-export * from "./office/init";
+export * from "./backlog/init";
 export * from "./run";
 export * from "./hooks";
 export * from "./story-store";

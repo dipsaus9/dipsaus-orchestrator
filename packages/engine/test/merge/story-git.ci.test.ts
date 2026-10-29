@@ -200,7 +200,6 @@ async function scenario(
   const host = new RemoteHost(repo);
   const merge = new AutoMerge({
     host,
-    lane: () => undefined,
     offices: { get: () => office, config: () => OFFICE_DEFAULTS },
     clock: s.t.clock,
     stories: {

@@ -1,5 +1,6 @@
 // Backlog PRs and GitHub's auto-merge (0010 planning lane, 0002). The office's auto-merge poll
-// (`merger.ts`) runs this module at each round, after the story PRs, for each open backlog PR:
+// (`merge/merger.ts`) runs this module at each round, after the story PRs, for each open backlog
+// PR; it reaches it only through `BacklogAutoMerge`, which the composition root gives it:
 //
 // - Auto-merge on. A backlog PR whose structural check (`BacklogPrs`) passed on the branch's local
 //   head, which GitHub shows as the PR's head, with no hold label (`autorelease: pending` always, and
@@ -23,31 +24,23 @@
 
 import type { OfficeId, StoryKey } from "@dipsaus-orchestrator/contract";
 
-import { openEntries, updateEntry } from "../backlog/lane/journal";
-import type { OfficeLane } from "../backlog/lane/lane";
-import { repoOfUrl } from "../backlog/pr/feature";
-import {
-  type BacklogPrRecord,
-  clearBlocks,
-  closePrRecord,
-  findPr,
-  openPrs,
-} from "../backlog/pr/records";
-import type { NewEntry } from "../changelog/log";
-import type { OfficeConfig } from "../config";
-import type { OfficeHandle } from "../db/office";
-import type { Logger } from "../log/logger";
+import type { NewEntry } from "../../changelog/log";
+import type { OfficeHandle } from "../../db/office";
+import { autoreleasePending, holdLabelsOn } from "../../merge/gates";
+import type { BacklogAutoMerge, BacklogRoundContext } from "../../merge/merger";
 import {
   type AutoMergeHost,
   type CodeHost,
   CodeHostError,
   type HostPr,
   type PrReviewHost,
-} from "../platform/host";
-import type { PrStateReads } from "../platform/pr-state";
+} from "../../platform/host";
+import { openEntries, updateEntry } from "../lane/journal";
+import type { OfficeLane } from "../lane/lane";
 
-import type { BacklogMergeGit } from "./backlog-git";
-import { autoreleasePending, holdLabelsOn } from "./gates";
+import { repoOfUrl } from "./feature";
+import { type BacklogMergeGit, laneMergeGit } from "./merge-git";
+import { type BacklogPrRecord, clearBlocks, closePrRecord, findPr, openPrs } from "./records";
 
 /** `engine.notice` codes of backlog PRs and the auto-merge. */
 export const BACKLOG_MERGE_NOTICES = {
@@ -67,24 +60,16 @@ export interface BacklogMergeDeps {
     Pick<CodeHost, "requiredChecks">;
   /** A backlog PR's labels; without it labels are not read (tests). */
   readonly labels?: Pick<PrReviewHost, "prLabels">;
+  /** The office's planning lane once the office loaded; no backlog PRs without it. */
+  readonly lane: (office: OfficeId) => OfficeLane | undefined;
+  /** The backlog git of a lane; the real `laneMergeGit` by default. */
+  readonly backlogGit?: (lane: OfficeLane) => BacklogMergeGit;
 }
 
-/** What a round of the poll gives this module. */
-export interface BacklogMergeContext {
-  readonly officeId: OfficeId;
-  readonly office: OfficeHandle;
+/** What a round of the poll gives this module, with the office's lane and its git. */
+export interface BacklogMergeContext extends BacklogRoundContext {
   readonly lane: OfficeLane;
   readonly git: BacklogMergeGit;
-  readonly reads: Pick<PrStateReads, "viewPr" | "invalidate">;
-  readonly now: () => number;
-  readonly config: OfficeConfig;
-  /** The office's backlog PRs with auto-merge on, as the last round read them. */
-  readonly armed: Set<number>;
-  /** The office's backlog PRs whose auto-merge state a round read from GitHub. */
-  readonly seen: Set<number>;
-  once(subject: string, code: string, value: string, make: () => NewEntry): void;
-  write(fn: () => readonly NewEntry[]): void;
-  readonly logger?: Logger;
 }
 
 /** One open backlog PR, its repository, its local head and its state on GitHub. */
@@ -127,15 +112,40 @@ const messageOf = (error: unknown): string =>
 const passedOn = (record: BacklogPrRecord, head: string): boolean =>
   record.check === "passed" && record.checkedHead === head;
 
-export class BacklogMerges {
+export class BacklogMerges implements BacklogAutoMerge {
   readonly #deps: BacklogMergeDeps;
 
   constructor(deps: BacklogMergeDeps) {
     this.#deps = deps;
   }
 
-  /** One round over the office's open backlog PRs (see the file comment). */
-  async tick(ctx: BacklogMergeContext): Promise<void> {
+  /**
+   * The branch of the office's open backlog PR with auto-merge on (`armed`), or whose auto-merge
+   * state no round has read yet (not in `seen`, after a daemon start), or null: the lane holds
+   * new operations meanwhile, so the head GitHub merges is the one the structural check passed on.
+   */
+  holding(
+    office: OfficeHandle,
+    armed: ReadonlySet<number>,
+    seen: ReadonlySet<number>,
+  ): string | null {
+    const open = office.all<{ pr_number: number; branch: string }>(
+      `select pr_number, branch from backlog_prs where office_id = $office_id and state = 'open'
+        order by pr_number`,
+    );
+    const held = open.find((pr) => armed.has(pr.pr_number) || !seen.has(pr.pr_number));
+    return held?.branch ?? null;
+  }
+
+  /** One round over the office's open backlog PRs (see the file comment); none without a lane. */
+  async tick(round: BacklogRoundContext): Promise<void> {
+    const lane = this.#deps.lane(round.officeId);
+    if (lane === undefined) return;
+    const git = (this.#deps.backlogGit ?? laneMergeGit)(lane);
+    await this.#prs({ ...round, lane, git });
+  }
+
+  async #prs(ctx: BacklogMergeContext): Promise<void> {
     for (const record of openPrs(ctx.office)) {
       try {
         await this.#pr(ctx, record);

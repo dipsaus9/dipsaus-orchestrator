@@ -20,7 +20,7 @@ import { executeCommand } from "../../src/commands/execute";
 import type { OfficeHandle } from "../../src/db/office";
 import { GateStore } from "../../src/gate";
 import { EngineGit } from "../../src/git";
-import { officeStatusesReady } from "../../src/office/init";
+import { officeStatusesReady } from "../../src/backlog/init";
 import { storyRunBase, findRun, WorkRun } from "../../src/run";
 import { StoryIndex } from "../../src/stories/feature";
 import { hasLiveClaim, StoryClaims } from "../../src/worktree";
@@ -120,7 +120,7 @@ async function withRunOffice(
         startsPaused: () => null,
         claims,
         gates,
-        lane: (office) => lane.forOffice(office),
+        lane: (office) => lane.planning(office),
       });
       const s = await officeSetup(repo.root, {
         features: [

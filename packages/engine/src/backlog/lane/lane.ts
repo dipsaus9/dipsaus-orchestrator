@@ -65,6 +65,7 @@ import {
   statusPaths,
 } from "../../git/write";
 import { findStoryByKey } from "../../stories/keys";
+import { LIVE_CLAIM_REFUSAL, PlanningRefusedError } from "../../story-store/errors";
 import type { BacklogCli } from "../runner";
 
 import {
@@ -138,13 +139,9 @@ function sentence(text: string): string {
 }
 
 /** A lane refusal: the operation was not journaled. */
-export class LaneError extends Error {
-  constructor(
-    readonly code: string,
-    message: string,
-    readonly details: Readonly<Record<string, unknown>> = {},
-  ) {
-    super(message);
+export class LaneError extends PlanningRefusedError {
+  constructor(code: string, message: string, details: Readonly<Record<string, unknown>> = {}) {
+    super(code, message, details);
     this.name = "LaneError";
   }
 }
@@ -269,6 +266,15 @@ export class OfficeLane {
     return this.#git;
   }
 
+  /** The office's state database, which holds the lane's journal. */
+  get office(): OfficeHandle {
+    return this.#office;
+  }
+
+  get clock(): Clock {
+    return this.#clock;
+  }
+
   /** `<root>/_backlog`. */
   worktreePath(): string {
     return join(this.#git.worktreeRoot(), LANE_WORKTREE);
@@ -300,7 +306,7 @@ export class OfficeLane {
           this.#liveClaim(this.#office, op.key)
         ) {
           throw new LaneError(
-            "backlog.lane.liveClaim",
+            LIVE_CLAIM_REFUSAL,
             `${op.subject} has a live claim, so its changes travel in its story PR; park it with \`story.park\` first.`,
             { key: op.key, subject: op.subject },
           );

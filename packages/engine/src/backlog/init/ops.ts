@@ -21,9 +21,9 @@ import { dirname, join } from "node:path";
 
 import { z } from "zod";
 
-import type { ApplyContext, ApplyOutcome, LaneOpKind } from "../../backlog/lane/ops";
-import { listAll } from "../../backlog/list";
-import { type BacklogCli, runBacklog } from "../../backlog/runner";
+import type { ApplyContext, ApplyOutcome, LaneOpKind } from "../lane/ops";
+import { listAll } from "../list";
+import { type BacklogCli, runBacklog } from "../runner";
 
 import {
   CONFIG_FILE,

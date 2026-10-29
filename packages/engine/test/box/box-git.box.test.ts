@@ -57,6 +57,7 @@ import { systemListenHttp } from "../../src/platform/box-host";
 import { systemClock } from "../../src/platform/clock";
 import { systemSpawn } from "../../src/platform/process";
 import { AdapterHolds } from "../../src/workers/hold";
+import { backlogLayout } from "../story-store/backlog";
 
 const registers =
   process.env["DIPO_TEST_BOX"] === "1" &&
@@ -230,6 +231,7 @@ if (registers) {
               };
               const partsOf = (through: Pick<BoxPort, "execLive" | "stop">) =>
                 new BoxParts({
+                  stories: backlogLayout,
                   boxes: through,
                   clock: systemClock,
                   stageRoot: partStageRoot(join(tmp, "state")),

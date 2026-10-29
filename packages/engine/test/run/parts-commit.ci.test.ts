@@ -50,6 +50,7 @@ import { BOX_RUN_FILE } from "../../src/box/workers";
 import { BoxError, type BoxPort } from "../../src/box/port";
 import { OfficeGit, spawnGitExec } from "../../src/git";
 import { systemSpawn } from "../../src/platform/process";
+import { backlogLayout } from "../story-store/backlog";
 
 const OFFICE = "office-parts" as OfficeId;
 const BRANCH = "DIPO-1/deliver-in-parts";
@@ -280,6 +281,7 @@ async function world(repo: TempRepoWithRemote, options: WorldOptions = {}): Prom
     live: true,
   } as World;
   const parts = new BoxParts({
+    stories: backlogLayout,
     boxes: tarBox(work, calls, options.tar, () => options.onExec?.(w)),
     clock: w.clock,
     notice: (_run, notice) => w.notices.push(notice),
@@ -655,6 +657,7 @@ if (process.env["DIPO_TEST_CI"] === "1") {
       withBareRemote(async (repo) => {
         const w = await world(repo);
         const small = new BoxParts({
+          stories: backlogLayout,
           boxes: tarBox(w.work, w.calls),
           clock: new ManualClock(),
           stageRoot: w.stageRoot,

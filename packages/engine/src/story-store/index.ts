@@ -1,7 +1,13 @@
 // The StoryStore seam (0010): the interface every story read and write goes through, and the
 // story model it speaks, the same whatever tracker implements it.
 
-export { StoryParseError, StoryStoreError, TASK_FIELD_ERROR } from "./errors";
+export {
+  LIVE_CLAIM_REFUSAL,
+  PlanningRefusedError,
+  StoryParseError,
+  StoryStoreError,
+  TASK_FIELD_ERROR,
+} from "./errors";
 export {
   BLOCK_CLOSE,
   BLOCK_OPEN,
@@ -22,6 +28,28 @@ export {
   TIER_PREFIX,
 } from "./fields/labels";
 export type { StoryLabels } from "./fields/labels";
+export {
+  DISCARD_KIND,
+  DROP_KIND,
+  DropTarget,
+  EDIT_KIND,
+  EditTarget,
+  HOLD_KIND,
+  OPEN_STATES,
+  PENDING_LANE_NOTICE,
+  plannedPark,
+  PROPOSE_KIND,
+  RESUME_KIND,
+} from "./planning";
+export type {
+  JournalState,
+  PlannedChange,
+  PlannedPark,
+  PlanningHold,
+  PlanningLane,
+  PlanningStory,
+  ProposedDraft,
+} from "./planning";
 export type {
   BranchView,
   ListedStory,

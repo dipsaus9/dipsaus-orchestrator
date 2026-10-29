@@ -41,6 +41,7 @@ export {
   RESUME_KIND,
 } from "./ops";
 export type { ApplyContext, ApplyOutcome, LaneOpKind } from "./ops";
+export { DISCARDABLE_STATUSES, discardOp, PARKABLE_STATUSES, planningLane } from "./planning";
 export {
   filedDraft,
   markedDrafts,
@@ -48,5 +49,6 @@ export {
   PROPOSE_KIND,
   ProposeTarget,
   proposeKind,
+  proposeTarget,
   recordDraftId,
 } from "./propose";

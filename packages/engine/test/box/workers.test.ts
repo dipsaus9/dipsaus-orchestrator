@@ -95,6 +95,7 @@ import { systemClock } from "../../src/platform/clock";
 import { systemSpawn } from "../../src/platform/process";
 import { AdapterHolds, type HoldNotice } from "../../src/workers/hold";
 import { BOX_HOST_ADDRESS, FakeBoxes, type FakeBoxesOptions, writeNetTools } from "./fake-boxes";
+import { backlogLayout } from "../story-store/backlog";
 
 const OFFICE = "off_01J9ZK5Q8W3V4X6Y7Z00000271" as OfficeId;
 const RUN = "run_01J9ZK5Q8W3V4X6Y7Z00000001";
@@ -1218,6 +1219,7 @@ async function treeWorld(
   });
   boxes = w.boxes;
   parts = new BoxParts({
+    stories: backlogLayout,
     boxes: w.boxes,
     clock: systemClock,
     stageRoot: join(tmp, "box-parts"),

@@ -6,21 +6,10 @@
 import type { StoryKey } from "@dipsaus-orchestrator/contract";
 
 import type { OfficeHandle } from "../../db/office";
+import { type JournalState, OPEN_STATES, PENDING_LANE_NOTICE } from "../../story-store/planning";
 
-export type JournalState =
-  | "pending"
-  | "applied"
-  | "committed"
-  | "pushed"
-  | "merged"
-  | "dropped"
-  | "withdrawn";
-
-/** States of an operation that is not yet on the base and not given up. */
-export const OPEN_STATES: readonly JournalState[] = ["pending", "applied", "committed", "pushed"];
-
-/** The notice text a pending lane-b operation gives a skipped story (0010 section 2). */
-export const PENDING_LANE_NOTICE = "pending backlog PR";
+export { OPEN_STATES, PENDING_LANE_NOTICE };
+export type { JournalState };
 
 /** A planning operation as its caller hands it to the lane. */
 export interface LaneOp {

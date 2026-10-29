@@ -46,6 +46,7 @@ import type { BoxPort } from "../../src/box/port";
 import { BOX_STAGE_ROOT } from "../../src/box/user";
 import { OfficeGit, spawnGitExec } from "../../src/git";
 import { systemSpawn } from "../../src/platform/process";
+import { backlogLayout } from "../story-store/backlog";
 
 // ---- the flow on real git -------------------------------------------------------------------------
 
@@ -233,6 +234,7 @@ async function world(repo: TempRepoWithRemote): Promise<World> {
   let self: World | null = null;
   const boxes = folderBoxes(folders, () => self!);
   const parts = new BoxParts({
+    stories: backlogLayout,
     boxes,
     clock,
     stageRoot: join(realpathSync(tmp), "box-parts"),
@@ -246,6 +248,7 @@ async function world(repo: TempRepoWithRemote): Promise<World> {
     },
   });
   const collisions = new BoxCollisions({
+    stories: backlogLayout,
     boxes,
     code: { spawn: systemSpawn, clock },
     tmpRoot: realpathSync(tmp),

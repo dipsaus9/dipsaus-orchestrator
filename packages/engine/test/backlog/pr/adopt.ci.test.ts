@@ -16,7 +16,7 @@ import { git, type TempRepoWithRemote, withBareRemote } from "@dipsaus-orchestra
 import { viewStory } from "../../../src/backlog/fields/write";
 import { allEntries, LANE_NOTICES, OfficeLane, pendingLaneOp } from "../../../src/backlog/lane";
 import { insertEntry, updateEntry } from "../../../src/backlog/lane/journal";
-import { BacklogPrs, findPr, PR_NOTICES } from "../../../src/backlog/pr";
+import { BacklogMerges, BacklogPrs, findPr, PR_NOTICES } from "../../../src/backlog/pr";
 import { gateStoryFromView } from "../../../src/gate/input";
 import { gateContentHash, storeGateDecision } from "../../../src/gate/store";
 import { AutoMerge } from "../../../src/merge";
@@ -100,7 +100,7 @@ async function database(repo: TempRepoWithRemote, host: RemoteHost, stateDir: st
   });
   const merge = new AutoMerge({
     host,
-    lane: () => lane,
+    backlog: new BacklogMerges({ host, lane: () => lane }),
     offices: { get: () => base.office },
     clock: base.t.clock,
   });

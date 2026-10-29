@@ -241,6 +241,8 @@ describe("the daemon's collision check of box runs (DIPO-277)", () => {
     const clock = new ManualClock();
     let passes = 0;
     const collisions = new BoxCollisions({
+      // No story file is read: no catch-up runs.
+      stories: { fileAt: async () => null, statusIn: () => null },
       boxes: {
         copyIn: async () => {},
         exec: async () => ({ code: 0, stdout: "", stderr: "" }),

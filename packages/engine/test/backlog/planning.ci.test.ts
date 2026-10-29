@@ -19,6 +19,7 @@ import {
   editKind,
   HOLD_KIND,
   OfficeLane,
+  planningLane,
   RESUME_KIND,
 } from "../../src/backlog/lane";
 import { executeCommand } from "../../src/commands/execute";
@@ -79,7 +80,7 @@ function world(s: ClaimSetup) {
   });
   const closed: Closed[] = [];
   const planning = new StoryPlanning({
-    lane: () => lane,
+    lane: () => planningLane(lane),
     git: () => s.git,
     host: {
       closePr: async (repo, number, comment) => {

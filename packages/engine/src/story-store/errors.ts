@@ -13,3 +13,18 @@ export class StoryParseError extends StoryStoreError {}
  * `scope-violation` (0021).
  */
 export const TASK_FIELD_ERROR = "story.unknownTaskField";
+
+/** The planning lane refused a change: nothing was journaled (0010). */
+export class PlanningRefusedError extends StoryStoreError {
+  constructor(
+    readonly code: string,
+    message: string,
+    readonly details: Readonly<Record<string, unknown>> = {},
+  ) {
+    super(message);
+    this.name = "PlanningRefusedError";
+  }
+}
+
+/** The `PlanningRefusedError` code of a change refused because the story has a live claim. */
+export const LIVE_CLAIM_REFUSAL = "backlog.lane.liveClaim";

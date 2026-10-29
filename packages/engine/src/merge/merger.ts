@@ -1,9 +1,9 @@
 // The office's auto-merge poll (0002, 0010). dipo merges nothing itself: it turns GitHub's
 // auto-merge on for a story PR whose merge gate was approved (`stories.ts`) and for a backlog PR
-// whose structural check passed (`backlog.ts`), and GitHub merges once its own required checks pass
-// on the head dipo named. Each round reads every open PR again and turns auto-merge off when
-// something stops the merge. Nothing of it is kept in the state database: whether auto-merge is on
-// is GitHub's fact, read with the PR (`HostPr.autoMerge`).
+// whose structural check passed (the planning lane's `BacklogAutoMerge`, 0010), and GitHub merges
+// once its own required checks pass on the head dipo named. Each round reads every open PR again
+// and turns auto-merge off when something stops the merge. Nothing of it is kept in the state
+// database: whether auto-merge is on is GitHub's fact, read with the PR (`HostPr.autoMerge`).
 //
 // With the office's PR-state poll (`prState`) the auto-merge runs as part of each of its rounds,
 // after the story-PR poll, and reads PR state through the reads the round gave it; without it, it
@@ -13,17 +13,14 @@
 
 import type { Clock, OfficeId, RunId, TimerHandle } from "@dipsaus-orchestrator/contract";
 
-import type { OfficeLane } from "../backlog/lane/lane";
 import { appendEntries, type NewEntry } from "../changelog/log";
 import type { FeatureModule } from "../commands/registry";
 import { OFFICE_DEFAULTS, type OfficeConfig } from "../config";
 import type { OfficeHandle } from "../db/office";
 import type { Logger } from "../log/logger";
-import type { AutoMergeHost, CodeHost, PrReviewHost } from "../platform/host";
+import type { AutoMergeHost, CodeHost } from "../platform/host";
 import type { PrStatePoll, PrStateReads } from "../platform/pr-state";
 
-import { BacklogMerges } from "./backlog";
-import { type BacklogMergeGit, laneMergeGit } from "./backlog-git";
 import type { StoredMergeGate } from "./gates";
 import { type StoryMergeContext, type StoryMergeDeps, StoryMerges } from "./stories";
 
@@ -33,23 +30,46 @@ export const AUTO_MERGE_STEP = "merge.watch";
 /** The `engine.notice` code of a round that failed. */
 export const AUTO_MERGE_FAILED = "merge.failed";
 
+/** What a round gives the backlog PRs' part of it. */
+export interface BacklogRoundContext extends StoryMergeContext {
+  readonly now: () => number;
+  /** The office's backlog PRs with auto-merge on, as the last round read them. */
+  readonly armed: Set<number>;
+  /** The office's backlog PRs whose auto-merge state a round read from GitHub. */
+  readonly seen: Set<number>;
+}
+
+/**
+ * The backlog PRs' part of the auto-merge: the planning lane's backlog PRs (0010), which the
+ * StoryStore's implementation merges; the composition root gives it.
+ */
+export interface BacklogAutoMerge {
+  /** One round over the office's open backlog PRs; nothing while the office has no lane. */
+  tick(round: BacklogRoundContext): Promise<void>;
+  /**
+   * The branch of the office's open backlog PR with auto-merge on (`armed`) or not read yet (not
+   * in `seen`), or null: the lane holds new operations meanwhile.
+   */
+  holding(
+    office: OfficeHandle,
+    armed: ReadonlySet<number>,
+    seen: ReadonlySet<number>,
+  ): string | null;
+}
+
 export interface AutoMergeDeps {
   /** Reads PRs and their required checks, and turns auto-merge on and off. */
   readonly host: Pick<CodeHost, "viewPr" | "requiredChecks"> &
     Pick<AutoMergeHost, "enableAutoMerge" | "disableAutoMerge">;
-  /** The office's planning lane once the office loaded; no backlog PRs without it. */
-  readonly lane: (office: OfficeId) => OfficeLane | undefined;
+  /** The backlog PRs' part of each round; without it only story PRs get auto-merge. */
+  readonly backlog?: BacklogAutoMerge;
   readonly offices: {
     get(office: OfficeId): OfficeHandle | undefined;
     config?(office: OfficeId): OfficeConfig | undefined;
   };
   readonly clock: Clock;
-  /** A backlog PR's labels; without it a backlog PR's labels are not read (tests). */
-  readonly labels?: Pick<PrReviewHost, "prLabels">;
   /** Story PRs; without them only backlog PRs get auto-merge. */
   readonly stories?: Omit<StoryMergeDeps, "host">;
-  /** The backlog git of a lane; the real `laneMergeGit` by default. */
-  readonly backlogGit?: (lane: OfficeLane) => BacklogMergeGit;
   readonly onChanged?: (office: OfficeId) => void;
   readonly logger?: Logger;
   /** The office's one PR-state poll: the auto-merge runs in its rounds instead of its own timer. */
@@ -83,17 +103,12 @@ export class AutoMerge {
   readonly #deps: AutoMergeDeps;
   readonly #offices = new Map<OfficeId, OfficeState>();
   readonly #stories: StoryMerges | null;
-  readonly #backlog: BacklogMerges;
   #stopped = false;
 
   constructor(deps: AutoMergeDeps) {
     this.#deps = deps;
     this.#stories =
       deps.stories === undefined ? null : new StoryMerges({ ...deps.stories, host: deps.host });
-    this.#backlog = new BacklogMerges({
-      host: deps.host,
-      ...(deps.labels === undefined ? {} : { labels: deps.labels }),
-    });
     deps.prState?.subscribe("merge", async (office, reads) => {
       const state = this.#offices.get(office);
       if (state === undefined || this.#deps.offices.get(office) === undefined) return;
@@ -111,12 +126,7 @@ export class AutoMerge {
     const handle = this.#deps.offices.get(office);
     if (handle === undefined) return null;
     const state = this.#stateOf(office);
-    const open = handle.all<{ pr_number: number; branch: string }>(
-      `select pr_number, branch from backlog_prs where office_id = $office_id and state = 'open'
-        order by pr_number`,
-    );
-    const held = open.find((pr) => state.armed.has(pr.pr_number) || !state.seen.has(pr.pr_number));
-    return held?.branch ?? null;
+    return this.#deps.backlog?.holding(handle, state.armed, state.seen) ?? null;
   }
 
   /**
@@ -281,18 +291,12 @@ export class AutoMerge {
     const ctx = this.#context(office, state, handle);
     try {
       if (this.#stories !== null) await this.#stories.tick(ctx);
-      const lane = this.#deps.lane(office);
-      if (lane !== undefined) {
-        const git = (this.#deps.backlogGit ?? laneMergeGit)(lane);
-        await this.#backlog.tick({
-          ...ctx,
-          lane,
-          git,
-          now: () => this.#deps.clock.now(),
-          armed: state.armed,
-          seen: state.seen,
-        });
-      }
+      await this.#deps.backlog?.tick({
+        ...ctx,
+        now: () => this.#deps.clock.now(),
+        armed: state.armed,
+        seen: state.seen,
+      });
     } catch (error) {
       const reason = reasonOf(error);
       ctx.once("office", AUTO_MERGE_FAILED, reason, () => ({

@@ -553,6 +553,7 @@ function daemonBoxWorkers(
   const delivery = new BoxParts({
     boxes,
     clock,
+    stories: options.storyStore,
     // This daemon's own folder of part stages, in its state folder, so no other daemon or user
     // shares it and a daemon start sweeps only its own (DIPO-290).
     stageRoot: partStageRoot(options.stateDir),
@@ -662,6 +663,7 @@ function boxCollisions(
   const service = conflicts.service;
   return new BoxCollisions({
     boxes: boxed.boxes,
+    stories: options.storyStore,
     code: { spawn: systemSpawn, clock },
     tmpRoot: realDir(options.tmpRoot),
     runs: () =>
@@ -939,6 +941,7 @@ export function daemonRuns(options: DaemonRunsOptions): DaemonRuns {
     boxed === null
       ? null
       : new StoryConflicts({
+          stories: options.storyStore,
           clock,
           ids: options.ids,
           offices: options.offices,
@@ -1071,6 +1074,7 @@ export function daemonRuns(options: DaemonRunsOptions): DaemonRuns {
       collisions: () => collisions,
       warn: (message, fields) => options.logger.warn(message, fields),
     }),
+    stories: options.storyStore,
     ...(options.storyPr?.replace === undefined
       ? {}
       : {
