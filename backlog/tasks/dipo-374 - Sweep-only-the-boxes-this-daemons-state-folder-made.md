@@ -4,6 +4,7 @@ title: Sweep only the boxes this daemon's state folder made
 status: Refined
 assignee: []
 created_date: '2026-10-29 09:29'
+updated_date: '2026-10-29 09:32'
 labels:
   - 'tier:S'
   - 'slice:prune'
@@ -39,7 +40,7 @@ test_plan:
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 Every box dipo makes carries a label naming the state folder (or an id kept in it) that made it, and the start sweep deletes only boxes with its own label
-- [ ] #2 A box without the label, or with another state folder's label, is never deleted by the sweep, with a test
+- [ ] #1 Every box dipo makes carries a second label (for example dipo.home) naming the state folder that made it, the existing run-id label stays as reconcile reads it, and the start sweep deletes only helper boxes (fill, build, Safe-Chain, review) with its own state folder's label
+- [ ] #2 Tests: a helper box with this folder's label is deleted; one without the label or with another folder's label is kept; a dipo-<run id> run box and a test box (TEST_BOX_RUN_PREFIX) are never touched by the helper sweep. Boxes made before this change have no label and are kept once, which is accepted
 - [ ] #3 Each real-box test deletes the boxes it made in afterAll, also when it fails, and a leaked box from an earlier run is reported by the next run of that test
 <!-- AC:END -->

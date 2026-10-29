@@ -4,6 +4,7 @@ title: Treat build caches as rebuildable in the leftover worktree sweep
 status: Refined
 assignee: []
 created_date: '2026-10-29 09:29'
+updated_date: '2026-10-29 09:32'
 labels:
   - 'tier:S'
   - 'slice:prune'
@@ -38,7 +39,7 @@ test_plan:
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 The office configuration names ignored paths that are rebuildable (default: node_modules/, .DS_Store and .tsbuild/), and the sweep removes a leftover whose other paths are all saved in git
-- [ ] #2 An ignored path not on that list, such as .env, still keeps the worktree, with a test against real git
+- [ ] #1 The office configuration names ignored paths that are rebuildable (default: node_modules/, .DS_Store, .tsbuild/ and .claude/.cc-writes/), matched as a folder at any depth or as an exact nested path, and the sweep removes a leftover whose other paths are all saved in git
+- [ ] #2 An ignored path not on that list, such as .env, still keeps the worktree, with a test against real git, and so does every case the sweep keeps today (a change git does not hold, a detached HEAD, more than 500 changed paths)
 - [ ] #3 The desk text of a kept leftover lists only the paths that keep it
 <!-- AC:END -->
