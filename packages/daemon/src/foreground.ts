@@ -1215,6 +1215,8 @@ async function serve(run: Run, lock: HeldLock): Promise<number> {
       }),
       ...(options.features ?? []),
     ]);
+    // The office load steps in the order they run; a test keeps the order unchanged (DIPO-318).
+    logger.info("office load steps", { steps: registry.loadSteps().map((step) => step.name) });
     const contract = new ContractServer({
       registry,
       offices,
