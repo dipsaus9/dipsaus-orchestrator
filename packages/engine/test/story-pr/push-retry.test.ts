@@ -163,6 +163,7 @@ async function inWorld(fn: (w: World) => Promise<void>): Promise<void> {
         },
         offices: { get: () => office, config: () => world.config },
         clock: t.clock,
+        checkout: () => undefined,
       }),
     };
     try {

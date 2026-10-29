@@ -216,6 +216,7 @@ async function inWorld(fn: (w: World) => Promise<void>, setup: WorldSetup = {}):
           config: () => world.config,
         },
         clock: t.clock,
+        checkout: () => undefined,
         required: { requiredCheckNames: async () => [...world.requiredNames] },
       }),
     };

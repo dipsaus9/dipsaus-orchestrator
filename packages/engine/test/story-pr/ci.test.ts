@@ -256,6 +256,7 @@ async function inWorld(
         git: { read: async () => world.facts },
         offices: { get: () => office, config: () => world.config },
         clock: t.clock,
+        checkout: () => undefined,
         logger,
         boxRun: () => setup.box === true,
         // The base requires ci-ok and pr-title on GitHub unless a test says otherwise.

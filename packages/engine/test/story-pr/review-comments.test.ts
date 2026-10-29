@@ -2,16 +2,22 @@
 // DIPO-152, with a fake code host and a fake story git on a migrated state database.
 
 import { describe, expect, it } from "bun:test";
+import { mkdirSync, writeFileSync } from "node:fs";
+import { join } from "node:path";
 
 import {
+  type OfficeId,
   type ReviewFinding,
   RunId,
   type RunRecord,
   type StoryKey,
 } from "@dipsaus-orchestrator/contract";
+import { ManualClock, withTempDir } from "@dipsaus-orchestrator/testkit";
 
 import { OFFICE_DEFAULTS, type OfficeConfig } from "../../src/config";
 import type { OfficeHandle } from "../../src/db/office";
+import { EngineGit } from "../../src/git";
+import type { OfficeLoadContext } from "../../src/office/steps";
 import type { EnvSecret } from "../../src/run/env-secrets";
 import { yieldToEventLoop } from "../../src/platform/clock";
 import {
@@ -168,7 +174,12 @@ interface World {
 
 async function inWorld(
   fn: (w: World) => Promise<void>,
-  setup: { ended?: "in-review" | "reviewed"; config?: OfficeConfig } = {},
+  setup: {
+    ended?: "in-review" | "reviewed";
+    config?: OfficeConfig;
+    /** The checkout lookup, read with the default env-file reader instead of `world.secrets`. */
+    checkout?: (office: OfficeId) => string | undefined;
+  } = {},
 ): Promise<void> {
   await withOffice(async (t, office) => {
     pass(t, office, [task("DIPO-1", { status: "In Review" })]);
@@ -252,8 +263,9 @@ async function inWorld(
         git: { read: async () => FACTS } satisfies StoryPrGit,
         offices: { get: () => office, config: () => world.config },
         clock: t.clock,
-        checkout: () => "/office",
-        secrets: () => world.secrets(),
+        ...(setup.checkout === undefined
+          ? { checkout: () => "/office", secrets: () => world.secrets() }
+          : { checkout: setup.checkout }),
       }),
     };
     if (setup.ended === "reviewed") {
@@ -453,6 +465,91 @@ describe("posting the review comment", () => {
       w.round(2, "approved", { commit: "d".repeat(40) });
       await w.prs.retry(id);
       expect(w.host.bodies.at(-1)).toContain("- review: round 2 approved at `dddddddd`");
+    });
+  });
+});
+
+describe("the review comment with the daemon's checkout wiring (DIPO-371)", () => {
+  // The office copies `.env`; the env files are read from the main checkout the office's git
+  // recorded at its load, as the daemon passes it to StoryPrs.
+  const copying: OfficeConfig = {
+    ...OFFICE_DEFAULTS,
+    worktree: {
+      ...OFFICE_DEFAULTS.worktree,
+      files: [{ path: "config/.env", mode: "copy", required: false }],
+    },
+  };
+  const daemonWiring = (checkout: string) => {
+    const engineGit = new EngineGit({
+      exec: async () => ({ code: 0, stdout: "git version 2.50.0\n", stderr: "" }),
+      env: {},
+    });
+    return {
+      checkout: (office: OfficeId) => engineGit.forOffice(office)?.mainWorktree,
+      load: async (w: World) => {
+        const refused = await engineGit.attach({
+          officeId: w.office.officeId,
+          office: w.office,
+          path: checkout,
+          commonDir: join(checkout, ".git"),
+          config: copying,
+          clock: new ManualClock(),
+        } as unknown as OfficeLoadContext);
+        expect(refused).toBeNull();
+      },
+    };
+  };
+
+  it("posts the comment with the main checkout's env values redacted once the office's git knows it", async () => {
+    await withTempDir(async (dir) => {
+      mkdirSync(join(dir, "config"));
+      writeFileSync(join(dir, "config/.env"), `TOKEN=${SECRET}\n`);
+      const wiring = daemonWiring(dir);
+      await inWorld(
+        async (w) => {
+          const id = w.office.officeId;
+          w.round(1, "blocked", { summary: `Do not commit ${SECRET}.` });
+          await w.prs.sync(id, w.run);
+          await w.prs.retry(id);
+          // Before the office's git has loaded, the checkout is not known: held back.
+          expect(w.host.comments).toHaveLength(0);
+          const unknown = notices(w.office, STORY_PR_NOTICES.commentFailed);
+          expect(unknown).toHaveLength(1);
+          expect((unknown[0]?.data as { text: string } | undefined)?.text).toContain(
+            "main checkout is not known",
+          );
+          await wiring.load(w);
+          await w.prs.retry(id);
+          expect(w.host.comments).toHaveLength(1);
+          const posted = w.host.comments[0] as string;
+          expect(posted).not.toContain(SECRET);
+          expect(posted).toContain("Do not commit [redacted].");
+          expect(verdictOf(w, 0).commentUrl).not.toBeNull();
+        },
+        { config: copying, checkout: wiring.checkout },
+      );
+    });
+  });
+
+  it("still holds the comment back when the checkout's env file cannot be read", async () => {
+    await withTempDir(async (dir) => {
+      // `config` is a file, so `config/.env` fails with ENOTDIR (not an absent file), as root too.
+      writeFileSync(join(dir, "config"), "not a directory\n");
+      const wiring = daemonWiring(dir);
+      await inWorld(
+        async (w) => {
+          const id = w.office.officeId;
+          await wiring.load(w);
+          w.round(1, "blocked", { summary: `Do not commit ${SECRET}.` });
+          await w.prs.sync(id, w.run);
+          await w.prs.retry(id);
+          expect(w.host.comments).toHaveLength(0);
+          const failed = notices(w.office, STORY_PR_NOTICES.commentFailed);
+          expect(failed).toHaveLength(1);
+          expect((failed[0]?.data as { text: string } | undefined)?.text).toContain("ENOTDIR");
+        },
+        { config: copying, checkout: wiring.checkout },
+      );
     });
   });
 });

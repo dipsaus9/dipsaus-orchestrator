@@ -204,8 +204,8 @@ export interface StoryPrsDeps {
    * the host reports as required count (tests).
    */
   readonly required?: Pick<AutoMergeHost, "requiredCheckNames">;
-  /** The office's main checkout, where its env files are read; unknown without it. */
-  readonly checkout?: (office: OfficeId) => string | undefined;
+  /** The office's main checkout, where its env files are read; undefined when it is not known. */
+  readonly checkout: (office: OfficeId) => string | undefined;
   /**
    * Reads the values of the office's env files for the review comments (DIPO-152); the files of
    * `readEnvSecrets` by default. It throws when a file cannot be read.
@@ -473,7 +473,7 @@ export class StoryPrs {
       let body: string;
       try {
         const secrets = officeEnvSecrets(
-          this.#deps.checkout?.(officeId),
+          this.#deps.checkout(officeId),
           this.#config(officeId).worktree.files,
           this.#deps.secrets,
         );
