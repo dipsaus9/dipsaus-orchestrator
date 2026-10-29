@@ -1,22 +1,4 @@
-version: 13
-# The worker sandbox reads the default toolchain paths (~/.bun, ~/.npm, ~/.cache). oxfmt and
-# oxlint run on node, so `bun run verify` passes inside a worker only when the sandbox can read
-# node too (DIPO-115). Where node lives is machine-specific, so it is not listed here: on a machine
-# with node under nvm, add these lines to .dipo/office.local.yaml (not committed). Its
-# sandbox.toolchainReadPaths entries are added to this office's list (DIPO-172):
-#
-#   version: 4
-#   sandbox:
-#     toolchainReadPaths: ["~/.nvm/versions/node"]
-#
-# Only the node versions, not nvm's own checkout. Keep npm tokens in ~/.npmrc: a run is refused
-# when a node version's etc/npmrc under a read path, or a .npmrc at the root of one, holds one.
-
-# dipo opens the story PR on this repository again (0019 amendment of 2026-10-22): CI on that PR is
-# the verify of a box run (0021 amendment of 2026-10-22). It was off from 2026-10-19 (DIPO-210)
-# while the maintainer side merged its own finish-branch PRs.
-storyPr:
-  open: true
+version: 14
 
 # The box image gets jq (DIPO-372): scripts/ci-light-path.test.ts runs the ci-ok step of ci.yml,
 # which reads the needs context with jq, so bun run verify needs it in the box as on the runner.
