@@ -1,0 +1,10 @@
+# A version 5 office file: version 5 adds review and the rest of mergeSlot (DIPO-139).
+version: 5
+review: { maxRounds: 2 }
+mergeSlot:
+  requiredChecks: [ci-ok]
+  autoMerge: false # the maintainer approves every merge
+  conflictAttempts: 4
+  ciAttempts: 3
+  holdLabels: [hold]
+  checksWaitMinutes: 45

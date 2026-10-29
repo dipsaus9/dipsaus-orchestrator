@@ -108,9 +108,9 @@ describe("the worker port seam (DIPO-113)", () => {
     expect(built.reportSchema).toBe(reportSchema.implement);
   });
 
-  it("gives the developer the web tools with web, and the reviewer only its own tools even with web (DIPO-164)", () => {
+  it("always gives the developer the web tools, and the reviewer only its own tools (0008, DIPO-164)", () => {
     const tier = OFFICE_DEFAULTS.tiers.S;
-    const specOf = (facts: { web?: boolean; reviewer?: typeof OFFICE_DEFAULTS.review }) =>
+    const specOf = (facts: { reviewer?: typeof OFFICE_DEFAULTS.review }) =>
       runWorkerSpec(
         { reportSchema: REPORT_JSON_SCHEMAS },
         { runId: "run_1", agent: "agt_1", caps: tier, ...facts },
@@ -118,10 +118,9 @@ describe("the worker port seam (DIPO-113)", () => {
         "task",
         { id: "s-1", resume: false },
       );
-    // The engine says only whether the web is on; the adapter names the tools (DIPO-318).
-    expect(specOf({ web: true }).web).toBe(true);
-    expect(specOf({ web: false }).web).toBe(false);
-    const reviewer = specOf({ web: false, reviewer: OFFICE_DEFAULTS.review });
+    // The engine says only that the web is on; the adapter names the tools (DIPO-318).
+    expect(specOf({}).web).toBe(true);
+    const reviewer = specOf({ reviewer: OFFICE_DEFAULTS.review });
     expect(reviewer.kind).toBe("review");
     expect(reviewer.web).toBe(false);
   });
@@ -197,14 +196,14 @@ describe("the Claude CLI adapter of one run", () => {
     expect(() => adapter.plan(spec())).toThrow(PlanError);
   });
 
-  it("builds the launch context from the run's paths, the office sandbox and the daemon", () => {
+  it("builds the launch context from the run's paths and the daemon", () => {
     const deps = {
       claudePath: `${HOME}/.local/bin/claude`,
       home: HOME,
       env: { PATH: "/usr/bin:/bin", HOME },
       pluginFiles: { read: () => undefined, dirs: () => [] },
     };
-    const ctx = claudeLaunchContext(deps, PATHS, OFFICE_DEFAULTS);
+    const ctx = claudeLaunchContext(deps, PATHS);
     expect(ctx).toEqual({
       claudePath: deps.claudePath,
       home: HOME,
@@ -214,7 +213,6 @@ describe("the Claude CLI adapter of one run", () => {
       runDir: RUN_DIR,
       tmpDir: TMP_DIR,
       shortTmpDir: SHORT_TMP_DIR,
-      sandbox: OFFICE_DEFAULTS.sandbox,
       plugins: { installed: [], allowed: [] },
     });
     const port = claudeWorkerPort({
@@ -248,7 +246,7 @@ describe("the Claude CLI adapter of one run", () => {
     expect(prepared.plan.lineScrub).toEqual(CLAUDE_LINE_SCRUB);
   });
 
-  it("switches off every installed plugin for a session, whatever worker.plugins says, reading the list per launch (DIPO-108)", () => {
+  it("switches off every installed plugin for a session, reading the list per launch (DIPO-108)", () => {
     const read: string[] = [];
     let installed = ["warp@claude-code-warp"];
     const deps = {
@@ -267,12 +265,8 @@ describe("the Claude CLI adapter of one run", () => {
         dirs: () => [],
       },
     };
-    const config = {
-      ...OFFICE_DEFAULTS,
-      worker: { ...OFFICE_DEFAULTS.worker, plugins: ["dipsaus-ai@dipsaus-ai"] },
-    };
     const settingsOf = () => {
-      const files = claudeCliAdapter(claudeLaunchContext(deps, PATHS, config), {
+      const files = claudeCliAdapter(claudeLaunchContext(deps, PATHS), {
         spawn: neverSpawn,
         clock,
       }).plan(sessionSpec()).files;
@@ -303,7 +297,6 @@ describe("the Claude CLI adapter of one run", () => {
         pluginFiles: { read: () => "{ not json", dirs: () => [] },
       },
       PATHS,
-      OFFICE_DEFAULTS,
     );
     const adapter = claudeCliAdapter(ctx, { spawn: neverSpawn, clock });
     expect(() => adapter.plan(sessionSpec())).toThrow(/installed_plugins\.json/);
@@ -315,7 +308,7 @@ describe("the Claude CLI adapter of one run", () => {
     expect(step.events).toEqual([]);
   });
 
-  it("checks system/init against worker.plugins in the adapter's parser (DIPO-108)", () => {
+  it("refuses a system/init that lists a plugin in the adapter's parser (DIPO-108)", () => {
     const ctx = claudeLaunchContext(
       {
         claudePath: `${HOME}/.local/bin/claude`,
@@ -324,7 +317,6 @@ describe("the Claude CLI adapter of one run", () => {
         pluginFiles: { read: () => undefined, dirs: () => [] },
       },
       PATHS,
-      OFFICE_DEFAULTS,
     );
     const adapter = claudeCliAdapter(ctx, { spawn: neverSpawn, clock });
     const init = {
@@ -350,15 +342,11 @@ describe("the Claude CLI adapter of one run", () => {
     expect(state.startFailure).toContain("warp@claude-code-warp");
     const result = adapter.result(step.state, { code: 143, signal: null });
     expect(result.outcome).toBe("startFailed");
-    expect(result.detail).toContain("plugin warp@claude-code-warp, not in worker.plugins");
+    expect(result.detail).toContain("plugin warp@claude-code-warp, but no session loads a plugin");
     expect(result.park).toBeUndefined();
   });
 
-  it("refuses a reviewer whose system/init lists a plugin, even one worker.plugins allows (DIPO-145)", () => {
-    const config = {
-      ...OFFICE_DEFAULTS,
-      worker: { ...OFFICE_DEFAULTS.worker, plugins: ["warp@claude-code-warp"] },
-    };
+  it("refuses a reviewer whose system/init lists a plugin, as any session (DIPO-145)", () => {
     const ctx = claudeLaunchContext(
       {
         claudePath: `${HOME}/.local/bin/claude`,
@@ -367,7 +355,6 @@ describe("the Claude CLI adapter of one run", () => {
         pluginFiles: { read: () => undefined, dirs: () => [] },
       },
       PATHS,
-      config,
     );
     const port = claudeWorkerPort({
       claudePath: `${HOME}/.local/bin/claude`,
@@ -381,12 +368,12 @@ describe("the Claude CLI adapter of one run", () => {
     const warp = [{ name: "warp", source: "warp@claude-code-warp", path: "/x" }];
     const builtin = [{ name: "agents-md", source: "cc-plugin-agents-md@builtin", path: "/b" }];
     const review = spec({ kind: "review", model: "opus" });
-    // The worker of the same office may load warp; the reviewer may not.
+    // No session loads a plugin (0008): the developer refuses warp too.
     const worker = adapter.interpret(
       reviewerInit(warp),
       port.initialState(spec({ model: "opus" })),
     );
-    expect(worker.events.map((event) => event.t)).toEqual(["started"]);
+    expect(worker.events.map((event) => event.t)).toEqual(["startRefused", "started"]);
     const reviewer = adapter.interpret(reviewerInit(warp), port.initialState(review));
     expect(reviewer.events.map((event) => event.t)).toEqual(["startRefused", "started"]);
     const result = adapter.result(reviewer.state, { code: 143, signal: null });
@@ -420,7 +407,7 @@ describe("the Claude CLI adapter of one run", () => {
 
   it("refuses to plan without a resolved claude", () => {
     expect(() =>
-      claudeLaunchContext({ claudePath: undefined, home: HOME, env: {} }, PATHS, OFFICE_DEFAULTS),
+      claudeLaunchContext({ claudePath: undefined, home: HOME, env: {} }, PATHS),
     ).toThrow(PlanError);
   });
 

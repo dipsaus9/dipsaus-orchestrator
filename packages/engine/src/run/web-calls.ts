@@ -123,7 +123,7 @@ export class WebCalls {
     }
     return officeEnvSecrets(
       this.#deps.checkout(office.officeId),
-      config.worktree.files,
+      config.box.files ?? [],
       this.#deps.secrets,
     );
   }

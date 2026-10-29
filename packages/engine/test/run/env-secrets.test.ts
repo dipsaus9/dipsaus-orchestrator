@@ -9,7 +9,7 @@ import { join } from "node:path";
 import { type RunId, StoryId } from "@dipsaus-orchestrator/contract";
 import { withTempDir } from "@dipsaus-orchestrator/testkit";
 
-import { OFFICE_DEFAULTS, type OfficeConfig } from "../../src/config";
+import { OFFICE_DEFAULTS } from "../../src/config";
 import type { OfficeHandle } from "../../src/db/office";
 import { endRun, insertRun, runOutcome } from "../../src/run";
 import {
@@ -105,18 +105,12 @@ describe("findSecret (pure)", () => {
 });
 
 describe("readEnvSecrets", () => {
-  it("reads the copy entries of worktree.files, files and directories, and skips links and absent files", () =>
+  it("reads the entries of box.files, files and directories, and skips absent files", () =>
     withTempDir((dir) => {
       mkdirSync(join(dir, "apps/web"), { recursive: true });
       writeFileSync(join(dir, ".env"), "STRIPE_KEY=sk-live-9f8e7d6c5b4a\n");
       writeFileSync(join(dir, "apps/web/.env.local"), "DB_PASSWORD=hunter2hunter2\n");
-      writeFileSync(join(dir, "linked.env"), "LINKED=should-not-be-read\n");
-      const files: OfficeConfig["worktree"]["files"] = [
-        { path: ".env", mode: "copy", required: false },
-        { path: "apps/", mode: "copy", required: false },
-        { path: "missing/.env", mode: "copy", required: false },
-        { path: "linked.env", mode: "link", required: false },
-      ];
+      const files = [{ path: ".env" }, { path: "apps/" }, { path: "missing/.env" }];
       expect(readEnvSecrets(dir, files)).toEqual([
         { file: ".env", key: "STRIPE_KEY", value: "sk-live-9f8e7d6c5b4a" },
         { file: "apps/web/.env.local", key: "DB_PASSWORD", value: "hunter2hunter2" },

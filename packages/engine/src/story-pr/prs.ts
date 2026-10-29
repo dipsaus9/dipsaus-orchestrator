@@ -14,7 +14,7 @@
 //
 // A failed In Review push (DIPO-315). Each poll first pushes again, never forced, the branch of
 // every run open at In Review waiting for its review whose claim's `pushed_at` is null or earlier than the run's
-// end (`runsToPush`), whatever `storyPr.open` says, since the review waits for the head on the
+// end (`runsToPush`), since the review waits for the head on the
 // remote (`pendingReviews`). A push that reaches the remote records `pushed_at` and syncs the PR
 // at once (the PR is opened below when it has none); one that finds no remote records
 // `no_remote_at`; a failure is a `pr.pushFailed` notice, once per cause, and is tried again.
@@ -28,7 +28,7 @@
 // The required checks are GitHub's: the names the base branch's protection and rulesets require
 // (`AutoMergeHost.requiredCheckNames`, read once per head; a head whose list cannot be read waits),
 // and every other check the host marks required. The PR itself is still read each interval, so a PR merged or closed on the host is
-// seen. A head whose checks are not final after `mergeSlot.checksWaitMinutes` raises one
+// seen. A head whose checks are not final after `merge.checksWaitMinutes` raises one
 // `ci.stuck` notice and is read every 10 minutes from then on. A head with a failed required check
 // is red once its checks are final (or the wait ran out): the engine lists every check of the
 // head once, reads the failed Actions job logs, builds one CI feedback item per failed check,
@@ -46,16 +46,11 @@
 // An office whose story PRs get no CI is not held waiting: when the host reports no check at all
 // for a box run's pushed head (neither a required one nor any other) once `NO_CI_WAIT_MS` has
 // passed since the engine first watched that head, the head is final with no CI. The wait is never
-// shorter, whatever `mergeSlot.checksWaitMinutes` says, so a slow CI's late red check is still
+// shorter, whatever `merge.checksWaitMinutes` says, so a slow CI's late red check is still
 // read. One `ci-none` run step records it on the run (not a CI attempt), a `ci.none` notice tells
 // the maintainer, the body says no CI ran, and the review decides. A check that shows up for the
 // head later is not read; a new head is watched again. A Mac run keeps its wait for unreported
 // checks: its verify ran on the Mac.
-//
-// An office whose configuration in force sets `storyPr.open: false` (DIPO-210, 0019 amendment of
-// 2026-10-19) gets none of this: `sync` and `retry` return before they read git or the host, so
-// no PR is opened, updated, polled or retried and no `pr.openFailed` is raised. The poll timer
-// stays armed, so an office that turns the key back on is picked up at the next interval.
 //
 // With the office's PR-state poll (`prState`, DIPO-314) the PR poll is the first part of each of
 // its rounds instead of a timer of its own, and that pass reads each open PR through the reads the
@@ -346,23 +341,16 @@ export class StoryPrs {
     // The In Review pushes that did not reach the remote first (DIPO-315).
     await this.#pushAgain(officeId, state);
     for (const stored of openStoryPrs(state.office)) {
-      const owner = findRun(state.office, stored.runId);
-      if (owner !== null && !this.#opensPrs(officeId, owner)) continue;
       await this.#poll(officeId, state, stored);
       await this.#reviewStep(officeId, state, stored.runId);
     }
     const tried: RunId[] = [];
     for (const { runId } of runsWithoutPr(state.office)) {
-      const run = findRun(state.office, runId);
-      // Story PRs switched off for the run (its configuration snapshot, DIPO-210): no attempt.
-      if (run === null || !this.#opensPrs(officeId, run)) continue;
       tried.push(runId);
       await this.#sync(officeId, state, runId);
     }
     // A replacement of a closed PR whose create failed is tried again (DIPO-324).
     for (const runId of pendingPrReplacements(state.office)) {
-      const run = findRun(state.office, runId);
-      if (run === null || !this.#opensPrs(officeId, run)) continue;
       tried.push(runId);
       await this.#replace(officeId, state, runId);
     }
@@ -473,7 +461,7 @@ export class StoryPrs {
       try {
         const secrets = officeEnvSecrets(
           this.#deps.checkout(officeId),
-          this.#config(officeId).worktree.files,
+          this.#config(officeId).box.files ?? [],
           this.#deps.secrets,
         );
         body = redactComment(
@@ -551,11 +539,6 @@ export class StoryPrs {
     return office === undefined
       ? this.#config(officeId)
       : runConfigOf(office, run, this.#config(officeId));
-  }
-
-  /** Whether the run's configuration snapshot lets the engine open its story PR (DIPO-210). */
-  #opensPrs(officeId: OfficeId, run: StoredRun): boolean {
-    return this.#runConfig(officeId, run).storyPr.open;
   }
 
   /**
@@ -662,7 +645,6 @@ export class StoryPrs {
     const office = state.office;
     const run = findRun(office, runId);
     if (run === null || run.key === null || run.branch === null) return;
-    if (!this.#opensPrs(officeId, run)) return;
     const key = run.key;
     try {
       const facts = await this.#deps.git.read(officeId, {
@@ -1013,7 +995,7 @@ export class StoryPrs {
       ? ({ state: "pending", waiting: [] } as const)
       : evaluateChecks(reports, names);
     const final = !unknown && checksFinal(reports, names);
-    const waited = now - watch.since >= config.mergeSlot.checksWaitMinutes * 60_000;
+    const waited = now - watch.since >= config.merge.checksWaitMinutes * 60_000;
     if (!final && waited) {
       if (!watch.stuck) {
         watch.stuck = true;
@@ -1021,7 +1003,7 @@ export class StoryPrs {
           notice(
             "warn",
             STORY_PR_NOTICES.ciStuck,
-            `The required checks of the PR for ${stored.key} are still not final after ${config.mergeSlot.checksWaitMinutes} minutes (waiting for: ${waitingFor(reports, names).join(", ") || "any check to be reported"}). dipo keeps watching, now every 10 minutes.`,
+            `The required checks of the PR for ${stored.key} are still not final after ${config.merge.checksWaitMinutes} minutes (waiting for: ${waitingFor(reports, names).join(", ") || "any check to be reported"}). dipo keeps watching, now every 10 minutes.`,
             stored.key,
             stored.runId,
           ),

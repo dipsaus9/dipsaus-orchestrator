@@ -52,7 +52,6 @@ function reviewDeps(clock: ManualClock, auth?: string) {
     deps: {
       spawn: fake.spawn,
       clock,
-      allowProjectSettings: [],
       readText: async () => undefined,
     },
   };
@@ -127,7 +126,6 @@ describe("(engine) a session's launch checks (DIPO-145, DIPO-240, DIPO-310)", ()
       const result = await prepareLaunch(sessionSpec({ workdir }), context(), holds, {
         spawn: fake.spawn,
         clock,
-        allowProjectSettings: [],
       });
       expect(result).toMatchObject({ ok: false, outcome: "startFailed" });
       expect(holds.adapterHeld(CLAUDE_CLI_ADAPTER_ID)).toMatchObject({
@@ -138,7 +136,7 @@ describe("(engine) a session's launch checks (DIPO-145, DIPO-240, DIPO-310)", ()
       const text = String((notices.at(-1)?.data as { text?: string } | undefined)?.text);
       expect(text).toContain("hooks");
       expect(text).toContain(file);
-      expect(text).toContain("worker.allowProjectSettings");
+      expect(text).toContain("no session loads it");
     });
   });
 });

@@ -68,7 +68,6 @@ function context(overrides: Partial<ClaudeLaunchContext> = {}): ClaudeLaunchCont
     runDir: RUN_DIR,
     tmpDir: "/tmp/claude-run-0002",
     shortTmpDir: "/private/tmp/dipo-t-0002",
-    sandbox: OFFICE_DEFAULTS.sandbox,
     plugins: { installed: ["warp@claude-code-warp"], allowed: ["warp@claude-code-warp"] },
     ...overrides,
   };

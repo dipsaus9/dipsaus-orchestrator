@@ -45,7 +45,7 @@ describe("readSoftwareConfig", () => {
             file: path,
             path: "deamon",
             expected: "one of the keys version, daemon",
-            message: `${path}: deamon: unknown key; expected one of the keys version, daemon`,
+            message: `${path}: deamon: unknown key; expected one of the keys version, daemon; this key may need a newer dipo`,
           },
         ],
       });

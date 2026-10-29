@@ -278,7 +278,7 @@ describe("while auto-merge is on", () => {
     s = await storyWorld();
     s.config = {
       ...OFFICE_DEFAULTS,
-      mergeSlot: { ...OFFICE_DEFAULTS.mergeSlot, holdLabels: ["hold"] },
+      merge: { ...OFFICE_DEFAULTS.merge, holdLabels: ["hold"] },
     };
     await toArmed();
     s.host.prLabelsOf.set(PR, ["hold"]);
@@ -327,7 +327,7 @@ describe("while auto-merge is on", () => {
     s = await storyWorld();
     s.config = {
       ...OFFICE_DEFAULTS,
-      mergeSlot: { ...OFFICE_DEFAULTS.mergeSlot, holdLabels: ["hold"] },
+      merge: { ...OFFICE_DEFAULTS.merge, holdLabels: ["hold"] },
     };
     await toArmed();
     s.host.prLabelsOf.set(PR, ["hold"]);
@@ -444,18 +444,18 @@ describe("PRs changed on GitHub", () => {
 });
 
 describe("the merge gate", () => {
-  it("waits for the maintainer when mergeSlot.autoMerge is false, and nothing goes on until it is approved", async () => {
+  it("waits for the maintainer when merge.autoMerge is false, and nothing goes on until it is approved", async () => {
     s = await storyWorld();
     s.config = {
       ...OFFICE_DEFAULTS,
-      mergeSlot: { ...OFFICE_DEFAULTS.mergeSlot, autoMerge: false },
+      merge: { ...OFFICE_DEFAULTS.merge, autoMerge: false },
     };
     await s.tick();
     await s.tick();
     expect(gates()).toHaveLength(1);
     const gate = gates()[0]!;
     expect(gate).toMatchObject({ waitingOn: "maintainer", decision: null });
-    expect(gate.summary).toContain("mergeSlot.autoMerge is off");
+    expect(gate.summary).toContain("merge.autoMerge is off");
     expect(s.host.armedAt).toEqual([]);
     approve(gate.gate);
     await s.tick();
@@ -468,7 +468,7 @@ describe("the merge gate", () => {
       recordConfigSnapshot(
         s.w.office,
         "h",
-        { ...OFFICE_DEFAULTS, mergeSlot: { ...OFFICE_DEFAULTS.mergeSlot, autoMerge: false } },
+        { ...OFFICE_DEFAULTS, merge: { ...OFFICE_DEFAULTS.merge, autoMerge: false } },
         0,
       ),
     );
@@ -566,7 +566,7 @@ describe("the merge gate", () => {
     s = await storyWorld();
     s.config = {
       ...OFFICE_DEFAULTS,
-      mergeSlot: { ...OFFICE_DEFAULTS.mergeSlot, autoMerge: false },
+      merge: { ...OFFICE_DEFAULTS.merge, autoMerge: false },
     };
     await s.tick();
     const first = gates()[0]!;

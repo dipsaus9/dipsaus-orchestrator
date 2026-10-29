@@ -205,7 +205,7 @@ describe("(unit) the run settings switch plugins off", () => {
 });
 
 describe("(unit) the system/init plugin check", () => {
-  it("refuses plugins worker.plugins does not name, but not Claude Code's builtin ones", () => {
+  it("refuses plugins the session may not load, but not Claude Code's builtin ones", () => {
     expect(refusedPlugins([...BUILTINS, WARP, LEARNING], [LEARNING])).toEqual([WARP]);
     expect(refusedPlugins(BUILTINS, [])).toEqual([]);
     expect(refusedPlugins(["engineering@synced"], [])).toEqual(["engineering@synced"]);
@@ -214,7 +214,7 @@ describe("(unit) the system/init plugin check", () => {
     // An @builtin id that is also installed or synced is compared like any other.
     const telemetry = "cc-plugin-telemetry@builtin";
     expect(refusedPlugins(BUILTINS, [], [telemetry])).toEqual([telemetry]);
-    expect(pluginRefusal([WARP])).toContain(`plugin ${WARP}, not in worker.plugins`);
+    expect(pluginRefusal([WARP])).toContain(`plugin ${WARP}, but no session loads a plugin`);
     expect(pluginRefusal([WARP, LEARNING])).toContain(`plugins ${WARP}, ${LEARNING}`);
   });
 });

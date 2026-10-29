@@ -1,0 +1,6 @@
+# A version 9 office file: version 9 adds the box block (DIPO-266).
+version: 9
+box:
+  debian: trixie
+  files: [{ path: .env, noRealSecrets: true }]
+permissions: { ask: never, presentMinutes: 5 }

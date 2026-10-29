@@ -344,7 +344,7 @@ function world(): World {
     },
     encode,
     ender: () => control,
-    adapter: OFFICE_DEFAULTS.worker.adapter,
+    adapter: "claude-cli",
     holds: {
       hold: (adapter, failures) => ({
         adapter,

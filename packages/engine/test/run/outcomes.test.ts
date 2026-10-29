@@ -143,6 +143,7 @@ beforeEach(async () => {
     clock: f.t.clock,
     offices: { get: () => f.office, config: () => OFFICE_DEFAULTS },
     holds: adapterHolds,
+    adapter: "claude-cli",
     resume: async (_office, park) => {
       world.lifted.push(park);
       return { outcome: "resumed" };

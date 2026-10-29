@@ -1,8 +1,9 @@
 # A version 4 .dipo/office.local.yaml: the version DIPO-172 added, with every key that version
-# accepts. It loads next to a newer office.yaml, because each file is read at its own version.
+# accepts. sandbox.toolchainReadPaths is retired in version 14.
 version: 4
 timeouts:
   workerStallMinutes: 25
+  permissionWaitSeconds: 60
 privacy:
   keepRawEvents: true
 retention:

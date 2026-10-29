@@ -127,7 +127,6 @@ function world(t: TestState, dir: string): World {
     runDir: paths.runDir,
     tmpDir: paths.tmpDir,
     shortTmpDir: paths.shortTmpDir,
-    sandbox: OFFICE_DEFAULTS.sandbox,
   });
   const neverSpawn = (() => {
     throw new Error("no process starts in this test");

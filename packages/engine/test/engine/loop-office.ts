@@ -762,7 +762,7 @@ async function buildDaemon(
       unpark: unparkWriter,
       caps: capsFor,
     },
-    startsPaused: { holds },
+    startsPaused: { holds, adapter: "claude-cli" },
     // Re-attach after a restart (DIPO-57): no scripted host outlives its daemon.
     reattach: {
       probe: async () => null,

@@ -33,7 +33,7 @@ import { addOffice } from "../commands/helpers";
 import { entriesAfter } from "../stories/helpers";
 import { type RoundsWorld, roundsWorld, storyRun } from "./rounds-helpers";
 
-const ADAPTER = OFFICE_DEFAULTS.worker.adapter;
+const ADAPTER = "claude-cli";
 const HOUR = 60 * 60_000;
 
 let w: RoundsWorld;
@@ -98,6 +98,7 @@ function startsPaused(): StartsPaused {
     offices: { get: (office) => offices.get(office), config: () => OFFICE_DEFAULTS },
     loaded: () => [...offices.keys()],
     holds,
+    adapter: ADAPTER,
     resume: async (office, liftedPark) => {
       resumed.push({ office, park: liftedPark });
       return answer;

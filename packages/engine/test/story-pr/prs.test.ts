@@ -448,121 +448,17 @@ describe("the story PR", () => {
   });
 });
 
-// DIPO-210: an office with storyPr.open false gets no story PR (0019 amendment of 2026-10-19).
-const PRS_OFF: OfficeConfig = { ...OFFICE_DEFAULTS, storyPr: { open: false } };
-
-/** Arms the poll from the load step, as the daemon does when the office loads. */
-function armPoll(w: World): void {
-  let step: ((ctx: unknown) => unknown) | undefined;
-  w.prs.feature.register({
-    registerLoadStep: (_name: string, run: (ctx: unknown) => unknown) => {
-      step = run;
-    },
-  } as never);
-  step?.({ officeId: w.office.officeId, office: w.office, clock: w.t.clock, config: w.config });
-}
-
-/** Lets the poll timer fire `times` times and its retries finish. */
-async function pollIntervals(w: World, times: number): Promise<void> {
-  for (let n = 0; n < times; n++) {
-    w.t.clock.advance(w.config.polling.prStateSeconds * 1000);
-    for (let i = 0; i < 20; i++) await yieldToEventLoop();
-  }
-}
-
-describe("the story PR switched off with storyPr.open false", () => {
-  it("calls the host zero times across an In Review push, a later push and a poll, and raises no pr.openFailed", async () => {
-    await inWorld(async (w) => {
-      const id = w.office.officeId;
-      w.config = PRS_OFF;
-      // A create would fail: with the switch on this run would get a pr.openFailed notice.
-      w.host.failCreate = new CodeHostError("failed", "gh: network is down");
-      armPoll(w);
-
-      // The In Review push.
-      await w.prs.sync(id, w.run);
-      // A later push on a new head.
-      w.facts = { ...FACTS, head: "b".repeat(40) };
-      await w.prs.sync(id, w.run);
-      expect(w.host.calls).toEqual([]);
-      // The poll, called directly and from its timer.
-      const tried = await w.prs.retry(id);
-      await pollIntervals(w, 2);
-
-      expect(w.host.calls).toEqual([]);
-      expect(tried).toEqual([]);
-      expect(w.gitReads).toBe(0);
-      expect(findStoryPr(w.office, w.run)).toBeNull();
-      expect(storyPrEvents(w.office)).toHaveLength(0);
-      expect(notices(w.office, STORY_PR_NOTICES.openFailed)).toHaveLength(0);
-      expect(notices(w.office, STORY_PR_NOTICES.opened)).toHaveLength(0);
-      expect(storyView(w.office, w.key)?.lifecycle).toBe("In Review");
-      expect(storyView(w.office, w.key)?.pr).toBeUndefined();
-    });
-  });
-
-  it("neither updates nor polls a PR opened before the office switched it off", async () => {
-    await inWorld(async (w) => {
-      const id = w.office.officeId;
-      await w.prs.sync(id, w.run);
-      expect(w.host.calls).toEqual(["findOpenPr", "createPr"]);
-      const before = w.host.calls.length;
-
-      w.config = PRS_OFF;
-      armPoll(w);
-      w.facts = { ...FACTS, story: { ...FACTS.story, outcome: "changed" }, head: "b".repeat(40) };
-      await w.prs.sync(id, w.run);
-      w.host.hostState = "merged";
-      expect(await w.prs.retry(id)).toEqual([]);
-      await pollIntervals(w, 2);
-
-      expect(w.host.calls).toHaveLength(before);
-      expect(w.host.updates).toHaveLength(0);
-      expect(w.host.views).toEqual([]);
-      expect(findStoryPr(w.office, w.run)).toMatchObject({ headSha: FACTS.head, state: "open" });
-      expect(storyPrEvents(w.office)).toHaveLength(1);
-    });
-  });
-
-  it("picks the office up again once the key is back on", async () => {
-    await inWorld(async (w) => {
-      const id = w.office.officeId;
-      w.config = PRS_OFF;
-      armPoll(w);
-      await w.prs.sync(id, w.run);
-      await pollIntervals(w, 1);
-      expect(w.host.calls).toEqual([]);
-
-      w.config = { ...OFFICE_DEFAULTS, storyPr: { open: true } };
-      await pollIntervals(w, 1);
-      expect(w.host.creates).toHaveLength(1);
-      expect(findStoryPr(w.office, w.run)?.number).toBe(7);
-    });
-  });
-});
-
 // DIPO-150 (the DIPO-303 review): a run's stages after its start read its configuration snapshot,
 // not the configuration in force, which a base change now reloads at the next poll.
-const snapshot = (w: World, config: OfficeConfig): void =>
+const snapshot = (w: World, config: unknown): void =>
   w.office.immediate(() => recordConfigSnapshot(w.office, "h", config, w.t.clock.now()));
 
 describe("the story PR of a run with a configuration snapshot", () => {
-  it("opens the PR of a run that started with story PRs on, after the office switched them off", async () => {
+  it("opens the PR of a run whose version 13 snapshot switched story PRs off: every story gets its PR (0002)", async () => {
     await inWorld(async (w) => {
-      snapshot(w, OFFICE_DEFAULTS);
-      w.config = PRS_OFF;
+      snapshot(w, { ...OFFICE_DEFAULTS, version: 13, storyPr: { open: false } });
       await w.prs.sync(w.office.officeId, w.run);
       expect(w.host.creates).toHaveLength(1);
-    });
-  });
-
-  it("opens no PR for a run that started with story PRs off, after the office switched them on", async () => {
-    await inWorld(async (w) => {
-      snapshot(w, PRS_OFF);
-      w.config = OFFICE_DEFAULTS;
-      await w.prs.sync(w.office.officeId, w.run);
-      expect(await w.prs.retry(w.office.officeId)).toEqual([]);
-      expect(w.host.calls).toEqual([]);
     });
   });
 
@@ -570,7 +466,8 @@ describe("the story PR of a run with a configuration snapshot", () => {
     await inWorld(async (w) => {
       snapshot(w, {
         ...OFFICE_DEFAULTS,
-        mergeSlot: { ...OFFICE_DEFAULTS.mergeSlot, requiredChecks: ["office-check"] },
+        version: 13,
+        mergeSlot: { requiredChecks: ["office-check"] },
       });
       w.requiredNames = ["base-check"];
       w.host.hostHead = w.facts.head;

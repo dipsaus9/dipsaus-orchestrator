@@ -1,0 +1,5 @@
+# A version 11 office file: version 11 adds the R30 story phrases (DIPO-251).
+version: 11
+story:
+  securityPhrases: [guard]
+  securityCriteriaPhrases: { failClosed: [real path] }

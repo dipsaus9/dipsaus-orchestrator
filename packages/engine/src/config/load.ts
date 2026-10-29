@@ -1,10 +1,9 @@
-// Loads an office's configuration (0017 section 5): parse each file as one YAML document, check
-// its version, validate it strictly against that version's schema, migrate it in memory to the
-// newest version (`migrateOfficeDocument`), merge defaults < `.dipo/office.yaml` < allowed keys of
-// `.dipo/office.local.yaml` < command flags, and hash the result. A local
-// `sandbox.toolchainReadPaths` adds to the list below it instead of replacing it (DIPO-172). Errors are values, never thrown,
-// so the office (DIPO-27) can keep its previous configuration. A retired key that an older file
-// still sets is dropped by the migration and returned as a warning (DIPO-285).
+// Loads an office's configuration (0017): parse each file as one YAML document, check its version,
+// migrate a file of versions 1 to 13 in memory to version 14 (`migrateOfficeDocument`), validate it
+// strictly, merge defaults < `.dipo/office.yaml` < allowed keys of `.dipo/office.local.yaml` <
+// command flags, and hash the result. Errors are values, never thrown, so the office can keep its
+// previous configuration. A retired key that an older file still sets is dropped by the migration
+// and returned as a warning; a moved key is read at its new place.
 
 import { readFile } from "node:fs/promises";
 import { join } from "node:path";
@@ -13,26 +12,28 @@ import {
   checkConfigDocument,
   configError,
   configIssueErrors,
+  NEWER_DIPO,
   type ConfigError,
 } from "@dipsaus-orchestrator/contract";
 import type { z } from "zod";
 
 import { parseYamlDocument } from "../platform/yaml";
-import { valueAt, valueKeyPaths } from "./keys";
+import { valueKeyPaths } from "./keys";
 import { configHash, mergeLayer } from "./merge";
 import {
-  LOCAL_ALLOWED_KEY_PATHS,
+  LOCAL_ALLOWED_KEYS,
   LOCAL_ONLY_KEYS,
   migrateOfficeDocument,
+  MOVED_KEYS,
   OFFICE_CONFIG_VERSION,
   OFFICE_DEFAULTS,
-  OFFICE_FILE_SCHEMAS,
-  OFFICE_LOCAL_FILE_SCHEMAS,
-  OfficeConfigV13,
-  OfficeOverridesV13,
+  OfficeConfigSchema,
+  OfficeFileSchema,
+  OfficeLocalFileSchema,
+  OfficeOverridesSchema,
   RETIRED_KEYS,
+  type MigrationStep,
   type OfficeConfig,
-  type OfficeConfigVersion,
 } from "./schema";
 
 export const OFFICE_FILE = ".dipo/office.yaml";
@@ -48,7 +49,7 @@ export type { ConfigError };
 
 /**
  * Something the maintainer should know about a configuration that still loads, such as a retired
- * key it sets (DIPO-285). `message` starts with the file and the key path, like a `ConfigError`.
+ * key an older file sets. `message` starts with the file and the key path, like a `ConfigError`.
  */
 export interface ConfigWarning {
   readonly file: string;
@@ -77,96 +78,39 @@ export interface OfficeConfigSources {
   readonly flags?: unknown;
 }
 
-// The version that adds each key path, for the hint on an unknown key in an older office file.
-const KEY_ADDED_IN: Readonly<Record<string, OfficeConfigVersion>> = {
-  "worker.plugins": 2,
-  mergeSlot: 3,
-  review: 5,
-  "mergeSlot.autoMerge": 5,
-  "mergeSlot.conflictAttempts": 5,
-  "mergeSlot.ciAttempts": 5,
-  "mergeSlot.holdLabels": 5,
-  "mergeSlot.checksWaitMinutes": 5,
-  "story.maintainerStepPhrases": 6,
-  storyPr: 7,
-  "worker.web": 8,
-  box: 9,
-  "story.securityPhrases": 11,
-  "story.securityCriteriaPhrases": 11,
-  "box.localPorts": 12,
-  scan: 13,
-};
-
-// The same for `office.local.yaml`: version 4 lets it set `sandbox.toolchainReadPaths` (DIPO-172).
-const LOCAL_SANDBOX_KEY = "sandbox.toolchainReadPaths";
-const LOCAL_KEY_ADDED_IN: Readonly<Record<string, OfficeConfigVersion>> = { sandbox: 4 };
-// What the hint says the version adds, for a key path whose name alone does not say it.
-const ADDS: Readonly<Record<string, string>> = {
-  sandbox: `${LOCAL_SANDBOX_KEY} to ${OFFICE_LOCAL_FILE}`,
-};
-
-// What `office.local.yaml` of `version` accepts besides `version`, as key paths.
-function localAcceptedPaths(version: OfficeConfigVersion): readonly string[] {
-  return version >= 4
-    ? LOCAL_ALLOWED_KEY_PATHS
-    : LOCAL_ALLOWED_KEY_PATHS.filter((path) => path !== LOCAL_SANDBOX_KEY);
-}
-
-// The wording of an unknown key in `office.local.yaml`: at the top level it names the keys the
-// file accepts, and under `sandbox` that only `toolchainReadPaths` is accepted there.
-function localUnknownKeyProblem(
-  parent: readonly PropertyKey[],
-  version: OfficeConfigVersion,
-): string | undefined {
-  if (parent.length === 0) {
-    return `unknown key; ${OFFICE_LOCAL_FILE} accepts only version, ${localAcceptedPaths(version).join(", ")}`;
-  }
-  if (parent.length === 1 && parent[0] === "sandbox") {
-    return `unknown key; ${OFFICE_LOCAL_FILE} accepts only ${LOCAL_SANDBOX_KEY} of the sandbox keys; set any other sandbox key in ${OFFICE_FILE}`;
+// Why a version 14 file may not set `path` that an earlier version had: it moved or was retired.
+function formerKey(path: string): string | undefined {
+  const moved = MOVED_KEYS.find((key) => key.from === path);
+  if (moved !== undefined) return `version 14 moved it to ${moved.to}; set it there`;
+  const retired = RETIRED_KEYS.find((key) => path === key.path || path.startsWith(`${key.path}.`));
+  if (retired !== undefined) {
+    return `version 14 removed ${retired.path}, because ${retired.reason}. Delete it`;
   }
   return undefined;
 }
 
-// A retired key (`RETIRED_KEYS`) at `path` in a file of `version` or newer, which refuses it.
-function retiredIn(path: string, version: OfficeConfigVersion) {
-  return RETIRED_KEYS.find((key) => key.path === path && version >= key.version);
-}
-
-// The contract's wording, except for an unknown key in `office.local.yaml`
-// (`localUnknownKeyProblem`), a key of `KEY_ADDED_IN` (or `LOCAL_KEY_ADDED_IN`) in a file older
-// than that key, which says the version that adds it, and a retired key in a file whose version no
-// longer has it, which says why it is gone.
+// The contract's wording, with the keys `office.local.yaml` accepts at its top level, and the
+// reason for a key version 14 moved or retired.
 function issueErrors(
   file: string,
   schema: z.ZodType,
   input: unknown,
   issues: readonly z.core.$ZodIssue[],
-  version: OfficeConfigVersion = OFFICE_CONFIG_VERSION,
 ): ConfigError[] {
   const local = file === OFFICE_LOCAL_FILE;
+  const accepted = LOCAL_ALLOWED_KEYS.map((key) => `${key}.*`).join(", ");
   const errors = configIssueErrors(file, schema, input, issues, {
-    unknownKeyProblem: (parent) => (local ? localUnknownKeyProblem(parent, version) : undefined),
+    unknownKeyProblem: (parent) =>
+      local && parent.length === 0
+        ? `unknown key; ${OFFICE_LOCAL_FILE} accepts only version, ${accepted}; ${NEWER_DIPO}`
+        : undefined,
   });
-  const addedIn = local ? LOCAL_KEY_ADDED_IN : KEY_ADDED_IN;
   return errors.map((error) => {
-    const retired = local ? undefined : retiredIn(error.path, version);
-    if (retired !== undefined) {
-      return configError(
-        file,
-        error.path,
-        error.expected,
-        `unknown key; version ${retired.version} removed it, because ${retired.reason}. Delete it`,
-      );
-    }
-    const added = addedIn[error.path];
-    if (added === undefined || version >= added) return error;
-    const adds = ADDS[error.path] ?? error.path;
-    return configError(
-      file,
-      error.path,
-      error.expected,
-      `unknown key in version ${version}; expected ${error.expected}. Version ${added} adds ${adds}: set version: ${added} to use it`,
-    );
+    if (!error.message.endsWith(NEWER_DIPO)) return error;
+    const former = formerKey(error.path);
+    return former === undefined
+      ? error
+      : configError(file, error.path, error.expected, `unknown key; ${former}`);
   });
 }
 
@@ -174,51 +118,66 @@ export type Checked =
   | { ok: true; value: Record<string, unknown> }
   | { ok: false; errors: ConfigError[] };
 export type Read =
-  | { ok: true; value: Record<string, unknown>; version: OfficeConfigVersion }
+  | { ok: true; value: Record<string, unknown>; version: number }
+  | { ok: false; errors: ConfigError[] };
+export type CheckedFile =
+  | { ok: true; value: Record<string, unknown>; warnings: ConfigWarning[] }
   | { ok: false; errors: ConfigError[] };
 
-export function validate(
-  file: string,
-  schema: z.ZodType,
-  input: unknown,
-  version?: OfficeConfigVersion,
-): Checked {
+export function validate(file: string, schema: z.ZodType, input: unknown): Checked {
   const parsed = schema.safeParse(input);
   if (parsed.success) return { ok: true, value: parsed.data as Record<string, unknown> };
-  return { ok: false, errors: issueErrors(file, schema, input, parsed.error.issues, version) };
+  return { ok: false, errors: issueErrors(file, schema, input, parsed.error.issues) };
 }
 
 // Parses one file and checks its version, the same way as software configuration. Returns the
-// mapping to validate and its version.
+// mapping and its version.
 export function readDocument(file: string, text: string): Read {
   const checked = checkConfigDocument(file, parseYamlDocument(text), OFFICE_CONFIG_VERSION);
   if (!checked.ok) return checked;
-  return { ok: true, value: checked.document, version: checked.version as OfficeConfigVersion };
+  return { ok: true, value: checked.document, version: checked.version };
 }
 
-// A file valid for its own version, migrated to the newest one, without `version`.
-function migrated(version: OfficeConfigVersion, value: Record<string, unknown>) {
-  return withoutVersion(migrateOfficeDocument(version, value));
-}
-
-// The retired keys a file valid for its own `version` still sets: the migration drops each, so the
-// file loads, and each becomes a warning that names the key (DIPO-285).
-function retiredKeyWarnings(
-  file: string,
-  version: OfficeConfigVersion,
-  value: Record<string, unknown>,
-): ConfigWarning[] {
-  return RETIRED_KEYS.filter(
-    (key) => version < key.version && valueAt(value, key.path.split(".")) !== undefined,
-  ).map((key) => ({
+/** The warning of one migration step: where a key moved, or a dropped key by name and why. */
+export function migrationWarning(file: string, step: MigrationStep): ConfigWarning {
+  if (step.kind === "move") {
+    const from = step.from.join(".");
+    const to = step.to.join(".");
+    return {
+      file,
+      path: from,
+      message: `${file}: ${from}: read as ${to}, its place since version 14; dipo config migrate moves it`,
+    };
+  }
+  const path = step.path.join(".");
+  return {
     file,
-    path: key.path,
-    message: `${file}: ${key.path}: ignored; version ${key.version} removed this key, because ${key.reason}. Delete it from the file`,
-  }));
+    path,
+    message: `${file}: ${path}: ignored; version 14 removed it, because ${step.reason}. dipo config migrate deletes it`,
+  };
 }
 
-// `privacy.*` and `retention.*` are machine-local (0007 amendment): in `office.yaml` each key is
-// an error pointing to the local file, and the rest of the file is still validated.
+/**
+ * A file's document validated as version 14: migrated first when it is older, with a warning for
+ * each key the migration moved or dropped. The value has no `version`.
+ */
+export function checkedFile(
+  file: string,
+  schema: z.ZodType,
+  read: { readonly value: Record<string, unknown>; readonly version: number },
+): CheckedFile {
+  const migration = migrateOfficeDocument(read.version, read.value);
+  const checked = validate(file, schema, migration.document);
+  if (!checked.ok) return checked;
+  return {
+    ok: true,
+    value: withoutVersion(checked.value),
+    warnings: migration.steps.map((step) => migrationWarning(file, step)),
+  };
+}
+
+// `privacy.*` and `retention.*` are machine-local (0007): in `office.yaml` each key is an error
+// pointing to the local file, and the rest of the file is still validated.
 function splitLocalOnly(document: Record<string, unknown>): {
   rest: Record<string, unknown>;
   errors: ConfigError[];
@@ -248,34 +207,11 @@ function withoutVersion(value: Record<string, unknown>): Record<string, unknown>
   return rest;
 }
 
-// One layer of the merge: the configuration below it in, the configuration with it on top out.
-type Layer = (base: unknown) => unknown;
-
-// A layer whose mappings merge per key and whose lists and scalars replace (`mergeLayer`).
-function over(value: Record<string, unknown>): Layer {
-  return (base) => mergeLayer(base, value);
-}
-
-// The `office.local.yaml` layer: as `over`, except that `sandbox.toolchainReadPaths` adds its
-// entries to the list below it (the committed list or the default), each path once, instead of
-// replacing it (0017 amendment of 2026-10-18, maintainer decision 2026-10-17, option A).
-function localLayer(local: Record<string, unknown>): Layer {
-  const added = valueAt(local, ["sandbox", "toolchainReadPaths"]);
-  if (!Array.isArray(added)) return over(local);
-  const { sandbox: _sandbox, ...rest } = local;
-  return (base) => {
-    const merged = mergeLayer(base, rest);
-    const below = valueAt(merged, ["sandbox", "toolchainReadPaths"]);
-    const paths = [...new Set([...(Array.isArray(below) ? below : []), ...added])];
-    return mergeLayer(merged, { sandbox: { toolchainReadPaths: paths } });
-  };
-}
-
 /** Validates and merges configuration sources. Pure; never throws for bad input. */
 export function resolveOfficeConfig(sources: OfficeConfigSources): OfficeConfigResult {
   const errors: ConfigError[] = [];
   const warnings: ConfigWarning[] = [];
-  const layers: Layer[] = [];
+  const layers: Record<string, unknown>[] = [];
 
   if (sources.office !== undefined) {
     const read = readDocument(OFFICE_FILE, sources.office);
@@ -284,10 +220,10 @@ export function resolveOfficeConfig(sources: OfficeConfigSources): OfficeConfigR
     } else {
       const { rest, errors: localOnly } = splitLocalOnly(read.value);
       errors.push(...localOnly);
-      const checked = validate(OFFICE_FILE, OFFICE_FILE_SCHEMAS[read.version], rest, read.version);
+      const checked = checkedFile(OFFICE_FILE, OfficeFileSchema, { ...read, value: rest });
       if (checked.ok) {
-        warnings.push(...retiredKeyWarnings(OFFICE_FILE, read.version, checked.value));
-        layers.push(over(migrated(read.version, checked.value)));
+        warnings.push(...checked.warnings);
+        layers.push(checked.value);
       } else {
         errors.push(...checked.errors);
       }
@@ -300,16 +236,11 @@ export function resolveOfficeConfig(sources: OfficeConfigSources): OfficeConfigR
     if (!read.ok) {
       errors.push(...read.errors);
     } else {
-      const checked = validate(
-        OFFICE_LOCAL_FILE,
-        OFFICE_LOCAL_FILE_SCHEMAS[read.version],
-        read.value,
-        read.version,
-      );
+      const checked = checkedFile(OFFICE_LOCAL_FILE, OfficeLocalFileSchema, read);
       if (checked.ok) {
-        const local = migrated(read.version, checked.value);
-        layers.push(localLayer(local));
-        localKeys = valueKeyPaths(local).toSorted();
+        warnings.push(...checked.warnings);
+        layers.push(checked.value);
+        localKeys = valueKeyPaths(checked.value).toSorted();
       } else {
         errors.push(...checked.errors);
       }
@@ -317,15 +248,16 @@ export function resolveOfficeConfig(sources: OfficeConfigSources): OfficeConfigR
   }
 
   if (sources.flags !== undefined) {
-    const checked = validate(FLAGS_SOURCE, OfficeOverridesV13, sources.flags);
-    if (checked.ok) layers.push(over(checked.value));
+    const checked = validate(FLAGS_SOURCE, OfficeOverridesSchema, sources.flags);
+    if (checked.ok) layers.push(checked.value);
     else errors.push(...checked.errors);
   }
 
   if (errors.length > 0) return { ok: false, errors };
 
-  const merged = layers.reduce<unknown>((base, layer) => layer(base), OFFICE_DEFAULTS);
-  const effective = validate(EFFECTIVE_SOURCE, OfficeConfigV13, merged);
+  // Mappings merge per key; lists and scalars replace (`mergeLayer`).
+  const merged = layers.reduce<unknown>((base, layer) => mergeLayer(base, layer), OFFICE_DEFAULTS);
+  const effective = validate(EFFECTIVE_SOURCE, OfficeConfigSchema, merged);
   if (!effective.ok) return { ok: false, errors: effective.errors };
   const config = effective.value as OfficeConfig;
   return {
@@ -349,9 +281,9 @@ async function readOptional(dir: string, file: string): Promise<string | undefin
 
 /**
  * Loads `<dir>/.dipo/office.yaml` and `<dir>/.dipo/office.local.yaml`. A missing file is no
- * layer (office init writes no `office.yaml`, DIPO-15 D9). Never throws for a bad file.
- * `office` replaces the `office.yaml` under `dir` with a text read elsewhere, such as the file as
- * committed on the base (DIPO-303); its `text` is undefined when that file does not exist.
+ * layer (office init writes no `office.yaml`). Never throws for a bad file. `office` replaces the
+ * `office.yaml` under `dir` with a text read elsewhere, such as the file as committed on the base;
+ * its `text` is undefined when that file does not exist.
  */
 export async function loadOfficeConfig(
   dir: string,

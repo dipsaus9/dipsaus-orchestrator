@@ -368,20 +368,6 @@ describe("the story PR body status block", () => {
 });
 
 describe("the CI watch of the PR poll", () => {
-  it("makes no checks call and builds no item with storyPr.open false", async () => {
-    await inWorld(async (w) => {
-      const id = w.office.officeId;
-      await w.prs.sync(id, w.run);
-      redHead(w);
-      w.config = { ...OFFICE_DEFAULTS, storyPr: { open: false } };
-      await w.prs.retry(id);
-      expect(w.host.count("requiredChecks")).toBe(0);
-      expect(w.host.count("prChecks")).toBe(0);
-      expect(w.prs.ciItems(id, w.run)).toBeNull();
-      expect(runSteps(w.office, w.run).filter((s) => s.kind === "ci")).toEqual([]);
-    });
-  });
-
   it("does not read a head whose checks are final until the head changes", async () => {
     await inWorld(async (w) => {
       const id = w.office.officeId;
@@ -429,7 +415,7 @@ describe("the CI watch of the PR poll", () => {
   it("raises one ci.stuck after checksWaitMinutes and then reads every 10 minutes", async () => {
     await inWorld(async (w) => {
       const id = w.office.officeId;
-      const wait = w.config.mergeSlot.checksWaitMinutes * 60_000;
+      const wait = w.config.merge.checksWaitMinutes * 60_000;
       await w.prs.sync(id, w.run);
       w.host.required = [report("ci-ok", "pending")];
       await w.prs.retry(id);
@@ -519,7 +505,7 @@ describe("the CI state a fix round waits for (DIPO-148)", () => {
         w.host.required = [report("ci-ok", "pending")];
         await w.prs.retry(id);
         expect(w.prs.ciState(id, w.run)).toEqual({ kind: "pending", head: HEAD_B });
-        w.t.clock.advance(w.config.mergeSlot.checksWaitMinutes * 60_000);
+        w.t.clock.advance(w.config.merge.checksWaitMinutes * 60_000);
         await w.prs.retry(id);
         expect(w.prs.ciState(id, w.run)).toEqual({ kind: "stuck", head: HEAD_B });
         expect(told).toHaveLength(2);
@@ -602,7 +588,7 @@ describe("the run's CI cap", () => {
       expect(parked(w.office)).toEqual([]);
 
       // A config edit after the run started changes nothing: the cap is the run's snapshot.
-      w.config = { ...OFFICE_DEFAULTS, mergeSlot: { ...OFFICE_DEFAULTS.mergeSlot, ciAttempts: 9 } };
+      w.config = { ...OFFICE_DEFAULTS, caps: { ...OFFICE_DEFAULTS.caps, ciAttempts: 9 } };
       await pushHead(w, HEAD_B);
       await w.prs.retry(id);
       const steps = runSteps(w.office, w.run).filter((s) => s.kind === "ci");
@@ -786,7 +772,7 @@ describe("an office whose story PRs get no CI", () => {
 
         // Final: no more check reads, no ci.stuck, also past the checks wait.
         const reads = w.host.count("requiredChecks");
-        w.t.clock.advance(w.config.mergeSlot.checksWaitMinutes * 60_000);
+        w.t.clock.advance(w.config.merge.checksWaitMinutes * 60_000);
         await w.prs.retry(id);
         expect(w.host.count("requiredChecks")).toBe(reads);
         expect(notices(w.office, STORY_PR_NOTICES.ciStuck)).toHaveLength(0);
@@ -862,7 +848,7 @@ describe("an office whose story PRs get no CI", () => {
   it("waits the full NO_CI_WAIT_MS even when the checks wait is shorter, so a late red check is read", async () => {
     const config: OfficeConfig = {
       ...OFFICE_DEFAULTS,
-      mergeSlot: { ...OFFICE_DEFAULTS.mergeSlot, checksWaitMinutes: 3 },
+      merge: { ...OFFICE_DEFAULTS.merge, checksWaitMinutes: 3 },
     };
     await inWorld(
       async (w) => {
@@ -891,7 +877,7 @@ describe("an office whose story PRs get no CI", () => {
   it("decides no CI only once NO_CI_WAIT_MS passed, also with a shorter checks wait", async () => {
     const config: OfficeConfig = {
       ...OFFICE_DEFAULTS,
-      mergeSlot: { ...OFFICE_DEFAULTS.mergeSlot, checksWaitMinutes: 3 },
+      merge: { ...OFFICE_DEFAULTS.merge, checksWaitMinutes: 3 },
     };
     await inWorld(
       async (w) => {
@@ -918,7 +904,7 @@ describe("an office whose story PRs get no CI", () => {
       const id = w.office.officeId;
       await w.prs.sync(id, w.run);
       await w.prs.retry(id);
-      w.t.clock.advance(w.config.mergeSlot.checksWaitMinutes * 60_000);
+      w.t.clock.advance(w.config.merge.checksWaitMinutes * 60_000);
       await w.prs.retry(id);
       expect(noneSteps(w)).toEqual([]);
       expect(notices(w.office, STORY_PR_NOTICES.ciStuck)).toHaveLength(1);

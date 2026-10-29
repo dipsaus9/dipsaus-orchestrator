@@ -8,8 +8,8 @@ import { PlanError, type WorkerSpec } from "../types";
 export const DEVELOPER_TOOLS: readonly string[] = ["Read", "Edit", "Write", "Glob", "Grep", "Bash"];
 
 /**
- * The web tools `worker.web` adds to the developer role (0020 section 11b, DIPO-164); the reviewer
- * always has them. The adapter's output lines read the same list.
+ * The web tools of the developer, which always has the web in its box (0008, DIPO-164); the
+ * reviewer always has them too. The adapter's output lines read the same list.
  */
 export const WEB_TOOLS: readonly string[] = ["WebSearch", "WebFetch"];
 
@@ -20,8 +20,8 @@ export const WEB_TOOLS: readonly string[] = ["WebSearch", "WebFetch"];
 export const REVIEW_TOOLS: readonly string[] = ["Read", "Glob", "Grep", ...WEB_TOOLS];
 
 /**
- * The tools a session gets, from its kind alone, plus the web for a developer whose office allows
- * it: a `session` gets none (DIPO-310), a `review` the review set. Any other kind gets no tool
+ * The tools a session gets, from its kind alone, plus the web for a developer, which always has it
+ * (0008): a `session` gets none (DIPO-310), a `review` the review set. Any other kind gets no tool
  * list at all: it is refused, never given the developer's.
  */
 export function allowedTools(spec: Pick<WorkerSpec, "kind" | "web">): readonly string[] {

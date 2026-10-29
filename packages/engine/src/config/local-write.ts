@@ -1,14 +1,14 @@
 // Changes one privacy setting in `.dipo/office.local.yaml` (0007 section 8, DIPO-136). The file is
 // rewritten as a whole: every other key it holds stays, its comments do not (the YAML
-// writer in `platform/yaml.ts` keeps none), so dipo puts a short header comment of its own on top. The result is validated with
-// the file's own schema before any text is returned, so a refused change leaves the file alone.
+// // writer in `platform/yaml.ts` keeps none), so dipo puts a short header comment of its own on top.
+// The result is validated before any text is returned, so a refused change leaves the file alone.
 
 import { configError, type ConfigError } from "@dipsaus-orchestrator/contract";
 
 import { stringifyYamlDocument } from "../platform/yaml";
 import { describeValue } from "./keys";
 import { OFFICE_LOCAL_FILE, readDocument, validate } from "./load";
-import { OFFICE_CONFIG_VERSION, OFFICE_LOCAL_FILE_SCHEMAS, PRIVACY_KEYS } from "./schema";
+import { OFFICE_CONFIG_VERSION, OfficeLocalFileSchema, PRIVACY_KEYS } from "./schema";
 
 /** The comment on top of a file dipo wrote. */
 export const LOCAL_FILE_HEADER =
@@ -59,26 +59,27 @@ export function updateLocalPrivacy(
   }
 
   let document: Record<string, unknown> = { version: OFFICE_CONFIG_VERSION };
-  let version: keyof typeof OFFICE_LOCAL_FILE_SCHEMAS = OFFICE_CONFIG_VERSION;
   if (current !== undefined) {
     const read = readDocument(OFFICE_LOCAL_FILE, current);
     if (!read.ok) return read;
-    const checked = validate(
-      OFFICE_LOCAL_FILE,
-      OFFICE_LOCAL_FILE_SCHEMAS[read.version],
-      read.value,
-      read.version,
-    );
+    // Only `dipo config migrate` migrates a file (0017), so an older file is refused here.
+    if (read.version < OFFICE_CONFIG_VERSION) {
+      const problem = `the file is version ${read.version}; run dipo config migrate, then change the setting`;
+      return {
+        ok: false,
+        errors: [configError(OFFICE_LOCAL_FILE, "version", `${OFFICE_CONFIG_VERSION}`, problem)],
+      };
+    }
+    const checked = validate(OFFICE_LOCAL_FILE, OfficeLocalFileSchema, read.value);
     if (!checked.ok) return checked;
     document = read.value;
-    version = read.version;
   }
   const privacy = document["privacy"];
   const next = {
     ...document,
     privacy: { ...(typeof privacy === "object" && privacy !== null ? privacy : {}), [key]: value },
   };
-  const checked = validate(OFFICE_LOCAL_FILE, OFFICE_LOCAL_FILE_SCHEMAS[version], next, version);
+  const checked = validate(OFFICE_LOCAL_FILE, OfficeLocalFileSchema, next);
   if (!checked.ok) return checked;
   return { ok: true, text: `${LOCAL_FILE_HEADER}${stringifyYamlDocument(next)}` };
 }

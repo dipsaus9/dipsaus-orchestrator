@@ -18,8 +18,6 @@ import { checkProjectSettings, type ReadOptionalText } from "./settings-check";
 export interface ClaudeLaunchCheckDeps {
   readonly spawn: Spawn;
   readonly clock: Clock;
-  /** `worker.allowProjectSettings` of the office. */
-  readonly allowProjectSettings: readonly string[];
   readonly readText?: ReadOptionalText;
   readonly probeTimeoutMs?: number;
 }
@@ -47,11 +45,7 @@ export async function claudeLaunchChecks(
       failures: [{ check: "probe", detail: status.reason ?? "Claude Code failed the probe" }],
     };
   }
-  const settings = await checkProjectSettings(
-    spec.workdir,
-    deps.allowProjectSettings,
-    deps.readText,
-  );
+  const settings = await checkProjectSettings(spec.workdir, deps.readText);
   return settings.length > 0 ? { ok: false, failures: settings } : { ok: true };
 }
 

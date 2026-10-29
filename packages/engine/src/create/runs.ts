@@ -1036,7 +1036,11 @@ function controlRunPorts(
     },
     // The office's starts paused (0020): a plan limit pauses every loaded office, and a failed
     // adapter check pauses through the adapter's hold.
-    startsPaused: { loaded: () => options.offices.loadedOffices(), holds: options.holds },
+    startsPaused: {
+      loaded: () => options.offices.loadedOffices(),
+      holds: options.holds,
+      adapter: CLAUDE_CLI_ADAPTER_ID,
+    },
   };
 }
 

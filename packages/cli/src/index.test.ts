@@ -119,6 +119,27 @@ describe("cli", () => {
     expect(HELP).toContain("dipo login box");
   });
 
+  it("runs config migrate through runDaemon with the repository's main worktree, without a daemon (0017)", async () => {
+    const { deps, captured } = fakeDeps();
+    const workspace = fakeWorkspace({
+      cwd: "/work/repo/sub",
+      repository: { mainWorktree: "/work/repo", commonDir: "/work/repo/.git" },
+    });
+    expect(await main(["config", "migrate"], { ...deps, workspace })).toBe(0);
+    expect(captured.daemonCalls).toEqual([["config-migrate", "/work/repo"]]);
+    expect(HELP).toContain("dipo config migrate");
+  });
+
+  it("refuses config migrate outside git and any other config form", async () => {
+    const { deps, captured } = fakeDeps();
+    expect(await main(["config", "migrate"], deps)).toBe(2);
+    expect(captured.err).toEqual(["dipo: /work is not inside a git repository"]);
+    expect(await main(["config"], deps)).toBe(2);
+    expect(await main(["config", "migrate", "now"], deps)).toBe(2);
+    expect(captured.err.at(-1)).toContain("usage: dipo config migrate");
+    expect(captured.daemonCalls).toEqual([]);
+  });
+
   it("does not send other daemon subcommands to runDaemon", async () => {
     const { deps, captured } = fakeDeps();
     expect(await main(["daemon", "self-check"], deps)).toBe(2);

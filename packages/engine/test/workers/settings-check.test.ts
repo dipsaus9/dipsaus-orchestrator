@@ -35,7 +35,6 @@ describe("(unit) project settings check", () => {
         permissions: { deny: ["Read(./.env)"], allow: ["Bash"] },
         includeCoAuthoredBy: false,
       },
-      [],
       false,
     );
     expect(keys(failures)).toEqual([
@@ -47,27 +46,20 @@ describe("(unit) project settings check", () => {
     ]);
     for (const failure of failures) expect(failure.file).toBe(FILE);
     const hooks = failures.find((failure) => failure.key === "hooks");
-    expect(hooks?.fix).toContain("worker.allowProjectSettings");
-  });
-
-  it("lets the office allowlist a key, but never sandbox", () => {
-    const settings = { hooks: {}, sandbox: { enabled: true }, permissions: { ask: [] } };
-    const failures = checkSettings(FILE, settings, ["hooks", "sandbox", "permissions.ask"], false);
-    expect(keys(failures)).toEqual(["sandbox"]);
-    expect(failures[0]?.fix).toBeUndefined();
+    expect(hooks?.fix).toBe('Remove "hooks" from the file.');
+    expect(failures.find((failure) => failure.key === "sandbox")?.fix).toBeUndefined();
   });
 
   it("fails closed on unknown keys and on a file that is not an object", () => {
-    expect(keys(checkSettings(FILE, { someFutureKey: 1 }, [], false))).toEqual(["someFutureKey"]);
-    expect(checkSettings(FILE, ["hooks"], [], false)).toHaveLength(1);
-    expect(keys(checkSettings(FILE, { permissions: "all" }, [], false))).toEqual(["permissions"]);
+    expect(keys(checkSettings(FILE, { someFutureKey: 1 }, false))).toEqual(["someFutureKey"]);
+    expect(checkSettings(FILE, ["hooks"], false)).toHaveLength(1);
+    expect(keys(checkSettings(FILE, { permissions: "all" }, false))).toEqual(["permissions"]);
   });
 
-  it("refuses a stripped key that reappears in the local copy, even when the office allows it", () => {
+  it("refuses a stripped key that reappears in the local copy", () => {
     const failures = checkSettings(
       LOCAL,
       { permissions: { allow: ["Bash"], deny: [] }, enabledMcpjsonServers: [] },
-      ["permissions.allow"],
       true,
     );
     expect(keys(failures)).toEqual(["permissions.allow", "enabledMcpjsonServers"]);
@@ -81,17 +73,17 @@ describe("(unit) project settings check", () => {
       includeCoAuthoredBy: false,
     });
     expect(stripped).toEqual({ permissions: { deny: ["z"] }, includeCoAuthoredBy: false });
-    expect(checkSettings(LOCAL, stripped, [], true)).toEqual([]);
+    expect(checkSettings(LOCAL, stripped, true)).toEqual([]);
     expect(LOCAL_STRIPPED_KEYS).toContain("permissions.additionalDirectories");
   });
 
   it("reads both files of a worktree; missing files pass, bad JSON refuses", async () => {
     await withTempDir(async (dir) => {
-      expect(await checkProjectSettings(dir, [])).toEqual([]);
+      expect(await checkProjectSettings(dir)).toEqual([]);
       mkdirSync(join(dir, ".claude"));
       writeFileSync(join(dir, ".claude", "settings.json"), '{"hooks":{}}');
       writeFileSync(join(dir, ".claude", "settings.local.json"), "{not json");
-      const failures = await checkProjectSettings(dir, []);
+      const failures = await checkProjectSettings(dir);
       expect(failures).toEqual([
         expect.objectContaining({ key: "hooks", file: join(dir, ".claude", "settings.json") }),
         expect.objectContaining({

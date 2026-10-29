@@ -42,6 +42,7 @@ Dependencies are pinned exactly in `package.json`. Later stories add the package
 | Bun | 1.4.2 (exact, `.bun-version`; 0004) | runtime, CI |
 | `@types/bun` | 1.4.2 (follows Bun) | root devDependency |
 | `zod` | 4.6 (4.x minor; pinned 4.6.5) | `contract` dependency |
+| `yaml` | 2.9.1 | `engine` dependency: `dipo config migrate` keeps comments (0017) |
 | `typescript` | 7.0.2 | root devDependency |
 | `oxlint` | 1.87.0 | root devDependency |
 | `oxfmt` | 0.72.0 | root devDependency |

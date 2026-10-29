@@ -438,16 +438,12 @@ describe("the timing of a fix round (0019 section 7)", () => {
     expect(x.started[0]?.message).toContain("Optional:");
   });
 
-  it("does not wait for CI that never runs: a box run's head with no CI, or an office without story PRs", async () => {
+  it("does not wait for CI that never runs: a box run's head with no CI", async () => {
     const s = inReview("DIPO-1");
     reviewed(s, H1, BLOCKED);
     x.ci.set(s.run, { kind: "none", head: H1 });
     expect(await x.fix.consider(officeId(), s.run)).toBe(true);
-    const t = inReview("DIPO-2");
-    reviewed(t, H2, BLOCKED);
-    x.config = { ...OFFICE_DEFAULTS, storyPr: { ...OFFICE_DEFAULTS.storyPr, open: false } };
-    expect(await x.fix.consider(officeId(), t.run)).toBe(true);
-    expect(feedbackItems(w.office, t.run).map((item) => item.head)).toEqual([H2, H2]);
+    expect(feedbackItems(w.office, s.run).map((item) => item.head)).toEqual([H1, H1]);
   });
 
   it("sends the review items once the checks are past the wait cap", async () => {
@@ -809,7 +805,6 @@ describe("delivery with the session's start", () => {
 
 describe("the recovery step", () => {
   it("decides the round of a reviewed head whose CI will not tell again", async () => {
-    x.config = { ...OFFICE_DEFAULTS, storyPr: { ...OFFICE_DEFAULTS.storyPr, open: false } };
     const s = inReview("DIPO-1");
     reviewed(s, H1, BLOCKED);
     const ok = inReview("DIPO-2");
@@ -817,7 +812,8 @@ describe("the recovery step", () => {
     // The daemon stopped before the reviewer's exit reached the fix rounds.
     x.close();
     x = world();
-    x.config = { ...OFFICE_DEFAULTS, storyPr: { ...OFFICE_DEFAULTS.storyPr, open: false } };
+    x.ci.set(s.run, { kind: "none", head: H1 });
+    x.ci.set(ok.run, { kind: "none", head: H2 });
     expect(await x.fix.recover(officeId())).toBe(1);
     expect(feedbackItems(w.office, s.run).map((item) => item.head)).toEqual([H1, H1]);
     expect(feedbackItems(w.office, ok.run)).toEqual([]);

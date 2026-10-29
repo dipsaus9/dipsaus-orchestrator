@@ -1,10 +1,10 @@
 // The project settings check (0008 section 2, "Project settings"). A `-p` run uses the project's
 // hooks, `env` and `apiKeyHelper` without trust, so before every launch and resume the engine
 // reads the worktree's `.claude/settings.json` and `.claude/settings.local.json` and refuses any
-// top-level or `permissions.*` key that is neither on the engine's safe list nor in the office's
-// `worker.allowProjectSettings`. Unknown and future keys fail closed. A `sandbox` key always
-// refuses, because the run's sandbox comes only from `--settings`. A key the setup copy strips
-// from the local file (DIPO-39) that has reappeared refuses too, whatever the office allows.
+// top-level or `permissions.*` key that is not on the engine's safe list: no session loads other
+// settings from the repository copy (0008). Unknown and future keys fail closed. A `sandbox` key
+// always refuses, because the run's sandbox comes only from `--settings`. A key the setup copy
+// strips from the local file (DIPO-39) that has reappeared refuses too.
 
 import { readFile } from "node:fs/promises";
 import { join } from "node:path";
@@ -23,7 +23,7 @@ export const SAFE_PROJECT_SETTINGS: readonly string[] = [
   "disabledMcpjsonServers",
 ];
 
-/** Never allowed, not even through `worker.allowProjectSettings`. */
+/** Never allowed. */
 export const NEVER_ALLOWED_SETTING = "sandbox";
 
 /** Keys the setup copy of `.claude/settings.local.json` drops (0008 section 2, 0010 amendment). */
@@ -59,10 +59,6 @@ export function settingsKeys(settings: Json): string[] {
   return keys;
 }
 
-function allowHint(key: string): string {
-  return `If the key is safe for an unattended worker, add "${key}" to worker.allowProjectSettings in .dipo/office.yaml (reviewed like code).`;
-}
-
 /**
  * Pure: the refusals for one parsed settings file. `file` is the path the notice names; `local`
  * marks the setup copy of `settings.local.json`, where a stripped key must never reappear.
@@ -70,7 +66,6 @@ function allowHint(key: string): string {
 export function checkSettings(
   file: string,
   settings: unknown,
-  allowProjectSettings: readonly string[],
   local: boolean,
 ): LaunchCheckFailure[] {
   if (!isObject(settings)) {
@@ -86,7 +81,7 @@ export function checkSettings(
       },
     ];
   }
-  const allowed = new Set([...SAFE_PROJECT_SETTINGS, ...allowProjectSettings]);
+  const allowed = new Set(SAFE_PROJECT_SETTINGS);
   const failures: LaunchCheckFailure[] = [];
   for (const key of settingsKeys(settings)) {
     if (key === NEVER_ALLOWED_SETTING || key.startsWith(`${NEVER_ALLOWED_SETTING}.`)) {
@@ -100,18 +95,17 @@ export function checkSettings(
     } else if (local && LOCAL_STRIPPED_KEYS.includes(key)) {
       failures.push({
         check: "settings",
-        detail:
-          "the key was stripped when the worktree was set up and has reappeared; remove it (a worker allow belongs in office config)",
+        detail: "the key was stripped when the worktree was set up and has reappeared; remove it",
         file,
         key,
       });
     } else if (!allowed.has(key)) {
       failures.push({
         check: "settings",
-        detail: "the key is not on the engine's safe list or in worker.allowProjectSettings",
+        detail: "the key is not on the engine's safe list; no session loads it (0008)",
         file,
         key,
-        fix: allowHint(key),
+        fix: `Remove "${key}" from the file.`,
       });
     }
   }
@@ -160,7 +154,6 @@ export const readOptionalText: ReadOptionalText = async (path) => {
 /** Reads both settings files of the worktree and checks them; missing files pass. */
 export async function checkProjectSettings(
   workdir: string,
-  allowProjectSettings: readonly string[],
   read: ReadOptionalText = readOptionalText,
 ): Promise<LaunchCheckFailure[]> {
   const failures: LaunchCheckFailure[] = [];
@@ -185,7 +178,7 @@ export async function checkProjectSettings(
       failures.push({ check: "settings", detail: "the file is not valid JSON", file });
       continue;
     }
-    failures.push(...checkSettings(file, parsed, allowProjectSettings, local));
+    failures.push(...checkSettings(file, parsed, local));
   }
   return failures;
 }

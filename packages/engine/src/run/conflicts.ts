@@ -42,7 +42,7 @@
 // - Hand-offs (`run_steps` kind `conflict`, values `start <n> <commit>`, `failed <n> <why>` and
 //   `resolved <n>`). A recorded conflicted merge starts hand-off n. A blocked report while it is
 //   open fails it. The failed hand-off that reaches the run's conflict cap
-//   (`mergeSlot.conflictAttempts`, snapshot as `runs.conflict_cap`) parks `conflict` with the
+//   (`caps.conflictAttempts`, snapshot as `runs.conflict_cap`) parks `conflict` with the
 //   paths, the merge kept on the branch and in the box. A done without markers resolves the open
 //   hand-off; markers left at done are the report gate's (see above), not a failed hand-off. `run_outcomes.conflict_handoffs` counts the hand-offs started.
 // - Carried approvals (0019 section 6). After a clean merge dipo made, the run's newest verdict, if
@@ -128,7 +128,7 @@ export const CONFLICT_NOTICES = {
   carried: "review.carried",
 } as const;
 
-/** The conflict cap of a run that has no snapshot: `mergeSlot.conflictAttempts`' default. */
+/** The conflict cap of a run that has no snapshot: `caps.conflictAttempts`' default. */
 export const CONFLICT_CAP_DEFAULT = 2;
 
 // ---- records -------------------------------------------------------------------------------------
@@ -898,7 +898,7 @@ export class StoryConflicts {
   }
 
   #fallbackCap(officeId: OfficeId): number {
-    return this.#deps.offices.config(officeId)?.mergeSlot.conflictAttempts ?? CONFLICT_CAP_DEFAULT;
+    return this.#deps.offices.config(officeId)?.caps.conflictAttempts ?? CONFLICT_CAP_DEFAULT;
   }
 
   #now(): number {

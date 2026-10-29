@@ -4,7 +4,7 @@
   "properties": {
     "version": {
       "type": "number",
-      "const": 13
+      "const": 14
     },
     "tiers": {
       "type": "object",
@@ -114,103 +114,156 @@
       },
       "additionalProperties": false
     },
-    "worker": {
+    "review": {
       "type": "object",
       "properties": {
-        "adapter": {
+        "model": {
           "type": "string",
           "minLength": 1
         },
-        "allowProjectSettings": {
+        "effort": {
+          "type": "string",
+          "minLength": 1
+        },
+        "maxRounds": {
+          "type": "integer",
+          "exclusiveMinimum": 0,
+          "maximum": 9007199254740991
+        },
+        "maxTurns": {
+          "type": "integer",
+          "exclusiveMinimum": 0,
+          "maximum": 9007199254740991
+        },
+        "maxMinutes": {
+          "type": "integer",
+          "exclusiveMinimum": 0,
+          "maximum": 9007199254740991
+        },
+        "budgetTokens": {
+          "type": "integer",
+          "exclusiveMinimum": 0,
+          "maximum": 9007199254740991
+        }
+      },
+      "additionalProperties": false,
+      "description": "Limits of the review loop (0002): the model and effort of the review worker, the rounds of review and fixes before it stops, and the turns, minutes and tokens of one review."
+    },
+    "caps": {
+      "type": "object",
+      "properties": {
+        "ciAttempts": {
+          "type": "integer",
+          "exclusiveMinimum": 0,
+          "maximum": 9007199254740991,
+          "description": "Pushed heads with red required checks before the story parks with the reason verify-failing."
+        },
+        "conflictAttempts": {
+          "type": "integer",
+          "exclusiveMinimum": 0,
+          "maximum": 9007199254740991,
+          "description": "Failed conflict hand-offs of a story before it parks with the reason conflict."
+        }
+      },
+      "additionalProperties": false,
+      "description": "How often a story may try again before it parks (0002)."
+    },
+    "merge": {
+      "type": "object",
+      "properties": {
+        "autoMerge": {
+          "type": "boolean",
+          "description": "Whether dipo turns GitHub's auto-merge on for a story PR once it is reviewed and its checks pass, without the maintainer's approval."
+        },
+        "holdLabels": {
           "type": "array",
           "items": {
             "type": "string",
             "minLength": 1
-          }
+          },
+          "description": "Labels that keep auto-merge off for a PR while it carries one."
         },
-        "plugins": {
+        "checksWaitMinutes": {
+          "type": "integer",
+          "exclusiveMinimum": 0,
+          "maximum": 9007199254740991,
+          "description": "Minutes dipo waits for the required checks of a PR to finish before it reports them stuck and polls the PR less often."
+        }
+      },
+      "additionalProperties": false,
+      "description": "How a story PR merges (0002)."
+    },
+    "box": {
+      "type": "object",
+      "properties": {
+        "debian": {
+          "type": "string",
+          "minLength": 1,
+          "pattern": "^[a-z0-9][a-z0-9.]*$",
+          "description": "The Debian release of the box image. dipo builds on its slim image, docker.io/library/debian:<release>-slim, pinned by digest for trixie, dipo's default; another release is pulled by its tag alone."
+        },
+        "toolchain": {
+          "type": "object",
+          "properties": {
+            "node": {
+              "type": "string",
+              "minLength": 1,
+              "pattern": "^\\d+\\.\\d+\\.\\d+$",
+              "description": "Node.js, from nodejs.org; npm comes with it. Every box has Node, because npm installs Claude Code."
+            },
+            "bun": {
+              "type": "string",
+              "minLength": 1,
+              "pattern": "^\\d+\\.\\d+\\.\\d+$",
+              "description": "Bun, from npm through Safe-Chain."
+            },
+            "pnpm": {
+              "type": "string",
+              "minLength": 1,
+              "pattern": "^\\d+\\.\\d+\\.\\d+$",
+              "description": "pnpm, from npm through Safe-Chain."
+            },
+            "yarn": {
+              "type": "string",
+              "minLength": 1,
+              "pattern": "^1\\.\\d+\\.\\d+$",
+              "description": "Yarn 1, from npm through Safe-Chain. A Yarn 2+ repository runs its committed yarnPath release through it."
+            },
+            "nodeSha256": {
+              "type": "object",
+              "properties": {
+                "arm64": {
+                  "type": "string",
+                  "minLength": 1,
+                  "pattern": "^[0-9a-f]{64}$"
+                },
+                "x64": {
+                  "type": "string",
+                  "minLength": 1,
+                  "pattern": "^[0-9a-f]{64}$"
+                }
+              },
+              "additionalProperties": false,
+              "description": "The sha256 of the Node.js tarball (node-v<version>-linux-<arch>.tar.gz) per architecture. dipo pins it for its known Node versions; a Node version it does not know needs it here, or the build is refused."
+            }
+          },
+          "additionalProperties": false,
+          "description": "The toolchain of the box image and its exact versions. A version left out is detected from the repository (.bun-version, packageManager, .node-version, .nvmrc) or takes dipo's default."
+        },
+        "packages": {
           "type": "array",
           "items": {
             "type": "string",
             "minLength": 1,
-            "pattern": "^[^@\\s]+@[^@\\s]+$"
+            "pattern": "^[a-z0-9][a-z0-9+.-]+(?:=[A-Za-z0-9.+~:-]+)?$"
           },
-          "description": "Plugins a worker session may load, as <plugin>@<marketplace> (0008 amendment of 2026-10-12). Every other installed plugin is switched off in the run settings, and a session whose system/init lists one refuses to start. A listed plugin brings its hooks, which run outside the sandbox, so listing one is reviewed like code."
+          "description": "Extra Debian packages of the box image, installed with apt from Debian's archive."
         },
-        "web": {
-          "type": "boolean",
-          "description": "Whether the developer role gets the web search and fetch tools (0020 section 11b). Every call shows in the worker output and is counted on the run outcome; the box's web traffic goes through dipo's web proxy (0008). With false the developer keeps the M0 tool list. The key does not apply to the reviewer, which always has them in its reviewer box (0002)."
-        }
-      },
-      "additionalProperties": false
-    },
-    "permissions": {
-      "type": "object",
-      "properties": {
-        "ask": {
+        "claudeCode": {
           "type": "string",
-          "enum": ["when-present", "never"]
-        }
-      },
-      "additionalProperties": false
-    },
-    "timeouts": {
-      "type": "object",
-      "properties": {
-        "workerStallMinutes": {
-          "type": "integer",
-          "exclusiveMinimum": 0,
-          "maximum": 9007199254740991
-        },
-        "workerQuietMinutes": {
-          "type": "integer",
-          "exclusiveMinimum": 0,
-          "maximum": 9007199254740991
-        },
-        "questionWaitMinutes": {
-          "type": "integer",
-          "exclusiveMinimum": 0,
-          "maximum": 9007199254740991
-        },
-        "permissionWaitSeconds": {
-          "type": "integer",
-          "exclusiveMinimum": 0,
-          "maximum": 9007199254740991
-        },
-        "scriptMinutes": {
-          "type": "object",
-          "propertyNames": {
-            "type": "string",
-            "minLength": 1
-          },
-          "additionalProperties": {
-            "type": "integer",
-            "exclusiveMinimum": 0,
-            "maximum": 9007199254740991
-          }
-        },
-        "testIdleMinutes": {
-          "type": "integer",
-          "exclusiveMinimum": 0,
-          "maximum": 9007199254740991
-        }
-      },
-      "additionalProperties": false
-    },
-    "base": {
-      "type": "string",
-      "minLength": 1
-    },
-    "remote": {
-      "type": "string",
-      "minLength": 1
-    },
-    "worktree": {
-      "type": "object",
-      "properties": {
-        "root": {
-          "type": "string",
-          "minLength": 1
+          "minLength": 1,
+          "pattern": "^\\d+\\.\\d+\\.\\d+$",
+          "description": "The Claude Code version of the box image, installed from npm through Safe-Chain, with its auto-update and nonessential traffic turned off (0008)."
         },
         "files": {
           "type": "array",
@@ -221,82 +274,59 @@
                 "type": "string",
                 "minLength": 1
               },
-              "mode": {
-                "default": "copy",
-                "type": "string",
-                "enum": ["copy", "link"]
-              },
-              "required": {
-                "default": false,
-                "type": "boolean"
+              "noRealSecrets": {
+                "type": "boolean",
+                "const": true,
+                "description": "Must be true: the maintainer's mark that the file holds no real secrets (0008). An entry without it is refused."
               }
             },
-            "required": ["path"],
-            "additionalProperties": false
-          }
-        },
-        "ports": {
-          "type": "object",
-          "properties": {
-            "stride": {
-              "type": "integer",
-              "exclusiveMinimum": 0,
-              "maximum": 9007199254740991
-            },
-            "named": {
-              "type": "object",
-              "propertyNames": {
-                "type": "string",
-                "minLength": 1
-              },
-              "additionalProperties": {
-                "type": "integer",
-                "minimum": 1,
-                "maximum": 65535
-              }
-            }
+            "required": ["path", "noRealSecrets"],
+            "additionalProperties": false,
+            "description": "A file outside git that a box gets, by its path in the repository."
           },
-          "additionalProperties": false
+          "description": "Files outside git that a box may get (0008). Nothing outside git goes into a box unless it is listed here and marked noRealSecrets: true. Their values are redacted from PR comments and stored web calls."
         },
-        "env": {
-          "type": "object",
-          "propertyNames": {
-            "type": "string",
-            "minLength": 1
-          },
-          "additionalProperties": {
-            "type": "string"
-          }
-        },
-        "post_create": {
+        "localPorts": {
           "type": "array",
           "items": {
-            "minItems": 1,
-            "type": "array",
-            "items": {
-              "type": "string",
-              "minLength": 1
-            }
-          }
-        },
-        "maxSlots": {
-          "type": "integer",
-          "exclusiveMinimum": 0,
-          "maximum": 9007199254740991
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 65535
+          },
+          "description": "Local ports of this Mac a box may reach (0008), only through dipo's web proxy, as host.dipo.internal:<port>, which dipo connects to on the Mac's loopback. No other service on the Mac or its local network is reachable from a box. Empty by default."
         }
       },
-      "additionalProperties": false
+      "additionalProperties": false,
+      "description": "The office's box (0008): the image every story's box runs and the files outside git it may get. dipo reads this block from the base branch only, so a story cannot change it. What it leaves out is detected from the repository; the image is built once per description and rebuilt only when the description changes."
     },
-    "scripts": {
+    "scan": {
       "type": "object",
-      "propertyNames": {
-        "type": "string",
-        "minLength": 1
+      "properties": {
+        "model": {
+          "type": "string",
+          "minLength": 1,
+          "description": "The model of the scan fallback session."
+        },
+        "effort": {
+          "type": "string",
+          "minLength": 1,
+          "description": "The effort of the scan fallback session."
+        },
+        "budgetTokens": {
+          "type": "integer",
+          "exclusiveMinimum": 0,
+          "maximum": 9007199254740991,
+          "description": "Input plus output plus cache-creation tokens one fallback session may spend."
+        },
+        "maxMinutes": {
+          "type": "integer",
+          "exclusiveMinimum": 0,
+          "maximum": 9007199254740991,
+          "description": "Minutes one fallback session may run before dipo stops it."
+        }
       },
-      "additionalProperties": {
-        "type": "string",
-        "minLength": 1
-      }
+      "additionalProperties": false,
+      "description": "The fallback session that proposes the run profile capabilities code could not resolve, started only by dipo office infer (0013). It runs on the Mac with every tool off, one turn plus one schema retry."
     },
     "story": {
       "type": "object",
@@ -324,41 +354,13 @@
             "minLength": 1
           }
         },
-        "titleMax": {
-          "type": "integer",
-          "exclusiveMinimum": 0,
-          "maximum": 9007199254740991
-        },
-        "outcomeMin": {
-          "type": "integer",
-          "exclusiveMinimum": 0,
-          "maximum": 9007199254740991
-        },
-        "criterionMin": {
-          "type": "integer",
-          "exclusiveMinimum": 0,
-          "maximum": 9007199254740991
-        },
-        "slugMax": {
-          "type": "integer",
-          "exclusiveMinimum": 0,
-          "maximum": 9007199254740991
-        },
-        "maintainerStepPhrases": {
-          "type": "array",
-          "items": {
-            "type": "string",
-            "minLength": 1
-          },
-          "description": "Not read: the Ready gate rule R27 that read these phrases is removed (0012). The key is still accepted until the office configuration drops it."
-        },
         "securityPhrases": {
           "type": "array",
           "items": {
             "type": "string",
             "minLength": 1
           },
-          "description": "Phrases of a title or Outcome that adds or replaces a security barrier, such as a deny rule or a permission check. Such a story needs the criteria parts of story.securityCriteriaPhrases, else it fails the Ready gate (R30, 0012 section 3, DIPO-251)."
+          "description": "Phrases of a title or Outcome that adds or replaces a security barrier, such as a deny rule or a permission check. Such a story needs the criteria parts of story.securityCriteriaPhrases, else it fails the Ready gate (R30, 0012)."
         },
         "securityCriteriaPhrases": {
           "type": "object",
@@ -389,7 +391,27 @@
             }
           },
           "additionalProperties": false,
-          "description": "Per part of R30, the phrases a criterion must contain (word match, as R10). A story whose title or Outcome names a security barrier fails once for each part no criterion matches (0012 section 3, DIPO-251)."
+          "description": "Per part of R30, the phrases a criterion must contain (word match, as R10). A story whose title or Outcome names a security barrier fails once for each part no criterion matches (0012)."
+        },
+        "titleMax": {
+          "type": "integer",
+          "exclusiveMinimum": 0,
+          "maximum": 9007199254740991
+        },
+        "outcomeMin": {
+          "type": "integer",
+          "exclusiveMinimum": 0,
+          "maximum": 9007199254740991
+        },
+        "criterionMin": {
+          "type": "integer",
+          "exclusiveMinimum": 0,
+          "maximum": 9007199254740991
+        },
+        "slugMax": {
+          "type": "integer",
+          "exclusiveMinimum": 0,
+          "maximum": 9007199254740991
         }
       },
       "additionalProperties": false
@@ -427,61 +449,7 @@
               "additionalProperties": false,
               "description": "Keys S, M, L and XL are 0014 project size classes from `git ls-files` (S under 150 files, M under 500, L under 5,000, XL above), not story tiers."
             },
-            "contextItem": {
-              "type": "object",
-              "properties": {
-                "S": {
-                  "type": "integer",
-                  "exclusiveMinimum": 0,
-                  "maximum": 9007199254740991
-                },
-                "M": {
-                  "type": "integer",
-                  "exclusiveMinimum": 0,
-                  "maximum": 9007199254740991
-                },
-                "L": {
-                  "type": "integer",
-                  "exclusiveMinimum": 0,
-                  "maximum": 9007199254740991
-                },
-                "XL": {
-                  "type": "integer",
-                  "exclusiveMinimum": 0,
-                  "maximum": 9007199254740991
-                }
-              },
-              "additionalProperties": false,
-              "description": "Keys S, M, L and XL are 0014 project size classes from `git ls-files` (S under 150 files, M under 500, L under 5,000, XL above), not story tiers."
-            },
             "inputs": {
-              "type": "object",
-              "properties": {
-                "S": {
-                  "type": "integer",
-                  "exclusiveMinimum": 0,
-                  "maximum": 9007199254740991
-                },
-                "M": {
-                  "type": "integer",
-                  "exclusiveMinimum": 0,
-                  "maximum": 9007199254740991
-                },
-                "L": {
-                  "type": "integer",
-                  "exclusiveMinimum": 0,
-                  "maximum": 9007199254740991
-                },
-                "XL": {
-                  "type": "integer",
-                  "exclusiveMinimum": 0,
-                  "maximum": 9007199254740991
-                }
-              },
-              "additionalProperties": false,
-              "description": "Keys S, M, L and XL are 0014 project size classes from `git ls-files` (S under 150 files, M under 500, L under 5,000, XL above), not story tiers."
-            },
-            "inputsFile": {
               "type": "object",
               "properties": {
                 "S": {
@@ -643,61 +611,7 @@
               "additionalProperties": false,
               "description": "Keys S, M, L and XL are 0014 project size classes from `git ls-files` (S under 150 files, M under 500, L under 5,000, XL above), not story tiers."
             },
-            "feedbackLogLines": {
-              "type": "object",
-              "properties": {
-                "S": {
-                  "type": "integer",
-                  "exclusiveMinimum": 0,
-                  "maximum": 9007199254740991
-                },
-                "M": {
-                  "type": "integer",
-                  "exclusiveMinimum": 0,
-                  "maximum": 9007199254740991
-                },
-                "L": {
-                  "type": "integer",
-                  "exclusiveMinimum": 0,
-                  "maximum": 9007199254740991
-                },
-                "XL": {
-                  "type": "integer",
-                  "exclusiveMinimum": 0,
-                  "maximum": 9007199254740991
-                }
-              },
-              "additionalProperties": false,
-              "description": "Keys S, M, L and XL are 0014 project size classes from `git ls-files` (S under 150 files, M under 500, L under 5,000, XL above), not story tiers."
-            },
             "diff": {
-              "type": "object",
-              "properties": {
-                "S": {
-                  "type": "integer",
-                  "exclusiveMinimum": 0,
-                  "maximum": 9007199254740991
-                },
-                "M": {
-                  "type": "integer",
-                  "exclusiveMinimum": 0,
-                  "maximum": 9007199254740991
-                },
-                "L": {
-                  "type": "integer",
-                  "exclusiveMinimum": 0,
-                  "maximum": 9007199254740991
-                },
-                "XL": {
-                  "type": "integer",
-                  "exclusiveMinimum": 0,
-                  "maximum": 9007199254740991
-                }
-              },
-              "additionalProperties": false,
-              "description": "Keys S, M, L and XL are 0014 project size classes from `git ls-files` (S under 150 files, M under 500, L under 5,000, XL above), not story tiers."
-            },
-            "nudge": {
               "type": "object",
               "properties": {
                 "S": {
@@ -753,7 +667,7 @@
             }
           },
           "additionalProperties": false,
-          "description": "Prompt section budgets per project size class (0014 section 4), in characters unless the name says lines. Keys S, M, L and XL are 0014 project size classes from `git ls-files` (S under 150 files, M under 500, L under 5,000, XL above), not story tiers."
+          "description": "Prompt section budgets per project size class (0014), in characters. Keys S, M, L and XL are 0014 project size classes from `git ls-files` (S under 150 files, M under 500, L under 5,000, XL above), not story tiers."
         },
         "contractMax": {
           "type": "integer",
@@ -763,50 +677,65 @@
       },
       "additionalProperties": false
     },
-    "sandbox": {
+    "base": {
+      "type": "string",
+      "minLength": 1
+    },
+    "worktree": {
       "type": "object",
       "properties": {
-        "toolchainReadPaths": {
-          "type": "array",
-          "items": {
+        "root": {
+          "type": "string",
+          "minLength": 1
+        }
+      },
+      "additionalProperties": false
+    },
+    "scripts": {
+      "type": "object",
+      "propertyNames": {
+        "type": "string",
+        "minLength": 1
+      },
+      "additionalProperties": {
+        "type": "string",
+        "minLength": 1
+      }
+    },
+    "timeouts": {
+      "type": "object",
+      "properties": {
+        "workerStallMinutes": {
+          "type": "integer",
+          "exclusiveMinimum": 0,
+          "maximum": 9007199254740991
+        },
+        "workerQuietMinutes": {
+          "type": "integer",
+          "exclusiveMinimum": 0,
+          "maximum": 9007199254740991
+        },
+        "questionWaitMinutes": {
+          "type": "integer",
+          "exclusiveMinimum": 0,
+          "maximum": 9007199254740991
+        },
+        "scriptMinutes": {
+          "type": "object",
+          "propertyNames": {
             "type": "string",
-            "minLength": 1,
-            "pattern": "^(?:~\\/|\\/)"
+            "minLength": 1
           },
-          "description": "Toolchain paths the worker may read (0008 section 2, 2026-10-12 amendment); engine steps read them too. .dipo/office.local.yaml may add machine-specific paths to this list (version 4)."
-        },
-        "installCachePaths": {
-          "type": "array",
-          "items": {
-            "type": "string",
-            "minLength": 1,
-            "pattern": "^(?:~\\/|\\/)"
-          },
-          "description": "Package caches an install step may write (0008 section 2, 2026-10-12 amendment). A cache that holds a PATH directory or the dipo or bun binary refuses the step."
-        },
-        "registryHosts": {
-          "type": "array",
-          "items": {
-            "type": "string",
-            "minLength": 1
+          "additionalProperties": {
+            "type": "integer",
+            "exclusiveMinimum": 0,
+            "maximum": 9007199254740991
           }
         },
-        "allowRead": {
-          "type": "array",
-          "items": {
-            "type": "string",
-            "minLength": 1
-          }
-        },
-        "allowedDomains": {
-          "type": "array",
-          "items": {
-            "type": "string",
-            "minLength": 1
-          }
-        },
-        "allowLocalBinding": {
-          "type": "boolean"
+        "testIdleMinutes": {
+          "type": "integer",
+          "exclusiveMinimum": 0,
+          "maximum": 9007199254740991
         }
       },
       "additionalProperties": false
@@ -826,232 +755,6 @@
         }
       },
       "additionalProperties": false
-    },
-    "mergeSlot": {
-      "type": "object",
-      "properties": {
-        "requiredChecks": {
-          "minItems": 1,
-          "type": "array",
-          "items": {
-            "type": "string",
-            "minLength": 1
-          },
-          "description": "No longer read: the required checks are the ones GitHub's branch protection or rulesets require on the base (0002). The key stays valid until the version 14 reset removes it."
-        },
-        "autoMerge": {
-          "type": "boolean",
-          "description": "Whether dipo turns GitHub's auto-merge on for a story PR once it is reviewed and its checks pass, without the maintainer's approval."
-        },
-        "conflictAttempts": {
-          "type": "integer",
-          "exclusiveMinimum": 0,
-          "maximum": 9007199254740991,
-          "description": "Failed conflict hand-offs of a story before it parks with the reason conflict."
-        },
-        "ciAttempts": {
-          "type": "integer",
-          "exclusiveMinimum": 0,
-          "maximum": 9007199254740991,
-          "description": "Pushed heads with red required checks before the story parks with the reason verify-failing."
-        },
-        "holdLabels": {
-          "type": "array",
-          "items": {
-            "type": "string",
-            "minLength": 1
-          },
-          "description": "Labels that keep auto-merge off for a PR while it carries one."
-        },
-        "checksWaitMinutes": {
-          "type": "integer",
-          "exclusiveMinimum": 0,
-          "maximum": 9007199254740991,
-          "description": "Minutes dipo waits for the required checks of a PR to finish before it reports them stuck."
-        }
-      },
-      "additionalProperties": false
-    },
-    "review": {
-      "type": "object",
-      "properties": {
-        "model": {
-          "type": "string",
-          "minLength": 1
-        },
-        "effort": {
-          "type": "string",
-          "minLength": 1
-        },
-        "maxRounds": {
-          "type": "integer",
-          "exclusiveMinimum": 0,
-          "maximum": 9007199254740991
-        },
-        "maxTurns": {
-          "type": "integer",
-          "exclusiveMinimum": 0,
-          "maximum": 9007199254740991
-        },
-        "maxMinutes": {
-          "type": "integer",
-          "exclusiveMinimum": 0,
-          "maximum": 9007199254740991
-        },
-        "budgetTokens": {
-          "type": "integer",
-          "exclusiveMinimum": 0,
-          "maximum": 9007199254740991
-        }
-      },
-      "additionalProperties": false,
-      "description": "Limits of the review loop (0019 section 16): the model and effort of the review worker, the rounds of review and fixes before it stops, and the turns, minutes and tokens of one review."
-    },
-    "storyPr": {
-      "type": "object",
-      "properties": {
-        "open": {
-          "type": "boolean",
-          "description": "Whether the engine opens the story PR at the first In Review push and keeps it updated (0019 section 3). With false it opens, updates, polls and retries no story PR for this office and raises no pr.openFailed notice; the story stays In Review."
-        }
-      },
-      "additionalProperties": false,
-      "description": "The story PR of this office (0019 section 3, amendment of 2026-10-19)."
-    },
-    "box": {
-      "type": "object",
-      "properties": {
-        "debian": {
-          "type": "string",
-          "minLength": 1,
-          "pattern": "^[a-z0-9][a-z0-9.]*$",
-          "description": "The Debian release of the box image. dipo builds on its slim image, docker.io/library/debian:<release>-slim, pinned by digest for trixie, dipo's default; another release is pulled by its tag alone."
-        },
-        "toolchain": {
-          "type": "object",
-          "properties": {
-            "node": {
-              "type": "string",
-              "minLength": 1,
-              "pattern": "^\\d+\\.\\d+\\.\\d+$",
-              "description": "Node.js, from nodejs.org; npm comes with it. Every box has Node, because npm installs Claude Code."
-            },
-            "bun": {
-              "type": "string",
-              "minLength": 1,
-              "pattern": "^\\d+\\.\\d+\\.\\d+$",
-              "description": "Bun, from npm through Safe-Chain."
-            },
-            "pnpm": {
-              "type": "string",
-              "minLength": 1,
-              "pattern": "^\\d+\\.\\d+\\.\\d+$",
-              "description": "pnpm, from npm through Safe-Chain."
-            },
-            "yarn": {
-              "type": "string",
-              "minLength": 1,
-              "pattern": "^1\\.\\d+\\.\\d+$",
-              "description": "Yarn 1, from npm through Safe-Chain. A Yarn 2+ repository runs its committed yarnPath release through it."
-            },
-            "nodeSha256": {
-              "type": "object",
-              "properties": {
-                "arm64": {
-                  "type": "string",
-                  "minLength": 1,
-                  "pattern": "^[0-9a-f]{64}$"
-                },
-                "x64": {
-                  "type": "string",
-                  "minLength": 1,
-                  "pattern": "^[0-9a-f]{64}$"
-                }
-              },
-              "additionalProperties": false,
-              "description": "The sha256 of the Node.js tarball (node-v<version>-linux-<arch>.tar.gz) per architecture. dipo pins it for its known Node versions; a Node version it does not know needs it here, or the build is refused."
-            }
-          },
-          "additionalProperties": false,
-          "description": "The toolchain of the box image and its exact versions. A version left out is detected from the repository (.bun-version, packageManager, .node-version, .nvmrc) or takes dipo's default."
-        },
-        "packages": {
-          "type": "array",
-          "items": {
-            "type": "string",
-            "minLength": 1,
-            "pattern": "^[a-z0-9][a-z0-9+.-]+(?:=[A-Za-z0-9.+~:-]+)?$"
-          },
-          "description": "Extra Debian packages of the box image, installed with apt from Debian's archive."
-        },
-        "claudeCode": {
-          "type": "string",
-          "minLength": 1,
-          "pattern": "^\\d+\\.\\d+\\.\\d+$",
-          "description": "The Claude Code version of the box image, installed from npm through Safe-Chain, with its auto-update and nonessential traffic turned off (0021 section 4)."
-        },
-        "files": {
-          "type": "array",
-          "items": {
-            "type": "object",
-            "properties": {
-              "path": {
-                "type": "string",
-                "minLength": 1
-              },
-              "noRealSecrets": {
-                "type": "boolean",
-                "const": true,
-                "description": "Must be true: the maintainer's mark that the file holds no real secrets (0021 decision 9). An entry without it is refused."
-              }
-            },
-            "required": ["path", "noRealSecrets"],
-            "additionalProperties": false,
-            "description": "A file outside git that a box gets, by its path in the repository."
-          },
-          "description": "Files outside git that a box may get (0021 decision 9). Nothing outside git goes into a box unless it is listed here and marked noRealSecrets: true."
-        },
-        "localPorts": {
-          "type": "array",
-          "items": {
-            "type": "integer",
-            "minimum": 1,
-            "maximum": 65535
-          },
-          "description": "Local ports of this Mac a box may reach (0021 section 3, DIPO-282), only through dipo's web proxy, as host.dipo.internal:<port>, which dipo connects to on the Mac's loopback. No other service on the Mac or its local network is reachable from a box. Empty by default."
-        }
-      },
-      "additionalProperties": false,
-      "description": "The office's box (0021 section 5, DIPO-266): the image every story's box runs and the files outside git it may get. dipo reads this block from the base branch only, so a story cannot change it. What it leaves out is detected from the repository; the image is built once per description and rebuilt only when the description changes."
-    },
-    "scan": {
-      "type": "object",
-      "properties": {
-        "model": {
-          "type": "string",
-          "minLength": 1,
-          "description": "The model of the scan fallback session."
-        },
-        "effort": {
-          "type": "string",
-          "minLength": 1,
-          "description": "The effort of the scan fallback session."
-        },
-        "budgetTokens": {
-          "type": "integer",
-          "exclusiveMinimum": 0,
-          "maximum": 9007199254740991,
-          "description": "Input plus output plus cache-creation tokens one fallback session may spend."
-        },
-        "maxMinutes": {
-          "type": "integer",
-          "exclusiveMinimum": 0,
-          "maximum": 9007199254740991,
-          "description": "Minutes one fallback session may run before dipo stops it."
-        }
-      },
-      "additionalProperties": false,
-      "description": "The fallback session that proposes the run profile capabilities code could not resolve, started only by dipo office infer (0013 section 6, amendment of 2026-10-22). It runs on the Mac with every tool off, one turn plus one schema retry."
     }
   },
   "required": ["version"],

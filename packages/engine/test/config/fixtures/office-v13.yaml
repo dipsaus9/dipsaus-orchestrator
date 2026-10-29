@@ -1,0 +1,5 @@
+# A version 13 office file: version 13 adds the scan block (DIPO-310).
+version: 13
+scan: { maxMinutes: 7 }
+mergeSlot: { autoMerge: false, requiredChecks: [ci-ok, pr-title] }
+worktree: { root: "../{repo}.trees", maxSlots: 20 }

@@ -93,7 +93,7 @@ describe("mergeGateSummary", () => {
       head: HEAD,
       waits: [{ kind: "autoMergeOff" }, { kind: "maintainerCriteria", criteria: [3] }],
     });
-    expect(text).toContain("mergeSlot.autoMerge is off");
+    expect(text).toContain("merge.autoMerge is off");
     expect(text).toContain("#3");
     expect(text).toContain("dipo approve DIPO-7");
     expect(text).toContain("dipo reject DIPO-7 --note <text>");

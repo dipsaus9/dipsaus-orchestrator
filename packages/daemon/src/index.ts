@@ -2,12 +2,13 @@
 // binary that runs daemon-side code calls it with the arguments after `daemon` (or `self-check`),
 // and it dispatches on the first one. The table below is the one place a form is added; later
 // stories add more. `restore` (DIPO-76) is reached as `dipo restore <file>`, `login` (DIPO-269) as
-// `dipo login box`.
+// `dipo login box`, `config-migrate` as `dipo config migrate`.
 
 import { tmpdir } from "node:os";
 
 import { platformSelfChecks, RUN_ID_PATTERN } from "@dipsaus-orchestrator/engine/platform";
 
+import { CONFIG_MIGRATE_USAGE, runConfigMigrateForm } from "./config-migrate";
 import { FOREGROUND_USAGE, runForeground } from "./foreground";
 import { LOGIN_USAGE, runLoginForm } from "./login";
 import { RESTORE_USAGE, runRestoreForm } from "./restore";
@@ -41,6 +42,11 @@ const FORMS: ReadonlyMap<string, Form> = new Map<string, Form>([
   ["restore", { usage: RESTORE_USAGE, run: (args, io) => runRestoreForm(args, io) }],
   // Sets the box login in the Keychain on the maintainer's terminal (DIPO-269), as `dipo login box`.
   ["login", { usage: LOGIN_USAGE, run: (args, io) => runLoginForm(args, io) }],
+  // Rewrites the office files at version 14 (0017), as `dipo config migrate`.
+  [
+    "config-migrate",
+    { usage: CONFIG_MIGRATE_USAGE, run: (args, io) => runConfigMigrateForm(args, io) },
+  ],
   // A shell in a story's test box (DIPO-309), as `dipo test shell <id>`.
   ["test-shell", { usage: TEST_SHELL_USAGE, run: (args, io) => runTestShellForm(args, io) }],
   // Hidden: the daemon side of `dipo self-check` (DIPO-17).

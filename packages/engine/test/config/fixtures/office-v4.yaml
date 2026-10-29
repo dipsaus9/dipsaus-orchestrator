@@ -1,0 +1,3 @@
+# A version 4 office file: version 4 adds a key to office.local.yaml only, so nothing here retires.
+version: 4
+story: { criterionMin: 12 }

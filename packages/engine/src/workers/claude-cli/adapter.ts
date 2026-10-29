@@ -11,7 +11,6 @@
 
 import type { Clock, Spawn } from "@dipsaus-orchestrator/contract";
 
-import type { OfficeConfig } from "../../config";
 import { type AdapterHolds, gateLaunch } from "../hold";
 import type { PreparedWorker, RunLaunchPaths, SessionFacts, WorkerPort } from "../port";
 import type {
@@ -88,8 +87,7 @@ function probeEnv(ctx: ClaudeLaunchContext): Record<string, string> {
  * `initialState` has no configuration; the adapter of the launch (or resume) has, so it sets them
  * on every line, whatever the stored state held, a null included:
  *
- * - the office's `worker.plugins` and the plugin ids of this launch (DIPO-108); a reviewer's state
- *   allows no plugin whatever `worker.plugins` says (0019 section 4, in the parser);
+ * - the plugins a session may load (none, 0008) and the plugin ids of this launch (DIPO-108);
  * - the skills check (DIPO-130), always: every session is planned with `--disable-slash-commands`.
  */
 function withInitChecks(
@@ -237,11 +235,10 @@ function previewSession(): BoxSession {
 /** The launch check name of a box that could not be made ready for a session. */
 export const BOX_CHECK = "box";
 
-/** The launch context of one run from its paths, the office configuration and the daemon. */
+/** The launch context of one run from its paths and the daemon. */
 export function claudeLaunchContext(
   deps: Pick<ClaudeWorkerPortDeps, "claudePath" | "home" | "env" | "pluginFiles">,
   paths: RunLaunchPaths,
-  config: OfficeConfig,
 ): ClaudeLaunchContext {
   if (deps.claudePath === undefined) {
     throw new PlanError(
@@ -257,12 +254,9 @@ export function claudeLaunchContext(
     runDir: paths.runDir,
     tmpDir: paths.tmpDir,
     shortTmpDir: paths.shortTmpDir,
-    sandbox: config.sandbox,
     // Read per launch, so a plugin installed since the last run is switched off too (DIPO-108).
-    plugins: {
-      installed: readInstalledPlugins(deps.home, deps.pluginFiles),
-      allowed: config.worker.plugins,
-    },
+    // No session loads a plugin (0008).
+    plugins: { installed: readInstalledPlugins(deps.home, deps.pluginFiles), allowed: [] },
   };
 }
 
@@ -272,12 +266,12 @@ export function claudeWorkerPort(deps: ClaudeWorkerPortDeps): WorkerPort {
     id: CLAUDE_CLI_ADAPTER_ID,
     reportSchema: REPORT_JSON_SCHEMAS,
     localSettings: CLAUDE_LOCAL_SETTINGS,
-    adapter: (paths, config) =>
-      claudeCliAdapter(claudeLaunchContext(deps, paths, config), deps, {
+    adapter: (paths) =>
+      claudeCliAdapter(claudeLaunchContext(deps, paths), deps, {
         boxWorker: deps.boxes?.isBoxRun(paths.runDir) === true,
       }),
     previewBox: (spec, paths) => scrubbed(planInBox(spec, previewSession(), paths.runDir)),
-    prepare: async (spec, paths, config, _checkSession, place) => {
+    prepare: async (spec, paths, _config, _checkSession, place) => {
       // A reviewer session goes into the read-only box made for it, never onto the Mac (0002).
       if (spec.kind === "review") {
         if (place === undefined) throw new PlanError(REVIEWER_ON_MAC_REFUSED);
@@ -298,17 +292,11 @@ export function claudeWorkerPort(deps: ClaudeWorkerPortDeps): WorkerPort {
         }
         return prepareInBox(spec, paths, deps.boxes, deps.holds);
       }
-      const prepared = await prepareLaunch(
-        spec,
-        claudeLaunchContext(deps, paths, config),
-        deps.holds,
-        {
-          spawn: deps.spawn,
-          clock: deps.clock,
-          allowProjectSettings: config.worker.allowProjectSettings,
-          ...deps.launchCheckSeams,
-        },
-      );
+      const prepared = await prepareLaunch(spec, claudeLaunchContext(deps, paths), deps.holds, {
+        spawn: deps.spawn,
+        clock: deps.clock,
+        ...deps.launchCheckSeams,
+      });
       return prepared.ok ? { ok: true, plan: scrubbed(prepared.plan) } : prepared;
     },
     initialState: (spec, previous) =>

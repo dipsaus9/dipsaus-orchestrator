@@ -12,7 +12,6 @@ import { mkdirSync, readdirSync, readFileSync, statSync, writeFileSync } from "n
 import { homedir, tmpdir } from "node:os";
 import { join, relative } from "node:path";
 
-import { OFFICE_DEFAULTS } from "../../packages/engine/src/config/schema";
 import { systemClock } from "../../packages/engine/src/platform/clock";
 import { encode as encodeClaudeOp } from "../../packages/engine/src/workers/claude-cli/encode";
 import {
@@ -348,7 +347,6 @@ export async function capture(scenario: Scenario): Promise<string> {
         runDir,
         hostSocket,
         tmpDir: sandboxTmp,
-        sandbox: OFFICE_DEFAULTS.sandbox,
         // A reviewer loads no plugin: the plan switches off every installed one (0019 section 4).
         ...(scenario.kind === "review"
           ? { plugins: { installed: readInstalledPlugins(home), allowed: [] } }

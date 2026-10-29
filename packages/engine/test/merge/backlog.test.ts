@@ -132,7 +132,7 @@ describe("the label guard", () => {
 
   it("holds a PR with a hold label of the office until the label is gone", async () => {
     await openBacklogPr(s);
-    s.config = { ...s.config, mergeSlot: { ...s.config.mergeSlot, holdLabels: ["hold"] } };
+    s.config = { ...s.config, merge: { ...s.config.merge, holdLabels: ["hold"] } };
     s.host.prLabelsOf.set(1, ["Hold"]);
     await s.merge.tick(s.officeId);
     expect(s.host.armedAt).toEqual([]);

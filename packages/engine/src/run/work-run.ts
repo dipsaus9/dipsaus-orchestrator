@@ -693,8 +693,8 @@ export class WorkRun {
         maxMinutes: caps.maxMinutes,
         // The review loop's caps, fixed at the start (0019 sections 4 and 8, 0020 section 5).
         reviewRoundCap: c.config.review.maxRounds,
-        ciCap: c.config.mergeSlot.ciAttempts,
-        conflictCap: c.config.mergeSlot.conflictAttempts,
+        ciCap: c.config.caps.ciAttempts,
+        conflictCap: c.config.caps.conflictAttempts,
         reviewMaxTurns: c.config.review.maxTurns,
         reviewMaxMinutes: c.config.review.maxMinutes,
         reviewMaxTokens: c.config.review.budgetTokens,
@@ -957,15 +957,6 @@ export class WorkRun {
     const launcher = deps.launcher;
     if (launcher === undefined) {
       return { ...info(), story, skipped, launch: null, problem: "this daemon starts no workers" };
-    }
-    if (launcher.adapterId !== config.worker.adapter) {
-      return {
-        ...info(),
-        story,
-        skipped,
-        launch: null,
-        problem: `worker.adapter ${config.worker.adapter} is not available; this daemon has ${launcher.adapterId}`,
-      };
     }
     try {
       const launch = await launcher.preview({

@@ -125,7 +125,7 @@ describe("office configuration", () => {
     );
   });
 
-  it("loads a configuration with a retired key and warns with its name on the office stream (DIPO-285)", async () => {
+  it("loads an older configuration with a retired key and warns with its name on the office stream (0017)", async () => {
     await withTempRepo(
       async (repo) => {
         writeOfficeYaml(repo.dir, "version: 9\npermissions: { ask: never, presentMinutes: 10 }\n");
@@ -137,7 +137,7 @@ describe("office configuration", () => {
         expect(r.valid).toBe(true);
         expect(r.errors).toEqual([]);
         expect(s.manager.configBlocksRuns(office)).toEqual([]);
-        expect(s.manager.config(office)?.permissions).toEqual({ ask: "never" });
+        expect(s.manager.config(office)?.version).toBe(14);
         const [notice, ...rest] = notices(s, office) as {
           level: string;
           code: string;
@@ -145,7 +145,7 @@ describe("office configuration", () => {
         }[];
         expect(rest).toEqual([]);
         expect(notice).toMatchObject({ level: "warn", code: "config.warning" });
-        expect(notice?.text).toStartWith(".dipo/office.yaml: permissions.presentMinutes: ignored");
+        expect(notice?.text).toStartWith(".dipo/office.yaml: permissions: ignored");
       },
       { fixture: BACKLOG_FIXTURE },
     );

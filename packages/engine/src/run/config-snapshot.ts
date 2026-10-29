@@ -3,14 +3,15 @@
 // in `config_snapshots` and records the hash on the run (`runs.config_hash`). Since a change of
 // `.dipo/office.yaml` on the base reloads the configuration in force at the next poll (DIPO-303),
 // the stages of a run after its start read this snapshot instead: the story PR it opens, its
-// reviewer's model and adapter, and its merge (`mergeSlot`). The required checks are GitHub's
-// (0002), never the snapshot's: `mergeSlot.requiredChecks` is no longer read.
+// reviewer's model, and its merge (`merge` and `caps`). The required checks are GitHub's (0002).
 //
-// A snapshot from an older configuration version lacks the keys added since; each such key takes
-// the value of the configuration it falls back to, section by section, so a run started before a
-// key existed behaves as the defaults of its own time did.
+// A snapshot from a configuration version before 14 goes through the same migration as an office
+// file (`migrateOfficeDocument`), so its moved keys are read at their new place. A snapshot lacks
+// the keys added since; each such key takes the value of the configuration it falls back to,
+// section by section, so a run started before a key existed behaves as the defaults of its own
+// time did.
 
-import { OFFICE_DEFAULTS, type OfficeConfig } from "../config";
+import { migrateOfficeDocument, OFFICE_DEFAULTS, type OfficeConfig } from "../config";
 import type { OfficeHandle } from "../db/office";
 
 import type { StoredRun } from "./records";
@@ -44,7 +45,9 @@ export function runConfigOf(
   if (row === null) return fallback;
   try {
     const parsed = JSON.parse(row.config) as unknown;
-    return plain(parsed) ? (layered(fallback, parsed) as OfficeConfig) : fallback;
+    if (!plain(parsed)) return fallback;
+    const version = typeof parsed["version"] === "number" ? parsed["version"] : 1;
+    return layered(fallback, migrateOfficeDocument(version, parsed).document) as OfficeConfig;
   } catch {
     return fallback;
   }

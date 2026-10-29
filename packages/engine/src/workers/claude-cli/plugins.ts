@@ -1,9 +1,9 @@
 // Claude Code plugins in worker runs (0008 section 2, amendment of 2026-10-12; DIPO-108). A worker
-// session loads no plugin unless the office names it in `worker.plugins`:
+// session loads no plugin (0008):
 //
-// - the run settings file sets `enabledPlugins` to false for every installed plugin the office
-//   does not name, so its hooks never start (a SessionStart hook runs before `system/init`);
-// - the parser compares the `plugins` of `system/init` with `worker.plugins` as the backstop: a
+// - the run settings file sets `enabledPlugins` to false for every installed plugin, so its hooks
+//   never start (a SessionStart hook runs before `system/init`);
+// - the parser checks the `plugins` of `system/init` as the backstop: a
 //   session that lists another plugin is stopped at its `system/init` (`startRefused`) and ends
 //   `startFailed` naming it.
 //
@@ -52,7 +52,7 @@ export interface WorkerPlugins {
    * because it cannot switch off what it cannot name.
    */
   readonly installed: readonly string[] | { readonly error: string };
-  /** `worker.plugins` of the office. */
+  /** The plugins a session may load: none for a run (0008); a test may name some. */
   readonly allowed: readonly string[];
 }
 
@@ -234,5 +234,5 @@ export function pluginRefusal(refused: readonly string[], kind?: string): string
   if (kind === "review") {
     return `${listed}, but a reviewer session loads no plugin: a plugin's hooks run outside the sandbox, so the session refuses to run (0019 section 4)`;
   }
-  return `${listed}, not in worker.plugins: a plugin's hooks run outside the sandbox, so the session refuses to run (0008 amendment of 2026-10-12)`;
+  return `${listed}, but no session loads a plugin: a plugin's hooks could run outside the box, so the session refuses to run (0008)`;
 }
