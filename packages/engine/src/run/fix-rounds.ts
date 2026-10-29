@@ -34,8 +34,8 @@
 //   own (no feedback held behind the wait, no developer session to continue, a status commit that
 //   failed `FIX_LIFT_TRIES` times in a row) parks the story `worker-failed` instead of holding the
 //   worker place.
-// - Recovery (`recover`, the daemon's recovery step): every run that ended reviewed with a live
-//   claim gets `consider`.
+// - Recovery (`recover`, the daemon's recovery step): every run open at In Review with its verdict
+//   in and a live claim gets `consider`.
 
 import {
   type Clock,
@@ -74,14 +74,14 @@ import type { DecidingGuard } from "./deciding";
 import { feedbackIntents, type FeedbackSource, heldFeedback, sendFeedback } from "./feedback";
 import { nextFixRound, planFeedback, sameFailureAgain, storeFeedbackItems } from "./feedback-items";
 import { resolveIntent, runIntents } from "./intents";
-import { OUTCOME_ENDS, type RunView } from "./outcome-types";
+import type { RunView } from "./outcome-types";
 import { type BranchUnpark, type UnparkWriter } from "./park";
 import { heldByPark } from "./park-state";
 import { recordBranchPush } from "../story-pr/records";
 import type { Places, PlaceStart } from "./places";
-import { findRun, IN_REVIEW_END, type StoredRun } from "./records";
+import { findRun, openAtInReview, RUN_PHASE_SQL, type StoredRun } from "./records";
 import type { RunStoryFacts } from "./resume";
-import { REVIEWED_END, reopen } from "./rounds";
+import { reopen, reviewedInReview } from "./rounds";
 import { raiseSignal } from "./signals";
 
 /** The sources a fix round's message can have: the source of its first item (0002). */
@@ -277,7 +277,7 @@ export class FixRounds {
     if (run === null || !this.#waitsInReview(office, run, exited)) return false;
     const reviewed = run.reviewRoundCap != null;
     // The head's verdict is in: the review period ended with it (section 7).
-    if (reviewed && run.endKind !== REVIEWED_END) return false;
+    if (reviewed && !reviewedInReview(office, run)) return false;
     // Whether the run has story PRs comes from its configuration snapshot (DIPO-303 review).
     const ci = this.#ciOf(officeId, runConfigOf(office, run, config), run);
     if (ci.kind === "pending") return false;
@@ -511,8 +511,8 @@ export class FixRounds {
   }
 
   /**
-   * The daemon's recovery step (DIPO-148): every run that ended reviewed with a live claim gets
-   * `consider`, so a head whose verdict is in but whose CI never tells again (no story PRs, or
+   * The daemon's recovery step (DIPO-148): every run open at In Review past its review (phase
+   * merge, test or build) with a live claim gets `consider`, so a head whose verdict is in but whose CI never tells again (no story PRs, or
    * none ran) is not left without its round. Returns how many rounds it queued.
    */
   async recover(officeId: OfficeId): Promise<number> {
@@ -520,11 +520,11 @@ export class FixRounds {
     if (office === undefined) return 0;
     const reviewed = office.all<{ run_id: string }>(
       `select r.run_id from runs r where r.office_id = $office_id and r.kind = 'story'
-        and r.ended_at is not null and r.end_kind = $reviewed
+        and r.ended_at is not null and r.end_kind is null
+        and ${RUN_PHASE_SQL} <> 'review'
         and exists (select 1 from claims c where c.office_id = r.office_id
           and c.run_id = r.run_id and c.released_at is null)
       order by r.ended_at, r.run_id`,
-      { reviewed: REVIEWED_END },
     );
     let queued = 0;
     for (const row of reviewed) {
@@ -571,7 +571,6 @@ export class FixRounds {
         ops: [],
         reason: "worker-failed",
         detail,
-        endKind: OUTCOME_ENDS.crashed,
       });
       // No worker runs, so nothing else resolves the park's intent.
       const intent = runIntents(office, run.runId)
@@ -591,13 +590,12 @@ export class FixRounds {
   }
 
   /**
-   * True when the run is a story run ended at In Review or after its review, with a live claim, no
+   * True when the run is a story run open at In Review with no active period, with a live claim, no
    * open park and no session still running other than `exited`.
    */
   #waitsInReview(office: OfficeHandle, run: StoredRun, exited: string | undefined): boolean {
     if (run.kind !== "story" || run.key === null || run.branch === null) return false;
-    if (run.endedAt === null) return false;
-    if (run.endKind !== REVIEWED_END && run.endKind !== IN_REVIEW_END) return false;
+    if (!openAtInReview(run)) return false;
     const claim = findClaim(office, run.runId);
     if (claim === null || claim.releasedAt !== null) return false;
     if (heldByPark(office, run.key)) return false;

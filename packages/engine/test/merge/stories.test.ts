@@ -787,7 +787,7 @@ async function guardedPark(writer: ParkWriter, reason: "verify-failing" | "by-ma
         }),
       implemented: () => true,
     },
-    { run, reason, detail: "parked", endKind: reason },
+    { run, reason, detail: "parked" },
   );
 }
 

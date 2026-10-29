@@ -10,14 +10,13 @@ import type { OutcomeSupport } from "./outcome-support";
 import {
   INTENT_TAGS,
   messageOf,
-  OUTCOME_ENDS,
   OUTCOME_NOTICES,
   planLimitEnding,
   type RunOutcomesDeps,
   type RunView,
 } from "./outcome-types";
 import { markIntentSent, recordIntent, resolveIntent } from "./intents";
-import { START_FAILED_END } from "./launch";
+import { START_FAILED_RELEASE } from "./launch";
 import type { OfficeHandle } from "../db/office";
 import type { StoredRun } from "./records";
 
@@ -65,7 +64,6 @@ export class SessionStarts {
         ops: [],
         reason: "worker-failed",
         detail: `${request.why}; dipo cannot start another session of the run`,
-        endKind: OUTCOME_ENDS.crashed,
       });
       return false;
     }
@@ -96,7 +94,6 @@ export class SessionStarts {
           ops: [],
           reason: "worker-failed",
           detail: `${request.why}; the next session did not start: ${outcome.reason}`,
-          endKind: OUTCOME_ENDS.crashed,
         });
         return false;
       case "hostAlive":
@@ -106,7 +103,6 @@ export class SessionStarts {
           ops: [],
           reason: "worker-failed",
           detail: `${request.why}; ${outcome.code}: the earlier worker host of the run (pid ${outcome.pid}) still runs, so no new session starts`,
-          endKind: OUTCOME_ENDS.crashed,
         });
         return false;
       case "notResumed":
@@ -115,7 +111,6 @@ export class SessionStarts {
           ops: [],
           reason: "worker-failed",
           detail: `${request.why}; its session cannot be resumed: ${outcome.reason}`,
-          endKind: OUTCOME_ENDS.interrupted,
         });
         return false;
     }
@@ -159,7 +154,6 @@ export class SessionStarts {
         ops: [],
         reason: "worker-failed",
         detail: message,
-        endKind: START_FAILED_END,
         notice: {
           level: "error",
           code: OUTCOME_NOTICES.startFailed,
@@ -184,11 +178,16 @@ export class SessionStarts {
     try {
       if (this.#deps.release === undefined) {
         office.immediate(() =>
-          releaseClaim(office, run.runId, { at, reason: START_FAILED_END, keepBranch: true }),
+          releaseClaim(office, run.runId, {
+            at,
+            reason: START_FAILED_RELEASE,
+            ending: "dropped",
+            keepBranch: true,
+          }),
         );
         released = `dipo released the claim and kept the branch ${claim.branch}`;
       } else {
-        await this.#deps.release(office.officeId, claim, START_FAILED_END);
+        await this.#deps.release(office.officeId, claim, START_FAILED_RELEASE);
       }
     } catch (error) {
       released = `releasing its claim failed (${messageOf(error)}), so the claim may still be there; check it`;

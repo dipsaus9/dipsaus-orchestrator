@@ -93,7 +93,12 @@ describe("claimed stories read on their branch", () => {
       await o.index.indexStories(o.officeId);
       expect(storyView(o.office, key)?.lifecycle).toBe("Parked");
       o.office.immediate(() =>
-        releaseClaim(o.office, claimed.runId, { at: 1, reason: "test", keepBranch: true }),
+        releaseClaim(o.office, claimed.runId, {
+          at: 1,
+          reason: "test",
+          ending: "dropped",
+          keepBranch: true,
+        }),
       );
       await o.index.indexStories(o.officeId);
       expect(storyView(o.office, key)?.lifecycle).toBe("Ready");

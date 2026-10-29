@@ -28,7 +28,8 @@ import {
 import type { HostPr, RequiredCheck } from "../../src/platform/host";
 import { recordReviewVerdict } from "../../src/review/store";
 import { gitParkWriter } from "../../src/run/park";
-import { endRun, findRun, insertRun, REVIEWED_END } from "../../src/run/records";
+import { findRun, insertRun } from "../../src/run/records";
+import { reviewedAt } from "../run/in-review";
 import { findStoryPr, insertStoryPr, updateStoryPr } from "../../src/story-pr/records";
 import { addStory } from "../../src/stories/keys";
 import type { StoryEditor } from "../../src/story-store/store";
@@ -170,7 +171,7 @@ async function scenario(
        values ($office_id, $agent, $run, 'developer', 'sonnet', 's', $at, $at, 'exited')`,
       { agent: s.t.ids.next("agt"), run, at: now },
     );
-    endRun(office, run, now, REVIEWED_END);
+    reviewedAt(office, run, now);
     insertStoryPr(office, {
       runId: run,
       key,

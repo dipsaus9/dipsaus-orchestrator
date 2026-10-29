@@ -37,7 +37,7 @@ import {
   reviewVerdictsOf,
   type StoredReviewVerdict,
 } from "../../src/review";
-import { endRun, IN_REVIEW_END, insertRun, REVIEWED_END } from "../../src/run";
+import { appendRunStep, insertRun, stopAtInReview } from "../../src/run";
 import { doneReportOf, storedDoneReport } from "../../src/run/done-report";
 import { storeRunSummary } from "../../src/run/verify-records";
 import {
@@ -221,7 +221,7 @@ async function inWorld(
       });
       t.clock.advance(60_000);
       updateClaim(office, run, { pushedAt: t.clock.now() });
-      endRun(office, run, t.clock.now(), IN_REVIEW_END);
+      stopAtInReview(office, run, t.clock.now());
     });
     const host = new FakeHost();
     const world: World = {
@@ -273,10 +273,13 @@ async function inWorld(
       t.clock.advance(60_000);
       office.immediate(() => {
         office.run(
-          `update runs set ended_at = $at, end_kind = $kind
-            where office_id = $office_id and run_id = $run`,
-          { at: t.clock.now(), kind: REVIEWED_END, run },
+          `update runs set ended_at = $at where office_id = $office_id and run_id = $run`,
+          {
+            at: t.clock.now(),
+            run,
+          },
         );
+        appendRunStep(office, run, "phase", "merge", t.clock.now());
       });
     }
     try {

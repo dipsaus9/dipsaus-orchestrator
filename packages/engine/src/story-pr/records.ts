@@ -4,7 +4,7 @@
 import type { RunId, StoryKey } from "@dipsaus-orchestrator/contract";
 
 import type { OfficeHandle } from "../db/office";
-import { IN_REVIEW_END, REVIEWED_END } from "../run/records";
+import { RUN_PHASE_SQL } from "../run/records";
 
 export type StoryPrState = "open" | "merged" | "closed";
 
@@ -198,21 +198,23 @@ export function openStoryPrs(office: OfficeHandle): StoryPrRecord[] {
 const IN_REVIEW_STATUS = "In Review";
 
 /**
- * Runs whose PR is still to open, oldest first: a story run that ended at In Review, or as reviewed
- * (DIPO-152: its review finished while story PRs were off), and has no
+ * Runs whose PR is still to open, oldest first: a story run open at In Review with no active period
+ * (DIPO-373), waiting for its review or past it (DIPO-152: its review finished while story PRs were
+ * off), and has no
  * `story_prs` row, whose story is In Review now (not removed, a task at status In Review) and
  * whose claim is live with its In Review push on the remote. The In Review push records
  * `claims.pushed_at` in the transaction that ends the run (`run/verify-commit.ts`), so a push at
- * or after the run's end is that push; an earlier one is the claim push. Not one: a run of a story
- * that is Done (a run from before DIPO-142 keeps the end kind `in-review` after Done), whose claim
- * was released, or whose In Review push never reached the remote.
+ * or after the run's end is that push; an earlier one is the claim push, or, for a run past its
+ * review (phase merge, test or build) with a verdict, the push its review started from. Not one: a
+ * run of a story that is Done, whose claim was released, or whose In Review push never reached the
+ * remote.
  */
 export function runsWithoutPr(office: OfficeHandle): { runId: RunId; key: StoryKey }[] {
   return office
     .all<{ run_id: string; key: string }>(
       `select r.run_id as run_id, r.key as key from runs r
         where r.office_id = $office_id and r.kind = 'story'
-          and r.end_kind in ($end, $reviewed)
+          and r.ended_at is not null and r.end_kind is null
           and r.key is not null and r.branch is not null
           and not exists (select 1 from story_prs p
             where p.office_id = r.office_id and p.run_id = r.run_id)
@@ -224,10 +226,10 @@ export function runsWithoutPr(office: OfficeHandle): { runId: RunId; key: StoryK
             where c.office_id = r.office_id and c.run_id = r.run_id and c.released_at is null
               and c.pushed_at is not null
               and (c.pushed_at >= r.ended_at
-                or (r.end_kind = $reviewed and exists (select 1 from review_verdicts v
+                or (${RUN_PHASE_SQL} <> 'review' and exists (select 1 from review_verdicts v
                   where v.office_id = r.office_id and v.run_id = r.run_id))))
         order by r.ended_at, r.run_id`,
-      { end: IN_REVIEW_END, reviewed: REVIEWED_END, status: IN_REVIEW_STATUS },
+      { status: IN_REVIEW_STATUS },
     )
     .map((row) => ({ runId: row.run_id as RunId, key: row.key as StoryKey }));
 }
@@ -305,9 +307,10 @@ export interface UnpushedRun {
 }
 
 /**
- * Runs to push again (DIPO-315), oldest first: story runs that ended at In Review with a live claim
+ * Runs to push again (DIPO-315), oldest first: story runs open at In Review waiting for their review
+ * (phase review, DIPO-373) with a live claim
  * whose `pushed_at` is null or earlier than the run's end, so the In Review push did not reach the
- * remote, while the story is In Review now. A reviewed run is never one: its review started only
+ * remote, while the story is In Review now. A run past its review is never one: its review started only
  * once its head was on the remote (`pendingReviews`), and the review period moves its end past
  * that push without a push of its own. Nor is a run whose office was found to have no remote at or
  * after its end (`no_remote_at`): nothing waits for that push.
@@ -319,7 +322,7 @@ export function runsToPush(office: OfficeHandle): UnpushedRun[] {
         join claims c on c.office_id = r.office_id and c.run_id = r.run_id
           and c.released_at is null
         where r.office_id = $office_id and r.kind = 'story'
-          and r.end_kind = $end and r.ended_at is not null
+          and r.end_kind is null and r.ended_at is not null and ${RUN_PHASE_SQL} = 'review'
           and r.key is not null and r.branch is not null
           and (c.pushed_at is null or c.pushed_at < r.ended_at)
           and (c.no_remote_at is null or c.no_remote_at < r.ended_at)
@@ -328,7 +331,7 @@ export function runsToPush(office: OfficeHandle): UnpushedRun[] {
             where s.office_id = r.office_id and s.key = r.key and s.removed_at is null
               and m.kind = 'task' and m.status = $status)
         order by r.ended_at, r.run_id`,
-      { end: IN_REVIEW_END, status: IN_REVIEW_STATUS },
+      { status: IN_REVIEW_STATUS },
     )
     .map((row) => ({
       runId: row.run_id as RunId,

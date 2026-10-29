@@ -22,7 +22,6 @@ import {
   intentRest,
   intentTag,
   type HostLostContext,
-  OUTCOME_ENDS,
   planLimitEnding,
   reportFeedbackText,
   type RunOutcomesDeps,
@@ -149,7 +148,6 @@ export class ExitOutcomes {
         ops: [],
         reason: "worker-failed",
         detail: `${HOST_LOST_WHY}${suffix}`,
-        endKind: OUTCOME_ENDS.interrupted,
       });
       return;
     }
@@ -289,7 +287,6 @@ export class ExitOutcomes {
               intent: "cap",
               reason: "budget-exceeded",
               detail: "prompt_too_long: the context is full again after a handoff",
-              endKind: OUTCOME_ENDS.capped,
             });
             return;
           }
@@ -304,7 +301,6 @@ export class ExitOutcomes {
           intent: "cap",
           reason: result.park?.reason ?? "budget-exceeded",
           detail: result.park?.detail ?? "the worker stopped at a cap",
-          endKind: OUTCOME_ENDS.capped,
         });
         return;
       case "blocked":
@@ -319,7 +315,6 @@ export class ExitOutcomes {
               intent: "park",
               reason: "worker-failed",
               detail: `no valid report: ${why}`,
-              endKind: OUTCOME_ENDS.noReport,
             });
             return;
           }
@@ -341,7 +336,6 @@ export class ExitOutcomes {
           intent: "park",
           reason: result.park?.reason ?? "ambiguous-spec",
           detail: result.park?.detail ?? "the worker is blocked",
-          endKind: OUTCOME_ENDS.blocked,
           report: result.report,
         });
         return;
@@ -369,7 +363,6 @@ export class ExitOutcomes {
         ops: [],
         reason: "worker-failed",
         detail: `${detail}${refused}`,
-        endKind: OUTCOME_ENDS.crashed,
       });
       return;
     }

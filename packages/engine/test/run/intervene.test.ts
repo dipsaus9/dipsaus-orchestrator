@@ -33,7 +33,7 @@ import {
   type RunEnder,
 } from "../../src/run";
 import { Places } from "../../src/run/places";
-import { reopen, type RoundKind } from "../../src/run/rounds";
+import { reopen, type RoundKind, stopAtInReview } from "../../src/run/rounds";
 import { addStory } from "../../src/stories/keys";
 import { encode } from "../../src/workers/claude-cli/encode";
 import type { Caps, HostOp } from "../../src/workers/types";
@@ -224,8 +224,8 @@ function steers(): { state: string; detail: string }[] {
     .map((intent) => ({ state: intent.state, detail: intent.detail }));
 }
 
-/** Parks the story at the current time and ends its run with `endKind`. */
-function park(endKind = "blocked"): void {
+/** Parks the story at the current time and ends its run parked, from In Review when `inReview`. */
+function park(inReview = false): void {
   const { office, run, t } = w.f;
   const at = t.clock.now();
   office.immediate(() => {
@@ -238,7 +238,8 @@ function park(endKind = "blocked"): void {
       detail: "x",
       at,
     });
-    endRun(office, run, at, endKind);
+    if (inReview) stopAtInReview(office, run, at);
+    endRun(office, run, at, "parked");
   });
 }
 
@@ -338,7 +339,7 @@ describe("work.steer", () => {
   });
 
   it("sends a held steer with a developer session whose run last ran a review (a CI park while In Review, DIPO-362)", async () => {
-    park("in-review");
+    park(true);
     expect(ok(await steer("Mind the edge case.")).delivered).toBe("on-resume");
     // The run's last phase is the review; a reviewer is launched apart and reads no held message
     // (0002), so the next session the resumer starts is the developer's, which gets it.
@@ -351,7 +352,7 @@ describe("work.steer", () => {
   });
 
   it("sends a held steer with the developer session's first message (reopened for a fix round)", async () => {
-    park("in-review");
+    park(true);
     expect(ok(await steer("Mind the edge case.")).delivered).toBe("on-resume");
     reopenFor("fix");
     exitWorker();

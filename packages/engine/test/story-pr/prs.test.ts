@@ -16,7 +16,13 @@ import {
   type PrState,
 } from "../../src/platform/host";
 import { yieldToEventLoop } from "../../src/platform/clock";
-import { endRun, findRun, IN_REVIEW_END, insertRun, recordConfigSnapshot } from "../../src/run";
+import {
+  findRun,
+  insertRun,
+  openAtInReview,
+  recordConfigSnapshot,
+  stopAtInReview,
+} from "../../src/run";
 import {
   findStoryPr,
   type StoryPrFacts,
@@ -190,7 +196,7 @@ async function inWorld(fn: (w: World) => Promise<void>, setup: WorldSetup = {}):
       t.clock.advance(60_000);
       // The In Review push is recorded in the transaction that ends the run, at the same time.
       if (pushed === "in-review") updateClaim(office, run, { pushedAt: t.clock.now() });
-      endRun(office, run, t.clock.now(), IN_REVIEW_END);
+      stopAtInReview(office, run, t.clock.now());
     });
     const host = new FakeHost();
     const world: World = {
@@ -356,11 +362,11 @@ describe("the story PR", () => {
     });
   }
 
-  it("retries no run of a story that is Done, though its run still ended at In Review", async () => {
-    // A run from before DIPO-142 keeps the end kind in-review after Done.
+  it("retries no run of a story that is Done, though its run still stands open at In Review", async () => {
+    // Its teardown, which ends the run done, has not run yet.
     await inWorld(
       async (w) => {
-        expect(findRun(w.office, w.run)?.endKind).toBe(IN_REVIEW_END);
+        expect(openAtInReview(findRun(w.office, w.run)!)).toBe(true);
         expect(storyView(w.office, w.key)?.lifecycle).toBe("Done");
         expect(await w.prs.retry(w.office.officeId)).toEqual([]);
         expect(w.host.creates).toHaveLength(0);

@@ -455,7 +455,6 @@ function conflictResumesOf(
         ops: [],
         reason: park.reason,
         detail: park.detail,
-        endKind: park.reason,
       });
       // No worker runs, so nothing else resolves the park's intent (as a stranded fix round's).
       const intent = runIntents(office, run.runId)

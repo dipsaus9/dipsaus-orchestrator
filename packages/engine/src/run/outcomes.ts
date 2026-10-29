@@ -6,12 +6,12 @@
 // - `steer` `feedback report <agent> <via> <text>`: a turn whose report does not parse or match the
 //   schema gets one correction turn "report in the schema" (`prompts/feedback/report.md`) through
 //   the one feedback path (`feedback.ts`); the next turn answers it. A second turn without one
-//   parks `worker-failed` ("no valid report: <why>", end kind `no-report`; 0008): a bad report is
+//   parks `worker-failed` ("no valid report: <why>"; 0008): a bad report is
 //   a broken worker, never a question. A worker that exits before it answered is resumed with the
 //   correction held for its first message.
 // - `reassign` `new-session:context-full`: a turn ended `prompt_too_long`; stdin is closed and
 //   SIGTERM follows after 10 s. At the exit the agent ends `prompt-too-long` and one new session
-//   with a handoff starts. A second full context parks `budget-exceeded` (end kind `capped`).
+//   with a handoff starts. A second full context parks `budget-exceeded`.
 // - `reassign` `new-session:error`: a turn ended in an execution error while the process waits
 //   (maintainer decision Q4): a crash, handled at the exit as one.
 // - A crash with no intent (a signal, exit 143, an execution error, a cut stream): usage is
@@ -20,7 +20,7 @@
 //   handoff). Otherwise the story parks `worker-failed` with the last error.
 // - `stop` `init-rejected`: a `system/init` that fails its checks (key source, model) stops the
 //   worker at once (stdin closed, SIGTERM now, SIGKILL after 30 s) and parks `worker-failed` with
-//   an `engine.notice` `run.initRejected` (end kind `init-rejected`).
+//   an `engine.notice` `run.initRejected`.
 // - `stop` `start-failed`: a start failure (startup failure, authentication, billing, account on
 //   hold) holds the adapter (DIPO-43's hold) and raises `run.startFailed`. When the branch holds
 //   no work the claim is released as DIPO-74 does (branch kept, story Ready); when it holds
@@ -30,14 +30,15 @@
 //   (stdin closed, SIGTERM now, SIGKILL after 30 s), and never parks for it.
 // - A rejected plan limit (a `rate_limit_event` `rejected`, `credits_required`, a 429 turn, or an
 //   exit the adapter reads as one) pauses the office's starts (0020, `starts-paused.ts`) and parks
-//   the story `worker-failed` with the detail "plan limit until <time>" (end kind `plan-limit`),
+//   the story `worker-failed` with the detail "plan limit until <time>",
 //   marked to resume by itself when the pause lifts. An `allowed_warning` changes nothing.
 // - A classifier switch is recorded in the session's parser state and announced once per run and
 //   model with `engine.notice` `run.modelSwitched`; it never parks.
 //
 // Each counter fires once per run and they are independent (maintainer decision Q5); they are
 // read from facts (`run_intents`, `agents.end_reason`), so a restart keeps them. Every run that
-// ends goes through `endRun` (a park, or the claim release of a start failure).
+// ends goes through `endRun`: parked by a park, dropped by the claim release of a start failure
+// (0020).
 //
 // DIPO-128 split the class by responsibility: `outcome-turns.ts` (after a turn), `outcome-exits.ts`
 // (at the exit), `outcome-sessions.ts` (next session, start failure), `outcome-restart.ts` (after

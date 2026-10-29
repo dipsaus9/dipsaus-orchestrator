@@ -6,6 +6,7 @@
 import type { RunId, StoryKey } from "@dipsaus-orchestrator/contract";
 
 import type { OfficeHandle } from "../db/office";
+import type { RunEnd } from "../run/lifecycle";
 import { endRunMarked } from "../run/markers";
 
 export interface ClaimRecord {
@@ -197,8 +198,8 @@ export function keysTrackingBranch(office: OfficeHandle, branch: string): StoryK
 }
 
 /**
- * Ends the claim of `runId` (`released_at`, reason) and its run (`ended_at`, with the reason as
- * `end_kind`; DIPO-74). With `keepBranch`, records the branch as released for the story (0010
+ * Ends the claim of `runId` (`released_at`, reason) and its run as `ending` (0020: done for a
+ * story that is Done, dropped otherwise; DIPO-74). With `keepBranch`, records the branch as released for the story (0010
  * section 2a), so a later claim of the same StoryKey reuses it. Runs inside the caller's
  * transaction. Release steps themselves (the restore commit, the worktree
  * removal) belong to the transition that releases.
@@ -206,7 +207,12 @@ export function keysTrackingBranch(office: OfficeHandle, branch: string): StoryK
 export function releaseClaim(
   office: OfficeHandle,
   runId: RunId,
-  release: { readonly at: number; readonly reason: string; readonly keepBranch: boolean },
+  release: {
+    readonly at: number;
+    readonly reason: string;
+    readonly ending: Extract<RunEnd, "done" | "dropped">;
+    readonly keepBranch: boolean;
+  },
 ): void {
   const claim = findClaim(office, runId);
   if (claim === null || claim.releasedAt !== null) return;
@@ -215,7 +221,7 @@ export function releaseClaim(
      where office_id = $office_id and run_id = $run`,
     { run: runId, at: release.at, reason: release.reason },
   );
-  endRunMarked(office, runId, release.at, release.reason);
+  endRunMarked(office, runId, release.at, release.ending);
   if (release.keepBranch) {
     office.run(
       `insert into released_branches (office_id, branch, released_at, key, reason)

@@ -1,8 +1,8 @@
 // The run across review rounds (DIPO-142, 0019 section 13), fast and local: one story run ends its
-// active period at In Review and reopens on the same run for a review, a fix round and a conflict
-// hand-off. The developer's minute cap leaves out the idle and review time, the reviewer's turns
-// and tokens stay out of the developer's caps and the story's budget (0002), each end rewrites
-// the provisional outcome row and Done writes the final one.
+// active period at In Review, where it stays open (DIPO-373), and is active again on the same run
+// for a review, a fix round and a conflict hand-off. The developer's minute cap leaves out the idle
+// and review time, the reviewer's turns and tokens stay out of the developer's caps and the story's
+// budget (0002), a run open at In Review has no outcome row, and Done writes the final one.
 
 import { afterEach, beforeEach, describe, expect, it } from "bun:test";
 
@@ -11,16 +11,15 @@ import {
   appendRunStep,
   capsStartedAt,
   claimPlace,
-  DONE_END,
   endReviewPeriod,
   endRun,
   findRun,
   firedCap,
-  IN_REVIEW_END,
   reopen,
-  REVIEWED_END,
   runOutcome,
+  runPhase,
   runTotals,
+  stopAtInReview,
 } from "../../src/run";
 import { endRunMarked } from "../../src/run/markers";
 import { runProgress } from "../../src/views/work";
@@ -63,19 +62,17 @@ function workToInReview(): number {
   });
   addUsage(w, s.run, developer, "developer", { turns: 12, tokens: 6_000 });
   endAgent(w, developer);
-  write(() => endRunMarked(w.office, s.run, now(), IN_REVIEW_END));
+  write(() => stopAtInReview(w.office, s.run, now()));
   return started;
 }
 
 describe("a run reopened after In Review (0019 section 13)", () => {
   it("keeps its loop count and its minute cap leaves out the idle and review time", () => {
     const started = workToInReview();
-    expect(runOutcome(w.office, s.run)).toMatchObject({
-      endKind: IN_REVIEW_END,
-      final: false,
-      loops: 2,
-      minutes: 10,
-    });
+    // Open at In Review, waiting for its review: no ending and no outcome row.
+    expect(findRun(w.office, s.run)).toMatchObject({ endedAt: now(), ending: null });
+    expect(runPhase(w.office, s.run)).toBe("review");
+    expect(runOutcome(w.office, s.run)).toBeNull();
 
     // 30 minutes idle, then a review round: it waits 5 minutes for the reviewer place and reviews
     // for 20.
@@ -95,17 +92,13 @@ describe("a run reopened after In Review (0019 section 13)", () => {
     write(() => {
       appendRunStep(w.office, s.run, "review", "1", now());
       appendRunStep(w.office, s.run, "review-failed", "1", now());
-      expect(endReviewPeriod(w.office, s.run, now())).toBe(true);
+      expect(endReviewPeriod(w.office, s.run, now(), "blocked")).toBe(true);
     });
-    // The review's end rewrote the provisional row; the developer worked 10 minutes so far.
-    expect(findRun(w.office, s.run)?.parkedMs).toBe(55 * MINUTE);
-    expect(runOutcome(w.office, s.run)).toMatchObject({
-      endKind: REVIEWED_END,
-      final: false,
-      minutes: 10,
-      reviewRounds: 1,
-      reviewRoundsFailed: 1,
-    });
+    // The review's end left the run open at In Review, in phase build for its fix round; the
+    // developer worked 10 minutes so far.
+    expect(findRun(w.office, s.run)).toMatchObject({ parkedMs: 55 * MINUTE, ending: null });
+    expect(runPhase(w.office, s.run)).toBe("build");
+    expect(runOutcome(w.office, s.run)).toBeNull();
 
     // 10 minutes idle, then the fix round waits 3 minutes for the worker place; 7 minutes of work.
     advance(10);
@@ -131,19 +124,19 @@ describe("a run reopened after In Review (0019 section 13)", () => {
 
   it("never reopens a run whose story is Done", () => {
     workToInReview();
-    write(() => endRun(w.office, s.run, now(), DONE_END));
+    write(() => endRun(w.office, s.run, now(), "done"));
     expect(
       write(() => reopen(w.office, findRun(w.office, s.run)!, now(), { kind: "fix" })),
     ).toEqual([]);
-    expect(findRun(w.office, s.run)?.endKind).toBe(DONE_END);
+    expect(findRun(w.office, s.run)?.ending).toBe("done");
   });
 
   it("ends a review period only for a run open in a review", () => {
     workToInReview();
-    expect(write(() => endReviewPeriod(w.office, s.run, now()))).toBe(false);
+    expect(write(() => endReviewPeriod(w.office, s.run, now(), "approved"))).toBe(false);
     write(() => reopen(w.office, findRun(w.office, s.run)!, now(), { kind: "conflict" }));
     expect(findRun(w.office, s.run)?.waiting).toBe("conflict");
-    expect(write(() => endReviewPeriod(w.office, s.run, now()))).toBe(false);
+    expect(write(() => endReviewPeriod(w.office, s.run, now(), "approved"))).toBe(false);
   });
 });
 
@@ -167,13 +160,13 @@ describe("the reviewer's turns and tokens (0002)", () => {
     const reviewer = addAgent(w, s.run, "reviewer", false, "opus");
     addUsage(w, s.run, developer, "developer", { turns: 20, tokens: 6_000 });
     addUsage(w, s.run, reviewer, "reviewer", { turns: 40, tokens: 5_000 });
-    write(() => endRunMarked(w.office, s.run, now(), IN_REVIEW_END));
-    expect(runOutcome(w.office, s.run)).toMatchObject({ budgetTokens: 6_000 });
+    write(() => endRunMarked(w.office, s.run, now(), "parked"));
+    expect(runOutcome(w.office, s.run)).toMatchObject({ outcome: "parked", budgetTokens: 6_000 });
   });
 });
 
 describe("the outcome row (0019 section 13)", () => {
-  it("is rewritten at each end and made final at Done with the round counts", () => {
+  it("is written at the run's end and made final at Done with the round counts", () => {
     workToInReview();
     advance(5);
     write(() => reopen(w.office, findRun(w.office, s.run)!, now(), { kind: "fix" }));
@@ -190,24 +183,24 @@ describe("the outcome row (0019 section 13)", () => {
       appendRunStep(w.office, s.run, "conflict", "start 1 a1b2c3d", now());
       appendRunStep(w.office, s.run, "conflict", "feedback 1", now());
       appendRunStep(w.office, s.run, "override", "gat_1", now());
-      endRunMarked(w.office, s.run, now(), IN_REVIEW_END);
+      stopAtInReview(w.office, s.run, now());
     });
-    expect(runOutcome(w.office, s.run)).toMatchObject({
-      outcome: IN_REVIEW_END,
-      final: false,
-      minutes: 14,
-    });
+    // Open at In Review again: no outcome row until the run ends.
+    expect(runOutcome(w.office, s.run)).toBeNull();
 
     // The Done poll's teardown releases the claim with `done`: the final row, in its transaction.
-    expect(DONE_RELEASE_REASON).toBe(DONE_END);
     advance(60);
     write(() =>
-      releaseClaim(w.office, s.run, { at: now(), reason: DONE_RELEASE_REASON, keepBranch: false }),
+      releaseClaim(w.office, s.run, {
+        at: now(),
+        reason: DONE_RELEASE_REASON,
+        ending: "done",
+        keepBranch: false,
+      }),
     );
     const final = runOutcome(w.office, s.run);
     expect(final).toMatchObject({
-      outcome: DONE_END,
-      endKind: DONE_END,
+      outcome: "done",
       final: true,
       loops: 2,
       reviewRounds: 2,
@@ -218,9 +211,9 @@ describe("the outcome row (0019 section 13)", () => {
       // The time after the last active period is no work.
       minutes: 14,
     });
-    expect(findRun(w.office, s.run)?.endKind).toBe(DONE_END);
+    expect(findRun(w.office, s.run)?.ending).toBe("done");
     // A final row is never rewritten.
-    write(() => endRun(w.office, s.run, now(), DONE_END));
+    write(() => endRun(w.office, s.run, now(), "done"));
     expect(runOutcome(w.office, s.run)).toEqual(final);
   });
 
@@ -234,9 +227,9 @@ describe("the outcome row (0019 section 13)", () => {
         { key: s.key, run: s.run },
       ),
     );
-    write(() => endRun(w.office, s.run, now(), DONE_END));
+    write(() => endRun(w.office, s.run, now(), "done"));
     expect(runOutcome(w.office, s.run)).toMatchObject({
-      outcome: DONE_END,
+      outcome: "done",
       final: true,
       parkReasons: ["worker-failed"],
     });

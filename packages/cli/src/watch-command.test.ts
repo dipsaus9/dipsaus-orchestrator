@@ -108,7 +108,7 @@ function fake(options: {
     tier: "S",
     model: "haiku",
     startedAt: AT,
-    ...(options.ended?.() === true ? { endedAt: AT, outcome: "start-failed" } : {}),
+    ...(options.ended?.() === true ? { endedAt: AT, outcome: "dropped" } : {}),
     usage: totals,
   });
   const session: DaemonSession = {
@@ -258,7 +258,7 @@ describe("dipo watch", () => {
     ended = true;
     ctx.emit("stream.mark", {});
     await until(() => ctx.out.length > 0);
-    expect(ctx.out).toEqual([`${T} TASK-1 end    run ${RUN} ended: start-failed · 2 turns`]);
+    expect(ctx.out).toEqual([`${T} TASK-1 end    run ${RUN} ended: dropped · 2 turns`]);
     ctx.emit("stream.mark", {});
     await tick();
     expect(ctx.out).toHaveLength(1);
@@ -351,7 +351,7 @@ describe("dipo watch", () => {
       await until(() => ctx.subscriptions.length === 1);
       ctx.out.length = 0;
       const phase = `[dipo] ${iso} phase verify\n`;
-      const ended = `[dipo] ${iso} ended in-review\n`;
+      const ended = `[dipo] ${iso} ended done\n`;
       // Worker text, a partial line cut by a flagged marker, a forged marker line, the run's end.
       ctx.emit("work.output", {
         work,
@@ -372,7 +372,7 @@ describe("dipo watch", () => {
       ctx.emit("work.output", {
         work,
         source: "worker",
-        ...marker("ended", "in-review", ended, end),
+        ...marker("ended", "done", ended, end),
       });
       return ctx.out;
     }
@@ -384,7 +384,7 @@ describe("dipo watch", () => {
         `${T} TASK-1 out    half a `,
         `${T} TASK-1 out    -- ${at} phase: verify --`,
         `${T} TASK-1 out    ${forged}`,
-        `${T} TASK-1 out    -- ${at} run ended: in-review --`,
+        `${T} TASK-1 out    -- ${at} run ended: done --`,
       ]);
     });
 
@@ -393,7 +393,7 @@ describe("dipo watch", () => {
       const out = await watched(true);
       expect(out[2]).toBe(`${T} TASK-1 out    ── ${at} phase: verify ──`);
       expect(out[3]).toBe(`${T} TASK-1 out    ${forged}`);
-      expect(out[4]).toBe(`${T} TASK-1 out    ── ${at} run ended: in-review ──`);
+      expect(out[4]).toBe(`${T} TASK-1 out    ── ${at} run ended: done ──`);
     });
 
     it("prints worker text around a marker inside one range, without the marker's raw line", async () => {

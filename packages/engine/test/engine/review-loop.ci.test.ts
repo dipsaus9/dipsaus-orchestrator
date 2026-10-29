@@ -275,7 +275,7 @@ if (process.env["DIPO_TEST_CI"] === "1") {
           approving(w);
           const run = await startStory(w, TASK_1);
           await w.until("the merge", () => merged(w));
-          await w.until("Done", () => findRun(w.office, run)?.endKind === "done", 40);
+          await w.until("Done", () => findRun(w.office, run)?.ending === "done", 40);
         }),
       120_000,
     );
@@ -649,7 +649,7 @@ if (process.env["DIPO_TEST_CI"] === "1") {
           expect(w.host.calls.filter((call) => call.startsWith("merge "))).toHaveLength(1);
           await expectMergedOnce(w, run, CSV_V1, pushed);
           // The restart's re-attach closed out the exited hosts, so the Done poll ends the run.
-          await w.until("Done", () => findRun(w.office, run)?.endKind === "done");
+          await w.until("Done", () => findRun(w.office, run)?.ending === "done");
           expect(findClaim(w.office, run)?.releasedAt).not.toBeNull();
           expect(kinds(w)).toEqual([
             ["implement", 1],

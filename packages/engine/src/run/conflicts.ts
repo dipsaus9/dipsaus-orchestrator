@@ -117,8 +117,7 @@ import { runCaps } from "./caps";
 import { lastReviewVerdict } from "./fix-rounds";
 import type { ConflictPrepared, ConflictResumer } from "./park-resume";
 import { runHeldByPark } from "./park-state";
-import { appendRunStep, findRun, IN_REVIEW_END, type StoredRun } from "./records";
-import { REVIEWED_END } from "./rounds";
+import { appendRunStep, findRun, type StoredRun } from "./records";
 import { codeTreeKeyOf } from "./story-git";
 
 /** `engine.notice` codes of conflicts. */
@@ -387,7 +386,7 @@ export function baseConflictOf(
 }
 
 /**
- * The story runs of the office waiting In Review: ended at In Review or after their review, with a
+ * The story runs of the office open at In Review with no active period (DIPO-373), with a
  * live claim and no open park. The poll checks their tips against the base (0019 section 10). A
  * story that is Done is left out (DIPO-332): its own PR merged into the base, or its status reads
  * Done (the close-out commit on its branch, or the base's after a release). Its claim
@@ -398,7 +397,7 @@ export function inReviewRunIds(office: OfficeHandle): RunId[] {
     .all<{ run_id: string }>(
       `select r.run_id from runs r
         where r.office_id = $office_id and r.kind = 'story' and r.ended_at is not null
-          and r.end_kind in ($in_review, $reviewed)
+          and r.end_kind is null
           and exists (select 1 from claims c where c.office_id = r.office_id
             and c.run_id = r.run_id and c.released_at is null)
           and not exists (select 1 from story_prs s where s.office_id = r.office_id
@@ -406,7 +405,6 @@ export function inReviewRunIds(office: OfficeHandle): RunId[] {
           and not exists (select 1 from backlog_mirror m where m.office_id = r.office_id
             and m.key = r.key and m.kind = 'task' and m.status = 'Done')
         order by r.ended_at, r.run_id`,
-      { in_review: IN_REVIEW_END, reviewed: REVIEWED_END },
     )
     .filter((row) => !runHeldByPark(office, row.run_id))
     .map((row) => row.run_id as RunId);

@@ -31,7 +31,6 @@ export function preStartEnding(fired: FiredCap): RunEnding {
     ops: [],
     reason: "budget-exceeded",
     detail: fired.detail,
-    endKind: "capped",
   };
 }
 

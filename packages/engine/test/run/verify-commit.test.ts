@@ -142,7 +142,6 @@ describe("a run without a box at done (DIPO-240)", () => {
         kind: "park",
         reason: "worker-failed",
         detail: NO_BOX_AT_DONE,
-        endKind: "interrupted",
       });
       expect(calls).toEqual([]);
     }

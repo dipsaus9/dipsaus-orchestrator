@@ -488,8 +488,8 @@ async function rollback(
        where office_id = $office_id and run_id = $run and released_at is null`,
       { at, run: request.runId, reason },
     );
-    // A run recorded for this claim ends with it (DIPO-74).
-    if (ended.changes > 0) endRunMarked(deps.office, request.runId, at, reason);
+    // A run recorded for this claim ends with it, dropped (DIPO-74, 0020).
+    if (ended.changes > 0) endRunMarked(deps.office, request.runId, at, "dropped");
     if (ended.changes > 0 && released !== null) markReclaimed(deps.office, released, null, null);
   });
 }
@@ -562,7 +562,7 @@ export async function rollBackInterruptedSetup(
 export function releaseUnstarted(deps: RollbackDeps, claim: ClaimRecord, reason: string): void {
   const at = deps.clock.now();
   deps.office.immediate(() =>
-    releaseClaim(deps.office, claim.runId, { at, reason, keepBranch: true }),
+    releaseClaim(deps.office, claim.runId, { at, reason, ending: "dropped", keepBranch: true }),
   );
 }
 

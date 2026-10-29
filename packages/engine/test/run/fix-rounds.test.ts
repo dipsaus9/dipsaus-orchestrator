@@ -15,21 +15,22 @@ import { ciFeedback, type CiFeedbackItem } from "../../src/prompts/feedback";
 import { recordReviewOverride, recordReviewVerdict } from "../../src/review";
 import type { JudgedReview } from "../../src/review/verdict";
 import {
-  endRun,
+  enterPhase,
   FIX_NOTICES,
   FIX_LIFT_TRIES,
   FixRounds,
   feedbackItems,
   heldTestNotes,
   findRun,
-  IN_REVIEW_END,
+  phaseAfterVerdict,
   Places,
-  REVIEWED_END,
   REVIEWER_ROLE,
   RunControl,
   type RunView,
   runIntents,
+  runPhase,
   START_KINDS,
+  stopAtInReview,
 } from "../../src/run";
 import type { UnparkBranchRequest } from "../../src/run/park";
 import type { RunStoryFacts } from "../../src/run/resume";
@@ -290,7 +291,7 @@ beforeEach(() => {
 
 afterEach(() => x.close());
 
-/** A story run that worked, was reviewed or not yet, and ended at In Review now. */
+/** A story run that worked, was reviewed or not yet, and stands open at In Review now. */
 function inReview(story: string, options: { budgetLimit?: number } = {}): StoryRun {
   const s = storyRun(w, {
     story,
@@ -302,7 +303,7 @@ function inReview(story: string, options: { budgetLimit?: number } = {}): StoryR
   });
   stories.set(s.run, s);
   addAgent(w, s.run, "developer", false);
-  write(() => endRun(w.office, s.run, now(), IN_REVIEW_END));
+  write(() => stopAtInReview(w.office, s.run, now()));
   return s;
 }
 
@@ -321,10 +322,7 @@ function reviewed(s: StoryRun, head: string, judged: JudgedReview): void {
       judged,
       at: now(),
     });
-    w.office.run(
-      `update runs set end_kind = $kind where office_id = $office_id and run_id = $run`,
-      { run: s.run, kind: REVIEWED_END },
-    );
+    enterPhase(w.office, s.run, phaseAfterVerdict(judged.verdict), now());
   });
   w.t.clock.advance(1_000);
 }
@@ -338,7 +336,7 @@ function backInReview(s: StoryRun): void {
       { run: s.run, at: now() },
     ),
   );
-  write(() => endRun(w.office, s.run, now(), IN_REVIEW_END));
+  write(() => stopAtInReview(w.office, s.run, now()));
   w.t.clock.advance(1_000);
 }
 
@@ -430,7 +428,8 @@ describe("the timing of a fix round (0019 section 7)", () => {
     x.ci.set(s.run, { kind: "green", head: H1 });
     expect(await x.fix.consider(officeId(), s.run)).toBe(false);
     expect(feedbackItems(w.office, s.run)).toEqual([]);
-    expect(findRun(w.office, s.run)).toMatchObject({ endKind: REVIEWED_END });
+    expect(findRun(w.office, s.run)).toMatchObject({ ending: null });
+    expect(runPhase(w.office, s.run)).toBe("merge");
     // Red CI on the approved head is a reason: the advisory goes along as optional.
     x.ci.set(s.run, { kind: "red", head: H1, items: [red()] });
     expect(await x.fix.consider(officeId(), s.run)).toBe(true);
@@ -505,7 +504,7 @@ describe("send-once (0019 section 8)", () => {
         { at: now(), run: busy.run },
       ),
     );
-    write(() => endRun(w.office, busy.run, now(), IN_REVIEW_END));
+    write(() => stopAtInReview(w.office, busy.run, now()));
     await x.places.drain(officeId());
     expect(x.started).toHaveLength(1);
     expect(x.started[0]?.message).toContain("Item 1 (ci):");

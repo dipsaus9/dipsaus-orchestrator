@@ -1,9 +1,9 @@
 // The facts of review rounds (0019 sections 4, 6 and 12, DIPO-219), read and written through the
 // office handle. Writers run inside the caller's transaction.
 //
-// - Pending reviews. A story run that ended at In Review, whose claim is live and whose run keeps
-//   the review loop's caps, waits for a review while its code tree key (recorded on its green
-//   verify) has no verdict in the claim. It is not pending until its head is on the remote
+// - Pending reviews. A story run open at In Review in phase review (DIPO-373), whose claim is live
+//   and whose run keeps the review loop's caps, waits for a review while its code tree key has no
+//   verdict in the claim. It is not pending until its head is on the remote
 //   (DIPO-315): the claim's `pushed_at` at or after the run's end, or `no_remote_at` there when the
 //   office has no remote. A failed In Review push holds the review until the PR poll pushes again. It waits from its In Review time, so the reviewer place
 //   starts the oldest In Review first. A tree with a verdict is never reviewed again: the verdict
@@ -18,12 +18,14 @@
 
 import type { RunId } from "@dipsaus-orchestrator/contract";
 
+import { appendEntries } from "../changelog/log";
 import type { OfficeHandle } from "../db/office";
+import { withWorkViews } from "../views/work";
 
 import { START_KINDS, type PlaceStart } from "./places";
 import { runHeldByPark } from "./park-state";
-import { appendRunStep, applyRunEvent, IN_REVIEW_END, type StoredRun } from "./records";
-import { REVIEWED_END } from "./rounds";
+import { appendRunStep, findRun, RUN_PHASE_SQL, type StoredRun } from "./records";
+import { enterPhase, phaseAfterVerdict, waitsForReview } from "./rounds";
 
 /** One started review round, from its `review` step. */
 export interface ReviewRound {
@@ -117,7 +119,7 @@ export function failedReviewRounds(office: OfficeHandle, runId: RunId): number {
 
 /**
  * The pending reviews of the office (`PlacesDeps.pending`, 0019 section 12), oldest In Review
- * first: story runs ended at In Review with a live claim and the review loop's caps, whose head is
+ * first: story runs open at In Review in phase review with a live claim and the review loop's caps, whose head is
  * on the remote (or whose office has none, DIPO-315), and whose story has no open park (a story
  * parked while it waits In Review gets no reviewer until it resumes, as the merge slot and fix
  * rounds skip it). Each waits from its In Review time.
@@ -126,12 +128,11 @@ export function pendingReviews(office: OfficeHandle): PlaceStart[] {
   const rows = office.all<{ run_id: string; ended_at: number }>(
     `select r.run_id, r.ended_at from runs r
       where r.office_id = $office_id and r.kind = 'story' and r.ended_at is not null
-        and r.end_kind = $in_review and r.review_round_cap is not null
+        and r.end_kind is null and ${RUN_PHASE_SQL} = 'review' and r.review_round_cap is not null
         and exists (select 1 from claims c where c.office_id = r.office_id
           and c.run_id = r.run_id and c.released_at is null
           and (c.pushed_at >= r.ended_at or c.no_remote_at >= r.ended_at))
       order by r.ended_at, r.run_id`,
-    { in_review: IN_REVIEW_END },
   );
   return rows
     .filter((row) => !runHeldByPark(office, row.run_id))
@@ -143,23 +144,20 @@ export function pendingReviews(office: OfficeHandle): PlaceStart[] {
 }
 
 /**
- * Inside the caller's transaction: a run ended at In Review whose head's code tree already has a
- * verdict takes that verdict without a round (section 6): it ends as reviewed, so it is no longer
- * pending. False when the run was not ended at In Review.
+ * Inside the caller's transaction: a run open at In Review waiting for its review, whose head's
+ * code tree already has `verdict`, takes that verdict without a round (section 6): it enters the
+ * phase the verdict leads to (`phaseAfterVerdict`), so it is no longer pending. False when the run
+ * does not wait for its review.
  */
-export function takeVerdict(office: OfficeHandle, runId: RunId): boolean {
-  const relabeled = applyRunEvent(office, runId, {
-    kind: "relabel",
-    endKind: REVIEWED_END,
-    from: IN_REVIEW_END,
-  });
-  if (relabeled === null) return false;
-  // The provisional outcome row says the same (a final row is never rewritten).
-  office.run(
-    `update run_outcomes set end_kind = $kind,
-        outcome = case when outcome = $in_review then $kind else outcome end
-      where office_id = $office_id and run_id = $run and final = 0`,
-    { run: runId, kind: REVIEWED_END, in_review: IN_REVIEW_END },
-  );
+export function takeVerdict(
+  office: OfficeHandle,
+  runId: RunId,
+  verdict: "approved" | "blocked",
+  at: number,
+): boolean {
+  const run = findRun(office, runId);
+  if (run === null || !waitsForReview(office, run)) return false;
+  const entries = enterPhase(office, runId, phaseAfterVerdict(verdict), at);
+  appendEntries(office, withWorkViews(office, entries), { at });
   return true;
 }

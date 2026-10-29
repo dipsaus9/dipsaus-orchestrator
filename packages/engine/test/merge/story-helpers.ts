@@ -21,7 +21,7 @@ import { recordReviewVerdict, type StoredReviewVerdict } from "../../src/review/
 import type { JudgedReview } from "../../src/review/verdict";
 import { recordCatchUp } from "../../src/run/conflicts";
 import type { ParkBranchRequest } from "../../src/run/park";
-import { endRun, REVIEWED_END } from "../../src/run/records";
+import { reviewedAt } from "../run/in-review";
 import type { CiHeadState } from "../../src/story-pr/prs";
 import { insertStoryPr, updateStoryPr } from "../../src/story-pr/records";
 import type { StoryEditor } from "../../src/story-store/store";
@@ -206,7 +206,7 @@ export async function storyWorld(
   const now = w.t.clock.now();
   let verdict: StoredReviewVerdict | null = null;
   w.office.immediate(() => {
-    endRun(w.office, story.run, now, REVIEWED_END);
+    reviewedAt(w.office, story.run, now);
     insertStoryPr(w.office, {
       runId: story.run,
       key: story.key,

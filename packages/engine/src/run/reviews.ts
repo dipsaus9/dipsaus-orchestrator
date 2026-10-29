@@ -83,7 +83,6 @@ import {
   INTENT_TAGS,
   intentRest,
   intentTag,
-  OUTCOME_ENDS,
   OUTCOME_NOTICES,
   type PlanLimitHit,
   planLimitEnding,
@@ -96,7 +95,7 @@ import { heldByPark } from "./park-state";
 import { claimPlace, type PlaceStart, START_KINDS, waitForPlace } from "./places";
 import { LAUNCH_NOTICES, planRefusedText } from "./launch";
 import { endRunMarked } from "./markers";
-import { appendRunStep, DONE_END, findRun, finishRun, type StoredRun } from "./records";
+import { appendRunStep, findRun, type StoredRun } from "./records";
 import { latestDoneReport } from "./report-data";
 import type { RunStoryFacts } from "./resume";
 import { type ReviewGit, type ReviewSessions, snapshotReviewCaps } from "./review-launch";
@@ -108,7 +107,7 @@ import {
   type ReviewRound,
   takeVerdict,
 } from "./review-rounds";
-import { endReviewPeriod, reopen, REVIEWED_END } from "./rounds";
+import { endReviewPeriod, reopen, reviewedInReview, reviewPeriodStart } from "./rounds";
 import { planLimitPause } from "./starts-paused";
 
 /** The tags of the review rounds' intents, at the start of their detail. */
@@ -123,9 +122,6 @@ export const REVIEW_TAGS = {
 
 /** `agents.end_reason` of a reviewer session that failed (section 4: crash, host lost, no report). */
 export const REVIEW_CRASHED_END = "review-crashed";
-
-/** The end kind of a run parked `review-blocked`. */
-export const REVIEW_BLOCKED_END = "review-blocked";
 
 /** `engine.notice` codes of the review rounds. */
 export const REVIEW_NOTICES = {
@@ -162,7 +158,7 @@ export interface ReviewsDeps {
   /** The office's starts paused, which a review's plan limit pauses (0020). */
   readonly startsPaused?: () => PlanLimitPauses | undefined;
   /**
-   * Hears a run that ended reviewed: a reviewer session's exit once its verdict or park ended the
+   * Hears a run past its review: a reviewer session's exit once its verdict or park ended the
    * review period, with the agent that exited, or a head that took its tree's verdict without a
    * round, with none. The fix round of the head decides then (DIPO-148), as no reviewer runs.
    */
@@ -232,13 +228,13 @@ export class Reviews {
 
   /**
    * The review starter (`START_KINDS.review`): see the file comment. True when a reviewer session
-   * started; false leaves a reopened run waiting for its place again (`Places`), or a run ended
+   * started; false leaves a reopened run waiting for its place again (`Places`), or a run open
    * at In Review pending.
    */
   async start(officeId: OfficeId, run: StoredRun, start: PlaceStart): Promise<boolean> {
     const office = this.#deps.offices.get(officeId);
     if (office === undefined || run.branch === null || run.story === null) return false;
-    if (run.endKind === DONE_END) return false;
+    if (run.ending !== null) return false;
     // A story parked since its start was queued waits for its resume (`pendingReviews`).
     if (run.key !== null && heldByPark(office, run.key)) return false;
     let facts: RunStoryFacts;
@@ -269,14 +265,19 @@ export class Reviews {
       return false;
     }
     // A code tree with a verdict in the claim is never reviewed again (section 6).
-    if (reviewVerdictForTree(office, run.runId, tree) !== null) {
+    const known = reviewVerdictForTree(office, run.runId, tree);
+    if (known !== null) {
       this.#write(office, () => {
         const at = this.#deps.clock.now();
-        if (!takeVerdict(office, run.runId)) endReviewPeriod(office, run.runId, at);
+        if (!takeVerdict(office, run.runId, known.verdict, at)) {
+          endReviewPeriod(office, run.runId, at, known.verdict);
+        }
         return [];
       });
-      // The run ended reviewed with the tree's verdict: a blocked one gets its fix round (DIPO-148).
-      if (findRun(office, run.runId)?.endKind === REVIEWED_END) {
+      // The run is past its review with the tree's verdict: a blocked one gets its fix round
+      // (DIPO-148).
+      const after = findRun(office, run.runId);
+      if (after !== null && reviewedInReview(office, after)) {
         this.#deps.onReviewed?.(officeId, run.runId);
       }
       return false;
@@ -289,7 +290,7 @@ export class Reviews {
         if (current === null) return { value: null, entries: [] };
         // A park that landed while the story was read (DIPO-346): no round, the run stays as is.
         if (run.key !== null && heldByPark(office, run.key)) return { value: null, entries: [] };
-        // A pending review reopens the run ended at In Review; its wait counts from that time.
+        // A pending review reopens the run open at In Review; its wait counts from that time.
         const entries =
           current.endedAt === null
             ? []
@@ -408,23 +409,20 @@ export class Reviews {
   }
 
   /**
-   * A story Done on the office base (DIPO-239): no review round and no session. A run ended at In
-   * Review takes the end kind `done` in one write (`finishRun`, with its final outcome row); a run
-   * still open and waiting for the reviewer place ends through `endReviewPeriod` with end kind
-   * `done`, its wait cleared and its place free. One info notice names the story and the run. The
+   * A story Done on the office base (DIPO-239): no review round and no session. The run ends done
+   * in one write, with its final outcome row: a run open at In Review keeps the end of its last
+   * active period; a run reopened and waiting for the reviewer place ends with its review period's
+   * time left out, its wait cleared and its place free. One info notice names the story and the run. The
    * claim stays live for reconcile's done-on-base release (DIPO-216).
    */
   #doneOnBase(office: OfficeHandle, run: StoredRun): void {
     const story = run.story ?? run.runId;
     this.#write(office, () => {
       const current = findRun(office, run.runId);
-      if (current === null || current.endKind === DONE_END) return [];
+      if (current === null || current.ending === "done") return [];
       const at = this.#deps.clock.now();
-      if (current.endedAt !== null) {
-        if (!finishRun(office, run.runId)) return [];
-      } else if (!endReviewPeriod(office, run.runId, at, DONE_END)) {
-        // A wait a daemon from before review rounds left has no review phase: it ends all the same.
-        endRunMarked(office, run.runId, at, DONE_END);
+      if (!endRunMarked(office, run.runId, at, "done", reviewPeriodStart(office, run.runId))) {
+        return [];
       }
       return [
         {
@@ -566,7 +564,7 @@ export class Reviews {
         judged.verdict === "blocked" &&
         cap !== null &&
         failedReviewRounds(office, run.runId) >= cap;
-      if (!capped) endReviewPeriod(office, run.runId, at);
+      if (!capped) endReviewPeriod(office, run.runId, at, judged.verdict);
       return { value: { stored, capped }, entries: [reviewDecidedEntry(stored)] };
     });
     if (decided === null) return;
@@ -577,7 +575,6 @@ export class Reviews {
         ops: [{ closeStdin: true }],
         reason: "review-blocked",
         detail: blockingDetail(decided.stored, failedReviewRounds(office, run.runId), cap),
-        endKind: REVIEW_BLOCKED_END,
       });
       return;
     }
@@ -804,7 +801,6 @@ export class Reviews {
         ops: [],
         reason: "worker-failed",
         detail: `the reviewer failed twice in review round ${round?.round ?? 1}: ${why}`,
-        endKind: OUTCOME_ENDS.crashed,
       });
       return;
     }

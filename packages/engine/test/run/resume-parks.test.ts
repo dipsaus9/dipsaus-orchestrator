@@ -34,6 +34,7 @@ import {
   appendRunStep,
   createRunOutcomes,
   endRun,
+  enterPhase,
   findRun,
   grantTotals,
   insertRun,
@@ -49,10 +50,12 @@ import {
   type RunEnder,
   runCaps,
   runIntents,
+  runPhase,
   share,
   smallestShare,
   START_KINDS,
   type StartsPausedState,
+  stopAtInReview,
   type UnparkBranchRequest,
 } from "../../src/run";
 import { storeFeedbackItems } from "../../src/run/feedback-items";
@@ -241,15 +244,24 @@ function resumption(options: Partial<ResumptionOptions> = {}): Resumption {
 }
 
 /**
- * Parks the story with `reason` and ends its run with `endKind` (`in-review` or `reviewed` for a
- * run that waited In Review when it parked); returns the park id.
+ * Parks the story with `reason` and ends its run parked; `waited` is the phase of a run that stood
+ * open at In Review when it parked (since a second before the park). Returns the park id.
  */
-function park(reason: string, from = "In Progress", detail = "x", endKind = "parked"): number {
+function park(
+  reason: string,
+  from = "In Progress",
+  detail = "x",
+  waited?: "review" | "merge",
+): number {
   const { office, run, t } = w.f;
   const at = t.clock.now();
   office.immediate(() => {
+    if (waited !== undefined) {
+      stopAtInReview(office, run, at - 1_000);
+      enterPhase(office, run, waited, at - 1_000);
+    }
     insertPark(office, { key: w.key, story: "DIPO-1", runId: run, reason, from, detail, at });
-    endRun(office, run, at, endKind);
+    endRun(office, run, at, "parked");
   });
   return office.get<{ id: number }>(
     "select max(park_id) as id from parks where office_id = $office_id",
@@ -474,7 +486,7 @@ describe("work.resume of a reason that needs nothing more (0020)", () => {
   }
 
   it("returns a story the maintainer parked while it waited In Review there, with no session", async () => {
-    park("by-maintainer", "In Review", "PR #7 closed on GitHub", "in-review");
+    park("by-maintainer", "In Review", "PR #7 closed on GitHub", "review");
     const reply = await resume(resumption());
     expect(reply.result.to).toBe("In Review");
     expect(w.lifts[0]?.to).toBe("In Review");
@@ -482,12 +494,14 @@ describe("work.resume of a reason that needs nothing more (0020)", () => {
     expect(w.reviews).toEqual([]);
     // A closed PR is replaced (0002), then the auto-merge takes the story in again.
     expect(w.ported).toEqual(["pr", "merge"]);
-    expect(findRun(w.f.office, w.f.run)?.endKind).toBe("in-review");
+    // The run stands open at In Review again, waiting for its review.
+    expect(findRun(w.f.office, w.f.run)?.ending).toBeNull();
+    expect(runPhase(w.f.office, w.f.run)).toBe("review");
     expect(grants()).toEqual([]);
   });
 
   it("hands a story the maintainer parked before its review back to the reviewer place", async () => {
-    park("by-maintainer", "In Review", "after the release", "in-review");
+    park("by-maintainer", "In Review", "after the release", "review");
     const drained: string[] = [];
     const places = new Places({
       clock: w.f.t.clock,
@@ -511,7 +525,7 @@ describe("work.resume of a reason that needs nothing more (0020)", () => {
     places.close();
   });
 
-  it("returns a reviewed run that waits In Review again to the reviewed end", async () => {
+  it("returns a reviewed run that waits In Review again to its phase merge", async () => {
     const { office, run, t } = w.f;
     office.immediate(() =>
       recordReviewVerdict(office, t.ids, {
@@ -526,9 +540,10 @@ describe("work.resume of a reason that needs nothing more (0020)", () => {
         at: t.clock.now(),
       }),
     );
-    park("by-maintainer", "In Review", "after the release", "reviewed");
+    park("by-maintainer", "In Review", "after the release", "merge");
     await resume(resumption(), { note: "Released." });
-    expect(findRun(office, run)?.endKind).toBe("reviewed");
+    expect(findRun(office, run)?.ending).toBeNull();
+    expect(runPhase(office, run)).toBe("merge");
     expect(w.ported).toEqual(["pr", "merge"]);
   });
 
@@ -867,7 +882,7 @@ describe("round grants: one more round of the cap that fired (0020)", () => {
   });
 
   it("returns review-blocked to In Review and queues its fix round with one reviewRounds round grant", async () => {
-    const parkId = park("review-blocked", "In Review", "blocking: no test", "reviewed");
+    const parkId = park("review-blocked", "In Review", "blocking: no test");
     const reply = await resume(resumption(), { note: "Add the test, then it passes." });
     expect(reply.result.to).toBe("In Review");
     expect(w.lifts[0]?.to).toBe("In Review");
@@ -876,7 +891,9 @@ describe("round grants: one more round of the cap that fired (0020)", () => {
     expect(grants().map((grant) => [grant.kind, JSON.parse(grant.amount)])).toEqual([
       ["round", { cap: "reviewRounds", count: 1, before: 3, after: 4 }],
     ]);
-    expect(findRun(w.f.office, w.f.run)?.endKind).toBe("reviewed");
+    // Open at In Review again with its blocked verdict in: phase build, for its fix round.
+    expect(findRun(w.f.office, w.f.run)?.ending).toBeNull();
+    expect(runPhase(w.f.office, w.f.run)).toBe("build");
     expect(parkRow(parkId)?.resolved_note).toBe("Add the test, then it passes.");
     // The note waits for the fix round's first message, after its findings.
     const held = runIntents(w.f.office, w.f.run).find((intent) =>
@@ -1084,7 +1101,7 @@ describe("a resume whose place is taken (0020 section 1, 0019 section 12)", () =
           other_agent: otherAgent,
         },
       );
-      endRun(office, other, t.clock.now(), "in-review");
+      stopAtInReview(office, other, t.clock.now());
     });
     await places.drain(office.officeId as OfficeId);
     await resuming.idle();
@@ -1478,7 +1495,7 @@ describe("the maintainer's note in a worker's message (DIPO-155 review)", () => 
   });
 
   it("caps the fix round's held note the same way", async () => {
-    park("review-blocked", "In Review", "x", "reviewed");
+    park("review-blocked", "In Review", "x");
     await resume(resumption(), { note: long });
     const held = runIntents(w.f.office, w.f.run).find((intent) =>
       intent.detail.startsWith("feedback resume - next "),

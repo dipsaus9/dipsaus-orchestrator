@@ -208,7 +208,7 @@ describe("story.detail", () => {
 
       // A run that ended (a failed host start, a release) shows its end; no active work is left.
       t.clock.advance(1000);
-      office.immediate(() => endRun(office, started.run, t.clock.now(), "start-failed"));
+      office.immediate(() => endRun(office, started.run, t.clock.now(), "dropped"));
       const ended = await read<{ work?: WorkView; runs: RunRecord[] }>(t, office, "story.detail", {
         office: office.officeId,
         story: started.key,
@@ -216,7 +216,7 @@ describe("story.detail", () => {
       expect(ended.work).toBeUndefined();
       expect(ended.runs[0]).toMatchObject({
         endedAt: new Date(t.clock.now()).toISOString(),
-        outcome: "start-failed",
+        outcome: "dropped",
       });
     }));
 });

@@ -13,7 +13,7 @@
 // the notice.
 //
 // A failed In Review push (DIPO-315). Each poll first pushes again, never forced, the branch of
-// every run that ended at In Review whose claim's `pushed_at` is null or earlier than the run's
+// every run open at In Review waiting for its review whose claim's `pushed_at` is null or earlier than the run's
 // end (`runsToPush`), whatever `storyPr.open` says, since the review waits for the head on the
 // remote (`pendingReviews`). A push that reaches the remote records `pushed_at` and syncs the PR
 // at once (the PR is opened below when it has none); one that finds no remote records
@@ -109,8 +109,7 @@ import { runHeldByPark } from "../run/park-state";
 import {
   appendRunStep,
   findRun,
-  IN_REVIEW_END,
-  REVIEWED_END,
+  openAtInReview,
   runRoundCounts,
   runSteps,
   type StoredRun,
@@ -1131,7 +1130,6 @@ export class StoryPrs {
           run,
           reason: "verify-failing",
           detail,
-          endKind: "verify-failing",
         },
       );
       return true;
@@ -1341,12 +1339,11 @@ export class StoryPrs {
 }
 
 /**
- * True when the run waits after its review for its merge: ended at In Review or reviewed, with a
+ * True when the run waits for its merge: open at In Review with no active period, with a
  * live claim and no open park. Its story may read Done on its branch after the close-out commit.
  */
 function waitsForMerge(office: OfficeHandle, run: StoredRun): boolean {
-  if (run.key === null || run.endedAt === null) return false;
-  if (run.endKind !== REVIEWED_END && run.endKind !== IN_REVIEW_END) return false;
+  if (run.key === null || !openAtInReview(run)) return false;
   return (
     office.get(
       `select 1 as found from claims c where c.office_id = $office_id and c.run_id = $run

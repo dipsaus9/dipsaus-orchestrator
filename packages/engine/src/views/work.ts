@@ -25,7 +25,7 @@ import type { OfficeHandle } from "../db/office";
 import { readUsage } from "../ingest/usage";
 import { runCaps } from "../run/caps";
 import { runCriteriaMet } from "../run/criteria";
-import { activeRuns, findRun, runRoundCounts, type StoredRun } from "../run/records";
+import { activeRuns, findRun, runPhase, runRoundCounts, type StoredRun } from "../run/records";
 import { activeSignals } from "../run/signals";
 import { followedOnly } from "../runs/worker-hosts";
 
@@ -151,13 +151,7 @@ export function runProgress(office: OfficeHandle, runId: RunId): Progress | null
 }
 
 function phaseOf(office: OfficeHandle, runId: string): Phase {
-  return (
-    office.get<{ value: string }>(
-      `select value from run_steps where office_id = $office_id and run_id = $run
-        and kind = 'phase' order by step desc limit 1`,
-      { run: runId },
-    )?.value ?? FIRST_PHASE
-  );
+  return runPhase(office, runId) ?? FIRST_PHASE;
 }
 
 function lastOutputAt(office: OfficeHandle, runId: string): number | null {

@@ -271,7 +271,7 @@ describe("a scan session run", () => {
         budget_limit: 100_000,
         max_turns: 2,
         max_minutes: 5,
-        end_kind: "answered",
+        end_kind: "done",
       });
       expect(run?.["ended_at"]).not.toBeNull();
       const usage = w.office.all<{ role: string; input: number; output: number }>(
@@ -313,7 +313,7 @@ describe("a scan session run", () => {
       expect(
         w.office.get<{ end_kind: string }>("select end_kind from runs where office_id = $office_id")
           ?.end_kind,
-      ).toBe("stopped");
+      ).toBe("dropped");
     }));
 
   it("is stopped at daemon stop, so its caps hold after the daemon is gone", () =>

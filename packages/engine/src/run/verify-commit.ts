@@ -103,15 +103,8 @@ import { runBudgetFacts } from "./budget-line";
 import { runConfigOf } from "./config-snapshot";
 import type { FeedbackSource } from "./feedback";
 import type { DoneConflictDecision } from "./conflicts";
-import { endRunMarked } from "./markers";
 import { type FiredCap, runCaps } from "./caps";
-import {
-  appendRunStep,
-  IN_REVIEW_END,
-  recordGateChanges,
-  type StoredRun,
-  VERIFY_LOOP,
-} from "./records";
+import { appendRunStep, recordGateChanges, type StoredRun, VERIFY_LOOP } from "./records";
 import {
   type NoteMiss,
   noteMiss,
@@ -122,6 +115,7 @@ import {
   storeDoneReport,
   testPlanGaps,
 } from "./report-data";
+import { stopAtInReview } from "./rounds";
 import type { StoryGit } from "./story-git";
 import { storeRunSummary } from "./verify-records";
 
@@ -234,11 +228,10 @@ export type TurnDecision =
       readonly kind: "park";
       readonly reason: ParkReason;
       readonly detail: string;
-      readonly endKind: string;
     }
   /** One message to the live worker through the one feedback path (`feedback.ts`). */
   | { readonly kind: "feedback"; readonly source: FeedbackSource; readonly text: string }
-  /** The run ended at In Review; run control closes the worker's stdin. */
+  /** The run's active period ended at In Review; run control closes the worker's stdin. */
   | { readonly kind: "ended" };
 
 /** What run control gives one turn. */
@@ -353,7 +346,6 @@ export class VerifyCommit implements RunFinisher {
         kind: "park",
         reason: "worker-failed",
         detail: NO_BOX_AT_DONE,
-        endKind: "interrupted",
       };
     }
     const report = ctx.report;
@@ -396,7 +388,7 @@ export class VerifyCommit implements RunFinisher {
       const text = testPlanFeedback(gaps);
       if (ctx.capped != null) {
         // The done turn crossed a cap, so no turn is left for the feedback: only a top-up resumes.
-        return { kind: "park", reason: "budget-exceeded", detail: text, endKind: "capped" };
+        return { kind: "park", reason: "budget-exceeded", detail: text };
       }
       items.push(text);
     }
@@ -454,7 +446,6 @@ export class VerifyCommit implements RunFinisher {
         kind: "park",
         reason: "verify-failing",
         detail: `${refusal.what} ${loops} time${loops === 1 ? "" : "s"} (the loop cap is ${cap}). ${items.join(" ")}`,
-        endKind: "verify-failing",
       };
     }
     if (!ctx.live()) return { kind: "continue" };
@@ -483,7 +474,6 @@ export class VerifyCommit implements RunFinisher {
           kind: "park",
           reason: "worker-failed",
           detail: `${result.reason}; the story did not move to review.`,
-          endKind: "interrupted",
         };
       default:
         break;
@@ -512,7 +502,7 @@ export class VerifyCommit implements RunFinisher {
     const text = `${VERIFY_IN_BOX_INTRO}\n\n${item}`;
     if (ctx.capped != null) {
       // The done turn crossed a cap, so no turn is left for the feedback: only a top-up resumes.
-      return { kind: "park", reason: "budget-exceeded", detail: text, endKind: "capped" };
+      return { kind: "park", reason: "budget-exceeded", detail: text };
     }
     return this.#refuse(ctx, [text], this.#deps.clock.now(), undefined, VERIFY_REFUSAL);
   }
@@ -616,7 +606,7 @@ export class VerifyCommit implements RunFinisher {
             kind: "refused",
             detail: refusedDetail("archive", PART_ARCHIVE_LIMITS.maxArchiveBytes),
           }) as NonNullable<ReturnType<typeof partPark>>;
-          return { kind: "park", ...refused, endKind: refused.reason };
+          return { kind: "park", ...refused };
         }
         // The run parked or stopped meanwhile: that decision stands, and no part park is added.
         if (!ctx.live()) return { kind: "continue" };
@@ -639,7 +629,6 @@ export class VerifyCommit implements RunFinisher {
           kind: "park",
           reason: "worker-failed",
           detail: `dipo could not take the last part out of the box (${typeof code === "string" ? code : "error"}); nothing of it was committed.`,
-          endKind: "interrupted",
         };
       }
     }
@@ -659,7 +648,6 @@ export class VerifyCommit implements RunFinisher {
               kind: "park",
               reason: "budget-exceeded",
               detail: decided.text,
-              endKind: "capped",
             };
           }
           return this.#refuse(ctx, [decided.text], this.#deps.clock.now());
@@ -668,14 +656,13 @@ export class VerifyCommit implements RunFinisher {
             kind: "park",
             reason: decided.reason,
             detail: decided.detail,
-            endKind: decided.reason,
           };
         default:
           return { kind: "continue" };
       }
     }
     const park = partPark(done.outcome);
-    if (park !== null) return { kind: "park", ...park, endKind: park.reason };
+    if (park !== null) return { kind: "park", ...park };
     const last = done.finished?.result ?? null;
     if (last === null) return { kind: "continue" };
 
@@ -694,7 +681,6 @@ export class VerifyCommit implements RunFinisher {
         kind: "park",
         reason: "worker-failed",
         detail: BOX_TIP_MOVED,
-        endKind: "interrupted",
       };
     }
     return this.#commit(ctx, {
@@ -790,7 +776,6 @@ export class VerifyCommit implements RunFinisher {
         kind: "park",
         reason: "worker-failed",
         detail: `dipo could not commit the verified work: ${messageOf(error)}`,
-        endKind: "interrupted",
       };
     }
     const push = await git
@@ -801,7 +786,6 @@ export class VerifyCommit implements RunFinisher {
         kind: "park",
         reason: "conflict",
         detail: `${push.error ?? "the push was rejected"}; the remote branch has commits the story branch lacks`,
-        endKind: "conflict",
       };
     }
     // The dependency files the run committed (DIPO-84), from its parts on the branch.
@@ -822,7 +806,8 @@ export class VerifyCommit implements RunFinisher {
       if (ctx.capped != null) {
         appendRunStep(office, run.runId, "cap", `${ctx.capped.cap}: ${ctx.capped.detail}`, at);
       }
-      endRunMarked(office, run.runId, at, IN_REVIEW_END);
+      // The run stays open at In Review, in phase review until its review (0020).
+      const phase = stopAtInReview(office, run.runId, at);
       const key = run.key as StoryKey;
       const current = storyView(office, key);
       const view = deriveStoryView({
@@ -834,6 +819,7 @@ export class VerifyCommit implements RunFinisher {
         ...(current?.pr === undefined ? {} : { pr: current.pr }),
       });
       const entries: NewEntry[] = [
+        ...phase,
         {
           type: "story.state",
           key,
@@ -882,7 +868,7 @@ function isTaskFieldError(error: unknown): error is GitError {
 }
 
 function scopePark(detail: string): TurnDecision {
-  return { kind: "park", reason: "scope-violation", detail, endKind: "scope-violation" };
+  return { kind: "park", reason: "scope-violation", detail };
 }
 
 /** Loops started so far in the run (0-based index of the current verify pass). */

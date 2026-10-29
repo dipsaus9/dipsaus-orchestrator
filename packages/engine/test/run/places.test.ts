@@ -15,13 +15,13 @@ import {
   endRun,
   findRun,
   hasActiveRun,
-  IN_REVIEW_END,
   type PlaceStart,
   placeHolders,
   Places,
   placeTaken,
   reopen,
   type RunEnder,
+  stopAtInReview,
   RunControl,
   runIntents,
   START_KINDS,
@@ -67,11 +67,11 @@ const holderIds = () => {
 };
 const pickup: PlaceStart = { kind: START_KINDS.pickup, runId: null, since: 0 };
 
-/** A story run that worked and ended at In Review, its developer agent ended. */
+/** A story run that worked and stands open at In Review, its developer agent ended. */
 function inReview(story: string): StoryRun {
   const s = storyRun(w, { story });
   addAgent(w, s.run, "developer", false);
-  write(() => endRun(w.office, s.run, now(), IN_REVIEW_END));
+  write(() => stopAtInReview(w.office, s.run, now()));
   return s;
 }
 
@@ -96,7 +96,7 @@ describe("counting (0019 section 12)", () => {
     storyRun(w, { story: "DIPO-1" });
     expect(holderIds().worker).toEqual(["DIPO-1"]);
 
-    // A review reopened on a run ended at In Review waits and holds no place; once it takes the
+    // A review reopened on a run open at In Review waits and holds no place; once it takes the
     // reviewer place it holds that one, before and while its reviewer agent runs.
     const b = inReview("DIPO-2");
     expect(holderIds()).toEqual({ worker: ["DIPO-1"], reviewer: [] });
@@ -181,7 +181,7 @@ describe("a resume that finds its place taken (0020 section 1)", () => {
         detail: DETAIL,
         at,
       });
-      endRun(w.office, s.run, at, "interrupted");
+      endRun(w.office, s.run, at, "parked");
     });
     return { s };
   }
@@ -261,7 +261,7 @@ describe("a resume that finds its place taken (0020 section 1)", () => {
     // DIPO-4's session ends 50 seconds later: the resume goes before the older fix round.
     w.t.clock.advance(50_000);
     endAgent(w, developer);
-    write(() => endRun(w.office, busy.run, now(), IN_REVIEW_END));
+    write(() => stopAtInReview(w.office, busy.run, now()));
     expect(await places.drain(officeId())).toBe(1);
     expect(started).toEqual(["DIPO-5"]);
     expect(sessions[0]?.message).toContain(DETAIL);
@@ -275,7 +275,7 @@ describe("a resume that finds its place taken (0020 section 1)", () => {
     // session ends too.
     addAgent(w, s.run, "developer", true);
     expect(await places.drain(officeId())).toBe(0);
-    write(() => endRun(w.office, s.run, now(), IN_REVIEW_END));
+    write(() => stopAtInReview(w.office, s.run, now()));
     expect(await places.drain(officeId())).toBe(1);
     expect(started).toEqual(["DIPO-5", "DIPO-6"]);
     places.close();
@@ -393,8 +393,8 @@ describe("the pre-start cap check (DIPO-205)", () => {
           detail: "turn cap reached: 100 of 100 turns",
         },
       ]);
-      expect(findRun(w.office, fix.run)).toMatchObject({ endKind: "capped" });
-      expect(findRun(w.office, conflict.run)).toMatchObject({ endKind: "capped" });
+      expect(findRun(w.office, fix.run)).toMatchObject({ ending: "parked" });
+      expect(findRun(w.office, conflict.run)).toMatchObject({ ending: "parked" });
       expect(runIntents(w.office, fix.run).map((i) => [i.kind, i.state])).toEqual([
         ["cap", "resolved"],
       ]);

@@ -4,9 +4,9 @@
 // phase began:
 //
 //   [dipo] 2026-10-15T12:04:31.000Z phase review
-//   [dipo] 2026-10-15T12:09:02.000Z ended in-review
+//   [dipo] 2026-10-15T12:09:02.000Z ended done
 //
-// The line is code-made from facts the engine already keeps (`run_steps`, `runs.end_kind`), so it
+// The line is code-made from facts the engine already keeps (`run_steps`, the run's ending in `runs.end_kind`), so it
 // holds nothing private. Clients render it (the TUI as `── 12:04:31 phase: review ──`).
 //
 // Clients know a marker by its flag, never by its text (DIPO-95): the marker's own `work.output`
@@ -28,12 +28,13 @@ import { byteLength } from "../ingest/output";
 import { HOST_EVENTS_SOURCE, pendingWorkerOutput } from "../ingest/pending";
 import { withWorkViews, workRefOf } from "../views/work";
 
+import type { RunEnd } from "./lifecycle";
 import { appendRunStep, endRun } from "./records";
 
 /** The prefix of an engine-written marker line in the worker output. */
 export const MARKER_PREFIX = "[dipo]";
 
-/** The marker line: `[dipo] <ISO time> phase review` or `[dipo] <ISO time> ended in-review`. */
+/** The marker line: `[dipo] <ISO time> phase review` or `[dipo] <ISO time> ended parked`. */
 export function markerLine(kind: MarkerKind, value: string, at: number): string {
   return `${MARKER_PREFIX} ${new Date(at).toISOString()} ${kind} ${value}\n`;
 }
@@ -73,19 +74,19 @@ export function markPhase(
 
 /**
  * Ends the run (`endRun`, with the start of the review period it ends when given) and, when this
- * call ended it, writes the `ended <kind>` marker. Inside a transaction; its `work.output` entries
+ * call ended it, writes the `ended <ending>` marker. Inside a transaction; its `work.output` entries
  * are appended at once. Returns what `endRun` returns.
  */
 export function endRunMarked(
   office: OfficeHandle,
   runId: RunId,
   at: number,
-  kind: string,
+  ending: RunEnd,
   reviewSince?: number,
 ): boolean {
-  const ended = endRun(office, runId, at, kind, reviewSince);
+  const ended = endRun(office, runId, at, ending, reviewSince);
   if (ended) {
-    const entries = writeMarker(office, runId, "ended", kind, at);
+    const entries = writeMarker(office, runId, "ended", ending, at);
     appendEntries(office, withWorkViews(office, entries), { at });
   }
   return ended;

@@ -210,12 +210,12 @@ describe("engine markers, flagged (DIPO-83, DIPO-95)", () => {
     value: "verify",
     at: iso,
   });
-  const ended: OutputMarker = { ...phase(0), kind: "ended", value: "in-review" };
+  const ended: OutputMarker = { ...phase(0), kind: "ended", value: "parked" };
 
   it("read as a rule with the local time, `--` in ASCII mode", () => {
     expect(markerRule(phase(0))).toBe(`── ${hms} phase: verify ──`);
     expect(markerRule(phase(0), true)).toBe(`-- ${hms} phase: verify --`);
-    expect(markerRule(ended)).toBe(`── ${hms} run ended: in-review ──`);
+    expect(markerRule(ended)).toBe(`── ${hms} run ended: parked ──`);
     expect(markerRule({ ...ended, kind: "paused", value: "by you" })).toBe(
       `── ${hms} paused: by you ──`,
     );

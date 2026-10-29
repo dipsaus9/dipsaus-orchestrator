@@ -38,7 +38,8 @@ import {
   inReviewRunIds,
   StoryConflicts,
 } from "../../src/run/conflicts";
-import { findRun, IN_REVIEW_END, insertRun, runRoundCounts } from "../../src/run/records";
+import { findRun, insertRun, runRoundCounts } from "../../src/run/records";
+import { atInReview } from "./in-review";
 import { codeTreeKeyOf } from "../../src/run/story-git";
 import { addStory } from "../../src/stories/keys";
 import { insertStoryPr, setStoryPrState } from "../../src/story-pr/records";
@@ -274,7 +275,7 @@ function reclaim(w: World): RunId {
   const runId = w.f.t.ids.next("run") as RunId;
   office.immediate(() => {
     office.run(
-      "update runs set ended_at = $at, end_kind = 'conflict' where office_id = $office_id and run_id = $run",
+      "update runs set ended_at = $at, end_kind = 'parked' where office_id = $office_id and run_id = $run",
       { run: w.f.run, at: w.f.t.clock.now() },
     );
     w.f.t.clock.advance(1_000);
@@ -535,10 +536,7 @@ if (process.env["DIPO_TEST_CI"] === "1") {
     it("leaves out a story whose own PR merged, and one whose status reads Done", () =>
       inWorld(async (w) => {
         const office = w.f.office;
-        office.run(
-          "update runs set ended_at = $at, end_kind = $kind where office_id = $office_id and run_id = $run",
-          { run: w.f.run, at: w.f.t.clock.now(), kind: IN_REVIEW_END },
-        );
+        atInReview(office, w.f.run, w.f.t.clock.now());
         expect(inReviewRunIds(office)).toEqual([w.f.run as RunId]);
         // Its PR merged on the host while the teardown of its worktree waits: Done on the base.
         office.immediate(() =>
@@ -584,10 +582,7 @@ if (process.env["DIPO_TEST_CI"] === "1") {
     it("is recorded and told once per base commit, shows on the story detail, and goes once merged", () =>
       inWorld(async (w) => {
         const office = w.f.office;
-        office.run(
-          "update runs set ended_at = $at, end_kind = $kind where office_id = $office_id and run_id = $run",
-          { run: w.f.run, at: w.f.t.clock.now(), kind: IN_REVIEW_END },
-        );
+        atInReview(office, w.f.run, w.f.t.clock.now());
         expect(inReviewRunIds(office)).toEqual([w.f.run as RunId]);
         const found = {
           base: "main",

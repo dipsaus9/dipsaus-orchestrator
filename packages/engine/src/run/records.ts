@@ -3,16 +3,17 @@
 //
 // This module is the one writer of `runs` (0001): every insert and update of a run row goes
 // through it, and `test/run/one-writer.test.ts` fails on one anywhere else. A change of the run's
-// state (its end, end kind, wait and parked time) is decided by `nextRunState` (`lifecycle.ts`)
+// state (its active period, ending, wait and parked time) is decided by `nextRunState` (`lifecycle.ts`)
 // and written by `applyRunEvent`.
 //
 // A story run is active while it has not ended and its claim is live, so a claim released by
 // teardown or a rollback never leaves an office busy; a session run is active until it ends.
 //
 // One story run spans every round of its claim (0019 section 13, DIPO-142): its active period ends
-// at a park and at In Review, and `reopen` (`rounds.ts`) opens it again for a resume, a review, a fix round or
-// a conflict hand-off, adding the time it stood ended to `parked_ms`. Each end rewrites its
-// provisional `run_outcomes` row; Done writes the final one.
+// at a park and at In Review, and `reopen` (`rounds.ts`) makes it active again for a resume, a
+// review, a fix round or a conflict hand-off, adding the time it stood ended to `parked_ms`. A run
+// ends done, parked or dropped (0020, `lifecycle.ts`); at In Review it stays open. Each end writes
+// its `run_outcomes` row, provisional until Done writes the final one.
 
 import type { RunId, StoryKey } from "@dipsaus-orchestrator/contract";
 
@@ -21,7 +22,7 @@ import type { OfficeHandle } from "../db/office";
 import { finalizeRunAgents } from "../ingest/usage";
 
 import { runTotals } from "./caps";
-import { DONE_KIND, IN_REVIEW_KIND, nextRunState, type RunEvent, type RunState } from "./lifecycle";
+import { nextRunState, type RunEnd, type RunEvent, type RunState } from "./lifecycle";
 
 export type RunKind = "story" | "session";
 
@@ -67,8 +68,10 @@ export interface StoredRun extends NewRun {
   readonly scope: readonly string[] | null;
   /** Gate commands the story branch changed against the base profile; null when none (DIPO-49). */
   readonly gateChanges: readonly string[] | null;
+  /** When its last active period ended; set while it stays open at In Review (`lifecycle.ts`). */
   readonly endedAt: number | null;
-  readonly endKind: string | null;
+  /** How the run ended: done, parked or dropped; null while it is open (0020). */
+  readonly ending: RunEnd | null;
   /**
    * Milliseconds the run stood parked before an answer reopened it (DIPO-75, migration 23), and
    * stood ended or in review between its rounds (DIPO-142); its caps and minutes count the time
@@ -161,7 +164,7 @@ function toRecord(row: RunRow): StoredRun {
     scope: jsonList(row.scope),
     gateChanges: jsonList(row.gate_changes),
     endedAt: row.ended_at,
-    endKind: row.end_kind,
+    ending: row.end_kind as RunEnd | null,
     parkedMs: row.parked_ms,
     waiting: row.waiting,
     waitingSince: row.waiting_since,
@@ -180,7 +183,7 @@ export function insertRun(office: OfficeHandle, run: NewRun): void {
        $started_at, $scope, $ended_at, $end_kind, $parked_ms, $waiting, $waiting_since)`,
     {
       ended_at: state.endedAt,
-      end_kind: state.endKind,
+      end_kind: state.ending,
       parked_ms: state.parkedMs,
       waiting: state.waiting,
       waiting_since: state.waitingSince,
@@ -299,7 +302,7 @@ export function runState(office: OfficeHandle, runId: string): RunState | null {
     ? null
     : {
         endedAt: row.ended_at,
-        endKind: row.end_kind,
+        ending: row.end_kind as RunEnd | null,
         waiting: row.waiting,
         waitingSince: row.waiting_since,
         parkedMs: row.parked_ms,
@@ -327,7 +330,7 @@ export function applyRunEvent(
     {
       run: runId,
       ended_at: after.endedAt,
-      end_kind: after.endKind,
+      end_kind: after.ending,
       waiting: after.waiting,
       waiting_since: after.waitingSince,
       parked_ms: after.parkedMs,
@@ -436,17 +439,28 @@ export function currentProfileId(office: OfficeHandle): string | null {
   return row === null ? null : String(row.profile_id);
 }
 
-/** The outcome of a run that ended at In Review (DIPO-49). */
-export const IN_REVIEW_END = IN_REVIEW_KIND;
-
-/** The end kind of a review period: the run waits for the verdict, CI or the merge gate. */
-export const REVIEWED_END = "reviewed";
+/** True when the run is open at In Review with no active period: in phase review, test or merge. */
+export function openAtInReview(run: Pick<StoredRun, "endedAt" | "ending">): boolean {
+  return run.endedAt !== null && run.ending === null;
+}
 
 /**
- * The end kind of a run whose story is Done (0019 section 13): the release reason the Done poll's
- * teardown ends it with (`worktree/teardown.ts`).
+ * SQL for the phase the newest `phase` step of the run aliased `r` names (0009), null when it has
+ * none; `runPhase` in SQL.
  */
-export const DONE_END = DONE_KIND;
+export const RUN_PHASE_SQL = `(select s.value from run_steps s where s.office_id = r.office_id
+  and s.run_id = r.run_id and s.kind = 'phase' order by s.step desc limit 1)`;
+
+/** The phase the run's newest `phase` step names (0009), or null when it has none. */
+export function runPhase(office: OfficeHandle, runId: string): string | null {
+  return (
+    office.get<{ value: string }>(
+      `select value from run_steps where office_id = $office_id and run_id = $run
+        and kind = 'phase' order by step desc limit 1`,
+      { run: runId },
+    )?.value ?? null
+  );
+}
 
 /**
  * When the run's caps start counting (0008 sections 6 and 9): its first worker host's start, else
@@ -460,70 +474,77 @@ export function capsStartedAt(
   return (firstHostStartedAt ?? run.startedAt) + (run.parkedMs ?? 0);
 }
 
-/** The `run_outcomes.outcome` of a run that parked its story. */
-export const PARKED_OUTCOME = "parked";
-
 /**
- * Ends the run `runId` with `kind` (for example the release reason of its claim), once: a run
- * that already ended keeps its end. Runs inside the caller's transaction. Retention removes a
- * run's rows only once it ended (`retention/run.ts`).
+ * Ends the run `runId` as `ending` (0020: done, parked or dropped), once: an open run ends, a
+ * parked run ends again only as done or dropped, and a run done or dropped keeps its end
+ * (`nextRunState`). Runs inside the caller's transaction. Retention removes a run's rows only once
+ * its active period ended (`retention/run.ts`).
  *
- * The one place a run ends (DIPO-49, 0007 amendment of 2026-10-12): the call that ends it also
- * writes its `run_outcomes` row, kept until purge: tier, role, model, the outcome (`parked` when
- * the run parked its story, with the park reasons; else the end kind, such as `in-review` or
- * `start-failed`), loops, review rounds, verify failures, budget tokens used, minutes worked, the
- * story's criteria count and the declared scope size. A park writes its `parks` row before it
- * ends the run, so its reason is counted. It also makes the usage of every agent whose exit was
- * not ingested final (`finalizeRunAgents`, DIPO-51). True when this call ended the run, false
- * when it had ended before.
+ * The one place a run ends (DIPO-49, 0007): the call that ends it also writes its `run_outcomes`
+ * row, kept until purge: tier, role, model, the outcome (its ending), the park reasons of its
+ * parks, loops, review rounds, verify failures, budget tokens used, minutes worked, the story's
+ * criteria count and the declared scope size. A park writes its `parks` row before it ends the
+ * run, so its reason is counted. An end that closes the run's active period also makes the usage
+ * of every agent whose exit was not ingested final (`finalizeRunAgents`, DIPO-51). True when this
+ * call ended the run, false when the end did not apply.
  *
- * One end is not always the last (DIPO-75, DIPO-142): a run is reopened for a resume, a review, a
- * fix round or a conflict hand-off (`reopen`), so each end rewrites the provisional row with
- * every park and round of the run and the minutes it worked. Done is the final end (0019 section
- * 13): a `done` end of a run whose last active period already ended (at In Review) sets its end
- * kind and writes the final row (`finishRun`); a final row is never rewritten.
+ * One end is not always the last (DIPO-75, DIPO-142): a parked run reopens on resume
+ * (`reopenRun`), and its next end rewrites the provisional row with every park and round of the
+ * run and the minutes it worked. Done is final (0019 section 13): a run open at In Review keeps
+ * the end of its last active period, so its minutes count the time it worked, and its final row
+ * is never rewritten.
  */
 export function endRun(
   office: OfficeHandle,
   runId: RunId,
   at: number,
-  kind: string,
+  ending: RunEnd,
   reviewSince?: number,
 ): boolean {
   const ended = applyRunEvent(office, runId, {
     kind: "end",
     at,
-    endKind: kind,
+    ending,
     ...(reviewSince === undefined ? {} : { reviewSince }),
   });
-  if (ended !== null) {
-    // Usage of agents whose exit is not ingested yet reaches `usage_daily` now (0007 amendment of
-    // 2026-10-14, DIPO-51); what ingestion adds later feeds only its change.
-    finalizeRunAgents(office, runId, at);
-    writeRunOutcome(office, runId, kind);
-    return true;
-  }
-  if (kind === DONE_END) finishRun(office, runId);
-  return false;
+  if (ended === null) return false;
+  // Usage of agents whose exit is not ingested yet reaches `usage_daily` now (0007 amendment of
+  // 2026-10-14, DIPO-51); what ingestion adds later feeds only its change.
+  if (ended.before.endedAt === null) finalizeRunAgents(office, runId, at);
+  writeRunOutcome(office, runId, ending);
+  return true;
 }
 
 /**
- * Done (0019 section 13): the ended run `runId` takes the end kind `done` and its final
- * `run_outcomes` row is written, with its loops, review rounds and failed rounds, CI attempts,
- * conflict hand-offs and any override. Its end time stays the end of its last active period, so
- * its minutes count the time it worked. False when the run is open, unknown or final already.
- * Inside the caller's transaction.
+ * Inside the caller's transaction: the parked run, or the run open at In Review, `runId` is active
+ * again at `at`, and its provisional outcome row goes until its next end. False when the run is
+ * active already, done or dropped.
  */
-export function finishRun(office: OfficeHandle, runId: RunId): boolean {
-  const final = office.get<{ final: number }>(
-    "select final from run_outcomes where office_id = $office_id and run_id = $run",
-    { run: runId },
-  );
-  if (applyRunEvent(office, runId, { kind: "finish", final: final?.final === 1 }) === null) {
-    return false;
-  }
-  writeRunOutcome(office, runId, DONE_END);
+export function reopenRun(office: OfficeHandle, runId: RunId, at: number): boolean {
+  if (applyRunEvent(office, runId, { kind: "reopen", at }) === null) return false;
+  dropProvisionalOutcome(office, runId);
   return true;
+}
+
+/**
+ * Inside the caller's transaction: the park of the parked run `runId` is lifted with no session
+ * (the maintainer's override, or a resume that starts none): the run stands open at In Review
+ * again, in the phase it parked in, and its provisional outcome row goes. False when it is not
+ * parked.
+ */
+export function unparkRun(office: OfficeHandle, runId: RunId): boolean {
+  if (applyRunEvent(office, runId, { kind: "unpark" }) === null) return false;
+  dropProvisionalOutcome(office, runId);
+  return true;
+}
+
+function dropProvisionalOutcome(office: OfficeHandle, runId: RunId): void {
+  office.run(
+    "delete from run_outcomes where office_id = $office_id and run_id = $run and final = 0",
+    {
+      run: runId,
+    },
+  );
 }
 
 /** How many steps of each counted kind the run has (`run_steps`). */
@@ -571,11 +592,11 @@ export const VERIFY_LOOP = "verify";
  * Writes the run's `run_outcomes` row as of its end, replacing a provisional one; final for a
  * `done` end. A final row is never replaced.
  */
-function writeRunOutcome(office: OfficeHandle, runId: RunId, kind: string): void {
+function writeRunOutcome(office: OfficeHandle, runId: RunId, ending: RunEnd): void {
   const run = findRun(office, runId);
   if (run === null || run.endedAt === null) return;
   const at = run.endedAt;
-  const final = kind === DONE_END;
+  const final = ending === "done";
   // History for retro (0007, 0020): the reasons the run's parks were made with (DIPO-360).
   const parks = office
     .all<{ reason: string }>(
@@ -610,10 +631,10 @@ function writeRunOutcome(office: OfficeHandle, runId: RunId, kind: string): void
   office.run(
     `insert into run_outcomes (office_id, run_id, story_id, tier, role, model, outcome,
        park_reasons, loops, review_rounds, verify_failures, budget_tokens, minutes,
-       criteria_count, scope_size, ended_at, end_kind, final, review_rounds_failed, ci_attempts,
+       criteria_count, scope_size, ended_at, final, review_rounds_failed, ci_attempts,
        conflict_handoffs, override, web_searches, web_fetches)
      values ($office_id, $run, $story, $tier, $role, $model, $outcome, $parks, $loops, $reviews,
-       $failures, $budget, $minutes, $criteria, $scope, $at, $kind, $final, $failed, $ci,
+       $failures, $budget, $minutes, $criteria, $scope, $at, $final, $failed, $ci,
        $conflicts, $override, $searches, $fetches)
      on conflict (office_id, run_id) do update set story_id = excluded.story_id,
        tier = excluded.tier, role = excluded.role, model = excluded.model,
@@ -621,7 +642,7 @@ function writeRunOutcome(office: OfficeHandle, runId: RunId, kind: string): void
        review_rounds = excluded.review_rounds, verify_failures = excluded.verify_failures,
        budget_tokens = excluded.budget_tokens, minutes = excluded.minutes,
        criteria_count = excluded.criteria_count, scope_size = excluded.scope_size,
-       ended_at = excluded.ended_at, end_kind = excluded.end_kind, final = excluded.final,
+       ended_at = excluded.ended_at, final = excluded.final,
        review_rounds_failed = excluded.review_rounds_failed, ci_attempts = excluded.ci_attempts,
        conflict_handoffs = excluded.conflict_handoffs, override = excluded.override,
        web_searches = excluded.web_searches, web_fetches = excluded.web_fetches
@@ -632,8 +653,8 @@ function writeRunOutcome(office: OfficeHandle, runId: RunId, kind: string): void
       tier: run.tier,
       role: run.role,
       model: run.model,
-      // Done is the story's outcome, whatever parks the run had on the way.
-      outcome: final ? DONE_END : parks.length > 0 ? PARKED_OUTCOME : kind,
+      // How the run ended (0020); the reasons of its parks are kept next to it.
+      outcome: ending,
       parks: JSON.stringify(parks),
       loops: rounds.loops,
       reviews: rounds.reviewRounds,
@@ -643,7 +664,6 @@ function writeRunOutcome(office: OfficeHandle, runId: RunId, kind: string): void
       criteria,
       scope: run.scope === null ? null : run.scope.length,
       at,
-      kind,
       final: final ? 1 : 0,
       failed: rounds.reviewRoundsFailed,
       ci: rounds.ciAttempts,
@@ -662,7 +682,8 @@ export interface RunOutcome {
   readonly tier: string | null;
   readonly role: string;
   readonly model: string;
-  readonly outcome: string;
+  /** How the run ended: done, parked or dropped (0020). */
+  readonly outcome: RunEnd;
   readonly parkReasons: readonly string[];
   readonly loops: number;
   readonly reviewRounds: number;
@@ -672,8 +693,6 @@ export interface RunOutcome {
   readonly criteriaCount: number | null;
   readonly scopeSize: number | null;
   readonly endedAt: number;
-  /** The end kind of the run's end that wrote the row; null on a row written before DIPO-142. */
-  readonly endKind: string | null;
   /** True once Done wrote the final row. */
   readonly final: boolean;
   readonly reviewRoundsFailed: number;
@@ -702,7 +721,6 @@ export function runOutcome(office: OfficeHandle, runId: RunId): RunOutcome | nul
     criteria_count: number | null;
     scope_size: number | null;
     ended_at: number;
-    end_kind: string | null;
     final: number;
     review_rounds_failed: number;
     ci_attempts: number;
@@ -719,7 +737,7 @@ export function runOutcome(office: OfficeHandle, runId: RunId): RunOutcome | nul
         tier: row.tier,
         role: row.role,
         model: row.model,
-        outcome: row.outcome,
+        outcome: row.outcome as RunEnd,
         parkReasons: JSON.parse(row.park_reasons) as string[],
         loops: row.loops,
         reviewRounds: row.review_rounds,
@@ -729,7 +747,6 @@ export function runOutcome(office: OfficeHandle, runId: RunId): RunOutcome | nul
         criteriaCount: row.criteria_count,
         scopeSize: row.scope_size,
         endedAt: row.ended_at,
-        endKind: row.end_kind,
         final: row.final === 1,
         reviewRoundsFailed: row.review_rounds_failed,
         ciAttempts: row.ci_attempts,

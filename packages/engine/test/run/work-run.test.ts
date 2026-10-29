@@ -1047,7 +1047,7 @@ function parkedRun(id: string): { run: RunId; key: StoryKey; story: string } {
       detail: "x",
       at,
     });
-    endRun(office, started.run, at, "interrupted");
+    endRun(office, started.run, at, "parked");
   });
   return { run: started.run, key: started.key, story: id };
 }

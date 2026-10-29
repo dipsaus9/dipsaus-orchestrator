@@ -19,7 +19,7 @@ const work = workRef;
 describe("OutputMarker (DIPO-95)", () => {
   it("parses a phase and an end marker, and keeps an unknown kind (open enum)", () => {
     expect(OutputMarker.parse(marker)).toEqual(marker);
-    expect(OutputMarker.parse({ ...marker, kind: "ended", value: "in-review" }).kind).toBe("ended");
+    expect(OutputMarker.parse({ ...marker, kind: "ended", value: "parked" }).kind).toBe("ended");
     expect(OutputMarker.parse({ ...marker, kind: "paused" }).kind).toBe("paused");
   });
 

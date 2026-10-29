@@ -193,7 +193,7 @@ describe("WebCalls", () => {
         { run: RUN },
       );
       expect(row).toEqual({ web_searches: 2, web_fetches: 1 });
-      w.office.immediate(() => endRun(w.office, RUN, w.t.clock.now() + 60_000, "in-review"));
+      w.office.immediate(() => endRun(w.office, RUN, w.t.clock.now() + 60_000, "parked"));
       const outcome = runOutcome(w.office, RUN);
       expect(outcome?.webSearches).toBe(2);
       expect(outcome?.webFetches).toBe(1);

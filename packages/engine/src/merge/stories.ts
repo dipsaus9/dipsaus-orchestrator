@@ -1,6 +1,6 @@
 // Story PRs and GitHub's auto-merge (0002). The office's auto-merge poll (`merger.ts`) runs this
 // module at each round of the PR-state poll, after the story-PR poll, for each open story PR of a
-// run waiting In Review (ended at In Review or after its review, live claim, no open park):
+// run waiting In Review (open at In Review with no active period, live claim, no open park):
 //
 // - The gate (`#approvedGate`). Once the required checks are green on the pushed head
 //   (`StoryPrs.ciState`, or no CI ran for a box run's head) and the review verdict of the head's
@@ -77,13 +77,7 @@ import { catchUpsOf } from "../run/conflicts";
 import { openPark, type ParkWriter, parkStory } from "../run/park";
 import { heldByPark } from "../run/park-state";
 import type { RunStoryFacts } from "../run/resume";
-import {
-  findRun,
-  IN_REVIEW_END,
-  REVIEWED_END,
-  runRoundCounts,
-  type StoredRun,
-} from "../run/records";
+import { findRun, openAtInReview, runRoundCounts, type StoredRun } from "../run/records";
 import type { CiHeadState } from "../story-pr/prs";
 import {
   findStoryPr,
@@ -374,10 +368,9 @@ export class StoryMerges {
   /** The story run waiting In Review whose PR this is, or null. */
   #waitingRun(office: OfficeHandle, runId: RunId): StoredRun | null {
     const run = findRun(office, runId);
-    if (run === null || run.kind !== "story" || run.key === null || run.endedAt === null) {
+    if (run === null || run.kind !== "story" || run.key === null || !openAtInReview(run)) {
       return null;
     }
-    if (run.endKind !== REVIEWED_END && run.endKind !== IN_REVIEW_END) return null;
     if (run.branch === null || run.startSha === null) return null;
     const claim = findClaim(office, runId);
     if (claim === null || claim.releasedAt !== null) return null;
@@ -1106,7 +1099,7 @@ export class StoryMerges {
           write: (fn) => ctx.write(() => withWorkViews(ctx.office, fn())),
           implemented: deps.implemented,
         },
-        { run, reason: park.reason, detail: park.detail, endKind: park.reason },
+        { run, reason: park.reason, detail: park.detail },
       );
     } catch (error) {
       ctx.logger?.warn("parking a story from the auto-merge failed", {

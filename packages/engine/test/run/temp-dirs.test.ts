@@ -95,7 +95,8 @@ async function fixture(dir: string): Promise<Fixture> {
             run,
             key: `sto-${run}`,
             ended: options.endedAt ?? null,
-            kind: options.endedAt === undefined ? null : "in-review",
+            // A run open at In Review has an end of its active period and no ending (0020).
+            kind: null,
           },
         ),
       );

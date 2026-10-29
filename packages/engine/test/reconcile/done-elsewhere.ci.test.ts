@@ -328,7 +328,12 @@ if (process.env["DIPO_TEST_CI"] === "1") {
             "update claims set teardown_started_at = 5 where office_id = $office_id and run_id = $run",
             { run: record.runId },
           );
-          releaseClaim(o.office, record.runId, { at: 6, reason: "done", keepBranch: false });
+          releaseClaim(o.office, record.runId, {
+            at: 6,
+            reason: "done",
+            ending: "done",
+            keepBranch: false,
+          });
         });
         expect(await tipOf(o, `refs/heads/${record.branch}`)).not.toBeNull();
 
@@ -408,7 +413,12 @@ if (process.env["DIPO_TEST_CI"] === "1") {
             "update claims set teardown_started_at = 5 where office_id = $office_id and run_id = $run",
             { run: record.runId },
           );
-          releaseClaim(o.office, record.runId, { at: 6, reason: "done", keepBranch: false });
+          releaseClaim(o.office, record.runId, {
+            at: 6,
+            reason: "done",
+            ending: "done",
+            keepBranch: false,
+          });
         });
         // Someone pushes a commit with a change of their own to the branch on the host.
         const elsewhere = join(o.repo.root, "elsewhere");

@@ -364,7 +364,7 @@ export async function claim(
     });
     if (options.active === false) {
       office.run(
-        "update runs set ended_at = $at, end_kind = 'stopped' where office_id = $office_id and run_id = $run",
+        "update runs set ended_at = $at, end_kind = 'parked' where office_id = $office_id and run_id = $run",
         { run: runId, at: o.s.clock.now() },
       );
     }

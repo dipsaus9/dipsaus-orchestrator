@@ -13,10 +13,9 @@ import { PermissionAsks } from "../../src/hooks/permissions";
 import {
   activeSignals,
   composeRuns,
-  endRun,
   FixRounds,
-  IN_REVIEW_END,
   insertRun,
+  stopAtInReview,
   pendingReviews,
   OfficeIngest,
   StartsPaused,
@@ -228,7 +227,7 @@ describe("composeRuns", () => {
         reused: false,
         claimedAt: f.t.clock.now(),
       });
-      endRun(office, f.run, f.t.clock.now(), IN_REVIEW_END);
+      stopAtInReview(office, f.run, f.t.clock.now());
       // Its In Review push reached the remote (DIPO-315).
       updateClaim(office, f.run, { pushedAt: f.t.clock.now() });
     });

@@ -69,6 +69,7 @@ async function claimWorkRelease(
     releaseClaim(s.office, first.runId, {
       at: s.t.clock.now(),
       reason: "amend",
+      ending: "dropped",
       keepBranch: true,
     }),
   );

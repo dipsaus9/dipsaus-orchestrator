@@ -65,6 +65,7 @@ import { OfficeGit, spawnGitExec } from "../../src/git";
 import { systemSpawn } from "../../src/platform/process";
 import {
   findRun,
+  openAtInReview,
   insertRun,
   pendingReviews,
   reopen,
@@ -1074,7 +1075,7 @@ describe("a box run at done (DIPO-346: a green verify in the box, then In Review
     expect(w.inReviewTip).toBe("9".repeat(40));
     const [state] = events("story.state");
     expect([state?.["from"], state?.["to"]]).toEqual(["In Progress", "In Review"]);
-    expect(findRun(w.f.office, w.f.run)?.endKind).toBe("in-review");
+    expect(openAtInReview(findRun(w.f.office, w.f.run)!)).toBe(true);
     expect(w.sent).toEqual([[{ closeStdin: true }]]);
     expect(parks()).toEqual([]);
     // The review waits for the reviewer place on that head while the PR poll watches its CI.
@@ -1148,7 +1149,7 @@ describe("a box run at done (DIPO-346: a green verify in the box, then In Review
     ]);
     expectNoVerify();
     expect(w.inReviewTip).toBe("8".repeat(40));
-    expect(findRun(w.f.office, w.f.run)?.endKind).toBe("in-review");
+    expect(openAtInReview(findRun(w.f.office, w.f.run)!)).toBe(true);
     expect(parks()).toEqual([]);
   });
 
@@ -1231,7 +1232,7 @@ describe("dipo's verify in the box at done (DIPO-346, 0002)", () => {
     w.verifyResult = { kind: "green", command: "bun run verify" };
     await play();
     expect(w.verified).toHaveLength(2);
-    expect(findRun(w.f.office, w.f.run)?.endKind).toBe("in-review");
+    expect(openAtInReview(findRun(w.f.office, w.f.run)!)).toBe(true);
   });
 
   it("keeps a red verify's item within the tier's item budget and ends it with the budget line", async () => {
@@ -1560,14 +1561,14 @@ describe("the In Review end of a box run (DIPO-144, DIPO-84, restated for box ru
   it("records the In Review push on the claim at the run's end", async () => {
     await play();
     const run = findRun(w.f.office, w.f.run);
-    expect(run?.endKind).toBe("in-review");
+    expect(openAtInReview(run!)).toBe(true);
     expect(findClaim(w.f.office, w.f.run)?.pushedAt).toBe(run?.endedAt ?? -1);
   });
 
   it("leaves the claim's push unrecorded when the In Review push fails, and opens no PR", async () => {
     w.pushError = "pushing failed (network is down)";
     await play();
-    expect(findRun(w.f.office, w.f.run)?.endKind).toBe("in-review");
+    expect(openAtInReview(findRun(w.f.office, w.f.run)!)).toBe(true);
     expect(findClaim(w.f.office, w.f.run)?.pushedAt).toBeNull();
     expect(w.calls).not.toContain("story PR sync run");
     expect(events("engine.notice").map((n) => n["code"])).toContain("verify.pushFailed");
@@ -1691,7 +1692,7 @@ describe("a done report on the turn that crosses a cap, in a box run (DIPO-205, 
     await capPass([turn(DONE)], { turns: 1, tokens: 10 });
     expect(parks()).toEqual([]);
     expect(w.calls).toEqual(IN_REVIEW_CALLS);
-    expect(findRun(w.f.office, w.f.run)?.endKind).toBe("in-review");
+    expect(openAtInReview(findRun(w.f.office, w.f.run)!)).toBe(true);
     expect(capSteps()).toEqual([{ value: "maxTurns: turn cap reached: 1 of 1 turns" }]);
     expect(runIntents(w.f.office, w.f.run).map((i) => i.kind)).not.toContain("cap");
     expectNoVerify();
@@ -1808,7 +1809,7 @@ describe("a box run's report data at done (DIPO-186)", () => {
   it("stores a done report's proposals once and moves the story to review as without them", async () => {
     await play({ ...DONE, proposals: [PROPOSAL, { ...PROPOSAL, kind: "tool", title: "jq" }] });
     expect(w.calls).toEqual(inReview);
-    expect(findRun(w.f.office, w.f.run)?.endKind).toBe("in-review");
+    expect(openAtInReview(findRun(w.f.office, w.f.run)!)).toBe(true);
     expect(events("story.state").map((e) => e["to"])).toEqual(["In Review"]);
     expect(proposals()).toEqual([
       { kind: "follow-up", title: "Greet in Dutch", story_key: w.work.key, run_id: w.f.run },
@@ -1914,7 +1915,7 @@ describe("the report gate at done, in a box run (DIPO-186, DIPO-240)", () => {
       deviations: [{ where: "criterion #2", what: "exits 64", why: "the usage code" }],
     });
     expect(w.calls[0]).toBe(commit);
-    expect(findRun(w.f.office, w.f.run)?.endKind).toBe("in-review");
+    expect(openAtInReview(findRun(w.f.office, w.f.run)!)).toBe(true);
     expect(storedReports()).toHaveLength(3);
     expect(JSON.parse(storedReports()[2]?.deviations ?? "[]")).toEqual([
       { where: "criterion #2", what: "exits 64", why: "the usage code" },

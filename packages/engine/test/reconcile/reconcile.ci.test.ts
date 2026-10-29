@@ -17,7 +17,6 @@ import type { GateResult } from "../../src/gate/types";
 import { LAUNCH_FILE } from "../../src/host/protocol";
 import { officeDirectory, writeMarker } from "../../src/office/marker";
 import {
-  ORPHANED,
   RECONCILE_NOTICES,
   reconcileOffice,
   Reconciler,
@@ -56,7 +55,7 @@ interface RunCall {
 }
 
 function end(office: OfficeHandle, run: string): void {
-  office.immediate(() => endRun(office, run as never, 1, "reconciled"));
+  office.immediate(() => endRun(office, run as never, 1, "done"));
 }
 
 /** Run control as reconcile sees it: records each call and ends the run. */
@@ -442,7 +441,12 @@ if (process.env["DIPO_TEST_CI"] === "1") {
             releaseClaim: async (record, reason) => {
               released.push(record);
               w.o.office.immediate(() =>
-                releaseClaim(w.o.office, record.runId, { at: 1, reason, keepBranch: true }),
+                releaseClaim(w.o.office, record.runId, {
+                  at: 1,
+                  reason,
+                  ending: "dropped",
+                  keepBranch: true,
+                }),
               );
             },
           },
@@ -458,7 +462,7 @@ if (process.env["DIPO_TEST_CI"] === "1") {
         expect(released.map((c) => c.runId)).toEqual([claimed.runId]);
         expect(passes).toBe(1);
         expect(report.findings.map((f) => f.code)).toContain(RECONCILE_NOTICES.orphanClaim);
-        expect(findRun(w.o.office, claimed.runId)?.endKind).toBe(ORPHANED);
+        expect(findRun(w.o.office, claimed.runId)?.ending).toBe("dropped");
         expect(
           w.o.office.get<{ n: number }>(
             "select count(*) as n from run_outcomes where office_id = $office_id and run_id = $run",

@@ -56,6 +56,7 @@ export async function releaseForDrop(
     releaseClaim(deps.office, claim.runId, {
       at: deps.clock.now(),
       reason: DROP_RELEASE_REASON,
+      ending: "dropped",
       keepBranch: !options.deleteBranch,
     });
     forgetWorkerNotes(deps.office, claim.branch);
@@ -124,6 +125,7 @@ export async function releaseForDiscard(
     releaseClaim(deps.office, claim.runId, {
       at: deps.clock.now(),
       reason: DISCARD_RELEASE_REASON,
+      ending: "dropped",
       keepBranch: false,
     });
     forgetWorkerNotes(deps.office, claim.branch);

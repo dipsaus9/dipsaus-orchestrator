@@ -118,7 +118,7 @@ function park(): { parkId: number } {
     parkId = office.get<{ id: number }>(
       "select max(park_id) as id from parks where office_id = $office_id",
     )?.id as number;
-    endRun(office, run, at, "interrupted");
+    endRun(office, run, at, "parked");
   });
   return { parkId };
 }
@@ -203,7 +203,7 @@ describe("parked time (runs.parked_ms)", () => {
     // Without the parked time the 30-minute cap would have fired.
     expect(firedCap(CAPS, runTotals(office, run, started, t.clock.now()))?.cap).toBe("maxMinutes");
     t.clock.advance(3 * MINUTE);
-    office.immediate(() => endRun(office, run, t.clock.now(), "in-review"));
+    office.immediate(() => endRun(office, run, t.clock.now(), "done"));
     const outcome = runOutcome(office, run);
     expect(outcome?.minutes).toBe(20);
     expect(outcome?.parkReasons).toEqual(["worker-failed", "worker-failed"]);

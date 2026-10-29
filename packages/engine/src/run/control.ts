@@ -95,10 +95,8 @@ import {
   DAEMON_STOPPED_DETAIL,
   disarm,
   EVENT_FILE_CHANGED,
-  INTERRUPTED_END,
   messageOf,
   type ReconcileNotice,
-  RECONCILED_END,
   type RunControlDeps,
   type RunEnding,
   type ParkRunArgs,
@@ -112,6 +110,7 @@ import { type FeedbackSource, notSentNotice, sendFeedback } from "./feedback";
 import { Interventions } from "./intervene";
 import { outcomeOfIntent, resolveIntent } from "./intents";
 import { initRejectedEnding, type RunAct, type RunEnder, startRefusedAct } from "./outcome-types";
+import type { RunEnd } from "./lifecycle";
 import { type ParkOutcome } from "./park";
 import { findRun, type StoredRun } from "./records";
 import { storeProposals } from "./report-data";
@@ -121,8 +120,6 @@ export {
   CONTROL_NOTICES,
   DAEMON_STOPPED_DETAIL,
   EVENT_FILE_CHANGED,
-  INTERRUPTED_END,
-  RECONCILED_END,
   STORY_NOT_RUNNING,
 } from "./control-types";
 export type {
@@ -204,7 +201,6 @@ export class RunControl implements RunEnder {
       ops: this.#deps.encode({ kind: "stop" }),
       reason: "worker-failed",
       detail: EVENT_FILE_CHANGED,
-      endKind: INTERRUPTED_END,
     };
   }
 
@@ -313,7 +309,6 @@ export class RunControl implements RunEnder {
           ops: this.#deps.encode({ kind: "stop" }),
           reason: "worker-failed",
           detail: streamDriftDetail(drift),
-          endKind: "worker-failed",
         });
         return;
       }
@@ -383,7 +378,6 @@ export class RunControl implements RunEnder {
               intent: "park",
               ops: [{ closeStdin: true }],
               ...handOff,
-              endKind: handOff.reason,
             });
             return;
           }
@@ -392,7 +386,6 @@ export class RunControl implements RunEnder {
             ops: [{ closeStdin: true }],
             reason: "ambiguous-spec",
             detail: report.question ?? report.summary,
-            endKind: "blocked",
             // The park asks the question when no live one carries over (DIPO-159).
             ...(report.question !== undefined ? { question: report.question } : {}),
           });
@@ -450,7 +443,6 @@ export class RunControl implements RunEnder {
         ops: this.#deps.encode({ kind: "stop" }),
         reason: "by-maintainer",
         detail: DAEMON_STOPPED_DETAIL,
-        endKind: "stopped",
       });
       if (tracked.ending !== null) stopped += 1;
     }
@@ -569,7 +561,6 @@ export class RunControl implements RunEnder {
       ops: [{ closeStdin: true }],
       reason: "ambiguous-spec",
       detail: question,
-      endKind: "blocked",
     });
     return true;
   }
@@ -665,7 +656,6 @@ export class RunControl implements RunEnder {
       ops: this.#deps.encode({ kind: "stop" }),
       reason: park.reason,
       detail: park.detail,
-      endKind: park.reason,
     });
   }
 
@@ -736,9 +726,9 @@ export class RunControl implements RunEnder {
     office: OfficeHandle,
     run: StoredRun,
     notice: ReconcileNotice,
-    endKind = RECONCILED_END,
+    ending: RunEnd,
   ): Promise<void> {
-    return this.#reconcile.stopForReconcile(office, run, notice, endKind);
+    return this.#reconcile.stopForReconcile(office, run, notice, ending);
   }
 
   /** Reconcile (DIPO-56): parks a run whose worktree or branch changed by hand `scope-violation`. */

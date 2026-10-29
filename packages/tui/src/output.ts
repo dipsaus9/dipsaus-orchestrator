@@ -96,7 +96,7 @@ export function isMarker(line: OutputLine): line is OutputMarker {
 }
 
 /**
- * An engine marker as a rule: `── 12:04:31 phase: verify ──` or `── 12:09:02 run ended: in-review
+ * An engine marker as a rule: `── 12:04:31 phase: verify ──` or `── 12:09:02 run ended: parked
  * ──` (local time; `--` in ASCII mode). `dipo watch` prints the same rule.
  */
 export function markerRule(marker: OutputMarker, ascii = false): string {

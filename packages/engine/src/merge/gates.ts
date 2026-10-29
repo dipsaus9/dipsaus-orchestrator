@@ -49,9 +49,9 @@ import {
 import type { NewEntry } from "../changelog/log";
 import type { OfficeHandle } from "../db/office";
 import type { StoredReviewVerdict } from "../review/store";
-import { markPhase } from "../run/markers";
+import { enterPhase } from "../run/rounds";
 import { TEST_BEFORE_MERGE } from "../story-store/fields/labels";
-import { runProgress, workRefOf } from "../views/work";
+import { workRefOf } from "../views/work";
 
 /** The gate kind of a merge gate. */
 export const MERGE_GATE_KIND = "merge";
@@ -440,7 +440,7 @@ export function openMergeGate(
     },
   );
   const entries: NewEntry[] =
-    input.phase === undefined ? [] : [...phaseEntries(office, input.runId, input.phase, input.at)];
+    input.phase === undefined ? [] : [...enterPhase(office, input.runId, input.phase, input.at)];
   const reached = gateView(office, input.runId, {
     gate,
     waitingOn,
@@ -592,30 +592,6 @@ function gateView(
     waitingOn: gate.waitingOn,
     summary: gate.summary,
   };
-}
-
-/** The run's phase step and its `work.phase`, when the run is in another phase now. */
-function phaseEntries(
-  office: OfficeHandle,
-  runId: RunId,
-  phase: "test" | "merge",
-  at: number,
-): NewEntry[] {
-  const last = office.get<{ value: string }>(
-    `select value from run_steps where office_id = $office_id and run_id = $run and kind = 'phase'
-      order by step desc limit 1`,
-    { run: runId },
-  );
-  if (last?.value === phase) return [];
-  const markers = markPhase(office, runId, phase, at);
-  const work = workRefOf(office, runId);
-  const progress = runProgress(office, runId);
-  return work === null || progress === null
-    ? markers
-    : [
-        ...markers,
-        { type: "work.phase", key: work.key, run: runId, delta: { work, phase, progress } },
-      ];
 }
 
 /** Pure: true when the story's labels flag it test-before-merge (0002, 0012). */
