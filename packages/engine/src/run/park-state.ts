@@ -19,9 +19,8 @@ import {
   type StoryKey,
 } from "@dipsaus-orchestrator/contract";
 
-import { OPEN_STATES } from "../backlog/lane/journal";
-import { DROP_KIND, EditTarget } from "../backlog/lane/ops";
 import type { OfficeHandle } from "../db/office";
+import { OPEN_STATES, plannedPark } from "../story-store/planning";
 
 /** The park record Backlog.md holds for a story. */
 export interface BacklogPark {
@@ -63,14 +62,8 @@ function laneParkOf(office: OfficeHandle, key: string): BacklogPark | null | und
     { key },
   );
   for (const row of rows) {
-    if (row.op_kind === DROP_KIND) return null;
-    const target = EditTarget.safeParse(JSON.parse(row.target));
-    if (!target.success) continue;
-    const { status, fields, unset } = target.data;
-    const park = fields?.["park"];
-    if (status === undefined && park === undefined && !(unset ?? []).includes("park")) continue;
-    if (status !== undefined && status !== "Parked") return null;
-    return park === undefined ? null : parkOf(park);
+    const park = plannedPark(row.op_kind, JSON.parse(row.target));
+    if (park !== undefined) return park;
   }
   return undefined;
 }

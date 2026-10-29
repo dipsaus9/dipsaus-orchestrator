@@ -667,9 +667,8 @@
     },
     // The StoryStore seam (0010): the engine reads and writes stories only through
     // packages/engine/src/story-store. Only the Backlog.md implementation in packages/engine/src/backlog
-    // and the composition root (the engine entry and its feature list) import backlog/. The files
-    // listed after them still reach the planning lane or the task-file layout directly, until those
-    // move behind the store too and the list ends at the composition root (DIPO-356).
+    // (the CLI runner, the story lane and the planning lane) and the composition root (the engine
+    // entry and its feature list) import backlog/.
     {
       "files": ["packages/engine/src/**"],
       "rules": {
@@ -680,22 +679,7 @@
       "files": [
         "packages/engine/src/backlog/**",
         "packages/engine/src/index.ts",
-        "packages/engine/src/features.ts",
-        "packages/engine/src/box/collisions.ts",
-        "packages/engine/src/box/parts.ts",
-        "packages/engine/src/merge/backlog-git.ts",
-        "packages/engine/src/merge/backlog.ts",
-        "packages/engine/src/merge/merger.ts",
-        "packages/engine/src/office/init/init.ts",
-        "packages/engine/src/office/init/ops.ts",
-        "packages/engine/src/run/conflicts.ts",
-        "packages/engine/src/run/park-state.ts",
-        "packages/engine/src/run/proposals.ts",
-        "packages/engine/src/run/work-run.ts",
-        "packages/engine/src/stories/discard.ts",
-        "packages/engine/src/stories/planning.ts",
-        "packages/engine/src/views/desk.ts",
-        "packages/engine/src/worktree/claim.ts"
+        "packages/engine/src/features.ts"
       ],
       "rules": {
         "dipo/no-backlog-import": "off"
@@ -1027,11 +1011,11 @@
         "packages/cli/src/office-commands.ts",
         "packages/daemon/src/runs.ts",
         "packages/engine/src/backlog/branch-read.ts",
+        "packages/engine/src/backlog/init/init.ts",
         "packages/engine/src/backlog/pr/feature.ts",
         "packages/engine/src/commands/execute.ts",
         "packages/engine/src/context/default-provider.ts",
         "packages/engine/src/gate/store/read.ts",
-        "packages/engine/src/office/init/init.ts",
         "packages/engine/src/prompts/parts.ts",
         "packages/engine/src/run/control-endings.ts",
         "packages/engine/src/run/control-turns.ts",

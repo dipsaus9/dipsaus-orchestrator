@@ -19,7 +19,7 @@ import {
   type StoryKey,
 } from "@dipsaus-orchestrator/contract";
 
-import { allEntries, type LaneOp, type OfficeLane } from "../../src/backlog/lane";
+import { allEntries, type LaneOp, type OfficeLane, planningLane } from "../../src/backlog/lane";
 import type { BacklogCli } from "../../src/backlog/runner";
 import { insertEntry } from "../../src/backlog/lane/journal";
 import { executeCommand } from "../../src/commands/execute";
@@ -81,6 +81,10 @@ function features(seen: Seen) {
         return office.immediate(() => insertEntry(office, op, 1));
       },
       flush: async () => ({}),
+      get office() {
+        return seen.office;
+      },
+      clock: { now: () => 1 },
     } as unknown as OfficeLane;
     const host = {
       closePr: async (repo: string, number: number, comment: string) => {
@@ -88,7 +92,7 @@ function features(seen: Seen) {
       },
     };
     const discarder = new StoryDiscard({
-      lane: () => lane,
+      lane: () => planningLane(lane),
       git: (office) => engineGit.forOffice(office),
       host,
       probe,
@@ -107,7 +111,7 @@ function features(seen: Seen) {
       } as BacklogCli),
     });
     const planning = new StoryPlanning({
-      lane: () => lane,
+      lane: () => planningLane(lane),
       git: (office) => engineGit.forOffice(office),
       host,
       implemented: () => true,

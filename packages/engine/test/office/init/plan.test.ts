@@ -20,7 +20,7 @@ import {
   settingValue,
   statusesRefusal,
   targetStatuses,
-} from "../../../src/office/init";
+} from "../../../src/backlog/init";
 
 import { fileBacklog, OLD_CONFIG } from "./helpers";
 

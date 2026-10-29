@@ -25,7 +25,7 @@ import {
   officeStatusesReady,
   previousSettings,
   STATUSES_STEP,
-} from "../../../src/office/init";
+} from "../../../src/backlog/init";
 import { BACKLOG_FIXTURE, laneSetup, notices, subjects } from "../../backlog/lane/helpers";
 
 import { fileBacklog, oldOffice, oneOffice, setTaskStatus } from "./helpers";

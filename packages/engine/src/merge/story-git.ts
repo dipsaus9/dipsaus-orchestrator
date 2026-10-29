@@ -174,7 +174,7 @@ export function gitStoryMergeOps(deps: {
 
     closeOut: (office, run, summary) => closeOutIn(gitOf(office), deps.stories, run, summary),
 
-    conflictMerge: (office, run) => conflictMergeIn(gitOf(office), run),
+    conflictMerge: (office, run) => conflictMergeIn(gitOf(office), deps.stories, run),
 
     conflictItem: (office, run, merged) =>
       gitOf(office).run(async (session) =>
@@ -329,7 +329,11 @@ function closeOutIn(
 }
 
 /** The conflict merge of the base into the story branch (see the file comment). */
-function conflictMergeIn(git: OfficeGit, run: StoryMergeRun): Promise<ConflictMerge> {
+function conflictMergeIn(
+  git: OfficeGit,
+  stories: StoryStore,
+  run: StoryMergeRun,
+): Promise<ConflictMerge> {
   return git.run(async (session): Promise<ConflictMerge> => {
     const base = await baseRefOf(git, session);
     if (base === null) return { kind: "none" };
@@ -340,6 +344,7 @@ function conflictMergeIn(git: OfficeGit, run: StoryMergeRun): Promise<ConflictMe
     const scratch = await realpath(await mkdtemp(join(root, BRANCH_READ_PREFIX)));
     try {
       const input = {
+        stories,
         branch: run.branch,
         startSha: run.startSha,
         story: run.story,

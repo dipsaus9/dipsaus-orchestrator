@@ -50,7 +50,7 @@ import {
   guardedUnparkWriter,
   writeCloseOutSummary,
 } from "../../src/merge";
-import { officeStatusesReady } from "../../src/office/init";
+import { officeStatusesReady } from "../../src/backlog/init";
 import { ensurePrivateDir } from "../../src/platform/paths";
 import { createSystemIds } from "../../src/platform/ids";
 import {
@@ -102,6 +102,7 @@ import { scriptedWorker } from "../workers/scripts";
 
 import { LoopHost, REMOTE_URL } from "./loop-host";
 import { backlogStoryStore } from "../../src/backlog/store";
+import { backlogLayout } from "../story-store/backlog";
 
 export const TASK_1 = "TASK-1";
 export const BRANCH_1 = "TASK-1/add-the-csv-export-command";
@@ -658,6 +659,7 @@ async function buildDaemon(
   // Conflicts with the base (DIPO-149): no box, so no sync in the held turn; the marker check of
   // dipo's conflicted merges and the record of each merge the auto-merge's hand-off makes stay.
   const conflicts = new StoryConflicts({
+    stories: backlogLayout,
     clock: officeClock,
     ids: { next: (prefix: IdPrefix) => loaded().ids.next(prefix) },
     offices,
@@ -795,10 +797,8 @@ async function buildDaemon(
   const storyMergeGit = gitStoryMergeOps({ git: gitOf, stories: backlogStoryStore(cli) });
   const merge = new AutoMerge({
     host,
-    lane: () => undefined,
     offices,
     clock: officeClock,
-    labels: host,
     stories: {
       git: storyMergeGit,
       ids: { next: (prefix: IdPrefix) => loaded().ids.next(prefix) },
@@ -864,7 +864,7 @@ async function buildDaemon(
     startsPaused: (office) => startsPaused.state(office),
     claims,
     gates,
-    lane: (office) => lane.forOffice(office),
+    lane: (office) => lane.planning(office),
     launcher,
     places,
   });

@@ -13,11 +13,18 @@
 import { mkdirSync } from "node:fs";
 import { join } from "node:path";
 
-import { z } from "zod";
-
 import type { OfficeHandle } from "../../db/office";
 import { editLabels, FieldWriteError, viewStory, writeFields } from "../fields/write";
 import { FieldBlockError } from "../../story-store/fields/block";
+import {
+  DISCARD_KIND,
+  DROP_KIND,
+  DropTarget,
+  EDIT_KIND,
+  EditTarget,
+  HOLD_KIND,
+  RESUME_KIND,
+} from "../../story-store/planning";
 import type { PlainTask } from "../../story-store/story";
 import {
   BacklogCommandError,
@@ -54,27 +61,8 @@ export interface LaneOpKind {
   apply(ctx: ApplyContext, target: unknown): Promise<ApplyOutcome>;
 }
 
-/** The target state of an `edit`. */
-export const EditTarget = z
-  .object({
-    /** `task` (default) or `draft`. */
-    kind: z.enum(["task", "draft"]).optional(),
-    /** Applies only while the story's status is one of these; otherwise it is dropped. */
-    from: z.array(z.string().min(1)).min(1).optional(),
-    status: z.string().min(1).optional(),
-    /** Field-block keys to set (0010 section 3). */
-    fields: z.record(z.string(), z.unknown()).optional(),
-    /** Field-block keys to remove. */
-    unset: z.array(z.string()).optional(),
-    labels: z
-      .object({
-        add: z.array(z.string()).optional(),
-        remove: z.array(z.string()).optional(),
-      })
-      .optional(),
-  })
-  .strict();
-export type EditTarget = z.infer<typeof EditTarget>;
+// The target-state model is the seam's (`story-store/planning.ts`); the kinds apply it here.
+export { DISCARD_KIND, DROP_KIND, DropTarget, EDIT_KIND, EditTarget, HOLD_KIND, RESUME_KIND };
 
 /** True when the CLI failed because the story does not exist (0010 fact 3). */
 function isNotFound(error: unknown): boolean {
@@ -158,20 +146,6 @@ export function editKind(name: string): LaneOpKind {
     },
   };
 }
-
-/** The built-in `edit` kind. */
-export const EDIT_KIND = "edit";
-
-/** The kinds of hold, resume, drop and discard (0020 section 8); the commit's verb is the kind. */
-export const HOLD_KIND = "hold";
-export const RESUME_KIND = "resume";
-export const DROP_KIND = "drop";
-/** The kind of `work.discard` (DIPO-161): an `edit` back to Refined with the park removed. */
-export const DISCARD_KIND = "discard";
-
-/** The target state of a `drop`: the story is archived. */
-export const DropTarget = z.object({ kind: z.enum(["task", "draft"]).optional() }).strict();
-export type DropTarget = z.infer<typeof DropTarget>;
 
 /**
  * The `drop` kind: archives the story (`task archive` or `draft archive`). The CLI fails without

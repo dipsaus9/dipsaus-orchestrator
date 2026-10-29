@@ -247,7 +247,6 @@ export async function storyWorld(
   const self = {} as { -readonly [K in keyof StoryWorld]: StoryWorld[K] };
   const merge = new AutoMerge({
     host,
-    lane: () => undefined,
     offices: {
       get: (id) => (id === officeId ? w.office : undefined),
       config: () => self.config,

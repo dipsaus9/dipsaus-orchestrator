@@ -8,6 +8,7 @@ import type { OfficeId } from "@dipsaus-orchestrator/contract";
 import { appendEntries } from "../../changelog/log";
 import type { FeatureModule } from "../../commands/registry";
 import type { OfficeLoadContext } from "../../office/steps";
+import type { PlanningLane } from "../../story-store/planning";
 
 import { openEntries } from "./journal";
 import {
@@ -26,6 +27,7 @@ import {
   type LaneOpKind,
   RESUME_KIND,
 } from "./ops";
+import { planningLane } from "./planning";
 import { proposeKind } from "./propose";
 
 export class BacklogLane {
@@ -58,6 +60,12 @@ export class BacklogLane {
   /** The office's lane once its office has loaded; undefined before. */
   forOffice(office: OfficeId): OfficeLane | undefined {
     return this.#offices.get(office);
+  }
+
+  /** The office's lane as the StoryStore seam offers it (`PlanningLane`); undefined before. */
+  planning(office: OfficeId): PlanningLane | undefined {
+    const lane = this.#offices.get(office);
+    return lane === undefined ? undefined : planningLane(lane);
   }
 
   /** Creates the office's lane, or keeps the one it has when its handle and git are the same. */

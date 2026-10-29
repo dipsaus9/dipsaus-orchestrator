@@ -12,7 +12,8 @@ import { insertPr, recordCheck } from "../../src/backlog/pr/records";
 import { OFFICE_DEFAULTS, type OfficeConfig } from "../../src/config";
 import type { OfficeHandle } from "../../src/db/office";
 import type { GitSession, OfficeGit } from "../../src/git/office";
-import { AutoMerge, type BacklogMergeGit } from "../../src/merge";
+import { BacklogMerges, type BacklogMergeGit } from "../../src/backlog/pr";
+import { AutoMerge } from "../../src/merge";
 import { CodeHostError, type HostPr, type RequiredCheck } from "../../src/platform/host";
 import { addStory } from "../../src/stories/keys";
 import { FakeHost, REPO } from "../backlog/pr/helpers";
@@ -206,11 +207,14 @@ export async function backlogSetup(dir: string): Promise<BacklogSetup> {
   } as unknown as OfficeLane;
   merge = new AutoMerge({
     host,
-    labels: host,
-    lane: () => laneForMerge,
+    backlog: new BacklogMerges({
+      host,
+      labels: host,
+      lane: () => laneForMerge,
+      backlogGit: () => git,
+    }),
     offices: new OneOffice(office, () => setup.config),
     clock: t.clock,
-    backlogGit: () => git,
   });
   const made = merge;
   const lane = new OfficeLane({

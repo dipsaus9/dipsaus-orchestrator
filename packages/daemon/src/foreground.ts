@@ -23,6 +23,7 @@ import {
   AdapterHolds,
   acquireLock,
   BacklogLane,
+  BacklogMerges,
   BacklogPrs,
   backlogStoryStore,
   bootoutOwnLaunchdJob,
@@ -802,10 +803,10 @@ async function serve(run: Run, lock: HeldLock): Promise<number> {
     const autoMerge: AutoMerge = new AutoMerge({
       host,
       prState,
-      lane: (office) => lane.forOffice(office),
+      // The office's backlog PR, merged by the StoryStore's planning lane (0010).
+      backlog: new BacklogMerges({ host, labels: host, lane: (office) => lane.forOffice(office) }),
       offices,
       clock,
-      labels: host,
       stories: {
         git: storyMergeGit,
         ids,
@@ -855,7 +856,7 @@ async function serve(run: Run, lock: HeldLock): Promise<number> {
     const planning = new StoryPlanning(
       storyPlanningDeps(
         {
-          lane: (office) => lane.forOffice(office),
+          lane: (office) => lane.planning(office),
           git: (office) => engineGit.forOffice(office),
           host,
           implemented: (name) => registry.command(name) !== undefined,
@@ -869,7 +870,7 @@ async function serve(run: Run, lock: HeldLock): Promise<number> {
     // through the lane, and the box of the ended run deleted (0021 section 6). The run control is
     // made below and only called once a command runs.
     const discard = new StoryDiscard({
-      lane: (office) => lane.forOffice(office),
+      lane: (office) => lane.planning(office),
       git: (office) => engineGit.forOffice(office),
       host,
       probe: systemProcessProbe(platform),
@@ -880,7 +881,7 @@ async function serve(run: Run, lock: HeldLock): Promise<number> {
     });
     // `proposal.accept` and `proposal.dismiss` (DIPO-166): an accepted worker proposal becomes a
     // Backlog draft through the planning lane.
-    const proposals = new ProposalCommands({ lane: (office) => lane.forOffice(office) });
+    const proposals = new ProposalCommands({ lane: (office) => lane.planning(office) });
     // The story index (DIPO-32): indexes each office at load, after the git load step and the
     // lane's replay, and polls its remote every `polling.fetchSeconds`, with the `backlog` this
     // daemon found on its PATH.
@@ -1086,7 +1087,7 @@ async function serve(run: Run, lock: HeldLock): Promise<number> {
       startsPaused: (office) => runs.startsPaused.state(office),
       claims,
       gates,
-      lane: (office) => lane.forOffice(office),
+      lane: (office) => lane.planning(office),
       launcher: runs.launcher,
       // The worker place is decided and taken in the places' serialized steps (DIPO-208).
       places: runs.places,

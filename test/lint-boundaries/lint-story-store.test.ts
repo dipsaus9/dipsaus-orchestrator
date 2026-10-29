@@ -1,9 +1,11 @@
 // Asserts that lint keeps the engine behind the StoryStore seam (0010; DIPO-356 AC #3):
 // `dipo/no-backlog-import` reports an import of `packages/engine/src/backlog` from any other engine
-// file, in every form (static, type-only, re-export, `export *`, `import()`, `require` and
-// `typeof import(...)`), by a relative path at any depth or by a deep package path. The Backlog.md
-// implementation itself, the composition root (the engine entry and its feature list), tests, and a
-// module that is only named `backlog` may import it.
+// file, in every form (static, type-only, re-export, `export *`, `import()`, `require`,
+// `import x = require(...)` and `typeof import(...)`), by a relative path at any depth or by a deep
+// package path. The Backlog.md implementation itself, the composition root (the engine entry and
+// its feature list), tests, and a module that is only named `backlog` may import it; no other
+// engine file, also none of those that reached the planning lane or the task-file layout before
+// DIPO-356 moved them behind the store (AC #2).
 
 import { describe, expect, it } from "bun:test";
 
@@ -16,16 +18,45 @@ const ENGINE = "packages/engine/src";
 /** `rules` lists one entry per expected diagnostic; a rule may repeat. */
 type Case = { fixture: string; target: string; rules: string[] };
 
+/** Every import form of `backlog-import.ts` is one diagnostic. */
+const FORMS = 8;
+
+/** The files that imported backlog/ before DIPO-356 moved them behind the store (AC #2). */
+const FORMER_IMPORTERS = [
+  "box/collisions.ts",
+  "box/parts.ts",
+  "merge/merger.ts",
+  "run/conflicts.ts",
+  "run/park-state.ts",
+  "run/proposals.ts",
+  "run/work-run.ts",
+  "stories/discard.ts",
+  "stories/planning.ts",
+  "views/desk.ts",
+  "worktree/claim.ts",
+];
+
 const violations: Case[] = [
   {
     fixture: "backlog-import.ts",
     target: `${ENGINE}/run/stories.ts`,
-    rules: [RULE, RULE, RULE, RULE, RULE, RULE, RULE],
+    rules: Array(FORMS).fill(RULE),
   },
   {
     fixture: "backlog-import.ts",
     target: `${ENGINE}/story-store/leak.ts`,
-    rules: Array(7).fill(RULE),
+    rules: Array(FORMS).fill(RULE),
+  },
+  ...FORMER_IMPORTERS.map((file) => ({
+    fixture: "backlog-import.ts",
+    target: `${ENGINE}/${file}`,
+    rules: Array(FORMS).fill(RULE),
+  })),
+  // Office init and the backlog PR merge now live in backlog/; their old places are engine code.
+  {
+    fixture: "backlog-import-nested.ts",
+    target: `${ENGINE}/office/init/init.ts`,
+    rules: [RULE, RULE, DEEP],
   },
   {
     fixture: "backlog-import-nested.ts",

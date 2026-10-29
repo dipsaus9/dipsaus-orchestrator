@@ -49,6 +49,7 @@ import { findRun, insertRun, type StoredRun } from "../../src/run/records";
 import { addStory } from "../../src/stories/keys";
 import { insertClaim } from "../../src/worktree/records";
 import { type IngestFixture, ingestFixture } from "../ingest/helpers";
+import { backlogLayout } from "../story-store/backlog";
 
 const TASK = "backlog/tasks/dipo-1 - One.md";
 const BRANCH = "DIPO-1/one";
@@ -147,6 +148,7 @@ async function world(repo: TempRepoWithRemote): Promise<World> {
     config: () => OFFICE_DEFAULTS,
   };
   const conflicts = new StoryConflicts({
+    stories: backlogLayout,
     clock: f.t.clock,
     ids: f.t.ids,
     offices,
@@ -154,6 +156,7 @@ async function world(repo: TempRepoWithRemote): Promise<World> {
   });
   let self: World | null = null;
   const resumes = new ConflictResumes({
+    stories: backlogLayout,
     clock: f.t.clock,
     offices,
     git: (id) => (id === officeId ? git : undefined),

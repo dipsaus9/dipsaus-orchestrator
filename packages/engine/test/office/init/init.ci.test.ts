@@ -12,6 +12,7 @@ import { type TempRepoWithRemote, withBareRemote } from "@dipsaus-orchestrator/t
 
 import { EDIT_KIND, editKind, OfficeLane } from "../../../src/backlog/lane";
 import { BacklogPrs, findPr } from "../../../src/backlog/pr";
+import { BacklogMerges } from "../../../src/backlog/pr";
 import { AutoMerge } from "../../../src/merge";
 import { type RequiredCheck } from "../../../src/platform/host";
 import {
@@ -20,7 +21,7 @@ import {
   OfficeInit,
   officeStatusesReady,
   previousSettings,
-} from "../../../src/office/init";
+} from "../../../src/backlog/init";
 import {
   BACKLOG_FIXTURE,
   inRemote,
@@ -80,7 +81,7 @@ if (process.env["DIPO_TEST_CI"] === "1") {
           });
           const merge = new AutoMerge({
             host,
-            lane: () => lane,
+            backlog: new BacklogMerges({ host, lane: () => lane }),
             offices: { get: () => base.office },
             clock: base.t.clock,
           });

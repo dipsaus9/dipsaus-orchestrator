@@ -24,8 +24,10 @@ import {
   allEntries,
   type LaneOp,
   type OfficeLane,
+  planningLane,
   PROPOSAL_MARKER,
   PROPOSE_KIND,
+  proposeTarget,
   type ProposeTarget,
 } from "../../src/backlog/lane";
 import { insertEntry, updateEntry } from "../../src/backlog/lane/journal";
@@ -66,6 +68,8 @@ function fakeLane(office: OfficeHandle, t: TestState, ops: LaneOp[], flushes: { 
       flushes.n += 1;
       return {};
     },
+    office,
+    clock: t.clock,
   } as unknown as OfficeLane;
 }
 
@@ -75,7 +79,9 @@ beforeEach(() => {
     const office = addOffice(t);
     const ops: LaneOp[] = [];
     const flushes = { n: 0 };
-    const commands = new ProposalCommands({ lane: () => fakeLane(office, t, ops, flushes) });
+    const commands = new ProposalCommands({
+      lane: () => planningLane(fakeLane(office, t, ops, flushes)),
+    });
     const registry = buildRegistry([viewsFeature, commands.feature]);
     const { key } = office.immediate(() =>
       addStory(office, t.ids, { story: StoryId.parse("DIPO-186") }, t.clock.now()),
@@ -287,7 +293,11 @@ describe("proposal.accept (criterion 3)", () => {
     const entry = w.office.immediate(() =>
       insertEntry(
         w.office,
-        { kind: PROPOSE_KIND, subject: "DIPO-186", target: { proposal: hash, ...draft } },
+        {
+          kind: PROPOSE_KIND,
+          subject: "DIPO-186",
+          target: proposeTarget({ proposal: hash, ...draft }),
+        },
         w.t.clock.now(),
       ),
     );

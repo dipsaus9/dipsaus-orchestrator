@@ -79,7 +79,6 @@ import { join } from "node:path";
 
 import type { OfficeId, TimerHandle } from "@dipsaus-orchestrator/contract";
 
-import { isTaskFileOf, TASKS_DIR } from "../backlog/runner";
 import { BASE_CHECKOUT_ENV } from "../git/hardened";
 import type { GitSession, OfficeGit } from "../git/office";
 import { GitError } from "../git/runner";
@@ -87,6 +86,7 @@ import { commitTree, moveBranch, type PushResult, pushBranch } from "../git/writ
 import conflictMarkersTemplate from "../prompts/feedback/conflict-markers.md" with { type: "text" };
 import conflictTemplate from "../prompts/feedback/conflict.md" with { type: "text" };
 import { neutraliseTags, renderTemplate } from "../prompts/templates";
+import type { StoryStore } from "../story-store/store";
 import { BOX_WORKDIR, type BoxCodeDeps, filtersOffConfig, unpack } from "./code";
 import { cleanDoorText } from "./door";
 import {
@@ -771,25 +771,6 @@ export type CatchUpPlan =
 /** How a catch-up check merges: on an overlap (the poll), or whenever the base moved (DIPO-149). */
 export type CatchUpMode = "overlap" | "always";
 
-/** The story's task file at `commit`: the one file of `story` directly in `backlog/tasks`. */
-async function taskFileAt(
-  session: GitSession,
-  commit: string,
-  story: string,
-): Promise<string | null> {
-  const listed = nulList(
-    await session.ok(session.repository, [
-      "ls-tree",
-      "-z",
-      "--name-only",
-      commit,
-      "--",
-      `${TASKS_DIR}/`,
-    ]),
-  ).filter((path) => isTaskFileOf(path.slice(path.lastIndexOf("/") + 1), story));
-  return listed.length === 1 ? listed[0]! : null;
-}
-
 /**
  * The tree `tree` with the blob `id` (mode 100644) at `path`, written through a temporary index in
  * `scratch` (`read-tree`, `update-index --cacheinfo`, `write-tree`): from git objects alone.
@@ -837,6 +818,8 @@ export async function planCatchUp(
     readonly mode?: CatchUpMode;
     /** A folder of dipo's own for the temporary index; needed to write a task-file resolution. */
     readonly scratch?: string;
+    /** The store that finds the story's own file at the branch tip. */
+    readonly stories: Pick<StoryStore, "fileAt">;
   },
 ): Promise<CatchUpPlan> {
   const repo = session.repository;
@@ -867,7 +850,8 @@ export async function planCatchUp(
   if (merged.code === 1 && parsed.conflicts.length === 0) {
     throw new GitError("git.failed", "git merge-tree reported a conflict but named no file.");
   }
-  const own = parsed.conflicts.length === 0 ? null : await taskFileAt(session, tip, input.story);
+  const own =
+    parsed.conflicts.length === 0 ? null : await input.stories.fileAt(session, tip, input.story);
   const ownConflict = parsed.conflicts.find((file) => file.path === own);
   const conflicts = parsed.conflicts.filter((file) => file.path !== own);
   const unwritable = conflicts
@@ -1050,6 +1034,8 @@ export type SyncMode =
 
 export interface BoxCollisionsDeps {
   readonly boxes: Pick<BoxPort, "copyIn" | "exec">;
+  /** The story store: the story's own file at a tip, and the status it holds. */
+  readonly stories: Pick<StoryStore, "fileAt" | "statusIn">;
   /** The `tar` that unpacks a merge for the box, and the clock of the poll. */
   readonly code: BoxCodeDeps;
   /** dipo's temp root; each catch-up's stage folder is made in it. */
@@ -1133,15 +1119,6 @@ export function changedLockfiles(paths: readonly string[]): string[] {
   return paths
     .filter((path) => LOCKFILE_NAMES.includes(path.slice(path.lastIndexOf("/") + 1)))
     .toSorted();
-}
-
-/** Pure: the `status:` of a task file's front matter, or null when it has none. */
-export function taskFileStatus(text: string): string | null {
-  const front = /^---\r?\n([\s\S]*?)\r?\n---/.exec(text);
-  if (front === null) return null;
-  const line = /^status:[ \t]*(.+?)[ \t]*\r?$/m.exec(front[1] ?? "");
-  const value = line?.[1]?.replace(/^(["'])(.*)\1$/, "$2").trim() ?? "";
-  return value === "" ? null : value;
 }
 
 /**
@@ -1522,6 +1499,7 @@ export class BoxCollisions {
       const base = await baseRefOf(git, session);
       if (base === null) return null;
       const plan = await planCatchUp(session, {
+        stories: this.#deps.stories,
         branch: run.branch,
         startSha: run.startSha,
         story: run.story,
@@ -1725,7 +1703,7 @@ export class BoxCollisions {
     const status = await git
       .run(async (session) => {
         const shown = await session.step(session.repository, ["show", `${plan.tip}:${taskFile}`]);
-        return shown.code === 0 ? taskFileStatus(shown.stdout) : null;
+        return shown.code === 0 ? this.#deps.stories.statusIn(shown.stdout) : null;
       })
       .catch(() => null);
     const failed = (why: string): void => {

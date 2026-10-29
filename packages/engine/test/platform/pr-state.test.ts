@@ -11,7 +11,6 @@ import type { BacklogCli } from "../../src/backlog/runner";
 import type { FeatureModule } from "../../src/commands/registry";
 import { OFFICE_DEFAULTS, type OfficeConfig } from "../../src/config";
 import type { OfficeHandle } from "../../src/db/office";
-import type { OfficeLane } from "../../src/backlog/lane/lane";
 import { AutoMerge } from "../../src/merge/merger";
 import type { OfficeLoadContext } from "../../src/office/steps";
 import type { HostPr, PrState } from "../../src/platform/host";
@@ -353,7 +352,6 @@ describe("the consumers", () => {
     });
     const merge = new AutoMerge({
       host: host as never,
-      lane: () => undefined as OfficeLane | undefined,
       offices,
       clock,
       prState: watched,
@@ -385,7 +383,6 @@ describe("the consumers", () => {
     });
     const merge = new AutoMerge({
       host: host as never,
-      lane: () => undefined,
       offices,
       clock,
     });

@@ -22,6 +22,7 @@ import {
   type LaneOp,
   type OfficeLane,
   pendingLaneOp,
+  planningLane,
 } from "../../src/backlog/lane";
 import { insertPark, mirrorParked } from "../run/park-fixture";
 import { insertEntry } from "../../src/backlog/lane/journal";
@@ -94,6 +95,8 @@ function fakeLane(office: OfficeHandle, t: TestState, ops: LaneOp[], flushes: { 
       flushes.n += 1;
       return {};
     },
+    office,
+    clock: t.clock,
   } as unknown as OfficeLane;
 }
 
@@ -167,7 +170,7 @@ beforeEach(async () => {
       hooks.parkedRuns.push({ story: args.story, note: args.note });
       return { result: { run: "run_01J9ZK5Q8W3V4X6Y7Z8A9B0C5H" as RunId } };
     },
-    lane: () => fakeLane(office, t, ops, flushes),
+    lane: () => planningLane(fakeLane(office, t, ops, flushes)),
     git: () =>
       fakeGit({
         commits: hooks.commits,
@@ -715,7 +718,7 @@ describe("story.drop", () => {
       }),
     );
     const failing = new StoryPlanning({
-      lane: () => fakeLane(w.office, w.t, w.ops, w.flushes),
+      lane: () => planningLane(fakeLane(w.office, w.t, w.ops, w.flushes)),
       git: () => fakeGit(),
       host: {
         closePr: async () => {

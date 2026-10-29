@@ -7,10 +7,13 @@
 import type { FieldBlock } from "@dipsaus-orchestrator/contract";
 
 import type { GitSession, OfficeGit } from "../git/office";
+import type { PlanningHold } from "../story-store/planning";
 import type { StoryEditor, StoryStore } from "../story-store/store";
 
 import { readOnBranch } from "./branch-read";
 import { appendImplementationNotes, setFinalSummary } from "./fields/summary";
+import { pendingLaneOp } from "./lane/journal";
+import { backlogCheckBlocked } from "./pr/records";
 import { type StoryTarget, viewStory, writeFields } from "./fields/write";
 import { listAll } from "./list";
 import { parseMilestones } from "./plain";
@@ -18,11 +21,13 @@ import { readBacklog, readStory, viewPass } from "./read";
 import {
   type BacklogCli,
   BacklogCommandError,
+  backlogPointer,
   isTaskFileOf,
   runBacklog,
   TASKS_DIR,
 } from "./runner";
 import { editInStoryBacklog, inStoryBacklog, repoPath } from "./story-copy";
+import { taskFileAt, taskFileStatus } from "./task-file";
 
 function escapeRegExp(text: string): string {
   return text.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
@@ -105,6 +110,16 @@ export function backlogStoryStore(cli: BacklogCli): StoryStore {
       if (!path.startsWith(`${TASKS_DIR}/`)) return false;
       const name = path.slice(TASKS_DIR.length + 1);
       return !name.includes("/") && isTaskFileOf(name, id);
+    },
+    fileAt: taskFileAt,
+    statusIn: taskFileStatus,
+    configuredFolder(text) {
+      const pointer = backlogPointer(text);
+      return pointer.kind === "folder" ? pointer.folder : null;
+    },
+    planningHold(office, key): PlanningHold | null {
+      if (pendingLaneOp(office, key) !== null) return "pending";
+      return backlogCheckBlocked(office, key) === null ? null : "checkFailed";
     },
   };
 }

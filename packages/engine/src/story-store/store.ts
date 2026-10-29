@@ -5,13 +5,16 @@
 //
 // Reads come from a checkout of the base (the office's `_base`, or any checkout a caller holds) or
 // from a story's branch. Writes on the story lane are edits of one story on its branch, committed
-// together as one commit of that story alone.
+// together as one commit of that story alone. Changes that belong to no story PR go through the
+// planning lane (`planning.ts`); the store reads whether one holds a story (`planningHold`).
 
-import type { FieldBlock } from "@dipsaus-orchestrator/contract";
+import type { FieldBlock, StoryKey } from "@dipsaus-orchestrator/contract";
 
+import type { OfficeHandle } from "../db/office";
 import type { GitLocation } from "../git/hardened";
 import type { GitSession, OfficeGit } from "../git/office";
 
+import type { PlanningHold } from "./planning";
 import type { PlainList, PlainTask, StoryKind } from "./story";
 
 /** A story's id, title and status as its list printed them. */
@@ -145,4 +148,24 @@ export interface StoryStore {
 
   /** True when the repository path `path` is the file of the story `id`. */
   isStoryFile(path: string, id: string): boolean;
+  /**
+   * The file of the story `id` at `commit`, or null when the commit holds none or more than one.
+   * Runs inside the office's git queue item `session`.
+   */
+  fileAt(session: GitSession, commit: string, id: string): Promise<string | null>;
+  /** The status a story file's text `text` holds, or null when it holds none. */
+  statusIn(text: string): string | null;
+  /**
+   * The folder the store's root configuration text `text` names for its stories, or null when it
+   * names none or one that does not resolve: that folder's configuration is the store's too.
+   */
+  configuredFolder(text: string): string | null;
+
+  // ---- the planning lane (0010), read from the office's state database ----------------------------
+
+  /**
+   * Why the planning lane holds the story `key` from pickup, or null: a journaled change first,
+   * then a failed check of the office's backlog PR.
+   */
+  planningHold(office: OfficeHandle, key: StoryKey): PlanningHold | null;
 }

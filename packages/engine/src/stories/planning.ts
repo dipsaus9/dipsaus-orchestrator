@@ -39,19 +39,6 @@ import {
 } from "@dipsaus-orchestrator/contract";
 import type { z } from "zod";
 
-import {
-  allEntries,
-  HOLD_KIND,
-  type JournalEntry,
-  LaneError,
-  LaneFlushError,
-  type LaneOp,
-  OPEN_STATES,
-  type OfficeLane,
-  DROP_KIND,
-  RESUME_KIND,
-} from "../backlog/lane";
-import { updateEntry } from "../backlog/lane/journal";
 import type { NewEntry } from "../changelog/log";
 import { CommandError } from "../commands/errors";
 import type {
@@ -70,6 +57,8 @@ import { insertPark } from "../run/park-records";
 import { activeRuns } from "../run/records";
 import { hostAlive, workerHostsOf } from "../runs/worker-hosts";
 import { latestStoryPr, setStoryPrState } from "../story-pr/records";
+import { LIVE_CLAIM_REFUSAL, PlanningRefusedError } from "../story-store/errors";
+import { DROP_KIND, type PlanningLane } from "../story-store/planning";
 import { deriveStoryView, lifecycleOf, storyView } from "../views/story";
 import {
   deleteKeptBranches,
@@ -93,7 +82,8 @@ export const PLANNING_NOTICES = {
 } as const;
 
 export interface StoryPlanningDeps {
-  readonly lane: (office: OfficeHandle["officeId"]) => OfficeLane | undefined;
+  /** The office's planning lane (0010), through the StoryStore seam. */
+  readonly lane: (office: OfficeHandle["officeId"]) => PlanningLane | undefined;
   readonly git: (office: OfficeHandle["officeId"]) => OfficeGit | undefined;
   /** The code host the open story PR is closed on. */
   readonly host: Pick<CodeHost, "closePr">;
@@ -118,9 +108,6 @@ type LossesResult = {
   key: StoryKey;
   commits: LostCommit[];
 };
-
-/** The Backlog.md statuses a park with no run applies from; `To Do` is what office init migrates to Refined. */
-const PARKABLE_STATUSES = ["Refined", "Ready", "To Do"];
 
 /** `story.park` of a story that is neither Refined, Ready, In Progress, In Review nor Parked. */
 export const NOT_PARKABLE = "story.notParkable";
@@ -256,20 +243,10 @@ export class StoryPlanning {
     }
     const from: "Refined" | "Ready" = lifecycle;
     const lane = this.#laneOf(office);
-    const op: LaneOp = {
-      kind: HOLD_KIND,
-      key,
-      subject: story,
-      target: {
-        from: PARKABLE_STATUSES,
-        status: "Parked",
-        fields: { park: { reason: "by-maintainer", from, note: args.note } },
-      },
-    };
     try {
-      await journalOnce(lane, office, op);
+      await lane.hold({ key, story }, { from, note: args.note });
     } catch (error) {
-      if (error instanceof LaneError && error.code === "backlog.lane.liveClaim") {
+      if (error instanceof PlanningRefusedError && error.code === LIVE_CLAIM_REFUSAL) {
         throw new CommandError(
           NOT_PARKABLE,
           `${story} was claimed meanwhile; send story.park again to park its run.`,
@@ -314,7 +291,7 @@ export class StoryPlanning {
         },
       ];
     });
-    await flushQuietly(lane);
+    await lane.flush();
     return { result, changed: true };
   }
 
@@ -333,12 +310,7 @@ export class StoryPlanning {
     const { key, story } = identity;
     const to: Lifecycle = park.from === "Ready" ? "Ready" : "Refined";
     const lane = this.#laneOf(office);
-    await journalOnce(lane, office, {
-      kind: RESUME_KIND,
-      key,
-      subject: story,
-      target: { from: ["Parked"], status: to, unset: ["park"] },
-    });
+    await lane.resume({ key, story }, to);
     const at = ctx.clock.now();
     ctx.commit((): NewEntry[] => {
       const closed = resolvePark(office, park.parkId, "resume", at, note ?? null);
@@ -366,7 +338,7 @@ export class StoryPlanning {
         },
       ];
     });
-    await flushQuietly(lane);
+    await lane.flush();
     return to;
   }
 
@@ -384,7 +356,7 @@ export class StoryPlanning {
     // A re-run after the drop's facts were written: its journal entry is open, and nothing is left
     // to release or close. The lane may still owe the flush.
     if (this.#dropWritten(office, key)) {
-      await flushQuietly(this.#laneOf(office));
+      await this.#laneOf(office).flush();
       return { result, changed: false };
     }
     const running = activeRuns(office).some((run) => run.kind === "story" && run.key === key);
@@ -400,7 +372,8 @@ export class StoryPlanning {
         story,
       });
     }
-    const dependents = activeDependents(office, identity);
+    const dropping = this.#deps.lane(office.officeId)?.dropping() ?? new Set<StoryKey>();
+    const dependents = activeDependents(office, identity, dropping);
     if (dependents.length > 0) {
       throw new CommandError(
         HAS_DEPENDENTS,
@@ -429,13 +402,7 @@ export class StoryPlanning {
     }
 
     const lane = this.#laneOf(office);
-    const entry = await journalOnce(lane, office, {
-      kind: DROP_KIND,
-      key,
-      subject: story,
-      target: { kind: lifecycle === "Draft" ? "draft" : "task" },
-      releasesClaim: true,
-    });
+    const entry = await lane.drop({ key, story }, lifecycle === "Draft" ? "draft" : "task");
     let closedPr: number | null = null;
     try {
       closedPr = await this.#closePr(ctx, identity);
@@ -446,9 +413,7 @@ export class StoryPlanning {
       }
     } catch (error) {
       // Nothing was archived: the story must not be, later, by a flush of this entry.
-      office.immediate(() =>
-        updateEntry(office, entry.opId, { state: "withdrawn" }, ctx.clock.now()),
-      );
+      lane.withdraw(entry);
       throw error;
     }
     const at = ctx.clock.now();
@@ -471,7 +436,7 @@ export class StoryPlanning {
         },
       ];
     });
-    await flushQuietly(lane);
+    await lane.flush();
     return { result, changed: true };
   }
 
@@ -485,9 +450,7 @@ export class StoryPlanning {
 
   /** True when `story.drop` journaled the story's drop and left no claim, PR or park behind. */
   #dropWritten(office: OfficeHandle, key: StoryKey): boolean {
-    const journaled = allEntries(office).some(
-      (entry) => entry.key === key && entry.kind === DROP_KIND && OPEN_STATES.includes(entry.state),
-    );
+    const journaled = this.#deps.lane(office.officeId)?.isOpen(key, DROP_KIND) ?? false;
     if (!journaled || liveClaimOf(office, key) !== null || openParkIds(office, key).length > 0) {
       return false;
     }
@@ -601,7 +564,7 @@ export class StoryPlanning {
     }
   }
 
-  #laneOf(office: OfficeHandle): OfficeLane {
+  #laneOf(office: OfficeHandle): PlanningLane {
     const lane = this.#deps.lane(office.officeId);
     if (lane === undefined) throw new Error(`The office ${office.officeId} has no backlog lane.`);
     return lane;
@@ -652,36 +615,15 @@ function factsOf(view: StoryView): {
   };
 }
 
-/** The open journal entry of the same kind for the story, else a new one (a re-run reuses it). */
-async function journalOnce(
-  lane: OfficeLane,
-  office: OfficeHandle,
-  op: LaneOp,
-): Promise<JournalEntry> {
-  const open = allEntries(office).find(
-    (entry) =>
-      entry.key === (op.key ?? null) && entry.kind === op.kind && OPEN_STATES.includes(entry.state),
-  );
-  return open ?? lane.journal(op);
-}
-
-/** Flushes the lane; a failed flush put its own notice on the office and leaves the op journaled. */
-async function flushQuietly(lane: OfficeLane): Promise<void> {
-  await lane.flush().catch((error: unknown) => {
-    if (!(error instanceof LaneFlushError)) throw error;
-  });
-}
-
 /**
  * The active stories (not Done, not removed, no drop pending) that list `story` among their
  * dependencies, by id. The dependencies are what the story index mirrored from `_base`.
  */
-function activeDependents(office: OfficeHandle, identity: StoryIdentity): string[] {
-  const dropping = new Set(
-    allEntries(office)
-      .filter((entry) => entry.kind === DROP_KIND && OPEN_STATES.includes(entry.state))
-      .map((entry) => entry.key),
-  );
+function activeDependents(
+  office: OfficeHandle,
+  identity: StoryIdentity,
+  dropping: ReadonlySet<StoryKey>,
+): string[] {
   const rows = office.all<{
     key: string;
     story_id: string;

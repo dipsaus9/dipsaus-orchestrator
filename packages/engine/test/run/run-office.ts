@@ -27,7 +27,7 @@ import { GateStore } from "../../src/gate";
 import { EngineGit } from "../../src/git";
 import { WorkerHost } from "../../src/host/main";
 import { EVENTS_FILE, hostSocketPath, HOSTS_DIR, LAUNCH_FILE } from "../../src/host/protocol";
-import { officeStatusesReady } from "../../src/office/init";
+import { officeStatusesReady } from "../../src/backlog/init";
 import { currentPlatform, ensurePrivateDir } from "../../src/platform/paths";
 import { systemProcessProbe } from "../../src/platform/process";
 import {
@@ -576,7 +576,7 @@ export async function withRunOffice(
         startsPaused: (office) => paused.state(office),
         claims,
         gates,
-        lane: (office) => lane.forOffice(office),
+        lane: (office) => lane.planning(office),
         launcher,
       });
       const s = await officeSetup(repo.root, {
@@ -594,7 +594,7 @@ export async function withRunOffice(
                 // `story.park` (0020): the planning lane parks a story with no run, run control one
                 // with a run.
                 new StoryPlanning({
-                  lane: (office) => lane.forOffice(office),
+                  lane: (office) => lane.planning(office),
                   git: (office) => engineGit.forOffice(office),
                   host: { closePr: async () => undefined },
                   implemented: () => true,

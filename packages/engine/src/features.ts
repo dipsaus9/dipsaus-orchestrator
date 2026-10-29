@@ -3,6 +3,7 @@
 // in its own line, and never edits `commands/` or `reads/`.
 
 import { backlogFeature } from "./backlog";
+import { backlogPrDeskItems } from "./backlog/pr/desk";
 import type { BacklogCli } from "./backlog/runner";
 import { buildRegistry, type FeatureModule, type Registry } from "./commands/registry";
 import { systemSpawn } from "./platform/process";
@@ -29,8 +30,9 @@ export function engineFeatures(options: EngineFeatureOptions): readonly FeatureM
     // `office.stats` (DIPO-65). The retention load step needs the office manager, so the daemon
     // lists `Retention.feature` next to it.
     statsFeature,
-    // `office.snapshot`, `office.switch`, `story.detail` and `work.outputRange` (DIPO-52).
-    viewsFeatureWith(options.desk),
+    // `office.snapshot`, `office.switch`, `story.detail` and `work.outputRange` (DIPO-52); the
+    // desk shows the backlog PRs whose check failed (0010).
+    viewsFeatureWith({ prItems: backlogPrDeskItems, ...options.desk }),
   ];
 }
 

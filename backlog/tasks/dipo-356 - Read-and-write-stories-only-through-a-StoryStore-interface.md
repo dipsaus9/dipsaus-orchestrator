@@ -1,10 +1,10 @@
 ---
 id: DIPO-356
 title: Read and write stories only through a StoryStore interface
-status: In Progress
+status: Done
 assignee: []
 created_date: '2026-10-25 09:51'
-updated_date: '2026-10-29 10:12'
+updated_date: '2026-10-29 12:49'
 labels:
   - 'tier:M'
   - 'slice:prune'
@@ -42,7 +42,7 @@ test_plan:
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
 - [x] #1 StoryStore offers listing and reading stories of a base or branch, and setting status, ticking criteria, writing the park reason and notes, the final summary, a resolved unknown and a draft
-- [ ] #2 The Backlog.md implementation holds the CLI runner, the story lane and the planning lane, and no other engine directory imports backlog/
+- [x] #2 The Backlog.md implementation holds the CLI runner, the story lane and the planning lane, and no other engine directory imports backlog/
 - [x] #3 A lint rule fails an import of backlog/ from outside the store
 <!-- AC:END -->
 
@@ -51,3 +51,9 @@ test_plan:
 <!-- SECTION:NOTES:BEGIN -->
 Part 1 merged in PR #431 (2026-10-29): the StoryStore interface, every read and the story lane writes, with the dipo/no-backlog-import lint rule. Part 2 (same story, a later PR): the planning lane behind the store (edit, hold, resume, drop and discard ops, an accepted proposal draft, journal reads, office init and the backlog PR merge inside backlog/), task-file layout facts as store methods, and the lint allow list emptied down to index.ts and features.ts; then criterion 2 is met. Review advisories for part 2: a fixture line for import = require(), and one contract suite run on both the fake and the Backlog store.
 <!-- SECTION:NOTES:END -->
+
+## Final Summary
+
+<!-- SECTION:FINAL_SUMMARY:BEGIN -->
+Stories are read and written only through the StoryStore interface. Part 1 (#431) added the interface, every read, the story-lane writes and the dipo/no-backlog-import lint rule. Part 2 (#432) moved the planning lane (hold, resume, drop, discard, to Refined, drafts, withdraw), the pickup guard, office init, the backlog PR auto-merge and the task-file layout facts into backlog/, emptied the lint allow list to index.ts and features.ts, and runs one contract suite on the fake and the Backlog store. Left for DIPO-379: the planning-journal read in run/park-state.ts and the plain backlog/ folder checks outside the store.
+<!-- SECTION:FINAL_SUMMARY:END -->

@@ -78,7 +78,6 @@ import { join } from "node:path";
 
 import type { IdSource, OfficeId, RunId, StoryKey } from "@dipsaus-orchestrator/contract";
 
-import { isTaskFileOf, TASKS_DIR } from "../backlog/runner";
 import {
   baseRefOf,
   type CatchUpFound,
@@ -111,6 +110,7 @@ import {
   reviewVerdictForTree,
 } from "../review/store";
 import { TEST_BEFORE_MERGE } from "../story-store/fields/labels";
+import type { StoryStore } from "../story-store/store";
 import { withWorkViews } from "../views/work";
 
 import { runCaps } from "./caps";
@@ -537,27 +537,6 @@ export function blockedHandOff(
 
 // ---- carried approvals ---------------------------------------------------------------------------
 
-/** The story's task file at `commit`, directly in `backlog/tasks`, or null. */
-async function taskFileAt(
-  session: GitSession,
-  commit: string,
-  story: string,
-): Promise<string | null> {
-  const listed = (
-    await session.ok(session.repository, [
-      "ls-tree",
-      "-z",
-      "--name-only",
-      commit,
-      "--",
-      `${TASKS_DIR}/`,
-    ])
-  )
-    .split("\0")
-    .filter((path) => path !== "" && isTaskFileOf(path.slice(path.lastIndexOf("/") + 1), story));
-  return listed.length === 1 ? (listed[0] as string) : null;
-}
-
 /**
  * True when an approval of `approved` carries to `head` (0019 section 6): `approved` lies on the
  * first-parent line below `head`, and every commit above it on that line is a clean merge dipo
@@ -636,6 +615,8 @@ export type DoneConflictDecision =
 
 export interface StoryConflictsDeps {
   readonly clock: { now(): number };
+  /** The story store: the story's own file at a tip. */
+  readonly stories: Pick<StoryStore, "fileAt">;
   readonly ids: IdSource;
   readonly offices: {
     get(office: OfficeId): OfficeHandle | undefined;
@@ -850,7 +831,7 @@ export class StoryConflicts {
           `refs/heads/${run.branch}^{commit}`,
         ])
       ).trim();
-      const taskFile = await taskFileAt(session, head, run.story);
+      const taskFile = await this.#deps.stories.fileAt(session, head, run.story);
       if (taskFile === null) return null;
       const carries = await approvalCarries(session, {
         approved: verdict.commit,
@@ -947,6 +928,8 @@ export const REMOTE_COMMITS_SHOWN = 20;
 
 /** What `ConflictResumes` needs; the daemon's are the office git and the box collisions. */
 export interface ConflictResumesDeps {
+  /** The story store: the story's own file at a tip. */
+  readonly stories: Pick<StoryStore, "fileAt">;
   readonly offices: {
     get(office: OfficeId): OfficeHandle | undefined;
     config(office: OfficeId): OfficeConfig | undefined;
@@ -1174,6 +1157,7 @@ export class ConflictResumes implements ConflictResumer {
       const ref = await baseRefOf(git, session);
       if (ref === null || run.story === null || run.startSha === null) return null;
       const planned = await planCatchUp(session, {
+        stories: this.#deps.stories,
         branch: run.branch as string,
         startSha: run.startSha,
         story: run.story,
@@ -1274,6 +1258,7 @@ export class ConflictResumes implements ConflictResumer {
     try {
       merged = await git.run(async (session) => {
         const plan = await planCatchUp(session, {
+          stories: this.#deps.stories,
           branch,
           startSha,
           story,

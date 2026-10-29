@@ -2,11 +2,7 @@
 // auto-merge, and the close-out commit (0002, 0010).
 
 export { AUTO_MERGE_FAILED, AUTO_MERGE_STEP, AutoMerge } from "./merger";
-export type { AutoMergeDeps } from "./merger";
-export { BACKLOG_MERGE_NOTICES, BacklogMerges } from "./backlog";
-export type { BacklogMergeContext, BacklogMergeDeps } from "./backlog";
-export { laneMergeGit } from "./backlog-git";
-export type { BacklogMergeGit } from "./backlog-git";
+export type { AutoMergeDeps, BacklogAutoMerge, BacklogRoundContext } from "./merger";
 export { STORY_MERGE_NOTICES, StoryMerges } from "./stories";
 export type { StoryMergeContext, StoryMergeDeps } from "./stories";
 export { gitStoryMergeOps, MODIFIED_FILES_MAX } from "./story-git";

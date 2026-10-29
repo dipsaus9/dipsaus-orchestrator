@@ -11,6 +11,7 @@ import {
   parseFieldBlock,
   spliceFieldBlock,
 } from "../../src/story-store/fields/block";
+import type { PlanningHold } from "../../src/story-store/planning";
 import type {
   ListedStory,
   StoryEditor,
@@ -57,6 +58,9 @@ export class FakeStoryStore implements StoryStore {
   /** Each branch's copy of its story, by branch name. */
   readonly branches = new Map<string, PlainTask>();
   readonly milestoneNames: string[] = [];
+  /** The stories with a journaled planning change, and those a failed backlog PR check holds. */
+  readonly pending = new Set<string>();
+  readonly checkFailed = new Set<string>();
   /** Every story lane commit, in order. */
   readonly commits: { readonly branch: string; readonly message: string }[] = [];
   readonly #unparsed = new Map<string, ListedStory>();
@@ -198,5 +202,28 @@ export class FakeStoryStore implements StoryStore {
   isStoryFile(path: string, id: string): boolean {
     const held = this.base.get(id)?.story;
     return held !== undefined && held.file === path;
+  }
+
+  /** The story's file as the base holds it; the commit is ignored, as the checkout is. */
+  async fileAt(_session: unknown, _commit: string, id: string): Promise<string | null> {
+    return this.base.get(id)?.story?.file ?? null;
+  }
+
+  /** The value of the text's first `status:` line; the fake keeps no files of its own. */
+  statusIn(text: string): string | null {
+    return /^status:[ \t]*(.+?)[ \t]*$/m.exec(text)?.[1] ?? null;
+  }
+
+  /** The `backlog_directory` a root configuration names: a relative folder inside, else null. */
+  configuredFolder(text: string): string | null {
+    const folder = /^backlog_directory:[ \t]*(.+?)[ \t]*$/m.exec(text)?.[1] ?? "";
+    const inside = folder !== "" && !folder.startsWith("/") && !folder.split("/").includes("..");
+    return inside ? folder : null;
+  }
+
+  /** A journaled change holds a story first, then a failed backlog PR check. */
+  planningHold(_office: unknown, key: string): PlanningHold | null {
+    if (this.pending.has(key)) return "pending";
+    return this.checkFailed.has(key) ? "checkFailed" : null;
   }
 }

@@ -3,7 +3,7 @@
 // one it has, through the code host (`platform/host.ts`, `gh` with the maintainer's own login), and
 // stores the PR on the journal entries. Whenever the PR's head changes it runs the structural check
 // (`check.ts`); a failure keeps the PR open, puts an `engine.notice` per failure on the office and
-// leaves the PR without auto-merge (`merge/backlog.ts`).
+// leaves the PR without auto-merge (`merge.ts`).
 //
 // `sync` asks the host about the office's open backlog PRs: one merged by hand is checked again
 // right away, against the head that merged; a failure is a notice and blocks the stories it names

@@ -28,7 +28,6 @@
 
 import type { Clock, OfficeId, RunId, SkipReason, StoryKey } from "@dipsaus-orchestrator/contract";
 
-import { PENDING_LANE_NOTICE, pendingLaneOp } from "../backlog/lane/journal";
 import { appendEntries } from "../changelog/log";
 import type { OfficeHandle } from "../db/office";
 import { FETCH_CONFIG } from "../git/hardened";
@@ -36,6 +35,7 @@ import type { GitSession, OfficeGit } from "../git/office";
 import { EXTERNAL_STEP_TIMEOUT_MS, GitError, type GitResult, isTimedOut } from "../git/runner";
 import { branchTip, createBranch, deleteBranch, moveBranch, pushBranch } from "../git/write";
 import { endRunMarked } from "../run/markers";
+import { PENDING_LANE_NOTICE } from "../story-store/planning";
 import type { StoryStore } from "../story-store/store";
 
 import {
@@ -232,7 +232,7 @@ async function startClaim(
   if (liveClaimOf(deps.office, request.key) !== null) {
     return { ok: false, reason: "notRunnable", notice: null, code: null };
   }
-  if (pendingLaneOp(deps.office, request.key) !== null) {
+  if (deps.stories.planningHold(deps.office, request.key) === "pending") {
     return skip(
       deps,
       request,

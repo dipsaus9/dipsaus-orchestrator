@@ -59,10 +59,6 @@ import {
 } from "@dipsaus-orchestrator/contract";
 import type { z } from "zod";
 
-import { EDIT_KIND } from "../backlog/lane/ops";
-import { type JournalEntry, type LaneOp, pendingLaneOp } from "../backlog/lane/journal";
-import { LaneError, LaneFlushError } from "../backlog/lane/lane";
-import { backlogCheckBlocked } from "../backlog/pr/records";
 import type { NewEntry } from "../changelog/log";
 import { CommandError } from "../commands/errors";
 import type {
@@ -84,9 +80,10 @@ import { promptStoryOf } from "../prompts/story";
 import { recordAgent } from "../runs/agents";
 import { resolveStoryRef } from "../stories/keys";
 import { mapLimited, VIEW_CONCURRENCY } from "../stories/read";
-import { StoryParseError } from "../story-store/errors";
+import { PlanningRefusedError, StoryParseError } from "../story-store/errors";
 import { parseFieldBlock } from "../story-store/fields/block";
 import { readLabels } from "../story-store/fields/labels";
+import type { PlanningHold, PlanningLane } from "../story-store/planning";
 import type { StoryStore } from "../story-store/store";
 import type { PlainTask } from "../story-store/story";
 import { deriveStoryView, type GateFailureFact, storyView } from "../views/story";
@@ -139,6 +136,8 @@ export interface RunBase {
   fetch(office: OfficeId): Promise<void>;
   /** Reads `ids` on `_base`, or every Ready story when `ids` is null. */
   read(office: OfficeId, ids: readonly string[] | null): Promise<BaseRead>;
+  /** Why the planning lane holds the story from pickup (`StoryStore.planningHold`), or null. */
+  planningHold(office: OfficeHandle, key: StoryKey): PlanningHold | null;
 }
 
 export interface RunOffices {
@@ -149,10 +148,7 @@ export interface RunOffices {
 }
 
 /** The part of the planning lane `work.run` uses to move a story back to Refined. */
-export interface RunLane {
-  journal(op: LaneOp): Promise<JournalEntry>;
-  flush(): Promise<unknown>;
-}
+export type RunLane = Pick<PlanningLane, "toRefined" | "flush">;
 
 export interface WorkRunDeps {
   readonly offices: RunOffices;
@@ -481,8 +477,7 @@ export class WorkRun {
     if (byStatus !== null) return byStatus;
     if (liveClaimOf(handle, key) !== null) return "notRunnable";
     if (c.full) return "capacity";
-    if (pendingLaneOp(handle, key) !== null) return "notRunnable";
-    if (backlogCheckBlocked(handle, key) !== null) return "notRunnable";
+    if (this.#deps.base.planningHold(handle, key) !== null) return "notRunnable";
     const view = c.view;
     if (view === undefined || c.unparsed) return "gate";
     if (openDependencies(view).length > 0) return "dependency";
@@ -800,22 +795,13 @@ export class WorkRun {
     let why: string | null = lane === undefined ? "the office has no backlog lane" : null;
     if (lane !== undefined) {
       try {
-        await lane.journal({
-          kind: EDIT_KIND,
-          key: candidate.key,
-          subject: candidate.story,
-          target: { from: [READY_STATUS], status: REFINED_STATUS },
-        });
+        await lane.toRefined({ key: candidate.key, story: candidate.story });
       } catch (error) {
-        if (!(error instanceof LaneError)) throw error;
+        if (!(error instanceof PlanningRefusedError)) throw error;
         why = error.message;
       }
-      if (why === null) {
-        // A failed flush leaves the move journaled; the lane put its own notice on the office.
-        await lane.flush().catch((error: unknown) => {
-          if (!(error instanceof LaneFlushError)) throw error;
-        });
-      }
+      // A failed flush leaves the move journaled; the lane put its own notice on the office.
+      if (why === null) await lane.flush();
     }
     ctx.commit((): NewEntry[] => {
       if (why !== null) {
@@ -1071,5 +1057,6 @@ export function storyRunBase(deps: {
         };
       });
     },
+    planningHold: (office, key) => deps.stories.planningHold(office, key),
   };
 }

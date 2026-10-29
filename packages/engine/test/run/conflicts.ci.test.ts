@@ -45,6 +45,7 @@ import { insertStoryPr, setStoryPrState } from "../../src/story-pr/records";
 import { detail } from "../../src/views/feature";
 import { insertClaim } from "../../src/worktree/records";
 import { type IngestFixture, ingestFixture, loggedEvents } from "../ingest/helpers";
+import { backlogLayout } from "../story-store/backlog";
 
 const TASK = "backlog/tasks/dipo-1 - One.md";
 const BRANCH = "DIPO-1/one";
@@ -145,6 +146,7 @@ async function world(repo: TempRepoWithRemote, tier = "M"): Promise<World> {
   const warned: string[] = [];
   let self: World | null = null;
   const conflicts = new StoryConflicts({
+    stories: backlogLayout,
     clock: f.t.clock,
     ids: f.t.ids,
     offices: {

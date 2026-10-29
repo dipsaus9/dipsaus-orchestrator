@@ -49,6 +49,7 @@ import { type BoxPort } from "../../src/box/port";
 import { OfficeGit, spawnGitExec } from "../../src/git";
 import type { GitCall } from "../../src/git/runner";
 import { systemSpawn } from "../../src/platform/process";
+import { backlogLayout } from "../story-store/backlog";
 
 const OFFICE = "office-parts" as OfficeId;
 const BRANCH = "DIPO-1/deliver-in-parts";
@@ -287,6 +288,7 @@ async function world(repo: TempRepoWithRemote, options: WorldOptions = {}): Prom
     live: true,
   } as World;
   const parts = new BoxParts({
+    stories: backlogLayout,
     boxes: tarBox(work, calls, options.tar, () => options.onExec?.(w)),
     clock: w.clock,
     notice: (_run, notice) => w.notices.push(notice),

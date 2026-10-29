@@ -17,13 +17,14 @@ import { join } from "node:path";
 import { z } from "zod";
 
 import type { OfficeHandle } from "../../db/office";
+import { PROPOSE_KIND, type ProposedDraft } from "../../story-store/planning";
 import { FieldWriteError, viewStory } from "../fields/write";
 import { type BacklogCli, runBacklog } from "../runner";
 
 import type { LaneOpKind } from "./ops";
 
 /** The kind of `proposal.accept`; the commit's verb. */
-export const PROPOSE_KIND = "propose";
+export { PROPOSE_KIND };
 
 /** The line a filed draft's description carries, followed by the proposal id. */
 export const PROPOSAL_MARKER = "dipo proposal: ";
@@ -38,6 +39,19 @@ export const ProposeTarget = z
   })
   .strict();
 export type ProposeTarget = z.infer<typeof ProposeTarget>;
+
+/**
+ * The target of the draft `draft` as the engine wrote it: its description ends in the proposal's
+ * marker line, by which a replay finds the draft again.
+ */
+export function proposeTarget(draft: ProposedDraft): ProposeTarget {
+  return {
+    proposal: draft.proposal,
+    title: draft.title,
+    description: `${draft.description}\n${PROPOSAL_MARKER}${draft.proposal}`,
+    references: [...draft.references],
+  };
+}
 
 /** Where Backlog.md keeps drafts. */
 const DRAFTS = "backlog/drafts";

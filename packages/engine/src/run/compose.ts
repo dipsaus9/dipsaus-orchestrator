@@ -84,10 +84,11 @@ export interface RunPorts {
   /** The auto-merge a story resumed to wait In Review goes back to (0002). */
   readonly mergeReentry?: () => MergeReentry | undefined;
   /**
-   * The merge a resumed `conflict` park needs in its live run's box (`BoxCollisions.mergeOnResume`,
-   * DIPO-324). Without it no conflict park resumes (`resume.notResumable`).
+   * What a resumed `conflict` park needs: the merge in its live run's box
+   * (`BoxCollisions.mergeOnResume`, DIPO-324) and the story store it finds the story's own file
+   * with. Without it no conflict park resumes (`resume.notResumable`).
    */
-  readonly conflictMerge?: ConflictResumesDeps["merge"];
+  readonly conflictResume?: Pick<ConflictResumesDeps, "merge" | "stories">;
   /** The new story PR of a story resumed with its PR closed (`StoryPrs.replace`, 0002). */
   readonly prReplacement?: () => PrReplacement | undefined;
   /**
@@ -425,9 +426,11 @@ function conflictResumesOf(
   ports: RunPorts,
   control: RunControl,
 ): (() => ConflictResumes) | undefined {
-  const merge = ports.conflictMerge;
-  if (merge === undefined) return undefined;
+  const conflict = ports.conflictResume;
+  if (conflict === undefined) return undefined;
+  const { merge, stories } = conflict;
   const resumes = new ConflictResumes({
+    stories,
     clock: ports.clock,
     offices: ports.offices,
     git: ports.git,

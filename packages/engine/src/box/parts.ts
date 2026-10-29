@@ -106,12 +106,12 @@ import {
   secretKeysOfFile,
   type SecretValues,
 } from "../context/secrets";
-import { backlogPointer } from "../backlog/runner";
 import { BASE_CHECKOUT_ENV } from "../git/hardened";
 import type { GitSession, OfficeGit } from "../git/office";
 import { GitError } from "../git/runner";
 import { commitTree, moveBranch, type PushResult, pushBranch } from "../git/write";
 import { yieldToEventLoop } from "../platform/clock";
+import type { StoryStore } from "../story-store/store";
 import {
   type ArchiveLink,
   type CacheArchiveLimits,
@@ -875,22 +875,22 @@ async function readViewAt(session: GitSession, tip: string, startSha: string): P
 }
 
 /**
- * The backlog folder the delivered tree's `backlog.config.yml` names (`backlogPointer`), or null:
- * none, a link or a file too large to read, or a pointer that does not resolve (the runner then
- * refuses every Backlog CLI call there).
+ * The backlog folder the delivered tree's `backlog.config.yml` names (the store's
+ * `configuredFolder`), or null: none, a link or a file too large to read, or a pointer that does
+ * not resolve (the runner then refuses every Backlog CLI call there).
  */
 async function namedBacklogFolder(
   session: GitSession,
+  stories: Pick<StoryStore, "configuredFolder">,
   entries: ReadonlyMap<string, TreeEntry>,
 ): Promise<string | null> {
   const entry = entries.get("backlog.config.yml");
   if (entry === undefined || entry.type !== "blob" || entry.mode === "120000") return null;
   const size = Number((await session.ok(session.repository, ["cat-file", "-s", entry.id])).trim());
   if (!(size <= IGNORE_FILE_MAX)) return null;
-  const pointer = backlogPointer(
+  return stories.configuredFolder(
     await session.ok(session.repository, ["cat-file", "blob", entry.id]),
   );
-  return pointer.kind === "folder" ? pointer.folder : null;
 }
 
 /** The commit the story branch points at. */
@@ -1179,6 +1179,8 @@ type Log = (message: string, fields: Readonly<Record<string, unknown>>) => void;
 
 export interface BoxPartsDeps {
   readonly boxes: Pick<BoxPort, "execLive" | "stop">;
+  /** The story store: the backlog folder a delivered tree's configuration names is protected too. */
+  readonly stories: Pick<StoryStore, "configuredFolder">;
   readonly clock: Clock;
   /**
    * This daemon's own folder of part stages (`partStageRoot`), made 0700 when first used; a part
@@ -1800,7 +1802,9 @@ export class BoxParts {
       if ([...changes.map((change) => change.path), ...linkHits].some(unsafePath)) {
         return refused("path");
       }
-      const folder = await git.run((session) => namedBacklogFolder(session, view.entries));
+      const folder = await git.run((session) =>
+        namedBacklogFolder(session, this.#deps.stories, view.entries),
+      );
       const guarded = protectedHits(changes, linkHits, folder);
       if (guarded.kinds.length > 0) {
         this.#hitRecord(run, PART_HITS.protectedFile, guarded.paths);

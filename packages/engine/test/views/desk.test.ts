@@ -14,6 +14,7 @@ import {
 } from "@dipsaus-orchestrator/contract";
 import { withTempDir } from "@dipsaus-orchestrator/testkit";
 
+import { backlogPrDeskItems } from "../../src/backlog/pr/desk";
 import { insertPr, recordCheck } from "../../src/backlog/pr/records";
 import type { OfficeDirectory } from "../../src/commands/offices";
 import { buildRegistry } from "../../src/commands/registry";
@@ -41,7 +42,8 @@ import { keyOf, startRun } from "./helpers";
 const HOUR = 3_600_000;
 const all = () => true;
 
-const ALL_SOURCES: DeskSources = DESK_SOURCES;
+/** The engine's sources with the planning lane's backlog PRs, as `engineFeatures` lists them. */
+const ALL_SOURCES: DeskSources = { ...DESK_SOURCES, prItems: backlogPrDeskItems };
 
 function insertPark(
   office: OfficeHandle,

@@ -20,6 +20,8 @@ import {
 import { insertPark } from "./park-fixture";
 import type { JournalEntry, LaneOp } from "../../src/backlog/lane/journal";
 import { insertEntry } from "../../src/backlog/lane/journal";
+import { type OfficeLane, planningLane } from "../../src/backlog/lane";
+import { backlogLayout } from "../story-store/backlog";
 import type { PlainTask } from "../../src/story-store/story";
 import { cursorAt, readLogState } from "../../src/changelog/log";
 import { replay } from "../../src/changelog/replay";
@@ -238,6 +240,7 @@ beforeEach(async () => {
         if (w.fetchError !== null) throw w.fetchError;
       },
       read: async (_office, ids) => read(ids),
+      planningHold: (handle, key) => backlogLayout.planningHold(handle, key),
     },
     stories: { indexStories: async () => w.indexStories?.() },
     profiles: { ensureFreshProfile: async () => undefined, verifyResolved: () => w.verify },
@@ -303,15 +306,18 @@ beforeEach(async () => {
         return { passed: result.passed, result };
       },
     },
-    lane: () => ({
-      journal: async (op): Promise<JournalEntry> => {
-        lane.journaled.push(op);
-        return office.immediate(() => insertEntry(office, op, t.clock.now()));
-      },
-      flush: async () => {
-        lane.flushes += 1;
-      },
-    }),
+    lane: () =>
+      planningLane({
+        journal: async (op: LaneOp): Promise<JournalEntry> => {
+          lane.journaled.push(op);
+          return office.immediate(() => insertEntry(office, op, t.clock.now()));
+        },
+        flush: async () => {
+          lane.flushes += 1;
+        },
+        office,
+        clock: t.clock,
+      } as unknown as OfficeLane),
   };
   w.registry = buildRegistry([new WorkRun(runDeps).feature]);
   w.deps = {
