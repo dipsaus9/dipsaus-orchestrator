@@ -9,7 +9,8 @@
 // - every box but a build box (DIPO-281) keeps itself running with the mounted `tail`, and every
 //   command in it runs contained (`firewall.ts`) as the box user (DIPO-334): only the box
 //   firewall's own command, and a build box's first step, run with the box's capabilities, and
-//   only dipo's root steps (a build box's, or `isRootStep`) run as root, with the root allow list;
+//   only dipo's root steps run as root: a build box's with the build box's allow list, and in every
+//   other box only `isRootStep`, with the smaller allow list of the fixed steps (DIPO-336);
 // - an image is made only by committing a build box, and pulled only by a reference that is no
 //   option.
 // Inputs that could be read as another option or split into another mount are refused here.
@@ -19,6 +20,7 @@ import { posix } from "node:path";
 
 import {
   BOX_NET_TOOLS_PATH,
+  buildRootStepCommand,
   CONTAINED_KEEPALIVE,
   containedCommand,
   isFirewallCommand,
@@ -88,8 +90,9 @@ export interface ExecInput {
    */
   readonly fullPrivilege?: boolean;
   /**
-   * Runs `command` as one of dipo's root steps (`rootStepCommand`, DIPO-334): any in a build box,
-   * only `isRootStep` in every other box.
+   * Runs `command` as one of dipo's root steps (DIPO-334): any in a build box, with the build
+   * box's allow list (`buildRootStepCommand`); only `isRootStep` in every other box, with the
+   * fixed steps' (`rootStepCommand`, DIPO-336).
    */
   readonly rootStep?: boolean;
 }
@@ -323,8 +326,11 @@ export function exportArgs(name: string, to: string): string[] {
   return ["export", "--output", hostPath(to), checkedBoxName(name)];
 }
 
-/** Who `input`'s command runs as, refused unless the box may run it so. */
-function privilegeOf(input: ExecInput, name: string): "full" | "root" | "user" {
+/**
+ * Who `input`'s command runs as, refused unless the box may run it so: a root step of a build box
+ * with the build box's allow list, any other with the fixed steps' (DIPO-336).
+ */
+function privilegeOf(input: ExecInput, name: string): "full" | "buildRoot" | "root" | "user" {
   if (input.fullPrivilege === true && input.rootStep === true) {
     refuse("a box command is a root step or runs with the box's capabilities, not both.", { name });
   }
@@ -338,7 +344,8 @@ function privilegeOf(input: ExecInput, name: string): "full" | "root" | "user" {
     return "full";
   }
   if (input.rootStep === true) {
-    if (!isBuildBox(name) && !isRootStep(input.command)) {
+    if (isBuildBox(name)) return "buildRoot";
+    if (!isRootStep(input.command)) {
       refuse("only a build box or dipo's fixed root steps run a command as root.", {
         name,
         command: input.command[0],
@@ -369,9 +376,11 @@ export function execArgs(input: ExecInput): string[] {
   const command =
     privilege === "full"
       ? input.command
-      : privilege === "root"
-        ? rootStepCommand(input.command)
-        : containedCommand(input.command, input.env ?? {});
+      : privilege === "buildRoot"
+        ? buildRootStepCommand(input.command)
+        : privilege === "root"
+          ? rootStepCommand(input.command)
+          : containedCommand(input.command, input.env ?? {});
   return [
     "exec",
     ...(input.interactive === true ? ["--interactive"] : []),
