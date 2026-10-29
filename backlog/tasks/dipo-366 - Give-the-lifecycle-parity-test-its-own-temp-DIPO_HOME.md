@@ -1,10 +1,10 @@
 ---
 id: DIPO-366
 title: Give the lifecycle parity test its own temp DIPO_HOME
-status: Refined
+status: Ready
 assignee: []
 created_date: '2026-10-28 15:04'
-updated_date: '2026-10-28 15:07'
+updated_date: '2026-10-29 08:08'
 labels:
   - 'tier:S'
   - 'slice:prune'
