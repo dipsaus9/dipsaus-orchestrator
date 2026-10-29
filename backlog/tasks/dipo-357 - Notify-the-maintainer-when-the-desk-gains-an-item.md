@@ -4,7 +4,7 @@ title: Notify the maintainer when the desk gains an item
 status: Ready
 assignee: []
 created_date: '2026-10-25 09:51'
-updated_date: '2026-10-29 21:33'
+updated_date: '2026-10-29 21:35'
 labels:
   - 'tier:S'
   - 'slice:prune'
@@ -13,6 +13,10 @@ milestone: m-1
 dependencies:
   - DIPO-351
 references:
+  - packages/engine/src/views/desk.ts
+  - packages/daemon/src/
+  - packages/engine/src/platform/
+  - packages/engine/src/config/
   - packages/engine/src/config/software.ts
 priority: medium
 type: feature
