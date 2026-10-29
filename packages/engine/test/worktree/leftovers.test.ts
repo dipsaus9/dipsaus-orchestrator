@@ -4,12 +4,14 @@
 // unlocked worktree, a worktree locked for another reason and `_base` stay untouched. Real git.
 
 import { describe, expect, it } from "bun:test";
-import { appendFileSync, existsSync, mkdirSync, writeFileSync } from "node:fs";
+import { execFileSync } from "node:child_process";
+import { appendFileSync, existsSync, mkdirSync, mkdtempSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 
 import { git, type TempRepo, withTempRepo } from "@dipsaus-orchestrator/testkit";
 
 import {
+  heldBlobs,
   keepingPaths,
   LEFTOVER_WORKTREE_DESK,
   leftoverWorktreeDeskItems,
@@ -37,6 +39,31 @@ async function addWorktree(
 
 const listed = async (repo: TempRepo): Promise<string> =>
   git(repo.dir, repo.home, "worktree", "list", "--porcelain");
+
+/**
+ * Commits `files` on top of `branch` from objects, as a box's part is committed, without touching
+ * any worktree, so a worktree that has the branch checked out lags it. Returns the new tip.
+ */
+function commitFromObjects(repo: TempRepo, branch: string, files: Record<string, string>): string {
+  const index = join(mkdtempSync(join(repo.root, "index-")), "index");
+  const run = (args: string[], input?: string) =>
+    execFileSync("git", args, {
+      cwd: repo.dir,
+      env: { ...repo.env, GIT_INDEX_FILE: index },
+      encoding: "utf8",
+      ...(input === undefined ? {} : { input }),
+    }).trim();
+  const tip = run(["rev-parse", `refs/heads/${branch}`]);
+  run(["read-tree", tip]);
+  for (const [path, text] of Object.entries(files)) {
+    const blob = run(["hash-object", "-w", "--stdin"], text);
+    run(["update-index", "--add", "--cacheinfo", `100644,${blob},${path}`]);
+  }
+  const tree = run(["write-tree"]);
+  const commit = run(["commit-tree", tree, "-p", tip, "-m", "a part"]);
+  run(["update-ref", `refs/heads/${branch}`, commit, tip]);
+  return commit;
+}
 
 describe("the leftover story worktrees at an office load", () => {
   it("removes a clean leftover, keeps a dirty one for the desk, and touches no other worktree", async () => {
@@ -132,7 +159,56 @@ describe("the leftover story worktrees at an office load", () => {
   });
 });
 
+describe("a leftover of a box run, whose files lag its branch", () => {
+  it("is removed when every changed file is held in git, and kept for one unsaved byte", async () => {
+    await withTempRepo(
+      async (repo) => {
+        await publish(repo);
+        const s = await claimSetup(repo);
+        // The worker wrote two files in the worktree; the box committed the same bytes from
+        // objects, so the worktree's index and HEAD disagree and git lists changes.
+        const saved = await addWorktree(repo, s, "DIPO-1", "DIPO-1/saved", "dipo run_01G");
+        const unsaved = await addWorktree(repo, s, "DIPO-2", "DIPO-2/unsaved", "dipo run_01H");
+        for (const [dir, branch] of [
+          [saved, "DIPO-1/saved"],
+          [unsaved, "DIPO-2/unsaved"],
+        ] as const) {
+          writeFileSync(join(dir, "README.md"), "changed by the worker\n");
+          writeFileSync(join(dir, "src.txt"), "new work\n");
+          commitFromObjects(repo, branch, {
+            "README.md": "changed by the worker\n",
+            "src.txt": "new work\n",
+          });
+        }
+        // One byte the box never delivered.
+        writeFileSync(join(unsaved, "src.txt"), "new work!\n");
+        expect(await git(saved, repo.home, "status", "--porcelain")).not.toBe("");
+
+        const sweep = await sweepLeftoverWorktrees(s.git);
+
+        expect(sweep.removed).toEqual([saved]);
+        expect(existsSync(saved)).toBe(false);
+        expect(sweep.kept.map((k) => k.path)).toEqual([unsaved]);
+        expect(sweep.kept[0]?.why).toContain("src.txt");
+        expect(sweep.kept[0]?.why).not.toContain("README.md");
+        expect(existsSync(join(unsaved, "src.txt"))).toBe(true);
+        expect(await listed(repo)).toContain("locked dipo run_01H");
+      },
+      { fixture: BACKLOG_FIXTURE },
+    );
+  });
+});
+
 describe("the paths that keep a leftover", () => {
+  it("reads the blobs git log --raw -z gave each path", () => {
+    const a = "a".repeat(40);
+    const b = "b".repeat(40);
+    const raw = `\n:100644 100644 ${a} ${b} M\0src.txt\0\n:000000 100644 ${"0".repeat(40)} ${a} A\0src.txt\0`;
+    expect([...heldBlobs(raw)].toSorted()).toEqual(
+      [`src.txt\0${"0".repeat(40)}`, `src.txt\0${a}`, `src.txt\0${b}`].toSorted(),
+    );
+  });
+
   it("lists changes and ignored files but a whole node_modules folder and .DS_Store", () => {
     const status = [
       " M src/a.ts",

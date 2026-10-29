@@ -115,17 +115,24 @@ export async function resetWorktree(
 
 /**
  * Removes the worktree at `path` that an earlier binary made for a story (0010: a story has no
- * worktree any more): its lock `lock` is lifted, then `git worktree remove` runs without `--force`,
- * so git refuses a worktree with changes or untracked files. A refusal locks it again with the same
- * reason and returns git's result; the branch it had checked out is never touched.
+ * worktree any more): its lock `lock` is lifted, then `git worktree remove` runs. Without `force`
+ * git refuses a worktree with changes or untracked files; `force` is only for one whose every
+ * changed file the caller found saved in git. A refusal locks it again with the same reason and
+ * returns git's result; the branch it had checked out is never touched.
  */
 export async function removeLeftoverWorktree(
   git: GitSession,
   path: string,
   lock: string | null,
+  force = false,
 ): Promise<GitResult> {
   if (lock !== null) await git.ok(git.repository, ["worktree", "unlock", path]);
-  const removed = await git.step(git.repository, ["worktree", "remove", path]);
+  const removed = await git.step(git.repository, [
+    "worktree",
+    "remove",
+    ...(force ? ["--force"] : []),
+    path,
+  ]);
   if (removed.code !== 0 && lock !== null) {
     await git.step(git.repository, ["worktree", "lock", "--reason", lock, path]);
   }

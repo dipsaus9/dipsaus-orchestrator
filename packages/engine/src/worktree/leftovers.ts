@@ -13,19 +13,26 @@
 // `dipo <run-id>` the claim of an earlier binary gave it. Any other worktree there, such as one the maintainer added, is not
 // touched. A worktree whose folder is gone is reconcile's notice (`goneWorktrees`), not this one's.
 //
-// Clean means: on a branch (not a detached HEAD), its `.git` pointing at its registered folder,
-// and `git status` listing no change, untracked file or ignored file other than a whole
-// `node_modules/` folder or a `.DS_Store` file (which `git worktree remove` deletes even without
-// `--force`, and which an install or the Finder makes again). The branch stays in either case, so
-// no commit is lost.
+// Clean means: on a branch (not a detached HEAD), and `git status` listing no change, untracked
+// file or ignored file other than a whole `node_modules/` folder or a `.DS_Store` file (which
+// `git worktree remove` deletes even without `--force`, and which an install or the Finder makes
+// again). The branch stays in either case, so no commit is lost.
+//
+// Saved means: on a branch, and every path `git status` lists (but those two) is a deleted file,
+// or a regular file whose bytes equal the blob git holds for that path at some commit reachable
+// from the branch tip. A worktree of a box run lags its branch, because the box's parts were
+// committed from objects; its files are then saved, and removing it loses nothing. It is removed
+// with `--force`, which git needs for a worktree with changes. Any other path keeps it.
 //
 // The desk rows are kept in `leftover_worktrees`, written again at each office load: a row whose
 // worktree is gone or removed goes.
 
-import { basename, dirname } from "node:path";
+import { lstatSync, readFileSync } from "node:fs";
+import { basename, dirname, join } from "node:path";
 
 import type { Clock } from "@dipsaus-orchestrator/contract";
 
+import { gitBlobId } from "../context/pack";
 import type { OfficeHandle } from "../db/office";
 import { BASE_CHECKOUT_CONFIG, BASE_CHECKOUT_ENV } from "../git/hardened";
 import type { GitSession, OfficeGit } from "../git/office";
@@ -49,6 +56,9 @@ function rebuildable(path: string): boolean {
 
 /** How many paths a kept worktree's detail names; the rest are counted. */
 const SHOWN_PATHS = 10;
+
+/** How many changed paths dipo checks against git; a worktree with more is kept unchecked. */
+const CHECKED_PATHS = 500;
 
 /** A leftover worktree dipo kept, and why. */
 export interface KeptWorktree {
@@ -81,13 +91,20 @@ export function leftoverCandidates(
   );
 }
 
+/** A path `git status` lists, and whether the worktree lacks the file (a deletion). */
+export interface StatusPath {
+  readonly path: string;
+  readonly deleted: boolean;
+}
+
 /**
- * The paths `git status --porcelain=v1 -z` lists that keep a worktree: every change and untracked
- * path, and every ignored path but a rebuildable one. A rename's second path is skipped.
+ * The paths `git status --porcelain=v1 -z` lists that keep a worktree unless saved: every change
+ * and untracked path, and every ignored path but a rebuildable one. A rename's second path is
+ * skipped.
  */
-export function keepingPaths(status: string): string[] {
+export function statusPaths(status: string): StatusPath[] {
   const fields = status.split("\0");
-  const paths: string[] = [];
+  const paths: StatusPath[] = [];
   for (let i = 0; i < fields.length; i++) {
     const entry = fields[i] ?? "";
     if (entry.length < 4) continue;
@@ -95,33 +112,115 @@ export function keepingPaths(status: string): string[] {
     const path = entry.slice(3);
     if (code.startsWith("R") || code.startsWith("C")) i += 1;
     if (code === "!!" && rebuildable(path)) continue;
-    paths.push(path);
+    paths.push({ path, deleted: code[1] === "D" || (code[0] === "D" && code[1] === " ") });
   }
   return paths;
 }
 
-/** Why the worktree must be kept, or null when it is clean (see the file comment). */
-async function keepReason(
+/** The paths of `statusPaths`. */
+export function keepingPaths(status: string): string[] {
+  return statusPaths(status).map((entry) => entry.path);
+}
+
+/**
+ * The `<path>\0<blob>` pairs of `git log --raw -z` output: each blob a commit gave a path, and the
+ * one it replaced.
+ */
+export function heldBlobs(raw: string): Set<string> {
+  const held = new Set<string>();
+  const fields = raw.split("\0");
+  for (let i = 0; i < fields.length; i++) {
+    const meta = (fields[i] ?? "").replace(/^\n+/, "");
+    if (!meta.startsWith(":")) continue;
+    const path = fields[i + 1] ?? "";
+    i += 1;
+    const [, , before, after] = meta.slice(1).split(" ");
+    if (before !== undefined) held.add(`${path}\0${before}`);
+    if (after !== undefined) held.add(`${path}\0${after}`);
+  }
+  return held;
+}
+
+/**
+ * The paths of `paths` whose files in the worktree at `root` are not saved: not a regular file, or
+ * bytes git holds for that path at no commit reachable from `tip`. A deleted file is saved.
+ */
+async function unsavedPaths(
+  session: GitSession,
+  root: string,
+  tip: string,
+  paths: readonly StatusPath[],
+): Promise<string[]> {
+  const unsaved: string[] = [];
+  const blobs = new Map<string, string>();
+  for (const { path, deleted } of paths) {
+    if (deleted) continue;
+    const file = join(root, path);
+    try {
+      if (!lstatSync(file).isFile()) {
+        unsaved.push(path);
+        continue;
+      }
+      blobs.set(path, gitBlobId(readFileSync(file)));
+    } catch {
+      unsaved.push(path);
+    }
+  }
+  if (blobs.size === 0) return unsaved;
+  const raw = await session.ok(session.repository, [
+    "log",
+    "--no-abbrev",
+    "--raw",
+    "-z",
+    "--no-renames",
+    "--format=",
+    tip,
+    "--",
+    ...[...blobs.keys()].map((path) => `:(literal)${path}`),
+  ]);
+  const held = heldBlobs(raw);
+  for (const [path, blob] of blobs) if (!held.has(`${path}\0${blob}`)) unsaved.push(path);
+  return unsaved;
+}
+
+/** What to do with a leftover: keep it and why, or remove it (`saved`: with `--force`). */
+type LeftoverVerdict = { readonly keep: string } | { readonly remove: "clean" | "saved" };
+
+/** Whether to keep or remove the worktree (see the file comment). */
+async function verdictOf(
   git: OfficeGit,
   session: GitSession,
   entry: ListedWorktree,
-): Promise<string | null> {
-  if (entry.branch === null) return "it has a detached HEAD checked out";
-  let status: string;
+): Promise<LeftoverVerdict> {
+  if (entry.branch === null) return { keep: "it has a detached HEAD checked out" };
+  let paths: StatusPath[];
+  let unsaved: string[];
   try {
-    status = await session.ok(
+    const status = await session.ok(
       git.worktreeLocation(entry.path),
       ["status", "--porcelain=v1", "-z", "--untracked-files=all", "--ignored=matching"],
       { config: BASE_CHECKOUT_CONFIG, env: BASE_CHECKOUT_ENV },
     );
+    paths = statusPaths(status);
+    if (paths.length === 0) return { remove: "clean" };
+    if (paths.length > CHECKED_PATHS) {
+      unsaved = paths.map((p) => p.path);
+    } else {
+      const tip = (
+        await session.ok(session.repository, ["rev-parse", "--verify", `${entry.branch}^{commit}`])
+      ).trim();
+      unsaved = await unsavedPaths(session, entry.path, tip, paths);
+    }
   } catch (error) {
-    return `dipo could not read its status (${error instanceof Error ? error.message : String(error)})`;
+    const why = error instanceof Error ? error.message : String(error);
+    return { keep: `dipo could not check its files (${why})` };
   }
-  const paths = keepingPaths(status);
-  if (paths.length === 0) return null;
-  const shown = paths.slice(0, SHOWN_PATHS).join(", ");
-  const more = paths.length > SHOWN_PATHS ? ` and ${paths.length - SHOWN_PATHS} more` : "";
-  return `it holds changes, untracked or ignored files: ${shown}${more}`;
+  if (unsaved.length === 0) return { remove: "saved" };
+  const shown = unsaved.slice(0, SHOWN_PATHS).join(", ");
+  const more = unsaved.length > SHOWN_PATHS ? ` and ${unsaved.length - SHOWN_PATHS} more` : "";
+  return {
+    keep: `it holds changes, untracked or ignored files git does not hold: ${shown}${more}`,
+  };
 }
 
 /**
@@ -138,12 +237,13 @@ export function sweepLeftoverWorktrees(git: OfficeGit): Promise<LeftoverSweep> {
     const kept: KeptWorktree[] = [];
     for (const entry of leftoverCandidates(listed, git.worktreeRoot())) {
       const branch = entry.branch?.replace(/^refs\/heads\//, "") ?? null;
-      const why = await keepReason(git, session, entry);
-      if (why !== null) {
-        kept.push({ path: entry.path, branch, why });
+      const verdict = await verdictOf(git, session, entry);
+      if ("keep" in verdict) {
+        kept.push({ path: entry.path, branch, why: verdict.keep });
         continue;
       }
-      const result = await removeLeftoverWorktree(session, entry.path, entry.locked).catch(
+      const force = verdict.remove === "saved";
+      const result = await removeLeftoverWorktree(session, entry.path, entry.locked, force).catch(
         (error: unknown) => ({
           code: null,
           stdout: "",

@@ -28,6 +28,7 @@ export {
 export type { ClaimRecord, ReleasedBranch } from "./records";
 export { SWEEP_MARGIN_MS, sweepBranchReads } from "./sweep";
 export {
+  heldBlobs,
   keepingPaths,
   LEFTOVER_WORKTREE_DESK,
   leftoverCandidates,
