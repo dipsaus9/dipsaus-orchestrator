@@ -25,6 +25,7 @@ import {
 import type { StoryPrGit } from "../../src/story-pr/git";
 import { StoryPrs } from "../../src/story-pr/prs";
 import { StoryTeardown } from "../../src/worktree/done";
+import { backlogStoryStore } from "../../src/backlog/store";
 
 const OFFICE = OfficeId.parse("off_01J0000000000000000000000A");
 const REPO = "o/r";
@@ -338,7 +339,7 @@ describe("the consumers", () => {
     const teardown = new StoryTeardown({
       git: () => undefined,
       host: host as never,
-      cli: {} as BacklogCli,
+      stories: backlogStoryStore({} as BacklogCli),
       offices,
       prState: watched,
     });
@@ -372,7 +373,7 @@ describe("the consumers", () => {
     const teardown = new StoryTeardown({
       git: () => undefined,
       host: host as never,
-      cli: {} as BacklogCli,
+      stories: backlogStoryStore({} as BacklogCli),
       offices,
     });
     const storyPrs = new StoryPrs({

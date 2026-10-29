@@ -11,7 +11,7 @@ import { join } from "node:path";
 import { type TempRepo, withTempRepo } from "@dipsaus-orchestrator/testkit";
 
 import { GitError } from "../../src/git";
-import { editInStoryBacklog } from "../../src/stories/story-copy";
+import { editInStoryBacklog } from "../../src/backlog/story-copy";
 import { claimStory } from "../../src/worktree";
 import {
   BACKLOG_FIXTURE,

@@ -10,11 +10,13 @@ import type { Spawn } from "@dipsaus-orchestrator/contract";
 import type { BacklogCli } from "../../src/backlog/runner";
 import { cachedGateTasks, evaluateGate, readGateInput } from "../../src/gate";
 import { applyIndex, applyStory } from "../../src/stories/apply";
-import { storyFromView } from "../../src/stories/read";
+import { storyRead } from "../../src/backlog/read";
+import { storyFromRead } from "../../src/stories/read";
 import type { BacklogStory } from "../../src/stories/read";
 import { DEFAULT_CONFIG, block } from "./fixtures";
 import { storyRows, withOffice } from "../stories/helpers";
 import { removeStory } from "../../src/stories/keys";
+import { backlogStoryStore } from "../../src/backlog/store";
 
 interface FakeTask {
   readonly id: string;
@@ -104,7 +106,9 @@ function fakeCli(tasks: readonly FakeTask[]): { cli: BacklogCli; calls: string[]
 /** What an index pass reads of every task: its view, as `readBacklog` turns it into a story. */
 function indexed(tasks: readonly FakeTask[]): BacklogStory[] {
   return tasks.map((task) =>
-    storyFromView("task", viewText(task), { id: task.id, title: task.id, status: "Refined" }),
+    storyFromRead(
+      storyRead("task", viewText(task), { id: task.id, title: task.id, status: "Refined" }),
+    ),
   );
 }
 
@@ -119,7 +123,12 @@ describe("the gate's other tasks from the mirror", () => {
     withOffice(async (t, office) => {
       const tasks = backlog();
       const slow = fakeCli(tasks);
-      const everyView = await readGateInput(slow.cli, "/base", "DIPO-1", DEFAULT_CONFIG);
+      const everyView = await readGateInput(
+        backlogStoryStore(slow.cli),
+        "/base",
+        "DIPO-1",
+        DEFAULT_CONFIG,
+      );
       // The list, a view per task (the story's own is the one it read first) and the milestones.
       expect(slow.calls.length).toBeGreaterThan(TASKS);
 
@@ -135,7 +144,7 @@ describe("the gate's other tasks from the mirror", () => {
 
       const fast = fakeCli(tasks);
       const fromMirror = await readGateInput(
-        fast.cli,
+        backlogStoryStore(fast.cli),
         "/base",
         "DIPO-1",
         DEFAULT_CONFIG,
@@ -148,7 +157,7 @@ describe("the gate's other tasks from the mirror", () => {
       // A smaller backlog makes the same calls.
       const small = fakeCli(tasks.slice(0, 10));
       await readGateInput(
-        small.cli,
+        backlogStoryStore(small.cli),
         "/base",
         "DIPO-1",
         DEFAULT_CONFIG,

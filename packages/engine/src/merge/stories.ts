@@ -54,7 +54,6 @@ import type {
   StoryKey,
 } from "@dipsaus-orchestrator/contract";
 
-import type { StoryTarget } from "../backlog/fields/write";
 import type { CatchUpMerged } from "../box/collisions";
 import type { NewEntry } from "../changelog/log";
 import type { OfficeConfig } from "../config";
@@ -92,6 +91,7 @@ import {
   recordBranchPush,
   type StoryPrRecord,
 } from "../story-pr/records";
+import type { StoryEditor } from "../story-store/store";
 import { withWorkViews } from "../views/work";
 import { latestRecordedTest, testPassedFor } from "../run/test-records";
 import { findClaim } from "../worktree/records";
@@ -150,7 +150,7 @@ export interface StoryMergeDeps {
   readonly story?: (office: OfficeId, run: StoredRun) => Promise<RunStoryFacts>;
   /** Writes the close-out's final summary (`writeCloseOutSummary`). */
   readonly summary: (
-    target: StoryTarget,
+    story: StoryEditor,
     office: OfficeHandle,
     key: string,
     at: number,
@@ -731,8 +731,8 @@ export class StoryMerges {
     const { run, repo } = pr;
     const git = this.#deps.git;
     const branch = run.branch as string;
-    await git.closeOut(ctx.officeId, this.#mergeRun(ctx, run), (target) =>
-      this.#deps.summary(target, ctx.office, run.key as string, ctx.clock.now()),
+    await git.closeOut(ctx.officeId, this.#mergeRun(ctx, run), (story) =>
+      this.#deps.summary(story, ctx.office, run.key as string, ctx.clock.now()),
     );
     if (!(await this.#push(ctx, run, branch))) return;
     await this.#deps.prSync(ctx.officeId, run.runId);

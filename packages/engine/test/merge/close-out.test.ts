@@ -18,6 +18,7 @@ import {
   TASK_1,
   TASK_FILE_1,
 } from "../worktree/helpers";
+import { backlogStoryStore } from "../../src/backlog/store";
 
 /** The ```dipo field block of a task file's text. */
 function dipoBlock(text: string): string {
@@ -37,7 +38,7 @@ describe("the close-out commit", () => {
         await publish(repo);
         const s = await claimSetup(repo);
         const claim = claimed(await claimStory(s.deps(), s.request(s.key()))).claim;
-        const deps = { git: () => s.git, cli: s.cli };
+        const deps = { git: () => s.git, stories: backlogStoryStore(s.cli) };
         // DIPO-129: the story parked ambiguous-spec, and its park record was never removed.
         await gitParkWriter(deps).write(s.office.officeId, {
           story: TASK_1,

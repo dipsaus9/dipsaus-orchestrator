@@ -3,9 +3,9 @@
 
 import type { FieldBlock, FieldBlockUnknown, TestPlan } from "@dipsaus-orchestrator/contract";
 
-import { locateBlock } from "../backlog/fields/block";
-import { readLabels } from "../backlog/fields/labels";
-import type { PlainTask } from "../backlog/plain";
+import { locateBlock } from "../story-store/fields/block";
+import { readLabels } from "../story-store/fields/labels";
+import type { PlainTask } from "../story-store/story";
 
 const OUTCOME_PREFIX = "Outcome:";
 

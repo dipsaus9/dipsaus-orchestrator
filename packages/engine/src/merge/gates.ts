@@ -46,11 +46,11 @@ import {
   type StoryKey,
 } from "@dipsaus-orchestrator/contract";
 
-import { TEST_BEFORE_MERGE } from "../backlog/fields/labels";
 import type { NewEntry } from "../changelog/log";
 import type { OfficeHandle } from "../db/office";
 import type { StoredReviewVerdict } from "../review/store";
 import { markPhase } from "../run/markers";
+import { TEST_BEFORE_MERGE } from "../story-store/fields/labels";
 import { runProgress, workRefOf } from "../views/work";
 
 /** The gate kind of a merge gate. */

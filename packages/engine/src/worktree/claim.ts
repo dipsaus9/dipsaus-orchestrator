@@ -3,7 +3,7 @@
 // git read or write of the story runs on the branch ref in the repository. The engine creates the
 // branch from `origin/<base>` (or reuses a branch released for the same story), records the claim,
 // runs the caller's `setup` (the box and the launch checks), commits `<ID>: status In Progress`
-// on the branch from dipo's own copy of the story's backlog (`stories/story-copy.ts`), and pushes.
+// on the branch as one story lane edit of the StoryStore (`editOnBranch`), and pushes.
 //
 // Order and atomicity:
 // - When the office has a remote, `OfficeGit.fetch` runs first as its own queue item.
@@ -28,17 +28,15 @@
 
 import type { Clock, OfficeId, RunId, SkipReason, StoryKey } from "@dipsaus-orchestrator/contract";
 
-import { viewStory } from "../backlog/fields/write";
 import { PENDING_LANE_NOTICE, pendingLaneOp } from "../backlog/lane/journal";
-import { type BacklogCli, runBacklog } from "../backlog/runner";
 import { appendEntries } from "../changelog/log";
 import type { OfficeHandle } from "../db/office";
 import { FETCH_CONFIG } from "../git/hardened";
 import type { GitSession, OfficeGit } from "../git/office";
 import { EXTERNAL_STEP_TIMEOUT_MS, GitError, type GitResult, isTimedOut } from "../git/runner";
-import { createBranch, deleteBranch, moveBranch, pushBranch } from "../git/write";
+import { branchTip, createBranch, deleteBranch, moveBranch, pushBranch } from "../git/write";
 import { endRunMarked } from "../run/markers";
-import { branchTip, editInStoryBacklog } from "../stories/story-copy";
+import type { StoryStore } from "../story-store/store";
 
 import {
   type ClaimRecord,
@@ -137,8 +135,8 @@ export interface ClaimDeps {
   readonly officeId: OfficeId;
   readonly office: OfficeHandle;
   readonly git: OfficeGit;
-  /** How the Backlog CLI starts; it runs in dipo's own copy of the story's backlog. */
-  readonly cli: BacklogCli;
+  /** The story store; the claim commit is one story lane edit. */
+  readonly stories: StoryStore;
   readonly clock: Clock;
   /** Called after the claim appended change-log entries outside a command. */
   readonly onChanged?: (office: OfficeId) => void;
@@ -393,32 +391,24 @@ async function finishClaim<S extends ClaimSetupDone>(
 }
 
 /**
- * Sets the story's status to In Progress through the Backlog CLI in dipo's own copy of the story's
- * backlog (`editInStoryBacklog`) and commits only its task file on the branch as
- * `<ID>: status In Progress`. Returns the commit, or null when the status was already In Progress.
+ * Sets the story's status to In Progress in one story lane edit of the store (`editOnBranch`), which
+ * commits only its task file on the branch as `<ID>: status In Progress`. Returns the commit, or null when the status was already In Progress.
  */
 async function claimCommit(
   deps: ClaimDeps,
   git: GitSession,
   request: ClaimRequest,
 ): Promise<string | null> {
-  const { commit } = await editInStoryBacklog(
+  const { commit } = await deps.stories.editOnBranch(
     deps.git,
     git,
     request,
     `${request.story}: status ${CLAIM_STATUS}`,
-    async (backlog) => {
-      const target = { cli: deps.cli, cwd: backlog.cwd, id: request.story };
-      const before = await viewStory(target);
+    async (story) => {
+      const before = await story.view();
       if (before.status === CLAIM_STATUS) return;
-      await runBacklog(deps.cli, backlog.cwd, [
-        "task",
-        "edit",
-        request.story,
-        "--status",
-        CLAIM_STATUS,
-      ]);
-      const back = await viewStory(target);
+      await story.setStatus(CLAIM_STATUS);
+      const back = await story.view();
       if (back.status !== CLAIM_STATUS) {
         throw new GitError(
           "claim.statusNotWritten",

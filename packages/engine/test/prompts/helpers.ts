@@ -5,7 +5,7 @@ import { expect } from "bun:test";
 import { readFile, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 
-import type { PlainTask } from "../../src/backlog/plain";
+import type { PlainTask } from "../../src/story-store/story";
 import type { ContextItem, ContextPack } from "../../src/context";
 import { OFFICE_DEFAULTS } from "../../src/config";
 import {

@@ -22,12 +22,12 @@ import { withBareRemote, withTempDir } from "@dipsaus-orchestrator/testkit";
 
 import { EngineGit, resolveWorktreeRoot } from "../../src/git";
 import { systemSpawn } from "../../src/platform/process";
-import { BRANCH_READ_PREFIX } from "../../src/stories/branch-read";
 import { StoryIndex } from "../../src/stories/feature";
 import { StoryClaims } from "../../src/worktree/feature";
-import { SWEEP_MARGIN_MS, sweepBranchReads } from "../../src/worktree/sweep";
+import { BRANCH_READ_PREFIX, SWEEP_MARGIN_MS, sweepBranchReads } from "../../src/worktree/sweep";
 import { BACKLOG_FIXTURE, officeSetup, resultOf, send } from "../office/helpers";
 import { BASE, fakeBacklog, tableOf, type Tables } from "../reconcile/helpers";
+import { backlogStoryStore } from "../../src/backlog/store";
 
 /** The daemon start in these tests. */
 const STARTED = Date.parse("2026-01-01T00:00:00Z");
@@ -163,7 +163,7 @@ describe("the claims load step sweeps leftover scratch directories", () => {
         const logged: { message: string; fields: Readonly<Record<string, unknown>> }[] = [];
         const claims = new StoryClaims({
           git: (office) => engineGit.forOffice(office),
-          cli,
+          stories: backlogStoryStore(cli),
           startedAt: STARTED,
           info: (message, fields) => logged.push({ message, fields }),
           warn: (message, fields) => logged.push({ message, fields }),
@@ -174,7 +174,7 @@ describe("the claims load step sweeps leftover scratch directories", () => {
           features: (manager) => {
             index = new StoryIndex({
               git: engineGit,
-              cli,
+              stories: backlogStoryStore(cli),
               offices: {
                 get: (office) => manager.get(office),
                 config: (office) => manager.config(office),
@@ -224,7 +224,7 @@ describe("the claims load step sweeps leftover scratch directories", () => {
         const logged: { message: string; fields: Readonly<Record<string, unknown>> }[] = [];
         const claims = new StoryClaims({
           git: (office) => engineGit.forOffice(office),
-          cli: { spawn: fakeBacklog(new Map()).spawn },
+          stories: backlogStoryStore({ spawn: fakeBacklog(new Map()).spawn }),
           startedAt: STARTED,
           info: (message, fields) => logged.push({ message, fields }),
           warn: (message, fields) => logged.push({ message, fields }),

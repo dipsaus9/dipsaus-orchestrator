@@ -7,15 +7,8 @@ import { describe, expect, it } from "bun:test";
 
 import type { FieldBlock } from "@dipsaus-orchestrator/contract";
 
-import {
-  editLabels,
-  FieldBlockError,
-  FieldWriteError,
-  parseFieldBlock,
-  spliceFieldBlock,
-  writeFields,
-  type StoryTarget,
-} from "../../src/backlog";
+import { editLabels, FieldWriteError, writeFields, type StoryTarget } from "../../src/backlog";
+import { FieldBlockError, parseFieldBlock, spliceFieldBlock } from "../../src/story-store";
 import { scriptedSpawn, viewOutput } from "./helpers";
 
 const ID = "TASK-4";

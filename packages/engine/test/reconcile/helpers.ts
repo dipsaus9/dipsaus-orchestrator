@@ -29,6 +29,7 @@ import { insertRun } from "../../src/run/records";
 import { StoryIndex } from "../../src/stories/feature";
 import { type ClaimRecord, insertClaim, liveClaimOf } from "../../src/worktree/records";
 import { BACKLOG_FIXTURE, type OfficeSetup, officeSetup, resultOf, send } from "../office/helpers";
+import { backlogStoryStore } from "../../src/backlog/store";
 
 /** A task as the scripted CLI prints it. */
 export interface FakeTask {
@@ -242,7 +243,7 @@ export function withReconcileOffice(
       const backlog = fakeBacklog(tables);
       const index = new StoryIndex({
         git: engineGit,
-        cli: { spawn: backlog.spawn },
+        stories: backlogStoryStore({ spawn: backlog.spawn }),
         ...(options.reuseViews === true ? { reuseViews: true } : {}),
         offices: {
           get: (office) => setup?.manager.get(office),

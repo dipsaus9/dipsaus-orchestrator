@@ -19,7 +19,6 @@ import {
   type TimerHandle,
 } from "@dipsaus-orchestrator/contract";
 
-import type { BacklogCli } from "../backlog/runner";
 import { appendEntries } from "../changelog/log";
 import type { FeatureModule } from "../commands/registry";
 import { OFFICE_DEFAULTS, type OfficeConfig } from "../config";
@@ -27,6 +26,7 @@ import type { OfficeHandle } from "../db/office";
 import type { GitSession, OfficeGit } from "../git/office";
 import type { Logger } from "../log/logger";
 import { background } from "../platform/background";
+import type { StoryStore } from "../story-store/store";
 
 import {
   type IndexResult,
@@ -48,7 +48,7 @@ export const REFRESH_FETCH_FRESH_MS = 2_000;
 export interface StoryIndexDeps {
   /** The office's git once the git load step attached it. */
   readonly git: { forOffice(office: OfficeId): OfficeGit | undefined };
-  readonly cli: BacklogCli;
+  readonly stories: StoryStore;
   /**
    * The loaded offices: a poll stops once its office is no longer loaded (forgotten) and reads the
    * configuration in force for its next interval. Without it the poll uses the load's values.
@@ -124,7 +124,7 @@ export class StoryIndex {
 
   /**
    * One index pass of a loaded office (for `office.rescan` and `work.run`), after any pass already
-   * running. Throws when the office has not loaded, has no base, or the Backlog CLI fails.
+   * running. Throws when the office has not loaded, has no base, or the story store fails.
    */
   indexStories(office: OfficeId): Promise<IndexResult> {
     const state = this.#offices.get(office);
@@ -156,7 +156,7 @@ export class StoryIndex {
       {
         office: state.office,
         git: this.#git(office),
-        cli: this.#deps.cli,
+        stories: this.#deps.stories,
         clock: state.clock,
         ids: state.ids,
         ...(this.#deps.reuseViews === true ? { reuseViews: true } : {}),
@@ -190,7 +190,7 @@ export class StoryIndex {
         {
           office: state.office,
           git: this.#git(office),
-          cli: this.#deps.cli,
+          stories: this.#deps.stories,
           clock: state.clock,
           ids: state.ids,
         },
@@ -259,7 +259,7 @@ export class StoryIndex {
     const result = await indexStories({
       office: state.office,
       git: this.#git(office),
-      cli: this.#deps.cli,
+      stories: this.#deps.stories,
       clock: state.clock,
       ids: state.ids,
       ...(this.#deps.reuseViews === true ? { reuseViews: true } : {}),

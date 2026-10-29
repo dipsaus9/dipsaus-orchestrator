@@ -13,10 +13,4 @@ export { gateConfigOf, GateStore } from "./feature";
 export type { BaseCheckout, GateEvaluation, GateStoreDeps } from "./feature";
 export { gateContent, gateContentHash } from "./hash";
 export { BaseTreeCache, listTreeFiles, treePaths } from "./tree";
-export {
-  isStoryNotFound,
-  parseMilestones,
-  readGateInput,
-  StoryNotFoundError,
-  waitingOnOf,
-} from "./read";
+export { readGateInput, StoryNotFoundError, waitingOnOf } from "./read";

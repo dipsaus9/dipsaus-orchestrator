@@ -11,13 +11,12 @@ import { withTempRepo } from "@dipsaus-orchestrator/testkit";
 
 import {
   editLabels,
-  locateBlock,
-  parseFieldBlock,
   viewStory,
   writeFields,
   type BacklogCli,
   type StoryTarget,
 } from "../../src/backlog";
+import { locateBlock, parseFieldBlock } from "../../src/story-store";
 import { systemSpawn } from "../../src/platform/process";
 import { BACKLOG_CLI, BACKLOG_FIXTURE } from "./helpers";
 

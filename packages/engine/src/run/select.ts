@@ -7,7 +7,7 @@
 
 import type { SkipReason } from "@dipsaus-orchestrator/contract";
 
-import type { PlainTask } from "../backlog/plain";
+import type { PlainTask } from "../story-store/story";
 
 /** The status a run picks (0012 section 2). */
 export const READY_STATUS = "Ready";

@@ -24,6 +24,7 @@ import {
 } from "../../src/gate";
 import { countRows } from "../commands/helpers";
 import { backlog, CLI, key, publish, read, withGatedOffice } from "./gated-office";
+import { backlogStoryStore } from "../../src/backlog/store";
 
 if (process.env["DIPO_TEST_CI"] === "1") {
   describe("the Ready gate on the Backlog CLI", () => {
@@ -47,7 +48,7 @@ if (process.env["DIPO_TEST_CI"] === "1") {
         const deps = { git: engineGit, index, offices, clock: s.clock, ids: s.ids };
         const broken = new GateStore({
           ...deps,
-          cli: { spawn: systemSpawn, command: ["false"], env: repo.env },
+          stories: backlogStoryStore({ spawn: systemSpawn, command: ["false"], env: repo.env }),
         });
         const story = StoryId.parse("TASK-1");
         const cliError = await broken.checkReady(officeId, story).catch((error: unknown) => error);
@@ -64,7 +65,7 @@ if (process.env["DIPO_TEST_CI"] === "1") {
         const unconfigured = new GateStore({
           ...deps,
           offices: { ...offices, config: () => undefined },
-          cli: CLI(repo),
+          stories: backlogStoryStore(CLI(repo)),
         });
         const configError = await unconfigured
           .checkReady(officeId, story)
@@ -81,7 +82,7 @@ if (process.env["DIPO_TEST_CI"] === "1") {
         const detached = new GateStore({
           ...deps,
           git: { forOffice: () => undefined },
-          cli: CLI(repo),
+          stories: backlogStoryStore(CLI(repo)),
         });
         const gitError = await detached
           .checkReady(officeId, story)
@@ -126,7 +127,12 @@ if (process.env["DIPO_TEST_CI"] === "1") {
           const config = s.manager.config(officeId);
           if (git === undefined || config === undefined) throw new Error("office not loaded");
           const base = await git.ensureBaseWorktree();
-          const input = await readGateInput(CLI(repo), base.path, "TASK-1", gateConfigOf(config));
+          const input = await readGateInput(
+            backlogStoryStore(CLI(repo)),
+            base.path,
+            "TASK-1",
+            gateConfigOf(config),
+          );
           expect(rejected.contentHash).toBe(gateContentHash(input.story));
           expect(findPassingDecision(office, task1, rejected.contentHash)).toBeUndefined();
 

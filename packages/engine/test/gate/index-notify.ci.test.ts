@@ -13,6 +13,7 @@ import { insertRun } from "../../src/run/records";
 import { insertClaim } from "../../src/worktree/records";
 import { systemSpawn } from "../../src/platform/process";
 import { backlog, CLI, key, read, withGatedOffice, type Gated } from "./gated-office";
+import { backlogStoryStore } from "../../src/backlog/store";
 
 /** Moves `_base` on with a commit the mirror has not read. */
 async function moveBase({ repo, engineGit, officeId }: Gated): Promise<void> {
@@ -109,13 +110,13 @@ if (process.env["DIPO_TEST_CI"] === "1") {
           offices: { get: (id) => s.manager.get(id), config: (id) => s.manager.config(id) },
           clock: s.clock,
           ids: s.ids,
-          cli: {
+          stories: backlogStoryStore({
             ...CLI(repo),
             spawn: (options) => {
               if (options.cmd.includes("view")) views.push([...options.cmd]);
               return systemSpawn(options);
             },
-          },
+          }),
         });
         const git = engineGit.forOffice(officeId);
         if (git === undefined) throw new Error("the office has no git");

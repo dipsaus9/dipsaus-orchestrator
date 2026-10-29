@@ -990,6 +990,7 @@
       "files": [
         "packages/cli/src/office-commands.ts",
         "packages/daemon/src/runs.ts",
+        "packages/engine/src/backlog/branch-read.ts",
         "packages/engine/src/backlog/pr/feature.ts",
         "packages/engine/src/commands/execute.ts",
         "packages/engine/src/context/default-provider.ts",
@@ -1007,7 +1008,6 @@
         "packages/engine/src/run/session-run.ts",
         "packages/engine/src/scan/fallback.ts",
         "packages/engine/src/stories/apply.ts",
-        "packages/engine/src/stories/branch-read.ts",
         "packages/engine/src/stories/discard.ts",
         "packages/engine/src/story-pr/prs.ts",
         "packages/engine/src/worktree/claim.ts",

@@ -18,9 +18,7 @@ import {
   gateContentHash,
   gateDecisionsOf,
   type GateMode,
-  isStoryNotFound,
   listTreeFiles,
-  parseMilestones,
   ruleNamesFor,
   ruleResults,
   rulesFor,
@@ -28,6 +26,7 @@ import {
   treePaths,
   WARNING_RULES,
 } from "../../src/gate";
+import { isStoryNotFound, parseMilestones } from "../../src/backlog";
 import { gateInputOf } from "../../src/gate/store/read";
 import { BacklogCommandError } from "../../src/backlog/runner";
 import { addStory, type StoryIdentity } from "../../src/stories/keys";

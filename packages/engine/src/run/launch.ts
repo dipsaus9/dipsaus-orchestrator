@@ -47,7 +47,6 @@ import type {
   WorkRef,
 } from "@dipsaus-orchestrator/contract";
 
-import type { PlainTask } from "../backlog/plain";
 import type { NewEntry } from "../changelog/log";
 import type { AsyncCommandContext } from "../commands/registry";
 import type { OfficeConfig } from "../config";
@@ -63,6 +62,7 @@ import { ensurePrivateDir } from "../platform/paths";
 import { type PromptPart, type PromptText, promptParts } from "../prompts/parts";
 import type { LaunchedHost } from "../runs/worker-hosts";
 import { runDirectory } from "../runs/worker-hosts";
+import type { PlainTask } from "../story-store/story";
 import { holdMessage } from "../workers/hold";
 import type { RunLaunchPaths, WorkerPort } from "../workers/port";
 import {

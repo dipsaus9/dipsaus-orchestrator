@@ -26,8 +26,6 @@
 
 import type { Clock, LostCommit, OfficeId, RunId, StoryKey } from "@dipsaus-orchestrator/contract";
 
-import { viewStory } from "../backlog/fields/write";
-import type { BacklogCli } from "../backlog/runner";
 import { appendEntries, type NewEntry } from "../changelog/log";
 import { forgetContextPack } from "../context/pack";
 import type { OfficeHandle } from "../db/office";
@@ -39,6 +37,7 @@ import { openParkIds, resolvePark } from "../run/park-records";
 import { heldByPark } from "../run/park-state";
 import { findRun } from "../run/records";
 import { latestStoryPr, setStoryPrState } from "../story-pr/records";
+import type { StoryStore } from "../story-store/store";
 import { storyView } from "../views/story";
 
 import { notice } from "./claim";
@@ -323,12 +322,12 @@ export interface BaseStatus {
 
 /**
  * The status of `story` in `_base`, which the story index's fetch keeps at `<remote>/<base>`, read
- * with the Backlog CLI, and the commit `_base` is at. Never throws. The base fact of the one Done
+ * through the story store, and the commit `_base` is at. Never throws. The base fact of the one Done
  * check (`done-check.ts`).
  */
 export async function baseStatusOf(
   git: OfficeGit,
-  cli: BacklogCli,
+  stories: StoryStore,
   story: string,
 ): Promise<BaseStatus> {
   const path = git.baseWorktreePath();
@@ -338,7 +337,7 @@ export async function baseStatusOf(
       const head = (
         await session.ok(git.worktreeLocation(path), ["rev-parse", "--verify", "HEAD"])
       ).trim();
-      const view = await viewStory({ cli, cwd: path, id: story });
+      const view = await stories.view(path, story);
       return { status: view.status, head };
     });
   } catch {

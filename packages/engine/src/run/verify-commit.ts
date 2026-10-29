@@ -68,7 +68,6 @@ import {
   type WorkRef,
 } from "@dipsaus-orchestrator/contract";
 
-import { TASK_FIELD_ERROR } from "../backlog/runner";
 import type { NewEntry } from "../changelog/log";
 import type { OfficeHandle } from "../db/office";
 import { GitError } from "../git/runner";
@@ -81,6 +80,7 @@ import {
 import { shownSpec } from "../scan/diff";
 import type { CapabilityName, RunProfile } from "../scan/detect";
 import { LOCKFILES, parseManifest } from "../scan/detect/manifest";
+import { TASK_FIELD_ERROR } from "../story-store/errors";
 import { deriveStoryView, storyView } from "../views/story";
 import type { WorkerDecisionNote, WorkerReport } from "../workers/types";
 import { DOOR_POLL_MS } from "../box/door";

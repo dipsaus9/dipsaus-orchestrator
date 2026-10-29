@@ -19,25 +19,23 @@ import { cpSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { mkdirSync, readdirSync } from "node:fs";
 import { basename, dirname, join } from "node:path";
 
+import type { GitSession, OfficeGit } from "../git/office";
+import { GitError } from "../git/runner";
+import { TASK_FIELD_ERROR } from "../story-store/errors";
+import type { ListedStory, StoryOnBranch, StoryRead } from "../story-store/store";
+import { BRANCH_READ_PREFIX } from "../worktree/sweep";
+
+import { readStory } from "./read";
 import {
   BACKLOG_FOLDER_ERROR,
   type BacklogCli,
   isTaskFileOf,
-  TASK_FIELD_ERROR,
   taskFieldRefusal,
   taskFilePathRefusal,
-} from "../backlog/runner";
-import type { GitSession, OfficeGit } from "../git/office";
-import { GitError } from "../git/runner";
-import type { ClaimRecord } from "../worktree/records";
-
-import { type BacklogStory, readStory } from "./read";
+} from "./runner";
 
 /** The Backlog.md project directory in a checkout. */
 const BACKLOG_DIR = "backlog";
-
-/** The prefix of the scratch directories under the worktree root. */
-export const BRANCH_READ_PREFIX = "_branch-read-";
 
 /**
  * The repository path of the story's task file on `ref`; throws when there is none, or with
@@ -68,7 +66,7 @@ async function taskFileOn(session: GitSession, ref: string, id: string): Promise
 }
 
 /**
- * Reads the story of `claim` as committed on its branch, with `basePath` (the `_base` checkout)
+ * Reads the story `target` as committed on its branch, with `basePath` (the `_base` checkout)
  * for the rest of the backlog. Must run inside a queue item of `git` (`session`); throws when the
  * branch ref or its task file is missing, when the task file holds fields dipo does not know
  * (`TASK_FIELD_ERROR`, before the CLI runs), or when the Backlog CLI fails.
@@ -77,11 +75,11 @@ export async function readOnBranch(
   git: OfficeGit,
   session: GitSession,
   cli: BacklogCli,
-  claim: ClaimRecord,
+  target: StoryOnBranch,
   basePath: string,
-  listed: { readonly id: string; readonly title: string; readonly status: string },
-): Promise<BacklogStory> {
-  const ref = `refs/heads/${claim.branch}`;
+  listed: ListedStory,
+): Promise<StoryRead> {
+  const ref = `refs/heads/${target.branch}`;
   const path = await taskFileOn(session, ref, listed.id);
   const content = await session.ok(session.repository, ["show", `${ref}:${path}`]);
   // A task file holding fields dipo does not know never reaches the CLI (0021 section 14): the
@@ -90,9 +88,9 @@ export async function readOnBranch(
   if (refused !== null) {
     throw new GitError(
       TASK_FIELD_ERROR,
-      `dipo refuses ${listed.id}'s task file ${path} on ${claim.branch}: ${refused}.`,
+      `dipo refuses ${listed.id}'s task file ${path} on ${target.branch}: ${refused}.`,
       false,
-      { story: listed.id, taskFile: path, branch: claim.branch },
+      { story: listed.id, taskFile: path, branch: target.branch },
     );
   }
   const root = git.worktreeRoot();
@@ -106,11 +104,10 @@ export async function readOnBranch(
     for (const name of readdirSync(tasks)) {
       if (isTaskFileOf(name, listed.id)) rmSync(join(tasks, name), { force: true });
     }
-    const target = join(scratch, path);
-    mkdirSync(dirname(target), { recursive: true });
-    writeFileSync(target, content);
-    const story = await readStory(cli, scratch, "task", listed);
-    return { ...story, source: claim.branch };
+    const file = join(scratch, path);
+    mkdirSync(dirname(file), { recursive: true });
+    writeFileSync(file, content);
+    return await readStory(cli, scratch, "task", listed);
   } finally {
     rmSync(scratch, { recursive: true, force: true });
   }

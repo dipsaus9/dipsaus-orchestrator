@@ -1,7 +1,7 @@
 // The reserved labels (0010 section 3; 0012 F11, F12, F13): `tier:<T>`, `role:<name>` and the flag
 // `test-before-merge`. Every label follows the grammar `[a-z0-9-]+(:[A-Za-z0-9-]+)?`; a label
 // outside it is reported. How many tiers or roles a story may carry (R16, R17) is the gate's rule,
-// so every one found is returned. Labels change only with `--add-label` and `--remove-label`.
+// so every one found is returned.
 
 /** The label grammar of 0010 section 3. */
 export const LABEL_GRAMMAR = /^[a-z0-9-]+(:[A-Za-z0-9-]+)?$/;
@@ -41,29 +41,4 @@ export function readLabels(labels: readonly string[]): StoryLabels {
     else other.push(label);
   }
   return { tiers, roles, testBeforeMerge, other, invalid };
-}
-
-export interface LabelChange {
-  readonly add?: readonly string[];
-  readonly remove?: readonly string[];
-}
-
-/**
- * The `task edit` options for a label change: one `--add-label` or `--remove-label` per label.
- * Throws when a label is outside the grammar, so it never reaches the CLI.
- */
-export function labelEditArgs(change: LabelChange): string[] {
-  const args: string[] = [];
-  for (const [option, labels] of [
-    ["--add-label", change.add ?? []],
-    ["--remove-label", change.remove ?? []],
-  ] as const) {
-    for (const label of labels) {
-      if (!isValidLabel(label)) {
-        throw new Error(`label "${label}" is outside the grammar [a-z0-9-]+(:[A-Za-z0-9-]+)?`);
-      }
-      args.push(option, label);
-    }
-  }
-  return args;
 }

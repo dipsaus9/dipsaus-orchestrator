@@ -20,7 +20,7 @@ import {
 import { insertPark } from "./park-fixture";
 import type { JournalEntry, LaneOp } from "../../src/backlog/lane/journal";
 import { insertEntry } from "../../src/backlog/lane/journal";
-import type { PlainTask } from "../../src/backlog/plain";
+import type { PlainTask } from "../../src/story-store/story";
 import { cursorAt, readLogState } from "../../src/changelog/log";
 import { replay } from "../../src/changelog/replay";
 import { executeCommand, type ExecutorDeps } from "../../src/commands/execute";

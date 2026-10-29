@@ -9,12 +9,22 @@
 // that prints a second, fake section (fact 2) is a parse error reported as R02. Unknown keys and
 // unknown `Name:` plus rule lines are kept raw and logged, never guessed.
 
+import { StoryParseError } from "../story-store/errors";
+import {
+  type ChecklistItem,
+  type Comment,
+  type DependencyEntry,
+  PARSE_RULE,
+  type PlainList,
+  type PlainListEntry,
+  type PlainTask,
+  type TaskRef,
+  type UnknownItem,
+} from "../story-store/story";
+
 /** A line of exactly 50 `-`: the rule under a section name. */
 export const SECTION_RULE = "-".repeat(50);
 const TITLE_RULE = "=".repeat(50);
-
-/** The Ready gate rule a parse failure is reported as (0010 section 1, 0012 R02). */
-export const PARSE_RULE = "R02";
 
 /** The sections of a view, in the order 1.53 prints them. */
 export const KNOWN_SECTIONS = [
@@ -50,7 +60,7 @@ export const KNOWN_HEADER_KEYS = [
 ] as const;
 export type KnownHeaderKey = (typeof KNOWN_HEADER_KEYS)[number];
 
-export class BacklogParseError extends Error {
+export class BacklogParseError extends StoryParseError {
   readonly rule = PARSE_RULE;
   constructor(
     readonly detail: string,
@@ -62,12 +72,6 @@ export class BacklogParseError extends Error {
   }
 }
 
-/** Something the parser did not know, kept raw. */
-export type UnknownItem =
-  | { readonly kind: "header"; readonly line: number; readonly key: string; readonly value: string }
-  | { readonly kind: "section"; readonly line: number; readonly name: string }
-  | { readonly kind: "line"; readonly line: number; readonly text: string };
-
 export interface ParseOptions {
   /** Called once for each unknown key, section or line. */
   readonly onUnknown?: (item: UnknownItem) => void;
@@ -76,89 +80,6 @@ export interface ParseOptions {
    * uses it to splice the raw description, so bytes outside the block are written back unchanged.
    */
   readonly normalize?: boolean;
-}
-
-export interface ChecklistItem {
-  readonly index: number;
-  readonly checked: boolean;
-  readonly text: string;
-}
-
-export interface TaskRef {
-  readonly id: string;
-  readonly title: string;
-}
-
-/** A first-level entry of the dependency graph. */
-export interface DependencyEntry {
-  readonly id: string;
-  /** `missing` and `ambiguous` are ids the CLI could not resolve. */
-  readonly state: "resolved" | "missing" | "ambiguous";
-  readonly title?: string;
-  /** The status in brackets, `completed` for a task in `completed/`. */
-  readonly status?: string;
-}
-
-export interface Comment {
-  readonly index: number;
-  /** The rest of the comment's first line after `#n - `, for example `@bob - 2026-10-12 21:17 (UTC)`. */
-  readonly byline: string;
-  readonly body: string;
-}
-
-/** One task or draft as `task view --plain` or `draft view --plain` prints it. */
-export interface PlainTask {
-  readonly file: string;
-  readonly id: string;
-  readonly title: string;
-  readonly status: string;
-  readonly priority?: string;
-  readonly type?: string;
-  readonly project?: string;
-  readonly ordinal?: number;
-  readonly assignee: readonly string[];
-  readonly reporter?: string;
-  /** As printed, for example `2026-10-12 21:17 (UTC)`; minute precision. */
-  readonly created: string;
-  readonly updated?: string;
-  readonly due?: string;
-  readonly labels: readonly string[];
-  readonly milestone?: string;
-  readonly parent?: { readonly id: string; readonly title?: string };
-  readonly subtasks: readonly TaskRef[];
-  readonly references: readonly string[];
-  readonly documentation: readonly string[];
-  readonly dependencies: readonly DependencyEntry[];
-  /** Empty when the CLI printed `No description provided`. */
-  readonly description: string;
-  readonly acceptanceCriteria: readonly ChecklistItem[];
-  readonly definitionOfDone: readonly ChecklistItem[];
-  readonly implementationPlan?: string;
-  readonly implementationNotes?: string;
-  readonly modifiedFiles: readonly string[];
-  readonly comments: readonly Comment[];
-  readonly finalSummary?: string;
-  /** Unknown keys, sections and lines, kept raw. */
-  readonly unknown: readonly UnknownItem[];
-}
-
-/** One line of `task list --plain` or `draft list --plain`. */
-export interface PlainListEntry {
-  readonly id: string;
-  readonly title: string;
-  /** The group the line is in: a status for `task list`, `Drafts` for `draft list`. */
-  readonly group: string;
-  readonly priority?: string;
-  readonly type?: string;
-  readonly project?: string;
-  /** From the `(ac: n/m)` count; absent when the task has no criteria. */
-  readonly ac?: { readonly checked: number; readonly total: number };
-  readonly due?: string;
-}
-
-export interface PlainList {
-  readonly entries: readonly PlainListEntry[];
-  readonly unknown: readonly UnknownItem[];
 }
 
 /** LF-split, NFC-normalised lines (unless `normalize` is false), without the empty line after a final newline. */
@@ -544,4 +465,20 @@ function readListEntry(text: string, group: string): PlainListEntry | null {
     ...(ac === null ? {} : { ac: { checked: Number(ac[1]), total: Number(ac[2]) } }),
     ...(due === null ? {} : { due: due[1] ?? "" }),
   };
+}
+
+/** One `  <id>: <name> (<done>/<total> done)` line of `milestone list --plain`. */
+const MILESTONE_LINE = /^ {2}(\S+): (.*?)(?: \(\d+\/\d+ done\))?$/;
+
+/** The ids and names of every milestone `milestone list --show-completed --plain` printed. */
+export function parseMilestones(output: string): string[] {
+  const names: string[] = [];
+  for (const line of plainLines(output)) {
+    const match = MILESTONE_LINE.exec(line);
+    if (match === null) continue;
+    const [, id, name] = match;
+    if (id !== undefined) names.push(id);
+    if (name !== undefined && name !== "") names.push(name);
+  }
+  return names;
 }

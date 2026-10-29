@@ -12,7 +12,11 @@
 import { existsSync, lstatSync, readdirSync, rmSync } from "node:fs";
 import { join } from "node:path";
 
-import { BRANCH_READ_PREFIX } from "../stories/branch-read";
+/**
+ * The prefix of dipo's scratch directories under the worktree root: the story store's copies of a
+ * story and the conflict merges of a story branch.
+ */
+export const BRANCH_READ_PREFIX = "_branch-read-";
 
 export interface BranchReadSweep {
   /** The scratch directories removed. */

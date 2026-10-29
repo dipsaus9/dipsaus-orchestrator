@@ -1,5 +1,5 @@
 // The Ready gate against an office (DIPO-71, 0012 section 3). It reads the story, the active tasks
-// and the milestones through the Backlog CLI on the office's `_base` worktree, as one item in the
+// and the milestones through the StoryStore on the office's `_base` worktree, as one item in the
 // office git queue so no fetch moves `_base` meanwhile, and evaluates them with `evaluateGate`.
 //
 // - `recordGateDecision(office, key, mode)` stores every evaluation it makes, in one transaction;
@@ -18,8 +18,6 @@ import {
   storyGate,
 } from "@dipsaus-orchestrator/contract";
 
-import { BacklogParseError } from "../../backlog/plain";
-import { type BacklogCli, BacklogCommandError, BacklogRefusedError } from "../../backlog/runner";
 import { CommandError } from "../../commands/errors";
 import type { FeatureModule } from "../../commands/registry";
 import type { OfficeConfig } from "../../config";
@@ -27,6 +25,8 @@ import type { OfficeHandle } from "../../db/office";
 import type { GitSession, OfficeGit } from "../../git/office";
 import type { IndexResult } from "../../stories/index-stories";
 import { findStoryByKey } from "../../stories/keys";
+import { StoryStoreError } from "../../story-store/errors";
+import type { StoryStore } from "../../story-store/store";
 import { evaluateGate } from "../evaluate";
 import type { GateConfig, GateMode, GateResult, GateTask } from "../types";
 
@@ -39,7 +39,7 @@ import { BaseTreeCache, listTreeFiles } from "./tree";
 export interface GateStoreDeps {
   /** The office's git once the git load step attached it. */
   readonly git: { forOffice(office: OfficeId): OfficeGit | undefined };
-  readonly cli: BacklogCli;
+  readonly stories: StoryStore;
   /** The loaded offices: their handles and the configuration in force. */
   readonly offices: {
     get(office: OfficeId): OfficeHandle | undefined;
@@ -81,11 +81,7 @@ function gateReadError(office: OfficeId, story: StoryId, base: string, error: un
       { story },
     );
   }
-  if (
-    error instanceof BacklogCommandError ||
-    error instanceof BacklogRefusedError ||
-    error instanceof BacklogParseError
-  ) {
+  if (error instanceof StoryStoreError) {
     return new CommandError(
       "backlog.unreadable",
       `The Ready gate cannot run: the Backlog CLI could not read ${story} on the office's base branch ${base} (${reasonOf(error)}).`,
@@ -129,7 +125,7 @@ export class GateStore {
    * Throws `story.unknown` when the story is not on `_base`; `office.refused` with `details.step`
    * `git.version` (the load step that attaches it) when the office's git is not attached;
    * `config.invalid` when the office has no valid configuration; and `backlog.unreadable` when the
-   * Backlog CLI cannot read the story or the backlog.
+   * story store cannot read the story or the backlog.
    */
   async #evaluate(
     office: OfficeId,
@@ -158,7 +154,14 @@ export class GateStore {
     const read = async (session: GitSession | undefined = held) => {
       const others = await this.#otherTasks(office, git, base.path, session);
       const files = await this.#baseFiles(office, git, base.path, session);
-      return readGateInput(this.#deps.cli, base.path, story, gateConfigOf(config), others, files);
+      return readGateInput(
+        this.#deps.stories,
+        base.path,
+        story,
+        gateConfigOf(config),
+        others,
+        files,
+      );
     };
     let input;
     try {

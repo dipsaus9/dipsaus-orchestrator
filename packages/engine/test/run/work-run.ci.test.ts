@@ -21,12 +21,13 @@ import type { OfficeHandle } from "../../src/db/office";
 import { GateStore } from "../../src/gate";
 import { EngineGit } from "../../src/git";
 import { officeStatusesReady } from "../../src/office/init";
-import { cliRunBase, findRun, WorkRun } from "../../src/run";
+import { storyRunBase, findRun, WorkRun } from "../../src/run";
 import { StoryIndex } from "../../src/stories/feature";
 import { hasLiveClaim, StoryClaims } from "../../src/worktree";
 import { countRows } from "../commands/helpers";
 import { backlog, CLI, publish } from "../gate/gated-office";
 import { BACKLOG_FIXTURE, type OfficeSetup, officeSetup, resultOf, send } from "../office/helpers";
+import { backlogStoryStore } from "../../src/backlog/store";
 
 interface Running {
   readonly repo: TempRepoWithRemote;
@@ -71,10 +72,14 @@ async function withRunOffice(
         config: (office: OfficeId) => setup?.manager.config(office),
       };
       const engineGit = new EngineGit({ spawn: CLI(repo).spawn, env: repo.env });
-      const index = new StoryIndex({ git: engineGit, cli: CLI(repo), offices });
+      const index = new StoryIndex({
+        git: engineGit,
+        stories: backlogStoryStore(CLI(repo)),
+        offices,
+      });
       const gates = new GateStore({
         git: engineGit,
-        cli: CLI(repo),
+        stories: backlogStoryStore(CLI(repo)),
         offices,
         index,
         get clock() {
@@ -85,7 +90,7 @@ async function withRunOffice(
         },
       });
       const claims = new StoryClaims({
-        cli: CLI(repo),
+        stories: backlogStoryStore(CLI(repo)),
         git: (office) => engineGit.forOffice(office),
       });
       const lane = new BacklogLane({
@@ -100,7 +105,10 @@ async function withRunOffice(
           configHash: (office) => loaded().manager.configHash(office),
           configBlocksRuns: (office) => loaded().manager.configBlocksRuns(office),
         },
-        base: cliRunBase({ git: (office) => engineGit.forOffice(office), cli: CLI(repo) }),
+        base: storyRunBase({
+          git: (office) => engineGit.forOffice(office),
+          stories: backlogStoryStore(CLI(repo)),
+        }),
         stories: index,
         // The fixture has no verify script; the run profile is DIPO-72's, checked locally.
         profiles: { ensureFreshProfile: async () => undefined, verifyResolved: () => null },

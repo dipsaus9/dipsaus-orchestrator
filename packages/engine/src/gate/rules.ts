@@ -8,7 +8,7 @@
 
 import type { FieldBlock } from "@dipsaus-orchestrator/contract";
 
-import type { StoryLabels } from "../backlog/fields/labels";
+import type { StoryLabels } from "../story-store/fields/labels";
 import { characters, clean, looksLikePath, runCores, wordMatch } from "./text";
 import type {
   GateFailure,

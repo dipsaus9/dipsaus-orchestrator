@@ -2,7 +2,8 @@
 
 import { describe, expect, it } from "bun:test";
 
-import { type DependencyEntry, parseView } from "../../src/backlog/plain";
+import { parseView } from "../../src/backlog/plain";
+import { type DependencyEntry } from "../../src/story-store/story";
 import { gateStoryFromView, gateTaskFromView, waitingOnOf } from "../../src/gate";
 import { recorded } from "../backlog/helpers";
 

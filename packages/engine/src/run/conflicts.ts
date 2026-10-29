@@ -78,7 +78,6 @@ import { join } from "node:path";
 
 import type { IdSource, OfficeId, RunId, StoryKey } from "@dipsaus-orchestrator/contract";
 
-import { TEST_BEFORE_MERGE } from "../backlog/fields/labels";
 import { isTaskFileOf, TASKS_DIR } from "../backlog/runner";
 import {
   baseRefOf,
@@ -111,6 +110,7 @@ import {
   reviewDecidedEntry,
   reviewVerdictForTree,
 } from "../review/store";
+import { TEST_BEFORE_MERGE } from "../story-store/fields/labels";
 import { withWorkViews } from "../views/work";
 
 import { runCaps } from "./caps";

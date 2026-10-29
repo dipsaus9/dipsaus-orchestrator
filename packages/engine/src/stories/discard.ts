@@ -56,7 +56,6 @@ import type {
   FeatureRegistry,
 } from "../commands/registry";
 import type { OfficeHandle } from "../db/office";
-import type { BacklogCli } from "../backlog/runner";
 import type { OfficeGit } from "../git/office";
 import { closeQuestion, openQuestions } from "../hooks/questions";
 import { type CodeHost, CodeHostError } from "../platform/host";
@@ -65,6 +64,7 @@ import { openParkIds, resolvePark } from "../run/park";
 import { activeRuns } from "../run/records";
 import { hostAlive, workerHostsOf } from "../runs/worker-hosts";
 import { findStoryPr, latestStoryPr, setStoryPrState } from "../story-pr/records";
+import type { StoryStore } from "../story-store/store";
 import { deriveStoryView, storyView } from "../views/story";
 import { decideDone } from "../worktree/done-check";
 import {
@@ -128,7 +128,7 @@ export interface StoryDiscardDeps {
    * Reads the story's status in `_base`: a story Done there gets no backlog write and no Refined
    * state. Without it only the leftovers of a story Done elsewhere count as Done.
    */
-  readonly cli?: BacklogCli;
+  readonly stories?: StoryStore;
 }
 
 type DiscardArgs = z.output<typeof workDiscard.args>;
@@ -369,8 +369,9 @@ export class StoryDiscard {
     story: string,
     claim: ClaimRecord | null,
   ): Promise<boolean> {
-    const cli = this.#deps.cli;
-    const baseStatus = cli === undefined ? null : (await baseStatusOf(git, cli, story)).status;
+    const stories = this.#deps.stories;
+    const baseStatus =
+      stories === undefined ? null : (await baseStatusOf(git, stories, story)).status;
     const pr = claim === null ? null : findStoryPr(office, claim.runId);
     return decideDone({ claim, pr, baseStatus }) !== "notDone";
   }

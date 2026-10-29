@@ -32,7 +32,7 @@ import { currentPlatform, ensurePrivateDir } from "../../src/platform/paths";
 import { systemProcessProbe } from "../../src/platform/process";
 import {
   capsOf,
-  cliRunBase,
+  storyRunBase,
   gitParkWriter,
   gitUnparkWriter,
   gitStoryOps,
@@ -83,6 +83,7 @@ import { BACKLOG_FIXTURE, type OfficeSetup, officeSetup, resultOf, send } from "
 import { withBuiltinPlugins, withoutSkills } from "../workers/launch-fixtures";
 import { loadRecording } from "../workers/replay";
 import { stubReviewBoxes } from "./review-boxes";
+import { backlogStoryStore } from "../../src/backlog/store";
 
 export const CLAUDE = "/opt/claude/bin/claude";
 export const BRANCH = "TASK-1/add-the-csv-export-command";
@@ -231,10 +232,14 @@ export async function withRunOffice(
         config: (office: OfficeId) => setup?.manager.config(office),
       };
       const engineGit = new EngineGit({ spawn: CLI(repo).spawn, env: repo.env });
-      const index = new StoryIndex({ git: engineGit, cli: CLI(repo), offices });
+      const index = new StoryIndex({
+        git: engineGit,
+        stories: backlogStoryStore(CLI(repo)),
+        offices,
+      });
       const gates = new GateStore({
         git: engineGit,
-        cli: CLI(repo),
+        stories: backlogStoryStore(CLI(repo)),
         offices,
         index,
         get clock() {
@@ -245,7 +250,7 @@ export async function withRunOffice(
         },
       });
       const claims = new StoryClaims({
-        cli: CLI(repo),
+        stories: backlogStoryStore(CLI(repo)),
         git: (office) => engineGit.forOffice(office),
       });
       const lane = new BacklogLane({
@@ -253,7 +258,10 @@ export async function withRunOffice(
         git: (office) => engineGit.forOffice(office),
         liveClaim: hasLiveClaim,
       });
-      const base = cliRunBase({ git: (office) => engineGit.forOffice(office), cli: CLI(repo) });
+      const base = storyRunBase({
+        git: (office) => engineGit.forOffice(office),
+        stories: backlogStoryStore(CLI(repo)),
+      });
       const holds = new AdapterHolds({ clock: new ManualClock(), notify: () => undefined });
       const clock = new ManualClock();
       const worker: WorkerPort = {
@@ -402,7 +410,10 @@ export async function withRunOffice(
               get clock() {
                 return loaded().clock;
               },
-              story: gitStoryOps({ git: (office) => engineGit.forOffice(office), cli: CLI(repo) }),
+              story: gitStoryOps({
+                git: (office) => engineGit.forOffice(office),
+                stories: backlogStoryStore(CLI(repo)),
+              }),
               profile: () => finisherOptions.profile,
               // Every run is a box run (DIPO-240); here the box is the stand-in checkout: its last
               // part is what the worker wrote there outside `backlog/`, committed on top of the
@@ -464,7 +475,7 @@ export async function withRunOffice(
               control: {
                 writer: gitParkWriter({
                   git: (office) => engineGit.forOffice(office),
-                  cli: CLI(repo),
+                  stories: backlogStoryStore(CLI(repo)),
                 }),
                 ...(finisher === undefined ? {} : { finisher }),
               },
@@ -506,7 +517,10 @@ export async function withRunOffice(
               outcomes: {
                 holds,
                 holdsWork: storyHoldsWork(
-                  gitStoryOps({ git: (office) => engineGit.forOffice(office), cli: CLI(repo) }),
+                  gitStoryOps({
+                    git: (office) => engineGit.forOffice(office),
+                    stories: backlogStoryStore(CLI(repo)),
+                  }),
                 ),
                 caps: (office: OfficeId, run: StoredRun) => {
                   if (
@@ -522,7 +536,7 @@ export async function withRunOffice(
                   ? {
                       unpark: gitUnparkWriter({
                         git: (office) => engineGit.forOffice(office),
-                        cli: CLI(repo),
+                        stories: backlogStoryStore(CLI(repo)),
                       }),
                     }
                   : {}),

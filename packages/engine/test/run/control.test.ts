@@ -66,7 +66,7 @@ import type {
   WorkerEvent,
   WorkerReport,
 } from "../../src/workers/types";
-import { TASK_FIELD_ERROR } from "../../src/backlog/runner";
+import { TASK_FIELD_ERROR } from "../../src/story-store/errors";
 import { findClaim, insertClaim } from "../../src/worktree/records";
 import { countRows } from "../commands/helpers";
 import {

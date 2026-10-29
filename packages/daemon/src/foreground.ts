@@ -24,13 +24,13 @@ import {
   acquireLock,
   BacklogLane,
   BacklogPrs,
+  backlogStoryStore,
   bootoutOwnLaunchdJob,
   boxTokenHoldPath,
   boxTokenStickyHolds,
   CLAUDE_CLI_ADAPTER_ID,
   ChildProcesses,
   chooseRuntimeDir,
-  cliRunBase,
   createLogger,
   createSystemIds,
   currentPlatform,
@@ -58,6 +58,7 @@ import {
   AutoMerge,
   PrStatePoll,
   stopEngineCalls,
+  storyRunBase,
   trackEngineCalls,
   officeFeature,
   activeRunCount,
@@ -608,6 +609,9 @@ async function serve(run: Run, lock: HeldLock): Promise<number> {
       notify: (notice: { level: "error"; code: string; text: string }) =>
         software.append("engine.notice", notice),
     };
+    // Every story read and write of the engine goes through the StoryStore (0010), here Backlog.md
+    // with that `backlog`.
+    const stories = backlogStoryStore(backlogCli);
     // Upgrades (0006 decision 14): checked every minute; an engine step is a child the daemon
     // started or a command still writing, and an automatic restart waits for both. Once any stop
     // is requested (`daemon.stop`, a signal, a restart, a lost lock) the watcher counts as busy
@@ -673,7 +677,7 @@ async function serve(run: Run, lock: HeldLock): Promise<number> {
     // Story claims (DIPO-38): their load step pins live claims' worktree snapshots on the office
     // git, so it follows engineGit.feature. The lane refuses a story with a live claim.
     const claims = new StoryClaims({
-      cli: backlogCli,
+      stories,
       git: (office) => engineGit.forOffice(office),
       warn: (message, fields) => logger.warn(message, { component: "claims", ...fields }),
       info: (message, fields) => logger.info(message, { component: "claims", ...fields }),
@@ -713,7 +717,7 @@ async function serve(run: Run, lock: HeldLock): Promise<number> {
       // of its ended run deleted (DIPO-161); the runs are made below and called only by a poll.
       prCloser: host,
       finishBoxes: () => runs.finishEndedBoxes(),
-      cli: backlogCli,
+      stories,
       offices,
       onChanged: (office) => server?.notifyOffice(office),
       logger: logger.child({ component: "teardown" }),
@@ -734,7 +738,7 @@ async function serve(run: Run, lock: HeldLock): Promise<number> {
     const storyPrs = new StoryPrs({
       host,
       prState,
-      git: gitStoryPrOps({ git: (office) => engineGit.forOffice(office), cli: backlogCli }),
+      git: gitStoryPrOps({ git: (office) => engineGit.forOffice(office), stories }),
       offices,
       clock,
       onChanged: (office) => server?.notifyOffice(office),
@@ -744,7 +748,7 @@ async function serve(run: Run, lock: HeldLock): Promise<number> {
       review: host,
       park: {
         writer: guardedParkWriter(
-          gitParkWriter({ git: (office) => engineGit.forOffice(office), cli: backlogCli }),
+          gitParkWriter({ git: (office) => engineGit.forOffice(office), stories }),
           autoMergeGuard,
         ),
         implemented: (name) => registry.command(name) !== undefined,
@@ -803,7 +807,7 @@ async function serve(run: Run, lock: HeldLock): Promise<number> {
     // below; it reaches them only from a round, after load.
     const storyMergeGit = gitStoryMergeOps({
       git: (office) => engineGit.forOffice(office),
-      cli: backlogCli,
+      stories,
     });
     const autoMerge: AutoMerge = new AutoMerge({
       host,
@@ -824,7 +828,7 @@ async function serve(run: Run, lock: HeldLock): Promise<number> {
         conflict: (office, runId, input) => runs.merge.conflict(office, runId, input),
         park: {
           // Unguarded: the auto-merge parks inside its own round, after auto-merge is off.
-          writer: gitParkWriter({ git: (office) => engineGit.forOffice(office), cli: backlogCli }),
+          writer: gitParkWriter({ git: (office) => engineGit.forOffice(office), stories }),
           implemented: (name) => registry.command(name) !== undefined,
         },
         itemMax: (office, stored) => runs.merge.itemMax(office, stored),
@@ -838,7 +842,7 @@ async function serve(run: Run, lock: HeldLock): Promise<number> {
     const mergeGates = new MergeGates({
       labels: host,
       unpark: guardedUnparkWriter(
-        gitUnparkWriter({ git: (office) => engineGit.forOffice(office), cli: backlogCli }),
+        gitUnparkWriter({ git: (office) => engineGit.forOffice(office), stories }),
         autoMergeGuard,
       ),
       reject: (office, runId, reject) => runs.merge.reject(office, runId, reject),
@@ -850,7 +854,7 @@ async function serve(run: Run, lock: HeldLock): Promise<number> {
       // recorded after its lift.
       holds: (office, gate, head) => autoMerge.gateHolds(office, gate, head),
       repark: guardedParkWriter(
-        gitParkWriter({ git: (office) => engineGit.forOffice(office), cli: backlogCli }),
+        gitParkWriter({ git: (office) => engineGit.forOffice(office), stories }),
         autoMergeGuard,
       ),
     });
@@ -882,7 +886,7 @@ async function serve(run: Run, lock: HeldLock): Promise<number> {
       stop: (ctx, args) => runs.control.parkByMaintainer(ctx, args),
       finishBoxes: () => runs.finishEndedBoxes(),
       // A story the `backlog` on this PATH reads Done in `_base` gets no Refined write.
-      cli: backlogCli,
+      stories,
     });
     // `proposal.accept` and `proposal.dismiss` (DIPO-166): an accepted worker proposal becomes a
     // Backlog draft through the planning lane.
@@ -892,7 +896,7 @@ async function serve(run: Run, lock: HeldLock): Promise<number> {
     // daemon found on its PATH.
     const storyIndex = new StoryIndex({
       git: engineGit,
-      cli: backlogCli,
+      stories,
       // A pass reads a story's view again only when a Backlog file it printed changed (DIPO-314).
       reuseViews: true,
       offices,
@@ -914,7 +918,7 @@ async function serve(run: Run, lock: HeldLock): Promise<number> {
     // the office git and the `backlog` this daemon found on its PATH.
     const gates = new GateStore({
       git: engineGit,
-      cli: backlogCli,
+      stories,
       offices,
       clock,
       ids,
@@ -973,9 +977,9 @@ async function serve(run: Run, lock: HeldLock): Promise<number> {
       sticky: boxTokenStickyHolds(boxTokenHoldPath(stateDir), CLAUDE_CLI_ADAPTER_ID),
       warn: (message, fields) => logger.warn(message, fields),
     });
-    const runBase = cliRunBase({
+    const runBase = storyRunBase({
       git: (office) => engineGit.forOffice(office),
-      cli: backlogCli,
+      stories,
     });
     // The worker start of a claimed run (DIPO-74): setup, prompts, launch checks, the worker
     // host and ingestion, with the `claude` this daemon resolved on its PATH.
@@ -998,7 +1002,7 @@ async function serve(run: Run, lock: HeldLock): Promise<number> {
       database: () => held.database,
       onChanged: (office) => server?.notifyOffice(office),
       logger: logger.child({ component: "runs" }),
-      cli: backlogCli,
+      storyStore: stories,
       storyPr: storyPrs,
       holdResumer: () => planning,
       // A story resumed to wait In Review again goes back to the auto-merge (0002).

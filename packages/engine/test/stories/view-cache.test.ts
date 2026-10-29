@@ -10,8 +10,7 @@ import type { SpawnOptions } from "@dipsaus-orchestrator/contract";
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 
-import { backlogFolders } from "../../src/stories/index-stories";
-import { backlogBlobs, readBacklog, StoryViewCache } from "../../src/stories/read";
+import { backlogBlobs, backlogFolders, readBacklog, StoryViewCache } from "../../src/backlog/read";
 import { scriptedSpawn } from "../backlog/helpers";
 import { withReconcileOffice } from "../reconcile/helpers";
 
@@ -126,7 +125,7 @@ describe("an index read with the view cache", () => {
     );
     // TASK-2's view prints TASK-1, so it is read again; TASK-3 is not.
     expect(views().slice(3)).toEqual(["TASK-1", "TASK-2"]);
-    expect(read.map((story) => story.status)).toEqual(["Done", "Ready", "Ready"]);
+    expect(read.map((story) => story.view?.status)).toEqual(["Done", "Ready", "Ready"]);
   });
 
   it("reads a kept story again when a new or a gone story's view names it", async () => {

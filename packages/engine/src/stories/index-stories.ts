@@ -1,55 +1,44 @@
 // `indexStories` (0007 section 6 step 3, 0010 section 2): one pass over the office's stories. It
 // brings the `_base` worktree to `origin/<base>` if it is missing, then, as one item in the office
 // git queue so no fetch moves `_base` meanwhile, reads every task and draft there through the
-// Backlog CLI and writes every change of the pass, with its change-log entries, in one transaction.
+// StoryStore and writes every change of the pass, with its change-log entries, in one transaction.
 //
 // A claimed story is read on its story branch (DIPO-56, 0007 section 6 step 3; 0010 section 2a):
 // from the claim commit until the claim is released, its status, park record (F16), criteria and
-// tier live there, so the pass reads it again as committed at the branch tip (`branch-read.ts`;
-// never the worktree's uncommitted edits) and mirrors that read with the branch as `source`. A
+// tier live there, so the pass reads it again as committed at the branch tip (the store's
+// `readOnBranch`; never a worktree's uncommitted edits) and mirrors that read with the branch as `source`. A
 // claimed story whose branch cannot be read (the ref or its task file missing) is listed in
 // `branchUnread`, and its mirror row keeps the last read of the branch (DIPO-360), so its status
 // and park do not fall back to the base's; the pass emits one `stories.branchUnread` notice until
 // the branch reads again, and reconcile reports it.
 // `refreshStory` reads one story the same way, right after a commit on its branch.
 //
-// The CLI does not read a story's view again in a pass when none of the Backlog files it printed
-// changed since the office's last read (DIPO-314, `StoryViewCache` in `read.ts`): the pass lists
-// the blobs of the base's Backlog files with `git ls-tree` in the same queue item. Without that
-// list (a failed `ls-tree`), or without `reuseViews`, every view is read.
+// With `reuseViews` the store does not read a story again in a pass when nothing it printed changed
+// since the office's last read (DIPO-314, `ReadReuse`): the Backlog.md store lists the blobs of the
+// base's Backlog files with `git ls-tree` in the same queue item. Without that list (a failed
+// `ls-tree`), or without `reuseViews`, every story is read.
 
 import type { Clock, Cursor, IdSource, StoryKey } from "@dipsaus-orchestrator/contract";
 
-import { readFileSync } from "node:fs";
-import { join } from "node:path";
-
-import { type BacklogCli, backlogPointer } from "../backlog/runner";
 import { appendEntries, type NewEntry } from "../changelog/log";
 import type { OfficeHandle } from "../db/office";
 import type { GitSession, OfficeGit } from "../git/office";
+import type { StoryStore } from "../story-store/store";
 import { type ClaimRecord, liveClaimOf, liveClaims } from "../worktree/records";
 
 import { applyIndex, applyStory, type IndexStats } from "./apply";
-import { readOnBranch } from "./branch-read";
 import { findStoryByKey, isProvisionalId } from "./keys";
-import {
-  backlogBlobs,
-  type BacklogStory,
-  readBacklog,
-  readStory,
-  StoryViewCache,
-  type ViewPass,
-} from "./read";
+import { type BacklogStory, storyFromRead } from "./read";
 
 export interface IndexDeps {
   readonly office: OfficeHandle;
   readonly git: OfficeGit;
-  readonly cli: BacklogCli;
+  readonly stories: StoryStore;
   readonly clock: Clock;
   readonly ids: IdSource;
   /**
-   * Takes a view from the office's `StoryViewCache` when none of the files it printed changed
-   * (DIPO-314); every view is read without it.
+   * Takes a story from the store's kept reads of the office when nothing it printed changed
+   * (DIPO-314); every story is read without it.
    */
   readonly reuseViews?: boolean;
 }
@@ -79,62 +68,6 @@ export interface IndexResult {
   readonly baseStatus: ReadonlyMap<StoryKey, string>;
 }
 
-/** The Backlog CLI's root configuration file. */
-const BACKLOG_ROOT_CONFIG = "backlog.config.yml";
-
-/** Each office's kept views (DIPO-314), for as long as its handle lives. */
-const VIEW_CACHES = new WeakMap<OfficeHandle, StoryViewCache>();
-
-/** The office's kept views. */
-export function viewCacheOf(office: OfficeHandle): StoryViewCache {
-  let cache = VIEW_CACHES.get(office);
-  if (cache === undefined) {
-    cache = new StoryViewCache();
-    VIEW_CACHES.set(office, cache);
-  }
-  return cache;
-}
-
-/**
- * The folders the Backlog CLI reads its files from in the checkout `cwd`, as `scanBacklogFiles`
- * resolves them: `backlog/`, `.backlog/` and the folder `backlog.config.yml` names, with that
- * file itself; null when the file names a folder dipo cannot resolve, or cannot be read.
- */
-export function backlogFolders(cwd: string): string[] | null {
-  const folders = ["backlog", ".backlog", BACKLOG_ROOT_CONFIG];
-  let text: string;
-  try {
-    text = readFileSync(join(cwd, BACKLOG_ROOT_CONFIG), "utf8");
-  } catch (error) {
-    return (error as { code?: unknown }).code === "ENOENT" ? folders : null;
-  }
-  const pointer = backlogPointer(text);
-  if (pointer.kind === "unresolved") return null;
-  if (pointer.kind === "folder" && !folders.includes(pointer.folder)) folders.push(pointer.folder);
-  return folders;
-}
-
-/**
- * The pass's view of the office's cache at `sha`, or undefined when the blobs cannot be listed or
- * the Backlog folders cannot be resolved.
- */
-async function viewPass(
-  office: OfficeHandle,
-  git: GitSession,
-  location: ReturnType<OfficeGit["worktreeLocation"]>,
-  sha: string,
-  basePath: string,
-): Promise<ViewPass | undefined> {
-  const folders = backlogFolders(basePath);
-  if (folders === null) return undefined;
-  try {
-    const listing = await git.ok(location, ["ls-tree", "-r", "-z", sha, "--", ...folders]);
-    return viewCacheOf(office).pass(backlogBlobs(listing));
-  } catch {
-    return undefined;
-  }
-}
-
 function messageOf(error: unknown): string {
   return error instanceof Error ? error.message : String(error);
 }
@@ -149,8 +82,8 @@ export function readsOnBranch(claim: ClaimRecord): boolean {
 
 /**
  * Indexes the office's stories from `_base`, claimed ones from their branch. Throws `GitError`
- * when the office has no base or `origin/<base>` is missing, and the Backlog CLI errors of
- * `readBacklog`; nothing is written then.
+ * when the office has no base or `origin/<base>` is missing, and the `StoryStoreError` of a failed
+ * read; nothing is written then.
  */
 export async function indexStories(deps: IndexDeps): Promise<IndexResult> {
   const base = await deps.git.ensureBaseWorktree();
@@ -170,11 +103,9 @@ export async function indexPass(
   // A fetch queued before this item may have moved `_base` since it was ensured.
   const location = deps.git.worktreeLocation(basePath);
   const sha = (await git.ok(location, ["rev-parse", "--verify", "HEAD"])).trim();
-  const pass =
-    deps.reuseViews === true
-      ? await viewPass(deps.office, git, location, sha, basePath)
-      : undefined;
-  const fromBase = await readBacklog(deps.cli, basePath, pass);
+  const reuse =
+    deps.reuseViews === true ? { key: deps.office, session: git, location, sha } : undefined;
+  const fromBase = (await deps.stories.readAll(basePath, reuse)).map(storyFromRead);
   const { read, branchUnread, baseStatus } = await overlayClaimed(deps, git, basePath, fromBase);
   const at = deps.clock.now();
   return deps.office.immediate(() => {
@@ -262,14 +193,15 @@ async function overlayClaimed(
     const listed = read[index];
     if (listed === undefined || isProvisionalId(id)) continue;
     try {
-      const onBranch = await readOnBranch(deps.git, session, deps.cli, claim, basePath, {
+      const onBranch = await deps.stories.readOnBranch(deps.git, session, claim, basePath, {
         id,
         title: listed.title,
         status: listed.status,
       });
       // The gate reads every task as it is on `_base`, not as the claimed story's branch has it.
       read[index] = {
-        ...onBranch,
+        ...storyFromRead(onBranch),
+        source: claim.branch,
         ...(listed.gateTask === undefined ? {} : { gateTask: listed.gateTask }),
       };
       baseStatus.set(claim.key, listed.status);
@@ -308,8 +240,11 @@ export async function refreshStory(
   const base = await deps.git.ensureBaseWorktree();
   const story = await deps.git.run(async (session) => {
     const listed = { id: identity.story as string, title: "", status: "" };
-    if (onBranch) return readOnBranch(deps.git, session, deps.cli, claim, base.path, listed);
-    return readStory(deps.cli, base.path, kind, listed);
+    if (onBranch) {
+      const read = await deps.stories.readOnBranch(deps.git, session, claim, base.path, listed);
+      return { ...storyFromRead(read), source: claim.branch };
+    }
+    return storyFromRead(await deps.stories.read(base.path, kind, listed));
   });
   const at = deps.clock.now();
   return deps.office.immediate(() => {

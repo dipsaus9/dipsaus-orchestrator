@@ -746,8 +746,8 @@ function deepFreeze<T>(value: T): T {
 describe("purity", () => {
   const ALLOWED_IMPORTS = [
     /^\.\/[a-z]+$/,
-    /^\.\.\/backlog\/fields\/(block|labels)$/,
-    /^\.\.\/backlog\/plain$/,
+    /^\.\.\/story-store\/fields\/(block|labels)$/,
+    /^\.\.\/story-store\/story$/,
     /^\.\.\/config\/schema$/,
     /^@dipsaus-orchestrator\/contract$/,
   ];

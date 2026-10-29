@@ -27,12 +27,8 @@ import type { Spawn } from "@dipsaus-orchestrator/contract";
 import { git, type TempRepo, withTempRepo } from "@dipsaus-orchestrator/testkit";
 
 import { EDIT_KIND, editKind, OfficeLane } from "../../src/backlog/lane";
-import {
-  BACKLOG_ENV_KEYS,
-  BACKLOG_FOLDER_ERROR,
-  type BacklogCli,
-  TASK_FIELD_ERROR,
-} from "../../src/backlog/runner";
+import { BACKLOG_ENV_KEYS, BACKLOG_FOLDER_ERROR, type BacklogCli } from "../../src/backlog/runner";
+import { TASK_FIELD_ERROR } from "../../src/story-store/errors";
 import { GitError } from "../../src/git";
 import { systemSpawn } from "../../src/platform/process";
 import { gitParkWriter, gitUnparkWriter } from "../../src/run/park";
@@ -50,6 +46,7 @@ import {
 } from "../worktree/helpers";
 
 import { BACKLOG_CLI } from "./helpers";
+import { backlogStoryStore } from "../../src/backlog/store";
 
 // Each test drives the pinned Backlog CLI and real git several times; the GitHub macOS runner needs
 // more than the default 5 s (DIPO-316).
@@ -159,14 +156,14 @@ if (process.env["DIPO_TEST_CI"] === "1") {
         const copy = ["backlog/config.yml", TASK_FILE_1];
 
         // The claim: dipo's copy of the backlog, never the main checkout.
-        claimed(await claimStory(s.deps({ cli }), s.request(s.key())));
+        claimed(await claimStory(s.deps({ stories: backlogStoryStore(cli) }), s.request(s.key())));
         expectClean(calls, repo.dir, copy);
         expect(await statusAt(repo.dir, repo.home, BRANCH_1)).toBe("In Progress");
         await deliver(repo);
 
         // In Review: the story's view and the criteria and status edit.
         calls.length = 0;
-        const ops = gitStoryOps({ git: () => s.git, cli });
+        const ops = gitStoryOps({ git: () => s.git, stories: backlogStoryStore(cli) });
         const story = await ops.story(s.office.officeId, BRANCH_1, TASK_1);
         expect(story.taskFile).toBe(TASK_FILE_1);
         const review = await ops.markInReview(s.office.officeId, {
@@ -182,7 +179,7 @@ if (process.env["DIPO_TEST_CI"] === "1") {
 
         // The park and its lift.
         calls.length = 0;
-        const deps = { git: () => s.git, cli };
+        const deps = { git: () => s.git, stories: backlogStoryStore(cli) };
         const park = await gitParkWriter(deps).write(s.office.officeId, {
           story: TASK_1,
           branch: BRANCH_1,
@@ -222,7 +219,7 @@ if (process.env["DIPO_TEST_CI"] === "1") {
         await publish(repo);
         const s = await claimSetup(repo);
         const { cli } = recordingCli(repo.env);
-        claimed(await claimStory(s.deps({ cli }), s.request(s.key())));
+        claimed(await claimStory(s.deps({ stories: backlogStoryStore(cli) }), s.request(s.key())));
 
         // The branch's tasks folder is now a symbolic link to a folder outside the repository.
         const outside = join(repo.root, "outside-tasks");
@@ -236,7 +233,7 @@ if (process.env["DIPO_TEST_CI"] === "1") {
         const before = readFileSync(join(outside, basename(TASK_FILE_1)));
         const tip = await repo.git("rev-parse", BRANCH_1);
 
-        const ops = gitStoryOps({ git: () => s.git, cli });
+        const ops = gitStoryOps({ git: () => s.git, stories: backlogStoryStore(cli) });
         const error = await ops
           .markInReview(s.office.officeId, {
             branch: BRANCH_1,
@@ -287,7 +284,7 @@ if (process.env["DIPO_TEST_CI"] === "1") {
         const base = await repo.git("show", "main:backlog/config.yml");
         const s = await claimSetup(repo);
         const { cli, calls } = recordingCli(repo.env);
-        claimed(await claimStory(s.deps({ cli }), s.request(s.key())));
+        claimed(await claimStory(s.deps({ stories: backlogStoryStore(cli) }), s.request(s.key())));
 
         // A commit on the story branch changes the configuration.
         await byHandOn(repo, BRANCH_1, async (dir) => {
@@ -296,7 +293,11 @@ if (process.env["DIPO_TEST_CI"] === "1") {
         });
 
         calls.length = 0;
-        await gitStoryOps({ git: () => s.git, cli }).story(s.office.officeId, BRANCH_1, TASK_1);
+        await gitStoryOps({ git: () => s.git, stories: backlogStoryStore(cli) }).story(
+          s.office.officeId,
+          BRANCH_1,
+          TASK_1,
+        );
         expectClean(calls, repo.dir);
         for (const call of calls) expect(call.config).toBe(base);
       }, FIXTURE);
@@ -307,7 +308,7 @@ if (process.env["DIPO_TEST_CI"] === "1") {
         await publish(repo);
         const s = await claimSetup(repo);
         const { cli, calls } = recordingCli(repo.env);
-        claimed(await claimStory(s.deps({ cli }), s.request(s.key())));
+        claimed(await claimStory(s.deps({ stories: backlogStoryStore(cli) }), s.request(s.key())));
         await byHandOn(repo, BRANCH_1, async (dir) => {
           const path = join(dir, TASK_FILE_1);
           writeFileSync(
@@ -319,8 +320,8 @@ if (process.env["DIPO_TEST_CI"] === "1") {
         const tip = await repo.git("rev-parse", BRANCH_1);
 
         calls.length = 0;
-        const ops = gitStoryOps({ git: () => s.git, cli });
-        const deps = { git: () => s.git, cli };
+        const ops = gitStoryOps({ git: () => s.git, stories: backlogStoryStore(cli) });
+        const deps = { git: () => s.git, stories: backlogStoryStore(cli) };
         const attempts: (() => Promise<unknown>)[] = [
           () => ops.story(s.office.officeId, BRANCH_1, TASK_1),
           () =>
