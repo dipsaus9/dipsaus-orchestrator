@@ -39,7 +39,7 @@ import {
   workProgress,
 } from "@dipsaus-orchestrator/contract";
 
-import { markerRule } from "@dipsaus-orchestrator/tui";
+import { markerRule } from "@dipsaus-orchestrator/client";
 
 import { cleanedOutput, type DaemonSession, engineFailure, usage } from "./daemon-commands";
 import { type OfficeCommandDeps, parseOptions, withOffice } from "./office-commands";
