@@ -98,7 +98,7 @@ dipo records the previous values. Existing ignore files are never edited.
 | Hardened calls | Every call runs with `GIT_CONFIG_NOSYSTEM=1`, `GIT_DIR` and `GIT_COMMON_DIR` set from recorded paths, `core.hooksPath=/dev/null`, `core.fsmonitor=false` and `commit --no-verify` |
 | One queue | One serial git queue per office orders refs and pushes |
 | Base and remote | `base` in `.dipo/office.yaml`, else `refs/remotes/origin/HEAD`; else `run` is refused. The remote is `origin` |
-| Worktrees | Only dipo's own two: `_base` (detached at `origin/<base>`, for reads) and `_backlog` (the planning lane), under `worktree.root` (default `../<repo>.worktrees`), outside the main checkout. A story worktree an earlier binary left there (locked `dipo <run-id>`) is removed at office load with `git worktree remove` when it holds no change, untracked or ignored file but `node_modules`; any other is kept and listed on the desk |
+| Worktrees | Only dipo's own two: `_base` (detached at `origin/<base>`, for reads) and `_backlog` (the planning lane), under `worktree.root` (default `../<repo>.worktrees`), outside the main checkout. A story worktree an earlier binary left there (locked `dipo <run-id>`) is removed at office load with `git worktree remove` when it has a branch checked out and every file `git status` lists is deleted, a `node_modules/` folder, a `.DS_Store` file, or bytes git holds for that path at a commit reachable from the branch tip; any other, or one on a detached HEAD, is kept and listed on the desk |
 | Claim | The exact local ref is absent and `git ls-remote --heads origin <branch>` is empty. Then `git update-ref refs/heads/<branch> <start> ""` creates the branch atomically, and a `claims` row with unique indexes holds it (0007). Then come the claim commit, the push and the box (0008). A lost race is a skip |
 | Parts | Committed from git objects on the branch ref, then pushed (0008) |
 | Code tree key | The hash of `git ls-tree -r <commit>` without the story's own task file. Verdicts are keyed on it (0002) |
@@ -137,6 +137,7 @@ There are no git hooks, no changes to existing ignore files or `info/exclude`, a
 - Verify and commit at done with a scope check on the worktree, and lockfile pairing (2026-10-10). Replaced by parts, verify in the box with CI as the final gate (0002), and references as a forecast (0008).
 - A building-time sync for riskier stories (2026-10-10). Removed; dipo syncs only on a conflict (2026-10-24).
 - A conflict merge left in progress in a worktree (2026-10-16). Replaced by a merge committed with markers (0002).
+- A reused branch merged with the base at claim, with a conflict as the worker's first feedback (2026-10-10). Replaced (2026-10-28) by reuse at the kept tip, then the conflict check and base sync (0002).
 - Seven separate places that made commits, and pushes from eight. Replaced by one git module (2026-10-24).
 - Draft promotion with a journaled snapshot (2026-10-10). It moved to M3 and is designed when it is built (0003).
 - An optional component map for collision checks (2026-10-10). It is M2 work and is designed then (0003).
