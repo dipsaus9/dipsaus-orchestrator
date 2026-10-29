@@ -11,10 +11,7 @@ import { EventEmitter } from "node:events";
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 
-import {
-  type DetachedSpawnOptions,
-  type ExecutableStamp,
-} from "@dipsaus-orchestrator/engine/platform";
+import type { ExecutableStamp, SpawnDetached } from "@dipsaus-orchestrator/engine/platform";
 import {
   isolatedDaemonEnv,
   ManualClock,
@@ -42,7 +39,7 @@ function setup(
   let signal: ((name: string) => void) | null = null;
   let stamp = OLD;
   let done = false;
-  const spawns: DetachedSpawnOptions[] = [];
+  const spawns: Parameters<SpawnDetached>[0][] = [];
   const io: DaemonIo = {
     writeLine: () => {},
     writeError: onLine,

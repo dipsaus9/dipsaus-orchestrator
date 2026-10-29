@@ -6,10 +6,10 @@
 // stopped in a `finally`.
 
 import { describe, expect, it } from "bun:test";
-import { existsSync, readFileSync, writeFileSync } from "node:fs";
+import { createHash } from "node:crypto";
+import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { join, resolve } from "node:path";
 
-import { prepareRunTempDir, runTempOwner } from "@dipsaus-orchestrator/engine";
 import {
   assertTestRuntimeDir,
   daemonTestEnv,
@@ -19,6 +19,20 @@ import {
 import { TestClient } from "../support/client";
 
 const MAIN = resolve(import.meta.dir, "../../../cli/src/main.ts");
+
+/**
+ * The owner a run temp directory names, as the engine writes it (DIPO-102): the first 32 hex
+ * characters of the SHA-256 of the state database's path.
+ */
+function runTempOwner(databasePath: string): string {
+  return createHash("sha256").update(databasePath).digest("hex").slice(0, 32);
+}
+
+/** A run temp directory (0700) with its `.dipo-owner` file when it has an owner. */
+function prepareRunTempDir(dir: string, owner: string | undefined): void {
+  mkdirSync(dir, { recursive: true, mode: 0o700 });
+  if (owner !== undefined) writeFileSync(join(dir, ".dipo-owner"), `${owner}\n`, { mode: 0o600 });
+}
 const TIMEOUT_MS = 20_000;
 
 type Daemon = Bun.Subprocess<"ignore", "pipe", "pipe">;

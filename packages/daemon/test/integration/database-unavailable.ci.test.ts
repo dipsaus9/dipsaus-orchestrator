@@ -23,16 +23,14 @@ import {
 } from "node:fs";
 import { join, resolve } from "node:path";
 
-import { openStateDatabase } from "@dipsaus-orchestrator/engine";
-import { createLogger } from "@dipsaus-orchestrator/engine/platform";
 import {
   assertTestRuntimeDir,
   daemonTestEnv,
-  ManualClock,
   withDaemonTempDir,
 } from "@dipsaus-orchestrator/testkit";
 
 import { TestClient } from "../support/client";
+import { migratedDatabase } from "../support/state-database";
 
 const MAIN = resolve(import.meta.dir, "../../../cli/src/main.ts");
 const FAILING = resolve(import.meta.dir, "fixtures/failing-migration-daemon.ts");
@@ -150,20 +148,14 @@ async function headDatabase(
   dir: string,
   change: (exec: (sql: string) => void) => void = () => {},
 ): Promise<string> {
-  const clock = new ManualClock();
-  const logger = createLogger({ clock, sinks: [], component: "test" });
-  const state = await openStateDatabase({
-    stateDir: join(dir, "state"),
-    logger,
-    clock,
-    engineVersion: "0.0.0-test",
-  });
+  const path = await migratedDatabase(join(dir, "state"), dir);
+  const database = new Database(path);
   try {
-    change((sql) => state.connection.exec(sql));
+    change((sql) => database.exec(sql));
   } finally {
-    state.shutdown();
+    database.close();
   }
-  return state.connection.path;
+  return path;
 }
 
 /** The refusal of one office command and one read, which must be the same error. */

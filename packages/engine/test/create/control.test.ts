@@ -107,3 +107,51 @@ describe("daemon.status build commit (DIPO-198)", () => {
     cache.stop();
   });
 });
+
+describe("daemon.resumeScheduling outside safe (0020)", () => {
+  it("lifts the offices' starts paused, and answers daemon.notSafe once nothing is left", () => {
+    const clock = new ManualClock();
+    const lifecycle = new DaemonLifecycle();
+    lifecycle.transition("recovering", "setup");
+    lifecycle.transition("running", "setup");
+    const lifts: string[] = [];
+    let paused = 1;
+    const registry = buildRegistry([
+      controlFeature({
+        lifecycle,
+        logger: createLogger({ clock, sinks: [], component: "test" }),
+        clock,
+        startedAt: clock.now(),
+        pid: 1,
+        version: "0.0.0-test",
+        socket: "/s",
+        tools: {},
+        upgradePending: () => false,
+        loadedOffices: () => [],
+        liftStartsPaused: (why) => {
+          lifts.push(why);
+          const lifted = paused;
+          paused = 0;
+          return lifted;
+        },
+        requestStop: () => {},
+      }),
+    ]);
+    const command = registry.command("daemon.resumeScheduling");
+    if (command === undefined) throw new Error("daemon.resumeScheduling is not registered");
+    const resume = () => (command.handle as (ctx: unknown, args: unknown) => unknown)({}, {});
+    expect(resume()).toEqual({ result: { state: "running" }, changed: true });
+    expect(lifts).toEqual(["the maintainer ran dipo daemon resume-scheduling"]);
+    expect(lifecycle.state).toBe("running");
+    // Nothing left to lift and not safe: daemon.notSafe, as before.
+    let refused: unknown;
+    try {
+      resume();
+    } catch (error) {
+      refused = error;
+    }
+    expect((refused as { error?: { code?: string } } | undefined)?.error?.code).toBe(
+      "daemon.notSafe",
+    );
+  });
+});
