@@ -13,7 +13,8 @@ import { describe, expect, it } from "bun:test";
 import { LINT_TIMEOUT_MS, lintTree, type Diagnostic } from "./lint-tree";
 
 const RULE = "dipo(no-backlog-import)";
-const DEEP = "eslint(no-restricted-imports)";
+const DEEP = "dipo(package-imports)";
+const LAYERS = "dipo(engine-layers)";
 const ENGINE = "packages/engine/src";
 
 /** `rules` lists one entry per expected diagnostic; a rule may repeat. */
@@ -21,6 +22,9 @@ type Case = { fixture: string; target: string; rules: string[] };
 
 /** Every import form of `backlog-import.ts` is one diagnostic. */
 const FORMS = 8;
+
+/** The forms of `backlog-import.ts` that load a value: all but the type-only import and `typeof import`. */
+const VALUE_FORMS = 6;
 
 /** The files that imported backlog/ before DIPO-356 moved them behind the store (AC #2). */
 const FORMER_IMPORTERS = [
@@ -46,7 +50,8 @@ const violations: Case[] = [
   {
     fixture: "backlog-import.ts",
     target: `${ENGINE}/story-store/leak.ts`,
-    rules: Array(FORMS).fill(RULE),
+    // The store is in the engine's base layer too, so each value form also crosses up a layer.
+    rules: [...Array(FORMS).fill(RULE), ...Array(VALUE_FORMS).fill(LAYERS)],
   },
   // In create/, only the wiring files of createEngine are the composition root (DIPO-318).
   {

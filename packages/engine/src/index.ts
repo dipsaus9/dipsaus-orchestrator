@@ -14,7 +14,6 @@ export type { RecoveryContext, RecoveryStep } from "./create/recovery";
 
 // The types of the engine's ports.
 export type { FeatureModule, FeatureRegistry } from "./commands/registry";
-export type { Migration } from "./db/migrations";
 export type { Logger, LogFields } from "./log/logger";
 export type { ProcessProbe } from "./platform/process";
 export type { CodeHost } from "./platform/host";

@@ -13,6 +13,7 @@ import { describe, expect, it } from "bun:test";
 import { LINT_TIMEOUT_MS, lintTree, type Diagnostic } from "./lint-tree";
 
 const CLAUDE_CLI = "dipo(no-claude-cli-import)";
+const LAYERS = "dipo(engine-layers)";
 const BUN = "dipo(no-bun-import)";
 const BUN_GLOBAL = "dipo(no-bun-global)";
 /** `export * from "bun"` also re-exports the banned `spawnSync` (0007 section 1). */
@@ -63,7 +64,8 @@ const violations: Case[] = [
   {
     fixture: "imports-engine-entry.ts",
     target: `${ENGINE}/run/entry.ts`,
-    rules: [CLAUDE_CLI, CLAUDE_CLI, CLAUDE_CLI],
+    // The entry is also the composition layer, which the domain layer imports nothing from.
+    rules: [CLAUDE_CLI, CLAUDE_CLI, CLAUDE_CLI, LAYERS],
   },
 ];
 

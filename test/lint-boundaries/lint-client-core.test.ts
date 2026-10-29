@@ -11,6 +11,7 @@ import { LINT_TIMEOUT_MS, lintTree, type Diagnostic } from "./lint-tree";
 const GLOBALS = "eslint(no-restricted-globals)";
 const IMPORTS = "eslint(no-restricted-imports)";
 const PROPERTIES = "eslint(no-restricted-properties)";
+const PACKAGES = "dipo(package-imports)";
 
 type Case = { fixture: string; dir: string; rule: string };
 
@@ -24,9 +25,9 @@ const violations: Case[] = [
   // The core keeps the timer ban; `client/node` keeps the engine and daemon bans.
   { fixture: "global-timer.ts", dir: "packages/client/src", rule: GLOBALS },
   { fixture: "global-timer.ts", dir: "packages/client/src/node", rule: GLOBALS },
-  { fixture: "client-imports-engine.ts", dir: "packages/client/src", rule: IMPORTS },
-  { fixture: "client-imports-engine.ts", dir: "packages/client/src/node", rule: IMPORTS },
-  { fixture: "client-imports-daemon.ts", dir: "packages/client/src/node", rule: IMPORTS },
+  { fixture: "client-imports-engine.ts", dir: "packages/client/src", rule: PACKAGES },
+  { fixture: "client-imports-engine.ts", dir: "packages/client/src/node", rule: PACKAGES },
+  { fixture: "client-imports-daemon.ts", dir: "packages/client/src/node", rule: PACKAGES },
   // Property access through globalThis, self or window is banned like the bare global.
   { fixture: "client-core-global-this-bun.ts", dir: "packages/client/src", rule: PROPERTIES },
   { fixture: "client-core-global-this-process.ts", dir: "packages/client/src", rule: PROPERTIES },

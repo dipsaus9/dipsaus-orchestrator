@@ -18,7 +18,6 @@ import type { ListenHttp } from "../box/model-proxy";
 import type { TestBoxesDeps } from "../box/test-box";
 import type { Renderer } from "../changelog/render";
 import type { FeatureModule } from "../commands/registry";
-import type { Migration } from "../db/migrations";
 import type { Logger } from "../log/logger";
 import type { SpawnKeepAwake } from "../platform/keepawake";
 import type { ProcessProbe } from "../platform/process";
@@ -88,8 +87,11 @@ export interface EngineDeps {
   readonly settings: SoftwareConfig;
   readonly daemon: DaemonFacts;
   readonly databaseCheck: DatabaseCheck;
-  /** Replaces the compiled-in migrations; tests add a failing step (DIPO-111). */
-  readonly migrations?: readonly Migration[];
+  /**
+   * SQL steps after the compiled-in migrations, numbered after them; a test adds a failing step
+   * (DIPO-111).
+   */
+  readonly extraMigrations?: readonly { readonly name: string; readonly sql: string }[];
   /** Recovery steps after the engine's own, in order; tests add one. */
   readonly recoverySteps?: readonly RecoveryStep[];
   /** Feature modules served after the engine's own; tests register fixtures here. */

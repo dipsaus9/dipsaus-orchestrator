@@ -26,7 +26,6 @@ import {
   type Engine,
   type FeatureModule,
   type Logger,
-  type Migration,
   type RecoveryStep,
   type WorkerPort,
 } from "@dipsaus-orchestrator/engine";
@@ -89,8 +88,8 @@ export const FOREGROUND_USAGE =
 export interface ForegroundOptions {
   /** Recovery steps after the migrations, in registration order (DIPO-56, DIPO-57). */
   readonly recoverySteps?: readonly RecoveryStep[];
-  /** Replaces the compiled-in migrations; tests add a failing step (DIPO-111). */
-  readonly migrations?: readonly Migration[];
+  /** SQL steps after the compiled-in migrations; tests add a failing step (DIPO-111). */
+  readonly extraMigrations?: readonly { readonly name: string; readonly sql: string }[];
   readonly drainCaps?: DrainCaps;
   /** Feature modules served next to the engine's own; tests register fixtures here. */
   readonly features?: readonly FeatureModule[];
@@ -538,7 +537,7 @@ function startEngine(
       because: parts.checkBecause,
       needsCheck: (value) => parts.crashes.setNeedsCheck(value),
     },
-    ...(options.migrations === undefined ? {} : { migrations: options.migrations }),
+    ...(options.extraMigrations === undefined ? {} : { extraMigrations: options.extraMigrations }),
     ...(options.recoverySteps === undefined ? {} : { recoverySteps: options.recoverySteps }),
     ...(options.features === undefined ? {} : { features: options.features }),
     ...(options.workerPort === undefined ? {} : { workerPort: options.workerPort }),
