@@ -445,6 +445,18 @@ export function openAtInReview(run: Pick<StoredRun, "endedAt" | "ending">): bool
 }
 
 /**
+ * True when the parked run stood open at In Review when it parked at `parkedAt` (the park's first
+ * time): a park keeps the end of an active period that ended before it, so a lift of the park
+ * with no session returns the run to In Review (`unparkRun`).
+ */
+export function parkedFromInReview(
+  run: Pick<StoredRun, "endedAt" | "ending">,
+  parkedAt: number,
+): boolean {
+  return run.ending === "parked" && run.endedAt !== null && run.endedAt < parkedAt;
+}
+
+/**
  * SQL for the phase the newest `phase` step of the run aliased `r` names (0009), null when it has
  * none; `runPhase` in SQL.
  */

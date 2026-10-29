@@ -1374,7 +1374,7 @@ describe("a reviewer that ends without a verdict (0019 section 4)", () => {
   });
 });
 
-describe("a run that ends reviewed hands its head to the fix rounds (DIPO-148)", () => {
+describe("a run past its review hands its head to the fix rounds (DIPO-148)", () => {
   it("after the reviewer's exit, and when a new head takes its tree's blocked verdict without a round", async () => {
     const s = inReview("DIPO-1", "tree-1");
     heads.set(s.run, "tree-1");

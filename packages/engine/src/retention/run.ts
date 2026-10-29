@@ -154,60 +154,70 @@ export async function runRetention(options: RetentionOptions): Promise<Retention
     { cutoff: stateCutoff },
   );
   await rows("agents", "ended_at < $cutoff", { cutoff: stateCutoff });
-  // Runs that ended before the cutoff, their steps first; then the configuration snapshots no
+  // Runs that ended (done, parked or dropped, 0020) before the cutoff, their steps first; a run open
+  // at In Review has not ended and keeps its rows (DIPO-373). Then the configuration snapshots no
   // remaining run names.
   await rows(
     "run_steps",
     `exists (select 1 from runs r where r.office_id = $office_id and r.run_id = run_steps.run_id
-       and r.ended_at < $cutoff)`,
+       and r.ended_at < $cutoff
+       and r.end_kind is not null)`,
     { cutoff: stateCutoff },
   );
   await rows(
     "run_grants",
     `exists (select 1 from runs r where r.office_id = $office_id and r.run_id = run_grants.run_id
-       and r.ended_at < $cutoff)`,
+       and r.ended_at < $cutoff
+       and r.end_kind is not null)`,
     { cutoff: stateCutoff },
   );
   await rows(
     "run_signals",
     `exists (select 1 from runs r where r.office_id = $office_id and r.run_id = run_signals.run_id
-       and r.ended_at < $cutoff)`,
+       and r.ended_at < $cutoff
+       and r.end_kind is not null)`,
     { cutoff: stateCutoff },
   );
   await rows(
     "feedback_items",
     `exists (select 1 from runs r where r.office_id = $office_id
-       and r.run_id = feedback_items.run_id and r.ended_at < $cutoff)`,
+       and r.run_id = feedback_items.run_id and r.ended_at < $cutoff
+       and r.end_kind is not null)`,
     { cutoff: stateCutoff },
   );
   await rows(
     "acceptance_tests",
     `ended_at is not null and exists (select 1 from runs r where r.office_id = $office_id
-       and r.run_id = acceptance_tests.run_id and r.ended_at < $cutoff)`,
+       and r.run_id = acceptance_tests.run_id and r.ended_at < $cutoff
+       and r.end_kind is not null)`,
     { cutoff: stateCutoff },
   );
   await rows(
     "catch_ups",
     `exists (select 1 from runs r where r.office_id = $office_id and r.run_id = catch_ups.run_id
-       and r.ended_at < $cutoff)`,
+       and r.ended_at < $cutoff
+       and r.end_kind is not null)`,
     { cutoff: stateCutoff },
   );
   await rows(
     "run_intents",
     `exists (select 1 from runs r where r.office_id = $office_id and r.run_id = run_intents.run_id
-       and r.ended_at < $cutoff)`,
+       and r.ended_at < $cutoff
+       and r.end_kind is not null)`,
     { cutoff: stateCutoff },
   );
   await rows(
     "questions",
     `exists (select 1 from runs r where r.office_id = $office_id and r.run_id = questions.run_id
-       and r.ended_at < $cutoff)`,
+       and r.ended_at < $cutoff
+       and r.end_kind is not null)`,
     { cutoff: stateCutoff },
   );
   await rows(
     "run_summaries",
     `exists (select 1 from runs r where r.office_id = $office_id
-       and r.run_id = run_summaries.run_id and r.ended_at < $cutoff)`,
+       and r.run_id = run_summaries.run_id and r.ended_at < $cutoff
+       and r.end_kind is not null)`,
     { cutoff: stateCutoff },
   );
   // A run's done reports and its send-once marks (DIPO-186).
@@ -215,11 +225,12 @@ export async function runRetention(options: RetentionOptions): Promise<Retention
     await rows(
       table,
       `exists (select 1 from runs r where r.office_id = $office_id
-         and r.run_id = ${table}.run_id and r.ended_at < $cutoff)`,
+         and r.run_id = ${table}.run_id and r.ended_at < $cutoff
+       and r.end_kind is not null)`,
       { cutoff: stateCutoff },
     );
   }
-  await rows("runs", "ended_at < $cutoff", { cutoff: stateCutoff });
+  await rows("runs", "ended_at < $cutoff and end_kind is not null", { cutoff: stateCutoff });
   // Decision notes and proposals the maintainer decided; an open one is kept (DIPO-186).
   await rows("decision_notes", "state <> 'open' and updated_at < $cutoff", { cutoff: stateCutoff });
   await rows("proposals", "state <> 'open' and updated_at < $cutoff", { cutoff: stateCutoff });

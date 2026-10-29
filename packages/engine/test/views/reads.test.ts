@@ -24,6 +24,7 @@ import { storeGateDecision } from "../../src/gate/store/decisions";
 import { recordPromptTexts } from "../../src/prompts/parts";
 import { executeRead } from "../../src/reads/execute";
 import { endRun } from "../../src/run/records";
+import { stopAtInReview } from "../../src/run/rounds";
 import {
   OUTPUT_RANGE_MAX_BYTES,
   outputRange,
@@ -206,7 +207,19 @@ describe("story.detail", () => {
       expect(detail.verdicts).toMatchObject([{ kind: "pickup", decision: "approved", by: "rule" }]);
       expect(detail.verdicts[0]).not.toHaveProperty("run");
 
-      // A run that ended (a failed host start, a release) shows its end; no active work is left.
+      // A run open at In Review has not ended (DIPO-373): it says since when it stands there.
+      t.clock.advance(1000);
+      const inReviewAt = t.clock.now();
+      office.immediate(() => stopAtInReview(office, started.run, inReviewAt));
+      const atReview = await read<{ runs: RunRecord[] }>(t, office, "story.detail", {
+        office: office.officeId,
+        story: started.key,
+      });
+      expect(atReview.runs[0]?.inReviewSince).toBe(new Date(inReviewAt).toISOString());
+      expect(atReview.runs[0]).not.toHaveProperty("endedAt");
+      expect(atReview.runs[0]).not.toHaveProperty("outcome");
+
+      // A run that ended (a discard, a release) shows its end; no active work is left.
       t.clock.advance(1000);
       office.immediate(() => endRun(office, started.run, t.clock.now(), "dropped"));
       const ended = await read<{ work?: WorkView; runs: RunRecord[] }>(t, office, "story.detail", {
@@ -214,10 +227,12 @@ describe("story.detail", () => {
         story: started.key,
       });
       expect(ended.work).toBeUndefined();
+      // A run open at In Review keeps the end of its last active period.
       expect(ended.runs[0]).toMatchObject({
-        endedAt: new Date(t.clock.now()).toISOString(),
+        endedAt: new Date(inReviewAt).toISOString(),
         outcome: "dropped",
       });
+      expect(ended.runs[0]).not.toHaveProperty("inReviewSince");
     }));
 });
 

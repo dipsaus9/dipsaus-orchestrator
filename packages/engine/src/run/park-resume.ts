@@ -104,7 +104,7 @@ import { MAINTAINER_RESUME_TAG, mirrorUnpark, unresolvedPark } from "./park-stat
 
 export { MAINTAINER_RESUME_TAG, parksBeingResumed } from "./park-state";
 import { PLACE_NOTICES, type Places, START_KINDS, waitForPlace } from "./places";
-import { findRun, runRoundCounts, type StoredRun, unparkRun } from "./records";
+import { findRun, parkedFromInReview, runRoundCounts, type StoredRun, unparkRun } from "./records";
 import { recordBranchPush } from "../story-pr/records";
 import { resumeRow, resumeSession, type ResumeSession, SUGGESTED_SHARE } from "./resume-policy";
 import {
@@ -448,8 +448,7 @@ function newestAgent(
  * the run's active period).
  */
 function resumeFacts(office: OfficeHandle, run: StoredRun, park: OpenPark) {
-  const waitingInReview =
-    park.from === "In Review" && run.endedAt !== null && run.endedAt < park.at;
+  const waitingInReview = park.from === "In Review" && parkedFromInReview(run, park.at);
   const newest = newestAgent(office, run.runId);
   return { waitingInReview, reviewerStopped: !waitingInReview && newest?.role === REVIEWER_ROLE };
 }

@@ -558,7 +558,7 @@ describe("the review comment with the daemon's checkout wiring (DIPO-371)", () =
 });
 
 describe("a story In Review without a story PR", () => {
-  it("gets its PR at the next poll after story PRs were switched on, also when its run ended as reviewed", async () => {
+  it("gets its PR at the next poll after story PRs were switched on, also when its run is past its review", async () => {
     const off = { ...OFFICE_DEFAULTS, storyPr: { open: false } } as OfficeConfig;
     await inWorld(
       async (w) => {

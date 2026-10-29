@@ -8,10 +8,10 @@
 //   Review (`conflict`, the entry for the merge slot's sync, DIPO-150) is sent at once like a
 //   reject, and so is a failed test's note (`testFail`, DIPO-309), keyed on the test id. Advisory findings never start a round on their own; a round that starts for another
 //   reason lists them as optional.
-// - Timing (section 7). `consider` runs when a run ends reviewed (a reviewer session's exit after
+// - Timing (section 7). `consider` runs when a run is past its review (a reviewer session's exit after
 //   its verdict, or a head that took its tree's verdict without a round), when the CI of a head
 //   stops being pending (`onCiFinal`), and at the daemon's recovery step (`recover`). It waits
-//   until the head's verdict is in (a run with the review loop's caps ended `reviewed`) and its
+//   until the head's verdict is in (a run with the review loop's caps is past phase `review`) and its
 //   checks are final, past the wait cap, or known to be none (a box run's head with no CI, or an
 //   office whose story PRs are off), so one round carries all feedback for that head. A verdict on
 //   another commit than the CI's head holds only when that head has the verdict's code tree;

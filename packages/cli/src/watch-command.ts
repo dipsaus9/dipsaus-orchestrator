@@ -116,9 +116,11 @@ export function workLines(view: WorkView): string[] {
 /** One run of a story's history. */
 export function runLine(run: RunRecord): string {
   const end =
-    run.endedAt === undefined
-      ? "still running"
-      : `ended ${clockTime(run.endedAt)} (${run.outcome ?? "no outcome recorded"})`;
+    run.inReviewSince !== undefined
+      ? `at In Review since ${clockTime(run.inReviewSince)}`
+      : run.endedAt === undefined
+        ? "still running"
+        : `ended ${clockTime(run.endedAt)} (${run.outcome ?? "no outcome recorded"})`;
   return `  run ${run.run} · started ${clockTime(run.startedAt)} · ${end} · ${count(run.usage.turns)} turns`;
 }
 
@@ -531,6 +533,17 @@ class Watch {
       const detail = await this.#detail(key);
       if (detail === null) continue;
       for (const run of detail.runs) {
+        if (run.inReviewSince !== undefined) {
+          // At In Review the run's session period is over (0020): told once, with its done report,
+          // when it gets there; a fix round or a review that follows is a run seen running again.
+          if (!this.#running.has(run.run)) continue;
+          this.#running.delete(run.run);
+          this.#line(
+            `${clockTime(run.inReviewSince)} ${detail.view.story} end    run ${run.run} at In Review · ${count(run.usage.turns)} turns`,
+          );
+          for (const line of doneReportLines(run)) this.#line(line);
+          continue;
+        }
         if (run.endedAt === undefined) {
           // A run of the watched story that started while the stream was away.
           if (this.#story !== null && !this.#running.has(run.run)) this.#running.set(run.run, key);

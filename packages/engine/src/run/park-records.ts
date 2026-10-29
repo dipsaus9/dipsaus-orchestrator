@@ -46,21 +46,24 @@ export function insertPark(office: OfficeHandle, park: NewPark): void {
   );
 }
 
-/** The open park `parkId` is made again with a new reason, detail and last good commit. */
+/**
+ * The open park `parkId` is made again with a new reason, detail and last good commit. It keeps the
+ * time it was first made: whether its run stood open at In Review then is read against that time
+ * (`parkedFromInReview`, DIPO-373).
+ */
 export function reparkOpen(
   office: OfficeHandle,
   parkId: number,
-  park: Pick<NewPark, "reason" | "detail" | "lastGoodCommit" | "at">,
+  park: Pick<NewPark, "reason" | "detail" | "lastGoodCommit">,
 ): void {
   office.run(
-    `update parks set reason = $reason, detail = $detail, last_good_commit = $commit, at = $at
+    `update parks set reason = $reason, detail = $detail, last_good_commit = $commit
       where office_id = $office_id and park_id = $park and resolved_at is null`,
     {
       park: parkId,
       reason: park.reason,
       detail: park.detail,
       commit: park.lastGoodCommit ?? null,
-      at: park.at,
     },
   );
 }
@@ -82,6 +85,18 @@ export type ParkResolution =
   | "reconcile"
   | "done-elsewhere"
   | "override";
+
+/** The run the park `parkId` was made on and when it was first made, or null. */
+export function parkedRunOf(
+  office: OfficeHandle,
+  parkId: number,
+): { readonly runId: string; readonly at: number } | null {
+  const row = office.get<{ run_id: string | null; at: number }>(
+    "select run_id, at from parks where office_id = $office_id and park_id = $park",
+    { park: parkId },
+  );
+  return row === null || row.run_id === null ? null : { runId: row.run_id, at: row.at };
+}
 
 /**
  * Inside the caller's transaction: the open park `parkId` is resolved `how` at `at`, with the

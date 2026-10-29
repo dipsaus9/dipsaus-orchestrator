@@ -64,6 +64,8 @@ const RUNS: readonly (readonly [string, string, string | null, string | null])[]
   ["r-done-elsewhere", "S-12", "stopped", "done-elsewhere"],
   ["r-dropped", "S-13", "stopped", "drop"],
   ["r-active", "S-14", null, null],
+  ["r-no-claim", "S-15", "in-review", null],
+  ["r-reviewed-no-phase", "S-16", "reviewed", null],
 ];
 
 const ROWS = `
@@ -80,7 +82,9 @@ insert into runs (office_id, run_id, kind, role, model, budget_unit, budget_limi
   ('off-1', 'q-failed', 'session', 'scan', 'm', 'tokens', 1, 3, 'h', 0, 100, 'failed');
 insert into claims (office_id, run_id, key, story_id, branch, base, base_sha, start_sha, reused,
   claimed_at, released_at, release_reason)
-  values ${RUNS.map(([id, key, , released]) => claim(id, key, released)).join(",\n  ")};
+  values ${RUNS.filter(([id]) => id !== "r-no-claim")
+    .map(([id, key, , released]) => claim(id, key, released))
+    .join(",\n  ")};
 insert into run_steps (office_id, run_id, step, kind, value, at)
   values
   ('off-1', 'r-in-review', 1, 'phase', 'build', 10),
@@ -183,9 +187,12 @@ describe("migration 67 (DIPO-373)", () => {
           "r-dropped": "dropped",
           "r-in-review": null,
           "r-in-review-parked": "parked",
+          // No claim row: nothing would ever end it.
+          "r-no-claim": "dropped",
           "r-override": null,
           "r-reconciled-done": "done",
           "r-reconciled-ready": "dropped",
+          "r-reviewed-no-phase": null,
           "r-start-failed": "dropped",
         });
         for (const run of runs) {
@@ -225,6 +232,8 @@ describe("migration 67 (DIPO-373)", () => {
             { run_id: "r-in-review-parked", value: "review", at: 100 },
             // An overridden blocked verdict merges.
             { run_id: "r-override", value: "merge", at: 100 },
+            // Past its review with no phase step and no verdict: waiting for its merge.
+            { run_id: "r-reviewed-no-phase", value: "merge", at: 100 },
           ].toSorted((a, b) => a.run_id.localeCompare(b.run_id)),
         );
       } finally {

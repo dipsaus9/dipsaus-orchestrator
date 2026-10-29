@@ -479,6 +479,17 @@ describe("opening any board row (DIPO-81)", () => {
     expect(lines(frame).at(-1)).toContain("[q] quit");
   });
 
+  it("shows a run open at In Review as at In Review, not as ended (DIPO-373)", async () => {
+    const { endedAt, outcome: _, ...stored } = record28();
+    const atReview = await open(80, 30, boardSnapshot());
+    atReview.session.runs.set(KEY_28, [{ ...stored, inReviewSince: endedAt } as RunRecord]);
+    await selectReview(atReview.ui);
+    await atReview.ui.press("enter");
+    const frame = await atReview.ui.waitFor(" run at In Review since 2h ago  role developer");
+    expect(frame).toContain("run at In Review · DIPO-28 waits for its review, test or merge");
+    expect(frame).not.toContain("run ended");
+  });
+
   it("uses the office's retention period from its summary for the removed-output line (DIPO-97)", async () => {
     const hello = goldenHello.offices.find((entry) => entry.office === OFFICES.dipsaus);
     if (hello === undefined) throw new Error("no golden summary");

@@ -1,8 +1,9 @@
 // Shared setup for the auto-merge tests of story PRs (0002): a migrated state database built from
-// fixtures under DIPO_TMP with one office and one story run waiting In Review (ended as reviewed,
-// live claim, a developer agent), its open story PR #7, an approved verdict on its pushed head, an
-// in-memory code host with auto-merge and labels, a scripted story merge git, the CI state of the
-// PR poll as a map, and a fake park writer. No test here runs git, the Backlog CLI or `gh`.
+// fixtures under DIPO_TMP with one office and one story run open at In Review in phase merge
+// (past its review, live claim, a developer agent), its open story PR #7, an approved verdict on
+// its pushed head, an in-memory code host with auto-merge and labels, a scripted story merge git,
+// the CI state of the PR poll as a map, and a fake park writer. No test here runs git, the Backlog
+// CLI or `gh`.
 
 import { type OfficeId, type RunId, type StoryKey } from "@dipsaus-orchestrator/contract";
 

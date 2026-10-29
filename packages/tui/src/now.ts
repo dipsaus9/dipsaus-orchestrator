@@ -3,7 +3,7 @@
 // Both take the newest stored worker line as stored, and its age from the engine's `lastOutputAt`.
 // Nothing here parses adapter output.
 
-import type { QuestionView, StoryView, WorkView } from "@dipsaus-orchestrator/contract";
+import type { QuestionView, RunRecord, StoryView, WorkView } from "@dipsaus-orchestrator/contract";
 
 import { healthLabel } from "./views";
 
@@ -35,8 +35,18 @@ export function phaseWord(phase: string): string {
   return PHASE_WORDS[phase] ?? phase;
 }
 
-/** The `now` line of a run that ended: where its story went; null when it left the office. */
-export function endedLine(ended: StoryView | null, dot: string): string {
+/**
+ * The `now` line of a run with no session: where its story went; null when it left the office. A
+ * run open at In Review (`record.inReviewSince`, DIPO-373) has not ended: it waits there.
+ */
+export function endedLine(
+  ended: StoryView | null,
+  dot: string,
+  record?: Pick<RunRecord, "inReviewSince">,
+): string {
+  if (record?.inReviewSince !== undefined && ended !== null) {
+    return `run at In Review ${dot} ${ended.story} waits for its review, test or merge`;
+  }
   if (ended === null) return `run ended ${dot} the story is no longer in this office`;
   const parked = ended.parked === undefined ? "" : ` (${ended.parked.reason})`;
   return `run ended ${dot} ${ended.story} is ${ended.lifecycle}${parked}`;

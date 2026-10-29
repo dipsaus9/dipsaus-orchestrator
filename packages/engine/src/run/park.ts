@@ -566,7 +566,7 @@ export async function parkStory(deps: ParkDeps, request: ParkRequest): Promise<P
     // Run detail and history (0007): the reason is the one the park was made with, never read as
     // the current reason; Backlog.md holds that, and its read-back goes to the mirror (DIPO-360).
     if (request.parkId !== undefined) {
-      reparkOpen(office, request.parkId, { reason, detail, lastGoodCommit, at });
+      reparkOpen(office, request.parkId, { reason, detail, lastGoodCommit });
     } else
       insertPark(office, {
         key,

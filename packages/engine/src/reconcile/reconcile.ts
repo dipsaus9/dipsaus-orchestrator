@@ -50,11 +50,11 @@ import type { CodeHost, PrStateHost } from "../platform/host";
 import { LAUNCH_FILE } from "../host/protocol";
 import { officeDirectory } from "../office/marker";
 import { type BacklogPark, backlogPark, openParkIds, resolvePark } from "../run/park";
-import { insertPark } from "../run/park-records";
+import { insertPark, parkedRunOf } from "../run/park-records";
 import { parksBeingResumed } from "../run/park-state";
 import type { RunEnd } from "../run/lifecycle";
 import { endRunMarked } from "../run/markers";
-import { activeRuns, findRun, type StoredRun } from "../run/records";
+import { activeRuns, findRun, parkedFromInReview, type StoredRun, unparkRun } from "../run/records";
 import { runDirectory } from "../runs/worker-hosts";
 import type { IndexResult } from "../stories/index-stories";
 import { readsOnBranch } from "../stories/index-stories";
@@ -453,6 +453,26 @@ function endWithNotice(
   });
 }
 
+/**
+ * Inside the caller's transaction: reconcile closes the open park `parkId` that Backlog.md no
+ * longer holds. When the story is In Review again and the park's run stood open at In Review when
+ * it parked, the run stands open at In Review again (0020, DIPO-373), so the review, the PR poll
+ * and the merge take it up as before the park.
+ */
+export function closePark(
+  office: OfficeHandle,
+  story: Pick<Story, "lifecycle">,
+  parkId: number,
+  at: number,
+): NewEntry[] {
+  const parked = parkedRunOf(office, parkId);
+  const entries = resolvePark(office, parkId, "reconcile", at);
+  if (parked === null || story.lifecycle !== "In Review") return entries;
+  const run = findRun(office, parked.runId as StoredRun["runId"]);
+  if (run !== null && parkedFromInReview(run, parked.at)) unparkRun(office, run.runId);
+  return entries;
+}
+
 /** What reconcile does about a story's park state (step 4). */
 export type ParkStateAction = "close" | "record" | "stale" | null;
 
@@ -498,7 +518,7 @@ function reconcilePark(
         key: story.key,
         text: `${story.story} has an open park in dipo's database, but Backlog.md holds it as ${story.lifecycle ?? "unknown"} with no park record; Backlog.md wins, so dipo closed its park.`,
       },
-      () => open.flatMap((parkId) => resolvePark(office, parkId, "reconcile", deps.clock.now())),
+      () => open.flatMap((parkId) => closePark(office, story, parkId, deps.clock.now())),
     );
     return;
   }

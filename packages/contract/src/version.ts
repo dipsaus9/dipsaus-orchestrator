@@ -104,4 +104,6 @@ export type ContractVersion = z.infer<typeof ContractVersion>;
 // removes `WorkView.signals` and `OfficeSummary.onHold`, adds `WorkView.followOnly` (until
 // DIPO-355), and renames the office code `story.notPausedOrParked` to `story.notParked`, in the same,
 // still unreleased, minor.
+// DIPO-373 makes `RunRecord.outcome` one of done, parked or dropped and adds the optional
+// `RunRecord.inReviewSince` (a run open at In Review) in the same, still unreleased, minor.
 export const CONTRACT_VERSION = Object.freeze({ major: 1, minor: 1 }) satisfies ContractVersion;
