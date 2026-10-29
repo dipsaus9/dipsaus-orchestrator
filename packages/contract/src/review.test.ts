@@ -5,7 +5,7 @@ import { describe, expect, it } from "bun:test";
 
 import { contractCommands, engineError, findEvent, OFFICE_ERROR_CODES } from "./index";
 import { gateDecided, Verdict } from "./office";
-import { eventFixtures, ids, progress, storyView } from "./fixtures";
+import { eventFixtures, ids, progress, storyView } from "../test/fixtures";
 import { Progress, ReviewSummary, ReviewVerdict, StoryPr, StoryView } from "./work";
 
 const reviewVerdict = {

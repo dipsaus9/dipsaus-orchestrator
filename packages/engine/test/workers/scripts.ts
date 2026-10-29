@@ -3,7 +3,7 @@
 // scripted.test.ts checks it against what the Claude CLI adapter can produce.
 
 import { ClaudeWorkerEventSchema } from "../../src/workers/claude-cli/schema";
-import { ScriptedWorker, type ScriptedWorkerOptions } from "../../src/workers/scripted";
+import { ScriptedWorker, type ScriptedWorkerOptions } from "./scripted-worker";
 import type { WorkerEvent, WorkerReport } from "../../src/workers/types";
 
 const MODEL = "claude-haiku-5-5";

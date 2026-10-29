@@ -3,7 +3,7 @@
 
 import type { OfficeId } from "@dipsaus-orchestrator/contract";
 
-import type { RepositoryLocation, Workspace } from "./workspace";
+import type { RepositoryLocation, Workspace } from "../../src/workspace";
 
 export interface FakeRepository extends RepositoryLocation {
   readonly office?: OfficeId;

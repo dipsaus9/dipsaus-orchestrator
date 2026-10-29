@@ -8,6 +8,7 @@
 // flags of the text it holds and turns each flagged range into one marker line, so only the engine
 // can draw a marker: worker text that reads like one stays text.
 
+import { markerRule } from "@dipsaus-orchestrator/client";
 import { cleanText, type EngineError, type OutputMarker } from "@dipsaus-orchestrator/contract";
 
 /** One byte range of stored output, as `work.output` and `work.outputRange` carry it. */
@@ -88,28 +89,9 @@ export function heldLines(
   return lines;
 }
 
-const pad2 = (n: number) => String(n).padStart(2, "0");
-
 /** True for an engine marker line. */
 export function isMarker(line: OutputLine): line is OutputMarker {
   return typeof line !== "string";
-}
-
-/**
- * An engine marker as a rule: `── 12:04:31 phase: verify ──` or `── 12:09:02 run ended: parked
- * ──` (local time; `--` in ASCII mode). `dipo watch` prints the same rule.
- */
-export function markerRule(marker: OutputMarker, ascii = false): string {
-  const at = new Date(marker.at);
-  const time = `${pad2(at.getHours())}:${pad2(at.getMinutes())}:${pad2(at.getSeconds())}`;
-  const rule = ascii ? "--" : "──";
-  const label =
-    marker.kind === "phase"
-      ? `phase: ${marker.value}`
-      : marker.kind === "ended"
-        ? `run ended: ${marker.value}`
-        : `${marker.kind}: ${marker.value}`;
-  return `${rule} ${time} ${label} ${rule}`;
 }
 
 /** A line as the pane shows it: an engine marker as its rule, any other line as is. */

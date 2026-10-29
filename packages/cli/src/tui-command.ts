@@ -18,7 +18,7 @@ import {
   type OfficeId,
   TUI_CLIENT_NAME,
 } from "@dipsaus-orchestrator/contract";
-import { runTui, type TuiSession } from "@dipsaus-orchestrator/tui";
+import type { TuiSession } from "@dipsaus-orchestrator/tui";
 
 import type { Workspace } from "./workspace";
 
@@ -64,6 +64,8 @@ export function systemTui(
   return async (args) => {
     const clientInfo = { name: TUI_CLIENT_NAME, version };
     const lifecycle = systemLifecycleDeps({ client: clientInfo, origin: "tui" });
+    // The TUI loads only for `dipo tui`, so every other command starts without it (DIPO-318).
+    const { runTui } = await import("@dipsaus-orchestrator/tui");
     const code = await runTui(args, {
       stdin: process.stdin,
       stdout: process.stdout,

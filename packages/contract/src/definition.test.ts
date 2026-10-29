@@ -11,7 +11,7 @@ import {
   findCommand,
   commandsDescribe,
 } from "./index";
-import { readFixtures } from "./fixtures";
+import { readFixtures } from "../test/fixtures";
 
 function shippedNames(list: readonly { name: string; since?: number }[]): string[] {
   return list.filter((d) => d.since !== undefined).map((d) => d.name);

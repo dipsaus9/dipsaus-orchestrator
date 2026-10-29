@@ -17,8 +17,8 @@ import type {
 import type { OfficeStoreState } from "@dipsaus-orchestrator/client";
 
 import { countLine, fitSections, type Section } from "./overview";
-import { goldenHello, goldenSnapshots, OFFICES } from "./testing/fake-session";
-import { mount } from "./testing/setup";
+import { goldenHello, goldenSnapshots, OFFICES } from "../test/support/fake-session";
+import { mount } from "../test/support/setup";
 import { switcherCells } from "./views";
 
 const mounted: { unmount(): Promise<void> }[] = [];

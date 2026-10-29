@@ -15,7 +15,7 @@ import {
   REPLY_TIMEOUT_MS,
   withDaemon,
 } from "./daemon-commands";
-import { type FakeWorkspaceOptions, fakeWorkspace } from "./fake-workspace";
+import { type FakeWorkspaceOptions, fakeWorkspace } from "../test/support/fake-workspace";
 import { main, type CliDeps } from "./index";
 
 const OFFICE = "off_01J9ZK5Q8W3V4X6Y7Z8A9B0C1D" as OfficeId;

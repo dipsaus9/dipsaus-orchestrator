@@ -8,7 +8,11 @@ import { type OfficeId, workResume } from "@dipsaus-orchestrator/contract";
 import { ManualClock } from "@dipsaus-orchestrator/testkit";
 
 import type { DaemonControl, DaemonSession } from "./daemon-commands";
-import { type FakeWorkspace, type FakeWorkspaceOptions, fakeWorkspace } from "./fake-workspace";
+import {
+  type FakeWorkspace,
+  type FakeWorkspaceOptions,
+  fakeWorkspace,
+} from "../test/support/fake-workspace";
 import { main, type CliDeps } from "./index";
 import { parseBudget } from "./resume-command";
 

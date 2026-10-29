@@ -24,7 +24,7 @@ import {
   type StreamName,
 } from "@dipsaus-orchestrator/contract";
 
-import type { TuiSession } from "../run";
+import type { TuiSession } from "../../src/run";
 import outputLog from "./fixtures/live-output.json";
 import log from "./fixtures/three-offices.json";
 

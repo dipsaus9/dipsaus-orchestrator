@@ -5,7 +5,7 @@ import { DaemonNotRunningError } from "@dipsaus-orchestrator/client/node";
 import { ManualClock } from "@dipsaus-orchestrator/testkit";
 
 import { type DaemonControl, REPLY_TIMEOUT_MS, type DaemonSession } from "./daemon-commands";
-import { fakeWorkspace } from "./fake-workspace";
+import { fakeWorkspace } from "../test/support/fake-workspace";
 import { main, type CliDeps } from "./index";
 
 type Sent = { name: string; args: unknown };

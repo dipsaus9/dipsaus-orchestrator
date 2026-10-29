@@ -16,8 +16,13 @@ import {
 } from "@dipsaus-orchestrator/contract";
 
 import { MAX_QUESTIONS, promptLines, questionLines } from "./detail";
-import { goldenHello, goldenOutputEvents, goldenSnapshots, OFFICES } from "./testing/fake-session";
-import { mount } from "./testing/setup";
+import {
+  goldenHello,
+  goldenOutputEvents,
+  goldenSnapshots,
+  OFFICES,
+} from "../test/support/fake-session";
+import { mount } from "../test/support/setup";
 
 const mounted: { unmount(): Promise<void> }[] = [];
 const STREAM = `office:${OFFICES.dipsaus}`;

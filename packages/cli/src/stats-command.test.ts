@@ -9,7 +9,7 @@ import { ManualClock } from "@dipsaus-orchestrator/testkit";
 
 import type { DaemonControl, DaemonSession } from "./daemon-commands";
 import { START_HINT } from "./daemon-commands";
-import { fakeWorkspace, type FakeWorkspaceOptions } from "./fake-workspace";
+import { fakeWorkspace, type FakeWorkspaceOptions } from "../test/support/fake-workspace";
 import { main, type CliDeps } from "./index";
 import { formatBytes, formatStats } from "./stats-command";
 

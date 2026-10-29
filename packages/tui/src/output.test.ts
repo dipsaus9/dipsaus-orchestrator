@@ -14,7 +14,6 @@ import {
   heldLines,
   isMarker,
   lastLine,
-  markerRule,
   OutputFeed,
   type RangeOutcome,
   rowCount,
@@ -22,6 +21,7 @@ import {
   visibleRows,
   wrapLines,
 } from "./output";
+import { markerRule } from "@dipsaus-orchestrator/client";
 
 const encoder = new TextEncoder();
 const decoder = new TextDecoder();

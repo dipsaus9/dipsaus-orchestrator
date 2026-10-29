@@ -6,5 +6,5 @@
     "outDir": ".tsbuild",
     "tsBuildInfoFile": ".tsbuild/tsconfig.tsbuildinfo"
   },
-  "include": ["src", "scripts"]
+  "include": ["src", "scripts", "test"]
 }

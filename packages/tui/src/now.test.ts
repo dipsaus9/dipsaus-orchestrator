@@ -6,7 +6,7 @@ import { describe, expect, it } from "bun:test";
 import type { QuestionView, WorkView } from "@dipsaus-orchestrator/contract";
 
 import { boardNow, nowLine, phaseWord } from "./now";
-import { goldenSnapshots, OFFICES } from "./testing/fake-session";
+import { goldenSnapshots, OFFICES } from "../test/support/fake-session";
 
 const NOW = Date.parse("2026-10-14T10:04:00.000Z");
 

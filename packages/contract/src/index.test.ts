@@ -35,7 +35,7 @@ import {
   malformedServerFrames,
   readFixtures,
   serverFrameFixtures,
-} from "./fixtures";
+} from "../test/fixtures";
 
 describe("contract", () => {
   it("names its package", () => {

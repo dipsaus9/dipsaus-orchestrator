@@ -10,7 +10,7 @@ import { DaemonNotRunningError } from "@dipsaus-orchestrator/client/node";
 import { ManualClock } from "@dipsaus-orchestrator/testkit";
 
 import { type DaemonControl, type DaemonSession, START_HINT } from "./daemon-commands";
-import { type FakeWorkspaceOptions, fakeWorkspace } from "./fake-workspace";
+import { type FakeWorkspaceOptions, fakeWorkspace } from "../test/support/fake-workspace";
 import { main, type CliDeps } from "./index";
 import { EXPLAIN_WAIT_MS, RUN_TIMEOUT_MS } from "./run-command";
 

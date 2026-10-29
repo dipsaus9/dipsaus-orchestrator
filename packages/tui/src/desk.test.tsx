@@ -10,8 +10,8 @@ import { afterEach, describe, expect, it } from "bun:test";
 import { DeskItem, type Event, Verdict } from "@dipsaus-orchestrator/contract";
 
 import { DESK_READ_INTERVAL_MS, EMPTY_DESK } from "./desk";
-import { goldenSnapshots, OFFICES } from "./testing/fake-session";
-import { mount } from "./testing/setup";
+import { goldenSnapshots, OFFICES } from "../test/support/fake-session";
+import { mount } from "../test/support/setup";
 
 const mounted: { unmount(): Promise<void> }[] = [];
 const STREAM = `office:${OFFICES.dipsaus}`;

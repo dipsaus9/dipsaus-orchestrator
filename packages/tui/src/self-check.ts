@@ -7,8 +7,6 @@ import { PassThrough } from "node:stream";
 import { Box, render, Text } from "ink";
 import { createElement } from "react";
 
-export const INK_SELF_CHECK_NAME = "ink";
-
 const EXPECTED = "dipo self-check";
 
 export async function checkInk(): Promise<void> {

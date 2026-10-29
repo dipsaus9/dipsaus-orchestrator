@@ -44,4 +44,5 @@ export type {
 } from "./store/index";
 export type { RandomBytes, RequestIds } from "./request-id";
 export type { Transport, TransportConnection, TransportHandlers } from "./transport";
+export { markerRule } from "./marker-text";
 export { resetText, usageParts, usageTokens, usageWindowText } from "./usage-text";

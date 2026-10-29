@@ -1,6 +1,6 @@
 // zod schemas for the Claude Code stream-json lines the adapter reads (0017 section 2: strict on
 // the fields we use, tolerant of unknown message types and fields), and the schema of the Worker
-// events this adapter can produce (the contract check for `ScriptedWorker`, 0017 section 2).
+// events this adapter can produce (the contract check for the engine tests' `ScriptedWorker`, 0017 section 2).
 //
 // Recordings redact every string outside the 0017 allowlist to `[redacted ...]`, so a schema here
 // only types fields; decisions read kept fields (types, subtypes, enums, numbers, ids) alone.

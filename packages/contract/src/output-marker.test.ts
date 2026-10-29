@@ -3,7 +3,7 @@
 
 import { describe, expect, it } from "bun:test";
 
-import { workerOutputFixture, workRef } from "./fixtures";
+import { workerOutputFixture, workRef } from "../test/fixtures";
 import { OutputMarker, workOutput, workOutputRange } from "./index";
 
 const marker = {

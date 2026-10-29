@@ -7,7 +7,7 @@
 
 import { systemClock } from "@dipsaus-orchestrator/client/node";
 
-import { runTui } from "../run";
+import { runTui } from "../../src/run";
 import { FakeSession, OFFICES } from "./fake-session";
 
 /** Exit code of a hang-up, as a shell reports SIGHUP (128 + 1). */

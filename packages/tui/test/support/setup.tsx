@@ -10,13 +10,13 @@ import type {
   TimerHandle,
 } from "@dipsaus-orchestrator/contract";
 
-import type { CommandOutcome, LossesOutcome } from "../actions";
-import { App, type RunOutcome, type StoryOutcome, type TuiActions } from "../app";
-import type { DeskOutcome } from "../desk";
-import type { PromptOutcome } from "../detail";
-import type { DigestOutcome } from "../digest";
-import type { Display } from "../options";
-import type { RangeOutcome } from "../output";
+import type { CommandOutcome, LossesOutcome } from "../../src/actions";
+import { App, type RunOutcome, type StoryOutcome, type TuiActions } from "../../src/app";
+import type { DeskOutcome } from "../../src/desk";
+import type { PromptOutcome } from "../../src/detail";
+import type { DigestOutcome } from "../../src/digest";
+import type { Display } from "../../src/options";
+import type { RangeOutcome } from "../../src/output";
 import { FakeSession } from "./fake-session";
 import { render, type RenderSize } from "./harness";
 

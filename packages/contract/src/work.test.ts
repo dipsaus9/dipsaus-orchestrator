@@ -50,7 +50,7 @@ import {
   waitingStoryView,
   workRef,
   workView,
-} from "./fixtures";
+} from "../test/fixtures";
 
 describe("closed enums", () => {
   it("Lifecycle has the exact states of 0005 and 0012", () => {

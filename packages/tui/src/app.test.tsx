@@ -7,8 +7,8 @@ import { afterEach, describe, expect, it } from "bun:test";
 import { RELOADED_NOTICE } from "@dipsaus-orchestrator/client";
 import type { Event } from "@dipsaus-orchestrator/contract";
 
-import { OFFICES } from "./testing/fake-session";
-import { mount } from "./testing/setup";
+import { OFFICES } from "../test/support/fake-session";
+import { mount } from "../test/support/setup";
 
 const mounted: { unmount(): Promise<void> }[] = [];
 

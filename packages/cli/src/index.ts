@@ -20,8 +20,6 @@ import {
   versionHint,
 } from "@dipsaus-orchestrator/client/node";
 import { type Clock, EXIT_CONFIG } from "@dipsaus-orchestrator/contract";
-import { runDaemon } from "@dipsaus-orchestrator/daemon";
-import { checkInk, INK_SELF_CHECK_NAME } from "@dipsaus-orchestrator/tui";
 
 import { answerCommand } from "./answer-command";
 import { approveCommand, rejectCommand } from "./approve-commands";
@@ -309,11 +307,14 @@ export function defaultDeps(): CliDeps {
   return {
     writeLine: (line) => process.stdout.write(`${line}\n`),
     writeError: (line) => process.stderr.write(`${line}\n`),
-    runDaemon: (argv) =>
-      runDaemon(argv, {
+    // The daemon package loads only for a daemon-side form (DIPO-318).
+    runDaemon: async (argv) => {
+      const { runDaemon } = await import("@dipsaus-orchestrator/daemon");
+      return runDaemon(argv, {
         version,
         ...(stamp === undefined ? {} : { buildCommit: stamp.commit }),
-      }),
+      });
+    },
     connectDaemon: (mode) =>
       connectFor(
         mode,
@@ -338,7 +339,11 @@ export function defaultDeps(): CliDeps {
     clock: systemClock,
     workspace,
     tui: systemTui(version, workspace),
-    clientChecks: [{ name: INK_SELF_CHECK_NAME, run: checkInk }],
+    // The TUI's check: Ink, React and yoga-layout load inside the binary; the TUI package loads
+    // only when it runs (DIPO-318).
+    clientChecks: [
+      { name: "ink", run: async () => (await import("@dipsaus-orchestrator/tui")).checkInk() },
+    ],
     stamp,
     runtime,
     dirRefusal: () => dirRefusal(process.env),

@@ -9,7 +9,7 @@ import { join } from "node:path";
 
 import { NO_TTY_MESSAGE } from "./run";
 
-const MAIN = join(import.meta.dir, "testing", "pty-main.ts");
+const MAIN = join(import.meta.dir, "..", "test", "support", "pty-main.ts");
 const ICANON = process.platform === "darwin" ? 0x100 : 0o2;
 const ECHO = 0o10;
 const TIMEOUT_MS = 30_000;
