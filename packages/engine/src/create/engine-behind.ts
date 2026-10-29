@@ -9,7 +9,8 @@
 import { basename } from "node:path";
 
 import type { Clock, OfficeId, TimerHandle } from "@dipsaus-orchestrator/contract";
-import type { EngineCommitsRead, Logger } from "@dipsaus-orchestrator/engine";
+import type { EngineCommitsRead } from "../git/build-commit";
+import type { Logger } from "../log/logger";
 
 import type { EngineBehind } from "./control";
 

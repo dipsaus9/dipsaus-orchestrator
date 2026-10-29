@@ -10,10 +10,10 @@ import {
   type SpawnInteractive,
   systemSpawnInteractive,
   testShellArgs,
+  containerOnPath,
 } from "@dipsaus-orchestrator/engine";
 
 import type { DaemonIo } from "./io";
-import { containerOnPath } from "./runs";
 
 export const TEST_SHELL_USAGE = "dipo daemon test-shell <test box> (as `dipo test shell <id>`)";
 

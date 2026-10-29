@@ -6,8 +6,8 @@ import { describe, expect, it } from "bun:test";
 
 import type { DaemonState } from "@dipsaus-orchestrator/contract";
 
-import { DaemonLifecycle } from "../../src/lifecycle";
-import { lifecycleGate } from "../../src/server";
+import { DaemonLifecycle } from "../../src/create/lifecycle";
+import { lifecycleGate } from "../../src/create/surface";
 
 const PATH: Record<DaemonState, DaemonState[]> = {
   starting: [],

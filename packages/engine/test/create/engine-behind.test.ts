@@ -4,10 +4,15 @@
 import { describe, expect, it } from "bun:test";
 
 import type { OfficeId } from "@dipsaus-orchestrator/contract";
-import { createLogger, type EngineCommitsRead } from "@dipsaus-orchestrator/engine";
+import type { EngineCommitsRead } from "../../src/git/build-commit";
+import { createLogger } from "../../src/log/logger";
 import { ManualClock } from "@dipsaus-orchestrator/testkit";
 
-import { ENGINE_BEHIND_REFRESH_MS, EngineBehindCache, engineBehindRows } from "./engine-behind";
+import {
+  ENGINE_BEHIND_REFRESH_MS,
+  EngineBehindCache,
+  engineBehindRows,
+} from "../../src/create/engine-behind";
 
 const A = "off_01J9ZK5Q8W3V4X6Y7Z0000000A" as OfficeId;
 const B = "off_01J9ZK5Q8W3V4X6Y7Z0000000B" as OfficeId;

@@ -7,19 +7,18 @@ import { describe, expect, it } from "bun:test";
 import { mkdirSync, rmSync, utimesSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 
+import type { StateDatabase } from "../../src/db/database";
 import {
-  ChildProcesses,
-  createLogger,
   DatabaseTooNewError,
-  IntegrityCheckError,
   MigrationChecksumError,
   MigrationFailedError,
-  NetworkFileSystemError,
-  type StateDatabase,
-} from "@dipsaus-orchestrator/engine";
+} from "../../src/db/migrations";
+import { createLogger } from "../../src/log/logger";
+import { ChildProcesses } from "../../src/platform/process";
+import { IntegrityCheckError, NetworkFileSystemError } from "../../src/platform/sqlite";
 import { ManualClock, withTempDir } from "@dipsaus-orchestrator/testkit";
 
-import { DaemonLifecycle } from "../../src/lifecycle";
+import { DaemonLifecycle } from "../../src/create/lifecycle";
 import {
   databaseFailure,
   MIGRATIONS_STEP,
@@ -29,7 +28,7 @@ import {
   runRecovery,
   type RecoveryContext,
   type RecoveryStep,
-} from "../../src/recovery";
+} from "../../src/create/recovery";
 
 const clock = new ManualClock();
 

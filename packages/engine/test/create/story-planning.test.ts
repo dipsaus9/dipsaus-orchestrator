@@ -1,11 +1,11 @@
-// The dependencies `serve()` gives `StoryPlanning` (DIPO-227): the process probe is the one the
+// The dependencies `createEngine` gives `StoryPlanning` (DIPO-227): the process probe is the one the
 // daemon passes in, so the wiring is checked here and not only by tsc through the required field.
 
 import { describe, expect, it } from "bun:test";
 
-import type { ProcessProbe } from "@dipsaus-orchestrator/engine";
+import type { ProcessProbe } from "../../src/platform/process";
 
-import { storyPlanningDeps } from "../../src/foreground";
+import { storyPlanningDeps } from "../../src/create/stories";
 
 const probe: ProcessProbe = async () => null;
 const host = { closePr: async () => undefined } as never;

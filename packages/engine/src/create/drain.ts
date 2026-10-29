@@ -8,7 +8,8 @@
 // waits for the parks and the exits under the longer cap. The log line says what happened.
 
 import type { Clock } from "@dipsaus-orchestrator/contract";
-import type { ChildProcesses, Logger } from "@dipsaus-orchestrator/engine";
+import type { Logger } from "../log/logger";
+import type { ChildProcesses } from "../platform/process";
 
 import type { DaemonLifecycle } from "./lifecycle";
 

@@ -16,7 +16,13 @@ import {
   type ToolPaths,
 } from "@dipsaus-orchestrator/contract";
 import {
+  controlFeature,
   createLogger,
+  DaemonLifecycle,
+  emitDaemonStates,
+  engineSurface,
+  OfficeChanges,
+  type DrainRequest,
   createSystemIds,
   engineRegistry,
   FEATURES,
@@ -38,9 +44,6 @@ import {
 } from "@dipsaus-orchestrator/engine";
 import { ManualClock } from "@dipsaus-orchestrator/testkit";
 
-import { controlFeature, emitDaemonStates } from "../../src/control";
-import type { DrainRequest } from "../../src/drain";
-import { DaemonLifecycle } from "../../src/lifecycle";
 import { ContractServer } from "../../src/server";
 
 export const TEST_VERSION = "0.0.0-test";
@@ -187,7 +190,8 @@ export async function startHarness(dir: string, options: HarnessOptions = {}): P
     ...(options.features ?? []),
   ]);
   const ids = createSystemIds(clock);
-  const server = new ContractServer({
+  const engine = engineSurface({
+    version: TEST_VERSION,
     registry,
     offices: stateOfficeDirectory(state),
     clock,
@@ -195,16 +199,21 @@ export async function startHarness(dir: string, options: HarnessOptions = {}): P
     softwareRequests: new MemoryRequestTable(clock),
     lifecycle,
     software,
+    changes: new OfficeChanges(),
     officeSummaries:
       options.officeSummaries === true ? officeSummarySource(() => state) : noOfficeSummaries,
     ...(options.officeSummaries === true
       ? { officeSummary: officeSummaryOfSource(() => state) }
       : {}),
-    engineVersion: TEST_VERSION,
+    logger,
+    ...(options.renderer === undefined ? {} : { renderer: options.renderer }),
+  });
+  const server = new ContractServer({
+    engine,
+    clock,
     logger,
     tuiLeft: (office, at) => recordTuiLeft(state.office(office), at),
     ...(options.heartbeatMs === undefined ? {} : { heartbeatMs: options.heartbeatMs }),
-    ...(options.renderer === undefined ? {} : { renderer: options.renderer }),
   });
   const socket = serveUnixSocket(
     socketPath,

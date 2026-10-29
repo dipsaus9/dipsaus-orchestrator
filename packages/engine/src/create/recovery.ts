@@ -1,5 +1,5 @@
-// Recovery steps (0006 decision 7, 0007 section 1). In `recovering` the daemon runs the steps other
-// modules registered, in registration order, with the database migrations always first; then it
+// Recovery steps (0006 decision 7, 0007 section 1). In `recovering` the engine runs the steps it
+// lists, in their one order, with the database migrations always first; then it
 // enters `running`, or `safe` when the crash counter says so. Reconcile (DIPO-56) and re-attach
 // (DIPO-57) plug in here. A drain that starts during recovery lets the current step finish and runs
 // no further step.
@@ -14,19 +14,16 @@ import { closeSync, openSync, readSync, statSync } from "node:fs";
 import { join } from "node:path";
 
 import type { Clock, DatabaseUnavailableReason } from "@dipsaus-orchestrator/contract";
+import { backupsDirectory, dailyBackups, preMigrationBackups } from "../backup/files";
+import type { StateDatabase } from "../db/database";
 import {
-  backupsDirectory,
-  dailyBackups,
   DatabaseTooNewError,
-  IntegrityCheckError,
   MigrationChecksumError,
   MigrationFailedError,
-  NetworkFileSystemError,
-  preMigrationBackups,
-  type ChildProcesses,
-  type Logger,
-  type StateDatabase,
-} from "@dipsaus-orchestrator/engine";
+} from "../db/migrations";
+import type { Logger } from "../log/logger";
+import type { ChildProcesses } from "../platform/process";
+import { IntegrityCheckError, NetworkFileSystemError } from "../platform/sqlite";
 
 import { CRASH_LOOP_REASON, type DaemonLifecycle, type DatabaseFailure } from "./lifecycle";
 

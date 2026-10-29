@@ -19,7 +19,7 @@ import {
   type DatabaseUnavailableDetails,
   type EngineError,
 } from "@dipsaus-orchestrator/contract";
-import { CommandError } from "@dipsaus-orchestrator/engine";
+import { CommandError } from "../commands/errors";
 
 /** One transition, as `daemon.state` carries it. */
 export interface StateChange {

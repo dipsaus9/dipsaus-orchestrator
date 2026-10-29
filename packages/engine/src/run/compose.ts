@@ -38,6 +38,7 @@ import { resolveIntent, runIntents } from "./intents";
 import type { MergeReentry, PrReplacement } from "./park-resume";
 import { workRefOf } from "../views/work";
 import type { HoldResumer } from "./work-resume";
+import { Partner } from "../wiring/partner";
 import type { RunBase } from "./work-run";
 
 type Warn = (message: string, fields: Readonly<Record<string, unknown>>) => void;
@@ -163,18 +164,34 @@ function given<K extends string, V>(key: K, value: V | undefined): { [P in K]?: 
   return value === undefined ? {} : ({ [key]: value } as { [P in K]?: V });
 }
 
-/** The services built later that earlier ones call: each is read when called, never before. */
-interface Late {
-  ingest: OfficeIngest | null;
-  permissions: PermissionAsks | null;
-  outcomes: RunOutcomes | null;
-  resumption: Resumption | null;
-  exitPort: RunOutcomesPort | null;
-  startsPaused: StartsPaused | null;
-  places: Places | null;
+/**
+ * The run services that call a service built after them (DIPO-318). Each is connected once, in
+ * `connectRunPartners`, right after every service exists; a call before that throws. A partner
+ * connected to null is a service these ports leave out.
+ */
+interface RunPartners {
+  readonly ingest: Partner<OfficeIngest>;
+  readonly permissions: Partner<PermissionAsks>;
+  readonly resumption: Partner<Resumption | null>;
+  readonly exitPort: Partner<RunOutcomesPort | null>;
+  readonly startsPaused: Partner<StartsPaused | null>;
+  readonly places: Partner<Places | null>;
+  readonly fixRounds: Partner<FixRounds | null>;
 }
 
-function buildControl(ports: RunPorts, late: Late): RunControl | null {
+function runPartners(): RunPartners {
+  return {
+    ingest: new Partner("run ingestion"),
+    permissions: new Partner("the permission wait"),
+    resumption: new Partner("the resumption"),
+    exitPort: new Partner("the exit decisions"),
+    startsPaused: new Partner("the office's starts paused"),
+    places: new Partner("the places"),
+    fixRounds: new Partner("the fix rounds"),
+  };
+}
+
+function buildControl(ports: RunPorts, partners: RunPartners): RunControl | null {
   if (ports.control === undefined) return null;
   return new RunControl({
     ...ports.control,
@@ -184,13 +201,13 @@ function buildControl(ports: RunPorts, late: Late): RunControl | null {
     steering: ports.steering,
     encode: (op) => ports.worker.encode(op),
     // The ingestion hooks call the control, and the control flushes ingestion's output first.
-    flushOutput: (office, run) => late.ingest?.flushOutput(office, run),
+    flushOutput: (office, run) => partners.ingest.get().flushOutput(office, run),
     // Each exit decision may end the run after its worker exited (the temp directory goes).
-    outcomes: () => late.exitPort ?? undefined,
+    outcomes: () => partners.exitPort.get() ?? undefined,
     // A blocked report's question goes through the live-question rule (DIPO-272).
-    questions: () => late.permissions ?? undefined,
+    questions: () => partners.permissions.get(),
     // A park to resume on lift that lands while the office is not paused resumes then (0020).
-    parkedToResume: (office) => late.startsPaused?.resumeLifted(office),
+    parkedToResume: (office) => partners.startsPaused.get()?.resumeLifted(office),
     ...given("onChanged", ports.onChanged),
     ...given("refreshStory", ports.refreshStory),
     ...given("warn", ports.warn),
@@ -204,7 +221,11 @@ interface RunListeners {
 }
 
 /** The live question rule and the web calls, and the one listener per ingestion pass. */
-function buildRunListeners(ports: RunPorts, control: RunControl | null, late: Late): RunListeners {
+function buildRunListeners(
+  ports: RunPorts,
+  control: RunControl | null,
+  partners: RunPartners,
+): RunListeners {
   const ending = (run: string) => control?.isEnding(run) ?? false;
   const permissions = new PermissionAsks({
     clock: ports.clock,
@@ -220,7 +241,7 @@ function buildRunListeners(ports: RunPorts, control: RunControl | null, late: La
       control?.parkOnQuestion(run, question);
     },
     // An answer to a question park resumes it through work.resume's park path (DIPO-159).
-    questionParks: () => late.resumption?.questionParks,
+    questionParks: () => partners.resumption.get()?.questionParks,
     // Worker outcomes decide every exit, and `afterExit` follows each decision (DIPO-159).
     exitDecides: control !== null && ports.outcomes !== undefined,
     ...given("scheduling", ports.scheduling),
@@ -291,12 +312,10 @@ function buildOutcomes(
   ports: RunPorts,
   control: RunControl | null,
   ingest: OfficeIngest,
-  late: Late,
+  partners: RunPartners,
 ): Outcomes | null {
   if (control === null || ports.outcomes === undefined) return null;
   const { probe, ...outcomePorts } = ports.outcomes;
-  // Built after the resumption: a resumed review-blocked park queues its fix round (DIPO-155).
-  let fixRounds: FixRounds | null = null;
   const resumer = new RunResumer({
     clock: ports.clock,
     ids: ports.ids,
@@ -318,7 +337,7 @@ function buildOutcomes(
   const { outcomes, resumption } = createRunOutcomes(
     {
       ...outcomePorts,
-      startsPaused: () => late.startsPaused ?? undefined,
+      startsPaused: () => partners.startsPaused.get() ?? undefined,
       clock: ports.clock,
       offices: ports.offices,
       steering: ports.steering,
@@ -333,12 +352,13 @@ function buildOutcomes(
       ...given("warn", ports.warn),
     },
     {
-      places: () => late.places ?? undefined,
+      places: () => partners.places.get() ?? undefined,
       ...given("holds", ports.holdResumer),
       parks: {
         ...given("scheduling", ports.scheduling),
         ...given("boxRun", ports.boxRun),
-        fixRounds: () => fixRounds ?? undefined,
+        // Built after the resumption: a resumed review-blocked park queues its fix round (DIPO-155).
+        fixRounds: () => partners.fixRounds.get() ?? undefined,
         ...given("merge", ports.mergeReentry),
         // A conflict park resumes through the hand-off of its box run (DIPO-324).
         ...given("conflicts", conflictResumesOf(ports, control)),
@@ -347,7 +367,7 @@ function buildOutcomes(
         contractMax: (office) =>
           ports.offices.config(office)?.prompt.contractMax ?? CONTRACT_MAX_DEFAULT,
         // No resume while the office's starts are paused (0020).
-        startsPaused: (office) => late.startsPaused?.state(office) ?? null,
+        startsPaused: (office) => partners.startsPaused.get()?.state(office) ?? null,
       },
     },
   );
@@ -361,13 +381,13 @@ function buildOutcomes(
           clock: ports.clock,
           offices: ports.offices,
           resume: (office, park) => resumption.resumeLifted(office, park),
-          onLifted: (office) => void late.places?.drain(office),
+          onLifted: (office) => void partners.places.get()?.drain(office),
           ...given("scheduling", ports.scheduling),
           ...given("onChanged", ports.onChanged),
           ...given("warn", ports.warn),
         });
   // A fix round continues the developer's session through worker outcomes (DIPO-148).
-  fixRounds = new FixRounds({
+  const fixRounds = new FixRounds({
     clock: ports.clock,
     offices: ports.offices,
     story: baseStoryFacts(ports.base),
@@ -376,7 +396,7 @@ function buildOutcomes(
     view: (officeId, office, run) => outcomes.parts.support.viewOf(officeId, office, run),
     ...given("unpark", outcomePorts.unpark),
     ...given("boxRun", ports.boxRun),
-    places: () => late.places ?? undefined,
+    places: () => partners.places.get() ?? undefined,
     guard: outcomes.parts.support.guard,
     // A round that cannot start and will not on its own parks the story (DIPO-148).
     park: (office, run, work, ending) => control.park(office, run, work, ending),
@@ -575,43 +595,71 @@ function profileOf(ports: RunPorts): (office: OfficeId) => RunProfile | null {
   };
 }
 
+/**
+ * The exit port of worker outcomes: each exit decision, then the run's worker questions no park
+ * carried (DIPO-159), the places (a session ended, so its place may be free) and `afterExit` (the
+ * run temp directory sweep). A reviewer session's turns and exit go to the review rounds
+ * (DIPO-219). Null without worker outcomes.
+ */
+function exitPortOf(
+  ports: RunPorts,
+  built: Outcomes | null,
+  permissions: PermissionAsks,
+): RunOutcomesPort | null {
+  if (built === null) return null;
+  const { outcomes, places, reviews } = built;
+  const afterExit = ports.afterExit;
+  return afterRunExits(reviews.route(outcomes), (view) => {
+    permissions.afterExit(view.office, view.runId);
+    places.drainAll();
+    afterExit?.();
+  });
+}
+
+/**
+ * The one connect step of the run services (DIPO-318): each partner a service calls but was built
+ * before is connected here, once every service exists.
+ */
+function connectRunPartners(
+  partners: RunPartners,
+  services: {
+    readonly ingest: OfficeIngest;
+    readonly permissions: PermissionAsks;
+    readonly built: Outcomes | null;
+    readonly exitPort: RunOutcomesPort | null;
+  },
+): void {
+  const { built } = services;
+  // Run control <-> ingestion: ingestion's hooks call the control, and the control flushes
+  // ingestion's output before it decides.
+  partners.ingest.connect(services.ingest);
+  // Run control -> the permission wait, which is built on the control's `isEnding`.
+  partners.permissions.connect(services.permissions);
+  // The permission wait -> the resumption, built on worker outcomes, which need ingestion.
+  partners.resumption.connect(built?.resumption ?? null);
+  // Run control -> the exit decisions of worker outcomes, which end runs through the control.
+  partners.exitPort.connect(services.exitPort);
+  // Run control and worker outcomes -> the starts paused, which resume parks through the
+  // resumption.
+  partners.startsPaused.connect(built?.startsPaused ?? null);
+  // Worker outcomes, the starts paused and the fix rounds -> the places, which start resumes,
+  // reviews and fix rounds.
+  partners.places.connect(built?.places ?? null);
+  // Worker outcomes -> the fix rounds, which continue sessions through worker outcomes.
+  partners.fixRounds.connect(built?.fixRounds ?? null);
+}
+
 /** Builds the run services from `ports`. */
 export function composeRuns(ports: RunPorts): ComposedRuns {
-  const late: Late = {
-    ingest: null,
-    permissions: null,
-    outcomes: null,
-    resumption: null,
-    exitPort: null,
-    startsPaused: null,
-    places: null,
-  };
-  const control = buildControl(ports, late);
-  const listeners = buildRunListeners(ports, control, late);
+  const partners = runPartners();
+  const control = buildControl(ports, partners);
+  const listeners = buildRunListeners(ports, control, partners);
   const { permissions } = listeners;
-  late.permissions = permissions;
   const ingest = buildIngest(ports, control, listeners);
-  late.ingest = ingest;
-  const built = buildOutcomes(ports, control, ingest, late);
+  const built = buildOutcomes(ports, control, ingest, partners);
   const outcomes = built?.outcomes ?? null;
-  late.outcomes = outcomes;
-  late.resumption = built?.resumption ?? null;
-  late.startsPaused = built?.startsPaused ?? null;
-  late.places = built?.places ?? null;
-  // Each exit decision of worker outcomes, then the run's worker questions no park carried
-  // (DIPO-159), the places (a session ended, so its place may be free) and `afterExit` (the run
-  // temp directory sweep).
-  // A reviewer session's turns and exit go to the review rounds (DIPO-219).
-  if (outcomes !== null) {
-    const places = late.places;
-    const afterExit = ports.afterExit;
-    const routed = built?.reviews.route(outcomes) ?? outcomes;
-    late.exitPort = afterRunExits(routed, (view) => {
-      permissions.afterExit(view.office, view.runId);
-      places?.drainAll();
-      afterExit?.();
-    });
-  }
+  const exitPort = exitPortOf(ports, built, permissions);
+  connectRunPartners(partners, { ingest, permissions, built, exitPort });
   const reattacher = buildReattacher(ports, control, ingest, outcomes);
   const launcher = buildLauncher(ports, control, ingest);
   return {
@@ -619,10 +667,10 @@ export function composeRuns(ports: RunPorts): ComposedRuns {
     permissions,
     control,
     outcomes,
-    resumption: late.resumption,
+    resumption: built?.resumption ?? null,
     resumer: built?.resumer ?? null,
-    startsPaused: late.startsPaused,
-    places: late.places,
+    startsPaused: built?.startsPaused ?? null,
+    places: built?.places ?? null,
     reviews: built?.reviews ?? null,
     fixRounds: built?.fixRounds ?? null,
     launcher,

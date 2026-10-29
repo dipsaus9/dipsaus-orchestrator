@@ -1,8 +1,8 @@
-// The review loop of one office, wired as the daemon wires it (DIPO-153; 0019 section 1), for the
+// The review loop of one office, wired as createEngine wires it (DIPO-153; 0019 section 1), for the
 // engine's end-to-end scenario test. Real git with a bare `origin` under DIPO_TMP, the pinned
 // Backlog CLI and a migrated state database built from fixtures; the Backlog fixture with TASK-1
 // made to pass the Ready gate. The engine's own services are real and built the way
-// `packages/daemon/src/runs.ts` and `foreground.ts` build them: `composeRuns` (run control, worker
+// `packages/engine/src/create/` builds them: `composeRuns` (run control, worker
 // outcomes, the resumer, the places, the review rounds and the fix rounds), In Review at done
 // (`VerifyCommit`), the conflicts of DIPO-149, the story PR and its CI watch (`StoryPrs`), the
 // auto-merge of story PRs and the merge gates' commands, and the Done poll. Only these are
