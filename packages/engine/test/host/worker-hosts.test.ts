@@ -99,22 +99,19 @@ describe("launchWorkerHost", () => {
         protocolVersion: HOST_PROTOCOL_VERSION,
         runDir,
         eventFile: join(runDir, "events.ndjson"),
-        engineToken: host.engineToken as string,
       });
-      expect(host.engineToken).toMatch(/^[0-9a-f]{64}$/);
       expect(statSync(runDir).mode & 0o777).toBe(0o700);
       expect(statSync(join(dir, "rt", "hosts")).mode & 0o777).toBe(0o700);
       const launchPath = join(runDir, LAUNCH_FILE);
       expect(statSync(launchPath).mode & 0o777).toBe(0o600);
       const launch = JSON.parse(readFileSync(launchPath, "utf8")) as HostLaunch;
+      // No engine secret: the host never read one (DIPO-369).
       expect(launch).toEqual({
         version: 1,
         run: RUN,
         agent: AGENT,
         socket: host.socketPath,
         plan: PLAN,
-        // The engine's secret goes to the host in launch.json only (DIPO-59).
-        token: host.engineToken as string,
       });
     }));
 
@@ -178,15 +175,12 @@ describe("worker_hosts", () => {
             endedAt: null,
             mode: "steer",
             startedAt: clock.now(),
-            // The engine's secret, also in launch.json (DIPO-59).
-            engineToken: host.engineToken ?? "",
             // Recorded over the pending row written before the spawn (DIPO-93); this host stops
             // its worker on SIGTERM.
             pending: false,
             signalStop: true,
           },
         ]);
-        expect(host.engineToken).toMatch(/^[0-9a-f]{64}$/);
         recordHostExit(office, AGENT, {
           run: RUN,
           code: 143,

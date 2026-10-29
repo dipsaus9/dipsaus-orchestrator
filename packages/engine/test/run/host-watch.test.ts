@@ -14,7 +14,6 @@ import type { LaunchedHost } from "../../src/runs/worker-hosts";
 import type { ParseState } from "../../src/workers/types";
 import { ingestFixture, target } from "../ingest/helpers";
 
-const TOKEN = "c".repeat(64);
 const ADAPTER: IngestAdapter = { interpret: (_line, state) => ({ events: [], state }) };
 
 /** A host that never binds within the 5 s window: the engine falls back to the poll and says so. */
@@ -28,7 +27,6 @@ function unboundHost(dir: string, run: string, agent: string): LaunchedHost {
     protocolVersion: 2,
     runDir: dir,
     eventFile: join(dir, EVENTS_FILE),
-    engineToken: TOKEN,
   };
 }
 

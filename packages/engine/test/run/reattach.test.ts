@@ -136,8 +136,6 @@ interface World {
   /** The fake host's start time as the probe reads it (DIPO-93). */
   startTimeMs: number;
   caps: Caps;
-  /** The engine tokens re-attach connected with (DIPO-59). */
-  readonly tokens: (string | null)[];
   readonly daemons: Daemon[];
 }
 
@@ -221,10 +219,8 @@ function daemon(
             command: `/opt/dipo daemon worker-host ${w.f.run}`,
           }
         : null,
-    connect: async (_socket, _run, token) => {
-      w.tokens.push(token);
-      return w.answers ? { ok: true, client: fakeClient() } : { ok: false, reason: "unreachable" };
-    },
+    connect: async () =>
+      w.answers ? { ok: true, client: fakeClient() } : { ok: false, reason: "unreachable" },
     ingest,
     control,
     outcomes,
@@ -259,7 +255,6 @@ beforeEach(async () => {
     answers: true,
     startTimeMs: 0,
     caps: ROOMY,
-    tokens: [],
     daemons: [],
   };
   office.immediate(() => {
@@ -391,24 +386,6 @@ describe("re-attach (0006 decision 8)", () => {
     expect(w.next).toEqual([]);
     // A second re-attach leaves the followed run alone.
     expect(await d.reattacher.reattach(w.f.office.officeId)).toEqual([]);
-  });
-
-  it("connects to a re-attached host as the engine, with its stored token (DIPO-59)", async () => {
-    beforeRestart("success-single", 6, 20);
-    const token = "e".repeat(64);
-    w.f.office.immediate(() =>
-      w.f.office.run(
-        "update worker_hosts set engine_token = $token where office_id = $office_id and run_id = $run",
-        { token, run: w.f.run },
-      ),
-    );
-    const d = daemon();
-    expect(await d.reattacher.reattach(w.f.office.officeId)).toEqual([
-      { run: w.f.run, agent: w.f.agent, outcome: "steer" },
-    ]);
-    // Only a connection with the token may answer the run's hook calls after the restart.
-    expect(w.tokens).toEqual([token]);
-    expect(hostRow().engineToken).toBe(token);
   });
 
   it("a living host whose socket is gone: follow-only, and steering fails with a message (AC #2)", async () => {
