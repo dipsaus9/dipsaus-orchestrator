@@ -58,8 +58,9 @@ export class FakeStoryStore implements StoryStore {
   /** Each branch's copy of its story, by branch name. */
   readonly branches = new Map<string, PlainTask>();
   readonly milestoneNames: string[] = [];
-  /** Why the planning lane holds a story from pickup, by key; none by default. */
-  readonly holds = new Map<string, PlanningHold>();
+  /** The stories with a journaled planning change, and those a failed backlog PR check holds. */
+  readonly pending = new Set<string>();
+  readonly checkFailed = new Set<string>();
   /** Every story lane commit, in order. */
   readonly commits: { readonly branch: string; readonly message: string }[] = [];
   readonly #unparsed = new Map<string, ListedStory>();
@@ -213,11 +214,16 @@ export class FakeStoryStore implements StoryStore {
     return /^status:[ \t]*(.+?)[ \t]*$/m.exec(text)?.[1] ?? null;
   }
 
-  configuredFolder(): string | null {
-    return null;
+  /** The `backlog_directory` a root configuration names: a relative folder inside, else null. */
+  configuredFolder(text: string): string | null {
+    const folder = /^backlog_directory:[ \t]*(.+?)[ \t]*$/m.exec(text)?.[1] ?? "";
+    const inside = folder !== "" && !folder.startsWith("/") && !folder.split("/").includes("..");
+    return inside ? folder : null;
   }
 
+  /** A journaled change holds a story first, then a failed backlog PR check. */
   planningHold(_office: unknown, key: string): PlanningHold | null {
-    return this.holds.get(key) ?? null;
+    if (this.pending.has(key)) return "pending";
+    return this.checkFailed.has(key) ? "checkFailed" : null;
   }
 }

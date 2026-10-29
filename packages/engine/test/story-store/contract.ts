@@ -7,7 +7,8 @@ import { describe, expect, it } from "bun:test";
 import type { StoryKey } from "@dipsaus-orchestrator/contract";
 
 import type { OfficeHandle } from "../../src/db/office";
-import type { GitSession } from "../../src/git/office";
+import type { OfficeGit } from "../../src/git/office";
+import { parseFieldBlock } from "../../src/story-store/fields/block";
 import type { StoryStore } from "../../src/story-store/store";
 
 /** The tasks every contract world holds: the Backlog fixture's. */
@@ -25,20 +26,26 @@ export interface ContractWorld {
   readonly store: StoryStore;
   /** A checkout of the base that holds the stories. */
   readonly checkout: string;
-  /** A git session on the checkout's repository, and the commit its stories are at. */
-  readonly session: GitSession;
+  /** The office's git, whose queue items give the store its git sessions. */
+  readonly git: OfficeGit;
+  /** The commit the stories are at. */
   readonly head: string;
-  /** An office of the state database; nothing holds its stories until `journal`. */
+  /** A branch of TASK-1 at `head`: the story lane's writes go there. */
+  readonly branch: string;
+  /** An office of the state database; nothing holds its stories until `journal` or `block`. */
   readonly office: OfficeHandle;
   /** The text of the story's file, as the store keeps it at `head`. */
   fileText(id: string): string;
   /** Journals a planning change of the story `key`, the way the store's planning lane does. */
   journal(key: StoryKey): void;
+  /** Records that the office's merged backlog PR failed its check on the story `key`. */
+  block(key: StoryKey): void;
 }
 
 export type WithWorld = (fn: (world: ContractWorld) => Promise<void>) => Promise<void>;
 
 const KEY = "key_contract_1" as StoryKey;
+const OTHER = "key_contract_2" as StoryKey;
 
 /** By id: a store may list its stories grouped by status. */
 const byId = <T extends { readonly id: string }>(items: readonly T[]): T[] =>
@@ -107,7 +114,7 @@ export function storyStoreContract(name: string, withWorld: WithWorld, timeout?:
     test("knows each story's file, at a commit and in its text", async (w) => {
       for (const task of CONTRACT_TASKS) {
         // The file in the repository, relative to its root; a view may name it where it was read.
-        const file = await w.store.fileAt(w.session, w.head, task.id);
+        const file = await w.git.run((session) => w.store.fileAt(session, w.head, task.id));
         expect(file).not.toBeNull();
         expect((await w.store.view(w.checkout, task.id)).file.endsWith(file as string)).toBe(true);
         expect(w.store.isStoryFile(file as string, task.id)).toBe(true);
@@ -115,13 +122,61 @@ export function storyStoreContract(name: string, withWorld: WithWorld, timeout?:
         expect(w.store.isStoryFile(file as string, other)).toBe(false);
         expect(w.store.statusIn(w.fileText(task.id))).toBe(task.status);
       }
-      expect(await w.store.fileAt(w.session, w.head, "TASK-99")).toBeNull();
+      expect(await w.git.run((session) => w.store.fileAt(session, w.head, "TASK-99"))).toBeNull();
     });
 
-    test("holds a story from pickup while a planning change of it is journaled", async (w) => {
+    test("names the folder its root configuration points at, or none", async (w) => {
+      expect(w.store.configuredFolder("backlog_directory: planning\n")).toBe("planning");
+      expect(w.store.configuredFolder("project_name: x\n")).toBeNull();
+      expect(w.store.configuredFolder("backlog_directory: ../outside\n")).toBeNull();
+      expect(w.store.configuredFolder("backlog_directory: /etc\n")).toBeNull();
+    });
+
+    test("edits a story on its branch in one commit, and commits nothing for no change", async (w) => {
+      const target = { story: "TASK-1", branch: w.branch };
+      const unknown = { q: "Which delimiter?", status: "resolved" as const, answer: "A comma." };
+      const edit = await w.git.run((session) =>
+        w.store.editOnBranch(w.git, session, target, "TASK-1: status In Review", async (story) => {
+          expect(story.id).toBe("TASK-1");
+          await story.setStatus("In Review", [1]);
+          await story.writeFields((fields) => ({ ...fields, unknowns: [unknown] }));
+          const notes = await story.appendNotes("Exported with a header row.");
+          const summary = await story.setFinalSummary("CSV export done.");
+          return { notes, summary };
+        }),
+      );
+      expect(edit.commit).not.toBeNull();
+      expect(edit.value.notes).toContain("Exported with a header row.");
+      expect(edit.value.summary).toBe("CSV export done.");
+      const { view } = await w.git.run((session) => w.store.viewOnBranch(w.git, session, target));
+      expect(view.status).toBe("In Review");
+      expect(view.acceptanceCriteria.map((c) => [c.index, c.checked])).toEqual([
+        [1, true],
+        [2, false],
+      ]);
+      expect(parseFieldBlock(view.description).fields.unknowns).toEqual([unknown]);
+      expect(view.implementationNotes).toContain("Exported with a header row.");
+      expect(view.finalSummary).toBe("CSV export done.");
+      // The base keeps the story as it was: the edit is on the branch alone.
+      expect((await w.store.view(w.checkout, "TASK-1")).status).toBe("Ready");
+
+      const again = await w.git.run((session) =>
+        w.store.editOnBranch(w.git, session, target, "TASK-1: status In Review", (story) =>
+          story.setStatus("In Review"),
+        ),
+      );
+      expect(again.commit).toBeNull();
+    });
+
+    test("holds a story from pickup on a failed backlog PR check, and on a journaled change first", async (w) => {
       expect(w.store.planningHold(w.office, KEY)).toBeNull();
+      w.block(KEY);
+      expect(w.store.planningHold(w.office, KEY)).toBe("checkFailed");
+      expect(w.store.planningHold(w.office, OTHER)).toBeNull();
       w.journal(KEY);
       expect(w.store.planningHold(w.office, KEY)).toBe("pending");
+      w.journal(OTHER);
+      expect(w.store.planningHold(w.office, OTHER)).toBe("pending");
     });
   });
 }
