@@ -183,7 +183,7 @@ describe("slow clients", () => {
       expect(closedAfter).toBeLessThan(TOTAL);
 
       // A new connection to a daemon with the normal limit resumes from the same cursor: the
-      // change log and its epoch outlive the server.
+      // change log outlives the server.
       raw.destroy();
       raw = null;
       const engine = h.engine;
