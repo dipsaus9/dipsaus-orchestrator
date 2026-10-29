@@ -1,9 +1,10 @@
 ---
 id: DIPO-365
 title: Pass or fail a story's test from the TUI checklist view
-status: Refined
+status: Ready
 assignee: []
 created_date: '2026-10-28 13:44'
+updated_date: '2026-10-29 21:31'
 labels:
   - 'tier:S'
   - 'slice:prune'
