@@ -1,6 +1,6 @@
 // Changes one privacy setting in `.dipo/office.local.yaml` (0007 section 8, DIPO-136). The file is
 // rewritten as a whole: every other key it holds stays, its comments do not (the YAML
-// // writer in `platform/yaml.ts` keeps none), so dipo puts a short header comment of its own on top.
+// writer in `platform/yaml.ts` keeps none), so dipo puts a short header comment of its own on top.
 // The result is validated before any text is returned, so a refused change leaves the file alone.
 
 import { configError, type ConfigError } from "@dipsaus-orchestrator/contract";

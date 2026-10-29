@@ -473,14 +473,11 @@ describe("posting the review comment", () => {
 });
 
 describe("the review comment with the daemon's checkout wiring (DIPO-371)", () => {
-  // The office copies `.env`; the env files are read from the main checkout the office's git
-  // recorded at its load, as the daemon passes it to StoryPrs.
+  // The office lists `config/.env` in `box.files`; the env files are read from the main checkout
+  // the office's git recorded at its load, as the daemon passes it to StoryPrs.
   const copying: OfficeConfig = {
     ...OFFICE_DEFAULTS,
-    worktree: {
-      ...OFFICE_DEFAULTS.worktree,
-      files: [{ path: "config/.env", mode: "copy", required: false }],
-    },
+    box: { files: [{ path: "config/.env", noRealSecrets: true }] },
   };
   const daemonWiring = (checkout: string) => {
     const engineGit = new EngineGit({

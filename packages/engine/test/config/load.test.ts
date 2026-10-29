@@ -565,6 +565,19 @@ describe("the migration from every earlier version", () => {
     });
   }
 
+  it("warns that worker.web false is dropped: the developer now always has the web in its box (0008)", () => {
+    const result = ok(resolveOfficeConfig({ office: fixture("office-v8.yaml") }));
+    expect(result.warnings).toEqual([
+      {
+        file: ".dipo/office.yaml",
+        path: "worker.web",
+        message:
+          ".dipo/office.yaml: worker.web: ignored; version 14 removed it, because a developer in its box always has the web (0008). dipo config migrate deletes it",
+      },
+    ]);
+    expect(fixture("office-v8.yaml")).toContain("worker: { web: false }");
+  });
+
   it("says why a dropped key is gone and where a moved key went", () => {
     const result = ok(resolveOfficeConfig({ office: fixture("office-v5.yaml") }));
     const byPath = new Map(result.warnings.map((warning) => [warning.path, warning.message]));
