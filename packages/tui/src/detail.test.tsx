@@ -689,7 +689,7 @@ describe("the detail across a daemon restart (DIPO-327)", () => {
     // daemon.state on the software stream subscribes again at once, after the last cursor.
     session.refuseOffice = null;
     session.active("software")?.options.onEvent({
-      cursor: { stream: "software", epoch: "e1", seq: 50 },
+      cursor: { stream: "software", seq: 50 },
       at: "2026-10-14T10:05:00.000Z",
       type: "daemon.state",
       data: { from: "recovering", to: "running" },

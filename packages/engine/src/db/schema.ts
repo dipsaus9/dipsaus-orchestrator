@@ -75,10 +75,7 @@ import { oneRetentionRule } from "./migrations/0069-one-retention-rule";
  * Software-wide tables (0007 section 3). Every other table is office-scoped and has `office_id`
  * as the first column of its primary key.
  */
-export const SOFTWARE_TABLES: ReadonlySet<string> = new Set([
-  "offices",
-  "schema_migrations",
-]);
+export const SOFTWARE_TABLES: ReadonlySet<string> = new Set(["offices", "schema_migrations"]);
 
 export const MIGRATIONS: readonly Migration[] = [
   {

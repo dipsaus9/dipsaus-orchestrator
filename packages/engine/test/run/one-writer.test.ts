@@ -28,12 +28,25 @@ const MIGRATIONS = "packages/engine/src/db/migrations/";
 /** Retention's age-out deletes of tables it names in a variable (0007). */
 const RETENTION = "packages/engine/src/retention/run.ts";
 
-/** A call of retention's unnamed delete with one of the four tables as its literal table. */
-const RETENTION_ROWS = /\brows\(\s*["'`](runs|parks|agents|worker_hosts)["'`]/g;
+const RUN_TABLES = "runs|parks|agents|worker_hosts|run_signals";
 
-/** The four tables retention names as a literal table of its unnamed delete. */
-const literal = (text: string): string[] =>
-  [...text.matchAll(RETENTION_ROWS)].map((match) => match[1] as string);
+/** A call of retention's unnamed delete with one of the run tables as its literal table. */
+const RETENTION_ROWS = new RegExp(String.raw`\brows\(\s*["'\`](${RUN_TABLES})["'\`]`, "g");
+
+/** A list constant (`const X = [ ... ]`), whose entries retention may pass to its unnamed delete. */
+const LIST = /\bconst\s+[A-Z_]+\s*=\s*\[([^\]]*)\]/g;
+const RUN_TABLE_ENTRY = new RegExp(String.raw`["'\`](${RUN_TABLES})["'\`]`, "g");
+
+/**
+ * The run tables retention names as a literal table of its unnamed delete, or lists in a constant
+ * it may hand to that delete.
+ */
+const literal = (text: string): string[] => [
+  ...[...text.matchAll(RETENTION_ROWS)].map((match) => match[1] as string),
+  ...[...text.matchAll(LIST)].flatMap((list) =>
+    [...(list[1] as string).matchAll(RUN_TABLE_ENTRY)].map((match) => match[1] as string),
+  ),
+];
 
 /** The only files that may write a table whose name the source does not spell out. */
 const DYNAMIC_ALLOWED = [RETENTION];
@@ -105,12 +118,15 @@ describe("one writer per run table", () => {
     expect(writes.filter(stray).map(describeWrite)).toEqual([]);
   });
 
-  it("finds retention passing none of the four tables to its unnamed delete", () => {
+  it("finds retention passing none of the run tables to its unnamed delete", () => {
     expect(literal(readFileSync(join(REPO, RETENTION), "utf8"))).toEqual([]);
     // The scan sees each quoting form.
     expect(
       literal(`await rows("runs", "x"); rows('parks', y); rows(\`agents\`); rows( "worker_hosts")`),
     ).toEqual(["runs", "parks", "agents", "worker_hosts"]);
+    expect(literal(`const RUN_DETAIL = ["run_steps", "run_signals"] as const;`)).toEqual([
+      "run_signals",
+    ]);
     expect(literal(`await rows("run_steps", "x"); batches("runs", (n) => n)`)).toEqual([]);
   });
 

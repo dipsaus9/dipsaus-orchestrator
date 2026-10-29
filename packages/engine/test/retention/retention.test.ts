@@ -518,7 +518,7 @@ describe("retention of run rows", () => {
         ["run-old", day(0)],
         ["run-new", day(25)],
       ] as const) {
-        insertRun(office, run, ended);
+        insertRun(office, run, ended, "done");
         insertAgent(office, { run, agent: `agt-${run}`, startedAt: ended, endedAt: ended });
         insertHost(office, {
           run,
@@ -728,12 +728,12 @@ describe("run directories", () => {
 });
 
 describe("runs that may reopen", () => {
-  it("keeps a parked, an in-review and a reviewed run with a live claim, and one with an open park", () =>
+  it("keeps a parked run and one open at In Review, and removes done and dropped runs (DIPO-373)", () =>
     withOffice(async (t, office, tmp) => {
       const commonDir = join(tmp, "repo", ".git");
       const day = (n: number) => t.clock.now() + n * DAY_MS;
       const kept: string[] = [];
-      const make = (endKind: string) => {
+      const make = (endKind: string | null) => {
         const run = t.ids.next("run");
         insertRun(office, run, day(0), endKind);
         insertAgent(office, { run, agent: `agt-${run}`, startedAt: day(0), endedAt: day(0) });
@@ -747,19 +747,25 @@ describe("runs that may reopen", () => {
         });
         return run;
       };
-      for (const endKind of ["blocked", "in-review", "reviewed"]) {
+      // Parked with its claim live, and open at In Review (no ending, its active period ended).
+      for (const endKind of ["parked", null]) {
         const run = make(endKind);
         insertClaim(office, run, null);
         kept.push(run);
       }
-      // A claim released, but its park still open: a resume brings the run back.
-      const parked = make("capped");
+      // Parked with its claim released, but its park still open: a resume brings it back.
+      const parked = make("parked");
       insertClaim(office, parked, day(0));
       insertOpenPark(office, 1, parked);
       kept.push(parked);
-      // Done, with its claim still live: it never reopens.
+      // Done, even with its claim still live, and dropped: they never reopen.
       const done = make("done");
       insertClaim(office, done, null);
+      const dropped = make("dropped");
+      insertClaim(office, dropped, day(0));
+      // Parked, its claim released and its park resolved: nothing brings it back.
+      const left = make("parked");
+      insertClaim(office, left, day(0));
       t.clock.advanceTo(day(31));
 
       const report = await runRetention({
@@ -780,19 +786,21 @@ describe("runs that may reopen", () => {
       for (const table of ["runs", "run_steps", "agents", "usage_totals", "worker_hosts"]) {
         expect(runs(table)).toEqual(sorted);
       }
-      expect(report.deleted).toMatchObject({ runs: 1, agents: 1, worker_hosts: 1 });
-      expect(report.runDirectories).toBe(1);
+      expect(report.deleted).toMatchObject({ runs: 3, agents: 3, worker_hosts: 3 });
+      expect(report.runDirectories).toBe(3);
       for (const run of kept) {
         expect(existsSync(runDirectory(officeDirectory(commonDir), run))).toBe(true);
       }
-      expect(existsSync(runDirectory(officeDirectory(commonDir), done))).toBe(false);
+      for (const run of [done, dropped, left]) {
+        expect(existsSync(runDirectory(officeDirectory(commonDir), run))).toBe(false);
+      }
     }));
 });
 
 function setup(t: TestState, office: OfficeHandle, commonDir: string) {
   let config: OfficeConfig = {
     ...OFFICE_DEFAULTS,
-    retention: { days: 1, shortDays: 7, stateDays: 365 },
+    retention: { days: 1 },
   };
   const loaded = new Map<string, OfficeHandle>([[office.officeId, office]]);
   const changed: string[] = [];
@@ -838,7 +846,7 @@ describe("the retention load step", () => {
       expect(countRows(office, "change_log")).toBe(0);
 
       append(office, t.clock.now(), [progress(2)]);
-      s.setConfig({ ...OFFICE_DEFAULTS, retention: { days: 0, shortDays: 7, stateDays: 365 } });
+      s.setConfig({ ...OFFICE_DEFAULTS, retention: { days: 0 } });
       t.clock.advance(RETENTION_INTERVAL_MS - 1);
       await s.retention.whenIdle(office.officeId);
       expect(countRows(office, "change_log")).toBe(1);

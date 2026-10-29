@@ -1,15 +1,15 @@
 // The one retention rule (0007): one pass over one office's rows deletes everything about a run
-// that ended more than `retention.days` ago and that no live claim or open park may reopen
-// (`run/retired.ts`: a parked or In Review run also has an end time), and every other row of run
-// detail older than that:
-// change-log entries, output, usage messages, steps, verdicts, feedback and the rest. The run's
-// outcome row and the daily usage rollup are kept, and so are the office's own facts (story
-// identity, the backlog cache, run profiles, confirmations). Each delete is a batch of at most
-// 5,000 rows in its own immediate transaction, sized to the 50 ms budget, with the event loop
-// running between batches. A subscriber whose cursor is older than the oldest change-log row left
-// gets `stream.resetRequired` (0005).
+// that ended more than `retention.days` ago and may not reopen (`run/retired.ts`: done, dropped,
+// or parked with no live claim and no open park), and every other row of run detail older than
+// that: change-log entries, output, steps, verdicts, feedback and the rest. The run's outcome row
+// and the daily usage rollup are kept, and so are the office's own facts (story identity, the
+// backlog cache, run profiles, confirmations). Each delete is a batch of at most 5,000 rows in its
+// own immediate transaction, sized to the 50 ms budget, with the event loop running between
+// batches. A subscriber whose cursor is older than the oldest change-log row left gets
+// `stream.resetRequired` (0005).
 //
-// `runs`, `parks`, `agents` and `worker_hosts` are deleted through their one writer (0001).
+// `runs`, `parks`, `agents`, `worker_hosts` and `run_signals` are deleted through their one writer
+// (0001).
 
 import type { Clock } from "@dipsaus-orchestrator/contract";
 
@@ -20,6 +20,7 @@ import type { SqlParams } from "../platform/sqlite";
 import { deleteParksResolvedBefore } from "../run/park-records";
 import { deleteRetiredRuns } from "../run/records";
 import { ofNoOpenRun, retiredRun } from "../run/retired";
+import { deleteRetiredSignals } from "../run/signals";
 import { deleteRetiredAgents } from "../runs/agents";
 import { deleteRetiredHosts } from "../runs/worker-hosts";
 
@@ -66,7 +67,6 @@ const endedRun = (table: string): string =>
 const RUN_DETAIL = [
   "run_steps",
   "run_grants",
-  "run_signals",
   "run_intents",
   "feedback_items",
   "catch_ups",
@@ -182,6 +182,7 @@ export async function runRetention(options: RetentionOptions): Promise<Retention
   await batches("agents", (limit) => deleteRetiredAgents(office, cutoff, limit));
   // The retired runs, their rows first; their outcome rows stay.
   for (const table of RUN_DETAIL) await rows(table, endedRun(table));
+  await batches("run_signals", (limit) => deleteRetiredSignals(office, cutoff, limit));
   await rows("acceptance_tests", `ended_at is not null and ${endedRun("acceptance_tests")}`);
   await batches("runs", (limit) => deleteRetiredRuns(office, cutoff, limit));
   // What the maintainer decided; an open note, proposal or park is kept.

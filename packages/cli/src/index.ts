@@ -123,10 +123,6 @@ Usage:
                     prepare the office's Backlog.md settings for dipo's lifecycle
                     and move To Do stories to Refined, through one backlog PR
                     that dipo opens and merges once its checks pass
-  dipo office purge [--office <id>] [--yes]
-                    delete the office's rows from the state database and its
-                    <git-common-dir>/dipo/ directory after asking; this cannot
-                    be undone
   dipo office reload-config [--office <id>]
                     read the office configuration again; an invalid file keeps
                     the previous one and refuses new runs
