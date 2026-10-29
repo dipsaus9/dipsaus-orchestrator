@@ -1908,6 +1908,7 @@ describe("the reviewer's box (0002, DIPO-347)", () => {
         `http://dipo:pw-${REVIEW_BOX}@${BOX_HOST_ADDRESS}:3128`,
       );
       expect(session.env["ANTHROPIC_BASE_URL"]).toBe(`http://${BOX_HOST_ADDRESS}:4000`);
+      expect(session.env["NO_PROXY"]).toBe(`${BOX_HOST_ADDRESS},localhost,127.0.0.1,::1`);
       expect(REVIEW_CODE_DIR.startsWith(`${REVIEW_ROOT}/`)).toBe(true);
       // Its session starts in the box, at its empty folder.
       const client = session.exec(["/bin/true"], {});
