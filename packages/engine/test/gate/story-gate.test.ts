@@ -16,6 +16,7 @@ import { cachedGateTasks, GateStore } from "../../src/gate";
 import { systemSpawn } from "../../src/platform/process";
 import { countRows } from "../commands/helpers";
 import { backlog, CLI, failed, key, publish, read, withGatedOffice } from "./gated-office";
+import { backlogStoryStore } from "../../src/backlog/store";
 
 describe("the Ready gate on the Backlog CLI", () => {
   it(
@@ -65,7 +66,7 @@ describe("the Ready gate on the Backlog CLI", () => {
         const story = StoryId.parse("TASK-1");
         const broken = new GateStore({
           ...deps,
-          cli: { spawn: systemSpawn, command: ["false"], env: repo.env },
+          stories: backlogStoryStore({ spawn: systemSpawn, command: ["false"], env: repo.env }),
         });
         const cliError = await broken.checkReady(officeId, story).catch((error: unknown) => error);
         expect((cliError as CommandError).error).toMatchObject({
@@ -75,7 +76,7 @@ describe("the Ready gate on the Backlog CLI", () => {
         const unconfigured = new GateStore({
           ...deps,
           offices: { ...offices, config: () => undefined },
-          cli: CLI(repo),
+          stories: backlogStoryStore(CLI(repo)),
         });
         const configError = await unconfigured
           .checkReady(officeId, story)
@@ -84,7 +85,7 @@ describe("the Ready gate on the Backlog CLI", () => {
         const detached = new GateStore({
           ...deps,
           git: { forOffice: () => undefined },
-          cli: CLI(repo),
+          stories: backlogStoryStore(CLI(repo)),
         });
         const gitError = await detached
           .checkReady(officeId, story)

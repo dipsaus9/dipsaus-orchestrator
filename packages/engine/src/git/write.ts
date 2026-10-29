@@ -234,6 +234,13 @@ export interface PushResult {
   readonly error: string | null;
 }
 
+/** The tip of `refs/heads/<branch>`; throws `git.failed` when the branch is missing. */
+export async function branchTip(session: GitSession, branch: string): Promise<string> {
+  return (
+    await session.ok(session.repository, ["rev-parse", "--verify", `refs/heads/${branch}^{commit}`])
+  ).trim();
+}
+
 /** The URL of `remote`, or null when the office has no such remote. */
 export async function remoteUrl(git: GitSession, remote: string): Promise<string | null> {
   const result = await git.step(git.repository, ["config", "--get", `remote.${remote}.url`]);

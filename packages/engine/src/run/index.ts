@@ -2,7 +2,7 @@
 // and the pickup order. The worker start of a claimed run and the dry run `work.preview` (DIPO-74).
 
 export {
-  cliRunBase,
+  storyRunBase,
   DEVELOPER_ROLE,
   REFINED_STATUS,
   RUN_NOTICES,

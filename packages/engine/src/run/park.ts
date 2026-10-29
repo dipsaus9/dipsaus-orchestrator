@@ -1,9 +1,9 @@
 // Parking a story (DIPO-50; 0012 F16 and the transition In Progress or In Review to Parked, 0010
 // sections 2 and 3, 0005 section 5, 0007 section 4, 0008 section 2).
 //
-// `parkStory` writes the park on the story branch first, through a `ParkWriter`: in dipo's own
-// copy of the story's backlog (`editInStoryBacklog`), inside the office's git queue, the Backlog CLI writes the F16 `park` block
-// (`{reason, from, note}`) through the single field write path, sets status `Parked` and appends the
+// `parkStory` writes the park on the story branch first, through a `ParkWriter`: in one story lane
+// edit of the StoryStore (`editOnBranch`), inside the office's git queue, the store writes the F16
+// `park` block (`{reason, from, note}`) through the single field write path, sets status `Parked` and appends the
 // park's structured summary block to the implementation notes (0020 section 13, `summary.ts`; a
 // lift appends the resume line the same way); only the task file is committed, as
 // `<ID>: status Parked`, and the branch is pushed without force. Then,
@@ -33,10 +33,6 @@ import {
   type WorkRef,
 } from "@dipsaus-orchestrator/contract";
 
-import { parseFieldBlock } from "../backlog/fields/block";
-import { appendImplementationNotes } from "../backlog/fields/summary";
-import { type StoryTarget, viewStory, writeFields } from "../backlog/fields/write";
-import { type BacklogCli, runBacklog, TASK_FIELD_ERROR } from "../backlog/runner";
 import { CommandError } from "../commands/errors";
 import type { NewEntry } from "../changelog/log";
 import type { OfficeHandle } from "../db/office";
@@ -44,11 +40,13 @@ import { gateStoryFromView } from "../gate/input";
 import { contractCharacters } from "../gate/rules";
 import type { OfficeGit } from "../git/office";
 import { GitError } from "../git/runner";
-import { pushBranch } from "../git/write";
+import { branchTip, pushBranch } from "../git/write";
 import { recordBranchPush } from "../story-pr/records";
 import { insertWorkerQuestion, questionViewOf } from "../hooks/questions";
 import { presetEndReasons } from "../runs/agents";
-import { branchTip, editInStoryBacklog } from "../stories/story-copy";
+import { TASK_FIELD_ERROR } from "../story-store/errors";
+import { parseFieldBlock } from "../story-store/fields/block";
+import type { StoryEditor, StoryStore } from "../story-store/store";
 import { deriveStoryView, storyView } from "../views/story";
 import { workRefOf } from "../views/work";
 import { PARKED_STATUS } from "../worktree/done";
@@ -139,19 +137,19 @@ function messageOf(error: unknown): string {
  * Appends a summary text to the story's implementation notes; the reason it failed, or null. A
  * failed append is caught, so the edit it is part of still commits its F16 block and status.
  */
-async function appendOrReason(target: StoryTarget, text: string): Promise<string | null> {
+async function appendOrReason(story: StoryEditor, text: string): Promise<string | null> {
   try {
-    await appendImplementationNotes(target, text);
+    await story.appendNotes(text);
     return null;
   } catch (error) {
     return `appending it failed: ${messageOf(error)}`;
   }
 }
 
-/** The park written on the story branch with the Backlog CLI and the office git. */
+/** The park written on the story branch with the story store and the office git. */
 export function gitParkWriter(deps: {
   readonly git: (office: OfficeId) => OfficeGit | undefined;
-  readonly cli: BacklogCli;
+  readonly stories: StoryStore;
 }): ParkWriter {
   return {
     async write(office, request) {
@@ -171,29 +169,20 @@ export function gitParkWriter(deps: {
           }
         }
         // Only the task file.
-        const { value: from, commit } = await editInStoryBacklog(
+        const { value: from, commit } = await deps.stories.editOnBranch(
           git,
           session,
           request,
           `${request.story}: status ${PARKED_STATUS}`,
-          async (backlog) => {
-            const target = { cli: deps.cli, cwd: backlog.cwd, id: request.story };
-            const before = await viewStory(target);
+          async (story) => {
+            const before = await story.view();
             const left: Lifecycle = before.status === "In Review" ? "In Review" : "In Progress";
-            await writeFields(target, (fields) => ({
+            await story.writeFields((fields) => ({
               ...fields,
               park: { reason: request.reason, from: left, note: request.note },
             }));
-            if (before.status !== PARKED_STATUS) {
-              await runBacklog(deps.cli, backlog.cwd, [
-                "task",
-                "edit",
-                request.story,
-                "--status",
-                PARKED_STATUS,
-              ]);
-            }
-            const back = await viewStory(target);
+            if (before.status !== PARKED_STATUS) await story.setStatus(PARKED_STATUS);
+            const back = await story.view();
             if (back.status !== PARKED_STATUS) {
               throw new GitError(
                 "park.statusNotWritten",
@@ -203,7 +192,7 @@ export function gitParkWriter(deps: {
             // The park's summary block (0020 section 13), once: a park already on the branch (a
             // retried write) appends nothing.
             if (block !== null && before.status !== PARKED_STATUS) {
-              summaryError = await appendOrReason(target, block);
+              summaryError = await appendOrReason(story, block);
             }
             return left;
           },
@@ -285,8 +274,8 @@ export interface UnparkWriter {
 }
 
 /**
- * The park lifted on the story branch with the Backlog CLI and the office git (DIPO-75): in dipo's
- * own copy of the story's backlog (`editInStoryBacklog`), the F16 `park` block is removed through
+ * The park lifted on the story branch with the story store and the office git (DIPO-75): in one
+ * story lane edit (`editOnBranch`), the F16 `park` block is removed through
  * the single field write path and the status set back to the park's `from`; only the task file is
  * committed on the branch, as `<ID>: status <to>`, and the branch is pushed without force. The
  * answer of a question park goes into the same field write as a resolved unknown, unless the
@@ -294,7 +283,7 @@ export interface UnparkWriter {
  */
 export function gitUnparkWriter(deps: {
   readonly git: (office: OfficeId) => OfficeGit | undefined;
-  readonly cli: BacklogCli;
+  readonly stories: StoryStore;
 }): UnparkWriter {
   return {
     async lift(office, request) {
@@ -305,15 +294,14 @@ export function gitUnparkWriter(deps: {
         let answerError: string | null = null;
         const answer = request.answer;
         // Only the task file.
-        const { commit } = await editInStoryBacklog(
+        const { commit } = await deps.stories.editOnBranch(
           git,
           session,
           request,
           `${request.story}: status ${request.to}`,
-          async (backlog) => {
-            const target = { cli: deps.cli, cwd: backlog.cwd, id: request.story };
-            const before = await viewStory(target);
-            await writeFields(target, (fields) => {
+          async (story) => {
+            const before = await story.view();
+            await story.writeFields((fields) => {
               const { park: _park, ...rest } = fields;
               if (answer === undefined) return rest;
               // The answer is a story fact only while the contract stays within R26.
@@ -325,16 +313,8 @@ export function gitUnparkWriter(deps: {
                   : `the story contract would be ${size} characters with it, over the limit of ${answer.contractMax} (R26)`;
               return answerError === null ? answered : rest;
             });
-            if (before.status !== request.to) {
-              await runBacklog(deps.cli, backlog.cwd, [
-                "task",
-                "edit",
-                request.story,
-                "--status",
-                request.to,
-              ]);
-            }
-            const back = await viewStory(target);
+            if (before.status !== request.to) await story.setStatus(request.to);
+            const back = await story.view();
             if (back.status !== request.to) {
               throw new GitError(
                 "park.statusNotWritten",
@@ -345,7 +325,7 @@ export function gitUnparkWriter(deps: {
               before.status !== request.to ||
               parseFieldBlock(before.description).fields.park !== undefined;
             if (request.line !== undefined && lifting) {
-              lineError = await appendOrReason(target, request.line);
+              lineError = await appendOrReason(story, request.line);
             }
           },
         );

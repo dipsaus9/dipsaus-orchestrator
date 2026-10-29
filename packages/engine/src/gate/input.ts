@@ -1,7 +1,7 @@
 // Gate inputs from parsed `task view --plain` output. Pure: the caller runs the CLI.
 
-import { FieldBlockError, parseFieldBlock } from "../backlog/fields/block";
-import type { PlainTask } from "../backlog/plain";
+import { FieldBlockError, parseFieldBlock } from "../story-store/fields/block";
+import type { PlainTask } from "../story-store/story";
 import type { GateStory, GateTask } from "./types";
 
 /** The story as the gate reads it; `subtasks` are the ids `task list -p <ID>` returned. */

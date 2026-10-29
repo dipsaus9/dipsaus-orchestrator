@@ -23,6 +23,7 @@ import { StoryIndex } from "../../src/stories/feature";
 import { BACKLOG_CLI } from "../backlog/helpers";
 import { BACKLOG_FIXTURE, type OfficeSetup, officeSetup, resultOf, send } from "../office/helpers";
 import { entriesAfter, keyOf, lastSeq, storyRows } from "./helpers";
+import { backlogStoryStore } from "../../src/backlog/store";
 
 interface Indexed {
   readonly repo: TempRepoWithRemote;
@@ -58,7 +59,7 @@ function withIndexedOffice(
       let setup: OfficeSetup | undefined;
       const index = new StoryIndex({
         git: engineGit,
-        cli: { spawn: systemSpawn, command, env: repo.env },
+        stories: backlogStoryStore({ spawn: systemSpawn, command, env: repo.env }),
         offices: {
           get: (office) => setup?.manager.get(office),
           config: (office) => setup?.manager.config(office),

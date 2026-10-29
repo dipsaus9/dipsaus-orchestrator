@@ -1,27 +1,14 @@
-// A story's non-native fields (0010 section 3): the `dipo` field block, the reserved labels, and
-// the single write path that changes them through the Backlog CLI.
+// The single write path for a story's non-native fields through the Backlog CLI (0010 section 3):
+// the `dipo` field block, the reserved labels and Backlog's own summary sections. The block and
+// labels themselves are the story model's (`story-store/fields`).
 
 export {
-  BLOCK_CLOSE,
-  BLOCK_OPEN,
-  emitFieldBlock,
-  FieldBlockError,
-  locateBlock,
-  parseBlockContent,
-  parseFieldBlock,
-  spliceFieldBlock,
-} from "./block";
-export type { BlockLocation, ParsedDescription } from "./block";
-export {
-  isValidLabel,
-  LABEL_GRAMMAR,
+  editLabels,
+  FieldWriteError,
   labelEditArgs,
-  readLabels,
-  ROLE_PREFIX,
-  TEST_BEFORE_MERGE,
-  TIER_PREFIX,
-} from "./labels";
-export type { LabelChange, StoryLabels } from "./labels";
-export { editLabels, FieldWriteError, MAX_WRITE_ATTEMPTS, viewStory, writeFields } from "./write";
-export type { StoryTarget } from "./write";
+  MAX_WRITE_ATTEMPTS,
+  viewStory,
+  writeFields,
+} from "./write";
+export type { LabelChange, StoryTarget } from "./write";
 export { appendImplementationNotes, setFinalSummary } from "./summary";

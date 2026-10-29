@@ -8,7 +8,9 @@
 // says how much arrived: the bytes, the last line and whether the output ended with a newline
 // (DIPO-333).
 
-import { BacklogParseError, parseList, type PlainList, plainLines } from "./plain";
+import type { PlainList } from "../story-store/story";
+
+import { BacklogParseError, parseList, plainLines } from "./plain";
 import { type BacklogCli, BacklogCommandError, runBacklog } from "./runner";
 
 /** The two lists the engine reads whole. */

@@ -237,6 +237,7 @@ export * from "./backup";
 export * from "./retention";
 export * from "./git";
 export type { BacklogCli } from "./backlog/runner";
+export { backlogStoryStore } from "./backlog/store";
 export * from "./backlog/lane";
 export * from "./backlog/pr";
 export * from "./merge";
@@ -244,6 +245,7 @@ export * from "./story-pr";
 export * from "./office/init";
 export * from "./run";
 export * from "./hooks";
+export * from "./story-store";
 export * from "./worktree";
 export { executeRead } from "./reads/execute";
 export type { ReadDeps } from "./reads/execute";
@@ -296,12 +298,10 @@ export type {
 export {
   addStory,
   applyIndex,
-  contentHash,
   findStoryByKey,
   INDEX_STEP,
   indexStories,
   isProvisionalId,
-  readBacklog,
   removeStory,
   renumberStories,
   renumberStory,

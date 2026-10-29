@@ -59,15 +59,10 @@ import {
 } from "@dipsaus-orchestrator/contract";
 import type { z } from "zod";
 
-import { parseFieldBlock } from "../backlog/fields/block";
-import { readLabels } from "../backlog/fields/labels";
 import { EDIT_KIND } from "../backlog/lane/ops";
 import { type JournalEntry, type LaneOp, pendingLaneOp } from "../backlog/lane/journal";
 import { LaneError, LaneFlushError } from "../backlog/lane/lane";
-import { listAll } from "../backlog/list";
-import { BacklogParseError, parseView, type PlainTask } from "../backlog/plain";
 import { backlogCheckBlocked } from "../backlog/pr/records";
-import { type BacklogCli, runBacklog } from "../backlog/runner";
 import type { NewEntry } from "../changelog/log";
 import { CommandError } from "../commands/errors";
 import type {
@@ -89,6 +84,11 @@ import { promptStoryOf } from "../prompts/story";
 import { recordAgent } from "../runs/agents";
 import { resolveStoryRef } from "../stories/keys";
 import { mapLimited, VIEW_CONCURRENCY } from "../stories/read";
+import { StoryParseError } from "../story-store/errors";
+import { parseFieldBlock } from "../story-store/fields/block";
+import { readLabels } from "../story-store/fields/labels";
+import type { StoryStore } from "../story-store/store";
+import type { PlainTask } from "../story-store/story";
 import { deriveStoryView, type GateFailureFact, storyView } from "../views/story";
 import { withWorkViews } from "../views/work";
 import { PlanError } from "../workers/types";
@@ -1022,10 +1022,10 @@ export class WorkRun {
   }
 }
 
-/** `RunBase` on the office's git and the Backlog CLI in `_base`. */
-export function cliRunBase(deps: {
+/** `RunBase` on the office's git and the story store in `_base`. */
+export function storyRunBase(deps: {
   readonly git: (office: OfficeId) => OfficeGit | undefined;
-  readonly cli: BacklogCli;
+  readonly stories: StoryStore;
 }): RunBase {
   const gitOf = (office: OfficeId): OfficeGit => {
     const git = deps.git(office);
@@ -1048,7 +1048,7 @@ export function cliRunBase(deps: {
       const checkout = await git.ensureBaseWorktree();
       return git.run(async () => {
         // The whole list (DIPO-323): its statuses decide whether a dependency is Done.
-        const listed = await listAll(deps.cli, checkout.path, "task");
+        const listed = await deps.stories.list(checkout.path, "task");
         const statuses = new Map(listed.entries.map((entry) => [entry.id, entry.group]));
         const wanted = (
           ids ?? listed.entries.filter((e) => e.group === READY_STATUS).map((e) => e.id)
@@ -1056,15 +1056,9 @@ export function cliRunBase(deps: {
         const unparsed: string[] = [];
         const views = await mapLimited(wanted, VIEW_CONCURRENCY, async (id) => {
           try {
-            const { stdout } = await runBacklog(deps.cli, checkout.path, [
-              "task",
-              "view",
-              id,
-              "--plain",
-            ]);
-            return parseView(stdout);
+            return await deps.stories.view(checkout.path, id);
           } catch (error) {
-            if (!(error instanceof BacklogParseError)) throw error;
+            if (!(error instanceof StoryParseError)) throw error;
             unparsed.push(id);
             return null;
           }

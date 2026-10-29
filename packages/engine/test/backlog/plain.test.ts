@@ -2,7 +2,8 @@
 
 import { describe, expect, it } from "bun:test";
 
-import { BacklogParseError, parseList, parseView, type UnknownItem } from "../../src/backlog/plain";
+import { BacklogParseError, parseList, parseView } from "../../src/backlog/plain";
+import { type UnknownItem } from "../../src/story-store/story";
 import { readManifest, recorded } from "./helpers";
 
 const RULE = "-".repeat(50);

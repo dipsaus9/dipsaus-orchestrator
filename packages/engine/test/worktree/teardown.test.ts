@@ -34,6 +34,7 @@ import { insertClaim, markTeardownStarted } from "../../src/worktree/records";
 import { notices } from "../backlog/lane/helpers";
 import { hangingSpawn, settle as letCallsRun } from "../platform/hanging";
 import { addOffice, openTestState, type TestState } from "../commands/helpers";
+import { backlogStoryStore } from "../../src/backlog/store";
 
 const START = "1".repeat(40);
 const TIP = "2".repeat(40);
@@ -223,7 +224,9 @@ function teardownOf(
   const teardown = new StoryTeardown({
     git: () => world.git,
     host: options.host === undefined ? host({}) : options.host,
-    cli: { spawn: () => Promise.reject(new Error("no CLI in this test")) as never },
+    stories: backlogStoryStore({
+      spawn: () => Promise.reject(new Error("no CLI in this test")) as never,
+    }),
     offices: {
       get: () => world.office,
       config: () => options.config ?? OFFICE_DEFAULTS,

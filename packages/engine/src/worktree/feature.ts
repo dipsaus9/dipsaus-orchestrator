@@ -13,11 +13,11 @@
 
 import type { Clock, OfficeId } from "@dipsaus-orchestrator/contract";
 
-import type { BacklogCli } from "../backlog/runner";
 import type { FeatureModule } from "../commands/registry";
 import type { OfficeHandle } from "../db/office";
 import type { OfficeGit } from "../git/office";
 import type { OfficeLoadContext } from "../office/steps";
+import type { StoryStore } from "../story-store/store";
 
 import {
   claimStory,
@@ -37,8 +37,8 @@ export const CLAIMS_STEP = "worktree.claims";
 export interface StoryClaimsDeps {
   /** The office's git, attached by the `git.version` load step (DIPO-31). */
   readonly git: (office: OfficeId) => OfficeGit | undefined;
-  /** How the Backlog CLI starts, in dipo's own copy of a story's backlog. */
-  readonly cli: BacklogCli;
+  /** The story store; the claim commit is one story lane edit. */
+  readonly stories: StoryStore;
   readonly onChanged?: (office: OfficeId) => void;
   /** Logs a release step that failed (the daemon's logger); nothing by default. */
   readonly warn?: (message: string, fields: Readonly<Record<string, unknown>>) => void;
@@ -193,7 +193,7 @@ export class StoryClaims {
         officeId,
         office: loaded.office,
         git,
-        cli: this.#deps.cli,
+        stories: this.#deps.stories,
         clock: loaded.clock,
         ...(this.#deps.onChanged === undefined ? {} : { onChanged: this.#deps.onChanged }),
       },

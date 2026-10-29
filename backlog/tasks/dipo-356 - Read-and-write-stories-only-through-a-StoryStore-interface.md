@@ -1,9 +1,10 @@
 ---
 id: DIPO-356
 title: Read and write stories only through a StoryStore interface
-status: Refined
+status: In Progress
 assignee: []
 created_date: '2026-10-25 09:51'
+updated_date: '2026-10-29 10:12'
 labels:
   - 'tier:M'
   - 'slice:prune'
@@ -40,7 +41,13 @@ test_plan:
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 StoryStore offers listing and reading stories of a base or branch, and setting status, ticking criteria, writing the park reason and notes, the final summary, a resolved unknown and a draft
+- [x] #1 StoryStore offers listing and reading stories of a base or branch, and setting status, ticking criteria, writing the park reason and notes, the final summary, a resolved unknown and a draft
 - [ ] #2 The Backlog.md implementation holds the CLI runner, the story lane and the planning lane, and no other engine directory imports backlog/
-- [ ] #3 A lint rule fails an import of backlog/ from outside the store
+- [x] #3 A lint rule fails an import of backlog/ from outside the store
 <!-- AC:END -->
+
+## Implementation Notes
+
+<!-- SECTION:NOTES:BEGIN -->
+Part 1 merged in PR #431 (2026-10-29): the StoryStore interface, every read and the story lane writes, with the dipo/no-backlog-import lint rule. Part 2 (same story, a later PR): the planning lane behind the store (edit, hold, resume, drop and discard ops, an accepted proposal draft, journal reads, office init and the backlog PR merge inside backlog/), task-file layout facts as store methods, and the lint allow list emptied down to index.ts and features.ts; then criterion 2 is met. Review advisories for part 2: a fixture line for import = require(), and one contract suite run on both the fake and the Backlog store.
+<!-- SECTION:NOTES:END -->

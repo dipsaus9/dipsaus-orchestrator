@@ -13,14 +13,14 @@
 import { join } from "node:path";
 
 import { loadOfficeConfig } from "../packages/engine/src/config/load";
-import { type BacklogCli, runBacklog } from "../packages/engine/src/backlog/runner";
+import type { BacklogCli } from "../packages/engine/src/backlog/runner";
+import { backlogStoryStore } from "../packages/engine/src/backlog/store";
 import { evaluateGate } from "../packages/engine/src/gate/evaluate";
 import { gateConfigOf } from "../packages/engine/src/gate/store/feature";
 import {
   gateInputOf,
   gateTasksOf,
   listTasks,
-  parseMilestones,
   viewListedTasks,
 } from "../packages/engine/src/gate/store/read";
 import { treePaths } from "../packages/engine/src/gate/store/tree";
@@ -69,15 +69,14 @@ export async function checkReadyGate(repo: string, cli: BacklogCli): Promise<Rea
   const loaded = await loadOfficeConfig(repo);
   if (!loaded.ok) throw new Error(loaded.errors.map((error) => error.message).join("\n"));
   const config = gateConfigOf(loaded.config);
-  const entries = await listTasks(cli, repo);
+  const stories = backlogStoryStore(cli);
+  const entries = await listTasks(stories, repo);
   const views = await viewListedTasks(
-    cli,
+    stories,
     repo,
     entries.map((entry) => entry.id),
   );
-  const milestones = parseMilestones(
-    (await runBacklog(cli, repo, ["milestone", "list", "--show-completed", "--plain"])).stdout,
-  );
+  const milestones = await stories.milestones(repo);
   const others = gateTasksOf(views);
   const files = treeFiles(repo);
   const ready = entries.filter((entry) => entry.group === READY);

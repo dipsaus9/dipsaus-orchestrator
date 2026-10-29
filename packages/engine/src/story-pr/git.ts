@@ -1,17 +1,15 @@
-// What the story PR reads from the story's branch and the repository (DIPO-144): the story as the
-// Backlog CLI shows it in dipo's own copy of the story's backlog (`inStoryBacklog`), the branch tip,
-// the remote URL and the base. Every step is an office git queue item through the hardened runner,
+// What the story PR reads from the story's branch and the repository (DIPO-144): the story as
+// committed on its branch, read through the StoryStore (`viewOnBranch`), the branch tip, the remote
+// URL and the base. Every step is an office git queue item through the hardened runner,
 // as the steps of verify and commit are.
 
 import type { OfficeId } from "@dipsaus-orchestrator/contract";
 
-import { parseFieldBlock } from "../backlog/fields/block";
-import { viewStory } from "../backlog/fields/write";
-import type { BacklogCli } from "../backlog/runner";
-import { type PushResult, pushBranch } from "../git/write";
 import type { OfficeGit } from "../git/office";
+import { branchTip, type PushResult, pushBranch } from "../git/write";
 import { promptStoryOf } from "../prompts/story";
-import { branchTip, inStoryBacklog, repoPath } from "../stories/story-copy";
+import { parseFieldBlock } from "../story-store/fields/block";
+import type { StoryStore } from "../story-store/store";
 
 import type { PrBodyStory } from "./body";
 
@@ -45,10 +43,10 @@ export interface StoryPrGit {
   push?(office: OfficeId, branch: string): Promise<PushResult>;
 }
 
-/** The real reads, on the office git and the Backlog CLI. */
+/** The real reads, on the office git and the story store. */
 export function gitStoryPrOps(deps: {
   readonly git: (office: OfficeId) => OfficeGit | undefined;
-  readonly cli: BacklogCli;
+  readonly stories: StoryStore;
 }): StoryPrGit {
   return {
     push: (office, branch) => {
@@ -60,11 +58,7 @@ export function gitStoryPrOps(deps: {
       const git = deps.git(office);
       if (git === undefined) throw new Error(`Office ${office} has no git attached.`);
       return git.run(async (session) => {
-        // In dipo's own copy of the story's backlog.
-        const { view, taskFile } = await inStoryBacklog(git, session, input, async (backlog) => {
-          const shown = await viewStory({ cli: deps.cli, cwd: backlog.cwd, id: input.story });
-          return { view: shown, taskFile: repoPath(backlog.cwd, shown.file) };
-        });
+        const { view, file: taskFile } = await deps.stories.viewOnBranch(git, session, input);
         const fields = parseFieldBlock(view.description).fields;
         const prompt = promptStoryOf(view, { dependencies: [], fields, taskFile });
         const checked = new Map(view.acceptanceCriteria.map((c) => [c.index, c.checked]));

@@ -13,7 +13,7 @@
 // Every call gets a minimal, explicit environment (`backlogEnv`), never the daemon's whole one
 // (0021 section 14). The caller picks the working folder: for a story it is a folder that holds
 // only dipo's own copy of the backlog, never the worktree a worker's files land in
-// (`inStoryBacklog` in `stories/story-copy.ts`).
+// (`inStoryBacklog` in `story-copy.ts`).
 //
 // Before every call, in whatever folder it runs (dipo's own copy, a checkout of the base, the
 // backlog lane's worktree), dipo checks the Backlog files the CLI could read there
@@ -45,6 +45,7 @@ import {
   withDeadline,
 } from "../platform/deadline";
 import { parseYamlDocument } from "../platform/yaml";
+import { StoryStoreError } from "../story-store/errors";
 
 import { hasSectionRule } from "./plain";
 
@@ -97,7 +98,7 @@ export interface BacklogOutput {
 }
 
 /** A command the runner refused; nothing was spawned. */
-export class BacklogRefusedError extends Error {
+export class BacklogRefusedError extends StoryStoreError {
   constructor(
     readonly args: readonly string[],
     readonly reason: string,
@@ -108,7 +109,7 @@ export class BacklogRefusedError extends Error {
 }
 
 /** The CLI failed: a non-zero exit, a `not found` line, or it could not start. */
-export class BacklogCommandError extends Error {
+export class BacklogCommandError extends StoryStoreError {
   constructor(
     readonly command: readonly string[],
     readonly exitCode: number | null,
@@ -1087,12 +1088,6 @@ export const TASKS_DIR = "backlog/tasks";
 
 /** The `GitError` code when dipo cannot make its copy of a story's backlog or commit from it. */
 export const BACKLOG_FOLDER_ERROR = "story.backlogFolder";
-
-/**
- * The `GitError` code when the story's task file holds a front matter field dipo does not know;
- * the operation is refused, and a story in a run parks `scope-violation`.
- */
-export const TASK_FIELD_ERROR = "story.unknownTaskField";
 
 /** True when `name` is the task file of `id`: `<id> - <title>.md`, any case. */
 export function isTaskFileOf(name: string, id: string): boolean {

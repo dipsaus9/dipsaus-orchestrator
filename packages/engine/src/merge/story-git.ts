@@ -4,7 +4,7 @@
 // restart: the close-out finds the story Done, the conflict merge finds the base merged, the push
 // finds nothing to push.
 //
-// - The close-out commit: in dipo's own copy of the story's backlog (`editInStoryBacklog`), the
+// - The close-out commit: in one story lane edit of the StoryStore (`editOnBranch`), the
 //   final summary (`writeCloseOutSummary`, passed in), the modified files (the paths the branch
 //   changed since its merge base with the base, without `backlog/`), then `closeOutFields`: the
 //   park field removed and status `Done`, committed alone as `<ID>: status Done`.
@@ -25,8 +25,6 @@ import { join } from "node:path";
 
 import type { OfficeId } from "@dipsaus-orchestrator/contract";
 
-import type { StoryTarget } from "../backlog/fields/write";
-import { type BacklogCli, isTaskFileOf, runBacklog, TASKS_DIR } from "../backlog/runner";
 import {
   baseRefOf,
   type CatchUpMerged,
@@ -39,8 +37,8 @@ import {
 import type { GitSession, OfficeGit } from "../git/office";
 import { moveBranch, pushBranch } from "../git/write";
 import { codeTreeKeyOf } from "../run/story-git";
-import { BRANCH_READ_PREFIX } from "../stories/branch-read";
-import { editInStoryBacklog } from "../stories/story-copy";
+import type { StoryEditor, StoryStore } from "../story-store/store";
+import { BRANCH_READ_PREFIX } from "../worktree/sweep";
 
 import { closeOutFields, DONE_STATUS } from "./close-out";
 import { CODEOWNERS_LOCATIONS, parseCodeowners, releasePathsOf } from "./release-path";
@@ -89,13 +87,13 @@ export interface StoryMergeGit {
   /** The local tip of `branch`, or null when it does not exist. */
   head(office: OfficeId, branch: string): Promise<string | null>;
   /**
-   * The close-out commit: `summary` writes the final summary in dipo's copy of the backlog, then
-   * the modified files and status Done. Returns the commit, or null when nothing changed.
+   * The close-out commit: `summary` writes the final summary in the story lane edit, then the
+   * modified files and status Done. Returns the commit, or null when nothing changed.
    */
   closeOut(
     office: OfficeId,
     run: StoryMergeRun,
-    summary: (target: StoryTarget) => Promise<unknown>,
+    summary: (story: StoryEditor) => Promise<unknown>,
   ): Promise<string | null>;
   /**
    * Plans the merge of the base into the story branch when it conflicts and makes its commit (see
@@ -158,10 +156,10 @@ async function modifiedFiles(
     .toSorted();
 }
 
-/** A story PR merge's git steps with the office git and the Backlog CLI. */
+/** A story PR merge's git steps with the office git and the story store. */
 export function gitStoryMergeOps(deps: {
   readonly git: (office: OfficeId) => OfficeGit | undefined;
-  readonly cli: BacklogCli;
+  readonly stories: StoryStore;
 }): StoryMergeGit {
   const gitOf = (office: OfficeId): OfficeGit => {
     const git = deps.git(office);
@@ -174,7 +172,7 @@ export function gitStoryMergeOps(deps: {
     head: (office, branch) =>
       gitOf(office).run((session) => revParse(session, `refs/heads/${branch}`)),
 
-    closeOut: (office, run, summary) => closeOutIn(gitOf(office), deps.cli, run, summary),
+    closeOut: (office, run, summary) => closeOutIn(gitOf(office), deps.stories, run, summary),
 
     conflictMerge: (office, run) => conflictMergeIn(gitOf(office), run),
 
@@ -217,12 +215,7 @@ export function gitStoryMergeOps(deps: {
         const own = listed.stdout
           .split("\0")
           .map((entry) => entry.slice(entry.indexOf("\t") + 1))
-          .filter(
-            (path) =>
-              path.startsWith(`${TASKS_DIR}/`) &&
-              !path.slice(TASKS_DIR.length + 1).includes("/") &&
-              isTaskFileOf(path.slice(TASKS_DIR.length + 1), story),
-          );
+          .filter((path) => deps.stories.isStoryFile(path, story));
         return own.length === 1 ? codeTreeKeyOf(listed.stdout, own[0] as string) : null;
       }),
   };
@@ -304,9 +297,9 @@ async function releasePathsAt(
 /** The close-out commit on the story branch (see the file comment); its commit or null. */
 function closeOutIn(
   git: OfficeGit,
-  cli: BacklogCli,
+  stories: StoryStore,
   run: StoryMergeRun,
-  summary: (target: StoryTarget) => Promise<unknown>,
+  summary: (story: StoryEditor) => Promise<unknown>,
 ): Promise<string | null> {
   return git.run(async (session) => {
     const tip = await revParse(session, `refs/heads/${run.branch}`);
@@ -317,26 +310,18 @@ function closeOutIn(
       MODIFIED_FILES_MAX,
     );
     // Only the task file.
-    const { commit } = await editInStoryBacklog(
+    const { commit } = await stories.editOnBranch(
       git,
       session,
       run,
       `${run.story}: status ${DONE_STATUS}`,
-      async (backlog) => {
-        const target = { cli, cwd: backlog.cwd, id: run.story };
+      async (story) => {
         // A later close-out writes the summary and the modified files again as they are now,
         // also when the story is Done from an earlier one; nothing new commits nothing.
-        await summary(target);
-        if (files.length > 0) {
-          await runBacklog(cli, backlog.cwd, [
-            "task",
-            "edit",
-            run.story,
-            ...files.flatMap((file) => ["--modified-file", file]),
-          ]);
-        }
+        await summary(story);
+        await story.recordModifiedFiles(files);
         // The close-out fields: the park record removed and status Done, read back.
-        await closeOutFields(target);
+        await closeOutFields(story);
       },
     );
     return commit;

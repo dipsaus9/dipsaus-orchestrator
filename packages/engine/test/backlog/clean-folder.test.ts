@@ -32,6 +32,7 @@ import {
 } from "../worktree/helpers";
 
 import { BACKLOG_CLI } from "./helpers";
+import { backlogStoryStore } from "../../src/backlog/store";
 
 // Each test drives the pinned Backlog CLI and real git several times; the GitHub macOS runner needs
 // more than the default 5 s (DIPO-316).
@@ -182,7 +183,7 @@ describe("the task file path check", () => {
       await publish(repo);
       const s = await claimSetup(repo);
       const { cli, calls } = recordingCli(repo.env);
-      claimed(await claimStory(s.deps({ cli }), s.request(s.key())));
+      claimed(await claimStory(s.deps({ stories: backlogStoryStore(cli) }), s.request(s.key())));
       await byHandOn(repo, BRANCH_1, async (dir) => {
         mkdirSync(join(dir, "backlog", "tasks", "nested"));
         await git(
@@ -196,7 +197,7 @@ describe("the task file path check", () => {
       });
 
       calls.length = 0;
-      const error = await gitStoryOps({ git: () => s.git, cli })
+      const error = await gitStoryOps({ git: () => s.git, stories: backlogStoryStore(cli) })
         .story(s.office.officeId, BRANCH_1, TASK_1)
         .then(
           () => null,

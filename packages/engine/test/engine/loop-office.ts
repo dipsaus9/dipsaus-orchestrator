@@ -56,7 +56,7 @@ import { createSystemIds } from "../../src/platform/ids";
 import {
   baseStoryFacts,
   capsOf,
-  cliRunBase,
+  storyRunBase,
   composeRuns,
   type ComposedRuns,
   findRun,
@@ -101,6 +101,7 @@ import { BACKLOG_FIXTURE, type OfficeSetup, officeSetup, resultOf, send } from "
 import { scriptedWorker } from "../workers/scripts";
 
 import { LoopHost, REMOTE_URL } from "./loop-host";
+import { backlogStoryStore } from "../../src/backlog/store";
 
 export const TASK_1 = "TASK-1";
 export const BRANCH_1 = "TASK-1/add-the-csv-export-command";
@@ -600,10 +601,10 @@ async function buildDaemon(
   mkdirSync(join(repo.root, "tmp"), { recursive: true, mode: 0o700 });
   const engineGit = new EngineGit({ spawn: cli.spawn, env: repo.env });
   const gitOf = (office: OfficeId) => engineGit.forOffice(office);
-  const index = new StoryIndex({ git: engineGit, cli, offices });
+  const index = new StoryIndex({ git: engineGit, stories: backlogStoryStore(cli), offices });
   const gates = new GateStore({
     git: engineGit,
-    cli,
+    stories: backlogStoryStore(cli),
     offices,
     index,
     get clock() {
@@ -613,9 +614,9 @@ async function buildDaemon(
       return loaded().ids;
     },
   });
-  const claims = new StoryClaims({ cli, git: gitOf });
+  const claims = new StoryClaims({ stories: backlogStoryStore(cli), git: gitOf });
   const lane = new BacklogLane({ cli, git: gitOf, liveClaim: hasLiveClaim });
-  const base = cliRunBase({ git: gitOf, cli });
+  const base = storyRunBase({ git: gitOf, stories: backlogStoryStore(cli) });
   const officeClock = {
     now: () => loaded().clock.now(),
     setTimeout: (callback: () => void, delayMs: number) =>
@@ -632,14 +633,17 @@ async function buildDaemon(
   let mergeRef: AutoMerge | null = null;
   const guard: AutoMergeGuard = (office, branch, write) =>
     mergeRef === null ? write() : mergeRef.guarded(office, branch, write);
-  const rawParkWriter = gitParkWriter({ git: gitOf, cli });
+  const rawParkWriter = gitParkWriter({ git: gitOf, stories: backlogStoryStore(cli) });
   const parkWriter = guardedParkWriter(rawParkWriter, guard);
-  const unparkWriter = guardedUnparkWriter(gitUnparkWriter({ git: gitOf, cli }), guard);
+  const unparkWriter = guardedUnparkWriter(
+    gitUnparkWriter({ git: gitOf, stories: backlogStoryStore(cli) }),
+    guard,
+  );
 
   // The story PR and its CI watch (DIPO-144, DIPO-147); every run is a box run (DIPO-299).
   const storyPrs = new StoryPrs({
     host,
-    git: gitStoryPrOps({ git: gitOf, cli }),
+    git: gitStoryPrOps({ git: gitOf, stories: backlogStoryStore(cli) }),
     offices,
     clock: officeClock,
     review: host,
@@ -677,7 +681,7 @@ async function buildDaemon(
   };
   const finisher = new VerifyCommit({
     clock: officeClock,
-    story: gitStoryOps({ git: gitOf, cli }),
+    story: gitStoryOps({ git: gitOf, stories: backlogStoryStore(cli) }),
     profile: () => PROFILE,
     storyPr: storyPrs,
     storyFacts: baseStoryFacts(base),
@@ -752,7 +756,7 @@ async function buildDaemon(
     control: { writer: parkWriter, finisher, implemented },
     outcomes: {
       holds,
-      holdsWork: storyHoldsWork(gitStoryOps({ git: gitOf, cli })),
+      holdsWork: storyHoldsWork(gitStoryOps({ git: gitOf, stories: backlogStoryStore(cli) })),
       unpark: unparkWriter,
       caps: capsFor,
     },
@@ -788,7 +792,7 @@ async function buildDaemon(
   // Each head whose CI stops being pending may start its fix round (DIPO-148).
   storyPrs.onCiFinal((office, runId) => void fixRounds.consider(office, runId));
 
-  const storyMergeGit = gitStoryMergeOps({ git: gitOf, cli });
+  const storyMergeGit = gitStoryMergeOps({ git: gitOf, stories: backlogStoryStore(cli) });
   const merge = new AutoMerge({
     host,
     lane: () => undefined,
@@ -835,7 +839,13 @@ async function buildDaemon(
     holds: (office, gate, head) => merge.gateHolds(office, gate, head),
     repark: parkWriter,
   });
-  const teardown = new StoryTeardown({ git: gitOf, host, prCloser: host, cli, offices });
+  const teardown = new StoryTeardown({
+    git: gitOf,
+    host,
+    prCloser: host,
+    stories: backlogStoryStore(cli),
+    offices,
+  });
   const workRun = new WorkRun({
     offices: {
       get: (office) => loaded().manager.get(office),

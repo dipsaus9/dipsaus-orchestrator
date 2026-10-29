@@ -49,6 +49,7 @@ import {
   type ReconcileOffice,
   withReconcileOffice,
 } from "../reconcile/helpers";
+import { backlogStoryStore } from "../../src/backlog/store";
 
 interface Closed {
   readonly repo: string;
@@ -105,12 +106,12 @@ function features(seen: Seen) {
       finishBoxes: async () => {
         seen.boxes += 1;
       },
-      cli: {
+      stories: backlogStoryStore({
         spawn: (options) => {
           if (seen.spawn === undefined) throw new Error("no CLI in this test");
           return seen.spawn(options);
         },
-      } as BacklogCli,
+      } as BacklogCli),
     });
     const planning = new StoryPlanning({
       lane: () => lane,

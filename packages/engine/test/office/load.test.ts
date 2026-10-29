@@ -30,6 +30,7 @@ import { systemSpawn } from "../../src/platform/process";
 import { StoryIndex } from "../../src/stories/feature";
 import { BACKLOG_CLI } from "../backlog/helpers";
 import { BACKLOG_FIXTURE, errorOf, officeSetup, resultOf, send, type OfficeSetup } from "./helpers";
+import { backlogStoryStore } from "../../src/backlog/store";
 
 async function openOffice(s: OfficeSetup, path: string): Promise<OfficeId> {
   return resultOf<{ office: OfficeId }>(await send(s, "office.open", { path })).office;
@@ -253,7 +254,7 @@ function withPolledOffice(fn: (o: Polled) => Promise<void>): Promise<void> {
       // Wired as the daemon wires it (packages/daemon/src/foreground.ts).
       const index = new StoryIndex({
         git: engineGit,
-        cli: { spawn: systemSpawn, command: BACKLOG_CLI, env: repo.env },
+        stories: backlogStoryStore({ spawn: systemSpawn, command: BACKLOG_CLI, env: repo.env }),
         offices: {
           get: (office) => setup?.manager.get(office),
           config: (office) => setup?.manager.config(office),

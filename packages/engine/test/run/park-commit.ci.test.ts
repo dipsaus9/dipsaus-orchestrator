@@ -12,11 +12,9 @@ import { join } from "node:path";
 
 import { git, withTempRepo } from "@dipsaus-orchestrator/testkit";
 
-import { setFinalSummary } from "../../src/backlog/fields/summary";
 import { SECTION_RULE } from "../../src/backlog/plain";
 import { writeCloseOutSummary } from "../../src/merge/close-out";
 import { gitParkWriter, gitUnparkWriter, type ParkBranchFacts } from "../../src/run/park";
-import { editInStoryBacklog } from "../../src/stories/story-copy";
 import { claimStory, type ClaimOutcome } from "../../src/worktree";
 import {
   BACKLOG_FIXTURE,
@@ -28,6 +26,7 @@ import {
   TASK_1,
   TASK_FILE_1,
 } from "../worktree/helpers";
+import { backlogStoryStore } from "../../src/backlog/store";
 
 // Every case runs real git and the pinned Backlog CLI several times; a CI runner under load needs
 // more than the default 5 s, as the real-git cases in park.ci.test.ts and reattach.ci.test.ts do.
@@ -59,7 +58,7 @@ if (process.env["DIPO_TEST_CI"] === "1") {
           await publish(repo);
           const s = await claimSetup(repo);
           claimed(await claimStory(s.deps(), s.request(s.key())));
-          const deps = { git: () => s.git, cli: s.cli };
+          const deps = { git: () => s.git, stories: backlogStoryStore(s.cli) };
 
           // A delivered part on the branch when the park comes.
           const work = await byHandOn(repo, BRANCH_1, async (dir) => {
@@ -111,7 +110,7 @@ if (process.env["DIPO_TEST_CI"] === "1") {
           await publish(repo);
           const s = await claimSetup(repo);
           claimed(await claimStory(s.deps(), s.request(s.key())));
-          const deps = { git: () => s.git, cli: s.cli };
+          const deps = { git: () => s.git, stories: backlogStoryStore(s.cli) };
           const seen: ParkBranchFacts[] = [];
 
           const park = await gitParkWriter(deps).write(s.office.officeId, {
@@ -169,21 +168,20 @@ if (process.env["DIPO_TEST_CI"] === "1") {
           const claim = claimed(await claimStory(s.deps(), s.request(s.key()))).claim;
           let written = "";
           const { commit } = await s.git.run((session) =>
-            editInStoryBacklog(
+            backlogStoryStore(s.cli).editOnBranch(
               s.git,
               session,
               { story: TASK_1, branch: BRANCH_1 },
               `${TASK_1}: close out`,
-              async (b) => {
-                const target = { cli: s.cli, cwd: b.cwd, id: TASK_1 };
+              async (story) => {
                 written = await writeCloseOutSummary(
-                  target,
+                  story,
                   s.office,
                   claim.key,
                   Date.UTC(2026, 9, 22),
                 );
                 await expect(
-                  setFinalSummary(target, `Closed\n${SECTION_RULE}\nAcceptance Criteria:`),
+                  story.setFinalSummary(`Closed\n${SECTION_RULE}\nAcceptance Criteria:`),
                 ).rejects.toThrow("a line of 50 `-`");
               },
             ),
@@ -206,7 +204,7 @@ if (process.env["DIPO_TEST_CI"] === "1") {
           await publish(repo);
           const s = await claimSetup(repo);
           claimed(await claimStory(s.deps(), s.request(s.key())));
-          const writer = gitParkWriter({ git: () => s.git, cli: s.cli });
+          const writer = gitParkWriter({ git: () => s.git, stories: backlogStoryStore(s.cli) });
 
           const built = await writer.write(s.office.officeId, {
             ...parkRequest(() => {
@@ -229,7 +227,10 @@ if (process.env["DIPO_TEST_CI"] === "1") {
           await publish(repo);
           const s = await claimSetup(repo);
           claimed(await claimStory(s.deps(), s.request(s.key())));
-          const park = await gitParkWriter({ git: () => s.git, cli: s.cli }).write(
+          const park = await gitParkWriter({
+            git: () => s.git,
+            stories: backlogStoryStore(s.cli),
+          }).write(
             s.office.officeId,
             parkRequest(() => `Parked\n${SECTION_RULE}`),
           );
@@ -248,7 +249,7 @@ if (process.env["DIPO_TEST_CI"] === "1") {
           await publish(repo);
           const s = await claimSetup(repo);
           claimed(await claimStory(s.deps(), s.request(s.key())));
-          const writer = gitParkWriter({ git: () => s.git, cli: s.cli });
+          const writer = gitParkWriter({ git: () => s.git, stories: backlogStoryStore(s.cli) });
           const block = "Parked 2026-10-22 14:05 UTC: stopped (maintainer)";
           const first = await writer.write(s.office.officeId, {
             ...parkRequest(() => block),
@@ -276,7 +277,7 @@ if (process.env["DIPO_TEST_CI"] === "1") {
           await publish(repo);
           const s = await claimSetup(repo);
           claimed(await claimStory(s.deps(), s.request(s.key())));
-          const deps = { git: () => s.git, cli: s.cli };
+          const deps = { git: () => s.git, stories: backlogStoryStore(s.cli) };
           const park = () =>
             gitParkWriter(deps).write(s.office.officeId, {
               story: TASK_1,

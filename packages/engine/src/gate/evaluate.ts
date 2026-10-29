@@ -1,8 +1,8 @@
 // `evaluateGate`, the Ready gate as a pure function (0012 section 3). Inputs in, verdict out: it
 // reads no file, process, clock, database or model, and the same input gives the same result.
 
-import { FieldBlockError, parseFieldBlock } from "../backlog/fields/block";
-import { readLabels } from "../backlog/fields/labels";
+import { FieldBlockError, parseFieldBlock } from "../story-store/fields/block";
+import { readLabels } from "../story-store/fields/labels";
 import { type GateContext, r01a, r01b, type RuleCheck, SHARED_RULES, WARNING_RULES } from "./rules";
 import { BUILT_IN_ROSTER, type GateInput, type GateMode, type GateResult } from "./types";
 

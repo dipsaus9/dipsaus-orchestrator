@@ -31,7 +31,7 @@ import { BOX_CHANGES, BOX_VERIFY } from "../../src/prompts/handoff";
 import { recordWorkerNotes } from "../../src/prompts/notes";
 import { renderSystemFile } from "../../src/prompts/system";
 import { openFeedbackOf } from "../../src/run/open-feedback";
-import { parseFieldBlock } from "../../src/backlog/fields/block";
+import { parseFieldBlock } from "../../src/story-store/fields/block";
 import { OFFICE_DEFAULTS, type OfficeConfig } from "../../src/config/schema";
 import type { HostClient } from "../../src/host/client";
 import { EXIT_FILE, type HostExitFile, hostMarkerName, LAUNCH_FILE } from "../../src/host/protocol";

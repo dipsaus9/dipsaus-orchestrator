@@ -10,8 +10,8 @@
 
 import { createHash } from "node:crypto";
 
-import { FieldBlockError, parseFieldBlock } from "../../backlog/fields/block";
 import { canonicalJson } from "../../config/merge";
+import { FieldBlockError, parseFieldBlock } from "../../story-store/fields/block";
 import { outcomeLines } from "../rules";
 import type { GateStory } from "../types";
 

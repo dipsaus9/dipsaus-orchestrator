@@ -1,26 +1,24 @@
-// The git and Backlog CLI steps of a story run at done (DIPO-49; 0010, 0014 section 3), on the
-// story branch in the repository: a story has no worktree. `gitStoryOps` is the real one: every
-// step is an office git queue item through the hardened runner. Tests of the flow use a fake;
-// story-git.ci.test.ts runs this one on real git. Every Backlog CLI call runs in dipo's own copy of
-// the story's backlog (`stories/story-copy.ts`).
+// The git and story steps of a story run at done (DIPO-49; 0010, 0014 section 3), on the story
+// branch in the repository: a story has no worktree. `gitStoryOps` is the real one: every step is
+// an office git queue item through the hardened runner, and every story read and edit goes through
+// the StoryStore's story lane. Tests of the flow use a fake; story-git.ci.test.ts runs this one on
+// real git.
 
 import { createHash } from "node:crypto";
 
 import type { OfficeId } from "@dipsaus-orchestrator/contract";
 
-import { viewStory } from "../backlog/fields/write";
-import { type BacklogCli, runBacklog } from "../backlog/runner";
 import type { OfficeGit } from "../git/office";
 import { GitError } from "../git/runner";
 import { type PushResult, pushBranch } from "../git/write";
-import { editInStoryBacklog, inStoryBacklog, repoPath } from "../stories/story-copy";
+import type { StoryStore } from "../story-store/store";
 
 /** The Backlog.md status a story reaches when verify and commit pass (0012). */
 export const IN_REVIEW_STATUS = "In Review";
 
 export type { PushResult } from "../git/write";
 
-/** The story as the Backlog CLI shows it at the tip of its branch. */
+/** The story as committed at the tip of its branch. */
 export interface BranchStory {
   /** Repo-relative path of the task file. */
   readonly taskFile: string;
@@ -38,8 +36,8 @@ export interface StoryGit {
   /** A file's text at `sha`, or null when the commit has no such file. */
   showAt(office: OfficeId, sha: string, path: string): Promise<string | null>;
   /**
-   * Checks off `criteria` and sets status In Review through the Backlog CLI, then commits the task
-   * file alone on the branch as `<ID>: status In Review`. Returns the commit, or null when nothing
+   * Checks off `criteria` and sets status In Review through the story store, then commits the
+   * task file alone on the branch as `<ID>: status In Review`. Returns the commit, or null when nothing
    * changed.
    */
   markInReview(
@@ -70,10 +68,10 @@ export function codeTreeKeyOf(tree: string, taskFile: string): string {
   return createHash("sha256").update(kept.join("\0")).digest("hex");
 }
 
-/** Steps on the office git and the Backlog CLI. */
+/** Steps on the office git and the story store. */
 export function gitStoryOps(deps: {
   readonly git: (office: OfficeId) => OfficeGit | undefined;
-  readonly cli: BacklogCli;
+  readonly stories: StoryStore;
 }): StoryGit {
   const gitOf = (office: OfficeId): OfficeGit => {
     const git = deps.git(office);
@@ -95,17 +93,15 @@ export function gitStoryOps(deps: {
     },
     story: (office, branch, id) => {
       const git = gitOf(office);
-      return git.run((session) =>
-        inStoryBacklog(git, session, { branch, story: id }, async (backlog) => {
-          const view = await viewStory({ cli: deps.cli, cwd: backlog.cwd, id });
-          return {
-            taskFile: repoPath(backlog.cwd, view.file),
-            title: view.title,
-            status: view.status,
-            criteria: view.acceptanceCriteria.map((criterion) => criterion.index),
-          };
-        }),
-      );
+      return git.run(async (session) => {
+        const { view, file } = await deps.stories.viewOnBranch(git, session, { branch, story: id });
+        return {
+          taskFile: file,
+          title: view.title,
+          status: view.status,
+          criteria: view.acceptanceCriteria.map((criterion) => criterion.index),
+        };
+      });
     },
     showAt: (office, sha, path) => {
       const git = gitOf(office);
@@ -118,21 +114,14 @@ export function gitStoryOps(deps: {
       const git = gitOf(office);
       return git.run(async (session) => {
         // Only the task file.
-        const edit = await editInStoryBacklog(
+        const edit = await deps.stories.editOnBranch(
           git,
           session,
           input,
           `${input.story}: status ${IN_REVIEW_STATUS}`,
-          async (backlog) => {
-            await runBacklog(deps.cli, backlog.cwd, [
-              "task",
-              "edit",
-              input.story,
-              ...input.criteria.flatMap((n) => ["--check-ac", String(n)]),
-              "--status",
-              IN_REVIEW_STATUS,
-            ]);
-            const back = await viewStory({ cli: deps.cli, cwd: backlog.cwd, id: input.story });
+          async (story) => {
+            await story.setStatus(IN_REVIEW_STATUS, input.criteria);
+            const back = await story.view();
             if (back.status !== IN_REVIEW_STATUS) {
               throw new GitError(
                 "verify.statusNotWritten",

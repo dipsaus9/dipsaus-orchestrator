@@ -665,6 +665,42 @@
         "dipo/no-claude-cli-import": "off"
       }
     },
+    // The StoryStore seam (0010): the engine reads and writes stories only through
+    // packages/engine/src/story-store. Only the Backlog.md implementation in packages/engine/src/backlog
+    // and the composition root (the engine entry and its feature list) import backlog/. The files
+    // listed after them still reach the planning lane or the task-file layout directly, until those
+    // move behind the store too and the list ends at the composition root (DIPO-356).
+    {
+      "files": ["packages/engine/src/**"],
+      "rules": {
+        "dipo/no-backlog-import": "error"
+      }
+    },
+    {
+      "files": [
+        "packages/engine/src/backlog/**",
+        "packages/engine/src/index.ts",
+        "packages/engine/src/features.ts",
+        "packages/engine/src/box/collisions.ts",
+        "packages/engine/src/box/parts.ts",
+        "packages/engine/src/merge/backlog-git.ts",
+        "packages/engine/src/merge/backlog.ts",
+        "packages/engine/src/merge/merger.ts",
+        "packages/engine/src/office/init/init.ts",
+        "packages/engine/src/office/init/ops.ts",
+        "packages/engine/src/run/conflicts.ts",
+        "packages/engine/src/run/park-state.ts",
+        "packages/engine/src/run/proposals.ts",
+        "packages/engine/src/run/work-run.ts",
+        "packages/engine/src/stories/discard.ts",
+        "packages/engine/src/stories/planning.ts",
+        "packages/engine/src/views/desk.ts",
+        "packages/engine/src/worktree/claim.ts"
+      ],
+      "rules": {
+        "dipo/no-backlog-import": "off"
+      }
+    },
     // The git module (0010): only packages/engine/src/git starts git or makes a git write. Tests and
     // testkit may run git on their own repositories. The CLI's read-only repository lookup may start
     // git (the CLI never imports the engine, 0004), but no git write there either.
@@ -990,6 +1026,7 @@
       "files": [
         "packages/cli/src/office-commands.ts",
         "packages/daemon/src/runs.ts",
+        "packages/engine/src/backlog/branch-read.ts",
         "packages/engine/src/backlog/pr/feature.ts",
         "packages/engine/src/commands/execute.ts",
         "packages/engine/src/context/default-provider.ts",
@@ -1007,7 +1044,6 @@
         "packages/engine/src/run/session-run.ts",
         "packages/engine/src/scan/fallback.ts",
         "packages/engine/src/stories/apply.ts",
-        "packages/engine/src/stories/branch-read.ts",
         "packages/engine/src/stories/discard.ts",
         "packages/engine/src/story-pr/prs.ts",
         "packages/engine/src/worktree/claim.ts",

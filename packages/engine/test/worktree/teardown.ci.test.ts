@@ -33,6 +33,7 @@ import {
   notices,
   publish,
 } from "./helpers";
+import { backlogStoryStore } from "../../src/backlog/store";
 
 function claimed(outcome: ClaimOutcome): Extract<ClaimOutcome, { ok: true }> {
   if (!outcome.ok) throw new Error(`expected a claim, got the skip ${outcome.reason}`);
@@ -85,7 +86,7 @@ function teardownOf(s: ClaimSetup): StoryTeardown {
   const teardown = new StoryTeardown({
     git: () => s.git,
     host: null,
-    cli: s.cli,
+    stories: backlogStoryStore(s.cli),
     offices: { get: () => s.office, config: () => OFFICE_DEFAULTS },
   });
   teardown.track(s.office.officeId as OfficeId, s.office, s.t.clock);

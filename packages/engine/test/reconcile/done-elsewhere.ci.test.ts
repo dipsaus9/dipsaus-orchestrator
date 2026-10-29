@@ -41,6 +41,7 @@ import {
   setBranch,
   withReconcileOffice,
 } from "./helpers";
+import { backlogStoryStore } from "../../src/backlog/store";
 
 const DONE: readonly FakeTask[] = [{ id: "TASK-1", status: "Done" }];
 
@@ -262,7 +263,7 @@ if (process.env["DIPO_TEST_CI"] === "1") {
         const teardown = new StoryTeardown({
           git: () => gitOf(o),
           host: null,
-          cli: { spawn: fakeBacklog(o.tables).spawn },
+          stories: backlogStoryStore({ spawn: fakeBacklog(o.tables).spawn }),
           offices: { get: () => o.office, config: () => OFFICE_DEFAULTS },
           statusOf: async () => "Done",
         });
@@ -362,7 +363,7 @@ if (process.env["DIPO_TEST_CI"] === "1") {
           const teardown = new StoryTeardown({
             git: () => gitOf(o),
             host: null,
-            cli: { spawn: fakeBacklog(o.tables).spawn },
+            stories: backlogStoryStore({ spawn: fakeBacklog(o.tables).spawn }),
             offices: { get: () => o.office, config: () => OFFICE_DEFAULTS },
             prCloser: host,
             finishBoxes: async () => {

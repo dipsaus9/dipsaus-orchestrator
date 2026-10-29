@@ -82,6 +82,7 @@ import {
   systemListenHttp,
   workerHostsOf,
   type BacklogCli,
+  type StoryStore,
   capsOf,
   claudeWorkerPort,
   currentProfile,
@@ -194,8 +195,8 @@ export interface DaemonRunsOptions {
   readonly database: () => StateDatabase | null;
   readonly onChanged: (office: OfficeId) => void;
   readonly logger: Logger;
-  /** The Backlog CLI the park commit runs (DIPO-50). */
-  readonly cli: BacklogCli;
+  /** The story store the park commit and the steps at done run through (DIPO-50, 0010). */
+  readonly storyStore: StoryStore;
   /** True when the engine implements a command; a park offers only those (DIPO-50). */
   readonly implemented: (name: CommandName) => boolean;
   /**
@@ -924,7 +925,7 @@ export function daemonRuns(options: DaemonRunsOptions): DaemonRuns {
       : options.offices.config(office)?.tiers[run.tier as "S" | "M" | "L"];
   const storyGit = gitStoryOps({
     git: (office) => options.engineGit.forOffice(office),
-    cli: options.cli,
+    stories: options.storyStore,
   });
   // Whether a run's developer works in a box: its run directory says so (DIPO-271).
   // It reads `runPaths` only when asked, after the launcher's wiring below exists.
@@ -1139,7 +1140,10 @@ export function daemonRuns(options: DaemonRunsOptions): DaemonRuns {
       finisher,
       // The park written on the story branch (DIPO-50), after auto-merge is off (0002).
       writer: guardPark(
-        gitParkWriter({ git: (office) => options.engineGit.forOffice(office), cli: options.cli }),
+        gitParkWriter({
+          git: (office) => options.engineGit.forOffice(office),
+          stories: options.storyStore,
+        }),
       ),
       implemented: options.implemented,
     },
@@ -1151,7 +1155,10 @@ export function daemonRuns(options: DaemonRunsOptions): DaemonRuns {
       // Lifting a park on the story branch before its run resumes (DIPO-75), and a fix round's
       // In Progress commit, after auto-merge is off (0002).
       unpark: guardUnpark(
-        gitUnparkWriter({ git: (office) => options.engineGit.forOffice(office), cli: options.cli }),
+        gitUnparkWriter({
+          git: (office) => options.engineGit.forOffice(office),
+          stories: options.storyStore,
+        }),
       ),
       caps: capsFor,
     },
@@ -1215,7 +1222,10 @@ export function daemonRuns(options: DaemonRunsOptions): DaemonRuns {
     service: storyConflicts,
     isBoxRun,
     unpark: guardUnpark(
-      gitUnparkWriter({ git: (office) => options.engineGit.forOffice(office), cli: options.cli }),
+      gitUnparkWriter({
+        git: (office) => options.engineGit.forOffice(office),
+        stories: options.storyStore,
+      }),
     ),
   });
   collisions?.start();

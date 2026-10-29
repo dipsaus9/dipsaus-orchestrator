@@ -11,6 +11,7 @@ import { BacklogListIncompleteError } from "../../src/backlog/list";
 import { BacklogCommandError, type BacklogCli } from "../../src/backlog/runner";
 import { evaluateGate, readGateInput } from "../../src/gate";
 import { DEFAULT_CONFIG } from "./fixtures";
+import { backlogStoryStore } from "../../src/backlog/store";
 
 interface FakeTask {
   readonly id: string;
@@ -152,7 +153,7 @@ function r13(input: Awaited<ReturnType<typeof readGateInput>>): string[] {
 describe("the gate input is whole or the read fails", () => {
   it("reads every listed task and finds no R13 failure on a whole listing", async () => {
     const { cli, calls } = fakeCli();
-    const input = await readGateInput(cli, "/base", "DIPO-1", DEFAULT_CONFIG);
+    const input = await readGateInput(backlogStoryStore(cli), "/base", "DIPO-1", DEFAULT_CONFIG);
     expect(input.activeTasks.map((task) => task.id).toSorted()).toEqual(
       TASKS.map((task) => task.id).toSorted(),
     );
@@ -165,7 +166,7 @@ describe("the gate input is whole or the read fails", () => {
     const whole = listText(TASKS);
     const cut = whole.slice(0, whole.indexOf("Done:"));
     const { cli, calls } = fakeCli((args) => (isList(args) ? { stdout: cut } : undefined));
-    const read = readGateInput(cli, "/base", "DIPO-1", DEFAULT_CONFIG);
+    const read = readGateInput(backlogStoryStore(cli), "/base", "DIPO-1", DEFAULT_CONFIG);
     await expect(read).rejects.toBeInstanceOf(BacklogListIncompleteError);
     await expect(read).rejects.toThrow(/printed 3 entries, but its --count says 4/);
     // The error is a CLI error, so every caller that reports a CLI failure reports this one.
@@ -185,7 +186,7 @@ describe("the gate input is whole or the read fails", () => {
         ? { stdout: whole.slice(0, whole.indexOf("Done:")) }
         : undefined,
     );
-    const input = await readGateInput(cli, "/base", "DIPO-1", DEFAULT_CONFIG);
+    const input = await readGateInput(backlogStoryStore(cli), "/base", "DIPO-1", DEFAULT_CONFIG);
     expect(calls.filter(isList)).toHaveLength(2);
     expect(input.activeTasks.map((task) => task.id)).toContain("DIPO-9");
     expect(r13(input)).toEqual([]);
@@ -194,16 +195,16 @@ describe("the gate input is whole or the read fails", () => {
   it("fails loudly when the listing holds an entry line the parser skips", async () => {
     const garbled = listText(TASKS).replace("  DIPO-9 - Task DIPO-9", "  DIPO-9 Task DIPO-9");
     const { cli } = fakeCli((args) => (isList(args) ? { stdout: garbled } : undefined));
-    await expect(readGateInput(cli, "/base", "DIPO-1", DEFAULT_CONFIG)).rejects.toBeInstanceOf(
-      BacklogListIncompleteError,
-    );
+    await expect(
+      readGateInput(backlogStoryStore(cli), "/base", "DIPO-1", DEFAULT_CONFIG),
+    ).rejects.toBeInstanceOf(BacklogListIncompleteError);
   });
 
   it("fails loudly when the count does not come through", async () => {
     const { cli } = fakeCli((args) => (args.includes("--count") ? { stdout: "" } : undefined));
-    await expect(readGateInput(cli, "/base", "DIPO-1", DEFAULT_CONFIG)).rejects.toThrow(
-      /--count printed no number/,
-    );
+    await expect(
+      readGateInput(backlogStoryStore(cli), "/base", "DIPO-1", DEFAULT_CONFIG),
+    ).rejects.toThrow(/--count printed no number/);
   });
 
   it("fails with the CLI's error when one view fails", async () => {
@@ -212,7 +213,7 @@ describe("the gate input is whole or the read fails", () => {
         ? { stdout: "", stderr: "fatal: cannot lock ref\n", code: 128 }
         : undefined,
     );
-    const read = readGateInput(cli, "/base", "DIPO-1", DEFAULT_CONFIG);
+    const read = readGateInput(backlogStoryStore(cli), "/base", "DIPO-1", DEFAULT_CONFIG);
     await expect(read).rejects.toBeInstanceOf(BacklogCommandError);
     await expect(read).rejects.toThrow(/cannot lock ref/);
   });
@@ -229,7 +230,7 @@ describe("the gate input is whole or the read fails", () => {
       });
       return { stdout: viewText(task), after };
     });
-    const input = await readGateInput(cli, "/base", "DIPO-1", DEFAULT_CONFIG);
+    const input = await readGateInput(backlogStoryStore(cli), "/base", "DIPO-1", DEFAULT_CONFIG);
     expect(answered.at(-1)).toBe("DIPO-9");
     expect(input.activeTasks.map((task) => task.id)).toContain("DIPO-9");
     expect(r13(input)).toEqual([]);

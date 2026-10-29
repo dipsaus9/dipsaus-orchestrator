@@ -17,8 +17,6 @@ import { describe, expect, it } from "bun:test";
 import { type OfficeId, type RunId, StoryId } from "@dipsaus-orchestrator/contract";
 import { git, type TempRepoWithRemote, withBareRemote } from "@dipsaus-orchestrator/testkit";
 
-import { setFinalSummary } from "../../src/backlog/fields/summary";
-import type { StoryTarget } from "../../src/backlog/fields/write";
 import { OFFICE_DEFAULTS } from "../../src/config";
 import {
   AutoMerge,
@@ -33,6 +31,7 @@ import { gitParkWriter } from "../../src/run/park";
 import { endRun, findRun, insertRun, REVIEWED_END } from "../../src/run/records";
 import { findStoryPr, insertStoryPr, updateStoryPr } from "../../src/story-pr/records";
 import { addStory } from "../../src/stories/keys";
+import type { StoryEditor } from "../../src/story-store/store";
 import { claimStory } from "../../src/worktree";
 import { publish, squashMergeOnRemote } from "../backlog/lane/helpers";
 import { FakeHost } from "../backlog/pr/helpers";
@@ -46,6 +45,7 @@ import {
 } from "../worktree/helpers";
 
 import { APPROVED, TITLE } from "./story-helpers";
+import { backlogStoryStore } from "../../src/backlog/store";
 
 const REPO = "o/r";
 const PR = 7;
@@ -137,7 +137,7 @@ async function scenario(
     await git(dir, repo.home, "push", "--quiet", "origin", BRANCH_1);
     return (await git(dir, repo.home, "rev-parse", "HEAD")).trim();
   });
-  const mergeGit = gitStoryMergeOps({ git: () => s.git, cli: s.cli });
+  const mergeGit = gitStoryMergeOps({ git: () => s.git, stories: backlogStoryStore(s.cli) });
   const tree = (at: string) => mergeGit.treeKey(officeId, TASK_1, at);
   const run = request.runId;
   const now = s.t.clock.now();
@@ -290,12 +290,15 @@ if (process.env["DIPO_TEST_CI"] === "1") {
           scenario(repo, async ({ officeId, run, s }) => {
             const stored = findRun(s.office, run)!;
             // A park whose record stayed on the branch (DIPO-129's stale block).
-            await gitParkWriter({ git: () => s.git, cli: s.cli }).write(officeId, {
-              story: TASK_1,
-              branch: BRANCH_1,
-              reason: "conflict",
-              note: "base moved during merge 3 times",
-            });
+            await gitParkWriter({ git: () => s.git, stories: backlogStoryStore(s.cli) }).write(
+              officeId,
+              {
+                story: TASK_1,
+                branch: BRANCH_1,
+                reason: "conflict",
+                note: "base moved during merge 3 times",
+              },
+            );
             const parked = await git(
               repo.dir,
               repo.home,
@@ -303,7 +306,10 @@ if (process.env["DIPO_TEST_CI"] === "1") {
               `refs/heads/${BRANCH_1}:${TASK_FILE_1}`,
             );
             expect(parked).toMatch(/^park:$/m);
-            const mergeGit = gitStoryMergeOps({ git: () => s.git, cli: s.cli });
+            const mergeGit = gitStoryMergeOps({
+              git: () => s.git,
+              stories: backlogStoryStore(s.cli),
+            });
             const commit = await mergeGit.closeOut(
               officeId,
               {
@@ -312,7 +318,7 @@ if (process.env["DIPO_TEST_CI"] === "1") {
                 branch: BRANCH_1,
                 startSha: stored.startSha as string,
               },
-              (target) => setFinalSummary(target, "Done by the close-out."),
+              (story) => story.setFinalSummary("Done by the close-out."),
             );
             expect(commit).not.toBeNull();
             const closed = await git(repo.dir, repo.home, "show", `${commit}:${TASK_FILE_1}`);
@@ -348,9 +354,12 @@ if (process.env["DIPO_TEST_CI"] === "1") {
               branch: BRANCH_1,
               startSha: stored.startSha as string,
             };
-            const mergeGit = gitStoryMergeOps({ git: () => s.git, cli: s.cli });
+            const mergeGit = gitStoryMergeOps({
+              git: () => s.git,
+              stories: backlogStoryStore(s.cli),
+            });
             let summary = "first stay";
-            const write = (target: StoryTarget) => setFinalSummary(target, summary);
+            const write = (story: StoryEditor) => story.setFinalSummary(summary);
             const first = await mergeGit.closeOut(officeId, mergeRun, write);
             expect(first).not.toBeNull();
             // A fix round added code since; the next close-out writes again.

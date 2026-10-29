@@ -19,7 +19,7 @@ import {
   type StoryKey,
 } from "@dipsaus-orchestrator/contract";
 
-import type { PlainTask } from "../../src/backlog/plain";
+import type { PlainTask } from "../../src/story-store/story";
 import { cursorAt, readLogState } from "../../src/changelog/log";
 import { replay } from "../../src/changelog/replay";
 import { executeCommand, type ExecutorDeps } from "../../src/commands/execute";

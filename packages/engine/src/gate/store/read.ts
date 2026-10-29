@@ -1,21 +1,14 @@
-// The gate's inputs read through the Backlog CLI in one worktree (the office's `_base`): the story
-// (`task view`, or `draft view` for a `DRAFT-n` id), every active task with its dependencies and
-// branch (from the mirror when the caller has it for this commit, DIPO-180, else `task list`,
-// checked against its `--count`, and one `task view` each) and the milestones (`milestone list`).
-// The office configuration comes from the caller.
+// The gate's inputs read through the StoryStore in one worktree (the office's `_base`): the story
+// (a draft for a `DRAFT-n` id), every active task with its dependencies and branch (from the
+// mirror when the caller has it for this commit, DIPO-180, else the whole task list and one read
+// each) and the milestones. The office configuration comes from the caller.
 
-import { listAll } from "../../backlog/list";
-import {
-  BacklogParseError,
-  parseView,
-  type PlainListEntry,
-  type PlainTask,
-  plainLines,
-} from "../../backlog/plain";
-import { type BacklogCli, BacklogCommandError, runBacklog } from "../../backlog/runner";
 import { openDependencies } from "../../run/select";
 import { isProvisionalId } from "../../stories/keys";
 import { mapLimited, VIEW_CONCURRENCY } from "../../stories/read";
+import { StoryParseError } from "../../story-store/errors";
+import type { StoryStore } from "../../story-store/store";
+import type { PlainListEntry, PlainTask } from "../../story-store/story";
 import { gateStoryFromView, gateTaskFromView } from "../input";
 import type { GateConfig, GateDependency, GateInput, GateTask } from "../types";
 
@@ -32,26 +25,8 @@ export function waitingOnOf(task: PlainTask): GateDependency[] {
     }));
 }
 
-/** One `  <id>: <name> (<done>/<total> done)` line of `milestone list --plain`. */
-const MILESTONE_LINE = /^ {2}(\S+): (.*?)(?: \(\d+\/\d+ done\))?$/;
-
-/** The ids and names of every milestone `milestone list --show-completed --plain` printed. */
-export function parseMilestones(output: string): string[] {
-  const names: string[] = [];
-  for (const line of plainLines(output)) {
-    const match = MILESTONE_LINE.exec(line);
-    if (match === null) continue;
-    const [, id, name] = match;
-    if (id !== undefined) names.push(id);
-    if (name !== undefined && name !== "") names.push(name);
-  }
-  return names;
-}
-
-async function view(cli: BacklogCli, cwd: string, id: string) {
-  const kind = isProvisionalId(id) ? "draft" : "task";
-  const { stdout } = await runBacklog(cli, cwd, [kind, "view", id, "--plain"]);
-  return parseView(stdout);
+function view(stories: StoryStore, cwd: string, id: string): Promise<PlainTask> {
+  return stories.view(cwd, id, isProvisionalId(id) ? "draft" : "task");
 }
 
 /** The story's own view reported `not found`: it is not on this worktree's checkout. */
@@ -62,27 +37,15 @@ export class StoryNotFoundError extends Error {
   }
 }
 
-function escapeRegExp(text: string): string {
-  return text.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
-}
-
 /**
- * True when the view failed because Backlog.md 1.53.x has no such story: a stderr line
- * `Task <ID> not found.` (exit 1) or `Draft <ID> not found.` (exit 0), naming this very id. Any
- * other failure, such as a shell's `command not found`, is not.
+ * The active tasks, in the order listed, all of them: a list that misses a task fails the read
+ * (DIPO-323) instead of failing a story at R13.
  */
-export function isStoryNotFound(error: BacklogCommandError, story: string): boolean {
-  const line = new RegExp(`^(Task|Draft) ${escapeRegExp(story)} not found\\.`, "i");
-  return error.stderr.split("\n").some((text) => line.test(text));
-}
-
-/**
- * The active tasks of `task list --plain`, in the order listed, all of them: the list must agree
- * with its `--count` (DIPO-323), so a task missing from the output fails the read with
- * `BacklogListIncompleteError` instead of failing a story at R13.
- */
-export async function listTasks(cli: BacklogCli, cwd: string): Promise<readonly PlainListEntry[]> {
-  return (await listAll(cli, cwd, "task")).entries;
+export async function listTasks(
+  stories: StoryStore,
+  cwd: string,
+): Promise<readonly PlainListEntry[]> {
+  return (await stories.list(cwd, "task")).entries;
 }
 
 /**
@@ -91,7 +54,7 @@ export async function listTasks(cli: BacklogCli, cwd: string): Promise<readonly 
  * still counts as active (`gateTasksOf`). `known` is a view the caller already has, not read again.
  */
 export async function viewListedTasks(
-  cli: BacklogCli,
+  stories: StoryStore,
   cwd: string,
   ids: readonly string[],
   known?: PlainTask,
@@ -99,9 +62,9 @@ export async function viewListedTasks(
   const views = await mapLimited(ids, VIEW_CONCURRENCY, async (id) => {
     if (known !== undefined && id === known.id) return known;
     try {
-      return await view(cli, cwd, id);
+      return await view(stories, cwd, id);
     } catch (error) {
-      if (!(error instanceof BacklogParseError)) throw error;
+      if (!(error instanceof StoryParseError)) throw error;
       return undefined;
     }
   });
@@ -146,15 +109,14 @@ export function gateInputOf(
 /**
  * Reads the gate input of `story` in the worktree `cwd`. With `others`, the active tasks the
  * mirror holds for this very commit (`cachedGateTasks`), only the story and the milestones go
- * through the CLI: two calls however many tasks there are. Without it, every listed task is viewed.
+ * through the store: two reads however many tasks there are. Without it, every listed task is viewed.
  * `baseFiles` are the base tree's file paths the caller listed, passed on in the input.
- * Throws `StoryNotFoundError` when the story is not there, `BacklogCommandError` or
- * `BacklogRefusedError` when the CLI fails otherwise (`BacklogListIncompleteError` when the task
- * list disagrees with its count), and `BacklogParseError` when an output does not parse. A failed
+ * Throws `StoryNotFoundError` when the story is not there, and a `StoryStoreError` when the store
+ * fails otherwise or a story does not parse. A failed
  * view fails the read; the input is never built from part of the backlog.
  */
 export async function readGateInput(
-  cli: BacklogCli,
+  stories: StoryStore,
   cwd: string,
   story: string,
   config: GateConfig,
@@ -163,9 +125,9 @@ export async function readGateInput(
 ): Promise<GateInput> {
   let target;
   try {
-    target = await view(cli, cwd, story);
+    target = await view(stories, cwd, story);
   } catch (error) {
-    if (error instanceof BacklogCommandError && isStoryNotFound(error, story)) {
+    if (stories.isNotFound(error, story)) {
       throw new StoryNotFoundError(story);
     }
     throw error;
@@ -174,14 +136,12 @@ export async function readGateInput(
     others ??
     gateTasksOf(
       await viewListedTasks(
-        cli,
+        stories,
         cwd,
-        (await listTasks(cli, cwd)).map((entry) => entry.id),
+        (await listTasks(stories, cwd)).map((entry) => entry.id),
         target,
       ),
     );
-  const milestones = parseMilestones(
-    (await runBacklog(cli, cwd, ["milestone", "list", "--show-completed", "--plain"])).stdout,
-  );
+  const milestones = await stories.milestones(cwd);
   return gateInputOf(target, activeTasks, milestones, config, baseFiles);
 }

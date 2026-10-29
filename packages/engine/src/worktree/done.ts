@@ -2,7 +2,7 @@
 // office configuration in force, each finished live claim (its claim commit recorded) is checked
 // with the one Done check (`done-check.ts`): its story PR as the code host (`platform/host.ts`) or
 // dipo's record gives it, and its story's status in `_base`, which the story index's fetch keeps
-// at `<remote>/<base>`, read with the Backlog CLI. `git merge-tree` is no Done signal (0010).
+// at `<remote>/<base>`, read through the story store. `git merge-tree` is no Done signal (0010).
 //
 // - Merged: the story is torn down (`teardown.ts`) unless it is Parked or a worker host of its run
 //   is still live: a parked story keeps its branch. A branch that moved past the merged head with
@@ -31,8 +31,6 @@
 
 import type { Clock, OfficeId, TimerHandle } from "@dipsaus-orchestrator/contract";
 
-import { viewStory } from "../backlog/fields/write";
-import type { BacklogCli } from "../backlog/runner";
 import { appendEntries } from "../changelog/log";
 import type { FeatureModule } from "../commands/registry";
 import { OFFICE_DEFAULTS, type OfficeConfig } from "../config";
@@ -42,7 +40,7 @@ import type { Logger } from "../log/logger";
 import { decideOnHandMerge } from "../merge/gates";
 import { type CodeHost, type PrStateHost, repoOfRemoteUrl } from "../platform/host";
 import type { PrStatePoll } from "../platform/pr-state";
-import { inStoryBacklog } from "../stories/story-copy";
+import type { StoryStore } from "../story-store/store";
 import { withWorkViews } from "../views/work";
 
 import { notice, writeWith } from "./claim";
@@ -90,14 +88,14 @@ export interface StoryTeardownDeps {
   readonly git: (office: OfficeId) => OfficeGit | undefined;
   /** The code host; null when the daemon has none, so only dipo's record of a story PR says it merged. */
   readonly host: PrStateHost | null;
-  /** How the Backlog CLI starts; it reads a Done story's status in dipo's copy of its backlog. */
-  readonly cli: BacklogCli;
+  /** The story store; it reads a story's status on its branch and on the base. */
+  readonly stories: StoryStore;
   /** The loaded offices and the configuration in force for each next interval. */
   readonly offices: {
     get(office: OfficeId): OfficeHandle | undefined;
     config(office: OfficeId): OfficeConfig | undefined;
   };
-  /** The story's status on its branch, or null when unreadable; the Backlog CLI by default. */
+  /** The story's status on its branch, or null when unreadable; the story store by default. */
   readonly statusOf?: (claim: ClaimRecord) => Promise<string | null>;
   /** Closes dipo's open story PR of a story Done elsewhere; the `gh` host in the daemon. */
   readonly prCloser?: Pick<CodeHost, "closePr"> | null;
@@ -290,7 +288,7 @@ export class StoryTeardown {
     const facts = await git.run((session) => claimGitFacts(git, session, claim));
     const repo = facts.url === null ? null : repoOfRemoteUrl(facts.url);
     const { pr, hostError } = await claimPr(host, repo, state.office, claim);
-    const base = await baseStatusOf(git, this.#deps.cli, claim.story);
+    const base = await baseStatusOf(git, this.#deps.stories, claim.story);
     const answer = decideDone({
       claim,
       pr,
@@ -495,20 +493,14 @@ export class StoryTeardown {
   }
 
   /**
-   * The story's status as committed on its branch, read with the Backlog CLI in dipo's own copy of
-   * its backlog (`inStoryBacklog`); null when unreadable.
+   * The story's status as committed on its branch, read through the story store
+   * (`viewOnBranch`); null when unreadable.
    */
   async #statusOf(git: OfficeGit, claim: ClaimRecord): Promise<string | null> {
     if (this.#deps.statusOf !== undefined) return this.#deps.statusOf(claim);
     try {
-      return await git.run((session) =>
-        inStoryBacklog(
-          git,
-          session,
-          claim,
-          async (backlog) =>
-            (await viewStory({ cli: this.#deps.cli, cwd: backlog.cwd, id: claim.story })).status,
-        ),
+      return await git.run(
+        async (session) => (await this.#deps.stories.viewOnBranch(git, session, claim)).view.status,
       );
     } catch {
       return null;

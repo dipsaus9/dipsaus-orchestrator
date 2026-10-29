@@ -9,7 +9,7 @@ import { describe, expect, it } from "bun:test";
 
 import { readFileSync, writeFileSync } from "node:fs";
 
-import { TASK_FIELD_ERROR } from "../../src/backlog/runner";
+import { TASK_FIELD_ERROR } from "../../src/story-store/errors";
 import { GitError } from "../../src/git";
 import { releaseClaim } from "../../src/worktree/records";
 import { snapshot } from "../../src/views/feature";

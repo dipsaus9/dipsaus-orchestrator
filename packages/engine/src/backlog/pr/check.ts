@@ -19,8 +19,8 @@ import type { StoryKey } from "@dipsaus-orchestrator/contract";
 
 import { gateStoryFromView } from "../../gate/input";
 import { gateContentHash } from "../../gate/store/hash";
-import { FieldBlockError, parseFieldBlock } from "../fields/block";
-import type { PlainTask } from "../plain";
+import { FieldBlockError, parseFieldBlock } from "../../story-store/fields/block";
+import type { PlainTask } from "../../story-store/story";
 
 export const CHECK_RULES = [
   "backlog-only",

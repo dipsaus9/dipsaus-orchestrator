@@ -6,7 +6,6 @@
 
 import { type OfficeId, type RunId, type StoryKey } from "@dipsaus-orchestrator/contract";
 
-import type { StoryTarget } from "../../src/backlog/fields/write";
 import { type CatchUpMerged, conflictFeedbackItem } from "../../src/box/collisions";
 import { OFFICE_DEFAULTS, type OfficeConfig } from "../../src/config";
 import {
@@ -25,6 +24,7 @@ import type { ParkBranchRequest } from "../../src/run/park";
 import { endRun, REVIEWED_END } from "../../src/run/records";
 import type { CiHeadState } from "../../src/story-pr/prs";
 import { insertStoryPr, updateStoryPr } from "../../src/story-pr/records";
+import type { StoryEditor } from "../../src/story-store/store";
 import { REPO } from "../backlog/pr/helpers";
 import {
   addAgent,
@@ -57,6 +57,23 @@ export const APPROVED: JudgedReview = {
 };
 
 /** A story merge git whose answers the test scripts; every call is logged. */
+/** Any read or write of `noStoreEditor`. */
+const noStore = () => Promise.reject(new Error("no story store"));
+
+/** A story lane edit whose every read and write fails: the fake only records the close-out. */
+function noStoreEditor(id: string): StoryEditor {
+  return {
+    id,
+    file: `backlog/tasks/${id.toLowerCase()} - story.md`,
+    view: noStore,
+    setStatus: noStore,
+    writeFields: noStore,
+    appendNotes: noStore,
+    setFinalSummary: noStore,
+    recordModifiedFiles: noStore,
+  };
+}
+
 export class FakeStoryGit implements StoryMergeGit {
   readonly calls: string[] = [];
   readonly heads = new Map<string, string>();
@@ -83,16 +100,12 @@ export class FakeStoryGit implements StoryMergeGit {
   async closeOut(
     _office: OfficeId,
     run: StoryMergeRun,
-    summary: (target: StoryTarget) => Promise<unknown>,
+    summary: (story: StoryEditor) => Promise<unknown>,
   ): Promise<string | null> {
     this.calls.push(`closeOut ${run.branch}`);
     const commit = this.closeOutCommit;
     if (commit === null) return null;
-    await summary({
-      cli: { spawn: () => Promise.reject(new Error("no CLI")) as never },
-      cwd: "/x",
-      id: run.story,
-    });
+    await summary(noStoreEditor(run.story));
     const tip = this.heads.get(run.branch);
     if (tip !== undefined) this.trees.set(commit, this.trees.get(tip) ?? `tree-${tip}`);
     this.heads.set(run.branch, commit);

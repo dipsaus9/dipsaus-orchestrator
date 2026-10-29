@@ -52,7 +52,7 @@ import { type ReviewChangedPath, withReviewCommit } from "../prompts/review";
 import { renderSystemFile } from "../prompts/system";
 import { recordAgent } from "../runs/agents";
 import { setProcessedOffset } from "../runs/worker-hosts";
-import { branchTip } from "../stories/story-copy";
+import { branchTip } from "../git/write";
 import { withWorkViews } from "../views/work";
 import type { AdapterHold } from "../workers/hold";
 import type { WorkerPort } from "../workers/port";

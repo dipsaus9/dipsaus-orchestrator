@@ -14,6 +14,7 @@ import { systemSpawn } from "../../src/platform/process";
 import { EDIT_KIND, editKind, OfficeLane } from "../../src/backlog/lane";
 import { type ClaimDeps, type ClaimRequest, hasLiveClaim } from "../../src/worktree";
 import { type LaneSetup, laneSetup } from "../backlog/lane/helpers";
+import { backlogStoryStore } from "../../src/backlog/store";
 
 export {
   BACKLOG_FIXTURE,
@@ -49,7 +50,7 @@ export async function claimSetup(
       officeId: s.office.officeId,
       office: s.office,
       git: s.git,
-      cli: s.cli,
+      stories: backlogStoryStore(s.cli),
       clock: s.t.clock,
       ...overrides,
     }),

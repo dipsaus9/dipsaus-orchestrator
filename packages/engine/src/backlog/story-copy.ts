@@ -2,7 +2,7 @@
 // runs in a fresh folder that holds only two files read from git objects, the Backlog configuration
 // from the office's base and the story's task file as committed at the tip of its branch. No work
 // tree of any kind is read or written: a story has no Mac worktree, and the box's files never reach
-// this folder.
+// this folder. The StoryStore's story lane (`store.ts`) runs every read and edit on a branch here.
 //
 // An edit commits the task file the CLI left there alone on top of the branch tip: its blob is
 // stored with `git hash-object -w`, put into a temporary index built from the tip
@@ -15,20 +15,21 @@
 import { mkdirSync, mkdtempSync, readdirSync, realpathSync, rmSync, writeFileSync } from "node:fs";
 import { basename, dirname, isAbsolute, join, relative, sep } from "node:path";
 
-import {
-  BACKLOG_FOLDER_ERROR,
-  isTaskFileOf,
-  TASK_FIELD_ERROR,
-  taskFieldRefusal,
-  taskFilePathRefusal,
-  TASKS_DIR,
-} from "../backlog/runner";
 import { BASE_CHECKOUT_ENV } from "../git/hardened";
 import type { GitSession, OfficeGit } from "../git/office";
 import { GitError } from "../git/runner";
-import { commitTree, moveBranch } from "../git/write";
+import { branchTip, commitTree, moveBranch } from "../git/write";
+import { TASK_FIELD_ERROR } from "../story-store/errors";
+import type { StoryEdit, StoryOnBranch } from "../story-store/store";
+import { BRANCH_READ_PREFIX } from "../worktree/sweep";
 
-import { BRANCH_READ_PREFIX } from "./branch-read";
+import {
+  BACKLOG_FOLDER_ERROR,
+  isTaskFileOf,
+  taskFieldRefusal,
+  taskFilePathRefusal,
+  TASKS_DIR,
+} from "./runner";
 
 /** The Backlog configuration, relative to the repository root. */
 const BACKLOG_CONFIG = "backlog/config.yml";
@@ -36,32 +37,12 @@ const BACKLOG_CONFIG = "backlog/config.yml";
 /** The task file mode dipo commits; a task file of any other mode is refused. */
 const TASK_FILE_MODE = "100644";
 
-/** The story a copy is made for: its id and its branch. */
-export interface StoryOnBranch {
-  readonly story: string;
-  readonly branch: string;
-}
-
 /** dipo's own copy of a story's backlog, where every Backlog CLI call for the story runs. */
 export interface StoryBacklog {
   /** The folder the CLI runs in: it holds only the Backlog configuration and the task file. */
   readonly cwd: string;
   /** Repo-relative path of the story's task file. */
   readonly taskFile: string;
-}
-
-/** What a story backlog edit did: the callback's value and the task file commit. */
-export interface StoryBacklogEdit<T> {
-  readonly value: T;
-  /** The commit of the task file the CLI left, or null when it equals the committed one. */
-  readonly commit: string | null;
-}
-
-/** The tip of `refs/heads/<branch>`; throws `git.failed` when the branch is missing. */
-export async function branchTip(session: GitSession, branch: string): Promise<string> {
-  return (
-    await session.ok(session.repository, ["rev-parse", "--verify", `refs/heads/${branch}^{commit}`])
-  ).trim();
 }
 
 /**
@@ -108,7 +89,7 @@ export function editInStoryBacklog<T>(
   target: StoryOnBranch,
   message: string,
   fn: (backlog: StoryBacklog) => Promise<T>,
-): Promise<StoryBacklogEdit<T>> {
+): Promise<StoryEdit<T>> {
   return inStoryBacklogCopy(git, session, target, message, fn);
 }
 
@@ -123,7 +104,7 @@ async function inStoryBacklogCopy<T>(
   target: StoryOnBranch,
   message: string | null,
   fn: (backlog: StoryBacklog) => Promise<T>,
-): Promise<StoryBacklogEdit<T>> {
+): Promise<StoryEdit<T>> {
   const { branch, story } = target;
   const head = await branchTip(session, branch);
   const taskFile = await storyTaskFileAt(session, head, story);

@@ -45,13 +45,13 @@ import type {
   WorkRef,
 } from "@dipsaus-orchestrator/contract";
 
-import { parseFieldBlock } from "../backlog/fields/block";
-import type { PlainTask } from "../backlog/plain";
 import { appendEntries, type NewEntry } from "../changelog/log";
 import type { OfficeConfig } from "../config";
 import { recordContextPack } from "../context/pack";
 import type { ContextPack, Workspace } from "../context/types";
 import type { OfficeHandle } from "../db/office";
+import { parseFieldBlock } from "../story-store/fields/block";
+import type { PlainTask } from "../story-store/story";
 
 import type { OfficeGit } from "../git/office";
 import { EVENTS_FILE } from "../host/protocol";
@@ -77,7 +77,7 @@ import { withWorkViews } from "../views/work";
 import type { AdapterHold } from "../workers/hold";
 import type { WorkerPort } from "../workers/port";
 import { PlanError, type Caps, type ParseState, type WorkerReport } from "../workers/types";
-import { branchTip } from "../stories/story-copy";
+import { branchTip } from "../git/write";
 import { findClaim } from "../worktree/records";
 import { recordAgent } from "../runs/agents";
 import { hostAlive, setProcessedOffset, workerHostsOf } from "../runs/worker-hosts";

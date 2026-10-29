@@ -6,14 +6,14 @@ import { describe, expect, it } from "bun:test";
 
 import type { FieldBlock } from "@dipsaus-orchestrator/contract";
 
+import { labelEditArgs } from "../../src/backlog";
 import {
   emitFieldBlock,
   FieldBlockError,
-  labelEditArgs,
   parseFieldBlock,
   readLabels,
   spliceFieldBlock,
-} from "../../src/backlog";
+} from "../../src/story-store";
 
 const OUTCOME = "Outcome: the export reports how many rows it wrote.";
 

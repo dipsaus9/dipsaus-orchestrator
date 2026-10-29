@@ -25,6 +25,7 @@ import {
   send,
 } from "../office/helpers";
 import { keyOf } from "../stories/helpers";
+import { backlogStoryStore } from "../../src/backlog/store";
 
 export interface Warning {
   readonly message: string;
@@ -97,7 +98,7 @@ export function withGatedOffice(fn: (o: Gated) => Promise<void>): Promise<void> 
       const warnings: Warning[] = [];
       const index = new StoryIndex({
         git: engineGit,
-        cli: CLI(repo),
+        stories: backlogStoryStore(CLI(repo)),
         offices,
         onOfficeChanged: (office) => changed.push(office),
         logger: recordingLogger(warnings),
@@ -109,7 +110,7 @@ export function withGatedOffice(fn: (o: Gated) => Promise<void>): Promise<void> 
       // The setup builds its clock and ids; the store reads them when it runs.
       const gates = new GateStore({
         git: engineGit,
-        cli: CLI(repo),
+        stories: backlogStoryStore(CLI(repo)),
         offices,
         index,
         get clock() {

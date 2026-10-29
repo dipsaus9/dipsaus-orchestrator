@@ -15,10 +15,11 @@
 
 import { FieldBlock } from "@dipsaus-orchestrator/contract";
 
-import { parseView, type PlainTask } from "../plain";
+import { emitFieldBlock, parseFieldBlock, spliceFieldBlock } from "../../story-store/fields/block";
+import { isValidLabel, readLabels, type StoryLabels } from "../../story-store/fields/labels";
+import type { PlainTask } from "../../story-store/story";
+import { parseView } from "../plain";
 import { runBacklog, type BacklogCli } from "../runner";
-import { emitFieldBlock, parseFieldBlock, spliceFieldBlock } from "./block";
-import { labelEditArgs, readLabels, type LabelChange, type StoryLabels } from "./labels";
 
 /** A story the engine writes: a task or a draft, by id, in the worktree `cwd`. */
 export interface StoryTarget {
@@ -27,6 +28,31 @@ export interface StoryTarget {
   readonly id: string;
   /** `task` by default. */
   readonly kind?: "task" | "draft";
+}
+
+export interface LabelChange {
+  readonly add?: readonly string[];
+  readonly remove?: readonly string[];
+}
+
+/**
+ * The `task edit` options for a label change: one `--add-label` or `--remove-label` per label.
+ * Throws when a label is outside the grammar, so it never reaches the CLI.
+ */
+export function labelEditArgs(change: LabelChange): string[] {
+  const args: string[] = [];
+  for (const [option, labels] of [
+    ["--add-label", change.add ?? []],
+    ["--remove-label", change.remove ?? []],
+  ] as const) {
+    for (const label of labels) {
+      if (!isValidLabel(label)) {
+        throw new Error(`label "${label}" is outside the grammar [a-z0-9-]+(:[A-Za-z0-9-]+)?`);
+      }
+      args.push(option, label);
+    }
+  }
+  return args;
 }
 
 /** How many times a write re-reads a description that changed under it before giving up. */

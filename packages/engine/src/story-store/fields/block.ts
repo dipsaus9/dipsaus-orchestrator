@@ -12,7 +12,7 @@ import { FieldBlock } from "@dipsaus-orchestrator/contract";
 import type { z } from "zod";
 
 import { parseYamlDocument } from "../../platform/yaml";
-import { PARSE_RULE } from "../plain";
+import { PARSE_RULE } from "../story";
 
 export const BLOCK_OPEN = "```dipo";
 export const BLOCK_CLOSE = "```";

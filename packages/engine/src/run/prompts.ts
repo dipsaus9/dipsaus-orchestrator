@@ -8,7 +8,6 @@ import { createHash } from "node:crypto";
 
 import type { FieldBlock } from "@dipsaus-orchestrator/contract";
 
-import type { PlainTask } from "../backlog/plain";
 import type { OfficeConfig } from "../config";
 import { createDefaultProvider } from "../context/default-provider";
 import { gatherContext } from "../context/gather";
@@ -19,6 +18,7 @@ import type { Section } from "../prompts/contract";
 import type { HandoffFacts } from "../prompts/handoff";
 import { promptStoryOf } from "../prompts/story";
 import { renderSystemFile } from "../prompts/system";
+import type { PlainTask } from "../story-store/story";
 
 /** The system file's name in the run directory (0014 section 1). */
 export const SYSTEM_FILE = "system.md";

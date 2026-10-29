@@ -16,9 +16,9 @@ import { join } from "node:path";
 import { z } from "zod";
 
 import type { OfficeHandle } from "../../db/office";
-import { FieldBlockError } from "../fields/block";
 import { editLabels, FieldWriteError, viewStory, writeFields } from "../fields/write";
-import type { PlainTask } from "../plain";
+import { FieldBlockError } from "../../story-store/fields/block";
+import type { PlainTask } from "../../story-store/story";
 import {
   BacklogCommandError,
   BacklogStatusCommandError,
