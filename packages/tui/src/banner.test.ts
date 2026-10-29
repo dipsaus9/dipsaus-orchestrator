@@ -27,6 +27,7 @@ function state(patch: Partial<OfficeStoreState>): OfficeStoreState {
     snapshots: 0,
     notice: null,
     error: null,
+    streamError: null,
     database: null,
     ...patch,
   } as OfficeStoreState;

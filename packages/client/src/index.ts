@@ -28,7 +28,13 @@ export type {
 export { RECOVERY_NOTICE_MS, RECOVERY_POLL_MS, STATUS_FAILURES, waitForRecovery } from "./recovery";
 export type { RecoveringSession, RecoveryOptions, RecoverySession } from "./recovery";
 export { ulidRequestIds } from "./request-id";
-export { cursorReached, OfficeStore, RELOADED_NOTICE } from "./store/index";
+export {
+  cursorReached,
+  OfficeStore,
+  RELOADED_NOTICE,
+  STREAM_RETRY_MAX_MS,
+  streamRetryDelay,
+} from "./store/index";
 export type {
   OfficeEntry,
   OfficeStoreOptions,

@@ -353,25 +353,30 @@ describe("the desk stays current", () => {
   });
 
   it("reads it again after a stream reset and keeps the selected story", async () => {
-    const { ui, session } = await openDesk();
+    const { ui, session, store } = await openDesk();
     await selectRow(ui, "DIPO-26");
     await until(() => deskReads(session) === 1, "the first desk read");
     // The next read has a new row first; the selection stays on DIPO-26.
     session.desk = [proposal, ...DESK.filter((item) => item !== proposal)];
-    await Bun.sleep(DESK_READ_INTERVAL_MS + 50);
+    const snapshots = store.state.snapshots;
+    // A snapshot the store applied reads the desk at once, whatever the pacing (DIPO-327): the
+    // test waits on the store and the frame, never on time.
     session.active(STREAM)?.options.onEnded?.({
       code: "stream.resetRequired",
       message: "history gap",
       retryable: false,
     });
+    await until(() => store.state.snapshots === snapshots + 1, "the snapshot after the reset");
     await until(() => deskReads(session) === 2, "the desk read after the reset");
+    const rows = () => lines(ui.frame()).filter((line) => /^ [> ] [A-Z]/.test(line));
     await until(
-      () =>
-        lines(ui.frame()).some((line) => line.startsWith(" > PARKED") && line.includes("DIPO-26")),
-      `DIPO-26 still selected:\n${ui.frame()}`,
+      () => rows()[0]?.includes("PROPOSAL") === true,
+      `the desk read after the reset on screen:\n${ui.frame()}`,
     );
-    const rows = lines(ui.frame()).filter((line) => /^ [> ] [A-Z]/.test(line));
-    expect(rows[0]).toContain("PROPOSAL");
+    const selected = rows().filter((line) => line.startsWith(" > "));
+    expect(selected).toHaveLength(1);
+    expect(selected[0]).toStartWith(" > PARKED");
+    expect(selected[0]).toContain("DIPO-26");
   });
 });
 

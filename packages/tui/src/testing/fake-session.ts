@@ -85,6 +85,11 @@ export class FakeSession implements TuiSession {
   /** Snapshots answered instead of the golden ones, for example after a history gap. */
   readonly nextSnapshots = new Map<string, OfficeSnapshot>();
   closed = false;
+  /**
+   * While set, an office subscription is refused with it, as a restarted daemon refuses one with
+   * `engine.recovering` until it has recovered its offices (DIPO-327).
+   */
+  refuseOffice: EngineError | null = null;
   readonly #listeners = new Set<(state: ConnectionState) => void>();
 
   onState(listener: (state: ConnectionState) => void): () => void {
@@ -244,6 +249,12 @@ export class FakeSession implements TuiSession {
     const entry: RecordedSubscription = { stream, after: options.after, options, active: true };
     this.subscriptions.push(entry);
     queueMicrotask(() => {
+      const refused = stream === "software" ? null : this.refuseOffice;
+      if (refused !== null && entry.active) {
+        entry.active = false;
+        options.onEnded?.(refused);
+        return;
+      }
       if (stream === "software") {
         for (const event of goldenSoftware) if (entry.active) options.onEvent(event);
       }
