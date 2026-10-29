@@ -4,6 +4,7 @@ title: Remove the worker transcript tailer
 status: Refined
 assignee: []
 created_date: '2026-10-29 08:06'
+updated_date: '2026-10-29 08:09'
 labels:
   - 'tier:S'
   - 'slice:prune'
@@ -14,6 +15,10 @@ dependencies:
 references:
   - packages/engine/src/ingest/transcript.ts
   - packages/engine/src/run/reattach.ts
+  - packages/engine/src/ingest/ingestor.ts
+  - packages/engine/src/run/outcome-exits.ts
+  - packages/engine/src/ingest/usage.ts
+  - packages/engine/src/workers/claude-cli/
 priority: low
 type: chore
 ordinal: 348000
@@ -38,7 +43,7 @@ test_plan:
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 packages/engine/src/ingest/transcript.ts and every caller are removed, and a run's usage still comes from the host's events
-- [ ] #2 ingest_cursors rows of source kind transcript are dropped by a migration tested on a database with rows, and fresh equals migrated
-- [ ] #3 Reattach and the resume check work without a transcript cursor, with a test for a run an earlier binary left with one
+- [ ] #1 packages/engine/src/ingest/transcript.ts and every caller are removed: the ingestor's transcript recovery, run/outcome-exits.ts, run/reattach.ts (recoverLostUsage), ingest/usage.ts (recordTranscriptUsage) and the worker port's readTranscript with its claude-cli adapter and transcript reader; a run's usage still comes from the host's events
+- [ ] #2 ingest_cursors rows of source kind transcript are dropped by a migration tested on a database with rows; the source_kind check is rebuilt to allow host-events only, the usage output state of migration 0035 stays only if something still reads it, and fresh equals migrated
+- [ ] #3 Reattach and the dead-host usage path work without a transcript cursor, with a test for a run an earlier binary left with one
 <!-- AC:END -->

@@ -4,6 +4,7 @@ title: Rename engine/src/hooks to questions
 status: Refined
 assignee: []
 created_date: '2026-10-29 08:06'
+updated_date: '2026-10-29 08:09'
 labels:
   - 'tier:S'
   - 'slice:prune'
@@ -38,5 +39,5 @@ test_plan:
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
 - [ ] #1 packages/engine/src/hooks/ is renamed to packages/engine/src/questions/ with every import updated, and no behaviour changes
-- [ ] #2 No source name, comment or log line still calls the questions code a hook
+- [ ] #2 No source name or comment outside db/migrations still calls the questions code a hook; migration history and the questions table's hook column stay as they are
 <!-- AC:END -->

@@ -4,6 +4,7 @@ title: Drop the worker host's unused engine token
 status: Refined
 assignee: []
 created_date: '2026-10-29 08:06'
+updated_date: '2026-10-29 08:09'
 labels:
   - 'tier:S'
   - 'slice:prune'
@@ -39,7 +40,7 @@ test_plan:
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 The engine token is no longer created, stored, written to launch.json or sent in the hello, and the host neither expects nor reads it
+- [ ] #1 The engine token is no longer created, stored, written to launch.json or sent in the hello; the builder confirms the host never read it and removes its type from host/client.ts
 - [ ] #2 The worker_hosts.engine_token column is dropped by a migration tested on a database with rows, fresh equals migrated, and the one-writer test stays green
-- [ ] #3 A host started by an earlier binary that still sends or expects the token is reattached or refused with a clear reason, with a test
+- [ ] #3 A host started by an earlier binary that still sends the token in its hello is reattached, the token ignored, with a test
 <!-- AC:END -->
